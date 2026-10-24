@@ -11,7 +11,7 @@ Where the player starts (a level names its spawn).
 
 - Category: Gameplay
 - Added: from "+ Add component", starting as `{}`
-- On prefab objects: no
+- On prefab objects: yes
 - Cannot share an object with [`collider`](components-physics.md#component-collider): a player spawn is a marker
 - Cannot share an object with [`controller`](components-physics.md#component-controller): the spawn marks where the player starts
 - Cannot share an object with [`instances`](components-rendering-1.md#component-instances): an instance set is scenery

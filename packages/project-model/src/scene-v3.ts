@@ -572,7 +572,7 @@ function utf8Length(s: string): number {
 
 // ---- components, conflicts and transforms -----------------------------------
 
-interface EntityV3Counts {
+export interface EntityV3Counts {
   spawns: number;
   directional: number;
   ambient: number;
@@ -585,7 +585,7 @@ interface EntityV3Counts {
   points3d: number;
 }
 
-const EMPTY_COUNTS: EntityV3Counts = {
+export const EMPTY_COUNTS: EntityV3Counts = {
   spawns: 0,
   directional: 0,
   ambient: 0,
@@ -675,7 +675,7 @@ function validateSpawnTransform(
  * entity. Pass 1 (registry + `transform` presence + zone/spawn transforms)
  * and pass 2 (field values) are run together in the accepted order.
  */
-function validateEntityComponentsV3(
+export function validateEntityComponentsV3(
   comps: Record<string, unknown>,
   parentId: unknown,
   ePath: string,
@@ -962,25 +962,7 @@ function validateEntityComponentsV3(
     validatePhysicsTransform(comps, parentId, ePath, comps['controller'] !== undefined, errors, version !== 4);
   }
 
-  let points3d = 0;
-  if (comps['collider'] !== undefined) {
-    const shape = isPlainObject(comps['collider']) ? comps['collider']['shape'] : undefined;
-    // A hull's points and a mesh's vertices (a compound's too) count toward the scene's 3D point budget.
-    points3d = colliderShapePoints(shape);
-  }
-  const light = comps['light'];
-  const lightType = isPlainObject(light) ? light['type'] : undefined;
-  return {
-    spawns: comps['playerSpawn'] !== undefined ? 1 : 0,
-    directional: lightType === 'directional' ? 1 : 0,
-    ambient: lightType === 'ambient' ? 1 : 0,
-    local: lightType === 'point' || lightType === 'spot' ? 1 : 0,
-    fogVolumes: comps['fogVolume'] !== undefined ? 1 : 0,
-    hemisphere: lightType === 'hemisphere' ? 1 : 0,
-    cameras: comps['camera'] !== undefined ? 1 : 0,
-    controllers: comps['controller'] !== undefined ? 1 : 0,
-    points3d,
-  };
+  return countsOfComponents(comps);
 }
 
 // ---- canonicalization ---------------------------------------
@@ -1064,77 +1046,7 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
       components: { folder: {} },
     };
   }
-  const components: EntityComponentsV3 = {
-    transform: canonicalTransform(comps['transform']),
-  };
-  if (comps['model'] !== undefined) components.model = comps['model'] as ModelComponent;
-  if (comps['box'] !== undefined) components.box = canonicalBox(comps['box']) as BoxComponent;
-  if (comps['camera'] !== undefined) components.camera = canonicalCamera(comps['camera']) as CameraComponent;
-  if (comps['behavior'] !== undefined) {
-    const b = comps['behavior'] as { behaviorId: string; values: Record<string, PropertyValue> };
-    components.behavior = { behaviorId: b.behaviorId, values: b.values };
-  }
-  if (comps['prefab'] !== undefined) components.prefab = comps['prefab'] as PrefabProvenanceComponent;
-  if (comps['collider'] !== undefined) components.collider = { shape: canonicalCollider(comps['collider']), ...((comps['collider'] as { oneWay?: unknown }).oneWay === true ? { oneWay: true as const } : {}), ...(Array.isArray((comps['collider'] as { layers?: unknown }).layers) ? { layers: [...(comps['collider'] as { layers: string[] }).layers] } : {}) };
-  if (comps['controller'] !== undefined) components.controller = canonicalController(comps['controller']);
-  if (comps['playerSpawn'] !== undefined) {
-    const { yaw } = comps['playerSpawn'] as { yaw?: number };
-    components.playerSpawn = { ...(yaw !== undefined ? { yaw } : {}) };
-  }
-  if (comps['light'] !== undefined) components.light = canonicalLight(comps['light']);
-  if (comps['surface'] !== undefined) components.surface = canonicalSurface(comps['surface']);
-  if (comps['modelAnimation'] !== undefined) components.modelAnimation = canonicalModelAnimation(comps['modelAnimation']);
-  if (comps['materials'] !== undefined) components.materials = canonicalMaterialMapping(comps['materials'] as Record<string, string>);
-  if (comps['materialParams'] !== undefined) components.materialParams = canonicalMaterialParams(comps['materialParams'] as MaterialParamsComponent);
-  if (comps['fogVolume'] !== undefined) components.fogVolume = canonicalFogVolume(comps['fogVolume'] as FogVolumeComponent);
-  if (comps['animator'] !== undefined) components.animator = canonicalAnimatorComponent(comps['animator'] as AnimatorComponent);
-  for (const name of BLOCK_COMPONENT_NAMES) {
-    if (comps[name] !== undefined) (components as unknown as Record<string, unknown>)[name] = (BLOCK_COMPONENTS[name].canonical as (c: unknown) => unknown)(comps[name]);
-  }
-  if (comps['effect'] !== undefined) (components as { effect?: EffectComponent }).effect = canonicalEffectComponent(comps['effect'] as EffectComponent);
-  // Last, so every existing entity keeps its exact canonical bytes.
-  if (comps['virtualCamera'] !== undefined) (components as { virtualCamera?: VirtualCameraComponent }).virtualCamera = canonicalVirtualCamera(comps['virtualCamera'] as VirtualCameraComponent);
-  if (comps['cameraPath'] !== undefined) (components as { cameraPath?: CameraPathComponent }).cameraPath = canonicalCameraPath(comps['cameraPath'] as CameraPathComponent);
-  if (comps['blockLayer'] !== undefined) {
-    // A merged runtime scene keeps the attached `data`.
-    const bl = comps['blockLayer'] as BlockLayerComponent & { data?: BlockLayerData };
-    (components as { blockLayer?: BlockLayerComponent }).blockLayer = { ...canonicalBlockLayerComponent(bl), ...(bl.data !== undefined ? { data: bl.data } : {}) } as BlockLayerComponent;
-  }
-  if (comps['blockFootprint'] !== undefined) (components as { blockFootprint?: BlockFootprintComponent }).blockFootprint = canonicalBlockFootprint(comps['blockFootprint'] as BlockFootprintComponent);
-  // Last, so every existing entity keeps its exact canonical bytes.
-  if (comps['socketAttach'] !== undefined) (components as { socketAttach?: SocketAttachComponent }).socketAttach = canonicalSocketAttach(comps['socketAttach'] as SocketAttachComponent);
-  // After that (existing entities keep their bytes).
-  if (comps['behaviorGroup'] !== undefined) (components as { behaviorGroup?: BehaviorGroupComponent }).behaviorGroup = canonicalBehaviorGroup(comps['behaviorGroup'] as BehaviorGroupComponent);
-  // After that (existing entities keep their bytes).
-  if (comps['cameraRegion'] !== undefined) (components as { cameraRegion?: CameraRegionComponent }).cameraRegion = canonicalCameraRegion(comps['cameraRegion'] as CameraRegionComponent);
-  if (comps['probeVolume'] !== undefined) components.probeVolume = canonicalProbeVolume(comps['probeVolume'] as ProbeVolumeComponent);
-  if (comps['terrain'] !== undefined) components.terrain = canonicalTerrain(comps['terrain'] as TerrainComponent);
-  if (comps['spline'] !== undefined) components.spline = canonicalSpline(comps['spline'] as SplineComponent);
-  if (comps['architecture'] !== undefined) components.architecture = canonicalArchitecture(comps['architecture'] as ArchitectureComponent);
-  if (comps['decal'] !== undefined) components.decal = canonicalDecal(comps['decal'] as DecalComponent);
-  if (comps['vertexPaint'] !== undefined) components.vertexPaint = canonicalVertexPaint(comps['vertexPaint'] as VertexPaintComponent);
-  if (comps['instances'] !== undefined) {
-    const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number; castShadow?: boolean; receiveShadow?: boolean; chunkSize?: number; lightLayers?: number; densityStart?: number; densityEnd?: number; densityMin?: number; lodPerCopy?: boolean; localLights?: LocalLightMode; decalLayers?: number; paint?: InstancePaint; seeThrough?: boolean };
-    components.instances = {
-      asset: { assetId: i.asset.assetId, ...(i.asset.piece !== undefined ? { piece: i.asset.piece } : {}) },
-      buffer: i.buffer,
-      count: i.count,
-      // Kept only when set (an existing set keeps its exact canonical bytes).
-      ...(typeof i.castShadow === 'boolean' ? { castShadow: i.castShadow } : {}),
-      ...(typeof i.receiveShadow === 'boolean' ? { receiveShadow: i.receiveShadow } : {}),
-      // Kept only when set.
-      ...(typeof i.chunkSize === 'number' ? { chunkSize: i.chunkSize } : {}),
-      ...(typeof i.lightLayers === 'number' ? { lightLayers: i.lightLayers } : {}),
-      ...(typeof i.densityStart === 'number' ? { densityStart: i.densityStart } : {}),
-      ...(typeof i.densityEnd === 'number' ? { densityEnd: i.densityEnd } : {}),
-      ...(typeof i.densityMin === 'number' ? { densityMin: i.densityMin } : {}),
-      ...(typeof i.lodPerCopy === 'boolean' ? { lodPerCopy: i.lodPerCopy } : {}),
-      ...(typeof i.localLights === 'string' ? { localLights: i.localLights } : {}),
-      ...(typeof i.decalLayers === 'number' ? { decalLayers: i.decalLayers } : {}),
-      ...(i.paint !== undefined ? { paint: canonicalInstancePaint(i.paint) } : {}),
-      ...(typeof i.seeThrough === 'boolean' ? { seeThrough: i.seeThrough } : {}),
-    };
-  }
+  const components = canonicalComponentsV3(comps);
   const name = e['name'];
   const pid = e['parentId'];
   return {
@@ -1311,54 +1223,7 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
       }
     }
 
-    // v3: exactly one camera per scene. v4: at most one (the start scenes
-    // together hold exactly one — a project-level rule).
-    if (version === 3 ? counts.cameras !== 1 : counts.cameras > 1) {
-      errors.push(
-        withFound(
-          version === 3
-            ? { code: 'camera_count_invalid', path: '', message: 'the scene must contain exactly one entity carrying the camera component', expected: 'exactly 1 camera' }
-            : { code: 'camera_count_invalid', path: '', message: 'a scene may contain at most one entity carrying the camera component', expected: 'at most 1 camera' },
-          counts.cameras,
-        ),
-      );
-    }
-    // v3 (one scene is the game): one player. v4 checks the player count when the game starts (Play), not per edit.
-    if (version === 3 && counts.controllers > 1) {
-      errors.push(
-        withFound(
-          { code: 'controller_count_invalid', path: '', message: 'a scene must not contain more than one entity carrying the controller component', expected: 'at most 1 controller' },
-          counts.controllers,
-        ),
-      );
-    }
-    if (!merged && counts.points3d > COLLIDER_3D_LIMITS.pointsTotal) {
-      errors.push(limitsError('/entities', 'collider_vertices_total', counts.points3d, COLLIDER_3D_LIMITS.pointsTotal, `scene exceeds the total 3D collider point limit of ${COLLIDER_3D_LIMITS.pointsTotal} (hull points and mesh vertices)`));
-    }
-    // v3 scene limits (per scene: a merged runtime scene holds several)
-    if (!merged && counts.spawns > SCENE_LIMITS_V3.playerSpawns) {
-      errors.push(
-        limitsError('/entities', 'player_spawns', counts.spawns, SCENE_LIMITS_V3.playerSpawns, `scene exceeds the player-spawn limit of ${SCENE_LIMITS_V3.playerSpawns}`),
-      );
-    }
-    // Light counts are per scene (a merged runtime scene holds several scenes' lights; the renderer picks).
-    if (!merged && counts.directional > SCENE_LIMITS_V3.lightsDirectional) {
-      errors.push(
-        limitsError('/entities', 'lights_directional', counts.directional, SCENE_LIMITS_V3.lightsDirectional, 'scene exceeds the directional-light limit'),
-      );
-    }
-    if (!merged && counts.ambient > SCENE_LIMITS_V3.lightsAmbient) {
-      errors.push(limitsError('/entities', 'lights_ambient', counts.ambient, SCENE_LIMITS_V3.lightsAmbient, 'scene exceeds the ambient-light limit'));
-    }
-    if (!merged && counts.local > MAX_LOCAL_LIGHTS) {
-      errors.push(limitsError('/entities', 'lights_local', counts.local, MAX_LOCAL_LIGHTS, `a scene holds at most ${MAX_LOCAL_LIGHTS} point and spot lights`));
-    }
-    if (counts.fogVolumes > MAX_FOG_VOLUMES) {
-      errors.push(limitsError('/entities', 'zones', counts.fogVolumes, MAX_FOG_VOLUMES, `a scene holds at most ${MAX_FOG_VOLUMES} fog volumes`));
-    }
-    if (!merged && counts.hemisphere > MAX_HEMISPHERE_LIGHTS) {
-      errors.push(limitsError('/entities', 'lights_ambient', counts.hemisphere, MAX_HEMISPHERE_LIGHTS, 'a scene holds at most one hemisphere light'));
-    }
+    sceneCountErrors(counts, version, merged, errors);
     checkDepthLimit(entities, idFirstIndex, errors);
   }
 
@@ -1491,4 +1356,155 @@ export function validateSceneV4(doc: unknown): ModelResultV3<SceneV4> {
   const { errors, doc: canonical } = validateSceneV3Value(doc, 4);
   if (errors.length > 0) return fail(errors);
   return { ok: true, normalized: canonical as unknown as SceneV4 };
+}
+
+/** What one object adds to its scene's counted limits (spawns, lights, fog volumes, cameras, controllers, 3D collider points). */
+export function countsOfComponents(comps: Record<string, unknown>): EntityV3Counts {
+  let points3d = 0;
+  if (comps['collider'] !== undefined) {
+    const shape = isPlainObject(comps['collider']) ? comps['collider']['shape'] : undefined;
+    // A hull's points and a mesh's vertices (a compound's too) count toward the scene's 3D point budget.
+    points3d = colliderShapePoints(shape);
+  }
+  const light = comps['light'];
+  const lightType = isPlainObject(light) ? light['type'] : undefined;
+  return {
+    spawns: comps['playerSpawn'] !== undefined ? 1 : 0,
+    directional: lightType === 'directional' ? 1 : 0,
+    ambient: lightType === 'ambient' ? 1 : 0,
+    local: lightType === 'point' || lightType === 'spot' ? 1 : 0,
+    fogVolumes: comps['fogVolume'] !== undefined ? 1 : 0,
+    hemisphere: lightType === 'hemisphere' ? 1 : 0,
+    cameras: comps['camera'] !== undefined ? 1 : 0,
+    controllers: comps['controller'] !== undefined ? 1 : 0,
+    points3d,
+  };
+}
+
+/** The canonical form of an object's components (the scene's; a prefab part's too). */
+export function canonicalComponentsV3(comps: Record<string, unknown>): EntityComponentsV3 {
+  const components: EntityComponentsV3 = {
+    transform: canonicalTransform(comps['transform']),
+  };
+  if (comps['model'] !== undefined) components.model = comps['model'] as ModelComponent;
+  if (comps['box'] !== undefined) components.box = canonicalBox(comps['box']) as BoxComponent;
+  if (comps['camera'] !== undefined) components.camera = canonicalCamera(comps['camera']) as CameraComponent;
+  if (comps['behavior'] !== undefined) {
+    const b = comps['behavior'] as { behaviorId: string; values: Record<string, PropertyValue> };
+    components.behavior = { behaviorId: b.behaviorId, values: b.values };
+  }
+  if (comps['prefab'] !== undefined) components.prefab = comps['prefab'] as PrefabProvenanceComponent;
+  if (comps['collider'] !== undefined) components.collider = { shape: canonicalCollider(comps['collider']), ...((comps['collider'] as { oneWay?: unknown }).oneWay === true ? { oneWay: true as const } : {}), ...(Array.isArray((comps['collider'] as { layers?: unknown }).layers) ? { layers: [...(comps['collider'] as { layers: string[] }).layers] } : {}) };
+  if (comps['controller'] !== undefined) components.controller = canonicalController(comps['controller']);
+  if (comps['playerSpawn'] !== undefined) {
+    const { yaw } = comps['playerSpawn'] as { yaw?: number };
+    components.playerSpawn = { ...(yaw !== undefined ? { yaw } : {}) };
+  }
+  if (comps['light'] !== undefined) components.light = canonicalLight(comps['light']);
+  if (comps['surface'] !== undefined) components.surface = canonicalSurface(comps['surface']);
+  if (comps['modelAnimation'] !== undefined) components.modelAnimation = canonicalModelAnimation(comps['modelAnimation']);
+  if (comps['materials'] !== undefined) components.materials = canonicalMaterialMapping(comps['materials'] as Record<string, string>);
+  if (comps['materialParams'] !== undefined) components.materialParams = canonicalMaterialParams(comps['materialParams'] as MaterialParamsComponent);
+  if (comps['fogVolume'] !== undefined) components.fogVolume = canonicalFogVolume(comps['fogVolume'] as FogVolumeComponent);
+  if (comps['animator'] !== undefined) components.animator = canonicalAnimatorComponent(comps['animator'] as AnimatorComponent);
+  for (const name of BLOCK_COMPONENT_NAMES) {
+    if (comps[name] !== undefined) (components as unknown as Record<string, unknown>)[name] = (BLOCK_COMPONENTS[name].canonical as (c: unknown) => unknown)(comps[name]);
+  }
+  if (comps['effect'] !== undefined) (components as { effect?: EffectComponent }).effect = canonicalEffectComponent(comps['effect'] as EffectComponent);
+  // Last, so every existing entity keeps its exact canonical bytes.
+  if (comps['virtualCamera'] !== undefined) (components as { virtualCamera?: VirtualCameraComponent }).virtualCamera = canonicalVirtualCamera(comps['virtualCamera'] as VirtualCameraComponent);
+  if (comps['cameraPath'] !== undefined) (components as { cameraPath?: CameraPathComponent }).cameraPath = canonicalCameraPath(comps['cameraPath'] as CameraPathComponent);
+  if (comps['blockLayer'] !== undefined) {
+    // A merged runtime scene keeps the attached `data`.
+    const bl = comps['blockLayer'] as BlockLayerComponent & { data?: BlockLayerData };
+    (components as { blockLayer?: BlockLayerComponent }).blockLayer = { ...canonicalBlockLayerComponent(bl), ...(bl.data !== undefined ? { data: bl.data } : {}) } as BlockLayerComponent;
+  }
+  if (comps['blockFootprint'] !== undefined) (components as { blockFootprint?: BlockFootprintComponent }).blockFootprint = canonicalBlockFootprint(comps['blockFootprint'] as BlockFootprintComponent);
+  // Last, so every existing entity keeps its exact canonical bytes.
+  if (comps['socketAttach'] !== undefined) (components as { socketAttach?: SocketAttachComponent }).socketAttach = canonicalSocketAttach(comps['socketAttach'] as SocketAttachComponent);
+  // After that (existing entities keep their bytes).
+  if (comps['behaviorGroup'] !== undefined) (components as { behaviorGroup?: BehaviorGroupComponent }).behaviorGroup = canonicalBehaviorGroup(comps['behaviorGroup'] as BehaviorGroupComponent);
+  // After that (existing entities keep their bytes).
+  if (comps['cameraRegion'] !== undefined) (components as { cameraRegion?: CameraRegionComponent }).cameraRegion = canonicalCameraRegion(comps['cameraRegion'] as CameraRegionComponent);
+  if (comps['probeVolume'] !== undefined) components.probeVolume = canonicalProbeVolume(comps['probeVolume'] as ProbeVolumeComponent);
+  if (comps['terrain'] !== undefined) components.terrain = canonicalTerrain(comps['terrain'] as TerrainComponent);
+  if (comps['spline'] !== undefined) components.spline = canonicalSpline(comps['spline'] as SplineComponent);
+  if (comps['architecture'] !== undefined) components.architecture = canonicalArchitecture(comps['architecture'] as ArchitectureComponent);
+  if (comps['decal'] !== undefined) components.decal = canonicalDecal(comps['decal'] as DecalComponent);
+  if (comps['vertexPaint'] !== undefined) components.vertexPaint = canonicalVertexPaint(comps['vertexPaint'] as VertexPaintComponent);
+  if (comps['instances'] !== undefined) {
+    const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number; castShadow?: boolean; receiveShadow?: boolean; chunkSize?: number; lightLayers?: number; densityStart?: number; densityEnd?: number; densityMin?: number; lodPerCopy?: boolean; localLights?: LocalLightMode; decalLayers?: number; paint?: InstancePaint; seeThrough?: boolean };
+    components.instances = {
+      asset: { assetId: i.asset.assetId, ...(i.asset.piece !== undefined ? { piece: i.asset.piece } : {}) },
+      buffer: i.buffer,
+      count: i.count,
+      // Kept only when set (an existing set keeps its exact canonical bytes).
+      ...(typeof i.castShadow === 'boolean' ? { castShadow: i.castShadow } : {}),
+      ...(typeof i.receiveShadow === 'boolean' ? { receiveShadow: i.receiveShadow } : {}),
+      // Kept only when set.
+      ...(typeof i.chunkSize === 'number' ? { chunkSize: i.chunkSize } : {}),
+      ...(typeof i.lightLayers === 'number' ? { lightLayers: i.lightLayers } : {}),
+      ...(typeof i.densityStart === 'number' ? { densityStart: i.densityStart } : {}),
+      ...(typeof i.densityEnd === 'number' ? { densityEnd: i.densityEnd } : {}),
+      ...(typeof i.densityMin === 'number' ? { densityMin: i.densityMin } : {}),
+      ...(typeof i.lodPerCopy === 'boolean' ? { lodPerCopy: i.lodPerCopy } : {}),
+      ...(typeof i.localLights === 'string' ? { localLights: i.localLights } : {}),
+      ...(typeof i.decalLayers === 'number' ? { decalLayers: i.decalLayers } : {}),
+      ...(i.paint !== undefined ? { paint: canonicalInstancePaint(i.paint) } : {}),
+      ...(typeof i.seeThrough === 'boolean' ? { seeThrough: i.seeThrough } : {}),
+    };
+  }
+  return components;
+}
+
+/** A scene's counted limits over its objects' counts (`merged`: a runtime scene holding several scenes, whose lights and spawns are per scene). */
+export function sceneCountErrors(counts: EntityV3Counts, version: 3 | 4, merged: boolean, errors: ModelErrorV3[]): void {
+  // v3: exactly one camera per scene. v4: at most one (the start scenes
+  // together hold exactly one — a project-level rule).
+  if (version === 3 ? counts.cameras !== 1 : counts.cameras > 1) {
+    errors.push(
+      withFound(
+        version === 3
+          ? { code: 'camera_count_invalid', path: '', message: 'the scene must contain exactly one entity carrying the camera component', expected: 'exactly 1 camera' }
+          : { code: 'camera_count_invalid', path: '', message: 'a scene may contain at most one entity carrying the camera component', expected: 'at most 1 camera' },
+        counts.cameras,
+      ),
+    );
+  }
+  // v3 (one scene is the game): one player. v4 checks the player count when the game starts (Play), not per edit.
+  if (version === 3 && counts.controllers > 1) {
+    errors.push(
+      withFound(
+        { code: 'controller_count_invalid', path: '', message: 'a scene must not contain more than one entity carrying the controller component', expected: 'at most 1 controller' },
+        counts.controllers,
+      ),
+    );
+  }
+  if (!merged && counts.points3d > COLLIDER_3D_LIMITS.pointsTotal) {
+    errors.push(limitsError('/entities', 'collider_vertices_total', counts.points3d, COLLIDER_3D_LIMITS.pointsTotal, `scene exceeds the total 3D collider point limit of ${COLLIDER_3D_LIMITS.pointsTotal} (hull points and mesh vertices)`));
+  }
+  // v3 scene limits (per scene: a merged runtime scene holds several)
+  if (!merged && counts.spawns > SCENE_LIMITS_V3.playerSpawns) {
+    errors.push(
+      limitsError('/entities', 'player_spawns', counts.spawns, SCENE_LIMITS_V3.playerSpawns, `scene exceeds the player-spawn limit of ${SCENE_LIMITS_V3.playerSpawns}`),
+    );
+  }
+  // Light counts are per scene (a merged runtime scene holds several scenes' lights; the renderer picks).
+  if (!merged && counts.directional > SCENE_LIMITS_V3.lightsDirectional) {
+    errors.push(
+      limitsError('/entities', 'lights_directional', counts.directional, SCENE_LIMITS_V3.lightsDirectional, 'scene exceeds the directional-light limit'),
+    );
+  }
+  if (!merged && counts.ambient > SCENE_LIMITS_V3.lightsAmbient) {
+    errors.push(limitsError('/entities', 'lights_ambient', counts.ambient, SCENE_LIMITS_V3.lightsAmbient, 'scene exceeds the ambient-light limit'));
+  }
+  if (!merged && counts.local > MAX_LOCAL_LIGHTS) {
+    errors.push(limitsError('/entities', 'lights_local', counts.local, MAX_LOCAL_LIGHTS, `a scene holds at most ${MAX_LOCAL_LIGHTS} point and spot lights`));
+  }
+  if (counts.fogVolumes > MAX_FOG_VOLUMES) {
+    errors.push(limitsError('/entities', 'zones', counts.fogVolumes, MAX_FOG_VOLUMES, `a scene holds at most ${MAX_FOG_VOLUMES} fog volumes`));
+  }
+  if (!merged && counts.hemisphere > MAX_HEMISPHERE_LIGHTS) {
+    errors.push(limitsError('/entities', 'lights_ambient', counts.hemisphere, MAX_HEMISPHERE_LIGHTS, 'a scene holds at most one hemisphere light'));
+  }
 }

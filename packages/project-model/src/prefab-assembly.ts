@@ -16,6 +16,7 @@ import {
   type PrefabLinkComponent,
   type PrefabOverride,
 } from './prefab-links';
+import { componentRefsNaming, setValueAtPath, valueAtPath } from './prefab-entity-refs';
 
 /** Whether a declared property is private (absent visibility = public): never stored on an object, never overridden. */
 export function isPrivateProperty(p: { visibility?: string }): boolean {
@@ -77,7 +78,11 @@ interface FlatPart {
   name?: string;
   tags?: number;
   components: Record<string, unknown>;
-  /** Behavior value keys whose values name a part of the prefab (by key), remapped to scene ids per copy. */
+  /**
+   * Values that name a part of the prefab (by key), remapped to scene ids per
+   * copy: paths under the components (a behavior's object properties,
+   * `behavior/values/<key>`, and the component references).
+   */
   refs?: string[];
 }
 
@@ -146,10 +151,10 @@ function applyFieldOverride(part: FlatPart, path: string, value: unknown, remove
     if (!(leaf in at)) return false;
     delete at[leaf];
   } else at[leaf] = clone(value);
-  // A behavior value an override sets is literal: it no longer names a part of the prefab.
-  if (segs[1] === 'behavior' && part.refs !== undefined) {
-    const key = segs[3];
-    part.refs = segs.length <= 3 ? [] : part.refs.filter((k) => k !== key);
+  // A value an override sets is literal: it no longer names a part of the prefab.
+  if (part.refs !== undefined) {
+    const at = segs.slice(1).join('/');
+    part.refs = part.refs.filter((r) => r !== at && !r.startsWith(`${at}/`));
   }
   return true;
 }
@@ -237,7 +242,7 @@ export function createPrefabAssembler(prefabs: readonly AssemblyPrefab[], option
       if (isPrivateProperty(p)) continue;
       const v = (Object.prototype.hasOwnProperty.call(stored, p.key) ? stored[p.key] : p.default) as PropertyValue;
       values[p.key] = clone(v);
-      if (p.type === 'entityRef' && typeof v === 'string' && localIds.has(v)) refs.push(p.key);
+      if (p.type === 'entityRef' && typeof v === 'string' && localIds.has(v)) refs.push(`behavior/values/${p.key}`);
     }
     behavior['values'] = values;
     return refs.length > 0 ? refs : undefined;
@@ -284,10 +289,7 @@ export function createPrefabAssembler(prefabs: readonly AssemblyPrefab[], option
             if (e.name !== undefined) p.name = e.name;
             if (e.tags !== undefined) p.tags = e.tags;
           } else p.parentKey = map(sp.parentKey);
-          if (p.refs !== undefined) {
-            const values = (p.components['behavior'] as { values: Record<string, unknown> }).values;
-            for (const r of p.refs) values[r] = map(values[r] as string);
-          }
+          for (const r of p.refs ?? []) setValueAtPath(p.components, r, map(valueAtPath(p.components, r) as string));
           return p;
         });
         for (const sp of sub.problems) problems.push({ ...sp, ...(sp.part !== undefined ? { part: map(sp.part) } : {}) });
@@ -298,8 +300,8 @@ export function createPrefabAssembler(prefabs: readonly AssemblyPrefab[], option
       const components = clone(comps);
       // Each part says which prefab part it is (the editor and scripts read it).
       components['prefab'] = { prefabId, localId: e.localId };
-      const refs = behaviorOf(components, localIds);
-      parts.push({ key, ...(parentKey !== undefined ? { parentKey } : {}), ...(e.name !== undefined ? { name: e.name } : {}), ...(e.tags !== undefined && e.tags !== 0 ? { tags: e.tags } : {}), components, ...(refs !== undefined ? { refs } : {}) });
+      const refs = [...(behaviorOf(components, localIds) ?? []), ...componentRefsNaming(components, (id) => localIds.has(id))];
+      parts.push({ key, ...(parentKey !== undefined ? { parentKey } : {}), ...(e.name !== undefined ? { name: e.name } : {}), ...(e.tags !== undefined && e.tags !== 0 ? { tags: e.tags } : {}), components, ...(refs.length > 0 ? { refs } : {}) });
     });
     const result: FlatPrefab = { rootKey, parts, problems };
     flat.set(prefabId, result);
@@ -334,10 +336,7 @@ export function createPrefabAssembler(prefabs: readonly AssemblyPrefab[], option
     const idOf = (key: string): string => (key === prefab.rootKey ? copy.id : kept !== undefined && Object.prototype.hasOwnProperty.call(kept, key) ? (kept[key] as string) : prefabPartId(copy.id, key));
     const partIds = new Map(parts.map((p) => [p.key, idOf(p.key)]));
     const entities: AssemblyEntity[] = parts.map((p) => {
-      if (p.refs !== undefined) {
-        const values = (p.components['behavior'] as { values: Record<string, unknown> }).values;
-        for (const r of p.refs) values[r] = idOf(values[r] as string);
-      }
+      for (const r of p.refs ?? []) setValueAtPath(p.components, r, idOf(valueAtPath(p.components, r) as string));
       if (p.key === prefab.rootKey) {
         // The root is the copy: its id, parent, flags, name and tags are the copy's own (name and tags default to the prefab's).
         const { components: _ignored, ...own } = copy;

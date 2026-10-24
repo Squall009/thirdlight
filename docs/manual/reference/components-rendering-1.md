@@ -175,7 +175,7 @@ A box of fog (mist in a valley, smoke in a room).
 
 - Category: Rendering
 - Added: from "+ Add component", starting as `{"size":[6,3,4],"density":0.25,"color":"#dfe7ef","falloff":0.5}`
-- On prefab objects: no
+- On prefab objects: yes
 - Icon: fog
 - Rule: At most 16 fog volumes per scene.
 
@@ -202,7 +202,7 @@ A box the probe bake fills with light probes (Lighting window → Bake probes). 
 
 - Category: Rendering
 - Added: from "+ Add component", starting as `{"size":[16,6,16]}`
-- On prefab objects: no
+- On prefab objects: yes
 - Icon: probes
 
 | Field | Type | Default | Range | Description |

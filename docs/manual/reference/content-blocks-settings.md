@@ -130,7 +130,7 @@ Captured object groups placed as linked copies: a copy follows its prefab except
 | `prefabs[].entities[].name` | string, name, 1–128 chars |  |  | **Name.** The object name. (written by a tool; format name) |
 | `prefabs[].entities[].parentLocalId` | string, id, 1–64 chars |  |  | **Parent.** The parent inside the prefab (none: a root). (may be null; written by a tool; format id) |
 | `prefabs[].entities[].tags` | int |  | 0 – 4294967295, step 1 | **Tags.** The tag bits each copy carries (a 32-bit mask). (written by a tool) |
-| `prefabs[].entities[].components` | components (24 kinds) |  |  | **Components.** The prefab component vocabulary. (required; written by a tool; allowed: `transform`, `model`, `box`, `behavior`, `collider`, `surface`, `materials`, `animator`, `mover`, `trigger`, `switch`, `audioSource`, `faceMovement`, `materialParams`, `effect`, `blockFootprint`, `behaviorGroup`, `health`, `collectible`, `patrol`, `hitbox`, `climbVolume`, `gravity`, `decal`) |
+| `prefabs[].entities[].components` | components (36 kinds) |  |  | **Components.** The prefab component vocabulary. (required; written by a tool; allowed: `transform`, `model`, `box`, `behavior`, `collider`, `controller`, `playerSpawn`, `light`, `surface`, `modelAnimation`, `materials`, `fogVolume`, `animator`, `mover`, `trigger`, `switch`, `health`, `audioSource`, `faceMovement`, `collectible`, `patrol`, `hitbox`, `climbVolume`, `gravity`, `materialParams`, `effect`, `virtualCamera`, `cameraPath`, `blockFootprint`, `socketAttach`, `behaviorGroup`, `cameraRegion`, `probeVolume`, `spline`, `architecture`, `decal`) |
 
 <a id="content-behaviors"></a>
 ## behaviors — Behaviors

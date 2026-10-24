@@ -104,5 +104,5 @@ export const spline: ComponentDescriptor = {
   ],
   iconCount: { path: 'points', one: 'point', many: 'points' },
   excludes: ['blockLayer', 'terrain', 'architecture'].map((c) => ({ component: c, reason: 'a spline is its own object beside the level geometry it shapes' })),
-  prefab: false,
+  prefab: true,
 };

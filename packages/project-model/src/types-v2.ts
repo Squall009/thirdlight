@@ -478,6 +478,19 @@ export interface PrefabComponentsV4Extra {
   gravity?: EntityComponentsV3['gravity'];
   audioSource?: { assetId: string; volume: number; range: number; distanceModel?: 'linear' | 'inverse' | 'exponential'; refDistance?: number; rolloff?: number };
   faceMovement?: import('./blocks').FaceMovementComponent;
+  /** A player character, its spawn, lights and cameras: a prefab holds what a scene object can (`PREFAB_V4_COMPONENTS`). */
+  controller?: EntityComponentsV3['controller'];
+  playerSpawn?: EntityComponentsV3['playerSpawn'];
+  light?: EntityComponentsV3['light'];
+  modelAnimation?: EntityComponentsV3['modelAnimation'];
+  fogVolume?: EntityComponentsV3['fogVolume'];
+  virtualCamera?: EntityComponentsV3['virtualCamera'];
+  cameraPath?: EntityComponentsV3['cameraPath'];
+  cameraRegion?: EntityComponentsV3['cameraRegion'];
+  probeVolume?: EntityComponentsV3['probeVolume'];
+  socketAttach?: EntityComponentsV3['socketAttach'];
+  spline?: EntityComponentsV3['spline'];
+  architecture?: EntityComponentsV3['architecture'];
 }
 
 export interface PrefabEntity {

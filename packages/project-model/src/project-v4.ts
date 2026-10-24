@@ -27,7 +27,9 @@ import { composeBlockLayers, type BlockContentView } from './block-layers';
 import { composeContentChecks, composeV3 } from './project-v3';
 import { derivedOf } from './content-helpers';
 import { validateContentV4, physicsDimensionOf, arrayTextureIds, TEXTURE_ARRAY_KIND } from './content';
-import { validateSceneV4 } from './scene-v3';
+import { countsOfComponents, EMPTY_COUNTS, sceneCountErrors, validateSceneV4, type EntityV3Counts } from './scene-v3';
+import { assembleSceneEntities, createPrefabAssembler, type AssemblyEntity } from './prefab-assembly';
+import { isPrefabLink } from './prefab-links';
 import { ID_RE_V2, PLANE_ROTATION_TOLERANCE, colliderShapeParts, physicsRotationErrors, physicsScaleErrors } from './components';
 import { fail, fieldMissing, fieldType, fieldValue, isPlainObject, isValidName, pointerSegment, unexpectedField, withFound } from './validate';
 import type { ModelErrorV3, ModelResultV3 } from './errors';
@@ -620,6 +622,7 @@ function composeSceneRules(s: SceneV4, content: ContentCatalogV4, errors: ModelE
     behaviorGroupErrors(e.components as unknown as Record<string, unknown>, `/entities/${i}`, content.behaviorGroups ?? [], local3 as never);
     for (const x of local3) errors.push(sceneError(s.sceneId, x));
   });
+  prefabCopyCountErrors(s, content, errors);
   // The cells against the block types and the metadata schema.
   if (s.blocks !== undefined) {
     const local5: ModelErrorV3[] = [];
@@ -674,6 +677,37 @@ function composeSceneRules(s: SceneV4, content: ContentCatalogV4, errors: ModelE
       errors.push(sceneError(s.sceneId, withFound({ code: 'asset_kind_mismatch', path: `/entities/${i}/components/instances/asset/assetId`, reason: 'model', message: 'an instance set places a model', expected: '"model"' }, record.kind)));
     }
   });
+}
+
+/**
+ * The scene's counted limits (player spawns, lights, fog volumes, collider
+ * points) hold for its linked copies' parts too: a prefab may carry them, and
+ * a stored copy is only its link. Assembled only when some prefab carries a
+ * counted component.
+ */
+function prefabCopyCountErrors(s: SceneV4, content: ContentCatalogV4, errors: ModelErrorV3[]): void {
+  const prefabs = content.prefabs ?? [];
+  const counted = derivedOf(prefabs, 'counted-parts', () => prefabs.some((d) => d.entities.some((e) => {
+    const c = countsOfComponents(e.components as unknown as Record<string, unknown>);
+    return c.spawns + c.directional + c.ambient + c.local + c.hemisphere + c.fogVolumes + c.points3d > 0;
+  })));
+  if (!counted || !s.entities.some((e) => isPrefabLink((e.components as { prefab?: unknown }).prefab))) return;
+  const assembler = derivedOf(prefabs, 'count-assembler', () => createPrefabAssembler(prefabs as never));
+  const countErrors = (entities: readonly { components: unknown }[]): ModelErrorV3[] => {
+    const counts: EntityV3Counts = { ...EMPTY_COUNTS };
+    for (const e of entities) {
+      const c = countsOfComponents(e.components as Record<string, unknown>);
+      for (const k of Object.keys(counts) as (keyof EntityV3Counts)[]) counts[k] += c[k];
+    }
+    const out: ModelErrorV3[] = [];
+    sceneCountErrors(counts, 4, false, out);
+    return out;
+  };
+  // The scene's own objects over a limit are the scene's error already.
+  const own = new Set(countErrors(s.entities).map((x) => x.message));
+  for (const x of countErrors(assembleSceneEntities(s.entities as unknown as AssemblyEntity[], assembler).entities)) {
+    if (!own.has(x.message)) errors.push(sceneError(s.sceneId, { ...x, message: `${x.message} (its prefab copies' parts counted)` }));
+  }
 }
 
 /**

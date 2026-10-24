@@ -84,7 +84,7 @@ Makes this object the player: it runs, jumps and collides with a capsule.
 
 - Category: Physics
 - Added: from "+ Add component", starting as `{}`
-- On prefab objects: no
+- On prefab objects: yes
 - Cannot share an object with [`terrain`](components-rendering-1.md#component-terrain): a terrain is its own level geometry
 - Cannot share an object with [`socketAttach`](components-object.md#component-socketAttach): a socket poses the object every step; the player is moved by its controller
 - Cannot share an object with [`blockLayer`](components-rendering-1.md#component-blockLayer): a block layer is its own level geometry

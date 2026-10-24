@@ -15,6 +15,7 @@ import {
   applyPartField,
   canonicalJson,
   isPrefabLink,
+  mapRefsInValue,
   prefabNestingCycles,
   ENTITY_ID_MAX,
   MAX_ENTITY_DEPTH as MAX_SCENE_DEPTH,
@@ -279,13 +280,15 @@ function applyToDefinition(def: PrefabDefinition, o: PrefabOverride, catalog: Co
 }
 
 /**
- * Behavior values a copy's overrides set that name one of the copy's own
+ * Values a copy's overrides set (object properties, component references) that name one of the copy's own
  * parts: in the prefab they name that part's local id (another copy's part
  * of the same name is its own).
  */
 function localRefs(o: PrefabOverride, keyOfId: ReadonlyMap<string, string>, refKeys: ReadonlySet<string>): PrefabOverride {
-  if (!('value' in o) || !o.path.startsWith('components/behavior')) return o;
+  if (!('value' in o)) return o;
   const local = (v: unknown): unknown => (typeof v === 'string' && keyOfId.has(v) && !(keyOfId.get(v) as string).includes('/') ? keyOfId.get(v) : v);
+  // A component reference (a camera's target) naming one of the copy's parts names it in the prefab too.
+  if (!o.path.startsWith('components/behavior')) return o.path.startsWith('components/') ? { ...o, value: mapRefsInValue(o.path.slice('components/'.length), o.value, (id) => local(id) as string) } : o;
   const segs = o.path.split('/');
   if (segs.length === 4 && segs[2] === 'values') return refKeys.has(segs[3] as string) ? { ...o, value: local(o.value) } : o;
   const mapValues = (values: unknown): unknown => {

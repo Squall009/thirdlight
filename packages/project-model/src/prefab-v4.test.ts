@@ -41,11 +41,27 @@ describe('v4 prefab components', () => {
     expect(codes([good[0]], 3)).toContain('component_unknown');
   });
 
+  it('holds what a scene object can: a player with its camera, a light, a spawn', () => {
+    const camera = { localId: 'group-0002', parentLocalId: 'box-0001', components: { transform: T, virtualCamera: { rig: 'follow', target: 'box-0001' } } };
+    const lamp = { localId: 'group-0003', parentLocalId: 'box-0001', components: { transform: T, light: { type: 'point', color: '#ffffff', intensity: 2, range: 5 } } };
+    expect(errorsOf([def({ controller: {} }, [camera, lamp])])).toEqual([]);
+    expect(errorsOf([def({ playerSpawn: {} })])).toEqual([]);
+    // The scene's own rules hold: a player character is a root; a spawn is a marker.
+    expect(codes([def({}, [{ ...camera, components: { transform: T, controller: {} } }])])).toContain('physics_transform_unsupported');
+    expect(codes([def({ playerSpawn: {}, controller: {} })])).toContain('component_conflict');
+  });
+
+  it('refuses what the scene itself holds', () => {
+    for (const [name, value] of [['blockLayer', { cellSize: 1 }], ['instances', { asset: { assetId: 'a' }, buffer: 'b', count: 1 }], ['folder', {}]] as const) {
+      expect(codes([def({ [name]: value })]), name).toContain('prefab_component_forbidden');
+    }
+  });
+
   it('keeps the scene rules: scene-only components, a parented mover collider, a patrol with a collider, bad values', () => {
-    expect(codes([def({ controller: {} })])).toContain('component_unknown');
     // The removed game components are unknown in a prefab too.
     for (const name of Object.keys(REMOVED_COMPONENTS)) expect(codes([def({ [name]: { size: [1, 1] } })]), name).toContain('component_unknown');
-    expect(codes([def({ camera: { type: 'perspective', fovY: 45, near: 0.1, far: 100 } })])).toContain('prefab_component_forbidden');
+    // An older project's scene camera is gone from scenes, and so from prefabs.
+    expect(errorsOf([def({ camera: { type: 'perspective', fovY: 45, near: 0.1, far: 100 } })]).length).toBeGreaterThan(0);
     // A collider on a child follows it; a mover's collider stays a root (its system poses it in world space).
     const child = { localId: 'box-0002', parentLocalId: 'box-0001', components: { transform: T, collider: { shape: { type: 'box', hx: 0.5, hy: 0.5 } } } };
     expect(codes([def({}, [child])])).not.toContain('physics_transform_unsupported');

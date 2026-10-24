@@ -26,7 +26,7 @@ Rides on a named node (a bone or any node) of another object's model, with an of
 
 - Category: Object
 - Added: from "+ Add component" after picking `target` (the rest starts as `{}`)
-- On prefab objects: no
+- On prefab objects: yes
 - Cannot share an object with [`collider`](components-physics.md#component-collider): a physics body is posed by physics, not by a socket
 - Cannot share an object with [`controller`](components-physics.md#component-controller): a physics body is posed by physics, not by a socket
 - Cannot share an object with [`mover`](components-gameplay.md#component-mover): a physics body is posed by physics, not by a socket

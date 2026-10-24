@@ -421,11 +421,12 @@ export { arrayTextureIds, TEXTURE_ARRAY_KIND, MAX_TEXTURE_LAYERS, KTX2_ENCODINGS
 // Addresses and labels: what a script may load by name (assets on their records, resources beside theirs).
 export { canonicalLoadable, ENV_PRESETS_LIST, isAddress, isLoadable, liveLoadable, loadableAssetIds, loadableResourceIds, loadableRows, loadableRowsProblem, RESOURCE_KIND_TABLE, resourceKindDef, resourceRecordsOf, type LoadableEntry, type LoadableRow, type ResourceKindDef } from './loadable';
 // Prefabs spawned into a running game (the snapshot/manifest carry them).
-export { PREFAB_V4_COMPONENTS, canonicalPrefabs, validatePrefabDefinitions } from './content';
+export { PREFAB_EXCLUDED_COMPONENTS, PREFAB_V4_COMPONENTS, canonicalPrefabs, validatePrefabDefinitions } from './content';
 // Linked copies: the override format, part paths and ids, nesting cycles, and assembly into plain objects.
 export { isPartKey, isPrefabLink, keptPartIds, nestedPrefabIds, partPathKey, partPathOf, prefabNestingCycles, prefabPartId, prefabStageId, prefabStageRootOf, validatePrefabLink, PART_PATH_SEPARATOR, PREFAB_STAGE_ID_PREFIX, type PrefabFieldOverride, type PrefabFieldRemoval, type PrefabLinkComponent, type PrefabOverride, type PrefabPartRemoval } from './prefab-links';
 export { canonicalJson, relinkCopy, type RelinkResult } from './prefab-relink';
 export { applyPartField, assembleSceneEntities, createPrefabAssembler, flatPrefabEntities, isPrivateProperty, type AssemblyEntity, type AssemblyPrefab, type AssemblyPrefabEntity, type PrefabAssembler, type PrefabAssemblerOptions, type PrefabAssemblyProblem, type PrefabAssemblyProblemCode } from './prefab-assembly';
+export { COMPONENT_ENTITY_REFS, componentRefsNaming, mapComponentRefs, mapRefsInValue, valueAtPath, setValueAtPath } from './prefab-entity-refs';
 export { declarationBytes } from './content-behaviors';
 export {
   INSTANCE_FLOATS,

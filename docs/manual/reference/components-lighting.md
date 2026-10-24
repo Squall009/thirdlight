@@ -11,7 +11,7 @@ A light: directional (the sun), ambient, point, spot or hemisphere (sky and grou
 
 - Category: Lighting
 - Added: from "+ Add component", starting as `{"type":"point","color":"#ffd9a0","intensity":30,"range":8,"decay":2}`
-- On prefab objects: no
+- On prefab objects: yes
 - Cannot share an object with [`instances`](components-rendering-1.md#component-instances): an instance set is scenery
 - Icon: sun as Directional light, ambient as Ambient light, spot as Spot light, hemisphere as Hemisphere light, point as Point light, else point
 - Rule: At most one directional, one ambient and one hemisphere light and 16 point/spot lights per scene; any scene may hold any light.

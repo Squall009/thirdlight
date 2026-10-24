@@ -342,7 +342,7 @@ export const controller: ComponentDescriptor = {
     { component: 'climbVolume', reason: 'the character climbs in a climb volume; it is not one' },
     { component: 'gravity', reason: 'the character falls under its own controller' },
   ],
-  prefab: false,
+  prefab: true,
   rules: PHYSICS_RULES,
 };
 
@@ -364,7 +364,7 @@ export const playerSpawn: ComponentDescriptor = {
     { component: 'controller', reason: 'the spawn marks where the player starts' },
     { component: 'instances', reason: 'an instance set is scenery' },
   ],
-  prefab: false,
+  prefab: true,
   rules: MARKER_RULES,
 };
 
@@ -453,7 +453,7 @@ export const virtualCamera: ComponentDescriptor = {
     { kind: 'bounds', label: 'Bounds', bind: { min: 'boundsMin', max: 'boundsMax' }, space: 'world', when: TRACK },
   ],
   excludes: [],
-  prefab: false,
+  prefab: true,
 };
 
 export const cameraPath: ComponentDescriptor = {
@@ -470,7 +470,7 @@ export const cameraPath: ComponentDescriptor = {
   add: { kind: 'menu', value: { points: [[0, 0, 0], [6, 0, 0]] } },
   handles: [{ kind: 'path', label: 'Path', bind: { points: 'points' }, space: 'local', loop: when('closed', true) }],
   excludes: [],
-  prefab: false,
+  prefab: true,
 };
 
 // A place where track cameras frame differently.
@@ -504,7 +504,7 @@ export const cameraRegion: ComponentDescriptor = {
     { kind: 'box3', label: 'Dead zone', bind: { size: 'deadZone' }, space: 'local' },
   ],
   excludes: [],
-  prefab: false,
+  prefab: true,
 };
 
 // An object riding on a node of another object's model.
@@ -525,7 +525,7 @@ export const socketAttach: ComponentDescriptor = {
   add: { kind: 'pick', value: {}, pick: ['target'] },
   handles: [],
   excludes: SOCKET_ATTACH_CONFLICTS.map((c) => ({ component: c, reason: 'a physics body is posed by physics, not by a socket' })),
-  prefab: false,
+  prefab: true,
 };
 
 const LIGHT_TYPES = ['directional', 'ambient', 'point', 'spot', 'hemisphere'] as const;
@@ -591,7 +591,7 @@ export const light: ComponentDescriptor = {
     { icon: 'point', label: 'Point light', when: [{ path: 'type', in: ['point'] }] },
   ],
   excludes: [{ component: 'instances', reason: 'an instance set is scenery' }],
-  prefab: false,
+  prefab: true,
   rules: [
     'At most one directional, one ambient and one hemisphere light and 16 point/spot lights per scene; any scene may hold any light.',
     'With scenes loaded together, the most recently loaded scene\'s directional, ambient and hemisphere light is on (each kind on its own); the others come back when it unloads.',
@@ -636,7 +636,7 @@ export const modelAnimation: ComponentDescriptor = {
   handles: [],
   requiresAnyOf: { components: ['model'], reason: 'it animates the object\'s model' },
   excludes: [{ component: 'instances', reason: 'an instance set is not animated' }],
-  prefab: false,
+  prefab: true,
   legacy: true,
 };
 
@@ -770,7 +770,7 @@ export const fogVolume: ComponentDescriptor = {
   icon: 'fog',
   handles: [{ kind: 'box3', label: 'Size', bind: { size: 'size' }, space: 'local' }],
   excludes: [],
-  prefab: false,
+  prefab: true,
   rules: ['At most 16 fog volumes per scene.'],
 };
 
@@ -789,7 +789,7 @@ export const probeVolume: ComponentDescriptor = {
   icon: 'probes',
   handles: [{ kind: 'box3', label: 'Size', bind: { size: 'size' }, space: 'local' }],
   excludes: [],
-  prefab: false,
+  prefab: true,
 };
 
 // The behavior group an object's behavior belongs to (game modes tick groups).

@@ -11,7 +11,7 @@ A camera shot the game cuts or blends to: follow/orbit a target, orbit a point i
 
 - Category: Camera
 - Added: from "+ Add component", starting as `{"rig":"follow"}`
-- On prefab objects: no
+- On prefab objects: yes
 - Icon: camera
 - Rule: pitchMin ≤ pitchMax, minDistance ≤ maxDistance and near < far when both are set
 
@@ -88,7 +88,7 @@ A path rail cameras ride (points as offsets from where this object is placed).
 
 - Category: Camera
 - Added: from "+ Add component", starting as `{"points":[[0,0,0],[6,0,0]]}`
-- On prefab objects: no
+- On prefab objects: yes
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
@@ -109,7 +109,7 @@ While a track camera's target is inside this box, the camera uses the region's d
 
 - Category: Camera
 - Added: from "+ Add component", starting as `{"size":[10,6]}`
-- On prefab objects: no
+- On prefab objects: yes
 - Icon: camera
 
 | Field | Type | Default | Range | Description |

@@ -32,7 +32,9 @@ import {
   MAX_PREFAB_BYTES,
   MAX_PREFAB_DEPTH,
   MAX_PREFAB_ENTITIES,
+  PREFAB_EXCLUDED_COMPONENTS,
   PREFAB_V4_COMPONENTS,
+  mapComponentRefs,
   ENTITY_ID_MAX,
   canonicalPrefabs,
   effectiveEntityFlags,
@@ -304,9 +306,10 @@ function capturePrefabEntities(
   const closureSet = new Set(closureIds);
   const closure = closureIds.map((id) => indexById.get(id) as EntityV3);
 
-  // Forbidden capture contents (camera, nested instance, external ref).
+  // Forbidden capture contents (a v3 scene's camera, nested instance, external ref).
+  const v4 = scene.schemaVersion === 4;
   for (const e of closure) {
-    if (e.components.camera !== undefined) {
+    if (!v4 && e.components.camera !== undefined) {
       return { ok: false, error: prefabCameraCaptureForbidden(sourceEntityId, e.id) };
     }
   }
@@ -334,18 +337,14 @@ function capturePrefabEntities(
       error: prefabExternalReferenceForbidden(sourceEntityId, external.localId, external.key, external.entityId),
     };
   }
-  // A definition entity may carry transform/model/box/behavior only:
-  // collider/controller are not part of the base definition vocabulary and
-  // are rejected rather than silently dropped. A v4 definition
-  // also keeps the gameplay components (`PREFAB_V4_COMPONENTS`, a collider
-  // included) so a spawned or placed copy collides and plays like the source.
-  const v4 = scene.schemaVersion === 4;
+  // A v3 definition carries transform/model/box/behavior only. A v4 one
+  // carries what a scene object can (`PREFAB_V4_COMPONENTS`: a player, its
+  // camera, lights), less what the scene itself holds; those are refused
+  // rather than silently dropped.
   for (const e of closure) {
-    for (const component of (v4 ? ['controller'] : ['collider', 'controller']) as readonly ('collider' | 'controller')[]) {
-      if ((e.components as unknown as Record<string, unknown>)[component] !== undefined) {
-        return { ok: false, error: prefabComponentForbidden(prefabId, e.id, component) };
-      }
-    }
+    const comps = e.components as unknown as Record<string, unknown>;
+    const refused = v4 ? PREFAB_EXCLUDED_COMPONENTS.find((c) => comps[c] !== undefined) : (['collider', 'controller'] as const).find((c) => comps[c] !== undefined);
+    if (refused !== undefined) return { ok: false, error: prefabComponentForbidden(prefabId, e.id, refused) };
   }
 
   if (closure.length > MAX_PREFAB_ENTITIES) {
@@ -414,6 +413,8 @@ export function prefabEntitiesOf(
         for (const name of PREFAB_V4_COMPONENTS) {
           if (source[name] !== undefined) (components as unknown as Record<string, unknown>)[name] = deepClone(source[name]);
         }
+        // A camera's target (any object reference) inside the set names its local id.
+        mapComponentRefs(components as unknown as Record<string, unknown>, (id) => (closureSet.has(id) ? localOf.get(id) : undefined));
       }
     }
     let parentLocalId = e.parentId !== undefined && closureSet.has(e.parentId) ? localOf.get(e.parentId) : undefined;
@@ -599,6 +600,7 @@ function buildInstanceEntity(
   // The v4 gameplay components travel with the copy.
   const source = de.components as unknown as Record<string, unknown>;
   for (const name of PREFAB_V4_COMPONENTS) if (source[name] !== undefined) components[name] = deepClone(source[name]);
+  mapComponentRefs(components, (id) => mapping.get(id));
   const recorded = de.components.behavior;
   if (recorded !== undefined) {
     const declaration = declarations.get(recorded.behaviorId);

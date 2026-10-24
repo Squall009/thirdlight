@@ -11,7 +11,7 @@
 import type { EntityV3, PrefabDefinition } from '@thirdlight/project-model';
 
 import type { AnimatorSystem } from './animator-system';
-import { playersArrive } from './arriving-players';
+import { arrivalProblem, playersArrive } from './arriving-players';
 import type { AudioMixer } from './audio-mixer';
 import type { GameplayBlocks } from './blocks';
 import type { ControllerPlacements } from './character-placement';
@@ -366,6 +366,12 @@ export class RuntimeEntities {
       this.faults.record({ code: 'spawn_refused', message: clipMessage(`spawn "${root.id}" was not added: entity "${clash.id}" is already in the game`), stepIndex: this.sim.stepIndex });
       return true;
     }
+    // A spawned player (a prefab with a controller) needs a port that adds characters, as a loaded scene's does.
+    const players = arrivalProblem(entities, this.host.controllers, this.sim.physics3d ?? this.sim.physics);
+    if (players !== null) {
+      this.faults.record({ code: 'spawn_refused', message: clipMessage(`spawn "${root.id}" was not added: ${players}`), stepIndex: this.sim.stepIndex });
+      return true;
+    }
     const frozen = deepFreeze(owned ? [...entities] : entities.map((e) => structuredClone(e)));
     const added = this.host.colliders.add(frozen, `spawn "${root.id}"`);
     if (!added.ok && 'refused' in added) {
@@ -380,7 +386,7 @@ export class RuntimeEntities {
     this.attach(frozen);
     for (const e of frozen) this.spawned.set(e.id, e);
     this.host.sceneSetChanged();
-    return this.notifyLoaded(frozen);
+    return this.playersArrive(frozen, false) && this.notifyLoaded(frozen);
   }
 
   /** Remove a spawned entity and every spawned entity below it. */

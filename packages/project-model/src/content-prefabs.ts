@@ -3,14 +3,14 @@
  * prefab may carry, and their canonical form.
  */
 
-import { canonicalEffectComponent, validateEffectComponent } from './effects';
-import { canonicalDecal, validateDecalComponent } from './decals';
-import { canonicalBlockFootprint, validateBlockFootprintComponent } from './block-layers';
-import { canonicalBehaviorGroup, validateBehaviorGroupComponent } from './modes';
-import { canonicalMaterialMapping, canonicalMaterialParams, validateMaterialMapping, validateMaterialParamsComponent } from './materials';
-import { canonicalAnimatorComponent, validateAnimatorComponent } from './animator';
+import { canonicalEffectComponent } from './effects';
+import { canonicalDecal } from './decals';
+import { canonicalBlockFootprint } from './block-layers';
+import { canonicalBehaviorGroup } from './modes';
+import { canonicalMaterialMapping, canonicalMaterialParams } from './materials';
+import { canonicalAnimatorComponent } from './animator';
 import { BLOCK_COMPONENTS } from './blocks';
-import { canonicalSurface, validateSurfaceComponent } from './scene-v3';
+import { canonicalComponentsV3, canonicalSurface, V4_REGISTRY, validateEntityComponentsV3 } from './scene-v3';
 import {
   canonicalBox,
   canonicalTransform,
@@ -28,13 +28,9 @@ import type { ModelErrorV2 } from './errors';
 import type { PrefabDefinition, PrefabEntity, PropertyValue } from './types-v2';
 import {
   canonicalCollider,
-  colliderCore,
-  validateColliderLayers,
   ID_RE_V2,
   validateBehaviorComponent,
-  validateColliderComponent,
   validateModelComponent,
-  validatePhysicsTransform,
 } from './components';
 import { MAX_PREFAB_DEPTH, MAX_PREFAB_ENTITIES } from './content-limits';
 import { limitsError, sortedRecord } from './content-helpers';
@@ -75,66 +71,27 @@ function prefabDepth(entities: Record<string, unknown>[]): number {
 }
 
 /**
- * The components a v4 prefab entity may carry besides transform,
- * model, box and behavior — what a spawned (`ctx.spawn`) or placed copy needs
- * to collide, look right and take part in the game (a crate, a collectible,
- * a walker, a moving projectile). Scene-only components (camera, controller,
- * lights, zones, spawn markers, instance sets, fog volumes) stay out: a copy
- * is never the character, the camera or level wiring. Health is
- * any object's, so a copy may carry it.
+ * A prefab part carries what a scene object can, with the scene's own rules
+ * (one camera live per view and a player character per controller are the
+ * running game's, not the prefab's). Left out: what the scene itself holds
+ * (a block layer's cells; the blobs of an instance set, a terrain and vertex
+ * paint, which are kept and collected with the scene) and a folder (it has no
+ * place in the game).
  */
-// `materialParams` (overrides of graph-material parameters) travels with the materials.
-// `effect` (a copy plays its effect, e.g. a torch's flame).
-// `blockFootprint` (a placed copy writes its footprint into the block cells beneath it).
-// `behaviorGroup` (a copy's behavior ticks with its group).
-// Generic `health` (any object, not only the player) and the primitives `collectible`, `patrol`, `hitbox`.
-export const PREFAB_V4_COMPONENTS = ['collider', 'surface', 'materials', 'animator', 'mover', 'trigger', 'switch', 'audioSource', 'faceMovement', 'materialParams', 'effect', 'blockFootprint', 'behaviorGroup', 'health', 'collectible', 'patrol', 'hitbox', 'climbVolume', 'gravity', 'decal'] as const;
+export const PREFAB_EXCLUDED_COMPONENTS: readonly string[] = ['blockLayer', 'instances', 'terrain', 'vertexPaint', 'folder'];
+/** The components a v4 prefab part may carry besides transform, model, box and behavior. */
+export const PREFAB_V4_COMPONENTS: readonly string[] = V4_REGISTRY.filter((c) => !['transform', 'model', 'box', 'behavior', 'prefab'].includes(c) && !PREFAB_EXCLUDED_COMPONENTS.includes(c));
 const PREFAB_BLOCKS = ['mover', 'trigger', 'switch', 'audioSource', 'faceMovement', 'health', 'collectible', 'patrol', 'hitbox', 'climbVolume', 'gravity'] as const;
 
-function validatePrefabExtras(comps: Record<string, unknown>, parentLocalId: unknown, path: string, errors: ModelErrorV2[]): void {
-  const col = comps['collider'];
-  if (col !== undefined) {
-    const oneWay = isPlainObject(col) ? col['oneWay'] : undefined;
-    if (oneWay !== undefined && oneWay !== true) errors.push(fieldValue(`${path}/collider/oneWay`, oneWay, 'true', 'oneWay is true or absent'));
-    // The collision layers the collider is in.
-    if (isPlainObject(col) && col['layers'] !== undefined) validateColliderLayers(col['layers'], `${path}/collider/layers`, errors);
-    validateColliderComponent(colliderCore(col), `${path}/collider`, errors);
-    if (isPlainObject(col) && isPlainObject(col['shape']) && col['shape']['type'] === 'model' && comps['model'] === undefined) {
-      errors.push({ code: 'component_missing', path: `${path}/collider/shape`, message: "a model collider is made from the object's own model: it needs a model component", expected: 'model' });
-    }
-    // A collider may sit on a child of the definition (it follows it); its scale and
-    // rotation rules follow the project's physics dimension (composeV4).
-    validatePhysicsTransform(comps, typeof parentLocalId === 'string' ? parentLocalId : undefined, path, false, errors, false);
+/** A v4 prefab part's components: the scene object's rules, less what a prefab cannot hold. */
+function validatePrefabPartComponents(comps: Record<string, unknown>, parentLocalId: unknown, path: string, errors: ModelErrorV2[]): void {
+  for (const k of Object.keys(comps)) {
+    if (k !== 'prefab' && !PREFAB_EXCLUDED_COMPONENTS.includes(k)) continue;
+    const why = k === 'prefab' ? 'a part names its prefab through a nested copy' : k === 'folder' ? 'a folder only organises a scene' : 'its data is held by the scene';
+    errors.push(withFound({ code: 'prefab_component_forbidden', path: `${path}/components/${pointerSegment(k)}`, message: `a prefab part must not carry ${k}: ${why}`, expected: `a scene object's components except prefab, ${PREFAB_EXCLUDED_COMPONENTS.join(', ')}` }, k));
   }
-  if (comps['surface'] !== undefined) {
-    validateSurfaceComponent(comps['surface'], `${path}/surface`, errors as never);
-    if (comps['box'] === undefined && comps['model'] === undefined) errors.push({ code: 'component_missing', path: `${path}/surface`, message: 'a surface component sits only on an entity carrying box or model', expected: 'box|model' });
-  }
-  if (comps['materials'] !== undefined) {
-    validateMaterialMapping(comps['materials'], `${path}/materials`, errors);
-    if (comps['box'] === undefined && comps['model'] === undefined) errors.push({ code: 'component_missing', path: `${path}/materials`, message: 'a materials component sits only on an entity with a model or a box', expected: 'model|box' });
-  }
-  if (comps['materialParams'] !== undefined) {
-    validateMaterialParamsComponent(comps['materialParams'], `${path}/materialParams`, errors);
-    if (comps['box'] === undefined && comps['model'] === undefined) errors.push({ code: 'component_missing', path: `${path}/materialParams`, message: 'material parameter overrides sit only on an entity with a model or a box', expected: 'model|box' });
-  }
-  if (comps['animator'] !== undefined) {
-    validateAnimatorComponent(comps['animator'], `${path}/animator`, errors);
-    if (comps['model'] === undefined) errors.push({ code: 'component_missing', path: `${path}/animator`, message: 'an animator sits only on an entity with a model', expected: 'model' });
-  }
-  if (comps['effect'] !== undefined) validateEffectComponent(comps['effect'], `${path}/effect`, errors);
-  // A copy's decal marks what is around it (scripts' `ctx.decals.spawn` leaves a prefab's decal without a copy).
-  if (comps['decal'] !== undefined) validateDecalComponent(comps['decal'], `${path}/decal`, errors);
-  if (comps['blockFootprint'] !== undefined) validateBlockFootprintComponent(comps['blockFootprint'], `${path}/blockFootprint`, errors);
-  if (comps['behaviorGroup'] !== undefined) validateBehaviorGroupComponent(comps['behaviorGroup'], `${path}/behaviorGroup`, errors);
-  for (const name of PREFAB_BLOCKS) {
-    if (comps[name] !== undefined) (BLOCK_COMPONENTS[name].validate as (c: unknown, p: string, e: ModelErrorV2[]) => void)(comps[name], `${path}/${name}`, errors);
-  }
-  // A patroller moves itself (as on a scene entity).
-  if (comps['patrol'] !== undefined) {
-    const clash = (['mover', 'collider'] as const).filter((c) => comps[c] !== undefined);
-    if (clash.length > 0) errors.push(withFound({ code: 'component_conflict', path, message: `a patrol moves the object by itself: it cannot also carry ${clash.join(', ')}`, expected: 'patrol without mover or collider' }, ['patrol', ...clash]));
-  }
+  const own = Object.fromEntries(Object.entries(comps).filter(([k]) => k !== 'prefab' && !PREFAB_EXCLUDED_COMPONENTS.includes(k)));
+  validateEntityComponentsV3(own, typeof parentLocalId === 'string' ? parentLocalId : undefined, path, errors as never, 4);
 }
 
 function validatePrefabEntity(e: unknown, idx: number, path: string, errors: ModelErrorV2[], localIndex: Map<string, number>, nestedCopies: Set<string>, version: 3 | 4 = 3): void {
@@ -206,9 +163,11 @@ function validatePrefabEntity(e: unknown, idx: number, path: string, errors: Mod
     if (comps['transform'] === undefined) errors.push({ code: 'component_missing', path: `${path}/components/transform`, message: 'every prefab entity requires the transform component', expected: 'transform present' });
     const extra = Object.keys(comps).filter((k) => k !== 'transform' && k !== 'prefab');
     if (extra.length > 0) errors.push(withFound({ code: 'component_conflict', path: `${path}/components`, message: 'a nested copy carries only its transform and its prefab link: a change to one of its parts is an override', expected: 'transform and prefab' }, extra));
+  } else if (version === 4) {
+    validatePrefabPartComponents(comps, parent, path, errors);
   } else {
-    const allowed = new Set<string>(['transform', 'model', 'box', 'behavior', ...(version === 4 ? PREFAB_V4_COMPONENTS : [])]);
-    const allowedText = version === 4 ? `transform, model, box, behavior, ${PREFAB_V4_COMPONENTS.join(', ')}` : 'transform, model, box, behavior';
+    const allowed = new Set<string>(['transform', 'model', 'box', 'behavior']);
+    const allowedText = 'transform, model, box, behavior';
     for (const k of Object.keys(comps)) {
       if (!allowed.has(k)) {
         if (k === 'camera' || k === 'prefab') {
@@ -237,7 +196,6 @@ function validatePrefabEntity(e: unknown, idx: number, path: string, errors: Mod
       void canonicalBox;
     }
     if (comps['behavior'] !== undefined) validateBehaviorComponent(comps['behavior'], `${path}/components/behavior`, errors);
-    if (version === 4) validatePrefabExtras(comps, parent, `${path}/components`, errors);
   }
   for (const k of Object.keys(e)) {
     if (!KNOWN_PREFAB_ENTITY_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'localId, name, parentLocalId, tags, components'));
@@ -371,6 +329,12 @@ function canonicalPrefabEntity(e: PrefabEntity): PrefabEntity {
   if (x.decal !== undefined) components.decal = canonicalDecal(x.decal);
   if (x.blockFootprint !== undefined) components.blockFootprint = canonicalBlockFootprint(x.blockFootprint);
   if (x.behaviorGroup !== undefined) components.behaviorGroup = canonicalBehaviorGroup(x.behaviorGroup);
+  // Every other component canonical as on a scene object, after these (a prefab keeps its exact bytes).
+  const rest = Object.keys(x).filter((k) => !(k in components) && k !== 'prefab');
+  if (rest.length > 0) {
+    const scene = canonicalComponentsV3(x as unknown as Record<string, unknown>) as unknown as Record<string, unknown>;
+    for (const k of Object.keys(scene)) if (rest.includes(k)) (components as unknown as Record<string, unknown>)[k] = scene[k];
+  }
   return {
     localId: e.localId,
     ...(e.name !== undefined ? { name: e.name } : {}),

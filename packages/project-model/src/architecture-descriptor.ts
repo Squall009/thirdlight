@@ -52,5 +52,5 @@ export const architecture: ComponentDescriptor = {
   handles: [],
   icon: 'building',
   excludes: ['blockLayer', 'terrain', 'spline'].map((c) => ({ component: c, reason: 'generated architecture is its own object beside the level geometry' })),
-  prefab: false,
+  prefab: true,
 };

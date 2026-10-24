@@ -99,8 +99,12 @@ always a script's job.
   prefab: every copy and every `ctx.spawn("barrel")` from the next Play
   use it. [`revertPrefabOverrides`](../reference/ops-detail.md#op-revertPrefabOverrides)
   drops it instead.
-- **A prefab never holds the player controller, cameras, lights or spawn
-  points.** The exact list: [content.prefabs](../reference/content-blocks-settings.md#content-prefabs).
+- **A player is a prefab.** A character with its controller and a follow
+  camera targeting it, made into a prefab, placed twice, is two players,
+  each with its own camera; override the second copy's `moveAction` and
+  `jumpAction` so it reads its own input. A prefab never holds what the
+  scene keeps (block layers, instance sets, terrains, vertex paint,
+  folders). The exact list: [content.prefabs](../reference/content-blocks-settings.md#content-prefabs).
 - **Spawned copies are the game's, not the project's.** They are gone when
   the run restarts, and a save keeps them only when its schema has the
   `spawned` section. `ctx.destroy` removes spawned copies only.

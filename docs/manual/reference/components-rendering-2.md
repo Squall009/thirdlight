@@ -11,7 +11,7 @@ A curve through points, each with its own width and roll: roads, paths and river
 
 - Category: Rendering
 - Added: from "+ Add component", starting as `{"points":[{"at":[0,0,0]},{"at":[20,0,0]},{"at":[40,0,0]}]}`
-- On prefab objects: no
+- On prefab objects: yes
 - Cannot share an object with [`blockLayer`](components-rendering-1.md#component-blockLayer): a spline is its own object beside the level geometry it shapes
 - Cannot share an object with [`terrain`](components-rendering-1.md#component-terrain): a spline is its own object beside the level geometry it shapes
 - Cannot share an object with [`architecture`](#component-architecture): a spline is its own object beside the level geometry it shapes
@@ -80,7 +80,7 @@ Walls, mouldings, floors, vaults, roofs and repeated pieces generated at load fr
 
 - Category: Rendering
 - Added: from "+ Add component", starting as `{"profiles":{"wall":{"points":[[0.1,0],[0.1,3],[-0.1,3],[-0.1,0]],"slots":["lower_wall","bevel","upper_wall"]}},"elements":[{"id":"wall","kind":"sweep","path":{"points":[[0,0,0],[6,0,0]]},"profile":"wall"}]}`
-- On prefab objects: no
+- On prefab objects: yes
 - Cannot share an object with [`blockLayer`](components-rendering-1.md#component-blockLayer): generated architecture is its own object beside the level geometry
 - Cannot share an object with [`terrain`](components-rendering-1.md#component-terrain): generated architecture is its own object beside the level geometry
 - Cannot share an object with [`spline`](#component-spline): generated architecture is its own object beside the level geometry

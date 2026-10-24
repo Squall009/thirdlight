@@ -36,6 +36,7 @@ import {
   type ObjectFieldDescriptor,
 } from './descriptors';
 import { REMOVED_COMPONENTS } from './removed-game-data';
+import { COMPONENT_ENTITY_REFS } from './prefab-entity-refs';
 import type { ModelErrorV2 } from './errors';
 import { validateInput } from './input';
 import { validateModes } from './modes';
@@ -1073,6 +1074,16 @@ describe('descriptor registry', () => {
       const d = comp(name).value as ObjectFieldDescriptor;
       expect([...new Set(d.fields.map((f) => f.key))].sort(), name).toEqual([...b.fields].sort());
     }
+  });
+
+  it('the component references a prefab maps per copy are the components\' entity fields', () => {
+    const found: string[] = [];
+    const walk = (f: FieldDescriptor, at: string): void => {
+      if (f.type === 'entityRef') found.push(at);
+      if (f.type === 'object') for (const x of f.fields) walk(x, `${at}/${x.key}`);
+    };
+    for (const c of DESCRIPTORS.components) if (c.value.type === 'object') for (const x of c.value.fields) walk(x, `${c.name}/${x.key}`);
+    expect(found.sort()).toEqual([...COMPONENT_ENTITY_REFS].sort());
   });
 
   it('the prefab vocabulary is the components marked prefab', () => {

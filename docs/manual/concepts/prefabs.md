@@ -22,13 +22,21 @@ base. A prefab can never contain itself.
 Each part of a copy carries a [Prefab link](../reference/components-organisation.md#component-prefab)
 component that says which prefab and which of its objects it is.
 
-What a prefab keeps: models and boxes, colliders, materials, animators,
-scripts and the gameplay blocks (movers, triggers, health and so on), and
-each object's tags (its folders' tags included), so scripts find placed and
-spawned copies with `ctx.tags`. What
-it never holds: the player controller and level wiring such as cameras,
-lights and spawn points. The exact list of components a prefab may hold is
-in [prefabs in the reference](../reference/content-blocks-settings.md#content-prefabs).
+What a prefab keeps: any component a scene object can carry (models and
+boxes, colliders, materials, animators, scripts, the gameplay blocks, a
+player controller, virtual cameras, lights, spawn points), and each
+object's tags (its folders' tags included), so scripts find placed and
+spawned copies with `ctx.tags`. A camera's target (any object reference)
+naming an object of the prefab names that object of each copy. What it
+never holds is what the scene itself keeps: a block layer's cells, an
+instance set, a terrain, vertex paint, and folders. The exact list is in
+[prefabs in the reference](../reference/content-blocks-settings.md#content-prefabs).
+
+The scene's own rules hold for copies: a player character is a root object,
+each copy with a controller is one more player (several players share the
+view), the live camera is the enabled one with the highest priority, and a
+scene's counted limits (one hemisphere light, player spawns, fog volumes)
+count its copies' parts.
 
 ## In the editor
 

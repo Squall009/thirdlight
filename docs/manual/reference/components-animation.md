@@ -68,7 +68,7 @@ The old idle/run/airborne clip roles. Projects are moved to an animator when ope
 
 - Category: Animation
 - Added: never by hand: replaced by the animator (kept for old data)
-- On prefab objects: no
+- On prefab objects: yes
 - Legacy: kept working for old data, not offered for new objects
 - Needs one of [`model`](components-rendering-1.md#component-model) on the same object: it animates the object's model
 - Cannot share an object with [`instances`](components-rendering-1.md#component-instances): an instance set is not animated

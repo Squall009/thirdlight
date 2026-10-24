@@ -4,7 +4,7 @@
  * prefab definition into fresh runtime entities. A spawned copy is in the
  * running game only (never in the project, never in a save). No I/O.
  */
-import { PLANE_ROTATION_TOLERANCE, type EntityV3, type PrefabDefinition } from '@thirdlight/project-model';
+import { PLANE_ROTATION_TOLERANCE, mapComponentRefs, type EntityV3, type PrefabDefinition } from '@thirdlight/project-model';
 
 /**
  * Engine limit: spawns one step may request (every script together), a
@@ -124,6 +124,8 @@ export function expandPrefab(def: PrefabDefinition, ids: readonly string[], plac
       if (i === 0 && placement.properties !== undefined) for (const [k, v] of Object.entries(placement.properties)) values[k] = structuredClone(v);
       components['behavior'] = { behaviorId: behavior.behaviorId, values };
     }
+    // A component reference to a part (a camera's target) names this copy's part.
+    mapComponentRefs(components, (id) => mapping.get(id));
     components['prefab'] = { prefabId: def.prefabId, localId: de.localId };
     const parentId = de.parentLocalId !== undefined ? mapping.get(de.parentLocalId) : undefined;
     return {
