@@ -8,7 +8,9 @@
  * before it asks for a square, the decoded tiles under it; a block layer's
  * chunks and the block types), then asks for squares one at a time; each
  * answer is the square's copies per rule (10 floats each, the source's
- * frame), handed over, not copied. A terrain's cover keeps off the block
+ * frame), handed over, not copied. For a terrain's cover drawn on the GPU
+ * it makes a rule's mask over one tile instead (`coverMask`: what the GPU
+ * cannot read from the terrain's texels). A terrain's cover keeps off the block
  * layers its blocks layers meet (`TerrainBlockSeam.covered`, the test its
  * stored scatter was baked with); the page hands those block layers over
  * too. It runs in the view's worker script
@@ -41,6 +43,8 @@ import {
   type TerrainTile,
 } from '@thirdlight/runtime';
 
+import { coverMask, coverMaskSide } from './cover-placement';
+
 /** A spline whose scatter band terrain cover keeps clear of: its object id, component and position. */
 export interface CoverSpline {
   readonly id: string;
@@ -62,7 +66,8 @@ export type CoverRequest =
   | { readonly t: 'coverForget'; readonly digest: string }
   | { readonly t: 'coverDrop'; readonly id: string }
   | { readonly t: 'coverSplines'; readonly splines: readonly CoverSpline[] }
-  | { readonly t: 'coverMake'; readonly job: number; readonly id: string; readonly rect: ScatterRect };
+  | { readonly t: 'coverMake'; readonly job: number; readonly id: string; readonly rect: ScatterRect }
+  | { readonly t: 'coverMask'; readonly job: number; readonly id: string; readonly rule: string; readonly tx: number; readonly tz: number };
 
 /** One square's copies per rule. */
 export interface CoverCopies {
@@ -71,7 +76,10 @@ export interface CoverCopies {
 }
 
 /** Worker → page. */
-export type CoverReply = { readonly t: 'coverMade'; readonly job: number; readonly ok: true; readonly made: readonly CoverCopies[]; readonly ms: number; readonly looked?: number } | { readonly t: 'coverMade'; readonly job: number; readonly ok: false; readonly message: string };
+export type CoverReply =
+  | { readonly t: 'coverMade'; readonly job: number; readonly ok: true; readonly made: readonly CoverCopies[]; readonly ms: number; readonly looked?: number }
+  | { readonly t: 'coverMade'; readonly job: number; readonly ok: false; readonly message: string }
+  | { readonly t: 'coverMasked'; readonly job: number; readonly mask: Uint8Array | null; readonly message?: string };
 
 interface Held {
   source: CoverSource;
@@ -90,7 +98,7 @@ export class CoverGenerator {
   /** Candidate places looked at so far (diagnostics). */
   looked = 0;
 
-  apply(m: Exclude<CoverRequest, { t: 'coverMake' }>): void {
+  apply(m: Exclude<CoverRequest, { t: 'coverMake' | 'coverMask' }>): void {
     switch (m.t) {
       case 'coverSource':
         this.sources.set(m.id, { source: m.source, surface: null, grid: null });
@@ -180,6 +188,18 @@ export class CoverGenerator {
     return out;
   }
 
+  /** Rule `rule`'s mask over tile (tx, tz) of terrain `id` (`coverMask`; null: none needed, or no such rule). */
+  mask(id: string, rule: string, tx: number, tz: number): Uint8Array | null {
+    const h = this.sources.get(id);
+    if (h === undefined || h.source.kind !== 'terrain') return null;
+    const r = h.source.rules.find((x) => x.id === rule);
+    if (r === undefined) return null;
+    h.surface ??= this.surfaceOf(h);
+    const c = h.source.component;
+    const size = (c.tileSamples - 1) * c.spacing;
+    return coverMask(r, h.surface, (h.source.origin[0] ?? 0) + tx * size, (h.source.origin[2] ?? 0) + tz * size, size, coverMaskSide(c.tileSamples));
+  }
+
   private surfaceOf(h: Held): ScatterSurface {
     const s = h.source;
     // Ground cover keeps off the named regions of every block layer the generator holds.
@@ -222,6 +242,15 @@ export function runCoverWorker(endpoint: CoverEndpoint): void {
     const m = raw as Partial<CoverRequest> | null;
     if (typeof m?.t !== 'string' || !m.t.startsWith('cover')) return;
     const req = m as CoverRequest;
+    if (req.t === 'coverMask') {
+      try {
+        const mask = gen.mask(req.id, req.rule, req.tx, req.tz);
+        endpoint.post({ t: 'coverMasked', job: req.job, mask } satisfies CoverReply, mask !== null ? [mask.buffer as ArrayBuffer] : undefined);
+      } catch (e) {
+        endpoint.post({ t: 'coverMasked', job: req.job, mask: null, message: e instanceof Error ? e.message : String(e) } satisfies CoverReply);
+      }
+      return;
+    }
     if (req.t !== 'coverMake') {
       gen.apply(req);
       return;

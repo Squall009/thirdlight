@@ -15,6 +15,11 @@
  * made again keeps drawing its old copies until its new ones are built, so an
  * edit never blinks the cover away.
  *
+ * A terrain's cover is drawn on the GPU (`cover-gpu.ts`) when the terrain
+ * view hands its surface over: then the generator makes only the masks the
+ * GPU asks for (spline bands, block cuts, regions, cavity), and the squares
+ * here serve block layers and the `?cover=cpu` comparison.
+ *
  * The block and terrain views hand the sources over (`ScatterSink`), as they
  * do to the stored scatter's view. A terrain's cover keeps off the block
  * layers its blocks layers meet (as its stored scatter does): those block
@@ -27,7 +32,7 @@ import { CHUNK_SIZE, SCATTER_COVER_DISTANCE_DEFAULT, TERRAIN_BLOCKS_BLEND_DEFAUL
 
 import type { MeshWorkerPort } from './block-mesh-pool';
 import { CoverGpu, type CoverGpuDiagnostics } from './cover-gpu';
-import { COVER_FADE_START, coverOnGpu } from './cover-placement';
+import { COVER_FADE_START, coverGrowsOnTerrain, coverReadsMask } from './cover-placement';
 import { CoverGenerator, type CoverCopies, type CoverReply, type CoverRequest, type CoverSpline } from './cover-worker';
 import { buildInstanceSet, type BuiltInstanceSet, type InstanceSetStats } from './instancing';
 import { blobCopies, blobShadowTemplate } from './scatter-shadows';
@@ -46,6 +51,8 @@ export const COVER_JOBS = 2;
 export const COVER_BUILD_MS = 2;
 /** Cells round a changed block column whose footprint a terrain's cover reads (a larger block's reach and the corner it shares). */
 const BLOCK_CHANGE_CELLS = 9;
+/** The farthest (m) cover made here reaches, whatever its rule asks: its squares grow with the square of the reach (the GPU path has no such bound). */
+export const COVER_CPU_REACH_MAX = 1000;
 
 export interface CoverViewDeps {
   /** A model instance to draw a rule's copies with (null while it loads; `onReady` then). */
@@ -129,6 +136,8 @@ interface Source {
   margin: number;
   /** A block layer's chunk width (m). */
   chunkMetres: number;
+  /** Drawn on the GPU (a terrain): no squares; a change of its ground makes its masks again. */
+  gpu: boolean;
 }
 
 export class CoverView {
@@ -154,10 +163,24 @@ export class CoverView {
   private readonly gpu: CoverGpu | null;
   /** Each terrain as last set (its cover goes to the GPU or here again when the splines change). */
   private readonly terrains = new Map<string, { component: TerrainComponent; origin: number[] }>();
+  /** Masks asked of the generator, by job: where each answer goes. */
+  private readonly maskJobs = new Map<number, (mask: Uint8Array | null) => void>();
 
   constructor(private readonly deps: CoverViewDeps) {
     const surface = deps.surface;
-    this.gpu = surface === undefined ? null : new CoverGpu({ template: deps.template, ...(deps.dress !== undefined ? { dress: deps.dress } : {}), place: deps.place, surface, ...(deps.tuning !== undefined ? { tuning: deps.tuning } : {}), ...(deps.changed !== undefined ? { changed: deps.changed } : {}) });
+    this.gpu =
+      surface === undefined
+        ? null
+        : new CoverGpu({
+            template: deps.template,
+            ...(deps.dress !== undefined ? { dress: deps.dress } : {}),
+            place: deps.place,
+            surface,
+            ...(deps.tuning !== undefined ? { tuning: deps.tuning } : {}),
+            ...(deps.changed !== undefined ? { changed: deps.changed } : {}),
+            maskWanted: (id, rule, tx, tz) => this.maskWanted(id, rule, tx, tz),
+            mask: (id, rule, tx, tz, reply) => this.askMask(id, rule, tx, tz, reply),
+          });
   }
 
   // ---- the sources (ScatterSink) -----------------------------------------------------
@@ -271,15 +294,14 @@ export class CoverView {
     }
     const o = [origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0] as [number, number, number];
     const extent: ScatterRect = [o[0] + x0 * size, o[2] + z0 * size, o[0] + x1 * size, o[2] + z1 * size];
-    // The GPU reads the rule and the terrain's own texels: a rule reading more (spacing, cavity, regions), or a terrain
-    // its block layers or a spline's band keep cover off, is made here.
-    const keptOff = (component.layers ?? []).some((l) => l.kind === 'blocks' && l.enabled !== false) || [...this.splines.values()].some((sp) => sp.rect !== null && overlaps(sp.rect, extent));
-    const onGpu = this.gpu === null || keptOff ? [] : all.filter(coverOnGpu);
-    this.gpu?.setRules(id, onGpu);
-    const rules = all.filter((r) => !onGpu.includes(r));
-    if (rules.length === 0 && this.sources.has(id)) this.dropSource(id);
+    // On the GPU every rule that can grow on a terrain is drawn there; the generator holds the terrain for its masks.
+    const gpu = this.gpu !== null;
+    const rules = gpu ? all.filter(coverGrowsOnTerrain) : all;
+    this.gpu?.setRules(id, rules);
+    const was = this.sources.get(id);
+    if (was !== undefined && (rules.length === 0 || was.gpu !== gpu)) this.dropSource(id);
     const before = this.sources.get(id)?.terrain ?? null;
-    const src = this.source(id, 'terrain', rules, o, extent, component.spacing);
+    const src = this.source(id, 'terrain', rules, o, extent, component.spacing, gpu);
     if (src === null) return;
     src.terrain = component;
     this.send({ t: 'coverSource', id, source: { kind: 'terrain', component, origin: o, rules } });
@@ -361,7 +383,7 @@ export class CoverView {
     let built = false;
     const start = performance.now();
     for (const src of this.sources.values()) {
-      if (src.rules.length === 0) continue;
+      if (src.rules.length === 0 || src.gpu) continue;
       const keep = src.reach + S * COVER_KEEP_FRACTION;
       // Drop the squares the camera left (and any the source no longer covers).
       for (const sq of [...src.squares.values()]) {
@@ -454,15 +476,15 @@ export class CoverView {
 
   // ---- internals ------------------------------------------------------------------------
 
-  private source(id: string, kind: Source['kind'], rules: readonly ScatterRule[], origin: [number, number, number], extent: ScatterRect, sample: number): Source | null {
+  private source(id: string, kind: Source['kind'], rules: readonly ScatterRule[], origin: [number, number, number], extent: ScatterRect, sample: number, gpu = false): Source | null {
     let src = this.sources.get(id);
     if (src === undefined && rules.length === 0) return null;
-    const reach = Math.max(0, ...rules.map((r) => r.coverDistance ?? SCATTER_COVER_DISTANCE_DEFAULT));
+    const reach = Math.min(COVER_CPU_REACH_MAX, Math.max(0, ...rules.map((r) => r.coverDistance ?? SCATTER_COVER_DISTANCE_DEFAULT)));
     // A square reads the ground its rules reach past its box, and a sample for the normal.
     const margin = scatterReach(rules) + 2 * sample;
     const key = JSON.stringify(rules);
     if (src === undefined) {
-      src = { id, kind, rules, rulesKey: key, origin, hidden: false, extent, terrain: null, squares: new Map(), reach, margin, chunkMetres: 0 };
+      src = { id, kind, rules, rulesKey: key, origin, hidden: false, extent, terrain: null, squares: new Map(), reach, margin, chunkMetres: 0, gpu };
       this.sources.set(id, src);
       if (kind === 'blocks' && this.types.length > 0) this.send({ t: 'coverTypes', types: this.types });
       return src;
@@ -481,6 +503,7 @@ export class CoverView {
 
   /** Every square of a source is made again (its rules, origin or ground changed). */
   private remakeAll(src: Source): void {
+    if (src.gpu) this.gpu?.invalidateMasks(src.id, null);
     for (const sq of src.squares.values()) this.remake(sq);
     this.deps.changed?.();
   }
@@ -489,6 +512,7 @@ export class CoverView {
   private remakeRect(src: Source, rect: ScatterRect): void {
     const m = src.margin;
     const grown: ScatterRect = [rect[0] - m, rect[1] - m, rect[2] + m, rect[3] + m];
+    if (src.gpu) this.gpu?.invalidateMasks(src.id, grown);
     for (const sq of src.squares.values()) if (overlaps(sq.rect, grown)) this.remake(sq);
     this.deps.changed?.();
   }
@@ -501,24 +525,54 @@ export class CoverView {
     sq.built = false;
   }
 
+  /** A terrain's tiles under a box (and its margin) handed to the generator; false: one is not decoded yet. */
+  private sendTiles(src: Source, rect: ScatterRect): boolean {
+    if (src.kind !== 'terrain' || src.terrain === null) return true;
+    const c = src.terrain;
+    const size = (c.tileSamples - 1) * c.spacing;
+    const m = src.margin;
+    for (const t of c.tiles) {
+      if (t.data === undefined) continue;
+      const box: ScatterRect = [src.origin[0] + t.x * size, src.origin[2] + t.z * size, src.origin[0] + (t.x + 1) * size, src.origin[2] + (t.z + 1) * size];
+      if (!overlaps(box, [rect[0] - m, rect[1] - m, rect[2] + m, rect[3] + m])) continue;
+      if (this.sentTiles.has(t.data)) continue;
+      const tile = this.deps.tile(t.data);
+      if (tile === undefined) return false;
+      this.sentTiles.add(t.data);
+      // A copy each (the page keeps its own arrays for drawing and collision).
+      this.send({ t: 'coverTile', digest: t.data, tile: { samples: tile.samples, heights: tile.heights.slice(), weights: tile.weights?.slice() ?? null, holes: tile.holes?.slice() ?? null, paint: tile.paint?.slice() ?? null } });
+    }
+    return true;
+  }
+
+  /** Whether a terrain rule needs a mask over a tile: it reads one, the terrain's blocks layers cut the ground, or a spline's band lies on the tile. */
+  private maskWanted(id: string, rule: ScatterRule, tx: number, tz: number): boolean {
+    if (coverReadsMask(rule)) return true;
+    const src = this.sources.get(id);
+    const c = src?.terrain;
+    if (src === undefined || c == null) return false;
+    if ((c.layers ?? []).some((l) => l.kind === 'blocks' && l.enabled !== false && (l.strength ?? 1) > 0)) return true;
+    const size = (c.tileSamples - 1) * c.spacing;
+    const box: ScatterRect = [src.origin[0] + tx * size, src.origin[2] + tz * size, src.origin[0] + (tx + 1) * size, src.origin[2] + (tz + 1) * size];
+    return [...this.splines.values()].some((sp) => sp.rect !== null && overlaps(sp.rect, box));
+  }
+
+  /** Ask the generator for a terrain rule's mask over a tile (false: a tile under it is not decoded yet). */
+  private askMask(id: string, rule: ScatterRule, tx: number, tz: number, reply: (mask: Uint8Array | null) => void): boolean {
+    const src = this.sources.get(id);
+    const c = src?.terrain;
+    if (src === undefined || c == null) return false;
+    const size = (c.tileSamples - 1) * c.spacing;
+    if (!this.sendTiles(src, [src.origin[0] + tx * size, src.origin[2] + tz * size, src.origin[0] + (tx + 1) * size, src.origin[2] + (tz + 1) * size])) return false;
+    const job = ++this.serial;
+    this.maskJobs.set(job, reply);
+    this.send({ t: 'coverMask', job, id, rule: rule.id, tx, tz });
+    return true;
+  }
+
   private ask(src: Source, sq: Square): void {
     // A terrain's tiles under the square (and its margin) go to the generator first; one not decoded yet waits.
-    if (src.kind === 'terrain' && src.terrain !== null) {
-      const c = src.terrain;
-      const size = (c.tileSamples - 1) * c.spacing;
-      const m = src.margin;
-      for (const t of c.tiles) {
-        if (t.data === undefined) continue;
-        const box: ScatterRect = [src.origin[0] + t.x * size, src.origin[2] + t.z * size, src.origin[0] + (t.x + 1) * size, src.origin[2] + (t.z + 1) * size];
-        if (!overlaps(box, [sq.rect[0] - m, sq.rect[1] - m, sq.rect[2] + m, sq.rect[3] + m])) continue;
-        if (this.sentTiles.has(t.data)) continue;
-        const tile = this.deps.tile(t.data);
-        if (tile === undefined) return;
-        this.sentTiles.add(t.data);
-        // A copy each (the page keeps its own arrays for drawing and collision).
-        this.send({ t: 'coverTile', digest: t.data, tile: { samples: tile.samples, heights: tile.heights.slice(), weights: tile.weights?.slice() ?? null, holes: tile.holes?.slice() ?? null, paint: tile.paint?.slice() ?? null } });
-      }
-    }
+    if (!this.sendTiles(src, sq.rect)) return;
     const job = ++this.serial;
     sq.job = job;
     this.jobs.set(job, { src, sq });
@@ -526,6 +580,13 @@ export class CoverView {
   }
 
   private received(r: CoverReply): void {
+    if (r.t === 'coverMasked') {
+      const reply = this.maskJobs.get(r.job);
+      this.maskJobs.delete(r.job);
+      if (r.message !== undefined) console.warn(`ground cover mask: ${r.message}`);
+      reply?.(r.mask);
+      return;
+    }
     const j = this.jobs.get(r.job);
     if (j === undefined) return;
     this.jobs.delete(r.job);
@@ -623,13 +684,14 @@ export class CoverView {
       if (this.port !== null) {
         this.port.listen((raw) => {
           const r = raw as Partial<CoverReply> | null;
-          if (r?.t === 'coverMade') this.received(r as CoverReply);
+          if (r?.t === 'coverMade' || r?.t === 'coverMasked') this.received(r as CoverReply);
         });
         this.port.onError((message) => {
           console.warn(`ground cover worker: ${message}; made on the page instead`);
           this.port?.terminate();
           this.port = null;
           this.sentTiles.clear();
+          this.maskJobs.clear();
           for (const src of this.sources.values()) this.remakeAll(src);
         });
       }
@@ -639,6 +701,11 @@ export class CoverView {
       return;
     }
     this.local ??= new CoverGenerator();
+    if (m.t === 'coverMask') {
+      const mask = this.local.mask(m.id, m.rule, m.tx, m.tz);
+      queueMicrotask(() => this.received({ t: 'coverMasked', job: m.job, mask }));
+      return;
+    }
     if (m.t !== 'coverMake') {
       this.local.apply(m);
       return;

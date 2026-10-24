@@ -26,9 +26,24 @@
  * threshold is below the share, so copies leave one by one as the eye goes
  * away (no popping).
  *
+ * A rule's `spacing` is approximated deterministically: the ring's grid is
+ * no finer than the spacing (one candidate per cell of at least that side),
+ * and a candidate gives way to a neighbour of the 3 × 3 cells round it that
+ * stands within the spacing, would be kept on its own ground's odds and has
+ * the higher priority hash (as the stored scatter decides: the higher
+ * priority keeps its place). The neighbour is judged on the candidate's own
+ * conditions, which hold alike a spacing away.
+ *
+ * What the GPU cannot read from the terrain's own texels — the band a
+ * spline keeps clear, the block layers a blocks layer cuts the ground for,
+ * named regions a rule excludes and the cavity a rule asks for — comes from
+ * a mask per rule and tile ({@link coverMask}): a byte per texel scaling the
+ * rule's conditions, made off the main thread with the stored scatter's own
+ * surface code, and read by the vertex stage at the candidate's texel.
+ *
  * Pure.
  */
-import { copyRotation, ruleNoise, ruleRangeAt, type ScatterRule } from '@thirdlight/runtime';
+import { SURFACE_RULE_CAVITY_RADIUS, copyRotation, ruleNoise, ruleRangeAt, type ScatterRule, type ScatterSurface } from '@thirdlight/runtime';
 
 /** Where a rule's copies begin to fade out at the end of their reach, as a share of it. */
 export const COVER_FADE_START = 0.6;
@@ -42,8 +57,17 @@ export const COVER_RING_GROWTH = Math.SQRT2;
 const COVER_RING_MIN_SHARE = 0.1;
 /** A surface steeper than this (normal Y) takes no copy (a wall), as the stored scatter's. */
 export const COVER_MIN_NORMAL_Y = 0.05;
-/** Random lanes a candidate reads: jitter x, jitter z, scale, turn, keep. */
-export const COVER_LANES = Object.freeze({ jx: 0, jz: 1, scale: 2, yaw: 3, keep: 4 });
+/** Random lanes a candidate reads: jitter x, jitter z, scale, turn, keep, and its priority against neighbours (spacing). */
+export const COVER_LANES = Object.freeze({ jx: 0, jz: 1, scale: 2, yaw: 3, keep: 4, priority: 5 });
+/** Mask texels per terrain sample cell along a side (a road's edge kept to a quarter of a 2 m sample). */
+export const COVER_MASK_PER_CELL = 2;
+/** A tile's mask side at most (texels): a byte each, a few kept in the reach. */
+export const COVER_MASK_SIDE_MAX = 512;
+
+/** The mask side (texels) of a terrain whose tiles hold `samples` a side. */
+export function coverMaskSide(samples: number): number {
+  return Math.min(COVER_MASK_SIDE_MAX, (samples - 1) * COVER_MASK_PER_CELL);
+}
 /** Lanes a ring's candidates use (ring k reads lanes from k times this): rings never share their numbers. */
 const LANES_PER_RING = 8;
 
@@ -95,8 +119,12 @@ export interface CoverRing {
   readonly outer: number;
   /** The model level it draws. */
   readonly level: number;
-  /** Its share at the inner edge (the most it keeps): the grid's density is the rule's times this. */
+  /** Its share at the inner edge (the most it keeps): the grid's density is the rule's times this (no more than one a spacing² with a spacing). */
   readonly gridShare: number;
+  /** A candidate is kept with odds of its conditions times the share at its distance times this (the rule's density over the grid's). */
+  readonly odds: number;
+  /** The rule's spacing (m; 0: none): the grid's cell is at least this. */
+  readonly spacing: number;
   /** Patch side (m; a tile holds a whole number of them), candidate cells along it, and per patch. */
   readonly patch: number;
   readonly side: number;
@@ -125,7 +153,7 @@ function levelAt(distances: readonly number[], d: number): number {
  * `screenFull` the distance its `densityStart` screen size sets (absent:
  * none).
  */
-export function planCover(rule: Pick<ScatterRule, 'density' | 'densityMin' | 'scale'>, reach: number, model: CoverModelLevels, tile: number, bias = 1, screenFull?: number): CoverPlan {
+export function planCover(rule: Pick<ScatterRule, 'density' | 'densityMin' | 'scale' | 'spacing'>, reach: number, model: CoverModelLevels, tile: number, bias = 1, screenFull?: number): CoverPlan {
   const sc = rule.scale ?? [1, 1];
   const size = (sc[0] + sc[1]) / 2;
   // Switch distances in metres for a copy of the rule's mean size.
@@ -153,30 +181,36 @@ export function planCover(rule: Pick<ScatterRule, 'density' | 'densityMin' | 'sc
     const inner = sorted[k]!;
     const outer = sorted[k + 1]!;
     const gridShare = coverShare(thinning, inner);
-    const density = rule.density * gridShare;
+    const spacing = Math.max(0, rule.spacing ?? 0);
+    const density = Math.min(rule.density * gridShare, spacing > 0 ? 1 / (spacing * spacing) : Infinity);
     if (density <= 0) continue;
-    const want = Math.max(Math.sqrt(COVER_PATCH_CANDIDATES / density), (2 * outer) / COVER_RING_PATCHES_ACROSS);
+    const want = Math.max(Math.sqrt(COVER_PATCH_CANDIDATES / density), (2 * outer) / COVER_RING_PATCHES_ACROSS, spacing);
     const patch = tile / Math.max(1, Math.round(tile / want));
-    const side = Math.max(1, Math.round(patch * Math.sqrt(density)));
+    let side = Math.max(1, Math.round(patch * Math.sqrt(density)));
+    // A cell no smaller than the spacing: only the 3 × 3 cells round a candidate can stand within it.
+    if (spacing > 0) side = Math.max(1, Math.min(side, Math.floor(patch / spacing)));
     const across = Math.ceil((2 * outer) / patch) + 1;
-    rings.push({ inner, outer, level: levelAt(switches, inner), gridShare, patch, side, perPatch: side * side, maxPatches: across * across, lanes: rings.length * LANES_PER_RING });
+    const odds = rule.density / (side / patch) ** 2;
+    rings.push({ inner, outer, level: levelAt(switches, inner), gridShare, odds, spacing, patch, side, perPatch: side * side, maxPatches: across * across, lanes: rings.length * LANES_PER_RING });
   }
   return { thinning, rings };
 }
 
-/** One listed patch: its first candidate cell (global, the ring's grid) and its tile's texture layer. */
+/** One listed patch: its first candidate cell (global, the ring's grid), its tile's texture layer and the rule's mask layer for the tile (-1: none). */
 export interface CoverPatch {
   gx: number;
   gz: number;
   layer: number;
+  mask: number;
 }
 
-/** A tile a patch lies on: its texture page and layer (-1: not drawn yet), and the heights' range under the patch (metres, the terrain's frame). */
+/** A tile a patch lies on: its texture page and layer (-1: not drawn yet), the heights' range under the patch (metres, the terrain's frame), and the rule's mask layer (absent or -1: none). */
 export interface CoverTileRef {
   readonly page: number;
   readonly layer: number;
   readonly low: number;
   readonly high: number;
+  readonly mask?: number;
 }
 
 /**
@@ -208,7 +242,7 @@ export function listCoverPatches(ring: CoverRing, eye: readonly [number, number]
       if (!visible(x0 + P / 2, (t.low + t.high) / 2 + rise / 2, z0 + P / 2, Math.sqrt((P * P) / 2 + half * half))) continue;
       let list = out.get(t.page);
       if (list === undefined) out.set(t.page, (list = []));
-      list.push({ gx: px * ring.side, gz: pz * ring.side, layer: t.layer });
+      list.push({ gx: px * ring.side, gz: pz * ring.side, layer: t.layer, mask: t.mask ?? -1 });
     }
   }
 }
@@ -234,6 +268,8 @@ export interface CoverTexels {
   readonly heights: Uint8Array;
   readonly layers: Uint8Array;
   readonly indices: Uint8Array;
+  /** The rule's mask over the tile (absent: none): `side` texels a side, a byte each. */
+  readonly mask?: { readonly side: number; readonly data: Uint8Array };
 }
 
 /** One candidate's answer (the terrain's frame; `y` the ground less the sink). */
@@ -312,16 +348,87 @@ export function coverCandidate(i: number, patch: CoverPatch, ring: CoverRing, th
     f *= ruleRangeAt(rule.noise, ruleNoise((origin[0]! + x) / k, wy / k, (origin[2]! + z) / k, rule.noise.seed ?? 0));
   }
   for (const l of rule.layers ?? []) f *= ruleRangeAt(l, share(l.layer));
+  if (tex.mask !== undefined) {
+    const m = tex.mask.side;
+    const texel = (n * tex.spacing) / m;
+    const mi = Math.min(Math.max(Math.floor((x - tileX) / texel), 0), m - 1);
+    const mj = Math.min(Math.max(Math.floor((z - tileZ) / texel), 0), m - 1);
+    f *= tex.mask.data[mj * m + mi]! / 255;
+  }
   const d = Math.hypot(x - eye[0], z - eye[1]);
   const inRing = d >= ring.inner && d < ring.outer;
-  const odds = (f * coverShare(thinning, d)) / ring.gridShare;
-  const kept = inRing && !hole && normal[1] > COVER_MIN_NORMAL_Y && r(COVER_LANES.keep) < odds;
+  const odds = f * coverShare(thinning, d) * ring.odds;
+  let kept = inRing && !hole && normal[1] > COVER_MIN_NORMAL_Y && r(COVER_LANES.keep) < odds;
+  if (kept && ring.spacing > 0) kept = !coverGivesWay(c.seed, ring, gx, gz, x, z, odds);
   const scale = c.scale[0] + r(COVER_LANES.scale) * (c.scale[1] - c.scale[0]);
   const rotation = copyRotation(normal[0], normal[1], normal[2], c.align, r(COVER_LANES.yaw) * c.yaw) as [number, number, number, number];
   return { x, y: ground - c.sink, z, normal, slope, conditions: f, scale, rotation, kept };
 }
 
-/** Whether a cover rule can be drawn on the GPU (what it reads, the shader reads): no spacing, cavity, regions or blob shadows. */
-export function coverOnGpu(rule: ScatterRule): boolean {
-  return (rule.spacing ?? 0) <= 0 && rule.cavity === undefined && (rule.exclude ?? []).length === 0 && rule.blobShadow === undefined && rule.blocks === undefined && rule.meta === undefined;
+/**
+ * Whether candidate (gx, gz) of a ring with a spacing, at (x, z) and kept
+ * on `odds`, gives way to a neighbour: one of the 3 × 3 cells round it
+ * within the spacing, kept on the same odds, with the higher priority (a
+ * tie: the lower row, then column).
+ */
+export function coverGivesWay(seed: number, ring: CoverRing, gx: number, gz: number, x: number, z: number, odds: number): boolean {
+  const cell = ring.patch / ring.side;
+  const gap = ring.spacing * ring.spacing;
+  const mine = coverRandom(seed, gx, gz, ring.lanes + COVER_LANES.priority);
+  for (let dz = -1; dz <= 1; dz++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (dx === 0 && dz === 0) continue;
+      const nx = gx + dx;
+      const nz = gz + dz;
+      const px = (nx + coverRandom(seed, nx, nz, ring.lanes + COVER_LANES.jx)) * cell;
+      const pz = (nz + coverRandom(seed, nx, nz, ring.lanes + COVER_LANES.jz)) * cell;
+      if ((px - x) ** 2 + (pz - z) ** 2 >= gap) continue;
+      if (coverRandom(seed, nx, nz, ring.lanes + COVER_LANES.keep) >= odds) continue;
+      const theirs = coverRandom(seed, nx, nz, ring.lanes + COVER_LANES.priority);
+      if (theirs > mine || (theirs === mine && dz * 3 + dx < 0)) return true;
+    }
+  }
+  return false;
+}
+
+/** Whether a cover rule can grow on a terrain (one naming block types or cell metadata grows only on blocks). */
+export function coverGrowsOnTerrain(rule: ScatterRule): boolean {
+  return rule.blocks === undefined && rule.meta === undefined;
+}
+
+/** Whether a cover rule reads a mask wherever it grows (its cavity, or regions it keeps clear); bands and block cuts ask for one only where they lie. */
+export function coverReadsMask(rule: ScatterRule): boolean {
+  return rule.cavity !== undefined || (rule.exclude ?? []).length > 0;
+}
+
+/**
+ * A rule's mask over one square of ground (world x0, z0 and its side, m),
+ * `side` texels a side, read at each texel's centre from `surface` (the
+ * stored scatter's surface): 0 where a region it excludes or a cleared band
+ * lies, else its cavity condition (255: it holds fully). Null: 255
+ * everywhere (no mask needed).
+ */
+export function coverMask(rule: ScatterRule, surface: ScatterSurface, x0: number, z0: number, size: number, side: number): Uint8Array | null {
+  const out = new Uint8Array(side * side);
+  const texel = size / side;
+  const exclude = rule.exclude !== undefined && rule.exclude.length > 0 ? rule.exclude : null;
+  const cavity = rule.cavity;
+  const radius = cavity?.radius ?? SURFACE_RULE_CAVITY_RADIUS;
+  let any = false;
+  for (let j = 0; j < side; j++) {
+    const z = z0 + (j + 0.5) * texel;
+    for (let i = 0; i < side; i++) {
+      const x = x0 + (i + 0.5) * texel;
+      let f = 1;
+      if ((exclude !== null && surface.excluded?.(x, z, exclude) === true) || surface.cleared?.(x, z, rule.id) === true) f = 0;
+      else if (cavity !== undefined) {
+        const g = surface.at(x, z);
+        if (g !== null) f = ruleRangeAt(cavity, g.cavity(radius));
+      }
+      const v = Math.round(f * 255);
+      out[j * side + i] = v;
+      if (v < 255) any = true;
+    }
+  }
+  return any ? out : null;
 }

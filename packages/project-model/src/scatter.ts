@@ -126,7 +126,7 @@ export const SCATTER_LIMITS = Object.freeze({
   scale: Object.freeze({ min: 0.01, max: 100 }),
   sinkMax: 100,
   regionName: 64,
-  coverDistance: Object.freeze({ min: 1, max: 1000 }),
+  coverDistance: Object.freeze({ min: 1, max: 10_000 }),
   shadowDistance: Object.freeze({ min: 1, max: 10_000 }),
   blobShadow: Object.freeze({ min: 0.05, max: 100 }),
   /** A screen size, as the density falloff's. */

@@ -462,13 +462,24 @@ area and the terrain around it are dressed alike.
   stored scatter's falloff) they thin from where the model covers that size,
   their share falling as the square of distance. Cover casts no shadow unless the
   rule says `castShadow`; it receives them, and SSAO darkens its roots. The
-  same on WebGL 2 and WebGPU. A rule that reads more than the GPU has
-  (`spacing`, `cavity`, `exclude`, `blobShadow`), or a terrain whose block
-  layers or a spline's scatter band keep cover off, is made on the CPU as
-  before: squares of 32 m round the camera made on a worker and drawn one
-  instance set per rule and square; an edit of the ground makes the squares
-  over it again. Block layers' cover is made that way too. The page flag
-  `?cover=cpu` makes every terrain's cover on the CPU (a comparison). No
+  same on WebGL 2 and WebGPU. Every terrain rule is drawn this way. What
+  the terrain's textures don't hold comes from a **mask** per rule and tile
+  (a byte per half sample, made on a worker with the stored scatter's own
+  tests when a tile's patches are first drawn, and made again when the ground,
+  a spline or a block layer changes; the old mask is drawn until the new one
+  arrives): the band a spline's `scatter` keeps clear, the ground a terrain's
+  blocks layer cuts for its block layers, the regions a rule `exclude`s and
+  its `cavity` condition. A rule's `spacing` is kept by its grid (one
+  candidate per cell of at least the spacing) and a neighbour test: a
+  candidate gives way to a neighbour within the spacing whose priority hash
+  is higher, the stored scatter's rule judged on the candidate's own
+  conditions (about the same density). `blobShadow` is not drawn under
+  cover (SSAO gives the contact). The reach has no bound of its own past
+  the rule's `coverDistance` (up to 10 km). Block layers' cover is made on
+  the CPU: squares of 32 m round the camera (to 1 km at most) made on a
+  worker and drawn one instance set per rule and square; an edit of the
+  ground makes the squares over it again. The page flag `?cover=cpu` makes
+  every terrain's cover that way too (a comparison). No
   colliders, no hand edits.
 - **Drawing**: per rule, the copies of 2,048 m squares of tiles or chunks
   are one instance set, 2,048 m chunks by default (`chunkSize`), each copy
@@ -547,9 +558,10 @@ defaults follow this policy, and games should too:
   shadow map. Without it every copy casts into the cached static map (fine
   for few, large, still things: a dozen boulders).
 - **Contact or blob shadows instead.** `blobShadow` (m, at the copy's scale)
-  puts a soft dark disc on the ground under each copy within 60 m — what the
+  puts a soft dark disc on the ground under each stored copy within 60 m — what the
   eye reads as "standing on the ground" far more than a shadow-map edge — at
-  one extra instanced draw per rule and no shadow pass.
+  one extra instanced draw per rule and no shadow pass. Ground cover on a
+  terrain draws none: SSAO darkens its roots.
 - **Wind only near.** A foliage material's `windDistance` (m; 40 m is the
   policy's near ring) moves vertices only that close to the camera; past it
   they skip the wind's work and stand still (it fades out over the last
