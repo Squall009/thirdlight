@@ -117,6 +117,45 @@ describe('the wind map', () => {
     field.dispose();
   });
 
+  it('scrolls the gust pattern by the speed over time: a wind change, instant or blended, neither jumps nor races it', () => {
+    const field = new WindField(TSL.uniform(0), async () => null, () => {}, () => {});
+    const scroll = (): number => ((field as unknown as { scroll: { value: THREE.Vector4 } }).scroll.value.x);
+    // The x travel (m) a frame moved the pattern, wrapped to the nearest (the scroll is kept in pattern widths).
+    let last = NaN;
+    const step = (): number => {
+      const now = scroll();
+      const d = now - last;
+      last = now;
+      return (d - Math.round(d)) * field.global().scale;
+    };
+    const dt = 1 / 60;
+    let t = 600;
+    field.setGlobal({ ...GLOBAL, speed: 6 } as never);
+    field.tick(t);
+    step();
+    // Steady: 6 m/s, every frame.
+    for (let i = 0; i < 30; i++) {
+      field.tick((t += dt));
+      expect(step()).toBeCloseTo(6 * dt, 6);
+    }
+    // A blend down to 2 m/s over 2 s (a new wind every frame): each frame moves it by that frame's speed.
+    for (let i = 1; i <= 120; i++) {
+      const speed = 6 + ((2 - 6) * i) / 120;
+      field.setGlobal({ ...GLOBAL, speed } as never);
+      field.tick((t += dt));
+      const d = step();
+      expect(d).toBeGreaterThanOrEqual(0);
+      expect(d).toBeLessThanOrEqual(6 * dt + 1e-6);
+    }
+    // An instant change to 10 m/s: no jump, the new speed from here on.
+    field.setGlobal({ ...GLOBAL, speed: 10 } as never);
+    field.tick((t += dt));
+    expect(step()).toBeLessThanOrEqual(10 * dt + 1e-6);
+    field.tick((t += dt));
+    expect(step()).toBeCloseTo(10 * dt, 6);
+    field.dispose();
+  });
+
   it('reports the strongest wind a zone may bring (what bounds a foliage draw\'s sway)', () => {
     const field = new WindField(TSL.uniform(0), async () => null, () => {}, () => {});
     field.setGlobal(GLOBAL);

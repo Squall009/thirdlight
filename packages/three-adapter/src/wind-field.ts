@@ -161,6 +161,10 @@ export class WindField {
   /** The noise texture asset in use (null: the engine's). */
   private noiseId: string | null = null;
   private noiseAsset: THREE.Texture | null = null;
+  /** The scroll (pattern widths) at clock `scrollFrom`, and its rate since (null: not ticked yet). */
+  private readonly scrollAnchor = [0, 0, 0, 0];
+  private readonly scrollRate = [0, 0, 0, 0];
+  private scrollFrom: number | null = null;
 
   /**
    * `time`: the shared clock uniform (seconds). `loadNoise`: a texture
@@ -235,14 +239,40 @@ export class WindField {
     if (this.dirty) this.fill();
   }
 
-  /** The clock: the global pattern's scroll, worked out here in double precision. */
+  /**
+   * The clock: the global pattern's scroll, worked out here in double
+   * precision. Under a steady wind it is a function of the clock alone; when
+   * the wind changes (a blend changes it every frame) the scroll so far is
+   * kept and the new velocity carries on from there, as the clouds' travel
+   * does, so the pattern never jumps or races.
+   */
   tick(seconds: number): void {
     const v = this.values;
-    const travel = v.speed * seconds;
-    const s = this.scroll.value as THREE.Vector4;
     const s2 = v.scale * this.octaveShares.scale;
-    const t2 = travel * this.octaveShares.speed;
-    s.set(fract1((v.dirX * travel) / v.scale), fract1((v.dirZ * travel) / v.scale), fract1((v.dirX * t2) / s2), fract1((v.dirZ * t2) / s2));
+    const u2 = v.speed * this.octaveShares.speed;
+    const u = this.scrollRate;
+    const ux = (v.dirX * v.speed) / v.scale;
+    const uz = (v.dirZ * v.speed) / v.scale;
+    const wx = (v.dirX * u2) / s2;
+    const wz = (v.dirZ * u2) / s2;
+    const a = this.scrollAnchor;
+    if (this.scrollFrom === null) {
+      this.scrollFrom = seconds;
+      a[0] = fract1(ux * seconds);
+      a[1] = fract1(uz * seconds);
+      a[2] = fract1(wx * seconds);
+      a[3] = fract1(wz * seconds);
+    } else if (ux !== u[0] || uz !== u[1] || wx !== u[2] || wz !== u[3]) {
+      const dt = seconds - this.scrollFrom;
+      for (let i = 0; i < 4; i++) a[i] = fract1(a[i]! + u[i]! * dt);
+      this.scrollFrom = seconds;
+    }
+    u[0] = ux;
+    u[1] = uz;
+    u[2] = wx;
+    u[3] = wz;
+    const dt = seconds - this.scrollFrom;
+    (this.scroll.value as THREE.Vector4).set(fract1(a[0]! + ux * dt), fract1(a[1]! + uz * dt), fract1(a[2]! + wx * dt), fract1(a[3]! + wz * dt));
   }
 
   /** The global wind now (unit direction, speed in metres per second): what the sky's clouds drift with. */
