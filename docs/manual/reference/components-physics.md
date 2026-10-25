@@ -20,7 +20,7 @@ A solid shape the player stands on and bumps into (a box or a convex polygon in 
 - Cannot share an object with [`instances`](components-rendering-1.md#component-instances): an instance set is scenery without its own body
 - Cannot share an object with [`patrol`](components-gameplay.md#component-patrol): a patroller is not a physics body (give it a hitbox)
 - Cannot share an object with [`gravity`](components-gameplay.md#component-gravity): a gravity body is not a physics body (give it a hitbox)
-- Rule: A physics body (collider or controller) is at unit scale [1, 1, 1] on a 2D plane and rotated about Z only there (any axis and scale in a 3D one); the player controller and a mover are root objects and the controller stands upright; a collider on a child follows its parent.
+- Rule: A collider takes any rotation and the scale its shape can (a sphere, capsule or cylinder a uniform one); the player controller stays at unit scale and upright; the player controller and a mover are root objects; a collider on a child follows its parent.
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
@@ -38,8 +38,8 @@ A solid shape the player stands on and bumps into (a box or a convex polygon in 
 | `shape.points` | list of vec3 [x, y, z], 4–64 items |  |  | **Hull points.** 4–64 points [x, y, z] whose convex hull is the shape (made from a model). (required; applies when `type` is `convex`; written by a tool) |
 | `shape.vertices` | list of vec3 [x, y, z], 3–1024 items |  |  | **Mesh vertices.** 3–1024 vertices [x, y, z] (made from a model). (required; applies when `type` is `mesh`; written by a tool) |
 | `shape.triangles` | list of vec3 [x, y, z], 1–2048 items |  |  | **Mesh triangles.** 1–2048 triangles [a, b, c] (vertex indices; made from a model). (required; applies when `type` is `mesh`; written by a tool) |
-| `shape.center` | vec3 [x, y, z] |  | -64 – 64, step 0.05, m | **Center.** The shape's centre from the object origin (metres; a 2D plane reads x and y). (applies when `type` is `box` or `polygon` or `sphere` or `capsule` or `convex` or `mesh`) |
-| `shape.rotation` | quat |  |  | **Rotation.** The shape's rotation in the object's frame (a unit quaternion; about Z only on a 2D plane; the Inspector shows degrees). (applies when `type` is `box` or `polygon` or `sphere` or `capsule` or `convex` or `mesh`) |
+| `shape.center` | vec3 [x, y, z] |  | -64 – 64, step 0.05, m | **Center.** The shape's centre from the object origin (metres). (applies when `type` is `box` or `polygon` or `sphere` or `capsule` or `convex` or `mesh`) |
+| `shape.rotation` | quat |  |  | **Rotation.** The shape's rotation in the object's frame (a unit quaternion; the Inspector shows degrees). (applies when `type` is `box` or `polygon` or `sphere` or `capsule` or `convex` or `mesh`) |
 | `shape.shapes` | list of objects, ≥ 1 items |  |  | **Shapes.** The compound's shapes (one body), each with its own centre and rotation. (required; applies when `type` is `compound`) |
 | `shape.shapes[].type` | enum: `box`, `polygon`, `sphere`, `capsule`, `cylinder`, `convex`, `mesh` | `"box"` |  | **Shape.** Box, polygon (a prism), sphere, capsule, cylinder, convex hull or mesh. (required) |
 | `shape.shapes[].hx` | number | `0.5` | > 0, ≤ 1000000, step 0.05, m | **Half width.** Half the box width. (required; applies when `type` is `box`; Scene handle: box2) |
@@ -54,8 +54,8 @@ A solid shape the player stands on and bumps into (a box or a convex polygon in 
 | `shape.shapes[].points` | list of vec3 [x, y, z], 4–64 items |  |  | **Hull points.** 4–64 points [x, y, z] whose convex hull is the shape (made from a model). (required; applies when `type` is `convex`; written by a tool) |
 | `shape.shapes[].vertices` | list of vec3 [x, y, z], 3–1024 items |  |  | **Mesh vertices.** 3–1024 vertices [x, y, z] (made from a model). (required; applies when `type` is `mesh`; written by a tool) |
 | `shape.shapes[].triangles` | list of vec3 [x, y, z], 1–2048 items |  |  | **Mesh triangles.** 1–2048 triangles [a, b, c] (vertex indices; made from a model). (required; applies when `type` is `mesh`; written by a tool) |
-| `shape.shapes[].center` | vec3 [x, y, z] |  | -64 – 64, step 0.05, m | **Center.** The shape's centre from the object origin (metres; a 2D plane reads x and y). (applies when `type` is `box` or `polygon` or `sphere` or `capsule` or `convex` or `mesh`) |
-| `shape.shapes[].rotation` | quat |  |  | **Rotation.** The shape's rotation in the object's frame (a unit quaternion; about Z only on a 2D plane; the Inspector shows degrees). (applies when `type` is `box` or `polygon` or `sphere` or `capsule` or `convex` or `mesh`) |
+| `shape.shapes[].center` | vec3 [x, y, z] |  | -64 – 64, step 0.05, m | **Center.** The shape's centre from the object origin (metres). (applies when `type` is `box` or `polygon` or `sphere` or `capsule` or `convex` or `mesh`) |
+| `shape.shapes[].rotation` | quat |  |  | **Rotation.** The shape's rotation in the object's frame (a unit quaternion; the Inspector shows degrees). (applies when `type` is `box` or `polygon` or `sphere` or `capsule` or `convex` or `mesh`) |
 | `oneWay` | bool | `false` |  | **One-way.** The player can jump up through it and land on top (a platform): it holds only from the side its +Y faces. (stored only when not the default; scripts read) |
 | `depth` | number | `1` | > 0, ≤ 128, step 0.1, m | **Depth.** How deep a box without hz or a polygon is on the 3D backend (absent: 1 m). (stored only when not the default; scripts read) |
 | `layers` | list of string, identifier, 1–32 chars, 1–16 items, distinct |  |  | **Collision layers.** The collision layers it is in (3D; absent: "default"). Script queries filter by layer; name layers in the project's collision layers. (scripts read) |
@@ -102,7 +102,7 @@ Makes this object the player: it runs, jumps and collides with a capsule.
 - Cannot share an object with [`patrol`](components-gameplay.md#component-patrol): the character moves by input, not by itself
 - Cannot share an object with [`climbVolume`](components-gameplay.md#component-climbVolume): the character climbs in a climb volume; it is not one
 - Cannot share an object with [`gravity`](components-gameplay.md#component-gravity): the character falls under its own controller
-- Rule: A physics body (collider or controller) is at unit scale [1, 1, 1] on a 2D plane and rotated about Z only there (any axis and scale in a 3D one); the player controller and a mover are root objects and the controller stands upright; a collider on a child follows its parent.
+- Rule: A collider takes any rotation and the scale its shape can (a sphere, capsule or cylinder a uniform one); the player controller stays at unit scale and upright; the player controller and a mover are root objects; a collider on a child follows its parent.
 - Rule: The steepest walkable slope is the project setting max_slope_climb_deg; run speed, jump speed and gravity are project settings too (a 3D character may override them).
 
 | Field | Type | Default | Range | Description |

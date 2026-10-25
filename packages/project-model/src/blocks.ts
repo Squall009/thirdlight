@@ -396,7 +396,7 @@ export const canonicalFaceMovement = (c: FaceMovementComponent): FaceMovementCom
   ...(c.yawOffset !== undefined ? { yawOffset: c.yawOffset } : {}),
 });
 
-// ---- Generic primitives (both physics dimensions) ------------------------
+// ---- Generic primitives -------------------------------------------------
 
 /**
  * `collectible` — the character touching its area adds `amount`
@@ -409,13 +409,12 @@ export const canonicalFaceMovement = (c: FaceMovementComponent): FaceMovementCom
  * ahead turning around at walls and ledges (`edges`: a ray ahead at the middle
  * of its body, a ray down just past its front). It keeps its placed height.
  *
- * `hitbox` — an area (a box or a sphere, a circle on the 2D
- * plane) whose contacts with other hitboxes and with the character are
+ * `hitbox` — an area (a box or a sphere) whose contacts with other hitboxes and with the character are
  * events for scripts (the other object and the contact normal). With
  * `damage`, a new contact takes that much from the other object's health.
  *
- * The areas are centred on the object's position; a 2D-plane project ignores
- * a box's depth, a 3D one uses it (absent: the width).
+ * The areas are centred on the object's position; a box's depth is its
+ * third size (absent: the width).
  */
 export const PATROL_MODES = ['waypoints', 'edges'] as const;
 export const HITBOX_SHAPES = ['box', 'sphere'] as const;
@@ -427,7 +426,7 @@ export const HITBOX_SHAPES = ['box', 'sphere'] as const;
  * is a 1 m body (a person-sized walker's width) that looks 0.05 m ahead for a
  * wall and 0.4 m down for floor from 0.1 m above its underside (a drop deeper
  * than 0.3 m, knee height, is a ledge) — the same probes the engine used
- * before; it starts walking along +X (the 2D plane's "ahead").
+ * before; it starts walking along +X.
  */
 export const PRIMITIVE_DEFAULTS = Object.freeze({
   collectibleAmount: 1,
@@ -579,7 +578,7 @@ export const GRAVITY_FIELDS = ['scale', 'size'] as const;
 export const GRAVITY_SCALE = { min: 0, max: 10 } as const;
 
 export interface ClimbVolumeComponent {
-  /** [w, h] or [w, h, d] (m): the box it is climbed in (a 2D plane ignores the depth; absent depth in 3D: the width). */
+  /** [w, h] or [w, h, d] (m): the box it is climbed in (absent depth: the width). */
   size: [number, number] | [number, number, number];
 }
 

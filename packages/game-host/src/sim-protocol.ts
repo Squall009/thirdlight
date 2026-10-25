@@ -63,7 +63,7 @@ export const CAMERA_POSE_FLOATS = 11;
  * Engine limit: the physics engine's WebAssembly memory may grow to
  * this many bytes; past it the simulation stops with `physics_memory_limit`
  * instead of growing without bound (a runaway spawn loop, a leak). 512 MiB is
- * far above any 2D scene (the 16 000-entity benchmark uses a few MiB).
+ * far above any benchmark scene (the 16 000-entity one uses a few MiB).
  */
 export const PHYSICS_MEMORY_CAP_BYTES = 512 * 1024 * 1024;
 
@@ -135,8 +135,8 @@ export type SimCommand =
   | { readonly op: 'stop' };
 
 export type SimQuery =
-  | { readonly op: 'raycast'; readonly rays: readonly { origin: { x: number; y: number }; dir: { x: number; y: number }; maxDistance: number }[] }
-  | { readonly op: 'overlap'; readonly shape: unknown; readonly at: { x: number; y: number } }
+  | { readonly op: 'raycast'; readonly rays: readonly import('./sim-access').SimRay[] }
+  | { readonly op: 'overlap'; readonly shape: import('@thirdlight/runtime').OverlapShape3D; readonly at: import('@thirdlight/runtime').PhysicsVec3 }
   | { readonly op: 'behaviorProperties'; readonly entityId: string }
   | { readonly op: 'diagnostics' }
   | { readonly op: 'debug.request'; readonly request: unknown }

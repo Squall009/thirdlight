@@ -604,8 +604,8 @@ Outputs:
 - Pose object (`api.emit.pose`): An owned entity's rotation (degrees: yaw about +Y, pitch about +X, roll about +Z, applied yaw · pitch · roll; missing axes are 0) and/or scale (one number, or [x, y, z]) — transform phase only, visual (colliders keep their shape). Fields in the order kind, entityId, rotation, scale; at least one of rotation and scale. The rotation may instead be a `quaternion` or a `facing` direction (order kind,  Runs only in the transform phase. An empty entity means this object.
 - Respawn player (`api.emit.respawn`): Kill the player (intent phase; ignored unless the run is playing). Runs only in the intent phase.
 - Walk character (`api.emit.character_move`): Walk the player character this step along a world direction on the ground (x, z; a length above 1 counts as 1 — its length scales the walk speed), replacing the move input; `run` uses the run speed. Intent phase. Runs only in the intent phase.
-- Place character (`api.emit.character_place`): Teleport the player character (its origin) to a point, stopping its motion; it falls from there. Intent phase; it takes effect before the controller runs in the same step. On the 2D plane too (z is ignored there), with the placement of scene arrivals and respawns (from rest: velocity and jump reset). Runs only in the intent phase.
-- Enable character (`api.emit.character_enable`): Switch the character controller off (the character stays where it is: no input, no gravity — a cutscene or a dialogue) or back on, in 3D and on the 2D plane. Lasts until changed or the run restarts. Intent phase. Runs only in the intent phase.
+- Place character (`api.emit.character_place`): Teleport the player character (its origin) to a point, stopping its motion; it falls from there. Intent phase; it takes effect before the controller runs in the same step, with the placement of scene arrivals and respawns (from rest: velocity and jump reset); a character on a plane is placed on it. Runs only in the intent phase.
+- Enable character (`api.emit.character_enable`): Switch the character controller off (the character stays where it is: no input, no gravity — a cutscene or a dialogue) or back on. Lasts until changed or the run restarts. Intent phase. Runs only in the intent phase.
 
 <a id="node-behavior--api-intents-step-index"></a>
 ### Intents step index (`api.intents.stepIndex`)
@@ -877,7 +877,7 @@ Fields:
 <a id="node-behavior--api-emit-character-place"></a>
 ### Place character (`api.emit.character_place`)
 
-Teleport the player character (its origin) to a point, stopping its motion; it falls from there. Intent phase; it takes effect before the controller runs in the same step. On the 2D plane too (z is ignored there), with the placement of scene arrivals and respawns (from rest: velocity and jump reset). Runs only in the intent phase.
+Teleport the player character (its origin) to a point, stopping its motion; it falls from there. Intent phase; it takes effect before the controller runs in the same step, with the placement of scene arrivals and respawns (from rest: velocity and jump reset); a character on a plane is placed on it. Runs only in the intent phase.
 
 Inputs:
 
@@ -898,7 +898,7 @@ Fields:
 <a id="node-behavior--api-emit-character-enable"></a>
 ### Enable character (`api.emit.character_enable`)
 
-Switch the character controller off (the character stays where it is: no input, no gravity — a cutscene or a dialogue) or back on, in 3D and on the 2D plane. Lasts until changed or the run restarts. Intent phase. Runs only in the intent phase.
+Switch the character controller off (the character stays where it is: no input, no gravity — a cutscene or a dialogue) or back on. Lasts until changed or the run restarts. Intent phase. Runs only in the intent phase.
 
 Inputs:
 
@@ -1239,11 +1239,19 @@ Inputs:
 
 Outputs:
 
-- `requested` (vector)
-- `applied` (vector)
-- `position` (vector)
+- `requested_x` "requested x" (number)
+- `requested_y` "requested y" (number)
+- `requested_z` "requested z" (number)
+- `applied_x` "applied x" (number)
+- `applied_y` "applied y" (number)
+- `applied_z` "applied z" (number)
+- `position_x` "position x" (number)
+- `position_y` "position y" (number)
+- `position_z` "position z" (number)
 - `grounded` (boolean)
-- `supportNormal` "support normal" (vector)
+- `supportNormal_x` "support normal x" (number)
+- `supportNormal_y` "support normal y" (number)
+- `supportNormal_z` "support normal z" (number)
 - `contacts_ground` "contacts ground" (boolean)
 - `contacts_wall` "contacts wall" (boolean)
 - `contacts_head` "contacts head" (boolean)
@@ -1405,40 +1413,3 @@ Fields:
 |---|---|---|---|---|
 | `center` | center | vector | `[0,0,0]` | -1000000000 – 1000000000; 3 components |
 | `radius` | radius | number | `0.5` | -1000000000 – 1000000000 |
-
-<a id="node-behavior--api-physics-character-state"></a>
-### Character state (`api.physics.characterState`)
-
-A player character's state after the last completed step (`entityId`, absent: the first player controller) — position, velocity, grounding, contacts, whether its controller is on and whether it is climbing a ledge — or undefined (before the first step, or not a player controller). An empty entity means this object.
-
-Inputs:
-
-- `entityId` "player" (string)
-
-Outputs:
-
-- `position_x` "position x" (number)
-- `position_y` "position y" (number)
-- `position_z` "position z" (number)
-- `velocity_x` "velocity x" (number)
-- `velocity_y` "velocity y" (number)
-- `velocity_z` "velocity z" (number)
-- `grounded` (boolean)
-- `contacts_ground` "contacts ground" (boolean)
-- `contacts_wall` "contacts wall" (boolean)
-- `contacts_head` "contacts head" (boolean)
-- `contacts_steepSlope` "contacts steep slope" (boolean)
-- `supportNormal_x` "support normal x" (number)
-- `supportNormal_y` "support normal y" (number)
-- `supportNormal_z` "support normal z" (number)
-- `groundEntityId` "ground entity" (string)
-- `enabled` (boolean)
-- `climbing` (boolean)
-- `facing` (number)
-- `found` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `entityId` | player | string | `""` | ≤ 256 chars |

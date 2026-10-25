@@ -9,9 +9,9 @@
  * The one place the runtime, the Play preview, the export and the tests
  * derive collider specs. Pure: no I/O, no three.js.
  */
-import { colliderDepthOf, collisionPartPolygons, planeLockOf, shape2DTo3D, type ModelColliderTable } from '@thirdlight/project-model';
+import { colliderDepthOf, planeLockOf, shape2DTo3D, type ModelColliderTable } from '@thirdlight/project-model';
 
-import type { ColliderPrimitive3D, ColliderShape3D, PhysicsPlane, PhysicsQuat, PhysicsVec3, StaticColliderSpec, StaticColliderSpec3D } from './ports';
+import type { ColliderPrimitive3D, ColliderShape3D, PhysicsPlane, PhysicsQuat, PhysicsVec3, StaticColliderSpec3D } from './ports';
 import type { TransformState } from './types-simulation';
 import { rotate3 } from './geometry3';
 import { worldTransformOf, type WorldTransform } from './world-transform';
@@ -34,19 +34,6 @@ const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !
 const num = (v: unknown): number => (typeof v === 'number' ? v : Number.NaN);
 const IDENTITY: PhysicsQuat = { x: 0, y: 0, z: 0, w: 1 };
 const ORIGIN: PhysicsVec3 = { x: 0, y: 0, z: 0 };
-
-/**
- * The angle about Z (radians) of a transform's `[x, y, z, w]`
- * quaternion — the one rotation a 2D-plane collider takes (the project model
- * keeps a physics entity's rotation about Z only). Exactly 0 for the
- * identity (either sign of `w`), so an unrotated collider gets rotationZ 0.
- */
-export function colliderRotationZ(rotation: readonly number[] | undefined): number {
-  if (rotation === undefined) return 0;
-  const z = rotation[2] ?? 0;
-  const w = rotation[3] ?? 1;
-  return z === 0 ? 0 : 2 * Math.atan2(z, w);
-}
 
 /** The table key of a model component (its asset, and its piece or '' for the whole file). */
 export function modelColliderKey(model: unknown): { assetId: string; piece: string } | null {
@@ -177,37 +164,6 @@ export function colliderShape3DOf(shape: unknown, scale: readonly number[] = [1,
   return parts.length === 0 ? null : { type: 'compound', parts };
 }
 
-/** A 2D-plane primitive (a box's depth is not part of it). */
-function primitive2D(s: Obj): Obj | null {
-  if (s['type'] === 'box') return { type: 'box', hx: s['hx'], hy: s['hy'] };
-  if (s['type'] === 'polygon') return { type: 'polygon', vertices: s['vertices'] };
-  return null;
-}
-
-/**
- * The shape the 2D port builds: a primitive without a pose as it was; a
- * placed primitive or a compound as a compound of parts at their center's
- * x, y and their turn about Z; `model` as a compound of the `_COL` parts'
- * polygons on the plane. Null when nothing is left to build.
- */
-export function colliderShape2DOf(shape: unknown, components: Readonly<Obj> = {}, ctx?: ColliderContext): unknown {
-  if (!isObj(shape)) return null;
-  if (shape['type'] === 'model') {
-    const polys = collisionPartPolygons(modelParts(components, ctx).map((points) => ({ points: points.map((p) => [p[0] ?? 0, p[1] ?? 0, p[2] ?? 0] as [number, number, number]) })));
-    return polys.length === 0 ? null : { type: 'compound', parts: polys.map((vertices) => ({ shape: { type: 'polygon', vertices }, x: 0, y: 0, angle: 0 })) };
-  }
-  if (shape['type'] !== 'compound' && poseOf(shape) === null) return primitive2D(shape) ?? shape;
-  const list = shape['type'] === 'compound' ? (Array.isArray(shape['shapes']) ? (shape['shapes'] as unknown[]).filter(isObj) : []) : [shape];
-  const parts: Obj[] = [];
-  for (const p of list) {
-    const prim = primitive2D(p);
-    if (prim === null) continue;
-    const pose = poseOf(p) ?? { center: [0, 0, 0], rotation: [0, 0, 0, 1] };
-    parts.push({ shape: prim, x: pose.center[0] ?? 0, y: pose.center[1] ?? 0, angle: colliderRotationZ(pose.rotation) });
-  }
-  return parts.length === 0 ? null : { type: 'compound', parts };
-}
-
 /** An object's own transform as its world transform (a root object). */
 function ownTransform(components: Readonly<Obj>): WorldTransform {
   const t = components['transform'] as { position?: readonly number[]; rotation?: readonly number[]; scale?: readonly number[] } | undefined;
@@ -215,29 +171,6 @@ function ownTransform(components: Readonly<Obj>): WorldTransform {
   const q = t?.rotation ?? [0, 0, 0, 1];
   const s = t?.scale ?? [1, 1, 1];
   return { position: [p[0] ?? 0, p[1] ?? 0, p[2] ?? 0], rotation: [q[0] ?? 0, q[1] ?? 0, q[2] ?? 0, q[3] ?? 1], scale: [s[0] ?? 1, s[1] ?? 1, s[2] ?? 1] };
-}
-
-/**
- * The static collider spec of one entity's `collider` on the 2D plane
- * (null without one, or when its shape resolves to nothing) — at `world`
- * (default: its own transform, a root object), turned about Z with it (the
- * editor draws the collider rotated with the entity, so physics must too),
- * kinematic for a mover, one-way when set.
- */
-export function staticColliderOf(entityId: string, components: Readonly<Obj>, world?: WorldTransform, ctx?: ColliderContext): StaticColliderSpec | null {
-  const collider = components['collider'] as { shape?: unknown; oneWay?: boolean } | undefined;
-  if (collider === undefined) return null;
-  const shape = colliderShape2DOf(collider.shape, components, ctx);
-  if (shape === null) return null;
-  const w = world ?? ownTransform(components);
-  return {
-    entityId,
-    shape,
-    position: { x: w.position[0], y: w.position[1] },
-    rotationZ: colliderRotationZ(w.rotation),
-    ...(components['mover'] !== undefined ? { kinematic: true } : {}),
-    ...(collider.oneWay === true ? { oneWay: true } : {}),
-  };
 }
 
 /**
@@ -301,19 +234,6 @@ export function worldTransformsOf(entities: readonly { id: string; parentId?: st
   const lookup = { get: (id: string): TransformState | undefined => local.get(id) ?? ctx?.outside?.transform(id) } as ReadonlyMap<string, TransformState>;
   const parentOf = (id: string): string | null | undefined => (parents.has(id) ? parents.get(id) : ctx?.outside?.parentOf(id));
   return (id) => worldTransformOf(id, lookup, parentOf);
-}
-
-/** The 2D static colliders of a list of (resolved) entities, the player's excluded, each where it is in the world. */
-export function colliderSpecs2D(entities: readonly { id: string; parentId?: string | null; components?: unknown }[], ctx?: ColliderContext): StaticColliderSpec[] {
-  const worldOf = worldTransformsOf(entities, ctx);
-  const out: StaticColliderSpec[] = [];
-  for (const e of entities) {
-    const c = (e.components ?? {}) as Obj;
-    if (c['collider'] === undefined || c['controller'] !== undefined) continue;
-    const spec = staticColliderOf(e.id, c, worldOf(e.id), ctx);
-    if (spec !== null) out.push(spec);
-  }
-  return out;
 }
 
 /** The 3D static colliders of a list of (resolved) entities, the player's excluded, each where it is in the world (`kinematic`: the ones a script or timeline drives). */

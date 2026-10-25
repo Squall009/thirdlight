@@ -10,7 +10,7 @@
  */
 import { TransformMirror } from './step-buffers';
 import { clipMessage } from './errors';
-import type { PhysicsPort, PhysicsPort3D } from './ports';
+import type { PhysicsPort3D } from './ports';
 import type { IntentSet } from './intents';
 import type {
   GameplaySettings,
@@ -92,11 +92,10 @@ export class RuntimeSim {
   readonly hz: number;
   readonly dt: number;
   readonly settings: GameplaySettings;
-  readonly physics?: PhysicsPort;
   /**
-   * The 3D port. With it the runtime runs the 3D character phase
-   * (`PlayerControllers.runPhysics3D`) and commits the full position; `physics` is then
-   * absent, so every 2D path (movers, drop-through, queries, respawn) is inert.
+   * The physics port (absent: a game without physics). With it the runtime
+   * runs the character phase (`PlayerControllers.runPhysics3D`) and commits
+   * the full position.
    */
   readonly physics3d?: PhysicsPort3D;
   entries: ModuleEntry[];
@@ -127,7 +126,6 @@ export class RuntimeSim {
   constructor(a: {
     hz: number;
     settings: GameplaySettings;
-    physics?: PhysicsPort;
     physics3d?: PhysicsPort3D;
     entries: ModuleEntry[];
     order: string[];
@@ -138,7 +136,6 @@ export class RuntimeSim {
     this.hz = a.hz;
     this.dt = 1 / a.hz;
     this.settings = a.settings;
-    this.physics = a.physics;
     if (a.physics3d !== undefined) this.physics3d = a.physics3d;
     this.entries = a.entries;
     this.order = a.order;

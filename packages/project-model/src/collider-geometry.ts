@@ -2,7 +2,7 @@
  * Collider shapes made from geometry: a model's collision parts (or its
  * render geometry) turned into the shapes the project model stores — a
  * convex hull of at most 64 extreme points, a triangle mesh, a box from
- * bounds, and on a 2D plane a convex polygon of at most 8 corners. The
+ * bounds, and a convex polygon (an XY outline) of at most 8 corners. The
  * editor (from a loaded model), the backend's conversion command and the
  * build that resolves `{type: 'model'}` all make shapes here, so one model
  * gives the same collider wherever it is made.
@@ -136,7 +136,7 @@ export function boxFromBounds(bounds: { min: readonly number[]; max: readonly nu
   return { ok: true, shape: { type: 'box', hx: half[0]!, hy: half[1]!, hz: half[2]!, ...(center.some((c) => c !== 0) ? { center } : {}) } };
 }
 
-// ---- the 2D plane ----------------------------------------------------------------
+// ---- XY outlines -----------------------------------------------------------------
 
 function cross2(o: Vec2Tuple, a: Vec2Tuple, b: Vec2Tuple): number {
   return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
@@ -184,7 +184,7 @@ function dropLeastArea(poly: Vec2Tuple[]): Vec2Tuple[] {
 }
 
 /**
- * The 2D plane's polygon for points: the convex hull of their XY,
+ * The XY outline polygon for points: the convex hull of their XY,
  * counter-clockwise, at most 8 corners (the least area dropped first),
  * rounded to 1 mm; null when it has no area.
  */

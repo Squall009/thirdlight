@@ -159,7 +159,7 @@ export class RuntimeFaults {
   /** The phased module sets' diagnostics fields: input, physics, intents, the behavior logs and the failed flag. */
   phasedFields(actions: ActionSource, characterId: string | undefined, counts: { inputSamples: number; droppedInputSteps: number; settleSteps: number; physicsSteps: number; intentCommitCount: number }): Partial<RuntimeDiagnostics> {
     const a = actionDiagnostics(actions);
-    const physics = physicsDiagnostics(this.sim.physics ?? this.sim.physics3d, characterId);
+    const physics = physicsDiagnostics(this.sim.physics3d, characterId);
     const logs = this.behaviorLogTotals();
     return {
       failed: this.sim.stateName === 'failed',

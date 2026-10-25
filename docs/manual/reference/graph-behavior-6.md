@@ -1,8 +1,36 @@
-# Graph: Visual script (part 6, from Saves)
+# Graph: Visual script (part 6, from Material data cell (`api.materials.getData`))
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Visual script node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="node-behavior--api-materials-get-data"></a>
+### Material data cell (`api.materials.getData`)
+
+One cell of a data parameter on an object as [r, g, b, a] (0–255), or null (no such parameter or cell). An empty entity means this object.
+
+Inputs:
+
+- `entityId` "entity" (string)
+- `param` "parameter" (string)
+- `x` (number)
+- `y` (number)
+- `materialId` "material" (string)
+
+Outputs:
+
+- `value` (vector)
+- `found` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `entityId` | entity | string | `""` | ≤ 256 chars |
+| `param` | parameter | string | `""` | ≤ 256 chars |
+| `x` | x | number | `0` | -1000000000 – 1000000000 |
+| `y` | y | number | `0` | -1000000000 – 1000000000 |
+| `materialId` | material | string | `""` | ≤ 256 chars |
 
 <a id="graph-behavior--saves"></a>
 ## Saves
@@ -1221,7 +1249,7 @@ Outputs:
 <a id="graph-behavior--lifecycle"></a>
 ## Lifecycle
 
-- Respawn player (`api.lifecycle.respawn`): Move a player character (a controller's object: `entityId`, absent: the first player controller) to a player spawn and stop it — the active spawn, or the one named (which becomes the active one). In 3D applied after this step's intent phase (a later phase: the next step); on the 2D plane at the next step boundary. `false` without that character or for an unknown spawn. An empty entity means this object.
+- Respawn player (`api.lifecycle.respawn`): Move a player character (a controller's object: `entityId`, absent: the first player controller) to a player spawn and stop it — the active spawn, or the one named (which becomes the active one). Applied after this step's intent phase (a later phase: the next step). `false` without that character or for an unknown spawn. An empty entity means this object.
 - Set spawn point (`api.lifecycle.setSpawn`): Make a player spawn (an object with the Player spawn component) the one respawn uses.
 - Spawn point (`api.lifecycle.spawnPoint`): The active player spawn ('' when there is none: respawn then uses where the player started).
 - Restart run (deprecated) (`api.lifecycle.restart`): Deprecated: the engine does not know what a run restart is. Restarts the run at the next step (scenes, objects, scripts, cameras, UI and the start mode as at the start) and writes one Problems line per Play; reload scenes with `ctx.scenes.reload` and reset what the game keeps itself.
@@ -1229,7 +1257,7 @@ Outputs:
 <a id="node-behavior--api-lifecycle-respawn"></a>
 ### Respawn player (`api.lifecycle.respawn`)
 
-Move a player character (a controller's object: `entityId`, absent: the first player controller) to a player spawn and stop it — the active spawn, or the one named (which becomes the active one). In 3D applied after this step's intent phase (a later phase: the next step); on the 2D plane at the next step boundary. `false` without that character or for an unknown spawn. An empty entity means this object.
+Move a player character (a controller's object: `entityId`, absent: the first player controller) to a player spawn and stop it — the active spawn, or the one named (which becomes the active one). Applied after this step's intent phase (a later phase: the next step). `false` without that character or for an unknown spawn. An empty entity means this object.
 
 Inputs:
 
@@ -1604,31 +1632,3 @@ Outputs:
 - `target` (string)
 - `progress` (number)
 - `blending` (boolean)
-
-<a id="node-behavior--api-environment-weight"></a>
-### Environment weight (`api.environment.weight`)
-
-How much of a preset is in the look now (0–1; '' = the base look).
-
-Inputs:
-
-- `presetId` "preset" (string)
-
-Outputs:
-
-- `value` (number)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `presetId` | preset | string | `""` | ≤ 256 chars |
-
-<a id="node-behavior--api-environment-presets"></a>
-### Environment presets (`api.environment.presets`)
-
-The project's environment preset ids.
-
-Outputs:
-
-- `value` (list)

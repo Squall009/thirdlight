@@ -161,7 +161,7 @@ export type CameraBlendStyle = 'cut' | 'linear' | 'eased';
 export interface CameraWorld {
   /** An entity's world position and rotation (false: not loaded). */
   worldOf(id: string, position: number[], rotation: number[]): boolean;
-  /** The nearest collider along a ray (3D projects; absent: no collision pull-in). */
+  /** The nearest collider along a ray (absent: no collision pull-in). */
   raycast?(origin: V3, direction: V3, maxDistance: number): { distance: number } | null;
 }
 

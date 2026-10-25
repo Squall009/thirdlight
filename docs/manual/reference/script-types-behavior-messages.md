@@ -198,20 +198,20 @@ export interface BehaviorCollectible {
 /** `ctx.character` — the player characters (the objects with a Character controller; several in local co-op): push, place, walk, turn and switch them off and on. */
 export interface BehaviorCharacter {
   /**
-   * Add `velocity` [x, y, z] (m/s, each at most 100 either way) to a player character's velocity at its next move (`entityId`, absent: the first player controller) — a push, a launch, a knock back or a bounce; its own acceleration then brings it back to what the input asks. A positive y lifts it off the ground. The 2D plane ignores z. Impulses in one step add up. False without that character or for a bad vector.
+   * Add `velocity` [x, y, z] (m/s, each at most 100 either way) to a player character's velocity at its next move (`entityId`, absent: the first player controller) — a push, a launch, a knock back or a bounce; its own acceleration then brings it back to what the input asks. A positive y lifts it off the ground. Impulses in one step add up. False without that character or for a bad vector.
    * @graphNode Character impulse
    * @graphLabel velocity velocity
    * @graphLabel entityId player
    */
   impulse(velocity: readonly [number, number, number], entityId?: string): boolean;
   /**
-   * Put a player character at `position` [x, y, z] (m; the 2D plane ignores z) from rest, facing `facing` degrees about +Y (0 faces +Z, 90 faces +X; absent: it keeps its way) — a `character_place` after this step's intent phase (called in a later phase: the next step's). It ends a walk under way. False without that character or for a bad point.
+   * Put a player character at `position` [x, y, z] (m; on a plane, its coordinate along the plane's normal is the plane's) from rest, facing `facing` degrees about +Y (0 faces +Z, 90 faces +X; absent: it keeps its way) — a `character_place` after this step's intent phase (called in a later phase: the next step's). It ends a walk under way. False without that character or for a bad point.
    * @graphNode Place character at
    * @graphLabel entityId player
    */
   place(position: readonly [number, number, number], facing?: number, entityId?: string): boolean;
   /**
-   * Have a player character's own controller walk it to `position` (its acceleration, collisions, slopes and animator speed as with the player's input; the player's input does not move it meanwhile): on the ground plane in 3D (the mark's height is where the ground is), along x on the 2D plane. It slows down near the mark and arrives within `arrive` m (absent: 0.1), then turns to `facing` degrees if given. A walk that gets no closer for a second is blocked and ends there. Returns the walk's handle for `walkState` (0 when refused: no such character, a bad point). A new walk, a placement or `stop` ends the one under way.
+   * Have a player character's own controller walk it to `position` (its acceleration, collisions, slopes and animator speed as with the player's input; the player's input does not move it meanwhile): on the ground plane (the mark's height is where the ground is). It slows down near the mark and arrives within `arrive` m (absent: 0.1), then turns to `facing` degrees if given. A walk that gets no closer for a second is blocked and ends there. Returns the walk's handle for `walkState` (0 when refused: no such character, a bad point). A new walk, a placement or `stop` ends the one under way.
    * @graphNode Walk character to
    * @graphLabel entityId player
    */
@@ -229,13 +229,13 @@ export interface BehaviorCharacter {
    */
   stop(entityId?: string): boolean;
   /**
-   * Turn a player character to `facing` degrees about +Y (0 faces +Z, 90 faces +X) at its controller's turn speed in 3D; on the 2D plane its face-movement models turn at once (90 right, −90 left). False without that character.
+   * Turn a player character to `facing` degrees about +Y (0 faces +Z, 90 faces +X) at its controller's turn speed. False without that character.
    * @graphNode Turn character
    * @graphLabel entityId player
    */
   turn(facing: number, entityId?: string): boolean;
   /**
-   * Switch a player character's controller off (it stays where it is: no input, no gravity — a cutscene, a dialogue) or back on, in 3D and on the 2D plane; a `character_enable`. Lasts until changed or the run restarts. False without that character.
+   * Switch a player character's controller off (it stays where it is: no input, no gravity — a cutscene, a dialogue) or back on; a `character_enable`. Lasts until changed or the run restarts. False without that character.
    * @graphNode Enable character control
    * @graphLabel entityId player
    */
@@ -514,7 +514,7 @@ export interface BehaviorDebug {
 /**
  * `ctx.grid` — the block layers of the loaded scenes. Coordinates are cell
  * indices of a layer (x, y, z); a layer is named by its entity id. Writes
- * change cells, queries, rendering and (in a 3D project) collision within the
+ * change cells, queries, rendering and (with a physics world) collision within the
  * same step; they are refused (`false`) when a value does not fit (unknown
  * block type or field, a rotation the block does not allow, outside the
  * layer's bounds, a larger block's footprint over other cells) or at the

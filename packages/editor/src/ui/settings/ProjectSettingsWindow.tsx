@@ -215,7 +215,6 @@ function Section(props: ProjectSettingsWindowProps & { id: SettingsSection }): J
         <CollisionLayersPanel
           layers={s.collisionLayers}
           usage={props.layerUsage}
-          dimension={3}
           error={s.layersError}
           onSetLayers={(next) => void s.saveCollisionLayers(next)}
         />

@@ -19,7 +19,6 @@ function recorder(): { port: PhysicsPort3D; adds: StaticColliderSpec3D[][]; remo
   const adds: StaticColliderSpec3D[][] = [];
   const removes: string[][] = [];
   const port = {
-    dimension: 3,
     stageCharacterMove: () => undefined,
     step: () => ({}) as never,
     addStaticColliders: (s: readonly StaticColliderSpec3D[]) => void adds.push([...s]),

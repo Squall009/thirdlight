@@ -565,7 +565,7 @@ export class RuntimeScenes {
     for (const e of entities) {
       if (this.sim.entities.has(e.id)) return refuse(`entity "${e.id}" is already loaded`);
     }
-    const players = arrivalProblem(entities, host.controllers, this.sim.physics3d ?? this.sim.physics);
+    const players = arrivalProblem(entities, host.controllers, this.sim.physics3d);
     if (players !== null) return refuse(players);
     // A loaded scene's entities arrive copied and frozen (prepared over the steps before).
     const frozen = prepared ? Object.freeze([...entities]) : deepFreeze(entities.map((e) => structuredClone(e)));
@@ -581,7 +581,7 @@ export class RuntimeScenes {
     // The scene's block layers and their colliders (at this step boundary).
     if (host.grid.addLayers(frozen).length > 0) {
       try {
-        host.grid.flushCollision(this.sim.physics3d, this.sim.physics);
+        host.grid.flushCollision(this.sim.physics3d);
       } catch (e) {
         this.faults.failStop('physics_port_error', 'scene_colliders', `adding the block colliders of scene "${sceneId}" failed: ${messageOf(e)}`, this.sim.stepIndex);
         return false;

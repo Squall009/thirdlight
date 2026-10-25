@@ -105,7 +105,6 @@ function fakePhysics(base: { x: number; y: number }): FakePhysics {
   let pending: V3 = { x: 0, y: 0, z: 0 };
   const position = (): V3 => ({ ...at });
   const port: PhysicsPort3D = {
-    dimension: 3,
     implementation: 'fake-host-test',
     stageCharacterMove(delta: V3): void {
       pending = { x: pending.x + delta.x, y: pending.y + delta.y, z: pending.z + delta.z };

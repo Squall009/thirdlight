@@ -24,21 +24,19 @@ const T = { rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
 const at = (x: number, y: number, z = 0): unknown => ({ position: [x, y, z], ...T });
 
 function port(): unknown {
-  const neutral = { x: 0, y: 0 };
-  let p = { x: 3, y: 0.91 };
+  const neutral = { x: 0, y: 0, z: 0 };
+  let p = { x: 3, y: 0.91, z: 0 };
   return {
     stageCharacterMove() {},
     step() {
-      return { requested: { ...neutral }, applied: { ...neutral }, position: { ...p }, grounded: true, supportNormal: { x: 0, y: 1 }, contacts: { ground: true, wall: false, head: false, steepSlope: false }, snapped: false };
+      return { requested: { ...neutral }, applied: { ...neutral }, position: { ...p }, grounded: true, supportNormal: { x: 0, y: 1, z: 0 }, contacts: { ground: true, wall: false, head: false, steepSlope: false }, snapped: false };
     },
-    reset() {},
-    clearCharacterMotion() {},
-    placeCharacter(c: { x: number; y: number }) {
-      p = { x: c.x, y: c.y };
-      return { ok: true, supportNormal: { x: 0, y: 1 } };
+    placeCharacter(c: { x: number; y: number; z: number }) {
+      p = { ...c };
+      return { ok: true, supportNormal: { x: 0, y: 1, z: 0 } };
     },
     characterClearance() {
-      return { ok: true, supportNormal: { x: 0, y: 1 } };
+      return { ok: true, supportNormal: { x: 0, y: 1, z: 0 } };
     },
     addStaticColliders() {},
     removeStaticColliders() {},

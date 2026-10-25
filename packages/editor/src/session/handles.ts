@@ -69,7 +69,7 @@ export type HandleModel =
   | { type: 'point'; p: P3; dims: 2 | 3 }
   /** A height `h` above `base` (the capsule's feet, or the origin), along the frame's Y; `r` the drawn ring's radius. */
   | { type: 'height'; base: P3; h: number; r: number }
-  /** An axis-aligned box between two corners; `dims` 2 draws and drags it on the 2D plane (z kept). */
+  /** An axis-aligned box between two corners; `dims` 2 draws and drags it in the XY plane (z kept). */
   | { type: 'bounds'; min: P3; max: P3; dims: 2 | 3 }
   /** A spline's points (`spline-handle.ts`). */
   | SplineHandleModel;
@@ -224,8 +224,8 @@ function readShape(entityId: string, component: string, handleIndex: number, h: 
         lim('halfX', hx.f);
         lim('halfY', hy.f);
         // With its depth set (a collider's hz) the box has three axes and
-        // turns with the object's whole rotation (a 3D collider); without, it is the flat
-        // 2D-plane box, turning about Z only (as before).
+        // turns with the object's whole rotation; without, it is a flat box
+        // (its depth is the collider's), dragged in its XY plane.
         const hz = h.bind['halfZ'] !== undefined ? at('halfZ') : null;
         if (hz !== null && typeof hz.v === 'number') {
           lim('halfZ', hz.f);
@@ -330,7 +330,7 @@ function readShape(entityId: string, component: string, handleIndex: number, h: 
   }
 }
 
-/** Where a bounds box is drawn along z on the 2D plane (the plane itself, when the box spans it). */
+/** Where a flat bounds box is drawn along z (z = 0, when the box spans it). */
 const planeZ = (m: { min: P3; max: P3 }): number => Math.min(m.max.z, Math.max(m.min.z, 0));
 
 // ---- grips --------------------------------------------------------------------

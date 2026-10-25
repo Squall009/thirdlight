@@ -703,10 +703,10 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
       // The hierarchy of the loaded entities (a script owns the triggers below its entity).
       const parentOf = new Map<string, string>();
       for (const e of snapshot.scene.entities) if (e.parentId !== undefined) parentOf.set(e.id, e.parentId);
-      // In a 3D project a collider no mover moves is script-drivable (the runtime poses it
-      // as a kinematic body from the transform intents); the controller and movers stay off limits.
+      // A collider no mover moves is script-drivable (the runtime poses it as a kinematic
+      // body from the transform intents); the controller and movers stay off limits.
       const physicsBody = (c: { collider?: unknown; controller?: unknown; mover?: unknown }): boolean =>
-        c.controller !== undefined || (c.collider !== undefined && (cfg.physicsDimension !== 3 || c.mover !== undefined));
+        c.controller !== undefined || (c.collider !== undefined && c.mover !== undefined);
       for (const e of snapshot.scene.entities) {
         const c = (e.components as { collider?: unknown; controller?: unknown; mover?: unknown; behavior?: { behaviorId?: string; values?: Record<string, unknown> } });
         if (physicsBody(c)) physicsIds.add(e.id);
@@ -1605,7 +1605,7 @@ export interface BehaviorPointer {
 
 const POINTER_BIT: Readonly<Record<string, number>> = Object.freeze({ left: 1, right: 2, middle: 4 });
 const NO_CURSOR_CONTROL = (): void => {
-  /* a host without the cursor channel (tests, the 2D plane's modules) ignores the request */
+  /* a host without the cursor channel (tests, engine modules) ignores the request */
 };
 /** A host without the input-status channel: the keyboard, no bindings, requests ignored. */
 const NO_INPUT_STATUS: InputStatusView = Object.freeze({

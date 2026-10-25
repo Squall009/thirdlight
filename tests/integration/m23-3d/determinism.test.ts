@@ -57,7 +57,6 @@ async function run(mode: Mode): Promise<{ h: Harness; digests: string[]; player:
 describe('a 3D scene steps deterministically (two runs, page and worker)', () => {
   it('the config: statics with their full rotation and depth, the capsule, gravity along −Y', () => {
     const { physics } = scene();
-    expect(physics.dimension).toBe(3);
     expect(physics.character).toEqual({ position: { x: 1.5, y: 3, z: -2 }, radius: 0.3, halfHeight: 0.6, offset: { x: 0, y: 0, z: 0 } });
     expect(physics.statics.map((s: Any) => s.entityId)).toEqual(['floor-0001', 'ramp-0001', 'crate-0001']);
     expect(physics.statics[1].rotation.x).toBeCloseTo(Math.sin(Math.PI / 18), 12);

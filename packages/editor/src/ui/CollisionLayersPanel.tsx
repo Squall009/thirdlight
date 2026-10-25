@@ -14,15 +14,13 @@ interface Props {
   layers: readonly string[];
   /** How many colliders list each layer. */
   usage: ReadonlyMap<string, number>;
-  /** The project's physics dimension (layers are a 3D feature). */
-  dimension: 2 | 3;
   error: string | null;
   onSetLayers: (layers: string[]) => void;
 }
 
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 
-export function CollisionLayersPanel({ layers, usage, dimension, error, onSetLayers }: Props): JSX.Element {
+export function CollisionLayersPanel({ layers, usage, error, onSetLayers }: Props): JSX.Element {
   const [draft, setDraft] = useState('');
   const problem = (name: string): string | null => {
     if (!NAME_RE.test(name)) return 'a letter or _, then letters, digits or _ (up to 32)';
@@ -41,7 +39,7 @@ export function CollisionLayersPanel({ layers, usage, dimension, error, onSetLay
     <div className="tl-panel tl-tags" aria-label="collision layers">
       <div className="tl-panel__title">Collision layers — {layers.length} / {MAX_LAYERS}</div>
       <p className="tl-tags__hint">
-        {dimension === 3 ? '' : 'A 3D project feature (physics_dimension 3). '}Colliders are in &quot;default&quot; unless they list layers; script queries see only the layers they name (<code>ctx.physics.raycast3d</code>, <code>pickAtPointer</code>).
+        Colliders are in &quot;default&quot; unless they list layers; script queries see only the layers they name (<code>ctx.physics.raycast3d</code>, <code>pickAtPointer</code>).
       </p>
       <ul className="tl-tags__list">
         <li className="tl-tags__row" data-layer="default">

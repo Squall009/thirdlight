@@ -115,11 +115,6 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   // a long step never delays a frame or an input event — every genre gains and
   // none needs the page thread; the page falls back to it where the browser
   // cannot start a worker. Results are the same either way (determinism).
-  // The simulation's dimension. 2, the 2D plane: every project
-  // made before 3D physics existed plays on it exactly as before (its own
-  // Rapier 2D backend); 3 runs the game on the 3D backend (Vec3 positions,
-  // full rotations, colliders with depth) — a choice of the game, not a
-  // default fitted to any genre, so the neutral default keeps existing data valid.
   { key: 'sim_thread', type: 'number', default: 1, values: [1, 2], valueLabels: ['Worker (off the main thread)', 'Main thread'], integer: true, unit: '', optional: true, group: 'Engine', label: 'Simulation thread', tooltip: 'Where the game simulation (physics, gameplay, scripts) runs in Play and the export: a worker (the page thread only draws and reads input) or the page\'s main thread. Results are identical. A page URL flag ?threads=off|on overrides it.' },
   // The seed of the scripts' ctx.random (every stream mixes it with the
   // script, object and stream name). 0: any fixed value keeps runs and replays
@@ -137,17 +132,17 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   // reversed-Z needs WebGPU or WebGL 2's EXT_clip_control and falls back to
   // standard without it).
   { key: 'depth_buffer', type: 'number', default: 1, values: [1, 2, 3], valueLabels: ['Standard', 'Logarithmic (far vistas)', 'Reversed Z (far vistas)'], integer: true, unit: '', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'Depth precision', tooltip: 'How depth is stored: standard, logarithmic or reversed Z. The last two keep close objects sharp while scenery kilometres away still draws in the right order (pair with a large camera far plane). Reversed Z needs WebGPU or a WebGL 2 browser with EXT_clip_control (else standard).' },
-  // How audio sources are heard. 0, automatic: a 2D-plane project
-  // keeps the X-distance model (louder as the player comes near along X, no
-  // panning) so every existing project sounds exactly as before; a 3D project
-  // gets a panner per source with the listener on the active camera. 1 and 2
-  // force one or the other (a 2D game may want stereo panning).
+  // How audio sources are heard. 0, automatic: a game that starts in a side
+  // view (a start scene with a default plane) keeps the distance model along
+  // the plane (louder as the player comes near, no panning); a free one gets
+  // a panner per source with the listener on the active camera. 1 and 2
+  // force one or the other (a side-view game may want stereo panning).
   // The size (m) of an instance set's spatial chunks, each culled on its own
   // (a set's own chunkSize overrides it; no block of copies spans two chunks,
   // and each block draws one level of detail unless the set asks for a level
   // per copy).
   { key: 'instance_chunk_m', type: 'number', default: INSTANCE_CHUNK_METERS, min: 1, max: MAX_INSTANCE_CHUNK_SIZE, unit: 'm', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'Instance chunk size', tooltip: 'Instance sets are culled in square chunks of about this size (m), each hidden when out of view. Smaller: finer culling (the draws stay one per mesh and level). A set can set its own.' },
-  { key: 'audio_spatial', type: 'number', default: 0, values: [0, 1, 2], valueLabels: ['Automatic (2D: by distance to the player, 3D: panned)', 'By distance to the player (X)', 'Panned (listener on the camera)'], integer: true, unit: '', optional: true, group: 'Engine', label: 'Audio sources', tooltip: 'How audio sources are heard: by their X distance to the player (the 2D default, no panning) or through a panner with the listener on the active camera (the 3D default: left/right panning and each source\'s distance model). Script sounds with a position are always panned.' },
+  { key: 'audio_spatial', type: 'number', default: 0, values: [0, 1, 2], valueLabels: ['Automatic (side view: by distance to the player, else panned)', 'By distance to the player (X)', 'Panned (listener on the camera)'], integer: true, unit: '', optional: true, group: 'Engine', label: 'Audio sources', tooltip: 'How audio sources are heard: by their X distance to the player (the side-view default, no panning) or through a panner with the listener on the active camera (the default otherwise: left/right panning and each source\'s distance model). Script sounds with a position are always panned.' },
   // The texture budget of Play and the export (MiB; project-model
   // TEXTURE_BUDGET_DEFAULT_MB, where the default's reason is): streamed
   // textures load the mips their on-screen size needs inside it, the least

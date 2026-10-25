@@ -170,9 +170,9 @@ export interface CharacterMoveIntent {
 /**
  * Teleport the player character (its origin) to a point,
  * stopping its motion; it falls from there. Intent phase; it takes effect
- * before the controller runs in the same step. On the 2D plane
- * too (z is ignored there), with the placement of scene arrivals and
- * respawns (from rest: velocity and jump reset).
+ * before the controller runs in the same step, with the placement of scene
+ * arrivals and respawns (from rest: velocity and jump reset); a character
+ * on a plane is placed on it.
  * @graphNode Place character
  * @graphPhase intent
  */
@@ -184,13 +184,12 @@ export interface CharacterPlaceIntent {
    * @graphNode skip the node drives the first player controller (scripts may name another)
    */
   entityId?: string;
-  /** Where its origin goes, [x, y, z] (m; on the 2D plane z is ignored). */
+  /** Where its origin goes, [x, y, z] (m; on a plane, its coordinate along the plane's normal is the plane's). */
   position: readonly [number, number, number];
   /**
    * The way it faces once placed, in degrees about +Y (0 faces
-   * +Z) — in 3D what `ctx.physics.characterState().facing` reads, so a saved facing
-   * restores. Absent: it keeps facing as it was. On the 2D plane it turns the
-   * character's face-movement models (90 faces +X, −90 faces −X).
+   * +Z) — what `ctx.physics.characterState().facing` reads, so a saved facing
+   * restores. Absent: it keeps facing as it was.
    */
   facing?: number;
 }
@@ -198,7 +197,7 @@ export interface CharacterPlaceIntent {
 /**
  * Switch the character controller off (the
  * character stays where it is: no input, no gravity — a cutscene or a
- * dialogue) or back on, in 3D and on the 2D plane. Lasts until changed or
+ * dialogue) or back on. Lasts until changed or
  * the run restarts. Intent phase.
  * @graphNode Enable character
  * @graphPhase intent

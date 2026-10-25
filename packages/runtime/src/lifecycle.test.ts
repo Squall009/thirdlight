@@ -260,7 +260,7 @@ describe('lifecycle', () => {
   });
 });
 
-describe('ctx.lifecycle.respawn on the 2D plane', () => {
+describe('ctx.lifecycle.respawn', () => {
   const T = { rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
   const at = (x: number, y: number, z = 0) => ({ position: [x, y, z], ...T });
   interface Ctx {
@@ -273,22 +273,20 @@ describe('ctx.lifecycle.respawn on the 2D plane', () => {
   /** A scene whose character (the controller entity) starts at (0, 5), two spawns, one script; the port keeps the character where it was last placed. */
   function run(script: (ctx: Ctx) => void) {
     const placed: { x: number; y: number }[] = [];
-    let where = { x: 0, y: 5 };
-    const zero = { x: 0, y: 0 };
+    let where = { x: 0, y: 5, z: 0 };
+    const zero = { x: 0, y: 0, z: 0 };
     const port = {
       stageCharacterMove() {},
-      step: () => ({ requested: { ...zero }, applied: { ...zero }, position: { ...where }, grounded: true, supportNormal: { x: 0, y: 1 }, contacts: { ground: true, wall: false, head: false, steepSlope: false }, snapped: false }),
-      reset() {},
-      clearCharacterMotion() {},
-      placeCharacter(c: { x: number; y: number }) {
-        placed.push({ ...c });
-        where = { x: c.x, y: c.y };
-        return { ok: true, supportNormal: { x: 0, y: 1 } };
+      step: () => ({ requested: { ...zero }, applied: { ...zero }, position: { ...where }, grounded: true, supportNormal: { x: 0, y: 1, z: 0 }, contacts: { ground: true, wall: false, head: false, steepSlope: false }, snapped: false }),
+      placeCharacter(c: { x: number; y: number; z: number }) {
+        placed.push({ x: c.x, y: c.y });
+        where = { ...c };
+        return { ok: true, supportNormal: { x: 0, y: 1, z: 0 } };
       },
-      characterClearance: () => ({ ok: true, supportNormal: { x: 0, y: 1 } }),
+      characterClearance: () => ({ ok: true, supportNormal: { x: 0, y: 1, z: 0 } }),
       addStaticColliders() {},
       removeStaticColliders() {},
-      setKinematicPositions() {},
+      setKinematicPoses() {},
       diagnostics: () => ({}),
       dispose() {},
     };
@@ -354,7 +352,7 @@ describe('ctx.lifecycle.respawn on the 2D plane', () => {
     return { rt, tick, placed, character };
   }
 
-  it('moves the character to the active spawn at the next step boundary; a named spawn becomes the active one', () => {
+  it('moves the character to the active spawn after the step\'s intent phase; a named spawn becomes the active one', () => {
     const seen: string[] = [];
     // Calls are made in a step (ctx works only during a hook): `ask` runs in the next one.
     let ask: (() => boolean) | null = null;
@@ -377,12 +375,12 @@ describe('ctx.lifecycle.respawn on the 2D plane', () => {
     expect(h.placed).toEqual([{ x: 0, y: 5 }]);
     expect(spawnPoint).toBe('spawn-a'); // the first spawn until one is set
 
-    // Asked in a step: that step still sees the character where it was; the next one sees it at the spawn.
+    // Asked in a step's intent phase: placed right after it (that script saw the character where it was); the next step sees it at the spawn.
     seen.length = 0;
     h.placed.length = 0;
     ask = () => lifecycle!.respawn();
     h.tick(1);
-    expect(h.placed).toEqual([]);
+    expect(h.placed).toEqual([{ x: 2, y: 1 }]);
     expect(seen).toEqual(['0,5']);
     h.tick(1);
     expect(h.placed).toEqual([{ x: 2, y: 1 }]);

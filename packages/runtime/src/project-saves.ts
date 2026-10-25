@@ -50,8 +50,8 @@ export const PROJECT_SAVE_FORMAT_VERSION = 2;
 /**
  * Where the play stands in a save — the scenes loaded (in load
  * order), the spawn respawns use, the game shell's scene list entry (-1:
- * none) and the character (the controller's object) with its velocity (m/s;
- * z is 0 on the 2D plane) and, in 3D, the way it faces (degrees about +Y, as
+ * none) and the character (the controller's object) with its velocity (m/s)
+ * and the way it faces (degrees about +Y, as
  * `characterState().facing` reads it; older saves have none), or null
  * without a character. With several player controllers `character` is the
  * first's and `characters` holds the others by their object (absent: a save

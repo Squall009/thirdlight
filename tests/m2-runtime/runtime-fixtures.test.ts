@@ -16,13 +16,12 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   BUILTIN_MODULES,
-  CHARACTER_MODULE_ID,
   createRecordedActionSource,
   createSimulationRegistry,
   instantiateRuntime,
   registerSimulationModule,
   type ActionFrame,
-  type PhysicsPort,
+  type PhysicsPort3D,
   type Runtime,
   type SimulationModuleSpec,
 } from '@thirdlight/runtime';
@@ -40,6 +39,15 @@ function readJson(rel: string): any {
 }
 
 const DT = 1 / 120;
+
+/** The controller module id the recorded fixtures name (a test module here, stepped on the fake port). */
+const CHARACTER_MODULE_ID = 'thirdlight.character:controller';
+
+/** A port's placement calls (a run starts by placing each character where its object is). */
+const placing = {
+  placeCharacter: () => ({ ok: true, supportNormal: { x: 0, y: 1, z: 0 } }),
+  characterClearance: () => ({ ok: true, supportNormal: { x: 0, y: 1, z: 0 } }),
+};
 
 function v2Scene(controllerCount = 1): any {
   const transform = (position: number[]): any => ({ position, rotation: [0, 0, 0, 1], scale: [1, 1, 1] });
@@ -75,29 +83,34 @@ function v1Scene(): any {
   };
 }
 
-function fakePort(): PhysicsPort {
-  let pos = { x: 0, y: 1 };
-  let pending = { x: 0, y: 0 };
+function fakePort(): PhysicsPort3D {
+  let pos = { x: 0, y: 1, z: 0 };
+  let pending = { x: 0, y: 0, z: 0 };
   return {
     stageCharacterMove(delta) {
-      pending = { x: delta.x, y: delta.y };
+      pending = { ...delta };
     },
     step() {
       const requested = { ...pending };
-      pending = { x: 0, y: 0 };
-      const target = { x: pos.x + requested.x, y: pos.y + requested.y };
-      const applied = { x: target.x - pos.x, y: target.y - pos.y };
+      pending = { x: 0, y: 0, z: 0 };
+      const target = { x: pos.x + requested.x, y: pos.y + requested.y, z: pos.z + requested.z };
+      const applied = { x: target.x - pos.x, y: target.y - pos.y, z: target.z - pos.z };
       pos = target;
       return {
         requested,
         applied,
         position: { ...target },
         grounded: true,
-        supportNormal: { x: 0, y: 1 },
+        supportNormal: { x: 0, y: 1, z: 0 },
         contacts: { ground: true, wall: false, head: false, steepSlope: false },
         snapped: false,
       };
     },
+    placeCharacter(origin) {
+      pos = { ...origin };
+      return { ok: true, supportNormal: { x: 0, y: 1, z: 0 } };
+    },
+    characterClearance: placing.characterClearance,
     dispose() {},
   };
 }
@@ -435,7 +448,7 @@ describe('fail-stop fixture cases (fixtures/m2/runtime/failstop.json)', () => {
     const c = expectCase('first_step_transform_throw');
     const expectInitial = [0, 1, 0];
 
-    const bootFailing = (spec: SimulationModuleSpec, port: PhysicsPort): Runtime => {
+    const bootFailing = (spec: SimulationModuleSpec, port: PhysicsPort3D): Runtime => {
       const registry = createSimulationRegistry();
       registerSimulationModule(registry, spec.id, spec);
       const res = instantiateRuntime({
@@ -504,12 +517,13 @@ describe('fail-stop fixture cases (fixtures/m2/runtime/failstop.json)', () => {
     };
     let portSteps = 0;
     const basePort = fakePort();
-    const movingPort: PhysicsPort = {
+    const movingPort: PhysicsPort3D = {
       stageCharacterMove: (delta) => basePort.stageCharacterMove(delta),
       step: () => {
         portSteps += 1;
         return basePort.step();
       },
+      placeCharacter: (origin) => basePort.placeCharacter!(origin),
       dispose: () => basePort.dispose(),
     };
     const rt2 = bootFailing(afterPortCommit, movingPort);
@@ -530,19 +544,20 @@ describe('fail-stop fixture cases (fixtures/m2/runtime/failstop.json)', () => {
         return { transformOwners: ['char-0001'], step() {} };
       },
     };
-    const badPort: PhysicsPort = {
+    const badPort: PhysicsPort3D = {
       stageCharacterMove() {},
       step() {
         return {
-          requested: { x: 0, y: 0 },
-          applied: { x: 1, y: 0 },
-          position: { x: 1, y: 1 },
+          requested: { x: 0, y: 0, z: 0 },
+          applied: { x: 1, y: 0, z: 0 },
+          position: { x: 1, y: 1, z: 0 },
           grounded: true,
-          supportNormal: { x: 0, y: 1 },
+          supportNormal: { x: 0, y: 1, z: 0 },
           contacts: { ground: true, wall: false, head: false, steepSlope: false },
           snapped: false,
         };
       },
+      ...placing,
       dispose() {},
     };
     const registry1 = createSimulationRegistry();
@@ -566,11 +581,12 @@ describe('fail-stop fixture cases (fixtures/m2/runtime/failstop.json)', () => {
     res1.runtime.dispose();
 
     const c2 = expectCase('port_throw');
-    const throwing: PhysicsPort = {
+    const throwing: PhysicsPort3D = {
       stageCharacterMove() {},
       step() {
         throw new Error('nope');
       },
+      ...placing,
       dispose() {},
     };
     const registry2 = createSimulationRegistry();

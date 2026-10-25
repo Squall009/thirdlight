@@ -18,7 +18,7 @@
  * between frames, in order, and apply at the next step boundary — the same
  * boundary they reach in single-thread mode.
  */
-import { createRecordedActionSource, DEFAULT_FIXED_STEP_HZ, fixedStepHzOf, type ActionSource, type PhysicsPort, type PhysicsPort3D, type Runtime, type SimulationModuleSpec } from '@thirdlight/runtime';
+import { createRecordedActionSource, DEFAULT_FIXED_STEP_HZ, fixedStepHzOf, type ActionSource, type PhysicsPort3D, type Runtime, type SimulationModuleSpec } from '@thirdlight/runtime';
 import { composeGameRuntime, linkBehaviorModules } from './host';
 import { PlayDebugger, type DebugRequest, type DebugRuntime } from './play-debug';
 import { RelayActionSource } from './relay-input';
@@ -60,16 +60,11 @@ export interface SimWorkerDeps {
   }>;
 }
 
-interface PhysicsQueries {
-  raycast?(origin: { x: number; y: number }, dir: { x: number; y: number }, maxDistance: number): unknown;
-  overlap?(shape: unknown, center: { x: number; y: number }): string[];
-}
-
 /** Run the simulation worker on this endpoint (call once, at the worker's start). */
 export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
   const post = (m: WorkerToMain, transfer?: readonly unknown[]): void => endpoint.post(m, transfer);
   let runtime: Runtime | null = null;
-  let physics: (PhysicsPort & PhysicsQueries) | null = null;
+  let physics: PhysicsPort3D | null = null;
   let tickInput: TickInputSource | null = null;
   let relay: RelayActionSource | null = null;
   let probe: RunProbe | null = null;
@@ -170,7 +165,7 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
           return;
         }
         port = made.port as PhysicsPort3D;
-        physics = made.port as PhysicsPort & PhysicsQueries;
+        physics = port;
       }
       const behaviorModules = await linkBehaviorModules(m.behaviors.rows, m.behaviors.enginePins, (path) => deps.importModule(m.behaviors.urls[path] ?? path));
       let base: ActionSource & { reset?: (reason?: string) => void };

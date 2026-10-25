@@ -38,7 +38,7 @@
  * - `mode` switch the game mode (as `ctx.modes.switch`)
  *                [mode, blend, blendTime];
  * - `character`  a player character (an object with a Character
- *                controller, 3D or the 2D plane) placed, walked by its own
+ *                controller) placed, walked by its own
  *                controller, turned and switched off and on [mode place |
  *                walk with a position, facing (degrees about +Y), run (walk
  *                keys), enabled]; track `playerInput`: the player's input

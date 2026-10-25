@@ -3,8 +3,8 @@
  * `createSimulationRegistry`, `registerSimulationModule`, `BUILTIN_MODULES`,
  * types (snapshot, diagnostics, module interfaces), `ERROR_CODES`,
  * `ActionFrame`, `JumpPhase`, `ActionSource`, `createRecordedActionSource`,
- * `SimulationPhase`, `StepContext`, `GameplaySettings`, `PhysicsPort`,
- * `PhysicsStepClient`; `PhysicsResetPort`, `ModuleResetContext` and
+ * `SimulationPhase`, `StepContext`, `GameplaySettings`, `PhysicsPort3D`,
+ * `PhysicsStepClient`; `ModuleResetContext` and
  * `SIMULATION_PHASE_ORDER`.
  *
  * The play/runtime core (docs/contracts/runtime.md) with the module-set
@@ -92,19 +92,13 @@ export {
   type RebindConflictPolicy,
 } from './input-status';
 export {
-  validateCharacterMoveResult,
-  type CharacterClearanceResult,
-  type CharacterMoveResult,
   type CharacterMoveResultFailure,
   type PhysicsDiagnostics,
-  type PhysicsPort,
-  type PhysicsResetPort,
   type PhysicsStepClient,
-  type StaticColliderSpec,
-  type OverlapShape,
+  // The {x, y} forms of the queries on the caller's plane.
   type RaycastHit,
   type Vec2,
-  // The 3D port (a project with physics_dimension 3).
+  // The physics port.
   validateCharacterMoveResult3D,
   type CharacterMoveResult3D,
   type PhysicsInitConfig3D,
@@ -125,7 +119,6 @@ export {
   type PhysicsQueryFilter,
   type PhysicsQueryFilter3D,
   // A player character added while the world runs.
-  type AddedCharacter2D,
   type AddedCharacter3D,
   type CharacterControllerTuning,
 } from './ports';
@@ -176,7 +169,6 @@ export {
 } from './types';
 export {
   BUILTIN_MODULES,
-  CHARACTER_MODULE_ID,
   createSimulationRegistry,
   registerSimulationModule,
   validatePhaseList,
@@ -247,7 +239,7 @@ export { blockLookEntities } from '@thirdlight/project-model';
 // The character capsule's default and ranges (the editor draws and edits it).
 export { CAPSULE_LIMITS, DEFAULT_CONTROLLER_CAPSULE, controllerCapsuleOf, controllerCapsuleOffsetZ } from '@thirdlight/project-model';
 export { createTagQuery } from './behavior';
-export { audioDurationsFromAssetRows, capsuleHalfTotal, colliderRotationZ, colliderShape2DOf, colliderSpecs2D, colliderSpecs3D, modelBoundsFromAssetRows, physics2DConfigOf, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, sceneEntitiesFromDocument, staticColliderOf, staticColliderOf3D, colliderShape3DOf, worldTransformsOf, type ColliderContext, type PhysicsInitConfig2D } from './scene-set';
+export { audioDurationsFromAssetRows, capsuleHalfTotal, colliderSpecs3D, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, sceneEntitiesFromDocument, staticColliderOf3D, colliderShape3DOf, worldTransformsOf, type ColliderContext } from './scene-set';
 // The tuning defaults hosts and editors read (the values are project-model's).
 export { BLOCK_DEFAULTS, DEFAULT_CONTROLLER_TUNING, ENGINE_TIMING_DEFAULTS, MIN_DIRECTION_NORM, controllerTuningOf } from '@thirdlight/project-model';
 export type { ModelBounds } from './types';

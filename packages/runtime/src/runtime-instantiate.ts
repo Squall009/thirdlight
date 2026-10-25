@@ -32,7 +32,7 @@ export function instantiateRuntime(
 ): { ok: true; runtime: Runtime } | { ok: false; error: RuntimeError } {
   const parsed = parseConfig(config);
   if ('error' in parsed) return { ok: false, error: parsed.error };
-  const { snapshot, registry, modules, actions, physics, physics3d, settings, clock, clockLabel, driverKind, hz, onFrame, variables, projectSettings, startMode } = parsed.cfg;
+  const { snapshot, registry, modules, actions, physics3d, settings, clock, clockLabel, driverKind, hz, onFrame, variables, projectSettings, startMode } = parsed.cfg;
 
   const snap = validateRuntimeSnapshot(snapshot);
   if ('error' in snap) return { ok: false, error: snap.error };
@@ -119,8 +119,7 @@ export function instantiateRuntime(
       }
     }
     const needsPort = selected.some((s) => s.requiresPhysicsPort === true);
-    // A 3D port serves a module that needs physics too (the 3D character controller).
-    if (needsPort && physics === undefined && physics3d === undefined) {
+    if (needsPort && physics3d === undefined) {
       return {
         ok: false,
         error: fail('config_invalid', 'the selected module set requires an injected physics port', {
@@ -179,9 +178,7 @@ export function instantiateRuntime(
     behaviorLog: (level: BehaviorLogLevel, message: string, at?: { file: string; line: number; column: number }) => logSink.handler?.(specId, level, message, at),
     scriptStopped: (stop) => logSink.stopped?.(specId, stop),
     tags: liveTags,
-    // A 3D project (scripts may drive colliders through intents there).
-    ...(physics3d !== undefined ? { physicsDimension: 3 as const } : {}),
-    // The 3D character controller's read-only world queries.
+    // The character controller's read-only world queries.
     ...(physics3d !== undefined
       ? {
           character3D: {
@@ -302,9 +299,9 @@ export function instantiateRuntime(
     for (const entry of entries) {
       const isController = entry.phases.includes('controller');
       for (const entityId of entry.owners) {
-        // In a 3D project a transform-phase module (a script) may drive a collider
-        // that no mover moves — the runtime poses it as a kinematic body (ColliderSystem).
-        const drivable = physics3d !== undefined && ColliderSystem.drivable(scene.entities.find((x) => x.id === entityId)?.components);
+        // A transform-phase module (a script) may drive a collider that no mover
+        // moves — the runtime poses it as a kinematic body (ColliderSystem).
+        const drivable = ColliderSystem.drivable(scene.entities.find((x) => x.id === entityId)?.components);
         if ((colliderEntityIds.has(entityId) || controllerEntityIds.includes(entityId)) && !isController && !drivable) {
           disposeCreated();
           return {
@@ -347,7 +344,6 @@ export function instantiateRuntime(
     isM2,
     timing: engineTimingSteps(hz),
     actions,
-    physics,
     ...(physics3d !== undefined ? { physics3d } : {}),
     settings: resolvedSettings,
     controllerEntityIds,

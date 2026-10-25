@@ -37,7 +37,7 @@ import { validateMeshCoverRules } from './mesh-scatter';
 export const ID_RE_V2 = ID_RE;
 export const PROPERTY_KEY_RE = /^[a-z][a-z0-9_]{0,63}$/;
 
-/** How far a quaternion's x and y may stray from 0 and still turn about Z only (a 2D-plane physics rotation). */
+/** How far a quaternion's x and y may stray from 0 and still turn about Z only (a turn within the XY plane). */
 export const PLANE_ROTATION_TOLERANCE = 1e-6;
 
 const KNOWN_MODEL_FIELDS = new Set(['asset', 'piece', 'castShadow', 'receiveShadow', 'lightLayers', 'localLights', 'decalLayers', 'occluder', 'seeThrough', 'scatter']);
@@ -370,8 +370,7 @@ export const CONTROLLER_TUNING_LIMITS: Readonly<Record<TuningNumberKey, { readon
 /** The controller's tuning fields, in canonical order. */
 export const CONTROLLER_TUNING_FIELDS = ['acceleration', 'deceleration', 'coyoteTime', 'jumpBuffer', 'jumpRelease', 'groundSnap', 'skin', 'autostep', 'autostepHeight'] as const;
 /**
- * The 3D character's settings when a controller carries none
- * (read only in a 3D project, physics_dimension 3; a 2D plane ignores them).
+ * The character's settings when a controller carries none.
  * Genre-neutral reasons: a 2 m/s walk is a brisk human walk (people walk at
  * 1.2–1.5 m/s; a game walks a little faster so a map never drags); half the
  * ground acceleration in the air steers a jump without mid-air U-turns;
@@ -427,7 +426,7 @@ export type CharacterMoveFrame = (typeof CHARACTER_MOVE_FRAMES)[number];
  * - `character` — a walking character: walk and run speeds, less control in
  *   the air, steps up to `stepHeight`, optional ledge climbs, the slope it
  *   cannot stand on slides it down;
- * - `arcade` — the 2D plane controller's rules: one run speed (the project's
+ * - `arcade` — the arcade rules (those of the removed 2D controller): one run speed (the project's
  *   `run_speed`, or `runSpeed`), the acceleration and deceleration on the
  *   ground and in the air alike, a jump cut by releasing early that also ends
  *   the jump's rise, steps climbed only with `autostep` (up to
@@ -744,7 +743,7 @@ export function validateControllerComponent(c: unknown, path: string, errors: Mo
   }
   const offset = capsule['offset'];
   if (offset !== undefined) {
-    // An optional third component (z) for a 3D project; a 2D plane ignores it.
+    // An optional third component (z): the capsule's place in depth.
     const ok = Array.isArray(offset) && (offset.length === 2 || offset.length === 3) && offset.every((v) => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= L.maxOffset);
     if (!ok) errors.push(fieldValue(`${cp}/offset`, offset, `[x, y] or [x, y, z], each within ±${L.maxOffset} m`, 'capsule offset is [x, y] (or [x, y, z]) in metres from the entity origin'));
   }

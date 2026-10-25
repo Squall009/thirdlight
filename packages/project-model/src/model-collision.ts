@@ -431,16 +431,6 @@ export function modelCollisionParts(g: ModelGeometry, piece: string | null): { p
   return { parts, skipped };
 }
 
-/** The 2D plane's polygon of each convex part (its points' XY hull, at most 8 corners), parts without area left out. */
-export function collisionPartPolygons(parts: readonly ModelCollisionPart[]): Vec2Tuple[][] {
-  const out: Vec2Tuple[][] = [];
-  for (const p of parts) {
-    const poly = polygonFromPoints(p.points);
-    if (poly !== null) out.push(poly);
-  }
-  return out;
-}
-
 /**
  * What a conversion makes: a box around the render geometry; a hull or
  * mesh of the collision node (else the geometry); its XY outline as a

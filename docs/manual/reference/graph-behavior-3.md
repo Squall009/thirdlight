@@ -1,8 +1,45 @@
-# Graph: Visual script (part 3, from Raycast 3D (`api.physics.raycast3d`))
+# Graph: Visual script (part 3, from Character state (`api.physics.characterState`))
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Visual script node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="node-behavior--api-physics-character-state"></a>
+### Character state (`api.physics.characterState`)
+
+A player character's state after the last completed step (`entityId`, absent: the first player controller) — position, velocity, grounding, contacts, whether its controller is on and whether it is climbing a ledge — or undefined (before the first step, or not a player controller). An empty entity means this object.
+
+Inputs:
+
+- `entityId` "player" (string)
+
+Outputs:
+
+- `position_x` "position x" (number)
+- `position_y` "position y" (number)
+- `position_z` "position z" (number)
+- `velocity_x` "velocity x" (number)
+- `velocity_y` "velocity y" (number)
+- `velocity_z` "velocity z" (number)
+- `grounded` (boolean)
+- `contacts_ground` "contacts ground" (boolean)
+- `contacts_wall` "contacts wall" (boolean)
+- `contacts_head` "contacts head" (boolean)
+- `contacts_steepSlope` "contacts steep slope" (boolean)
+- `supportNormal_x` "support normal x" (number)
+- `supportNormal_y` "support normal y" (number)
+- `supportNormal_z` "support normal z" (number)
+- `groundEntityId` "ground entity" (string)
+- `enabled` (boolean)
+- `climbing` (boolean)
+- `facing` (number)
+- `found` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `entityId` | player | string | `""` | ≤ 256 chars |
 
 <a id="node-behavior--api-physics-raycast3d"></a>
 ### Raycast 3D (`api.physics.raycast3d`)
@@ -1528,40 +1565,3 @@ Fields:
 |---|---|---|---|---|
 | `entityId` | object | string | `""` | ≤ 256 chars |
 | `amount` | amount | number | `1` | -1000000000 – 1000000000 |
-
-<a id="node-behavior--api-health-events"></a>
-### Health events (`api.health.events`)
-
-Every object's health events of the previous step (damaged, healed, died), in the order they happened.
-
-Outputs:
-
-- `value` (list)
-
-<a id="graph-behavior--patrol"></a>
-## Patrol
-
-- Patrol state (`api.patrol.get`): The way a patroller walks now (a unit vector) and whether it walks at all; null for an object without a patrol. An empty entity means this object.
-- Set patrol active (`api.patrol.setActive`): Stop a patroller where it is, or let it walk on. False for an object without a patrol. An empty entity means this object.
-- Turn patroller (`api.patrol.turn`): Turn a patroller around now (a `turned` event). False for an object without a patrol, or a waypoint loop (it only goes forward). An empty entity means this object.
-
-<a id="node-behavior--api-patrol-get"></a>
-### Patrol state (`api.patrol.get`)
-
-The way a patroller walks now (a unit vector) and whether it walks at all; null for an object without a patrol. An empty entity means this object.
-
-Inputs:
-
-- `entityId` "object" (string)
-
-Outputs:
-
-- `direction` (vector)
-- `active` (boolean)
-- `found` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `entityId` | object | string | `""` | ≤ 256 chars |

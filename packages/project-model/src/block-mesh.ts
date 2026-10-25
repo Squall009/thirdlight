@@ -1222,7 +1222,7 @@ function collisionSourceOf(t: BlockType, fm: [number, number, number]): BlockMes
  * The looks the collision meshes are made of: each block type's collision
  * shape, a full single-cell shape hiding its neighbours' faces, open doors
  * left out. `include` keeps only some block types (the others are empty
- * space): the 2D plane cuts its one-way blocks apart from the solid ones.
+ * space).
  * `closed`: no block hides a face it touches for being solid (that rule
  * keeps the touching face of a sloped or half block, but drops the solid's
  * own face toward it); only faces two neighbours share exactly go, both of

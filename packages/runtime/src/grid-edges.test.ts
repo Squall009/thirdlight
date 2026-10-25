@@ -42,7 +42,6 @@ function fakePort(): PhysicsPort3D & { added: StaticColliderSpec3D[]; removed: s
   const added: StaticColliderSpec3D[] = [];
   const removed: string[] = [];
   return {
-    dimension: 3,
     added,
     removed,
     stageCharacterMove: () => undefined,

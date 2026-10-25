@@ -40,19 +40,17 @@ interface Seen {
 }
 
 function port(): unknown {
-  const zero = { x: 0, y: 0 };
+  const zero = { x: 0, y: 0, z: 0 };
   return {
     stageCharacterMove() {},
     step() {
-      return { requested: { ...zero }, applied: { ...zero }, position: { x: 0, y: 0 }, grounded: true, supportNormal: { x: 0, y: 1 }, contacts: { ground: true, wall: false, head: false, steepSlope: false }, snapped: false };
+      return { requested: { ...zero }, applied: { ...zero }, position: { x: 0, y: 0, z: 0 }, grounded: true, supportNormal: { x: 0, y: 1, z: 0 }, contacts: { ground: true, wall: false, head: false, steepSlope: false }, snapped: false };
     },
-    reset() {},
-    clearCharacterMotion() {},
-    placeCharacter: () => ({ ok: true, supportNormal: { x: 0, y: 1 } }),
-    characterClearance: () => ({ ok: true, supportNormal: { x: 0, y: 1 } }),
+    placeCharacter: () => ({ ok: true, supportNormal: { x: 0, y: 1, z: 0 } }),
+    characterClearance: () => ({ ok: true, supportNormal: { x: 0, y: 1, z: 0 } }),
     addStaticColliders() {},
     removeStaticColliders() {},
-    setKinematicPositions() {},
+    setKinematicPoses() {},
     diagnostics: () => ({}),
     dispose() {},
   };

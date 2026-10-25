@@ -33,7 +33,6 @@ function port(): PhysicsPort3D & { live: Set<string>; adds: number[] } {
   const live = new Set<string>();
   const adds: number[] = [];
   return {
-    dimension: 3,
     live,
     adds,
     stageCharacterMove: () => undefined,

@@ -78,7 +78,7 @@ export interface ColliderBoxShape {
   type: 'box';
   hx: number;
   hy: number;
-  /** The half depth along Z (m) — required in a 3D project, ignored by a 2D plane. */
+  /** The half depth along Z (m; absent: half the collider's `depth`). */
   hz?: number;
 }
 
@@ -105,9 +105,9 @@ export interface ColliderCapsuleShape {
 }
 
 /**
- * 3D projects: a cylinder standing along the entity's local Y, centred on
- * the entity — `height` is its full height (flat ends). A 2D circle's 3D
- * form: turned so its axis is the plane's normal.
+ * A cylinder standing along the entity's local Y, centred on the entity —
+ * `height` is its full height (flat ends). A flat circle's solid form:
+ * turned so its axis is the plane's normal.
  */
 export interface ColliderCylinderShape {
   type: 'cylinder';
@@ -116,9 +116,8 @@ export interface ColliderCylinderShape {
 }
 
 /**
- * 3D projects: the convex hull of `points` ([x, y, z] in the
- * entity's frame) — usually generated from a model's `_COL` node or its
- * geometry, stored as data like the 2D plane's model outline polygon.
+ * The convex hull of `points` ([x, y, z] in the entity's frame) — usually
+ * generated from a model's `_COL` node or its geometry, stored as data.
  */
 export interface ColliderConvexShape {
   type: 'convex';
@@ -137,9 +136,8 @@ export interface ColliderMeshShape {
 }
 
 /**
- * Where a shape sits in its object's frame: `center` [x, y, z] in metres (a
- * 2D plane reads x and y) and `rotation` a unit quaternion [x, y, z, w]
- * (about Z only on a 2D plane). Absent: centred, unrotated.
+ * Where a shape sits in its object's frame: `center` [x, y, z] in metres
+ * and `rotation` a unit quaternion [x, y, z, w]. Absent: centred, unrotated.
  */
 export interface ColliderShapePose {
   center?: [number, number, number];
@@ -175,7 +173,7 @@ export interface ColliderComponent {
   layers?: string[];
   /** The plane its body is locked to (absent: its scene's default plane, else free; null: free in all six degrees of freedom). */
   plane?: PlaneLock | null;
-  /** The depth (m) a 2D shape (a box without hz, a polygon) is given on the 3D backend (absent: 1 m). */
+  /** The depth (m) a flat shape (a box without hz, a polygon) is given (absent: 1 m). */
   depth?: number;
 }
 
@@ -245,7 +243,7 @@ export interface ControllerComponent {
   faceMovement?: boolean;
   /** 3D: what the move input is relative to — the live camera's heading or the world axes (absent: `view`). */
   moveFrame?: 'view' | 'world';
-  /** 3D: the movement profile — `character` (walk/run, air control, step-up, ledges) or `arcade` (the 2D plane controller's rules: run speed only, autostep, the slide policy) (absent: `character`). */
+  /** The movement profile — `character` (walk/run, air control, step-up, ledges) or `arcade` (the arcade rules: run speed only, autostep, the slide policy) (absent: `character`). */
   profile?: 'character' | 'arcade';
   /** The input action that moves it (absent: `move`). */
   moveAction?: string;

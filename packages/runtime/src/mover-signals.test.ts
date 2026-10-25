@@ -17,7 +17,6 @@ function blocksWith(mover: Record<string, unknown>): { blocks: GameplayBlocks; x
   const curr = new Map<string, TransformState>([[e.id, { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }]]);
   const host: BlocksHost = {
     hz: HZ,
-    physics: undefined,
     curr,
     characters: [],
     groundEntityId: () => null,

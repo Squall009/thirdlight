@@ -17,21 +17,19 @@ const at = (x: number, y: number, z = 0): unknown => ({ position: [x, y, z], ...
 const box = { size: [1, 1, 1], material: { color: '#808080' } };
 
 function port(placed: { x: number; y: number }[]): unknown {
-  let pos = { x: 0, y: 0.91 };
+  let pos = { x: 0, y: 0.91, z: 0 };
   return {
     stageCharacterMove() {},
     step() {
-      return { requested: { x: 0, y: 0 }, applied: { x: 0, y: 0 }, position: { ...pos }, grounded: true, supportNormal: { x: 0, y: 1 }, contacts: { ground: true, wall: false, head: false, steepSlope: false }, snapped: false };
+      return { requested: { x: 0, y: 0, z: 0 }, applied: { x: 0, y: 0, z: 0 }, position: { ...pos }, grounded: true, supportNormal: { x: 0, y: 1, z: 0 }, contacts: { ground: true, wall: false, head: false, steepSlope: false }, snapped: false };
     },
-    reset() {},
-    clearCharacterMotion() {},
-    placeCharacter(c: { x: number; y: number }) {
-      placed.push({ ...c });
-      pos = { x: c.x, y: c.y };
-      return { ok: true, supportNormal: { x: 0, y: 1 } };
+    placeCharacter(c: { x: number; y: number; z: number }) {
+      placed.push({ x: c.x, y: c.y });
+      pos = { ...c };
+      return { ok: true, supportNormal: { x: 0, y: 1, z: 0 } };
     },
     characterClearance() {
-      return { ok: true, supportNormal: { x: 0, y: 1 } };
+      return { ok: true, supportNormal: { x: 0, y: 1, z: 0 } };
     },
     addStaticColliders() {},
     removeStaticColliders() {},

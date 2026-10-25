@@ -24,7 +24,6 @@ function blocksWith(entities: EntityV3[], character: { x: number; y: number }): 
   const out = { blocks: undefined as unknown as GameplayBlocks, requests: [] as BlocksEffectRequest[], character };
   const host: BlocksHost = {
     hz: HZ,
-    physics: undefined,
     curr,
     characters: [{ id: 'player-0001', capsule: { radius: 0.3, halfHeight: 0.6, offset: { x: 0, y: 0 } }, skin: 0.01, offsetZ: 0 }],
     groundEntityId: () => null,

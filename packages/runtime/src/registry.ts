@@ -18,19 +18,14 @@ import {
   type SimulationRegistry,
 } from './types';
 
-/** The character controller module ID. */
-export const CHARACTER_MODULE_ID = 'thirdlight.character:controller';
-
-
 /**
- * The built-in M1 demo spec. Its `excludes`/`legacyTransformOwners` metadata
- * applies when the demo participates in an M2 set (the demo owns every
- * `box` entity and cannot coexist with the controller module). The demo's
- * `create` and step math are byte-identical in both set kinds.
+ * The built-in M1 demo spec. Its `legacyTransformOwners` metadata applies
+ * when the demo participates in an M2 set (the demo owns every `box`
+ * entity; the character controller excludes it). The demo's `create` and
+ * step math are byte-identical in both set kinds.
  */
 const demoBuiltinSpec: SimulationModuleSpec = {
   id: DEMO_MODULE_ID,
-  excludes: [CHARACTER_MODULE_ID],
   legacyTransformOwners: (snapshot) =>
     snapshot.scene.entities.filter((e) => e.components.box !== undefined).map((e) => e.id),
   create: (snapshot, cfg) => boxMotionSpec.create(snapshot, cfg),

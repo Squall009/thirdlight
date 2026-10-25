@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { colliderShape2DOf, colliderShape3DOf, colliderSpecs2D, colliderSpecs3D, shapeAabb3 } from './collider-specs';
+import { colliderShape3DOf, colliderSpecs3D, shapeAabb3 } from './collider-specs';
 
 const T = (position: number[] = [0, 0, 0], rotation: number[] = [0, 0, 0, 1], scale: number[] = [1, 1, 1]) => ({ position, rotation, scale });
 const Q90Y = [0, Math.SQRT1_2, 0, Math.SQRT1_2];
@@ -37,14 +37,9 @@ describe('collider specs', () => {
     const s = colliderShape3DOf({ type: 'model' }, [1, 2, 1], comps, { modelColliders: table });
     expect(s).toMatchObject({ type: 'compound', parts: [{ shape: { type: 'convex', points: [0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 1] } }, { shape: { type: 'convex' } }] });
     expect(colliderShape3DOf({ type: 'model' }, [1, 1, 1], comps)).toBeNull();
-    // On the plane each part is its XY hull.
-    expect(colliderShape2DOf({ type: 'model' }, comps, { modelColliders: table })).toEqual({ type: 'compound', parts: [
-      { shape: { type: 'polygon', vertices: [[0, 0], [1, 0], [0, 1]] }, x: 0, y: 0, angle: 0 },
-      { shape: { type: 'polygon', vertices: [[2, 0], [3, 0], [2, 1]] }, x: 0, y: 0, angle: 0 },
-    ] });
   });
 
-  it('places a collider on a child where its parents put it (3D and the plane)', () => {
+  it('places a collider on a child where its parents put it', () => {
     const entities = [
       { id: 'cart', components: { transform: T([10, 0, 0], Q90Y, [2, 2, 2]) } },
       { id: 'wheel', parentId: 'cart', components: { transform: T([1, 0, 0]), collider: { shape: { type: 'sphere', radius: 0.5 } } } },
@@ -53,13 +48,14 @@ describe('collider specs', () => {
     // The parent turned 90° about Y takes the child's +X to −Z, doubled.
     close([spec!.position.x, spec!.position.y, spec!.position.z], [10, 0, -2]);
     expect((spec!.shape as { radius: number }).radius).toBeCloseTo(1, 9);
+    // A parent turned about Z (a side view's turn) turns and places its child's collider the same way.
     const flat = [
       { id: 'arm', components: { transform: T([5, 1, 0], [0, 0, Math.SQRT1_2, Math.SQRT1_2]) } },
       { id: 'hand', parentId: 'arm', components: { transform: T([2, 0, 0]), collider: { shape: { type: 'box', hx: 0.5, hy: 0.5 } } } },
     ];
-    const [s2] = colliderSpecs2D(flat);
-    close([s2!.position.x, s2!.position.y], [5, 3]);
-    expect(s2!.rotationZ).toBeCloseTo(Math.PI / 2, 9);
+    const [s2] = colliderSpecs3D(flat);
+    close([s2!.position.x, s2!.position.y, s2!.position.z], [5, 3, 0]);
+    close([s2!.rotation.x, s2!.rotation.y, s2!.rotation.z, s2!.rotation.w], [0, 0, Math.SQRT1_2, Math.SQRT1_2]);
     // A parent already in the game (outside the list) places a newly loaded child too.
     const [late] = colliderSpecs3D([entities[1]!], { outside: { transform: (id) => (id === 'cart' ? (T([0, 5, 0]) as never) : undefined), parentOf: () => null } });
     close([late!.position.x, late!.position.y, late!.position.z], [1, 5, 0]);

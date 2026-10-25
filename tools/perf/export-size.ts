@@ -1,7 +1,7 @@
 /**
  * What an exported game downloads: the engine's code files of an export (the page bundle, the workers,
- * the physics backend and its WASM, the decoders) raw, gzip and brotli, for a minimal 2D game, a minimal
- * 3D game, the village class and any project folder given. Content (models, textures, audio) is reported
+ * the physics backend and its WASM, the decoders) raw, gzip and brotli, for a minimal side-view game, a
+ * minimal free 3D game, the village class and any project folder given. Content (models, textures, audio) is reported
  * as one total: it is the game's, not the engine's.
  *
  *   node tools/perf/run.mjs export-size [--no-village] [--project <folder>]… [--keep]
@@ -94,17 +94,19 @@ export async function runExportSizeCli(argv: readonly string[]): Promise<void> {
   // Measured once the backend is done: compressing takes seconds, longer than an idle connection is kept.
   const exported: { name: string; dir: string; ms: number }[] = [];
   try {
-    // The smallest game with physics: a floor and a player with the character controller, on the 2D plane and in 3D.
-    for (const [projectId, dimension] of [['min2d', 2], ['min3d', 3]] as const) {
+    // The smallest game with physics: a floor and a player with the character controller, in a side view
+    // (the scene on the plane z = 0, a flat floor, the arcade profile) and free in 3D.
+    for (const [projectId, sideView] of [['min2d', true], ['min3d', false]] as const) {
       const created = await be.post('/api/v1/admin/projects', { projectId, name: projectId });
       if (created.status !== 201 && created.status !== 200) throw new Error(`project create failed: ${JSON.stringify(created.json)}`);
       const p = be.project(projectId);
 
-      const shape = dimension === 3 ? { type: 'box', hx: 5, hy: 0.5, hz: 5 } : { type: 'box', hx: 5, hy: 0.5 };
+      if (sideView) await p.command('setScenePlane', { sceneId: 'scene-main', plane: { axis: 'z', origin: 0 } });
+      const shape = sideView ? { type: 'box', hx: 5, hy: 0.5 } : { type: 'box', hx: 5, hy: 0.5, hz: 5 };
       await p.command('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Floor', transform: { position: [0, -0.5, 0] }, box: { size: [10, 1, 10] }, components: { collider: { shape } } });
       const player = String((await p.command('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Player', transform: { position: [0, 3, 0] } }))['createdId']);
-      await p.command('setComponent', { entityId: player, component: 'controller', value: {} });
-      exported.push({ name: `minimal ${dimension}D`, ...(await exportOf(be, projectId)) });
+      await p.command('setComponent', { entityId: player, component: 'controller', value: sideView ? { profile: 'arcade' } : {} });
+      exported.push({ name: sideView ? 'minimal side view' : 'minimal 3D', ...(await exportOf(be, projectId)) });
     }
     if (!argv.includes('--no-village')) {
       await buildVillage(be, 'village');

@@ -1143,7 +1143,6 @@ export {
   type ChunkMeshPart,
   type CollisionMeshPiece,
 } from './block-mesh';
-export { planeCollisionChunk, planeCutChunkRows, planeCutRow, type PlaneCutChunk, type PlaneCutPiece } from './block-plane-cut';
 export { SCULPT_LIMITS, SCULPT_OPS, columnHeights, sculptHeights, setColumnSurface, type ColumnHeights, type SculptDab, type SculptOp } from './block-sculpt';
 // The paint brush (any paint target) and a block layer's surface paint.
 export { BRUSH_FALLOFFS, BRUSH_HARDNESS_DEFAULT, BRUSH_MASK_LIMITS, BRUSH_STROKE_KEYS, PAINT_BRUSH_LIMITS, StrokeCoverage, brushFalloff, brushHalfRadius, brushMask, brushStrokeError, brushStrokeOptions, paintBrushError, paintPoint, strokeAmount, strokeCoverage, type BrushFalloff, type BrushMask, type BrushStrokeOptions, type DabStroke, type PaintBrush, type PaintLayout } from './paint-brush';
@@ -1779,7 +1778,7 @@ export { playChecks, type PlayCheck } from './play-checks';
 export { COLLIDER_PRIMITIVE_TYPES, COLLIDER_SHAPE_TYPES, canonicalShape, colliderShapeParts, colliderShapePoints, spansVolume } from './collider-shapes';
 // Collider shapes made from geometry, and a model's collision parts read from its file.
 export { boxFromBounds, colliderFromTriangles, convexFromPoints, convexHull2, hullPoints, polygonFromPoints, roundMm, type GeometryCollider } from './collider-geometry';
-export { isModelHelperNode, MODEL_COLLIDER_KINDS, MODEL_COL_RE, MODEL_LOD_RE, MODEL_OCC_RE, MODEL_READ_LIMITS, modelNodeMatrix, modelPieceName, modelRenderPrimitives, modelNodeSegments, modelNodePaths, collisionPartPolygons, sceneColliderPoints, validateModelColliderTable, modelColliderShape, modelCollisionParts, readModelGeometry, type ModelColliderKind, type ModelColliderTable, type ModelCollisionPart, type ModelGeometry, type ModelGeometryPrimitive } from './model-collision';
+export { isModelHelperNode, MODEL_COLLIDER_KINDS, MODEL_COL_RE, MODEL_LOD_RE, MODEL_OCC_RE, MODEL_READ_LIMITS, modelNodeMatrix, modelPieceName, modelRenderPrimitives, modelNodeSegments, modelNodePaths, sceneColliderPoints, validateModelColliderTable, modelColliderShape, modelCollisionParts, readModelGeometry, type ModelColliderKind, type ModelColliderTable, type ModelCollisionPart, type ModelGeometry, type ModelGeometryPrimitive } from './model-collision';
 // Occluder stand-ins (`_OCC` nodes) and a model's occluder import setting.
 export { MODEL_OCCLUDER_MODES, modelOccluderChecks, modelOccluderModeOf, modelOccluderProblem, modelOccluderReport, modelOccluderUse, OCCLUDER_COVERAGE_TEXELS, OCCLUDER_INSIDE_TOLERANCE_M, occluderCoverageBreaks, occluderPointsOutside, validateModelOccluderField, type ModelOccluderCheck, type ModelOccluderMode, type OccluderBounds, type OccluderCoverageBreaks } from './model-occluders';
 // Diagnostics rows folded with a count (the runtime's error ring and the Play answers' bound).

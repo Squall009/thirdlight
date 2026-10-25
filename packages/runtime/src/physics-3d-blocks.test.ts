@@ -4,9 +4,8 @@
  * capsule-vs-volume geometry, 3D triggers (box turned with its entity,
  * sphere, capsule) entering and leaving as the player falls through them,
  * their signals and `ctx.triggerEvents`, a mover posed on the port with its
- * rotation and carrying the player standing on it, and the lifted ownership
- * rule (a script may own a collider in 3D, not in the 2D plane, never a
- * mover's or the controller's).
+ * rotation and carrying the player standing on it, and the ownership rule
+ * (a script may own a collider, never a mover's or the controller's).
  */
 import { describe, expect, it } from 'vitest';
 
@@ -80,7 +79,6 @@ function scriptedPort(start: PhysicsVec3): PhysicsPort3D & { poses: KinematicPos
   const added: string[] = [];
   let ground: string | null = null;
   return {
-    dimension: 3,
     poses,
     added,
     stageCharacterMove(d) {
@@ -220,7 +218,7 @@ function artifact(behaviorId: string, owned: string[]): BehaviorArtifact {
   };
 }
 
-describe('the behavior ownership rule, lifted for 3D colliders', () => {
+describe('the behavior ownership rule for colliders', () => {
   const entities = (extra: Record<string, unknown>) => [
     CAM,
     { id: 'player-0001', components: { transform: T([0, 1.1, 0]), controller: {} } },
@@ -236,14 +234,10 @@ describe('the behavior ownership rule, lifted for 3D colliders', () => {
     return { ok: true };
   };
 
-  it('a 3D project: a script may own a collider (made kinematic at the first step); never a mover\'s collider', () => {
+  it('a script may own a collider (made kinematic at the first step); never a mover\'s collider', () => {
     const port = scriptedPort({ x: 0, y: 1.1, z: 0 });
     expect(make(entities({}), port)).toEqual({ ok: true });
     expect(make(entities({ mover: { waypoints: [[1, 0, 0]], speed: 1, mode: 'loop' } }), scriptedPort({ x: 0, y: 1.1, z: 0 }))).toMatchObject({ ok: false, code: 'transform_owner_forbidden', detail: 'physics_entity' });
-  });
-
-  it('the 2D plane keeps the rule exactly: a script owning a collider is refused', () => {
-    expect(make(entities({}), undefined)).toMatchObject({ ok: false, code: 'transform_owner_forbidden', detail: 'physics_entity' });
   });
 
   it('the owned collider is re-added as a kinematic body before the first step and posed from its transform', () => {

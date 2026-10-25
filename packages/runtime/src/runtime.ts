@@ -88,7 +88,7 @@ import { loadOp } from './scene-control';
 import { EntityAccess, type LightOverride } from './entity-access';
 import { StepReads, type DrawnSteps } from './step-reads';
 import { PlayerControllers } from './player-controllers';
-import type { PhysicsPort, PhysicsPort3D, Vec2 } from './ports';
+import type { PhysicsPort3D, Vec2 } from './ports';
 import {
   type CameraInfo,
   type RuntimeSceneRow,
@@ -158,8 +158,7 @@ export interface RuntimeArgs {
   /** The engine timing in steps. */
   timing: { settleSteps: number; dropThroughSteps: number };
   actions: ActionSource;
-  physics?: PhysicsPort;
-  /** The 3D port (a project with physics_dimension 3), instead of `physics`. */
+  /** The physics port (absent: a game without physics). */
   physics3d?: PhysicsPort3D;
   settings: GameplaySettings;
   /** The player controllers' objects, in snapshot order. */
@@ -316,7 +315,7 @@ export class RuntimeInstance implements Runtime {
   private readonly kept = new KeptObjects();
 
   constructor(args: RuntimeArgs) {
-    this.sim = new RuntimeSim({ hz: args.hz, settings: args.settings, physics: args.physics, physics3d: args.physics3d, entries: args.entries, order: args.order, entities: args.entities, prev: args.prev, curr: args.curr });
+    this.sim = new RuntimeSim({ hz: args.hz, settings: args.settings, physics3d: args.physics3d, entries: args.entries, order: args.order, entities: args.entities, prev: args.prev, curr: args.curr });
     this.faults = new RuntimeFaults(this.sim, () => {
       this.loop.cancel();
       this.frame.needsPreroll = false;
@@ -417,7 +416,7 @@ export class RuntimeInstance implements Runtime {
       sceneOf: (id) => rt.scenes.sceneOf(id),
       sceneSetChanged: () => rt.scenes.changed(),
     }, args.prefabs);
-    // The start scenes' block layers; their chunks collide (on the 2D plane, cut at the layer's play plane).
+    // The start scenes' block layers; their chunks collide.
     this.grid = new RuntimeGrid(
       args.blockTypes,
       args.cellFields,
@@ -431,7 +430,7 @@ export class RuntimeInstance implements Runtime {
       (id) => this.scenes.sceneOf(id),
     );
     this.grid.addLayers(args.initialEntities);
-    this.grid.flushCollision(args.physics3d, args.physics);
+    this.grid.flushCollision(args.physics3d);
     // The start set's graph materials (the values scripts set per object).
     this.materials = new RuntimeMaterials(args.materialCatalog);
     this.materialIds = args.materialIds !== undefined ? new Set(args.materialIds) : null;
@@ -462,7 +461,6 @@ export class RuntimeInstance implements Runtime {
     this.views = new RuntimeViews(this.sim.hz, args.viewLens, {
       worldOf: (id, position, rotation) => this.sim.worldTransformOf(id, position, rotation),
       raycast: (origin, direction, maxDistance) => {
-        // 3D projects only: a 2D plane's colliders lie in the plane a camera looks at, never between it and the target.
         const port = this.sim.physics3d;
         if (port === undefined || typeof port.raycast !== 'function') return null;
         const hit = port.raycast({ x: origin[0], y: origin[1], z: origin[2] }, { x: direction[0], y: direction[1], z: direction[2] }, maxDistance);
@@ -500,18 +498,17 @@ export class RuntimeInstance implements Runtime {
     this.entities.noteBehaviorGroups(args.initialEntities);
     this.eventCues = args.eventCues ?? [];
     // Movers, triggers, switches, one-way colliders and the generic primitives
-    // (the characters are the player controllers' objects in both dimensions).
+    // (the characters are the player controllers' objects).
     this.blocks = new GameplayBlocks(
       {
         hz: this.sim.hz,
-        physics: this.sim.physics,
         curr: this.sim.curr,
-        characters: args.initialEntities.filter((e) => this.controllers.has(e.id)).map((e) => blocksCharacterOf(e, args.physics3d !== undefined)),
+        characters: args.initialEntities.filter((e) => this.controllers.has(e.id)).map((e) => blocksCharacterOf(e)),
         // Gravity bodies fall under the project's gravity, capped at its fall speed.
         gravityY: this.sim.settings.gravity_y,
         maxFallSpeed: this.sim.settings.max_fall_speed,
         groundEntityId: (id) => rt.controllers.groundEntityId(id),
-        // The 3D world (movers posed on it, triggers in 3D).
+        // The physics world (movers posed on it, walkers' probes).
         ...(args.physics3d !== undefined ? { physics3d: args.physics3d, scriptColliders3D: () => rt.chars.colliders.poses() } : {}),
         // A trigger's scene transition.
         sceneTransition: (triggerId, t) => rt.scenes.beginTransition(triggerId, t),
@@ -640,7 +637,7 @@ export class RuntimeInstance implements Runtime {
   /** Terrain tiles and scatter blobs decoded on the page (by digest): their colliders are built now (between steps). */
   addTerrainTiles(tiles: readonly TerrainSimData[]): void {
     this.grid.addTerrainData(tiles);
-    this.grid.flushCollision(this.sim.physics3d, this.sim.physics);
+    this.grid.flushCollision(this.sim.physics3d);
   }
 
   /** The cells changed since the run started (tests, saves). */
@@ -1182,13 +1179,6 @@ export class RuntimeInstance implements Runtime {
       }
     }
     this.sim.entries = [];
-    if (this.sim.physics) {
-      try {
-        this.sim.physics.dispose();
-      } catch {
-        /* a failing port dispose must not break runtime disposal */
-      }
-    }
     if (this.sim.physics3d) {
       try {
         this.sim.physics3d.dispose();
@@ -1212,7 +1202,7 @@ export class RuntimeInstance implements Runtime {
     // Scene loads/unloads requested by the host apply here too.
     if (!this.scenes.applyOps()) return true;
     // A scene transition's arrival once its scene is loaded, a loaded save's placement once its scenes are in.
-    if (!this.chars.placement.atBoundary(this.sim.stepIndex + 1)) return false;
+    this.chars.placement.atBoundary();
     // A restart asked for, then the game mode's step start.
     if (this.run.restartDue && !this.restartRun(this.sim.stepIndex + 1)) return false;
     if (this.run.startDue && !this.startRun()) return false;
@@ -1274,8 +1264,8 @@ export class RuntimeInstance implements Runtime {
       this.sim.curr = cloneCurr(backup);
       return true;
     }
-    // Signals, events and messages turn over every step (a 3D step running physics in beforeStep below);
-    // a 2D-plane plain step runs the generic primitives (patrols walk; no physics world for their probes).
+    // Signals, events and messages turn over every step (a step with physics turns them over in beforeStep below);
+    // a plain step without a physics world runs the generic primitives (patrols walk; no world for their probes).
     const held = this.modes.physicsHeld;
     if (this.sim.physics3d === undefined || held) this.blocks?.turnover(stepOrdinal);
     if (this.sim.physics3d === undefined && !held) this.blocks?.stepPrimitivesOnly();
@@ -1288,10 +1278,9 @@ export class RuntimeInstance implements Runtime {
       return false;
     }
     if (this.sim.physics3d !== undefined && !held) {
-      // A 3D game steps its physics in a plain (scene-mode) step
-      // too — its character falls and rests under the runtime's 3D phase
-      // even without a controller module. The 2D plane's scene mode has no
-      // physics step.
+      // A game with physics steps it in a plain (scene-mode) step
+      // too — its character falls and rests under the runtime's physics
+      // phase even without a controller module.
       // Movers advance and are posed (script-driven colliders too), then after physics
       // the triggers test the player (a scene has no run state: always "playing").
       if (this.chars.colliders.needsSync && !this.chars.syncColliders()) {
@@ -1328,7 +1317,7 @@ export class RuntimeInstance implements Runtime {
     // Attached entities follow their nodes (posed by the animators just stepped).
     if (this.sockets.active) this.sockets.resolve(null);
     // Cells written after the physics phase collide from the next step; the live blocks' objects follow now.
-    this.grid.flushCollision(this.sim.physics3d, this.sim.physics);
+    this.grid.flushCollision(this.sim.physics3d);
     if (!this.entities.syncLiveBlocks()) return false;
     return true;
   }
@@ -1344,7 +1333,7 @@ export class RuntimeInstance implements Runtime {
     // before the arrivals (a spawn may be in a scene that just loaded).
     if (!this.scenes.applyOps()) return false;
     // A scene transition's arrival once its scene is loaded, a loaded save's placement once its scenes are in.
-    if (!this.chars.placement.atBoundary(ordinal)) return false;
+    this.chars.placement.atBoundary();
     // The spawns and destroys the last step requested, in order.
     if (!this.entities.applySpawnOps()) return false;
     this.entities.spawnRequests.stepBoundary();
@@ -1356,8 +1345,6 @@ export class RuntimeInstance implements Runtime {
     if (!this.entities.syncLiveBlocks()) return false;
     // The plane locks scripts asked for last step: bodies and characters snap onto their planes or go free.
     if (!this.chars.applyPlanes()) return false;
-    // A 2D-plane respawn (ctx.lifecycle, a restart's placement) places the character at the boundary.
-    if (!this.chars.placement.respawn2DAtBoundary(ordinal)) return false;
     this.modes.beginStep(ordinal);
     this.scenes.beginStep();
     this.grid.beginStep(ordinal);
@@ -1395,7 +1382,7 @@ export class RuntimeInstance implements Runtime {
     if (held) this.blocks?.turnover(ordinal);
     else this.blocks?.beforeStep(ordinal);
     this.chars.placement.beginStep();
-    action = this.controllers.dropThrough(action, (id) => this.blocks?.isOneWay(id) === true || this.grid.isOneWayCollider(id), this.timing.dropThroughSteps);
+    action = this.controllers.dropThrough(action, (id) => this.blocks?.isOneWay(id) === true, this.timing.dropThroughSteps);
     // The pre-step copy goes into the reused buffer `prev` does not hold.
     const backupMirror = this.sim.spareMirror();
     backupMirror.copyFrom(this.sim.curr, this.sim.currShape);
@@ -1413,7 +1400,7 @@ export class RuntimeInstance implements Runtime {
       this.phases.run('intent', action);
       // The director's walks, holds and placements, then a respawn or a script's character_place, before the controller runs.
       this.chars.director.afterIntentPhase(held, action);
-      this.chars.placement.afterIntentPhase(ordinal);
+      this.chars.placement.afterIntentPhase();
       if (!held) {
         this.phases.run('controller', action);
         // The impulses reached the controllers (a held step keeps them for the next one).
@@ -1461,7 +1448,7 @@ export class RuntimeInstance implements Runtime {
     this.sim.stepIndex += 1;
     this.sim.simTime = this.sim.stepIndex / this.sim.hz;
     // Cells written after the physics phase collide from the next step; the live blocks' objects follow now.
-    this.grid.flushCollision(this.sim.physics3d, this.sim.physics);
+    this.grid.flushCollision(this.sim.physics3d);
     if (!this.entities.syncLiveBlocks()) return false;
     this.sim.committedMirror.copyFrom(this.sim.curr, this.sim.currShape);
     this.sim.committed = this.sim.committedMirror.map;
@@ -1582,7 +1569,7 @@ export class RuntimeInstance implements Runtime {
     this.entityAccess.reset();
     // The live blocks start over as fresh objects at the next boundary.
     this.entities.removeSpawnedIds(new Set(this.grid.reset().filter((id) => this.entities.spawned.has(id))));
-    this.grid.flushCollision(this.sim.physics3d, this.sim.physics);
+    this.grid.flushCollision(this.sim.physics3d);
     this.materials.reset();
     // No conversation, no save document and no play time yet, as at the first start.
     this.dialogue.resetRun();

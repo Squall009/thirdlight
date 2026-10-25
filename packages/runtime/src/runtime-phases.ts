@@ -176,7 +176,7 @@ export class RuntimePhases {
       jumpWriter: s.jumpWriter,
       // The writes are frozen when committed.
       transformWrites: Object.freeze(s.transformWrites.slice()),
-      // Present only when committed (a 2D step's view has no such field).
+      // Present only when committed (a step without them has no such field).
       ...(s.moveY !== null ? { moveY: s.moveY } : {}),
       ...(s.characterMove !== null ? { characterMove: Object.freeze({ ...s.characterMove }) } : {}),
       ...(s.characterPlace !== null ? { characterPlace: Object.freeze({ ...s.characterPlace }) } : {}),
@@ -272,10 +272,10 @@ export class RuntimePhases {
       return;
     }
     if (intent.kind === 'character_move' || intent.kind === 'character_place' || intent.kind === 'character_enable') {
-      // The character controller's channels (one writer each per controller and step); character_move is 3D only,
-      // character_place on the 2D plane needs a character with a physics port, character_enable a character.
-      if (this.sim.physics3d === undefined && (intent.kind === 'character_move' || player === undefined || (intent.kind === 'character_place' && controllers.resetPort2D() === null))) {
-        throw new BehaviorIntentError('behavior_intent_invalid', 'value', intent.kind === 'character_move' ? 'a character_move intent needs a 3D project (physics_dimension 3)' : `a ${intent.kind} intent needs a character (a controller)${intent.kind === 'character_place' ? ' with physics' : ''}`);
+      // The character controller's channels (one writer each per controller and step). Without a physics
+      // world nothing moves or places a character; character_enable needs a character.
+      if (this.sim.physics3d === undefined && (intent.kind !== 'character_enable' || player === undefined)) {
+        throw new BehaviorIntentError('behavior_intent_invalid', 'value', `a ${intent.kind} intent needs a character (a controller)${intent.kind !== 'character_enable' ? ' in a physics world' : ''}`);
       }
       const c = channels!;
       const writer = c.characterWriters.get(intent.kind);

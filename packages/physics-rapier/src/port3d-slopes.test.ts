@@ -25,7 +25,6 @@ function ramp(deg: number, maxSlope?: number): StaticColliderSpec3D {
 }
 
 const config = (statics: StaticColliderSpec3D[]): PhysicsInitConfig3D => ({
-  dimension: 3,
   character: { position: { x: -3, y: 0.95, z: 0 }, radius: 0.3, halfHeight: 0.6, offset: { x: 0, y: 0, z: 0 } },
   statics,
   solver: { hz: HZ, gravityY: G },

@@ -6,7 +6,7 @@
  * unsupported-combination rejection at instantiate (no partial start).
  */
 import { describe, expect, it } from 'vitest';
-import { BUILTIN_MODULES, instantiateRuntime, registerSimulationModule, type SimulationModuleSpec, type ActionFrame } from './index';
+import { BUILTIN_MODULES, character3DSpec, instantiateRuntime, registerSimulationModule, type SimulationModuleSpec, type ActionFrame } from './index';
 import {
   makeFakePort,
   makeM2Runtime,
@@ -180,10 +180,11 @@ describe('M2 phase order', () => {
     ]);
     expect(physicsEntity).toMatchObject({ code: 'transform_owner_forbidden', reason: 'physics_entity' });
 
+    // A collider no mover moves is script-drivable (the runtime poses it as a kinematic body).
     const floor = instantiateError(['thirdlight.test:a'], [
       probeSpec({ id: 'thirdlight.test:a', phases: ['transform'], owners: ['floor-0001'] }),
     ]);
-    expect(floor).toMatchObject({ code: 'transform_owner_forbidden', reason: 'physics_entity' });
+    expect(floor).toBeNull();
   });
 
   it('module phase order mismatch (out of canonical order / duplicate / empty) is rejected at registration', () => {
@@ -202,16 +203,10 @@ describe('M2 phase order', () => {
   });
 
   it('unsupported combination: demo + controller module is rejected (module_combination_unsupported)', () => {
-    const controller = probeSpec({
-      id: 'thirdlight.character:controller',
-      phases: ['controller', 'transform'],
-      owners: ['char-0001'],
-      requiresPhysicsPort: true,
-    });
     const err = instantiateError(
-      ['thirdlight.demo:box-motion', controller.id],
-      [controller],
-      registryWith([...BUILTIN_MODULES, controller]),
+      ['thirdlight.demo:box-motion', character3DSpec.id],
+      [character3DSpec],
+      registryWith([...BUILTIN_MODULES, character3DSpec]),
       makeFakePort(),
     );
     expect(err).toMatchObject({ code: 'module_combination_unsupported' });
@@ -219,7 +214,7 @@ describe('M2 phase order', () => {
 
   it('controller set without a port ⇒ config_invalid physics_port; no controller entity is a game without a player yet; v1/v2 scene ⇒ snapshot_invalid', () => {
     const controller = probeSpec({
-      id: 'thirdlight.character:controller',
+      id: 'thirdlight.test:controller',
       phases: ['controller', 'transform'],
       owners: ['char-0001'],
       requiresPhysicsPort: true,
@@ -232,7 +227,7 @@ describe('M2 phase order', () => {
     // A player may arrive later with a scene: a controller module starts without one.
     const noController = v2Scene();
     noController.entities = (noController.entities as Array<{ id: string }>).filter((e) => e.id !== 'char-0001');
-    const withoutPlayer = probeSpec({ id: 'thirdlight.character:controller', phases: ['controller', 'transform'], owners: [], requiresPhysicsPort: true });
+    const withoutPlayer = probeSpec({ id: 'thirdlight.test:controller', phases: ['controller', 'transform'], owners: [], requiresPhysicsPort: true });
     expect(
       instantiateError([withoutPlayer.id], [withoutPlayer], undefined, makeFakePort(), {
         snapshotId: 'demo-0001@r4',

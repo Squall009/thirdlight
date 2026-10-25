@@ -206,7 +206,7 @@ describe('a start scene with nothing physical in a project that needs the 3D bac
 
   it('with the requirement an empty world starts and steps, in the page and in the worker', async () => {
     const physics = physics3DConfigOf(bare(), SETTINGS, { required: true });
-    expect(physics).toMatchObject({ dimension: 3, noCharacter: true, statics: [] });
+    expect(physics).toMatchObject({ noCharacter: true, statics: [] });
     const scene = { snapshot: sceneOf(bare(), 'd3e').snapshot, physics };
     const a = await run('single', scene, 60, { modules: MODULES });
     const w = await run('worker', scene, 60, { modules: MODULES });

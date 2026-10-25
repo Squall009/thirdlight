@@ -1,8 +1,8 @@
 /**
  * Generic gameplay pieces on their own: triggers (enter/exit events and a
- * scene transition per entry), a switch's configurable action (on the 2D
- * plane too, in the one step path every game runs),
- * velocity face-movement (the yaw of the motion, in 3D too) and a spawn's
+ * scene transition per entry), a switch's configurable action (in the one
+ * step path every game runs), velocity face-movement (the yaw of the
+ * motion on the ground) and a spawn's
  * yaw, the event → cue log, look overrides (set, clear, a new run, the save
  * section) and the track camera rig (offset, dead zone, damping, bounds).
  */
@@ -19,7 +19,7 @@ const T = (x: number, y: number, z = 0) => ({ position: [x, y, z], rotation: [0,
 const ent = (id: string, components: Record<string, unknown>, parentId?: string, at = T(0, 0)): EntityV3 => ({ id, ...(parentId !== undefined ? { parentId } : {}), components: { transform: at, ...components } }) as unknown as EntityV3;
 const frame = (actions: Record<string, { p: string; v: number }> = {}) => ({ stepIndex: 0, moveX: 0, jump: 'none' as const, actions }) as never;
 
-function harness(entities: EntityV3[], o: { dim3?: boolean } = {}) {
+function harness(entities: EntityV3[]) {
   const curr = new Map<string, TransformState>();
   for (const e of entities) {
     const t = e.components.transform;
@@ -28,12 +28,10 @@ function harness(entities: EntityV3[], o: { dim3?: boolean } = {}) {
   const transitions: { trigger: string; t: SceneTransitionRequest }[] = [];
   const host: BlocksHost = {
     hz: HZ,
-    physics: undefined,
     curr,
     characters: [{ id: 'actor', capsule: { radius: 0.3, halfHeight: 0.6, offset: { x: 0, y: 0 } }, skin: 0.01, offsetZ: 0 }],
     groundEntityId: () => null,
     sceneTransition: (trigger, t) => void transitions.push({ trigger, t }),
-    ...(o.dim3 === true ? { physics3d: {} as never } : {}),
   };
   const blocks = new GameplayBlocks(host, entities);
   let i = 0;
@@ -58,7 +56,7 @@ function harness(entities: EntityV3[], o: { dim3?: boolean } = {}) {
 }
 
 describe('triggers', () => {
-  it('the character entering and leaving a 2D trigger: enter/exit events, its signal, one transition per entry (once: the first only)', () => {
+  it('the character entering and leaving a flat trigger (as deep as it is wide): enter/exit events, its signal, one transition per entry (once: the first only)', () => {
     const door = ent('door-0001', { trigger: { size: [1, 2], signal: 'door', sceneTransition: { scene: 'scene-b', spawn: 'spawn-b', unload: ['scene-a'] } } }, undefined, T(3, 1));
     const once = ent('gate-0001', { trigger: { size: [1, 2], signal: 'gate', once: true, sceneTransition: { scene: 'scene-c' } } }, undefined, T(10, 1));
     const h = harness([ent('actor', { controller: {} }, undefined, T(0, 1)), door, once]);
@@ -114,7 +112,7 @@ describe('a switch reads its action', () => {
     expect([h.blocks.signaled('a'), h.blocks.signaled('b')]).toEqual([true, false]);
   });
 
-  it('switches run on the 2D plane without a game session — stand (on entry, once) and interact (only inside)', () => {
+  it('switches run without a game session — stand (on entry, once) and interact (only inside)', () => {
     const h = harness([
       ent('actor', { controller: {} }, undefined, T(0, 1)),
       ent('plate', { switch: { mode: 'stand', signal: 'plate', size: [1, 2] } }, undefined, T(3, 1)),
@@ -141,7 +139,7 @@ describe('a switch reads its action', () => {
 });
 
 describe('face velocity and a spawn yaw', () => {
-  it('a velocity model faces the horizontal motion of its parent (2D: ±90°), turning at a half turn per turnSeconds', () => {
+  it('a velocity model faces the horizontal motion of its parent (along ±X: ±90°), turning at a half turn per turnSeconds', () => {
     const h = harness([ent('actor', { controller: {} }, undefined, T(0, 1)), ent('look', { faceMovement: { mode: 'velocity', turnSeconds: 0.5 } }, 'actor')]);
     h.generic();
     for (let k = 0; k < 120; k++) {
@@ -168,8 +166,8 @@ describe('face velocity and a spawn yaw', () => {
     expect(Math.abs(h.yawOf('look'))).toBeCloseTo(180, 6);
   });
 
-  it('in 3D: any direction on the ground, with an offset; a top-level model faces its own motion', () => {
-    const h = harness([ent('actor', { controller: {} }, undefined, T(0, 1)), ent('drone', { faceMovement: { mode: 'velocity', turnSeconds: 0, yawOffset: 90 } }, undefined, T(5, 1))], { dim3: true });
+  it('any direction on the ground, with an offset; a top-level model faces its own motion', () => {
+    const h = harness([ent('actor', { controller: {} }, undefined, T(0, 1)), ent('drone', { faceMovement: { mode: 'velocity', turnSeconds: 0, yawOffset: 90 } }, undefined, T(5, 1))]);
     h.generic();
     h.move('drone', 0, 0, 0.1); // along +Z: yaw 0, plus the 90° offset
     h.generic();

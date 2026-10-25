@@ -204,7 +204,7 @@ describe('a block layer is the ground of a side-view project', () => {
     expect(Math.min(...overHole.map((r) => r[2] - FEET))).toBeLessThan(3);
   }, 180_000);
 
-  it.fails('jumps up through the one-way ledge, stands on it and drops back through it with down + jump (D322: one-way blocks on the 3D chunk mesh)', async () => {
+  it.fails('jumps up through the one-way ledge, stands on it and drops back through it with down + jump (fails today: block layers do not make one-way blocks one-way)', async () => {
     const a = await run('single', 360);
     expect(a.errors).toEqual([]);
     const at = (s: number) => rowOf(a.log, s);
@@ -216,7 +216,7 @@ describe('a block layer is the ground of a side-view project', () => {
     expect(at(350)[2]).toBeCloseTo(1 + FEET, 2);
   }, 60_000);
 
-  it.fails('falls through the hole dug in the plateau while pushing right (D323: an arcade capsule held on a hole\'s far wall)', async () => {
+  it.fails('falls through the hole dug in the plateau while pushing right (fails today: the character is held on the hole\'s far wall)', async () => {
     const dug = await run('single', 1100, { pitFilled: true, dig: true });
     expect(dug.errors).toEqual([]);
     const fell = dug.log.find((r) => r[0] > 500 && r[2] - FEET < 0);

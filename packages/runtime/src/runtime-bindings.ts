@@ -50,9 +50,9 @@ export function timelineHostOf(p: TimelineParts): TimelineHost {
   return {
     writeTransform: (id, pose) => {
       const t = sim.curr.get(id);
-      // A player character turns with a rotation key (its controller too); on the 2D plane the director places it.
+      // A player character turns with a rotation key (its controller too).
       if (t === undefined || chars.director.timelinePose(id, pose)) return t !== undefined;
-      // A 3D player controller's body moves with it (as a script's character_place does), onto its plane if it has one.
+      // A player controller's body moves with it (as a script's character_place does), onto its plane if it has one.
       const placed = sim.physics3d !== undefined && pose.position !== undefined ? chars.controllers.moveWithTimeline3D(id, pose.position) : null;
       if (placed !== null) pose = { ...pose, position: placed };
       // Its colliders (and its children's) follow it from the next step.

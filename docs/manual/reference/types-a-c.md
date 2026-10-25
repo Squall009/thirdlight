@@ -1127,9 +1127,9 @@ interface BlockType {
   /** An edge piece blocks passage across its edge (absent: true; stored only when false). An open edge never does. */
   blocking?: boolean;
   /**
-   * On the 2D plane, the character passes it from below and the sides and
-   * lands on it from above (a floating ledge; absent: solid; stored only
-   * when true). A 3D project ignores it.
+   * The character passes it from below and the sides and lands on it from
+   * above (a floating ledge; absent: solid; stored only when true). Block
+   * layers' chunk colliders do not apply it yet (they collide solid).
    */
   oneWay?: boolean;
   /** Connection rules: the look follows the neighbours (straight, corner, T, cross, end, base, cap; `block-connect.ts`); absent: none. */

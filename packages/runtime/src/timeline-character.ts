@@ -49,7 +49,7 @@ export function fireCharacterKey(port: TimelineCharacterPort | undefined, id: st
   const mode = TIMELINE_CHARACTER_MODES.find((m) => m === k.mode);
   if (mode !== undefined && k.position !== undefined) {
     const ok = mode === 'place' || skipping ? port.place(id, k.position, k.facing) : port.walk(id, k.position, { ...(k.run === true ? { run: true } : {}), ...(k.facing !== undefined ? { facing: k.facing } : {}) }, owner);
-    if (!ok) return `"${id}" cannot be placed there (a 2D character needs a physics world that places it)`;
+    if (!ok) return `"${id}" cannot be placed there (a bad point, or no physics world to place it in)`;
   } else if (k.facing !== undefined) port.turn(id, k.facing, skipping);
   return null;
 }

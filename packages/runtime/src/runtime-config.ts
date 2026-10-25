@@ -8,7 +8,7 @@ import { DEFAULT_FIXED_STEP_HZ, SAVE_LIMITS } from '@thirdlight/project-model';
 import { NEUTRAL_ACTION_SOURCE, type ActionSource } from './actions';
 import { clipMessage, type ErrorCode, type RuntimeError } from './errors';
 import { defaultClock, hasRaf } from './frame-loop';
-import type { PhysicsPort, PhysicsPort3D } from './ports';
+import type { PhysicsPort3D } from './ports';
 import { isSimulationRegistry } from './registry';
 import { SAVE_KEY_RE, SAVE_MAX_KEYS, SAVE_MAX_VALUE_CHARS, saveValueText } from './save-sections';
 import type { SimulationRegistry } from './types';
@@ -28,18 +28,9 @@ export function fail(code: ErrorCode, message: string, extra?: Partial<RuntimeEr
   return { code, message: clipMessage(message), ...extra };
 }
 
-export function isPhysicsPort(v: unknown): v is PhysicsPort {
-  return (
-    isPlainObject(v) &&
-    typeof v['stageCharacterMove'] === 'function' &&
-    typeof v['step'] === 'function' &&
-    typeof v['dispose'] === 'function'
-  );
-}
-
-/** A 3D port carries `dimension: 3` (the 2D port has no such field). */
-export function isPhysicsPort3D(v: unknown): v is PhysicsPort3D {
-  return isPlainObject(v) && v['dimension'] === 3 && typeof v['stageCharacterMove'] === 'function' && typeof v['step'] === 'function' && typeof v['dispose'] === 'function';
+/** An initialized physics port: the calls every step and the disposal make. */
+export function isPhysicsPort(v: unknown): v is PhysicsPort3D {
+  return isPlainObject(v) && typeof v['stageCharacterMove'] === 'function' && typeof v['step'] === 'function' && typeof v['dispose'] === 'function';
 }
 
 /** Strict config parsing. */
@@ -107,21 +98,17 @@ export function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: R
   } else {
     actions = config.actions as unknown as ActionSource;
   }
-  let physics: PhysicsPort | undefined;
   let physics3d: PhysicsPort3D | undefined;
-  if (config.physics !== undefined && isPhysicsPort3D(config.physics)) {
-    // A 3D project's port (the runtime holds one or the other).
-    physics3d = config.physics;
-  } else if (config.physics !== undefined) {
+  if (config.physics !== undefined) {
     if (!isPhysicsPort(config.physics)) {
       return {
-        error: fail('config_invalid', 'config field "physics" must be an initialized PhysicsPort', {
+        error: fail('config_invalid', 'config field "physics" must be an initialized PhysicsPort3D', {
           reason: PHYSICS_PORT_REASON,
           path: '/physics',
         }),
       };
     }
-    physics = config.physics;
+    physics3d = config.physics;
   }
   let clock: () => number;
   let clockLabel: 'performance' | 'injected';
@@ -203,7 +190,6 @@ export function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: R
       registry: config.registry as SimulationRegistry,
       modules,
       actions,
-      physics,
       ...(physics3d !== undefined ? { physics3d } : {}),
       settings: config.settings,
       clock,
@@ -223,8 +209,7 @@ export interface ParsedConfig {
   registry: SimulationRegistry;
   modules: string[];
   actions: ActionSource;
-  physics?: PhysicsPort;
-  /** The 3D port (instead of `physics`). */
+  /** The physics port (`config.physics`; absent: a game without physics). */
   physics3d?: PhysicsPort3D;
   settings: unknown;
   clock: () => number;

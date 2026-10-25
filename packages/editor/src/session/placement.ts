@@ -126,7 +126,7 @@ export interface PieceFacts {
   name: string;
   /** LOD0 bounds in the file's root space (null when empty). */
   bounds: { min: [number, number, number]; max: [number, number, number] } | null;
-  /** The 2D collider from the piece's `_COL` node (null: none); In a 3D project its 3D shape (`{ shape }`). */
+  /** The collider shape made from the piece's `_COL` node (`{ shape }`; null: none). */
   collider: DropCollider;
   skinned: boolean;
 }
@@ -148,13 +148,12 @@ export interface ModelDropInput {
   parentId: string | null;
 }
 
-/** A drop's collider: the 2D plane's polygon corners, or (a 3D project) a 3D shape made from the `_COL` node. */
-export type DropCollider = [number, number][] | { shape: Record<string, unknown> } | null;
+/** A drop's collider: a shape made from the `_COL` node. */
+export type DropCollider = { shape: Record<string, unknown> } | null;
 
 const colliderComponents = (c: DropCollider, skinned: boolean): { components?: Record<string, unknown> } => {
   if (c === null || skinned) return {};
-  if (!Array.isArray(c)) return { components: { collider: { shape: c.shape } } };
-  return { components: { collider: { shape: { type: 'polygon', vertices: c.map(([x, y]) => [x, y]) } } } };
+  return { components: { collider: { shape: c.shape } } };
 };
 
 /**

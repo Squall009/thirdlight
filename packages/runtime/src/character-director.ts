@@ -28,7 +28,7 @@
  * loaded save ends every walk, placement and turn (`saveLoaded`), since it
  * puts the characters where it says.
  */
-import { character3DSettingsOf, controllerTuningOf, type EntityV3 } from '@thirdlight/project-model';
+import { character3DSettingsOf, type EntityV3 } from '@thirdlight/project-model';
 
 import { actionAxis, type ActionFrame } from './actions';
 import { CHARACTER_IMPULSE_MAX } from './character-placement';
@@ -39,7 +39,7 @@ import type { GameplaySettings, TransformState } from './types';
 /** The writer name the director's channel writes carry (what the intent view's writers show). */
 export const CHARACTER_DIRECTOR_ID = 'thirdlight.runtime:character';
 
-/** How near the mark (m, on the ground plane; on the 2D plane along x) a walk has arrived, unless it says otherwise. */
+/** How near the mark (m, on the ground plane) a walk has arrived, unless it says otherwise. */
 export const WALK_ARRIVE_RADIUS = 0.1;
 
 /** A walk that gets no closer than this (m) … */
@@ -57,7 +57,6 @@ export type CharacterReleaseKind = 'finished' | 'skipped' | 'stopped';
 
 /** What the director reads from and asks of the runtime. */
 export interface CharacterDirectorHost {
-  is3D(): boolean;
   hz(): number;
   settings(): GameplaySettings;
   /** The controller a call names (absent or empty: the first); undefined: not a player controller. */
@@ -78,7 +77,7 @@ export interface CharacterDirectorHost {
   placeFacing(id: string, degrees: number | undefined): void;
   /** Turn a controller to a yaw (radians about +Y) without placing it. */
   turn(id: string, yaw: number): void;
-  /** Whether a controller can be placed (on the 2D plane: a physics port with placements). */
+  /** Whether a controller can be placed (a physics world places it). */
   canPlace(id: string): boolean;
   addImpulse(id: string, v: readonly [number, number, number]): void;
   intentsChanged(): void;
@@ -118,8 +117,8 @@ interface Directed {
   /** A placement for this step's channels (and its facing in degrees, null: it keeps its way). */
   place: readonly [number, number, number] | null;
   placeFacing: number | null;
-  /** A turn under way (radians), whether it turns at once, and (2D) where the character was when it last turned. */
-  facing: { yaw: number; instant: boolean; at?: number } | null;
+  /** A turn under way (radians) and whether it turns at once. */
+  facing: { yaw: number; instant: boolean } | null;
   enabled: boolean | null;
   readonly holds: Set<string>;
 }
@@ -139,8 +138,6 @@ export class CharacterDirector {
   private readonly switchedOn = new Map<string, boolean>();
   /** Per owner (a playing cutscene), each character's switch before the owner first switched it. */
   private readonly switchedBefore = new Map<string, Map<string, boolean>>();
-  /** Placements a 2D transform key could not make, already logged. */
-  private readonly unplaced = new Set<string>();
 
   constructor(private readonly host: CharacterDirectorHost) {}
 
@@ -275,7 +272,6 @@ export class CharacterDirector {
     this.ended.clear();
     this.switchedOn.clear();
     this.switchedBefore.clear();
-    this.unplaced.clear();
     this.serial = 0;
   }
 
@@ -355,9 +351,8 @@ export class CharacterDirector {
   /** One step of a walk: arrived, blocked, or the controller's input toward the mark. */
   private walkStep(id: string, d: Directed, t: TransformState, c: MutableControllerChannels, held: boolean): void {
     const w = d.walk!;
-    const is3D = this.host.is3D();
     const dx = w.target[0] - t.position[0];
-    const dz = is3D ? w.target[2] - t.position[2] : 0;
+    const dz = w.target[2] - t.position[2];
     const dist = Math.hypot(dx, dz);
     if (dist <= w.radius) {
       this.endWalk(d, 'arrived');
@@ -385,15 +380,13 @@ export class CharacterDirector {
     this.input(c, (dx / dist) * mag, (dz / dist) * mag, w.run);
   }
 
-  /** The controller's input of this step: a world direction (3D) or the move axis (2D); no jump. */
+  /** The controller's input of this step: a world direction (and the move axis); no jump. */
   private input(c: MutableControllerChannels, x: number, z: number, run: boolean): void {
     // The climb input too: a held or walking character does not take hold of a ladder.
     c.inputHeld = true;
-    if (this.host.is3D()) {
-      c.characterMove = { x, z, run };
-      c.characterWriters.set('character_move', CHARACTER_DIRECTOR_ID);
-      c.moveY = 0;
-    }
+    c.characterMove = { x, z, run };
+    c.characterWriters.set('character_move', CHARACTER_DIRECTOR_ID);
+    c.moveY = 0;
     c.move = quantizeIntentMove(x);
     c.moveWriter = CHARACTER_DIRECTOR_ID;
     c.jump = 'none';
@@ -401,10 +394,8 @@ export class CharacterDirector {
   }
 
   /**
-   * A turn's step: at the controller's turn speed in 3D (at once when asked).
-   * On the 2D plane its face-movement models turn at once, and again each
-   * step until it stands still: they follow the way it moves, and it may
-   * still be slowing down. Once nothing holds it and no walk drives it, a
+   * A turn's step: at the controller's turn speed (at once when asked).
+   * Once nothing holds it and no walk drives it, a
    * turn ends as soon as the player (or a script's move) moves it: the
    * player's input has the last word then (an instant turn still happens).
    */
@@ -415,13 +406,7 @@ export class CharacterDirector {
       d.facing = null;
       return;
     }
-    if (!this.host.is3D()) {
-      this.host.turn(id, f.yaw);
-      if (f.at !== undefined && Math.abs(t.position[0] - f.at) < 1e-4) d.facing = null;
-      else f.at = t.position[0];
-      return;
-    }
-    const rate = this.host.is3D() && !f.instant ? this.speeds(id).turn / this.host.hz() : Infinity;
+    const rate = !f.instant ? this.speeds(id).turn / this.host.hz() : Infinity;
     const from = yawOf(t.rotation);
     const delta = wrap(f.yaw - from);
     const yaw = Math.abs(delta) <= rate ? f.yaw : wrap(from + Math.sign(delta) * rate);
@@ -444,10 +429,7 @@ export class CharacterDirector {
   /** A controller's walk and run speeds, deceleration (m/s, m/s²) and turn speed (rad/s). */
   private speeds(id: string): { walk: number; run: number; decel: number; turn: number } {
     const controller = (this.host.entityDocument(id)?.components as { controller?: unknown } | undefined)?.controller;
-    const settings = this.host.settings();
-    const decel = controllerTuningOf(controller).deceleration;
-    if (!this.host.is3D()) return { walk: settings.run_speed, run: settings.run_speed, decel, turn: Infinity };
-    const s = character3DSettingsOf(controller, settings);
+    const s = character3DSettingsOf(controller, this.host.settings());
     return { walk: s.walkSpeed, run: s.runSpeed, decel: s.deceleration, turn: s.turnSpeed > 0 ? radians(s.turnSpeed) : Infinity };
   }
 
@@ -459,7 +441,6 @@ export class CharacterDirector {
       const id = this.resolve(entityId);
       if (id === undefined) return false;
       if (!Array.isArray(v) || v.length !== 3 || !v.every((x) => typeof x === 'number' && Number.isFinite(x) && Math.abs(x) <= CHARACTER_IMPULSE_MAX)) return false;
-      // The 2D plane has no depth: its z is dropped.
       this.host.addImpulse(id, [v[0] as number, v[1] as number, v[2] as number]);
       this.host.intentsChanged();
       return true;
@@ -515,18 +496,12 @@ export class CharacterDirector {
 
   /**
    * A timeline's transform key on a player character: a rotation turns it
-   * (its controller keeps the way the key faces); on the 2D plane a
-   * position places it, as a script's `character_place` does. True when the
-   * key needs nothing more (a 2D character); false: write it as usual.
+   * (its controller keeps the way the key faces). False: write the key as
+   * usual (its position moves the body with it).
    */
   timelinePose(id: string, pose: { position?: readonly number[]; rotation?: readonly number[] }): boolean {
     if (this.host.resolve(id) !== id) return false;
     if (pose.rotation !== undefined) this.turn(id, (yawOf(pose.rotation) * 180) / Math.PI, true);
-    if (this.host.is3D()) return false;
-    if (pose.position !== undefined && !this.place(id, [pose.position[0], pose.position[1], pose.position[2] ?? 0], undefined) && !this.unplaced.has(id)) {
-      this.unplaced.add(id);
-      this.host.warn(`a timeline's position key cannot place "${id}": a 2D character needs a physics world that places it`);
-    }
-    return true;
+    return false;
   }
 }

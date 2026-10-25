@@ -5,7 +5,7 @@
  *
  *   node tools/perf/run.mjs plane-step [--levels 1,4] [--steps 2400] [--warmup 240] [--rounds 3] [--seed 7] [--arcade]
  *
- * `--arcade` gives every run the arcade profile's step-up (autostep, climbed by the platformer rule).
+ * `--arcade` gives every run the arcade profile's step-up (autostep, climbed by the arcade rule).
  */
 import { spawn } from 'node:child_process';
 

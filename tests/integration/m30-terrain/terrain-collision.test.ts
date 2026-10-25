@@ -48,7 +48,6 @@ function specsOf(t: TerrainTile, spacing: number): StaticColliderSpec3D[] {
 
 async function portWith(statics: StaticColliderSpec3D[], at: { x: number; y: number; z: number }): Promise<PhysicsPort3D> {
   const made = await createPhysicsPort3D({
-    dimension: 3,
     character: { position: at, radius: 0.3, halfHeight: 0.6, offset: { x: 0, y: 0, z: 0 } },
     statics,
     solver: { hz: HZ, gravityY: G },

@@ -26,7 +26,7 @@ The limits and defaults `@thirdlight/game-host` defines, by source file. Values 
 
 | Constant | Value | What it is |
 |---|---|---|
-| <a id="limit-physics-memory-cap-bytes"></a>`PHYSICS_MEMORY_CAP_BYTES` | `536870912` | Engine limit: the physics engine's WebAssembly memory may grow to this many bytes; past it the simulation stops with `physics_memory_limit` instead of growing without bound (a runaway spawn loop, a leak). 512 MiB is far above any 2D scene (the 16 000-entity benchmark uses a few MiB). |
+| <a id="limit-physics-memory-cap-bytes"></a>`PHYSICS_MEMORY_CAP_BYTES` | `536870912` | Engine limit: the physics engine's WebAssembly memory may grow to this many bytes; past it the simulation stops with `physics_memory_limit` instead of growing without bound (a runaway spawn loop, a leak). 512 MiB is far above any benchmark scene (the 16 000-entity one uses a few MiB). |
 
 <a id="limits-game-host--storage"></a>
 ## `storage.ts`

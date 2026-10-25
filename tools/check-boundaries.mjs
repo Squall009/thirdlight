@@ -431,7 +431,7 @@ const BUNDLE_ENTRY_EDGES = {
   // exported game's page share. It is browser bundle code, linked only into
   // those two bundles (the game-host root stays free of three and physics):
   // the scene adapter and its GLTFLoader port, the physics port's types (the
-  // 2D backend is injected by the entry), the browser input, the model's pure helpers. Behavior outputs load from the URLs the
+  // backend loads from its own script), the browser input, the model's pure helpers. Behavior outputs load from the URLs the
   // page gives it (manifest-declared paths).
   'packages/game-host/src/game-page.ts': {
     packages: ['runtime', 'three-adapter', 'project-model', 'input', 'physics-rapier'],

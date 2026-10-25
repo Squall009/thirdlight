@@ -485,9 +485,9 @@ export interface PhysicsStepClient {
    * @graphNode Character result
    * @graphLabel entityId player
    */
-  characterResult(entityId?: string): CharacterMoveResult | undefined;
+  characterResult(entityId?: string): CharacterMoveResult3D | undefined;
   /**
-   * Lock an object's body (its collider, or its player controller's character) to an axis-aligned plane — `{ axis: 'x' | 'z', origin }`, the plane's normal and where it lies along it (m) — or free it again (null), at the next step boundary. A locked body does not move along the normal and only turns about it: locking snaps it onto the plane and drops its speed along the normal; freeing leaves it where it is, free in all six degrees of freedom. A 2D-style stretch of a 3D game (and back) at any moment, with no reload. Lasts until changed, the object leaves the game or the run restarts. False without a 3D world, for a bad plane or an object with neither a collider nor a player controller.
+   * Lock an object's body (its collider, or its player controller's character) to an axis-aligned plane — `{ axis: 'x' | 'z', origin }`, the plane's normal and where it lies along it (m) — or free it again (null), at the next step boundary. A locked body does not move along the normal and only turns about it: locking snaps it onto the plane and drops its speed along the normal; freeing leaves it where it is, free in all six degrees of freedom. A side-view stretch of a game (and back) at any moment, with no reload. Lasts until changed, the object leaves the game or the run restarts. False without a physics world, for a bad plane or an object with neither a collider nor a player controller.
    * @graphNode Set plane
    * @graphDefault axis z
    */

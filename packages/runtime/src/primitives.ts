@@ -1,7 +1,7 @@
 /**
  * The generic gameplay primitives, run by the runtime in the
- * fixed step (deterministic: entity order, sorted pairs, step counts) on the
- * 2D plane and in 3D alike:
+ * fixed step (deterministic: entity order, sorted pairs, step counts), on a
+ * plane and in free 3D alike:
  *
  * - `health` on any object: its current and maximum; scripts damage and heal
  *   it (`ctx.health`), and every change is an event (`damaged`, `healed`,
@@ -15,7 +15,7 @@
  *   path code), or straight ahead turning at walls and ledges (a ray ahead at
  *   the middle of its body, a ray down just past its front); a `turned` event
  *   each time it turns around.
- * - `hitbox`: an area (a box, or a sphere — a circle on the 2D plane) whose
+ * - `hitbox`: an area (a box, or a sphere; a circle is the sphere of its radius) whose
  *   contacts with other hitboxes and with the character are `contact` and
  *   `separate` events for both sides, carrying the other object and the
  *   contact normal (a unit vector from this object toward the other: the
@@ -28,7 +28,7 @@
  * step after they happened (like trigger events); the state is saved in a
  * project save's `components` section.
  */
-import type { PhysicsPort, PhysicsPort3D } from './ports';
+import type { PhysicsPort3D } from './ports';
 import type { HealthEventRecord, PrimitiveEventRecord, TransformState } from './types';
 
 type Vec3 = [number, number, number];
@@ -228,9 +228,8 @@ interface Body {
 /** What the primitives need from the gameplay blocks. */
 export interface PrimitivesHost {
   readonly hz: number;
-  readonly dimension: 2 | 3;
   readonly curr: Map<string, TransformState>;
-  readonly physics: PhysicsPort | undefined;
+  /** The physics world the walkers' and gravity bodies' rays probe (absent: no physics, the way is always clear). */
   readonly physics3d: PhysicsPort3D | undefined;
   /** The player characters (the controllers' objects, in controller order): each one's id, its capsule's bounding box centre and half extents. */
   characters(): readonly { id: string; centre: Vec3; half: Vec3 }[];
@@ -384,10 +383,8 @@ export class Primitives {
         path = { points, lengths: pathLengths(points, loop), speed: num(p['speed'], 1), mode: loop ? 'loop' : 'pingpong', wait: num(p['wait'], 0), easing: 'linear', segment: 0, along: 0, dir: 1, waiting: 0, done: false, pos: [...start] };
       } else {
         const d = (p['direction'] as number[] | undefined) ?? [1, 0, 0];
-        // The 2D plane walks any direction in the plane (x and y; +x when it has neither — before, only
-        // the sign of x counted, which a direction along x keeps exactly); 3D any direction too: along
-        // the ground without a y part, up or down with one (a 2D walker's on a plane).
-        const dir: Vec3 = this.host.dimension === 2 ? unit([num(d[0], 1), num(d[1], 0), 0]) : unit([num(d[0], 0), num(d[1], 0), num(d[2], 0)]);
+        // Any direction: along the ground without a y part, up or down with one.
+        const dir: Vec3 = unit([num(d[0], 0), num(d[1], 0), num(d[2], 0)]);
         edges = { dir: [...dir], startDir: dir, half: area(p['size'], [1, 1, 1]), wallProbe: num(p['wallProbe'], 0.05), ledgeProbe: num(p['ledgeProbe'], 0.4), pos: [...start], waiting: 0 };
       }
       this.patrols.set(id, { id, start, speed: num(p['speed'], 1), waitSteps: Math.max(0, Math.round(num(p['wait'], 0) * this.host.hz)), active: true, edges, path });
@@ -534,7 +531,7 @@ export class Primitives {
     if (at === null) return;
     const q = this.host.curr.get(k.id)?.rotation ?? [0, 0, 0, 1];
     // The first player character (in controller order) touching it collects it.
-    const character = characters.find((c) => boxesOverlap(at, k.half, q, c.centre, c.half, this.host.dimension));
+    const character = characters.find((c) => boxesOverlap(at, k.half, q, c.centre, c.half));
     if (character === undefined) return;
     k.collected = true;
     k.timer = k.respawnSteps > 0 ? k.respawnSteps : -1;
@@ -604,7 +601,7 @@ export class Primitives {
       this.push({ type: 'turned', entity: p.id, reason: blocked, direction: frozen3(e.dir), stepIndex: this.step - 1 });
       return;
     }
-    // A 2D walker's direction may have a y part (it moves up or down).
+    // A walker's direction may have a y part (it moves up or down).
     e.pos = [e.pos[0] + e.dir[0] * step, e.pos[1] + e.dir[1] * step, e.pos[2] + e.dir[2] * step];
     this.write(p.id, e.pos);
   }
@@ -614,24 +611,14 @@ export class Primitives {
     const d = e.dir;
     const reach = e.half[0] + step + e.wallProbe;
     const front: Vec3 = [c[0] + d[0] * (e.half[0] + e.wallProbe), c[1] - e.half[1] + 0.1, c[2] + d[2] * (e.half[0] + e.wallProbe)];
-    if (this.host.dimension === 3) {
-      const port = this.host.physics3d;
-      if (port?.raycast === undefined) return null;
-      // As on the 2D plane: moving up or down it reaches past its body's extent that way and is not walking on a floor.
-      const vertical = d[1] !== 0;
-      const ahead = vertical ? Math.abs(d[0]) * e.half[0] + Math.abs(d[1]) * e.half[1] + Math.abs(d[2]) * e.half[2] + step + e.wallProbe : reach;
-      if (port.raycast({ x: c[0], y: c[1], z: c[2] }, { x: d[0], y: d[1], z: d[2] }, ahead) !== null) return 'wall';
-      if (!vertical && port.raycast({ x: front[0], y: front[1], z: front[2] }, { x: 0, y: -1, z: 0 }, e.ledgeProbe) === null) return 'ledge';
-      return null;
-    }
-    const port = this.host.physics;
+    const port = this.host.physics3d;
     if (port?.raycast === undefined) return null;
-    // Along its direction in the plane, from its centre past its body's extent that way; only a walk
-    // along the ground (no y part) looks for ledges — moving up or down it is not walking on a floor.
+    // From its centre past its body's extent along its direction; only a walk along the ground (no y
+    // part) looks for ledges — moving up or down it is not walking on a floor.
     const vertical = d[1] !== 0;
-    const extent = vertical ? Math.abs(d[0]) * e.half[0] + Math.abs(d[1]) * e.half[1] : e.half[0];
-    if (port.raycast({ x: c[0], y: c[1] }, { x: d[0], y: d[1] }, extent + step + e.wallProbe) !== null) return 'wall';
-    if (!vertical && port.raycast({ x: front[0], y: front[1] }, { x: 0, y: -1 }, e.ledgeProbe) === null) return 'ledge';
+    const ahead = vertical ? Math.abs(d[0]) * e.half[0] + Math.abs(d[1]) * e.half[1] + Math.abs(d[2]) * e.half[2] + step + e.wallProbe : reach;
+    if (port.raycast({ x: c[0], y: c[1], z: c[2] }, { x: d[0], y: d[1], z: d[2] }, ahead) !== null) return 'wall';
+    if (!vertical && port.raycast({ x: front[0], y: front[1], z: front[2] }, { x: 0, y: -1, z: 0 }, e.ledgeProbe) === null) return 'ledge';
     return null;
   }
 
@@ -662,17 +649,13 @@ export class Primitives {
     const hz = f.half[2] * FALL_PROBE_INSET;
     let best: number | null = null;
     const ray = (x: number, z: number): void => {
-      let d: number | null = null;
-      if (this.host.dimension === 3) d = this.host.physics3d?.raycast?.({ x, y: fromY, z }, { x: 0, y: -1, z: 0 }, reach)?.distance ?? null;
-      else d = this.host.physics?.raycast?.({ x, y: fromY }, { x: 0, y: -1 }, reach)?.distance ?? null;
+      const d = this.host.physics3d?.raycast?.({ x, y: fromY, z }, { x: 0, y: -1, z: 0 }, reach)?.distance ?? null;
       if (d !== null && (best === null || d < best)) best = d;
     };
     ray(c[0], c[2]);
     ray(c[0] - hx, c[2]);
     ray(c[0] + hx, c[2]);
-    if (this.host.dimension === 3) {
-      for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) ray(c[0] + sx * hx, c[2] + sz * hz);
-    }
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) ray(c[0] + sx * hx, c[2] + sz * hz);
     let dy: number;
     if (best !== null) {
       // Landed (or resting): the underside on the highest floor found.
@@ -703,7 +686,6 @@ export class Primitives {
       if (c !== null) bodies.push({ id: b.id, c, half: b.half, r: b.radius, damage: b.damage });
     }
     for (const character of characters) if (!this.hitboxes.has(character.id)) bodies.push({ id: character.id, c: character.centre, half: character.half, r: 0, damage: 0 });
-    const dims = this.host.dimension;
     // Sweep along x (sorted by the left edge, then id: deterministic).
     const ext = (b: Body): number => (b.half !== null ? b.half[0] : b.r);
     bodies.sort((a, b) => a.c[0] - ext(a) - (b.c[0] - ext(b)) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
@@ -717,7 +699,7 @@ export class Primitives {
         if (b.c[0] - ext(b) >= right) break;
         if (this.related(a.id, b.id)) continue;
         const [lo, hi] = a.id < b.id ? [a, b] : [b, a];
-        const n = contactNormal(lo, hi, this.lastCentre.get(lo.id), this.lastCentre.get(hi.id), dims);
+        const n = contactNormal(lo, hi, this.lastCentre.get(lo.id), this.lastCentre.get(hi.id));
         if (n === null) continue;
         const key = `${lo.id}\u0000${hi.id}`;
         now.set(key, [lo.id, hi.id]);
@@ -964,13 +946,11 @@ export class Primitives {
 // ---- geometry (pure) ----------------------------------------------------------------
 
 /**
- * A box (`half` about `at`, turned by `q` in 3D) against an axis-aligned box
- * (the character's): on the 2D plane both are axis-aligned rectangles (as a
- * pickup's area); in 3D the first turns with its object (a separating-axis
- * test on its three axes and the world's).
+ * A box (`half` about `at`, turned by `q`) against an axis-aligned box (the
+ * character's): the first turns with its object (a separating-axis test on
+ * its three axes and the world's).
  */
-function boxesOverlap(at: Vec3, half: Vec3, q: readonly number[], c: Vec3, ch: Vec3, dims: 2 | 3): boolean {
-  if (dims === 2) return Math.abs(c[0] - at[0]) < half[0] + ch[0] && Math.abs(c[1] - at[1]) < half[1] + ch[1];
+function boxesOverlap(at: Vec3, half: Vec3, q: readonly number[], c: Vec3, ch: Vec3): boolean {
   const rot = (q[0] ?? 0) !== 0 || (q[1] ?? 0) !== 0 || (q[2] ?? 0) !== 0;
   if (!rot) return Math.abs(c[0] - at[0]) < half[0] + ch[0] && Math.abs(c[1] - at[1]) < half[1] + ch[1] && Math.abs(c[2] - at[2]) < half[2] + ch[2];
   // Separating axis test: the rotated box's three axes and the world's three axes (the axis-aligned box).
@@ -999,33 +979,32 @@ function rotateVec(q: readonly number[], p: Vec3): Vec3 {
 
 /**
  * The contact normal from `a` toward `b` (unit), or null when they do not
- * touch (a touch is not a contact). Boxes are axis-aligned; on the 2D plane
- * z is ignored. Two boxes, or a sphere whose centre is inside a box: the axis
+ * touch (a touch is not a contact). Boxes are axis-aligned. Two boxes, or a sphere whose centre is inside a box: the axis
  * along which they were still apart at their previous centres (the side the
  * contact came from; among several, the shallowest now), else the shallowest
  * overlap. A sphere: along the line between the closest points.
  */
-export function contactNormal(a: { c: Vec3; half: Vec3 | null; r: number }, b: { c: Vec3; half: Vec3 | null; r: number }, pa: Vec3 | undefined, pb: Vec3 | undefined, dims: 2 | 3): Vec3 | null {
+export function contactNormal(a: { c: Vec3; half: Vec3 | null; r: number }, b: { c: Vec3; half: Vec3 | null; r: number }, pa: Vec3 | undefined, pb: Vec3 | undefined): Vec3 | null {
   if (a.half === null && b.half === null) {
-    const d: Vec3 = [b.c[0] - a.c[0], b.c[1] - a.c[1], dims === 3 ? b.c[2] - a.c[2] : 0];
+    const d: Vec3 = [b.c[0] - a.c[0], b.c[1] - a.c[1], b.c[2] - a.c[2]];
     const l = Math.hypot(d[0], d[1], d[2]);
     if (!(l < a.r + b.r)) return null;
     return l > 0 ? [d[0] / l, d[1] / l, d[2] / l] : [0, 1, 0];
   }
-  if (a.half !== null && b.half !== null) return boxNormal(a.c, a.half, b.c, b.half, pa, pb, dims);
+  if (a.half !== null && b.half !== null) return boxNormal(a.c, a.half, b.c, b.half, pa, pb);
   // A box and a sphere: from the box's closest point to the sphere's centre.
   const box = a.half !== null ? a : b;
   const ball = a.half !== null ? b : a;
   const h = box.half!;
-  const q: Vec3 = [0, 1, 2].map((i) => (i === 2 && dims === 2 ? ball.c[2] : Math.min(box.c[i]! + h[i]!, Math.max(box.c[i]! - h[i]!, ball.c[i]!)))) as Vec3;
-  const d: Vec3 = [ball.c[0] - q[0], ball.c[1] - q[1], dims === 3 ? ball.c[2] - q[2] : 0];
+  const q: Vec3 = [0, 1, 2].map((i) => Math.min(box.c[i]! + h[i]!, Math.max(box.c[i]! - h[i]!, ball.c[i]!))) as Vec3;
+  const d: Vec3 = [ball.c[0] - q[0], ball.c[1] - q[1], ball.c[2] - q[2]];
   const l = Math.hypot(d[0], d[1], d[2]);
   if (!(l < ball.r)) return null;
   let n: Vec3;
   if (l > 0) n = [d[0] / l, d[1] / l, d[2] / l];
   else {
     const r = ball.r;
-    const nn = boxNormal(box.c, h, ball.c, [r, r, r], box === a ? pa : pb, box === a ? pb : pa, dims);
+    const nn = boxNormal(box.c, h, ball.c, [r, r, r], box === a ? pa : pb, box === a ? pb : pa);
     if (nn === null) return null;
     n = nn;
   }
@@ -1033,21 +1012,21 @@ export function contactNormal(a: { c: Vec3; half: Vec3 | null; r: number }, b: {
   return box === a ? n : [-n[0], -n[1], -n[2]];
 }
 
-function boxNormal(ca: Vec3, ha: Vec3, cb: Vec3, hb: Vec3, pa: Vec3 | undefined, pb: Vec3 | undefined, dims: 2 | 3): Vec3 | null {
+function boxNormal(ca: Vec3, ha: Vec3, cb: Vec3, hb: Vec3, pa: Vec3 | undefined, pb: Vec3 | undefined): Vec3 | null {
   const pen: number[] = [];
-  for (let k = 0; k < dims; k++) {
+  for (let k = 0; k < 3; k++) {
     const p = ha[k]! + hb[k]! - Math.abs(cb[k]! - ca[k]!);
     if (!(p > 0)) return null;
     pen.push(p);
   }
   let axis = -1;
   if (pa !== undefined && pb !== undefined) {
-    for (let k = 0; k < dims; k++) {
+    for (let k = 0; k < 3; k++) {
       const apart = ha[k]! + hb[k]! - Math.abs(pb[k]! - pa[k]!) <= 0;
       if (apart && (axis < 0 || pen[k]! < pen[axis]!)) axis = k;
     }
   }
-  if (axis < 0) for (let k = 0; k < dims; k++) if (axis < 0 || pen[k]! < pen[axis]!) axis = k;
+  if (axis < 0) for (let k = 0; k < 3; k++) if (axis < 0 || pen[k]! < pen[axis]!) axis = k;
   const n: Vec3 = [0, 0, 0];
   n[axis] = cb[axis]! >= ca[axis]! ? 1 : -1;
   return n;

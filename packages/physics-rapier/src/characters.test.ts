@@ -21,7 +21,6 @@ const capsule3 = (x: number, y: number, z: number): PhysicsInitConfig3D['charact
 
 async function port3(extra: PhysicsInitConfig3D['characters']) {
   const made = await createPhysicsPort3D({
-    dimension: 3,
     character: capsule3(-2, 2, 0),
     ...(extra !== undefined ? { characters: extra } : {}),
     statics: [{ entityId: 'floor', shape: { type: 'box', hx: 20, hy: 0.5, hz: 20 }, position: { x: 0, y: -0.5, z: 0 }, rotation: IDENTITY }],

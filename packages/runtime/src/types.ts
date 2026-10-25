@@ -6,13 +6,12 @@
  * These are the type surface of the `runtime` package (snapshot,
  * diagnostics, module interfaces, `ActionFrame`, `JumpPhase`,
  * `ActionSource`, `createRecordedActionSource`, `SimulationPhase`,
- * `StepContext`, `GameplaySettings`, `PhysicsPort`, `PhysicsStepClient`).
+ * `StepContext`, `GameplaySettings`, `PhysicsPort3D`, `PhysicsStepClient`).
  */
 import type { EntityV3, Quat, RepeatedRowFields, Vec3 } from '@thirdlight/project-model';
 
 import type { ActionFrame, ActionSource, DebugCommandCall } from './actions';
 import type { ErrorCode, RuntimeError } from './errors';
-import type { PhysicsPort, PhysicsStepClient } from './ports';
 import { registryBrand, type SimulationPhase, type TransformState } from './types-simulation';
 import { type DebugCommandState, type DecalRequest, type EffectRequest } from './types-behavior';
 import { type SceneLoadingView, type SceneLoadOptions, type SceneLoadRequest, type SceneSetView } from './types-scene';

@@ -129,13 +129,13 @@ export interface BlockLayerComponent {
   metadataOnly?: boolean;
   /**
    * The blocks' collision shapes are colliders (absent: true; stored only
-   * when false): in a 3D project as they are, on the 2D plane cut at the
-   * play plane (`planeZ`).
+   * when false).
    */
   collision?: boolean;
   /**
-   * World z of the play plane a 2D-plane project cuts the blocks' collision
-   * shapes at (`block-plane-cut.ts`; absent: 0). A 3D project ignores it.
+   * The play plane z the removed 2D backend cut the blocks' collision at.
+   * Not read: kept so an upgraded project's data stays valid (the upgrade
+   * lists it to check).
    */
   planeZ?: number;
   /** Casts the directional light's shadow (absent: true; stored only when false). */
@@ -285,9 +285,9 @@ export interface BlockType {
   /** An edge piece blocks passage across its edge (absent: true; stored only when false). An open edge never does. */
   blocking?: boolean;
   /**
-   * On the 2D plane, the character passes it from below and the sides and
-   * lands on it from above (a floating ledge; absent: solid; stored only
-   * when true). A 3D project ignores it.
+   * The character passes it from below and the sides and lands on it from
+   * above (a floating ledge; absent: solid; stored only when true). Block
+   * layers' chunk colliders do not apply it yet (they collide solid).
    */
   oneWay?: boolean;
   /** Connection rules: the look follows the neighbours (straight, corner, T, cross, end, base, cap; `block-connect.ts`); absent: none. */
@@ -382,9 +382,8 @@ export const BLOCK_CORNER_STEPS = 64;
 export const BLOCK_CORNER_MAX = 4;
 
 /**
- * How far from the world origin a layer's 2D play plane may lie (metres):
- * the layer coordinates' reach at the largest cells, so any plane through
- * a layer can be named.
+ * How far from the world origin a layer's stored play plane z may lie
+ * (metres): the layer coordinates' reach at the largest cells.
  */
 export const BLOCK_PLANE_Z_MAX = BLOCK_LIMITS.coordinateXZ * BLOCK_LIMITS.cellSizeMax;
 

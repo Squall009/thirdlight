@@ -1,8 +1,60 @@
-# Graph: Visual script (part 5, from Cell metadata (`api.grid.meta`))
+# Graph: Visual script (part 5, from World to cell (`api.grid.worldToCell`))
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Visual script node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="node-behavior--api-grid-world-to-cell"></a>
+### World to cell (`api.grid.worldToCell`)
+
+The cell holding a world position (it may lie outside the layer's bounds), or null for no such layer.
+
+Inputs:
+
+- `layer` (string)
+- `position` (vector)
+
+Outputs:
+
+- `x` (number)
+- `y` (number)
+- `z` (number)
+- `found` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `layer` | layer | string | `""` | ≤ 256 chars |
+| `position` | position | vector | `[0,0,0]` | -1000000000 – 1000000000; 3 components |
+
+<a id="node-behavior--api-grid-cell-to-world"></a>
+### Cell to world (`api.grid.cellToWorld`)
+
+The world position of a cell's centre, or null for no such layer.
+
+Inputs:
+
+- `layer` (string)
+- `x` (number)
+- `y` (number)
+- `z` (number)
+
+Outputs:
+
+- `x` (number)
+- `y` (number)
+- `z` (number)
+- `found` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `layer` | layer | string | `""` | ≤ 256 chars |
+| `x` | x | number | `0` | -1000000000 – 1000000000 |
+| `y` | y | number | `0` | -1000000000 – 1000000000 |
+| `z` | z | number | `0` | -1000000000 – 1000000000 |
 
 <a id="node-behavior--api-grid-meta"></a>
 ### Cell metadata (`api.grid.meta`)
@@ -1529,32 +1581,4 @@ Fields:
 | `y` | y | number | `0` | -1000000000 – 1000000000 |
 | `w` | w | number | `1` | -1000000000 – 1000000000 |
 | `h` | h | number | `1` | -1000000000 – 1000000000 |
-| `materialId` | material | string | `""` | ≤ 256 chars |
-
-<a id="node-behavior--api-materials-get-data"></a>
-### Material data cell (`api.materials.getData`)
-
-One cell of a data parameter on an object as [r, g, b, a] (0–255), or null (no such parameter or cell). An empty entity means this object.
-
-Inputs:
-
-- `entityId` "entity" (string)
-- `param` "parameter" (string)
-- `x` (number)
-- `y` (number)
-- `materialId` "material" (string)
-
-Outputs:
-
-- `value` (vector)
-- `found` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `entityId` | entity | string | `""` | ≤ 256 chars |
-| `param` | parameter | string | `""` | ≤ 256 chars |
-| `x` | x | number | `0` | -1000000000 – 1000000000 |
-| `y` | y | number | `0` | -1000000000 – 1000000000 |
 | `materialId` | material | string | `""` | ≤ 256 chars |

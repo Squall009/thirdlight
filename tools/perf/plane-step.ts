@@ -15,7 +15,7 @@
  * where without it nothing keeps them there but the layout itself.
  *
  * `arcade` gives the character the arcade movement profile's step-up:
- * autostep (0.25 m) climbed by the platformer rule (`autostepRide`), as a
+ * autostep (0.25 m) climbed by the arcade rule (`autostepRide`), as a
  * side-scroller's player has.
  *
  * Input: env TL_PLANE = JSON { levels, warmup, steps, seed, plane?, arcade? }.
@@ -34,7 +34,7 @@ type Any = any;
 interface PlaneInput {
   /** The character and the movers locked to the plane z = 0. */
   plane?: boolean;
-  /** The arcade profile's step-up: autostep on, climbed by the platformer rule. */
+  /** The arcade profile's step-up: autostep on, climbed by the arcade rule. */
   arcade?: boolean;
   /** Levels laid end to end, all loaded (one is a level as a game streams it). */
   levels: number;

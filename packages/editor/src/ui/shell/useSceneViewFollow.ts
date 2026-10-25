@@ -3,8 +3,8 @@
  * chunk size, LOD tuning, ambient occlusion, occlusion culling, see-through,
  * the renderer backend), the projection (only what changed since the last
  * sync; the first non-empty scene is framed), the selection and its gizmo,
- * the instance brush, the descriptors' handles and icons, the physics
- * dimension, the project's lens and the game view's aspect.
+ * the instance brush, the descriptors' handles and icons, the project's
+ * lens and the game view's aspect.
  */
 import { useEffect, useMemo, useRef, type Dispatch, type SetStateAction } from 'react';
 import type { DescriptorRegistry } from '@thirdlight/project-model';

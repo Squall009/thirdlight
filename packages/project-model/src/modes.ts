@@ -277,7 +277,7 @@ export function canonicalModes(list: readonly GameMode[]): GameMode[] {
 /**
  * What the simulation knows of the modes: the canonical list and, for the
  * input masking, each action's map (the project's input, else the engine
- * default for its dimension). Undefined without modes (a project without
+ * default for its start view). Undefined without modes (a project without
  * modes gets no snapshot field: its snapshot, digests and replays are as
  * before).
  */

@@ -1,7 +1,7 @@
 /**
  * The package's public surface: exactly the port factory, its memory probe,
- * the shape validator, the shape limits and the approved pin (a 2D entry or
- * a second engine never comes back unnoticed).
+ * the shape validator, the shape limits and the approved pin (a second
+ * backend or engine never comes back unnoticed).
  */
 import { describe, expect, it } from 'vitest';
 

@@ -7,11 +7,11 @@
 import { describe, expect, it } from 'vitest';
 
 import { contactNormal, Primitives, type PrimitivesHost } from './primitives';
-import type { PhysicsPort, TransformState } from './index';
+import type { PhysicsPort3D, TransformState } from './index';
 
 type V = [number, number, number];
 
-function fakeHost(dimension: 2 | 3, opts: { character?: V | null; parents?: Record<string, string>; physics?: PhysicsPort } = {}) {
+function fakeHost(opts: { character?: V | null; parents?: Record<string, string>; physics?: PhysicsPort3D } = {}) {
   const curr = new Map<string, TransformState>();
   const counters: Record<string, number> = {};
   const signals: string[] = [];
@@ -20,10 +20,8 @@ function fakeHost(dimension: 2 | 3, opts: { character?: V | null; parents?: Reco
   let character: V | null = opts.character ?? null;
   const host: PrimitivesHost = {
     hz: 120,
-    dimension,
     curr,
-    physics: opts.physics,
-    physics3d: undefined,
+    physics3d: opts.physics,
     characters: () => (character === null ? [] : [{ id: 'actor', centre: [...character] as V, half: [0.3, 0.9, 0.3] }]),
     worldOf: (id) => {
       const t = curr.get(id);
@@ -57,30 +55,29 @@ describe('contact normals', () => {
   const ball = (c: V, r: number) => ({ c, half: null, r });
   it('boxes: the axis they were apart along before (a fall from above), else the shallowest overlap', () => {
     // b falls onto a from above: apart in y the step before, overlapping in both x and y now (x deeper).
-    expect(contactNormal(box([0, 0, 0], [1, 0.5, 1]), box([0.2, 0.9, 0], [0.3, 0.5, 0.3]), [0, 0, 0], [0.2, 1.2, 0], 2)).toEqual([0, 1, 0]);
+    expect(contactNormal(box([0, 0, 0], [1, 0.5, 1]), box([0.2, 0.9, 0], [0.3, 0.5, 0.3]), [0, 0, 0], [0.2, 1.2, 0])).toEqual([0, 1, 0]);
     // No history: the shallowest overlap (x here).
-    expect(contactNormal(box([0, 0, 0], [0.5, 0.5, 0.5]), box([0.9, 0.2, 0], [0.5, 0.5, 0.5]), undefined, undefined, 2)).toEqual([1, 0, 0]);
+    expect(contactNormal(box([0, 0, 0], [0.5, 0.5, 0.5]), box([0.9, 0.2, 0], [0.5, 0.5, 0.5]), undefined, undefined)).toEqual([1, 0, 0]);
     // A touch is not a contact.
-    expect(contactNormal(box([0, 0, 0], [0.5, 0.5, 0.5]), box([1, 0, 0], [0.5, 0.5, 0.5]), undefined, undefined, 2)).toBeNull();
-    // 3D: along z; the 2D plane ignores z.
-    expect(contactNormal(box([0, 0, 0], [0.5, 0.5, 0.5]), box([0, 0, -0.8], [0.5, 0.5, 0.5]), undefined, undefined, 3)).toEqual([0, 0, -1]);
-    expect(contactNormal(box([0, 0, 0], [0.5, 0.5, 0.5]), box([0, 0, -5], [0.5, 0.5, 0.5]), undefined, undefined, 2)).toEqual([1, 0, 0]);
-    expect(contactNormal(box([0, 0, 0], [0.5, 0.5, 0.5]), box([0, 0, -5], [0.5, 0.5, 0.5]), undefined, undefined, 3)).toBeNull();
+    expect(contactNormal(box([0, 0, 0], [0.5, 0.5, 0.5]), box([1, 0, 0], [0.5, 0.5, 0.5]), undefined, undefined)).toBeNull();
+    // Along z; apart in z, no contact.
+    expect(contactNormal(box([0, 0, 0], [0.5, 0.5, 0.5]), box([0, 0, -0.8], [0.5, 0.5, 0.5]), undefined, undefined)).toEqual([0, 0, -1]);
+    expect(contactNormal(box([0, 0, 0], [0.5, 0.5, 0.5]), box([0, 0, -5], [0.5, 0.5, 0.5]), undefined, undefined)).toBeNull();
   });
   it('spheres and a box with a sphere: along the line between the closest points', () => {
-    const n = contactNormal(ball([0, 0, 0], 1), ball([0.6, 0.8, 0], 0.5), undefined, undefined, 2)!;
+    const n = contactNormal(ball([0, 0, 0], 1), ball([0.6, 0.8, 0], 0.5), undefined, undefined)!;
     expect(n[0]).toBeCloseTo(0.6, 12);
     expect(n[1]).toBeCloseTo(0.8, 12);
-    expect(contactNormal(ball([0, 0, 0], 0.5), ball([1, 0, 0], 0.5), undefined, undefined, 2)).toBeNull();
+    expect(contactNormal(ball([0, 0, 0], 0.5), ball([1, 0, 0], 0.5), undefined, undefined)).toBeNull();
     // A sphere above a box's top face: straight up from the box, straight down from the sphere.
-    expect(contactNormal(box([0, 0, 0], [1, 0.5, 1]), ball([0.3, 0.8, 0], 0.4), undefined, undefined, 3)).toEqual([0, 1, 0]);
-    expect(contactNormal(ball([0.3, 0.8, 0], 0.4), box([0, 0, 0], [1, 0.5, 1]), undefined, undefined, 3)?.map((x) => x + 0)).toEqual([0, -1, 0]);
+    expect(contactNormal(box([0, 0, 0], [1, 0.5, 1]), ball([0.3, 0.8, 0], 0.4), undefined, undefined)).toEqual([0, 1, 0]);
+    expect(contactNormal(ball([0.3, 0.8, 0], 0.4), box([0, 0, 0], [1, 0.5, 1]), undefined, undefined)?.map((x) => x + 0)).toEqual([0, -1, 0]);
   });
 });
 
 describe('health on any object', () => {
   it('damage and heal clamp to 0..max, report damaged/healed/died next step, and name the source', () => {
-    const f = fakeHost(2);
+    const f = fakeHost();
     const p = new Primitives(f.host);
     f.place('crate', [0, 0, 0]);
     p.add('crate', { health: { max: 5, start: 4 } }, [0, 0, 0]);
@@ -115,7 +112,7 @@ describe('health on any object', () => {
 
 describe('collectibles', () => {
   it('add their amount to a named counter once, hide, signal, and come back after their respawn time', () => {
-    const f = fakeHost(2, { character: [5, 0, 0] });
+    const f = fakeHost({ character: [5, 0, 0] });
     const p = new Primitives(f.host);
     f.place('token', [0, 0, 0]);
     f.place('plain', [20, 0, 0]);
@@ -147,7 +144,7 @@ describe('collectibles', () => {
     expect(f.hidden.has('plain')).toBe(false);
   });
   it('are not collected while the character does not play, and a 3D area uses its depth', () => {
-    const f = fakeHost(3, { character: [0, 0, 1.2] });
+    const f = fakeHost({ character: [0, 0, 1.2] });
     const p = new Primitives(f.host);
     f.place('token', [0, 0, 0]);
     p.add('token', { collectible: { counter: 'parts', size: [1, 1, 2] } }, [0, 0, 0]);
@@ -155,7 +152,7 @@ describe('collectibles', () => {
     expect(f.counters).toEqual({});
     step(p, 2);
     expect(f.counters).toEqual({ parts: 1 }); // 1.2 < 1 + 0.3
-    const g = fakeHost(3, { character: [0, 0, 1.2] });
+    const g = fakeHost({ character: [0, 0, 1.2] });
     const q = new Primitives(g.host);
     g.place('token', [0, 0, 0]);
     q.add('token', { collectible: { counter: 'parts', size: [1, 1] } }, [0, 0, 0]); // depth = width: 0.5 + 0.3 < 1.2
@@ -166,7 +163,7 @@ describe('collectibles', () => {
 
 describe('patrols', () => {
   it('waypoints: back and forth along the path, a turned event at each end; stop, turn, and a new run', () => {
-    const f = fakeHost(3);
+    const f = fakeHost();
     const p = new Primitives(f.host);
     f.place('rover', [1, 0, 2]);
     p.add('rover', { patrol: { mode: 'waypoints', waypoints: [[0, 0, 1]], speed: 1.2 } }, [1, 0, 2]);
@@ -189,18 +186,18 @@ describe('patrols', () => {
     p.add('ring', { patrol: { mode: 'waypoints', waypoints: [[1, 0, 0], [1, 1, 0]], loop: true, speed: 1 } }, [0, 0, 0]);
     expect(p.turnPatrol('ring')).toBe(false);
   });
-  it('edges (2D): turns at a wall ahead and at a missing floor, waits, never probes without physics', () => {
+  it('edges: turns at a wall ahead and at a missing floor, waits, never probes without physics', () => {
     // A floor from x = -3 to 3 (top at y = 0) and a wall face at x = 2 for y above 0.
     const rays: string[] = [];
     const physics = {
       raycast(o: { x: number; y: number }, d: { x: number; y: number }, max: number) {
         rays.push(`${o.x.toFixed(2)},${o.y.toFixed(2)}>${d.x},${d.y}`);
-        if (d.y < 0) return o.x > -3 && o.x < 3 && o.y >= 0 && o.y - max <= 0 ? { entityId: 'floor', distance: o.y, normal: { x: 0, y: 1 } } : null;
-        if (d.x > 0 && o.y > 0 && o.x < 2 && o.x + max >= 2) return { entityId: 'wall', distance: 2 - o.x, normal: { x: -1, y: 0 } };
+        if (d.y < 0) return o.x > -3 && o.x < 3 && o.y >= 0 && o.y - max <= 0 ? { entityId: 'floor', distance: o.y, normal: { x: 0, y: 1, z: 0 } } : null;
+        if (d.x > 0 && o.y > 0 && o.x < 2 && o.x + max >= 2) return { entityId: 'wall', distance: 2 - o.x, normal: { x: -1, y: 0, z: 0 } };
         return null;
       },
-    } as unknown as PhysicsPort;
-    const f = fakeHost(2, { physics });
+    } as unknown as PhysicsPort3D;
+    const f = fakeHost({ physics });
     const p = new Primitives(f.host);
     f.place('walker', [0, 0.5, 0]);
     p.add('walker', { patrol: { mode: 'edges', speed: 3, wait: 0.05, size: [1, 1] } }, [0, 0.5, 0]);
@@ -214,7 +211,7 @@ describe('patrols', () => {
     expect(turns.slice(0, 3)).toEqual(['wall:-1@1.45', 'ledge:1@-2.47', 'wall:-1@1.45']);
     expect(rays.some((r) => r.endsWith('>0,-1'))).toBe(true);
     // Without a physics port it just walks.
-    const g = fakeHost(2);
+    const g = fakeHost();
     const q = new Primitives(g.host);
     g.place('walker', [0, 0.5, 0]);
     q.add('walker', { patrol: { mode: 'edges', speed: 1.2, direction: [-0.2, 0, 0] } }, [0, 0.5, 0]);
@@ -225,7 +222,7 @@ describe('patrols', () => {
 
 describe('hitbox contacts', () => {
   it('both sides get contact (with opposite normals) and separate; damage goes to the other side or its nearest parent with health', () => {
-    const f = fakeHost(2, { parents: { arm: 'body' } });
+    const f = fakeHost({ parents: { arm: 'body' } });
     const p = new Primitives(f.host);
     f.place('body', [0, 0, 0]);
     f.place('arm', [1, 0, 0]); // at x = 1 under the body
@@ -256,7 +253,7 @@ describe('hitbox contacts', () => {
     expect(p.touching('ball')).toEqual([]);
   });
   it('the character takes part while playing, and a fall onto a hitbox reads as from above', () => {
-    const f = fakeHost(2, { character: [0, 3, 0] });
+    const f = fakeHost({ character: [0, 3, 0] });
     const p = new Primitives(f.host);
     f.place('shell', [0, 0.25, 0]);
     p.add('shell', { hitbox: { size: [1.6, 0.5] } }, [0, 0.25, 0]);
@@ -276,7 +273,7 @@ describe('hitbox contacts', () => {
 
 describe('the components save section', () => {
   it('keeps health, collected collectibles, patrol positions and switched-off hitboxes; checks what it restores', () => {
-    const f = fakeHost(2, { character: [0, 0, 0] });
+    const f = fakeHost({ character: [0, 0, 0] });
     const p = new Primitives(f.host);
     f.place('token', [0, 0, 0]);
     f.place('rover', [5, 0, 0]);
@@ -309,13 +306,13 @@ describe('the components save section', () => {
   });
 });
 
-describe('gravity bodies and the 2D patrol in any direction', () => {
+describe('gravity bodies and the edge patrol in any direction', () => {
   /** A floor whose top is at y 0 everywhere (a ray down from above it hits at its distance to 0). */
-  const floor = (): PhysicsPort =>
-    ({ raycast: (o: { x: number; y: number }, d: { x: number; y: number }, max: number) => (d.y < 0 && o.y >= 0 && o.y <= max ? { entityId: 'floor', distance: o.y, normal: { x: 0, y: 1 } } : null) }) as unknown as PhysicsPort;
+  const floor = (): PhysicsPort3D =>
+    ({ raycast: (o: { x: number; y: number }, d: { x: number; y: number }, max: number) => (d.y < 0 && o.y >= 0 && o.y <= max ? { entityId: 'floor', distance: o.y, normal: { x: 0, y: 1, z: 0 } } : null) }) as unknown as PhysicsPort3D;
 
   it('falls with the project gravity (times its scale), lands with its underside on the floor, is saved and restored', () => {
-    const f = fakeHost(2, { physics: floor() });
+    const f = fakeHost({ physics: floor() });
     const p = new Primitives({ ...f.host, gravityY: -20, maxFallSpeed: -30 });
     f.place('rock', [0, 3, 0]);
     p.add('rock', { gravity: { scale: 1, size: [1, 1] } }, [0, 3, 0]);
@@ -334,7 +331,7 @@ describe('gravity bodies and the 2D patrol in any direction', () => {
     p.resetRun();
     expect(f.curr.get('rock')!.position[1]).toBe(3);
     // Scale 0: it does not fall.
-    const g = fakeHost(2, { physics: floor() });
+    const g = fakeHost({ physics: floor() });
     const q = new Primitives(g.host);
     g.place('leaf', [0, 3, 0]);
     q.add('leaf', { gravity: { scale: 0 } }, [0, 3, 0]);
@@ -342,8 +339,8 @@ describe('gravity bodies and the 2D patrol in any direction', () => {
     expect(g.curr.get('leaf')!.position[1]).toBe(3);
   });
 
-  it('a 2D edge patrol walks along its direction in the plane (a y part moves it up or down)', () => {
-    const f = fakeHost(2);
+  it('an edge patrol walks along its direction (a y part moves it up or down)', () => {
+    const f = fakeHost();
     const p = new Primitives(f.host);
     f.place('riser', [0, 0, 0]);
     p.add('riser', { patrol: { mode: 'edges', speed: 1.2, direction: [0, 1, 0] } }, [0, 0, 0]);

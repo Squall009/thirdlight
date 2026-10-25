@@ -8,9 +8,8 @@
  * (`body-suspension.ts`): one rule for the characters, patrols and gravity
  * bodies.
  *
- * Placements go through the ports here, where a port failure fail-stops the
- * run; a 2D-plane placement also resets the controller's module (its reset
- * hook, as a transfer).
+ * Placements go through the port here, where a port failure fail-stops the
+ * run.
  */
 import type { EntityV3 } from '@thirdlight/project-model';
 
@@ -35,7 +34,7 @@ import type { RuntimeScenes } from './runtime-scenes';
 import type { RuntimeSim } from './runtime-sim';
 import { LIFECYCLE_RESTART_DEPRECATED } from './scene-control';
 import type { LiveTagIndex } from './scene-set';
-import type { BehaviorLifecycle, ModuleResetContext, SimulationPhaseModule } from './types';
+import type { BehaviorLifecycle, ModuleResetContext } from './types';
 import type { RuntimeViews } from './views';
 
 /** The parts the physics bridge reaches (read when used: some are made after it). */
@@ -68,7 +67,7 @@ export class RuntimeCharacters {
   readonly queries: PhysicsQueries;
   /** The plane locks scripts set and clear (applied at step boundaries). */
   readonly planes: PlaneLocks;
-  /** `ctx.lifecycle`: respawn (both dimensions), the spawn point and the restart. */
+  /** `ctx.lifecycle`: respawn, the spawn point and the restart. */
   readonly lifecycle: BehaviorLifecycle;
   /** Which bodies the engine moves are outside the loaded collision this step (they stand still). */
   readonly suspension: BodySuspension;
@@ -88,9 +87,6 @@ export class RuntimeCharacters {
     const tileReady = (entityId: string, key: string): boolean => host.grid.terrain.tileReady(entityId, key);
     this.suspension = new BodySuspension((x, z) => host.grid.stream.loadedAt(x, z, tileReady), () => host.grid.stream.active);
     this.colliders = new ColliderSystem({
-      get physics() {
-        return sim_.physics;
-      },
       get physics3d() {
         return sim_.physics3d;
       },
@@ -106,13 +102,11 @@ export class RuntimeCharacters {
     this.controllers = new PlayerControllers({
       hz: sim.hz,
       settings: sim.settings,
-      physics: sim.physics,
       physics3d: sim.physics3d,
       curr: () => sim.curr,
       currentPhase: () => sim.currentPhase,
-      carry2D: (id) => host.blocks?.carryDelta(id) ?? { x: 0, y: 0 },
       carry3D: (id) => host.blocks?.carryDelta3(id) ?? [0, 0, 0],
-      flushCollision: () => host.grid.flushCollision(sim.physics3d, sim.physics),
+      flushCollision: () => host.grid.flushCollision(sim.physics3d),
       countStep: () => void (this.physicsSteps += 1),
       status3D: (id) => {
         for (const entry of sim.entries) {
@@ -127,9 +121,9 @@ export class RuntimeCharacters {
     this.placement = new ControllerPlacements(this.controllers.ids, (id) => this.buildPlacement(id), (sceneId) => host.scenes.isLoading(sceneId));
     const controllers = this.controllers;
     this.director = new CharacterDirector({
-      is3D: () => sim.physics3d !== undefined, hz: () => sim.hz, settings: () => sim.settings, resolve: (id) => controllers.resolve(id), transform: (id) => sim.curr.get(id), entityDocument: (id) => host.scenes.entityDocument(id),
+      hz: () => sim.hz, settings: () => sim.settings, resolve: (id) => controllers.resolve(id), transform: (id) => sim.curr.get(id), entityDocument: (id) => host.scenes.entityDocument(id),
       channels: (id) => host.phases.channelsOf(id), placeFacing: (id, degrees) => this.placement.of(id)?.placeFacing(degrees), turn: (id, yaw) => this.placement.of(id)?.turn(yaw),
-      canPlace: () => sim.physics3d !== undefined || controllers.resetPort2D() !== null, addImpulse: (id, v) => controllers.addImpulse(id, v),
+      canPlace: () => sim.physics3d !== undefined, addImpulse: (id, v) => controllers.addImpulse(id, v),
       intentsChanged: () => host.phases.changed(), warn: (message) => faults.log('thirdlight.runtime:character', 'warn', message), loading: () => host.scenes.anyLoading(), moveAction: (id) => controllers.actionsOf(id)?.move,
       setPlane: (id, plane) => this.planes.request(id, plane),
     });
@@ -145,7 +139,6 @@ export class RuntimeCharacters {
       parentOf: (id) => sim.parentOf(id),
     });
     this.queries = new PhysicsQueries({
-      get physics() { return sim_.physics; },
       get physics3d() { return sim_.physics3d; },
       controllers,
       get views() { return host.views; },
@@ -183,7 +176,6 @@ export class RuntimeCharacters {
     const sim = this.sim;
     const host = this.host;
     return new CharacterPlacement({
-      is3D: () => sim.physics3d !== undefined,
       controllerId: () => controllerId,
       transform: (id) => sim.curr.get(id),
       entityDocument: (id) => host.scenes.entityDocument(id),
@@ -195,34 +187,13 @@ export class RuntimeCharacters {
       isKept: (id) => host.kept.has(id),
       listedSpawnOf: (sceneId) => host.scenes.listedSpawnOf(sceneId),
       place3D: (x, y, z) => this.controllers.place3D(controllerId, x, y, z),
-      place2D: (x, y, ordinal) => this.place2D(controllerId, x, y, ordinal),
-      faceSpawn2D: (id, yaw) => host.blocks?.faceSpawn(id, yaw),
-      failStop: (e) => this.faults.failStopFromError(e, sim.stepIndex),
       intents: () => host.phases.channelsOf(controllerId),
       intentsChanged: () => host.phases.changed(),
       setImpulse: (v) => this.controllers.setImpulse(controllerId, v),
-      // In 3D the way it faces too (the controller's yaw, as characterState().facing reads it).
+      // The way it faces too (the controller's yaw, as characterState().facing reads it).
       lastMotion: () => this.controllers.lastMotion(controllerId),
       hz: () => sim.hz,
     });
-  }
-
-  /**
-   * Put a 2D-plane player controller at an origin, from rest: the
-   * port's character is cleared and placed, its transform set, and its
-   * controller module's windows and velocity reset (its reset hook, as a
-   * transfer naming the controller).
-   */
-  private place2D(id: string, x: number, y: number, ordinal: number): void {
-    if (!this.controllers.place2D(id, x, y)) return;
-    const target: Vec2 = { x, y };
-    for (const entry of this.sim.entries) {
-      if (!entry.phased || !entry.owners.includes(id)) continue;
-      const instance = entry.instance as SimulationPhaseModule;
-      if (typeof instance.reset !== 'function') continue;
-      this.sim.currentModuleId = entry.id;
-      instance.reset(this.resetContext('transfer', ordinal, target, new Set(entry.owners), id));
-    }
   }
 
   /** Build one `ModuleResetContext` (the character was placed). */

@@ -23,8 +23,8 @@ export function actionDiagnostics(actions: ActionSource): { suspend: number; act
 }
 
 /**
- * The physics port's stalled steps and corrected penetrations (2D or 3D port;
- * none: zeros), and the deepest overlap the character began a step in, named
+ * The physics port's stalled steps and corrected penetrations (no port:
+ * zeros), and the deepest overlap the character began a step in, named
  * as the entity pair (the character's first) once there was one.
  */
 export function physicsDiagnostics(port: { diagnostics?(): PhysicsDiagnostics } | undefined, characterId: string | undefined): { stall: number; penetration: number; deepest: { physicsDeepestOverlap?: { entities: [string, string]; depth: number; physicsStep: number } } } {

@@ -142,19 +142,17 @@ function artifact(behaviorId: string, step: (ctx: Ctx) => void): never {
 
 
 function port(): unknown {
-  const zero = { x: 0, y: 0 };
+  const zero = { x: 0, y: 0, z: 0 };
   return {
     stageCharacterMove() {},
     step() {
-      return { requested: { ...zero }, applied: { ...zero }, position: { x: 0, y: 0 }, grounded: true, supportNormal: { x: 0, y: 1 }, contacts: { ground: true, wall: false, head: false, steepSlope: false }, snapped: false };
+      return { requested: { ...zero }, applied: { ...zero }, position: { x: 0, y: 0, z: 0 }, grounded: true, supportNormal: { x: 0, y: 1, z: 0 }, contacts: { ground: true, wall: false, head: false, steepSlope: false }, snapped: false };
     },
-    reset() {},
-    clearCharacterMotion() {},
-    placeCharacter: () => ({ ok: true, supportNormal: { x: 0, y: 1 } }),
-    characterClearance: () => ({ ok: true, supportNormal: { x: 0, y: 1 } }),
+    placeCharacter: () => ({ ok: true, supportNormal: { x: 0, y: 1, z: 0 } }),
+    characterClearance: () => ({ ok: true, supportNormal: { x: 0, y: 1, z: 0 } }),
     addStaticColliders() {},
     removeStaticColliders() {},
-    setKinematicPositions() {},
+    setKinematicPoses() {},
     diagnostics: () => ({}),
     dispose() {},
   };
@@ -335,9 +333,10 @@ describe('sensors: trigger shapes, stay mode and ctx.events', () => {
         },
       },
       [
-        // Both 1.3 m up (the capsule's top half-circle centre is at 0.6 m): the
-        // box meets the capsule's box while |x| < 0.8 m, the circle meets the
-        // capsule itself only while |x| < ~0.39 m.
+        // Both 1.3 m up (the capsule's top sphere centre is at 0.6 m): each is
+        // tested against the capsule itself — the box (as deep as it is wide)
+        // while |x| < ~0.72 m (its bottom edge rounds the capsule's top), the
+        // circle (a sphere) only while |x| < ~0.39 m.
         { id: 'group-watch', components: { transform: at(0, 0), behavior: { behaviorId: 'watch', values: {} } } },
         { ...(sweeping('box-circle', 1.3, { shape: 'circle', radius: 0.5, signal: 'c' }) as object), parentId: 'group-watch' },
         { ...(sweeping('box-square', 1.3, { size: [1, 1], signal: 's' }) as object), parentId: 'group-watch' },
@@ -351,7 +350,8 @@ describe('sensors: trigger shapes, stay mode and ctx.events', () => {
     const inside = (k: string): number => spans[k]![1]! - spans[k]![0]!;
     expect(spans['square']).toHaveLength(2);
     expect(spans['circle']).toHaveLength(2);
-    expect(inside('square')).toBeGreaterThanOrEqual(31); // 1.6 m at 6 m/s
+    expect(inside('square')).toBeGreaterThanOrEqual(28); // ~1.45 m at 6 m/s
+    expect(inside('square')).toBeLessThanOrEqual(30);
     expect(inside('circle')).toBeGreaterThanOrEqual(14); // ~0.78 m
     expect(inside('circle')).toBeLessThanOrEqual(17);
     expect(counts.enterOnly).toBe(1);

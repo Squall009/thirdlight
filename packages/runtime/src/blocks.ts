@@ -11,7 +11,7 @@
  *   `primitives.ts`.
  *
  * The blocks test the player characters (the controllers' objects; several
- * in local co-op, each with its own capsule) in both dimensions.
+ * in local co-op, each with its own capsule).
  *
  * Boxes (triggers, switches) are centred on their entity.
  *
@@ -20,20 +20,20 @@
  * the player is inside (`mode: "stay"`), and records `enter`/`exit` events
  * that the scripts owning it read in the next step (`ctx.events`).
  *
- * In a 3D project (`host.physics3d`) movers are posed on the 3D
- * port (their full position and their entity's rotation) and carry and push
- * the player in 3D; colliders scripts drive are posed with them; triggers are
- * 3D volumes — a box (turned with its entity), a sphere or a capsule standing
- * along its entity's Y — tested exactly against the character's capsule, and
- * a switch's box the same way. A 2D trigger reads in 3D as its 3D form: a
- * circle is the sphere of its radius, a box without a depth is as deep as
- * it is wide (on a plane through them, the same areas).
+ * Movers are posed on the physics port (their full position and their
+ * entity's rotation) and carry and push the player; colliders scripts drive
+ * are posed with them; triggers are volumes — a box (turned with its entity),
+ * a sphere or a capsule standing along its entity's Y — tested exactly
+ * against the character's capsule, and a switch's box the same way. A flat
+ * trigger reads as its solid form: a circle is the sphere of its radius, a
+ * box without a depth is as deep as it is wide (on a plane through them, the
+ * same areas).
  */
 import type { ActionFrame } from './actions';
-import type { ColliderShape3D, KinematicPose3D, PhysicsPort, PhysicsPort3D, Vec2 } from './ports';
+import type { KinematicPose3D, PhysicsPort3D } from './ports';
 import { BLOCK_DEFAULTS, isCounterName, SWITCH_DEFAULT_ACTION, type EntityV3 } from '@thirdlight/project-model';
 import type { BehaviorMessage, PlayerCapsule, PrimitiveEventRecord, TransformState, TriggerEventRecord } from './types';
-import { colliderRotationZ, colliderShape3DOf, shapeAabb3, solidShapeOf } from './collider-specs';
+import { colliderShape3DOf, shapeAabb3, solidShapeOf } from './collider-specs';
 import { capsuleHalfTotal, playerCapsuleOf } from './scene-set';
 import { controllerCapsuleOffsetZ, controllerTuningOf } from '@thirdlight/project-model';
 import { rotate3, segmentBoxDistance2, segmentPointDistance2, segmentSegmentDistance2, sub3, type V3 } from './geometry3';
@@ -70,37 +70,25 @@ interface Mover extends PathState {
   started: boolean;
   /** False — it holds where it is (still posed and solid). */
   active: boolean;
-  /** The box collider's half extents (a mover without a box or polygon collider never pushes). */
-  half: Vec2 | null;
-  /** A polygon collider's vertices, turned by its rotation, around the mover's position. */
-  poly: readonly Vec2[] | null;
   /** The most it pushes a player per step (its `maxPush` m/s over the step rate). */
   pushStep: number;
-  /** Its collider's rotation about Z (the entity's; a mover translates, it does not turn). */
-  rotationZ: number;
-  /** 3D: the entity's rotation, and its collider's box around its position (null: no collider). */
+  /** The entity's rotation (a mover translates, it does not turn), and its collider's box around its position (null: no collider). */
   rotation: [number, number, number, number];
   aabb: { min: Vec3; max: Vec3 } | null;
 }
 
-interface Box {
+interface Trigger {
   id: string;
-  half: Vec2;
-}
-
-interface Trigger extends Box {
   signal: string;
   exitSignal: string | null;
   once: boolean;
-  /** A circle's radius (null: the box `half`). */
-  radius: number | null;
   /** Emit the signal every step while inside. */
   stay: boolean;
   inside: boolean;
   /** The player characters inside now (`inside`: any is). */
   by: Set<string>;
   spent: boolean;
-  /** 3D: the volume — a box's half extents with depth, a sphere, or a capsule (its centre-segment half length). */
+  /** The volume — a box's half extents with depth, a sphere, or a capsule (its centre-segment half length). */
   volume: { kind: 'box'; half: Vec3 } | { kind: 'sphere'; radius: number } | { kind: 'capsule'; radius: number; halfSegment: number };
   /** The scene transition an entry starts (null: none). */
   transition: SceneTransitionRequest | null;
@@ -129,7 +117,8 @@ function transitionOf(v: unknown): SceneTransitionRequest | null {
   });
 }
 
-interface Switch extends Box {
+interface Switch {
+  id: string;
   /** Its box's half extents with depth (absent depth: the width), turned with its entity. */
   half3: Vec3;
   signal: string;
@@ -169,7 +158,7 @@ function capsulesOf(chars: readonly CharacterBoxSpec[], curr: ReadonlyMap<string
 }
 
 /**
- * Whether a switch sends its signal this step (both dimensions' rule): a
+ * Whether a switch sends its signal this step: a
  * stand switch as a player character arrives on it, an interact switch while
  * one is on it and its action (absent: interact) is pressed; `once` spends it.
  */
@@ -186,12 +175,6 @@ export interface ClimbVolumeView {
   readonly id: string;
   readonly up: readonly [number, number, number];
   readonly across: readonly [number, number, number];
-}
-
-/** The rotation about Z alone of a quaternion (the 2D plane turns objects about Z only). */
-function planeRotation(r: readonly number[]): [number, number, number, number] {
-  const z = colliderRotationZ(r);
-  return [0, 0, Math.sin(z / 2), Math.cos(z / 2)];
 }
 
 /** A request to the renderer's effect player (presentation only). */
@@ -213,19 +196,18 @@ export interface BlocksCharacter {
   readonly capsule: PlayerCapsule;
   /** The gap its controller keeps from the world (its `skin`; a pushing mover keeps it). */
   readonly skin: number;
-  /** 3D: its capsule centre offset along Z. */
+  /** Its capsule centre offset along Z. */
   readonly offsetZ: number;
 }
 
 /** A player controller's object as the blocks test it: its own capsule (its controller's, else the default), skin and capsule depth offset. */
-export function blocksCharacterOf(entity: EntityV3, threeD: boolean): BlocksCharacter {
+export function blocksCharacterOf(entity: EntityV3): BlocksCharacter {
   const controller = (entity.components as { controller?: unknown }).controller;
-  return { id: entity.id, capsule: playerCapsuleOf(controller), skin: controllerTuningOf(controller).skin, offsetZ: threeD ? controllerCapsuleOffsetZ(controller) : 0 };
+  return { id: entity.id, capsule: playerCapsuleOf(controller), skin: controllerTuningOf(controller).skin, offsetZ: controllerCapsuleOffsetZ(controller) };
 }
 
 export interface BlocksHost {
   readonly hz: number;
-  readonly physics: PhysicsPort | undefined;
   readonly curr: Map<string, TransformState>;
   /** The player characters the blocks test, in controller order (none: a game without a player). */
   readonly characters: readonly BlocksCharacter[];
@@ -233,13 +215,13 @@ export interface BlocksHost {
   groundEntityId(characterId: string): string | null;
   /** Play or stop a visual effect (presentation only; the simulation never reads it back). */
   effect?(request: BlocksEffectRequest): void;
-  /** The 3D port (a 3D project) — movers are posed on it and the blocks work in 3D. */
+  /** The physics port movers are posed on and walkers probe (absent: a game without physics). */
   readonly physics3d?: PhysicsPort3D;
   /** The project's gravity (m/s² along Y) and fall speed cap (m/s) for gravity bodies (absent: −19.62, −30). */
   readonly gravityY?: number;
   readonly maxFallSpeed?: number;
   /**
-   * 3D: the colliders that follow a moving object (a script's, a timeline's,
+   * The colliders that follow a moving object (a script's, a timeline's,
    * a mover's child), where they are now — posed as kinematic bodies with the
    * movers, pushing the player out of their box (relative to `position`) as a mover does.
    */
@@ -254,53 +236,6 @@ export interface BlocksHost {
 
 export { segmentBoxDistance2, segmentPointDistance2, segmentSegmentDistance2 } from './geometry3';
 
-/** A box collider's half extents, or null for another shape. */
-function boxHalf(col: Record<string, unknown> | undefined): Vec2 | null {
-  const shape = col?.['shape'] as { type?: string; hx?: number; hy?: number } | undefined;
-  return shape?.type === 'box' && typeof shape.hx === 'number' && typeof shape.hy === 'number' ? { x: shape.hx, y: shape.hy } : null;
-}
-
-/** A polygon collider's vertices turned by `rotationZ`, or null for another shape. */
-function polygonAround(col: Record<string, unknown> | undefined, rotationZ: number): Vec2[] | null {
-  const shape = col?.['shape'] as { type?: string; vertices?: unknown } | undefined;
-  if (shape?.type !== 'polygon' || !Array.isArray(shape.vertices)) return null;
-  const c = Math.cos(rotationZ);
-  const s = Math.sin(rotationZ);
-  const out: Vec2[] = [];
-  for (const v of shape.vertices as unknown[]) {
-    if (!Array.isArray(v) || typeof v[0] !== 'number' || typeof v[1] !== 'number') return null;
-    out.push({ x: v[0] * c - v[1] * s, y: v[0] * s + v[1] * c });
-  }
-  return out.length >= 3 ? out : null;
-}
-
-/**
- * The extent of a convex polygon along one axis inside a slab of
- * the other (`axis` 'x': the x range of the part with lo <= y <= hi), or null
- * when the polygon misses the slab.
- */
-function slabExtent(poly: readonly Vec2[], axis: 'x' | 'y', lo: number, hi: number): { min: number; max: number } | null {
-  const other = axis === 'x' ? 'y' : 'x';
-  let min = Infinity;
-  let max = -Infinity;
-  const take = (v: number): void => {
-    if (v < min) min = v;
-    if (v > max) max = v;
-  };
-  for (let i = 0; i < poly.length; i += 1) {
-    const a = poly[i]!;
-    const b = poly[(i + 1) % poly.length]!;
-    if (a[other] >= lo && a[other] <= hi) take(a[axis]);
-    const d = b[other] - a[other];
-    if (d === 0) continue;
-    for (const edge of [lo, hi]) {
-      const t = (edge - a[other]) / d;
-      if (t > 0 && t < 1) take(a[axis] + (b[axis] - a[axis]) * t);
-    }
-  }
-  return min <= max ? { min, max } : null;
-}
-
 /** The margin a pushing mover keeps beyond the controller's skin (0.01 + 0.001 = a 0.011 m gap). */
 const PUSH_MARGIN = 0.001;
 
@@ -310,8 +245,6 @@ const num = (v: unknown, d: number): number => (typeof v === 'number' && Number.
 const NO_TRIGGER_EVENTS: readonly TriggerEventRecord[] = Object.freeze([]);
 const NO_QUEUED_MESSAGES: readonly { message: BehaviorMessage; to: string | null }[] = Object.freeze([]);
 const NO_MESSAGES: readonly BehaviorMessage[] = Object.freeze([]);
-const NO_CARRY: Vec2 = Object.freeze({ x: 0, y: 0 });
-const NO_CARRIES: ReadonlyMap<string, Vec2> = new Map();
 const NO_CARRIES3: ReadonlyMap<string, Readonly<Vec3>> = new Map();
 
 /** A character's capsule box: its centre's offset from the character's position, half width and half height, and a pushing mover's gap. */
@@ -375,9 +308,7 @@ export class GameplayBlocks {
   private messagesPrev: readonly { message: BehaviorMessage; to: string | null }[] = Object.freeze([]);
   /** Sends refused at the per-step limit over the whole play (a run's restart keeps them: they are diagnostics). */
   private refused: { count: number; firstStep: number; lastStep: number } | null = null;
-  /** Each player character's carried platform motion (and pushes) this step. */
-  private carry: ReadonlyMap<string, Vec2> = NO_CARRIES;
-  /** 3D: each player character's carried platform motion (and pushes) this step, and where each script-driven collider was posed last. */
+  /** Each player character's carried platform motion (and pushes) this step, and where each script-driven collider was posed last. */
   private carry3: ReadonlyMap<string, Readonly<Vec3>> = NO_CARRIES3;
   private readonly scriptPosed = new Map<string, Vec3>();
   private step = 0;
@@ -394,11 +325,9 @@ export class GameplayBlocks {
     const blocks = this;
     this.primitives = new Primitives({
       hz: host.hz,
-      dimension: host.physics3d !== undefined ? 3 : 2,
       get curr() {
         return host.curr;
       },
-      physics: host.physics,
       physics3d: host.physics3d,
       characters: () => blocks.characterBoxes(),
       worldOf: (id) => blocks.worldOf(id),
@@ -422,7 +351,7 @@ export class GameplayBlocks {
   }
 
   private boxSpecOf(c: BlocksCharacter): CharacterBoxSpec {
-    return { id: c.id, ox: c.capsule.offset.x, oy: c.capsule.offset.y, oz: this.host.physics3d !== undefined ? c.offsetZ : 0, hw: c.capsule.radius, hh: capsuleHalfTotal(c.capsule), pushSkin: c.skin + PUSH_MARGIN };
+    return { id: c.id, ox: c.capsule.offset.x, oy: c.capsule.offset.y, oz: c.offsetZ, hw: c.capsule.radius, hh: capsuleHalfTotal(c.capsule), pushSkin: c.skin + PUSH_MARGIN };
   }
 
   /** A player character that arrived while the game runs (the blocks test it from now on, after the others). */
@@ -505,19 +434,14 @@ export class GameplayBlocks {
           waiting: 0,
           done: false,
           pos: [...base],
-          half: boxHalf(col),
-          poly: polygonAround(col, colliderRotationZ(e.components.transform.rotation)),
           pushStep: num(m['maxPush'], D.maxPush) / this.host.hz,
-          rotationZ: colliderRotationZ(e.components.transform.rotation),
           ...this.mover3(e, col),
         });
       }
       const t = c['trigger'];
       if (t !== undefined) {
-        const circle = t['shape'] === 'circle';
-        const radius = circle ? num(t['radius'], 0.5) : null;
-        const size = (t['size'] as number[] | undefined) ?? [2 * (radius ?? 0.5), 2 * (radius ?? 0.5)];
-        // The 3D volume (a 3D project; the model gives a box its depth, a capsule its height).
+        const size = (t['size'] as number[] | undefined) ?? [1, 1];
+        // The volume (a box without a depth is as deep as it is wide, a capsule takes its height).
         const r3 = num(t['radius'], 0.5);
         const volume: Trigger['volume'] =
           t['shape'] === 'sphere' || t['shape'] === 'circle'
@@ -528,8 +452,6 @@ export class GameplayBlocks {
         this.triggers.set(e.id, {
           volume,
           id: e.id,
-          half: { x: size[0]! / 2, y: size[1]! / 2 },
-          radius,
           stay: t['mode'] === 'stay',
           signal: String(t['signal']),
           exitSignal: typeof t['exitSignal'] === 'string' ? (t['exitSignal'] as string) : null,
@@ -543,7 +465,7 @@ export class GameplayBlocks {
       const s = c['switch'];
       if (s !== undefined) {
         const size = s['size'] as number[];
-        this.switches.set(e.id, { id: e.id, half: { x: size[0]! / 2, y: size[1]! / 2 }, half3: [size[0]! / 2, size[1]! / 2, (size[2] ?? size[0]!) / 2], signal: String(s['signal']), mode: s['mode'] as Switch['mode'], action: typeof s['action'] === 'string' ? (s['action'] as string) : SWITCH_DEFAULT_ACTION, once: s['once'] === true, inside: false, spent: false });
+        this.switches.set(e.id, { id: e.id, half3: [size[0]! / 2, size[1]! / 2, (size[2] ?? size[0]!) / 2], signal: String(s['signal']), mode: s['mode'] as Switch['mode'], action: typeof s['action'] === 'string' ? (s['action'] as string) : SWITCH_DEFAULT_ACTION, once: s['once'] === true, inside: false, spent: false });
       }
       const h = c['health'];
       // An effect component that a signal starts or stops.
@@ -563,11 +485,11 @@ export class GameplayBlocks {
     }
   }
 
-  /** A mover's 3D data — its entity's rotation and its collider's box (a 2D plane never reads them). */
+  /** A mover's rotation and its collider's box (what it pushes the player out of). */
   private mover3(e: EntityV3, col: Record<string, unknown> | undefined): Pick<Mover, 'rotation' | 'aabb'> {
     const q = e.components.transform.rotation;
     const rotation: [number, number, number, number] = [q[0] ?? 0, q[1] ?? 0, q[2] ?? 0, q[3] ?? 1];
-    if (this.host.physics3d === undefined || col === undefined) return { rotation, aabb: null };
+    if (col === undefined) return { rotation, aabb: null };
     const shape = colliderShape3DOf(solidShapeOf(col), e.components.transform.scale);
     return { rotation, aabb: shape === null ? null : shapeAabb3(shape, rotation) };
   }
@@ -614,7 +536,6 @@ export class GameplayBlocks {
     this.triggerEventsPrev = Object.freeze([]);
     this.messagesNow = [];
     this.messagesPrev = Object.freeze([]);
-    this.carry = NO_CARRIES;
     this.carry3 = NO_CARRIES3;
     this.scriptPosed.clear();
     // Health back to its start, collectibles back, patrols at their start.
@@ -665,25 +586,23 @@ export class GameplayBlocks {
    * The climb volume a player character's capsule centre is in now
    * (absent id: the first; the first volume in load order; null: none, or no
    * such character): its object, and its up and across axes in the world
-   * (its object's +Y and +X, turned with the object's rotation — about Z
-   * only on the 2D plane).
+   * (its object's +Y and +X, turned with the object's rotation).
    */
   climbVolume(characterId?: string): ClimbVolumeView | null {
     if (this.climbVolumes.size === 0) return null;
     const spec = this.charSpec(characterId);
     const ch = spec !== undefined ? this.characterBox(spec) : null;
     if (ch === null) return null;
-    const flat = this.host.physics3d === undefined;
     for (const [id, v] of this.climbVolumes) {
       if (this.inactive.has(id)) continue;
       const at = this.worldOf(id);
       const t = this.host.curr.get(id);
       if (at === null || t === undefined) continue;
       const r = t.rotation;
-      const q: [number, number, number, number] = flat ? planeRotation(r) : [r[0] ?? 0, r[1] ?? 0, r[2] ?? 0, r[3] ?? 1];
+      const q: [number, number, number, number] = [r[0] ?? 0, r[1] ?? 0, r[2] ?? 0, r[3] ?? 1];
       const inv: [number, number, number, number] = [-q[0], -q[1], -q[2], q[3]];
       const local = rotate3(inv, sub3(ch.centre, at));
-      if (Math.abs(local[0]) > v.half[0] || Math.abs(local[1]) > v.half[1] || (!flat && Math.abs(local[2]) > v.half[2])) continue;
+      if (Math.abs(local[0]) > v.half[0] || Math.abs(local[1]) > v.half[1] || Math.abs(local[2]) > v.half[2]) continue;
       return { id, up: rotate3(q, [0, 1, 0]) as Vec3, across: rotate3(q, [1, 0, 0]) as Vec3 };
     }
     return null;
@@ -875,12 +794,7 @@ export class GameplayBlocks {
     return out.length === 0 ? NO_MESSAGES : Object.freeze(out);
   }
 
-  /** A player character's carried platform motion this step (added to its staged move). */
-  carryDelta(characterId: string): Vec2 {
-    return this.carry.get(characterId) ?? NO_CARRY;
-  }
-
-  /** 3D: a player character's carried platform motion (and a mover's push) this step, added to its move. */
+  /** A player character's carried platform motion (and a mover's push) this step, added to its move. */
   carryDelta3(characterId: string): Readonly<Vec3> {
     return this.carry3.get(characterId) ?? NO_CARRY3;
   }
@@ -932,110 +846,19 @@ export class GameplayBlocks {
   /** Start of a step that runs physics: the turnover, then movers advance (their colliders are posed for physics). */
   beforeStep(stepIndex: number): void {
     this.turnover(stepIndex);
-    if (this.host.physics3d !== undefined) {
-      this.beforeStep3D(this.host.physics3d);
-      return;
-    }
-    if (this.movers.size === 0) {
-      // Nothing moves a character this step: no carry, no poses.
-      this.carry = NO_CARRIES;
-      return;
-    }
-    const dt = 1 / this.host.hz;
-    const poses: { entityId: string; position: Vec2; rotationZ: number }[] = [];
-    const moved: { m: Mover; before: Vec3 }[] = [];
-    for (const m of this.movers.values()) {
-      if (this.inactive.has(m.id)) continue;
-      const before: Vec3 = [...m.pos];
-      this.moverSignals(m);
-      if (m.started && m.active && !m.done) this.advance(m, dt);
-      this.writeTransform(m.id, m.pos);
-      poses.push({ entityId: m.id, position: { x: m.pos[0], y: m.pos[1] }, rotationZ: m.rotationZ });
-      moved.push({ m, before });
-    }
-    const carry = new Map<string, Vec2>();
-    for (const c of this.chars) carry.set(c.id, this.carry2D(c, moved));
-    this.carry = carry;
-    if (poses.length > 0) this.host.physics?.setKinematicPositions?.(poses);
+    this.moversStep(this.host.physics3d);
   }
 
   /**
-   * One player character's carry on the 2D plane: the motion of the mover it
-   * stands on, plus the pushes of movers moving into it.
+   * The mover step. Movers advance and are posed on the port with their
+   * entity's rotation (a mover translates, it does not turn), together with
+   * the colliders scripts drive (where the last step's transform phase left
+   * them). The player moves with what it stands on; a mover moving into the
+   * player pushes it out along the axis of least overlap (a mover moving
+   * mostly upward pushes a player beside or under it sideways, never up).
+   * Without a port the movers still move (nothing is posed).
    */
-  private carry2D(c: CharacterBoxSpec, moved: readonly { m: Mover; before: Vec3 }[]): Vec2 {
-    const ground = this.host.groundEntityId(c.id);
-    let carry: Vec2 = { x: 0, y: 0 };
-    // A mover that moves into the player (one it is not carrying) pushes the
-    // player out along the shallower axis this step — a rising lift scoops up
-    // a player at its edge, a sliding block shoves — so the character never
-    // ends up inside a kinematic body (the controller would then have to
-    // correct beyond its contracted bound).
-    const t = this.host.curr.get(c.id);
-    const player = t === undefined ? null : { x: t.position[0], y: t.position[1] };
-    const pushed = { x: 0, y: 0 };
-    // A mover moving mostly upward pushes a player beside or
-    // under it (the capsule's centre below the mover's top) out sideways, away
-    // from the mover, never up — a rising gate or pillar does not lift a
-    // player pressing against it; only a player above it is scooped up.
-    const push = (m: Mover, before: Vec3): void => {
-      if (player === null) return;
-      if (m.half === null) {
-        if (m.poly !== null) pushPolygon(m, before);
-        return;
-      }
-      const px = player.x + c.ox + pushed.x;
-      const py = player.y + c.oy + pushed.y;
-      const ox = m.half.x + c.hw + c.pushSkin - Math.abs(px - m.pos[0]);
-      const oy = m.half.y + c.hh + c.pushSkin - Math.abs(py - m.pos[1]);
-      if (ox <= 0 || oy <= 0) return;
-      const dx = m.pos[0] - before[0];
-      const dy = m.pos[1] - before[1];
-      const sideways = dy > 0 && dy >= Math.abs(dx) && py < m.pos[1] + m.half.y;
-      if (oy <= ox && !sideways) pushed.y += Math.min(m.pushStep, oy) * (py >= m.pos[1] ? 1 : -1);
-      else pushed.x += Math.min(m.pushStep, ox) * (px >= m.pos[0] ? 1 : -1);
-    };
-    // The same rule for a polygon collider, with its exact extent
-    // across the character's box (the part of the polygon beside the box for
-    // the horizontal overlap, the part above or below it for the vertical one)
-    // instead of a box's half extents. A box keeps the rule above unchanged.
-    const pushPolygon = (m: Mover, before: Vec3): void => {
-      if (player === null || m.poly === null) return;
-      const px = player.x + c.ox + pushed.x;
-      const py = player.y + c.oy + pushed.y;
-      const hw = c.hw + c.pushSkin;
-      const hh = c.hh + c.pushSkin;
-      const xs = slabExtent(m.poly, 'x', py - hh - m.pos[1], py + hh - m.pos[1]);
-      const ys = slabExtent(m.poly, 'y', px - hw - m.pos[0], px + hw - m.pos[0]);
-      if (xs === null || ys === null) return;
-      const right = px >= m.pos[0] + (xs.min + xs.max) / 2;
-      const up = py >= m.pos[1] + (ys.min + ys.max) / 2;
-      const ox = right ? m.pos[0] + xs.max - (px - hw) : px + hw - (m.pos[0] + xs.min);
-      const oy = up ? m.pos[1] + ys.max - (py - hh) : py + hh - (m.pos[1] + ys.min);
-      if (ox <= 0 || oy <= 0) return;
-      const dx = m.pos[0] - before[0];
-      const dy = m.pos[1] - before[1];
-      const sideways = dy > 0 && dy >= Math.abs(dx) && py < m.pos[1] + ys.max;
-      if (oy <= ox && !sideways) pushed.y += Math.min(m.pushStep, oy) * (up ? 1 : -1);
-      else pushed.x += Math.min(m.pushStep, ox) * (right ? 1 : -1);
-    };
-    for (const { m, before } of moved) {
-      if (ground === m.id) carry = { x: m.pos[0] - before[0], y: m.pos[1] - before[1] };
-      else if (m.pos[0] !== before[0] || m.pos[1] !== before[1]) push(m, before);
-    }
-    return { x: carry.x + pushed.x, y: carry.y + pushed.y };
-  }
-
-  /**
-   * The 3D mover step. Movers advance and are posed on the 3D
-   * port with their entity's rotation (a mover translates, it does not turn),
-   * together with the colliders scripts drive (where the last step's
-   * transform phase left them). The player moves with what it stands on; a
-   * mover moving into the player pushes it out along the axis of least
-   * overlap (the 2D rule in 3D: a mover moving mostly upward pushes a player
-   * beside or under it sideways, never up).
-   */
-  private beforeStep3D(port: PhysicsPort3D): void {
+  private moversStep(port: PhysicsPort3D | undefined): void {
     let extras = this.host.scriptColliders3D?.() ?? [];
     if (this.movers.size === 0 && extras.length === 0) {
       this.carry3 = NO_CARRIES3;
@@ -1067,11 +890,11 @@ export class GameplayBlocks {
     const carry3 = new Map<string, Readonly<Vec3>>();
     for (const c of this.chars) carry3.set(c.id, this.carry3D(c, moved));
     this.carry3 = carry3;
-    if (poses.length > 0) port.setKinematicPoses?.(poses);
+    if (poses.length > 0) port?.setKinematicPoses?.(poses);
   }
 
   /**
-   * One player character's 3D carry: the motion of what it stands on (a
+   * One player character's carry: the motion of what it stands on (a
    * mover, a collider a script drives), plus the pushes of those moving into
    * it — out along the axis of least overlap (a mover moving mostly upward
    * pushes a player beside or under it sideways, never up).
@@ -1136,7 +959,7 @@ export class GameplayBlocks {
   }
 
   /**
-   * After the transform phase (both dimensions): the generic primitives
+   * After the transform phase: the generic primitives
    * (patrols walk; collectibles and hitbox contacts test the character),
    * face-movement models turn, and the triggers and switches test the
    * character. One path with or without a
@@ -1145,69 +968,23 @@ export class GameplayBlocks {
   afterPhysics(frame: ActionFrame): void {
     this.primitives.afterPhysics(true);
     if (this.facers.size > 0) this.turnFacers(1 / this.host.hz);
-    if (this.host.physics3d !== undefined) {
-      const caps = capsulesOf(this.chars, this.host.curr);
-      if (caps.length === 0) return;
-      this.triggers3D(caps);
-      // A player character's capsule in a switch's box (turned with its entity; the trigger box's test) is on it.
-      for (const s of this.switches.values()) {
-        if (this.inactive.has(s.id)) continue;
-        const at = this.worldOf(s.id);
-        const q = this.host.curr.get(s.id)?.rotation ?? [0, 0, 0, 1];
-        if (switchFires(s, at !== null && caps.some(({ a, b, r }) => capsuleInBox(a, b, r, at, q, s.half3)), frame)) this.emit(s.signal);
-      }
-      return;
-    }
-    const players: { c: CharacterBoxSpec; x: number; y: number }[] = [];
-    for (const c of this.chars) {
-      const t = this.host.curr.get(c.id);
-      if (t !== undefined) players.push({ c, x: t.position[0], y: t.position[1] });
-    }
-    if (players.length === 0) return;
-    this.triggers2D(players);
+    const caps = capsulesOf(this.chars, this.host.curr);
+    if (caps.length === 0) return;
+    this.testTriggers(caps);
+    // A player character's capsule in a switch's box (turned with its entity; the trigger box's test) is on it.
     for (const s of this.switches.values()) {
       if (this.inactive.has(s.id)) continue;
       const at = this.worldOf(s.id);
-      // Any player character on it counts.
-      const inside = at !== null && players.some(({ c, x, y }) => Math.abs(x + c.ox - at[0]) < s.half.x + c.hw && Math.abs(y + c.oy - at[1]) < s.half.y + c.hh);
-      if (switchFires(s, inside, frame)) this.emit(s.signal);
+      const q = this.host.curr.get(s.id)?.rotation ?? [0, 0, 0, 1];
+      if (switchFires(s, at !== null && caps.some(({ a, b, r }) => capsuleInBox(a, b, r, at, q, s.half3)), frame)) this.emit(s.signal);
     }
   }
 
-  /** A 2D-plane plain step (no simulation modules), after its turnover: the primitives step. */
+  /** A plain step without a physics world (no simulation modules), after its turnover: the primitives step. */
   stepPrimitivesOnly(): void {
     if (!this.primitives.active && this.facers.size === 0) return;
     this.primitives.afterPhysics(true);
     if (this.facers.size > 0) this.turnFacers(1 / this.host.hz);
-  }
-
-  /**
-   * The 2D-plane triggers against each player character at its origin: a
-   * box against the capsule's box; A circle against the capsule
-   * itself (a segment of half length halfHeight − radius, swept by the
-   * radius) — the distance from the circle's centre to the segment is under
-   * the two radii.
-   */
-  private triggers2D(players: readonly { c: CharacterBoxSpec; x: number; y: number }[]): void {
-    for (const t of this.triggers.values()) {
-      if (this.inactive.has(t.id)) continue;
-      const at = this.worldOf(t.id);
-      const now = new Set<string>();
-      if (at !== null) {
-        for (const { c, x, y } of players) {
-          const segHalf = Math.max(0, c.hh - c.hw);
-          const cx = x + c.ox;
-          const cy = y + c.oy;
-          let inside: boolean;
-          if (t.radius !== null) {
-            const ny = Math.min(cy + segHalf, Math.max(cy - segHalf, at[1]));
-            inside = Math.hypot(at[0] - cx, at[1] - ny) < t.radius + c.hw;
-          } else inside = Math.abs(cx - at[0]) < t.half.x + c.hw && Math.abs(cy - at[1]) < t.half.y + c.hh;
-          if (inside) now.add(c.id);
-        }
-      }
-      this.updateTrigger(t, now);
-    }
   }
 
   /** The primitives' events of the previous step (every object's; the behavior host gives each script those it owns). */
@@ -1216,8 +993,8 @@ export class GameplayBlocks {
   }
 
   /**
-   * A trigger's signals and events for this step's inside test (the 2D
-   * plane's and 3D's shared rules; `now`: the player characters inside). The
+   * A trigger's signals and events for this step's inside test (`now`: the
+   * player characters inside). The
    * signals, the scene transition and the cue follow the trigger as a whole —
    * the first character in enters it, the last one out leaves it — and each
    * character's own entry and exit is an event naming it.
@@ -1245,16 +1022,16 @@ export class GameplayBlocks {
   }
 
   /**
-   * The 3D triggers after physics. The player is its capsule —
+   * The triggers after physics. The player is its capsule —
    * a segment of half length `halfHeight` along Y through its centre, swept
    * by its radius — tested exactly against each volume at its entity's world
-   * position (the parents' offsets summed, as in 2D): a sphere by the
+   * position (the parents' offsets summed): a sphere by the
    * segment's distance to its centre, a capsule by segment-to-segment
    * distance (standing along the trigger's own Y, turned with it), a box by
    * the segment's distance to it in the box's own frame. Inside is strictly
-   * closer than the radii (a touch is outside, as in 2D).
+   * closer than the radii (a touch is outside).
    */
-  private triggers3D(caps: readonly Capsule3[]): void {
+  private testTriggers(caps: readonly Capsule3[]): void {
     for (const t of this.triggers.values()) {
       if (this.inactive.has(t.id)) continue;
       const at = this.worldOf(t.id);

@@ -80,7 +80,7 @@ export interface ScriptContextParts {
   readonly behaviorGroupOf: ReadonlyMap<string, string>;
   /** The completed steps now (`ctx.modes` reads the step being run). */
   stepIndex(): number;
-  /** 3D: the active camera's yaw for the character's move input (null: a 2D game has none). */
+  /** The active camera's yaw for the character's move input (null: a game without physics has none). */
   readonly cameraYaw: (() => number | undefined) | null;
 }
 

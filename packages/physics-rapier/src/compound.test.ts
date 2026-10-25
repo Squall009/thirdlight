@@ -3,7 +3,7 @@
  * each at its position and turn in the body's frame, every collider the
  * object's — the character rests on a shape where it is (not at the body's
  * origin), a ray stops at each part, removal frees them all. Real Rapier
- * WASM, 3D and the 2D plane.
+ * WASM.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -17,7 +17,6 @@ const IDENTITY = { x: 0, y: 0, z: 0, w: 1 };
 const Q45Z = { x: 0, y: 0, z: Math.sin(Math.PI / 8), w: Math.cos(Math.PI / 8) };
 
 const config3 = (statics: StaticColliderSpec3D[], start: [number, number, number]): PhysicsInitConfig3D => ({
-  dimension: 3,
   character: { position: { x: start[0], y: start[1], z: start[2] }, radius: 0.3, halfHeight: 0.6, offset: { x: 0, y: 0, z: 0 } },
   statics,
   solver: { hz: HZ, gravityY: G },

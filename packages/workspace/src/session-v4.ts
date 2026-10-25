@@ -1114,7 +1114,7 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
         animators: JSON.parse(JSON.stringify(state.content.animators ?? [])) as unknown,
         input: state.content.input !== undefined ? (JSON.parse(JSON.stringify(state.content.input)) as unknown) : null,
         // The defaults: the side-view set when the game starts on a scene's plane, else the 3D set (a 2D move and a run button).
-        inputDefaults: JSON.parse(JSON.stringify(defaultInputFor(state.scenes.get(state.content.startScenes[0] ?? '')?.defaultPlane !== undefined ? 2 : 3))) as unknown,
+        inputDefaults: JSON.parse(JSON.stringify(defaultInputFor(state.scenes.get(state.content.startScenes[0] ?? '')?.defaultPlane !== undefined))) as unknown,
         flow: (state.content as { flow?: unknown }).flow !== undefined ? (JSON.parse(JSON.stringify((state.content as { flow?: unknown }).flow)) as unknown) : null,
         // Standalone graph documents (and, with the descriptors, the graph kinds' catalogues).
         ...(omit.includes('graphs') ? {} : { graphs: JSON.parse(JSON.stringify((state.content as { graphs?: unknown[] }).graphs ?? [])) as unknown }),

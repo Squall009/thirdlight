@@ -14,7 +14,6 @@ const HZ = 120;
 const G = -19.62;
 const IDENTITY = { x: 0, y: 0, z: 0, w: 1 };
 const config = (statics: StaticColliderSpec3D[], start: [number, number, number] = [0, 3, 0]): PhysicsInitConfig3D => ({
-  dimension: 3,
   character: { position: { x: start[0], y: start[1], z: start[2] }, radius: 0.3, halfHeight: 0.6, offset: { x: 0, y: 0, z: 0 } },
   statics,
   solver: { hz: HZ, gravityY: G },

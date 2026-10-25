@@ -547,13 +547,13 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "name": "place",
       "kind": "method",
       "detail": "(position: readonly [number, number, number], facing?: number | undefined, entityId?: string | undefined): boolean",
-      "doc": "Put a player character at `position` [x, y, z] (m; the 2D plane ignores z) from rest, facing `facing` degrees about +Y (0 faces +Z, 90 faces +X; absent: it keeps its way) — a `character_place` after this step's intent phase (called in a lat"
+      "doc": "Put a player character at `position` [x, y, z] (m; on a plane, its coordinate along the plane's normal is the plane's) from rest, facing `facing` degrees about +Y (0 faces +Z, 90 faces +X; absent: it keeps its way) — a `character_place` aft"
     },
     {
       "name": "walkTo",
       "kind": "method",
       "detail": "(position: readonly [number, number, number], options?: CharacterWalkOptions | undefined): number",
-      "doc": "Have a player character's own controller walk it to `position` (its acceleration, collisions, slopes and animator speed as with the player's input; the player's input does not move it meanwhile): on the ground plane in 3D (the mark's height"
+      "doc": "Have a player character's own controller walk it to `position` (its acceleration, collisions, slopes and animator speed as with the player's input; the player's input does not move it meanwhile): on the ground plane (the mark's height is wh"
     },
     {
       "name": "walkState",
@@ -571,13 +571,13 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "name": "turn",
       "kind": "method",
       "detail": "(facing: number, entityId?: string | undefined): boolean",
-      "doc": "Turn a player character to `facing` degrees about +Y (0 faces +Z, 90 faces +X) at its controller's turn speed in 3D; on the 2D plane its face-movement models turn at once (90 right, −90 left). False without that character."
+      "doc": "Turn a player character to `facing` degrees about +Y (0 faces +Z, 90 faces +X) at its controller's turn speed. False without that character."
     },
     {
       "name": "setEnabled",
       "kind": "method",
       "detail": "(enabled: boolean, entityId?: string | undefined): boolean",
-      "doc": "Switch a player character's controller off (it stays where it is: no input, no gravity — a cutscene, a dialogue) or back on, in 3D and on the 2D plane; a `character_enable`. Lasts until changed or the run restarts. False without that charac"
+      "doc": "Switch a player character's controller off (it stays where it is: no input, no gravity — a cutscene, a dialogue) or back on; a `character_enable`. Lasts until changed or the run restarts. False without that character."
     },
     {
       "name": "setPlane",
@@ -1899,7 +1899,7 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "name": "respawn",
       "kind": "method",
       "detail": "(spawnId?: string | undefined, entityId?: string | undefined): boolean",
-      "doc": "Move a player character (a controller's object: `entityId`, absent: the first player controller) to a player spawn and stop it — the active spawn, or the one named (which becomes the active one). In 3D applied after this step's intent phase"
+      "doc": "Move a player character (a controller's object: `entityId`, absent: the first player controller) to a player spawn and stop it — the active spawn, or the one named (which becomes the active one). Applied after this step's intent phase (a la"
     },
     {
       "name": "setSpawn",
@@ -3131,24 +3131,24 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "doc": "Every loaded entity carrying a component of this kind (as stored on the entity, e.g. `'collider'`, `'light'`, `'behavior'`), in load order (spawned copies included)."
     }
   ],
-  "CharacterMoveResult": [
+  "CharacterMoveResult3D": [
     {
       "name": "requested",
       "kind": "property",
-      "detail": "Vec2",
-      "type": "Vec2"
+      "detail": "PhysicsVec3",
+      "type": "PhysicsVec3"
     },
     {
       "name": "applied",
       "kind": "property",
-      "detail": "Vec2",
-      "type": "Vec2"
+      "detail": "PhysicsVec3",
+      "type": "PhysicsVec3"
     },
     {
       "name": "position",
       "kind": "property",
-      "detail": "Vec2",
-      "type": "Vec2"
+      "detail": "PhysicsVec3",
+      "type": "PhysicsVec3"
     },
     {
       "name": "grounded",
@@ -3158,14 +3158,14 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
     {
       "name": "supportNormal",
       "kind": "property",
-      "detail": "Vec2",
-      "type": "Vec2"
+      "detail": "PhysicsVec3",
+      "type": "PhysicsVec3"
     },
     {
       "name": "contacts",
       "kind": "property",
       "detail": "{ ground: boolean; wall: boolean; head: boolean; steepSlope: boolean; }",
-      "type": "CharacterMoveResult.contacts"
+      "type": "CharacterMoveResult3D.contacts"
     },
     {
       "name": "snapped",
@@ -3176,8 +3176,7 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "name": "groundEntityId",
       "kind": "property",
       "detail": "string | null | undefined",
-      "optional": true,
-      "doc": "The collider entity the character stands on (grounded), when the port knows it."
+      "optional": true
     },
     {
       "name": "kinematicSlack",
@@ -3187,7 +3186,7 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "doc": "How far a moving (kinematic) body moved into the character this step; the correction may exceed the request by this much."
     }
   ],
-  "CharacterMoveResult.contacts": [
+  "CharacterMoveResult3D.contacts": [
     {
       "name": "ground",
       "kind": "property",
@@ -3967,8 +3966,8 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
     {
       "name": "characterResult",
       "kind": "method",
-      "detail": "(entityId?: string | undefined): CharacterMoveResult | undefined",
-      "returns": "CharacterMoveResult",
+      "detail": "(entityId?: string | undefined): CharacterMoveResult3D | undefined",
+      "returns": "CharacterMoveResult3D",
       "doc": "A player controller's result of the last completed step (`entityId`, absent: the first player controller), or `undefined` before the first step."
     },
     {

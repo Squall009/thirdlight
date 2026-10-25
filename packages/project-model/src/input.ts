@@ -122,7 +122,7 @@ export const MAX_INPUT_GLYPHS = 128;
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 const CODE_RE = /^[A-Za-z0-9]{1,32}$/;
 
-/** Today's controls, plus the actions menus and gameplay blocks use. */
+/** The side-view controls (`move` along the plane), plus the actions menus and gameplay blocks use. */
 export const DEFAULT_INPUT: Readonly<InputConfig> = Object.freeze({
   actions: [
     { name: 'move', type: 'axis1d', map: 'gameplay', bindings: [{ kind: 'keys1d', negative: 'KeyA', positive: 'KeyD' }, { kind: 'keys1d', negative: 'ArrowLeft', positive: 'ArrowRight' }, { kind: 'gamepadButtons1d', negative: 14, positive: 15 }, { kind: 'gamepadAxis', axis: 0 }] },
@@ -137,11 +137,11 @@ export const DEFAULT_INPUT: Readonly<InputConfig> = Object.freeze({
 } as InputConfig);
 
 /**
- * The default actions of a 3D project (physics_dimension 3)
- * without its own input — the 2D defaults with `move` as a 2D axis (W/A/S/D,
+ * The default actions of a free (not side-view) game without its own
+ * input — the side-view defaults with `move` as a 2D axis (W/A/S/D,
  * the arrow keys and the left stick: forward, back and sideways) and a `run`
  * button (Shift, the left-stick press — the usual sprint controls), which
- * the 3D character controller reads.
+ * the character controller reads.
  */
 export const DEFAULT_INPUT_3D: Readonly<InputConfig> = Object.freeze({
   actions: [
@@ -151,9 +151,9 @@ export const DEFAULT_INPUT_3D: Readonly<InputConfig> = Object.freeze({
   ],
 } as InputConfig);
 
-/** The default actions of a project of this physics dimension (absent: the 2D plane). */
-export function defaultInputFor(dimension: 2 | 3 | undefined): Readonly<InputConfig> {
-  return dimension === 3 ? DEFAULT_INPUT_3D : DEFAULT_INPUT;
+/** The default actions of a game that starts in a side view (a start scene with a default plane), or of a free one. */
+export function defaultInputFor(sideView: boolean): Readonly<InputConfig> {
+  return sideView ? DEFAULT_INPUT : DEFAULT_INPUT_3D;
 }
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {

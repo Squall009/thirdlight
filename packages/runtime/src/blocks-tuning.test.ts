@@ -27,7 +27,6 @@ function harness(entities: EntityV3[], o: { character?: { x: number; y: number }
   const h: Harness = { blocks: undefined as unknown as GameplayBlocks, character: o.character ?? { x: 100, y: 100 } };
   const host: BlocksHost = {
     hz: HZ,
-    physics: undefined,
     curr,
     characters: [{ id: 'player-0001', capsule: { radius: 0.3, halfHeight: 0.6, offset: { x: 0, y: 0 } }, skin: o.skin ?? 0.01, offsetZ: 0 }],
     groundEntityId: () => null,
@@ -40,10 +39,11 @@ function harness(entities: EntityV3[], o: { character?: { x: number; y: number }
 describe('mover push tuning', () => {
   /** A wide block rising into the player beside it (a sideways push), with its maxPush. */
   const push = (maxPush: number | undefined, skin?: number) => {
-    const mover = ent('block-0001', { collider: { shape: { type: 'box', hx: 2, hy: 0.5 } }, mover: { waypoints: [[0, 2, 0]], speed: 2.4, mode: 'once', ...(maxPush !== undefined ? { maxPush } : {}) } });
+    const mover = ent('block-0001', { collider: { shape: { type: 'box', hx: 2, hy: 0.5, hz: 5 } }, mover: { waypoints: [[0, 2, 0]], speed: 2.4, mode: 'once', ...(maxPush !== undefined ? { maxPush } : {}) } });
     const h = harness([mover], { character: { x: -1, y: 0.2 }, ...(skin !== undefined ? { skin } : {}) });
     h.blocks.beforeStep(1);
-    return h.blocks.carryDelta('player-0001');
+    const [x, y] = h.blocks.carryDelta3('player-0001');
+    return { x, y };
   };
   it('the push per step is maxPush over the step rate (default 60 m/s: 0.5 m at 120 Hz)', () => {
     expect(push(undefined).x).toBeCloseTo(-0.5, 12);
@@ -52,10 +52,10 @@ describe('mover push tuning', () => {
   it('the gap it keeps is the character controller skin plus 1 mm', () => {
     // A player just outside the block's left edge (gap 0.02 m): no push with the default 0.011 m gap, a push with a 0.05 m skin.
     const edge = (skin?: number) => {
-      const mover = ent('block-0001', { collider: { shape: { type: 'box', hx: 2, hy: 0.5 } }, mover: { waypoints: [[0, 2, 0]], speed: 2.4, mode: 'once' } });
+      const mover = ent('block-0001', { collider: { shape: { type: 'box', hx: 2, hy: 0.5, hz: 5 } }, mover: { waypoints: [[0, 2, 0]], speed: 2.4, mode: 'once' } });
       const h = harness([mover], { character: { x: -2 - 0.3 - 0.02, y: 0.2 }, ...(skin !== undefined ? { skin } : {}) });
       h.blocks.beforeStep(1);
-      return h.blocks.carryDelta('player-0001').x;
+      return h.blocks.carryDelta3('player-0001')[0];
     };
     expect(edge()).toBe(0);
     expect(edge(0.05)).toBeLessThan(0);

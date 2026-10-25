@@ -2,11 +2,11 @@
  * A model's collision geometry read from GLB bytes: the `_COL` parts in the
  * model's root space (node transforms applied), one hull per primitive, the
  * shapes the conversion makes from them, Draco parts reported, meshopt
- * decoded, and the 2D plane's polygons.
+ * decoded.
  */
 import { describe, expect, it } from 'vitest';
 
-import { collisionPartPolygons, modelColliderShape, modelCollisionParts, readModelGeometry, sceneColliderPoints } from './model-collision';
+import { modelColliderShape, modelCollisionParts, readModelGeometry, sceneColliderPoints } from './model-collision';
 
 const RAW = import.meta.glob('../../../fixtures/import-ext/bytes.base64.json', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>;
 
@@ -97,13 +97,6 @@ describe('model collision geometry', () => {
     const compound = modelColliderShape(g, 'crate', 'compound');
     expect(compound.ok && compound.shape['type']).toBe('compound');
     expect(compound.ok && (compound.shape as { shapes: { type: string }[] }).shapes.map((s) => s.type)).toEqual(['convex', 'convex']);
-  });
-
-  it('gives each part its 2D polygon on the play plane', () => {
-    const read = readModelGeometry(kit());
-    if (!read.ok) throw new Error(read.message);
-    const polys = collisionPartPolygons(modelCollisionParts(read.geometry, 'crate').parts);
-    expect(polys).toEqual([[[-0.5, 0], [0.5, 0], [0.5, 1], [-0.5, 1]], [[1.75, 0], [2.25, 0], [2.25, 0.5], [1.75, 0.5]]]);
   });
 
   it('decodes EXT_meshopt_compression geometry', () => {

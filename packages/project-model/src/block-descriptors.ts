@@ -37,8 +37,8 @@ export const blockLayer: ComponentDescriptor = {
       vec3('max', 'To', 'One past the last cell, in whole cells.', { required: true, step: 1, labels: ['x', 'y', 'z'] }),
     ], { required: true, rules: ['To is past From on every axis; a layer cannot shrink past a block it holds.'] }),
     bool('metadataOnly', 'Metadata only', 'Cells carry data only (deploy zones, no-walk areas, trigger ids): no blocks, nothing drawn.', { default: false }),
-    bool('collision', 'Collision', "The blocks' collision shapes are colliders: as they are in a 3D project, cut at the play plane on the 2D plane.", { default: true }),
-    num('planeZ', 'Play plane z', "2D-plane projects: the world z where the blocks' collision shapes are cut into the 2D world's colliders (the cells holding it collide; on a cell boundary, the cells in front of it, toward +z). A 3D project ignores it.", { min: -BLOCK_PLANE_Z_MAX, max: BLOCK_PLANE_Z_MAX, step: 0.05, unit: 'm', default: 0 }),
+    bool('collision', 'Collision', "The blocks' collision shapes are colliders.", { default: true }),
+    num('planeZ', 'Play plane z', "Not read: a layer's blocks collide as they are. Kept from the plane cut of the removed 2D backend (an upgraded project lists it to check).", { min: -BLOCK_PLANE_Z_MAX, max: BLOCK_PLANE_Z_MAX, step: 0.05, unit: 'm', default: 0 }),
     bool('castShadow', 'Cast shadows', "The blocks cast the directional light's shadow.", { default: true }),
     bool('receiveShadow', 'Receive shadows', 'Shadows fall on the blocks.', { default: true }),
     num('maxSlope', 'Max slope', "The steepest part of the layer's surface that counts as ground: characters do not walk up steeper slopes whatever their own limit, and surface queries call steeper ground not walkable (absent: each character's own limit; queries use the project's max_slope_climb_deg).", {

@@ -11,7 +11,7 @@
  * then on.
  *
  * This module holds what the runtime keeps per controller between steps (the
- * last physics result, the 3D fall speed, scripts' impulses, the staged
+ * last physics result, the fall speed, scripts' impulses, the staged
  * moves) and runs the physics phase for all of them: every controller's move
  * is staged on the port, the port steps once, and each result is checked and
  * committed to its controller's transform.
@@ -22,23 +22,19 @@ import { actionPhase, type ActionFrame } from './actions';
 import { clipMessage, EngineFailure } from './errors';
 import { DuplicateMoveError, PhaseViolationError } from './guard';
 import {
-  validateCharacterMoveResult,
   validateCharacterMoveResult3D,
-  type CharacterMoveResult,
   type CharacterMoveResult3D,
   type CharacterState3D,
-  type PhysicsPort,
   type PhysicsPort3D,
   type PhysicsPlane,
-  type PhysicsResetPort,
   type PhysicsVec3,
   type Vec2,
 } from './ports';
 import type { EntityV3 } from '@thirdlight/project-model';
-import { character2DOf, character3DOf, character3DPhysicsOf } from './scene-set';
+import { character3DOf, character3DPhysicsOf } from './scene-set';
 import type { GameplaySettings, SimulationPhase, TransformState } from './types';
 
-/** A `PhysicsPort` throw/validation failure (fail-stop `physics_port_error`). */
+/** A physics port throw/validation failure (fail-stop `physics_port_error`). */
 export class PhysicsPortFailure extends EngineFailure {
   readonly reason: string;
   constructor(reason: string, message: string) {
@@ -62,17 +58,16 @@ interface ControllerState {
   readonly portId: string | undefined;
   /** The input actions it reads: move, jump, and the climb action (null: the move action). */
   readonly actions: { readonly move: string; readonly jump: string; readonly climb: string | null };
-  /** 3D: its step-up height and ground snap (the result check allows them). */
-  readonly climb3D: { stepHeight: number; groundSnap: number } | undefined;
-  last2D: CharacterMoveResult | undefined;
+  /** Its step-up height and ground snap (the result check allows them). */
+  readonly climb3D: { stepHeight: number; groundSnap: number };
   last3D: CharacterMoveResult3D | undefined;
-  /** 3D: its vertical speed under gravity while no module staged a move (m/s). */
+  /** Its vertical speed under gravity while no module staged a move (m/s). */
   fallSpeed3d: number;
   /** The velocity (m/s) scripts' impulses add at its next controller phase (null: none). */
   impulse: [number, number, number] | null;
-  /** 3D: the plane its character is locked to (null: free). */
+  /** The plane its character is locked to (null: free). */
   plane: PhysicsPlane | null;
-  /** 3D: the port holds its character still (outside the loaded collision). */
+  /** The port holds its character still (outside the loaded collision). */
   suspended: boolean;
 }
 
@@ -80,15 +75,14 @@ interface ControllerState {
 export interface PlayerControllersHost {
   readonly hz: number;
   readonly settings: GameplaySettings;
-  readonly physics: PhysicsPort | undefined;
+  /** The physics port (absent: a game without physics; the controllers' moves go nowhere). */
   readonly physics3d: PhysicsPort3D | undefined;
   /** The live transforms (the runtime may swap the map). */
   curr(): Map<string, TransformState>;
   currentPhase(): SimulationPhase | undefined;
   /** The motion of what a controller stands on this step (and a mover's push). */
-  carry2D(id: string): Vec2;
   carry3D(id: string): readonly [number, number, number];
-  /** Cells written this step collide in this step's sweep (the block layers' colliders on the port in use). */
+  /** Cells written this step collide in this step's sweep (the block layers' colliders on the port). */
   flushCollision(): void;
   /** One more physics step ran. */
   countStep(): void;
@@ -106,8 +100,7 @@ export class PlayerControllers {
   /** Every input action a controller reads (a game mode that switches gameplay off holds them all). */
   private names: readonly string[] = Object.freeze([]);
   private readonly byId = new Map<string, ControllerState>();
-  /** The moves staged in this step's controller phase (2D, and the plane part of a 3D move). */
-  private readonly staged = new Map<string, Vec2>();
+  /** The moves staged in this step's controller phase. */
   private readonly staged3d = new Map<string, PhysicsVec3>();
 
   constructor(
@@ -132,17 +125,16 @@ export class PlayerControllers {
   private register(id: string, controller: unknown, portId: string | undefined): void {
     const a = controllerActionsOf(controller);
     const climb = controllerMovementOf(controller).climbAction;
-    const c3 = this.host.physics3d !== undefined ? character3DPhysicsOf(controller, this.host.settings.max_slope_climb_deg) : undefined;
+    const c3 = character3DPhysicsOf(controller, this.host.settings.max_slope_climb_deg);
     this.byId.set(id, {
       id,
       portId,
       actions: Object.freeze({ move: a.move, jump: a.jump, climb }),
-      climb3D: c3 !== undefined ? { stepHeight: c3.stepHeight, groundSnap: c3.groundSnap } : undefined,
-      last2D: undefined,
+      climb3D: { stepHeight: c3.stepHeight, groundSnap: c3.groundSnap },
       last3D: undefined,
       fallSpeed3d: 0,
       impulse: null,
-      plane: this.host.physics3d !== undefined ? planeLockOf(controller) : null,
+      plane: planeLockOf(controller),
       suspended: false,
     });
     this.list = Object.freeze([...this.list, id]);
@@ -158,16 +150,10 @@ export class PlayerControllers {
    */
   add(entity: EntityV3): boolean {
     if (this.byId.has(entity.id)) return false;
-    const port3 = this.host.physics3d;
-    const port2 = this.host.physics;
+    const port = this.host.physics3d;
     try {
-      if (port3 !== undefined) {
-        if (typeof port3.addCharacter !== 'function') throw new PhysicsPortFailure('threw', `player controller "${entity.id}" arrived, but the 3D physics port cannot add a character`);
-        port3.addCharacter(character3DOf(entity, this.host.settings));
-      } else {
-        if (typeof port2?.addCharacter !== 'function') throw new PhysicsPortFailure('threw', `player controller "${entity.id}" arrived, but ${port2 === undefined ? 'the game has no physics port' : 'the physics port cannot add a character'}`);
-        port2.addCharacter(character2DOf(entity, this.host.settings));
-      }
+      if (typeof port?.addCharacter !== 'function') throw new PhysicsPortFailure('threw', `player controller "${entity.id}" arrived, but ${port === undefined ? 'the game has no physics port' : 'the physics port cannot add a character'}`);
+      port.addCharacter(character3DOf(entity, this.host.settings));
     } catch (e) {
       throw e instanceof PhysicsPortFailure ? e : new PhysicsPortFailure('threw', `physics port addCharacter("${entity.id}") threw: ${messageOf(e)}`);
     }
@@ -191,17 +177,17 @@ export class PlayerControllers {
   }
 
   /**
-   * Lock a 3D controller's character to a plane, or free it (null), at a
+   * Lock a controller's character to a plane, or free it (null), at a
    * step boundary: its body and its object snap onto the plane (a
    * placement: its face-movement models forget where they were); its speed
    * along the normal goes with the controller module's next move, which
-   * keeps to the plane. False for an unknown controller or without a 3D port.
+   * keeps to the plane. False for an unknown controller or without a port.
    */
   setPlane(id: string, plane: PhysicsPlane | null): boolean {
     const port = this.host.physics3d;
     const c = this.byId.get(id);
     if (port === undefined || c === undefined) return false;
-    if (typeof port.setCharacterPlane !== 'function') throw new PhysicsPortFailure('threw', 'the 3D physics port cannot lock a character to a plane');
+    if (typeof port.setCharacterPlane !== 'function') throw new PhysicsPortFailure('threw', 'the physics port cannot lock a character to a plane');
     let at: PhysicsVec3;
     try {
       at = port.setCharacterPlane(plane, c.portId);
@@ -230,7 +216,7 @@ export class PlayerControllers {
     const c = this.byId.get(id);
     if (c === undefined) return false;
     if (c.portId !== undefined) {
-      const port = this.host.physics3d ?? this.host.physics;
+      const port = this.host.physics3d;
       try {
         port?.removeCharacter?.(c.portId);
       } catch (e) {
@@ -238,7 +224,6 @@ export class PlayerControllers {
       }
     }
     this.byId.delete(id);
-    this.staged.delete(id);
     this.staged3d.delete(id);
     this.list = Object.freeze(this.list.filter((x) => x !== id));
     this.names = Object.freeze([...new Set([...this.byId.values()].flatMap((x) => [x.actions.move, x.actions.jump, ...(x.actions.climb !== null ? [x.actions.climb] : [])]))]);
@@ -271,11 +256,9 @@ export class PlayerControllers {
     return this.byId.get(id)?.actions;
   }
 
-  /** A controller's last physics result (its vectors carry z in 3D), or undefined before its first step. */
-  result(id: string): CharacterMoveResult | undefined {
-    const c = this.byId.get(id);
-    if (c === undefined) return undefined;
-    return this.host.physics3d !== undefined ? (c.last3D as unknown as CharacterMoveResult | undefined) : c.last2D;
+  /** A controller's last physics result, or undefined before its first step. */
+  result(id: string): CharacterMoveResult3D | undefined {
+    return this.byId.get(id)?.last3D;
   }
 
   /** Whether a controller stands on something (true before its first step: it starts at rest). */
@@ -288,23 +271,22 @@ export class PlayerControllers {
     return this.result(id)?.groundEntityId ?? null;
   }
 
-  /** A controller's last applied move (per step) and, in 3D, the way it faces (degrees). */
+  /** A controller's last applied move (per step) and the way it faces (degrees). */
   lastMotion(id: string): { applied?: { x: number; y: number; z?: number }; facing?: number } {
     const c = this.byId.get(id);
     if (c === undefined) return {};
-    if (this.host.physics3d === undefined) return c.last2D !== undefined ? { applied: c.last2D.applied } : {};
     const state = this.characterState(id);
     return { ...(c.last3D !== undefined ? { applied: c.last3D.applied } : {}), ...(state !== undefined ? { facing: state.facing } : {}) };
   }
 
   // ---- impulses ---------------------------------------------------------------------------
 
-  /** Add a script's impulse (m/s) for a controller's next controller phase; the 2D plane drops z. */
+  /** Add a script's impulse (m/s) for a controller's next controller phase. */
   addImpulse(id: string, v: readonly [number, number, number]): void {
     const c = this.byId.get(id);
     if (c === undefined) return;
     const a = c.impulse ?? [0, 0, 0];
-    c.impulse = [a[0] + v[0], a[1] + v[1], this.host.physics3d !== undefined ? a[2] + v[2] : 0];
+    c.impulse = [a[0] + v[0], a[1] + v[1], a[2] + v[2]];
   }
 
   /** Replace a controller's waiting impulse (a save's velocity). */
@@ -338,86 +320,37 @@ export class PlayerControllers {
     if (typeof entityId !== 'string' || !this.host.curr().has(entityId)) {
       throw new Error(`unknown character entity ${JSON.stringify(String(entityId))}`);
     }
-    if (this.staged.has(entityId)) {
+    if (this.staged3d.has(entityId)) {
       throw new DuplicateMoveError(`entity "${entityId}" already staged a move in this step`);
     }
     if (!isFiniteVec2(delta)) {
       throw new Error('a staged character move must be a finite { x, y }');
     }
     const c = this.byId.get(entityId);
-    const port3 = this.host.physics3d;
-    if (port3 !== undefined) {
-      // A 3D move (z optional: a module written for the plane moves in it).
-      const z = (delta as { z?: unknown }).z;
-      // A player controller moves with what it stands on (and a mover's push).
-      const c3 = c !== undefined ? this.host.carry3D(entityId) : NO_CARRY3;
-      // Lifted by what it stands on, its own fall is cancelled — the port poses the
-      // movers after the sweep, so a grounded character's small fall would end inside the risen platform.
-      const ownY = c3[1] > 0 && delta.y < 0 ? 0 : delta.y;
-      const moved3 = { x: delta.x + c3[0], y: ownY + c3[1], z: (typeof z === 'number' && Number.isFinite(z) ? z : 0) + c3[2] };
-      this.staged.set(entityId, { x: moved3.x, y: moved3.y });
-      this.staged3d.set(entityId, moved3);
-      port3.stageCharacterMove(moved3, c?.portId);
-      return;
-    }
-    // A player controller moves with the platform it stands on.
-    const carry = c !== undefined ? this.host.carry2D(entityId) : NO_CARRY;
-    const moved = { x: delta.x + carry.x, y: delta.y + carry.y };
-    this.staged.set(entityId, moved);
-    this.host.physics?.stageCharacterMove(moved, c?.portId);
+    // z optional: a module written for the plane moves in it.
+    const z = (delta as { z?: unknown }).z;
+    // A player controller moves with what it stands on (and a mover's push).
+    const c3 = c !== undefined ? this.host.carry3D(entityId) : NO_CARRY3;
+    // Lifted by what it stands on, its own fall is cancelled — the port poses the
+    // movers after the sweep, so a grounded character's small fall would end inside the risen platform.
+    const ownY = c3[1] > 0 && delta.y < 0 ? 0 : delta.y;
+    const moved3 = { x: delta.x + c3[0], y: ownY + c3[1], z: (typeof z === 'number' && Number.isFinite(z) ? z : 0) + c3[2] };
+    this.staged3d.set(entityId, moved3);
+    this.host.physics3d?.stageCharacterMove(moved3, c?.portId);
   }
 
   /** Drop every staged move (a step ended, or the runtime is disposed). */
   clearStaged(): void {
-    if (this.staged.size > 0) this.staged.clear();
     if (this.staged3d.size > 0) this.staged3d.clear();
   }
 
-  /** The physics phase (runtime, not a module): one validated port step for every controller. */
+  /** The physics phase (runtime, not a module): one validated port step for every controller (none without a port). */
   runPhysics(): void {
-    if (this.host.physics3d !== undefined) {
-      this.runPhysics3D(this.host.physics3d);
-      return;
-    }
-    const port = this.host.physics;
-    if (!port) return;
-    this.host.flushCollision();
-    const curr = this.host.curr();
-    const before = this.ids.map((id) => {
-      const t = curr.get(id);
-      return t ? { x: t.position[0], y: t.position[1] } : { x: 0, y: 0 };
-    });
-    let raw: unknown;
-    this.host.countStep();
-    try {
-      raw = port.step();
-    } catch (e) {
-      throw new PhysicsPortFailure('threw', `physics port step() threw: ${messageOf(e)}`);
-    }
-    this.ids.forEach((id, i) => {
-      const c = this.byId.get(id)!;
-      // A controller whose object is not in the game (its scene is not loaded) keeps its body where it is.
-      if (c.portId !== undefined && !curr.has(id)) return;
-      const result = c.portId === undefined ? raw : port.lastResultOf?.(id);
-      const requested: Vec2 = this.staged.get(id) ?? { x: 0, y: 0 };
-      const check = validateCharacterMoveResult(result, before[i]!, requested);
-      if (!check.ok) {
-        throw new PhysicsPortFailure('result', `physics port returned an invalid result${c.portId === undefined ? '' : ` for "${id}"`}: ${check.failure.detail}`);
-      }
-      c.last2D = check.result;
-      const t = curr.get(id);
-      if (t) {
-        // Authoritative commit: position.x/position.y only, before any
-        // phase-transform module runs.
-        t.position[0] = check.result.position.x;
-        t.position[1] = check.result.position.y;
-      }
-    });
-    this.clearStaged();
+    if (this.host.physics3d !== undefined) this.runPhysics3D(this.host.physics3d);
   }
 
   /**
-   * The 3D physics phase — one validated `port.step()`. A
+   * The physics phase — one validated `port.step()`. A
    * character falls under the project's gravity (`gravity_y` along Y, capped
    * at `max_fall_speed`) and rests on what it lands on (its fall speed is
    * zeroed while grounded); a move a module staged in the controller phase
@@ -482,7 +415,7 @@ export class PlayerControllers {
   /**
    * A player controller whose jump is pressed with down held while it
    * stands on a one-way platform drops through it (its jump reads as
-   * released this step), in 3D as on the 2D plane. Down is its climb
+   * released this step). Down is its climb
    * action's (else the `navigate` action's) y below −0.5.
    */
   dropThrough(action: ActionFrame, isOneWay: (entityId: string | null) => boolean, steps: number): ActionFrame {
@@ -491,7 +424,7 @@ export class PlayerControllers {
       const a = this.byId.get(id)!.actions;
       if (actionPhase(action, a.jump) !== 'pressed' || (action.actions?.[a.climb ?? 'navigate']?.y ?? 0) >= -0.5) continue;
       if (!isOneWay(this.groundEntityId(id))) continue;
-      (this.host.physics3d ?? this.host.physics)?.dropThrough?.(steps, this.portId(id));
+      this.host.physics3d?.dropThrough?.(steps, this.portId(id));
       out = { ...out, actions: { ...out.actions, [a.jump]: { v: 0, p: 'none' } } };
     }
     return out;
@@ -499,12 +432,12 @@ export class PlayerControllers {
 
   // ---- placement -------------------------------------------------------------------------
 
-  /** Put a 3D controller at an origin (the port's clearance rules), from rest. */
+  /** Put a controller at an origin (the port's clearance rules), from rest. */
   place3D(id: string, x: number, y: number, z: number): void {
     const port = this.host.physics3d;
     const c = this.byId.get(id);
     if (port === undefined || c === undefined) return;
-    if (typeof port.placeCharacter !== 'function') throw new PhysicsPortFailure('threw', 'the 3D physics port cannot place the character');
+    if (typeof port.placeCharacter !== 'function') throw new PhysicsPortFailure('threw', 'the physics port cannot place the character');
     // A character on a plane is placed on it (the port does the same).
     if (c.plane?.axis === 'x') x = c.plane.origin;
     else if (c.plane?.axis === 'z') z = c.plane.origin;
@@ -525,30 +458,6 @@ export class PlayerControllers {
   }
 
   /**
-   * Put a 2D-plane controller at an origin, from rest: the port's character
-   * is cleared and placed and its transform set (the caller resets its
-   * controller module). False without a reset port or for an unknown controller.
-   */
-  place2D(id: string, x: number, y: number): boolean {
-    const port = this.resetPort2D();
-    const c = this.byId.get(id);
-    if (c === undefined || port === null) return false;
-    try {
-      port.clearCharacterMotion(c.portId);
-      port.placeCharacter({ x, y }, c.portId);
-    } catch (e) {
-      throw new PhysicsPortFailure('threw', `physics port placeCharacter() threw: ${messageOf(e)}`);
-    }
-    this.host.placed(id);
-    const t = this.host.curr().get(id);
-    if (t !== undefined) {
-      t.position[0] = x;
-      t.position[1] = y;
-    }
-    return true;
-  }
-
-  /**
    * The start of a run, the first and every restarted one alike: every
    * controller whose object is in the game starts where its transform now
    * says (a restart restored the authored one), from rest, holding nothing of
@@ -557,60 +466,44 @@ export class PlayerControllers {
    * A world's query structures keep the history of what was added and moved
    * in it, and that history decides ties in a sweep (a body on the seam of
    * two block chunks went another way in the first run than after a
-   * restart). A port without a rebuild places each body; on the 2D plane
-   * without a reset port the bodies stay. Throws a port failure.
+   * restart). A port without a rebuild places each body. Throws a port failure.
    */
   startRun(): void {
     this.clearImpulses();
     this.clearStaged();
     const curr = this.host.curr();
-    const port3 = this.host.physics3d;
-    const port = port3 ?? this.host.physics;
+    const port = this.host.physics3d;
     const rebuild = typeof port?.restartWorld === 'function';
     const origins: { characterId?: string; position: { x: number; y: number; z: number } }[] = [];
     for (const id of this.ids) {
       const c = this.byId.get(id)!;
-      c.last2D = undefined;
       c.last3D = undefined;
       c.fallSpeed3d = 0;
       const t = curr.get(id);
       if (t === undefined) continue;
       // A character on a plane starts on it.
-      if (port3 !== undefined) this.snapToPlane(id);
+      if (port !== undefined) this.snapToPlane(id);
       const [x, y, z] = [t.position[0], t.position[1], t.position[2]];
       if (!rebuild) {
-        if (port3 !== undefined) this.place3D(id, x, y, z);
-        else this.place2D(id, x, y);
+        this.place3D(id, x, y, z);
         continue;
       }
       // The rebuilt world makes the body there: placing it first would only move it in the old world.
-      if (port3 === undefined && this.resetPort2D() === null) continue;
       origins.push({ ...(c.portId !== undefined ? { characterId: c.portId } : {}), position: { x, y, z } });
       this.host.placed(id);
     }
     if (!rebuild) return;
     try {
-      if (port3 !== undefined) port3.restartWorld!(origins);
-      else this.host.physics!.restartWorld!(origins.map((o) => ({ ...(o.characterId !== undefined ? { characterId: o.characterId } : {}), position: { x: o.position.x, y: o.position.y } })));
+      port!.restartWorld!(origins);
     } catch (e) {
       throw new PhysicsPortFailure('threw', `physics port restartWorld() threw: ${messageOf(e)}`);
     }
   }
 
-  /** The 2D port narrowed to the reset/clearance surface placements need (null: it has none). */
-  resetPort2D(): PhysicsResetPort | null {
-    const port = this.host.physics as (PhysicsPort & Partial<PhysicsResetPort>) | undefined;
-    if (port === undefined) return null;
-    if (typeof port.clearCharacterMotion !== 'function') return null;
-    if (typeof port.placeCharacter !== 'function') return null;
-    if (typeof port.characterClearance !== 'function') return null;
-    return port as PhysicsResetPort;
-  }
-
   /**
-   * A timeline moves a 3D controller: its body goes with it, from rest.
+   * A timeline moves a controller: its body goes with it, from rest.
    * Returns where it went (on its plane, if it has one), or null when it is
-   * no 3D controller.
+   * no controller (or the game has no physics).
    */
   moveWithTimeline3D(id: string, position: readonly number[]): [number, number, number] | null {
     const port = this.host.physics3d;
@@ -626,7 +519,7 @@ export class PlayerControllers {
 
   // ---- reads -----------------------------------------------------------------------------
 
-  /** `ctx.physics.characterState` — a 3D controller after the last step (undefined in 2D, before it, or for another object). */
+  /** `ctx.physics.characterState` — a controller after the last step (undefined before it, or for another object). */
   characterState(id: string): CharacterState3D | undefined {
     const c = this.byId.get(id);
     const r = c?.last3D;
@@ -648,7 +541,6 @@ export class PlayerControllers {
   }
 }
 
-const NO_CARRY: Vec2 = Object.freeze({ x: 0, y: 0 });
 const NO_CARRY3: readonly [number, number, number] = Object.freeze([0, 0, 0]) as unknown as readonly [number, number, number];
 
 function isFiniteVec2(v: unknown): v is Vec2 {

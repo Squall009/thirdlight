@@ -1,11 +1,8 @@
 /**
- * The Rapier 3D physics port (`@dimforge/rapier3d-compat`, the
- * same 0.20.0 pin as the 2D backend) for a project whose
- * `physics_dimension` is 3. It sits beside the 2D adapter (`../port.ts`,
- * untouched) behind the package's `./3d` subpath, so a 2D bundle never
- * carries the 3D WASM.
+ * The Rapier physics port (`@dimforge/rapier3d-compat@0.20.0`): the one
+ * backend every game runs on; a side view is a plane lock on its bodies.
  *
- * The pattern is the 2D port's: one `World` per port; static box colliders
+ * One `World` per port; static box colliders
  * (half extents `hx`/`hy`/`hz`, the entity's full rotation) on fixed bodies;
  * each player character (one per player controller) a PARENTLESS capsule
  * collider (standing along Y) swept by its own
@@ -20,7 +17,7 @@
  * The runtime owns stepping (no frame driver here) and applies gravity
  * itself (it stages the fall). Sphere, capsule, convex-hull and
  * (static) triangle-mesh colliders; kinematic bodies for movers, posed after
- * the character's sweep like the 2D port's; raycasts, overlap queries (box,
+ * the character's sweep; raycasts, overlap queries (box,
  * sphere, capsule, cylinder) and the character's clearance/placement.
  */
 import { COLLIDER_3D_LIMITS } from '@thirdlight/project-model/limits';
@@ -252,7 +249,7 @@ function validatePrimitive3D(value: unknown): { ok: true; shape: ColliderPrimiti
     }
     return { ok: true, shape: { type: 'heightfield', cellsX: cx as number, cellsZ: cz as number, cellX: v['cellX'] as number, cellZ: v['cellZ'] as number, heights } };
   }
-  return { ok: false, detail: 'a 3D collider is a box, sphere, capsule, cylinder, convex hull, mesh or heightfield (a 2D polygon or circle takes its 3D form first)' };
+  return { ok: false, detail: 'a 3D collider is a box, sphere, capsule, cylinder, convex hull, mesh or heightfield (a flat box, polygon or circle takes its solid form first)' };
 }
 
 /**
@@ -336,7 +333,6 @@ function furtherProblem3D(c: AddedCharacter3D, label: string, taken: { has(id: s
 /** Validate the whole init config before any WASM or world work (nothing is silently defaulted). */
 function validateConfig(config: PhysicsInitConfig3D): ConfigProblem3D | null {
   if (typeof config !== 'object' || config === null) return { reason: 'invalid_config', message: 'physics init config must be an object' };
-  if (config.dimension !== 3) return { reason: 'invalid_config', message: 'a 3D port needs a config with dimension 3' };
   const first = characterProblem3D(config.character, 'character');
   if (first !== null) return first;
   const solver = config.solver;
@@ -372,7 +368,7 @@ function validateConfig(config: PhysicsInitConfig3D): ConfigProblem3D | null {
   return null;
 }
 
-// ---- WASM initialization and memory (the 2D port's pattern, for the 3D module) ----
+// ---- WASM initialization and memory ----
 
 const CANCELLED = Symbol('physics3d-init-cancelled');
 let wasmMemory: { buffer: ArrayBuffer } | null = null;
@@ -789,10 +785,10 @@ function planeLocks3D(d: PlaneLockParts): Pick<RapierPhysicsPort3D, 'setBodyPlan
 
 /** A character's capsule collider at its origin + offset and its own Rapier controller, in `world`. */
 function makeCapsule3D(world: RAPIER.World, ch: PhysicsInitConfig3D['character'], tuning: PhysicsInitConfig3D['controller']): { collider: RAPIER.Collider; controller: RAPIER.KinematicCharacterController } {
-  // PARENTLESS character collider (the 2D port's normative pattern): moved with setTranslation only.
+  // PARENTLESS character collider: moved with setTranslation only (the position is the double kept here).
   const collider = world.createCollider(RAPIER.ColliderDesc.capsule(ch.halfHeight, ch.radius).setTranslation(ch.position.x + ch.offset.x, ch.position.y + ch.offset.y, ch.position.z + ch.offset.z));
   const controller = world.createCharacterController(tuning.offsetSkin);
-  // Up is +Y (gravity along −Y), as in the 2D plane.
+  // Up is +Y (gravity along −Y).
   controller.setUp({ x: 0, y: 1, z: 0 });
   controller.setMaxSlopeClimbAngle(tuning.maxSlopeClimbRad);
   controller.setMinSlopeSlideAngle(tuning.minSlopeSlideRad);
@@ -829,13 +825,13 @@ const IDENTITY_Q = { x: 0, y: 0, z: 0, w: 1 };
 
 /**
  * The clearance of a character's capsule if its centre were at `c` (query
- * only; the 2D probe's rules): blocked by the deepest overlap with a collider
+ * only): blocked by the deepest overlap with a collider
  * (a narrow-phase contact deeper than the penetration epsilon), else
  * supported by the nearest collider straight below the capsule's lowest
  * point, else `no_support`. Characters are never in the way. A one-way
  * collider never blocks (the character passes through it from below and the
  * sides) and supports only a capsule whose lowest point along its up is on
- * or above its top, as in the 2D probe.
+ * or above its top.
  */
 function clearanceAt(world: RAPIER.World, characterHandles: ReadonlySet<number>, infoByHandle: ReadonlyMap<number, Collider3DInfo>, shape: CharacterBody3D['shape'], c: PhysicsVec3): CharacterClearanceResult3D {
   const capsule = new RAPIER.Capsule(shape.halfHeight, shape.radius);
@@ -1134,8 +1130,7 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
     b.staged = null;
     if (!isVec3(requested)) throw new Error(`staged movement must be a finite { x, y, z } (got ${JSON.stringify(requested)})`);
     // The request is swept as it is, a grounded character's small downward part
-    // included (dropping it, as the 2D port does, which made Rapier's grounded status
-    // flicker every other step on flat ground — measured with a walking character; the sweep
+    // included (dropping it made Rapier's grounded status flicker every other step on flat ground — measured with a walking character; the sweep
     // stops it on the ground and keeps it grounded).
     // A character on a plane moves in it only.
     const commanded: PhysicsVec3 = b.plane !== null ? inPlane(requested, b.plane) : { x: requested.x, y: requested.y, z: requested.z };
@@ -1158,9 +1153,9 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
     // The runtime moves the character with what it stands on (the carry), so that body is at
     // rest for the sweep — made velocity-based with zero velocity and turned back right after;
     // its next pose is set below and the world step derives its velocity from it as always. So
-    // is a mover rising or sinking past the character (the 2D port stills a rising one: its drag
-    // would lift the character up the wall). A mover sliding across into the character keeps its
-    // velocity, as in 2D: with it at rest, Rapier's sweep of the runtime's push out of its way
+    // is a mover rising or sinking past the character (a rising one's drag would lift the
+    // character up the wall). A mover sliding across into the character keeps its
+    // velocity: with it at rest, Rapier's sweep of the runtime's push out of its way
     // stopped at the ground contact after about 1 % (measured on a standing character: the
     // mover passed through it), where its drag moves the character on ahead of it.
     // What it stands on is what the carry moves it with (`supportUnder`, its footprint
@@ -1322,7 +1317,7 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
     const verticalExtra = movement.y - commanded.y;
     const snapped = rawGrounded && Math.abs(verticalExtra) > 1e-6 && Math.abs(verticalExtra) <= snapDistance + skin + 1e-6;
     if (Math.hypot(requested.x, requested.z) > 1e-9 && Math.hypot(movement.x, movement.z) < 1e-9) stallSteps += 1;
-    // A mover that moved into the character in the last world step may push it by up to that move (the 2D rule).
+    // A mover that moved into the character in the last world step may push it by up to that move (the arcade rule).
     const kinematicSlack = Math.min(0.5, kinematicMoved);
     const allowance = (snapped ? snapDistance + skin : 0.001) + (stepLift > 0 ? stepLift + skin : 0) + kinematicSlack;
     if (Math.hypot(movement.x, movement.y, movement.z) > Math.hypot(requested.x, requested.y, requested.z) + allowance + 1e-12) {
@@ -1408,7 +1403,6 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
   };
 
   return {
-    dimension: 3,
     implementation: PHYSICS_3D_IMPLEMENTATION,
 
     stageCharacterMove(delta: PhysicsVec3, characterId?: string): void {
@@ -1422,7 +1416,7 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
       if (chars.length === 0) return stepWithoutCharacter();
       // Every character's sweep (the first, then the further ones); the movers move after them
       // (the runtime already added a carrying platform's motion to each request).
-      // A one-way collider that does not hold a character is out of its sweep (a drop through counts down first, as on the 2D plane).
+      // A one-way collider that does not hold a character is out of its sweep (a drop through counts down first).
       const swept = chars.map((b) => {
         if (b.suspended) return heldStill(b);
         if (b.dropSteps > 0) b.dropSteps -= 1;

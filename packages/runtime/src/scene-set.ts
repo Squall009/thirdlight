@@ -1,27 +1,17 @@
 /**
- * The pure parts of the runtime's scene set — what one loaded
- * scene contributes (its static colliders), the root offset of a load and the
- * live tag index that follows loads and unloads. No I/O, no three.js.
+ * The pure parts of the runtime's scene set — the physics init config of a
+ * scene's entities, the root offset of a load and the live tag index that
+ * follows loads and unloads. No I/O, no three.js.
  */
 import { character3DSettingsOf, planeLockOf, controllerCapsuleOf, fixedStepHzOf, controllerCapsuleOffsetZ, controllerTuningOf, resolveSceneHierarchy, sceneCamerasAsShots, validateSceneV4, withScenePlane, type EntityV3, type TagDefinition } from '@thirdlight/project-model';
 
 import type { ModelColliderTable } from '@thirdlight/project-model';
 
-import { colliderSpecs2D, colliderSpecs3D, type ColliderContext } from './collider-specs';
-import type { AddedCharacter2D, AddedCharacter3D, CharacterControllerTuning, PhysicsInitConfig3D, StaticColliderSpec, Vec2 } from './ports';
+import { colliderSpecs3D } from './collider-specs';
+import type { AddedCharacter3D, CharacterControllerTuning, PhysicsInitConfig3D } from './ports';
 
-export { colliderRotationZ, colliderShape3DOf, colliderShape2DOf, colliderSpecs2D, colliderSpecs3D, staticColliderOf, staticColliderOf3D, worldTransformsOf, type ColliderContext } from './collider-specs';
+export { colliderShape3DOf, colliderSpecs3D, staticColliderOf3D, worldTransformsOf, type ColliderContext } from './collider-specs';
 import type { BehaviorTagQuery, ModelBounds, PlayerCapsule } from './types';
-
-/** What one scene adds to the running game (its static colliders). */
-export interface SceneContribution {
-  colliders: StaticColliderSpec[];
-}
-
-/** The static colliders of a list of (resolved) entities (on the 2D plane, each where it is in the world). */
-export function sceneContribution(entities: readonly EntityV3[], ctx?: ColliderContext): SceneContribution {
-  return { colliders: colliderSpecs2D(entities, ctx) };
-}
 
 /** The entities with `at` added to every root entity's position (children follow their parent). */
 export function offsetEntities(entities: readonly EntityV3[], at: readonly [number, number, number] | undefined): EntityV3[] {
@@ -68,7 +58,7 @@ export function playerPhysicsOf(controller: unknown): { offsetSkin: number; grou
 }
 
 /**
- * The 3D physics init config of a scene's (resolved) entities —
+ * The physics init config of a scene's (resolved) entities —
  * every collider but the players' as a static, the controller entities as
  * the characters (the first as `character`, the others as `characters`, by
  * object) each with its capsule (the offset's z included) and tuning, the
@@ -77,11 +67,10 @@ export function playerPhysicsOf(controller: unknown): { offsetSkin: number; grou
  * tests use. `options.layers` — the project's named collision
  * layers; without a controller entity the world has no character
  * (`noCharacter`: its colliders answer queries and carry movers — a scene
- * picked with the pointer need not have a player); it was null before, so a
- * 3D scene without a player had no physics at all. Null with neither a
- * controller nor a collider, unless `options.required`: the project's
- * modules name the 3D backend (a scene loaded later, a prefab or a script
- * needs it), so the host must inject a port even for an empty start scene.
+ * picked with the pointer need not have a player). Null with neither a
+ * controller nor a collider, unless `options.required`: the game needs a
+ * physics world later (a scene loaded later, a prefab or a script brings
+ * one), so the host must inject a port even for an empty start scene.
  * The world is made for a runtime (`buildAtRunStart`).
  */
 export function physics3DConfigOf(
@@ -93,14 +82,13 @@ export function physics3DConfigOf(
   // Every player controller: the first is the port's character, the others its further characters.
   const players = entities.filter((e) => (e.components as Record<string, unknown> | undefined)?.['controller'] !== undefined).map((e) => character3DOf(e, settings));
   const first = players[0];
-  // Nothing to simulate or query: no physics. The required modules come from every scene, so when they
-  // name the 3D backend an empty world is made anyway (a later scene's colliders and players are added to it).
+  // Nothing to simulate or query: no physics. When the game needs a world later (`required`, from every
+  // scene) an empty one is made anyway (a later scene's colliders and players are added to it).
   // A block layer's chunks become colliders at run time, so it needs a world too.
   if (options.required !== true && first === undefined && statics.length === 0 && !entities.some((e) => (e.components as Record<string, unknown> | undefined)?.['blockLayer'] !== undefined)) return null;
   // Without a player the character is a placeholder the port ignores (the default capsule at the origin).
   const placeholder = first ?? { ...character3DOf({ id: '', components: { transform: { position: [0, 0, 0] } } }, settings), offset: { x: 0, y: 0, z: 0 } };
   return {
-    dimension: 3,
     character: { position: placeholder.position, radius: placeholder.radius, halfHeight: placeholder.halfHeight, offset: placeholder.offset, ...(placeholder.plane !== undefined ? { plane: placeholder.plane } : {}) },
     ...(players.length > 1 ? { characters: players.slice(1) } : {}),
     statics,
@@ -152,87 +140,6 @@ export function character3DOf(entity: { id: string; components?: unknown }, sett
   };
 }
 
-/** A 2D-plane player character with the authored transform the port checks (parented, scaled or tilted ones are refused). */
-export interface Character2D extends AddedCharacter2D {
-  parentId: string | null;
-  rotation: [number, number, number, number];
-  scale: [number, number, number];
-}
-
-/**
- * A player controller's 2D-plane character for the port — its centre, its
- * capsule, skin, ground snap and autostep (else the defaults) and the
- * project's slope angles. The one builder for a world's players at creation
- * and a player added while it runs.
- */
-export function character2DOf(entity: { id: string; parentId?: string | null; components?: unknown }, settings: CharacterSettings): Character2D {
-  const c = (entity.components ?? {}) as Record<string, unknown>;
-  const transform = c['transform'] as { position?: number[]; rotation?: number[]; scale?: number[] } | undefined;
-  const position = transform?.position ?? [0, 0, 0];
-  const capsule = playerCapsuleOf(c['controller']);
-  const tuning = playerPhysicsOf(c['controller']);
-  return {
-    id: entity.id,
-    x: position[0] ?? 0,
-    y: position[1] ?? 0,
-    radius: capsule.radius,
-    halfHeight: capsule.halfHeight,
-    offset: { x: capsule.offset.x, y: capsule.offset.y },
-    parentId: entity.parentId ?? null,
-    rotation: (transform?.rotation ?? [0, 0, 0, 1]) as [number, number, number, number],
-    scale: (transform?.scale ?? [1, 1, 1]) as [number, number, number],
-    controller: {
-      offsetSkin: tuning.offsetSkin,
-      groundSnap: tuning.groundSnap,
-      maxSlopeClimbRad: (settings.max_slope_climb_deg * Math.PI) / 180,
-      minSlopeSlideRad: (settings.min_slope_slide_deg * Math.PI) / 180,
-      autostep: tuning.autostep,
-      ...(tuning.autostep ? { autostepHeight: tuning.autostepHeight } : {}),
-    },
-  };
-}
-
-/** What a 2D-plane port is created from (the physics-rapier init config's shape). */
-export interface PhysicsInitConfig2D {
-  character: Omit<Character2D, 'id' | 'controller'>;
-  characters?: readonly Character2D[];
-  statics: StaticColliderSpec[];
-  solver: { hz: number; gravityY: number };
-  controller: CharacterControllerTuning;
-  noCharacter?: true;
-}
-
-/**
- * The 2D-plane init config of a scene's (resolved) entities — its static
- * colliders (each where it is in the world, turned about Z with it; movers
- * kinematic; one-way platforms) and the player controllers (the first as the
- * port's character, the others as its further characters), with the
- * project's step rate and gravity. Null without a player, unless
- * `options.required`: the project's modules name the 2D backend (a scene
- * loaded later, a prefab or a script brings a player), and the world then
- * starts without a character.
- */
-export function physics2DConfigOf(
-  entities: readonly EntityV3[],
-  settings: CharacterSettings & { gravity_y: number; fixed_step_hz?: number },
-  options: { modelColliders?: ModelColliderTable; required?: boolean } = {},
-): PhysicsInitConfig2D | null {
-  const statics = colliderSpecs2D(entities, options.modelColliders !== undefined ? { modelColliders: options.modelColliders } : undefined);
-  const players = entities.filter((e) => (e.components as unknown as Record<string, unknown>)['controller'] !== undefined).map((e) => character2DOf(e, settings));
-  const first = players[0];
-  if (first === undefined && options.required !== true) return null;
-  const placeholder = first ?? character2DOf({ id: '', components: { transform: { position: [0, 0, 0] } } }, settings);
-  const { x, y, radius, halfHeight, offset, parentId, rotation, scale, controller } = placeholder;
-  return {
-    character: { x, y, radius, halfHeight, offset, parentId, rotation, scale },
-    ...(players.length > 1 ? { characters: players.slice(1) } : {}),
-    statics,
-    solver: { hz: fixedStepHzOf(settings), gravityY: settings.gravity_y },
-    controller,
-    ...(first === undefined ? { noCharacter: true as const } : {}),
-  };
-}
-
 /**
  * The parts of a 3D character's settings the physics port and the
  * runtime's result check use (skin, ground snap, step-up height, slope limit).
@@ -240,7 +147,7 @@ export function physics2DConfigOf(
 export function character3DPhysicsOf(controller: unknown, maxSlopeClimbDeg: number): { skin: number; groundSnap: number; stepHeight: number; slopeLimit: number; stepRide: boolean } {
   // run speed, jump and gravity do not reach the port (placeholders for the resolver's other fields).
   const s = character3DSettingsOf(controller, { run_speed: 0, jump_velocity: 0, gravity_y: 0, max_fall_speed: 0, max_slope_climb_deg: maxSlopeClimbDeg });
-  // The arcade profile climbs steps by the 2D controller's rule (`autostepRide`).
+  // The arcade profile rides up over a step's edge (`autostepRide`).
   return { skin: s.skin, groundSnap: s.groundSnap, stepHeight: s.stepHeight, slopeLimit: s.slopeLimit, stepRide: s.profile === 'arcade' };
 }
 

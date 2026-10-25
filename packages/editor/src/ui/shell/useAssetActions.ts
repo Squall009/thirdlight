@@ -44,7 +44,7 @@ export function useAssetActions(deps: AssetActionsDeps) {
   /**
    * Drop a model (or one piece) from the asset tiles: one createEntity — a
    * piece, a whole single-piece file, or a folder holding every piece of a
-   * multi-piece file laid out in a row. `_COL` nodes become 2D colliders.
+   * multi-piece file laid out in a row. `_COL` nodes become colliders.
    */
   const dropAsset = useCallback(
     async (payload: AssetDragPayload, position: [number, number, number], parentId: string | null) => {

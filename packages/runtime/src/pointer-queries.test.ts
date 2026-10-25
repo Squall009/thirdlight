@@ -156,7 +156,6 @@ function recordingPort(): PhysicsPort3D & { rays: { origin: PhysicsVec3; dir: Ph
   const layerOf: Record<string, string> = { 'box-a': 'default', 'box-b': 'units', 'box-c': 'units' };
   const passes = (id: string, f?: PhysicsQueryFilter3D): boolean => (f?.layers === undefined || f.layers.includes(layerOf[id]!)) && (f?.accept === undefined || f.accept(id));
   return {
-    dimension: 3,
     rays,
     overlaps,
     stageCharacterMove() {},

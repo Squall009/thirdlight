@@ -20,7 +20,6 @@ function world(entities: Ent[]) {
   const warnings: string[] = [];
   let owned: string[] = [];
   const port = {
-    dimension: 3,
     addStaticColliders: (specs: readonly StaticColliderSpec3D[]) => void added.push(...specs),
     removeStaticColliders: (ids: readonly string[]) => void removed.push(...ids),
     setKinematicPoses: () => undefined,

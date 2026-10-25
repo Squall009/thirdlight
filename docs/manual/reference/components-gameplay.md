@@ -73,7 +73,7 @@ Sends a signal when the player enters an area (a box or a circle; in a 3D projec
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `shape` | enum: `box`, `circle`, `sphere`, `capsule` | `"box"` |  | **Shape.** Box or circle (2D plane); box, sphere or capsule (3D project). (scripts read) |
+| `shape` | enum: `box`, `circle`, `sphere`, `capsule` | `"box"` |  | **Shape.** A box, a circle (the sphere of its radius), a sphere or a capsule. (scripts read) |
 | `size` | vec3 [w, h, d] (last may be left out) | `[2,2]` | 0.05 – 500, step 0.1, m | **Size.** Width, height and depth of the box (absent depth: the width). (required; applies when `shape` is `box`; Scene handle: box2; scripts read) |
 | `radius` | number | `1` | 0.025 – 250, step 0.05, m | **Radius.** Radius of the circle or sphere. (required; applies when `shape` is `circle` or `sphere`; Scene handle: radius; scripts read) |
 | `radius` | number | `0.5` | 0.025 – 250, step 0.05, m | **Radius.** Radius of the capsule. (required; applies when `shape` is `capsule`; Scene handle: capsule; scripts read) |
@@ -197,7 +197,7 @@ Walks by itself: along waypoints, or straight ahead turning around at walls and 
 | `loop` | bool | `false` |  | **Loop.** From the last point straight back to the start (off: back and forth). (applies when `mode` is `waypoints`; scripts read) |
 | `speed` | number | `1.5` | 0 – 50, step 0.1, m/s | **Speed.** Walking speed. (required; scripts read) |
 | `wait` | number | `0` | 0 – 60, step 0.1, s | **Wait.** Pause at each waypoint, or after turning around. (scripts read) |
-| `direction` | vec3 [x, y, z] | `[1,0,0]` | -1 – 1, step 0.1, not 0 | **Start direction.** The way it starts walking (the 2D plane: any direction in the plane — with a y part it moves up or down and does not look for ledges; a 3D project: the direction along the ground). (applies when `mode` is `edges`; Scene handle: direction; scripts read) |
+| `direction` | vec3 [x, y, z] | `[1,0,0]` | -1 – 1, step 0.1, not 0 | **Start direction.** The way it starts walking along the ground (with a y part it moves up or down and does not look for ledges). (applies when `mode` is `edges`; Scene handle: direction; scripts read) |
 | `size` | vec3 [w, h, d] (last may be left out) | `[1,1,1]` | 0.05 – 500, step 0.05, m | **Body.** Its body, centred on its position: width, height (and depth in 3D); the probes look from its front and underside. (applies when `mode` is `edges`; Scene handle: box2; scripts read) |
 | `wallProbe` | number | `0.05` | 0 – 5, step 0.01, m | **Wall probe.** How far past its front it looks for a wall to turn at. (applies when `mode` is `edges`; scripts read) |
 | `ledgeProbe` | number | `0.4` | 0.1 – 20, step 0.05, m | **Ledge probe.** How far down, from 0.1 m above its underside, it looks for floor just past its front (0.4: a drop deeper than 0.3 m is a ledge). (applies when `mode` is `edges`; scripts read) |
@@ -229,7 +229,7 @@ An area whose contacts with other hitboxes and the character are events for scri
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `shape` | enum: `box`, `sphere` | `"box"` |  | **Shape.** A box, or a sphere (a circle on the 2D plane). (scripts read) |
+| `shape` | enum: `box`, `sphere` | `"box"` |  | **Shape.** A box or a sphere. (scripts read) |
 | `size` | vec3 [w, h, d] (last may be left out) | `[1,1]` | 0.05 – 500, step 0.05, m | **Size.** Width, height (and depth in a 3D project; absent: the width). (required; applies when `shape` is `box`; Scene handle: box2; scripts read) |
 | `radius` | number | `0.5` | 0.025 – 250, step 0.05, m | **Radius.** Radius of the sphere (or circle). (required; applies when `shape` is `sphere`; Scene handle: radius; scripts read) |
 | `damage` | int | `0` | 0 – 1000, step 1 | **Damage.** Health a new contact takes from the other object (its own health, or its nearest parent's; 0: none). (scripts read) |

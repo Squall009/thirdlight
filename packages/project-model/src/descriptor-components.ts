@@ -48,7 +48,7 @@ import { asset, bool, color, enm, entity, ID, int, json, lightLayerMask, list, m
 const POSITION_LIMIT = MAX_LEN;
 const V3_LIMIT = MAX_ABS_V3;
 
-const PHYSICS_RULES = ['A physics body (collider or controller) is at unit scale [1, 1, 1] on a 2D plane and rotated about Z only there (any axis and scale in a 3D one); the player controller and a mover are root objects and the controller stands upright; a collider on a child follows its parent.'];
+const PHYSICS_RULES = ['A collider takes any rotation and the scale its shape can (a sphere, capsule or cylinder a uniform one); the player controller stays at unit scale and upright; the player controller and a mover are root objects; a collider on a child follows its parent.'];
 const MARKER_RULES = ['A zone or player spawn is a root object at unit scale with no rotation.'];
 
 export const transform: ComponentDescriptor = {
@@ -207,8 +207,8 @@ function colliderPrimitiveFields(): FieldDescriptor[] {
       readOnly: true,
     }),
     // Where the shape sits in the object's frame (absent: centred, unrotated).
-    vec3('center', 'Center', 'The shape\'s centre from the object origin (metres; a 2D plane reads x and y).', { when: when('type', ...primitives), min: -MAX_COLLIDER_EXTENT, max: MAX_COLLIDER_EXTENT, step: 0.05, unit: 'm' }),
-    { type: 'quat', key: 'rotation', label: 'Rotation', tooltip: 'The shape\'s rotation in the object\'s frame (a unit quaternion; about Z only on a 2D plane; the Inspector shows degrees).', when: when('type', ...primitives) },
+    vec3('center', 'Center', 'The shape\'s centre from the object origin (metres).', { when: when('type', ...primitives), min: -MAX_COLLIDER_EXTENT, max: MAX_COLLIDER_EXTENT, step: 0.05, unit: 'm' }),
+    { type: 'quat', key: 'rotation', label: 'Rotation', tooltip: 'The shape\'s rotation in the object\'s frame (a unit quaternion; the Inspector shows degrees).', when: when('type', ...primitives) },
   ];
 }
 
@@ -287,7 +287,7 @@ export const controller: ComponentDescriptor = {
     obj('capsule', 'Capsule', `The collision capsule every system uses: physics, spawns, triggers, collectibles and hitboxes (absent: ${DEFAULT_CONTROLLER_CAPSULE.radius} m radius, ${DEFAULT_CONTROLLER_CAPSULE.height} m tall — an adult human).`, [
       num('radius', 'Radius', 'Half the capsule width.', { required: true, min: CAPSULE_LIMITS.minRadius, max: CAPSULE_LIMITS.maxRadius, step: 0.01, unit: 'm', default: DEFAULT_CONTROLLER_CAPSULE.radius, handle: 'capsule' }),
       num('height', 'Height', 'Total height, both end caps included (at least twice the radius).', { required: true, min: CAPSULE_LIMITS.minHeight, max: CAPSULE_LIMITS.maxHeight, step: 0.01, unit: 'm', default: DEFAULT_CONTROLLER_CAPSULE.height, handle: 'capsule' }),
-      // [x, y] or [x, y, z] — z places the capsule in depth in a 3D project (a 2D plane ignores it).
+      // [x, y] or [x, y, z] — z places the capsule in depth.
       vec3('offset', 'Offset', 'The capsule centre from the object origin (z: in a 3D project).', { min: -CAPSULE_LIMITS.maxOffset, max: CAPSULE_LIMITS.maxOffset, step: 0.01, unit: 'm', default: [...DEFAULT_CONTROLLER_CAPSULE.offset], handle: 'capsule', optionalLast: true }),
     ], { group: 'Collision', rules: ['height ≥ 2 × radius'] }),
     // The movement tuning (absent: the engine defaults, the values every project played with before).
@@ -298,7 +298,7 @@ export const controller: ComponentDescriptor = {
     num('jumpRelease', 'Jump release', 'Share of the upward speed kept when jump is released early (1: a fixed jump height).', { group: 'Jump', ...TL.jumpRelease, step: 0.05, unit: '×', default: CT.jumpRelease }),
     num('groundSnap', 'Ground snap', 'Pulls the character down onto ground this close below it (walking down slopes and bumps).', { group: 'Collision', ...TL.groundSnap, step: 0.01, unit: 'm', default: CT.groundSnap }),
     num('skin', 'Skin', 'The small gap the character keeps from walls and floors.', { group: 'Collision', ...TL.skin, step: 0.001, unit: 'm', default: CT.skin }),
-    // Autostep (the 2D plane's, and a 3D controller's arcade profile); the character profile steps up with `stepHeight` instead.
+    // Autostep (the arcade profile's); the character profile steps up with `stepHeight` instead.
     bool('autostep', 'Autostep', 'Climb low steps without jumping (arcade profile; a character uses its step-up height).', { group: 'Collision', default: CT.autostep }),
     num('autostepHeight', 'Step height', 'The highest step it climbs.', { group: 'Collision', when: when('autostep', true), ...TL.autostepHeight, step: 0.01, unit: 'm', default: CT.autostepHeight }),
     // The character profile's movement (the arcade profile reads the acceleration and jump fields above instead).
@@ -915,8 +915,8 @@ export const trigger: ComponentDescriptor = {
   tooltip: 'Sends a signal when the player enters an area (a box or a circle; in a 3D project a box with a depth, a sphere or a capsule).',
   category: 'Gameplay',
   value: obj('trigger', 'Trigger', 'An area that emits signals.', [
-    enm('shape', 'Shape', 'Box or circle (2D plane); box, sphere or capsule (3D project).', TRIGGER_SHAPES, { default: 'box' }),
-    // The depth (d) is the third component, needed in a 3D project (a 2D plane ignores it).
+    enm('shape', 'Shape', 'A box, a circle (the sphere of its radius), a sphere or a capsule.', TRIGGER_SHAPES, { default: 'box' }),
+    // The depth (d) is the third component (absent: as deep as it is wide).
     vec3('size', 'Size', 'Width, height and depth of the box (absent depth: the width).', { required: true, when: when('shape', 'box'), min: 0.05, max: 500, step: 0.1, unit: 'm', default: [2, 2], labels: ['w', 'h', 'd'], handle: 'box2', optionalLast: true }),
     num('radius', 'Radius', 'Radius of the circle or sphere.', { required: true, when: when('shape', 'circle', 'sphere'), min: TRIGGER_RADIUS.min, max: TRIGGER_RADIUS.max, step: 0.05, unit: 'm', default: 1, handle: 'radius' }),
     num('radius', 'Radius', 'Radius of the capsule.', { required: true, when: when('shape', 'capsule'), min: TRIGGER_RADIUS.min, max: TRIGGER_RADIUS.max, step: 0.05, unit: 'm', default: 0.5, handle: 'capsule' }),
@@ -1016,7 +1016,7 @@ export const collectible: ComponentDescriptor = {
   value: obj('collectible', 'Collectible', 'Adds to a counter when touched.', [
     str('counter', 'Counter', 'The counter it adds to (any name: a letter or _, then letters, digits or _).', { required: true, format: 'counter', minLength: 1, maxLength: 32, default: 'items' }),
     num('amount', 'Amount', 'Added to the counter when collected (negative takes away).', { ...PL.amount, step: 1, default: PD.collectibleAmount }),
-    // Its depth (d) counts in a 3D project (absent: the width); a 2D plane ignores it.
+    // Its depth (d): absent, the width.
     vec3('size', 'Size', 'The area that collects it: width, height (and depth in a 3D project; absent: the width).', { min: PL.size.min, max: PL.size.max, step: 0.05, unit: 'm', default: [...PD.collectibleSize], labels: ['w', 'h', 'd'], handle: 'box2', optionalLast: true }),
     signal('onCollect', 'On collect', 'A signal sent when it is collected (absent: none).'),
     num('respawn', 'Comes back after', 'Seconds until it comes back after being collected (0: never).', { ...PL.respawn, step: 0.5, unit: 's', default: 0 }),
@@ -1042,7 +1042,7 @@ export const patrol: ComponentDescriptor = {
     bool('loop', 'Loop', 'From the last point straight back to the start (off: back and forth).', { when: when('mode', 'waypoints'), default: false }),
     num('speed', 'Speed', 'Walking speed.', { required: true, ...PL.speed, step: 0.1, unit: 'm/s', default: 1.5 }),
     num('wait', 'Wait', 'Pause at each waypoint, or after turning around.', { ...PL.wait, step: 0.1, unit: 's', default: 0 }),
-    vec3('direction', 'Start direction', 'The way it starts walking (the 2D plane: any direction in the plane — with a y part it moves up or down and does not look for ledges; a 3D project: the direction along the ground).', { when: when('mode', 'edges'), min: -1, max: 1, step: 0.1, default: [...PD.patrolDirection], nonZero: true, handle: 'direction' }),
+    vec3('direction', 'Start direction', 'The way it starts walking along the ground (with a y part it moves up or down and does not look for ledges).', { when: when('mode', 'edges'), min: -1, max: 1, step: 0.1, default: [...PD.patrolDirection], nonZero: true, handle: 'direction' }),
     vec3('size', 'Body', 'Its body, centred on its position: width, height (and depth in 3D); the probes look from its front and underside.', { when: when('mode', 'edges'), min: PL.size.min, max: PL.size.max, step: 0.05, unit: 'm', default: [...PD.patrolSize], labels: ['w', 'h', 'd'], handle: 'box2', optionalLast: true }),
     num('wallProbe', 'Wall probe', 'How far past its front it looks for a wall to turn at.', { group: 'Probes', when: when('mode', 'edges'), ...PL.wallProbe, step: 0.01, unit: 'm', default: PD.wallProbe }),
     num('ledgeProbe', 'Ledge probe', 'How far down, from 0.1 m above its underside, it looks for floor just past its front (0.4: a drop deeper than 0.3 m is a ledge).', { group: 'Probes', when: when('mode', 'edges'), ...PL.ledgeProbe, step: 0.05, unit: 'm', default: PD.ledgeProbe }),
@@ -1077,7 +1077,7 @@ export const climbVolume: ComponentDescriptor = {
   tooltip: 'A box the character climbs in (a ladder, a vine, a net, a climbing wall): up/down moves it along the box\'s up axis, sideways across it, at its climb speed and without gravity; jump or moving out leaves.',
   category: 'Gameplay',
   value: obj('climbVolume', 'Climb volume', 'Climbed in.', [
-    // Its depth (d) counts in a 3D project (absent: the width); a 2D plane ignores it. It turns with the object (its +Y is "up").
+    // Its depth (d): absent, the width. It turns with the object (its +Y is "up").
     vec3('size', 'Size', 'Width, height (and depth in a 3D project; absent: the width), centred on the object and turned with it.', { required: true, min: PL.size.min, max: PL.size.max, step: 0.05, unit: 'm', default: [1, 4], labels: ['w', 'h', 'd'], handle: 'box2', optionalLast: true }),
   ]),
   // 1 m wide and 4 m tall: a ladder up one storey (about 3 m) and a little over the top, for the default 1.8 m character.
@@ -1117,7 +1117,7 @@ export const hitbox: ComponentDescriptor = {
   tooltip: 'An area whose contacts with other hitboxes and the character are events for scripts (the other object and the contact normal); may take health on contact.',
   category: 'Gameplay',
   value: obj('hitbox', 'Hitbox', 'Contact events.', [
-    enm('shape', 'Shape', 'A box, or a sphere (a circle on the 2D plane).', HITBOX_SHAPES, { default: 'box' }),
+    enm('shape', 'Shape', 'A box or a sphere.', HITBOX_SHAPES, { default: 'box' }),
     vec3('size', 'Size', 'Width, height (and depth in a 3D project; absent: the width).', { required: true, when: when('shape', 'box'), min: PL.size.min, max: PL.size.max, step: 0.05, unit: 'm', default: [1, 1], labels: ['w', 'h', 'd'], handle: 'box2', optionalLast: true }),
     num('radius', 'Radius', 'Radius of the sphere (or circle).', { required: true, when: when('shape', 'sphere'), ...PL.radius, step: 0.05, unit: 'm', default: 0.5, handle: 'radius' }),
     int('damage', 'Damage', 'Health a new contact takes from the other object (its own health, or its nearest parent\'s; 0: none).', { ...PL.damage, default: 0 }),

@@ -14,7 +14,7 @@ import { PhysicsPortFailure } from './player-controllers';
 import { messageOf } from './behavior-errors';
 import { colliderEntityOf, PHYSICS_QUERY_LIMIT, PLANE_QUERY_HALF_DEPTH, queryDistance, queryPositive, queryQuat, queryVec2, queryVec3 } from './physics-query-args';
 import { planeCoords, planePoint, planeVector } from '@thirdlight/project-model';
-import type { CharacterMoveResult, CharacterState3D, OverlapShape3D, PhysicsHit, PhysicsPlane, PhysicsPort, PhysicsPort3D, PhysicsQuat, PhysicsQueryFilter3D, PhysicsStepClient, RaycastHit, Vec2 } from './ports';
+import type { CharacterMoveResult3D, CharacterState3D, OverlapShape3D, PhysicsHit, PhysicsPlane, PhysicsPort3D, PhysicsQuat, PhysicsQueryFilter3D, PhysicsStepClient, RaycastHit, Vec2 } from './ports';
 import type { PointerSample } from './actions';
 import type { RuntimeViews } from './views';
 import type { RuntimeGrid } from './grid';
@@ -23,7 +23,6 @@ import type { BodySuspension } from './body-suspension';
 
 /** What the queries read of the runtime (read at each call: the runtime makes its parts after this). */
 export interface PhysicsQueryHost {
-  readonly physics: PhysicsPort | undefined;
   readonly physics3d: PhysicsPort3D | undefined;
   readonly controllers: PlayerControllers;
   readonly views: RuntimeViews;
@@ -66,9 +65,9 @@ export function physicsOfCaller(client: PhysicsStepClient, entityId: string): Ph
 }
 
 export class PhysicsQueries {
-  /** Queries this step (rays and overlaps, 2D and 3D). */
+  /** Queries this step (rays and overlaps, on a plane or in 3D). */
   private used = 0;
-  /** The 3D budget ran out once (warned in the play log). */
+  /** The budget ran out once (warned in the play log). */
   private warned = false;
 
   constructor(private readonly h: PhysicsQueryHost) {
@@ -82,8 +81,8 @@ export class PhysicsQueries {
 
   readonly client: PhysicsStepClient = {
     stageCharacterMove: (entityId: string, delta: Vec2): void => this.h.controllers.stage(entityId, delta),
-    // In 3D the 3D result (its vectors carry z too); a call naming no controller means the first.
-    characterResult: (entityId?: string): CharacterMoveResult | undefined => {
+    // A call naming no controller means the first.
+    characterResult: (entityId?: string): CharacterMoveResult3D | undefined => {
       const id = this.h.controllers.resolve(entityId);
       return id !== undefined ? this.h.controllers.result(id) : undefined;
     },
@@ -151,12 +150,6 @@ export class PhysicsQueries {
   /** A ray: [x, y, z] arrays are a 3D ray; {x, y} a ray on the caller's plane. */
   private raycast(caller: string | undefined, origin: unknown, direction: unknown, maxDistance: unknown, filter: unknown): RaycastHit | PhysicsHit | null {
     if (Array.isArray(origin)) return this.castRay3D(queryVec3(origin, 'raycast origin'), queryVec3(direction, 'raycast direction'), queryDistance(maxDistance, 100, 'raycast'), filter);
-    if (this.h.physics3d === undefined) {
-      // The 2D port (a 2D project): its own plane, unfiltered.
-      if (this.used >= PHYSICS_QUERY_LIMIT || this.h.physics?.raycast === undefined) return null;
-      this.used += 1;
-      return portCall('raycast', () => this.h.physics!.raycast!(origin as Vec2, direction as Vec2, Number(maxDistance)));
-    }
     const plane = this.planeFor(caller);
     const o = queryVec2(origin, 'raycast origin');
     const d = queryVec2(direction, 'raycast direction');
@@ -173,13 +166,6 @@ export class PhysicsQueries {
       const h = queryVec3(half, 'overlapBox half');
       return this.overlap3D({ type: 'box', hx: queryPositive(h[0], 'overlapBox half x'), hy: queryPositive(h[1], 'overlapBox half y'), hz: queryPositive(h[2], 'overlapBox half z') }, queryVec3(center, 'overlapBox center'), queryQuat(a3, 'overlapBox rotation'), a4);
     }
-    if (this.h.physics3d === undefined) {
-      if (this.used >= PHYSICS_QUERY_LIMIT || this.h.physics?.overlap === undefined || half === null || typeof half !== 'object') return [];
-      this.used += 1;
-      const c = center as Vec2 | undefined;
-      const hh = half as Vec2;
-      return portCall('overlap', () => this.h.physics!.overlap!({ type: 'box', hx: Number(hh.x), hy: Number(hh.y) }, { x: Number(c?.x), y: Number(c?.y) }));
-    }
     const plane = this.planeFor(caller);
     const c = queryVec2(center, 'overlapBox center');
     const h = queryVec2(half, 'overlapBox half');
@@ -192,19 +178,13 @@ export class PhysicsQueries {
 
   /** A circle on the caller's plane (a disc: a thin cylinder along the plane's normal). */
   private overlapCircle(caller: string | undefined, center: unknown, radius: unknown, filter: unknown): string[] {
-    if (this.h.physics3d === undefined) {
-      if (this.used >= PHYSICS_QUERY_LIMIT || this.h.physics?.overlap === undefined) return [];
-      this.used += 1;
-      const c = center as Vec2 | undefined;
-      return portCall('overlap', () => this.h.physics!.overlap!({ type: 'circle', radius: Number(radius) }, { x: Number(c?.x), y: Number(c?.y) }));
-    }
     const plane = this.planeFor(caller);
     const c = queryVec2(center, 'overlapCircle center');
     const r = queryPositive(radius, 'overlapCircle radius');
     return this.overlap3D({ type: 'cylinder', radius: r, halfHeight: PLANE_QUERY_HALF_DEPTH }, planePoint(plane, c.x, c.y), plane.axis === 'z' ? CYLINDER_ALONG_Z : CYLINDER_ALONG_X, filter);
   }
 
-  /** One query from the step's 3D budget (null past it — warned once — or without a 3D port). */
+  /** One query from the step's budget (null past it — warned once — or without a port). */
   private takeQuery3D(): PhysicsPort3D | null {
     const port = this.h.physics3d;
     if (port === undefined) return null;

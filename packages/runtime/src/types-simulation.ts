@@ -7,7 +7,7 @@ import type { EntityV3, Quat, Vec3 } from '@thirdlight/project-model';
 import type { ActionFrame, ActionSource } from './actions';
 import type { BehaviorIntent, BehaviorLogLevel, IntentSet } from './intents';
 import type { ErrorCode } from './errors';
-import type { CharacterClearanceResult3D, PhysicsPort, PhysicsPort3D, PhysicsStepClient, PhysicsVec3, RaycastHit3D, Vec2 } from './ports';
+import type { CharacterClearanceResult3D, PhysicsPort3D, PhysicsStepClient, PhysicsVec3, RaycastHit3D, Vec2 } from './ports';
 import { type BehaviorSceneControl, type GameplaySettings, type RuntimeSnapshot } from './types-scene';
 import { type AnimatorEventRecord, type BehaviorAnimatorControl, type BehaviorCamera, type BehaviorCharacter, type BehaviorCollectible, type BehaviorDialogue, type BehaviorEnvironment, type BehaviorGameState, type BehaviorHealth, type BehaviorHitbox, type BehaviorLifecycle, type BehaviorLook, type BehaviorModes, type BehaviorPatrol, type BehaviorSignals, type BehaviorSockets, type BehaviorTagQuery, type BehaviorTimeline, type BehaviorUi, type BehaviorStats, type BehaviorDisplay } from './types-behavior-world';
 import { type BehaviorAudio, type BehaviorDecals, type BehaviorEffects, type BehaviorMessageControl, type BehaviorSave, type BehaviorSpawnControl, type DebugCommandArgs, type DebugCommandOptions, type PrimitiveEventRecord, type TriggerEventRecord } from './types-behavior';
@@ -20,12 +20,8 @@ export interface InstantiateConfig {
   modules?: readonly string[];
   /** The injected per-step input port. Default: neutral frames. */
   actions?: ActionSource;
-  /**
-   * An already-initialized physics port. Required by
-   * port-requiring sets. Or a 3D port (`PhysicsPort3D`, a project
-   * whose `physics_dimension` is 3).
-   */
-  physics?: PhysicsPort | PhysicsPort3D;
+  /** An already-initialized physics port. Required by port-requiring sets. */
+  physics?: PhysicsPort3D;
   /** Gameplay settings input, resolved + deep-frozen at instantiate. Default: registry defaults. */
   settings?: unknown;
   /** Monotonic seconds. Default `performance.now() / 1000`. */
@@ -110,8 +106,6 @@ export interface ModuleConfig {
   scriptStopped?: (stop: ScriptStop) => void;
   /** The runtime's live tag index (follows scene loads/unloads). */
   tags?: BehaviorTagQuery;
-  /** 3 in a 3D project (absent: the 2D plane) — scripts may drive colliders no mover moves there. */
-  physicsDimension?: 3;
   /**
    * Read-only queries of the 3D world for the
    * character controller module (a ray; the clearance of the character's

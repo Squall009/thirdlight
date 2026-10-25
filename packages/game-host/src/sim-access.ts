@@ -6,16 +6,17 @@
  * from the page's runtime right away; in worker mode they are asked of the
  * worker (sim-remote.ts) and arrive with its next message.
  */
-import type { ActionFrame, Runtime } from '@thirdlight/runtime';
+import type { ActionFrame, OverlapShape3D, PhysicsPort3D, PhysicsVec3, Runtime } from '@thirdlight/runtime';
 import { PlayDebugger, type DebugRequest } from './play-debug';
 import type { RelayActionSource, RelayEffect, RelayTestFrame } from './relay-input';
 import { hitUiTargets, type UiHitTarget } from './ui-hit';
 import { RunProbe, runNowOf, type RunDigests, type RunNow } from './run-probe';
 import type { ThreadingMode } from './threading';
 
+/** A ray in the world (a unit `dir`, metres). */
 export interface SimRay {
-  readonly origin: { x: number; y: number };
-  readonly dir: { x: number; y: number };
+  readonly origin: PhysicsVec3;
+  readonly dir: PhysicsVec3;
   readonly maxDistance: number;
 }
 
@@ -50,7 +51,8 @@ export interface SimAccess {
   relayIdle(): void;
   /** Rays against the scene's colliders (the character excluded), as the physics port answers them. */
   raycast(rays: readonly SimRay[]): Promise<({ distance: number } | null)[]>;
-  overlap(shape: unknown, at: { x: number; y: number }): Promise<string[]>;
+  /** The objects whose colliders overlap a shape at a point (the character excluded), as the physics port answers. */
+  overlap(shape: OverlapShape3D, at: PhysicsVec3): Promise<string[]>;
 }
 
 /** The page side of the input exercise (its UI). */
@@ -59,10 +61,7 @@ export interface RelayPage {
   effect(e: RelayEffect): void;
 }
 
-interface PhysicsQueries {
-  raycast?(origin: { x: number; y: number }, dir: { x: number; y: number }, maxDistance: number): { distance: number } | null;
-  overlap?(shape: unknown, center: { x: number; y: number }): string[];
-}
+type PhysicsQueries = Pick<PhysicsPort3D, 'raycast' | 'overlap'>;
 
 /** The single-thread surface over the page's own runtime. */
 export function createLocalSimAccess(opts: { runtime: Runtime; relay?: RelayActionSource; physics?: PhysicsQueries; stepHz: number }): SimAccess {

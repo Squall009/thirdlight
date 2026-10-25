@@ -22,7 +22,6 @@ const box = (entityId: string, z: number, layers?: string[]): StaticColliderSpec
 // Three boxes on the −Z axis (nearest first from a ray starting at z = 10 looking down −Z).
 const STATICS = [box('near-default', 4), box('mid-units', 0, ['units']), box('far-both', -4, ['units', 'props'])];
 const config = (extra: Partial<PhysicsInitConfig3D> = {}): PhysicsInitConfig3D => ({
-  dimension: 3,
   character: { position: { x: 20, y: 0, z: 0 }, radius: 0.3, halfHeight: 0.6, offset: { x: 0, y: 0, z: 0 } },
   statics: STATICS,
   solver: { hz: 120, gravityY: -19.62 },

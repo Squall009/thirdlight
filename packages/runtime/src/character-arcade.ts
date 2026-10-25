@@ -1,10 +1,10 @@
 /**
- * The arcade movement profile of the 3D character controller: the 2D plane
- * controller's rules on the 3D backend, free in 3D or locked to a plane.
+ * The arcade movement profile of the character controller: the rules of
+ * the side-view controller 2D projects had, free in 3D or locked to a plane.
  *
- * The rules are the 2D plane controller's, in its order, so a character
- * moved from a 2D project keeps its feel (its tuning fields mean what they
- * meant there):
+ * The rules are that controller's, in its order, so a character upgraded
+ * from a 2D project keeps its feel (its tuning fields mean what they meant
+ * there):
  * - one jump per press from the ground or inside the coyote window, a press
  *   buffered until it lands, and releasing jump while rising keeps
  *   `jumpRelease` of the upward speed and ends the rise (no second cut);
@@ -21,7 +21,7 @@
  *   input across it, without gravity, until it jumps off or leaves.
  * The horizontal rule works per world axis (+X, and −Z: right on an X
  * plane), so the same character on a Z plane and on an X plane moves alike.
- * Steps are climbed by the port's autostep (`autostep`) by the 2D rule
+ * Steps are climbed by the port's autostep (`autostep`) by the arcade rule
  * (`autostepRide`: it rides up over the edge, losing speed), and one-way
  * platforms, drop-through and what it stands on carrying it are the
  * runtime's and the port's, as for every controller.
@@ -134,7 +134,7 @@ export function createArcadeOne(found: { id: string; controller: unknown; rotati
    * profile does: without it a free character running on flat ground sank
    * 3.7 cm into the floor (measured). On a plane the port holds it on the
    * ground without one, and the press would pull it down a ledge's edge or a
-   * stair's riser earlier than the 2D rules do (measured: up to
+   * stair's riser earlier than the arcade rules do (measured: up to
    * 0.9 m apart on a stair), so there it stages none.
    */
   const stage = (ctx: StepContext, right: { x: number; z: number } | null, resting = false): void => {
@@ -265,7 +265,7 @@ export function createArcadeOne(found: { id: string; controller: unknown; rotati
     }
     // Lifted by what it touches (a rising mover under its edge), its fall was taken out of the last
     // move (the runtime cancels it): it rests on it as on the ground, so it leaves the mover from rest
-    // (as the 2D controller did, which the mover's push held grounded there).
+    // (the side-view controller's rule: the mover's push held it grounded there).
     const lifted = !groundedPrev && !airborne && p !== undefined && p.grounded && p.requested.y > 0 && vy <= 0;
     // Resting on the ground, or falling under gravity (no faster than the fall cap).
     if ((groundedPrev || lifted) && !airborne) vy = 0;

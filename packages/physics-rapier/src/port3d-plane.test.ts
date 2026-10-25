@@ -26,7 +26,6 @@ const box = (entityId: string, at: [number, number, number], half: [number, numb
   ...extra,
 });
 const config = (statics: StaticColliderSpec3D[], start: [number, number, number], plane?: PhysicsPlane): PhysicsInitConfig3D => ({
-  dimension: 3,
   character: { position: { x: start[0], y: start[1], z: start[2] }, radius: 0.3, halfHeight: 0.6, offset: { x: 0, y: 0, z: 0 }, ...(plane !== undefined ? { plane } : {}) },
   statics,
   solver: { hz: HZ, gravityY: G },

@@ -1,8 +1,36 @@
-# Graph: Visual script (part 7, from Set wind (`api.environment.setWind`))
+# Graph: Visual script (part 7, from Environment weight (`api.environment.weight`))
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Visual script node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="node-behavior--api-environment-weight"></a>
+### Environment weight (`api.environment.weight`)
+
+How much of a preset is in the look now (0–1; '' = the base look).
+
+Inputs:
+
+- `presetId` "preset" (string)
+
+Outputs:
+
+- `value` (number)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `presetId` | preset | string | `""` | ≤ 256 chars |
+
+<a id="node-behavior--api-environment-presets"></a>
+### Environment presets (`api.environment.presets`)
+
+The project's environment preset ids.
+
+Outputs:
+
+- `value` (list)
 
 <a id="node-behavior--api-environment-set-wind"></a>
 ### Set wind (`api.environment.setWind`)

@@ -5,13 +5,14 @@ import { describe, expect, it } from 'vitest';
 
 import { parseAssetDrag, planModelDrop, type PieceFacts } from './placement';
 
-const piece = (name: string, width: number, collider: [number, number][] | null = null, skinned = false): PieceFacts => ({
+const piece = (name: string, width: number, collider: PieceFacts['collider'] = null, skinned = false): PieceFacts => ({
   name,
   bounds: { min: [0, 0, -0.5], max: [width, 1, 0.5] },
   collider,
   skinned,
 });
-const BOX: [number, number][] = [[0, 0], [1, 0], [1, 1], [0, 1]];
+const OUTLINE: [number, number][] = [[0, 0], [1, 0], [1, 1], [0, 1]];
+const BOX = { shape: { type: 'polygon', vertices: OUTLINE } };
 
 describe('planModelDrop', () => {
   it('a multi-piece file becomes one folder with every piece in a row (0.5 m gaps) and _COL colliders', () => {
@@ -29,13 +30,13 @@ describe('planModelDrop', () => {
     const children = args['children'] as { name: string; model: { piece: string }; transform: { position: number[] }; components?: unknown }[];
     expect(children.map((c) => c.model.piece)).toEqual(['rock', 'bush', 'flower']);
     expect(children.map((c) => c.transform.position[0])).toEqual([10, 11.5, 14]);
-    expect(children[0]!.components).toEqual({ collider: { shape: { type: 'polygon', vertices: BOX } } });
+    expect(children[0]!.components).toEqual({ collider: { shape: { type: 'polygon', vertices: OUTLINE } } });
     expect(children[1]!.components).toBeUndefined();
   });
 
   it('one piece becomes one model entity; a whole single-piece file keeps its collider unless it is skinned', () => {
     const one = planModelDrop({ assetId: 'a', displayName: 'kit', piece: 'rock', pieces: [piece('rock', 1, BOX), piece('bush', 2)], wholeCollider: null, position: [1, 2, 0], parentId: null }).args;
-    expect(one).toEqual({ kind: 'model', name: 'rock', model: { asset: { assetId: 'a' }, piece: 'rock' }, transform: { position: [1, 2, 0] }, components: { collider: { shape: { type: 'polygon', vertices: BOX } } } });
+    expect(one).toEqual({ kind: 'model', name: 'rock', model: { asset: { assetId: 'a' }, piece: 'rock' }, transform: { position: [1, 2, 0] }, components: { collider: { shape: { type: 'polygon', vertices: OUTLINE } } } });
     const prop = planModelDrop({ assetId: 'a', displayName: 'crate', pieces: [piece('crate', 1)], wholeCollider: BOX, position: [0, 0, 0], parentId: null }).args;
     expect(prop['model']).toEqual({ asset: { assetId: 'a' } });
     expect(prop['components']).toBeDefined();

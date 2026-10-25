@@ -11,7 +11,7 @@ import type { EntityV3 } from '@thirdlight/project-model';
 
 import { blocksCharacterOf, type GameplayBlocks } from './blocks';
 import type { ControllerPlacements } from './character-placement';
-import type { PhysicsPort, PhysicsPort3D } from './ports';
+import type { PhysicsPort3D } from './ports';
 import type { PlayerControllers } from './player-controllers';
 import type { TransformState } from './types-simulation';
 
@@ -19,7 +19,6 @@ export interface ArrivingPlayersHost {
   readonly controllers: PlayerControllers;
   readonly placement: ControllerPlacements;
   readonly blocks: GameplayBlocks | null;
-  readonly threeD: boolean;
   /** An object's transform this step. */
   transform(id: string): TransformState | undefined;
 }
@@ -29,7 +28,7 @@ export interface ArrivingPlayersHost {
  * player needs a port that adds characters), or null. The load is refused
  * then, as a scene whose colliders the port cannot take.
  */
-export function arrivalProblem(entities: readonly EntityV3[], controllers: PlayerControllers, port: PhysicsPort | PhysicsPort3D | undefined): string | null {
+export function arrivalProblem(entities: readonly EntityV3[], controllers: PlayerControllers, port: PhysicsPort3D | undefined): string | null {
   const player = entities.find((e) => (e.components as { controller?: unknown }).controller !== undefined && !controllers.has(e.id));
   if (player === undefined || typeof port?.addCharacter === 'function') return null;
   return `entity "${player.id}" is a player controller and ${port === undefined ? 'the game has no physics port' : 'the physics port cannot add a character'}`;
@@ -46,7 +45,7 @@ export function playersArrive(entities: readonly EntityV3[], host: ArrivingPlaye
     if ((e.components as { controller?: unknown }).controller === undefined) continue;
     if (host.controllers.add(e)) {
       host.placement.add(e.id);
-      host.blocks?.addCharacter(blocksCharacterOf(e, host.threeD));
+      host.blocks?.addCharacter(blocksCharacterOf(e));
       continue;
     }
     const t = placeReturning ? host.transform(e.id) : undefined;

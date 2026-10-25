@@ -34,7 +34,6 @@ function fakePort(): PhysicsPort3D & { added: StaticColliderSpec3D[]; removed: s
   const added: StaticColliderSpec3D[] = [];
   const removed: string[] = [];
   return {
-    dimension: 3,
     added,
     removed,
     stageCharacterMove: () => undefined,
@@ -158,7 +157,7 @@ describe('runtime grid', () => {
     port.removed.length = 0;
     grid.flushCollision(port);
     expect([port.added.length, port.removed.length]).toEqual([0, 0]);
-    // a 2D plane draws layers only
+    // a grid made without collision draws layers only
     const flat = new RuntimeGrid(TYPES, FIELDS, false);
     flat.addLayers([layerEntity('ground', [0, 0, 0], floor)]);
     const p2 = fakePort();

@@ -167,7 +167,7 @@ export class RuntimeEntities {
   playersArrive(frozen: readonly EntityV3[], placeReturning: boolean): boolean {
     const host = this.host;
     try {
-      playersArrive(frozen, { controllers: host.controllers, placement: host.placement, blocks: host.blocks, threeD: this.sim.physics3d !== undefined, transform: (id) => this.sim.curr.get(id) }, placeReturning);
+      playersArrive(frozen, { controllers: host.controllers, placement: host.placement, blocks: host.blocks, transform: (id) => this.sim.curr.get(id) }, placeReturning);
     } catch (e) {
       this.faults.failStopFromError(e, this.sim.stepIndex);
       return false;
@@ -258,9 +258,9 @@ export class RuntimeEntities {
     // Unloaded block layers take their chunk colliders and their live blocks' objects along.
     const gridColliders = host.grid.removeLayers(ids);
     this.removeSpawnedIds(new Set(host.grid.takeGoneLive().filter((id) => this.spawned.has(id))));
-    if (gridColliders.length > 0 && typeof (sim.physics3d ?? sim.physics)?.removeStaticColliders === 'function') {
+    if (gridColliders.length > 0 && typeof sim.physics3d?.removeStaticColliders === 'function') {
       try {
-        (sim.physics3d ?? sim.physics)?.removeStaticColliders?.(gridColliders);
+        sim.physics3d.removeStaticColliders(gridColliders);
       } catch (e) {
         this.faults.record({ code: 'scene_load_failed', message: clipMessage(`removing the block colliders of ${what} failed: ${messageOf(e)}`), stepIndex: sim.stepIndex, reason: 'unload' });
       }
@@ -268,13 +268,6 @@ export class RuntimeEntities {
     if (colliderIds.length > 0 && typeof sim.physics3d?.removeStaticColliders === 'function') {
       try {
         sim.physics3d.removeStaticColliders(colliderIds);
-      } catch (e) {
-        this.faults.record({ code: 'scene_load_failed', message: clipMessage(`removing the colliders of ${what} failed: ${messageOf(e)}`), stepIndex: sim.stepIndex, reason: 'unload' });
-      }
-    }
-    if (colliderIds.length > 0 && typeof sim.physics?.removeStaticColliders === 'function') {
-      try {
-        sim.physics.removeStaticColliders(colliderIds);
       } catch (e) {
         this.faults.record({ code: 'scene_load_failed', message: clipMessage(`removing the colliders of ${what} failed: ${messageOf(e)}`), stepIndex: sim.stepIndex, reason: 'unload' });
       }
@@ -371,7 +364,7 @@ export class RuntimeEntities {
       return true;
     }
     // A spawned player (a prefab with a controller) needs a port that adds characters, as a loaded scene's does.
-    const players = arrivalProblem(entities, this.host.controllers, this.sim.physics3d ?? this.sim.physics);
+    const players = arrivalProblem(entities, this.host.controllers, this.sim.physics3d);
     if (players !== null) {
       this.faults.record({ code: 'spawn_refused', message: clipMessage(`spawn "${root.id}" was not added: ${players}`), stepIndex: this.sim.stepIndex });
       return true;

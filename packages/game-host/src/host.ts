@@ -54,7 +54,6 @@ import {
   type UiTheme,
   type SimulationModuleSpec,
   type GameplaySettings,
-  type PhysicsPort,
   type PhysicsPort3D,
   type RuntimeError,
   type Runtime,
@@ -349,7 +348,7 @@ export interface GameHostConfig {
   readonly onProblem?: (code: string, message: string) => void;
   /** The injected physics port (physics-rapier in the preview; a fake in
    * tests). Absent: a game without physics. */
-  readonly physics?: PhysicsPort | PhysicsPort3D;
+  readonly physics?: PhysicsPort3D;
   /** The project's compiled behaviors (see `linkBehaviorModules`), run with the scene. */
   readonly behaviorModules?: readonly SimulationModuleSpec[];
   /**
@@ -716,7 +715,7 @@ function selectModules(
 export interface GameRuntimeArgs {
   readonly snapshot: RuntimeSnapshot;
   readonly settings: GameplaySettings;
-  readonly physics?: PhysicsPort | PhysicsPort3D;
+  readonly physics?: PhysicsPort3D;
   readonly behaviorModules?: readonly SimulationModuleSpec[];
   readonly modules?: readonly string[];
   /** The injected simulation module specs (see `GameHostConfig.moduleSpecs`). */

@@ -5,7 +5,7 @@
  * rests on the tilted top, higher on the raised side; a ray hits the nearest
  * box with its normal; the config and shapes are validated before any WASM
  * work; results are identical over two runs; dispose frees the world. A
- * riser is stepped up at once, or ridden up over its edge by the 2D rule.
+ * riser is stepped up at once, or ridden up over its edge by the arcade rule.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -23,7 +23,6 @@ const box = (entityId: string, at: [number, number, number], half: [number, numb
   rotation,
 });
 const config = (statics: StaticColliderSpec3D[], start: [number, number, number] = [0, 3, 0]): PhysicsInitConfig3D => ({
-  dimension: 3,
   character: { position: { x: start[0], y: start[1], z: start[2] }, radius: 0.3, halfHeight: 0.6, offset: { x: 0, y: 0, z: 0 } },
   statics,
   solver: { hz: HZ, gravityY: G },
@@ -56,7 +55,6 @@ async function portOf(cfg: PhysicsInitConfig3D): Promise<PhysicsPort3D> {
 describe('the Rapier 3D port', () => {
   it('a capsule falls onto a box and rests on its top (feet at the top plus the skin)', async () => {
     const port = await portOf(config([box('floor', [0, -0.5, 0], [5, 0.5, 5])]));
-    expect(port.dimension).toBe(3);
     expect(port.implementation).toBe('rapier3d-compat@0.20.0');
     const { y, last } = fall(port, 240);
     expect(y[10]!).toBeLessThan(3); // it fell
@@ -203,8 +201,6 @@ describe('the Rapier 3D port', () => {
     expect(badRotation).toMatchObject({ ok: false, error: { reason: 'invalid_transform' } });
     const badRide = await createPhysicsPort3D({ ...config([]), controller: { ...config([]).controller, autostepRide: 'yes' as never } });
     expect(badRide).toMatchObject({ ok: false, error: { reason: 'invalid_config' } });
-    const twoD = await createPhysicsPort3D({ ...config([]), dimension: 2 } as never);
-    expect(twoD).toMatchObject({ ok: false, error: { reason: 'invalid_config' } });
     const ctl = new AbortController();
     ctl.abort();
     expect(await createPhysicsPort3D(config([]), ctl.signal)).toMatchObject({ ok: false, error: { code: 'physics_init_cancelled' } });
@@ -229,7 +225,7 @@ describe('stepping up a riser', () => {
     return out;
   }
 
-  it('the port\'s lift puts it on the riser in one step; the 2D rule (autostepRide) rides it up over the edge across several, losing speed', async () => {
+  it('the port\'s lift puts it on the riser in one step; the arcade rule (autostepRide) rides it up over the edge across several, losing speed', async () => {
     const top = 0.2 + 0.91;
     const steps = (w: { y: number }[]): number => w.findIndex((p) => p.y > top - 0.002) - w.findIndex((p) => p.y > 0.91 + 0.002);
     const lift = await walkUp(false);

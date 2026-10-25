@@ -543,8 +543,7 @@ export function composeSceneV4(s: SceneV4, content: ContentCatalogV4, errors: Mo
 
 /**
  * The content sections the per-scene rules read (asset kinds and records,
- * prefab definitions, behavior declarations, tags, the physics dimension in
- * the settings, collision layers, behavior groups, block types, cell fields
+ * prefab definitions, behavior declarations, tags, the settings, collision layers, behavior groups, block types, cell fields
  * and stamps; with block layers the materials): a scene is composed again
  * only when one of them changed.
  */

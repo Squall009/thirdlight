@@ -1,7 +1,8 @@
 /**
- * The 3D kinematic character controller — the simulation module
- * `thirdlight.character3d:controller` of a project whose `physics_dimension`
- * is 3 (the 2D plane keeps `@thirdlight/character` exactly as it was).
+ * The kinematic character controller — the simulation module
+ * `thirdlight.character3d:controller` every game with a player controller
+ * runs, free in 3D or locked to a plane (the arcade profile in
+ * `character-arcade.ts`).
  *
  * Pure fixed-step logic over the injected ports, like the character controller module:
  * in the `controller` phase it turns the step's move vector (its controller's
@@ -79,7 +80,6 @@ const NO_INTENTS: ControllerIntents = Object.freeze({ move: null, jump: null });
  * A player that arrives with a scene is added after them.
  */
 export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleConfig): SimulationPhaseModule & { character3DStatus(id?: string): Character3DStatus | null } {
-  if (cfg.physicsDimension !== 3) throw new Error(`${CHARACTER_3D_MODULE_ID} runs in a 3D project (physics_dimension 3)`);
   if (!(cfg.fixedStepHz > 0) || !Number.isFinite(cfg.fixedStepHz)) throw new Error(`${CHARACTER_3D_MODULE_ID} requires a positive fixedStepHz`);
   const all = findControllers(snapshot.scene.entities).map((found) => controllerOf(found, cfg));
   // A new list when a player arrives: the runtime checks the new owners.
@@ -468,7 +468,7 @@ function createOne(found: { id: string; controller: unknown; rotation: readonly 
 export const character3DSpec: SimulationModuleSpec = {
   id: CHARACTER_3D_MODULE_ID,
   phases: ['controller', 'transform'],
-  excludes: ['thirdlight.demo:box-motion', 'thirdlight.character:controller'],
+  excludes: ['thirdlight.demo:box-motion'],
   requiresPhysicsPort: true,
   create: createCharacter3DModule,
 };

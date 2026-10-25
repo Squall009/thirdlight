@@ -548,12 +548,11 @@ export interface BehaviorModes {
 /**
  * `ctx.lifecycle` — the engine's run lifecycle: respawn the
  * character at a player spawn and restart the run. Winning, losing and what a
- * death means are the game's own rules (scripts); this is only the mechanism. It
- * works on the 2D plane too (the character controller session that owned it is gone).
+ * death means are the game's own rules (scripts); this is only the mechanism.
  */
 export interface BehaviorLifecycle {
   /**
-   * Move a player character (a controller's object: `entityId`, absent: the first player controller) to a player spawn and stop it — the active spawn, or the one named (which becomes the active one). In 3D applied after this step's intent phase (a later phase: the next step); on the 2D plane at the next step boundary. `false` without that character or for an unknown spawn.
+   * Move a player character (a controller's object: `entityId`, absent: the first player controller) to a player spawn and stop it — the active spawn, or the one named (which becomes the active one). Applied after this step's intent phase (a later phase: the next step). `false` without that character or for an unknown spawn.
    * @graphNode Respawn player
    * @graphLabel spawnId spawn
    * @graphLabel entityId player
@@ -1065,20 +1064,19 @@ export interface Vec2 {
 }
 ```
 
-<a id="script-type-character-move-result"></a>
-## `CharacterMoveResult`
+<a id="script-type-character-move-result3-d"></a>
+## `CharacterMoveResult3D`
 
 ```ts
 /** The port's per-step character result. */
-export interface CharacterMoveResult {
-  requested: Vec2;
-  applied: Vec2;
-  position: Vec2;
+export interface CharacterMoveResult3D {
+  requested: PhysicsVec3;
+  applied: PhysicsVec3;
+  position: PhysicsVec3;
   grounded: boolean;
-  supportNormal: Vec2;
+  supportNormal: PhysicsVec3;
   contacts: { ground: boolean; wall: boolean; head: boolean; steepSlope: boolean };
   snapped: boolean;
-  /** The collider entity the character stands on (grounded), when the port knows it. */
   groundEntityId?: string | null;
   /** How far a moving (kinematic) body moved into the character this step; the correction may exceed the request by this much. */
   kinematicSlack?: number;
@@ -1115,7 +1113,7 @@ export interface PhysicsQueryFilter {
 ## `RaycastHit`
 
 ```ts
-/** A ray hit (`raycast`). */
+/** A ray hit on the caller's plane (`raycast` with {x, y}): the object, the distance and the surface normal in the plane. */
 export interface RaycastHit {
   entityId: string;
   distance: number;
@@ -1334,5 +1332,30 @@ export interface InputGlyph {
   readonly icon: string;
   readonly image?: string;
   readonly parts?: readonly InputGlyphPart[];
+}
+```
+
+<a id="script-type-input-rebind-event"></a>
+## `InputRebindEvent`
+
+```ts
+/**
+ * What became of a binding request: a rebind `started` (listening),
+ * `rebound`, `cancelled` (the cancel key), `timeout`, `refused` (it does not
+ * fit the action, or it conflicts under the refuse policy — `conflicts` says
+ * with what), `reset`, or the player `profile` changed.
+ */
+export interface InputRebindEvent {
+  readonly type: 'started' | 'rebound' | 'cancelled' | 'timeout' | 'refused' | 'reset' | 'profile';
+  readonly action?: string;
+  readonly index?: number;
+  readonly part?: InputBindingPart;
+  /** The new binding's label (rebound). */
+  readonly label?: string;
+  readonly reason?: string;
+  readonly conflicts?: readonly InputBindingConflict[];
+  /** The bindings of these actions moved to make room (swap policy). */
+  readonly swapped?: readonly string[];
+  readonly profile?: string;
 }
 ```

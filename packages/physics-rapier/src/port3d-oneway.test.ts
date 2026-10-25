@@ -31,7 +31,6 @@ const box = (entityId: string, at: [number, number, number], half: [number, numb
   ...extra,
 });
 const config = (statics: StaticColliderSpec3D[], start: [number, number, number], plane?: PhysicsPlane): PhysicsInitConfig3D => ({
-  dimension: 3,
   character: { position: { x: start[0], y: start[1], z: start[2] }, radius: 0.3, halfHeight: 0.6, offset: { x: 0, y: 0, z: 0 }, ...(plane !== undefined ? { plane } : {}) },
   statics,
   solver: { hz: HZ, gravityY: G },
@@ -118,7 +117,7 @@ describe('one-way colliders for a character on the 3D port', () => {
     port.dispose();
   });
 
-  it('spawn clearance: a one-way shelf never blocks a capsule and supports only one on its top (the 2D probe\'s rule)', async () => {
+  it('spawn clearance: a one-way shelf never blocks a capsule and supports only one on its top (the clearance probe\'s one-way rule)', async () => {
     const solid = await portOf(config([box('floor', [0, -0.5, 0], [20, 0.5, 20]), box('shelf', [0, 2, 0], [2, 0.1, 2])], [5, standOn(0), 0]));
     const port = await portOf(config(level(), [5, standOn(0), 0]));
     // A capsule cutting through the shelf (0.6 to 2.4 m against its 1.9 to 2.1): a solid shelf blocks it,
@@ -194,7 +193,7 @@ describe('one-way colliders in the contact pipeline (dynamic bodies)', () => {
 });
 
 describe('cylinders on the 3D port', () => {
-  it('stands along its local Y; turned a quarter about X it lies along Z (a 2D circle on a Z plane), and a character lands on its top', async () => {
+  it('stands along its local Y; turned a quarter about X it lies along Z (a flat circle on a Z plane), and a character lands on its top', async () => {
     const lying = { x: Math.SQRT1_2, y: 0, z: 0, w: Math.SQRT1_2 };
     const port = await portOf(config([
       box('floor', [0, -0.5, 0], [20, 0.5, 20]),

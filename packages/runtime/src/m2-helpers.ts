@@ -7,7 +7,7 @@
  * transform ownership and fail-stop contract.
  */
 import type { ActionFrame } from './actions';
-import type { CharacterMoveResult, PhysicsPort, PhysicsStepClient, Vec2 } from './ports';
+import type { CharacterMoveResult3D, PhysicsPort3D, PhysicsStepClient, PhysicsVec3 } from './ports';
 import type { Runtime, SimulationModuleSpec, SimulationRegistry } from './index';
 import { createSimulationRegistry, instantiateRuntime, registerSimulationModule } from './index';
 
@@ -82,9 +82,12 @@ export function registryWith(specs: readonly SimulationModuleSpec[]): Simulation
   return r;
 }
 
+/** A point for the fake port (z absent: 0). */
+export type FakePoint = { x: number; y: number; z?: number };
+
 export interface FakePortOptions {
-  /** Authored character center (must match the snapshot transform). */
-  character?: Vec2;
+  /** Authored character origin (must match the snapshot transform). */
+  character?: FakePoint;
   /** Called at the start of every `step()`. */
   onStep?: () => void;
   /** Return a malformed result instead of the computed one. */
@@ -93,52 +96,61 @@ export interface FakePortOptions {
   throwOnStep?: boolean;
 }
 
-export interface FakePort extends PhysicsPort {
+export interface FakePort extends PhysicsPort3D {
   readonly steps: number;
-  readonly staged: Vec2[];
-  /** Override the next `step()` result position (tests only). */
-  forcePosition: Vec2 | null;
+  readonly staged: PhysicsVec3[];
+  /** Override the next `step()` result position (tests only; z absent: where it is). */
+  forcePosition: FakePoint | null;
 }
 
-/** Deterministic identity-motion port: applied == requested, no gravity. */
+/** Deterministic identity-motion port: applied == requested, always grounded, no gravity of its own; a placement puts the character there. */
 export function makeFakePort(opts: FakePortOptions = {}): FakePort {
-  let pos: Vec2 = opts.character ?? { x: 0, y: 1 };
-  let pending: Vec2 = { x: 0, y: 0 };
+  let pos: PhysicsVec3 = { x: opts.character?.x ?? 0, y: opts.character?.y ?? 1, z: opts.character?.z ?? 0 };
+  let pending: PhysicsVec3 = { x: 0, y: 0, z: 0 };
   let steps = 0;
-  const staged: Vec2[] = [];
+  const staged: PhysicsVec3[] = [];
   const port: FakePort = {
     implementation: 'runtime-test-fake',
     steps: 0,
     staged,
     forcePosition: null,
-    stageCharacterMove(delta: Vec2): void {
-      pending = { x: delta.x, y: delta.y };
+    stageCharacterMove(delta: PhysicsVec3): void {
+      pending = { x: delta.x, y: delta.y, z: delta.z };
       staged.push({ ...pending });
     },
-    step(): CharacterMoveResult {
+    step(): CharacterMoveResult3D {
       steps += 1;
       (port as { steps: number }).steps = steps;
       opts.onStep?.();
       if (opts.throwOnStep) throw new Error('port exploded');
       const requested = { ...pending };
-      pending = { x: 0, y: 0 };
-      const target = port.forcePosition ?? { x: pos.x + requested.x, y: pos.y + requested.y };
+      pending = { x: 0, y: 0, z: 0 };
+      const f = port.forcePosition;
+      const target = f !== null ? { x: f.x, y: f.y, z: f.z ?? pos.z } : { x: pos.x + requested.x, y: pos.y + requested.y, z: pos.z + requested.z };
       port.forcePosition = null;
-      const applied = { x: target.x - pos.x, y: target.y - pos.y };
+      const applied = { x: target.x - pos.x, y: target.y - pos.y, z: target.z - pos.z };
       pos = target;
-      const result: CharacterMoveResult = {
+      const result: CharacterMoveResult3D = {
         requested,
         applied,
         position: { ...target },
         grounded: true,
-        supportNormal: { x: 0, y: 1 },
+        supportNormal: { x: 0, y: 1, z: 0 },
         contacts: { ground: true, wall: false, head: false, steepSlope: false },
         snapped: false,
       };
       if (opts.malformed) {
-        return { ...result, applied: { x: applied.x + 1, y: applied.y } };
+        return { ...result, applied: { x: applied.x + 1, y: applied.y, z: applied.z } };
       }
       return result;
+    },
+    placeCharacter(origin: PhysicsVec3) {
+      pos = { ...origin };
+      pending = { x: 0, y: 0, z: 0 };
+      return { ok: true, supportNormal: { x: 0, y: 1, z: 0 } };
+    },
+    characterClearance() {
+      return { ok: true, supportNormal: { x: 0, y: 1, z: 0 } };
     },
     dispose(): void {
       /* idempotent by construction */
@@ -177,7 +189,7 @@ export function makeM2Runtime(config: {
   registry?: SimulationRegistry;
   snapshot?: unknown;
   actions?: { sample: (n: number) => ActionFrame };
-  physics?: PhysicsPort;
+  physics?: PhysicsPort3D;
   onFrame?: () => void;
 }): M2Harness {
   const registry = config.registry ?? registryWith(config.specs);

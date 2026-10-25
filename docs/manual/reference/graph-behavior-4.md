@@ -1,8 +1,45 @@
-# Graph: Visual script (part 4, from Set patrol active (`api.patrol.setActive`))
+# Graph: Visual script (part 4, from Health events (`api.health.events`))
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Visual script node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="node-behavior--api-health-events"></a>
+### Health events (`api.health.events`)
+
+Every object's health events of the previous step (damaged, healed, died), in the order they happened.
+
+Outputs:
+
+- `value` (list)
+
+<a id="graph-behavior--patrol"></a>
+## Patrol
+
+- Patrol state (`api.patrol.get`): The way a patroller walks now (a unit vector) and whether it walks at all; null for an object without a patrol. An empty entity means this object.
+- Set patrol active (`api.patrol.setActive`): Stop a patroller where it is, or let it walk on. False for an object without a patrol. An empty entity means this object.
+- Turn patroller (`api.patrol.turn`): Turn a patroller around now (a `turned` event). False for an object without a patrol, or a waypoint loop (it only goes forward). An empty entity means this object.
+
+<a id="node-behavior--api-patrol-get"></a>
+### Patrol state (`api.patrol.get`)
+
+The way a patroller walks now (a unit vector) and whether it walks at all; null for an object without a patrol. An empty entity means this object.
+
+Inputs:
+
+- `entityId` "object" (string)
+
+Outputs:
+
+- `direction` (vector)
+- `active` (boolean)
+- `found` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `entityId` | object | string | `""` | ≤ 256 chars |
 
 <a id="node-behavior--api-patrol-set-active"></a>
 ### Set patrol active (`api.patrol.setActive`)
@@ -145,19 +182,19 @@ Fields:
 <a id="graph-behavior--character"></a>
 ## Character
 
-- Character impulse (`api.character.impulse`): Add `velocity` [x, y, z] (m/s, each at most 100 either way) to a player character's velocity at its next move (`entityId`, absent: the first player controller) — a push, a launch, a knock back or a bounce; its own acceleration then brings it back to what the input asks. A positive y lifts it off the ground. The 2D plane ignores z. Impulses in one step add up. False without that character or for a  An empty entity means this object.
-- Place character at (`api.character.place`): Put a player character at `position` [x, y, z] (m; the 2D plane ignores z) from rest, facing `facing` degrees about +Y (0 faces +Z, 90 faces +X; absent: it keeps its way) — a `character_place` after this step's intent phase (called in a later phase: the next step's). It ends a walk under way. False without that character or for a bad point. An empty entity means this object.
-- Walk character to (`api.character.walkTo`): Have a player character's own controller walk it to `position` (its acceleration, collisions, slopes and animator speed as with the player's input; the player's input does not move it meanwhile): on the ground plane in 3D (the mark's height is where the ground is), along x on the 2D plane. It slows down near the mark and arrives within `arrive` m (absent: 0.1), then turns to `facing` degrees if gi An empty entity means this object.
+- Character impulse (`api.character.impulse`): Add `velocity` [x, y, z] (m/s, each at most 100 either way) to a player character's velocity at its next move (`entityId`, absent: the first player controller) — a push, a launch, a knock back or a bounce; its own acceleration then brings it back to what the input asks. A positive y lifts it off the ground. Impulses in one step add up. False without that character or for a bad vector. An empty entity means this object.
+- Place character at (`api.character.place`): Put a player character at `position` [x, y, z] (m; on a plane, its coordinate along the plane's normal is the plane's) from rest, facing `facing` degrees about +Y (0 faces +Z, 90 faces +X; absent: it keeps its way) — a `character_place` after this step's intent phase (called in a later phase: the next step's). It ends a walk under way. False without that character or for a bad point. An empty entity means this object.
+- Walk character to (`api.character.walkTo`): Have a player character's own controller walk it to `position` (its acceleration, collisions, slopes and animator speed as with the player's input; the player's input does not move it meanwhile): on the ground plane (the mark's height is where the ground is). It slows down near the mark and arrives within `arrive` m (absent: 0.1), then turns to `facing` degrees if given. A walk that gets no closer An empty entity means this object.
 - Character walk state (`api.character.walkState`): A walk's state: walking, arrived, blocked (it got no closer), stopped (a new walk, a placement, `stop` or the end of its scene), or null for an unknown handle.
 - Stop character walk (`api.character.stop`): Stop a player character's walk where it is. False when it was not walking. An empty entity means this object.
-- Turn character (`api.character.turn`): Turn a player character to `facing` degrees about +Y (0 faces +Z, 90 faces +X) at its controller's turn speed in 3D; on the 2D plane its face-movement models turn at once (90 right, −90 left). False without that character. An empty entity means this object.
-- Enable character control (`api.character.setEnabled`): Switch a player character's controller off (it stays where it is: no input, no gravity — a cutscene, a dialogue) or back on, in 3D and on the 2D plane; a `character_enable`. Lasts until changed or the run restarts. False without that character. An empty entity means this object.
+- Turn character (`api.character.turn`): Turn a player character to `facing` degrees about +Y (0 faces +Z, 90 faces +X) at its controller's turn speed. False without that character. An empty entity means this object.
+- Enable character control (`api.character.setEnabled`): Switch a player character's controller off (it stays where it is: no input, no gravity — a cutscene, a dialogue) or back on; a `character_enable`. Lasts until changed or the run restarts. False without that character. An empty entity means this object.
 - Set character plane (`api.character.setPlane`): Lock a player character (`entityId`, absent or null: the first player controller) to an axis-aligned plane — `{ axis: 'x' | 'z', origin }` — or free it (null), at the next step boundary: it snaps onto the plane and from then on walks, jumps and is pushed only along it; freed, it moves in all three axes again from where it is. The same as `ctx.physics.setPlane` on its object. Lasts until changed or An empty entity means this object.
 
 <a id="node-behavior--api-character-impulse"></a>
 ### Character impulse (`api.character.impulse`)
 
-Add `velocity` [x, y, z] (m/s, each at most 100 either way) to a player character's velocity at its next move (`entityId`, absent: the first player controller) — a push, a launch, a knock back or a bounce; its own acceleration then brings it back to what the input asks. A positive y lifts it off the ground. The 2D plane ignores z. Impulses in one step add up. False without that character or for a  An empty entity means this object.
+Add `velocity` [x, y, z] (m/s, each at most 100 either way) to a player character's velocity at its next move (`entityId`, absent: the first player controller) — a push, a launch, a knock back or a bounce; its own acceleration then brings it back to what the input asks. A positive y lifts it off the ground. Impulses in one step add up. False without that character or for a bad vector. An empty entity means this object.
 
 Inputs:
 
@@ -180,7 +217,7 @@ Fields:
 <a id="node-behavior--api-character-place"></a>
 ### Place character at (`api.character.place`)
 
-Put a player character at `position` [x, y, z] (m; the 2D plane ignores z) from rest, facing `facing` degrees about +Y (0 faces +Z, 90 faces +X; absent: it keeps its way) — a `character_place` after this step's intent phase (called in a later phase: the next step's). It ends a walk under way. False without that character or for a bad point. An empty entity means this object.
+Put a player character at `position` [x, y, z] (m; on a plane, its coordinate along the plane's normal is the plane's) from rest, facing `facing` degrees about +Y (0 faces +Z, 90 faces +X; absent: it keeps its way) — a `character_place` after this step's intent phase (called in a later phase: the next step's). It ends a walk under way. False without that character or for a bad point. An empty entity means this object.
 
 Inputs:
 
@@ -204,7 +241,7 @@ Fields:
 <a id="node-behavior--api-character-walk-to"></a>
 ### Walk character to (`api.character.walkTo`)
 
-Have a player character's own controller walk it to `position` (its acceleration, collisions, slopes and animator speed as with the player's input; the player's input does not move it meanwhile): on the ground plane in 3D (the mark's height is where the ground is), along x on the 2D plane. It slows down near the mark and arrives within `arrive` m (absent: 0.1), then turns to `facing` degrees if gi An empty entity means this object.
+Have a player character's own controller walk it to `position` (its acceleration, collisions, slopes and animator speed as with the player's input; the player's input does not move it meanwhile): on the ground plane (the mark's height is where the ground is). It slows down near the mark and arrives within `arrive` m (absent: 0.1), then turns to `facing` degrees if given. A walk that gets no closer An empty entity means this object.
 
 Inputs:
 
@@ -272,7 +309,7 @@ Fields:
 <a id="node-behavior--api-character-turn"></a>
 ### Turn character (`api.character.turn`)
 
-Turn a player character to `facing` degrees about +Y (0 faces +Z, 90 faces +X) at its controller's turn speed in 3D; on the 2D plane its face-movement models turn at once (90 right, −90 left). False without that character. An empty entity means this object.
+Turn a player character to `facing` degrees about +Y (0 faces +Z, 90 faces +X) at its controller's turn speed. False without that character. An empty entity means this object.
 
 Inputs:
 
@@ -295,7 +332,7 @@ Fields:
 <a id="node-behavior--api-character-set-enabled"></a>
 ### Enable character control (`api.character.setEnabled`)
 
-Switch a player character's controller off (it stays where it is: no input, no gravity — a cutscene, a dialogue) or back on, in 3D and on the 2D plane; a `character_enable`. Lasts until changed or the run restarts. False without that character. An empty entity means this object.
+Switch a player character's controller off (it stays where it is: no input, no gravity — a cutscene, a dialogue) or back on; a `character_enable`. Lasts until changed or the run restarts. False without that character. An empty entity means this object.
 
 Inputs:
 
@@ -1251,56 +1288,4 @@ Fields:
 |---|---|---|---|---|
 | `layer` | layer | string | `""` | ≤ 256 chars |
 | `x` | x | number | `0` | -1000000000 – 1000000000 |
-| `z` | z | number | `0` | -1000000000 – 1000000000 |
-
-<a id="node-behavior--api-grid-world-to-cell"></a>
-### World to cell (`api.grid.worldToCell`)
-
-The cell holding a world position (it may lie outside the layer's bounds), or null for no such layer.
-
-Inputs:
-
-- `layer` (string)
-- `position` (vector)
-
-Outputs:
-
-- `x` (number)
-- `y` (number)
-- `z` (number)
-- `found` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `layer` | layer | string | `""` | ≤ 256 chars |
-| `position` | position | vector | `[0,0,0]` | -1000000000 – 1000000000; 3 components |
-
-<a id="node-behavior--api-grid-cell-to-world"></a>
-### Cell to world (`api.grid.cellToWorld`)
-
-The world position of a cell's centre, or null for no such layer.
-
-Inputs:
-
-- `layer` (string)
-- `x` (number)
-- `y` (number)
-- `z` (number)
-
-Outputs:
-
-- `x` (number)
-- `y` (number)
-- `z` (number)
-- `found` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `layer` | layer | string | `""` | ≤ 256 chars |
-| `x` | x | number | `0` | -1000000000 – 1000000000 |
-| `y` | y | number | `0` | -1000000000 – 1000000000 |
 | `z` | z | number | `0` | -1000000000 – 1000000000 |

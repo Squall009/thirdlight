@@ -25,7 +25,7 @@ import {
   registerSimulationModule,
   type Runtime,
   type SimulationModuleSpec,
-  type StaticColliderSpec,
+  type StaticColliderSpec3D,
 } from './index';
 import { SpawnRequests } from './spawn-requests';
 
@@ -58,27 +58,25 @@ interface PortLog {
 }
 
 function recordingPort(log: PortLog): unknown {
-  const zero = { x: 0, y: 0 };
+  const zero = { x: 0, y: 0, z: 0 };
   return {
     stageCharacterMove() {},
     step() {
-      return { requested: { ...zero }, applied: { ...zero }, position: { x: 0, y: 0 }, grounded: true, supportNormal: { x: 0, y: 1 }, contacts: { ground: true, wall: false, head: false, steepSlope: false }, snapped: false };
+      return { requested: { ...zero }, applied: { ...zero }, position: { ...zero }, grounded: true, supportNormal: { x: 0, y: 1, z: 0 }, contacts: { ground: true, wall: false, head: false, steepSlope: false }, snapped: false };
     },
-    reset() {},
-    clearCharacterMotion() {},
     placeCharacter() {
-      return { ok: true, supportNormal: { x: 0, y: 1 } };
+      return { ok: true, supportNormal: { x: 0, y: 1, z: 0 } };
     },
     characterClearance() {
-      return { ok: true, supportNormal: { x: 0, y: 1 } };
+      return { ok: true, supportNormal: { x: 0, y: 1, z: 0 } };
     },
-    addStaticColliders(specs: readonly StaticColliderSpec[]) {
+    addStaticColliders(specs: readonly StaticColliderSpec3D[]) {
       log.added.push(...specs.map((s) => `${s.entityId}@${s.position.x},${s.position.y}`));
     },
     removeStaticColliders(ids: readonly string[]) {
       log.removed.push(...ids);
     },
-    setKinematicPositions() {},
+    setKinematicPoses() {},
     diagnostics() {
       return {};
     },
@@ -449,7 +447,7 @@ describe('spawn: a copy moves itself ("@self" in ownedTransforms)', () => {
   /** A bolt flies right 0.05 m per step by its own script; an authored bolt does too; a crate with a collider may not own itself. */
   const BOLT_PREFABS = [
     { prefabId: 'bolt', displayName: 'Bolt', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'box-0020', components: { transform: at(0, 0), box: { size: [0.2, 0.2, 0.2], material: { color: '#ff00ff' } }, behavior: { behaviorId: 'bolt', values: {} } } }] },
-    { prefabId: 'bolt-crate', displayName: 'Bolt crate', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'box-0021', components: { transform: at(0, 0), box: { size: [1, 1, 1], material: { color: '#aa7733' } }, collider: { shape: { type: 'box', hx: 0.5, hy: 0.5 } }, behavior: { behaviorId: 'bolt', values: {} } } }] },
+    { prefabId: 'bolt-crate', displayName: 'Bolt crate', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'box-0021', components: { transform: at(0, 0), box: { size: [1, 1, 1], material: { color: '#aa7733' } }, collider: { shape: { type: 'box', hx: 0.5, hy: 0.5 } }, mover: { waypoints: [[0, 1, 0]], speed: 1, mode: 'once' }, behavior: { behaviorId: 'bolt', values: {} } } }] },
   ];
   const boltSpec = (poke?: { other: string | null }) => createBehaviorModuleSpec({
     declaration: DECL,
@@ -497,7 +495,7 @@ describe('spawn: a copy moves itself ("@self" in ownedTransforms)', () => {
     expect([...a.end]).toEqual([...b.end]);
   });
 
-  it('"@self" owns only the instance\'s own entity; a physics copy may not own itself', () => {
+  it('"@self" owns only the instance\'s own entity; a copy whose body a mover moves may not own itself', () => {
     const poke = { other: 'spawn-1' as string | null };
     let n = 0;
     const a = harness((ctx) => {

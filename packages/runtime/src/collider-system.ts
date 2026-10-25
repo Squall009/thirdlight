@@ -12,14 +12,11 @@
  * belongs on a kinematic body; Godot's AnimatableBody does the same. A mesh
  * collider has no inside and stays static (the port refuses moving meshes):
  * one log line says so.
- *
- * In 3D only: the 2D plane's colliders on children are placed at load and
- * stay (its scripts drive no collider).
  */
 import type { ModelColliderTable } from '@thirdlight/project-model';
 
-import { colliderSpecs2D, colliderSpecs3D, shapeAabb3, staticColliderOf, staticColliderOf3D, type ColliderContext } from './collider-specs';
-import type { ColliderShape3D, PhysicsPlane, PhysicsPort, PhysicsPort3D, StaticColliderSpec, StaticColliderSpec3D } from './ports';
+import { colliderSpecs3D, shapeAabb3, staticColliderOf3D, type ColliderContext } from './collider-specs';
+import type { ColliderShape3D, PhysicsPlane, PhysicsPort3D, StaticColliderSpec3D } from './ports';
 import type { TransformState } from './types-simulation';
 import { worldTransformOf } from './world-transform';
 
@@ -28,7 +25,6 @@ const MAX_CHAIN = 64;
 
 /** What the collider system reads from the runtime. */
 export interface ColliderSystemHost {
-  readonly physics?: PhysicsPort;
   readonly physics3d?: PhysicsPort3D;
   /** The step's transforms (the runtime replaces the map on a restore). */
   curr(): ReadonlyMap<string, TransformState>;
@@ -59,7 +55,7 @@ export type ColliderAddResult = { ok: true } | { ok: false; refused: string } | 
 type Shaped = { shape: unknown };
 
 export class ColliderSystem {
-  /** The collider-bearing objects of a 3D world (no controller): their components. */
+  /** The collider-bearing objects of the world (no controller): their components. */
   private readonly components = new Map<string, Readonly<Record<string, unknown>>>();
   /** Objects with a mover (their children's colliders follow them). */
   private readonly movers = new Set<string>();
@@ -83,7 +79,7 @@ export class ColliderSystem {
 
   /**
    * Whether a script may own this object's transform although it has a
-   * collider (3D): neither the controller's (the character is the
+   * collider: neither the controller's (the character is the
    * controller's) nor a mover's (which moves it itself).
    */
   static drivable(components: unknown): boolean {
@@ -92,26 +88,20 @@ export class ColliderSystem {
     return c['collider'] !== undefined && c['controller'] === undefined && c['mover'] === undefined;
   }
 
-  /** Whether an attached object is a 3D collider a script may drive. */
+  /** Whether an attached object is a collider a script may drive. */
   drivableId(id: string): boolean {
     return ColliderSystem.drivable(this.components.get(id));
   }
 
-  /** The 2D static colliders of entities about to be attached, each where it is in the world. */
-  specs2D(entities: readonly { id: string; parentId?: string | null; components?: unknown }[]): StaticColliderSpec[] {
-    return colliderSpecs2D(entities, this.ctx);
-  }
-
-  /** Add the colliders of entities about to be attached (a scene, a spawned copy) to whichever world there is. */
+  /** Add the colliders of entities about to be attached (a scene, a spawned copy) to the world, if there is one. */
   add(entities: readonly { id: string; parentId?: string | null; components?: unknown }[], what: string): ColliderAddResult {
-    const port3 = this.host.physics3d;
-    const port2 = this.host.physics;
-    const specs: (StaticColliderSpec | StaticColliderSpec3D)[] = port3 !== undefined ? colliderSpecs3D(entities, this.ctx) : port2 !== undefined ? this.specs2D(entities) : [];
+    const port = this.host.physics3d;
+    if (port === undefined) return { ok: true };
+    const specs = colliderSpecs3D(entities, this.ctx);
     if (specs.length === 0) return { ok: true };
-    const port = (port3 ?? port2) as { addStaticColliders?: (s: never[]) => void };
     if (typeof port.addStaticColliders !== 'function') return { ok: false, refused: 'the physics port cannot add colliders' };
     try {
-      port.addStaticColliders(specs as never[]);
+      port.addStaticColliders(specs);
     } catch (e) {
       return { ok: false, failed: `adding the colliders of ${what} failed: ${e instanceof Error ? e.message : String(e)}` };
     }
@@ -196,7 +186,7 @@ export class ColliderSystem {
       add.push(spec);
     }
     if (add.length === 0) return null;
-    if (typeof port.addStaticColliders !== 'function' || typeof port.removeStaticColliders !== 'function' || typeof port.setKinematicPoses !== 'function') return 'the 3D physics port cannot pose moving colliders';
+    if (typeof port.addStaticColliders !== 'function' || typeof port.removeStaticColliders !== 'function' || typeof port.setKinematicPoses !== 'function') return 'the physics port cannot pose moving colliders';
     try {
       port.removeStaticColliders(add.map((sp) => sp.entityId));
       port.addStaticColliders(add);
@@ -229,7 +219,6 @@ export class ColliderSystem {
     try {
       if (leaving.length > 0) {
         this.host.physics3d?.removeStaticColliders?.(leaving);
-        this.host.physics?.removeStaticColliders?.(leaving);
         for (const id of leaving) this.moving.delete(id);
       }
       if (coming.length === 0) return null;
@@ -239,9 +228,6 @@ export class ColliderSystem {
         const specs = coming.map((id) => staticColliderOf3D(id, this.host.componentsOf(id) ?? {}, false, worldOf(id), this.ctx)).filter((x): x is StaticColliderSpec3D => x !== null);
         if (specs.length > 0) this.host.physics3d.addStaticColliders?.(specs);
         this.dirty = true;
-      } else if (this.host.physics !== undefined) {
-        const specs = coming.map((id) => staticColliderOf(id, this.host.componentsOf(id) ?? {}, worldOf(id), this.ctx)).filter((x): x is StaticColliderSpec => x !== null);
-        if (specs.length > 0) this.host.physics.addStaticColliders?.(specs);
       }
     } catch (e) {
       return `switching the colliders of ${[...leaving, ...coming].slice(0, 4).join(', ')} failed: ${e instanceof Error ? e.message : String(e)}`;
@@ -249,7 +235,7 @@ export class ColliderSystem {
     return null;
   }
 
-  /** Whether an object has a 3D collider the system knows. */
+  /** Whether an object has a collider the system knows. */
   has(id: string): boolean {
     return this.components.has(id);
   }

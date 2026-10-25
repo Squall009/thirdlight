@@ -13,44 +13,11 @@ export interface Vec2 {
   y: number;
 }
 
-/** One static collider the runtime derives from the snapshot. */
-export interface StaticColliderSpec {
-  entityId: string;
-  /** Validated `components.collider.shape` value (opaque to the runtime core). */
-  shape: unknown;
-  /** World XY (root + unit scale). */
-  position: Vec2;
-  /** Radians, derived from the normalized z/w quaternion copy. */
-  rotationZ: number;
-  /** A mover's collider (posed every step with `setKinematicPositions`). */
-  kinematic?: boolean;
-  /** The character passes from below and the sides and lands from above. */
-  oneWay?: boolean;
-}
-
-/** A ray hit (`raycast`). */
+/** A ray hit on the caller's plane (`raycast` with {x, y}): the object, the distance and the surface normal in the plane. */
 export interface RaycastHit {
   entityId: string;
   distance: number;
   normal: Vec2;
-}
-
-/** A shape for overlap queries (half extents / radius, meters). */
-export type OverlapShape = { type: 'box'; hx: number; hy: number } | { type: 'circle'; radius: number };
-
-/** The port's per-step character result. */
-export interface CharacterMoveResult {
-  requested: Vec2;
-  applied: Vec2;
-  position: Vec2;
-  grounded: boolean;
-  supportNormal: Vec2;
-  contacts: { ground: boolean; wall: boolean; head: boolean; steepSlope: boolean };
-  snapped: boolean;
-  /** The collider entity the character stands on (grounded), when the port knows it. */
-  groundEntityId?: string | null;
-  /** How far a moving (kinematic) body moved into the character this step; the correction may exceed the request by this much. */
-  kinematicSlack?: number;
 }
 
 /** Counters a port may expose. */
@@ -60,61 +27,6 @@ export interface PhysicsDiagnostics {
   penetrationCorrectedCount?: number;
   /** The deepest such overlap so far: the collider's entity, how deep (m), the port's step. */
   deepestOverlap?: { entityId: string; depth: number; step: number };
-}
-
-/**
- * The injected physics port. Initialization happens before
- * `instantiateRuntime` — the runtime only ever receives an already-initialized
- * port (`createPhysicsPort(config, signal?)` is in the concrete adapter).
- */
-export interface PhysicsPort {
-  readonly implementation?: string;
-  /**
-   * Stage a character's move for the next step. A world with several player
-   * controllers names the further characters by their object (the init
-   * config's `characters`); absent: the first character.
-   */
-  stageCharacterMove(delta: Vec2, characterId?: string): void;
-  /** Step the world once: every character sweeps its staged move; returns the first character's result. */
-  step(): CharacterMoveResult;
-  /** A further character's result of the last step (undefined: no such character, or before the first step). */
-  lastResultOf?(characterId: string): CharacterMoveResult | undefined;
-  reset?(character: Vec2, characterId?: string): void;
-  diagnostics?(): PhysicsDiagnostics;
-  /**
-   * Add the static colliders of a loaded scene / remove those
-   * of an unloaded one. Called by the runtime at a step boundary only. A port
-   * without them cannot run a game whose loaded scenes carry colliders.
-   */
-  addStaticColliders?(specs: readonly StaticColliderSpec[]): void;
-  removeStaticColliders?(entityIds: readonly string[]): void;
-  /** Where the kinematic (mover) colliders are after this step's move. */
-  setKinematicPositions?(poses: readonly { entityId: string; position: Vec2; rotationZ: number }[]): void;
-  /**
-   * Add a player character to the world while it runs (a scene brought a
-   * player controller), named by its object from then on. A world made
-   * without a character takes them too.
-   */
-  addCharacter?(spec: AddedCharacter2D): void;
-  /** Take an added character out of the world for good (its object left the game: a destroyed spawned player). */
-  removeCharacter?(id: string): void;
-  /** Ignore one-way colliders for the next `steps` steps (drop through), for a character (absent: the first). */
-  dropThrough?(steps: number, characterId?: string): void;
-  /** The nearest collider hit by a ray (the characters excluded). */
-  raycast?(origin: Vec2, direction: Vec2, maxDistance: number): RaycastHit | null;
-  /** The entities whose colliders overlap `shape` at `center` (the characters excluded), sorted, at most 64. */
-  overlap?(shape: OverlapShape, center: Vec2): string[];
-  /**
-   * Rebuild the world from the colliders it holds now, as if made afresh in
-   * one fixed order, each character at its origin in `origins` (absent id:
-   * the first; a character not listed keeps its place), from rest. A run
-   * starts on it: a world's query structures keep the history of what moved
-   * and what was added in it, and that history decides ties in a sweep (a
-   * capsule on the seam of two colliders), so only a rebuilt world makes
-   * every run start alike. Throws a port failure.
-   */
-  restartWorld?(origins?: readonly { characterId?: string; position: Vec2 }[]): void;
-  dispose(): void;
 }
 
 /** The restricted view handed to modules in `StepContext`. */
@@ -130,9 +42,9 @@ export interface PhysicsStepClient {
    * @graphNode Character result
    * @graphLabel entityId player
    */
-  characterResult(entityId?: string): CharacterMoveResult | undefined;
+  characterResult(entityId?: string): CharacterMoveResult3D | undefined;
   /**
-   * Lock an object's body (its collider, or its player controller's character) to an axis-aligned plane — `{ axis: 'x' | 'z', origin }`, the plane's normal and where it lies along it (m) — or free it again (null), at the next step boundary. A locked body does not move along the normal and only turns about it: locking snaps it onto the plane and drops its speed along the normal; freeing leaves it where it is, free in all six degrees of freedom. A 2D-style stretch of a 3D game (and back) at any moment, with no reload. Lasts until changed, the object leaves the game or the run restarts. False without a 3D world, for a bad plane or an object with neither a collider nor a player controller.
+   * Lock an object's body (its collider, or its player controller's character) to an axis-aligned plane — `{ axis: 'x' | 'z', origin }`, the plane's normal and where it lies along it (m) — or free it again (null), at the next step boundary. A locked body does not move along the normal and only turns about it: locking snaps it onto the plane and drops its speed along the normal; freeing leaves it where it is, free in all six degrees of freedom. A side-view stretch of a game (and back) at any moment, with no reload. Lasts until changed, the object leaves the game or the run restarts. False without a physics world, for a bad plane or an object with neither a collider nor a player controller.
    * @graphNode Set plane
    * @graphDefault axis z
    */
@@ -276,33 +188,6 @@ export interface PhysicsHit {
   scatter?: string;
 }
 
-/** The result of a spawn clearance probe/reset placement. */
-export interface CharacterClearanceResult {
-  ok: boolean;
-  reason?: 'blocked' | 'no_support' | 'out_of_bounds' | 'query_failed';
-  supportNormal?: Vec2;
-  /** m, deepest overlap with a static collider. */
-  penetration?: number;
-}
-
-/**
- * The restricted reset/clearance port. `PhysicsPort.reset(character)` stays
- * tests/diagnostics-only and is never called by the runtime, a module, a
- * behavior or the editor. The three operations below are callable by the
- * runtime only at the reset barrier — they are NOT on `PhysicsStepClient`
- * (game code never receives a physics handle: one mutation path).
- * The concrete implementation is `physics-rapier`; the runtime
- * core carries the type only.
- */
-export interface PhysicsResetPort extends PhysicsPort {
-  /** Zero every cached/kinematic motion (velocity, pending correction) of a character (absent: the first). */
-  clearCharacterMotion(characterId?: string): void;
-  /** Re-place a character's capsule centre and return the resulting clearance. */
-  placeCharacter(center: Vec2, characterId?: string): CharacterClearanceResult;
-  /** Query only: clearance of a character's capsule if placed at `center`. No mutation. */
-  characterClearance(center: Vec2, characterId?: string): CharacterClearanceResult;
-}
-
 export type CharacterMoveResultFailure = {
   reason: 'result';
   detail: string;
@@ -312,84 +197,13 @@ function finite(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v);
 }
 
-function vec2(v: unknown): v is Vec2 {
-  return (
-    typeof v === 'object' &&
-    v !== null &&
-    finite((v as Vec2).x) &&
-    finite((v as Vec2).y)
-  );
-}
-
-/**
- * Strict result validation. Returns a failure describing
- * the first violation instead of throwing; an invalid result is never
- * partially applied.
- */
-export function validateCharacterMoveResult(
-  value: unknown,
-  previousPosition: Vec2,
-  requested: Vec2,
-): { ok: true; result: CharacterMoveResult } | { ok: false; failure: CharacterMoveResultFailure } {
-  const bad = (detail: string): { ok: false; failure: CharacterMoveResultFailure } => ({
-    ok: false,
-    failure: { reason: 'result', detail },
-  });
-  if (typeof value !== 'object' || value === null) return bad('result must be an object');
-  const r = value as Partial<CharacterMoveResult>;
-  if (!vec2(r.requested)) return bad('requested must be a finite { x, y }');
-  if (!vec2(r.applied)) return bad('applied must be a finite { x, y }');
-  if (!vec2(r.position)) return bad('position must be a finite { x, y }');
-  if (!vec2(r.supportNormal)) return bad('supportNormal must be a finite { x, y }');
-  if (typeof r.grounded !== 'boolean') return bad('grounded must be a boolean');
-  if (typeof r.snapped !== 'boolean') return bad('snapped must be a boolean');
-  const contacts = r.contacts;
-  if (
-    typeof contacts !== 'object' ||
-    contacts === null ||
-    typeof contacts.ground !== 'boolean' ||
-    typeof contacts.wall !== 'boolean' ||
-    typeof contacts.head !== 'boolean' ||
-    typeof contacts.steepSlope !== 'boolean'
-  ) {
-    return bad('contacts must be { ground, wall, head, steepSlope } booleans');
-  }
-  const result = r as CharacterMoveResult;
-  const normalLength = Math.hypot(result.supportNormal.x, result.supportNormal.y);
-  if (Math.abs(normalLength - 1) > 1e-6) return bad('supportNormal must be unit within 1e-6');
-  if (result.grounded && !(result.supportNormal.y > 0)) {
-    return bad('grounded requires supportNormal.y > 0');
-  }
-  const dx = result.applied.x - (result.position.x - previousPosition.x);
-  const dy = result.applied.y - (result.position.y - previousPosition.y);
-  if (Math.abs(dx) > 1e-9 || Math.abs(dy) > 1e-9) {
-    return bad('applied != position - previousPosition within 1e-9');
-  }
-  const slack = typeof (result as { kinematicSlack?: unknown }).kinematicSlack === 'number' ? Math.min(0.5, Math.max(0, (result as { kinematicSlack: number }).kinematicSlack)) : 0;
-  const allowance = (result.snapped ? 0.11 : 0.001) + slack;
-  const appliedLen = Math.hypot(result.applied.x, result.applied.y);
-  const requestedLen = Math.hypot(requested.x, requested.y);
-  if (appliedLen > requestedLen + allowance + 1e-12) {
-    return bad('|applied| exceeds |requested| + allowance');
-  }
-  return { ok: true, result };
-}
-
-// ---------------------------------------------------------------------------
-// The 3D physics port. A project whose `physics_dimension` is 3
-// runs on a separate 3D backend (physics-rapier's `./3d` subpath, rapier3d);
-// the runtime holds this port instead of the 2D `PhysicsPort` above, which —
-// with its fakes, the character controller and the graph codegen — stays
-// exactly as it was. Positions are PhysicsVec3, rotations unit quaternions.
-// ---------------------------------------------------------------------------
-
-/** A 3D vector (m). */
 /**
  * The plane a body is locked to: its normal's world axis (X or Z) and where
  * it lies along that axis (m). The project model's `plane` field.
  */
 export type PhysicsPlane = PlaneLock;
 
+/** A 3D vector (m). */
 export interface PhysicsVec3 {
   x: number;
   y: number;
@@ -495,7 +309,7 @@ export interface KinematicPose3D {
   rotation: PhysicsQuat;
 }
 
-/** The 3D clearance of the character capsule at a point (the 2D result's fields). */
+/** The clearance of the character capsule at a point. */
 export interface CharacterClearanceResult3D {
   ok: boolean;
   reason?: 'blocked' | 'no_support';
@@ -504,7 +318,7 @@ export interface CharacterClearanceResult3D {
   penetration?: number;
 }
 
-/** The 3D port's per-step character result (the 2D result's fields in 3D). */
+/** The port's per-step character result. */
 export interface CharacterMoveResult3D {
   requested: PhysicsVec3;
   applied: PhysicsVec3;
@@ -527,7 +341,7 @@ export interface RaycastHit3D {
   point?: PhysicsVec3;
 }
 
-/** The tuning of a player character's controller (skin, ground snap, slope angles, autostep), in both dimensions. */
+/** The tuning of a player character's controller (skin, ground snap, slope angles, autostep). */
 export interface CharacterControllerTuning {
   offsetSkin: number;
   groundSnap: number;
@@ -536,36 +350,23 @@ export interface CharacterControllerTuning {
   autostep: boolean;
   autostepHeight?: number;
   /**
-   * How the 3D port climbs a step. Absent or false: lifted onto it at once.
-   * True: the 2D controller's autostep rule (the arcade profile) — lifted to
-   * the step's top and moved on by its radius, after which the rest of the
-   * move drops it back onto the edge, so it rides up over the edge across
-   * several steps and loses speed doing so. The 2D port always climbs so.
+   * How the port climbs a step. Absent or false: lifted onto it at once.
+   * True: the arcade profile's rule — lifted to the step's
+   * top and moved on by its radius, after which the rest of the move drops
+   * it back onto the edge, so it rides up over the edge across several
+   * steps and loses speed doing so.
    */
   autostepRide?: boolean;
 }
 
-/** A 2D-plane player character added while the world runs: its object, centre, capsule and tuning. */
-export interface AddedCharacter2D {
-  id: string;
-  x: number;
-  y: number;
-  radius: number;
-  halfHeight: number;
-  offset: Vec2;
-  controller: CharacterControllerTuning;
-}
-
-/** A 3D player character added while the world runs (the init config's further character, its tuning given). */
+/** A player character added while the world runs (the init config's further character, its tuning given). */
 export type AddedCharacter3D = NonNullable<PhysicsInitConfig3D['characters']>[number];
 
 /**
- * What a 3D port is created from (built by the hosts from the
- * snapshot and settings — game-host `physics3DConfigOf`). `dimension: 3`
- * tells a host (and the simulation worker) which backend to load.
+ * What a port is created from (built by the hosts from the snapshot and
+ * settings — `physics3DConfigOf`).
  */
 export interface PhysicsInitConfig3D {
-  readonly dimension: 3;
   /** The controller entity: its origin, and its capsule (radius, centre-line half height, centre offset from the origin); the first, when there are several. */
   character: { position: PhysicsVec3; radius: number; halfHeight: number; offset: PhysicsVec3; plane?: PhysicsPlane };
   /**
@@ -577,7 +378,7 @@ export interface PhysicsInitConfig3D {
   statics: readonly StaticColliderSpec3D[];
   /** The project's step rate and gravity along Y (−Y is down). */
   solver: { hz: number; gravityY: number };
-  /** The character controller's tuning (the 2D controller's fields: skin, snap, slope angles, autostep). */
+  /** The character controller's tuning (skin, snap, slope angles, autostep). */
   controller: CharacterControllerTuning;
   /**
    * The project's named collision layers, in order (bit 1 + index;
@@ -601,16 +402,19 @@ export interface PhysicsInitConfig3D {
 }
 
 /**
- * The injected 3D physics port — initialized before
- * `instantiateRuntime` like the 2D one, stepped once per fixed step by the
- * runtime. The character is a kinematic capsule swept by the backend's
- * character controller.
+ * The injected physics port. The concrete adapter (`physics-rapier`)
+ * implements it; initialization happens before `instantiateRuntime` (the
+ * runtime only ever receives an already-initialized port), which steps it
+ * once per fixed step. The characters are kinematic capsules swept by the
+ * backend's character controller.
  */
 export interface PhysicsPort3D {
-  /** The discriminant: a 3D port (the 2D `PhysicsPort` has none). */
-  readonly dimension: 3;
   readonly implementation?: string;
-  /** Stage a character's move (absent id: the first character; see the 2D port). */
+  /**
+   * Stage a character's move for the next step. A world with several player
+   * controllers names the further characters by their object (the init
+   * config's `characters`); absent: the first character.
+   */
   stageCharacterMove(delta: PhysicsVec3, characterId?: string): void;
   /** Step the world once: every character sweeps its staged move; returns the first character's result. */
   step(): CharacterMoveResult3D;
@@ -637,11 +441,23 @@ export interface PhysicsPort3D {
   characterClearance?(origin: PhysicsVec3, characterId?: string): CharacterClearanceResult3D;
   /** Re-place a character (its origin; absent id: the first) and return its clearance there; clears its motion caches. */
   placeCharacter?(origin: PhysicsVec3, characterId?: string): CharacterClearanceResult3D;
-  /** Rebuild the world from the colliders it holds now, the characters at `origins` (see the 2D port's). */
+  /**
+   * Rebuild the world from the colliders it holds now, as if made afresh in
+   * one fixed order, each character at its origin in `origins` (absent id:
+   * the first; a character not listed keeps its place), from rest. A run
+   * starts on it: a world's query structures keep the history of what moved
+   * and what was added in it, and that history decides ties in a sweep (a
+   * capsule on the seam of two colliders), so only a rebuilt world makes
+   * every run start alike. Throws a port failure.
+   */
   restartWorld?(origins?: readonly { characterId?: string; position: PhysicsVec3 }[]): void;
-  /** Add a player character while the world runs (see the 2D port's), named by its object from then on. */
+  /**
+   * Add a player character to the world while it runs (a scene brought a
+   * player controller), named by its object from then on. A world made
+   * without a character takes them too.
+   */
   addCharacter?(spec: AddedCharacter3D): void;
-  /** Take an added character out of the world for good (see the 2D port's). */
+  /** Take an added character out of the world for good (its object left the game: a destroyed spawned player). */
   removeCharacter?(id: string): void;
   /**
    * Lock a collider's body to a plane, or free it (null), at a step
@@ -666,10 +482,11 @@ function isVec3(v: unknown): v is PhysicsVec3 {
 }
 
 /**
- * The 3D counterpart of `validateCharacterMoveResult` — the same
- * rules on three axes (finite vectors, a unit support normal pointing up
- * while grounded, `applied == position − previousPosition` within 1e-9, the
- * correction bounded by the request plus the snap allowance).
+ * Strict result validation (finite vectors, a unit support normal pointing
+ * up while grounded, `applied == position − previousPosition` within 1e-9,
+ * the correction bounded by the request plus the snap allowance). Returns a
+ * failure describing the first violation instead of throwing; an invalid
+ * result is never partially applied.
  */
 export function validateCharacterMoveResult3D(
   value: unknown,
@@ -704,7 +521,7 @@ export function validateCharacterMoveResult3D(
   if (Math.abs(a.x - (p.x - previousPosition.x)) > 1e-9 || Math.abs(a.y - (p.y - previousPosition.y)) > 1e-9 || Math.abs(a.z - (p.z - previousPosition.z)) > 1e-9) {
     return bad('applied != position - previousPosition within 1e-9');
   }
-  // A mover that moved into the character may push it by up to that move (as in 2D).
+  // A mover that moved into the character may push it by up to that move.
   const ks = (result as { kinematicSlack?: unknown }).kinematicSlack;
   const slack = typeof ks === 'number' && Number.isFinite(ks) ? Math.min(0.5, Math.max(0, ks)) : 0;
   const step = climb !== undefined && Number.isFinite(climb.stepHeight) ? Math.min(2, Math.max(0, climb.stepHeight)) : 0;

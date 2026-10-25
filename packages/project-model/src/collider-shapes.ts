@@ -47,7 +47,7 @@ export const CONVEX_TOL = 1e-9;
  * has at most `heightfieldCells` cells a side: the largest tile's.
  */
 export const COLLIDER_3D_LIMITS = Object.freeze({ convexPoints: 64, meshVertices: 1024, meshTriangles: 2048, pointsTotal: 1_048_576, heightfieldCells: Math.max(...TERRAIN_TILE_SAMPLES) - 1 });
-/** The 3D collider shape types (a 3D project only; a 2D plane uses box and polygon). */
+/** The solid collider shape types (beyond box and polygon). */
 export const COLLIDER_3D_SHAPES = ['sphere', 'capsule', 'cylinder', 'convex', 'mesh'] as const;
 /** The shape types a compound lists (and a collider may be itself). */
 export const COLLIDER_PRIMITIVE_TYPES = ['box', 'polygon', 'sphere', 'capsule', 'cylinder', 'convex', 'mesh'] as const;
@@ -85,10 +85,9 @@ export function limitsError(
 }
 
 /**
- * A shape's place in its object's frame: `center` [x, y, z] in metres (a 2D
- * plane reads x and y), each within the collider extent, and
- * `rotation` a unit quaternion [x, y, z, w] (a 2D plane turns about Z only:
- * the project's dimension rule).
+ * A shape's place in its object's frame: `center` [x, y, z] in metres,
+ * each within the collider extent, and `rotation` a unit quaternion
+ * [x, y, z, w].
  */
 function validateShapePose(shape: Record<string, unknown>, path: string, errors: ModelErrorV2[]): void {
   const center = shape['center'];
@@ -150,7 +149,7 @@ function validatePrimitiveShape(shape: unknown, path: string, errors: ModelError
     else checkFiniteNumber(shape['hx'], `${path}/hx`, { positive: true, absMax: MAX_LEN }, `0 < hx <= ${MAX_LEN}`, errors);
     if (shape['hy'] === undefined) errors.push(fieldMissing(`${path}/hy`, 'hy'));
     else checkFiniteNumber(shape['hy'], `${path}/hy`, { positive: true, absMax: MAX_LEN }, `0 < hy <= ${MAX_LEN}`, errors);
-    // The half depth along Z (optional; a 3D project requires it, a 2D plane ignores it).
+    // The half depth along Z (optional; absent: half the collider's depth).
     if (shape['hz'] !== undefined) checkFiniteNumber(shape['hz'], `${path}/hz`, { positive: true, absMax: MAX_LEN }, `0 < hz <= ${MAX_LEN}`, errors);
     for (const k of Object.keys(shape)) {
       if (!KNOWN_BOX_SHAPE_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'type, hx, hy, hz, center, rotation'));
@@ -246,7 +245,7 @@ function validatePrimitiveShape(shape: unknown, path: string, errors: ModelError
     return;
   }
   if (type === 'sphere' || type === 'capsule' || type === 'cylinder') {
-    // 3D shapes (the project's physics dimension is checked with the content).
+    // The round shapes.
     if (shape['radius'] === undefined) errors.push(fieldMissing(`${path}/radius`, 'radius'));
     else checkFiniteNumber(shape['radius'], `${path}/radius`, { positive: true, absMax: MAX_COLLIDER_EXTENT }, `0 < radius <= ${MAX_COLLIDER_EXTENT}`, errors);
     if (type === 'capsule' || type === 'cylinder') {

@@ -1,20 +1,8 @@
-# Script API types (from `GridDoorSide`)
+# Script API types (from `BlockCell`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 Every declaration the script API reaches, as the runtime declares it (doc comments included), in the order the API reaches them.
-
-<a id="script-type-grid-door-side"></a>
-## `GridDoorSide`
-
-```ts
-/** One side of a linked door (world metres; `facing`: degrees about +Y turning +Z toward the way out of the door on that side). */
-export interface GridDoorSide {
-  readonly position: readonly [number, number, number];
-  readonly spawn: readonly [number, number, number];
-  readonly facing: number;
-}
-```
 
 <a id="script-type-block-cell"></a>
 ## `BlockCell`
@@ -139,8 +127,8 @@ export type SaveSection = (typeof SAVE_SECTIONS)[number];
 /**
  * Where the play stands in a save — the scenes loaded (in load
  * order), the spawn respawns use, the game shell's scene list entry (-1:
- * none) and the character (the controller's object) with its velocity (m/s;
- * z is 0 on the 2D plane) and, in 3D, the way it faces (degrees about +Y, as
+ * none) and the character (the controller's object) with its velocity (m/s)
+ * and the way it faces (degrees about +Y, as
  * `characterState().facing` reads it; older saves have none), or null
  * without a character. With several player controllers `character` is the
  * first's and `characters` holds the others by their object (absent: a save

@@ -1,8 +1,7 @@
 /**
  * Block layers in the running game — the cells of every
- * loaded layer, their colliders on the 3D physics port (one triangle mesh per
- * chunk, rebuilt when cells change) or, on the 2D plane, cut at the play
- * plane (`grid-plane-colliders.ts`), the script API `ctx.grid`, the change
+ * loaded layer, their colliders on the physics port (one triangle mesh per
+ * chunk, rebuilt when cells change), the script API `ctx.grid`, the change
  * events scripts observe, the runtime diff for saves and the chunk changes
  * the renderer re-meshes.
  *
@@ -81,8 +80,8 @@ import {
 
 import { LiveBlocks, edgeKeyOf, type LiveBlockChanges } from './live-blocks';
 import { walkNeighboursQuery, walkPathQuery, walkReachQuery, type GridWalkOptions, type GridWalkPathOutcome, type GridWalkPlace, type WalkGraphCache, type WalkLayer } from './grid-walk';
-import type { PhysicsPort, PhysicsPort3D, StaticColliderSpec3D } from './ports';
-import { flushChunkColliders, flushPlaneColliders, gridColliderId } from './grid-plane-colliders';
+import type { PhysicsPort3D, StaticColliderSpec3D } from './ports';
+import { flushChunkColliders, gridColliderId } from './grid-chunk-colliders';
 import { TerrainColliders, type TerrainLayerData, type TerrainTileData } from './terrain-collision';
 import { RuntimeSurface, type SurfaceLayerView } from './surface';
 import { RuntimeScatter, type ScatterCopyChange, type TerrainScatterData, type TerrainSimData } from './scatter-copies';
@@ -259,7 +258,7 @@ export interface GridDiff {
 /**
  * `ctx.grid` — the block layers of the loaded scenes. Coordinates are cell
  * indices of a layer (x, y, z); a layer is named by its entity id. Writes
- * change cells, queries, rendering and (in a 3D project) collision within the
+ * change cells, queries, rendering and (with a physics world) collision within the
  * same step; they are refused (`false`) when a value does not fit (unknown
  * block type or field, a rotation the block does not allow, outside the
  * layer's bounds, a larger block's footprint over other cells) or at the
@@ -614,8 +613,6 @@ export class RuntimeGrid {
   private readonly materialIds: ReadonlySet<string> | null;
   private readonly collide: boolean;
   private collisionDirty = new Map<string, Set<string>>();
-  /** The 2D plane's one-way block colliders (a character drops through them). */
-  private readonly planeOneWay = new Set<string>();
   private renderDirty = new Map<string, Set<string>>();
   /** Per streamed terrain, the tiles its collision ring wanted when the page was last told (joined), and the looks then. */
   private ringSent = new Map<string, string>();
@@ -800,7 +797,6 @@ export class RuntimeGrid {
       const layer = this.layerMap.get(id);
       if (layer === undefined) continue;
       for (const list of layer.colliders.values()) colliders.push(...list);
-      for (const c of colliders) this.planeOneWay.delete(c);
       this.layerMap.delete(id);
       this.live?.removeLayer(id);
       this.collisionDirty.delete(id);
@@ -1122,10 +1118,8 @@ export class RuntimeGrid {
     }
   }
 
-  /** Rebuild the colliders of the chunks written since the last flush (batched: one remove, one add); without a 3D port, the 2D port's. */
-  flushCollision(port: PhysicsPort3D | undefined, port2D?: PhysicsPort): void {
-    // The first flush (at the load, before any step looks at the rings) tells the streaming which plane the game is on.
-    if (port === undefined && port2D !== undefined) this.stream.playOnPlane();
+  /** Rebuild the colliders of the chunks written since the last flush (batched: one remove, one add). */
+  flushCollision(port: PhysicsPort3D | undefined): void {
     if (this.collide) this.terrain.flush(port);
     this.scatter.flush(this.collide ? port : undefined);
     this.splines.flush(this.collide ? port : undefined);
@@ -1133,7 +1127,6 @@ export class RuntimeGrid {
     if (this.collisionDirty.size === 0) return;
     const dirty = this.collisionDirty;
     this.collisionDirty = new Map();
-    if (port === undefined && port2D !== undefined) return flushPlaneColliders(dirty, (id) => this.layerMap.get(id), this.types, (id, ck) => this.stream.has(id, 'collision', ck), this.planeOneWay, port2D);
     if (port === undefined || !this.collide) return;
     flushChunkColliders(dirty, (id) => this.layerMap.get(id), (id, ck) => this.stream.has(id, 'collision', ck), (entityId, ck, layer): StaticColliderSpec3D[] => {
       const [cx, cz] = ck.split(',').map(Number) as [number, number];
@@ -1145,11 +1138,6 @@ export class RuntimeGrid {
         ...(layer.component.maxSlope !== undefined ? { maxSlope: (layer.component.maxSlope * Math.PI) / 180 } : {}),
       }));
     }, port);
-  }
-
-  /** Whether a collider is one of the 2D plane's one-way blocks. */
-  isOneWayCollider(colliderId: string | null): boolean {
-    return colliderId !== null && this.planeOneWay.has(colliderId);
   }
 
   /** The chunks to re-mesh since the last call, with their cells now. */

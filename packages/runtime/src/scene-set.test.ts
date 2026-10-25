@@ -19,7 +19,7 @@ import {
   registerSimulationModule,
   type BehaviorArtifact,
   type Runtime,
-  type StaticColliderSpec,
+  type StaticColliderSpec3D,
   type StepContext,
 } from './index';
 
@@ -31,29 +31,27 @@ const at = (x: number, y: number, z = 0): unknown => ({ position: [x, y, z], ...
 interface PortLog {
   added: string[];
   removed: string[];
-  placed: { x: number; y: number }[];
+  placed: { x: number; y: number; z: number }[];
 }
 
 /** A port that keeps the character where it was last placed (it starts on the start spawn). */
 function recordingPort(log: PortLog): unknown {
-  const neutral = { x: 0, y: 0 };
-  let at = { x: 3, y: 0.91 };
+  const neutral = { x: 0, y: 0, z: 0 };
+  let at = { x: 3, y: 0.91, z: 0 };
   return {
     stageCharacterMove() {},
     step() {
-      return { requested: { ...neutral }, applied: { ...neutral }, position: { ...at }, grounded: true, supportNormal: { x: 0, y: 1 }, contacts: { ground: true, wall: false, head: false, steepSlope: false }, snapped: false };
+      return { requested: { ...neutral }, applied: { ...neutral }, position: { ...at }, grounded: true, supportNormal: { x: 0, y: 1, z: 0 }, contacts: { ground: true, wall: false, head: false, steepSlope: false }, snapped: false };
     },
-    reset() {},
-    clearCharacterMotion() {},
-    placeCharacter(c: { x: number; y: number }) {
+    placeCharacter(c: { x: number; y: number; z: number }) {
       log.placed.push({ ...c });
-      at = { x: c.x, y: c.y };
-      return { ok: true, supportNormal: { x: 0, y: 1 } };
+      at = { ...c };
+      return { ok: true, supportNormal: { x: 0, y: 1, z: 0 } };
     },
     characterClearance() {
-      return { ok: true, supportNormal: { x: 0, y: 1 } };
+      return { ok: true, supportNormal: { x: 0, y: 1, z: 0 } };
     },
-    addStaticColliders(specs: readonly StaticColliderSpec[]) {
+    addStaticColliders(specs: readonly StaticColliderSpec3D[]) {
       log.added.push(...specs.map((s) => s.entityId));
     },
     removeStaticColliders(ids: readonly string[]) {
@@ -324,7 +322,7 @@ describe('runtime scene set', () => {
     h.serve();
     h.tick(2);
     expect(h.rt.sceneSet!().status['scene-cave']).toBe('loaded');
-    expect(h.log.placed.at(-1)).toEqual({ x: 41, y: 1 });
+    expect(h.log.placed.at(-1)).toEqual({ x: 41, y: 1, z: 0 });
     const player = (h.rt.getInterpolatedState() as { state: { transforms: { id: string; position: number[] }[] } }).state.transforms.find((t) => t.id === 'player-0001');
     expect(player?.position.slice(0, 2)).toEqual([41, 1]);
 
@@ -333,7 +331,7 @@ describe('runtime scene set', () => {
     expect(h.rt.queueUiEvent!({ kind: 'restart', doc: '', widget: '', name: '' }).ok).toBe(true);
     h.tick(2);
     expect(h.rt.sceneSet!().batches.map((b) => b.sceneId)).toEqual(['scene-main']);
-    expect(h.log.placed.at(-1)).toEqual({ x: 3, y: 0.91 }); // the character where it started
+    expect(h.log.placed.at(-1)).toEqual({ x: 3, y: 0.91, z: 0 }); // the character where it started
     expect(h.ids()).not.toContain('box-rock');
   });
 
@@ -350,14 +348,15 @@ describe('runtime scene set', () => {
     h.tick(2);
     expect(seenY).toBeCloseTo(0.91);
     // The run's start placed the character where it starts.
-    const start = { x: 3, y: 0.91 };
+    const start = { x: 3, y: 0.91, z: 0 };
     expect(h.log.placed).toEqual([start]);
     killBelow = 5; // the character is below it: the script respawns them (ctx.lifecycle.respawn)
     h.tick();
     killBelow = null;
-    expect(h.log.placed).toEqual([start]); // the placement waits for the step boundary
+    // Placed after the step's intent phase, where the script asked for it.
+    expect(h.log.placed).toEqual([start, { x: 3, y: 0.91, z: 0 }]); // at the start spawn
     h.tick();
-    expect(h.log.placed).toEqual([start, { x: 3, y: 0.91 }]); // at the start spawn
+    expect(h.log.placed).toEqual([start, { x: 3, y: 0.91, z: 0 }]);
   });
 });
 

@@ -31,7 +31,6 @@ function recorder(): { port: PhysicsPort3D; added: Map<string, StaticColliderSpe
   const added = new Map<string, StaticColliderSpec3D>();
   const r = { port: null as unknown as PhysicsPort3D, added, batches: 0 };
   r.port = {
-    dimension: 3,
     stageCharacterMove: () => undefined,
     step: () => ({}) as never,
     addStaticColliders: (s: readonly StaticColliderSpec3D[]) => {

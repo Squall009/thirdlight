@@ -1,8 +1,8 @@
 /**
  * Stepping a 3D character up a step, the two ways the port does it: its own
  * probe of whether it can stand on what it walks into (and how high that
- * is), which lifts it onto the step at once, and the 2D controller's rule
- * built on the same probe, which rides it up over the step's edge.
+ * is), which lifts it onto the step at once, and the arcade rule built on
+ * the same probe, which rides it up over the step's edge.
  */
 import type * as RAPIER from '@dimforge/rapier3d-compat';
 import type { PhysicsInitConfig3D, PhysicsVec3 } from '@thirdlight/runtime';
@@ -71,14 +71,14 @@ export function createStepUp<B extends StepBody>(deps: {
     }
   };
   /**
-   * The 2D controller's autostep (`autostepRide`), Rapier's stair rule with
+   * The arcade autostep (`autostepRide`), Rapier's stair rule with
    * the port's probe: a grounded character whose sweep met a wall-like
    * contact with some of its move left over, where it could stand on the
    * step, is lifted from where the sweep stopped to touch the step's top,
    * moved on by up to its radius, and the rest of the move (the lift taken
    * back down included) is swept from there — which drops it back onto the
    * edge, so a capsule rides up over a riser across several steps, losing
-   * speed, as in the 2D port. `first`: the sweep's movement. The result for
+   * speed. `first`: the sweep's movement. The result for
    * the whole move, or null (no step there). The capsule is back at `before`
    * afterwards.
    */
