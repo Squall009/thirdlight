@@ -7,7 +7,7 @@
  *
  * The 2D platformer controller's runs of these cases are stored as the
  * reference traces (`fixtures/phase41/platformer-traces`): the platformer
- * movement profile of the 3D controller is measured against them, so the
+ * arcade movement profile of the 3D controller is measured against them, so the
  * levels are authored once in their 2D form and the 3D run gets the same
  * entities (2D boxes and polygons take their 3D form on the 3D backend).
  * Tuning is Sprout-shaped (its run and jump speeds, gravity, capsule and
@@ -203,11 +203,26 @@ function replayOf(c: PlatformerCase): Any[] {
   }));
 }
 
-export function entitiesOf(c: PlatformerCase, dim: 2 | 3, extraController: Record<string, unknown> = {}): Any[] {
+/**
+ * A case's entities. In 3D a climb volume is 1 m deep; with `axis` 'x' the
+ * level stands on the plane x = 0 instead of z = 0: the 2D x runs along −Z
+ * (each collider's plane says so, which turns its outline), so the same
+ * level and moves give the same in-plane trace.
+ */
+export function entitiesOf(c: PlatformerCase, dim: 2 | 3, extraController: Record<string, unknown> = {}, axis: 'z' | 'x' = 'z'): Any[] {
+  const onX = dim === 3 && axis === 'x';
+  const at = (p: readonly number[]): number[] => (onX ? [0, p[1]!, -p[0]!] : [...p]);
+  const place = (e: Any): Any => {
+    const k = { ...e.components, transform: { ...e.components.transform, position: at(e.components.transform.position) } };
+    if (dim === 3 && k.climbVolume !== undefined) k.climbVolume = { size: onX ? [1, k.climbVolume.size[1], k.climbVolume.size[0]] : [...k.climbVolume.size, 1] };
+    if (onX && k.collider !== undefined) k.collider = { ...k.collider, plane: { axis: 'x', origin: 0 } };
+    if (onX && k.mover !== undefined) k.mover = { ...k.mover, waypoints: k.mover.waypoints.map(at) };
+    return { ...e, components: k };
+  };
   return [
-    { id: 'cam-main', components: { transform: { position: [0, 2, 14], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, camera: { type: 'perspective', fovY: 50, near: 0.1, far: 200 } } },
-    { id: 'player-0001', components: { transform: T(c.start[0], c.start[1]), controller: { ...BASE_CONTROLLER, ...(c.controller ?? {}), ...extraController } } },
-    ...c.level.map((e: Any) => (dim === 3 && e.components.climbVolume !== undefined ? { ...e, components: { ...e.components, climbVolume: { size: [...e.components.climbVolume.size, 1] } } } : e)),
+    { id: 'cam-main', components: { transform: { position: onX ? [14, 2, 0] : [0, 2, 14], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, camera: { type: 'perspective', fovY: 50, near: 0.1, far: 200 } } },
+    place({ id: 'player-0001', components: { transform: T(c.start[0], c.start[1]), controller: { ...BASE_CONTROLLER, ...(c.controller ?? {}), ...extraController } } }),
+    ...c.level.map(place),
   ];
 }
 
@@ -217,8 +232,11 @@ export function entitiesOf(c: PlatformerCase, dim: 2 | 3, extraController: Recor
  * the 2D platformer controller; 3: the 3D backend and the 3D controller, its
  * player carrying `extraController` (a movement profile, a plane).
  */
-export async function recordCase(c: PlatformerCase, dim: 2 | 3, extraController: Record<string, unknown> = {}): Promise<{ rows: TraceRow[]; z: number[]; errors: Any[] }> {
-  const entities = entitiesOf(c, dim, extraController);
+export async function recordCase(c: PlatformerCase, dim: 2 | 3, extraController: Record<string, unknown> = {}, axis: 'z' | 'x' = 'z'): Promise<{ rows: TraceRow[]; depth: number[]; errors: Any[] }> {
+  const entities = entitiesOf(c, dim, extraController, axis);
+  // The in-plane x (+X, or −Z on the plane x = 0) and the depth across the plane.
+  const along = (v: { x: number; z?: number }): number => (dim === 3 && axis === 'x' ? -(v.z ?? 0) : v.x);
+  const across = (v: { x: number; z?: number }): number => (dim === 3 && axis === 'x' ? v.x : (v.z ?? 0));
   const settings = dim === 3 ? { ...SETTINGS, physics_dimension: 3 } : SETTINGS;
   const physics = dim === 3 ? physics3DConfigOf(entities, settings) : physics2DConfigOf(entities, settings);
   const h = await startHarness('single', {
@@ -230,25 +248,25 @@ export async function recordCase(c: PlatformerCase, dim: 2 | 3, extraController:
   });
   const rt = h.rt as Any;
   const rows: TraceRow[] = [];
-  const z: number[] = [];
+  const depth: number[] = [];
   const ladder = c.level.find((e: Any) => e.components.climbVolume !== undefined);
   const climbSpeed = typeof c.controller?.['climbSpeed'] === 'number' ? (c.controller['climbSpeed'] as number) : 2;
   const input = inputOf(c);
   rt.setStepWatcher?.(() => {
     const r = rt.controllers.result('player-0001');
     if (r === undefined) return false;
-    const vx = r.requested.x / DT;
+    const vx = along(r.requested) / DT;
     const vy = r.requested.y / DT;
     const at = rows.length;
     const f = input[at] ?? {};
     // A climbing step moves at the climb speed along the ladder's axes, with no gravity in it.
-    const inLadder = ladder !== undefined && Math.abs(r.position.x - ladder.components.transform.position[0]) <= ladder.components.climbVolume.size[0] / 2 && Math.abs(r.position.y - ladder.components.transform.position[1]) <= ladder.components.climbVolume.size[1] / 2;
+    const inLadder = ladder !== undefined && Math.abs(along(r.position) - ladder.components.transform.position[0]) <= ladder.components.climbVolume.size[0] / 2 && Math.abs(r.position.y - ladder.components.transform.position[1]) <= ladder.components.climbVolume.size[1] / 2;
     const climbVel = (v: number): boolean => [0, climbSpeed, -climbSpeed].some((k) => Math.abs(v - k) < 1e-9);
     const prevClimb = rows[at - 1]?.[5] === 'c';
     const climbing = inLadder && climbVel(vx) && climbVel(vy) && (prevClimb || Math.abs(f.moveY ?? 0) >= 0.5) && f.jump !== 'pressed';
     const state: TraceRow[5] = climbing ? 'c' : r.grounded ? 'g' : r.contacts.wall ? 'w' : 'a';
-    rows.push([round(r.position.x), round(r.position.y), round(vx), round(vy), r.grounded ? 1 : 0, state]);
-    z.push(r.position.z ?? 0);
+    rows.push([round(along(r.position)), round(r.position.y), round(vx), round(vy), r.grounded ? 1 : 0, state]);
+    depth.push(across(r.position));
     return false;
   });
   try {
@@ -259,7 +277,7 @@ export async function recordCase(c: PlatformerCase, dim: 2 | 3, extraController:
       await h.tick(now);
     }
     const d = rt.getDiagnostics();
-    return { rows: rows.slice(0, c.steps), z: z.slice(0, c.steps), errors: d.ok ? d.diagnostics.errors : [d] };
+    return { rows: rows.slice(0, c.steps), depth: depth.slice(0, c.steps), errors: d.ok ? d.diagnostics.errors : [d] };
   } finally {
     await h.dispose();
   }

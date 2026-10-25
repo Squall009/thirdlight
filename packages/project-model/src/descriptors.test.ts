@@ -529,7 +529,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
     ...['polygon', 'sphere', 'capsule', 'cylinder', 'convex', 'mesh'].map((type) => ({ shape: { type: 'compound', shapes: [COMPONENT_BASES_PLACED[type]!] } })),
     { shape: { type: 'model' } },
   ],
-  controller: [{ capsule: { radius: 0.3, height: 1.8, offset: [0, 0.1] }, acceleration: 30, deceleration: 50, coyoteTime: 0.1, jumpBuffer: 0.1, jumpRelease: 0.4, groundSnap: 0.2, skin: 0.02, autostep: true, autostepHeight: 0.3, walkSpeed: 2.5, runSpeed: 6, airControl: 0.3, gravityScale: 1.5, turnSpeed: 360, faceMovement: false, moveFrame: 'world', jump: true, jumpSpeed: 5, slopeLimit: 40, stepHeight: 0.5, ledgeClimb: true, ledgeHeight: 1, ledgeClimbTime: 0.4, moveAction: 'walk', jumpAction: 'hop', runAction: 'dash', climbSpeed: 1.5, climbAction: 'climb', wallSlide: true, wallSlideSpeed: 1, wallJump: true, wallJumpAway: 5, wallJumpUp: 6, wallJumpLock: 0.2 }],
+  controller: [{ capsule: { radius: 0.3, height: 1.8, offset: [0, 0.1] }, acceleration: 30, deceleration: 50, coyoteTime: 0.1, jumpBuffer: 0.1, jumpRelease: 0.4, groundSnap: 0.2, skin: 0.02, autostep: true, autostepHeight: 0.3, walkSpeed: 2.5, runSpeed: 6, airControl: 0.3, gravityScale: 1.5, turnSpeed: 360, faceMovement: false, moveFrame: 'world', profile: 'arcade', jump: true, jumpSpeed: 5, slopeLimit: 40, stepHeight: 0.5, ledgeClimb: true, ledgeHeight: 1, ledgeClimbTime: 0.4, moveAction: 'walk', jumpAction: 'hop', runAction: 'dash', climbSpeed: 1.5, climbAction: 'climb', wallSlide: true, wallSlideSpeed: 1, wallJump: true, wallJumpAway: 5, wallJumpUp: 6, wallJumpLock: 0.2 }],
   camera: [{ type: 'perspective', fovY: 60, near: 0.1, far: 100 }],
   // The behavior group an object's script belongs to.
   behaviorGroup: [{ group: 'field' }],
@@ -1052,8 +1052,9 @@ describe('descriptor registry', () => {
     // object's parent part, about 0.7 KB; ground cover on models and architecture, about 0.4 KB; wind zones and the
     // wind's gust pattern fields, about 4.4 KB; the physical sky's cloud cover, density and start, about 1.3 KB; how a
     // subject parts foliage, about 1.3 KB; foliage bases taking the ground's colour, about 0.4 KB; the cylinder collider
-    // shape and a collider's depth for its 2D shapes on the 3D backend, about 1.5 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(350_900);
+    // shape and a collider's depth for its 2D shapes on the 3D backend, about 1.5 KB; the controller's movement
+    // profile, about 0.3 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(351_300);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

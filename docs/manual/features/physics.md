@@ -225,8 +225,8 @@ about it.
 
 The object with the **Player controller** walks, runs, jumps and climbs in a
 3D project. Its settings are fields of the controller (Inspector, 3D projects
-only; the 2D plane's Autostep is hidden there), each with a default that fits
-any genre:
+only; Autostep is the arcade profile's, below), each with a default that
+fits any genre:
 
 - **Movement:** Walk speed (2 m/s), Run speed (absent: the project's run
   speed setting — used while the `run` input action is held), Acceleration /
@@ -250,6 +250,23 @@ any genre:
 
 The step-up and ledge heights have Scene-view handles above the capsule's
 feet (drag up or down; 5 cm snapping; one undo).
+
+**Movement profile** (`profile`, Movement group): **Character** (the
+default, everything above) or **Arcade** (`arcade`) — the 2D controller's
+rules, with its fields meaning what they mean there: one speed
+(the run speed, no walk), Acceleration while below the target speed along an
+axis and Deceleration while above it, in the air as on the ground; releasing
+jump while rising keeps Jump release of the upward speed and ends the jump;
+steps are climbed only with **Autostep** (up to its Step height; the
+character's Step-up height and Ledge climb are not used) and the ground snap
+is as set; a character resting on a slope steeper than the project's slide
+angle slides down it at the run speed; Face movement is off unless set.
+Coyote time, the jump buffer, climbing, wall slide and wall jump, one-way
+platforms and what it stands on carrying it work as for the character.
+Either profile works free in 3D or locked to a plane. On a plane the
+arcade profile reads the move input's x along the plane (+X on a Z plane, −Z on
+an X plane: right for a camera on the plane's positive side, looking back),
+whatever the camera.
 
 **Climbing and walls** (both dimensions, the player controller's
 group of that name): **Climb speed** and **Climb action** (see Climb volume);

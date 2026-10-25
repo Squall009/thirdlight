@@ -184,6 +184,7 @@ with real Rapier on page and worker.
 | 41.0 | Done. three.js 0.186.1 still latest. Rapier 0.21.0 code-compatible (suites green) but not taken: wasm 1974→3010 KiB (soft bodies/FEM), step +25–60 %; pin stays 0.20.0 (0007 §9). Decision 0007 written, 0005 superseded. Baseline (`~/.cache/thirdlight-phase41/baseline.md`): 2D full step p50 small 0.044 / medium 0.105 / script-heavy 0.039 ms; physics-only side-scroller (`run.mjs plane-step`) 2D 0.037 ms (1 level) / 0.056 ms (4), same layout on 3D 0.053 / 0.106 ms (1.4–1.9×); export wasm 2D 1451 KiB (541 gzip), 3D 1974 KiB (744 gzip). No e2e touched. |
 | 41.1 | Done. Plane lock on the 3D port (`plane3d.ts`): statics made/snapped on the plane, movers posed on it, characters' moves and depth held exactly, Rapier locks + position correction for dynamic bodies (port-level: the engine has no dynamic bodies yet). `plane` on collider/controller; `ctx.physics.setPlane/planeOf`, `ctx.character.setPlane`, applied at step boundaries. Tests: port (lock/unlock/re-lock, mover, dynamic stack, two runs equal), model, integration page+worker+2 page runs digests equal. `plane-step` p50 1 level 3D 0.052 → plane-locked 0.057 ms, 4 levels 0.109 → 0.113 ms (2D 0.037 / 0.061). No e2e touched; fast gate green (9 min). |
 | 41.2 | Done. `shape2DTo3D` (project-model `shape-2d-3d.ts`, the mapping 41.5's upgrade calls, with a change list per converted shape): box without `hz` → box `depth` deep (collider `depth`, default 1 m), polygon → convex prism or compound of prisms (`convexPieces`: ear clipping + Hertel–Mehlhorn, deterministic, ≤ 32 corners), circle → `cylinder` (new 3D primitive in model, runtime and port) along the plane normal. 3D projects take depthless boxes, polygons and `oneWay`. One-way on the 3D port (`oneway3d.ts`): the character sweep filter and drop-through (`dropThrough`, down + jump routed to the 3D port), and `OneWayContacts` hooks for dynamic bodies (port-level). Tests: model (decomposition L/U/comb tile exactly, cylinder axis Z/X), port (land from above, pass from below and the side, drop-through, free and on a plane, turned one-way wall, dynamic ball, cylinders), integration 2D port vs plane-locked 3D port on box/ramp/concave/one-way (worst 5.8 mm, tolerance 10 mm), game host 3D project shelf + drop-through + prism ramp. `plane-step` p50 plane-locked 1 level 0.057 → 0.055 ms, 4 levels 0.113 → 0.115 ms (noise). No e2e touched; fast gate (colliders, physics-3d) green, 9 min (D307 watch hit once, passed alone). |
+| 41.3 A | Done (part A). Reference traces of the 2D controller (`fixtures/phase41/platformer-traces/`, 11 Sprout-tuned side-view cases: jump apex/hop, run, slopes, slope slide, stairs+autostep, wall slide/jump, ladder, one-way+drop-through, lift, sideways platform, coyote+buffer; per step x, y, vx, vy, grounded, state; `tests/integration/m41-platformer/`, reproduced exactly, `TL_RECORD_TRACES=1` re-records). `profile: 'arcade'` on the 3D controller (`runtime/src/character-arcade.ts`): the 2D algorithm in its order on the 3D port, same tuning fields. Plane-locked vs the traces, worst in-plane: jump 8 mm, run 14, slopes 10, slide 8, walls 2, climb 7, one-way 2, coyote/buffer 1.3, side platform 33 (carry a step early), lift 64 (walk-off), stairs 1.0 m (3D step-up climbs earlier) — part B's to fix. X plane = Z plane within 10.2 mm. No e2e touched. |
 
 ## 5. Decision log
 
@@ -234,3 +235,22 @@ with real Rapier on page and worker.
   Rapier runs hooks only in a step with an event queue. Not done here: 3D spawn clearance still counts
   one-way colliders (the 2D probe ignores them; 41.3), and the editor draws a depthless box or polygon
   in a 3D project as its 2D outline (41.5).
+- 2026-10-25 (41.3): default chosen, owner to confirm: the movement profile is `controller.profile`,
+  `character` (default) or `arcade`. "platformer" is genre vocabulary the engine's boundary check
+  refuses in package source; `arcade` names the feel (one speed, the same acceleration in the air, a
+  jump cut that ends the rise). The arcade profile reads the 2D controller's fields with their
+  meanings (acceleration, deceleration, coyoteTime, jumpBuffer, jumpRelease, groundSnap, skin,
+  autostep, autostepHeight, climb and wall fields), so 41.5's upgrade only adds `profile: 'arcade'`;
+  it ignores walkSpeed, airControl, stepHeight and ledge climb, does not raise the ground snap to the
+  step height, and does not face its movement unless `faceMovement` is set. The Inspector now shows
+  Autostep in 3D projects too.
+- 2026-10-25 (41.3): default chosen, owner to confirm: on a plane the arcade profile reads the move
+  input's x along the plane's right (+X on a Z plane, −Z on an X plane), whatever the camera; free in
+  3D it reads the move as the character profile does (`moveFrame`). Its acceleration rule (up while
+  below the target, down while above) runs per axis on +X and −Z, so a Z plane and an X plane move alike.
+- 2026-10-25 (41.3): free in 3D the arcade profile presses a resting character down by one step of
+  gravity, as the character profile does (without it a free runner sank 3.7 cm into the floor); on a
+  plane it stages none, as the 2D controller did (the press moved ledge and stair timing up to 0.9 m).
+  D321: free, a drop-through of a 1 m deep one-way shelf pushes the character 0.5 m along the depth.
+  Not done in A: 3D spawn clearance still counts one-way colliders (41.2's note), the parity suite.
+

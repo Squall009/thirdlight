@@ -245,6 +245,8 @@ export interface ControllerComponent {
   faceMovement?: boolean;
   /** 3D: what the move input is relative to — the live camera's heading or the world axes (absent: `view`). */
   moveFrame?: 'view' | 'world';
+  /** 3D: the movement profile — `character` (walk/run, air control, step-up, ledges) or `arcade` (the 2D plane controller's rules: run speed only, autostep, the slide policy) (absent: `character`). */
+  profile?: 'character' | 'arcade';
   /** The input action that moves it (absent: `move`). */
   moveAction?: string;
   /** The input action that makes it jump (absent: `jump`). */

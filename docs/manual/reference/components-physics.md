@@ -118,8 +118,8 @@ Makes this object the player: it runs, jumps and collides with a capsule.
 | `jumpRelease` | number | `0.5` | 0 – 1, step 0.05, × | **Jump release.** Share of the upward speed kept when jump is released early (1: a fixed jump height). (scripts read) |
 | `groundSnap` | number | `0.1` | 0 – 1, step 0.01, m | **Ground snap.** Pulls the character down onto ground this close below it (walking down slopes and bumps). (scripts read) |
 | `skin` | number | `0.01` | 0.001 – 0.1, step 0.001, m | **Skin.** The small gap the character keeps from walls and floors. (scripts read) |
-| `autostep` | bool | `false` |  | **Autostep.** Climb low steps without jumping. (2D projects only; scripts read) |
-| `autostepHeight` | number | `0.25` | 0.01 – 2, step 0.01, m | **Step height.** The highest step it climbs. (applies when `autostep` is `true`; 2D projects only; scripts read) |
+| `autostep` | bool | `false` |  | **Autostep.** Climb low steps without jumping (arcade profile; a character uses its step-up height). (scripts read) |
+| `autostepHeight` | number | `0.25` | 0.01 – 2, step 0.01, m | **Step height.** The highest step it climbs. (applies when `autostep` is `true`; scripts read) |
 | `walkSpeed` | number | `2` | 0 – 50, step 0.1, m/s | **Walk speed.** Speed with the move input fully pushed (2: a brisk walk). (3D projects only; scripts read) |
 | `runSpeed` | number |  | 0 – 50, step 0.1, m/s | **Run speed.** Speed while the "run" input action is held (absent: the project run speed setting). (3D projects only; scripts read) |
 | `airControl` | number | `0.5` | 0 – 1, step 0.05, × | **Air control.** Share of the acceleration it has in the air (0: no steering mid-jump, 1: as on the ground). (3D projects only; scripts read) |
@@ -127,6 +127,7 @@ Makes this object the player: it runs, jumps and collides with a capsule.
 | `turnSpeed` | number | `720` | 0 – 36000, step 10, deg/s | **Turn speed.** How fast it turns to face where it moves (0: at once). (3D projects only; scripts read) |
 | `faceMovement` | bool | `true` |  | **Face movement.** Turn the object about its up axis to face the direction it moves (its +Z forward). (3D projects only; scripts read) |
 | `moveFrame` | enum: `view`, `world` | `"view"` |  | **Move relative to.** What the move input is read against: the live camera's heading (up walks away from the camera; world axes while no camera is live) or the world axes (up pushes along −Z, right along +X). (3D projects only; scripts read; choices: `view` = Camera, `world` = World axes) |
+| `profile` | enum: `character`, `arcade` | `"character"` |  | **Movement profile.** A walking character (walk and run speeds, air control, step-up) or arcade (one run speed, autostep, a jump cut on release). Either works free or on a plane. (3D projects only; scripts read) |
 | `jump` | bool | `true` |  | **Can jump.** The jump input makes it jump (off: a character that only walks). (3D projects only; scripts read) |
 | `jumpSpeed` | number |  | 0 – 50, step 0.1, m/s | **Jump speed.** Upward speed at a jump (absent: the project jump velocity setting). (applies when `jump` is `true`; 3D projects only; scripts read) |
 | `slopeLimit` | number |  | 1 – 89, step 1, deg | **Slope limit.** The steepest slope it walks up (absent: the project max_slope_climb_deg setting). (3D projects only; scripts read) |

@@ -421,6 +421,25 @@ export const DEFAULT_CHARACTER_3D: Readonly<{
 export const CHARACTER_MOVE_FRAMES = ['view', 'world'] as const;
 export type CharacterMoveFrame = (typeof CHARACTER_MOVE_FRAMES)[number];
 
+/**
+ * How a controller moves (its movement profile; either works free in 3D or
+ * locked to a plane):
+ * - `character` — a walking character: walk and run speeds, less control in
+ *   the air, steps up to `stepHeight`, optional ledge climbs, the slope it
+ *   cannot stand on slides it down;
+ * - `arcade` — the 2D plane controller's rules: one run speed (the project's
+ *   `run_speed`, or `runSpeed`), the acceleration and deceleration on the
+ *   ground and in the air alike, a jump cut by releasing early that also ends
+ *   the jump's rise, steps climbed only with `autostep` (up to
+ *   `autostepHeight`) and the ground snap as set, a character resting on a
+ *   slope steeper than the slide angle slides down at the run speed, and it
+ *   does not turn to face its movement (absent `faceMovement`). On a plane
+ *   the move input's x runs along the plane (+X on a Z plane, −Z on an X
+ *   plane: right for a camera on the plane's positive side).
+ */
+export const CONTROLLER_PROFILES = ['character', 'arcade'] as const;
+export type ControllerProfile = (typeof CONTROLLER_PROFILES)[number];
+
 type Character3DNumberKey = 'walkSpeed' | 'runSpeed' | 'airControl' | 'gravityScale' | 'jumpSpeed' | 'slopeLimit' | 'stepHeight' | 'ledgeHeight' | 'ledgeClimbTime' | 'turnSpeed';
 
 /** The 3D settings' ranges (a step-up below 0.01 m is off; a turn speed of 0 turns at once). */
@@ -438,7 +457,7 @@ export const CHARACTER_3D_LIMITS: Readonly<Record<Character3DNumberKey, { readon
 });
 
 /** The 3D character fields, in canonical order (after the tuning fields). */
-export const CONTROLLER_3D_FIELDS = ['walkSpeed', 'runSpeed', 'airControl', 'gravityScale', 'jump', 'jumpSpeed', 'slopeLimit', 'stepHeight', 'ledgeClimb', 'ledgeHeight', 'ledgeClimbTime', 'turnSpeed', 'faceMovement', 'moveFrame'] as const;
+export const CONTROLLER_3D_FIELDS = ['walkSpeed', 'runSpeed', 'airControl', 'gravityScale', 'jump', 'jumpSpeed', 'slopeLimit', 'stepHeight', 'ledgeClimb', 'ledgeHeight', 'ledgeClimbTime', 'turnSpeed', 'faceMovement', 'moveFrame', 'profile'] as const;
 const CONTROLLER_3D_BOOLEANS: readonly string[] = ['jump', 'ledgeClimb', 'faceMovement'];
 
 /**
@@ -555,6 +574,7 @@ export interface Character3DSettings {
   turnSpeed: number;
   faceMovement: boolean;
   moveFrame: CharacterMoveFrame;
+  profile: ControllerProfile;
 }
 
 /**
@@ -571,7 +591,9 @@ export function character3DSettingsOf(controller: unknown, settings: { run_speed
     return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
   };
   const bool = (k: string, fallback: boolean): boolean => (typeof c[k] === 'boolean' ? (c[k] as boolean) : fallback);
-  const stepHeight = num('stepHeight', d.stepHeight);
+  const profile: ControllerProfile = c['profile'] === 'arcade' ? 'arcade' : 'character';
+  // The arcade profile steps up only with autostep (its own height) and keeps its ground snap as set.
+  const stepHeight = profile === 'arcade' ? (t.autostep ? t.autostepHeight : 0) : num('stepHeight', d.stepHeight);
   return {
     walkSpeed: num('walkSpeed', d.walkSpeed),
     runSpeed: num('runSpeed', settings.run_speed),
@@ -586,15 +608,16 @@ export function character3DSettingsOf(controller: unknown, settings: { run_speed
     jumpBuffer: t.jumpBuffer,
     jumpRelease: t.jumpRelease,
     slopeLimit: num('slopeLimit', settings.max_slope_climb_deg),
-    groundSnap: Math.min(1, Math.max(t.groundSnap, stepHeight)),
+    groundSnap: profile === 'arcade' ? t.groundSnap : Math.min(1, Math.max(t.groundSnap, stepHeight)),
     skin: t.skin,
     stepHeight: stepHeight >= 0.01 ? stepHeight : 0,
     ledgeClimb: bool('ledgeClimb', d.ledgeClimb),
     ledgeHeight: num('ledgeHeight', d.ledgeHeight),
     ledgeClimbTime: num('ledgeClimbTime', d.ledgeClimbTime),
     turnSpeed: num('turnSpeed', d.turnSpeed),
-    faceMovement: bool('faceMovement', d.faceMovement),
+    faceMovement: bool('faceMovement', profile === 'arcade' ? false : d.faceMovement),
     moveFrame: (CHARACTER_MOVE_FRAMES as readonly unknown[]).includes(c['moveFrame']) ? (c['moveFrame'] as CharacterMoveFrame) : d.moveFrame,
+    profile,
   };
 }
 
@@ -674,6 +697,7 @@ export function validateControllerComponent(c: unknown, path: string, errors: Mo
   }
   for (const key of CONTROLLER_3D_BOOLEANS) if (c[key] !== undefined && typeof c[key] !== 'boolean') errors.push(fieldType(`${path}/${key}`, c[key], 'boolean'));
   if (c['moveFrame'] !== undefined && !(CHARACTER_MOVE_FRAMES as readonly unknown[]).includes(c['moveFrame'])) errors.push(fieldValue(`${path}/moveFrame`, c['moveFrame'], CHARACTER_MOVE_FRAMES.join(' | '), 'controller moveFrame is view or world'));
+  if (c['profile'] !== undefined && !(CONTROLLER_PROFILES as readonly unknown[]).includes(c['profile'])) errors.push(fieldValue(`${path}/profile`, c['profile'], CONTROLLER_PROFILES.join(' | '), 'controller profile is character or arcade'));
   // Climbing and walls.
   for (const [key, lim] of Object.entries(CONTROLLER_MOVEMENT_LIMITS)) {
     const v = c[key];

@@ -23,7 +23,9 @@
  * same positions in the page, the simulation worker and the export.
  */
 import { CONTROLLER_ACTION_DEFAULTS, character3DSettingsOf, controllerActionsOf, controllerCapsuleOf, controllerCapsuleOffsetZ, controllerMovementOf } from '@thirdlight/project-model';
-import { actionAxis, actionPhase } from './actions';
+import { actionPhase } from './actions';
+import { CLIMB_GRAB_INPUT, climbInputOf, moveOf, originOf, turnToward, writeFacing, yawOf, type Character3DStatus, type ControllerOne } from './character-moves';
+import { createArcadeOne } from './character-arcade';
 
 import type { ControllerIntents } from './intents';
 import type { CharacterMoveResult3D, PhysicsVec3 } from './ports';
@@ -36,15 +38,7 @@ export const CHARACTER_3D_MODULE_ID = 'thirdlight.character3d:controller';
 /** The name of the input action that switches walking to running while held (a controller's `runAction` default). */
 export const RUN_ACTION = CONTROLLER_ACTION_DEFAULTS.runAction;
 
-/** What the controller reports about itself (the runtime's `characterState` reads it). */
-export interface Character3DStatus {
-  readonly enabled: boolean;
-  readonly climbing: boolean;
-  /** The climb volume it holds on to (null: none). */
-  readonly climbVolume: string | null;
-  /** Radians about +Y, 0 facing +Z. */
-  readonly yaw: number;
-}
+export type { Character3DStatus } from './character-moves';
 
 interface Climb {
   /** Planned origins: start, the top of the rise, the end on the ledge. */
@@ -56,19 +50,6 @@ interface Climb {
   step: number;
 }
 
-const TAU = Math.PI * 2;
-
-/** How far the climb input must be pushed to take hold of a climb volume (the 2D controller's `CLIMB_GRAB_INPUT`). */
-const CLIMB_GRAB_INPUT = 0.5;
-
-/** The shortest signed angle from `a` to `b` (radians, in (−π, π]). */
-function angleDelta(a: number, b: number): number {
-  let d = (b - a) % TAU;
-  if (d > Math.PI) d -= TAU;
-  if (d <= -Math.PI) d += TAU;
-  return d;
-}
-
 /** Move the 2D vector `v` toward `t` by at most `maxDelta` (never overshoots). */
 function approach2(vx: number, vz: number, tx: number, tz: number, maxDelta: number): [number, number] {
   const dx = tx - vx;
@@ -76,13 +57,6 @@ function approach2(vx: number, vz: number, tx: number, tz: number, maxDelta: num
   const d = Math.hypot(dx, dz);
   if (d <= maxDelta || d === 0) return [tx, tz];
   return [vx + (dx / d) * maxDelta, vz + (dz / d) * maxDelta];
-}
-
-/** The yaw (about +Y) of an upright rotation quaternion [x, y, z, w]. */
-function yawOf(q: readonly number[]): number {
-  const y = q[1] ?? 0;
-  const w = q[3] ?? 1;
-  return 2 * Math.atan2(y, w);
 }
 
 /** Every player controller among entities, in their order (several share a view in local co-op; none: a game without a player yet). */
@@ -107,7 +81,7 @@ const NO_INTENTS: ControllerIntents = Object.freeze({ move: null, jump: null });
 export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleConfig): SimulationPhaseModule & { character3DStatus(id?: string): Character3DStatus | null } {
   if (cfg.physicsDimension !== 3) throw new Error(`${CHARACTER_3D_MODULE_ID} runs in a 3D project (physics_dimension 3)`);
   if (!(cfg.fixedStepHz > 0) || !Number.isFinite(cfg.fixedStepHz)) throw new Error(`${CHARACTER_3D_MODULE_ID} requires a positive fixedStepHz`);
-  const all = findControllers(snapshot.scene.entities).map((found) => createOne(found, cfg));
+  const all = findControllers(snapshot.scene.entities).map((found) => controllerOf(found, cfg));
   // A new list when a player arrives: the runtime checks the new owners.
   let owners: readonly string[] = all.map((one) => one.id);
   return {
@@ -117,7 +91,7 @@ export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleCo
     sceneLoaded(entities): void {
       const arrived = findControllers(entities).filter((found) => !all.some((one) => one.id === found.id));
       if (arrived.length === 0) return;
-      for (const found of arrived) all.push(createOne(found, cfg));
+      for (const found of arrived) all.push(controllerOf(found, cfg));
       owners = all.map((one) => one.id);
     },
     step(phase, ctx): void {
@@ -147,11 +121,13 @@ export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleCo
   };
 }
 
-/** One player controller of the module: its state between steps, and its controller and transform phases. */
-function createOne(
-  found: { id: string; controller: unknown; rotation: readonly number[] },
-  cfg: ModuleConfig,
-): { id: string; controllerStep(ctx: StepContext, intents: ControllerIntents): void; transformStep(ctx: StepContext): void; restart(): void; status(): Character3DStatus } {
+/** One player controller with the movement profile its data names. */
+function controllerOf(found: { id: string; controller: unknown; rotation: readonly number[] }, cfg: ModuleConfig): ControllerOne {
+  return character3DSettingsOf(found.controller, cfg.settings).profile === 'arcade' ? createArcadeOne(found, cfg) : createOne(found, cfg);
+}
+
+/** One player controller of the character profile: its state between steps, and its controller and transform phases. */
+function createOne(found: { id: string; controller: unknown; rotation: readonly number[] }, cfg: ModuleConfig): ControllerOne {
   const { id: charId, controller, rotation } = found;
   const hz = cfg.fixedStepHz;
   const dt = 1 / hz;
@@ -194,11 +170,6 @@ function createOne(
   let climb: Climb | null = null;
   let prev: CharacterMoveResult3D | undefined;
 
-  const originOf = (ctx: StepContext): PhysicsVec3 => {
-    const t = ctx.state.curr.get(charId);
-    return t !== undefined ? { x: t.position[0], y: t.position[1], z: t.position[2] } : { x: 0, y: 0, z: 0 };
-  };
-
   /** A ledge in `dir` (unit, horizontal) the character can climb from `o`, or null. */
   const findLedge = (o: PhysicsVec3, dir: { x: number; z: number }): Climb | null => {
     if (queries === undefined) return null;
@@ -237,15 +208,6 @@ function createOne(
     return { x: c.top.x + (c.to.x - c.top.x) * f, y: c.top.y, z: c.top.z + (c.to.z - c.top.z) * f };
   };
 
-  /** The climb input — the climb action's value (or y), else the move action's y (a script's control_move: its y). */
-  const climbInputOf = (ctx: StepContext, intents: ControllerIntents): number => {
-    // A cutscene's hold (or a walk) keeps the player's climb input from the character too.
-    if (intents.inputHeld === true) return 0;
-    if (M.climbAction === null) return intents.move !== null ? (intents.moveY ?? 0) : actionAxis(ctx.action, names.move)[1];
-    const a = ctx.action.actions?.[M.climbAction];
-    return a === undefined ? 0 : (a.y ?? a.v);
-  };
-
   const controllerStep = (ctx: StepContext, intents: ControllerIntents): void => {
     if (intents.characterEnabled !== undefined && intents.characterEnabled !== null) enabled = intents.characterEnabled;
     if (intents.characterPlace !== undefined && intents.characterPlace !== null) {
@@ -266,7 +228,7 @@ function createOne(
     }
     // A placement that faces a spawn's yaw.
     if (typeof intents.characterYaw === 'number' && Number.isFinite(intents.characterYaw)) yaw = intents.characterYaw;
-    const o = originOf(ctx);
+    const o = originOf(ctx, charId);
     // The plane it is locked to: its speed along the normal is dropped, so none is kept for when it is freed.
     const plane = ctx.physics.planeOf?.(charId) ?? null;
     const keepToPlane = (): void => {
@@ -294,32 +256,15 @@ function createOne(
 
     // The move: a script's world direction, else the input vector turned by the camera's yaw.
     const action = ctx.action;
-    let dx: number;
-    let dz: number;
-    let run: boolean;
-    const cm = intents.characterMove;
-    if (cm !== undefined && cm !== null) {
-      dx = cm.x;
-      dz = cm.z;
-      run = cm.run;
-    } else {
-      const [ax, ay] = actionAxis(action, names.move);
-      const mx = intents.move ?? ax;
-      const my = intents.move !== null ? (intents.moveY ?? 0) : ay;
-      const camYaw = S.moveFrame === 'view' && typeof ctx.cameraYaw === 'number' && Number.isFinite(ctx.cameraYaw) ? ctx.cameraYaw : 0;
-      const c = Math.cos(camYaw);
-      const s = Math.sin(camYaw);
-      // right = (cos, 0, −sin), forward = (−sin, 0, −cos): at yaw 0, x → +X and y → −Z.
-      dx = mx * c - my * s;
-      dz = -mx * s - my * c;
-      const r = action.actions?.[names.run]?.p;
-      run = r === 'pressed' || r === 'held';
-    }
+    const move = moveOf(ctx, intents, names, S.moveFrame);
+    let dx = move.dx;
+    let dz = move.dz;
+    const run = move.run;
     // Climbing — inside a climb volume the climb input moves it along the volume's up axis and the
     // move input across it (its part along the volume's across axis), at the climb speed, without gravity; a
     // jump press leaves (with a jump when it can jump), and so does moving out of the volume.
     const vol = ctx.climb?.volume(charId) ?? null;
-    const climbY = climbInputOf(ctx, intents);
+    const climbY = climbInputOf(ctx, intents, names.move, M.climbAction);
     const jumpPhase = intents.jump ?? actionPhase(action, names.jump);
     let leapt = false;
     if (climbing !== null && vol === null) climbing = null;
@@ -441,12 +386,7 @@ function createOne(
     }
 
     // Facing: turn toward the way it is pushed.
-    if (S.faceMovement && mag > 1e-3) {
-      const want = Math.atan2(ux, uz);
-      const d = angleDelta(yaw, want);
-      yaw = Math.abs(d) <= turnStep ? want : yaw + Math.sign(d) * turnStep;
-      yaw = angleDelta(0, yaw);
-    }
+    if (S.faceMovement && mag > 1e-3) yaw = turnToward(yaw, ux, uz, turnStep);
 
     // A ledge: pushing into a wall (the last step blocked the way it goes) with a climbable top ahead.
     if (S.ledgeClimb && mag > 0.1 && prev !== undefined && prev.contacts.wall && !jumped) {
@@ -491,19 +431,7 @@ function createOne(
         }
       }
     }
-    if (S.faceMovement) {
-      const t = ctx.state.curr.get(charId);
-      if (t !== undefined) {
-        const qy = Math.sin(yaw / 2);
-        const qw = Math.cos(yaw / 2);
-        if (t.rotation[0] !== 0 || t.rotation[1] !== qy || t.rotation[2] !== 0 || t.rotation[3] !== qw) {
-          t.rotation[0] = 0;
-          t.rotation[1] = qy;
-          t.rotation[2] = 0;
-          t.rotation[3] = qw;
-        }
-      }
-    }
+    if (S.faceMovement) writeFacing(ctx, charId, yaw);
   };
 
   /** A run restart: everything as when the module was created (the authored facing, the coyote window full, switched on). */

@@ -1,7 +1,7 @@
 /** Climb volumes, gravity bodies and the controller's climb and wall fields in the model. */
 import { describe, expect, it } from 'vitest';
 
-import { canonicalController, controllerMovementOf, validateControllerComponent } from './components';
+import { canonicalController, character3DSettingsOf, controllerMovementOf, validateControllerComponent } from './components';
 import type { ModelErrorV2 } from './errors';
 import { validateSceneV4 } from './scene-v3';
 
@@ -43,5 +43,19 @@ describe('climb volumes and wall moves in the model', () => {
     expect(controllerMovementOf({})).toEqual({ climbSpeed: 2, climbAction: null, wallSlide: false, wallSlideSpeed: 2, wallJump: false, wallJumpAway: null, wallJumpUp: null, wallJumpLock: null });
     expect(Object.keys(canonicalController({ wallJump: true, climbSpeed: 3, moveAction: 'walk', skin: 0.02 }))).toEqual(['skin', 'moveAction', 'climbSpeed', 'wallJump']);
     expect(JSON.stringify(canonicalController({ skin: 0.02 }))).toBe('{"skin":0.02}');
+  });
+
+  it('the movement profile: character by default; arcade steps up by autostep, keeps its ground snap and does not turn', () => {
+    const errors: ModelErrorV2[] = [];
+    validateControllerComponent({ profile: 'runner' }, '/c', errors, 4);
+    expect(errors.map((e) => e.path)).toEqual(['/c/profile']);
+    const settings = { run_speed: 6.75, jump_velocity: 9.9, gravity_y: -19.62, max_fall_speed: -24, max_slope_climb_deg: 45 };
+    const character = character3DSettingsOf({}, settings);
+    expect([character.profile, character.stepHeight, character.groundSnap, character.faceMovement]).toEqual(['character', 0.3, 0.3, true]);
+    const arcade = character3DSettingsOf({ profile: 'arcade' }, settings);
+    expect([arcade.profile, arcade.stepHeight, arcade.groundSnap, arcade.faceMovement]).toEqual(['arcade', 0, 0.1, false]);
+    const stepping = character3DSettingsOf({ profile: 'arcade', autostep: true, autostepHeight: 0.25, stepHeight: 0.5, faceMovement: true }, settings);
+    expect([stepping.stepHeight, stepping.groundSnap, stepping.faceMovement]).toEqual([0.25, 0.1, true]);
+    expect(Object.keys(canonicalController({ profile: 'arcade', moveAction: 'walk', moveFrame: 'world' }))).toEqual(['moveFrame', 'profile', 'moveAction']);
   });
 });

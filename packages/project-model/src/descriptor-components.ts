@@ -11,6 +11,7 @@ import {
   CAPSULE_LIMITS,
   CHARACTER_3D_LIMITS,
   CHARACTER_MOVE_FRAMES,
+  CONTROLLER_PROFILES,
   COLLIDER_3D_LIMITS,
   CONTROLLER_ACTION_DEFAULTS,
   CONTROLLER_MOVEMENT_LIMITS,
@@ -296,9 +297,9 @@ export const controller: ComponentDescriptor = {
     num('jumpRelease', 'Jump release', 'Share of the upward speed kept when jump is released early (1: a fixed jump height).', { group: 'Jump', ...TL.jumpRelease, step: 0.05, unit: '×', default: CT.jumpRelease }),
     num('groundSnap', 'Ground snap', 'Pulls the character down onto ground this close below it (walking down slopes and bumps).', { group: 'Collision', ...TL.groundSnap, step: 0.01, unit: 'm', default: CT.groundSnap }),
     num('skin', 'Skin', 'The small gap the character keeps from walls and floors.', { group: 'Collision', ...TL.skin, step: 0.001, unit: 'm', default: CT.skin }),
-    // The 2D plane's autostep; a 3D character steps up with `stepHeight` instead.
-    bool('autostep', 'Autostep', 'Climb low steps without jumping.', { group: 'Collision', default: CT.autostep, dimension: 2 }),
-    num('autostepHeight', 'Step height', 'The highest step it climbs.', { group: 'Collision', when: when('autostep', true), ...TL.autostepHeight, step: 0.01, unit: 'm', default: CT.autostepHeight, dimension: 2 }),
+    // Autostep (the 2D plane's, and a 3D controller's arcade profile); the character profile steps up with `stepHeight` instead.
+    bool('autostep', 'Autostep', 'Climb low steps without jumping (arcade profile; a character uses its step-up height).', { group: 'Collision', default: CT.autostep }),
+    num('autostepHeight', 'Step height', 'The highest step it climbs.', { group: 'Collision', when: when('autostep', true), ...TL.autostepHeight, step: 0.01, unit: 'm', default: CT.autostepHeight }),
     // The 3D character (physics_dimension 3; a 2D plane ignores these).
     num('walkSpeed', 'Walk speed', 'Speed with the move input fully pushed (2: a brisk walk).', { group: 'Movement', ...C3L.walkSpeed, step: 0.1, unit: 'm/s', default: C3.walkSpeed, dimension: 3 }),
     num('runSpeed', 'Run speed', 'Speed while the "run" input action is held (absent: the project run speed setting).', { group: 'Movement', ...C3L.runSpeed, step: 0.1, unit: 'm/s', dimension: 3 }),
@@ -307,6 +308,7 @@ export const controller: ComponentDescriptor = {
     num('turnSpeed', 'Turn speed', 'How fast it turns to face where it moves (0: at once).', { group: 'Movement', ...C3L.turnSpeed, step: 10, unit: 'deg/s', default: C3.turnSpeed, dimension: 3 }),
     bool('faceMovement', 'Face movement', 'Turn the object about its up axis to face the direction it moves (its +Z forward).', { group: 'Movement', default: C3.faceMovement, dimension: 3 }),
     enm('moveFrame', 'Move relative to', 'What the move input is read against: the live camera\'s heading (up walks away from the camera; world axes while no camera is live) or the world axes (up pushes along −Z, right along +X).', CHARACTER_MOVE_FRAMES, { group: 'Movement', default: C3.moveFrame, labels: { view: 'Camera', world: 'World axes' }, dimension: 3 }),
+    enm('profile', 'Movement profile', 'A walking character (walk and run speeds, air control, step-up) or arcade (one run speed, autostep, a jump cut on release). Either works free or on a plane.', CONTROLLER_PROFILES, { group: 'Movement', default: 'character', labels: { character: 'Character', arcade: 'Arcade' }, dimension: 3 }),
     bool('jump', 'Can jump', 'The jump input makes it jump (off: a character that only walks).', { group: 'Jump', default: C3.jump, dimension: 3 }),
     num('jumpSpeed', 'Jump speed', 'Upward speed at a jump (absent: the project jump velocity setting).', { group: 'Jump', when: when('jump', true), ...C3L.jumpSpeed, step: 0.1, unit: 'm/s', dimension: 3 }),
     num('slopeLimit', 'Slope limit', 'The steepest slope it walks up (absent: the project max_slope_climb_deg setting).', { group: 'Collision', ...C3L.slopeLimit, step: 1, unit: 'deg', dimension: 3 }),
