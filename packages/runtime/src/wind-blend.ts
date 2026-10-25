@@ -21,8 +21,15 @@ import { ENVIRONMENT_EASINGS, easeEnvironment, type EnvironmentEasing } from './
 /** A script's wind: any of the wind's fields, laid over the scene's. */
 export type WindPatch = Partial<WindConfig>;
 
-/** Script winds alive at once (each change adds one until its weight is gone). */
-const MAX_WIND_PATCHES = 16;
+/**
+ * The least share a wind keeps when a change starts a new blend: lighter
+ * ones are let go (the rest scaled up to make the whole, a change of the
+ * wind far below what shows). Scripts may change the wind as often as they
+ * like; the winds alive at once are bounded by this share, not by a count.
+ */
+const WIND_SHARE_MIN = 1e-4;
+/** The most winds a share list (a save's included) can hold with every share at least {@link WIND_SHARE_MIN}, the scene's and the target's added. */
+const WIND_SHARES_MAX = Math.ceil(1 / WIND_SHARE_MIN) + 2;
 
 /** What the renderer reads: each wind's share now ([patch, weight]; a null patch is the scene's own wind). */
 export type WindBlendView = readonly (readonly [WindPatch | null, number])[];
@@ -52,6 +59,20 @@ export interface WindChangeOptions {
 }
 
 const sorted = (m: ReadonlyMap<string, number>): [string, number][] => [...m.entries()].filter(([, w]) => w > 0).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+
+/** A blend's shares less those under {@link WIND_SHARE_MIN}, the rest scaled to the same whole. */
+function keptShares(shares: ReadonlyMap<string, number>): Map<string, number> {
+  let total = 0;
+  let kept = 0;
+  for (const w of shares.values()) {
+    total += w;
+    if (w >= WIND_SHARE_MIN) kept += w;
+  }
+  const out = new Map<string, number>();
+  if (!(kept > 0)) return new Map(shares);
+  for (const [k, w] of shares) if (w >= WIND_SHARE_MIN) out.set(k, (w * total) / kept);
+  return out;
+}
 
 /** A patch checked as a wind: its fields over the defaults must make a valid wind. */
 export function windPatchError(patch: unknown): string | null {
@@ -114,17 +135,13 @@ export class WindBlend {
         this.warn(`ctx.environment.setWind: ${problem}`);
         return false;
       }
-      if (this.patches.size >= MAX_WIND_PATCHES) {
-        this.warn(`ctx.environment.setWind: at most ${MAX_WIND_PATCHES} winds may blend at once`);
-        return false;
-      }
       this.serial += 1;
       key = `w${this.serial}`;
       this.patches.set(key, Object.freeze(JSON.parse(JSON.stringify(merged)) as WindPatch));
     }
     this.used = true;
     this.target = key;
-    this.transition = { from: new Map(this.curr), to: new Map([[key, 1]]), elapsed: 0, total: Math.round(seconds * this.hz), easing };
+    this.transition = { from: keptShares(this.curr), to: new Map([[key, 1]]), elapsed: 0, total: Math.round(seconds * this.hz), easing };
     this.viewCache = null;
     return true;
   }
@@ -191,12 +208,12 @@ export class WindBlend {
   checkState(value: unknown): string | null {
     if (value === undefined || value === null) return null;
     const v = value as Partial<WindSaveState>;
-    const weightsOk = (list: unknown): boolean => Array.isArray(list) && list.length <= MAX_WIND_PATCHES + 1 && list.every((e) => Array.isArray(e) && e.length === 2 && typeof e[0] === 'string' && typeof e[1] === 'number' && Number.isFinite(e[1]) && e[1] >= 0 && e[1] <= 1);
+    const weightsOk = (list: unknown): boolean => Array.isArray(list) && list.length <= WIND_SHARES_MAX && list.every((e) => Array.isArray(e) && e.length === 2 && typeof e[0] === 'string' && typeof e[1] === 'number' && Number.isFinite(e[1]) && e[1] >= 0 && e[1] <= 1);
     if (typeof v !== 'object' || !weightsOk(v.weights)) return 'the wind section holds weights [[key, 0–1], …]';
     if (typeof v.target !== 'string' || !Number.isInteger(v.serial) || (v.serial as number) < 0) return 'the wind section holds a target key and a serial';
     const t = v.transition;
     if (t !== null && (typeof t !== 'object' || t === undefined || !weightsOk(t.from) || !weightsOk(t.to) || !Number.isInteger(t.elapsed) || !Number.isInteger(t.total) || t.elapsed < 0 || t.total < t.elapsed || !(ENVIRONMENT_EASINGS as readonly string[]).includes(t.easing))) return 'the wind transition is { from, to, elapsed, total, easing }';
-    if (!Array.isArray(v.patches) || v.patches.length > MAX_WIND_PATCHES) return `the wind section holds at most ${MAX_WIND_PATCHES} [key, wind] rows`;
+    if (!Array.isArray(v.patches) || v.patches.length > WIND_SHARES_MAX) return `the wind section holds at most ${WIND_SHARES_MAX} [key, wind] rows`;
     for (const row of v.patches) {
       if (!Array.isArray(row) || typeof row[0] !== 'string') return 'a wind row is [key, wind]';
       const problem = windPatchError(row[1]);

@@ -82,6 +82,32 @@ describe('ctx.environment.setWind', () => {
     expect(blendWinds(SCENE_WIND, JSON.parse(JSON.stringify(view.wind)))).toEqual(blendWinds(SCENE_WIND, view.wind!));
   });
 
+  it('takes every change, however often: gusts faster than their blend and a new wind every step keep following, in bounded memory', () => {
+    const warnings: string[] = [];
+    const d = new EnvironmentDirector(HZ, [], (m) => warnings.push(m));
+    const strength = (): number => blendWinds(SCENE_WIND, d.view(1)!.wind!).strength;
+    // A gust every half second, each blended over two: none refused, the wind moves with each.
+    for (let g = 0; g < 200; g += 1) {
+      expect(d.api.setWind({ strength: g % 2 === 0 ? 4 : 1 }, { blend: 2 })).toBe(true);
+      for (let s = 0; s < 30; s += 1) d.step();
+    }
+    expect(warnings).toEqual([]);
+    expect(d.view(1)!.wind!.length).toBeLessThan(40);
+    // A new wind every step over a minute's blend: still taken, the shares bounded, the wind heading for the latest.
+    for (let s = 0; s < 3000; s += 1) {
+      expect(d.api.setWind({ strength: 6 }, { blend: 60 })).toBe(true);
+      d.step();
+    }
+    expect(d.view(1)!.wind!.length).toBeLessThanOrEqual(10_002);
+    expect(JSON.stringify(d.saveState()).length).toBeLessThan(2_000_000);
+    expect(strength()).toBeGreaterThan(3);
+    // One instant change: only it is left.
+    d.api.setWind({ strength: 2 }, { blend: 0 });
+    d.step();
+    expect(d.view(1)!.wind!.length).toBe(1);
+    expect(strength()).toBeCloseTo(2, 9);
+  });
+
   it('refuses a bad value or option, and a broken save section, with a warning', () => {
     const warnings: string[] = [];
     const d = new EnvironmentDirector(HZ, [], (m) => warnings.push(m));
