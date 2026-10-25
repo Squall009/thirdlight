@@ -49,7 +49,7 @@
 import * as THREE from 'three';
 import { BLOCK_EDGE_THICKNESS, BLOCK_EDIT_MAX_EDITS, BlockGrid, UNPAINTED_WALL, applyBlockEdits, cellOfKey, edgeInBox, effectiveCellMeta, pickCell } from '@thirdlight/runtime';
 import type { BlockCell, BlockChunk, BlockEdge, BlockEdit, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField } from '@thirdlight/project-model';
-import type { BlockLayerView } from '@thirdlight/three-adapter';
+import { BATCHED_LAYER, type BlockLayerView } from '@thirdlight/three-adapter';
 import type { StrokeCoverage } from '@thirdlight/project-model';
 import {
   DEFAULT_BRUSH,
@@ -264,6 +264,8 @@ export class BlockEditor {
     this.host = host;
     this.cb = cb;
     this.root.name = 'block-editor';
+    // A chunk merged into a static cell is drawn by the cell from then on; its own mesh stays, on the batched layer, for the ray.
+    this.raycaster.layers.enable(BATCHED_LAYER);
     this.root.visible = false;
     const ghostMat = new THREE.MeshBasicMaterial({ color: GHOST, transparent: true, opacity: 0.25, depthWrite: false });
     const ghostGeo = new THREE.BoxGeometry(1, 1, 1);

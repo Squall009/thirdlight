@@ -130,6 +130,12 @@ test('block terrain brushes in the block editor: Raise raises and lowers, Smooth
   expect(a[1]).toBe(b[0]);
   expect(a[2]).toBe(b[3]);
   const peak = b[0]!;
+  // The edited chunks merge into a static cell a moment after the edit: the brush still lands on the hill's top, not on the slice plane under it.
+  await page.waitForTimeout(1000);
+  const top = await screen(page, ground(16, 16, peak));
+  await page.mouse.move(top.x + 3, top.y);
+  await page.mouse.move(top.x, top.y);
+  await expect.poll(async () => Number(((await view(page).getAttribute('data-block-brush')) ?? '').split(',')[2] ?? 0), { timeout: 5_000 }).toBeGreaterThan(peak - 0.5);
 
   // ---- Raise with Ctrl: lowers (a dip elsewhere).
   await drag(page, [ground(6, 12), ground(7, 12)], 'Control');
