@@ -134,6 +134,8 @@ export interface RuntimeSceneRow {
   start: boolean;
   /** Start scenes: the ids of their (resolved) entities in the snapshot scene. */
   entityIds?: readonly string[];
+  /** The scene's default plane (absent: none): its objects' `{x, y}` queries run on it when they have no plane of their own. */
+  plane?: { readonly axis: 'x' | 'z'; readonly origin: number };
 }
 
 /** One entry of the shell's scene list (with the fade of a move to it). */

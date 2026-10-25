@@ -16,6 +16,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { BlockGrid, applyBlockEdits } from '@thirdlight/project-model';
+import { physics3DConfigOf } from '@thirdlight/runtime';
 import { memoryProjectSaveBackend } from '@thirdlight/game-host';
 
 import { behaviorModule, startHarness, type Harness, type Mode } from '../m22-worker/harness';
@@ -76,10 +77,12 @@ function snapshot(): Any {
 
 async function run(mode: Mode, opts: { live: boolean; steps: number; store: Map<string, string>; replay?: Any[] }): Promise<{ h: Harness; digests: string[] }> {
   const mod = behaviorModule('saver', SCRIPT(opts.live));
+  const snap = snapshot();
   const h = await startHarness(mode, {
-    snapshot: snapshot(),
+    snapshot: snap,
     settings: SETTINGS,
-    physics: null,
+    // The block layer collides on the one 3D backend.
+    physics: physics3DConfigOf(snap.scene.entities, SETTINGS as Any),
     digestSteps: true,
     behaviors: [mod],
     host: { projectSaveBackend: memoryProjectSaveBackend(opts.store), saveNamespace: 'test' },

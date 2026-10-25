@@ -74,7 +74,7 @@ test('Edit → Duplicate copies the selection with its components; Component men
   await menu(page, 'GameObject', 'Box');
   await expect(rows(page)).toHaveCount(base + 1);
   // Component → Collider on the new (selected) box, then Duplicate: the copy carries the collider.
-  await menu(page, 'Component', 'Collider', 'Box');
+  await menu(page, 'Component', 'Collider', 'Box (3D)');
   await expect(page.locator('.tl-inspector')).toContainText('Half width');
   const collider = await menuItem(page, 'Component', 'Collider');
   await expect(collider).toBeDisabled();

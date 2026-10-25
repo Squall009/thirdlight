@@ -41,6 +41,7 @@
  * pure owner of the manifest derivation); it reuses the canonical helpers
  * and the `./sha256` digest primitives.
  */
+import type { PlaneLock } from './plane-lock';
 import { canonicalSaveSchema, validateSaveSchema, type SaveSchema } from './save-schema';
 import { canonicalBlockTypes, canonicalCellFields, validateBlockTypes, validateCellFields, type BlockType, type CellField } from './block-layers';
 import { canonicalEnvironment, canonicalMaterialMapping, canonicalMaterials, validateEnvironment, validateMaterials, type EnvironmentConfig, type MaterialDef, type SceneEnvironment } from './materials';
@@ -140,6 +141,8 @@ export interface ManifestSceneRow {
   byteLength: number;
   /** Loaded when the game starts. */
   start: boolean;
+  /** The scene's default plane (absent: none): a script's `{x, y}` queries run on it when its object has no plane. */
+  plane?: PlaneLock;
 }
 
 /** Keys present only when they apply: tags, scenes, buffers. */
@@ -510,7 +513,7 @@ export const M3_SETTINGS_KEYS = [
  * when the project sets them), in registry order — a project that never sets
  * one keeps its exact settings block and digests.
  */
-export const M3_OPTIONAL_SETTINGS_KEYS = ['fixed_step_hz', 'audio_voices', 'music_fade_s', 'animation_crossfade_s', 'render_backend', 'physics_dimension', 'sim_thread', 'debug_console', 'random_seed', 'depth_buffer', 'instance_chunk_m', 'audio_spatial', 'texture_budget_mb', 'camera_fov_deg', 'camera_near_m', 'camera_far_m', 'import_extract_textures', 'block_chunk_storage', 'stats_overlay', 'frame_rate_cap', 'lod_bias', 'lod_hysteresis', 'ambient_occlusion', 'render_scale', 'dynamic_resolution', 'occlusion_culling', 'streaming_budget_mb', 'architecture_ship_meshes', SEE_THROUGH_SETTING_KEYS.enabled, SEE_THROUGH_SETTING_KEYS.radius, SEE_THROUGH_SETTING_KEYS.softness, SEE_THROUGH_SETTING_KEYS.maxFade, SEE_THROUGH_SETTING_KEYS.depthMargin, SEE_THROUGH_SETTING_KEYS.fadeTime, SEE_THROUGH_SETTING_KEYS.padding] as const;
+export const M3_OPTIONAL_SETTINGS_KEYS = ['fixed_step_hz', 'audio_voices', 'music_fade_s', 'animation_crossfade_s', 'render_backend', 'sim_thread', 'debug_console', 'random_seed', 'depth_buffer', 'instance_chunk_m', 'audio_spatial', 'texture_budget_mb', 'camera_fov_deg', 'camera_near_m', 'camera_far_m', 'import_extract_textures', 'block_chunk_storage', 'stats_overlay', 'frame_rate_cap', 'lod_bias', 'lod_hysteresis', 'ambient_occlusion', 'render_scale', 'dynamic_resolution', 'occlusion_culling', 'streaming_budget_mb', 'architecture_ship_meshes', SEE_THROUGH_SETTING_KEYS.enabled, SEE_THROUGH_SETTING_KEYS.radius, SEE_THROUGH_SETTING_KEYS.softness, SEE_THROUGH_SETTING_KEYS.maxFade, SEE_THROUGH_SETTING_KEYS.depthMargin, SEE_THROUGH_SETTING_KEYS.fadeTime, SEE_THROUGH_SETTING_KEYS.padding] as const;
 
 // ---------------------------------------------------------------------------
 // Media identity (`media`)
@@ -981,7 +984,7 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
     mediaDigest,
     settings: input.settings,
     ...inline,
-    ...(input.scenes !== undefined ? { scenes: input.scenes.map((r) => ({ sceneId: r.sceneId, path: r.path, digest: r.digest, byteLength: r.byteLength, start: r.start })) } : {}),
+    ...(input.scenes !== undefined ? { scenes: input.scenes.map((r) => ({ sceneId: r.sceneId, path: r.path, digest: r.digest, byteLength: r.byteLength, start: r.start, ...(r.plane !== undefined ? { plane: { ...r.plane } } : {}) })) } : {}),
     ...(contentFiles.length > 0 ? { contentFiles: contentFiles.map((f) => ({ key: f.key, path: f.path, digest: f.digest, byteLength: f.byteLength })) } : {}),
     assets,
     ...(input.loadable !== undefined && input.loadable.length > 0 ? { loadable: input.loadable.map((r) => ({ kind: r.kind, id: r.id, ...(r.address !== undefined ? { address: r.address } : {}), ...(r.labels !== undefined ? { labels: [...r.labels] } : {}) })) } : {}),

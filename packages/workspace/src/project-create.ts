@@ -8,7 +8,7 @@ import { chmodSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import type { ContentCatalogV3, ContentCatalogV4, Manifest, SceneV3 } from '@thirdlight/project-model';
-import { glbClipDurations, NEW_PROJECT_ENVIRONMENT, NEW_PROJECT_SETTINGS, normalizeManifest, parseDocumentBytes, validateProjectV3 } from '@thirdlight/project-model';
+import { glbClipDurations, NEW_PROJECT_ENVIRONMENT, NEW_PROJECT_SETTINGS, RETIRED_DIMENSION_SETTING, SCHEMA_8_STEPS, normalizeManifest, parseDocumentBytes, validateProjectV3 } from '@thirdlight/project-model';
 
 import { ID_RE } from './envelope';
 import { publishBlob, type ContentContext } from './content-store';
@@ -140,10 +140,14 @@ export function createProjectFrom(core: Core, projectId: string, name: string, s
     assets?: { versions?: { publishedRevision?: number }[] }[];
     behaviors?: { publishedRevision?: number; source?: { publishedRevision?: number } | null }[];
   } | null;
+  let threeD = false;
   // A new project writes out the settings whose engine default changed (the template's own win).
   if (sourceContent !== null && typeof sourceContent === 'object') {
     const c = sourceContent as { settings?: Record<string, unknown> };
     c.settings = { ...NEW_PROJECT_SETTINGS, ...(c.settings ?? {}) };
+    // A template that named the retired 3D setting is a 3D project; one without it was made for the 2D plane.
+    threeD = c.settings[RETIRED_DIMENSION_SETTING] === 3;
+    delete c.settings[RETIRED_DIMENSION_SETTING];
   }
   for (const a of sourceContent?.assets ?? []) for (const v of a.versions ?? []) v.publishedRevision = 0;
   for (const b of sourceContent?.behaviors ?? []) {
@@ -190,7 +194,7 @@ export function createProjectFrom(core: Core, projectId: string, name: string, s
     const clip = list?.[clipIndex]?.name === clipName ? list[clipIndex] : list?.find((c) => c.name === clipName);
     return clip?.duration ?? null;
   };
-  const built = projectFilesFromV3(projectId, project.normalized.manifest, project.normalized.scene as SceneV3, filed.content as unknown as ContentCatalogV3, durationOf, NEW_PROJECT_ENVIRONMENT);
+  const built = projectFilesFromV3(projectId, project.normalized.manifest, project.normalized.scene as SceneV3, filed.content as unknown as ContentCatalogV3, durationOf, NEW_PROJECT_ENVIRONMENT, threeD ? SCHEMA_8_STEPS.filter((st) => st.recorded !== true) : undefined, true);
   if (!built.ok) {
     return { ok: false, error: invalidRequest('', undefined, 'a valid v4 project', `the template is not a valid project: ${built.message}`) };
   }

@@ -66,10 +66,10 @@ export interface EditorMenuInput {
 }
 
 export function editorMenus(input: EditorMenuInput): Menu[] {
-  const { registry, settings, sceneHeaders, closedScenes, entities, selected, selectedId, selectedComponents, ui, snapping, setSnapping, snapSettings } = input;
+  const { registry, sceneHeaders, closedScenes, entities, selected, selectedId, selectedComponents, ui, snapping, setSnapping, snapSettings } = input;
   const { gizmos, setGizmos, effectPreview, setEffectPreview, occlusionView, setOcclusionView, workspace, workspaceDispatch, setCenterTab, setBottomTab, showProject, openProjectSettings, showToolWindow, openDecals, createPrefabFromSelection, createBlockLayer, createTerrain, resync } = input;
   const { clipboardRef, copySelection, createEmpty, createEntityAt, createFolder, createLight, del, duplicate, newBox, paste, redo, undo } = input.scene;
-  const { addComponentTo, colliderFromModel, colliderFromModel3D, editComponent } = input.entity;
+  const { addComponentTo, colliderFromModel3D, editComponent } = input.entity;
   const { setDialog, setExportState, setSnapDraft } = input.dialogs;
   const noSelection = selectedId === null;
   const selComponents = selectedComponents;
@@ -95,7 +95,7 @@ export function editorMenus(input: EditorMenuInput): Menu[] {
     const other = scenesAll.find((sc) => sc.sceneId !== (sceneHeaders?.find((h) => h.active)?.sceneId ?? null))?.sceneId ?? null;
     const own = new Set(['Light']);
     const order: string[] = [];
-    for (const entry of createEntries(registry, { dimension: settings?.['physics_dimension'] === 3 ? 3 : 2 })) {
+    for (const entry of createEntries(registry, { dimension: 3 })) {
       const needsScene = entry.otherScene.length > 0;
       const reason = sceneHeaders === null ? v4Reason : needsScene && (scenesAll.length < 2 || other === null) ? 'it moves the character to another scene: the project needs a second scene' : null;
       const item: MenuItem = {
@@ -178,7 +178,7 @@ export function editorMenus(input: EditorMenuInput): Menu[] {
       // one item per component, presets as a submenu, and why an item cannot be added.
       items: (() => {
         if (registry === null) return [{ label: 'Loading components…', disabled: true, reason: 'the component descriptions are not loaded yet', onSelect: () => undefined }];
-        const entries = addEntries(registry, selComponents, { folder: selected?.kind === 'folder', dimension: settings?.['physics_dimension'] === 3 ? 3 : 2 });
+        const entries = addEntries(registry, selComponents, { folder: selected?.kind === 'folder', dimension: 3 });
         const out: MenuEntry[] = [];
         let category: string | null = null;
         for (const c of registry.components) {
@@ -197,9 +197,7 @@ export function editorMenus(input: EditorMenuInput): Menu[] {
             // A collider from the model's outline.
             if (c.name === 'collider' && selectedId !== null) {
               const id = selectedId;
-              // A 3D project makes 3D colliders from the model.
-              if (settings?.['physics_dimension'] === 3) items.push({ label: 'Box from model', onSelect: () => void colliderFromModel3D(id, 'box') }, { label: 'Convex hull from model', onSelect: () => void colliderFromModel3D(id, 'convex') }, { label: 'Mesh from model', onSelect: () => void colliderFromModel3D(id, 'mesh') });
-              else items.push({ label: 'Box from model', onSelect: () => void colliderFromModel(id, 'box') }, { label: 'Polygon from model outline', onSelect: () => void colliderFromModel(id, 'polygon') });
+              items.push({ label: 'Box from model', onSelect: () => void colliderFromModel3D(id, 'box') }, { label: 'Convex hull from model', onSelect: () => void colliderFromModel3D(id, 'convex') }, { label: 'Mesh from model', onSelect: () => void colliderFromModel3D(id, 'mesh') });
             }
             out.push({ label: c.label, disabled: blocked !== null, reason: blocked ?? '', items });
           } else {

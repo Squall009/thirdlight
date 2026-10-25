@@ -34,7 +34,7 @@ import {
 } from './components';
 import { MAX_PREFAB_DEPTH, MAX_PREFAB_ENTITIES } from './content-limits';
 import { limitsError, sortedRecord } from './content-helpers';
-import { planeLockOf, type PlaneLock } from './plane-lock';
+import { canonicalPlaneField, planeLockOf, type PlaneLock } from './plane-lock';
 import { colliderDepthField } from './shape-2d-3d';
 import { isPrefabLink, PART_PATH_SEPARATOR, validatePrefabLink, type PrefabLinkComponent } from './prefab-links';
 
@@ -359,7 +359,4 @@ export function canonicalPrefab(d: PrefabDefinition): PrefabDefinition {
   };
 }
 
-function prefabPlane(collider: unknown): { plane?: PlaneLock } {
-  const plane = planeLockOf(collider);
-  return plane !== null ? { plane } : {};
-}
+const prefabPlane = canonicalPlaneField;

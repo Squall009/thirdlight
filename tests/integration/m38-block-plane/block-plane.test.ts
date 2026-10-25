@@ -245,7 +245,7 @@ export default {
       storage: true,
       settings: SETTINGS,
       // The build's rule: the modules come from every scene, so the level's player names the 2D backend.
-      modules: modulesOf({ scene: { entities: [...main, ...level] } } as Any, SETTINGS),
+      modules: modulesOf({ scene: { entities: [...main, ...level] } } as Any, SETTINGS, { dimension: 2 }),
       physics: physics2DConfigOf(main, SETTINGS, { required: true }),
       replay: Array.from({ length: steps + 100 }, (_, s) => ({ stepIndex: s, moveX: s >= 200 ? 1 : 0, moveY: 0, jump: 'none' })),
       digestSteps: true,

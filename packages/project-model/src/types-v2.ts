@@ -173,8 +173,8 @@ export interface ColliderComponent {
   oneWay?: true;
   /** v4, 3D: the collision layers the collider is in (absent: "default"). */
   layers?: string[];
-  /** The plane its body is locked to (absent: free in all six degrees of freedom). */
-  plane?: PlaneLock;
+  /** The plane its body is locked to (absent: its scene's default plane, else free; null: free in all six degrees of freedom). */
+  plane?: PlaneLock | null;
   /** The depth (m) a 2D shape (a box without hz, a polygon) is given on the 3D backend (absent: 1 m). */
   depth?: number;
 }
@@ -269,8 +269,8 @@ export interface ControllerComponent {
   wallJumpUp?: number;
   /** Seconds a wall jump keeps the input from steering (absent: until the top of the jump; a landing ends it). */
   wallJumpLock?: number;
-  /** The plane the character is locked to (absent: free). */
-  plane?: PlaneLock;
+  /** The plane the character is locked to (absent: its scene's default plane, else free; null: free). */
+  plane?: PlaneLock | null;
 }
 
 /** v2 component registry order: transform, model, box, camera, behavior, prefab, collider, controller. */

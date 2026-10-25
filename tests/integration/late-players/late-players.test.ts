@@ -20,7 +20,7 @@ type Dim = 2 | 3;
 const DT = 1 / 120;
 const T = (position: number[]) => ({ position, rotation: [0, 0, 0, 1], scale: [1, 1, 1] });
 const SETTINGS_2D = { run_speed: 4, jump_velocity: 8, gravity_y: -20, max_fall_speed: -20, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
-const SETTINGS_3D = { ...SETTINGS_2D, physics_dimension: 3 };
+const SETTINGS_3D = { ...SETTINGS_2D };
 
 /** Loads the level at step 10, unloads it at step 300 and loads it again at step 320; logs the player every 10 steps. */
 const DIRECTOR = `
@@ -64,8 +64,8 @@ async function run(mode: Mode, dim: Dim, steps: number): Promise<{ log: [number,
   const later = level(dim);
   const settings = dim === 3 ? SETTINGS_3D : SETTINGS_2D;
   // The required modules come from every scene (the build's rule), so the level's player and floor name them.
-  const modules = modulesOf({ scene: { entities: [...main, ...later] } } as Any, settings);
   const physics = dim === 3 ? physics3DConfigOf(main, SETTINGS_3D, { required: true }) : physics2DConfigOf(main as Any, SETTINGS_2D, { required: true });
+  const modules = modulesOf({ scene: { entities: [...main, ...later] } } as Any, settings, physics);
   const h = await startHarness(mode, {
     snapshot: {
       snapshotId: `late${dim}@r1`,

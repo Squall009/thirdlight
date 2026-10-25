@@ -93,7 +93,6 @@ test('3D: a model collider stops the player on each _COL part, a placed box wher
   test.setTimeout(360_000);
   be = await startBackend('colliders-e2e');
   await withoutSky(be);
-  await cmd('setSettings', { settings: { physics_dimension: 3 } });
   // No other bodies: whatever the player lands on is one of ours.
   for (const e of await entities()) if (e.components['collider'] !== undefined || e.components['controller'] !== undefined) await cmd('deleteEntity', { entityId: e.id });
   await publishBytes(be, new Uint8Array(multiPieceGlb([{ name: 'stall', lods: [[4, 0.5, 1]], colParts: [{ size: [1, 1, 1], at: [0, 0, 0] }, { size: [1, 1, 1], at: [3, 2, 0] }] }])), 'model', 'model-stall', 'Stall');
@@ -150,7 +149,6 @@ test('a scene\'s 3D collider point budget counts its model colliders\' _COL part
   test.setTimeout(240_000);
   be = await startBackend('colliders-budget-e2e');
   await withoutSky(be);
-  await cmd('setSettings', { settings: { physics_dimension: 3 } });
   for (const e of await entities()) if (e.components['collider'] !== undefined) await cmd('deleteEntity', { entityId: e.id });
   // 256 box parts of 8 hull points: 2,048 points an object, so 512 objects are the budget exactly.
   const colParts = Array.from({ length: 256 }, (_, i) => ({ size: [0.5, 0.5, 0.5] as [number, number, number], at: [i % 16, Math.floor(i / 16), 0] as [number, number, number] }));
@@ -190,7 +188,6 @@ test('3D: a collider on a child follows its script-moved parent and pushes the p
   test.setTimeout(300_000);
   be = await startBackend('colliders-child-e2e');
   await withoutSky(be);
-  await cmd('setSettings', { settings: { physics_dimension: 3 } });
   for (const e of await entities()) if (e.components['collider'] !== undefined || e.components['controller'] !== undefined) await cmd('deleteEntity', { entityId: e.id });
   await create('Floor', [0, -0.5, 0], { collider: { shape: { type: 'box', hx: 10, hy: 0.5, hz: 10 } } });
   // Its plate starts 0.6 m from the player's capsule: the push, not the approach, is what is checked.
@@ -226,7 +223,6 @@ test('the Scene view draws no collider outlines on open, the selection\'s (a com
   test.setTimeout(180_000);
   be = await startBackend('colliders-outlines-e2e');
   await withoutSky(be);
-  await cmd('setSettings', { settings: { physics_dimension: 3 } });
   for (const e of await entities()) if (e.components['collider'] !== undefined) await cmd('deleteEntity', { entityId: e.id });
   const cart = await create('Cart', [0, 0, 0], { collider: { shape: { type: 'compound', shapes: [{ type: 'box', hx: 0.5, hy: 0.5, hz: 0.5, center: [-1.5, 0, 0] }, { type: 'box', hx: 0.5, hy: 0.5, hz: 0.5, center: [1.5, 0, 0] }] } } });
   const wheel = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: cart, kind: 'group', name: 'Wheel', transform: { position: [0, -1, 0] }, components: { collider: { shape: { type: 'sphere', radius: 0.4 } } } }))['createdId']);
@@ -260,11 +256,4 @@ test('the Scene view draws no collider outlines on open, the selection\'s (a com
   await expect(page.locator('.tl-hierarchy__list li.is-selected')).toHaveCount(0);
   await expect.poll(() => outlinePixels(page), { message: 'every outline is drawn with nothing selected' }).toBeGreaterThan(100);
 
-  // Back to the 2D plane is refused (the sphere is a 3D shape), and the refusal says which rule and where.
-  await menu(page, 'File', 'Project Settings…');
-  const physics = page.locator('section[aria-label="project settings"] select').filter({ has: page.locator('option', { hasText: '2D plane' }) });
-  await physics.selectOption({ label: '2D plane' });
-  const refusal = page.locator('section[aria-label="project settings"] .tl-gameplay__errors');
-  await expect(refusal).toContainText('collider is a 3D shape');
-  await expect(refusal).toContainText('components/collider/shape');
 });

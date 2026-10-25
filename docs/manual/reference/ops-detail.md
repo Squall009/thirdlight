@@ -1133,6 +1133,17 @@ Arguments (`args`):
 
 Types: [`SaveSchema`](types-p-t.md#type-save-schema).
 
+<a id="op-setScenePlane"></a>
+## setScenePlane
+
+Arguments (`args`):
+
+```ts
+{ sceneId: string; plane: PlaneLock | null }
+```
+
+Types: [`PlaneLock`](types-p-t.md#type-plane-lock).
+
 <a id="op-setScriptLibrary"></a>
 ## setScriptLibrary
 

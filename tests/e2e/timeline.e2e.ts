@@ -130,7 +130,6 @@ async function buildScene(page: Page): Promise<Ids> {
   await create('Floor', [0, -0.5, 0], { box: { size: [40, 1, 40], material: { color: '#8a8f98' } }, components: { collider: { shape: { type: 'box', hx: 20, hy: 0.5, hz: 20 } } } }, 'box');
   const player = await create('Player', [0, 0.91, 0]);
   await cmd('setComponent', { entityId: player, component: 'controller', value: {} });
-  await cmd('setSettings', { settings: { physics_dimension: 3 } });
   const lamp = await create('Lamp', [-3, 0.5, -3], { box: { size: [1, 1, 1], material: { color: '#f2b544' } } }, 'box');
   const wide = await create('Wide shot', [0, 5, 12]);
   await cmd('setComponent', { entityId: wide, component: 'virtualCamera', value: { rig: 'fixed', enabled: false, target: player } });

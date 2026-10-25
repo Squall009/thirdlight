@@ -184,7 +184,7 @@ function streamedFloor(): { entity: Any; data: Any; types: Any[] } {
 async function streamedRuns(mode: Mode): Promise<{ logs: Any[][]; resident: number[][]; startColliders: number[]; errors: Any[] }> {
   const floor = streamedFloor();
   const startColliders: number[] = [];
-  const settings = { gravity_y: -20, run_speed: 4, jump_velocity: 8, max_fall_speed: -20, max_slope_climb_deg: 45, min_slope_slide_deg: 30, physics_dimension: 3 };
+  const settings = { gravity_y: -20, run_speed: 4, jump_velocity: 8, max_fall_speed: -20, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
   const entities: Any[] = [
     { id: 'player-0001', components: { transform: T([1, 0.91, 0]), controller: {} } },
     floor.entity,

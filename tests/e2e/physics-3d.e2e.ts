@@ -1,16 +1,14 @@
 /**
- * A 3D project (physics_dimension 3) on the Rapier 3D backend,
- * against a real backend. A neutral scene built through the backend's
- * commands on a blank project — a floor box with a depth (`hz`) and a player
- * capsule 1.5 m above it, off the origin in x and z — is switched to 3D in the
- * project settings form. In Play (the simulation worker, and the page's main
+ * A project on the one Rapier 3D backend, against a real backend. A neutral
+ * scene built through the backend's commands on a blank project — a floor box
+ * with a depth (`hz`) and a player capsule 1.5 m above it, off the origin in x
+ * and z; the project settings have no physics dimension to choose. In Play (the simulation worker, and the page's main
  * thread with ?threads=off) the capsule falls and rests on the box, observed
  * through tl_game_observe's relay (a scene-mode play: no game block); the static
  * export, served with the backend stopped, ships the separate 3D backend
  * script (the 2D worker does not carry it) and lands the capsule the same way,
  * read through the export's observation (`window.__thirdlightObserve`).
  * Resting on the box counts no penetration in Play diagnostics.
- * A 2D scene-mode play would leave the capsule where it was placed.
  */
 import { randomBytes } from 'node:crypto';
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
@@ -122,22 +120,15 @@ test('a 3D project: the capsule lands on the box in Play (worker and main thread
   be = await startBackend('physics3d-e2e');
   const { floor } = await buildScene();
 
-  // The box's depth is an Inspector field; the dimension is a project setting in the settings form.
+  // The box's depth is an Inspector field; the project settings have no physics dimension (every project is 3D).
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${floor}"]`).click();
   await expect(page.getByLabel('collider shape hz', { exact: true })).toHaveValue('5');
   await openProjectSettings(page, 'Gameplay');
   await page.locator('.tl-gameplay__tabs').getByRole('button', { name: 'settings', exact: true }).click();
-  const field = page.getByLabel('gameplay settings').getByLabel('settings physics_dimension', { exact: true });
-  await expect(field).toHaveValue('2');
-  await expect(field.locator('option')).toHaveText(['2D plane', '3D']);
-  // Stored as the project's setting (one setSettings through the backend, written to content.json).
-  const stored = (): unknown => (JSON.parse(readFileSync(join(be!.projectDir, 'content.json'), 'utf8')) as { content: { settings: Record<string, unknown> } }).content.settings['physics_dimension'];
-  expect(stored()).toBeUndefined();
-  await field.selectOption('3');
-  await expect.poll(stored).toBe(3);
-  await expect(field).toHaveValue('3');
+  await expect(page.getByLabel('gameplay settings').getByLabel('settings run_speed', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('gameplay settings').getByLabel('settings physics_dimension', { exact: true })).toHaveCount(0);
 
   // Play in the simulation worker (the default), then on the page's main thread.
   const logs: string[] = [];

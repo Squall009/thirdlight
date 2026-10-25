@@ -292,7 +292,6 @@ export async function buildVillage(be: PerfBackend, projectId: string, plan = vi
     return p.command(op, args);
   };
   for (const id of STARTER_REMOVED) await cmd('deleteEntity', { entityId: id }).catch(() => undefined);
-  await cmd('setSettings', { settings: { physics_dimension: 3 } });
 
   for (const f of plan.props) await publishFileVia(be, projectId, cmd, { assetId: f.assetId, kind: 'model', displayName: f.assetId, bytes: propGlb(f.seed, f.spec) });
   await publishFileVia(be, projectId, cmd, { assetId: KIT_ASSET, kind: 'model', displayName: 'Village scatter', bytes: scatterKitGlb(plan.seed, KIT_PIECES) });

@@ -311,7 +311,6 @@ const HOUSE = {
 
 /** The map: stone under grass, raised by a heightmap, a lower floor 5 m below, a player above the middle. */
 async function buildMap(): Promise<{ layer: string; player: string; house: string }> {
-  await cmd('setSettings', { settings: { physics_dimension: 3 } });
   await cmd('setCellFields', { fields: [{ key: 'walkable', type: 'bool', color: '#20c020' }, { key: 'cost', type: 'int', default: 1, min: 0, max: 9 }] });
   await cmd('setBlockType', { block: { blockId: 'stone', name: 'Stone', variants: [{ color: '#6b7280' }], shape: 'full' } });
   await cmd('setBlockType', { block: { blockId: 'grass', name: 'Grass', variants: [{ color: '#3fa34d' }], shape: 'full', metadata: { walkable: true } } });

@@ -334,14 +334,15 @@ describe('M3 export bundle re-measurement + production parity', () => {
     expect(Buffer.from(b.bytes).equals(Buffer.from(a.bytes))).toBe(true);
   }, 180_000);
 
-  it('a project with the controller links exactly the modules its manifest names (game-host + the controller spec), page and worker alike', async () => {
+  it('a project with the controller links exactly the modules its manifest names (game-host, the 3D backend, the 3D controller), page and worker alike', async () => {
     const closure = await closureOf('demo-0006-parity', false);
-    expect(closure.moduleIds).toEqual(expect.arrayContaining(['thirdlight.character:controller']));
+    expect(closure.moduleIds).toEqual(expect.arrayContaining(['thirdlight.character3d:controller', 'thirdlight.physics-rapier:3d']));
+    expect(closure.moduleIds).not.toContain('thirdlight.character:controller');
     for (const b of await bundlesOf(closure)) {
       // The single shared production composition (the SAME host the preview wraps).
       expect(b.inputs.some((p) => p.includes('packages/game-host/src/'))).toBe(true);
-      expect(b.inputs.some((p) => p.includes('packages/character/src/'))).toBe(true);
-      expect(b.sources).toContain('packages/character/src/controller.ts');
+      // One physics backend: the 2D controller package is linked by no build.
+      expect(b.inputs.some((p) => p.includes('packages/character/src/'))).toBe(false);
       // No editor/exporter-internal/behavior source in the runtime bundle.
       expect(b.inputs.some((p) => p.includes('packages/editor/src/'))).toBe(false);
       expect(b.inputs.some((p) => p.includes('packages/backend/src/'))).toBe(false);
@@ -374,12 +375,5 @@ describe('M3 export bundle re-measurement + production parity', () => {
       expect(b.inputs.some((p) => p.includes('packages/character/src/'))).toBe(false);
       expect(b.sources.some((p) => p.startsWith('packages/character/'))).toBe(false);
     }
-    // The graph check refuses platformer code the manifest does not name.
-    const withController = await closureOf('demo-0006-parity', false);
-    const page = await buildM3Bundle({ bootstrapEntry: BOOTSTRAP, closure: withController });
-    if (!page.ok) throw new Error('bundle build failed');
-    const report = checkBundleGraphM3(page.metafile, BOOTSTRAP, closure.moduleIds);
-    expect(report.ok).toBe(false);
-    expect(report.forbidden.some((p) => p.includes('packages/character'))).toBe(true);
   }, 180_000);
 });

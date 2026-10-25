@@ -120,7 +120,6 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   // Rapier 2D backend); 3 runs the game on the 3D backend (Vec3 positions,
   // full rotations, colliders with depth) — a choice of the game, not a
   // default fitted to any genre, so the neutral default keeps existing data valid.
-  { key: 'physics_dimension', type: 'number', default: 2, values: [2, 3], valueLabels: ['2D plane', '3D'], integer: true, unit: '', optional: true, group: 'Engine', label: 'Physics', tooltip: 'The simulation\'s dimension: a 2D plane (movement and collision in X and Y, colliders rotate about Z) or full 3D (colliders with depth and any rotation). A 3D project needs every box collider to have a depth.' },
   { key: 'sim_thread', type: 'number', default: 1, values: [1, 2], valueLabels: ['Worker (off the main thread)', 'Main thread'], integer: true, unit: '', optional: true, group: 'Engine', label: 'Simulation thread', tooltip: 'Where the game simulation (physics, gameplay, scripts) runs in Play and the export: a worker (the page thread only draws and reads input) or the page\'s main thread. Results are identical. A page URL flag ?threads=off|on overrides it.' },
   // The seed of the scripts' ctx.random (every stream mixes it with the
   // script, object and stream name). 0: any fixed value keeps runs and replays
@@ -236,15 +235,10 @@ export const NEW_PROJECT_SETTINGS: Readonly<Record<string, number>> = Object.fre
  */
 export const NEW_PROJECT_ENVIRONMENT: Readonly<SceneEnvironment> = Object.freeze({ sky: Object.freeze({ environmentIntensity: 0.1, mode: 'procedural' as const }) });
 
-/** The simulation's dimension (the `physics_dimension` setting's values). */
+/** The simulation's dimension: every project runs on the one 3D backend (2D is a plane a body is locked to). */
 export type PhysicsDimension = 2 | 3;
 export const PHYSICS_DIMENSIONS: readonly PhysicsDimension[] = [2, 3];
 
-/**
- * The physics dimension a settings map resolves to — 3 only when
- * the project sets `physics_dimension` to 3, else 2 (the 2D plane every
- * project had before the setting existed).
- */
 /** The depth buffer the renderer uses (the `depth_buffer` setting; absent or unknown: standard). */
 export function depthBufferOf(settings: unknown): 'standard' | 'logarithmic' | 'reversed' {
   const v = typeof settings === 'object' && settings !== null ? (settings as Record<string, unknown>)['depth_buffer'] : undefined;
@@ -253,15 +247,16 @@ export function depthBufferOf(settings: unknown): 'standard' | 'logarithmic' | '
 
 /**
  * How audio sources are heard (the `audio_spatial` setting):
- * 'legacy' (the X distance to the player) or 'panner' (a panner per source,
- * the listener on the active camera). Absent or 0: panner in 3D, legacy on
- * the 2D plane.
+ * 'legacy' (the distance to the player along the plane's right) or 'panner'
+ * (a panner per source, the listener on the active camera). Absent or 0:
+ * legacy when the game starts in a scene with a default plane (a side
+ * view), else panner.
  */
-export function audioSpatialOf(settings: unknown): 'legacy' | 'panner' {
+export function audioSpatialOf(settings: unknown, startPlane: unknown = null): 'legacy' | 'panner' {
   const v = typeof settings === 'object' && settings !== null ? (settings as Record<string, unknown>)['audio_spatial'] : undefined;
   if (v === 1) return 'legacy';
   if (v === 2) return 'panner';
-  return physicsDimensionOf(settings) === 3 ? 'panner' : 'legacy';
+  return startPlane !== null && startPlane !== undefined ? 'legacy' : 'panner';
 }
 
 /** Whether the project extracts every model's images, older imports included (`import_extract_textures` 1). */
@@ -285,8 +280,13 @@ export function instanceChunkSizeOf(settings: unknown): number | undefined {
   return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined;
 }
 
-export function physicsDimensionOf(settings: unknown): PhysicsDimension {
-  return typeof settings === 'object' && settings !== null && (settings as Record<string, unknown>)['physics_dimension'] === 3 ? 3 : 2;
+/**
+ * The physics dimension of a project: always 3. The project setting that
+ * chose the 2D backend is retired (the open upgrades a 2D project to scenes
+ * with a default plane); the callers' 2D branches go with the 2D backend.
+ */
+export function physicsDimensionOf(_settings: unknown): PhysicsDimension {
+  return 3;
 }
 
 const SETTINGS_BY_KEY = new Map(M2_SETTINGS_KEYS.map((s) => [s.key, s]));

@@ -42,7 +42,6 @@ export async function measureInstanceBrush(be: PerfBackend, projectId: string, r
   const found = ((await p.query('queryIndex', { kind: 'model', refs: false, limit: 1 }))['entries'] ?? []) as { id: string }[];
   const model = found[0] === undefined ? undefined : { assetId: found[0].id };
   if (model === undefined) throw new Error('no model asset for the instance set');
-  await p.command('setSettings', { settings: { physics_dimension: 3 } });
   await p.command('setBlockType', { block: { blockId: 'bench-turf', name: 'Bench turf', variants: [{ color: '#3f8f3a' }], shape: 'full' } });
   const layer = String((await p.command('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Brush bench ground', transform: { position: [0, 0, 0] } }))['createdId']);
   await p.command('setComponent', { entityId: layer, component: 'blockLayer', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [SIDE, 4, SIDE] } } });

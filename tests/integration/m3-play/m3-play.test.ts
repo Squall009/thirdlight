@@ -61,11 +61,11 @@ describe('buildPlayContentM3 (the v3 play artifact set)', () => {
     expect(built.snapshotId).toBe(`${CTX.projectId}@r1`);
     expect(built.contentDigest).toMatch(/^[0-9a-f]{64}$/);
     // The module set is derived from the declared dependencies: the
-    // controller entity and the model asset.
+    // controller entity (on the one 3D backend) and the model asset.
     expect(built.moduleIds).toEqual([
-      'thirdlight.character:controller',
+      'thirdlight.character3d:controller',
       'thirdlight.input:keyboard-gamepad',
-      'thirdlight.physics-rapier:2d',
+      'thirdlight.physics-rapier:3d',
       'thirdlight.three-adapter:gltf-loader',
     ]);
 

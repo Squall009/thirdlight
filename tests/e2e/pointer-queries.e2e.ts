@@ -101,7 +101,6 @@ type Obs = { state: string; stepIndex: number; hidden?: string[]; pointer?: { x:
 type Scene = { red: string; green: string; blue: string; redLamp: string; greenLamp: string; blueLamp: string };
 
 async function buildScene(): Promise<Scene> {
-  await cmd('setSettings', { settings: { physics_dimension: 3 } });
   await cmd('setCollisionLayers', { layers: ['pickable'] });
   await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#202428' } } });
   // The scene camera 12 m in front of the boxes, looking down −Z at their height.
@@ -284,7 +283,6 @@ test('pointer: hover lights a box\'s lamp and a click hides it — the mouse in 
 test('editor: a pointer binding and a locked cursor in the Input window; a collision layer in the Tags window', async ({ page }) => {
   test.setTimeout(120_000);
   be = await startBackend('pointer-editor-e2e');
-  await cmd('setSettings', { settings: { physics_dimension: 3 } });
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
 

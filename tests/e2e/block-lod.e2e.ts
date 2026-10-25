@@ -108,7 +108,6 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`block-layer chunks switch
   const cam = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities.find((e) => e.components['virtualCamera'] !== undefined)!.id;
   await cmd('setTransform', { entityId: cam, transform: { position: [8, 6, -8], rotation: [0, 0.9914449, 0.1305262, 0] } });
   // A 3D project: its movers run (the 3D physics steps them).
-  await cmd('setSettings', { settings: { physics_dimension: 3 } });
   // Marker models 2 m up, their LOD at the model's origin: 1 m inside and 1 m outside the switch distance, and one
   // moving between 3 m outside and 3 m inside along its line of sight — past the project's default hysteresis (a
   // tenth: it switches back to the detailed level 2.3 m inside), so each level shows for seconds of its 8 s round trip.

@@ -21,7 +21,7 @@ type Any = any;
 const HZ = 120;
 const DT = 1 / HZ;
 const T = (position: number[], rotation: number[] = [0, 0, 0, 1]) => ({ position, rotation, scale: [1, 1, 1] });
-const SETTINGS_3D = { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30, physics_dimension: 3 };
+const SETTINGS_3D = { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
 
 /** The director: an eased orbit at step 60, a snapped turn by script, the rail at 400, a shake, and back when the rail ends. */
 const DIRECTOR = `

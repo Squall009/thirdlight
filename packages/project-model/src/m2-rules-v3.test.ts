@@ -274,8 +274,6 @@ describe('gameplay settings resolution', () => {
       'animation_crossfade_s',
       // The renderer backend (0 legacy WebGL, 1 auto, 2 WebGPU, 3 WebGL 2).
       'render_backend',
-      // The simulation's dimension (2 the 2D plane, 3 3D).
-      'physics_dimension',
       // Where the simulation runs (1 a worker, 2 the main thread).
       'sim_thread',
       // The debug console in an export (0 off, 1 on; absent: off).
@@ -331,14 +329,14 @@ describe('gameplay settings resolution', () => {
     expect(consoleOn.ok && consoleOn.normalized).toMatchObject({ debug_console: 1 });
     const seeded = resolveGameplaySettings({ settings: { random_seed: 4294967295 } });
     expect(seeded.ok && seeded.normalized).toMatchObject({ random_seed: 4294967295 });
-    const dim = resolveGameplaySettings({ settings: { physics_dimension: 3 } });
-    expect(dim.ok && dim.normalized).toMatchObject({ physics_dimension: 3 });
+    // The retired physics dimension is no setting (the open upgrades it away).
+    expect(resolveGameplaySettings({ settings: { physics_dimension: 3 } }).ok).toBe(false);
     const backend = resolveGameplaySettings({ settings: { render_backend: 3 } });
     expect(backend.ok && backend.normalized.render_backend).toBe(3);
     // 0 (the archived WebGL renderer) stays valid in an older project (read as auto).
     const legacy = resolveGameplaySettings({ settings: { render_backend: 0 } });
     expect(legacy.ok && legacy.normalized.render_backend).toBe(0);
-    for (const bad of [{ fixed_step_hz: 90 }, { audio_voices: 2.5 }, { audio_voices: 33 }, { music_fade_s: -1 }, { render_backend: 4 }, { render_backend: 1.5 }, { sim_thread: 0 }, { sim_thread: 3 }, { physics_dimension: 1 }, { physics_dimension: 2.5 }, { random_seed: -1 }, { random_seed: 1.5 }, { random_seed: 4294967296 }, { debug_console: 2 }, { debug_console: 0.5 }]) {
+    for (const bad of [{ fixed_step_hz: 90 }, { audio_voices: 2.5 }, { audio_voices: 33 }, { music_fade_s: -1 }, { render_backend: 4 }, { render_backend: 1.5 }, { sim_thread: 0 }, { sim_thread: 3 }, { random_seed: -1 }, { random_seed: 1.5 }, { random_seed: 4294967296 }, { debug_console: 2 }, { debug_console: 0.5 }]) {
       expect(resolveGameplaySettings({ settings: bad }).ok, JSON.stringify(bad)).toBe(false);
     }
   });

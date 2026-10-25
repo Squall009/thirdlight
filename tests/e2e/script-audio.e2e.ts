@@ -153,7 +153,6 @@ async function buildScene(page: Page): Promise<{ loop: string; answer: string; s
   await create('Floor', [0, -0.5, 0], { box: { size: [40, 1, 40], material: { color: '#8a8f98' } }, components: { collider: { shape: { type: 'box', hx: 20, hy: 0.5, hz: 20 } } } }, 'box');
   const player = await create('Player', [0, 0.91, 0]);
   await cmd('setComponent', { entityId: player, component: 'controller', value: {} });
-  await cmd('setSettings', { settings: { physics_dimension: 3 } });
   const source = await create('Brook', [-6, 1, 0]);
   await cmd('setComponent', { entityId: source, component: 'audioSource', value: { assetId: answer, volume: 0.4, range: 20 } });
   const keys: [string, string][] = [['loopStart', 'KeyO'], ['pitchUp', 'KeyP'], ['fadeDown', 'KeyK'], ['stopLoop', 'KeyL'], ['spatial', 'KeyN']];

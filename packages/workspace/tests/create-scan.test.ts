@@ -65,8 +65,10 @@ describe('createProject (§8)', () => {
       id: 'proj-new',
       name: 'New Project',
       createdAt: '2026-09-17T11:00:00Z',
+      // A new project has every recorded upgrade behind it.
+      upgrades: ['planes'],
     });
-    expect(Object.keys(man)).toEqual(['schemaVersion', 'engineVersion', 'id', 'name', 'createdAt']);
+    expect(Object.keys(man)).toEqual(['schemaVersion', 'engineVersion', 'id', 'name', 'createdAt', 'upgrades']);
     expect(manRaw).toBe(JSON.stringify(man, null, 2) + '\n');
 
     // The project files: exactly the scene file (no scenes/main.json) and

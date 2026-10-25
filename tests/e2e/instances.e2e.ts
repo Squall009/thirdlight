@@ -219,7 +219,7 @@ for (const variant of RENDERER_VARIANTS) test(`a model's LOD switch point and cu
   be = await startBackend('inst-lod-e2e');
   await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#303030' } } });
   // A 50° lens reaching 400 m (the bands below are worked out from it).
-  await cmd('setSettings', { settings: { physics_dimension: 3, camera_fov_deg: 50, camera_far_m: 400 } });
+  await cmd('setSettings', { settings: { camera_fov_deg: 50, camera_far_m: 400 } });
   // A 3 m marker: LOD0 green, LOD1 magenta (the colour tells the level). Its LOD0 sphere (r 2.6 m) covers 10 % of a
   // 50° view at 55.7 m and 4 % at 139.3 m: the switch point and cull size set below.
   await publishBytes(be, multiPieceGlb([{ name: 'marker', lods: [[3, 3, 3], [3, 3, 3]], colors: [[0.02, 1, 0.02], [1, 0.02, 1]] }]), 'model', 'markers', 'Markers');

@@ -134,7 +134,6 @@ describe('the Scene-view handles over the real registry and commands', () => {
     // A 2D plane (and a registry read without a dimension): no height handles.
     expect(handleShapesOf(projected(s, 'group-000001'), DESCRIPTORS).some((x) => x.kind === 'height')).toBe(false);
     expect(handleShapesOf(projected(s, 'group-000001'), DESCRIPTORS, 2).some((x) => x.kind === 'height')).toBe(false);
-    s = must(s, 'setSettings', { settings: { physics_dimension: 3 } }, '3D');
     const shapes = handleShapesOf(projected(s, 'group-000001'), DESCRIPTORS, 3);
     // The ledge height only while the ledge climb is on.
     expect(shapes.filter((x) => x.kind === 'height').map((x) => x.label)).toEqual(['Step-up height']);
@@ -163,7 +162,6 @@ describe('the Scene-view handles over the real registry and commands', () => {
 
   it('(a 3D project): a sphere collider\'s radius, a capsule collider grows both ways; 3D trigger areas (box with depth, sphere, capsule) turn with the object', () => {
     let s = fresh();
-    s = must(s, 'setSettings', { settings: { physics_dimension: 3 } }, '3D');
     s = must(s, 'setComponent', { entityId: 'group-000001', component: 'collider', value: { shape: { type: 'sphere', radius: 0.5 } } }, 'sphere');
     const ball = handleShapesOf(projected(s, 'group-000001'), DESCRIPTORS).find((x) => x.component === 'collider')!;
     expect(ball.kind).toBe('radius');

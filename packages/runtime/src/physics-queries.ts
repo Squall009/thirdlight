@@ -30,6 +30,8 @@ export interface PhysicsQueryHost {
   readonly grid: RuntimeGrid;
   readonly tags: LiveTagIndex | null;
   readonly planes: PlaneLocks;
+  /** The default plane of the scene an object is in (null: none). */
+  scenePlaneOf(entityId: string): PhysicsPlane | null;
   /** The bodies outside the loaded collision this step. */
   readonly suspension: BodySuspension;
   /** The pointer as the step sees it (picks under it). */
@@ -140,9 +142,10 @@ export class PhysicsQueries {
     });
   }
 
-  /** The plane a caller's 2D queries run on: the one its object is locked to, else the world's Z plane at 0. */
+  /** The plane a caller's 2D queries run on: the one its object is locked to, else its scene's default plane, else the world's Z plane at 0. */
   private planeFor(caller: string | undefined): PhysicsPlane {
-    return (caller !== undefined ? this.h.planes.planeOf(caller) : null) ?? Z_PLANE;
+    if (caller === undefined) return Z_PLANE;
+    return this.h.planes.planeOf(caller) ?? this.h.scenePlaneOf(caller) ?? Z_PLANE;
   }
 
   /** A ray: [x, y, z] arrays are a 3D ray; {x, y} a ray on the caller's plane. */

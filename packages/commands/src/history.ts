@@ -22,11 +22,12 @@
  * (defensive).
  */
 
+import { scenePlaneOf, withScenePlane } from './scene-plane-ops';
 import { replayLinkEdit } from './prefab-link-replay';
 import type { PrefabLinkEditChange } from './prefab-link-types';
 import { replaySceneMove } from './move-scene-ops';
 import { COMPONENT_FIELD_ORDER } from './v3';
-import type { AnimatorController, EnvironmentConfig, InputConfig, LightingBake, MaterialDef, SceneEnvironment } from '@thirdlight/project-model';
+import type { AnimatorController, EnvironmentConfig, InputConfig, LightingBake, MaterialDef, PlaneLock, SceneEnvironment } from '@thirdlight/project-model';
 import { withAnimator, withEnvironment, withInput, withLighting, withMaterial, withSceneEnvironment } from './material-ops';
 import { withCollisionLayers, withLightLayers } from './layer-ops';
 import { withSaveSchema } from './save-schema-ops';
@@ -263,6 +264,19 @@ function applyMove(
     order: { previous: scene.entities.map((e) => e.id), next: [...order] },
   };
   return finish(state, result, state.content, change, requestId);
+}
+
+/** One scene's look set to `look` (null: none), for an undo or a redo routed to that scene. */
+function sceneLookTo(state: CommandState<SceneDocument>, sceneId: string, look: SceneEnvironment | null, requestId: string): ApplyResult {
+  const before = (state.scene as { environment?: SceneEnvironment }).environment ?? null;
+  const change: ChangeData = { type: 'setEnvironment', sceneId, previous: before === null ? null : deepClone(before), next: look === null ? null : deepClone(look) };
+  return finish(state, bumped(withSceneEnvironment(state.scene, look)), contentOf(state.content), change, requestId);
+}
+
+/** One scene's default plane set to `plane` (null: none), for an undo or a redo routed to that scene. */
+function scenePlaneTo(state: CommandState<SceneDocument>, sceneId: string, plane: PlaneLock | null, requestId: string): ApplyResult {
+  const change: ChangeData = { type: 'setScenePlane', sceneId, previous: scenePlaneOf(state.scene), next: plane === null ? null : { ...plane } };
+  return finish(state, bumped(withScenePlane(state.scene, plane)), contentOf(state.content), change, requestId);
 }
 
 /**
@@ -538,14 +552,10 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), withMaterial(content, inv.materialId, inv.restore), change, entry.requestId);
   }
 
+  if (inv.kind === 'setScenePlane') return scenePlaneTo(state, inv.sceneId, inv.restore, entry.requestId);
   if (inv.kind === 'setEnvironment') {
-    if (inv.sceneId !== undefined) {
-      // One scene's look (the history entry routed the undo to that scene).
-      const before = (scene as { environment?: SceneEnvironment }).environment ?? null;
-      const restore = inv.restore as SceneEnvironment | null;
-      const change: ChangeData = { type: 'setEnvironment', sceneId: inv.sceneId, previous: before === null ? null : deepClone(before), next: restore === null ? null : deepClone(restore) };
-      return finish(state, bumped(withSceneEnvironment(scene, restore)), content, change, entry.requestId);
-    }
+    // One scene's look (the history entry routed the undo to that scene).
+    if (inv.sceneId !== undefined) return sceneLookTo(state, inv.sceneId, inv.restore as SceneEnvironment | null, entry.requestId);
     const before = (content as { environment?: EnvironmentConfig }).environment ?? null;
     const change: ChangeData = { type: 'setEnvironment', previous: before === null ? null : deepClone(before), next: inv.restore === null ? null : deepClone(inv.restore) };
     return finish(state, bumped(scene), withEnvironment(content, inv.restore as EnvironmentConfig | null), change, entry.requestId);
@@ -1096,13 +1106,9 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), withMaterial(content, f.materialId, f.next), change, entry.requestId);
   }
 
+  if (f.type === 'setScenePlane') return scenePlaneTo(state, f.sceneId, f.next, entry.requestId);
   if (f.type === 'setEnvironment') {
-    if (f.sceneId !== undefined) {
-      const before = (scene as { environment?: SceneEnvironment }).environment ?? null;
-      const look = f.next as SceneEnvironment | null;
-      const change: ChangeData = { type: 'setEnvironment', sceneId: f.sceneId, previous: before === null ? null : deepClone(before), next: look === null ? null : deepClone(look) };
-      return finish(state, bumped(withSceneEnvironment(scene, look)), content, change, entry.requestId);
-    }
+    if (f.sceneId !== undefined) return sceneLookTo(state, f.sceneId, f.next as SceneEnvironment | null, entry.requestId);
     const before = (content as { environment?: EnvironmentConfig }).environment ?? null;
     const change: ChangeData = { type: 'setEnvironment', previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next) };
     return finish(state, bumped(scene), withEnvironment(content, f.next as EnvironmentConfig | null), change, entry.requestId);

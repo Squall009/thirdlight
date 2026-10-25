@@ -413,7 +413,10 @@
           "engineVersion": "0.1.0",
           "id": "demo-0001",
           "name": "Demo Project",
-          "createdAt": "2026-09-16T23:40:00Z"
+          "createdAt": "2026-09-16T23:40:00Z",
+          "upgrades": [
+            "planes"
+          ]
         },
         "scene": {
           "sceneId": "scene-main",

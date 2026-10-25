@@ -25,6 +25,8 @@ export interface ManifestSceneRow {
   readonly digest: string;
   readonly byteLength: number;
   readonly start: boolean;
+  /** The scene's default plane (absent: none). */
+  readonly plane?: { readonly axis: 'x' | 'z'; readonly origin: number };
 }
 
 /** One `manifest.buffers` row. */
@@ -62,13 +64,14 @@ export async function prepareSceneCatalog(
 ): Promise<{ rows: RuntimeSceneRow[]; loadScene: (sceneId: string) => Promise<LoadedSceneBatch['entities']> }> {
   const out: RuntimeSceneRow[] = [];
   for (const row of rows) {
+    const plane = row.plane !== undefined ? { plane: row.plane } : {};
     if (!row.start) {
-      out.push({ sceneId: row.sceneId, start: false });
+      out.push({ sceneId: row.sceneId, start: false, ...plane });
       continue;
     }
     const doc = JSON.parse(new TextDecoder().decode(await readVerified(io, row.path, row.digest, row.byteLength))) as { entities?: { id?: unknown }[]; environment?: unknown };
     const entityIds = (doc.entities ?? []).map((e) => e.id).filter((id): id is string => typeof id === 'string');
-    out.push({ sceneId: row.sceneId, start: true, entityIds });
+    out.push({ sceneId: row.sceneId, start: true, entityIds, ...plane });
     onLook?.(row.sceneId, lookOf(doc));
   }
   const bySceneId = new Map(rows.map((r) => [r.sceneId, r]));

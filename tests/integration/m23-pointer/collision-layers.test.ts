@@ -44,7 +44,6 @@ const BOX = { type: 'box', hx: 0.5, hy: 0.5, hz: 0.5 };
 describe('collision layers', () => {
   it('setCollisionLayers names layers, refuses bad lists, undoes and redoes; empty removes the field', () => {
     let s = fresh();
-    s = must(s, 'setSettings', { settings: { physics_dimension: 3 } });
     s = must(s, 'setCollisionLayers', { layers: ['units', 'props'] });
     expect(layersOf(s)).toEqual(['units', 'props']);
     for (const bad of [['default'], ['a', 'a'], ['9x'], Array.from({ length: 16 }, (_, i) => `l${i}`)]) expect(run(s, 'setCollisionLayers', { layers: bad }).ok, JSON.stringify(bad)).toBe(false);
@@ -56,12 +55,8 @@ describe('collision layers', () => {
     expect(layersOf(must(s, 'setCollisionLayers', { layers: [] }))).toBeUndefined();
   });
 
-  it('a collider lists default or named layers (3D only); a listed layer cannot be removed', () => {
+  it('a collider lists default or named layers; a listed layer cannot be removed', () => {
     let s = fresh();
-    // 2D plane: layers are refused.
-    const flat = run(s, 'setComponent', { entityId: 'group-000001', component: 'collider', value: { shape: { type: 'box', hx: 0.5, hy: 0.5 }, layers: ['default'] } });
-    expect(flat.ok).toBe(false);
-    s = must(s, 'setSettings', { settings: { physics_dimension: 3 } });
     s = must(s, 'setCollisionLayers', { layers: ['units'] });
     const unknown = run(s, 'setComponent', { entityId: 'group-000001', component: 'collider', value: { shape: BOX, layers: ['props'] } });
     expect(unknown.ok).toBe(false);

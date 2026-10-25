@@ -34,7 +34,7 @@ import {
   inspectImage,
 } from '@thirdlight/asset-pipeline';
 
-import { audioLoadOf, PROJECT_SCHEMA_VERSION } from '@thirdlight/project-model';
+import { audioLoadOf, PROJECT_SCHEMA_VERSION, RECORDED_SCHEMA_8_STEPS } from '@thirdlight/project-model';
 import { CONTENT_STORAGE_VERSION, defaultResourcePath, RESOURCE_KINDS, resourceFileBytes, SIDECAR_FORMAT } from '@thirdlight/workspace';
 
 import { encodeKtx2 } from '../../packages/backend/src/texture-encode';
@@ -439,7 +439,8 @@ export async function generateScaleProject(dataRoot: string, projectId: string, 
     // typewriter, so any silence between two voices is the engine's.
     dialogueSettings: { textSpeed: 0, autoAdvance: true, autoDelay: 0 },
   };
-  const manifest = { schemaVersion: PROJECT_SCHEMA_VERSION, engineVersion: '0.1.0', id: projectId, name: `Scale bench ${projectId}`, createdAt: IMPORTED_AT };
+  // A current project: every recorded upgrade behind it (a 3D project, as the backend makes one).
+  const manifest = { schemaVersion: PROJECT_SCHEMA_VERSION, engineVersion: '0.1.0', id: projectId, name: `Scale bench ${projectId}`, createdAt: IMPORTED_AT, upgrades: [...RECORDED_SCHEMA_8_STEPS] };
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   // content.json keeps the project-wide settings; each prefab, material and dialogue is its own file (as the backend writes them).
   const resources: Record<string, unknown[]> = { prefabs, materials, dialogues };

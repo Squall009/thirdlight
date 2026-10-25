@@ -328,6 +328,14 @@ export interface SceneV4 {
   revision: number;
   /** The scene's look: sky, fog, post-processing, wind (absent: the engine defaults). The active scene's applies when several are loaded. */
   environment?: import('./materials').SceneEnvironment;
+  /**
+   * The plane the scene's bodies are locked to (absent: none, free in 3D): a
+   * collider or controller without a `plane` of its own takes it (`plane:
+   * null` frees one), and a script's `{x, y}` queries run on it.
+   */
+  defaultPlane?: import('./plane-lock').PlaneLock;
+  /** What the upgrade of a former 2D project converted here, until each item is saved again (`migrated-2d.ts`). */
+  migratedFrom2D?: import('./migrated-2d').Migrated2DMarks;
   entities: SceneEntityV3[];
   /** The block layers' cells and regions (one entry per layer holding any; absent = none). */
   blocks?: import('./block-layers').BlockLayerData[];

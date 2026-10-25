@@ -5,7 +5,8 @@
  * physics backend. The normal is a world axis (X or Z): a plane at any other
  * angle needs a joint frame and is not offered.
  *
- * Absent or null: the body is free in all six degrees of freedom.
+ * Absent: the body takes its scene's default plane (none: free); null: it is
+ * free in all six degrees of freedom whatever its scene's default.
  */
 import type { ModelErrorV2 } from './errors';
 import { fieldMissing, fieldType, fieldValue, isPlainObject, MAX_LEN, pointerSegment, unexpectedField } from './validate';
@@ -48,6 +49,44 @@ export function validatePlaneLock(v: unknown, path: string, errors: ModelErrorV2
 export function planeLockOf(component: unknown): PlaneLock | null {
   const v = isPlainObject(component) ? component['plane'] : undefined;
   return isPlaneLock(v) ? { axis: v.axis, origin: v.origin === 0 ? 0 : v.origin } : null;
+}
+
+/** A component's canonical `plane` field: a plane, or null kept (it frees the body from its scene's default plane); absent otherwise. */
+export function canonicalPlaneField(component: unknown): { plane?: PlaneLock | null } {
+  if (isPlainObject(component) && component['plane'] === null) return { plane: null };
+  const plane = planeLockOf(component);
+  return plane !== null ? { plane } : {};
+}
+
+/**
+ * A component's plane in its scene: its own when it names one (null: free),
+ * else the scene's default plane (null: none).
+ */
+export function effectivePlaneOf(component: unknown, scenePlane: PlaneLock | null | undefined): PlaneLock | null {
+  if (isPlainObject(component) && component['plane'] !== undefined) return planeLockOf(component);
+  return scenePlane ?? null;
+}
+
+/**
+ * A scene's objects as the game runs them on the scene's default plane: each
+ * collider and controller without a `plane` of its own names the scene's (a
+ * scene without one, or objects that all name theirs: the same list).
+ */
+export function withScenePlane<E extends { components?: unknown }>(entities: readonly E[], scenePlane: unknown): E[] {
+  if (!isPlaneLock(scenePlane)) return entities as E[];
+  const plane = { axis: scenePlane.axis, origin: scenePlane.origin === 0 ? 0 : scenePlane.origin };
+  const lift = (c: unknown): unknown => (isPlainObject(c) && c['plane'] === undefined ? { ...c, plane: { ...plane } } : c);
+  let out: E[] | null = null;
+  entities.forEach((e, i) => {
+    const comps = e.components;
+    if (!isPlainObject(comps)) return;
+    const collider = lift(comps['collider']);
+    const controller = lift(comps['controller']);
+    if (collider === comps['collider'] && controller === comps['controller']) return;
+    out ??= [...entities];
+    out[i] = { ...e, components: { ...comps, ...(collider !== undefined ? { collider } : {}), ...(controller !== undefined ? { controller } : {}) } };
+  });
+  return out ?? (entities as E[]);
 }
 
 /**

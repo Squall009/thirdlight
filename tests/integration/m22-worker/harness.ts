@@ -178,7 +178,7 @@ export async function startHarness(mode: Mode, cfg: HarnessConfig): Promise<Harn
     if (c.op === 'play') sounds.push(c.assetId);
   };
   // The manifest modules the snapshot references (the host has no default set).
-  const modules = cfg.modules ?? modulesOf(cfg.snapshot, cfg.settings);
+  const modules = cfg.modules ?? modulesOf(cfg.snapshot, cfg.settings, cfg.physics);
   const snapshot = cfg.storage === true ? withStorageSchema(cfg.snapshot) : cfg.snapshot;
   // The host's save storage, watched (the save bodies it writes, by key).
   const bodies = new Map<string, string>();

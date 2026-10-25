@@ -8,7 +8,7 @@
  * `validateSceneV3`/`validateMergedSceneV4` re-check — failures carry ≤ 10
  * project-model error objects + the total count.
  */
-import { ID_RE } from '@thirdlight/project-model';
+import { ID_RE, isPlaneLock } from '@thirdlight/project-model';
 import { validateModelColliderTable, validateModelRig, type ModelColliderTable, type ModelRig } from '@thirdlight/project-model';
 import { validateModes, type RuntimeModes } from '@thirdlight/project-model';
 import { validateBlockTypes, validateCellFields, type BlockType, type CellField } from '@thirdlight/project-model';
@@ -444,7 +444,7 @@ export function validateRuntimeSnapshot(
       const row = snap.scenes[i] as Record<string, unknown>;
       const path = `/scenes/${i}`;
       if (typeof row !== 'object' || row === null || Array.isArray(row)) return bad('a scene row must be an object', path);
-      for (const k of Object.keys(row)) if (k !== 'sceneId' && k !== 'start' && k !== 'entityIds') return bad(`unknown scene row field "${k}"`, path);
+      for (const k of Object.keys(row)) if (k !== 'sceneId' && k !== 'start' && k !== 'entityIds' && !(k === 'plane' && isPlaneLock(row[k]))) return bad(k === 'plane' ? "a scene row's plane is { axis: 'x' | 'z', origin }" : `unknown scene row field "${k}"`, path);
       if (typeof row['sceneId'] !== 'string' || !SCENE_ID_RE.test(row['sceneId'])) return bad('sceneId must be a scene id', `${path}/sceneId`);
       if (seen.has(row['sceneId'])) return bad(`duplicate scene "${row['sceneId']}"`, `${path}/sceneId`);
       seen.add(row['sceneId']);

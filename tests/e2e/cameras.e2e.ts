@@ -113,7 +113,6 @@ async function buildScene(): Promise<{ follow: string; orbit: string; rail: stri
   for (const [name, at, color] of pillars) await create(name, at, { box: { size: [1.2, 3, 1.2], material: { color } } }, 'box');
   const player = await create('Player', [0, 0.91, 0]);
   await cmd('setComponent', { entityId: player, component: 'controller', value: {} });
-  await cmd('setSettings', { settings: { physics_dimension: 3 } });
   await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#7ec8ff' } } });
   await cmd('setInput', {
     input: {

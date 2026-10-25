@@ -99,7 +99,7 @@ export async function runExportSizeCli(argv: readonly string[]): Promise<void> {
       const created = await be.post('/api/v1/admin/projects', { projectId, name: projectId });
       if (created.status !== 201 && created.status !== 200) throw new Error(`project create failed: ${JSON.stringify(created.json)}`);
       const p = be.project(projectId);
-      if (dimension === 3) await p.command('setSettings', { settings: { physics_dimension: 3 } });
+
       const shape = dimension === 3 ? { type: 'box', hx: 5, hy: 0.5, hz: 5 } : { type: 'box', hx: 5, hy: 0.5 };
       await p.command('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Floor', transform: { position: [0, -0.5, 0] }, box: { size: [10, 1, 10] }, components: { collider: { shape } } });
       const player = String((await p.command('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Player', transform: { position: [0, 3, 0] } }))['createdId']);

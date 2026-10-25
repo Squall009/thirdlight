@@ -49,6 +49,7 @@ import type {
   SceneV4,
   EnvironmentConfig,
   SceneEnvironment,
+  PlaneLock,
   LightingBake,
   AnimatorController,
   InputConfig,
@@ -359,6 +360,14 @@ export interface SetEnvironmentChange {
   sceneId?: string;
   previous: EnvironmentConfig | SceneEnvironment | null;
   next: EnvironmentConfig | SceneEnvironment | null;
+}
+
+/** `setScenePlane` change data: the scene's default plane before and after (null: none). */
+export interface SetScenePlaneChange {
+  type: 'setScenePlane';
+  sceneId: string;
+  previous: PlaneLock | null;
+  next: PlaneLock | null;
 }
 
 /** `setAnimator`/`deleteAnimator` (and a `graphEdit` of a controller) change data: the one controller before and after (null: none). */
@@ -940,6 +949,7 @@ export type ChangeData =
   | PasteEntitiesChange
   | SetMaterialChange
   | SetEnvironmentChange
+  | SetScenePlaneChange
   | SetLightingChange
   | SetAnimatorChange
   | SetInputChange
@@ -996,6 +1006,7 @@ export type ForwardChange =
   | PasteEntitiesChange
   | SetMaterialChange
   | SetEnvironmentChange
+  | SetScenePlaneChange
   | SetLightingChange
   | SetAnimatorChange
   | SetInputChange
@@ -1159,6 +1170,13 @@ export interface SetEnvironmentInverse {
   restore: EnvironmentConfig | SceneEnvironment | null;
 }
 
+/** Undo of `setScenePlane`: the scene's default plane as it was (null: none). */
+export interface SetScenePlaneInverse {
+  kind: 'setScenePlane';
+  sceneId: string;
+  restore: PlaneLock | null;
+}
+
 /** Undo of `setAnimator`/`deleteAnimator` (and a controller's `graphEdit`): put the one controller back as it was (null: none). */
 export interface SetAnimatorInverse {
   kind: 'setAnimator';
@@ -1233,6 +1251,7 @@ export type InverseSpec =
   | SetTimelineInverse
   | SetMaterialInverse
   | SetEnvironmentInverse
+  | SetScenePlaneInverse
   | SetLightingInverse
   | SetAnimatorInverse
   | SetInputInverse

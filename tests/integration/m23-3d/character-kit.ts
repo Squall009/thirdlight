@@ -13,7 +13,7 @@ import { startHarness, type Harness, type Mode } from '../m22-worker/harness';
 export type Any = any;
 export const HZ = 120;
 export const DT = 1 / HZ;
-export const SETTINGS = { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30, physics_dimension: 3 };
+export const SETTINGS = { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
 /** The manifest module set of a 3D project with a controller (project-model's resolution). */
 export const MODULES_3D = ['thirdlight.character3d:controller', 'thirdlight.input:keyboard-gamepad', 'thirdlight.physics-rapier:3d'];
 export const T = (position: number[], rotation: number[] = [0, 0, 0, 1], scale: number[] = [1, 1, 1]) => ({ position, rotation, scale });

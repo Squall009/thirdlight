@@ -238,17 +238,29 @@ export function entitiesOf(c: PlatformerCase, dim: 2 | 3, extraController: Recor
  * player carrying `extraController` (a movement profile, a plane).
  */
 export async function recordCase(c: PlatformerCase, dim: 2 | 3, extraController: Record<string, unknown> = {}, axis: 'z' | 'x' = 'z'): Promise<{ rows: TraceRow[]; depth: number[]; errors: Any[] }> {
-  const entities = entitiesOf(c, dim, extraController, axis);
+  return recordRun(c, entitiesOf(c, dim, extraController, axis), { dim, axis, onPlane: dim === 2 || extraController['plane'] !== undefined });
+}
+
+/**
+ * Run a case's input over given entities (a level as an upgraded project
+ * holds it, say) and record it as `recordCase` does. `playerId`: the player
+ * (absent: `player-0001`); `onPlane`: down is a plane-locked character's
+ * (its move's y) rather than a free one's.
+ */
+export async function recordRun(c: PlatformerCase, entities: readonly Any[], opts: { dim: 2 | 3; axis?: 'z' | 'x'; onPlane: boolean; playerId?: string }): Promise<{ rows: TraceRow[]; depth: number[]; errors: Any[] }> {
+  const { dim } = opts;
+  const axis = opts.axis ?? 'z';
+  const playerId = opts.playerId ?? 'player-0001';
   // The in-plane x (+X, or −Z on the plane x = 0) and the depth across the plane.
   const along = (v: { x: number; z?: number }): number => (dim === 3 && axis === 'x' ? -(v.z ?? 0) : v.x);
   const across = (v: { x: number; z?: number }): number => (dim === 3 && axis === 'x' ? v.x : (v.z ?? 0));
-  const settings = dim === 3 ? { ...SETTINGS, physics_dimension: 3 } : SETTINGS;
-  const physics = dim === 3 ? physics3DConfigOf(entities, settings) : physics2DConfigOf(entities, settings);
+  const settings = dim === 3 ? { ...SETTINGS } : SETTINGS;
+  const physics = dim === 3 ? physics3DConfigOf(entities as Any[], settings) : physics2DConfigOf(entities as Any[], settings);
   const h = await startHarness('single', {
     snapshot: { snapshotId: `${c.id}${dim}@r1`, projectId: `${c.id}${dim}`, revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities }, scenes: [{ sceneId: 'scene-main', start: true, entityIds: entities.map((e) => e.id) }] },
     settings,
     physics,
-    replay: replayOf(c, dim === 2 || extraController['plane'] !== undefined),
+    replay: replayOf(c, opts.onPlane),
     ...(dim === 3 ? { modules: MODULES_3D } : {}),
   });
   const rt = h.rt as Any;
@@ -258,7 +270,7 @@ export async function recordCase(c: PlatformerCase, dim: 2 | 3, extraController:
   const climbSpeed = typeof c.controller?.['climbSpeed'] === 'number' ? (c.controller['climbSpeed'] as number) : 2;
   const input = inputOf(c);
   rt.setStepWatcher?.(() => {
-    const r = rt.controllers.result('player-0001');
+    const r = rt.controllers.result(playerId);
     if (r === undefined) return false;
     const vx = along(r.requested) / DT;
     const vy = r.requested.y / DT;
@@ -317,4 +329,35 @@ export function writeTrace(t: TraceFile): void {
     `,\n "rows": [\n${rows.map((r) => `  ${JSON.stringify(r)}`).join(',\n')}\n ]\n}\n`,
   ].join('');
   writeFileSync(join(TRACE_DIR, `${t.id}.json`), body);
+}
+
+/** The tolerances, stated once (positions in m, timings in steps of 1/120 s). */
+export const PARITY = Object.freeze({
+  /** The position at a key event. */
+  eventPosition: 0.01,
+  /** How many steps a key event may move (measured: none moves). */
+  eventSteps: 1,
+  /** Every step against the 2D path one step either side (the 2D port's own flat-ground bumps reach 1.1 cm). */
+  path: 0.015,
+  /** The controller's staged velocity (its rules), at every step. */
+  velocity: 1e-6,
+  /** A measured height or rest position (jump apex, lift top, ladder top, a stop on a slope). */
+  measure: 0.01,
+  /** Where the character comes to rest after a stair walk: each riser's ride over the edge lands within about 1 cm of the 2D's (the ride amplifies the last millimetre), and the slide off the last edge starts a step apart. */
+  stairRest: 0.05,
+});
+
+/** The distance from `p` to the 2D path through steps i−1 … i+1. */
+export function pathGap(p: TraceRow, r: readonly TraceRow[], i: number): number {
+  let best = Infinity;
+  for (let j = Math.max(0, i - 1); j < Math.min(r.length - 1, i + 1); j += 1) {
+    const a = r[j]!;
+    const b = r[j + 1]!;
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const l = dx * dx + dy * dy;
+    const t = l === 0 ? 0 : Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l));
+    best = Math.min(best, Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy));
+  }
+  return best;
 }

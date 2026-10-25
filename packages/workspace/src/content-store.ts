@@ -13,7 +13,7 @@
  * Derived caches are regenerable and never authoritative: a write to
  * `.thirdlight/derived/**` changes no revision, no envelope and no catalog.
  */
-import { ID_RE } from '@thirdlight/project-model';
+import { ID_RE, withScenePlane } from '@thirdlight/project-model';
 
 import {
   closeSync,
@@ -1635,7 +1635,11 @@ export function readCapturedV3(ctx: ContentContext): CapturedV3ReadResult {
   if (ctx.content !== null && ctx.scenes !== undefined) {
     const content = ctx.content as ContentCatalogV4;
     const byId = new Map(ctx.scenes.map((sc) => [sc.sceneId, sc]));
-    const entities = content.startScenes.flatMap((id) => byId.get(id)?.entities ?? []);
+    // Each scene's bodies on its default plane (the merged scene has none of its own).
+    const entities = content.startScenes.flatMap((id) => {
+      const sc = byId.get(id);
+      return sc === undefined ? [] : withScenePlane(sc.entities, sc.defaultPlane);
+    });
     // The start scenes' block-layer cells travel with them.
     const blocks = content.startScenes.flatMap((id) => byId.get(id)?.blocks ?? []);
     const ordered = content.scenes.map((e) => byId.get(e.sceneId)).filter((x): x is SceneV4 => x !== undefined);

@@ -116,15 +116,15 @@ drew no more frames, and it showed unexplained stalls on WebGPU (numbers in
 `docs/plan-phase-22.md` §5; the spike is kept in
 `archive/spike-22-render-worker/`). Real-GPU measurements are pending.
 
-## 3D physics (physics dimension)
+## One 3D backend; planes
 
-A project chooses its simulation's dimension in the project
-settings: **Engine → Physics** (`physics_dimension`): **2D plane** (the
-default, and what a project without the setting gets — movement and
-collision in X and Y on the Rapier 2D backend) or **3D** (the Rapier 3D
-backend, `@dimforge/rapier3d-compat` 0.20.0).
+Every project simulates on the Rapier 3D backend (`@dimforge/rapier3d-compat`
+0.20.0). A side-view game locks its bodies to a plane: a scene's default
+plane (`setScenePlane`) or a collider's or controller's own `plane`
+(see [2D and 3D](../concepts/2d-and-3d.md)). The project setting
+`physics_dimension` is retired; a project that had it is upgraded on open.
 
-In a 3D project:
+On the 3D backend:
 
 - a box collider's depth is its **Half depth** field (`hz`, metres; its
   Scene handle becomes a 3-axis box that turns with the object once the

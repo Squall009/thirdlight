@@ -40,7 +40,7 @@ export interface EntityIndexesDeps {
   liveTransform: { id: string; position: number[]; rotation: number[]; scale: number[] } | null;
   content: Pick<Content, 'materials' | 'animators' | 'effects' | 'behaviorViews' | 'prefabSummaries'>;
   registry: DescriptorRegistry | null;
-  settings: Pick<Settings, 'settings' | 'behaviorGroups' | 'modes' | 'lightLayers'>;
+  settings: Pick<Settings, 'behaviorGroups' | 'modes' | 'lightLayers'>;
   animator: Pick<ReturnType<typeof useAnimatorTools>, 'modelNodesOf' | 'modelSkinnedOf'>;
   effectPreview: boolean;
 }
@@ -48,7 +48,7 @@ export interface EntityIndexesDeps {
 export function useEntityIndexes(deps: EntityIndexesDeps) {
   const { clientRef, viewportRef, loadTextureRef, entities, selectedId, liveTransform, registry, effectPreview } = deps;
   const { materials, animators, effects, behaviorViews, prefabSummaries } = deps.content;
-  const { settings, behaviorGroups, modes, lightLayers } = deps.settings;
+  const { behaviorGroups, modes, lightLayers } = deps.settings;
   const { modelNodesOf, modelSkinnedOf } = deps.animator;
   const selectedEntity = useMemo(() => {
     const base = selectedId === null ? null : (entities.find((e) => e.id === selectedId) ?? null);
@@ -121,7 +121,7 @@ export function useEntityIndexes(deps: EntityIndexesDeps) {
       // An animator's starting values are edited from its controller's parameters.
       animatorParameters: Object.fromEntries(animators.map((a) => [a.controllerId, a.parameters])),
       // The "+ Add component" presets follow the project's physics dimension.
-      physicsDimension: settings?.['physics_dimension'] === 3 ? (3 as const) : (2 as const),
+      physicsDimension: 3 as const,
       // The light layer masks' checkboxes carry the project's layer names.
       lightLayerNames: lightLayers,
       // A cell metadata map is edited by the project's cell fields.
@@ -139,7 +139,7 @@ export function useEntityIndexes(deps: EntityIndexesDeps) {
         return typeof assetId === 'string' ? modelSkinnedOf(assetId) : undefined;
       },
     }),
-    [clientRef, allEntities, projectScenes, materials, animators, behaviorViews, prefabSummaries, effects, registry, settings, modelNodesOf, modelSkinnedOf, behaviorGroups, modes, lightLayers],
+    [clientRef, allEntities, projectScenes, materials, animators, behaviorViews, prefabSummaries, effects, registry, modelNodesOf, modelSkinnedOf, behaviorGroups, modes, lightLayers],
   );
   /** How many objects carry each behavior group. */
   const groupUsage = useMemo(() => {

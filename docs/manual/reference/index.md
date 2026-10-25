@@ -26,10 +26,10 @@ What the engine offers, generated from its source: the objects, components and c
 | [Scene environment](scene-environment.md) | sky — Sky, fog — Fog, heightFog — Height fog, post — Post-processing, wind — Wind, wetness — Wetness |
 | [UI documents](ui.md) | UI document, Widget, Style, Tween |
 | [Command ops](ops.md) | The request, Every op |
-| [Command op arguments](ops-detail.md) | 86 sections |
+| [Command op arguments](ops-detail.md) | 87 sections |
 | [Types (AcknowledgeBehaviorTrustArgs to CursorMode)](types-a-c.md) | 74 sections |
 | [Types (DecalCellRef to PackedFrom)](types-d-p.md) | 95 sections |
-| [Types (PaintInstancesArgs to TrimSheet)](types-p-t.md) | 95 sections |
+| [Types (PaintInstancesArgs to TrimSheet)](types-p-t.md) | 98 sections |
 | [Types (UiAction to WindOctave)](types-u-w.md) | 30 sections |
 | [Script API](script-api.md) | What a script exports, The context (`ctx`), Context members in full, `BehaviorPrepareConfig`, `BehaviorInstanceInfo` |
 | [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 21 sections |

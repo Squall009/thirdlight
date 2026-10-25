@@ -711,6 +711,8 @@ export class Projection {
       case 'moveResources':
       case 'setMaterial':
       case 'setEnvironment':
+      // A scene's default plane (the scene list carries it from the next full state).
+      case 'setScenePlane':
       case 'setLighting':
       case 'setAnimator':
       case 'setInput':

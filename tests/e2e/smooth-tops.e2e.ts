@@ -90,7 +90,6 @@ const CAMERA_AT = new THREE.Vector3(10, 13, 15);
 const LOOK_AT = new THREE.Vector3(2, 3.5, 0);
 
 async function buildScene(): Promise<{ layer: string; fovY: number }> {
-  await cmd('setSettings', { settings: { physics_dimension: 3 } });
   await cmd('setBlockType', { block: { blockId: 'ground', name: 'Ground', variants: [{ color: '#b8b8b8' }], shape: 'full' } });
   const entities = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities;
   const cam = entities.find((e) => e.components['virtualCamera'] !== undefined)!;

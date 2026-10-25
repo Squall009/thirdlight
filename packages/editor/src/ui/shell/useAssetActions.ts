@@ -63,9 +63,7 @@ export function useAssetActions(deps: AssetActionsDeps) {
         const b = resource.bounds(piece);
         return b.isEmpty() ? null : { min: [b.min.x, b.min.y, b.min.z], max: [b.max.x, b.max.y, b.max.z] };
       };
-      // In a 3D project a `_COL` node becomes a triangle-mesh collider (exact static geometry),
-      // or a convex hull when it is too big for a mesh; the 2D plane keeps its outline polygon.
-      const threeD = (clientRef.current?.getSettings() ?? {})['physics_dimension'] === 3;
+      // A `_COL` node becomes a triangle-mesh collider (exact static geometry), or a convex hull when it is too big for a mesh.
       const collider3D = (piece: string | null): PieceFacts['collider'] => {
         for (const kind of ['mesh', 'convex'] as const) {
           const made = resource.collider3D(piece, kind);
@@ -74,13 +72,13 @@ export function useAssetActions(deps: AssetActionsDeps) {
         }
         return null;
       };
-      const pieces: PieceFacts[] = resource.pieces().map((pc) => ({ name: pc.name, bounds: box(pc.name), collider: pc.hasCollider ? (threeD ? collider3D(pc.name) : resource.collider2D(pc.name)) : null, skinned: pc.skinned }));
+      const pieces: PieceFacts[] = resource.pieces().map((pc) => ({ name: pc.name, bounds: box(pc.name), collider: pc.hasCollider ? collider3D(pc.name) : null, skinned: pc.skinned }));
       const { args } = planModelDrop({
         assetId: payload.assetId,
         displayName: asset.displayName,
         ...(payload.piece !== undefined ? { piece: payload.piece } : {}),
         pieces,
-        wholeCollider: pieces.length === 1 ? (threeD ? collider3D(null) : resource.collider2D(null)) : null,
+        wholeCollider: pieces.length === 1 ? collider3D(null) : null,
         position,
         parentId,
       });

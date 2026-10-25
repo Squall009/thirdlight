@@ -218,7 +218,10 @@ describe('migration v3 → v4', () => {
     expect(project.content.scenes).toEqual([{ sceneId: env.normalized.scene.sceneId, name: 'Main' }]);
     expect(project.content.startScenes).toEqual([env.normalized.scene.sceneId]);
     expect('game' in project.content).toBe(false);
-    expect(notes).toEqual([]);
+    // The 2D starter becomes a 3D project whose scene has a default plane (the one note).
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatch(/^a 2D project \(physics_dimension retired\)/);
+    expect((project.scenes[0] as { defaultPlane?: unknown }).defaultPlane).toEqual({ axis: 'z', origin: 0 });
     const v = validateProjectV4(project.manifest, project.content, project.scenes);
     expect(v.ok, JSON.stringify(!v.ok && v.errors)).toBe(true);
   });

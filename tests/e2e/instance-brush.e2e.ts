@@ -102,7 +102,6 @@ const ROOM = { x: [-11, -7.5], z: [-12, -9] } as const;
 const TINT = { materials: { '*': 'vp-tint' } };
 
 async function buildScene(): Promise<{ set: string; layer: string; platform: string; camera: string; room: string }> {
-  await cmd('setSettings', { settings: { physics_dimension: 3 } });
   await publishBytes(be!, new Uint8Array(readFileSync(join(REPO, 'templates', 'starter', 'assets', 'model', 'pillar.glb'))), 'model', 'pillar', 'Pillar', {}, { extractTextures: false });
   await cmd('setBlockType', { block: { blockId: 'turf', name: 'Turf', variants: [{ color: '#3f8f3a' }], shape: 'full' } });
   const layer = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Terrain', transform: { position: [...LAYER_AT] } }))['createdId']);

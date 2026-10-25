@@ -52,7 +52,7 @@ async function observePlay(psid: string): Promise<Observation | null> {
 
 /** A floor and two players (the second reads its own actions), in 2D or 3D, with the co-op bindings. */
 async function buildScene(dim: 2 | 3): Promise<{ p1: string; p2: string }> {
-  if (dim === 3) await cmd('setSettings', { settings: { physics_dimension: 3 } });
+  
   const floorShape = dim === 3 ? { type: 'box', hx: 10, hy: 0.5, hz: 10 } : { type: 'box', hx: 10, hy: 0.5 };
   await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Floor', transform: { position: [0, -0.5, 0] }, box: { size: [20, 1, 20], material: { color: '#8a8f98' } }, components: { collider: { shape: floorShape } } });
   const p1 = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Player 1', transform: { position: [-2, 0.91, 0] }, components: { controller: {} } }))['createdId']);

@@ -34,6 +34,7 @@
  * `buildId` covers the whole catalog. Pure: no I/O, no clock; the caller
  * supplies `capturedAt` and may supply a faster SHA-256.
  */
+import { isPlaneLock } from './plane-lock';
 import { MANIFEST_CONTENT_FILE_MAX_BYTES, RUNTIME_CONTENT_MANIFEST_MAX_BYTES, RUNTIME_CONTENT_TYPE, type ManifestBehaviorInput } from './manifest';
 import {
   blockDigest,
@@ -397,7 +398,7 @@ export function captureManifestV5(input: CaptureManifestV5Input): CaptureManifes
   // Every scene with the file of the entries it needs.
   const sceneRows: CatalogSceneRow[] | undefined = input.scenes?.map((sc) => {
     const needed = entriesOf(sc.dependencies);
-    return { sceneId: sc.sceneId, path: sc.path, digest: sc.digest, byteLength: sc.byteLength, start: sc.start, dependencies: add(listFile(needed, `scene:${sc.sceneId}`, () => listText(needed), hash), `the ${sc.sceneId} dependency file`) };
+    return { sceneId: sc.sceneId, path: sc.path, digest: sc.digest, byteLength: sc.byteLength, start: sc.start, ...(sc.plane !== undefined ? { plane: { ...sc.plane } } : {}), dependencies: add(listFile(needed, `scene:${sc.sceneId}`, () => listText(needed), hash), `the ${sc.sceneId} dependency file`) };
   });
 
   const root: CatalogRootV5 = {
@@ -559,7 +560,9 @@ export function catalogRootProblem(doc: unknown): string | null {
     for (const [i, raw] of (d['scenes'] as unknown[]).entries()) {
       if (!isPlainObject(raw)) return `scenes[${i}] is not an object`;
       const r = raw as Record<string, unknown>;
-      if (Object.keys(r).join(',') !== 'sceneId,path,digest,byteLength,start,dependencies') return `scenes[${i}] has the keys sceneId, path, digest, byteLength, start, dependencies`;
+      const keys = Object.keys(r).join(',');
+      if (keys !== 'sceneId,path,digest,byteLength,start,dependencies' && keys !== 'sceneId,path,digest,byteLength,start,plane,dependencies') return `scenes[${i}] has the keys sceneId, path, digest, byteLength, start, plane (optional), dependencies`;
+      if (r['plane'] !== undefined && !isPlaneLock(r['plane'])) return `scenes[${i}].plane is not a plane`;
       if (typeof r['sceneId'] !== 'string' || !ID_RE.test(r['sceneId']) || seen.has(r['sceneId'])) return `scenes[${i}] has no distinct scene id`;
       seen.add(r['sceneId']);
       if (r['path'] !== `scenes/${r['sceneId']}.json` || !isDigest(r['digest']) || typeof r['byteLength'] !== 'number' || typeof r['start'] !== 'boolean') return `scenes[${i}] is not a scene file row`;
@@ -721,7 +724,7 @@ export function readRuntimeContentSync(doc: unknown, read: (path: string) => Uin
   return {
     ...(m as unknown as RuntimeContentManifestV2),
     ...(rest as Partial<ExpandedRuntimeContentManifest>),
-    ...(root.scenes !== undefined ? { scenes: root.scenes.map((s) => ({ sceneId: s.sceneId, path: s.path, digest: s.digest, byteLength: s.byteLength, start: s.start })) } : {}),
+    ...(root.scenes !== undefined ? { scenes: root.scenes.map((s) => ({ sceneId: s.sceneId, path: s.path, digest: s.digest, byteLength: s.byteLength, start: s.start, ...(s.plane !== undefined ? { plane: s.plane } : {}) })) } : {}),
     assets: entries.map(({ address: _a, labels: _l, dependencies: _d, ...row }) => row),
     ...(loadable !== undefined ? { loadable: loadable as LoadableRow[] } : {}),
     media,

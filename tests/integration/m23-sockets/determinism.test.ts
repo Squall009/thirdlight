@@ -168,7 +168,7 @@ describe('sockets are resolved in the simulation (two runs, page and worker)', (
   }, 180_000);
 
   it('3D: the same with a 3D physics world stepping beside it', async () => {
-    const settings = { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30, physics_dimension: 3 };
+    const settings = { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
     const extra = [
       { id: 'player-0001', components: { transform: T([6, 0.91, 0]), controller: {} } },
       { id: 'floor-0001', components: { transform: T([0, -0.5, 0]), box: { size: [30, 1, 30], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 15, hy: 0.5, hz: 15 } } } },

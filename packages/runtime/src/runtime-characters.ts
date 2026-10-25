@@ -152,6 +152,7 @@ export class RuntimeCharacters {
       get grid() { return host.grid; },
       get tags() { return host.queryTags; },
       planes: this.planes,
+      scenePlaneOf: (id) => host.scenes.planeOf(id),
       suspension: this.suspension,
       pointer: () => host.input.pointer(),
       stepIndex: () => sim.stepIndex,

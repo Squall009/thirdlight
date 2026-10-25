@@ -124,6 +124,38 @@ Declared in `packages/project-model/src/vertex-paint.ts`.
 type PathPaintSide = (typeof PATH_PAINT_SIDES)[number];
 ```
 
+<a id="type-plane-axes"></a>
+### PLANE_AXES
+
+Declared in `packages/project-model/src/plane-lock.ts`.
+
+```ts
+/** The world axes a plane's normal may lie along (Y is "up", so a plane through it would be a floor). */
+const PLANE_AXES: readonly ["x", "z"];
+```
+
+<a id="type-plane-axis"></a>
+### PlaneAxis
+
+Declared in `packages/project-model/src/plane-lock.ts`.
+
+```ts
+type PlaneAxis = (typeof PLANE_AXES)[number];
+```
+
+<a id="type-plane-lock"></a>
+### PlaneLock
+
+Declared in `packages/project-model/src/plane-lock.ts`.
+
+```ts
+/** A plane: its normal's world axis and where it lies along that axis (m). */
+interface PlaneLock {
+  axis: PlaneAxis;
+  origin: number;
+}
+```
+
 <a id="type-pointer-axis-name"></a>
 ### PointerAxisName
 

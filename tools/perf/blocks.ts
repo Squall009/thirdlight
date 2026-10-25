@@ -100,7 +100,6 @@ export async function buildBlocks(be: PerfBackend, projectId: string, log: (s: s
   const p = be.project(projectId);
   const cmd = (op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => p.command(op, args);
   for (const id of STARTER_REMOVED) await cmd('deleteEntity', { entityId: id }).catch(() => undefined);
-  await cmd('setSettings', { settings: { physics_dimension: 3 } });
   await publishFileVia(be, projectId, cmd, { assetId: KIT_ASSET, kind: 'model', displayName: 'Blocks kit', bytes: scatterKitGlb(BLOCKS_SEED, ['stone', 'shrub']) });
   await publishFileVia(be, projectId, cmd, { assetId: KIT_ASSET_LATER, kind: 'model', displayName: 'Blocks kit (later)', bytes: scatterKitGlb(BLOCKS_SEED + 1, ['stone', 'shrub']) });
   await publishBehaviorVia(be, p, cmd, STREAM);

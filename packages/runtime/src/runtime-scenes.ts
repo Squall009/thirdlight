@@ -183,6 +183,13 @@ export class RuntimeScenes {
     return [...this.status.values()].includes('loading') || this.stepOps.some((op) => op.op === 'load' || op.op === 'reload');
   }
 
+  /** The default plane of the loaded scene holding an object (null: none, or no such scene). */
+  planeOf(entityId: string): NonNullable<RuntimeSceneRow['plane']> | null {
+    const sceneId = this.sceneOf(entityId);
+    if (sceneId === undefined || this.rows === null) return null;
+    return this.rows.find((r) => r.sceneId === sceneId)?.plane ?? null;
+  }
+
   /** The loaded scene holding an object (undefined: none — a spawned copy). */
   sceneOf(entityId: string): string | undefined {
     for (const b of this.batches.values()) if (b.ids.has(entityId)) return b.sceneId;

@@ -65,7 +65,6 @@ describe('anything in a prefab', () => {
   });
 
   it('a player prefab placed twice is two players, each walking from its own actions; one camera is live', async () => {
-    await command('setSettings', { settings: { physics_dimension: 3 } });
     const hero = await create('Hero', { controller: {} }, { transform: { position: [0, 0.91, 0] } });
     await create('Hero camera', { virtualCamera: { rig: 'follow', target: hero, distance: 6, priority: 10 } }, { parentId: hero, transform: { position: [0, 2, 6] } });
     await prefabFrom('hero', hero);

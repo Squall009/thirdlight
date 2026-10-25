@@ -336,7 +336,7 @@ async function decalThings(roadY: number): Promise<void> {
 }
 
 async function buildLevel(): Promise<Built> {
-  await cmd('setSettings', { settings: { camera_far_m: 5000, physics_dimension: 3, architecture_ship_meshes: 1 } });
+  await cmd('setSettings', { settings: { camera_far_m: 5000, architecture_ship_meshes: 1 } });
   for (const id of ['model-0001', 'spawn-0001', 'box-0001', 'box-0002', 'box-0003', 'box-0004', 'model-0002']) await cmd('deleteEntity', { entityId: id }).catch(() => undefined);
   // The layered material's arrays (layers red, green, blue, magenta), packed through the route.
   await publishLayerSources(be!);

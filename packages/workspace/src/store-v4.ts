@@ -53,6 +53,10 @@ import {
   PROJECT_SCHEMA_VERSION_SCENE_CAMERA,
   isUpgradedProjectSchemaVersion,
   upgradeToSchema8,
+  pendingSchema8Steps,
+  withRecordedSteps,
+  SCHEMA_8_STEPS,
+  type Schema8Step,
   isRefusedProjectSchemaVersion,
   refusedProjectSchemaMessage,
   upgradeSceneModel,
@@ -390,6 +394,9 @@ function checkFileKeys(doc: Record<string, unknown>, keys: readonly string[], ty
   return null;
 }
 
+/** A raw manifest's `upgrades` list (absent or malformed: none; the validation reports a malformed one). */
+const manifestUpgrades = (doc: Record<string, unknown>): string[] | undefined => (Array.isArray(doc['upgrades']) ? doc['upgrades'].filter((x): x is string => typeof x === 'string') : undefined);
+
 /**
  * Read and validate a v4 project directory (the journal, if any, must have
  * been rolled forward first). Read-only.
@@ -501,14 +508,25 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string, gameRoot: 
       notes.push(...u.notes);
     }
     // To 8: prefab copies become linked (and whatever later steps of the version change).
-    const u8 = upgradeToSchema8(contentDoc, docs);
+    // A recorded step the manifest names already ran (once, whatever the version said then).
+    const u8 = upgradeToSchema8(contentDoc, docs, SCHEMA_8_STEPS.filter((st) => st.recorded !== true || manifestUpgrades(man.value)?.includes(st.name) !== true));
     contentDoc = u8.content;
     docs = u8.scenes;
     documents ||= u8.changed;
     notes.push(...u8.notes);
-    manifestDoc = { ...man.value, schemaVersion: PROJECT_SCHEMA_VERSION };
+    manifestDoc = { ...man.value, schemaVersion: PROJECT_SCHEMA_VERSION, upgrades: withRecordedSteps(manifestUpgrades(man.value)) };
     // A project with nothing to change keeps its documents (and its revision): only project.json says 8.
     upgraded = { ...(upgraded ?? {}), ...(documents ? { documents: true as const } : {}), manifest: true, notes: [...(upgraded?.notes ?? []), `project schemaVersion ${String(fromVersion)} → ${PROJECT_SCHEMA_VERSION}`, ...notes] };
+  } else {
+    // An 8 written before a later step of the version: that step runs once, recorded in project.json.
+    const pending = pendingSchema8Steps(manifestUpgrades(man.value));
+    if (pending.length > 0) {
+      const u8 = upgradeToSchema8(contentDoc, docs, pending);
+      contentDoc = u8.content;
+      docs = u8.scenes;
+      manifestDoc = { ...man.value, upgrades: withRecordedSteps(manifestUpgrades(man.value)) };
+      upgraded = { ...(upgraded ?? {}), ...(u8.changed ? { documents: true as const } : {}), manifest: true, notes: [...(upgraded?.notes ?? []), ...u8.notes] };
+    }
   }
   // An older content.json holds the resources itself: the open writes each to its own file.
   if (content.value['storageVersion'] !== CONTENT_STORAGE_VERSION) {
@@ -1269,11 +1287,16 @@ export function projectFilesFromV3(
   clipDurations?: ClipDurationOf,
   /** A new project's look, given to its first scene when that scene has none of its own. */
   environment?: Readonly<SceneEnvironment>,
+  /** The schema 8 steps it takes (absent: all; an empty new project is 3D and needs no 2D conversion). */
+  steps?: readonly Schema8Step[],
+  /** A new project (from a template): what the upgrade converted is its starting point, not something to check. */
+  fresh = false,
 ): { ok: true; files: ProjectFilesV4 } | { ok: false; message: string } {
-  const { project, notes } = migrateProjectV3ToV4(manifest, scene, content);
+  const { project, notes } = migrateProjectV3ToV4(manifest, scene, content, steps);
   const animated = clipDurations === undefined ? null : migrateModelAnimations(project.scenes as SceneV4[], project.content as ContentCatalogV4, clipDurations);
   const current = animated !== null && animated.migrated > 0 ? { content: animated.content, scenes: animated.scenes } : { content: project.content, scenes: project.scenes };
-  const scenes = environment === undefined ? current.scenes : current.scenes.map((sc, i) => (i === 0 && (sc as SceneV4).environment === undefined ? { ...sc, environment } : sc));
+  const marked = fresh ? current.scenes.map((sc) => (sc.migratedFrom2D === undefined ? sc : (({ migratedFrom2D: _m, ...rest }) => rest)(sc))) : current.scenes;
+  const scenes = environment === undefined ? marked : marked.map((sc, i) => (i === 0 && (sc as SceneV4).environment === undefined ? { ...sc, environment } : sc));
   const v = validateProjectV4(project.manifest, current.content, scenes);
   if (!v.ok) return { ok: false, message: v.errors[0]?.message ?? 'unknown' };
   const sceneV4 = v.normalized.scenes[0] as SceneV4;
@@ -1357,7 +1380,8 @@ export function defaultProjectFilesV4(
     createdAt,
     scenes: [{ id: DEFAULT_SCENE_ID, path: 'scenes/main.json' }],
   };
-  return projectFilesFromV3(projectId, manifest, scene.normalized, content.normalized, undefined, NEW_PROJECT_ENVIRONMENT);
+  // A new project is 3D (no scene plane): the 2D conversion is for projects that were 2D.
+  return projectFilesFromV3(projectId, manifest, scene.normalized, content.normalized, undefined, NEW_PROJECT_ENVIRONMENT, SCHEMA_8_STEPS.filter((st) => st.recorded !== true));
 }
 
 // ---- migration v3 → v4 on disk -----------------------------------------------------

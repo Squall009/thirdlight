@@ -70,7 +70,6 @@ async function buildScene(): Promise<void> {
   await block('Riser', [2, 0.15, 0], [1, 0.15, 4]);
   await block('Wall', [-1.75, 1, 0], [0.25, 1, 4]);
   await player();
-  await cmd('setSettings', { settings: { physics_dimension: 3 } });
 }
 
 async function startPlay(page: Page): Promise<string> {
@@ -228,12 +227,7 @@ test('3D character settings: Inspector fields and the step-up height handle (3D 
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${id}"]`).click();
   await expect(page.locator('.tl-inspector__name')).toHaveValue('Player');
-  // A 2D plane: the autostep, no 3D settings.
-  await expect(page.getByLabel('controller autostep', { exact: true })).toHaveCount(1);
-  await expect(page.getByLabel('controller stepHeight', { exact: true })).toHaveCount(0);
-
-  // 3D: the 3D settings with their defaults, the movement profile, and the autostep the arcade profile reads.
-  await cmd('setSettings', { settings: { physics_dimension: 3 } });
+  // The 3D settings with their defaults, the movement profile, and the autostep the arcade profile reads.
   const step = page.getByLabel('controller stepHeight', { exact: true });
   await expect(step).toHaveValue('0.3', { timeout: 30_000 });
   await expect(page.getByLabel('controller profile', { exact: true })).toHaveCount(1);

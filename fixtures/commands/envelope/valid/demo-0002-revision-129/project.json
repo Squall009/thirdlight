@@ -3,5 +3,8 @@
   "engineVersion": "0.1.0",
   "id": "demo-0002",
   "name": "Retention Fixture",
-  "createdAt": "2026-09-17T08:00:00Z"
+  "createdAt": "2026-09-17T08:00:00Z",
+  "upgrades": [
+    "planes"
+  ]
 }

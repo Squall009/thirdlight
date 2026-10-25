@@ -18,6 +18,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { createBehaviorCompiler } from '@thirdlight/behavior-build';
 import { buildContentClosureM3 } from '@thirdlight/exporter';
+import { upgradeToPlanes } from '@thirdlight/project-model';
 import { openRuntimeContent, prepareSceneCatalog, type RuntimeContent } from '@thirdlight/game-host';
 import { audioDurationsFromAssetRows, materialCatalogOf, modelBoundsFromAssetRows } from '@thirdlight/runtime';
 
@@ -218,8 +219,11 @@ describe('a v4 build opens on the page as the v5 build of the same project', () 
       const v4Scene = JSON.parse(readFileSync(join(FIXTURE, 'build', row.path), 'utf8')) as { entities: { components: Record<string, unknown> }[] };
       const v5Row = b.manifest.scenes!.find((x) => x.sceneId === row.sceneId)!;
       const v5Scene = JSON.parse(readFileSync(join(out, v5Row.path), 'utf8')) as { revision?: number; entities: unknown[] };
-      // The upgrade to 7 wrote the scene at a new revision.
-      expect(v5Scene, row.sceneId).toEqual({ ...v4Scene, ...(v5Scene.revision !== undefined ? { revision: v5Scene.revision } : {}), entities: v4Scene.entities.map(asShot) });
+      // The upgrade to 7 wrote the scene at a new revision; the project was made for the 2D plane, so the upgrade
+      // to 8 gave it its default plane and its bodies their 3D forms (with the notes on them).
+      const shot = { ...v4Scene, entities: v4Scene.entities.map(asShot) };
+      const planed = upgradeToPlanes({ settings: {} }, [shot]).scenes[0] as Record<string, unknown>;
+      expect(v5Scene, row.sceneId).toEqual({ ...planed, ...(v5Scene.revision !== undefined ? { revision: v5Scene.revision } : {}) });
     }
     expect(b.manifest['start']).toEqual(a.manifest['start']);
     // Every asset row, found in the v5 catalog (by its shard), as the v4 manifest had it.

@@ -84,17 +84,17 @@ async function importFile(page: Page, path: string, count: number, name: string)
 const MENU: { option: string; name: string; added: Record<string, unknown>; edit?: (p: Page) => Promise<void>; after?: Record<string, unknown> }[] = [
   { option: 'Box', name: 'box', added: { size: [1, 1, 1] }, edit: (p) => field(p, 'box size w', '2'), after: { size: [2, 1, 1] } },
   { option: 'Fog volume', name: 'fogVolume', added: { density: 0.25 }, edit: (p) => field(p, 'fogVolume density', '0.5'), after: { density: 0.5 } },
-  { option: 'Collider: Box', name: 'collider', added: { shape: { type: 'box', hx: 0.5, hy: 0.5 } }, edit: (p) => field(p, 'collider shape hx', '0.75'), after: { shape: { type: 'box', hx: 0.75, hy: 0.5 } } },
+  { option: 'Collider: Box (3D)', name: 'collider', added: { shape: { type: 'box', hx: 0.5, hy: 0.5, hz: 0.5 } }, edit: (p) => field(p, 'collider shape hx', '0.75'), after: { shape: { type: 'box', hx: 0.75, hy: 0.5, hz: 0.5 } } },
   { option: 'Player controller', name: 'controller', added: {}, edit: (p) => field(p, 'controller capsule radius', '0.4'), after: { capsule: { radius: 0.4, height: 1.8 } } },
   { option: 'Light: Point light', name: 'light', added: { type: 'point', range: 8 }, edit: (p) => field(p, 'light range', '5'), after: { type: 'point', range: 5 } },
   { option: 'Player spawn', name: 'playerSpawn', added: {} },
   { option: 'Mover', name: 'mover', added: { speed: 2 }, edit: (p) => field(p, 'mover waypoints 1 y', '3'), after: { waypoints: [[4, 3, 0]] } },
-  { option: 'Trigger', name: 'trigger', added: { size: [2, 2] }, edit: (p) => inspector(p).getByLabel('trigger shape', { exact: true }).selectOption('circle'), after: { shape: 'circle', radius: 1 } },
+  { option: 'Trigger: Box (3D)', name: 'trigger', added: { size: [2, 2, 2] }, edit: (p) => inspector(p).getByLabel('trigger shape', { exact: true }).selectOption('sphere'), after: { shape: 'sphere' } },
   { option: 'Switch', name: 'switch', added: { mode: 'interact' }, edit: (p) => inspector(p).getByLabel('switch once', { exact: true }).click(), after: { once: true } },
   { option: 'Health', name: 'health', added: { max: 3 }, edit: (p) => field(p, 'health max', '5'), after: { max: 5 } },
   { option: 'Collectible', name: 'collectible', added: { counter: 'items' }, edit: (p) => field(p, 'collectible amount', '5'), after: { amount: 5 } },
   { option: 'Patrol: Edge to edge', name: 'patrol', added: { mode: 'edges' }, edit: (p) => field(p, 'patrol speed', '2.5'), after: { speed: 2.5 } },
-  { option: 'Hitbox: Box', name: 'hitbox', added: { size: [1, 1] }, edit: (p) => field(p, 'hitbox damage', '2'), after: { damage: 2 } },
+  { option: 'Hitbox: Box', name: 'hitbox', added: { size: [1, 1, 1] }, edit: (p) => field(p, 'hitbox damage', '2'), after: { damage: 2 } },
   { option: 'Face movement: Two sides', name: 'faceMovement', added: { turnSeconds: 0.12 }, edit: (p) => field(p, 'faceMovement turnSeconds', '0.3'), after: { turnSeconds: 0.3 } },
 ];
 

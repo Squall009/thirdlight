@@ -12,23 +12,8 @@
  */
 import { beforeAll, describe, expect, it } from 'vitest';
 
-import { CASES, readTrace, recordCase, SETTINGS, STAND_Y, type TraceRow } from './cases';
+import { CASES, PARITY, pathGap, readTrace, recordCase, SETTINGS, STAND_Y, type TraceRow } from './cases';
 
-/** The tolerances, stated once (positions in m, timings in steps of 1/120 s). */
-export const PARITY = Object.freeze({
-  /** The position at a key event. */
-  eventPosition: 0.01,
-  /** How many steps a key event may move (measured: none moves). */
-  eventSteps: 1,
-  /** Every step against the 2D path one step either side (the 2D port's own flat-ground bumps reach 1.1 cm). */
-  path: 0.015,
-  /** The controller's staged velocity (its rules), at every step. */
-  velocity: 1e-6,
-  /** A measured height or rest position (jump apex, lift top, ladder top, a stop on a slope). */
-  measure: 0.01,
-  /** Where the character comes to rest after a stair walk: each riser's ride over the edge lands within about 1 cm of the 2D's (the ride amplifies the last millimetre), and the slide off the last edge starts a step apart. */
-  stairRest: 0.05,
-});
 
 /** Steps where a case's staged velocity may differ from the 2D's, and why. */
 const VELOCITY_EXCEPT: Readonly<Record<string, readonly [number, number, string]>> = {
@@ -60,20 +45,6 @@ function events(rows: Rows): { at: number; kind: string }[] {
 
 const dist = (a: TraceRow, b: TraceRow): number => Math.hypot(a[0] - b[0], a[1] - b[1]);
 
-/** The distance from `p` to the 2D path through steps i−1 … i+1. */
-function pathGap(p: TraceRow, r: Rows, i: number): number {
-  let best = Infinity;
-  for (let j = Math.max(0, i - 1); j < Math.min(r.length - 1, i + 1); j += 1) {
-    const a = r[j]!;
-    const b = r[j + 1]!;
-    const dx = b[0] - a[0];
-    const dy = b[1] - a[1];
-    const l = dx * dx + dy * dy;
-    const t = l === 0 ? 0 : Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l));
-    best = Math.min(best, Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy));
-  }
-  return best;
-}
 
 const peak = (rows: Rows, from: number, to: number): number => Math.max(...rows.slice(from, to).map((r) => r[1]));
 const firstAt = (rows: Rows, test: (r: TraceRow, i: number) => boolean, from = 0): number => rows.findIndex((r, i) => i >= from && test(r, i));

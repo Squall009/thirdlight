@@ -124,8 +124,8 @@ export function useSceneViewFollow(deps: SceneViewFollowDeps) {
   }, [viewportRef, registry]);
   // The hierarchy's row icons come from the descriptors too.
   const iconTable = useMemo(() => iconTableOf(registry), [registry]);
-  // Handles of one physics dimension (a 3D character's heights) follow the project's.
-  const physicsDimension = settings?.['physics_dimension'] === 3 ? 3 : 2;
+  // Handles of the one physics backend (a 3D character's heights).
+  const physicsDimension = 3;
   useEffect(() => {
     viewportRef.current?.setPhysicsDimension(physicsDimension);
   }, [viewportRef, physicsDimension]);

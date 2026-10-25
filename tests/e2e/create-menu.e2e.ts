@@ -53,7 +53,7 @@ async function submenu(page: Page, name: string): Promise<string[]> {
   return out;
 }
 
-const GAMEPLAY_2D = ['One-way platform', 'Moving platform', 'Door (opens on "open")', 'Trigger', 'Scene transition', 'Switch', 'Object with health', 'Collectible', 'Patrolling object', 'Hitbox', 'Climb volume'];
+const GAMEPLAY = ['Moving platform', 'Door (opens on "open")', 'Trigger', 'Scene transition', 'Switch', 'Object with health', 'Collectible', 'Patrolling object', 'Hitbox', 'Climb volume'];
 const GENRE = /coin|enemy|zone|hazard|checkpoint|goal|exit|pickup|gem|heart|life|lives|stomp|score/i;
 
 test('the create menu lists the descriptors\' generic entries; each creates its component; no genre entries', async ({ page }) => {
@@ -67,7 +67,7 @@ test('the create menu lists the descriptors\' generic entries; each creates its 
   await closeMenu(page);
   expect(top).toEqual(expect.arrayContaining(['Spawn point', 'Gameplay', 'Cameras', 'Light']));
   const gameplay = await submenu(page, 'Gameplay');
-  expect(gameplay).toEqual(GAMEPLAY_2D);
+  expect(gameplay).toEqual(GAMEPLAY);
   expect(await submenu(page, 'Cameras')).toEqual(['Camera', 'Camera track', 'Camera region']);
   expect(await submenu(page, 'Light')).toContain('Fog volume');
   for (const l of [...top, ...gameplay]) expect(l, l).not.toMatch(GENRE);
@@ -87,7 +87,6 @@ test('the create menu lists the descriptors\' generic entries; each creates its 
   // Each entry creates one object carrying its component (named after the entry).
   const expected: [string[], string, string, string][] = [
     [['Spawn point'], 'Spawn point', 'playerSpawn', 'spawn'],
-    [['Gameplay', 'One-way platform'], 'One-way platform', 'collider', 'box'],
     [['Gameplay', 'Moving platform'], 'Moving platform', 'mover', 'box'],
     [['Gameplay', 'Door (opens on "open")'], 'Door', 'mover', 'box'],
     [['Gameplay', 'Trigger'], 'Trigger', 'trigger', 'sensor'],
@@ -111,8 +110,11 @@ test('the create menu lists the descriptors\' generic entries; each creates its 
   }
   const all = await entities();
   const one = (name: string): Ent => all.find((e) => e.name === name)!;
-  expect(one('One-way platform').components['collider']).toEqual({ shape: { type: 'box', hx: 1.5, hy: 0.1 }, oneWay: true });
-  expect(one('Moving platform').components['collider']).toEqual({ shape: { type: 'box', hx: 1, hy: 0.2 } });
+  // The platform collider and the hitbox have a depth on the one 3D backend.
+  expect(one('Moving platform').components['collider']).toEqual({ shape: { type: 'box', hx: 1, hy: 0.2, hz: 1 } });
+  expect(one('Switch').components['switch']).toEqual({ mode: 'interact', signal: 'open', size: [1, 1] });
+  expect(one('Hitbox').components['hitbox']).toEqual({ size: [1, 1, 1] });
+  expect(one('Trigger').components['trigger']).toEqual({ size: [2, 2, 2], signal: 'trigger' });
   expect(one('Door').components['mover']).toMatchObject({ startOn: 'open' });
   expect(one('Scene transition').components['trigger']).toMatchObject({ signal: 'transition', sceneTransition: { scene: 'scene-far' } });
   expect(one('Collectible').components['collectible']).toEqual({ counter: 'items' });
@@ -120,7 +122,7 @@ test('the create menu lists the descriptors\' generic entries; each creates its 
   // A plain camera: the view from where it is placed (any number of cameras; the engine owns the view).
   expect(one('Camera').components['virtualCamera']).toEqual({ rig: 'fixed' });
   expect(one('Camera track').components['virtualCamera']).toMatchObject({ rig: 'track' });
-  expect(one('Camera region').components['cameraRegion']).toEqual({ size: [10, 6] });
+  expect(one('Camera region').components['cameraRegion']).toEqual({ size: [10, 6, 10] });
   // No genre components were made.
   for (const e of all) for (const c of ['gameZone', 'pickup', 'enemy']) expect(e.components[c], `${e.name} ${c}`).toBeUndefined();
 
@@ -130,26 +132,4 @@ test('the create menu lists the descriptors\' generic entries; each creates its 
   await expect(icon('Scene transition')).toHaveAttribute('src', /sensor\.png$/);
   await expect(icon('Hitbox')).toHaveAttribute('src', /objects\/hitbox\.webp$/);
   await expect(icon('Camera track')).toHaveAttribute('src', /camera\.png$/);
-});
-
-test('a 3D project\'s create menu shows the entries that fit 3D', async ({ page }) => {
-  test.setTimeout(120_000);
-  await be.stop();
-  be = await startBackend('create-menu-3d-e2e');
-  await cmd('setSettings', { settings: { physics_dimension: 3 } });
-  await page.goto(be.editorUrl);
-  await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  // No one-way platform (a 2D-plane entry); a switch works in 3D too; the platform collider and the hitbox have a depth.
-  await expect.poll(async () => submenu(page, 'Gameplay')).toEqual(['Moving platform', 'Door (opens on "open")', 'Trigger', 'Scene transition', 'Switch', 'Object with health', 'Collectible', 'Patrolling object', 'Hitbox', 'Climb volume']);
-  await menu(page, 'GameObject', 'Gameplay', 'Switch');
-  await expect.poll(async () => (await entities()).filter((e) => e.name === 'Switch').map((e) => e.components['switch'])).toContainEqual({ mode: 'interact', signal: 'open', size: [1, 1] });
-  await menu(page, 'GameObject', 'Gameplay', 'Moving platform');
-  await expect.poll(async () => (await entities()).filter((e) => e.name === 'Moving platform').map((e) => e.components['collider'])).toContainEqual({ shape: { type: 'box', hx: 1, hy: 0.2, hz: 1 } });
-  await menu(page, 'GameObject', 'Gameplay', 'Hitbox');
-  await expect.poll(async () => (await entities()).filter((e) => e.name === 'Hitbox').map((e) => e.components['hitbox'])).toContainEqual({ size: [1, 1, 1] });
-  await menu(page, 'GameObject', 'Gameplay', 'Trigger');
-  await expect.poll(async () => (await entities()).filter((e) => e.name === 'Trigger').map((e) => e.components['trigger'])).toContainEqual({ size: [2, 2, 2], signal: 'trigger' });
-  // A camera region has a depth in 3D.
-  await menu(page, 'GameObject', 'Cameras', 'Camera region');
-  await expect.poll(async () => (await entities()).filter((e) => e.name === 'Camera region').map((e) => e.components['cameraRegion'])).toContainEqual({ size: [10, 6, 10] });
 });

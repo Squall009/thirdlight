@@ -310,7 +310,7 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
   const { declarations, materials, registry } = props.content;
   const { settings, tags } = props.settings;
   const copy = usePrefabCopy({ clientRef, selected, entities, runTypedCommand: props.entity.runTypedCommand, setNotice, openPrefab: props.openPrefab });
-  const { addComponentTo, applyPreset, colliderFromModel, colliderFromModel3D, componentError, editComponent, editProperty, fitCapsuleToModel, propertyError, selectedSourceMaterials, setEntityMaterialParams, setEntityMaterials } = props.entity;
+  const { addComponentTo, applyPreset, colliderFromModel3D, componentError, editComponent, editProperty, fitCapsuleToModel, propertyError, selectedSourceMaterials, setEntityMaterialParams, setEntityMaterials } = props.entity;
   const { editCopiesRef, editTransform, rename, setEntityTags, setFlag } = props.scene;
   const { writeFootprint, snapLocal } = props.blocks;
   // A rooms object drawn on no block layer edits its rooms' presets here (one on a layer: in its block editor).
@@ -392,22 +392,15 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
       addExtras={(() => {
         // "Add collider → box / polygon from model outline" (where a collider may be added).
         if (selected === null || registry === null || selected.components['collider'] !== undefined) return [];
-        const entry = addEntries(registry, new Set(Object.keys(selected.components)), { dimension: settings?.['physics_dimension'] === 3 ? 3 : 2 }).find((x) => x.component === 'collider');
+        const entry = addEntries(registry, new Set(Object.keys(selected.components)), { dimension: 3 }).find((x) => x.component === 'collider');
         const enabled = entry?.enabled === true;
         const reason = entry?.reason ?? null;
+        // Colliders from the model (its _COL node, else its geometry).
         return [
-          ...(settings?.['physics_dimension'] === 3
-            ? [
-                // A 3D project's colliders from the model.
-                { id: 'collider-box-model', label: 'Collider: Box from model', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel3D(selected.id, 'box') },
-                { id: 'collider-convex-model', label: 'Collider: Convex hull from model', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel3D(selected.id, 'convex') },
-                { id: 'collider-mesh-model', label: 'Collider: Mesh from model', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel3D(selected.id, 'mesh') },
-                { id: 'collider-compound-model', label: 'Collider: Compound of the _COL parts', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel3D(selected.id, 'compound') },
-              ]
-            : [
-                { id: 'collider-box-model', label: 'Collider: Box from model', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel(selected.id, 'box') },
-                { id: 'collider-polygon-model', label: 'Collider: Polygon from model outline', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel(selected.id, 'polygon') },
-              ]),
+          { id: 'collider-box-model', label: 'Collider: Box from model', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel3D(selected.id, 'box') },
+          { id: 'collider-convex-model', label: 'Collider: Convex hull from model', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel3D(selected.id, 'convex') },
+          { id: 'collider-mesh-model', label: 'Collider: Mesh from model', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel3D(selected.id, 'mesh') },
+          { id: 'collider-compound-model', label: 'Collider: Compound of the _COL parts', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel3D(selected.id, 'compound') },
         ];
       })()}
       bodies={
@@ -496,8 +489,7 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
               // A collider from the model's outline; how to edit a polygon in the Scene view.
               collider: (
                 <>
-                  {settings?.['physics_dimension'] === 3 ? (
-                    // A 3D project's colliders from the model (its _COL node, else its geometry).
+                    {/* Colliders from the model (its _COL node, else its geometry). */}
                     <div className="tl-inspector__modes">
                       <button className="tl-btn" onClick={() => void colliderFromModel3D(selected.id, 'box')}>
                         Box from model
@@ -512,16 +504,6 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
                         Compound of _COL parts
                       </button>
                     </div>
-                  ) : (
-                  <div className="tl-inspector__modes">
-                    <button className="tl-btn" onClick={() => void colliderFromModel(selected.id, 'box')}>
-                      Box from model
-                    </button>
-                    <button className="tl-btn" onClick={() => void colliderFromModel(selected.id, 'polygon')}>
-                      Polygon from model outline
-                    </button>
-                  </div>
-                  )}
                   {(selected.components['collider'] as { shape?: { type?: string } } | undefined)?.shape?.type === 'polygon' && (
                     <p className="tl-inspector__hint">Scene view: drag a corner; drag a small grey point to add a corner there; Alt+click a corner to delete it.</p>
                   )}

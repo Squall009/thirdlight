@@ -520,6 +520,12 @@ function materialsOptionOf(manifest: GamePageManifest, env: GamePageManifest['en
   };
 }
 
+/** The default plane of the first scene the game starts in (null: none, or a build without scene rows). */
+const startPlaneOf = (rows: readonly { start: boolean; plane?: unknown }[] | undefined): unknown => rows?.find((r) => r.start)?.plane ?? null;
+
+/** The actions a game without its own input gets: the side-view set (a 1D move) when it starts on a scene's plane, else the 3D set. */
+const defaultInputOf = (startPlane: unknown): InputConfigLike => (startPlane !== null ? DEFAULT_INPUT_CONFIG : DEFAULT_INPUT_CONFIG_3D);
+
 /** The runtime snapshot: the authored start with what the verified manifest and the catalog's facts carry. */
 function runtimeSnapshotOf(authored: RuntimeSnapshot, content: RuntimeContent<GamePageManifest>, sceneRows: RuntimeSnapshot['scenes'] | null): { snapshot: RuntimeSnapshot; modeRows: ReturnType<typeof modesForRuntime>; uiDocs: ReturnType<typeof withDialogueUiDocument> } {
   const manifest = content.manifest;
@@ -530,7 +536,7 @@ function runtimeSnapshotOf(authored: RuntimeSnapshot, content: RuntimeContent<Ga
   // The engine's dialogue document joins the project's when the game has conversations.
   const uiDocs = withDialogueUiDocument(manifest.uiDocuments, manifest.dialogue ?? null);
   const uiRows = uiDocumentsForRuntime(uiDocs);
-  const modeRows = modesForRuntime(manifest.modes, manifest.input ?? (physicsDimensionOf(manifest.settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG));
+  const modeRows = modesForRuntime(manifest.modes, manifest.input ?? defaultInputOf(startPlaneOf(manifest.scenes)));
   const presetIds = (manifest.environment?.presets ?? []).map((p) => p.presetId);
   const snapshot = resolveSnapshotHierarchy({
     ...authored,
@@ -647,7 +653,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
       ? physics3DConfigOf(snapshot.scene.entities as never, settings, { layers: manifest.collisionLayers ?? [], required: moduleIds.includes(PHYSICS_3D_MODULE_ID), ...(snapshot.modelColliders !== undefined ? { modelColliders: snapshot.modelColliders } : {}) })
       : (physics2DConfigOf(snapshot.scene.entities, settings, { required: moduleIds.includes(PHYSICS_2D_MODULE_ID), ...(snapshot.modelColliders !== undefined ? { modelColliders: snapshot.modelColliders } : {}) }) as RapierPhysicsInitConfig | null);
   // The bindings in effect (a player's rebinding changes them): the project's actions, else the defaults.
-  let inputConfigNow: InputConfigLike = manifest.input ?? (physicsDimensionOf(settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG);
+  let inputConfigNow: InputConfigLike = manifest.input ?? defaultInputOf(startPlaneOf(manifest.scenes));
   const browserInput = attachBrowserInput(o.canvas, { inputConfig: inputConfigNow });
   // What this composition attaches to the page is released with it and on every failure path
   // (a new start composes again on the same canvas).
@@ -950,7 +956,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
       loadAssets: pageAssetLoader({ manifest, catalog: content.catalog, reader: assetReader, resources, adapter: () => adapterRef.current }),
       assetPaths: assetPathsById,
       ...(manifest.shell !== undefined ? { shell: manifest.shell } : {}),
-      inputConfig: structuredClone(manifest.input ?? (physicsDimensionOf(settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG)) as unknown as NonNullable<GameHostConfig['inputConfig']>,
+      inputConfig: structuredClone(manifest.input ?? defaultInputOf(startPlaneOf(manifest.scenes))) as unknown as NonNullable<GameHostConfig['inputConfig']>,
       setQuality: (level) => adapterRef.current?.setQuality?.(level) ?? false,
       // The game shell's quality setting steps through the project's levels.
       qualityLevels: { ids: qualityLevels.map((l) => l.id), start: qualityLevelOf(qualityLevels, pinnedQuality ?? manifest.environment?.quality).id },
@@ -965,8 +971,8 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
       // The audio files each scene and the project-wide blocks name, read ahead by their preload setting.
       sceneAudio: (sceneId) => audioFiles.sceneAudio(sceneId),
       projectAudio: () => audioFiles.projectAudio(),
-      // How audio sources are heard (the audio_spatial setting; 3D: panned).
-      audioSpatial: audioSpatialOf(settings),
+      // How audio sources are heard (the audio_spatial setting; unset: by the side-view distance when the game starts on a scene's plane, else panned).
+      audioSpatial: audioSpatialOf(settings, startPlaneOf(manifest.scenes)),
       ...(o.debugConsole ? { debugConsole: true, focusGame: () => o.canvas.focus() } : {}),
       ...(o.onProblem !== undefined ? { onProblem: o.onProblem } : {}),
       ...(startVariables !== undefined ? { variables: startVariables } : {}),

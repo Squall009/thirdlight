@@ -157,7 +157,6 @@ async function expectCarried(read: () => Promise<Observation | null>, what: stri
 test('3D: a `_COL` node becomes a mesh then a convex collider; a 3D trigger starts a mover that carries the player (Play and export); a sphere collider\'s Scene handle', async ({ page }) => {
   test.setTimeout(360_000);
   be = await startBackend('physics3d-colliders-e2e');
-  await cmd('setSettings', { settings: { physics_dimension: 3 } });
 
   // Import the pad (one piece with its `_COL` box) and drag it into the Scene view.
   const file = join(dir, 'pad.glb');

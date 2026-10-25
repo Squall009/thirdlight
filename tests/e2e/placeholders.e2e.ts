@@ -87,7 +87,6 @@ test('lights, spawns and empties show as icons that can be clicked to select; ev
   expect(broken).toEqual([]);
 
   // One object per type; each row shows its type's icon and names the type in its tooltip.
-  await cmd('setSettings', { settings: { physics_dimension: 3 } });
   await cmd('setMaterial', { material: { materialId: 'mark', name: 'Mark', shader: 'decal', params: {}, textures: {} } });
   const line = [{ at: [0, 0, 0] }, { at: [4, 0, 0] }, { at: [8, 0, 2] }];
   const objects: { name: string; components: Record<string, unknown>; kind?: string; icon: string; title: string; at?: number[] }[] = [

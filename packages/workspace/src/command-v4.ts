@@ -550,8 +550,8 @@ function targetSceneV4(
   }
   if (op === 'createPrefab') return { ok: true, sceneId: sceneOf(args['sourceEntityId']) ?? primarySceneIdV4(state) };
   if (op === 'updatePrefab') return { ok: true, sceneId: sceneOf(args['fromEntity']) ?? primarySceneIdV4(state) };
-  // A scene's look is that scene's edit.
-  if (op === 'setEnvironment' && args['sceneId'] !== undefined) {
+  // A scene's look and its default plane are that scene's edit.
+  if ((op === 'setEnvironment' && args['sceneId'] !== undefined) || op === 'setScenePlane') {
     const explicit = args['sceneId'];
     if (typeof explicit !== 'string' || !state.scenes.has(explicit)) return { ok: false, error: sceneMissing(explicit) };
     return { ok: true, sceneId: explicit };

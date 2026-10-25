@@ -1,11 +1,10 @@
 /**
- * The `physics_dimension` setting (2 the 2D plane, absent = 2;
- * 3 the 3D backend) and the data rules that follow it: a box collider's
- * optional depth `hz` and the capsule offset's optional third component
- * (both kept by the canonical form; absent keeps the old bytes); in a 2D
- * project the rotation about Z only rule (as before); in a 3D project any
- * collider rotation, a box needs `hz` (no guessed depth), no polygons, the
- * controller upright.
+ * The one physics backend: the retired `physics_dimension` setting (every
+ * project is 3D; a 2D project's open upgrades it to scenes with a default
+ * plane), and the data rules: a box collider's optional depth `hz` and the
+ * capsule offset's optional third component (both kept by the canonical
+ * form; absent keeps the old bytes), any collider rotation, a box without
+ * `hz` and a polygon taking their 3D form, the controller upright.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -36,14 +35,13 @@ function problems(settings: Record<string, unknown>, entities: unknown[]): { cod
   return r.ok ? [] : r.errors.map((e) => ({ code: e.code, path: e.path, ...(e.reason !== undefined ? { reason: e.reason } : {}) }));
 }
 
-describe('the physics_dimension setting', () => {
-  it('is optional: absent resolves to the 2D plane and stays out of the resolved settings', () => {
+describe('the retired physics_dimension setting', () => {
+  it('is refused in the settings; every project resolves to the 3D backend', () => {
     const plain = resolveGameplaySettings({ settings: {} });
     expect(plain.ok && Object.keys(plain.normalized)).not.toContain('physics_dimension');
-    expect(physicsDimensionOf({})).toBe(2);
-    expect(physicsDimensionOf({ physics_dimension: 2 })).toBe(2);
-    expect(physicsDimensionOf({ physics_dimension: 3 })).toBe(3);
-    expect(resolveGameplaySettings({ settings: { physics_dimension: 4 } }).ok).toBe(false);
+    expect(physicsDimensionOf({})).toBe(3);
+    expect(physicsDimensionOf({ physics_dimension: 2 })).toBe(3);
+    expect(resolveGameplaySettings({ settings: { physics_dimension: 3 } }).ok).toBe(false);
   });
 });
 
@@ -62,23 +60,14 @@ describe('collider depth and capsule z (canonical form)', () => {
   });
 });
 
-describe('the rules that follow the dimension', () => {
-  it('2D plane (absent or 2): a collider rotated off Z is refused, as before', () => {
-    for (const settings of [{}, { physics_dimension: 2 }]) {
-      expect(problems(settings, [floor({ type: 'box', hx: 2, hy: 0.5 }, TILT_X)])).toEqual([{ code: 'physics_transform_unsupported', reason: 'rotation', path: '/entities/0/transform/rotation' }]);
-      expect(problems(settings, [floor({ type: 'box', hx: 2, hy: 0.5 }), player()])).toEqual([]);
-      expect(problems(settings, [floor({ type: 'polygon', vertices: [[-1, -1], [1, -1], [0, 1]] })])).toEqual([]);
-    }
-    // A v3 document keeps the rule on its own.
+describe('the rules of the one backend', () => {
+  it('any collider rotation; a box without hz and a polygon take their 3D form; the controller upright', () => {
+    expect(problems({}, [floor({ type: 'box', hx: 2, hy: 0.5, hz: 2 }, TILT_X), player()])).toEqual([]);
+    expect(problems({}, [floor({ type: 'box', hx: 2, hy: 0.5 }, TILT_X)])).toEqual([]);
+    expect(problems({}, [floor({ type: 'polygon', vertices: [[-1, -1], [1, -1], [0, 1]] })])).toEqual([]);
+    expect(problems({}, [player([0, Math.sin(0.2), 0, Math.cos(0.2)])])).toEqual([{ code: 'physics_transform_unsupported', reason: 'upright', path: '/entities/0/transform/rotation' }]);
+    // A v3 document (the format before the 3D backend) keeps the rotation-about-Z rule on its own.
     const v3 = validateSceneV3({ schemaVersion: 3, sceneId: 'scene-main', revision: 1, entities: [floor({ type: 'box', hx: 2, hy: 0.5 }, TILT_X)] });
     expect(v3.ok).toBe(false);
-  });
-
-  it('3D: any collider rotation; a box without hz and a polygon take their 3D form; the controller upright', () => {
-    const three = { physics_dimension: 3 };
-    expect(problems(three, [floor({ type: 'box', hx: 2, hy: 0.5, hz: 2 }, TILT_X), player()])).toEqual([]);
-    expect(problems(three, [floor({ type: 'box', hx: 2, hy: 0.5 })])).toEqual([]);
-    expect(problems(three, [floor({ type: 'polygon', vertices: [[-1, -1], [1, -1], [0, 1]] })])).toEqual([]);
-    expect(problems(three, [player([0, Math.sin(0.2), 0, Math.cos(0.2)])])).toEqual([{ code: 'physics_transform_unsupported', reason: 'upright', path: '/entities/0/transform/rotation' }]);
   });
 });

@@ -93,14 +93,15 @@ describe('a project whose scenes each have their own look opened over HTTP', () 
   it('keeps quality and presets in the content, a look in each scene file, replays, and exports each scene with its look', async () => {
     const r = await api(`${tb.authUrl}/api/v1/sessions`, { body: { projectId: ID, sessionId: mkSessionId(), clientInfo: { kind: 'browser', label: 'scene-looks' } }, token: tb.adminToken });
     expect(r.status, JSON.stringify(r.json)).toBe(200);
-    // A schemaVersion 7 project without prefab copies: nothing to change but the version, so no new revision.
-    expect((r.json as { revision: number }).revision).toBe(5);
+    // A schemaVersion 7 project without prefab copies, made for the 2D plane: its scenes get their default plane (one new revision).
+    expect((r.json as { revision: number }).revision).toBe(6);
+    for (const sceneId of ['scene-main', 'scene-two']) expect((readJson(`scenes/${sceneId}.json`)['scene'] as { defaultPlane?: unknown }).defaultPlane, sceneId).toEqual({ axis: 'z', origin: 0 });
     expect(readJson('project.json')['schemaVersion']).toBe(8);
     expect((readJson('content.json')['content'] as { environment: unknown }).environment).toEqual({ quality: 'medium', presets: ['dusk'] });
     for (const sceneId of ['scene-main', 'scene-two']) expect((readJson(`scenes/${sceneId}.json`)['scene'] as { environment?: unknown }).environment, sceneId).toEqual(LOOK);
     const problems = await api(`${tb.authUrl}/api/v1/projects/${ID}/problems`, { method: 'GET', token: tb.adminToken, origin: null });
-    // The one upgrade note is the version: nothing else changed.
-    expect((problems.json as { problems: { code: string; message: string }[] }).problems.filter((p) => p.code === 'project_upgraded').map((p) => p.message)).toEqual(['project schemaVersion 7 → 8']);
+    // The upgrade notes: the version, and the 2D project's move to the one 3D backend.
+    expect((problems.json as { problems: { code: string; message: string }[] }).problems.filter((p) => p.code === 'project_upgraded').map((p) => p.message)).toEqual(['project schemaVersion 7 → 8', expect.stringMatching(/^a 2D project \(physics_dimension retired\) moved to the one 3D physics backend: 2 scenes/)]);
 
     // The queries: the project part, and each scene's look on request.
     const q = async (op: string, args?: Record<string, unknown>): Promise<Record<string, unknown>> => (await api(`${tb.authUrl}/api/v1/projects/${ID}/commands`, { body: { op, projectId: ID, ...(args !== undefined ? { args } : {}) }, token: tb.adminToken, origin: null })).json as Record<string, unknown>;
@@ -229,7 +230,8 @@ describe('a schemaVersion 6 project with a scene camera opened over HTTP', () =>
     expect(cam.components['transform']).toEqual(old.components['transform']);
     expect(cam.keepLoaded).toBe(true);
     // The lens is the project's now (every camera without its own uses it).
-    expect((readJson(ID, 'content.json')['content'] as { settings: unknown }).settings).toEqual({ physics_dimension: 3, camera_fov_deg: 50, camera_near_m: 0.3, camera_far_m: 400 });
+    // The retired physics setting is gone (the project was 3D: nothing else changes for it).
+    expect((readJson(ID, 'content.json')['content'] as { settings: unknown }).settings).toEqual({ camera_fov_deg: 50, camera_near_m: 0.3, camera_far_m: 400 });
     // The level scene's own virtual camera and tile are as they were (only the revision stamp moved).
     expect(entitiesOf(ID, 'battle')).toEqual(fixtureEntities(ID, 'battle'));
     // The lights are untouched.
@@ -501,9 +503,8 @@ describe('a project with trim data in COLOR_0 and old trim paint opened over HTT
       closed = true;
       const manifestFile = join(tb.root, 'data', 'projects', PID, 'project.json');
       const manifest = (): Record<string, unknown> => JSON.parse(readFileSync(manifestFile, 'utf8')) as Record<string, unknown>;
-      expect(manifest()['upgrades']).toEqual(['trim-data']);
-      const { upgrades: _recorded, ...older } = manifest();
-      writeFileSync(manifestFile, `${JSON.stringify(older, null, 2)}\n`);
+      expect(manifest()['upgrades']).toEqual(['planes', 'trim-data']);
+      writeFileSync(manifestFile, `${JSON.stringify({ ...manifest(), upgrades: ['planes'] }, null, 2)}\n`);
       // The same data root, a new backend: its first read of the project opens (and upgrades) it.
       const reopen = async (): Promise<{ backend: Backend; url: string; teardown: () => Promise<void> }> => {
         const b = await createTestBackend({ authoringOrigin: AUTHORING_ORIGIN, previewOrigin: PREVIEW_ORIGIN, authoringOrigins: [AUTHORING_ORIGIN], tokens: [{ token: tb.adminToken, scope: 'admin' }], dataRoot: join(tb.root, 'data') });
@@ -537,7 +538,7 @@ describe('a project with trim data in COLOR_0 and old trim paint opened over HTT
           expect.stringContaining('1 painted trim surface had its wetness moved from B to A'),
         ]));
         // Recorded with the moved data.
-        expect(manifest()['upgrades']).toEqual(['trim-data']);
+        expect(manifest()['upgrades']).toEqual(['planes', 'trim-data']);
 
         // Paint made after the upgrade, layers 3 and 4 (G and B) on both surfaces, the trim one included (a mapping can change).
         const paint = commands(second.backend, url);

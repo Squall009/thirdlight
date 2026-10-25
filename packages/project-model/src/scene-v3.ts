@@ -28,7 +28,7 @@ import { canonicalSpline, validateSplineComponent, type SplineComponent } from '
 import { canonicalArchitecture, validateArchitectureComponent, type ArchitectureComponent } from './architecture';
 import { ID_RE } from './validate';
 import { validateLightLayerMask } from './light-layers';
-import { planeLockOf, validatePlaneLock, type PlaneLock } from './plane-lock';
+import { canonicalPlaneField, planeLockOf, validatePlaneLock, type PlaneLock } from './plane-lock';
 import { colliderDepthField, validateColliderDepth } from './shape-2d-3d';
 import { validateLocalLightMode, type LocalLightMode } from './local-lights';
 
@@ -111,13 +111,11 @@ import {
   MAX_INSTANCES,
 } from './types-v3';
 import { isRemovedComponent, removedComponentMessage } from './removed-game-data';
+import { canonicalMigrated2DMarks, validateMigrated2DMarks } from './migrated-2d';
 import { effectiveEntityFlags, nearestObjectAncestor } from './hierarchy-v3';
 
-/** A collider's canonical `plane` (absent when free, so a free collider keeps its old canonical bytes). */
-function planeField(collider: unknown): { plane?: PlaneLock } {
-  const plane = planeLockOf(collider);
-  return plane !== null ? { plane } : {};
-}
+/** A collider's canonical `plane` (absent when it takes its scene's, so such a collider keeps its old canonical bytes). */
+const planeField = canonicalPlaneField;
 import { canonicalBlockFootprint, validateBlockFootprintComponent, type BlockFootprintComponent } from './block-layers';
 import { canonicalBlockLayerComponent, canonicalSceneBlocks, validateBlockLayerComponent, validateSceneBlocks, type BlockLayerComponent, type BlockLayerData } from './block-layers';
 
@@ -144,7 +142,7 @@ export const SCENE_CAMERA_GONE = 'the scene camera is gone: the engine owns the 
 
 const KNOWN_SCENE_FIELDS = new Set(['schemaVersion', 'sceneId', 'revision', 'entities']);
 // `blocks` — the scene's block-layer cells and regions (absent = none).
-const KNOWN_SCENE_FIELDS_V4 = new Set(['schemaVersion', 'sceneId', 'revision', 'environment', 'entities', 'blocks']);
+const KNOWN_SCENE_FIELDS_V4 = new Set(['schemaVersion', 'sceneId', 'revision', 'environment', 'defaultPlane', 'migratedFrom2D', 'entities', 'blocks']);
 /** The boolean flags an entity may carry (only a non-default value is stored). */
 export const ENTITY_FLAGS = ['active', 'visible', 'locked', 'static', 'keepLoaded'] as const;
 const KNOWN_ENTITY_FIELDS = new Set(['id', 'name', 'parentId', 'parentPart', ...ENTITY_FLAGS, 'tags', 'components']);
@@ -1252,6 +1250,12 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
   if (version === 4 && doc['blocks'] !== undefined && entities !== null) validateSceneBlocks(doc['blocks'], entities, errors);
   // The scene's look (sky, fog, post, wind).
   if (version === 4 && doc['environment'] !== undefined) validateSceneEnvironment(doc['environment'], '/environment', errors);
+  // The plane its bodies are locked to unless they name their own, and the upgrade's open notes.
+  if (version === 4 && doc['defaultPlane'] !== undefined) {
+    if (doc['defaultPlane'] === null) errors.push(fieldValue('/defaultPlane', null, "{ axis: 'x' | 'z', origin }", 'a scene without a default plane leaves the field out'));
+    else validatePlaneLock(doc['defaultPlane'], '/defaultPlane', errors);
+  }
+  if (version === 4) validateMigrated2DMarks(doc['migratedFrom2D'], '/migratedFrom2D', errors);
   if (errors.length > 0) return { errors };
   const canonical = canonicalSceneV3(doc, entities as unknown[], version);
   checkFolderHierarchy(canonical, errors);
@@ -1304,11 +1308,15 @@ function canonicalSceneV3(doc: Record<string, unknown>, ents: unknown[], version
     const blocks = Array.isArray(doc['blocks']) ? canonicalSceneBlocks(doc['blocks'] as BlockLayerData[]) : null;
     // `environment` present only when the scene sets part of its look (none: the engine defaults).
     const env = doc['environment'] as SceneEnvironment | undefined;
+    const plane = planeLockOf({ plane: doc['defaultPlane'] });
+    const marks = canonicalMigrated2DMarks(doc['migratedFrom2D']);
     return {
       schemaVersion: 4,
       sceneId: doc['sceneId'] as string,
       revision: canonNum(doc['revision']),
       ...(!sceneEnvironmentIsEmpty(env) ? { environment: canonicalSceneEnvironment(env!) } : {}),
+      ...(plane !== null ? { defaultPlane: plane } : {}),
+      ...(marks !== null ? { migratedFrom2D: marks } : {}),
       entities: (ents as Record<string, unknown>[]).map(canonicalEntityV3),
       ...(blocks !== null ? { blocks } : {}),
     } as unknown as SceneV3;

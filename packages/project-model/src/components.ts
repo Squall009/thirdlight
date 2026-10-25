@@ -25,7 +25,7 @@ import {
 } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { MAX_COLLIDER_EXTENT, colliderShapeParts, limitsError, validateColliderShape } from './collider-shapes';
-import { planeLockOf, validatePlaneLock } from './plane-lock';
+import { canonicalPlaneField, planeLockOf, validatePlaneLock } from './plane-lock';
 
 export { COLLIDER_3D_LIMITS, COLLIDER_3D_SHAPES, CONVEX_TOL, MAX_COLLIDER_EXTENT, MAX_POLYGON_VERTICES, MIN_POLYGON_AREA, canonicalCollider, canonicalShape, colliderShapeParts, colliderShapePoints, COLLIDER_PRIMITIVE_TYPES, COLLIDER_SHAPE_TYPES } from './collider-shapes';
 import type { ColliderShape, ControllerComponent, TransformComponent } from './types-v2';
@@ -662,9 +662,9 @@ export function canonicalController(controller: unknown): ControllerComponent {
   for (const k of CONTROLLER_ACTION_FIELDS) if (src[k] !== undefined) out[k] = src[k];
   // Climbing and walls (absent keeps the old canonical bytes).
   for (const k of CONTROLLER_MOVEMENT_FIELDS) if (src[k] !== undefined) out[k] = src[k];
-  // The plane lock (absent or null: free, and the old canonical bytes).
-  const plane = planeLockOf(src);
-  if (plane !== null) out['plane'] = plane;
+  // The plane lock (absent: the scene's default, and the old canonical bytes; null: free).
+  const plane = canonicalPlaneField(src);
+  if (plane.plane !== undefined) out['plane'] = plane.plane;
   return out as ControllerComponent;
 }
 

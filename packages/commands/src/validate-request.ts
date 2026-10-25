@@ -33,7 +33,7 @@
  * stays the single authority for document value rules.
  */
 
-import { AUDIO_LOAD_TYPES, isValidSourcePath, MODEL_OCCLUDER_MODES, modelLodProblems, type ModelOccluderMode, validateGraphOps, blockEditsShapeError, validateBlockType, validateCellFields, validateBlockStamp, BLOCK_LIMITS, DELETE_ENTITIES_MAX, type GraphDocument, type GraphOp, type ModelErrorV2 } from '@thirdlight/project-model';
+import { AUDIO_LOAD_TYPES, isValidSourcePath, MODEL_OCCLUDER_MODES, modelLodProblems, type ModelOccluderMode, validateGraphOps, blockEditsShapeError, validateBlockType, validateCellFields, validateBlockStamp, BLOCK_LIMITS, DELETE_ENTITIES_MAX, type GraphDocument, type GraphOp, type ModelErrorV2, type PlaneLock, validatePlaneLock } from '@thirdlight/project-model';
 import { ENTITY_FLAGS, M2_SETTINGS_KEYS, MAX_TAGS, TAG_NAME_RE, type AnimatorController, type InputConfig, type EnvironmentConfig, type SceneEnvironment, type LightingBake, type MaterialDef, type EffectDef } from '@thirdlight/project-model';
 
 import {
@@ -1214,6 +1214,7 @@ export type ValidatedOpArgs =
   | { op: 'setMaterial'; args: { material: MaterialDef } }
   | { op: 'deleteMaterial'; args: { materialId: string } }
   | { op: 'setEnvironment'; args: { environment: EnvironmentConfig | SceneEnvironment; sceneId?: string } }
+  | { op: 'setScenePlane'; args: { sceneId: string; plane: PlaneLock | null } }
   | { op: 'setLighting'; args: { sceneId: string; lighting: LightingBake | null } }
   | { op: 'setAnimator'; args: { controller: AnimatorController } }
   | { op: 'deleteAnimator'; args: { controllerId: string } }
@@ -1361,6 +1362,24 @@ function validatePrefabOpArgs(op: 'createPrefab' | 'updatePrefab' | 'instantiate
               : validatePrefabOverrideTargetArgs(args);
   if (!r.ok) return r;
   return { ok: true, validated: { op, args: r.args } as ValidatedOpArgs };
+}
+
+/** One scene's own field: `setLighting {sceneId, lighting}` (a bake or null) and `setScenePlane {sceneId, plane}` (a plane or null). */
+function validateSceneFieldArgs(op: 'setLighting' | 'setScenePlane', args: Record<string, unknown>): ArgsValidation {
+  const key = op === 'setLighting' ? 'lighting' : 'plane';
+  for (const k of Object.keys(args)) if (k !== 'sceneId' && k !== key) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, `sceneId, ${key}`) };
+  if (args['sceneId'] === undefined) return { ok: false, error: fieldMissing('/args/sceneId', 'sceneId') };
+  if (typeof args['sceneId'] !== 'string') return { ok: false, error: fieldType('/args/sceneId', args['sceneId'], 'string (sceneId)') };
+  if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
+  if (op === 'setLighting') {
+    if (args['lighting'] !== null && !isPlainObject(args['lighting'])) return { ok: false, error: fieldType('/args/lighting', args['lighting'], 'object (a bake) or null') };
+  } else if (args['plane'] !== null) {
+    const errors: ModelErrorV2[] = [];
+    validatePlaneLock(args['plane'], '/args/plane', errors);
+    const e = errors[0];
+    if (e !== undefined) return { ok: false, error: fieldValue(e.path ?? '/args/plane', args['plane'], "{ axis: 'x' | 'z', origin } or null", e.message) };
+  }
+  return { ok: true, validated: { op, args } as ValidatedOpArgs };
 }
 
 /**
@@ -1711,14 +1730,9 @@ export function validateOpArgs(
       }
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
     }
-    case 'setLighting': {
-      for (const k of Object.keys(args)) if (k !== 'sceneId' && k !== 'lighting') return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'sceneId, lighting') };
-      if (args['sceneId'] === undefined) return { ok: false, error: fieldMissing('/args/sceneId', 'sceneId') };
-      if (typeof args['sceneId'] !== 'string') return { ok: false, error: fieldType('/args/sceneId', args['sceneId'], 'string (sceneId)') };
-      if (args['lighting'] === undefined) return { ok: false, error: fieldMissing('/args/lighting', 'lighting') };
-      if (args['lighting'] !== null && !isPlainObject(args['lighting'])) return { ok: false, error: fieldType('/args/lighting', args['lighting'], 'object (a bake) or null') };
-      return { ok: true, validated: { op, args } as ValidatedOpArgs };
-    }
+    case 'setLighting':
+    case 'setScenePlane':
+      return validateSceneFieldArgs(op, args);
     case 'pasteEntities': {
       const r = validatePasteArgs(args);
       if (!r.ok) return r;

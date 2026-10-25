@@ -69,7 +69,6 @@ describe('nested prefabs and variants in the running game', () => {
   });
 
   it('ctx.spawn of a variant, a live block and ctx.decals.spawn use the assembled prefab', async () => {
-    await command('setSettings', { settings: { physics_dimension: 3 } });
     await command('setMaterial', { material: { materialId: 'mat-scorch', name: 'Scorch', shader: 'decal', params: {}, textures: {} } });
     // The post: a box with a red cap.
     const post = (await command('createEntity', { kind: 'box', name: 'Post', sceneId: 'scene-main' })).createdId as string;

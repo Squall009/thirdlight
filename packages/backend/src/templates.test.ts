@@ -261,7 +261,9 @@ describe('the 3D starter', () => {
     const read = backend._test.service.readCapturedV3('w3');
     if (!read.ok) throw new Error('no project');
     const content = read.read.content as unknown as Record<string, any>;
-    expect(content['settings']['physics_dimension']).toBe(3);
+    // A 3D project: the retired setting is gone and its scene has no default plane.
+    expect(content['settings']).not.toHaveProperty('physics_dimension');
+    expect((read.read.scenes as { defaultPlane?: unknown }[]).every((sc) => sc.defaultPlane === undefined)).toBe(true);
     expect(content['kits'].map((k: { kitId: string }) => k.kitId)).toEqual(['basic-kit']);
     expect(content['materials'].map((m: { materialId: string }) => m.materialId)).toEqual(expect.arrayContaining(['basic-trim', 'starter-ground']));
     // The grass clumps for ground cover: a model of three pieces with three levels each, wearing the foliage material and its KTX2 colour.

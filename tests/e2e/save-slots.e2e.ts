@@ -118,7 +118,6 @@ async function buildScene(): Promise<void> {
   await cmd('setComponent', { entityId: player, component: 'controller', value: {} });
   const shot = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Shot', transform: { position: [0, 3, 8] } })).createdId);
   await cmd('setComponent', { entityId: shot, component: 'virtualCamera', value: { rig: 'fixed', target: player } });
-  await cmd('setSettings', { settings: { physics_dimension: 3 } });
   await cmd('setSaveSchema', { schema: { version: 1, slots: 3 } });
   await cmd('setUiDocument', { document: { uiDocumentId: 'slots', name: 'Slots', root: { type: 'panel', stretch: 'both', children: [{ type: 'image', id: 'pic', anchor: [0, 0], offset: [24, 24], size: [256, 144], saveSlot: 1 }] } } });
   const director = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Director', transform: { position: [0, -10, 0] } })).createdId);

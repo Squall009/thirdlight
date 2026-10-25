@@ -12,6 +12,7 @@ import { audioPlaybackProblems } from './audio-gaps';
 import type { AssetFileCheck } from './asset-files';
 import { createBlockProblemChecker } from './block-problems';
 import { createPrefabProblemChecker } from './prefab-problems';
+import { createMigrated2DProblemChecker } from './migrated-2d-problems';
 import { createHeightAlphaProblems, type HeightAlphaChecks } from './height-alpha';
 import { createHeldImagesChecker } from './held-images';
 import { createKitChecker } from './kit-check';
@@ -111,6 +112,8 @@ export function createProjectChecks(deps: ProjectChecksDeps) {
   const blockProblems = createBlockProblemChecker({ service, recordProblem: as('workspace'), logStartup, closed });
   // Linked prefab copies assembly could not make as stored (checked on load and after changes to copies or prefabs).
   const prefabProblems = createPrefabProblemChecker({ service, recordProblem: as('workspace'), logStartup, closed });
+  // What the upgrade of a former 2D project converted, until each item is saved again (checked on load and after changes while any is open).
+  const migrated2D = createMigrated2DProblemChecker({ service, recordProblem: as('workspace'), logStartup, closed });
   // Vertex paint a reimport left without its mesh (checked on load and after changes that can matter).
   const paintProblems = createPaintProblemChecker({ service, recordProblem: as('workspace'), logStartup, closed });
   // Textures in a layered surface's height slots without height in A (checked on load and after material and texture changes).
@@ -171,6 +174,7 @@ export function createProjectChecks(deps: ProjectChecksDeps) {
       heldImages.loaded(projectId);
       blockProblems.loaded(projectId);
       prefabProblems.loaded(projectId);
+      migrated2D.loaded(projectId);
       paintProblems.loaded(projectId);
       heightProblems.loaded(projectId);
       occluderProblems.loaded(projectId);
@@ -195,6 +199,7 @@ export function createProjectChecks(deps: ProjectChecksDeps) {
       heldImages.changed(projectId, change);
       blockProblems.changed(projectId, change);
       prefabProblems.changed(projectId, change);
+      migrated2D.changed(projectId);
       paintProblems.changed(projectId, change);
       heightProblems.changed(projectId, change);
       occluderProblems.changed(projectId, change);

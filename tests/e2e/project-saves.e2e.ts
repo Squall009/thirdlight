@@ -174,7 +174,6 @@ test('a script saves to slot 2 with metadata and a thumbnail; a reload lists it 
   be = await startBackend('project-saves-e2e');
 
   // The fixture: a 3D project (it plays as a scene) with a block layer of stone and wood, the camera looking at it.
-  await cmd('setSettings', { settings: { physics_dimension: 3 } });
   await cmd('setBlockType', { block: { blockId: 'stone', name: 'Stone', variants: [{ color: '#6b7280' }], shape: 'full' } });
   await cmd('setBlockType', { block: { blockId: 'wood', name: 'Wood', variants: [{ color: '#a0602a' }], shape: 'full' } });
   const cam = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities.find((e) => e.components['virtualCamera'] !== undefined)!.id;

@@ -9,7 +9,10 @@ import { describe, expect, it } from 'vitest';
 
 import { assembleSceneEntities, createPrefabAssembler, type AssemblyEntity } from './prefab-assembly';
 import { isPrefabLink } from './prefab-links';
-import { upgradeToSchema8 } from './upgrade-schema-8';
+import { SCHEMA_8_STEPS, upgradeToSchema8 } from './upgrade-schema-8';
+
+/** This step alone (the later steps of 8 have their own tests). */
+const LINKING = SCHEMA_8_STEPS.filter((s) => s.name === 'linkPrefabCopies');
 
 type Any = any;
 const T = (p: number[]): Any => ({ position: p, rotation: [0, 0, 0, 1], scale: [1, 1, 1] });
@@ -82,7 +85,7 @@ const assembled = (c: Any, scene: Any): AssemblyEntity[] => {
 describe('schema 8: plain prefab copies become linked copies', () => {
   it('links every copy it can keep exactly, with its differences as overrides; the scene assembles to what was stored', () => {
     const before = sceneBefore();
-    const u = upgradeToSchema8(content, [before]);
+    const u = upgradeToSchema8(content, [before], LINKING);
     expect(u.changed).toBe(true);
     expect(u.applied).toEqual(['linkPrefabCopies']);
     const after = u.scenes[0] as Any;
@@ -119,7 +122,7 @@ describe('schema 8: plain prefab copies become linked copies', () => {
 
   it('leaves a project without copies as it is', () => {
     const scene = { schemaVersion: 4, sceneId: 's', revision: 1, entities: [{ id: 'a', components: { transform: T([0, 0, 0]) } }] };
-    const u = upgradeToSchema8(content, [scene]);
+    const u = upgradeToSchema8(content, [scene], LINKING);
     expect(u).toMatchObject({ changed: false, notes: [], applied: [] });
     expect(u.scenes[0]).toBe(scene);
   });

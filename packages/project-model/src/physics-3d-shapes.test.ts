@@ -1,12 +1,11 @@
 /**
  * The 3D collider shapes (sphere, capsule, cylinder, convex hull, triangle
  * mesh), the 3D trigger areas (box with depth, sphere, capsule), and the
- * rules that follow the project's physics dimension: 3D shapes only in a 3D
- * project, a mesh never on a mover, 2D shapes and one-way colliders taken in
- * 3D (their 3D form, given the collider's depth), a 3D
- * collider's positive (uniform for round shapes) scale, the 2D plane's unit
- * scale kept exactly, and the switch block and 2D trigger areas taken in
- * 3D (a circle is a sphere, a depthless box as deep as it is wide).
+ * rules of the one 3D backend: a mesh never on a mover, 2D shapes and
+ * one-way colliders taken (their 3D form, given the collider's depth), a
+ * collider's positive (uniform for round shapes) scale, and the switch block
+ * and 2D trigger areas taken (a circle is a sphere, a depthless box as deep
+ * as it is wide).
  */
 import { describe, expect, it } from 'vitest';
 
@@ -21,7 +20,8 @@ const content = (settings: Record<string, unknown>) => ({ assets: [], prefabs: [
 const CAMERA = { id: 'cam-main', components: { transform: T([0, 2, 10]), virtualCamera: { rig: 'fixed' } } };
 const scene = (entities: unknown[]) => ({ schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities });
 const body = (shape: unknown, extra: Record<string, unknown> = {}, scale?: number[]) => ({ id: 'body-0001', components: { transform: T([0, 0, 0], scale), collider: { shape }, ...extra } });
-const THREE = { physics_dimension: 3 };
+/** A project's settings (every project runs on the one 3D backend). */
+const THREE = {};
 const HULL = { type: 'convex', points: [[-1, -1, -1], [1, -1, -1], [0, 1, -1], [0, 0, 1]] };
 const MESH = { type: 'mesh', vertices: [[-1, 0, -1], [1, 0, -1], [1, 0, 1], [-1, 0, 1]], triangles: [[0, 2, 1], [0, 3, 2]] };
 
@@ -70,14 +70,7 @@ describe('3D collider shapes (validation and canonical form)', () => {
   }, 60_000);
 });
 
-describe('the dimension rules for 3D shapes, scale and blocks', () => {
-  it('a 2D-plane project refuses the 3D shapes and keeps the unit-scale rule exactly', () => {
-    for (const shape of [{ type: 'sphere', radius: 0.5 }, { type: 'capsule', radius: 0.5, height: 2 }, { type: 'cylinder', radius: 0.5, height: 1 }, HULL, MESH]) {
-      expect(problems({}, [body(shape)])).toEqual(['collider_shape_invalid /entities/0/components/collider/shape/type']);
-    }
-    expect(problems({}, [body({ type: 'box', hx: 1, hy: 1 }, {}, [2, 1, 1])])).toEqual(['physics_transform_unsupported /entities/0/transform/scale']);
-  });
-
+describe('the rules for 3D shapes, scale and blocks', () => {
   it('a 3D project: boxes, hulls and meshes take any positive scale, spheres and capsules a uniform one; controllers stay at unit scale', () => {
     expect(problems(THREE, [body({ type: 'box', hx: 1, hy: 1, hz: 1 }, {}, [2, 0.5, 3])])).toEqual([]);
     expect(problems(THREE, [body(HULL, {}, [2, 1, 1])])).toEqual([]);
@@ -108,23 +101,19 @@ describe('the dimension rules for 3D shapes, scale and blocks', () => {
     expect(validateSceneV4(scene([withDepth('1')])).ok).toBe(false);
   });
 
-  it('triggers: sphere and capsule in 3D only; 3D takes a depthless box and a circle', () => {
+  it('triggers: sphere and capsule; a depthless box and a circle are taken', () => {
     const trig = (t: Record<string, unknown>) => ({ id: 'trig-0001', components: { transform: T(), trigger: { signal: 'go', ...t } } });
     expect(problems(THREE, [trig({ shape: 'sphere', radius: 1 })])).toEqual([]);
     expect(problems(THREE, [trig({ shape: 'capsule', radius: 0.5, height: 2 })])).toEqual([]);
     expect(problems(THREE, [trig({ size: [1, 2, 3] })])).toEqual([]);
     expect(problems(THREE, [trig({ size: [1, 2] })])).toEqual([]);
     expect(problems(THREE, [trig({ shape: 'circle', radius: 1 })])).toEqual([]);
-    expect(problems({}, [trig({ shape: 'sphere', radius: 1 })])).toEqual(['field_value /entities/0/components/trigger/shape']);
-    // A 2D plane ignores a box's depth (as it ignores a collider's hz).
-    expect(problems({}, [trig({ size: [1, 2, 3] })])).toEqual([]);
   });
 
-  it('switches work in both: [w, h] or [w, h, d]', () => {
+  it('switches take [w, h] or [w, h, d]', () => {
     const e = (c: Record<string, unknown>) => ({ id: 'blk-0001', components: { transform: T(), ...c } });
     for (const size of [[1, 1], [1, 0.2, 2]]) {
       expect(problems(THREE, [e({ switch: { mode: 'stand', signal: 'open', size } })])).toEqual([]);
-      expect(problems({}, [e({ switch: { mode: 'stand', signal: 'open', size } })])).toEqual([]);
     }
     const kept = validateSceneV4(scene([e({ switch: { mode: 'stand', signal: 'open', size: [1, 0.2, 2] } })]));
     expect(kept.ok && kept.normalized.entities[0]!.components.switch).toEqual({ mode: 'stand', signal: 'open', size: [1, 0.2, 2] });

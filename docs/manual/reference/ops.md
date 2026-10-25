@@ -141,6 +141,7 @@ interface MutationFailure {
 | [`setMaterial`](ops-detail.md#op-setMaterial) | { material: MaterialDef } | `materials` |
 | [`setModes`](ops-detail.md#op-setModes) | { modes: GameMode[] } | `modes` |
 | [`setSaveSchema`](ops-detail.md#op-setSaveSchema) | { schema: SaveSchema \| null } | `saveSchema` |
+| [`setScenePlane`](ops-detail.md#op-setScenePlane) | { sceneId: string; plane: PlaneLock \| null } |  |
 | [`setScriptLibrary`](ops-detail.md#op-setScriptLibrary) | ScriptLibraryPatch | `scriptLibraries` |
 | [`setSettings`](ops-detail.md#op-setSettings) | SetSettingsArgs | `settings` |
 | [`setShell`](ops-detail.md#op-setShell) | { shell: GameShell \| null } | `shell` |

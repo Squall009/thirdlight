@@ -47,6 +47,7 @@ export const V3_MUTATION_OPS = [
   'setMaterial',
   'deleteMaterial',
   'setEnvironment',
+  'setScenePlane',
   'setLighting',
   'setAnimator',
   'deleteAnimator',

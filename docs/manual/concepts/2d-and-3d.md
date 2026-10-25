@@ -3,20 +3,29 @@
 Thirdlight always draws in 3D. What changes between a 2D and a 3D game is
 the **simulation**: where things can move and collide.
 
-The project setting **Physics** (`physics_dimension`, in
-**File → Project Settings… → Gameplay**) chooses it:
+Every project runs on one physics backend, Rapier 3D. "2D" is not a kind
+of project: it is a **plane** a body is locked to (an axis-aligned plane,
+its normal world X or Z), which a game can switch on and off at any time
+(`ctx.physics.setPlane`, `ctx.character.setPlane`).
 
-- **2D plane** (the default, and what the 2D starter uses). Movement and
-  collision happen in X and Y; colliders turn about Z only. The camera
-  looks at the plane, so you get a side-on game drawn with 3D models and
-  lights: a platformer, a side-scroller, a 2.5D puzzle game. The default
-  input moves left and right (`move` is a 1D axis: A/D, the arrow keys).
-- **3D**. Full 3D physics: colliders have depth and any rotation, and there
-  are sphere, capsule, convex hull and mesh colliders. The player is a 3D
-  character that walks, runs, jumps and climbs. The default input moves in
-  two axes (`move` is a 2D axis: W/A/S/D, the arrow keys, the left stick)
-  and adds `run` (Shift). Use it for third-person, first-person and
-  top-down games.
+- **A scene with a default plane** (`setScenePlane {sceneId, plane:
+  {axis, origin}}`): its colliders and controllers that name no `plane` of
+  their own are locked to it (`plane: null` frees one), and a script's
+  `{x, y}` queries run on it. A game that starts in such a scene gets the
+  side-view input (`move` is a 1D axis: A/D, the arrow keys) and hears
+  sounds by their distance along the plane, unless it sets its own. Use it
+  for a platformer, a side-scroller, a 2.5D puzzle game.
+- **A scene without one**: full 3D. Colliders have depth and any rotation,
+  and there are sphere, capsule, cylinder, convex hull and mesh colliders.
+  The default input moves in two axes (`move` is a 2D axis: W/A/S/D, the
+  arrow keys, the left stick) and adds `run` (Shift).
+
+A project made for the 2D plane before (the retired project setting
+`physics_dimension`) is upgraded once when it opens: its scenes get the
+default plane Z at 0, its 2D colliders their 3D forms 1 m deep, its
+controllers the `arcade` movement profile, and Problems lists every
+converted object, grouped by kind, with the field to check. Recorded step
+digests and replays of such a game change once.
 
 A 2D game is a constrained case of the same engine: the same objects,
 components, scripts, cameras, UI and export. Block layers are level

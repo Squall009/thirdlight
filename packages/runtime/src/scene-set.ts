@@ -3,7 +3,7 @@
  * scene contributes (its static colliders), the root offset of a load and the
  * live tag index that follows loads and unloads. No I/O, no three.js.
  */
-import { character3DSettingsOf, planeLockOf, controllerCapsuleOf, fixedStepHzOf, controllerCapsuleOffsetZ, controllerTuningOf, resolveSceneHierarchy, sceneCamerasAsShots, validateSceneV4, type EntityV3, type TagDefinition } from '@thirdlight/project-model';
+import { character3DSettingsOf, planeLockOf, controllerCapsuleOf, fixedStepHzOf, controllerCapsuleOffsetZ, controllerTuningOf, resolveSceneHierarchy, sceneCamerasAsShots, validateSceneV4, withScenePlane, type EntityV3, type TagDefinition } from '@thirdlight/project-model';
 
 import type { ModelColliderTable } from '@thirdlight/project-model';
 
@@ -379,5 +379,7 @@ export function sceneEntitiesFromDocument(
     return { ok: false, message: `scene "${sceneId}" is invalid: ${res.errors.length} error(s)${first ? `; first: ${first.code} at ${first.path}` : ''}` };
   }
   if (res.normalized.sceneId !== sceneId) return { ok: false, message: `the document holds scene "${res.normalized.sceneId}", not "${sceneId}"` };
-  return { ok: true, entities: resolveSceneHierarchy(res.normalized).entities as EntityV3[] };
+  // The scene's bodies on its default plane, as the start scenes' are.
+  const normalized = res.normalized.defaultPlane === undefined ? res.normalized : { ...res.normalized, entities: withScenePlane(res.normalized.entities, res.normalized.defaultPlane) };
+  return { ok: true, entities: resolveSceneHierarchy(normalized).entities as EntityV3[] };
 }

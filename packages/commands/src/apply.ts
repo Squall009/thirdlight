@@ -45,6 +45,7 @@ import {
   applyMoveEntities,
   applySetTransform,
   applyUpdateEntity,
+  type OpOutcome,
   type OpSuccess,
 } from './ops';
 import { applyPrefabOp } from './prefab-link-ops';
@@ -55,7 +56,9 @@ import { applyPasteEntities } from './paste-ops';
 import { applySetCollisionLayers, applySetLightLayers } from './layer-ops';
 import { applySetSaveSchema } from './save-schema-ops';
 import { applyDeleteAnimator, applyDeleteMaterial, applySetAnimator, applySetEnvironment, applySetInput, applySetLighting, applySetMaterial } from './material-ops';
-import type { AnimatorController, EffectDef, EnvironmentConfig, InputConfig, KitDef, LightingBake, MaterialDef, SceneEnvironment } from '@thirdlight/project-model';
+import type { AnimatorController, EffectDef, EnvironmentConfig, InputConfig, KitDef, LightingBake, MaterialDef, PlaneLock, SceneEnvironment } from '@thirdlight/project-model';
+import { applySetScenePlane } from './scene-plane-ops';
+import { withMigrationMarksCleared } from '@thirdlight/project-model';
 import { applySceneIndexOp } from './scene-ops';
 import { applyDeleteGraph, applyGraphEdit, applySetGraph } from './graph-ops';
 import { applyDeleteEffect, applyRenameEffect, applySetEffect } from './effect-ops';
@@ -181,6 +184,9 @@ function completeForward<S extends SceneDocument>(
   const fp = applied.otherScene === undefined ? writeSceneFootprints(state.scene, applied.scene, state.content, applied.content ?? state.content, state.manifest) : null;
   if (fp !== null && !fp.ok) return { ok: false, result: failure({ op, projectId, requestId }, fp.error) };
   if (fp !== null && fp.scene !== null) applied = { ...applied, scene: fp.scene, change: withFootprintChunks(applied.change, fp.layers) };
+  // An upgrade note (a former 2D project's) goes once the edit saved its component in the new form.
+  const settled = withMigrationMarksCleared(state.scene as Parameters<typeof withMigrationMarksCleared>[0], applied.scene as Parameters<typeof withMigrationMarksCleared>[1]);
+  if (settled !== applied.scene) applied = { ...applied, scene: settled as typeof applied.scene };
   const entry: HistoryEntry = {
     seq: state.history.seq,
     requestId,
@@ -209,6 +215,14 @@ function completeForward<S extends SceneDocument>(
       redoDepth: history.entries.length - history.cursor,
     }),
   };
+}
+
+/** A material, the project's or a scene's look, or a scene's default plane. */
+function applyMaterialOrSceneOp(input: OpInput, op: 'setMaterial' | 'deleteMaterial' | 'setEnvironment' | 'setScenePlane', a: Record<string, unknown>): OpOutcome {
+  if (op === 'setMaterial') return applySetMaterial(input, a as { material: MaterialDef; assign?: { entityId: string } });
+  if (op === 'deleteMaterial') return applyDeleteMaterial(input, a as { materialId: string });
+  if (op === 'setScenePlane') return applySetScenePlane(input, a as { sceneId: string; plane: PlaneLock | null });
+  return applySetEnvironment(input, a as { environment: EnvironmentConfig | SceneEnvironment; sceneId?: string });
 }
 
 /**
@@ -430,14 +444,9 @@ export function applyMutation<S extends SceneDocument>(
     }
     case 'setMaterial':
     case 'deleteMaterial':
-    case 'setEnvironment': {
-      const a = va.validated.args as Record<string, unknown>;
-      const r =
-        va.validated.op === 'setMaterial'
-          ? applySetMaterial(input, a as { material: MaterialDef; assign?: { entityId: string } })
-          : va.validated.op === 'deleteMaterial'
-            ? applyDeleteMaterial(input, a as { materialId: string })
-            : applySetEnvironment(input, a as { environment: EnvironmentConfig | SceneEnvironment; sceneId?: string });
+    case 'setEnvironment':
+    case 'setScenePlane': {
+      const r = applyMaterialOrSceneOp(input, va.validated.op, va.validated.args as Record<string, unknown>);
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(state, va.validated.op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }

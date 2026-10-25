@@ -261,7 +261,6 @@ export async function buildTerrain(): Promise<{ ground: string; big: string; blo
   await cmd('setComponent', { entityId: blocks, component: 'blockLayer', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [4, 4, 2] } } });
   await cmd('editBlocks', { entityId: blocks, edits: [{ kind: 'fill', box: [0, 0, 0, 4, 3, 2], cell: { block: 'rock' } }, { kind: 'cells', at: [1, 3, 0], cell: { block: 'rock', corners: [3, 3, 0, 0] } }] });
   // A 3D game with a player on the strip (its capsule's 0.9 m half height over the ground).
-  await cmd('setSettings', { settings: { physics_dimension: 3 } });
   const player = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Player', transform: { position: [PLAYER[0], STRIP_HEIGHT + 0.95, PLAYER[1]] } }))['createdId']);
   await cmd('setComponent', { entityId: player, component: 'controller', value: {} });
   // One 1,025² tile of noise, far out of view.

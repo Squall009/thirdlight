@@ -407,7 +407,9 @@ export {
 // Game data the engine no longer has (refused with a text naming it).
 export { REMOVED_FROM_ENGINE, REMOVED_COMPONENTS, removedComponentMessage, isRemovedComponent } from './removed-game-data';
 export { upgradeSceneModel, sceneCameraAsShot, sceneCamerasAsShots, type UpgradeSceneModelResult } from './upgrade-scene-model';
-export { upgradeToSchema8, SCHEMA_8_STEPS, type Schema8Step, type UpgradeToSchema8Result } from './upgrade-schema-8';
+export { upgradeToSchema8, pendingSchema8Steps, RECORDED_SCHEMA_8_STEPS, SCHEMA_8_STEPS, withRecordedSteps, type Schema8Step, type UpgradeToSchema8Result } from './upgrade-schema-8';
+export { MIGRATED_2D_TEXT, RETIRED_DIMENSION_SETTING, UPGRADED_2D_PLANE, migrated2DProblemLines, upgradeToPlanes } from './upgrade-planes';
+export { MIGRATED_2D_KINDS, MIGRATED_2D_PROBLEM, canonicalMigrated2DMarks, migratedComponentOf, validateMigrated2DMarks, withMigrationMarksCleared, type Migrated2DKind, type Migrated2DMarks } from './migrated-2d';
 export { linkPrefabCopies, namedList, type LinkPrefabCopiesResult } from './upgrade-linked-copies';
 // The materials a game uses (the manifest leaves the others out).
 export { materialsInUse, type MaterialUseInput } from './material-use';
@@ -1787,5 +1789,5 @@ export { MODEL_OCCLUDER_MODES, modelOccluderChecks, modelOccluderModeOf, modelOc
 // Diagnostics rows folded with a count (the runtime's error ring and the Play answers' bound).
 export { BEHAVIOR_LOG_CODE, isErrorRow, mergeRepeatedRow, mergeRepeatedRows, REPEATED_ROW_ENTITY_IDS_MAX, repeatedRowKey, type RepeatedRowFields } from './repeated-rows';
 export { BLOCK_3D_CHANGE_KINDS, blocks2DTo3D, type Block3DChange, type Block3DChangeKind } from './block-2d-3d';
-export { PLANE_AXES, isPlaneLock, planeCoords, planeLockOf, planePoint, planeVector, validatePlaneLock, type PlaneAxis, type PlaneLock } from './plane-lock';
+export { PLANE_AXES, canonicalPlaneField, effectivePlaneOf, isPlaneLock, planeCoords, planeLockOf, planePoint, planeVector, validatePlaneLock, withScenePlane, type PlaneAxis, type PlaneLock } from './plane-lock';
 export { DEFAULT_COLLIDER_DEPTH, MAX_COLLIDER_DEPTH, colliderDepthOf, convexPieces, hasTwoDShape, shape2DTo3D, type ColliderCircleShape2D, type Shape3DChange, type Shape3DOptions } from './shape-2d-3d';

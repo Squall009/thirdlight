@@ -42,7 +42,7 @@ import { effectComponentErrors } from './effects';
 import { PROJECT_SCHEMA_VERSION, isRefusedProjectSchemaVersion, isUpgradedProjectSchemaVersion, refusedProjectSchemaMessage } from './project-schema';
 import { nextFreeEntityIdOf } from './entity-ids';
 import { upgradeSceneModel } from './upgrade-scene-model';
-import { upgradeToSchema8 } from './upgrade-schema-8';
+import { RECORDED_SCHEMA_8_STEPS, SCHEMA_8_STEPS, upgradeToSchema8, type Schema8Step } from './upgrade-schema-8';
 
 /**
  * `project.json` — scenes are the files in `scenes/`. Its schemaVersion is
@@ -750,7 +750,7 @@ function nextId(taken: Set<string>, prefix: string): string {
  * has no `game`. Retry records are not carried over (the upgrade is a
  * history boundary).
  */
-export function migrateProjectV3ToV4(manifest: M1Manifest, scene: SceneV3, content: ContentCatalogV3): MigrationV4Result {
+export function migrateProjectV3ToV4(manifest: M1Manifest, scene: SceneV3, content: ContentCatalogV3, steps: readonly Schema8Step[] = SCHEMA_8_STEPS): MigrationV4Result {
   const notes: string[] = [];
   const entities: SceneEntityV3[] = JSON.parse(JSON.stringify(scene.entities)) as SceneEntityV3[];
   const sceneV4: SceneV4 = {
@@ -772,11 +772,13 @@ export function migrateProjectV3ToV4(manifest: M1Manifest, scene: SceneV3, conte
     id: manifest.id,
     name: manifest.name,
     createdAt: manifest.createdAt,
+    // Every recorded step of 8 is behind it (the ones not given were not needed).
+    upgrades: [...RECORDED_SCHEMA_8_STEPS].sort(),
   };
   // A v3 scene holds the scene camera: it becomes a shot, as the open upgrades a 6 (one shape for new and upgraded projects).
   const model = upgradeSceneModel(contentV4, [sceneV4]);
   // Its prefab copies are plain, as a 7's: they become linked.
-  const linked = upgradeToSchema8(model.content, model.scenes);
+  const linked = upgradeToSchema8(model.content, model.scenes, steps);
   notes.push(...linked.notes);
   return { project: { manifest: manifestV2, content: linked.content as ContentCatalogV4, scenes: linked.scenes as SceneV4[] }, notes };
 }

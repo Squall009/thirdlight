@@ -109,7 +109,7 @@ async function buildMeadow(be: PerfBackend, projectId: string, log: (s: string) 
   const cmd: Cmd = (op, args) => p.command(op, args);
   if (starter) await starterOnMeadow(p, cmd, wind.mossAhead ?? 8, wind.mossRight ?? 10);
   else for (const id of STARTER_REMOVED) await cmd('deleteEntity', { entityId: id }).catch(() => undefined);
-  await cmd('setSettings', { settings: { physics_dimension: 3, camera_far_m: MEADOW_SPEC.farPlane } });
+  await cmd('setSettings', { settings: { camera_far_m: MEADOW_SPEC.farPlane } });
   let cover = [meadowCoverRule(density, coverDistance)];
   const extra = { ...(wind.rootColour == null ? {} : { rootColour: wind.rootColour }), ...(wind.rootColourHeight == null ? {} : { rootColourHeight: wind.rootColourHeight }) };
   if (grass === 'template') cover = await publishTemplateGrass(be, projectId, cmd, density, coverDistance, extra, starter);

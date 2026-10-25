@@ -8,7 +8,7 @@
 import { createCommandState, describePrefabCopy, filterEntitiesByComponent, queryAssets, queryBehaviors, queryGameConfig, queryPrefabs } from '@thirdlight/commands';
 import type { HistoryState } from '@thirdlight/commands';
 import { BlockGrid, blockChunkStorageOf, boxContains, effectiveCellMeta, regionCells, regionContains, type BlockCell, type BlockLayerComponent, type BlockLayerData, type BlockType, type CellField } from '@thirdlight/project-model';
-import { composeV4, defaultInputFor, DESCRIPTORS, SCENE_OBJECT_BUDGET_BYTES, sceneObjectBytes, physicsDimensionOf, effectiveEntityFlags, GRAPH_KINDS, glbClipDurations, liveLoadable, migrateModelAnimations, readModelGeometry, validateContentV4, validateSceneV4, type ContentCatalogV3, type Manifest, type ModelErrorV3, type ProjectManifestV2, type SceneV3, type SceneV4 } from '@thirdlight/project-model';
+import { composeV4, defaultInputFor, DESCRIPTORS, SCENE_OBJECT_BUDGET_BYTES, sceneObjectBytes, effectiveEntityFlags, GRAPH_KINDS, glbClipDurations, liveLoadable, migrateModelAnimations, readModelGeometry, validateContentV4, validateSceneV4, type ContentCatalogV3, type Manifest, type ModelErrorV3, type ProjectManifestV2, type SceneV3, type SceneV4 } from '@thirdlight/project-model';
 
 import { join } from 'node:path';
 
@@ -534,7 +534,7 @@ export function changedFiles(projectId: string, before: V4State, after: { conten
     }
     return list;
   };
-  // Scenes: written when their entities, cells or look changed; created / removed with the index.
+  // Scenes: written when their entities, cells, look or plane changed; created / removed with the index.
   // The project's chunk form: a scene with cells is written again when it changed (its chunk files move to it).
   const chunkFormat = blockChunkStorageOf(after.content.settings);
   const formatChanged = chunkFormat !== blockChunkStorageOf(before.content.settings);
@@ -546,8 +546,10 @@ export function changedFiles(projectId: string, before: V4State, after: { conten
     // The scene's block cells count too (they live in its chunk files), and its look.
     const sameBlocks = prev !== undefined && (prev.blocks === scene.blocks || JSON.stringify(prev.blocks ?? null) === JSON.stringify(scene.blocks ?? null));
     const sameLook = prev !== undefined && (prev.environment === scene.environment || JSON.stringify(prev.environment ?? null) === JSON.stringify(scene.environment ?? null));
+    // Its default plane and the upgrade's open notes are the scene file's too.
+    const samePlane = prev !== undefined && (prev.defaultPlane === scene.defaultPlane || JSON.stringify(prev.defaultPlane ?? null) === JSON.stringify(scene.defaultPlane ?? null)) && (prev.migratedFrom2D === scene.migratedFrom2D || JSON.stringify(prev.migratedFrom2D ?? null) === JSON.stringify(scene.migratedFrom2D ?? null));
     const convert = formatChanged && (scene.blocks ?? []).some((b) => (b.chunks?.length ?? 0) > 0);
-    if (!convert && prev !== undefined && (prev === scene || (sameBlocks && sameLook && (prev.entities === scene.entities || JSON.stringify(prev.entities) === JSON.stringify(scene.entities))))) continue;
+    if (!convert && prev !== undefined && (prev === scene || (sameBlocks && sameLook && samePlane && (prev.entities === scene.entities || JSON.stringify(prev.entities) === JSON.stringify(scene.entities))))) continue;
     let rel = scenePaths.get(id);
     if (rel === undefined) {
       rel = newSceneRel(id);
@@ -1111,8 +1113,8 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
         lighting: state.content.lighting !== undefined ? (JSON.parse(JSON.stringify(state.content.lighting)) as unknown) : null,
         animators: JSON.parse(JSON.stringify(state.content.animators ?? [])) as unknown,
         input: state.content.input !== undefined ? (JSON.parse(JSON.stringify(state.content.input)) as unknown) : null,
-        // A 3D project's defaults (a 2D move and a run button).
-        inputDefaults: JSON.parse(JSON.stringify(defaultInputFor(physicsDimensionOf(state.content.settings) === 3 ? 3 : 2))) as unknown,
+        // The defaults: the side-view set when the game starts on a scene's plane, else the 3D set (a 2D move and a run button).
+        inputDefaults: JSON.parse(JSON.stringify(defaultInputFor(state.scenes.get(state.content.startScenes[0] ?? '')?.defaultPlane !== undefined ? 2 : 3))) as unknown,
         flow: (state.content as { flow?: unknown }).flow !== undefined ? (JSON.parse(JSON.stringify((state.content as { flow?: unknown }).flow)) as unknown) : null,
         // Standalone graph documents (and, with the descriptors, the graph kinds' catalogues).
         ...(omit.includes('graphs') ? {} : { graphs: JSON.parse(JSON.stringify((state.content as { graphs?: unknown[] }).graphs ?? [])) as unknown }),

@@ -188,6 +188,7 @@ with real Rapier on page and worker.
 | 41.3 B | Done. Parity suite `tests/integration/m41-platformer/parity.test.ts`, tolerances in `PARITY`: the 2D trace's key events (grounding/state changes) in order on the same step (±1 allowed, 0 measured) within 1 cm; every step within 1.5 cm of the 2D path ±1 step; the controller's velocity equal (1e-6) but at the stairs' last edge and the lift's edge; apex, air time, run speed, slope stops, stair treads (±1 step), wall slide/jump, ladder, one-way, carry. Fixes: arcade step-up by the 2D rule (`autostepRide`, `physics-rapier/src/3d/step-up3d.ts`), at a rising mover's edge it rests, 3D spawn clearance's one-way rule, D321 (not the port). Worst event / path (mm): jump 8.3/8.3, run 0/12.6 (the 2D's own 1.1 cm bumps), slopes 0/10.1, slide 0/7.7, stairs 0/10.0 up to the stop and 43.8 at rest (≤ 50), walls 1.9/1.9, climb 5.2/5.9, one-way 0/1.9, lift 1.4/1.4, side platform y 0.1, x 33.3 = the 2D port's 4 stalled carry steps (3D carried on every step), coyote 0.4/1.3. `plane-step --arcade` p50 1/4 levels: 2D 0.060/0.085, 3D plane-locked 0.113/0.156 ms (41.0 2D baseline, no autostep, 0.037/0.056; 41.0 3D/2D 1.4×/1.9×, now 1.9×/1.8×). No e2e touched (character-3d + colliders 3.0 min). Fast gate green, 9 min, 4.0 GB. |
 | 41.4 | Done. One `ctx.physics` surface: `raycast`/`overlapBox` take `[x, y, z]` (world) or `{x, y}` on the caller's plane (its object's lock, else z = 0), `overlapCircle` a disc on it; filters on every form; typings without "3D projects:" caveats; nodes Set plane, Set character plane, Plane of. Switches, circle and `[w, h]` triggers work on the 3D port unchanged (no data moves); `blocks2DTo3D` (project-model) gives 41.5 the Problems notes. Tests: integration (game host, page = worker, free and z-plane, X-plane queries), model, catalogue. E2E: create-menu 3D step +1 entry (2.7 → 2.9 s), blocks 9.4 → 9.7 s. Fast gates green, 10 min, 4.1 GB (D307 hit once, passed alone). |
 | 41.4b | Done. Bodies outside loaded collision suspended (`runtime/src/body-suspension.ts`, `SimWorldStream.loadedAt`, port `suspendCharacter`): characters, patrols, gravity bodies; state kept, resume in the step the ground's collision arrives; `ctx.physics.isSuspended`, node Is suspended, `runtime.worldStream.suspended`. Tests: integration `m23-3d/suspended-bodies` (NPC + falling rock held while the player is away, rock resumes with its fall speed to 1e-6, NPC waits at the loaded edge and walks on; page ×2 = worker digests), port, loaded-column unit. No e2e touched (physics-3d + primitives 2.9 min). Fast gate green, 9 min, 4.0 GB; village at the cap 0 missed on both renderers. |
+| 41.5 A | Done (part A). `physics_dimension` retired (refused; `physicsDimensionOf` is 3: every build runs on the 3D port). Scene `defaultPlane` (scene data, `setScenePlane` op, one undo): bodies without their own `plane` take it at the scene→runtime boundary, `{x, y}` queries fall back to it (manifest scene row `plane`), a start scene's plane picks the side-view input and audio defaults. Upgrade = recorded step `planes` of 8 (`upgrade-planes.ts`, marker in project.json `upgrades`; 7s and pre-step 8s alike, once): Z plane, `shape2DTo3D` 1 m, `profile: 'arcade'`, `blocks2DTo3D` and plane-cut notes, prefab bodies their own plane; per-scene `migratedFrom2D` notes → grouped Problems lines (`migrated_from_2d`), each cleared by the edit that saves its component. Test `m41-platformer/upgrade.test.ts` (HTTP, Sprout-shaped schema-7 2D project: upgraded files, grouped lines, export's scenes play jump/slopes/one-way/movers within `PARITY.path`, edit clears, reopen idempotent, pre-step 8 gets it once); a copy of Sprout opens upgraded (17 scenes, 11 boxes, 52 prisms, 12 one-way, 1 controller; 11 grouped lines). E2E: no file added; 2D-only steps dropped (physics-3d settings field, colliders' refused 2D switch, create-menu's 3D test folded into the first: one backend fewer), labels to the 3D presets (inspector, menus). Fast gate: vitest green (scan-bounded-log failed once under load, passed alone), e2e 8.1 min, 9 fixed then rerun green; 4.1 GB. |
 
 ## 5. Decision log
 
@@ -328,3 +329,34 @@ with real Rapier on page and worker.
   a teleport, or the per-step admission budget).
 - 2026-10-25 (41.4b): `ctx.physics.isSuspended(id)` (node Is suspended) reads it; diagnostics
   `runtime.worldStream.suspended` = { bodies (now), suspensions, resumes }.
+
+- 2026-10-25 (41.5 A): default chosen, owner to confirm: a scene's default plane is inherited, not copied: a collider
+  or controller without a `plane` key takes its scene's (`plane: null`, now kept by the canonical form, frees one), so a
+  new object in such a scene is on it and moving the scene's plane moves them all. It is applied where scenes become
+  runtime entities (the start scenes' merge, a loaded scene's document), so the physics code reads one `plane` as before.
+  A prefab is in no scene: the upgrade gives a 2D project's prefab bodies the plane themselves; a prefab made later from
+  objects in a plane scene spawns free unless its bodies name a plane. `{x, y}` queries: the caller's lock, else its
+  scene's default plane (the manifest scene row carries it), else Z at 0.
+- 2026-10-25 (41.5 A): default chosen, owner to confirm: a game without its own input gets the side-view input (1D move)
+  and, with `audio_spatial` unset, the distance-along-the-plane audio when its first start scene has a default plane;
+  else the 3D ones. New empty projects are 3D (no plane). A template that named `physics_dimension: 3` is 3D, any other
+  takes the `planes` step at creation without notes (it is a new project, nothing to check); part B rewrites the
+  templates.
+- 2026-10-25 (41.5 A): the upgrade is a recorded step of 8: `Schema8Step.recorded`, its name in project.json `upgrades`
+  (like `trim-data`); it runs on a 7 and on an 8 whose list lacks it, and never where the list names it (whatever the
+  version). New projects and the corpus fixtures (`fixtures/commands`, its generator) record it. A project without the
+  setting was 2D (the setting's old default), so an 8 without the marker and without the setting is upgraded as 2D:
+  Sprout is exactly that.
+- 2026-10-25 (41.5 A): default chosen, owner to confirm: the "stays until saved" notes are per scene (`migratedFrom2D:
+  {plane?, objects: {id: ['collider:box', …]}}`), cleared in the command layer when an edit changes that component's
+  value or removes the object, and the plane note when `setScenePlane` runs (even to the same plane: that confirms it);
+  an undo does not bring a note back. The backend logs one Problems line per kind (`migrated_from_2d`) once per backend
+  run while any is open, and again with what is left after an edit; the field to check comes before the names (the log
+  keeps 256 characters), five names then "and N more". Prefab parts and linked copies' overrides are converted and
+  named once in the upgrade's notes (`project_upgraded`), not kept as notes: no edit path settles them per part. A 3D
+  project's open says once that the setting was retired.
+- 2026-10-25 (41.5 A): the editor acts as on the 3D backend everywhere (the menus and Inspector offer the 3D collider
+  helpers only); the scene plane control, the plane-locked gizmo and the side view preset are part B, so `setScenePlane`
+  is API-only (MCP) until then. Runtime tests that build the 2D port themselves (`physics2DConfigOf`) keep the 2D
+  modules (`tests/game-modules.ts` reads the physics config) until 41.6 removes that port; production never takes it.
+  An export no longer links `packages/character` (the bundle-scan case for refusing it was dropped with it).

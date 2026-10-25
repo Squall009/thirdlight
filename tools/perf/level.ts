@@ -974,7 +974,7 @@ export async function buildLevel(be: PerfBackend, projectId: string, plan: Level
     return p.command(op, args);
   };
   for (const id of STARTER_REMOVED) await cmd('deleteEntity', { entityId: id }).catch(() => undefined);
-  await cmd('setSettings', { settings: { physics_dimension: 3, ...(hasTerrain(plan.kind) ? { camera_far_m: LEVEL_SPEC.farPlane } : {}) } });
+  await cmd('setSettings', { settings: { ...(hasTerrain(plan.kind) ? { camera_far_m: LEVEL_SPEC.farPlane } : {}) } });
   for (const f of plan.props) await publishFileVia(be, projectId, cmd, { assetId: f.assetId, kind: 'model', displayName: f.assetId, bytes: propGlb(f.seed, f.spec) });
   if (plan.marks !== undefined) await publishMarks(be, projectId, cmd, plan, plan.marks);
   if (plan.walls !== undefined) await publishWalls(be, projectId, cmd, plan.seed, plan.walls);

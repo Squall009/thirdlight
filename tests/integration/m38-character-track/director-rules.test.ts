@@ -110,7 +110,7 @@ async function run(mode: Mode, spec: RunSpec): Promise<{ log: Any[]; digests: st
     physics,
     replay: Array.from({ length: spec.steps + 100 }, (_, s) => ({ stepIndex: s, moveX: 0, moveY: 0, jump: 'none', actions: {}, ...spec.replay(s) })),
     digestSteps: true,
-    modules: dim === 3 ? MODULES_3D : modulesOf({ scene: { entities: all } } as Any, settings),
+    modules: dim === 3 ? MODULES_3D : modulesOf({ scene: { entities: all } } as Any, settings, physics ?? { dimension: 2 }),
     ...(loadScene !== undefined ? { loadScene } : {}),
     ...(spec.wrapPhysics !== undefined ? { wrapPhysics: spec.wrapPhysics } : {}),
     behaviors: [behaviorModule('director', `${LOGGER}\n${spec.script}`)],
