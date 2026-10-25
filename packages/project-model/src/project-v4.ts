@@ -540,10 +540,10 @@ export function physicsDimensionErrors(comps: Record<string, unknown>, path: str
 
 /**
  * The gameplay blocks' rules that follow the project's physics
- * dimension. A trigger's `sphere` and `capsule` are 3D areas (a 2D plane has
- * `box` and `circle`); in 3D a box trigger needs its depth (`size` [w, h, d])
- * and a circle is a sphere. A switch tests the character on the 2D plane
- * only, so a 3D project refuses it rather than ignoring depth.
+ * dimension. A trigger's `sphere` and `capsule` are 3D areas the 2D plane's
+ * backend cannot test. The 3D backend takes every trigger and switch: a
+ * circle is the sphere of its radius, a box without a depth is as deep as
+ * it is wide.
  */
 export function blockDimensionErrors(comps: Record<string, unknown>, path: string, dimension: 2 | 3, errors: ModelErrorV3[]): void {
   const trigger = comps['trigger'] as { shape?: unknown; size?: unknown } | undefined;
@@ -551,17 +551,6 @@ export function blockDimensionErrors(comps: Record<string, unknown>, path: strin
     const shape = trigger.shape ?? 'box';
     if (dimension !== 3 && (shape === 'sphere' || shape === 'capsule')) {
       errors.push(withFound({ code: 'field_value', path: `${path}/components/trigger/shape`, message: `a ${String(shape)} trigger is a 3D area; a 2D-plane project uses box or circle (or set physics_dimension to 3)`, expected: '"box" | "circle"' } as ModelErrorV3, shape));
-    }
-    if (dimension === 3 && shape === 'circle') {
-      errors.push(withFound({ code: 'field_value', path: `${path}/components/trigger/shape`, message: 'a circle trigger is a 2D-plane area; a 3D project uses box (with a depth), sphere or capsule', expected: '"box" | "sphere" | "capsule"' } as ModelErrorV3, shape));
-    }
-    if (dimension === 3 && shape === 'box' && !(Array.isArray(trigger.size) && trigger.size.length === 3)) {
-      errors.push(withFound({ code: 'field_value', path: `${path}/components/trigger/size`, message: 'a box trigger in a 3D project needs its depth: size [w, h, d] (m)', expected: '[w, h, d]' } as ModelErrorV3, trigger.size));
-    }
-  }
-  if (dimension === 3) {
-    if (comps['switch'] !== undefined) {
-      errors.push({ code: 'component_conflict', path: `${path}/components/switch`, message: 'the switch block works on the 2D plane only; a 3D project uses triggers', expected: 'trigger' } as ModelErrorV3);
     }
   }
 }

@@ -1,8 +1,40 @@
-# Script API types (from `BehaviorGameState`)
+# Script API types (from `BehaviorMessages`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 Every declaration the script API reaches, as the runtime declares it (doc comments included), in the order the API reaches them.
+
+<a id="script-type-behavior-messages"></a>
+## `BehaviorMessages`
+
+```ts
+/**
+ * `ctx.messages` — named messages between scripts with an
+ * optional value, to every script or to the scripts of one entity. Like
+ * signals, a message sent in a step is seen in the next step (in send order);
+ * at most `MAX_MESSAGES_PER_STEP` (256) are sent per step and a new run
+ * clears them.
+ */
+export interface BehaviorMessages {
+  /**
+   * Send a message (name: 1–64 letters, digits or _ . : -) with an optional
+   * value (a number, text of at most 256 characters or true/false) to every
+   * script, or only to the scripts on entity `target`. `false` when it is
+   * refused (a bad name or value, or the step's limit).
+   * @graphNode Send message
+   * @graphLabel name message
+   * @graphLabel target to entity (empty: every script)
+   */
+  send(name: string, value?: number | string | boolean, target?: string): boolean;
+  /**
+   * The messages of that name sent in the previous step to every script or to this entity, in send order.
+   * @graphPure
+   * @graphNode Messages received
+   * @graphLabel name message
+   */
+  received(name: string): readonly BehaviorMessage[];
+}
+```
 
 <a id="script-type-behavior-game-state"></a>
 ## `BehaviorGameState`
@@ -210,7 +242,9 @@ export interface BehaviorCharacter {
   setEnabled(enabled: boolean, entityId?: string): boolean;
   /**
    * Lock a player character (`entityId`, absent or null: the first player controller) to an axis-aligned plane — `{ axis: 'x' | 'z', origin }` — or free it (null), at the next step boundary: it snaps onto the plane and from then on walks, jumps and is pushed only along it; freed, it moves in all three axes again from where it is. The same as `ctx.physics.setPlane` on its object. Lasts until changed or the run restarts. False without that character, a 3D world or for a bad plane.
-   * @graphNode skip a plane is an object or null; set it in a script, or on the controller
+   * @graphNode Set character plane
+   * @graphLabel entityId player
+   * @graphDefault axis z
    */
   setPlane(entityId: string | null | undefined, plane: { axis: 'x' | 'z'; origin: number } | null): boolean;
 }

@@ -79,7 +79,7 @@ export interface MoverComponent {
 }
 
 export interface TriggerComponent {
-  /** A box's [w, h] (required for a box, refused for the round shapes); [w, h, d] in a 3D project. */
+  /** A box's [w, h, d] or [w, h] (absent depth: as deep as it is wide); required for a box, refused for the round shapes. */
   size?: [number, number] | [number, number, number];
   signal: string;
   once?: boolean;
@@ -124,7 +124,8 @@ export const MAX_TRANSITION_FADE = 5;
 export interface SwitchComponent {
   mode: (typeof SWITCH_MODES)[number];
   signal: string;
-  size: [number, number];
+  /** Its box's [w, h], or [w, h, d] (absent depth: as deep as it is wide). */
+  size: [number, number] | [number, number, number];
   once?: boolean;
   /** `interact` mode: the input action that works it (absent: `interact`). */
   action?: string;
@@ -205,11 +206,11 @@ export function validateTriggerComponent(value: unknown, path: string, errors: M
   fields(value, TRIGGER_FIELDS, round ? (capsule ? ['radius', 'height', 'signal'] : ['radius', 'signal']) : ['size', 'signal'], path, errors);
   if (value['sceneTransition'] !== undefined) validateSceneTransition(value['sceneTransition'], `${path}/sceneTransition`, errors);
   if (value['exitSignal'] !== undefined && (typeof value['exitSignal'] !== 'string' || !NAME_RE.test(value['exitSignal']))) err(errors, 'field_value', `${path}/exitSignal`, 'exitSignal is a name', value['exitSignal']);
-  if (shape !== undefined && !(TRIGGER_SHAPES as readonly unknown[]).includes(shape)) err(errors, 'field_value', `${path}/shape`, 'shape is box or circle (a 3D project: box, sphere or capsule)', shape);
+  if (shape !== undefined && !(TRIGGER_SHAPES as readonly unknown[]).includes(shape)) err(errors, 'field_value', `${path}/shape`, 'shape is box, circle, sphere or capsule', shape);
   if (circle && value['size'] !== undefined) err(errors, 'field_unexpected', `${path}/size`, `a ${String(shape)} trigger has a radius, not a size`, value['size']);
   if (!circle && value['radius'] !== undefined) err(errors, 'field_unexpected', `${path}/radius`, 'only a round trigger (circle, sphere, capsule) has a radius (set its shape)', value['radius']);
   if (!capsule && value['height'] !== undefined) err(errors, 'field_unexpected', `${path}/height`, 'only a capsule trigger has a height (set shape to capsule)', value['height']);
-  if (value['size'] !== undefined && !circle && !vec2(value['size'], 0.05, 500) && !vec3(value['size'], 0.05, 500)) err(errors, 'field_value', `${path}/size`, 'size is [w, h] (or [w, h, d] in a 3D project) in meters', value['size']);
+  if (value['size'] !== undefined && !circle && !vec2(value['size'], 0.05, 500) && !vec3(value['size'], 0.05, 500)) err(errors, 'field_value', `${path}/size`, 'size is [w, h, d] or [w, h] (as deep as it is wide) in meters', value['size']);
   if (value['radius'] !== undefined && circle && !num(value['radius'], TRIGGER_RADIUS.min, TRIGGER_RADIUS.max)) err(errors, 'field_value', `${path}/radius`, `radius is ${TRIGGER_RADIUS.min}–${TRIGGER_RADIUS.max} m`, value['radius']);
   if (value['height'] !== undefined && capsule) {
     const r = typeof value['radius'] === 'number' ? value['radius'] : 0;
@@ -252,7 +253,7 @@ export function validateSwitchComponent(value: unknown, path: string, errors: Mo
   }
   if (value['mode'] !== undefined && !(SWITCH_MODES as readonly unknown[]).includes(value['mode'])) err(errors, 'field_value', `${path}/mode`, 'mode is interact or stand', value['mode']);
   if (value['signal'] !== undefined && (typeof value['signal'] !== 'string' || !NAME_RE.test(value['signal']))) err(errors, 'field_value', `${path}/signal`, 'signal is a name', value['signal']);
-  if (value['size'] !== undefined && !vec2(value['size'], 0.05, 100)) err(errors, 'field_value', `${path}/size`, 'size is [w, h] in meters', value['size']);
+  if (value['size'] !== undefined && !vec2(value['size'], 0.05, 100) && !vec3(value['size'], 0.05, 100)) err(errors, 'field_value', `${path}/size`, 'size is [w, h, d] or [w, h] (as deep as it is wide) in meters', value['size']);
   if (value['once'] !== undefined && typeof value['once'] !== 'boolean') err(errors, 'field_type', `${path}/once`, 'once is true or false', value['once']);
 }
 
@@ -298,7 +299,7 @@ export const canonicalTrigger = (c: TriggerComponent): TriggerComponent => ({
     : {}),
 });
 // `action` last (an existing switch keeps its exact canonical bytes).
-export const canonicalSwitch = (c: SwitchComponent): SwitchComponent => ({ mode: c.mode, signal: c.signal, size: copy2(c.size), ...(c.once !== undefined ? { once: c.once } : {}), ...(c.action !== undefined ? { action: c.action } : {}) });
+export const canonicalSwitch = (c: SwitchComponent): SwitchComponent => ({ mode: c.mode, signal: c.signal, size: c.size.length === 3 ? [c.size[0], c.size[1], c.size[2]] : copy2(c.size as [number, number]), ...(c.once !== undefined ? { once: c.once } : {}), ...(c.action !== undefined ? { action: c.action } : {}) });
 export const canonicalHealth = (c: HealthComponent): HealthComponent => ({
   max: c.max,
   ...(c.start !== undefined ? { start: c.start } : {}),
@@ -480,7 +481,7 @@ export interface PatrolComponent {
   speed: number;
   /** Seconds it waits at each waypoint or after turning around. */
   wait?: number;
-  /** `edges`: the way it starts walking (a 2D plane any direction in its plane — x and y; 3D the direction on the ground). */
+  /** `edges`: the way it starts walking — along the ground without a y part, up or down with one (no ledge probe then). */
   direction?: [number, number, number];
   /** `edges`: its body [w, h] or [w, h, d], centred on its position (where the probes look from). */
   size?: [number, number] | [number, number, number];

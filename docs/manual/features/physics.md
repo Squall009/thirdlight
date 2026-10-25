@@ -155,7 +155,10 @@ In a 3D project:
   a **sphere** or a **capsule** (radius and height), turned with their
   object and tested exactly against the player's capsule — enter and exit
   signals, `mode: stay`, `once` and scripts' trigger events work as in 2D.
-  Switches are 2D-plane blocks and are refused in a 3D project;
+  A 2D trigger is taken as is: a circle is the sphere of its radius, a box
+  `[w, h]` is as deep as it is wide. **Switches** test the player's capsule
+  in their box the same way (`size` [w, h] or [w, h, d], turned with
+  their object);
 - **one-way** colliders (`oneWay: true`) hold only from the side their
   local +Y faces: a platform is jumped up through and landed on, a turned
   one is a one-way wall, and in a full 3D level it is a one-way floor.

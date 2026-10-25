@@ -488,72 +488,78 @@ export interface PhysicsStepClient {
   characterResult(entityId?: string): CharacterMoveResult | undefined;
   /**
    * Lock an object's body (its collider, or its player controller's character) to an axis-aligned plane — `{ axis: 'x' | 'z', origin }`, the plane's normal and where it lies along it (m) — or free it again (null), at the next step boundary. A locked body does not move along the normal and only turns about it: locking snaps it onto the plane and drops its speed along the normal; freeing leaves it where it is, free in all six degrees of freedom. A 2D-style stretch of a 3D game (and back) at any moment, with no reload. Lasts until changed, the object leaves the game or the run restarts. False without a 3D world, for a bad plane or an object with neither a collider nor a player controller.
-   * @graphNode skip a plane is an object or null; set it in a script, or on the collider or controller
+   * @graphNode Set plane
+   * @graphDefault axis z
    */
   setPlane?(entityId: string, plane: PhysicsPlane | null): boolean;
   /**
    * The plane an object's body or player character is locked to now (`{ axis, origin }`), or null when it is free (or has no body).
-   * @graphNode skip a plane is an object or null; read it in a script
+   * @graphPure
+   * @graphNode Plane of
    */
   planeOf?(entityId: string): PhysicsPlane | null;
   /**
-   * A ray against the level's colliders (bounded per step; null when nothing is hit).
+   * A ray on the caller's plane: `origin` and `direction` are 2D ({x, y}: x along the plane's right, y up), the ray runs in the plane the calling object is locked to (else z = 0) and hits the colliders that cross it — the nearest one's object, its distance and the surface normal in the plane, or null. `[x, y, z]` arrays make it a 3D ray (the next form). Counted with the other queries (at most 1,024 a step).
    * @graphNode Raycast
    * @graphDefault direction [1, 0, 0]
    * @graphDefault maxDistance 10
    */
-  raycast?(origin: Vec2, direction: Vec2, maxDistance: number): RaycastHit | null;
+  raycast?(origin: Vec2, direction: Vec2, maxDistance: number, filter?: PhysicsQueryFilter): RaycastHit | null;
+  /** A 3D ray from `origin` along `direction` ([x, y, z]) within `maxDistance` metres (default 100): the nearest collider's object, the point, the surface normal and the distance, or null. */
+  raycast?(origin: readonly number[], direction: readonly number[], maxDistance?: number, filter?: PhysicsQueryFilter): PhysicsHit | null;
   /**
-   * The entities whose colliders overlap a box (center, half extents) — counted with the rays.
+   * The objects whose colliders overlap a box on the caller's plane — 2D centre and half extents ({x, y}), the plane the calling object is locked to (else z = 0); sorted ids, at most 64. `[x, y, z]` arrays make it a 3D box (the next form). Counted with the rays.
    * @graphNode Overlap box
    * @graphDefault half [0.5, 0.5, 0]
    */
-  overlapBox?(center: Vec2, half: Vec2): string[];
+  overlapBox?(center: Vec2, half: Vec2, filter?: PhysicsQueryFilter): string[];
+  /** The objects whose colliders overlap a 3D box — centre, half extents [x, y, z] and an optional rotation quaternion [x, y, z, w]. */
+  overlapBox?(center: readonly number[], half: readonly number[], rotation?: readonly number[], filter?: PhysicsQueryFilter): string[];
   /**
-   * The entities whose colliders overlap a circle — counted with the rays.
+   * The objects whose colliders overlap a circle on the caller's plane (2D centre {x, y}; the plane the calling object is locked to, else z = 0) — counted with the rays. A sphere is `overlapSphere`.
    * @graphNode Overlap circle
    * @graphDefault radius 0.5
    */
-  overlapCircle?(center: Vec2, radius: number): string[];
+  overlapCircle?(center: Vec2, radius: number, filter?: PhysicsQueryFilter): string[];
   /**
-   * 3D projects: a player character's state after the last
-   * completed step (`entityId`, absent: the first player controller) —
-   * position, velocity, grounding, contacts, whether its controller is on
-   * and whether it is climbing a ledge — or undefined (a 2D plane, before the
-   * first step, or not a player controller).
+   * A player character's state after the last completed step
+   * (`entityId`, absent: the first player controller) — position, velocity,
+   * grounding, contacts, whether its controller is on and whether it is
+   * climbing a ledge — or undefined (before the first step, or not a player
+   * controller).
    * @graphPure
    * @graphNode Character state
    * @graphLabel entityId player
    */
   characterState?(entityId?: string): CharacterState3D | undefined;
   /**
-   * 3D projects: the nearest collider a ray from `origin` along `direction` hits within `maxDistance` metres (default 100), or null — its object, the point, the surface normal and the distance. Counted with the other queries (at most 64 a step).
+   * The 3D `raycast` under its former name (`raycast` takes [x, y, z] the same way).
    * @graphNode Raycast 3D
    * @graphDefault direction [0, -1, 0]
    * @graphDefault maxDistance 100
    */
   raycast3d?(origin: readonly number[], direction: readonly number[], maxDistance?: number, filter?: PhysicsQueryFilter): PhysicsHit | null;
   /**
-   * 3D projects: the objects whose colliders overlap a sphere (sorted ids, at most 64).
+   * The objects whose colliders overlap a sphere (sorted ids, at most 64).
    * @graphNode Overlap sphere
    * @graphDefault radius 0.5
    */
   overlapSphere?(center: readonly number[], radius: number, filter?: PhysicsQueryFilter): string[];
   /**
-   * 3D projects: the objects whose colliders overlap a box — centre, half extents [x, y, z] and an optional rotation quaternion [x, y, z, w].
+   * The 3D `overlapBox` under its former name (`overlapBox` takes [x, y, z] the same way).
    * @graphNode Overlap box 3D
    * @graphDefault half [0.5, 0.5, 0.5]
    */
   overlapBox3d?(center: readonly number[], half: readonly number[], rotation?: readonly number[], filter?: PhysicsQueryFilter): string[];
   /**
-   * 3D projects: the objects whose colliders overlap an upright capsule (total height, end caps included), optionally turned by a quaternion [x, y, z, w].
+   * The objects whose colliders overlap an upright capsule (total height, end caps included), optionally turned by a quaternion [x, y, z, w].
    * @graphNode Overlap capsule
    * @graphDefault radius 0.3
    * @graphDefault height 1.8
    */
   overlapCapsule?(center: readonly number[], radius: number, height: number, rotation?: readonly number[], filter?: PhysicsQueryFilter): string[];
   /**
-   * 3D projects: what is under a screen point (x, y 0–1 from the top left): the ray from the active camera (`ctx.camera.screenToRay`) cast into the colliders, within `maxDistance` (default 1000 m).
+   * What is under a screen point (x, y 0–1 from the top left): the ray from the active camera (`ctx.camera.screenToRay`) cast into the colliders, within `maxDistance` (default 1000 m).
    * @graphNode Pick at screen point
    * @graphDefault x 0.5
    * @graphDefault y 0.5
@@ -561,7 +567,7 @@ export interface PhysicsStepClient {
    */
   pickAt?(x: number, y: number, maxDistance?: number, filter?: PhysicsQueryFilter): PhysicsHit | null;
   /**
-   * 3D projects: what is under the pointer this step (null while the pointer is outside the view or never moved); with a locked cursor, what is at the view's centre.
+   * What is under the pointer this step (null while the pointer is outside the view or never moved); with a locked cursor, what is at the view's centre.
    * @graphNode Pick at pointer
    * @graphDefault maxDistance 1000
    */
@@ -1069,37 +1075,5 @@ export interface BehaviorSignals {
    * @graphLabel name signal
    */
   on(name: string): boolean;
-}
-```
-
-<a id="script-type-behavior-messages"></a>
-## `BehaviorMessages`
-
-```ts
-/**
- * `ctx.messages` — named messages between scripts with an
- * optional value, to every script or to the scripts of one entity. Like
- * signals, a message sent in a step is seen in the next step (in send order);
- * at most `MAX_MESSAGES_PER_STEP` (256) are sent per step and a new run
- * clears them.
- */
-export interface BehaviorMessages {
-  /**
-   * Send a message (name: 1–64 letters, digits or _ . : -) with an optional
-   * value (a number, text of at most 256 characters or true/false) to every
-   * script, or only to the scripts on entity `target`. `false` when it is
-   * refused (a bad name or value, or the step's limit).
-   * @graphNode Send message
-   * @graphLabel name message
-   * @graphLabel target to entity (empty: every script)
-   */
-  send(name: string, value?: number | string | boolean, target?: string): boolean;
-  /**
-   * The messages of that name sent in the previous step to every script or to this entity, in send order.
-   * @graphPure
-   * @graphNode Messages received
-   * @graphLabel name message
-   */
-  received(name: string): readonly BehaviorMessage[];
 }
 ```

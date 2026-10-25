@@ -8,7 +8,7 @@
  * coins or enemies). Each entry creates an object carrying its component,
  * read back from the backend; the scene transition needs a second scene
  * and then names it. The hierarchy rows take the descriptors' icons. A 3D
- * project shows the entries that fit 3D (no one-way platform or switch; a
+ * project shows the entries that fit 3D (no one-way platform; a switch; a
  * platform's collider, a hitbox and a trigger have a depth).
  */
 import { randomUUID } from 'node:crypto';
@@ -139,8 +139,10 @@ test('a 3D project\'s create menu shows the entries that fit 3D', async ({ page 
   await cmd('setSettings', { settings: { physics_dimension: 3 } });
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  // No one-way platform or switch (2D-plane components); the platform collider and the hitbox have a depth.
-  await expect.poll(async () => submenu(page, 'Gameplay')).toEqual(['Moving platform', 'Door (opens on "open")', 'Trigger', 'Scene transition', 'Object with health', 'Collectible', 'Patrolling object', 'Hitbox', 'Climb volume']);
+  // No one-way platform (a 2D-plane entry); a switch works in 3D too; the platform collider and the hitbox have a depth.
+  await expect.poll(async () => submenu(page, 'Gameplay')).toEqual(['Moving platform', 'Door (opens on "open")', 'Trigger', 'Scene transition', 'Switch', 'Object with health', 'Collectible', 'Patrolling object', 'Hitbox', 'Climb volume']);
+  await menu(page, 'GameObject', 'Gameplay', 'Switch');
+  await expect.poll(async () => (await entities()).filter((e) => e.name === 'Switch').map((e) => e.components['switch'])).toContainEqual({ mode: 'interact', signal: 'open', size: [1, 1] });
   await menu(page, 'GameObject', 'Gameplay', 'Moving platform');
   await expect.poll(async () => (await entities()).filter((e) => e.name === 'Moving platform').map((e) => e.components['collider'])).toContainEqual({ shape: { type: 'box', hx: 1, hy: 0.2, hz: 1 } });
   await menu(page, 'GameObject', 'Gameplay', 'Hitbox');

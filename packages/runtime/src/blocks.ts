@@ -24,9 +24,10 @@
  * port (their full position and their entity's rotation) and carry and push
  * the player in 3D; colliders scripts drive are posed with them; triggers are
  * 3D volumes — a box (turned with its entity), a sphere or a capsule standing
- * along its entity's Y — tested exactly against the character's capsule. The
- * 2D plane's switches are refused in 3D by the project model, so the 3D step
- * runs movers and triggers.
+ * along its entity's Y — tested exactly against the character's capsule, and
+ * a switch's box the same way. A 2D trigger reads in 3D as its 3D form: a
+ * circle is the sphere of its radius, a box without a depth is as deep as
+ * it is wide (on a plane through them, the same areas).
  */
 import type { ActionFrame } from './actions';
 import type { ColliderShape3D, KinematicPose3D, PhysicsPort, PhysicsPort3D, Vec2 } from './ports';
@@ -129,6 +130,8 @@ function transitionOf(v: unknown): SceneTransitionRequest | null {
 }
 
 interface Switch extends Box {
+  /** Its box's half extents with depth (absent depth: the width), turned with its entity. */
+  half3: Vec3;
   signal: string;
   mode: 'interact' | 'stand';
   /** The input action an interact switch reads. */
@@ -136,6 +139,46 @@ interface Switch extends Box {
   once: boolean;
   inside: boolean;
   spent: boolean;
+}
+
+/** A player character's capsule: its centre segment's ends and its radius. */
+interface Capsule3 {
+  id: string;
+  a: Vec3;
+  b: Vec3;
+  r: number;
+}
+
+/** Whether a capsule (segment a–b, radius r) reaches into a box (half extents about `at`, turned by `q`): closer than its radius. */
+function capsuleInBox(a: Vec3, b: Vec3, r: number, at: Vec3, q: readonly number[], half: Vec3): boolean {
+  return segmentBoxDistance2(rotate3(q, sub3(a, at), true), rotate3(q, sub3(b, at), true), half) < r * r;
+}
+
+/** Each player character's capsule (those in the game), in controller order. */
+function capsulesOf(chars: readonly CharacterBoxSpec[], curr: ReadonlyMap<string, TransformState>): Capsule3[] {
+  const caps: Capsule3[] = [];
+  for (const ch of chars) {
+    const t = curr.get(ch.id);
+    if (t === undefined) continue;
+    const p = t.position;
+    const seg = Math.max(0, ch.hh - ch.hw);
+    const c: Vec3 = [p[0] + ch.ox, p[1] + ch.oy, p[2] + ch.oz];
+    caps.push({ id: ch.id, a: [c[0], c[1] - seg, c[2]], b: [c[0], c[1] + seg, c[2]], r: ch.hw });
+  }
+  return caps;
+}
+
+/**
+ * Whether a switch sends its signal this step (both dimensions' rule): a
+ * stand switch as a player character arrives on it, an interact switch while
+ * one is on it and its action (absent: interact) is pressed; `once` spends it.
+ */
+function switchFires(s: Switch, inside: boolean, frame: ActionFrame): boolean {
+  const fire = s.mode === 'stand' ? inside && !s.inside : inside && frame.actions?.[s.action]?.p === 'pressed';
+  s.inside = inside;
+  if (!fire || s.spent) return false;
+  if (s.once) s.spent = true;
+  return true;
 }
 
 /** A climb volume the character is in: its object and its world up and across axes (unit vectors). */
@@ -497,7 +540,7 @@ export class GameplayBlocks {
       const s = c['switch'];
       if (s !== undefined) {
         const size = s['size'] as number[];
-        this.switches.set(e.id, { id: e.id, half: { x: size[0]! / 2, y: size[1]! / 2 }, signal: String(s['signal']), mode: s['mode'] as Switch['mode'], action: typeof s['action'] === 'string' ? (s['action'] as string) : SWITCH_DEFAULT_ACTION, once: s['once'] === true, inside: false, spent: false });
+        this.switches.set(e.id, { id: e.id, half: { x: size[0]! / 2, y: size[1]! / 2 }, half3: [size[0]! / 2, size[1]! / 2, (size[2] ?? size[0]!) / 2], signal: String(s['signal']), mode: s['mode'] as Switch['mode'], action: typeof s['action'] === 'string' ? (s['action'] as string) : SWITCH_DEFAULT_ACTION, once: s['once'] === true, inside: false, spent: false });
       }
       const h = c['health'];
       // An effect component that a signal starts or stops.
@@ -1092,15 +1135,24 @@ export class GameplayBlocks {
   /**
    * After the transform phase (both dimensions): the generic primitives
    * (patrols walk; collectibles and hitbox contacts test the character),
-   * face-movement models turn, and the triggers (and, on the 2D plane, the
-   * switches) test the character. One path with or without a
+   * face-movement models turn, and the triggers and switches test the
+   * character. One path with or without a
    * game mode; the deleted session's game components and damage are gone.
    */
   afterPhysics(frame: ActionFrame): void {
     this.primitives.afterPhysics(true);
     if (this.facers.size > 0) this.turnFacers(1 / this.host.hz);
     if (this.host.physics3d !== undefined) {
-      this.triggers3D();
+      const caps = capsulesOf(this.chars, this.host.curr);
+      if (caps.length === 0) return;
+      this.triggers3D(caps);
+      // A player character's capsule in a switch's box (turned with its entity; the trigger box's test) is on it.
+      for (const s of this.switches.values()) {
+        if (this.inactive.has(s.id)) continue;
+        const at = this.worldOf(s.id);
+        const q = this.host.curr.get(s.id)?.rotation ?? [0, 0, 0, 1];
+        if (switchFires(s, at !== null && caps.some(({ a, b, r }) => capsuleInBox(a, b, r, at, q, s.half3)), frame)) this.emit(s.signal);
+      }
       return;
     }
     const players: { c: CharacterBoxSpec; x: number; y: number }[] = [];
@@ -1115,13 +1167,7 @@ export class GameplayBlocks {
       const at = this.worldOf(s.id);
       // Any player character on it counts.
       const inside = at !== null && players.some(({ c, x, y }) => Math.abs(x + c.ox - at[0]) < s.half.x + c.hw && Math.abs(y + c.oy - at[1]) < s.half.y + c.hh);
-      // An interact switch reads its own action (absent: interact).
-      const fire = s.mode === 'stand' ? inside && !s.inside : inside && frame.actions?.[s.action]?.p === 'pressed';
-      if (fire && !s.spent) {
-        this.emit(s.signal);
-        if (s.once) s.spent = true;
-      }
-      s.inside = inside;
+      if (switchFires(s, inside, frame)) this.emit(s.signal);
     }
   }
 
@@ -1205,18 +1251,7 @@ export class GameplayBlocks {
    * the segment's distance to it in the box's own frame. Inside is strictly
    * closer than the radii (a touch is outside, as in 2D).
    */
-  private triggers3D(): void {
-    // Each player character's capsule segment (its centre segment's ends) and radius.
-    const caps: { id: string; a: Vec3; b: Vec3; r: number }[] = [];
-    for (const ch of this.chars) {
-      const t = this.host.curr.get(ch.id);
-      if (t === undefined) continue;
-      const p = t.position;
-      const seg = Math.max(0, ch.hh - ch.hw);
-      const c: Vec3 = [p[0] + ch.ox, p[1] + ch.oy, p[2] + ch.oz];
-      caps.push({ id: ch.id, a: [c[0], c[1] - seg, c[2]], b: [c[0], c[1] + seg, c[2]], r: ch.hw });
-    }
-    if (caps.length === 0) return;
+  private triggers3D(caps: readonly Capsule3[]): void {
     for (const t of this.triggers.values()) {
       if (this.inactive.has(t.id)) continue;
       const at = this.worldOf(t.id);
@@ -1230,9 +1265,7 @@ export class GameplayBlocks {
         else if (v.kind === 'capsule') {
           const e = rotate3(q, [0, v.halfSegment, 0]);
           inside = segmentSegmentDistance2(a, b, [at[0] - e[0], at[1] - e[1], at[2] - e[2]], [at[0] + e[0], at[1] + e[1], at[2] + e[2]]) < (v.radius + r) * (v.radius + r);
-        } else {
-          inside = segmentBoxDistance2(rotate3(q, sub3(a, at), true), rotate3(q, sub3(b, at), true), v.half) < r * r;
-        }
+        } else inside = capsuleInBox(a, b, r, at, q, v.half);
         if (inside) now.add(id);
       }
       this.updateTrigger(t, now);

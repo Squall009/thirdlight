@@ -5,8 +5,8 @@
  * project, a mesh never on a mover, 2D shapes and one-way colliders taken in
  * 3D (their 3D form, given the collider's depth), a 3D
  * collider's positive (uniform for round shapes) scale, the 2D plane's unit
- * scale kept exactly, and the 2D-plane switch block
- * refused in 3D.
+ * scale kept exactly, and the switch block and 2D trigger areas taken in
+ * 3D (a circle is a sphere, a depthless box as deep as it is wide).
  */
 import { describe, expect, it } from 'vitest';
 
@@ -108,22 +108,27 @@ describe('the dimension rules for 3D shapes, scale and blocks', () => {
     expect(validateSceneV4(scene([withDepth('1')])).ok).toBe(false);
   });
 
-  it('triggers: sphere and capsule in 3D only; in 3D a box needs its depth and a circle is refused', () => {
+  it('triggers: sphere and capsule in 3D only; 3D takes a depthless box and a circle', () => {
     const trig = (t: Record<string, unknown>) => ({ id: 'trig-0001', components: { transform: T(), trigger: { signal: 'go', ...t } } });
     expect(problems(THREE, [trig({ shape: 'sphere', radius: 1 })])).toEqual([]);
     expect(problems(THREE, [trig({ shape: 'capsule', radius: 0.5, height: 2 })])).toEqual([]);
     expect(problems(THREE, [trig({ size: [1, 2, 3] })])).toEqual([]);
-    expect(problems(THREE, [trig({ size: [1, 2] })])).toEqual(['field_value /entities/0/components/trigger/size']);
-    expect(problems(THREE, [trig({ shape: 'circle', radius: 1 })])).toEqual(['field_value /entities/0/components/trigger/shape']);
+    expect(problems(THREE, [trig({ size: [1, 2] })])).toEqual([]);
+    expect(problems(THREE, [trig({ shape: 'circle', radius: 1 })])).toEqual([]);
     expect(problems({}, [trig({ shape: 'sphere', radius: 1 })])).toEqual(['field_value /entities/0/components/trigger/shape']);
     // A 2D plane ignores a box's depth (as it ignores a collider's hz).
     expect(problems({}, [trig({ size: [1, 2, 3] })])).toEqual([]);
   });
 
-  it('switches are 2D-plane blocks: refused in a 3D project', () => {
+  it('switches work in both: [w, h] or [w, h, d]', () => {
     const e = (c: Record<string, unknown>) => ({ id: 'blk-0001', components: { transform: T(), ...c } });
-    expect(problems(THREE, [e({ switch: { mode: 'stand', signal: 'open', size: [1, 1] } })])).toEqual(['component_conflict /entities/0/components/switch']);
-    expect(problems({}, [e({ switch: { mode: 'stand', signal: 'open', size: [1, 1] } })])).toEqual([]);
+    for (const size of [[1, 1], [1, 0.2, 2]]) {
+      expect(problems(THREE, [e({ switch: { mode: 'stand', signal: 'open', size } })])).toEqual([]);
+      expect(problems({}, [e({ switch: { mode: 'stand', signal: 'open', size } })])).toEqual([]);
+    }
+    const kept = validateSceneV4(scene([e({ switch: { mode: 'stand', signal: 'open', size: [1, 0.2, 2] } })]));
+    expect(kept.ok && kept.normalized.entities[0]!.components.switch).toEqual({ mode: 'stand', signal: 'open', size: [1, 0.2, 2] });
+    expect(problems(THREE, [e({ switch: { mode: 'stand', signal: 'open', size: [1, 1, 1, 1] } })])).toEqual(['field_value /entities/0/components/switch/size']);
   });
 
   it('trigger component: a capsule needs a height of at least twice its radius; only a capsule has a height', () => {

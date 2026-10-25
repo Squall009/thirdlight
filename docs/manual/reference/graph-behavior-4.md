@@ -1,8 +1,123 @@
-# Graph: Visual script (part 4, from Character)
+# Graph: Visual script (part 4, from Turn patroller (`api.patrol.turn`))
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Visual script node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="node-behavior--api-patrol-turn"></a>
+### Turn patroller (`api.patrol.turn`)
+
+Turn a patroller around now (a `turned` event). False for an object without a patrol, or a waypoint loop (it only goes forward). An empty entity means this object.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `entityId` "object" (string)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `entityId` | object | string | `""` | ≤ 256 chars |
+
+<a id="graph-behavior--hitbox"></a>
+## Hitbox
+
+- Set hitbox active (`api.hitbox.setActive`): Switch a hitbox off (it touches nothing: its contacts end) or on again. False for an object without a hitbox. An empty entity means this object.
+- Touching (`api.hitbox.touching`): The objects a hitbox (or the character) touches now, sorted by id. An empty entity means this object.
+
+<a id="node-behavior--api-hitbox-set-active"></a>
+### Set hitbox active (`api.hitbox.setActive`)
+
+Switch a hitbox off (it touches nothing: its contacts end) or on again. False for an object without a hitbox. An empty entity means this object.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `entityId` "object" (string)
+- `active` (boolean)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `entityId` | object | string | `""` | ≤ 256 chars |
+| `active` | active | boolean | `true` |  |
+
+<a id="node-behavior--api-hitbox-touching"></a>
+### Touching (`api.hitbox.touching`)
+
+The objects a hitbox (or the character) touches now, sorted by id. An empty entity means this object.
+
+Inputs:
+
+- `entityId` "object" (string)
+
+Outputs:
+
+- `value` (list)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `entityId` | object | string | `""` | ≤ 256 chars |
+
+<a id="graph-behavior--collectible"></a>
+## Collectible
+
+- Is collected (`api.collectible.collected`): Whether a collectible has been collected (and not come back yet). An empty entity means this object.
+- Restore collectible (`api.collectible.restore`): Bring a collected collectible back now (shown, collectable again; a `restored` event). False when it is not collected. An empty entity means this object.
+
+<a id="node-behavior--api-collectible-collected"></a>
+### Is collected (`api.collectible.collected`)
+
+Whether a collectible has been collected (and not come back yet). An empty entity means this object.
+
+Inputs:
+
+- `entityId` "object" (string)
+
+Outputs:
+
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `entityId` | object | string | `""` | ≤ 256 chars |
+
+<a id="node-behavior--api-collectible-restore"></a>
+### Restore collectible (`api.collectible.restore`)
+
+Bring a collected collectible back now (shown, collectable again; a `restored` event). False when it is not collected. An empty entity means this object.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `entityId` "object" (string)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `entityId` | object | string | `""` | ≤ 256 chars |
 
 <a id="graph-behavior--character"></a>
 ## Character
@@ -14,6 +129,7 @@ The Visual script node catalogue: port types, then each category's nodes with th
 - Stop character walk (`api.character.stop`): Stop a player character's walk where it is. False when it was not walking. An empty entity means this object.
 - Turn character (`api.character.turn`): Turn a player character to `facing` degrees about +Y (0 faces +Z, 90 faces +X) at its controller's turn speed in 3D; on the 2D plane its face-movement models turn at once (90 right, −90 left). False without that character. An empty entity means this object.
 - Enable character control (`api.character.setEnabled`): Switch a player character's controller off (it stays where it is: no input, no gravity — a cutscene, a dialogue) or back on, in 3D and on the 2D plane; a `character_enable`. Lasts until changed or the run restarts. False without that character. An empty entity means this object.
+- Set character plane (`api.character.setPlane`): Lock a player character (`entityId`, absent or null: the first player controller) to an axis-aligned plane — `{ axis: 'x' | 'z', origin }` — or free it (null), at the next step boundary: it snaps onto the plane and from then on walks, jumps and is pushed only along it; freed, it moves in all three axes again from where it is. The same as `ctx.physics.setPlane` on its object. Lasts until changed or An empty entity means this object.
 
 <a id="node-behavior--api-character-impulse"></a>
 ### Character impulse (`api.character.impulse`)
@@ -176,6 +292,30 @@ Fields:
 | `enabled` | enabled | boolean | `false` |  |
 | `entityId` | player | string | `""` | ≤ 256 chars |
 
+<a id="node-behavior--api-character-set-plane"></a>
+### Set character plane (`api.character.setPlane`)
+
+Lock a player character (`entityId`, absent or null: the first player controller) to an axis-aligned plane — `{ axis: 'x' | 'z', origin }` — or free it (null), at the next step boundary: it snaps onto the plane and from then on walks, jumps and is pushed only along it; freed, it moves in all three axes again from where it is. The same as `ctx.physics.setPlane` on its object. Lasts until changed or An empty entity means this object.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `entityId` "player" (string)
+- `origin` (number)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `entityId` | player | string | `""` | ≤ 256 chars |
+| `axis` | axis | enum | `"z"` | `x`, `z`, `none` |
+| `origin` | origin | number | `0` | -1000000000 – 1000000000 |
+
 <a id="graph-behavior--look"></a>
 ## Look
 
@@ -307,7 +447,7 @@ Fields:
 | `assetId` | sound | string | `""` | ≤ 256 chars; a audio asset |
 | `volume` | volume | number | `1` | -1000000000 – 1000000000 |
 | `loop` | loop | boolean | `false` |  |
-| `bus` | bus | enum | `"sfx"` | `sfx`, `music`, `voice`, `ui` |
+| `bus` | bus | enum | `"sfx"` | `sfx`, `music`, `voice`, `ui`, `none` |
 | `entityId` | entity | string | `""` | ≤ 256 chars |
 | `distanceModel` | distance model | enum | `"linear"` | `linear`, `inverse`, `exponential` |
 | `owner` | owner | enum | `"object"` | `object`, `scene`, `none` |
@@ -502,7 +642,7 @@ Fields:
 |---|---|---|---|---|
 | `assetId` | track | string | `""` | ≤ 256 chars; a audio asset |
 | `fadeSeconds` | fade seconds | number | `1` | -1000000000 – 1000000000 |
-| `owner` | owner | enum | `"object"` | `object`, `scene`, `none` |
+| `owner` | owner | enum | `"object"` | `object`, `scene`, `none`, `none` |
 
 <a id="node-behavior--api-audio-release-music"></a>
 ### Release music (`api.audio.releaseMusic`)
@@ -549,7 +689,7 @@ Fields:
 | Field | Label | Type | Default | Range |
 |---|---|---|---|---|
 | `assetId` | sound | string | `""` | ≤ 256 chars; a audio asset |
-| `owner` | owner | enum | `"object"` | `object`, `scene`, `none` |
+| `owner` | owner | enum | `"object"` | `object`, `scene`, `none`, `none` |
 
 <a id="node-behavior--api-audio-duck"></a>
 ### Duck music (`api.audio.duck`)
@@ -1169,161 +1309,3 @@ Fields:
 | `z` | z | number | `0` | -1000000000 – 1000000000 |
 | `key` | key | string | `""` | ≤ 256 chars |
 | `value_type` | value type | enum | `"number"` | `number`, `boolean`, `string` |
-
-<a id="node-behavior--api-grid-set-meta"></a>
-### Set cell metadata (`api.grid.setMeta`)
-
-Set one metadata value of a cell (null removes the override; an empty cell becomes a metadata-only cell). False when refused.
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `layer` (string)
-- `x` (number)
-- `y` (number)
-- `z` (number)
-- `key` (string)
-- `value` (number): type from field `value_type`
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `layer` | layer | string | `""` | ≤ 256 chars |
-| `x` | x | number | `0` | -1000000000 – 1000000000 |
-| `y` | y | number | `0` | -1000000000 – 1000000000 |
-| `z` | z | number | `0` | -1000000000 – 1000000000 |
-| `key` | key | string | `""` | ≤ 256 chars |
-| `value_type` | value type | enum | `"number"` | `number`, `boolean`, `string` |
-| `value` | value | string | `""` | ≤ 256 chars |
-
-<a id="node-behavior--api-grid-pick"></a>
-### Pick cell (`api.grid.pick`)
-
-The first block cell a ray enters (every layer, or one), with the face it entered through; null when none within maxDistance (default 100 m).
-
-Inputs:
-
-- `origin` (vector)
-- `direction` (vector)
-- `maxDistance` "max distance" (number)
-- `layer` (string)
-
-Outputs:
-
-- `layer` (string)
-- `x` (number)
-- `y` (number)
-- `z` (number)
-- `normal_x` "normal x" (number)
-- `normal_y` "normal y" (number)
-- `normal_z` "normal z" (number)
-- `distance` (number)
-- `point_x` "point x" (number)
-- `point_y` "point y" (number)
-- `point_z` "point z" (number)
-- `found` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `origin` | origin | vector | `[0,0,0]` | -1000000000 – 1000000000; 3 components |
-| `direction` | direction | vector | `[0,-1,0]` | -1000000000 – 1000000000; 3 components |
-| `layer` | layer | string | `""` | ≤ 256 chars |
-
-<a id="node-behavior--api-grid-neighbours"></a>
-### Neighbour cells (`api.grid.neighbours`)
-
-The cells next to [x, y, z] inside the layer's bounds: the 6 face neighbours, or all 26 with diagonal.
-
-Inputs:
-
-- `layer` (string)
-- `x` (number)
-- `y` (number)
-- `z` (number)
-- `diagonal` (boolean)
-
-Outputs:
-
-- `value` (list)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `layer` | layer | string | `""` | ≤ 256 chars |
-| `x` | x | number | `0` | -1000000000 – 1000000000 |
-| `y` | y | number | `0` | -1000000000 – 1000000000 |
-| `z` | z | number | `0` | -1000000000 – 1000000000 |
-| `diagonal` | diagonal | boolean | `false` |  |
-
-<a id="node-behavior--api-grid-walk-neighbours"></a>
-### Walk neighbours (`api.grid.walkNeighbours`)
-
-The places one step away from the place a cell names (the top it is, or the top a walker in that cell stands on): to the four neighbouring columns (eight with diagonal), within the step, drop and headroom limits, not across a wall or closed door; each with its cost (metres, times any cost field).
-
-Inputs:
-
-- `layer` (string)
-- `cell` (list)
-- `maxStep` "max step" (number)
-- `maxDrop` "max drop" (number)
-- `headroom` (number)
-- `maxSlope` "max slope" (number)
-- `diagonal` (boolean)
-- `field` (string)
-- `costField` "cost field" (string)
-- `avoid` (list)
-
-Outputs:
-
-- `value` (list)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `layer` | layer | string | `""` | ≤ 256 chars |
-| `diagonal` | diagonal | boolean | `false` |  |
-| `field` | field | string | `""` | ≤ 256 chars |
-| `costField` | cost field | string | `""` | ≤ 256 chars |
-
-<a id="node-behavior--api-grid-path"></a>
-### Walk path (`api.grid.path`)
-
-The cheapest walk between the places two cells name ([x, y, z] each), start and end included, each with the cost so far; null when there is none (or the search passes 65,536 places: `pathOutcome` tells which).
-
-Inputs:
-
-- `layer` (string)
-- `from` (list)
-- `to` (list)
-- `maxStep` "max step" (number)
-- `maxDrop` "max drop" (number)
-- `headroom` (number)
-- `maxSlope` "max slope" (number)
-- `diagonal` (boolean)
-- `field` (string)
-- `costField` "cost field" (string)
-- `avoid` (list)
-
-Outputs:
-
-- `value` (list)
-- `found` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `layer` | layer | string | `""` | ≤ 256 chars |
-| `diagonal` | diagonal | boolean | `false` |  |
-| `field` | field | string | `""` | ≤ 256 chars |
-| `costField` | cost field | string | `""` | ≤ 256 chars |

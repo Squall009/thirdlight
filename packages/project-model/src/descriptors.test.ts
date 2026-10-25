@@ -567,7 +567,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
     // A scene transition.
     { size: [2, 2, 2], signal: 'door', sceneTransition: { scene: 'scene-b', spawn: 'spawn-0001', unload: ['scene-c'], fade: 0.5, fadeColor: '#101820' } },
   ],
-  switch: [{ mode: 'stand', signal: 'open', size: [1, 1], once: true }, { mode: 'interact', signal: 'open', size: [1, 1], action: 'use' }],
+  switch: [{ mode: 'stand', signal: 'open', size: [1, 1, 1], once: true }, { mode: 'interact', signal: 'open', size: [1, 1, 1], action: 'use' }],
   health: [{ max: 5, start: 3 }],
   // The generic primitives.
   collectible: [{ counter: 'shards', amount: -2.5, size: [1, 2, 3], onCollect: 'got', respawn: 4 }, { counter: 'items' }],

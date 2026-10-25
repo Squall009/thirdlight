@@ -32,8 +32,8 @@ What the engine offers, generated from its source: the objects, components and c
 | [Types (PaintInstancesArgs to TrimSheet)](types-p-t.md) | 95 sections |
 | [Types (UiAction to WindOctave)](types-u-w.md) | 30 sections |
 | [Script API](script-api.md) | What a script exports, The context (`ctx`), Context members in full, `BehaviorPrepareConfig`, `BehaviorInstanceInfo` |
-| [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 22 sections |
-| [Script API types (from `BehaviorGameState`)](script-types-behavior-game-state.md) | 20 sections |
+| [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 21 sections |
+| [Script API types (from `BehaviorMessages`)](script-types-behavior-messages.md) | 21 sections |
 | [Script API types (from `BehaviorMaterials`)](script-types-behavior-materials.md) | 47 sections |
 | [Script API types (from `InputRebindEvent`)](script-types-input-rebind-event.md) | 77 sections |
 | [Script API types (from `GridDoorSide`)](script-types-grid-door-side.md) | 19 sections |
@@ -43,10 +43,11 @@ What the engine offers, generated from its source: the objects, components and c
 | [Graph: Blend tree](graph-animator-blend.md) | Blend tree, Blend |
 | [Graph: Visual script (part 1, from Visual script)](graph-behavior-1.md) | Visual script, Events, Flow, Variables, Functions, Constants, Maths, Logic, Text, Vectors, Lists |
 | [Graph: Visual script (part 2, from Index of (`list.indexOf`))](graph-behavior-2.md) | Maps, Random, Debug, Script, Action, Intents, Settings, Physics |
-| [Graph: Visual script (part 3, from Pick at pointer (`api.physics.pickAtPointer`))](graph-behavior-3.md) | 86 sections |
-| [Graph: Visual script (part 4, from Character)](graph-behavior-4.md) | Character, Look, Audio, Effects, Decals, Save, Grid |
-| [Graph: Visual script (part 5, from Walk path outcome (`api.grid.pathOutcome`))](graph-behavior-5.md) | Scatter, Splines, Surface, Camera, Sockets, Materials, Saves |
-| [Graph: Visual script (part 6, from Save storage (`api.saves.storage`))](graph-behavior-6.md) | Assets, UI, Stats, Display, Dialogue, Modes, Lifecycle, Timeline, Environment, Entity, Shell |
+| [Graph: Visual script (part 3, from Overlap sphere (`api.physics.overlapSphere`))](graph-behavior-3.md) | Tags, World, Scenes, Input, Animator, Timers, Signals, Messages, Game, Health, Patrol |
+| [Graph: Visual script (part 4, from Turn patroller (`api.patrol.turn`))](graph-behavior-4.md) | Hitbox, Collectible, Character, Look, Audio, Effects, Decals, Save, Grid |
+| [Graph: Visual script (part 5, from Set cell metadata (`api.grid.setMeta`))](graph-behavior-5.md) | Scatter, Splines, Surface, Camera, Sockets, Materials |
+| [Graph: Visual script (part 6, from Saves)](graph-behavior-6.md) | Saves, Assets, UI, Stats, Display, Dialogue, Modes, Lifecycle, Timeline, Environment |
+| [Graph: Visual script (part 7, from Set wind (`api.environment.setWind`))](graph-behavior-7.md) | Entity, Shell |
 | [Graph: Script function (part 1, from Script function)](graph-behavior-function-1.md) | 32 sections |
 | [Graph: Script function (part 2, from Input)](graph-behavior-function-2.md) | 23 sections |
 | [Graph: Script function (part 3, from Saves)](graph-behavior-function-3.md) | Saves, Assets, UI, Stats, Display, Dialogue, Modes, Lifecycle, Timeline, Environment, Entity, Shell |

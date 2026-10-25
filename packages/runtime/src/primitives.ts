@@ -383,8 +383,9 @@ export class Primitives {
       } else {
         const d = (p['direction'] as number[] | undefined) ?? [1, 0, 0];
         // The 2D plane walks any direction in the plane (x and y; +x when it has neither — before, only
-        // the sign of x counted, which a direction along x keeps exactly); 3D the direction along the ground.
-        const dir: Vec3 = this.host.dimension === 2 ? unit([num(d[0], 1), num(d[1], 0), 0]) : unit([num(d[0], 0), 0, num(d[2], 0)]);
+        // the sign of x counted, which a direction along x keeps exactly); 3D any direction too: along
+        // the ground without a y part, up or down with one (a 2D walker's on a plane).
+        const dir: Vec3 = this.host.dimension === 2 ? unit([num(d[0], 1), num(d[1], 0), 0]) : unit([num(d[0], 0), num(d[1], 0), num(d[2], 0)]);
         edges = { dir: [...dir], startDir: dir, half: area(p['size'], [1, 1, 1]), wallProbe: num(p['wallProbe'], 0.05), ledgeProbe: num(p['ledgeProbe'], 0.4), pos: [...start], waiting: 0 };
       }
       this.patrols.set(id, { id, start, speed: num(p['speed'], 1), waitSteps: Math.max(0, Math.round(num(p['wait'], 0) * this.host.hz)), active: true, edges, path });
@@ -585,8 +586,11 @@ export class Primitives {
     if (this.host.dimension === 3) {
       const port = this.host.physics3d;
       if (port?.raycast === undefined) return null;
-      if (port.raycast({ x: c[0], y: c[1], z: c[2] }, { x: d[0], y: 0, z: d[2] }, reach) !== null) return 'wall';
-      if (port.raycast({ x: front[0], y: front[1], z: front[2] }, { x: 0, y: -1, z: 0 }, e.ledgeProbe) === null) return 'ledge';
+      // As on the 2D plane: moving up or down it reaches past its body's extent that way and is not walking on a floor.
+      const vertical = d[1] !== 0;
+      const ahead = vertical ? Math.abs(d[0]) * e.half[0] + Math.abs(d[1]) * e.half[1] + Math.abs(d[2]) * e.half[2] + step + e.wallProbe : reach;
+      if (port.raycast({ x: c[0], y: c[1], z: c[2] }, { x: d[0], y: d[1], z: d[2] }, ahead) !== null) return 'wall';
+      if (!vertical && port.raycast({ x: front[0], y: front[1], z: front[2] }, { x: 0, y: -1, z: 0 }, e.ledgeProbe) === null) return 'ledge';
       return null;
     }
     const port = this.host.physics;

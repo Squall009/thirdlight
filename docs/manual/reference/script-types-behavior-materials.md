@@ -1096,6 +1096,21 @@ export interface CharacterMoveResult {
 export type PhysicsPlane = PlaneLock;
 ```
 
+<a id="script-type-physics-query-filter"></a>
+## `PhysicsQueryFilter`
+
+```ts
+/** Which objects a 3D query sees (every part optional; absent: all colliders). */
+export interface PhysicsQueryFilter {
+  /** Only objects carrying at least one of these tags. */
+  tags?: readonly string[];
+  /** Only colliders in at least one of these collision layers ("default": colliders that list no layers). */
+  layers?: readonly string[];
+  /** Objects to skip (their ids). */
+  exclude?: readonly string[];
+}
+```
+
 <a id="script-type-raycast-hit"></a>
 ## `RaycastHit`
 
@@ -1105,6 +1120,30 @@ export interface RaycastHit {
   entityId: string;
   distance: number;
   normal: Vec2;
+}
+```
+
+<a id="script-type-physics-hit"></a>
+## `PhysicsHit`
+
+```ts
+/** A 3D ray or pick hit. */
+export interface PhysicsHit {
+  /** The object whose collider was hit. */
+  entityId: string;
+  /** Where the ray hit [x, y, z]. */
+  point: [number, number, number];
+  /** The surface normal there [x, y, z] (unit). */
+  normal: [number, number, number];
+  /** Metres from the ray's origin. */
+  distance: number;
+  /**
+   * A block layer's cell when the ray hit one (then `entityId` is the layer):
+   * [x, y, z] in `ctx.grid` coordinates — the cell just inside the surface.
+   */
+  cell?: [number, number, number];
+  /** A scatter copy's address when the ray hit one (then `entityId` is the terrain or layer it stands on; `ctx.scatter` takes it). */
+  scatter?: string;
 }
 ```
 
@@ -1132,45 +1171,6 @@ export interface CharacterState3D {
   readonly climbing: boolean;
   /** The way it faces, in degrees about the up axis (0: +Z). */
   readonly facing: number;
-}
-```
-
-<a id="script-type-physics-query-filter"></a>
-## `PhysicsQueryFilter`
-
-```ts
-/** Which objects a 3D query sees (every part optional; absent: all colliders). */
-export interface PhysicsQueryFilter {
-  /** Only objects carrying at least one of these tags. */
-  tags?: readonly string[];
-  /** Only colliders in at least one of these collision layers ("default": colliders that list no layers). */
-  layers?: readonly string[];
-  /** Objects to skip (their ids). */
-  exclude?: readonly string[];
-}
-```
-
-<a id="script-type-physics-hit"></a>
-## `PhysicsHit`
-
-```ts
-/** A 3D ray or pick hit. */
-export interface PhysicsHit {
-  /** The object whose collider was hit. */
-  entityId: string;
-  /** Where the ray hit [x, y, z]. */
-  point: [number, number, number];
-  /** The surface normal there [x, y, z] (unit). */
-  normal: [number, number, number];
-  /** Metres from the ray's origin. */
-  distance: number;
-  /**
-   * A block layer's cell when the ray hit one (then `entityId` is the layer):
-   * [x, y, z] in `ctx.grid` coordinates — the cell just inside the surface.
-   */
-  cell?: [number, number, number];
-  /** A scatter copy's address when the ray hit one (then `entityId` is the terrain or layer it stands on; `ctx.scatter` takes it). */
-  scatter?: string;
 }
 ```
 

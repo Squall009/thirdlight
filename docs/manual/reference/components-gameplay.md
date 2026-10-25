@@ -74,7 +74,7 @@ Sends a signal when the player enters an area (a box or a circle; in a 3D projec
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
 | `shape` | enum: `box`, `circle`, `sphere`, `capsule` | `"box"` |  | **Shape.** Box or circle (2D plane); box, sphere or capsule (3D project). (scripts read) |
-| `size` | vec3 [w, h, d] (last may be left out) | `[2,2]` | 0.05 – 500, step 0.1, m | **Size.** Width and height of the box (and its depth in a 3D project). (required; applies when `shape` is `box`; Scene handle: box2; scripts read) |
+| `size` | vec3 [w, h, d] (last may be left out) | `[2,2]` | 0.05 – 500, step 0.1, m | **Size.** Width, height and depth of the box (absent depth: the width). (required; applies when `shape` is `box`; Scene handle: box2; scripts read) |
 | `radius` | number | `1` | 0.025 – 250, step 0.05, m | **Radius.** Radius of the circle or sphere. (required; applies when `shape` is `circle` or `sphere`; Scene handle: radius; scripts read) |
 | `radius` | number | `0.5` | 0.025 – 250, step 0.05, m | **Radius.** Radius of the capsule. (required; applies when `shape` is `capsule`; Scene handle: capsule; scripts read) |
 | `height` | number | `2` | 0.05 – 500, step 0.05, m | **Height.** The capsule's total height along the object's Y (end caps included; at least twice the radius). (required; applies when `shape` is `capsule`; Scene handle: capsule; scripts read) |
@@ -120,7 +120,7 @@ A lever or button (interact) or a pressure plate (stand) that sends a signal.
 |---|---|---|---|---|
 | `mode` | enum: `interact`, `stand` | `"interact"` |  | **Mode.** Interact: press its action nearby. Stand: step on it. (required; scripts read) |
 | `signal` | signal name | `"open"` |  | **Signal.** Sent when used. (required; scripts read) |
-| `size` | vec2 [w, h] | `[1,1]` | 0.05 – 100, step 0.1, m | **Size.** The area the player must be in. (required; Scene handle: box2; scripts read) |
+| `size` | vec3 [w, h, d] (last may be left out) | `[1,1]` | 0.05 – 100, step 0.1, m | **Size.** The area the player must be in: width, height (and depth; absent: the width), centred on the object and turned with it. (required; Scene handle: box2; scripts read) |
 | `once` | bool | `false` |  | **Once.** Only the first time. (scripts read) |
 | `action` | string, identifier, 1–32 chars | `"interact"` |  | **Action.** The input action pressed nearby to use it. (applies when `mode` is `interact`; scripts read; format identifier) |
 
@@ -130,7 +130,7 @@ Scene-view handles:
 |---|---|---|---|---|
 | Size | box2 | size → `size` | local |  |
 
-GameObject menu: Gameplay → Switch (2D)
+GameObject menu: Gameplay → Switch
 
 <a id="component-health"></a>
 ## health — Health

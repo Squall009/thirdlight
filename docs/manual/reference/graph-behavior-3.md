@@ -1,13 +1,129 @@
-# Graph: Visual script (part 3, from Pick at pointer (`api.physics.pickAtPointer`))
+# Graph: Visual script (part 3, from Overlap sphere (`api.physics.overlapSphere`))
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Visual script node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
 
+<a id="node-behavior--api-physics-overlap-sphere"></a>
+### Overlap sphere (`api.physics.overlapSphere`)
+
+The objects whose colliders overlap a sphere (sorted ids, at most 64).
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `center` (vector)
+- `radius` (number)
+- `tags` (list)
+- `layers` (list)
+- `exclude` (list)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (list)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `center` | center | vector | `[0,0,0]` | -1000000000 – 1000000000; 3 components |
+| `radius` | radius | number | `0.5` | -1000000000 – 1000000000 |
+
+<a id="node-behavior--api-physics-overlap-box3d"></a>
+### Overlap box 3D (`api.physics.overlapBox3d`)
+
+The 3D `overlapBox` under its former name (`overlapBox` takes [x, y, z] the same way).
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `center` (vector)
+- `half` (vector)
+- `rotation` (vector)
+- `tags` (list)
+- `layers` (list)
+- `exclude` (list)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (list)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `center` | center | vector | `[0,0,0]` | -1000000000 – 1000000000; 3 components |
+| `half` | half | vector | `[0.5,0.5,0.5]` | -1000000000 – 1000000000; 3 components |
+
+<a id="node-behavior--api-physics-overlap-capsule"></a>
+### Overlap capsule (`api.physics.overlapCapsule`)
+
+The objects whose colliders overlap an upright capsule (total height, end caps included), optionally turned by a quaternion [x, y, z, w].
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `center` (vector)
+- `radius` (number)
+- `height` (number)
+- `rotation` (vector)
+- `tags` (list)
+- `layers` (list)
+- `exclude` (list)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (list)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `center` | center | vector | `[0,0,0]` | -1000000000 – 1000000000; 3 components |
+| `radius` | radius | number | `0.3` | -1000000000 – 1000000000 |
+| `height` | height | number | `1.8` | -1000000000 – 1000000000 |
+
+<a id="node-behavior--api-physics-pick-at"></a>
+### Pick at screen point (`api.physics.pickAt`)
+
+What is under a screen point (x, y 0–1 from the top left): the ray from the active camera (`ctx.camera.screenToRay`) cast into the colliders, within `maxDistance` (default 1000 m).
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `x` (number)
+- `y` (number)
+- `maxDistance` "max distance" (number)
+- `tags` (list)
+- `layers` (list)
+- `exclude` (list)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `entityId` "entity" (string)
+- `point` (vector)
+- `normal` (vector)
+- `distance` (number)
+- `cell` (vector)
+- `scatter` (string)
+- `found` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `x` | x | number | `0.5` | -1000000000 – 1000000000 |
+| `y` | y | number | `0.5` | -1000000000 – 1000000000 |
+| `maxDistance` | max distance | number | `1000` | -1000000000 – 1000000000 |
+
 <a id="node-behavior--api-physics-pick-at-pointer"></a>
 ### Pick at pointer (`api.physics.pickAtPointer`)
 
-3D projects: what is under the pointer this step (null while the pointer is outside the view or never moved); with a locked cursor, what is at the view's centre.
+What is under the pointer this step (null while the pointer is outside the view or never moved); with a locked cursor, what is at the view's centre.
 
 Inputs:
 
@@ -152,7 +268,7 @@ Fields:
 | Field | Label | Type | Default | Range |
 |---|---|---|---|---|
 | `entityId` | entity | string | `""` | ≤ 256 chars |
-| `space` | space | enum | `"local"` | `local`, `world` |
+| `space` | space | enum | `"local"` | `local`, `world`, `none` |
 
 <a id="node-behavior--api-world-world-transform"></a>
 ### World transform of (`api.world.worldTransform`)
@@ -394,7 +510,7 @@ Fields:
 | Field | Label | Type | Default | Range |
 |---|---|---|---|---|
 | `sceneId` | scene | string | `""` | ≤ 256 chars |
-| `easing` | easing | enum | `"linear"` | `linear`, `easeIn`, `easeOut`, `easeInOut` |
+| `easing` | easing | enum | `"linear"` | `linear`, `easeIn`, `easeOut`, `easeInOut`, `none` |
 
 <a id="graph-behavior--input"></a>
 ## Input
@@ -1438,118 +1554,3 @@ Fields:
 |---|---|---|---|---|
 | `entityId` | object | string | `""` | ≤ 256 chars |
 | `active` | active | boolean | `true` |  |
-
-<a id="node-behavior--api-patrol-turn"></a>
-### Turn patroller (`api.patrol.turn`)
-
-Turn a patroller around now (a `turned` event). False for an object without a patrol, or a waypoint loop (it only goes forward). An empty entity means this object.
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `entityId` "object" (string)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `entityId` | object | string | `""` | ≤ 256 chars |
-
-<a id="graph-behavior--hitbox"></a>
-## Hitbox
-
-- Set hitbox active (`api.hitbox.setActive`): Switch a hitbox off (it touches nothing: its contacts end) or on again. False for an object without a hitbox. An empty entity means this object.
-- Touching (`api.hitbox.touching`): The objects a hitbox (or the character) touches now, sorted by id. An empty entity means this object.
-
-<a id="node-behavior--api-hitbox-set-active"></a>
-### Set hitbox active (`api.hitbox.setActive`)
-
-Switch a hitbox off (it touches nothing: its contacts end) or on again. False for an object without a hitbox. An empty entity means this object.
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `entityId` "object" (string)
-- `active` (boolean)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `entityId` | object | string | `""` | ≤ 256 chars |
-| `active` | active | boolean | `true` |  |
-
-<a id="node-behavior--api-hitbox-touching"></a>
-### Touching (`api.hitbox.touching`)
-
-The objects a hitbox (or the character) touches now, sorted by id. An empty entity means this object.
-
-Inputs:
-
-- `entityId` "object" (string)
-
-Outputs:
-
-- `value` (list)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `entityId` | object | string | `""` | ≤ 256 chars |
-
-<a id="graph-behavior--collectible"></a>
-## Collectible
-
-- Is collected (`api.collectible.collected`): Whether a collectible has been collected (and not come back yet). An empty entity means this object.
-- Restore collectible (`api.collectible.restore`): Bring a collected collectible back now (shown, collectable again; a `restored` event). False when it is not collected. An empty entity means this object.
-
-<a id="node-behavior--api-collectible-collected"></a>
-### Is collected (`api.collectible.collected`)
-
-Whether a collectible has been collected (and not come back yet). An empty entity means this object.
-
-Inputs:
-
-- `entityId` "object" (string)
-
-Outputs:
-
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `entityId` | object | string | `""` | ≤ 256 chars |
-
-<a id="node-behavior--api-collectible-restore"></a>
-### Restore collectible (`api.collectible.restore`)
-
-Bring a collected collectible back now (shown, collectable again; a `restored` event). False when it is not collected. An empty entity means this object.
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `entityId` "object" (string)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `entityId` | object | string | `""` | ≤ 256 chars |

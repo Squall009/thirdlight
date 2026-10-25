@@ -84,19 +84,19 @@ The Script function node catalogue: port types, then each category's nodes with 
 
 - [Patrol state](graph-behavior-3.md#node-behavior--api-patrol-get) (`api.patrol.get`, as in `behavior`): The way a patroller walks now (a unit vector) and whether it walks at all; null for an object without a patrol. An empty entity means this object.
 - [Set patrol active](graph-behavior-3.md#node-behavior--api-patrol-set-active) (`api.patrol.setActive`, as in `behavior`): Stop a patroller where it is, or let it walk on. False for an object without a patrol. An empty entity means this object.
-- [Turn patroller](graph-behavior-3.md#node-behavior--api-patrol-turn) (`api.patrol.turn`, as in `behavior`): Turn a patroller around now (a `turned` event). False for an object without a patrol, or a waypoint loop (it only goes forward). An empty entity means this object.
+- [Turn patroller](graph-behavior-4.md#node-behavior--api-patrol-turn) (`api.patrol.turn`, as in `behavior`): Turn a patroller around now (a `turned` event). False for an object without a patrol, or a waypoint loop (it only goes forward). An empty entity means this object.
 
 <a id="graph-behavior-function--hitbox"></a>
 ## Hitbox
 
-- [Set hitbox active](graph-behavior-3.md#node-behavior--api-hitbox-set-active) (`api.hitbox.setActive`, as in `behavior`): Switch a hitbox off (it touches nothing: its contacts end) or on again. False for an object without a hitbox. An empty entity means this object.
-- [Touching](graph-behavior-3.md#node-behavior--api-hitbox-touching) (`api.hitbox.touching`, as in `behavior`): The objects a hitbox (or the character) touches now, sorted by id. An empty entity means this object.
+- [Set hitbox active](graph-behavior-4.md#node-behavior--api-hitbox-set-active) (`api.hitbox.setActive`, as in `behavior`): Switch a hitbox off (it touches nothing: its contacts end) or on again. False for an object without a hitbox. An empty entity means this object.
+- [Touching](graph-behavior-4.md#node-behavior--api-hitbox-touching) (`api.hitbox.touching`, as in `behavior`): The objects a hitbox (or the character) touches now, sorted by id. An empty entity means this object.
 
 <a id="graph-behavior-function--collectible"></a>
 ## Collectible
 
-- [Is collected](graph-behavior-3.md#node-behavior--api-collectible-collected) (`api.collectible.collected`, as in `behavior`): Whether a collectible has been collected (and not come back yet). An empty entity means this object.
-- [Restore collectible](graph-behavior-3.md#node-behavior--api-collectible-restore) (`api.collectible.restore`, as in `behavior`): Bring a collected collectible back now (shown, collectable again; a `restored` event). False when it is not collected. An empty entity means this object.
+- [Is collected](graph-behavior-4.md#node-behavior--api-collectible-collected) (`api.collectible.collected`, as in `behavior`): Whether a collectible has been collected (and not come back yet). An empty entity means this object.
+- [Restore collectible](graph-behavior-4.md#node-behavior--api-collectible-restore) (`api.collectible.restore`, as in `behavior`): Bring a collected collectible back now (shown, collectable again; a `restored` event). False when it is not collected. An empty entity means this object.
 
 <a id="graph-behavior-function--character"></a>
 ## Character
@@ -108,6 +108,7 @@ The Script function node catalogue: port types, then each category's nodes with 
 - [Stop character walk](graph-behavior-4.md#node-behavior--api-character-stop) (`api.character.stop`, as in `behavior`): Stop a player character's walk where it is. False when it was not walking. An empty entity means this object.
 - [Turn character](graph-behavior-4.md#node-behavior--api-character-turn) (`api.character.turn`, as in `behavior`): Turn a player character to `facing` degrees about +Y (0 faces +Z, 90 faces +X) at its controller's turn speed in 3D; on the 2D plane its face-movement models turn at once (90 right, −90 left). False without that character. An empty entity means this object.
 - [Enable character control](graph-behavior-4.md#node-behavior--api-character-set-enabled) (`api.character.setEnabled`, as in `behavior`): Switch a player character's controller off (it stays where it is: no input, no gravity — a cutscene, a dialogue) or back on, in 3D and on the 2D plane; a `character_enable`. Lasts until changed or the run restarts. False without that character. An empty entity means this object.
+- [Set character plane](graph-behavior-4.md#node-behavior--api-character-set-plane) (`api.character.setPlane`, as in `behavior`): Lock a player character (`entityId`, absent or null: the first player controller) to an axis-aligned plane — `{ axis: 'x' | 'z', origin }` — or free it (null), at the next step boundary: it snaps onto the plane and from then on walks, jumps and is pushed only along it; freed, it moves in all three axes again from where it is. The same as `ctx.physics.setPlane` on its object. Lasts until changed or An empty entity means this object.
 
 <a id="graph-behavior-function--look"></a>
 ## Look
@@ -171,11 +172,11 @@ The Script function node catalogue: port types, then each category's nodes with 
 - [World to cell](graph-behavior-4.md#node-behavior--api-grid-world-to-cell) (`api.grid.worldToCell`, as in `behavior`): The cell holding a world position (it may lie outside the layer's bounds), or null for no such layer.
 - [Cell to world](graph-behavior-4.md#node-behavior--api-grid-cell-to-world) (`api.grid.cellToWorld`, as in `behavior`): The world position of a cell's centre, or null for no such layer.
 - [Cell metadata](graph-behavior-4.md#node-behavior--api-grid-meta) (`api.grid.meta`, as in `behavior`): One effective metadata value of a cell (defaults included), or null for an unknown field or layer.
-- [Set cell metadata](graph-behavior-4.md#node-behavior--api-grid-set-meta) (`api.grid.setMeta`, as in `behavior`): Set one metadata value of a cell (null removes the override; an empty cell becomes a metadata-only cell). False when refused.
-- [Pick cell](graph-behavior-4.md#node-behavior--api-grid-pick) (`api.grid.pick`, as in `behavior`): The first block cell a ray enters (every layer, or one), with the face it entered through; null when none within maxDistance (default 100 m).
-- [Neighbour cells](graph-behavior-4.md#node-behavior--api-grid-neighbours) (`api.grid.neighbours`, as in `behavior`): The cells next to [x, y, z] inside the layer's bounds: the 6 face neighbours, or all 26 with diagonal.
-- [Walk neighbours](graph-behavior-4.md#node-behavior--api-grid-walk-neighbours) (`api.grid.walkNeighbours`, as in `behavior`): The places one step away from the place a cell names (the top it is, or the top a walker in that cell stands on): to the four neighbouring columns (eight with diagonal), within the step, drop and headroom limits, not across a wall or closed door; each with its cost (metres, times any cost field).
-- [Walk path](graph-behavior-4.md#node-behavior--api-grid-path) (`api.grid.path`, as in `behavior`): The cheapest walk between the places two cells name ([x, y, z] each), start and end included, each with the cost so far; null when there is none (or the search passes 65,536 places: `pathOutcome` tells which).
+- [Set cell metadata](graph-behavior-5.md#node-behavior--api-grid-set-meta) (`api.grid.setMeta`, as in `behavior`): Set one metadata value of a cell (null removes the override; an empty cell becomes a metadata-only cell). False when refused.
+- [Pick cell](graph-behavior-5.md#node-behavior--api-grid-pick) (`api.grid.pick`, as in `behavior`): The first block cell a ray enters (every layer, or one), with the face it entered through; null when none within maxDistance (default 100 m).
+- [Neighbour cells](graph-behavior-5.md#node-behavior--api-grid-neighbours) (`api.grid.neighbours`, as in `behavior`): The cells next to [x, y, z] inside the layer's bounds: the 6 face neighbours, or all 26 with diagonal.
+- [Walk neighbours](graph-behavior-5.md#node-behavior--api-grid-walk-neighbours) (`api.grid.walkNeighbours`, as in `behavior`): The places one step away from the place a cell names (the top it is, or the top a walker in that cell stands on): to the four neighbouring columns (eight with diagonal), within the step, drop and headroom limits, not across a wall or closed door; each with its cost (metres, times any cost field).
+- [Walk path](graph-behavior-5.md#node-behavior--api-grid-path) (`api.grid.path`, as in `behavior`): The cheapest walk between the places two cells name ([x, y, z] each), start and end included, each with the cost so far; null when there is none (or the search passes 65,536 places: `pathOutcome` tells which).
 - [Walk path outcome](graph-behavior-5.md#node-behavior--api-grid-path-outcome) (`api.grid.pathOutcome`, as in `behavior`): Why the last `path` call answered as it did: "found"; "none" (no walk joins the two places); "limit" (the search passed 65,536 places first: a path may still exist, e.g. ask for a nearer cell); "invalid" (a layer, cell or option that does not fit, or no place at a cell). Null before the first call.
 - [Walk reach](graph-behavior-5.md#node-behavior--api-grid-reachable) (`api.grid.reachable`, as in `behavior`): The places reachable from the place a cell names within a cost (metres, times any cost field), cheapest first, the start included (at most 65,536).
 - [Regions](graph-behavior-5.md#node-behavior--api-grid-regions) (`api.grid.regions`, as in `behavior`): The region ids of a layer (each room drawn on it is one too: its outline's id, and "-s1", "-s2"… for its upper storeys).

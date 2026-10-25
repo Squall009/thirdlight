@@ -1,8 +1,166 @@
-# Graph: Visual script (part 5, from Walk path outcome (`api.grid.pathOutcome`))
+# Graph: Visual script (part 5, from Set cell metadata (`api.grid.setMeta`))
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Visual script node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="node-behavior--api-grid-set-meta"></a>
+### Set cell metadata (`api.grid.setMeta`)
+
+Set one metadata value of a cell (null removes the override; an empty cell becomes a metadata-only cell). False when refused.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `layer` (string)
+- `x` (number)
+- `y` (number)
+- `z` (number)
+- `key` (string)
+- `value` (number): type from field `value_type`
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `layer` | layer | string | `""` | ≤ 256 chars |
+| `x` | x | number | `0` | -1000000000 – 1000000000 |
+| `y` | y | number | `0` | -1000000000 – 1000000000 |
+| `z` | z | number | `0` | -1000000000 – 1000000000 |
+| `key` | key | string | `""` | ≤ 256 chars |
+| `value_type` | value type | enum | `"number"` | `number`, `boolean`, `string` |
+| `value` | value | string | `""` | ≤ 256 chars |
+
+<a id="node-behavior--api-grid-pick"></a>
+### Pick cell (`api.grid.pick`)
+
+The first block cell a ray enters (every layer, or one), with the face it entered through; null when none within maxDistance (default 100 m).
+
+Inputs:
+
+- `origin` (vector)
+- `direction` (vector)
+- `maxDistance` "max distance" (number)
+- `layer` (string)
+
+Outputs:
+
+- `layer` (string)
+- `x` (number)
+- `y` (number)
+- `z` (number)
+- `normal_x` "normal x" (number)
+- `normal_y` "normal y" (number)
+- `normal_z` "normal z" (number)
+- `distance` (number)
+- `point_x` "point x" (number)
+- `point_y` "point y" (number)
+- `point_z` "point z" (number)
+- `found` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `origin` | origin | vector | `[0,0,0]` | -1000000000 – 1000000000; 3 components |
+| `direction` | direction | vector | `[0,-1,0]` | -1000000000 – 1000000000; 3 components |
+| `layer` | layer | string | `""` | ≤ 256 chars |
+
+<a id="node-behavior--api-grid-neighbours"></a>
+### Neighbour cells (`api.grid.neighbours`)
+
+The cells next to [x, y, z] inside the layer's bounds: the 6 face neighbours, or all 26 with diagonal.
+
+Inputs:
+
+- `layer` (string)
+- `x` (number)
+- `y` (number)
+- `z` (number)
+- `diagonal` (boolean)
+
+Outputs:
+
+- `value` (list)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `layer` | layer | string | `""` | ≤ 256 chars |
+| `x` | x | number | `0` | -1000000000 – 1000000000 |
+| `y` | y | number | `0` | -1000000000 – 1000000000 |
+| `z` | z | number | `0` | -1000000000 – 1000000000 |
+| `diagonal` | diagonal | boolean | `false` |  |
+
+<a id="node-behavior--api-grid-walk-neighbours"></a>
+### Walk neighbours (`api.grid.walkNeighbours`)
+
+The places one step away from the place a cell names (the top it is, or the top a walker in that cell stands on): to the four neighbouring columns (eight with diagonal), within the step, drop and headroom limits, not across a wall or closed door; each with its cost (metres, times any cost field).
+
+Inputs:
+
+- `layer` (string)
+- `cell` (list)
+- `maxStep` "max step" (number)
+- `maxDrop` "max drop" (number)
+- `headroom` (number)
+- `maxSlope` "max slope" (number)
+- `diagonal` (boolean)
+- `field` (string)
+- `costField` "cost field" (string)
+- `avoid` (list)
+
+Outputs:
+
+- `value` (list)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `layer` | layer | string | `""` | ≤ 256 chars |
+| `diagonal` | diagonal | boolean | `false` |  |
+| `field` | field | string | `""` | ≤ 256 chars |
+| `costField` | cost field | string | `""` | ≤ 256 chars |
+
+<a id="node-behavior--api-grid-path"></a>
+### Walk path (`api.grid.path`)
+
+The cheapest walk between the places two cells name ([x, y, z] each), start and end included, each with the cost so far; null when there is none (or the search passes 65,536 places: `pathOutcome` tells which).
+
+Inputs:
+
+- `layer` (string)
+- `from` (list)
+- `to` (list)
+- `maxStep` "max step" (number)
+- `maxDrop` "max drop" (number)
+- `headroom` (number)
+- `maxSlope` "max slope" (number)
+- `diagonal` (boolean)
+- `field` (string)
+- `costField` "cost field" (string)
+- `avoid` (list)
+
+Outputs:
+
+- `value` (list)
+- `found` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `layer` | layer | string | `""` | ≤ 256 chars |
+| `diagonal` | diagonal | boolean | `false` |  |
+| `field` | field | string | `""` | ≤ 256 chars |
+| `costField` | cost field | string | `""` | ≤ 256 chars |
 
 <a id="node-behavior--api-grid-path-outcome"></a>
 ### Walk path outcome (`api.grid.pathOutcome`)
@@ -848,7 +1006,7 @@ Fields:
 | Field | Label | Type | Default | Range |
 |---|---|---|---|---|
 | `cameraId` | camera | string | `""` | ≤ 256 chars |
-| `blend` | blend | enum | `"cut"` | `cut`, `linear`, `eased` |
+| `blend` | blend | enum | `"cut"` | `cut`, `linear`, `eased`, `none` |
 
 <a id="node-behavior--api-camera-deactivate"></a>
 ### Deactivate camera (`api.camera.deactivate`)
@@ -871,7 +1029,7 @@ Fields:
 | Field | Label | Type | Default | Range |
 |---|---|---|---|---|
 | `cameraId` | camera | string | `""` | ≤ 256 chars |
-| `blend` | blend | enum | `"cut"` | `cut`, `linear`, `eased` |
+| `blend` | blend | enum | `"cut"` | `cut`, `linear`, `eased`, `none` |
 
 <a id="node-behavior--api-camera-set-priority"></a>
 ### Set camera priority (`api.camera.setPriority`)
@@ -1372,176 +1530,3 @@ Fields:
 | `x` | x | number | `0` | -1000000000 – 1000000000 |
 | `y` | y | number | `0` | -1000000000 – 1000000000 |
 | `materialId` | material | string | `""` | ≤ 256 chars |
-
-<a id="graph-behavior--saves"></a>
-## Saves
-
-- Save version (`api.saves.version`): The save document's schema version (0: the project declares no save schema).
-- Save slot count (`api.saves.slotCount`): How many slots the game offers.
-- Write save document (`api.saves.write`): Replace the project's save document (any JSON value); false when it is not JSON or larger than 1 MiB.
-- Save document (`api.saves.read`): The project's save document (a copy; null before one is written or loaded).
-- Save to slot (`api.saves.save`): Save to a slot at the end of this step (the document and the engine sections of the schema); the outcome arrives in `results()`. `meta.meta`: the game's own fields for the slot card (names → texts; the record at most 4 KiB as JSON). False for a slot the game does not have or a meta that does not fit.
-- Load slot (`api.saves.load`): Load a slot: when storage answers, the document is migrated and restored at the end of that step (the outcome in `results()`).
-- Delete slot (`api.saves.delete`): Delete a slot (the outcome in `results()`).
-- Save slots (`api.saves.slots`): The used slots with what they show (title, chapter, location, play time, when, picture, the game's own `meta` fields).
-- Save slots ready (`api.saves.ready`): Whether the slot list has arrived from storage (it is empty before).
-- Save results (`api.saves.results`): The outcomes that arrived this step (saves, loads and deletes).
-- Save storage (`api.saves.storage`): The player's storage: whether the browser keeps the game's saves under disk pressure (`persisted`, asked for at the first save) and the site's `usage` and `quota` in bytes; null where the browser does not say.
-- Play time (`api.saves.playSeconds`): Play time in seconds (restored with a loaded save).
-- Setting (`api.saves.setting`): A value of the project settings document (its default until the player changes it).
-- Settings document (`api.saves.settings`): The whole project settings document (a copy).
-- Set setting (`api.saves.setSetting`): Change a value of the project settings document (kept in the player's browser; an engine setting it drives — volume, quality — applies at once). False when the key is unknown or the value does not fit.
-
-<a id="node-behavior--api-saves-version"></a>
-### Save version (`api.saves.version`)
-
-The save document's schema version (0: the project declares no save schema).
-
-Outputs:
-
-- `value` (number)
-
-<a id="node-behavior--api-saves-slot-count"></a>
-### Save slot count (`api.saves.slotCount`)
-
-How many slots the game offers.
-
-Outputs:
-
-- `value` (number)
-
-<a id="node-behavior--api-saves-write"></a>
-### Write save document (`api.saves.write`)
-
-Replace the project's save document (any JSON value); false when it is not JSON or larger than 1 MiB.
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `doc` (number): type from field `doc_type`
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `doc_type` | doc type | enum | `"number"` | `number`, `boolean`, `string`, `vector`, `list`, `map` |
-| `doc` | doc | string | `""` | ≤ 256 chars |
-
-<a id="node-behavior--api-saves-read"></a>
-### Save document (`api.saves.read`)
-
-The project's save document (a copy; null before one is written or loaded).
-
-Outputs:
-
-- `value` (number): type from field `value_type`
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `value_type` | value type | enum | `"number"` | `number`, `boolean`, `string`, `vector`, `list`, `map` |
-
-<a id="node-behavior--api-saves-save"></a>
-### Save to slot (`api.saves.save`)
-
-Save to a slot at the end of this step (the document and the engine sections of the schema); the outcome arrives in `results()`. `meta.meta`: the game's own fields for the slot card (names → texts; the record at most 4 KiB as JSON). False for a slot the game does not have or a meta that does not fit.
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `slot` (number)
-- `title` (string)
-- `chapter` (string)
-- `location` (string)
-- `thumbnail` (boolean)
-- `meta` (map)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `slot` | slot | number | `0` | -1000000000 – 1000000000 |
-| `title` | title | string | `""` | ≤ 256 chars |
-| `chapter` | chapter | string | `""` | ≤ 256 chars |
-| `location` | location | string | `""` | ≤ 256 chars |
-| `thumbnail` | thumbnail | boolean | `false` |  |
-
-<a id="node-behavior--api-saves-load"></a>
-### Load slot (`api.saves.load`)
-
-Load a slot: when storage answers, the document is migrated and restored at the end of that step (the outcome in `results()`).
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `slot` (number)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `slot` | slot | number | `0` | -1000000000 – 1000000000 |
-
-<a id="node-behavior--api-saves-delete"></a>
-### Delete slot (`api.saves.delete`)
-
-Delete a slot (the outcome in `results()`).
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `slot` (number)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `slot` | slot | number | `0` | -1000000000 – 1000000000 |
-
-<a id="node-behavior--api-saves-slots"></a>
-### Save slots (`api.saves.slots`)
-
-The used slots with what they show (title, chapter, location, play time, when, picture, the game's own `meta` fields).
-
-Outputs:
-
-- `value` (list)
-
-<a id="node-behavior--api-saves-ready"></a>
-### Save slots ready (`api.saves.ready`)
-
-Whether the slot list has arrived from storage (it is empty before).
-
-Outputs:
-
-- `value` (boolean)
-
-<a id="node-behavior--api-saves-results"></a>
-### Save results (`api.saves.results`)
-
-The outcomes that arrived this step (saves, loads and deletes).
-
-Outputs:
-
-- `value` (list)

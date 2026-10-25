@@ -1,8 +1,181 @@
-# Graph: Visual script (part 6, from Save storage (`api.saves.storage`))
+# Graph: Visual script (part 6, from Saves)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Visual script node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="graph-behavior--saves"></a>
+## Saves
+
+- Save version (`api.saves.version`): The save document's schema version (0: the project declares no save schema).
+- Save slot count (`api.saves.slotCount`): How many slots the game offers.
+- Write save document (`api.saves.write`): Replace the project's save document (any JSON value); false when it is not JSON or larger than 1 MiB.
+- Save document (`api.saves.read`): The project's save document (a copy; null before one is written or loaded).
+- Save to slot (`api.saves.save`): Save to a slot at the end of this step (the document and the engine sections of the schema); the outcome arrives in `results()`. `meta.meta`: the game's own fields for the slot card (names → texts; the record at most 4 KiB as JSON). False for a slot the game does not have or a meta that does not fit.
+- Load slot (`api.saves.load`): Load a slot: when storage answers, the document is migrated and restored at the end of that step (the outcome in `results()`).
+- Delete slot (`api.saves.delete`): Delete a slot (the outcome in `results()`).
+- Save slots (`api.saves.slots`): The used slots with what they show (title, chapter, location, play time, when, picture, the game's own `meta` fields).
+- Save slots ready (`api.saves.ready`): Whether the slot list has arrived from storage (it is empty before).
+- Save results (`api.saves.results`): The outcomes that arrived this step (saves, loads and deletes).
+- Save storage (`api.saves.storage`): The player's storage: whether the browser keeps the game's saves under disk pressure (`persisted`, asked for at the first save) and the site's `usage` and `quota` in bytes; null where the browser does not say.
+- Play time (`api.saves.playSeconds`): Play time in seconds (restored with a loaded save).
+- Setting (`api.saves.setting`): A value of the project settings document (its default until the player changes it).
+- Settings document (`api.saves.settings`): The whole project settings document (a copy).
+- Set setting (`api.saves.setSetting`): Change a value of the project settings document (kept in the player's browser; an engine setting it drives — volume, quality — applies at once). False when the key is unknown or the value does not fit.
+
+<a id="node-behavior--api-saves-version"></a>
+### Save version (`api.saves.version`)
+
+The save document's schema version (0: the project declares no save schema).
+
+Outputs:
+
+- `value` (number)
+
+<a id="node-behavior--api-saves-slot-count"></a>
+### Save slot count (`api.saves.slotCount`)
+
+How many slots the game offers.
+
+Outputs:
+
+- `value` (number)
+
+<a id="node-behavior--api-saves-write"></a>
+### Write save document (`api.saves.write`)
+
+Replace the project's save document (any JSON value); false when it is not JSON or larger than 1 MiB.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `doc` (number): type from field `doc_type`
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `doc_type` | doc type | enum | `"number"` | `number`, `boolean`, `string`, `vector`, `list`, `map` |
+| `doc` | doc | string | `""` | ≤ 256 chars |
+
+<a id="node-behavior--api-saves-read"></a>
+### Save document (`api.saves.read`)
+
+The project's save document (a copy; null before one is written or loaded).
+
+Outputs:
+
+- `value` (number): type from field `value_type`
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `value_type` | value type | enum | `"number"` | `number`, `boolean`, `string`, `vector`, `list`, `map` |
+
+<a id="node-behavior--api-saves-save"></a>
+### Save to slot (`api.saves.save`)
+
+Save to a slot at the end of this step (the document and the engine sections of the schema); the outcome arrives in `results()`. `meta.meta`: the game's own fields for the slot card (names → texts; the record at most 4 KiB as JSON). False for a slot the game does not have or a meta that does not fit.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `slot` (number)
+- `title` (string)
+- `chapter` (string)
+- `location` (string)
+- `thumbnail` (boolean)
+- `meta` (map)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `slot` | slot | number | `0` | -1000000000 – 1000000000 |
+| `title` | title | string | `""` | ≤ 256 chars |
+| `chapter` | chapter | string | `""` | ≤ 256 chars |
+| `location` | location | string | `""` | ≤ 256 chars |
+| `thumbnail` | thumbnail | boolean | `false` |  |
+
+<a id="node-behavior--api-saves-load"></a>
+### Load slot (`api.saves.load`)
+
+Load a slot: when storage answers, the document is migrated and restored at the end of that step (the outcome in `results()`).
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `slot` (number)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `slot` | slot | number | `0` | -1000000000 – 1000000000 |
+
+<a id="node-behavior--api-saves-delete"></a>
+### Delete slot (`api.saves.delete`)
+
+Delete a slot (the outcome in `results()`).
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `slot` (number)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `slot` | slot | number | `0` | -1000000000 – 1000000000 |
+
+<a id="node-behavior--api-saves-slots"></a>
+### Save slots (`api.saves.slots`)
+
+The used slots with what they show (title, chapter, location, play time, when, picture, the game's own `meta` fields).
+
+Outputs:
+
+- `value` (list)
+
+<a id="node-behavior--api-saves-ready"></a>
+### Save slots ready (`api.saves.ready`)
+
+Whether the slot list has arrived from storage (it is empty before).
+
+Outputs:
+
+- `value` (boolean)
+
+<a id="node-behavior--api-saves-results"></a>
+### Save results (`api.saves.results`)
+
+The outcomes that arrived this step (saves, loads and deletes).
+
+Outputs:
+
+- `value` (list)
 
 <a id="node-behavior--api-saves-storage"></a>
 ### Save storage (`api.saves.storage`)
@@ -986,7 +1159,7 @@ Fields:
 | Field | Label | Type | Default | Range |
 |---|---|---|---|---|
 | `modeId` | mode | string | `""` | ≤ 256 chars |
-| `blend` | blend | enum | `"cut"` | `cut`, `linear`, `eased` |
+| `blend` | blend | enum | `"cut"` | `cut`, `linear`, `eased`, `none` |
 | `fade` | fade | string | `""` | ≤ 256 chars |
 
 <a id="node-behavior--api-modes-events"></a>
@@ -1394,7 +1567,7 @@ Fields:
 | Field | Label | Type | Default | Range |
 |---|---|---|---|---|
 | `presetId` | preset | string | `""` | ≤ 256 chars |
-| `easing` | easing | enum | `"linear"` | `linear`, `easeIn`, `easeOut`, `easeInOut` |
+| `easing` | easing | enum | `"linear"` | `linear`, `easeIn`, `easeOut`, `easeInOut`, `none` |
 
 <a id="node-behavior--api-environment-blend"></a>
 ### Blend environments (`api.environment.blend`)
@@ -1459,127 +1632,3 @@ The project's environment preset ids.
 Outputs:
 
 - `value` (list)
-
-<a id="node-behavior--api-environment-set-wind"></a>
-### Set wind (`api.environment.setWind`)
-
-Change the scene's global wind: any of its fields (direction [x, z], strength, gust, gustFrequency, turbulence, speed m/s, scale m, noise texture), added to the last change's, blending over `blend` seconds; null goes back to the scene's own wind. Wind zones keep laying their values over it. False when a value or an option is refused.
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `direction` (vector)
-- `strength` (number)
-- `gust` (number)
-- `gustFrequency` "gust frequency" (number)
-- `turbulence` (number)
-- `speed` (number)
-- `scale` (number)
-- `noise` (string)
-- `blend` "blend (seconds)" (number)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `noise` | noise | string | `""` | ≤ 256 chars |
-| `easing` | easing | enum | `"linear"` | `linear`, `easeIn`, `easeOut`, `easeInOut` |
-
-<a id="graph-behavior--entity"></a>
-## Entity
-
-- Get component (`api.entity.get`): A read-only snapshot of a component's script-readable fields as they stood at the start of the step (`'object'`: the object's own fields — id, name, parentId, active, visible, static, tags). Null when the object has no such component (`'materialParams'`: when it wears no graph material with public parameters). A component scripts cannot read throws. An empty entity means this object.
-- Set component (`api.entity.set`): Write fields of a component, applied at the end of the step (in script order; a later write of the same field wins and the conflict is reported in diagnostics). Writable now: object `active` and `visible`, transform `position`/`rotation`/`scale` (not a physics body, the camera or a static object), light `color`/`intensity`/`range`, mover `speed`/`active`, `materialParams` ({ material: { parameter: An empty entity means this object.
-
-<a id="node-behavior--api-entity-get"></a>
-### Get component (`api.entity.get`)
-
-A read-only snapshot of a component's script-readable fields as they stood at the start of the step (`'object'`: the object's own fields — id, name, parentId, active, visible, static, tags). Null when the object has no such component (`'materialParams'`: when it wears no graph material with public parameters). A component scripts cannot read throws. An empty entity means this object.
-
-Inputs:
-
-- `entityId` "object" (string)
-- `component` (string)
-
-Outputs:
-
-- `value` (map)
-- `found` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `entityId` | object | string | `""` | ≤ 256 chars |
-| `component` | component | string | `""` | ≤ 256 chars |
-
-<a id="node-behavior--api-entity-set"></a>
-### Set component (`api.entity.set`)
-
-Write fields of a component, applied at the end of the step (in script order; a later write of the same field wins and the conflict is reported in diagnostics). Writable now: object `active` and `visible`, transform `position`/`rotation`/`scale` (not a physics body, the camera or a static object), light `color`/`intensity`/`range`, mover `speed`/`active`, `materialParams` ({ material: { parameter: An empty entity means this object.
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `entityId` "object" (string)
-- `component` (string)
-- `patch` (map)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `ok` (boolean)
-- `field` (string)
-- `code` (string)
-- `message` (string)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `entityId` | object | string | `""` | ≤ 256 chars |
-| `component` | component | string | `""` | ≤ 256 chars |
-
-<a id="graph-behavior--shell"></a>
-## Shell
-
-- Next scene (deprecated) (`api.shell.nextScene`): Deprecated (one Problems line per Play): moves to the next entry of the shell's scene list at the next step boundary, as the shell's `nextScene` UI action (the previous listed scene unloads unless it is a start scene, the entry's scene loads, the character arrives at its spawn). False when the list has no next entry; a second call in the same step asks for the same move.
-- Scene list entry (deprecated) (`api.shell.sceneIndex`): Deprecated (one Problems line per Play): the scene list entry the run is at (-1: none); only the list's own moves change it.
-- Scene list length (deprecated) (`api.shell.sceneCount`): Deprecated (one Problems line per Play): how many entries the shell's scene list has (0: none).
-
-<a id="node-behavior--api-shell-next-scene"></a>
-### Next scene (deprecated) (`api.shell.nextScene`)
-
-Deprecated (one Problems line per Play): moves to the next entry of the shell's scene list at the next step boundary, as the shell's `nextScene` UI action (the previous listed scene unloads unless it is a start scene, the entry's scene loads, the character arrives at its spawn). False when the list has no next entry; a second call in the same step asks for the same move.
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (boolean)
-
-<a id="node-behavior--api-shell-scene-index"></a>
-### Scene list entry (deprecated) (`api.shell.sceneIndex`)
-
-Deprecated (one Problems line per Play): the scene list entry the run is at (-1: none); only the list's own moves change it.
-
-Outputs:
-
-- `value` (number)
-
-<a id="node-behavior--api-shell-scene-count"></a>
-### Scene list length (deprecated) (`api.shell.sceneCount`)
-
-Deprecated (one Problems line per Play): how many entries the shell's scene list has (0: none).
-
-Outputs:
-
-- `value` (number)

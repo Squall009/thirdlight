@@ -919,7 +919,7 @@ export const trigger: ComponentDescriptor = {
   value: obj('trigger', 'Trigger', 'An area that emits signals.', [
     enm('shape', 'Shape', 'Box or circle (2D plane); box, sphere or capsule (3D project).', TRIGGER_SHAPES, { default: 'box' }),
     // The depth (d) is the third component, needed in a 3D project (a 2D plane ignores it).
-    vec3('size', 'Size', 'Width and height of the box (and its depth in a 3D project).', { required: true, when: when('shape', 'box'), min: 0.05, max: 500, step: 0.1, unit: 'm', default: [2, 2], labels: ['w', 'h', 'd'], handle: 'box2', optionalLast: true }),
+    vec3('size', 'Size', 'Width, height and depth of the box (absent depth: the width).', { required: true, when: when('shape', 'box'), min: 0.05, max: 500, step: 0.1, unit: 'm', default: [2, 2], labels: ['w', 'h', 'd'], handle: 'box2', optionalLast: true }),
     num('radius', 'Radius', 'Radius of the circle or sphere.', { required: true, when: when('shape', 'circle', 'sphere'), min: TRIGGER_RADIUS.min, max: TRIGGER_RADIUS.max, step: 0.05, unit: 'm', default: 1, handle: 'radius' }),
     num('radius', 'Radius', 'Radius of the capsule.', { required: true, when: when('shape', 'capsule'), min: TRIGGER_RADIUS.min, max: TRIGGER_RADIUS.max, step: 0.05, unit: 'm', default: 0.5, handle: 'capsule' }),
     num('height', 'Height', 'The capsule\'s total height along the object\'s Y (end caps included; at least twice the radius).', { required: true, when: when('shape', 'capsule'), min: TRIGGER_HEIGHT.min, max: TRIGGER_HEIGHT.max, step: 0.05, unit: 'm', default: 2, handle: 'capsule' }),
@@ -972,15 +972,15 @@ export const switchC: ComponentDescriptor = {
   value: obj('switch', 'Switch', 'A switch.', [
     enm('mode', 'Mode', 'Interact: press its action nearby. Stand: step on it.', SWITCH_MODES, { required: true, default: 'interact' }),
     signal('signal', 'Signal', 'Sent when used.', { required: true, default: 'open' }),
-    vec2('size', 'Size', 'The area the player must be in.', { required: true, min: 0.05, max: 100, step: 0.1, unit: 'm', default: [1, 1], labels: ['w', 'h'], handle: 'box2' }),
+    vec3('size', 'Size', 'The area the player must be in: width, height (and depth; absent: the width), centred on the object and turned with it.', { required: true, min: 0.05, max: 100, step: 0.1, unit: 'm', default: [1, 1], labels: ['w', 'h', 'd'], handle: 'box2', optionalLast: true }),
     bool('once', 'Once', 'Only the first time.', { default: false }),
     // The input action that works an interact switch (absent: interact).
     str('action', 'Action', 'The input action pressed nearby to use it.', { ...ACTION_NAME, when: when('mode', 'interact'), default: SWITCH_DEFAULT_ACTION }),
   ]),
   // A 1 m square pressed with the interact action, sending "open" (the door preset waits for it).
   add: { kind: 'menu', value: { mode: 'interact', signal: 'open', size: [1, 1] } },
-  // A 0.6 m pad (2D plane only: a 3D project refuses switches).
-  create: [{ label: 'Switch', menu: 'Gameplay', box: { size: [0.6, 0.2, 0.6], color: '#d9534f' }, dimension: 2 }],
+  // A 0.6 m pad.
+  create: [{ label: 'Switch', menu: 'Gameplay', box: { size: [0.6, 0.2, 0.6], color: '#d9534f' } }],
   icon: 'switch',
   handles: [{ kind: 'box2', label: 'Size', bind: { size: 'size' }, space: 'local' }],
   excludes: [],

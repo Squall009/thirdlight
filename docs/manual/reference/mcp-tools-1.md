@@ -30,7 +30,7 @@ In full, by area:
 - [Baked lighting and probes](mcp-tools-2.md#tool-tl_command-lighting) (`tool.tl_command.lighting`)
 - [Animation: animator controllers](mcp-tools-2.md#tool-tl_command-animation) (`tool.tl_command.animation`)
 - [Input actions and the cursor](mcp-tools-2.md#tool-tl_command-input) (`tool.tl_command.input`)
-- [3D queries and collision layers](mcp-tools-2.md#tool-tl_command-physics-queries) (`tool.tl_command.physics-queries`)
+- [Physics queries and collision layers](mcp-tools-2.md#tool-tl_command-physics-queries) (`tool.tl_command.physics-queries`)
 - [Light layers and local lights](mcp-tools-2.md#tool-tl_command-light-layers) (`tool.tl_command.light-layers`)
 - [Collider shapes and colliderFromModel](mcp-tools-2.md#tool-tl_command-colliders) (`tool.tl_command.colliders`)
 - [Project saves](mcp-tools-2.md#tool-tl_command-saves) (`tool.tl_command.saves`)

@@ -603,7 +603,7 @@ Outputs:
 - Move object (`api.emit.transform`): A position write on ONE owned entity axis set. It may also set the rotation, as a `quaternion` or a `facing` direction (fields in the order kind, entityId, position, quaternion, facing, up). Runs only in the transform phase. An empty entity means this object.
 - Pose object (`api.emit.pose`): An owned entity's rotation (degrees: yaw about +Y, pitch about +X, roll about +Z, applied yaw · pitch · roll; missing axes are 0) and/or scale (one number, or [x, y, z]) — transform phase only, visual (colliders keep their shape). Fields in the order kind, entityId, rotation, scale; at least one of rotation and scale. The rotation may instead be a `quaternion` or a `facing` direction (order kind,  Runs only in the transform phase. An empty entity means this object.
 - Respawn player (`api.emit.respawn`): Kill the player (intent phase; ignored unless the run is playing). Runs only in the intent phase.
-- Walk character (`api.emit.character_move`): 3D projects: walk the player character this step along a world direction on the ground (x, z; a length above 1 counts as 1 — its length scales the walk speed), replacing the move input; `run` uses the run speed. Intent phase. Runs only in the intent phase.
+- Walk character (`api.emit.character_move`): Walk the player character this step along a world direction on the ground (x, z; a length above 1 counts as 1 — its length scales the walk speed), replacing the move input; `run` uses the run speed. Intent phase. Runs only in the intent phase.
 - Place character (`api.emit.character_place`): Teleport the player character (its origin) to a point, stopping its motion; it falls from there. Intent phase; it takes effect before the controller runs in the same step. On the 2D plane too (z is ignored there), with the placement of scene arrivals and respawns (from rest: velocity and jump reset). Runs only in the intent phase.
 - Enable character (`api.emit.character_enable`): Switch the character controller off (the character stays where it is: no input, no gravity — a cutscene or a dialogue) or back on, in 3D and on the 2D plane. Lasts until changed or the run restarts. Intent phase. Runs only in the intent phase.
 
@@ -853,7 +853,7 @@ Outputs:
 <a id="node-behavior--api-emit-character-move"></a>
 ### Walk character (`api.emit.character_move`)
 
-3D projects: walk the player character this step along a world direction on the ground (x, z; a length above 1 counts as 1 — its length scales the walk speed), replacing the move input; `run` uses the run speed. Intent phase. Runs only in the intent phase.
+Walk the player character this step along a world direction on the ground (x, z; a length above 1 counts as 1 — its length scales the walk speed), replacing the move input; `run` uses the run speed. Intent phase. Runs only in the intent phase.
 
 Inputs:
 
@@ -1214,16 +1214,18 @@ Outputs:
 ## Physics
 
 - Character result (`api.physics.characterResult`): A player controller's result of the last completed step (`entityId`, absent: the first player controller), or `undefined` before the first step. An empty entity means this object.
-- Raycast (`api.physics.raycast`): A ray against the level's colliders (bounded per step; null when nothing is hit).
-- Overlap box (`api.physics.overlapBox`): The entities whose colliders overlap a box (center, half extents) — counted with the rays.
-- Overlap circle (`api.physics.overlapCircle`): The entities whose colliders overlap a circle — counted with the rays.
-- Character state (`api.physics.characterState`): 3D projects: a player character's state after the last completed step (`entityId`, absent: the first player controller) — position, velocity, grounding, contacts, whether its controller is on and whether it is climbing a ledge — or undefined (a 2D plane, before the first step, or not a player controller). An empty entity means this object.
-- Raycast 3D (`api.physics.raycast3d`): 3D projects: the nearest collider a ray from `origin` along `direction` hits within `maxDistance` metres (default 100), or null — its object, the point, the surface normal and the distance. Counted with the other queries (at most 64 a step).
-- Overlap sphere (`api.physics.overlapSphere`): 3D projects: the objects whose colliders overlap a sphere (sorted ids, at most 64).
-- Overlap box 3D (`api.physics.overlapBox3d`): 3D projects: the objects whose colliders overlap a box — centre, half extents [x, y, z] and an optional rotation quaternion [x, y, z, w].
-- Overlap capsule (`api.physics.overlapCapsule`): 3D projects: the objects whose colliders overlap an upright capsule (total height, end caps included), optionally turned by a quaternion [x, y, z, w].
-- Pick at screen point (`api.physics.pickAt`): 3D projects: what is under a screen point (x, y 0–1 from the top left): the ray from the active camera (`ctx.camera.screenToRay`) cast into the colliders, within `maxDistance` (default 1000 m).
-- Pick at pointer (`api.physics.pickAtPointer`): 3D projects: what is under the pointer this step (null while the pointer is outside the view or never moved); with a locked cursor, what is at the view's centre.
+- Set plane (`api.physics.setPlane`): Lock an object's body (its collider, or its player controller's character) to an axis-aligned plane — `{ axis: 'x' | 'z', origin }`, the plane's normal and where it lies along it (m) — or free it again (null), at the next step boundary. A locked body does not move along the normal and only turns about it: locking snaps it onto the plane and drops its speed along the normal; freeing leaves it where An empty entity means this object.
+- Plane of (`api.physics.planeOf`): The plane an object's body or player character is locked to now (`{ axis, origin }`), or null when it is free (or has no body). An empty entity means this object.
+- Raycast (`api.physics.raycast`): A ray on the caller's plane: `origin` and `direction` are 2D ({x, y}: x along the plane's right, y up), the ray runs in the plane the calling object is locked to (else z = 0) and hits the colliders that cross it — the nearest one's object, its distance and the surface normal in the plane, or null. `[x, y, z]` arrays make it a 3D ray (the next form). Counted with the other queries (at most 1,024 a
+- Overlap box (`api.physics.overlapBox`): The objects whose colliders overlap a box on the caller's plane — 2D centre and half extents ({x, y}), the plane the calling object is locked to (else z = 0); sorted ids, at most 64. `[x, y, z]` arrays make it a 3D box (the next form). Counted with the rays.
+- Overlap circle (`api.physics.overlapCircle`): The objects whose colliders overlap a circle on the caller's plane (2D centre {x, y}; the plane the calling object is locked to, else z = 0) — counted with the rays. A sphere is `overlapSphere`.
+- Character state (`api.physics.characterState`): A player character's state after the last completed step (`entityId`, absent: the first player controller) — position, velocity, grounding, contacts, whether its controller is on and whether it is climbing a ledge — or undefined (before the first step, or not a player controller). An empty entity means this object.
+- Raycast 3D (`api.physics.raycast3d`): The 3D `raycast` under its former name (`raycast` takes [x, y, z] the same way).
+- Overlap sphere (`api.physics.overlapSphere`): The objects whose colliders overlap a sphere (sorted ids, at most 64).
+- Overlap box 3D (`api.physics.overlapBox3d`): The 3D `overlapBox` under its former name (`overlapBox` takes [x, y, z] the same way).
+- Overlap capsule (`api.physics.overlapCapsule`): The objects whose colliders overlap an upright capsule (total height, end caps included), optionally turned by a quaternion [x, y, z, w].
+- Pick at screen point (`api.physics.pickAt`): What is under a screen point (x, y 0–1 from the top left): the ray from the active camera (`ctx.camera.screenToRay`) cast into the colliders, within `maxDistance` (default 1000 m).
+- Pick at pointer (`api.physics.pickAtPointer`): What is under the pointer this step (null while the pointer is outside the view or never moved); with a locked cursor, what is at the view's centre.
 
 <a id="node-behavior--api-physics-character-result"></a>
 ### Character result (`api.physics.characterResult`)
@@ -1256,10 +1258,55 @@ Fields:
 |---|---|---|---|---|
 | `entityId` | player | string | `""` | ≤ 256 chars |
 
+<a id="node-behavior--api-physics-set-plane"></a>
+### Set plane (`api.physics.setPlane`)
+
+Lock an object's body (its collider, or its player controller's character) to an axis-aligned plane — `{ axis: 'x' | 'z', origin }`, the plane's normal and where it lies along it (m) — or free it again (null), at the next step boundary. A locked body does not move along the normal and only turns about it: locking snaps it onto the plane and drops its speed along the normal; freeing leaves it where An empty entity means this object.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `entityId` "entity" (string)
+- `origin` (number)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `entityId` | entity | string | `""` | ≤ 256 chars |
+| `axis` | axis | enum | `"z"` | `x`, `z`, `none` |
+| `origin` | origin | number | `0` | -1000000000 – 1000000000 |
+
+<a id="node-behavior--api-physics-plane-of"></a>
+### Plane of (`api.physics.planeOf`)
+
+The plane an object's body or player character is locked to now (`{ axis, origin }`), or null when it is free (or has no body). An empty entity means this object.
+
+Inputs:
+
+- `entityId` "entity" (string)
+
+Outputs:
+
+- `axis` (string)
+- `origin` (number)
+- `found` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `entityId` | entity | string | `""` | ≤ 256 chars |
+
 <a id="node-behavior--api-physics-raycast"></a>
 ### Raycast (`api.physics.raycast`)
 
-A ray against the level's colliders (bounded per step; null when nothing is hit).
+A ray on the caller's plane: `origin` and `direction` are 2D ({x, y}: x along the plane's right, y up), the ray runs in the plane the calling object is locked to (else z = 0) and hits the colliders that cross it — the nearest one's object, its distance and the surface normal in the plane, or null. `[x, y, z]` arrays make it a 3D ray (the next form). Counted with the other queries (at most 1,024 a
 
 Inputs:
 
@@ -1267,6 +1314,9 @@ Inputs:
 - `origin` (vector)
 - `direction` (vector)
 - `maxDistance` "max distance" (number)
+- `tags` (list)
+- `layers` (list)
+- `exclude` (list)
 
 Outputs:
 
@@ -1287,13 +1337,16 @@ Fields:
 <a id="node-behavior--api-physics-overlap-box"></a>
 ### Overlap box (`api.physics.overlapBox`)
 
-The entities whose colliders overlap a box (center, half extents) — counted with the rays.
+The objects whose colliders overlap a box on the caller's plane — 2D centre and half extents ({x, y}), the plane the calling object is locked to (else z = 0); sorted ids, at most 64. `[x, y, z]` arrays make it a 3D box (the next form). Counted with the rays.
 
 Inputs:
 
 - `in` "" (exec): takes several wires
 - `center` (vector)
 - `half` (vector)
+- `tags` (list)
+- `layers` (list)
+- `exclude` (list)
 
 Outputs:
 
@@ -1310,13 +1363,16 @@ Fields:
 <a id="node-behavior--api-physics-overlap-circle"></a>
 ### Overlap circle (`api.physics.overlapCircle`)
 
-The entities whose colliders overlap a circle — counted with the rays.
+The objects whose colliders overlap a circle on the caller's plane (2D centre {x, y}; the plane the calling object is locked to, else z = 0) — counted with the rays. A sphere is `overlapSphere`.
 
 Inputs:
 
 - `in` "" (exec): takes several wires
 - `center` (vector)
 - `radius` (number)
+- `tags` (list)
+- `layers` (list)
+- `exclude` (list)
 
 Outputs:
 
@@ -1333,7 +1389,7 @@ Fields:
 <a id="node-behavior--api-physics-character-state"></a>
 ### Character state (`api.physics.characterState`)
 
-3D projects: a player character's state after the last completed step (`entityId`, absent: the first player controller) — position, velocity, grounding, contacts, whether its controller is on and whether it is climbing a ledge — or undefined (a 2D plane, before the first step, or not a player controller). An empty entity means this object.
+A player character's state after the last completed step (`entityId`, absent: the first player controller) — position, velocity, grounding, contacts, whether its controller is on and whether it is climbing a ledge — or undefined (before the first step, or not a player controller). An empty entity means this object.
 
 Inputs:
 
@@ -1370,7 +1426,7 @@ Fields:
 <a id="node-behavior--api-physics-raycast3d"></a>
 ### Raycast 3D (`api.physics.raycast3d`)
 
-3D projects: the nearest collider a ray from `origin` along `direction` hits within `maxDistance` metres (default 100), or null — its object, the point, the surface normal and the distance. Counted with the other queries (at most 64 a step).
+The 3D `raycast` under its former name (`raycast` takes [x, y, z] the same way).
 
 Inputs:
 
@@ -1400,119 +1456,3 @@ Fields:
 | `origin` | origin | vector | `[0,0,0]` | -1000000000 – 1000000000; 3 components |
 | `direction` | direction | vector | `[0,-1,0]` | -1000000000 – 1000000000; 3 components |
 | `maxDistance` | max distance | number | `100` | -1000000000 – 1000000000 |
-
-<a id="node-behavior--api-physics-overlap-sphere"></a>
-### Overlap sphere (`api.physics.overlapSphere`)
-
-3D projects: the objects whose colliders overlap a sphere (sorted ids, at most 64).
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `center` (vector)
-- `radius` (number)
-- `tags` (list)
-- `layers` (list)
-- `exclude` (list)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (list)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `center` | center | vector | `[0,0,0]` | -1000000000 – 1000000000; 3 components |
-| `radius` | radius | number | `0.5` | -1000000000 – 1000000000 |
-
-<a id="node-behavior--api-physics-overlap-box3d"></a>
-### Overlap box 3D (`api.physics.overlapBox3d`)
-
-3D projects: the objects whose colliders overlap a box — centre, half extents [x, y, z] and an optional rotation quaternion [x, y, z, w].
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `center` (vector)
-- `half` (vector)
-- `rotation` (vector)
-- `tags` (list)
-- `layers` (list)
-- `exclude` (list)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (list)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `center` | center | vector | `[0,0,0]` | -1000000000 – 1000000000; 3 components |
-| `half` | half | vector | `[0.5,0.5,0.5]` | -1000000000 – 1000000000; 3 components |
-
-<a id="node-behavior--api-physics-overlap-capsule"></a>
-### Overlap capsule (`api.physics.overlapCapsule`)
-
-3D projects: the objects whose colliders overlap an upright capsule (total height, end caps included), optionally turned by a quaternion [x, y, z, w].
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `center` (vector)
-- `radius` (number)
-- `height` (number)
-- `rotation` (vector)
-- `tags` (list)
-- `layers` (list)
-- `exclude` (list)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (list)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `center` | center | vector | `[0,0,0]` | -1000000000 – 1000000000; 3 components |
-| `radius` | radius | number | `0.3` | -1000000000 – 1000000000 |
-| `height` | height | number | `1.8` | -1000000000 – 1000000000 |
-
-<a id="node-behavior--api-physics-pick-at"></a>
-### Pick at screen point (`api.physics.pickAt`)
-
-3D projects: what is under a screen point (x, y 0–1 from the top left): the ray from the active camera (`ctx.camera.screenToRay`) cast into the colliders, within `maxDistance` (default 1000 m).
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `x` (number)
-- `y` (number)
-- `maxDistance` "max distance" (number)
-- `tags` (list)
-- `layers` (list)
-- `exclude` (list)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `entityId` "entity" (string)
-- `point` (vector)
-- `normal` (vector)
-- `distance` (number)
-- `cell` (vector)
-- `scatter` (string)
-- `found` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `x` | x | number | `0.5` | -1000000000 – 1000000000 |
-| `y` | y | number | `0.5` | -1000000000 – 1000000000 |
-| `maxDistance` | max distance | number | `1000` | -1000000000 – 1000000000 |

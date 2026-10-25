@@ -478,8 +478,8 @@ function mergedTriangles(prims: readonly ModelGeometryPrimitive[]): { vertices: 
  * A collider shape made from a model — what the editor's "collider from the
  * model" makes and the `colliderFromModel` command stores. `box` around its
  * LOD0 render geometry, centred where it is; in 3D `convex` or `mesh` from
- * its `_COL` node(s), else from its LOD0 render geometry; on a 2D plane
- * (`dimension` 2) `polygon`, the XY hull of the same geometry; `compound`:
+ * its `_COL` node(s), else from its LOD0 render geometry; `polygon`, the
+ * XY hull of the same geometry (in 3D a prism the collider's depth deep); `compound`:
  * one hull (2D: one polygon) per convex part of its `_COL` node. `source`
  * says which geometry it was made from.
  */
@@ -487,7 +487,6 @@ export function modelColliderShape(g: ModelGeometry, piece: string | null, kind:
   | { ok: true; shape: Record<string, unknown>; source: 'collision' | 'geometry'; skipped: string[] }
   | { ok: false; message: string } {
   if (dimension === 2 && (kind === 'convex' || kind === 'mesh')) return { ok: false, message: `a ${kind} collider is a 3D shape; a 2D-plane project makes a box, a polygon or a compound` };
-  if (dimension === 3 && kind === 'polygon') return { ok: false, message: 'a polygon collider is a 2D-plane shape; a 3D project makes a box, a convex hull, a mesh or a compound' };
   if (kind === 'compound') {
     const { parts, skipped } = modelCollisionParts(g, piece);
     if (parts.length === 0) return { ok: false, message: skipped.length > 0 ? `the model's _COL parts could not be made into hulls: ${skipped.slice(0, 3).join('; ')}` : 'the model has no _COL node to make a compound from' };

@@ -13,7 +13,7 @@ The GameObject menu's create entries come from the component descriptors
 descriptors). In a v4 project: **Spawn point**; **Gameplay** → a one-way
 platform (2D plane), a moving platform, a door (opens on the signal
 `open`), a trigger, a scene transition (a trigger that moves the character
-to another scene; needs a second scene), a switch (2D plane), an object
+to another scene; needs a second scene), a switch, an object
 with health, a collectible, a patrolling object and a hitbox; **Cameras**
 → a camera track and a camera region; **Light** → a fog volume. A 3D project gets the 3D forms
 (colliders, hitboxes and triggers with a depth). The hierarchy and Scene
@@ -45,7 +45,8 @@ view icons come from the descriptors too. Any object can get these in the Inspec
   Scene view draws a circle trigger as a circle with one handle that drags
   its radius (5 cm snapping, Shift for exact, one undo per drag).
 - **Switch** — `interact` (the interact action while inside) or `stand`
-  (a pressure plate); sends a signal.
+  (a pressure plate); sends a signal. Its box is `size` [w, h] or [w, h, d]
+  (absent depth: the width), centred on it.
 - A collider's **one-way** flag: jump up through it, land on it from above,
   Down + Jump drops through, in 2D and 3D projects (turned, it holds only
   from the side its local +Y faces). A spawn inside one is not blocked on the
@@ -58,10 +59,15 @@ A HUD document shows counters and health through its bindings (see [the game she
 `ctx.signals.emit(name)` / `.on(name)` (seen the next step),
 `ctx.game.counter(name)` / `.add(name, n)` / `.health()` /
 `.setVisible(entityId, visible)` (until the next run; it still collides),
-and `ctx.physics.raycast(origin, direction, maxDistance)`,
-`.overlapBox(center, half)` and `.overlapCircle(center, radius)` (the
+and `ctx.physics.raycast(origin, direction, maxDistance, filter?)`,
+`.overlapBox(center, half, filter?)` and `.overlapCircle(center, radius, filter?)` (the
 entities whose colliders overlap, never the player; 1,024 queries per step
-in all, 2D and 3D).
+in all, 2D and 3D). With `{x, y}` points they ask on a plane: on the 3D
+backend, the plane the script's object is locked to (`ctx.physics.setPlane`;
+its x along −Z on an X plane), else z = 0, finding what crosses it; with
+`[x, y, z]` arrays `raycast` and `overlapBox` ask in the world (see
+[3D queries](input.md)). Visual scripts: **Set plane**, **Set character
+plane** (axis `none` frees it) and **Plane of**.
 
 ### Generic primitives
 
@@ -87,10 +93,9 @@ project's scripts' decision.
   probe distances; needs the physics world) or **Waypoints** (offsets from
   its start, back and forth or a **loop**), waiting **wait** seconds at each
   turn. Scripts: `ctx.patrol.get(id)` → `{direction, active}`,
-  `ctx.patrol.setActive(id, on)`, `ctx.patrol.turn(id)`. On the
-  2D plane the start direction may point anywhere in the plane (a y part walks
-  it up or down, turning at a wall that way; only a walk along the ground
-  looks for ledges).
+  `ctx.patrol.setActive(id, on)`, `ctx.patrol.turn(id)`. The start
+  direction may point anywhere (a y part walks it up or down, turning at a
+  wall that way; only a walk along the ground looks for ledges).
 - **Gravity** — an object that is not a character (a patroller,
   an item, a prop without a collider) falls under the project's gravity
   (times its **scale**, capped at the project's fall speed) until its
