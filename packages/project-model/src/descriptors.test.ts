@@ -1049,8 +1049,8 @@ describe('descriptor registry', () => {
     // spline's profile as structured fields instead of JSON, about 2 KB; linked copies — a copy's overrides and an added
     // object's parent part, about 0.7 KB; ground cover on models and architecture, about 0.4 KB; wind zones and the
     // wind's gust pattern fields, about 4.4 KB; the physical sky's cloud cover, density and start, about 1.3 KB; how a
-    // subject parts foliage, about 1.3 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(348_900);
+    // subject parts foliage, about 1.3 KB; foliage bases taking the ground's colour, about 0.4 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(349_300);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

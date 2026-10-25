@@ -63,6 +63,10 @@ export const MATERIAL_PARAMS: Readonly<Record<MaterialShader, Readonly<Record<st
     // Metres from the camera the wind moves it (the foliage policy: wind only near; past it the vertices do no wind
     // work and stand still, fading out over the last fifth; 0: everywhere, the earlier look).
     windDistance: num(0, 10000, 0),
+    // How far a ground-cover copy's base takes the colour of the terrain under it (0: off, its own colour; 1: the
+    // ground's at the root), fading to its own colour by `rootColourHeight` (a share of COLOR_0 R, root 0 → tip 1).
+    rootColour: num(0, 1, 0),
+    rootColourHeight: num(0.01, 1, 0.4),
   },
   // uv0.x += worldX / uvPeriod so the detail atlas flows across joins; a macro
   // normal on UV1 is blended over the detail normal (whiteout).

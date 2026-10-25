@@ -53,6 +53,8 @@ Project materials.
 | `materials[].params.flutterFrequency` | number | `6` | 0 – 30, step 0.1 | **Flutter Frequency.** The foliage shader's flutter frequency (absent: the file's value or the shader default). (applies when `../shader` is `foliage`) |
 | `materials[].params.subsurface` | number | `0.3` | 0 – 1, step 0.01 | **Subsurface.** The foliage shader's subsurface (absent: the file's value or the shader default). (applies when `../shader` is `foliage`) |
 | `materials[].params.windDistance` | number | `0` | 0 – 10000, step 0.1 | **Wind Distance.** The foliage shader's wind distance (absent: the file's value or the shader default). (applies when `../shader` is `foliage`) |
+| `materials[].params.rootColour` | number | `0` | 0 – 1, step 0.01 | **Root Colour.** The foliage shader's root colour (absent: the file's value or the shader default). (applies when `../shader` is `foliage`) |
+| `materials[].params.rootColourHeight` | number | `0.4` | 0.01 – 1, step 0.01 | **Root Colour Height.** The foliage shader's root colour height (absent: the file's value or the shader default). (applies when `../shader` is `foliage`) |
 | `materials[].params.color` | color | `"#ffffff"` |  | **Color.** The kit shader's color (absent: the file's value or the shader default). (applies when `../shader` is `kit`) |
 | `materials[].params.roughness` | number | `0.8` | 0 – 1, step 0.01 | **Roughness.** The kit shader's roughness (absent: the file's value or the shader default). (applies when `../shader` is `kit`) |
 | `materials[].params.metalness` | number | `0` | 0 – 1, step 0.01 | **Metalness.** The kit shader's metalness (absent: the file's value or the shader default). (applies when `../shader` is `kit`) |

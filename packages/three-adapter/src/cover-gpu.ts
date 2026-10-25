@@ -54,10 +54,10 @@ import { COVER_FADE_START, COVER_LANES, COVER_MIN_NORMAL_Y, coverMaskSide, listC
 import { COVER_POINT_BLOCK, COVER_POINT_ROW, CoverPointAtlas, listCoverPointBlocks } from './cover-points-gpu';
 import type { N } from './effects-tsl';
 import { instanceSetPlan, type InstanceSetPlan } from './instancing';
-import { setCopyBend, setCopyRoot } from './node-materials';
+import { ROOT_COLOUR_KEY, setCopyBend, setCopyRoot, setCopySurface } from './node-materials';
 import { TAN_HALF_REFERENCE } from './instance-lod';
 import type { LodTuning } from './lod-switch';
-import { stepOf } from './terrain-material';
+import { stepOf, terrainMacroFlip } from './terrain-material';
 import type { TerrainCoverSurface } from './terrain-view';
 import { SphereSide, type CullView } from './view-cull';
 import type { ModelInstance } from './visual';
@@ -218,6 +218,12 @@ export function coverDrawPlacement(d: CoverDrawInputs): CoverPlacement {
       const at = vec3(x, DROPPED_Y, z).toVar();
       setCopyRoot(builder, at);
       setCopyBend(builder, float(rule.bendAway ?? FOLIAGE_BEND_DEFAULTS.ruleBend));
+      // The ground's colour under the copy, for a material that blends its base toward it (`rootColour`): the
+      // terrain's baked albedo (its layers as drawn, from above), A 0 until the tile is baked.
+      const wantsGround = (builder as unknown as { material?: THREE.Material | null }).material?.userData[ROOT_COLOUR_KEY] === true;
+      const albedo = wantsGround ? (s.albedo?.(page) ?? null) : null;
+      const ground = vec4(0).toVar();
+      if (albedo !== null) setCopySurface(builder, ground);
       If(maybe, () => {
         // The tile under the patch (patches never straddle one): its min corner, then the cell under the point.
         const T = s.tileSize;
@@ -242,7 +248,7 @@ export function coverDrawPlacement(d: CoverDrawInputs): CoverPlacement {
         // As the colliders' triangles (terrainCellStep).
         const lower = s00.add(s10.sub(s00).mul(fx)).add(s01.sub(s00).mul(fz));
         const upper = s11.add(s01.sub(s11).mul(float(1).sub(fx))).add(s10.sub(s11).mul(float(1).sub(fz)));
-        const ground = float(s.low).add(select(fx.add(fz).lessThanEqual(1), lower, upper).mul(s.step)).toVar();
+        const groundY = float(s.low).add(select(fx.add(fz).lessThanEqual(1), lower, upper).mul(s.step)).toVar();
         const bil = (a: N, b: N, c: N, e: N): N => a.add(b.sub(a).mul(fx)).add(c.add(e.sub(c).mul(fx)).sub(a.add(b.sub(a).mul(fx))).mul(fz));
         const nxz = bil(t00.ba, t10.ba, t01.ba, t11.ba).mul(2).sub(1);
         const normal = normalize(vec3(nxz.x, sqrt(max(float(1).sub(dot(nxz, nxz)), 0.0001)), nxz.y)).toVar();
@@ -254,7 +260,7 @@ export function coverDrawPlacement(d: CoverDrawInputs): CoverPlacement {
         const weights = vec4(wts.r, wts.g, wts.b, max(float(1).sub(wts.r).sub(wts.g).sub(wts.b), 0));
         const shareOf = (l: number): N => dot(weights, vec4(select(abs(ids.x.sub(l)).lessThan(0.5), float(1), float(0)), select(abs(ids.y.sub(l)).lessThan(0.5), float(1), float(0)), select(abs(ids.z.sub(l)).lessThan(0.5), float(1), float(0)), select(abs(ids.w.sub(l)).lessThan(0.5), float(1), float(0))));
         // The rule's conditions (the world height and noise read world metres).
-        const wy = ground.add(s.origin[1] ?? 0);
+        const wy = groundY.add(s.origin[1] ?? 0);
         let f: N = float(1);
         if (rule.height !== undefined) f = f.mul(rangeNode(rule.height, wy));
         if (rule.slope !== undefined) f = f.mul(rangeNode(rule.slope, slope));
@@ -301,7 +307,13 @@ export function coverDrawPlacement(d: CoverDrawInputs): CoverPlacement {
         const size = float(sc[0]).add(rnd(COVER_LANES.scale).mul(sc[1] - sc[0]));
         const quat = copyTurnNode(normal, rnd(COVER_LANES.yaw).mul(((rule.yaw ?? 360) * Math.PI) / 360), rule.align ?? 0).toVar();
         const placed = local.mul(vec4(vertex, 1)).xyz.mul(size);
-        at.assign(vec3(x, ground.sub(rule.sink ?? 0), z));
+        at.assign(vec3(x, groundY.sub(rule.sink ?? 0), z));
+        if (albedo !== null) {
+          // Baked rows run from +z on WebGL 2 (terrainMacroFlip); an unbaked texel's alpha (the sky's share) is 0.
+          const tv = v.div(n);
+          const a = TSL.texture(albedo, vec2(u.div(n), tv.add(float(1).sub(tv.mul(2)).mul(terrainMacroFlip)))).depth(layer).level(0);
+          ground.assign(vec4(a.rgb, select(a.a.greaterThan(0.002), float(1), float(0))));
+        }
         pos.assign(select(kept, rotateNode(quat, placed).add(at), pos));
         nrm.assign(rotateNode(quat, normalize(local.mul(vec4(vertexNormal, 0)).xyz)));
       });

@@ -193,6 +193,11 @@ export interface TerrainCoverSurface {
   readonly origin: readonly number[];
   /** Its texture pages (a page grown holds new textures). */
   readonly pages: readonly { readonly heights: THREE.DataArrayTexture; readonly layers: THREE.DataArrayTexture; readonly indices: THREE.DataArrayTexture }[];
+  /**
+   * A page's baked albedo (linear RGB, a layer per tile as its heights; the sky's share in alpha, 0 until baked),
+   * baked from then on as a far ground's is: what cover reads for the ground's colour at a root. Null: not a page of it.
+   */
+  albedo?(page: TerrainCoverSurface['pages'][number]): THREE.DataArrayTexture | null;
   /** A drawn tile's page, layer and the heights' range under a box of it (tile-local metres; heights in the terrain's frame; the answer is reused by the next call). */
   tileAt(tx: number, tz: number, x0: number, z0: number, x1: number, z1: number): { readonly page: number; readonly layer: number; readonly low: number; readonly high: number } | undefined;
 }
@@ -302,6 +307,8 @@ interface PageMacro {
   own: THREE.InterleavedBufferAttribute[];
   nodes: PageNodes;
   listed: boolean;
+  /** It draws the far ground (a terrain with a macro distance); else its bakes are only read (cover's ground colour). */
+  far: boolean;
   /** Per texture layer: its macro texture holds the tile's look now. */
   baked: Uint8Array;
   /** The page material (and its nodes) those bakes drew: another one, every tile baked again. */
@@ -336,6 +343,8 @@ interface TerrainRec {
   reach: number;
   /** The stroke kind whose passes are to be built ahead (null: none, or built). */
   warm: { kind: TerrainBrushKind; masked: boolean } | null;
+  /** Its pages' macro textures are baked for cover's ground colour, macro distance or not. */
+  albedoWanted: boolean;
   /** Tiles whose macro texture is to be baked (a terrain with a macro distance), and baked ones whose sunlight is (the sun turned). */
   bakes: Set<TileRec>;
   sunBakes: Set<TileRec>;
@@ -461,7 +470,7 @@ export class TerrainView {
     }
     if (rec === undefined) {
       const layout = terrainLodLayout(component.tileSamples, component.spacing);
-      rec = { id, component, origin: at, look, layout, uniforms: terrainUniforms(), tiles: new Map(), pages: [], hidden: parent?.hidden ?? false, leaving: false, dirty: true, uploads: new Set(), reheights: new Set(), serial: ++this.serials, reach: Number.NaN, field: null, stats: { nodes: 0, inView: 0, perLevel: [] }, bakes: new Set(), sunBakes: new Set(), stroke: null, settle: null, lastStroke: null, layerPreview: null, warm: null, rings: null, coarse: null, overview: null, parent, ringMetres: 0, streamAt: null, streamDirty: true };
+      rec = { id, component, origin: at, look, layout, uniforms: terrainUniforms(), tiles: new Map(), pages: [], hidden: parent?.hidden ?? false, leaving: false, dirty: true, uploads: new Set(), reheights: new Set(), serial: ++this.serials, reach: Number.NaN, field: null, stats: { nodes: 0, inView: 0, perLevel: [] }, bakes: new Set(), sunBakes: new Set(), albedoWanted: false, stroke: null, settle: null, lastStroke: null, layerPreview: null, warm: null, rings: null, coarse: null, overview: null, parent, ringMetres: 0, streamAt: null, streamDirty: true };
       this.terrains.set(id, rec);
     }
     rec.leaving = false;
@@ -575,7 +584,7 @@ export class TerrainView {
       this.deps.place(p.mesh, on);
     }
     const m = p.macro;
-    if (m !== null && m.listed !== on) {
+    if (m !== null && m.far && m.listed !== on) {
       m.listed = on;
       this.deps.place(m.mesh, on);
     }
@@ -624,6 +633,19 @@ export class TerrainView {
       step,
       origin: rec.origin,
       pages: rec.pages,
+      // A page's baked albedo, its bakes started (and kept going) if the terrain had none: no far ground drawn from them.
+      albedo: (page) => {
+        const i = rec.pages.indexOf(page as Page);
+        const p = rec.pages[i];
+        if (p === undefined) return null;
+        rec.albedoWanted = true;
+        if (p.macro === null) {
+          p.macro = this.makeMacro(rec, p, p.surface, p.capacity);
+          for (const t of rec.tiles.values()) if (t.page === i && t.ready) rec.bakes.add(t);
+          this.deps.changed();
+        }
+        return p.macro.arrays.albedo;
+      },
       tileAt: (tx, tz, x0, z0, x1, z1) => {
         const t = rec.tiles.get(terrainTileKey(tx, tz));
         if (t === undefined || !t.ready || t.page < 0) return undefined;
@@ -1379,7 +1401,7 @@ export class TerrainView {
     const nodes = new PageNodes();
     const selectedForView = (): boolean => page.view !== null && page.stamp === page.view.stamp;
     const page: Page = { heights, layers, indices, capacity, used: new Set(), surface, fallback, mesh, geometry, buffer, own, nodes, listed: false, undoMaterial: null, dressedWith: null, view: null, stamp: -1, macro: null, copies: new TerrainNodeCopies(mesh, () => page, nodes, selectedForView) };
-    if (rec.component.macroDistance !== undefined) page.macro = this.makeMacro(rec, page, surface, capacity);
+    if (rec.component.macroDistance !== undefined || rec.albedoWanted) page.macro = this.makeMacro(rec, page, surface, capacity);
     // Picking reads the terrain's heights (the grid three would test is flat); its first page answers for it.
     mesh.raycast = (raycaster, hits) => {
       if (rec.pages[0] !== page || this.terrains.get(rec.id) !== rec) return;
@@ -1460,7 +1482,7 @@ export class TerrainView {
     mesh.raycast = () => undefined;
     const nodes = new PageNodes();
     const selectedForView = (): boolean => page.view !== null && page.stamp === page.view.stamp;
-    const macro: PageMacro = { arrays, material, mesh, ...made, nodes, listed: false, baked: new Uint8Array(capacity), bakedWith: null, copies: new TerrainNodeCopies(mesh, () => macro, nodes, selectedForView) };
+    const macro: PageMacro = { arrays, material, mesh, ...made, nodes, listed: false, far: rec.component.macroDistance !== undefined, baked: new Uint8Array(capacity), bakedWith: null, copies: new TerrainNodeCopies(mesh, () => macro, nodes, selectedForView) };
     mesh.onBeforeRender = (_r, scene, camera) => {
       const view = selectedForView() && page.view!.is(camera);
       macro.geometry.instanceCount = view ? macro.nodes.inView : macro.nodes.count;
@@ -1473,7 +1495,7 @@ export class TerrainView {
 
   private listMacro(p: Page, on: boolean): void {
     const m = p.macro;
-    if (m === null || m.listed === on) return;
+    if (m === null || !m.far || m.listed === on) return;
     m.listed = on;
     this.deps.place(m.mesh, on);
   }
@@ -1524,7 +1546,7 @@ export class TerrainView {
     const turned = this.bakedSun === null || sun[0] * this.bakedSun[0] + sun[1] * this.bakedSun[1] + sun[2] * this.bakedSun[2] < Math.cos(THREE.MathUtils.degToRad(TERRAIN_SUN_TURN_DEGREES));
     if (turned) this.bakedSun = sun;
     for (const rec of this.terrains.values()) {
-      if (rec.component.macroDistance === undefined || rec.hidden) continue;
+      if ((rec.component.macroDistance === undefined && !rec.albedoWanted) || rec.hidden) continue;
       if (turned) for (const t of rec.tiles.values()) if (t.ready && rec.pages[t.page]?.macro != null) rec.sunBakes.add(t);
       for (const p of rec.pages) {
         const m = p.macro;

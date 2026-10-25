@@ -227,6 +227,26 @@ export const copyBend = Fn((builder: NodeBuilder) => {
   return ((o !== null ? copyBends.get(o) : undefined) as ReturnType<typeof float> | undefined) ?? float(1);
 });
 
+/**
+ * `material.userData[ROOT_COLOUR_KEY]`: the material blends its copies' bases toward the surface under them, so a
+ * placement reads that colour only for a material that asks (the read costs a texel per vertex).
+ */
+export const ROOT_COLOUR_KEY = '__tlRootColour';
+
+const copySurfaces = new WeakMap<object, unknown>();
+
+/** A placement tells the build the surface's colour under its copy (a vec4 node: linear RGB, A 1 where known, else 0; vertex stage). */
+export function setCopySurface(builder: NodeBuilder, surface: unknown): void {
+  const o = drawOf(builder);
+  if (o !== null) copySurfaces.set(o, surface);
+}
+
+/** The surface colour under the drawn copy (a vertex-stage vec4 node), or null where its placement knows none (a placed model, stored scatter, a block layer's points). */
+export function copySurface(builder: NodeBuilder): ReturnType<typeof vec4> | null {
+  const o = drawOf(builder);
+  return ((o !== null ? copySurfaces.get(o) : undefined) as ReturnType<typeof vec4> | undefined) ?? null;
+}
+
 // ---- the normal map's green (tangent frames) ---------------------------------------
 
 /**

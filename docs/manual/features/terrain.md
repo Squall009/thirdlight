@@ -594,6 +594,8 @@ for the whole scene (5.8 ms the ground alone), of which the grass's
 vertices and rasterising are about 2.4 ms, its fragments about 3.3 ms and
 its received shadows 0.9 ms.
 
+**Roots take the ground's colour** (off by default): a foliage material's `rootColour` (0–1) blends a terrain cover copy's base toward the terrain's colour under its root (its layers as drawn, baked from above at up to 128 texels a tile, as far ground is), fading to the material's own colour at `rootColourHeight` (a share of COLOR_0 R, default 0.4); meshes without COLOR_0, block-layer and mesh cover, stored scatter and placed models keep their own colour. On the meadow it costs about 0.45 ms of WebGPU GPU time at full clock and still holds the cap on both renderers.
+
 **The grass template asset.** The 3D starter ships grass for cover,
 placed nowhere until a rule uses it ([Projects](projects.md)): the model
 `meadow-grass`, three clump pieces `grass_a` (0.85 m), `grass_b` (0.65 m)

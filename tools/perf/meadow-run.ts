@@ -21,6 +21,8 @@
  *   --walker-radius R           its foliageBend radius in metres (default: the engine's, from its body)
  *   --walker-speed V            metres per second it walks (default 1.2; 0: it stands at the middle of its path)
  *   --clouds C                  under the physical sky with cloud cover C (density 0.6), drifting with the wind
+ *   --root-colour K             the grass material's `rootColour` K (its bases blend toward the terrain under them)
+ *   --root-colour-height H      and its `rootColourHeight` H (default: the material's)
  *   --no-export                 the sweep only
  *   --no-sweep                  the exports only
  *   --sweep id,id               only these sweep configs (with `none`, the floor, always)
@@ -68,7 +70,7 @@ function glbPieces(bytes: Uint8Array): string[] {
  * Publish the template's grass as its setup pack makes it (the model, its texture, the foliage material and the
  * mapping) and return the cover rules: one per piece, the density shared between them.
  */
-async function publishTemplateGrass(be: PerfBackend, projectId: string, cmd: Cmd, density: number, coverDistance: number): Promise<Record<string, unknown>[]> {
+async function publishTemplateGrass(be: PerfBackend, projectId: string, cmd: Cmd, density: number, coverDistance: number, extra: Record<string, unknown>): Promise<Record<string, unknown>[]> {
   const pack = JSON.parse(readFileSync(join(TEMPLATE_SETUP, 'pack.json'), 'utf8')) as { assets: { assetId: string; kind: 'model' | 'texture'; displayName: string; file: string; materials?: Record<string, string> }[]; commands: { op: string; args: Record<string, unknown> }[] };
   const model = pack.assets.find((a) => a.assetId === TEMPLATE_GRASS);
   if (model === undefined) throw new Error(`meadow: the 3D starter has no ${TEMPLATE_GRASS} model`);
@@ -78,14 +80,14 @@ async function publishTemplateGrass(be: PerfBackend, projectId: string, cmd: Cmd
   for (const a of pack.assets.filter((x) => textures.has(x.assetId))) await publishFileVia(be, projectId, cmd, { assetId: a.assetId, kind: a.kind, displayName: a.displayName, bytes: readFileSync(join(TEMPLATE_SETUP, 'assets', a.file)) });
   const bytes = readFileSync(join(TEMPLATE_SETUP, 'assets', model.file));
   await publishFileVia(be, projectId, cmd, { assetId: MEADOW_KIT, kind: 'model', displayName: model.displayName, bytes });
-  for (const material of materials) await cmd('setMaterial', { material });
+  for (const material of materials) await cmd('setMaterial', { material: { ...material, params: { ...((material as { params?: Record<string, unknown> }).params ?? {}), ...extra } } });
   await cmd('setAssetOptions', { assetId: MEADOW_KIT, materials: model.materials ?? {} });
   const pieces = glbPieces(bytes);
   return pieces.map((piece) => ({ ...meadowCoverRule(density / pieces.length, coverDistance), id: piece, asset: { assetId: MEADOW_KIT, piece } }));
 }
 
 /** Build the meadow into a new project; returns the terrain's id (its cover is baked by the caller). */
-async function buildMeadow(be: PerfBackend, projectId: string, log: (s: string) => void, grass: MeadowGrass, density: number, coverDistance: number, wind: { strength: number | null; zone: boolean; clouds?: number | null; walker?: WalkerOptions } = { strength: null, zone: false }): Promise<{ terrainId: string; cmd: Cmd; cover: Record<string, unknown>[] }> {
+async function buildMeadow(be: PerfBackend, projectId: string, log: (s: string) => void, grass: MeadowGrass, density: number, coverDistance: number, wind: { strength: number | null; zone: boolean; clouds?: number | null; walker?: WalkerOptions; rootColour?: number | null; rootColourHeight?: number | null } = { strength: null, zone: false }): Promise<{ terrainId: string; cmd: Cmd; cover: Record<string, unknown>[] }> {
   const t0 = performance.now();
   const created = await be.post('/api/v1/admin/projects', { projectId, name: 'Perf meadow' });
   if (created.status !== 201 && created.status !== 200) throw new Error(`project create failed: ${created.status} ${JSON.stringify(created.json)}`);
@@ -94,11 +96,12 @@ async function buildMeadow(be: PerfBackend, projectId: string, log: (s: string) 
   for (const id of STARTER_REMOVED) await cmd('deleteEntity', { entityId: id }).catch(() => undefined);
   await cmd('setSettings', { settings: { physics_dimension: 3, camera_far_m: MEADOW_SPEC.farPlane } });
   let cover = [meadowCoverRule(density, coverDistance)];
-  if (grass === 'template') cover = await publishTemplateGrass(be, projectId, cmd, density, coverDistance);
+  const extra = { ...(wind.rootColour == null ? {} : { rootColour: wind.rootColour }), ...(wind.rootColourHeight == null ? {} : { rootColourHeight: wind.rootColourHeight }) };
+  if (grass === 'template') cover = await publishTemplateGrass(be, projectId, cmd, density, coverDistance, extra);
   else {
     await publishFileVia(be, projectId, cmd, { assetId: MEADOW_KIT, kind: 'model', displayName: 'Meadow grass (stand-in clump)', bytes: clumpKitGlb(MEADOW_SEED, MEADOW_SPEC.grass.clumpHeight) });
     // The foliage material with the engine's foliage policy (wind near the camera only), as the level classes' kits wear it.
-    await cmd('setMaterial', { material: { materialId: GRASS_MATERIAL, name: 'Meadow grass', shader: 'foliage', params: { color: '#4d7a2e', roughness: 0.8, windDistance: FOLIAGE_NEAR_METRES }, textures: {} } });
+    await cmd('setMaterial', { material: { materialId: GRASS_MATERIAL, name: 'Meadow grass', shader: 'foliage', params: { color: '#4d7a2e', roughness: 0.8, windDistance: FOLIAGE_NEAR_METRES, ...extra }, textures: {} } });
     await cmd('setAssetOptions', { assetId: MEADOW_KIT, materials: { grass: GRASS_MATERIAL } });
   }
   const material = await publishTerrainMaterial(be, projectId, cmd, MEADOW_SEED, { rules: false, projection: 0 });
@@ -209,7 +212,7 @@ export async function runMeadowCli(argv: readonly string[]): Promise<void> {
   if (!has('no-export')) {
     const be = await startPerfBackend(join(runDir, 'data'), join(runDir, 'exports'));
     try {
-      const { terrainId, cmd, cover } = await buildMeadow(be, 'meadow', log, grass, density, coverDistance, { strength: get('wind') === undefined ? null : Number(get('wind')), zone: has('wind-zone'), clouds: get('clouds') === undefined ? null : Number(get('clouds')), ...(has('walker') ? { walker: { strength: get('walker-strength') === undefined ? null : Number(get('walker-strength')), radius: get('walker-radius') === undefined ? null : Number(get('walker-radius')), speed: get('walker-speed') === undefined ? 1.2 : Number(get('walker-speed')) } } : {}) });
+      const { terrainId, cmd, cover } = await buildMeadow(be, 'meadow', log, grass, density, coverDistance, { strength: get('wind') === undefined ? null : Number(get('wind')), zone: has('wind-zone'), clouds: get('clouds') === undefined ? null : Number(get('clouds')), rootColour: get('root-colour') === undefined ? null : Number(get('root-colour')), rootColourHeight: get('root-colour-height') === undefined ? null : Number(get('root-colour-height')), ...(has('walker') ? { walker: { strength: get('walker-strength') === undefined ? null : Number(get('walker-strength')), radius: get('walker-radius') === undefined ? null : Number(get('walker-radius')), speed: get('walker-speed') === undefined ? 1.2 : Number(get('walker-speed')) } } : {}) });
       for (const variant of ['grass', 'ground'] as const) {
         const t = performance.now();
         await cmd('editTerrain', { entityId: terrainId, kind: 'bake', scatter: variant === 'grass' ? cover : [] });

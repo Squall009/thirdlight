@@ -18,7 +18,7 @@ import type { N } from './effects-tsl';
 import { OBJECT_FRAME_KEY } from './static-merge';
 import { declareVertexReach } from './vertex-reach';
 import { FOLIAGE_FALLBACK_HEIGHT_M, type FoliageBend } from './foliage-bend';
-import { copyBend, copyRoot } from './node-materials';
+import { copyBend, copyRoot, copySurface, ROOT_COLOUR_KEY } from './node-materials';
 import type { WindField } from './wind-field';
 
 /**
@@ -103,6 +103,7 @@ export function installFoliage(m: THREE.MeshStandardMaterial, p: Readonly<Record
     });
     return out;
   })();
+  installRootColour(nm, p);
   const thin = TSL.varying(colour.a);
   nm.emissiveNode = TSL.materialEmissive.add(TSL.diffuseColor.rgb.mul(subsurface).mul(thin).mul(0.25));
   // The most the sway above moves a vertex now (occlusion culling grows the draw's bounds by it): every factor at
@@ -114,4 +115,37 @@ export function installFoliage(m: THREE.MeshStandardMaterial, p: Readonly<Record
     const sway = wind * Math.max(0, bend.value as number) * FOLIAGE_BEND_M * tall * Math.hypot(1, FOLIAGE_SAG);
     return sway + Math.max(0, flutter.value as number) * FOLIAGE_FLUTTER_M * (wind + 0.5) + bendField.reach(tall);
   });
+}
+
+/**
+ * `rootColour` (0: off): a ground-cover copy's base blends toward the colour of the surface under its root (the
+ * placement's `copySurface`), by `rootColour` at the root fading to none at `rootColourHeight` of COLOR_0 R, so
+ * the tips keep the material's own colour. A draw whose placement knows no surface (a placed model, stored
+ * scatter, a block layer's points) or a mesh without COLOR_0 draws the material's colour unchanged. The blend weight and colour are worked
+ * out per vertex and handed on in one varying.
+ */
+function installRootColour(nm: MeshStandardNodeMaterial, p: Readonly<Record<string, unknown>>): void {
+  const amount = Math.min(1, Math.max(0, num(p['rootColour'], 0)));
+  if (amount <= 0) return;
+  (nm as unknown as THREE.Material).userData[ROOT_COLOUR_KEY] = true;
+  const strength = TSL.uniform(amount);
+  const height = TSL.uniform(Math.min(1, Math.max(0.01, num(p['rootColourHeight'], 0.4))));
+  nm.colorNode = TSL.Fn((builder: NodeBuilder) => {
+    const surface = copySurface(builder);
+    // Without COLOR_0 nothing says where the base ends: the material's colour as it is.
+    if (surface === null || !hasVertexData(builder)) return TSL.materialColor;
+    const tint = TSL.varying(TSL.vec4(surface.rgb, rootBlend(TSL.attribute('color', 'vec4').r, strength, height).mul(surface.a)));
+    // The material's colour as three makes it (its map's alpha kept for cutouts).
+    const own = TSL.vec4(TSL.materialColor as unknown as N);
+    return TSL.vec4(TSL.mix(own.rgb, tint.rgb, tint.a), own.a);
+  })() as MeshStandardNodeMaterial['colorNode'];
+}
+
+/** The base's blend weight toward the surface: `strength` at the root (height share 0), none from `height` up (smooth). */
+export const rootBlend = (share: N, strength: N, height: N): N => strength.mul(TSL.float(1).sub(TSL.smoothstep(0, height, share)));
+
+/** {@link rootBlend} on the CPU (its reference). */
+export function rootBlendAt(share: number, strength: number, height: number): number {
+  const t = Math.min(1, Math.max(0, share / height));
+  return strength * (1 - t * t * (3 - 2 * t));
 }
