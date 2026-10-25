@@ -1,6 +1,6 @@
 # Phase 40 — Ground cover at scale, and wind
 
-Status: planned 2026-10-21.
+Status: **done 2026-10-25, owner look pending** (full gate at `4dcb4422` RED on 9 real failures, all fixed in 40.11 and verified by a fast gate of those files; review 3 H + 6 M fixed).
 
 Goal: dense ground cover (grass, and any other small mesh) is a standard tool
 of the engine. It scales to large scenes and works on any surface, indoors and
