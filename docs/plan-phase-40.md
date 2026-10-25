@@ -471,3 +471,5 @@ is one step in the terrain or scatter e2e.
   material rules have a live draft preview, scatter rules none). Painting
   layer weights and sculpting show in GPU cover at once (it reads the
   terrain's textures; from 40.2, not looked at again here). A live draft preview of cover rules is left out.
+- 2026-10-25 (lead): 40.8 runs before 40.7: the stretch (roots take the surface colour) is kept only if it
+  fits the budget, which 40.8 sets.
