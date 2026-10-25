@@ -15,7 +15,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { createPhysicsPort3D } from '../../../packages/physics-rapier/src/3d/index';
+import { createPhysicsPort3D } from '@thirdlight/physics-rapier';
 import { TerrainField, terrainColliderPieces, terrainTileKey, type PhysicsPort3D, type StaticColliderSpec3D, type TerrainComponent, type TerrainTile } from '../../../packages/runtime/src/index';
 
 const HZ = 120;

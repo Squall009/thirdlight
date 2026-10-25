@@ -1,7 +1,7 @@
 /**
  * `colliderFromModel`: an object's collider made from its own model — a box
- * around it, a convex hull or mesh of its `_COL` node (else its geometry), on
- * a 2D plane its polygon, or a compound of the `_COL` node's convex parts.
+ * around it, a convex hull or mesh of its `_COL` node (else its geometry), its
+ * XY outline as a polygon prism, or a compound of the `_COL` node's convex parts.
  * One command and one undo (a `setComponent collider` change), so the API
  * does what the editor's button does.
  *
@@ -10,7 +10,7 @@
  * `PreparedModelCollider`; an existing collider keeps its other fields
  * (layers, one-way).
  */
-import { MODEL_COLLIDER_KINDS, modelColliderShape, physicsDimensionOf, readModelGeometry, type ModelColliderKind } from '@thirdlight/project-model';
+import { MODEL_COLLIDER_KINDS, modelColliderShape, readModelGeometry, type ModelColliderKind } from '@thirdlight/project-model';
 
 import { applySetComponent, type OpInput } from './content-ops';
 import { componentMissing, entityNotFound, fieldMissing, fieldUnexpected, fieldValue, type CommandError } from './errors';
@@ -36,15 +36,15 @@ export function validateColliderFromModelArgs(args: Record<string, unknown>): { 
   if (typeof args['entityId'] !== 'string') return { ok: false, error: fieldValue('/args/entityId', args['entityId'], 'an entity id', 'entityId names the object whose model the collider is made from') };
   if (args['kind'] === undefined) return { ok: false, error: fieldMissing('/args/kind', 'kind') };
   if (!(MODEL_COLLIDER_KINDS as readonly unknown[]).includes(args['kind'])) {
-    return { ok: false, error: fieldValue('/args/kind', args['kind'], MODEL_COLLIDER_KINDS.map((k) => `"${k}"`).join(' | '), 'kind is box, convex, mesh (3D), polygon (2D plane) or compound') };
+    return { ok: false, error: fieldValue('/args/kind', args['kind'], MODEL_COLLIDER_KINDS.map((k) => `"${k}"`).join(' | '), 'kind is box, convex, mesh, polygon (an XY outline prism) or compound') };
   }
   return { ok: true, args: { entityId: args['entityId'], kind: args['kind'] as ModelColliderKind } };
 }
 
 /**
  * The shape for the object (the host's half, pure apart from `read`): its
- * model's latest version is read, its geometry made into the asked kind
- * for the project's physics dimension. `source` says whether the `_COL`
+ * model's latest version is read, its geometry made into the asked kind.
+ * `source` says whether the `_COL`
  * node or the render geometry was used; `skipped` lists parts left out.
  */
 export function planModelCollider(
@@ -65,8 +65,7 @@ export function planModelCollider(
   if (!bytes.ok) return bytes;
   const geometry = readModelGeometry(bytes.bytes);
   if (!geometry.ok) return { ok: false, error: fieldValue('/args/entityId', assetId, 'a readable model', `the model ${assetId} cannot be read: ${geometry.message}`) };
-  const dimension = physicsDimensionOf((content as { settings?: unknown } | undefined)?.settings);
-  const made = modelColliderShape(geometry.geometry, typeof model?.piece === 'string' ? model.piece : null, args.kind, dimension);
+  const made = modelColliderShape(geometry.geometry, typeof model?.piece === 'string' ? model.piece : null, args.kind);
   if (!made.ok) return { ok: false, error: fieldValue('/args/kind', args.kind, 'a collider the model can give', made.message) };
   return { ok: true, prepared: { entityId: args.entityId, shape: made.shape }, source: made.source, skipped: made.skipped };
 }

@@ -39,7 +39,6 @@ import {
   isTerrainOverviewBlob,
   isTerrainTileBlob,
   manifestBuildIdInputV5,
-  physicsDimensionOf,
   type RuntimeContentManifestV5,
 } from '@thirdlight/project-model';
 
@@ -61,10 +60,8 @@ const BUNDLE_NAME = 'js/main.js';
 const WORKER_BUNDLE_NAME = 'js/sim-worker.js';
 /** The block mesh worker (block chunks meshed off the frame), shipped when the game has block layers. */
 const MESH_WORKER_BUNDLE_NAME = 'js/mesh-worker.js';
-/** The 2D physics backend (rapier2d), emitted only for a project on the 2D plane. */
-const PHYSICS_2D_BUNDLE_NAME = 'js/physics-2d.js';
-/** The 3D physics backend (rapier3d), emitted only for a project whose physics_dimension is 3. */
-const PHYSICS_3D_BUNDLE_NAME = 'js/physics-3d.js';
+/** The physics backend (rapier3d), emitted only for a game that needs physics. */
+const PHYSICS_BUNDLE_NAME = 'js/physics-3d.js';
 /** The module that marks a 3D project's physics. */
 const PHYSICS_3D_MODULE = 'thirdlight.physics-rapier:3d';
 const SCENE_NAME = 'scene.json';
@@ -155,10 +152,8 @@ function installedPackage(ctx: ExportContext, packageJsonPath: string, id: strin
  */
 const REFERENCE_ENTRY = "import * as WEBGPU from 'three/webgpu'; import * as TSL from 'three/tsl'; console.log(WEBGPU.REVISION, Object.keys(TSL).length);";
 
-/** The pinned Rapier compat probe entry (re-measures the physics row). */
-const RAPIER_PROBE_ENTRY = "import { createPhysicsPort } from '@thirdlight/physics-rapier'; console.log(typeof createPhysicsPort);";
-/** The pinned Rapier 3D compat probe entry (a 3D project's physics row). */
-const RAPIER_3D_PROBE_ENTRY = "import { createPhysicsPort3D } from '@thirdlight/physics-rapier/3d'; console.log(typeof createPhysicsPort3D);";
+/** The pinned Rapier compat probe entry (re-measures the physics row of a game with physics). */
+const RAPIER_PROBE_ENTRY = "import { createPhysicsPort3D } from '@thirdlight/physics-rapier'; console.log(typeof createPhysicsPort3D);";
 
 /** The installed package.json of a package a bundle linked (from its metafile). */
 function linkedPackageJson(metafile: { inputs: Record<string, unknown> }, pkg: string): string | null {
@@ -252,14 +247,12 @@ export async function exportProjectM3(
     const text = decoder.decode(b);
     return text.includes('"blockLayer"') || text.includes('"tileSamples"') || text.includes('"architecture"');
   });
-  // Only the physics engine the project's dimension uses: a game on the 2D plane ships rapier2d, a 3D game with physics rapier3d.
-  const threeD = closure.moduleIds.includes(PHYSICS_3D_MODULE);
-  const twoD = physicsDimensionOf(closure.manifest.settings) === 2;
+  // The physics engine ships only with a game that needs it.
+  const withPhysics = closure.moduleIds.includes(PHYSICS_3D_MODULE);
   const planned: { name: string; entry: string; what: string; moduleIds?: readonly string[]; wasm?: true }[] = [
     { name: WORKER_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-sim-worker.ts'), what: 'simulation worker', moduleIds: closure.moduleIds },
     ...(hasBlockLayers ? [{ name: MESH_WORKER_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-mesh-worker.ts'), what: 'block mesh, terrain and architecture worker' }] : []),
-    ...(twoD ? [{ name: PHYSICS_2D_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-physics-2d.ts'), what: '2D physics', wasm: true as const }] : []),
-    ...(threeD ? [{ name: PHYSICS_3D_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-physics-3d.ts'), what: '3D physics', wasm: true as const }] : []),
+    ...(withPhysics ? [{ name: PHYSICS_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-physics-3d.ts'), what: 'physics', wasm: true as const }] : []),
   ];
   const scripts: ExportScript[] = [{ name: BUNDLE_NAME, entry: m3BootstrapEntry, what: 'M3 export', moduleIds: closure.moduleIds, built }];
   for (const s of planned) {
@@ -268,19 +261,14 @@ export async function exportProjectM3(
     if (s.wasm === true && r.wasm === null) return fail('export_bundle_graph_forbidden', 'internal', `the ${s.what} bundle linked no physics WASM`);
     scripts.push({ ...s, built: r });
   }
-  const rapier3dBytes = threeD ? await probeBundle(ctx, RAPIER_3D_PROBE_ENTRY, 'rapier3d-compat-probe.ts') : null;
-  if (threeD && rapier3dBytes === null) {
-    return fail('export_bundle_forbidden_content', 'internal', 'the pinned Rapier 3D compat probe could not be built (the 3D physics row fails closed)');
+  if (withPhysics && (await probeBundle(ctx, RAPIER_PROBE_ENTRY, 'rapier3d-compat-probe.ts')) === null) {
+    return fail('export_bundle_forbidden_content', 'internal', 'the pinned Rapier compat probe could not be built (the physics row fails closed)');
   }
 
-  // The binding-3 reference build + the pinned Rapier compat probe.
+  // The binding-3 reference build.
   const referenceBytes = await probeBundle(ctx, REFERENCE_ENTRY, 'three-reference-entry.ts');
-  const rapierBytes = await probeBundle(ctx, RAPIER_PROBE_ENTRY, 'rapier-compat-probe.ts');
   if (referenceBytes === null) {
     return fail('export_bundle_forbidden_content', 'internal', 'the reference three bundle could not be built (binding 3 fails closed)');
-  }
-  if (rapierBytes === null) {
-    return fail('export_bundle_forbidden_content', 'internal', 'the pinned Rapier compat probe could not be built (the physics row fails closed)');
   }
 
   // ---- step 2: the authoring revision is unchanged -----------------------------
@@ -640,7 +628,7 @@ function concat(parts: readonly Uint8Array[], n: number): Uint8Array {
 }
 
 /** The physics engines a bundle may link (each one's license row ships with it). */
-const RAPIER_PACKAGES = ['@dimforge/rapier2d-compat', '@dimforge/rapier3d-compat'] as const;
+const RAPIER_PACKAGES = ['@dimforge/rapier3d-compat'] as const;
 
 /** The version of a package a bundle linked ('' when unknown): the physics-rapier package's own pin. */
 function linkedVersion(ctx: ExportContext, metafile: { inputs: Record<string, unknown> }, pkg: string): string {

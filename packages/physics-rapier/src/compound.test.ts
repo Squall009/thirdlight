@@ -9,8 +9,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { PhysicsInitConfig3D, StaticColliderSpec3D } from '@thirdlight/runtime';
 
-import { createPhysicsPort3D } from './3d/index';
-import { createPhysicsPort } from './index';
+import { createPhysicsPort3D } from './index';
 
 const HZ = 120;
 const G = -19.62;
@@ -71,35 +70,6 @@ describe('compound colliders', () => {
     if (!made.ok) throw new Error(made.error.message);
     const mesh = { type: 'mesh', vertices: [-1, 0, -1, 1, 0, -1, 1, 0, 1], indices: [0, 2, 1] };
     expect(() => made.port.addStaticColliders([{ entityId: 'm', shape: { type: 'compound', parts: [{ shape: mesh, position: { x: 0, y: 0, z: 0 }, rotation: IDENTITY }] }, position: { x: 0, y: 0, z: 0 }, rotation: IDENTITY, kinematic: true }])).toThrow(/mesh collider is static/);
-    made.port.dispose();
-  });
-
-  it('the 2D plane: the character lands on an offset part of a turned body', async () => {
-    const made = await createPhysicsPort({
-      character: { x: 0, y: 5 },
-      statics: [{
-        entityId: 'ledge',
-        // The body turned 90° about Z: the part 2 m along its X is 2 m up in the world.
-        shape: { type: 'compound', parts: [{ shape: { type: 'box', hx: 1, hy: 0.25 }, x: 2, y: 0, angle: -Math.PI / 2 }] },
-        position: { x: 0, y: 0 },
-        rotationZ: Math.PI / 2,
-      }],
-      solver: { hz: HZ, gravityY: G },
-      controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: Math.PI / 4, minSlopeSlideRad: Math.PI / 6, autostep: false },
-    });
-    if (!made.ok) throw new Error(made.error.message);
-    let grounded = false;
-    let y = 0;
-    for (let i = 0; i < 360; i += 1) {
-      made.port.stageCharacterMove({ x: 0, y: -0.05 });
-      const r = made.port.step();
-      grounded = r.grounded;
-      y = r.position.y;
-    }
-    expect(grounded).toBe(true);
-    // Feet on the part's top (2.25 m; the default capsule's centre is 0.9 m above them).
-    expect(y).toBeGreaterThan(2.25 + 0.9 - 0.05);
-    expect(y).toBeLessThan(2.25 + 0.9 + 0.05);
     made.port.dispose();
   });
 });

@@ -200,7 +200,7 @@ async function buildExportScript(entry: string, name: string, plugins: unknown[]
 
 /**
  * A worker or backend script of the export (`js/sim-worker.js`,
- * `js/mesh-worker.js`, `js/physics-2d.js`, `js/physics-3d.js`): the export's
+ * `js/mesh-worker.js`, `js/physics-3d.js`): the export's
  * options. Given the manifest's module ids it links `thirdlight:export-modules`
  * (the simulation module specs those ids name); given `read`, a physics
  * backend's WASM comes back as its own file.

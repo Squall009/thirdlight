@@ -13,7 +13,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { extname, join } from 'node:path';
 
-import { physicsDimensionOf, resolveRequiredModules } from '@thirdlight/exporter';
+import { resolveRequiredModules } from '@thirdlight/exporter';
 
 export interface TemplateInfo {
   id: string;
@@ -137,7 +137,5 @@ export function resolveTemplateModules(source: TemplateSource): ReturnType<typeo
     scene: source.scene as { entities?: Record<string, unknown>[] },
     behaviors,
     declared: source.requiredModules,
-    // A 3D template needs the 3D backend.
-    physicsDimension: physicsDimensionOf(content.settings),
   });
 }

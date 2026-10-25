@@ -1,6 +1,6 @@
 /**
- * The camera framework is simulation state — a neutral 3D scene
- * (physics_dimension 3) with a follow camera on the player (pulled in by a
+ * The camera framework is simulation state — a neutral 3D scene with a
+ * follow camera on the player (pulled in by a
  * wall behind it), an orbit-a-point camera turned in snapped steps by a
  * recorded input action, and a rail camera on a camera path, directed by a
  * script (`ctx.camera`: activate with an eased 1 s blend, the rail, a shake,
@@ -8,8 +8,10 @@
  * simulation worker (the game-host worker core) from the same recorded input,
  * every step's digest — the resolved camera included — is identical; the
  * camera the renderer gets (the host's observation) agrees frame by frame.
- * A 2D-plane scene keeps its scene camera's view until a virtual camera is
- * activated and blends back to it afterwards, the same in page and worker.
+ * A side-view scene (its player locked to the plane z = 0, looked at by a
+ * scene camera from the side) keeps that camera's view until a virtual
+ * camera is activated and blends back to it afterwards, the same in page
+ * and worker.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -169,12 +171,12 @@ describe('the camera is resolved in the simulation (two runs, page and worker)',
     }
   }, 180_000);
 
-  it('2D: the scene camera view until a virtual camera goes live, blended back to it after, alike in page and worker', async () => {
+  it('side view: the scene camera view until a virtual camera goes live, blended back to it after, alike in page and worker', async () => {
     const entities: Any[] = [
       { id: 'cam-main', components: { transform: T([0, 4, 12]), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 200 } } },
-      { id: 'player-0001', components: { transform: T([0, 0.91, 0]), controller: {} } },
+      { id: 'player-0001', components: { transform: T([0, 0.91, 0]), controller: { profile: 'arcade', plane: { axis: 'z', origin: 0 } } } },
       { id: 'spawn-0001', components: { transform: T([0, 0.91, 0]), playerSpawn: {} } },
-      { id: 'floor-0001', components: { transform: T([0, -0.5, 0]), box: { size: [40, 1, 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 20, hy: 0.5 } } } },
+      { id: 'floor-0001', components: { transform: T([0, -0.5, 0]), box: { size: [40, 1, 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 20, hy: 0.5, hz: 1 } } } },
       { id: 'cam-orbit', components: { transform: T([0, 0, 0]), virtualCamera: { rig: 'orbitPoint', enabled: false, target: 'player-0001', distance: 10, pitch: 30, yaw: 20, turnLeftAction: 'turnLeft' } } },
       { id: 'cam-rail', components: { transform: T([0, 0, 0]), virtualCamera: { rig: 'rail', enabled: false, path: 'track-0001', railSpeed: 10, blend: 'linear', blendTime: 0.25 } } },
       { id: 'track-0001', components: { transform: T([-4, 3, 10]), cameraPath: { points: [[0, 0, 0], [8, 0, 0]], smooth: false } } },
@@ -182,17 +184,12 @@ describe('the camera is resolved in the simulation (two runs, page and worker)',
     ];
     const settings = { run_speed: 5, jump_velocity: 8, gravity_y: -20, max_fall_speed: -20, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
     const snapshot = {
-      snapshotId: 'cam2d@r1',
-      projectId: 'cam2d',
+      snapshotId: 'camside@r1',
+      projectId: 'camside',
       revision: 1,
       scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities },
     };
-    const physics = {
-      character: { x: 0, y: 0.91 },
-      statics: [{ entityId: 'floor-0001', shape: { type: 'box', hx: 20, hy: 0.5 }, position: { x: 0, y: -0.5 }, rotationZ: 0 }],
-      solver: { hz: HZ, gravityY: settings.gravity_y },
-      controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: Math.PI / 4, minSlopeSlideRad: Math.PI / 6, autostep: false },
-    };
+    const physics = physics3DConfigOf(entities, settings);
     const a = await run('single', snapshot, physics, settings, 900);
     const w = await run('worker', snapshot, physics, settings, 900);
     try {

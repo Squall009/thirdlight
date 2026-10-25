@@ -3,13 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Thirdlight physics: the Rapier collision ports the runtime steps, 2D on the root entry and 3D on the ./3d entry (so 2D bundles never carry the 3D WASM).",
+  "description": "Thirdlight physics: the Rapier 3D collision port the runtime steps.",
   "exports": {
-    ".": "./src/index.ts",
-    "./3d": "./src/3d/index.ts"
+    ".": "./src/index.ts"
   },
   "dependencies": {
-    "@dimforge/rapier2d-compat": "0.20.0",
     "@dimforge/rapier3d-compat": "0.20.0",
     "@thirdlight/runtime": "0.1.0"
   },

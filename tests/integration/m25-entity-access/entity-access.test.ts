@@ -1,6 +1,6 @@
 /**
  * Generic component access through the production composition,
- * on the main thread and in the simulation worker, on the 2D plane and in 3D.
+ * on the main thread and in the simulation worker, in 3D.
  *
  * A neutral level and five scripts. The director reads and writes components
  * through `ctx.entity(id)` step by step and marks what it saw in counters:
@@ -17,7 +17,7 @@
  *   switched-off ledge does not collide (the character falls through it; it
  *   collides again once switched on), a switched-off trigger fires no event;
  * - `visible`;
- * - `character_place` (2D too): from rest, velocity reset;
+ * - `character_place`: from rest, velocity reset;
  * - a spawned prefab copy's object property names its own child (typed
  *   prefab-local reference), a text property spelling a local id is kept;
  * - `ctx.shell.nextScene()` moves to the next scene list entry.
@@ -171,10 +171,8 @@ const MATERIALS = [
   },
 ];
 
-type Dim = 2 | 3;
-
-function level(dim: Dim): { main: Any[]; two: Any[] } {
-  const box = (hx: number, hy: number, hz: number) => (dim === 3 ? { type: 'box', hx, hy, hz } : { type: 'box', hx, hy });
+function level(): { main: Any[]; two: Any[] } {
+  const box = (hx: number, hy: number, hz: number) => ({ type: 'box', hx, hy, hz });
   const main: Any[] = [
     { id: 'cam-main', components: { transform: T([0, 4, 14]), camera: { type: 'perspective', fovY: 50, near: 0.1, far: 300 } } },
     { id: 'player-0001', components: { transform: T([0, 0.91, 0]), controller: {} } },
@@ -183,7 +181,7 @@ function level(dim: Dim): { main: Any[]; two: Any[] } {
     { id: 'lamp-0001', components: { transform: T([0, 3, 0]), light: { type: 'point', color: '#ffffff', intensity: 30, range: 8, decay: 2 } } },
     { id: 'lift-0001', components: { transform: T([20, 1, 0]), box: { size: [1, 0.2, 1], material: { color: '#aaaaaa' } }, mover: { waypoints: [[4, 0, 0]], speed: 2, mode: 'pingpong' } } },
     { id: 'deco-0001', components: { transform: T([-10, 2, 0]), box: { size: [1, 1, 1], material: { color: '#ffffff' } }, materials: { '*': 'overlay' } } },
-    { id: 'zone-0001', components: { transform: T([-6, 1.5, 0]), trigger: dim === 3 ? { size: [2, 3, 2], signal: 'zone' } : { size: [2, 3], signal: 'zone' } } },
+    { id: 'zone-0001', components: { transform: T([-6, 1.5, 0]), trigger: { size: [2, 3, 2], signal: 'zone' } } },
     { id: 'director-0001', components: { transform: T([0, -5, 0]), behavior: { behaviorId: 'director', values: {} } } },
     { id: 'helper-0001', components: { transform: T([1, -5, 0]), behavior: { behaviorId: 'helper', values: {} } } },
     { id: 'ticker-0001', components: { transform: T([2, -5, 0]), behavior: { behaviorId: 'ticker', values: {} } } },
@@ -210,19 +208,7 @@ const PREFABS = [
   },
 ];
 
-const SETTINGS_2D = { run_speed: 4, jump_velocity: 8, gravity_y: -20, max_fall_speed: -20, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
-const SETTINGS_3D = { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
-
-function physicsOf(dim: Dim, main: Any[]): { settings: Any; physics: Any } {
-  if (dim === 3) return { settings: SETTINGS_3D, physics: physics3DConfigOf(main, SETTINGS_3D) };
-  const statics = main
-    .filter((e) => e.components.collider)
-    .map((e) => ({ entityId: e.id, shape: e.components.collider.shape, position: { x: e.components.transform.position[0], y: e.components.transform.position[1] }, rotationZ: 0 }));
-  return {
-    settings: SETTINGS_2D,
-    physics: { character: { x: 0, y: 0.91 }, statics, solver: { hz: 120, gravityY: SETTINGS_2D.gravity_y }, controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: Math.PI / 4, minSlopeSlideRad: Math.PI / 6, autostep: false } },
-  };
-}
+const SETTINGS = { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
 
 const PATTERN = [1, 2, 1, 0, 3, 1, 1, 2, 0, 1];
 const STEPS = 640;
@@ -237,12 +223,12 @@ interface Outcome {
   errors: Any[];
 }
 
-async function run(mode: Mode, dim: Dim): Promise<Outcome> {
-  const { main, two } = level(dim);
+async function run(mode: Mode): Promise<Outcome> {
+  const { main, two } = level();
   const h = await startHarness(mode, {
     snapshot: {
-      snapshotId: `access${dim}@r1`,
-      projectId: `access${dim}`,
+      snapshotId: 'access@r1',
+      projectId: 'access',
       revision: 1,
       scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities: main },
       scenes: [
@@ -253,8 +239,9 @@ async function run(mode: Mode, dim: Dim): Promise<Outcome> {
       prefabs: PREFABS,
       materialCatalog: materialCatalogOf(MATERIALS as Any, []),
     },
-    ...physicsOf(dim, main),
-    ...(dim === 3 ? { modules: MODULES_3D } : {}),
+    settings: SETTINGS,
+    physics: physics3DConfigOf(main, SETTINGS),
+    modules: MODULES_3D,
     behaviors: [
       behaviorModule('director', DIRECTOR),
       behaviorModule('helper', HELPER),
@@ -266,7 +253,7 @@ async function run(mode: Mode, dim: Dim): Promise<Outcome> {
       if (sceneId !== 'scene-two') throw new Error('unknown scene');
       return two;
     },
-    replay: Array.from({ length: STEPS + 200 }, (_, s) => ({ stepIndex: s, moveX: 0, ...(dim === 3 ? { moveY: 0 } : {}), jump: 'none' as const, actions: {} })),
+    replay: Array.from({ length: STEPS + 200 }, (_, s) => ({ stepIndex: s, moveX: 0, moveY: 0, jump: 'none' as const, actions: {} })),
     digestSteps: true,
   });
   try {
@@ -309,33 +296,31 @@ const MARKS = [
 ];
 
 describe('ctx.entity get/set, relaxed ownership, typed references, ctx.shell', () => {
-  for (const dim of [2, 3] as const) {
-    it(`reads, writes and refuses as described, alike in page and worker, replays identical (${dim}D)`, async () => {
-      const single = await run('single', dim);
-      const expected = Object.fromEntries(MARKS.map((m) => [m, 1]));
-      expect(single.counters, JSON.stringify(single.errors).slice(0, 2000)).toMatchObject(expected);
-      // The ticker was switched off for steps 41–100: it missed exactly 60 steps.
-      expect(single.counters['steps']! - single.counters['ticks']!).toBe(60);
-      // The switched-off zone fired nothing; switched on with the character inside, one entry.
-      expect(single.counters['enter']).toBe(1);
-      expect(single.hidden).toContain('deco-0001');
-      expect(single.inactive).toEqual([]);
-      expect(single.lights).toEqual([['lamp-0001', { intensity: 60, color: '#ff0000', range: 4 }]]);
-      // Two writers of the box in one step: one conflict, reported; refusals noted.
-      expect(single.writes).toMatchObject({ conflicts: 1 });
-      expect(single.writes.refused).toBeGreaterThanOrEqual(8);
-      expect(single.errors.some((e: Any) => e.code === 'entity_write' && e.reason === 'conflict' && /deco-0001/.test(e.message) && /helper/.test(e.message))).toBe(true);
-      expect(single.errors.some((e: Any) => e.code === 'entity_write' && e.reason === 'refused' && e.detail === 'field_not_writable' && /light\.type/.test(e.message))).toBe(true);
+  it('reads, writes and refuses as described, alike in page and worker, replays identical', async () => {
+    const single = await run('single');
+    const expected = Object.fromEntries(MARKS.map((m) => [m, 1]));
+    expect(single.counters, JSON.stringify(single.errors).slice(0, 2000)).toMatchObject(expected);
+    // The ticker was switched off for steps 41–100: it missed exactly 60 steps.
+    expect(single.counters['steps']! - single.counters['ticks']!).toBe(60);
+    // The switched-off zone fired nothing; switched on with the character inside, one entry.
+    expect(single.counters['enter']).toBe(1);
+    expect(single.hidden).toContain('deco-0001');
+    expect(single.inactive).toEqual([]);
+    expect(single.lights).toEqual([['lamp-0001', { intensity: 60, color: '#ff0000', range: 4 }]]);
+    // Two writers of the box in one step: one conflict, reported; refusals noted.
+    expect(single.writes).toMatchObject({ conflicts: 1 });
+    expect(single.writes.refused).toBeGreaterThanOrEqual(8);
+    expect(single.errors.some((e: Any) => e.code === 'entity_write' && e.reason === 'conflict' && /deco-0001/.test(e.message) && /helper/.test(e.message))).toBe(true);
+    expect(single.errors.some((e: Any) => e.code === 'entity_write' && e.reason === 'refused' && e.detail === 'field_not_writable' && /light\.type/.test(e.message))).toBe(true);
 
-      const worker = await run('worker', dim);
-      expect(worker.counters).toEqual(single.counters);
-      expect(worker.hidden).toEqual(single.hidden);
-      expect(worker.lights).toEqual(single.lights);
-      expect(worker.digests).toEqual(single.digests);
+    const worker = await run('worker');
+    expect(worker.counters).toEqual(single.counters);
+    expect(worker.hidden).toEqual(single.hidden);
+    expect(worker.lights).toEqual(single.lights);
+    expect(worker.digests).toEqual(single.digests);
 
-      // A second run plays the same, step for step.
-      const again = await run('single', dim);
-      expect(again.digests).toEqual(single.digests);
-    }, 240_000);
-  }
+    // A second run plays the same, step for step.
+    const again = await run('single');
+    expect(again.digests).toEqual(single.digests);
+  }, 240_000);
 });

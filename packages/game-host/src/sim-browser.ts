@@ -3,7 +3,7 @@
  * `Worker` on the page side, the worker's own global on the other. (Node uses
  * worker_threads with the same `SimEndpoint` shape; see the integration tests.)
  */
-import { PHYSICS_2D_GLOBAL, PHYSICS_3D_GLOBAL, type Physics2DModule, type Physics3DModule } from './physics-global';
+import { PHYSICS_3D_GLOBAL, type Physics3DModule } from './physics-global';
 import type { SimEndpoint, SimWorkerHandle } from './sim-protocol';
 
 interface WorkerLike {
@@ -77,18 +77,9 @@ async function loadBackendScript<T>(url: string, name: string, what: string): Pr
 }
 
 /**
- * Load the 2D physics backend script (`physics-2d.js`) once. Only an export
- * ships it as its own file (a project on the 2D plane), so a 3D game never
- * carries the 2D engine.
- */
-export function loadPhysics2D(url: string): Promise<Physics2DModule> {
-  return loadBackendScript<Physics2DModule>(url, PHYSICS_2D_GLOBAL, 'the 2D physics backend');
-}
-
-/**
- * Load the 3D physics backend script (`physics-3d.js`) once. Only a project
- * whose `physics_dimension` is 3 calls it, so a 2D game never fetches the 3D WASM.
+ * Load the physics backend script (`physics-3d.js`) once. Only a game that
+ * needs physics calls it, so one without never fetches the WASM.
  */
 export function loadPhysics3D(url: string): Promise<Physics3DModule> {
-  return loadBackendScript<Physics3DModule>(url, PHYSICS_3D_GLOBAL, 'the 3D physics backend');
+  return loadBackendScript<Physics3DModule>(url, PHYSICS_3D_GLOBAL, 'the physics backend');
 }

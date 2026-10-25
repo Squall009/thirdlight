@@ -40,17 +40,6 @@
       ]
     },
     {
-      "name": "@dimforge/rapier2d-compat",
-      "version": "0.20.0",
-      "license": null,
-      "class": "runtime-browser",
-      "bundles": [
-        "preview",
-        "preview-m3",
-        "export"
-      ]
-    },
-    {
       "name": "@dimforge/rapier3d-compat",
       "version": "0.20.0",
       "license": null,

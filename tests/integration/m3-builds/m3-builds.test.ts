@@ -183,27 +183,33 @@ describe('B21 the M3 export is a complete declared==emitted relative closure', (
     expect(flagged.forbidden.some((f) => f.includes('packages/backend/'))).toBe(true);
 
     // Positive control: a metafile with ONLY the allowed M3 composition graph
-    // (the bootstrap + game-host + runtime + the 2D controller + three + rapier)
-    // is clean.
+    // (the bootstrap + game-host + runtime with its character controller +
+    // three + the 3D physics port and its pinned rapier) is clean.
     const cleanMetafile = {
       inputs: {
         [M3_BOOTSTRAP]: {},
         'packages/game-host/src/host.ts': {},
         'packages/runtime/src/runtime.ts': {},
-        'packages/character/src/controller.ts': {},
+        'packages/runtime/src/character3d.ts': {},
         'packages/three-adapter/src/adapter.ts': {},
         'packages/input/src/browser.ts': {},
-        'packages/physics-rapier/src/port.ts': {},
+        'packages/physics-rapier/src/port3d.ts': {},
         'node_modules/three/build/three.module.js': {},
-        'node_modules/@dimforge/rapier2d-compat/dist/rapier.js': {},
+        'node_modules/@dimforge/rapier3d-compat/rapier.mjs': {},
         'thirdlight-export-modules:export-modules': {},
       },
     };
-    expect(checkBundleGraphM3(cleanMetafile, M3_BOOTSTRAP, ['thirdlight.character:controller']).ok).toBe(true);
-    // A manifest that names no platformer module may not link its package.
-    const without = checkBundleGraphM3(cleanMetafile, M3_BOOTSTRAP, []);
-    expect(without.ok).toBe(false);
-    expect(without.forbidden).toEqual(['packages/character/src/controller.ts']);
+    expect(checkBundleGraphM3(cleanMetafile, M3_BOOTSTRAP, ['thirdlight.character3d:controller']).ok).toBe(true);
+    // The controller is built into the runtime: a manifest without it links nothing it may not.
+    expect(checkBundleGraphM3(cleanMetafile, M3_BOOTSTRAP, []).ok).toBe(true);
+    // A package no engine module names, or a physics build other than the pinned one, is refused.
+    const outside = checkBundleGraphM3(
+      { inputs: { ...cleanMetafile.inputs, 'packages/character/src/controller.ts': {}, 'node_modules/@dimforge/rapier2d-compat/rapier.mjs': {} } },
+      M3_BOOTSTRAP,
+      ['thirdlight.character3d:controller'],
+    );
+    expect(outside.ok).toBe(false);
+    expect(outside.forbidden).toEqual(['packages/character/src/controller.ts', 'node_modules/@dimforge/rapier2d-compat/rapier.mjs']);
 
     // The emitted bundle (from the successful first export) carries no
     // forbidden content (the pipeline's forbidden-pattern gate passed):

@@ -169,8 +169,9 @@ assertEq(identity.fileCount, allRows.length, 'identity.fileCount = inventory len
 
 const lic = JSON.parse(readFileSync(join(FIXTURES_DIR, 'cases/license-inventory.json'), 'utf8'));
 const lock = JSON.parse(lockBytes.toString('utf8'));
-const expectedPins = ['three', 'react', 'react-dom', 'ws', '@dimforge/rapier2d-compat', '@modelcontextprotocol/sdk', 'esbuild', 'typescript', 'vitest'].map((n) => {
-  const e = lock.packages[`node_modules/${n}`];
+const pinLockPath = { '@dimforge/rapier3d-compat': 'packages/physics-rapier/node_modules/@dimforge/rapier3d-compat' };
+const expectedPins = ['three', 'react', 'react-dom', 'ws', '@dimforge/rapier3d-compat', '@modelcontextprotocol/sdk', 'esbuild', 'typescript', 'vitest'].map((n) => {
+  const e = lock.packages[pinLockPath[n] ?? `node_modules/${n}`];
   return { name: n, version: e?.version, license: e?.license ?? null };
 }).filter((p) => p.version);
 assertEq(lic.pins.map(({ name, version, license }) => ({ name, version, license })), expectedPins, 'license pins (name/version/license re-extracted from the lockfile)');

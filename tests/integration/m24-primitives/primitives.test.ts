@@ -1,8 +1,8 @@
 /**
  * The generic primitives through the production composition —
  * the real game host, the character controller and Rapier physics, a scene
- * without any game session — on the 2D plane and in 3D, in both threading
- * modes, driven by a recorded input:
+ * without any game session — in 3D, in both threading modes, driven by a
+ * recorded input:
  *
  * - the character walks through a collectible: its counter rises by the
  *   amount, it hides, sends its signal and a `collected` event, and comes
@@ -62,12 +62,11 @@ const DECLARATION = {
   ],
 };
 
-/** The level, in either dimension: a floor with the character, a collectible and a damaging hitbox; a second floor with a wall and a patroller. */
-function level(dim: 2 | 3): Any[] {
-  const z = dim === 3;
+/** The level: a floor with the character, a collectible and a damaging hitbox; a second floor with a wall and a patroller. */
+function level(): Any[] {
   const box = (id: string, c: number[], h: number[]): Any => ({
     id,
-    components: { transform: T(c), box: { size: [h[0]! * 2, h[1]! * 2, h[2]! * 2], material: { color: '#888888' } }, collider: { shape: z ? { type: 'box', hx: h[0], hy: h[1], hz: h[2] } : { type: 'box', hx: h[0], hy: h[1] } } },
+    components: { transform: T(c), box: { size: [h[0]! * 2, h[1]! * 2, h[2]! * 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: h[0], hy: h[1], hz: h[2] } } },
   });
   return [
     { id: 'cam-main', components: { transform: T([4, 4, 14]), camera: { type: 'perspective', fovY: 50, near: 0.1, far: 200 } } },
@@ -75,9 +74,9 @@ function level(dim: 2 | 3): Any[] {
     box('floor-a', [2, -0.5, 0], [4, 0.5, 2]),
     box('floor-b', [9.75, -0.5, 0], [2.75, 0.5, 2]),
     box('wall-0001', [12.5, 1, 0], [0.5, 1, 2]),
-    { id: 'token-0001', components: { transform: T([1.5, 0.9, 0]), collectible: { counter: 'items', amount: 2, onCollect: 'got', respawn: 1, size: z ? [1, 1, 1] : [1, 1] } } },
-    { id: 'thorn-0001', components: { transform: T([3.5, 0.25, 0]), hitbox: { size: z ? [0.5, 0.5, 0.5] : [0.5, 0.5], damage: 1 } } },
-    { id: 'walker-0001', components: { transform: T([9.5, 0.5, 0]), patrol: { mode: 'edges', speed: 2, size: z ? [1, 1, 1] : [1, 1] } } },
+    { id: 'token-0001', components: { transform: T([1.5, 0.9, 0]), collectible: { counter: 'items', amount: 2, onCollect: 'got', respawn: 1, size: [1, 1, 1] } } },
+    { id: 'thorn-0001', components: { transform: T([3.5, 0.25, 0]), hitbox: { size: [0.5, 0.5, 0.5], damage: 1 } } },
+    { id: 'walker-0001', components: { transform: T([9.5, 0.5, 0]), patrol: { mode: 'edges', speed: 2, size: [1, 1, 1] } } },
   ];
 }
 
@@ -86,27 +85,19 @@ afterEach(async () => {
   for (const h of live.splice(0)) await h.dispose();
 });
 
-async function run(mode: Mode, dim: 2 | 3): Promise<{ h: Harness; values: Record<string, Any>; counters: Record<string, number>; hiddenAt: boolean[] }> {
-  const entities = level(dim);
-  const settings = dim === 3 ? { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30 } : { run_speed: 4, jump_velocity: 8, gravity_y: -20, max_fall_speed: -20, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
-  const statics = entities
-    .filter((e) => e.components.collider)
-    .map((e) => ({ entityId: e.id, shape: e.components.collider.shape, position: { x: e.components.transform.position[0], y: e.components.transform.position[1] }, rotationZ: 0 }));
-  const physics =
-    dim === 3
-      ? physics3DConfigOf(entities, settings)
-      : { character: { x: 0, y: 0.91 }, statics, solver: { hz: 120, gravityY: settings.gravity_y }, controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: Math.PI / 4, minSlopeSlideRad: Math.PI / 6, autostep: false } };
-  // Walk right (+x) past the thorn (the 3D character walks at its 2 m/s default), then stand.
-  const walk = dim === 3 ? 270 : 150;
-  const replay = Array.from({ length: 480 }, (_, i) => ({ stepIndex: i, moveX: i < walk ? 1 : 0, ...(dim === 3 ? { moveY: 0 } : {}), jump: 'none' as const }));
+async function run(mode: Mode): Promise<{ h: Harness; values: Record<string, Any>; counters: Record<string, number>; hiddenAt: boolean[] }> {
+  const entities = level();
+  const settings = { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
+  // Walk right (+x) past the thorn (the character walks at its 2 m/s default), then stand.
+  const replay = Array.from({ length: 480 }, (_, i) => ({ stepIndex: i, moveX: i < 270 ? 1 : 0, moveY: 0, jump: 'none' as const }));
   const h = await startHarness(mode, {
-    snapshot: { snapshotId: `prims${dim}@r1`, projectId: `prims${dim}`, revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities } },
+    snapshot: { snapshotId: 'prims@r1', projectId: 'prims', revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities } },
     storage: true,
     settings,
-    physics,
+    physics: physics3DConfigOf(entities, settings),
     replay,
     digestSteps: true,
-    ...(dim === 3 ? { modules: MODULES_3D } : {}),
+    modules: MODULES_3D,
     behaviors: [behaviorModule('watch', WATCH, DECLARATION)],
   });
   live.push(h);
@@ -132,11 +123,11 @@ function expectInOrder(log: string[], expected: string[]): void {
   }
 }
 
-describe.each([2, 3] as const)('generic primitives (dimension %s)', (dim) => {
+describe('generic primitives', () => {
   const logs: Record<string, string[]> = {};
   const digests: Record<string, string[]> = {};
   it.each(MODES)('collectible, hitbox contact with damage, patrol turns and script health events (threading: %s)', async (mode) => {
-    const { h, values, counters, hiddenAt } = await run(mode, dim);
+    const { h, values, counters, hiddenAt } = await run(mode);
     const log = values['log'] as string[];
     logs[mode] = log;
     digests[mode] = [...h.digests];

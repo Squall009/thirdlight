@@ -22,7 +22,7 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 import { BlockGrid, applyBlockEdits, collisionMeshChunk, type BlockType } from '@thirdlight/project-model';
-import { createPhysicsPort3D } from '@thirdlight/physics-rapier/3d';
+import { createPhysicsPort3D } from '@thirdlight/physics-rapier';
 import { physics3DConfigOf, terrainColliderPieces } from '@thirdlight/runtime';
 
 const ON = process.env['TL_PERF'] === '1';

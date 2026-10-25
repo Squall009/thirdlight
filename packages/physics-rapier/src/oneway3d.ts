@@ -18,7 +18,7 @@
 import * as RAPIER from '@dimforge/rapier3d-compat';
 import type { PhysicsVec3 } from '@thirdlight/runtime';
 
-import { ONE_WAY_LANDING_TOLERANCE } from '../constants';
+import { ONE_WAY_LANDING_TOLERANCE } from './constants';
 
 /** A one-way collider's own facts: its top and how far it reaches from its body's origin, in the body's frame. */
 export interface OneWayShape {

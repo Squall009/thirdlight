@@ -7,6 +7,6 @@
  * names — `thirdlight:export-modules`.)
  */
 import type { SimulationModuleSpec } from '@thirdlight/runtime';
-import { characterControllerSpec } from '@thirdlight/character';
 
-export const PREVIEW_MODULE_SPECS: readonly SimulationModuleSpec[] = Object.freeze([characterControllerSpec]);
+/** None today: the character controller is a runtime built-in. */
+export const PREVIEW_MODULE_SPECS: readonly SimulationModuleSpec[] = Object.freeze([]);

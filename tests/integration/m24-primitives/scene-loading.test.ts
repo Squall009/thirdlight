@@ -9,11 +9,13 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { createScenePreloader } from '@thirdlight/game-host';
+import { physics3DConfigOf } from '@thirdlight/runtime';
 
 import { FakeNode, MODES, startHarness, type Harness, type Mode } from '../m22-worker/harness';
 
 type Any = any;
 const DT = 1 / 120;
+const SETTINGS = { run_speed: 4, jump_velocity: 8, gravity_y: -20, max_fall_speed: -20, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
 const T = (position: number[]) => ({ position, rotation: [0, 0, 0, 1], scale: [1, 1, 1] });
 
 const HUD = { uiDocumentId: 'hud', name: 'HUD', root: { type: 'text', id: 'state', text: 'loading={$flow.scenes.loading} phase={$flow.scenes.transition.phase}' } };
@@ -50,7 +52,7 @@ async function run(mode: Mode): Promise<Record<string, Any>> {
   const main = [
     { id: 'cam-main', components: { transform: T([4, 4, 14]), camera: { type: 'perspective', fovY: 50, near: 0.1, far: 200 } } },
     { id: 'player-0001', components: { transform: T([0, 0.91, 0]), controller: {} } },
-    { id: 'floor-a', components: { transform: T([3, -0.5, 0]), box: { size: [28, 1, 4], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 14, hy: 0.5 } } } },
+    { id: 'floor-a', components: { transform: T([3, -0.5, 0]), box: { size: [28, 1, 4], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 14, hy: 0.5, hz: 2 } } } },
   ];
   const side = [{ id: 'wall-a', components: { transform: T([0, 3, -4]), box: { size: [20, 10, 1], material: { color: '#aa3333' } } } }, { id: 'door-a', components: { transform: T([0, 1, 0]), trigger: { size: [3, 3], signal: 'door', sceneTransition: { scene: 'scene-two', unload: ['scene-side'], fade: 0.25, fadeColor: '#102030' } } } }];
   const two = [{ id: 'floor-b', components: { transform: T([45, -0.5, 0]), box: { size: [12, 1, 4], material: { color: '#888888' } } } }];
@@ -80,8 +82,8 @@ async function run(mode: Mode): Promise<Record<string, Any>> {
       ],
       uiDocuments: [{ uiDocumentId: 'hud', layer: 0, modal: false }],
     },
-    settings: { run_speed: 4, jump_velocity: 8, gravity_y: -20, max_fall_speed: -20, max_slope_climb_deg: 45, min_slope_slide_deg: 30 },
-    physics: { character: { x: 0, y: 0.91 }, statics: [{ entityId: 'floor-a', shape: { type: 'box', hx: 14, hy: 0.5 }, position: { x: 3, y: -0.5 }, rotationZ: 0 }], solver: { hz: 120, gravityY: -20 }, controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: Math.PI / 4, minSlopeSlideRad: Math.PI / 6, autostep: false } },
+    settings: SETTINGS,
+    physics: physics3DConfigOf(main, SETTINGS),
     loadScene: scenes.load,
     host: { container, ui: { documents: [HUD] }, shell: { hud: ['hud'] }, scenes },
   });

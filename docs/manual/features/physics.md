@@ -316,13 +316,12 @@ walks either). A recorded
 input replays the same positions in the page, the simulation worker and the
 export.
 
-**Files.** Each physics backend is a separate script, so a game downloads
-only the one of its dimension: Play loads `/physics-3d.js` from the preview
-origin for a 3D project; an export ships only its own, `js/physics-2d.js` or
-`js/physics-3d.js`, with rapier's WebAssembly beside it as its own file
-(`js/physics-2d.wasm` / `js/physics-3d.wasm`; the 3D one 1.4 MB, 0.5 MB
-gzipped), fetched when the physics starts, and lists the
-`@dimforge/rapier2d-compat` or `rapier3d-compat` license. The backend loads in
+**Files.** The physics backend is a separate script, so a game without
+physics downloads none of it: Play loads `/physics-3d.js` from the preview
+origin; an export ships `js/physics-3d.js` with rapier's WebAssembly beside it
+as its own file (`js/physics-3d.wasm`, 1.9 MB, 0.7 MB gzipped), fetched when
+the physics starts, and lists the `@dimforge/rapier3d-compat` license. One
+engine ships for every game, side views included. The backend loads in
 the simulation worker or, single-threaded, in the page, and registers itself
 through game-host's dependency-free `physics-global` module; an export's page
 and worker scripts carry no physics of their own.

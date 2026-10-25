@@ -19,7 +19,7 @@
  *   waits), and a 240 Hz game at 30 fps keeps real time without dropped steps.
  */
 import { randomBytes } from 'node:crypto';
-import { createReadStream, existsSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, readdirSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 
@@ -281,9 +281,8 @@ test('the export: the worker by default (messages; shared memory under COOP/COEP
   await be!.halt();
   const dir = join(be!.exportRoot, String(res.json.outputDir));
   expect(existsSync(join(dir, 'js', 'sim-worker.js'))).toBe(true);
-  // One physics backend: the starter's plane scene ships the 3D engine.
-  expect(existsSync(join(dir, 'js', 'physics-3d.wasm'))).toBe(true);
-  expect(existsSync(join(dir, 'js', 'physics-2d.js'))).toBe(false);
+  // One physics backend: the starter's plane scene ships the one engine, and no other WASM.
+  expect(readdirSync(join(dir, 'js')).filter((f) => f.endsWith('.wasm'))).toEqual(['physics-3d.wasm']);
   const cases: { isolated: boolean; query: string; want: { mode: string; transport: string | null; isolated: boolean } }[] = [
     // `?simDelayMs=` slows the worker in editor Play only: an export ignores it.
     { isolated: false, query: '?simDelayMs=40', want: { mode: 'worker', transport: 'message', isolated: false } },

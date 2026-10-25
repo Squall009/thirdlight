@@ -1,7 +1,7 @@
 /**
  * A game that starts without a player, through the production composition
- * (the real game host, the character controllers and Rapier), on the 2D
- * plane and in 3D, on the main thread and in the simulation worker. The
+ * (the real game host, the character controller and Rapier), in 3D, on the
+ * main thread and in the simulation worker. The
  * start scene holds a camera and a script only; the script loads a level
  * whose player stands above its floor. The player arrives with the level:
  * it falls onto the floor, walks right on the recorded input, and when the
@@ -10,17 +10,15 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { physics2DConfigOf, physics3DConfigOf } from '@thirdlight/runtime';
+import { physics3DConfigOf } from '@thirdlight/runtime';
 
 import { modulesOf } from '../../game-modules';
 import { behaviorModule, startHarness, type Mode } from '../m22-worker/harness';
 
 type Any = any;
-type Dim = 2 | 3;
 const DT = 1 / 120;
 const T = (position: number[]) => ({ position, rotation: [0, 0, 0, 1], scale: [1, 1, 1] });
-const SETTINGS_2D = { run_speed: 4, jump_velocity: 8, gravity_y: -20, max_fall_speed: -20, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
-const SETTINGS_3D = { ...SETTINGS_2D };
+const SETTINGS = { run_speed: 4, jump_velocity: 8, gravity_y: -20, max_fall_speed: -20, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
 
 /** Loads the level at step 10, unloads it at step 300 and loads it again at step 320; logs the player every 10 steps. */
 const DIRECTOR = `
@@ -47,29 +45,28 @@ function start(): Any[] {
 }
 
 /** The level: a floor whose top is at y 0, and the player 2 m above it at x −2. */
-function level(dim: Dim): Any[] {
+function level(): Any[] {
   return [
     { id: 'player-0001', components: { transform: T([-2, 2.9, 0]), controller: {} } },
-    { id: 'floor-0001', components: { transform: T([0, -0.5, 0]), collider: { shape: dim === 3 ? { type: 'box', hx: 15, hy: 0.5, hz: 4 } : { type: 'box', hx: 15, hy: 0.5 } } } },
+    { id: 'floor-0001', components: { transform: T([0, -0.5, 0]), collider: { shape: { type: 'box', hx: 15, hy: 0.5, hz: 4 } } } },
   ];
 }
 
-/** The recorded input: `move` pushes right for steps 150–269 (3D reads x as across). */
+/** The recorded input: `move` pushes right for steps 150–269 (x reads as across). */
 function recording(n: number): Any[] {
   return Array.from({ length: n + 100 }, (_, s) => ({ stepIndex: s, actions: s >= 150 && s < 270 ? { move: { v: 1, x: 1, y: 0, p: 'none' } } : {} }));
 }
 
-async function run(mode: Mode, dim: Dim, steps: number): Promise<{ log: [number, number[] | null][]; digests: string[]; errors: Any[]; observed: Any }> {
+async function run(mode: Mode, steps: number): Promise<{ log: [number, number[] | null][]; digests: string[]; errors: Any[]; observed: Any }> {
   const main = start();
-  const later = level(dim);
-  const settings = dim === 3 ? SETTINGS_3D : SETTINGS_2D;
+  const later = level();
   // The required modules come from every scene (the build's rule), so the level's player and floor name them.
-  const physics = dim === 3 ? physics3DConfigOf(main, SETTINGS_3D, { required: true }) : physics2DConfigOf(main as Any, SETTINGS_2D, { required: true });
-  const modules = modulesOf({ scene: { entities: [...main, ...later] } } as Any, settings, physics);
+  const physics = physics3DConfigOf(main, SETTINGS, { required: true });
+  const modules = modulesOf({ scene: { entities: [...main, ...later] } } as Any);
   const h = await startHarness(mode, {
     snapshot: {
-      snapshotId: `late${dim}@r1`,
-      projectId: `late${dim}`,
+      snapshotId: 'late@r1',
+      projectId: 'late',
       revision: 1,
       scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities: main },
       scenes: [
@@ -78,12 +75,12 @@ async function run(mode: Mode, dim: Dim, steps: number): Promise<{ log: [number,
       ],
     },
     storage: true,
-    settings,
+    settings: SETTINGS,
     physics,
     modules,
     replay: recording(steps),
     digestSteps: true,
-    loadScene: async () => level(dim),
+    loadScene: async () => level(),
     behaviors: [behaviorModule('director', DIRECTOR)],
   });
   try {
@@ -103,37 +100,35 @@ async function run(mode: Mode, dim: Dim, steps: number): Promise<{ log: [number,
   }
 }
 
-for (const dim of [2, 3] as const) {
-  describe(`a player that arrives with a later scene (${dim}D)`, () => {
-    it('falls onto the level floor, walks on its input, comes back where the level puts it — identical in page and worker', async () => {
-      const STEPS = 420;
-      const a = await run('single', dim, STEPS);
-      const w = await run('worker', dim, STEPS);
-      expect(a.errors).toEqual([]);
-      const at = (step: number): number[] | null => a.log.find(([s]) => s === step)?.[1] ?? null;
-      // Not there before the level loads.
-      expect(at(0)).toBeNull();
-      // Landed on the floor (top 0, half its 1.8 m height and the skin above it), still where it was authored.
-      const landed = at(140)!;
-      expect(landed[0]).toBeCloseTo(-2, 3);
-      expect(landed[1]).toBeGreaterThan(0.9 - 1e-3);
-      expect(landed[1]).toBeLessThan(0.9 + 0.03);
-      // Walked right on its input for a second (3D walks unless run is held), standing on the floor.
-      const walked = at(290)!;
-      expect(walked[0]).toBeGreaterThan(landed[0] + 1);
-      expect(walked[1]).toBeLessThan(0.9 + 0.03);
-      // Gone with its level, then back where the level puts it (falling from there again).
-      expect(at(310)).toBeNull();
-      const back = at(330)!;
-      expect(back[0]).toBeCloseTo(-2, 3);
-      expect(back[1]).toBeGreaterThan(landed[1]);
-      expect(at(410)![1]).toBeLessThan(0.9 + 0.03);
-      expect(a.observed?.y).toBeCloseTo(at(410)![1], 1);
-      expect(w.observed?.y).toBeCloseTo(at(410)![1], 1);
-      const n = Math.min(a.digests.length, w.digests.length);
-      expect(n).toBeGreaterThanOrEqual(STEPS);
-      expect(w.digests.slice(0, n)).toEqual(a.digests.slice(0, n));
-      expect(w.log).toEqual(a.log);
-    }, 180_000);
-  });
-}
+describe('a player that arrives with a later scene', () => {
+  it('falls onto the level floor, walks on its input, comes back where the level puts it — identical in page and worker', async () => {
+    const STEPS = 420;
+    const a = await run('single', STEPS);
+    const w = await run('worker', STEPS);
+    expect(a.errors).toEqual([]);
+    const at = (step: number): number[] | null => a.log.find(([s]) => s === step)?.[1] ?? null;
+    // Not there before the level loads.
+    expect(at(0)).toBeNull();
+    // Landed on the floor (top 0, half its 1.8 m height and the skin above it), still where it was authored.
+    const landed = at(140)!;
+    expect(landed[0]).toBeCloseTo(-2, 3);
+    expect(landed[1]).toBeGreaterThan(0.9 - 1e-3);
+    expect(landed[1]).toBeLessThan(0.9 + 0.03);
+    // Walked right on its input for a second (it walks unless run is held), standing on the floor.
+    const walked = at(290)!;
+    expect(walked[0]).toBeGreaterThan(landed[0] + 1);
+    expect(walked[1]).toBeLessThan(0.9 + 0.03);
+    // Gone with its level, then back where the level puts it (falling from there again).
+    expect(at(310)).toBeNull();
+    const back = at(330)!;
+    expect(back[0]).toBeCloseTo(-2, 3);
+    expect(back[1]).toBeGreaterThan(landed[1]);
+    expect(at(410)![1]).toBeLessThan(0.9 + 0.03);
+    expect(a.observed?.y).toBeCloseTo(at(410)![1], 1);
+    expect(w.observed?.y).toBeCloseTo(at(410)![1], 1);
+    const n = Math.min(a.digests.length, w.digests.length);
+    expect(n).toBeGreaterThanOrEqual(STEPS);
+    expect(w.digests.slice(0, n)).toEqual(a.digests.slice(0, n));
+    expect(w.log).toEqual(a.log);
+  }, 180_000);
+});

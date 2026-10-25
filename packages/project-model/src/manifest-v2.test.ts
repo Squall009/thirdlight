@@ -130,8 +130,8 @@ describe('manifest-v2: captureManifestV2 assembly', () => {
     expect(ids).toEqual([...ids].sort());
     const physics = res.manifest.modules.find((m) => m['id'] === 'thirdlight.physics-rapier:3d') as Record<string, unknown>;
     expect(physics['package']).toBe('@thirdlight/physics-rapier');
-    const controller = res.manifest.modules.find((m) => m['id'] === 'thirdlight.character:controller') as Record<string, unknown>;
-    expect(controller['package']).toBe('@thirdlight/character');
+    const controller = res.manifest.modules.find((m) => m['id'] === 'thirdlight.character3d:controller') as Record<string, unknown>;
+    expect(controller['package']).toBe('@thirdlight/runtime');
   });
 });
 

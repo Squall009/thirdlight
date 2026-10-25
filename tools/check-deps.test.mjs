@@ -134,7 +134,6 @@ describe('check 6 — dependency pinning', () => {
       'react-dom': '19.3.0',
       '@types/react': '19.3.0',
       '@types/react-dom': '19.3.0',
-      '@dimforge/rapier2d-compat': '0.20.0',
       '@dimforge/rapier3d-compat': '0.20.0',
       '@playwright/test': '1.62.1',
       'playwright-core': '1.62.1',

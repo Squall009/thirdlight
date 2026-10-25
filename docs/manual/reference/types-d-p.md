@@ -1423,9 +1423,9 @@ Declared in `packages/project-model/src/model-collision.ts`.
 
 ```ts
 /**
- * What a conversion makes: a box around the render geometry; in 3D a hull
- * or mesh of the collision node (else the geometry), on a 2D plane its
- * polygon; or a compound of the collision node's convex parts.
+ * What a conversion makes: a box around the render geometry; a hull or
+ * mesh of the collision node (else the geometry); its XY outline as a
+ * polygon prism; or a compound of the collision node's convex parts.
  */
 type ModelColliderKind = 'box' | 'convex' | 'mesh' | 'polygon' | 'compound';
 ```

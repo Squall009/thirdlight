@@ -6,12 +6,12 @@
  * only), the shared production composition `game-host` and the generic engine
  * packages — `runtime`, `three-adapter` (with its `effects`),
  * `project-model`, `input`, `physics-rapier` — plus `three`, the pinned
- * `@dimforge/rapier2d-compat` (and `@dimforge/rapier3d-compat`, the 3D
- * backend's `js/physics-3d.js` of a 3D project), and the per-snapshot
+ * `@dimforge/rapier3d-compat` (the backend's `js/physics-3d.js` of a game
+ * with physics), and the per-snapshot
  * virtual module the export build generates in memory
  * (`thirdlight:export-modules`). A
- * module package outside that set (the character controller ones) is allowed only when
- * the manifest names one of its modules.
+ * module package outside that set is allowed only when the manifest names
+ * one of its modules.
  *
  * Forbidden (any node): `backend`, `editor`, `workspace`, `commands`,
  * `mcp-adapter`, `protocol`, `exporter` beyond the bootstrap, `behavior-build`,
@@ -55,8 +55,8 @@ export function modulePackagesOf(moduleIds: readonly string[]): string[] {
 function allowed(p: string, packages: readonly string[]): boolean {
   if (packages.some((name) => p.includes(`packages/${name}/src/`))) return true;
   if (p.includes('node_modules/three/')) return true;
-  // The approved physics pins (decision 0005 for 3D): the compat builds and their inlined WASM modules.
-  return p.includes('node_modules/@dimforge/rapier2d-compat/') || p.includes('node_modules/@dimforge/rapier3d-compat/');
+  // The approved physics pin (decision 0007): the compat build and its inlined WASM module.
+  return p.includes('node_modules/@dimforge/rapier3d-compat/');
 }
 
 /**

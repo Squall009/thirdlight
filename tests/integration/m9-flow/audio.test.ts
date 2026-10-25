@@ -8,8 +8,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { createGameHost } from '@thirdlight/game-host';
-import { createPhysicsPort } from '@thirdlight/physics-rapier';
-import { createBehaviorModuleSpec } from '@thirdlight/runtime';
+import { createPhysicsPort3D } from '@thirdlight/physics-rapier';
+import { createBehaviorModuleSpec, physics3DConfigOf } from '@thirdlight/runtime';
 import { withGameModules } from '../../game-modules';
 
 type Any = any;
@@ -58,17 +58,12 @@ describe('sounds (real host, Rapier)', () => {
   it('ctx.audio.play reaches the audio owner; an audio source is louder near the character', async () => {
     const entities: Any[] = [
       { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 200 } } },
-      { id: 'player-0001', components: { transform: at(0, 0.91), controller: {}, behavior: { behaviorId: 'beeper', values: { speed: 1 } } } },
+      { id: 'player-0001', components: { transform: at(0, 0.91), controller: { profile: 'arcade', plane: { axis: 'z', origin: 0 } }, behavior: { behaviorId: 'beeper', values: { speed: 1 } } } },
       { id: 'spawn-0001', components: { transform: at(0, 0.91), playerSpawn: {} } },
-      { id: 'floor-0001', components: { transform: at(10, -0.5), box: { size: [40, 1, 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 20, hy: 0.5 } } } },
+      { id: 'floor-0001', components: { transform: at(10, -0.5), box: { size: [40, 1, 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 20, hy: 0.5, hz: 1 } } } },
       { id: 'brook-0001', components: { transform: at(20, 0.5), audioSource: { assetId: 'brook', volume: 0.8, range: 12 } } },
     ];
-    const physics = await createPhysicsPort({
-      character: { x: 0, y: 0.91 },
-      statics: [{ entityId: 'floor-0001', shape: { type: 'box', hx: 20, hy: 0.5 }, position: { x: 10, y: -0.5 }, rotationZ: 0 }],
-      solver: { hz: 120, gravityY: SETTINGS.gravity_y },
-      controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: Math.PI / 4, minSlopeSlideRad: Math.PI / 6, autostep: false },
-    } as Any);
+    const physics = await createPhysicsPort3D(physics3DConfigOf(entities, SETTINGS)!);
     if (!physics.ok) throw new Error(JSON.stringify(physics.error));
     // A script that beeps once every 60 steps.
     const beeper = createBehaviorModuleSpec({

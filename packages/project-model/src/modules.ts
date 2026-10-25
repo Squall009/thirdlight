@@ -37,21 +37,17 @@ export interface EngineModule {
   spec?: string;
 }
 
-/** The physics backends' module ids: a host whose manifest names one injects that port. */
-export const PHYSICS_2D_MODULE_ID = 'thirdlight.physics-rapier:2d';
+/** The physics backend's module id: a host whose manifest names it injects the port. */
 export const PHYSICS_3D_MODULE_ID = 'thirdlight.physics-rapier:3d';
 
 export const ENGINE_MODULES: readonly EngineModule[] = Object.freeze(([
   { id: 'thirdlight.demo:box-motion', package: '@thirdlight/runtime', kind: 'simulation', requires: [] },
   { id: 'thirdlight.input:keyboard-gamepad', package: '@thirdlight/input', kind: 'port', requires: [] },
-  { id: PHYSICS_2D_MODULE_ID, package: '@thirdlight/physics-rapier', kind: 'port', requires: [] },
-  // The 3D backend (a project whose physics_dimension is 3).
   { id: PHYSICS_3D_MODULE_ID, package: '@thirdlight/physics-rapier', kind: 'port', requires: [] },
-  // The 3D kinematic character controller (a runtime built-in, like the demo module).
+  // The kinematic character controller (a runtime built-in, like the demo module). Listed in
+  // dependency order (a module after the modules it needs): a composition registers the selected
+  // specs in this order.
   { id: 'thirdlight.character3d:controller', package: '@thirdlight/runtime', kind: 'simulation', requires: [PHYSICS_3D_MODULE_ID, 'thirdlight.input:keyboard-gamepad'] },
-  // Listed in dependency order (a module after the modules it needs): a
-  // composition registers the selected specs in this order.
-  { id: 'thirdlight.character:controller', package: '@thirdlight/character', kind: 'simulation', requires: [PHYSICS_2D_MODULE_ID, 'thirdlight.input:keyboard-gamepad'], spec: 'characterControllerSpec' },
   { id: 'thirdlight.three-adapter:gltf-loader', package: '@thirdlight/three-adapter', kind: 'port', requires: [] },
 ] as EngineModule[]).map((m) => Object.freeze(m)));
 
@@ -63,30 +59,28 @@ export const ENGINE_MODULE_IDS: readonly string[] = Object.freeze([...BY_ID.keys
 /**
  * What a behavior may require, by engine package id → the modules that
  * dependency implies. `@thirdlight/runtime` is the behavior API itself
- * (always present). The character package is not a behavior
- * dependency (the compiler does not pin it); a script that needs the
- * character controller references it through a `controller` component.
+ * (always present). A script that needs the character controller
+ * references it through a `controller` component.
  */
 export const BEHAVIOR_PACKAGE_MODULES: Readonly<Record<string, readonly string[]>> = Object.freeze({
   '@thirdlight/runtime': [],
-  '@thirdlight/physics-rapier': [PHYSICS_2D_MODULE_ID],
+  '@thirdlight/physics-rapier': [PHYSICS_3D_MODULE_ID],
   '@thirdlight/input': ['thirdlight.input:keyboard-gamepad'],
   '@thirdlight/three-adapter': ['thirdlight.three-adapter:gltf-loader'],
 });
 
 /**
- * The module a scene component references, by the project's
- * physics dimension. Presence of the component is the reference; nothing
- * else about a project selects a module.
+ * The module a scene component references. Presence of the component is the
+ * reference; nothing else about a project selects a module.
  */
-export const COMPONENT_MODULES: Readonly<Record<string, { readonly plane2d: string | null; readonly world3d: string | null }>> = Object.freeze({
-  // The character controller (2D: the plane controller; 3D: the kinematic character controller).
-  controller: Object.freeze({ plane2d: 'thirdlight.character:controller', world3d: 'thirdlight.character3d:controller' }),
+export const COMPONENT_MODULES: Readonly<Record<string, string>> = Object.freeze({
+  // The kinematic character controller.
+  controller: 'thirdlight.character3d:controller',
   // A glTF model needs the loader port.
-  model: Object.freeze({ plane2d: 'thirdlight.three-adapter:gltf-loader', world3d: 'thirdlight.three-adapter:gltf-loader' }),
-  // In 3D a collider alone needs the backend (rays and picks without a character); the 2D plane builds its world from the controller.
-  collider: Object.freeze({ plane2d: null, world3d: PHYSICS_3D_MODULE_ID }),
-  blockLayer: Object.freeze({ plane2d: null, world3d: PHYSICS_3D_MODULE_ID }),
+  model: 'thirdlight.three-adapter:gltf-loader',
+  // A collider alone needs the backend (rays and picks without a character).
+  collider: PHYSICS_3D_MODULE_ID,
+  blockLayer: PHYSICS_3D_MODULE_ID,
 });
 
 /**
@@ -103,12 +97,6 @@ export interface ResolveModulesInput {
   declared?: readonly string[];
   /** The demo module (box motion) is selected. */
   demo?: boolean;
-  /**
-   * The project's physics dimension (absent: 2, the 2D plane). In
-   * 3D a `controller` needs the 3D backend (`thirdlight.physics-rapier:3d`),
-   * not the 2D plane controller.
-   */
-  physicsDimension?: 2 | 3;
 }
 
 export interface UnresolvedModule {
@@ -131,14 +119,9 @@ export function resolveRequiredModules(input: ResolveModulesInput): ResolveModul
   };
 
   if (input.demo === true) want('thirdlight.demo:box-motion', 'declared');
-  const threeD = input.physicsDimension === 3;
   for (const e of input.scene?.entities ?? []) {
     const c = (e['components'] ?? {}) as Record<string, unknown>;
-    for (const [component, refs] of Object.entries(COMPONENT_MODULES)) {
-      if (c[component] === undefined) continue;
-      const id = threeD ? refs.world3d : refs.plane2d;
-      if (id !== null) want(id, 'scene');
-    }
+    for (const [component, id] of Object.entries(COMPONENT_MODULES)) if (c[component] !== undefined) want(id, 'scene');
   }
   for (const b of input.behaviors ?? []) {
     for (const pkg of b.requiredModules) {
@@ -147,8 +130,7 @@ export function resolveRequiredModules(input: ResolveModulesInput): ResolveModul
         unresolved.push({ id: pkg, requiredBy: `behavior:${b.behaviorId}` });
         continue;
       }
-      // A 3D project's physics is the 3D backend.
-      for (const id of ids) want(threeD && id === PHYSICS_2D_MODULE_ID ? PHYSICS_3D_MODULE_ID : id, `behavior:${b.behaviorId}`);
+      for (const id of ids) want(id, `behavior:${b.behaviorId}`);
     }
   }
   for (const id of input.declared ?? []) want(id, 'declared');

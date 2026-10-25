@@ -30,7 +30,7 @@ const ref = (id: string): Rows => readTrace(id).rows;
 
 beforeAll(async () => {
   for (const c of CASES) {
-    const r = await recordCase(c, 3, { profile: 'arcade', plane: { axis: 'z', origin: 0 } });
+    const r = await recordCase(c, { profile: 'arcade', plane: { axis: 'z', origin: 0 } });
     expect(r.errors, c.id).toEqual([]);
     got.set(c.id, r.rows);
   }

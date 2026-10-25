@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 
 import { validateProjectV4 } from './project-v4';
 import { canonicalController } from './components';
-import { physicsDimensionOf, resolveGameplaySettings } from './content';
+import { resolveGameplaySettings } from './content';
 import { validateSceneV3, validateSceneV4 } from './scene-v3';
 
 const T = (rotation: number[] = [0, 0, 0, 1], position: number[] = [0, 0, 0]) => ({ position, rotation, scale: [1, 1, 1] });
@@ -36,11 +36,9 @@ function problems(settings: Record<string, unknown>, entities: unknown[]): { cod
 }
 
 describe('the retired physics_dimension setting', () => {
-  it('is refused in the settings; every project resolves to the 3D backend', () => {
+  it('is refused in the settings', () => {
     const plain = resolveGameplaySettings({ settings: {} });
     expect(plain.ok && Object.keys(plain.normalized)).not.toContain('physics_dimension');
-    expect(physicsDimensionOf({})).toBe(3);
-    expect(physicsDimensionOf({ physics_dimension: 2 })).toBe(3);
     expect(resolveGameplaySettings({ settings: { physics_dimension: 3 } }).ok).toBe(false);
   });
 });

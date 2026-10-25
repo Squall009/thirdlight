@@ -7,7 +7,7 @@
 import type * as RAPIER from '@dimforge/rapier3d-compat';
 import type { PhysicsInitConfig3D, PhysicsVec3 } from '@thirdlight/runtime';
 
-import { GROUND_NORMAL_TOLERANCE } from '../constants';
+import { GROUND_NORMAL_TOLERANCE } from './constants';
 
 /** What stepping reads of a character: its capsule, its own Rapier controller, its tuning, radius and centre offset. */
 export interface StepBody {

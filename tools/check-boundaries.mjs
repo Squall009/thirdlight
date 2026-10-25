@@ -91,7 +91,6 @@ export const UNITS = [
   'asset-pipeline',
   'input',
   'physics-rapier',
-  'character',
   'behavior-build',
   // The CPU reference semantics of visual-effect graphs.
   'effects',
@@ -188,7 +187,7 @@ export const NODE_SIDE_ALLOWED = {
   // (the host defines the structural HostRenderAdapter surface; the adapter
   // instance is injected) — its types-only allowance stays unexercised.
   // The concrete physics-rapier port, three canvas and audio context are
-  // injected (no value edge to them). No character edges — the
+  // injected (no value edge to them). The
   // simulation module specs are injected by the composition entries (the
   // preview's module-specs.ts, the export's generated thirdlight:export-modules).
   'game-host': {
@@ -290,15 +289,14 @@ export const NODE_SIDE_ALLOWED = {
       ],
     },
   },
-  // "physics-rapier | runtime (types) + @dimforge/rapier2d-compat
+  // "physics-rapier | runtime (types) + @dimforge/rapier3d-compat
   // (the approved pin)". The adapter never imports a concrete runtime
   // value (the runtime owns stepping and hands it only the port shape), and it
   // may not reach editor/backend/protocol/workspace/three (of project-model,
   // only its types and the limits subpath).
-  // + @dimforge/rapier3d-compat for the `./3d` subpath.
   'physics-rapier': {
     packages: ['runtime', 'project-model'],
-    external: ['@dimforge/rapier2d-compat', '@dimforge/rapier3d-compat'],
+    external: ['@dimforge/rapier3d-compat'],
     node: [],
     typesOnly: { runtime: true, 'project-model': true },
     valueSubpaths: {
@@ -306,15 +304,6 @@ export const NODE_SIDE_ALLOWED = {
         'limits', // the ports re-check the model's collider shape limits
       ],
     },
-  },
-  // The character package: the controller algorithm over the injected
-  // input/physics ports; it may not reach the concrete physics adapter, the
-  // input package, three.js, authoring, backend or Node built-ins.
-  character: {
-    packages: ['runtime'],
-    external: [],
-    node: [],
-    typesOnly: { runtime: true },
   },
   // "behavior-build | project-model (types +
   // parseSourceGraphContainer/validateDeclaration), esbuild (the pinned
@@ -427,25 +416,6 @@ const BUNDLE_ENTRY_EDGES = {
     external: ['three'],
     node: [],
   },
-  // The export bundle: `export-bootstrap-m2.ts`'s
-  // direct edges are the runtime-bundle graph (runtime/three-adapter/
-  // project-model/input/character/physics-rapier + three), plus the two
-  // per-snapshot virtual modules the export build generates in memory
-  // (`thirdlight:export-artifacts`, `thirdlight:export-behaviors` — they have
-  // no package; the esbuild metafile check allows exactly those two keys).
-  'packages/exporter/src/export-bootstrap-m2.ts': {
-    packages: ['runtime', 'three-adapter', 'project-model', 'input', 'character', 'physics-rapier'],
-    external: ['three', 'thirdlight:export-artifacts', 'thirdlight:export-behaviors'],
-    node: [],
-  },
-  // The shared composition module is imported by `export-bootstrap-m2.ts`
-  // and also runs in Node for the play/export trace evidence; it is
-  // browser-safe and imports runtime + character only.
-  'packages/exporter/src/export-composition.ts': {
-    packages: ['runtime', 'character'],
-    external: [],
-    node: [],
-  },
   // The v3 export bundle: `export-bootstrap-m3.ts` starts the game with the
   // shared game page (`game-host` and its `./game-page` subpath) and reads
   // the manifest's scene and catalog through project-model's hash. Its only
@@ -471,7 +441,7 @@ const BUNDLE_ENTRY_EDGES = {
   },
   // The exported game's simulation worker entry (`js/sim-worker.js`):
   // the game host's worker core; the physics backend loads from its own file
-  // (`js/physics-2d.js` / `js/physics-3d.js`). It imports the project's
+  // (`js/physics-3d.js`). It imports the project's
   // compiled scripts by the absolute URLs the page resolves from
   // manifest-declared `behaviors/<digest>.js` paths.
   'packages/exporter/src/export-sim-worker.ts': {
@@ -507,7 +477,7 @@ const BUNDLE_ENTRY_EDGES = {
   // The host's unit test composes like an entry (it injects the
   // platformer specs its game snapshot's modules name).
   'packages/game-host/src/host.test.ts': {
-    packages: ['runtime', 'input', 'character'],
+    packages: ['runtime', 'input', 'project-model'],
     external: [],
     node: [],
     typesOnly: { input: true },
@@ -515,19 +485,13 @@ const BUNDLE_ENTRY_EDGES = {
   // The preview's simulation module spec table (the composition
   // registers module specs; the game host imports no module package).
   'packages/editor/src/preview/module-specs.ts': {
-    packages: ['runtime', 'character'],
+    packages: ['runtime'],
     external: [],
     node: [],
   },
-  // The physics backend entries (`js/physics-2d.js` / `js/physics-3d.js` of
-  // an export; `dist/preview/physics-3d.js` on the preview origin):
+  // The physics backend entries (`js/physics-3d.js` of an export; `dist/preview/physics-3d.js` on the preview origin):
   // physics-rapier's port and the dependency-free hand-over module of
   // game-host (`./physics-global`) only.
-  'packages/exporter/src/export-physics-2d.ts': {
-    packages: ['physics-rapier', 'game-host'],
-    external: [],
-    node: [],
-  },
   'packages/exporter/src/export-physics-3d.ts': {
     packages: ['physics-rapier', 'game-host'],
     external: [],
@@ -540,8 +504,8 @@ const BUNDLE_ENTRY_EDGES = {
   },
   // The play-preview bundle: the entry is
   // `editor/src/preview/**` and its graph may include protocol, runtime,
-  // three-adapter (+ the GLTFLoader subpath), project-model, input, platformer
-  // and physics-rapier. The checker validates this file's DIRECT edges against
+  // three-adapter (+ the GLTFLoader subpath), project-model, input and
+  // physics-rapier. The checker validates this file's DIRECT edges against
   // that bundle graph instead of the narrower editor row (which names the
   // editor UI's edges); the transitive graph stays enforced by the esbuild
   // metafile check.
@@ -559,7 +523,7 @@ const BUNDLE_ENTRY_EDGES = {
   // Same play-preview graph as preview-bootstrap.ts plus game-host. The
   // preview-bootstrap.ts row above stays byte-stable.
   'packages/editor/src/preview/preview-m3.ts': {
-    packages: ['protocol', 'runtime', 'three-adapter', 'project-model', 'input', 'character', 'physics-rapier', 'game-host'],
+    packages: ['protocol', 'runtime', 'three-adapter', 'project-model', 'input', 'physics-rapier', 'game-host'],
     external: ['three'],
     node: [],
     // Behavior outputs load from the locator, as in preview-bootstrap.ts.

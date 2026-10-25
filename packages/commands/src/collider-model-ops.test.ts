@@ -1,6 +1,6 @@
 /**
  * `colliderFromModel`: its arguments and the planner over a model file (the
- * object's model at its latest version, the kind for the project's dimension).
+ * object's model at its latest version, the asked kind).
  */
 import { describe, expect, it } from 'vitest';
 
@@ -39,7 +39,7 @@ function crateGlb(): Uint8Array {
 }
 
 const scene = { schemaVersion: 4, sceneId: 'main', revision: 1, entities: [{ id: 'crate-0001', components: { transform: { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, model: { asset: { assetId: 'model-crate' }, piece: 'crate' } } }] } as unknown as SceneDocument;
-const content = (dimension: 2 | 3): ContentDocument => ({ settings: { physics_dimension: dimension }, assets: [{ assetId: 'model-crate', kind: 'model', versions: [{ version: 1 }, { version: 2 }] }] }) as unknown as ContentDocument;
+const content = (): ContentDocument => ({ settings: {}, assets: [{ assetId: 'model-crate', kind: 'model', versions: [{ version: 1 }, { version: 2 }] }] }) as unknown as ContentDocument;
 
 describe('colliderFromModel', () => {
   it('takes an object and a kind', () => {
@@ -49,24 +49,22 @@ describe('colliderFromModel', () => {
     expect(validateColliderFromModelArgs({ entityId: 'crate-0001', kind: 'box', extra: 1 })).toMatchObject({ ok: false, error: { path: '/args/extra' } });
   });
 
-  it('reads the object\'s model at its latest version and makes the kind for the project\'s dimension', () => {
+  it('reads the object\'s model at its latest version and makes the asked kind', () => {
     const reads: string[] = [];
     const read = (assetId: string, version: number) => {
       reads.push(`${assetId}@${version}`);
       return { ok: true as const, bytes: crateGlb() };
     };
-    const box = planModelCollider(scene, content(3), { entityId: 'crate-0001', kind: 'box' }, read);
+    const box = planModelCollider(scene, content(), { entityId: 'crate-0001', kind: 'box' }, read);
     expect(box).toMatchObject({ ok: true, prepared: { shape: { type: 'box', hx: 0.5, hy: 0.5, hz: 0.5, center: [0.5, 0.5, 0.5] } }, source: 'geometry' });
     expect(reads).toEqual(['model-crate@2']);
-    const hull = planModelCollider(scene, content(3), { entityId: 'crate-0001', kind: 'convex' }, read);
+    const hull = planModelCollider(scene, content(), { entityId: 'crate-0001', kind: 'convex' }, read);
     expect(hull.ok && hull.source).toBe('collision');
     expect(hull.ok && (hull.prepared.shape['points'] as number[][])).toContainEqual([1, 3, 1]);
-    const poly = planModelCollider(scene, content(2), { entityId: 'crate-0001', kind: 'polygon' }, read);
+    const poly = planModelCollider(scene, content(), { entityId: 'crate-0001', kind: 'polygon' }, read);
     expect(poly.ok && poly.prepared.shape).toEqual({ type: 'polygon', vertices: [[0, 2], [1, 2], [1, 3], [0, 3]] });
-    // A 3D kind on the plane is refused with the reason.
-    expect(planModelCollider(scene, content(2), { entityId: 'crate-0001', kind: 'mesh' }, read)).toMatchObject({ ok: false, error: { path: '/args/kind' } });
     // Points primitives have no triangles: a mesh from them is refused.
-    expect(planModelCollider(scene, content(3), { entityId: 'crate-0001', kind: 'mesh' }, read)).toMatchObject({ ok: false });
-    expect(planModelCollider(scene, content(3), { entityId: 'nobody', kind: 'box' }, read)).toMatchObject({ ok: false, error: { code: 'entity_not_found' } });
+    expect(planModelCollider(scene, content(), { entityId: 'crate-0001', kind: 'mesh' }, read)).toMatchObject({ ok: false });
+    expect(planModelCollider(scene, content(), { entityId: 'nobody', kind: 'box' }, read)).toMatchObject({ ok: false, error: { code: 'entity_not_found' } });
   });
 });

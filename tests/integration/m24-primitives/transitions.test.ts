@@ -1,12 +1,12 @@
 /**
  * Triggers, scene transitions, impulses, looks and event cues through the production
  * composition — the real game host, the character controller and Rapier
- * physics, a scene without any game session — on the 2D plane and in 3D, in
- * both threading modes, driven by a recorded input:
+ * physics, a scene without any game session — in 3D, in both threading
+ * modes, driven by a recorded input:
  *
  * - e: the character walks into a trigger: its `enter` event reaches the
  *   script that names it, and its scene transition loads the second scene
- *   and moves the character to the spawn there (3D: facing the spawn's yaw);
+ *   and moves the character to the spawn there, facing the spawn's yaw;
  * - f: a script gives the character an upward impulse (it rises off the
  *   floor); a velocity face-movement model under it turns to face +X as it
  *   walks right;
@@ -51,24 +51,23 @@ export default {
 `;
 const DECLARATION = { properties: [{ key: 'door', label: 'Door', type: 'entityRef', default: null }] };
 
-function level(dim: 2 | 3): { main: Any[]; two: Any[] } {
-  const z = dim === 3;
+function level(): { main: Any[]; two: Any[] } {
   const box = (id: string, c: number[], h: number[]): Any => ({
     id,
-    components: { transform: T(c), box: { size: [h[0]! * 2, h[1]! * 2, h[2]! * 2], material: { color: '#888888' } }, collider: { shape: z ? { type: 'box', hx: h[0], hy: h[1], hz: h[2] } : { type: 'box', hx: h[0], hy: h[1] } } },
+    components: { transform: T(c), box: { size: [h[0]! * 2, h[1]! * 2, h[2]! * 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: h[0], hy: h[1], hz: h[2] } } },
   });
   const main = [
     { id: 'cam-main', components: { transform: T([4, 4, 14]), camera: { type: 'perspective', fovY: 50, near: 0.1, far: 200 } } },
-    // 3D: the character does not turn by input (so the spawn's yaw is what it faces on arrival).
-    { id: 'player-0001', components: { transform: T([0, 0.91, 0]), controller: z ? { faceMovement: false } : {}, behavior: { behaviorId: 'director', values: { door: 'door-0001' } } } },
+    // The character does not turn by input (so the spawn's yaw is what it faces on arrival).
+    { id: 'player-0001', components: { transform: T([0, 0.91, 0]), controller: { faceMovement: false }, behavior: { behaviorId: 'director', values: { door: 'door-0001' } } } },
     { id: 'look-0001', parentId: 'player-0001', components: { transform: T([0, 0, 0]), faceMovement: { mode: 'velocity', turnSeconds: 0.1 } } },
     box('floor-a', [2, -0.5, 0], [6, 0.5, 2]),
     { id: 'lamp-0001', components: { transform: T([-3, 1, 0]), box: { size: [1, 1, 1], material: { color: '#cccccc' } } } },
-    { id: 'door-0001', components: { transform: T([4, 1, 0]), trigger: { size: z ? [1, 2, 2] : [1, 2], signal: 'opened', sceneTransition: { scene: 'scene-two', spawn: 'spawn-two' } } } },
+    { id: 'door-0001', components: { transform: T([4, 1, 0]), trigger: { size: [1, 2, 2], signal: 'opened', sceneTransition: { scene: 'scene-two', spawn: 'spawn-two' } } } },
   ];
   const two = [
     box('floor-b', [45, -0.5, 0], [6, 0.5, 2]),
-    { id: 'spawn-two', components: { transform: T([42, 0.91, 0]), playerSpawn: z ? { yaw: 180 } : {} } },
+    { id: 'spawn-two', components: { transform: T([42, 0.91, 0]), playerSpawn: { yaw: 180 } } },
   ];
   return { main, two };
 }
@@ -78,23 +77,16 @@ afterEach(async () => {
   for (const h of live.splice(0)) await h.dispose();
 });
 
-async function run(mode: Mode, dim: 2 | 3): Promise<{ h: Harness; values: Record<string, Any>; maxY: number; final: Any; looks: Any; loaded: string[] }> {
-  const { main, two } = level(dim);
-  const settings = dim === 3 ? { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30 } : { run_speed: 4, jump_velocity: 8, gravity_y: -20, max_fall_speed: -20, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
-  const statics = main
-    .filter((e) => e.components.collider)
-    .map((e) => ({ entityId: e.id, shape: e.components.collider.shape, position: { x: e.components.transform.position[0], y: e.components.transform.position[1] }, rotationZ: 0 }));
-  const physics =
-    dim === 3
-      ? physics3DConfigOf(main, settings)
-      : { character: { x: 0, y: 0.91 }, statics, solver: { hz: 120, gravityY: settings.gravity_y }, controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: Math.PI / 4, minSlopeSlideRad: Math.PI / 6, autostep: false } };
+async function run(mode: Mode): Promise<{ h: Harness; values: Record<string, Any>; maxY: number; final: Any; looks: Any; loaded: string[] }> {
+  const { main, two } = level();
+  const settings = { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
+  const physics = physics3DConfigOf(main, settings);
   // Walk right into the door, keep walking a little after arriving, then stand.
-  const walk = dim === 3 ? 300 : 200;
-  const replay = Array.from({ length: 480 }, (_, i) => ({ stepIndex: i, moveX: i < walk ? 1 : 0, ...(dim === 3 ? { moveY: 0 } : {}), jump: 'none' as const }));
+  const replay = Array.from({ length: 480 }, (_, i) => ({ stepIndex: i, moveX: i < 300 ? 1 : 0, moveY: 0, jump: 'none' as const }));
   const h = await startHarness(mode, {
     snapshot: {
-      snapshotId: `trans${dim}@r1`,
-      projectId: `trans${dim}`,
+      snapshotId: 'trans@r1',
+      projectId: 'trans',
       revision: 1,
       scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities: main },
       scenes: [
@@ -116,7 +108,7 @@ async function run(mode: Mode, dim: 2 | 3): Promise<{ h: Harness; values: Record
       if (sceneId !== 'scene-two') throw new Error('unknown scene');
       return two;
     },
-    ...(dim === 3 ? { modules: MODULES_3D } : {}),
+    modules: MODULES_3D,
     behaviors: [behaviorModule('director', DIRECTOR, DECLARATION)],
   });
   live.push(h);
@@ -143,19 +135,17 @@ async function run(mode: Mode, dim: 2 | 3): Promise<{ h: Harness; values: Record
   };
 }
 
-describe.each([2, 3] as const)('scene transition, impulse, face velocity, look override, event cues (dimension %s)', (dim) => {
+describe('scene transition, impulse, face velocity, look override, event cues', () => {
   const digests: Record<string, string[]> = {};
   it.each(MODES)('through the game host (threading: %s)', async (mode) => {
-    const { h, values, maxY, final, looks, loaded } = await run(mode, dim);
+    const { h, values, maxY, final, looks, loaded } = await run(mode);
     // e: the door's enter event reached the script that names it; the second scene loaded; the character arrived at the spawn.
     expect(values['log']).toContain('enter:door-0001');
     expect(loaded).toContain('scene-two');
     expect(final.player.position[0]).toBeGreaterThan(41);
     expect(final.player.position[0]).toBeLessThan(51);
-    if (dim === 3) {
-      // Arrived facing the spawn's yaw (180°: q = [0, 1, 0, 0]).
-      expect(Math.abs(final.player.rotation[1])).toBeCloseTo(1, 3);
-    }
+    // Arrived facing the spawn's yaw (180°: q = [0, 1, 0, 0]).
+    expect(Math.abs(final.player.rotation[1])).toBeCloseTo(1, 3);
     // f: the impulse lifted it well off the floor (6 m/s up: about 0.9 m at this gravity); a bad one is refused.
     expect(values['impulse']).toBe(true);
     expect(values['badImpulse']).toBe(false);

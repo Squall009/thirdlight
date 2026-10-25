@@ -58,7 +58,7 @@ export function v2Input(over: Record<string, unknown> = {}) {
     behaviors: [],
     settings: SETTINGS,
     media: MEDIA,
-    moduleIds: ['thirdlight.physics-rapier:3d', 'thirdlight.character:controller'],
+    moduleIds: ['thirdlight.physics-rapier:3d', 'thirdlight.character3d:controller'],
     ...over,
   };
 }

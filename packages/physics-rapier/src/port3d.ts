@@ -30,7 +30,7 @@ import type { AddedCharacter3D, CharacterClearanceResult3D, CharacterMoveResult3
 import { inPlane, isPlane, lockBody, onPlane, planePose } from './plane3d';
 import { capsuleLowAlong, holds, markOneWay, OneWaySweeps, upOf, type OneWayShape } from './oneway3d';
 import { createStepUp } from './step-up3d';
-import { CLEARANCE_PENETRATION_EPS, CLEARANCE_RAY_EPS, CLEARANCE_SUPPORT_PROBE, FIXED_HZ_CHOICES, FOOTPRINT_BALL, GROUND_NORMAL_TOLERANCE, MAX_DROP_THROUGH_STEPS, MAX_SHAPE_VALUE } from '../constants';
+import { CLEARANCE_PENETRATION_EPS, CLEARANCE_RAY_EPS, CLEARANCE_SUPPORT_PROBE, FIXED_HZ_CHOICES, FOOTPRINT_BALL, GROUND_NORMAL_TOLERANCE, MAX_DROP_THROUGH_STEPS, MAX_SHAPE_VALUE } from './constants';
 
 /** The value of `PhysicsPort3D.implementation` for this adapter. */
 export const PHYSICS_3D_IMPLEMENTATION = 'rapier3d-compat@0.20.0' as const;

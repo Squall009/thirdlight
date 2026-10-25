@@ -4,6 +4,9 @@
  * level's colliders (never the character), share the per-step budget with
  * rays, and `ctx.game.setVisible` hides an entity until the next run.
  *
+ * The player (the script's caller) is locked to the plane z = 0, so the 2D
+ * query forms run on that plane and meet the boxes that cross it.
+ *
  * In both threading modes — in the simulation worker the
  * queries and their budget are unchanged. The script keeps what it saw in
  * `ctx.save` (the test reads it from a project save's storage section; a
@@ -11,7 +14,7 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { PHYSICS_QUERY_LIMIT } from '@thirdlight/runtime';
+import { PHYSICS_QUERY_LIMIT, physics3DConfigOf } from '@thirdlight/runtime';
 
 import { behaviorModule, MODES, startHarness, type Harness } from '../m22-worker/harness';
 
@@ -51,13 +54,12 @@ describe.each(MODES)('script queries (real host, Rapier; threading: %s)', (mode)
     const crate = (id: string, x: number) => ({ id, components: { transform: at(x, 0.5), box: { size: [1, 1, 1], material: { color: '#aa7733' } }, collider: { shape: { type: 'box', hx: 0.5, hy: 0.5 } } } });
     const entities: Any[] = [
       { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 200 } } },
-      { id: 'player-0001', components: { transform: at(0, 0.91), controller: {}, behavior: { behaviorId: 'probe', values: { speed: 1 } } } },
+      { id: 'player-0001', components: { transform: at(0, 0.91), controller: { profile: 'arcade', plane: { axis: 'z', origin: 0 } }, behavior: { behaviorId: 'probe', values: { speed: 1 } } } },
       { id: 'spawn-0001', components: { transform: at(0, 0.91), playerSpawn: {} } },
       { id: 'floor-0001', components: { transform: at(10, -0.5), box: { size: [40, 1, 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 20, hy: 0.5 } } } },
       crate('crate-0001', 3),
       crate('crate-0002', 6),
     ];
-    const statics = entities.filter((e) => e.components.collider).map((e) => ({ entityId: e.id, shape: e.components.collider.shape, position: { x: e.components.transform.position[0], y: e.components.transform.position[1] }, rotationZ: 0 }));
     const h = await startHarness(mode, {
       snapshot: {
         snapshotId: 'q@r1',
@@ -67,12 +69,7 @@ describe.each(MODES)('script queries (real host, Rapier; threading: %s)', (mode)
       },
       storage: true,
       settings: SETTINGS,
-      physics: {
-        character: { x: 0, y: 0.91 },
-        statics,
-        solver: { hz: 120, gravityY: SETTINGS.gravity_y },
-        controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: Math.PI / 4, minSlopeSlideRad: Math.PI / 6, autostep: false },
-      },
+      physics: physics3DConfigOf(entities, SETTINGS),
       behaviors: [behaviorModule('probe', PROBE, { properties: [{ key: 'speed', label: 'Speed', type: 'number', default: 1, min: 0, max: 10, step: 1 }] })],
     });
     live.push(h);

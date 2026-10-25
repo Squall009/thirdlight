@@ -25,7 +25,7 @@
  * Browser-only: DOM + WebGL/WebGPU.
  */
 import { sha256HexAsync } from '@thirdlight/project-model';
-import { loadPhysics2D, openRuntimeContent, type HostDomNode } from '@thirdlight/game-host';
+import { openRuntimeContent, type HostDomNode } from '@thirdlight/game-host';
 import { startGamePage, type GamePageManifest } from '@thirdlight/game-host/game-page';
 import { SCRIPT_ERROR_PROBLEM, type RuntimeSnapshot, type SimulationModuleSpec } from '@thirdlight/runtime';
 // The simulation module specs this manifest names (generated per export; nothing else is linked).
@@ -35,10 +35,8 @@ import { moduleSpecs } from 'thirdlight:export-modules';
 const EXPORT_SIM_WORKER_PATH = './js/sim-worker.js';
 /** The view's worker (`js/mesh-worker.js`, only in an export with block layers or terrain; without it chunks mesh and tiles pack on the page). */
 const EXPORT_MESH_WORKER_PATH = './js/mesh-worker.js';
-/** The 3D physics backend (`js/physics-3d.js`, only in a 3D project's export). */
+/** The physics backend (`js/physics-3d.js`, only in the export of a game that needs physics). */
 const EXPORT_PHYSICS_3D_PATH = './js/physics-3d.js';
-/** The 2D physics backend (`js/physics-2d.js`, only in an export on the 2D plane). */
-const EXPORT_PHYSICS_2D_PATH = './js/physics-2d.js';
 /** Three's Draco and Basis decoders next to index.html (shipped when a file needs them). */
 const EXPORT_DECODER_BASE = './decoders/';
 
@@ -93,7 +91,6 @@ async function main(): Promise<void> {
       // Generated architecture's chunks kept in the player's browser: a second visit draws without generating.
       keepGeneratedArchitecture: true,
       physics3dUrl: new URL(EXPORT_PHYSICS_3D_PATH, location.href).href,
-      physics2d: () => loadPhysics2D(new URL(EXPORT_PHYSICS_2D_PATH, location.href).href),
       decoderBase: EXPORT_DECODER_BASE,
       moduleSpecs: moduleSpecs as readonly SimulationModuleSpec[],
       canvas,

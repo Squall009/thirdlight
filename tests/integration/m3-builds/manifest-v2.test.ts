@@ -245,7 +245,7 @@ describe('manifest-v2: validateManifestV2 captured-state re-derivation', () => {
       behaviors: [],
       settings: viewRes.normalized.settings as unknown as Record<string, number>,
       media: mediaRes.normalized,
-      moduleIds: ['thirdlight.character:controller'],
+      moduleIds: ['thirdlight.character3d:controller'],
       ...over,
     });
     if (!res.ok) throw new Error('expected a valid manifest');

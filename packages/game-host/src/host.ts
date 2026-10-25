@@ -658,7 +658,7 @@ function toControlError(error: RuntimeError): GameControlError {
  */
 const RUNTIME_SIMULATION_SPECS: readonly SimulationModuleSpec[] = [character3DSpec];
 /** The port modules the delivery wrapper injects (checked, not registered). */
-const PORT_MODULES = new Set(['thirdlight.physics-rapier:2d', 'thirdlight.physics-rapier:3d', 'thirdlight.input:keyboard-gamepad', 'thirdlight.three-adapter:gltf-loader']);
+const PORT_MODULES = new Set(['thirdlight.physics-rapier:3d', 'thirdlight.input:keyboard-gamepad', 'thirdlight.three-adapter:gltf-loader']);
 
 /**
  * Select the simulation modules from the manifest's module list (the build's
@@ -700,7 +700,7 @@ function selectModules(
     }
   }
   for (const id of ports) {
-    if ((id === 'thirdlight.physics-rapier:2d' || id === 'thirdlight.physics-rapier:3d') && !hasPhysics) {
+    if (id === 'thirdlight.physics-rapier:3d' && !hasPhysics) {
       return { ok: false, error: { code: 'host_module_unresolved', message: `module ${id} is required but no physics port was injected` } };
     }
   }

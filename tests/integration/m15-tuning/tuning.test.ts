@@ -76,14 +76,14 @@ describe('tuning values as data (real host + platformer + Rapier)', () => {
   });
 
   it('skin, ground snap and autostep reach the physics port', async () => {
-    // (dropped from 0.5 m up: the controller keeps its skin gap when it lands)
+    // (placed 9 cm above the floor: the run start settles the capsule onto it, kept off by exactly its skin)
     const restY = async (controller: object) => {
-      const L = await level({ controller, spawn: [0, 1.4], drive: () => ({ moveX: 0, jump: 'none' }) });
+      const L = await level({ controller, spawn: [0, 1], drive: () => ({ moveX: 0, jump: 'none' }) });
       L.tick(60);
       return L.pos('player-0001')[1];
     };
     expect((await restY({ skin: 0.05 })) - (await restY({}))).toBeCloseTo(0.04, 2);
-    const step = [thing('step-0001', 8, 0.1, { box: { size: [6, 0.2, 2], material: { color: '#777777' } }, collider: { shape: { type: 'box', hx: 3, hy: 0.1 } } })];
+    const step = [thing('step-0001', 8, 0.1, { box: { size: [6, 0.2, 2], material: { color: '#777777' } }, collider: { shape: { type: 'box', hx: 3, hy: 0.1, hz: 1 } } })];
     const walkX = async (controller: object) => {
       const L = await level({ controller, extra: step, drive: () => ({ moveX: 1, jump: 'none' }) });
       L.tick(240);
@@ -98,7 +98,7 @@ describe('tuning values as data (real host + platformer + Rapier)', () => {
     expect(settle.rt.getDiagnostics().diagnostics.settleSteps).toBe(Math.round(ENGINE_TIMING_DEFAULTS.settleTime * 120));
     expect(settle.rt.getDiagnostics().diagnostics.settleSteps).toBe(12);
     // down + jump on a one-way platform drops through for the engine's drop-through time
-    const oneWay = [thing('ledge-0001', 0, 1.5, { box: { size: [4, 0.2, 2], material: { color: '#777777' } }, collider: { shape: { type: 'box', hx: 2, hy: 0.1 }, oneWay: true } })];
+    const oneWay = [thing('ledge-0001', 0, 1.5, { box: { size: [4, 0.2, 2], material: { color: '#777777' } }, collider: { shape: { type: 'box', hx: 2, hy: 0.1, hz: 1 }, oneWay: true } })];
     const L = await level({ spawn: [0, 2.52], extra: oneWay, drive: (s) => ({ moveX: 0, jump: s === 60 ? 'pressed' : 'none', actions: { navigate: { v: 1, x: 0, y: -1, p: 'held' } } }) });
     L.tick(120);
     expect(L.dropThroughCalls).toEqual([Math.round(ENGINE_TIMING_DEFAULTS.dropThroughTime * 120)]);

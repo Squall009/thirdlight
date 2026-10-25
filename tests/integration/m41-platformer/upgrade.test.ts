@@ -174,7 +174,7 @@ describe('a 2D project opened over HTTP: one 3D backend, scenes with a default p
       if (!loaded.ok) throw new Error(loaded.message);
       const player = loaded.entities.find((e: Any) => e.id === ids.get(id)!.get('player'))!;
       expect((player.components as Any).controller).toMatchObject({ profile: 'arcade', plane: { axis: 'z', origin: 0 } });
-      const run = await recordRun(caseOf(id), loaded.entities as Any[], { dim: 3, onPlane: true, playerId: player.id });
+      const run = await recordRun(caseOf(id), loaded.entities as Any[], { onPlane: true, playerId: player.id });
       // (A scene of the level alone has no camera: the view's warning about it is not the physics'.)
       expect(run.errors.filter((e: Any) => e.moduleId !== 'thirdlight.runtime:camera'), id).toEqual([]);
       const ref = readTrace(id).rows;

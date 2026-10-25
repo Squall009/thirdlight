@@ -13,27 +13,29 @@
  *
  * Node integration test (real physics-rapier port + real runtime + real
  * project-model v2 manifest derivation): the gravity trace uses a raw
- * `@dimforge/rapier2d-compat` world (a plain dynamic body free-falls under the
+ * `@dimforge/rapier3d-compat` world (a plain dynamic body free-falls under the
  * world gravity — the `solver.gravityY` the M3 bootstrap derives from
  * `settings.gravity_y` — with NO controller max-fall clamping), and the
- * `run_speed` trace composes the real runtime + platformer controller on a
+ * `run_speed` trace composes the real runtime + character controller on a
  * flat course (the commanded horizontal speed is `moveX · run_speed`).
  */
-import * as RAPIER from '@dimforge/rapier2d-compat';
+import * as RAPIER from '@dimforge/rapier3d-compat';
 import { describe, expect, it } from 'vitest';
 import {
+  CHARACTER_3D_MODULE_ID,
+  character3DSpec,
   createRecordedActionSource,
   createSimulationRegistry,
   instantiateRuntime,
+  physics3DConfigOf,
   registerSimulationModule,
   type ActionFrame,
   type GameplaySettings,
-  type PhysicsPort,
+  type PhysicsPort3D,
   type Runtime,
   type Vec2,
 } from '@thirdlight/runtime';
-import { CHARACTER_MODULE_ID, characterControllerSpec } from '@thirdlight/character';
-import { createPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
+import { createPhysicsPort3D } from '@thirdlight/physics-rapier';
 import {
   captureContentViewV3,
   captureManifestV2,
@@ -48,14 +50,6 @@ const SIM_HZ = 120;
 const DT = 1 / SIM_HZ;
 const SETTLE = 24;
 const T = { rotation: [0, 0, 0, 1] as [number, number, number, number], scale: [1, 1, 1] as [number, number, number] };
-const CONTROLLER_CFG = {
-  offsetSkin: 0.01,
-  groundSnap: 0.1,
-  maxSlopeClimbRad: Math.PI / 4,
-  minSlopeSlideRad: Math.PI / 6,
-  autostep: false,
-} as const;
-const FLOOR: RapierStaticColliderSpec = { entityId: 'floor', shape: { type: 'box', hx: 24, hy: 0.25 }, position: { x: 24, y: -0.25 }, rotationZ: 0 };
 
 const DEFAULT_SETTINGS: GameplaySettings = {
   gravity_y: -19.62,
@@ -93,7 +87,7 @@ function v3Snapshot(): unknown {
           components: {
             transform: { position: [24, -0.25, 0], ...T },
             box: { size: [48, 0.5, 1], material: { color: '#6f6f6f' } },
-            collider: { shape: { type: 'box', hx: 24, hy: 0.25 } },
+            collider: { shape: { type: 'box', hx: 24, hy: 0.25, hz: 0.5 } },
           },
         },
       ],
@@ -121,16 +115,12 @@ interface Run {
 }
 
 async function startRun(settings: GameplaySettings, frames: readonly ActionFrame[]): Promise<Run> {
-  const init = await createPhysicsPort({
-    character: { x: 3, y: 0.9 },
-    statics: [FLOOR],
-    solver: { hz: SIM_HZ, gravityY: settings.gravity_y },
-    controller: CONTROLLER_CFG,
-  });
+  const snapshot = v3Snapshot() as { scene: { entities: { id: string; components: unknown }[] } };
+  const init = await createPhysicsPort3D(physics3DConfigOf(snapshot.scene.entities, settings)!);
   if (!init.ok) throw new Error(`physics init failed: ${JSON.stringify(init.error)}`);
-  const physics: PhysicsPort = init.port;
+  const physics: PhysicsPort3D = init.port;
   const registry = createSimulationRegistry();
-  for (const spec of [characterControllerSpec]) {
+  for (const spec of [character3DSpec]) {
     const r = registerSimulationModule(registry, spec.id, spec);
     if (!r.ok) {
       physics.dispose();
@@ -139,9 +129,9 @@ async function startRun(settings: GameplaySettings, frames: readonly ActionFrame
   }
   let now = 0;
   const res = instantiateRuntime({
-    snapshot: v3Snapshot(),
+    snapshot,
     registry,
-    modules: [CHARACTER_MODULE_ID],
+    modules: [CHARACTER_3D_MODULE_ID],
     actions: createRecordedActionSource(frames),
     physics,
     settings,
@@ -177,7 +167,8 @@ async function startRun(settings: GameplaySettings, frames: readonly ActionFrame
 
 function rightFrames(n: number, fromStep: number): ActionFrame[] {
   const frames: ActionFrame[] = [];
-  for (let i = 0; i < n; i += 1) frames.push({ stepIndex: fromStep + i, moveX: 1, jump: 'none' });
+  // Run held: the controller's run speed is the project's run_speed (its walk speed is its own).
+  for (let i = 0; i < n; i += 1) frames.push({ stepIndex: fromStep + i, moveX: 1, jump: 'none', actions: { run: { v: 1, p: 'held' } } } as ActionFrame);
   return frames;
 }
 
@@ -225,7 +216,7 @@ describe('B16 run_speed reaches the physics/controller', () => {
 describe('B16 gravity_y reaches the physics world', () => {
   async function freeFallVy(gravityY: number, steps: number): Promise<number> {
     await RAPIER.init();
-    const world = new RAPIER.World({ x: 0, y: gravityY });
+    const world = new RAPIER.World({ x: 0, y: gravityY, z: 0 });
     world.timestep = 1 / SIM_HZ;
     const body = world.createRigidBody(RAPIER.RigidBodyDesc.dynamic().setTranslation(10, 20, 0));
     world.createCollider(RAPIER.ColliderDesc.ball(0.5), body);
@@ -276,7 +267,7 @@ describe('B16 the changed settings are hash-bound through the v2 manifest', () =
       settings: viewRes.normalized.settings,
       game: viewRes.normalized.game,
       media: mediaRes.normalized,
-      moduleIds: [CHARACTER_MODULE_ID],
+      moduleIds: [CHARACTER_3D_MODULE_ID],
       enginePins: M3_ENGINE_PINS,
     });
     if (!manifestRes.ok) throw new Error(`captureManifestV2 failed: ${JSON.stringify(manifestRes.error)}`);

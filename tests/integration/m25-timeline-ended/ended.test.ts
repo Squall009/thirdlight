@@ -79,7 +79,7 @@ const GAME_MODES = [
   { modeId: 'cinematic', name: 'Cinematic', inputMaps: ['ui'], groups: [] },
 ];
 
-type Dim = 0 | 2 | 3;
+type Dim = 0 | 3;
 
 function entities(dim: Dim): Any[] {
   const list: Any[] = [
@@ -91,7 +91,7 @@ function entities(dim: Dim): Any[] {
   ];
   if (dim !== 0) {
     list.push({ id: 'player-0001', components: { transform: T([0, 0.91, 0]), controller: {} } });
-    list.push({ id: 'floor-0001', components: { transform: T([0, -0.5, 0]), box: { size: [40, 1, 4], material: { color: '#888888' } }, collider: { shape: dim === 3 ? { type: 'box', hx: 20, hy: 0.5, hz: 2 } : { type: 'box', hx: 20, hy: 0.5 } } } });
+    list.push({ id: 'floor-0001', components: { transform: T([0, -0.5, 0]), box: { size: [40, 1, 4], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 20, hy: 0.5, hz: 2 } } } });
   }
   return list;
 }
@@ -107,20 +107,11 @@ function snapshot(dim: Dim): Any {
   };
 }
 
-const SETTINGS_2D = { run_speed: 4, jump_velocity: 8, gravity_y: -20, max_fall_speed: -20, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
 const SETTINGS_3D = { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
 
 function physicsOf(dim: Dim): { settings: Any; physics: Any; modules?: string[] } {
   if (dim === 0) return { settings: {}, physics: null };
-  const list = entities(dim);
-  if (dim === 3) return { settings: SETTINGS_3D, physics: physics3DConfigOf(list, SETTINGS_3D), modules: MODULES_3D };
-  const statics = list
-    .filter((e) => e.components.collider)
-    .map((e) => ({ entityId: e.id, shape: e.components.collider.shape, position: { x: e.components.transform.position[0], y: e.components.transform.position[1] }, rotationZ: 0 }));
-  return {
-    settings: SETTINGS_2D,
-    physics: { character: { x: 0, y: 0.91 }, statics, solver: { hz: 120, gravityY: SETTINGS_2D.gravity_y }, controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: Math.PI / 4, minSlopeSlideRad: Math.PI / 6, autostep: false } },
-  };
+  return { settings: SETTINGS_3D, physics: physics3DConfigOf(entities(dim), SETTINGS_3D), modules: MODULES_3D };
 }
 
 const PATTERN = [1, 2, 1, 0, 3, 1, 1, 2, 0, 1];
@@ -151,8 +142,8 @@ async function run(mode: Mode, dim: Dim): Promise<{ counters: Record<string, num
 }
 
 describe('scripts see a timeline ended event', () => {
-  for (const dim of [0, 2, 3] as const) for (const mode of MODES) {
-    it(`every ended is seen once, in the step after it (${dim === 0 ? 'no physics' : `${dim}D`}, ${mode})`, async () => {
+  for (const dim of [0, 3] as const) for (const mode of MODES) {
+    it(`every ended is seen once, in the step after it (${dim === 0 ? 'no physics' : '3D'}, ${mode})`, async () => {
       const { counters, logs } = await run(mode, dim);
       const expected: Record<string, number> = {
         'd_endedFn': 1,

@@ -42,16 +42,6 @@ function busyFor(ms: number): void {
 
 /** The platform pieces a worker entry injects. */
 export interface SimWorkerDeps {
-  /** physics-rapier's `createPhysicsPort` when the entry links it (else `loadPhysics2D` loads it). */
-  createPhysicsPort?(config: never): Promise<{ ok: true; port: PhysicsPort } | { ok: false; error: { code: string; message?: string } }>;
-  /**
-   * The 2D backend loaded on first use, for an entry that does not link it
-   * (an export's worker loads the separate `physics-2d.js`, so a 3D game never carries it).
-   */
-  loadPhysics2D?(): Promise<{
-    createPhysicsPort(config: never): Promise<{ ok: true; port: unknown } | { ok: false; error: { code: string; message?: string } }>;
-    physicsMemoryBytes?(): number | null;
-  }>;
   /** Import one compiled script module by URL. */
   importModule(url: string): Promise<unknown>;
   /**
@@ -60,12 +50,9 @@ export interface SimWorkerDeps {
    * `modules` pick from them. The entry imports only what its build ships.
    */
   moduleSpecs?: readonly SimulationModuleSpec[];
-  /** The physics engine's WebAssembly memory in bytes (null: unknown). */
-  physicsMemoryBytes?(): number | null;
   /**
-   * The 3D backend (physics-rapier/3d) for a project whose
-   * `physics_dimension` is 3 — loaded on first use (a browser worker entry
-   * loads the separate `physics-3d.js`, so a 2D game never carries it).
+   * The physics backend, loaded on first use (a browser worker entry loads
+   * the separate `physics-3d.js`, so a game without physics never fetches it).
    */
   loadPhysics3D?(): Promise<{
     createPhysicsPort3D(config: never): Promise<{ ok: true; port: unknown } | { ok: false; error: { code: string; message?: string } }>;
@@ -92,8 +79,8 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
   let debug: PlayDebugger | null = null;
   let stepHz = DEFAULT_FIXED_STEP_HZ;
   let memoryCap = PHYSICS_MEMORY_CAP_BYTES;
-  /** The loaded 3D backend's memory probe (a 3D game), else the 2D one's. */
-  let memoryProbe: (() => number | null) | undefined = deps.physicsMemoryBytes;
+  /** The loaded backend's memory probe. */
+  let memoryProbe: (() => number | null) | undefined;
   let memoryStopped = false;
   let digestOn = false;
   let digests: string[] = [];
@@ -167,11 +154,10 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
     stepHz = fixedStepHzOf(m.settings);
     memoryCap = typeof m.memoryCapBytes === 'number' && m.memoryCapBytes > 0 ? m.memoryCapBytes : PHYSICS_MEMORY_CAP_BYTES;
     try {
-      let port: PhysicsPort | PhysicsPort3D | undefined;
-      if (m.physics !== null && m.physics !== undefined && (m.physics as { dimension?: unknown }).dimension === 3) {
-        // A 3D game's backend (loaded now, only for it).
+      let port: PhysicsPort3D | undefined;
+      if (m.physics !== null && m.physics !== undefined) {
         if (deps.loadPhysics3D === undefined) {
-          post({ t: 'failed', error: { code: 'physics_init_failed', message: 'physics init failed: this worker has no 3D physics backend' } });
+          post({ t: 'failed', error: { code: 'physics_init_failed', message: 'physics init failed: this worker has no physics backend' } });
           phase = 'idle';
           return;
         }
@@ -184,26 +170,6 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
           return;
         }
         port = made.port as PhysicsPort3D;
-        physics = made.port as PhysicsPort & PhysicsQueries;
-      } else if (m.physics !== null && m.physics !== undefined) {
-        let create: SimWorkerDeps['createPhysicsPort'] = deps.createPhysicsPort;
-        if (create === undefined && deps.loadPhysics2D !== undefined) {
-          const backend = await deps.loadPhysics2D();
-          memoryProbe = backend.physicsMemoryBytes;
-          create = backend.createPhysicsPort as SimWorkerDeps['createPhysicsPort'];
-        }
-        if (create === undefined) {
-          post({ t: 'failed', error: { code: 'physics_init_failed', message: 'physics init failed: this worker has no 2D physics backend' } });
-          phase = 'idle';
-          return;
-        }
-        const made = await create(m.physics as never);
-        if (!made.ok) {
-          post({ t: 'failed', error: { code: 'physics_init_failed', message: `physics init failed: ${made.error.code}${made.error.message !== undefined ? ` (${made.error.message})` : ''}` } });
-          phase = 'idle';
-          return;
-        }
-        port = made.port;
         physics = made.port as PhysicsPort & PhysicsQueries;
       }
       const behaviorModules = await linkBehaviorModules(m.behaviors.rows, m.behaviors.enginePins, (path) => deps.importModule(m.behaviors.urls[path] ?? path));

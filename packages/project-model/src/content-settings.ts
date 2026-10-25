@@ -235,10 +235,6 @@ export const NEW_PROJECT_SETTINGS: Readonly<Record<string, number>> = Object.fre
  */
 export const NEW_PROJECT_ENVIRONMENT: Readonly<SceneEnvironment> = Object.freeze({ sky: Object.freeze({ environmentIntensity: 0.1, mode: 'procedural' as const }) });
 
-/** The simulation's dimension: every project runs on the one 3D backend (2D is a plane a body is locked to). */
-export type PhysicsDimension = 2 | 3;
-export const PHYSICS_DIMENSIONS: readonly PhysicsDimension[] = [2, 3];
-
 /** The depth buffer the renderer uses (the `depth_buffer` setting; absent or unknown: standard). */
 export function depthBufferOf(settings: unknown): 'standard' | 'logarithmic' | 'reversed' {
   const v = typeof settings === 'object' && settings !== null ? (settings as Record<string, unknown>)['depth_buffer'] : undefined;
@@ -278,15 +274,6 @@ export function architectureShipsMeshesOf(settings: unknown): boolean {
 export function instanceChunkSizeOf(settings: unknown): number | undefined {
   const v = typeof settings === 'object' && settings !== null ? (settings as Record<string, unknown>)['instance_chunk_m'] : undefined;
   return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined;
-}
-
-/**
- * The physics dimension of a project: always 3. The project setting that
- * chose the 2D backend is retired (the open upgrades a 2D project to scenes
- * with a default plane); the callers' 2D branches go with the 2D backend.
- */
-export function physicsDimensionOf(_settings: unknown): PhysicsDimension {
-  return 3;
 }
 
 const SETTINGS_BY_KEY = new Map(M2_SETTINGS_KEYS.map((s) => [s.key, s]));

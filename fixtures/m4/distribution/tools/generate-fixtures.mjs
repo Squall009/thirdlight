@@ -191,20 +191,22 @@ ${table}
 
 function licenseInventory() {
   const lock = JSON.parse(readFileSync(join(REPO_ROOT, 'package-lock.json'), 'utf8'));
-  const top = ['three', 'react', 'react-dom', 'ws', '@dimforge/rapier2d-compat', '@modelcontextprotocol/sdk', 'esbuild', 'typescript', 'vitest'];
+  const top = ['three', 'react', 'react-dom', 'ws', '@dimforge/rapier3d-compat', '@modelcontextprotocol/sdk', 'esbuild', 'typescript', 'vitest'];
+  // The physics pin is physics-rapier's own (the top-level copy is another package's older one).
+  const lockPath = { '@dimforge/rapier3d-compat': 'packages/physics-rapier/node_modules/@dimforge/rapier3d-compat' };
   const classification = {
     three: { class: 'runtime-browser', bundles: ['preview', 'preview-m3', 'export'] },
     react: { class: 'runtime-browser', bundles: ['editor'] },
     'react-dom': { class: 'runtime-browser', bundles: ['editor'] },
     ws: { class: 'runtime-node', bundles: ['backend'] },
-    '@dimforge/rapier2d-compat': { class: 'runtime-browser', bundles: ['preview', 'preview-m3', 'export'] },
+    '@dimforge/rapier3d-compat': { class: 'runtime-browser', bundles: ['physics-3d'] },
     '@modelcontextprotocol/sdk': { class: 'runtime-node', bundles: ['mcp-adapter'] },
     esbuild: { class: 'build-only-at-runtime', bundles: ['(none — external in the backend bundle; resolved from node_modules at export/compile time)'] },
     typescript: { class: 'build-only', bundles: ['(none — typecheck)'] },
     vitest: { class: 'build-only-test', bundles: ['(none — tests)'] },
   };
   const pins = top.map((n) => {
-    const entry = lock.packages[`node_modules/${n}`];
+    const entry = lock.packages[lockPath[n] ?? `node_modules/${n}`];
     if (!entry) throw new Error(`missing lockfile entry for top-level pin ${n}`);
     return { name: n, version: entry.version, license: entry.license ?? null, ...classification[n] };
   });

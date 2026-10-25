@@ -24,10 +24,9 @@ import v8 from 'node:v8';
 
 import { createBehaviorCompiler } from '@thirdlight/behavior-build';
 import { createGameHost, linkBehaviorModules } from '@thirdlight/game-host';
-import { createPhysicsPort } from '@thirdlight/physics-rapier';
-import { createPhysicsPort3D } from '@thirdlight/physics-rapier/3d';
-import { M2_SETTINGS_KEYS, physicsDimensionOf } from '@thirdlight/project-model';
-import { physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, staticColliderOf } from '@thirdlight/runtime';
+import { createPhysicsPort3D } from '@thirdlight/physics-rapier';
+import { M2_SETTINGS_KEYS } from '@thirdlight/project-model';
+import { physics3DConfigOf } from '@thirdlight/runtime';
 
 import { cpuCalibration } from './stats';
 import { withGameModules } from '../../tests/game-modules';
@@ -118,31 +117,12 @@ export async function runSim(input: SimInput): Promise<SimResult> {
   const settings: Any = Object.fromEntries(M2_SETTINGS_KEYS.map((k: Any) => [k.key, k.default]));
   for (const [k, v] of Object.entries(content.settings ?? {})) if (typeof v === 'number') settings[k] = v;
 
-  // The scene-derived Rapier config (the same rules as the preview and the export bootstrap).
-  const statics: Any[] = [];
-  let character: Any = null;
-  let tuning = playerPhysicsOf(undefined);
-  for (const e of entities) {
-    const c = e.components ?? {};
-    const pos = c.transform?.position ?? [0, 0, 0];
-    const collider = staticColliderOf(e.id, c);
-    if (collider !== null) statics.push(collider);
-    if (c.controller !== undefined) {
-      const capsule = playerCapsuleOf(c.controller);
-      tuning = playerPhysicsOf(c.controller);
-      character = { x: pos[0], y: pos[1], radius: capsule.radius, halfHeight: capsule.halfHeight, offset: { x: capsule.offset.x, y: capsule.offset.y }, parentId: e.parentId ?? null, rotation: c.transform?.rotation ?? [0, 0, 0, 1], scale: c.transform?.scale ?? [1, 1, 1] };
-    }
-  }
-  if (character === null) throw new Error('the project has no player (controller)');
+  if (!entities.some((e) => e.components?.controller !== undefined)) throw new Error('the project has no player (controller)');
   const hz = settings.fixed_step_hz ?? 120;
-  // A 3D project (physics_dimension 3) runs on the 3D backend.
-  const config3d = physicsDimensionOf(content.settings) === 3 ? physics3DConfigOf(entities, settings) : null;
-  const physics = config3d !== null ? await createPhysicsPort3D(config3d) : await createPhysicsPort({
-    character,
-    statics,
-    solver: { hz, gravityY: settings.gravity_y },
-    controller: { offsetSkin: tuning.offsetSkin, groundSnap: tuning.groundSnap, maxSlopeClimbRad: (settings.max_slope_climb_deg * Math.PI) / 180, minSlopeSlideRad: (settings.min_slope_slide_deg * Math.PI) / 180, autostep: tuning.autostep, ...(tuning.autostep ? { autostepHeight: tuning.autostepHeight } : {}) },
-  } as Any);
+  // The scene-derived Rapier config (the same rules as the preview and the export bootstrap).
+  const config = physics3DConfigOf(entities, settings);
+  if (config === null) throw new Error('the project has no physics');
+  const physics = await createPhysicsPort3D(config);
   if (!physics.ok) throw new Error(JSON.stringify(physics.error));
   const behaviors = await behaviorsOf(dir, content);
 
@@ -267,7 +247,7 @@ export async function runSim(input: SimInput): Promise<SimResult> {
   return {
     ok: true,
     entities: entities.length,
-    colliders: config3d !== null ? config3d.statics.length : statics.length,
+    colliders: config.statics.length,
     scriptInstances: entities.filter((e: Any) => e.components?.behavior !== undefined).length,
     bootMs: round(bootMs),
     stepMs: { p50: round(percentile(times, 0.5)), p95: round(percentile(times, 0.95)), p99: round(percentile(times, 0.99)), max: round(times[times.length - 1] ?? 0), mean: round(mean) },

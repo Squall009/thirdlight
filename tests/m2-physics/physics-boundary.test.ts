@@ -6,9 +6,11 @@
  * the readable, greppable version of the same claim.
  */
 import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { REPO } from './helpers';
+
+const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 function packageJson(name: string): Record<string, unknown> {
   return JSON.parse(readFileSync(join(REPO, 'packages', name, 'package.json'), 'utf8')) as Record<
@@ -40,7 +42,7 @@ describe('runtime core imports no physics implementation', () => {
 
   it('contains no Rapier import anywhere in its sources', () => {
     const importPattern =
-      /(?:from|import)\s*\(?\s*['"](?:@dimforge\/rapier2d-compat|@thirdlight\/physics-rapier)['"]/;
+      /(?:from|import)\s*\(?\s*['"](?:@dimforge\/rapier3d-compat|@thirdlight\/physics-rapier)['"]/;
     const offenders = sourceFiles(join(REPO, 'packages', 'runtime', 'src')).filter((file) =>
       importPattern.test(readFileSync(file, 'utf8')),
     );
@@ -57,11 +59,11 @@ describe('runtime core imports no physics implementation', () => {
       } catch {
         continue;
       }
-      if (Object.keys(deps).includes('@dimforge/rapier2d-compat')) importers.push(name);
+      if (Object.keys(deps).includes('@dimforge/rapier3d-compat')) importers.push(name);
       // No production or test source outside the adapter may import the pin.
       for (const file of sourceFiles(join(pkgDir, 'src'))) {
         const source = readFileSync(file, 'utf8');
-        if (/from ['"]@dimforge\/rapier2d-compat['"]/.test(source) && name !== 'physics-rapier') {
+        if (/from ['"]@dimforge\/rapier3d-compat['"]/.test(source) && name !== 'physics-rapier') {
           importers.push(`${name}:${file}`);
         }
       }
@@ -77,9 +79,7 @@ describe('runtime core imports no physics implementation', () => {
       const imports = [...source.matchAll(/from\s*['"]([^'"]+)['"]/g)].map((m) => m[1]!);
       for (const specifier of imports) {
         const allowed =
-          specifier.startsWith('./') || specifier.startsWith('../') || specifier === '@dimforge/rapier2d-compat' ||
-          // The 3D backend (the `./3d` subpath).
-          specifier === '@dimforge/rapier3d-compat' ||
+          specifier.startsWith('./') || specifier.startsWith('../') || specifier === '@dimforge/rapier3d-compat' ||
           specifier === '@thirdlight/runtime' ||
           // The model's collider limits, defined once in project-model (constants only).
           specifier === '@thirdlight/project-model/limits' ||

@@ -20,6 +20,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 
 import { M2_PINNED_MODULES, compileBehavior } from '@thirdlight/behavior-build';
+import { physics3DConfigOf } from '@thirdlight/runtime';
 
 import { startHarness, type Harness, type Mode } from '../m22-worker/harness';
 
@@ -99,7 +100,7 @@ function level(): { snapshot: Any; physics: Any } {
     { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 200 } } },
     { id: 'player-0001', components: { transform: at(0, 0.91), controller: {} } },
     { id: 'spawn-0001', components: { transform: at(0, 0.91), playerSpawn: {} } },
-    { id: 'floor-0001', components: { transform: at(20, -0.5), box: { size: [80, 1, 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 40, hy: 0.5 } } } },
+    { id: 'floor-0001', components: { transform: at(20, -0.5), box: { size: [80, 1, 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 40, hy: 0.5, hz: 1 } } } },
     { id: 'box-t1', name: 'Target', components: { transform: at(-6, 2, 3), box: BOX } },
     { id: 'box-t2', name: 'Target', components: { transform: at(8, 3, -4), box: BOX } },
     { id: 'box-t3', name: 'Target', components: { transform: at(15, 1, 5), box: BOX } },
@@ -107,7 +108,6 @@ function level(): { snapshot: Any; physics: Any } {
     wanderer('box-w2', 6, 4),
     wanderer('box-w3', 10, 5),
   ];
-  const statics = [{ entityId: 'floor-0001', shape: { type: 'box', hx: 40, hy: 0.5 }, position: { x: 20, y: -0.5 }, rotationZ: 0 }];
   return {
     snapshot: {
       snapshotId: 'wander@r1',
@@ -116,12 +116,7 @@ function level(): { snapshot: Any; physics: Any } {
       scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities },
       prefabs: PREFABS,
     },
-    physics: {
-      character: { x: 0, y: 0.91 },
-      statics,
-      solver: { hz: HZ, gravityY: SETTINGS.gravity_y },
-      controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: Math.PI / 4, minSlopeSlideRad: Math.PI / 6, autostep: false },
-    },
+    physics: physics3DConfigOf(entities, SETTINGS),
   };
 }
 

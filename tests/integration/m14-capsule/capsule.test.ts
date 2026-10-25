@@ -1,9 +1,9 @@
 /**
  * The character's collision capsule is data (`controller.capsule`)
  * and every system uses it — through the production composition (the real
- * game host, the platformer controller, Rapier physics), with the physics
- * init config built from the character entity as the hosts build it
- * (`playerCapsuleOf`):
+ * game host, the character controller in its platformer profile on the
+ * plane z = 0, Rapier physics), with the physics init config built from the
+ * scene as the hosts build it (`physics3DConfigOf`):
  *
  * - a 1 m capsule walks under a 1.2 m ceiling that stops the default 1.8 m one;
  * - with its offset at half its height the entity origin is the feet: a spawn
@@ -14,8 +14,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { createGameAudioOwner, createGameHost } from '@thirdlight/game-host';
-import { createPhysicsPort } from '@thirdlight/physics-rapier';
-import { createBehaviorModuleSpec, playerCapsuleOf } from '@thirdlight/runtime';
+import { createPhysicsPort3D } from '@thirdlight/physics-rapier';
+import { createBehaviorModuleSpec, physics3DConfigOf } from '@thirdlight/runtime';
 import { withGameModules } from '../../game-modules';
 
 type Any = any;
@@ -65,28 +65,23 @@ function respawnAt(step: number): Any {
   });
 }
 
+/** The side view: the platformer profile on the plane z = 0 (a test's controller fields go on top). */
+const SIDE_VIEW = { profile: 'arcade', plane: { axis: 'z', origin: 0 } };
+
 /** One neutral level: a long floor (top at y = 0), the character at `spawn` with `controller`, plus `extra` (and a script entity for `behavior`). */
-async function level(spawn: [number, number], controller: Record<string, unknown>, extra: Any[], drive: Drive, behavior?: Any) {
+async function level(spawn: [number, number], authored: Record<string, unknown>, extra: Any[], drive: Drive, behavior?: Any) {
+  const controller = { ...SIDE_VIEW, ...authored };
   const entities: Any[] = [
     { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 200 } } },
     { id: 'player-0001', components: { transform: at(spawn[0], spawn[1]), controller } },
     { id: 'spawn-0001', components: { transform: at(spawn[0], spawn[1]), playerSpawn: {} } },
-    { id: 'floor-0001', components: { transform: at(0, -0.5), box: { size: [80, 1, 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 40, hy: 0.5 } } } },
+    { id: 'floor-0001', components: { transform: at(0, -0.5), box: { size: [80, 1, 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 40, hy: 0.5, hz: 1 } } } },
     ...extra,
     ...(behavior !== undefined ? [{ id: 'director-0001', components: { transform: at(0, -5), behavior: { behaviorId: 'respawner', values: {} } } }] : []),
   ];
   const scene = { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities };
-  const statics = entities
-    .filter((e) => e.components.collider)
-    .map((e) => ({ entityId: e.id, shape: e.components.collider.shape, position: { x: e.components.transform.position[0], y: e.components.transform.position[1] }, rotationZ: 0 }));
   // As the preview and export hosts do: the capsule comes from the character's controller.
-  const capsule = playerCapsuleOf(controller);
-  const physics = await createPhysicsPort({
-    character: { x: spawn[0], y: spawn[1], radius: capsule.radius, halfHeight: capsule.halfHeight, offset: capsule.offset },
-    statics,
-    solver: { hz: 120, gravityY: SETTINGS.gravity_y },
-    controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: Math.PI / 4, minSlopeSlideRad: Math.PI / 6, autostep: false },
-  });
+  const physics = await createPhysicsPort3D(physics3DConfigOf(entities, SETTINGS)!);
   if (!physics.ok) throw new Error(JSON.stringify(physics.error));
   const input = {
     sample: (stepIndex: number) => ({ stepIndex, ...drive(stepIndex) }),
@@ -136,7 +131,7 @@ async function level(spawn: [number, number], controller: Record<string, unknown
 
 const thing = (id: string, x: number, y: number, components: Record<string, unknown>) => ({ id, components: { transform: at(x, y), ...components } });
 /** A ceiling slab over x 3..5 whose underside is 1.2 m above the floor. */
-const CEILING = thing('ceiling-0001', 4, 1.7, { box: { size: [2, 1, 2], material: { color: '#666666' } }, collider: { shape: { type: 'box', hx: 1, hy: 0.5 } } });
+const CEILING = thing('ceiling-0001', 4, 1.7, { box: { size: [2, 1, 2], material: { color: '#666666' } }, collider: { shape: { type: 'box', hx: 1, hy: 0.5, hz: 1 } } });
 const right: Drive = () => ({ moveX: 1, jump: 'none' });
 const still: Drive = () => ({ moveX: 0, jump: 'none' });
 

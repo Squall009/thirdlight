@@ -2,7 +2,8 @@
  * Probe B — the production engine stack in a real browser.
  *
  * Exercises the pinned production packages exactly as the play/export hosts do
- * (no re-implementation): `@thirdlight/physics-rapier` (real Rapier WASM),
+ * (no re-implementation): `@thirdlight/physics-rapier` (real Rapier WASM, its
+ * init config built from a scene by the runtime's `physics3DConfigOf`),
  * `@thirdlight/three-adapter/gltf-loader` (pinned GLTFLoader port) over a
  * committed fixture GLB, three's AnimationMixer crossfade over the real clips,
  * and `@thirdlight/input`'s pure `mapRawInput` for the movement/menu key path.
@@ -12,9 +13,9 @@
  * WebAssembly/CSP incompatibility is observed here, not in a later build.
  */
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
-import { createPhysicsPort } from '@thirdlight/physics-rapier';
+import { createPhysicsPort3D } from '@thirdlight/physics-rapier';
 import { mapRawInput } from '@thirdlight/input';
-import { CONTROLLER_CONSTANTS } from '@thirdlight/character';
+import { physics3DConfigOf } from '@thirdlight/runtime';
 import * as THREE from 'three';
 
 interface Results {
@@ -41,15 +42,17 @@ void (async () => {
 
   // 2. Production Rapier port: real WASM init + a real course step.
   try {
-    const created = await createPhysicsPort({
-      character: { x: 3, y: 0.91 },
-      statics: [
-        { entityId: 'floor', shape: { type: 'box', hx: 8, hy: 0.25 }, position: { x: 0, y: -0.25 }, rotationZ: 0 },
-        { entityId: 'wall', shape: { type: 'box', hx: 0.25, hy: 1.5 }, position: { x: 6, y: 1.5 }, rotationZ: 0 },
+    const at = (x: number, y: number) => ({ position: [x, y, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] });
+    const config = physics3DConfigOf(
+      [
+        { id: 'player', components: { transform: at(3, 0.91), controller: {} } },
+        { id: 'floor', components: { transform: at(0, -0.25), collider: { shape: { type: 'box', hx: 8, hy: 0.25, hz: 2 } } } },
+        { id: 'wall', components: { transform: at(6, 1.5), collider: { shape: { type: 'box', hx: 0.25, hy: 1.5, hz: 2 } } } },
       ],
-      solver: { hz: 120, gravityY: -19.62 },
-      controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: (45 * Math.PI) / 180, minSlopeSlideRad: (30 * Math.PI) / 180, autostep: false },
-    });
+      { gravity_y: -19.62, max_slope_climb_deg: 45, min_slope_slide_deg: 30 },
+    );
+    if (config === null) throw new Error('the probe scene made no physics config');
+    const created = await createPhysicsPort3D(config);
     R['physicsOk'] = created.ok;
     if (!created.ok) {
       R['physicsError'] = created.error;
@@ -57,7 +60,7 @@ void (async () => {
       const port = created.port;
       R['physicsImplementation'] = port.implementation;
       const dt = 1 / 120;
-      // The accepted controller integration (physics-rapier init.test.ts helper):
+      // A minimal controller integration (as the character controller drives the port):
       // vertical velocity is owned by the caller, the port applies the delta.
       let vy = 0;
       let airborne = false;
@@ -74,7 +77,7 @@ void (async () => {
           if (vy < -30) vy = -30;
         }
         if (airborne && grounded && vy <= 0) airborne = false;
-        port.stageCharacterMove({ x: moveX * 4 * dt, y: vy * dt });
+        port.stageCharacterMove({ x: moveX * 4 * dt, y: vy * dt, z: 0 });
         last = port.step();
       };
       for (let i = 0; i < 12; i += 1) stepOnce(0, false);
@@ -197,7 +200,6 @@ void (async () => {
     R['inputGamepadButton'] = frame({ gamepad: pad({ button0: true }) });
     R['inputGamepadAxis'] = frame({ gamepad: pad({ axis0: 0.9 }) });
     R['inputNonStandardPad'] = frame({ gamepad: pad({ mapping: 'xinput', button0: true }) });
-    R['controllerConstants'] = CONTROLLER_CONSTANTS;
   } catch (e) {
     R['inputError'] = e instanceof Error ? e.message : String(e);
   }

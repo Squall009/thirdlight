@@ -9,7 +9,7 @@
  * bodies, movers and triggers stand still). With a character, the listener
  * sits on a trigger around it: the trigger's enter switches to the board, so
  * the enter event is the last thing the triggers did before the hold — it
- * must be seen once, not every held step. Without physics (the 2D plane, no
+ * must be seen once, not every held step. Without physics (a plain scene, no
  * controller) the listener switches at a fixed step.
  *
  * Also a 2D plain scene with no scripts at all (the step without simulation
@@ -28,7 +28,6 @@ import { behaviorModule, startHarness, type Mode } from '../m22-worker/harness';
 type Any = any;
 const DT = 1 / 120;
 const T = (position: number[]) => ({ position, rotation: [0, 0, 0, 1], scale: [1, 1, 1] });
-const SETTINGS_2D = { run_speed: 5, jump_velocity: 8, gravity_y: -20, max_fall_speed: -20, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
 const SETTINGS_3D = { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
 const MODULES_3D = ['thirdlight.character3d:controller', 'thirdlight.input:keyboard-gamepad', 'thirdlight.physics-rapier:3d'];
 const MODES = { modes: [{ modeId: 'play', name: 'Play' }, { modeId: 'board', name: 'Board', physics: 'hold' }], actionMaps: {} };
@@ -68,10 +67,9 @@ export default {
 };
 `;
 
-type Variant = '3d' | '2d-physics' | '2d-plain';
+type Variant = '3d' | '2d-plain';
 
 function scene(variant: Variant): { snapshot: Any; physics: Any; settings: Any; modules?: string[] } {
-  const three = variant === '3d';
   const entities: Any[] = [
     { id: 'cam-main', components: { transform: T([0, 4, 12]), camera: { type: 'perspective', fovY: 50, near: 0.1, far: 200 } } },
     { id: 'director-0001', components: { transform: T([0, -5, 0]), behavior: { behaviorId: 'director', values: {} } } },
@@ -81,9 +79,9 @@ function scene(variant: Variant): { snapshot: Any; physics: Any; settings: Any; 
   } else {
     entities.push(
       { id: 'player-0001', components: { transform: T([0, 0.91, 0]), controller: {} } },
-      { id: 'floor-0001', components: { transform: T([0, -0.5, 0]), box: { size: [40, 1, 40], material: { color: '#888888' } }, collider: { shape: three ? { type: 'box', hx: 20, hy: 0.5, hz: 20 } : { type: 'box', hx: 20, hy: 0.5 } } } },
+      { id: 'floor-0001', components: { transform: T([0, -0.5, 0]), box: { size: [40, 1, 40], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 20, hy: 0.5, hz: 20 } } } },
       // The listener's trigger around the character: entered on the first steps.
-      { id: 'listener-0001', components: { transform: T([0, 0.91, 0]), trigger: { signal: 'entered', size: three ? [2, 2, 2] : [2, 2] }, behavior: { behaviorId: 'listener', values: {} } } },
+      { id: 'listener-0001', components: { transform: T([0, 0.91, 0]), trigger: { signal: 'entered', size: [2, 2, 2] }, behavior: { behaviorId: 'listener', values: {} } } },
     );
   }
   const snapshot = {
@@ -93,18 +91,8 @@ function scene(variant: Variant): { snapshot: Any; physics: Any; settings: Any; 
     scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities },
     modes: MODES,
   };
-  if (three) return { snapshot, physics: physics3DConfigOf(entities, SETTINGS_3D), settings: SETTINGS_3D, modules: MODULES_3D };
-  if (variant === '2d-plain') return { snapshot, physics: null, settings: SETTINGS_2D };
-  return {
-    snapshot,
-    settings: SETTINGS_2D,
-    physics: {
-      character: { x: 0, y: 0.91 },
-      statics: [{ entityId: 'floor-0001', shape: { type: 'box', hx: 20, hy: 0.5 }, position: { x: 0, y: -0.5 }, rotationZ: 0 }],
-      solver: { hz: 120, gravityY: SETTINGS_2D.gravity_y },
-      controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: Math.PI / 4, minSlopeSlideRad: Math.PI / 6, autostep: false },
-    },
-  };
+  if (variant === '2d-plain') return { snapshot, physics: null, settings: {} };
+  return { snapshot, physics: physics3DConfigOf(entities, SETTINGS_3D), settings: SETTINGS_3D, modules: MODULES_3D };
 }
 
 /** A recorded neutral input (the live runs sample the same frames). */
@@ -163,7 +151,7 @@ async function threeRuns(cfg: (replay: boolean) => Any, steps: number): Promise<
 }
 
 describe('a game mode that holds physics still delivers signals, trigger events and script messages', () => {
-  for (const variant of ['3d', '2d-physics', '2d-plain'] as const) {
+  for (const variant of ['3d', '2d-plain'] as const) {
     it(`${variant}: every message and signal arrives one step later, the trigger's enter is seen once; page, worker and replay agree`, async () => {
       const { snapshot, physics, settings, modules } = scene(variant);
       const listener = LISTENER(variant === '2d-plain' ? 40 : null);

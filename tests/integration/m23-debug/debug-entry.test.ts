@@ -20,7 +20,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 
 import { M2_PINNED_MODULES, compileBehavior } from '@thirdlight/behavior-build';
-import { SIGNAL_DEBUG_COMMAND } from '@thirdlight/runtime';
+import { SIGNAL_DEBUG_COMMAND, physics3DConfigOf } from '@thirdlight/runtime';
 
 import { FakeNode, startHarness, type Harness, type Mode } from '../m22-worker/harness';
 
@@ -83,7 +83,7 @@ function level(): { snapshot: Any; physics: Any } {
     { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 200 } } },
     { id: 'player-0001', components: { transform: at(0, 0.91), controller: {} } },
     { id: 'spawn-0001', components: { transform: at(0, 0.91), playerSpawn: {} } },
-    { id: 'floor-0001', components: { transform: at(20, -0.5), box: { size: [80, 1, 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 40, hy: 0.5 } } } },
+    { id: 'floor-0001', components: { transform: at(20, -0.5), box: { size: [80, 1, 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 40, hy: 0.5, hz: 1 } } } },
     { id: 'box-0001', components: { transform: at(4, 3), box: BOX, behavior: { behaviorId: 'nudger', values: {} } } },
   ];
   return {
@@ -93,12 +93,7 @@ function level(): { snapshot: Any; physics: Any } {
       revision: 1,
       scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities },
     },
-    physics: {
-      character: { x: 0, y: 0.91 },
-      statics: [{ entityId: 'floor-0001', shape: { type: 'box', hx: 40, hy: 0.5 }, position: { x: 20, y: -0.5 }, rotationZ: 0 }],
-      solver: { hz: HZ, gravityY: SETTINGS.gravity_y },
-      controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: Math.PI / 4, minSlopeSlideRad: Math.PI / 6, autostep: false },
-    },
+    physics: physics3DConfigOf(entities, SETTINGS),
   };
 }
 

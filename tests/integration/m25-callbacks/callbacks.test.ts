@@ -1,6 +1,6 @@
 /**
  * Behavior callbacks through the production composition, on the
- * main thread and in the simulation worker, on the 2D plane and in 3D.
+ * main thread and in the simulation worker, in 3D.
  *
  * A neutral level: the character walks right through a trigger and into a
  * hitbox; an animated model passes a clip event; a UI event arrives on the
@@ -158,16 +158,13 @@ const PREFABS = [
   },
 ];
 
-type Dim = 2 | 3;
-
-function level(dim: Dim): { main: Any[]; two: Any[] } {
-  const z = dim === 3;
+function level(): { main: Any[]; two: Any[] } {
   const main: Any[] = [
     { id: 'cam-main', components: { transform: T([0, 4, 14]), camera: { type: 'perspective', fovY: 50, near: 0.1, far: 300 } } },
     { id: 'player-0001', components: { transform: T([0, 0.91, 0]), controller: {} } },
-    { id: 'floor-0001', components: { transform: T([0, -0.5, 0]), box: { size: [60, 1, 4], material: { color: '#888888' } }, collider: { shape: z ? { type: 'box', hx: 30, hy: 0.5, hz: 2 } : { type: 'box', hx: 30, hy: 0.5 } } } },
-    { id: 'zone-0001', components: { transform: T([3, 1.5, 0]), trigger: z ? { size: [1, 3, 2], signal: 'zone' } : { size: [1, 3], signal: 'zone' } } },
-    { id: 'thorn-0001', components: { transform: T([6, 0.25, 0]), hitbox: { size: z ? [0.5, 0.5, 0.5] : [0.5, 0.5] }, behavior: { behaviorId: 'vs', values: {} } } },
+    { id: 'floor-0001', components: { transform: T([0, -0.5, 0]), box: { size: [60, 1, 4], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 30, hy: 0.5, hz: 2 } } } },
+    { id: 'zone-0001', components: { transform: T([3, 1.5, 0]), trigger: { size: [1, 3, 2], signal: 'zone' } } },
+    { id: 'thorn-0001', components: { transform: T([6, 0.25, 0]), hitbox: { size: [0.5, 0.5, 0.5] }, behavior: { behaviorId: 'vs', values: {} } } },
     { id: 'table-0001', components: { transform: T([-5, 0, 0]), model: { asset: { assetId: 'model-socket' } }, animator: { controller: 'ctl-slide' } } },
     { id: 'lamp-0001', components: { transform: T([-2, 3, 0]), box: { size: [0.5, 0.5, 0.5], material: { color: '#ffffff' } }, behavior: { behaviorId: 'life', values: {} } } },
     { id: 'bulb-0001', parentId: 'lamp-0001', components: { transform: T([0, -0.5, 0]), box: { size: [0.2, 0.2, 0.2], material: { color: '#ffff00' } }, behavior: { behaviorId: 'life', values: {} } } },
@@ -178,29 +175,16 @@ function level(dim: Dim): { main: Any[]; two: Any[] } {
   return { main, two };
 }
 
-const SETTINGS_2D = { run_speed: 4, jump_velocity: 8, gravity_y: -20, max_fall_speed: -20, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
-const SETTINGS_3D = { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
-
-function physicsOf(dim: Dim, main: Any[]): { settings: Any; physics: Any } {
-  if (dim === 3) return { settings: SETTINGS_3D, physics: physics3DConfigOf(main, SETTINGS_3D) };
-  const statics = main
-    .filter((e) => e.components.collider)
-    .map((e) => ({ entityId: e.id, shape: e.components.collider.shape, position: { x: e.components.transform.position[0], y: e.components.transform.position[1] }, rotationZ: 0 }));
-  return {
-    settings: SETTINGS_2D,
-    physics: { character: { x: 0, y: 0.91 }, statics, solver: { hz: 120, gravityY: SETTINGS_2D.gravity_y }, controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: Math.PI / 4, minSlopeSlideRad: Math.PI / 6, autostep: false } },
-  };
-}
+const SETTINGS = { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
 
 const HUD = { uiDocumentId: 'hud', name: 'HUD', root: { type: 'button', id: 'go', text: 'Go', onClick: { do: 'event', name: 'go', value: 3 } } };
 const PATTERN = [1, 2, 1, 0, 3, 1, 1, 2, 0, 1];
 const STEPS = 760;
 
 /** Walk right (the character passes the zone at x 3 and runs into the thorn at x 6), then stand; a UI click at step 50. */
-function recording(dim: Dim): Any[] {
-  const walk = dim === 3 ? 520 : 260;
+function recording(): Any[] {
   return Array.from({ length: STEPS + 200 }, (_, s) => {
-    const f: Any = { stepIndex: s, moveX: s < walk ? 1 : 0, ...(dim === 3 ? { moveY: 0 } : {}), jump: 'none', actions: {} };
+    const f: Any = { stepIndex: s, moveX: s < 520 ? 1 : 0, moveY: 0, jump: 'none', actions: {} };
     if (s === 50) f.ui = [{ kind: 'click', doc: 'hud', widget: 'go', name: 'go', value: 3 }];
     return f;
   });
@@ -215,12 +199,12 @@ interface Outcome {
   errors: Any[];
 }
 
-async function run(mode: Mode, dim: Dim): Promise<Outcome> {
-  const { main, two } = level(dim);
+async function run(mode: Mode): Promise<Outcome> {
+  const { main, two } = level();
   const h = await startHarness(mode, {
     snapshot: {
-      snapshotId: `callbacks${dim}@r1`,
-      projectId: `callbacks${dim}`,
+      snapshotId: 'callbacks@r1',
+      projectId: 'callbacks',
       revision: 1,
       scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities: main },
       scenes: [
@@ -232,14 +216,15 @@ async function run(mode: Mode, dim: Dim): Promise<Outcome> {
       rigs: { 'model-socket': RIG },
       uiDocuments: [{ uiDocumentId: 'hud', layer: 0, modal: false }],
     },
-    ...physicsOf(dim, main),
-    ...(dim === 3 ? { modules: MODULES_3D } : {}),
+    settings: SETTINGS,
+    physics: physics3DConfigOf(main, SETTINGS),
+    modules: MODULES_3D,
     behaviors: [behaviorModule('director', DIRECTOR), behaviorModule('logger', LOGGER, LOGGER_DECLARATION), behaviorModule('life', LIFE), behaviorModule('vs', await visualScript())],
     loadScene: async (sceneId: string) => {
       if (sceneId !== 'scene-two') throw new Error('unknown scene');
       return two;
     },
-    replay: recording(dim),
+    replay: recording(),
     digestSteps: true,
     storage: true,
     host: { buildId: 'b', container: new FakeNode(), ui: { documents: [HUD] } },
@@ -343,26 +328,24 @@ function checkEvents(ev: string[]): void {
 }
 
 describe('behavior callbacks', () => {
-  for (const dim of [2, 3] as const) {
-    it(`lifecycle and event callbacks run in the step in a fixed order, alike in page and worker, replays identical (${dim}D)`, async () => {
-      const single = await run('single', dim);
-      expect(single.errors).toEqual([]);
-      checkLife(single.life);
-      checkEvents(single.ev);
-      // The visual script's callback events: enabled at the start and when switched on again, one disable,
-      // one contact (not the separation), the UI event's value added.
-      expect(single.counters).toMatchObject({ vs_enable: 2, vs_disable: 1, vs_contact: 1, vs_ui: 3 });
+  it('lifecycle and event callbacks run in the step in a fixed order, alike in page and worker, replays identical', async () => {
+    const single = await run('single');
+    expect(single.errors).toEqual([]);
+    checkLife(single.life);
+    checkEvents(single.ev);
+    // The visual script's callback events: enabled at the start and when switched on again, one disable,
+    // one contact (not the separation), the UI event's value added.
+    expect(single.counters).toMatchObject({ vs_enable: 2, vs_disable: 1, vs_contact: 1, vs_ui: 3 });
 
-      const worker = await run('worker', dim);
-      expect(worker.life).toEqual(single.life);
-      expect(worker.counters).toEqual(single.counters);
-      expect(worker.ev).toEqual(single.ev);
-      expect(worker.digests).toEqual(single.digests);
+    const worker = await run('worker');
+    expect(worker.life).toEqual(single.life);
+    expect(worker.counters).toEqual(single.counters);
+    expect(worker.ev).toEqual(single.ev);
+    expect(worker.digests).toEqual(single.digests);
 
-      // A second run plays the same, step for step.
-      const again = await run('single', dim);
-      expect(again.digests).toEqual(single.digests);
-      expect(again.life).toEqual(single.life);
-    }, 240_000);
-  }
+    // A second run plays the same, step for step.
+    const again = await run('single');
+    expect(again.digests).toEqual(single.digests);
+    expect(again.life).toEqual(single.life);
+  }, 240_000);
 });

@@ -5,19 +5,19 @@
  * case through the production game host and keeps every step's character
  * position, velocity, grounding and state.
  *
- * The 2D platformer controller's runs of these cases are stored as the
- * reference traces (`fixtures/phase41/platformer-traces`): the platformer
+ * The removed 2D platformer controller's runs of these cases are kept as the
+ * reference traces (`fixtures/phase41/platformer-traces`, frozen data): the platformer
  * arcade movement profile of the 3D controller is measured against them, so the
  * levels are authored once in their 2D form and the 3D run gets the same
  * entities (2D boxes and polygons take their 3D form on the 3D backend).
  * Tuning is Sprout-shaped (its run and jump speeds, gravity, capsule and
  * windows), never its content.
  */
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { physics2DConfigOf, physics3DConfigOf } from '@thirdlight/runtime';
+import { physics3DConfigOf } from '@thirdlight/runtime';
 
 import { startHarness } from '../m22-worker/harness';
 import { MODULES_3D } from '../m23-3d/character-kit';
@@ -209,17 +209,17 @@ function replayOf(c: PlatformerCase, downMoves: boolean): Any[] {
 }
 
 /**
- * A case's entities. In 3D a climb volume is 1 m deep; with `axis` 'x' the
+ * A case's entities. A climb volume is 1 m deep; with `axis` 'x' the
  * level stands on the plane x = 0 instead of z = 0: the 2D x runs along −Z
  * (each collider's plane says so, which turns its outline), so the same
  * level and moves give the same in-plane trace.
  */
-export function entitiesOf(c: PlatformerCase, dim: 2 | 3, extraController: Record<string, unknown> = {}, axis: 'z' | 'x' = 'z'): Any[] {
-  const onX = dim === 3 && axis === 'x';
+export function entitiesOf(c: PlatformerCase, extraController: Record<string, unknown> = {}, axis: 'z' | 'x' = 'z'): Any[] {
+  const onX = axis === 'x';
   const at = (p: readonly number[]): number[] => (onX ? [0, p[1]!, -p[0]!] : [...p]);
   const place = (e: Any): Any => {
     const k = { ...e.components, transform: { ...e.components.transform, position: at(e.components.transform.position) } };
-    if (dim === 3 && k.climbVolume !== undefined) k.climbVolume = { size: onX ? [1, k.climbVolume.size[1], k.climbVolume.size[0]] : [...k.climbVolume.size, 1] };
+    if (k.climbVolume !== undefined) k.climbVolume = { size: onX ? [1, k.climbVolume.size[1], k.climbVolume.size[0]] : [...k.climbVolume.size, 1] };
     if (onX && k.collider !== undefined) k.collider = { ...k.collider, plane: { axis: 'x', origin: 0 } };
     if (onX && k.mover !== undefined) k.mover = { ...k.mover, waypoints: k.mover.waypoints.map(at) };
     return { ...e, components: k };
@@ -233,12 +233,11 @@ export function entitiesOf(c: PlatformerCase, dim: 2 | 3, extraController: Recor
 
 /**
  * Run a case through the production game host (page composition) and record
- * every executed step after the settle pre-roll. `dim` 2: the 2D backend and
- * the 2D platformer controller; 3: the 3D backend and the 3D controller, its
- * player carrying `extraController` (a movement profile, a plane).
+ * every executed step after the settle pre-roll, its player carrying
+ * `extraController` (a movement profile, a plane).
  */
-export async function recordCase(c: PlatformerCase, dim: 2 | 3, extraController: Record<string, unknown> = {}, axis: 'z' | 'x' = 'z'): Promise<{ rows: TraceRow[]; depth: number[]; errors: Any[] }> {
-  return recordRun(c, entitiesOf(c, dim, extraController, axis), { dim, axis, onPlane: dim === 2 || extraController['plane'] !== undefined });
+export async function recordCase(c: PlatformerCase, extraController: Record<string, unknown> = {}, axis: 'z' | 'x' = 'z'): Promise<{ rows: TraceRow[]; depth: number[]; errors: Any[] }> {
+  return recordRun(c, entitiesOf(c, extraController, axis), { axis, onPlane: extraController['plane'] !== undefined });
 }
 
 /**
@@ -247,21 +246,20 @@ export async function recordCase(c: PlatformerCase, dim: 2 | 3, extraController:
  * (absent: `player-0001`); `onPlane`: down is a plane-locked character's
  * (its move's y) rather than a free one's.
  */
-export async function recordRun(c: PlatformerCase, entities: readonly Any[], opts: { dim: 2 | 3; axis?: 'z' | 'x'; onPlane: boolean; playerId?: string }): Promise<{ rows: TraceRow[]; depth: number[]; errors: Any[] }> {
-  const { dim } = opts;
+export async function recordRun(c: PlatformerCase, entities: readonly Any[], opts: { axis?: 'z' | 'x'; onPlane: boolean; playerId?: string }): Promise<{ rows: TraceRow[]; depth: number[]; errors: Any[] }> {
   const axis = opts.axis ?? 'z';
   const playerId = opts.playerId ?? 'player-0001';
   // The in-plane x (+X, or −Z on the plane x = 0) and the depth across the plane.
-  const along = (v: { x: number; z?: number }): number => (dim === 3 && axis === 'x' ? -(v.z ?? 0) : v.x);
-  const across = (v: { x: number; z?: number }): number => (dim === 3 && axis === 'x' ? v.x : (v.z ?? 0));
-  const settings = dim === 3 ? { ...SETTINGS } : SETTINGS;
-  const physics = dim === 3 ? physics3DConfigOf(entities as Any[], settings) : physics2DConfigOf(entities as Any[], settings);
+  const along = (v: { x: number; z?: number }): number => (axis === 'x' ? -(v.z ?? 0) : v.x);
+  const across = (v: { x: number; z?: number }): number => (axis === 'x' ? v.x : (v.z ?? 0));
+  const settings = { ...SETTINGS };
+  const physics = physics3DConfigOf(entities as Any[], settings);
   const h = await startHarness('single', {
-    snapshot: { snapshotId: `${c.id}${dim}@r1`, projectId: `${c.id}${dim}`, revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities }, scenes: [{ sceneId: 'scene-main', start: true, entityIds: entities.map((e) => e.id) }] },
+    snapshot: { snapshotId: `${c.id}@r1`, projectId: c.id, revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities }, scenes: [{ sceneId: 'scene-main', start: true, entityIds: entities.map((e) => e.id) }] },
     settings,
     physics,
     replay: replayOf(c, opts.onPlane),
-    ...(dim === 3 ? { modules: MODULES_3D } : {}),
+    modules: MODULES_3D,
   });
   const rt = h.rt as Any;
   const rows: TraceRow[] = [];
@@ -300,35 +298,8 @@ export async function recordRun(c: PlatformerCase, entities: readonly Any[], opt
   }
 }
 
-export function traceFile(c: PlatformerCase, rows: TraceRow[]): TraceFile {
-  return {
-    id: c.id,
-    about: c.about,
-    hz: HZ,
-    settings: SETTINGS,
-    controller: { ...BASE_CONTROLLER, ...(c.controller ?? {}) },
-    start: c.start,
-    level: c.level,
-    input: inputOf(c).slice(0, c.steps),
-    columns: ['x', 'y', 'vx', 'vy', 'grounded', 'state'],
-    rows,
-  };
-}
-
 export function readTrace(id: string): TraceFile {
   return JSON.parse(readFileSync(join(TRACE_DIR, `${id}.json`), 'utf8')) as TraceFile;
-}
-
-/** One row per line: the files stay diffable. */
-export function writeTrace(t: TraceFile): void {
-  mkdirSync(TRACE_DIR, { recursive: true });
-  const { rows, input, ...head } = t;
-  const body = [
-    JSON.stringify(head, null, 1).slice(0, -2),
-    `,\n "input": [\n${input.map((f) => `  ${JSON.stringify(f)}`).join(',\n')}\n ]`,
-    `,\n "rows": [\n${rows.map((r) => `  ${JSON.stringify(r)}`).join(',\n')}\n ]\n}\n`,
-  ].join('');
-  writeFileSync(join(TRACE_DIR, `${t.id}.json`), body);
 }
 
 /** The tolerances, stated once (positions in m, timings in steps of 1/120 s). */

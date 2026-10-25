@@ -30,10 +30,9 @@
  *
  * Browser-only (DOM, WebGL/WebGPU, Web Audio, Web Crypto).
  */
-import { audioSpatialOf, dependencyTables, isStoredVertexColors, depthBufferOf, instanceChunkSizeOf, lodTuningOf, type ModelLodSettings, materialTextureRefs, physicsDimensionOf, PHYSICS_2D_MODULE_ID, PHYSICS_3D_MODULE_ID, scanDependencies, sha256HexAsync, streamingBudgetBytesOf, textureBudgetBytesOf, type MaterialDef, type ModelColliderTable, type SaveSchema, type GraphDocument } from '@thirdlight/project-model';
+import { audioSpatialOf, dependencyTables, isStoredVertexColors, depthBufferOf, instanceChunkSizeOf, lodTuningOf, type ModelLodSettings, materialTextureRefs, PHYSICS_3D_MODULE_ID, scanDependencies, sha256HexAsync, streamingBudgetBytesOf, textureBudgetBytesOf, type MaterialDef, type ModelColliderTable, type SaveSchema, type GraphDocument } from '@thirdlight/project-model';
 import { assetVersionKey, createResourceManager, fixedStepHzOf, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, qualityLevelOf, qualityLevelsOf, renderSettingsOf, seeThroughSettingsOfProject, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
-import type { RapierPhysicsInitConfig, RapierPhysicsPort } from '@thirdlight/physics-rapier';
 import { architectureFromUrl, batchingFromUrl, decalsFromUrl, seeThroughFromUrl, occlusionFromUrl, occlusionPyramidFromUrl, paintFromUrl, portalsFromUrl, createBrowserMeshWorker, scatterFromUrl, splinesFromUrl, terrainFromUrl, terrainHorizonFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, mergingFromUrl, pageSearch, probesFromUrl, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, shadowCacheFromUrl, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EffectDefLike, EnvironmentLike, FrameDrawnInfo, TextureStreamer, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
@@ -44,7 +43,6 @@ import {
   withDialogueUiDocument,
   materialCatalogOf,
   modelBoundsFromAssetRows,
-  physics2DConfigOf,
   physics3DConfigOf,
   resolveSnapshotHierarchy,
   type GameMode,
@@ -109,7 +107,6 @@ import {
   type StartTimings,
   type VerifiedAssetReader,
 } from './index';
-import type { Physics2DModule } from './physics-global';
 import { pageAudio } from './page-audio';
 import { mipPartsOf } from './asset-reader';
 import { withBlockChunkData } from './block-chunk-data';
@@ -210,12 +207,6 @@ export interface GamePageOptions {
   /** The simulation worker's script and the 3D physics backend's script. */
   readonly workerUrl: string;
   readonly physics3dUrl: string;
-  /**
-   * The 2D physics backend, for the simulation on this page (a worker loads its
-   * own). Injected so the page bundle links the 2D engine only where its entry
-   * chooses to: Play links it, an export loads its separate `physics-2d.js`.
-   */
-  readonly physics2d: () => Promise<Physics2DModule>;
   /** The block mesh worker's script (absent: block chunks mesh on the page). */
   readonly meshWorkerUrl?: string;
   /** Keep generated architecture's chunks in the player's browser between visits (an exported game). */
@@ -646,12 +637,9 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
   });
   // The manifest's modules come from every scene of the project, not only the start scene.
   const moduleIds = (manifest as unknown as { modules?: Array<{ id: string }> }).modules?.map((m) => m.id) ?? [];
-  // A 3D project's physics is the 3D backend; a plain scene (no player controller) plays without physics
-  // unless another scene, a prefab or a script needs the backend (the world then starts without a player).
-  const physicsConfig: RapierPhysicsInitConfig | PhysicsInitConfig3D | null =
-    physicsDimensionOf(settings) === 3
-      ? physics3DConfigOf(snapshot.scene.entities as never, settings, { layers: manifest.collisionLayers ?? [], required: moduleIds.includes(PHYSICS_3D_MODULE_ID), ...(snapshot.modelColliders !== undefined ? { modelColliders: snapshot.modelColliders } : {}) })
-      : (physics2DConfigOf(snapshot.scene.entities, settings, { required: moduleIds.includes(PHYSICS_2D_MODULE_ID), ...(snapshot.modelColliders !== undefined ? { modelColliders: snapshot.modelColliders } : {}) }) as RapierPhysicsInitConfig | null);
+  // A plain scene (no player controller) plays without physics unless another scene, a prefab or a
+  // script needs the backend (the world then starts without a player).
+  const physicsConfig: PhysicsInitConfig3D | null = physics3DConfigOf(snapshot.scene.entities as never, settings, { layers: manifest.collisionLayers ?? [], required: moduleIds.includes(PHYSICS_3D_MODULE_ID), ...(snapshot.modelColliders !== undefined ? { modelColliders: snapshot.modelColliders } : {}) });
   // The bindings in effect (a player's rebinding changes them): the project's actions, else the defaults.
   let inputConfigNow: InputConfigLike = manifest.input ?? defaultInputOf(startPlaneOf(manifest.scenes));
   const browserInput = attachBrowserInput(o.canvas, { inputConfig: inputConfigNow });
@@ -771,21 +759,14 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
     }
 
     // The physics port in single-thread mode (in worker mode the worker has its own).
-    let physics: RapierPhysicsPort | PhysicsPort3D | undefined;
-    if (remote === null && physicsConfig !== null) timings?.begin('physics');
-    if (remote === null && physicsConfig !== null && 'dimension' in physicsConfig) {
-      // The 3D backend (a separate script, loaded only for a 3D project).
+    let physics: PhysicsPort3D | undefined;
+    if (remote === null && physicsConfig !== null) {
+      timings?.begin('physics');
+      // The backend is a separate script, loaded only for a game with physics.
       const backend = await loadPhysics3D(o.physics3dUrl);
       const init = await backend.createPhysicsPort3D(physicsConfig as never);
       if (!init.ok) throw new GamePageError('play_content_not_ready', 'manifest', `physics init failed: ${init.error.code}`);
       const p = init.port as PhysicsPort3D;
-      physics = p;
-      releases.push(() => p.dispose());
-    } else if (remote === null && physicsConfig !== null) {
-      const backend = await o.physics2d();
-      const init = await backend.createPhysicsPort(physicsConfig as never);
-      if (!init.ok) throw new GamePageError('play_content_not_ready', 'manifest', `physics init failed: ${init.error.code}`);
-      const p = init.port as RapierPhysicsPort;
       physics = p;
       releases.push(() => p.dispose());
     }

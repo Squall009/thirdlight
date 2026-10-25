@@ -1,8 +1,9 @@
 /**
  * The simulation worker computes exactly what the page computes.
  *
- * A neutral scene with most of the simulation's moving parts — the character
- * controller on Rapier with health, collectibles, a patroller with a damaging
+ * A neutral side-view scene (every body locked to the plane z = 0) with most
+ * of the simulation's moving parts — the character controller (the arcade
+ * profile) on Rapier with health, collectibles, a patroller with a damaging
  * hitbox, a moving platform, a one-way shelf, a pressure plate and a door, and
  * a script that spawns collectibles on a timer, plays sounds and reads the
  * input — is
@@ -26,6 +27,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { startRemoteSimulation } from '@thirdlight/game-host';
+import { physics3DConfigOf } from '@thirdlight/runtime';
 
 import { behaviorModule, startHarness, startNodeSimWorker, type Harness, type Mode } from './harness';
 
@@ -35,6 +37,7 @@ const DT = 1 / HZ;
 const T = { rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
 const at = (x: number, y: number, z = 0) => ({ position: [x, y, z], ...T });
 const SETTINGS = { run_speed: 5, jump_velocity: 8, gravity_y: -20, max_fall_speed: -20, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
+const PLANE = { axis: 'z', origin: 0 };
 const box = (id: string, x: number, y: number, components: Record<string, unknown>) => ({ id, components: { transform: at(x, y), ...components } });
 
 const PREFABS = [{ prefabId: 'token', displayName: 'Token', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'box-0002', components: { transform: at(0, 0), box: { size: [0.4, 0.4, 0.1], material: { color: '#ffcc00' } }, collectible: { counter: 'items', size: [0.6, 0.6] } } }] }];
@@ -58,7 +61,7 @@ export default {
 function level(): { snapshot: Any; physics: Any } {
   const entities: Any[] = [
     { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 200 } } },
-    { id: 'player-0001', components: { transform: at(0, 0.91), controller: {}, health: { max: 3 } } },
+    { id: 'player-0001', components: { transform: at(0, 0.91), controller: { profile: 'arcade', plane: PLANE }, health: { max: 3 } } },
     { id: 'spawn-0001', components: { transform: at(0, 0.91), playerSpawn: {} } },
     box('floor-0001', 20, -0.5, { box: { size: [80, 1, 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 40, hy: 0.5 } } }),
     box('token-0001', 2, 0.9, { collectible: { counter: 'items' } }),
@@ -70,9 +73,6 @@ function level(): { snapshot: Any; physics: Any } {
     box('door-0001', 34, 2, { box: { size: [0.6, 4, 2], material: { color: '#553311' } }, collider: { shape: { type: 'box', hx: 0.3, hy: 2 } }, mover: { waypoints: [[0, 4, 0]], speed: 4, mode: 'once', startOn: 'open' } }),
     box('box-director', 0, -5, { box: { size: [0.2, 0.2, 0.2], material: { color: '#ffffff' } }, behavior: { behaviorId: 'director', values: {} } }),
   ];
-  const statics = entities
-    .filter((e) => e.components.collider)
-    .map((e) => ({ entityId: e.id, shape: e.components.collider.shape, position: { x: e.components.transform.position[0], y: e.components.transform.position[1] }, rotationZ: 0, ...(e.components.mover ? { kinematic: true } : {}), ...(e.components.collider.oneWay ? { oneWay: true } : {}) }));
   return {
     snapshot: {
       snapshotId: 'parity@r1',
@@ -81,12 +81,7 @@ function level(): { snapshot: Any; physics: Any } {
       scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities },
       prefabs: PREFABS,
     },
-    physics: {
-      character: { x: 0, y: 0.91 },
-      statics,
-      solver: { hz: HZ, gravityY: SETTINGS.gravity_y },
-      controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: Math.PI / 4, minSlopeSlideRad: Math.PI / 6, autostep: false },
-    },
+    physics: physics3DConfigOf(entities, SETTINGS),
   };
 }
 

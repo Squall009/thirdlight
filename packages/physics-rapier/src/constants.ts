@@ -1,38 +1,15 @@
 /**
- * Constants shared by the adapter and its tests (physics.md,
- * project-model, decision 0002). The step rate,
- * skin, ground snap and autostep became data (the project's `fixed_step_hz`,
- * the player's `controller` tuning) handed to `createPhysicsPort`; the values
- * here are their defaults — the ones the frozen traces were made with, so a
- * project that sets none replays exactly. The rest are engine limits and
- * numeric tolerances.
+ * Constants of the adapter: the approved pin, engine limits and numeric
+ * tolerances. The step rate and the controller tuning are data (the
+ * project's `fixed_step_hz`, the player's `controller`) handed to the port.
  */
-import { CONVEX_TOL, MAX_COLLIDER_EXTENT, MAX_LEN, MAX_POLYGON_VERTICES as MODEL_MAX_POLYGON_VERTICES, MIN_POLYGON_AREA as MODEL_MIN_POLYGON_AREA } from '@thirdlight/project-model/limits';
+import { MAX_LEN } from '@thirdlight/project-model/limits';
 
 /** The approved physics pin. */
 export const RAPIER_PIN = '0.20.0' as const;
 
-/** The value of `PhysicsPort.implementation` for this adapter. */
-export const PHYSICS_IMPLEMENTATION = 'rapier2d-compat@0.20.0' as const;
-
-/** The solver's step rate when a project sets none, and the rates it may choose (`fixed_step_hz`; project-model's). */
-export { DEFAULT_FIXED_STEP_HZ as FIXED_HZ, FIXED_STEP_HZ_CHOICES as FIXED_HZ_CHOICES } from '@thirdlight/project-model/limits';
-
-/**
- * The character capsule is the player's data (`controller.capsule`,
- * handed over as `character.radius`/`halfHeight`/`offset` in the init config).
- * These are only the fallback when a caller passes no capsule — the
- * project-model default (radius 0.3 m, centre-line half-height 0.6 m: 1.8 m
- * tall, an adult human).
- */
-export const DEFAULT_CAPSULE_RADIUS = 0.3 as const;
-export const DEFAULT_CAPSULE_HALF_HEIGHT = 0.6 as const;
-
-/** Character controller gap kept between the capsule and the world (the default of `controller.skin`). */
-export const CONTROLLER_OFFSET_SKIN = 0.01 as const;
-
-/** `enableSnapToGround(distance)` — the maximum ground snap applied per step (the default of `controller.groundSnap`). */
-export const GROUND_SNAP_DISTANCE = 0.1 as const;
+/** The rates the solver may step at (`fixed_step_hz`; project-model's). */
+export { FIXED_STEP_HZ_CHOICES as FIXED_HZ_CHOICES } from '@thirdlight/project-model/limits';
 
 /**
  * The clearance probe's penetration epsilon: a
@@ -75,35 +52,5 @@ export const GROUND_NORMAL_TOLERANCE = 1e-6 as const;
  */
 export const FOOTPRINT_BALL = 0.9 as const;
 
-/** Autostep is off by default (`controller.autostep` turns it on). */
-export const AUTOSTEP_DISABLED = false as const;
-
-/** Collider shape limits (project-model's collider vocabulary). */
+/** The largest collider dimension (project-model's collider vocabulary). */
 export const MAX_SHAPE_VALUE = MAX_LEN;
-export const MAX_POLYGON_VERTICES = MODEL_MAX_POLYGON_VERTICES;
-export const MIN_POLYGON_AREA = MODEL_MIN_POLYGON_AREA;
-export const CONVEX_TOLERANCE = CONVEX_TOL;
-export const MAX_COLLIDER_HALF_EXTENT = MAX_COLLIDER_EXTENT;
-
-/** The project-model near-unit tolerance for the `x`/`y` quaternion parts. */
-export const OFF_AXIS_TOLERANCE = 1e-6 as const;
-
-/** Unit scale: the only scale a physics-bearing entity may carry. */
-export const UNIT_SCALE: readonly [number, number, number] = [1, 1, 1];
-
-/**
- * Internal edges: the ground-contact search reaches the skin and
- * the snap distance plus this slack; a contact normal counts as ground-like
- * when its up component exceeds `GROUND_UP_EPS`; a point is on another
- * collider's boundary within `INTERNAL_EDGE_TOUCH_EPS` (f32 collider
- * coordinates); the normal-cone probe pushes the point out by
- * `INTERNAL_EDGE_PROBE` and calls the normal outside the cone when the
- * projection back lands farther than `INTERNAL_EDGE_CONE_EPS` from it.
- */
-export const INTERNAL_EDGE_PREDICTION_SLACK = 0.05 as const;
-export const GROUND_UP_EPS = 1e-3 as const;
-export const INTERNAL_EDGE_TOUCH_EPS = 1e-4 as const;
-export const INTERNAL_EDGE_PROBE = 1 as const;
-export const INTERNAL_EDGE_CONE_EPS = 1e-3 as const;
-/** A contact normal whose up part is within this (about 3°) is a vertical wall (a polygon near a seam reports 0.003). */
-export const WALL_NORMAL_EPS = 0.05 as const;

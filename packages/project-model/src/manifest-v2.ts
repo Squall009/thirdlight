@@ -226,10 +226,9 @@ export const M3_ENGINE_PINS: ReadonlyArray<{ id: string; version: string; apiVer
 
 /** The package a known module id belongs to (the manifest `modules` rows). */
 export const M3_MODULE_PACKAGES: Readonly<Record<string, string>> = Object.freeze({
-  'thirdlight.character:controller': '@thirdlight/character',
-  // The 3D physics backend (physics_dimension 3).
+  // The physics backend.
   'thirdlight.physics-rapier:3d': '@thirdlight/physics-rapier',
-  // The 3D character controller (a runtime built-in).
+  // The character controller (a runtime built-in).
   'thirdlight.character3d:controller': '@thirdlight/runtime',
 });
 

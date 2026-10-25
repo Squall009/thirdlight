@@ -1,6 +1,7 @@
 /**
  * The gameplay building blocks through the production composition
- * — the real game host, the platformer controller, Rapier physics — on small
+ * — the real game host, the character controller's arcade profile with
+ * the player locked to the plane z = 0 (a side view), Rapier physics — on small
  * v4 scenes (every game plays as a scene), driven by a scripted input source:
  * a moving platform carries the character, a one-way platform is jumped
  * through from below and stood on, a pressure plate opens a door, a lift
@@ -14,12 +15,15 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { physics3DConfigOf } from '@thirdlight/runtime';
+
 import { MODES, startHarness, type Harness, type Mode } from '../m22-worker/harness';
 
 type Any = any;
 const DT = 1 / 120;
 const T = { rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
 const at = (x: number, y: number, z = 0) => ({ position: [x, y, z], ...T });
+const PLANE = { axis: 'z', origin: 0 };
 const SETTINGS = { run_speed: 5, jump_velocity: 8, gravity_y: -20, max_fall_speed: -20, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
 
 type Drive = (step: number) => { moveX: number; jump: 'none' | 'pressed' | 'held' | 'released' };
@@ -37,22 +41,12 @@ afterEach(async () => {
 async function makeLevel(mode: Mode, spawn: [number, number], extra: Any[], drive: Drive, second?: Any[]) {
   const entities: Any[] = [
     { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 200 } } },
-    { id: 'player-0001', components: { transform: at(spawn[0], spawn[1]), controller: {} } },
+    { id: 'player-0001', components: { transform: at(spawn[0], spawn[1]), controller: { profile: 'arcade', plane: PLANE } } },
     { id: 'spawn-0001', components: { transform: at(spawn[0], spawn[1]), playerSpawn: {} } },
     { id: 'floor-0001', components: { transform: at(0, -0.5), box: { size: [80, 1, 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 40, hy: 0.5 } } } },
     ...extra,
   ];
   const scene = { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities };
-  const statics = entities
-    .filter((e) => e.components.collider)
-    .map((e) => ({
-      entityId: e.id,
-      shape: e.components.collider.shape,
-      position: { x: e.components.transform.position[0], y: e.components.transform.position[1] },
-      rotationZ: 0,
-      ...(e.components.mover ? { kinematic: true } : {}),
-      ...(e.components.collider.oneWay ? { oneWay: true } : {}),
-    }));
   const input = {
     sample: (stepIndex: number) => ({ stepIndex, ...drive(stepIndex) }),
     sampleMenu: () => ({ confirm: false, mute: false, confirmNeedsRelease: false }),
@@ -83,12 +77,7 @@ async function makeLevel(mode: Mode, spawn: [number, number], extra: Any[], driv
         }
       : {}),
     settings: SETTINGS,
-    physics: {
-      character: { x: spawn[0], y: spawn[1] },
-      statics,
-      solver: { hz: 120, gravityY: SETTINGS.gravity_y },
-      controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: Math.PI / 4, minSlopeSlideRad: Math.PI / 6, autostep: false },
-    },
+    physics: physics3DConfigOf(entities, SETTINGS),
     input,
   });
   live.push(h);
@@ -217,12 +206,15 @@ describe('gameplay blocks (real host, platformer, Rapier)', () => {
 
 describe('a spawn says which way the character faces (on arrival)', () => {
   // Only an arrival (a scene transition's spawn) applies a spawn's
-  // facing: the spawn's yaw. The character stands still in a
-  // transition trigger and arrives, from rest, at a spawn in a second scene.
-  const yawOf = (L: Any, id: string): number => {
+  // facing: the spawn's yaw turns the character, and its face-movement model
+  // child with it. The character stands still in a transition trigger and
+  // arrives, from rest, at a spawn in a second scene.
+  const localYaw = (L: Any, id: string): number => {
     const t = L.rt.getInterpolatedState().state.transforms.find((x: Any) => x.id === id);
     return (2 * Math.atan2(t.rotation[1], t.rotation[3]) * 180) / Math.PI;
   };
+  /** The model's facing in the world: its own yaw on top of the character's (both turn about +Y only). */
+  const yawOf = (L: Any, id: string): number => localYaw(L, 'player-0001') + localYaw(L, id);
   const look = { id: 'look-0001', parentId: 'player-0001', components: { transform: at(0, 0), faceMovement: { yawRight: 90, yawLeft: -90, turnSeconds: 0.1 } } };
   const door = box('door-0001', 0, 1, { trigger: { size: [1, 2], signal: 'through', sceneTransition: { scene: 'scene-two', spawn: 'spawn-two' } } });
   /** Stand in the transition trigger; arrive at a spawn 6 m to the right carrying `marker`. */

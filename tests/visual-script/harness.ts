@@ -2,14 +2,15 @@
  * The test harness of visual scripts in the running game —
  * the one compiler, a bounded `node:vm` evaluator (no code generation, as in
  * tests/browser/m2-behaviors/behavior-host.test.ts) and a neutral level in
- * the production composition (game host, platformer controller, Rapier):
- * a floor, the character walking right, a marker box carrying the script.
+ * the production composition (game host, the character controller in its
+ * platformer profile on the plane z = 0, Rapier): a floor, the character
+ * walking right, a marker box carrying the script.
  */
 import { createContext, runInContext, Script } from 'node:vm';
 
 import { createGameAudioOwner, createGameHost } from '@thirdlight/game-host';
-import { createPhysicsPort } from '@thirdlight/physics-rapier';
-import { createBehaviorModuleSpec } from '@thirdlight/runtime';
+import { createPhysicsPort3D } from '@thirdlight/physics-rapier';
+import { createBehaviorModuleSpec, physics3DConfigOf } from '@thirdlight/runtime';
 import type { BehaviorScriptEnv, GraphData, GraphNode } from '@thirdlight/project-model';
 
 import { canonicalContainerText, compileBehaviorGraph, createBehaviorCompiler, type BehaviorCompileResult } from '../../packages/behavior-build/src/index';
@@ -76,18 +77,13 @@ export async function level(compiled: Compiled, opts: LevelOptions = {}) {
   const d = opts.director ?? [0, -5, 0];
   const entities: Any[] = [
     { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 200 } } },
-    { id: 'player-0001', components: { transform: at(0, 0.91), controller: {} } },
+    { id: 'player-0001', components: { transform: at(0, 0.91), controller: { profile: 'arcade', plane: { axis: 'z', origin: 0 } } } },
     { id: 'spawn-0001', components: { transform: at(0, 0.91), playerSpawn: {} } },
-    { id: 'floor-0001', components: { transform: at(10, -0.5), box: { size: [60, 1, 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 30, hy: 0.5 } } } },
+    { id: 'floor-0001', components: { transform: at(10, -0.5), box: { size: [60, 1, 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 30, hy: 0.5, hz: 1 } } } },
     { id: 'box-director', components: { transform: at(d[0], d[1], d[2]), box: { size: [0.2, 0.2, 0.2], material: { color: '#ffffff' } }, behavior: { behaviorId: 'director', values: opts.values ?? {} }, ...(opts.directorComponents ?? {}) } },
     ...(opts.entities ?? []),
   ];
-  const physics = await createPhysicsPort({
-    character: { x: 0, y: 0.91 },
-    statics: [{ entityId: 'floor-0001', shape: { type: 'box', hx: 30, hy: 0.5 }, position: { x: 10, y: -0.5 }, rotationZ: 0 }],
-    solver: { hz: 120, gravityY: SETTINGS.gravity_y },
-    controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: Math.PI / 4, minSlopeSlideRad: Math.PI / 6, autostep: false },
-  } as Any);
+  const physics = await createPhysicsPort3D(physics3DConfigOf(entities, SETTINGS)!);
   if (!physics.ok) throw new Error(JSON.stringify(physics.error));
   const m = compiled.manifest;
   const director = createBehaviorModuleSpec({

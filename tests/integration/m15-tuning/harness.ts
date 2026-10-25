@@ -1,13 +1,14 @@
 /**
- * Tuning integration harness: one neutral scene played through the real
- * production composition — the game host, the platformer controller, the
- * blocks and primitives, Rapier physics — with the physics port built from
- * the character's data exactly as the preview and export hosts build it
- * (`playerCapsuleOf`, `playerPhysicsOf`, the project's `fixed_step_hz`).
+ * Tuning integration harness: one neutral side-view scene played through the
+ * real production composition — the game host, the character controller in
+ * its arcade (platformer) profile locked to the plane z = 0, the blocks and
+ * primitives, Rapier physics — with the physics port built from the scene
+ * exactly as the preview and export hosts build it (`physics3DConfigOf`: the
+ * character's capsule and tuning, the project's `fixed_step_hz`).
  */
 import { createGameAudioOwner, createGameHost } from '@thirdlight/game-host';
-import { createPhysicsPort } from '@thirdlight/physics-rapier';
-import { playerCapsuleOf, playerPhysicsOf } from '@thirdlight/runtime';
+import { createPhysicsPort3D } from '@thirdlight/physics-rapier';
+import { physics3DConfigOf } from '@thirdlight/runtime';
 import { withGameModules } from '../../game-modules';
 
 export type Any = any;
@@ -51,39 +52,25 @@ export interface Level {
   dropThroughCalls: number[];
 }
 
+/** The side view: the platformer profile on the plane z = 0 (a test's controller fields go on top). */
+export const SIDE_VIEW = { profile: 'arcade', plane: { axis: 'z', origin: 0 } };
+
 /** A long floor (top at y = 0) from x = -40 to 40, the character, its spawn, a camera, plus `extra`. */
 export async function level(o: LevelOptions): Promise<Level> {
   const spawn = o.spawn ?? [0, 0.91];
-  const controller = o.controller ?? {};
+  const controller = { ...SIDE_VIEW, ...(o.controller ?? {}) };
   const entities: Any[] = [
     { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 200 } } },
     { id: 'player-0001', components: { transform: at(spawn[0], spawn[1]), controller, ...(o.playerExtra ?? {}) } },
     { id: 'spawn-0001', components: { transform: at(spawn[0], spawn[1]), playerSpawn: {} } },
-    { id: 'floor-0001', components: { transform: at(0, -0.5), box: { size: [80, 1, 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 40, hy: 0.5 } } } },
+    { id: 'floor-0001', components: { transform: at(0, -0.5), box: { size: [80, 1, 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 40, hy: 0.5, hz: 1 } } } },
     ...(o.extra ?? []),
   ];
   const scene = { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities };
   const settings = { ...BASE_SETTINGS, ...(o.settings ?? {}) } as Any;
   const hz: number = settings.fixed_step_hz ?? 120;
-  const statics = entities
-    .filter((e) => e.components.collider)
-    .map((e) => ({
-      entityId: e.id,
-      shape: e.components.collider.shape,
-      position: { x: e.components.transform.position[0], y: e.components.transform.position[1] },
-      rotationZ: 0,
-      ...(e.components.mover !== undefined ? { kinematic: true } : {}),
-      ...(e.components.collider.oneWay === true ? { oneWay: true } : {}),
-    }));
-  // As the preview and export hosts do: the capsule and the controller tuning come from the character's controller.
-  const capsule = playerCapsuleOf(controller);
-  const tuning = playerPhysicsOf(controller);
-  const physics = await createPhysicsPort({
-    character: { x: spawn[0], y: spawn[1], radius: capsule.radius, halfHeight: capsule.halfHeight, offset: capsule.offset },
-    statics,
-    solver: { hz, gravityY: settings.gravity_y },
-    controller: { offsetSkin: tuning.offsetSkin, groundSnap: tuning.groundSnap, maxSlopeClimbRad: Math.PI / 4, minSlopeSlideRad: Math.PI / 6, autostep: tuning.autostep, ...(tuning.autostep ? { autostepHeight: tuning.autostepHeight } : {}) },
-  });
+  // As the preview and export hosts do: the characters, their capsules and tuning and the statics come from the scene.
+  const physics = await createPhysicsPort3D(physics3DConfigOf(entities, settings)!);
   if (!physics.ok) throw new Error(JSON.stringify(physics.error));
   const port: Any = physics.port;
   const dropThroughCalls: number[] = [];
@@ -163,7 +150,7 @@ export function course(t: { patrol?: object; collectible?: object; hitbox?: obje
     thing('walker-0001', 6, 0.4, { patrol: { ...WALKER.patrol, ...(t.patrol ?? {}) }, hitbox: { ...WALKER.hitbox, ...(t.hitbox ?? {}) } }),
     thing('token-0001', 10, 1, { collectible: { counter: 'items', size: [0.8, 0.8], ...(t.collectible ?? {}) } }),
     thing('spikes-0001', 13, 0.3, { hitbox: { size: [1, 0.6], damage: 1, ...(t.hitbox ?? {}) } }),
-    thing('lift-0001', 24, 0.25, { box: { size: [2, 0.5, 2], material: { color: '#999999' } }, collider: { shape: { type: 'box', hx: 1, hy: 0.25 } }, mover: { waypoints: [[0, 1.5, 0]], speed: 1, mode: 'pingpong', ...(t.mover ?? {}) } }),
+    thing('lift-0001', 24, 0.25, { box: { size: [2, 0.5, 2], material: { color: '#999999' } }, collider: { shape: { type: 'box', hx: 1, hy: 0.25, hz: 1 } }, mover: { waypoints: [[0, 1.5, 0]], speed: 1, mode: 'pingpong', ...(t.mover ?? {}) } }),
   ];
 }
 

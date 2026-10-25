@@ -33,8 +33,7 @@ import {
   type SimAccess,
   type SimWorkerHandle,
 } from '@thirdlight/game-host';
-import { createPhysicsPort } from '@thirdlight/physics-rapier';
-import { createPhysicsPort3D } from '@thirdlight/physics-rapier/3d';
+import { createPhysicsPort3D } from '@thirdlight/physics-rapier';
 import { createRecordedActionSource, type ActionFrame, type Runtime } from '@thirdlight/runtime';
 import { MODULE_SPECS, modulesOf } from '../../game-modules';
 
@@ -178,7 +177,7 @@ export async function startHarness(mode: Mode, cfg: HarnessConfig): Promise<Harn
     if (c.op === 'play') sounds.push(c.assetId);
   };
   // The manifest modules the snapshot references (the host has no default set).
-  const modules = cfg.modules ?? modulesOf(cfg.snapshot, cfg.settings, cfg.physics);
+  const modules = cfg.modules ?? modulesOf(cfg.snapshot);
   const snapshot = cfg.storage === true ? withStorageSchema(cfg.snapshot) : cfg.snapshot;
   // The host's save storage, watched (the save bodies it writes, by key).
   const bodies = new Map<string, string>();
@@ -241,8 +240,7 @@ export async function startHarness(mode: Mode, cfg: HarnessConfig): Promise<Harn
   if (mode === 'single') {
     let physics: Any;
     if (cfg.physics !== null) {
-      // A 3D config (dimension 3) makes the 3D port.
-      const made = cfg.physics.dimension === 3 ? await createPhysicsPort3D(cfg.physics) : await createPhysicsPort(cfg.physics);
+      const made = await createPhysicsPort3D(cfg.physics);
       if (!made.ok) throw new Error(JSON.stringify(made.error));
       physics = cfg.wrapPhysics !== undefined ? cfg.wrapPhysics(made.port) : made.port;
     }

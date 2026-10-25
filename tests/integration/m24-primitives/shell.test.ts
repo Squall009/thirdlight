@@ -1,7 +1,7 @@
 /**
  * The game shell through the production composition — the real
  * game host, the character controller and Rapier physics, a scene without
- * any game session — on the 2D plane and in 3D, in both threading modes:
+ * any game session — in 3D, in both threading modes:
  *
  * - the title (a UI document) shows first and the game waits behind it (no
  *   steps); its button's New game action starts the run;
@@ -23,7 +23,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { memoryProjectSaveBackend } from '@thirdlight/game-host';
-import { DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D } from '@thirdlight/input';
+import { DEFAULT_INPUT_CONFIG_3D } from '@thirdlight/input';
 import { physics3DConfigOf } from '@thirdlight/runtime';
 
 import { FakeNode, MODES, startHarness, type Harness, type Mode } from '../m22-worker/harness';
@@ -54,16 +54,15 @@ const DOCS = [
 ];
 const SHELL = { screens: { title: 'title', pause: 'paused' }, hud: ['hud'], scenes: [{ scene: 'scene-main' }, { scene: 'scene-two', spawn: 'spawn-two' }] };
 
-function level(dim: 2 | 3): { main: Any[]; two: Any[] } {
-  const z = dim === 3;
+function level(): { main: Any[]; two: Any[] } {
   const box = (id: string, c: number[], h: number[]): Any => ({
     id,
-    components: { transform: T(c), box: { size: [h[0]! * 2, h[1]! * 2, h[2]! * 2], material: { color: '#888888' } }, collider: { shape: z ? { type: 'box', hx: h[0], hy: h[1], hz: h[2] } : { type: 'box', hx: h[0], hy: h[1] } } },
+    components: { transform: T(c), box: { size: [h[0]! * 2, h[1]! * 2, h[2]! * 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: h[0], hy: h[1], hz: h[2] } } },
   });
-  const token = (id: string, x: number): Any => ({ id, components: { transform: T([x, 0.9, 0]), collectible: { counter: 'items', size: z ? [1, 1, 1] : [1, 1] } } });
+  const token = (id: string, x: number): Any => ({ id, components: { transform: T([x, 0.9, 0]), collectible: { counter: 'items', size: [1, 1, 1] } } });
   const main = [
     { id: 'cam-main', components: { transform: T([4, 4, 14]), camera: { type: 'perspective', fovY: 50, near: 0.1, far: 200 } } },
-    { id: 'player-0001', components: { transform: T([0, 0.91, 0]), controller: z ? { faceMovement: false } : {} } },
+    { id: 'player-0001', components: { transform: T([0, 0.91, 0]), controller: { faceMovement: false } } },
     box('floor-a', [3, -0.5, 0], [14, 0.5, 2]),
     token('token-a', 1.5),
     token('token-b', 3.5),
@@ -95,25 +94,19 @@ function hudText(n: Any): string | null {
 
 const NONE = { up: false, down: false, left: false, right: false, submit: false, cancel: false, pause: false };
 
-async function run(mode: Mode, dim: 2 | 3): Promise<Record<string, Any>> {
-  const { main, two } = level(dim);
-  const settings = dim === 3 ? { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30 } : { run_speed: 4, jump_velocity: 8, gravity_y: -20, max_fall_speed: -20, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
-  const statics = main
-    .filter((e) => e.components.collider)
-    .map((e) => ({ entityId: e.id, shape: e.components.collider.shape, position: { x: e.components.transform.position[0], y: e.components.transform.position[1] }, rotationZ: 0 }));
-  const physics =
-    dim === 3
-      ? physics3DConfigOf(main, settings)
-      : { character: { x: 0, y: 0.91 }, statics, solver: { hz: 120, gravityY: settings.gravity_y }, controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: Math.PI / 4, minSlopeSlideRad: Math.PI / 6, autostep: false } };
+async function run(mode: Mode): Promise<Record<string, Any>> {
+  const { main, two } = level();
+  const settings = { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
+  const physics = physics3DConfigOf(main, settings);
   // The steps are the game's own (the menus hold them): walk right for 400 steps (well past both tokens), then stand.
-  const replay = Array.from({ length: 2000 }, (_, i) => ({ stepIndex: i, moveX: i < 400 ? 1 : 0, ...(dim === 3 ? { moveY: 0 } : {}), jump: 'none' as const }));
+  const replay = Array.from({ length: 2000 }, (_, i) => ({ stepIndex: i, moveX: i < 400 ? 1 : 0, moveY: 0, jump: 'none' as const }));
   const edges: Any[] = [];
   const container = new FakeNode();
   const store = new Map<string, string>();
   const h = await startHarness(mode, {
     snapshot: {
-      snapshotId: `shell${dim}@r1`,
-      projectId: `shell${dim}`,
+      snapshotId: 'shell@r1',
+      projectId: 'shell',
       revision: 1,
       scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities: main },
       scenes: [
@@ -132,7 +125,7 @@ async function run(mode: Mode, dim: 2 | 3): Promise<Record<string, Any>> {
       if (sceneId !== 'scene-two') throw new Error('unknown scene');
       return two;
     },
-    ...(dim === 3 ? { modules: MODULES_3D } : {}),
+    modules: MODULES_3D,
     input: {
       sample: (stepIndex: number) => ({ stepIndex, moveX: 0, jump: 'none' }),
       sampleMenu: () => ({ confirm: false, mute: false, confirmNeedsRelease: false }),
@@ -140,8 +133,8 @@ async function run(mode: Mode, dim: 2 | 3): Promise<Record<string, Any>> {
       markConfirmConsumed: () => undefined,
       dispose: () => undefined,
     },
-    // The input config as the export passes it (the project declares none: the dimension's engine defaults).
-    host: { container, ui: { documents: DOCS }, shell: SHELL, projectSaveBackend: memoryProjectSaveBackend(store), saveNamespace: 'shell', inputConfig: dim === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG },
+    // The input config as the export passes it (the project declares none: the engine defaults).
+    host: { container, ui: { documents: DOCS }, shell: SHELL, projectSaveBackend: memoryProjectSaveBackend(store), saveNamespace: 'shell', inputConfig: DEFAULT_INPUT_CONFIG_3D },
   });
   live.push(h);
   const rt: Any = h.rt;
@@ -241,9 +234,9 @@ async function run(mode: Mode, dim: 2 | 3): Promise<Record<string, Any>> {
   return out;
 }
 
-describe.each([2, 3] as const)('the game shell (dimension %s)', (dim) => {
+describe('the game shell', () => {
   it.each(MODES)('title, HUD, pause, save, load and the next scene through the game host (threading: %s)', async (mode) => {
-    const o = await run(mode, dim);
+    const o = await run(mode);
     expect(o.errors).toEqual([]);
     expect(o.title).toEqual({ screen: 'title', paused: true, held: true, ui: 'title', hud: [] });
     expect(o.playing.screen).toBe('playing');
@@ -251,8 +244,8 @@ describe.each([2, 3] as const)('the game shell (dimension %s)', (dim) => {
     expect(o.playing.uiHud).toEqual(['hud']);
     // The HUD reads the counter and the prompts generated from the input actions (the engine defaults here).
     // (The fake DOM keeps replaced text nodes: the latest text is last.)
-    // The prompts are the gameplay actions of the dimension's default input, named by the bindings' glyph labels.
-    const prompts = dim === 3 ? 'W S A D move · Left Shift run · Space jump · J attack · E interact' : 'A / D move · Space jump · J attack · E interact';
+    // The prompts are the gameplay actions of the default input, named by the bindings' glyph labels.
+    const prompts = 'W S A D move · Left Shift run · Space jump · J attack · E interact';
     expect(o.playing.text.endsWith(`Items 1 | ${prompts}`), o.playing.text).toBe(true);
     expect(o.paused).toEqual({ screen: 'pause', ui: 'paused', hud: [], held: true });
     expect(o.saved.items).toBe(1);

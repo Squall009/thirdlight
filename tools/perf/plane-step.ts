@@ -7,27 +7,24 @@
  * (run, turn at the level's ends, jump every 1.5 s) with a few script-style
  * queries per step (rays down from enemies, two box overlaps).
  *
- * `dim: 2` runs it on the 2D backend; `dim: 3` runs the same layout on the 3D
- * backend as the plane would: every shape given a depth (box hz, polygons as
- * convex prisms), the character never moving along z. Comparing the two is
- * what "a 2D-style scene on the one 3D backend" costs in physics alone; the
- * full runtime's step (scripts, triggers, transforms) is sim.ts. `plane`
- * (3D only) locks the character and the movers to the plane z = 0 as a
- * plane-locked scene does, where without it nothing keeps them there but the
- * layout itself.
+ * Every shape has a depth (box hz, polygons as convex prisms) and the
+ * character never moves along z: what a side-view scene costs in physics
+ * alone, against the recorded baseline of the removed 2D backend; the full
+ * runtime's step (scripts, triggers, transforms) is sim.ts. `plane` locks the
+ * character and the movers to the plane z = 0 as a plane-locked scene does,
+ * where without it nothing keeps them there but the layout itself.
  *
- * `arcade` gives the character the arcade movement profile's step-up: autostep
- * (0.25 m) on both backends, climbed on the 3D one by the 2D rule
- * (`autostepRide`), as a side-scroller's player moved to the one backend has.
+ * `arcade` gives the character the arcade movement profile's step-up:
+ * autostep (0.25 m) climbed by the platformer rule (`autostepRide`), as a
+ * side-scroller's player has.
  *
- * Input: env TL_PLANE = JSON { dim, levels, warmup, steps, seed, plane?, arcade? }.
+ * Input: env TL_PLANE = JSON { levels, warmup, steps, seed, plane?, arcade? }.
  * Output: one JSON line on stdout.
  */
 import v8 from 'node:v8';
 import { performance } from 'node:perf_hooks';
 
-import { createPhysicsPort } from '@thirdlight/physics-rapier';
-import { createPhysicsPort3D } from '@thirdlight/physics-rapier/3d';
+import { createPhysicsPort3D } from '@thirdlight/physics-rapier';
 import { playerCapsuleOf, playerPhysicsOf } from '@thirdlight/runtime';
 
 import { prng } from './generate';
@@ -35,10 +32,9 @@ import { prng } from './generate';
 type Any = any;
 
 interface PlaneInput {
-  dim: 2 | 3;
-  /** 3D: the character and the movers locked to the plane z = 0. */
+  /** The character and the movers locked to the plane z = 0. */
   plane?: boolean;
-  /** The arcade profile's step-up: autostep on (and on 3D, climbed by the 2D rule). */
+  /** The arcade profile's step-up: autostep on, climbed by the platformer rule. */
   arcade?: boolean;
   /** Levels laid end to end, all loaded (one is a level as a game streams it). */
   levels: number;
@@ -50,7 +46,7 @@ interface PlaneInput {
 /** One level's length along x (m), in block chunks of CHUNK_M. */
 const LEVEL_M = 208;
 const CHUNK_M = 16;
-/** The depth a 2D shape gets on the 3D backend (m): the plan's default collider depth. */
+/** The depth a flat shape gets (m): the default collider depth. */
 const DEPTH_M = 1;
 const HZ = 120;
 const GRAVITY_Y = -19.62;
@@ -69,7 +65,7 @@ interface Layout {
   /** Per chunk: the floor and its raised block runs (one compound collider). */
   chunks: { x: number; parts: Box[] }[];
   platforms: Box[];
-  /** Pillars (gates): authored as polygons in 2D. */
+  /** Pillars (gates): authored as polygons (prisms). */
   pillars: Box[];
   oneWay: Box[];
   movers: (Box & { axis: 'x' | 'y'; range: number; period: number })[];
@@ -114,28 +110,19 @@ function moverAt(m: Layout['movers'][number], t: number): { x: number; y: number
 async function portOf(input: PlaneInput, L: Layout): Promise<Any> {
   const capsule = playerCapsuleOf(undefined);
   const tuning = playerPhysicsOf(input.arcade === true ? { autostep: true } : undefined);
-  const ride = input.arcade === true && input.dim === 3 ? { autostepRide: true } : {};
+  const ride = input.arcade === true ? { autostepRide: true } : {};
   const controller = { offsetSkin: tuning.offsetSkin, groundSnap: tuning.groundSnap, maxSlopeClimbRad: Math.PI / 4, minSlopeSlideRad: Math.PI / 6, autostep: tuning.autostep, ...(tuning.autostep ? { autostepHeight: tuning.autostepHeight } : {}), ...ride };
   const solver = { hz: HZ, gravityY: GRAVITY_Y };
-  if (input.dim === 2) {
-    const statics: Any[] = [];
-    for (const c of L.chunks) statics.push({ entityId: `chunk-${c.x}`, shape: { type: 'compound', parts: c.parts.map((p) => ({ shape: { type: 'box', hx: p.hx, hy: p.hy }, x: p.x, y: p.y, angle: 0 })) }, position: { x: c.x, y: 0 }, rotationZ: 0 });
-    L.platforms.forEach((b, i) => statics.push({ entityId: `plat-${i}`, shape: { type: 'box', hx: b.hx, hy: b.hy }, position: { x: b.x, y: b.y }, rotationZ: 0 }));
-    L.pillars.forEach((b, i) => statics.push({ entityId: `pillar-${i}`, shape: { type: 'polygon', vertices: rect(b) }, position: { x: b.x, y: b.y }, rotationZ: 0 }));
-    L.oneWay.forEach((b, i) => statics.push({ entityId: `oneway-${i}`, shape: { type: 'box', hx: b.hx, hy: b.hy }, position: { x: b.x, y: b.y }, rotationZ: 0, oneWay: true }));
-    L.movers.forEach((m, i) => statics.push({ entityId: `mover-${i}`, shape: { type: 'polygon', vertices: rect(m) }, position: { x: m.x, y: m.y }, rotationZ: 0, kinematic: true }));
-    return createPhysicsPort({ character: { x: 2, y: 1, radius: capsule.radius, halfHeight: capsule.halfHeight, offset: { x: capsule.offset.x, y: capsule.offset.y } }, statics, solver, controller } as Any);
-  }
   const at = (x: number, y: number): Any => ({ x, y, z: 0 });
   const statics: Any[] = [];
   for (const c of L.chunks) statics.push({ entityId: `chunk-${c.x}`, shape: { type: 'compound', parts: c.parts.map((p) => ({ shape: { type: 'box', hx: p.hx, hy: p.hy, hz: DEPTH_M / 2 }, position: at(p.x, p.y), rotation: IDENTITY })) }, position: at(c.x, 0), rotation: IDENTITY });
   L.platforms.forEach((b, i) => statics.push({ entityId: `plat-${i}`, shape: { type: 'box', hx: b.hx, hy: b.hy, hz: DEPTH_M / 2 }, position: at(b.x, b.y), rotation: IDENTITY }));
   L.pillars.forEach((b, i) => statics.push({ entityId: `pillar-${i}`, shape: { type: 'convex', points: prism(b) }, position: at(b.x, b.y), rotation: IDENTITY }));
-  // No one-way filter on the 3D port yet: the ledge is a plain thin box (its cost, not its behaviour).
+  // A plain thin box: its cost, not its one-way behaviour.
   L.oneWay.forEach((b, i) => statics.push({ entityId: `oneway-${i}`, shape: { type: 'box', hx: b.hx, hy: b.hy, hz: DEPTH_M / 2 }, position: at(b.x, b.y), rotation: IDENTITY }));
   const plane = input.plane === true ? { plane: { axis: 'z', origin: 0 } } : {};
   L.movers.forEach((m, i) => statics.push({ entityId: `mover-${i}`, shape: { type: 'convex', points: prism(m) }, position: at(m.x, m.y), rotation: IDENTITY, kinematic: true, ...plane }));
-  return createPhysicsPort3D({ dimension: 3, character: { position: at(2, 1), radius: capsule.radius, halfHeight: capsule.halfHeight, offset: { x: capsule.offset.x, y: capsule.offset.y, z: 0 }, ...plane }, statics, solver, controller } as Any);
+  return createPhysicsPort3D({ character: { position: at(2, 1), radius: capsule.radius, halfHeight: capsule.halfHeight, offset: { x: capsule.offset.x, y: capsule.offset.y, z: 0 }, ...plane }, statics, solver, controller } as Any);
 }
 
 const MiB = (b: number): number => Math.round((b / 1048576) * 100) / 100;
@@ -167,30 +154,25 @@ async function run(input: PlaneInput): Promise<Record<string, unknown>> {
   let x = 2;
   let t = 0;
   let step = 0;
-  const poses2: Any[] = L.movers.map((_, i) => ({ entityId: `mover-${i}`, position: { x: 0, y: 0 }, rotationZ: 0 }));
   const poses3: Any[] = L.movers.map((_, i) => ({ entityId: `mover-${i}`, position: { x: 0, y: 0, z: 0 }, rotation: IDENTITY }));
-  const delta2 = { x: 0, y: 0 };
   const delta3 = { x: 0, y: 0, z: 0 };
-  const down2 = { x: 0, y: -1 };
   const down3 = { x: 0, y: -1, z: 0 };
-  const box2 = { type: 'box', hx: 0.5, hy: 0.5 };
   const box3 = { type: 'box', hx: 0.5, hy: 0.5, hz: DEPTH_M / 2 };
   const one = (): void => {
     t += dt;
     step += 1;
     for (let i = 0; i < L.movers.length; i += 1) {
       const p = moverAt(L.movers[i]!, t);
-      const pose = input.dim === 2 ? poses2[i] : poses3[i];
+      const pose = poses3[i];
       pose.position.x = p.x;
       pose.position.y = p.y;
     }
-    if (input.dim === 2) port.setKinematicPositions(poses2);
-    else port.setKinematicPoses(poses3);
+    port.setKinematicPoses(poses3);
     if (x > L.length - 4) dir = -1;
     else if (x < 4) dir = 1;
     if (step % jumpEvery === 0) vy = JUMP_VELOCITY;
     vy = Math.max(vy + GRAVITY_Y * dt, -24);
-    const d = input.dim === 2 ? delta2 : delta3;
+    const d = delta3;
     d.x = dir * RUN_SPEED * dt;
     d.y = vy * dt;
     port.stageCharacterMove(d);
@@ -198,20 +180,17 @@ async function run(input: PlaneInput): Promise<Record<string, unknown>> {
     x = r.position.x;
     if (r.grounded && vy < 0) vy = 0;
     if (r.position.y < -20) {
-      if (input.dim === 2) port.reset({ x: 2, y: 1 });
-      else port.placeCharacter({ x: 2, y: 1, z: 0 });
+      port.placeCharacter({ x: 2, y: 1, z: 0 });
       x = 2;
       vy = 0;
     }
     // Script-style queries: each enemy's ground ray, two hitbox overlaps.
     for (const e of L.enemies) {
       if (Math.abs(e.x - x) > 40) continue;
-      if (input.dim === 2) port.raycast({ x: e.x, y: e.y }, down2, 4);
-      else port.raycast({ x: e.x, y: e.y, z: 0 }, down3, 4);
+      port.raycast({ x: e.x, y: e.y, z: 0 }, down3, 4);
     }
     for (let k = 0; k < 2; k += 1) {
-      if (input.dim === 2) port.overlap(box2, { x: x + k, y: 1 });
-      else port.overlap(box3, { x: x + k, y: 1, z: 0 });
+      port.overlap(box3, { x: x + k, y: 1, z: 0 });
     }
   };
 
@@ -241,7 +220,6 @@ async function run(input: PlaneInput): Promise<Record<string, unknown>> {
   port.dispose();
   return {
     ok: true,
-    dim: input.dim,
     plane: input.plane === true,
     arcade: input.arcade === true,
     levels: input.levels,

@@ -972,8 +972,8 @@ export function validateEntityComponentsV3(
 
   const physicsBearing = comps['collider'] !== undefined || comps['controller'] !== undefined;
   if (physicsBearing) {
-    // A v4 scene's rotation rules depend on the project's physics
-    // dimension (content settings) and are checked with the content (composeSceneV4).
+    // A v4 scene's scale and rotation rules are checked with the content (composeSceneV4);
+    // a v2/v3 document keeps its old plane rules until the upgrade moves it on.
     validatePhysicsTransform(comps, parentId, ePath, comps['controller'] !== undefined, errors, version !== 4);
   }
 

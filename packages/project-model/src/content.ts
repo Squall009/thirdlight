@@ -76,8 +76,8 @@ export { isValidSourcePath } from './content-helpers';
 export { KTX2_ENCODINGS, canonicalLabels, isAssetLabel, isStoredVertexColors } from './content-assets';
 export type { Ktx2Encoding } from './content-assets';
 export { PREFAB_EXCLUDED_COMPONENTS, PREFAB_V4_COMPONENTS, validatePrefabDefinitions, canonicalPrefabs } from './content-prefabs';
-export { M2_SETTINGS_KEYS, NEW_PROJECT_ENVIRONMENT, NEW_PROJECT_SETTINGS, RENDERING_SETTINGS_GROUP, fixedStepHzOf, PHYSICS_DIMENSIONS, depthBufferOf, audioSpatialOf, instanceChunkSizeOf, physicsDimensionOf } from './content-settings';
-export type { SettingsKeySpec, PhysicsDimension } from './content-settings';
+export { M2_SETTINGS_KEYS, NEW_PROJECT_ENVIRONMENT, NEW_PROJECT_SETTINGS, RENDERING_SETTINGS_GROUP, fixedStepHzOf, depthBufferOf, audioSpatialOf, instanceChunkSizeOf } from './content-settings';
+export type { SettingsKeySpec } from './content-settings';
 
 export * from './content-limits';
 

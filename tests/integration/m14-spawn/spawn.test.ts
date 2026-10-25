@@ -1,7 +1,7 @@
 /**
  * `ctx.spawn` / `ctx.destroy` through the production composition
- * (the real game host, the platformer controller, Rapier physics) with
- * neutral prefabs:
+ * (the real game host, the character controller in its platformer profile
+ * on the plane z = 0, Rapier physics) with neutral prefabs:
  *
  * - a spawned crate blocks the walking character; destroying it frees its
  *   collider and the character walks on;
@@ -12,8 +12,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { createGameAudioOwner, createGameHost } from '@thirdlight/game-host';
-import { createPhysicsPort } from '@thirdlight/physics-rapier';
-import { createBehaviorModuleSpec } from '@thirdlight/runtime';
+import { createPhysicsPort3D } from '@thirdlight/physics-rapier';
+import { createBehaviorModuleSpec, physics3DConfigOf } from '@thirdlight/runtime';
 import { withGameModules } from '../../game-modules';
 
 type Any = any;
@@ -23,7 +23,7 @@ const at = (x: number, y: number, z = 0) => ({ position: [x, y, z], ...T });
 const SETTINGS = { run_speed: 5, jump_velocity: 8, gravity_y: -20, max_fall_speed: -20, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
 
 const PREFABS = [
-  { prefabId: 'crate', displayName: 'Crate', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'box-0001', components: { transform: at(0, 0), box: { size: [1, 1, 1], material: { color: '#aa7733' } }, collider: { shape: { type: 'box', hx: 0.5, hy: 0.5 } } } }] },
+  { prefabId: 'crate', displayName: 'Crate', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'box-0001', components: { transform: at(0, 0), box: { size: [1, 1, 1], material: { color: '#aa7733' } }, collider: { shape: { type: 'box', hx: 0.5, hy: 0.5, hz: 0.5 } } } }] },
   { prefabId: 'token', displayName: 'Token', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'box-0002', components: { transform: at(0, 0), box: { size: [0.4, 0.4, 0.1], material: { color: '#ffcc00' } }, collectible: { counter: 'items', size: [0.6, 0.6] } } }] },
 ];
 
@@ -43,20 +43,12 @@ class FakeNode {
 async function level(script: (ctx: Any) => void) {
   const entities: Any[] = [
     { id: 'cam-main', components: { transform: at(0, 4, 12), camera: { type: 'perspective', fovY: 45, near: 0.1, far: 200 } } },
-    { id: 'player-0001', components: { transform: at(0, 0.91), controller: {} } },
+    { id: 'player-0001', components: { transform: at(0, 0.91), controller: { profile: 'arcade', plane: { axis: 'z', origin: 0 } } } },
     { id: 'spawn-0001', components: { transform: at(0, 0.91), playerSpawn: {} } },
-    { id: 'floor-0001', components: { transform: at(10, -0.5), box: { size: [60, 1, 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 30, hy: 0.5 } } } },
+    { id: 'floor-0001', components: { transform: at(10, -0.5), box: { size: [60, 1, 2], material: { color: '#888888' } }, collider: { shape: { type: 'box', hx: 30, hy: 0.5, hz: 1 } } } },
     { id: 'box-director', components: { transform: at(0, -5), box: { size: [0.2, 0.2, 0.2], material: { color: '#ffffff' } }, behavior: { behaviorId: 'director', values: {} } } },
   ];
-  const statics = entities
-    .filter((e) => e.components.collider)
-    .map((e) => ({ entityId: e.id, shape: e.components.collider.shape, position: { x: e.components.transform.position[0], y: e.components.transform.position[1] }, rotationZ: 0 }));
-  const physics = await createPhysicsPort({
-    character: { x: 0, y: 0.91 },
-    statics,
-    solver: { hz: 120, gravityY: SETTINGS.gravity_y },
-    controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: Math.PI / 4, minSlopeSlideRad: Math.PI / 6, autostep: false },
-  } as Any);
+  const physics = await createPhysicsPort3D(physics3DConfigOf(entities, SETTINGS)!);
   if (!physics.ok) throw new Error(JSON.stringify(physics.error));
   const director = createBehaviorModuleSpec({
     declaration: { properties: [{ key: 'speed', label: 'Speed', type: 'number', default: 1, min: 0, max: 10, step: 1 }] } as Any,
@@ -109,7 +101,7 @@ async function level(script: (ctx: Any) => void) {
   };
   tick();
   const x = (): number => rt.getInterpolatedState().state.transforms.find((t: Any) => t.id === 'player-0001').position[0];
-  const probe = (p: { x: number; y: number }, half: { x: number; y: number }): string[] => (physics.port as Any).overlap({ type: 'box', hx: half.x, hy: half.y }, p);
+  const probe = (p: { x: number; y: number }, half: { x: number; y: number }): string[] => (physics.port as Any).overlap({ type: 'box', hx: half.x, hy: half.y, hz: 0.2 }, { x: p.x, y: p.y, z: 0 });
   return { host, rt, tick, x, probe };
 }
 

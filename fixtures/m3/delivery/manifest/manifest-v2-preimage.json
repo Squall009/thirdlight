@@ -76,9 +76,15 @@
   "behaviors": [],
   "modules": [
     {
-      "id": "thirdlight.character:controller",
+      "id": "thirdlight.character3d:controller",
+      "apiVersion": 2,
+      "package": "@thirdlight/runtime",
+      "version": "0.1.0"
+    },
+    {
+      "id": "thirdlight.physics-rapier:3d",
       "apiVersion": 1,
-      "package": "@thirdlight/character",
+      "package": "@thirdlight/physics-rapier",
       "version": "0.1.0"
     }
   ],
@@ -90,14 +96,14 @@
     },
     {
       "id": "@thirdlight/three",
-      "version": "0.186.0",
+      "version": "0.186.1",
       "apiVersion": 0
     }
   ],
   "recipes": {
+    "audio": 1,
     "behavior-source": 1,
-    "gltf-glb": 1,
-    "pcm-wav": 1
+    "gltf-glb": 1
   },
   "toolchain": {
     "esbuild": "0.28.2",

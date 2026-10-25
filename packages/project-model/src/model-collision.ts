@@ -442,9 +442,9 @@ export function collisionPartPolygons(parts: readonly ModelCollisionPart[]): Vec
 }
 
 /**
- * What a conversion makes: a box around the render geometry; in 3D a hull
- * or mesh of the collision node (else the geometry), on a 2D plane its
- * polygon; or a compound of the collision node's convex parts.
+ * What a conversion makes: a box around the render geometry; a hull or
+ * mesh of the collision node (else the geometry); its XY outline as a
+ * polygon prism; or a compound of the collision node's convex parts.
  */
 export type ModelColliderKind = 'box' | 'convex' | 'mesh' | 'polygon' | 'compound';
 export const MODEL_COLLIDER_KINDS: readonly ModelColliderKind[] = ['box', 'convex', 'mesh', 'polygon', 'compound'];
@@ -477,24 +477,18 @@ function mergedTriangles(prims: readonly ModelGeometryPrimitive[]): { vertices: 
 /**
  * A collider shape made from a model — what the editor's "collider from the
  * model" makes and the `colliderFromModel` command stores. `box` around its
- * LOD0 render geometry, centred where it is; in 3D `convex` or `mesh` from
+ * LOD0 render geometry, centred where it is; `convex` or `mesh` from
  * its `_COL` node(s), else from its LOD0 render geometry; `polygon`, the
- * XY hull of the same geometry (in 3D a prism the collider's depth deep); `compound`:
- * one hull (2D: one polygon) per convex part of its `_COL` node. `source`
+ * XY hull of the same geometry (a prism the collider's depth deep); `compound`:
+ * one hull per convex part of its `_COL` node. `source`
  * says which geometry it was made from.
  */
-export function modelColliderShape(g: ModelGeometry, piece: string | null, kind: ModelColliderKind, dimension: 2 | 3 = 3):
+export function modelColliderShape(g: ModelGeometry, piece: string | null, kind: ModelColliderKind):
   | { ok: true; shape: Record<string, unknown>; source: 'collision' | 'geometry'; skipped: string[] }
   | { ok: false; message: string } {
-  if (dimension === 2 && (kind === 'convex' || kind === 'mesh')) return { ok: false, message: `a ${kind} collider is a 3D shape; a 2D-plane project makes a box, a polygon or a compound` };
   if (kind === 'compound') {
     const { parts, skipped } = modelCollisionParts(g, piece);
     if (parts.length === 0) return { ok: false, message: skipped.length > 0 ? `the model's _COL parts could not be made into hulls: ${skipped.slice(0, 3).join('; ')}` : 'the model has no _COL node to make a compound from' };
-    if (dimension === 2) {
-      const polys = collisionPartPolygons(parts);
-      if (polys.length === 0) return { ok: false, message: "the model's _COL parts have no area on the 2D plane" };
-      return { ok: true, shape: { type: 'compound', shapes: polys.map((vertices) => ({ type: 'polygon', vertices })) }, source: 'collision', skipped };
-    }
     return { ok: true, shape: { type: 'compound', shapes: parts.map((p) => ({ type: 'convex', points: p.points })) }, source: 'collision', skipped };
   }
   if (kind === 'box') {
@@ -505,17 +499,8 @@ export function modelColliderShape(g: ModelGeometry, piece: string | null, kind:
       lo[k] = Math.min(lo[k]!, q[k]!);
       hi[k] = Math.max(hi[k]!, q[k]!);
     }
-    if (dimension === 2) {
-      // The plane's box needs no depth: only its x and y have to have a size.
-      lo[2] = -0.5;
-      hi[2] = 0.5;
-    }
     const made = boxFromBounds(prims.length === 0 || !Number.isFinite(lo[0]!) ? null : { min: lo, max: hi });
     if (!made.ok) return made;
-    if (dimension === 2) {
-      const { hz: _hz, center, ...flat } = made.shape;
-      return { ok: true, shape: { ...flat, ...(center !== undefined && (center[0] !== 0 || center[1] !== 0) ? { center: [center[0], center[1], 0] } : {}) }, source: 'geometry', skipped: [] };
-    }
     return { ok: true, shape: made.shape, source: 'geometry', skipped: [] };
   }
   const cols = collisionPrimitives(g, piece);
@@ -523,7 +508,7 @@ export function modelColliderShape(g: ModelGeometry, piece: string | null, kind:
   const what = source === 'collision' ? 'collision node' : 'geometry';
   if (kind === 'polygon') {
     const poly = polygonFromPoints((source === 'collision' ? cols : modelRenderPrimitives(g, piece)).flatMap((p) => p.positions));
-    return poly === null ? { ok: false, message: `the model's ${what} has no area on the 2D plane` } : { ok: true, shape: { type: 'polygon', vertices: poly }, source, skipped: source === 'collision' ? [...g.skipped] : [] };
+    return poly === null ? { ok: false, message: `the model's ${what} has no area in its XY outline` } : { ok: true, shape: { type: 'polygon', vertices: poly }, source, skipped: source === 'collision' ? [...g.skipped] : [] };
   }
   const { vertices, triangles } = mergedTriangles(source === 'collision' ? cols : modelRenderPrimitives(g, piece));
   const made: GeometryCollider = colliderFromTriangles(vertices, triangles, kind, what);

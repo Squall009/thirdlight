@@ -6,7 +6,7 @@
  * is a manual test host that the owner builds with the pinned esbuild (the
  * procedure in `tests/browser/m3-render/README.md`) and serves
  * statically. It composes the real packages (`@thirdlight/runtime` +
- * `@thirdlight/physics-rapier` + `@thirdlight/character` +
+ * `@thirdlight/physics-rapier` (its 3D port and the runtime's character controller) +
  * `@thirdlight/three-adapter`) over a v3
  * scene with an authored key/fill light and surface boxes, and records the
  * named checklist ("same preset id → same colour/roughness values and the
@@ -25,12 +25,14 @@
  * evidence is the rendered pixels, the named-checklist values and the
  * diagnostics.
  */
-import { createPhysicsPort } from '@thirdlight/physics-rapier';
-import { CHARACTER_MODULE_ID, characterControllerSpec } from '@thirdlight/character';
+import { createPhysicsPort3D } from '@thirdlight/physics-rapier';
 import {
+  CHARACTER_3D_MODULE_ID,
+  character3DSpec,
   createRecordedActionSource,
   createSimulationRegistry,
   instantiateRuntime,
+  physics3DConfigOf,
   registerSimulationModule,
   type Runtime,
   type RuntimeSnapshot,
@@ -127,22 +129,21 @@ function v3Snapshot(castShadow: boolean): unknown {
         { id: 'box-accent', components: { transform: { position: [22, 0.5, 0], ...T }, box: { size: [2, 1, 1], material: { color: '#6f6f6f' } }, surface: ACCENT } },
         { id: 'group-0001', name: 'Player', components: { transform: { position: [3, 0.9, 0], ...T }, controller: {} } },
         { id: 'spawn-0001', components: { transform: { position: [3, 0.91, 0], ...T }, playerSpawn: {} } },
-        { id: 'static-0001', components: { transform: { position: [24, -0.25, 0], ...T }, box: { size: [48, 0.5, 1], material: { color: '#6f6f6f' } }, collider: { shape: { type: 'box', hx: 24, hy: 0.25 } } } },
+        { id: 'static-0001', components: { transform: { position: [24, -0.25, 0], ...T }, box: { size: [48, 0.5, 1], material: { color: '#6f6f6f' } }, collider: { shape: { type: 'box', hx: 24, hy: 0.25, hz: 0.5 } } } },
       ],
     },
   };
 }
 
 async function buildRuntime(snapshot: unknown): Promise<{ runtime: Runtime; dispose: () => void }> {
-  const init = await createPhysicsPort({
-    character: { x: 3, y: 0.9 },
-    statics: [{ entityId: 'floor', shape: { type: 'box', hx: 24, hy: 0.25 }, position: { x: 24, y: -0.25 }, rotationZ: 0 }],
-    solver: { hz: 120, gravityY: -19.62 },
-    controller: { offsetSkin: 0.01, groundSnap: 0.1, maxSlopeClimbRad: Math.PI / 4, minSlopeSlideRad: Math.PI / 6, autostep: false },
-  });
+  const settings = { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
+  const entities = (snapshot as { scene: { entities: { id: string; components: unknown }[] } }).scene.entities;
+  const config = physics3DConfigOf(entities, settings);
+  if (config === null) throw new Error('physics init failed: the scene has no character or collider');
+  const init = await createPhysicsPort3D(config);
   if (!init.ok) throw new Error(`physics init failed: ${JSON.stringify(init.error)}`);
   const registry = createSimulationRegistry();
-  for (const spec of [characterControllerSpec]) {
+  for (const spec of [character3DSpec]) {
     const r = registerSimulationModule(registry, spec.id, spec);
     if (!r.ok) throw new Error(`register failed ${spec.id}: ${JSON.stringify(r.error)}`);
   }
@@ -150,10 +151,10 @@ async function buildRuntime(snapshot: unknown): Promise<{ runtime: Runtime; disp
   const res = instantiateRuntime({
     snapshot: snapshot as RuntimeSnapshot,
     registry,
-    modules: [CHARACTER_MODULE_ID],
+    modules: [CHARACTER_3D_MODULE_ID],
     actions: createRecordedActionSource(frames),
     physics: init.port,
-    settings: { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30 },
+    settings,
     clock: () => 0,
     driver: { kind: 'manual' },
   });

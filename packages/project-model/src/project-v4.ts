@@ -26,11 +26,11 @@ import { architectureModelAssets } from './architecture';
 import { composeBlockLayers, type BlockContentView } from './block-layers';
 import { composeContentChecks, composeV3 } from './project-v3';
 import { derivedOf } from './content-helpers';
-import { validateContentV4, physicsDimensionOf, arrayTextureIds, TEXTURE_ARRAY_KIND } from './content';
+import { validateContentV4, arrayTextureIds, TEXTURE_ARRAY_KIND } from './content';
 import { countsOfComponents, EMPTY_COUNTS, sceneCountErrors, validateSceneV4, type EntityV3Counts } from './scene-v3';
 import { sceneObjectsAssembled, type AssemblyEntity } from './prefab-assembly';
 import { isPrefabLink } from './prefab-links';
-import { ID_RE_V2, PLANE_ROTATION_TOLERANCE, colliderShapeParts, physicsRotationErrors, physicsScaleErrors } from './components';
+import { ID_RE_V2, colliderShapeParts, physicsRotationErrors, physicsScaleErrors } from './components';
 import { fail, fieldMissing, fieldType, fieldValue, isPlainObject, isValidName, pointerSegment, unexpectedField, withFound } from './validate';
 import type { ModelErrorV3, ModelResultV3 } from './errors';
 import type { Manifest as M1Manifest } from './types';
@@ -230,7 +230,7 @@ export function composeV4(
   for (const s of scenes) composeSceneV4(s, content, errors, projectRevision);
   composeContentChecks({ ...content, game: null }, errors, projectRevision);
 
-  // A prefab's collider follows the project's physics dimension too.
+  // A prefab's collider follows the physics rules too.
   errors.push(...prefabPhysicsRules(content));
 }
 
@@ -464,18 +464,17 @@ function prefabReferenceRules(content: ContentCatalogV4): readonly ModelErrorV3[
 
 const prefabPhysics = new WeakMap<object, { key: readonly unknown[]; errors: readonly ModelErrorV3[] }>();
 
-/** A prefab's collider follows the project's physics dimension; a copy's behavior group is one of the project's (kept with the prefab list and those settings). */
+/** A prefab's collider follows the physics rules; a copy's behavior group is one of the project's (kept with the prefab list and those settings). */
 function prefabPhysicsRules(content: ContentCatalogV4): readonly ModelErrorV3[] {
   const prefabs = content.prefabs ?? [];
   const key = [content.settings, content.collisionLayers, content.behaviorGroups];
   const hit = prefabPhysics.get(prefabs);
   if (hit !== undefined && hit.key.every((v, i) => v === key[i])) return hit.errors;
   const errors: ModelErrorV3[] = [];
-  const dimension = physicsDimensionOf(content.settings);
   prefabs.forEach((d, di) => {
     d.entities.forEach((e, ei) => {
       const local: ModelErrorV3[] = [];
-      physicsDimensionErrors(e.components as unknown as Record<string, unknown>, `/prefabs/${di}/entities/${ei}`, dimension, local, `/prefabs/${di}/entities/${ei}/components`, content.collisionLayers ?? []);
+      physicsBodyErrors(e.components as unknown as Record<string, unknown>, `/prefabs/${di}/entities/${ei}`, local, `/prefabs/${di}/entities/${ei}/components`, content.collisionLayers ?? []);
       behaviorGroupErrors(e.components as unknown as Record<string, unknown>, `/prefabs/${di}/entities/${ei}`, content.behaviorGroups ?? [], local as never);
       for (const x of local) errors.push({ ...x, document: 'content' } as ModelErrorV3);
     });
@@ -485,49 +484,31 @@ function prefabPhysicsRules(content: ContentCatalogV4): readonly ModelErrorV3[] 
 }
 
 /**
- * The rules of one physics-bearing entity (scene entity or prefab
- * entity; `path` is the entity's pointer) that depend on the project's
- * physics dimension. A 2D plane: rotation about Z only. 3D: any collider
- * rotation, the controller upright; a 2D shape (a box without `hz`, a
- * polygon) takes its 3D form there, given the collider's `depth`.
+ * The rules of one physics-bearing entity (scene entity or prefab entity;
+ * `path` is the entity's pointer): a collider takes any rotation and the
+ * scale its shape can take, the controller stays upright at unit scale, a
+ * collider's layers are the project's, and a mesh never moves. A flat shape
+ * (a box without `hz`, a polygon) takes its solid form, given the collider's
+ * `depth`.
  */
-export function physicsDimensionErrors(comps: Record<string, unknown>, path: string, dimension: 2 | 3, errors: ModelErrorV3[], rotationBase: string = path, collisionLayers: readonly string[] = []): void {
-  blockDimensionErrors(comps, path, dimension, errors);
+export function physicsBodyErrors(comps: Record<string, unknown>, path: string, errors: ModelErrorV3[], rotationBase: string = path, collisionLayers: readonly string[] = []): void {
   const collider = comps['collider'] as { shape?: { type?: string; hz?: number } } | undefined;
   const hasController = comps['controller'] !== undefined;
   if (collider === undefined && !hasController) return;
-  // The scale rule follows the dimension too (a 3D collider may be scaled).
-  physicsScaleErrors(comps, rotationBase, hasController, dimension, errors);
-  physicsRotationErrors(comps, rotationBase, hasController, dimension, errors);
+  physicsScaleErrors(comps, rotationBase, hasController, errors);
+  physicsRotationErrors(comps, rotationBase, hasController, errors);
   if (collider === undefined) return;
   const shape = collider.shape as { type?: string } | undefined;
   // Each primitive of a compound follows the rules a collider of that shape does.
   const parts = colliderShapeParts(shape);
   const shapePath = `${path}/components/collider/shape`;
   const partPath = (i: number): string => (shape?.type === 'compound' ? `${shapePath}/shapes/${i}` : shapePath);
-  // Collision layers are 3D physics (the 2D plane is unchanged); each must be the implicit
-  // "default" or one the project names.
+  // Each collision layer must be the implicit "default" or one the project names.
   const layers = (collider as { layers?: unknown }).layers;
   if (Array.isArray(layers)) {
-    if (dimension !== 3) errors.push(withFound({ code: 'field_value', path: `${path}/components/collider/layers`, message: 'collision layers are a 3D physics feature (set physics_dimension to 3)', expected: 'absent' } as ModelErrorV3, layers));
-    else layers.forEach((name, i) => {
+    layers.forEach((name, i) => {
       if (typeof name === 'string' && name !== 'default' && !collisionLayers.includes(name)) errors.push(withFound({ code: 'reference_missing', path: `${path}/components/collider/layers/${i}`, message: `the collision layer "${name}" is not one of the project's layers`, expected: `default or one of: ${collisionLayers.join(', ') || '(none named)'}` } as ModelErrorV3, name));
     });
-  }
-  if (dimension !== 3) {
-    parts.forEach((p, i) => {
-      const type = p['type'];
-      // The 3D shapes need a 3D project.
-      if (type === 'sphere' || type === 'capsule' || type === 'cylinder' || type === 'convex' || type === 'mesh') {
-        errors.push(withFound({ code: 'collider_shape_invalid', path: `${partPath(i)}/type`, message: `a ${type} collider is a 3D shape; a 2D-plane project uses box or polygon colliders (or set physics_dimension to 3)`, expected: '"box" | "polygon"' } as ModelErrorV3, type));
-      }
-      // A shape on the plane turns about Z, as its object does.
-      const q = p['rotation'];
-      if (Array.isArray(q) && (Math.abs(Number(q[0])) > PLANE_ROTATION_TOLERANCE || Math.abs(Number(q[1])) > PLANE_ROTATION_TOLERANCE)) {
-        errors.push(withFound({ code: 'collider_shape_invalid', path: `${partPath(i)}/rotation`, message: 'a shape on the 2D plane turns about the Z axis only', expected: '[0, 0, z, w]' } as ModelErrorV3, q));
-      }
-    });
-    return;
   }
   parts.forEach((p, i) => {
     const type = p['type'];
@@ -536,23 +517,6 @@ export function physicsDimensionErrors(comps: Record<string, unknown>, path: str
       errors.push(withFound({ code: 'collider_shape_invalid', path: `${partPath(i)}/type`, message: 'a mesh collider is static level geometry; a moving collider (a mover) uses box, sphere, capsule or convex', expected: '"box" | "sphere" | "capsule" | "convex"' } as ModelErrorV3, 'mesh'));
     }
   });
-}
-
-/**
- * The gameplay blocks' rules that follow the project's physics
- * dimension. A trigger's `sphere` and `capsule` are 3D areas the 2D plane's
- * backend cannot test. The 3D backend takes every trigger and switch: a
- * circle is the sphere of its radius, a box without a depth is as deep as
- * it is wide.
- */
-export function blockDimensionErrors(comps: Record<string, unknown>, path: string, dimension: 2 | 3, errors: ModelErrorV3[]): void {
-  const trigger = comps['trigger'] as { shape?: unknown; size?: unknown } | undefined;
-  if (trigger !== undefined && typeof trigger === 'object' && trigger !== null) {
-    const shape = trigger.shape ?? 'box';
-    if (dimension !== 3 && (shape === 'sphere' || shape === 'capsule')) {
-      errors.push(withFound({ code: 'field_value', path: `${path}/components/trigger/shape`, message: `a ${String(shape)} trigger is a 3D area; a 2D-plane project uses box or circle (or set physics_dimension to 3)`, expected: '"box" | "circle"' } as ModelErrorV3, shape));
-    }
-  }
 }
 
 /**
@@ -595,11 +559,10 @@ function composeSceneRules(s: SceneV4, content: ContentCatalogV4, errors: ModelE
   const asV3 = { ...s, schemaVersion: 3, revision: projectRevision } as unknown as SceneV3;
   composeV3(asV3, { ...content, game: null }, local, false);
   for (const e of local) errors.push(e.document === 'content' ? e : sceneError(s.sceneId, e));
-  // The rules that follow the project's physics dimension.
-  const dimension = physicsDimensionOf(content.settings);
+  // The physics rules of each body.
   s.entities.forEach((e, i) => {
     const local3: ModelErrorV3[] = [];
-    physicsDimensionErrors(e.components as unknown as Record<string, unknown>, `/entities/${i}`, dimension, local3, `/entities/${i}`, content.collisionLayers ?? []);
+    physicsBodyErrors(e.components as unknown as Record<string, unknown>, `/entities/${i}`, local3, `/entities/${i}`, content.collisionLayers ?? []);
     // An entity's behavior group is one of the project's.
     behaviorGroupErrors(e.components as unknown as Record<string, unknown>, `/entities/${i}`, content.behaviorGroups ?? [], local3 as never);
     for (const x of local3) errors.push(sceneError(s.sceneId, x));

@@ -1,13 +1,13 @@
 /**
  * Collider shapes: a center and a rotation on every primitive, compounds of
  * primitives, the model's `_COL` parts, colliders on child objects, and the
- * rules that follow the project's physics dimension.
+ * physics rules of a body.
  */
 import { describe, expect, it } from 'vitest';
 
 import { canonicalShape, colliderShapePoints, validateColliderShape } from './collider-shapes';
 import type { ModelErrorV2, ModelErrorV3 } from './errors';
-import { physicsDimensionErrors } from './project-v4';
+import { physicsBodyErrors } from './project-v4';
 import { validateSceneV4 } from './scene-v3';
 
 const errorsOf = (shape: unknown): ModelErrorV2[] => {
@@ -18,9 +18,9 @@ const errorsOf = (shape: unknown): ModelErrorV2[] => {
 const Q90Z = [0, 0, Math.SQRT1_2, Math.SQRT1_2];
 const T = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
 const scene = (entities: unknown[]): unknown => ({ schemaVersion: 4, sceneId: 'main', revision: 1, entities });
-const dimensionErrors = (comps: Record<string, unknown>, dimension: 2 | 3): ModelErrorV3[] => {
+const bodyErrors = (comps: Record<string, unknown>): ModelErrorV3[] => {
   const errors: ModelErrorV3[] = [];
-  physicsDimensionErrors(comps, '/entities/0', dimension, errors);
+  physicsBodyErrors(comps, '/entities/0', errors);
   return errors;
 };
 
@@ -61,18 +61,18 @@ describe('collider shapes', () => {
     expect(codes([parent, { id: 'lift-0001', parentId: 'cart-0001', components: { transform: T, collider: { shape: { type: 'box', hx: 1, hy: 1 } }, mover: { waypoints: [[0, 1, 0]], speed: 1 } } }])).toContain('physics_transform_unsupported');
   });
 
-  it('checks each shape of a compound against the project\'s dimension', () => {
+  it('checks each shape of a compound', () => {
     const compound = (shapes: unknown[]): Record<string, unknown> => ({ transform: T, collider: { shape: { type: 'compound', shapes } } });
-    // 3D: a box without its depth and a polygon take their 3D form (the collider's depth).
-    expect(dimensionErrors(compound([{ type: 'box', hx: 1, hy: 1, hz: 1 }, { type: 'box', hx: 1, hy: 1 }]), 3)).toEqual([]);
-    expect(dimensionErrors(compound([{ type: 'polygon', vertices: [[0, 0], [1, 0], [0, 1]] }]), 3)).toEqual([]);
+    // A box without its depth and a polygon take their solid form (the collider's depth).
+    expect(bodyErrors(compound([{ type: 'box', hx: 1, hy: 1, hz: 1 }, { type: 'box', hx: 1, hy: 1 }]))).toEqual([]);
+    expect(bodyErrors(compound([{ type: 'polygon', vertices: [[0, 0], [1, 0], [0, 1]] }]))).toEqual([]);
     // A mesh never moves.
-    expect(dimensionErrors({ ...compound([{ type: 'mesh', vertices: [[0, 0, 0], [1, 0, 0], [0, 0, 1]], triangles: [[0, 1, 2]] }]), mover: { waypoints: [[1, 0, 0]], speed: 1, mode: 'loop' } }, 3).map((e) => e.path)).toEqual(['/entities/0/components/collider/shape/shapes/0/type']);
-    // The plane: no 3D shapes, and a turn about Z only.
-    expect(dimensionErrors(compound([{ type: 'sphere', radius: 1 }]), 2).map((e) => e.path)).toEqual(['/entities/0/components/collider/shape/shapes/0/type']);
-    expect(dimensionErrors(compound([{ type: 'box', hx: 1, hy: 1, rotation: [Math.SQRT1_2, 0, 0, Math.SQRT1_2] }]), 2).map((e) => e.path)).toEqual(['/entities/0/components/collider/shape/shapes/0/rotation']);
-    expect(dimensionErrors(compound([{ type: 'box', hx: 1, hy: 1, rotation: Q90Z, center: [1, 0, 0] }]), 2)).toEqual([]);
+    expect(bodyErrors({ ...compound([{ type: 'mesh', vertices: [[0, 0, 0], [1, 0, 0], [0, 0, 1]], triangles: [[0, 1, 2]] }]), mover: { waypoints: [[1, 0, 0]], speed: 1, mode: 'loop' } }).map((e) => e.path)).toEqual(['/entities/0/components/collider/shape/shapes/0/type']);
+    // Any shape turns any way.
+    expect(bodyErrors(compound([{ type: 'sphere', radius: 1 }]))).toEqual([]);
+    expect(bodyErrors(compound([{ type: 'box', hx: 1, hy: 1, rotation: [Math.SQRT1_2, 0, 0, Math.SQRT1_2] }]))).toEqual([]);
+    expect(bodyErrors(compound([{ type: 'box', hx: 1, hy: 1, rotation: Q90Z, center: [1, 0, 0] }]))).toEqual([]);
     // A compound holding a sphere scales uniformly.
-    expect(dimensionErrors({ ...compound([{ type: 'sphere', radius: 1 }]), transform: { ...T, scale: [1, 2, 1] } }, 3).map((e) => e.reason)).toEqual(['scale']);
+    expect(bodyErrors({ ...compound([{ type: 'sphere', radius: 1 }]), transform: { ...T, scale: [1, 2, 1] } }).map((e) => e.reason)).toEqual(['scale']);
   });
 });

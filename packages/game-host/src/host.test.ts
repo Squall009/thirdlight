@@ -1,13 +1,14 @@
 /**
  * The game host, exercised in Node against injected fakes: a structural DOM, a
- * deterministic fixed-floor physics port (the character controller module
- * runs for real), a fake input owner (the menu seam), a fake render adapter
+ * deterministic fixed-floor 3D physics port (the runtime's character
+ * controller module runs for real), a fake input owner (the menu seam), a fake render adapter
  * (the frame hook), and the REAL audio owner over a fake Web Audio
  * context (the sound-status mapping). Every game plays as a
  * scene — there is no game session, run state or classic HUD.
  */
 import { describe, expect, it } from 'vitest';
-import type { GameplaySettings, PhysicsPort, RuntimeSnapshot } from '@thirdlight/runtime';
+import { CHARACTER_3D_MODULE_ID, character3DSpec, type GameplaySettings, type PhysicsPort3D, type RuntimeSnapshot } from '@thirdlight/runtime';
+import { PHYSICS_3D_MODULE_ID } from '@thirdlight/project-model';
 import {
   createGameAudioOwner,
   type AudioContextLike,
@@ -24,9 +25,6 @@ import {
 } from './host';
 import type { HostDom, HostDomNode } from './dom';
 import { createSettingsStore } from './storage';
-// The host imports no module package; like a composition entry,
-// the test injects the spec table and names the modules its snapshot references.
-import { characterControllerSpec } from '@thirdlight/character';
 
 // ---------------------------------------------------------------------------
 // The structural fake DOM (records every surface the overlays write).
@@ -90,63 +88,58 @@ function fakeDom(): HostDom {
 }
 
 // ---------------------------------------------------------------------------
-// The deterministic fixed-floor physics port (with the reset port surface).
+// The deterministic fixed-floor 3D physics port (with the placement surface).
 // ---------------------------------------------------------------------------
 
+type V3 = { x: number; y: number; z: number };
+
 interface FakePhysics {
-  port: PhysicsPort;
-  /** The committed capsule centre after the last step. */
-  position(): { x: number; y: number };
+  port: PhysicsPort3D;
+  /** The committed character origin after the last step. */
+  position(): V3;
 }
 
+/** A floor at the base height: the character moves freely above it and never below. */
 function fakePhysics(base: { x: number; y: number }): FakePhysics {
-  let off = { x: 0, y: 0 };
-  let pending = { x: 0, y: 0 };
-  const position = (): { x: number; y: number } => ({
-    x: base.x + off.x,
-    y: Math.max(base.y, base.y + off.y),
-  });
-  const port = {
+  let at: V3 = { x: base.x, y: base.y, z: 0 };
+  let pending: V3 = { x: 0, y: 0, z: 0 };
+  const position = (): V3 => ({ ...at });
+  const port: PhysicsPort3D = {
+    dimension: 3,
     implementation: 'fake-host-test',
-    stageCharacterMove(delta: { x: number; y: number }): void {
-      pending.x += delta.x;
-      pending.y += delta.y;
+    stageCharacterMove(delta: V3): void {
+      pending = { x: pending.x + delta.x, y: pending.y + delta.y, z: pending.z + delta.z };
     },
     step() {
-      const before = position();
-      const after = { x: before.x + pending.x, y: Math.max(base.y, before.y + pending.y) };
-      const applied = { x: after.x - before.x, y: after.y - before.y };
-      off = { x: after.x - base.x, y: after.y - base.y };
-      pending = { x: 0, y: 0 };
+      const before = at;
+      const after = { x: before.x + pending.x, y: Math.max(base.y, before.y + pending.y), z: before.z + pending.z };
+      const applied = { x: after.x - before.x, y: after.y - before.y, z: after.z - before.z };
+      at = after;
+      pending = { x: 0, y: 0, z: 0 };
       return {
-        requested: { x: applied.x, y: applied.y },
+        requested: { ...applied },
         applied,
-        position: after,
+        position: { ...after },
         grounded: true,
-        supportNormal: { x: 0, y: 1 },
+        supportNormal: { x: 0, y: 1, z: 0 },
         contacts: { ground: true, wall: false, head: false, steepSlope: false },
         snapped: false,
       };
     },
-    // The reset-barrier surface (PhysicsResetPort — the runtime requires
-    // it for the modules it runs; the host's config type is the base port).
-    clearCharacterMotion(): void {
-      pending = { x: 0, y: 0 };
-      off = { x: 0, y: 0 };
+    // Placement (every run starts by placing its characters from rest).
+    placeCharacter(origin: V3) {
+      at = { x: origin.x, y: Math.max(base.y, origin.y), z: origin.z };
+      pending = { x: 0, y: 0, z: 0 };
+      return { ok: true, supportNormal: { x: 0, y: 1, z: 0 } };
     },
-    placeCharacter(center: { x: number; y: number }): { ok: boolean; supportNormal: { x: number; y: number } } {
-      off = { x: center.x - base.x, y: Math.max(0, center.y - base.y) };
-      pending = { x: 0, y: 0 };
-      return { ok: true, supportNormal: { x: 0, y: 1 } };
-    },
-    characterClearance(): { ok: boolean; supportNormal: { x: number; y: number } } {
-      return { ok: true, supportNormal: { x: 0, y: 1 } };
+    characterClearance() {
+      return { ok: true, supportNormal: { x: 0, y: 1, z: 0 } };
     },
     dispose(): void {
       // no-op
     },
   };
-  return { position, port: port as unknown as PhysicsPort };
+  return { position, port };
 }
 
 // ---------------------------------------------------------------------------
@@ -158,9 +151,8 @@ const T = {
   scale: [1, 1, 1] as [number, number, number],
 };
 
-const MODULE_SPECS = [characterControllerSpec];
-/** The manifest modules of the snapshot (a controller entity on the 2D plane). */
-const GAME_MODULES = ['thirdlight.input:keyboard-gamepad', 'thirdlight.physics-rapier:2d', 'thirdlight.character:controller'];
+/** The manifest modules of the snapshot (a controller entity: the runtime's character controller and the physics backend). */
+const GAME_MODULES = ['thirdlight.input:keyboard-gamepad', PHYSICS_3D_MODULE_ID, CHARACTER_3D_MODULE_ID];
 
 function hostSnapshot(): unknown {
   return {
@@ -194,7 +186,7 @@ function hostSnapshot(): unknown {
           components: {
             transform: { position: [24, -0.25, 0], ...T },
             box: { size: [48, 0.5, 1], material: { color: '#6f6f6f' } },
-            collider: { shape: { type: 'box', hx: 24, hy: 0.25 } },
+            collider: { shape: { type: 'box', hx: 24, hy: 0.25, hz: 0.5 } },
           },
         },
       ],
@@ -355,7 +347,6 @@ function harness(options: HarnessOptions = {}): Harness {
     snapshot: hostSnapshot() as RuntimeSnapshot,
     settings: SETTINGS,
     modules: GAME_MODULES,
-    moduleSpecs: MODULE_SPECS,
     physics: physics.port,
     adapter: () => adapter,
     input,
@@ -672,8 +663,7 @@ describe('disposal (B15 lifecycle)', () => {
       snapshot: hostSnapshot() as RuntimeSnapshot,
       settings: SETTINGS,
       modules: GAME_MODULES,
-      moduleSpecs: MODULE_SPECS,
-      physics: fakePhysics({ x: 3, y: 0.9 }).port,
+        physics: fakePhysics({ x: 3, y: 0.9 }).port,
       adapter: () => null,
       input,
       audio,
@@ -693,7 +683,7 @@ describe('disposal (B15 lifecycle)', () => {
 describe('the manifest module list drives the composition', () => {
   it('an id this engine does not provide is refused at mount', () => {
     const h = harness();
-    const cfg: GameHostConfig = { ...h.config, modules: ['thirdlight.character:controller', 'thirdlight.terrain:heightmap'] };
+    const cfg: GameHostConfig = { ...h.config, modules: [CHARACTER_3D_MODULE_ID, 'thirdlight.terrain:heightmap'] };
     const host = createGameHost(cfg);
     const res = host.mount();
     expect(res.ok).toBe(false);
@@ -710,7 +700,7 @@ describe('the manifest module list drives the composition', () => {
     const base = h.config;
     const { physics: _physics, ...rest } = base;
     void _physics;
-    const host = createGameHost({ ...rest, modules: ['thirdlight.physics-rapier:2d', 'thirdlight.character:controller'] });
+    const host = createGameHost({ ...rest, modules: [PHYSICS_3D_MODULE_ID, CHARACTER_3D_MODULE_ID] });
     const res = host.mount();
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error.code).toBe('host_module_unresolved');
@@ -733,14 +723,18 @@ describe('the manifest module list drives the composition', () => {
 
   it('a manifest module the injected spec table lacks is unresolved', () => {
     const h = harness();
-    const { moduleSpecs: _s, ...rest } = h.config;
-    void _s;
-    const host = createGameHost(rest);
+    // A composition's own simulation module (not a runtime built-in), named by the manifest.
+    const extra = { ...character3DSpec, id: 'thirdlight.test-extra:module' };
+    const provided = createGameHost({ ...h.config, modules: ['thirdlight.test-extra:module'], moduleSpecs: [extra] });
+    const mounted = provided.mount();
+    expect(mounted, JSON.stringify(mounted)).toEqual({ ok: true });
+    provided.dispose();
+    const host = createGameHost({ ...h.config, modules: ['thirdlight.test-extra:module'] });
     const res = host.mount();
     expect(res.ok).toBe(false);
     if (!res.ok) {
       expect(res.error.code).toBe('host_module_unresolved');
-      expect(res.error.message).toContain('thirdlight.character:controller');
+      expect(res.error.message).toContain('thirdlight.test-extra:module');
     }
     host.dispose();
     h.host.dispose();
@@ -748,7 +742,7 @@ describe('the manifest module list drives the composition', () => {
 
   it('the entity a module needs is its own declaration', () => {
     const h = harness();
-    const needy = { ...characterControllerSpec, id: 'test.needs:controller', requiresEntityWith: ['controller'] };
+    const needy = { ...character3DSpec, id: 'test.needs:controller', requiresEntityWith: ['controller'] };
     const snapshot = hostSnapshot() as { scene: { entities: { components: Record<string, unknown> }[] } };
     for (const e of snapshot.scene.entities) delete e.components['controller'];
     const host = createGameHost({ ...h.config, snapshot: snapshot as unknown as RuntimeSnapshot, modules: ['test.needs:controller'], moduleSpecs: [needy] });

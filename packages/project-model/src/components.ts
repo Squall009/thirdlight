@@ -763,18 +763,12 @@ export function validatePhysicsTransform(
   hasController: boolean,
   errors: ModelErrorV2[],
   /**
-   * `false` defers the rotation rules to the project level
-   * (`physicsRotationErrors` with the project's `physics_dimension`), so a v4
-   * scene's collider may turn freely in a 3D project. v2/v3 documents (2D
-   * only) keep the rules here.
+   * `true` for a v2/v3 document, whose physics was the old plane: its rules
+   * (unit scale, rotation about Z only) are kept for those formats until
+   * the upgrade moves them on. A v4 scene's rules are the project-level ones
+   * (`physicsScaleErrors`, `physicsRotationErrors`).
    */
-  checkRotation = true,
-  /**
-   * `false` defers the scale rule to the project level too
-   * (`physicsScaleErrors`): a 3D collider may be scaled where its shape can
-   * take it. Defaults to `checkRotation` (v4 defers both).
-   */
-  checkScale = checkRotation,
+  legacyPlane = true,
 ): void {
   // A collider may sit on a child and follows its parent; the character's
   // body and a mover's are posed in world space by their own systems, so
@@ -793,86 +787,21 @@ export function validatePhysicsTransform(
       ),
     );
   }
-  if (checkScale) physicsScaleErrors(comps, path, hasController, 2, errors);
-  if (checkRotation) physicsRotationErrors(comps, path, hasController, 2, errors);
+  if (legacyPlane) legacyPlaneTransformErrors(comps, path, hasController, errors);
 }
 
-/**
- * The scale rule of a physics-bearing entity for the project's
- * physics dimension. A 2D plane (and every controller): unit scale, as
- * before. 3D: a box, hull or mesh collider takes any positive scale per axis
- * (applied to its shape along the entity's axes), a sphere, capsule or
- * cylinder a positive uniform one (a non-uniformly scaled sphere is no sphere).
- */
-export function physicsScaleErrors(comps: Record<string, unknown>, path: string, hasController: boolean, dimension: 2 | 3, errors: ModelErrorV2[]): void {
+const scaleError = (path: string, scale: unknown, message: string, expected: string): ModelErrorV2 =>
+  withFound({ code: 'physics_transform_unsupported', path: `${path}/transform/scale`, message, reason: 'scale', expected }, scale);
+const uprightError = (path: string, rotation: unknown): ModelErrorV2 =>
+  withFound({ code: 'physics_transform_unsupported', path: `${path}/transform/rotation`, message: 'the controller entity must be upright (identity rotation)', reason: 'upright', expected: '[0, 0, 0, 1]' }, rotation);
+
+/** A v2/v3 document's old plane rules: unit scale, rotated about Z only, the controller upright. */
+function legacyPlaneTransformErrors(comps: Record<string, unknown>, path: string, hasController: boolean, errors: ModelErrorV2[]): void {
   const t = effectiveTransform(comps);
   const [sx, sy, sz] = t.scale;
-  if (sx === 1 && sy === 1 && sz === 1) return;
-  const shape = isPlainObject(comps['collider']) ? (comps['collider'] as Record<string, unknown>)['shape'] : undefined;
-  const roundPart = colliderShapeParts(shape).find((p) => p['type'] === 'sphere' || p['type'] === 'capsule' || p['type'] === 'cylinder');
-  const type = roundPart !== undefined ? roundPart['type'] : isPlainObject(shape) ? shape['type'] : undefined;
-  if (dimension === 3 && !hasController) {
-    // A compound holding a sphere or a capsule scales uniformly too.
-    const round = roundPart !== undefined;
-    const positive = sx > 0 && sy > 0 && sz > 0;
-    if (positive && (!round || (sx === sy && sy === sz))) return;
-    errors.push(
-      withFound(
-        {
-          code: 'physics_transform_unsupported',
-          path: `${path}/transform/scale`,
-          message: round ? `a ${String(type)} collider takes a positive uniform scale [s, s, s]` : 'a collider takes a positive scale on every axis',
-          reason: 'scale',
-          expected: round ? '[s, s, s], s > 0' : '[x, y, z], each > 0',
-        },
-        t.scale,
-      ),
-    );
-    return;
-  }
-  errors.push(
-    withFound(
-      {
-        code: 'physics_transform_unsupported',
-        path: `${path}/transform/scale`,
-        message: 'a physics-bearing entity must be at unit scale [1, 1, 1]',
-        reason: 'scale',
-        expected: '[1, 1, 1]',
-      },
-      t.scale,
-    ),
-  );
-}
-
-/**
- * The rotation rules of a physics-bearing entity for the
- * project's physics dimension. A 2D-plane project (2): rotated about Z only
- * and the controller upright (identity). A 3D project (3): a collider takes
- * any rotation; the controller stays upright (identity: the capsule stands
- * along Y).
- */
-export function physicsRotationErrors(comps: Record<string, unknown>, path: string, hasController: boolean, dimension: 2 | 3, errors: ModelErrorV2[]): void {
-  const t = effectiveTransform(comps);
+  if (sx !== 1 || sy !== 1 || sz !== 1) errors.push(scaleError(path, t.scale, 'a physics-bearing entity must be at unit scale [1, 1, 1]', '[1, 1, 1]'));
   const [qx, qy, qz, qw] = t.rotation;
-  if (dimension === 3) {
-    if (hasController && !(qx === 0 && qy === 0 && qz === 0 && qw === 1)) {
-      errors.push(
-        withFound(
-          {
-            code: 'physics_transform_unsupported',
-            path: `${path}/transform/rotation`,
-            message: 'the controller entity must be upright (identity rotation)',
-            reason: 'upright',
-            expected: '[0, 0, 0, 1]',
-          },
-          t.rotation,
-        ),
-      );
-    }
-    return;
-  }
-  const zOnly = Math.abs(qx) <= PLANE_ROTATION_TOLERANCE && Math.abs(qy) <= PLANE_ROTATION_TOLERANCE;
-  if (!zOnly) {
+  if (Math.abs(qx) > PLANE_ROTATION_TOLERANCE || Math.abs(qy) > PLANE_ROTATION_TOLERANCE) {
     errors.push(
       withFound(
         {
@@ -885,20 +814,38 @@ export function physicsRotationErrors(comps: Record<string, unknown>, path: stri
         t.rotation,
       ),
     );
-  } else if (hasController && !(qz === 0 && qw === 1)) {
-    errors.push(
-      withFound(
-        {
-          code: 'physics_transform_unsupported',
-          path: `${path}/transform/rotation`,
-          message: 'the controller entity must be upright (identity rotation)',
-          reason: 'upright',
-          expected: '[0, 0, 0, 1]',
-        },
-        t.rotation,
-      ),
-    );
+  } else if (hasController && !(qz === 0 && qw === 1)) errors.push(uprightError(path, t.rotation));
+}
+
+/**
+ * The scale rule of a physics-bearing entity: a box, hull or mesh collider
+ * takes any positive scale per axis (applied to its shape along the
+ * entity's axes), a sphere, capsule or cylinder a positive uniform one (a
+ * non-uniformly scaled sphere is no sphere); a controller stays at unit scale.
+ */
+export function physicsScaleErrors(comps: Record<string, unknown>, path: string, hasController: boolean, errors: ModelErrorV2[]): void {
+  const t = effectiveTransform(comps);
+  const [sx, sy, sz] = t.scale;
+  if (sx === 1 && sy === 1 && sz === 1) return;
+  if (hasController) {
+    errors.push(scaleError(path, t.scale, 'a physics-bearing entity must be at unit scale [1, 1, 1]', '[1, 1, 1]'));
+    return;
   }
+  const shape = isPlainObject(comps['collider']) ? (comps['collider'] as Record<string, unknown>)['shape'] : undefined;
+  const roundPart = colliderShapeParts(shape).find((p) => p['type'] === 'sphere' || p['type'] === 'capsule' || p['type'] === 'cylinder');
+  const type = roundPart !== undefined ? roundPart['type'] : isPlainObject(shape) ? shape['type'] : undefined;
+  // A compound holding a sphere or a capsule scales uniformly too.
+  const round = roundPart !== undefined;
+  const positive = sx > 0 && sy > 0 && sz > 0;
+  if (positive && (!round || (sx === sy && sy === sz))) return;
+  errors.push(scaleError(path, t.scale, round ? `a ${String(type)} collider takes a positive uniform scale [s, s, s]` : 'a collider takes a positive scale on every axis', round ? '[s, s, s], s > 0' : '[x, y, z], each > 0'));
+}
+
+/** The rotation rule of a physics-bearing entity: a collider takes any rotation; the controller stays upright (the capsule stands along Y). */
+export function physicsRotationErrors(comps: Record<string, unknown>, path: string, hasController: boolean, errors: ModelErrorV2[]): void {
+  const t = effectiveTransform(comps);
+  const [qx, qy, qz, qw] = t.rotation;
+  if (hasController && !(qx === 0 && qy === 0 && qz === 0 && qw === 1)) errors.push(uprightError(path, t.rotation));
 }
 
 /** `transform` field validation for the v2 registry (the same rules as the scene transform). */

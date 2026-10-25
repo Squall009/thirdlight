@@ -51,7 +51,6 @@ const WORKER = join(REPO_ROOT, 'packages/exporter', 'src', 'export-sim-worker.ts
 /** The other scripts an export may ship, by their path in the export. */
 const SHIPPED = [
   { name: 'js/mesh-worker.js', entry: join(REPO_ROOT, 'packages/exporter', 'src', 'export-mesh-worker.ts'), wasm: false },
-  { name: 'js/physics-2d.js', entry: join(REPO_ROOT, 'packages/exporter', 'src', 'export-physics-2d.ts'), wasm: true },
   { name: 'js/physics-3d.js', entry: join(REPO_ROOT, 'packages/exporter', 'src', 'export-physics-3d.ts'), wasm: true },
 ] as const;
 
