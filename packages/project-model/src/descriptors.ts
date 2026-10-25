@@ -44,6 +44,7 @@ import { architecture } from './architecture-descriptor';
 import { decal } from './decal-descriptor';
 import { vertexPaint } from './vertex-paint-descriptor';
 import { windZone } from './wind-descriptor';
+import { foliageBend } from './foliage-bend-descriptor';
 import { COMPONENT_ICONS, type ComponentDescriptor, type DescriptorRegistry, type FieldDescriptor, HANDLE_KINDS, HANDLE_ROLES, type ObjectFieldDescriptor } from './descriptor-types';
 import { animator, audioSource, behavior, behaviorGroupC, box, cameraPath, cameraRegion, climbVolume, collectible, collider, controller, effectComponent, ENTITY, faceMovement, fogVolume, folder, gravityC, health, hitbox, instances, light, materialParams, materials, model, modelAnimation, mover, patrol, playerSpawn, prefab, probeVolume, socketAttach, surface, switchC, transform, trigger, virtualCamera } from './descriptor-components';
 import { CONTENT, SCENE_ENVIRONMENT } from './descriptor-content';
@@ -66,6 +67,7 @@ const COMPONENTS: readonly ComponentDescriptor[] = [
   decal,
   vertexPaint,
   windZone,
+  foliageBend,
   collider,
   controller,
   virtualCamera,

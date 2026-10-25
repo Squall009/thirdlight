@@ -206,3 +206,23 @@ small map (256 m across, 4 m texels, so an edge is no sharper than 4 m),
 made again only when a zone, the wind or the camera's 32 m square changes.
 The noise texture and its second layer are the scene's only.
 
+
+**Foliage gives way to subjects.** Foliage materials also bend away from
+the view's **subjects**: the camera's target, or the objects a script names
+with `ctx.camera.setSeeThrough({ subjects: [...] })` (the same list
+see-through fades round, whether see-through is on or off; the nearest four
+per view). Within a radius of a subject's body a vertex is pushed away from
+it by the subject's strength × its bend weight (COLOR_0 R, squared) × its
+height above its root, and lowered so the plant keeps its length (it lies
+nearly flat at most, never past). Behind a moving subject the pressed path
+stands up again over its recovery time; round one standing still the plants
+stay parted. There is no simulation and nothing stored per plant.
+
+- The `foliageBend` component on a subject (Inspector → *Add component* →
+  *Foliage bend*) sets `radius` (metres; absent: the body's radius + 0.3 m),
+  `strength` (0–4, default 1: a tip leans by about its own height at the
+  body; 0 parts nothing) and `recovery` (seconds, default 1). A subject
+  without it uses these defaults.
+- A scatter or cover rule's `bendAway` (0–4, default 1) scales how readily
+  its copies give way (0 for trees or rocks drawn with a foliage material).
+- `tl_diagnostics` `renderer.foliageBend` lists the subjects bent round now.

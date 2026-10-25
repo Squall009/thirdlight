@@ -255,7 +255,9 @@ export type V3OwnedComponent =
   /** v4 scenes only: vertex paint on a model's meshes or a generated mesh's paths (written by paintVertices). */
   | 'vertexPaint'
   /** v4 scenes only: a box or sphere overriding the scene's wind. */
-  | 'windZone';
+  | 'windZone'
+  /** v4 scenes only: how a view subject parts foliage. */
+  | 'foliageBend';
 
 /** Every `setComponent`-owned component (the base five plus the six v3 ones). */
 export type OwnedComponent =

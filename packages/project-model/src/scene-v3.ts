@@ -20,6 +20,7 @@ import { SHADOW_MAP_SIZES } from './quality-levels';
 import { INSTANCE_DENSITY_SIZE_MIN } from './model-lod';
 import { canonicalProbeVolume, validateProbeVolumeComponent, type ProbeVolumeComponent } from './probe-grids';
 import { canonicalDecal, validateDecalComponent, type DecalComponent } from './decals';
+import { canonicalFoliageBend, validateFoliageBendComponent, type FoliageBendComponent } from './foliage-bend';
 import { canonicalWindZone, validateWindZoneComponent, type WindZoneComponent } from './wind';
 import { canonicalInstancePaint, canonicalVertexPaint, validateInstancePaint, validateVertexPaintComponent, type InstancePaint, type VertexPaintComponent } from './vertex-paint';
 import { canonicalTerrain, validateTerrainComponent, type TerrainComponent } from './terrain';
@@ -143,7 +144,8 @@ const KNOWN_ENTITY_FIELDS = new Set(['id', 'name', 'parentId', 'parentPart', ...
 // `materialParams` (per-object overrides of graph-material parameters) is appended last.
 // `effect` (plays a visual effect from the entity) is appended after it.
 // No `camera`: the engine owns the view and scenes hold shots (`virtualCamera`); an older project's scene camera is upgraded on open.
-export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY.filter((c) => c !== 'camera'), 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams', 'effect', 'virtualCamera', 'cameraPath', 'blockLayer', 'blockFootprint', 'socketAttach', 'behaviorGroup', 'cameraRegion', 'probeVolume', 'terrain', 'spline', 'architecture', 'decal', 'vertexPaint', 'windZone'];
+export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY.filter((c) => c !== 'camera'), 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams', 'effect', 'virtualCamera', 'cameraPath', 'blockLayer', 'blockFootprint', 'socketAttach', 'behaviorGroup', 'cameraRegion', 'probeVolume', 'terrain', 'spline', 'architecture', 'decal', 'vertexPaint', 'windZone', 'foliageBend'];
+// `foliageBend` (how a view subject parts foliage) after it.
 // `windZone` (a box or sphere overriding the scene's wind) after it.
 // `vertexPaint` (paint on a model's meshes or a generated mesh's paths) last.
 // `decal` (a box that marks the surfaces inside it) before it.
@@ -811,6 +813,7 @@ export function validateEntityComponentsV3(
   // A decal (any entity may carry one: it marks the surfaces around it, its own included).
   if (comps['decal'] !== undefined) validateDecalComponent(comps['decal'], `${path}/decal`, errors);
   if (comps['windZone'] !== undefined) validateWindZoneComponent(comps['windZone'], `${path}/windZone`, errors);
+  if (comps['foliageBend'] !== undefined) validateFoliageBendComponent(comps['foliageBend'], `${path}/foliageBend`, errors);
   // Vertex paint: a model's meshes, or the paths of the object's architecture or spline.
   const vp = comps['vertexPaint'];
   if (vp !== undefined) {
@@ -1436,6 +1439,7 @@ export function canonicalComponentsV3(comps: Record<string, unknown>): EntityCom
   if (comps['decal'] !== undefined) components.decal = canonicalDecal(comps['decal'] as DecalComponent);
   if (comps['vertexPaint'] !== undefined) components.vertexPaint = canonicalVertexPaint(comps['vertexPaint'] as VertexPaintComponent);
   if (comps['windZone'] !== undefined) components.windZone = canonicalWindZone(comps['windZone'] as WindZoneComponent);
+  if (comps['foliageBend'] !== undefined) components.foliageBend = canonicalFoliageBend(comps['foliageBend'] as FoliageBendComponent);
   if (comps['instances'] !== undefined) {
     const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number; castShadow?: boolean; receiveShadow?: boolean; chunkSize?: number; lightLayers?: number; densityStart?: number; densityEnd?: number; densityMin?: number; lodPerCopy?: boolean; localLights?: LocalLightMode; decalLayers?: number; paint?: InstancePaint; seeThrough?: boolean };
     components.instances = {

@@ -48,13 +48,13 @@
 import * as THREE from 'three';
 import * as TSLTyped from 'three/tsl';
 import { NodeMaterial, type NodeBuilder } from 'three/webgpu';
-import { COVER_POINT_STEPS, SCATTER_COVER_DISTANCE_DEFAULT, scatterRuleSeed, type CoverPointSet, type RuleRange, type ScatterRule } from '@thirdlight/runtime';
+import { COVER_POINT_STEPS, FOLIAGE_BEND_DEFAULTS, SCATTER_COVER_DISTANCE_DEFAULT, scatterRuleSeed, type CoverPointSet, type RuleRange, type ScatterRule } from '@thirdlight/runtime';
 
 import { COVER_FADE_START, COVER_LANES, COVER_MIN_NORMAL_Y, coverMaskSide, listCoverPatches, planCover, type CoverPatch, type CoverPlan, type CoverRing, type CoverTileRef } from './cover-placement';
 import { COVER_POINT_BLOCK, COVER_POINT_ROW, CoverPointAtlas, listCoverPointBlocks } from './cover-points-gpu';
 import type { N } from './effects-tsl';
 import { instanceSetPlan, type InstanceSetPlan } from './instancing';
-import { setCopyRoot } from './node-materials';
+import { setCopyBend, setCopyRoot } from './node-materials';
 import { TAN_HALF_REFERENCE } from './instance-lod';
 import type { LodTuning } from './lod-switch';
 import { stepOf } from './terrain-material';
@@ -289,6 +289,7 @@ export function coverDrawPlacement(d: CoverDrawInputs): CoverPlacement {
       const placed = local.mul(vec4(positionLocal, 1)).xyz.mul(size);
       const at = vec3(x, ground.sub(rule.sink ?? 0), z).toVar();
       setCopyRoot(builder, at);
+      setCopyBend(builder, float(rule.bendAway ?? FOLIAGE_BEND_DEFAULTS.ruleBend));
       positionLocal.assign(select(kept, rotateNode(quat, placed).add(at), vec3(x, DROPPED_Y, z)));
       normalLocal.assign(rotateNode(quat, normalize(local.mul(vec4(normalLocal, 0)).xyz)));
     }, 'void') as unknown as () => void,
@@ -349,6 +350,7 @@ export function coverPointsPlacement(d: CoverPointDrawInputs): CoverPlacement {
       const placed = local.mul(vec4(positionLocal, 1)).xyz.mul(size);
       const ground = vec3(x, p.y.sub(rule.sink ?? 0), z).toVar();
       setCopyRoot(builder, ground);
+      setCopyBend(builder, float(rule.bendAway ?? FOLIAGE_BEND_DEFAULTS.ruleBend));
       positionLocal.assign(select(kept, rotateNode(quat, placed).add(ground), vec3(x, DROPPED_Y, z)));
       normalLocal.assign(rotateNode(quat, normalize(local.mul(vec4(normalLocal, 0)).xyz)));
     }, 'void') as unknown as () => void,

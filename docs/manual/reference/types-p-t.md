@@ -700,6 +700,12 @@ interface ScatterRule extends RuleConditions {
   coverDistance?: number;
   /** Drawing: the copies thin to a dither round a subject behind them (see-through.ts; absent: true). */
   seeThrough?: boolean;
+  /**
+   * Drawing: how readily the copies give way to the view's subjects as they
+   * pass (foliage-bend.ts; a factor on each subject's strength, 0: never;
+   * absent: 1). Only a foliage material bends.
+   */
+  bendAway?: number;
 }
 ```
 

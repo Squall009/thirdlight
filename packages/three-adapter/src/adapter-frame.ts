@@ -407,6 +407,8 @@ export class AdapterFrame {
     // terrains' nodes and the cover chosen for this view).
     p.occlusion.update();
     level.seeThrough.update(renderer, camera);
+    // The subjects' push on foliage (after see-through has followed the scripts' subject list).
+    level.foliageBend.update(camera);
     // Merged cells still building in the background, or a moved static object waiting to rejoin its cell: a host drawing on demand draws again.
     if (batcher?.pending() === true) p.opts.onChange?.();
   }

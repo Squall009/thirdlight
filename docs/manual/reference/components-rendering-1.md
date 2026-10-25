@@ -303,6 +303,23 @@ Scene-view handles:
 
 GameObject menu: Light → Wind zone
 
+<a id="component-foliageBend"></a>
+## foliageBend — Foliage bend
+
+How this object parts grass and other foliage while it is a view subject (the camera's target, or one a script names with ctx.camera.setSeeThrough({subjects})). Without it a subject still parts foliage with the defaults.
+
+- Category: Rendering
+- Added: from "+ Add component", starting as `{"strength":1}`
+- On prefab objects: yes
+- Rule: Only subjects bend foliage: the camera's target, or the objects a script names (at most four per view, the nearest kept).
+- Rule: A scatter or cover rule's bendAway scales how readily its plants give way.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `radius` | number |  | 0.05 – 50, step 0.05, m | **Radius.** Metres round the body foliage gives way within (absent: the body's radius plus 0.3 m). (scripts read) |
+| `strength` | number | `1` | 0 – 4, step 0.05 | **Strength.** How far foliage lies down at the body: 1 bends a plant's tip by its own height; 0 parts nothing. (scripts read) |
+| `recovery` | number | `1` | 0 – 30, step 0.1, s | **Recovery.** Seconds the pressed path takes to stand up again behind the object. (scripts read) |
+
 <a id="component-blockLayer"></a>
 ## blockLayer — Block layer
 

@@ -81,6 +81,7 @@ import { LOCAL_LIGHTS_KEY } from './local-lights';
 import { KEEP_MATERIAL_KEY, MATERIAL_NO_SHADOW_KEY } from './material-keys';
 import { declareVertexReach } from './vertex-reach';
 import { WindField, type WindFieldWind, type WindZoneLike } from './wind-field';
+import { FoliageBend } from './foliage-bend';
 import { installFoliage } from './foliage-nodes';
 import { withPaint } from './vertex-paint-draw';
 import type { N as TslNode } from './effects-tsl';
@@ -186,6 +187,8 @@ export interface MaterialLibrary {
   windState(): ReturnType<WindField['state']>;
   /** The scene's global wind now (zones aside): what the sky's clouds drift with. */
   globalWind(): ReturnType<WindField['global']>;
+  /** The view's subjects foliage gives way to (the uniforms every foliage material reads; a bend view writes them each frame). */
+  readonly foliageBend: FoliageBend;
   /** Where the view's camera is this frame (what reads distance in every pass: foliage's wind distance; the wind map follows it). */
   setViewEye(x: number, y: number, z: number): void;
   /** The scene's wetness (0–1) the Scene wetness node reads. */
@@ -296,10 +299,40 @@ function createNodeGlobals() {
   };
 }
 
+/** The library's view and wind inputs (the eye, the zones, the global wind), over its shared uniforms and wind field. */
+function viewMethods(nodeGlobals: ReturnType<typeof createNodeGlobals>, windField: WindField): Pick<MaterialLibrary, 'setViewEye' | 'setWindZones' | 'windState' | 'globalWind' | 'setWind'> {
+  return {
+    setViewEye(x, y, z) {
+      (nodeGlobals.eye.value as THREE.Vector3).set(x, y, z);
+      windField.setEye(x, z);
+    },
+    setWindZones(zones) {
+      windField.setZones(zones);
+    },
+    windState() {
+      return windField.state();
+    },
+    globalWind() {
+      return windField.global();
+    },
+    setWind(wind) {
+      windField.setGlobal(wind);
+      const w = wind ?? DEFAULT_WIND_LIKE;
+      (nodeGlobals.windDir.value as THREE.Vector2).set(w.direction[0], w.direction[1]);
+      nodeGlobals.strength.value = w.strength;
+      nodeGlobals.gust.value = w.gust;
+      nodeGlobals.gustFreq.value = w.gustFrequency;
+      nodeGlobals.turb.value = w.turbulence;
+    },
+  };
+}
+
 export function createMaterialLibrary(options: MaterialLibraryOptions): MaterialLibrary {
   const nodeGlobals = createNodeGlobals();
   /** The decoded textures, held per built material (and by the compiled graphs, the preloads, the wind's pattern). */
   const holds: TextureHolds = textureHolds(options.resources, options.loadTexture);
+  /** The view's subjects foliage gives way to. */
+  const foliageBend = new FoliageBend();
   /** The wind every foliage vertex and graph wind node reads (the global wind, the zones' map, the gust pattern). */
   const windField = new WindField(nodeGlobals.time, (id) => holds.get(id, 'wind'), () => holds.releaseHolder('wind'), () => options.onChange?.());
   let defs = new Map<string, MaterialDefLike>();
@@ -649,7 +682,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
 
   function installFoliageNodes(m: THREE.MeshStandardMaterial, p: MaterialDefLike['params']): void {
     animatedCount += 1;
-    installFoliage(m, p, nodeGlobals, windField);
+    installFoliage(m, p, nodeGlobals, windField, foliageBend);
   }
 
   /** The x scale of a texture's UV transform (a shift added before the transform lands after it once divided by this). */
@@ -1211,28 +1244,8 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       reassigned.add(listener);
       return () => void reassigned.delete(listener);
     },
-    setViewEye(x, y, z) {
-      (nodeGlobals.eye.value as THREE.Vector3).set(x, y, z);
-      windField.setEye(x, z);
-    },
-    setWindZones(zones) {
-      windField.setZones(zones);
-    },
-    windState() {
-      return windField.state();
-    },
-    globalWind() {
-      return windField.global();
-    },
-    setWind(wind) {
-      windField.setGlobal(wind);
-      const w = wind ?? DEFAULT_WIND_LIKE;
-      (nodeGlobals.windDir.value as THREE.Vector2).set(w.direction[0], w.direction[1]);
-      nodeGlobals.strength.value = w.strength;
-      nodeGlobals.gust.value = w.gust;
-      nodeGlobals.gustFreq.value = w.gustFrequency;
-      nodeGlobals.turb.value = w.turbulence;
-    },
+    foliageBend,
+    ...viewMethods(nodeGlobals, windField),
     setWetness(wetness) {
       nodeGlobals.wetness.value = Math.max(0, Math.min(1, Number.isFinite(wetness) ? wetness : 0));
     },

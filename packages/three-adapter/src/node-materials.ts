@@ -189,12 +189,20 @@ export const instanceOrigin = Fn((builder: NodeBuilder) => {
   return (instancedBufferAttribute(shared as unknown as THREE.InstancedBufferAttribute, 'vec4', 16, 12) as unknown as ReturnType<typeof vec4>).xyz;
 });
 
-/** A draw's copy roots, by the node build placing them (a GPU copies or cover draw's placement). */
+/**
+ * A draw's copy root and bend factor, by the object being built. Keyed by the drawn object, not the builder: a
+ * TSL function receives the builder behind a proxy made anew for each call, so the placement and the material's
+ * position stage never see the same builder object. One build runs at a time, and a placement sets its draw's
+ * values before the material's position stage reads them in the same build.
+ */
 const copyRoots = new WeakMap<object, unknown>();
+const copyBends = new WeakMap<object, unknown>();
+const drawOf = (builder: NodeBuilder): object | null => ((builder as unknown as { object?: object | null }).object ?? null);
 
 /** A placement tells the build where its copy stands (object space; inside the placement, before the material's position node). */
 export function setCopyRoot(builder: NodeBuilder, root: unknown): void {
-  copyRoots.set(builder, root);
+  const o = drawOf(builder);
+  if (o !== null) copyRoots.set(o, root);
 }
 
 /**
@@ -202,7 +210,22 @@ export function setCopyRoot(builder: NodeBuilder, root: unknown): void {
  * the instance's translation ({@link instanceOrigin}), else the object's
  * origin. What a vertex's height above its plant is measured from. Vertex stage.
  */
-export const copyRoot = Fn((builder: NodeBuilder) => (copyRoots.get(builder) as ReturnType<typeof vec3> | undefined) ?? instanceOrigin());
+export const copyRoot = Fn((builder: NodeBuilder) => {
+  const o = drawOf(builder);
+  return ((o !== null ? copyRoots.get(o) : undefined) as ReturnType<typeof vec3> | undefined) ?? instanceOrigin();
+});
+
+/** A placement tells the build how readily its copies give way to subjects (a float node; inside the placement). */
+export function setCopyBend(builder: NodeBuilder, bend: unknown): void {
+  const o = drawOf(builder);
+  if (o !== null) copyBends.set(o, bend);
+}
+
+/** The drawn copy's factor on the subjects' push (its scatter or cover rule's `bendAway`; else 1: a placed model, an instance set). Vertex stage. */
+export const copyBend = Fn((builder: NodeBuilder) => {
+  const o = drawOf(builder);
+  return ((o !== null ? copyBends.get(o) : undefined) as ReturnType<typeof float> | undefined) ?? float(1);
+});
 
 // ---- the normal map's green (tangent frames) ---------------------------------------
 

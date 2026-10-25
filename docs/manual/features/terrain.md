@@ -445,6 +445,9 @@ area and the terrain around it are dressed alike.
   `queryTerrain {entityId, scatter: {box?: [x0, z0, x1, z1]}}` lists each
   rule's copies and hand edits, and with a box the copies in it with their
   addresses; a block layer's are in its chunks (`queryBlocks`).
+- **Giving way to subjects**: a rule's `bendAway` (0–4, default 1) scales
+  how far the view's subjects push its copies aside when their material is
+  a foliage one ([Foliage gives way to subjects](environment.md#wind)).
 - **Ground cover** (a rule with `cover: true`, `coverDistance` m, default
   40): never stored. **On a terrain the GPU places it**: the reach is cut
   into rings round the camera (at the model's level switches, so a ring

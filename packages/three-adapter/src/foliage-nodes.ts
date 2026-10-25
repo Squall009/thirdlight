@@ -7,16 +7,18 @@
  * its height above the plant's root (a GPU copy's place, an instance's
  * origin, else the object's), so tall grass and scaled-up copies bend
  * further than short ones. A mesh without COLOR_0 sways by its height share
- * of the first metre instead.
+ * of the first metre instead. On top of the wind, the plant gives way to the
+ * view's subjects by the same weight and height (`foliage-bend.ts`).
  */
 import * as THREE from 'three';
 import * as TSL from 'three/tsl';
 import type { MeshStandardNodeMaterial, NodeBuilder } from 'three/webgpu';
 
 import type { N } from './effects-tsl';
-import { copyRoot } from './node-materials';
 import { OBJECT_FRAME_KEY } from './static-merge';
 import { declareVertexReach } from './vertex-reach';
+import { FOLIAGE_FALLBACK_HEIGHT_M, type FoliageBend } from './foliage-bend';
+import { copyBend, copyRoot } from './node-materials';
 import type { WindField } from './wind-field';
 
 /**
@@ -27,8 +29,6 @@ import type { WindField } from './wind-field';
 const FOLIAGE_BEND_M = 0.12;
 const FOLIAGE_SAG = 0.35;
 const FOLIAGE_FLUTTER_M = 0.015;
-/** A mesh without wind weights bends by its height share of this many metres (the plant-sized sway foliage had before weights met heights). */
-const FOLIAGE_FALLBACK_HEIGHT_M = 1;
 
 /** A mesh's height in the world (its geometry's bounds times its world scale up): the most a vertex stands above its root. */
 function meshHeight(mesh: THREE.Mesh): number {
@@ -53,7 +53,7 @@ const vertexData = TSL.Fn((builder: NodeBuilder) => ((builder as unknown as { ge
 /** Whether the drawn geometry carries COLOR_0 (the wind's weights). */
 const hasVertexData = (builder: NodeBuilder): boolean => (builder as unknown as { geometry: THREE.BufferGeometry }).geometry.hasAttribute('color');
 
-export function installFoliage(m: THREE.MeshStandardMaterial, p: Readonly<Record<string, unknown>>, g: FoliageGlobals, windField: WindField): void {
+export function installFoliage(m: THREE.MeshStandardMaterial, p: Readonly<Record<string, unknown>>, g: FoliageGlobals, windField: WindField, bendField: FoliageBend): void {
   // The bend is the wind field's strength (gusts included) times the vertex's bend weight (COLOR_0 R, squared)
   // times its height above the plant's root, so a tall plant (or a copy scaled up) bends further than a short
   // one; `windBend` / `windFlutter` scale it per material (0–4×). A mesh without COLOR_0 sways by its height
@@ -76,12 +76,14 @@ export function installFoliage(m: THREE.MeshStandardMaterial, p: Readonly<Record
     const world = TSL.modelWorldMatrix.mul(TSL.vec4(local, 1)).xyz;
     const root = TSL.modelWorldMatrix.mul(TSL.vec4(copyRoot(), 1)).xyz;
     const out = TSL.vec3(local).toVar();
+    const height = TSL.max(world.y.sub(root.y), 0).toVar();
+    const share = TSL.clamp(height.div(FOLIAGE_FALLBACK_HEIGHT_M), 0, 1);
+    // How far the vertex can lean (metres): its bend weight squared times its height above its root.
+    const capacity = (weighted ? colour.r.mul(colour.r) : share.mul(share)).mul(height).toVar();
     const away = TSL.length(g.eye.sub(world));
     TSL.If(windDistance.lessThanEqual(0).or(away.lessThan(windDistance)), () => {
       const near = windDistance.lessThanEqual(0).select(TSL.float(1), TSL.float(1).sub(TSL.smoothstep(windDistance.mul(0.8), windDistance, away)));
-      const height = TSL.max(world.y.sub(root.y), 0);
-      const share = TSL.clamp(height.div(FOLIAGE_FALLBACK_HEIGHT_M), 0, 1);
-      const tlBend = weighted ? colour.r.mul(colour.r).mul(height).mul(bend) : share.mul(share).mul(bend);
+      const tlBend = weighted ? capacity.mul(bend) : share.mul(share).mul(bend);
       const phase = colour.g.mul(6.2831853);
       const wind = windField.sample(TSL.vec2(world.x, world.z));
       const sway = TSL.sin(g.time.mul(1.7).add(phase).add(world.x.mul(0.4).mul(wind.w))).mul(0.35);
@@ -92,6 +94,11 @@ export function installFoliage(m: THREE.MeshStandardMaterial, p: Readonly<Record
       const flutterAmount = TSL.sin(g.time.mul(flutterFreq).add(phase.mul(3)).add(world.x.mul(2.3))).mul(colour.b).mul(flutter).mul(FOLIAGE_FLUTTER_M).mul(strength.add(near.mul(0.5)));
       const offset = sagged.add(normalWorld.mul(flutterAmount));
       out.assign(local.add(TSL.modelWorldMatrixInverse.mul(TSL.vec4(offset, 0)).xyz));
+    });
+    // Round the view's subjects (none live: skipped), from the plant's rest pose, on top of the wind.
+    TSL.If(bendField.live.greaterThan(0), () => {
+      const pushed = bendField.offset(world, height, capacity.mul(copyBend()));
+      out.addAssign(TSL.modelWorldMatrixInverse.mul(TSL.vec4(pushed, 0)).xyz);
     });
     return out;
   })();
@@ -104,6 +111,6 @@ export function installFoliage(m: THREE.MeshStandardMaterial, p: Readonly<Record
     const wind = windField.maxAmount();
     const tall = mesh === undefined ? FOLIAGE_FALLBACK_HEIGHT_M : Math.max(FOLIAGE_FALLBACK_HEIGHT_M, meshHeight(mesh));
     const sway = wind * Math.max(0, bend.value as number) * FOLIAGE_BEND_M * tall * Math.hypot(1, FOLIAGE_SAG);
-    return sway + Math.max(0, flutter.value as number) * FOLIAGE_FLUTTER_M * (wind + 0.5);
+    return sway + Math.max(0, flutter.value as number) * FOLIAGE_FLUTTER_M * (wind + 0.5) + bendField.reach(tall);
   });
 }

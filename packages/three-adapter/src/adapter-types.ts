@@ -438,6 +438,8 @@ export interface SceneAdapterDiagnostics {
   vertexPaint?: import('./vertex-paint-draw').VertexPaintDiagnostics;
   /** See-through: whether it is on and armed, its subjects and their fades; ABSENT while it was never on. */
   seeThrough?: import('./see-through').SeeThroughDiagnostics;
+  /** The subjects foliage gives way to now, each with its ease in (0–1); absent: none. */
+  foliageBend?: { subjects: { id: string; ease: number }[] };
   /**
    * The precompiles (`renderer.compileAsync` before the first
    * present and after each scene attach): settled, failed (the frame then

@@ -36,7 +36,7 @@ import * as THREE from 'three';
 import * as TSLTyped from 'three/tsl';
 import { RenderObjectRefreshType } from 'three';
 import { NodeMaterial, TextureNode, type NodeBuilder } from 'three/webgpu';
-import { INSTANCE_FLOATS } from '@thirdlight/runtime';
+import { FOLIAGE_BEND_DEFAULTS, INSTANCE_FLOATS } from '@thirdlight/runtime';
 
 import { PAINT_SLOT_ATTRIBUTE, setGpuCopyColumns } from './attribute-instancing';
 import { CUTAWAY_LAYER } from './block-cutaway-view';
@@ -48,7 +48,7 @@ import { INSTANCE_SET_KEY, instanceSetPlan, type BuiltInstanceSet, type Instance
 import { TAN_HALF_REFERENCE } from './instance-lod';
 import { LodTuning } from './lod-switch';
 import { KEEP_MATERIAL_KEY } from './material-keys';
-import { setCopyRoot } from './node-materials';
+import { setCopyBend, setCopyRoot } from './node-materials';
 import { PAINT_MESH_KEY, PAINT_STREAM_KEY } from './vertex-paint-draw';
 import { maxScaleOf, SphereSide, STATIC_SHADOW_CAMERA_KEY, VIEW_CULL_KEY, type CullView, type ViewCullable } from './view-cull';
 import type { ModelInstance } from './visual';
@@ -64,7 +64,7 @@ const GPU_COPIES_ATTRIBUTE = 'tlGpuCopies';
 const LIST_ROW = 1024;
 /**
  * Texels a list's header takes before its entries: copies per block, reach
- * (m) and world scale; the level it draws, the group's level count, whether
+ * (m), world scale and how readily the copies give way to subjects; the level it draws, the group's level count, whether
  * the last level culls and how the level is decided; the switch distances
  * (two texels); the density falloff.
  */
@@ -136,7 +136,7 @@ const uStatic: N = uniform(0).onObjectUpdate(({ object, camera }: { object: THRE
 const uLocal: N = uniform(new THREE.Matrix4()).onObjectUpdate(({ object }: { object: THREE.Object3D }) => drawOf(object)?.local ?? IDENTITY);
 
 /** This instance's copy: its texels, slot and whether it is drawn by this draw (vertex stage). */
-function copyNodes(): { kept: N; pos: N; quat: N; scale: N; paint: N; slot: N } {
+function copyNodes(): { kept: N; pos: N; quat: N; scale: N; paint: N; slot: N; bend: N } {
   // The list's header (LIST_HEADER texels of its first row): see `writeHeader`.
   const head = (i: number): N => listTexture.load(ivec2(i, 0));
   const h0 = head(0);
@@ -178,7 +178,7 @@ function copyNodes(): { kept: N; pos: N; quat: N; scale: N; paint: N; slot: N } 
   const thins = uDensity.w.greaterThan(0.5).and(isStatic.not());
   const keep = select(thins, t0.w.lessThan(share), float(1).greaterThan(0));
   const kept = float(k).lessThan(entry.y).and(mine).and(keep).and(metres.lessThanEqual(h0.y)).and(s.greaterThan(0));
-  return { kept, pos: t0.xyz, quat: t1, scale: t2.xyz, paint: t2.w, slot };
+  return { kept, pos: t0.xyz, quat: t1, scale: t2.xyz, paint: t2.w, slot, bend: h0.w };
 }
 
 /** `v` turned by unit quaternion `q`. */
@@ -195,6 +195,7 @@ const copiesPlacement: CoverPlacement = {
   place: Fn((builder: NodeBuilder) => {
     const c = copyNodes();
     setCopyRoot(builder, c.pos);
+    setCopyBend(builder, c.bend);
     const p = uLocal.mul(vec4(positionLocal, 1)).xyz;
     positionLocal.assign(select(c.kept, rotate(c.quat, p.mul(c.scale)).add(c.pos), c.pos));
     const b = builder as unknown as { needsPreviousData?: () => boolean; hasGeometryAttribute?: (name: string) => boolean };
@@ -295,6 +296,8 @@ export interface GpuCopySetOptions extends InstanceSetOptions, InstancePlanOptio
   readonly preparedCopies?: PreparedCopies;
   /** Also draw the copies within this many metres of the eye into the moving shadow maps only (shadow-only draws). */
   readonly shadowDistance?: number;
+  /** How readily a foliage material's copies give way to the view's subjects (a scatter rule's `bendAway`; absent: 1). */
+  readonly bendAway?: number;
 }
 
 /** A built copies set: an instance set's surface, culled once a frame through its draws. */
@@ -602,7 +605,7 @@ export class GpuCopySet {
     const g = list.group >= 0 ? this.plan.groups[list.group] : this.plan.groups[0];
     const distances = g?.distances ?? [0];
     const dv = (k: number): number => (k < distances.length ? distances[k]! : NEVER);
-    list.data.set([this.block, Math.min(list.reach, NEVER), this.worldScale, 0, list.level, g !== undefined ? Math.min(distances.length, MAX_LEVELS) : 1, g?.culls === true ? 1 : 0, list.mode, dv(0), dv(1), dv(2), dv(3), dv(4), dv(5), dv(6), dv(7), this.density.x, this.density.y, this.density.z, this.density.w], 0);
+    list.data.set([this.block, Math.min(list.reach, NEVER), this.worldScale, this.options.bendAway ?? FOLIAGE_BEND_DEFAULTS.ruleBend, list.level, g !== undefined ? Math.min(distances.length, MAX_LEVELS) : 1, g?.culls === true ? 1 : 0, list.mode, dv(0), dv(1), dv(2), dv(3), dv(4), dv(5), dv(6), dv(7), this.density.x, this.density.y, this.density.z, this.density.w], 0);
     list.texture.needsUpdate = true;
   }
 

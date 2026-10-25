@@ -35,6 +35,7 @@
  * the project is edited (the backend), never per frame.
  */
 import type { ModelErrorV2 } from './errors';
+import { FOLIAGE_BEND_DEFAULTS, FOLIAGE_BEND_LIMITS } from './foliage-bend';
 import { brushHash, copyRotation } from './instance-brush';
 import { INSTANCE_DENSITY_SIZE_MIN, MAX_INSTANCE_CHUNK_SIZE } from './model-lod';
 import { canonicalRuleRange, ruleConditionsAt, ruleRangeAt, validateRuleConditions, validateRuleRange, SURFACE_RULE_BLOCK_LAYERS, SURFACE_RULE_CAVITY_RADIUS, type RuleConditions, type RuleRange, type SurfacePoint } from './surface-rules';
@@ -109,13 +110,19 @@ export interface ScatterRule extends RuleConditions {
   coverDistance?: number;
   /** Drawing: the copies thin to a dither round a subject behind them (see-through.ts; absent: true). */
   seeThrough?: boolean;
+  /**
+   * Drawing: how readily the copies give way to the view's subjects as they
+   * pass (foliage-bend.ts; a factor on each subject's strength, 0: never;
+   * absent: 1). Only a foliage material bends.
+   */
+  bendAway?: number;
 }
 
 /** The rule fields in canonical order. */
 export const SCATTER_RULE_FIELDS: readonly string[] = Object.freeze([
   'id', 'asset', 'density', 'spacing', 'scale', 'yaw', 'align', 'sink', 'seed',
   'height', 'slope', 'cavity', 'noise', 'layers', 'blocks', 'meta', 'exclude',
-  'castShadow', 'shadowDistance', 'blobShadow', 'chunkSize', 'densityStart', 'densityEnd', 'densityMin', 'lodPerCopy', 'impostorSize', 'collide', 'cover', 'coverDistance', 'seeThrough',
+  'castShadow', 'shadowDistance', 'blobShadow', 'chunkSize', 'densityStart', 'densityEnd', 'densityMin', 'lodPerCopy', 'impostorSize', 'collide', 'cover', 'coverDistance', 'seeThrough', 'bendAway',
 ]);
 
 /** Bounds of a rule's values (dimensions of a value, not counts). */
@@ -215,6 +222,7 @@ export function validateScatterRules(value: unknown, path: string, errors: Model
     num('coverDistance', L.coverDistance.min, L.coverDistance.max, 'metres ground cover reaches from the camera');
     num('shadowDistance', L.shadowDistance.min, L.shadowDistance.max, 'metres from the camera the copies cast within');
     num('blobShadow', L.blobShadow.min, L.blobShadow.max, 'metres of the disc under each copy');
+    num('bendAway', FOLIAGE_BEND_LIMITS.ruleBend.min, FOLIAGE_BEND_LIMITS.ruleBend.max, 'a factor on how far subjects bend the copies');
     num('impostorSize', L.impostorSize.min, L.impostorSize.max, 'the screen size below which a copy is an impostor');
     if (r['impostorSize'] !== undefined && r['cover'] === true) err(errors, 'field_unexpected', `${p}/impostorSize`, 'ground cover never draws far enough for impostors (it thins out near the camera)', r['impostorSize']);
     if (r['shadowDistance'] !== undefined && r['castShadow'] !== true) err(errors, 'field_unexpected', `${p}/shadowDistance`, 'shadowDistance belongs to a rule whose copies cast (castShadow: true)', r['shadowDistance']);
@@ -279,6 +287,7 @@ export function canonicalScatterRules(rules: readonly ScatterRule[]): ScatterRul
     if (r.cover === true) out.cover = true;
     if (r.coverDistance !== undefined) out.coverDistance = r.coverDistance;
     if (r.seeThrough === false) out.seeThrough = false;
+    if (r.bendAway !== undefined && r.bendAway !== FOLIAGE_BEND_DEFAULTS.ruleBend) out.bendAway = r.bendAway;
     return out;
   });
 }

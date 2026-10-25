@@ -64,6 +64,8 @@ export function adapterDiagnostics(p: AdapterParts, frame: AdapterFrame): SceneA
   const painted = disposed ? null : vertexPaintDiagnostics(p.scene);
   if (painted !== null) d.vertexPaint = painted;
   if (p.level.seeThrough.diagnostics().armed) d.seeThrough = p.level.seeThrough.diagnostics();
+  const bent = p.level.foliageBend.subjects();
+  if (bent.length > 0) d.foliageBend = { subjects: bent };
   if (liveRenderer !== null && frame.drawn) d.frame = { drawCalls: frame.counts.drawCalls, triangles: frame.counts.triangles };
   if (!disposed) d.sceneGraph = p.graph.counts();
   return d;

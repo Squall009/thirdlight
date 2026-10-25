@@ -849,6 +849,7 @@ export {
 export * from './probe-grids';
 // Wind: the scene's global wind, wind zones and the field they make.
 export * from './wind';
+export * from './foliage-bend';
 // Decals: the component, decal layers and decal materials' trim sheet cells.
 export * from './decals';
 // Vertex paint: the component, instance sets' paint, strokes and paint in path space.

@@ -15,6 +15,11 @@
  *   --wind S                    the scene's wind strength S (gusts 0.8 S, from the side of the view; default: the
  *                               engine's light breeze)
  *   --wind-zone                 with a calm wind zone (a 25 m sphere, 10 m blend) 40 m ahead of the camera
+ *   --walker                    a 1.8 m box walking across the view 7 m ahead (a mover), named the view's subject by a script
+ *                               with see-through off: the grass gives way round it
+ *   --walker-strength S         its foliageBend strength (default: the engine's; 0: it parts nothing)
+ *   --walker-radius R           its foliageBend radius in metres (default: the engine's, from its body)
+ *   --walker-speed V            metres per second it walks (default 1.2; 0: it stands at the middle of its path)
  *   --clouds C                  under the physical sky with cloud cover C (density 0.6), drifting with the wind
  *   --no-export                 the sweep only
  *   --no-sweep                  the exports only
@@ -30,7 +35,8 @@ import { join } from 'node:path';
 import { FOLIAGE_NEAR_METRES } from '@thirdlight/project-model';
 
 import { PERF_ROOT, REPO, startPerfBackend, type PerfBackend } from './backend';
-import { publishFileVia } from './build';
+import { publishBehaviorVia, publishFileVia } from './build';
+import { seeThroughBehavior } from './see-through-run';
 import { launchGpuBrowser, measurePage, serveStatic, sourcesOf, type FrameRenderer, type FrameRunResult } from './frame-run';
 import { LEVEL_LOOK, publishTerrainMaterial, STARTER_REMOVED } from './level';
 import { MEADOW_KIT, MEADOW_SEED, MEADOW_SIDE, MEADOW_SPEC, MEADOW_VERSION, meadowCamera, meadowHeight, meadowCoverRule, meadowHeights, meadowOrigin, meadowPaint, meadowSamples, meadowTerrainRaw, proposeSweepBudget, SWEEP_CONFIGS, sweepLoad, type SweepRow } from './meadow';
@@ -79,7 +85,7 @@ async function publishTemplateGrass(be: PerfBackend, projectId: string, cmd: Cmd
 }
 
 /** Build the meadow into a new project; returns the terrain's id (its cover is baked by the caller). */
-async function buildMeadow(be: PerfBackend, projectId: string, log: (s: string) => void, grass: MeadowGrass, density: number, coverDistance: number, wind: { strength: number | null; zone: boolean; clouds?: number | null } = { strength: null, zone: false }): Promise<{ terrainId: string; cmd: Cmd; cover: Record<string, unknown>[] }> {
+async function buildMeadow(be: PerfBackend, projectId: string, log: (s: string) => void, grass: MeadowGrass, density: number, coverDistance: number, wind: { strength: number | null; zone: boolean; clouds?: number | null; walker?: WalkerOptions } = { strength: null, zone: false }): Promise<{ terrainId: string; cmd: Cmd; cover: Record<string, unknown>[] }> {
   const t0 = performance.now();
   const created = await be.post('/api/v1/admin/projects', { projectId, name: 'Perf meadow' });
   if (created.status !== 201 && created.status !== 200) throw new Error(`project create failed: ${created.status} ${JSON.stringify(created.json)}`);
@@ -117,8 +123,41 @@ async function buildMeadow(be: PerfBackend, projectId: string, log: (s: string) 
     const calm = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Calm', transform: { position: [ahead[0], meadowHeight(ahead[0], ahead[1]), ahead[1]] } }))['createdId']);
     await cmd('setComponent', { entityId: calm, component: 'windZone', value: { shape: 'sphere', radius: 25, blend: 10, strength: 0, gust: 0.05 } });
   }
+  if (wind.walker !== undefined) await addWalker(be, projectId, cmd, camera, wind.walker);
   log(`meadow: ground built in ${Math.round(performance.now() - t0)} ms (${MEADOW_SIDE} m square, ${tiles.length} tiles, ${meadowPaint().length} painted patches)`);
   return { terrainId, cmd, cover };
+}
+
+/**
+ * A subject walking through the grass: a box going to and fro across the view 7 m ahead (a mover, its points on the
+ * ground), named the view's subject by a script with see-through left off, so the grass gives way round it.
+ */
+interface WalkerOptions {
+  strength: number | null;
+  radius: number | null;
+  speed: number;
+}
+
+async function addWalker(be: PerfBackend, projectId: string, cmd: Cmd, camera: ReturnType<typeof meadowCamera>, w: WalkerOptions): Promise<void> {
+  const [cx, , cz] = camera.position;
+  const ahead = (d: number, side: number): [number, number] => [cx + d * Math.SQRT1_2 + side * Math.SQRT1_2, cz - d * Math.SQRT1_2 + side * Math.SQRT1_2];
+  const start = ahead(7, w.speed > 0 ? -3 : 0);
+  const y0 = meadowHeight(start[0], start[1]) + 0.9;
+  const points: [number, number, number][] = [];
+  for (let k = 1; k <= 6; k += 1) {
+    const [x, z] = ahead(7, -3 + k);
+    points.push([x - start[0], meadowHeight(x, z) + 0.9 - y0, z - start[1]]);
+  }
+  const id = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Walker', transform: { position: [start[0], y0, start[1]] } }))['createdId']);
+  await cmd('setComponent', { entityId: id, component: 'box', value: { size: [0.5, 1.8, 0.5], material: { color: '#c8c2b8' } } });
+  if (w.speed > 0) await cmd('setComponent', { entityId: id, component: 'mover', value: { waypoints: points, speed: w.speed, mode: 'pingpong' } });
+  const bend = { ...(w.strength !== null ? { strength: w.strength } : {}), ...(w.radius !== null ? { radius: w.radius } : {}) };
+  if (Object.keys(bend).length > 0) await cmd('setComponent', { entityId: id, component: 'foliageBend', value: bend });
+  const p = be.project(projectId);
+  const b = seeThroughBehavior([id]);
+  await publishBehaviorVia(be, p, cmd, b);
+  const driver = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Subjects', transform: { position: [0, 0, 0] } }))['createdId']);
+  await cmd('setBehaviorProperties', { entityId: driver, behaviorId: b.behaviorId, values: {} });
 }
 
 export interface MeadowReport {
@@ -170,7 +209,7 @@ export async function runMeadowCli(argv: readonly string[]): Promise<void> {
   if (!has('no-export')) {
     const be = await startPerfBackend(join(runDir, 'data'), join(runDir, 'exports'));
     try {
-      const { terrainId, cmd, cover } = await buildMeadow(be, 'meadow', log, grass, density, coverDistance, { strength: get('wind') === undefined ? null : Number(get('wind')), zone: has('wind-zone'), clouds: get('clouds') === undefined ? null : Number(get('clouds')) });
+      const { terrainId, cmd, cover } = await buildMeadow(be, 'meadow', log, grass, density, coverDistance, { strength: get('wind') === undefined ? null : Number(get('wind')), zone: has('wind-zone'), clouds: get('clouds') === undefined ? null : Number(get('clouds')), ...(has('walker') ? { walker: { strength: get('walker-strength') === undefined ? null : Number(get('walker-strength')), radius: get('walker-radius') === undefined ? null : Number(get('walker-radius')), speed: get('walker-speed') === undefined ? 1.2 : Number(get('walker-speed')) } } : {}) });
       for (const variant of ['grass', 'ground'] as const) {
         const t = performance.now();
         await cmd('editTerrain', { entityId: terrainId, kind: 'bake', scatter: variant === 'grass' ? cover : [] });

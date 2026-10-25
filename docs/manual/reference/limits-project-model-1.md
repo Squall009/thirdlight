@@ -274,6 +274,14 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 |---|---|---|
 | <a id="limit-event-cue-limits"></a>`EVENT_CUE_LIMITS` | `{"name":64}` | Engine limits: the name length (a signal name's). The table has as many rows as the game needs. |
 
+<a id="limits-project-model--foliage-bend"></a>
+## `foliage-bend.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-foliage-bend-defaults"></a>`FOLIAGE_BEND_DEFAULTS` | `{"margin":0.3,"strength":1,"recovery":1,"ruleBend":1}` |  |
+| <a id="limit-foliage-bend-limits"></a>`FOLIAGE_BEND_LIMITS` | `{"radius":{"min":0.05,"max":50},"strength":{"min":0,"max":4},"recovery":{"min":0,"max":30},"ruleBend":{"min":0,"max":4}}` |  |
+
 <a id="limits-project-model--frame-rate-cap"></a>
 ## `frame-rate-cap.ts`
 

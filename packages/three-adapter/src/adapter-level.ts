@@ -26,6 +26,7 @@ import type { ModelsRealization } from './models';
 import type { PrecompileGate } from './precompile-gate';
 import type { RenderGraph } from './render-graph';
 import { createScatterHost, type ScatterHost } from './scatter-host';
+import { FoliageBendView } from './foliage-bend';
 import { SeeThroughView, seeThroughEntitiesOf, type SeeThroughScripted } from './see-through';
 import type { StaticShadowRevision } from './shadow-casters';
 import { SplineView } from './spline-view';
@@ -75,6 +76,8 @@ export interface AdapterLevel {
   readonly ownTiles: TerrainTileStore | null;
   readonly cutaways: CutawayFollower;
   readonly seeThrough: SeeThroughView;
+  /** The view's subjects the foliage gives way to (see-through's list, whether see-through is on or not). */
+  readonly foliageBend: FoliageBendView;
   /** The authored block types (the swaps a running game makes go over them). */
   readonly blockTypes: BlockType[];
   /** An asset's material mapping (its import's, else the host's row of it). */
@@ -158,10 +161,12 @@ export function createAdapterLevel(d: AdapterLevelDeps): AdapterLevel {
   const viewOf = (): { target?: string; seeThrough?: SeeThroughScripted } | null | undefined => (opts.runtime as { cameraView?: () => { target?: string; seeThrough?: SeeThroughScripted } | null }).cameraView?.();
   const st = opts.seeThrough;
   const seeThrough = new SeeThroughView({ ...seeThroughEntitiesOf(graph), components: (id) => d.components(id), cameraTarget: () => viewOf()?.target ?? null, scripted: () => viewOf()?.seeThrough ?? null, ...(st?.pinned !== undefined ? { pinned: st.pinned } : {}), ...(st?.prebuild === true ? { prebuild: true } : {}), requestPrecompile: () => d.precompile().want(), onChange: changed, regroup: (o) => batcher?.touch(o), occluderLayers: () => blockView.occluderLayers(), ...(st?.onProblem !== undefined ? { onProblem: st.onProblem } : {}) }, st?.settings);
+  // Foliage gives way to the same subjects, see-through on or off.
+  const foliageBend = new FoliageBendView({ ...seeThroughEntitiesOf(graph), components: (id) => d.components(id), cameraTarget: () => viewOf()?.target ?? null, named: () => seeThrough.subjects(), onChange: changed }, materialLibrary?.foliageBend ?? null);
   const blockTypes = ((opts.snapshot as { blockTypes?: readonly BlockType[] }).blockTypes ?? []) as BlockType[];
   blockView.setTypes(blockTypes);
   return {
-    stream, scatter, splines, archHost, architecture, clipped, blockView, terrains, ownTiles, cutaways, seeThrough, blockTypes, assetMaterials,
+    stream, scatter, splines, archHost, architecture, clipped, blockView, terrains, ownTiles, cutaways, seeThrough, foliageBend, blockTypes, assetMaterials,
     diagnostics(out) {
       if (blockView.layerIds().length > 0) out.blocks = blockView.diagnostics();
       if (terrains.ids().length > 0) out.terrain = terrains.diagnostics();

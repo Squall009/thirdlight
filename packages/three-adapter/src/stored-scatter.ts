@@ -707,7 +707,8 @@ export class StoredScatter {
     const far = impostor !== null && rule.impostorSize !== undefined ? { impostor: { mesh: impostor, size: rule.impostorSize } } : {};
     // A rule that casts near the camera only: its copies there cast into the moving shadow map, the rest never.
     const near = rule.castShadow === true && rule.shadowDistance !== undefined ? { shadowDistance: rule.shadowDistance } : {};
-    return { density: instanceDensityOf(rule), lodPerCopy: rule.lodPerCopy ?? true, ...far, ...near, ...tuning };
+    const bend = rule.bendAway !== undefined ? { bendAway: rule.bendAway } : {};
+    return { density: instanceDensityOf(rule), lodPerCopy: rule.lodPerCopy ?? true, ...far, ...near, ...bend, ...tuning };
   }
 
   /** Gather a rule's copies in a group (hidden ones shrunk to nothing, removed ones left out) and send them to be prepared. */

@@ -64,6 +64,11 @@ describe('scatter rules', () => {
     validateScatterRules([{ ...TREES, impostorSize: 0.03 }, { ...ROCKS, impostorSize: 2 }, { id: 'grass', asset: { assetId: 'tuft' }, density: 2, cover: true, impostorSize: 0.03 }], '/scatter', far, false);
     expect(far.map((e) => e.path)).toEqual(['/scatter/1/impostorSize', '/scatter/2/impostorSize']);
     expect(canonicalScatterRules([{ ...TREES, impostorSize: 0.03, collide: true }])[0]).toMatchObject({ impostorSize: 0.03, collide: true });
+    // How readily the copies give way to subjects: 0–4, 1 (the default) left out.
+    const bend: ModelErrorV2[] = [];
+    validateScatterRules([{ ...TREES, bendAway: 0 }, { ...ROCKS, bendAway: 5 }], '/scatter', bend, false);
+    expect(bend.map((e) => e.path)).toEqual(['/scatter/1/bendAway']);
+    expect(canonicalScatterRules([{ ...TREES, bendAway: 1 }, { ...ROCKS, bendAway: 0.5 }]).map((r) => r.bendAway)).toEqual([undefined, 0.5]);
   });
 
   it('places copies only where the conditions hold, never closer than the spacing', () => {
