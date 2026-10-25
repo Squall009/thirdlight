@@ -10,6 +10,7 @@
  */
 
 import type { LocalLightMode } from './local-lights';
+import type { ScatterRule } from './scatter';
 import type {
   BoxComponent,
   CameraComponent,
@@ -48,6 +49,8 @@ export interface ModelComponent {
   occluder?: boolean;
   /** Thins to a dither round a subject behind it (see-through.ts; absent: true). */
   seeThrough?: boolean;
+  /** Ground cover on its upward faces (cover rules, `scatter.ts`; made near the camera, never stored; absent: none). */
+  scatter?: ScatterRule[];
 }
 
 /** Seven-type property value vocabulary. */

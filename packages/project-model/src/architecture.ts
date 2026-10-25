@@ -28,6 +28,8 @@
 import type { ModelErrorV2 } from './errors';
 import { ID_RE } from './validate';
 import { validateDecalLayerMask } from './decals';
+import { validateMeshCoverRules } from './mesh-scatter';
+import type { ScatterRule } from './scatter';
 
 /** Bounds of one component's values: coordinates and sizes, so a request cannot ask for unbounded geometry. */
 export const ARCHITECTURE_LIMITS = Object.freeze({
@@ -464,10 +466,12 @@ export interface ArchitectureComponent {
    * presets and openings their models themselves (absent: none).
    */
   kitId?: string;
+  /** Ground cover on its floors (cover rules, `scatter.ts`; made near the camera, never stored; absent: none). */
+  scatter?: ScatterRule[];
 }
 
 /** The component's fields in canonical order. */
-export const ARCHITECTURE_FIELDS: readonly string[] = Object.freeze(['elements', 'profiles', 'overrides', 'outlines', 'buildings', 'masks', 'chunkSize', 'seed', 'ao', 'lodDistance', 'castShadow', 'receiveShadow', 'baked', 'layer', 'interiorOf', 'decalLayers', 'kitId', 'seeThrough', 'furnishing']);
+export const ARCHITECTURE_FIELDS: readonly string[] = Object.freeze(['elements', 'profiles', 'overrides', 'outlines', 'buildings', 'masks', 'chunkSize', 'seed', 'ao', 'lodDistance', 'castShadow', 'receiveShadow', 'baked', 'layer', 'interiorOf', 'decalLayers', 'kitId', 'seeThrough', 'furnishing', 'scatter']);
 const PATH_FIELDS = ['points', 'closed', 'bulges', 'curve', 'step', 'offset', 'chamfer'];
 const PROFILE_FIELDS = ['points', 'slots', 'closed', 'smooth', 'chamfer', 'cap'];
 const BASE_FIELDS = ['id', 'kind', 'material', 'detail', 'collide'];
@@ -897,6 +901,7 @@ export function validateArchitectureComponent(value: unknown, path: string, erro
   validateDecalLayerMask(value['decalLayers'], `${path}/decalLayers`, errors, 0);
   if (value['kitId'] !== undefined && !isId(value['kitId'])) err(errors, 'id_invalid', `${path}/kitId`, 'kitId is a kit id', value['kitId']);
   if (value['furnishing'] !== undefined && !isId(value['furnishing'])) err(errors, 'field_value', `${path}/furnishing`, 'furnishing names a furnishing set graph', value['furnishing']);
+  if (value['scatter'] !== undefined) validateMeshCoverRules(value['scatter'], `${path}/scatter`, errors);
 }
 
 /** The component in canonical form: fields in order; nested objects as given (validation fixed their fields). */

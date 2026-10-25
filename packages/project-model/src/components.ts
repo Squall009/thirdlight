@@ -31,6 +31,7 @@ import type { ColliderShape, ControllerComponent, TransformComponent } from './t
 import { validateLightLayerMask } from './light-layers';
 import { validateDecalLayerMask } from './decals';
 import { validateLocalLightMode } from './local-lights';
+import { validateMeshCoverRules } from './mesh-scatter';
 
 export const ID_RE_V2 = ID_RE;
 export const PROPERTY_KEY_RE = /^[a-z][a-z0-9_]{0,63}$/;
@@ -38,7 +39,7 @@ export const PROPERTY_KEY_RE = /^[a-z][a-z0-9_]{0,63}$/;
 /** How far a quaternion's x and y may stray from 0 and still turn about Z only (a 2D-plane physics rotation). */
 export const PLANE_ROTATION_TOLERANCE = 1e-6;
 
-const KNOWN_MODEL_FIELDS = new Set(['asset', 'piece', 'castShadow', 'receiveShadow', 'lightLayers', 'localLights', 'decalLayers', 'occluder', 'seeThrough']);
+const KNOWN_MODEL_FIELDS = new Set(['asset', 'piece', 'castShadow', 'receiveShadow', 'lightLayers', 'localLights', 'decalLayers', 'occluder', 'seeThrough', 'scatter']);
 const KNOWN_MODEL_ASSET_FIELDS = new Set(['assetId']);
 const KNOWN_BEHAVIOR_FIELDS = new Set(['behaviorId', 'values']);
 const KNOWN_PREFAB_FIELDS = new Set(['prefabId', 'localId']);
@@ -92,8 +93,10 @@ export function validateModelComponent(c: unknown, path: string, errors: ModelEr
   validateModelPiece(c['piece'], `${path}/piece`, errors);
   validateShadowFlags(c, path, errors);
   validateOccluderFlag(c, path, errors);
+  // Ground cover on its upward faces (mesh-scatter.ts; absent: none).
+  if (c['scatter'] !== undefined) validateMeshCoverRules(c['scatter'], `${path}/scatter`, errors);
   for (const k of Object.keys(c)) {
-    if (!KNOWN_MODEL_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'asset, piece, castShadow, receiveShadow, lightLayers, localLights, decalLayers, occluder, seeThrough'));
+    if (!KNOWN_MODEL_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'asset, piece, castShadow, receiveShadow, lightLayers, localLights, decalLayers, occluder, seeThrough, scatter'));
   }
 }
 

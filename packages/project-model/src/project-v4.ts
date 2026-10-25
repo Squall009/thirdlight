@@ -647,7 +647,7 @@ function composeSceneRules(s: SceneV4, content: ContentCatalogV4, errors: ModelE
   }
   s.entities.forEach((e, i) => {
     // The models scatter rules place.
-    for (const comp of ['terrain', 'blockLayer'] as const) {
+    for (const comp of ['terrain', 'blockLayer', 'model', 'architecture'] as const) {
       ((e.components as Record<string, { scatter?: ScatterRule[] } | undefined>)[comp]?.scatter ?? []).forEach((r, k) => {
         const record = assetById.get(r.asset.assetId);
         const path = `/entities/${i}/components/${comp}/scatter/${k}/asset/assetId`;

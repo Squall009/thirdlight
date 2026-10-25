@@ -70,6 +70,13 @@ block editor's Rooms & buildings — see [Rooms and paths](#rooms-and-paths)):
   `lodDistance` (m, default 40: past it a chunk draws its far level — the
   same vertices without detail elements, opening frames and coffer beams),
   `castShadow`, `receiveShadow`.
+- **Ground cover** (`scatter`: cover rules, `cover: true`, the scatter
+  rule format): moss, debris or grass on its floors — every flat fill
+  facing up, rooms' and storeys' floors included, so interiors grow it —
+  made near the camera, never stored, drawn by the GPU cover renderer (see
+  [Rule scatter and ground cover](terrain.md#rule-scatter-and-ground-cover)).
+  The Inspector's **Ground cover** panel under the component edits it; a
+  model object takes the same `model.scatter` on its upward faces.
 - **Materials.** Every element wears a material slot (`material`, default
   `architecture`); the object's Materials map it (`{"architecture": id}` or
   `{"*": id}`), and a trim material's row table lays the strips out —

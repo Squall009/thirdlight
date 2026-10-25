@@ -131,6 +131,7 @@ export class AdapterFrame {
     for (const id of level.terrains.ids()) level.terrains.setHidden(id, hidden.has(id));
     for (const id of level.splines.ids()) level.splines.setHidden(id, hidden.has(id));
     for (const id of level.architecture.ids()) level.architecture.setHidden(id, hidden.has(id));
+    level.scatter.cover.setMeshesHidden(hidden);
     let lightsTouched = false;
     for (const id of before) if (!hidden.has(id) && lights.has(id)) lightsTouched = true;
     for (const id of hidden) if (!before.has(id) && lights.has(id)) lightsTouched = true;

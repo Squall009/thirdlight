@@ -174,7 +174,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     precompile: () => precompile, startModelsIn: () => models.startIn,
   });
   const entities = new AdapterEntities(entityDocs, {
-    graph, lights, blockView: level.blockView, terrains: level.terrains, splines: level.splines, architecture: level.architecture, clipped: level.clipped, effects, materials,
+    graph, lights, blockView: level.blockView, terrains: level.terrains, splines: level.splines, architecture: level.architecture, cover: level.scatter.sink !== undefined ? level.scatter.cover : null, clipped: level.clipped, effects, materials,
     lightmaps: () => state.lightmaps, realization: () => models.realization, unitBox, vertexPaint: opts.vertexPaint !== false, terrain: opts.terrain !== false,
   });
   {

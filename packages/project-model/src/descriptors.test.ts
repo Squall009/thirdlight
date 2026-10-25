@@ -1045,8 +1045,8 @@ describe('descriptor registry', () => {
     // and a block type's one-way flag, about 0.6 KB; a prefab's part counter, about 0.3 KB; see-through — the object flag on
     // six kinds and its six settings, about 3 KB; block looks, boxes, turns and cell metadata, a layer's bounds and a
     // spline's profile as structured fields instead of JSON, about 2 KB; linked copies — a copy's overrides and an added
-    // object's parent part, about 0.7 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(341_000);
+    // object's parent part, about 0.7 KB; ground cover on models and architecture, about 0.4 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(341_500);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

@@ -485,7 +485,17 @@ area and the terrain around it are dressed alike.
   candidates; an edit bakes the chunks round it again (the old points drawn
   until the new ones arrive), and sets the view left are let go. A block
   layer's `spacing` is kept exactly, between points of any floor. No
-  colliders, no hand edits.
+  colliders, no hand edits. **Meshes** carry cover rules too: a model
+  object's `model.scatter` grows on its model's faces that look up (its
+  most detailed level, read once the model has loaded and the object has
+  stood still a few frames: a dragged or scripted object is baked again
+  where it comes to rest), and an architecture object's
+  `architecture.scatter` on its floors (its flat fills facing up, rooms'
+  and storeys' floors included, so interiors grow cover). Both take only
+  ground cover rules (`cover: true`; no layers or regions to read) and are
+  edited in the Inspector's **Ground cover** panel under the component;
+  their points are baked per 16 m square on the same worker and drawn by
+  the same draws.
 - **Drawing**: per rule, the copies of 2,048 m squares of tiles or chunks
   are one copies set drawn by the GPU renderer ground cover draws with
   (one draw per mesh and level of the model): the page lists, per frame,

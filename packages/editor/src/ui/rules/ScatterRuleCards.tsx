@@ -35,6 +35,9 @@ import { LayerConditions, RuleConditions, SeedField } from './RuleConditions';
 /** A new rule: copies on gentle ground, 4 m apart. */
 export const NEW_SCATTER_RULE: Omit<ScatterRule, 'id' | 'asset'> = Object.freeze({ density: 0.02, spacing: 4, scale: [0.8, 1.2], slope: { max: 25, fade: 5 } }) as Omit<ScatterRule, 'id' | 'asset'>;
 
+/** A new rule on a model or architecture: ground cover, 2 copies a m² on gentle faces. */
+const NEW_COVER_RULE: Omit<ScatterRule, 'id' | 'asset'> = Object.freeze({ density: 2, scale: [0.8, 1.2], slope: { max: 25, fade: 5 }, cover: true }) as Omit<ScatterRule, 'id' | 'asset'>;
+
 /** A free rule name ("rule-3"). */
 export function freeScatterId(rules: readonly ScatterRule[]): string {
   for (let n = rules.length + 1; ; n++) if (!rules.some((r) => r.id === `rule-${n}`)) return `rule-${n}`;
@@ -50,6 +53,8 @@ export interface ScatterRuleCardsProps {
   layerName: (index: number) => string;
   height: readonly [number, number];
   disabled?: boolean;
+  /** A model's or architecture's rules: ground cover only, on faces with no layers or regions. */
+  coverOnly?: boolean;
 }
 
 const L = SCATTER_LIMITS;
@@ -75,7 +80,7 @@ export function ScatterRuleCards(p: ScatterRuleCardsProps): JSX.Element {
         aria-label="add scatter rule"
         disabled={p.disabled}
         onClick={() => {
-          p.onChange([...p.rules, { id: freeScatterId(p.rules), asset: { assetId: '' }, ...structuredClone(NEW_SCATTER_RULE), seed: p.rules.length + 1 } as ScatterRule]);
+          p.onChange([...p.rules, { id: freeScatterId(p.rules), asset: { assetId: '' }, ...structuredClone(p.coverOnly === true ? NEW_COVER_RULE : NEW_SCATTER_RULE), seed: p.rules.length + 1 } as ScatterRule]);
           p.onSelect(p.rules.length);
         }}
       >
@@ -128,15 +133,15 @@ function ScatterCard(p: ScatterRuleCardsProps & { rule: ScatterRule; index: numb
 
           <div className="tl-subhead">Where</div>
           <RuleConditions prefix={pre} rule={r as unknown as Record<string, unknown>} height={p.height} set={p.set} disabled={off} />
-          <LayerConditions prefix={pre} title="On layer" list={r.layers ?? []} layerField={p.layerField} disabled={off} onChange={(list) => p.set('layers', list.length > 0 ? list.map((c) => ({ ...c, layer: Math.max(0, Math.min(p.layerMax, c.layer)) })) : undefined)} />
+          {p.coverOnly !== true && <LayerConditions prefix={pre} title="On layer" list={r.layers ?? []} layerField={p.layerField} disabled={off} onChange={(list) => p.set('layers', list.length > 0 ? list.map((c) => ({ ...c, layer: Math.max(0, Math.min(p.layerMax, c.layer)) })) : undefined)} />}
           {p.blocks && <ChipsField label="Block types" aria={`${pre} block types`} values={r.blocks ?? []} placeholder="any block type" disabled={off} onChange={(ids) => p.set('blocks', ids.length > 0 ? ids : undefined)} />}
-          <ChipsField label="Keep clear" aria={`${pre} exclude`} values={r.exclude ?? []} placeholder="block-layer region names" maxLength={L.regionName} disabled={off} onChange={(names) => p.set('exclude', names.length > 0 ? names : undefined)} />
+          {p.coverOnly !== true && <ChipsField label="Keep clear" aria={`${pre} exclude`} values={r.exclude ?? []} placeholder="block-layer region names" maxLength={L.regionName} disabled={off} onChange={(names) => p.set('exclude', names.length > 0 ? names : undefined)} />}
 
           <div className="tl-subhead">Drawing</div>
-          <Toggle label="Ground cover" aria={`${pre} cover`} hint="Grass, pebbles, small flowers: never stored, made near the camera while the game runs, thinning out to nothing at its reach; no colliders, no hand edits." on={r.cover === true} disabled={off} onChange={(on) => p.update((x) => {
+          {p.coverOnly !== true && <Toggle label="Ground cover" aria={`${pre} cover`} hint="Grass, pebbles, small flowers: never stored, made near the camera while the game runs, thinning out to nothing at its reach; no colliders, no hand edits." on={r.cover === true} disabled={off} onChange={(on) => p.update((x) => {
             const { cover: _c, coverDistance: _d, collide: _k, impostorSize: _i, ...rest } = x;
             return on ? { ...rest, cover: true } : rest;
-          })} />
+          })} />}
           {r.cover === true ? (
             <SliderField label="Reach" aria={`${pre} cover distance`} value={r.coverDistance ?? SCATTER_COVER_DISTANCE_DEFAULT} min={L.coverDistance.min} max={200} limit={[L.coverDistance.min, L.coverDistance.max]} step={1} unit="m" hint="Metres from the camera the cover reaches (it thins out over the last part)." disabled={off} onChange={(v) => p.set('coverDistance', v)} />
           ) : (
@@ -192,17 +197,17 @@ function ScatterCard(p: ScatterRuleCardsProps & { rule: ScatterRule; index: numb
   );
 }
 
-/** The cards with Apply and Revert (a block layer's scatter). */
-export function ScatterRulesEditor(p: { rules: readonly ScatterRule[]; blocks: boolean; onApply: (rules: ScatterRule[]) => Promise<boolean>; disabled?: boolean; height: readonly [number, number]; layerField: LayerField }): JSX.Element {
+/** The cards with Apply and Revert (a block layer's scatter; with `coverOnly`, a model's or architecture's ground cover). */
+export function ScatterRulesEditor(p: { rules: readonly ScatterRule[]; blocks: boolean; onApply: (rules: ScatterRule[]) => Promise<boolean>; disabled?: boolean; height: readonly [number, number]; layerField: LayerField; coverOnly?: boolean }): JSX.Element {
   const { draft, setDraft, changed, revert } = useRuleDraft(p.rules);
   const [selected, setSelected] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const ready = draft.every((r) => r.asset.assetId !== '');
   return (
     <div className="tl-blocks__form" role="group" aria-label="scatter rules">
-      <div className="tl-panel__title">Scatter rules</div>
-      <p className="tl-hint">Models placed where the conditions hold, baked into the chunks; an edit bakes them again around itself. The Scatter brush adds or takes copies by hand; those stay over the rules.</p>
-      <ScatterRuleCards rules={draft} onChange={setDraft} selected={selected} onSelect={setSelected} blocks={p.blocks} layerField={p.layerField} layerName={(k) => `layer ${k + 1}`} height={p.height} disabled={p.disabled} />
+      <div className="tl-panel__title">{p.coverOnly === true ? 'Ground cover' : 'Scatter rules'}</div>
+      <p className="tl-hint">{p.coverOnly === true ? 'Grass, moss, pebbles on the faces that look up (a model\'s, generated floors): made near the camera while the game runs, never stored.' : 'Models placed where the conditions hold, baked into the chunks; an edit bakes them again around itself. The Scatter brush adds or takes copies by hand; those stay over the rules.'}</p>
+      <ScatterRuleCards rules={draft} onChange={setDraft} selected={selected} onSelect={setSelected} blocks={p.blocks} layerField={p.layerField} layerName={(k) => `layer ${k + 1}`} height={p.height} disabled={p.disabled} {...(p.coverOnly === true ? { coverOnly: true } : {})} />
       <div className="tl-inspector__modes">
         <button className="tl-btn tl-btn--small" aria-label="apply scatter rules" disabled={!changed || !ready || busy || p.disabled === true} title={ready ? undefined : 'Every rule needs a model'} onClick={() => {
           setBusy(true);

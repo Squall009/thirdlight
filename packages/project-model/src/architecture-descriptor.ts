@@ -46,6 +46,7 @@ export const architecture: ComponentDescriptor = {
     decalLayersField(false),
     str('furnishing', 'Furnishing set', 'The furnishing set (a furnishing-set graph, or an engine starter such as starter-furnishing) that furnishes its rooms drawn on their own that name none; absent: the block layer\'s. A room is furnished by its room type.', { format: 'id', minLength: 1, maxLength: 64 }),
     ref('kitId', 'Kit', 'The kit its rooms and buildings are styled from: the editor offers its presets and pieces. Editor-side: outlines name their presets and openings their models themselves.', 'kit'),
+    json('scatter', 'Ground cover', 'Cover rules ({cover: true, …}, the scatter rule format) on its floors (flat fills facing up), made near the camera (the Ground cover panel).', { readOnly: true, shape: 'ScatterRule[]' }),
     str('baked', 'Shipped meshes', 'SHA-256 of the generated meshes an export shipped (written by the export).', { format: 'sha256', minLength: 64, maxLength: 64, readOnly: true }),
   ]),
   add: { kind: 'menu', value: NEW_VALUE },

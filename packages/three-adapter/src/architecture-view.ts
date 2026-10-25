@@ -149,6 +149,8 @@ export interface ArchitectureViewDeps {
     register(layerId: string, key: string, meshes: readonly { mesh: THREE.Mesh; zones: readonly number[] }[]): void;
     drop(layerId: string, key: string): void;
   };
+  /** An object's expanded component, the one its floors are read from for ground cover (null: it is gone). */
+  cover?: ((id: string, origin: readonly number[], raw: ArchitectureComponent, expanded: ArchitectureComponent | null) => void) | undefined;
   /** An object's rooms as expanded (null: it is gone or has none): the page's rooms and portals. */
   rooms?: ((id: string, origin: readonly number[], component: ArchitectureComponent, rooms: readonly ArchitectureRoomPlan[] | null) => void) | undefined;
   /**
@@ -413,6 +415,7 @@ export class ArchitectureView {
     rec.presets = x.presets;
     for (const p of x.problems) this.problems.add(`${id}: ${p}`);
     this.deps.rooms?.(id, rec.origin, rec.raw, x.rooms);
+    this.deps.cover?.(id, rec.origin, rec.raw, rec.component);
   }
 
   /** An object carrying `architecture` (and its `vertexPaint.paths`) was realized (or realized again), at `origin`. */
@@ -612,6 +615,7 @@ export class ArchitectureView {
       this.recs.delete(id);
       this.overrides.drop(id);
       this.deps.rooms?.(id, rec.origin, rec.raw, null);
+      this.deps.cover?.(id, rec.origin, rec.raw, null);
       for (const c of rec.chunks.values()) if (c.built !== null) this.dropBuilt(c.built);
       for (const b of rec.stale) this.dropBuilt(b);
     }

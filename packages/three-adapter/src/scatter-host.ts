@@ -38,6 +38,8 @@ export interface ScatterHostDeps {
   stream?: PageWorldStream | null;
   /** A terrain as its view draws it (its cover is placed from its page textures). */
   surface: (id: string) => TerrainCoverSurface | null;
+  /** An object's world matrix (a model's ground cover is baked where it stands). */
+  worldMatrix?: (id: string, out: THREE.Matrix4) => boolean;
 }
 
 export interface ScatterHost {
@@ -54,7 +56,7 @@ export function createScatterHost(deps: ScatterHostDeps): ScatterHost {
   // The models' impostors (far copies), baked with the page's renderer when a rule first asks for one.
   const impostors = new ImpostorStore({ renderer: () => deps.renderer?.() ?? null, template: deps.template, dress: deps.dress });
   const stored = new StoredScatter({ template: deps.template, dress: deps.dress, read: deps.read, place: deps.place, shapeChanged: deps.shapeChanged, tuning: deps.tuning, changed: deps.changed, impostors, stream: deps.stream ?? null, ...(deps.scatterWorker !== undefined ? { worker: deps.scatterWorker } : {}) });
-  const cover = new CoverView({ template: deps.template, dress: deps.dress, place: deps.place, tile: deps.tile, ...(deps.worker !== undefined ? { worker: deps.worker } : {}), tuning: deps.tuning, changed: deps.changed, surface: deps.surface });
+  const cover = new CoverView({ template: deps.template, dress: deps.dress, place: deps.place, tile: deps.tile, ...(deps.worker !== undefined ? { worker: deps.worker } : {}), tuning: deps.tuning, changed: deps.changed, surface: deps.surface, ...(deps.worldMatrix !== undefined ? { worldMatrix: deps.worldMatrix } : {}) });
   const sink: ScatterSink | undefined = !deps.drawn
     ? undefined
     : {

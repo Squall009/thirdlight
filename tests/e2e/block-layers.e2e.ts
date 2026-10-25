@@ -40,6 +40,11 @@
  * shows the kit over the layer when it digs, and the banner turns violet —
  * re-meshed in the background, in Play and the export, on both renderers.
  *
+ * Generated architecture grows ground cover on its floors: a house behind
+ * the camera (a floor under a ceiling: an interior) gets a moss rule in the
+ * Inspector's Ground cover panel, and Play bakes and draws its points
+ * beside the block layer's.
+ *
  * A new project stores the chunk as a binary file; turning the project's
  * `block_chunk_storage` to 0 rewrites it as JSON text (the same cells
  * through queryBlocks). The export ships the cells as binary chunk data the
@@ -55,7 +60,7 @@ import { expect, test, type Page } from './pw';
 import { publishBytes, startBackend, type E2EBackend, withoutSky } from './backend';
 import { gpuAvailable } from './browser-env.mjs';
 import { multiPieceGlb } from './multi-piece-glb';
-import { closeProjectSettings, editMode, leaveEditMode, openProjectSettings } from './ui';
+import { closeProjectSettings, editMode, inspector, leaveEditMode, openProjectSettings } from './ui';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 
@@ -296,8 +301,16 @@ const COVER = [
   { id: 'debris', asset: { assetId: 'beacon-base' }, density: 1, cover: true, coverDistance: 60, blocks: ['floor'], scale: [0.2, 0.4] },
 ];
 
+/** A generated interior behind the Play camera (out of every picture): a 4 × 3 m floor under a ceiling. */
+const HOUSE = {
+  elements: [
+    { id: 'floor', kind: 'fill', path: { points: [[0, 0, 0], [0, 0, 3], [4, 0, 3], [4, 0, 0]], closed: true }, shape: 'flat', slot: 'floor' },
+    { id: 'ceiling', kind: 'fill', path: { points: [[0, 0, 0], [0, 0, 3], [4, 0, 3], [4, 0, 0]], closed: true }, shape: 'flat', slot: 'upper_wall', height: 2.5, face: 'down' },
+  ],
+};
+
 /** The map: stone under grass, raised by a heightmap, a lower floor 5 m below, a player above the middle. */
-async function buildMap(): Promise<{ layer: string; player: string }> {
+async function buildMap(): Promise<{ layer: string; player: string; house: string }> {
   await cmd('setSettings', { settings: { physics_dimension: 3 } });
   await cmd('setCellFields', { fields: [{ key: 'walkable', type: 'bool', color: '#20c020' }, { key: 'cost', type: 'int', default: 1, min: 0, max: 9 }] });
   await cmd('setBlockType', { block: { blockId: 'stone', name: 'Stone', variants: [{ color: '#6b7280' }], shape: 'full' } });
@@ -334,9 +347,11 @@ async function buildMap(): Promise<{ layer: string; player: string }> {
   await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Lower floor', transform: { position: [8, -5.5, 8] }, box: { size: [40, 1, 40], material: { color: '#404650' } }, components: { collider: { shape: { type: 'box', hx: 20, hy: 0.5, hz: 20 } } } });
   await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Player', transform: { position: [8.5, 6, 8.5] } });
   await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Digger', transform: { position: [0, 0, 0] } });
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'House', transform: { position: [6, 1, 31] } });
   const ents = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; name?: string }[] }).entities;
   const id = (name: string): string => ents.find((e) => e.name === name)!.id;
   await cmd('setComponent', { entityId: id('Player'), component: 'controller', value: {} });
+  await cmd('setComponent', { entityId: id('House'), component: 'architecture', value: HOUSE });
   await cmd('setComponent', { entityId: id('Ground'), component: 'blockLayer', value: { cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [24, 16, 24] }, cutaway: { regions: [{ region: 'roof.a', when: 'pit' }, { region: 'roof.b' }], fade: 1 }, scatter: COVER } });
   // The player is the camera's target (what the cut-aways test): a track rig whose framed point is held at the spawn,
   // so the view stays where it was.
@@ -367,7 +382,7 @@ async function buildMap(): Promise<{ layer: string; player: string }> {
   });
   expect((res.change as { chunks: number[][] }).chunks).toEqual([[0, 0]]);
   await script('digger', DIGGER, id('Digger'));
-  return { layer: id('Ground'), player: id('Player') };
+  return { layer: id('Ground'), player: id('Player'), house: id('House') };
 }
 
 /** The connected wall's straight (yellow), corner (red) and T-join (blue) pieces in a full-size picture. */
@@ -477,7 +492,7 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
   test.setTimeout(720_000);
   be = await startBackend('block-layers-e2e');
   await withoutSky(be);
-  const { layer } = await buildMap();
+  const { layer, house } = await buildMap();
 
   // Read back through queryBlocks: the layer list, a box of cells with their effective metadata, a region.
   const list = (await query('queryBlocks')) as { layers: { entityId: string; cells: number; chunks: number[][]; regions: string[] }[] };
@@ -511,6 +526,14 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
   expect((stats as { cutaway?: unknown }).cutaway).toEqual({ zones: 2, cut: 0, fading: 0, meshes: 2 });
   // Hidden faces left out: far fewer triangles than 12 per cell.
   expect(stats.triangles).toBeLessThan(cells16 * 12 * 0.25);
+
+  // The house's moss, set in the Inspector's Ground cover panel (one setComponent): a cover rule on its floors.
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${house}"]`).click();
+  const groundCover = inspector(page).getByRole('group', { name: 'scatter rules', exact: true });
+  await groundCover.getByRole('button', { name: 'add scatter rule' }).click();
+  await groundCover.getByLabel('scatter 1 model', { exact: true }).selectOption('moss');
+  await groundCover.getByRole('button', { name: 'apply scatter rules' }).click();
+  await expect.poll(async () => (((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: { architecture?: { scatter?: { cover?: boolean; asset: { assetId: string } }[] } } }[] }).entities.find((e) => e.id === house)?.components.architecture?.scatter ?? []).map((r) => [r.asset.assetId, r.cover])).toEqual([['moss', true]]);
 
   // The block editor's block type editor turns the beacon live (one setBlockType), read back over HTTP.
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${layer}"]`).dblclick();
@@ -574,13 +597,14 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
   // Play draws through the same runtime as the export, whose pictures below check every piece (the posts, the edge
   // wall, the live gate, the connected wall) on both renderers; here the blocks are seen once.
   await expect.poll(() => inPlay(greenPixels), { timeout: 60_000, message: 'grass-green pixels in the Play screenshot' }).toBeGreaterThan(500);
-  // The interior's cover: point sets of both rules over the chunk, all on the roofed floor (about 7 points a m² of its 9).
-  const coverGpu = async (): Promise<{ pointSets?: number; points?: number; pointsPending?: number; draws?: number } | undefined> => ((await relay(`${psid}/diagnostics`, {})).json as { diagnostics?: { renderer?: { cover?: { gpu?: { pointSets?: number; points?: number; pointsPending?: number; draws?: number } } } } }).diagnostics?.renderer?.cover?.gpu;
-  await expect.poll(async () => { const g = await coverGpu(); return (g?.pointSets ?? 0) === 2 && (g?.pointsPending ?? 1) === 0 && (g?.draws ?? 0) > 0; }, { timeout: 30_000, message: 'the interior\'s ground cover drawn' }).toBe(true);
-  const cover = await coverGpu();
+  // The interiors' cover: point sets of both rules over the chunk, all on the roofed floor (about 7 points a m² of its 9),
+  // and the house's moss on its 12 m² floor (about 2 a m²): two sources, three sets.
+  const coverDiag = async (): Promise<{ sources?: number; gpu?: { pointSets?: number; points?: number; pointsPending?: number; draws?: number } } | undefined> => ((await relay(`${psid}/diagnostics`, {})).json as { diagnostics?: { renderer?: { cover?: { sources?: number; gpu?: { pointSets?: number; points?: number; pointsPending?: number; draws?: number } } } } }).diagnostics?.renderer?.cover;
+  await expect.poll(async () => { const c = await coverDiag(); const g = c?.gpu; return c?.sources === 2 && (g?.pointSets ?? 0) === 3 && (g?.pointsPending ?? 1) === 0 && (g?.draws ?? 0) > 0; }, { timeout: 30_000, message: 'the interiors\' ground cover drawn' }).toBe(true);
+  const cover = (await coverDiag())!.gpu;
   console.log(`interior cover in Play: ${JSON.stringify(cover)}`);
-  expect(cover!.points!).toBeGreaterThan(40);
-  expect(cover!.points!).toBeLessThan(90);
+  expect(cover!.points!).toBeGreaterThan(40 + 14);
+  expect(cover!.points!).toBeLessThan(90 + 36);
   // The picture for a look by eye (the moss and debris under the pink roof).
   writeFileSync(test.info().outputPath('interior-cover.png'), Buffer.from(String((await relay(`${psid}/screenshot`, { maxWidth: 960 })).json.dataUrl ?? '').split(',')[1] ?? '', 'base64'));
   await expectFallsThrough(read, 'Play');

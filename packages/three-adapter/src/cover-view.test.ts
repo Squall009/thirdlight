@@ -4,8 +4,9 @@
  * worker's generator), drawn per ring and thinned with distance as a
  * terrain's cover is; an edit bakes the chunks round it again (the old
  * points drawn until the new ones arrive), and sets the view left are let
- * go. The vertex stage's keep test is held to its CPU reference, and its
- * WGSL builds.
+ * go. A model object's upward faces and architecture's floors get point
+ * sets the same way. The vertex stage's keep test is held to its CPU
+ * reference, and its WGSL builds.
  */
 import * as THREE from 'three';
 import * as TSL from 'three/tsl';
@@ -95,6 +96,52 @@ describe('ground cover on block layers', () => {
     expect(g.draws).toBe(0);
     expect(g.pointSets).toBe(0);
     expect(listed.size).toBe(0);
+    cover.dispose();
+  });
+
+  it('grows on a model object\'s upward faces where it settles and on architecture\'s floors, and lets both go', async () => {
+    const template = tuft();
+    // An 8 × 8 m slab facing up (a plane turned flat inside the model), its object turned a quarter about up.
+    const slab = new THREE.Group();
+    const plane = new THREE.Mesh(new THREE.PlaneGeometry(8, 8), new MeshStandardNodeMaterial());
+    plane.rotation.x = -Math.PI / 2;
+    slab.add(plane);
+    const world = new THREE.Matrix4().compose(new THREE.Vector3(20, 1, 20), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2), new THREE.Vector3(1, 1, 1));
+    const cover = new CoverView({
+      template: (id) => (id === 'slab' ? ({ glbRoot: slab } as unknown as ModelInstance) : template),
+      place: () => undefined,
+      tile: () => undefined,
+      surface: () => null,
+      worldMatrix: (id, out) => (id === 'rock' ? (out.copy(world), true) : false),
+    });
+    const moss: ScatterRule = { id: 'moss', asset: { assetId: 'tuft' }, density: 2, cover: true, coverDistance: 40 };
+    cover.setModel('rock', { asset: { assetId: 'slab' }, scatter: [moss] });
+    const run = async (frames: number): Promise<void> => {
+      for (let i = 0; i < frames; i++) {
+        cover.update(view(20, 10));
+        await flush();
+      }
+    };
+    // Baked once it has stood still a few frames: about 2 points a m² of its 64.
+    await run(4);
+    expect(cover.diagnostics().gpu?.pointSets ?? 0).toBe(0);
+    await run(12);
+    let g = cover.diagnostics().gpu!;
+    expect(g.pointsPending).toBe(0);
+    expect(g.points / 128).toBeGreaterThan(0.85);
+    expect(g.points / 128).toBeLessThan(1.15);
+    // A generated floor (6 × 4 m) beside it: its points join, in their own source.
+    const floors = Float32Array.from([0, 0, 0, 0, 0, 4, 6, 0, 4, 0, 0, 0, 6, 0, 4, 6, 0, 0]);
+    cover.setArchitecture('house', [moss], [10, 0, 10], floors);
+    await run(3);
+    g = cover.diagnostics().gpu!;
+    expect(cover.diagnostics().sources).toBe(2);
+    expect((g.points - 128) / 48).toBeGreaterThan(0.6);
+    // The object let go (and not realized again): its cover goes; the floors' without rules too.
+    cover.setModel('rock', null);
+    cover.setArchitecture('house', undefined, [10, 0, 10], null);
+    await run(2);
+    expect(cover.diagnostics().sources).toBe(0);
     cover.dispose();
   });
 

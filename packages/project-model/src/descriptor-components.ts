@@ -81,6 +81,7 @@ export const model: ComponentDescriptor = {
     decalLayersField(true),
     bool('occluder', 'Occluder', 'Hides what is behind it from the view for occlusion culling. Off for what should never hide anything (it is drawn after the occluders are tested).', { default: true, omitDefault: true }),
     seeThroughField(),
+    json('scatter', 'Ground cover', 'Cover rules ({cover: true, …}, the scatter rule format) on its faces that look up, made near the camera (the Ground cover panel).', { readOnly: true, shape: 'ScatterRule[]' }),
   ]),
   add: { kind: 'pick', value: { asset: {} }, pick: ['asset/assetId'] },
   handles: [],

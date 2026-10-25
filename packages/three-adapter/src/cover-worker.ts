@@ -2,9 +2,10 @@
  * What ground cover needs worked out off the page's main thread, with the
  * same rule code and the same surfaces the stored scatter is baked with:
  * for a terrain, a cover rule's mask over one tile (`coverMask`: what the
- * GPU cannot read from the terrain's texels); for a block layer, a cover
- * rule's point set over one chunk (`bakeCoverPoints`: every floor its
- * conditions keep, at the rule's full density), which the GPU thins.
+ * GPU cannot read from the terrain's texels); for a block layer or a mesh
+ * (a placed model's faces, architecture's floors), a cover rule's point set
+ * over one chunk (`bakeCoverPoints`: every floor its conditions keep, at the
+ * rule's full density), which the GPU thins.
  *
  * The page hands each source over as it gets it (a terrain's tile list and,
  * before it asks for a mask, the decoded tiles under it; a block layer's
@@ -27,6 +28,8 @@ import {
   TerrainField,
   bakeCoverPoints,
   blockChunkRect,
+  meshCoverChunkRect,
+  meshScatterSurface,
   blockScatterSurface,
   regionExcluder,
   SplineScatterBands,
@@ -56,7 +59,9 @@ export interface CoverSpline {
 /** A source as the generator holds it. */
 export type CoverSource =
   | { readonly kind: 'terrain'; readonly component: TerrainComponent; readonly origin: readonly number[]; readonly rules: readonly ScatterRule[] }
-  | { readonly kind: 'blocks'; readonly component: BlockLayerComponent; readonly origin: readonly number[]; readonly rules: readonly ScatterRule[]; readonly data: BlockLayerData | null };
+  | { readonly kind: 'blocks'; readonly component: BlockLayerComponent; readonly origin: readonly number[]; readonly rules: readonly ScatterRule[]; readonly data: BlockLayerData | null }
+  /** A mesh: a placed model's faces or architecture's floors, 9 floats a triangle in the frame of `origin` (`meshScatterSurface`). */
+  | { readonly kind: 'mesh'; readonly origin: readonly number[]; readonly rules: readonly ScatterRule[]; readonly triangles: Float32Array };
 
 /** Page → worker. */
 export type CoverRequest =
@@ -161,14 +166,15 @@ export class CoverGenerator {
     return this.tiles.has(digest);
   }
 
-  /** Rule `rule`'s points over chunk (cx, cz) of block layer `id` (null: no such layer or rule). */
+  /** Rule `rule`'s points over chunk (cx, cz) of block layer or mesh `id` (null: no such source or rule). */
   points(id: string, rule: string, cx: number, cz: number): CoverPointSet | null {
     const h = this.sources.get(id);
-    if (h === undefined || h.source.kind !== 'blocks') return null;
+    if (h === undefined || h.source.kind === 'terrain') return null;
     const r = h.source.rules.find((x) => x.id === rule);
     if (r === undefined) return null;
     h.surface ??= this.surfaceOf(h);
-    return bakeCoverPoints(r, h.surface, blockChunkRect(h.source.origin, h.source.component.cellSize, cx, cz), h.source.origin);
+    const o = h.source.origin;
+    return bakeCoverPoints(r, h.surface, h.source.kind === 'mesh' ? meshCoverChunkRect(o, cx, cz) : blockChunkRect(o, h.source.component.cellSize, cx, cz), o);
   }
 
   /** Rule `rule`'s mask over tile (tx, tz) of terrain `id` (`coverMask`; null: none needed, or no such rule). */
@@ -185,6 +191,8 @@ export class CoverGenerator {
 
   private surfaceOf(h: Held): ScatterSurface {
     const s = h.source;
+    // A mesh has no regions: its faces are its own.
+    if (s.kind === 'mesh') return meshScatterSurface(s.triangles, s.origin);
     // Ground cover keeps off the named regions of every block layer the generator holds.
     const regions = [...this.sources.values()].flatMap((o) => (o.source.kind === 'blocks' ? [{ regions: this.gridOf(o).regions, cellSize: o.source.component.cellSize, origin: o.source.origin }] : []));
     const excluded = regionExcluder(regions);

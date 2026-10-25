@@ -7,7 +7,7 @@
  * Kept apart from the adapter so the level's views are wired in one place.
  */
 import type * as THREE from 'three';
-import type { BlockType, ResourceManager } from '@thirdlight/runtime';
+import { architectureFloorTriangles, coverScatterRules, type ArchitectureComponent, type BlockType, type ResourceManager } from '@thirdlight/runtime';
 
 import type { SceneAdapterOptions } from './adapter-types';
 import { createAdapterArchitecture, type AdapterArchitecture } from './architecture-adapter';
@@ -108,6 +108,7 @@ export function createAdapterLevel(d: AdapterLevelDeps): AdapterLevel {
     drawn: opts.scatter !== false,
     // The terrains' view is made below (it hands its sources to this host); cover reads its page textures.
     surface: (id: string) => terrains.coverSurface(id),
+    worldMatrix: (id, out) => graph.worldMatrixOf(id, out),
   });
   // Splines: what they make (meshes, pieces' copies), and terrain ground cover kept clear of their scatter bands.
   const splines = new SplineView({
@@ -129,6 +130,8 @@ export function createAdapterLevel(d: AdapterLevelDeps): AdapterLevel {
     template, read,
     graph, staticShadows, arrival: stream !== null ? { left: () => stream.arrivalLeft(), spent: (ms) => stream.arrived(ms) } : null, meshWorkerUrl: opts.meshWorkerUrl,
     store: opts.architectureStore ?? null, styles: opts.architectureStyles, drawn: opts.architecture !== false, changed,
+    // Ground cover on its floors (read only while it has cover rules).
+    ...(scatter.sink !== undefined ? { cover: (id: string, origin: readonly number[], raw: ArchitectureComponent, expanded: ArchitectureComponent | null) => scatter.cover.setArchitecture(id, raw.scatter, origin, expanded !== null && coverScatterRules(raw.scatter).length > 0 ? architectureFloorTriangles(expanded) : null) } : {}),
     rooms: { scene, blocks: () => blockView, regroup: (o) => batcher?.touch(o), roomLights: (on) => lights.setRoomLights(on), culling: opts.portals !== false, canvas: d.canvas as { setAttribute?(k: string, v: string): void } | null },
   });
   const architecture = archHost.view;

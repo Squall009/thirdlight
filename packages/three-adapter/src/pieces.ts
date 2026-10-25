@@ -50,7 +50,8 @@ export function isOccluderNode(o: THREE.Object3D): boolean {
   return OCC_RE.test(o.name);
 }
 
-function lodLevel(name: string): number | null {
+/** The level of a `<base>_LOD<n>` node (null: not a level). */
+export function lodLevel(name: string): number | null {
   const m = LOD_RE.exec(name);
   return m === null ? null : Number(m[2]);
 }

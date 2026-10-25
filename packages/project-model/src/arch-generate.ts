@@ -1140,6 +1140,30 @@ function steppedColliders(e: ArchitectureSweep, def: ArchitectureProfile, s: Pat
   }
 }
 
+/**
+ * The floors of a component (object frame) as a triangle list, 9 floats a
+ * triangle wound to look up: its flat fills that face up (a room's floor,
+ * a storey's, its holes cut out), the surfaces ground cover grows on.
+ */
+export function architectureFloorTriangles(c: ArchitectureComponent): Float32Array {
+  const st = jobState(c, {});
+  const out: number[] = [];
+  for (const e of c.elements) {
+    if (e.kind !== 'fill' || e.shape !== 'flat' || (e.face ?? 'up') !== 'up') continue;
+    const s = samplesOf(st, e);
+    const outline = fillPolygon(e, s);
+    const y = fillBaseY(s) + (e.height ?? 0);
+    const tri = triangulatePolygon(outline);
+    for (let k = 0; k + 2 < tri.length; k += 3) {
+      const [a, b, d] = [tri[k]!, tri[k + 1]!, tri[k + 2]!];
+      // Counter-clockwise seen from above: (b - a) × (d - a) has a positive y (x, z of the outline's pairs).
+      const up = (outline[d * 2]! - outline[a * 2]!) * (outline[b * 2 + 1]! - outline[a * 2 + 1]!) - (outline[b * 2]! - outline[a * 2]!) * (outline[d * 2 + 1]! - outline[a * 2 + 1]!) > 0;
+      for (const i of up ? [a, b, d] : [a, d, b]) out.push(outline[i * 2]!, y, outline[i * 2 + 1]!);
+    }
+  }
+  return Float32Array.from(out);
+}
+
 /** Every kit copy of a component (all chunks): the page draws them as instance sets. */
 export function architectureCopies(c: ArchitectureComponent): ArchitectureCopySet[] {
   const st = jobState(c, {});

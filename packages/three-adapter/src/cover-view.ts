@@ -16,13 +16,20 @@
  * layers its blocks layers meet (as its stored scatter does): those block
  * layers are handed to the worker too, rules or not, and an edit of one
  * makes the terrain's masks round the edit again.
+ *
+ * Meshes carry cover rules too: a model object's faces that look up
+ * (`cover-models.ts`, read once the object settles) and generated
+ * architecture's floors (its view hands them over when it expands). Their
+ * triangles go to the worker, which bakes their point sets per square
+ * ({@link MESH_COVER_CHUNK_METRES}) as it does a block layer's chunks.
  */
 import type * as THREE from 'three';
 
-import { CHUNK_SIZE, TERRAIN_BLOCKS_BLEND_DEFAULT, coverScatterRules, scatterReach, splineScatterRect, terrainSplineInputs, type BlockChunk, type BlockLayerComponent, type BlockLayerData, type BlockType, type CoverPointSet, type ScatterRect, type ScatterRule, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
+import { CHUNK_SIZE, MESH_COVER_CHUNK_METRES, TERRAIN_BLOCKS_BLEND_DEFAULT, coverScatterRules, meshCoverChunks, scatterReach, splineScatterRect, terrainSplineInputs, type BlockChunk, type BlockLayerComponent, type BlockLayerData, type BlockType, type CoverPointSet, type ScatterRect, type ScatterRule, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
 
 import type { MeshWorkerPort } from './block-mesh-pool';
 import { CoverGpu, type CoverGpuDiagnostics } from './cover-gpu';
+import { CoverModels, type CoverModelLike } from './cover-models';
 import { coverGrowsOnTerrain, coverReadsMask } from './cover-placement';
 import { CoverGenerator, type CoverReply, type CoverRequest, type CoverSpline } from './cover-worker';
 import type { LodTuning } from './lod-switch';
@@ -49,10 +56,12 @@ export interface CoverViewDeps {
   changed?(): void;
   /** A terrain as its view draws it (null: not drawn yet). */
   surface(id: string): TerrainCoverSurface | null;
+  /** An object's world matrix (false: not placed; absent: models carry no cover). */
+  worldMatrix?(id: string, out: THREE.Matrix4): boolean;
 }
 
 export interface CoverViewDiagnostics {
-  /** Terrains and block layers with cover rules, and the terrain tiles handed to the worker. */
+  /** Terrains, block layers and meshes with cover rules, and the terrain tiles handed to the worker. */
   sources: number;
   tilesSent: number;
   /** What the GPU draws. */
@@ -67,6 +76,18 @@ interface TerrainSource {
   /** What a mask reads past its own box (m). */
   margin: number;
 }
+
+/** A mesh's cover as last handed over: its object, place, rules and faces. */
+interface HeldMesh {
+  readonly entity: string;
+  readonly origin: [number, number, number];
+  readonly rules: ScatterRule[];
+  readonly triangles: Float32Array;
+}
+
+/** The suffixes of an object's mesh sources: its model's faces and its architecture's floors (one object may have both). */
+const MODEL_MESH = '|model';
+const ARCHITECTURE_MESH = '|architecture';
 
 /** A block layer as last handed over, and whether the worker holds it (its own rules, or a terrain's blocks layer meets it). */
 interface HeldLayer {
@@ -92,6 +113,11 @@ export class CoverView {
   private readonly gpu: CoverGpu;
   /** Answers asked of the worker, by job: where each goes. */
   private readonly jobs = new Map<number, (r: CoverReply) => void>();
+  /** The meshes with cover, by source id (object id and suffix). */
+  private readonly meshSources = new Map<string, HeldMesh>();
+  private readonly models: CoverModels | null;
+  /** The objects the simulation hides (a mesh's cover handed over later starts hidden with its object). */
+  private hiddenObjects: ReadonlySet<string> = new Set();
 
   constructor(private readonly deps: CoverViewDeps) {
     this.gpu = new CoverGpu({
@@ -105,6 +131,51 @@ export class CoverView {
       mask: (id, rule, tx, tz, reply) => this.askMask(id, rule, tx, tz, reply),
       points: (id, rule, cx, cz, reply) => this.ask({ t: 'coverPoints', job: 0, id, rule: rule.id, cx, cz }, (r) => reply(r.t === 'coverPointed' ? r.points : null)),
     });
+    const worldMatrix = deps.worldMatrix;
+    this.models = worldMatrix === undefined ? null : new CoverModels({ template: deps.template, worldMatrix, setMesh: (id, rules, origin, tris) => this.setMesh(`${id}${MODEL_MESH}`, id, rules, origin, tris), ...(deps.changed !== undefined ? { changed: deps.changed } : {}) });
+  }
+
+  // ---- meshes ------------------------------------------------------------------------------
+
+  /** Object `id`'s model and its cover rules (null: it has none, or was let go). */
+  setModel(id: string, model: CoverModelLike | null): void {
+    this.models?.set(id, model);
+  }
+
+  /** Object `id`'s architecture floors (object frame, 9 floats a triangle) at `origin` and its cover rules (null: none). */
+  setArchitecture(id: string, rules: readonly ScatterRule[] | undefined, origin: readonly number[], floors: Float32Array | null): void {
+    this.setMesh(`${id}${ARCHITECTURE_MESH}`, id, rules ?? [], origin, floors);
+  }
+
+  /** A mesh source's faces, rules and place; the same values change nothing, new ones make every set again. */
+  private setMesh(id: string, entity: string, all: readonly ScatterRule[], origin: readonly number[], triangles: Float32Array | null): void {
+    const rules = coverScatterRules(all);
+    if (rules.length === 0 || triangles === null || triangles.length === 0) {
+      if (this.meshSources.delete(id)) {
+        this.send({ t: 'coverDrop', id });
+        this.gpu.remove(id);
+      }
+      return;
+    }
+    const o: [number, number, number] = [origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0];
+    const was = this.meshSources.get(id);
+    if (was !== undefined && was.origin.every((v, i) => v === o[i]) && JSON.stringify(was.rules) === JSON.stringify(rules) && sameFloats(was.triangles, triangles)) return;
+    const held: HeldMesh = { entity, origin: o, rules, triangles };
+    this.meshSources.set(id, held);
+    this.sendMesh(id, held);
+    this.gpu.setPoints(id, rules, o, [MESH_COVER_CHUNK_METRES, MESH_COVER_CHUNK_METRES], meshCoverChunks(triangles));
+    this.gpu.invalidatePoints(id, null);
+    if (this.hiddenObjects.has(entity)) this.gpu.setHidden(id, true);
+  }
+
+  private sendMesh(id: string, held: HeldMesh): void {
+    this.send({ t: 'coverSource', id, source: { kind: 'mesh', origin: held.origin, rules: held.rules, triangles: held.triangles } });
+  }
+
+  /** The objects the simulation hides: their meshes' cover with them. */
+  setMeshesHidden(hidden: ReadonlySet<string>): void {
+    this.hiddenObjects = hidden;
+    for (const [id, m] of this.meshSources) this.gpu.setHidden(id, hidden.has(m.entity));
   }
 
   // ---- the sources (ScatterSink) -----------------------------------------------------
@@ -246,6 +317,7 @@ export class CoverView {
       if (held.sent) this.send({ t: 'coverDrop', id });
       for (const t of met) this.gpu.invalidateMasks(t.id, null);
     }
+    if (this.meshSources.delete(id)) this.send({ t: 'coverDrop', id });
     this.dropTerrain(id);
     this.gpu.remove(id);
   }
@@ -263,7 +335,9 @@ export class CoverView {
 
   /** List the GPU's patches and blocks round the view's eye (call once a frame). */
   update(view: CullView): void {
-    if (!this.disposed) this.gpu.update(view);
+    if (this.disposed) return;
+    this.models?.update();
+    this.gpu.update(view);
   }
 
   diagnostics(): CoverViewDiagnostics {
@@ -385,6 +459,10 @@ export class CoverView {
     if (this.types.length > 0) this.send({ t: 'coverTypes', types: this.types });
     if (this.splineList.length > 0) this.send({ t: 'coverSplines', splines: this.splineList });
     for (const [id, held] of this.blockLayers) if (held.sent) this.sendBlockLayer(id);
+    for (const [id, held] of this.meshSources) {
+      this.sendMesh(id, held);
+      this.gpu.invalidatePoints(id, null);
+    }
     for (const t of this.terrains.values()) {
       this.send({ t: 'coverSource', id: t.id, source: { kind: 'terrain', component: t.terrain, origin: t.origin, rules: coverScatterRules(t.terrain.scatter).filter(coverGrowsOnTerrain) } });
       this.gpu.invalidateMasks(t.id, null);
@@ -392,5 +470,7 @@ export class CoverView {
     for (const id of this.blockLayers.keys()) this.gpu.invalidatePoints(id, null);
   }
 }
+
+const sameFloats = (a: Float32Array, b: Float32Array): boolean => a.length === b.length && a.every((v, i) => v === b[i]);
 
 const overlaps = (a: ScatterRect, b: ScatterRect): boolean => a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3];

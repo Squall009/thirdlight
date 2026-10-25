@@ -121,9 +121,9 @@ export function collectAssetRefsV3(
     // An instance set places one model.
     const instances = (e.components as { instances?: { asset: { assetId: string } } }).instances;
     if (instances) setRef(instances.asset.assetId);
-    // The models scatter rules place on a terrain or a block layer.
-    const scatter = e.components as { terrain?: { scatter?: ScatterRule[] }; blockLayer?: { scatter?: ScatterRule[] } };
-    for (const id of scatterRuleAssets([...(scatter.terrain?.scatter ?? []), ...(scatter.blockLayer?.scatter ?? [])])) setRef(id);
+    // The models scatter rules place on a terrain, a block layer, a model or architecture.
+    const scatter = e.components as Record<string, { scatter?: ScatterRule[] } | undefined>;
+    for (const id of scatterRuleAssets(['terrain', 'blockLayer', 'model', 'architecture'].flatMap((k) => scatter[k]?.scatter ?? []))) setRef(id);
     // The models a spline repeats along it.
     for (const id of splinePieceAssets((e.components as { spline?: SplineComponent }).spline)) setRef(id);
     // The kit models generated architecture places.

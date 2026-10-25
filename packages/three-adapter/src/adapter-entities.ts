@@ -16,6 +16,8 @@ import type { ArchitectureView } from './architecture-view';
 import { BATCH_KEY } from './batching';
 import type { BlockLayerView } from './block-layers';
 import type { ClippedDecals } from './clipped-decals';
+import type { CoverModelLike } from './cover-models';
+import type { CoverView } from './cover-view';
 import type { ProjectedDecalLike } from './decal-projectors';
 import { disposeObjectTree } from './dispose';
 import type { EffectComponentLike } from './effects-player';
@@ -46,6 +48,8 @@ export interface AdapterEntitiesDeps {
   readonly terrains: TerrainView;
   readonly splines: SplineView;
   readonly architecture: ArchitectureView;
+  /** Ground cover (null: scatter is not drawn): a model's cover rules go to it. */
+  readonly cover: CoverView | null;
   readonly clipped: ClippedDecals | null;
   readonly effects: AdapterEffects;
   readonly materials: AdapterMaterials;
@@ -177,7 +181,7 @@ export class AdapterEntities {
   private realizeViews(e: EntityDoc): void {
     const { blockView, splines, architecture, terrains, materials } = this.deps;
     const t = e.components.transform;
-    const c = e.components as { blockLayer?: BlockLayerComponent & { data?: BlockLayerData }; terrain?: TerrainComponent; spline?: SplineComponent; architecture?: ArchitectureComponent; materials?: Record<string, string> };
+    const c = e.components as { blockLayer?: BlockLayerComponent & { data?: BlockLayerData }; terrain?: TerrainComponent; spline?: SplineComponent; architecture?: ArchitectureComponent; materials?: Record<string, string>; model?: CoverModelLike };
     // A block layer (its cells ride on the resolved component).
     if (c.blockLayer !== undefined) {
       this.docLayers.add(e.id);
@@ -186,6 +190,8 @@ export class AdapterEntities {
     }
     if (c.spline !== undefined) splines.set(e.id, c.spline, t.position, this.deps.vertexPaint ? pathPaintOf(e.components) : undefined);
     if (c.architecture !== undefined) architecture.set(e.id, c.architecture, t.position, this.deps.vertexPaint ? pathPaintOf(e.components) : undefined);
+    // A model's ground cover (its faces read once it has loaded and stands still).
+    if (c.model?.scatter !== undefined) this.deps.cover?.setModel(e.id, c.model);
     if (c.terrain !== undefined && this.deps.terrain) terrains.setTerrain(e.id, c.terrain, t.position, { components: e.components, materials: materials.effective(e.id, c.materials) ?? null, overrides: materialParamsOf(e.components) });
   }
 
@@ -208,6 +214,7 @@ export class AdapterEntities {
     this.deps.terrains.removeTerrain(id);
     this.deps.splines.remove(id);
     this.deps.architecture.remove(id);
+    this.deps.cover?.setModel(id, null);
     materials.runtime?.release(id);
     this.deps.effects.detach(id);
     const obj = graph.node(id);

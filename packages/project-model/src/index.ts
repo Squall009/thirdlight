@@ -1468,6 +1468,7 @@ export {
 } from './scatter';
 export { COVER_POINT_FLOATS, COVER_POINT_STEPS, bakeCoverPoints, coverPointAt, coverPointCopy, coverPointNormal, coverPointsBelow, type CoverPoint, type CoverPointSet } from './cover-points';
 export { blockScatterSurface, regionExcluder, terrainScatterSurface, type BlockScatterSource, type ScatterRegionLayer } from './scatter-surfaces';
+export { MESH_COVER_CHUNK_METRES, meshCoverChunkRect, meshCoverChunks, meshScatterSurface, validateMeshCoverRules } from './mesh-scatter';
 export { SURFACE_TIE_METRES, surfaceAt, type SurfaceAt, type SurfaceBlockSource, type SurfaceSource, type SurfaceTerrainSource } from './surface-query';
 export { bakeTerrainScatter, isScatterBlob, scatterBlobOf, scatterCellOfBlob, terrainChangedSamples, terrainTileRect } from './terrain-scatter';
 export { bakeBlockScatter, blockChunkRect, type BlockScatterContext, type BlockScatterStroke } from './block-scatter';
@@ -1529,6 +1530,7 @@ export {
   architectureChunks,
   architectureColliders,
   architectureCopies,
+  architectureFloorTriangles,
   generateArchitecture,
   generateArchitectureChunk,
   joinArchitectureChunkParts,

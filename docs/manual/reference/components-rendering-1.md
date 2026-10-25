@@ -30,6 +30,7 @@ Shows an imported 3D model (a whole file or one named piece of it).
 | `decalLayers` | int | `255` | 0 – 255, step 1 | **Decal layers.** The decal layers projected decals mark it in: a decal marks it when their layers share one (none: no projected decal marks it). Absent: every layer, none for a skinned model: a projector fixed in the world slides over a moving skin. (scripts read) |
 | `occluder` | bool | `true` |  | **Occluder.** Hides what is behind it from the view for occlusion culling. Off for what should never hide anything (it is drawn after the occluders are tested). (stored only when not the default; scripts read) |
 | `seeThrough` | bool | `true` |  | **See-through.** Thins to a dither between the camera and a subject (Rendering → See-through). Off: always solid. (stored only when not the default; scripts read) |
+| `scatter` | JSON: `ScatterRule[]` ([ScatterRule](types-p-u.md#type-scatter-rule)) |  |  | **Ground cover.** Cover rules ({cover: true, …}, the scatter rule format) on its faces that look up, made near the camera (the Ground cover panel). (written by a tool; scripts read) |
 
 <a id="component-box"></a>
 ## box — Box

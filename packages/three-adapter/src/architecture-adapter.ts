@@ -9,7 +9,7 @@
 import type * as THREE from 'three';
 import { architectureLayerFurnishing, architecturePaintOf, architectureRoomRegions, architectureSheets, type ArchitectureGraphLike, type BlockLayerComponent, type BlockLayerData, type GridRenderChange } from '@thirdlight/runtime';
 
-import { ArchitectureView, type ArchitectureChunkStore } from './architecture-view';
+import { ArchitectureView, type ArchitectureChunkStore, type ArchitectureViewDeps } from './architecture-view';
 import type { BlockLayerView } from './block-layers';
 import { createBrowserMeshWorker } from './block-mesh-pool';
 import { RoomCulling } from './room-culling';
@@ -37,6 +37,8 @@ export interface AdapterArchitectureDeps {
   drawn: boolean;
   changed(): void;
   /** What the rooms need from the adapter: the scene, the block layers (door pieces, cut-aways), regrouping, the lights' room binding, `?portals`. */
+  /** An object's expanded component, its floors read for ground cover (null: it is gone). */
+  cover?: ArchitectureViewDeps['cover'];
   rooms: { scene: THREE.Scene; blocks(): BlockLayerView; regroup(o: THREE.Object3D): void; roomLights(on: boolean): void; culling: boolean; canvas: { setAttribute?(k: string, v: string): void } | null };
 }
 
@@ -91,6 +93,7 @@ export function createAdapterArchitecture(d: AdapterArchitectureDeps): AdapterAr
       rooms.setObject(id, origin, plans, layer?.blockLayer !== undefined ? { id: component.layer!, origin: at, cellSize: layer.blockLayer.cellSize } : null);
       if (layer?.blockLayer !== undefined) r.blocks().setRoomRegions(component.layer!, id, plans === null ? null : architectureRoomRegions(plans, origin.map((v, i) => v - (at[i] ?? 0)), layer.blockLayer.cellSize));
     },
+    ...(d.cover !== undefined ? { cover: d.cover } : {}),
     // Kit copies (furniture) are drawn per room, so they light and cull with it.
     copyRoomAt: (x, y, z) => rooms.copyRoomAt(x, y, z),
     cutaway: { of: (layer) => r.blocks().cutawayOf(layer), register: (layer, key, meshes) => r.blocks().registerCutaway(layer, key, meshes), drop: (layer, key) => r.blocks().dropCutaway(layer, key) },

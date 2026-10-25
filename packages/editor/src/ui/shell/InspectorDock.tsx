@@ -25,6 +25,8 @@ import { PresetSliders, presetSlidersHost } from '../architecture/PresetSliders'
 import { RoomsObjectSection } from '../architecture/RoomsObjectSection';
 import { derivePreset } from '../architecture/useRoomsBinding';
 import type { ArchitectureComponent } from '@thirdlight/project-model';
+import type { ScatterRule } from '@thirdlight/runtime';
+import { ScatterRulesEditor } from '../rules/ScatterRuleCards';
 import { ARCHITECTURE_MATERIAL_SLOT, ARCHITECTURE_PRESET_KIND, type ArchitecturePreview } from '@thirdlight/runtime';
 import { effectPortContext, shownSystem } from '../effect/EffectDocument';
 import { functionName as scriptFunctionName } from '../../session/visual-debug';
@@ -299,6 +301,9 @@ export function InspectorDock(props: InspectorDockProps): JSX.Element {
   );
 }
 
+/** The height sliders' track (m) of a model's or architecture's cover rules. */
+const COVER_HEIGHT_TRACK: readonly [number, number] = [-20, 100];
+
 /** The Inspector of the selected object (several selected: the primary one). */
 function EntityInspector(props: InspectorDockProps): JSX.Element {
   const { clientRef, viewportRef, entities, selected, selection, hierarchyFlags, fieldContext, gizmoMode, setGizmoMode, instanceChunks, selectedCopy, setSelectedCopy, instanceBrush, reportFailure, setNotice } = props;
@@ -322,6 +327,27 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
     };
     return <RoomsObjectSection component={arch} host={host} objectSheet={mats?.[ARCHITECTURE_MATERIAL_SLOT] ?? mats?.['*'] ?? null} onChange={(next) => void editComponent(selected.id, 'architecture', Object.fromEntries((['outlines', 'buildings'] as const).filter((k) => arch[k] !== undefined || next[k] !== undefined).map((k) => [k, next[k] ?? null])))} onDerive={derive} />;
   })();
+  // Ground cover on a model's upward faces or architecture's floors: their cover rules, one setComponent.
+  const coverSection = (component: 'model' | 'architecture'): JSX.Element | null => {
+    const c = selected?.components[component] as { scatter?: ScatterRule[] } | undefined;
+    if (selected === null || c === undefined) return null;
+    return (
+      <ScatterRulesEditor
+        key={`${selected.id}:${component}`}
+        rules={c.scatter ?? []}
+        blocks={false}
+        coverOnly
+        height={COVER_HEIGHT_TRACK}
+        layerField={() => null}
+        onApply={async (rules) => {
+          await editComponent(selected.id, component, { scatter: rules.length > 0 ? rules : null });
+          return true;
+        }}
+      />
+    );
+  };
+  const modelCover = coverSection('model');
+  const archCover = coverSection('architecture');
   return (
     <>
     {copy.menu}
@@ -410,7 +436,8 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
         selected === null
           ? {}
           : {
-              ...(roomsSection !== null ? { architecture: roomsSection } : {}),
+              ...(roomsSection !== null || archCover !== null ? { architecture: <>{roomsSection}{archCover}</> } : {}),
+              ...(modelCover !== null ? { model: modelCover } : {}),
               // Write the footprint's metadata into the cells beneath, or land the object on the cell tops.
               blockFootprint: (
                 <div className="tl-inspector__modes">
