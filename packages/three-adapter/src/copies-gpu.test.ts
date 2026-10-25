@@ -17,6 +17,7 @@ import { LOD_CULL_LEVEL_KEY, LodTuning } from './lod-switch';
 import { litScene, wgslOf, wgslRenderer } from './test-wgsl';
 import { CullView, STATIC_SHADOW_CAMERA_KEY, VIEW_CULL_KEY, type ViewCullable } from './view-cull';
 import type { ModelInstance } from './visual';
+import { PAINT_MESH_KEY, vertexPaintDiagnostics, type PaintStream } from './vertex-paint-draw';
 
 function copies(n: number, spread: number, scale = (_i: number): number => 1): Float32Array {
   const f = new Float32Array(n * INSTANCE_FLOATS);
@@ -77,6 +78,23 @@ function listed(mesh: THREE.Mesh, cam: THREE.Camera, order: Uint32Array): number
 const drawsGeometry = (m: THREE.Mesh, g: THREE.BufferGeometry): boolean => m.geometry.getAttribute('position') === g.getAttribute('position');
 
 describe('stored copies on the GPU', () => {
+  it('counts its painted copies for the paint diagnostics (by their texels, not by the draw\'s vertices)', () => {
+    const root = new THREE.Group();
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new MeshStandardNodeMaterial());
+    mesh.userData[PAINT_MESH_KEY] = 'box';
+    root.add(mesh);
+    const stream = { bytes: 64 } as unknown as PaintStream;
+    // Three copies in a row, the middle one painted.
+    const set = buildGpuCopySet({ glbRoot: root } as unknown as ModelInstance, copies(3, 2), 3, 'painted', { paint: { slotOf: (c) => (c === 1 ? 0 : -1), stream: () => stream } });
+    const cam = camera([2, 3, -10], [2, 0, 0]);
+    cullFor(set.meshes, cam);
+    for (const m of set.meshes) m.onBeforeRender(null as never, null as never, cam, m.geometry, m.material as THREE.Material, null as never);
+    const d = vertexPaintDiagnostics(set.group)!;
+    expect(d.instancedDraws).toBeGreaterThan(0);
+    expect(d.paintedInstances).toBe(d.instancedDraws);
+    set.dispose();
+  });
+
   it('each level\'s draw lists every copy its own distance and size put there; the static map draws all at the detailed level', () => {
     const { template, near, far } = lodTemplate(60);
     // 5000 copies 2 m apart, sizes 0.5–1.5: a copy switches at 30 m × its size and is culled at 60 m × its size.

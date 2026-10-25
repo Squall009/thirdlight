@@ -47,6 +47,12 @@ const { Fn, attribute, int, ivec2, max, uniform, varying, vec4, vertexIndex } = 
 /** The vertex attribute of a painted mesh drawn alone: 4 normalized bytes a vertex. */
 export const PAINT_ATTRIBUTE = 'tlPaint';
 export { PAINT_SLOT_ATTRIBUTE };
+/**
+ * `mesh.userData[PAINT_COPIES_KEY]`: how many of the copies an instanced draw
+ * may list are painted, for a draw with no per-instance marker to count (a
+ * GPU copy set's draw names its copies by texels, not by instance).
+ */
+export const PAINT_COPIES_KEY = '__tlPaintCopies';
 /** `mesh.userData[PAINT_STREAM_KEY]`: the {@link PaintStream} an instanced draw reads. */
 export const PAINT_STREAM_KEY = '__tlPaintStream';
 /** `mesh.userData[PAINT_MESH_KEY]`: a model mesh's name as vertex paint stores it (its node's path and primitive). */
@@ -306,7 +312,9 @@ export function vertexPaintDiagnostics(root: THREE.Object3D): VertexPaintDiagnos
     const n = (g as THREE.InstancedBufferGeometry).instanceCount;
     d.instancedDraws += 1;
     d.instances += n;
-    for (let i = 0; i < n; i += 1) if (marker.getX(i) > 0.5) d.paintedInstances += 1;
+    const painted = mesh.userData[PAINT_COPIES_KEY] as (() => number) | undefined;
+    if (painted !== undefined) d.paintedInstances += painted();
+    else for (let i = 0; i < n; i += 1) if (marker.getX(i) > 0.5) d.paintedInstances += 1;
     const s = mesh.userData[PAINT_STREAM_KEY] as PaintStream | undefined;
     if (s !== undefined) streams.add(s);
   });

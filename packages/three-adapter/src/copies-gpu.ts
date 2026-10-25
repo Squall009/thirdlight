@@ -49,7 +49,7 @@ import { TAN_HALF_REFERENCE } from './instance-lod';
 import { LodTuning } from './lod-switch';
 import { KEEP_MATERIAL_KEY } from './material-keys';
 import { setCopyBend, setCopyRoot } from './node-materials';
-import { PAINT_MESH_KEY, PAINT_STREAM_KEY } from './vertex-paint-draw';
+import { PAINT_COPIES_KEY, PAINT_MESH_KEY, PAINT_STREAM_KEY } from './vertex-paint-draw';
 import { maxScaleOf, SphereSide, STATIC_SHADOW_CAMERA_KEY, VIEW_CULL_KEY, type CullView, type ViewCullable } from './view-cull';
 import type { ModelInstance } from './visual';
 import type { WarmDraw } from './program-warmer';
@@ -441,7 +441,11 @@ export class GpuCopySet {
       mesh.receiveShadow = !near;
       if (near) mesh.layers.set(CUTAWAY_LAYER);
       if (part.mesh.userData[KEEP_MATERIAL_KEY] === true) mesh.userData[KEEP_MATERIAL_KEY] = true;
-      if (stream !== undefined) mesh.userData[PAINT_STREAM_KEY] = stream;
+      if (stream !== undefined) {
+        mesh.userData[PAINT_STREAM_KEY] = stream;
+        // Its slot marker is the mesh's position (it only keys the program): the painted copies are read from their texels.
+        mesh.userData[PAINT_COPIES_KEY] = (): number => this.paintedCopies();
+      }
       const draw: CopyDraw = { set: this, list, local: part.local.clone() };
       mesh.userData[GPU_COPIES_KEY] = draw;
       mesh.userData[COVER_DRAW_KEY] = copiesPlacement;
@@ -461,6 +465,14 @@ export class GpuCopySet {
     for (const part of this.plan.parts) makeDraw(part, false);
     if (options.shadowDistance !== undefined) for (const part of this.plan.parts) if (part.mesh.userData[KEEP_MATERIAL_KEY] !== true && (part.lod < 0 || part.level === 0)) makeDraw(part, true);
     this.updateBounds();
+  }
+
+  /** The copies with paint (their texels' paint slot is set): diagnostics. */
+  paintedCopies(): number {
+    const p = this.prepared;
+    let n = 0;
+    for (let slot = 0; slot < p.count; slot += 1) if (p.texels[slot * COPY_TEXEL_FLOATS + 11]! > 0) n += 1;
+    return n;
   }
 
   /**
