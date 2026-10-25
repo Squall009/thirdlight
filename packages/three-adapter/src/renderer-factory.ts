@@ -37,6 +37,7 @@ import { registerProjectedDecals } from './projected-decals';
 import { installLocalLightModes } from './local-lights';
 import { installProgramRelease, installVaoSweep, trackRenderer, trackTextureListeners } from './dispose';
 import { buildKeepFromUrl, installBuildMarks, installBuildReuse, type BuildReuse } from './node-builds';
+import { installTexelReads } from './texel-reads';
 import { setPaintStreamDevice } from './vertex-paint-draw';
 
 export type RendererPreference = 'auto' | 'webgpu' | 'webgl2';
@@ -337,6 +338,8 @@ const BROWSER_DEPS: RendererFactoryDeps = {
       // The factory's WebGL 2 context (WebGLBackend takes it instead of asking the canvas).
       ...(p.context !== undefined ? { context: p.context } : {}),
     } as unknown as ConstructorParameters<typeof WebGPURenderer>[0]);
+    // Data textures read as given on WebGL 2 too (no flip uniform to set for every draw).
+    installTexelReads();
     // Every renderer can draw a scene holding the effect light pool.
     registerEffectLights(r);
     // And lights whose layer masks leave some objects unlit or unshadowed.
