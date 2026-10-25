@@ -1065,6 +1065,8 @@ export class CoverGpu {
         atlas.texture?.dispose();
         atlas.texture = tex;
         atlas.node.value = tex;
+        // three uploads only the listed layers once any is listed, even on a texture's first upload: the kept ones are listed too.
+        for (let l = 0; l < atlas.layers; l++) tex.addLayerUpdate(l);
         for (let l = layers - 1; l >= atlas.layers; l--) atlas.free.push(l);
         atlas.layers = layers;
       }

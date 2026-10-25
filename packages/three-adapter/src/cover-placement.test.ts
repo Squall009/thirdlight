@@ -4,7 +4,7 @@ import { MeshStandardNodeMaterial } from 'three/webgpu';
 import { describe, expect, it } from 'vitest';
 import { bakeScatterCell, flatTerrainTile, regionExcluder, scatterRuleSeed, SplineScatterBands, terrainScatterSurface, terrainSplineInputs, TerrainField, ruleRangeAt, type BlockLayerComponent, type ScatterRule, type SplineComponent, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
 
-import { COVER_DRAW_KEY, coverDrawPlacement, installCoverPlacement } from './cover-gpu';
+import { COVER_DRAW_KEY, CoverGpu, coverDrawPlacement, installCoverPlacement } from './cover-gpu';
 import { coverCandidate, coverMaskSide, coverRandom, coverShare, listCoverPatches, planCover, type CoverPatch, type CoverRuleConsts, type CoverTexels, type CoverTileRef } from './cover-placement';
 import { CoverGenerator } from './cover-worker';
 import { metresPerStep, packHeightNormalAlone, packLayers, TERRAIN_TEXEL_BYTES } from './terrain-texels';
@@ -12,6 +12,8 @@ import { terrainUniforms } from './terrain-material';
 import type { TerrainCoverSurface } from './terrain-view';
 import { createMaterialLibrary } from './material-library';
 import { litScene, wgslOf, wgslRenderer } from './test-wgsl';
+import { CullView } from './view-cull';
+import type { ModelInstance } from './visual';
 
 // One tile of rolling ground: 65 samples, 2 m apart (128 m a side), two layers painted in bands across x.
 const S = 65;
@@ -360,5 +362,35 @@ describe('ground cover on the GPU: what the terrain\'s texels do not hold', () =
     const baked = bakeScatterCell([spaced], surface, null, [ORIGIN[0]! + eye[0] - 30, ORIGIN[2]! + eye[1] - 30, ORIGIN[0]! + eye[0] + 30, ORIGIN[2]! + eye[1] + 30], null, ORIGIN).cell.get('s')!.copies.length / 10;
     expect(gpu / baked).toBeGreaterThan(0.85);
     expect(gpu / baked).toBeLessThan(1.2);
+  });
+  it('keeps every mask it holds on the GPU when its texture grows past its first size', () => {
+    // Small tiles round the eye: far more tiles, each with its own mask, than the texture's first layers.
+    const page = { heights: new THREE.DataArrayTexture(new Uint8Array(S * S * 4), S, S, 1), layers: new THREE.DataArrayTexture(new Uint8Array(S * S * 4), S, S, 1), indices: new THREE.DataArrayTexture(new Uint8Array(S * S * 4), S, S, 1) };
+    const surf: TerrainCoverSurface = { uniforms: terrainUniforms(), samples: S, spacing: SPACING, tileSize: 16, low: RANGE[0]!, step: metresPerStep(RANGE), origin: [0, 0, 0], pages: [page], tileAt: () => ({ page: 0, layer: 0, low: 0, high: 10 }) };
+    const tuft = new THREE.Group();
+    tuft.add(new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.5), new MeshStandardNodeMaterial()));
+    const gpu = new CoverGpu({
+      template: () => ({ glbRoot: tuft }) as unknown as ModelInstance,
+      place: () => undefined,
+      surface: () => surf,
+      maskWanted: () => true,
+      mask: (_id, _rule, tx, tz, reply) => (reply(new Uint8Array(side * side).fill(1 + (Math.abs(tx * 7 + tz) % 200))), true),
+    });
+    gpu.setRules('t', [flat]);
+    const cam = new THREE.PerspectiveCamera(60, 1, 0.1, 1000);
+    cam.position.set(0, 2, 0);
+    cam.lookAt(0, 0, 10);
+    cam.updateMatrixWorld();
+    const view = new CullView();
+    view.set(cam);
+    for (let i = 0; i < 3; i++) gpu.update(view);
+    const atlas = (gpu as unknown as { sources: Map<string, { masks: { texture: THREE.DataArrayTexture; entries: Map<string, { slot: number }> } }> }).sources.get('t')!.masks;
+    const slots = [...atlas.entries.values()].map((e) => e.slot).filter((s) => s >= 0);
+    expect(slots.length).toBeGreaterThan(16);
+    // Both renderers upload only the listed layers when any is listed (all of them when none is): every held mask goes up.
+    const tex = atlas.texture;
+    const uploaded = (l: number): boolean => tex.layerUpdates.size === 0 || tex.layerUpdates.has(l);
+    expect(slots.filter((l) => !uploaded(l))).toEqual([]);
+    gpu.dispose();
   });
 });
