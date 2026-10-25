@@ -530,13 +530,13 @@ describe('deterministic ID allocation and limits', () => {
 describe('a v4 prefab keeps its gameplay components', () => {
   it('createPrefab captures a collider and a collectible; instantiatePrefab copies them', () => {
     const T = { position: [4, 0.5, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
-    const crate = { id: 'box-0101', components: { transform: T, box: { size: [1, 1, 1], material: { color: '#aa7733' } }, collider: { shape: { type: 'box', hx: 0.5, hy: 0.5 }, oneWay: true } } };
+    const crate = { id: 'box-0101', components: { transform: T, box: { size: [1, 1, 1], material: { color: '#aa7733' } }, collider: { shape: { type: 'box', hx: 0.5, hy: 0.5 }, oneWay: true, depth: 2, plane: { axis: 'z', origin: 0 } } } };
     const token = { id: 'box-0102', components: { transform: { ...T, position: [6, 1, 0] }, box: { size: [0.4, 0.4, 0.1], material: { color: '#ffcc00' } }, collectible: { counter: 'tokens', amount: 5, size: [0.6, 0.6] } } };
     const state = createCommandState({ ...BEFORE.scene, entities: [...BEFORE.scene.entities, crate, token] } as unknown as SceneV4, BEFORE.content);
     const a = ok(mutation(state, 'createPrefab', { prefabId: 'crate', displayName: 'Crate', sourceEntityId: 'box-0101' }));
     const b = ok(mutation(a.state, 'createPrefab', { prefabId: 'token', displayName: 'Token', sourceEntityId: 'box-0102' }));
     const defs = (b.state.content as unknown as { prefabs: PrefabDefinition[] }).prefabs;
-    expect(defs.find((d) => d.prefabId === 'crate')!.entities[0]!.components.collider).toEqual({ shape: { type: 'box', hx: 0.5, hy: 0.5 }, oneWay: true });
+    expect(defs.find((d) => d.prefabId === 'crate')!.entities[0]!.components.collider).toEqual({ shape: { type: 'box', hx: 0.5, hy: 0.5 }, oneWay: true, plane: { axis: 'z', origin: 0 }, depth: 2 });
     expect((defs.find((d) => d.prefabId === 'token')!.entities[0]!.components as unknown as { collectible?: unknown }).collectible).toEqual({ counter: 'tokens', amount: 5, size: [0.6, 0.6] });
     const placed = ok(mutation(b.state, 'instantiatePrefab', { prefabId: 'token', transform: { position: [9, 2, 0] } }));
     const copy = assembled(placed.state).get(instantiateChange(placed.result).rootId)!;
@@ -544,7 +544,12 @@ describe('a v4 prefab keeps its gameplay components', () => {
     expect(copy.components.transform?.position).toEqual([9, 2, 0]);
     const crateCopy = ok(mutation(placed.state, 'instantiatePrefab', { prefabId: 'crate', transform: { position: [12, 0.5, 0] } }));
     const crateEntity = assembled(crateCopy.state).get(instantiateChange(crateCopy.result).rootId)!;
-    expect(crateEntity.components.collider).toEqual({ shape: { type: 'box', hx: 0.5, hy: 0.5 }, oneWay: true });
+    expect(crateEntity.components.collider).toEqual({ shape: { type: 'box', hx: 0.5, hy: 0.5 }, oneWay: true, plane: { axis: 'z', origin: 0 }, depth: 2 });
+    // The depth alone is edited (the shape stays) and removed with null.
+    const deeper = ok(mutation(crateCopy.state, 'setComponent', { entityId: 'box-0101', component: 'collider', value: { depth: 3 } }));
+    expect(assembled(deeper.state).get('box-0101')!.components.collider).toEqual({ shape: { type: 'box', hx: 0.5, hy: 0.5 }, oneWay: true, plane: { axis: 'z', origin: 0 }, depth: 3 });
+    const flat = ok(mutation(deeper.state, 'setComponent', { entityId: 'box-0101', component: 'collider', value: { depth: null } }));
+    expect(assembled(flat.state).get('box-0101')!.components.collider).toEqual({ shape: { type: 'box', hx: 0.5, hy: 0.5 }, oneWay: true, plane: { axis: 'z', origin: 0 } });
   });
 
   it('a player with its camera is a prefab: each copy is a player whose camera follows its own character', () => {

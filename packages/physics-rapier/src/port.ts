@@ -27,6 +27,7 @@ import {
   GROUND_NORMAL_TOLERANCE,
   DEFAULT_CAPSULE_HALF_HEIGHT,
   DEFAULT_CAPSULE_RADIUS,
+  MAX_DROP_THROUGH_STEPS,
   ONE_WAY_LANDING_TOLERANCE,
   PHYSICS_IMPLEMENTATION,
   INTERNAL_EDGE_PREDICTION_SLACK,
@@ -1116,7 +1117,7 @@ function createAdapter(
 
     dropThrough(steps: number, characterId?: string): void {
       assertLive('dropThrough');
-      bodyOf(characterId, 'dropThrough').dropSteps = Math.max(0, Math.min(120, Math.floor(steps)));
+      bodyOf(characterId, 'dropThrough').dropSteps = Math.max(0, Math.min(MAX_DROP_THROUGH_STEPS, Math.floor(steps)));
     },
 
     raycast(origin: Vec2, direction: Vec2, maxDistance: number) {

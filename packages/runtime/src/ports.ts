@@ -415,6 +415,12 @@ export interface StaticColliderSpec3D {
   maxSlope?: number;
   /** The plane its body is locked to (absent: free); the body is made on it. */
   plane?: PhysicsPlane;
+  /**
+   * A one-way collider: it holds only what comes at it from the side its
+   * local +Y faces (a platform landed on from above, passed from below and
+   * the sides).
+   */
+  oneWay?: boolean;
 }
 
 /**
@@ -431,7 +437,7 @@ export interface PhysicsQueryFilter3D {
 
 /**
  * The 3D shapes a port builds (metres, in the collider's own
- * frame; a capsule stands along its local Y). `convex` is the hull of its
+ * frame; a capsule and a cylinder stand along their local Y). `convex` is the hull of its
  * points and `mesh` a triangle mesh (a static collider only), both flat
  * `[x, y, z, ...]` lists.
  */
@@ -439,6 +445,8 @@ export type ColliderPrimitive3D =
   | { type: 'box'; hx: number; hy: number; hz: number }
   | { type: 'sphere'; radius: number }
   | { type: 'capsule'; radius: number; halfHeight: number }
+  /** A cylinder along its local Y; `halfHeight` is half its full height (Rapier's convention). */
+  | { type: 'cylinder'; radius: number; halfHeight: number }
   | { type: 'convex'; points: readonly number[] }
   | { type: 'mesh'; vertices: readonly number[]; indices: readonly number[] }
   /**
@@ -619,6 +627,8 @@ export interface PhysicsPort3D {
    * to the plane from then on. Returns where it is now.
    */
   setCharacterPlane?(plane: PhysicsPlane | null, characterId?: string): PhysicsVec3;
+  /** Let a character (absent id: the first) pass every one-way collider for the next `steps` steps. */
+  dropThrough?(steps: number, characterId?: string): void;
   dispose(): void;
 }
 

@@ -733,10 +733,10 @@ function validateSetComponentOne(
   } else if (component === 'collider') {
     const shape = value['shape'];
     // `oneWay` alone edits the flag (the shape stays).
-    // `layers` alone edits the collision layers, `plane` alone the plane lock (the shape stays).
-    if (shape === undefined && (value['oneWay'] !== undefined || value['layers'] !== undefined || value['plane'] !== undefined)) return { ok: true, args: { entityId: args['entityId'], component: component as OwnedComponent, value } };
+    // `layers` alone edits the collision layers, `plane` alone the plane lock, `depth` alone the 2D shapes' depth (the shape stays).
+    if (shape === undefined && (value['oneWay'] !== undefined || value['layers'] !== undefined || value['plane'] !== undefined || value['depth'] !== undefined)) return { ok: true, args: { entityId: args['entityId'], component: component as OwnedComponent, value } };
     if (!isPlainObject(shape)) {
-      return { ok: false, error: fieldType('/args/value/shape', shape, 'object ({ type: "box"|"polygon"|"sphere"|"capsule"|"convex"|"mesh"|"compound"|"model", ... })') };
+      return { ok: false, error: fieldType('/args/value/shape', shape, 'object ({ type: "box"|"polygon"|"sphere"|"capsule"|"cylinder"|"convex"|"mesh"|"compound"|"model", ... })') };
     }
     // The 3D shapes (the project's physics dimension is the model's rule).
     if (!(COLLIDER_SHAPE_TYPES as readonly unknown[]).includes(shape['type'])) {
@@ -745,8 +745,8 @@ function validateSetComponentOne(
         error: fieldValue(
           '/args/value/shape/type',
           shape['type'],
-          '"box", "polygon", "sphere", "capsule", "convex", "mesh", "compound" or "model"',
-          'collider.shape.type must be "box", "polygon", "compound" or "model" (a 3D project also "sphere", "capsule", "convex" or "mesh")',
+          '"box", "polygon", "sphere", "capsule", "cylinder", "convex", "mesh", "compound" or "model"',
+          'collider.shape.type must be "box", "polygon", "compound" or "model" (a 3D project also "sphere", "capsule", "cylinder", "convex" or "mesh")',
         ),
       };
     }

@@ -48,9 +48,9 @@ export const CONVEX_TOL = 1e-9;
  */
 export const COLLIDER_3D_LIMITS = Object.freeze({ convexPoints: 64, meshVertices: 1024, meshTriangles: 2048, pointsTotal: 1_048_576, heightfieldCells: Math.max(...TERRAIN_TILE_SAMPLES) - 1 });
 /** The 3D collider shape types (a 3D project only; a 2D plane uses box and polygon). */
-export const COLLIDER_3D_SHAPES = ['sphere', 'capsule', 'convex', 'mesh'] as const;
+export const COLLIDER_3D_SHAPES = ['sphere', 'capsule', 'cylinder', 'convex', 'mesh'] as const;
 /** The shape types a compound lists (and a collider may be itself). */
-export const COLLIDER_PRIMITIVE_TYPES = ['box', 'polygon', 'sphere', 'capsule', 'convex', 'mesh'] as const;
+export const COLLIDER_PRIMITIVE_TYPES = ['box', 'polygon', 'sphere', 'capsule', 'cylinder', 'convex', 'mesh'] as const;
 /** Every collider shape type: the primitives, a compound of them, or the model's `_COL` parts. */
 export const COLLIDER_SHAPE_TYPES = [...COLLIDER_PRIMITIVE_TYPES, 'compound', 'model'] as const;
 const PRIMITIVE_TYPES: readonly string[] = COLLIDER_PRIMITIVE_TYPES;
@@ -59,6 +59,7 @@ const KNOWN_BOX_SHAPE_FIELDS = new Set(['type', 'hx', 'hy', 'hz', 'center', 'rot
 const KNOWN_POLYGON_SHAPE_FIELDS = new Set(['type', 'vertices', 'center', 'rotation']);
 const KNOWN_SPHERE_SHAPE_FIELDS = new Set(['type', 'radius', 'center', 'rotation']);
 const KNOWN_CAPSULE_SHAPE_FIELDS = new Set(['type', 'radius', 'height', 'center', 'rotation']);
+const KNOWN_CYLINDER_SHAPE_FIELDS = KNOWN_CAPSULE_SHAPE_FIELDS;
 const KNOWN_CONVEX_SHAPE_FIELDS = new Set(['type', 'points', 'center', 'rotation']);
 const KNOWN_MESH_SHAPE_FIELDS = new Set(['type', 'vertices', 'triangles', 'center', 'rotation']);
 
@@ -116,11 +117,11 @@ export function validateColliderShape(shape: unknown, path: string, errors: Mode
   if (type === 'compound') {
     const list = shape['shapes'];
     if (list === undefined) errors.push(fieldMissing(`${path}/shapes`, 'shapes'));
-    else if (!Array.isArray(list) || list.length === 0) errors.push(fieldValue(`${path}/shapes`, list, 'a list of at least one shape', 'a compound lists its shapes, each a box, polygon, sphere, capsule, convex or mesh'));
+    else if (!Array.isArray(list) || list.length === 0) errors.push(fieldValue(`${path}/shapes`, list, 'a list of at least one shape', 'a compound lists its shapes, each a box, polygon, sphere, capsule, cylinder, convex or mesh'));
     else {
       list.forEach((part, i) => {
         const t = isPlainObject(part) ? part['type'] : undefined;
-        if (t === 'compound' || t === 'model') errors.push(fieldValue(`${path}/shapes/${i}/type`, t, '"box" | "polygon" | "sphere" | "capsule" | "convex" | "mesh"', 'a compound lists primitive shapes (no compound or model inside it)'));
+        if (t === 'compound' || t === 'model') errors.push(fieldValue(`${path}/shapes/${i}/type`, t, '"box" | "polygon" | "sphere" | "capsule" | "cylinder" | "convex" | "mesh"', 'a compound lists primitive shapes (no compound or model inside it)'));
         else validatePrimitiveShape(part, `${path}/shapes/${i}`, errors);
       });
     }
@@ -128,7 +129,7 @@ export function validateColliderShape(shape: unknown, path: string, errors: Mode
     return;
   }
   if (!PRIMITIVE_TYPES.includes(type as string)) {
-    errors.push(fieldValue(`${path}/type`, type, '"box" | "polygon" | "sphere" | "capsule" | "convex" | "mesh" | "compound" | "model"', 'collider shape type must be "box", "polygon", "compound" or "model" (a 3D project also "sphere", "capsule", "convex" or "mesh")'));
+    errors.push(fieldValue(`${path}/type`, type, '"box" | "polygon" | "sphere" | "capsule" | "cylinder" | "convex" | "mesh" | "compound" | "model"', 'collider shape type must be "box", "polygon", "compound" or "model" (a 3D project also "sphere", "capsule", "cylinder", "convex" or "mesh")'));
     return;
   }
   validatePrimitiveShape(shape, path, errors);
@@ -244,23 +245,23 @@ function validatePrimitiveShape(shape: unknown, path: string, errors: ModelError
     }
     return;
   }
-  if (type === 'sphere' || type === 'capsule') {
+  if (type === 'sphere' || type === 'capsule' || type === 'cylinder') {
     // 3D shapes (the project's physics dimension is checked with the content).
     if (shape['radius'] === undefined) errors.push(fieldMissing(`${path}/radius`, 'radius'));
     else checkFiniteNumber(shape['radius'], `${path}/radius`, { positive: true, absMax: MAX_COLLIDER_EXTENT }, `0 < radius <= ${MAX_COLLIDER_EXTENT}`, errors);
-    if (type === 'capsule') {
+    if (type === 'capsule' || type === 'cylinder') {
       const h = shape['height'];
       if (h === undefined) errors.push(fieldMissing(`${path}/height`, 'height'));
       else {
         const before = errors.length;
         checkFiniteNumber(h, `${path}/height`, { positive: true, absMax: 2 * MAX_COLLIDER_EXTENT }, `0 < height <= ${2 * MAX_COLLIDER_EXTENT}`, errors);
         const r = shape['radius'];
-        if (errors.length === before && typeof r === 'number' && Number.isFinite(r) && (h as number) < 2 * r) {
+        if (type === 'capsule' && errors.length === before && typeof r === 'number' && Number.isFinite(r) && (h as number) < 2 * r) {
           bad('a capsule\'s height (end caps included) must be at least twice its radius', h);
         }
       }
     }
-    const known = type === 'sphere' ? KNOWN_SPHERE_SHAPE_FIELDS : KNOWN_CAPSULE_SHAPE_FIELDS;
+    const known = type === 'sphere' ? KNOWN_SPHERE_SHAPE_FIELDS : type === 'cylinder' ? KNOWN_CYLINDER_SHAPE_FIELDS : KNOWN_CAPSULE_SHAPE_FIELDS;
     for (const k of Object.keys(shape)) {
       if (!known.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, type === 'sphere' ? 'type, radius, center, rotation' : 'type, radius, height, center, rotation'));
     }
@@ -302,8 +303,8 @@ function validatePrimitiveShape(shape: unknown, path: string, errors: ModelError
     fieldValue(
       `${path}/type`,
       type,
-      '"box" | "polygon" | "sphere" | "capsule" | "convex" | "mesh"',
-      'a shape is "box" or "polygon" (a 3D project also "sphere", "capsule", "convex" or "mesh")',
+      '"box" | "polygon" | "sphere" | "capsule" | "cylinder" | "convex" | "mesh"',
+      'a shape is "box" or "polygon" (a 3D project also "sphere", "capsule", "cylinder", "convex" or "mesh")',
     ),
   );
 }
@@ -419,6 +420,7 @@ function canonicalPrimitive(shape: Record<string, unknown>): ColliderPrimitiveSh
   };
   if (shape['type'] === 'sphere') return { type: 'sphere', radius: canonNum(shape['radius']) };
   if (shape['type'] === 'capsule') return { type: 'capsule', radius: canonNum(shape['radius']), height: canonNum(shape['height']) };
+  if (shape['type'] === 'cylinder') return { type: 'cylinder', radius: canonNum(shape['radius']), height: canonNum(shape['height']) };
   if (shape['type'] === 'convex') return { type: 'convex', points: (shape['points'] as unknown[]).map(p3) };
   if (shape['type'] === 'mesh') {
     return { type: 'mesh', vertices: (shape['vertices'] as unknown[]).map(p3), triangles: (shape['triangles'] as unknown[]).map((t) => [...(t as number[])] as [number, number, number]) };

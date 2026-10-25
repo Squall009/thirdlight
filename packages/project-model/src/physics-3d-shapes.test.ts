@@ -1,8 +1,9 @@
 /**
- * The 3D collider shapes (sphere, capsule, convex hull, triangle
+ * The 3D collider shapes (sphere, capsule, cylinder, convex hull, triangle
  * mesh), the 3D trigger areas (box with depth, sphere, capsule), and the
  * rules that follow the project's physics dimension: 3D shapes only in a 3D
- * project, a mesh never on a mover, no one-way collider in 3D, a 3D
+ * project, a mesh never on a mover, 2D shapes and one-way colliders taken in
+ * 3D (their 3D form, given the collider's depth), a 3D
  * collider's positive (uniform for round shapes) scale, the 2D plane's unit
  * scale kept exactly, and the 2D-plane switch block
  * refused in 3D.
@@ -35,7 +36,7 @@ const shapeErrors = (shape: unknown): string[] => {
 
 describe('3D collider shapes (validation and canonical form)', () => {
   it('accepts a sphere, a capsule, a convex hull and a mesh; the canonical form keeps them', () => {
-    for (const shape of [{ type: 'sphere', radius: 0.5 }, { type: 'capsule', radius: 0.5, height: 2 }, HULL, MESH]) {
+    for (const shape of [{ type: 'sphere', radius: 0.5 }, { type: 'capsule', radius: 0.5, height: 2 }, { type: 'cylinder', radius: 0.5, height: 0.2 }, HULL, MESH]) {
       const v = validateSceneV4(scene([body(shape)]));
       expect(v.ok, JSON.stringify(!v.ok && v.errors)).toBe(true);
       if (v.ok) expect(v.normalized.entities[0]!.components.collider).toEqual({ shape });
@@ -46,6 +47,7 @@ describe('3D collider shapes (validation and canonical form)', () => {
     expect(shapeErrors({ type: 'sphere', radius: 0 })).toEqual(['number_out_of_range /entities/0/components/collider/shape/radius']);
     expect(shapeErrors({ type: 'capsule', radius: 1, height: 1.5 })).toEqual(['collider_shape_invalid /entities/0/components/collider/shape']);
     expect(shapeErrors({ type: 'capsule', radius: 1 })).toEqual(['field_missing /entities/0/components/collider/shape/height']);
+    expect(shapeErrors({ type: 'cylinder', radius: 1, height: 0 })).toEqual(['number_out_of_range /entities/0/components/collider/shape/height']);
     expect(shapeErrors({ type: 'convex', points: [[0, 0, 0], [1, 0, 0], [0, 1, 0]] })[0]).toMatch(/^limits_exceeded .*points$/);
     expect(shapeErrors({ type: 'convex', points: [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]] })).toEqual(['collider_shape_invalid /entities/0/components/collider/shape']);
     expect(shapeErrors({ type: 'convex', points: [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 65]] })).toEqual(['collider_shape_invalid /entities/0/components/collider/shape/points/3']);
@@ -70,7 +72,7 @@ describe('3D collider shapes (validation and canonical form)', () => {
 
 describe('the dimension rules for 3D shapes, scale and blocks', () => {
   it('a 2D-plane project refuses the 3D shapes and keeps the unit-scale rule exactly', () => {
-    for (const shape of [{ type: 'sphere', radius: 0.5 }, { type: 'capsule', radius: 0.5, height: 2 }, HULL, MESH]) {
+    for (const shape of [{ type: 'sphere', radius: 0.5 }, { type: 'capsule', radius: 0.5, height: 2 }, { type: 'cylinder', radius: 0.5, height: 1 }, HULL, MESH]) {
       expect(problems({}, [body(shape)])).toEqual(['collider_shape_invalid /entities/0/components/collider/shape/type']);
     }
     expect(problems({}, [body({ type: 'box', hx: 1, hy: 1 }, {}, [2, 1, 1])])).toEqual(['physics_transform_unsupported /entities/0/transform/scale']);
@@ -87,11 +89,23 @@ describe('the dimension rules for 3D shapes, scale and blocks', () => {
     expect(problems(THREE, [player])).toEqual(['physics_transform_unsupported /entities/0/transform/scale']);
   });
 
-  it('a 3D project: a mesh never moves, no one-way colliders', () => {
+  it('a 3D project: a mesh never moves; one-way colliders, depthless boxes and polygons are taken (their 3D form)', () => {
     expect(problems(THREE, [body(MESH, { mover: { waypoints: [[1, 0, 0]], speed: 1, mode: 'loop' } })])).toEqual(['collider_shape_invalid /entities/0/components/collider/shape/type']);
     expect(problems(THREE, [body(HULL, { mover: { waypoints: [[1, 0, 0]], speed: 1, mode: 'loop' } })])).toEqual([]);
     const oneWay = { id: 'body-0001', components: { transform: T(), collider: { shape: { type: 'box', hx: 1, hy: 0.1, hz: 1 }, oneWay: true } } };
-    expect(problems(THREE, [oneWay])).toEqual(['collider_shape_invalid /entities/0/components/collider/oneWay']);
+    expect(problems(THREE, [oneWay])).toEqual([]);
+    expect(problems(THREE, [body({ type: 'box', hx: 1, hy: 1 })])).toEqual([]);
+    expect(problems(THREE, [body({ type: 'polygon', vertices: [[0, 0], [1, 0], [0, 1]] })])).toEqual([]);
+  });
+
+  it('a collider\'s depth: positive, at most 128 m, kept in the canonical form only when set', () => {
+    const withDepth = (depth: unknown) => ({ id: 'body-0001', components: { transform: T(), collider: { shape: { type: 'box', hx: 1, hy: 1 }, depth } } });
+    const v = validateSceneV4(scene([withDepth(2.5)]));
+    expect(v.ok && v.normalized.entities[0]!.components.collider).toEqual({ shape: { type: 'box', hx: 1, hy: 1 }, depth: 2.5 });
+    const plain = validateSceneV4(scene([body({ type: 'box', hx: 1, hy: 1 })]));
+    expect(plain.ok && plain.normalized.entities[0]!.components.collider).toEqual({ shape: { type: 'box', hx: 1, hy: 1 } });
+    for (const bad of [0, -1, 129]) expect(validateSceneV4(scene([withDepth(bad)])).ok).toBe(false);
+    expect(validateSceneV4(scene([withDepth('1')])).ok).toBe(false);
   });
 
   it('triggers: sphere and capsule in 3D only; in 3D a box needs its depth and a circle is refused', () => {

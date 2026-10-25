@@ -7,7 +7,7 @@ The Physics components. Fields list the stored keys; paths with `[]` are list it
 <a id="component-collider"></a>
 ## collider — Collider
 
-A solid shape the player stands on and bumps into (a box or a convex polygon in the X/Y plane; in a 3D project a box with a depth, a sphere, a capsule, a convex hull or a triangle mesh), placed anywhere in the object's frame; several shapes as a compound, or the convex parts of its model's _COL node.
+A solid shape the player stands on and bumps into (a box or a convex polygon in the X/Y plane; in a 3D project a box with a depth, a sphere, a capsule, a cylinder, a convex hull or a triangle mesh), placed anywhere in the object's frame; several shapes as a compound, or the convex parts of its model's _COL node.
 
 - Category: Physics
 - Added: from "+ Add component", starting as `{"shape":{"type":"box","hx":0.5,"hy":0.5}}`
@@ -24,8 +24,8 @@ A solid shape the player stands on and bumps into (a box or a convex polygon in 
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `shape` | object |  |  | **Shape.** A box (half extents) or a convex polygon; in a 3D project also a sphere, a capsule, a convex hull or a triangle mesh; a compound of several; or the model's _COL parts. (required; scripts read; rules: A polygon is convex, counter-clockwise, has no repeated corner, an area of at least 1e-6 m² and stays within 64 m of the origin.; Sphere, capsule, convex hull and mesh are 3D shapes (physics_dimension 3); a mesh is static level geometry (not on a mover).; A model shape needs a model on the same object; a build makes one convex hull of each mesh part of its _COL node.) |
-| `shape.type` | enum: `box`, `polygon`, `sphere`, `capsule`, `convex`, `mesh`, `compound`, `model` | `"box"` |  | **Shape.** Box or convex polygon (2D plane); box, sphere, capsule, convex hull or mesh (3D project); a compound of shapes; or the convex parts of the model's _COL node (read when the game is built). (required) |
+| `shape` | object |  |  | **Shape.** A box (half extents) or a convex polygon; in a 3D project also a sphere, a capsule, a cylinder, a convex hull or a triangle mesh; a compound of several; or the model's _COL parts. (required; scripts read; rules: A polygon is convex, counter-clockwise, has no repeated corner, an area of at least 1e-6 m² and stays within 64 m of the origin.; Sphere, capsule, cylinder, convex hull and mesh are 3D shapes (physics_dimension 3); a mesh is static level geometry (not on a mover).; On the 3D backend a box without hz and a polygon (a prism) are the collider's depth deep.; A model shape needs a model on the same object; a build makes one convex hull of each mesh part of its _COL node.) |
+| `shape.type` | enum: `box`, `polygon`, `sphere`, `capsule`, `cylinder`, `convex`, `mesh`, `compound`, `model` | `"box"` |  | **Shape.** Box or convex polygon (2D plane); box, sphere, capsule, cylinder, convex hull or mesh (3D project); a compound of shapes; or the convex parts of the model's _COL node (read when the game is built). (required) |
 | `shape.hx` | number | `0.5` | > 0, ≤ 1000000, step 0.05, m | **Half width.** Half the box width. (required; applies when `type` is `box`; Scene handle: box2) |
 | `shape.hy` | number | `0.5` | > 0, ≤ 1000000, step 0.05, m | **Half height.** Half the box height. (required; applies when `type` is `box`; Scene handle: box2) |
 | `shape.hz` | number |  | > 0, ≤ 1000000, step 0.05, m | **Half depth.** Half the box depth along Z (needed in a 3D project; a 2D plane ignores it). (applies when `type` is `box`; Scene handle: box2) |
@@ -33,13 +33,15 @@ A solid shape the player stands on and bumps into (a box or a convex polygon in 
 | `shape.radius` | number | `0.5` | > 0, ≤ 64, step 0.05, m | **Radius.** The sphere's radius. (required; applies when `type` is `sphere`; Scene handle: radius) |
 | `shape.radius` | number | `0.5` | > 0, ≤ 64, step 0.05, m | **Radius.** The capsule's radius. (required; applies when `type` is `capsule`; Scene handle: capsule) |
 | `shape.height` | number | `2` | > 0, ≤ 128, step 0.05, m | **Height.** The capsule's total height along the object's Y (end caps included; at least twice the radius). (required; applies when `type` is `capsule`; Scene handle: capsule) |
+| `shape.radius` | number | `0.5` | > 0, ≤ 64, step 0.05, m | **Radius.** The cylinder's radius. (required; applies when `type` is `cylinder`) |
+| `shape.height` | number | `1` | > 0, ≤ 128, step 0.05, m | **Height.** The cylinder's full height along the object's Y. (required; applies when `type` is `cylinder`) |
 | `shape.points` | list of vec3 [x, y, z], 4–64 items |  |  | **Hull points.** 4–64 points [x, y, z] whose convex hull is the shape (made from a model). (required; applies when `type` is `convex`; written by a tool) |
 | `shape.vertices` | list of vec3 [x, y, z], 3–1024 items |  |  | **Mesh vertices.** 3–1024 vertices [x, y, z] (made from a model). (required; applies when `type` is `mesh`; written by a tool) |
 | `shape.triangles` | list of vec3 [x, y, z], 1–2048 items |  |  | **Mesh triangles.** 1–2048 triangles [a, b, c] (vertex indices; made from a model). (required; applies when `type` is `mesh`; written by a tool) |
 | `shape.center` | vec3 [x, y, z] |  | -64 – 64, step 0.05, m | **Center.** The shape's centre from the object origin (metres; a 2D plane reads x and y). (applies when `type` is `box` or `polygon` or `sphere` or `capsule` or `convex` or `mesh`) |
 | `shape.rotation` | quat |  |  | **Rotation.** The shape's rotation in the object's frame (a unit quaternion; about Z only on a 2D plane; the Inspector shows degrees). (applies when `type` is `box` or `polygon` or `sphere` or `capsule` or `convex` or `mesh`) |
 | `shape.shapes` | list of objects, ≥ 1 items |  |  | **Shapes.** The compound's shapes (one body), each with its own centre and rotation. (required; applies when `type` is `compound`) |
-| `shape.shapes[].type` | enum: `box`, `polygon`, `sphere`, `capsule`, `convex`, `mesh` | `"box"` |  | **Shape.** Box or convex polygon (2D plane); box, sphere, capsule, convex hull or mesh (3D project). (required) |
+| `shape.shapes[].type` | enum: `box`, `polygon`, `sphere`, `capsule`, `cylinder`, `convex`, `mesh` | `"box"` |  | **Shape.** Box or convex polygon (2D plane); box, sphere, capsule, cylinder, convex hull or mesh (3D project). (required) |
 | `shape.shapes[].hx` | number | `0.5` | > 0, ≤ 1000000, step 0.05, m | **Half width.** Half the box width. (required; applies when `type` is `box`; Scene handle: box2) |
 | `shape.shapes[].hy` | number | `0.5` | > 0, ≤ 1000000, step 0.05, m | **Half height.** Half the box height. (required; applies when `type` is `box`; Scene handle: box2) |
 | `shape.shapes[].hz` | number |  | > 0, ≤ 1000000, step 0.05, m | **Half depth.** Half the box depth along Z (needed in a 3D project; a 2D plane ignores it). (applies when `type` is `box`; Scene handle: box2) |
@@ -47,12 +49,15 @@ A solid shape the player stands on and bumps into (a box or a convex polygon in 
 | `shape.shapes[].radius` | number | `0.5` | > 0, ≤ 64, step 0.05, m | **Radius.** The sphere's radius. (required; applies when `type` is `sphere`; Scene handle: radius) |
 | `shape.shapes[].radius` | number | `0.5` | > 0, ≤ 64, step 0.05, m | **Radius.** The capsule's radius. (required; applies when `type` is `capsule`; Scene handle: capsule) |
 | `shape.shapes[].height` | number | `2` | > 0, ≤ 128, step 0.05, m | **Height.** The capsule's total height along the object's Y (end caps included; at least twice the radius). (required; applies when `type` is `capsule`; Scene handle: capsule) |
+| `shape.shapes[].radius` | number | `0.5` | > 0, ≤ 64, step 0.05, m | **Radius.** The cylinder's radius. (required; applies when `type` is `cylinder`) |
+| `shape.shapes[].height` | number | `1` | > 0, ≤ 128, step 0.05, m | **Height.** The cylinder's full height along the object's Y. (required; applies when `type` is `cylinder`) |
 | `shape.shapes[].points` | list of vec3 [x, y, z], 4–64 items |  |  | **Hull points.** 4–64 points [x, y, z] whose convex hull is the shape (made from a model). (required; applies when `type` is `convex`; written by a tool) |
 | `shape.shapes[].vertices` | list of vec3 [x, y, z], 3–1024 items |  |  | **Mesh vertices.** 3–1024 vertices [x, y, z] (made from a model). (required; applies when `type` is `mesh`; written by a tool) |
 | `shape.shapes[].triangles` | list of vec3 [x, y, z], 1–2048 items |  |  | **Mesh triangles.** 1–2048 triangles [a, b, c] (vertex indices; made from a model). (required; applies when `type` is `mesh`; written by a tool) |
 | `shape.shapes[].center` | vec3 [x, y, z] |  | -64 – 64, step 0.05, m | **Center.** The shape's centre from the object origin (metres; a 2D plane reads x and y). (applies when `type` is `box` or `polygon` or `sphere` or `capsule` or `convex` or `mesh`) |
 | `shape.shapes[].rotation` | quat |  |  | **Rotation.** The shape's rotation in the object's frame (a unit quaternion; about Z only on a 2D plane; the Inspector shows degrees). (applies when `type` is `box` or `polygon` or `sphere` or `capsule` or `convex` or `mesh`) |
-| `oneWay` | bool | `false` |  | **One-way.** The player can jump up through it and land on top (a platform). (stored only when not the default; scripts read) |
+| `oneWay` | bool | `false` |  | **One-way.** The player can jump up through it and land on top (a platform): it holds only from the side its +Y faces. (stored only when not the default; scripts read) |
+| `depth` | number | `1` | > 0, ≤ 128, step 0.1, m | **Depth.** How deep a box without hz or a polygon is on the 3D backend (absent: 1 m). (stored only when not the default; scripts read) |
 | `layers` | list of string, identifier, 1–32 chars, 1–16 items, distinct |  |  | **Collision layers.** The collision layers it is in (3D; absent: "default"). Script queries filter by layer; name layers in the project's collision layers. (scripts read) |
 
 Scene-view handles:
@@ -71,6 +76,7 @@ Presets:
 - Box (3D) (3D): `{"shape":{"type":"box","hx":0.5,"hy":0.5,"hz":0.5}}`
 - Sphere (3D): `{"shape":{"type":"sphere","radius":0.5}}`
 - Capsule (3D): `{"shape":{"type":"capsule","radius":0.5,"height":2}}`
+- Cylinder (3D): `{"shape":{"type":"cylinder","radius":0.5,"height":1}}`
 - Convex hull (3D): `{"shape":{"type":"convex","points":[[-0.5,-0.5,-0.5],[0.5,-0.5,-0.5],[0.5,0.5,-0.5],[-0.5,0.5,-0.5],[-0.5,-0.5,0.5],[0.5,-0.5,0.5],[0.5,0.5,0.5],[-0.5,0.5,0.5]]}}`
 - Mesh (3D): `{"shape":{"type":"mesh","vertices":[[-0.5,0,-0.5],[0.5,0,-0.5],[0.5,0,0.5],[-0.5,0,0.5]],"triangles":[[0,2,1],[0,3,2]]}}`
 - Model's _COL parts (needs `model`): `{"shape":{"type":"model"}}`

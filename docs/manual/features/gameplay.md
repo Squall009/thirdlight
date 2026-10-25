@@ -47,8 +47,9 @@ view icons come from the descriptors too. Any object can get these in the Inspec
 - **Switch** — `interact` (the interact action while inside) or `stand`
   (a pressure plate); sends a signal.
 - A collider's **one-way** flag: jump up through it, land on it from above,
-  Down + Jump drops through. A spawn inside one is not blocked (the player
-  drops to what is below).
+  Down + Jump drops through, in 2D and 3D projects (turned, it holds only
+  from the side its local +Y faces). A spawn inside one is not blocked on the
+  2D plane (the player drops to what is below).
 - Colliders that share a face or overlap (a floor of tiles, a wall of
   stacked blocks, a slope cut in pieces) act as one surface for the 2D
   player: it does not stand on or catch at the seams between them.

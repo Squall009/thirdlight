@@ -1787,3 +1787,4 @@ export { MODEL_OCCLUDER_MODES, modelOccluderChecks, modelOccluderModeOf, modelOc
 // Diagnostics rows folded with a count (the runtime's error ring and the Play answers' bound).
 export { BEHAVIOR_LOG_CODE, isErrorRow, mergeRepeatedRow, mergeRepeatedRows, REPEATED_ROW_ENTITY_IDS_MAX, repeatedRowKey, type RepeatedRowFields } from './repeated-rows';
 export { PLANE_AXES, isPlaneLock, planeLockOf, validatePlaneLock, type PlaneAxis, type PlaneLock } from './plane-lock';
+export { DEFAULT_COLLIDER_DEPTH, MAX_COLLIDER_DEPTH, colliderDepthOf, convexPieces, hasTwoDShape, shape2DTo3D, type ColliderCircleShape2D, type Shape3DChange, type Shape3DOptions } from './shape-2d-3d';

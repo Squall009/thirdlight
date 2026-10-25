@@ -9,7 +9,7 @@
  * The one place the runtime, the Play preview, the export and the tests
  * derive collider specs. Pure: no I/O, no three.js.
  */
-import { collisionPartPolygons, planeLockOf, type ModelColliderTable } from '@thirdlight/project-model';
+import { colliderDepthOf, collisionPartPolygons, planeLockOf, shape2DTo3D, type ModelColliderTable } from '@thirdlight/project-model';
 
 import type { ColliderPrimitive3D, ColliderShape3D, PhysicsPlane, PhysicsQuat, PhysicsVec3, StaticColliderSpec, StaticColliderSpec3D } from './ports';
 import type { TransformState } from './types-simulation';
@@ -77,8 +77,8 @@ const isIdentity = (q: readonly number[]): boolean => (q[0] ?? 0) === 0 && (q[1]
  * box, hull or mesh and a uniform one for a sphere or capsule): a box's
  * half extents and a hull's or mesh's points scale; a capsule's authored
  * total `height` (end caps included) becomes the port's centre-segment
- * `halfHeight`; point lists are flattened. Null for a shape a 3D port does
- * not take (a polygon — the model refuses it in 3D).
+ * `halfHeight`, a cylinder's full height half of it; point lists are
+ * flattened. Null for a 2D shape (`shape2DTo3D` makes its 3D form first).
  */
 function primitive3D(s: Obj, scale: readonly number[]): ColliderPrimitive3D | null {
   const sx = scale[0] ?? 1;
@@ -98,6 +98,8 @@ function primitive3D(s: Obj, scale: readonly number[]): ColliderPrimitive3D | nu
       const r = num(s['radius']);
       return { type: 'capsule', radius: r * sx, halfHeight: Math.max(0, num(s['height']) / 2 - r) * sx };
     }
+    case 'cylinder':
+      return { type: 'cylinder', radius: num(s['radius']) * sx, halfHeight: (num(s['height']) / 2) * sx };
     case 'convex':
       return { type: 'convex', points: flat(s['points']) };
     case 'mesh': {
@@ -145,7 +147,7 @@ function placedPart3D(s: Obj, scale: readonly number[]): { shape: ColliderPrimit
   const q = pose.rotation;
   const position = { x: (c[0] ?? 0) * sx, y: (c[1] ?? 0) * sy, z: (c[2] ?? 0) * sz };
   const uniform = sx === sy && sy === sz;
-  if (isIdentity(q) || uniform || s['type'] === 'sphere' || s['type'] === 'capsule') {
+  if (isIdentity(q) || uniform || s['type'] === 'sphere' || s['type'] === 'capsule' || s['type'] === 'cylinder') {
     const shape = primitive3D(s, scale);
     return shape === null ? null : { shape, position, rotation: { x: q[0] ?? 0, y: q[1] ?? 0, z: q[2] ?? 0, w: q[3] ?? 1 } };
   }
@@ -239,6 +241,15 @@ export function staticColliderOf(entityId: string, components: Readonly<Obj>, wo
 }
 
 /**
+ * A collider's shape with each 2D shape made solid along its plane's normal
+ * (the collider's own authored plane, else Z: a plane a script sets later
+ * moves the body, never reshapes it), its depth the collider's.
+ */
+export function solidShapeOf(collider: unknown): unknown {
+  return shape2DTo3D(isObj(collider) ? collider['shape'] : undefined, { depth: colliderDepthOf(collider), plane: planeLockOf(collider)?.axis ?? null });
+}
+
+/**
  * The 3D static collider spec of one entity's `collider` (null without one,
  * or when its shape resolves to nothing): at `world` (default: its own
  * transform, a root object) with its full rotation, the shape resolved for
@@ -246,21 +257,25 @@ export function staticColliderOf(entityId: string, components: Readonly<Obj>, wo
  * is one a script or a timeline drives (`kinematic`).
  */
 export function staticColliderOf3D(entityId: string, components: Readonly<Obj>, kinematic = false, world?: WorldTransform, ctx?: ColliderContext): StaticColliderSpec3D | null {
-  const collider = components['collider'] as { shape?: unknown; layers?: unknown } | undefined;
+  const collider = components['collider'] as { shape?: unknown; layers?: unknown; oneWay?: boolean } | undefined;
   if (collider === undefined) return null;
   const w = world ?? ownTransform(components);
-  const resolved = colliderShape3DOf(collider.shape, w.scale, components, ctx);
+  const plane = planeSpec(ctx?.planeOf?.(entityId), collider);
+  const solid = solidShapeOf(collider);
+  if (solid === null) return null;
+  const resolved = colliderShape3DOf(solid, w.scale, components, ctx);
   if (resolved === null && isObj(collider.shape) && collider.shape['type'] === 'model') return null;
   const [qx, qy, qz, qw] = w.rotation;
   return {
     entityId,
-    shape: resolved ?? collider.shape,
+    shape: resolved ?? solid,
     position: { x: w.position[0], y: w.position[1], z: w.position[2] },
     rotation: { x: qx, y: qy, z: qz, w: qw },
     ...(kinematic || components['mover'] !== undefined ? { kinematic: true } : {}),
     // The collision layers it is in (absent: "default").
     ...(Array.isArray(collider.layers) ? { layers: [...(collider.layers as string[])] } : {}),
-    ...planeSpec(ctx?.planeOf?.(entityId), collider),
+    ...(collider.oneWay === true ? { oneWay: true } : {}),
+    ...plane,
   };
 }
 
@@ -353,6 +368,14 @@ export function shapeAabb3(shape: ColliderShape3D, q: readonly number[]): { min:
       const e = rotate3(q, [0, shape.halfHeight, 0]);
       const r = shape.radius;
       return { min: [-Math.abs(e[0]) - r, -Math.abs(e[1]) - r, -Math.abs(e[2]) - r], max: [Math.abs(e[0]) + r, Math.abs(e[1]) + r, Math.abs(e[2]) + r] };
+    }
+    case 'cylinder': {
+      // The end discs' extent along each world axis: the axis's reach plus the radius across it.
+      const e = rotate3(q, [0, shape.halfHeight, 0]);
+      const len = Math.hypot(e[0], e[1], e[2]) || 1;
+      const across = (i: number): number => shape.radius * Math.sqrt(Math.max(0, 1 - (e[i]! / len) ** 2));
+      const h = [Math.abs(e[0]) + across(0), Math.abs(e[1]) + across(1), Math.abs(e[2]) + across(2)] as const;
+      return { min: [-h[0], -h[1], -h[2]], max: [h[0], h[1], h[2]] };
     }
     case 'convex':
     case 'mesh': {

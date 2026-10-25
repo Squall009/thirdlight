@@ -32,7 +32,7 @@ import type { ActionFrame } from './actions';
 import type { ColliderShape3D, KinematicPose3D, PhysicsPort, PhysicsPort3D, Vec2 } from './ports';
 import { BLOCK_DEFAULTS, isCounterName, SWITCH_DEFAULT_ACTION, type EntityV3 } from '@thirdlight/project-model';
 import type { BehaviorMessage, PlayerCapsule, PrimitiveEventRecord, TransformState, TriggerEventRecord } from './types';
-import { colliderRotationZ, colliderShape3DOf, shapeAabb3 } from './collider-specs';
+import { colliderRotationZ, colliderShape3DOf, shapeAabb3, solidShapeOf } from './collider-specs';
 import { capsuleHalfTotal, playerCapsuleOf } from './scene-set';
 import { controllerCapsuleOffsetZ, controllerTuningOf } from '@thirdlight/project-model';
 import { rotate3, segmentBoxDistance2, segmentPointDistance2, segmentSegmentDistance2, sub3, type V3 } from './geometry3';
@@ -522,7 +522,7 @@ export class GameplayBlocks {
     const q = e.components.transform.rotation;
     const rotation: [number, number, number, number] = [q[0] ?? 0, q[1] ?? 0, q[2] ?? 0, q[3] ?? 1];
     if (this.host.physics3d === undefined || col === undefined) return { rotation, aabb: null };
-    const shape = colliderShape3DOf(col['shape'], e.components.transform.scale);
+    const shape = colliderShape3DOf(solidShapeOf(col), e.components.transform.scale);
     return { rotation, aabb: shape === null ? null : shapeAabb3(shape, rotation) };
   }
 

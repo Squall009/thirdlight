@@ -29,6 +29,7 @@ import { canonicalArchitecture, validateArchitectureComponent, type Architecture
 import { ID_RE } from './validate';
 import { validateLightLayerMask } from './light-layers';
 import { planeLockOf, validatePlaneLock, type PlaneLock } from './plane-lock';
+import { colliderDepthField, validateColliderDepth } from './shape-2d-3d';
 import { validateLocalLightMode, type LocalLightMode } from './local-lights';
 
 import { BLOCK_COMPONENT_NAMES, BLOCK_COMPONENTS } from './blocks';
@@ -779,6 +780,7 @@ export function validateEntityComponentsV3(
     }
     // The plane the collider's body is locked to (absent or null: free).
     if (isPlainObject(col)) validatePlaneLock(col['plane'], `${path}/collider/plane`, errors);
+    if (isPlainObject(col) && col['depth'] !== undefined) validateColliderDepth(col['depth'], `${path}/collider/depth`, errors);
     validateColliderComponent(colliderCore(col), `${path}/collider`, errors);
     // The model's `_COL` parts are the object's own model's.
     if (isPlainObject(col) && isPlainObject(col['shape']) && col['shape']['type'] === 'model' && comps['model'] === undefined) {
@@ -1409,7 +1411,7 @@ export function canonicalComponentsV3(comps: Record<string, unknown>): EntityCom
     components.behavior = { behaviorId: b.behaviorId, values: b.values };
   }
   if (comps['prefab'] !== undefined) components.prefab = comps['prefab'] as PrefabProvenanceComponent;
-  if (comps['collider'] !== undefined) components.collider = { shape: canonicalCollider(comps['collider']), ...((comps['collider'] as { oneWay?: unknown }).oneWay === true ? { oneWay: true as const } : {}), ...(Array.isArray((comps['collider'] as { layers?: unknown }).layers) ? { layers: [...(comps['collider'] as { layers: string[] }).layers] } : {}), ...planeField(comps['collider']) };
+  if (comps['collider'] !== undefined) components.collider = { shape: canonicalCollider(comps['collider']), ...((comps['collider'] as { oneWay?: unknown }).oneWay === true ? { oneWay: true as const } : {}), ...(Array.isArray((comps['collider'] as { layers?: unknown }).layers) ? { layers: [...(comps['collider'] as { layers: string[] }).layers] } : {}), ...planeField(comps['collider']), ...colliderDepthField(comps['collider']) };
   if (comps['controller'] !== undefined) components.controller = canonicalController(comps['controller']);
   if (comps['playerSpawn'] !== undefined) {
     const { yaw } = comps['playerSpawn'] as { yaw?: number };

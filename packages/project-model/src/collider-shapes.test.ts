@@ -63,9 +63,11 @@ describe('collider shapes', () => {
 
   it('checks each shape of a compound against the project\'s dimension', () => {
     const compound = (shapes: unknown[]): Record<string, unknown> => ({ transform: T, collider: { shape: { type: 'compound', shapes } } });
-    // 3D: a box needs its depth, a polygon is the plane's.
-    expect(dimensionErrors(compound([{ type: 'box', hx: 1, hy: 1, hz: 1 }, { type: 'box', hx: 1, hy: 1 }]), 3).map((e) => e.path)).toEqual(['/entities/0/components/collider/shape/shapes/1/hz']);
-    expect(dimensionErrors(compound([{ type: 'polygon', vertices: [[0, 0], [1, 0], [0, 1]] }]), 3).map((e) => e.path)).toEqual(['/entities/0/components/collider/shape/shapes/0/type']);
+    // 3D: a box without its depth and a polygon take their 3D form (the collider's depth).
+    expect(dimensionErrors(compound([{ type: 'box', hx: 1, hy: 1, hz: 1 }, { type: 'box', hx: 1, hy: 1 }]), 3)).toEqual([]);
+    expect(dimensionErrors(compound([{ type: 'polygon', vertices: [[0, 0], [1, 0], [0, 1]] }]), 3)).toEqual([]);
+    // A mesh never moves.
+    expect(dimensionErrors({ ...compound([{ type: 'mesh', vertices: [[0, 0, 0], [1, 0, 0], [0, 0, 1]], triangles: [[0, 1, 2]] }]), mover: { waypoints: [[1, 0, 0]], speed: 1, mode: 'loop' } }, 3).map((e) => e.path)).toEqual(['/entities/0/components/collider/shape/shapes/0/type']);
     // The plane: no 3D shapes, and a turn about Z only.
     expect(dimensionErrors(compound([{ type: 'sphere', radius: 1 }]), 2).map((e) => e.path)).toEqual(['/entities/0/components/collider/shape/shapes/0/type']);
     expect(dimensionErrors(compound([{ type: 'box', hx: 1, hy: 1, rotation: [Math.SQRT1_2, 0, 0, Math.SQRT1_2] }]), 2).map((e) => e.path)).toEqual(['/entities/0/components/collider/shape/shapes/0/rotation']);

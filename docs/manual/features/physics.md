@@ -126,12 +126,19 @@ backend, `@dimforge/rapier3d-compat` 0.20.0).
 
 In a 3D project:
 
-- every box collider needs a **depth**: the collider's **Half depth** field
-  (`hz`, metres; its Scene handle becomes a 3-axis box that turns with the
-  object once the depth is set). Switching a project to 3D is refused while a
-  box has none; polygon colliders are 2D-plane shapes and are refused too;
+- a box collider's depth is its **Half depth** field (`hz`, metres; its
+  Scene handle becomes a 3-axis box that turns with the object once the
+  depth is set);
+- the 2D shapes take their **3D form**: a box without `hz` is a box the
+  collider's **Depth** deep (`depth`, metres; absent: 1 m), a polygon a
+  prism that deep (a concave outline is split into convex prisms, always the
+  same way), along the plane's normal: Z, or X when the collider is locked
+  to an X plane (its outline then stands in Y/Z, its x along −Z). A 2D
+  circle's 3D form is a **cylinder** along that normal;
 - a collider's **Shape** may also be a **sphere** (radius), a
   **capsule** (radius and total height, standing along the object's Y), a
+  **cylinder** (radius and full height, standing along the object's Y; turn
+  it to lay it along another axis), a
   **convex hull** (up to 64 points) or a **triangle mesh** (up to 1,024
   vertices and 2,048 triangles; static level geometry — never on a mover).
   Hulls and meshes are made from a model: dragging a model with a `_COL`
@@ -139,17 +146,22 @@ In a 3D project:
   hull when it is too big for a mesh), and the Inspector's **Box / Convex
   hull / Mesh from model** buttons make one from the object's model (its
   `_COL` node(s), else its LOD0 geometry). A 3D collider takes its object's
-  scale (any positive scale for a box, hull or mesh; uniform for a sphere or
-  capsule). The Scene view draws every 3D collider as a wire outline; a
+  scale (any positive scale for a box, hull or mesh; uniform for a sphere,
+  capsule or cylinder). The Scene view draws every 3D collider as a wire outline; a
   sphere has a radius handle, a capsule a height and a radius handle.
-  "+ Add component" offers the 3D presets (Box (3D), Sphere, Capsule, Convex
-  hull, Mesh) in a 3D project and the 2D ones in a 2D plane;
+  "+ Add component" offers the 3D presets (Box (3D), Sphere, Capsule,
+  Cylinder, Convex hull, Mesh) in a 3D project and the 2D ones in a 2D plane;
 - **triggers** are 3D volumes: a **box** with a depth (`size` [w, h, d]),
   a **sphere** or a **capsule** (radius and height), turned with their
   object and tested exactly against the player's capsule — enter and exit
   signals, `mode: stay`, `once` and scripts' trigger events work as in 2D.
-  Switches are 2D-plane blocks and are refused in a 3D project; one-way
-  colliders too;
+  Switches are 2D-plane blocks and are refused in a 3D project;
+- **one-way** colliders (`oneWay: true`) hold only from the side their
+  local +Y faces: a platform is jumped up through and landed on, a turned
+  one is a one-way wall, and in a full 3D level it is a one-way floor.
+  Down + jump drops a player standing on one through it, as on the plane.
+  The rule is the shape's lowest point along the platform's up against the
+  platform's top, so a player half way through is never caught by it;
 - **movers** move 3D colliders (box, sphere, capsule, hull) along their
   waypoints and carry the player standing on them; a script may drive a
   collider no mover moves through its transform intents (the runtime turns

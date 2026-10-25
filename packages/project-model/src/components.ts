@@ -261,10 +261,10 @@ export function validateColliderLayers(v: unknown, path: string, errors: ModelEr
   });
 }
 
-/** The collider value without its v4 extras (`oneWay`, `layers`, `plane`), for the shape validation. */
+/** The collider value without its extras (`oneWay`, `layers`, `plane`, `depth`), for the shape validation. */
 export function colliderCore(col: unknown): unknown {
-  if (!isPlainObject(col) || (col['oneWay'] === undefined && col['layers'] === undefined && col['plane'] === undefined)) return col;
-  return Object.fromEntries(Object.entries(col).filter(([k]) => k !== 'oneWay' && k !== 'layers' && k !== 'plane'));
+  if (!isPlainObject(col) || (col['oneWay'] === undefined && col['layers'] === undefined && col['plane'] === undefined && col['depth'] === undefined)) return col;
+  return Object.fromEntries(Object.entries(col).filter(([k]) => k !== 'oneWay' && k !== 'layers' && k !== 'plane' && k !== 'depth'));
 }
 
 export function validateColliderComponent(c: unknown, path: string, errors: ModelErrorV2[]): void {
@@ -777,15 +777,15 @@ export function validatePhysicsTransform(
  * The scale rule of a physics-bearing entity for the project's
  * physics dimension. A 2D plane (and every controller): unit scale, as
  * before. 3D: a box, hull or mesh collider takes any positive scale per axis
- * (applied to its shape along the entity's axes), a sphere or capsule a
- * positive uniform one (a non-uniformly scaled sphere is no sphere).
+ * (applied to its shape along the entity's axes), a sphere, capsule or
+ * cylinder a positive uniform one (a non-uniformly scaled sphere is no sphere).
  */
 export function physicsScaleErrors(comps: Record<string, unknown>, path: string, hasController: boolean, dimension: 2 | 3, errors: ModelErrorV2[]): void {
   const t = effectiveTransform(comps);
   const [sx, sy, sz] = t.scale;
   if (sx === 1 && sy === 1 && sz === 1) return;
   const shape = isPlainObject(comps['collider']) ? (comps['collider'] as Record<string, unknown>)['shape'] : undefined;
-  const roundPart = colliderShapeParts(shape).find((p) => p['type'] === 'sphere' || p['type'] === 'capsule');
+  const roundPart = colliderShapeParts(shape).find((p) => p['type'] === 'sphere' || p['type'] === 'capsule' || p['type'] === 'cylinder');
   const type = roundPart !== undefined ? roundPart['type'] : isPlainObject(shape) ? shape['type'] : undefined;
   if (dimension === 3 && !hasController) {
     // A compound holding a sphere or a capsule scales uniformly too.

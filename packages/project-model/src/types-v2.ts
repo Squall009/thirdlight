@@ -105,6 +105,17 @@ export interface ColliderCapsuleShape {
 }
 
 /**
+ * 3D projects: a cylinder standing along the entity's local Y, centred on
+ * the entity — `height` is its full height (flat ends). A 2D circle's 3D
+ * form: turned so its axis is the plane's normal.
+ */
+export interface ColliderCylinderShape {
+  type: 'cylinder';
+  radius: number;
+  height: number;
+}
+
+/**
  * 3D projects: the convex hull of `points` ([x, y, z] in the
  * entity's frame) — usually generated from a model's `_COL` node or its
  * geometry, stored as data like the 2D plane's model outline polygon.
@@ -136,7 +147,7 @@ export interface ColliderShapePose {
 }
 
 /** One primitive shape (sphere, capsule, convex and mesh in 3D projects), placed by its pose. */
-export type ColliderPrimitiveShape = (ColliderBoxShape | ColliderPolygonShape | ColliderSphereShape | ColliderCapsuleShape | ColliderConvexShape | ColliderMeshShape) & ColliderShapePose;
+export type ColliderPrimitiveShape = (ColliderBoxShape | ColliderPolygonShape | ColliderSphereShape | ColliderCapsuleShape | ColliderCylinderShape | ColliderConvexShape | ColliderMeshShape) & ColliderShapePose;
 
 /** Several primitive shapes on one object (one body), each with its own pose. */
 export interface ColliderCompoundShape {
@@ -164,6 +175,8 @@ export interface ColliderComponent {
   layers?: string[];
   /** The plane its body is locked to (absent: free in all six degrees of freedom). */
   plane?: PlaneLock;
+  /** The depth (m) a 2D shape (a box without hz, a polygon) is given on the 3D backend (absent: 1 m). */
+  depth?: number;
 }
 
 /**

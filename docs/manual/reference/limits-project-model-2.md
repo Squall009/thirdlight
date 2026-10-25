@@ -170,6 +170,14 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | <a id="limit-see-through-defaults"></a>`SEE_THROUGH_DEFAULTS` | `{"enabled":false,"radius":0.2,"softness":0.4,"maxFade":0.75,"depthMargin":0.25,"fadeTime":0.25,"padding":0.3}` | The settings a project starts with: off; a circle of radius a fifth of the view's height, soft over 40 % of it, thinning to a 75 % dither. |
 | <a id="limit-see-through-limits"></a>`SEE_THROUGH_LIMITS` | `{"radius":{"min":0,"max":1},"softness":{"min":0,"max":1},"maxFade":{"min":0,"max":0.95},"depthMargin":{"min":0,"max":100},"fadeTime":{"min":0,"max":10},"padding":{"min":0,"max":10}}` | The range of each number (max fade stays below 1: what is in front never vanishes). |
 
+<a id="limits-project-model--shape-2d-3d"></a>
+## `shape-2d-3d.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-default-collider-depth"></a>`DEFAULT_COLLIDER_DEPTH` | `1` | The depth (m) a 2D shape gets when its collider names none: a side-scroller's tile is about a metre deep. |
+| <a id="limit-max-collider-depth"></a>`MAX_COLLIDER_DEPTH` | `128` | The deepest a 2D shape is made (m): the collider extent either side of its plane. |
+
 <a id="limits-project-model--shell"></a>
 ## `shell.ts`
 

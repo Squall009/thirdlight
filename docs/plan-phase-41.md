@@ -183,6 +183,7 @@ with real Rapier on page and worker.
 |---|---|
 | 41.0 | Done. three.js 0.186.1 still latest. Rapier 0.21.0 code-compatible (suites green) but not taken: wasm 1974→3010 KiB (soft bodies/FEM), step +25–60 %; pin stays 0.20.0 (0007 §9). Decision 0007 written, 0005 superseded. Baseline (`~/.cache/thirdlight-phase41/baseline.md`): 2D full step p50 small 0.044 / medium 0.105 / script-heavy 0.039 ms; physics-only side-scroller (`run.mjs plane-step`) 2D 0.037 ms (1 level) / 0.056 ms (4), same layout on 3D 0.053 / 0.106 ms (1.4–1.9×); export wasm 2D 1451 KiB (541 gzip), 3D 1974 KiB (744 gzip). No e2e touched. |
 | 41.1 | Done. Plane lock on the 3D port (`plane3d.ts`): statics made/snapped on the plane, movers posed on it, characters' moves and depth held exactly, Rapier locks + position correction for dynamic bodies (port-level: the engine has no dynamic bodies yet). `plane` on collider/controller; `ctx.physics.setPlane/planeOf`, `ctx.character.setPlane`, applied at step boundaries. Tests: port (lock/unlock/re-lock, mover, dynamic stack, two runs equal), model, integration page+worker+2 page runs digests equal. `plane-step` p50 1 level 3D 0.052 → plane-locked 0.057 ms, 4 levels 0.109 → 0.113 ms (2D 0.037 / 0.061). No e2e touched; fast gate green (9 min). |
+| 41.2 | Done. `shape2DTo3D` (project-model `shape-2d-3d.ts`, the mapping 41.5's upgrade calls, with a change list per converted shape): box without `hz` → box `depth` deep (collider `depth`, default 1 m), polygon → convex prism or compound of prisms (`convexPieces`: ear clipping + Hertel–Mehlhorn, deterministic, ≤ 32 corners), circle → `cylinder` (new 3D primitive in model, runtime and port) along the plane normal. 3D projects take depthless boxes, polygons and `oneWay`. One-way on the 3D port (`oneway3d.ts`): the character sweep filter and drop-through (`dropThrough`, down + jump routed to the 3D port), and `OneWayContacts` hooks for dynamic bodies (port-level). Tests: model (decomposition L/U/comb tile exactly, cylinder axis Z/X), port (land from above, pass from below and the side, drop-through, free and on a plane, turned one-way wall, dynamic ball, cylinders), integration 2D port vs plane-locked 3D port on box/ramp/concave/one-way (worst 5.8 mm, tolerance 10 mm), game host 3D project shelf + drop-through + prism ramp. No e2e touched; fast gate (colliders, physics-3d) see commit. |
 
 ## 5. Decision log
 
@@ -214,3 +215,22 @@ with real Rapier on page and worker.
   script-set plane lasts until changed, the object leaves the game or the run restarts.
 - 2026-10-25 (41.1): `setPlane`/`planeOf` have no visual-script nodes yet (a plane is an object or
   null, which the node generator does not flatten); 41.4 (one query surface) or 41.7 adds them.
+- 2026-10-25 (41.2): default chosen, owner to confirm: a 2D shape's 3D depth is the collider's
+  `depth` (m, absent 1 m, at most 128 m), centred on its plane. A 2D outline on an X plane stands in
+  Y/Z with its x along −Z (right of a camera on the plane's +X side looking back, as x is right of
+  one on +Z) and its depth along X. The orientation comes from the collider's authored plane only: a
+  plane a script sets later moves the body and never reshapes it.
+- 2026-10-25 (41.2): default chosen, owner to confirm: one-way is decided by position, not by the
+  contact normal: a one-way collider holds a shape only while the shape's lowest point along the
+  collider's local +Y is at or above its top (within the 2D tolerance, 0.06 m) and the shape is not
+  moving up through it. A normal test catches a character that is half way through on the
+  platform's top face. "Up" is the collider's own +Y, so a turned one-way box is a one-way wall.
+- 2026-10-25 (41.2): 3D projects now accept a box without `hz`, a polygon and `oneWay` (refused
+  before; additive). The model's polygon stays convex with ≤ 8 corners, so the 2D port is unchanged;
+  concave outlines reach `shape2DTo3D` from code (the upgrade, `_COL` outlines). The model has no 2D
+  circle collider: `shape2DTo3D` takes `{ type: 'circle' }` for the upgrade and later use.
+- 2026-10-25 (41.2): the contact-pipeline one-way filter (`OneWayContacts`, Rapier
+  `filterContactPair` hooks) is port-level like 41.1's dynamic lock: the engine has no dynamic bodies.
+  Rapier runs hooks only in a step with an event queue. Not done here: 3D spawn clearance still counts
+  one-way colliders (the 2D probe ignores them; 41.3), and the editor draws a depthless box or polygon
+  in a 3D project as its 2D outline (41.5).

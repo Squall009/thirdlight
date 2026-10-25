@@ -27,6 +27,7 @@ import { blockLayer } from './block-descriptors';
 import { decalLayersField } from './decal-descriptor';
 import { instancePaintField } from './vertex-paint-descriptor';
 import { MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS } from './materials';
+import { DEFAULT_COLLIDER_DEPTH, MAX_COLLIDER_DEPTH } from './shape-2d-3d';
 import { SOCKET_ATTACH_CONFLICTS, SOCKET_ATTACH_LIMITS } from './sockets';
 import { MODE_BLENDS, MODE_DEFAULTS, MODE_LIMITS, MODE_PHYSICS, MODE_UNGROUPED } from './modes';
 import { CAMERA_BLENDS, CAMERA_PATH_LIMITS, CAMERA_RAIL_MODES, CAMERA_REGION_DEFAULTS, CAMERA_REGION_LIMITS, VIRTUAL_CAMERA_DEFAULTS as VCD, VIRTUAL_CAMERA_LIMITS as VCL, VIRTUAL_CAMERA_RIGS } from './cameras';
@@ -180,6 +181,8 @@ function colliderPrimitiveFields(): FieldDescriptor[] {
     num('radius', 'Radius', 'The sphere\'s radius.', { required: true, when: when('type', 'sphere'), min: 0, minExclusive: true, max: MAX_COLLIDER_EXTENT, step: 0.05, unit: 'm', default: 0.5, handle: 'radius' }),
     num('radius', 'Radius', 'The capsule\'s radius.', { required: true, when: when('type', 'capsule'), min: 0, minExclusive: true, max: MAX_COLLIDER_EXTENT, step: 0.05, unit: 'm', default: 0.5, handle: 'capsule' }),
     num('height', 'Height', 'The capsule\'s total height along the object\'s Y (end caps included; at least twice the radius).', { required: true, when: when('type', 'capsule'), min: 0, minExclusive: true, max: 2 * MAX_COLLIDER_EXTENT, step: 0.05, unit: 'm', default: 2, handle: 'capsule' }),
+    num('radius', 'Radius', 'The cylinder\'s radius.', { required: true, when: when('type', 'cylinder'), min: 0, minExclusive: true, max: MAX_COLLIDER_EXTENT, step: 0.05, unit: 'm', default: 0.5 }),
+    num('height', 'Height', 'The cylinder\'s full height along the object\'s Y.', { required: true, when: when('type', 'cylinder'), min: 0, minExclusive: true, max: 2 * MAX_COLLIDER_EXTENT, step: 0.05, unit: 'm', default: 1 }),
     // Generated from a model (its _COL node, else its geometry) and stored as data; shown read-only.
     list('points', 'Hull points', `4–${COLLIDER_3D_LIMITS.convexPoints} points [x, y, z] whose convex hull is the shape (made from a model).`, vec3('*', 'Point', 'A point [x, y, z] from the object origin.', { min: -MAX_COLLIDER_EXTENT, max: MAX_COLLIDER_EXTENT, unit: 'm' }), {
       required: true,
@@ -211,18 +214,19 @@ function colliderPrimitiveFields(): FieldDescriptor[] {
 export const collider: ComponentDescriptor = {
   name: 'collider',
   label: 'Collider',
-  tooltip: 'A solid shape the player stands on and bumps into (a box or a convex polygon in the X/Y plane; in a 3D project a box with a depth, a sphere, a capsule, a convex hull or a triangle mesh), placed anywhere in the object\'s frame; several shapes as a compound, or the convex parts of its model\'s _COL node.',
+  tooltip: 'A solid shape the player stands on and bumps into (a box or a convex polygon in the X/Y plane; in a 3D project a box with a depth, a sphere, a capsule, a cylinder, a convex hull or a triangle mesh), placed anywhere in the object\'s frame; several shapes as a compound, or the convex parts of its model\'s _COL node.',
   category: 'Physics',
   value: obj('collider', 'Collider', 'The collision shape.', [
-    obj('shape', 'Shape', 'A box (half extents) or a convex polygon; in a 3D project also a sphere, a capsule, a convex hull or a triangle mesh; a compound of several; or the model\'s _COL parts.', [
-      enm('type', 'Shape', 'Box or convex polygon (2D plane); box, sphere, capsule, convex hull or mesh (3D project); a compound of shapes; or the convex parts of the model\'s _COL node (read when the game is built).', ['box', 'polygon', 'sphere', 'capsule', 'convex', 'mesh', 'compound', 'model'], { required: true, default: 'box' }),
+    obj('shape', 'Shape', 'A box (half extents) or a convex polygon; in a 3D project also a sphere, a capsule, a cylinder, a convex hull or a triangle mesh; a compound of several; or the model\'s _COL parts.', [
+      enm('type', 'Shape', 'Box or convex polygon (2D plane); box, sphere, capsule, cylinder, convex hull or mesh (3D project); a compound of shapes; or the convex parts of the model\'s _COL node (read when the game is built).', ['box', 'polygon', 'sphere', 'capsule', 'cylinder', 'convex', 'mesh', 'compound', 'model'], { required: true, default: 'box' }),
       ...colliderPrimitiveFields(),
       list('shapes', 'Shapes', 'The compound\'s shapes (one body), each with its own centre and rotation.', obj('*', 'Shape', 'One shape of the compound.', [
-        enm('type', 'Shape', 'Box or convex polygon (2D plane); box, sphere, capsule, convex hull or mesh (3D project).', ['box', 'polygon', 'sphere', 'capsule', 'convex', 'mesh'], { required: true, default: 'box' }),
+        enm('type', 'Shape', 'Box or convex polygon (2D plane); box, sphere, capsule, cylinder, convex hull or mesh (3D project).', ['box', 'polygon', 'sphere', 'capsule', 'cylinder', 'convex', 'mesh'], { required: true, default: 'box' }),
         ...colliderPrimitiveFields(),
       ]), { required: true, when: when('type', 'compound'), minItems: 1 }),
-    ], { required: true, rules: ['A polygon is convex, counter-clockwise, has no repeated corner, an area of at least 1e-6 m² and stays within 64 m of the origin.', 'Sphere, capsule, convex hull and mesh are 3D shapes (physics_dimension 3); a mesh is static level geometry (not on a mover).', 'A model shape needs a model on the same object; a build makes one convex hull of each mesh part of its _COL node.'] }),
-    bool('oneWay', 'One-way', 'The player can jump up through it and land on top (a platform).', { default: false, omitDefault: true }),
+    ], { required: true, rules: ['A polygon is convex, counter-clockwise, has no repeated corner, an area of at least 1e-6 m² and stays within 64 m of the origin.', 'Sphere, capsule, cylinder, convex hull and mesh are 3D shapes (physics_dimension 3); a mesh is static level geometry (not on a mover).', 'On the 3D backend a box without hz and a polygon (a prism) are the collider\'s depth deep.', 'A model shape needs a model on the same object; a build makes one convex hull of each mesh part of its _COL node.'] }),
+    bool('oneWay', 'One-way', 'The player can jump up through it and land on top (a platform): it holds only from the side its +Y faces.', { default: false, omitDefault: true }),
+    num('depth', 'Depth', 'How deep a box without hz or a polygon is on the 3D backend (absent: 1 m).', { min: 0, minExclusive: true, max: MAX_COLLIDER_DEPTH, step: 0.1, unit: 'm', default: DEFAULT_COLLIDER_DEPTH, omitDefault: true }),
     // Absent = the implicit "default" layer (every collider is in one layer; none has to be named).
     list('layers', 'Collision layers', `The collision layers it is in (3D; absent: "default"). Script queries filter by layer; name layers in the project's collision layers.`, str('*', 'Layer', 'A collision layer: "default" or one the project names.', { format: 'identifier', minLength: 1, maxLength: 32 }), { minItems: 1, maxItems: 16, unique: true }),
   ]),
@@ -236,6 +240,7 @@ export const collider: ComponentDescriptor = {
     { label: 'Box (3D)', value: { shape: { type: 'box', hx: 0.5, hy: 0.5, hz: 0.5 } }, dimension: 3 },
     { label: 'Sphere', value: { shape: { type: 'sphere', radius: 0.5 } }, dimension: 3 },
     { label: 'Capsule', value: { shape: { type: 'capsule', radius: 0.5, height: 2 } }, dimension: 3 },
+    { label: 'Cylinder', value: { shape: { type: 'cylinder', radius: 0.5, height: 1 } }, dimension: 3 },
     { label: 'Convex hull', value: { shape: { type: 'convex', points: [[-0.5, -0.5, -0.5], [0.5, -0.5, -0.5], [0.5, 0.5, -0.5], [-0.5, 0.5, -0.5], [-0.5, -0.5, 0.5], [0.5, -0.5, 0.5], [0.5, 0.5, 0.5], [-0.5, 0.5, 0.5]] } }, dimension: 3 },
     { label: 'Mesh', value: { shape: { type: 'mesh', vertices: [[-0.5, 0, -0.5], [0.5, 0, -0.5], [0.5, 0, 0.5], [-0.5, 0, 0.5]], triangles: [[0, 2, 1], [0, 3, 2]] } }, dimension: 3 },
     // The model's own _COL parts, read when the game is built (an object with a model).

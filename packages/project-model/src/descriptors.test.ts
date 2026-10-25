@@ -476,6 +476,7 @@ const COMPONENT_BASES_PLACED: Record<string, J> = {
   polygon: { type: 'polygon', vertices: [[-1, -1], [1, -1], [1, 1], [-1, 1]], center: [1, 2, 0], rotation: [0, 0, 0, 1] },
   sphere: { type: 'sphere', radius: 0.5, center: [0, 1, 0], rotation: [0, 0, 0, 1] },
   capsule: { type: 'capsule', radius: 0.5, height: 2, center: [0, 1, 0], rotation: [0, 0, 0, 1] },
+  cylinder: { type: 'cylinder', radius: 0.5, height: 1, center: [0, 1, 0], rotation: [0, 0, 0, 1] },
   convex: { type: 'convex', points: [[-1, -1, -1], [1, -1, -1], [0, 1, -1], [0, 0, 1]], center: [0, 1, 0], rotation: [0, 0, 0, 1] },
   mesh: { type: 'mesh', vertices: [[-1, 0, -1], [1, 0, -1], [1, 0, 1], [-1, 0, 1]], triangles: [[0, 2, 1], [0, 3, 2]], center: [0, 1, 0], rotation: [0, 0, 0, 1] },
 };
@@ -500,12 +501,13 @@ const COMPONENT_BASES: Record<string, J[]> = {
   spline: [{ points: [{ at: [0, 0, 0], tangent: [1, 0, 0], width: 6, roll: 5 }, { at: [10, 1, 0] }, { at: [20, 0, 5] }], closed: true, width: 8, terrain: { shape: 'carve', falloff: 3, depth: 1, offset: 0.2, paint: { layer: 2, strength: 0.5, width: 6, falloff: 1 }, order: 1 }, scatter: { margin: 2, rules: ['trees'] }, mesh: { kind: 'water', profile: [[-1, 0], [1, 0]], offset: -0.3, tiling: 8, step: 2, collision: false, castShadow: false, receiveShadow: false, flow: 2, foam: 1 }, pieces: [{ asset: { assetId: 'model-a', piece: 'Post' }, spacing: 3, start: 1, offset: [2, 0], yaw: 90, upright: false, collide: false, castShadow: false }], data: 'c'.repeat(64) , decalLayers: 1 }],
   terrain: [{ tileSamples: 129, spacing: 2, heightRange: [-10, 90], tiles: [{ x: 0, z: 0 }, { x: 1, z: -1, data: 'b'.repeat(64) }], lodDistance: 300, collision: false, macroDistance: 400, streaming: { render: 1200, collision: 96, scatter: 800, hysteresis: 32 }, overview: 'c'.repeat(64), uvOrigin: [16, -8] , decalLayers: 1, seeThrough: false }],
   collider: [
-    { shape: { type: 'box', hx: 0.5, hy: 0.25 }, oneWay: true },
+    { shape: { type: 'box', hx: 0.5, hy: 0.25 }, oneWay: true, depth: 2 },
     { shape: { type: 'box', hx: 0.5, hy: 0.25, hz: 1 }, layers: ['default', 'props'] },
     { shape: { type: 'polygon', vertices: [[-1, -1], [1, -1], [1, 1], [-1, 1]] } },
     // The 3D shapes (their dimension rule is the project's, not the scene's).
     { shape: { type: 'sphere', radius: 0.5 } },
     { shape: { type: 'capsule', radius: 0.5, height: 100 } },
+    { shape: { type: 'cylinder', radius: 0.5, height: 100 } },
     { shape: { type: 'convex', points: [[-1, -1, -1], [1, -1, -1], [0, 1, -1], [0, 0, 1]] } },
     { shape: { type: 'mesh', vertices: [[-1, 0, -1], [1, 0, -1], [1, 0, 1], [-1, 0, 1]], triangles: [[0, 2, 1], [0, 3, 2]] } },
     // Placed shapes, a compound of every primitive and the model's _COL parts.
@@ -524,7 +526,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
       { type: 'mesh', vertices: [[-1, 0, -1], [1, 0, -1], [1, 0, 1], [-1, 0, 1]], triangles: [[0, 2, 1], [0, 3, 2]], center: [0, 1, 0], rotation: [0, 0, 0, 1] },
     ] } },
     // The list probe reads a compound's first shape: one compound per primitive type.
-    ...['polygon', 'sphere', 'capsule', 'convex', 'mesh'].map((type) => ({ shape: { type: 'compound', shapes: [COMPONENT_BASES_PLACED[type]!] } })),
+    ...['polygon', 'sphere', 'capsule', 'cylinder', 'convex', 'mesh'].map((type) => ({ shape: { type: 'compound', shapes: [COMPONENT_BASES_PLACED[type]!] } })),
     { shape: { type: 'model' } },
   ],
   controller: [{ capsule: { radius: 0.3, height: 1.8, offset: [0, 0.1] }, acceleration: 30, deceleration: 50, coyoteTime: 0.1, jumpBuffer: 0.1, jumpRelease: 0.4, groundSnap: 0.2, skin: 0.02, autostep: true, autostepHeight: 0.3, walkSpeed: 2.5, runSpeed: 6, airControl: 0.3, gravityScale: 1.5, turnSpeed: 360, faceMovement: false, moveFrame: 'world', jump: true, jumpSpeed: 5, slopeLimit: 40, stepHeight: 0.5, ledgeClimb: true, ledgeHeight: 1, ledgeClimbTime: 0.4, moveAction: 'walk', jumpAction: 'hop', runAction: 'dash', climbSpeed: 1.5, climbAction: 'climb', wallSlide: true, wallSlideSpeed: 1, wallJump: true, wallJumpAway: 5, wallJumpUp: 6, wallJumpLock: 0.2 }],
@@ -1049,8 +1051,9 @@ describe('descriptor registry', () => {
     // spline's profile as structured fields instead of JSON, about 2 KB; linked copies — a copy's overrides and an added
     // object's parent part, about 0.7 KB; ground cover on models and architecture, about 0.4 KB; wind zones and the
     // wind's gust pattern fields, about 4.4 KB; the physical sky's cloud cover, density and start, about 1.3 KB; how a
-    // subject parts foliage, about 1.3 KB; foliage bases taking the ground's colour, about 0.4 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(349_300);
+    // subject parts foliage, about 1.3 KB; foliage bases taking the ground's colour, about 0.4 KB; the cylinder collider
+    // shape and a collider's depth for its 2D shapes on the 3D backend, about 1.5 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(350_900);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

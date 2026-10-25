@@ -28,7 +28,8 @@ import * as RAPIER from '@dimforge/rapier3d-compat';
 import type { AddedCharacter3D, CharacterClearanceResult3D, CharacterMoveResult3D, KinematicPose3D, OverlapShape3D, PhysicsDiagnostics, PhysicsInitConfig3D, PhysicsPlane, PhysicsPort3D, PhysicsQuat, PhysicsQueryFilter3D, PhysicsVec3, RaycastHit3D, StaticColliderSpec3D } from '@thirdlight/runtime';
 
 import { inPlane, isPlane, lockBody, onPlane, planePose } from './plane3d';
-import { CLEARANCE_PENETRATION_EPS, CLEARANCE_RAY_EPS, CLEARANCE_SUPPORT_PROBE, FIXED_HZ_CHOICES, FOOTPRINT_BALL, GROUND_NORMAL_TOLERANCE, MAX_SHAPE_VALUE } from '../constants';
+import { markOneWay, OneWaySweeps, type OneWayShape } from './oneway3d';
+import { CLEARANCE_PENETRATION_EPS, CLEARANCE_RAY_EPS, CLEARANCE_SUPPORT_PROBE, FIXED_HZ_CHOICES, FOOTPRINT_BALL, GROUND_NORMAL_TOLERANCE, MAX_DROP_THROUGH_STEPS, MAX_SHAPE_VALUE } from '../constants';
 
 /** The value of `PhysicsPort3D.implementation` for this adapter. */
 export const PHYSICS_3D_IMPLEMENTATION = 'rapier3d-compat@0.20.0' as const;
@@ -44,13 +45,15 @@ export interface ColliderShapeBox3D {
 /**
  * A validated 3D collider shape — a box, a sphere, a capsule
  * (standing along its local Y; `halfHeight` is its centre segment's half
- * length, Rapier's convention), the convex hull of points, or a triangle
+ * length, Rapier's convention), a cylinder (along its local Y, `halfHeight`
+ * half its full height), the convex hull of points, or a triangle
  * mesh (a static collider only). Point lists are flat `[x, y, z, ...]`.
  */
 export type ColliderPrimitive3D =
   | ColliderShapeBox3D
   | { type: 'sphere'; radius: number }
   | { type: 'capsule'; radius: number; halfHeight: number }
+  | { type: 'cylinder'; radius: number; halfHeight: number }
   | { type: 'convex'; points: readonly number[] }
   | { type: 'mesh'; vertices: readonly number[]; indices: readonly number[] }
   | { type: 'heightfield'; cellsX: number; cellsZ: number; cellX: number; cellZ: number; heights: Float32Array };
@@ -94,6 +97,8 @@ export interface RapierPhysicsPort3D extends PhysicsPort3D {
   addCharacter(spec: AddedCharacter3D): void;
   /** Take an added character out of the world (its player left the game for good); an unknown id is ignored. */
   removeCharacter(id: string): void;
+  /** Let a character (absent id: the first) pass every one-way collider for the next `steps` steps (at most `MAX_DROP_THROUGH_STEPS`). */
+  dropThrough(steps: number, characterId?: string): void;
   diagnostics(): Rapier3DDiagnostics;
 }
 
@@ -188,6 +193,13 @@ function validatePrimitive3D(value: unknown): { ok: true; shape: ColliderPrimiti
     if (extra !== null) return { ok: false, detail: extra };
     return { ok: true, shape: { type: 'capsule', radius: v['radius'] as number, halfHeight: hh } };
   }
+  if (type === 'cylinder') {
+    if (!positive(v['radius'])) return { ok: false, detail: `cylinder radius must satisfy 0 < radius <= ${MAX_SHAPE_VALUE}` };
+    if (!positive(v['halfHeight'])) return { ok: false, detail: `cylinder halfHeight must satisfy 0 < halfHeight <= ${MAX_SHAPE_VALUE}` };
+    const extra = onlyKeys(v, ['type', 'radius', 'halfHeight'], 'cylinder');
+    if (extra !== null) return { ok: false, detail: extra };
+    return { ok: true, shape: { type: 'cylinder', radius: v['radius'] as number, halfHeight: v['halfHeight'] as number } };
+  }
   if (type === 'convex') {
     const points = flatList(v['points'], 4, MAX_CONVEX_POINTS_3D);
     if (points === null) return { ok: false, detail: `convex points must be a flat list of 4-${MAX_CONVEX_POINTS_3D} finite [x, y, z] points` };
@@ -238,7 +250,7 @@ function validatePrimitive3D(value: unknown): { ok: true; shape: ColliderPrimiti
     }
     return { ok: true, shape: { type: 'heightfield', cellsX: cx as number, cellsZ: cz as number, cellX: v['cellX'] as number, cellZ: v['cellZ'] as number, heights } };
   }
-  return { ok: false, detail: 'a 3D collider is a box, sphere, capsule, convex hull, mesh or heightfield (polygons are 2D-plane shapes)' };
+  return { ok: false, detail: 'a 3D collider is a box, sphere, capsule, cylinder, convex hull, mesh or heightfield (a 2D polygon or circle takes its 3D form first)' };
 }
 
 /**
@@ -284,6 +296,7 @@ function validateSpec(spec: StaticColliderSpec3D, label: string): { reason: 'inv
   if (spec.kinematic === true && partsOf(shape.shape).some((p) => p.shape.type === 'mesh' || p.shape.type === 'heightfield')) return { reason: 'invalid_shape', message: `${label}: a mesh collider is static, a heightfield too (a moving collider uses box, sphere, capsule or convex)` };
   if (spec.maxSlope !== undefined && (!finite(spec.maxSlope) || spec.maxSlope <= 0 || spec.maxSlope >= Math.PI / 2)) return { reason: 'invalid_config', message: `${label}: maxSlope must be a finite angle in (0, pi/2) or absent` };
   if (spec.plane !== undefined && !isPlane(spec.plane)) return { reason: 'invalid_config', message: `${label}: plane must be { axis: 'x' | 'z', origin } or absent` };
+  if (spec.oneWay !== undefined && typeof spec.oneWay !== 'boolean') return { reason: 'invalid_config', message: `${label}: oneWay must be a boolean or absent` };
   return null;
 }
 
@@ -430,6 +443,8 @@ interface Collider3DInfo {
   top: number;
   /** The cosine of the steepest slope of this collider a character walks up, when its spec sets one (a block layer's maxSlope). */
   climbCos?: number;
+  /** A one-way collider's top and reach (absent: it holds from every side). */
+  oneWay?: OneWayShape;
 }
 
 /** Rotate `p` by the unit quaternion `q`. */
@@ -450,6 +465,8 @@ function colliderDescOf(shape: ColliderPrimitive3D): RAPIER.ColliderDesc | null 
       return RAPIER.ColliderDesc.ball(shape.radius);
     case 'capsule':
       return RAPIER.ColliderDesc.capsule(shape.halfHeight, shape.radius);
+    case 'cylinder':
+      return RAPIER.ColliderDesc.cylinder(shape.halfHeight, shape.radius);
     case 'convex':
       return RAPIER.ColliderDesc.convexHull(new Float32Array(shape.points));
     case 'mesh':
@@ -479,6 +496,11 @@ function topOf(shape: ColliderPrimitive3D, q: PhysicsQuat): number {
       return shape.radius;
     case 'capsule':
       return Math.abs(rotate(q, [0, shape.halfHeight, 0])[1]) + shape.radius;
+    case 'cylinder': {
+      // Its axis's reach up plus the radius of the end disc across it.
+      const a = rotate(q, [0, 1, 0])[1];
+      return Math.abs(a) * shape.halfHeight + shape.radius * Math.sqrt(Math.max(0, 1 - a * a));
+    }
     case 'heightfield': {
       let top = -Infinity;
       for (let i = 0; i < shape.heights.length; i++) top = Math.max(top, shape.heights[i]!);
@@ -492,6 +514,40 @@ function topOf(shape: ColliderPrimitive3D, q: PhysicsQuat): number {
       return top;
     }
   }
+}
+
+/** The radius around its own origin that holds a shape (a one-way collider's reach). */
+function reachOf(shape: ColliderPrimitive3D): number {
+  switch (shape.type) {
+    case 'box':
+      return Math.hypot(shape.hx, shape.hy, shape.hz);
+    case 'sphere':
+      return shape.radius;
+    case 'capsule':
+      return shape.halfHeight + shape.radius;
+    case 'cylinder':
+      return Math.hypot(shape.halfHeight, shape.radius);
+    case 'heightfield':
+      return Math.hypot(shape.cellsX * shape.cellX, shape.cellsZ * shape.cellZ) + Math.max(...Array.from(shape.heights, Math.abs), 0);
+    case 'convex':
+    case 'mesh': {
+      const pts = shape.type === 'convex' ? shape.points : shape.vertices;
+      let r = 0;
+      for (let i = 0; i < pts.length; i += 3) r = Math.max(r, Math.hypot(pts[i]!, pts[i + 1]!, pts[i + 2]!));
+      return r;
+    }
+  }
+}
+
+/** A one-way collider's top along its body's local +Y and its reach, over all its placed shapes (in the body's frame). */
+function oneWayShapeOf(parts: readonly ColliderPart3D[]): OneWayShape {
+  let localTop = -Infinity;
+  let reach = 0;
+  for (const p of parts) {
+    localTop = Math.max(localTop, p.position.y + topOf(p.shape, p.rotation));
+    reach = Math.max(reach, Math.hypot(p.position.x, p.position.y, p.position.z) + reachOf(p.shape));
+  }
+  return { localTop, reach };
 }
 
 /**
@@ -558,11 +614,12 @@ function addStaticBody(world: RAPIER.World, spec: StaticColliderSpec3D, bits: La
   // The body's highest point over all its shapes (the kinematic-drag rule reads it).
   let top = -Infinity;
   for (const p of parts) top = Math.max(top, rotate(rotation, [p.position.x, p.position.y, p.position.z])[1] + topOf(p.shape, mulQuat(rotation, p.rotation)));
+  const oneWay = spec.oneWay === true ? oneWayShapeOf(parts) : undefined;
   const colliders = parts.map((p, i) => {
     const off = rotate(p.rotation, shapeOffset(p.shape));
     const desc = descs[i]!.setTranslation(p.position.x + off[0], p.position.y + off[1], p.position.z + off[2]).setRotation({ x: p.rotation.x, y: p.rotation.y, z: p.rotation.z, w: p.rotation.w });
-    const collider = world.createCollider(desc.setCollisionGroups(groups), body);
-    return { collider, info: { entityId: spec.entityId, body, kinematic, top, ...(spec.maxSlope !== undefined ? { climbCos: Math.cos(spec.maxSlope) } : {}) } };
+    const collider = world.createCollider((oneWay !== undefined ? markOneWay(desc) : desc).setCollisionGroups(groups), body);
+    return { collider, info: { entityId: spec.entityId, body, kinematic, top, ...(spec.maxSlope !== undefined ? { climbCos: Math.cos(spec.maxSlope) } : {}), ...(oneWay !== undefined ? { oneWay } : {}) } };
   });
   return { body, colliders };
 }
@@ -598,6 +655,8 @@ interface CharacterBody3D {
   last: CharacterMoveResult3D | undefined;
   /** The plane it is locked to (null: free); its moves keep to it. */
   plane: PhysicsPlane | null;
+  /** Steps left passing every one-way collider (a drop through). */
+  dropSteps: number;
 }
 
 /** A character's capsule collider (parentless, at its origin + offset) and its controller. */
@@ -619,6 +678,7 @@ function makeCharacterBody3D(world: RAPIER.World, given: PhysicsInitConfig3D['ch
     stepping: null,
     last: undefined,
     plane,
+    dropSteps: 0,
   };
 }
 
@@ -759,6 +819,58 @@ function keptSpec(spec: StaticColliderSpec3D): StaticColliderSpec3D {
   return heavyShape(shape) ? { ...spec, shape: empty(shape) } : spec;
 }
 
+const IDENTITY_Q = { x: 0, y: 0, z: 0, w: 1 };
+
+/**
+ * The clearance of a character's capsule if its centre were at `c` (query
+ * only; the 2D probe's rules): blocked by the deepest overlap with a collider
+ * (a narrow-phase contact deeper than the penetration epsilon), else
+ * supported by the nearest collider straight below the capsule's lowest
+ * point, else `no_support`. Characters are never in the way.
+ */
+function clearanceAt(world: RAPIER.World, characterHandles: ReadonlySet<number>, shape: CharacterBody3D['shape'], c: PhysicsVec3): CharacterClearanceResult3D {
+  const capsule = new RAPIER.Capsule(shape.halfHeight, shape.radius);
+  let maxPenetration = 0;
+  world.colliders.forEach((collider) => {
+    if (characterHandles.has(collider.handle)) return;
+    const contact = collider.contactShape(capsule, c, IDENTITY_Q, 0);
+    if (contact !== null && contact.distance < -CLEARANCE_PENETRATION_EPS) maxPenetration = Math.max(maxPenetration, -contact.distance);
+  });
+  if (maxPenetration > 0) return { ok: false, reason: 'blocked', penetration: maxPenetration };
+  const ray = new RAPIER.Ray({ x: c.x, y: c.y - (shape.halfHeight + shape.radius) + CLEARANCE_RAY_EPS, z: c.z }, { x: 0, y: -1, z: 0 });
+  let support: PhysicsVec3 | null = null;
+  let best = Infinity;
+  world.colliders.forEach((collider) => {
+    if (characterHandles.has(collider.handle)) return;
+    const hit = collider.castRayAndGetNormal(ray, CLEARANCE_SUPPORT_PROBE, true);
+    if (hit !== null && hit.timeOfImpact < best) {
+      best = hit.timeOfImpact;
+      support = { x: hit.normal.x, y: hit.normal.y, z: hit.normal.z };
+    }
+  });
+  if (support === null) return { ok: false, reason: 'no_support' };
+  return { ok: true, supportNormal: support, penetration: 0 };
+}
+
+/**
+ * The deepest overlap of a character's capsule centred at `c` with a
+ * collider (deeper than the clearance probe's epsilon), or null. A sweep
+ * that starts in one moves the character out of it — a real depenetration.
+ * A grounded character's sweep stopped by the floor starts in none (the
+ * controller keeps its skin above it), so standing never counts.
+ */
+function overlapOf(world: RAPIER.World, b: CharacterBody3D, c: PhysicsVec3, infoByHandle: ReadonlyMap<number, Collider3DInfo>, filter: ((c: RAPIER.Collider) => boolean) | undefined): { entityId: string; depth: number } | null {
+  let best: { entityId: string; depth: number } | null = null;
+  world.intersectionsWithShape(c, IDENTITY_Q, b.overlapCapsule, (collider) => {
+    const contact = collider.contactShape(b.overlapCapsule, c, IDENTITY_Q, 0);
+    const depth = contact === null ? 0 : -contact.distance;
+    const entityId = infoByHandle.get(collider.handle)?.entityId;
+    if (entityId !== undefined && depth > CLEARANCE_PENETRATION_EPS && (best === null || depth > best.depth)) best = { entityId, depth };
+    return true;
+  }, undefined, undefined, b.collider, undefined, filter);
+  return best;
+}
+
 /**
  * A kept spec whole again, its arrays read back from the colliders it was
  * built as (one per part, in order). Rapier holds a mesh as merged (its
@@ -814,6 +926,21 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
       return id !== undefined && accept(id) === true;
     });
   };
+  const oneWays = new OneWaySweeps(); // listed again whenever colliders come or go
+  const relistOneWay = (): void => oneWays.relist(infoByHandle);
+  relistOneWay();
+  /** `run` with the one-way colliders that do not hold the character now out of every sweep and probe it makes (`moving`: its move this step; null: where it is only). */
+  function withOneWay<T>(b: CharacterBody3D, moving: PhysicsVec3 | null, run: () => T): T {
+    const keep = oneWays.filterFor(at(b, b.position), b.shape, b.tuning, moving, b.dropSteps > 0);
+    if (keep === null) return run();
+    const kept = othersOut;
+    othersOut = bothPredicates(kept, keep);
+    try {
+      return run();
+    } finally {
+      othersOut = kept;
+    }
+  }
   /** A step-up that has not reached the top after a second ends (the character falls as usual). */
   const maxSteppingSteps = config.solver.hz;
   let disposed = false;
@@ -840,7 +967,6 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
     return b;
   };
   const down = { x: 0, y: -1, z: 0 };
-  const IDENTITY = { x: 0, y: 0, z: 0, w: 1 };
   const at = (b: CharacterBody3D, p: PhysicsVec3): PhysicsVec3 => ({ x: p.x + b.shape.offset.x, y: p.y + b.shape.offset.y, z: p.z + b.shape.offset.z });
   const probeFrom = (b: CharacterBody3D, p: PhysicsVec3): PhysicsVec3 => ({ x: p.x + b.shape.offset.x, y: p.y + b.shape.offset.y - (b.shape.halfHeight + b.shape.radius) + 0.05, z: p.z + b.shape.offset.z });
   /**
@@ -858,7 +984,7 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
     const c = at(b, p);
     const foot = new RAPIER.Ball(b.shape.radius * FOOTPRINT_BALL);
     const from = { x: c.x, y: c.y - b.shape.halfHeight + 0.05, z: c.z };
-    return world.castShape(from, IDENTITY, down, foot, 0, 0.2 + b.shape.radius * (1 - FOOTPRINT_BALL), true, undefined, undefined, b.collider, undefined, othersOut)?.collider ?? null;
+    return world.castShape(from, IDENTITY_Q, down, foot, 0, 0.2 + b.shape.radius * (1 - FOOTPRINT_BALL), true, undefined, undefined, b.collider, undefined, othersOut)?.collider ?? null;
   };
   const groundUnder = (b: CharacterBody3D, p: PhysicsVec3): string | null => {
     const collider = supportUnder(b, p);
@@ -942,25 +1068,6 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
       controller.enableSnapToGround(b.tuning.groundSnap);
     }
   };
-  /**
-   * The deepest overlap of the character capsule at `p` with a collider
-   * (deeper than the clearance probe's epsilon), or null. A sweep that starts
-   * in one moves the character out of it — a real depenetration. A grounded
-   * character's sweep stopped by the floor starts in none (the controller
-   * keeps its skin above it), so standing never counts.
-   */
-  const overlapAt = (b: CharacterBody3D, p: PhysicsVec3): { entityId: string; depth: number } | null => {
-    const c = at(b, p);
-    let best: { entityId: string; depth: number } | null = null;
-    world.intersectionsWithShape(c, IDENTITY, b.overlapCapsule, (collider) => {
-      const contact = collider.contactShape(b.overlapCapsule, c, IDENTITY, 0);
-      const depth = contact === null ? 0 : -contact.distance;
-      const entityId = infoByHandle.get(collider.handle)?.entityId;
-      if (entityId !== undefined && depth > CLEARANCE_PENETRATION_EPS && (best === null || depth > best.depth)) best = { entityId, depth };
-      return true;
-    }, undefined, undefined, b.collider, undefined, othersOut);
-    return best;
-  };
   const counters = (): Rapier3DDiagnostics => ({
     stallSteps,
     penetrationCorrectedCount,
@@ -972,38 +1079,6 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
     live: true,
   });
 
-  /**
-   * The clearance of the character capsule if its origin were at
-   * `origin` (query only; the 2D probe's rules): blocked by the deepest
-   * overlap with a collider (a narrow-phase contact deeper than the
-   * penetration epsilon), else supported by the nearest collider straight
-   * below the capsule's lowest point, else `no_support`. Characters are never
-   * in the way.
-   */
-  function computeClearance(b: CharacterBody3D, origin: PhysicsVec3): CharacterClearanceResult3D {
-    const capsule = new RAPIER.Capsule(b.shape.halfHeight, b.shape.radius);
-    const c = at(b, origin);
-    let maxPenetration = 0;
-    world.colliders.forEach((collider) => {
-      if (characterHandles.has(collider.handle)) return;
-      const contact = collider.contactShape(capsule, c, IDENTITY, 0);
-      if (contact !== null && contact.distance < -CLEARANCE_PENETRATION_EPS) maxPenetration = Math.max(maxPenetration, -contact.distance);
-    });
-    if (maxPenetration > 0) return { ok: false, reason: 'blocked', penetration: maxPenetration };
-    const ray = new RAPIER.Ray({ x: c.x, y: c.y - (b.shape.halfHeight + b.shape.radius) + CLEARANCE_RAY_EPS, z: c.z }, down);
-    let support: PhysicsVec3 | null = null;
-    let best = Infinity;
-    world.colliders.forEach((collider) => {
-      if (characterHandles.has(collider.handle)) return;
-      const hit = collider.castRayAndGetNormal(ray, CLEARANCE_SUPPORT_PROBE, true);
-      if (hit !== null && hit.timeOfImpact < best) {
-        best = hit.timeOfImpact;
-        support = { x: hit.normal.x, y: hit.normal.y, z: hit.normal.z };
-      }
-    });
-    if (support === null) return { ok: false, reason: 'no_support' };
-    return { ok: true, supportNormal: support, penetration: 0 };
-  }
 
   /**
    * The movers are posed for the world update (`measure`: the largest move
@@ -1066,7 +1141,7 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
     const midStep = b.stepping !== null;
     const before = b.position;
     // A step that begins inside a collider is a real depenetration (counted; the deepest is kept for diagnostics).
-    const overlap = overlapAt(b, before);
+    const overlap = overlapOf(world, b, at(b, before), infoByHandle, othersOut);
     if (overlap !== null) {
       penetrationCorrectedCount += 1;
       if (deepestOverlap === null || overlap.depth > deepestOverlap.depth) deepestOverlap = { ...overlap, step: steps };
@@ -1301,9 +1376,11 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
         b.grounded = false;
         b.retainedSupport = { x: 0, y: 1, z: 0 };
         b.stepping = null;
+        b.dropSteps = 0;
         b.last = undefined;
       });
       listCharacters();
+      relistOneWay();
       if (noCharacter) primary.collider.setEnabled(false);
     } catch (e) {
       if (world !== next) next.free();
@@ -1332,14 +1409,19 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
       if (chars.length === 0) return stepWithoutCharacter();
       // Every character's sweep (the first, then the further ones); the movers move after them
       // (the runtime already added a carrying platform's motion to each request).
-      const swept = chars.map((b) => sweep(b));
+      // A one-way collider that does not hold a character is out of its sweep (a drop through counts down first, as on the 2D plane).
+      const swept = chars.map((b) => {
+        if (b.dropSteps > 0) b.dropSteps -= 1;
+        const staged = b.staged;
+        return withOneWay(b, staged !== null && isVec3(staged) ? (b.plane !== null ? inPlane(staged, b.plane) : staged) : null, () => sweep(b));
+      });
       poseMoversAndStep();
       for (let i = 0; i < chars.length; i += 1) {
         const b = chars[i]!;
         const s = swept[i]!;
         b.position = s.next;
         b.grounded = s.grounded;
-        b.last = { ...s.result, groundEntityId: s.grounded ? groundUnder(b, s.next) : null };
+        b.last = { ...s.result, groundEntityId: s.grounded ? withOneWay(b, null, () => groundUnder(b, s.next)) : null };
       }
       if (noCharacter) {
         primary.staged = null;
@@ -1387,7 +1469,7 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
       else if (shape?.type === 'capsule' && ok(shape.radius) && finite(shape.halfHeight) && shape.halfHeight >= 0) s = new RAPIER.Capsule(Math.min(shape.halfHeight, 500), Math.min(shape.radius, 500));
       if (s === null) return [];
       const ids = new Set<string>();
-      world.intersectionsWithShape({ x: center.x, y: center.y, z: center.z }, rotation ?? IDENTITY, s, (c) => {
+      world.intersectionsWithShape({ x: center.x, y: center.y, z: center.z }, rotation ?? IDENTITY_Q, s, (c) => {
         const id = infoByHandle.get(c.handle)?.entityId;
         if (id !== undefined) ids.add(id);
         return ids.size < 64;
@@ -1399,7 +1481,8 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
       assertLive('characterClearance');
       ensureBuilt();
       if (!isVec3(origin)) throw new Error('characterClearance origin must be a finite { x, y, z }');
-      return computeClearance(bodyOf(characterId, 'characterClearance'), origin);
+      const b = bodyOf(characterId, 'characterClearance');
+      return clearanceAt(world, characterHandles, b.shape, at(b, origin));
     },
 
     placeCharacter(origin: PhysicsVec3, characterId?: string): CharacterClearanceResult3D {
@@ -1414,9 +1497,11 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
       b.grounded = false;
       b.retainedSupport = { x: 0, y: 1, z: 0 };
       b.stepping = null;
+      // From rest, as the body was made: no drop through left.
+      b.dropSteps = 0;
       b.last = undefined;
       world.step();
-      return computeClearance(b, b.position);
+      return clearanceAt(world, characterHandles, b.shape, at(b, b.position));
     },
 
     addStaticColliders(specs: readonly StaticColliderSpec3D[]): void {
@@ -1450,8 +1535,10 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
           staticSpecs.delete(a.id);
           collidersOf.delete(a.id);
         }
+        relistOneWay();
         throw e;
       }
+      relistOneWay();
       // The scene queries (sweeps, rays) see a collider after a pipeline update (no dynamic bodies: nothing else moves).
       world.step();
     },
@@ -1475,7 +1562,13 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
         kinematicAt.delete(id);
       }
       if (gone.size > 0) for (const [handle, info] of [...infoByHandle]) if (gone.has(info.body)) infoByHandle.delete(handle);
+      relistOneWay();
       world.step();
+    },
+
+    dropThrough(steps: number, characterId?: string): void {
+      assertLive('dropThrough');
+      bodyOf(characterId, 'dropThrough').dropSteps = Math.max(0, Math.min(MAX_DROP_THROUGH_STEPS, Math.floor(steps)));
     },
 
     restartWorld(origins?: readonly { characterId?: string; position: PhysicsVec3 }[]): void {

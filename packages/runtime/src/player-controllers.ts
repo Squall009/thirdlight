@@ -468,10 +468,10 @@ export class PlayerControllers {
   }
 
   /**
-   * On the 2D plane, a player controller whose jump is pressed with down
-   * held while it stands on a one-way platform drops through it (its jump
-   * reads as released this step). Down is its climb action's (else the
-   * `navigate` action's) y below −0.5.
+   * A player controller whose jump is pressed with down held while it
+   * stands on a one-way platform drops through it (its jump reads as
+   * released this step), in 3D as on the 2D plane. Down is its climb
+   * action's (else the `navigate` action's) y below −0.5.
    */
   dropThrough(action: ActionFrame, isOneWay: (entityId: string | null) => boolean, steps: number): ActionFrame {
     let out = action;
@@ -479,7 +479,7 @@ export class PlayerControllers {
       const a = this.byId.get(id)!.actions;
       if (actionPhase(action, a.jump) !== 'pressed' || (action.actions?.[a.climb ?? 'navigate']?.y ?? 0) >= -0.5) continue;
       if (!isOneWay(this.groundEntityId(id))) continue;
-      this.host.physics?.dropThrough?.(steps, this.portId(id));
+      (this.host.physics3d ?? this.host.physics)?.dropThrough?.(steps, this.portId(id));
       out = { ...out, actions: { ...out.actions, [a.jump]: { v: 0, p: 'none' } } };
     }
     return out;

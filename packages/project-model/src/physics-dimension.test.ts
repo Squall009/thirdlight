@@ -74,11 +74,11 @@ describe('the rules that follow the dimension', () => {
     expect(v3.ok).toBe(false);
   });
 
-  it('3D: any collider rotation; a box needs hz; no polygon; the controller upright', () => {
+  it('3D: any collider rotation; a box without hz and a polygon take their 3D form; the controller upright', () => {
     const three = { physics_dimension: 3 };
     expect(problems(three, [floor({ type: 'box', hx: 2, hy: 0.5, hz: 2 }, TILT_X), player()])).toEqual([]);
-    expect(problems(three, [floor({ type: 'box', hx: 2, hy: 0.5 })])).toEqual([{ code: 'collider_shape_invalid', path: '/entities/0/components/collider/shape/hz' }]);
-    expect(problems(three, [floor({ type: 'polygon', vertices: [[-1, -1], [1, -1], [0, 1]] })])).toEqual([{ code: 'collider_shape_invalid', path: '/entities/0/components/collider/shape/type' }]);
+    expect(problems(three, [floor({ type: 'box', hx: 2, hy: 0.5 })])).toEqual([]);
+    expect(problems(three, [floor({ type: 'polygon', vertices: [[-1, -1], [1, -1], [0, 1]] })])).toEqual([]);
     expect(problems(three, [player([0, Math.sin(0.2), 0, Math.cos(0.2)])])).toEqual([{ code: 'physics_transform_unsupported', reason: 'upright', path: '/entities/0/transform/rotation' }]);
   });
 });

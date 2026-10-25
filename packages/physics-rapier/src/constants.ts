@@ -62,6 +62,9 @@ export const CLEARANCE_RAY_EPS = 1e-4 as const;
  */
 export const ONE_WAY_LANDING_TOLERANCE = 0.06 as const;
 
+/** The longest drop through one-way platforms one request asks for (steps: a second at 120 Hz). */
+export const MAX_DROP_THROUGH_STEPS = 120 as const;
+
 /** Ground-contact classification tolerance. */
 export const GROUND_NORMAL_TOLERANCE = 1e-6 as const;
 

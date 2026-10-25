@@ -231,7 +231,7 @@ export class HelperOverlay {
     for (const e of entities) {
       const shape = (e.collider as { shape?: { type: string; hx?: number; hy?: number; vertices?: number[][] } } | undefined)?.shape;
       if (shape === undefined) continue;
-      // A 3D shape (a box with its depth, a sphere, a capsule, a hull, a mesh) as a wire outline
+      // A 3D shape (a box with its depth, a sphere, a capsule, a cylinder, a hull, a mesh) as a wire outline
       // with the object's whole transform (a 3D collider turns and scales with it), in the same merged lines.
       // A model shape is drawn as its `_COL` parts once they are read.
       const parts = shape.type === 'model' ? this.partsOf(e) : undefined;
@@ -822,6 +822,15 @@ function primitiveSegments3D(shape: { type: string; [k: string]: unknown }): num
     case 'capsule': {
       const r = N(shape['radius'] as number);
       capsuleSegments(out, r, Math.max(0, N(shape['height'] as number) / 2 - r));
+      return out;
+    }
+    case 'cylinder': {
+      // Its two end rings and four lines down its side, standing along Y.
+      const r = N(shape['radius'] as number);
+      const h = N(shape['height'] as number) / 2;
+      ringXZ(out, r, -h);
+      ringXZ(out, r, h);
+      for (const [x, z] of [[r, 0], [-r, 0], [0, r], [0, -r]] as const) out.push(x, -h, z, x, h, z);
       return out;
     }
     case 'convex':

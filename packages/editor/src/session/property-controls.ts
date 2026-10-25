@@ -633,6 +633,13 @@ function colliderFields(collider: ColliderComponent): ComponentFieldView[] {
       { path: 'collider.shape.height', label: 'height', type: 'number >= 2 radius', value: numberText(shape.height) },
     ];
   }
+  if (shape.type === 'cylinder') {
+    return [
+      { path: 'collider.shape.type', label: 'shape', type: '"cylinder"', value: 'cylinder' },
+      { path: 'collider.shape.radius', label: 'radius', type: 'number (0, 64]', value: numberText(shape.radius) },
+      { path: 'collider.shape.height', label: 'height', type: 'number (0, 128]', value: numberText(shape.height) },
+    ];
+  }
   if (shape.type === 'convex') return [{ path: 'collider.shape.type', label: 'shape', type: '"convex"', value: 'convex' }, { path: 'collider.shape.points', label: 'points', type: '4–64 [x, y, z]', value: String(shape.points.length) }];
   if (shape.type === 'mesh') {
     return [

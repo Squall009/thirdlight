@@ -34,6 +34,8 @@ import {
 } from './components';
 import { MAX_PREFAB_DEPTH, MAX_PREFAB_ENTITIES } from './content-limits';
 import { limitsError, sortedRecord } from './content-helpers';
+import { planeLockOf, type PlaneLock } from './plane-lock';
+import { colliderDepthField } from './shape-2d-3d';
 import { isPrefabLink, PART_PATH_SEPARATOR, validatePrefabLink, type PrefabLinkComponent } from './prefab-links';
 
 const KNOWN_PREFAB_DEF_FIELDS = new Set(['prefabId', 'displayName', 'createdRevision', 'updatedRevision', 'nextLocalNumber', 'entityCount', 'depth', 'entities']);
@@ -315,9 +317,9 @@ function canonicalPrefabEntity(e: PrefabEntity): PrefabEntity {
     }
     components.behavior = { behaviorId: e.components.behavior.behaviorId, values };
   }
-  // v4: the gameplay components, canonical as on a scene entity.
+  // v4: the gameplay components, canonical as on a scene entity (a free collider writes no plane).
   const x = e.components;
-  if (x.collider !== undefined) components.collider = { shape: canonicalCollider(x.collider), ...(x.collider.oneWay === true ? { oneWay: true as const } : {}), ...(Array.isArray(x.collider.layers) ? { layers: [...x.collider.layers] } : {}) };
+  if (x.collider !== undefined) components.collider = { shape: canonicalCollider(x.collider), ...(x.collider.oneWay === true ? { oneWay: true as const } : {}), ...(Array.isArray(x.collider.layers) ? { layers: [...x.collider.layers] } : {}), ...prefabPlane(x.collider), ...colliderDepthField(x.collider) };
   if (x.surface !== undefined) components.surface = canonicalSurface(x.surface);
   if (x.materials !== undefined) components.materials = canonicalMaterialMapping(x.materials);
   if (x.animator !== undefined) components.animator = canonicalAnimatorComponent(x.animator);
@@ -355,4 +357,9 @@ export function canonicalPrefab(d: PrefabDefinition): PrefabDefinition {
     depth: d.depth,
     entities: d.entities.map(canonicalPrefabEntity),
   };
+}
+
+function prefabPlane(collider: unknown): { plane?: PlaneLock } {
+  const plane = planeLockOf(collider);
+  return plane !== null ? { plane } : {};
 }
