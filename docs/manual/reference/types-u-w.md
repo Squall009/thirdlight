@@ -1,4 +1,4 @@
-# Types (UiBindable to WindConfig)
+# Types (UiBindable to WindOctave)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -499,7 +499,9 @@ type V3OwnedComponent =
   /** v4 scenes only: a decal (a projector box; a clipped one's mesh is made at load). */
   | 'decal'
   /** v4 scenes only: vertex paint on a model's meshes or a generated mesh's paths (written by paintVertices). */
-  | 'vertexPaint';
+  | 'vertexPaint'
+  /** v4 scenes only: a box or sphere overriding the scene's wind. */
+  | 'windZone';
 ```
 
 <a id="type-vec3"></a>
@@ -598,5 +600,27 @@ interface WindConfig {
   gustFrequency: number;
   /** Small-scale variation over space (0-1). */
   turbulence: number;
+  /** The gust pattern: a texture asset read top-down over the world, its red channel 0–1 (absent: the engine's neutral noise). Global only. */
+  noise?: string;
+  /** Metres per second the gust pattern travels along the direction (absent: `gustFrequency` × `scale`, so as many gusts pass a point a second as before). */
+  speed?: number;
+  /** Metres the gust pattern spans before it repeats (absent: {@link WIND_DEFAULTS}). */
+  scale?: number;
+  /** A second, finer layer of the pattern so it does not visibly repeat: its size and speed as shares of the first (absent: {@link WIND_DEFAULTS}). Global only. */
+  octave?: WindOctave;
+}
+```
+
+<a id="type-wind-octave"></a>
+### WindOctave
+
+Declared in `packages/project-model/src/materials.ts`.
+
+```ts
+interface WindOctave {
+  /** Its size as a share of `scale`. */
+  scale: number;
+  /** Its speed as a share of `speed`. */
+  speed: number;
 }
 ```

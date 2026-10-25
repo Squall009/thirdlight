@@ -1310,6 +1310,12 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "kind": "method",
       "detail": "(): readonly string[]",
       "doc": "The project's environment preset ids."
+    },
+    {
+      "name": "setWind",
+      "kind": "method",
+      "detail": "(wind: WindChange | null, options?: { blend?: number | undefined; easing?: 'linear' | 'easeIn' | 'easeOut' | 'easeInOut' | undefined; } | undefined): boolean",
+      "doc": "Change the scene's global wind: any of its fields (direction [x, z], strength, gust, gustFrequency, turbulence, speed m/s, scale m, noise texture), added to the last change's, blending over `blend` seconds; null goes back to the scene's own"
     }
   ],
   "BehaviorEnvironment.state()": [

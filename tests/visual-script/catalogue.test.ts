@@ -336,6 +336,7 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       state: rec('environment.state', () => ({ target: 'night', progress: 0.5, blending: true })),
       weight: rec('environment.weight', 0.5),
       presets: rec('environment.presets', () => ['day', 'night']),
+      setWind: rec('environment.setWind', true),
     },
     // Generic component access (a handle per object) and the shell's scene list.
     entity: (id: string) => {

@@ -46,6 +46,7 @@ import { LOD_BIAS_MAX, LOD_BIAS_MIN } from './model-lod';
 import { MSAA_SAMPLE_COUNTS, PIXEL_RATIO_CAP_MAX, PIXEL_RATIO_CAP_MIN, QUALITY_POST_EFFECTS, SHADOW_MAP_SIZES } from './quality-levels';
 import { AMBIENT_OCCLUSION_KINDS, OCCLUSION_CULLING_MODES, RENDER_SCALE_MAX, RENDER_SCALE_MIN } from './render-settings';
 import { MAX_TAGS } from './types-v3';
+import { WIND_DEFAULTS, WIND_LIMITS } from './wind';
 import { asset, bool, color, enm, entity, ID, int, json, list, map, NAME, num, obj, ref, scene, str, vec2, vec3, when } from './descriptor-builders';
 import { ASSET_KINDS, type ContentBlockDescriptor, type DescriptorJson, type DescriptorUnit, type FieldDescriptor, type ListFieldDescriptor, type ObjectFieldDescriptor } from './descriptor-types';
 import { MODE_ITEM } from './descriptor-components';
@@ -58,6 +59,13 @@ const WIND = obj('wind', 'Wind', 'The global wind foliage and cloth sway in.', [
   num('gust', 'Gusts', 'Extra strength of gusts.', { required: true, min: 0, max: 10, step: 0.05, default: DEFAULT_WIND.gust }),
   num('gustFrequency', 'Gust frequency', 'Gusts per second.', { required: true, min: 0, max: 10, step: 0.05, default: DEFAULT_WIND.gustFrequency }),
   num('turbulence', 'Turbulence', 'Small-scale variation over space.', { required: true, min: 0, max: 1, step: 0.05, default: DEFAULT_WIND.turbulence }),
+  asset('noise', 'Gust pattern', 'A texture read from above over the world, its red channel the gusts (absent: the engine\'s neutral noise).', ['texture']),
+  num('speed', 'Gust speed', 'Metres per second the gust pattern travels (absent: gust frequency × gust size).', { min: 0, max: WIND_LIMITS.speedMax, step: 0.5, unit: 'm/s' }),
+  num('scale', 'Gust size', 'Metres the gust pattern spans before it repeats.', { min: WIND_LIMITS.scaleMin, max: WIND_LIMITS.scaleMax, step: 0.5, unit: 'm', default: WIND_DEFAULTS.scale }),
+  obj('octave', 'Second layer', 'A finer layer of the pattern so it does not visibly repeat.', [
+    num('scale', 'Size', 'Its size as a share of the gust size.', { required: true, min: WIND_LIMITS.octaveScaleMin, max: WIND_LIMITS.octaveScaleMax, step: 0.01, default: WIND_DEFAULTS.octave.scale }),
+    num('speed', 'Speed', 'Its speed as a share of the gust speed.', { required: true, min: 0, max: WIND_LIMITS.octaveSpeedMax, step: 0.05, default: WIND_DEFAULTS.octave.speed }),
+  ]),
 ]);
 
 const WETNESS = num('wetness', 'Wetness', 'How wet the scene is (rain): materials with a Scene wetness node (the height-blended layers template) darken and shine as if wet, water pooling in low parts first. Presets blend it.', { min: 0, max: 1, step: 0.05, default: 0 });

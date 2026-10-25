@@ -189,6 +189,21 @@ export const instanceOrigin = Fn((builder: NodeBuilder) => {
   return (instancedBufferAttribute(shared as unknown as THREE.InstancedBufferAttribute, 'vec4', 16, 12) as unknown as ReturnType<typeof vec4>).xyz;
 });
 
+/** A draw's copy roots, by the node build placing them (a GPU copies or cover draw's placement). */
+const copyRoots = new WeakMap<object, unknown>();
+
+/** A placement tells the build where its copy stands (object space; inside the placement, before the material's position node). */
+export function setCopyRoot(builder: NodeBuilder, root: unknown): void {
+  copyRoots.set(builder, root);
+}
+
+/**
+ * Where the drawn copy stands (object space): a GPU placement's root, else
+ * the instance's translation ({@link instanceOrigin}), else the object's
+ * origin. What a vertex's height above its plant is measured from. Vertex stage.
+ */
+export const copyRoot = Fn((builder: NodeBuilder) => (copyRoots.get(builder) as ReturnType<typeof vec3> | undefined) ?? instanceOrigin());
+
 // ---- the normal map's green (tangent frames) ---------------------------------------
 
 /**

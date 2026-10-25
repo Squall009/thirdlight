@@ -269,6 +269,40 @@ Paint on the object's vertices, 4 bytes (R, G, B, A) each, beside the mesh: its 
 | `meshes` | JSON: `VertexPaintMesh[]` ([VertexPaintMesh](types-u-w.md#type-vertex-paint-mesh)) |  |  | **Meshes.** A model's painted meshes: [{mesh, vertices, positions, paint}]: mesh the node path and primitive ("Body/Hull#0"), vertices and positions (a hash) what it was painted on, paint the SHA-256 of 4 bytes a vertex. A reimport that changes a mesh keeps its paint but does not draw it (Problems: paint_mismatch). (written by a tool) |
 | `paths` | JSON: `PathPaintGrid[]` ([PathPaintGrid](types-p-u.md#type-path-paint-grid)) |  |  | **Paths.** Generated architecture's or a spline's paint in path space, which survives regeneration: [{path, side, origin, size, paint}]: path outline:<id>, building:<id>, element:<id> or spline; side left, right (wall faces) or top (faces looking up or down); a grid of points 0.25 m apart along the path and up or across it, origin and size in points; paint the SHA-256 of 4 bytes a point. (written by a tool) |
 
+<a id="component-windZone"></a>
+## windZone — Wind zone
+
+A box or sphere where the wind differs from the scene's: any value it sets replaces the wind around it, fading in over its blend distance inside the edge. Read from above (its height is ignored).
+
+- Category: Rendering
+- Added: from "+ Add component", starting as `{"shape":"box","size":[20,10,20]}`
+- On prefab objects: yes
+- Rule: Zones are read from above: a box turns with its object about up; a sphere is its circle on the ground.
+- Rule: Direction, gust speed and gust size are the pattern's; the noise texture and its second layer are the scene's only.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `shape` | enum: `box`, `sphere` | `"box"` |  | **Shape.** A box (turns with the object about up) or a sphere (its footprint, a circle). (required; scripts read) |
+| `size` | vec3 [w, h, d] | `[20,10,20]` | > 0, ≤ 100000, step 0.5, m | **Size.** Width, height and depth (the object's scale applies). (applies when `shape` is `box`; Scene handle: box3; scripts read) |
+| `radius` | number | `10` | > 0, ≤ 100000, step 0.5, m | **Radius.** The sphere's radius (the object's largest scale applies). (applies when `shape` is `sphere`; Scene handle: radius; scripts read) |
+| `blend` | number | `2` | 0 – 10000, step 0.5, m | **Blend.** Metres inside the edge over which the zone fades in from the wind around it (0: a hard edge, as sharp as the wind map's texels). (scripts read) |
+| `priority` | int | `0` | -1000 – 1000, step 1 | **Priority.** Where zones overlap, the higher priority is laid over the lower. (stored only when not the default; scripts read) |
+| `direction` | vec2 [x, z] |  | -1 – 1, step 0.05, not 0 | **Direction.** Horizontal direction [x, z] (not both 0). (scripts read) |
+| `strength` | number |  | 0 – 10, step 0.05 | **Strength.** Base strength (0: still air). (scripts read) |
+| `gust` | number |  | 0 – 10, step 0.05 | **Gusts.** Extra strength the gust pattern adds at its peaks. (scripts read) |
+| `turbulence` | number |  | 0 – 1, step 0.05 | **Turbulence.** Small-scale variation over space. (scripts read) |
+| `speed` | number |  | 0 – 100, step 0.5, m/s | **Gust speed.** Metres per second the gust pattern travels. (scripts read) |
+| `scale` | number |  | 0.5 – 10000, step 0.5, m | **Gust size.** Metres the gust pattern spans before it repeats. (scripts read) |
+
+Scene-view handles:
+
+| Handle | Kind | Edits | Space | Shown when |
+|---|---|---|---|---|
+| Size | box3 | size → `size` | local | `shape` is `box` |
+| Radius | radius | radius → `radius` | local | `shape` is `sphere` |
+
+GameObject menu: Light → Wind zone
+
 <a id="component-blockLayer"></a>
 ## blockLayer — Block layer
 

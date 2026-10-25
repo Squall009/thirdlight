@@ -395,6 +395,8 @@ export class AdapterFrame {
     level.terrains.update(viewCull.view, renderer as never);
     // Ground cover around the view's eye, and the eye every pass reads distance from (foliage's wind distance).
     level.scatter.cover.update(viewCull.view);
+    // The wind zones where their objects stand now (the wind map round the eye is filled again only when they or the eye's square change).
+    p.materials.library?.setWindZones(p.entities.windZonesNow());
     p.materials.library?.setViewEye(viewCull.view.eye[0]!, viewCull.view.eye[1]!, viewCull.view.eye[2]!);
     // Then what is hidden behind what is in front of it (what the frustum, the rooms and isolation left drawn, the
     // terrains' nodes and the cover chosen for this view).

@@ -54,6 +54,7 @@ import { COVER_FADE_START, COVER_LANES, COVER_MIN_NORMAL_Y, coverMaskSide, listC
 import { COVER_POINT_BLOCK, COVER_POINT_ROW, CoverPointAtlas, listCoverPointBlocks } from './cover-points-gpu';
 import type { N } from './effects-tsl';
 import { instanceSetPlan, type InstanceSetPlan } from './instancing';
+import { setCopyRoot } from './node-materials';
 import { TAN_HALF_REFERENCE } from './instance-lod';
 import type { LodTuning } from './lod-switch';
 import { stepOf } from './terrain-material';
@@ -182,7 +183,7 @@ export interface CoverDrawInputs {
 export function coverDrawPlacement(d: CoverDrawInputs): CoverPlacement {
   const local = uniform(d.local);
   return {
-    place: Fn(() => {
+    place: Fn((builder: NodeBuilder) => {
       const { ring, rule, surface: s, page } = d;
       const per = uint(ring.perPatch);
       const idx = uint(instanceIndex);
@@ -286,7 +287,8 @@ export function coverDrawPlacement(d: CoverDrawInputs): CoverPlacement {
       const size = float(sc[0]).add(rnd(COVER_LANES.scale).mul(sc[1] - sc[0]));
       const quat = copyTurnNode(normal, rnd(COVER_LANES.yaw).mul(((rule.yaw ?? 360) * Math.PI) / 360), rule.align ?? 0).toVar();
       const placed = local.mul(vec4(positionLocal, 1)).xyz.mul(size);
-      const at = vec3(x, ground.sub(rule.sink ?? 0), z);
+      const at = vec3(x, ground.sub(rule.sink ?? 0), z).toVar();
+      setCopyRoot(builder, at);
       positionLocal.assign(select(kept, rotateNode(quat, placed).add(at), vec3(x, DROPPED_Y, z)));
       normalLocal.assign(rotateNode(quat, normalize(local.mul(vec4(normalLocal, 0)).xyz)));
     }, 'void') as unknown as () => void,
@@ -311,7 +313,7 @@ export interface CoverPointDrawInputs {
 export function coverPointsPlacement(d: CoverPointDrawInputs): CoverPlacement {
   const local = uniform(d.local);
   return {
-    place: Fn(() => {
+    place: Fn((builder: NodeBuilder) => {
       const { ring, rule } = d;
       const B = uint(COVER_POINT_BLOCK);
       const idx = uint(instanceIndex);
@@ -345,7 +347,8 @@ export function coverPointsPlacement(d: CoverPointDrawInputs): CoverPlacement {
       const size = float(sc[0]).add(size01.mul(sc[1] - sc[0]));
       const quat = copyTurnNode(normal, turn01.mul(((rule.yaw ?? 360) * Math.PI) / 360), rule.align ?? 0).toVar();
       const placed = local.mul(vec4(positionLocal, 1)).xyz.mul(size);
-      const ground = vec3(x, p.y.sub(rule.sink ?? 0), z);
+      const ground = vec3(x, p.y.sub(rule.sink ?? 0), z).toVar();
+      setCopyRoot(builder, ground);
       positionLocal.assign(select(kept, rotateNode(quat, placed).add(ground), vec3(x, DROPPED_Y, z)));
       normalLocal.assign(rotateNode(quat, normalize(local.mul(vec4(normalLocal, 0)).xyz)));
     }, 'void') as unknown as () => void,

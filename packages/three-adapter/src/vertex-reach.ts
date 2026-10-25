@@ -17,10 +17,10 @@
  */
 import type * as THREE from 'three';
 
-const reaches = new WeakMap<THREE.Material, () => number>();
+const reaches = new WeakMap<THREE.Material, (mesh?: THREE.Mesh) => number>();
 
-/** Say that `material`'s position node moves a vertex at most `reach()` metres (in the world, now). */
-export function declareVertexReach(material: THREE.Material, reach: () => number): void {
+/** Say that `material`'s position node moves a vertex of `mesh` at most `reach(mesh)` metres (in the world, now). */
+export function declareVertexReach(material: THREE.Material, reach: (mesh?: THREE.Mesh) => number): void {
   reaches.set(material, reach);
 }
 
@@ -40,7 +40,7 @@ export function vertexReachOf(mesh: THREE.Mesh): number | null {
     if (node === null || node === undefined) continue;
     const declared = reaches.get(m);
     if (declared === undefined) return null;
-    const r = declared();
+    const r = declared(mesh);
     if (!(r >= 0)) return null;
     reach = Math.max(reach, r);
   }

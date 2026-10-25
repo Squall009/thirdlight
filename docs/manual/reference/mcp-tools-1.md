@@ -44,7 +44,7 @@ In full, by area:
 - [Project UI: documents, widgets, styles, actions](mcp-tools-2.md#tool-tl_command-ui) (`tool.tl_command.ui`)
 - [The game shell](mcp-tools-2.md#tool-tl_command-shell) (`tool.tl_command.shell`)
 - [Dialogue](mcp-tools-2.md#tool-tl_command-dialogue) (`tool.tl_command.dialogue`)
-- [Game modes and behavior groups](mcp-tools-2.md#tool-tl_command-game-modes) (`tool.tl_command.game-modes`)
+- [Game modes and behavior groups](mcp-tools-3.md#tool-tl_command-game-modes) (`tool.tl_command.game-modes`)
 - [Timelines](mcp-tools-3.md#tool-tl_command-timelines) (`tool.tl_command.timelines`)
 - [What it returns](mcp-tools-3.md#tool-tl_command-result) (`tool.tl_command.result`)
 

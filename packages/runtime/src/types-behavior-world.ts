@@ -108,6 +108,32 @@ export interface BehaviorEnvironment {
    * @graphNode Environment presets
    */
   presets(): readonly string[];
+  /**
+   * Change the scene's global wind: any of its fields (direction [x, z], strength, gust, gustFrequency, turbulence, speed m/s, scale m, noise texture), added to the last change's, blending over `blend` seconds; null goes back to the scene's own wind. Wind zones keep laying their values over it. False when a value or an option is refused.
+   * @graphNode Set wind
+   * @graphLabel blend blend (seconds)
+   */
+  setWind(wind: WindChange | null, options?: { blend?: number; easing?: 'linear' | 'easeIn' | 'easeOut' | 'easeInOut' }): boolean;
+}
+
+/** A change of the global wind (`ctx.environment.setWind`): any of the wind's fields. */
+export interface WindChange {
+  /** Horizontal direction [x, z], each -1–1, not both 0. */
+  direction?: readonly [number, number];
+  /** Base strength (0–10; 0: still air). */
+  strength?: number;
+  /** Extra strength at the gust pattern's peaks (0–10). */
+  gust?: number;
+  /** Gusts per second (0–10): the pattern's speed when `speed` is not given. */
+  gustFrequency?: number;
+  /** Small-scale variation (0–1). */
+  turbulence?: number;
+  /** Metres per second the gust pattern travels (0–100). */
+  speed?: number;
+  /** Metres the gust pattern spans (0.5–10000). */
+  scale?: number;
+  /** A texture asset id: the gust pattern (its red channel). */
+  noise?: string;
 }
 
 /** `ctx.ui.view()`: the view the UI is drawn over. */

@@ -129,6 +129,8 @@ export interface GraphGlobals {
   readonly gustFreq: N;
   readonly turb: N;
   readonly wetness: N;
+  /** The wind field at a world ground point (vec2 x, z): vec4(direction x, z, strength with gusts, turbulence). Absent: the global uniforms above. */
+  readonly windAt?: (p: N) => N;
 }
 
 export interface GraphCompileEnv {
@@ -657,6 +659,20 @@ type Stage = 'vertex' | 'fragment';
 
 const TAU = 6.2831853;
 
+/**
+ * The Wind node's outputs at a world point: the wind field where it stands (zones, the gust pattern) when the
+ * host has one, else the global wind with sine gusts.
+ */
+function graphWind(g: GraphGlobals, world: N): Record<string, Val> {
+  if (g.windAt !== undefined) {
+    const w = g.windAt(T.vec2(world.x, world.z)).toVar();
+    return { direction: { t: 'vec3', n: T.vec3(w.x, 0, w.y) }, strength: { t: 'float', n: w.z }, turbulence: { t: 'float', n: w.w } };
+  }
+  const dir = T.length(g.windDir).greaterThan(0).select(T.normalize(g.windDir), T.vec2(1, 0));
+  const gust = T.sin(g.time.mul(g.gustFreq).mul(TAU).sub(world.x.mul(0.08).mul(g.turb.mul(3).add(1)))).mul(0.5).add(0.5);
+  return { direction: { t: 'vec3', n: T.vec3(dir.x, 0, dir.y) }, strength: { t: 'float', n: g.strength.add(g.gust.mul(gust)) }, turbulence: { t: 'float', n: g.turb } };
+}
+
 /** A value converted to another width (the catalogue's implicit conversions). */
 function convert(v: { t: ValueType; n: N }, to: ValueType): N {
   if (v.t === to) return v.n;
@@ -1025,14 +1041,6 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
     return s;
   };
 
-  const windStrength = (stage: Stage): N => {
-    const g = env.globals;
-    animated = true;
-    const world = posWorld(stage);
-    const gust = T.sin(g.time.mul(g.gustFreq).mul(TAU).sub(world.x.mul(0.08).mul(g.turb.mul(3).add(1)))).mul(0.5).add(0.5);
-    return g.strength.add(g.gust.mul(gust));
-  };
-
   const valueNoise = (p: N): N => {
     const i = T.floor(p);
     const f = T.fract(p);
@@ -1222,11 +1230,9 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
         const i = T.float(instanceDrawnIndex());
         return one('index', stage === 'vertex' ? i : T.varying(i));
       }
-      case 'wind': {
-        const dir = T.length(g.windDir).greaterThan(0).select(T.normalize(g.windDir), T.vec2(1, 0));
+      case 'wind':
         animated = true;
-        return { direction: { t: 'vec3', n: T.vec3(dir.x, 0, dir.y) }, strength: { t: 'float', n: windStrength(stage) }, turbulence: { t: 'float', n: g.turb } };
-      }
+        return graphWind(g, posWorld(stage));
       case 'sceneWetness':
         return one('wetness', g.wetness);
       case 'sceneDepth': {

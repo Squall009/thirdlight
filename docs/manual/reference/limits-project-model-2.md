@@ -332,6 +332,14 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 |---|---|---|
 | <a id="limit-vertex-paint-limits"></a>`VERTEX_PAINT_LIMITS` | `{"meshKey":512,"vertices":4000000,"along":400000,"across":4000}` | What one painted mesh and one path's paint grid may hold: a mesh's name, its vertices (as many as a model read decodes, so any mesh the engine draws can be painted), and a path grid's points along and across its path. Bounds of one record, not a cap on painted objects. |
 
+<a id="limits-project-model--wind"></a>
+## `wind.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-wind-defaults"></a>`WIND_DEFAULTS` | `{"scale":20,"octave":{"scale":0.27,"speed":1.6},"zoneBlend":2,"zonePriority":0,"zoneSize":[20,10,20],"zoneRadius":10}` | Defaults of the optional values. A 20 m pattern is a field's gust size; the second layer is about a quarter of it and a little faster, at a ratio that is not a whole number so the two never line up. |
+| <a id="limit-wind-limits"></a>`WIND_LIMITS` | `{"strengthMax":10,"gustMax":10,"gustFrequencyMax":10,"speedMax":100,"scaleMin":0.5,"scaleMax":10000,"octaveScaleMin":0.05,"octaveScaleMax":4,"octaveSpeedMax":8,"zoneSizeMax":100000,"blendMax":10000,"priorityMin":-1000,"priorityMax":1000}` | The bounds of the wind's values (validation, the editor's sliders). |
+
 <a id="limits-project-model--world-streaming"></a>
 ## `world-streaming.ts`
 

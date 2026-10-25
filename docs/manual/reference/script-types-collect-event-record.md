@@ -1,8 +1,25 @@
-# Script API types (from `BehaviorRandomStream`)
+# Script API types (from `CollectEventRecord`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 Every declaration the script API reaches, as the runtime declares it (doc comments included), in the order the API reaches them.
+
+<a id="script-type-collect-event-record"></a>
+## `CollectEventRecord`
+
+```ts
+/** A collectible was collected (by the character) or came back. */
+export interface CollectEventRecord {
+  readonly type: 'collected' | 'restored';
+  readonly entity: string;
+  readonly counter: string;
+  /** collected: what it added (restored: 0). */
+  readonly amount: number;
+  /** collected: the object that collected it ('' on restored). */
+  readonly by: string;
+  readonly stepIndex: number;
+}
+```
 
 <a id="script-type-behavior-random-stream"></a>
 ## `BehaviorRandomStream`
@@ -1113,6 +1130,31 @@ export interface EnvironmentChangeOptions {
 }
 ```
 
+<a id="script-type-wind-change"></a>
+## `WindChange`
+
+```ts
+/** A change of the global wind (`ctx.environment.setWind`): any of the wind's fields. */
+export interface WindChange {
+  /** Horizontal direction [x, z], each -1–1, not both 0. */
+  direction?: readonly [number, number];
+  /** Base strength (0–10; 0: still air). */
+  strength?: number;
+  /** Extra strength at the gust pattern's peaks (0–10). */
+  gust?: number;
+  /** Gusts per second (0–10): the pattern's speed when `speed` is not given. */
+  gustFrequency?: number;
+  /** Small-scale variation (0–1). */
+  turbulence?: number;
+  /** Metres per second the gust pattern travels (0–100). */
+  speed?: number;
+  /** Metres the gust pattern spans (0.5–10000). */
+  scale?: number;
+  /** A texture asset id: the gust pattern (its red channel). */
+  noise?: string;
+}
+```
+
 <a id="script-type-entity-write-result"></a>
 ## `EntityWriteResult`
 
@@ -1404,55 +1446,4 @@ export interface PropertyBounds {
 ```ts
 /** Declared-property visibility (Unity-like public/private). */
 export type PropertyVisibility = 'public' | 'private';
-```
-
-<a id="script-type-save-storage-codes"></a>
-## `SAVE_STORAGE_CODES`
-
-```ts
-/**
- * Why the player's storage refused a write, for the game's own message
- * (the browser's text is the result's `reason`): the disk or the site's
- * quota is full, the page has no storage (IndexedDB off, a private window
- * that refuses it), or any other refusal.
- */
-export const SAVE_STORAGE_CODES: readonly ["storage_full", "storage_unavailable", "storage_failed"];
-```
-
-<a id="script-type-save-section"></a>
-## `SaveSection`
-
-```ts
-export type SaveSection = (typeof SAVE_SECTIONS)[number];
-```
-
-<a id="script-type-world-save"></a>
-## `WorldSave`
-
-```ts
-/**
- * Where the play stands in a save — the scenes loaded (in load
- * order), the spawn respawns use, the game shell's scene list entry (-1:
- * none) and the character (the controller's object) with its velocity (m/s;
- * z is 0 on the 2D plane) and, in 3D, the way it faces (degrees about +Y, as
- * `characterState().facing` reads it; older saves have none), or null
- * without a character. With several player controllers `character` is the
- * first's and `characters` holds the others by their object (absent: a save
- * of one player, or an older one — the others stay where they are).
- */
-export interface WorldSave {
-  readonly scenes: readonly string[];
-  readonly activeSpawn: string | null;
-  readonly listedScene: number;
-  readonly character: SavedCharacter | null;
-  readonly characters?: Readonly<Record<string, SavedCharacter>>;
-}
-```
-
-<a id="script-type-input-binding-device"></a>
-## `InputBindingDevice`
-
-```ts
-/** Where a binding comes from. */
-export type InputBindingDevice = 'keyboard' | 'mouse' | 'gamepad';
 ```

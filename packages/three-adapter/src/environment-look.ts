@@ -8,11 +8,11 @@
  * The adapter owns the renderer, the lights and the lightmaps; this keeps
  * which look they show and applies it only when it changed.
  */
-import { blendEnvironment, blendEnvironmentOver, blendTouchesLights, type EnvironmentBlendView } from '@thirdlight/runtime';
+import { blendEnvironment, blendEnvironmentOver, blendTouchesLights, blendWinds, type EnvironmentBlendView } from '@thirdlight/runtime';
 
 import { layerEnvironment, environmentHasLook, type EnvironmentLayerLike, type EnvironmentLike, type EnvironmentRenderer } from './environment';
 import type { LightmapSet } from './lightmaps';
-import type { MaterialLibrary, WindLike } from './material-library';
+import { DEFAULT_WIND_LIKE, type MaterialLibrary, type WindLike } from './material-library';
 import type { SceneLights } from './lights-shadows';
 
 export type PresetOf = Parameters<typeof blendEnvironment>[1] extends ReadonlyMap<string, infer P> ? P : never;
@@ -50,6 +50,8 @@ export class EnvironmentLook {
   blendActive = false;
   /** The blend state last applied (its key). */
   appliedKey = '';
+  /** The script winds' shares last put on the materials (their key; '' none: the scene's own wind). */
+  private windKey = '';
   /** The scene whose look is laid over the project environment now, and that look (null: none). */
   private layerScene: string | null;
   private layer: EnvironmentLayerLike | null;
@@ -92,6 +94,7 @@ export class EnvironmentLook {
   apply(): void {
     const view = this.preview ?? this.deps.readBlend();
     this.followActiveScene(view);
+    this.applyWind(view);
     // Only the active scene's look, no preset: the look is drawn as it is (no blend).
     const fading = view?.scene !== undefined && view.scene.from !== null && view.scene.weight < 1;
     const plain = view === null || (!fading && view.weights.length === 1 && view.weights[0]![0] === '' && Object.keys(view.overrides).length === 0);
@@ -136,8 +139,28 @@ export class EnvironmentLook {
     this.layerScene = active;
     this.layer = looks.look(active);
     this.deps.renderer()?.set(this.effective());
-    this.deps.materials?.setWind(((this.layer?.wind as WindLike | undefined) ?? this.deps.defaultWind ?? null) as WindLike | null);
+    this.deps.materials?.setWind(this.sceneWind());
+    this.windKey = '\u0000scene';
     if (!this.blendActive) this.setWetness(this.plainWetness());
+  }
+
+  /** The scene's own wind (its look's, else the project's default). */
+  private sceneWind(): WindLike | null {
+    return ((this.layer?.wind as WindLike | undefined) ?? this.deps.defaultWind ?? null) as WindLike | null;
+  }
+
+  /** The winds scripts set, blended over the scene's own, onto the materials (only when their shares changed). */
+  private applyWind(view: EnvironmentBlendView | null): void {
+    const winds = view?.wind;
+    const key = winds === undefined ? '' : `${JSON.stringify(winds)}|${this.layerScene ?? ''}`;
+    if (key === this.windKey) return;
+    this.windKey = key;
+    const base = this.sceneWind();
+    if (winds === undefined) {
+      this.deps.materials?.setWind(base);
+      return;
+    }
+    this.deps.materials?.setWind(blendWinds((base ?? DEFAULT_WIND_LIKE) as never, winds) as WindLike);
   }
 
   /** The look's own wetness (no blend). */

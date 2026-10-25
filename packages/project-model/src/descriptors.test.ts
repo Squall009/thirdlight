@@ -492,6 +492,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
   instances: [{ asset: { assetId: 'model-a', piece: 'Rock' }, buffer: 'a'.repeat(64), count: 10, castShadow: false, receiveShadow: false, chunkSize: 24, lightLayers: 4, densityStart: 0.03, densityEnd: 0.01, densityMin: 0.5, lodPerCopy: true , localLights: 'pixel', decalLayers: 2, seeThrough: false, paint: { copies: 'e'.repeat(64), painted: 3, slots: 4, meshes: [{ mesh: 'Rock#0', vertices: 50, positions: 'f'.repeat(16), paint: 'a'.repeat(64) }] } }],
   fogVolume: [{ size: [6, 3, 4], density: 0.25, color: '#dfe7ef', falloff: 0.5, heightFalloff: 0.3 }],
   probeVolume: [{ size: [16, 6, 16], spacing: 1.5 }],
+  windZone: [{ shape: 'box', size: [20, 10, 20], blend: 2, priority: 3, direction: [0, 1], strength: 2, gust: 1, turbulence: 0.5, speed: 8, scale: 30 }, { shape: 'sphere', radius: 10 }],
   vertexPaint: [{ meshes: [{ mesh: 'Body/Hull#0', vertices: 120, positions: 'a'.repeat(16), paint: 'b'.repeat(64) }], paths: [{ path: 'spline', side: 'top', origin: [-4, -8], size: [40, 16], paint: 'c'.repeat(64) }] }],
   decal: [{ size: [2, 1, 0.5], mode: 'clipped', material: 'mat-a', opacity: { albedo: 0.5, normal: 1, roughness: 0, metalness: 0.2, occlusion: 0.7, emission: 0.1 }, normalFade: 60, edgeFade: [0.1, 0.4], fadeDistance: 40, sortOrder: -3, layers: 6 }],
   architecture: [{ elements: [{ id: 'wall', kind: 'sweep', path: { points: [[0, 0, 0], [6, 0, 0]] }, profile: 'wall' }], profiles: { wall: { points: [[0, 0], [0, 3]], slots: ['lower_wall'] } }, overrides: [{ element: 'wall', segment: 0, model: { assetId: 'model-a' } }], chunkSize: 16, seed: 7, ao: { strength: 0.5, radius: 0.4 }, lodDistance: 30, castShadow: false, receiveShadow: false, baked: 'd'.repeat(64), layer: 'floor' , decalLayers: 1, kitId: 'town', seeThrough: false, furnishing: 'starter-furnishing' }],
@@ -599,7 +600,7 @@ const POST_FULL = {
   ssao: { enabled: true, radius: 0.5, intensity: 1 },
   dof: { enabled: false, focus: 10, aperture: 0.002, maxBlur: 0.01 },
 };
-const WIND_FULL = { direction: [1, 0], strength: 0.5, gust: 0.4, gustFrequency: 0.3, turbulence: 0.3 };
+const WIND_FULL = { direction: [1, 0], strength: 0.5, gust: 0.4, gustFrequency: 0.3, turbulence: 0.3, noise: 'tex-noise', speed: 6, scale: 24, octave: { scale: 0.3, speed: 1.5 } };
 // A scene's look.
 const SCENE_ENV_BASES: J[] = [
   { sky: SKY_PROCEDURAL, fog: { mode: 'linear', color: '#c8d2dc', near: 10, far: 120 }, heightFog: { density: 0.02, color: '#c8d2dc', height: 4, falloff: 0.05, start: 20, inscatterColor: '#ffd9a0', inscatterExponent: 8 }, post: POST_FULL, wind: WIND_FULL, wetness: 0.4 },
@@ -1045,8 +1046,9 @@ describe('descriptor registry', () => {
     // and a block type's one-way flag, about 0.6 KB; a prefab's part counter, about 0.3 KB; see-through — the object flag on
     // six kinds and its six settings, about 3 KB; block looks, boxes, turns and cell metadata, a layer's bounds and a
     // spline's profile as structured fields instead of JSON, about 2 KB; linked copies — a copy's overrides and an added
-    // object's parent part, about 0.7 KB; ground cover on models and architecture, about 0.4 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(341_500);
+    // object's parent part, about 0.7 KB; ground cover on models and architecture, about 0.4 KB; wind zones and the
+    // wind's gust pattern fields, about 4.4 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(346_000);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

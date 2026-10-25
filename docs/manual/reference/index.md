@@ -8,7 +8,7 @@ What the engine offers, generated from its source: the objects, components and c
 |---|---|
 | [Objects and components](objects.md) | Object fields, Components, Scene-view handle kinds |
 | [Components: Object](components-object.md) | transform — Transform, socketAttach — Socket |
-| [Components: Rendering (part 1)](components-rendering-1.md) | 13 sections |
+| [Components: Rendering (part 1)](components-rendering-1.md) | 14 sections |
 | [Components: Rendering (part 2)](components-rendering-2.md) | spline — Spline, architecture — Architecture |
 | [Components: Physics](components-physics.md) | collider — Collider, controller — Player controller |
 | [Components: Camera](components-camera.md) | virtualCamera — Virtual camera, cameraPath — Camera path, cameraRegion — Camera region |
@@ -30,13 +30,13 @@ What the engine offers, generated from its source: the objects, components and c
 | [Types (AcknowledgeBehaviorTrustArgs to CursorMode)](types-a-c.md) | 74 sections |
 | [Types (DecalCellRef to PackedFrom)](types-d-p.md) | 95 sections |
 | [Types (PaintInstancesArgs to UiAction)](types-p-u.md) | 96 sections |
-| [Types (UiBindable to WindConfig)](types-u-w.md) | 28 sections |
+| [Types (UiBindable to WindOctave)](types-u-w.md) | 29 sections |
 | [Script API](script-api.md) | What a script exports, The context (`ctx`), Context members in full, `BehaviorPrepareConfig`, `BehaviorInstanceInfo` |
 | [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 23 sections |
 | [Script API types (from `BehaviorHealth`)](script-types-behavior-health.md) | 20 sections |
-| [Script API types (from `BehaviorSaves`)](script-types-behavior-saves.md) | 51 sections |
-| [Script API types (from `BehaviorRandomStream`)](script-types-behavior-random-stream.md) | 80 sections |
-| [Script API types (from `DebugCommandArgType`)](script-types-debug-command-arg-type.md) | `DebugCommandArgType`, `CellMetaValue`, `ScriptWriteCode`, `Vec3`, `SAVE_SECTIONS`, `SavedCharacter` |
+| [Script API types (from `BehaviorSaves`)](script-types-behavior-saves.md) | 50 sections |
+| [Script API types (from `CollectEventRecord`)](script-types-collect-event-record.md) | 78 sections |
+| [Script API types (from `SAVE_STORAGE_CODES`)](script-types-save-storage-codes.md) | `SAVE_STORAGE_CODES`, `SaveSection`, `WorldSave`, `InputBindingDevice`, `DebugCommandArgType`, `CellMetaValue`, `ScriptWriteCode`, `Vec3`, `SAVE_SECTIONS`, `SavedCharacter` |
 | [Node graphs](graphs.md) | Graph kinds |
 | [Graph: Animator layer](graph-animator.md) | Animator layer, States |
 | [Graph: Animator override layer](graph-animator-layer.md) | Animator override layer, States |
@@ -67,11 +67,11 @@ What the engine offers, generated from its source: the objects, components and c
 | [Limits and defaults: commands](limits-commands.md) | `terrain-erosion-ops.ts` |
 | [Limits and defaults: game-host](limits-game-host.md) | `audio.ts`, `rebind.ts`, `sim-protocol.ts`, `storage.ts` |
 | [Limits and defaults: project-model (part 1, from `animator.ts`)](limits-project-model-1.md) | 36 sections |
-| [Limits and defaults: project-model (part 2, from `materials.ts`)](limits-project-model-2.md) | 37 sections |
+| [Limits and defaults: project-model (part 2, from `materials.ts`)](limits-project-model-2.md) | 38 sections |
 | [Limits and defaults: protocol](limits-protocol.md) | `bake.ts`, `bridge.ts`, `content.ts`, `delivery.ts`, `diagnostics-bound.ts`, `errors.ts`, `http.ts`, `job-export.ts`, `m3.ts`, `play-problems.ts`, `wire-change.ts`, `ws-events.ts` |
 | [Limits and defaults: runtime](limits-runtime.md) | 26 sections |
 | [MCP tools (part 1, from tl_command)](mcp-tools-1.md) | `tl_command` |
-| [MCP tools (part 2, from tl_command: Materials, instances, graph materials and material functions)](mcp-tools-2.md) | 21 sections |
-| [MCP tools (part 3, from tl_command: Timelines)](mcp-tools-3.md) | 18 sections |
+| [MCP tools (part 2, from tl_command: Materials, instances, graph materials and material functions)](mcp-tools-2.md) | 20 sections |
+| [MCP tools (part 3, from tl_command: Game modes and behavior groups)](mcp-tools-3.md) | 19 sections |
 
 The topic kinds: `component`, `components`, `content`, `ctx`, `entity`, `graph`, `graphs`, `handles`, `limit`, `limits`, `node`, `op`, `ops`, `scene-environment`, `script-type`, `script`, `tool`, `type`, `ui`.

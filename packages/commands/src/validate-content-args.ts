@@ -519,6 +519,7 @@ const OWNED: readonly OwnedComponent[] = [
   'architecture',
   'decal',
   'vertexPaint',
+  'windZone',
 ];
 // Box and model are added (a complete value) and removed
 // like every other component (the Inspector's "+ Add component").
@@ -561,6 +562,7 @@ const REMOVABLE: readonly OwnedComponent[] = [
   'architecture',
   'decal',
   'vertexPaint',
+  'windZone',
 ];
 /** The components whose ADD value may be `{}` (playerSpawn has no fields; the controller's capsule is optional). */
 // A gravity body's fields are all optional too (the project's gravity on a 1 m body).
@@ -794,7 +796,8 @@ function validateSetComponentOne(
     component === 'spline' ||
     component === 'architecture' ||
     component === 'decal' ||
-    component === 'vertexPaint'
+    component === 'vertexPaint' ||
+    component === 'windZone'
   ) {
     // The v3 field values (types, ranges, requiredness, the role-binding
     // stages) are the model's and the role-binding helper's; nothing structural is

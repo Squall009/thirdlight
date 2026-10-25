@@ -491,6 +491,7 @@ export interface PrefabComponentsV4Extra {
   cameraPath?: EntityComponentsV3['cameraPath'];
   cameraRegion?: EntityComponentsV3['cameraRegion'];
   probeVolume?: EntityComponentsV3['probeVolume'];
+  windZone?: EntityComponentsV3['windZone'];
   socketAttach?: EntityComponentsV3['socketAttach'];
   spline?: EntityComponentsV3['spline'];
   architecture?: EntityComponentsV3['architecture'];

@@ -45,6 +45,8 @@ export interface EnvironmentBlendView {
    * scene's share, 0–1; 1 and `from` null when no blend runs).
    */
   readonly scene?: { readonly active: string | null; readonly from: string | null; readonly weight: number };
+  /** The winds scripts set and the scene's own (null), each with its share, once a script changed the wind (`blendWinds`). */
+  readonly wind?: import('./wind-blend').WindBlendView;
 }
 
 export interface EnvironmentOverride {

@@ -253,7 +253,9 @@ export type V3OwnedComponent =
   /** v4 scenes only: a decal (a projector box; a clipped one's mesh is made at load). */
   | 'decal'
   /** v4 scenes only: vertex paint on a model's meshes or a generated mesh's paths (written by paintVertices). */
-  | 'vertexPaint';
+  | 'vertexPaint'
+  /** v4 scenes only: a box or sphere overriding the scene's wind. */
+  | 'windZone';
 
 /** Every `setComponent`-owned component (the base five plus the six v3 ones). */
 export type OwnedComponent =

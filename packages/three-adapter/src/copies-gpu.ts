@@ -48,6 +48,7 @@ import { INSTANCE_SET_KEY, instanceSetPlan, type BuiltInstanceSet, type Instance
 import { TAN_HALF_REFERENCE } from './instance-lod';
 import { LodTuning } from './lod-switch';
 import { KEEP_MATERIAL_KEY } from './material-keys';
+import { setCopyRoot } from './node-materials';
 import { PAINT_MESH_KEY, PAINT_STREAM_KEY } from './vertex-paint-draw';
 import { maxScaleOf, SphereSide, STATIC_SHADOW_CAMERA_KEY, VIEW_CULL_KEY, type CullView, type ViewCullable } from './view-cull';
 import type { ModelInstance } from './visual';
@@ -193,6 +194,7 @@ const safeScale = (s: N): N => select(abs(s).lessThan(1e-6), vec3(1), s);
 const copiesPlacement: CoverPlacement = {
   place: Fn((builder: NodeBuilder) => {
     const c = copyNodes();
+    setCopyRoot(builder, c.pos);
     const p = uLocal.mul(vec4(positionLocal, 1)).xyz;
     positionLocal.assign(select(c.kept, rotate(c.quat, p.mul(c.scale)).add(c.pos), c.pos));
     const b = builder as unknown as { needsPreviousData?: () => boolean; hasGeometryAttribute?: (name: string) => boolean };

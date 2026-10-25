@@ -654,6 +654,12 @@ export interface BehaviorEnvironment {
    * @graphNode Environment presets
    */
   presets(): readonly string[];
+  /**
+   * Change the scene's global wind: any of its fields (direction [x, z], strength, gust, gustFrequency, turbulence, speed m/s, scale m, noise texture), added to the last change's, blending over `blend` seconds; null goes back to the scene's own wind. Wind zones keep laying their values over it. False when a value or an option is refused.
+   * @graphNode Set wind
+   * @graphLabel blend blend (seconds)
+   */
+  setWind(wind: WindChange | null, options?: { blend?: number; easing?: 'linear' | 'easeIn' | 'easeOut' | 'easeInOut' }): boolean;
 }
 ```
 
@@ -1360,23 +1366,6 @@ export interface PatrolEventRecord {
   readonly reason: 'wall' | 'ledge' | 'end' | 'script';
   /** The direction it walks in now (a unit vector). */
   readonly direction: readonly [number, number, number];
-  readonly stepIndex: number;
-}
-```
-
-<a id="script-type-collect-event-record"></a>
-## `CollectEventRecord`
-
-```ts
-/** A collectible was collected (by the character) or came back. */
-export interface CollectEventRecord {
-  readonly type: 'collected' | 'restored';
-  readonly entity: string;
-  readonly counter: string;
-  /** collected: what it added (restored: 0). */
-  readonly amount: number;
-  /** collected: the object that collected it ('' on restored). */
-  readonly by: string;
   readonly stepIndex: number;
 }
 ```

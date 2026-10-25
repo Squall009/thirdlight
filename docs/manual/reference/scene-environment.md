@@ -112,6 +112,12 @@ The global wind foliage and cloth sway in.
 | `wind.gust` | number | `0.4` | 0 – 10, step 0.05 | **Gusts.** Extra strength of gusts. (required) |
 | `wind.gustFrequency` | number | `0.3` | 0 – 10, step 0.05 | **Gust frequency.** Gusts per second. (required) |
 | `wind.turbulence` | number | `0.3` | 0 – 1, step 0.05 | **Turbulence.** Small-scale variation over space. (required) |
+| `wind.noise` | asset id (texture) |  |  | **Gust pattern.** A texture read from above over the world, its red channel the gusts (absent: the engine's neutral noise). |
+| `wind.speed` | number |  | 0 – 100, step 0.5, m/s | **Gust speed.** Metres per second the gust pattern travels (absent: gust frequency × gust size). |
+| `wind.scale` | number | `20` | 0.5 – 10000, step 0.5, m | **Gust size.** Metres the gust pattern spans before it repeats. |
+| `wind.octave` | object |  |  | **Second layer.** A finer layer of the pattern so it does not visibly repeat. |
+| `wind.octave.scale` | number | `0.27` | 0.05 – 4, step 0.01 | **Size.** Its size as a share of the gust size. (required) |
+| `wind.octave.speed` | number | `1.6` | 0 – 8, step 0.05 | **Speed.** Its speed as a share of the gust speed. (required) |
 
 <a id="scene-environment-wetness"></a>
 ## wetness — Wetness

@@ -24,6 +24,8 @@ import type { EffectComponentLike } from './effects-player';
 import { materialParamsOf, modelRefsOf, pathPaintOf } from './entity-refs';
 import { applyEntityRenderFlags } from './entity-render-flags';
 import type { FogVolumeLike } from './environment';
+import type { WindZoneLike } from './wind-field';
+import type { WindZoneComponent } from '@thirdlight/runtime';
 import type { AuthoredSurface } from './lighting';
 import { addBoxLightmapUv, type LightmapSet } from './lightmaps';
 import type { SceneLights } from './lights-shadows';
@@ -77,6 +79,7 @@ export class AdapterEntities {
    */
   readonly staticScopes = new Map<string, string>();
   private readonly fogVolumeIds = new Set<string>();
+  private readonly windZoneIds = new Set<string>();
   private readonly tmpWorld: number[] = [0, 0, 0];
 
   /** `docs`: the documents of every realized entity (the loaded scenes), read by the other parts. */
@@ -156,8 +159,9 @@ export class AdapterEntities {
     const boxMesh = this.realizeBox(e, scope, own);
     if (boxMesh === null) this.deps.lights.realize(e);
     this.realizeViews(e);
-    const c = e.components as { fogVolume?: unknown; decal?: ProjectedDecalLike & { material?: string }; materials?: Record<string, string>; effect?: EffectComponentLike };
+    const c = e.components as { fogVolume?: unknown; windZone?: unknown; decal?: ProjectedDecalLike & { material?: string }; materials?: Record<string, string>; effect?: EffectComponentLike };
     if (c.fogVolume !== undefined) this.fogVolumeIds.add(e.id);
+    if (c.windZone !== undefined) this.windZoneIds.add(e.id);
     materials.decalPages?.set(e.id, c.decal?.material ?? null);
     materials.projectors?.set(e.id, graph.nodeFor(e.id)!, c.decal ?? null);
     this.deps.clipped?.set(e.id, c.decal ?? null, scope);
@@ -222,6 +226,7 @@ export class AdapterEntities {
     if (obj !== undefined) releaseEmissiveLooks(obj);
     this.deps.lightmaps()?.release(id);
     this.fogVolumeIds.delete(id);
+    this.windZoneIds.delete(id);
     materials.decalPages?.remove(id);
     materials.projectors?.remove(id);
     this.deps.clipped?.remove(id);
@@ -258,6 +263,21 @@ export class AdapterEntities {
       const fv = (this.docs.get(id)?.components as { fogVolume?: FogVolumeComponent } | undefined)?.fogVolume;
       if (fv === undefined || graph.isHidden(id) || !graph.world.position(id, at)) continue;
       out.push({ center: [at[0]!, at[1]!, at[2]!], size: fv.size, density: fv.density, color: fv.color, ...(fv.falloff !== undefined ? { falloff: fv.falloff } : {}), ...(fv.heightFalloff !== undefined ? { heightFalloff: fv.heightFalloff } : {}) });
+    }
+    return out;
+  }
+
+  /** The wind zones of the loaded scenes that are shown, at their world matrices now (entities may move). */
+  windZonesNow(): WindZoneLike[] {
+    const out: WindZoneLike[] = [];
+    if (this.windZoneIds.size === 0) return out;
+    const graph = this.deps.graph;
+    const world = graph.world;
+    for (const id of this.windZoneIds) {
+      const zone = (this.docs.get(id)?.components as { windZone?: WindZoneComponent } | undefined)?.windZone;
+      const row = world.indexOf(id);
+      if (zone === undefined || row === undefined || graph.isHidden(id)) continue;
+      out.push({ key: id, zone, matrix: world.world.subarray(row * 16, row * 16 + 16) });
     }
     return out;
   }

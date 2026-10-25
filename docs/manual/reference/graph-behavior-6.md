@@ -1370,6 +1370,7 @@ Fields:
 - Environment state (`api.environment.state`): The preset the last change went to ('' = the base look), how far its blend is (0–1) and whether one is running.
 - Environment weight (`api.environment.weight`): How much of a preset is in the look now (0–1; '' = the base look).
 - Environment presets (`api.environment.presets`): The project's environment preset ids.
+- Set wind (`api.environment.setWind`): Change the scene's global wind: any of its fields (direction [x, z], strength, gust, gustFrequency, turbulence, speed m/s, scale m, noise texture), added to the last change's, blending over `blend` seconds; null goes back to the scene's own wind. Wind zones keep laying their values over it. False when a value or an option is refused.
 
 <a id="node-behavior--api-environment-set"></a>
 ### Set environment (`api.environment.set`)
@@ -1458,6 +1459,36 @@ The project's environment preset ids.
 Outputs:
 
 - `value` (list)
+
+<a id="node-behavior--api-environment-set-wind"></a>
+### Set wind (`api.environment.setWind`)
+
+Change the scene's global wind: any of its fields (direction [x, z], strength, gust, gustFrequency, turbulence, speed m/s, scale m, noise texture), added to the last change's, blending over `blend` seconds; null goes back to the scene's own wind. Wind zones keep laying their values over it. False when a value or an option is refused.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `direction` (vector)
+- `strength` (number)
+- `gust` (number)
+- `gustFrequency` "gust frequency" (number)
+- `turbulence` (number)
+- `speed` (number)
+- `scale` (number)
+- `noise` (string)
+- `blend` "blend (seconds)" (number)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `noise` | noise | string | `""` | ≤ 256 chars |
+| `easing` | easing | enum | `"linear"` | `linear`, `easeIn`, `easeOut`, `easeInOut` |
 
 <a id="graph-behavior--entity"></a>
 ## Entity

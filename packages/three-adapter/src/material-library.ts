@@ -69,7 +69,7 @@ import {
   type MaterialParameterLike,
   type SamplerLike,
 } from './material-graph';
-import { derivesTangentFrame, instanceOrigin, standardNodeMaterialFrom } from './node-materials';
+import { copyRoot, derivesTangentFrame, instanceOrigin, standardNodeMaterialFrom } from './node-materials';
 import { decalPageArray, installDecalNodes, type DecalImages, type DecalPlace } from './decal-material';
 import { decalDrawOf, decalOrderOffsetOf, decalRenderOrder, decalSortOrder, installDecalDraw, removeDecalDraw, setDecalOrder, type DecalBlendMode } from './mesh-decals';
 import { decodeKtx2, isKtx2 } from './ktx2';
@@ -80,6 +80,8 @@ import { CHANGING_ALPHA_KEY } from './shadow-casters';
 import { LOCAL_LIGHTS_KEY } from './local-lights';
 import { KEEP_MATERIAL_KEY, MATERIAL_NO_SHADOW_KEY } from './material-keys';
 import { declareVertexReach } from './vertex-reach';
+import { WindField, type WindFieldWind, type WindZoneLike } from './wind-field';
+import { installFoliage } from './foliage-nodes';
 import { withPaint } from './vertex-paint-draw';
 import type { N as TslNode } from './effects-tsl';
 import type { ResourceManager } from '@thirdlight/runtime';
@@ -121,15 +123,6 @@ export interface DecalPageRefLike {
 }
 
 /**
- * The foliage shader's sway: metres a vertex bends by at full strength and bend, the share of that it sags, and
- * metres it flutters along its normal. Its reach (how far a vertex may move, which occlusion culling's bounds take)
- * is worked out from the same numbers.
- */
-const FOLIAGE_BEND_M = 0.12;
-const FOLIAGE_SAG = 0.35;
-const FOLIAGE_FLUTTER_M = 0.015;
-
-/**
  * Every material as it draws, in list order (project-model's `resolveMaterialInstances`, seen through the
  * adapter's structural shape): an instance takes its root's shader, graph and parameters, the chain's params and
  * textures (the nearer level wins) and its chain's `values` as the parameter defaults; an instance whose chain is
@@ -152,7 +145,7 @@ export const GRAPH_SURFACE_KEY = '__tlGraphSurface';
 
 export { MATERIAL_NO_SHADOW_KEY };
 
-export interface WindLike {
+export interface WindLike extends WindFieldWind {
   readonly direction: readonly [number, number];
   readonly strength: number;
   readonly gust: number;
@@ -187,7 +180,11 @@ export interface MaterialLibrary {
   /** The project materials and the material functions graph materials call. */
   setMaterials(defs: readonly MaterialDefLike[], functions?: readonly MaterialFunctionLike[]): void;
   setWind(wind: WindLike | null): void;
-  /** Where the view's camera is this frame (what reads distance in every pass: foliage's wind distance). */
+  /** The wind zones of the loaded scenes now (the wind map round the view is filled again when they change). */
+  setWindZones(zones: readonly WindZoneLike[]): void;
+  /** The wind map's state (diagnostics). */
+  windState(): ReturnType<WindField['state']>;
+  /** Where the view's camera is this frame (what reads distance in every pass: foliage's wind distance; the wind map follows it). */
   setViewEye(x: number, y: number, z: number): void;
   /** The scene's wetness (0–1) the Scene wetness node reads. */
   setWetness(wetness: number): void;
@@ -295,6 +292,10 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     // The view's camera, the same in every pass (a shadow map's shapes then match the view's: wind only near it).
     eye: TSL.uniform(new THREE.Vector3()).setGroup(TSL.renderGroup),
   };
+  /** The decoded textures, held per built material (and by the compiled graphs, the preloads, the wind's pattern). */
+  const holds: TextureHolds = textureHolds(options.resources, options.loadTexture);
+  /** The wind every foliage vertex and graph wind node reads (the global wind, the zones' map, the gust pattern). */
+  const windField = new WindField(nodeGlobals.time, (id) => holds.get(id, 'wind'), () => holds.releaseHolder('wind'), () => options.onChange?.());
   let defs = new Map<string, MaterialDefLike>();
   /** Textures some material reads with A as a height (a trim sheet among them draws its decal cells opaque). */
   let heightTextures: ReadonlySet<string> = new Set();
@@ -365,8 +366,6 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     if (b.animated) animatedCount = Math.max(0, animatedCount - 1);
     disposeBuilt(b.material);
   };
-  /** The decoded textures, held per built material (and by the compiled graphs, the preloads). */
-  const holds: TextureHolds = textureHolds(options.resources, options.loadTexture);
   let holderSerial = 0;
   const textureHolders = new WeakMap<THREE.Material, string>();
   const holderOf = (m: THREE.Material): string => {
@@ -642,58 +641,9 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
   // Each mirrors its archived onBeforeCompile twin line by line (same constants,
   // same order of operations), so the picture matches the parity references.
 
-  /** COLOR_0 as data (a missing attribute reads (0, 0, 0, 1), as WebGL's default vertex attribute does). */
-  const vertexData = TSL.Fn((builder: NodeBuilder) => ((builder as unknown as { geometry: THREE.BufferGeometry }).geometry.hasAttribute('color') ? TSL.attribute('color', 'vec4') : TSL.vec4(0, 0, 0, 1)));
-
   function installFoliageNodes(m: THREE.MeshStandardMaterial, p: MaterialDefLike['params']): void {
     animatedCount += 1;
-    // The sway is in absolute metres (about 0.1 m at the tip in the
-    // default breeze) — plant-sized for grass and shrubs; taller foliage raises
-    // its material's windBend / windFlutter (0–4×). Kept (changing it would move
-    // every existing project's foliage); a size-relative sway is a material-graph
-    //  candidate.
-    const bend = TSL.uniform(num(p['windBend'], 1));
-    const flutter = TSL.uniform(num(p['windFlutter'], 1));
-    const flutterFreq = TSL.uniform(num(p['flutterFrequency'], 6));
-    const subsurface = TSL.uniform(num(p['subsurface'], 0.3));
-    const g = nodeGlobals;
-    const colour = vertexData();
-    const nm = m as unknown as MeshStandardNodeMaterial;
-    // Instancing is applied before positionNode: positionLocal is already the
-    // instance's, so modelWorldMatrix alone takes it to the world.
-    // Wind only near the camera (`windDistance`, 0: everywhere): past it a vertex skips the wind's work and stands still.
-    const windDistance = TSL.uniform(num(p['windDistance'], 0));
-    nm.positionNode = TSL.Fn(() => {
-      const local = TSL.positionLocal;
-      const world = TSL.modelWorldMatrix.mul(TSL.vec4(local, 1)).xyz;
-      const out = TSL.vec3(local).toVar();
-      const away = TSL.length(g.eye.sub(world));
-      TSL.If(windDistance.lessThanEqual(0).or(away.lessThan(windDistance)), () => {
-        const near = windDistance.lessThanEqual(0).select(TSL.float(1), TSL.float(1).sub(TSL.smoothstep(windDistance.mul(0.8), windDistance, away)));
-        const tlBend = colour.r.mul(colour.r).mul(bend);
-        const phase = colour.g.mul(6.2831853);
-        const gust = TSL.sin(g.time.mul(g.gustFreq).mul(6.2831853).sub(world.x.mul(0.08).mul(g.turb.mul(3).add(1)))).mul(0.5).add(0.5);
-        const sway = TSL.sin(g.time.mul(1.7).add(phase).add(world.x.mul(0.4).mul(g.turb))).mul(0.35);
-        const strength = g.strength.add(g.gust.mul(gust)).mul(near);
-        const dir = TSL.length(g.windDir).greaterThan(0).select(TSL.normalize(g.windDir), TSL.vec2(1, 0));
-        const bent = TSL.vec3(dir.x, 0, dir.y).mul(strength).mul(sway.add(0.65)).mul(tlBend).mul(FOLIAGE_BEND_M);
-        const sagged = bent.sub(TSL.vec3(0, TSL.length(bent).mul(FOLIAGE_SAG), 0));
-        const normalWorld = TSL.normalize(TSL.modelWorldMatrix.mul(TSL.vec4(TSL.normalLocal, 0)).xyz);
-        const flutterAmount = TSL.sin(g.time.mul(flutterFreq).add(phase.mul(3)).add(world.x.mul(2.3))).mul(colour.b).mul(flutter).mul(FOLIAGE_FLUTTER_M).mul(strength.add(near.mul(0.5)));
-        const offset = sagged.add(normalWorld.mul(flutterAmount));
-        out.assign(local.add(TSL.modelWorldMatrixInverse.mul(TSL.vec4(offset, 0)).xyz));
-      });
-      return out;
-    })();
-    const thin = TSL.varying(colour.a);
-    nm.emissiveNode = TSL.materialEmissive.add(TSL.diffuseColor.rgb.mul(subsurface).mul(thin).mul(0.25));
-    // The most the sway above moves a vertex now (occlusion culling grows the draw's bounds by it): every factor at
-    // its largest (COLOR_0 at 1, the sway's sine at 1, a full gust, the wind near), the sag and the flutter added.
-    declareVertexReach(m, () => {
-      const wind = Math.max(0, nodeGlobals.strength.value as number) + Math.max(0, nodeGlobals.gust.value as number);
-      const sway = wind * Math.max(0, bend.value as number) * FOLIAGE_BEND_M * Math.hypot(1, FOLIAGE_SAG);
-      return sway + Math.max(0, flutter.value as number) * FOLIAGE_FLUTTER_M * (wind + 0.5);
-    });
+    installFoliage(m, p, nodeGlobals, windField);
   }
 
   /** The x scale of a texture's UV transform (a shift added before the transform lands after it once divided by this). */
@@ -965,7 +915,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       return { assetId: prev, texture: t };
     };
     const trim = rowsOf(def);
-    const compiled = compileMaterialGraph({ graph: def.graph!, ...(def.parameters !== undefined ? { parameters: def.parameters } : {}), ...(trim !== null ? { trim } : {}) }, { globals: nodeGlobals, texture, standIn, fn: fnOf, overrideKey: digest, ...(surface !== undefined ? { surface } : {}) });
+    const compiled = compileMaterialGraph({ graph: def.graph!, ...(def.parameters !== undefined ? { parameters: def.parameters } : {}), ...(trim !== null ? { trim } : {}) }, { globals: { ...nodeGlobals, windAt: (p: TslNode) => windField.sample(p) }, texture, standIn, fn: fnOf, overrideKey: digest, ...(surface !== undefined ? { surface } : {}) });
     sampledBy.set(compiled, sampledNow);
     return compiled;
   };
@@ -1257,8 +1207,16 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     },
     setViewEye(x, y, z) {
       (nodeGlobals.eye.value as THREE.Vector3).set(x, y, z);
+      windField.setEye(x, z);
+    },
+    setWindZones(zones) {
+      windField.setZones(zones);
+    },
+    windState() {
+      return windField.state();
     },
     setWind(wind) {
+      windField.setGlobal(wind);
       const w = wind ?? DEFAULT_WIND_LIKE;
       (nodeGlobals.windDir.value as THREE.Vector2).set(w.direction[0], w.direction[1]);
       nodeGlobals.strength.value = w.strength;
@@ -1271,6 +1229,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     },
     tick(seconds) {
       nodeGlobals.time.value = seconds;
+      windField.tick(seconds);
     },
     animated() {
       if (applied.size === 0) return false;
@@ -1337,6 +1296,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     },
     dispose() {
       disposed = true;
+      windField.dispose();
       for (const b of built.values()) disposeBuilt(b.material);
       built.clear();
       builtRefs.clear();

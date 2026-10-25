@@ -188,6 +188,8 @@ export interface EntityComponentsV3 extends EntityComponentsV2 {
   probeVolume?: import('./probe-grids').ProbeVolumeComponent;
   /** v4 only: a decal: a box that marks the surfaces inside it. */
   decal?: import('./decals').DecalComponent;
+  /** v4 only: a box or sphere that overrides the scene's wind inside it. */
+  windZone?: import('./wind').WindZoneComponent;
   /** v4 only: vertex paint on the object's model meshes or its generated mesh's paths. */
   vertexPaint?: import('./vertex-paint').VertexPaintComponent;
   /** v4 only: a heightfield of tiles (their data are blobs named by digest). */

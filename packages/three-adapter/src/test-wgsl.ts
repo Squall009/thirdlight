@@ -99,7 +99,8 @@ export const SHADER_TYPE_WGSL: Readonly<Record<string, string>> = {
   standard: '2cc544a08f2da47b',
   textured: '39c822174bd5badf',
   blended: '4df9b83631a1f83c',
-  foliage: '3062ba15d8ae7ab1',
+  // The foliage's vertex stage reads the wind field (its map round the view and the gust pattern).
+  foliage: 'ee938352530cc65f',
   kit: '83a0897a5b6be10d',
   water: '588fd2ffeda77232',
   unlit: '6c19ec5d6d3f2a86',

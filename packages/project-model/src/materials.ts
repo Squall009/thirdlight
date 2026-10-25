@@ -28,6 +28,7 @@ import { AMBIENT_OCCLUSION_KINDS, OCCLUSION_CULLING_MODES, RENDER_SCALE_MAX, REN
 import { canonicalTrimSheet, trimSheetErrors, type TrimSheet } from './trim-sheet';
 import { canonicalDecalPageRef, validateDecalPageRef, type DecalPageRef } from './decal-pages';
 import { validateDecalCellRef, type DecalCellRef } from './decals';
+import { canonicalWind, validateWind } from './wind';
 
 import { MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, materialGraphContext, type MaterialParamType, type MaterialParamValue, type MaterialShader } from './material-schema';
 export { DEFAULT_WIND, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, materialGraphContext, materialParameterPortType, type MaterialParamType, type MaterialParamValue, type MaterialShader } from './material-schema';
@@ -734,6 +735,21 @@ export interface WindConfig {
   gustFrequency: number;
   /** Small-scale variation over space (0-1). */
   turbulence: number;
+  /** The gust pattern: a texture asset read top-down over the world, its red channel 0–1 (absent: the engine's neutral noise). Global only. */
+  noise?: string;
+  /** Metres per second the gust pattern travels along the direction (absent: `gustFrequency` × `scale`, so as many gusts pass a point a second as before). */
+  speed?: number;
+  /** Metres the gust pattern spans before it repeats (absent: {@link WIND_DEFAULTS}). */
+  scale?: number;
+  /** A second, finer layer of the pattern so it does not visibly repeat: its size and speed as shares of the first (absent: {@link WIND_DEFAULTS}). Global only. */
+  octave?: WindOctave;
+}
+
+export interface WindOctave {
+  /** Its size as a share of `scale`. */
+  scale: number;
+  /** Its speed as a share of `speed`. */
+  speed: number;
 }
 
 /** The sky (background + image-based lighting). */
@@ -954,7 +970,7 @@ export function validateWetness(v: unknown, path: string, errors: ModelErrorV2[]
 export function canonicalSceneEnvironment(e: SceneEnvironment): SceneEnvironment {
   return {
     ...(e.wind !== undefined
-      ? { wind: { direction: [e.wind.direction[0], e.wind.direction[1]], strength: e.wind.strength, gust: e.wind.gust, gustFrequency: e.wind.gustFrequency, turbulence: e.wind.turbulence } }
+      ? { wind: canonicalWind(e.wind) }
       : {}),
     ...(e.sky !== undefined ? { sky: canonicalObject(e.sky) } : {}),
     ...(e.fog !== undefined ? { fog: canonicalObject(e.fog) } : {}),
@@ -970,29 +986,13 @@ export function sceneEnvironmentIsEmpty(e: SceneEnvironment | undefined | null):
 }
 
 /** The texture assets a scene's look names (sky images, the grading LUT). */
-export function environmentTextureRefs(e: Pick<SceneEnvironment, 'sky' | 'post'>): string[] {
+export function environmentTextureRefs(e: Pick<SceneEnvironment, 'sky' | 'post' | 'wind'>): string[] {
   const out: string[] = [];
+  if (e.wind?.noise !== undefined) out.push(e.wind.noise);
   if (e.sky?.texture !== undefined) out.push(e.sky.texture);
   for (const id of e.sky?.cube ?? []) out.push(id);
   if (e.post?.grading?.lut !== undefined) out.push(e.post.grading.lut);
   return out;
-}
-
-function validateWind(w: unknown, path: string, errors: ModelErrorV2[]): void {
-  if (!isPlainObject(w)) {
-    err(errors, 'field_type', path, 'wind is an object', w);
-    return;
-  }
-  const d = w['direction'];
-  if (!Array.isArray(d) || d.length !== 2 || !d.every((x) => typeof x === 'number' && Number.isFinite(x) && Math.abs(x) <= 1) || (d[0] === 0 && d[1] === 0)) {
-    err(errors, 'field_value', `${path}/direction`, 'direction is [x, z], each in [-1, 1], not both 0', d);
-  }
-  const range: Record<string, [number, number]> = { strength: [0, 10], gust: [0, 10], gustFrequency: [0, 10], turbulence: [0, 1] };
-  for (const [k, [lo, hi]] of Object.entries(range)) {
-    const v = w[k];
-    if (typeof v !== 'number' || !Number.isFinite(v) || v < lo || v > hi) err(errors, 'field_value', `${path}/${k}`, `${k} must be a number in [${lo}, ${hi}]`, v);
-  }
-  for (const k of Object.keys(w)) if (k !== 'direction' && !(k in range)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown wind field "${k}"`, k, 'direction, strength, gust, gustFrequency, turbulence');
 }
 
 /** Keys in a fixed order, colours lowercase (values were validated). */

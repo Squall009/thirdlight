@@ -105,6 +105,7 @@ The Shared script function node catalogue: port types, then each category's node
 - [Environment state](graph-behavior-6.md#node-behavior--api-environment-state) (`api.environment.state`, as in `behavior`): The preset the last change went to ('' = the base look), how far its blend is (0–1) and whether one is running.
 - [Environment weight](graph-behavior-6.md#node-behavior--api-environment-weight) (`api.environment.weight`, as in `behavior`): How much of a preset is in the look now (0–1; '' = the base look).
 - [Environment presets](graph-behavior-6.md#node-behavior--api-environment-presets) (`api.environment.presets`, as in `behavior`): The project's environment preset ids.
+- [Set wind](graph-behavior-6.md#node-behavior--api-environment-set-wind) (`api.environment.setWind`, as in `behavior`): Change the scene's global wind: any of its fields (direction [x, z], strength, gust, gustFrequency, turbulence, speed m/s, scale m, noise texture), added to the last change's, blending over `blend` seconds; null goes back to the scene's own wind. Wind zones keep laying their values over it. False when a value or an option is refused.
 
 <a id="graph-behavior-library--entity"></a>
 ## Entity

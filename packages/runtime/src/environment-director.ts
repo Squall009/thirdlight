@@ -23,6 +23,7 @@ import { validateEnvironmentPatch, type EnvironmentLookParts, type ModelErrorV2 
 
 import { ENVIRONMENT_EASINGS, easeEnvironment, type EnvironmentBlendView, type EnvironmentEasing, type EnvironmentOverride } from './environment-blend';
 import type { BehaviorEnvironment, EnvironmentChangeOptions } from './types';
+import { WindBlend, type WindSaveState } from './wind-blend';
 
 /** The longest blend in seconds (an engine limit: ten minutes covers a slow day cycle's segment). */
 export const MAX_ENVIRONMENT_BLEND_SECONDS = 600;
@@ -56,6 +57,8 @@ export interface EnvironmentSaveState {
   serial: number;
   /** The active scene and its look's blend (absent: the first start scene, at once). */
   scene?: SceneLookState;
+  /** The winds scripts set (absent: the scene's own wind). */
+  wind?: WindSaveState;
 }
 
 const sortedEntries = (m: ReadonlyMap<string, number>): [string, number][] => [...m.entries()].filter(([, w]) => w > 0).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
@@ -78,6 +81,8 @@ export class EnvironmentDirector {
   /** The active scene is not the start one, or was changed this run (it is then reported and in the digest). */
   private sceneChanged = false;
   readonly api: BehaviorEnvironment;
+  /** The global wind scripts set (`setWind`). */
+  private readonly wind: WindBlend;
 
   constructor(
     private readonly hz: number,
@@ -88,12 +93,13 @@ export class EnvironmentDirector {
   ) {
     this.presetIds = new Set(presetIds);
     this.scene = { active: startScene, from: null, elapsed: 0, total: 0, easing: 'linear' };
+    this.wind = new WindBlend(hz, MAX_ENVIRONMENT_BLEND_SECONDS, warn);
     this.api = this.buildApi();
   }
 
   /** A script changed the environment this run (until then nothing is reported). */
   get active(): boolean {
-    return this.used;
+    return this.used || this.wind.active;
   }
 
   /** The active scene (null: no scene catalog, or none loaded yet). */
@@ -131,11 +137,16 @@ export class EnvironmentDirector {
     this.scenePrev = 1;
     this.sceneCurr = 1;
     this.sceneChanged = false;
+    this.wind.reset();
   }
 
   /** One fixed step: advance the transition and the scene look's blend (called at the end of every step). */
   step(): void {
     this.stepScene();
+    if (this.wind.active) {
+      this.wind.step();
+      this.viewCache = null;
+    }
     if (!this.used) return;
     this.prev = this.curr;
     // The view interpolates prev → curr: a new step is a new view even at the same alpha.
@@ -175,7 +186,7 @@ export class EnvironmentDirector {
 
   /** The weights interpolated between the last two steps (alpha 0–1), or null while unused and the start scene is active. */
   view(alpha: number): EnvironmentBlendView | null {
-    if (!this.used && !this.sceneChanged) return null;
+    if (!this.used && !this.sceneChanged && !this.wind.active) return null;
     const a = Math.max(0, Math.min(1, Number.isFinite(alpha) ? alpha : 1));
     if (this.viewCache !== null && this.viewCache.alpha === a) return this.viewCache.view;
     const keys = new Set([...this.prev.keys(), ...this.curr.keys()]);
@@ -190,24 +201,29 @@ export class EnvironmentDirector {
     const sceneWeight = this.scenePrev * (1 - a) + this.sceneCurr * a;
     const from = this.scene.from;
     const scene = this.sceneChanged ? { scene: Object.freeze({ active: this.scene.active, from, weight: from === null ? 1 : sceneWeight }) } : {};
-    const view: EnvironmentBlendView = Object.freeze({ weights: Object.freeze(sortedEntries(mixed).map((e) => Object.freeze(e) as readonly [string, number])), overrides: Object.freeze(overrides), target: this.target, progress: this.progress(), ...scene });
+    const wind = this.wind.view(a);
+    const view: EnvironmentBlendView = Object.freeze({ weights: Object.freeze(sortedEntries(mixed).map((e) => Object.freeze(e) as readonly [string, number])), overrides: Object.freeze(overrides), target: this.target, progress: this.progress(), ...scene, ...(wind !== null ? { wind } : {}) });
     this.viewCache = { alpha: a, view };
     return view;
   }
 
   /** The committed state as digest text (null while unused and the start scene is active). */
   digestText(): string | null {
-    if (!this.used && !this.sceneChanged) return null;
+    if (!this.used && !this.sceneChanged && !this.wind.active) return null;
     const t = this.transition;
     const presets = this.used ? [sortedEntries(this.curr), this.target, t === null ? null : [sortedEntries(t.from), sortedEntries(t.to), t.elapsed, t.total, t.easing], [...this.overrides.keys()].sort()] : null;
-    // The active scene only once it changed, so a game that never changes it keeps its digests.
-    if (!this.sceneChanged) return JSON.stringify(presets);
+    // The active scene and the wind only once they changed, so a game that never changes them keeps its digests.
+    const wind = this.wind.digestValue();
     const sc = this.scene;
-    return JSON.stringify([presets, [sc.active, sc.from, sc.elapsed, sc.total, sc.easing]]);
+    const scene = this.sceneChanged ? [sc.active, sc.from, sc.elapsed, sc.total, sc.easing] : null;
+    if (wind !== null) return JSON.stringify([presets, scene, wind]);
+    if (!this.sceneChanged) return JSON.stringify(presets);
+    return JSON.stringify([presets, scene]);
   }
 
   saveState(): EnvironmentSaveState | undefined {
-    if (!this.used && !this.sceneChanged) return undefined;
+    if (!this.used && !this.sceneChanged && !this.wind.active) return undefined;
+    const wind = this.wind.saveState();
     const t = this.transition;
     return {
       weights: sortedEntries(this.curr),
@@ -216,6 +232,7 @@ export class EnvironmentDirector {
       overrides: [...this.overrides.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([k, o]) => [k, JSON.parse(JSON.stringify(o)) as EnvironmentOverride]),
       serial: this.serial,
       ...(this.sceneChanged ? { scene: { ...this.scene } } : {}),
+      ...(wind !== undefined ? { wind } : {}),
     };
   }
 
@@ -240,7 +257,7 @@ export class EnvironmentDirector {
       validateEnvironmentPatch((row[1] as EnvironmentOverride).patch, '/patch', errs);
       if (errs.length > 0) return `environment override "${row[0].slice(0, 64)}": ${errs[0]!.message}`;
     }
-    return null;
+    return this.wind.checkState(v.wind);
   }
 
   /**
@@ -260,6 +277,7 @@ export class EnvironmentDirector {
       this.sceneChanged = keep.changed;
     }
     if (value === undefined || value === null) return;
+    this.wind.restoreState(value.wind);
     if (sc !== undefined && (sc.active === null || loaded(sc.active))) {
       this.scene = { ...sc, from: sc.from !== null && loaded(sc.from) ? sc.from : null };
       this.sceneCurr = this.scene.from === null ? 1 : easeEnvironment(sc.easing, sc.total === 0 ? 1 : sc.elapsed / sc.total);
@@ -376,6 +394,11 @@ export class EnvironmentDirector {
         return w;
       },
       presets: (): readonly string[] => presets,
+      setWind: (wind: unknown, options?: unknown): boolean => {
+        const ok = this.wind.change(wind, options);
+        if (ok) this.viewCache = null;
+        return ok;
+      },
     }) as BehaviorEnvironment;
   }
 }
