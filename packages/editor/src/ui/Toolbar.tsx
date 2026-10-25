@@ -27,6 +27,9 @@ interface Props {
   /** The Scene view's See-through preview (view only; the project's setting is what Play uses). */
   seeThrough?: boolean;
   onToggleSeeThrough?: () => void;
+  /** The Scene view's wind preview: foliage moves in the scene's wind while editing (view only; Play always moves). */
+  wind?: boolean;
+  onToggleWind?: () => void;
   onPlay: () => void;
   /** Open the "Play from…" dialog (a scene, variables, a save slot). */
   onPlayFrom?: () => void;
@@ -84,6 +87,16 @@ export function Toolbar(p: Props): JSX.Element {
             title="See-through preview: what stands between the camera and the selected object (or the camera's target) thins as in Play, with the project's see-through settings. Only this view; nothing is saved. With the project's See-through setting off, the first switch-on builds the view's shaders again (a short hold); with it on they are built at load"
           >
             see-through{p.seeThrough === true ? ': on' : ': off'}
+          </button>
+        )}
+        {p.onToggleWind !== undefined && (
+          <button
+            className={p.wind === true ? 'tl-btn is-active' : 'tl-btn'}
+            aria-pressed={p.wind === true}
+            onClick={p.onToggleWind}
+            title="Wind preview: foliage sways in the scene's wind and its wind zones as in Play. Off, it holds still here and the view draws only when something changes. Only this view; nothing is saved"
+          >
+            wind{p.wind === true ? ': on' : ': off'}
           </button>
         )}
       </div>

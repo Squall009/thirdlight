@@ -61,7 +61,8 @@
  * - Scatter rules (first renderer, through the editor): on a disc painted
  *   layer 2 (green), the terrain's Scatter rules place orange posts where the
  *   ground is gentler than 30° (none on the disc's steep bumps, read back by
- *   position) and white tufts as ground cover; the Scatter brush takes the
+ *   position) and white tufts as ground cover (the Scene view near the disc
+ *   grows them once the rules are baked); the Scatter brush takes the
  *   posts off a patch (undone after); a small block terrace's Scatter puts
  *   posts on its flat tops, none on its sloped cell. Play and the export
  *   (both renderers) show the posts and, near their camera, the tufts.

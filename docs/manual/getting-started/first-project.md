@@ -29,7 +29,8 @@ below are the same, its objects differ.
 - The **menu bar**: File, Edit, GameObject, Component, Gizmos, Window, Help.
 - The **toolbar**: **◂ my-first-game** (back to the Projects page), the
   move, rotate and scale tools (W, E, R), **snap**, **light** (the scene's
-  own lights or a fixed editor light), **▶ play** and **play from…**.
+  own lights or a fixed editor light), **wind** (foliage sways in the Scene
+  view; off by default), **▶ play** and **play from…**.
 - The **Hierarchy** on the left. The scene **Main** is a header marked
   ACTIVE (new objects go there) and START (the game starts with it). Below
   it are the starter's objects: Main camera, Ground, Step, Platform, Crate,

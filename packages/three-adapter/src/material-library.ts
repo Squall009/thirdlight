@@ -195,6 +195,12 @@ export interface MaterialLibrary {
   setWetness(wetness: number): void;
   /** Advance the shared clock (seconds since start). */
   tick(seconds: number): void;
+  /**
+   * Hold the wind still (an editor view without its wind preview): foliage and the wind field keep the pose of
+   * the moment they were held while the rest of the clock (water, graphs' time) runs on, and foliage no longer
+   * keeps a view drawing. Off by default (a game's wind always moves).
+   */
+  setWindHeld(held: boolean): void;
   /** Whether any applied material animates (the host keeps rendering). */
   animated(): boolean;
   /**
@@ -288,6 +294,8 @@ function vec2(v: unknown, d: [number, number]): [number, number] {
 function createNodeGlobals() {
   return {
     time: TSL.uniform(0).setGroup(TSL.renderGroup),
+    // The wind's own clock: the shared clock unless the wind is held (an editor view without wind preview).
+    windTime: TSL.uniform(0).setGroup(TSL.renderGroup),
     windDir: TSL.uniform(new THREE.Vector2(1, 0)).setGroup(TSL.renderGroup),
     strength: TSL.uniform(DEFAULT_WIND_LIKE.strength).setGroup(TSL.renderGroup),
     gust: TSL.uniform(DEFAULT_WIND_LIKE.gust).setGroup(TSL.renderGroup),
@@ -327,6 +335,30 @@ function viewMethods(nodeGlobals: ReturnType<typeof createNodeGlobals>, windFiel
   };
 }
 
+/** The shared clock, the wind's own clock (held still on request) and the wetness, over the shared uniforms. */
+function clockMethods(nodeGlobals: ReturnType<typeof createNodeGlobals>, windField: WindField, changed: () => void): { held: () => boolean; methods: Pick<MaterialLibrary, 'tick' | 'setWindHeld' | 'setWetness'> } {
+  let held = false;
+  return {
+    held: () => held,
+    methods: {
+      tick(seconds) {
+        nodeGlobals.time.value = seconds;
+        if (held) return;
+        nodeGlobals.windTime.value = seconds;
+        windField.tick(seconds);
+      },
+      setWindHeld(on) {
+        if (held === on) return;
+        held = on;
+        changed();
+      },
+      setWetness(wetness) {
+        nodeGlobals.wetness.value = Math.max(0, Math.min(1, Number.isFinite(wetness) ? wetness : 0));
+      },
+    },
+  };
+}
+
 export function createMaterialLibrary(options: MaterialLibraryOptions): MaterialLibrary {
   const nodeGlobals = createNodeGlobals();
   /** The decoded textures, held per built material (and by the compiled graphs, the preloads, the wind's pattern). */
@@ -334,7 +366,8 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
   /** The view's subjects foliage gives way to. */
   const foliageBend = new FoliageBend();
   /** The wind every foliage vertex and graph wind node reads (the global wind, the zones' map, the gust pattern). */
-  const windField = new WindField(nodeGlobals.time, (id) => holds.get(id, 'wind'), () => holds.releaseHolder('wind'), () => options.onChange?.());
+  const windField = new WindField(nodeGlobals.windTime, (id) => holds.get(id, 'wind'), () => holds.releaseHolder('wind'), () => options.onChange?.());
+  const clock = clockMethods(nodeGlobals, windField, () => options.onChange?.());
   let defs = new Map<string, MaterialDefLike>();
   /** Textures some material reads with A as a height (a trim sheet among them draws its decal cells opaque). */
   let heightTextures: ReadonlySet<string> = new Set();
@@ -342,7 +375,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
   /** Listeners told when the definitions change (generated architecture re-reads its sheets). */
   const definitionListeners = new Set<() => void>();
   /** Built materials by `${materialId}|${source uuid or "none"}`. */
-  const built = new Map<string, { material: THREE.Material; defKey: string; animated: boolean }>();
+  const built = new Map<string, { material: THREE.Material; defKey: string; animated: boolean; water: boolean }>();
   /**
    * Meshes wearing each built material (by key) and the keys each
    * mesh wears — a built material and its texture copies are released with
@@ -682,7 +715,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
 
   function installFoliageNodes(m: THREE.MeshStandardMaterial, p: MaterialDefLike['params']): void {
     animatedCount += 1;
-    installFoliage(m, p, nodeGlobals, windField, foliageBend);
+    installFoliage(m, p, { time: nodeGlobals.windTime, eye: nodeGlobals.eye }, windField, foliageBend);
   }
 
   /** The x scale of a texture's UV transform (a shift added before the transform lands after it once divided by this). */
@@ -1076,7 +1109,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       disposeBuilt(have.material);
     }
     const m = build(def, source, derived);
-    built.set(key, { material: m, defKey: dk, animated: def.shader === 'foliage' || def.shader === 'water' });
+    built.set(key, { material: m, defKey: dk, animated: def.shader === 'foliage' || def.shader === 'water', water: def.shader === 'water' });
     return m;
   };
 
@@ -1246,16 +1279,11 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     },
     foliageBend,
     ...viewMethods(nodeGlobals, windField),
-    setWetness(wetness) {
-      nodeGlobals.wetness.value = Math.max(0, Math.min(1, Number.isFinite(wetness) ? wetness : 0));
-    },
-    tick(seconds) {
-      nodeGlobals.time.value = seconds;
-      windField.tick(seconds);
-    },
+    ...clock.methods,
     animated() {
       if (applied.size === 0) return false;
-      if (animatedCount > 0) return true;
+      // Held wind: foliage stands still, so only water (and animated graphs) keep the view drawing.
+      if (clock.held() ? [...built.values()].some((b) => b.water) : animatedCount > 0) return true;
       for (const e of graphEntries.values()) if (e.compiled.animated) return true;
       return false;
     },

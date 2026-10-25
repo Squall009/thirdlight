@@ -192,6 +192,10 @@ a graph's *Wind* node reads the same field.
   of its first metre. The material's `windBend` and `windFlutter` scale it.
 - The physical sky's clouds drift along the global wind at its `speed`
   (see *Clouds*).
+- **In the editor** foliage holds still in the Scene view (the view draws
+  only when something changes) until the toolbar's **wind** switch (*wind:
+  off* / *wind: on*) turns the wind preview on: then it sways as in Play,
+  zones included. Only that view; nothing is saved, and Play always moves.
 
 **Wind zones.** Add a *Wind zone* (Create → Light → Wind zone, or the
 `windZone` component on any object): a **box** (turns with the object about
@@ -223,6 +227,7 @@ stay parted. There is no simulation and nothing stored per plant.
   `strength` (0–4, default 1: a tip leans by about its own height at the
   body; 0 parts nothing) and `recovery` (seconds, default 1). A subject
   without it uses these defaults.
-- A scatter or cover rule's `bendAway` (0–4, default 1) scales how readily
-  its copies give way (0 for trees or rocks drawn with a foliage material).
+- A scatter or cover rule's `bendAway` (0–4, default 1; the rule card's
+  *Gives way* slider) scales how readily its copies give way (0 for trees
+  or rocks drawn with a foliage material).
 - `tl_diagnostics` `renderer.foliageBend` lists the subjects bent round now.

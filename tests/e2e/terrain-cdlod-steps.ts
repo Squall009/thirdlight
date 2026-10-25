@@ -1715,6 +1715,29 @@ export async function scatterRules(page: Page, ground: string, terrace: string):
 
   // The disc the rules read (layer 2, green), painted now: the first renderer's tools ran on the ground as it was.
   await cmd('editTerrain', { entityId: ground, kind: 'paint', dabs: [GROVE], radius: GROVE_RADIUS, strength: 1, falloff: 'constant', layer: 1 });
+  // The Scene view near the disc (a marker on it, framed and gone): its white tufts there before and after the rules
+  // (the editor works on the whole terrain and keeps that view on leaving, so the disc is framed again after).
+  const groveTop = await surface(ground, ...GROVE);
+  const groveDistance = async (): Promise<number> => {
+    const c = (JSON.parse((await viewport(page).getAttribute('data-view-camera'))!) as { position: number[] }).position;
+    return Math.hypot(c[0]! - groveTop[0], c[1]! - groveTop[1], c[2]! - groveTop[2]);
+  };
+  const frameGrove = async (): Promise<void> => {
+    const marker = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Grove', transform: { position: [GROVE[0], groveTop[1] + 1, GROVE[1]] }, box: { size: [6, 2, 6], material: { color: '#00ff00' } } }))['createdId']);
+    await clickRow(page, marker);
+    // F aims the view at it (keeping the distance); the wheel then brings the view in to about 20 m.
+    await page.keyboard.press('f');
+    await viewport(page).hover();
+    for (let i = 0; i < 40 && (await groveDistance()) > 20; i++) {
+      await page.mouse.wheel(0, -200);
+      await page.waitForTimeout(30);
+    }
+    await page.waitForTimeout(300);
+    await cmd('deleteEntity', { entityId: marker });
+  };
+  const tufts = async (): Promise<number> => count(await shot(page, groveTop, 240), isWhite);
+  await frameGrove();
+  const tuftsBefore = await tufts();
   await selectEntity(page, ground);
   await editModeTab(page, 'Scatter');
   const rules = terrainPanel(page).getByRole('group', { name: 'scatter rules' });
@@ -1759,6 +1782,9 @@ export async function scatterRules(page: Page, ground: string, terrace: string):
   await rules.getByRole('button', { name: 'bake scatter rules' }).click();
   await expect.poll(async () => (await copies()).length, { timeout: 30_000, message: 'the posts baked' }).toBeGreaterThan(10);
   expect(Number((await query('queryProject')).revision), 'one command for the bake').toBe(rev0 + 1);
+  // The Scene view grows the card's ground cover (placed on the GPU, as in Play).
+  await frameGrove();
+  await expect.poll(tufts, { timeout: 15_000, message: 'the ground cover in the Scene view' }).toBeGreaterThan(tuftsBefore + 15);
   const stored = (((await query('queryEntity', { entityId: ground })) as { entity: { components: { terrain: { scatter: Record<string, unknown>[] } } } }).entity.components.terrain.scatter);
   expect(stored[0], 'the card wrote the collider, the impostor size, the turn and the sink').toMatchObject({ id: 'posts', collide: true, impostorSize: POST_IMPOSTOR_SIZE, yaw: 90, sink: 0.05, layers: [{ layer: 1, min: 0.5 }] });
   // Every post on the disc and on gentle ground (its slope read where it stands); ground cover is never stored.
@@ -1774,15 +1800,9 @@ export async function scatterRules(page: Page, ground: string, terrace: string):
   for (let z = GROVE[1] - 3; z <= GROVE[1] + 3; z += 0.5) for (let x = GROVE[0] - 3; x <= GROVE[0] + 3; x += 0.5) grid.push([x, z]);
   const steep = ((await query('queryTerrain', { entityId: ground, points: grid }))['points'] as { slope: number }[]).filter((p) => p.slope > 35).length;
   expect(steep, 'the disc has steep places').toBeGreaterThan(5);
-  test.info().annotations.push({ type: 'terrain scatter', description: JSON.stringify({ posts: posts.length, steepSamples: steep }) });
+  test.info().annotations.push({ type: 'terrain scatter', description: JSON.stringify({ posts: posts.length, steepSamples: steep, tuftsBefore, tufts: await tufts() }) });
 
-  // The Scatter brush (Ctrl: take off) over a patch of the disc: no post left there; undone, they are back. The view
-  // frames a marker on the disc first (the tools left it over the far tile), and the marker goes before the stroke.
-  const marker = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Grove', transform: { position: [GROVE[0], (await surface(ground, ...GROVE))[1] + 1, GROVE[1]] }, box: { size: [6, 2, 6], material: { color: '#00ff00' } } }))['createdId']);
-  await clickRow(page, marker);
-  await page.keyboard.press('f');
-  await page.waitForTimeout(300);
-  await cmd('deleteEntity', { entityId: marker });
+  // The Scatter brush (Ctrl: take off) over a patch of the disc: no post left there; undone, they are back.
   await selectEntity(page, ground);
   await pickTool(page, 'Scatter');
   await expect(terrainPanel(page).getByRole('radiogroup', { name: 'scatter brush rule' }).getByRole('radio', { name: 'posts' })).toHaveAttribute('aria-checked', 'true');

@@ -156,6 +156,9 @@ export function createSceneViewAssets(o: {
       report();
     },
   });
+  // The Scene view's foliage stands still until its wind preview is switched on: an editing view draws on demand,
+  // and swaying grass would keep it drawing every frame.
+  materialLibrary.setWindHeld(true);
   /** A model asset's row as the adapter reads it (one object per version, so it compares equal while nothing changed). */
   const rows = new Map<string, SceneAdapterModelAsset>();
   const rowOf = (assetId: string): SceneAdapterModelAsset | undefined => {

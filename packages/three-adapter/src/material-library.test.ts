@@ -41,6 +41,27 @@ describe('material library', () => {
     expect(mats(a)).toEqual([barkA, leafA]);
   });
 
+  it('holds the wind still on request: foliage then keeps no view drawing, water still does', () => {
+    let changes = 0;
+    const lib = createMaterialLibrary({ loadTexture: async () => null, onChange: () => void (changes += 1) });
+    const WATER: MaterialDefLike = { materialId: 'mat-water', name: 'Water', shader: 'water', params: {}, textures: {} };
+    lib.setMaterials([FOLIAGE, WATER]);
+    lib.apply(model(), { '*': 'mat-foliage' });
+    expect(lib.animated()).toBe(true);
+    const before = changes;
+    lib.setWindHeld(true);
+    expect(changes, 'the view is asked to draw the held pose').toBe(before + 1);
+    lib.setWindHeld(true);
+    expect(changes, 'no change, no request').toBe(before + 1);
+    expect(lib.animated()).toBe(false);
+    lib.tick(5);
+    expect(lib.animated()).toBe(false);
+    lib.apply(model(), { '*': 'mat-water' });
+    expect(lib.animated()).toBe(true);
+    lib.setWindHeld(false);
+    expect(lib.animated()).toBe(true);
+  });
+
   it('rebuilds when a definition changes and drops a vanished material', () => {
     const lib = createMaterialLibrary({ loadTexture: async () => null });
     lib.setMaterials([RED]);

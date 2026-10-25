@@ -465,7 +465,10 @@ area and the terrain around it are dressed alike.
   stored scatter's falloff) they thin from where the model covers that size,
   their share falling as the square of distance. Cover casts no shadow unless the
   rule says `castShadow`; it receives them, and SSAO darkens its roots. The
-  same on WebGL 2 and WebGPU. Every terrain rule is drawn this way. What
+  same on WebGL 2 and WebGPU, and in the Scene view while editing: a rule
+  card's *Bake rules* (or *Apply* in the block editor and the Inspector's
+  *Ground cover*) shows the cover there at once. Every terrain rule is
+  drawn this way. What
   the terrain's textures don't hold comes from a **mask** per rule and tile
   (a byte per half sample, made on a worker with the stored scatter's own
   tests when a tile's patches are first drawn, and made again when the ground,

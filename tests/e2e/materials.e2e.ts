@@ -1,7 +1,8 @@
 /**
  * Materials, textures and wind in the browser. A foliage material
  * (COLOR_0 as wind data) set as an asset's default makes its pieces move in
- * the Scene view, in Play and in the export (a standard material's texture
+ * the Scene view (its wind preview on; off, they hold still there), in Play
+ * and in the export (a standard material's texture
  * on a box, on every backend: textures.e2e.ts).
  *
  * Node materials on WebGPURenderer, on the product's own renderer
@@ -114,6 +115,11 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a foliage material moves 
   await projectWindow(page);
   await kitTile.click();
   await page.getByRole('combobox', { name: 'material for all' }).selectOption({ label: 'Material 1' });
+  // The Scene view's wind preview (off by default: foliage holds still there) on.
+  const windPreview = page.getByRole('button', { name: /^wind: (on|off)$/ });
+  await expect(windPreview).toHaveAttribute('aria-pressed', 'false');
+  await windPreview.click();
+  await expect(windPreview).toHaveAttribute('aria-pressed', 'true');
   // Generous waits: the first frames with a new node material compile its pipeline (slow on the CPU renderer here).
   await expect.poll(() => motion(viewport), { timeout: 30_000 }).toBeGreaterThan(50);
 
@@ -144,6 +150,10 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a foliage material moves 
   await viewport.hover();
   await page.keyboard.press('Delete');
   await expect.poll(zone).toBeUndefined();
+  // The wind preview off: the scene's wind is back, yet the Scene view's foliage holds still.
+  await windPreview.click();
+  await expect(windPreview).toHaveAttribute('aria-pressed', 'false');
+  await expect.poll(() => motion(viewport), { timeout: 10_000 }).toBeLessThan(20);
 
   // Play: the wind moves the pieces there too.
   await page.getByTitle('Start an isolated play preview').click();

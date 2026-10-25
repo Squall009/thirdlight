@@ -20,7 +20,7 @@
  */
 import { useState, type JSX } from 'react';
 import { INSTANCE_DENSITY_END_DEFAULT, INSTANCE_DENSITY_MIN_DEFAULT, INSTANCE_DENSITY_START_DEFAULT } from '@thirdlight/project-model/limits';
-import { FOLIAGE_NEAR_METRES, SCATTER_CHUNK_METERS_DEFAULT, SCATTER_COVER_DISTANCE_DEFAULT, SCATTER_LIMITS, SURFACE_RULE_BLOCK_LAYERS, TERRAIN_LAYER_MAX, type ScatterRule } from '@thirdlight/runtime';
+import { FOLIAGE_BEND_DEFAULTS, FOLIAGE_BEND_LIMITS, FOLIAGE_NEAR_METRES, SCATTER_CHUNK_METERS_DEFAULT, SCATTER_COVER_DISTANCE_DEFAULT, SCATTER_LIMITS, SURFACE_RULE_BLOCK_LAYERS, TERRAIN_LAYER_MAX, type ScatterRule } from '@thirdlight/runtime';
 
 import { scatterRuleSummary } from '../../session/rule-text';
 import { SliderField } from '../brush/SliderField';
@@ -165,6 +165,7 @@ function ScatterCard(p: ScatterRuleCardsProps & { rule: ScatterRule; index: numb
             <SliderField label="radius" aria={`${pre} blob shadow`} value={r.blobShadow} min={L.blobShadow.min} max={8} log limit={[L.blobShadow.min, L.blobShadow.max]} step={0.05} unit="m" disabled={off} onChange={(v) => p.set('blobShadow', v)} />
           )}
           <Toggle label="See-through" aria={`${pre} see through`} hint="The copies thin to a dither round a subject behind them (the project's see-through; off: they always stay solid)." on={r.seeThrough !== false} disabled={off} onChange={(on) => p.set('seeThrough', on ? undefined : false)} />
+          <SliderField label="Gives way" aria={`${pre} bend away`} value={r.bendAway ?? FOLIAGE_BEND_DEFAULTS.ruleBend} min={FOLIAGE_BEND_LIMITS.ruleBend.min} max={FOLIAGE_BEND_LIMITS.ruleBend.max} step={0.05} hint="How readily the copies bend away from a view subject walking through them (a foliage material; its Foliage bend sets the push): 1 as set there, 0 never (rocks, trunks)." disabled={off} onChange={(v) => p.set('bendAway', v === FOLIAGE_BEND_DEFAULTS.ruleBend ? undefined : v)} />
           {r.cover !== true && (
             <>
               <Toggle label="Thin out far copies" aria={`${pre} density falloff`} hint="Far copies, small on screen, are drawn fewer: from the start size down to the end size, where the least share is drawn." on={thinning} disabled={off} onChange={(on) => p.update((x) => {
