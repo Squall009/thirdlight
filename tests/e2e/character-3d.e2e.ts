@@ -232,11 +232,12 @@ test('3D character settings: Inspector fields and the step-up height handle (3D 
   await expect(page.getByLabel('controller autostep', { exact: true })).toHaveCount(1);
   await expect(page.getByLabel('controller stepHeight', { exact: true })).toHaveCount(0);
 
-  // 3D: the 3D settings with their defaults, the autostep hidden.
+  // 3D: the 3D settings with their defaults, the movement profile, and the autostep the arcade profile reads.
   await cmd('setSettings', { settings: { physics_dimension: 3 } });
   const step = page.getByLabel('controller stepHeight', { exact: true });
   await expect(step).toHaveValue('0.3', { timeout: 30_000 });
-  await expect(page.getByLabel('controller autostep', { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel('controller profile', { exact: true })).toHaveCount(1);
+  await expect(page.getByLabel('controller autostep', { exact: true })).toHaveCount(1);
   await expect(page.getByLabel('controller walkSpeed', { exact: true })).toHaveValue('2');
   await expect(page.getByLabel('controller ledgeClimb', { exact: true })).toHaveCount(1);
 
