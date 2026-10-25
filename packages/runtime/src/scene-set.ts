@@ -147,6 +147,7 @@ export function character3DOf(entity: { id: string; components?: unknown }, sett
       minSlopeSlideRad: (Math.min(settings.min_slope_slide_deg, c3.slopeLimit) * Math.PI) / 180,
       autostep: c3.stepHeight > 0,
       ...(c3.stepHeight > 0 ? { autostepHeight: c3.stepHeight } : {}),
+      ...(c3.stepHeight > 0 && c3.stepRide ? { autostepRide: true } : {}),
     },
   };
 }
@@ -236,10 +237,11 @@ export function physics2DConfigOf(
  * The parts of a 3D character's settings the physics port and the
  * runtime's result check use (skin, ground snap, step-up height, slope limit).
  */
-export function character3DPhysicsOf(controller: unknown, maxSlopeClimbDeg: number): { skin: number; groundSnap: number; stepHeight: number; slopeLimit: number } {
+export function character3DPhysicsOf(controller: unknown, maxSlopeClimbDeg: number): { skin: number; groundSnap: number; stepHeight: number; slopeLimit: number; stepRide: boolean } {
   // run speed, jump and gravity do not reach the port (placeholders for the resolver's other fields).
   const s = character3DSettingsOf(controller, { run_speed: 0, jump_velocity: 0, gravity_y: 0, max_fall_speed: 0, max_slope_climb_deg: maxSlopeClimbDeg });
-  return { skin: s.skin, groundSnap: s.groundSnap, stepHeight: s.stepHeight, slopeLimit: s.slopeLimit };
+  // The arcade profile climbs steps by the 2D controller's rule (`autostepRide`).
+  return { skin: s.skin, groundSnap: s.groundSnap, stepHeight: s.stepHeight, slopeLimit: s.slopeLimit, stepRide: s.profile === 'arcade' };
 }
 
 /**

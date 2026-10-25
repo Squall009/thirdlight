@@ -258,8 +258,10 @@ rules, with its fields meaning what they mean there: one speed
 axis and Deceleration while above it, in the air as on the ground; releasing
 jump while rising keeps Jump release of the upward speed and ends the jump;
 steps are climbed only with **Autostep** (up to its Step height; the
-character's Step-up height and Ledge climb are not used) and the ground snap
-is as set; a character resting on a slope steeper than the project's slide
+character's Step-up height and Ledge climb are not used), the 2D way: the
+capsule rides up over the step's edge across a few steps and loses speed
+doing so, where the character profile is lifted onto it at once; the ground
+snap is as set; a character resting on a slope steeper than the project's slide
 angle slides down it at the run speed; Face movement is off unless set.
 Coyote time, the jump buffer, climbing, wall slide and wall jump, one-way
 platforms and what it stands on carrying it work as for the character.

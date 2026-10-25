@@ -192,12 +192,17 @@ export function inputOf(c: PlatformerCase): Frame[] {
 /** The settle pre-roll's steps (0.1 s at 120 Hz): they consume the recording's first frames. */
 const SETTLE_STEPS = 12;
 
-function replayOf(c: PlatformerCase): Any[] {
+/**
+ * The case's replay. `downMoves`: down is also the move input's y, as a
+ * side view's stick or keys give it; a character free in 3D reads that y as
+ * a walk in depth, so there down is the `navigate` action only.
+ */
+function replayOf(c: PlatformerCase, downMoves: boolean): Any[] {
   const idle: Frame[] = Array.from({ length: SETTLE_STEPS }, () => ({}));
   return [...idle, ...inputOf(c)].map((f, s) => ({
     stepIndex: s,
     moveX: f.moveX ?? 0,
-    moveY: f.down === true ? -1 : (f.moveY ?? 0),
+    moveY: f.down === true && downMoves ? -1 : (f.moveY ?? 0),
     jump: f.jump ?? 'none',
     actions: f.down === true ? { navigate: { v: 1, x: 0, y: -1, p: 'held' } } : {},
   }));
@@ -243,7 +248,7 @@ export async function recordCase(c: PlatformerCase, dim: 2 | 3, extraController:
     snapshot: { snapshotId: `${c.id}${dim}@r1`, projectId: `${c.id}${dim}`, revision: 1, scene: { schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities }, scenes: [{ sceneId: 'scene-main', start: true, entityIds: entities.map((e) => e.id) }] },
     settings,
     physics,
-    replay: replayOf(c),
+    replay: replayOf(c, dim === 2 || extraController['plane'] !== undefined),
     ...(dim === 3 ? { modules: MODULES_3D } : {}),
   });
   const rt = h.rt as Any;

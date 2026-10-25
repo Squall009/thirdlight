@@ -16,7 +16,11 @@
  * plane-locked scene does, where without it nothing keeps them there but the
  * layout itself.
  *
- * Input: env TL_PLANE = JSON { dim, levels, warmup, steps, seed, plane? }.
+ * `arcade` gives the character the arcade movement profile's step-up: autostep
+ * (0.25 m) on both backends, climbed on the 3D one by the 2D rule
+ * (`autostepRide`), as a side-scroller's player moved to the one backend has.
+ *
+ * Input: env TL_PLANE = JSON { dim, levels, warmup, steps, seed, plane?, arcade? }.
  * Output: one JSON line on stdout.
  */
 import v8 from 'node:v8';
@@ -34,6 +38,8 @@ interface PlaneInput {
   dim: 2 | 3;
   /** 3D: the character and the movers locked to the plane z = 0. */
   plane?: boolean;
+  /** The arcade profile's step-up: autostep on (and on 3D, climbed by the 2D rule). */
+  arcade?: boolean;
   /** Levels laid end to end, all loaded (one is a level as a game streams it). */
   levels: number;
   warmup: number;
@@ -107,8 +113,9 @@ function moverAt(m: Layout['movers'][number], t: number): { x: number; y: number
 
 async function portOf(input: PlaneInput, L: Layout): Promise<Any> {
   const capsule = playerCapsuleOf(undefined);
-  const tuning = playerPhysicsOf(undefined);
-  const controller = { offsetSkin: tuning.offsetSkin, groundSnap: tuning.groundSnap, maxSlopeClimbRad: Math.PI / 4, minSlopeSlideRad: Math.PI / 6, autostep: tuning.autostep, ...(tuning.autostep ? { autostepHeight: tuning.autostepHeight } : {}) };
+  const tuning = playerPhysicsOf(input.arcade === true ? { autostep: true } : undefined);
+  const ride = input.arcade === true && input.dim === 3 ? { autostepRide: true } : {};
+  const controller = { offsetSkin: tuning.offsetSkin, groundSnap: tuning.groundSnap, maxSlopeClimbRad: Math.PI / 4, minSlopeSlideRad: Math.PI / 6, autostep: tuning.autostep, ...(tuning.autostep ? { autostepHeight: tuning.autostepHeight } : {}), ...ride };
   const solver = { hz: HZ, gravityY: GRAVITY_Y };
   if (input.dim === 2) {
     const statics: Any[] = [];
@@ -236,6 +243,7 @@ async function run(input: PlaneInput): Promise<Record<string, unknown>> {
     ok: true,
     dim: input.dim,
     plane: input.plane === true,
+    arcade: input.arcade === true,
     levels: input.levels,
     implementation: diag.implementation,
     colliders: diag.worldColliderCount,

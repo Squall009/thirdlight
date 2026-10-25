@@ -3,7 +3,9 @@
  * (3D also plane-locked), each in its own child process (the WASM memory of one backend never counts
  * against the other), and print one JSON line per run.
  *
- *   node tools/perf/run.mjs plane-step [--levels 1,4] [--steps 2400] [--warmup 240] [--rounds 3] [--seed 7]
+ *   node tools/perf/run.mjs plane-step [--levels 1,4] [--steps 2400] [--warmup 240] [--rounds 3] [--seed 7] [--arcade]
+ *
+ * `--arcade` gives every run the arcade profile's step-up (autostep; on 3D by the 2D rule).
  */
 import { spawn } from 'node:child_process';
 
@@ -33,7 +35,7 @@ export async function runPlaneStepCli(argv: string[]): Promise<void> {
   };
   const levels = flag('levels', '1,4').split(',').map(Number);
   const rounds = Number(flag('rounds', '3'));
-  const base = { warmup: Number(flag('warmup', '240')), steps: Number(flag('steps', '2400')), seed: Number(flag('seed', '7')) };
+  const base = { warmup: Number(flag('warmup', '240')), steps: Number(flag('steps', '2400')), seed: Number(flag('seed', '7')), arcade: argv.includes('--arcade') };
   const bundle = await perfBundle('plane-step');
   // Rounds interleave the backends so host drift lands on both alike.
   for (let r = 0; r < rounds; r += 1) {

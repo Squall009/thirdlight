@@ -4,7 +4,8 @@
  * gravity along −Y) and rests on the box's top; on a box rotated about X it
  * rests on the tilted top, higher on the raised side; a ray hits the nearest
  * box with its normal; the config and shapes are validated before any WASM
- * work; results are identical over two runs; dispose frees the world.
+ * work; results are identical over two runs; dispose frees the world. A
+ * riser is stepped up at once, or ridden up over its edge by the 2D rule.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -182,10 +183,44 @@ describe('the Rapier 3D port', () => {
     expect(noDepth).toMatchObject({ ok: false, error: { code: 'physics_init_failed', reason: 'invalid_shape' } });
     const badRotation = await createPhysicsPort3D(config([box('floor', [0, 0, 0], [1, 1, 1], { x: 0, y: 0, z: 0, w: 2 })]));
     expect(badRotation).toMatchObject({ ok: false, error: { reason: 'invalid_transform' } });
+    const badRide = await createPhysicsPort3D({ ...config([]), controller: { ...config([]).controller, autostepRide: 'yes' as never } });
+    expect(badRide).toMatchObject({ ok: false, error: { reason: 'invalid_config' } });
     const twoD = await createPhysicsPort3D({ ...config([]), dimension: 2 } as never);
     expect(twoD).toMatchObject({ ok: false, error: { reason: 'invalid_config' } });
     const ctl = new AbortController();
     ctl.abort();
     expect(await createPhysicsPort3D(config([]), ctl.signal)).toMatchObject({ ok: false, error: { code: 'physics_init_cancelled' } });
+  });
+});
+
+describe('stepping up a riser', () => {
+  /** Walk +x at 3 m/s (gravity staged in the air) toward a 0.2 m riser at x = 1 with autostep 0.25 m; each step's x and y. */
+  async function walkUp(ride: boolean): Promise<{ x: number; y: number }[]> {
+    const port = await portOf({ ...config([box('floor', [0, -0.5, 0], [10, 0.5, 2]), box('riser', [3, 0.1, 0], [2, 0.1, 2])], [0, 0.91, 0]), controller: { ...config([]).controller, autostep: true, autostepHeight: 0.25, ...(ride ? { autostepRide: true } : {}) } });
+    let v = 0;
+    let grounded = true;
+    const out: { x: number; y: number }[] = [];
+    for (let i = 0; i < 120; i += 1) {
+      v = grounded ? 0 : Math.max(-30, v + G / HZ);
+      port.stageCharacterMove({ x: 3 / HZ, y: v / HZ, z: 0 });
+      const r = port.step();
+      grounded = r.grounded;
+      out.push({ x: r.position.x, y: r.position.y });
+    }
+    port.dispose();
+    return out;
+  }
+
+  it('the port\'s lift puts it on the riser in one step; the 2D rule (autostepRide) rides it up over the edge across several, losing speed', async () => {
+    const top = 0.2 + 0.91;
+    const steps = (w: { y: number }[]): number => w.findIndex((p) => p.y > top - 0.002) - w.findIndex((p) => p.y > 0.91 + 0.002);
+    const lift = await walkUp(false);
+    const ride = await walkUp(true);
+    expect(steps(lift)).toBeLessThanOrEqual(1);
+    expect(steps(ride)).toBeGreaterThan(5);
+    // Both end on the riser, the ride behind the lift (it lost speed on the edge).
+    for (const w of [lift, ride]) expect(w.at(-1)!.y).toBeCloseTo(top, 2);
+    expect(ride.at(-1)!.x).toBeLessThan(lift.at(-1)!.x - 0.05);
+    expect(ride.at(-1)!.x).toBeGreaterThan(2);
   });
 });

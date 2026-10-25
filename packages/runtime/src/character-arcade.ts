@@ -21,7 +21,8 @@
  *   input across it, without gravity, until it jumps off or leaves.
  * The horizontal rule works per world axis (+X, and −Z: right on an X
  * plane), so the same character on a Z plane and on an X plane moves alike.
- * Steps are climbed by the port's autostep (`autostep`), and one-way
+ * Steps are climbed by the port's autostep (`autostep`) by the 2D rule
+ * (`autostepRide`: it rides up over the edge, losing speed), and one-way
  * platforms, drop-through and what it stands on carrying it are the
  * runtime's and the port's, as for every controller.
  */
@@ -262,8 +263,12 @@ export function createArcadeOne(found: { id: string; controller: unknown; rotati
         }
       }
     }
+    // Lifted by what it touches (a rising mover under its edge), its fall was taken out of the last
+    // move (the runtime cancels it): it rests on it as on the ground, so it leaves the mover from rest
+    // (as the 2D controller did, which the mover's push held grounded there).
+    const lifted = !groundedPrev && !airborne && p !== undefined && p.grounded && p.requested.y > 0 && vy <= 0;
     // Resting on the ground, or falling under gravity (no faster than the fall cap).
-    if (groundedPrev && !airborne) vy = 0;
+    if ((groundedPrev || lifted) && !airborne) vy = 0;
     else vy = Math.max(vy + S.gravityY * dt, S.maxFallSpeed);
     // A wall slide: falling while pushing into the wall it touches, no faster than the slide speed.
     if (M.wallSlide && wallNow !== null && ix * wallNow.x + iz * wallNow.z < -1e-9 && vy < -M.wallSlideSpeed) vy = -M.wallSlideSpeed;

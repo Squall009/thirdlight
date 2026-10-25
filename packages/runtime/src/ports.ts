@@ -521,6 +521,14 @@ export interface CharacterControllerTuning {
   minSlopeSlideRad: number;
   autostep: boolean;
   autostepHeight?: number;
+  /**
+   * How the 3D port climbs a step. Absent or false: lifted onto it at once.
+   * True: the 2D controller's autostep rule (the arcade profile) — lifted to
+   * the step's top and moved on by its radius, after which the rest of the
+   * move drops it back onto the edge, so it rides up over the edge across
+   * several steps and loses speed doing so. The 2D port always climbs so.
+   */
+  autostepRide?: boolean;
 }
 
 /** A 2D-plane player character added while the world runs: its object, centre, capsule and tuning. */

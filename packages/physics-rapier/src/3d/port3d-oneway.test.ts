@@ -4,7 +4,9 @@
  * lands on it, walks through its side, drops through it on request, in free
  * 3D and locked to a plane; a one-way collider turned on its side holds only
  * from the side its up faces; dynamic bodies in the contact pipeline pass up
- * through a one-way platform and come to rest on it; a cylinder stands along
+ * through a one-way platform and come to rest on it; spawn clearance never
+ * counts a one-way collider in the way, and counts it as support only under
+ * a capsule on its top; a cylinder stands along
  * its local Y and a turned one lies along the plane's normal.
  */
 import { describe, expect, it } from 'vitest';
@@ -114,6 +116,23 @@ describe('one-way colliders for a character on the 3D port', () => {
     // Held by the gate's face at x = 2.1 (the capsule's radius and skin off it).
     expect(r.position.x).toBeCloseTo(2.1 + 0.3 + 0.01, 1);
     port.dispose();
+  });
+
+  it('spawn clearance: a one-way shelf never blocks a capsule and supports only one on its top (the 2D probe\'s rule)', async () => {
+    const solid = await portOf(config([box('floor', [0, -0.5, 0], [20, 0.5, 20]), box('shelf', [0, 2, 0], [2, 0.1, 2])], [5, standOn(0), 0]));
+    const port = await portOf(config(level(), [5, standOn(0), 0]));
+    // A capsule cutting through the shelf (0.6 to 2.4 m against its 1.9 to 2.1): a solid shelf blocks it,
+    // a one-way one does not, and the floor below supports it.
+    expect(solid.characterClearance!({ x: 0, y: 1.5, z: 0 })).toMatchObject({ ok: false, reason: 'blocked' });
+    expect(port.characterClearance!({ x: 0, y: 1.5, z: 0 })).toMatchObject({ ok: true, supportNormal: { x: 0, y: 1, z: 0 } });
+    expect(port.characterClearance!({ x: 0, y: standOn(2.1), z: 0 })).toMatchObject({ ok: true, supportNormal: { x: 0, y: 1, z: 0 } });
+    solid.dispose();
+    port.dispose();
+    // A one-way floor with nothing under it: it supports a capsule on its top only.
+    const alone = await portOf(config([box('shelf', [0, 2, 0], [2, 0.1, 2], { oneWay: true })], [0, standOn(2.1), 0]));
+    expect(alone.characterClearance!({ x: 0, y: standOn(2.1), z: 0 })).toMatchObject({ ok: true });
+    expect(alone.characterClearance!({ x: 0, y: standOn(2.1) - 0.3, z: 0 })).toMatchObject({ ok: false, reason: 'no_support' });
+    alone.dispose();
   });
 
   it('one-way colliders come and go with their scene; a drop through is capped', async () => {

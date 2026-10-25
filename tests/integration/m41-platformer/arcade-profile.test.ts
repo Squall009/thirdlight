@@ -6,7 +6,8 @@
  * jump, a ladder, a one-way shelf with drop-through, a lift and a sideways
  * platform carrying it); the same level on the plane x = 0 gives the same
  * in-plane trace as on z = 0; free in 3D (no plane) a character moving only
- * along X matches the plane-locked one; the profile does not turn the
+ * along X matches the plane-locked one (down, which drops it through a
+ * one-way shelf, is then an action and not a walk in depth); the profile does not turn the
  * character, and it reads the 2D controller's own tuning fields. How close
  * each case comes to its reference trace is the parity suite's.
  */
@@ -54,8 +55,8 @@ describe('the arcade profile in either mode', () => {
   }, 60_000);
 
   it('free in 3D, moving only along X, it matches the plane-locked character', async () => {
-    // (Not the drop-through: free, the port pushes the character out of a 1 m deep shelf along its depth.)
-    for (const id of ['jump-apex', 'walls', 'slope-slide', 'movers', 'climb']) {
+    // (A free character's resting press onto the ground moves ledge, stair and run timing; the plane-locked one is the parity suite's.)
+    for (const id of ['jump-apex', 'walls', 'slope-slide', 'movers', 'climb', 'one-way']) {
       const c = CASES.find((x) => x.id === id)!;
       const r = await recordCase(c, 3, ARCADE);
       expect(r.errors, id).toEqual([]);
