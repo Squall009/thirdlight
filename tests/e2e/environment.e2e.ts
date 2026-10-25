@@ -1,6 +1,6 @@
 /**
  * The Environment window. A solid sky colour fills the Scene view's
- * background, the physical sky draws a sky, a vignette darkens the corners,
+ * background, the physical sky draws a sky (its cloud cover is stored), a vignette darkens the corners,
  * bloom brightens the view, a fog volume fills its box with fog (and thins
  * with height), an image sky turns (the rotation field, and "align the sky's
  * sun to the key light" finding the image's sun), a height fog (its fields:
@@ -110,6 +110,12 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`sky, vignette, bloom and 
   // The physical sky: still a bright sky, now with a gradient.
   await page.getByRole('combobox', { name: 'sky mode' }).selectOption('procedural');
   await expect.poll(async () => bright(avg(await shot(viewport), 0.05, 0.02, 0.95, 0.12)), { timeout: 10_000 }).toBeGreaterThan(bright(before) + 40);
+  // The physical sky's cloud cover from its slider reaches the scene's look (the editor's view looks at the hazy
+  // horizon, where clouds fade out; their drawing is checked in the renderer's unit tests and on the meadow).
+  await page.getByRole('slider', { name: 'sky cloud coverage' }).focus();
+  await page.keyboard.press('End');
+  const cloudSky = async (): Promise<unknown> => ((await be.command({ op: 'queryProject', projectId: be.projectId, args: { environments: true } }))['scenes'] as { sceneId: string; environment?: { sky?: unknown } }[]).find((r) => r.sceneId === 'scene-main')?.environment?.sky;
+  await expect.poll(cloudSky, { timeout: 10_000 }).toMatchObject({ mode: 'procedural', cloudCoverage: 1 });
   await page.getByRole('combobox', { name: 'sky mode' }).selectOption('color');
   await expect.poll(async () => avg(await shot(viewport), 0.05, 0.02, 0.95, 0.15)[2], { timeout: 10_000 }).toBeGreaterThan(before[2] + 80);
   await synced();

@@ -18,7 +18,7 @@
  *
  * three's WebGPURenderer (WebGPU or its WebGL 2 backend)
  * draws every part from TSL (`environment-nodes.ts`): the physical sky is
- * three's `SkyMesh`, the gradient dome a node material, PMREM is
+ * three's `SkyMesh` (`physical-sky.ts`: its clouds drift with the wind), the gradient dome a node material, PMREM is
  * `three/webgpu`'s generator, and the post stack a `RenderPipeline` (TSL
  * display nodes for GTAO, depth of field, bloom, SMAA and FXAA; the fog
  * volume and grading passes ported line by line from the archived GLSL). The
@@ -32,14 +32,17 @@
  */
 import * as THREE from 'three';
 import { PMREMGenerator as NodePMREMGenerator, type WebGPURenderer } from 'three/webgpu';
-import { AMBIENT_OCCLUSION_DEFAULT, levelPost, qualityLevelOf, qualityLevelsOf, type QualityLevelConfig } from '@thirdlight/runtime';
+import { AMBIENT_OCCLUSION_DEFAULT, levelPost, qualityLevelOf, qualityLevelsOf, SKY_DEFAULTS, type QualityLevelConfig } from '@thirdlight/runtime';
+
+import { CloudDrift, type CloudWind } from './cloud-drift';
 
 import { ScreenSpaceOcclusion } from './post-ao';
 import type { UpscaleFilter } from './post-upscale';
 import type { ScenePasses } from './occlusion-passes';
 import { applySkyRotation, skyRotationRadians } from './sky-rotation';
 import { createHeightFog, type HeightFogLike } from './height-fog';
-import { buildPostPipeline, compileIntoTarget, createSkyMesh, SETTLED_PRECOMPILE as settledPrecompile, type Precompile, gradientSkyMaterial, gradientSkyUniforms, imageSkyMaterial, MAX_FOG_VOLUMES, type FogVolumeBox, type PostPipeline, type PostPlan } from './environment-nodes';
+import { buildPostPipeline, cloudDriftUniform, compileIntoTarget, createSkyMesh, SETTLED_PRECOMPILE as settledPrecompile, type Precompile, gradientSkyMaterial, gradientSkyUniforms, imageSkyMaterial, MAX_FOG_VOLUMES, type FogVolumeBox, type PostPipeline, type PostPlan, type SkyParams } from './environment-nodes';
+import type { PhysicalSky } from './physical-sky';
 
 /** Structural copies of the project-model environment types. */
 export interface SkyLike {
@@ -59,6 +62,10 @@ export interface SkyLike {
   readonly cube?: readonly string[];
   /** A texture sky's turn about +Y (degrees; sky-rotation.ts). */
   readonly rotation?: number;
+  /** The physical sky's clouds: the share of the sky they cover and how solid they are (0: clear), and seconds of travel behind them at the start. */
+  readonly cloudCoverage?: number;
+  readonly cloudDensity?: number;
+  readonly cloudTime?: number;
   readonly intensity?: number;
   readonly environmentIntensity?: number;
 }
@@ -239,6 +246,8 @@ export interface EnvironmentRenderer {
    * of it (`renderer.compileAsync`; the renderer must be initialised).
    */
   compileAsync(camera: THREE.Camera): Precompile;
+  /** Move the physical sky's clouds to the presentation clock `seconds` under the scene's global wind (one uniform write). */
+  driftClouds(seconds: number, wind: CloudWind): void;
   /** Canvas size in CSS pixels. */
   resize(width: number, height: number): void;
   /** `samples` = the MSAA samples the scene is drawn with (0: none — a level without MSAA, or a post stack with its own anti-aliasing). */
@@ -297,7 +306,8 @@ function srgbInto(hex: string, out: number[], at: number): void {
 /**
  * Whether two skies' bake inputs differ past `SKY_REBAKE_THRESHOLD`
  * (gradient: the three colours as sRGB channels; procedural: turbidity,
- * rayleigh, Mie coefficient and direction, then the unit sun direction).
+ * rayleigh, Mie coefficient and direction, the unit sun direction, then the
+ * clouds' coverage and density).
  */
 export function skyInputsDiffer(mode: 'gradient' | 'procedural', a: readonly number[], b: readonly number[]): boolean {
   if (a.length !== b.length) return true;
@@ -309,8 +319,47 @@ export function skyInputsDiffer(mode: 'gradient' | 'procedural', a: readonly num
     const scale = Math.max(Math.abs(a[i]!), Math.abs(b[i]!), 1e-6);
     if (Math.abs(a[i]! - b[i]!) > SKY_REBAKE_THRESHOLD.relative * scale) return true;
   }
+  // The clouds' coverage and density (shares, 0–1) as a colour channel is.
+  for (let i = 7; i < a.length; i += 1) if (Math.abs(a[i]! - b[i]!) > SKY_REBAKE_THRESHOLD.color) return true;
   const dot = a[4]! * b[4]! + a[5]! * b[5]! + a[6]! * b[6]!;
   return dot < Math.cos(THREE.MathUtils.degToRad(SKY_REBAKE_THRESHOLD.sunDegrees));
+}
+
+/** A physical sky's numbers, its sun given (the key light's or its own angles). */
+function physicalSkyParams(sky: SkyLike, sun: THREE.Vector3): SkyParams {
+  return {
+    turbidity: sky.turbidity ?? 6,
+    rayleigh: sky.rayleigh ?? 1.5,
+    mieCoefficient: sky.mieCoefficient ?? 0.005,
+    mieDirectionalG: sky.mieDirectionalG ?? 0.8,
+    sun,
+    cloudCoverage: sky.cloudCoverage ?? SKY_DEFAULTS.cloudCoverage,
+    cloudDensity: sky.cloudDensity ?? SKY_DEFAULTS.cloudDensity,
+  };
+}
+
+/** A gradient or procedural sky's bake inputs into `out` (see `skyInputsDiffer`; a procedural sky's from its `params`). */
+function skyInputs(sky: SkyLike, out: number[], params?: SkyParams): void {
+  out.length = 0;
+  if (sky.mode === 'gradient') {
+    srgbInto(sky.topColor ?? '#3d7cd6', out, 0);
+    srgbInto(sky.horizonColor ?? '#bfe3ff', out, 3);
+    srgbInto(sky.bottomColor ?? '#757575', out, 6);
+  } else if (sky.mode === 'procedural' && params !== undefined) {
+    out.push(params.turbidity, params.rayleigh, params.mieCoefficient, params.mieDirectionalG, params.sun.x, params.sun.y, params.sun.z, params.cloudCoverage, params.cloudDensity);
+  }
+}
+
+/** The physical sky's uniforms (`PhysicalSky`). */
+function setSkyUniforms(mesh: THREE.Mesh, p: SkyParams): void {
+  const m = mesh as PhysicalSky;
+  m.turbidity.value = p.turbidity;
+  m.rayleigh.value = p.rayleigh;
+  m.mieCoefficient.value = p.mieCoefficient;
+  m.mieDirectionalG.value = p.mieDirectionalG;
+  (m.sunPosition.value as THREE.Vector3).copy(p.sun);
+  m.cloudCoverage.value = p.cloudCoverage;
+  m.cloudDensity.value = p.cloudDensity;
 }
 
 export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE.Scene, options: EnvironmentRendererOptions): EnvironmentRenderer {
@@ -361,6 +410,10 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
   let samplesNow = renderer.samples;
   const pmrem: PmremLike = new NodePMREMGenerator(renderer) as unknown as PmremLike;
   let skyMesh: THREE.Mesh | null = null;
+  /** The clouds' travel every physical sky here reads (the live one, cross-fade layers, the lighting bake's copy). */
+  const cloudDrift = cloudDriftUniform() as { value: THREE.Vector2 };
+  const drift = new CloudDrift();
+  const driftNow: [number, number] = [0, 0];
   let skyDome: THREE.Mesh | null = null;
   let envMap: { texture: THREE.Texture; dispose(): void } | null = null;
   /** The cube/equirect background built from a sky texture (freed with the sky). */
@@ -400,12 +453,13 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
   // ---- sky ---------------------------------------------------------------------
   /**
    * What the built sky is built from: its fields but the turn (a turn is two
-   * rotation uniforms, never a new sky, image upload or PMREM bake) and, for a
+   * rotation uniforms, never a new sky, image upload or PMREM bake) and the
+   * clouds' start (the drift uniform each frame reads it), and, for a
    * sun that follows it, the key light.
    */
   const skyKeyOf = (sky: SkyLike | undefined): string => {
     if (sky === undefined) return 'null';
-    return JSON.stringify(sky, (k, v: unknown) => (k === 'rotation' ? undefined : v)) + (sky.sunFromLight !== false ? JSON.stringify(keyLight) : '');
+    return JSON.stringify(sky, (k, v: unknown) => (k === 'rotation' || k === 'cloudTime' ? undefined : v)) + (sky.sunFromLight !== false ? JSON.stringify(keyLight) : '');
   };
   const sunDirection = (sky: SkyLike): THREE.Vector3 => {
     if (sky.sunFromLight !== false && keyLight !== null) {
@@ -474,12 +528,12 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     }
     if (sky.mode === 'procedural') {
       // three's TSL sky, and image-based lighting from a copy of it.
-      const params = { turbidity: sky.turbidity ?? 6, rayleigh: sky.rayleigh ?? 1.5, mieCoefficient: sky.mieCoefficient ?? 0.005, mieDirectionalG: sky.mieDirectionalG ?? 0.8, sun: sunDirection(sky) };
-      skyMesh = createSkyMesh(params);
+      const params = procParams(sky);
+      skyMesh = createSkyMesh(params, cloudDrift);
       scene.background = null;
       scene.add(skyMesh);
       const tmp = new THREE.Scene();
-      const clone = createSkyMesh(params);
+      const clone = createSkyMesh(params, cloudDrift);
       tmp.add(clone);
       bake = { scene: tmp, mesh: clone, mode: 'procedural' };
       bakeIbl(sky);
@@ -550,19 +604,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
   };
 
   // ---- Blends (the sky in place, cross-fade layers) ----------------------------
-  const procParams = (sky: SkyLike): Parameters<typeof createSkyMesh>[0] => ({ turbidity: sky.turbidity ?? 6, rayleigh: sky.rayleigh ?? 1.5, mieCoefficient: sky.mieCoefficient ?? 0.005, mieDirectionalG: sky.mieDirectionalG ?? 0.8, sun: sunDirection(sky) });
-  /** A gradient or procedural sky's bake inputs into `out` (see `skyInputsDiffer`). */
-  const skyInputs = (sky: SkyLike, out: number[], params?: ReturnType<typeof procParams>): void => {
-    out.length = 0;
-    if (sky.mode === 'gradient') {
-      srgbInto(sky.topColor ?? '#3d7cd6', out, 0);
-      srgbInto(sky.horizonColor ?? '#bfe3ff', out, 3);
-      srgbInto(sky.bottomColor ?? '#757575', out, 6);
-    } else if (sky.mode === 'procedural') {
-      const p = params ?? procParams(sky);
-      out.push(p.turbidity, p.rayleigh, p.mieCoefficient, p.mieDirectionalG, p.sun.x, p.sun.y, p.sun.z);
-    }
-  };
+  const procParams = (sky: SkyLike): SkyParams => physicalSkyParams(sky, sunDirection(sky));
   /**
    * Bake the image-based lighting from the bake scene (its sky as `sky` is
    * now): into the target of the last bake when there is one.
@@ -583,15 +625,6 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     if (sky === undefined || layers.size > 0 || bake === null || bake.mode !== sky.mode) return;
     iblRebakes += 1;
     bakeIbl(sky);
-  };
-  /** The procedural sky's uniforms (three's SkyMesh). */
-  const setSkyUniforms = (mesh: THREE.Mesh, p: ReturnType<typeof procParams>): void => {
-    const m = mesh as THREE.Mesh & { turbidity: { value: number }; rayleigh: { value: number }; mieCoefficient: { value: number }; mieDirectionalG: { value: number }; sunPosition: { value: THREE.Vector3 } };
-    m.turbidity.value = p.turbidity;
-    m.rayleigh.value = p.rayleigh;
-    m.mieCoefficient.value = p.mieCoefficient;
-    m.mieDirectionalG.value = p.mieDirectionalG;
-    m.sunPosition.value.copy(p.sun);
   };
   /** The built sky takes this sky's numbers (same structure): uniforms, a background colour, intensities. */
   const updateSkyInPlace = (sky: SkyLike): void => {
@@ -655,7 +688,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       addDome(imageSkyMaterial({ color: new THREE.Color(sky.color ?? '#7ec8ff') }));
     } else if (sky.mode === 'procedural') {
       const params = procParams(sky);
-      const mesh = createSkyMesh(params);
+      const mesh = createSkyMesh(params, cloudDrift);
       const material = mesh.material as THREE.Material;
       material.transparent = true;
       material.opacity = 0;
@@ -663,7 +696,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       rec.mesh = mesh;
       scene.add(mesh);
       const tmp = new THREE.Scene();
-      const clone = createSkyMesh(params);
+      const clone = createSkyMesh(params, cloudDrift);
       tmp.add(clone);
       rec.env = pmrem.fromScene(tmp, 0, 0.1, 10000);
       clone.geometry.dispose();
@@ -979,6 +1012,12 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       const sky = env?.sky;
       if (sky !== undefined && sky.mode === 'procedural' && sky.sunFromLight !== false && skyMesh !== null && layers.size === 0) updateSkyInPlace(sky);
       else if (layers.size === 0) buildSky();
+    },
+    driftClouds(seconds, wind) {
+      const sky = env?.sky;
+      if (sky === undefined || sky.mode !== 'procedural') return;
+      drift.at(seconds, wind, sky.cloudTime ?? SKY_DEFAULTS.cloudTime, driftNow);
+      cloudDrift.value.set(driftNow[0], driftNow[1]);
     },
     setFogVolumes(list) {
       const changedCount = (list.length > 0) !== (volumes.length > 0);

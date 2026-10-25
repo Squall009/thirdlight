@@ -74,12 +74,27 @@ describe('environment renderer on WebGPURenderer', () => {
     const env = createEnvironmentRenderer(nodeRenderer(), scene, { loadTexture: async () => null });
     env.setKeyLightDirection([0, -1, -1]);
     env.set({ sky: { mode: 'procedural', turbidity: 4 } });
-    const sky = scene.children.find((o) => (o as { isSkyMesh?: boolean }).isSkyMesh === true) as unknown as { turbidity: { value: number }; cloudSpeed: { value: number }; sunPosition: { value: THREE.Vector3 } };
+    const sky = scene.children.find((o) => (o as { isSkyMesh?: boolean }).isSkyMesh === true) as unknown as { turbidity: { value: number }; cloudCoverage: { value: number }; cloudDensity: { value: number }; cloudDrift: { value: THREE.Vector2 }; sunPosition: { value: THREE.Vector3 } };
     expect(sky).toBeDefined();
     expect(sky.turbidity.value).toBe(4);
-    expect(sky.cloudSpeed.value).toBe(0); // clouds stand still, like the archived WebGL sky
+    // Absent cloud fields: three's sky as projects have always drawn it, and still air leaves the clouds at their start.
+    expect([sky.cloudCoverage.value, sky.cloudDensity.value]).toEqual([0.4, 0.4]);
+    env.driftClouds(3, { dirX: 1, dirZ: 0, speed: 0 });
+    expect(sky.cloudDrift.value.toArray()).toEqual([0, 0]);
     expect(sky.sunPosition.value.toArray().map((v) => Math.round(v * 1000) / 1000 + 0)).toEqual([0, 0.707, 0.707]);
     expect(scene.environment).not.toBeNull();
+    // The clouds' own fields, and the drift along the global wind from the sky's start (a new sky starts its clock afresh).
+    const cloudScene = new THREE.Scene();
+    const fresh = createEnvironmentRenderer(nodeRenderer(), cloudScene, { loadTexture: async () => null });
+    fresh.set({ sky: { mode: 'procedural', cloudCoverage: 0.8, cloudDensity: 0.1, cloudTime: 10 } });
+    const cloudy = cloudScene.children.find((o) => (o as { isSkyMesh?: boolean }).isSkyMesh === true) as unknown as typeof sky;
+    expect([cloudy.cloudCoverage.value, cloudy.cloudDensity.value]).toEqual([0.8, 0.1]);
+    const north = { dirX: 0, dirZ: 1, speed: 2 };
+    fresh.driftClouds(0, north);
+    expect(cloudy.cloudDrift.value.toArray()).toEqual([0, 20]);
+    fresh.driftClouds(5, north);
+    expect(cloudy.cloudDrift.value.toArray()).toEqual([0, 30]);
+    fresh.dispose();
 
     env.set({ sky: { mode: 'gradient', topColor: '#0000ff' } });
     expect(scene.children.some((o) => (o as { isSkyMesh?: boolean }).isSkyMesh === true)).toBe(false);
@@ -295,6 +310,9 @@ describe('environment renderer on WebGPURenderer', () => {
     expect(skyInputsDiffer('procedural', proc(6, 10), proc(6, 10.6))).toBe(true);
     expect(skyInputsDiffer('procedural', proc(6, 10), proc(6.05, 10))).toBe(false);
     expect(skyInputsDiffer('procedural', proc(6, 10), proc(6.1, 10))).toBe(true);
+    // The clouds' coverage and density (after the sun) re-bake past a colour channel's step.
+    expect(skyInputsDiffer('procedural', [...proc(6, 10), 0.4, 0.4], [...proc(6, 10), 0.405, 0.4])).toBe(false);
+    expect(skyInputsDiffer('procedural', [...proc(6, 10), 0.4, 0.4], [...proc(6, 10), 0.4, 0.42])).toBe(true);
     // Nothing baked yet (no inputs): always a difference.
     expect(skyInputsDiffer('procedural', proc(6, 10), [])).toBe(true);
   });

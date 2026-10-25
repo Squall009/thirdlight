@@ -1,8 +1,35 @@
-# Types (UiBindable to WindOctave)
+# Types (UiAction to WindOctave)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-ui-action"></a>
+### UiAction
+
+Declared in `packages/project-model/src/ui-documents.ts`.
+
+```ts
+/** What a button click (or an input submit, a cancel, a focus) does. */
+type UiAction =
+  /** Raise a UI event to scripts (on the next input frame). */
+  | { do: 'event'; name: string; value?: UiScalar | UiBinding }
+  /** An engine action of the game shell (resume, quit to title, save, load, set a setting, …). */
+  | { do: 'engine'; action: UiEngineAction; screen?: 'title' | 'pause' | 'settings' | 'controls' | 'save' | 'load'; scene?: string; slot?: string; setting?: SettingsEngineBinding; value?: number | string; step?: number; input?: string; device?: 'keyboardMouse' | 'gamepad'; index?: number; part?: 'negative' | 'positive' | 'up' | 'down' | 'left' | 'right'; policy?: 'swap' | 'refuse' | 'allow' }
+  /** Show / hide / toggle a UI document (through the input frame, so replays hold). */
+  | { do: 'show' | 'hide' | 'toggle'; doc: string }
+  /** Play a tween of this document (presentation only). */
+  | { do: 'play'; tween: string; widget?: string }
+  /** Switch to a game mode (through the input frame, so replays hold). */
+  | { do: 'mode'; mode: string }
+  /**
+   * A dialogue input (on the next input frame, so replays hold):
+   * advance (or reveal the rest of the line), choose (the list item's index,
+   * or `value`), skip (toggle skipping seen lines), auto (toggle
+   * auto-advance), backlog (toggle the backlog view).
+   */
+  | { do: 'dialogue'; input: UiDialogueInput; value?: number };
+```
 
 <a id="type-ui-bindable"></a>
 ### UiBindable

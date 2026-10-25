@@ -174,7 +174,7 @@ cell (a draw or two), and it rejoins once its fade has gone.
 box, a model, an instance set, a block layer (per layer), terrain and an
 architecture object (its rooms' walls, floors and ceilings follow it), and
 the toggle on a scatter rule's card (`seeThrough` on the
-[rule](../reference/types-p-u.md#type-scatter-rule)). Off draws it solid
+[rule](../reference/types-p-t.md#type-scatter-rule)). Off draws it solid
 always: a sign that must stay readable, a glass case. It is a per-draw
 value, so it adds no shader per object, and automatic batching and merged
 statics keep objects that opt out apart from the rest.

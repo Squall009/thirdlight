@@ -245,6 +245,11 @@ export class WindField {
     s.set(fract1((v.dirX * travel) / v.scale), fract1((v.dirZ * travel) / v.scale), fract1((v.dirX * t2) / s2), fract1((v.dirZ * t2) / s2));
   }
 
+  /** The global wind now (unit direction, speed in metres per second): what the sky's clouds drift with. */
+  global(): Readonly<WindValues> {
+    return this.values;
+  }
+
   /** The largest wind a vertex may read now (strength and full gusts, any zone's): what bounds a draw's sway. */
   maxAmount(): number {
     const g = this.values;

@@ -52,6 +52,28 @@ rotation}}}`. Scripts turn a sky through environment presets: two presets
 with the same image and different turns blend the turn the short way round
 (`ctx.environment.set` / `blend`); there is no per-field sky setter.
 
+## Clouds
+
+The physical sky (`sky.mode` `procedural`) draws clouds with its own cloud
+term (no extra pass): `cloudCoverage` (0–1, the share of the sky covered;
+0 = clear; default 0.4) and `cloudDensity` (0–1, how solid they are;
+default 0.4); absent fields draw the sky as it always was. They **drift with
+the scene's global wind**: along its direction at its gust speed (`speed`,
+metres per second, see *Wind*) on a layer 1 km up; wind zones are local
+ground wind and do not move them. `cloudTime` (seconds, 0–86,400, default
+0) is how far they have drifted when the clock starts, so every run and
+replay starts on the same sky; under a steady wind the sky at second *t* is
+the same in every run. A wind change (`ctx.environment.setWind`, a preset
+blend) carries the clouds on from where they are, never a jump. Set them in
+the Environment window (*cloud cover*, *cloud density*, *cloud start* under
+the physical sky) or MCP `setEnvironment {sceneId, environment: {sky: {…,
+cloudCoverage, cloudDensity, cloudTime}}}`; scripts change them through
+environment presets (`ctx.environment.set` / `blend` blend all three). Their
+colour comes from the sky's sun and atmosphere, not a setting. The Scene
+view draws on demand: its clouds move while something keeps it drawing
+(animated materials such as foliage, Play), otherwise they catch up on the
+next frame.
+
 **Align the sky's sun to the key light** (Environment window button) finds
 the sun in the image — the centre of its brightest area: the pixels within
 3/255 of the brightest one, gathered round the 10° cell holding most of
@@ -168,6 +190,8 @@ a graph's *Wind* node reads the same field.
   weight (COLOR_0 R, squared) × its height above its root: tall grass bends
   further than short grass. A mesh without COLOR_0 sways by its height share
   of its first metre. The material's `windBend` and `windFlutter` scale it.
+- The physical sky's clouds drift along the global wind at its `speed`
+  (see *Clouds*).
 
 **Wind zones.** Add a *Wind zone* (Create → Light → Wind zone, or the
 `windZone` component on any object): a **box** (turns with the object about

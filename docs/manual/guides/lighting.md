@@ -55,7 +55,7 @@ Everything but the bake itself:
   `lightLayers` mask (bit n = layer n + 1).
 - Quality levels: [`setEnvironment`](../reference/ops-detail.md#op-setEnvironment)
   without `sceneId`, `environment.qualityLevels`
-  ([`QualityLevelConfig`](../reference/types-p-u.md#type-quality-level-config))
+  ([`QualityLevelConfig`](../reference/types-p-t.md#type-quality-level-config))
   and `environment.quality` (the starting level).
 - Clear a bake: [`setLighting`](../reference/ops-detail.md#op-setLighting)
   `{"sceneId": "<scene>", "lighting": null}`.

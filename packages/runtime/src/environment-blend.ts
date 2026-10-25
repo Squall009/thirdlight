@@ -27,7 +27,7 @@
  *
  * Pure: no three.js, no I/O.
  */
-import { HEIGHT_FOG_DEFAULTS, type EnvironmentLookParts, type EnvironmentPreset, type EnvironmentPresetLight, type FogConfig, type HeightFogConfig, type PostConfig, type SkyConfig } from '@thirdlight/project-model';
+import { HEIGHT_FOG_DEFAULTS, SKY_CLOUD_DEFAULTS, type EnvironmentLookParts, type EnvironmentPreset, type EnvironmentPresetLight, type FogConfig, type HeightFogConfig, type PostConfig, type SkyConfig } from '@thirdlight/project-model';
 
 /** What the renderer reads each frame while a game has used `ctx.environment`. */
 export interface EnvironmentBlendView {
@@ -102,6 +102,7 @@ export const SKY_DEFAULTS = Object.freeze({
   rayleigh: 1.5,
   mieCoefficient: 0.005,
   mieDirectionalG: 0.8,
+  ...SKY_CLOUD_DEFAULTS,
   sunElevation: 35,
   sunAzimuth: 160,
   topColor: '#3d7cd6',
@@ -251,6 +252,9 @@ function blendSkies(parts: readonly (readonly [SkyConfig, number])[]): SkyConfig
         rayleigh: n('rayleigh'),
         mieCoefficient: n('mieCoefficient'),
         mieDirectionalG: n('mieDirectionalG'),
+        cloudCoverage: n('cloudCoverage'),
+        cloudDensity: n('cloudDensity'),
+        cloudTime: n('cloudTime'),
         ...(heaviest.sunFromLight !== undefined ? { sunFromLight: heaviest.sunFromLight } : {}),
         sunElevation: n('sunElevation'),
         sunAzimuth: mixAngles(parts.map(([s, w]) => [s.sunAzimuth ?? SKY_DEFAULTS.sunAzimuth, w])),

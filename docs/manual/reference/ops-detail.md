@@ -1000,7 +1000,7 @@ Arguments (`args`):
 { environment: EnvironmentConfig | SceneEnvironment; sceneId?: string }
 ```
 
-Types: [`EnvironmentConfig`](types-d-p.md#type-environment-config), [`SceneEnvironment`](types-p-u.md#type-scene-environment).
+Types: [`EnvironmentConfig`](types-d-p.md#type-environment-config), [`SceneEnvironment`](types-p-t.md#type-scene-environment).
 
 <a id="op-setEventCues"></a>
 ## setEventCues
@@ -1131,7 +1131,7 @@ Arguments (`args`):
 { schema: SaveSchema | null }
 ```
 
-Types: [`SaveSchema`](types-p-u.md#type-save-schema).
+Types: [`SaveSchema`](types-p-t.md#type-save-schema).
 
 <a id="op-setScriptLibrary"></a>
 ## setScriptLibrary
@@ -1144,7 +1144,7 @@ Arguments (`args`):
 ScriptLibraryPatch
 ```
 
-Types: [`ScriptLibraryPatch`](types-p-u.md#type-script-library-patch).
+Types: [`ScriptLibraryPatch`](types-p-t.md#type-script-library-patch).
 
 <a id="op-setSettings"></a>
 ## setSettings
@@ -1233,7 +1233,7 @@ Arguments (`args`):
 { timeline: TimelineAsset }
 ```
 
-Types: [`TimelineAsset`](types-p-u.md#type-timeline-asset).
+Types: [`TimelineAsset`](types-p-t.md#type-timeline-asset).
 
 <a id="op-setTransform"></a>
 ## setTransform

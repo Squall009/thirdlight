@@ -214,12 +214,13 @@ describe('M3 export bundle re-measurement + production parity', () => {
     const addons = inputs.filter((p) => p.includes('three/examples/jsm/')).map((p) => p.slice(p.indexOf('three/examples/jsm/') + 'three/examples/jsm/'.length)).sort();
     // GLTFLoader and its two utils, plus three's Draco/KTX2
     // loaders with their helpers and the meshopt decoder, plus
-    // the TSL sky and node post passes of the WebGPURenderer path (the DOF
+    // the node post passes of the WebGPURenderer path (the DOF
     // node pulls in the Gaussian blur node, SSAO its depth-aware blur; FSR 1
     // upscales a render scale below 1) — nothing else (baked probes draw
-    // through the engine's own probe lighting, not three's grid). The
-    // WebGL sky, EffectComposer passes and shaders are gone with the
-    // archived WebGL renderer path.
+    // through the engine's own probe lighting, not three's grid; the physical
+    // sky is the engine's own copy of three's TSL sky, its clouds on the
+    // engine's drift). The WebGL sky, EffectComposer passes and shaders are
+    // gone with the archived WebGL renderer path.
     expect(addons).toEqual([
       'libs/ktx-parse.module.js',
       'libs/meshopt_decoder.module.js',
@@ -228,7 +229,6 @@ describe('M3 export bundle re-measurement + production parity', () => {
       'loaders/GLTFLoader.js',
       'loaders/KTX2Loader.js',
       'math/ColorSpaces.js',
-      'objects/SkyMesh.js',
       'tsl/display/BloomNode.js',
       'tsl/display/DepthOfFieldNode.js',
       'tsl/display/FSR1Node.js',

@@ -20,6 +20,9 @@ The background and the light it gives (image-based lighting).
 | `sky.sunFromLight` | bool | `true` |  | **Sun from light.** Place the sun opposite the scene's directional light. (applies when `mode` is `procedural`) |
 | `sky.sunElevation` | number | `35` | -10 – 90, step 1, deg | **Sun elevation.** Sun height above the horizon. (applies when `mode` is `procedural` and `sunFromLight` is `false`) |
 | `sky.sunAzimuth` | number | `160` | -180 – 180, step 1, deg | **Sun azimuth.** Sun direction around the horizon. (applies when `mode` is `procedural` and `sunFromLight` is `false`) |
+| `sky.cloudCoverage` | number | `0.4` | 0 – 1, step 0.01 | **Cloud cover.** How much of the sky the clouds cover (0: clear). They drift along the scene's global wind (wind zones do not move them). (applies when `mode` is `procedural`) |
+| `sky.cloudDensity` | number | `0.4` | 0 – 1, step 0.01 | **Cloud density.** How solid the clouds are (0: none drawn). (applies when `mode` is `procedural`) |
+| `sky.cloudTime` | number | `0` | 0 – 86400, step 1, s | **Cloud start.** Seconds of drift behind the clouds when the clock starts: every run and replay starts on the same sky. (applies when `mode` is `procedural`) |
 | `sky.topColor` | color | `"#3d7cd6"` |  | **Top colour.** The sky overhead. (applies when `mode` is `gradient`) |
 | `sky.horizonColor` | color | `"#bfe3ff"` |  | **Horizon colour.** The sky at the horizon. (applies when `mode` is `gradient`) |
 | `sky.bottomColor` | color | `"#757575"` |  | **Bottom colour.** Below the horizon. (applies when `mode` is `gradient`) |

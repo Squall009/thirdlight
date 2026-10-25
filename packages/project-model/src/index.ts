@@ -914,6 +914,8 @@ export {
   canonicalSceneEnvironment,
   environmentTextureRefs,
   SCENE_ENVIRONMENT_FIELDS,
+  SKY_CLOUD_DEFAULTS,
+  SKY_CLOUD_TIME_MAX,
   SKY_ROTATION_MAX,
   sceneEnvironmentIsEmpty,
   validateSceneEnvironment,

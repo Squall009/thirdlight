@@ -3,8 +3,8 @@
  * WebGL 2 backends) — the TSL twins of the WebGL-only pieces of
  * `environment.ts`:
  *
- * - `createSkyMesh`: the physical sky as three's `SkyMesh` (the TSL port of
- *   `Sky.js`), clouds held still like the archived (WebGL) sky (its `time` never moves);
+ * - `createSkyMesh`: the physical sky (`physical-sky.ts`: three's `SkyMesh`
+ *   with its clouds travelling by the renderer's drift, along the global wind);
  * - `gradientSkyMaterial`: the gradient dome, the archived (WebGL) shader line by line;
  * - `buildPostPipeline`: the post stack as a `RenderPipeline` (three's node
  *   post-processing, renamed from `PostProcessing` in r183) in the archived WebGL
@@ -56,14 +56,15 @@ import {
   vec2,
   vec3,
   vec4,
+  renderGroup,
 } from 'three/tsl';
 import { MeshBasicNodeMaterial, RenderPipeline, type WebGPURenderer } from 'three/webgpu';
-import { SkyMesh } from 'three/examples/jsm/objects/SkyMesh.js';
 import { dof } from 'three/examples/jsm/tsl/display/DepthOfFieldNode.js';
 import { bloom } from 'three/examples/jsm/tsl/display/BloomNode.js';
 import { smaa } from 'three/examples/jsm/tsl/display/SMAANode.js';
 import { fxaa } from 'three/examples/jsm/tsl/display/FXAANode.js';
 import { releaseMrtContexts } from './dispose';
+import { PhysicalSky } from './physical-sky';
 import { buildAmbientOcclusion, type AmbientOcclusionStage, type AoKind, type ScreenSpaceOcclusion } from './post-ao';
 import type { ScenePasses } from './occlusion-passes';
 import { atScale, buildUpscale, scaledTexture, type ScaledTexture, type UpscaleFilter, type UpscaleStage } from './post-upscale';
@@ -83,19 +84,27 @@ export interface SkyParams {
   mieCoefficient: number;
   mieDirectionalG: number;
   sun: THREE.Vector3;
+  cloudCoverage: number;
+  cloudDensity: number;
 }
 
-/** three's TSL sky with the project's parameters; its clouds stand still (the archived (WebGL) sky's `time` stays 0). */
-export function createSkyMesh(p: SkyParams): THREE.Mesh {
-  const s = new SkyMesh();
+/** The physical sky with the project's parameters; its clouds travel by `drift` (`cloudDriftUniform`, shared by every sky a renderer draws). */
+export function createSkyMesh(p: SkyParams, drift: unknown): PhysicalSky {
+  const s = new PhysicalSky(drift);
   s.scale.setScalar(4500);
   s.turbidity.value = p.turbidity;
   s.rayleigh.value = p.rayleigh;
   s.mieCoefficient.value = p.mieCoefficient;
   s.mieDirectionalG.value = p.mieDirectionalG;
-  s.sunPosition.value.copy(p.sun);
-  s.cloudSpeed.value = 0;
+  (s.sunPosition.value as THREE.Vector3).copy(p.sun);
+  s.cloudCoverage.value = p.cloudCoverage;
+  s.cloudDensity.value = p.cloudDensity;
   return s;
+}
+
+/** The clouds' travel (x, z metres), one per renderer: one write a frame moves every sky it draws. */
+export function cloudDriftUniform(): unknown {
+  return uniform(new THREE.Vector2()).setGroup(renderGroup);
 }
 
 /**

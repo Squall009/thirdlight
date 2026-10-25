@@ -184,6 +184,8 @@ export interface MaterialLibrary {
   setWindZones(zones: readonly WindZoneLike[]): void;
   /** The wind map's state (diagnostics). */
   windState(): ReturnType<WindField['state']>;
+  /** The scene's global wind now (zones aside): what the sky's clouds drift with. */
+  globalWind(): ReturnType<WindField['global']>;
   /** Where the view's camera is this frame (what reads distance in every pass: foliage's wind distance; the wind map follows it). */
   setViewEye(x: number, y: number, z: number): void;
   /** The scene's wetness (0–1) the Scene wetness node reads. */
@@ -273,15 +275,15 @@ function vec2(v: unknown, d: [number, number]): [number, number] {
   return Array.isArray(v) && v.length === 2 && typeof v[0] === 'number' && typeof v[1] === 'number' ? [v[0], v[1]] : d;
 }
 
-export function createMaterialLibrary(options: MaterialLibraryOptions): MaterialLibrary {
-  /**
-   * The shared wind and clock block (TSL uniforms). In the render group, not
-   * each object's: a uniform of the default (object) group is copied into
-   * every drawn object's own buffer, so the clock changing each frame rewrote
-   * one buffer per wind-swayed object per pass (a village-sized level: 126
-   * writes a frame); in the render group it is one write per pass.
-   */
-  const nodeGlobals = {
+/**
+ * The shared wind and clock block (TSL uniforms). In the render group, not
+ * each object's: a uniform of the default (object) group is copied into
+ * every drawn object's own buffer, so the clock changing each frame rewrote
+ * one buffer per wind-swayed object per pass (a village-sized level: 126
+ * writes a frame); in the render group it is one write per pass.
+ */
+function createNodeGlobals() {
+  return {
     time: TSL.uniform(0).setGroup(TSL.renderGroup),
     windDir: TSL.uniform(new THREE.Vector2(1, 0)).setGroup(TSL.renderGroup),
     strength: TSL.uniform(DEFAULT_WIND_LIKE.strength).setGroup(TSL.renderGroup),
@@ -292,6 +294,10 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     // The view's camera, the same in every pass (a shadow map's shapes then match the view's: wind only near it).
     eye: TSL.uniform(new THREE.Vector3()).setGroup(TSL.renderGroup),
   };
+}
+
+export function createMaterialLibrary(options: MaterialLibraryOptions): MaterialLibrary {
+  const nodeGlobals = createNodeGlobals();
   /** The decoded textures, held per built material (and by the compiled graphs, the preloads, the wind's pattern). */
   const holds: TextureHolds = textureHolds(options.resources, options.loadTexture);
   /** The wind every foliage vertex and graph wind node reads (the global wind, the zones' map, the gust pattern). */
@@ -1214,6 +1220,9 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     },
     windState() {
       return windField.state();
+    },
+    globalWind() {
+      return windField.global();
     },
     setWind(wind) {
       windField.setGlobal(wind);

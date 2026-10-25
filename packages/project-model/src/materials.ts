@@ -764,6 +764,11 @@ export interface SkyConfig {
   sunFromLight?: boolean;
   sunElevation?: number;
   sunAzimuth?: number;
+  /** The physical sky's clouds: the share of the sky they cover (0: clear) and how solid they are (0: none). They drift along the scene's global wind. */
+  cloudCoverage?: number;
+  cloudDensity?: number;
+  /** Seconds of drift behind the clouds when the clock starts: every run (and replay) starts on the same sky. */
+  cloudTime?: number;
   topColor?: string;
   horizonColor?: string;
   bottomColor?: string;
@@ -1059,6 +1064,11 @@ function checkFields(value: unknown, path: string, rules: Record<string, FieldRu
   return value;
 }
 
+/** The latest start a sky's clouds take (`cloudTime`, seconds: a day of drift). */
+export const SKY_CLOUD_TIME_MAX = 86_400;
+/** The physical sky's clouds when a sky sets none: three's sky as projects have always drawn it (coverage and density 0.4), at the start of their drift. */
+export const SKY_CLOUD_DEFAULTS = Object.freeze({ cloudCoverage: 0.4, cloudDensity: 0.4, cloudTime: 0 });
+
 /** The largest turn a sky's `rotation` takes either way (degrees; one full turn). */
 export const SKY_ROTATION_MAX = 360;
 
@@ -1076,6 +1086,9 @@ export function validateSky(value: unknown, path: string, errors: ModelErrorV2[]
       sunFromLight: { kind: 'bool' },
       sunElevation: { kind: 'num', min: -10, max: 90 },
       sunAzimuth: { kind: 'num', min: -180, max: 180 },
+      cloudCoverage: { kind: 'num', min: 0, max: 1 },
+      cloudDensity: { kind: 'num', min: 0, max: 1 },
+      cloudTime: { kind: 'num', min: 0, max: SKY_CLOUD_TIME_MAX },
       topColor: { kind: 'color' },
       horizonColor: { kind: 'color' },
       bottomColor: { kind: 'color' },

@@ -17,6 +17,8 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | <a id="limit-max-material-instance-depth"></a>`MAX_MATERIAL_INSTANCE_DEPTH` | `8` | The longest chain of instances (an instance of an instance of … a material), resolved at build and in the renderer per material. |
 | <a id="limit-max-material-parameters"></a>`MAX_MATERIAL_PARAMETERS` | `64` | Most exposed parameters of one material. |
 | <a id="limit-max-material-slots"></a>`MAX_MATERIAL_SLOTS` | `32` | Most material slots one object or asset maps. |
+| <a id="limit-sky-cloud-defaults"></a>`SKY_CLOUD_DEFAULTS` | `{"cloudCoverage":0.4,"cloudDensity":0.4,"cloudTime":0}` | The physical sky's clouds when a sky sets none: three's sky as projects have always drawn it (coverage and density 0.4), at the start of their drift. |
+| <a id="limit-sky-cloud-time-max"></a>`SKY_CLOUD_TIME_MAX` | `86400` | The latest start a sky's clouds take (`cloudTime`, seconds: a day of drift). |
 | <a id="limit-sky-rotation-max"></a>`SKY_ROTATION_MAX` | `360` | The largest turn a sky's `rotation` takes either way (degrees; one full turn). |
 
 <a id="limits-project-model--model-collision"></a>

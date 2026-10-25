@@ -133,7 +133,7 @@ command; **Revert to last bake** throws the edits away. Hand paint stays
 over the rules.
 
 **API:** `editTerrain` kind `bake` sets and bakes the rules in one command
-([`SurfaceRule`](../reference/types-p-u.md#type-surface-rule)):
+([`SurfaceRule`](../reference/types-p-t.md#type-surface-rule)):
 
 ```json
 {"entityId": "<terrain>", "kind": "bake", "rules": [
@@ -158,7 +158,7 @@ bake. A rule marked as ground cover is never stored: it is made round the
 camera while the game runs.
 
 **API:** `editTerrain` kind `bake` with `scatter`
-([`ScatterRule`](../reference/types-p-u.md#type-scatter-rule)):
+([`ScatterRule`](../reference/types-p-t.md#type-scatter-rule)):
 
 ```json
 {"entityId": "<terrain>", "kind": "bake", "scatter": [
@@ -184,7 +184,7 @@ the **Erode** panel; the Stamp tool's heightmap and height are the **New
 stamp** panel).
 
 **API:** `setComponent` of the terrain's `layers`
-([`TerrainLayer`](../reference/types-p-u.md#type-terrain-layer)) and
+([`TerrainLayer`](../reference/types-p-t.md#type-terrain-layer)) and
 `editTerrain` kind `erode`.
 
 ## Tiles and heightmaps
@@ -230,7 +230,7 @@ the ground back. Scripts read it as a path with
    editor's **Stack** mode → **Meet block layers**. **API:** `setComponent` `{"entityId": "<terrain>",
    "component": "terrain", "value": {"layers": [{"id": "courtyard", "kind":
    "blocks", "blend": 8}]}}`
-   ([`TerrainBlocksLayer`](../reference/types-p-u.md#type-terrain-blocks-layer)).
+   ([`TerrainBlocksLayer`](../reference/types-p-t.md#type-terrain-blocks-layer)).
 
 The terrain then cuts a hole under the blocks, meets their top edge exactly
 at the border and fades back to its own height over `blend` metres. Later

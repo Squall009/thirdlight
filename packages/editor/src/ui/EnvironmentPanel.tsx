@@ -20,6 +20,7 @@ import type { EnvironmentConfig, EnvironmentPreset, EnvironmentPresetLight, FogC
 import { HEIGHT_FOG_DEFAULTS, wrapDegrees } from '@thirdlight/three-adapter';
 import { WIND_DEFAULTS, WIND_LIMITS } from '@thirdlight/runtime';
 import { DEFAULT_WIND } from '@thirdlight/project-model/material-schema';
+import { SKY_CLOUD_DEFAULTS, SKY_CLOUD_TIME_MAX } from '@thirdlight/project-model/limits';
 import type { SkyAlignResult } from '../viewport/sky-align';
 import { RefPicker, TEXTURE_KINDS } from './catalog/RefPicker';
 
@@ -351,6 +352,10 @@ export function EnvironmentPanel(p: Props): JSX.Element {
               <Slider label="haze (turbidity)" name="sky turbidity" value={sky.turbidity ?? 6} min={1} max={20} step={0.1} onCommit={(v) => setSky({ turbidity: v })} />
               <Slider label="blue scatter" name="sky rayleigh" value={sky.rayleigh ?? 1.5} min={0} max={4} step={0.05} onCommit={(v) => setSky({ rayleigh: v })} />
               <Slider label="sun glow" name="sky mie" value={sky.mieCoefficient ?? 0.005} min={0} max={0.1} step={0.001} onCommit={(v) => setSky({ mieCoefficient: v })} />
+              {/* The clouds drift along the global wind (Wind below) at its gust speed. */}
+              <Slider label="cloud cover (0: clear)" name="sky cloud coverage" value={sky.cloudCoverage ?? SKY_CLOUD_DEFAULTS.cloudCoverage} min={0} max={1} step={0.01} onCommit={(v) => setSky({ cloudCoverage: v })} />
+              <Slider label="cloud density" name="sky cloud density" value={sky.cloudDensity ?? SKY_CLOUD_DEFAULTS.cloudDensity} min={0} max={1} step={0.01} onCommit={(v) => setSky({ cloudDensity: v })} />
+              <Slider label="cloud start (s of drift)" name="sky cloud time" value={sky.cloudTime ?? SKY_CLOUD_DEFAULTS.cloudTime} min={0} max={SKY_CLOUD_TIME_MAX} step={10} onCommit={(v) => setSky({ cloudTime: v })} />
             </>
           )}
           {env.sky !== undefined && sky.mode === 'gradient' && (

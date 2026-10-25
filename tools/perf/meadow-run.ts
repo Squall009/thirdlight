@@ -15,6 +15,7 @@
  *   --wind S                    the scene's wind strength S (gusts 0.8 S, from the side of the view; default: the
  *                               engine's light breeze)
  *   --wind-zone                 with a calm wind zone (a 25 m sphere, 10 m blend) 40 m ahead of the camera
+ *   --clouds C                  under the physical sky with cloud cover C (density 0.6), drifting with the wind
  *   --no-export                 the sweep only
  *   --no-sweep                  the exports only
  *   --sweep id,id               only these sweep configs (with `none`, the floor, always)
@@ -78,7 +79,7 @@ async function publishTemplateGrass(be: PerfBackend, projectId: string, cmd: Cmd
 }
 
 /** Build the meadow into a new project; returns the terrain's id (its cover is baked by the caller). */
-async function buildMeadow(be: PerfBackend, projectId: string, log: (s: string) => void, grass: MeadowGrass, density: number, coverDistance: number, wind: { strength: number | null; zone: boolean } = { strength: null, zone: false }): Promise<{ terrainId: string; cmd: Cmd; cover: Record<string, unknown>[] }> {
+async function buildMeadow(be: PerfBackend, projectId: string, log: (s: string) => void, grass: MeadowGrass, density: number, coverDistance: number, wind: { strength: number | null; zone: boolean; clouds?: number | null } = { strength: null, zone: false }): Promise<{ terrainId: string; cmd: Cmd; cover: Record<string, unknown>[] }> {
   const t0 = performance.now();
   const created = await be.post('/api/v1/admin/projects', { projectId, name: 'Perf meadow' });
   if (created.status !== 201 && created.status !== 200) throw new Error(`project create failed: ${created.status} ${JSON.stringify(created.json)}`);
@@ -109,7 +110,8 @@ async function buildMeadow(be: PerfBackend, projectId: string, log: (s: string) 
   const camera = meadowCamera();
   await cmd('setTransform', { entityId: 'cam-main', transform: { position: camera.position, rotation: camera.rotation } });
   await cmd('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffe2bd', intensity: 2, direction: [0.5, -0.55, -0.65], castShadow: true } });
-  await cmd('setEnvironment', { sceneId: 'scene-main', environment: wind.strength === null ? LEVEL_LOOK : { ...LEVEL_LOOK, wind: { direction: [0.6, 0.8], strength: wind.strength, gust: Math.min(10, wind.strength * 0.8), gustFrequency: 0.3, turbulence: 0.3 } } });
+  const sky = wind.clouds === undefined || wind.clouds === null ? {} : { sky: { mode: 'procedural', cloudCoverage: wind.clouds, cloudDensity: 0.6 } };
+  await cmd('setEnvironment', { sceneId: 'scene-main', environment: wind.strength === null ? { ...LEVEL_LOOK, ...sky } : { ...LEVEL_LOOK, ...sky, wind: { direction: [0.6, 0.8], strength: wind.strength, gust: Math.min(10, wind.strength * 0.8), gustFrequency: 0.3, turbulence: 0.3 } } });
   if (wind.zone) {
     const ahead: [number, number] = [camera.position[0] + 40 * Math.SQRT1_2, camera.position[2] - 40 * Math.SQRT1_2];
     const calm = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Calm', transform: { position: [ahead[0], meadowHeight(ahead[0], ahead[1]), ahead[1]] } }))['createdId']);
@@ -168,7 +170,7 @@ export async function runMeadowCli(argv: readonly string[]): Promise<void> {
   if (!has('no-export')) {
     const be = await startPerfBackend(join(runDir, 'data'), join(runDir, 'exports'));
     try {
-      const { terrainId, cmd, cover } = await buildMeadow(be, 'meadow', log, grass, density, coverDistance, { strength: get('wind') === undefined ? null : Number(get('wind')), zone: has('wind-zone') });
+      const { terrainId, cmd, cover } = await buildMeadow(be, 'meadow', log, grass, density, coverDistance, { strength: get('wind') === undefined ? null : Number(get('wind')), zone: has('wind-zone'), clouds: get('clouds') === undefined ? null : Number(get('clouds')) });
       for (const variant of ['grass', 'ground'] as const) {
         const t = performance.now();
         await cmd('editTerrain', { entityId: terrainId, kind: 'bake', scatter: variant === 'grass' ? cover : [] });

@@ -33,7 +33,7 @@ export { ENVIRONMENT_PRESET_LIMITS } from './environment-presets';
 export { DEFAULT_QUALITY_LEVELS, MSAA_SAMPLE_COUNTS, PIXEL_RATIO_CAP_MAX, PIXEL_RATIO_CAP_MIN, QUALITY_LEVEL_ID_RE, qualityLevelsOf, SHADOW_MAP_SIZES } from './quality-levels';
 export { MAX_TRANSITION_FADE, MAX_TRANSITION_UNLOADS } from './blocks';
 export { MAX_INPUT_ACTIONS, MAX_INPUT_BINDINGS } from './input';
-export { MATERIAL_LAYER_NAME_MAX, MATERIAL_SLOT_ALL, MAX_FOG_VOLUMES, MAX_MATERIAL_INSTANCE_DEPTH, SKY_ROTATION_MAX, WET_ALBEDO_SCALE, WET_ROUGHNESS } from './materials';
+export { MATERIAL_LAYER_NAME_MAX, MATERIAL_SLOT_ALL, MAX_FOG_VOLUMES, MAX_MATERIAL_INSTANCE_DEPTH, SKY_CLOUD_DEFAULTS, SKY_CLOUD_TIME_MAX, SKY_ROTATION_MAX, WET_ALBEDO_SCALE, WET_ROUGHNESS } from './materials';
 export { MAX_LOCAL_LIGHTS } from './local-lights';
 // Kits: the standard piece slots and where their pieces stand (the kit editor lists them), a kit's bounds and slot
 // names, the worst of a piece's checks; the block layer's default cell (what a piece is sized against).

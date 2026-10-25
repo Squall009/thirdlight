@@ -77,7 +77,7 @@ The limits and defaults `@thirdlight/runtime` defines, by source file. Values ar
 | Constant | Value | What it is |
 |---|---|---|
 | <a id="limit-fog-defaults"></a>`FOG_DEFAULTS` | `{"near":10,"far":120,"density":0.01}` | Fog defaults (environment.ts applyFog). |
-| <a id="limit-sky-defaults"></a>`SKY_DEFAULTS` | `{"turbidity":6,"rayleigh":1.5,"mieCoefficient":0.005,"mieDirectionalG":0.8,"sunElevation":35,"sunAzimuth":160,"topColor":"#3d7cd6","horizonColor":"#bfe3ff","bottomColor":"#757575","color":"#7ec8ff","intensity":1,"environmentIntensity":1}` | Defaults the renderer uses for absent sky fields (environment.ts buildSky; blended from these). |
+| <a id="limit-sky-defaults"></a>`SKY_DEFAULTS` | `{"turbidity":6,"rayleigh":1.5,"mieCoefficient":0.005,"mieDirectionalG":0.8,"cloudCoverage":0.4,"cloudDensity":0.4,"cloudTime":0,"sunElevation":35,"sunAzimuth":160,"topColor":"#3d7cd6","horizonColor":"#bfe3ff","bottomColor":"#757575","color":"#7ec8ff","intensity":1,"environmentIntensity":1}` | Defaults the renderer uses for absent sky fields (environment.ts buildSky; blended from these). |
 
 <a id="limits-runtime--environment-director"></a>
 ## `environment-director.ts`

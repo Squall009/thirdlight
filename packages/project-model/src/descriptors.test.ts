@@ -589,7 +589,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
   blockFootprint: [{ layer: 'layer-a', size: [2, 3], set: { blocked: true, cost: 4 } }],
 };
 
-const SKY_PROCEDURAL = { mode: 'procedural', turbidity: 6, rayleigh: 1.5, mieCoefficient: 0.005, mieDirectionalG: 0.8, sunFromLight: false, sunElevation: 35, sunAzimuth: 160, intensity: 1, environmentIntensity: 1 };
+const SKY_PROCEDURAL = { mode: 'procedural', turbidity: 6, rayleigh: 1.5, mieCoefficient: 0.005, mieDirectionalG: 0.8, cloudCoverage: 0.4, cloudDensity: 0.4, cloudTime: 0, sunFromLight: false, sunElevation: 35, sunAzimuth: 160, intensity: 1, environmentIntensity: 1 };
 const POST_FULL = {
   toneMapping: 'agx',
   exposure: 1,
@@ -1047,8 +1047,8 @@ describe('descriptor registry', () => {
     // six kinds and its six settings, about 3 KB; block looks, boxes, turns and cell metadata, a layer's bounds and a
     // spline's profile as structured fields instead of JSON, about 2 KB; linked copies — a copy's overrides and an added
     // object's parent part, about 0.7 KB; ground cover on models and architecture, about 0.4 KB; wind zones and the
-    // wind's gust pattern fields, about 4.4 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(346_000);
+    // wind's gust pattern fields, about 4.4 KB; the physical sky's cloud cover, density and start, about 1.3 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(347_500);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

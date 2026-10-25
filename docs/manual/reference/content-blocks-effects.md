@@ -50,7 +50,7 @@ Shared TypeScript and JSON modules every script can import as @lib/<id>.
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `scriptLibraries` | list of JSON: `ScriptLibrary` ([ScriptLibrary](types-p-u.md#type-script-library)) | `[]` |  | **Script libraries.** The project's libraries (each its own file). |
+| `scriptLibraries` | list of JSON: `ScriptLibrary` ([ScriptLibrary](types-p-t.md#type-script-library)) | `[]` |  | **Script libraries.** The project's libraries (each its own file). |
 
 <a id="content-blockTypes"></a>
 ## blockTypes — Block types
@@ -340,7 +340,7 @@ Sequences of camera cuts, moves, animation, sound, dialogue, effects, signals an
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `timelines` | list of JSON: `TimelineAsset` ([TimelineAsset](types-p-u.md#type-timeline-asset)) | `[]` |  | **Timelines.** The project's timelines (each its own file). |
+| `timelines` | list of JSON: `TimelineAsset` ([TimelineAsset](types-p-t.md#type-timeline-asset)) | `[]` |  | **Timelines.** The project's timelines (each its own file). |
 
 <a id="content-graphs"></a>
 ## graphs — Graphs
@@ -431,4 +431,4 @@ The project save document (its version and migrations), the slot count, the engi
 | `thumbnail.height` | int |  | 16 – 512, step 1 | **Height.** Pixels. (required) |
 | `thumbnail.format` | enum: `jpeg`, `webp` |  |  | **Format.** JPEG or WebP. (required) |
 | `thumbnail.quality` | number |  | 0.1 – 1, step 0.05 | **Quality.** Encoder quality. |
-| `settings` | list of JSON: `SettingsField` ([SettingsField](types-p-u.md#type-settings-field)), ≤ 64 items |  |  | **Settings document.** Up to 64 fields the game's settings screen writes (ctx.saves.setSetting): { key, type: bool\|number\|string\|enum, default, label?, min?, max?, values?, engine?: music\|sfx\|ui\|quality\|frameRateCap }. |
+| `settings` | list of JSON: `SettingsField` ([SettingsField](types-p-t.md#type-settings-field)), ≤ 64 items |  |  | **Settings document.** Up to 64 fields the game's settings screen writes (ctx.saves.setSetting): { key, type: bool\|number\|string\|enum, default, label?, min?, max?, values?, engine?: music\|sfx\|ui\|quality\|frameRateCap }. |

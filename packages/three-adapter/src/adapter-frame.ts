@@ -25,6 +25,8 @@ export const NO_HIDDEN: ReadonlySet<string> = new Set();
 type LookLike = { readonly emissive?: string; readonly emissiveIntensity?: number; readonly tint?: string };
 type FrameResult = { ok: true } | { ok: false; error: AdapterError };
 
+/** No wind: the clouds stay where their start puts them. */
+const STILL_AIR = Object.freeze({ dirX: 1, dirZ: 0, speed: 0 });
 const sameLook = (a: LookLike, b: LookLike): boolean => a.emissive === b.emissive && a.emissiveIntensity === b.emissiveIntensity && a.tint === b.tint;
 const meshCount = (root: THREE.Object3D): number => {
   let n = 0;
@@ -293,7 +295,10 @@ export class AdapterFrame {
       p.effects.frame(rt.takeEffectRequests?.() ?? [], (id) => p.graph.nodeFor(id), p.state.hiddenIds, rt.isPaused === true, p.state.camera, (now) => (now - p.clockStart) / 1000, p.renderer.canvas);
     }
     const library = p.materials.library;
-    if (library !== null && library.animated()) library.tick(((typeof performance !== 'undefined' ? performance.now() : 0) - p.clockStart) / 1000);
+    const seconds = ((typeof performance !== 'undefined' ? performance.now() : 0) - p.clockStart) / 1000;
+    if (library !== null && library.animated()) library.tick(seconds);
+    // The sky's clouds on the same clock, along the global wind (still air without materials).
+    p.environment.renderer?.driftClouds(seconds, library?.globalWind() ?? STILL_AIR);
     p.models.animate(p.graph);
     // The animated hierarchies posed as the mixers left them (their bones and drawables follow).
     p.graph.poseAnimated();

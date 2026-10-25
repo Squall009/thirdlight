@@ -37,7 +37,7 @@ import { SCRIPT_LIBRARY_LIMITS } from './script-libraries';
 import { BLOCK_LIMITS, BLOCK_UV_MODES } from './block-layers';
 import { BLOCK_CONNECT_WITH_MAX } from './block-connect';
 import { KIT_LIMITS, KIT_STANDARD_SLOTS } from './kits';
-import { DEFAULT_WIND, HEIGHT_FOG_DEFAULTS, HEIGHT_FOG_LIMITS, SKY_ROTATION_MAX, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS, MATERIAL_LAYER_NAME_MAX, type MaterialParamType } from './materials';
+import { DEFAULT_WIND, HEIGHT_FOG_DEFAULTS, HEIGHT_FOG_LIMITS, SKY_CLOUD_DEFAULTS, SKY_CLOUD_TIME_MAX, SKY_ROTATION_MAX, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS, MATERIAL_LAYER_NAME_MAX, type MaterialParamType } from './materials';
 import { MATERIAL_DATA_MAX, MATERIAL_PARAMETER_TYPES } from './material-graph-kinds';
 import { TRIM_DENSITY_MAX, TRIM_DENSITY_MIN, TRIM_PADDING_MAX, TRIM_SHEET_DEFAULTS, TRIM_SHEET_SIZE_MAX, TRIM_STARTER_LAYOUT } from './trim-sheet';
 import { MODE_LIMITS } from './modes';
@@ -86,6 +86,9 @@ const SKY = obj('sky', 'Sky', 'The background and the light it gives (image-base
   bool('sunFromLight', 'Sun from light', 'Place the sun opposite the scene\'s directional light.', { when: PROCEDURAL, default: true }),
   num('sunElevation', 'Sun elevation', 'Sun height above the horizon.', { when: [PROCEDURAL, when('sunFromLight', false)], min: -10, max: 90, step: 1, unit: 'deg', default: 35 }),
   num('sunAzimuth', 'Sun azimuth', 'Sun direction around the horizon.', { when: [PROCEDURAL, when('sunFromLight', false)], min: -180, max: 180, step: 1, unit: 'deg', default: 160 }),
+  num('cloudCoverage', 'Cloud cover', 'How much of the sky the clouds cover (0: clear). They drift along the scene\'s global wind (wind zones do not move them).', { when: PROCEDURAL, min: 0, max: 1, step: 0.01, default: SKY_CLOUD_DEFAULTS.cloudCoverage }),
+  num('cloudDensity', 'Cloud density', 'How solid the clouds are (0: none drawn).', { when: PROCEDURAL, min: 0, max: 1, step: 0.01, default: SKY_CLOUD_DEFAULTS.cloudDensity }),
+  num('cloudTime', 'Cloud start', 'Seconds of drift behind the clouds when the clock starts: every run and replay starts on the same sky.', { when: PROCEDURAL, min: 0, max: SKY_CLOUD_TIME_MAX, step: 1, unit: 's', default: SKY_CLOUD_DEFAULTS.cloudTime }),
   color('topColor', 'Top colour', 'The sky overhead.', { when: when('mode', 'gradient'), default: '#3d7cd6' }),
   color('horizonColor', 'Horizon colour', 'The sky at the horizon.', { when: when('mode', 'gradient'), default: '#bfe3ff' }),
   color('bottomColor', 'Bottom colour', 'Below the horizon.', { when: when('mode', 'gradient'), default: '#757575' }), // a neutral mid grey — no ground (grass, sand, water, a floor) is assumed
