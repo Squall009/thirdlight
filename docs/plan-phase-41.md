@@ -181,7 +181,7 @@ with real Rapier on page and worker.
 
 | Item | Status |
 |---|---|
-| — | Not started. |
+| 41.0 | Done. three.js 0.186.1 still latest. Rapier 0.21.0 code-compatible (suites green) but not taken: wasm 1974→3010 KiB (soft bodies/FEM), step +25–60 %; pin stays 0.20.0 (0007 §9). Decision 0007 written, 0005 superseded. Baseline (`~/.cache/thirdlight-phase41/baseline.md`): 2D full step p50 small 0.044 / medium 0.105 / script-heavy 0.039 ms; physics-only side-scroller (`run.mjs plane-step`) 2D 0.037 ms (1 level) / 0.056 ms (4), same layout on 3D 0.053 / 0.106 ms (1.4–1.9×); export wasm 2D 1451 KiB (541 gzip), 3D 1974 KiB (744 gzip). No e2e touched. |
 
 ## 5. Decision log
 
@@ -189,3 +189,15 @@ with real Rapier on page and worker.
   at any time (Mario-pipe case), to cut complexity. Default chosen, owner to
   confirm: axis-aligned planes only for now.
   **Confirmed by the owner 2026-10-22.**
+- 2026-10-25 (41.0): Rapier 3D stays at 0.20.0. 0.21.0 needs no code change, but
+  its npm build ships soft bodies and the FEM solver: +1,036 KiB raw / +397 KiB
+  gzip of WASM and a slower step on the side-scroller bench. Taken later as its
+  own item if a release is a drop-in in size and cost or a feature needs it.
+- 2026-10-25 (41.0): the 3D-on-a-plane prototype runs at port level only
+  (`tools/perf/plane-step.ts`): 1.4× the 2D step at one level, 1.9× at four.
+  41.8's 10 % target is against the full runtime step (medium 0.105 ms), so
+  41.8 profiles the 3D port's per-step work (movers, queries, broad phase) first.
+- 2026-10-25 (41.0): the headless sim bundle loaded the root's transitive
+  rapier3d-compat 0.12.0 (from `@types/three`), not the package's 0.20.0 pin,
+  so earlier headless 3D sim numbers were on 0.12.0. The perf bundler now
+  resolves `@dimforge/*` from the importing package.

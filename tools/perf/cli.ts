@@ -69,6 +69,11 @@ if (argv[0] === 'export-size') {
   await runExportSizeCli(argv.slice(1));
   process.exit(process.exitCode ?? 0);
 }
+if (argv[0] === 'plane-step') {
+  const { runPlaneStepCli } = await import('./plane-step-run');
+  await runPlaneStepCli(argv.slice(1));
+  process.exit(process.exitCode ?? 0);
+}
 if (argv[0] === 'ports') {
   const { runPortStress } = await import('./port-stress');
   await runPortStress(argv.slice(1));

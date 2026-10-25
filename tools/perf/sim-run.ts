@@ -7,6 +7,7 @@
  */
 import { spawn } from 'node:child_process';
 import { mkdirSync, renameSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
 
 import { REPO } from './backend';
@@ -19,17 +20,23 @@ export interface SimOptions {
   windows?: number;
 }
 
-let bundled: Promise<string> | null = null;
+const bundled = new Map<string, Promise<string>>();
 
 /** Bundle sim.ts once per process. */
 export function simBundle(): Promise<string> {
-  if (bundled !== null) return bundled;
-  bundled = (async () => {
+  return perfBundle('sim');
+}
+
+/** Bundle one headless benchmark (`tools/perf/<name>.ts`) into dist/perf/<name>.mjs, once per process. */
+export function perfBundle(name: string): Promise<string> {
+  const known = bundled.get(name);
+  if (known !== undefined) return known;
+  const made = (async () => {
     const esbuild = await import('esbuild');
-    const out = join(REPO, 'dist', 'perf', 'sim.mjs');
+    const out = join(REPO, 'dist', 'perf', `${name}.mjs`);
     mkdirSync(join(REPO, 'dist', 'perf'), { recursive: true });
     await esbuild.build({
-      entryPoints: [join(REPO, 'tools', 'perf', 'sim.ts')],
+      entryPoints: [join(REPO, 'tools', 'perf', `${name}.ts`)],
       bundle: true,
       platform: 'node',
       format: 'esm',
@@ -43,7 +50,14 @@ export function simBundle(): Promise<string> {
           name: 'external-third-party',
           setup(build) {
             // Workspace packages (TypeScript sources) are bundled; everything else stays a package import.
-            build.onResolve({ filter: /^[^./]/ }, (args) => (args.path.startsWith('@thirdlight/') ? undefined : { path: args.path, external: true }));
+            // Rapier is pinned per package (packages/physics-rapier/node_modules), while the root holds an
+            // older transitive copy: a bare import from dist/perf would load that one, so Rapier is
+            // resolved from the importing package and imported by its file path.
+            build.onResolve({ filter: /^[^./]/ }, (args) => {
+              if (args.path.startsWith('@thirdlight/')) return undefined;
+              if (args.path.startsWith('@dimforge/')) return { path: createRequire(join(args.resolveDir, 'index.js')).resolve(args.path), external: true };
+              return { path: args.path, external: true };
+            });
           },
         },
       ],
@@ -51,7 +65,8 @@ export function simBundle(): Promise<string> {
     renameSync(`${out}.${process.pid}.tmp`, out);
     return out;
   })();
-  return bundled;
+  bundled.set(name, made);
+  return made;
 }
 
 export async function runSimChild(projectDir: string, opts: SimOptions = {}): Promise<SimResult | { ok: false; error: string }> {
