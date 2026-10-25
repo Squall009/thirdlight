@@ -44,7 +44,7 @@ it.
 
 Project materials draw the same on both backends: the material library
 builds node materials (TSL) for each shader type —
-standard, foliage wind (COLOR_0 + the global wind), kit (world-X UVs, the
+standard, foliage wind (COLOR_0 + the scene's wind field: [Wind](environment.md#wind)), kit (world-X UVs, the
 UV1 macro normal), unlit, water — and lightmaps (UV1, the bake's range, the
 lights a bake holds left out), the Scene view's selection tint and look
 overrides work there too. A pixel test compares each against the

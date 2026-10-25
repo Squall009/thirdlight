@@ -18,6 +18,7 @@
 import { useEffect, useState, type JSX } from 'react';
 import type { EnvironmentConfig, EnvironmentPreset, EnvironmentPresetLight, FogConfig, HeightFogConfig, PostConfig, SceneEnvironment, SkyConfig, WindConfig } from '@thirdlight/project-model';
 import { HEIGHT_FOG_DEFAULTS, wrapDegrees } from '@thirdlight/three-adapter';
+import { WIND_DEFAULTS, WIND_LIMITS } from '@thirdlight/runtime';
 import { DEFAULT_WIND } from '@thirdlight/project-model/material-schema';
 import type { SkyAlignResult } from '../viewport/sky-align';
 import { RefPicker, TEXTURE_KINDS } from './catalog/RefPicker';
@@ -435,7 +436,7 @@ export function EnvironmentPanel(p: Props): JSX.Element {
         </section>
 
         <section className="tl-inspector__section" aria-label="wind">
-          <div className="tl-subhead">Wind (bends foliage materials by their vertex colour)</div>
+          <div className="tl-subhead">Wind (bends foliage materials by their vertex colour; wind zones change it locally)</div>
           <>
           <Slider
             label="direction (°)"
@@ -453,6 +454,11 @@ export function EnvironmentPanel(p: Props): JSX.Element {
           <Slider label="gusts" name="wind gust" value={wind.gust} min={0} max={10} step={0.05} onCommit={(v) => setWind({ gust: v })} />
           <Slider label="gusts per second" name="wind gustFrequency" value={wind.gustFrequency} min={0} max={10} step={0.05} onCommit={(v) => setWind({ gustFrequency: v })} />
           <Slider label="turbulence" name="wind turbulence" value={wind.turbulence} min={0} max={1} step={0.01} onCommit={(v) => setWind({ turbulence: v })} />
+          <Slider label="gust size (m)" name="wind scale" value={wind.scale ?? WIND_DEFAULTS.scale} min={WIND_LIMITS.scaleMin} max={200} step={0.5} onCommit={(v) => setWind({ scale: v })} />
+          <Slider label="gust speed (m/s)" name="wind speed" value={wind.speed ?? round(wind.gustFrequency * (wind.scale ?? WIND_DEFAULTS.scale))} min={0} max={50} step={0.5} onCommit={(v) => setWind({ speed: v })} />
+          <Slider label="second layer size (× gust size)" name="wind octave scale" value={wind.octave?.scale ?? WIND_DEFAULTS.octave.scale} min={WIND_LIMITS.octaveScaleMin} max={1} step={0.01} onCommit={(v) => setWind({ octave: { speed: wind.octave?.speed ?? WIND_DEFAULTS.octave.speed, scale: v } })} />
+          <Slider label="second layer speed (× gust speed)" name="wind octave speed" value={wind.octave?.speed ?? WIND_DEFAULTS.octave.speed} min={0} max={WIND_LIMITS.octaveSpeedMax} step={0.05} onCommit={(v) => setWind({ octave: { scale: wind.octave?.scale ?? WIND_DEFAULTS.octave.scale, speed: v } })} />
+          <TextureChoice label="gust pattern (red channel; none: the engine's noise)" name="wind noise" value={wind.noise ?? ''} onCommit={(v) => setWind({ noise: v === '' ? undefined : v })} />
           </>
         </section>
 

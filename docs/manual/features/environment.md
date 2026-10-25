@@ -105,6 +105,12 @@ nothing. **delete** removes a preset. MCP: `setEnvironment` with
   script that drives t itself.
 - `state()` → `{ target, progress, blending }`, `weight(presetId)`,
   `presets()`.
+- `setWind({ … }, { blend?, easing? })` — change the scene's global wind:
+  any of `direction`, `strength`, `gust`, `gustFrequency`, `turbulence`,
+  `speed`, `scale`, `noise`, added to the last change's, over `blend`
+  seconds. `setWind(null, { blend })` goes back to the scene's own wind.
+  Wind zones keep laying their values over it. Simulation state: it
+  replays, runs alike in the simulation worker and is saved.
 
 Visual scripts have the same as *Set environment*, *Blend environments*,
 *Environment state*, *Environment weight* and *Environment presets*
@@ -141,3 +147,38 @@ changing a baked light's colour in a preset does not change the baked
 surfaces (a light a bake holds is not realtime at all). Give such presets a
 `lightmap` multiplier — e.g. `{ intensity: 0.2, tint: '#8090ff' }` for night
 — and the baked surfaces darken and tint with the blend.
+
+## Wind
+
+One wind per scene: the scene's look holds the **global wind**
+(Environment window → *Wind*; `setEnvironment {sceneId, environment: {wind}}`)
+and **wind zones** change it locally. Foliage materials bend by it (every
+foliage mesh: ground cover, scatter and instance copies, placed models), and
+a graph's *Wind* node reads the same field.
+
+- `direction` [x, z], `strength` (base bend), `gust` (extra strength at the
+  gust pattern's peaks), `turbulence` (small-scale variation).
+- The **gust pattern** is a tiling texture read from above over the world
+  and scrolled along the wind: `noise` (a texture asset, its red channel;
+  absent: the engine's neutral noise), `scale` (metres it spans, default
+  20), `speed` (metres per second it travels; absent: `gustFrequency` ×
+  `scale`), and `octave` `{scale, speed}`: a finer second layer as shares of
+  the first (default 0.27 and 1.6) so the pattern does not visibly repeat.
+- A plant bends by the wind's strength where it stands × its vertex's bend
+  weight (COLOR_0 R, squared) × its height above its root: tall grass bends
+  further than short grass. A mesh without COLOR_0 sways by its height share
+  of its first metre. The material's `windBend` and `windFlutter` scale it.
+
+**Wind zones.** Add a *Wind zone* (Create → Light → Wind zone, or the
+`windZone` component on any object): a **box** (turns with the object about
+up) or a **sphere**, read from above. Any of `direction`, `strength`, `gust`,
+`turbulence`, `speed` and `scale` it sets replaces the wind around it; it
+fades in over `blend` metres inside its edge (the Scene view draws the shape
+solid and where the blend ends dashed); where zones overlap, the higher
+`priority` is laid on top (equal priorities by object id). Zones are
+ordinary objects: move, hide or switch them off and the wind follows. There
+is no limit on zones: the renderer bakes the zones round the camera into a
+small map (256 m across, 4 m texels, so an edge is no sharper than 4 m),
+made again only when a zone, the wind or the camera's 32 m square changes.
+The noise texture and its second layer are the scene's only.
+

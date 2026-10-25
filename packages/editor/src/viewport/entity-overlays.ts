@@ -1,7 +1,7 @@
 /**
  * What the Scene view draws on an entity that the game does not: its icon
  * billboard, a light's reach or cone and a directional light's direction, a
- * spawn's facing and a fog volume's box.
+ * spawn's facing, a fog volume's box and a wind zone's shape and blend edge.
  *
  * Each entity's overlays are one group handed to the scene adapter
  * (`attachOverlay`), which hangs it on the entity's node: it moves with the
@@ -14,6 +14,7 @@
  */
 import * as THREE from 'three';
 import type { SceneAdapter } from '@thirdlight/three-adapter';
+import { WIND_DEFAULTS } from '@thirdlight/runtime';
 
 import type { ProjectedEntity } from '../session/projection';
 import { lightGizmo } from './helper-shapes';
@@ -28,6 +29,78 @@ function probeVolumeSize(e: ProjectedEntity): number[] | null {
   return Array.isArray(size) && size.length === 3 ? size : null;
 }
 
+/** A wind zone's shape, size, blend and direction (null: the entity has none). */
+function windZoneOf(e: ProjectedEntity): { shape: string; size?: number[]; radius?: number; blend?: number; direction?: number[] } | null {
+  const z = e.components['windZone'] as { shape?: string } | undefined;
+  return z !== undefined && typeof z.shape === 'string' ? (z as { shape: string }) : null;
+}
+
+/** Points of a horizontal circle (line segments) of radius `r` at height `y`. */
+function circleSegments(r: number, y = 0, steps = 64): THREE.Vector3[] {
+  const out: THREE.Vector3[] = [];
+  for (let i = 0; i < steps; i += 1) {
+    const a = (i / steps) * Math.PI * 2;
+    const b = ((i + 1) / steps) * Math.PI * 2;
+    out.push(new THREE.Vector3(Math.cos(a) * r, y, Math.sin(a) * r), new THREE.Vector3(Math.cos(b) * r, y, Math.sin(b) * r));
+  }
+  return out;
+}
+
+/**
+ * A wind zone's gizmo: its shape (a box, or a sphere's circle on the ground with two upright rings) and, dashed,
+ * where its blend ends inside its edge (it is whole within that line), with an arrow along the direction it sets.
+ * In the object's own units (the object's scale applies to the drawing, as to the zone).
+ */
+function windZoneGizmo(z: NonNullable<ReturnType<typeof windZoneOf>>): THREE.Group {
+  const g = new THREE.Group();
+  g.name = 'wind-zone';
+  const colour = 0x8fd3ff;
+  const solid = new THREE.LineBasicMaterial({ color: colour, transparent: true, opacity: 0.85 });
+  const dashed = new THREE.LineDashedMaterial({ color: colour, dashSize: 0.4, gapSize: 0.25, transparent: true, opacity: 0.6 });
+  const blend = Math.max(0, z.blend ?? WIND_DEFAULTS.zoneBlend);
+  let reach: number;
+  if (z.shape === 'sphere') {
+    const r = z.radius ?? WIND_DEFAULTS.zoneRadius;
+    reach = r;
+    const ring = circleSegments(r);
+    const upright = ring.map((p) => new THREE.Vector3(p.x, p.z, 0));
+    const across = ring.map((p) => new THREE.Vector3(0, p.z, p.x));
+    g.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([...ring, ...upright, ...across]), solid));
+    if (blend > 0 && blend < r) {
+      const inner = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(circleSegments(r - blend)), dashed);
+      inner.computeLineDistances();
+      inner.name = 'wind-zone-blend';
+      g.add(inner);
+    }
+  } else {
+    const s = z.size ?? [...WIND_DEFAULTS.zoneSize];
+    reach = Math.min(s[0]!, s[2]!) / 2;
+    g.add(new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(s[0], s[1], s[2])), solid));
+    const w = s[0]! - 2 * blend;
+    const d = s[2]! - 2 * blend;
+    if (blend > 0 && w > 0 && d > 0) {
+      const y = -s[1]! / 2;
+      const c = [new THREE.Vector3(-w / 2, y, -d / 2), new THREE.Vector3(w / 2, y, -d / 2), new THREE.Vector3(w / 2, y, d / 2), new THREE.Vector3(-w / 2, y, d / 2)];
+      const inner = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([c[0]!, c[1]!, c[1]!, c[2]!, c[2]!, c[3]!, c[3]!, c[0]!]), dashed);
+      inner.computeLineDistances();
+      inner.name = 'wind-zone-blend';
+      g.add(inner);
+    }
+  }
+  if (Array.isArray(z.direction) && z.direction.length === 2) {
+    const len = Math.hypot(z.direction[0]!, z.direction[1]!) || 1;
+    const dir = new THREE.Vector3(z.direction[0]! / len, 0, z.direction[1]! / len);
+    const side = new THREE.Vector3(dir.z, 0, -dir.x);
+    const size = Math.max(1, reach * 0.5);
+    const tip = dir.clone().multiplyScalar(size);
+    const back = dir.clone().multiplyScalar(size * 0.7);
+    const arrow = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([dir.clone().multiplyScalar(-size), tip, tip, back.clone().addScaledVector(side, size * 0.2), tip, back.clone().addScaledVector(side, -size * 0.2)]), solid);
+    arrow.name = 'wind-zone-direction';
+    g.add(arrow);
+  }
+  return g;
+}
+
 /**
  * What an entity's overlays are built from — its kind, its light (type,
  * direction, range, cone, mode), whether it has a fog volume or is a
@@ -36,7 +109,7 @@ function probeVolumeSize(e: ProjectedEntity): number[] | null {
 function buildKeyOf(e: ProjectedEntity): string {
   const l = e.light;
   const facing = e.playerSpawn === true ? ((e.components['playerSpawn'] as { yaw?: number } | undefined)?.yaw ?? null) : null;
-  return JSON.stringify([e.kind, l === undefined ? null : [l.type, l.direction ?? null, l.range ?? null, l.angle ?? null, l.mode ?? null], e.fogVolume !== undefined, e.playerSpawn === true, facing, probeVolumeSize(e)]);
+  return JSON.stringify([e.kind, l === undefined ? null : [l.type, l.direction ?? null, l.range ?? null, l.angle ?? null, l.mode ?? null], e.fogVolume !== undefined, e.playerSpawn === true, facing, probeVolumeSize(e), windZoneOf(e)]);
 }
 
 interface Built {
@@ -232,6 +305,13 @@ export class EntityOverlays {
       box.computeLineDistances();
       box.name = `probe-volume:${e.id}`;
       group.add(box);
+    }
+    // A wind zone shows its shape and where its blend ends.
+    const wind = windZoneOf(e);
+    if (wind !== null) {
+      const gizmo = windZoneGizmo(wind);
+      gizmo.name = `wind-zone:${e.id}`;
+      group.add(gizmo);
     }
     return b;
   }

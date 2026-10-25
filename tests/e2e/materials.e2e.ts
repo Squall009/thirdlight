@@ -19,7 +19,7 @@ import { startBackend, type E2EBackend, withoutSky } from './backend';
 import { KIT_PIECES, multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS } from './renderer-variants';
-import { projectWindow, openWindow, createItem, inspector } from './ui';
+import { projectWindow, openWindow, createItem, inspector, menu } from './ui';
 
 let be: E2EBackend;
 let dir: string;
@@ -116,6 +116,34 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a foliage material moves 
   await page.getByRole('combobox', { name: 'material for all' }).selectOption({ label: 'Material 1' });
   // Generous waits: the first frames with a new node material compile its pipeline (slow on the CPU renderer here).
   await expect.poll(() => motion(viewport), { timeout: 30_000 }).toBeGreaterThan(50);
+
+  // The wind field: the gust pattern's size from the window (the scene's wind), then a wind zone over the kit
+  // (made where the view looks, as the kit was dropped) with no strength and no gusts in its Inspector stills it.
+  await openWindow(page, 'Environment');
+  await page.getByRole('slider', { name: 'wind scale' }).focus();
+  await page.keyboard.press('ArrowRight');
+  await expect.poll(async () => JSON.stringify((await be.command({ op: 'queryProject', projectId: be.projectId, args: { environments: true } }))['scenes'])).toContain('"scale":20.5');
+  await menu(page, 'GameObject', 'Light', 'Wind zone');
+  await expect(page.locator('[aria-label="windZone component"]')).toBeVisible();
+  const zone = async (): Promise<Record<string, unknown> | undefined> => ((await be.command({ op: 'queryEntities', projectId: be.projectId, args: { limit: 100, offset: 0 } }))['entities'] as { components: { windZone?: Record<string, unknown> } }[]).find((e) => e.components.windZone !== undefined)?.components.windZone;
+  // An unset value's slider rests at its minimum: up to the top (stored) and back sets it to 0.
+  for (const field of ['strength', 'gust']) {
+    const slider = page.getByRole('slider', { name: `windZone ${field} slider` });
+    await slider.focus();
+    await page.keyboard.press('End');
+    await expect.poll(async () => (await zone())?.[field]).toBe(10);
+    await slider.focus();
+    await page.keyboard.press('Home');
+    await expect.poll(async () => (await zone())?.[field]).toBe(0);
+  }
+  expect(await zone()).toMatchObject({ shape: 'box', size: [20, 10, 20] });
+  await viewport.click({ position: { x: 5, y: 5 } });
+  await expect.poll(() => motion(viewport), { timeout: 20_000 }).toBeLessThan(20);
+  // Deleted, the scene's wind is back (Play shows it moving again below).
+  await page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'Wind zone' }).click();
+  await viewport.hover();
+  await page.keyboard.press('Delete');
+  await expect.poll(zone).toBeUndefined();
 
   // Play: the wind moves the pieces there too.
   await page.getByTitle('Start an isolated play preview').click();
