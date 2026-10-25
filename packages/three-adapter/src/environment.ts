@@ -35,6 +35,8 @@ import { PMREMGenerator as NodePMREMGenerator, type WebGPURenderer } from 'three
 import { AMBIENT_OCCLUSION_DEFAULT, levelPost, qualityLevelOf, qualityLevelsOf, SKY_DEFAULTS, type QualityLevelConfig } from '@thirdlight/runtime';
 
 import { CloudDrift, type CloudWind } from './cloud-drift';
+// Lit surfaces read the PMREM through a cube copy, made again after each bake.
+import { SceneLighting, type PmremLike } from './environment-cube';
 
 import { ScreenSpaceOcclusion } from './post-ao';
 import type { UpscaleFilter } from './post-upscale';
@@ -277,14 +279,6 @@ const TONE: Record<string, THREE.ToneMapping> = {
   neutral: THREE.NeutralToneMapping,
 };
 
-/** The PMREM calls used here (`three/webgpu`'s generator). */
-interface PmremLike {
-  fromScene(scene: THREE.Scene, sigma?: number, near?: number, far?: number, options?: { renderTarget?: unknown }): { texture: THREE.Texture; dispose(): void };
-  fromEquirectangular(texture: THREE.Texture): { texture: THREE.Texture; dispose(): void };
-  fromCubemap(texture: THREE.CubeTexture): { texture: THREE.Texture; dispose(): void };
-  dispose(): void;
-}
-
 /**
  * How far a blended sky's inputs must move from the ones the
  * image-based lighting was last baked from before it is baked again: a
@@ -408,7 +402,8 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
   let passNames: string[] = [];
   /** The MSAA samples of the last built frame path. */
   let samplesNow = renderer.samples;
-  const pmrem: PmremLike = new NodePMREMGenerator(renderer) as unknown as PmremLike;
+  const lighting = new SceneLighting(renderer, scene, new NodePMREMGenerator(renderer) as unknown as PmremLike);
+  const pmrem = lighting.pmrem;
   let skyMesh: THREE.Mesh | null = null;
   /** The clouds' travel every physical sky here reads (the live one, cross-fade layers, the lighting bake's copy). */
   const cloudDrift = cloudDriftUniform() as { value: THREE.Vector2 };
@@ -517,9 +512,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     if (key === skyKey) return;
     skyKey = key;
     clearSky();
-    if (sky === undefined) {
-      return;
-    }
+    if (sky === undefined) return;
     builtStruct = skyStruct(sky);
     applyEnvIntensity(sky);
     if (sky.mode === 'color') {
@@ -1043,6 +1036,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       // Only once the sky moved past SKY_REBAKE_THRESHOLD from the last bake.
       framesSinceBake += 1;
       if (iblDirty && framesSinceBake >= 30) rebakeIbl();
+      lighting.sync();
       buildPipeline(camera);
       pipeline?.setParams(postParams());
       if (pipeline === null) {
@@ -1093,7 +1087,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       disposeLayers();
       clearSky();
       heightFog.dispose();
-      pmrem.dispose();
+      lighting.dispose();
     },
   };
   return self;

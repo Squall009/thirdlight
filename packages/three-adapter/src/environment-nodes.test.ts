@@ -59,8 +59,18 @@ vi.mock('./environment-nodes', async (importOriginal) => {
 
 const { createEnvironmentRenderer, skyInputsDiffer, SKY_REBAKE_THRESHOLD } = await import('./environment');
 
+/** The lighting cube's copies (one per bake: its last face at its first level), counted by the mock renderer. */
+const cubeCopies: unknown[] = [];
+
 function nodeRenderer(): WebGPURenderer & { render: ReturnType<typeof vi.fn> } {
-  return { isWebGPURenderer: true, toneMapping: THREE.NoToneMapping, toneMappingExposure: 1, samples: 4, getPixelRatio: () => 1, render: vi.fn() } as unknown as WebGPURenderer & { render: ReturnType<typeof vi.fn> };
+  let target: unknown = null;
+  const setRenderTarget = (t: unknown, face = 0, level = 0): void => {
+    target = t;
+    if (t !== null && face === 5 && level === 0) cubeCopies.push(t);
+  };
+  // What the lighting cube's copy calls (a cube camera's six draws per level, the target set round them).
+  const targets = { getRenderTarget: () => target, getActiveCubeFace: () => 0, getActiveMipmapLevel: () => 0, setRenderTarget, initRenderTarget: vi.fn(), autoClear: true, coordinateSystem: THREE.WebGPUCoordinateSystem, xr: { enabled: false }, reversedDepthBuffer: false };
+  return { isWebGPURenderer: true, toneMapping: THREE.NoToneMapping, toneMappingExposure: 1, samples: 4, getPixelRatio: () => 1, render: vi.fn(), ...targets } as unknown as WebGPURenderer & { render: ReturnType<typeof vi.fn> };
 }
 
 afterEach(() => {
@@ -258,7 +268,11 @@ describe('environment renderer on WebGPURenderer', () => {
     env.set({ sky: { mode: 'procedural', turbidity: 6, sunFromLight: false, sunElevation: 30 } });
     expect(pmremBakes).toEqual(['new']);
     const texture = scene.environment;
+    cubeCopies.length = 0;
     frames(40);
+    // Lit surfaces read the lighting through the cube (`environment-cube.ts`), copied once from the bake, not per frame.
+    expect((scene as unknown as { environmentNode: unknown }).environmentNode).not.toBeNull();
+    expect(cubeCopies).toHaveLength(1);
     // Under the threshold (turbidity 0.5 %, the sun 0.3°): no re-bake, however many frames pass.
     env.setBlend({ sky: { mode: 'procedural', turbidity: 6.03, sunFromLight: false, sunElevation: 30.3 } });
     frames(60);
@@ -270,6 +284,8 @@ describe('environment renderer on WebGPURenderer', () => {
     expect(pmremBakes).toEqual(['new', 'reused']);
     expect(scene.environment).toBe(texture);
     expect(env.diagnostics().iblRebakes).toBe(1);
+    // A re-bake into the same target is copied into the cube again.
+    expect(cubeCopies).toHaveLength(2);
     // A new t every frame, each change small but adding up: re-baked against the last bake, not the last frame.
     for (let i = 1; i <= 90; i += 1) {
       env.setBlend({ sky: { mode: 'procedural', turbidity: 7 + i * 0.01, sunFromLight: false, sunElevation: 30.3 } });
