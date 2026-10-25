@@ -225,6 +225,7 @@ is one step in the terrain or scatter e2e.
 | 40.2 A | Done 2026-10-24: terrain cover placed on the GPU (`cover-gpu.ts`, maths `cover-placement.ts`, `TerrainView.coverSurface`): rings round the eye cut at the model's level switches and from the fade (√2 apart), patches of ~512 candidates inside one tile, one instanced draw per ring × mesh × page; the vertex stage places, turns, sizes and thins each candidate from a hash of its cell and the page's height/normal/hole/layer texels; patches frustum-culled on the CPU, the list texture written only when it changes; casts no shadow unless `castShadow`. Rules reading spacing/cavity/exclude/blobShadow, terrains with blocks layers or a spline band, block layers, and `?cover=cpu` stay on the CPU path (part B). Vitest `cover-placement.test.ts` (6: ground/slope/layers vs `terrainScatterSurface`, determinism per patch, density ±10 % per annulus, patch lists, WGSL build). Meadow at the cap, 3 interleaved rounds (load 1.3–3.5): GPU path p95 16.7/16.8 ms, 0 missed both renderers, 6 scene draws (5 cover) vs 45, cover main thread +0.17–0.25 ms over ground vs +0.4–0.5 (CPU path), WebGPU scene pass +3.4 ms over ground vs +1.7 (977k candidate tris vs 431k kept: per-vertex placement and thinned candidates; 40.8). Looked at: same look as the CPU path on both renderers. Fast gate green (10 min; terrain-cdlod e2e 4.2 m, its cover check reads GPU candidates; the file's terrain has spline bands, so its cover stays on the CPU path). |
 | 40.2 B | Done 2026-10-24: every terrain's cover on the GPU, none made on the CPU: spline scatter bands, a blocks layer's cut, `exclude` regions and `cavity` reach the vertex stage as a mask per rule and tile (2 texels a sample, ≤ 512², one R8 array texture per terrain, made on the cover worker with the stored scatter's surface tests when a tile's patches are first listed, made again on edits with the old one drawn meanwhile; draws read masks only once their terrain has one); `spacing` by a grid no finer than it plus a 3 × 3 priority test. No blob shadows under cover; `coverDistance` bound 1 km → 10 km (CPU squares, still block layers' and `?cover=cpu`, stop at 1 km). Vitest `cover-placement.test.ts` +3 (masks against the band/region/cavity tests, no copy on a road as the CPU path, spacing: no pair closer, 1.13× the bake's density) and the WGSL build with spacing. terrain-cdlod e2e now requires GPU cover (4 masks, 0 CPU copies; tuft pixels pass), 3.2 m (part A 4.2 m), level-acceptance 27 s. At the cap (load 0.2–3.2): meadow p95 16.7/16.8 ms, 0 missed both renderers, cover main thread +0.07–0.13 / +0.26–0.32 ms over ground, 6 scene draws; landscape p95 16.7–16.8, 0 missed, 336 draws (343 with CPU cover), main 3.99–4.15 / 3.93–4.12 ms (CPU cover same hour 4.13 / 3.94), WebGPU GPU 9.75–10.2 ms. A band or region kept clear: unverified by eye (e2e counts and vitest only; the landscape's view shows no cover). |
 | 40.3 | Done 2026-10-24: block layers' cover drawn from point sets through the same GPU renderer (rings, model levels, thinning, culling; one draw per ring and mesh): the cover worker bakes a rule's points per chunk (`bakeCoverPoints`, project-model `cover-points.ts`: the stored scatter's grid and conditions at full density, every floor of a column, spacing exact; 16 B a point, sorted by threshold) when the view's reach meets the chunk and again round an edit; `cover-points-gpu.ts` holds them in a float texture per rule, a ring lists the blocks of 256 holding its prefix. CPU squares, `coverMake` and `?cover=cpu` removed. Meshes and architecture carry no rules yet (D312). Vitest: `cover-points.test.ts` (5: equal to the stored bake on one floor, spacing too; every floor under a roof; sorted prefix; normals; a repeated ground ends the column), `cover-view.test.ts` (3: reach/edit/let-go through CoverView, thinning per annulus vs `coverShare` ±10 % with every kept point listed, WGSL build). Interior: block-layers e2e's floor under the pink roof grows moss and debris (66 points, 2 sets; looked at in the Play shot, WebGPU; WebGL 2 by eye unverified), 16.2 s (before 15–21 s); terrain-cdlod 3.1 m (3.2 m). At the cap (load 0.6–2): meadow p95 16.7/16.7, 0 missed, 6 scene draws, cover main +0.11/+0.29 ms over ground; landscape p95 16.7/16.7, none ≥ 25 ms, 330 draws (336 in 40.2 B), main 4.31/3.94 ms, WebGPU GPU 9.73 ms (block cover's candidates now count: 767k tris); village p95 16.7/16.8, 222/224 draws, main 4.67/4.35 ms (baseline 4.65/4.33). Fast gate green (10 min). |
+| 40.3b | Done 2026-10-25: stored scatter and instance sets draw through the GPU copies renderer (`copies-gpu.ts` on cover's placement hook: a copy texture, per-frame lists of blocks of ≤ 64 copies with a header holding each draw's constants, one draw per mesh and level, a copy's level per copy or per block (`lodPerCopy`), thinning by rank, near shadows as shadow-only draws at the detailed level, impostors and vertex paint through the copy's columns, picking and diagnostics on the page when asked); `scatter-view.ts` → `stored-scatter.ts` (blocks prepared on the worker, a set made in one go); the main-thread per-copy pick and thinning are gone (the CPU sets left, architecture and spline pieces, pick per chunk). Vitest `copies-gpu.test.ts` (6), `stored-scatter.test.ts` (6, rewritten), `instancing.test.ts` (rewritten). Same-hour A/B at the cap vs ae580337 (load 1–2): landscape p95 16.7/16.7, 0 missed both; scene draws 306 → 310, main thread 4.10 → 4.14 ms WebGPU, 3.79 → 4.19 ms WebGL 2 (earlier rounds 4.15 → 4.27; noise ±0.5), GPU 9.5 → 10.4 ms (more vertex work: dropped candidates), D212 not met; village (fast gate at the cap) CPU 4.99/4.51 ms vs baseline 5.64/4.90. E2e: instance-brush 37.1 → 36.4 s, instances 3.7/4.5/5.0 s as before, terrain-cdlod 3.1 → 3.2 m, block-layers 16.2 → 16.0 s. D183 fixed, D313 opened. |
 
 ## 5. Decision log
 
@@ -327,3 +328,42 @@ is one step in the terrain or scatter e2e.
 - 2026-10-24 (40.3): The CPU cover path is gone (cover-view's squares, the
   worker's `coverMake`, `?cover=cpu`, the meadow class's `--cover cpu`):
   `renderer.cover` in the diagnostics is now `{ sources, tilesSent, gpu }`.
+- 2026-10-25 (40.3b): Default chosen, owner to confirm: stored scatter and
+  instance sets draw through `copies-gpu.ts` on cover's placement hook (one
+  vertex stage for every set: its constants in a header of each draw's list
+  texture, so the sets of a scene share programs as the CPU sets did). A
+  copy is 48 bytes of float texture (place, thinning rank, turn, scale,
+  paint slot); blocks of up to 64 copies (a k-d split inside the set's
+  chunks, so `chunkSize` and `instance_chunk_m` keep their meaning: how
+  finely a set is culled) are listed per frame per draw, the view's first,
+  then off-screen candidates (shadow maps, or a view that moved since it was
+  culled), then, for the detailed level, every block (the cached static
+  map). `lodPerCopy` keeps its meaning and defaults: per copy on the GPU
+  (scatter: on) at no extra draw, more vertex work where a block spans a
+  switch; off (instance sets) each block picks one level at its centre with
+  the project's hysteresis, as a CPU chunk did. Per copy, levels switch
+  exactly at their distance (no hysteresis).
+- 2026-10-25 (40.3b): Default chosen, owner to confirm: a rule's
+  `shadowDistance` casts from shadow-only draws of the same set listing the
+  blocks within reach of the eye, at the model's most detailed level (the
+  CPU squares used whatever level a square's chunk picked).
+- 2026-10-25 (40.3b): Copies keep an identity only when asked: a ray picks
+  a copy through whichever of the set's own draws is shown, by walking the
+  copies (a sphere test, then the detailed meshes); `copyBox`, `setCopies`
+  (hidden and removed script copies, the editor's preview) and the
+  diagnostics' counts (by block where a block is at one level and does not
+  thin, cached per view) read the copy texture on the page. Colliders and
+  `ctx.scatter` addresses stay the runtime's (`scatter-copies.ts`).
+- 2026-10-25 (40.3b): The CPU instance sets that remain (generated
+  architecture's and splines' pieces) pick one level per chunk; the
+  main-thread per-copy pick and thinning (`ChunkLodPicker`'s per-copy loop,
+  `lodPerCopy`, `density`, the sets' worker preparation) are removed.
+  Occlusion culling's per-copy GPU path (`occlusion-instances.ts`) applies
+  to those sets and to batches, not to copies sets (D313).
+- 2026-10-25 (40.3b): D212 is not met by this item: the copies' per-copy
+  work left the main thread (the CPU sets' cull and near-shadow squares were
+  ~0.7 ms a frame of the landscape class; the copies' block lists ~0.1–0.2
+  ms), but the frame's main thread is three's draw submission, and the
+  draws stayed (306 → 310 scene draws: 140 block-layer chunks, 97 others,
+  30 spline, ~75 copies draws). What remains is fewer draws: merging the
+  copies of sets that share a model and material, block chunks' draws.
