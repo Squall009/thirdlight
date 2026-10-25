@@ -267,6 +267,12 @@ function createOne(
     // A placement that faces a spawn's yaw.
     if (typeof intents.characterYaw === 'number' && Number.isFinite(intents.characterYaw)) yaw = intents.characterYaw;
     const o = originOf(ctx);
+    // The plane it is locked to: its speed along the normal is dropped, so none is kept for when it is freed.
+    const plane = ctx.physics.planeOf?.(charId) ?? null;
+    const keepToPlane = (): void => {
+      if (plane?.axis === 'x') vx = 0;
+      else if (plane?.axis === 'z') vz = 0;
+    };
     if (!enabled) {
       // Switched off: it stays where it is (no input, no gravity); what it stands on still carries it.
       vx = 0;
@@ -335,9 +341,13 @@ function createOne(
       vx = (vol.up[0] * along + vol.across[0] * across) * M.climbSpeed;
       vy = (vol.up[1] * along + vol.across[1] * across) * M.climbSpeed;
       vz = (vol.up[2] * along + vol.across[2] * across) * M.climbSpeed;
+      keepToPlane();
       ctx.physics.stageCharacterMove(charId, { x: vx * dt, y: vy * dt, z: vz * dt } as PhysicsVec3);
       return;
     }
+    // On a plane only the input along it moves the character (and turns it).
+    if (plane?.axis === 'x') dx = 0;
+    else if (plane?.axis === 'z') dz = 0;
     const len = Math.hypot(dx, dz);
     const mag = Math.min(1, len);
     const ux = len > 1e-9 ? dx / len : 0;
@@ -457,6 +467,7 @@ function createOne(
         }
       }
     }
+    keepToPlane();
     ctx.physics.stageCharacterMove(charId, { x: vx * dt, y: vy * dt, z: vz * dt } as PhysicsVec3);
   };
 

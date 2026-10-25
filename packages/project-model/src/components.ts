@@ -25,6 +25,7 @@ import {
 } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { MAX_COLLIDER_EXTENT, colliderShapeParts, limitsError, validateColliderShape } from './collider-shapes';
+import { planeLockOf, validatePlaneLock } from './plane-lock';
 
 export { COLLIDER_3D_LIMITS, COLLIDER_3D_SHAPES, CONVEX_TOL, MAX_COLLIDER_EXTENT, MAX_POLYGON_VERTICES, MIN_POLYGON_AREA, canonicalCollider, canonicalShape, colliderShapeParts, colliderShapePoints, COLLIDER_PRIMITIVE_TYPES, COLLIDER_SHAPE_TYPES } from './collider-shapes';
 import type { ColliderShape, ControllerComponent, TransformComponent } from './types-v2';
@@ -260,10 +261,10 @@ export function validateColliderLayers(v: unknown, path: string, errors: ModelEr
   });
 }
 
-/** The collider value without its v4 extras (`oneWay`, `layers`), for the shape validation. */
+/** The collider value without its v4 extras (`oneWay`, `layers`, `plane`), for the shape validation. */
 export function colliderCore(col: unknown): unknown {
-  if (!isPlainObject(col) || (col['oneWay'] === undefined && col['layers'] === undefined)) return col;
-  return Object.fromEntries(Object.entries(col).filter(([k]) => k !== 'oneWay' && k !== 'layers'));
+  if (!isPlainObject(col) || (col['oneWay'] === undefined && col['layers'] === undefined && col['plane'] === undefined)) return col;
+  return Object.fromEntries(Object.entries(col).filter(([k]) => k !== 'oneWay' && k !== 'layers' && k !== 'plane'));
 }
 
 export function validateColliderComponent(c: unknown, path: string, errors: ModelErrorV2[]): void {
@@ -522,7 +523,7 @@ export function controllerMovementOf(controller: unknown): ControllerMovementSet
 }
 
 /** Every v4 controller field, in canonical order. */
-export const CONTROLLER_FIELDS: readonly string[] = ['capsule', ...CONTROLLER_TUNING_FIELDS, ...CONTROLLER_3D_FIELDS, ...CONTROLLER_ACTION_FIELDS, ...CONTROLLER_MOVEMENT_FIELDS];
+export const CONTROLLER_FIELDS: readonly string[] = ['capsule', ...CONTROLLER_TUNING_FIELDS, ...CONTROLLER_3D_FIELDS, ...CONTROLLER_ACTION_FIELDS, ...CONTROLLER_MOVEMENT_FIELDS, 'plane'];
 
 /** The resolved 3D character settings (the controller's data, else the defaults and the project settings). */
 export interface Character3DSettings {
@@ -638,6 +639,9 @@ export function canonicalController(controller: unknown): ControllerComponent {
   for (const k of CONTROLLER_ACTION_FIELDS) if (src[k] !== undefined) out[k] = src[k];
   // Climbing and walls (absent keeps the old canonical bytes).
   for (const k of CONTROLLER_MOVEMENT_FIELDS) if (src[k] !== undefined) out[k] = src[k];
+  // The plane lock (absent or null: free, and the old canonical bytes).
+  const plane = planeLockOf(src);
+  if (plane !== null) out['plane'] = plane;
   return out as ControllerComponent;
 }
 
@@ -679,6 +683,7 @@ export function validateControllerComponent(c: unknown, path: string, errors: Mo
     }
   }
   for (const key of CONTROLLER_MOVEMENT_BOOLEANS) if (c[key] !== undefined && typeof c[key] !== 'boolean') errors.push(fieldType(`${path}/${key}`, c[key], 'boolean'));
+  validatePlaneLock(c['plane'], `${path}/plane`, errors);
   if (c['climbAction'] !== undefined && (typeof c['climbAction'] !== 'string' || !CONTROLLER_ACTION_RE.test(c['climbAction']))) errors.push(fieldValue(`${path}/climbAction`, c['climbAction'], 'an input action name (a letter or _, then up to 31 letters, digits or _)', 'controller climbAction names an input action'));
   // The input actions it reads.
   for (const key of CONTROLLER_ACTION_FIELDS) {

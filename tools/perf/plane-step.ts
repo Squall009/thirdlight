@@ -11,9 +11,12 @@
  * backend as the plane would: every shape given a depth (box hz, polygons as
  * convex prisms), the character never moving along z. Comparing the two is
  * what "a 2D-style scene on the one 3D backend" costs in physics alone; the
- * full runtime's step (scripts, triggers, transforms) is sim.ts.
+ * full runtime's step (scripts, triggers, transforms) is sim.ts. `plane`
+ * (3D only) locks the character and the movers to the plane z = 0 as a
+ * plane-locked scene does, where without it nothing keeps them there but the
+ * layout itself.
  *
- * Input: env TL_PLANE = JSON { dim, levels, warmup, steps, seed }.
+ * Input: env TL_PLANE = JSON { dim, levels, warmup, steps, seed, plane? }.
  * Output: one JSON line on stdout.
  */
 import v8 from 'node:v8';
@@ -29,6 +32,8 @@ type Any = any;
 
 interface PlaneInput {
   dim: 2 | 3;
+  /** 3D: the character and the movers locked to the plane z = 0. */
+  plane?: boolean;
   /** Levels laid end to end, all loaded (one is a level as a game streams it). */
   levels: number;
   warmup: number;
@@ -121,8 +126,9 @@ async function portOf(input: PlaneInput, L: Layout): Promise<Any> {
   L.pillars.forEach((b, i) => statics.push({ entityId: `pillar-${i}`, shape: { type: 'convex', points: prism(b) }, position: at(b.x, b.y), rotation: IDENTITY }));
   // No one-way filter on the 3D port yet: the ledge is a plain thin box (its cost, not its behaviour).
   L.oneWay.forEach((b, i) => statics.push({ entityId: `oneway-${i}`, shape: { type: 'box', hx: b.hx, hy: b.hy, hz: DEPTH_M / 2 }, position: at(b.x, b.y), rotation: IDENTITY }));
-  L.movers.forEach((m, i) => statics.push({ entityId: `mover-${i}`, shape: { type: 'convex', points: prism(m) }, position: at(m.x, m.y), rotation: IDENTITY, kinematic: true }));
-  return createPhysicsPort3D({ dimension: 3, character: { position: at(2, 1), radius: capsule.radius, halfHeight: capsule.halfHeight, offset: { x: capsule.offset.x, y: capsule.offset.y, z: 0 } }, statics, solver, controller } as Any);
+  const plane = input.plane === true ? { plane: { axis: 'z', origin: 0 } } : {};
+  L.movers.forEach((m, i) => statics.push({ entityId: `mover-${i}`, shape: { type: 'convex', points: prism(m) }, position: at(m.x, m.y), rotation: IDENTITY, kinematic: true, ...plane }));
+  return createPhysicsPort3D({ dimension: 3, character: { position: at(2, 1), radius: capsule.radius, halfHeight: capsule.halfHeight, offset: { x: capsule.offset.x, y: capsule.offset.y, z: 0 }, ...plane }, statics, solver, controller } as Any);
 }
 
 const MiB = (b: number): number => Math.round((b / 1048576) * 100) / 100;
@@ -229,6 +235,7 @@ async function run(input: PlaneInput): Promise<Record<string, unknown>> {
   return {
     ok: true,
     dim: input.dim,
+    plane: input.plane === true,
     levels: input.levels,
     implementation: diag.implementation,
     colliders: diag.worldColliderCount,

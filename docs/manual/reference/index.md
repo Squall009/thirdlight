@@ -32,11 +32,11 @@ What the engine offers, generated from its source: the objects, components and c
 | [Types (PaintInstancesArgs to TrimSheet)](types-p-t.md) | 95 sections |
 | [Types (UiAction to WindOctave)](types-u-w.md) | 30 sections |
 | [Script API](script-api.md) | What a script exports, The context (`ctx`), Context members in full, `BehaviorPrepareConfig`, `BehaviorInstanceInfo` |
-| [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 23 sections |
-| [Script API types (from `BehaviorHealth`)](script-types-behavior-health.md) | 20 sections |
-| [Script API types (from `BehaviorSaves`)](script-types-behavior-saves.md) | 50 sections |
-| [Script API types (from `CollectEventRecord`)](script-types-collect-event-record.md) | 78 sections |
-| [Script API types (from `SAVE_STORAGE_CODES`)](script-types-save-storage-codes.md) | `SAVE_STORAGE_CODES`, `SaveSection`, `WorldSave`, `InputBindingDevice`, `DebugCommandArgType`, `CellMetaValue`, `ScriptWriteCode`, `Vec3`, `SAVE_SECTIONS`, `SavedCharacter` |
+| [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 22 sections |
+| [Script API types (from `BehaviorGameState`)](script-types-behavior-game-state.md) | 20 sections |
+| [Script API types (from `BehaviorMaterials`)](script-types-behavior-materials.md) | 47 sections |
+| [Script API types (from `InputRebindEvent`)](script-types-input-rebind-event.md) | 77 sections |
+| [Script API types (from `GridDoorSide`)](script-types-grid-door-side.md) | 19 sections |
 | [Node graphs](graphs.md) | Graph kinds |
 | [Graph: Animator layer](graph-animator.md) | Animator layer, States |
 | [Graph: Animator override layer](graph-animator-layer.md) | Animator override layer, States |

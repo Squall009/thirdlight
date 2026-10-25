@@ -181,6 +181,34 @@ In a 3D project:
   step and `player: { x, y, z }`; an exported page has the same observation
   in `window.__thirdlightObserve()`.
 
+### Plane locks
+
+Any object with a collider, and any player controller, can be locked to an
+axis-aligned **plane**: a side-scrolling stretch of a 3D game, and back,
+at any moment, with no reload. The plane is `{ axis: 'x' | 'z', origin }`:
+its normal is the world X or Z axis and `origin` is where it lies along
+that axis (m). A locked body does not move along the normal and only turns
+about it.
+
+- In data: the `plane` field of the `collider` and `controller` components
+  (absent or null: free). The body starts on its plane.
+- In scripts: `ctx.physics.setPlane(id, plane | null)` for any object with
+  a collider or a player controller, `ctx.character.setPlane(id, plane |
+  null)` for a player character (id absent or null: the first), and
+  `ctx.physics.planeOf(id)` to read the plane in effect. A change takes
+  effect at the next step boundary, in the page and in the simulation
+  worker alike. Locking snaps the object onto the plane (its coordinate
+  along the normal set to the plane's, its rotation reduced to the turn
+  about the normal) and drops its speed along the normal; a locked
+  character walks, jumps and is pushed only along the plane. Freeing
+  leaves it where it is, free in all six degrees of freedom. A plane a
+  script set lasts until changed, until the object leaves the game, or
+  until the run restarts (then the authored plane applies again).
+- A locked child object's body is on the plane; its own transform stays
+  where its parent puts it (only a root object's transform is snapped).
+- The camera and the input are the game's: a side view is a camera the
+  script switches to (`ctx.camera`).
+
 ### The 3D character
 
 The object with the **Player controller** walks, runs, jumps and climbs in a

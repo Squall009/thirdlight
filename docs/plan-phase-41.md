@@ -182,6 +182,7 @@ with real Rapier on page and worker.
 | Item | Status |
 |---|---|
 | 41.0 | Done. three.js 0.186.1 still latest. Rapier 0.21.0 code-compatible (suites green) but not taken: wasm 1974→3010 KiB (soft bodies/FEM), step +25–60 %; pin stays 0.20.0 (0007 §9). Decision 0007 written, 0005 superseded. Baseline (`~/.cache/thirdlight-phase41/baseline.md`): 2D full step p50 small 0.044 / medium 0.105 / script-heavy 0.039 ms; physics-only side-scroller (`run.mjs plane-step`) 2D 0.037 ms (1 level) / 0.056 ms (4), same layout on 3D 0.053 / 0.106 ms (1.4–1.9×); export wasm 2D 1451 KiB (541 gzip), 3D 1974 KiB (744 gzip). No e2e touched. |
+| 41.1 | Done. Plane lock on the 3D port (`plane3d.ts`): statics made/snapped on the plane, movers posed on it, characters' moves and depth held exactly, Rapier locks + position correction for dynamic bodies (port-level: the engine has no dynamic bodies yet). `plane` on collider/controller; `ctx.physics.setPlane/planeOf`, `ctx.character.setPlane`, applied at step boundaries. Tests: port (lock/unlock/re-lock, mover, dynamic stack, two runs equal), model, integration page+worker+2 page runs digests equal. `plane-step` p50 1 level 3D 0.052 → plane-locked 0.057 ms, 4 levels 0.109 → 0.113 ms (2D 0.037 / 0.061). No e2e touched; fast gate green (9 min). |
 
 ## 5. Decision log
 
@@ -201,3 +202,15 @@ with real Rapier on page and worker.
   rapier3d-compat 0.12.0 (from `@types/three`), not the package's 0.20.0 pin,
   so earlier headless 3D sim numbers were on 0.12.0. The perf bundler now
   resolves `@dimforge/*` from the importing package.
+- 2026-10-25 (41.1): default chosen, owner to confirm: a plane is `{ axis: 'x' | 'z', origin }`
+  with `origin` a number (where the plane lies along its normal), not a point: an axis-aligned
+  plane needs nothing else. `ctx.character.setPlane(id, plane)` takes the id first as the plan
+  writes it (absent or null: the first player), unlike its siblings' id-last order.
+- 2026-10-25 (41.1): the engine has no dynamic bodies (verdict 2026-10-04); the lock is
+  body-type-agnostic (`lockBody`/`holdOnPlane`) and tested on a Rapier dynamic stack at port level.
+  A dynamic-body component is its own future item, not part of this phase.
+- 2026-10-25 (41.1): default chosen, owner to confirm: locking a child object snaps its body only;
+  its transform stays where its parent puts it (a root object's transform snaps with its body). A
+  script-set plane lasts until changed, the object leaves the game or the run restarts.
+- 2026-10-25 (41.1): `setPlane`/`planeOf` have no visual-script nodes yet (a plane is an object or
+  null, which the node generator does not flatten); 41.4 (one query surface) or 41.7 adds them.

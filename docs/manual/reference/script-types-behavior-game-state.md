@@ -1,8 +1,46 @@
-# Script API types (from `BehaviorHealth`)
+# Script API types (from `BehaviorGameState`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 Every declaration the script API reaches, as the runtime declares it (doc comments included), in the order the API reaches them.
+
+<a id="script-type-behavior-game-state"></a>
+## `BehaviorGameState`
+
+```ts
+/** `ctx.game`. */
+export interface BehaviorGameState {
+  /**
+   * The current value of one of the run's counters (0 when it was never added to).
+   * @graphPure
+   * @graphNode Counter value
+   * @graphLabel name counter
+   */
+  counter(name: string): number;
+  /**
+   * Add to one of the run's named counters; HUD documents read them (`$flow.counters.<name>`).
+   * A name is a letter or _, then up to 31 letters, digits or _ (what a save keeps): any other
+   * name is refused (false, one Problems line) and no counter changes.
+   * @graphNode Add to counter
+   * @graphLabel name counter
+   * @graphDefault amount 1
+   */
+  add(name: string, amount: number): boolean;
+  /**
+   * A player character's health (a controller's object: `entityId`, absent: the first player controller), or null when it has none.
+   * @graphPure
+   * @graphNode Player health
+   * @graphLabel entityId player
+   */
+  health(entityId?: string): { current: number; max: number } | null;
+  /**
+   * Show or hide an entity (and its children) until the next run; it still collides and triggers.
+   * @graphNode Set visible
+   * @graphDefault visible true
+   */
+  setVisible(entityId: string, visible: boolean): void;
+}
+```
 
 <a id="script-type-behavior-health"></a>
 ## `BehaviorHealth`
@@ -170,6 +208,11 @@ export interface BehaviorCharacter {
    * @graphLabel entityId player
    */
   setEnabled(enabled: boolean, entityId?: string): boolean;
+  /**
+   * Lock a player character (`entityId`, absent or null: the first player controller) to an axis-aligned plane — `{ axis: 'x' | 'z', origin }` — or free it (null), at the next step boundary: it snaps onto the plane and from then on walks, jumps and is pushed only along it; freed, it moves in all three axes again from where it is. The same as `ctx.physics.setPlane` on its object. Lasts until changed or the run restarts. False without that character, a 3D world or for a bad plane.
+   * @graphNode skip a plane is an object or null; set it in a script, or on the controller
+   */
+  setPlane(entityId: string | null | undefined, plane: { axis: 'x' | 'z'; origin: number } | null): boolean;
 }
 ```
 
@@ -966,61 +1009,5 @@ export interface BehaviorSockets {
    * @graphLabel node node
    */
   nodePose(targetId: string, node: string): { readonly position: readonly [number, number, number]; readonly rotation: readonly [number, number, number, number] } | null;
-}
-```
-
-<a id="script-type-behavior-materials"></a>
-## `BehaviorMaterials`
-
-```ts
-/**
- * `ctx.materials` — graph-material parameters per object while the game runs.
- * `param` is a parameter key of the object's graph materials (public ones
- * only); `materialId` limits a call to one of its materials. Writes are
- * refused (`false`) for an object that wears no graph material with that
- * parameter, a value that does not fit the parameter (type, range, a texture
- * outside the game), or at the engine limit of 4,096 writes per step.
- */
-export interface BehaviorMaterials {
-  /**
-   * Set a parameter on one object: a number (float), 2–4 numbers (vec2–4), "#rrggbb" (colour) or a texture asset id of the game ("" for none). Other objects wearing the material keep their values. False when refused.
-   * @graphNode Set material parameter
-   * @graphLabel param parameter
-   * @graphLabel materialId material
-   */
-  set(entityId: string, param: string, value: unknown, materialId?: string): boolean;
-  /**
-   * A parameter's value on an object now: what a script set, else the object's authored override, else the material's default (null: no such parameter, or a data parameter).
-   * @graphPure
-   * @graphNode Material parameter
-   * @graphLabel param parameter
-   * @graphLabel materialId material
-   */
-  get(entityId: string, param: string, materialId?: string): unknown;
-  /**
-   * Put a parameter (or, without one, every parameter scripts set) of an object back to its authored value; a data parameter back to its starting cells.
-   * @graphNode Reset material parameter
-   * @graphLabel param parameter
-   * @graphLabel materialId material
-   */
-  reset(entityId: string, param?: string, materialId?: string): boolean;
-  /**
-   * Write a rectangle of cells of a data parameter: x, y, width, height in cells (cell [0, 0] sits at UV (0, 0)); bytes = RGBA 0–255 per cell, row by row from y (width × height × 4 numbers). False when refused (outside the grid, wrong length).
-   * @graphNode Write material data
-   * @graphLabel param parameter
-   * @graphLabel materialId material
-   * @graphDefault w 1
-   * @graphDefault h 1
-   * @graphType bytes list
-   */
-  setData(entityId: string, param: string, x: number, y: number, w: number, h: number, bytes: readonly number[], materialId?: string): boolean;
-  /**
-   * One cell of a data parameter on an object as [r, g, b, a] (0–255), or null (no such parameter or cell).
-   * @graphPure
-   * @graphNode Material data cell
-   * @graphLabel param parameter
-   * @graphLabel materialId material
-   */
-  getData(entityId: string, param: string, x: number, y: number, materialId?: string): number[] | null;
 }
 ```

@@ -1,8 +1,64 @@
-# Script API types (from `BehaviorSaves`)
+# Script API types (from `BehaviorMaterials`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 Every declaration the script API reaches, as the runtime declares it (doc comments included), in the order the API reaches them.
+
+<a id="script-type-behavior-materials"></a>
+## `BehaviorMaterials`
+
+```ts
+/**
+ * `ctx.materials` — graph-material parameters per object while the game runs.
+ * `param` is a parameter key of the object's graph materials (public ones
+ * only); `materialId` limits a call to one of its materials. Writes are
+ * refused (`false`) for an object that wears no graph material with that
+ * parameter, a value that does not fit the parameter (type, range, a texture
+ * outside the game), or at the engine limit of 4,096 writes per step.
+ */
+export interface BehaviorMaterials {
+  /**
+   * Set a parameter on one object: a number (float), 2–4 numbers (vec2–4), "#rrggbb" (colour) or a texture asset id of the game ("" for none). Other objects wearing the material keep their values. False when refused.
+   * @graphNode Set material parameter
+   * @graphLabel param parameter
+   * @graphLabel materialId material
+   */
+  set(entityId: string, param: string, value: unknown, materialId?: string): boolean;
+  /**
+   * A parameter's value on an object now: what a script set, else the object's authored override, else the material's default (null: no such parameter, or a data parameter).
+   * @graphPure
+   * @graphNode Material parameter
+   * @graphLabel param parameter
+   * @graphLabel materialId material
+   */
+  get(entityId: string, param: string, materialId?: string): unknown;
+  /**
+   * Put a parameter (or, without one, every parameter scripts set) of an object back to its authored value; a data parameter back to its starting cells.
+   * @graphNode Reset material parameter
+   * @graphLabel param parameter
+   * @graphLabel materialId material
+   */
+  reset(entityId: string, param?: string, materialId?: string): boolean;
+  /**
+   * Write a rectangle of cells of a data parameter: x, y, width, height in cells (cell [0, 0] sits at UV (0, 0)); bytes = RGBA 0–255 per cell, row by row from y (width × height × 4 numbers). False when refused (outside the grid, wrong length).
+   * @graphNode Write material data
+   * @graphLabel param parameter
+   * @graphLabel materialId material
+   * @graphDefault w 1
+   * @graphDefault h 1
+   * @graphType bytes list
+   */
+  setData(entityId: string, param: string, x: number, y: number, w: number, h: number, bytes: readonly number[], materialId?: string): boolean;
+  /**
+   * One cell of a data parameter on an object as [r, g, b, a] (0–255), or null (no such parameter or cell).
+   * @graphPure
+   * @graphNode Material data cell
+   * @graphLabel param parameter
+   * @graphLabel materialId material
+   */
+  getData(entityId: string, param: string, x: number, y: number, materialId?: string): number[] | null;
+}
+```
 
 <a id="script-type-behavior-saves"></a>
 ## `BehaviorSaves`
@@ -1003,14 +1059,6 @@ export interface ControllerIntents {
 ## `Vec2`
 
 ```ts
-/**
- * The injected physics port. The concrete adapter (`physics-rapier`)
- * implements this surface; the runtime core never imports it. The runtime owns the instance
- * and hands modules only the restricted `PhysicsStepClient`.
- *
- * These are pure types plus the runtime's strict result validation: no
- * concrete physics library, no Node built-ins, no I/O.
- */
 export interface Vec2 {
   x: number;
   y: number;
@@ -1035,6 +1083,17 @@ export interface CharacterMoveResult {
   /** How far a moving (kinematic) body moved into the character this step; the correction may exceed the request by this much. */
   kinematicSlack?: number;
 }
+```
+
+<a id="script-type-physics-plane"></a>
+## `PhysicsPlane`
+
+```ts
+/**
+ * The plane a body is locked to: its normal's world axis (X or Z) and where
+ * it lies along that axis (m). The project model's `plane` field.
+ */
+export type PhysicsPlane = PlaneLock;
 ```
 
 <a id="script-type-raycast-hit"></a>
@@ -1275,97 +1334,5 @@ export interface InputGlyph {
   readonly icon: string;
   readonly image?: string;
   readonly parts?: readonly InputGlyphPart[];
-}
-```
-
-<a id="script-type-input-rebind-event"></a>
-## `InputRebindEvent`
-
-```ts
-/**
- * What became of a binding request: a rebind `started` (listening),
- * `rebound`, `cancelled` (the cancel key), `timeout`, `refused` (it does not
- * fit the action, or it conflicts under the refuse policy — `conflicts` says
- * with what), `reset`, or the player `profile` changed.
- */
-export interface InputRebindEvent {
-  readonly type: 'started' | 'rebound' | 'cancelled' | 'timeout' | 'refused' | 'reset' | 'profile';
-  readonly action?: string;
-  readonly index?: number;
-  readonly part?: InputBindingPart;
-  /** The new binding's label (rebound). */
-  readonly label?: string;
-  readonly reason?: string;
-  readonly conflicts?: readonly InputBindingConflict[];
-  /** The bindings of these actions moved to make room (swap policy). */
-  readonly swapped?: readonly string[];
-  readonly profile?: string;
-}
-```
-
-<a id="script-type-input-rebind-target"></a>
-## `InputRebindTarget`
-
-```ts
-/** A rebind's target: an action, which of its bindings and (composites) which part. */
-export interface InputRebindTarget {
-  readonly action: string;
-  readonly index: number;
-  readonly part?: InputBindingPart;
-}
-```
-
-<a id="script-type-input-rebind-options"></a>
-## `InputRebindOptions`
-
-```ts
-/** Options of a listen-for-input rebind (`ctx.input.rebind`). */
-export interface InputRebindOptions {
-  /** Which of the action's bindings (its index in `bindings()`); absent: the first one of the device. */
-  readonly index?: number;
-  /** A composite binding's part (negative/positive, up/down/left/right). */
-  readonly part?: InputBindingPart;
-  /** The device to listen to (absent: the device used last). Keyboard and mouse listen together. */
-  readonly device?: InputDeviceKind;
-  /** When the input is already used in the same map: swap (default), refuse or allow. */
-  readonly policy?: RebindConflictPolicy;
-  /** The key that cancels listening (a KeyboardEvent.code; default Escape). */
-  readonly cancelKey?: string;
-  /** Seconds to listen before giving up (default 10; 1–60). */
-  readonly timeout?: number;
-}
-```
-
-<a id="script-type-health-event-record"></a>
-## `HealthEventRecord`
-
-```ts
-/** A change of an object's health (seen in the step after it happened). */
-export interface HealthEventRecord {
-  readonly type: 'damaged' | 'healed' | 'died';
-  /** The object whose health changed. */
-  readonly entity: string;
-  /** damaged/healed: how much it changed (died: 0). */
-  readonly amount: number;
-  /** Its health after the change. */
-  readonly current: number;
-  /** What caused it (an object id, or any text a script passed; '' when none). */
-  readonly source: string;
-  readonly stepIndex: number;
-}
-```
-
-<a id="script-type-patrol-event-record"></a>
-## `PatrolEventRecord`
-
-```ts
-/** A patroller turned around (at a wall, a ledge, the end of its waypoints, or by a script). */
-export interface PatrolEventRecord {
-  readonly type: 'turned';
-  readonly entity: string;
-  readonly reason: 'wall' | 'ledge' | 'end' | 'script';
-  /** The direction it walks in now (a unit vector). */
-  readonly direction: readonly [number, number, number];
-  readonly stepIndex: number;
 }
 ```

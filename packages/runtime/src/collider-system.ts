@@ -19,7 +19,7 @@
 import type { ModelColliderTable } from '@thirdlight/project-model';
 
 import { colliderSpecs2D, colliderSpecs3D, shapeAabb3, staticColliderOf, staticColliderOf3D, type ColliderContext } from './collider-specs';
-import type { ColliderShape3D, PhysicsPort, PhysicsPort3D, StaticColliderSpec, StaticColliderSpec3D } from './ports';
+import type { ColliderShape3D, PhysicsPlane, PhysicsPort, PhysicsPort3D, StaticColliderSpec, StaticColliderSpec3D } from './ports';
 import type { TransformState } from './types-simulation';
 import { worldTransformOf } from './world-transform';
 
@@ -40,6 +40,8 @@ export interface ColliderSystemHost {
   componentsOf(id: string): Readonly<Record<string, unknown>> | undefined;
   /** One warning line in the game's log. */
   warn(message: string): void;
+  /** A plane a script set on an object (null: freed; undefined: its collider's own). */
+  planeOf?(id: string): PhysicsPlane | null | undefined;
 }
 
 /** Where a moving collider is now (world), and the box around it (relative to that point). */
@@ -75,6 +77,7 @@ export class ColliderSystem {
     this.ctx = {
       ...(modelColliders !== undefined ? { modelColliders } : {}),
       outside: { transform: (id) => host.curr().get(id), parentOf: (id) => host.parentOf(id) },
+      planeOf: (id) => host.planeOf?.(id),
     };
   }
 

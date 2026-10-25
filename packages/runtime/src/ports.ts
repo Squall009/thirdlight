@@ -6,6 +6,7 @@
  * These are pure types plus the runtime's strict result validation: no
  * concrete physics library, no Node built-ins, no I/O.
  */
+import type { PlaneLock } from '@thirdlight/project-model';
 
 export interface Vec2 {
   x: number;
@@ -130,6 +131,16 @@ export interface PhysicsStepClient {
    * @graphLabel entityId player
    */
   characterResult(entityId?: string): CharacterMoveResult | undefined;
+  /**
+   * Lock an object's body (its collider, or its player controller's character) to an axis-aligned plane — `{ axis: 'x' | 'z', origin }`, the plane's normal and where it lies along it (m) — or free it again (null), at the next step boundary. A locked body does not move along the normal and only turns about it: locking snaps it onto the plane and drops its speed along the normal; freeing leaves it where it is, free in all six degrees of freedom. A 2D-style stretch of a 3D game (and back) at any moment, with no reload. Lasts until changed, the object leaves the game or the run restarts. False without a 3D world, for a bad plane or an object with neither a collider nor a player controller.
+   * @graphNode skip a plane is an object or null; set it in a script, or on the collider or controller
+   */
+  setPlane?(entityId: string, plane: PhysicsPlane | null): boolean;
+  /**
+   * The plane an object's body or player character is locked to now (`{ axis, origin }`), or null when it is free (or has no body).
+   * @graphNode skip a plane is an object or null; read it in a script
+   */
+  planeOf?(entityId: string): PhysicsPlane | null;
   /**
    * A ray against the level's colliders (bounded per step; null when nothing is hit).
    * @graphNode Raycast
@@ -361,6 +372,12 @@ export function validateCharacterMoveResult(
 // ---------------------------------------------------------------------------
 
 /** A 3D vector (m). */
+/**
+ * The plane a body is locked to: its normal's world axis (X or Z) and where
+ * it lies along that axis (m). The project model's `plane` field.
+ */
+export type PhysicsPlane = PlaneLock;
+
 export interface PhysicsVec3 {
   x: number;
   y: number;
@@ -396,6 +413,8 @@ export interface StaticColliderSpec3D {
    * matters (absent: the character's own limit alone).
    */
   maxSlope?: number;
+  /** The plane its body is locked to (absent: free); the body is made on it. */
+  plane?: PhysicsPlane;
 }
 
 /**
@@ -518,13 +537,13 @@ export type AddedCharacter3D = NonNullable<PhysicsInitConfig3D['characters']>[nu
 export interface PhysicsInitConfig3D {
   readonly dimension: 3;
   /** The controller entity: its origin, and its capsule (radius, centre-line half height, centre offset from the origin); the first, when there are several. */
-  character: { position: PhysicsVec3; radius: number; halfHeight: number; offset: PhysicsVec3 };
+  character: { position: PhysicsVec3; radius: number; halfHeight: number; offset: PhysicsVec3; plane?: PhysicsPlane };
   /**
    * The further player characters (several player controllers, local co-op),
    * keyed by their object, each with its own tuning (absent: the first's).
    * Characters never collide with each other.
    */
-  characters?: readonly ({ id: string; position: PhysicsVec3; radius: number; halfHeight: number; offset: PhysicsVec3; controller?: PhysicsInitConfig3D['controller'] })[];
+  characters?: readonly ({ id: string; position: PhysicsVec3; radius: number; halfHeight: number; offset: PhysicsVec3; controller?: PhysicsInitConfig3D['controller']; plane?: PhysicsPlane })[];
   statics: readonly StaticColliderSpec3D[];
   /** The project's step rate and gravity along Y (−Y is down). */
   solver: { hz: number; gravityY: number };
@@ -587,6 +606,19 @@ export interface PhysicsPort3D {
   addCharacter?(spec: AddedCharacter3D): void;
   /** Take an added character out of the world for good (see the 2D port's). */
   removeCharacter?(id: string): void;
+  /**
+   * Lock a collider's body to a plane, or free it (null), at a step
+   * boundary: locking snaps it onto the plane and turns it only about the
+   * plane's normal; a moving one is posed on the plane from then on. False:
+   * no collider of that object.
+   */
+  setBodyPlane?(entityId: string, plane: PhysicsPlane | null): boolean;
+  /**
+   * Lock a character (absent id: the first) to a plane, or free it (null),
+   * at a step boundary: locking snaps it onto the plane and its moves keep
+   * to the plane from then on. Returns where it is now.
+   */
+  setCharacterPlane?(plane: PhysicsPlane | null, characterId?: string): PhysicsVec3;
   dispose(): void;
 }
 

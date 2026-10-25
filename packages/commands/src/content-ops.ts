@@ -803,7 +803,7 @@ function planComponentWrite(input: OpInput, catalog: ContentDocument, entityId: 
     if (Object.prototype.hasOwnProperty.call(value, f)) {
       // `null` removes an optional field (e.g. v4 camera bounds);
       // the model validation below refuses removing a required one.
-      if (value[f] === null && (isV3Component(component) || (component === 'collider' && (f === 'oneWay' || f === 'layers')) || component === 'controller' || (component === 'model' && f === 'piece') || ((component === 'box' || component === 'model') && (f === 'castShadow' || f === 'receiveShadow' || f === 'lightLayers' || f === 'localLights' || f === 'decalLayers' || f === 'occluder' || f === 'seeThrough')))) delete candidate[f];
+      if (value[f] === null && (isV3Component(component) || (component === 'collider' && (f === 'oneWay' || f === 'layers' || f === 'plane')) || component === 'controller' || (component === 'model' && f === 'piece') || ((component === 'box' || component === 'model') && (f === 'castShadow' || f === 'receiveShadow' || f === 'lightLayers' || f === 'localLights' || f === 'decalLayers' || f === 'occluder' || f === 'seeThrough')))) delete candidate[f];
       else candidate[f] = deepClone(value[f]);
       changedFields.push(f);
     }

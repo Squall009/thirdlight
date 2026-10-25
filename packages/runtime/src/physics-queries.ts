@@ -12,10 +12,11 @@ import type { PlayerControllers } from './player-controllers';
 import { PhysicsPortFailure } from './player-controllers';
 import { messageOf } from './behavior-errors';
 import { colliderEntityOf, PHYSICS_QUERY_LIMIT, queryDistance, queryPositive, queryQuat, queryVec3 } from './physics-query-args';
-import type { CharacterMoveResult, CharacterState3D, OverlapShape3D, PhysicsHit, PhysicsPort, PhysicsPort3D, PhysicsQuat, PhysicsQueryFilter3D, PhysicsStepClient, Vec2 } from './ports';
+import type { CharacterMoveResult, CharacterState3D, OverlapShape3D, PhysicsHit, PhysicsPlane, PhysicsPort, PhysicsPort3D, PhysicsQuat, PhysicsQueryFilter3D, PhysicsStepClient, Vec2 } from './ports';
 import type { PointerSample } from './actions';
 import type { RuntimeViews } from './views';
 import type { RuntimeGrid } from './grid';
+import type { PlaneLocks } from './plane-locks';
 
 /** What the queries read of the runtime (read at each call: the runtime makes its parts after this). */
 export interface PhysicsQueryHost {
@@ -25,6 +26,7 @@ export interface PhysicsQueryHost {
   readonly views: RuntimeViews;
   readonly grid: RuntimeGrid;
   readonly tags: LiveTagIndex | null;
+  readonly planes: PlaneLocks;
   /** The pointer as the step sees it (picks under it). */
   pointer(): PointerSample | null;
   stepIndex(): number;
@@ -61,6 +63,8 @@ export class PhysicsQueries {
       const id = this.h.controllers.resolve(entityId);
       return id !== undefined ? this.h.controllers.result(id) : undefined;
     },
+    setPlane: (entityId: string, plane: PhysicsPlane | null): boolean => this.h.planes.request(entityId, plane),
+    planeOf: (entityId: string): PhysicsPlane | null => (typeof entityId === 'string' ? this.h.planes.planeOf(entityId) : null),
     characterState: (entityId?: string): CharacterState3D | undefined => {
       const id = this.h.controllers.resolve(entityId);
       return id !== undefined ? this.h.controllers.characterState(id) : undefined;

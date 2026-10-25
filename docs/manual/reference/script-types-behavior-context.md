@@ -487,6 +487,16 @@ export interface PhysicsStepClient {
    */
   characterResult(entityId?: string): CharacterMoveResult | undefined;
   /**
+   * Lock an object's body (its collider, or its player controller's character) to an axis-aligned plane — `{ axis: 'x' | 'z', origin }`, the plane's normal and where it lies along it (m) — or free it again (null), at the next step boundary. A locked body does not move along the normal and only turns about it: locking snaps it onto the plane and drops its speed along the normal; freeing leaves it where it is, free in all six degrees of freedom. A 2D-style stretch of a 3D game (and back) at any moment, with no reload. Lasts until changed, the object leaves the game or the run restarts. False without a 3D world, for a bad plane or an object with neither a collider nor a player controller.
+   * @graphNode skip a plane is an object or null; set it in a script, or on the collider or controller
+   */
+  setPlane?(entityId: string, plane: PhysicsPlane | null): boolean;
+  /**
+   * The plane an object's body or player character is locked to now (`{ axis, origin }`), or null when it is free (or has no body).
+   * @graphNode skip a plane is an object or null; read it in a script
+   */
+  planeOf?(entityId: string): PhysicsPlane | null;
+  /**
    * A ray against the level's colliders (bounded per step; null when nothing is hit).
    * @graphNode Raycast
    * @graphDefault direction [1, 0, 0]
@@ -1091,43 +1101,5 @@ export interface BehaviorMessages {
    * @graphLabel name message
    */
   received(name: string): readonly BehaviorMessage[];
-}
-```
-
-<a id="script-type-behavior-game-state"></a>
-## `BehaviorGameState`
-
-```ts
-/** `ctx.game`. */
-export interface BehaviorGameState {
-  /**
-   * The current value of one of the run's counters (0 when it was never added to).
-   * @graphPure
-   * @graphNode Counter value
-   * @graphLabel name counter
-   */
-  counter(name: string): number;
-  /**
-   * Add to one of the run's named counters; HUD documents read them (`$flow.counters.<name>`).
-   * A name is a letter or _, then up to 31 letters, digits or _ (what a save keeps): any other
-   * name is refused (false, one Problems line) and no counter changes.
-   * @graphNode Add to counter
-   * @graphLabel name counter
-   * @graphDefault amount 1
-   */
-  add(name: string, amount: number): boolean;
-  /**
-   * A player character's health (a controller's object: `entityId`, absent: the first player controller), or null when it has none.
-   * @graphPure
-   * @graphNode Player health
-   * @graphLabel entityId player
-   */
-  health(entityId?: string): { current: number; max: number } | null;
-  /**
-   * Show or hide an entity (and its children) until the next run; it still collides and triggers.
-   * @graphNode Set visible
-   * @graphDefault visible true
-   */
-  setVisible(entityId: string, visible: boolean): void;
 }
 ```

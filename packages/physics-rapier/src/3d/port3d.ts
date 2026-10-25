@@ -25,8 +25,9 @@
  */
 import { COLLIDER_3D_LIMITS } from '@thirdlight/project-model/limits';
 import * as RAPIER from '@dimforge/rapier3d-compat';
-import type { AddedCharacter3D, CharacterClearanceResult3D, CharacterMoveResult3D, KinematicPose3D, OverlapShape3D, PhysicsDiagnostics, PhysicsInitConfig3D, PhysicsPort3D, PhysicsQuat, PhysicsQueryFilter3D, PhysicsVec3, RaycastHit3D, StaticColliderSpec3D } from '@thirdlight/runtime';
+import type { AddedCharacter3D, CharacterClearanceResult3D, CharacterMoveResult3D, KinematicPose3D, OverlapShape3D, PhysicsDiagnostics, PhysicsInitConfig3D, PhysicsPlane, PhysicsPort3D, PhysicsQuat, PhysicsQueryFilter3D, PhysicsVec3, RaycastHit3D, StaticColliderSpec3D } from '@thirdlight/runtime';
 
+import { inPlane, isPlane, lockBody, onPlane, planePose } from './plane3d';
 import { CLEARANCE_PENETRATION_EPS, CLEARANCE_RAY_EPS, CLEARANCE_SUPPORT_PROBE, FIXED_HZ_CHOICES, FOOTPRINT_BALL, GROUND_NORMAL_TOLERANCE, MAX_SHAPE_VALUE } from '../constants';
 
 /** The value of `PhysicsPort3D.implementation` for this adapter. */
@@ -282,6 +283,7 @@ function validateSpec(spec: StaticColliderSpec3D, label: string): { reason: 'inv
   if (spec.layers !== undefined && !(Array.isArray(spec.layers) && spec.layers.length >= 1 && spec.layers.length <= 16 && spec.layers.every((n) => typeof n === 'string'))) return { reason: 'invalid_config', message: `${label}: layers must be 1-16 layer names or absent` };
   if (spec.kinematic === true && partsOf(shape.shape).some((p) => p.shape.type === 'mesh' || p.shape.type === 'heightfield')) return { reason: 'invalid_shape', message: `${label}: a mesh collider is static, a heightfield too (a moving collider uses box, sphere, capsule or convex)` };
   if (spec.maxSlope !== undefined && (!finite(spec.maxSlope) || spec.maxSlope <= 0 || spec.maxSlope >= Math.PI / 2)) return { reason: 'invalid_config', message: `${label}: maxSlope must be a finite angle in (0, pi/2) or absent` };
+  if (spec.plane !== undefined && !isPlane(spec.plane)) return { reason: 'invalid_config', message: `${label}: plane must be { axis: 'x' | 'z', origin } or absent` };
   return null;
 }
 
@@ -293,6 +295,7 @@ function characterProblem3D(ch: PhysicsInitConfig3D['character'], label: string)
   if (!finite(ch.radius) || ch.radius <= 0 || ch.radius > 1e3) return { reason: 'invalid_config', message: `${label}.radius must be a finite number in (0, 1000]` };
   if (!finite(ch.halfHeight) || ch.halfHeight < 0 || ch.halfHeight > 1e3) return { reason: 'invalid_config', message: `${label}.halfHeight must be a finite number in [0, 1000]` };
   if (!isVec3(ch.offset)) return { reason: 'invalid_config', message: `${label}.offset must be a finite { x, y, z }` };
+  if (ch.plane !== undefined && !isPlane(ch.plane)) return { reason: 'invalid_config', message: `${label}.plane must be { axis: 'x' | 'z', origin } or absent` };
   return null;
 }
 
@@ -546,9 +549,11 @@ function addStaticBody(world: RAPIER.World, spec: StaticColliderSpec3D, bits: La
   const descs = parts.map((p) => colliderDescOf(p.shape));
   if (descs.some((d) => d === null)) throw new Error(`statics(${spec.entityId}): the convex points span no hull (they lie on one plane)`);
   const kinematic = spec.kinematic === true;
-  const rotation = { x: spec.rotation.x, y: spec.rotation.y, z: spec.rotation.z, w: spec.rotation.w };
+  // A body locked to a plane is made on it.
+  const pose = spec.plane !== undefined ? planePose(spec.position, spec.rotation, spec.plane) : { position: spec.position, rotation: spec.rotation };
+  const rotation = { x: pose.rotation.x, y: pose.rotation.y, z: pose.rotation.z, w: pose.rotation.w };
   const bodyDesc = kinematic ? RAPIER.RigidBodyDesc.kinematicPositionBased() : RAPIER.RigidBodyDesc.fixed();
-  const body = world.createRigidBody(bodyDesc.setTranslation(spec.position.x, spec.position.y, spec.position.z).setRotation(rotation));
+  const body = world.createRigidBody(bodyDesc.setTranslation(pose.position.x, pose.position.y, pose.position.z).setRotation(rotation));
   const groups = colliderGroups(bits, spec.layers);
   // The body's highest point over all its shapes (the kinematic-drag rule reads it).
   let top = -Infinity;
@@ -591,10 +596,15 @@ interface CharacterBody3D {
   stepping: { x: number; z: number; steps: number } | null;
   /** The result of the last step (further characters read it with `lastResultOf`). */
   last: CharacterMoveResult3D | undefined;
+  /** The plane it is locked to (null: free); its moves keep to it. */
+  plane: PhysicsPlane | null;
 }
 
 /** A character's capsule collider (parentless, at its origin + offset) and its controller. */
-function makeCharacterBody3D(world: RAPIER.World, ch: PhysicsInitConfig3D['character'], tuning: PhysicsInitConfig3D['controller']): CharacterBody3D {
+function makeCharacterBody3D(world: RAPIER.World, given: PhysicsInitConfig3D['character'], tuning: PhysicsInitConfig3D['controller']): CharacterBody3D {
+  // A character locked to a plane starts on it.
+  const plane = given.plane ?? null;
+  const ch = plane !== null ? { ...given, position: onPlane(given.position, plane) } : given;
   const { collider, controller } = makeCapsule3D(world, ch, tuning);
   return {
     collider,
@@ -608,6 +618,7 @@ function makeCharacterBody3D(world: RAPIER.World, ch: PhysicsInitConfig3D['chara
     retainedSupport: { x: 0, y: 1, z: 0 },
     stepping: null,
     last: undefined,
+    plane,
   };
 }
 
@@ -634,6 +645,78 @@ function furtherCharacters3D(world: () => RAPIER.World, further: Map<string, Cha
       world().removeCollider(b.collider, false);
       further.delete(id);
       listed();
+    },
+  };
+}
+
+/**
+ * The movers' next poses (each mover locked to a plane posed on it: a
+ * kinematic body ignores Rapier's locks), where each was posed kept; the
+ * largest move from where it was posed last.
+ */
+function poseKinematics(poses: readonly KinematicPose3D[], bodies: ReadonlyMap<string, RAPIER.RigidBody>, staticSpecs: ReadonlyMap<string, StaticColliderSpec3D>, kinematicAt: Map<string, PhysicsVec3>): number {
+  let moved = 0;
+  for (const given of poses) {
+    const body = bodies.get(given.entityId);
+    if (body === undefined || !body.isKinematic()) continue;
+    const plane = staticSpecs.get(given.entityId)?.plane;
+    const pose = plane !== undefined ? planePose(given.position, given.rotation, plane) : given;
+    const was = kinematicAt.get(given.entityId);
+    if (was !== undefined) moved = Math.max(moved, Math.hypot(pose.position.x - was.x, pose.position.y - was.y, pose.position.z - was.z));
+    kinematicAt.set(given.entityId, { x: pose.position.x, y: pose.position.y, z: pose.position.z });
+    body.setNextKinematicTranslation({ x: pose.position.x, y: pose.position.y, z: pose.position.z });
+    body.setNextKinematicRotation({ x: pose.rotation.x, y: pose.rotation.y, z: pose.rotation.z, w: pose.rotation.w });
+  }
+  return moved;
+}
+
+/** What the plane locks of a port reach in it (`world` and `deferred` read the port's current ones). */
+interface PlaneLockParts {
+  world: () => RAPIER.World;
+  staticSpecs: Map<string, StaticColliderSpec3D>;
+  bodies: ReadonlyMap<string, RAPIER.RigidBody>;
+  kinematicAt: Map<string, PhysicsVec3>;
+  deferred: () => boolean;
+  bodyOf: (characterId: string | undefined, op: string) => CharacterBody3D;
+  at: (b: CharacterBody3D, p: PhysicsVec3) => PhysicsVec3;
+  assertLive: (op: string) => void;
+}
+
+/** Locking a collider's body or a character to a plane, and freeing it, at a step boundary. */
+function planeLocks3D(d: PlaneLockParts): Pick<RapierPhysicsPort3D, 'setBodyPlane' | 'setCharacterPlane'> {
+  return {
+    setBodyPlane(entityId: string, plane: PhysicsPlane | null): boolean {
+      d.assertLive('setBodyPlane');
+      if (plane !== null && !isPlane(plane)) throw new Error(`setBodyPlane("${entityId}"): plane must be { axis: 'x' | 'z', origin } or null`);
+      const spec = d.staticSpecs.get(entityId);
+      if (spec === undefined) return false;
+      // The kept spec carries the plane, so a rebuilt world makes the body on it again.
+      const { plane: _was, ...free } = spec;
+      d.staticSpecs.set(entityId, plane !== null ? { ...free, plane: { axis: plane.axis, origin: plane.origin } } : free);
+      const body = d.bodies.get(entityId);
+      if (d.deferred() || body === undefined) return true;
+      lockBody(body, plane);
+      if (plane !== null && body.isKinematic()) {
+        const t = body.translation();
+        d.kinematicAt.set(entityId, { x: t.x, y: t.y, z: t.z });
+      }
+      // The scene queries and the next sweep see it where it is now.
+      d.world().step();
+      return true;
+    },
+
+    setCharacterPlane(plane: PhysicsPlane | null, characterId?: string): PhysicsVec3 {
+      d.assertLive('setCharacterPlane');
+      if (plane !== null && !isPlane(plane)) throw new Error('setCharacterPlane: plane must be { axis: \'x\' | \'z\', origin } or null');
+      const b = d.bodyOf(characterId, 'setCharacterPlane');
+      b.plane = plane !== null ? { axis: plane.axis, origin: plane.origin } : null;
+      if (plane !== null) {
+        b.position = onPlane(b.position, plane);
+        b.collider.setTranslation(d.at(b, b.position));
+        // A step-up under way was along the old way; it starts again from the plane.
+        b.stepping = null;
+      }
+      return { x: b.position.x, y: b.position.y, z: b.position.z };
     },
   };
 }
@@ -922,19 +1005,20 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
     return { ok: true, supportNormal: support, penetration: 0 };
   }
 
+  /**
+   * The movers are posed for the world update (`measure`: the largest move
+   * is kept for the characters' next sweep). A mover locked to a plane is
+   * posed on it: a kinematic body ignores Rapier's locks.
+   */
+  function poseMovers(measure: boolean): void {
+    const moved = poseKinematics(kinematicPoses, bodies, staticSpecs, kinematicAt);
+    if (measure) kinematicMoved = moved;
+    kinematicPoses = [];
+  }
+
   /** The movers are posed (after every character's sweep) and the world updates once. */
   function poseMoversAndStep(): void {
-    kinematicMoved = 0;
-    for (const pose of kinematicPoses) {
-      const body = bodies.get(pose.entityId);
-      if (body === undefined || !body.isKinematic()) continue;
-      const was = kinematicAt.get(pose.entityId);
-      if (was !== undefined) kinematicMoved = Math.max(kinematicMoved, Math.hypot(pose.position.x - was.x, pose.position.y - was.y, pose.position.z - was.z));
-      kinematicAt.set(pose.entityId, { x: pose.position.x, y: pose.position.y, z: pose.position.z });
-      body.setNextKinematicTranslation({ x: pose.position.x, y: pose.position.y, z: pose.position.z });
-      body.setNextKinematicRotation({ x: pose.rotation.x, y: pose.rotation.y, z: pose.rotation.z, w: pose.rotation.w });
-    }
-    kinematicPoses = [];
+    poseMovers(true);
     world.step();
     steps += 1;
   }
@@ -942,14 +1026,7 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
   /** The step of a world without a character — the movers are posed and the world updates; nothing is swept. */
   function stepWithoutCharacter(): CharacterMoveResult3D {
     primary.staged = null;
-    for (const pose of kinematicPoses) {
-      const body = bodies.get(pose.entityId);
-      if (body === undefined || !body.isKinematic()) continue;
-      kinematicAt.set(pose.entityId, { x: pose.position.x, y: pose.position.y, z: pose.position.z });
-      body.setNextKinematicTranslation({ x: pose.position.x, y: pose.position.y, z: pose.position.z });
-      body.setNextKinematicRotation({ x: pose.rotation.x, y: pose.rotation.y, z: pose.rotation.z, w: pose.rotation.w });
-    }
-    kinematicPoses = [];
+    poseMovers(false);
     world.step();
     steps += 1;
     return restingResult();
@@ -980,7 +1057,8 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
     // included (dropping it, as the 2D port does, which made Rapier's grounded status
     // flicker every other step on flat ground — measured with a walking character; the sweep
     // stops it on the ground and keeps it grounded).
-    const commanded: PhysicsVec3 = { x: requested.x, y: requested.y, z: requested.z };
+    // A character on a plane moves in it only.
+    const commanded: PhysicsVec3 = b.plane !== null ? inPlane(requested, b.plane) : { x: requested.x, y: requested.y, z: requested.z };
     const across = Math.hypot(commanded.x, commanded.z);
     // A step-up goes on while the character keeps pushing the way it went (not up).
     const st = b.stepping;
@@ -1129,7 +1207,9 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
       s.body.setAngvel(s.angvel, false);
       s.body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, false);
     }
-    const movement = swept;
+    // The plane's depth is held exactly: whatever the sweep slid it along the normal (a tilted
+    // contact) is taken back, so a character on a plane ends every step on it.
+    const movement = b.plane !== null ? (b.plane.axis === 'x' ? { x: b.plane.origin - before.x, y: swept.y, z: swept.z } : { x: swept.x, y: swept.y, z: b.plane.origin - before.z }) : swept;
     const next = { x: before.x + movement.x, y: before.y + movement.y, z: before.z + movement.z };
     if (!isVec3(next)) throw new Error('the character controller produced a non-finite correction');
     if (best === null && rawGrounded) {
@@ -1327,7 +1407,8 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
       ensureBuilt();
       if (!isVec3(origin)) throw new Error('placeCharacter origin must be a finite { x, y, z }');
       const b = bodyOf(characterId, 'placeCharacter');
-      b.position = { x: origin.x, y: origin.y, z: origin.z };
+      // A character on a plane is placed on it.
+      b.position = b.plane !== null ? onPlane(origin, b.plane) : { x: origin.x, y: origin.y, z: origin.z };
       b.collider.setTranslation(at(b, b.position));
       b.staged = null;
       b.grounded = false;
@@ -1335,7 +1416,7 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
       b.stepping = null;
       b.last = undefined;
       world.step();
-      return computeClearance(b, origin);
+      return computeClearance(b, b.position);
     },
 
     addStaticColliders(specs: readonly StaticColliderSpec3D[]): void {
@@ -1403,7 +1484,7 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
       // The characters where the run starts them (the rebuilt world makes their capsules there, from rest).
       for (const o of origins ?? []) {
         const b = bodyOf(o.characterId, 'restartWorld');
-        b.position = { x: o.position.x, y: o.position.y, z: o.position.z };
+        b.position = b.plane !== null ? onPlane(o.position, b.plane) : { x: o.position.x, y: o.position.y, z: o.position.z };
       }
       rebuild();
       // The movers as made (no last pose to measure a move from).
@@ -1414,6 +1495,8 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
     },
 
     ...furtherCharacters3D(() => world, further, config.controller, assertLive, listCharacters),
+
+    ...planeLocks3D({ world: () => world, staticSpecs, bodies, kinematicAt, deferred: () => deferred, bodyOf, at, assertLive }),
 
     diagnostics(): Rapier3DDiagnostics {
       return released ?? counters();

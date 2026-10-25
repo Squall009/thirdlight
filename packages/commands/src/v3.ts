@@ -102,8 +102,8 @@ export const COMPONENT_FIELD_ORDER: Record<OwnedComponent, readonly string[]> = 
   camera: ['type', 'fovY', 'near', 'far'],
   // The piece of a multi-piece file is an Inspector field too.
   model: ['asset', 'piece', 'castShadow', 'receiveShadow', 'lightLayers', 'localLights', 'decalLayers', 'occluder', 'seeThrough', 'scatter'],
-  // The shape, the one-way flag and the collision layers (both optional).
-  collider: ['shape', 'oneWay', 'layers'],
+  // The shape, the one-way flag, the collision layers and the plane lock (all optional).
+  collider: ['shape', 'oneWay', 'layers', 'plane'],
   // The capsule, then the movement tuning (all optional; `null` goes back to the default).
   controller: CONTROLLER_FIELDS,
   ...COMPONENT_FIELD_ORDER_V3,

@@ -578,6 +578,12 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "kind": "method",
       "detail": "(enabled: boolean, entityId?: string | undefined): boolean",
       "doc": "Switch a player character's controller off (it stays where it is: no input, no gravity — a cutscene, a dialogue) or back on, in 3D and on the 2D plane; a `character_enable`. Lasts until changed or the run restarts. False without that charac"
+    },
+    {
+      "name": "setPlane",
+      "kind": "method",
+      "detail": "(entityId: string | null | undefined, plane: { axis: 'x' | 'z'; origin: number; } | null): boolean",
+      "doc": "Lock a player character (`entityId`, absent or null: the first player controller) to an axis-aligned plane — `{ axis: 'x' | 'z', origin }` — or free it (null), at the next step boundary: it snaps onto the plane and from then on walks, jumps"
     }
   ],
   "BehaviorCollectible": [
@@ -3966,6 +3972,21 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "doc": "A player controller's result of the last completed step (`entityId`, absent: the first player controller), or `undefined` before the first step."
     },
     {
+      "name": "setPlane",
+      "kind": "method",
+      "detail": "(entityId: string, plane: PlaneLock | null): boolean",
+      "optional": true,
+      "doc": "Lock an object's body (its collider, or its player controller's character) to an axis-aligned plane — `{ axis: 'x' | 'z', origin }`, the plane's normal and where it lies along it (m) — or free it again (null), at the next step boundary. A l"
+    },
+    {
+      "name": "planeOf",
+      "kind": "method",
+      "detail": "(entityId: string): PlaneLock | null",
+      "returns": "PlaneLock",
+      "optional": true,
+      "doc": "The plane an object's body or player character is locked to now (`{ axis, origin }`), or null when it is free (or has no body)."
+    },
+    {
       "name": "raycast",
       "kind": "method",
       "detail": "(origin: Vec2, direction: Vec2, maxDistance: number): RaycastHit | null",
@@ -4054,6 +4075,18 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
     },
     {
       "name": "z",
+      "kind": "property",
+      "detail": "number"
+    }
+  ],
+  "PlaneLock": [
+    {
+      "name": "axis",
+      "kind": "property",
+      "detail": "'x' | 'z'"
+    },
+    {
+      "name": "origin",
       "kind": "property",
       "detail": "number"
     }

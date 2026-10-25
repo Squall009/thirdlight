@@ -11,6 +11,7 @@
 
 import type { LocalLightMode } from './local-lights';
 import type { ScatterRule } from './scatter';
+import type { PlaneLock } from './plane-lock';
 import type {
   BoxComponent,
   CameraComponent,
@@ -161,6 +162,8 @@ export interface ColliderComponent {
   oneWay?: true;
   /** v4, 3D: the collision layers the collider is in (absent: "default"). */
   layers?: string[];
+  /** The plane its body is locked to (absent: free in all six degrees of freedom). */
+  plane?: PlaneLock;
 }
 
 /**
@@ -251,6 +254,8 @@ export interface ControllerComponent {
   wallJumpUp?: number;
   /** Seconds a wall jump keeps the input from steering (absent: until the top of the jump; a landing ends it). */
   wallJumpLock?: number;
+  /** The plane the character is locked to (absent: free). */
+  plane?: PlaneLock;
 }
 
 /** v2 component registry order: transform, model, box, camera, behavior, prefab, collider, controller. */

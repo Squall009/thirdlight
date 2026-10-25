@@ -1,8 +1,100 @@
-# Script API types (from `CollectEventRecord`)
+# Script API types (from `InputRebindEvent`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 Every declaration the script API reaches, as the runtime declares it (doc comments included), in the order the API reaches them.
+
+<a id="script-type-input-rebind-event"></a>
+## `InputRebindEvent`
+
+```ts
+/**
+ * What became of a binding request: a rebind `started` (listening),
+ * `rebound`, `cancelled` (the cancel key), `timeout`, `refused` (it does not
+ * fit the action, or it conflicts under the refuse policy — `conflicts` says
+ * with what), `reset`, or the player `profile` changed.
+ */
+export interface InputRebindEvent {
+  readonly type: 'started' | 'rebound' | 'cancelled' | 'timeout' | 'refused' | 'reset' | 'profile';
+  readonly action?: string;
+  readonly index?: number;
+  readonly part?: InputBindingPart;
+  /** The new binding's label (rebound). */
+  readonly label?: string;
+  readonly reason?: string;
+  readonly conflicts?: readonly InputBindingConflict[];
+  /** The bindings of these actions moved to make room (swap policy). */
+  readonly swapped?: readonly string[];
+  readonly profile?: string;
+}
+```
+
+<a id="script-type-input-rebind-target"></a>
+## `InputRebindTarget`
+
+```ts
+/** A rebind's target: an action, which of its bindings and (composites) which part. */
+export interface InputRebindTarget {
+  readonly action: string;
+  readonly index: number;
+  readonly part?: InputBindingPart;
+}
+```
+
+<a id="script-type-input-rebind-options"></a>
+## `InputRebindOptions`
+
+```ts
+/** Options of a listen-for-input rebind (`ctx.input.rebind`). */
+export interface InputRebindOptions {
+  /** Which of the action's bindings (its index in `bindings()`); absent: the first one of the device. */
+  readonly index?: number;
+  /** A composite binding's part (negative/positive, up/down/left/right). */
+  readonly part?: InputBindingPart;
+  /** The device to listen to (absent: the device used last). Keyboard and mouse listen together. */
+  readonly device?: InputDeviceKind;
+  /** When the input is already used in the same map: swap (default), refuse or allow. */
+  readonly policy?: RebindConflictPolicy;
+  /** The key that cancels listening (a KeyboardEvent.code; default Escape). */
+  readonly cancelKey?: string;
+  /** Seconds to listen before giving up (default 10; 1–60). */
+  readonly timeout?: number;
+}
+```
+
+<a id="script-type-health-event-record"></a>
+## `HealthEventRecord`
+
+```ts
+/** A change of an object's health (seen in the step after it happened). */
+export interface HealthEventRecord {
+  readonly type: 'damaged' | 'healed' | 'died';
+  /** The object whose health changed. */
+  readonly entity: string;
+  /** damaged/healed: how much it changed (died: 0). */
+  readonly amount: number;
+  /** Its health after the change. */
+  readonly current: number;
+  /** What caused it (an object id, or any text a script passed; '' when none). */
+  readonly source: string;
+  readonly stepIndex: number;
+}
+```
+
+<a id="script-type-patrol-event-record"></a>
+## `PatrolEventRecord`
+
+```ts
+/** A patroller turned around (at a wall, a ledge, the end of its waypoints, or by a script). */
+export interface PatrolEventRecord {
+  readonly type: 'turned';
+  readonly entity: string;
+  readonly reason: 'wall' | 'ledge' | 'end' | 'script';
+  /** The direction it walks in now (a unit vector). */
+  readonly direction: readonly [number, number, number];
+  readonly stepIndex: number;
+}
+```
 
 <a id="script-type-collect-event-record"></a>
 ## `CollectEventRecord`
@@ -1250,11 +1342,21 @@ export interface ProjectSaveFile {
 export type DialogueInputKind = 'advance' | 'choose' | 'skip' | 'auto' | 'backlog';
 ```
 
+<a id="script-type-plane-lock"></a>
+## `PlaneLock`
+
+```ts
+/** A plane: its normal's world axis and where it lies along that axis (m). */
+export interface PlaneLock {
+  axis: PlaneAxis;
+  origin: number;
+}
+```
+
 <a id="script-type-physics-vec3"></a>
 ## `PhysicsVec3`
 
 ```ts
-/** A 3D vector (m). */
 export interface PhysicsVec3 {
   x: number;
   y: number;
@@ -1338,112 +1440,4 @@ export interface DebugCommandArgSpec {
   /** May be left out of a call (a call without it has no such key). */
   readonly optional?: boolean;
 }
-```
-
-<a id="script-type-grid-door-side"></a>
-## `GridDoorSide`
-
-```ts
-/** One side of a linked door (world metres; `facing`: degrees about +Y turning +Z toward the way out of the door on that side). */
-export interface GridDoorSide {
-  readonly position: readonly [number, number, number];
-  readonly spawn: readonly [number, number, number];
-  readonly facing: number;
-}
-```
-
-<a id="script-type-block-cell"></a>
-## `BlockCell`
-
-```ts
-/** One cell's value. At least one of `block` / `meta`. */
-export interface BlockCell {
-  /** The block type (`content.blockTypes[].blockId`); absent = a metadata-only cell. */
-  block?: string;
-  /** Degrees about +Y (counter-clockwise seen from above): 90, 180 or 270; absent = 0. */
-  rot?: 90 | 180 | 270;
-  /** The variant index; absent = picked from the weights by the cell coordinates. */
-  variant?: number;
-  /**
-   * The heights of the block's top corners — −x−z, +x−z, +x+z, −x+z in the
-   * layer's axes, whatever the rotation — in cell heights above the cell's
-   * bottom, 0–4 in steps of 1/64 (absent: a flat full top, all 1). A
-   * single-cell `full` block only: sloped terrain. Above 1, so a slope that
-   * crosses row boundaries inside one column stays one smooth surface (the
-   * cell reaches into the cells above it, which then stay empty). The top is
-   * two triangles split along one diagonal (`splitsMainDiagonal`); the sides
-   * follow the corners.
-   */
-  corners?: [number, number, number, number];
-  /** Metadata overrides (field key → value); the block's defaults and the schema's fill the rest. */
-  meta?: Record<string, CellMetaValue>;
-}
-```
-
-<a id="script-type-block-edge"></a>
-## `BlockEdge`
-
-```ts
-/** One edge piece. */
-export interface BlockEdge {
-  /** The edge block type (`placement: 'edge'`). */
-  block: string;
-  /** 180: it faces the other way (−x or −z); absent: +x for an x-line edge, +z for a z-line one. */
-  rot?: 180;
-  /** The look (variant index); absent: picked from the weights by the edge's place. */
-  variant?: number;
-  /** Open (a door): it lets passage through and has no collider. Absent: closed; stored only when true. */
-  open?: boolean;
-}
-```
-
-<a id="script-type-entity-write-code"></a>
-## `EntityWriteCode`
-
-```ts
-/** Why a write was refused: the descriptor check's codes and the runtime's. */
-export type EntityWriteCode =
-  | ScriptWriteCode
-  | 'entity_unknown'
-  | 'component_missing'
-  | 'entity_physics'
-  | 'entity_camera'
-  | 'entity_character'
-  | 'entity_static'
-  | 'entity_driven'
-  | 'material_parameter'
-  | 'material_unknown'
-  | 'write_limit';
-```
-
-<a id="script-type-property-type"></a>
-## `PropertyType`
-
-```ts
-export type PropertyType =
-  | 'number'
-  | 'boolean'
-  | 'string'
-  | 'enum'
-  | 'vec3'
-  | 'entityRef'
-  | 'assetRef';
-```
-
-<a id="script-type-property-bounds"></a>
-## `PropertyBounds`
-
-```ts
-export interface PropertyBounds {
-  min: Vec3;
-  max: Vec3;
-}
-```
-
-<a id="script-type-property-visibility"></a>
-## `PropertyVisibility`
-
-```ts
-/** Declared-property visibility (Unity-like public/private). */
-export type PropertyVisibility = 'public' | 'private';
 ```

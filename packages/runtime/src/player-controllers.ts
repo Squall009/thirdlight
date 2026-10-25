@@ -16,7 +16,7 @@
  * is staged on the port, the port steps once, and each result is checked and
  * committed to its controller's transform.
  */
-import { controllerActionsOf, controllerMovementOf } from '@thirdlight/project-model';
+import { controllerActionsOf, controllerMovementOf, planeLockOf } from '@thirdlight/project-model';
 
 import { actionPhase, type ActionFrame } from './actions';
 import { clipMessage, EngineFailure } from './errors';
@@ -29,6 +29,7 @@ import {
   type CharacterState3D,
   type PhysicsPort,
   type PhysicsPort3D,
+  type PhysicsPlane,
   type PhysicsResetPort,
   type PhysicsVec3,
   type Vec2,
@@ -69,6 +70,8 @@ interface ControllerState {
   fallSpeed3d: number;
   /** The velocity (m/s) scripts' impulses add at its next controller phase (null: none). */
   impulse: [number, number, number] | null;
+  /** 3D: the plane its character is locked to (null: free). */
+  plane: PhysicsPlane | null;
 }
 
 /** What the controllers read from and ask of the runtime. */
@@ -135,6 +138,7 @@ export class PlayerControllers {
       last3D: undefined,
       fallSpeed3d: 0,
       impulse: null,
+      plane: this.host.physics3d !== undefined ? planeLockOf(controller) : null,
     });
     this.list = Object.freeze([...this.list, id]);
     this.names = Object.freeze([...new Set([...this.names, a.move, a.jump, ...(climb !== null ? [climb] : [])])]);
@@ -163,6 +167,51 @@ export class PlayerControllers {
       throw e instanceof PhysicsPortFailure ? e : new PhysicsPortFailure('threw', `physics port addCharacter("${entity.id}") threw: ${messageOf(e)}`);
     }
     this.register(entity.id, (entity.components as { controller?: unknown }).controller, entity.id);
+    // The port made it on its plane: its object starts there too.
+    this.snapToPlane(entity.id);
+    return true;
+  }
+
+  /** A controller's plane (null: free, or no such controller). */
+  planeOf(id: string): PhysicsPlane | null {
+    return this.byId.get(id)?.plane ?? null;
+  }
+
+  /** A controller's object put onto its character's plane (its coordinate along the normal set to the plane's). */
+  private snapToPlane(id: string): void {
+    const plane = this.byId.get(id)?.plane;
+    const t = this.host.curr().get(id);
+    if (plane === null || plane === undefined || t === undefined) return;
+    t.position[plane.axis === 'x' ? 0 : 2] = plane.origin;
+  }
+
+  /**
+   * Lock a 3D controller's character to a plane, or free it (null), at a
+   * step boundary: its body and its object snap onto the plane (a
+   * placement: its face-movement models forget where they were); its speed
+   * along the normal goes with the controller module's next move, which
+   * keeps to the plane. False for an unknown controller or without a 3D port.
+   */
+  setPlane(id: string, plane: PhysicsPlane | null): boolean {
+    const port = this.host.physics3d;
+    const c = this.byId.get(id);
+    if (port === undefined || c === undefined) return false;
+    if (typeof port.setCharacterPlane !== 'function') throw new PhysicsPortFailure('threw', 'the 3D physics port cannot lock a character to a plane');
+    let at: PhysicsVec3;
+    try {
+      at = port.setCharacterPlane(plane, c.portId);
+    } catch (e) {
+      throw new PhysicsPortFailure('threw', `physics port setCharacterPlane() threw: ${messageOf(e)}`);
+    }
+    c.plane = plane;
+    if (plane === null) return true;
+    const t = this.host.curr().get(id);
+    if (t !== undefined) {
+      t.position[0] = at.x;
+      t.position[1] = at.y;
+      t.position[2] = at.z;
+    }
+    this.host.placed(id);
     return true;
   }
 
@@ -444,6 +493,9 @@ export class PlayerControllers {
     const c = this.byId.get(id);
     if (port === undefined || c === undefined) return;
     if (typeof port.placeCharacter !== 'function') throw new PhysicsPortFailure('threw', 'the 3D physics port cannot place the character');
+    // A character on a plane is placed on it (the port does the same).
+    if (c.plane?.axis === 'x') x = c.plane.origin;
+    else if (c.plane?.axis === 'z') z = c.plane.origin;
     try {
       port.placeCharacter({ x, y, z }, c.portId);
     } catch (e) {
@@ -511,6 +563,8 @@ export class PlayerControllers {
       c.fallSpeed3d = 0;
       const t = curr.get(id);
       if (t === undefined) continue;
+      // A character on a plane starts on it.
+      if (port3 !== undefined) this.snapToPlane(id);
       const [x, y, z] = [t.position[0], t.position[1], t.position[2]];
       if (!rebuild) {
         if (port3 !== undefined) this.place3D(id, x, y, z);
@@ -541,15 +595,21 @@ export class PlayerControllers {
     return port as PhysicsResetPort;
   }
 
-  /** A timeline moves a 3D controller: its body goes with it, from rest. Returns whether it was one. */
-  moveWithTimeline3D(id: string, position: readonly number[]): boolean {
+  /**
+   * A timeline moves a 3D controller: its body goes with it, from rest.
+   * Returns where it went (on its plane, if it has one), or null when it is
+   * no 3D controller.
+   */
+  moveWithTimeline3D(id: string, position: readonly number[]): [number, number, number] | null {
     const port = this.host.physics3d;
     const c = this.byId.get(id);
-    if (port === undefined || c === undefined || typeof port.placeCharacter !== 'function') return false;
-    port.placeCharacter({ x: position[0]!, y: position[1]!, z: position[2]! }, c.portId);
+    if (port === undefined || c === undefined || typeof port.placeCharacter !== 'function') return null;
+    const at: [number, number, number] = [position[0]!, position[1]!, position[2]!];
+    if (c.plane !== null) at[c.plane.axis === 'x' ? 0 : 2] = c.plane.origin;
+    port.placeCharacter({ x: at[0], y: at[1], z: at[2] }, c.portId);
     c.last3D = undefined;
     c.fallSpeed3d = 0;
-    return true;
+    return at;
   }
 
   // ---- reads -----------------------------------------------------------------------------

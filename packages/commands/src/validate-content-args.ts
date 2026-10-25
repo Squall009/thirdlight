@@ -733,8 +733,8 @@ function validateSetComponentOne(
   } else if (component === 'collider') {
     const shape = value['shape'];
     // `oneWay` alone edits the flag (the shape stays).
-    // `layers` alone edits the collision layers (the shape stays).
-    if (shape === undefined && (value['oneWay'] !== undefined || value['layers'] !== undefined)) return { ok: true, args: { entityId: args['entityId'], component: component as OwnedComponent, value } };
+    // `layers` alone edits the collision layers, `plane` alone the plane lock (the shape stays).
+    if (shape === undefined && (value['oneWay'] !== undefined || value['layers'] !== undefined || value['plane'] !== undefined)) return { ok: true, args: { entityId: args['entityId'], component: component as OwnedComponent, value } };
     if (!isPlainObject(shape)) {
       return { ok: false, error: fieldType('/args/value/shape', shape, 'object ({ type: "box"|"polygon"|"sphere"|"capsule"|"convex"|"mesh"|"compound"|"model", ... })') };
     }

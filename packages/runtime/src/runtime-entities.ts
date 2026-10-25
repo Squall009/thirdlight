@@ -15,6 +15,7 @@ import { arrivalProblem, playersArrive } from './arriving-players';
 import type { AudioMixer } from './audio-mixer';
 import type { GameplayBlocks } from './blocks';
 import type { ControllerPlacements } from './character-placement';
+import type { PlaneLocks } from './plane-locks';
 import type { ColliderSystem } from './collider-system';
 import type { EntityAccess } from './entity-access';
 import { clipMessage } from './errors';
@@ -36,6 +37,8 @@ import type { RuntimeViews } from './views';
 export interface EntityHost {
   readonly kept: KeptObjects;
   readonly colliders: ColliderSystem;
+  /** The plane locks scripts set (an object that leaves the game drops its own). */
+  readonly planes: PlaneLocks;
   readonly grid: RuntimeGrid;
   readonly controllers: PlayerControllers;
   readonly placement: ControllerPlacements;
@@ -239,6 +242,7 @@ export class RuntimeEntities {
       this.behaviorGroupOf.delete(id);
     }
     host.colliders.forget(ids);
+    host.planes.forget(ids);
     for (const entry of sim.entries) {
       const instance = entry.instance as SimulationPhaseModule;
       if (!entry.phased || typeof instance.sceneUnloaded !== 'function') continue;

@@ -401,6 +401,7 @@ export class RuntimeInstance implements Runtime {
     this.entities = new RuntimeEntities(this.sim, this.faults, {
       kept: this.kept,
       get colliders() { return rt.chars.colliders; },
+      get planes() { return rt.chars.planes; },
       get grid() { return rt.grid; },
       get controllers() { return rt.controllers; },
       get placement() { return rt.chars.placement; },
@@ -1351,6 +1352,8 @@ export class RuntimeInstance implements Runtime {
     if (this.run.startDue && !this.startRun()) return false;
     this.scenes.goToListed();
     if (!this.entities.syncLiveBlocks()) return false;
+    // The plane locks scripts asked for last step: bodies and characters snap onto their planes or go free.
+    if (!this.chars.applyPlanes()) return false;
     // A 2D-plane respawn (ctx.lifecycle, a restart's placement) places the character at the boundary.
     if (!this.chars.placement.respawn2DAtBoundary(ordinal)) return false;
     this.modes.beginStep(ordinal);

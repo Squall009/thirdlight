@@ -28,6 +28,7 @@ import { canonicalSpline, validateSplineComponent, type SplineComponent } from '
 import { canonicalArchitecture, validateArchitectureComponent, type ArchitectureComponent } from './architecture';
 import { ID_RE } from './validate';
 import { validateLightLayerMask } from './light-layers';
+import { planeLockOf, validatePlaneLock, type PlaneLock } from './plane-lock';
 import { validateLocalLightMode, type LocalLightMode } from './local-lights';
 
 import { BLOCK_COMPONENT_NAMES, BLOCK_COMPONENTS } from './blocks';
@@ -110,6 +111,12 @@ import {
 } from './types-v3';
 import { isRemovedComponent, removedComponentMessage } from './removed-game-data';
 import { effectiveEntityFlags, nearestObjectAncestor } from './hierarchy-v3';
+
+/** A collider's canonical `plane` (absent when free, so a free collider keeps its old canonical bytes). */
+function planeField(collider: unknown): { plane?: PlaneLock } {
+  const plane = planeLockOf(collider);
+  return plane !== null ? { plane } : {};
+}
 import { canonicalBlockFootprint, validateBlockFootprintComponent, type BlockFootprintComponent } from './block-layers';
 import { canonicalBlockLayerComponent, canonicalSceneBlocks, validateBlockLayerComponent, validateSceneBlocks, type BlockLayerComponent, type BlockLayerData } from './block-layers';
 
@@ -770,6 +777,8 @@ export function validateEntityComponentsV3(
       if (version !== 4) errors.push(fieldValue(`${path}/collider/layers`, layers, 'absent (v4 scenes only)', 'collision layers are a v4 field'));
       else validateColliderLayers(layers, `${path}/collider/layers`, errors);
     }
+    // The plane the collider's body is locked to (absent or null: free).
+    if (isPlainObject(col)) validatePlaneLock(col['plane'], `${path}/collider/plane`, errors);
     validateColliderComponent(colliderCore(col), `${path}/collider`, errors);
     // The model's `_COL` parts are the object's own model's.
     if (isPlainObject(col) && isPlainObject(col['shape']) && col['shape']['type'] === 'model' && comps['model'] === undefined) {
@@ -1400,7 +1409,7 @@ export function canonicalComponentsV3(comps: Record<string, unknown>): EntityCom
     components.behavior = { behaviorId: b.behaviorId, values: b.values };
   }
   if (comps['prefab'] !== undefined) components.prefab = comps['prefab'] as PrefabProvenanceComponent;
-  if (comps['collider'] !== undefined) components.collider = { shape: canonicalCollider(comps['collider']), ...((comps['collider'] as { oneWay?: unknown }).oneWay === true ? { oneWay: true as const } : {}), ...(Array.isArray((comps['collider'] as { layers?: unknown }).layers) ? { layers: [...(comps['collider'] as { layers: string[] }).layers] } : {}) };
+  if (comps['collider'] !== undefined) components.collider = { shape: canonicalCollider(comps['collider']), ...((comps['collider'] as { oneWay?: unknown }).oneWay === true ? { oneWay: true as const } : {}), ...(Array.isArray((comps['collider'] as { layers?: unknown }).layers) ? { layers: [...(comps['collider'] as { layers: string[] }).layers] } : {}), ...planeField(comps['collider']) };
   if (comps['controller'] !== undefined) components.controller = canonicalController(comps['controller']);
   if (comps['playerSpawn'] !== undefined) {
     const { yaw } = comps['playerSpawn'] as { yaw?: number };

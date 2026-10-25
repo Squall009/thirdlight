@@ -66,6 +66,8 @@ export interface CharacterDirectorHost {
   loading(): boolean;
   /** The move action a controller reads (undefined: not a controller). */
   moveAction(id: string): string | undefined;
+  /** Queue a plane lock (null: free) for a player character at the next step boundary; false when refused. */
+  setPlane(id: string, plane: unknown): boolean;
   /** An object's transform this step. */
   transform(id: string): TransformState | undefined;
   /** A controller's document (its tuning). */
@@ -485,6 +487,10 @@ export class CharacterDirector {
       if (id === undefined || typeof enabled !== 'boolean') return false;
       this.setEnabled(id, enabled);
       return true;
+    },
+    setPlane: (entityId: unknown, plane: unknown): boolean => {
+      const id = this.resolve(entityId ?? undefined);
+      return id !== undefined && this.host.setPlane(id, plane);
     },
   });
 

@@ -110,6 +110,7 @@ export {
   type PhysicsInitConfig3D,
   type PhysicsPort3D,
   type PhysicsQuat,
+  type PhysicsPlane,
   type RaycastHit3D,
   type CharacterState3D,
   type StaticColliderSpec3D,

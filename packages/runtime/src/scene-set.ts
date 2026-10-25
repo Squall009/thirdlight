@@ -3,7 +3,7 @@
  * scene contributes (its static colliders), the root offset of a load and the
  * live tag index that follows loads and unloads. No I/O, no three.js.
  */
-import { character3DSettingsOf, controllerCapsuleOf, fixedStepHzOf, controllerCapsuleOffsetZ, controllerTuningOf, resolveSceneHierarchy, sceneCamerasAsShots, validateSceneV4, type EntityV3, type TagDefinition } from '@thirdlight/project-model';
+import { character3DSettingsOf, planeLockOf, controllerCapsuleOf, fixedStepHzOf, controllerCapsuleOffsetZ, controllerTuningOf, resolveSceneHierarchy, sceneCamerasAsShots, validateSceneV4, type EntityV3, type TagDefinition } from '@thirdlight/project-model';
 
 import type { ModelColliderTable } from '@thirdlight/project-model';
 
@@ -101,7 +101,7 @@ export function physics3DConfigOf(
   const placeholder = first ?? { ...character3DOf({ id: '', components: { transform: { position: [0, 0, 0] } } }, settings), offset: { x: 0, y: 0, z: 0 } };
   return {
     dimension: 3,
-    character: { position: placeholder.position, radius: placeholder.radius, halfHeight: placeholder.halfHeight, offset: placeholder.offset },
+    character: { position: placeholder.position, radius: placeholder.radius, halfHeight: placeholder.halfHeight, offset: placeholder.offset, ...(placeholder.plane !== undefined ? { plane: placeholder.plane } : {}) },
     ...(players.length > 1 ? { characters: players.slice(1) } : {}),
     statics,
     ...(options.layers !== undefined && options.layers.length > 0 ? { layers: [...options.layers] } : {}),
@@ -131,8 +131,11 @@ export function character3DOf(entity: { id: string; components?: unknown }, sett
   const p = (c['transform'] as { position?: readonly number[] } | undefined)?.position ?? [0, 0, 0];
   const capsule = playerCapsuleOf(c['controller']);
   const c3 = character3DPhysicsOf(c['controller'], settings.max_slope_climb_deg);
+  const plane = planeLockOf(c['controller']);
   return {
     id: entity.id,
+    // The plane it is locked to (absent: free).
+    ...(plane !== null ? { plane } : {}),
     position: { x: p[0] ?? 0, y: p[1] ?? 0, z: p[2] ?? 0 },
     radius: capsule.radius,
     halfHeight: capsule.halfHeight,

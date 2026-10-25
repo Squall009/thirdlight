@@ -488,6 +488,8 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
       'assets.ids',
       // The finished events as a list (the Sound finished node checks one handle).
       'audio.events',
+      // A plane is an object or null (set on the collider or controller, or in code).
+      'character.setPlane',
       'debug.command',
       'dialogue.history',
       'dialogue.variables',
@@ -522,6 +524,8 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
       'input.rebind',
       'input.rebindEvents',
       'log',
+      'physics.planeOf',
+      'physics.setPlane',
       'physics.stageCharacterMove',
       'random.pick',
       'random.stream().pick',

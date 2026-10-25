@@ -20,6 +20,7 @@ import type { RuntimeGrid } from './grid';
 import { phaseScopedState } from './guard';
 import type { KeptObjects } from './kept';
 import { PhysicsQueries } from './physics-queries';
+import { PlaneLocks } from './plane-locks';
 import { PlayerControllers } from './player-controllers';
 import type { Vec2 } from './ports';
 import type { RuntimeFaults } from './runtime-faults';
@@ -60,6 +61,8 @@ export class RuntimeCharacters {
   readonly director: CharacterDirector;
   /** `ctx.physics` (and the engine modules' queries) with the step's query budget. */
   readonly queries: PhysicsQueries;
+  /** The plane locks scripts set and clear (applied at step boundaries). */
+  readonly planes: PlaneLocks;
   /** `ctx.lifecycle`: respawn (both dimensions), the spawn point and the restart. */
   readonly lifecycle: BehaviorLifecycle;
   /** The player spawn respawns use (null: the first one loaded, else where the player started). */
@@ -87,6 +90,7 @@ export class RuntimeCharacters {
       ownedIds: () => sim.entries.flatMap((entry) => entry.owners),
       componentsOf: (id) => host.scenes.entityDocument(id)?.components as unknown as Readonly<Record<string, unknown>> | undefined,
       warn: (message) => faults.log('thirdlight.runtime:colliders', 'warn', message),
+      planeOf: (id) => this.planes.scriptPlane(id),
     }, a.modelColliders);
     if (sim.physics3d !== undefined) this.colliders.track(a.initialEntities);
     this.controllers = new PlayerControllers({
@@ -116,6 +120,18 @@ export class RuntimeCharacters {
       channels: (id) => host.phases.channelsOf(id), placeFacing: (id, degrees) => this.placement.of(id)?.placeFacing(degrees), turn: (id, yaw) => this.placement.of(id)?.turn(yaw),
       canPlace: () => sim.physics3d !== undefined || controllers.resetPort2D() !== null, addImpulse: (id, v) => controllers.addImpulse(id, v),
       intentsChanged: () => host.phases.changed(), warn: (message) => faults.log('thirdlight.runtime:character', 'warn', message), loading: () => host.scenes.anyLoading(), moveAction: (id) => controllers.actionsOf(id)?.move,
+      setPlane: (id, plane) => this.planes.request(id, plane),
+    });
+    const colliders = this.colliders;
+    this.planes = new PlaneLocks({
+      get physics3d() { return sim_.physics3d; },
+      isCharacter: (id) => controllers.has(id),
+      hasBody: (id) => colliders.has(id),
+      setCharacterPlane: (id, plane) => void controllers.setPlane(id, plane),
+      characterPlane: (id) => controllers.planeOf(id),
+      componentsOf: (id) => host.scenes.entityDocument(id)?.components as unknown as Readonly<Record<string, unknown>> | undefined,
+      curr: () => sim.curr,
+      parentOf: (id) => sim.parentOf(id),
     });
     this.queries = new PhysicsQueries({
       get physics() { return sim_.physics; },
@@ -124,6 +140,7 @@ export class RuntimeCharacters {
       get views() { return host.views; },
       get grid() { return host.grid; },
       get tags() { return host.queryTags; },
+      planes: this.planes,
       pointer: () => host.input.pointer(),
       stepIndex: () => sim.stepIndex,
       warn: (m) => faults.log('thirdlight.runtime:physics', 'warn', m),
@@ -244,7 +261,19 @@ export class RuntimeCharacters {
   /** A run's start at a step boundary, the first run's and every restart's alike (the physics world, the bodies); false after a fail-stop. */
   startRun(): boolean {
     try {
+      // The planes scripts set go back to the authored ones before the world is rebuilt.
+      this.planes.restart();
       this.controllers.startRun();
+    } catch (e) {
+      this.faults.failStopFromError(e, this.sim.stepIndex);
+    }
+    return this.sim.stateName !== 'failed';
+  }
+
+  /** The plane locks scripts asked for in the last step take effect (false after a fail-stop). */
+  applyPlanes(): boolean {
+    try {
+      this.planes.applyAtBoundary();
     } catch (e) {
       this.faults.failStopFromError(e, this.sim.stepIndex);
     }

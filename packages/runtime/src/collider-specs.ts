@@ -9,9 +9,9 @@
  * The one place the runtime, the Play preview, the export and the tests
  * derive collider specs. Pure: no I/O, no three.js.
  */
-import { collisionPartPolygons, type ModelColliderTable } from '@thirdlight/project-model';
+import { collisionPartPolygons, planeLockOf, type ModelColliderTable } from '@thirdlight/project-model';
 
-import type { ColliderPrimitive3D, ColliderShape3D, PhysicsQuat, PhysicsVec3, StaticColliderSpec, StaticColliderSpec3D } from './ports';
+import type { ColliderPrimitive3D, ColliderShape3D, PhysicsPlane, PhysicsQuat, PhysicsVec3, StaticColliderSpec, StaticColliderSpec3D } from './ports';
 import type { TransformState } from './types-simulation';
 import { rotate3 } from './geometry3';
 import { worldTransformOf, type WorldTransform } from './world-transform';
@@ -25,6 +25,8 @@ export interface ColliderContext {
     transform(id: string): TransformState | undefined;
     parentOf(id: string): string | null | undefined;
   };
+  /** A plane a script set on an object, which replaces its collider's own (null: freed; undefined: the collider's own). */
+  readonly planeOf?: (id: string) => PhysicsPlane | null | undefined;
 }
 
 type Obj = Record<string, unknown>;
@@ -258,7 +260,14 @@ export function staticColliderOf3D(entityId: string, components: Readonly<Obj>, 
     ...(kinematic || components['mover'] !== undefined ? { kinematic: true } : {}),
     // The collision layers it is in (absent: "default").
     ...(Array.isArray(collider.layers) ? { layers: [...(collider.layers as string[])] } : {}),
+    ...planeSpec(ctx?.planeOf?.(entityId), collider),
   };
+}
+
+/** The plane of a spec: a script's (null: freed) over the collider's own; absent when free. */
+function planeSpec(set: PhysicsPlane | null | undefined, collider: unknown): { plane?: PhysicsPlane } {
+  const plane = set !== undefined ? set : planeLockOf(collider);
+  return plane !== null ? { plane } : {};
 }
 
 /**

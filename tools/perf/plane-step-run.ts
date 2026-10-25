@@ -1,6 +1,6 @@
 /**
- * Run the side-scroller physics benchmark (plane-step.ts) on both backends,
- * each in its own child process (the WASM memory of one backend never counts
+ * Run the side-scroller physics benchmark (plane-step.ts) on both backends
+ * (3D also plane-locked), each in its own child process (the WASM memory of one backend never counts
  * against the other), and print one JSON line per run.
  *
  *   node tools/perf/run.mjs plane-step [--levels 1,4] [--steps 2400] [--warmup 240] [--rounds 3] [--seed 7]
@@ -38,8 +38,9 @@ export async function runPlaneStepCli(argv: string[]): Promise<void> {
   // Rounds interleave the backends so host drift lands on both alike.
   for (let r = 0; r < rounds; r += 1) {
     for (const lv of levels) {
-      for (const dim of [2, 3]) {
-        const res = await child(bundle, { ...base, dim, levels: lv });
+      // 3D twice: as the 41.0 baseline ran it (nothing locked), and plane-locked.
+      for (const [dim, plane] of [[2, false], [3, false], [3, true]] as const) {
+        const res = await child(bundle, { ...base, dim, levels: lv, plane });
         process.stdout.write(`${JSON.stringify({ round: r + 1, ...res })}\n`);
         if (res['ok'] !== true) process.exitCode = 1;
       }
