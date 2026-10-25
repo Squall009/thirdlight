@@ -186,6 +186,7 @@ with real Rapier on page and worker.
 | 41.2 | Done. `shape2DTo3D` (project-model `shape-2d-3d.ts`, the mapping 41.5's upgrade calls, with a change list per converted shape): box without `hz` → box `depth` deep (collider `depth`, default 1 m), polygon → convex prism or compound of prisms (`convexPieces`: ear clipping + Hertel–Mehlhorn, deterministic, ≤ 32 corners), circle → `cylinder` (new 3D primitive in model, runtime and port) along the plane normal. 3D projects take depthless boxes, polygons and `oneWay`. One-way on the 3D port (`oneway3d.ts`): the character sweep filter and drop-through (`dropThrough`, down + jump routed to the 3D port), and `OneWayContacts` hooks for dynamic bodies (port-level). Tests: model (decomposition L/U/comb tile exactly, cylinder axis Z/X), port (land from above, pass from below and the side, drop-through, free and on a plane, turned one-way wall, dynamic ball, cylinders), integration 2D port vs plane-locked 3D port on box/ramp/concave/one-way (worst 5.8 mm, tolerance 10 mm), game host 3D project shelf + drop-through + prism ramp. `plane-step` p50 plane-locked 1 level 0.057 → 0.055 ms, 4 levels 0.113 → 0.115 ms (noise). No e2e touched; fast gate (colliders, physics-3d) green, 9 min (D307 watch hit once, passed alone). |
 | 41.3 A | Done (part A). Reference traces of the 2D controller (`fixtures/phase41/platformer-traces/`, 11 Sprout-tuned side-view cases: jump apex/hop, run, slopes, slope slide, stairs+autostep, wall slide/jump, ladder, one-way+drop-through, lift, sideways platform, coyote+buffer; per step x, y, vx, vy, grounded, state; `tests/integration/m41-platformer/`, reproduced exactly, `TL_RECORD_TRACES=1` re-records). `profile: 'arcade'` on the 3D controller (`runtime/src/character-arcade.ts`): the 2D algorithm in its order on the 3D port, same tuning fields. Plane-locked vs the traces, worst in-plane: jump 8 mm, run 14, slopes 10, slide 8, walls 2, climb 7, one-way 2, coyote/buffer 1.3, side platform 33 (carry a step early), lift 64 (walk-off), stairs 1.0 m (3D step-up climbs earlier) — part B's to fix. X plane = Z plane within 10.2 mm. E2E: one assertion in `character-3d.e2e.ts` (the 3D Inspector now shows Profile and Autostep), no step added. Fast gate (character-3d, colliders) green after that fix, 9 min. |
 | 41.3 B | Done. Parity suite `tests/integration/m41-platformer/parity.test.ts`, tolerances in `PARITY`: the 2D trace's key events (grounding/state changes) in order on the same step (±1 allowed, 0 measured) within 1 cm; every step within 1.5 cm of the 2D path ±1 step; the controller's velocity equal (1e-6) but at the stairs' last edge and the lift's edge; apex, air time, run speed, slope stops, stair treads (±1 step), wall slide/jump, ladder, one-way, carry. Fixes: arcade step-up by the 2D rule (`autostepRide`, `physics-rapier/src/3d/step-up3d.ts`), at a rising mover's edge it rests, 3D spawn clearance's one-way rule, D321 (not the port). Worst event / path (mm): jump 8.3/8.3, run 0/12.6 (the 2D's own 1.1 cm bumps), slopes 0/10.1, slide 0/7.7, stairs 0/10.0 up to the stop and 43.8 at rest (≤ 50), walls 1.9/1.9, climb 5.2/5.9, one-way 0/1.9, lift 1.4/1.4, side platform y 0.1, x 33.3 = the 2D port's 4 stalled carry steps (3D carried on every step), coyote 0.4/1.3. `plane-step --arcade` p50 1/4 levels: 2D 0.060/0.085, 3D plane-locked 0.113/0.156 ms (41.0 2D baseline, no autostep, 0.037/0.056; 41.0 3D/2D 1.4×/1.9×, now 1.9×/1.8×). No e2e touched (character-3d + colliders 3.0 min). Fast gate green, 9 min, 4.0 GB. |
+| 41.4 | Done. One `ctx.physics` surface: `raycast`/`overlapBox` take `[x, y, z]` (world) or `{x, y}` on the caller's plane (its object's lock, else z = 0), `overlapCircle` a disc on it; filters on every form; typings without "3D projects:" caveats; nodes Set plane, Set character plane, Plane of. Switches, circle and `[w, h]` triggers work on the 3D port unchanged (no data moves); `blocks2DTo3D` (project-model) gives 41.5 the Problems notes. Tests: integration (game host, page = worker, free and z-plane, X-plane queries), model, catalogue. E2E: create-menu 3D step +1 entry (2.7 → 2.9 s), blocks 9.4 → 9.7 s. Fast gates green, 10 min, 4.1 GB (D307 hit once, passed alone). |
 
 ## 5. Decision log
 
@@ -280,3 +281,29 @@ with real Rapier on page and worker.
   (x 129.9 m) and tries a step every step there; that is most of `plane-step --arcade`'s cost (2D +60 %,
   3D +110 % over autostep off), 0.16 ms per step at four levels.
 
+- 2026-10-25 (41.4): default chosen, owner to confirm: one `ctx.physics` surface by argument shape:
+  `raycast` and `overlapBox` take `[x, y, z]` arrays (a world query, filter included; the old
+  `raycast3d`/`overlapBox3d` stay as names for the same, and their visual-script nodes stay) or
+  `{x, y}` (on a plane). The `{x, y}` forms run on the plane the calling script's object is locked
+  to, else z = 0 (41.5's scene default plane goes in between); x runs along the plane's right (−Z on
+  an X plane), the hit's normal comes back in the plane. An overlap on a plane is a 2 cm sliver (box
+  or disc) across it, so it finds what crosses the plane, not what stands beside it. Engine modules
+  have no calling object: z = 0. The 2D forms take the query filter too.
+- 2026-10-25 (41.4): default chosen, owner to confirm: no gameplay-block data moves. On the 3D
+  backend a circle trigger is the sphere of its radius and a `[w, h]` box (trigger, switch) is as deep
+  as it is wide — on a plane through them the same area as in 2D. Switches now work in 3D: the
+  player's capsule in the switch's box, turned with its object, as box triggers are tested. Two
+  differences from the 2D plane, for 41.5's Problems lines: a box trigger or switch tests the capsule
+  exactly where 2D tested its bounding box (later at a corner, by at most r(1 − 1/√2), 9 cm at the
+  default radius), and a box trigger, switch or hitbox on a turned object turns with it (2D ignored
+  the turn). A patrol's start direction with a y part walks up or down in 3D as on the plane.
+- 2026-10-25 (41.4): visual-script nodes Set plane, Set character plane (axis `none` frees: the
+  node generator gives a nullable options object a "none" choice that passes null) and Plane of.
+  A model's "polygon" collider is offered in 3D too (a prism, 41.2).
+- 2026-10-25 (41.4): for 41.5's upgrade, `blocks2DTo3D(components)` lists per entity, without
+  changing data, Problems notes of five kinds: `trigger-circle` (a circle trigger is a sphere),
+  `area-depth` (a `[w, h]` trigger, switch, hitbox, collectible, climb volume, patrol or gravity
+  area is as deep as wide), `capsule-test` (box trigger and switch), `turned-area` (box trigger,
+  switch, hitbox, collectible on a turned object) and `depth-motion` (mover or patrol waypoints, or a
+  patrol direction, with a z part: 2D moved only the look in depth, 3D moves the collision too unless
+  the collider is plane-locked).
