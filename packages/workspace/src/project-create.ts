@@ -140,13 +140,12 @@ export function createProjectFrom(core: Core, projectId: string, name: string, s
     assets?: { versions?: { publishedRevision?: number }[] }[];
     behaviors?: { publishedRevision?: number; source?: { publishedRevision?: number } | null }[];
   } | null;
-  let threeD = false;
   // A new project writes out the settings whose engine default changed (the template's own win).
   if (sourceContent !== null && typeof sourceContent === 'object') {
     const c = sourceContent as { settings?: Record<string, unknown> };
     c.settings = { ...NEW_PROJECT_SETTINGS, ...(c.settings ?? {}) };
-    // A template that named the retired 3D setting is a 3D project; one without it was made for the 2D plane.
-    threeD = c.settings[RETIRED_DIMENSION_SETTING] === 3;
+    // Templates are made for the one 3D backend (a side-view template sets its scene's plane in its setup):
+    // nothing to convert, and the retired setting a template still names is dropped.
     delete c.settings[RETIRED_DIMENSION_SETTING];
   }
   for (const a of sourceContent?.assets ?? []) for (const v of a.versions ?? []) v.publishedRevision = 0;
@@ -194,7 +193,7 @@ export function createProjectFrom(core: Core, projectId: string, name: string, s
     const clip = list?.[clipIndex]?.name === clipName ? list[clipIndex] : list?.find((c) => c.name === clipName);
     return clip?.duration ?? null;
   };
-  const built = projectFilesFromV3(projectId, project.normalized.manifest, project.normalized.scene as SceneV3, filed.content as unknown as ContentCatalogV3, durationOf, NEW_PROJECT_ENVIRONMENT, threeD ? SCHEMA_8_STEPS.filter((st) => st.recorded !== true) : undefined, true);
+  const built = projectFilesFromV3(projectId, project.normalized.manifest, project.normalized.scene as SceneV3, filed.content as unknown as ContentCatalogV3, durationOf, NEW_PROJECT_ENVIRONMENT, SCHEMA_8_STEPS.filter((st) => st.recorded !== true), true);
   if (!built.ok) {
     return { ok: false, error: invalidRequest('', undefined, 'a valid v4 project', `the template is not a valid project: ${built.message}`) };
   }

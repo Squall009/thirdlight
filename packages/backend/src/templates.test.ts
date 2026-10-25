@@ -127,6 +127,14 @@ describe('template dependencies at creation', () => {
     const character = player.entities.find((e) => e.name === 'Player');
     expect(character?.components['animator']).toEqual({ controller: 'idle-run-airborne-01' });
     expect(character?.components['modelAnimation']).toBeUndefined();
+    // A side-view scene on the one 3D backend: its setup set the scene's default plane and the arcade profile; its
+    // boxes are 1 m deep 3D boxes (nothing was converted, the retired setting is not written).
+    expect(character?.components['controller']).toEqual({ profile: 'arcade' });
+    expect(player.entities.find((e) => e.name === 'Ground')?.components['collider']).toEqual({ shape: { type: 'box', hx: 12, hy: 0.2, hz: 0.5 } });
+    const read = backend._test.service.readCapturedV3('t3');
+    if (!read.ok) throw new Error('no project');
+    expect((read.read.scenes as { defaultPlane?: unknown }[]).map((sc) => sc.defaultPlane)).toEqual([{ axis: 'z', origin: 0 }]);
+    expect((read.read.content as unknown as { settings: Record<string, unknown> }).settings).not.toHaveProperty('physics_dimension');
     const problems = await fetch(`${base}/api/v1/projects/t3/problems`, { headers: { authorization: `Bearer ${ADMIN}`, origin: AUTHORING_ORIGIN } });
     expect(((await problems.json()) as { problems: unknown[] }).problems).toEqual([]);
   });

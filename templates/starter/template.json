@@ -1,6 +1,6 @@
 {
   "name": "2D starter",
-  "description": "A side-on 2D level: ground, a few boxes, a character with the controller, a spawn point, a camera and lights. No game rules.",
+  "description": "A side-view level: its scene's bodies held to a plane (Z at 0) on the one 3D backend. Ground, a few boxes, a character with the controller (arcade movement), a spawn point, a camera and lights. No game rules.",
   "requiredModules": [],
   "picture": "picture.webp"
 }

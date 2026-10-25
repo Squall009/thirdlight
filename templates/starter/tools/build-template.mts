@@ -1,9 +1,11 @@
 /**
- * The neutral starter template (phase 24.2): a ground, a few boxes, a
- * spawn point, a camera, two lights, a character with the controller and a
- * decoration model. No game rules: no game block, no zones, no pickups, no
- * enemies. A project made from it plays in scene mode (the scene as
- * authored, the character driven by the controller).
+ * The neutral side-view starter template: a ground, a few boxes, a spawn
+ * point, a camera, two lights, a character with the controller (the arcade
+ * movement profile) and a decoration model, in a scene whose default plane
+ * is Z at 0 (the bodies are held to it on the one 3D backend). No game
+ * rules: no game block, no zones, no pickups, no enemies. A project made from
+ * it plays in scene mode (the scene as authored, the character driven by the
+ * controller).
  *
  * The script (1) writes the template's self-generated pillar (a small rigid
  * GLB, no downloaded content) and the provenance of both models — the
@@ -13,7 +15,10 @@
  * the scene through the real editing path (`@thirdlight/commands`
  * `applyMutation`, the same commands the browser and MCP use) and captures
  * the result as `captured/project.json`, with the command list in
- * `recipe/commands.json`. Re-running it gives the same bytes.
+ * `recipe/commands.json`, and (3) writes the setup a v3 capture cannot hold,
+ * made by commands when a project is made from it (`setup/pack.json`): the
+ * scene's default plane and the character's movement profile. Re-running it
+ * gives the same bytes.
  *
  * Run:
  *   npx esbuild templates/starter/tools/build-template.mts --bundle --platform=node \
@@ -218,7 +223,8 @@ const solid = (name: string, x: number, y: number, w: number, h: number, color: 
   name,
   transform: T(x, y),
   box: { size: [w, h, 1], material: { color } },
-  components: { collider: { shape: { type: 'box', hx: w / 2, hy: h / 2 } } },
+  // A 1 m deep box (the plane holds the bodies, the box's depth is what the view and the collider share).
+  components: { collider: { shape: { type: 'box', hx: w / 2, hy: h / 2, hz: 0.5 } } },
 });
 
 /** A file's import record as the engine's own GLB inspection proposes it (metrics, bounds, used extensions). */
@@ -291,7 +297,32 @@ function main(): void {
   run(author, 'createEntity', { kind: 'group', name: 'Ambient fill', transform: T(0, 0), components: { light: { type: 'ambient', color: '#8a94b0', intensity: 0.9 } } });
   run(author, 'createEntity', { kind: 'model', name: 'Pillar', transform: T(17, 0), model: { asset: { assetId: 'starter-pillar' } } });
 
+  // The objects keep the ids the template first shipped with (`box-0001`, `model-0001`, …): games' notes, guides and
+  // tests name them, and the engine's id format since grew to six digits.
+  const shipped = (id: string): string => id.replace(/^([a-z]+)-00(\d{4})$/, '$1-$2');
+  const scene = author.state.scene as unknown as { entities: Array<{ id: string; parentId?: string | null }> };
+  for (const e of scene.entities) {
+    e.id = shipped(e.id);
+    if (typeof e.parentId === 'string') e.parentId = shipped(e.parentId);
+  }
   capture(author, ROOT, 'templates/starter/tools/build-template.mts', IMPORTED_AT);
+  // What a v3 capture cannot hold, by the commands the editor sends: the scene's default plane (Scene settings) and
+  // the character's arcade profile (one run speed, autostep, a jump cut on release: a side-view platformer's feel).
+  const player = author.state.scene.entities.find((e) => e.name === 'Player')!.id;
+  mkdirSync(join(ROOT, 'setup'), { recursive: true });
+  const setup = {
+    format: 1,
+    packId: PROJECT_ID,
+    name: '2D starter setup',
+    description: 'What the 2D starter sets by command once a project exists: its scene\'s default plane, Z at 0 (a side-view level on the one 3D backend), and the character\'s arcade movement profile.',
+    folder: 'assets',
+    assets: [],
+    commands: [
+      { op: 'setScenePlane', args: { sceneId: 'scene-main', plane: { axis: 'z', origin: 0 } } },
+      { op: 'setComponent', args: { entityId: player, component: 'controller', value: { profile: 'arcade' } } },
+    ],
+  };
+  writeFileSync(join(ROOT, 'setup', 'pack.json'), JSON.stringify(setup, null, 1) + '\n');
   for (const m of models) console.log(`  ${m.path}: ${m.bytes.byteLength} B, ${JSON.stringify(m.metrics)}`);
 }
 

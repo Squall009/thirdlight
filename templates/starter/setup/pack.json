@@ -1,0 +1,30 @@
+{
+ "format": 1,
+ "packId": "starter",
+ "name": "2D starter setup",
+ "description": "What the 2D starter sets by command once a project exists: its scene's default plane, Z at 0 (a side-view level on the one 3D backend), and the character's arcade movement profile.",
+ "folder": "assets",
+ "assets": [],
+ "commands": [
+  {
+   "op": "setScenePlane",
+   "args": {
+    "sceneId": "scene-main",
+    "plane": {
+     "axis": "z",
+     "origin": 0
+    }
+   }
+  },
+  {
+   "op": "setComponent",
+   "args": {
+    "entityId": "model-0001",
+    "component": "controller",
+    "value": {
+     "profile": "arcade"
+    }
+   }
+  }
+ ]
+}

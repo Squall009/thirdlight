@@ -21,9 +21,11 @@ scene's look). A project made from a template starts with nothing to undo.
 Two ship, neither with game rules:
 
 - `templates/starter` ("2D starter"): a side-on level — a ground, three
-  boxes, a character with the controller, a spawn point, a camera, two
-  lights and a pillar model (it plays as a scene). Rebuilt by
-  `templates/starter/tools/build-template.mts`. Its character is a
+  boxes, a character with the controller (the arcade movement profile), a
+  spawn point, a camera, two lights and a pillar model (it plays as a
+  scene). Its scene's default plane is Z at 0, so its bodies stay on the
+  plane on the one 3D backend; its setup sets the plane and the profile.
+  Rebuilt by `templates/starter/tools/build-template.mts`. Its character is a
   game-ready skinned model made in Blender (`assets/model/character.glb`,
   949 KB: three levels of detail of 4,796 / 2,398 / 958 triangles, a
   capsule `_COL`, a 22-bone skin, 1024² albedo and ORM and a 512² normal

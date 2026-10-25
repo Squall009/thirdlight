@@ -2,7 +2,9 @@
 
 You make a project from the **2D starter** template: a small side-on scene
 with a ground, a few boxes, a character you can walk with, a spawn point, a
-camera and two lights. It has no game rules; you add those yourself. For a
+camera and two lights. "2D" is not a kind of project: the scene has a
+default plane (Scene settings, Z at 0) its bodies stay on, and the toolbar's
+**side view** button looks across it. It has no game rules; you add those yourself. For a
 3D game pick the **3D starter** instead: the same character with a follow
 camera, a block ground on the Basic Kit, a small terrain, a sun and sky (see
 [Kits, blocks and rooms](../concepts/kits-blocks-and-rooms.md)); the steps
