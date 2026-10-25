@@ -227,6 +227,7 @@ is one step in the terrain or scatter e2e.
 | 40.3 | Done 2026-10-24: block layers' cover drawn from point sets through the same GPU renderer (rings, model levels, thinning, culling; one draw per ring and mesh): the cover worker bakes a rule's points per chunk (`bakeCoverPoints`, project-model `cover-points.ts`: the stored scatter's grid and conditions at full density, every floor of a column, spacing exact; 16 B a point, sorted by threshold) when the view's reach meets the chunk and again round an edit; `cover-points-gpu.ts` holds them in a float texture per rule, a ring lists the blocks of 256 holding its prefix. CPU squares, `coverMake` and `?cover=cpu` removed. Meshes and architecture carry no rules yet (D312). Vitest: `cover-points.test.ts` (5: equal to the stored bake on one floor, spacing too; every floor under a roof; sorted prefix; normals; a repeated ground ends the column), `cover-view.test.ts` (3: reach/edit/let-go through CoverView, thinning per annulus vs `coverShare` ±10 % with every kept point listed, WGSL build). Interior: block-layers e2e's floor under the pink roof grows moss and debris (66 points, 2 sets; looked at in the Play shot, WebGPU; WebGL 2 by eye unverified), 16.2 s (before 15–21 s); terrain-cdlod 3.1 m (3.2 m). At the cap (load 0.6–2): meadow p95 16.7/16.7, 0 missed, 6 scene draws, cover main +0.11/+0.29 ms over ground; landscape p95 16.7/16.7, none ≥ 25 ms, 330 draws (336 in 40.2 B), main 4.31/3.94 ms, WebGPU GPU 9.73 ms (block cover's candidates now count: 767k tris); village p95 16.7/16.8, 222/224 draws, main 4.67/4.35 ms (baseline 4.65/4.33). Fast gate green (10 min). |
 | 40.3b | Done 2026-10-25: stored scatter and instance sets draw through the GPU copies renderer (`copies-gpu.ts` on cover's placement hook: a copy texture, per-frame lists of blocks of ≤ 64 copies with a header holding each draw's constants, one draw per mesh and level, a copy's level per copy or per block (`lodPerCopy`), thinning by rank, near shadows as shadow-only draws at the detailed level, impostors and vertex paint through the copy's columns, picking and diagnostics on the page when asked); `scatter-view.ts` → `stored-scatter.ts` (blocks prepared on the worker, a set made in one go); the main-thread per-copy pick and thinning are gone (the CPU sets left, architecture and spline pieces, pick per chunk). Vitest `copies-gpu.test.ts` (6), `stored-scatter.test.ts` (6, rewritten), `instancing.test.ts` (rewritten). Same-hour A/B at the cap vs ae580337 (load 1–2): landscape p95 16.7/16.7, 0 missed both; scene draws 306 → 310, main thread 4.10 → 4.14 ms WebGPU, 3.79 → 4.19 ms WebGL 2 (earlier rounds 4.15 → 4.27; noise ±0.5), GPU 9.5 → 10.4 ms (more vertex work: dropped candidates), D212 not met; village (fast gate at the cap) CPU 4.99/4.51 ms vs baseline 5.64/4.90. E2e: instance-brush 37.1 → 36.4 s, instances 3.7/4.5/5.0 s as before, terrain-cdlod 3.1 → 3.2 m, block-layers 16.2 → 16.0 s. D183 fixed, D313 opened. |
 | 40.3 B | Done 2026-10-25 (05e49277, D312): cover on meshes through the same point sets and GPU draws: `model.scatter` (the model's upward faces, its most detailed level, read once the object has stood still 10 frames: `cover-models.ts`) and `architecture.scatter` (its flat fills facing up: storeys and interiors, `architectureFloorTriangles`), cover rules only, additive on 8; the worker bakes 16 m squares from a triangle surface (`mesh-scatter.ts`: highest upward face, the floors under it, face normals and slope, cavity); Inspector Ground cover panel (scatter cards, cover only). Vitest `mesh-scatter.test.ts` (4: floor under a shelf, no underside or wall; ramp slope; generated floor with stairwell and storey, ceiling none; cover-only validation), `cover-view.test.ts` +1 (a model settling, architecture floors, let go). E2e block-layers: a house's floor (12 m², behind the camera) gets moss in the Inspector, Play draws 3 sets, 89 points (block 66 + house ~23), 16.0 → 16.6 s; house cover by eye unverified. Fast gate green (9 min): village at the cap p95 16.8/16.7, 0 missed, main 5.12/4.69 ms (baseline 5.64/4.90). |
+| 40.4 | Done 2026-10-25 (48d032cb, b9631ff6): one wind field. The scene's wind gains a top-down gust pattern (`noise` texture, else the engine's tiling value noise made in code; `scale` m, `speed` m/s, `octave`), `windZone` (box/sphere footprint, any of direction/strength/gust/turbulence/speed/scale, `blend` inside the edge, `priority`) baked with the global wind into a camera-centred 64 × 4 m half-float map (filled only on a zone/wind/32 m-square change; no zone cap; vitest vs `windAt`), read with the pattern by the foliage shader (now `foliage-nodes.ts`; bend = strength × COLOR_0 R² × height above the copy's root) on cover, copies, instances and placed models, and by the graph Wind node; `ctx.environment.setWind({…}, {blend, easing})` as simulation state (digest, saves, worker view; vitest `wind-blend.test.ts`); Environment window fields, the zone's Inspector (descriptor) and its Scene-view gizmo. At the cap (load 0.5–2.6): meadow (template grass) p95 16.7/16.7 ms, 0 missed both renderers, main 2.07/1.95 ms; with `--wind 3 --wind-zone` (a calm zone in view) 16.8/16.8, 0 missed, main 2.10/1.81 ms, WebGPU GPU 11.8 ms (scene 6.3); village 16.7/16.8, 0 missed, 224/226 draws (unchanged), CPU 4.99/4.57 ms (baseline 5.64/4.90). E2e materials 9.7 → 13.4 s (the panel's gust size + a calm zone from the menu stills the foliage), environment 10.3 s. Fast gate green (rerun of the e2e step). Looked at: the meadow in wind on both renderers (`acceptance/40.4-meadow-wind-*.jpg`, a still; motion seen only as pixel change); the zone gizmo and a zone's blend in motion unverified by eye. |
 
 ## 5. Decision log
 
@@ -382,3 +383,44 @@ is one step in the terrain or scatter e2e.
   draws stayed (306 → 310 scene draws: 140 block-layer chunks, 97 others,
   30 spline, ~75 copies draws). What remains is fewer draws: merging the
   copies of sets that share a model and material, block chunks' draws.
+- 2026-10-25 (40.4): Default chosen, owner to confirm: the engine's gust
+  pattern is a 128² tiling value noise made in code (three octaves, no
+  look of its own), not a shipped file; a scene names its own with `noise`.
+  The pattern spans `scale` 20 m by default and travels at `speed`, absent:
+  `gustFrequency` × `scale` (as many gusts pass a point a second as the
+  old sine gusts); a second layer at 0.27 × the size and 1.6 × the speed
+  gives 35 % of it.
+- 2026-10-25 (40.4): Default chosen, owner to confirm: wind zones are read
+  from above (a box turns with its object about up, a sphere is its circle;
+  height ignored) and blend inward: whole `blend` metres inside the edge
+  (default 2 m, smoothstep), nothing outside the shape, so the gizmo's
+  shape is the zone's whole reach. Overlaps lay on by priority, then entity
+  id. A new zone is a 20 × 10 × 20 m box (sphere radius 10 m) that changes
+  nothing until a value is set. The noise texture and its second layer are
+  the scene's only.
+- 2026-10-25 (40.4): Default chosen, owner to confirm: the wind map is 64
+  texels of 4 m (256 m round the camera, re-centred in 32 m steps), so a
+  zone's edge is no sharper than 4 m; past it (and when no zone reaches
+  it) shaders read the global uniforms alone and skip the map. Where a zone
+  changes the pattern's direction, speed or size, the pattern flows as flow
+  maps do (two reads half of a 6 s period apart) blended in by the zone's
+  weight; elsewhere it scrolls exactly (the page works out the offsets).
+- 2026-10-25 (40.4): Default chosen, owner to confirm: a foliage vertex
+  bends by the wind's strength (gusts included) × COLOR_0 R² × its height
+  above its root (a cover/copies draw's place, an instance's origin, else
+  the object's) × 0.12 per metre, so a 1 m plant bends as the old fixed
+  ~0.12 m sway did and taller ones further; existing projects' foliage
+  changes with its height. A mesh without COLOR_0 (which did not move)
+  now sways by its height share of the first metre in fixed metres.
+  Foliage materials read their object's frame, so they are never merged
+  by static batching (the village's draws did not change).
+- 2026-10-25 (40.4): Default chosen, owner to confirm:
+  `ctx.environment.setWind` adds to the last change (`setWind(null)` goes
+  back to the scene's own wind), blends like presets over whole steps (at
+  most 16 script winds at once) and is its own state beside the presets,
+  so a wind change never retimes a sky blend. Its typed script and graph
+  form omit `octave` (the graph generator has no object port); the runtime
+  accepts it. Wind zones keep laying their values over a script wind.
+- 2026-10-25 (40.4): The materials e2e grew 3.7 s (9.7 → 13.4 s) for the
+  editor surface: the panel's gust size and a calm zone made from the menu
+  and set in its Inspector stills the foliage; no other e2e covers zones.

@@ -12,6 +12,9 @@
  *   --cover-distance M          its reach (m; default MEADOW_SPEC.grass.coverDistance)
  *   --grass template            the 3D starter's grass (its setup pack's model, colour texture and foliage
  *                               material; one cover rule per piece, the density shared) in place of the stand-in
+ *   --wind S                    the scene's wind strength S (gusts 0.8 S, from the side of the view; default: the
+ *                               engine's light breeze)
+ *   --wind-zone                 with a calm wind zone (a 25 m sphere, 10 m blend) 40 m ahead of the camera
  *   --no-export                 the sweep only
  *   --no-sweep                  the exports only
  *   --sweep id,id               only these sweep configs (with `none`, the floor, always)
@@ -29,7 +32,7 @@ import { PERF_ROOT, REPO, startPerfBackend, type PerfBackend } from './backend';
 import { publishFileVia } from './build';
 import { launchGpuBrowser, measurePage, serveStatic, sourcesOf, type FrameRenderer, type FrameRunResult } from './frame-run';
 import { LEVEL_LOOK, publishTerrainMaterial, STARTER_REMOVED } from './level';
-import { MEADOW_KIT, MEADOW_SEED, MEADOW_SIDE, MEADOW_SPEC, MEADOW_VERSION, meadowCamera, meadowCoverRule, meadowHeights, meadowOrigin, meadowPaint, meadowSamples, meadowTerrainRaw, proposeSweepBudget, SWEEP_CONFIGS, sweepLoad, type SweepRow } from './meadow';
+import { MEADOW_KIT, MEADOW_SEED, MEADOW_SIDE, MEADOW_SPEC, MEADOW_VERSION, meadowCamera, meadowHeight, meadowCoverRule, meadowHeights, meadowOrigin, meadowPaint, meadowSamples, meadowTerrainRaw, proposeSweepBudget, SWEEP_CONFIGS, sweepLoad, type SweepRow } from './meadow';
 import { CLUMP_LEVELS, clumpKitGlb } from './village-assets';
 import { frameLine } from './village-run';
 
@@ -75,7 +78,7 @@ async function publishTemplateGrass(be: PerfBackend, projectId: string, cmd: Cmd
 }
 
 /** Build the meadow into a new project; returns the terrain's id (its cover is baked by the caller). */
-async function buildMeadow(be: PerfBackend, projectId: string, log: (s: string) => void, grass: MeadowGrass, density: number, coverDistance: number): Promise<{ terrainId: string; cmd: Cmd; cover: Record<string, unknown>[] }> {
+async function buildMeadow(be: PerfBackend, projectId: string, log: (s: string) => void, grass: MeadowGrass, density: number, coverDistance: number, wind: { strength: number | null; zone: boolean } = { strength: null, zone: false }): Promise<{ terrainId: string; cmd: Cmd; cover: Record<string, unknown>[] }> {
   const t0 = performance.now();
   const created = await be.post('/api/v1/admin/projects', { projectId, name: 'Perf meadow' });
   if (created.status !== 201 && created.status !== 200) throw new Error(`project create failed: ${created.status} ${JSON.stringify(created.json)}`);
@@ -106,7 +109,12 @@ async function buildMeadow(be: PerfBackend, projectId: string, log: (s: string) 
   const camera = meadowCamera();
   await cmd('setTransform', { entityId: 'cam-main', transform: { position: camera.position, rotation: camera.rotation } });
   await cmd('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffe2bd', intensity: 2, direction: [0.5, -0.55, -0.65], castShadow: true } });
-  await cmd('setEnvironment', { sceneId: 'scene-main', environment: LEVEL_LOOK });
+  await cmd('setEnvironment', { sceneId: 'scene-main', environment: wind.strength === null ? LEVEL_LOOK : { ...LEVEL_LOOK, wind: { direction: [0.6, 0.8], strength: wind.strength, gust: Math.min(10, wind.strength * 0.8), gustFrequency: 0.3, turbulence: 0.3 } } });
+  if (wind.zone) {
+    const ahead: [number, number] = [camera.position[0] + 40 * Math.SQRT1_2, camera.position[2] - 40 * Math.SQRT1_2];
+    const calm = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Calm', transform: { position: [ahead[0], meadowHeight(ahead[0], ahead[1]), ahead[1]] } }))['createdId']);
+    await cmd('setComponent', { entityId: calm, component: 'windZone', value: { shape: 'sphere', radius: 25, blend: 10, strength: 0, gust: 0.05 } });
+  }
   log(`meadow: ground built in ${Math.round(performance.now() - t0)} ms (${MEADOW_SIDE} m square, ${tiles.length} tiles, ${meadowPaint().length} painted patches)`);
   return { terrainId, cmd, cover };
 }
@@ -160,7 +168,7 @@ export async function runMeadowCli(argv: readonly string[]): Promise<void> {
   if (!has('no-export')) {
     const be = await startPerfBackend(join(runDir, 'data'), join(runDir, 'exports'));
     try {
-      const { terrainId, cmd, cover } = await buildMeadow(be, 'meadow', log, grass, density, coverDistance);
+      const { terrainId, cmd, cover } = await buildMeadow(be, 'meadow', log, grass, density, coverDistance, { strength: get('wind') === undefined ? null : Number(get('wind')), zone: has('wind-zone') });
       for (const variant of ['grass', 'ground'] as const) {
         const t = performance.now();
         await cmd('editTerrain', { entityId: terrainId, kind: 'bake', scatter: variant === 'grass' ? cover : [] });
