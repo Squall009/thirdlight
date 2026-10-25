@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { INSTANCE_FLOATS } from '@thirdlight/runtime';
 
 import { BLOCK_FLOATS, copyDensityAt, copyLevel, prepareCopies } from './copies-prepare';
-import { buildGpuCopySet, GPU_COPIES_KEY } from './copies-gpu';
+import { buildGpuCopySet, GPU_COPIES_KEY, LIST_HEADER } from './copies-gpu';
 import { TAN_HALF_REFERENCE } from './instance-lod';
 import { LOD_CULL_LEVEL_KEY, LodTuning } from './lod-switch';
 import { litScene, wgslOf, wgslRenderer } from './test-wgsl';
@@ -70,7 +70,7 @@ function listed(mesh: THREE.Mesh, cam: THREE.Camera, order: Uint32Array): number
   const draw = mesh.userData[GPU_COPIES_KEY] as { list: { data: Float32Array }; set: { block: number } };
   const n = (mesh.geometry as THREE.InstancedBufferGeometry).instanceCount / draw.set.block;
   const out: number[] = [];
-  for (let e = 0; e < n; e++) for (let k = 0; k < draw.list.data[e * 4 + 1]!; k++) out.push(order[draw.list.data[e * 4]! + k]!);
+  for (let e = LIST_HEADER; e < LIST_HEADER + n; e++) for (let k = 0; k < draw.list.data[e * 4 + 1]!; k++) out.push(order[draw.list.data[e * 4]! + k]!);
   return out;
 }
 
@@ -176,6 +176,18 @@ describe('stored copies on the GPU', () => {
     expect(thinned).toBeGreaterThan(1000);
     expect(set.stats().thinned).toBe(thinned);
     set.dispose();
+    // A falloff down to no copies (a blob disc's) lists no block wholly past it: those draws would draw nothing.
+    const gone = buildGpuCopySet(template, f, 4000, 'blobs', { density: { ...density, min: 0 } });
+    scene.add(gone.group);
+    scene.updateMatrixWorld(true);
+    cullFor(gone.meshes, camera([0, 5, 0], [100, 0, 100]));
+    const order = prepareCopies(f, 4000).order;
+    const listedNow = gone.meshes.flatMap((m) => listed(m, new THREE.OrthographicCamera(), order));
+    expect(listedNow.length).toBeGreaterThan(0);
+    expect(listedNow.length).toBeLessThan(4000);
+    // Whole blocks (up to ~24 m across on this 3 m grid) round the falloff's end.
+    expect(listedNow.every((i) => Math.hypot(f[i * 10]!, 5, f[i * 10 + 2]!) < to + 50)).toBe(true);
+    gone.dispose();
   });
 
   it('a copy written in place moves in its block (where it was and is told); a ray picks a copy by its index', () => {

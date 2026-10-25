@@ -69,27 +69,60 @@ export function copyBlockSize(count: number): number {
   return b;
 }
 
+/** 2^24: a packed sort key's low part (a copy's place in its run; runs stay far below it). */
+const KEY_LOW = 16777216;
+
+/** `order[lo, hi)` sorted by the copies' coordinate `axis` (0: x, 2: z), ties by their place in the run: one native sort of packed keys. */
+function sortedBy(floats: Float32Array, order: Uint32Array, lo: number, hi: number, axis: number): Uint32Array {
+  const n = hi - lo;
+  let v0 = Infinity;
+  let v1 = -Infinity;
+  for (let s = lo; s < hi; s++) {
+    const v = floats[order[s]! * INSTANCE_FLOATS + axis]!;
+    v0 = Math.min(v0, v);
+    v1 = Math.max(v1, v);
+  }
+  // 2^28 steps across the run: exact as a float64 key with the place below it.
+  const q = v1 > v0 ? 268435455 / (v1 - v0) : 0;
+  const keys = new Float64Array(n);
+  for (let j = 0; j < n; j++) keys[j] = Math.floor((floats[order[lo + j]! * INSTANCE_FLOATS + axis]! - v0) * q) * KEY_LOW + j;
+  keys.sort();
+  const out = new Uint32Array(n);
+  for (let j = 0; j < n; j++) out[j] = order[lo + (keys[j]! % KEY_LOW)]!;
+  return out;
+}
+
 /**
  * Order `order[lo, hi)` so every run of `block` copies from `lo` is compact on
- * the ground: split at a multiple of `block` across the range's wider axis,
- * then each half again (a k-d tree whose leaves are the blocks).
+ * the ground: a k-d tree whose leaves are the blocks, split at a multiple of
+ * `block` across the wider axis. The copies are sorted along each axis once;
+ * a split keeps both orders by partitioning the other one (linear a level).
  */
 function splitBlocks(floats: Float32Array, order: Uint32Array, lo: number, hi: number, block: number): void {
   if (hi - lo <= block) return;
-  let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
-  for (let s = lo; s < hi; s++) {
-    const o = order[s]! * INSTANCE_FLOATS;
-    x0 = Math.min(x0, floats[o]!);
-    x1 = Math.max(x1, floats[o]!);
-    z0 = Math.min(z0, floats[o + 2]!);
-    z1 = Math.max(z1, floats[o + 2]!);
-  }
-  const axis = x1 - x0 >= z1 - z0 ? 0 : 2;
-  // Ties keep the buffer's order: the same order on every engine.
-  order.subarray(lo, hi).sort((a, b) => floats[a * INSTANCE_FLOATS + axis]! - floats[b * INSTANCE_FLOATS + axis]! || a - b);
-  const mid = lo + Math.ceil((hi - lo) / block / 2) * block;
-  splitBlocks(floats, order, lo, mid, block);
-  splitBlocks(floats, order, mid, hi, block);
+  const xs = sortedBy(floats, order, lo, hi, 0);
+  const zs = sortedBy(floats, order, lo, hi, 2);
+  const left = new Uint8Array(floats.length / INSTANCE_FLOATS);
+  const scratch = new Uint32Array(hi - lo);
+  const split = (a: number, b: number): void => {
+    if (b - a <= block) {
+      order.set(xs.subarray(a, b), lo + a);
+      return;
+    }
+    const at = (list: Uint32Array, i: number, axis: number): number => floats[list[i]! * INSTANCE_FLOATS + axis]!;
+    const byX = at(xs, b - 1, 0) - at(xs, a, 0) >= at(zs, b - 1, 2) - at(zs, a, 2);
+    const mid = a + Math.ceil((b - a) / block / 2) * block;
+    const [cut, other] = byX ? [xs, zs] : [zs, xs];
+    for (let i = a; i < b; i++) left[cut[i]!] = i < mid ? 1 : 0;
+    // The other order split the same way, each side keeping its order.
+    let l = 0;
+    let r = mid - a;
+    for (let i = a; i < b; i++) scratch[left[other[i]!] === 1 ? l++ : r++] = other[i]!;
+    other.set(scratch.subarray(0, b - a), a);
+    split(a, mid);
+    split(mid, b);
+  };
+  split(0, hi - lo);
 }
 
 /** Write the copy at float `o` of `floats` (position, quaternion, scale) into slot `slot` of `texels`, with its thinning rank and paint slot (0: none). */

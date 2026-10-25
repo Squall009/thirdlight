@@ -10,7 +10,7 @@ import { bakeScatterCell, decodeChunkScatter, encodeChunkScatter, scatterBlobOf,
 
 import { CUTAWAY_LAYER } from './block-cutaway-view';
 import type { MeshWorkerPort } from './block-mesh-pool';
-import { GPU_COPIES_KEY, type GpuCopySet } from './copies-gpu';
+import { GPU_COPIES_KEY, LIST_HEADER, type GpuCopySet } from './copies-gpu';
 import { runScatterWorker } from './scatter-worker';
 import { StoredScatter } from './stored-scatter';
 import { CullView, VIEW_CULL_KEY, type ViewCullable } from './view-cull';
@@ -162,7 +162,7 @@ describe('stored scatter', () => {
       sh.onBeforeRender(null as never, null as never, new THREE.OrthographicCamera(), sh.geometry, sh.material as THREE.Material, null as never);
       const list = (sh.userData[GPU_COPIES_KEY] as { list: { data: Float32Array } }).list.data;
       const out: number[][] = [];
-      for (let e = 0; e < (sh.geometry as THREE.InstancedBufferGeometry).instanceCount / set.block; e++) {
+      for (let e = LIST_HEADER; e < LIST_HEADER + (sh.geometry as THREE.InstancedBufferGeometry).instanceCount / set.block; e++) {
         for (let k = 0; k < list[e * 4 + 1]!; k++) {
           // Slots are in block order; read a slot's place straight from the copy texture.
           const t = (list[e * 4]! + k) * 12;

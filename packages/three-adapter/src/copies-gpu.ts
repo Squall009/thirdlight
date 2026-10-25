@@ -61,6 +61,13 @@ export const GPU_COPIES_KEY = '__tlGpuCopies';
 const GPU_COPIES_ATTRIBUTE = 'tlGpuCopies';
 /** Entries a row of a draw's list texture holds. */
 const LIST_ROW = 1024;
+/**
+ * Texels a list's header takes before its entries: copies per block, reach
+ * (m) and world scale; the level it draws, the group's level count, whether
+ * the last level culls and how the level is decided; the switch distances
+ * (two texels); the density falloff.
+ */
+export const LIST_HEADER = 5;
 /** Levels of detail a copy's model may have in one LOD group (two vec4s of switch distances). */
 const MAX_LEVELS = 8;
 /** A switch distance never reached (a level the model does not have). */
@@ -98,13 +105,7 @@ const NO_LIST = floatTexture(new Float32Array(4), 1, 1);
 interface CopyDraw {
   readonly set: GpuCopySet;
   readonly list: CopyList;
-  /** The part's level, the group's level count, whether its last level culls, whether the part is outside the LOD groups. */
-  readonly level: THREE.Vector4;
-  readonly d0: THREE.Vector4;
-  readonly d1: THREE.Vector4;
   readonly local: THREE.Matrix4;
-  /** Copies farther than this (m) are not drawn (a near-shadow draw's distance; else never). */
-  readonly reach: number;
 }
 
 const drawOf = (object: THREE.Object3D | null | undefined): CopyDraw | undefined => object?.userData[GPU_COPIES_KEY] as CopyDraw | undefined;
@@ -120,33 +121,34 @@ const IDENTITY = new THREE.Matrix4();
 const viewEye = new THREE.Vector4(0, 0, 0, 1);
 const uEye: N = uniform(viewEye);
 
-const uLevel: N = uniform(new THREE.Vector4()).onObjectUpdate(({ object }: { object: THREE.Object3D }) => drawOf(object)?.level ?? ZERO4);
-const uD0: N = uniform(new THREE.Vector4()).onObjectUpdate(({ object }: { object: THREE.Object3D }) => drawOf(object)?.d0 ?? ZERO4);
-const uD1: N = uniform(new THREE.Vector4()).onObjectUpdate(({ object }: { object: THREE.Object3D }) => drawOf(object)?.d1 ?? ZERO4);
-/** The density falloff's factors (× the copy's scale), its minimum, and whether it thins. */
-const uDensity: N = uniform(new THREE.Vector4()).onObjectUpdate(({ object }: { object: THREE.Object3D }) => drawOf(object)?.set.density ?? ZERO4);
 /**
- * Copies per block, whether the pass is a cached static shadow map's, the
- * draw's reach (m) and the set's world scale; and on the way the draw's
- * textures are bound (its set's copies, its list).
+ * Whether the pass is a cached static shadow map's (1) or not (0); and on the
+ * way the draw's textures are bound (its set's copies, its list). Everything
+ * else a draw reads is its list's header: a draw updates two uniforms.
  */
-const scratchF = new THREE.Vector4();
-const uFrame: N = uniform(new THREE.Vector4()).onObjectUpdate(({ object, camera }: { object: THREE.Object3D; camera?: THREE.Camera | null }) => {
+const uStatic: N = uniform(0).onObjectUpdate(({ object, camera }: { object: THREE.Object3D; camera?: THREE.Camera | null }) => {
   const d = drawOf(object);
   copiesTexture.value = d?.set.texture ?? NO_COPIES;
   listTexture.value = d?.list.texture ?? NO_LIST;
-  if (d === undefined) return ZERO4;
-  return scratchF.set(d.set.block, camera?.userData[STATIC_SHADOW_CAMERA_KEY] === true ? 1 : 0, Math.min(d.reach, NEVER), d.set.worldScale);
+  return camera?.userData[STATIC_SHADOW_CAMERA_KEY] === true ? 1 : 0;
 });
 const uLocal: N = uniform(new THREE.Matrix4()).onObjectUpdate(({ object }: { object: THREE.Object3D }) => drawOf(object)?.local ?? IDENTITY);
 
 /** This instance's copy: its texels, slot and whether it is drawn by this draw (vertex stage). */
 function copyNodes(): { kept: N; pos: N; quat: N; scale: N; paint: N; slot: N } {
-  const B = uint(uFrame.x);
+  // The list's header (LIST_HEADER texels of its first row): see `writeHeader`.
+  const head = (i: number): N => listTexture.load(ivec2(i, 0));
+  const h0 = head(0);
+  const uLevel = head(1);
+  const uD0 = head(2);
+  const uD1 = head(3);
+  const uDensity = head(4);
+  const B = uint(h0.x);
   const idx = uint(instanceIndex);
   const b = idx.div(B);
   const k = idx.sub(b.mul(B));
-  const entry = listTexture.load(ivec2(int(b.mod(uint(LIST_ROW))), int(b.div(uint(LIST_ROW)))));
+  const e = b.add(uint(LIST_HEADER));
+  const entry = listTexture.load(ivec2(int(e.mod(uint(LIST_ROW))), int(e.div(uint(LIST_ROW)))));
   const slot = uint(entry.x).add(k);
   const col = int(slot.mod(uint(COPY_ROW))).mul(COPY_TEXELS);
   const row = int(slot.div(uint(COPY_ROW)));
@@ -156,8 +158,8 @@ function copyNodes(): { kept: N; pos: N; quat: N; scale: N; paint: N; slot: N } 
   const world = modelWorldMatrix.mul(vec4(t0.xyz, 1)).xyz;
   const metres = length(world.sub(uEye.xyz));
   const d = metres.mul(uEye.w);
-  const s = max(max(abs(t2.x), abs(t2.y)), abs(t2.z)).mul(uFrame.w);
-  const isStatic = uFrame.y.greaterThan(0.5);
+  const s = max(max(abs(t2.x), abs(t2.y)), abs(t2.z)).mul(h0.z);
+  const isStatic = uStatic.greaterThan(0.5);
   // The rule of `copyLevel`: the levels whose switch distance (times the scale) the copy reached.
   const ds = [uD0.y, uD0.z, uD0.w, uD1.x, uD1.y, uD1.z, uD1.w];
   let level: N = float(0);
@@ -174,7 +176,7 @@ function copyNodes(): { kept: N; pos: N; quat: N; scale: N; paint: N; slot: N } 
   const share = select(d.lessThanEqual(from), float(1), select(d.greaterThanEqual(to).or(to.lessThanEqual(from)), uDensity.z, float(1).sub(float(1).sub(uDensity.z).mul(d.sub(from)).div(max(to.sub(from), 1e-9)))));
   const thins = uDensity.w.greaterThan(0.5).and(isStatic.not());
   const keep = select(thins, t0.w.lessThan(share), float(1).greaterThan(0));
-  const kept = float(k).lessThan(entry.y).and(mine).and(keep).and(metres.lessThanEqual(uFrame.z)).and(s.greaterThan(0));
+  const kept = float(k).lessThan(entry.y).and(mine).and(keep).and(metres.lessThanEqual(h0.y)).and(s.greaterThan(0));
   return { kept, pos: t0.xyz, quat: t1, scale: t2.xyz, paint: t2.w, slot };
 }
 
@@ -268,6 +270,8 @@ interface CopyList {
   readonly reach: number;
   /** A cached static shadow map draws every block from it (the most detailed level of a set's own draws). */
   readonly staticAll: boolean;
+  /** How its vertex stage decides a copy's level: 0 its own is the list's, 1 every listed copy drawn unless past its cull size (the list holds its blocks). */
+  readonly mode: number;
   data: Float32Array;
   texture: THREE.DataTexture;
   /** Blocks the view sees, candidates (seen or not), and all listed (with the rest for a static map). */
@@ -338,6 +342,7 @@ export class GpuCopySet {
   private dirty = true;
   private disposed = false;
   private statsCache: { key: string; stats: InstanceSetStats } | null = null;
+  private scratch: { near: Float32Array; seen: Uint8Array; lo: Int16Array; hi: Int16Array } | null = null;
   /** What the view culler calls once a frame for all of the set's draws. */
   private readonly culler: ViewCullable = { cull: (view) => this.cull(view) };
 
@@ -386,21 +391,23 @@ export class GpuCopySet {
     const dens = this.plan.density;
     if (dens !== null && this.plan.radius > 0) this.density.set(this.plan.radius / (TAN_HALF_REFERENCE * dens.start), this.plan.radius / (TAN_HALF_REFERENCE * dens.end), dens.min, 1);
     const blocks = p.blocks.length / BLOCK_FLOATS;
-    const listOf = (group: number, level: number, reach: number, staticAll: boolean): CopyList => {
+    const listOf = (group: number, level: number, reach: number, staticAll: boolean, mode: number): CopyList => {
       let l = this.lists.find((x) => x.group === group && x.level === level && x.reach === reach);
       if (l === undefined) {
-        const rows = Math.max(1, Math.ceil(blocks / LIST_ROW));
+        const rows = Math.max(1, Math.ceil((LIST_HEADER + blocks) / LIST_ROW));
         const data = new Float32Array(rows * LIST_ROW * 4);
-        this.lists.push((l = { group, level, reach, staticAll, data, texture: floatTexture(data, LIST_ROW, rows), nView: 0, nCand: 0, nAll: 0, copiesInView: 0 }));
+        this.lists.push((l = { group, level, reach, staticAll, mode, data, texture: floatTexture(data, LIST_ROW, rows), nView: 0, nCand: 0, nAll: 0, copiesInView: 0 }));
+        this.writeHeader(l);
       }
       return l;
     };
     const makeDraw = (part: InstanceSetPlan['parts'][number], near: boolean): void => {
       const group = part.lod;
-      const g = group >= 0 ? this.plan.groups[group] : this.plan.groups[0];
       const level = group >= 0 ? part.level : 0;
       const reach = near ? options.shadowDistance! : Number.POSITIVE_INFINITY;
-      const list = listOf(group, level, reach, !near && (group < 0 || level === 0));
+      // Near shadows draw every copy in reach at the most detailed level (a shadow-only pass: no level to pick).
+      const mode = near || !this.perCopy || group < 0 ? 1 : 0;
+      const list = listOf(group, level, reach, !near && (group < 0 || level === 0), mode);
       const source = part.mesh.geometry;
       const geometry = new THREE.InstancedBufferGeometry();
       geometry.name = source.name;
@@ -423,17 +430,7 @@ export class GpuCopySet {
       if (near) mesh.layers.set(CUTAWAY_LAYER);
       if (part.mesh.userData[KEEP_MATERIAL_KEY] === true) mesh.userData[KEEP_MATERIAL_KEY] = true;
       if (stream !== undefined) mesh.userData[PAINT_STREAM_KEY] = stream;
-      const distances = g?.distances ?? [0];
-      const dv = (k: number): number => (k < distances.length ? distances[k]! : NEVER);
-      const draw: CopyDraw = {
-        set: this,
-        list,
-        level: new THREE.Vector4(level, g !== undefined ? Math.min(distances.length, MAX_LEVELS) : 1, g?.culls === true ? 1 : 0, this.perCopy && group >= 0 ? 0 : 1),
-        d0: new THREE.Vector4(dv(0), dv(1), dv(2), dv(3)),
-        d1: new THREE.Vector4(dv(4), dv(5), dv(6), dv(7)),
-        local: part.local.clone(),
-        reach,
-      };
+      const draw: CopyDraw = { set: this, list, local: part.local.clone() };
       mesh.userData[GPU_COPIES_KEY] = draw;
       mesh.userData[COVER_DRAW_KEY] = copiesPlacement;
       // Culled through the set (one listing a frame for all its draws); the frame probe reads the copies the view sees once per list.
@@ -450,7 +447,7 @@ export class GpuCopySet {
       this.draws.push({ mesh, list, part, near, geometry });
     };
     for (const part of this.plan.parts) makeDraw(part, false);
-    if (options.shadowDistance !== undefined) for (const part of this.plan.parts) if (part.mesh.userData[KEEP_MATERIAL_KEY] !== true) makeDraw(part, true);
+    if (options.shadowDistance !== undefined) for (const part of this.plan.parts) if (part.mesh.userData[KEEP_MATERIAL_KEY] !== true && (part.lod < 0 || part.level === 0)) makeDraw(part, true);
     this.updateBounds();
   }
 
@@ -519,66 +516,92 @@ export class GpuCopySet {
     const ex = view.eye[0]!, ey = view.eye[1]!, ez = view.eye[2]!;
     this.eye.set(ex, ey, ez, toDistance);
     viewEye.copy(this.eye);
-    if (ws !== this.worldScale) this.revision += 1;
     const bl = this.prepared.blocks;
     const nb = bl.length / BLOCK_FLOATS;
     const groups = this.plan.groups;
+    const G = Math.max(1, groups.length);
     let changed = false;
     if (!this.perCopy) this.pickBlockLevels(w, ws, toDistance);
+    // Each block once: its nearest and farthest metres from the eye, whether the view sees it, and (per copy) the levels
+    // its copies may take in each group; the lists then only compare.
+    const sc = this.cullScratch(nb, G);
+    for (let b = 0; b < nb; b += 1) {
+      const o = b * BLOCK_FLOATS;
+      const cx = bl[o]!, cy = bl[o + 1]!, cz = bl[o + 2]!;
+      const wx = w[0]! * cx + w[4]! * cy + w[8]! * cz + w[12]!;
+      const wy = w[1]! * cx + w[5]! * cy + w[9]! * cz + w[13]!;
+      const wz = w[2]! * cx + w[6]! * cy + w[10]! * cz + w[14]!;
+      const r = (bl[o + 3]! + this.reach * bl[o + 5]!) * ws;
+      const dc = Math.hypot(wx - ex, wy - ey, wz - ez);
+      sc.near[b] = Math.max(0, dc - r);
+      sc.seen[b] = view.camera === null || view.side(wx, wy, wz, r) !== SphereSide.Outside ? 1 : 0;
+      if (!this.perCopy) continue;
+      for (let g = 0; g < groups.length; g += 1) {
+        const dist = groups[g]!.distances;
+        sc.lo[b * G + g] = copyLevel(dist, sc.near[b]! * toDistance, bl[o + 5]! * ws);
+        sc.hi[b * G + g] = copyLevel(dist, (dc + r) * toDistance, bl[o + 4]! * ws);
+      }
+    }
+    const fades = this.density.w > 0.5 && this.density.z <= 0;
     for (const list of this.lists) {
-      const g = list.group >= 0 ? groups[list.group] : groups[0];
-      const dist = g?.distances ?? [0];
-      const last = dist.length - 1;
+      const gi = Math.max(0, list.group);
+      const g = groups[gi];
+      const last = (g?.distances.length ?? 1) - 1;
       const culls = g?.culls === true;
+      // A near-shadow list (a finite reach) takes every block in reach: its draws are the most detailed level's.
+      const levelled = g !== undefined && list.reach === Number.POSITIVE_INFINITY;
+      const candidate = (b: number): boolean => {
+        if (sc.near[b]! > list.reach || bl[b * BLOCK_FLOATS + 5]! <= 0) return false;
+        // A falloff down to no copies (a blob disc's) ends the set: a block wholly past it draws nothing.
+        if (fades && sc.near[b]! * toDistance >= this.density.y * bl[b * BLOCK_FLOATS + 5]! * ws) return false;
+        if (!levelled) return true;
+        if (!this.perCopy) {
+          const at = this.blockLevels[b * groups.length + gi]!;
+          return list.group < 0 ? !(culls && at === last) : at === list.level && !(culls && at === last);
+        }
+        const lo = sc.lo[b * G + gi]!;
+        return list.group < 0 ? !(culls && lo === last) : lo <= list.level && list.level <= sc.hi[b * G + gi]! && !(culls && list.level === last);
+      };
       // Seen candidates from the front, unseen ones after them, the rest (a static map's) last.
-      const unseen: number[] = [];
-      const rest: number[] = [];
       let n = 0;
       let inView = 0;
       for (let b = 0; b < nb; b += 1) {
-        const o = b * BLOCK_FLOATS;
-        const cx = bl[o]!, cy = bl[o + 1]!, cz = bl[o + 2]!;
-        const wx = w[0]! * cx + w[4]! * cy + w[8]! * cz + w[12]!;
-        const wy = w[1]! * cx + w[5]! * cy + w[9]! * cz + w[13]!;
-        const wz = w[2]! * cx + w[6]! * cy + w[10]! * cz + w[14]!;
-        const r = (bl[o + 3]! + this.reach * bl[o + 5]!) * ws;
-        const dc = Math.hypot(wx - ex, wy - ey, wz - ez);
-        const nearM = Math.max(0, dc - r);
-        let candidate = nearM <= list.reach && bl[o + 5]! > 0;
-        if (candidate && g !== undefined && !this.perCopy) {
-          const at = this.blockLevels[b * groups.length + Math.max(0, list.group)]!;
-          candidate = list.group < 0 ? !(culls && at === last) : at === list.level && !(culls && at === last);
-        } else if (candidate && g !== undefined) {
-          const lo = copyLevel(dist, nearM * toDistance, bl[o + 5]! * ws);
-          const hi = copyLevel(dist, (dc + r) * toDistance, bl[o + 4]! * ws);
-          if (list.group < 0) candidate = !(culls && lo === last);
-          else candidate = lo <= list.level && list.level <= hi && !(culls && list.level === last);
-        }
-        if (!candidate) {
-          if (list.staticAll) rest.push(b);
-          continue;
-        }
-        if (view.camera !== null && view.side(wx, wy, wz, r) === SphereSide.Outside) {
-          unseen.push(b);
-          continue;
-        }
+        if (sc.seen[b] !== 1 || !candidate(b)) continue;
         n = this.writeEntry(list, n, b);
-        inView += bl[o + 7]!;
+        inView += bl[b * BLOCK_FLOATS + 7]!;
       }
       const nView = n;
-      for (const b of unseen) n = this.writeEntry(list, n, b);
+      for (let b = 0; b < nb; b += 1) if (sc.seen[b] !== 1 && candidate(b)) n = this.writeEntry(list, n, b);
       const nCand = n;
-      for (const b of rest) n = this.writeEntry(list, n, b);
+      if (list.staticAll) for (let b = 0; b < nb; b += 1) if (!candidate(b)) n = this.writeEntry(list, n, b);
       if (list.texture.needsUpdate || n !== list.nAll || nView !== list.nView || nCand !== list.nCand) changed = true;
       list.nView = nView;
       list.nCand = nCand;
       list.nAll = n;
       list.copiesInView = inView;
     }
-    this.worldScale = ws;
+    if (ws !== this.worldScale) {
+      this.worldScale = ws;
+      for (const list of this.lists) this.writeHeader(list);
+    }
     // A draw no pass needs leaves three's walks (a camera other than the view, or the view moved since, draws every candidate).
     for (const d of this.draws) d.mesh.visible = d.list.nCand > 0 || (d.list.staticAll && d.mesh.castShadow && d.list.nAll > 0);
     return changed;
+  }
+
+  /** The per-block arrays a cull fills (kept between frames: no garbage per frame). */
+  private cullScratch(nb: number, groups: number): { near: Float32Array; seen: Uint8Array; lo: Int16Array; hi: Int16Array } {
+    if (this.scratch === null || this.scratch.seen.length < nb) this.scratch = { near: new Float32Array(nb), seen: new Uint8Array(nb), lo: new Int16Array(nb * groups), hi: new Int16Array(nb * groups) };
+    return this.scratch;
+  }
+
+  /** Write a list's header (its draws' constants: `LIST_HEADER`). */
+  private writeHeader(list: CopyList): void {
+    const g = list.group >= 0 ? this.plan.groups[list.group] : this.plan.groups[0];
+    const distances = g?.distances ?? [0];
+    const dv = (k: number): number => (k < distances.length ? distances[k]! : NEVER);
+    list.data.set([this.block, Math.min(list.reach, NEVER), this.worldScale, 0, list.level, g !== undefined ? Math.min(distances.length, MAX_LEVELS) : 1, g?.culls === true ? 1 : 0, list.mode, dv(0), dv(1), dv(2), dv(3), dv(4), dv(5), dv(6), dv(7), this.density.x, this.density.y, this.density.z, this.density.w], 0);
+    list.texture.needsUpdate = true;
   }
 
   /**
@@ -609,7 +632,7 @@ export class GpuCopySet {
   /** Write block `b` as entry `n` of `list` (only when it differs: the texture is uploaded only then). */
   private writeEntry(list: CopyList, n: number, b: number): number {
     const o = b * BLOCK_FLOATS;
-    const at = n * 4;
+    const at = (LIST_HEADER + n) * 4;
     const out = list.data;
     const bl = this.prepared.blocks;
     if (out[at] !== bl[o + 6] || out[at + 1] !== bl[o + 7]) {
@@ -764,7 +787,7 @@ export class GpuCopySet {
     const seen = new Uint8Array(p.blocks.length / BLOCK_FLOATS);
     for (const list of this.lists) {
       if (list.reach !== Number.POSITIVE_INFINITY) continue;
-      for (let n = 0; n < list.nView; n += 1) seen[this.blockOf[list.data[n * 4]!]!] = 1;
+      for (let n = 0; n < list.nView; n += 1) seen[this.blockOf[list.data[(LIST_HEADER + n) * 4]!]!] = 1;
     }
     const bl = p.blocks;
     const count = (level: number, n: number, b: number): void => {
