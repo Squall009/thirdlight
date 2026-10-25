@@ -11,7 +11,7 @@
  */
 
 import { applyGraphOpsLocal } from '../graph/model';
-import type { BlockChunk, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField, KitDef, SaveSchema } from '@thirdlight/project-model';
+import type { BlockChunk, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField, KitDef, PlaneLock, SaveSchema } from '@thirdlight/project-model';
 import type { DialogueDocument, DialogueSettings, DialogueSpeaker } from '@thirdlight/project-model';
 import type { AnimatorController, DescriptorRegistry, GraphDocument, GraphKindDef, EnvironmentConfig, SceneEnvironment, InputConfig, LightingBake, MaterialDef, EffectDef, ScriptLibrary, UiDocument, UiTheme, TimelineAsset, GameMode, EventCue, GameShell, LoadableEntry } from '@thirdlight/project-model';
 import type { ChangeData } from '@thirdlight/commands';
@@ -47,6 +47,8 @@ export class SessionProjectState {
   private environment: EnvironmentConfig | null = null;
   /** Each scene's look (scenes without one are not listed). */
   protected sceneLooks = new Map<string, SceneEnvironment>();
+  /** Each scene's default plane (absent: none). */
+  protected scenePlanes = new Map<string, PlaneLock>();
   /** Each scene's bake (from queryGameConfig, then setLighting changes). */
   private lighting: Record<string, LightingBake> = {};
   /** The animator controllers. */
@@ -198,11 +200,15 @@ export class SessionProjectState {
         if (change.next === null) this.sceneLooks.delete(change.sceneId);
         else this.sceneLooks.set(change.sceneId, structuredClone(change.next as SceneEnvironment));
       } else this.environment = change.next === null ? null : structuredClone(change.next as EnvironmentConfig);
+    } else if (change.type === 'setScenePlane') {
+      if (change.next === null) this.scenePlanes.delete(change.sceneId);
+      else this.scenePlanes.set(change.sceneId, { ...change.next });
     } else if (change.type === 'setSceneIndex') {
       // A scene the index gains brings the look the change carries (the looks listed are those of the
       // scenes added or removed; the wire leaves out `previous`); a removed one takes its look along.
       const kept = new Set(change.next.scenes.map((r) => r.sceneId));
       for (const id of [...this.sceneLooks.keys()]) if (!kept.has(id)) this.sceneLooks.delete(id);
+      for (const id of [...this.scenePlanes.keys()]) if (!kept.has(id)) this.scenePlanes.delete(id);
       for (const [id, look] of Object.entries(change.environments ?? {})) if (kept.has(id)) this.sceneLooks.set(id, structuredClone(look));
     } else if (change.type === 'setInput') {
       this.input = change.next === null ? null : structuredClone(change.next);
@@ -340,6 +346,11 @@ export class SessionProjectState {
   getSceneEnvironment(sceneId: string): SceneEnvironment | null {
     const look = this.sceneLooks.get(sceneId);
     return look === undefined ? null : structuredClone(look);
+  }
+
+  /** Each scene's default plane (a scene without one is not listed). */
+  getScenePlanes(): ReadonlyMap<string, PlaneLock> {
+    return this.scenePlanes;
   }
 
   /**

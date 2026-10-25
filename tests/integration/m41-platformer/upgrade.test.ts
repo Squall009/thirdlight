@@ -197,6 +197,10 @@ describe('a 2D project opened over HTTP: one 3D backend, scenes with a default p
     // The scene's plane note goes when its plane is set.
     await command('setScenePlane', { sceneId: 'scene-one-way', plane: { axis: 'z', origin: 0 } });
     expect(readJson(sceneFile('scene-one-way')).scene.migratedFrom2D.plane).toBeUndefined();
+    // The scene list the editor reads carries each scene's plane (its Scene settings and gizmo lock).
+    const rows = ((await api(`${tb.authUrl}/api/v1/projects/${PID}/commands`, { body: { op: 'queryProject', projectId: PID, args: {} }, token: tb.adminToken, origin: null })).json as Any).scenes as Any[];
+    expect(rows.find((r) => r.sceneId === 'scene-one-way').plane).toEqual({ axis: 'z', origin: 0 });
+    expect(rows.every((r) => r.plane !== undefined)).toBe(true);
     expect((await problems('migrated_from_2d')).some((l) => l.startsWith('3 scenes'))).toBe(true);
   });
 

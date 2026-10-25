@@ -43,14 +43,14 @@ function componentSection(c) {
   if (c.handles.length > 0) {
     body += `\nScene-view handles:\n\n${table(
       ['Handle', 'Kind', 'Edits', 'Space', 'Shown when'],
-      c.handles.map((h) => [h.label, h.kind, Object.entries(h.bind).map(([role, ptr]) => `${role} → ${code(ptr)}`).join(', '), `${h.space}${h.follows !== undefined ? ` (follows ${h.follows})` : ''}`, [h.when === undefined ? '' : conditionText(h.when), h.dimension === undefined ? '' : `${h.dimension}D`].filter((x) => x !== '').join('; ')]),
+      c.handles.map((h) => [h.label, h.kind, Object.entries(h.bind).map(([role, ptr]) => `${role} → ${code(ptr)}`).join(', '), `${h.space}${h.follows !== undefined ? ` (follows ${h.follows})` : ''}`, h.when === undefined ? '' : conditionText(h.when)]),
     )}`;
   }
   if (c.presets !== undefined && c.presets.length > 0) {
-    body += `\nPresets:\n\n${c.presets.map((p) => `- ${p.label}${p.dimension !== undefined ? ` (${p.dimension}D)` : ''}${p.requires !== undefined ? ` (needs ${p.requires.map(code).join(', ')})` : ''}: ${json(p.value)}`).join('\n')}\n`;
+    body += `\nPresets:\n\n${c.presets.map((p) => `- ${p.label}${p.requires !== undefined ? ` (needs ${p.requires.map(code).join(', ')})` : ''}: ${json(p.value)}`).join('\n')}\n`;
   }
   if (c.create !== undefined && c.create.length > 0) {
-    body += `\nGameObject menu: ${c.create.map((e) => `${e.menu !== undefined ? `${e.menu} → ` : ''}${e.label}${e.dimension !== undefined ? ` (${e.dimension}D)` : ''}`).join(', ')}\n`;
+    body += `\nGameObject menu: ${c.create.map((e) => `${e.menu !== undefined ? `${e.menu} → ` : ''}${e.label}`).join(', ')}\n`;
   }
   return section(`component-${c.name}`, `${c.name} — ${c.label}`, body, { topics: [`component.${c.name}`] });
 }

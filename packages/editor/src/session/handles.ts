@@ -166,7 +166,7 @@ const frameOf = (h: HandleDescriptor): Frame => (h.space === 'world' ? 'world' :
 // ---- reading shapes -----------------------------------------------------------
 
 /** The handle shapes of one object (its components in registry order, each handle whose `when` holds). */
-export function handleShapesOf(e: ProjectedEntity, reg: DescriptorRegistry | null, dimension: 2 | 3 = 2): HandleShape[] {
+export function handleShapesOf(e: ProjectedEntity, reg: DescriptorRegistry | null): HandleShape[] {
   if (reg === null) return [];
   const out: HandleShape[] = [];
   for (const c of reg.components) {
@@ -175,10 +175,8 @@ export function handleShapesOf(e: ProjectedEntity, reg: DescriptorRegistry | nul
     if (raw === undefined || !isObj(raw)) continue;
     const root = c.value;
     c.handles.forEach((h, handleIndex) => {
-      // A handle of one physics dimension shows only in a project of that dimension.
-      if (h.dimension !== undefined && h.dimension !== dimension) return;
       if (!conditionsHold(root, raw, h.when)) return;
-      const shape = readShape(e.id, c.name, handleIndex, h, root, raw, dimension);
+      const shape = readShape(e.id, c.name, handleIndex, h, root, raw);
       if (shape === null) return;
       if (h.anchor !== undefined) {
         // On another object (a track camera's target); none named: no handle.
@@ -195,7 +193,7 @@ export function handleShapesOf(e: ProjectedEntity, reg: DescriptorRegistry | nul
   return out;
 }
 
-function readShape(entityId: string, component: string, handleIndex: number, h: HandleDescriptor, root: ObjectFieldDescriptor, value: Obj, dimension: 2 | 3): HandleShape | null {
+function readShape(entityId: string, component: string, handleIndex: number, h: HandleDescriptor, root: ObjectFieldDescriptor, value: Obj): HandleShape | null {
   const at = (role: string): { v: unknown; f: FieldDescriptor | null } => effective(root, value, h.bind[role] ?? '');
   const limits: Record<string, Range> = {};
   const lim = (role: string, f: FieldDescriptor | null): void => {
@@ -327,7 +325,7 @@ function readShape(entityId: string, component: string, handleIndex: number, h: 
       if (a === null || b === null) return null;
       lim('min', lo.f);
       lim('max', hi.f);
-      return { ...base, model: { type: 'bounds', min: p3(a[0]!, a[1]!, a[2]!), max: p3(b[0]!, b[1]!, b[2]!), dims: dimension } };
+      return { ...base, model: { type: 'bounds', min: p3(a[0]!, a[1]!, a[2]!), max: p3(b[0]!, b[1]!, b[2]!), dims: 3 } };
     }
   }
 }

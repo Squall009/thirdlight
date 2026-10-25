@@ -28,7 +28,7 @@ const entity = (spline: unknown): ProjectedEntity => ({
 });
 
 const shapeOf = (spline: unknown): HandleShape => {
-  const s = handleShapesOf(entity(spline), DESCRIPTORS, 3).find((x) => x.component === 'spline');
+  const s = handleShapesOf(entity(spline), DESCRIPTORS).find((x) => x.component === 'spline');
   if (s === undefined) throw new Error('no spline handle');
   return s;
 };

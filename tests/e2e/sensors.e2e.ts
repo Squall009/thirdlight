@@ -3,10 +3,10 @@
  * template with neutral additions:
  *
  * - Editor: GameObject → Gameplay → Trigger; the Inspector turns it into a
- *   circle (one edit converts the size to a radius), sets `mode: stay`; the
+ *   sphere (one edit converts the size to a radius), sets `mode: stay`; the
  *   Scene view shows one radius handle, a drag stores a snapped radius and
  *   one undo restores it.
- * - Play: the circle sits on the player's start (radius 0.5, stay, signal
+ * - Play: the sphere sits on the player's start (radius 0.5, stay, signal
  *   "here"); a magenta door beside the player carries a script whose
  *   entityRef property names the trigger. On the trigger's `enter` event
  *   (ctx.events) it starts a 0.5 s timer that hides the door, which comes back
@@ -130,12 +130,12 @@ async function magenta(target: Page | Locator): Promise<number> {
   return n;
 }
 
-test('a circle trigger in the Inspector and the Scene view; a timed door script opens and closes in Play', async ({ page }) => {
+test('a sphere trigger in the Inspector and the Scene view; a timed door script opens and closes in Play', async ({ page }) => {
   test.setTimeout(240_000);
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
 
-  // A trigger from the menu, turned into a circle on the player's start with stay mode.
+  // A trigger from the menu, turned into a sphere on the player's start with stay mode.
   await menu(page, 'GameObject', 'Gameplay', 'Trigger');
   await expect(page.locator('.tl-inspector__name')).toHaveValue('Trigger');
   await field(page, 'position x', '3');
@@ -143,14 +143,14 @@ test('a circle trigger in the Inspector and the Scene view; a timed door script 
   await field(page, 'position z', '0');
   const trigger = (await entities()).find((e) => e.name === 'Trigger')!;
   const triggerValue = async (): Promise<Record<string, unknown>> => (await entities()).find((e) => e.id === trigger.id)!.components['trigger'] as Record<string, unknown>;
-  expect(await triggerValue()).toEqual({ size: [2, 2], signal: 'trigger' });
-  await page.getByLabel('trigger shape').selectOption('circle');
-  await expect.poll(triggerValue).toEqual({ signal: 'trigger', shape: 'circle', radius: 1 });
+  expect(await triggerValue()).toEqual({ size: [2, 2, 2], signal: 'trigger' });
+  await page.getByLabel('trigger shape').selectOption('sphere');
+  await expect.poll(triggerValue).toEqual({ signal: 'trigger', shape: 'sphere', radius: 1 });
   await expect(page.locator('.tl-inspector').getByLabel('trigger radius', { exact: true })).toHaveValue('1');
   await expect(page.locator('.tl-inspector').getByLabel('trigger size w', { exact: true })).toHaveCount(0);
   await page.getByLabel('trigger mode').selectOption('stay');
   await field(page, 'trigger signal', 'here');
-  await expect.poll(triggerValue).toEqual({ signal: 'here', shape: 'circle', radius: 1, mode: 'stay' });
+  await expect.poll(triggerValue).toEqual({ signal: 'here', shape: 'sphere', radius: 1, mode: 'stay' });
 
   // The Scene view: one radius handle; a drag outward stores a larger, snapped radius; one undo restores it.
   await page.keyboard.press('f');
@@ -171,15 +171,15 @@ test('a circle trigger in the Inspector and the Scene view; a timed door script 
   await expect.poll(async () => (await triggerValue())['radius'] as number).toBeGreaterThan(1.04);
   const r = (await triggerValue())['radius'] as number;
   expect(Math.abs(r / 0.05 - Math.round(r / 0.05))).toBeLessThan(1e-6);
-  expect(await triggerValue()).toMatchObject({ signal: 'here', shape: 'circle', mode: 'stay' });
+  expect(await triggerValue()).toMatchObject({ signal: 'here', shape: 'sphere', mode: 'stay' });
   await view.hover();
   await page.keyboard.press('Control+z');
   await expect.poll(async () => (await triggerValue())['radius']).toBe(1);
   // The Inspector redraws after the undo: wait for it before typing, or the fill lands mid-redraw.
   await expect(page.locator('.tl-inspector').getByLabel('trigger radius', { exact: true })).toHaveValue('1');
-  // A small circle on the start: the player stands inside it when the run begins.
+  // A small sphere on the start: the player stands inside it when the run begins.
   await field(page, 'trigger radius', '0.5');
-  await expect.poll(triggerValue).toEqual({ signal: 'here', shape: 'circle', radius: 0.5, mode: 'stay' });
+  await expect.poll(triggerValue).toEqual({ signal: 'here', shape: 'sphere', radius: 0.5, mode: 'stay' });
 
   // The door: a magenta slab right of the player, with the timed script naming the trigger.
   const made = await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'Timed door', transform: { position: [5, 1.3, 0] }, box: { size: [0.5, 2.6, 1], material: { color: '#ff00ff' } } });
@@ -197,7 +197,7 @@ test('a circle trigger in the Inspector and the Scene view; a timed door script 
   await expect.poll(async () => (await observe()).state, { timeout: 30_000 }).toBe('running');
   const frame = page.locator('iframe.tl-app__preview-frame');
 
-  // The player starts inside the circle: one enter event, the stay signal every step.
+  // The player starts inside the sphere: one enter event, the stay signal every step.
   await expect.poll(async () => counter('entered'), { timeout: 30_000 }).toBe(1);
   await expect.poll(async () => counter('stayed'), { timeout: 30_000 }).toBeGreaterThan(30);
   // Half a second later the door opens (hidden: no magenta), four seconds after that it closes again.

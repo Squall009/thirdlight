@@ -92,10 +92,13 @@ describe('helper overlay gameplay helpers', () => {
     const ramp = { ...entity('ramp', undefined), collider: { shape: { type: 'polygon', vertices: [[0, 0], [2, 0], [2, 1]] } } } as ProjectedEntity;
     overlay.sync([lift, ramp]);
     expect(overlay.blockHelpers().colliders).toBe(2);
-    // One line-segment object per colour holds every outline (the lift's box: 4 segments, 8 vertices).
+    // One line-segment object per colour holds every outline. A flat box and a polygon are drawn as the solids the
+    // game makes of them, 1 m deep: the lift's box 12 edges (24 vertices), the ramp's prism its hull's 15.
     const outlines = scene.getObjectByName('collider-outlines:solid') as THREE.LineSegments;
-    expect(outlines.geometry.getAttribute('position').count).toBe(8 + 6);
-    expect((outlines.userData['outlines'] as Record<string, { start: number; count: number }>)['lift']).toEqual({ start: 0, count: 8 });
+    expect(outlines.geometry.getAttribute('position').count).toBe(24 + 30);
+    expect((outlines.userData['outlines'] as Record<string, { start: number; count: number }>)['lift']).toEqual({ start: 0, count: 24 });
+    const zs = new Set(Array.from({ length: 24 }, (_, i) => outlines.geometry.getAttribute('position').getZ(i)));
+    expect([...zs].sort()).toEqual([-0.5, 0.5]);
     // Only the selection has grips.
     expect(overlay.pickHandle(...screen(2, 0))).toBeNull();
     overlay.setSelected('lift');

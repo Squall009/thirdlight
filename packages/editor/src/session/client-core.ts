@@ -23,7 +23,7 @@
  * link (`play-link.ts`) and the open scenes (`open-scenes.ts`).
  */
 
-import type { BlockChunk, BlockLayerComponent, BlockRegion, DescriptorRegistry, EnvironmentConfig, SceneEnvironment } from '@thirdlight/project-model';
+import type { BlockChunk, BlockLayerComponent, BlockRegion, DescriptorRegistry, EnvironmentConfig, PlaneLock, SceneEnvironment } from '@thirdlight/project-model';
 import type { ChangeData, FootprintChunks } from '@thirdlight/commands';
 import { makeEstablishBody, type Origin } from './envelope';
 import { Projection, type FullState, type ProjectedEntity } from './projection';
@@ -429,12 +429,14 @@ export class SessionClientCore extends SessionProjectState {
     // A v4 project lists its scenes; its entities are read in
     // pages (each names its scene).
     // The scene rows carry each scene's look (sky, fog, post, wind).
-    const proj = await this.api<{ ok: boolean; revision?: number; scenes?: { sceneId: string; name: string; environment?: SceneEnvironment }[]; startScenes?: string[] }>(
+    const proj = await this.api<{ ok: boolean; revision?: number; scenes?: { sceneId: string; name: string; environment?: SceneEnvironment; plane?: PlaneLock }[]; startScenes?: string[] }>(
       `/projects/${this.cfg.projectId}/commands`,
       { op: 'queryProject', projectId: this.cfg.projectId, args: { environments: true } },
     );
     const v4 = proj.ok && Array.isArray(proj.scenes);
     if (v4) this.sceneLooks = new Map(proj.scenes!.filter((r) => r.environment !== undefined).map((r) => [r.sceneId, r.environment!]));
+    // Each scene's default plane (the Scene settings and the gizmo's plane lock).
+    if (v4) this.scenePlanes = new Map(proj.scenes!.filter((r) => r.plane !== undefined).map((r) => [r.sceneId, r.plane!]));
     const page = v4 ? 16_384 : 1024;
     const entities: unknown[] = [];
     const entitySceneIds: string[] = [];

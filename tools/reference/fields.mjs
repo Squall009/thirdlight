@@ -113,7 +113,6 @@ function notesText(f) {
   if (f.nullable === true) tags.push('may be null');
   if (f.omitDefault === true) tags.push('stored only when not the default');
   if (f.readOnly === true) tags.push('written by a tool');
-  if (f.dimension !== undefined) tags.push(`${f.dimension}D projects only`);
   if (f.handle !== undefined) tags.push(`Scene handle: ${f.handle}`);
   if (f.runtimeWritable === true) tags.push('scripts read and write');
   else if (f.scriptReadable === true) tags.push('scripts read');

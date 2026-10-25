@@ -79,8 +79,6 @@ interface FieldBase {
   readonly unit?: DescriptorUnit;
   /** The Scene-view handle that edits this field (see the component's `handles`). */
   readonly handle?: HandleKind;
-  /** The project physics dimension the field applies in (absent: both); the Inspector shows the project's. */
-  readonly dimension?: 2 | 3;
   /**
    * Scripts read it (`ctx.entity(ref).get(component)`: a
    * read-only snapshot of the step-start state). The marks are versioned with
@@ -284,8 +282,6 @@ export interface HandleDescriptor {
   readonly band?: string;
   /** `path`, `spline`: the path closes back to its start while this holds. */
   readonly loop?: FieldCondition;
-  /** The project physics dimension the handle applies in (absent: both). */
-  readonly dimension?: 2 | 3;
   /** `height`: a capsule field (pointer to its object) whose feet the height is measured from (read, not dragged). */
   readonly from?: string;
   /**
@@ -390,8 +386,6 @@ export interface CreateEntryDescriptor {
   readonly value?: DescriptorJson;
   /** Other components the new object carries (a platform's collider). */
   readonly with?: { readonly [component: string]: DescriptorJson };
-  /** The project physics dimension the entry fits (absent: both). */
-  readonly dimension?: 2 | 3;
   /** Pointers into `value` set to another scene of the project when created (the entry needs a second scene). */
   readonly otherScene?: readonly string[];
 }
@@ -410,9 +404,8 @@ export interface ComponentDescriptor {
   readonly value: FieldDescriptor;
   readonly add: ComponentAdd;
   /** Ready-made values (a light per type, a zone per role). */
-  /** `dimension` — the project physics dimension a preset fits (absent: both; the "+ Add component" list shows the project's). */
   /** Starting values; `requires`: components the object needs for this one (a model collider needs a model). */
-  readonly presets?: readonly { readonly label: string; readonly value: DescriptorJson; readonly dimension?: 2 | 3; readonly requires?: readonly string[] }[];
+  readonly presets?: readonly { readonly label: string; readonly value: DescriptorJson; readonly requires?: readonly string[] }[];
   readonly handles: readonly HandleDescriptor[];
   /** Needs one of these on the same entity. */
   readonly requiresAnyOf?: { readonly components: readonly string[]; readonly reason: string };

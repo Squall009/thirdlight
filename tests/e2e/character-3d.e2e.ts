@@ -12,10 +12,10 @@
  *   rig yet) — positions read through tl_game_observe;
  * - the static export, with the backend stopped: D walks it up the riser too
  *   (read through `window.__thirdlightObserve`);
- * - Inspector and Scene handles: in a 3D project the controller shows its 3D
- *   settings (the 2D plane's autostep hidden), the step-up height is edited
- *   in the Inspector and dragged with its handle above the capsule's feet,
- *   one undo each; a 2D project shows neither.
+ * - Inspector and Scene handles: the controller shows every setting (both
+ *   movement profiles' fields, in every project), the step-up height is
+ *   edited in the Inspector and dragged with its handle above the capsule's
+ *   feet, one undo each.
  */
 import { randomBytes } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
@@ -214,7 +214,7 @@ test('3D character: keyboard walks it up a riser and into a wall in Play, tl_inp
   }
 });
 
-test('3D character settings: Inspector fields and the step-up height handle (3D only)', async ({ page }) => {
+test('character settings: Inspector fields and the step-up height handle', async ({ page }) => {
   test.setTimeout(240_000);
   be = await startBackend('character3d-inspector-e2e');
   await block('Floor', [0, -0.5, 0], [10, 0.5, 10]);

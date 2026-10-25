@@ -1,5 +1,5 @@
 /**
- * The open Lighting, Environment, Decals and Vertex paint windows, floating over the Scene view
+ * The open Lighting, Environment and Scene settings windows, floating over the Scene view
  * (shown while the Scene view is in front; the editor window, Project
  * Settings and the Game view set them aside without closing them). Each
  * names the scene it edits, the active scene, with a picker to edit another.
@@ -14,6 +14,8 @@ import { alignSkyToKeyLight } from '../../viewport/sky-align';
 import { skyTurnDegrees } from '@thirdlight/three-adapter';
 import { EnvironmentPanel } from '../EnvironmentPanel';
 import { LightingPanel } from '../LightingPanel';
+import { ScenePlanePanel } from '../ScenePlanePanel';
+import { refusal } from '../shell/commands';
 import type { SceneHeaderView } from '../Hierarchy';
 import type { ClientRef, ViewportRef } from '../shell/commands';
 import type { ProjectContent } from '../shell/useProjectContent';
@@ -78,7 +80,20 @@ export function SceneToolWindows(p: SceneToolWindowsProps): JSX.Element | null {
   const { saveEnvironment, saveSceneEnvironment, materialError } = p.docCmds;
   const b = p.bake;
   const body = (id: ToolWindowId): JSX.Element =>
-    id === 'environment' ? (
+    id === 'scene' ? (
+      active === null ? (
+        <p className="tl-hint">Scene settings need a project with scenes (storage v4).</p>
+      ) : (
+        <ScenePlanePanel
+          plane={p.content.scenePlanes.get(active.sceneId) ?? null}
+          onSet={async (plane) => {
+            const c = p.clientRef.current;
+            if (c === null) return 'not connected';
+            return refusal(await c.command('setScenePlane', { sceneId: active.sceneId, plane }, c.projection.revision));
+          }}
+        />
+      )
+    ) : id === 'environment' ? (
       <EnvironmentPanel
         environment={environment}
         onSave={(env) => void saveEnvironment(env, environment)}

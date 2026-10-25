@@ -1,5 +1,5 @@
 /**
- * The Window menu's floating tool windows (Lighting, Environment): which are
+ * The Window menu's floating tool windows (Lighting, Environment, Scene settings): which are
  * open, in which order they stack, and where each stands, remembered per
  * browser like the dock sizes (presentation only, never project data).
  *
@@ -9,12 +9,13 @@
  */
 import { useCallback, useMemo, useState } from 'react';
 
-export type ToolWindowId = 'lighting' | 'environment';
+export type ToolWindowId = 'lighting' | 'environment' | 'scene';
 
 /** The tool windows in the order the Window menu lists them. */
 export const TOOL_WINDOWS: ReadonlyArray<{ id: ToolWindowId; label: string }> = [
   { id: 'lighting', label: 'Lighting' },
   { id: 'environment', label: 'Environment' },
+  { id: 'scene', label: 'Scene settings' },
 ];
 
 /** A window's box in the work area (px from its top-left corner). */

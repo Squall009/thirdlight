@@ -1183,7 +1183,8 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
       },
       scenes: state.content.scenes.map((e) => {
         const sc = state.scenes.get(e.sceneId);
-        return { sceneId: e.sceneId, name: e.name, entityCount: sc?.entities.length ?? 0, ...(memory ? { objectBytes: sc !== undefined ? sceneObjectBytes(sc) : 0, objectBudgetBytes: SCENE_OBJECT_BUDGET_BYTES } : {}), ...(looks && sc?.environment !== undefined ? { environment: JSON.parse(JSON.stringify(sc.environment)) as unknown } : {}) };
+        // A scene's default plane is always listed (the editor's Scene settings and gizmo lock read it).
+        return { sceneId: e.sceneId, name: e.name, entityCount: sc?.entities.length ?? 0, ...(sc?.defaultPlane !== undefined ? { plane: { ...sc.defaultPlane } } : {}), ...(memory ? { objectBytes: sc !== undefined ? sceneObjectBytes(sc) : 0, objectBudgetBytes: SCENE_OBJECT_BUDGET_BYTES } : {}), ...(looks && sc?.environment !== undefined ? { environment: JSON.parse(JSON.stringify(sc.environment)) as unknown } : {}) };
       }),
       startScenes: [...state.content.startScenes],
       history: { undoDepth: s.history.cursor, redoDepth: s.history.entries.length - s.history.cursor },

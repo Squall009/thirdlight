@@ -55,8 +55,6 @@ export interface FieldContext extends PickerData {
   readonly animatorParameters?: Readonly<Record<string, readonly { name: string; type: string; default?: number | boolean }[]>>;
   /** Each effect's public parameters (an object's overrides are edited from this list). */
   readonly effectParameters?: Readonly<Record<string, readonly { key: string; type: string; default: number | number[] | string; label?: string }[]>>;
-  /** The project's physics dimension (absent: the 2D plane) — which presets "+ Add component" offers. */
-  readonly physicsDimension?: 2 | 3;
   /**
    * The node names of an object's model, as the game resolves
    * sockets on them — an array once read, null while it is being read,
@@ -786,9 +784,7 @@ export function ObjectFields(p: {
 }): JSX.Element {
   const level: Level = { desc: p.desc, value: p.value, ...(p.parent !== undefined ? { parent: p.parent } : {}) };
   const marks = useContext(FieldMarksContext);
-  // A field of one physics dimension shows only in a project of that dimension (a 3D character's settings, the 2D plane's autostep).
-  const dimension = p.ctx.physicsDimension ?? 2;
-  const fields = visibleFields(level).filter((f) => !(p.skip ?? []).includes(f.key) && (f.dimension === undefined || f.dimension === dimension));
+  const fields = visibleFields(level).filter((f) => !(p.skip ?? []).includes(f.key));
   return (
     <>
       {groupFields(fields).map((g) => (

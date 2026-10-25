@@ -8,8 +8,8 @@
  * as a scene: no game session), driven by exclusive test input, the
  * character collects the collectible (its named counter), opens the door by
  * stepping on the plate, jumps up through the shelf, walks onto the lift and
- * rides it up. The 2D-plane switches work
- * without a game session.
+ * rides it up, on the starter scene's plane. The switches work without a
+ * game session.
  */
 import { randomBytes } from 'node:crypto';
 
@@ -91,7 +91,7 @@ test('a level built from gameplay blocks plays: a collectible, plate and door, o
   const layout: [string, number, number][] = [['Collectible', 4.5, 0.5], ['Switch', 7, 0.1], ['Door', 9, 1.5], ['One-way platform', 12, 0.8], ['Moving platform', 14.5, 0.7], ['Trigger', 14.5, 1.9]];
   for (const [name, x, y] of layout) await cmd('setTransform', { entityId: stored.entities!.find((e) => e.name === name)!.id, transform: { position: [x, y, 0] } });
   expect(byName('Moving platform')?.['mover']).toEqual({ waypoints: [[0, 2, 0]], speed: 2, mode: 'once', wait: 0.5, startOn: 'ride' });
-  expect(byName('Trigger')?.['trigger']).toEqual({ size: [1.6, 1.6], signal: 'ride', exitSignal: 'left' });
+  expect(byName('Trigger')?.['trigger']).toEqual({ size: [1.6, 1.6, 2], signal: 'ride', exitSignal: 'left' });
   const counter = String((byName('Collectible')?.['collectible'] as { counter?: string } | undefined)?.counter);
   expect(counter).toMatch(/^[A-Za-z_]/);
 

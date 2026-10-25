@@ -58,7 +58,8 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { disposeOrbitControls, releaseControlKeyListeners } from './controls';
 import type { ProjectedEntity } from '../session/projection';
 import { effectiveFlagsOf, type EffectiveEntityFlags } from '../session/hierarchy';
-import type { DescriptorRegistry } from '@thirdlight/project-model';
+import type { DescriptorRegistry, PlaneLock } from '@thirdlight/project-model';
+import { gizmoPlaneAxis } from '../session/scene-planes';
 import { HelperOverlay } from './helper-overlay';
 import { SeeThroughPreview } from './see-through-preview';
 import type { CopyTransform } from '../session/instance-copies';
@@ -972,7 +973,8 @@ export class Viewport {
     // No gizmo on a folder (no transform) or a locked entity.
     const movable = id !== null && !this.folderIds.has(id) && this.hierarchyFlags.get(id)?.locked !== true && this.synced.has(id);
     const take = this.tools.router.anyArmed(id) || this.isolation.active ? null : { copy: this.copies.selection !== null && this.copies.placed, entity: movable };
-    this.gizmo.aim(id, take, mode);
+    // A body on a plane (its own, or its scene's default) is moved in the plane and turned about its normal only.
+    this.gizmo.aim(id, take, mode, gizmoPlaneAxis(id === null ? undefined : this.synced.get(id), this.helpers.planes));
     this.helpers.setSelected(id);
     this.seeThrough.apply(this.adapter, id, this.projected);
     this.stampGizmoCounts();
@@ -1000,10 +1002,10 @@ export class Viewport {
     this.requestRender();
   }
 
-  /** The project's physics dimension (handles of the other dimension are not shown). */
-  setPhysicsDimension(dimension: 2 | 3): void {
-    this.helpers.setPhysicsDimension(dimension);
-    this.requestRender();
+  /** Each scene's default plane: the colliders' outlines and the gizmo's plane lock follow them. */
+  setScenePlanes(planes: ReadonlyMap<string, PlaneLock>): void {
+    this.helpers.setScenePlanes(planes);
+    this.setSelected(this.selectedId);
   }
 
   /** The project's lens (its camera settings): a virtual camera without its own uses it. */

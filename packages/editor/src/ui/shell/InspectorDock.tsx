@@ -392,7 +392,7 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
       addExtras={(() => {
         // "Add collider → box / polygon from model outline" (where a collider may be added).
         if (selected === null || registry === null || selected.components['collider'] !== undefined) return [];
-        const entry = addEntries(registry, new Set(Object.keys(selected.components)), { dimension: 3 }).find((x) => x.component === 'collider');
+        const entry = addEntries(registry, new Set(Object.keys(selected.components))).find((x) => x.component === 'collider');
         const enabled = entry?.enabled === true;
         const reason = entry?.reason ?? null;
         // Colliders from the model (its _COL node, else its geometry).

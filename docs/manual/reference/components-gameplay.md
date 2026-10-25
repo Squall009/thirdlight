@@ -59,7 +59,7 @@ Scene-view handles:
 |---|---|---|---|---|
 | Waypoints | path | points → `waypoints` | local |  |
 
-GameObject menu: Gameplay → Moving platform (2D), Gameplay → Moving platform (3D), Gameplay → Door (opens on "open") (2D), Gameplay → Door (opens on "open") (3D)
+GameObject menu: Gameplay → Moving platform, Gameplay → Door (opens on "open")
 
 <a id="component-trigger"></a>
 ## trigger — Trigger
@@ -100,11 +100,11 @@ Scene-view handles:
 
 Presets:
 
-- Box (3D) (3D): `{"size":[2,2,2],"signal":"trigger"}`
-- Sphere (3D): `{"shape":"sphere","radius":1,"signal":"trigger"}`
-- Capsule (3D): `{"shape":"capsule","radius":0.5,"height":2,"signal":"trigger"}`
+- Box: `{"size":[2,2,2],"signal":"trigger"}`
+- Sphere: `{"shape":"sphere","radius":1,"signal":"trigger"}`
+- Capsule: `{"shape":"capsule","radius":0.5,"height":2,"signal":"trigger"}`
 
-GameObject menu: Gameplay → Trigger (2D), Gameplay → Trigger (3D), Gameplay → Scene transition (2D), Gameplay → Scene transition (3D)
+GameObject menu: Gameplay → Trigger, Gameplay → Scene transition
 
 <a id="component-switch"></a>
 ## switch — Switch
@@ -243,11 +243,10 @@ Scene-view handles:
 
 Presets:
 
-- Box (2D): `{"size":[1,1]}`
-- Box (3D): `{"size":[1,1,1]}`
+- Box: `{"size":[1,1,1]}`
 - Sphere: `{"shape":"sphere","radius":0.5}`
 
-GameObject menu: Gameplay → Hitbox (2D), Gameplay → Hitbox (3D)
+GameObject menu: Gameplay → Hitbox
 
 <a id="component-climbVolume"></a>
 ## climbVolume — Climb volume
@@ -270,7 +269,7 @@ Scene-view handles:
 |---|---|---|---|---|
 | Size | box2 | size → `size` | local (follows rotation) |  |
 
-GameObject menu: Gameplay → Climb volume (2D), Gameplay → Climb volume (3D)
+GameObject menu: Gameplay → Climb volume
 
 <a id="component-gravity"></a>
 ## gravity — Gravity

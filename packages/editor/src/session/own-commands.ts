@@ -39,6 +39,7 @@ export const WHOLE_DOCUMENT_OPS: ReadonlySet<string> = new Set([
   'setAssetOptions',
   'setMaterial',
   'setEnvironment',
+  'setScenePlane',
   'setLighting',
   'setAnimator',
   'setInput',

@@ -34,21 +34,31 @@ play plane (its ground, slopes, stairs and one-way ledges; see
 [Blocks: Collision](../features/blocks.md#block-layers)). Terrain, scatter,
 splines and generated architecture collide in 3D only.
 
-## Starting in 3D
+## In the editor
 
-The **3D starter** (Projects page) is a 3D project from the first moment:
-the character with a follow / orbit camera, a ground block layer on the
-Basic Kit, a small terrain, a sun and a sky. Start a 3D game there rather
-than switching a 2D one.
+- **Window → Scene settings** sets the active scene's default plane (axis
+  none, Z or X, and its origin along the axis): one `setScenePlane`, one
+  undo.
+- In a scene with a default plane the **gizmo keeps a body on its plane**:
+  an object with a collider or the player controller (on the scene's plane
+  or its own) moves only in the plane and turns only about its normal.
+  Objects without a body (scenery, lights) move freely, so background props
+  can stand at any depth.
+- The toolbar's **side view** button (shown while the active scene has a
+  plane) puts the Scene view's camera on the plane's normal, looking back
+  across it.
+- The menus and "+ Add component" offer every shape in every project: a
+  box, a flat box (its collider's **Depth** deep), a polygon prism, a
+  sphere, capsule, cylinder, convex hull and mesh, and GameObject →
+  Gameplay → **One-way platform**. A flat box or a polygon is drawn as the
+  solid the game makes of it.
 
-## Switching
+## Starting points
 
-Switch a project to 3D in the Gameplay settings. It is refused while any
-box collider has no depth (its **Half depth**) or a collider is a polygon,
-which only exists on the 2D plane. (The 2D starter's boxes have no depth:
-give each collider a Half depth first.) A few gameplay blocks are 2D-plane only
-(switches, one-way colliders). "+ Add component" offers the shapes that fit
-the project's dimension.
+The **2D starter** (Projects page) is a scene with a default plane, Z at 0,
+its character on the `arcade` movement profile. The **3D starter** is a
+free 3D scene: the character with a follow / orbit camera, a ground block
+layer on the Basic Kit, a small terrain, a sun and a sky.
 
 The setting's exact values are in
 [the settings in the reference](../reference/content-blocks-settings.md#content-settings);

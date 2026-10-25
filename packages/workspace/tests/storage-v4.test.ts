@@ -59,7 +59,8 @@ describe('storage v4', () => {
     const q = svc.query({ op: 'queryProject', projectId: PROJECT_ID }) as unknown as { ok: boolean; scenes: { sceneId: string; name: string }[]; startScenes: string[]; scene: { schemaVersion: number } };
     expect(q.ok, JSON.stringify(q)).toBe(true);
     expect(q.scene.schemaVersion).toBe(4);
-    expect(q.scenes).toEqual([{ sceneId: 'scene-main', name: 'Main', entityCount: expect.any(Number) }]);
+    // A former 2D project's scene has the default plane the upgrade gave it; the scene list names it.
+    expect(q.scenes).toEqual([{ sceneId: 'scene-main', name: 'Main', entityCount: expect.any(Number), plane: { axis: 'z', origin: 0 } }]);
     expect(q.startScenes).toEqual(['scene-main']);
     // The files on disk: v2 manifest, content.json, scenes/scene-main.json; the v3 envelope kept aside.
     expect(JSON.parse(readFileSync(join(dir, 'project.json'), 'utf8')).schemaVersion).toBe(8);

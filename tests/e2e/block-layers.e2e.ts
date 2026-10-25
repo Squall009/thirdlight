@@ -542,7 +542,7 @@ test('a block map built with bulk commands renders in the Scene view, Play and t
   await liveBox.click();
   await expect.poll(async () => ((await query('queryGameConfig')) as { blockTypes?: { blockId: string; live?: boolean }[] }).blockTypes?.find((t) => t.blockId === 'beacon')?.live).toBe(true);
   await expect(liveBox).toBeChecked();
-  // …and one-way on the 2D plane (one more setBlockType).
+  // …and one-way (one more setBlockType).
   const oneWayBox = editMode(page).getByLabel('block type editor', { exact: true }).getByRole('switch', { name: 'block one-way' });
   await oneWayBox.click();
   await expect.poll(async () => ((await query('queryGameConfig')) as { blockTypes?: { blockId: string; oneWay?: boolean }[] }).blockTypes?.find((t) => t.blockId === 'beacon')?.oneWay).toBe(true);

@@ -318,7 +318,7 @@ describe('create entries and icons from the descriptors', () => {
     content: [],
     icons: ['spawn', 'point', 'spot', 'river', 'road', 'spline', 'patrol', 'hitbox', 'model'],
     components: [
-      comp('hitbox', { icon: 'hitbox', create: [{ label: 'Hitbox', menu: 'Gameplay', dimension: 2 }, { label: 'Hitbox', menu: 'Gameplay', value: { a: 3 }, dimension: 3 }] }),
+      comp('hitbox', { icon: 'hitbox', create: [{ label: 'Hitbox', menu: 'Gameplay' }, { label: 'Big hitbox', menu: 'Gameplay', value: { a: 3 } }] }),
       comp('patrol', { icon: 'patrol', create: [{ label: 'Walker', menu: 'Gameplay', box: { size: [1, 2, 1], color: '#123456' }, with: { hitbox: { a: 2 } } }] }),
       comp('trigger', { create: [{ label: 'Go', value: { t: { scene: '' } }, otherScene: ['t/scene'] }] }),
       comp('model', { label: 'Model', icon: 'model' }),
@@ -335,13 +335,13 @@ describe('create entries and icons from the descriptors', () => {
     ],
   } as unknown as DescriptorRegistry;
 
-  it('lists the entries that fit the dimension, with the add value, a box and the extra components', () => {
-    const two = createEntries(reg, { dimension: 2 });
-    expect(two.map((e) => [e.label, e.menu])).toEqual([['Hitbox', 'Gameplay'], ['Walker', 'Gameplay'], ['Go', null]]);
-    expect(two[0]!.args).toEqual({ kind: 'group', name: 'Hitbox', components: { hitbox: { a: 1 } } });
-    expect(two[1]!.args).toEqual({ kind: 'box', name: 'Walker', box: { size: [1, 2, 1], material: { color: '#123456' } }, components: { hitbox: { a: 2 }, patrol: { a: 1 } } });
-    expect(createEntries(reg, { dimension: 3 })[0]!.args).toEqual({ kind: 'group', name: 'Hitbox', components: { hitbox: { a: 3 } } });
-    const go = two[2]!;
+  it('lists every entry, with the add value or its own, a box and the extra components', () => {
+    const all = createEntries(reg);
+    expect(all.map((e) => [e.label, e.menu])).toEqual([['Hitbox', 'Gameplay'], ['Big hitbox', 'Gameplay'], ['Walker', 'Gameplay'], ['Go', null]]);
+    expect(all[0]!.args).toEqual({ kind: 'group', name: 'Hitbox', components: { hitbox: { a: 1 } } });
+    expect(all[1]!.args).toEqual({ kind: 'group', name: 'Big hitbox', components: { hitbox: { a: 3 } } });
+    expect(all[2]!.args).toEqual({ kind: 'box', name: 'Walker', box: { size: [1, 2, 1], material: { color: '#123456' } }, components: { hitbox: { a: 2 }, patrol: { a: 1 } } });
+    const go = all[3]!;
     expect(withOtherScene(go, 'scene-b')).toEqual({ kind: 'group', name: 'Go', components: { trigger: { t: { scene: 'scene-b' } } } });
     expect((go.args['components'] as Record<string, { t: { scene: string } }>)['trigger']!.t.scene).toBe('');
   });

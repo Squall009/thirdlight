@@ -520,9 +520,7 @@ export interface AddEntry {
  * The "+ Add component" list for an object carrying `present` (component
  * names). Every component but the transform is listed; one entry per preset.
  */
-export function addEntries(reg: DescriptorRegistry, present: ReadonlySet<string>, opts: { folder?: boolean; dimension?: 2 | 3 } = {}): AddEntry[] {
-  // Only the presets that fit the project's physics dimension (absent: the 2D plane).
-  const dimension = opts.dimension ?? 2;
+export function addEntries(reg: DescriptorRegistry, present: ReadonlySet<string>, opts: { folder?: boolean } = {}): AddEntry[] {
   const out: AddEntry[] = [];
   const labelOf = (name: string): string => reg.components.find((c) => c.name === name)?.label ?? name;
   for (const c of reg.components) {
@@ -539,7 +537,7 @@ export function addEntries(reg: DescriptorRegistry, present: ReadonlySet<string>
     }
     const pick = c.add.kind === 'pick' ? c.add.pick : [];
     const base = c.add.kind === 'menu' || c.add.kind === 'pick' ? c.add.value : null;
-    const fitting = (c.presets ?? []).map((p, i) => ({ p, i })).filter(({ p }) => p.dimension === undefined || p.dimension === dimension);
+    const fitting = (c.presets ?? []).map((p, i) => ({ p, i }));
     if (fitting.length > 0 && c.add.kind === 'menu') {
       fitting.forEach(({ p, i }) => {
         const lacking = reason === null ? (p.requires ?? []).find((n) => !present.has(n)) : undefined;
@@ -568,16 +566,14 @@ export interface CreateMenuEntry {
 
 /**
  * The GameObject menu's create entries — every component's
- * `create` list (descriptor order) that fits the project's physics dimension:
+ * `create` list (descriptor order):
  * a box or an empty object carrying the component (its entry value, else its
  * "+ Add component" value) and the entry's other components.
  */
-export function createEntries(reg: DescriptorRegistry, opts: { dimension?: 2 | 3 } = {}): CreateMenuEntry[] {
-  const dimension = opts.dimension ?? 2;
+export function createEntries(reg: DescriptorRegistry): CreateMenuEntry[] {
   const out: CreateMenuEntry[] = [];
   for (const c of reg.components) {
     (c.create ?? []).forEach((e, i) => {
-      if (e.dimension !== undefined && e.dimension !== dimension) return;
       const base = e.value ?? (c.add.kind === 'menu' || c.add.kind === 'pick' ? c.add.value : {});
       const value = JSON.parse(JSON.stringify(base ?? {})) as Obj;
       const args: Obj = {

@@ -30,6 +30,8 @@ interface Props {
   /** The Scene view's wind preview: foliage moves in the scene's wind while editing (view only; Play always moves). */
   wind?: boolean;
   onToggleWind?: () => void;
+  /** The active scene has a default plane: look across it (absent: no such scene). */
+  onSideView?: () => void;
   onPlay: () => void;
   /** Open the "Play from…" dialog (a scene, variables, a save slot). */
   onPlayFrom?: () => void;
@@ -97,6 +99,11 @@ export function Toolbar(p: Props): JSX.Element {
             title="Wind preview: foliage sways in the scene's wind and its wind zones as in Play. Off, it holds still here and the view draws only when something changes. Only this view; nothing is saved"
           >
             wind{p.wind === true ? ': on' : ': off'}
+          </button>
+        )}
+        {p.onSideView !== undefined && (
+          <button className="tl-btn" disabled={p.editing === true} onClick={p.onSideView} title="Side view: the Scene view looks across the active scene's default plane (the level as the game's side view sees it)">
+            side view
           </button>
         )}
       </div>

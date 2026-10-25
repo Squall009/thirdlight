@@ -124,11 +124,6 @@ export function useSceneViewFollow(deps: SceneViewFollowDeps) {
   }, [viewportRef, registry]);
   // The hierarchy's row icons come from the descriptors too.
   const iconTable = useMemo(() => iconTableOf(registry), [registry]);
-  // Handles of the one physics backend (a 3D character's heights).
-  const physicsDimension = 3;
-  useEffect(() => {
-    viewportRef.current?.setPhysicsDimension(physicsDimension);
-  }, [viewportRef, physicsDimension]);
   // The cameras without a lens of their own use the project's (its camera settings), in the Scene view as in Play.
   const lensKey = JSON.stringify(viewLensOf(settings));
   useEffect(() => {

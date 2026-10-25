@@ -71,7 +71,7 @@ Scene-view handles:
 |---|---|---|---|---|
 | Spline | spline | points → `points` | local |  |
 
-GameObject menu: Level → Spline (3D), Level → Road (3D), Level → River (3D)
+GameObject menu: Level → Spline, Level → Road, Level → River
 
 <a id="component-architecture"></a>
 ## architecture — Architecture

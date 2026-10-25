@@ -71,6 +71,7 @@ export function useSceneViewSync(deps: SceneViewSyncDeps) {
   const environmentKeyRef = useRef('');
   const lightingKeyRef = useRef('');
   const architectureKeyRef = useRef('');
+  const planesKeyRef = useRef('');
   const loadTextureRef = useRef<((assetId: string) => Promise<THREE.Texture | null>) | null>(null);
   const previewTextureRef = useRef<((key: string, show: (t: THREE.Texture) => void) => THREE.Texture | null) | null>(null);
 
@@ -131,6 +132,13 @@ export function useSceneViewSync(deps: SceneViewSyncDeps) {
     if (archKey !== architectureKeyRef.current) {
       architectureKeyRef.current = archKey;
       viewportRef.current?.setArchitectureStyles(archGraphs);
+    }
+    // The scenes' default planes: the colliders' outlines and the gizmo's plane lock.
+    const planes = c.getScenePlanes();
+    const planesKey = JSON.stringify([...planes]);
+    if (planesKey !== planesKeyRef.current && viewportRef.current !== null) {
+      planesKeyRef.current = planesKey;
+      viewportRef.current.setScenePlanes(new Map(planes));
     }
     // The project environment (wind included).
     applyEnvironmentView();

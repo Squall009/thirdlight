@@ -27,7 +27,6 @@ const EDITOR_SRC = resolve(import.meta.dirname, '..', 'packages', 'editor', 'src
 const API_ONLY: Readonly<Record<string, string>> = {
   importResources:
     "sent by the backend's file check, which the editor starts (Check files, and after an import): resource and scene files found in the game folder come in as one undo step; no client builds it",
-  setScenePlane: 'set over MCP and written by the upgrade of a former 2D project; the editor gets its scene plane control with the plane-locked gizmos and side view',
 };
 
 function sourceFiles(dir: string, out: string[] = []): string[] {

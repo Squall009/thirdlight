@@ -24,7 +24,9 @@
     "./kits": "./src/kits.ts",
     "./kit-checks": "./src/kit-checks.ts",
     "./model-occluders": "./src/model-occluders.ts",
-    "./repeated-rows": "./src/repeated-rows.ts"
+    "./repeated-rows": "./src/repeated-rows.ts",
+    "./plane-lock": "./src/plane-lock.ts",
+    "./shape-2d-3d": "./src/shape-2d-3d.ts"
   },
   "sideEffects": false
 }

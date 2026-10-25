@@ -11,6 +11,7 @@
 import * as THREE from 'three';
 import type { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
+import type { PlaneAxis } from '@thirdlight/project-model';
 import type { ProjectedEntity } from '../session/projection';
 import { clampScale, getSnapSettings } from '../session/snapping';
 import type { CopyTransform } from '../session/instance-copies';
@@ -59,6 +60,8 @@ export class SelectionGizmo {
   private cancelled = false;
   /** Released drags whose entity is drawn where the drag left it until the projection has the result. */
   readonly settling = new Set<string>();
+  /** The plane the selection's body is locked to (its normal's axis; null: free). */
+  private lockAxis: PlaneAxis | null = null;
 
   constructor(canvas: HTMLCanvasElement, private readonly host: SelectionGizmoHost) {
     this.frame.add(this.proxy);
@@ -203,21 +206,53 @@ export class SelectionGizmo {
    * Put the gizmo on the selection: the selected copy's stand-in, the
    * entity's (when it can move), or nowhere (`copy` / `entity` false).
    */
-  aim(id: string | null, take: { copy: boolean; entity: boolean } | null, mode: GizmoMode): void {
+  aim(id: string | null, take: { copy: boolean; entity: boolean } | null, mode: GizmoMode, lock: PlaneAxis | null = null): void {
     const target = take === null ? null : take.copy ? this.host.copies.proxy : id && take.entity ? this.proxy : null;
     if (id && target) {
       if (!this.drag) this.placeFrame(id);
       if (this.gizmo.object !== target) this.gizmo.attach(target);
       this.gizmo.setMode(mode);
+      this.lockTo(target === this.proxy ? lock : null, mode);
       this.target = id;
     } else {
       this.gizmo.detach();
       this.target = null;
+      if (this.lockAxis !== null) this.lockTo(null, mode);
     }
   }
 
-  /** The gizmo's centre and a point on its X arrow, on screen (null: no gizmo). */
-  grab(): { x: number; y: number; ax: number; ay: number } | null {
+  /**
+   * A body locked to a plane is moved in the plane and turned about its
+   * normal only, as the game will hold it: no arrow or square along the
+   * normal, only the normal's ring. World axes (the gizmo's space), so a
+   * turned parent does not tilt the plane. Scaling stays free.
+   */
+  private lockTo(axis: PlaneAxis | null, mode: GizmoMode): void {
+    this.lockAxis = axis;
+    const g = this.gizmo;
+    const free = axis === null || mode === 'scale';
+    if (free) {
+      g.showX = g.showY = g.showZ = true;
+    } else if (mode === 'translate') {
+      g.showX = axis !== 'x';
+      g.showY = true;
+      g.showZ = axis !== 'z';
+    } else {
+      g.showX = axis === 'x';
+      g.showY = false;
+      g.showZ = axis === 'z';
+    }
+    // The lock in force (tests read it).
+    this.host.root().setAttribute('data-gizmo-plane', axis ?? '');
+  }
+
+  /** The plane the gizmo keeps the selection on (its normal's axis; null: free). */
+  get planeAxis(): PlaneAxis | null {
+    return this.lockAxis;
+  }
+
+  /** The gizmo's centre and points on its X and Z arrows, on screen (null: no gizmo). */
+  grab(): { x: number; y: number; ax: number; ay: number; zx: number; zy: number } | null {
     const target = this.gizmo.object;
     if (target === undefined || this.target === null) return null;
     const camera = this.host.camera;
@@ -231,7 +266,8 @@ export class SelectionGizmo {
     };
     const c = toScreen(at);
     const a = toScreen(at.clone().add(new THREE.Vector3(0.3 * factor, 0, 0)));
-    return { x: c.x, y: c.y, ax: a.x, ay: a.y };
+    const z = toScreen(at.clone().add(new THREE.Vector3(0, 0, 0.3 * factor)));
+    return { x: c.x, y: c.y, ax: a.x, ay: a.y, zx: z.x, zy: z.y };
   }
 
   /** The canvas was replaced (another renderer). */

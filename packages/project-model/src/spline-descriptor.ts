@@ -88,11 +88,11 @@ export const spline: ComponentDescriptor = {
   ]),
   add: { kind: 'menu', value: { points: POINTS_NEW } },
   create: [
-    { label: 'Spline', menu: 'Level', value: { points: POINTS_NEW }, dimension: 3 },
+    { label: 'Spline', menu: 'Level', value: { points: POINTS_NEW } },
     // A two-lane road: flattened 0.1 m under its surface mesh, its verges painted layer 1, scatter kept 1 m clear.
-    { label: 'Road', menu: 'Level', value: { points: POINTS_NEW, width: 8, terrain: { offset: 0.1, falloff: 6, paint: { layer: 1, falloff: 2 } }, scatter: {}, mesh: { tiling: 8 } }, dimension: 3 },
+    { label: 'Road', menu: 'Level', value: { points: POINTS_NEW, width: 8, terrain: { offset: 0.1, falloff: 6, paint: { layer: 1, falloff: 2 } }, scatter: {}, mesh: { tiling: 8 } } },
     // A river: a channel carved 2 m deep at its centre, water 0.3 m below its banks (they meet near the edges).
-    { label: 'River', menu: 'Level', value: { points: POINTS_NEW, width: 10, terrain: { shape: 'carve', depth: 2, falloff: 6 }, scatter: { margin: 2 }, mesh: { kind: 'water', offset: -0.3 } }, dimension: 3 },
+    { label: 'River', menu: 'Level', value: { points: POINTS_NEW, width: 10, terrain: { shape: 'carve', depth: 2, falloff: 6 }, scatter: { margin: 2 }, mesh: { kind: 'water', offset: -0.3 } } },
   ],
   handles: [{ kind: 'spline', label: 'Spline', bind: { points: 'points' }, space: 'local', loop: when('closed', true) }],
   icon: 'spline',

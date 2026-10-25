@@ -128,13 +128,10 @@ describe('the Scene-view handles over the real registry and commands', () => {
     dragAndStore(s, 'group-000001', 'controller', 'capsule', 'side', p3(0.52, 0), true, (v) => expect(v.capsule).toEqual({ radius: 0.5, height: 1, offset: [0, -0.4] }));
   });
 
-  it('(a 3D project): the step-up and ledge heights above the capsule\'s feet; a 2D plane shows neither', () => {
+  it('the step-up and ledge heights above the capsule\'s feet', () => {
     let s = fresh();
     s = must(s, 'setComponent', { entityId: 'group-000001', component: 'controller', value: {} }, 'controller');
-    // A 2D plane (and a registry read without a dimension): no height handles.
-    expect(handleShapesOf(projected(s, 'group-000001'), DESCRIPTORS).some((x) => x.kind === 'height')).toBe(false);
-    expect(handleShapesOf(projected(s, 'group-000001'), DESCRIPTORS, 2).some((x) => x.kind === 'height')).toBe(false);
-    const shapes = handleShapesOf(projected(s, 'group-000001'), DESCRIPTORS, 3);
+    const shapes = handleShapesOf(projected(s, 'group-000001'), DESCRIPTORS);
     // The ledge height only while the ledge climb is on.
     expect(shapes.filter((x) => x.kind === 'height').map((x) => x.label)).toEqual(['Step-up height']);
     const step = shapes.find((x) => x.kind === 'height')!;
@@ -153,7 +150,7 @@ describe('the Scene-view handles over the real registry and commands', () => {
     expect((commitValue(dragGrip(step, 'height', p3(0.3, 3), true)) as Any).value).toEqual({ stepHeight: 1 });
     // The ledge height with its own capsule: 1.2 m above the feet of a 1.6 m capsule raised 0.2 m.
     s = must(s, 'setComponent', { entityId: 'group-000001', component: 'controller', value: { ledgeClimb: true, capsule: { radius: 0.4, height: 1.6, offset: [0, 0.2] } } }, 'ledge climb');
-    const ledge = handleShapesOf(projected(s, 'group-000001'), DESCRIPTORS, 3).find((x) => x.label === 'Ledge height')!;
+    const ledge = handleShapesOf(projected(s, 'group-000001'), DESCRIPTORS).find((x) => x.label === 'Ledge height')!;
     const lg = gripsOf(ledge)[0]!;
     expect(lg.at.x).toBeCloseTo(0.4, 9);
     expect(lg.at.y).toBeCloseTo(0.2 - 0.8 + 1.2, 9);
@@ -251,29 +248,27 @@ describe('the Scene-view handles over the real registry and commands', () => {
     const hero = s.scene.entities.at(-1).id;
     s = must(s, 'createEntity', { parentId: null, kind: 'group', name: 'Tracker', transform: { position: [2, 3, 12] }, components: { virtualCamera: { rig: 'track', target: hero, targetOffset: [0, 0.5, 0], deadZone: [2, 1, 0], boundsMin: [-4, -1, -2], boundsMax: [10, 6, 2] } } }, 'tracker');
     const cam = s.scene.entities.at(-1).id;
-    const shapes = handleShapesOf(projected(s, cam), DESCRIPTORS, 2);
+    const shapes = handleShapesOf(projected(s, cam), DESCRIPTORS);
     // The dead zone sits on the target (plus its offset), not on the camera.
     const dz = shapes.find((x) => x.kind === 'box3')!;
     expect(dz.anchor).toEqual({ entityId: hero, offset: p3(0, 0.5, 0) });
     s = dragAndStore(s, cam, 'virtualCamera', 'box3', 'side', p3(1.52, 0, 0), true, (v) => expect(v.deadZone).toEqual([3.05, 1, 0]));
-    // Bounds: world corners on the translate grid, never past the other corner; z is kept on the 2D plane.
+    // Bounds: world corners on the translate grid, never past the other corner; depth grips move z.
     const b = shapes.find((x) => x.kind === 'bounds')!;
     expect(b.frame).toBe('world');
-    expect(gripsOf(b).map((g) => g.id)).toEqual(['min', 'max']);
-    s = dragAndStore(s, cam, 'virtualCamera', 'bounds', 'max', p3(12.2, 5.1), true, (v) => expect([v.boundsMin, v.boundsMax]).toEqual([[-4, -1, -2], [12.25, 5, 2]]));
-    const past = commitValue(dragGrip(b, 'min', p3(40, 40), true)) as Any;
+    expect(gripsOf(b).map((g) => g.id)).toEqual(['min', 'max', 'minZ', 'maxZ']);
+    s = dragAndStore(s, cam, 'virtualCamera', 'bounds', 'max', p3(12.2, 5.1, 2), true, (v) => expect([v.boundsMin, v.boundsMax]).toEqual([[-4, -1, -2], [12.25, 5, 2]]));
+    const past = commitValue(dragGrip(b, 'min', p3(40, 40, -2), true)) as Any;
     expect(past.value.boundsMin).toEqual([10, 6, -2]);
-    // 3D: depth grips move z.
-    const b3 = handleShapesOf(projected(s, cam), DESCRIPTORS, 3).find((x) => x.kind === 'bounds')!;
-    expect(gripsOf(b3).map((g) => g.id)).toEqual(['min', 'max', 'minZ', 'maxZ']);
+    const b3 = handleShapesOf(projected(s, cam), DESCRIPTORS).find((x) => x.kind === 'bounds')!;
     expect((commitValue(dragGrip(b3, 'maxZ', p3(0, 0, 4), true)) as Any).value.boundsMax).toEqual([12.25, 5, 4]);
     // Without both bounds, or without a target, those handles are not shown.
     s = must(s, 'setComponent', { entityId: cam, component: 'virtualCamera', value: { boundsMax: null, target: null } }, 'no bounds max, no target');
-    expect(handleShapesOf(projected(s, cam), DESCRIPTORS, 2).map((x) => x.kind)).toEqual([]);
+    expect(handleShapesOf(projected(s, cam), DESCRIPTORS).map((x) => x.kind)).toEqual([]);
     // A region: its size on the world axes (a deep one too), its bounds and dead zone from its position.
     s = must(s, 'createEntity', { parentId: null, kind: 'group', name: 'Room', transform: { position: [20, 2, 0], rotation: [0, 0, 0.3826834, 0.9238795] }, components: { cameraRegion: { size: [10, 6, 4], boundsMin: [-3, -1, -1], boundsMax: [3, 1, 1], deadZone: [1, 1, 1] } } }, 'room');
     const room = s.scene.entities.at(-1).id;
-    const rs = handleShapesOf(projected(s, room), DESCRIPTORS, 3);
+    const rs = handleShapesOf(projected(s, room), DESCRIPTORS);
     expect(rs.map((x) => [x.kind, x.frame])).toEqual([['box2', 'position'], ['bounds', 'position'], ['box3', 'position']]);
     s = dragAndStore(s, room, 'cameraRegion', 'box2', 'side', p3(6.02, 0, 0), true, (v) => expect(v.size).toEqual([12.05, 6, 4]));
     s = dragAndStore(s, room, 'cameraRegion', 'bounds', 'min', p3(-4.1, -1, 0), true, (v) => expect(v.boundsMin).toEqual([-4, -1, -1]));

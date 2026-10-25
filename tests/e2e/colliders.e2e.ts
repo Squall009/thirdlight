@@ -15,8 +15,11 @@
  * conversion command over HTTP and the Inspector's "Compound of _COL parts"
  * button store the same compound. A plate on a child of an object its
  * script moves follows it and pushes the player ahead of it. The Scene view
- * draws no collider outlines until asked, the selection's always; a refused
- * switch back to the 2D plane names the rule and where it failed.
+ * draws no collider outlines until asked, the selection's always. A scene's
+ * default plane set in Window → Scene settings holds the gizmo on it: a
+ * body's Z arrow is gone (a drag there moves nothing; before, it moved the
+ * body in depth), its X arrow still moves it; an object without a body
+ * stays free; the toolbar's side view looks across the plane.
  */
 import { randomBytes } from 'node:crypto';
 
@@ -219,7 +222,7 @@ async function outlinePixels(page: Page): Promise<number> {
   return n;
 }
 
-test('the Scene view draws no collider outlines on open, the selection\'s (a compound and its child\'s) when selected, all with the Gizmos menu', async ({ page }) => {
+test('the Scene view draws no collider outlines on open, the selection\'s (a compound and its child\'s) when selected, all with the Gizmos menu; a scene plane holds the gizmo and gives a side view', async ({ page }) => {
   test.setTimeout(180_000);
   be = await startBackend('colliders-outlines-e2e');
   await withoutSky(be);
@@ -256,4 +259,66 @@ test('the Scene view draws no collider outlines on open, the selection\'s (a com
   await expect(page.locator('.tl-hierarchy__list li.is-selected')).toHaveCount(0);
   await expect.poll(() => outlinePixels(page), { message: 'every outline is drawn with nothing selected' }).toBeGreaterThan(100);
 
+  // The scene's default plane holds a body's gizmo on it. First free: a drag on the rock's Z arrow moves it in depth.
+  type Grab = { x: number; y: number; ax: number; ay: number; zx: number; zy: number };
+  const position = async (id: string): Promise<number[]> => ((await comp(id, 'transform')) as { position: number[] }).position;
+  const dragFrom = async (from: { x: number; y: number }, by: { x: number; y: number }): Promise<void> => {
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    for (let i = 1; i <= 8; i++) await page.mouse.move(from.x + (by.x * i) / 8, from.y + (by.y * i) / 8);
+    await page.mouse.up();
+  };
+  const grab = async (): Promise<Grab> => {
+    await expect.poll(async () => (await view.getAttribute('data-gizmo-grab')) ?? 'null').not.toBe('null');
+    return JSON.parse((await view.getAttribute('data-gizmo-grab'))!) as Grab;
+  };
+  const alongZ = async (): Promise<void> => {
+    const g = await grab();
+    await dragFrom({ x: g.zx, y: g.zy }, { x: (g.zx - g.x) * 2, y: (g.zy - g.y) * 2 });
+  };
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${rock}"]`).click();
+  await expect(view).toHaveAttribute('data-gizmo-plane', '');
+  await page.waitForTimeout(150);
+  await alongZ();
+  await expect.poll(async () => (await position(rock))[2] ?? 0, { message: 'free: the Z arrow moves it in depth' }).not.toBe(0);
+  await view.hover();
+  await page.keyboard.press('Control+z');
+  await expect.poll(async () => (await position(rock))[2] ?? 0).toBe(0);
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${rock}"]`).click();
+
+  // Window → Scene settings: the Z plane (one setScenePlane); the rock (a body without its own plane) is held to it.
+  await menu(page, 'Window', 'Scene settings');
+  await page.getByLabel('scene plane axis', { exact: true }).selectOption('z');
+  const planeOf = async (): Promise<unknown> => ((await be!.command({ op: 'queryProject', projectId: be!.projectId, args: {} }))['scenes'] as { plane?: unknown }[])[0]?.plane ?? null;
+  await expect.poll(planeOf).toEqual({ axis: 'z', origin: 0 });
+  await page.getByLabel('Close the Scene settings window', { exact: true }).click();
+  await expect(view).toHaveAttribute('data-gizmo-plane', 'z');
+  await page.waitForTimeout(150);
+  // Its Z arrow is gone: the same drag moves nothing; its X arrow still moves it along X, never in depth (the X drag's
+  // command comes after anything the Z drag would have sent).
+  await alongZ();
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${rock}"]`).click();
+  const g = await grab();
+  await dragFrom({ x: g.ax, y: g.ay }, { x: (g.ax - g.x) * 2, y: (g.ay - g.y) * 2 });
+  await expect.poll(async () => (await position(rock))[0] ?? 0, { message: 'the X arrow moves it in the plane' }).not.toBe(0);
+  expect((await position(rock))[2] ?? 0).toBe(0);
+  // An object without a body (the camera) stays free.
+  const camera = (await entities()).find((e) => e.components['camera'] !== undefined || e.components['virtualCamera'] !== undefined)!;
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${camera.id}"]`).click();
+  await expect(view).toHaveAttribute('data-gizmo-plane', '');
+
+  // The toolbar's side view: the camera on the plane's normal (+Z), level, looking back across it (no turn at all).
+  await page.getByRole('button', { name: 'side view', exact: true }).click();
+  await expect
+    .poll(async () => {
+      const pose = JSON.parse((await view.getAttribute('data-view-camera')) ?? '{}') as { rotation?: number[] };
+      const q = pose.rotation ?? [1, 0, 0, 0];
+      return Math.max(Math.abs(q[0]!), Math.abs(q[1]!), Math.abs(q[2]!));
+    })
+    .toBeLessThan(1e-3);
+  // No plane: no side view, and the gizmo is free again.
+  await menu(page, 'Window', 'Scene settings');
+  await page.getByLabel('scene plane axis', { exact: true }).selectOption('none');
+  await expect.poll(planeOf).toBeNull();
+  await expect(page.getByRole('button', { name: 'side view', exact: true })).toHaveCount(0);
 });

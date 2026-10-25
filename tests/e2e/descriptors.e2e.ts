@@ -41,7 +41,7 @@ test('the editor gets the descriptor registry with its first game query', async 
   // The platformer's components are gone.
   for (const n of ['enemy', 'pickup', 'gameZone', 'cameraFollow']) expect(names).not.toContain(n);
   const controller = registry.components.find((c) => c.name === 'controller')!;
-  // The step-up and ledge height handles are 3D-only (dimension 3).
+  // The capsule, and the step-up and ledge heights above its feet.
   expect(controller.handles.map((h) => h.kind)).toEqual(['capsule', 'height', 'height']);
   expect(registry.content.map((b) => b.key)).toEqual(expect.arrayContaining(['shell', 'eventCues', 'environment', 'input', 'materials', 'animators']));
   expect(registry.content.map((b) => b.key)).not.toContain('game');

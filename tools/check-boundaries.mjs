@@ -390,6 +390,8 @@ export const NODE_SIDE_ALLOWED = {
         'animator-graph', // the Animator tab shows the graph the backend applies its edits to
         'effects', // a new effect is built from the defaults the backend accepts
         'effect-graph-kinds', // effect graph ports resolve as the backend resolves them
+        'plane-lock', // the gizmo holds a body to the plane the game locks it to
+        'shape-2d-3d', // a flat collider is drawn as the solid the game makes of it
       ],
     },
   },

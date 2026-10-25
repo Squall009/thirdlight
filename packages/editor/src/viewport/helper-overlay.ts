@@ -12,6 +12,8 @@ import * as THREE from 'three';
 import { convexHull2 } from '@thirdlight/runtime';
 import type { ProjectedEntity } from '../session/projection';
 import type { DescriptorRegistry } from '@thirdlight/project-model';
+import { effectivePlaneOf, type PlaneLock } from '@thirdlight/project-model/plane-lock';
+import { colliderDepthOf, hasTwoDShape, shape2DTo3D } from '@thirdlight/project-model/shape-2d-3d';
 import { capsuleDistance, capsuleShapeOf, outlinePoints, type SizeShape } from '../session/size-handles';
 import { deletePoint, dragGrip, gripsOf, handleShapesOf, insertPoint, linesOf, type Grip, type HandleShape, type P3 } from '../session/handles';
 
@@ -78,7 +80,11 @@ export class HelperOverlay {
   private handlePreview: THREE.Group | null = null;
   /** The descriptors (the handles come from them) and each entity's scene node (its frame). */
   private registry: DescriptorRegistry | null = null;
-  private physicsDimension: 2 | 3 = 2;
+  /** Each scene's default plane (a flat collider without a plane of its own stands on its scene's). */
+  private scenePlanes: ReadonlyMap<string, PlaneLock> = new Map();
+  get planes(): ReadonlyMap<string, PlaneLock> {
+    return this.scenePlanes;
+  }
   private nodeFor: (entityId: string) => THREE.Object3D | null = () => null;
 
   /** The Scene view replaced its canvas (another renderer backend). */
@@ -239,11 +245,13 @@ export class HelperOverlay {
       const target = oneWay ? merged.oneWay : merged.solid;
       const start = target.points.length / 3;
       const world = worldOf(e);
-      const local = shape.type === 'model' && this.physicsDimension !== 3 ? null : colliderSegments3D(shape, parts);
+      // A flat box or a polygon is drawn as the solid the game makes of it: its collider's depth deep across its plane.
+      const solid = hasTwoDShape(shape) ? shape2DTo3D(shape, { depth: colliderDepthOf(e.collider), plane: effectivePlaneOf(e.collider, e.sceneId !== undefined ? this.scenePlanes.get(e.sceneId) : null)?.axis ?? 'z' }) : shape;
+      const local = solid === null ? null : colliderSegments3D(solid as { type: string }, parts);
       if (local !== null) {
         pushMatrix(target.points, local, world);
       } else {
-        // The 2D plane: the outline on the game plane (z at the plane, turned about Z with its object).
+        // A model shape whose parts are not read yet: their outline on the object's XY plane.
         const segments = colliderSegments2D(shape, parts);
         if (segments.length < 2) continue;
         const flat: number[] = [];
@@ -399,11 +407,11 @@ export class HelperOverlay {
     this.updateSizeHandles();
   }
 
-  /** The project's physics dimension (a handle of the other dimension is not shown). */
-  setPhysicsDimension(dimension: 2 | 3): void {
-    if (dimension === this.physicsDimension) return;
-    this.physicsDimension = dimension;
-    this.updateSizeHandles();
+  /** Each scene's default plane (the colliders' outlines are redrawn when one changes). */
+  setScenePlanes(planes: ReadonlyMap<string, PlaneLock>): void {
+    this.scenePlanes = planes;
+    this.syncBlocks(this.entities);
+    this.updateSelectedColliders();
   }
 
   /** The pointer ray for a client position (false when the canvas has no size). */
@@ -478,7 +486,7 @@ export class HelperOverlay {
     const e = this.selectedId === null ? undefined : this.entities.find((x) => x.id === this.selectedId);
     if (e === undefined || !e.active || e.locked) return;
     // A handle anchored on an object that is not in the open scene is not shown.
-    this.handleShapes = handleShapesOf(e, this.registry, this.physicsDimension).filter((sh) => sh.anchor === undefined || this.anchorPosition(sh.anchor.entityId) !== null);
+    this.handleShapes = handleShapesOf(e, this.registry).filter((sh) => sh.anchor === undefined || this.anchorPosition(sh.anchor.entityId) !== null);
     this.handleFrames = this.handleShapes.map((s) => this.frameMatrix(s));
     this.handleShapes.forEach((shape, shapeIndex) => {
       this.handleOutlines.add(this.linesObject(shape, this.handleFrames[shapeIndex]!, SIZE_HANDLE_COLOR, 0.35));

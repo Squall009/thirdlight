@@ -1167,7 +1167,7 @@ describe('descriptor registry', () => {
         expect(fits(c.value, v), `${c.name} ${e.label} fits`).toBeNull();
         const extra: Obj = { ...((e.with ?? {}) as Obj), ...(e.box !== undefined ? { box: { size: [...e.box.size], material: { color: e.box.color } } } : {}) };
         for (const [name, value] of Object.entries(e.with ?? {})) expect(fits(DESCRIPTORS.components.find((x) => x.name === name)!.value, value as J), `${c.name} ${e.label} with ${name}`).toBeNull();
-        if (e.dimension !== 3) expect(sceneErrors(entityScene(c.name, v, extra)), `${c.name} ${e.label} validates`).toEqual([]);
+        expect(sceneErrors(entityScene(c.name, v, extra)), `${c.name} ${e.label} validates`).toEqual([]);
       }
     }
     expect(entries).toBeGreaterThanOrEqual(12);

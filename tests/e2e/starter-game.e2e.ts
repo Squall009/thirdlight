@@ -178,7 +178,7 @@ test('acceptance: a small game from the Starter template with primitives and a p
   await field(page, 'patrol waypoints 1 x', '0.8');
   await expect.poll(async () => (await comp(walker, 'patrol'))?.['waypoints']).toEqual([[0.8, 0, 0]]);
   await add.selectOption({ label: 'Hitbox: Box' });
-  await expect.poll(async () => comp(walker, 'hitbox')).toEqual({ size: [1, 1] });
+  await expect.poll(async () => comp(walker, 'hitbox')).toEqual({ size: [1, 1, 1] });
   await field(page, 'hitbox damage', '1');
   await expect.poll(async () => (await comp(walker, 'hitbox'))?.['damage']).toBe(1);
 
@@ -191,8 +191,8 @@ test('acceptance: a small game from the Starter template with primitives and a p
 
   // The door: a trigger whose scene transition leads to the second scene's spawn.
   await select(page, door);
-  await add.selectOption({ label: 'Trigger' });
-  await expect.poll(async () => comp(door, 'trigger')).toEqual({ size: [2, 2], signal: 'trigger' });
+  await add.selectOption({ label: 'Trigger: Box' });
+  await expect.poll(async () => comp(door, 'trigger')).toEqual({ size: [2, 2, 2], signal: 'trigger' });
   await inspector.getByLabel('add trigger sceneTransition', { exact: true }).click();
   await expect.poll(async () => (await comp(door, 'trigger'))?.['sceneTransition']).toEqual({ scene: 'scene-two' });
   await inspector.getByLabel('trigger sceneTransition spawn', { exact: true }).selectOption(arrival);

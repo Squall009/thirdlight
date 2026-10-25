@@ -186,7 +186,7 @@ test('Play: each load type loads, plays and is freed as its settings say; a late
 
   // Decode on load, preloaded: the room's WAV is read with the room, decoded and looped; unloading the room frees it.
   expect((await relay(`${psid}/control`, { command: 'loadScene', sceneId: 'room' })).status).toBe(200);
-  // (A 2D project hears audio sources by distance: the loop shows under `loops`.)
+  // (A scene with a default plane hears audio sources by distance: the loop shows under `loops`.)
   await expect.poll(async () => (await observe()).loops?.[brook] !== undefined, { timeout: 30_000, message: 'the room loops its WAV' }).toBe(true);
   expect(fetched.has('hit')).toBe(true);
   expect(await count('audio')).toBe(1);

@@ -169,8 +169,8 @@ function colliderPrimitiveFields(): FieldDescriptor[] {
   return [
     num('hx', 'Half width', 'Half the box width.', { required: true, when: when('type', 'box'), min: 0, minExclusive: true, max: POSITION_LIMIT, step: 0.05, unit: 'm', default: 0.5, handle: 'box2' }),
     num('hy', 'Half height', 'Half the box height.', { required: true, when: when('type', 'box'), min: 0, minExclusive: true, max: POSITION_LIMIT, step: 0.05, unit: 'm', default: 0.5, handle: 'box2' }),
-    // The depth. Absent in a 2D plane (which ignores it); required by a 3D project (no guessed depth).
-    num('hz', 'Half depth', 'Half the box depth along Z (needed in a 3D project; a 2D plane ignores it).', { when: when('type', 'box'), min: 0, minExclusive: true, max: POSITION_LIMIT, step: 0.05, unit: 'm', handle: 'box2' }),
+    // The depth. Absent: a flat box, as deep as the collider's depth (a side-view piece).
+    num('hz', 'Half depth', 'Half the box depth along Z (absent: a flat box, the collider\'s depth deep).', { when: when('type', 'box'), min: 0, minExclusive: true, max: POSITION_LIMIT, step: 0.05, unit: 'm', handle: 'box2' }),
     list('vertices', 'Vertices', `3–${MAX_POLYGON_VERTICES} corners [x, y], counter-clockwise, convex.`, vec2('*', 'Vertex', 'A corner [x, y] from the object origin.', { min: -POSITION_LIMIT, max: POSITION_LIMIT, step: 0.05, unit: 'm' }), {
       required: true,
       when: when('type', 'polygon'),
@@ -219,10 +219,10 @@ export const collider: ComponentDescriptor = {
   category: 'Physics',
   value: obj('collider', 'Collider', 'The collision shape.', [
     obj('shape', 'Shape', 'A box (half extents) or a convex polygon; in a 3D project also a sphere, a capsule, a cylinder, a convex hull or a triangle mesh; a compound of several; or the model\'s _COL parts.', [
-      enm('type', 'Shape', 'Box or convex polygon (2D plane); box, sphere, capsule, cylinder, convex hull or mesh (3D project); a compound of shapes; or the convex parts of the model\'s _COL node (read when the game is built).', ['box', 'polygon', 'sphere', 'capsule', 'cylinder', 'convex', 'mesh', 'compound', 'model'], { required: true, default: 'box' }),
+      enm('type', 'Shape', 'Box, polygon (a prism the collider\'s depth deep), sphere, capsule, cylinder, convex hull or mesh; a compound of shapes; or the convex parts of the model\'s _COL node (read when the game is built).', ['box', 'polygon', 'sphere', 'capsule', 'cylinder', 'convex', 'mesh', 'compound', 'model'], { required: true, default: 'box' }),
       ...colliderPrimitiveFields(),
       list('shapes', 'Shapes', 'The compound\'s shapes (one body), each with its own centre and rotation.', obj('*', 'Shape', 'One shape of the compound.', [
-        enm('type', 'Shape', 'Box or convex polygon (2D plane); box, sphere, capsule, cylinder, convex hull or mesh (3D project).', ['box', 'polygon', 'sphere', 'capsule', 'cylinder', 'convex', 'mesh'], { required: true, default: 'box' }),
+        enm('type', 'Shape', 'Box, polygon (a prism), sphere, capsule, cylinder, convex hull or mesh.', ['box', 'polygon', 'sphere', 'capsule', 'cylinder', 'convex', 'mesh'], { required: true, default: 'box' }),
         ...colliderPrimitiveFields(),
       ]), { required: true, when: when('type', 'compound'), minItems: 1 }),
     ], { required: true, rules: ['A polygon is convex, counter-clockwise, has no repeated corner, an area of at least 1e-6 m² and stays within 64 m of the origin.', 'A mesh is static level geometry (not on a mover).', 'A box without hz and a polygon (a prism) are the collider\'s depth deep.', 'A model shape needs a model on the same object; a build makes one convex hull of each mesh part of its _COL node.'] }),
@@ -232,18 +232,19 @@ export const collider: ComponentDescriptor = {
     list('layers', 'Collision layers', `The collision layers it is in (3D; absent: "default"). Script queries filter by layer; name layers in the project's collision layers.`, str('*', 'Layer', 'A collision layer: "default" or one the project names.', { format: 'identifier', minLength: 1, maxLength: 32 }), { minItems: 1, maxItems: 16, unique: true }),
   ]),
   add: { kind: 'menu', value: { shape: { type: 'box', hx: 0.5, hy: 0.5 } } },
-  // A 3 × 0.2 m shelf (a platform to land on, thin enough to jump up through), 2D only (a 3D project has no one-way colliders).
-  create: [{ label: 'One-way platform', menu: 'Gameplay', box: { size: [3, 0.2, 2], color: '#8fb573' }, value: { shape: { type: 'box', hx: 1.5, hy: 0.1 }, oneWay: true }, dimension: 2 }],
+  // A 3 × 0.2 × 2 m shelf (a platform to land on, thin enough to jump up through), free or on a plane.
+  create: [{ label: 'One-way platform', menu: 'Gameplay', box: { size: [3, 0.2, 2], color: '#8fb573' }, value: { shape: { type: 'box', hx: 1.5, hy: 0.1, hz: 1 }, oneWay: true } }],
   presets: [
-    { label: 'Box', value: { shape: { type: 'box', hx: 0.5, hy: 0.5 } }, dimension: 2 },
-    { label: 'Polygon', value: { shape: { type: 'polygon', vertices: [[-0.5, -0.5], [0.5, -0.5], [0, 0.5]] } }, dimension: 2 },
-    // 3D projects: a 1 m box, a 0.5 m sphere, a 2 m capsule, a 1 m cube's hull and a 1 m floor quad as starting shapes.
-    { label: 'Box (3D)', value: { shape: { type: 'box', hx: 0.5, hy: 0.5, hz: 0.5 } }, dimension: 3 },
-    { label: 'Sphere', value: { shape: { type: 'sphere', radius: 0.5 } }, dimension: 3 },
-    { label: 'Capsule', value: { shape: { type: 'capsule', radius: 0.5, height: 2 } }, dimension: 3 },
-    { label: 'Cylinder', value: { shape: { type: 'cylinder', radius: 0.5, height: 1 } }, dimension: 3 },
-    { label: 'Convex hull', value: { shape: { type: 'convex', points: [[-0.5, -0.5, -0.5], [0.5, -0.5, -0.5], [0.5, 0.5, -0.5], [-0.5, 0.5, -0.5], [-0.5, -0.5, 0.5], [0.5, -0.5, 0.5], [0.5, 0.5, 0.5], [-0.5, 0.5, 0.5]] } }, dimension: 3 },
-    { label: 'Mesh', value: { shape: { type: 'mesh', vertices: [[-0.5, 0, -0.5], [0.5, 0, -0.5], [0.5, 0, 0.5], [-0.5, 0, 0.5]], triangles: [[0, 2, 1], [0, 3, 2]] } }, dimension: 3 },
+    // A 1 m box, a 0.5 m sphere, a 2 m capsule, a 1 m cylinder, a 1 m cube's hull and a 1 m floor quad as starting shapes;
+    // a flat box and a polygon are outlines in the object's XY, their collider's depth deep (side-view level pieces).
+    { label: 'Flat box (depth)', value: { shape: { type: 'box', hx: 0.5, hy: 0.5 } } },
+    { label: 'Polygon (prism)', value: { shape: { type: 'polygon', vertices: [[-0.5, -0.5], [0.5, -0.5], [0, 0.5]] } } },
+    { label: 'Box', value: { shape: { type: 'box', hx: 0.5, hy: 0.5, hz: 0.5 } } },
+    { label: 'Sphere', value: { shape: { type: 'sphere', radius: 0.5 } } },
+    { label: 'Capsule', value: { shape: { type: 'capsule', radius: 0.5, height: 2 } } },
+    { label: 'Cylinder', value: { shape: { type: 'cylinder', radius: 0.5, height: 1 } } },
+    { label: 'Convex hull', value: { shape: { type: 'convex', points: [[-0.5, -0.5, -0.5], [0.5, -0.5, -0.5], [0.5, 0.5, -0.5], [-0.5, 0.5, -0.5], [-0.5, -0.5, 0.5], [0.5, -0.5, 0.5], [0.5, 0.5, 0.5], [-0.5, 0.5, 0.5]] } } },
+    { label: 'Mesh', value: { shape: { type: 'mesh', vertices: [[-0.5, 0, -0.5], [0.5, 0, -0.5], [0.5, 0, 0.5], [-0.5, 0, 0.5]], triangles: [[0, 2, 1], [0, 3, 2]] } } },
     // The model's own _COL parts, read when the game is built (an object with a model).
     { label: "Model's _COL parts", value: { shape: { type: 'model' } }, requires: ['model'] },
   ],
@@ -300,27 +301,27 @@ export const controller: ComponentDescriptor = {
     // Autostep (the 2D plane's, and a 3D controller's arcade profile); the character profile steps up with `stepHeight` instead.
     bool('autostep', 'Autostep', 'Climb low steps without jumping (arcade profile; a character uses its step-up height).', { group: 'Collision', default: CT.autostep }),
     num('autostepHeight', 'Step height', 'The highest step it climbs.', { group: 'Collision', when: when('autostep', true), ...TL.autostepHeight, step: 0.01, unit: 'm', default: CT.autostepHeight }),
-    // The 3D character (physics_dimension 3; a 2D plane ignores these).
-    num('walkSpeed', 'Walk speed', 'Speed with the move input fully pushed (2: a brisk walk).', { group: 'Movement', ...C3L.walkSpeed, step: 0.1, unit: 'm/s', default: C3.walkSpeed, dimension: 3 }),
-    num('runSpeed', 'Run speed', 'Speed while the "run" input action is held (absent: the project run speed setting).', { group: 'Movement', ...C3L.runSpeed, step: 0.1, unit: 'm/s', dimension: 3 }),
-    num('airControl', 'Air control', 'Share of the acceleration it has in the air (0: no steering mid-jump, 1: as on the ground).', { group: 'Movement', ...C3L.airControl, step: 0.05, unit: '×', default: C3.airControl, dimension: 3 }),
-    num('gravityScale', 'Gravity scale', 'Multiplies the project gravity for this character.', { group: 'Movement', ...C3L.gravityScale, step: 0.1, unit: '×', default: C3.gravityScale, dimension: 3 }),
-    num('turnSpeed', 'Turn speed', 'How fast it turns to face where it moves (0: at once).', { group: 'Movement', ...C3L.turnSpeed, step: 10, unit: 'deg/s', default: C3.turnSpeed, dimension: 3 }),
-    bool('faceMovement', 'Face movement', 'Turn the object about its up axis to face the direction it moves (its +Z forward).', { group: 'Movement', default: C3.faceMovement, dimension: 3 }),
-    enm('moveFrame', 'Move relative to', 'What the move input is read against: the live camera\'s heading (up walks away from the camera; world axes while no camera is live) or the world axes (up pushes along −Z, right along +X).', CHARACTER_MOVE_FRAMES, { group: 'Movement', default: C3.moveFrame, labels: { view: 'Camera', world: 'World axes' }, dimension: 3 }),
-    enm('profile', 'Movement profile', 'A walking character (walk and run speeds, air control, step-up) or arcade (one run speed, autostep, a jump cut on release). Either works free or on a plane.', CONTROLLER_PROFILES, { group: 'Movement', default: 'character', labels: { character: 'Character', arcade: 'Arcade' }, dimension: 3 }),
-    bool('jump', 'Can jump', 'The jump input makes it jump (off: a character that only walks).', { group: 'Jump', default: C3.jump, dimension: 3 }),
-    num('jumpSpeed', 'Jump speed', 'Upward speed at a jump (absent: the project jump velocity setting).', { group: 'Jump', when: when('jump', true), ...C3L.jumpSpeed, step: 0.1, unit: 'm/s', dimension: 3 }),
-    num('slopeLimit', 'Slope limit', 'The steepest slope it walks up (absent: the project max_slope_climb_deg setting).', { group: 'Collision', ...C3L.slopeLimit, step: 1, unit: 'deg', dimension: 3 }),
-    num('stepHeight', 'Step-up height', 'Steps up to this height are climbed without a jump (0.3: a stair riser; 0: off). The ground snap is at least this, so it walks down them too.', { group: 'Collision', ...C3L.stepHeight, step: 0.01, unit: 'm', default: C3.stepHeight, dimension: 3, handle: 'height' }),
-    bool('ledgeClimb', 'Ledge climb', 'Pushing against a ledge higher than a step pulls the character up onto it.', { group: 'Collision', default: C3.ledgeClimb, dimension: 3 }),
-    num('ledgeHeight', 'Ledge height', 'The highest ledge it climbs (above its feet).', { group: 'Collision', when: when('ledgeClimb', true), ...C3L.ledgeHeight, step: 0.05, unit: 'm', default: C3.ledgeHeight, dimension: 3, handle: 'height' }),
-    num('ledgeClimbTime', 'Climb time', 'How long a ledge climb takes.', { group: 'Collision', when: when('ledgeClimb', true), ...C3L.ledgeClimbTime, step: 0.05, unit: 's', default: C3.ledgeClimbTime, dimension: 3 }),
+    // The character profile's movement (the arcade profile reads the acceleration and jump fields above instead).
+    num('walkSpeed', 'Walk speed', 'Speed with the move input fully pushed (2: a brisk walk).', { group: 'Movement', ...C3L.walkSpeed, step: 0.1, unit: 'm/s', default: C3.walkSpeed }),
+    num('runSpeed', 'Run speed', 'Speed while the "run" input action is held (absent: the project run speed setting).', { group: 'Movement', ...C3L.runSpeed, step: 0.1, unit: 'm/s' }),
+    num('airControl', 'Air control', 'Share of the acceleration it has in the air (0: no steering mid-jump, 1: as on the ground).', { group: 'Movement', ...C3L.airControl, step: 0.05, unit: '×', default: C3.airControl }),
+    num('gravityScale', 'Gravity scale', 'Multiplies the project gravity for this character.', { group: 'Movement', ...C3L.gravityScale, step: 0.1, unit: '×', default: C3.gravityScale }),
+    num('turnSpeed', 'Turn speed', 'How fast it turns to face where it moves (0: at once).', { group: 'Movement', ...C3L.turnSpeed, step: 10, unit: 'deg/s', default: C3.turnSpeed }),
+    bool('faceMovement', 'Face movement', 'Turn the object about its up axis to face the direction it moves (its +Z forward).', { group: 'Movement', default: C3.faceMovement }),
+    enm('moveFrame', 'Move relative to', 'What the move input is read against: the live camera\'s heading (up walks away from the camera; world axes while no camera is live) or the world axes (up pushes along −Z, right along +X).', CHARACTER_MOVE_FRAMES, { group: 'Movement', default: C3.moveFrame, labels: { view: 'Camera', world: 'World axes' } }),
+    enm('profile', 'Movement profile', 'A walking character (walk and run speeds, air control, step-up) or arcade (one run speed, autostep, a jump cut on release). Either works free or on a plane.', CONTROLLER_PROFILES, { group: 'Movement', default: 'character', labels: { character: 'Character', arcade: 'Arcade' } }),
+    bool('jump', 'Can jump', 'The jump input makes it jump (off: a character that only walks).', { group: 'Jump', default: C3.jump }),
+    num('jumpSpeed', 'Jump speed', 'Upward speed at a jump (absent: the project jump velocity setting).', { group: 'Jump', when: when('jump', true), ...C3L.jumpSpeed, step: 0.1, unit: 'm/s' }),
+    num('slopeLimit', 'Slope limit', 'The steepest slope it walks up (absent: the project max_slope_climb_deg setting).', { group: 'Collision', ...C3L.slopeLimit, step: 1, unit: 'deg' }),
+    num('stepHeight', 'Step-up height', 'Steps up to this height are climbed without a jump (0.3: a stair riser; 0: off). The ground snap is at least this, so it walks down them too.', { group: 'Collision', ...C3L.stepHeight, step: 0.01, unit: 'm', default: C3.stepHeight, handle: 'height' }),
+    bool('ledgeClimb', 'Ledge climb', 'Pushing against a ledge higher than a step pulls the character up onto it.', { group: 'Collision', default: C3.ledgeClimb }),
+    num('ledgeHeight', 'Ledge height', 'The highest ledge it climbs (above its feet).', { group: 'Collision', when: when('ledgeClimb', true), ...C3L.ledgeHeight, step: 0.05, unit: 'm', default: C3.ledgeHeight, handle: 'height' }),
+    num('ledgeClimbTime', 'Climb time', 'How long a ledge climb takes.', { group: 'Collision', when: when('ledgeClimb', true), ...C3L.ledgeClimbTime, step: 0.05, unit: 's', default: C3.ledgeClimbTime }),
     // The input actions it reads (the input frame has no fixed move/jump channels).
     str('moveAction', 'Move action', 'The input action (an axis) that moves it.', { format: 'identifier', minLength: 1, maxLength: 32, group: 'Input', default: CONTROLLER_ACTION_DEFAULTS.moveAction }),
     str('jumpAction', 'Jump action', 'The input action (a button) that makes it jump.', { format: 'identifier', minLength: 1, maxLength: 32, group: 'Input', default: CONTROLLER_ACTION_DEFAULTS.jumpAction }),
-    str('runAction', 'Run action', 'The input action (a button) that makes it run while held.', { format: 'identifier', minLength: 1, maxLength: 32, group: 'Input', default: CONTROLLER_ACTION_DEFAULTS.runAction, dimension: 3 }),
-    // Climbing (inside a climb volume) and walls (both off by default), both dimensions.
+    str('runAction', 'Run action', 'The input action (a button) that makes it run while held.', { format: 'identifier', minLength: 1, maxLength: 32, group: 'Input', default: CONTROLLER_ACTION_DEFAULTS.runAction }),
+    // Climbing (inside a climb volume) and walls (both off by default), either profile.
     num('climbSpeed', 'Climb speed', 'How fast it moves inside a climb volume (up/down along it, sideways across it; jump leaves).', { group: 'Climbing and walls', ...CML.climbSpeed, step: 0.1, unit: 'm/s', default: CMD.climbSpeed }),
     str('climbAction', 'Climb action', 'The input action (an axis) that climbs: its value, or a 2D axis\' up/down (absent: the move action\'s up/down — a 2D project whose move is left/right only names another action here).', { format: 'identifier', minLength: 1, maxLength: 32, group: 'Climbing and walls' }),
     bool('wallSlide', 'Wall slide', 'Falling while pushing into a wall, it slides down no faster than the wall slide speed.', { group: 'Climbing and walls', default: CMD.wallSlide }),
@@ -334,8 +335,8 @@ export const controller: ComponentDescriptor = {
   handles: [
     { kind: 'capsule', label: 'Capsule', bind: { radius: 'capsule/radius', height: 'capsule/height', offset: 'capsule/offset' }, space: 'local' },
     // 3D: the step-up and ledge heights above the capsule's feet.
-    { kind: 'height', label: 'Step-up height', bind: { height: 'stepHeight' }, space: 'local', from: 'capsule', dimension: 3 },
-    { kind: 'height', label: 'Ledge height', bind: { height: 'ledgeHeight' }, space: 'local', from: 'capsule', when: when('ledgeClimb', true), dimension: 3 },
+    { kind: 'height', label: 'Step-up height', bind: { height: 'stepHeight' }, space: 'local', from: 'capsule' },
+    { kind: 'height', label: 'Ledge height', bind: { height: 'ledgeHeight' }, space: 'local', from: 'capsule', when: when('ledgeClimb', true) },
   ],
   excludes: [
     { component: 'terrain', reason: 'a terrain is its own level geometry' },
@@ -502,8 +503,7 @@ export const cameraRegion: ComponentDescriptor = {
   // 10 × 6 m: a room about two storeys high (the default 1.8 m character several strides from wall to wall).
   add: { kind: 'menu', value: { size: [10, 6] } },
   create: [
-    { label: 'Camera region', menu: 'Cameras', dimension: 2 },
-    { label: 'Camera region', menu: 'Cameras', value: { size: [10, 6, 10] }, dimension: 3 },
+    { label: 'Camera region', menu: 'Cameras', value: { size: [10, 6, 10] } },
   ],
   icon: 'camera',
   handles: [
@@ -900,10 +900,8 @@ export const mover: ComponentDescriptor = {
   // Placeholder boxes against the engine's default 1.8 m character: a 2 m platform to stand on and a 3 m door
   // to walk through (it rises 3 m when "open" is sent — the switch's default signal); each with its box collider.
   create: [
-    { label: 'Moving platform', menu: 'Gameplay', box: { size: [2, 0.4, 2], color: '#c9a36a' }, with: { collider: { shape: { type: 'box', hx: 1, hy: 0.2 } } }, dimension: 2 },
-    { label: 'Moving platform', menu: 'Gameplay', box: { size: [2, 0.4, 2], color: '#c9a36a' }, with: { collider: { shape: { type: 'box', hx: 1, hy: 0.2, hz: 1 } } }, dimension: 3 },
-    { label: 'Door (opens on "open")', name: 'Door', menu: 'Gameplay', box: { size: [0.6, 3, 2], color: '#7a5230' }, value: { waypoints: [[0, 3, 0]], speed: 3, mode: 'once', startOn: 'open' }, with: { collider: { shape: { type: 'box', hx: 0.3, hy: 1.5 } } }, dimension: 2 },
-    { label: 'Door (opens on "open")', name: 'Door', menu: 'Gameplay', box: { size: [0.6, 3, 2], color: '#7a5230' }, value: { waypoints: [[0, 3, 0]], speed: 3, mode: 'once', startOn: 'open' }, with: { collider: { shape: { type: 'box', hx: 0.3, hy: 1.5, hz: 1 } } }, dimension: 3 },
+    { label: 'Moving platform', menu: 'Gameplay', box: { size: [2, 0.4, 2], color: '#c9a36a' }, with: { collider: { shape: { type: 'box', hx: 1, hy: 0.2, hz: 1 } } } },
+    { label: 'Door (opens on "open")', name: 'Door', menu: 'Gameplay', box: { size: [0.6, 3, 2], color: '#7a5230' }, value: { waypoints: [[0, 3, 0]], speed: 3, mode: 'once', startOn: 'open' }, with: { collider: { shape: { type: 'box', hx: 0.3, hy: 1.5, hz: 1 } } } },
   ],
   icon: 'mover',
   handles: [{ kind: 'path', label: 'Waypoints', bind: { points: 'waypoints' }, space: 'local', loop: when('mode', 'loop') }],
@@ -939,18 +937,16 @@ export const trigger: ComponentDescriptor = {
   ]),
   // A 2 m square (the default 1.8 m character fits inside) sending the neutral signal name "trigger".
   add: { kind: 'menu', value: { size: [2, 2], signal: 'trigger' } },
-  // 3D projects (a 2D plane keeps the single entry above): a 2 m cube, a 1 m sphere and a 2 m capsule — the default 1.8 m character fits in each.
+  // A 2 m cube, a 1 m sphere and a 2 m capsule — the default 1.8 m character fits in each.
   presets: [
-    { label: 'Box (3D)', value: { size: [2, 2, 2], signal: 'trigger' }, dimension: 3 },
-    { label: 'Sphere', value: { shape: 'sphere', radius: 1, signal: 'trigger' }, dimension: 3 },
-    { label: 'Capsule', value: { shape: 'capsule', radius: 0.5, height: 2, signal: 'trigger' }, dimension: 3 },
+    { label: 'Box', value: { size: [2, 2, 2], signal: 'trigger' } },
+    { label: 'Sphere', value: { shape: 'sphere', radius: 1, signal: 'trigger' } },
+    { label: 'Capsule', value: { shape: 'capsule', radius: 0.5, height: 2, signal: 'trigger' } },
   ],
   // An area, and an area that moves the character to another scene (its first spawn picked in the Inspector).
   create: [
-    { label: 'Trigger', menu: 'Gameplay', dimension: 2 },
-    { label: 'Trigger', menu: 'Gameplay', value: { size: [2, 2, 2], signal: 'trigger' }, dimension: 3 },
-    { label: 'Scene transition', menu: 'Gameplay', value: { size: [2, 2], signal: 'transition', sceneTransition: { scene: '' } }, otherScene: ['sceneTransition/scene'], dimension: 2 },
-    { label: 'Scene transition', menu: 'Gameplay', value: { size: [2, 2, 2], signal: 'transition', sceneTransition: { scene: '' } }, otherScene: ['sceneTransition/scene'], dimension: 3 },
+    { label: 'Trigger', menu: 'Gameplay', value: { size: [2, 2, 2], signal: 'trigger' } },
+    { label: 'Scene transition', menu: 'Gameplay', value: { size: [2, 2, 2], signal: 'transition', sceneTransition: { scene: '' } }, otherScene: ['sceneTransition/scene'] },
   ],
   icon: 'sensor',
   handles: [
@@ -1087,8 +1083,7 @@ export const climbVolume: ComponentDescriptor = {
   // 1 m wide and 4 m tall: a ladder up one storey (about 3 m) and a little over the top, for the default 1.8 m character.
   add: { kind: 'menu', value: { size: [1, 4] } },
   create: [
-    { label: 'Climb volume', menu: 'Gameplay', dimension: 2 },
-    { label: 'Climb volume', menu: 'Gameplay', value: { size: [1, 4, 1] }, dimension: 3 },
+    { label: 'Climb volume', menu: 'Gameplay', value: { size: [1, 4, 1] } },
   ],
   icon: 'sensor',
   handles: [{ kind: 'box2', label: 'Size', bind: { size: 'size' }, space: 'local', follows: 'rotation' }],
@@ -1130,14 +1125,12 @@ export const hitbox: ComponentDescriptor = {
   // A 1 m box: about a person-sized object's reach.
   add: { kind: 'menu', value: { size: [1, 1] } },
   create: [
-    { label: 'Hitbox', menu: 'Gameplay', dimension: 2 },
-    { label: 'Hitbox', menu: 'Gameplay', value: { size: [1, 1, 1] }, dimension: 3 },
+    { label: 'Hitbox', menu: 'Gameplay', value: { size: [1, 1, 1] } },
   ],
   icon: 'hitbox',
-  // The 2D plane's box has no depth; a 3D box a 1 m depth; a sphere (a circle on the 2D plane) fits both.
+  // A 1 m box and a 0.5 m sphere.
   presets: [
-    { label: 'Box', value: { size: [1, 1] }, dimension: 2 },
-    { label: 'Box', value: { size: [1, 1, 1] }, dimension: 3 },
+    { label: 'Box', value: { size: [1, 1, 1] } },
     { label: 'Sphere', value: { shape: 'sphere', radius: 0.5 } },
   ],
   handles: [

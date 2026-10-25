@@ -148,6 +148,24 @@ export class ViewFraming {
     return true;
   }
 
+  /**
+   * The side view of a plane: the camera on the plane's normal (+Z for a Z
+   * plane, +X for an X plane, so the plane's x runs to the right), level,
+   * looking back across it at the point it orbited, moved onto the plane, from
+   * the same distance. The view's lens stays perspective.
+   */
+  sideView(plane: { axis: 'x' | 'z'; origin: number }): void {
+    const { camera, orbit, requestRender } = this.host;
+    const distance = Math.max(2, camera.position.distanceTo(orbit.target));
+    const t = orbit.target.clone();
+    if (plane.axis === 'z') t.z = plane.origin;
+    else t.x = plane.origin;
+    orbit.target.copy(t);
+    camera.position.copy(t).add(plane.axis === 'z' ? new THREE.Vector3(0, 0, distance) : new THREE.Vector3(distance, 0, 0));
+    orbit.update();
+    requestRender();
+  }
+
   /** Frame every entity (the whole level) from the current view direction. */
   frameAll(entities: readonly ProjectedEntity[]): void {
     const { queries } = this.host;

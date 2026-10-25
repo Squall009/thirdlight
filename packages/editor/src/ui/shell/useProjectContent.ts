@@ -6,7 +6,7 @@
  * every applied change; the backend stays the sole authority.
  */
 import { useCallback, useState } from 'react';
-import type { AnimatorController, DescriptorRegistry, DialogueDocument as DialogueDoc, DialogueSettings, DialogueSpeaker, EffectDef, EnvironmentConfig, GraphDocument, KitDef, SceneEnvironment, LightingBake, MaterialDef, PropertyDeclaration, ScriptLibrary, TimelineAsset, TrustEntry, UiDocument, UiTheme, UiDocument as ProjectUiDocument, UiTheme as ProjectUiTheme } from '@thirdlight/project-model';
+import type { AnimatorController, DescriptorRegistry, PlaneLock, DialogueDocument as DialogueDoc, DialogueSettings, DialogueSpeaker, EffectDef, EnvironmentConfig, GraphDocument, KitDef, SceneEnvironment, LightingBake, MaterialDef, PropertyDeclaration, ScriptLibrary, TimelineAsset, TrustEntry, UiDocument, UiTheme, UiDocument as ProjectUiDocument, UiTheme as ProjectUiTheme } from '@thirdlight/project-model';
 import type { SessionClient } from '../../session/client';
 import type { BehaviorDeclarationView, PrefabSummaryView } from '../../session/prefab-projection';
 import type { GraphKindDef } from '../../graph/model';
@@ -29,6 +29,8 @@ export function useProjectContent() {
   /** The active scene's look, and what the Scene view and the previews show (that look with the project's quality and presets). */
   const [sceneLook, setSceneLook] = useState<SceneEnvironment | null>(null);
   const [shownEnvironment, setShownEnvironment] = useState<(EnvironmentConfig & SceneEnvironment) | null>(null);
+  /** Each scene's default plane (Scene settings, the side view button). */
+  const [scenePlanes, setScenePlanes] = useState<ReadonlyMap<string, PlaneLock>>(() => new Map());
   const [lighting, setLighting] = useState<Record<string, LightingBake>>({});
   // The animator controllers.
   const [animators, setAnimators] = useState<AnimatorController[]>([]);
@@ -73,6 +75,8 @@ export function useProjectContent() {
     const active = c.getSceneView().active;
     setSceneLook(stable('sceneLook', active === null ? null : c.getSceneEnvironment(active)));
     setShownEnvironment(stable('shownEnvironment', c.getShownEnvironment()));
+    const planes = c.getScenePlanes();
+    setScenePlanes(stable('scenePlanes', new Map(planes), JSON.stringify([...planes])));
     setAnimators(stable('animators', c.getAnimators()));
     setEffects(c.getEffects());
     setKits(c.getKits());
@@ -98,7 +102,7 @@ export function useProjectContent() {
   }, []);
 
   return {
-    graphs, graphKinds, graphsLoaded, materials, environment, sceneLook, shownEnvironment, lighting, animators, effects, kits, dialogues, setDialogues, speakers, dialogueSettings, projectUiDocs, projectUiThemes,
+    graphs, graphKinds, graphsLoaded, materials, environment, sceneLook, shownEnvironment, scenePlanes, lighting, animators, effects, kits, dialogues, setDialogues, speakers, dialogueSettings, projectUiDocs, projectUiThemes,
     timelines, scriptLibraries, uiDocuments, uiThemes, registry, prefabSummaries, declarations, behaviorViews, trustEntries, receive,
   };
 }

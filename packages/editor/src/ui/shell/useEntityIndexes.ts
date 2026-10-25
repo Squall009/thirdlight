@@ -120,8 +120,6 @@ export function useEntityIndexes(deps: EntityIndexesDeps) {
       signals: registry === null ? [] : collectSignals(registry, allEntities.map((e) => e.components)),
       // An animator's starting values are edited from its controller's parameters.
       animatorParameters: Object.fromEntries(animators.map((a) => [a.controllerId, a.parameters])),
-      // The "+ Add component" presets follow the project's physics dimension.
-      physicsDimension: 3 as const,
       // The light layer masks' checkboxes carry the project's layer names.
       lightLayerNames: lightLayers,
       // A cell metadata map is edited by the project's cell fields.

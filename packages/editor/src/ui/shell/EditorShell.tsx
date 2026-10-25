@@ -417,6 +417,12 @@ export function renderEditorShell(m: EditorModel, projectId: string): JSX.Elemen
         onToggleSeeThrough={() => setSeeThroughPreview((v) => !v)}
         wind={windPreview}
         onToggleWind={() => setWindPreview((v) => !v)}
+        {...(() => {
+          // The active scene's default plane: a button that looks across it.
+          const active = sceneHeaders?.find((h) => h.active);
+          const plane = active !== undefined ? content.scenePlanes.get(active.sceneId) : undefined;
+          return plane !== undefined ? { onSideView: () => viewportRef.current?.framing.sideView(plane) } : {};
+        })()}
         onPlay={() => void play()}
         onPlayFrom={() => {
           dialogs.setPlayFromForm((f) => ({ ...f, busy: false, error: null }));

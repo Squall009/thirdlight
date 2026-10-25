@@ -131,4 +131,4 @@ Scene-view handles:
 | Bounds | bounds | min → `boundsMin`, max → `boundsMax` | local |  |
 | Dead zone | box3 | size → `deadZone` | local |  |
 
-GameObject menu: Cameras → Camera region (2D), Cameras → Camera region (3D)
+GameObject menu: Cameras → Camera region

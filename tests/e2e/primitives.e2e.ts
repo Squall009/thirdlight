@@ -146,7 +146,7 @@ test('collectible, patrol, hitbox and health from "+ Add component"; in Play a c
   await field(page, 'patrol direction x', '-1');
   await expect.poll(async () => (await comp(walker, 'patrol'))?.['direction']).toEqual([-1, 0, 0]);
   await add.selectOption({ label: 'Hitbox: Box' });
-  await expect.poll(async () => comp(walker, 'hitbox')).toEqual({ size: [1, 1] });
+  await expect.poll(async () => comp(walker, 'hitbox')).toEqual({ size: [1, 1, 1] });
   await field(page, 'hitbox damage', '1');
   await expect.poll(async () => (await comp(walker, 'hitbox'))?.['damage']).toBe(1);
   // A collider cannot join a patroller (it moves itself): offered, but disabled with the reason.

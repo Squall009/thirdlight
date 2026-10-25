@@ -95,7 +95,7 @@ export function editorMenus(input: EditorMenuInput): Menu[] {
     const other = scenesAll.find((sc) => sc.sceneId !== (sceneHeaders?.find((h) => h.active)?.sceneId ?? null))?.sceneId ?? null;
     const own = new Set(['Light']);
     const order: string[] = [];
-    for (const entry of createEntries(registry, { dimension: 3 })) {
+    for (const entry of createEntries(registry)) {
       const needsScene = entry.otherScene.length > 0;
       const reason = sceneHeaders === null ? v4Reason : needsScene && (scenesAll.length < 2 || other === null) ? 'it moves the character to another scene: the project needs a second scene' : null;
       const item: MenuItem = {
@@ -178,7 +178,7 @@ export function editorMenus(input: EditorMenuInput): Menu[] {
       // one item per component, presets as a submenu, and why an item cannot be added.
       items: (() => {
         if (registry === null) return [{ label: 'Loading components…', disabled: true, reason: 'the component descriptions are not loaded yet', onSelect: () => undefined }];
-        const entries = addEntries(registry, selComponents, { folder: selected?.kind === 'folder', dimension: 3 });
+        const entries = addEntries(registry, selComponents, { folder: selected?.kind === 'folder' });
         const out: MenuEntry[] = [];
         let category: string | null = null;
         for (const c of registry.components) {

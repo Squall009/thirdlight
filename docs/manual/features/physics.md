@@ -149,8 +149,9 @@ On the 3D backend:
   scale (any positive scale for a box, hull or mesh; uniform for a sphere,
   capsule or cylinder). The Scene view draws every 3D collider as a wire outline; a
   sphere has a radius handle, a capsule a height and a radius handle.
-  "+ Add component" offers the 3D presets (Box (3D), Sphere, Capsule,
-  Cylinder, Convex hull, Mesh) in a 3D project and the 2D ones in a 2D plane;
+  "+ Add component" offers every shape in every project (Box, Flat box
+  (depth), Polygon (prism), Sphere, Capsule, Cylinder, Convex hull, Mesh),
+  and GameObject → Gameplay → One-way platform makes a one-way shelf;
 - **triggers** are 3D volumes: a **box** with a depth (`size` [w, h, d]),
   a **sphere** or a **capsule** (radius and height), turned with their
   object and tested exactly against the player's capsule — enter and exit

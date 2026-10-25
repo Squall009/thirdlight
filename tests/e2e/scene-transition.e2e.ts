@@ -121,8 +121,8 @@ test('a trigger\'s scene transition, a track camera and event sounds from the ed
 
   // e: a trigger on the door, then its scene transition picked in the Inspector.
   await select(page, door);
-  await add.selectOption({ label: 'Trigger' });
-  await expect.poll(async () => comp(door, 'trigger')).toEqual({ size: [2, 2], signal: 'trigger' });
+  await add.selectOption({ label: 'Trigger: Box' });
+  await expect.poll(async () => comp(door, 'trigger')).toEqual({ size: [2, 2, 2], signal: 'trigger' });
   await inspector.getByLabel('add trigger sceneTransition', { exact: true }).click();
   await expect.poll(async () => (await comp(door, 'trigger'))?.['sceneTransition']).toEqual({ scene: 'scene-far' });
   await inspector.getByLabel('trigger sceneTransition spawn', { exact: true }).selectOption(arrival);

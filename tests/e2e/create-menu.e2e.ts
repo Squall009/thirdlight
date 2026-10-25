@@ -7,9 +7,9 @@
  * camera track; a fog volume in Light) and no genre entries (no zones,
  * coins or enemies). Each entry creates an object carrying its component,
  * read back from the backend; the scene transition needs a second scene
- * and then names it. The hierarchy rows take the descriptors' icons. A 3D
- * project shows the entries that fit 3D (no one-way platform; a switch; a
- * platform's collider, a hitbox and a trigger have a depth).
+ * and then names it. The hierarchy rows take the descriptors' icons. Every
+ * project shows every entry (one physics backend): a platform's collider, a
+ * one-way shelf, a hitbox and a trigger have a depth.
  */
 import { randomUUID } from 'node:crypto';
 
@@ -53,7 +53,7 @@ async function submenu(page: Page, name: string): Promise<string[]> {
   return out;
 }
 
-const GAMEPLAY = ['Moving platform', 'Door (opens on "open")', 'Trigger', 'Scene transition', 'Switch', 'Object with health', 'Collectible', 'Patrolling object', 'Hitbox', 'Climb volume'];
+const GAMEPLAY = ['One-way platform', 'Moving platform', 'Door (opens on "open")', 'Trigger', 'Scene transition', 'Switch', 'Object with health', 'Collectible', 'Patrolling object', 'Hitbox', 'Climb volume'];
 const GENRE = /coin|enemy|zone|hazard|checkpoint|goal|exit|pickup|gem|heart|life|lives|stomp|score/i;
 
 test('the create menu lists the descriptors\' generic entries; each creates its component; no genre entries', async ({ page }) => {
@@ -87,6 +87,7 @@ test('the create menu lists the descriptors\' generic entries; each creates its 
   // Each entry creates one object carrying its component (named after the entry).
   const expected: [string[], string, string, string][] = [
     [['Spawn point'], 'Spawn point', 'playerSpawn', 'spawn'],
+    [['Gameplay', 'One-way platform'], 'One-way platform', 'collider', 'box'],
     [['Gameplay', 'Moving platform'], 'Moving platform', 'mover', 'box'],
     [['Gameplay', 'Door (opens on "open")'], 'Door', 'mover', 'box'],
     [['Gameplay', 'Trigger'], 'Trigger', 'trigger', 'sensor'],
@@ -110,8 +111,9 @@ test('the create menu lists the descriptors\' generic entries; each creates its 
   }
   const all = await entities();
   const one = (name: string): Ent => all.find((e) => e.name === name)!;
-  // The platform collider and the hitbox have a depth on the one 3D backend.
+  // The platform colliders and the hitbox have a depth on the one 3D backend; the shelf holds only from above.
   expect(one('Moving platform').components['collider']).toEqual({ shape: { type: 'box', hx: 1, hy: 0.2, hz: 1 } });
+  expect(one('One-way platform').components['collider']).toEqual({ shape: { type: 'box', hx: 1.5, hy: 0.1, hz: 1 }, oneWay: true });
   expect(one('Switch').components['switch']).toEqual({ mode: 'interact', signal: 'open', size: [1, 1] });
   expect(one('Hitbox').components['hitbox']).toEqual({ size: [1, 1, 1] });
   expect(one('Trigger').components['trigger']).toEqual({ size: [2, 2, 2], signal: 'trigger' });
