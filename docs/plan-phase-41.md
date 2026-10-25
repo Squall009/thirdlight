@@ -187,6 +187,7 @@ with real Rapier on page and worker.
 | 41.3 A | Done (part A). Reference traces of the 2D controller (`fixtures/phase41/platformer-traces/`, 11 Sprout-tuned side-view cases: jump apex/hop, run, slopes, slope slide, stairs+autostep, wall slide/jump, ladder, one-way+drop-through, lift, sideways platform, coyote+buffer; per step x, y, vx, vy, grounded, state; `tests/integration/m41-platformer/`, reproduced exactly, `TL_RECORD_TRACES=1` re-records). `profile: 'arcade'` on the 3D controller (`runtime/src/character-arcade.ts`): the 2D algorithm in its order on the 3D port, same tuning fields. Plane-locked vs the traces, worst in-plane: jump 8 mm, run 14, slopes 10, slide 8, walls 2, climb 7, one-way 2, coyote/buffer 1.3, side platform 33 (carry a step early), lift 64 (walk-off), stairs 1.0 m (3D step-up climbs earlier) — part B's to fix. X plane = Z plane within 10.2 mm. E2E: one assertion in `character-3d.e2e.ts` (the 3D Inspector now shows Profile and Autostep), no step added. Fast gate (character-3d, colliders) green after that fix, 9 min. |
 | 41.3 B | Done. Parity suite `tests/integration/m41-platformer/parity.test.ts`, tolerances in `PARITY`: the 2D trace's key events (grounding/state changes) in order on the same step (±1 allowed, 0 measured) within 1 cm; every step within 1.5 cm of the 2D path ±1 step; the controller's velocity equal (1e-6) but at the stairs' last edge and the lift's edge; apex, air time, run speed, slope stops, stair treads (±1 step), wall slide/jump, ladder, one-way, carry. Fixes: arcade step-up by the 2D rule (`autostepRide`, `physics-rapier/src/3d/step-up3d.ts`), at a rising mover's edge it rests, 3D spawn clearance's one-way rule, D321 (not the port). Worst event / path (mm): jump 8.3/8.3, run 0/12.6 (the 2D's own 1.1 cm bumps), slopes 0/10.1, slide 0/7.7, stairs 0/10.0 up to the stop and 43.8 at rest (≤ 50), walls 1.9/1.9, climb 5.2/5.9, one-way 0/1.9, lift 1.4/1.4, side platform y 0.1, x 33.3 = the 2D port's 4 stalled carry steps (3D carried on every step), coyote 0.4/1.3. `plane-step --arcade` p50 1/4 levels: 2D 0.060/0.085, 3D plane-locked 0.113/0.156 ms (41.0 2D baseline, no autostep, 0.037/0.056; 41.0 3D/2D 1.4×/1.9×, now 1.9×/1.8×). No e2e touched (character-3d + colliders 3.0 min). Fast gate green, 9 min, 4.0 GB. |
 | 41.4 | Done. One `ctx.physics` surface: `raycast`/`overlapBox` take `[x, y, z]` (world) or `{x, y}` on the caller's plane (its object's lock, else z = 0), `overlapCircle` a disc on it; filters on every form; typings without "3D projects:" caveats; nodes Set plane, Set character plane, Plane of. Switches, circle and `[w, h]` triggers work on the 3D port unchanged (no data moves); `blocks2DTo3D` (project-model) gives 41.5 the Problems notes. Tests: integration (game host, page = worker, free and z-plane, X-plane queries), model, catalogue. E2E: create-menu 3D step +1 entry (2.7 → 2.9 s), blocks 9.4 → 9.7 s. Fast gates green, 10 min, 4.1 GB (D307 hit once, passed alone). |
+| 41.4b | Done. Bodies outside loaded collision suspended (`runtime/src/body-suspension.ts`, `SimWorldStream.loadedAt`, port `suspendCharacter`): characters, patrols, gravity bodies; state kept, resume in the step the ground's collision arrives; `ctx.physics.isSuspended`, node Is suspended, `runtime.worldStream.suspended`. Tests: integration `m23-3d/suspended-bodies` (NPC + falling rock held while the player is away, rock resumes with its fall speed to 1e-6, NPC waits at the loaded edge and walks on; page ×2 = worker digests), port, loaded-column unit. No e2e touched (physics-3d + primitives 2.9 min). Fast gate green, 9 min, 4.0 GB; village at the cap 0 missed on both renderers. |
 
 ## 5. Decision log
 
@@ -307,3 +308,23 @@ with real Rapier on page and worker.
   switch, hitbox, collectible on a turned object) and `depth-motion` (mover or patrol waypoints, or a
   patrol direction, with a z part: 2D moved only the look in depth, 3D moves the collision too unless
   the collider is plane-locked).
+- 2026-10-25 (41.4b): default chosen, owner to confirm: "over loaded collision" is the body's ground
+  column (x, z), decided once at each step boundary right after the rings move: every streamed object
+  (terrain, block layer) with a cell there (a tile; a chunk holding cells, as of the last ring look)
+  must hold it in its collision ring, and a terrain tile must have its data (so it is built at this
+  step's flush). Ground no streamed object covers is loaded. Height is not looked at (a body above or
+  below a layer still waits for it). One set lookup per streamed object per body per step; nothing
+  when no object streams.
+- 2026-10-25 (41.4b): default chosen, owner to confirm: suspended are what the engine moves under
+  gravity or along the ground — player characters (the port holds the capsule, its controller module
+  skips the step, fall speed and last result kept; impulses given meanwhile are dropped), patrols
+  (edge and waypoint) and gravity bodies; a suspended body's hitbox and a suspended character take
+  no part in contacts or collectibles. Path movers never stop (no ground needed; one stopped far away
+  would come back out of step). An edge walker whose next step is over unloaded ground waits there
+  suspended instead of turning (it would otherwise turn at the loaded world's edge, which depends on
+  where the camera is). The engine has no dynamic bodies; a future dynamic-body item uses the same
+  rule. 2D controllers (the 2D port) are not held: that backend goes in 41.6. Players are ring sources,
+  so a player is held only when its own cell waits (a terrain tile whose data has not arrived after
+  a teleport, or the per-step admission budget).
+- 2026-10-25 (41.4b): `ctx.physics.isSuspended(id)` (node Is suspended) reads it; diagnostics
+  `runtime.worldStream.suspended` = { bodies (now), suspensions, resumes }.
