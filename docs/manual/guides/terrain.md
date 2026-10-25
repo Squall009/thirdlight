@@ -155,7 +155,8 @@ far copies, the chunk size). **Bake rules** bakes the copies. **Scatter by
 hand** places the chosen rule's copies under the brush (**Place**, B) or
 takes them off (**Take off**, X, or Ctrl held); hand edits survive every
 bake. A rule marked as ground cover is never stored: it is made round the
-camera while the game runs.
+camera while the game runs (a whole field of grass in wind:
+[Grow a meadow](meadow.md)).
 
 **API:** `editTerrain` kind `bake` with `scatter`
 ([`ScatterRule`](../reference/types-p-t.md#type-scatter-rule)):

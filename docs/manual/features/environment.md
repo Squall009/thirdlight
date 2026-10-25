@@ -57,7 +57,8 @@ with the same image and different turns blend the turn the short way round
 The physical sky (`sky.mode` `procedural`) draws clouds with its own cloud
 term (no extra pass): `cloudCoverage` (0–1, the share of the sky covered;
 0 = clear; default 0.4) and `cloudDensity` (0–1, how solid they are;
-default 0.4); absent fields draw the sky as it always was. They **drift with
+default 0.4); absent fields draw the clouds three.js's sky draws (an
+older project's physical sky keeps its clouds, which now drift). They **drift with
 the scene's global wind**: along its direction at its gust speed (`speed`,
 metres per second, see *Wind*) on a layer 1 km up; wind zones are local
 ground wind and do not move them. `cloudTime` (seconds, 0–86,400, default
@@ -72,7 +73,8 @@ environment presets (`ctx.environment.set` / `blend` blend all three). Their
 colour comes from the sky's sun and atmosphere, not a setting. The Scene
 view draws on demand: its clouds move while something keeps it drawing
 (animated materials such as foliage, Play), otherwise they catch up on the
-next frame.
+next frame. Cost: on the meadow perf class, clouds at 0.6 cover added
+about 0.55 ms of WebGPU GPU time to the physical sky.
 
 **Align the sky's sun to the key light** (Environment window button) finds
 the sun in the image — the centre of its brightest area: the pixels within
@@ -182,14 +184,18 @@ a graph's *Wind* node reads the same field.
   gust pattern's peaks), `turbulence` (small-scale variation).
 - The **gust pattern** is a tiling texture read from above over the world
   and scrolled along the wind: `noise` (a texture asset, its red channel;
-  absent: the engine's neutral noise), `scale` (metres it spans, default
+  absent: the engine's neutral noise, a 128² tiling value noise made in
+  code with no look of its own), `scale` (metres it spans, default
   20), `speed` (metres per second it travels; absent: `gustFrequency` ×
   `scale`), and `octave` `{scale, speed}`: a finer second layer as shares of
   the first (default 0.27 and 1.6) so the pattern does not visibly repeat.
 - A plant bends by the wind's strength where it stands × its vertex's bend
   weight (COLOR_0 R, squared) × its height above its root: tall grass bends
-  further than short grass. A mesh without COLOR_0 sways by its height share
-  of its first metre. The material's `windBend` and `windFlutter` scale it.
+  further than short grass (0.12 m of lean per metre of height at strength
+  1, so a 1 m plant moves as the old fixed sway did). A mesh without COLOR_0
+  sways by its height share of its first metre. The material's `windBend`
+  and `windFlutter` scale it, and its `windDistance` (m) keeps the wind's
+  work near the camera ([the foliage policy](terrain.md#foliage-best-practice-the-foliage-policy)).
 - The physical sky's clouds drift along the global wind at its `speed`
   (see *Clouds*).
 - **In the editor** foliage holds still in the Scene view (the view draws
@@ -197,21 +203,35 @@ a graph's *Wind* node reads the same field.
   off* / *wind: on*) turns the wind preview on: then it sways as in Play,
   zones included. Only that view; nothing is saved, and Play always moves.
 
-**Wind zones.** Add a *Wind zone* (Create → Light → Wind zone, or the
+**Wind zones.** Add a *Wind zone* (GameObject → Light → Wind zone, or the
 `windZone` component on any object): a **box** (turns with the object about
-up) or a **sphere**, read from above. Any of `direction`, `strength`, `gust`,
+up; a new one is 20 × 10 × 20 m) or a **sphere** (radius 10 m), read from
+above (height is ignored). A new zone changes nothing until it sets a
+value. Any of `direction`, `strength`, `gust`,
 `turbulence`, `speed` and `scale` it sets replaces the wind around it; it
-fades in over `blend` metres inside its edge (the Scene view draws the shape
+fades in over `blend` metres inside its edge (default 2 m, smoothstep;
+nothing outside the shape, so the gizmo is its whole reach; the Scene view draws the shape
 solid and where the blend ends dashed); where zones overlap, the higher
 `priority` is laid on top (equal priorities by object id). Zones are
 ordinary objects: move, hide or switch them off and the wind follows. There
 is no limit on zones: the renderer bakes the zones round the camera into a
 small map (256 m across, 4 m texels, so an edge is no sharper than 4 m),
 made again only when a zone, the wind or the camera's 32 m square changes.
-The noise texture and its second layer are the scene's only.
+The noise texture and its second layer are the scene's only. Where a zone
+changes the pattern's direction, speed or size, the pattern flows into the
+zone's (two reads half of a 6 s period apart, as flow maps do); elsewhere
+it scrolls exactly. Scripts change the global wind with
+`ctx.environment.setWind` (see *Scripts* above); zones keep laying their
+values over a script's wind.
 
+**Costs** (the meadow perf class at the 60 Hz cap, Iris Xe, 1080p): wind
+on foliage and a calm zone in view held the cap on both renderers (p95
+16.8 ms, no missed frame); past the wind map, or with no zone near, shaders
+read the global wind alone and skip the map.
 
-**Foliage gives way to subjects.** Foliage materials also bend away from
+## Foliage gives way to subjects
+
+Foliage materials also bend away from
 the view's **subjects**: the camera's target, or the objects a script names
 with `ctx.camera.setSeeThrough({ subjects: [...] })` (the same list
 see-through fades round, whether see-through is on or off; the nearest four
@@ -231,3 +251,7 @@ stay parted. There is no simulation and nothing stored per plant.
   *Gives way* slider) scales how readily its copies give way (0 for trees
   or rocks drawn with a foliage material).
 - `tl_diagnostics` `renderer.foliageBend` lists the subjects bent round now.
+- Cost: eight uniforms shared by every foliage draw and a vertex-stage push
+  that skips vertices which cannot lean; no new shader per subject. On the
+  meadow perf class at the cap the bend measured within noise of none
+  (WebGPU GPU 10.98 against 11.21 ms), with no missed frame.

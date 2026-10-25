@@ -53,6 +53,7 @@ use and why.
   - [Build a level with block layers](guides/block-layers.md)
   - [The block editor: modes, palette, block types](guides/block-editor.md)
   - [Build terrain: sculpting, rule materials, scatter, splines and blocks on terrain](guides/terrain.md)
+  - [Grow a meadow: ground cover, wind and grass that gives way](guides/meadow.md)
   - [Brushes: settings, cursor and keys](guides/brushes.md)
   - [Dress a scene with instance sets](guides/instance-sets.md)
   - [Generate rooms and buildings](guides/generated-architecture.md)

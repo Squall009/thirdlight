@@ -15,7 +15,7 @@ The pages, and the Deployment sections each took:
 | [scenes-and-cameras.md](scenes-and-cameras.md) | The view, cameras and kept objects, Several player controllers (local co-op), Scenes, Cameras (virtual cameras), MCP: scene preparation and transitions | done |
 | [instance-sets.md](instance-sets.md) | Instance sets | done |
 | [lighting.md](lighting.md) | Baked lighting, Probe grids, Light layers, Local lights per object | done |
-| [environment.md](environment.md) | Grading and fog volumes, Height fog, Sky rotation, Environment presets | done |
+| [environment.md](environment.md) | Grading and fog volumes, Height fog, Sky rotation, Clouds, Environment presets, Wind, Foliage gives way to subjects | done |
 | [rendering.md](rendering.md) | Renderer backends | done |
 | [animation.md](animation.md) | Animation (Animator), Sockets | done |
 | [material-graphs.md](material-graphs.md) | Material graphs, Trim sheets | done |

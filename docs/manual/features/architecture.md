@@ -74,7 +74,7 @@ block editor's Rooms & buildings — see [Rooms and paths](#rooms-and-paths)):
   rule format): moss, debris or grass on its floors — every flat fill
   facing up, rooms' and storeys' floors included, so interiors grow it —
   made near the camera, never stored, drawn by the GPU cover renderer (see
-  [Rule scatter and ground cover](terrain.md#rule-scatter-and-ground-cover)).
+  [Ground cover](terrain.md#ground-cover)).
   The Inspector's **Ground cover** panel under the component edits it; a
   model object takes the same `model.scatter` on its upward faces.
 - **Materials.** Every element wears a material slot (`material`, default

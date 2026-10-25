@@ -24,7 +24,7 @@ walks through it.
 | The same object many times, each with its own behaviour | A [prefab](prefabs.md) | One definition; placed copies follow its edits except what they override, and every spawn uses its latest contents |
 | A door, lamp or trigger that belongs to the level's grid | A **live** block type ([block layers](block-layers.md)) | Spawned per cell; its id comes from the cell |
 | Many copies placed by hand: rocks, crates, grass patches | An [instance set](instance-sets.md) | Up to 65,536 copies of one model in a few draws; no ids or colliders |
-| Copies laid by rules over the ground: forests, rocks, grass | Rule scatter ([terrain guide](terrain.md#rule-scatter-and-ground-cover)) | Baked from rules, re-baked when the ground changes; ground cover made near the camera; per-copy colliders and script addresses (`ctx.scatter`) |
+| Copies laid by rules over the ground: forests, rocks, grass | Rule scatter ([terrain guide](terrain.md#rule-scatter-and-ground-cover); grass fields: [meadow guide](meadow.md)) | Baked from rules, re-baked when the ground changes; ground cover made near the camera; per-copy colliders and script addresses (`ctx.scatter`) |
 
 ## Behaviour
 

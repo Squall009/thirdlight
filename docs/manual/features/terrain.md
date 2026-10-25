@@ -447,61 +447,12 @@ area and the terrain around it are dressed alike.
   addresses; a block layer's are in its chunks (`queryBlocks`).
 - **Giving way to subjects**: a rule's `bendAway` (0–4, default 1) scales
   how far the view's subjects push its copies aside when their material is
-  a foliage one ([Foliage gives way to subjects](environment.md#wind)).
-- **Ground cover** (a rule with `cover: true`, `coverDistance` m, default
-  40): never stored. **On a terrain the GPU places it**: the reach is cut
-  into rings round the camera (at the model's level switches, so a ring
-  draws one level, and from where copies start to thin, each ring reaching
-  √2 times as far as the one before), each ring into square patches of a few
-  hundred candidates that never straddle a tile. One instanced draw per
-  ring and mesh draws every candidate of the patches in view (culled on the
-  CPU, a few hundred at most); the vertex stage computes each copy's place,
-  turn, size and whether it is kept from a hash of its cell, the terrain's
-  height, normal, hole and layer textures and the rule's conditions
-  (height, slope, noise, layer shares). Nothing per copy lives on the CPU,
-  and a sculpt or paint shows in the cover at once (it reads the same
-  textures). Copies fade out one by one over the last 40 % of the reach
-  (never below `densityMin`); with `densityStart` (a screen size, as the
-  stored scatter's falloff) they thin from where the model covers that size,
-  their share falling as the square of distance. Cover casts no shadow unless the
-  rule says `castShadow`; it receives them, and SSAO darkens its roots. The
-  same on WebGL 2 and WebGPU, and in the Scene view while editing: a rule
-  card's *Bake rules* (or *Apply* in the block editor and the Inspector's
-  *Ground cover*) shows the cover there at once. Every terrain rule is
-  drawn this way. What
-  the terrain's textures don't hold comes from a **mask** per rule and tile
-  (a byte per half sample, made on a worker with the stored scatter's own
-  tests when a tile's patches are first drawn, and made again when the ground,
-  a spline or a block layer changes; the old mask is drawn until the new one
-  arrives): the band a spline's `scatter` keeps clear, the ground a terrain's
-  blocks layer cuts for its block layers, the regions a rule `exclude`s and
-  its `cavity` condition. A rule's `spacing` is kept by its grid (one
-  candidate per cell of at least the spacing) and a neighbour test: a
-  candidate gives way to a neighbour within the spacing whose priority hash
-  is higher, the stored scatter's rule judged on the candidate's own
-  conditions (about the same density). `blobShadow` is not drawn under
-  cover (SSAO gives the contact). The reach has no bound of its own past
-  the rule's `coverDistance` (up to 10 km). Block layers' cover goes
-  through the same draws: a worker bakes each chunk's **point set** per
-  rule when the view's reach meets the chunk (every candidate its
-  conditions keep at the rule's full density, on **every floor** of a
-  column — a floor under a roof or a ceiling grows cover too, so interiors
-  have it — with its place, normal, turn, size and a threshold, 16 bytes a
-  point), and the GPU thins the points by distance as it thins a terrain's
-  candidates; an edit bakes the chunks round it again (the old points drawn
-  until the new ones arrive), and sets the view left are let go. A block
-  layer's `spacing` is kept exactly, between points of any floor. No
-  colliders, no hand edits. **Meshes** carry cover rules too: a model
-  object's `model.scatter` grows on its model's faces that look up (its
-  most detailed level, read once the model has loaded and the object has
-  stood still a few frames: a dragged or scripted object is baked again
-  where it comes to rest), and an architecture object's
-  `architecture.scatter` on its floors (its flat fills facing up, rooms'
-  and storeys' floors included, so interiors grow cover). Both take only
-  ground cover rules (`cover: true`; no layers or regions to read) and are
-  edited in the Inspector's **Ground cover** panel under the component;
-  their points are baked per 16 m square on the same worker and drawn by
-  the same draws.
+  a foliage one ([Foliage gives way to subjects](environment.md#foliage-gives-way-to-subjects)).
+- **Ground cover** (a rule with `cover: true`, **Ground cover** on its
+  card; `coverDistance` m, **Reach**, default 40): never stored, made by the
+  GPU round each view while the game runs, on terrains, block layers, models
+  and architecture floors. No colliders, no hand edits, no addresses. See
+  [Ground cover](#ground-cover) below.
 - **Drawing**: per rule, the copies of 2,048 m squares of tiles or chunks
   are one copies set drawn by the GPU renderer ground cover draws with
   (one draw per mesh and level of the model): the page lists, per frame,
@@ -533,9 +484,145 @@ area and the terrain around it are dressed alike.
   costs); the adapter's diagnostics carry `scatter` (sources, cells,
   groups, sets, copies, bytes, sets being prepared, worker and page ms,
   hidden and removed copies, `impostors`: baked, bytes, the longest bake)
-  and `cover` (squares, sets, copies, mean worker ms); the simulation's
+  and `cover` (`sources`, `tilesSent`, and `gpu`: rules, draws this
+  frame, patches, candidates, the lists' main-thread ms, masks and point
+  sets held and pending); the simulation's
   carry `scatterCopies` (copies held, colliders, hidden, removed, the last
   build's time).
+
+### Ground cover
+
+Ground cover is grass, moss, pebbles, small flowers: many small copies near
+the camera that nobody picks or walks into. It uses the scatter rule format
+with `cover: true`, and one GPU path draws it on every surface, indoors and
+out. The look comes from the content (the model, its material, the foliage
+shader's physical values; see [Art direction](#ground-cover-art-direction)).
+
+**Rules.** A cover rule has every field of a scatter rule that places or
+draws (model, `density`, `spacing`, scale, turn, `align`, `sink`, `seed`,
+the conditions, `layers`, `exclude`, `castShadow`, the density falloff,
+`seeThrough`, `bendAway`) and `coverDistance` (m, default 40, up to 10 km).
+It is never baked into the project: Play, the export and the Scene view make
+it from the same rules and ground each time. It has no `collide`, no hand
+edits and no `ctx.scatter` addresses; `blobShadow` is not drawn under it.
+
+**Surfaces.**
+
+- **Terrain**: fully procedural, nothing stored, any terrain size. The
+  vertex stage reads the terrain's height, normal, hole and layer textures
+  and the rule's conditions (height, slope, noise, layer shares, painted by
+  hand included), so a sculpt or a paint shows in the cover at once. What
+  those textures don't hold comes from a **mask** per rule and tile (a byte
+  per half sample, made on a worker with the stored scatter's own tests when
+  a tile is first drawn, made again when the ground, a spline or a block
+  layer changes, the old one drawn meanwhile): a spline's `scatter` band, a
+  blocks layer's cut, the regions a rule `exclude`s and `cavity`.
+  `spacing` is kept by the candidate grid (no finer than the spacing) and a
+  3 × 3 neighbour test by priority hash: no two copies closer, about the
+  stored bake's density.
+- **Block layers**: a worker bakes each chunk's **point set** per rule when
+  the view's reach first meets the chunk: every candidate the conditions
+  keep at the rule's full density, on **every floor** of a column (a floor
+  under a roof or a storey's ceiling grows cover too, so interiors have it),
+  16 bytes a point (place, height, normal, turn, size, a threshold), sorted
+  by threshold. An edit bakes the chunks round it again (the old points
+  drawn until the new arrive); sets the view left are let go. `spacing` is
+  kept exactly, between points of any floor.
+- **Models** (`model.scatter`): the faces of the model's most detailed
+  level that look up — a roof and the floor under it alike — read once the
+  model has loaded and the object has stood still 10 frames (a dragged or
+  scripted object is baked again where it comes to rest, never per frame
+  while it moves).
+- **Architecture floors** (`architecture.scatter`): its flat fills facing
+  up, rooms' and storeys' floors and stairwell-cut floors included; roofs,
+  vaults and stair treads not.
+
+  Models and architecture take cover rules only, edited in the Inspector's
+  **Ground cover** panel under the component; layer, block and region
+  conditions read nothing there (a mesh has no paint or cells). Their points
+  are baked per 16 m square of the object's frame on the same worker.
+
+**Density and thinning.** `density` is candidates per m² where every
+condition holds fully; a candidate is kept with the probability the
+conditions give. With distance, copies fade out one by one over the last
+40 % of the reach (each candidate has its own random threshold, so nothing
+pops; never below `densityMin`); with `densityStart` (a screen size, as the
+stored scatter's falloff) they thin from where the model covers that size,
+their share falling as the square of distance. A thinned candidate leaves
+the vertex stage before it reads any texture.
+
+**Distance and levels of detail.** The reach is cut into **rings** round
+each view: at the model's level switches (a ring draws one level) and from
+where copies start to thin, each ring √2 times as far as the one before.
+A ring is cut into square **patches** of about 512 candidates that never
+straddle a tile (on block layers and meshes: blocks of 256 points). The
+CPU frustum-culls the patches (a few hundred, not millions) and lists them
+in a texture written only when the list changes; **one instanced draw per
+ring and mesh** draws every candidate of the listed patches, and the vertex
+stage places, turns, sizes and thins each one from a hash of its cell (or
+its point). Nothing per copy lives on the CPU, and nothing per frame grows
+with the copies. The same on WebGL 2 (no compute) and WebGPU.
+
+**Shadows.** Cover casts no shadow unless the rule says `castShadow`
+(grass never should); it always receives the sun's shadow, and the
+ambient occlusion pass (SSAO) darkens its roots: the contact the eye reads
+as "standing in the ground".
+
+**One placement pipeline.** Rules and brush strokes produce placements,
+and one GPU instance renderer draws them all:
+
+| Source | Placements | Drawn by |
+|---|---|---|
+| Ground cover rules | procedural on terrains; baked point sets per chunk or 16 m square elsewhere; never stored | the GPU renderer's patch rings |
+| Stored scatter (trees, rocks) | baked per tile or chunk into the project, re-baked round an edit | the same renderer's copies sets (blocks of up to 64 copies) |
+| The instance brush, instance sets | stored in the set | the same copies sets |
+
+They share the levels of detail, the thinning, the culling and the far
+impostors; the page does no work per copy to draw. Per-copy work stays only
+where a copy needs an identity, and only for stored copies: their
+colliders (`collide`) and script addresses (`ctx.scatter`, below), near
+the player. Cover has neither.
+
+**Costs** (the `meadow` perf class, [Performance](performance.md#meadow-class):
+a 1 × 1 km terrain of four blended layers covered with the 3D starter's
+grass at 8 clumps a m² to 60 m, wind 3 with gusts, a walker parting the
+grass, physical sky with clouds; Iris Xe, 1920 × 1080, at the display's
+60 Hz cap): frame p95 16.7 ms and no missed frame on WebGPU and WebGL 2;
+13 cover draws; main thread about +0.5 ms over the bare ground (WebGPU
++0.49–0.58, WebGL 2 +0.49–0.70); WebGPU GPU 13.0 ms a frame at full clock
+for the whole scene (5.8 ms the ground alone), of which the grass's
+vertices and rasterising are about 2.4 ms, its fragments about 3.3 ms and
+its received shadows 0.9 ms.
+
+**The grass template asset.** The 3D starter ships grass for cover,
+placed nowhere until a rule uses it ([Projects](projects.md)): the model
+`meadow-grass`, three clump pieces `grass_a` (0.85 m), `grass_b` (0.65 m)
+and `grass_c` (0.5 m, dry blades) of 11–14 blades, each with three levels:
+
+| Piece | LOD0 | LOD1 | LOD2 |
+|---|---|---|---|
+| `grass_a` | 70 tris | 21 | 6 |
+| `grass_b` | 60 tris | 21 | 6 |
+| `grass_c` | 55 tris | 21 | 6 |
+
+Wind weights in COLOR_0 (R: the height share, linear — the shader squares
+it; G: a phase per blade; B: flutter), no collider (`_COL`) and nothing
+hidden; the GLB is 26 KB. Its material `meadow-grass` is a foliage
+material (roughness 0.6, subsurface 0.35, wind to 40 m) with a 64 × 256
+KTX2 colour texture (ETC1S, 9 mip levels, 4 KB). It was made in Blender
+(`templates/starter-3d/tools/grass.py`) and is an example of content, not
+engine art: replace it with your own model and material.
+[Grow a meadow](../guides/meadow.md) walks through using it.
+
+<a id="ground-cover-art-direction"></a>
+**Art direction: the look comes from content.** The engine has no
+stylised grass features: no colour sheen, no grass-like terrain shading, no
+tip gradients built into the shader. A field's look comes from the model
+(blade shapes, heights, clump variety), its material (colour texture,
+roughness, subsurface) and the foliage shader's physical behaviour (a
+blade with an accurate roughness catches more light as it bends), plus the
+scene's lighting, wind and terrain layers. Nothing in the engine has to be
+undone for a different style.
 
 ### Scatter copies in the game (`ctx.scatter`)
 

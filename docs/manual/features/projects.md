@@ -38,7 +38,8 @@ Two ship, neither with game rules:
   model `meadow-grass` (pieces `grass_a`, `grass_b`, `grass_c`, tall to
   short, each `_LOD0..2` of 55–70 / 21 / 6 triangles, wind weights in
   COLOR_0, no collider; 26 KB) and its `meadow-grass` foliage material
-  with a 64×256 KTX2 colour texture (4 KB). Rebuilt by
+  with a 64×256 KTX2 colour texture (4 KB); [Grow a meadow](../guides/meadow.md)
+  uses it. Rebuilt by
   `templates/starter-3d/tools/build-template.mts` (the grass from
   `templates/starter-3d/tools/grass.py`, run in Blender with `bpipe`). The engine ships no sample
 games: games live in their own repositories.

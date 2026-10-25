@@ -68,7 +68,7 @@ detail. Copies have no ids, colliders or scripts.
   chunk alike.
 - **Drawing**: a set is drawn by the GPU renderer ground cover and rule
   scatter draw with: the copies' places sit in a texture, each frame the
-  page lists the blocks of up to 256 copies the view (or a shadow map) may
+  page lists the blocks of up to 64 copies the view (or a shadow map) may
   draw at each level, and the vertex stage places every copy, picks its
   level and thins it. The page does no work per copy to draw.
 - **Levels of detail and density**: each block of up to 64 copies draws

@@ -214,6 +214,7 @@ only (one hidden behind another transparent one counts as hidden).
 the same page again with occlusion culling on, `occlusion=off` with it off
 where a project turned it on ([Occlusion culling](occlusion.md)).
 
+<a id="meadow-class"></a>
 **The meadow class and the grass density sweep.** `node tools/perf/run.mjs
 meadow` builds the meadow class (`tools/perf/meadow.ts`: a 1 × 1 km terrain
 of rolling hills wearing the level classes' four-layer material, blended by
@@ -231,9 +232,24 @@ config that held the cap, at most half the triangles of the lightest one
 that missed it (`--safety`). `--density`, `--cover-distance`, `--sweep
 id,…`, `--no-export` and `--no-sweep` narrow a run; `--grass template`
 covers the meadow with the 3D starter's grass asset instead of the stand-in
-(one rule per clump piece, the density shared). GPU timestamps at the
-cap follow the GPU's clock, which drops when it idles, so the sweep is read
-by frames at the cap, not by GPU time.
+(one rule per clump piece, the density shared). `--wind S` sets the
+scene's wind, `--wind-zone` adds a calm zone ahead of the camera, `--walker`
+a box walking through the grass as the view's subject (`--walker-strength`,
+`--walker-radius`, `--walker-speed`), and `--clouds C` puts the scene under
+the physical sky with that cloud cover. GPU timestamps at the cap follow
+the GPU's clock, which the governor lowers until the passes fill most of
+the frame, so runs log the clock (`gpuClock`) and pass times are compared
+at full clock (ms × clock ÷ max); the sweep is read by frames at the cap.
+
+The ground cover target: `meadow --grass template --wind 3 --walker
+--clouds 0.6` (Iris Xe, 1920 × 1080, at the cap) holds the cap on both
+renderers (p95 16.7 ms, no missed frame in three rounds), with 13 cover
+draws (budget 64), cover's main thread about +0.5 ms over the bare ground
+(budget 0.5 ms; met within the runs' ±0.1 ms noise) and WebGPU GPU 13.0 ms
+at full clock (the ground alone 5.8 ms). The split, by switching parts off: the grass's vertices and
+rasterising about 2.4 ms, its fragments 3.3 ms, its received shadows
+0.9 ms, the sky dome 0.65 ms. Cover rules, wind and bending: [Ground
+cover](terrain.md#ground-cover), [Wind](environment.md#wind).
 
 **Instance sets cast no shadow unless they say so.** An instance set's
 `castShadow` is off when absent (the Inspector's "Casts shadows" on an instance
