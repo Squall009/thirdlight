@@ -224,6 +224,15 @@ about it.
 - The camera and the input are the game's: a side view is a camera the
   script switches to (`ctx.camera`).
 
+### Bodies outside the loaded world
+
+With world streaming, collision is loaded only round the camera, its target
+and the players. A player character, patrol or gravity body over streamed
+ground whose collision is not loaded is suspended (no gravity, movement or
+contacts, its state kept) and resumes in the step that ground's collision
+arrives; `ctx.physics.isSuspended(id)` reads it. See
+[World streaming](streaming.md#world-streaming-terrain-tiles-and-block-chunks).
+
 ### The 3D character
 
 The object with the **Player controller** walks, runs, jumps and climbs in a

@@ -3987,6 +3987,13 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "doc": "The plane an object's body or player character is locked to now (`{ axis, origin }`), or null when it is free (or has no body)."
     },
     {
+      "name": "isSuspended",
+      "kind": "method",
+      "detail": "(entityId: string): boolean",
+      "optional": true,
+      "doc": "Whether an object's body is suspended this step. Streaming loads collision only round the camera, its target and the players: a player character, patrol or gravity body over streamed ground whose collision is not loaded stands still (no gra"
+    },
+    {
       "name": "raycast",
       "kind": "method",
       "detail": "(origin: Vec2, direction: Vec2, maxDistance: number, filter?: PhysicsQueryFilter | undefined): RaycastHit | null",

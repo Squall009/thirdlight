@@ -246,6 +246,8 @@ export interface BlocksHost {
   scriptColliders3D?(): readonly { entityId: string; position: Vec3; rotation: readonly number[]; aabb?: { min: Vec3; max: Vec3 } | null }[];
   /** The character entered a trigger with a scene transition (the runtime loads, unloads and moves it). */
   sceneTransition?(triggerId: string, transition: SceneTransitionRequest): void;
+  /** Whether a body is outside the loaded collision this step (it stands still; absent: none is). */
+  suspended?(id: string): boolean;
 }
 
 // ---- 3D geometry (in geometry3.ts) ---------------------
@@ -405,6 +407,7 @@ export class GameplayBlocks {
       addCounter: (name, delta) => blocks.addCounter(name, delta),
       emit: (signal) => blocks.emit(signal),
       note: (e) => blocks.cueLog?.events.push({ name: e.type, entity: e.entity }),
+      ...(host.suspended !== undefined ? { suspended: (id: string) => host.suspended!(id) } : {}),
       ...(host.gravityY !== undefined ? { gravityY: host.gravityY } : {}),
       ...(host.maxFallSpeed !== undefined ? { maxFallSpeed: host.maxFallSpeed } : {}),
     });

@@ -43,17 +43,17 @@ What the engine offers, generated from its source: the objects, components and c
 | [Graph: Blend tree](graph-animator-blend.md) | Blend tree, Blend |
 | [Graph: Visual script (part 1, from Visual script)](graph-behavior-1.md) | Visual script, Events, Flow, Variables, Functions, Constants, Maths, Logic, Text, Vectors, Lists |
 | [Graph: Visual script (part 2, from Index of (`list.indexOf`))](graph-behavior-2.md) | Maps, Random, Debug, Script, Action, Intents, Settings, Physics |
-| [Graph: Visual script (part 3, from Overlap sphere (`api.physics.overlapSphere`))](graph-behavior-3.md) | Tags, World, Scenes, Input, Animator, Timers, Signals, Messages, Game, Health, Patrol |
-| [Graph: Visual script (part 4, from Turn patroller (`api.patrol.turn`))](graph-behavior-4.md) | Hitbox, Collectible, Character, Look, Audio, Effects, Decals, Save, Grid |
-| [Graph: Visual script (part 5, from Set cell metadata (`api.grid.setMeta`))](graph-behavior-5.md) | Scatter, Splines, Surface, Camera, Sockets, Materials |
+| [Graph: Visual script (part 3, from Raycast 3D (`api.physics.raycast3d`))](graph-behavior-3.md) | Tags, World, Scenes, Input, Animator, Timers, Signals, Messages, Game, Health, Patrol |
+| [Graph: Visual script (part 4, from Set patrol active (`api.patrol.setActive`))](graph-behavior-4.md) | Hitbox, Collectible, Character, Look, Audio, Effects, Decals, Save, Grid |
+| [Graph: Visual script (part 5, from Cell metadata (`api.grid.meta`))](graph-behavior-5.md) | Scatter, Splines, Surface, Camera, Sockets, Materials |
 | [Graph: Visual script (part 6, from Saves)](graph-behavior-6.md) | Saves, Assets, UI, Stats, Display, Dialogue, Modes, Lifecycle, Timeline, Environment |
 | [Graph: Visual script (part 7, from Set wind (`api.environment.setWind`))](graph-behavior-7.md) | Entity, Shell |
 | [Graph: Script function (part 1, from Script function)](graph-behavior-function-1.md) | 32 sections |
 | [Graph: Script function (part 2, from Input)](graph-behavior-function-2.md) | 23 sections |
 | [Graph: Script function (part 3, from Saves)](graph-behavior-function-3.md) | Saves, Assets, UI, Stats, Display, Dialogue, Modes, Lifecycle, Timeline, Environment, Entity, Shell |
-| [Graph: Shared script function (part 1, from Shared script function)](graph-behavior-library-1.md) | 22 sections |
-| [Graph: Shared script function (part 2, from Animator)](graph-behavior-library-2.md) | 24 sections |
-| [Graph: Shared script function (part 3, from UI)](graph-behavior-library-3.md) | UI, Stats, Display, Dialogue, Modes, Lifecycle, Timeline, Environment, Entity, Shell |
+| [Graph: Shared script function (part 1, from Shared script function)](graph-behavior-library-1.md) | 21 sections |
+| [Graph: Shared script function (part 2, from Input)](graph-behavior-library-2.md) | 23 sections |
+| [Graph: Shared script function (part 3, from Saves)](graph-behavior-library-3.md) | Saves, Assets, UI, Stats, Display, Dialogue, Modes, Lifecycle, Timeline, Environment, Entity, Shell |
 | [Graph: Material graph](graph-material.md) | Material graph, Inputs, Lighting, Maths, Vectors, Textures, Utility, Functions, Output |
 | [Graph: Material function](graph-material-function.md) | Material function, Interface, Inputs, Lighting, Maths, Vectors, Textures, Utility, Functions |
 | [Graph: Particle system](graph-effect.md) | Particle system, Contexts, Spawn, Position, Initialize, Forces, Collision, Over life, Kill, Output, Values, Maths |

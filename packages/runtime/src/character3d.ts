@@ -98,6 +98,8 @@ export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleCo
       all.forEach((one, i) => {
         // A controller whose object is not in the game (its scene is not loaded) does not move.
         if (!ctx.state.curr.has(one.id)) return;
+        // Outside the loaded collision it stands still, its velocity and timers kept for when its ground arrives.
+        if (ctx.physics.isSuspended?.(one.id) === true) return;
         const intents = i === 0 ? ctx.intents : (ctx.intents.controllers?.[one.id] ?? NO_INTENTS);
         if (phase === 'controller') one.controllerStep(ctx, intents);
         else if (phase === 'transform') one.transformStep(ctx);

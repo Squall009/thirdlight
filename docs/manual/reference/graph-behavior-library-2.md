@@ -1,8 +1,31 @@
-# Graph: Shared script function (part 2, from Animator)
+# Graph: Shared script function (part 2, from Input)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Shared script function node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="graph-behavior-library--input"></a>
+## Input
+
+- [Input value](graph-behavior-3.md#node-behavior--api-input-value) (`api.input.value`, as in `behavior`): A button 0/1, a 1D axis −1..1, a 2D axis's length; 0 for an unknown name.
+- [Input vector](graph-behavior-3.md#node-behavior--api-input-vector) (`api.input.vector`, as in `behavior`): A 2D axis as [x, y] ([value, 0] for others).
+- [Input pressed](graph-behavior-3.md#node-behavior--api-input-pressed) (`api.input.pressed`, as in `behavior`): Pressed in this step.
+- [Input released](graph-behavior-3.md#node-behavior--api-input-released) (`api.input.released`, as in `behavior`): Released in this step.
+- [Input held](graph-behavior-3.md#node-behavior--api-input-held) (`api.input.held`, as in `behavior`): Down this step (pressed or held).
+- [Pointer](graph-behavior-3.md#node-behavior--api-input-pointer) (`api.input.pointer`, as in `behavior`): The pointer this step — where it is in the view (x, y 0–1 from the top left), how far it moved since the last step, the wheel, whether it is over the view (and entered or left it this step), whether the cursor is locked and whether it is over a UI element (`overUi`: a click there went to the UI); null before the pointer is first seen.
+- [Pointer pressed](graph-behavior-3.md#node-behavior--api-input-pointer-pressed) (`api.input.pointerPressed`, as in `behavior`): A pointer button (default left) went down this step — a click.
+- [Pointer released](graph-behavior-3.md#node-behavior--api-input-pointer-released) (`api.input.pointerReleased`, as in `behavior`): A pointer button (default left) went up this step.
+- [Pointer held](graph-behavior-3.md#node-behavior--api-input-pointer-held) (`api.input.pointerHeld`, as in `behavior`): A pointer button (default left) is down this step.
+- [Any button pressed](graph-behavior-3.md#node-behavior--api-input-any-pressed) (`api.input.anyPressed`, as in `behavior`): Any key, mouse or pad button that went down this step, bound to an action or not — its device (keyboard, mouse, gamepad) and code (a key's code such as `KeyK` or `Space`, `left`/`right`/`middle`, `button0`…), or null. A key or pad button before a mouse button when several went down.
+- [Set cursor](graph-behavior-3.md#node-behavior--api-input-set-cursor) (`api.input.setCursor`, as in `behavior`): Ask for a free or a locked cursor (locked: hidden and held in the view — its movement still counts); 'auto' goes back to the active input map's setting. Takes effect after the step (the player may have to click the view once before the browser locks it).
+- [Using gamepad](graph-behavior-3.md#node-behavior--api-input-using-gamepad) (`api.input.usingGamepad`, as in `behavior`): The player used a gamepad last (else the keyboard or mouse).
+- [Action glyph label](graph-behavior-3.md#node-behavior--api-input-glyph-label) (`api.input.glyphLabel`, as in `behavior`): An action's glyph label for the device used last ('' when it has no binding there) — e.g. "Space", "A", "Cross".
+- [Action glyph icon](graph-behavior-3.md#node-behavior--api-input-glyph-icon) (`api.input.glyphIcon`, as in `behavior`): An action's glyph icon id for the device used last ('' when it has no binding there) — e.g. key, pad-south, mouse-left.
+- [Rebinding](graph-behavior-3.md#node-behavior--api-input-rebinding) (`api.input.rebinding`, as in `behavior`): The rebind listening for input now (action, binding index, part), or null.
+- [Cancel rebind](graph-behavior-3.md#node-behavior--api-input-cancel-rebind) (`api.input.cancelRebind`, as in `behavior`): Stop listening for a rebind.
+- [Reset bindings](graph-behavior-3.md#node-behavior--api-input-reset-bindings) (`api.input.resetBindings`, as in `behavior`): Reset one action's bindings (or all, without a name) to the project's defaults.
+- [Use binding profile](graph-behavior-3.md#node-behavior--api-input-use-binding-profile) (`api.input.useBindingProfile`, as in `behavior`): Use another player profile's saved bindings (a name of 1–32 letters, digits, _ or -; 'default' first).
+- [Binding profile](graph-behavior-3.md#node-behavior--api-input-binding-profile) (`api.input.bindingProfile`, as in `behavior`): The player profile whose bindings are in effect.
 
 <a id="graph-behavior-library--animator"></a>
 ## Animator
@@ -60,7 +83,7 @@ The Shared script function node catalogue: port types, then each category's node
 ## Patrol
 
 - [Patrol state](graph-behavior-3.md#node-behavior--api-patrol-get) (`api.patrol.get`, as in `behavior`): The way a patroller walks now (a unit vector) and whether it walks at all; null for an object without a patrol. An empty entity means this object.
-- [Set patrol active](graph-behavior-3.md#node-behavior--api-patrol-set-active) (`api.patrol.setActive`, as in `behavior`): Stop a patroller where it is, or let it walk on. False for an object without a patrol. An empty entity means this object.
+- [Set patrol active](graph-behavior-4.md#node-behavior--api-patrol-set-active) (`api.patrol.setActive`, as in `behavior`): Stop a patroller where it is, or let it walk on. False for an object without a patrol. An empty entity means this object.
 - [Turn patroller](graph-behavior-4.md#node-behavior--api-patrol-turn) (`api.patrol.turn`, as in `behavior`): Turn a patroller around now (a `turned` event). False for an object without a patrol, or a waypoint loop (it only goes forward). An empty entity means this object.
 
 <a id="graph-behavior-library--hitbox"></a>
@@ -148,7 +171,7 @@ The Shared script function node catalogue: port types, then each category's node
 - [Column surface](graph-behavior-4.md#node-behavior--api-grid-column-surface) (`api.grid.columnSurface`, as in `behavior`): The top surface of a column at its centre (cell x, z): the highest block's top, its height, normal, slope and whether it is walkable; null when the column holds no block.
 - [World to cell](graph-behavior-4.md#node-behavior--api-grid-world-to-cell) (`api.grid.worldToCell`, as in `behavior`): The cell holding a world position (it may lie outside the layer's bounds), or null for no such layer.
 - [Cell to world](graph-behavior-4.md#node-behavior--api-grid-cell-to-world) (`api.grid.cellToWorld`, as in `behavior`): The world position of a cell's centre, or null for no such layer.
-- [Cell metadata](graph-behavior-4.md#node-behavior--api-grid-meta) (`api.grid.meta`, as in `behavior`): One effective metadata value of a cell (defaults included), or null for an unknown field or layer.
+- [Cell metadata](graph-behavior-5.md#node-behavior--api-grid-meta) (`api.grid.meta`, as in `behavior`): One effective metadata value of a cell (defaults included), or null for an unknown field or layer.
 - [Set cell metadata](graph-behavior-5.md#node-behavior--api-grid-set-meta) (`api.grid.setMeta`, as in `behavior`): Set one metadata value of a cell (null removes the override; an empty cell becomes a metadata-only cell). False when refused.
 - [Pick cell](graph-behavior-5.md#node-behavior--api-grid-pick) (`api.grid.pick`, as in `behavior`): The first block cell a ray enters (every layer, or one), with the face it entered through; null when none within maxDistance (default 100 m).
 - [Neighbour cells](graph-behavior-5.md#node-behavior--api-grid-neighbours) (`api.grid.neighbours`, as in `behavior`): The cells next to [x, y, z] inside the layer's bounds: the 6 face neighbours, or all 26 with diagonal.
@@ -231,31 +254,3 @@ The Shared script function node catalogue: port types, then each category's node
 - [Reset material parameter](graph-behavior-5.md#node-behavior--api-materials-reset) (`api.materials.reset`, as in `behavior`): Put a parameter (or, without one, every parameter scripts set) of an object back to its authored value; a data parameter back to its starting cells. An empty entity means this object.
 - [Write material data](graph-behavior-5.md#node-behavior--api-materials-set-data) (`api.materials.setData`, as in `behavior`): Write a rectangle of cells of a data parameter: x, y, width, height in cells (cell [0, 0] sits at UV (0, 0)); bytes = RGBA 0–255 per cell, row by row from y (width × height × 4 numbers). False when refused (outside the grid, wrong length). An empty entity means this object.
 - [Material data cell](graph-behavior-5.md#node-behavior--api-materials-get-data) (`api.materials.getData`, as in `behavior`): One cell of a data parameter on an object as [r, g, b, a] (0–255), or null (no such parameter or cell). An empty entity means this object.
-
-<a id="graph-behavior-library--saves"></a>
-## Saves
-
-- [Save version](graph-behavior-6.md#node-behavior--api-saves-version) (`api.saves.version`, as in `behavior`): The save document's schema version (0: the project declares no save schema).
-- [Save slot count](graph-behavior-6.md#node-behavior--api-saves-slot-count) (`api.saves.slotCount`, as in `behavior`): How many slots the game offers.
-- [Write save document](graph-behavior-6.md#node-behavior--api-saves-write) (`api.saves.write`, as in `behavior`): Replace the project's save document (any JSON value); false when it is not JSON or larger than 1 MiB.
-- [Save document](graph-behavior-6.md#node-behavior--api-saves-read) (`api.saves.read`, as in `behavior`): The project's save document (a copy; null before one is written or loaded).
-- [Save to slot](graph-behavior-6.md#node-behavior--api-saves-save) (`api.saves.save`, as in `behavior`): Save to a slot at the end of this step (the document and the engine sections of the schema); the outcome arrives in `results()`. `meta.meta`: the game's own fields for the slot card (names → texts; the record at most 4 KiB as JSON). False for a slot the game does not have or a meta that does not fit.
-- [Load slot](graph-behavior-6.md#node-behavior--api-saves-load) (`api.saves.load`, as in `behavior`): Load a slot: when storage answers, the document is migrated and restored at the end of that step (the outcome in `results()`).
-- [Delete slot](graph-behavior-6.md#node-behavior--api-saves-delete) (`api.saves.delete`, as in `behavior`): Delete a slot (the outcome in `results()`).
-- [Save slots](graph-behavior-6.md#node-behavior--api-saves-slots) (`api.saves.slots`, as in `behavior`): The used slots with what they show (title, chapter, location, play time, when, picture, the game's own `meta` fields).
-- [Save slots ready](graph-behavior-6.md#node-behavior--api-saves-ready) (`api.saves.ready`, as in `behavior`): Whether the slot list has arrived from storage (it is empty before).
-- [Save results](graph-behavior-6.md#node-behavior--api-saves-results) (`api.saves.results`, as in `behavior`): The outcomes that arrived this step (saves, loads and deletes).
-- [Save storage](graph-behavior-6.md#node-behavior--api-saves-storage) (`api.saves.storage`, as in `behavior`): The player's storage: whether the browser keeps the game's saves under disk pressure (`persisted`, asked for at the first save) and the site's `usage` and `quota` in bytes; null where the browser does not say.
-- [Play time](graph-behavior-6.md#node-behavior--api-saves-play-seconds) (`api.saves.playSeconds`, as in `behavior`): Play time in seconds (restored with a loaded save).
-- [Setting](graph-behavior-6.md#node-behavior--api-saves-setting) (`api.saves.setting`, as in `behavior`): A value of the project settings document (its default until the player changes it).
-- [Settings document](graph-behavior-6.md#node-behavior--api-saves-settings) (`api.saves.settings`, as in `behavior`): The whole project settings document (a copy).
-- [Set setting](graph-behavior-6.md#node-behavior--api-saves-set-setting) (`api.saves.setSetting`, as in `behavior`): Change a value of the project settings document (kept in the player's browser; an engine setting it drives — volume, quality — applies at once). False when the key is unknown or the value does not fit.
-
-<a id="graph-behavior-library--assets"></a>
-## Assets
-
-- [Load assets](graph-behavior-6.md#node-behavior--api-assets-load) (`api.assets.load`, as in `behavior`): Start loading the asset or resource with this id or address, or every one with this label. Returns the handle (0 when the key is not an id, an address or a label). The state is 'loading' until the assets are ready, a later step.
-- [Release assets](graph-behavior-6.md#node-behavior--api-assets-release) (`api.assets.release`, as in `behavior`): Let go of what a handle loaded (a handle still loading is let go once it arrives). False for an unknown or released handle.
-- [Assets state](graph-behavior-6.md#node-behavior--api-assets-state) (`api.assets.state`, as in `behavior`): A handle's state: 'loading', 'ready', 'failed', or null for an unknown or released handle.
-- [Assets ready](graph-behavior-6.md#node-behavior--api-assets-ready) (`api.assets.ready`, as in `behavior`): True once a handle's assets are loaded.
-- [Assets error](graph-behavior-6.md#node-behavior--api-assets-error) (`api.assets.error`, as in `behavior`): Why a failed handle failed ('' otherwise).

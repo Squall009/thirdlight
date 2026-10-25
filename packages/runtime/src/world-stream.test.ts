@@ -166,6 +166,30 @@ describe('world streaming in the simulation', () => {
     expect(grid.terrain.memory()!.waiting).toBe(0);
   });
 
+  it('a ground column is loaded when every streamed cell there is in its collision ring and a terrain tile has its data', () => {
+    const at = [[6, 0, 6]];
+    const D = (n: number): string => String(n).repeat(64);
+    // West of the layer, 2 × 1 tiles of 32 m (x −64 to 0); the far tile's data has not come from the page yet.
+    const c: TerrainComponent = { tileSamples: 17, spacing: 2, heightRange: [0, 100], tiles: [{ x: 0, z: 0, data: D(1) }, { x: 1, z: 0, data: D(2) }], streaming: { render: 200, collision: 40, hysteresis: 4 } };
+    const grid = new RuntimeGrid(TYPES, [], true, 45, undefined, undefined, undefined, () => at);
+    grid.addLayers([{ id: 't', components: { transform: { ...T, position: [-64, 0, 0] }, terrain: c } } as unknown as EntityV3, layer('g', COMP)]);
+    grid.addTerrainData([{ digest: D(2), samples: 17, heights: new Uint16Array(17 * 17), holes: null }]);
+    const loaded = (x: number, z: number): boolean => grid.stream.loadedAt(x, z, (id, key) => grid.terrain.tileReady(id, key));
+    // No look yet: everything counts as loaded until the first step boundary.
+    expect(loaded(6, 50)).toBe(true);
+    grid.beginStep(1);
+    // In both rings: the layer's chunk round the source, the near tile.
+    expect(loaded(6, 6)).toBe(true);
+    expect(loaded(-10, 6)).toBe(true);
+    // The far tile is in its ring but waits for its data; the layer's chunk 44 m off is past its ring (24 m).
+    expect(loaded(-40, 6)).toBe(false);
+    expect(loaded(6, 50)).toBe(false);
+    // Ground no streamed object has a cell in: what does not stream is always there.
+    expect(loaded(-50, -50)).toBe(true);
+    grid.addTerrainData([{ digest: D(1), samples: 17, heights: new Uint16Array(17 * 17), holes: null }]);
+    expect(loaded(-40, 6)).toBe(true);
+  });
+
   it('two runs fed the same sources build and drop the same colliders at the same steps', () => {
     const path = (s: number): number[][] => [[8 + s * 3, 0, 8 + s * 1.5]];
     const run = (): string[] => {

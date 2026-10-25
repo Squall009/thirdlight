@@ -46,6 +46,21 @@ everything (editing needs every tile and chunk).
   tiles in the render ring round the camera (and the collision ring's), so
   characters far from the camera may find a tile still waiting (counted in
   Play's diagnostics, `runtime.terrainMemory.waiting`).
+- **Bodies outside the loaded collision** are suspended, not dropped through
+  the world: a player character, a patrol or a gravity body whose ground
+  column has a streamed tile or chunk without its collision (outside the
+  collision ring, or a terrain tile whose data has not arrived) gets no
+  gravity, no movement and no contacts that step. Its state is kept (place,
+  fall speed, walking direction, controller state) and it resumes in the
+  step that ground's collision arrives. An edge walker also waits when its
+  next step is over unloaded ground, instead of turning at it as at a
+  ledge. Ground no streamed object covers always counts as loaded; path
+  movers never stop. The rule is decided at each step boundary from the
+  simulation's own state, so the worker and replays suspend the same bodies
+  at the same steps. Scripts read it with `ctx.physics.isSuspended(id)`
+  (visual scripts: **Is suspended**); Play's diagnostics count them
+  (`runtime.worldStream.suspended`: bodies now, suspensions and resumes so
+  far).
 - **Live blocks** of a streamed layer are in the game only within the live
   ring; at most 16 objects spawn a step for cells entering it (the rest the
   next steps), and they go when their chunk leaves it. A live block's lasting

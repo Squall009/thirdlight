@@ -241,6 +241,8 @@ export interface PrimitivesHost {
   emit(signal: string): void;
   /** Every event as it happens (the event → cue table listens; absent: nobody). */
   note?(e: PrimitiveEventRecord): void;
+  /** Whether a body is outside the loaded collision this step: it neither walks, falls nor touches (absent: none is). */
+  suspended?(id: string): boolean;
   /** The project's gravity (m/s² along Y) and fall speed cap (m/s, negative) for gravity bodies (absent: −19.62, −30). */
   readonly gravityY?: number;
   readonly maxFallSpeed?: number;
@@ -503,10 +505,13 @@ export class Primitives {
     if (!this.active) return;
     const dt = 1 / this.host.hz;
     const off = this.inactive;
-    for (const p of this.patrols.values()) if (off.size === 0 || !off.has(p.id)) this.walk(p, dt);
+    // A suspended body keeps its place, fall speed, direction and wait for when its ground arrives.
+    const held = this.host.suspended;
+    for (const p of this.patrols.values()) if ((off.size === 0 || !off.has(p.id)) && held?.(p.id) !== true) this.walk(p, dt);
     // Gravity bodies fall (after a walker's step: it walks, then falls or lands).
-    for (const f of this.falls.values()) if (off.size === 0 || !off.has(f.id)) this.fall(f, dt);
-    const characters = playing ? this.host.characters() : NO_CHARACTERS;
+    for (const f of this.falls.values()) if ((off.size === 0 || !off.has(f.id)) && held?.(f.id) !== true) this.fall(f, dt);
+    let characters = playing ? this.host.characters() : NO_CHARACTERS;
+    if (held !== undefined && characters.some((c) => held(c.id))) characters = characters.filter((c) => !held(c.id));
     for (const k of this.collectibles.values()) if (off.size === 0 || !off.has(k.id)) this.collect(k, characters);
     if (this.hitboxes.size > 0) this.touch(characters);
   }
@@ -544,6 +549,32 @@ export class Primitives {
     k.timer = -1;
     this.host.setHidden(k.id, false);
     this.push({ type: 'restored', entity: k.id, counter: k.counter, amount: 0, by: '', stepIndex: this.step - 1 });
+  }
+
+  /**
+   * The points each moving body needs loaded collision under (see
+   * `body-suspension.ts`): a patrol's and a gravity body's ground column,
+   * and an edge walker's next step (its ledge probe), so it waits at the
+   * loaded world's edge instead of taking it for a ledge and turning.
+   */
+  suspensionPoints(test: (id: string, x: number, z: number) => void): void {
+    if (this.patrols.size === 0 && this.falls.size === 0) return;
+    for (const p of this.patrols.values()) {
+      if (!p.active || this.inactive.has(p.id)) continue;
+      const c = this.host.worldOf(p.id);
+      if (c === null) continue;
+      test(p.id, c[0], c[2]);
+      const e = p.edges;
+      if (e !== null && e.dir[1] === 0) {
+        const ahead = e.half[0] + e.wallProbe + p.speed / this.host.hz;
+        test(p.id, c[0] + e.dir[0] * ahead, c[2] + e.dir[2] * ahead);
+      }
+    }
+    for (const f of this.falls.values()) {
+      if (this.inactive.has(f.id)) continue;
+      const c = this.host.worldOf(f.id);
+      if (c !== null) test(f.id, c[0], c[2]);
+    }
   }
 
   // ---- patrols ---------------------------------------------------------------------
@@ -667,7 +698,7 @@ export class Primitives {
   private touch(characters: readonly { id: string; centre: Vec3; half: Vec3 }[]): void {
     const bodies: Body[] = [];
     for (const b of this.hitboxes.values()) {
-      if (!b.active || this.inactive.has(b.id)) continue;
+      if (!b.active || this.inactive.has(b.id) || this.host.suspended?.(b.id) === true) continue;
       const c = this.host.worldOf(b.id);
       if (c !== null) bodies.push({ id: b.id, c, half: b.half, r: b.radius, damage: b.damage });
     }

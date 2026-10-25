@@ -93,6 +93,7 @@ export interface RapierPhysicsPort3D extends PhysicsPort3D {
   overlap(shape: OverlapShape3D, center: PhysicsVec3, rotation?: PhysicsQuat, filter?: PhysicsQueryFilter3D): string[];
   characterClearance(origin: PhysicsVec3, characterId?: string): CharacterClearanceResult3D;
   placeCharacter(origin: PhysicsVec3, characterId?: string): CharacterClearanceResult3D;
+  suspendCharacter(suspended: boolean, characterId?: string): void;
   lastResultOf(characterId: string): CharacterMoveResult3D | undefined;
   restartWorld(origins?: readonly { characterId?: string; position: PhysicsVec3 }[]): void;
   addCharacter(spec: AddedCharacter3D): void;
@@ -659,6 +660,8 @@ interface CharacterBody3D {
   plane: PhysicsPlane | null;
   /** Steps left passing every one-way collider (a drop through). */
   dropSteps: number;
+  /** Held still by the runtime (`suspendCharacter`): not swept, its last result kept. */
+  suspended: boolean;
 }
 
 /** A character's capsule collider (parentless, at its origin + offset) and its controller. */
@@ -681,6 +684,7 @@ function makeCharacterBody3D(world: RAPIER.World, given: PhysicsInitConfig3D['ch
     last: undefined,
     plane,
     dropSteps: 0,
+    suspended: false,
   };
 }
 
@@ -913,6 +917,28 @@ function overlapShapeOf(shape: OverlapShape3D): RAPIER.Shape | null {
   return null;
 }
 
+/** A character's result standing still at `p` (the placeholder of a world without one, which never moves). */
+function restingAt(p: PhysicsVec3): CharacterMoveResult3D {
+  const zero = { x: 0, y: 0, z: 0 };
+  return { requested: zero, applied: { ...zero }, position: { x: p.x, y: p.y, z: p.z }, grounded: false, supportNormal: { x: 0, y: 1, z: 0 }, contacts: { ground: false, wall: false, head: false, steepSlope: false }, snapped: false, groundEntityId: null };
+}
+
+/** Held still (`suspendCharacter`): not swept this step; a move staged meanwhile is dropped. */
+function heldStill(b: CharacterBody3D): null {
+  b.staged = null;
+  return null;
+}
+
+/** Holding characters still while the runtime has them outside the loaded collision. */
+function suspension3D(bodyOf: (characterId: string | undefined, op: string) => CharacterBody3D, assertLive: (op: string) => void): Pick<RapierPhysicsPort3D, 'suspendCharacter'> {
+  return {
+    suspendCharacter(suspended: boolean, characterId?: string): void {
+      assertLive('suspendCharacter');
+      bodyOf(characterId, 'suspendCharacter').suspended = suspended === true;
+    },
+  };
+}
+
 function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, further: Map<string, CharacterBody3D>, config: PhysicsInitConfig3D, staticSpecs: Map<string, StaticColliderSpec3D>, bodies: Map<string, RAPIER.RigidBody>, infoByHandle: Map<number, Collider3DInfo>, bits: LayerBits, collidersOf: Map<string, RAPIER.Collider[]>): RapierPhysicsPort3D {
   /** The world (`restartWorld` replaces it). */
   let world = initialWorld;
@@ -1089,15 +1115,9 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
     poseMovers(false);
     world.step();
     steps += 1;
-    return restingResult();
+    return restingAt(primary.position);
   }
 
-  /** The placeholder character's result in a world without one (it never moves). */
-  function restingResult(): CharacterMoveResult3D {
-    const zero = { x: 0, y: 0, z: 0 };
-    const p = primary.position;
-    return { requested: zero, applied: { ...zero }, position: { x: p.x, y: p.y, z: p.z }, grounded: false, supportNormal: { x: 0, y: 1, z: 0 }, contacts: { ground: false, wall: false, head: false, steepSlope: false }, snapped: false, groundEntityId: null };
-  }
 
   /**
    * One character's sweep of its staged move, up to the collider written at
@@ -1404,6 +1424,7 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
       // (the runtime already added a carrying platform's motion to each request).
       // A one-way collider that does not hold a character is out of its sweep (a drop through counts down first, as on the 2D plane).
       const swept = chars.map((b) => {
+        if (b.suspended) return heldStill(b);
         if (b.dropSteps > 0) b.dropSteps -= 1;
         const staged = b.staged;
         return withOneWay(b, staged !== null && isVec3(staged) ? (b.plane !== null ? inPlane(staged, b.plane) : staged) : null, () => sweep(b));
@@ -1411,17 +1432,20 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
       poseMoversAndStep();
       for (let i = 0; i < chars.length; i += 1) {
         const b = chars[i]!;
-        const s = swept[i]!;
+        const s = swept[i];
+        if (s === null || s === undefined) continue;
         b.position = s.next;
         b.grounded = s.grounded;
         b.last = { ...s.result, groundEntityId: s.grounded ? withOneWay(b, null, () => groundUnder(b, s.next)) : null };
       }
       if (noCharacter) {
         primary.staged = null;
-        return restingResult();
+        return restingAt(primary.position);
       }
-      return primary.last!;
+      return primary.last ?? restingAt(primary.position);
     },
+
+    ...suspension3D(bodyOf, assertLive),
 
     lastResultOf(characterId: string): CharacterMoveResult3D | undefined {
       assertLive('lastResultOf');

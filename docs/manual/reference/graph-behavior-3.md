@@ -1,8 +1,42 @@
-# Graph: Visual script (part 3, from Overlap sphere (`api.physics.overlapSphere`))
+# Graph: Visual script (part 3, from Raycast 3D (`api.physics.raycast3d`))
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Visual script node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="node-behavior--api-physics-raycast3d"></a>
+### Raycast 3D (`api.physics.raycast3d`)
+
+The 3D `raycast` under its former name (`raycast` takes [x, y, z] the same way).
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `origin` (vector)
+- `direction` (vector)
+- `maxDistance` "max distance" (number)
+- `tags` (list)
+- `layers` (list)
+- `exclude` (list)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `entityId` "entity" (string)
+- `point` (vector)
+- `normal` (vector)
+- `distance` (number)
+- `cell` (vector)
+- `scatter` (string)
+- `found` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `origin` | origin | vector | `[0,0,0]` | -1000000000 – 1000000000; 3 components |
+| `direction` | direction | vector | `[0,-1,0]` | -1000000000 – 1000000000; 3 components |
+| `maxDistance` | max distance | number | `100` | -1000000000 – 1000000000 |
 
 <a id="node-behavior--api-physics-overlap-sphere"></a>
 ### Overlap sphere (`api.physics.overlapSphere`)
@@ -1531,26 +1565,3 @@ Fields:
 | Field | Label | Type | Default | Range |
 |---|---|---|---|---|
 | `entityId` | object | string | `""` | ≤ 256 chars |
-
-<a id="node-behavior--api-patrol-set-active"></a>
-### Set patrol active (`api.patrol.setActive`)
-
-Stop a patroller where it is, or let it walk on. False for an object without a patrol. An empty entity means this object.
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `entityId` "object" (string)
-- `active` (boolean)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `entityId` | object | string | `""` | ≤ 256 chars |
-| `active` | active | boolean | `true` |  |

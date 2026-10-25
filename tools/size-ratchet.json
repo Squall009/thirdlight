@@ -17,7 +17,7 @@
     {"file":"packages/game-host/src/game-page.ts","kind":"function","unit":"startGamePage","size":539},
     {"file":"packages/game-host/src/host.ts","kind":"function","unit":"createGameHost","size":1082},
     {"file":"packages/game-host/src/sim-remote.ts","kind":"function","unit":"startRemoteSimulation","size":760},
-    {"file":"packages/physics-rapier/src/3d/port3d.ts","kind":"function","unit":"createAdapter","size":679},
+    {"file":"packages/physics-rapier/src/3d/port3d.ts","kind":"function","unit":"createAdapter","size":677},
     {"file":"packages/physics-rapier/src/port.ts","kind":"function","unit":"createAdapter","size":852},
     {"file":"packages/project-model/src/block-grid.ts","kind":"function","unit":"applyBlockEdits","size":417},
     {"file":"packages/runtime/src/behavior.ts","kind":"function","unit":"createBehaviorModuleSpec","size":629},

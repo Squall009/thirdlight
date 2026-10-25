@@ -175,6 +175,24 @@ describe('the Rapier 3D port', () => {
     b.dispose();
   });
 
+  it('a suspended character is not swept: it stays where it is with its last result, its staged move dropped, until released', async () => {
+    // No floor under it (the ground is not loaded): free, it would fall for ever.
+    const port = await portOf(config([]));
+    const before = fall(port, 10).last;
+    port.suspendCharacter!(true);
+    for (let i = 0; i < 30; i += 1) {
+      port.stageCharacterMove({ x: 0.1, y: -0.2, z: 0 });
+      expect(port.step()).toEqual(before);
+    }
+    port.suspendCharacter!(false);
+    port.stageCharacterMove({ x: 0, y: -0.05, z: 0 });
+    const after = port.step();
+    expect(after.position.y).toBeCloseTo(before.position.y - 0.05, 6);
+    expect(after.position.x).toBe(before.position.x);
+    expect(() => port.suspendCharacter!(true, 'nobody')).toThrow(/no character/);
+    port.dispose();
+  });
+
   it('refuses a bad config or shape before any world work', async () => {
     expect(validateColliderShape3D({ type: 'box', hx: 1, hy: 1 }).ok).toBe(false); // no depth
     expect(validateColliderShape3D({ type: 'polygon', vertices: [[0, 0], [1, 0], [0, 1]] }).ok).toBe(false);

@@ -83,7 +83,7 @@ The Script function node catalogue: port types, then each category's nodes with 
 ## Patrol
 
 - [Patrol state](graph-behavior-3.md#node-behavior--api-patrol-get) (`api.patrol.get`, as in `behavior`): The way a patroller walks now (a unit vector) and whether it walks at all; null for an object without a patrol. An empty entity means this object.
-- [Set patrol active](graph-behavior-3.md#node-behavior--api-patrol-set-active) (`api.patrol.setActive`, as in `behavior`): Stop a patroller where it is, or let it walk on. False for an object without a patrol. An empty entity means this object.
+- [Set patrol active](graph-behavior-4.md#node-behavior--api-patrol-set-active) (`api.patrol.setActive`, as in `behavior`): Stop a patroller where it is, or let it walk on. False for an object without a patrol. An empty entity means this object.
 - [Turn patroller](graph-behavior-4.md#node-behavior--api-patrol-turn) (`api.patrol.turn`, as in `behavior`): Turn a patroller around now (a `turned` event). False for an object without a patrol, or a waypoint loop (it only goes forward). An empty entity means this object.
 
 <a id="graph-behavior-function--hitbox"></a>
@@ -171,7 +171,7 @@ The Script function node catalogue: port types, then each category's nodes with 
 - [Column surface](graph-behavior-4.md#node-behavior--api-grid-column-surface) (`api.grid.columnSurface`, as in `behavior`): The top surface of a column at its centre (cell x, z): the highest block's top, its height, normal, slope and whether it is walkable; null when the column holds no block.
 - [World to cell](graph-behavior-4.md#node-behavior--api-grid-world-to-cell) (`api.grid.worldToCell`, as in `behavior`): The cell holding a world position (it may lie outside the layer's bounds), or null for no such layer.
 - [Cell to world](graph-behavior-4.md#node-behavior--api-grid-cell-to-world) (`api.grid.cellToWorld`, as in `behavior`): The world position of a cell's centre, or null for no such layer.
-- [Cell metadata](graph-behavior-4.md#node-behavior--api-grid-meta) (`api.grid.meta`, as in `behavior`): One effective metadata value of a cell (defaults included), or null for an unknown field or layer.
+- [Cell metadata](graph-behavior-5.md#node-behavior--api-grid-meta) (`api.grid.meta`, as in `behavior`): One effective metadata value of a cell (defaults included), or null for an unknown field or layer.
 - [Set cell metadata](graph-behavior-5.md#node-behavior--api-grid-set-meta) (`api.grid.setMeta`, as in `behavior`): Set one metadata value of a cell (null removes the override; an empty cell becomes a metadata-only cell). False when refused.
 - [Pick cell](graph-behavior-5.md#node-behavior--api-grid-pick) (`api.grid.pick`, as in `behavior`): The first block cell a ray enters (every layer, or one), with the face it entered through; null when none within maxDistance (default 100 m).
 - [Neighbour cells](graph-behavior-5.md#node-behavior--api-grid-neighbours) (`api.grid.neighbours`, as in `behavior`): The cells next to [x, y, z] inside the layer's bounds: the 6 face neighbours, or all 26 with diagonal.

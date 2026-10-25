@@ -12,9 +12,9 @@ Every graph kind the engine registers, with its node catalogue.
 | [Animator layer](graph-animator.md) | `animator` | 4 | animator |
 | [Animator override layer](graph-animator-layer.md) | `animator-layer` | 5 | animator |
 | [Blend tree](graph-animator-blend.md) | `animator-blend` | 2 | animator |
-| [Visual script](graph-behavior-1.md) | `behavior` | 454 | behavior |
-| [Script function](graph-behavior-function-1.md) | `behavior-function` | 441 | behavior |
-| [Shared script function](graph-behavior-library-1.md) | `behavior-library` | 440 | standalone |
+| [Visual script](graph-behavior-1.md) | `behavior` | 455 | behavior |
+| [Script function](graph-behavior-function-1.md) | `behavior-function` | 442 | behavior |
+| [Shared script function](graph-behavior-library-1.md) | `behavior-library` | 441 | standalone |
 | [Material graph](graph-material.md) | `material` | 74 | material |
 | [Material function](graph-material-function.md) | `material-function` | 70 | standalone |
 | [Particle system](graph-effect.md) | `effect` | 65 | effect |

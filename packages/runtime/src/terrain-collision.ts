@@ -200,6 +200,8 @@ interface TerrainState {
   readonly origin: readonly [number, number, number];
   /** Per tile key: the digest its colliders were built from ('' flat) and their ids. */
   readonly built: Map<string, { digest: string; ids: string[] }>;
+  /** Per tile key: its data's digest (absent: a flat tile). */
+  readonly data: ReadonlyMap<string, string | undefined>;
 }
 
 export class TerrainColliders {
@@ -222,7 +224,7 @@ export class TerrainColliders {
       const c = (e.components as { terrain?: TerrainComponent }).terrain;
       if (c === undefined || c.collision === false || this.terrains.has(e.id)) continue;
       const p = e.components.transform?.position ?? [0, 0, 0];
-      this.terrains.set(e.id, { entityId: e.id, component: c, origin: [p[0] ?? 0, p[1] ?? 0, p[2] ?? 0], built: new Map() });
+      this.terrains.set(e.id, { entityId: e.id, component: c, origin: [p[0] ?? 0, p[1] ?? 0, p[2] ?? 0], built: new Map(), data: new Map(c.tiles.map((r) => [terrainTileKey(r.x, r.z), r.data])) });
       this.dirty.add(e.id);
       added.push(e.id);
     }
@@ -246,6 +248,18 @@ export class TerrainColliders {
     for (const d of gone) this.tiles.delete(d);
     if (gone.size > 0) this.tileChanges += 1;
     return out;
+  }
+
+  /**
+   * Whether a tile (key "x,z") of a terrain has its collider or gets it at
+   * the next flush when its ring holds it: it has one, is flat, or its data
+   * has arrived. A terrain without collision has nothing to wait for.
+   */
+  tileReady(entityId: string, key: string): boolean {
+    const t = this.terrains.get(entityId);
+    if (t === undefined || t.built.has(key)) return true;
+    const digest = t.data.get(key);
+    return digest === undefined || this.tiles.has(digest);
   }
 
   /** The tile data held for a digest (the surface query reads the same tiles collision does). */

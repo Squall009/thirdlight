@@ -70,6 +70,7 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       overlapCircle: rec('physics.overlapCircle', () => ['crate-1']),
       setPlane: rec('physics.setPlane', true),
       planeOf: rec('physics.planeOf', { axis: 'z', origin: 0 }),
+      isSuspended: rec('physics.isSuspended', false),
       // The 3D character's state.
       characterState: rec('physics.characterState', { position: { x: 1, y: 2, z: 3 }, velocity: { x: 0, y: 0, z: 2 }, grounded: true, contacts: { ground: true, wall: false, head: false, steepSlope: false }, supportNormal: { x: 0, y: 1, z: 0 }, groundEntityId: null, enabled: true, climbing: false, facing: 0 }),
       // 3D queries.

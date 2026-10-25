@@ -29,6 +29,7 @@
  * Pure bookkeeping: the grid, the terrains' colliders, the scatter copies and
  * the live blocks ask it and are told what entered and left.
  */
+import type { SuspensionDiagnostics } from './body-suspension';
 import { CHUNK_SIZE, inStreamRing, resolveStreamingRings, squareDistance, terrainTileSize, type BlockLayerComponent, type ResolvedStreamingRings, type StreamRing, type TerrainComponent } from '@thirdlight/project-model';
 
 /** How far (m) a source moves before the rings are looked at again. */
@@ -69,6 +70,8 @@ export interface SimStreamDiagnostics {
   /** How often the rings were looked at again, and the step of the last look. */
   rechecks: number;
   lastRecheckStep: number;
+  /** Bodies outside the loaded collision (the runtime adds it: `body-suspension.ts`). */
+  suspended?: SuspensionDiagnostics;
 }
 
 interface RingState {
@@ -95,7 +98,11 @@ interface StreamedObject {
   readonly live: RingState | null;
   /** A layer's height (metres, bottom and top): every chunk's column spans it. Null: a terrain. */
   readonly column: readonly [number, number] | null;
+  /** The cells it had at the last look (what `loadedAt` asks about). */
+  known: ReadonlySet<string>;
 }
+
+const NO_KEYS: ReadonlySet<string> = new Set();
 
 const ringState = (ring: StreamRing): RingState => ({ ring, members: new Set(), pending: [], fresh: true });
 
@@ -137,7 +144,7 @@ export class SimWorldStream {
     const rings = resolveStreamingRings(c.streaming);
     if (rings === null || this.objects.has(entityId)) return;
     const keys = c.tiles.map((t) => `${t.x},${t.z}`);
-    this.objects.set(entityId, { entityId, kind: 'terrain', origin: [origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0], unit: terrainTileSize(c), cost: c.tileSamples * c.tileSamples, rings, keys: collide ? () => keys : () => [], collision: ringState(rings.collision), live: null, column: null });
+    this.objects.set(entityId, { entityId, kind: 'terrain', origin: [origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0], unit: terrainTileSize(c), cost: c.tileSamples * c.tileSamples, rings, keys: collide ? () => keys : () => [], collision: ringState(rings.collision), live: null, column: null, known: NO_KEYS });
     this.lookedFrom = null;
   }
 
@@ -147,7 +154,7 @@ export class SimWorldStream {
     if (rings === null || this.objects.has(entityId)) return;
     const oy = origin[1] ?? 0;
     const column = [oy + c.bounds.min[1] * c.cellSize[1], oy + c.bounds.max[1] * c.cellSize[1]] as const;
-    this.objects.set(entityId, { entityId, kind: 'blocks', origin: [origin[0] ?? 0, oy, origin[2] ?? 0], unit: CHUNK_SIZE * c.cellSize[0], cost: STREAM_CHUNK_COST, rings, keys: chunks, collision: ringState(rings.collision), live: ringState(rings.live), column });
+    this.objects.set(entityId, { entityId, kind: 'blocks', origin: [origin[0] ?? 0, oy, origin[2] ?? 0], unit: CHUNK_SIZE * c.cellSize[0], cost: STREAM_CHUNK_COST, rings, keys: chunks, collision: ringState(rings.collision), live: ringState(rings.live), column, known: NO_KEYS });
     this.lookedFrom = null;
   }
 
@@ -208,6 +215,25 @@ export class SimWorldStream {
     if (s.pending.some((p) => p.key === key)) return false;
     if (this.lookedFrom === null || this.distance(o, key, this.lookedFrom) > s.ring.radius + STREAM_RECHECK_METRES) return false;
     s.members.add(key);
+    return true;
+  }
+
+  /**
+   * Whether the ground column at world (x, z) has its collision: every
+   * streamed object with a cell there (a terrain's tile, a layer's chunk
+   * with cells, as of the last look) has that cell in its collision ring,
+   * and `ready` (a terrain's tile whose data has arrived) says it can be
+   * built. A column no streamed object has a cell in is loaded: what does
+   * not stream is always there. Read from the ring membership the step
+   * boundary set, so page and worker answer alike.
+   */
+  loadedAt(x: number, z: number, ready: (entityId: string, key: string) => boolean): boolean {
+    for (const o of this.objects.values()) {
+      if (o.known.size === 0) continue;
+      const key = `${Math.floor((x - o.origin[0]) / o.unit)},${Math.floor((z - o.origin[2]) / o.unit)}`;
+      if (!o.known.has(key)) continue;
+      if (!o.collision.members.has(key) || !ready(o.entityId, key)) return false;
+    }
     return true;
   }
 
@@ -319,7 +345,9 @@ export class SimWorldStream {
    * collision ring stays ahead of a walking character).
    */
   private look(o: StreamedObject, kind: StreamRingKind, s: RingState): void {
-    const keys = new Set<string>([...(o.keys?.() ?? []), ...s.members]);
+    const own = [...(o.keys?.() ?? [])];
+    if (kind === 'collision') o.known = new Set(own);
+    const keys = new Set<string>([...own, ...s.members]);
     const left: string[] = [];
     const pending: { key: string; d: number }[] = [];
     const ring = { radius: s.ring.radius + STREAM_RECHECK_METRES, hysteresis: s.ring.hysteresis };

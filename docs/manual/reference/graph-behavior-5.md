@@ -1,8 +1,36 @@
-# Graph: Visual script (part 5, from Set cell metadata (`api.grid.setMeta`))
+# Graph: Visual script (part 5, from Cell metadata (`api.grid.meta`))
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Visual script node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="node-behavior--api-grid-meta"></a>
+### Cell metadata (`api.grid.meta`)
+
+One effective metadata value of a cell (defaults included), or null for an unknown field or layer.
+
+Inputs:
+
+- `layer` (string)
+- `x` (number)
+- `y` (number)
+- `z` (number)
+- `key` (string)
+
+Outputs:
+
+- `value` (number): type from field `value_type`
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `layer` | layer | string | `""` | ≤ 256 chars |
+| `x` | x | number | `0` | -1000000000 – 1000000000 |
+| `y` | y | number | `0` | -1000000000 – 1000000000 |
+| `z` | z | number | `0` | -1000000000 – 1000000000 |
+| `key` | key | string | `""` | ≤ 256 chars |
+| `value_type` | value type | enum | `"number"` | `number`, `boolean`, `string` |
 
 <a id="node-behavior--api-grid-set-meta"></a>
 ### Set cell metadata (`api.grid.setMeta`)

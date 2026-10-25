@@ -1,8 +1,31 @@
-# Graph: Visual script (part 4, from Turn patroller (`api.patrol.turn`))
+# Graph: Visual script (part 4, from Set patrol active (`api.patrol.setActive`))
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Visual script node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="node-behavior--api-patrol-set-active"></a>
+### Set patrol active (`api.patrol.setActive`)
+
+Stop a patroller where it is, or let it walk on. False for an object without a patrol. An empty entity means this object.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `entityId` "object" (string)
+- `active` (boolean)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `entityId` | object | string | `""` | ≤ 256 chars |
+| `active` | active | boolean | `true` |  |
 
 <a id="node-behavior--api-patrol-turn"></a>
 ### Turn patroller (`api.patrol.turn`)
@@ -1281,31 +1304,3 @@ Fields:
 | `x` | x | number | `0` | -1000000000 – 1000000000 |
 | `y` | y | number | `0` | -1000000000 – 1000000000 |
 | `z` | z | number | `0` | -1000000000 – 1000000000 |
-
-<a id="node-behavior--api-grid-meta"></a>
-### Cell metadata (`api.grid.meta`)
-
-One effective metadata value of a cell (defaults included), or null for an unknown field or layer.
-
-Inputs:
-
-- `layer` (string)
-- `x` (number)
-- `y` (number)
-- `z` (number)
-- `key` (string)
-
-Outputs:
-
-- `value` (number): type from field `value_type`
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `layer` | layer | string | `""` | ≤ 256 chars |
-| `x` | x | number | `0` | -1000000000 – 1000000000 |
-| `y` | y | number | `0` | -1000000000 – 1000000000 |
-| `z` | z | number | `0` | -1000000000 – 1000000000 |
-| `key` | key | string | `""` | ≤ 256 chars |
-| `value_type` | value type | enum | `"number"` | `number`, `boolean`, `string` |

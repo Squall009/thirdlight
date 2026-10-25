@@ -144,6 +144,12 @@ export interface PhysicsStepClient {
    */
   planeOf?(entityId: string): PhysicsPlane | null;
   /**
+   * Whether an object's body is suspended this step. Streaming loads collision only round the camera, its target and the players: a player character, patrol or gravity body over streamed ground whose collision is not loaded stands still (no gravity, no movement, no contacts) with its state kept, and resumes in the step that ground's collision arrives. False for anything else.
+   * @graphPure
+   * @graphNode Is suspended
+   */
+  isSuspended?(entityId: string): boolean;
+  /**
    * A ray on the caller's plane: `origin` and `direction` are 2D ({x, y}: x along the plane's right, y up), the ray runs in the plane the calling object is locked to (else z = 0) and hits the colliders that cross it — the nearest one's object, its distance and the surface normal in the plane, or null. `[x, y, z]` arrays make it a 3D ray (the next form). Counted with the other queries (at most 1,024 a step).
    * @graphNode Raycast
    * @graphDefault direction [1, 0, 0]
@@ -610,6 +616,13 @@ export interface PhysicsPort3D {
   step(): CharacterMoveResult3D;
   /** A further character's result of the last step (undefined: no such character, or before the first step). */
   lastResultOf?(characterId: string): CharacterMoveResult3D | undefined;
+  /**
+   * Hold a character still (absent id: the first) until released: `step()`
+   * does not sweep it (no gravity, no move, no contacts) and keeps its last
+   * result; its staged move is dropped. The runtime holds a character whose
+   * ground is outside the loaded collision.
+   */
+  suspendCharacter?(suspended: boolean, characterId?: string): void;
   diagnostics?(): PhysicsDiagnostics;
   /** A loaded / unloaded scene's static colliders (at a step boundary). */
   addStaticColliders?(specs: readonly StaticColliderSpec3D[]): void;

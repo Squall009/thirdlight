@@ -1216,6 +1216,7 @@ Outputs:
 - Character result (`api.physics.characterResult`): A player controller's result of the last completed step (`entityId`, absent: the first player controller), or `undefined` before the first step. An empty entity means this object.
 - Set plane (`api.physics.setPlane`): Lock an object's body (its collider, or its player controller's character) to an axis-aligned plane — `{ axis: 'x' | 'z', origin }`, the plane's normal and where it lies along it (m) — or free it again (null), at the next step boundary. A locked body does not move along the normal and only turns about it: locking snaps it onto the plane and drops its speed along the normal; freeing leaves it where An empty entity means this object.
 - Plane of (`api.physics.planeOf`): The plane an object's body or player character is locked to now (`{ axis, origin }`), or null when it is free (or has no body). An empty entity means this object.
+- Is suspended (`api.physics.isSuspended`): Whether an object's body is suspended this step. Streaming loads collision only round the camera, its target and the players: a player character, patrol or gravity body over streamed ground whose collision is not loaded stands still (no gravity, no movement, no contacts) with its state kept, and resumes in the step that ground's collision arrives. False for anything else. An empty entity means this object.
 - Raycast (`api.physics.raycast`): A ray on the caller's plane: `origin` and `direction` are 2D ({x, y}: x along the plane's right, y up), the ray runs in the plane the calling object is locked to (else z = 0) and hits the colliders that cross it — the nearest one's object, its distance and the surface normal in the plane, or null. `[x, y, z]` arrays make it a 3D ray (the next form). Counted with the other queries (at most 1,024 a
 - Overlap box (`api.physics.overlapBox`): The objects whose colliders overlap a box on the caller's plane — 2D centre and half extents ({x, y}), the plane the calling object is locked to (else z = 0); sorted ids, at most 64. `[x, y, z]` arrays make it a 3D box (the next form). Counted with the rays.
 - Overlap circle (`api.physics.overlapCircle`): The objects whose colliders overlap a circle on the caller's plane (2D centre {x, y}; the plane the calling object is locked to, else z = 0) — counted with the rays. A sphere is `overlapSphere`.
@@ -1296,6 +1297,25 @@ Outputs:
 - `axis` (string)
 - `origin` (number)
 - `found` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `entityId` | entity | string | `""` | ≤ 256 chars |
+
+<a id="node-behavior--api-physics-is-suspended"></a>
+### Is suspended (`api.physics.isSuspended`)
+
+Whether an object's body is suspended this step. Streaming loads collision only round the camera, its target and the players: a player character, patrol or gravity body over streamed ground whose collision is not loaded stands still (no gravity, no movement, no contacts) with its state kept, and resumes in the step that ground's collision arrives. False for anything else. An empty entity means this object.
+
+Inputs:
+
+- `entityId` "entity" (string)
+
+Outputs:
+
+- `value` (boolean)
 
 Fields:
 
@@ -1422,37 +1442,3 @@ Fields:
 | Field | Label | Type | Default | Range |
 |---|---|---|---|---|
 | `entityId` | player | string | `""` | ≤ 256 chars |
-
-<a id="node-behavior--api-physics-raycast3d"></a>
-### Raycast 3D (`api.physics.raycast3d`)
-
-The 3D `raycast` under its former name (`raycast` takes [x, y, z] the same way).
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `origin` (vector)
-- `direction` (vector)
-- `maxDistance` "max distance" (number)
-- `tags` (list)
-- `layers` (list)
-- `exclude` (list)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `entityId` "entity" (string)
-- `point` (vector)
-- `normal` (vector)
-- `distance` (number)
-- `cell` (vector)
-- `scatter` (string)
-- `found` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `origin` | origin | vector | `[0,0,0]` | -1000000000 – 1000000000; 3 components |
-| `direction` | direction | vector | `[0,-1,0]` | -1000000000 – 1000000000; 3 components |
-| `maxDistance` | max distance | number | `100` | -1000000000 – 1000000000 |

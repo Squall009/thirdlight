@@ -499,6 +499,12 @@ export interface PhysicsStepClient {
    */
   planeOf?(entityId: string): PhysicsPlane | null;
   /**
+   * Whether an object's body is suspended this step. Streaming loads collision only round the camera, its target and the players: a player character, patrol or gravity body over streamed ground whose collision is not loaded stands still (no gravity, no movement, no contacts) with its state kept, and resumes in the step that ground's collision arrives. False for anything else.
+   * @graphPure
+   * @graphNode Is suspended
+   */
+  isSuspended?(entityId: string): boolean;
+  /**
    * A ray on the caller's plane: `origin` and `direction` are 2D ({x, y}: x along the plane's right, y up), the ray runs in the plane the calling object is locked to (else z = 0) and hits the colliders that cross it — the nearest one's object, its distance and the surface normal in the plane, or null. `[x, y, z]` arrays make it a 3D ray (the next form). Counted with the other queries (at most 1,024 a step).
    * @graphNode Raycast
    * @graphDefault direction [1, 0, 0]

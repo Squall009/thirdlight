@@ -19,6 +19,7 @@ import type { PointerSample } from './actions';
 import type { RuntimeViews } from './views';
 import type { RuntimeGrid } from './grid';
 import type { PlaneLocks } from './plane-locks';
+import type { BodySuspension } from './body-suspension';
 
 /** What the queries read of the runtime (read at each call: the runtime makes its parts after this). */
 export interface PhysicsQueryHost {
@@ -29,6 +30,8 @@ export interface PhysicsQueryHost {
   readonly grid: RuntimeGrid;
   readonly tags: LiveTagIndex | null;
   readonly planes: PlaneLocks;
+  /** The bodies outside the loaded collision this step. */
+  readonly suspension: BodySuspension;
   /** The pointer as the step sees it (picks under it). */
   pointer(): PointerSample | null;
   stepIndex(): number;
@@ -84,6 +87,7 @@ export class PhysicsQueries {
     },
     setPlane: (entityId: string, plane: PhysicsPlane | null): boolean => this.h.planes.request(entityId, plane),
     planeOf: (entityId: string): PhysicsPlane | null => (typeof entityId === 'string' ? this.h.planes.planeOf(entityId) : null),
+    isSuspended: (entityId: string): boolean => typeof entityId === 'string' && this.h.suspension.has(entityId),
     characterState: (entityId?: string): CharacterState3D | undefined => {
       const id = this.h.controllers.resolve(entityId);
       return id !== undefined ? this.h.controllers.characterState(id) : undefined;

@@ -312,6 +312,7 @@ export { STREAMING_BUDGET_DEFAULT_MB, TERRAIN_OVERVIEW_SAMPLES, inStreamRing, re
 // A tile's and an overview's blobs made in memory (tests of the page's streaming; a build makes them with gzip).
 export { encodeTerrainOverview, encodeTerrainTile, terrainOverviewTile, wrapTerrainOverview, wrapTerrainTile } from '@thirdlight/project-model';
 export { STREAM_CHUNK_COST, STREAM_COLLIDER_SAMPLES_PER_STEP, STREAM_LIVE_SPAWNS_PER_STEP, STREAM_RECHECK_METRES, SimWorldStream, worldStreamSources, type SimStreamDiagnostics, type StreamRingChange } from './world-stream';
+export { BodySuspension, type SuspensionDiagnostics } from './body-suspension';
 // Rule scatter's stored copies (terrain tiles' blobs, block chunks' text), read by the renderer and the colliders.
 // What ground cover drawn on the GPU evaluates per copy as the stored scatter's rules do (the renderer mirrors them in its shaders).
 export { copyRotation, ruleNoise, ruleRangeAt, scatterRuleSeed } from '@thirdlight/project-model';

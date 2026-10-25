@@ -72,6 +72,8 @@ interface ControllerState {
   impulse: [number, number, number] | null;
   /** 3D: the plane its character is locked to (null: free). */
   plane: PhysicsPlane | null;
+  /** 3D: the port holds its character still (outside the loaded collision). */
+  suspended: boolean;
 }
 
 /** What the controllers read from and ask of the runtime. */
@@ -94,6 +96,8 @@ export interface PlayerControllersHost {
   status3D(id: string): { enabled?: unknown; climbing?: unknown; yaw?: unknown } | null;
   /** A controller was placed (its face-movement models forget their last position). */
   placed(id: string): void;
+  /** Whether a controller's character is outside the loaded collision this step (it stands still, its state kept). */
+  suspended?(id: string): boolean;
 }
 
 export class PlayerControllers {
@@ -139,6 +143,7 @@ export class PlayerControllers {
       fallSpeed3d: 0,
       impulse: null,
       plane: this.host.physics3d !== undefined ? planeLockOf(controller) : null,
+      suspended: false,
     });
     this.list = Object.freeze([...this.list, id]);
     this.names = Object.freeze([...new Set([...this.names, a.move, a.jump, ...(climb !== null ? [climb] : [])])]);
@@ -428,6 +433,13 @@ export class PlayerControllers {
       const c = this.byId.get(id)!;
       const t = curr.get(id);
       const previous: PhysicsVec3 = t ? { x: t.position[0], y: t.position[1], z: t.position[2] } : { x: 0, y: 0, z: 0 };
+      // Outside the loaded collision: no gravity, no move, no carry; its fall speed and last result wait for the ground.
+      const suspended = this.host.suspended?.(id) === true;
+      if (suspended !== c.suspended) {
+        port.suspendCharacter?.(suspended, c.portId);
+        c.suspended = suspended;
+      }
+      if (suspended) return { c, t, previous, requested: null };
       let requested = this.staged3d.get(id);
       // A controller whose object is not in the game (its scene is not loaded) keeps its body where it is.
       if (requested === undefined && t === undefined && c.portId !== undefined) return { c, t, previous, requested: null };

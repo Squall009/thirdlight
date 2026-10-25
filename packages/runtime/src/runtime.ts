@@ -515,6 +515,7 @@ export class RuntimeInstance implements Runtime {
         ...(args.physics3d !== undefined ? { physics3d: args.physics3d, scriptColliders3D: () => rt.chars.colliders.poses() } : {}),
         // A trigger's scene transition.
         sceneTransition: (triggerId, t) => rt.scenes.beginTransition(triggerId, t),
+        suspended: (id) => rt.chars.suspension.has(id),
         effect: (r) => void rt.presentation.pushEffect({ op: r.op, effectId: r.effectId, entityId: r.entityId, position: r.position, params: null, source: r.source }),
       },
       args.initialEntities,
@@ -1219,6 +1220,7 @@ export class RuntimeInstance implements Runtime {
     if (!this.entities.syncLiveBlocks()) return false;
     this.modes.beginStep(this.sim.stepIndex + 1);
     this.grid.beginStep(this.sim.stepIndex + 1);
+    this.chars.suspendBodies();
     this.materials.beginStep(this.sim.stepIndex + 1);
     // Nothing in a plain step reads actions, but the input source is sampled all the same: what the host
     // queued for the UI rides on the frame (the pause panel's restart, a relayed replay), and a relayed
@@ -1359,6 +1361,8 @@ export class RuntimeInstance implements Runtime {
     this.modes.beginStep(ordinal);
     this.scenes.beginStep();
     this.grid.beginStep(ordinal);
+    // Bodies outside the rings' collision stand still this step.
+    this.chars.suspendBodies();
     this.materials.beginStep(ordinal);
     this.saves.beginStep();
     let action: ActionFrame;
@@ -1749,7 +1753,7 @@ export class RuntimeInstance implements Runtime {
     const architecture = this.grid.architecture.diagnostics();
     if (architecture !== null) m2.architecture = architecture;
     const worldStream = this.grid.stream.diagnostics();
-    if (worldStream !== null) m2.worldStream = worldStream;
+    if (worldStream !== null) m2.worldStream = { ...worldStream, suspended: this.chars.suspension.diagnostics() };
     return Object.assign(m2, this.faults.failure());
   }
 }

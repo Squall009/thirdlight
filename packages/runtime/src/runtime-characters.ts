@@ -4,6 +4,10 @@
  * scripts' placements and walks), the physics queries scripts make, the
  * active player spawn and `ctx.lifecycle`.
  *
+ * Bodies over streamed ground that is not loaded are suspended here
+ * (`body-suspension.ts`): one rule for the characters, patrols and gravity
+ * bodies.
+ *
  * Placements go through the ports here, where a port failure fail-stops the
  * run; a 2D-plane placement also resets the controller's module (its reset
  * hook, as a transfer).
@@ -11,6 +15,7 @@
 import type { EntityV3 } from '@thirdlight/project-model';
 
 import type { GameplayBlocks } from './blocks';
+import { BodySuspension } from './body-suspension';
 import { CharacterDirector } from './character-director';
 import { CharacterPlacement, ControllerPlacements } from './character-placement';
 import { ColliderSystem } from './collider-system';
@@ -65,6 +70,8 @@ export class RuntimeCharacters {
   readonly planes: PlaneLocks;
   /** `ctx.lifecycle`: respawn (both dimensions), the spawn point and the restart. */
   readonly lifecycle: BehaviorLifecycle;
+  /** Which bodies the engine moves are outside the loaded collision this step (they stand still). */
+  readonly suspension: BodySuspension;
   /** The player spawn respawns use (null: the first one loaded, else where the player started). */
   activeSpawn: string | null = null;
   /** `port.step()` calls. */
@@ -77,6 +84,9 @@ export class RuntimeCharacters {
     a: { controllerEntityIds: readonly string[]; initialEntities: readonly EntityV3[]; modelColliders?: import('@thirdlight/project-model').ModelColliderTable },
   ) {
     const sim_ = sim;
+    // A terrain tile in its ring collides once its data has arrived.
+    const tileReady = (entityId: string, key: string): boolean => host.grid.terrain.tileReady(entityId, key);
+    this.suspension = new BodySuspension((x, z) => host.grid.stream.loadedAt(x, z, tileReady), () => host.grid.stream.active);
     this.colliders = new ColliderSystem({
       get physics() {
         return sim_.physics;
@@ -112,6 +122,7 @@ export class RuntimeCharacters {
         return null;
       },
       placed: (id) => host.blocks?.placed(id),
+      suspended: (id) => this.suspension.has(id),
     }, a.controllerEntityIds, a.initialEntities);
     this.placement = new ControllerPlacements(this.controllers.ids, (id) => this.buildPlacement(id), (sceneId) => host.scenes.isLoading(sceneId));
     const controllers = this.controllers;
@@ -141,11 +152,29 @@ export class RuntimeCharacters {
       get grid() { return host.grid; },
       get tags() { return host.queryTags; },
       planes: this.planes,
+      suspension: this.suspension,
       pointer: () => host.input.pointer(),
       stepIndex: () => sim.stepIndex,
       warn: (m) => faults.log('thirdlight.runtime:physics', 'warn', m),
     });
     this.lifecycle = this.buildLifecycle();
+  }
+
+  /**
+   * The step boundary, after the streaming rings moved: the characters (at
+   * their positions) and the gameplay blocks' bodies are tested against the
+   * loaded collision; those outside stand still this step.
+   */
+  suspendBodies(): void {
+    const curr = this.sim.curr;
+    const blocks = this.host.blocks;
+    this.suspension.update((test) => {
+      for (const id of this.controllers.ids) {
+        const t = curr.get(id);
+        if (t !== undefined) test(id, t.position[0], t.position[2]);
+      }
+      blocks?.primitives.suspensionPoints(test);
+    });
   }
 
   /** A player controller's placement view of the runtime (placements go through the ports here, where a failure fail-stops). */
