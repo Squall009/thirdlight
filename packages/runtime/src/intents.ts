@@ -147,7 +147,7 @@ export interface RespawnIntent {
 }
 
 /**
- * 3D projects: walk the player character this step along a
+ * Walk the player character this step along a
  * world direction on the ground (x, z; a length above 1 counts as 1 — its
  * length scales the walk speed), replacing the move input; `run` uses the run
  * speed. Intent phase.

@@ -104,10 +104,11 @@ function graphTags(decl) {
   return out;
 }
 
-/** The first paragraph of a symbol's doc comment, on one line. */
+/** The first paragraph of a symbol's doc comment (an overloaded method's first form's), on one line. */
 function docOf(checker, symbol) {
-  return ts
-    .displayPartsToString(symbol.getDocumentationComment(checker))
+  const decls = symbol.declarations ?? [];
+  const first = decls.length > 1 ? decls[0].jsDoc?.at(-1)?.comment : undefined;
+  return (first !== undefined ? ts.getTextOfJSDocComment(first) ?? '' : ts.displayPartsToString(symbol.getDocumentationComment(checker)))
     .split('\n\n')[0]
     .replace(/\s+/g, ' ')
     .trim()
@@ -243,15 +244,21 @@ class Builder {
       if (d.kind === 'object') {
         // An options object: one argument per option, built back into the object.
         const entries = [];
+        // A nullable options object (a plane or none): its first choice gets a "none" option that passes null.
+        let nullWhen = null;
         for (const prop of d.props) {
           const pd = prop.valueDeclaration ?? prop.declarations?.[0];
           const t = checker.getTypeOfSymbolAtLocation(prop, pd);
           const opt = (prop.flags & ts.SymbolFlags.Optional) !== 0;
-          const arg = this.arg(prop.getName(), inSourceOrder(pd, describe(checker, t, graphTags(pd))), opt, tags, pathText);
+          let arg = this.arg(prop.getName(), inSourceOrder(pd, describe(checker, t, graphTags(pd))), opt, tags, pathText);
+          if (d.nullable && nullWhen === null && arg.options !== undefined) {
+            arg = { ...arg, options: [...arg.options, 'none'] };
+            nullWhen = { arg: arg.id, is: 'none' };
+          }
           claim(arg);
           entries.push([prop.getName(), { arg: arg.id, ...(arg.axes !== undefined ? { as: 'axes' } : {}) }]);
         }
-        values.push({ object: entries });
+        values.push({ object: entries, ...(nullWhen !== null ? { nullWhen } : {}) });
         continue;
       }
       const arg = this.arg(p.getName(), d, optional, tags, pathText);

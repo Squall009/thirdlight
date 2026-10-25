@@ -68,6 +68,8 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       raycast: rec('physics.raycast', { entityId: 'wall-1', distance: 2, normal: { x: -1, y: 0 } }),
       overlapBox: rec('physics.overlapBox', () => ['crate-1']),
       overlapCircle: rec('physics.overlapCircle', () => ['crate-1']),
+      setPlane: rec('physics.setPlane', true),
+      planeOf: rec('physics.planeOf', { axis: 'z', origin: 0 }),
       // The 3D character's state.
       characterState: rec('physics.characterState', { position: { x: 1, y: 2, z: 3 }, velocity: { x: 0, y: 0, z: 2 }, grounded: true, contacts: { ground: true, wall: false, head: false, steepSlope: false }, supportNormal: { x: 0, y: 1, z: 0 }, groundEntityId: null, enabled: true, climbing: false, facing: 0 }),
       // 3D queries.
@@ -113,7 +115,7 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
     hitbox: { setActive: rec('hitbox.setActive', true), touching: rec('hitbox.touching', ['box-2']) },
     collectible: { collected: rec('collectible.collected', false), restore: rec('collectible.restore', true) },
     // The character's impulse, placement, walks, turns and switch, and the look overrides.
-    character: { impulse: rec('character.impulse', true), place: rec('character.place', true), walkTo: rec('character.walkTo', 1), walkState: rec('character.walkState', 'arrived'), stop: rec('character.stop', true), turn: rec('character.turn', true), setEnabled: rec('character.setEnabled', true) },
+    character: { impulse: rec('character.impulse', true), place: rec('character.place', true), walkTo: rec('character.walkTo', 1), walkState: rec('character.walkState', 'arrived'), stop: rec('character.stop', true), turn: rec('character.turn', true), setEnabled: rec('character.setEnabled', true), setPlane: rec('character.setPlane', true) },
     look: { set: rec('look.set', true), clear: rec('look.clear', true), get: rec('look.get', { emissive: '#ff0000', emissiveIntensity: 1 }) },
     // Playback handles, music, duck, bus mix.
     audio: {
@@ -488,8 +490,6 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
       'assets.ids',
       // The finished events as a list (the Sound finished node checks one handle).
       'audio.events',
-      // A plane is an object or null (set on the collider or controller, or in code).
-      'character.setPlane',
       'debug.command',
       'dialogue.history',
       'dialogue.variables',
@@ -524,8 +524,6 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
       'input.rebind',
       'input.rebindEvents',
       'log',
-      'physics.planeOf',
-      'physics.setPlane',
       'physics.stageCharacterMove',
       'random.pick',
       'random.stream().pick',
@@ -560,4 +558,30 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
       if (spec !== undefined && spec.access.some((s) => 'call' in s)) expect(calls, memberOf(spec)).toContain(memberOf(spec));
     });
   }
+});
+
+describe('a nullable options argument (Set plane)', () => {
+  it('passes the plane, or null when its choice is "none"', async () => {
+    const seen: unknown[] = [];
+    for (const data of [{ axis: 'x', origin: 2 }, { axis: 'none', origin: 2 }, {}]) {
+      const graph: GraphData = {
+        nodes: [
+          { id: 'ev', type: 'event.step', position: [0, 0], data: { phase: 'intent' } },
+          { id: 'set', type: 'api.physics.setPlane', position: [300, 0], data },
+        ],
+        edges: [{ id: 'e', from: { node: 'ev', port: 'then' }, to: { node: 'set', port: 'in' } }],
+      };
+      const r = await compileBehaviorGraph(compiler, { behaviorId: 'script', graph, env: ENV, limits: { timeoutMs: 30_000 } });
+      if (!r.ok) throw new Error(JSON.stringify(r.failure.diagnostics));
+      const spec = evaluate(r.result.outputBytes);
+      const ctx = recordingContext([], 'intent', 1);
+      ctx.physics.setPlane = (id: string, plane: unknown): boolean => (seen.push([id, plane]), true);
+      spec.step(spec.instantiate(undefined, { entityId: 'box-1', properties: { v: 1 } }), ctx);
+    }
+    expect(seen).toEqual([
+      ['box-1', { axis: 'x', origin: 2 }],
+      ['box-1', null],
+      ['box-1', { axis: 'z', origin: 0 }],
+    ]);
+  });
 });

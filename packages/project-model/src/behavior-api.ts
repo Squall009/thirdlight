@@ -60,8 +60,11 @@ export type BehaviorApiValue =
   /** An argument's value; `vec2`: a vector as `{x, y}`; `axes`: the chosen components as an object. */
   | { arg: string; as?: 'vec2' | 'axes' }
   | { const: string | number | boolean }
-  /** An object (keys in this order; keys whose value is undefined are left out). */
-  | { object: readonly (readonly [string, BehaviorApiValue])[] }
+  /**
+   * An object (keys in this order; keys whose value is undefined are left out).
+   * `nullWhen`: a nullable object is null instead while that choice argument is `is`.
+   */
+  | { object: readonly (readonly [string, BehaviorApiValue])[]; nullWhen?: { arg: string; is: string } }
   /** A rest parameter: the argument's comma-separated text as separate arguments. */
   | { rest: string };
 

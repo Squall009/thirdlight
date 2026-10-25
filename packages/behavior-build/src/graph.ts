@@ -824,6 +824,8 @@ class GraphCode {
       if ('const' in v) return lit(v.const);
       if ('rest' in v) return `...split(${a.get(v.rest) ?? '""'})`;
       if ('object' in v) {
+        // A nullable object's choice set to its "none": null.
+        if (v.nullWhen !== undefined && this.str(n, v.nullWhen.arg) === v.nullWhen.is) return 'null';
         const parts: string[] = [];
         for (const [k, inner] of v.object) {
           if (!IDENT_RE.test(k)) this.fail(n, `internal: "${k}" is not a member name`);

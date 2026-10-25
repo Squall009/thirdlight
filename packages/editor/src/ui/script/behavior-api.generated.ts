@@ -3989,24 +3989,24 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
     {
       "name": "raycast",
       "kind": "method",
-      "detail": "(origin: Vec2, direction: Vec2, maxDistance: number): RaycastHit | null",
+      "detail": "(origin: Vec2, direction: Vec2, maxDistance: number, filter?: PhysicsQueryFilter | undefined): RaycastHit | null",
       "returns": "RaycastHit",
       "optional": true,
-      "doc": "A ray against the level's colliders (bounded per step; null when nothing is hit)."
+      "doc": "A ray on the caller's plane: `origin` and `direction` are 2D ({x, y}: x along the plane's right, y up), the ray runs in the plane the calling object is locked to (else z = 0) and hits the colliders that cross it — the nearest one's object, "
     },
     {
       "name": "overlapBox",
       "kind": "method",
-      "detail": "(center: Vec2, half: Vec2): string[]",
+      "detail": "(center: Vec2, half: Vec2, filter?: PhysicsQueryFilter | undefined): string[]",
       "optional": true,
-      "doc": "The entities whose colliders overlap a box (center, half extents) — counted with the rays."
+      "doc": "The objects whose colliders overlap a box on the caller's plane — 2D centre and half extents ({x, y}), the plane the calling object is locked to (else z = 0); sorted ids, at most 64. `[x, y, z]` arrays make it a 3D box (the next form). Coun"
     },
     {
       "name": "overlapCircle",
       "kind": "method",
-      "detail": "(center: Vec2, radius: number): string[]",
+      "detail": "(center: Vec2, radius: number, filter?: PhysicsQueryFilter | undefined): string[]",
       "optional": true,
-      "doc": "The entities whose colliders overlap a circle — counted with the rays."
+      "doc": "The objects whose colliders overlap a circle on the caller's plane (2D centre {x, y}; the plane the calling object is locked to, else z = 0) — counted with the rays. A sphere is `overlapSphere`."
     },
     {
       "name": "characterState",
@@ -4014,7 +4014,7 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "detail": "(entityId?: string | undefined): CharacterState3D | undefined",
       "returns": "CharacterState3D",
       "optional": true,
-      "doc": "3D projects: a player character's state after the last completed step (`entityId`, absent: the first player controller) — position, velocity, grounding, contacts, whether its controller is on and whether it is climbing a ledge — or undefine"
+      "doc": "A player character's state after the last completed step (`entityId`, absent: the first player controller) — position, velocity, grounding, contacts, whether its controller is on and whether it is climbing a ledge — or undefined (before the"
     },
     {
       "name": "raycast3d",
@@ -4022,28 +4022,28 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "detail": "(origin: readonly number[], direction: readonly number[], maxDistance?: number | undefined, filter?: PhysicsQueryFilter | undefined): PhysicsHit | null",
       "returns": "PhysicsHit",
       "optional": true,
-      "doc": "3D projects: the nearest collider a ray from `origin` along `direction` hits within `maxDistance` metres (default 100), or null — its object, the point, the surface normal and the distance. Counted with the other queries (at most 64 a step)"
+      "doc": "The 3D `raycast` under its former name (`raycast` takes [x, y, z] the same way)."
     },
     {
       "name": "overlapSphere",
       "kind": "method",
       "detail": "(center: readonly number[], radius: number, filter?: PhysicsQueryFilter | undefined): string[]",
       "optional": true,
-      "doc": "3D projects: the objects whose colliders overlap a sphere (sorted ids, at most 64)."
+      "doc": "The objects whose colliders overlap a sphere (sorted ids, at most 64)."
     },
     {
       "name": "overlapBox3d",
       "kind": "method",
       "detail": "(center: readonly number[], half: readonly number[], rotation?: readonly number[] | undefined, filter?: PhysicsQueryFilter | undefined): string[]",
       "optional": true,
-      "doc": "3D projects: the objects whose colliders overlap a box — centre, half extents [x, y, z] and an optional rotation quaternion [x, y, z, w]."
+      "doc": "The 3D `overlapBox` under its former name (`overlapBox` takes [x, y, z] the same way)."
     },
     {
       "name": "overlapCapsule",
       "kind": "method",
       "detail": "(center: readonly number[], radius: number, height: number, rotation?: readonly number[] | undefined, filter?: PhysicsQueryFilter | undefined): string[]",
       "optional": true,
-      "doc": "3D projects: the objects whose colliders overlap an upright capsule (total height, end caps included), optionally turned by a quaternion [x, y, z, w]."
+      "doc": "The objects whose colliders overlap an upright capsule (total height, end caps included), optionally turned by a quaternion [x, y, z, w]."
     },
     {
       "name": "pickAt",
@@ -4051,7 +4051,7 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "detail": "(x: number, y: number, maxDistance?: number | undefined, filter?: PhysicsQueryFilter | undefined): PhysicsHit | null",
       "returns": "PhysicsHit",
       "optional": true,
-      "doc": "3D projects: what is under a screen point (x, y 0–1 from the top left): the ray from the active camera (`ctx.camera.screenToRay`) cast into the colliders, within `maxDistance` (default 1000 m)."
+      "doc": "What is under a screen point (x, y 0–1 from the top left): the ray from the active camera (`ctx.camera.screenToRay`) cast into the colliders, within `maxDistance` (default 1000 m)."
     },
     {
       "name": "pickAtPointer",
@@ -4059,7 +4059,7 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "detail": "(maxDistance?: number | undefined, filter?: PhysicsQueryFilter | undefined): PhysicsHit | null",
       "returns": "PhysicsHit",
       "optional": true,
-      "doc": "3D projects: what is under the pointer this step (null while the pointer is outside the view or never moved); with a locked cursor, what is at the view's centre."
+      "doc": "What is under the pointer this step (null while the pointer is outside the view or never moved); with a locked cursor, what is at the view's centre."
     }
   ],
   "PhysicsVec3": [

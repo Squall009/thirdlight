@@ -67,6 +67,7 @@ import {
   type IntentSet,
 } from './intents';
 import type { UiEventRecord } from './ui';
+import { physicsOfCaller } from './physics-queries';
 import type {
   WorldTransformOptions,
   AnimatorEventRecord,
@@ -997,7 +998,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           action: { get: () => src.action, enumerable: true },
           intents: { get: () => src.intents, enumerable: true },
           settings: { value: src.settings, enumerable: true },
-          physics: { value: src.physics, enumerable: true },
+          physics: { value: physicsOfCaller(src.physics, instance.entityId), enumerable: true },
           tags: { value: tags, enumerable: true },
           world: { value: worldFor(src), enumerable: true },
         };

@@ -21,7 +21,7 @@
  * itself (it stages the fall). Sphere, capsule, convex-hull and
  * (static) triangle-mesh colliders; kinematic bodies for movers, posed after
  * the character's sweep like the 2D port's; raycasts, overlap queries (box,
- * sphere, capsule) and the character's clearance/placement.
+ * sphere, capsule, cylinder) and the character's clearance/placement.
  */
 import { COLLIDER_3D_LIMITS } from '@thirdlight/project-model/limits';
 import * as RAPIER from '@dimforge/rapier3d-compat';
@@ -903,6 +903,16 @@ function wholeSpec(kept: StaticColliderSpec3D, colliders: readonly RAPIER.Collid
   return heavyShape(shape) ? { ...kept, shape: fill(shape, colliders[0]!) } : kept;
 }
 
+/** An overlap query's Rapier shape (each extent at most 500 m), or null for a bad one. */
+function overlapShapeOf(shape: OverlapShape3D): RAPIER.Shape | null {
+  const ok = (v: unknown): v is number => finite(v) && v > 0;
+  if (shape?.type === 'box' && ok(shape.hx) && ok(shape.hy) && ok(shape.hz)) return new RAPIER.Cuboid(Math.min(shape.hx, 500), Math.min(shape.hy, 500), Math.min(shape.hz, 500));
+  if (shape?.type === 'sphere' && ok(shape.radius)) return new RAPIER.Ball(Math.min(shape.radius, 500));
+  if (shape?.type === 'capsule' && ok(shape.radius) && finite(shape.halfHeight) && shape.halfHeight >= 0) return new RAPIER.Capsule(Math.min(shape.halfHeight, 500), Math.min(shape.radius, 500));
+  if (shape?.type === 'cylinder' && ok(shape.radius) && ok(shape.halfHeight)) return new RAPIER.Cylinder(Math.min(shape.halfHeight, 500), Math.min(shape.radius, 500));
+  return null;
+}
+
 function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, further: Map<string, CharacterBody3D>, config: PhysicsInitConfig3D, staticSpecs: Map<string, StaticColliderSpec3D>, bodies: Map<string, RAPIER.RigidBody>, infoByHandle: Map<number, Collider3DInfo>, bits: LayerBits, collidersOf: Map<string, RAPIER.Collider[]>): RapierPhysicsPort3D {
   /** The world (`restartWorld` replaces it). */
   let world = initialWorld;
@@ -1445,11 +1455,7 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
       assertLive('overlap');
       ensureBuilt();
       if (!isVec3(center) || (rotation !== undefined && !isQuat(rotation))) return [];
-      const ok = (v: unknown): v is number => finite(v) && v > 0;
-      let s: RAPIER.Shape | null = null;
-      if (shape?.type === 'box' && ok(shape.hx) && ok(shape.hy) && ok(shape.hz)) s = new RAPIER.Cuboid(Math.min(shape.hx, 500), Math.min(shape.hy, 500), Math.min(shape.hz, 500));
-      else if (shape?.type === 'sphere' && ok(shape.radius)) s = new RAPIER.Ball(Math.min(shape.radius, 500));
-      else if (shape?.type === 'capsule' && ok(shape.radius) && finite(shape.halfHeight) && shape.halfHeight >= 0) s = new RAPIER.Capsule(Math.min(shape.halfHeight, 500), Math.min(shape.radius, 500));
+      const s = overlapShapeOf(shape);
       if (s === null) return [];
       const ids = new Set<string>();
       world.intersectionsWithShape({ x: center.x, y: center.y, z: center.z }, rotation ?? IDENTITY_Q, s, (c) => {

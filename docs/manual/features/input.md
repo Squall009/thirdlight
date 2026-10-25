@@ -64,10 +64,10 @@ frame — masks 1 left, 2 right, 4 middle) reproduces them; a frame without a
 pointer keeps the last position and held buttons. Its `actions` are
 passed through too.
 
-**3D queries** (physics dimension 3): `ctx.physics.raycast3d(origin,
-direction, maxDistance = 100, filter?)` → `{ entityId, point, normal,
+**3D queries** (the 3D backend): `ctx.physics.raycast(origin,
+direction, maxDistance = 100, filter?)` with `[x, y, z]` arrays → `{ entityId, point, normal,
 distance }` or null; `overlapSphere(center, radius, filter?)`,
-`overlapBox3d(center, half, rotation?, filter?)`, `overlapCapsule(center,
+`overlapBox(center, half, rotation?, filter?)` with `[x, y, z]` arrays, `overlapCapsule(center,
 radius, height, rotation?, filter?)` → sorted ids (at most 64);
 `pickAt(x, y, maxDistance = 1000, filter?)` casts the active camera's ray
 through a screen point (the default pose's when no virtual camera is live;

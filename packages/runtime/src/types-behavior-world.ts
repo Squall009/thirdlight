@@ -1009,7 +1009,9 @@ export interface BehaviorCharacter {
   setEnabled(enabled: boolean, entityId?: string): boolean;
   /**
    * Lock a player character (`entityId`, absent or null: the first player controller) to an axis-aligned plane — `{ axis: 'x' | 'z', origin }` — or free it (null), at the next step boundary: it snaps onto the plane and from then on walks, jumps and is pushed only along it; freed, it moves in all three axes again from where it is. The same as `ctx.physics.setPlane` on its object. Lasts until changed or the run restarts. False without that character, a 3D world or for a bad plane.
-   * @graphNode skip a plane is an object or null; set it in a script, or on the controller
+   * @graphNode Set character plane
+   * @graphLabel entityId player
+   * @graphDefault axis z
    */
   setPlane(entityId: string | null | undefined, plane: { axis: 'x' | 'z'; origin: number } | null): boolean;
 }

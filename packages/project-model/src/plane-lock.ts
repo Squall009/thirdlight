@@ -49,3 +49,24 @@ export function planeLockOf(component: unknown): PlaneLock | null {
   const v = isPlainObject(component) ? component['plane'] : undefined;
   return isPlaneLock(v) ? { axis: v.axis, origin: v.origin === 0 ? 0 : v.origin } : null;
 }
+
+/**
+ * A plane's 2D coordinates in the world: x runs along the plane's right
+ * (+X on a Z plane, −Z on an X plane: right of a camera on the normal's
+ * positive side looking back), y is up, and the point lies on the plane.
+ * The one mapping between a plane's 2D values and 3D.
+ */
+export function planePoint(plane: PlaneLock, x: number, y: number): [number, number, number] {
+  return plane.axis === 'z' ? [x, y, plane.origin] : [plane.origin, y, x === 0 ? 0 : -x];
+}
+
+/** A 2D direction (or offset) on a plane in the world (no part along the normal). */
+export function planeVector(plane: PlaneLock, x: number, y: number): [number, number, number] {
+  return plane.axis === 'z' ? [x, y, 0] : [0, y, x === 0 ? 0 : -x];
+}
+
+/** A world vector's 2D parts on a plane (its part along the normal dropped). */
+export function planeCoords(plane: PlaneLock, v: readonly [number, number, number] | readonly number[]): [number, number] {
+  const z = v[2] ?? 0;
+  return plane.axis === 'z' ? [v[0] ?? 0, v[1] ?? 0] : [z === 0 ? 0 : -z, v[1] ?? 0];
+}

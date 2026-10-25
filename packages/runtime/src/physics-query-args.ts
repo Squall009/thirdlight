@@ -21,6 +21,19 @@ export function queryVec3(v: unknown, what: string): [number, number, number] {
   return [v[0] as number, v[1] as number, v[2] as number];
 }
 
+/** A query's {x, y} on a plane (a script error when it is not two finite numbers). */
+export function queryVec2(v: unknown, what: string): { x: number; y: number } {
+  const o = v as { x?: unknown; y?: unknown } | null;
+  if (o === null || typeof o !== 'object' || typeof o.x !== 'number' || !Number.isFinite(o.x) || typeof o.y !== 'number' || !Number.isFinite(o.y)) throw new Error(`${what} is { x, y } (finite numbers)`);
+  return { x: o.x, y: o.y };
+}
+
+/**
+ * Half the depth of a 2D query's box or disc across its plane (m): a
+ * sliver, so it finds what crosses the plane, not what stands beside it.
+ */
+export const PLANE_QUERY_HALF_DEPTH = 0.01;
+
 /** A query's optional rotation quaternion [x, y, z, w] (normalized; absent: none). */
 export function queryQuat(v: unknown, what: string): PhysicsQuat | undefined {
   if (v === undefined || v === null) return undefined;

@@ -113,7 +113,7 @@ export interface ModuleConfig {
   /** 3 in a 3D project (absent: the 2D plane) — scripts may drive colliders no mover moves there. */
   physicsDimension?: 3;
   /**
-   * 3D projects: read-only queries of the 3D world for the
+   * Read-only queries of the 3D world for the
    * character controller module (a ray; the clearance of the character's
    * capsule at an origin) — not part of the scripts' context.
    */
@@ -310,7 +310,7 @@ export interface StepContext {
    */
   readonly inactiveEntities?: ReadonlySet<string>;
   /**
-   * 3D projects: the active camera's yaw this step — radians
+   * The active camera's yaw this step — radians
    * about +Y, 0 looking along −Z (three.js' default camera) — when a camera
    * rig provides one; the 3D character reads its move input relative to it.
    * Absent: world axes (the input's y pushes along −Z, its x along +X).
