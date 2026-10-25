@@ -10,6 +10,7 @@ import type { MeshWorkerPort } from './block-mesh-pool';
 import { ImpostorStore } from './impostor';
 import { CoverView } from './cover-view';
 import type { LodTuning } from './lod-switch';
+import type { WarmDraw } from './program-warmer';
 import { StoredScatter, type ScatterSink } from './stored-scatter';
 import type { TerrainTile } from '@thirdlight/runtime';
 import type { TerrainCoverSurface } from './terrain-view';
@@ -40,6 +41,8 @@ export interface ScatterHostDeps {
   surface: (id: string) => TerrainCoverSurface | null;
   /** An object's world matrix (a model's ground cover is baked where it stands). */
   worldMatrix?: (id: string, out: THREE.Matrix4) => boolean;
+  /** Build draws' programs ahead of their first draw (program-warmer.ts). */
+  warm?: (d: WarmDraw) => void;
 }
 
 export interface ScatterHost {
@@ -55,8 +58,8 @@ export interface ScatterHost {
 export function createScatterHost(deps: ScatterHostDeps): ScatterHost {
   // The models' impostors (far copies), baked with the page's renderer when a rule first asks for one.
   const impostors = new ImpostorStore({ renderer: () => deps.renderer?.() ?? null, template: deps.template, dress: deps.dress });
-  const stored = new StoredScatter({ template: deps.template, dress: deps.dress, read: deps.read, place: deps.place, shapeChanged: deps.shapeChanged, tuning: deps.tuning, changed: deps.changed, impostors, stream: deps.stream ?? null, ...(deps.scatterWorker !== undefined ? { worker: deps.scatterWorker } : {}) });
-  const cover = new CoverView({ template: deps.template, dress: deps.dress, place: deps.place, tile: deps.tile, ...(deps.worker !== undefined ? { worker: deps.worker } : {}), tuning: deps.tuning, changed: deps.changed, surface: deps.surface, ...(deps.worldMatrix !== undefined ? { worldMatrix: deps.worldMatrix } : {}) });
+  const stored = new StoredScatter({ template: deps.template, dress: deps.dress, read: deps.read, place: deps.place, shapeChanged: deps.shapeChanged, tuning: deps.tuning, changed: deps.changed, impostors, stream: deps.stream ?? null, ...(deps.warm !== undefined ? { warm: deps.warm } : {}), ...(deps.scatterWorker !== undefined ? { worker: deps.scatterWorker } : {}) });
+  const cover = new CoverView({ template: deps.template, dress: deps.dress, place: deps.place, tile: deps.tile, ...(deps.worker !== undefined ? { worker: deps.worker } : {}), tuning: deps.tuning, changed: deps.changed, surface: deps.surface, ...(deps.worldMatrix !== undefined ? { worldMatrix: deps.worldMatrix } : {}), ...(deps.warm !== undefined ? { warm: deps.warm } : {}) });
   const sink: ScatterSink | undefined = !deps.drawn
     ? undefined
     : {

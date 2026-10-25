@@ -18,6 +18,7 @@ import { COVER_DRAW_KEY, coverPointsPlacement, installCoverPlacement } from './c
 import { coverPointKept, coverShare, planCover } from './cover-placement';
 import { COVER_POINT_BLOCK, listCoverPointBlocks } from './cover-points-gpu';
 import { CoverView } from './cover-view';
+import { ProgramWarmer, type WarmDraw } from './program-warmer';
 import { litScene, wgslOf, wgslRenderer } from './test-wgsl';
 import { CullView } from './view-cull';
 import type { ModelInstance } from './visual';
@@ -189,6 +190,55 @@ describe('ground cover on block layers', () => {
     };
     for (const [a, b] of [[0, 15], [15, 30], [30, 42], [42, 52], [52, 57]] as const) expect(band(a, b) / want(a, b)).toBeGreaterThan(0.9), expect(band(a, b) / want(a, b)).toBeLessThan(1.1);
     expect(kept.every((p) => Math.hypot(p.x - eye[0], p.z - eye[1]) < 60)).toBe(true);
+  });
+
+  it("builds every ring's programs ahead of its first draw, and keeps its draws when the point texture grows", async () => {
+    installCoverPlacement();
+    const template = tuft();
+    const listed = new Set<THREE.Object3D>();
+    let wanted = 0;
+    let idle = true;
+    const warmer = new ProgramWarmer({ idle: () => idle, want: () => void (wanted += 1) });
+    const handed: WarmDraw[] = [];
+    // Dense enough that the sets near the layer outgrow the point texture's first size.
+    const dense: ScatterRule = { ...GRASS, density: 8 };
+    const cover = new CoverView({ template: () => template, place: (r, on) => void (on ? listed.add(r) : listed.delete(r)), tile: () => undefined, surface: () => null, warm: (w) => (handed.push(w), warmer.add(w)) });
+    cover.setTypes(TYPES);
+    const { component, chunks } = layer([dense]);
+    cover.setBlockLayer('layer', component, [0, 0, 0], chunks);
+    // Far from the layer: no ring reaches it, yet each ring's draws are made and handed over.
+    cover.update(view(-400, -400));
+    const rings = planCover(dense, 40, { distances: [0], culls: false, radius: 0.25 }, 16).rings.length;
+    expect(handed.length).toBe(rings);
+    expect(listed.size).toBe(0);
+    // Held for the precompile: in the scene, shown, more than one copy (three keys such a draw by its mesh, as when it lists copies).
+    idle = false;
+    warmer.frame();
+    expect(wanted).toBe(1);
+    expect(listed.size).toBe(rings);
+    const held = [...listed].flatMap((r) => r.children as THREE.Mesh[]);
+    expect(held.every((m) => m.visible && (m as unknown as { count: number }).count > 1)).toBe(true);
+    // Its WGSL builds as held (the program the precompile makes is the one the ring draws with).
+    const scene = litScene();
+    expect(wgslOf(wgslRenderer(), scene, held[0]!)).toMatch(/instance_index/);
+    // The precompile ran: they go back to drawing nothing, out of the scene.
+    idle = true;
+    cover.update(view(-400, -400));
+    warmer.frame();
+    expect(listed.size).toBe(0);
+    expect(held.every((m) => !m.visible)).toBe(true);
+    expect(warmer.stats()).toEqual({ warmed: rings, waiting: 0 });
+    // On the layer: its sets arrive (the point texture grows) and every ring draws with the draws built ahead.
+    for (let i = 0; i < 4; i++) {
+      cover.update(view(20, 20));
+      await flush();
+    }
+    const g = cover.diagnostics().gpu!;
+    expect(g.points).toBeGreaterThan(64 * COVER_POINT_BLOCK);
+    const drawn = cover.meshes();
+    expect(drawn.length).toBeGreaterThan(0);
+    expect(drawn.every((m) => held.includes(m))).toBe(true);
+    expect(handed.length).toBe(rings);
   });
 
   it('builds its vertex stage for a mesh of the model (the WGSL three makes from it, the same nodes WebGL 2 builds)', () => {

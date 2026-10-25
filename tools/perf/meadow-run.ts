@@ -25,6 +25,9 @@
  *   --walk-from X,Z             where the walk starts (world metres; default: the class's camera); 0,0 is where the 4 tiles meet
  *   --starter                   on the 3D starter: its player walks (W held, twice 8 s) through the cover, its follow camera behind,
  *                               its block ground (at the origin, where the tiles meet) under a cover rule too
+ *   --moss-ahead M              on the starter: its block ground M metres along the walk (default 8: beside the start)
+ *   --moss-right R              and its corner R metres to the right of the walk (default 10; -17 centres it on the walk, so
+ *                               with --moss-ahead 40 the walk starts out of the moss rule's reach and crosses every ring)
  *   --spacing S                 the cover rules keep S metres between copies
  *   --blocks-layer              the terrain meets the scene's block layers (a blocks layer: holes under them; the cover reads masks)
  *   --no-post                   no post stack: the scene draws with MSAA (a new project's default)
@@ -97,14 +100,14 @@ async function publishTemplateGrass(be: PerfBackend, projectId: string, cmd: Cmd
 }
 
 /** Build the meadow into a new project; returns the terrain's id (its cover is baked by the caller). */
-async function buildMeadow(be: PerfBackend, projectId: string, log: (s: string) => void, grass: MeadowGrass, density: number, coverDistance: number, wind: { strength: number | null; zone: boolean; clouds?: number | null; walker?: WalkerOptions; walk?: number | null; walkFrom?: [number, number] | null; starter?: boolean; blocksLayer?: boolean; noPost?: boolean; rootColour?: number | null; rootColourHeight?: number | null } = { strength: null, zone: false }): Promise<{ terrainId: string; cmd: Cmd; cover: Record<string, unknown>[] }> {
+async function buildMeadow(be: PerfBackend, projectId: string, log: (s: string) => void, grass: MeadowGrass, density: number, coverDistance: number, wind: { strength: number | null; zone: boolean; clouds?: number | null; walker?: WalkerOptions; walk?: number | null; walkFrom?: [number, number] | null; starter?: boolean; mossAhead?: number | null; mossRight?: number | null; blocksLayer?: boolean; noPost?: boolean; rootColour?: number | null; rootColourHeight?: number | null } = { strength: null, zone: false }): Promise<{ terrainId: string; cmd: Cmd; cover: Record<string, unknown>[] }> {
   const t0 = performance.now();
   const starter = wind.starter === true;
   const created = await be.post('/api/v1/admin/projects', { projectId, name: 'Perf meadow', ...(starter ? { template: 'starter-3d' } : {}) });
   if (created.status !== 201 && created.status !== 200) throw new Error(`project create failed: ${created.status} ${JSON.stringify(created.json)}`);
   const p = be.project(projectId);
   const cmd: Cmd = (op, args) => p.command(op, args);
-  if (starter) await starterOnMeadow(p, cmd);
+  if (starter) await starterOnMeadow(p, cmd, wind.mossAhead ?? 8, wind.mossRight ?? 10);
   else for (const id of STARTER_REMOVED) await cmd('deleteEntity', { entityId: id }).catch(() => undefined);
   await cmd('setSettings', { settings: { physics_dimension: 3, camera_far_m: MEADOW_SPEC.farPlane } });
   let cover = [meadowCoverRule(density, coverDistance)];
@@ -157,16 +160,16 @@ async function buildMeadow(be: PerfBackend, projectId: string, log: (s: string) 
  * where the class's camera stands, facing the same way, its follow camera behind, and its block ground stands
  * beside the walk under a moss rule (cover on a block layer).
  */
-async function starterOnMeadow(p: ReturnType<PerfBackend['project']>, cmd: Cmd): Promise<void> {
+async function starterOnMeadow(p: ReturnType<PerfBackend['project']>, cmd: Cmd, ahead: number, right: number): Promise<void> {
   const listed = (await p.query('queryEntities', { limit: 100, offset: 0 }))['entities'] as { id: string; name?: string; components: Record<string, unknown> }[];
   const cam = meadowCamera();
   for (const e of listed) {
     const pos = (e.components['transform'] as { position?: number[] } | undefined)?.position ?? [0, 0, 0];
     if (e.components['terrain'] !== undefined) await cmd('deleteEntity', { entityId: e.id });
     else if (e.components['blockLayer'] !== undefined) {
-      // Beside the walk, 8 m ahead and 10 m to the right of the start, on the highest ground under it.
-      const x0 = Math.round(cam.position[0] + 18 * Math.SQRT1_2);
-      const z0 = Math.round(cam.position[2] + 2 * Math.SQRT1_2);
+      // `ahead` metres along the walk (the view looks to +x, -z) and `right` to its right, on the highest ground under it.
+      const x0 = Math.round(cam.position[0] + (ahead + right) * Math.SQRT1_2);
+      const z0 = Math.round(cam.position[2] + (right - ahead) * Math.SQRT1_2);
       let top = -Infinity;
       for (let i = 0; i <= STARTER_BLOCKS_SIDE; i += 2) for (let k = 0; k <= STARTER_BLOCKS_SIDE; k += 2) top = Math.max(top, meadowHeight(x0 + i, z0 + k));
       await cmd('setTransform', { entityId: e.id, transform: { position: [x0, Math.ceil(top) - 1, z0] } });
@@ -294,7 +297,7 @@ export async function runMeadowCli(argv: readonly string[]): Promise<void> {
   if (!has('no-export')) {
     const be = await startPerfBackend(join(runDir, 'data'), join(runDir, 'exports'));
     try {
-      const { terrainId, cmd, cover } = await buildMeadow(be, 'meadow', log, grass, density, coverDistance, { strength: get('wind') === undefined ? null : Number(get('wind')), zone: has('wind-zone'), clouds: get('clouds') === undefined ? null : Number(get('clouds')), walk: get('walk') === undefined ? null : Number(get('walk')), walkFrom: get('walk-from') === undefined ? null : (get('walk-from')!.split(',').map(Number) as [number, number]), starter: has('starter'), blocksLayer: has('blocks-layer'), noPost: has('no-post'), rootColour: get('root-colour') === undefined ? null : Number(get('root-colour')), rootColourHeight: get('root-colour-height') === undefined ? null : Number(get('root-colour-height')), ...(has('walker') ? { walker: { strength: get('walker-strength') === undefined ? null : Number(get('walker-strength')), radius: get('walker-radius') === undefined ? null : Number(get('walker-radius')), speed: get('walker-speed') === undefined ? 1.2 : Number(get('walker-speed')) } } : {}) });
+      const { terrainId, cmd, cover } = await buildMeadow(be, 'meadow', log, grass, density, coverDistance, { strength: get('wind') === undefined ? null : Number(get('wind')), zone: has('wind-zone'), clouds: get('clouds') === undefined ? null : Number(get('clouds')), walk: get('walk') === undefined ? null : Number(get('walk')), walkFrom: get('walk-from') === undefined ? null : (get('walk-from')!.split(',').map(Number) as [number, number]), starter: has('starter'), mossAhead: get('moss-ahead') === undefined ? null : Number(get('moss-ahead')), mossRight: get('moss-right') === undefined ? null : Number(get('moss-right')), blocksLayer: has('blocks-layer'), noPost: has('no-post'), rootColour: get('root-colour') === undefined ? null : Number(get('root-colour')), rootColourHeight: get('root-colour-height') === undefined ? null : Number(get('root-colour-height')), ...(has('walker') ? { walker: { strength: get('walker-strength') === undefined ? null : Number(get('walker-strength')), radius: get('walker-radius') === undefined ? null : Number(get('walker-radius')), speed: get('walker-speed') === undefined ? 1.2 : Number(get('walker-speed')) } } : {}) });
       // A spacing between copies (the rule card's default) keeps a rule on the CPU path.
       if (get('spacing') !== undefined) for (const r of cover) r['spacing'] = Number(get('spacing'));
       for (const variant of ['grass', 'ground'] as const) {

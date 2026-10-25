@@ -39,6 +39,7 @@ import type { CullView } from './view-cull';
 import type { LodTuning } from './lod-switch';
 import { STATIC_CASTER_KEY } from './shadow-casters';
 import type { ModelInstance } from './visual';
+import type { WarmDraw } from './program-warmer';
 import { askingRing, eyeMoved, recheckMetres, type PageWorldStream, type StreamCell } from './world-stream';
 import { perfMark } from './perf-marks';
 import { VIEW_OWNER_KEY } from './isolation-view';
@@ -80,6 +81,8 @@ export interface ScatterViewDeps {
   changed?(): void;
   /** World streaming (a game page): a streamed terrain's or layer's groups are drawn only within its scatter ring (absent: all). */
   stream?: PageWorldStream | null;
+  /** Build a made set's programs ahead of their first draw, its levels no copy draws at yet too (absent: built when first drawn). */
+  warm?(d: WarmDraw): void;
 }
 
 /** What the block and terrain views tell the scatter view (their sources as they get them), and the copies a game's scripts hid, showed or removed. */
@@ -220,6 +223,9 @@ export class StoredScatter {
   private prepareMs = 0;
   private prepareMsMax = 0;
   private disposed = false;
+
+  /** The copies draws' programs built so far, by what three keys them by (program-warmer.ts). */
+  private readonly programsBuilt = new Set<string>();
 
   constructor(private readonly deps: ScatterViewDeps) {}
 
@@ -836,6 +842,7 @@ export class StoredScatter {
     const main = buildGpuCopySet(b.template, b.main.floats, b.count, `scatter:${src.id}:${rule}`, { ...this.options(b.rule, false, b.impostor), preparedCopies: b.main.prepared });
     const blobs = blob !== null ? buildGpuCopySet(blobShadowTemplate(), blob.floats, b.count, `scatter-blob:${src.id}:${rule}`, { ...this.options(b.rule, true), preparedCopies: blob.prepared }) : null;
     let casts = this.replaceRule(src, g, (r) => r === rule, { b, main, blob: blobs });
+    if (this.deps.warm !== undefined) for (const s of [main, blobs]) if (s !== null) this.deps.warm(s.warmDraw(this.programsBuilt));
     // Copies hidden, shown or removed since its copies were gathered.
     casts = this.writeStates(b.late) || casts;
     // What a set cost (the page's share, and the worker's), for measurements.

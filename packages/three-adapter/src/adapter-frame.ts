@@ -409,6 +409,8 @@ export class AdapterFrame {
     level.seeThrough.update(renderer, camera);
     // The subjects' push on foliage (after see-through has followed the scripts' subject list).
     level.foliageBend.update(camera);
+    // Draws made hidden this frame are shown to the precompile below (after every view wrote its draws).
+    level.warmer.frame();
     // Merged cells still building in the background, or a moved static object waiting to rejoin its cell: a host drawing on demand draws again.
     if (batcher?.pending() === true) p.opts.onChange?.();
   }

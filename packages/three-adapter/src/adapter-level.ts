@@ -33,6 +33,7 @@ import { SplineView } from './spline-view';
 import type { TerrainTileStore } from './terrain-tile-store';
 import type { TerrainView } from './terrain-view';
 import { PageWorldStream, STREAMING_KEY } from './world-stream';
+import { ProgramWarmer } from './program-warmer';
 import type { SceneAdapterDiagnostics } from './adapter-types';
 import type { AnyRenderer } from './renderer-factory';
 import { bothMemberships, type ViewCuller } from './view-cull';
@@ -78,6 +79,8 @@ export interface AdapterLevel {
   readonly seeThrough: SeeThroughView;
   /** The view's subjects the foliage gives way to (see-through's list, whether see-through is on or not). */
   readonly foliageBend: FoliageBendView;
+  /** Draws made hidden have their programs built by the precompile ahead of their first draw (once a frame, after the views). */
+  readonly warmer: ProgramWarmer;
   /** The authored block types (the swaps a running game makes go over them). */
   readonly blockTypes: BlockType[];
   /** An asset's material mapping (its import's, else the host's row of it). */
@@ -100,6 +103,7 @@ export function createAdapterLevel(d: AdapterLevelDeps): AdapterLevel {
   // World streaming (a game page): what streamed terrains, layers and scatter hold round the camera, within the budget.
   const stream = opts.streaming !== undefined ? new PageWorldStream({ budgetBytes: opts.streaming.budgetBytes, resources: d.resources, ...(opts.streaming.onProblem !== undefined ? { onProblem: opts.streaming.onProblem } : {}) }) : null;
   if (stream !== null) scene.userData[STREAMING_KEY] = stream;
+  const warmer = new ProgramWarmer({ idle: () => d.precompile().idle(), want: () => d.precompile().want() });
   // Rule scatter on block layers and terrains: stored copies and ground cover (scatter-host.ts).
   const scatter = createScatterHost({
     stream, template, dress, read, place,
@@ -112,6 +116,7 @@ export function createAdapterLevel(d: AdapterLevelDeps): AdapterLevel {
     // The terrains' view is made below (it hands its sources to this host); cover reads its page textures.
     surface: (id: string) => terrains.coverSurface(id),
     worldMatrix: (id, out) => graph.worldMatrixOf(id, out),
+    warm: (w) => warmer.add(w),
   });
   // Splines: what they make (meshes, pieces' copies), and terrain ground cover kept clear of their scatter bands.
   const splines = new SplineView({
@@ -166,7 +171,7 @@ export function createAdapterLevel(d: AdapterLevelDeps): AdapterLevel {
   const blockTypes = ((opts.snapshot as { blockTypes?: readonly BlockType[] }).blockTypes ?? []) as BlockType[];
   blockView.setTypes(blockTypes);
   return {
-    stream, scatter, splines, archHost, architecture, clipped, blockView, terrains, ownTiles, cutaways, seeThrough, foliageBend, blockTypes, assetMaterials,
+    stream, scatter, splines, archHost, architecture, clipped, blockView, terrains, ownTiles, cutaways, seeThrough, foliageBend, warmer, blockTypes, assetMaterials,
     diagnostics(out) {
       if (blockView.layerIds().length > 0) out.blocks = blockView.diagnostics();
       if (terrains.ids().length > 0) out.terrain = terrains.diagnostics();

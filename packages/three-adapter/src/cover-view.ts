@@ -33,6 +33,7 @@ import { CoverModels, type CoverModelLike } from './cover-models';
 import { coverGrowsOnTerrain, coverReadsMask } from './cover-placement';
 import { CoverGenerator, type CoverReply, type CoverRequest, type CoverSpline } from './cover-worker';
 import type { LodTuning } from './lod-switch';
+import type { WarmDraw } from './program-warmer';
 import type { TerrainCoverSurface } from './terrain-view';
 import type { CullView } from './view-cull';
 import type { ModelInstance } from './visual';
@@ -58,6 +59,8 @@ export interface CoverViewDeps {
   surface(id: string): TerrainCoverSurface | null;
   /** An object's world matrix (false: not placed; absent: models carry no cover). */
   worldMatrix?(id: string, out: THREE.Matrix4): boolean;
+  /** Build a ring's draws' programs ahead of their first draw (absent: built when first drawn). */
+  warm?(d: WarmDraw): void;
 }
 
 export interface CoverViewDiagnostics {
@@ -127,6 +130,7 @@ export class CoverView {
       surface: deps.surface,
       ...(deps.tuning !== undefined ? { tuning: deps.tuning } : {}),
       ...(deps.changed !== undefined ? { changed: deps.changed } : {}),
+      ...(deps.warm !== undefined ? { warm: deps.warm } : {}),
       maskWanted: (id, rule, tx, tz) => this.maskWanted(id, rule, tx, tz),
       mask: (id, rule, tx, tz, reply) => this.askMask(id, rule, tx, tz, reply),
       points: (id, rule, cx, cz, reply) => this.ask({ t: 'coverPoints', job: 0, id, rule: rule.id, cx, cz }, (r) => reply(r.t === 'coverPointed' ? r.points : null)),

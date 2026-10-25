@@ -52,6 +52,7 @@ import { setCopyBend, setCopyRoot } from './node-materials';
 import { PAINT_MESH_KEY, PAINT_STREAM_KEY } from './vertex-paint-draw';
 import { maxScaleOf, SphereSide, STATIC_SHADOW_CAMERA_KEY, VIEW_CULL_KEY, type CullView, type ViewCullable } from './view-cull';
 import type { ModelInstance } from './visual';
+import type { WarmDraw } from './program-warmer';
 
 const TSL: N = TSLTyped;
 const { Fn, abs, float, instanceIndex, int, ivec2, length, max, modelWorldMatrix, normalLocal, normalize, positionLocal, positionPrevious, select, uint, uniform, vec3, vec4 } = TSL;
@@ -306,6 +307,12 @@ export interface GpuCopySetHandle extends BuiltInstanceSet {
   readonly nearShadows: readonly THREE.Mesh[];
   /** The draws its own (not the near shadows'). */
   readonly drawMeshes: readonly THREE.Mesh[];
+  /**
+   * Its own draws held for a precompile (program-warmer.ts): a level no copy draws at yet has its program built
+   * too. `built` holds the keys of the programs built so far (a set's draws share theirs with every set of the
+   * same material and layout).
+   */
+  warmDraw(built: Set<string>): WarmDraw;
 }
 
 const scratchV = new THREE.Vector3();
@@ -493,6 +500,32 @@ export class GpuCopySet {
 
   get nearShadows(): THREE.Mesh[] {
     return this.draws.filter((d) => d.near).map((d) => d.mesh);
+  }
+
+  /** Its hidden own draws shown for a precompile (their instance count is worked out per draw: an empty list draws none); released, culled again. */
+  warmDraw(built: Set<string>): WarmDraw {
+    // What three keys a copies draw's program by besides the scene (no mesh of its own: a draw of one instance).
+    const keyOf = (m: THREE.Mesh): string => `${(m.material as THREE.Material).uuid}|${Object.keys(m.geometry.attributes).sort().join(',')}|${m.geometry.index !== null}|${m.castShadow}|${m.receiveShadow}`;
+    // Drawn ones built their programs in the frame they were first drawn.
+    const waiting = (): THREE.Mesh[] => this.draws.filter((d) => !d.near && !d.mesh.visible && !built.has(keyOf(d.mesh))).map((d) => d.mesh);
+    let held: THREE.Mesh[] = [];
+    return {
+      wanted: () => {
+        for (const d of this.draws) if (!d.near && d.mesh.visible) built.add(keyOf(d.mesh));
+        held = waiting();
+        return held.length > 0;
+      },
+      hold: () => {
+        for (const m of held) m.visible = true;
+      },
+      release: () => {
+        for (const m of held) built.add(keyOf(m));
+        held = [];
+        this.dirty = true;
+        if (this.view !== null) this.cull(this.view);
+      },
+      alive: () => !this.disposed,
+    };
   }
 
   /** The blocks a pass of `camera` draws from `list`. */
@@ -879,6 +912,7 @@ export function buildGpuCopySet(template: ModelInstance, floats: Float32Array, c
     copyOf: (m, i) => set.copyOf(m, i),
     copyBox: (i) => set.copyBox(i),
     stats: () => set.stats(),
+    warmDraw: (built) => set.warmDraw(built),
     dispose: () => set.dispose(),
   };
 }
