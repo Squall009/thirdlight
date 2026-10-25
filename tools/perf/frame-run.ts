@@ -105,6 +105,38 @@ export interface ThreadBusy {
   readonly gpuProcessMsPerS: number;
 }
 
+/** The integrated GPU's clock files (i915/xe sysfs), or null on a host without them. */
+function gpuClockFile(name: 'gt_cur_freq_mhz' | 'gt_RP0_freq_mhz'): string | null {
+  for (let i = 0; i < 4; i++) {
+    const f = `/sys/class/drm/card${i}/${name}`;
+    if (existsSync(f)) return f;
+  }
+  return null;
+}
+const gpuMaxMhz = (): number | null => {
+  const f = gpuClockFile('gt_RP0_freq_mhz');
+  return f === null ? null : Number(readFileSync(f, 'utf8'));
+};
+/** Samples the GPU's requested clock every 50 ms until `stop()`, which returns the mean (MHz). */
+function gpuClockSampler(): { stop(): number } | null {
+  const f = gpuClockFile('gt_cur_freq_mhz');
+  if (f === null) return null;
+  const seen: number[] = [];
+  const take = (): void => {
+    const v = Number(readFileSync(f, 'utf8'));
+    if (Number.isFinite(v)) seen.push(v);
+  };
+  take();
+  const timer = setInterval(take, 50);
+  return {
+    stop: () => {
+      clearInterval(timer);
+      take();
+      return Math.round(seen.reduce((a, b) => a + b, 0) / seen.length);
+    },
+  };
+}
+
 export interface FrameRunResult {
   url: string;
   rendererChoice: PageSample['renderer'];
@@ -127,6 +159,13 @@ export interface FrameRunResult {
   /** The WebGPU shader modules the page made (distinct programs and their sizes). */
   shaders?: PageSample['shaderModules'];
   gpu: GpuTimings | null;
+  /**
+   * The GPU's requested clock (MHz, the kernel's `gt_cur_freq_mhz`) over the frame record and over the GPU-timing
+   * window, and its maximum: at a capped rate the clock governor slows the GPU until its passes fill most of the
+   * frame, so pass times alone do not rank two configs; ms × clock ÷ max is the time at full clock. Null where the
+   * host does not expose it.
+   */
+  gpuClock?: { recordMhz: number; gpuWindowMhz: number | null; maxMhz: number } | null;
   profile: ProfileSplit | null;
   busy?: ThreadBusy;
   dump?: DumpSummary | string;
@@ -255,7 +294,9 @@ export async function measurePage(browser: Browser, opts: FrameRunOptions): Prom
     const a = await metrics();
     const t0 = performance.now();
     await page.evaluate(startRecording);
+    const recordClock = gpuClockSampler();
     await new Promise((r) => setTimeout(r, opts.recordMs));
+    const recordMhz = recordClock?.stop() ?? null;
     const sample = await page.evaluate(readSample, true);
     const b = await metrics();
     const wall = performance.now() - t0;
@@ -266,9 +307,12 @@ export async function measurePage(browser: Browser, opts: FrameRunOptions): Prom
     const scene = await page.evaluate(probeSceneCounts);
 
     let gpu: GpuTimings | null = null;
+    let gpuWindowMhz: number | null = null;
     if (opts.gpuMs > 0) {
       const on = await page.evaluate(probeSetGpuTiming, true);
+      const clock = gpuClockSampler();
       gpu = on ? await page.evaluate(probeGpuPasses, opts.gpuMs) : { available: false, frames: 0, msPerFrame: 0, passes: [] };
+      gpuWindowMhz = clock?.stop() ?? null;
       await page.evaluate(probeSetGpuTiming, false);
     }
     const profile = opts.profileMs > 0 ? await profileSplit(cdp, opts.profileMs, opts.sourceOf ?? (() => null)) : null;
@@ -289,6 +333,7 @@ export async function measurePage(browser: Browser, opts: FrameRunOptions): Prom
       gpuCalls: sample.gpuCallsPerFrame,
       shaders: sample.shaderModules,
       gpu,
+      gpuClock: recordMhz === null ? null : { recordMhz, gpuWindowMhz, maxMhz: gpuMaxMhz() ?? 0 },
       profile,
       ...(busy !== undefined ? { busy } : {}),
       ...(sample.marks.length > 0 ? { marks: sample.marks } : {}),

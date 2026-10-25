@@ -64,7 +64,7 @@ import type { ModelInstance } from './visual';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
-const { Fn, abs, acos, clamp, cos, cross, dot, float, floor, instanceIndex, int, ivec2, length, max, min, normalLocal, normalize, positionLocal, select, sin, smoothstep, sqrt, textureLoad, uint, uniform, vec2, vec3, vec4 } = TSL;
+const { Fn, If, abs, acos, clamp, cos, cross, dot, float, floor, instanceIndex, int, ivec2, length, max, min, normalLocal, normalize, positionLocal, select, sin, smoothstep, sqrt, textureLoad, uint, uniform, vec2, vec3, vec4 } = TSL;
 
 /** `mesh.userData[COVER_DRAW_KEY]`: the draw's placement (its vertex stage reads it). */
 export const COVER_DRAW_KEY = '__tlCoverDraw';
@@ -203,95 +203,110 @@ export function coverDrawPlacement(d: CoverDrawInputs): CoverPlacement {
       const cell = ring.patch / ring.side;
       const x = gx.add(rnd(COVER_LANES.jx)).mul(cell).toVar();
       const z = gz.add(rnd(COVER_LANES.jz)).mul(cell).toVar();
-      // The tile under the patch (patches never straddle one): its min corner, then the cell under the point.
-      const T = s.tileSize;
-      const tileX = floor(texel.x.mul(cell).add(ring.patch / 2).div(T)).mul(T);
-      const tileZ = floor(texel.y.mul(cell).add(ring.patch / 2).div(T)).mul(T);
-      const n = s.samples - 1;
-      const u = clamp(x.sub(tileX).div(s.spacing), 0, n).toVar();
-      const v = clamp(z.sub(tileZ).div(s.spacing), 0, n).toVar();
-      const ix = int(min(floor(u), float(n - 1))).toVar();
-      const iz = int(min(floor(v), float(n - 1))).toVar();
-      const fx = u.sub(float(ix)).toVar();
-      const fz = v.sub(float(iz)).toVar();
-      const h = (dx: number, dz: number): N => textureLoad(page.heights, ivec2(ix.add(dx), iz.add(dz))).depth(layer).toVar();
-      const t00 = h(0, 0);
-      const t10 = h(1, 0);
-      const t01 = h(0, 1);
-      const t11 = h(1, 1);
-      const s00 = stepOf(t00);
-      const s10 = stepOf(t10);
-      const s01 = stepOf(t01);
-      const s11 = stepOf(t11);
-      // As the colliders' triangles (terrainCellStep).
-      const lower = s00.add(s10.sub(s00).mul(fx)).add(s01.sub(s00).mul(fz));
-      const upper = s11.add(s01.sub(s11).mul(float(1).sub(fx))).add(s10.sub(s11).mul(float(1).sub(fz)));
-      const ground = float(s.low).add(select(fx.add(fz).lessThanEqual(1), lower, upper).mul(s.step)).toVar();
-      const bil = (a: N, b: N, c: N, e: N): N => a.add(b.sub(a).mul(fx)).add(c.add(e.sub(c).mul(fx)).sub(a.add(b.sub(a).mul(fx))).mul(fz));
-      const nxz = bil(t00.ba, t10.ba, t01.ba, t11.ba).mul(2).sub(1);
-      const normal = normalize(vec3(nxz.x, sqrt(max(float(1).sub(dot(nxz, nxz)), 0.0001)), nxz.y)).toVar();
-      const slope = acos(min(normal.y, 1)).mul(180 / Math.PI);
-      const hole = textureLoad(page.layers, ivec2(ix, iz)).depth(layer).a.greaterThanEqual(0.5);
-      const near = ivec2(int(min(floor(u.add(0.5)), float(n))), int(min(floor(v.add(0.5)), float(n))));
-      const wts = textureLoad(page.layers, near).depth(layer).toVar();
-      const ids = floor(textureLoad(page.indices, near).depth(layer).mul(255).add(0.5)).toVar();
-      const weights = vec4(wts.r, wts.g, wts.b, max(float(1).sub(wts.r).sub(wts.g).sub(wts.b), 0));
-      const shareOf = (l: number): N => dot(weights, vec4(select(abs(ids.x.sub(l)).lessThan(0.5), float(1), float(0)), select(abs(ids.y.sub(l)).lessThan(0.5), float(1), float(0)), select(abs(ids.z.sub(l)).lessThan(0.5), float(1), float(0)), select(abs(ids.w.sub(l)).lessThan(0.5), float(1), float(0))));
-      // The rule's conditions (the world height and noise read world metres).
-      const wy = ground.add(s.origin[1] ?? 0);
-      let f: N = float(1);
-      if (rule.height !== undefined) f = f.mul(rangeNode(rule.height, wy));
-      if (rule.slope !== undefined) f = f.mul(rangeNode(rule.slope, slope));
-      if (rule.noise !== undefined) {
-        const k = rule.noise.scale;
-        const at = vec3(x.add(s.origin[0] ?? 0), wy, z.add(s.origin[2] ?? 0)).div(k);
-        f = f.mul(rangeNode(rule.noise, noiseNode(at, rule.noise.seed ?? 0)));
-      }
-      for (const l of rule.layers ?? []) f = f.mul(rangeNode(l, shareOf(l.layer)));
-      if (d.masks !== null) {
-        // The rule's mask over the tile, where it has one (the patch names its layer).
-        const ms = d.maskSide;
-        const mt = (n * s.spacing) / ms;
-        const mi = int(clamp(floor(x.sub(tileX).div(mt)), 0, ms - 1));
-        const mj = int(clamp(floor(z.sub(tileZ).div(mt)), 0, ms - 1));
-        const masked = textureLoad(d.masks, ivec2(mi, mj)).depth(int(max(texel.w, 0).add(0.5))).r;
-        f = f.mul(select(texel.w.greaterThanEqual(0), masked, float(1)));
-      }
-      const dist = length(vec2(x, z).sub(d.eye));
-      const inRing = dist.greaterThanEqual(ring.inner).and(dist.lessThan(ring.outer));
-      const odds = f.mul(shareNode(d.plan.thinning, dist)).mul(ring.odds).toVar();
-      let kept: N = inRing.and(hole.not()).and(normal.y.greaterThan(COVER_MIN_NORMAL_Y)).and(rnd(COVER_LANES.keep).lessThan(odds));
-      if (ring.spacing > 0) {
-        // `coverGivesWay`: a neighbour within the spacing, kept on the same odds, with the higher priority wins the place.
-        const mine = rnd(COVER_LANES.priority).toVar();
-        const gap = ring.spacing * ring.spacing;
-        let gives: N = float(0).greaterThan(1);
-        for (let dz = -1; dz <= 1; dz++) {
-          for (let dx = -1; dx <= 1; dx++) {
-            if (dx === 0 && dz === 0) continue;
-            const nux = ux.add(uint(dx >>> 0));
-            const nuz = uz.add(uint(dz >>> 0));
-            const nr = (lane: number): N => randomNode(seed, nux, nuz, ring.lanes + lane);
-            const px = gx.add(dx).add(nr(COVER_LANES.jx)).mul(cell);
-            const pz = gz.add(dz).add(nr(COVER_LANES.jz)).mul(cell);
-            const near = px.sub(x).mul(px.sub(x)).add(pz.sub(z).mul(pz.sub(z))).lessThan(gap);
-            const theirs = nr(COVER_LANES.priority);
-            const wins = dz * 3 + dx < 0 ? theirs.greaterThanEqual(mine) : theirs.greaterThan(mine);
-            gives = gives.or(near.and(nr(COVER_LANES.keep).lessThan(odds)).and(wins));
-          }
-        }
-        kept = kept.and(gives.not());
-      }
-      // Its turn and size (copyRotation: a turn about up, then a lean toward the normal by `align`).
-      const sc = rule.scale ?? [1, 1];
-      const size = float(sc[0]).add(rnd(COVER_LANES.scale).mul(sc[1] - sc[0]));
-      const quat = copyTurnNode(normal, rnd(COVER_LANES.yaw).mul(((rule.yaw ?? 360) * Math.PI) / 360), rule.align ?? 0).toVar();
-      const placed = local.mul(vec4(positionLocal, 1)).xyz.mul(size);
-      const at = vec3(x, ground.sub(rule.sink ?? 0), z).toVar();
+      // Every vertex of a copy repeats its placement, so a candidate the distance alone thins (its conditions only
+      // lower its odds) leaves before any texel is read: a branch the whole copy takes together.
+      const dist = length(vec2(x, z).sub(d.eye)).toVar();
+      const share = shareNode(d.plan.thinning, dist).mul(ring.odds).toVar();
+      const keep = rnd(COVER_LANES.keep).toVar();
+      const maybe = dist.greaterThanEqual(ring.inner).and(dist.lessThan(ring.outer)).and(keep.lessThan(share));
+      // The mesh's own vertex, read here: three gives a shared node its value where it is first read, so a first
+      // read inside the branch would hand later stages (the foliage's wind) the unplaced vertex.
+      const vertex = positionLocal.toVar();
+      const vertexNormal = normalLocal.toVar();
+      const pos = vec3(x, DROPPED_Y, z).toVar();
+      const nrm = vec3(0, 1, 0).toVar();
+      const at = vec3(x, DROPPED_Y, z).toVar();
       setCopyRoot(builder, at);
       setCopyBend(builder, float(rule.bendAway ?? FOLIAGE_BEND_DEFAULTS.ruleBend));
-      positionLocal.assign(select(kept, rotateNode(quat, placed).add(at), vec3(x, DROPPED_Y, z)));
-      normalLocal.assign(rotateNode(quat, normalize(local.mul(vec4(normalLocal, 0)).xyz)));
+      If(maybe, () => {
+        // The tile under the patch (patches never straddle one): its min corner, then the cell under the point.
+        const T = s.tileSize;
+        const tileX = floor(texel.x.mul(cell).add(ring.patch / 2).div(T)).mul(T);
+        const tileZ = floor(texel.y.mul(cell).add(ring.patch / 2).div(T)).mul(T);
+        const n = s.samples - 1;
+        const u = clamp(x.sub(tileX).div(s.spacing), 0, n).toVar();
+        const v = clamp(z.sub(tileZ).div(s.spacing), 0, n).toVar();
+        const ix = int(min(floor(u), float(n - 1))).toVar();
+        const iz = int(min(floor(v), float(n - 1))).toVar();
+        const fx = u.sub(float(ix)).toVar();
+        const fz = v.sub(float(iz)).toVar();
+        const h = (dx: number, dz: number): N => textureLoad(page.heights, ivec2(ix.add(dx), iz.add(dz))).depth(layer).toVar();
+        const t00 = h(0, 0);
+        const t10 = h(1, 0);
+        const t01 = h(0, 1);
+        const t11 = h(1, 1);
+        const s00 = stepOf(t00);
+        const s10 = stepOf(t10);
+        const s01 = stepOf(t01);
+        const s11 = stepOf(t11);
+        // As the colliders' triangles (terrainCellStep).
+        const lower = s00.add(s10.sub(s00).mul(fx)).add(s01.sub(s00).mul(fz));
+        const upper = s11.add(s01.sub(s11).mul(float(1).sub(fx))).add(s10.sub(s11).mul(float(1).sub(fz)));
+        const ground = float(s.low).add(select(fx.add(fz).lessThanEqual(1), lower, upper).mul(s.step)).toVar();
+        const bil = (a: N, b: N, c: N, e: N): N => a.add(b.sub(a).mul(fx)).add(c.add(e.sub(c).mul(fx)).sub(a.add(b.sub(a).mul(fx))).mul(fz));
+        const nxz = bil(t00.ba, t10.ba, t01.ba, t11.ba).mul(2).sub(1);
+        const normal = normalize(vec3(nxz.x, sqrt(max(float(1).sub(dot(nxz, nxz)), 0.0001)), nxz.y)).toVar();
+        const slope = acos(min(normal.y, 1)).mul(180 / Math.PI);
+        const hole = textureLoad(page.layers, ivec2(ix, iz)).depth(layer).a.greaterThanEqual(0.5);
+        const near = ivec2(int(min(floor(u.add(0.5)), float(n))), int(min(floor(v.add(0.5)), float(n))));
+        const wts = textureLoad(page.layers, near).depth(layer).toVar();
+        const ids = floor(textureLoad(page.indices, near).depth(layer).mul(255).add(0.5)).toVar();
+        const weights = vec4(wts.r, wts.g, wts.b, max(float(1).sub(wts.r).sub(wts.g).sub(wts.b), 0));
+        const shareOf = (l: number): N => dot(weights, vec4(select(abs(ids.x.sub(l)).lessThan(0.5), float(1), float(0)), select(abs(ids.y.sub(l)).lessThan(0.5), float(1), float(0)), select(abs(ids.z.sub(l)).lessThan(0.5), float(1), float(0)), select(abs(ids.w.sub(l)).lessThan(0.5), float(1), float(0))));
+        // The rule's conditions (the world height and noise read world metres).
+        const wy = ground.add(s.origin[1] ?? 0);
+        let f: N = float(1);
+        if (rule.height !== undefined) f = f.mul(rangeNode(rule.height, wy));
+        if (rule.slope !== undefined) f = f.mul(rangeNode(rule.slope, slope));
+        if (rule.noise !== undefined) {
+          const k = rule.noise.scale;
+          const at = vec3(x.add(s.origin[0] ?? 0), wy, z.add(s.origin[2] ?? 0)).div(k);
+          f = f.mul(rangeNode(rule.noise, noiseNode(at, rule.noise.seed ?? 0)));
+        }
+        for (const l of rule.layers ?? []) f = f.mul(rangeNode(l, shareOf(l.layer)));
+        if (d.masks !== null) {
+          // The rule's mask over the tile, where it has one (the patch names its layer).
+          const ms = d.maskSide;
+          const mt = (n * s.spacing) / ms;
+          const mi = int(clamp(floor(x.sub(tileX).div(mt)), 0, ms - 1));
+          const mj = int(clamp(floor(z.sub(tileZ).div(mt)), 0, ms - 1));
+          const masked = textureLoad(d.masks, ivec2(mi, mj)).depth(int(max(texel.w, 0).add(0.5))).r;
+          f = f.mul(select(texel.w.greaterThanEqual(0), masked, float(1)));
+        }
+        const odds = f.mul(share).toVar();
+        let kept: N = hole.not().and(normal.y.greaterThan(COVER_MIN_NORMAL_Y)).and(keep.lessThan(odds));
+        if (ring.spacing > 0) {
+          // `coverGivesWay`: a neighbour within the spacing, kept on the same odds, with the higher priority wins the place.
+          const mine = rnd(COVER_LANES.priority).toVar();
+          const gap = ring.spacing * ring.spacing;
+          let gives: N = float(0).greaterThan(1);
+          for (let dz = -1; dz <= 1; dz++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              if (dx === 0 && dz === 0) continue;
+              const nux = ux.add(uint(dx >>> 0));
+              const nuz = uz.add(uint(dz >>> 0));
+              const nr = (lane: number): N => randomNode(seed, nux, nuz, ring.lanes + lane);
+              const px = gx.add(dx).add(nr(COVER_LANES.jx)).mul(cell);
+              const pz = gz.add(dz).add(nr(COVER_LANES.jz)).mul(cell);
+              const near = px.sub(x).mul(px.sub(x)).add(pz.sub(z).mul(pz.sub(z))).lessThan(gap);
+              const theirs = nr(COVER_LANES.priority);
+              const wins = dz * 3 + dx < 0 ? theirs.greaterThanEqual(mine) : theirs.greaterThan(mine);
+              gives = gives.or(near.and(nr(COVER_LANES.keep).lessThan(odds)).and(wins));
+            }
+          }
+          kept = kept.and(gives.not());
+        }
+        // Its turn and size (copyRotation: a turn about up, then a lean toward the normal by `align`).
+        const sc = rule.scale ?? [1, 1];
+        const size = float(sc[0]).add(rnd(COVER_LANES.scale).mul(sc[1] - sc[0]));
+        const quat = copyTurnNode(normal, rnd(COVER_LANES.yaw).mul(((rule.yaw ?? 360) * Math.PI) / 360), rule.align ?? 0).toVar();
+        const placed = local.mul(vec4(vertex, 1)).xyz.mul(size);
+        at.assign(vec3(x, ground.sub(rule.sink ?? 0), z));
+        pos.assign(select(kept, rotateNode(quat, placed).add(at), pos));
+        nrm.assign(rotateNode(quat, normalize(local.mul(vec4(vertexNormal, 0)).xyz)));
+      });
+      positionLocal.assign(pos);
+      normalLocal.assign(nrm);
     }, 'void') as unknown as () => void,
   };
 }

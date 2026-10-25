@@ -10,6 +10,7 @@ import { CoverGenerator } from './cover-worker';
 import { metresPerStep, packHeightNormalAlone, packLayers, TERRAIN_TEXEL_BYTES } from './terrain-texels';
 import { terrainUniforms } from './terrain-material';
 import type { TerrainCoverSurface } from './terrain-view';
+import { createMaterialLibrary } from './material-library';
 import { litScene, wgslOf, wgslRenderer } from './test-wgsl';
 
 // One tile of rolling ground: 65 samples, 2 m apart (128 m a side), two layers painted in bands across x.
@@ -225,6 +226,33 @@ describe('ground cover placed on the GPU (its arithmetic, on the CPU)', () => {
     expect(wgsl).toMatch(/textureLoad/);
     // The hash's constants are compiled in.
     expect(wgsl).toMatch(/668265261|0x27d4eb2d/i);
+  });
+
+  it('hands a foliage material the placed copy: the mesh\'s vertex is read once, before the placement branches', () => {
+    installCoverPlacement();
+    const lib = createMaterialLibrary({ loadTexture: async () => null });
+    lib.setMaterials([{ materialId: 'grass', name: 'grass', shader: 'foliage', params: { windDistance: 40 }, textures: {} }]);
+    const geometry = new THREE.BoxGeometry(0.1, 0.8, 0.1);
+    geometry.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(geometry.attributes['position']!.count * 4).fill(1), 4));
+    const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial());
+    lib.apply(mesh, { '*': 'grass' });
+    const plan = planCover(rule, 60, model, TILE);
+    const page = { heights: new THREE.DataArrayTexture(new Uint8Array(S * S * 4), S, S, 1), layers: new THREE.DataArrayTexture(new Uint8Array(S * S * 4), S, S, 1), indices: new THREE.DataArrayTexture(new Uint8Array(S * S * 4), S, S, 1) };
+    const surf: TerrainCoverSurface = { uniforms: terrainUniforms(), samples: S, spacing: SPACING, tileSize: TILE, low: RANGE[0]!, step: metresPerStep(RANGE), origin: ORIGIN, pages: [page], tileAt };
+    const patches = new THREE.DataTexture(new Float32Array(1024 * 4), 1024, 1, THREE.RGBAFormat, THREE.FloatType);
+    mesh.userData[COVER_DRAW_KEY] = coverDrawPlacement({ ring: plan.rings[0]!, plan, rule, seed: scatterRuleSeed(rule), surface: surf, page, patches, masks: null, maskSide: 4, eye: TSL.uniform(new THREE.Vector2()), local: new THREE.Matrix4() });
+    (mesh as unknown as { count: number }).count = 512;
+    const scene = litScene();
+    scene.add(mesh);
+    const wgsl = wgslOf(wgslRenderer(), scene, mesh);
+    const vertex = wgsl.slice(wgsl.indexOf('@vertex'), wgsl.indexOf('@fragment') >= 0 ? wgsl.indexOf('@fragment') : undefined);
+    // three gives the shared vertex its value where it is first read: read inside the thinning branch, the wind
+    // and the subjects' push (later branches) would read it again and move the unplaced vertex.
+    const reads = vertex.match(/positionLocal = position;/g) ?? [];
+    expect(reads).toHaveLength(1);
+    // Before the dropped candidate's place (far below the ground) is set up, just ahead of the branch.
+    expect(vertex.indexOf('positionLocal = position;')).toBeLessThan(vertex.indexOf('-1000000.0'));
+    lib.dispose();
   });
 });
 

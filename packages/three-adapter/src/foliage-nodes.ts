@@ -95,8 +95,9 @@ export function installFoliage(m: THREE.MeshStandardMaterial, p: Readonly<Record
       const offset = sagged.add(normalWorld.mul(flutterAmount));
       out.assign(local.add(TSL.modelWorldMatrixInverse.mul(TSL.vec4(offset, 0)).xyz));
     });
-    // Round the view's subjects (none live: skipped), from the plant's rest pose, on top of the wind.
-    TSL.If(bendField.live.greaterThan(0), () => {
+    // Round the view's subjects (none live, or a vertex that cannot lean: a root, a dropped cover candidate: skipped),
+    // from the plant's rest pose, on top of the wind.
+    TSL.If(bendField.live.greaterThan(0).and(capacity.greaterThan(0)), () => {
       const pushed = bendField.offset(world, height, capacity.mul(copyBend()));
       out.addAssign(TSL.modelWorldMatrixInverse.mul(TSL.vec4(pushed, 0)).xyz);
     });
