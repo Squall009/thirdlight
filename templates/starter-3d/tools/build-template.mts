@@ -197,7 +197,9 @@ function setupCommands(playerId: string): { op: string; args: Record<string, unk
   const half = n / 2;
   const cell = (block: string): Record<string, unknown> => ({ block });
   return [
-    // The physical sky every new project starts with, and a light haze.
+    // The physical sky every new project starts with, and a light haze. Edges are smoothed by SMAA, not the
+    // renderer's MSAA: a world grows dense ground cover, whose thin blades make 4x MSAA cost about 5 ms more GPU
+    // a frame at 1080p on an integrated GPU, past a 60 Hz frame on WebGL 2.
     {
       op: 'setEnvironment',
       args: {
@@ -205,6 +207,7 @@ function setupCommands(playerId: string): { op: string; args: Record<string, unk
         environment: {
           sky: { ...NEW_PROJECT_ENVIRONMENT.sky },
           fog: { mode: 'exp2', color: '#9fbfe3', density: 0.0015 },
+          post: { antialias: 'smaa' },
         },
       },
     },

@@ -34,6 +34,10 @@ export interface PerfPageState {
   ws: { byType: Record<string, { n: number; bytes: number; max: number }>; applied: number[]; appliedFrame: number[] };
   /** Long tasks (≥ 50 ms main-thread blocks) as [start, duration]. */
   longTasks: [number, number][];
+  /** The heavy GPU-side calls (uploads, allocations, program builds) of the frame being drawn, by name: count and bytes. */
+  frameCalls: Record<string, number>;
+  /** While recording: each frame that made heavy calls or missed a 60 Hz refresh, with those calls (at most 2,000). */
+  frameEvents: FrameEvent[];
   /**
    * The same live counts per WebGL context / WebGPU device (held
    * weakly, so the instrumentation never keeps a released canvas alive). A
@@ -53,6 +57,13 @@ export interface PerfPageState {
   gpuCalls: GpuCalls;
   /** WebGPU shader modules made, by their code (the programs' sizes; `__tlPerf.shaders` keeps the code for a look). */
   shaders: Map<string, number>;
+}
+
+/** One drawn frame's heavy calls: when it ended (page ms), how long it took, and the calls by name (`name` count, `name:bytes`). */
+export interface FrameEvent {
+  at: number;
+  dt: number;
+  calls: Record<string, number>;
 }
 
 /** WebGPU calls counted over the recording window. */
@@ -90,6 +101,8 @@ export function installPerfInstrumentation(): void {
     shaders: new Map(),
     frames: [],
     missedAt: [],
+    frameCalls: {},
+    frameEvents: [],
     frameDraws: [],
     frameTris: [],
     firstDrawAt: null,
@@ -436,7 +449,9 @@ export function installPerfInstrumentation(): void {
           P.frames.push(t - lastT);
           // A 60 Hz refresh missed (half a frame late: the instrumentation's own threshold for `missed`).
           if (t - lastT > 25) P.missedAt.push(Math.round(t));
+          if ((t - lastT > 25 || Object.keys(P.frameCalls).length > 0) && P.frameEvents.length < 2000) P.frameEvents.push({ at: Math.round(t), dt: Math.round((t - lastT) * 10) / 10, calls: P.frameCalls });
         }
+        P.frameCalls = {};
         P.frameDraws.push(P.draws - lastDraws);
         P.frameTris.push(P.tris - lastTris);
       }
@@ -455,6 +470,8 @@ export function startRecording(): void {
   if (P === undefined) return;
   P.frames = [];
   P.missedAt = [];
+  P.frameEvents = [];
+  P.frameCalls = {};
   P.frameDraws = [];
   P.frameTris = [];
   for (const k of Object.keys(P.gpuCalls) as (keyof GpuCalls)[]) P.gpuCalls[k] = 0;
@@ -464,6 +481,7 @@ export function startRecording(): void {
 export interface PageSample {
   frames: number[];
   missedAt: number[];
+  frameEvents: FrameEvent[];
   frameDraws: number[];
   frameTris: number[];
   live: PerfPageState['live'];
@@ -511,6 +529,7 @@ export async function readSample(stop: boolean): Promise<PageSample> {
   return {
     frames: P.frames.slice(),
     missedAt: P.missedAt.slice(),
+    frameEvents: P.frameEvents.slice(),
     frameDraws: P.frameDraws.slice(),
     frameTris: P.frameTris.slice(),
     live: { ...P.live },
@@ -567,4 +586,61 @@ export function readGpuLive(): GpuLive {
     out.vaos += r.live.vaos;
   }
   return out;
+}
+
+/**
+ * Install with `addInitScript(installFrameCallCounts)` after {@link installPerfInstrumentation}: while recording,
+ * the heavy GPU-side calls of each drawn frame (uploads, allocations, program builds, sync reads), by name with
+ * their bytes, go to `__tlPerf.frameCalls` (the frame tick files them in `frameEvents`). With
+ * `window.__tlStacks` set, a program link or an allocation of 1 MiB or more also records its call stack.
+ * Serialized into the page: it must not close over anything.
+ */
+export function installFrameCallCounts(): void {
+  const P = (window as unknown as { __tlPerf?: PerfPageState }).__tlPerf;
+  if (P === undefined) return;
+  type Fn = (...a: unknown[]) => unknown;
+  const wrap = (proto: object | undefined, name: string, before: (self: unknown, a: unknown[]) => void): void => {
+    if (proto === undefined) return;
+    const p = proto as Record<string, Fn>;
+    const orig = p[name];
+    if (typeof orig !== 'function') return;
+    p[name] = function (this: unknown, ...a: unknown[]) {
+      before(this, a);
+      return orig.apply(this, a);
+    };
+  };
+  const glProtos: object[] = [];
+  if (typeof WebGL2RenderingContext !== 'undefined') glProtos.push(WebGL2RenderingContext.prototype);
+  if (typeof WebGLRenderingContext !== 'undefined') glProtos.push(WebGLRenderingContext.prototype);
+  const g = globalThis as unknown as Record<string, { prototype: object } | undefined>;
+  const device = g['GPUDevice']?.prototype;
+  // The frame's heavy calls (what can stall the GPU process: uploads, allocations, program builds, sync reads).
+  const heavy = (name: string, bytes: number): void => {
+    if (!P.recording) return;
+    P.frameCalls[name] = (P.frameCalls[name] ?? 0) + 1;
+    if (bytes > 0) P.frameCalls[`${name}:bytes`] = (P.frameCalls[`${name}:bytes`] ?? 0) + bytes;
+    if ((window as unknown as { __tlStacks?: boolean }).__tlStacks === true && (name === 'linkProgram' || bytes >= 1 << 20)) {
+      const st = (new Error().stack ?? '').split('\n').slice(3, 12).map((l) => l.trim().replace(/https?:\/\/[^/]+\//, '')).join(' < ');
+      P.frameCalls[`${name}@ ${st}`] = 1;
+    }
+  };
+  const viewBytes = (v: unknown): number => (v !== null && typeof v === 'object' && 'byteLength' in (v as object) ? Number((v as { byteLength: number }).byteLength) : 0);
+  const dims = (...n: unknown[]): number => n.reduce<number>((m, x) => m * Number(x), 4);
+  for (const proto of glProtos) {
+    wrap(proto, 'texImage2D', (_g, a) => heavy('texImage2D', a.length >= 8 ? dims(a[3], a[4]) : 0));
+    wrap(proto, 'texImage3D', (_g, a) => heavy('texImage3D', dims(a[3], a[4], a[5])));
+    wrap(proto, 'texSubImage2D', (_g, a) => heavy('texSubImage2D', a.length >= 8 ? dims(a[4], a[5]) : 0));
+    wrap(proto, 'texSubImage3D', (_g, a) => heavy('texSubImage3D', dims(a[5], a[6], a[7])));
+    wrap(proto, 'texStorage2D', (_g, a) => heavy('texStorage2D', dims(a[3], a[4])));
+    wrap(proto, 'texStorage3D', (_g, a) => heavy('texStorage3D', dims(a[3], a[4], a[5])));
+    wrap(proto, 'bufferData', (_g, a) => heavy('bufferData', typeof a[1] === 'number' ? a[1] : viewBytes(a[1])));
+    wrap(proto, 'bufferSubData', (_g, a) => heavy('bufferSubData', viewBytes(a[2])));
+    for (const name of ['compileShader', 'linkProgram', 'getProgramParameter', 'getShaderParameter', 'generateMipmap', 'readPixels', 'getBufferSubData', 'clientWaitSync', 'copyTexSubImage2D', 'blitFramebuffer', 'renderbufferStorageMultisample']) wrap(proto, name, () => heavy(name, 0));
+  }
+
+  if (device !== undefined) {
+    for (const name of ['createRenderPipeline', 'createRenderPipelineAsync', 'createComputePipeline', 'createShaderModule', 'createTexture', 'createBindGroupLayout']) wrap(device, name, () => heavy(name, 0));
+    wrap(device, 'createBuffer', (_d, a) => heavy('createBuffer', Number((a[0] as { size?: number } | undefined)?.size ?? 0)));
+  }
+  wrap(g['GPUQueue']?.prototype, 'writeTexture', (_q, a) => heavy('writeTexture', viewBytes(a[1])));
 }

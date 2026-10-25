@@ -16,14 +16,14 @@ import { createReadStream, existsSync, mkdirSync, readFileSync, statSync, writeF
 import { createServer } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 
-import { chromium, type Browser } from '@playwright/test';
+import { chromium, type Browser, type Page } from '@playwright/test';
 
 import { FRAME_RATE_CAP_URL_PARAM } from '@thirdlight/runtime';
 
 import { browserLaunchEnv, GPU_ARGS } from '../../tests/e2e/browser-env.mjs';
 import { installFrameProbe, probeGpuPasses, probeOcclusionOracle, probeSceneCounts, probeSetGpuTiming, type GpuTimings, type SceneCounts } from './frame-probe';
 import type { OracleResult } from '@thirdlight/three-adapter';
-import { installPerfInstrumentation, readSample, startRecording, type PageSample } from './instrument';
+import { installFrameCallCounts, installPerfInstrumentation, readSample, startRecording, type FrameEvent, type PageSample } from './instrument';
 import { profileSplit, type ProfileSplit } from './profile';
 import { dumpScene, type DumpSummary } from './scene-dump';
 import { histogram, summarize, type Summary } from './stats';
@@ -49,8 +49,8 @@ export type FrameRenderer = 'webgpu' | 'webgl2';
 /** A frame longer than this (ms) missed 60 Hz (the soft targets count them while streaming and re-baking). */
 export const LONG_FRAME_MS = 16.7;
 
-/** A step before measuring (a game copy reaches its view this way). */
-export type PageStep = { wait: number } | { key: string } | { click: [number, number] };
+/** A step before measuring (a game copy reaches its view this way); `down` holds a key (a player walking) until an `up` of it. */
+export type PageStep = { wait: number } | { key: string } | { down: string } | { up: string } | { click: [number, number] };
 
 export interface FrameRunOptions {
   /** Page URL (query included). */
@@ -62,6 +62,10 @@ export interface FrameRunOptions {
   /** 0 skips the CPU profile. */
   profileMs: number;
   steps?: readonly PageStep[];
+  /** Steps taken while the frames are recorded (from its start; the record lasts at least `recordMs`). */
+  during?: readonly PageStep[];
+  /** Count each frame's heavy GPU-side calls (`missedCalls`, `heavyCalls`; a little main-thread cost per call). */
+  frameCalls?: boolean;
   /** Read a script's text for the profile's attribution (null: by file name). */
   sourceOf?: (url: string) => string | null;
   /** Dump the drawn scene through the page's origin (the server writes it). */
@@ -171,6 +175,10 @@ export interface FrameRunResult {
   dump?: DumpSummary | string;
   /** The engine's user-timing marks (`tl:…`) seen by the end of the run. */
   marks?: PageSample['marks'];
+  /** Each missed frame and the frame before it, with their heavy GPU-side calls (uploads, allocations, program builds). */
+  missedCalls?: FrameEvent[];
+  /** The heavy GPU-side calls over the whole record, by name (count, and `name:bytes`), and how many frames made any. */
+  heavyCalls?: { frames: number; calls: Record<string, number>; /** Frames that built programs or allocated textures (at most 60). */ builds: FrameEvent[] };
   /** What the view draws that no pixel shows (`oracle`), or why it could not be counted. */
   oracle?: OracleResult | { error: string };
   oracleCulled?: OracleCulledRun;
@@ -266,9 +274,22 @@ async function settle(page: import('@playwright/test').Page, maxMs: number): Pro
   return Date.now() - t0;
 }
 
+async function runSteps(page: Page, steps: readonly PageStep[]): Promise<void> {
+  for (const st of steps) {
+    if ('wait' in st) await new Promise((r) => setTimeout(r, st.wait));
+    if ('key' in st) await page.keyboard.press(st.key);
+    if ('down' in st) await page.keyboard.down(st.down);
+    if ('up' in st) await page.keyboard.up(st.up);
+    if ('click' in st) await page.mouse.click(st.click[0], st.click[1]);
+  }
+}
+
 export async function measurePage(browser: Browser, opts: FrameRunOptions): Promise<FrameRunResult> {
   const context = await browser.newContext({ viewport: { ...FRAME_VIEWPORT }, deviceScaleFactor: 1 });
   await context.addInitScript(installPerfInstrumentation);
+  if (opts.frameCalls === true) await context.addInitScript(installFrameCallCounts);
+  // TL_PERF_STACKS=1: the frame calls also name where a program link or a large allocation came from.
+  if (process.env['TL_PERF_STACKS'] === '1') await context.addInitScript(() => { (window as unknown as { __tlStacks?: boolean }).__tlStacks = true; });
   await context.addInitScript(installFrameProbe, { timestamps: opts.gpuMs > 0 });
   const page = await context.newPage();
   const errors: string[] = [];
@@ -279,11 +300,7 @@ export async function measurePage(browser: Browser, opts: FrameRunOptions): Prom
   try {
     await page.goto(uncappedUrl(opts.url));
     const first = await page.waitForFunction(() => (window as unknown as { __tlPerf?: { firstDrawAt: number | null } }).__tlPerf?.firstDrawAt ?? null, null, { timeout: 180_000 }).then((h) => h.jsonValue() as Promise<number>);
-    for (const st of opts.steps ?? []) {
-      if ('wait' in st) await new Promise((r) => setTimeout(r, st.wait));
-      if ('key' in st) await page.keyboard.press(st.key);
-      if ('click' in st) await page.mouse.click(st.click[0], st.click[1]);
-    }
+    await runSteps(page, opts.steps ?? []);
     await page.evaluate(probeSetGpuTiming, false);
     const settledMs = await settle(page, opts.settleMs ?? 90_000);
     await new Promise((r) => setTimeout(r, opts.warmupMs));
@@ -295,7 +312,9 @@ export async function measurePage(browser: Browser, opts: FrameRunOptions): Prom
     const t0 = performance.now();
     await page.evaluate(startRecording);
     const recordClock = gpuClockSampler();
-    await new Promise((r) => setTimeout(r, opts.recordMs));
+    const t1 = performance.now();
+    await runSteps(page, opts.during ?? []);
+    await new Promise((r) => setTimeout(r, Math.max(0, opts.recordMs - (performance.now() - t1))));
     const recordMhz = recordClock?.stop() ?? null;
     const sample = await page.evaluate(readSample, true);
     const b = await metrics();
@@ -318,7 +337,12 @@ export async function measurePage(browser: Browser, opts: FrameRunOptions): Prom
     const profile = opts.profileMs > 0 ? await profileSplit(cdp, opts.profileMs, opts.sourceOf ?? (() => null)) : null;
     const busy = (opts.busyMs ?? 0) > 0 ? await threadBusy(browser, page, opts.busyMs!) : undefined;
     await cdp.detach().catch(() => undefined);
+    const heavy: Record<string, number> = {};
+    for (const e of sample.frameEvents) for (const [k, v] of Object.entries(e.calls)) heavy[k] = (heavy[k] ?? 0) + v;
+    const missedCalls = sample.frameEvents.filter((e, i, all) => e.dt > 25 || (all[i + 1]?.dt ?? 0) > 25).slice(0, 60);
     const out: FrameRunResult = {
+      ...(missedCalls.length > 0 ? { missedCalls } : {}),
+      ...(opts.frameCalls === true ? { heavyCalls: { frames: sample.frameEvents.filter((e) => Object.keys(e.calls).length > 0).length, calls: heavy, builds: sample.frameEvents.filter((e) => Object.keys(e.calls).some((k) => /^(linkProgram|texStorage|texImage|createRenderPipeline|createTexture)/.test(k))).slice(0, 60) } } : {}),
       url: opts.url,
       rendererChoice: sample.renderer,
       apis: sample.apis,

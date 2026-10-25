@@ -123,6 +123,9 @@
       "mode": "exp2",
       "color": "#9fbfe3",
       "density": 0.0015
+     },
+     "post": {
+      "antialias": "smaa"
      }
     }
    }
