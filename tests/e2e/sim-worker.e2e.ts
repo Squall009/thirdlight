@@ -281,8 +281,9 @@ test('the export: the worker by default (messages; shared memory under COOP/COEP
   await be!.halt();
   const dir = join(be!.exportRoot, String(res.json.outputDir));
   expect(existsSync(join(dir, 'js', 'sim-worker.js'))).toBe(true);
-  expect(existsSync(join(dir, 'js', 'physics-2d.wasm'))).toBe(true);
-  expect(existsSync(join(dir, 'js', 'physics-3d.js'))).toBe(false);
+  // One physics backend: the starter's plane scene ships the 3D engine.
+  expect(existsSync(join(dir, 'js', 'physics-3d.wasm'))).toBe(true);
+  expect(existsSync(join(dir, 'js', 'physics-2d.js'))).toBe(false);
   const cases: { isolated: boolean; query: string; want: { mode: string; transport: string | null; isolated: boolean } }[] = [
     // `?simDelayMs=` slows the worker in editor Play only: an export ignores it.
     { isolated: false, query: '?simDelayMs=40', want: { mode: 'worker', transport: 'message', isolated: false } },
@@ -344,8 +345,8 @@ test('the export: the worker by default (messages; shared memory under COOP/COEP
       expect(errors).toEqual([]);
       // A model's embedded textures decode through blob: URLs of the page's own origin.
       expect(requests.filter((u) => !u.replace(/^blob:/, '').startsWith(site.url))).toEqual([]);
-      // The 2D engine loads from its own script and WASM file where the simulation runs; the 3D one is not shipped.
-      expect(requests.filter((u) => /\/js\/physics-2d\.(js|wasm)$/.test(u)).length, c.query).toBe(2);
+      // The engine loads from its own script and WASM file where the simulation runs.
+      expect(requests.filter((u) => /\/js\/physics-3d\.(js|wasm)$/.test(u)).length, c.query).toBe(2);
     } finally {
       await game.close();
       await site.close();

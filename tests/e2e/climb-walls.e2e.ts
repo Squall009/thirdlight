@@ -81,7 +81,7 @@ test('a climb volume, climb and wall fields and gravity set up in the editor; th
   await field(page, 'position y', '3');
   await field(page, 'position z', '0');
   await field(page, 'climbVolume size h', '6');
-  await expect.poll(() => stored('Climb volume', 'climbVolume')).toEqual({ size: [1, 6] });
+  await expect.poll(() => stored('Climb volume', 'climbVolume')).toEqual({ size: [1, 6, 1] });
   // Its Scene-view size handle: drag the side grip wider, one undo back.
   await page.keyboard.press('f');
   const side = await grip(page, 'climbVolume', 'box2', 'side');
@@ -92,7 +92,7 @@ test('a climb volume, climb and wall fields and gravity set up in the editor; th
   await expect.poll(async () => ((await stored('Climb volume', 'climbVolume')) as { size: number[] }).size[0]).toBeGreaterThan(1.05);
   await view(page).hover();
   await page.keyboard.press('Control+z');
-  await expect.poll(() => stored('Climb volume', 'climbVolume')).toEqual({ size: [1, 6] });
+  await expect.poll(() => stored('Climb volume', 'climbVolume')).toEqual({ size: [1, 6, 1] });
 
   // The character's climb speed and wall abilities (off by default).
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${STARTER.playerId}"]`).click();

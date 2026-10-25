@@ -3,7 +3,7 @@
  * `<piece>_LOD<n>` / `<piece>_COL` (the kit naming rule) imports as one asset
  * with a rendered tile preview, expands into one tile per piece, and drags
  * into the Scene view (a folder with every piece laid out in a row, `_COL`
- * boxes as 2D colliders, one undo) or into a hierarchy folder (one piece).
+ * boxes as mesh colliders, one undo) or into a hierarchy folder (one piece).
  * COLOR_0 is shader data by default and a tint only when the asset says so.
  */
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -127,9 +127,15 @@ test('a multi-piece GLB: tile preview, piece tiles, drag into the scene and a fo
   // rock is 1 m wide, bush 2 m, with a 0.5 m gap: nothing overlaps.
   expect(xs[1]! - xs[0]!).toBeCloseTo(1.5, 3);
   expect(xs[2]! - xs[1]!).toBeCloseTo(2.5, 3);
-  // `_COL` boxes became 2D colliders (convex hull on the play plane); the flower has none.
-  expect(kids[0]!.components.collider?.shape).toEqual({ type: 'polygon', vertices: [[0, 0], [1, 0], [1, 1], [0, 1]] });
-  expect(kids[1]!.components.collider?.shape).toEqual({ type: 'polygon', vertices: [[0, 0], [2, 0], [2, 0.5], [0, 0.5]] });
+  // `_COL` boxes became exact colliders of their geometry (a mesh; a hull when too big for one); the flower has none.
+  const extent = (shape: unknown): number[][] => {
+    const s = shape as { type: string; vertices?: number[][]; points?: number[][] };
+    const pts = s.vertices ?? s.points ?? [];
+    return [0, 1, 2].map((a) => [Math.min(...pts.map((p) => p[a]!)), Math.max(...pts.map((p) => p[a]!))]);
+  };
+  expect(['mesh', 'convex']).toContain((kids[0]!.components.collider?.shape as { type: string }).type);
+  expect(extent(kids[0]!.components.collider?.shape).slice(0, 2)).toEqual([[0, 1], [0, 1]]);
+  expect(extent(kids[1]!.components.collider?.shape).slice(0, 2)).toEqual([[0, 2], [0, 0.5]]);
   expect(kids[2]!.components.collider).toBeUndefined();
 
   // One undo removes the whole drop, redo brings back the same objects.

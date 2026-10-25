@@ -158,12 +158,12 @@ test('a track camera\'s look-ahead, bounds and dead zone and a camera region set
   await field(page, 'position z', '0');
   await field(page, 'cameraRegion size w', '1.5');
   await field(page, 'cameraRegion distance', '24');
-  await expect.poll(() => stored('Camera region', 'cameraRegion')).toEqual({ size: [1.5, 6], distance: 24 });
+  await expect.poll(() => stored('Camera region', 'cameraRegion')).toEqual({ size: [1.5, 6, 10], distance: 24 });
   const region = await idOf('Camera region');
   await drag(page, await grip(page, 'cameraRegion', 'box2', 'side'), 40, 0);
   await expect.poll(async () => ((await stored('Camera region', 'cameraRegion'))?.['size'] as number[])[0]).toBeGreaterThan(1.6);
   await undo(page);
-  await expect.poll(() => stored('Camera region', 'cameraRegion')).toEqual({ size: [1.5, 6], distance: 24 });
+  await expect.poll(() => stored('Camera region', 'cameraRegion')).toEqual({ size: [1.5, 6, 10], distance: 24 });
 
   // Play.
   const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));

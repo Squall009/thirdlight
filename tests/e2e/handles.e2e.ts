@@ -151,7 +151,8 @@ test('sizes and radii: box3, box2, capsule, radius — drag, stored snapped, one
   await drag(page, capSide, -0.1 * perMetre, 0);
   await expect.poll(async () => ((await comp('model-0001', 'controller'))!['capsule'] as { radius?: number } | undefined)?.radius ?? 0.3).toBeLessThan(0.3);
   await undo(page);
-  await expect.poll(async () => JSON.stringify(await comp('model-0001', 'controller'))).toBe('{}');
+  // The starter's character as it was: the arcade profile, the default capsule.
+  await expect.poll(async () => JSON.stringify(await comp('model-0001', 'controller'))).toBe('{"profile":"arcade"}');
 
   // Three pillars 3 m apart behind the level, published through the buffer route MCP uses.
   const transforms = [-3, 0, 3].flatMap((x) => [x, 0, 0, 0, 0, 0, 1, 0.3, 0.3, 0.3]);
@@ -288,7 +289,7 @@ test('lights: a direction, a spot cone (tip and angle) and a point light range �
   await expect.poll(async () => JSON.stringify((await comp('model-0001', 'animator'))!['parameters'])).toMatch(/"grounded":(true|false)/);
 });
 
-test('paths and polygons: drag a point, add one on an edge, Alt+click deletes; a concave polygon is refused; colliders from the model outline', async ({ page }) => {
+test('paths and polygons: drag a point, add one on an edge, Alt+click deletes; a concave polygon is refused; colliders from the model', async ({ page }) => {
   test.setTimeout(240_000);
   const lift = await create('Lift', [0, 30, 0], { mover: { waypoints: [[4, 0, 0]], speed: 2, mode: 'pingpong', wait: 0.5 } }, 'box', { box: { size: [1, 0.3, 1], material: { color: '#777777' } } });
   const ramp = await create('Ramp', [20, 30, 0], { collider: { shape: { type: 'polygon', vertices: [[-1, 0], [1, 0], [0, 1.5]] } } });
@@ -340,21 +341,18 @@ test('paths and polygons: drag a point, add one on an edge, Alt+click deletes; a
   await undo(page);
   await expect.poll(corners).toEqual([[-1, 0], [1, 0], [0, 1.5]]);
 
-  // "Add collider → polygon / box from model outline" on a model (the pillar), each one command and one undo.
+  // "Add collider → convex hull / box from model" on a model (the pillar), each one command and one undo.
   await select(page, 'model-0002');
   const add = page.locator('.tl-inspector').getByLabel('add component', { exact: true });
-  await expect.poll(async () => (await add.locator('option', { hasText: 'Collider: Polygon from model outline' }).count())).toBe(1);
+  await expect.poll(async () => (await add.locator('option', { hasText: 'Collider: Convex hull from model' }).count())).toBe(1);
   await expect.poll(async () => {
-    if ((await comp('model-0002', 'collider')) === undefined) await add.selectOption({ label: 'Collider: Polygon from model outline' });
+    if ((await comp('model-0002', 'collider')) === undefined) await add.selectOption({ label: 'Collider: Convex hull from model' });
     return ((await comp('model-0002', 'collider'))?.['shape'] as { type?: string } | undefined)?.type;
-  }, { timeout: 30_000 }).toBe('polygon');
-  const outline = ((await comp('model-0002', 'collider'))!['shape'] as { vertices: number[][] }).vertices;
-  expect(outline.length).toBeGreaterThanOrEqual(3);
-  expect(outline.length).toBeLessThanOrEqual(8);
+  }, { timeout: 30_000 }).toMatch(/^(convex|compound)$/);
   await undo(page);
   await expect.poll(async () => comp('model-0002', 'collider')).toBeUndefined();
   await add.selectOption({ label: 'Collider: Box from model' });
-  await expect.poll(async () => ((await comp('model-0002', 'collider'))?.['shape'] as { type?: string } | undefined)?.type).toMatch(/box|polygon/);
+  await expect.poll(async () => ((await comp('model-0002', 'collider'))?.['shape'] as { type?: string } | undefined)?.type).toBe('box');
   await undo(page);
   await expect.poll(async () => comp('model-0002', 'collider')).toBeUndefined();
 });

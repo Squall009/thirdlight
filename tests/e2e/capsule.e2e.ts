@@ -56,7 +56,8 @@ test('the player capsule: Inspector, outline, top-handle drag with one undo, the
   // A neutral low ceiling over x 4.2..5.0 (underside 1.2 m above the ground) and a child under the player.
   expect((await mutate('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Low ceiling', transform: { position: [4.6, 1.7, 0] }, box: { size: [0.8, 1, 1], material: { color: '#777777' } }, components: { collider: { shape: { type: 'box', hx: 0.4, hy: 0.5 } } } }))['ok']).toBe(true);
   expect((await mutate('createEntity', { parentId: PLAYER, kind: 'group', name: 'Hat', transform: { position: [0, 1, 0] } }))['ok']).toBe(true);
-  expect(await controllerOf(PLAYER)).toEqual({});
+  // The starter's character: the arcade profile, the default capsule.
+  expect(await controllerOf(PLAYER)).toEqual({ profile: 'arcade' });
 
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
@@ -88,7 +89,7 @@ test('the player capsule: Inspector, outline, top-handle drag with one undo, the
   await expect(page.locator('.tl-inspector__collision[data-capsule="own"]')).toBeVisible();
   await expect(page.getByLabel('controller capsule height', { exact: true })).toHaveValue(String(fitted.height));
   await page.getByRole('button', { name: 'Default', exact: true }).click();
-  await expect.poll(async () => JSON.stringify(await controllerOf(PLAYER))).toBe('{}');
+  await expect.poll(async () => JSON.stringify(await controllerOf(PLAYER))).toBe('{"profile":"arcade"}');
   await expect(page.locator('.tl-inspector__collision[data-capsule="default"]')).toBeVisible();
   // Focus the player and zoom in (the Scene view orbits around it).
   await page.keyboard.press('f');
@@ -98,7 +99,8 @@ test('the player capsule: Inspector, outline, top-handle drag with one undo, the
     await page.mouse.wheel(0, -250);
     await page.waitForTimeout(30);
   }
-  await expect.poll(async () => (await handles(page)).filter((h) => h.component === 'controller').length).toBe(2);
+  // The capsule's top and side, and the step-up height above its feet.
+  await expect.poll(async () => (await handles(page)).filter((h) => h.component === 'controller').length).toBe(3);
   await page.waitForTimeout(300);
   const hs = await handles(page);
   const top = hs.find((h) => h.component === 'controller' && h.handle === 'top')!;
@@ -136,7 +138,7 @@ test('the player capsule: Inspector, outline, top-handle drag with one undo, the
   // One undo restores the default capsule; redo brings the small one back.
   await page.locator('canvas[data-capsule-outlines]').hover();
   await page.keyboard.press('Control+z');
-  await expect.poll(async () => JSON.stringify(await controllerOf(PLAYER))).toBe('{}');
+  await expect.poll(async () => JSON.stringify(await controllerOf(PLAYER))).toBe('{"profile":"arcade"}');
   await expect(page.getByLabel('controller capsule height', { exact: true })).toHaveValue('1.8');
   await page.keyboard.press('Control+Shift+z');
   await expect.poll(async () => (await controllerOf(PLAYER))?.capsule?.height).toBe(stored.height);

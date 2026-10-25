@@ -222,7 +222,8 @@ test('3D: a `_COL` node becomes a mesh then a convex collider; a 3D trigger star
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await selectAndFocus(page, ball);
   const add = page.locator('.tl-inspector').getByLabel('add component', { exact: true });
-  await expect(add.locator('option', { hasText: 'Collider: Polygon' })).toHaveCount(0);
+  // Every shape is offered in every project (a polygon is a prism its collider's depth deep).
+  await expect(add.locator('option', { hasText: 'Collider: Polygon (prism)' })).toHaveCount(1);
   await add.selectOption({ label: 'Collider: Sphere' });
   await expect.poll(async () => (await comp(ball, 'collider'))?.['shape']).toEqual({ type: 'sphere', radius: 0.5 });
   await drag(page, await grip(page, 'collider', 'radius', 'side'), 60, 0);
