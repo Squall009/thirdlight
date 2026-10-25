@@ -590,7 +590,17 @@ export class CoverGpu {
     src.origin = o;
     src.chunk = [chunk[0], chunk[1]];
     src.chunks = chunks;
-    if (moved) this.invalidatePoints(id, null);
+    if (!moved) return;
+    // The draws place their points from the source's origin: they stand where it stands now (the sets are made again for it).
+    for (const rd of src.draws ?? []) {
+      for (const ring of rd.rings) {
+        for (const pp of ring.values()) {
+          pp.root.matrix.makeTranslation(o[0], o[1], o[2]);
+          pp.root.updateMatrixWorld(true);
+        }
+      }
+    }
+    this.invalidatePoints(id, null);
   }
 
   private setSource(id: string, kind: Source['kind'], rules: readonly ScatterRule[]): Source | null {

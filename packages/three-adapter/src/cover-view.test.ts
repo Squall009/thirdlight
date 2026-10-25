@@ -91,6 +91,12 @@ describe('ground cover on block layers', () => {
     expect(g.pointsPending).toBe(0);
     expect(before - g.points).toBeGreaterThan(400);
     expect(before - g.points).toBeLessThan(620);
+    // The layer moved 8 m east: its draws stand at its new place.
+    cover.setOrigin('layer', [8, 0, 0]);
+    await run(20, 20, 2);
+    expect(cover.diagnostics().gpu!.pointsPending).toBe(0);
+    expect(listed.size).toBeGreaterThan(0);
+    expect([...listed].map((r) => new THREE.Vector3().setFromMatrixPosition(r.matrixWorld).toArray())).toEqual([...listed].map(() => [8, 0, 0]));
     // Far off the layer: nothing listed, and the sets let go after a while.
     await run(600, 600, 400);
     g = cover.diagnostics().gpu!;
@@ -108,18 +114,20 @@ describe('ground cover on block layers', () => {
     plane.rotation.x = -Math.PI / 2;
     slab.add(plane);
     const world = new THREE.Matrix4().compose(new THREE.Vector3(20, 1, 20), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2), new THREE.Vector3(1, 1, 1));
+    const placed = new Set<THREE.Object3D>();
     const cover = new CoverView({
       template: (id) => (id === 'slab' ? ({ glbRoot: slab } as unknown as ModelInstance) : template),
-      place: () => undefined,
+      place: (r, on) => void (on ? placed.add(r) : placed.delete(r)),
       tile: () => undefined,
       surface: () => null,
       worldMatrix: (id, out) => (id === 'rock' ? (out.copy(world), true) : false),
     });
     const moss: ScatterRule = { id: 'moss', asset: { assetId: 'tuft' }, density: 2, cover: true, coverDistance: 40 };
     cover.setModel('rock', { asset: { assetId: 'slab' }, scatter: [moss] });
+    let eyeX = 20;
     const run = async (frames: number): Promise<void> => {
       for (let i = 0; i < frames; i++) {
-        cover.update(view(20, 10));
+        cover.update(view(eyeX, 10));
         await flush();
       }
     };
@@ -131,6 +139,18 @@ describe('ground cover on block layers', () => {
     expect(g.pointsPending).toBe(0);
     expect(g.points / 128).toBeGreaterThan(0.85);
     expect(g.points / 128).toBeLessThan(1.15);
+    // Its draws stand where the object stands.
+    const drawsOf = (): THREE.Object3D[] => [...placed].filter((r) => r.name.includes(':rock'));
+    const at = (): number[][] => drawsOf().map((r) => new THREE.Vector3().setFromMatrixPosition(r.matrixWorld).toArray());
+    expect(drawsOf().length).toBeGreaterThan(0);
+    expect(at().every((p) => p[0] === 20 && p[2] === 20)).toBe(true);
+    // Moved 40 m and settled: its cover is made again there and drawn there, not offset back by the move.
+    world.setPosition(60, 1, 20);
+    eyeX = 60;
+    await run(16);
+    expect(cover.diagnostics().gpu!.pointsPending).toBe(0);
+    expect(drawsOf().length).toBeGreaterThan(0);
+    expect(at()).toEqual(drawsOf().map(() => [60, 1, 20]));
     // A generated floor (6 × 4 m) beside it: its points join, in their own source.
     const floors = Float32Array.from([0, 0, 0, 0, 0, 4, 6, 0, 4, 0, 0, 0, 6, 0, 4, 6, 0, 0]);
     cover.setArchitecture('house', [moss], [10, 0, 10], floors);
