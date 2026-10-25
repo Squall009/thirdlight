@@ -19,9 +19,11 @@ detail (`_LOD0`, `_LOD1`, …) and wind weights in the vertex colour
 1. **The grass.** Double-click the **Terrain** to open the terrain editor,
    pick the **Scatter** mode and add a rule. On its card: the model
    `meadow-grass`, **Piece** `grass_a`; **Density** 3 (clumps per m²);
-   **On layer** the grass layer with a least share of 0.4, so it thins
-   where soil or rock shows; a slope condition up to 35°; **Lean** 0.5;
-   tick **Ground cover** and set its **Reach** (40–60 m). Add two more
+   **Spacing** 0 (a new card starts at 4 m, meant for trees and rocks:
+   it would keep the grass to one clump per 16 m²); **On layer** the
+   grass layer with a **share** over 0.4 (`>0.4`), so it thins where soil
+   or rock shows; **Slope** up to 35° (`<35`); **Lean** 50 %; tick
+   **Ground cover** and set its **Reach** (40–60 m). Add two more
    rules the same way for `grass_b` and `grass_c` (density 3 and 2): three
    heights read as a field, one as a lawn. **Bake rules**: the grass shows
    in the Scene view at once.
@@ -119,6 +121,8 @@ To stay inside it:
 - **Nothing grows:** check the rule's layer condition against what the
   ground shows there, the slope limit, and that the reach is past the
   camera's distance from the ground.
+- **Sparse grass whatever the density:** the rule's **Spacing** wins over
+  its density (no two copies closer than it); set it to 0 for cover.
 - **The grass does not move:** its material is not a foliage one, or the
   model has no COLOR_0 (it then sways only a little, by its height share
   of its first metre), or the Scene view's wind switch is off (Play always
