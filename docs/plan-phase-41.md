@@ -185,6 +185,7 @@ with real Rapier on page and worker.
 | 41.1 | Done. Plane lock on the 3D port (`plane3d.ts`): statics made/snapped on the plane, movers posed on it, characters' moves and depth held exactly, Rapier locks + position correction for dynamic bodies (port-level: the engine has no dynamic bodies yet). `plane` on collider/controller; `ctx.physics.setPlane/planeOf`, `ctx.character.setPlane`, applied at step boundaries. Tests: port (lock/unlock/re-lock, mover, dynamic stack, two runs equal), model, integration page+worker+2 page runs digests equal. `plane-step` p50 1 level 3D 0.052 → plane-locked 0.057 ms, 4 levels 0.109 → 0.113 ms (2D 0.037 / 0.061). No e2e touched; fast gate green (9 min). |
 | 41.2 | Done. `shape2DTo3D` (project-model `shape-2d-3d.ts`, the mapping 41.5's upgrade calls, with a change list per converted shape): box without `hz` → box `depth` deep (collider `depth`, default 1 m), polygon → convex prism or compound of prisms (`convexPieces`: ear clipping + Hertel–Mehlhorn, deterministic, ≤ 32 corners), circle → `cylinder` (new 3D primitive in model, runtime and port) along the plane normal. 3D projects take depthless boxes, polygons and `oneWay`. One-way on the 3D port (`oneway3d.ts`): the character sweep filter and drop-through (`dropThrough`, down + jump routed to the 3D port), and `OneWayContacts` hooks for dynamic bodies (port-level). Tests: model (decomposition L/U/comb tile exactly, cylinder axis Z/X), port (land from above, pass from below and the side, drop-through, free and on a plane, turned one-way wall, dynamic ball, cylinders), integration 2D port vs plane-locked 3D port on box/ramp/concave/one-way (worst 5.8 mm, tolerance 10 mm), game host 3D project shelf + drop-through + prism ramp. `plane-step` p50 plane-locked 1 level 0.057 → 0.055 ms, 4 levels 0.113 → 0.115 ms (noise). No e2e touched; fast gate (colliders, physics-3d) green, 9 min (D307 watch hit once, passed alone). |
 | 41.3 A | Done (part A). Reference traces of the 2D controller (`fixtures/phase41/platformer-traces/`, 11 Sprout-tuned side-view cases: jump apex/hop, run, slopes, slope slide, stairs+autostep, wall slide/jump, ladder, one-way+drop-through, lift, sideways platform, coyote+buffer; per step x, y, vx, vy, grounded, state; `tests/integration/m41-platformer/`, reproduced exactly, `TL_RECORD_TRACES=1` re-records). `profile: 'arcade'` on the 3D controller (`runtime/src/character-arcade.ts`): the 2D algorithm in its order on the 3D port, same tuning fields. Plane-locked vs the traces, worst in-plane: jump 8 mm, run 14, slopes 10, slide 8, walls 2, climb 7, one-way 2, coyote/buffer 1.3, side platform 33 (carry a step early), lift 64 (walk-off), stairs 1.0 m (3D step-up climbs earlier) — part B's to fix. X plane = Z plane within 10.2 mm. E2E: one assertion in `character-3d.e2e.ts` (the 3D Inspector now shows Profile and Autostep), no step added. Fast gate (character-3d, colliders) green after that fix, 9 min. |
+| 41.3 B | Done. Parity suite `tests/integration/m41-platformer/parity.test.ts`, tolerances in `PARITY`: the 2D trace's key events (grounding/state changes) in order on the same step (±1 allowed, 0 measured) within 1 cm; every step within 1.5 cm of the 2D path ±1 step; the controller's velocity equal (1e-6) but at the stairs' last edge and the lift's edge; apex, air time, run speed, slope stops, stair treads (±1 step), wall slide/jump, ladder, one-way, carry. Fixes: arcade step-up by the 2D rule (`autostepRide`, `physics-rapier/src/3d/step-up3d.ts`), at a rising mover's edge it rests, 3D spawn clearance's one-way rule, D321 (not the port). Worst event / path (mm): jump 8.3/8.3, run 0/12.6 (the 2D's own 1.1 cm bumps), slopes 0/10.1, slide 0/7.7, stairs 0/10.0 up to the stop and 43.8 at rest (≤ 50), walls 1.9/1.9, climb 5.2/5.9, one-way 0/1.9, lift 1.4/1.4, side platform y 0.1, x 33.3 = the 2D port's 4 stalled carry steps (3D carried on every step), coyote 0.4/1.3. `plane-step --arcade` p50 1/4 levels: 2D 0.060/0.085, 3D plane-locked 0.113/0.156 ms (41.0 2D baseline, no autostep, 0.037/0.056; 41.0 3D/2D 1.4×/1.9×, now 1.9×/1.8×). No e2e touched (character-3d + colliders 3.0 min). Fast gate green, 9 min, 4.0 GB. |
 
 ## 5. Decision log
 
@@ -253,4 +254,29 @@ with real Rapier on page and worker.
   plane it stages none, as the 2D controller did (the press moved ledge and stair timing up to 0.9 m).
   D321: free, a drop-through of a 1 m deep one-way shelf pushes the character 0.5 m along the depth.
   Not done in A: 3D spawn clearance still counts one-way colliders (41.2's note), the parity suite.
+- 2026-10-25 (41.3 B): the parity tolerances (owner to confirm): key events on the same step within
+  1 cm, every step within 1.5 cm of the 2D path a step either side (the 2D port's own flat-ground
+  bumps reach 1.1 cm), the controller's velocity equal; per measure 1 cm, timings ±1 step (8.3 ms).
+  Two cases are held otherwise, for the 2D port's own reasons: the stair rest within 5 cm (each
+  riser's ride over the edge amplifies the last millimetre; the slide off the last edge starts a step
+  later), and the sideways platform within the 2D's 4 stalled carry steps (33 mm: Rapier 2D read the
+  platform's top as tilted and stopped the carry; the 3D port's sweep fixes that), the 3D carried on
+  every step the 2D was.
+- 2026-10-25 (41.3 B): default chosen, owner to confirm: under the arcade profile the 3D port climbs
+  steps by the 2D rule (`autostepRide`, Rapier's stair rule on the port's own probe): lifted where the
+  sweep met the riser to touch its top, moved on by up to its radius, the rest of the move swept from
+  there without the ground snap while it rises, so the capsule rides over the edge across ~15 steps
+  and loses speed, as in 2D. Rapier 3D's own autostep was tried and stalls at risers (one stayed stuck
+  for good); the character profile keeps the port's instant lift. Measured: one riser alike to 4.7 mm,
+  four risers to 1.6 cm (the ride amplifies small differences).
+- 2026-10-25 (41.3 B): a rising mover that lifts an arcade character standing on its edge (support
+  steeper than the slope limit, its fall cancelled by the carry) leaves it at rest, not with the fall
+  speed it gathered there (64 mm low at walk-off before; 1.4 mm now). D321 was not the port: free in
+  3D the case's down press was also the move's y, which walks in depth; the cases send down as the
+  `navigate` action only for a free character, and the free check includes the one-way case. 3D spawn
+  clearance now ignores one-way colliders in the way and counts one as support only under a capsule on
+  its top, the 2D probe's rule.
+- 2026-10-25 (41.3 B): with autostep on, both backends' side-scroller runner sticks at the same wall
+  (x 129.9 m) and tries a step every step there; that is most of `plane-step --arcade`'s cost (2D +60 %,
+  3D +110 % over autostep off), 0.16 ms per step at four levels.
 
