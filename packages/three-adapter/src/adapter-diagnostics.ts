@@ -10,6 +10,7 @@ import type { AdapterFrame } from './adapter-frame';
 import type { AdapterParts } from './adapter-parts';
 import type { SceneAdapterDiagnostics } from './adapter-types';
 import { INSTANCE_MATRIX_ATTRIBUTE } from './attribute-instancing';
+import { GPU_COPIES_KEY } from './copies-gpu';
 import { rendererMemory } from './renderer-factory';
 import { vertexPaintDiagnostics } from './vertex-paint-draw';
 
@@ -78,7 +79,8 @@ function drawnDiagnostics(p: AdapterParts, d: SceneAdapterDiagnostics, liveRende
     const meshes = new Set<unknown>();
     const states = new Set<unknown>();
     for (const ro of ros) {
-      if (ro.geometry?.getAttribute?.(`${INSTANCE_MATRIX_ATTRIBUTE}0`) === undefined) continue;
+      // Copies drawn through instance-matrix columns, or placed from a GPU copy set's texture.
+      if (ro.geometry?.getAttribute?.(`${INSTANCE_MATRIX_ATTRIBUTE}0`) === undefined && ro.object?.userData[GPU_COPIES_KEY] === undefined) continue;
       meshes.add(ro.object);
       if (ro._nodeBuilderState != null) states.add(ro._nodeBuilderState);
     }

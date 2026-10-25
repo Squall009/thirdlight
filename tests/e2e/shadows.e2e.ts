@@ -27,6 +27,7 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { NEW_PROJECT_ENVIRONMENT } from '@thirdlight/project-model';
 
 import { expect, test, type Locator, type Page } from './pw';
 
@@ -40,6 +41,8 @@ import { menu, showView } from './ui';
 let be: E2EBackend;
 test.beforeEach(async () => {
   be = await startBackend('shadows-e2e');
+  // A clear sky: the new project's clouds drift with the wind, and the pictures here are read once two frames agree.
+  await command('setEnvironment', { sceneId: 'scene-main', environment: { sky: { ...NEW_PROJECT_ENVIRONMENT.sky, cloudCoverage: 0 } } });
 });
 test.afterEach(async () => {
   await be.stop();

@@ -369,9 +369,10 @@ export interface SceneAdapterDiagnostics {
    */
   batching?: AutoBatcherDiagnostics & { programs?: number };
   /**
-   * Every mesh drawn through instance-matrix columns (automatic
-   * batches and instance-set chunks) and the node programs they are drawn
-   * with (every pass); ABSENT before the first drawn frame.
+   * Every instanced mesh drawn (automatic batches and CPU instance-set
+   * chunks through instance-matrix columns, GPU copy sets' draws) and the
+   * node programs they are drawn with (every pass); ABSENT before the first
+   * drawn frame.
    */
   instanced?: { meshes: number; programs: number };
   /** Draws culled inside against the view (batches, instance-set chunks, merged cells) and those put in order again last frame; ABSENT before the first drawn frame. */

@@ -135,11 +135,11 @@ for (const variant of RENDERER_VARIANTS) test(`(${variant}) batches of one model
   await stop(page, 'shared', psid);
 });
 
-for (const variant of RENDERER_VARIANTS) test(`(${variant}) the chunks of an instance set share their node programs and are drawn`, async ({ page }) => {
+for (const variant of RENDERER_VARIANTS) test(`(${variant}) the draws of an instance set share their node programs and are drawn`, async ({ page }) => {
   onlyInItsProject(variant);
   test.setTimeout(300_000);
   await sphereProject('chunks', 0, 0);
-  // 8 000 copies of the sphere on a 100 × 80 grid facing the camera: a few chunks of about 2 048.
+  // 8 000 copies of the sphere on a 100 × 80 grid facing the camera: drawn from one copy texture, a draw per mesh and level.
   const transforms: number[] = [];
   for (let i = 0; i < 8000; i += 1) transforms.push((i % 100) * 4 - 198, Math.floor(i / 100) * 3 - 118, 0, 0, 0, 0, 1, 2.5, 2.5, 2.5);
   const floats = new Float32Array(transforms);
@@ -151,10 +151,17 @@ for (const variant of RENDERER_VARIANTS) test(`(${variant}) the chunks of an ins
   const { psid } = await play(page, 'chunks');
   const relay = (path: string, body: unknown = {}) => be.post(`/api/v1/projects/chunks/play/${psid}/${path}`, body);
   const diag = async (): Promise<NonNullable<Diag['diagnostics']>> => ((await relay('diagnostics')).json as Diag).diagnostics ?? {};
-  await expect.poll(async () => (await diag()).renderer?.instanced?.meshes ?? 0, { timeout: 60_000 }).toBeGreaterThanOrEqual(3);
+  let seen: unknown = null;
+  await expect
+    .poll(async () => ((seen = (await diag()).renderer), (seen as { instanced?: { meshes: number } } | undefined)?.instanced?.meshes ?? 0), { timeout: 60_000 })
+    .toBeGreaterThanOrEqual(1)
+    .catch((e: unknown) => {
+      console.log(`instanced draws (failed): ${JSON.stringify(seen)}`);
+      throw e;
+    });
   const d = await diag();
   expect(d.renderer!.renderBackend).toBe(backendOf(variant));
-  // The chunks share one program per pass (the main pass, the shadow pass), not one per instanced mesh.
+  // Its draws share one program per pass (the main pass, the shadow pass), not one per draw.
   expect(d.renderer!.instanced!.programs, JSON.stringify(d.renderer!.instanced)).toBeGreaterThanOrEqual(1);
   expect(d.renderer!.instanced!.programs).toBeLessThanOrEqual(2);
   const r = await relay('screenshot', { maxWidth: 320 });
