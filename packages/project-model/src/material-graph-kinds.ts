@@ -166,7 +166,7 @@ const INPUT_NODES: readonly GraphNodeDef[] = [
     type: 'objectPosition',
     label: 'Object position',
     category: 'Inputs',
-    description: 'The object\'s origin in world space (in an instance set, the drawn instance\'s own origin) — the same for every pixel of one piece.',
+    description: 'The object\'s origin in world space (in an instance set, scatter or ground cover, the drawn copy\'s own root) — the same for every pixel of one piece.',
     inputs: [],
     outputs: [port('position', 'position', 'vec3')],
   },

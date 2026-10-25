@@ -55,7 +55,7 @@ Implicit conversions:
 - Position (`position`): The surface position in object, world or view space.
 - Normal (`normal`): The surface normal in object, world or view space.
 - View direction (`viewDirection`): The direction from the surface to the camera (normalized).
-- Object position (`objectPosition`): The object's origin in world space (in an instance set, the drawn instance's own origin) — the same for every pixel of one piece.
+- Object position (`objectPosition`): The object's origin in world space (in an instance set, scatter or ground cover, the drawn copy's own root) — the same for every pixel of one piece.
 - Camera distance (`cameraDistance`): Metres from the camera to the surface.
 - Screen UV (`screenUV`): The position on the screen (0–1 in both axes).
 - Instance index (`instanceIndex`): The index of the drawn instance in an instance set (0 for a single object).
@@ -257,7 +257,7 @@ Fields:
 <a id="node-material--object-position"></a>
 ### Object position (`objectPosition`)
 
-The object's origin in world space (in an instance set, the drawn instance's own origin) — the same for every pixel of one piece.
+The object's origin in world space (in an instance set, scatter or ground cover, the drawn copy's own root) — the same for every pixel of one piece.
 
 Outputs:
 

@@ -60,7 +60,7 @@ import { MeshBasicNodeMaterial, MeshPhysicalNodeMaterial, MeshStandardNodeMateri
 
 import { instanceDrawnIndex } from './attribute-instancing';
 import { LIT, litMainDirectionWorld, MeshCustomLitNodeMaterial } from './custom-lit';
-import { instanceOrigin, normalGreenSign } from './node-materials';
+import { copyRoot, normalGreenSign } from './node-materials';
 import { LOCAL_LIGHTS_KEY } from './local-lights';
 import { STEADY_SHAPE_KEY } from './shadow-casters';
 import { decalDrawOf, decalSortOrder, installDecalDraw, removeDecalDraw, type DecalDraw } from './mesh-decals';
@@ -1217,8 +1217,8 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
         return one('direction', builtin(scope, node.id, 'viewDirWorld', stage));
       }
       case 'objectPosition': {
-        objectFrame = true;
-        const origin = T.modelWorldMatrix.mul(T.vec4(instanceOrigin(), 1)).xyz;
+        objectFrame = true; // the origin is where the drawn copy stands: a GPU cover or copies copy's, an instance's, else the object's
+        const origin = T.modelWorldMatrix.mul(T.vec4(copyRoot(), 1)).xyz;
         return one('position', stage === 'vertex' ? origin : T.varying(origin));
       }
       case 'cameraDistance':

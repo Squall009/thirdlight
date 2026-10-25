@@ -272,12 +272,16 @@ export function convertToGraph(m: MaterialDef): { ok: true; material: MaterialDe
       const thin = b.op('multiply', 'thin', b.op('multiply', 'translucency', base, b.param('subsurface', 'float', valueOf(p, 'subsurface', 0.3))), [ch, 'w']);
       const glow = b.op('multiply', 'translucencyGain', thin, b.float('translucencyScale', 0.25));
       emission = emission === null ? glow : b.op('add', 'emissionTotal', emission, glow);
-      // The wind: bend weight R² × bend, phase G × 2π, flutter B (the 9.4 foliage shader, term by term).
+      // The wind: bend weight R² × height above the plant's root × bend, phase G × 2π, flutter B (the foliage
+      // shader, term by term).
       const wx = b.add('worldSplit', 'split');
       b.wire([b.add('worldPosition', 'position', { space: 'world' }), 'position'], wx, 'in');
+      const rootSplit = b.add('rootSplit', 'split');
+      b.wire([b.add('root', 'objectPosition'), 'position'], rootSplit, 'in');
+      const height = b.op('max', 'heightAboveRoot', b.op('subtract', 'rise', [wx, 'y'], [rootSplit, 'y']), b.float('ground', 0));
       const wind = b.add('wind', 'wind');
       const time = b.add('time', 'time');
-      const bendWeight = b.op('multiply', 'bendWeight', b.op('multiply', 'bendSquare', [ch, 'x'], [ch, 'x']), b.param('windBend', 'float', valueOf(p, 'windBend', 1)));
+      const bendWeight = b.op('multiply', 'bendWeight', b.op('multiply', 'bendTall', b.op('multiply', 'bendSquare', [ch, 'x'], [ch, 'x']), height), b.param('windBend', 'float', valueOf(p, 'windBend', 1)));
       const phase = b.op('multiply', 'phase', [ch, 'y'], b.float('tau', 6.2831853));
       // sway = sin(time × 1.7 + phase + worldX × 0.4 × turbulence) × 0.35
       const swayArg = b.op('add', 'swayArg', b.op('add', 'swayTime', b.op('multiply', 'swayRate', [time, 'time'], b.float('swaySpeed', 1.7)), phase), b.op('multiply', 'swaySpread', b.op('multiply', 'swayX', [wx, 'x'], b.float('swayScale', 0.4)), [wind, 'turbulence']));

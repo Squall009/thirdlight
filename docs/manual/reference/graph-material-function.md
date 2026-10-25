@@ -94,7 +94,7 @@ Fields:
 - [Position](graph-material.md#node-material--position) (`position`, as in `material`): The surface position in object, world or view space.
 - [Normal](graph-material.md#node-material--normal) (`normal`, as in `material`): The surface normal in object, world or view space.
 - [View direction](graph-material.md#node-material--view-direction) (`viewDirection`, as in `material`): The direction from the surface to the camera (normalized).
-- [Object position](graph-material.md#node-material--object-position) (`objectPosition`, as in `material`): The object's origin in world space (in an instance set, the drawn instance's own origin) — the same for every pixel of one piece.
+- [Object position](graph-material.md#node-material--object-position) (`objectPosition`, as in `material`): The object's origin in world space (in an instance set, scatter or ground cover, the drawn copy's own root) — the same for every pixel of one piece.
 - [Camera distance](graph-material.md#node-material--camera-distance) (`cameraDistance`, as in `material`): Metres from the camera to the surface.
 - [Screen UV](graph-material.md#node-material--screen-uv) (`screenUV`, as in `material`): The position on the screen (0–1 in both axes).
 - [Instance index](graph-material.md#node-material--instance-index) (`instanceIndex`, as in `material`): The index of the drawn instance in an instance set (0 for a single object).
