@@ -75,9 +75,13 @@ How to build a level step by step: [the block layers guide](../guides/block-laye
   a box of cells (with effective metadata) or a region.
 - **Rendering**: one merged mesh per block look and material per chunk; faces
   between neighbours are left out (a solid neighbour, or the same face
-  profile — two half blocks, two ramps side by side); whole chunks are culled
-  outside the view. The Scene view, Play and exports draw layers through the
-  same code (WebGPU and WebGL 2).
+  profile — two half blocks, two ramps side by side). The chunks of one
+  material in a 64 m square (the merge cell's size) are drawn together as one
+  merged static cell, its chunks culled one by one inside it; an edit builds
+  only its square's cell again. A chunk lit per vertex by several rooms and a
+  lightmapped chunk (its own material copy) draw on their own. The Scene
+  view, Play and exports draw layers through the same code (WebGPU and
+  WebGL 2).
 - **Texture mapping** (`uv` on a block type, and optionally on each look;
   the block editor's block type editor, MCP `setBlockType`): `model` (the
   default) keeps a model's own texture coordinates; `world` gives the look
