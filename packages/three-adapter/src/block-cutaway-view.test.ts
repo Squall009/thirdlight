@@ -14,6 +14,7 @@ import { BlockGrid, applyBlockEdits, cutawayZones, type BlockLayerComponent, typ
 import { BlockLayerView } from './block-layers';
 import { CUTAWAY_COPY_KEY, CUTAWAY_LAYER, shadowSeesCutaways, splitByCutaway } from './block-cutaway-view';
 import { DrawnCasters, STATIC_CASTER_KEY } from './shadow-casters';
+import { batchRefusal } from './batching';
 
 const LAYER: BlockLayerComponent = { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [16, 8, 16] }, cutaway: { regions: [{ region: 'roof' }], fade: 0.5 } };
 const TYPES: BlockType[] = [
@@ -98,6 +99,16 @@ describe('block view: cut-aways', () => {
     expect(all.filter((t) => !t.cut && t.x > 11.9 && t.y > 5)).not.toHaveLength(0);
     expect(v.diagnostics().cutaway).toEqual(expect.objectContaining({ zones: 1, cut: 1, fading: 0 }));
     expect(v.diagnostics().meshes).toBeGreaterThan(plain.diagnostics().meshes);
+    // A zone's meshes draw alone (a merged cell would keep drawing a cut roof); the rest of the chunk still merges.
+    const cutSet = new Set(cutMeshes(v));
+    for (const m of cutSet) {
+      // As it stands while its zone is not cut (when the batcher may meet it).
+      const mask = m.layers.mask;
+      m.layers.set(0);
+      expect(batchRefusal(m)).toBe('cut-away');
+      m.layers.mask = mask;
+    }
+    expect(v.meshes().filter((m) => !cutSet.has(m) && batchRefusal(m) === null).length).toBeGreaterThan(0);
   });
 
   it('a roof lying on the walls keeps the faces between them: the wall tops show when it is cut', () => {

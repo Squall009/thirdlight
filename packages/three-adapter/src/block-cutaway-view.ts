@@ -40,6 +40,8 @@ export const CUTAWAY_EDGE_MARGIN = 0.2;
 /** Cells a triangle's centre is moved against its normal before it is sorted (into the cell the face bounds). */
 const NUDGE = 0.25;
 
+/** `mesh.userData[CUTAWAY_MESH_KEY]`: a mesh a cut-away hides or fades, which therefore draws alone (a merged cell could not hide it). */
+export const CUTAWAY_MESH_KEY = '__tlCutawayMesh';
 /** `copy.userData[FADE_KEY]`: how far a fading copy has faded (0 drawn whole … 1 gone). */
 const FADE_KEY = '__tlCutawayFade';
 /** Marks a fading copy (picking, counts and bakes pass over it). */
@@ -226,6 +228,7 @@ export class CutawayDrawing {
     const list: CutMesh[] = meshes.map((m) => ({ mesh: m.mesh, zones: m.zones.map((i) => l.zones[i]!.key), shown: 0, copy: null }));
     l.meshes.set(ck, list);
     for (const c of list) {
+      c.mesh.userData[CUTAWAY_MESH_KEY] = true;
       this.apply(c, this.meshFade(l, c));
       this.prepare(c);
     }

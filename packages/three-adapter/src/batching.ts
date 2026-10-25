@@ -60,6 +60,7 @@ import * as THREE from 'three';
 import { LIGHT_LAYERS_ALL, type LocalLightMode } from '@thirdlight/runtime';
 
 import { createAttributeInstancedMesh, type AttributeInstancedMesh } from './attribute-instancing';
+import { CUTAWAY_MESH_KEY } from './block-cutaway-view';
 import { LIGHT_LAYERS_KEY, objectLightLayers, ROOM_KEY, ROOM_VERTEX_KEYS, roomKeyOf } from './light-layers';
 import { objectSeeThrough, SEE_THROUGH_KEY, SUBJECT_DRAW_KEY } from './see-through';
 import { LOCAL_LIGHTS_KEY, objectLocalLights } from './local-lights';
@@ -160,6 +161,8 @@ export function batchRefusal(mesh: THREE.Mesh): string | null {
   if (mesh.userData[SUBJECT_DRAW_KEY] === true) return 'see-through subject';
   // Lit per vertex by the rooms its faces look into (a block chunk across rooms): one draw has one room.
   if (mesh.userData[ROOM_VERTEX_KEYS] !== undefined) return 'spans rooms';
+  // A cut-away hides it from the view by its layers, which a merged cell drawing it would not follow.
+  if (mesh.userData[CUTAWAY_MESH_KEY] === true) return 'cut-away';
   const geometry = hint === true ? mesh.geometry : hint.geometry;
   if (geometry === undefined || geometry.getAttribute('position') === undefined) return 'no geometry';
   return null;
