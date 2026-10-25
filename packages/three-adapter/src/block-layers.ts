@@ -99,6 +99,8 @@ import { DECAL_LAYERS_KEY, DECAL_SURFACE_KEY, decalLayersField } from './project
 import { SEE_THROUGH_KEY } from './see-through';
 import { SEE_THROUGH_PIECES_KEY, type OccluderLayer } from './see-through-occluders';
 import { ROOM_TAG_KEY } from './room-culling';
+import { BATCH_CELL_SIZE_M, BATCH_KEY } from './batching';
+import { STATIC_KEY } from './static-merge';
 import { BLOCK_AO_ATTRIBUTE } from './block-ao-lighting';
 import { currentLodLevel, LOD_CULL_LEVEL_KEY } from './lod-switch';
 import { askingRing, eyeMoved, recheckMetres, type PageWorldStream, type StreamCell } from './world-stream';
@@ -147,6 +149,9 @@ export interface BlockModelLook {
    */
   readonly levels?: readonly { readonly source: BlockMeshSource; readonly distance: number }[];
 }
+
+/** The static scope of a layer's chunks (its entity id and square follow): a merged cell holds one square's chunks. */
+const BLOCK_STATIC_SCOPE = 'blocks:';
 
 export interface BlockLayerViewDeps {
   /**
@@ -1240,6 +1245,7 @@ export class BlockLayerView {
     }
     const group = new THREE.Group();
     group.name = `block-chunk:${entityId}:${ck}`;
+    const chunkMetres = CHUNK_SIZE * layer.grid.cellSize[0];
     const zones = this.cut.zonesOf(entityId);
     const cutMeshes: { mesh: THREE.Mesh; zones: readonly number[] }[] = [];
     /** A part's meshes: one, or (a layer with cut-away zones) the triangles in no zone and one per set of zones they lie in. */
@@ -1287,6 +1293,13 @@ export class BlockLayerView {
       markOccludee(m, 'blocks');
       // Rooms drawn on the layer stand on its cells: each face is lit by the room it looks into (room-culling.ts).
       m.userData[ROOM_TAG_KEY] = entityId;
+      // A chunk never moves (the layer moved lists its chunks again) and has no partner to instance with: drawn
+      // alone, it merges with the other chunks of its material in its square of the merge cell's size, as placed
+      // static objects do (static-merge.ts: one draw per square and material instead of one per chunk), unless
+      // the batcher refuses it. Its vertices are in the layer's frame, so the square is named here: an edit
+      // builds only its square's merged copy again.
+      m.userData[BATCH_KEY] = true;
+      m.userData[STATIC_KEY] = `${BLOCK_STATIC_SCOPE}${entityId}:${Math.floor((cx * chunkMetres) / BATCH_CELL_SIZE_M)},${Math.floor((cz * chunkMetres) / BATCH_CELL_SIZE_M)}`;
       m.castShadow = layer.component.castShadow !== false;
       m.receiveShadow = layer.component.receiveShadow !== false;
       // The layer's light layers (light-layers.ts; absent: every layer).

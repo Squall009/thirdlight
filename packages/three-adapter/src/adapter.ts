@@ -47,7 +47,7 @@ import { compileIntoTarget, type Precompile } from './environment-nodes';
 import { materialParamsOf } from './entity-refs';
 import { applyEntityRenderFlags } from './entity-render-flags';
 import { createGpuTiming } from './gpu-timing';
-import { IsolationView } from './isolation-view';
+import { drawOwner, IsolationView } from './isolation-view';
 import { addBoxLightmapUv, createLightmapSet, type LightingBakeLike, type LightmapSet } from './lightmaps';
 import { createSceneLights } from './lights-shadows';
 import { LOD_TUNING_KEY } from './lod-switch';
@@ -154,7 +154,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   /** What batches, instance-set chunks and merged cells draw is culled inside against the frame's camera. */
   const viewCull = new ViewCuller();
   /** Repeated objects drawn instanced (absent when the option turns it off). */
-  const batcher = opts.batching === false ? null : createAutoBatcher(scene, { merging: opts.merging ?? 'load', viewCull, park: (o, on) => graph.park(o, on), ...(staticChanged !== null ? { staticChanged } : {}) });
+  const batcher = opts.batching === false ? null : createAutoBatcher(scene, { merging: opts.merging ?? 'load', viewCull, park: (o, on) => graph.park(o, on), drawOwner: (m) => drawOwner(m, (o) => surface.entityOf?.(o) ?? null), ...(staticChanged !== null ? { staticChanged } : {}) });
   // A scene dump (the perf harness's plain page) reads the parked drawables with the scene.
   scene.userData['tlParked'] = graph.parkedObjects();
   // The world matrices are brought up to date right before every render (the batcher's update, else the frame,

@@ -11,6 +11,9 @@ import { INSTANCE_MATRIX_ATTRIBUTE } from './attribute-instancing';
 import { BATCH_KEY, BATCHED_LAYER, batchCapacity, batchingFromUrl, batchKey, batchKeyParts, batchRefusal, createAutoBatcher, instanceCapacity, markBatchable, triangleCount, unitBoxGeometry } from './batching';
 import { addBoxLightmapUv } from './lightmaps';
 import { OVERRIDES_KEY } from './material-graph';
+import { OCCLUDER_EARLY_RENDER_ORDER } from './occluders';
+import { ROOM_VERTEX_KEYS } from './light-layers';
+import { STATIC_KEY } from './static-merge';
 
 const camera = (): THREE.PerspectiveCamera => {
   const c = new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
@@ -108,6 +111,14 @@ describe('batch keys', () => {
     const ordered = mk(new THREE.MeshBasicMaterial());
     ordered.renderOrder = 3;
     expect(batchRefusal(ordered)).toBe('render order');
+    // An early occluder merges only when static (a merged cell draws at that order); one lit per vertex by rooms never.
+    const early = mk(new THREE.MeshBasicMaterial());
+    early.renderOrder = OCCLUDER_EARLY_RENDER_ORDER;
+    expect(batchRefusal(early)).toBe('render order');
+    early.userData[STATIC_KEY] = 'scene-a';
+    expect(batchRefusal(early)).toBe(null);
+    early.userData[ROOM_VERTEX_KEYS] = new Set([1, 2]);
+    expect(batchRefusal(early)).toBe('spans rooms');
     const hooked = mk(new THREE.MeshBasicMaterial());
     hooked.onBeforeRender = () => undefined;
     expect(batchRefusal(hooked)).toBe('custom onBeforeRender');

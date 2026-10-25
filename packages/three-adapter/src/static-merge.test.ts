@@ -10,7 +10,8 @@ import { describe, expect, it } from 'vitest';
 
 import { BATCH_KEY, BATCHED_LAYER, createAutoBatcher, type AutoBatcherOptions } from './batching';
 import { LOD_OWNER_KEY } from './lod-switch';
-import { MERGED_RENDER_ORDER, mergeLayout, OBJECT_FRAME_KEY, STATIC_KEY } from './static-merge';
+import { drawOwner } from './isolation-view';
+import { MERGED_RENDER_ORDER, mergedOwnerOf, mergeLayout, OBJECT_FRAME_KEY, STATIC_KEY } from './static-merge';
 
 const camera = (): THREE.PerspectiveCamera => new THREE.PerspectiveCamera(50, 1, 0.1, 1000);
 
@@ -68,6 +69,17 @@ describe('static batching', () => {
     expect([d.single, d.merging?.cells, d.merging?.merged]).toEqual([0, 1, 2]);
     expect(d.merging!.vertexBytes).toBe(48 * (3 + 3 + 2) * 4);
     expect(d.merging!.indexBytes).toBe(72 * 2);
+  });
+
+  it("a cell whose members all draw for one entity carries it: isolating that entity shows the cell", () => {
+    const mat = new THREE.MeshLambertMaterial();
+    const own = [prop(mat, 0), prop(mat, 2)];
+    const one = setup(own, { drawOwner: () => 'layer' });
+    one.b.update(camera());
+    expect(merged(one.scene).map((c) => [mergedOwnerOf(c), drawOwner(c, () => null)])).toEqual([['layer', 'layer']]);
+    const two = setup([prop(mat, 0), prop(mat, 2)], { drawOwner: (m) => (m.position.x === 0 ? 'a' : 'b') });
+    two.b.update(camera());
+    expect(merged(two.scene).map((c) => mergedOwnerOf(c))).toEqual([null]);
   });
 
   it('leaves alone what is not static, refused, of another scope, material, layout or frame-reading material', () => {

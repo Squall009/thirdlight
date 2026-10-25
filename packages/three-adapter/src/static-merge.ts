@@ -45,7 +45,7 @@ import { LIGHT_LAYERS_ALL, type LocalLightMode } from '@thirdlight/runtime';
 import type { BatchKeyParts } from './batching';
 import { LIGHT_LAYERS_KEY, ROOM_KEY } from './light-layers';
 import { SEE_THROUGH_KEY } from './see-through';
-import { SEE_THROUGH_MEMBERS_KEY, type SeeThroughMembers } from './see-through-occluders';
+import { SEE_THROUGH_MEMBERS_KEY, SEE_THROUGH_PIECES_KEY, type SeeThroughMembers } from './see-through-occluders';
 import { LOCAL_LIGHTS_KEY } from './local-lights';
 import { LOD_OWNER_KEY } from './lod-switch';
 import { OCCLUDER_EARLY_RENDER_ORDER, setOccluderMarks } from './occluders';
@@ -177,6 +177,8 @@ export interface StaticMergerOptions {
   readonly now?: () => number;
   /** Culls each cell's members against the view (`view-cull.ts`; absent: a cell draws all of them). */
   readonly viewCull?: ViewCuller;
+  /** The entity a member draws for (null: none); a cell whose members all draw for one carries it ({@link mergedOwnerOf}). */
+  readonly ownerOf?: (mesh: THREE.Mesh) => string | null;
 }
 
 export interface StaticMerger {
@@ -442,6 +444,15 @@ function fillIndex(b: Built, list: readonly Slot[], order: Uint32Array | null): 
 
 /** The built cell behind each merged mesh, for tools that look inside a merged draw. */
 const builtOf = new WeakMap<THREE.Mesh, Built>();
+const cellOwners = new WeakMap<THREE.Object3D, string>();
+
+/**
+ * The one entity every member of a merged mesh draws for (a block layer's chunks), else null (members of several,
+ * or not a merged mesh): an editor isolating that entity shows the cell, not only the members it draws alone.
+ */
+export function mergedOwnerOf(mesh: THREE.Object3D): string | null {
+  return cellOwners.get(mesh) ?? null;
+}
 
 /** What the view's draw of a merged mesh holds for `camera` (null: not a merged mesh, or not culled for that camera). */
 export function mergedViewDrawOf(mesh: THREE.Object3D, camera: THREE.Camera): MergedViewDraw | null {
@@ -756,6 +767,9 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
     // A decal cell draws in its decal order, after the opaque scene (mesh-decals.ts).
     mesh.renderOrder = cell.decalOrder ?? MERGED_RENDER_ORDER;
     mesh.raycast = () => undefined;
+    const owners = new Set(list.map((sl) => options.ownerOf?.(sl.mesh) ?? null));
+    const owner = owners.size === 1 ? [...owners][0] : null;
+    if (owner !== null && owner !== undefined) cellOwners.set(mesh, owner);
     if (cell.built !== null) releaseBuilt(cell.built);
     const built = cullableCell({ mesh, geometry, template, index, vertices, vertexBytes, bounds });
     cell.built = built;
@@ -776,7 +790,8 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
       box: (i, out) => {
         const slot = built.drawnSlots[i];
         const g = slot?.mesh.geometry;
-        if (g === undefined) return false;
+        // A member that fades by its pieces (a block chunk) is found by its layer's own search, never as a whole.
+        if (g === undefined || slot!.mesh.userData[SEE_THROUGH_PIECES_KEY] === true) return false;
         if (g.boundingBox === null) g.computeBoundingBox();
         if (g.boundingBox === null || g.boundingBox.isEmpty()) return false;
         out.copy(g.boundingBox).applyMatrix4(memberMatrix.fromArray(slot!.matrix));

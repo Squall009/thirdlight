@@ -4,13 +4,16 @@
  * `THREE.LOD` (the detailed level near, the coarse one past the model's
  * switch distance plus the chunk's radius), stand-in blocks stay at full
  * detail, counts and bakes read the detailed meshes, and lightmapped chunks
- * carry UV1 on every level.
+ * carry UV1 on every level. A layer's chunks merge per material and square
+ * through the real batcher.
  */
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { BlockGrid, applyBlockEdits, type BlockType } from '@thirdlight/runtime';
 
+import { BATCHED_LAYER, createAutoBatcher } from './batching';
 import { BlockLayerView, blockLookFromObject } from './block-layers';
+import { OCCLUDER_EARLY_RENDER_ORDER } from './occluders';
 
 const LAYER = { cellSize: [1, 1, 1] as [number, number, number], bounds: { min: [0, 0, 0] as [number, number, number], max: [32, 4, 16] as [number, number, number] } };
 const TYPES: BlockType[] = [
@@ -153,5 +156,31 @@ describe('block view: paint and stand-in materials', () => {
     v.update();
     expect(applied).toEqual([null, null]);
     expect(meshesOf(v).some((m) => m.geometry.getAttribute('color') !== undefined)).toBe(false);
+  });
+});
+
+describe('block view: chunks merged per square', () => {
+  it("a layer's chunks merge per material in squares of the merge cell's size, drawn at the occluders' early order", () => {
+    const wide = { cellSize: [1, 1, 1] as [number, number, number], bounds: { min: [0, 0, 0] as [number, number, number], max: [80, 2, 16] as [number, number, number] } };
+    const g = new BlockGrid(wide);
+    const soil = TYPES[1]!;
+    applyBlockEdits(g, [{ kind: 'fill', box: [0, 0, 0, 80, 1, 16], cell: { block: 'soil' } }], { types: new Map([[soil.blockId, soil]]), stamps: new Map() });
+    const scene = new THREE.Scene();
+    const batcher = createAutoBatcher(scene, { now: () => 0 });
+    const v = new BlockLayerView({ place: (chunk, shown) => chunk.children.forEach((o) => (shown ? batcher.listed(o) : batcher.unlisted(o))) });
+    scene.add(v.root);
+    v.setTypes([soil]);
+    v.setLayer('ground', wide, [0, 0, 0], { entityId: 'ground', chunks: g.chunkKeys().map((k) => g.encodeChunk(k)) } as never);
+    v.update();
+    v.root.updateMatrixWorld(true);
+    batcher.update(new THREE.PerspectiveCamera());
+    const chunks = v.layerMeshes('ground');
+    expect(chunks).toHaveLength(5);
+    // Chunks 0–3 (0–64 m) are one square: one merged draw at the early order; chunk 4 is alone in the next square.
+    const cells = scene.children.filter((o) => o.name.startsWith('tl-merged:')) as THREE.Mesh[];
+    expect(cells).toHaveLength(1);
+    expect(cells[0]!.renderOrder).toBe(OCCLUDER_EARLY_RENDER_ORDER);
+    expect(chunks.filter((m) => m.layers.mask === 1 << BATCHED_LAYER)).toHaveLength(4);
+    expect(batcher.diagnostics().merging?.merged).toBe(4);
   });
 });

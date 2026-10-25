@@ -60,11 +60,11 @@ import * as THREE from 'three';
 import { LIGHT_LAYERS_ALL, type LocalLightMode } from '@thirdlight/runtime';
 
 import { createAttributeInstancedMesh, type AttributeInstancedMesh } from './attribute-instancing';
-import { LIGHT_LAYERS_KEY, objectLightLayers, ROOM_KEY, roomKeyOf } from './light-layers';
+import { LIGHT_LAYERS_KEY, objectLightLayers, ROOM_KEY, ROOM_VERTEX_KEYS, roomKeyOf } from './light-layers';
 import { objectSeeThrough, SEE_THROUGH_KEY, SUBJECT_DRAW_KEY } from './see-through';
 import { LOCAL_LIGHTS_KEY, objectLocalLights } from './local-lights';
 import { meshDecalRenderOrder } from './mesh-decals';
-import { occluderMarksOf, setOccluderMarks } from './occluders';
+import { OCCLUDER_EARLY_RENDER_ORDER, occluderMarksOf, setOccluderMarks } from './occluders';
 import { DECAL_LAYERS_KEY } from './projected-decals';
 import { OVERRIDES_KEY, RUNTIME_VALUES_KEY } from './material-graph';
 import { isStaticCaster, STATIC_CASTER_KEY } from './shadow-casters';
@@ -144,7 +144,9 @@ export function batchRefusal(mesh: THREE.Mesh): string | null {
   if (mat.visible === false) return 'material hidden';
   // The columns are applied before three's displacement (batches draw no displaced mesh).
   if ((mat as { displacementMap?: unknown }).displacementMap != null) return 'displacement map';
-  if (mesh.renderOrder !== 0 && mesh.renderOrder !== decalOrder) return 'render order';
+  // A static early occluder (a block chunk) keeps its order in a merged cell, which draws at that order.
+  const earlyStatic = mesh.renderOrder === OCCLUDER_EARLY_RENDER_ORDER && staticScopeOf(mesh) !== null;
+  if (mesh.renderOrder !== 0 && mesh.renderOrder !== decalOrder && !earlyStatic) return 'render order';
   if (mesh.onBeforeRender !== DEFAULT_ON_BEFORE_RENDER) return 'custom onBeforeRender';
   const layers = (mesh.userData[LAYERS_KEY] as number | undefined) ?? mesh.layers.mask;
   if (layers !== 1) return 'layers';
@@ -156,6 +158,8 @@ export function batchRefusal(mesh: THREE.Mesh): string | null {
   if (mesh.userData[ISOLATED_DRAW_KEY] === true) return 'isolated';
   // A see-through subject never fades itself, which only a draw of its own can tell.
   if (mesh.userData[SUBJECT_DRAW_KEY] === true) return 'see-through subject';
+  // Lit per vertex by the rooms its faces look into (a block chunk across rooms): one draw has one room.
+  if (mesh.userData[ROOM_VERTEX_KEYS] !== undefined) return 'spans rooms';
   const geometry = hint === true ? mesh.geometry : hint.geometry;
   if (geometry === undefined || geometry.getAttribute('position') === undefined) return 'no geometry';
   return null;
@@ -283,6 +287,8 @@ export interface AutoBatcherOptions {
    * too.
    */
   readonly park?: (o: THREE.Object3D, on: boolean) => void;
+  /** The entity a mesh draws for (null: none): merged cells of one entity's meshes carry it (`mergedOwnerOf`). */
+  readonly drawOwner?: (mesh: THREE.Mesh) => string | null;
   /**
    * What the static shadow casters draw changed here (the cached static shadow map is drawn again): static
    * members of a batch drawn into the dynamic map coming back to the static one, a static member touched (its
@@ -455,7 +461,7 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
           budgetMs: mergeMode === 'load' ? Infinity : (options.mergeBudgetMs ?? MERGE_BACKGROUND_BUDGET_MS),
           now,
           partsOf: batchKeyParts,
-          ...(options.viewCull !== undefined ? { viewCull: options.viewCull } : {}),
+          ...(options.viewCull !== undefined ? { viewCull: options.viewCull } : {}), ...(options.drawOwner !== undefined ? { ownerOf: options.drawOwner } : {}),
           onMerged: (mesh, on) => {
             const m = members.get(mesh);
             if (m !== undefined && (!on || m.wanting)) setMerged(m, on);
@@ -641,7 +647,7 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
     m.paint = paint;
     m.scope = staticScopeOf(m.mesh);
     mergeCheck.add(m);
-    if (parts === null) {
+    if (parts === null || m.mesh.renderOrder === OCCLUDER_EARLY_RENDER_ORDER) { // an early occluder merges or draws alone: a batch draws at order 0
       leave(m);
       return;
     }

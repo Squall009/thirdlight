@@ -24,6 +24,7 @@
 import type * as THREE from 'three';
 
 import { ISOLATED_DRAW_KEY } from './batching';
+import { mergedOwnerOf } from './static-merge';
 import { PATH_PAINT_ENTITY_KEY } from './vertex-paint-paths-view';
 import { HIDDEN_BY_ISOLATION, hideFromView } from './view-hidden';
 
@@ -54,7 +55,7 @@ export interface IsolationDiagnostics {
   readonly sweepMs: number;
 }
 
-/** The entity a drawable draws for: a logical parent's mark, else shared (a batch) or nothing (the sky, overlays). */
+/** The entity a drawable draws for: a logical parent's mark, a merged cell's one owner, else shared (a batch) or nothing (the sky, overlays). */
 export function drawOwner(o: THREE.Object3D, entityOf: (o: THREE.Object3D) => string | null): string | null {
   const id = entityOf(o);
   if (id !== null) return id;
@@ -62,7 +63,7 @@ export function drawOwner(o: THREE.Object3D, entityOf: (o: THREE.Object3D) => st
     const mark = (x.userData[VIEW_OWNER_KEY] ?? x.userData[PATH_PAINT_ENTITY_KEY]) as unknown;
     if (typeof mark === 'string') return mark;
   }
-  return o.userData['tlBatch'] === true ? SHARED_DRAW : null;
+  return o.userData['tlBatch'] === true ? (mergedOwnerOf(o) ?? SHARED_DRAW) : null;
 }
 
 export class IsolationView {

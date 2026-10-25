@@ -489,6 +489,7 @@ export class RoomCulling implements BatchMembership, RoomsSwitch {
       this.tags.set(pos.array, known);
       this.d.tagMs += performance.now() - t0;
     }
+    const was = mesh.userData[ROOM_VERTEX_KEYS] ?? mesh.userData[ROOM_KEY];
     if (known.attribute === null) {
       if (geo.getAttribute(ROOM_ATTRIBUTE) !== undefined) geo.deleteAttribute(ROOM_ATTRIBUTE);
       delete mesh.userData[ROOM_VERTEX_KEYS];
@@ -499,6 +500,8 @@ export class RoomCulling implements BatchMembership, RoomsSwitch {
       mesh.userData[ROOM_VERTEX_KEYS] = known.keys;
       this.d.tagged += 1;
     }
+    // Its room decides its batch (one room per draw; a mesh spanning rooms draws alone).
+    if ((mesh.userData[ROOM_VERTEX_KEYS] ?? mesh.userData[ROOM_KEY]) !== was) this.deps.regroup(mesh);
     if (this.walked) this.applyTo(mesh);
   }
 
