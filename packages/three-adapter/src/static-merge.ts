@@ -80,7 +80,7 @@ export const MERGE_QUIET_MS = 500;
 /** Fewest members wanting a cell before it is built (one alone draws the same either way). */
 export const MIN_MERGE = 2;
 
-/** The editor's time budget for building cells per frame (ms; at least one cell is built). */
+/** The time budget for building cells per frame: the editor's, and Play's once its level is merged (ms; at least one cell is built). */
 export const MERGE_BACKGROUND_BUDGET_MS = 4;
 
 /** Mark every plain mesh under `root` as static within `scope` (the host's scene); its instanced meshes cast into the static shadow map. */
@@ -168,6 +168,13 @@ export interface StaticMergerOptions {
   readonly cellSize: number;
   /** Build time per frame (ms; Infinity: every pending cell before the frame is drawn). */
   readonly budgetMs: number;
+  /**
+   * Build time per frame once the first cells are built and none is left
+   * waiting (absent: `budgetMs`): with an unlimited `budgetMs` a run's level
+   * is merged before its first frame, while a later dig or streamed chunk
+   * rebuilds its square over frames instead of in one.
+   */
+  readonly settledBudgetMs?: number;
   /** Where merged meshes are drawn. */
   readonly scene: THREE.Scene;
   /** A member started (or stopped) being drawn through its cell outside a `want` call (a cell was built or dropped). */
@@ -598,6 +605,8 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
   let frame = 0;
   let builds = 0;
   let buildsTotal = 0;
+  /** The first cells are built and nothing was left waiting: later builds take the settled budget. */
+  let settled = false;
   let buildMs = 0;
   let disposed = false;
 
@@ -881,6 +890,7 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
       if (disposed) return;
       builds = 0;
       const t0 = now();
+      const budgetMs = settled ? (options.settledBudgetMs ?? options.budgetMs) : options.budgetMs;
       for (const cell of queue) {
         if (!cell.needsBuild || cells.get(cell.key) !== cell) {
           queue.delete(cell);
@@ -891,15 +901,16 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
           queue.delete(cell);
           continue;
         }
-        if (options.budgetMs !== Infinity) {
+        if (budgetMs !== Infinity) {
           // In the background: slots may still be arriving (a model's meshes over a few frames), and a frame's budget.
           if (cell.addedAt === frame) continue;
-          if (builds > 0 && now() - t0 > options.budgetMs) break;
+          if (builds > 0 && now() - t0 > budgetMs) break;
         }
         build(cell);
         queue.delete(cell);
         builds += 1;
       }
+      if (buildsTotal + builds > 0 && queue.size === 0) settled = true;
       buildsTotal += builds;
       buildMs = builds > 0 ? Math.round((now() - t0) * 100) / 100 : 0;
       for (const cell of vertexDirty) {

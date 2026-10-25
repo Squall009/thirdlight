@@ -274,12 +274,13 @@ export interface AutoBatcherOptions {
   /**
    * Static batching (`static-merge.ts`): the meshes of static objects drawn
    * alone are merged per material and cell. `load` (default) builds every
-   * cell before the frame is drawn (Play, the export); `background` within a
+   * cell before the first frames are drawn (Play, the export), later ones (a
+   * dig, a streamed chunk) within the time budget; `background` within a
    * time budget per frame, the members drawn alone until it is ready (the
    * editor); `off` merges nothing.
    */
   readonly merging?: 'load' | 'background' | 'off';
-  /** Build time per frame in the background (ms; default `MERGE_BACKGROUND_BUDGET_MS`). */
+  /** Build time per frame in the background, and in `load` once loaded (ms; default `MERGE_BACKGROUND_BUDGET_MS`). */
   readonly mergeBudgetMs?: number;
   /** The clock a moved member's quiet time is measured on (tests). */
   readonly now?: () => number;
@@ -461,7 +462,7 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
       : createStaticMerger({
           scene,
           cellSize,
-          budgetMs: mergeMode === 'load' ? Infinity : (options.mergeBudgetMs ?? MERGE_BACKGROUND_BUDGET_MS),
+          budgetMs: mergeMode === 'load' ? Infinity : (options.mergeBudgetMs ?? MERGE_BACKGROUND_BUDGET_MS), settledBudgetMs: options.mergeBudgetMs ?? MERGE_BACKGROUND_BUDGET_MS,
           now,
           partsOf: batchKeyParts,
           ...(options.viewCull !== undefined ? { viewCull: options.viewCull } : {}), ...(options.drawOwner !== undefined ? { ownerOf: options.drawOwner } : {}),

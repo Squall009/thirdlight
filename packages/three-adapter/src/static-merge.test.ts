@@ -205,6 +205,32 @@ describe('static batching', () => {
     }
   });
 
+  it('in a run merges the level before its first frame, and spreads later rebuilds (a dig, a streamed chunk) over frames within the budget', () => {
+    const mat = new THREE.MeshLambertMaterial();
+    // Three squares far apart, two members each; every clock read takes 5 ms (a build is never free).
+    const ms = [0, 2, 300, 302, 600, 602].map((x) => prop(mat, x));
+    const scene = new THREE.Scene();
+    let t = 0;
+    for (const m of ms) scene.add(m);
+    const b = createAutoBatcher(scene, { now: () => (t += 5), merging: 'load' });
+    for (const m of ms) b.listed(m);
+    b.update(camera());
+    expect(merged(scene).length).toBe(3);
+    expect(ms.some(alone)).toBe(false);
+    // A member joins each square: one frame rebuilds no more than its budget allows; the rest follow in later frames.
+    const late = [4, 304, 604].map((x) => prop(mat, x));
+    for (const m of late) {
+      scene.add(m);
+      b.listed(m);
+    }
+    b.update(camera());
+    b.update(camera());
+    expect(late.filter(alone).length).toBeGreaterThan(0);
+    for (let i = 0; i < 6; i++) b.update(camera());
+    expect(late.some(alone)).toBe(false);
+    expect(b.pending()).toBe(false);
+  });
+
   it('builds in the background a frame after its members arrive, drawing them alone meanwhile; off draws everything alone', () => {
     const mat = new THREE.MeshLambertMaterial();
     const ms = [0, 2].map((x) => prop(mat, x));
