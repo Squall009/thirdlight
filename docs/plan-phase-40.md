@@ -238,6 +238,7 @@ is one step in the terrain or scatter e2e.
 | 40.10 | Browser acceptance done, owner look pending; full gate + review by lead. Built as a user would: 3D starter from the picker, a 1 km terrain (2 × 2 tiles, heightmap import, 4-layer material, 50 painted patches) and the hut (block-built room, moss rule on its floor) by commands, the guide's three cover rules on the terrain editor's Scatter cards, wind zone from GameObject → Light, physical sky with clouds, wind 3; exported and played at the 60 Hz cap, 1920×1080, rAF timing (load 1–2): WebGPU hill/walk/run p95 16.8/16.7/16.7 ms, 0 missed; interior 16.8, 0 missed both; WebGL 2 hill 16.7, run 0–3 missed, but the walk 10–20 missed (D316; 0 with the cover removed). Looked at: `acceptance/40.10-*.jpg` (editor Scene view, hill to the far edge, walk, run, interior moss, both renderers) and `40.10-walk.webm` (WebGPU, walking in wind); grass parting round the player is subtle at the defaults, the zone's calm in motion unverified by eye. Look notes for the owner: pale blue-grey blade bases (`rootColour` is off by default), the cover's edge at 60 m against the flat far layer colour, the roofed room lit as brightly as outside. Guide fixed: a new rule card's Spacing (4 m) kept the cover to a clump per 16 m² (now: Spacing 0), Lean is a percentage, the layer share field. |
 | 40.10 D316 | Done 2026-10-25 (6df002bd): cause is not a lazy program or upload (none at the stalls; per-frame heavy-call counts and a GPU-process trace show one `vkQueueSubmit` blocking 650–800 ms after bursts of 33/50 ms frames): the 3D starter's scene has no post stack, so it draws with 4× MSAA, which the cover's thin blades make ~4.8 ms dearer (WebGPU scene pass 13.15 vs 8.35 ms at full clock; GPU clock pinned at 1,400 MHz on WebGL 2 either way); WebGL 2 then falls behind and ANGLE backs up. Repro in the perf tool: `meadow --starter --no-post` (WebGL 2 53.6 fps, 650 ms stall; WebGPU 0 missed). Fix: the 3D starter's scene smooths edges with SMAA (template setup pack + generator; vitest in `templates.test.ts`); the meadow guide says why. Acceptance walk rebuilt from the template, at the cap, 3 rounds (load 1.2): hill/walk/run p95 16.7–16.8, 0 missed on both renderers every round (before: walk 2–13 missed with a 650–816 ms stall in 8 of 11 runs). Perf tooling: `meadow --walk V/--walk-from/--starter/--no-post/--spacing/--blocks-layer/--query`, steps during the record (`during`, key `down`/`up`), per-frame heavy GPU calls (`frameCalls`: `missedCalls`, `heavyCalls`). Also seen: block-layer cover builds each ring's program at its first draw (14–20 ms node build, one 33 ms frame per ring; D317). |
 | 40.10 D317 | Done 2026-10-25 (84d31213): hidden draws (cover ring pages of every source, stored copies' unused levels) are held for the precompile once and released (`program-warmer.ts`); grown point/list/mask textures swap through texture nodes (no remade draws). Meadow `--starter --moss-ahead 40 --moss-right -17` at the cap, 2 rounds each (load 1.2–3.2): both renderers 0 missed, p95 ≤ 16.8, no program built during the walk, live programs/pipelines constant after load; the old build showed no ring stall in this tool either. Fast gate: level-acceptance fails on HEAD too (D318). E2E time unchanged (no e2e touched). |
+| 40.11 | Done 2026-10-25 (fba0d51e … 421e8455): the review's 3 High and 6 Medium fixed, each with a test that fails without it (H1 mask growth kept every layer; H2 moved point-source cover; H3 block-editor ray on merged chunks, terrain-brushes e2e; M1 cut-away meshes never merge; M2 wind scroll integrated; M3/D318 paint diagnostic counts copies; M4 Play merges later cells in 4 ms a frame; M5 no setWind cap; M6 checklist rows), plus the full gate's real failures (shadows ×3 under drifting clouds, play-start-cache ×2 instanced diagnostic, terrain-brushes/-paint = H3, level-acceptance = D318). At the cap (load 0.8–5.5): Play grid writes (blocks class export, a cell every other step) WebGPU/WebGL 2 worst 33.3/16.8 ms, 0–1/0 frames > 33 ms vs unlimited merging 50/50 ms, 8/6 frames > 33 ms; meadow (template, wind, walker, clouds) p95 16.8/16.8, 0 missed, main 2.38/1.79 ms, WebGPU GPU 13.0 ms full clock; landscape p95 16.7/16.8, 0 missed, 243 draws (218 scene), main 3.72/3.71 ms; village p95 16.8/16.7, 0 missed, main 4.58/4.31 ms. E2E: terrain-brushes 5.7 → 6.1 s, play-start-cache's set test 1.1 m (timeout) → 2.7 s, shadows unchanged. Fast gate green (9 min). |
 
 ## 5. Decision log
 
@@ -518,3 +519,36 @@ is one step in the terrain or scatter e2e.
   bake already exists. Terrain cover only: block layers and meshes have no baked colour (left out, as the plan
   allows). The blend is `rootColour` at the root easing (smoothstep) to none at `rootColourHeight` of COLOR_0 R;
   "Convert to graph" does not carry it (the graph has no ground input).
+- 2026-10-25 (40.11, phase review): Full gate RED (41 min vs 29 min for 39c): 377 passed, 9 real failures, 1
+  flake (dialogue.e2e.ts:383, export root "not a directory", passed alone: D319 watch). E2e grew 23.6 → 26.4 min;
+  the failed tests' timeouts take 8.5 min of test time (≈ 4.3 min on 2 workers), the passing steps phase 40 grew
+  add ~5 s (materials +2.6, environment +1.9, block-layers +0.6). The failures: shadows ×3 (a new project's sky has
+  drifting clouds since 0e665e28, so Play never gave two equal frames: the tests set cloud cover 0), play-start-cache
+  ×2 (instance sets draw through GPU copies since 099b8610; the instanced diagnostic counted only instance-matrix
+  draws), terrain-brushes and terrain-paint ×2 (H3), level-acceptance (D318 = M3). All fixed in 421e8455 / below.
+  Review (independent, one page, `~/.cache/thirdlight-phase40/review.md`): 3 High, 6 Medium, 10 Low.
+  - H1 a grown cover mask texture wiped every earlier mask on the GPU (three uploads only listed layers): fba0d51e.
+  - H2 cover of a moved block layer / settled model or architecture drew at the old origin: 62f1b756.
+  - H3 the block editor's ray missed chunks merged into static cells: 1b96ec02 (e2e: brush on the edited hill).
+  - M1 a cut-away roof merged into a cell stayed drawn: cut-away meshes never merge, fe311fa6.
+  - M2 the ground gust pattern raced and jumped on wind changes: scroll anchored like the clouds, 334a9b34.
+  - M3 (D318) the paint diagnostic counted mesh vertices of GPU copies draws: 0cc3b2ec; the drawing was right.
+  - M4 every dig or streamed chunk rebuilt its 64 m square in one Play frame: later cells take 4 ms a frame,
+    57d7ff9a (grid writes at the cap: 8/6 frames > 33 ms → 0–1/0).
+  - M5 `setWind` refused after 16 overlapping blends: shares under 1e-4 let go instead, no count cap, 8ad3144d.
+  - M6 private three hooks added to the upgrade checklist: 586420ea.
+  - Lows left open (none was a one-liner in a touched file): L1 ring-cut boiling, L2 off-screen cover casters,
+    L3 patch count for small tiles × long reach, L4 WebGL 2 flip of a swapped noise asset, L5 copied hash/row
+    constants, L6 `coverForget` never sent, L7 per-chunk `left` arrays and whole copy-texture re-uploads, L8 rings'
+    LOD pick without the mean size, L9 the CPU instance path for architecture/spline pieces, L10 tests compiled not
+    compared numerically, the foliage parity reference captured from the code under test.
+  Rule checks (review): no per-project caps left (the wind cap is gone); per-view bounds MAX_LEVELS 8, 4 bend
+  subjects, mask side ≤ 512; one placement pipeline (L9 remains); sizes within the ratchet; no history comments;
+  no game names or art style in the engine. Default chosen, owner to confirm: `setWind` lets go of shares under 1e-4
+  of the mix on a change (a change of the wind far below what shows); Play merges after load within 4 ms a frame
+  (a dug square draws its chunks alone for a frame or two). Owner's eyes: every 40.10 acceptance shot and the walk
+  video; grass parting at the defaults, the recovering trail, a zone's calm and cloud drift in motion, WebGL 2
+  Scene view and interior cover, kept-clear bands and house cover, possible ring-cut boiling (L1); the defaults
+  marked "owner to confirm" in this log; clouds now on (0.4) in every procedural sky, existing projects included;
+  targets: cover main thread ≤ 0.5 ms met within noise only, D212 landscape ≤ 2 ms not met, D313 copies not
+  occlusion-culled, MSAA with dense cover still stalls WebGL 2 (D316 avoided by SMAA).
