@@ -69,3 +69,10 @@ export const GROUND_UP_EPS = 1e-3 as const;
 export const INTERNAL_EDGE_TOUCH_EPS = 1e-4 as const;
 export const INTERNAL_EDGE_PROBE = 1 as const;
 export const INTERNAL_EDGE_CONE_EPS = 1e-3 as const;
+
+/**
+ * How far above its skin a grounded character may end a step before it is
+ * settled onto the skin (m): above the controller's own sub-millimetre
+ * jitter on flat ground, below the centimetre a landing leaves.
+ */
+export const REST_SETTLE_TOLERANCE = 1e-3 as const;

@@ -28,6 +28,7 @@ import { inPlane, isPlane, lockBody, onPlane, planePose } from './plane3d';
 import { capsuleLowAlong, holds, markOneWay, OneWaySweeps, upOf, type OneWayShape } from './oneway3d';
 import { createStepUp } from './step-up3d';
 import { groundContacts3D, type InternalEdgeWorld } from './internal-edges3d';
+import { settleDrop, type SettleWorld } from './settle3d';
 import { restoreMovers, stillMovers, type StilledBody } from './kinematic-still3d';
 import { CLEARANCE_PENETRATION_EPS, CLEARANCE_RAY_EPS, CLEARANCE_SUPPORT_PROBE, FIXED_HZ_CHOICES, FOOTPRINT_BALL, GROUND_NORMAL_TOLERANCE, MAX_DROP_THROUGH_STEPS, MAX_SHAPE_VALUE } from './constants';
 
@@ -992,15 +993,13 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
       othersOut = kept;
     }
   }
-  const edges: InternalEdgeWorld = {
+  const edges: InternalEdgeWorld & SettleWorld = {
     get world() {
       return world;
     },
     sees: (c) => !characterHandles.has(c.handle) && (othersOut === undefined || othersOut(c)),
-    solidStatic: (c) => {
-      const info = infoByHandle.get(c.handle);
-      return info !== undefined && info.oneWay === undefined && !info.kinematic;
-    },
+    solidStatic: (c) => infoByHandle.get(c.handle)?.oneWay === undefined && edges.fixed(c),
+    fixed: (c) => infoByHandle.get(c.handle)?.kinematic === false,
   };
   /** A step-up that has not reached the top after a second ends (the character falls as usual). */
   const maxSteppingSteps = config.solver.hz;
@@ -1240,12 +1239,12 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
     }
     // Standing still. A grounded character asked for nothing across and at most a
     // fall, whose sweep moved it less than its skin, on something that does not move (not a
-    // mover or a collider a script drives), stays exactly where it is — Rapier's sweep and
-    // ground snap otherwise alternate it by about 0.1 mm every step (measured), so it never
-    // comes to rest.
+    // mover or a collider a script drives), comes to rest at its skin and stays exactly there —
+    // Rapier's sweep and ground snap otherwise alternate it by about 0.1 mm every step
+    // (measured), so it never comes to rest, and leave it where its landing step ended (`settleDrop`).
     if (!midStep && b.grounded && rawGrounded && across < 1e-12 && commanded.y <= 0 && Math.hypot(swept.x, swept.y, swept.z) < skin) {
       const under = supportUnder(b, before);
-      if (under !== null && infoByHandle.get(under.handle)?.kinematic !== true) swept = { x: 0, y: 0, z: 0 };
+      if (under !== null && infoByHandle.get(under.handle)?.kinematic !== true) swept = { x: 0, y: -settleDrop(edges, b.overlapCapsule, at(b, before), skin, snapDistance + skin), z: 0 };
     }
     // Stepping up. Rapier's own autostep missed risers above about 0.15 m with a
     // capsule (measured with rapier3d 0.20.0: a 0.2 m riser blocked a walking capsule of radius

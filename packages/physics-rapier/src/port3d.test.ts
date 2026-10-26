@@ -207,6 +207,32 @@ describe('the Rapier 3D port', () => {
   });
 });
 
+describe('a landing rests at the skin', () => {
+  // The fall ends wherever a step brings the floor within Rapier's grounding reach; from the next step the character
+  // rests at its skin as a placed one does, whatever the skin, held still (a side view stages nothing) or pressed
+  // down (free).
+  for (const skin of [0.01, 0.03, 0.05]) {
+    it(`skin ${skin} m: at the floor plus the skin from the step after the landing on`, async () => {
+      for (const pressed of [false, true]) {
+        const port = await portOf({ ...config([box('floor', [0, -0.5, 0], [5, 0.5, 5])]), controller: { ...config([]).controller, offsetSkin: skin } });
+        let v = 0;
+        let grounded = false;
+        let landed = -1;
+        for (let i = 0; i < 240; i += 1) {
+          v = grounded ? 0 : Math.max(-30, v + G / HZ);
+          port.stageCharacterMove({ x: 0, y: grounded && pressed ? G / HZ / HZ : v / HZ, z: 0 });
+          const r = port.step();
+          grounded = r.grounded;
+          if (grounded && landed < 0) landed = i;
+          if (landed >= 0 && i > landed) expect(Math.abs(r.position.y - (0.9 + skin))).toBeLessThan(1.5e-3);
+        }
+        expect(landed).toBeGreaterThan(0);
+        port.dispose();
+      }
+    });
+  }
+});
+
 describe('stepping up a riser', () => {
   /** Walk +x at 3 m/s (gravity staged in the air) toward a 0.2 m riser at x = 1 with autostep 0.25 m; each step's x and y. */
   async function walkUp(ride: boolean): Promise<{ x: number; y: number }[]> {
