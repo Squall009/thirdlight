@@ -59,7 +59,7 @@ export const REPACK_MS = 250;
 
 const WORKGROUP = 64;
 const USAGE = { MAP_READ: 0x1, COPY_SRC: 0x4, COPY_DST: 0x8, UNIFORM: 0x40, STORAGE: 0x80 } as const;
-const TEXTURE = { COPY_DST: 0x2, TEXTURE_BINDING: 0x4, STORAGE_BINDING: 0x8 } as const;
+const TEXTURE = { COPY_SRC: 0x1, COPY_DST: 0x2, TEXTURE_BINDING: 0x4, STORAGE_BINDING: 0x8 } as const;
 
 const SCATTER_WGSL = /* wgsl */ `
 @group(0) @binding(0) var<uniform> N: vec4u;
@@ -132,7 +132,7 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
     return new SurfaceLightRuntime(device, host, pass, scatter, await SurfaceProbePass.create(device, pass.tracer));
   }
 
-  /** The atlas and ring textures (null until the first frame made them). */
+  /** The atlas and ring textures (null until the first frame made them; they can be copied out: a bake saves them, a check reads them). */
   get textures(): { atlas: GpuTexture | null; rings: GpuTexture | null } {
     return { atlas: this.atlas, rings: this.rings };
   }
@@ -154,13 +154,13 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
     if (this.atlas === null || this.atlasLayers < pages) {
       this.atlas?.destroy();
       this.atlasLayers = pages;
-      this.atlas = this.device.createTexture({ size: [SURFACE_PAGE_TEXELS, SURFACE_PAGE_TEXELS, pages], format: 'rgba16float', usage: TEXTURE.TEXTURE_BINDING | TEXTURE.STORAGE_BINDING | TEXTURE.COPY_DST, label: 'surface cache atlas' });
+      this.atlas = this.device.createTexture({ size: [SURFACE_PAGE_TEXELS, SURFACE_PAGE_TEXELS, pages], format: 'rgba16float', usage: TEXTURE.TEXTURE_BINDING | TEXTURE.STORAGE_BINDING | TEXTURE.COPY_DST | TEXTURE.COPY_SRC, label: 'surface cache atlas' });
     }
     const ringLayers = Math.max(1, this.host.cache.ringTerrains().length) * TERRAIN_RINGS_MAX;
     if (this.rings === null || this.ringLayers < ringLayers) {
       this.rings?.destroy();
       this.ringLayers = ringLayers;
-      this.rings = this.device.createTexture({ size: [TERRAIN_RING_TEXELS, TERRAIN_RING_TEXELS, ringLayers], format: 'rgba16float', usage: TEXTURE.TEXTURE_BINDING | TEXTURE.STORAGE_BINDING | TEXTURE.COPY_DST, label: 'surface cache rings' });
+      this.rings = this.device.createTexture({ size: [TERRAIN_RING_TEXELS, TERRAIN_RING_TEXELS, ringLayers], format: 'rgba16float', usage: TEXTURE.TEXTURE_BINDING | TEXTURE.STORAGE_BINDING | TEXTURE.COPY_DST | TEXTURE.COPY_SRC, label: 'surface cache rings' });
     }
   }
 
@@ -187,16 +187,7 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
     if (probes.count === 0 || this.probePass.busy) return;
     const slots = probes.plan(this.host.eye, now);
     if (slots.length === 0) return;
-    this.syncScene(now);
-    this.ensureTextures();
-    // The resolve tables follow the traced scene (the same object order) and the residency.
-    const { scene, version } = this.host.resolveScene();
-    if (version === this.sceneVersion && (version !== this.resolvedFor || this.host.residencyVersion !== this.resolvedResidency)) {
-      this.probePass.resolve.setTable(packResolveTable(scene, this.host.cache).words);
-      this.resolvedFor = version;
-      this.resolvedResidency = this.host.residencyVersion;
-    }
-    if (this.resolvedFor < 0) return;
+    if (!this.syncProbeInputs(now)) return;
     const layout = probes.layout;
     this.probePass.run({ probes, slots, sky: this.sky, rooms: this.host.rooms()?.words ?? null, atlas: this.atlas!, rings: this.rings! }, (values, ms) => {
       if (probes.layout !== layout) return;
@@ -205,6 +196,23 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
       probes.report(ms, slots.length);
       this.onProbeTimed?.(ms, slots.length);
     });
+  }
+
+  /**
+   * What a probe update reads, up to date: the traced scene, the cache's
+   * textures and the resolve tables (packed with the traced scene, the same
+   * object order, and again when the residency changed). False: no tables yet.
+   */
+  syncProbeInputs(now = performance.now()): boolean {
+    this.syncScene(now);
+    this.ensureTextures();
+    const { scene, version } = this.host.resolveScene();
+    if (version === this.sceneVersion && (version !== this.resolvedFor || this.host.residencyVersion !== this.resolvedResidency)) {
+      this.probePass.resolve.setTable(packResolveTable(scene, this.host.cache).words);
+      this.resolvedFor = version;
+      this.resolvedResidency = this.host.residencyVersion;
+    }
+    return this.resolvedFor >= 0;
   }
 
   private lightTexels(lights: readonly CacheLight[], now: number): void {

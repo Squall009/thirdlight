@@ -8,7 +8,7 @@
  */
 import { NO_ROOM, ROOM_EXIT_MARGIN, closedPortalCpu, roomExitCpu } from './surface-rooms';
 import { BOUNCE_ALBEDO, PROBE_AXIS_RAYS, PROBE_BLEND_MIN, PROBE_FLOATS, PROBE_HIT_LIFT, PROBE_RAY_SPACINGS, PROBE_RAYS, PROBE_SH_RAYS, SH_Y0, SH_Y1, probesIrradianceAt, shIrradiance, type LiveProbes } from './surface-probes';
-import { EXACT_TRACE } from './tracer-cpu-math';
+import { EXACT_TRACE, type TraceHit } from './tracer-cpu-math';
 import { sceneView, traceRayCpu } from './tracer-cpu';
 import { TRACE_MISS, TRACE_UNFINISHED, type PackedTraceScene } from './tracer-scene';
 
@@ -33,7 +33,8 @@ export function probeRayCpu(probe: number, k: number, seed: number): V3 {
   const i = k - PROBE_AXIS_RAYS;
   const z = 1 - (2 * i + 1) / PROBE_SH_RAYS;
   const r = Math.sqrt(Math.max(0, 1 - z * z));
-  const phi = i * GOLDEN_ANGLE;
+  const turns = Math.fround(i * Math.fround(GOLDEN_ANGLE / (2 * Math.PI)));
+  const phi = (turns - Math.floor(turns)) * 6.2831853;
   const v: V3 = [r * Math.cos(phi), z, r * Math.sin(phi)];
   let s = pcg((probe ^ Math.imul(seed, 0x9e3779b9)) >>> 0);
   const rnd = (): number => {
@@ -61,8 +62,8 @@ export interface ProbeUpdateInput {
   readonly rooms: Uint32Array | null;
   readonly seed: number;
   readonly scene: PackedTraceScene;
-  /** A hit's direct light from its cache texel (irradiance). */
-  readonly direct: (point: V3, normal: V3) => V3;
+  /** A hit's direct light from its cache texel (irradiance), by its point and normal and the hit itself. */
+  readonly direct: (point: V3, normal: V3, hit: TraceHit) => V3;
 }
 
 /**
@@ -119,7 +120,7 @@ export function probeUpdateCpu(input: ProbeUpdateInput): Float32Array {
           if (k >= PROBE_AXIS_RAYS) back += 1;
         } else {
           const p: V3 = [o[0] + d[0] * h.t, o[1] + d[1] * h.t, o[2] + d[2] * h.t];
-          const dl = input.direct(p, n);
+          const dl = input.direct(p, n, h);
           const ind = probesIrradianceAt(probes.grids, state, [p[0] + n[0] * PROBE_HIT_LIFT, p[1] + n[1] * PROBE_HIT_LIFT, p[2] + n[2] * PROBE_HIT_LIFT], n, [0, 0, 0], rooms);
           L = [0, 1, 2].map((q) => (BOUNCE_ALBEDO / Math.PI) * (dl[q]! + ind[q]!)) as V3;
         }

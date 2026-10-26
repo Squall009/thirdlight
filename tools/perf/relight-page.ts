@@ -8,7 +8,12 @@
  * timed until the cache is settled again. The GPU resolve is held to its
  * CPU twin on the same hits.
  */
-import { BlockGrid, TerrainField, decodeDistanceBricks, type BlockType, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
+import { BlockGrid, PROBE_VALIDITY_THRESHOLD, TerrainField, buildRoomGraph, decodeDistanceBricks, type ArchitectureRoomPlan, type BlockType, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
+
+import { probeUpdateCpu } from '../../packages/three-adapter/src/surface-probe-cpu';
+import { PROBE_FLOATS } from '../../packages/three-adapter/src/surface-probes';
+import { SURFACE_PAGE_TEXELS } from '../../packages/three-adapter/src/surface-cache-atlas';
+import { TERRAIN_RINGS_MAX, TERRAIN_RING_TEXELS } from '../../packages/three-adapter/src/surface-cache-terrain';
 
 import { GpuResolve } from '../../packages/three-adapter/src/surface-resolve-gpu';
 import { SurfaceCacheHost, type SurfaceHostModel } from '../../packages/three-adapter/src/surface-cache-host';
@@ -25,6 +30,15 @@ import { opaqueByBlockTypes, traceBlockLayerOf, traceModelInstancesOf, traceTerr
 import { invertAffine } from '../../packages/three-adapter/src/tracer-words';
 
 type V3 = [number, number, number];
+
+const roomGraphs = new WeakMap<object, ReturnType<typeof buildRoomGraph>>();
+/** The input's room as the room culling hands it to light: its doorway open or shut. */
+function roomsOf(r: NonNullable<RelightInput['rooms']>): { graph: ReturnType<typeof buildRoomGraph>; open: (p: number) => boolean; version: number } {
+  let graph = roomGraphs.get(r);
+  if (graph === undefined) roomGraphs.set(r, (graph = buildRoomGraph([{ id: 'house', origin: [0, 0, 0], rooms: [r.plan] }])));
+  const g = graph;
+  return { graph: g, open: (p) => g.portals[p]!.kind !== 'opening' || r.doorOpen, version: 0 };
+}
 
 export interface RelightInput {
   scene: 'door' | 'village';
@@ -47,6 +61,8 @@ export interface RelightInput {
   room: { min: V3; max: V3 } | null;
   /** GPU time (ms) a stand-in frame takes before each update (0: none): a game's frame holds the GPU's clock up. */
   loadMs: number;
+  /** A room on the block layer (generated architecture's) and whether its doorway is open (null: no rooms). */
+  rooms: { plan: ArchitectureRoomPlan; doorOpen: boolean } | null;
 }
 
 /** A stand-in for a game's frame on the GPU: an ALU loop sized to take about `ms` (calibrated by timestamps as the clock settles). */
@@ -161,6 +177,7 @@ async function run(input: RelightInput): Promise<Record<string, unknown>> {
       architecture: () => [],
       models: () => models,
       bricks: (assetId) => Promise.resolve(files.get(assetId)!),
+      ...(input.rooms !== null ? { rooms: () => roomsOf(input.rooms!) } : {}),
     },
     budget,
     input.budgetMs,
@@ -178,6 +195,8 @@ async function run(input: RelightInput): Promise<Record<string, unknown>> {
   const pass = rt.pass;
   let timed: ((ms: number, t: number, parts: readonly number[]) => void) | null = null;
   rt.onTimed = (ms, t, parts) => timed?.(ms, t, parts);
+  let probeTimed: ((ms: number) => void) | null = null;
+  rt.onProbeTimed = (ms) => probeTimed?.(ms);
   let lights = input.lights;
   const loop = async (maxMs: number): Promise<Record<string, unknown>> => {
     const t0 = performance.now();
@@ -192,6 +211,11 @@ async function run(input: RelightInput): Promise<Record<string, unknown>> {
       passMs.push([...parts]);
       perTexel.push((ms * 1e6) / t);
     };
+    const probeMs: number[] = [];
+    probeTimed = (ms) => probeMs.push(ms);
+    const updates0 = host.probes.diagnostics().updates;
+    let probesMs: number | null = null;
+    let directMs: number | null = null;
     let last = await frame();
     let frames = 0;
     let roomMs: number | null = null;
@@ -215,7 +239,12 @@ async function run(input: RelightInput): Promise<Record<string, unknown>> {
         roomFrames = frames;
       }
       const d = host.diagnostics();
-      if (d.preparing === 0 && d.reading === 0 && d.tiles.resident === d.tiles.offered && d.tiles.offered > 0 && d.relight.settled) break;
+      const direct = d.preparing === 0 && d.reading === 0 && d.tiles.resident === d.tiles.offered && d.tiles.offered > 0 && d.relight.settled;
+      if (direct && directMs === null) directMs = performance.now() - t0;
+      if (direct && d.probes.settled) {
+        probesMs = performance.now() - t0;
+        break;
+      }
       if (performance.now() - t0 > maxMs) break;
     }
     const wall = performance.now() - t0;
@@ -242,6 +271,13 @@ async function run(input: RelightInput): Promise<Record<string, unknown>> {
       missed: intervals.filter((v) => v > 1.5 * (1000 / 60)).length,
       relight: d.relight,
       cache: { usedBytes: d.usedBytes, resident: d.tiles.resident, offered: d.tiles.offered, rings: d.rings },
+      probesMs,
+      directMs,
+      probeMsMedian: probeMs.length > 0 ? [...probeMs].sort((a, b) => a - b)[Math.floor(probeMs.length / 2)] : null,
+      probeMsMax: probeMs.length > 0 ? Math.max(...probeMs) : null,
+      probeUpdates: d.probes.updates - updates0,
+      probeCount: d.probes.probes,
+      probesPerUpdate: d.probes.perUpdate,
     };
   };
   const cold = await loop(60000);
@@ -333,9 +369,112 @@ async function run(input: RelightInput): Promise<Record<string, unknown>> {
     lit += 1;
     if (Math.abs(g - c) <= 0.02 * Math.max(g, c) + 1e-4) close += 1;
   }
+  const probeTwin = await probesAgainstTwin(device, host, rt, packTraceScene(host.traceSource().source));
   rt.dispose();
   device.destroy();
-  return { adapter: adapter.info?.description ?? adapter.info?.vendor ?? '', timed: pass.timed, cold, still, events, resolve: { rays: n, resolved, mismatches, kinds, tableBytes: table.words.byteLength }, light: { texels: nt, lit, within2pc: close } };
+  return { adapter: adapter.info?.description ?? adapter.info?.vendor ?? '', timed: pass.timed, cold, still, events, resolve: { rays: n, resolved, mismatches, kinds, tableBytes: table.words.byteLength }, light: { texels: nt, lit, within2pc: close }, probeTwin };
+}
+
+/**
+ * One probe update on the GPU against its CPU twin on the same probes and
+ * seed, the twin reading the cache's light from the atlas and rings read
+ * back (the GPU's own texels at its hits).
+ */
+async function probesAgainstTwin(device: any, host: SurfaceCacheHost, rt: SurfaceLightRuntime, trace: ReturnType<typeof packTraceScene>): Promise<Record<string, number>> {
+  const probes = host.probes;
+  const before = probes.state.slice();
+  const slots = Uint32Array.from({ length: Math.min(probes.count, 256) }, (_, i) => Math.floor((i * probes.count) / Math.min(probes.count, 256)));
+  const { atlas, rings } = rt.textures;
+  if (atlas === null || rings === null || slots.length === 0) return { probes: 0, lit: 0, within5pc: 0, meanShare: 0 };
+  // The textures read back: every page layer of the atlas and every ring layer.
+  const readLayers = async (tex: any, side: number, layers: number): Promise<Float32Array[]> => {
+    const out: Float32Array[] = [];
+    for (let l = 0; l < layers; l += 1) {
+      const buf = device.createBuffer({ size: side * side * 8, usage: 0x1 | 0x8 });
+      const enc = device.createCommandEncoder();
+      enc.copyTextureToBuffer({ texture: tex, origin: { x: 0, y: 0, z: l } }, { buffer: buf, bytesPerRow: side * 8, rowsPerImage: side }, { width: side, height: side, depthOrArrayLayers: 1 });
+      device.queue.submit([enc.finish()]);
+      await buf.mapAsync(0x1);
+      const half = new Uint16Array(buf.getMappedRange().slice(0));
+      buf.unmap();
+      buf.destroy();
+      const f = new Float32Array(half.length);
+      for (let i = 0; i < half.length; i += 1) {
+        const h = half[i]!;
+        const e = (h >> 10) & 31;
+        const m = h & 1023;
+        f[i] = (h & 0x8000 ? -1 : 1) * (e === 0 ? m * 2 ** -24 : e === 31 ? Infinity : (1 + m / 1024) * 2 ** (e - 15));
+      }
+      out.push(f);
+    }
+    return out;
+  };
+  const pages = await readLayers(atlas, SURFACE_PAGE_TEXELS, Math.ceil(host.cache.budgetBytes / (SURFACE_PAGE_TEXELS * SURFACE_PAGE_TEXELS * 8)));
+  const ringSide = TERRAIN_RING_TEXELS;
+  const ringLayers = await readLayers(rings, ringSide, Math.max(1, host.cache.ringTerrains().length) * TERRAIN_RINGS_MAX);
+  const scene = host.resolveScene().scene;
+  // The hit's texel as the GPU's resolve finds it (its CPU twin over the same tables), its light from the textures read back.
+  rt.syncProbeInputs();
+  const table = packResolveTable(scene, host.cache).words;
+  const one = new Uint32Array(8);
+  const onef = new Float32Array(one.buffer);
+  const direct = (_p: unknown, _n: unknown, hit: Parameters<Parameters<typeof probeUpdateCpu>[0]['direct']>[2]): [number, number, number] => {
+    onef[0] = hit.t;
+    onef.set(hit.normal, 1);
+    one[4] = (hit.kind | (hit.face << 8)) >>> 0;
+    one[5] = hit.object;
+    one[6] = hit.a0;
+    one[7] = hit.a1;
+    const [a, b] = resolveHitCpu(table, one, 0);
+    const x = b & 0xffff;
+    const y = b >>> 16;
+    if (a >>> 30 === 1) {
+      const d = pages[a & 0x3fffffff]!;
+      const at = (y * SURFACE_PAGE_TEXELS + x) * 4;
+      return [d[at]!, d[at + 1]!, d[at + 2]!];
+    }
+    if (a >>> 30 === 2) {
+      const d = ringLayers[((a >>> 3) & 0x7ffffff) * TERRAIN_RINGS_MAX + (a & 7)]!;
+      const at = (y * ringSide + x) * 4;
+      return [d[at]!, d[at + 1]!, d[at + 2]!];
+    }
+    return [0, 0, 0];
+  };
+  // Both from one state: the probes as the CPU holds them, and (first) all dark, so only the cache's light and the sky count.
+  const twin = async (dark: boolean): Promise<{ gpu: Float32Array; cpu: Float32Array }> => {
+    if (dark) probes.state.fill(0);
+    else probes.state.set(before);
+    while (rt.probePass.busy) await frame();
+    rt.syncProbeInputs();
+    rt.probePass.reload();
+    const start = probes.state.slice();
+    const gpu = await new Promise<Float32Array>((resolve) => rt.probePass.run({ probes, slots, sky: rt.sky, rooms: host.rooms()?.words ?? null, atlas, rings }, (v) => resolve(v)));
+    probes.state.set(start);
+    const cpu = probeUpdateCpu({ probes, slots, sky: rt.sky, rooms: host.rooms()?.words ?? null, seed: rt.probePass.lastSeed, scene: trace, direct });
+    return { gpu, cpu };
+  };
+  const darkRun = await twin(true);
+  const compare = (g: Float32Array, c: Float32Array): { lit: number; close: number; share: number } => {
+    let lit = 0;
+    let close = 0;
+    let share = 0;
+    for (let s = 0; s < slots.length; s += 1) {
+      const a = g[s * PROBE_FLOATS]! + g[s * PROBE_FLOATS + 1]! + g[s * PROBE_FLOATS + 2]!;
+      const b = c[s * PROBE_FLOATS]! + c[s * PROBE_FLOATS + 1]! + c[s * PROBE_FLOATS + 2]!;
+      // Probes inside geometry (under the terrain, in a wall) start their rays where the two tracers may part: only valid ones are held to the twin.
+      if (Math.max(a, b) <= 1e-6 || g[s * PROBE_FLOATS + 12]! > PROBE_VALIDITY_THRESHOLD || c[s * PROBE_FLOATS + 12]! > PROBE_VALIDITY_THRESHOLD) continue;
+      lit += 1;
+      const sh = Math.abs(a - b) / Math.max(b, 1e-6);
+      share += sh;
+      if (sh <= 0.05) close += 1;
+    }
+    return { lit, close, share: lit > 0 ? share / lit : 0 };
+  };
+  const dark = compare(darkRun.gpu, darkRun.cpu);
+  const { gpu, cpu } = await twin(false);
+  probes.state.set(before);
+  const { lit, close, share } = compare(gpu, cpu);
+  return { probes: slots.length, lit, within5pc: close, meanShare: share, darkLit: dark.lit, darkWithin5pc: dark.close, darkMeanShare: dark.share };
 }
 
 (window as unknown as { __tlRelight: unknown }).__tlRelight = { run };

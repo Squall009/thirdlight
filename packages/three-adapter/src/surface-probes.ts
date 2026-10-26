@@ -25,10 +25,10 @@
  *   models), what the axis rays see gives each probe its walls
  *   (`edgeWalls`), which the probe lighting keeps samples on their side of.
  * - **Stale.** The cache's marks (`SurfaceRelight.onStale`) make the probes
- *   in their box stale; an update that changed a probe's light by more than
- *   `PROBE_SETTLE_SHARE` keeps it and its neighbours stale (the bounce
- *   still travels), as does any update while the cache's direct light is
- *   not settled. Stale probes are updated nearest the eye first.
+ *   in their box stale; it stays stale for `PROBE_MIN_UPDATES` to
+ *   `PROBE_MAX_UPDATES` updates, until one changes its light by less than
+ *   `PROBE_SETTLE_SHARE`, and through any update while the cache's direct
+ *   light is not settled. Stale probes are updated nearest the eye first.
  *
  * A probe's record (`PROBE_FLOATS`): its first-order spherical harmonics
  * (four RGB coefficients, as the probe lighting reads them: band 0, then
@@ -53,10 +53,19 @@ export const PROBE_RAY_SPACINGS = 8;
 export const PROBE_HIT_LIFT = ROOM_PROBE_INSET + 0.05;
 /** The least weight an update's light gets against the probe's last (the first updates take more: 1 / their count). */
 export const PROBE_BLEND_MIN = 0.25;
-/** A probe is settled once an update changes its light by less than this share. */
-export const PROBE_SETTLE_SHARE = 0.02;
-/** Updates a probe takes at least after it was marked (its rays turn each time). */
-export const PROBE_MIN_UPDATES = 2;
+/**
+ * A probe is settled once an update changes its light by less than this
+ * share, or after `PROBE_MAX_UPDATES` updates since it was marked: its
+ * turned rays are a noisy estimate (a small bright patch seen by a few of
+ * them moves it by tens of per cent an update), which the blend averages
+ * out, so noise must not keep it stale. Marks reach every probe a change
+ * can relight (a light's reach, a changed box and bounce reach round it),
+ * so bounces build up among the marked probes without spreading further.
+ */
+export const PROBE_SETTLE_SHARE = 0.05;
+/** Updates a probe takes at least, and at most, after it was marked (its rays turn each time). */
+export const PROBE_MIN_UPDATES = 4;
+export const PROBE_MAX_UPDATES = 16;
 /** Floats of a probe's record. */
 export const PROBE_FLOATS = 24;
 /** Words of a grid's record in the pass's words: min, max (f32), probes per axis, first probe, room. */
@@ -69,6 +78,13 @@ export const PROBE_BUDGET_SHARE = 1 / 3;
 export const PROBE_START_COUNT = 256;
 /** Frames over which a waiting probe's distance halves when stale probes are ordered. */
 const PROBE_AGING_FRAMES = 30;
+
+/**
+ * How far (m) a probe's rays start off its lattice point: lattice points
+ * fall on block and grid boundaries, where a ray starting exactly on a face
+ * would take either cell by a rounding.
+ */
+const PROBE_ORIGIN_NUDGE = [0.0013, 0.0017, 0.0011];
 
 /** Index of the validity (back-face share) and the update count in a probe's record. */
 export const PROBE_VALIDITY_AT = 12;
@@ -271,7 +287,7 @@ export class LiveProbes {
       for (let iz = 0; iz < nz; iz += 1) for (let iy = 0; iy < ny; iy += 1) for (let ix = 0; ix < nx; ix += 1) {
         const i = g.first + ix + iy * nx + iz * nx * ny;
         latticePoint(g, ix, iy, iz, p);
-        this.positions.set(p, i * 3);
+        this.positions.set([p[0]! + PROBE_ORIGIN_NUDGE[0]!, p[1]! + PROBE_ORIGIN_NUDGE[1]!, p[2]! + PROBE_ORIGIN_NUDGE[2]!], i * 3);
         this.rooms[i] = g.room !== NO_ROOM ? g.room : (rooms?.roomAt(p) ?? NO_ROOM);
         if (g.room === NO_ROOM && this.rooms[i] !== NO_ROOM) {
           this.excluded[i] = 1;
@@ -351,11 +367,12 @@ export class LiveProbes {
       shIrradiance(this.state, at, up, e1);
       const before = e0[0]! + e0[1]! + e0[2]!;
       const after = e1[0]! + e1[1]! + e1[2]!;
-      const moved = Math.abs(after - before) > PROBE_SETTLE_SHARE * Math.max(after, before, 1e-6);
+      const share = Math.abs(after - before) / Math.max(after, before, 1e-6);
       const g = this.gridOf(i);
       this.changed.add(g);
       this.marked[i]! += 1;
-      if (had >= 1 && !moved && this.marked[i]! >= PROBE_MIN_UPDATES && settledDirect) {
+      const done = (share <= PROBE_SETTLE_SHARE && this.marked[i]! >= PROBE_MIN_UPDATES) || this.marked[i]! >= PROBE_MAX_UPDATES;
+      if (had >= 1 && done && settledDirect) {
         if (this.stale[i] === 1) {
           this.stale[i] = 0;
           this.staleCount -= 1;
@@ -366,7 +383,6 @@ export class LiveProbes {
         this.stale[i] = 1;
         this.staleCount += 1;
       }
-      if (moved) this.markNeighbours(g, i);
     }
     if (this.staleCount === 0 && this.settling !== null) {
       this.lastSettleMs = now - (this.settling < 0 ? now : this.settling);
@@ -383,28 +399,6 @@ export class LiveProbes {
       else hi = mid - 1;
     }
     return lo;
-  }
-
-  /** A probe's light moved: the probes next to it in its grid read it at their hits. */
-  private markNeighbours(gi: number, i: number): void {
-    const g = this.grids[gi]!;
-    const [nx, ny, nz] = g.resolution;
-    const l = i - g.first;
-    const at = [l % nx, Math.floor(l / nx) % ny, Math.floor(l / (nx * ny))];
-    for (let a = 0; a < 3; a += 1) {
-      for (const s of [-1, 1]) {
-        const q = [...at];
-        q[a]! += s;
-        if (q[0]! < 0 || q[1]! < 0 || q[2]! < 0 || q[0]! >= nx || q[1]! >= ny || q[2]! >= nz) continue;
-        const j = g.first + q[0]! + q[1]! * nx + q[2]! * nx * ny;
-        if (this.stale[j] === 0 && this.excluded[j] === 0) {
-          this.stale[j] = 1;
-          this.staleCount += 1;
-          this.since[j] = this.frame;
-          this.marked[j] = 0;
-        }
-      }
-    }
   }
 
   /** The GPU time (ms) an update of `count` probes took: later updates take as many as the budget holds. */

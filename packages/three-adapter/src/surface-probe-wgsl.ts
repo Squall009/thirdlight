@@ -8,12 +8,15 @@
  *   boundary (and `ROOM_EXIT_MARGIN` past it) unless it leaves by an open
  *   portal, no ray runs past a shut doorway, and a ray stopped so is held;
  * - (the tracer, closest hits, and the resolve pass find each hit's texel);
- * - gather: one thread per probe: each ray's radiance — the sky where it
+ * - gather: one workgroup per probe, one thread per direction: each ray's radiance — the sky where it
  *   met nothing, the room's own light off a held ray's wall, else
  *   `BOUNCE_ALBEDO` / π times the hit's irradiance (its cache texel's direct
  *   light and the probes' light there) — projected onto the first two SH
  *   bands, blended into the probe's record (`PROBE_BLEND_MIN` at least),
- *   with its back-face share and what its axis rays saw.
+ *   with its back-face share and what its axis rays saw;
+ * - commit: the updated records into the probes' own, after the gather (it
+ *   reads the last update's light at its hits, whatever order the
+ *   workgroups run in).
  *
  * Words (`W`): per probe of the update `PROBE_SLOT_WORDS` (its index, its
  * room, its position), the grids (`GRID_WORDS` each), the sky's four RGB
@@ -62,7 +65,8 @@ fn probeRay(probe: u32, k: u32) -> vec3f {
   let i = f32(k - ${PROBE_AXIS_RAYS}u);
   let z = 1.0 - (2.0 * i + 1.0) / ${PROBE_SH_RAYS}.0;
   let r = sqrt(max(0.0, 1.0 - z * z));
-  let phi = i * ${GOLDEN_ANGLE};
+  // The angle kept within one turn: GPUs' sin and cos lose accuracy far from zero.
+  let phi = fract(i * ${GOLDEN_ANGLE / (2 * Math.PI)}) * 6.2831853;
   let v = vec3f(r * cos(phi), z, r * sin(phi));
   var s = pcg(probe ^ (P.seed * 0x9e3779b9u));
   let u1 = rnd(&s);
@@ -99,7 +103,7 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
 `;
 
 export const PROBE_GATHER_WGSL = COMMON + /* wgsl */ `
-@group(0) @binding(2) var<storage, read_write> PR: array<vec4f>;
+@group(0) @binding(2) var<storage, read> PR: array<vec4f>;
 @group(0) @binding(3) var<storage, read> R: array<vec4f>;
 @group(0) @binding(4) var<storage, read> M: array<u32>;
 @group(0) @binding(5) var<storage, read> H: array<vec4u>;
@@ -140,8 +144,8 @@ fn probesAt(qq: vec3f, n: vec3f) -> vec3f {
       let ix = min(i0 + o, res - 1u);
       let tri = mix(1.0 - t.x, t.x, f32(o.x)) * mix(1.0 - t.y, t.y, f32(o.y)) * mix(1.0 - t.z, t.z, f32(o.z));
       let b = (first + ix.x + ix.y * res.x + ix.z * res.x * res.y) * ${PROBE_VEC4S}u;
-      let meta = PR[b + 3u];
-      var w = select(select(1.0, 1.0 / 64.0, meta.x > ${PROBE_VALIDITY_THRESHOLD}), 0.0, meta.y < 1.0) * tri;
+      let info = PR[b + 3u];
+      var w = select(select(1.0, 1.0 / 64.0, info.x > ${PROBE_VALIDITY_THRESHOLD}), 0.0, info.y < 1.0) * tri;
       if (w <= 0.0) { continue; }
       s0 += PR[b] * w; s1 += PR[b + 1u] * w; s2 += PR[b + 2u] * w;
       wsum += w;
@@ -162,52 +166,84 @@ fn texelLight(r: u32) -> vec3f {
   return vec3f(0.0);
 }
 
-@compute @workgroup_size(${PROBE_WORKGROUP})
-fn main(@builtin(global_invocation_id) g: vec3u) {
-  if (g.x >= P.slots) { return; }
-  let at = g.x * ${PROBE_SLOT_WORDS}u;
+// One ray's radiance toward the probe, and what it says of the probe's walls and validity.
+struct RayLight { L: vec3f, t: f32, back: f32 }
+fn rayLight(r: u32, o: vec3f, o0: vec4f, o1: vec4f, o2: vec4f) -> RayLight {
+  let d = R[r * 2u + 1u].xyz;
+  let h0 = H[r * 2u];
+  let kind = H[r * 2u + 1u].x & 255u;
+  var out = RayLight(vec3f(0.0), 0.0, 0.0);
+  if (kind == ${TRACE_MISS}u || kind == ${TRACE_UNFINISHED}u) {
+    if (M[r] == 1u) { out.L = P.albedo / 3.14159265 * max(vec3f(0.0), shIrr(o0, o1, o2, -d)); }
+    else { out.L = sky(d); }
+    return out;
+  }
+  out.t = bitcast<f32>(h0.x);
+  let n = bitcast<vec3f>(h0.yzw);
+  if (dot(n, d) > 0.0) { out.back = 1.0; return out; }
+  let p = o + d * out.t;
+  out.L = P.albedo / 3.14159265 * (texelLight(r) + probesAt(p + n * P.lift, n));
+  return out;
+}
+
+var<workgroup> SH: array<vec4f, ${PROBE_SH_RAYS * 3}>;
+var<workgroup> BK: array<f32, ${PROBE_SH_RAYS}>;
+var<workgroup> AX: array<f32, ${PROBE_AXIS_RAYS}>;
+
+// One workgroup a probe, one thread a direction (the first threads also take the axis rays); the sums are reduced in the workgroup.
+@compute @workgroup_size(${PROBE_SH_RAYS})
+fn main(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_index) li: u32) {
+  let slot = wg.x;
+  let at = slot * ${PROBE_SLOT_WORDS}u;
   let probe = W[at];
   let o = wv(at + 2u);
   let base = probe * ${PROBE_VEC4S}u;
-  let o0 = PR[base]; let o1 = PR[base + 1u]; let o2 = PR[base + 2u]; let meta = PR[base + 3u];
-  var c0 = vec3f(0.0); var c1 = vec3f(0.0); var c2 = vec3f(0.0); var c3 = vec3f(0.0);
-  var back = 0.0;
-  var along = array<f32, 6>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-  let k0 = g.x * ${PROBE_RAYS}u;
-  for (var k = 0u; k < ${PROBE_RAYS}u; k++) {
-    let r = k0 + k;
-    let d = R[r * 2u + 1u].xyz;
-    let h0 = H[r * 2u];
-    let kind = H[r * 2u + 1u].x & 255u;
-    var L = vec3f(0.0);
-    if (kind == ${TRACE_MISS}u || kind == ${TRACE_UNFINISHED}u) {
-      if (M[r] == 1u) { L = P.albedo / 3.14159265 * max(vec3f(0.0), shIrr(o0, o1, o2, -d)); }
-      else { L = sky(d); }
-    } else {
-      let t = bitcast<f32>(h0.x);
-      let n = bitcast<vec3f>(h0.yzw);
-      if (k < ${PROBE_AXIS_RAYS}u) { along[k] = t; }
-      if (dot(n, d) > 0.0) {
-        if (k >= ${PROBE_AXIS_RAYS}u) { back += 1.0; }
-      } else {
-        let p = o + d * t;
-        L = P.albedo / 3.14159265 * (texelLight(r) + probesAt(p + n * P.lift, n));
-      }
+  let o0 = PR[base]; let o1 = PR[base + 1u]; let o2 = PR[base + 2u]; let info = PR[base + 3u];
+  let k0 = slot * ${PROBE_RAYS}u;
+  let r = k0 + ${PROBE_AXIS_RAYS}u + li;
+  let d = R[r * 2u + 1u].xyz;
+  let rl = rayLight(r, o, o0, o1, o2);
+  let L = rl.L;
+  // Coefficients in the record's order: band 0, then the y, z and x terms, RGB each.
+  SH[li * 3u] = vec4f(L * ${SH_Y0}, L.x * ${SH_Y1} * d.y);
+  SH[li * 3u + 1u] = vec4f(L.yz * (${SH_Y1} * d.y), L.xy * (${SH_Y1} * d.z));
+  SH[li * 3u + 2u] = vec4f(L.z * ${SH_Y1} * d.z, L * (${SH_Y1} * d.x));
+  BK[li] = rl.back;
+  if (li < ${PROBE_AXIS_RAYS}u) { AX[li] = rayLight(k0 + li, o, o0, o1, o2).t; }
+  workgroupBarrier();
+  for (var step = ${PROBE_SH_RAYS / 2}u; step > 0u; step >>= 1u) {
+    if (li < step) {
+      SH[li * 3u] += SH[(li + step) * 3u];
+      SH[li * 3u + 1u] += SH[(li + step) * 3u + 1u];
+      SH[li * 3u + 2u] += SH[(li + step) * 3u + 2u];
+      BK[li] += BK[li + step];
     }
-    if (k >= ${PROBE_AXIS_RAYS}u) {
-      c0 += L * ${SH_Y0}; c1 += L * (${SH_Y1} * d.y); c2 += L * (${SH_Y1} * d.z); c3 += L * (${SH_Y1} * d.x);
-    }
+    workgroupBarrier();
   }
+  if (li != 0u) { return; }
   let w = 12.566371 / ${PROBE_SH_RAYS}.0;
-  let a = max(1.0 / (meta.y + 1.0), P.blendMin);
-  let n0 = mix(o0, vec4f(c0 * w, c1.x * w), a);
-  let n1 = mix(o1, vec4f(c1.yz * w, c2.xy * w), a);
-  let n2 = mix(o2, vec4f(c2.z * w, c3 * w), a);
-  let n3 = vec4f(back / ${PROBE_SH_RAYS}.0, meta.y + 1.0, 0.0, 0.0);
-  let n4 = vec4f(along[0], along[1], along[2], along[3]);
-  let n5 = vec4f(along[4], along[5], 0.0, 0.0);
-  PR[base] = n0; PR[base + 1u] = n1; PR[base + 2u] = n2; PR[base + 3u] = n3; PR[base + 4u] = n4; PR[base + 5u] = n5;
-  let ob = g.x * ${PROBE_VEC4S}u;
+  let a = max(1.0 / (info.y + 1.0), P.blendMin);
+  let n0 = mix(o0, SH[0] * w, a);
+  let n1 = mix(o1, SH[1] * w, a);
+  let n2 = mix(o2, SH[2] * w, a);
+  let n3 = vec4f(BK[0] / ${PROBE_SH_RAYS}.0, info.y + 1.0, 0.0, 0.0);
+  let n4 = vec4f(AX[0], AX[1], AX[2], AX[3]);
+  let n5 = vec4f(AX[4], AX[5], 0.0, 0.0);
+  let ob = slot * ${PROBE_VEC4S}u;
   O[ob] = n0; O[ob + 1u] = n1; O[ob + 2u] = n2; O[ob + 3u] = n3; O[ob + 4u] = n4; O[ob + 5u] = n5;
+}
+`;
+
+/** After the gather: the updated records into the probes' own (the gather reads only the last update's, as its CPU twin does). */
+export const PROBE_COMMIT_WGSL = COMMON + /* wgsl */ `
+@group(0) @binding(2) var<storage, read_write> PR: array<vec4f>;
+@group(0) @binding(3) var<storage, read> O: array<vec4f>;
+
+@compute @workgroup_size(${PROBE_WORKGROUP})
+fn main(@builtin(global_invocation_id) g: vec3u) {
+  if (g.x >= P.slots * ${PROBE_VEC4S}u) { return; }
+  let slot = g.x / ${PROBE_VEC4S}u;
+  let k = g.x % ${PROBE_VEC4S}u;
+  PR[W[slot * ${PROBE_SLOT_WORDS}u] * ${PROBE_VEC4S}u + k] = O[g.x];
 }
 `;

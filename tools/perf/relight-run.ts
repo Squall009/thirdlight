@@ -20,6 +20,11 @@
  *   --no-models    the village without its props (its block ground alone)
  *   --load MS      a stand-in game frame of about MS ms GPU time before each update (default 6: the
  *                  village's frame at the cap; an idle page leaves the GPU at its floor clock), 0 for none
+ *   --rooms        the door room as generated architecture would give it: a room on the block layer
+ *                  with the doorway as its opening (a lamp's marks cut to the room and its doorway's sight)
+ *   --door-shut    with --rooms: a door piece shuts the doorway (the lamp's light and marks stay inside)
+ *
+ * Every change also waits for the live probes to settle (their updates timed: `probes`).
  *
  * The report goes to ~/.cache/thirdlight-perf/reports/relight-<time>.json.
  */
@@ -64,7 +69,13 @@ function doorInput(rounds: number, budgetMs: number, loadMs: number): RelightInp
     // The room's inside: its floor, walls, ceiling and pillar.
     room: { min: [9, 1, 9], max: [16, 4, 16] },
     loadMs,
+    rooms: null,
   };
+}
+
+/** The door room's plan as a generated room on the block layer gives it: its floor plan, the doorway as an opening. */
+function doorRooms(shut: boolean): RelightInput['rooms'] {
+  return { plan: { id: 'r', outline: 'r', storey: 0, points: [[9, 9], [16, 9], [16, 16], [9, 16]], floor: 1, top: 4, covered: true, holes: [], openings: [{ id: 'door', from: [12, 16], to: [14, 16], bottom: 1, top: 3 }] }, doorOpen: !shut };
 }
 
 function villageInput(rounds: number, budgetMs: number, loadMs: number): RelightInput {
@@ -115,6 +126,7 @@ function villageInput(rounds: number, budgetMs: number, loadMs: number): Relight
     cacheMiB: DEFAULT_SURFACE_CACHE_MIB,
     room: null,
     loadMs,
+    rooms: null,
   };
 }
 
@@ -136,6 +148,13 @@ interface LoopResult {
   relight: Record<string, unknown>;
   cache: Record<string, unknown>;
   change?: string;
+  probesMs: number | null;
+  directMs: number | null;
+  probeMsMedian: number | null;
+  probeMsMax: number | null;
+  probeUpdates: number;
+  probeCount: number;
+  probesPerUpdate: number;
 }
 
 export async function runRelightCli(argv: readonly string[]): Promise<void> {
@@ -166,6 +185,7 @@ export async function runRelightCli(argv: readonly string[]): Promise<void> {
     for (const name of scenes) {
       const input = name === 'door' ? doorInput(rounds, budgetMs, loadMs) : villageInput(rounds, budgetMs, loadMs);
       if (argv.includes('--no-models')) input.models = [];
+      if (name === 'door' && argv.includes('--rooms')) input.rooms = doorRooms(argv.includes('--door-shut'));
       const clock = gpuClockSampler();
       const got = (await p.evaluate((i) => (window as unknown as { __tlRelight: { run(i: unknown): Promise<Record<string, unknown>> } }).__tlRelight.run(i), input)) as Record<string, unknown>;
       const mhz = clock?.stop() ?? null;
@@ -174,7 +194,9 @@ export async function runRelightCli(argv: readonly string[]): Promise<void> {
       const line = (label: string, r: LoopResult): string => {
         const full = r.gpuMsMax !== null && mhz !== null && maxMhz !== null ? ` (${((r.gpuMsMax * mhz) / maxMhz).toFixed(2)} at full clock)` : '';
         const room = r.roomMs !== null ? ` (the room's texels in ${r.roomMs.toFixed(0)} ms, ${r.roomFrames} frames)` : '';
-        return `${name.padEnd(8)} ${label.padEnd(12)} ${r.settled ? 'settled' : 'NOT settled'} in ${r.wallMs.toFixed(0)} ms${room}, ${r.frames} frames, ${r.texels} texels; GPU ms/frame max ${r.gpuMsMax?.toFixed(2) ?? '-'}${full} median ${r.gpuMsMedian?.toFixed(2) ?? '-'}; main ${r.cpuMsMedian.toFixed(2)} / ${r.cpuMsMax.toFixed(2)} ms; missed ${r.missed}; texels/frame ${String((r.relight as { texelsPerFrame?: number }).texelsPerFrame)}; load ${r.loadMs?.toFixed(2) ?? '-'} ms; passes ${r.passMsMedian.map((v) => v?.toFixed(2) ?? '-').join('/')} ms, ${r.nsPerTexelMedian?.toFixed(0) ?? '-'} ns/texel`;
+        const full2 = (ms: number | null): string => (ms !== null && mhz !== null && maxMhz !== null ? `${ms.toFixed(2)} (${((ms * mhz) / maxMhz).toFixed(2)} full clock)` : (ms?.toFixed(2) ?? '-'));
+        const probes = ` probes ${r.probeCount} settled ${r.probesMs?.toFixed(0) ?? 'NOT'} ms, ${r.probeUpdates} updates of ${r.probesPerUpdate}, GPU ms/update median ${full2(r.probeMsMedian)} max ${full2(r.probeMsMax)};`;
+        return `${name.padEnd(8)} ${label.padEnd(12)} ${r.settled ? 'settled' : 'NOT settled'} in ${r.wallMs.toFixed(0)} ms (direct light ${r.directMs?.toFixed(0) ?? 'NOT'} ms)${room}, ${r.frames} frames, ${r.texels} texels;${probes} GPU ms/frame max ${r.gpuMsMax?.toFixed(2) ?? '-'}${full} median ${r.gpuMsMedian?.toFixed(2) ?? '-'}; main ${r.cpuMsMedian.toFixed(2)} / ${r.cpuMsMax.toFixed(2)} ms; missed ${r.missed}; texels/frame ${String((r.relight as { texelsPerFrame?: number }).texelsPerFrame)}; load ${r.loadMs?.toFixed(2) ?? '-'} ms; passes ${r.passMsMedian.map((v) => v?.toFixed(2) ?? '-').join('/')} ms, ${r.nsPerTexelMedian?.toFixed(0) ?? '-'} ns/texel`;
       };
       console.log(line('cold', got['cold'] as LoopResult));
       console.log(`${name.padEnd(8)} still        frames with work in 30: ${(got['still'] as { framesWithWork: number }).framesWithWork}`);
@@ -183,6 +205,8 @@ export async function runRelightCli(argv: readonly string[]): Promise<void> {
       console.log(`${name.padEnd(8)} resolve      ${r.resolved} of ${r.rays} hits resolved, GPU≠CPU ${r.mismatches}, table ${r.tableBytes} B; GPU ${mhz ?? '-'} MHz of ${maxMhz ?? '-'}`);
       const li = got['light'] as { texels: number; lit: number; within2pc: number };
       console.log(`${name.padEnd(8)} light        GPU = CPU twin within 2 % on ${li.within2pc} of ${li.lit} lit texels (${li.texels} in the frame)`);
+      const pr = got['probeTwin'] as { probes: number; lit: number; within5pc: number; meanShare: number; darkLit: number; darkWithin5pc: number; darkMeanShare: number };
+      console.log(`${name.padEnd(8)} probes       GPU = CPU twin within 5 % on ${pr.within5pc} of ${pr.lit} lit valid probes (${pr.probes} updated; mean |GPU − CPU| / CPU ${(pr.meanShare * 100).toFixed(2)} %); from dark probes (the cache and sky only) ${pr.darkWithin5pc} of ${pr.darkLit} (${(pr.darkMeanShare * 100).toFixed(2)} %)`);
     }
   } finally {
     await browser.close();

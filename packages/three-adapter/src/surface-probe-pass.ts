@@ -15,7 +15,7 @@ import type { GpuBuffer, GpuTexture, GpuTracer, TracerDevice } from './tracer-gp
 import { RAY_FLOATS } from './tracer-scene';
 import { GpuResolve } from './surface-resolve-gpu';
 import { BOUNCE_ALBEDO, PROBE_BLEND_MIN, PROBE_FLOATS, PROBE_HIT_LIFT, PROBE_RAY_SPACINGS, PROBE_RAYS, type LiveProbes } from './surface-probes';
-import { PROBE_GATHER_WGSL, PROBE_RAYS_WGSL, PROBE_SLOT_WORDS, PROBE_WORKGROUP } from './surface-probe-wgsl';
+import { PROBE_COMMIT_WGSL, PROBE_GATHER_WGSL, PROBE_RAYS_WGSL, PROBE_SLOT_WORDS, PROBE_VEC4S, PROBE_WORKGROUP } from './surface-probe-wgsl';
 
 const USAGE = { MAP_READ: 0x1, COPY_SRC: 0x4, COPY_DST: 0x8, UNIFORM: 0x40, STORAGE: 0x80, QUERY_RESOLVE: 0x200 } as const;
 
@@ -74,7 +74,7 @@ export class SurfaceProbePass {
   /** An update is on the GPU or being read back: the next waits (the scheduler hands out what it read). */
   busy = false;
 
-  private constructor(private readonly device: QueryDevice, private readonly tracer: GpuTracer, readonly resolve: GpuResolve, private readonly rays: Pipeline, private readonly gather: Pipeline) {
+  private constructor(private readonly device: QueryDevice, private readonly tracer: GpuTracer, readonly resolve: GpuResolve, private readonly rays: Pipeline, private readonly gather: Pipeline, private readonly commit: Pipeline) {
     this.params = device.createBuffer({ size: 64, usage: USAGE.UNIFORM | USAGE.COPY_DST, label: 'probe params' });
     const timed = device.features?.has('timestamp-query') === true && device.createQuerySet !== undefined;
     this.query = timed ? device.createQuerySet!({ type: 'timestamp', count: 2 }) : null;
@@ -89,7 +89,7 @@ export class SurfaceProbePass {
       if (errors.length > 0) throw new Error(`${label} WGSL: ${errors.map((m) => `${m.lineNum}: ${m.message}`).join('; ')}`);
       return device.createComputePipeline({ layout: 'auto', compute: { module, entryPoint: 'main' }, label });
     };
-    return new SurfaceProbePass(device as QueryDevice, tracer, await GpuResolve.create(device), await compile(PROBE_RAYS_WGSL, 'probe rays'), await compile(PROBE_GATHER_WGSL, 'probe gather'));
+    return new SurfaceProbePass(device as QueryDevice, tracer, await GpuResolve.create(device), await compile(PROBE_RAYS_WGSL, 'probe rays'), await compile(PROBE_GATHER_WGSL, 'probe gather'), await compile(PROBE_COMMIT_WGSL, 'probe commit'));
   }
 
   /** The seed the last update turned its rays with (the CPU twin takes it). */
@@ -103,6 +103,11 @@ export class SurfaceProbePass {
     let size = 256;
     while (size < bytes) size *= 2;
     return this.device.createBuffer({ size, usage, label });
+  }
+
+  /** The next update puts the probes' records on the GPU again from the CPU's copy (a check starting both from one state). */
+  reload(): void {
+    this.layout = -1;
   }
 
   /** The probes' records on the GPU, put there again when the grids were placed again. */
@@ -157,7 +162,7 @@ export class SurfaceProbePass {
     pass.end();
     this.tracer.encodeBuffer(enc, this.raysBuf, rays, {}, EXACT_TRACE, null);
     this.resolve.encode(enc, this.tracer.hitsBuffer!, rays);
-    pass = enc.beginComputePass(timed ? { timestampWrites: { querySet: this.query, endOfPassWriteIndex: 1 } } : {});
+    pass = enc.beginComputePass();
     pass.setPipeline(this.gather);
     pass.setBindGroup(
       0,
@@ -177,7 +182,24 @@ export class SurfaceProbePass {
         ],
       }),
     );
-    pass.dispatchWorkgroups(Math.ceil(n / PROBE_WORKGROUP));
+    // One workgroup a probe.
+    pass.dispatchWorkgroups(n);
+    pass.end();
+    pass = enc.beginComputePass(timed ? { timestampWrites: { querySet: this.query, endOfPassWriteIndex: 1 } } : {});
+    pass.setPipeline(this.commit);
+    pass.setBindGroup(
+      0,
+      d.createBindGroup({
+        layout: this.commit.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.params } },
+          { binding: 1, resource: { buffer: this.wordsBuf } },
+          { binding: 2, resource: { buffer: this.recordsBuf } },
+          { binding: 3, resource: { buffer: this.outBuf } },
+        ],
+      }),
+    );
+    pass.dispatchWorkgroups(Math.ceil((n * PROBE_VEC4S) / PROBE_WORKGROUP));
     pass.end();
     const bytes = n * PROBE_FLOATS * 4;
     const read = d.createBuffer({ size: Math.max(16, bytes), usage: USAGE.MAP_READ | USAGE.COPY_DST, label: 'probe read' });
