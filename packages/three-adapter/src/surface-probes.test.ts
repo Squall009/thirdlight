@@ -43,15 +43,15 @@ function room(doorOpen: boolean, gap = true): { scene: ReturnType<typeof packTra
 }
 
 /** Update every probe `n` times; returns the mean irradiance (red, facing up) of the probes. */
-function run(probes: LiveProbes, n: number, scene: ReturnType<typeof packTraceScene>, rooms: Uint32Array | null, direct: (p: V3, nrm: V3) => V3, sky = new Float32Array(12)): number {
+function run(probes: LiveProbes, n: number, scene: ReturnType<typeof packTraceScene>, rooms: Uint32Array | null, direct: (p: V3, nrm: V3) => V3, sky = new Float32Array(12), albedo?: () => V3 | null, channel = 0): number {
   const all = Uint32Array.from({ length: probes.count }, (_, i) => i);
   for (let u = 0; u < n; u += 1) {
-    const values = probeUpdateCpu({ probes, slots: all, sky, rooms, seed: 11 + u, scene, direct });
+    const values = probeUpdateCpu({ probes, slots: all, sky, rooms, seed: 11 + u, scene, direct, ...(albedo !== undefined ? { albedo } : {}) });
     probes.accept(all, values, true, u);
   }
   const e = [0, 0, 0];
   let s = 0;
-  for (let i = 0; i < probes.count; i += 1) s += shIrradiance(probes.state, i * PROBE_FLOATS, [0, 1, 0], e)[0]!;
+  for (let i = 0; i < probes.count; i += 1) s += shIrradiance(probes.state, i * PROBE_FLOATS, [0, 1, 0], e)[channel]!;
   return s / probes.count;
 }
 
@@ -68,6 +68,21 @@ describe('surface cache: live probes', () => {
     expect(one).toBeCloseTo(BOUNCE_ALBEDO * E0, 1);
     const many = run(probes, 60, scene, rooms.words, () => [E0, E0, E0]);
     expect(Math.abs(many - reference) / reference).toBeLessThan(0.03);
+  });
+
+  it('bounce takes the colour the materials put in the cache: a red room bounces red, a texel no material drew bounces the default', () => {
+    const { scene, rooms } = room(false, false);
+    const probes = new LiveProbes(2, 0.5);
+    probes.place(null, rooms);
+    const red = (): V3 => [0.6, 0.1, 0.1];
+    const r = run(probes, 60, scene, rooms.words, () => [3, 3, 3], new Float32Array(12), red, 0);
+    expect(Math.abs(r - (0.6 * 3) / (1 - 0.6)) / ((0.6 * 3) / 0.4)).toBeLessThan(0.04);
+    const fresh = new LiveProbes(2, 0.5);
+    fresh.place(null, rooms);
+    expect(run(fresh, 60, scene, rooms.words, () => [3, 3, 3], new Float32Array(12), red, 1)).toBeCloseTo((0.1 * 3) / 0.9, 1);
+    const none = new LiveProbes(2, 0.5);
+    none.place(null, rooms);
+    expect(run(none, 1, scene, rooms.words, () => [3, 3, 3], new Float32Array(12), () => null)).toBeCloseTo(BOUNCE_ALBEDO * 3, 1);
   });
 
   it('the sky: a probe in the open sees it whole', () => {

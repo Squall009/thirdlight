@@ -67,6 +67,22 @@ export const ARCH_FACING = 0.5;
 /** How far (cells) behind its face a block pixel's point is taken, so it falls in its own cell. */
 export const BLOCK_INSET = 0.001;
 
+/**
+ * The surfaces' colours (what their light bounces as) are kept beside the
+ * cache's light, coarser: one packed rgba8 word per `ALBEDO_PAGE_STEP`² page
+ * texels, and per `ALBEDO_RING_STEP`² ring texels, after the pages
+ * (`ALBEDO_CELLS` words a page or ring layer). Alpha 0: no material drew
+ * there yet.
+ */
+export const ALBEDO_PAGE_STEP = 2;
+export const ALBEDO_RING_STEP = 4;
+export const ALBEDO_CELLS = 128 * 128;
+
+/** The words the surfaces' colours take for `pages` atlas pages and `ringLayers` ring layers. */
+export function albedoWords(pages: number, ringLayers: number): number {
+  return (pages + ringLayers) * ALBEDO_CELLS;
+}
+
 /** The kinds of static surface a material reads the cache for (a drawn mesh's `SURFACE_READ_KEY`). */
 export const SURFACE_READ = { blocks: 1, terrain: 2, arch: 3 } as const;
 export type SurfaceReadKind = (typeof SURFACE_READ)[keyof typeof SURFACE_READ];

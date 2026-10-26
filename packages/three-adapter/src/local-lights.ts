@@ -28,7 +28,7 @@ import * as THREE from 'three/webgpu';
 import { localLightModeOf, type LocalLightMode } from '@thirdlight/runtime';
 
 import { type EffectLights } from './effect-lights';
-import { SURFACE_READ_TEXTURES, SURFACE_READ_VARIANT, surfaceReadOf, type SurfaceCacheTextures } from './surface-cache-read';
+import { SURFACE_READ_CAPTURE, SURFACE_READ_TEXTURES, SURFACE_READ_VARIANT, surfaceReadOf, type SurfaceCacheTextures } from './surface-cache-read';
 
 /** `object.userData[LOCAL_LIGHTS_KEY]` / `material.userData[LOCAL_LIGHTS_KEY]`: a set local-light mode. */
 export const LOCAL_LIGHTS_KEY = '__tlLocalLights';
@@ -114,8 +114,9 @@ let variantCount = 0;
  * (`surface-cache-read.ts`): made once, dropped when the material is
  * disposed.
  */
-export function localLightVariant(material: THREE.Material, mode: LocalLightMode, read: { kind: number; textures: SurfaceCacheTextures } | null = null): THREE.Material {
-  const key = read === null ? mode : `${mode}|${read.kind}|${read.textures.id}`;
+export function localLightVariant(material: THREE.Material, mode: LocalLightMode, read: { kind: number; textures: SurfaceCacheTextures; capture?: boolean } | null = null): THREE.Material {
+  const capture = read?.capture === true;
+  const key = read === null ? mode : `${mode}|${read.kind}|${read.textures.id}|${capture ? 1 : 0}`;
   let byMode = variants.get(material);
   const seen = byMode?.get(key);
   if (seen !== undefined) return seen;
@@ -127,9 +128,10 @@ export function localLightVariant(material: THREE.Material, mode: LocalLightMode
   if (read !== null) {
     v[SURFACE_READ_VARIANT] = read.kind;
     v[SURFACE_READ_TEXTURES] = read.textures;
+    if (capture) v[SURFACE_READ_CAPTURE] = true;
   }
   v.customProgramCacheKey = function variantKey(): string {
-    return `${base.customProgramCacheKey()}|${materialValuesKey(base)}|tlLocalLights=${mode}${read !== null ? `|tlSurfaceRead=${read.kind}/${read.textures.id}` : ''}`;
+    return `${base.customProgramCacheKey()}|${materialValuesKey(base)}|tlLocalLights=${mode}${read !== null ? `|tlSurfaceRead=${read.kind}/${read.textures.id}${capture ? '/capture' : ''}` : ''}`;
   };
   if (byMode === undefined) {
     byMode = new Map();

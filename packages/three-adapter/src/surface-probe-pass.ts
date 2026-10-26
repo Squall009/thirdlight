@@ -37,6 +37,9 @@ export interface ProbePassInput {
   /** The cache's textures (the light runtime's). */
   readonly atlas: GpuTexture;
   readonly rings: GpuTexture;
+  /** The surfaces' colours the materials drawing the cache put there (`albedoWords`; alpha 0: none yet), and where the rings' start. */
+  readonly albedo: GpuBuffer;
+  readonly albedoRingsAt: number;
 }
 
 /** The words an update's passes read: its probes, the grids, the sky and the rooms, and where each starts. */
@@ -141,6 +144,7 @@ export class SurfaceProbePass {
     const pf = new Float32Array(p.buffer);
     p.set([n, rays, input.probes.grids.length, packed.gridAt, packed.skyAt, packed.roomsAt, this.seed, input.probes.count]);
     pf.set([PROBE_RAY_SPACINGS * input.probes.spacing, BOUNCE_ALBEDO, PROBE_HIT_LIFT, PROBE_BLEND_MIN], 8);
+    p[12] = input.albedoRingsAt;
     d.queue.writeBuffer(this.params, 0, p);
     const timed = this.query !== null;
     const enc = d.createCommandEncoder();
@@ -179,6 +183,7 @@ export class SurfaceProbePass {
           { binding: 7, resource: { buffer: this.outBuf } },
           { binding: 8, resource: input.atlas.createView({ dimension: '2d-array' }) },
           { binding: 9, resource: input.rings.createView({ dimension: '2d-array' }) },
+          { binding: 10, resource: { buffer: input.albedo } },
         ],
       }),
     );

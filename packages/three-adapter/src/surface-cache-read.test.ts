@@ -28,20 +28,23 @@ describe('materials reading the surface cache', () => {
     const mat = new THREE.MeshStandardMaterial();
     const plain = wgslOf(r, scene, new THREE.Mesh(new THREE.BoxGeometry(), mat));
     expect(plain).not.toContain('tlSurfaceReadFound');
-    const tex = new SurfaceCacheTextures();
+    const tex = new SurfaceCacheTextures(4, 7);
     for (const kind of [SURFACE_READ.blocks, SURFACE_READ.terrain, SURFACE_READ.arch]) {
       const w = wgslOf(r, scene, new THREE.Mesh(new THREE.BoxGeometry(), localLightVariant(mat, 'pixel', { kind, textures: tex })));
       expect(w).toContain('tlSurfaceReadFound');
       // One filtered sample of the cache's texture, at an explicit level (the lookup branches).
       expect(w.match(/textureSampleLevel\(/g)?.length ?? 0).toBeGreaterThanOrEqual(1);
+      // Its own colour into the texel it read, for the probes' bounce: only a capture frame's program writes.
+      expect(w).not.toMatch(/atomicStore\(/);
+      expect(wgslOf(r, scene, new THREE.Mesh(new THREE.BoxGeometry(), localLightVariant(mat, 'pixel', { kind, textures: tex, capture: true })))).toMatch(/atomicStore\(/);
     }
     expect(wgslOf(r, scene, new THREE.Mesh(new THREE.BoxGeometry(), mat))).toBe(plain);
   });
 
   it('variants are per kind and per page textures, and only a live scene reads', () => {
     const mat = new THREE.MeshLambertMaterial();
-    const a = new SurfaceCacheTextures();
-    const b = new SurfaceCacheTextures();
+    const a = new SurfaceCacheTextures(4, 7);
+    const b = new SurfaceCacheTextures(4, 7);
     const va = localLightVariant(mat, 'pixel', { kind: SURFACE_READ.blocks, textures: a });
     expect(localLightVariant(mat, 'pixel', { kind: SURFACE_READ.blocks, textures: a })).toBe(va);
     expect(localLightVariant(mat, 'pixel', { kind: SURFACE_READ.arch, textures: a })).not.toBe(va);
@@ -51,7 +54,7 @@ describe('materials reading the surface cache', () => {
     mesh.userData[SURFACE_READ_KEY] = SURFACE_READ.blocks;
     expect(surfaceReadOf(mesh, scene)).toBeNull();
     scene.userData[SURFACE_READ_LIVE_KEY] = a;
-    expect(surfaceReadOf(mesh, scene)).toEqual({ kind: SURFACE_READ.blocks, textures: a });
+    expect(surfaceReadOf(mesh, scene)).toEqual({ kind: SURFACE_READ.blocks, textures: a, capture: false });
     expect(surfaceReadOf(new THREE.Mesh(), scene)).toBeNull();
   });
 });

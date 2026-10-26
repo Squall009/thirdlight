@@ -266,7 +266,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   /** The static surfaces' light resident round the view, within the quality level's budget. */
   const surfaceCache = createAdapterSurfaceCache({ opts, scene, level, entities, docs: entityDocs, graph, matrix: new THREE.Matrix4() });
   const surfaceLight = surfaceCache !== null ? new AdapterSurfaceLight(surfaceCache, scene, entityDocs, graph, probes) : null;
-  if (surfaceLight !== null) (scene.userData[SURFACE_CACHE_KEY] as { setView?: (on: boolean) => void }).setView = (on) => surfaceLight.setView(on);
+  if (surfaceLight !== null) Object.assign(scene.userData[SURFACE_CACHE_KEY] as object, { setView: (on: boolean) => surfaceLight.setView(on), light: () => surfaceLight.diagnostics() });
   /** The quality level drawn and its renderer settings (quality-control.ts). */
   const qualityControl = createQualityControl(
     {

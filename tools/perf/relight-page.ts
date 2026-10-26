@@ -448,7 +448,7 @@ async function probesAgainstTwin(device: any, host: SurfaceCacheHost, rt: Surfac
     rt.syncProbeInputs();
     rt.probePass.reload();
     const start = probes.state.slice();
-    const gpu = await new Promise<Float32Array>((resolve) => rt.probePass.run({ probes, slots, sky: rt.sky, rooms: host.rooms()?.words ?? null, atlas, rings }, (v) => resolve(v)));
+    const gpu = await new Promise<Float32Array>((resolve) => rt.probePass.run({ probes, slots, sky: rt.sky, rooms: host.rooms()?.words ?? null, atlas, rings, albedo: rt.textures.albedo!.buffer, albedoRingsAt: rt.textures.albedo!.ringsAt }, (v) => resolve(v)));
     probes.state.set(start);
     const cpu = probeUpdateCpu({ probes, slots, sky: rt.sky, rooms: host.rooms()?.words ?? null, seed: rt.probePass.lastSeed, scene: trace, direct });
     return { gpu, cpu };

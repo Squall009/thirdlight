@@ -114,7 +114,7 @@ import { materials, packTexture, publishTexture, useArrays } from './painted-lay
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { stripPatchCentre, TEST_TRIM_CELL, TEST_TRIM_COLOURS, TEST_TRIM_SHEET, testTrimLayoutJson, testTrimSheetPng, trimStripsGlb } from './trim-strips';
-import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
+import { backendOf, editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { serveDir } from './frame-reading';
 import { keepThreeScenes } from './view-match';
 import { chooseItem, closeEditor, createItem, editMode, editorPane, enterEditMode, inspector, leaveEditMode, menu, openEditor, openPanel, openWindow } from './ui';
@@ -977,6 +977,18 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   expect(decalPages).toMatchObject({ decals: decalCount, pages: 2, layers: 2, onGpu: 2 });
   expect(decalPages!.bytes).toBeGreaterThan(0);
   console.log(`lit rooms ${variant} Play: ${JSON.stringify(lit.lum)}; rooms ${JSON.stringify(renderer['rooms'])}; local shadows ${JSON.stringify((renderer['lights'] as Record<string, unknown> | undefined)?.['localShadows'] ?? null)}`);
+  // The lamp's light on the rooms' walls and floors comes from the surface cache where the page lights it live
+  // (WebGPU): their materials read it and write their colours beside it for the bounce; WebGL 2 draws the saved light.
+  type CacheLight = { live: boolean; read: boolean; albedoDrawn: number | null };
+  const cacheLight = async (): Promise<CacheLight | undefined> => ((await diagnostics())['surfaceCache'] as { light?: CacheLight } | undefined)?.light;
+  if (backendOf(variant) === 'webgpu') {
+    let seenLight: CacheLight | undefined;
+    await expect.poll(async () => { const l = (seenLight = await cacheLight()); return l?.read === true && (l.albedoDrawn ?? 0) > 0; }, { timeout: 20_000, intervals: [1000], message: 'the rooms read the surface cache' }).toBe(true).catch((e: unknown) => {
+      console.log(`lit rooms ${variant} Play (failed): surface cache ${JSON.stringify(seenLight ?? null)}`);
+      throw e;
+    });
+  } else expect((await cacheLight())?.read ?? false).toBe(false);
+  console.log(`lit rooms ${variant} Play: surface cache ${JSON.stringify(await cacheLight())}`);
   expectCulled(renderer['rooms'] as never);
   // The building: the facade, the windows (the inner wall behind them) and the roof; its interior read ahead while its door is near.
   let outside = judgeOutside(() => [0, 0, 0], rowHue);

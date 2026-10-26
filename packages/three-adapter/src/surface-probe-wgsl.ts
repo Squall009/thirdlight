@@ -23,7 +23,9 @@
  * coefficients, the rooms (`surface-rooms.ts`).
  */
 import { RESOLVE_PAGE, RESOLVE_RING } from './surface-resolve';
-import { TERRAIN_RINGS_MAX } from './surface-cache-terrain';
+import { TERRAIN_RINGS_MAX, TERRAIN_RING_TEXELS } from './surface-cache-terrain';
+import { SURFACE_PAGE_TEXELS } from './surface-cache-atlas';
+import { ALBEDO_CELLS, ALBEDO_PAGE_STEP, ALBEDO_RING_STEP } from './surface-cache-lookup';
 import { NO_ROOM, ROOM_EXIT_MARGIN, roomsWgsl } from './surface-rooms';
 import { GRID_WORDS, PROBE_AXIS_RAYS, PROBE_RAYS, PROBE_SH_RAYS, SH_E0, SH_E1, SH_Y0, SH_Y1 } from './surface-probes';
 import { PROBE_VALIDITY_THRESHOLD } from '@thirdlight/runtime';
@@ -37,7 +39,7 @@ export const PROBE_VEC4S = 6;
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
 const COMMON = /* wgsl */ `
-struct Params { slots: u32, rays: u32, grids: u32, gridAt: u32, skyAt: u32, roomsAt: u32, seed: u32, probes: u32, rayMax: f32, albedo: f32, lift: f32, blendMin: f32, pad0: u32, pad1: u32, pad2: u32, pad3: u32 }
+struct Params { slots: u32, rays: u32, grids: u32, gridAt: u32, skyAt: u32, roomsAt: u32, seed: u32, probes: u32, rayMax: f32, albedo: f32, lift: f32, blendMin: f32, albedoRingsAt: u32, pad1: u32, pad2: u32, pad3: u32 }
 @group(0) @binding(0) var<uniform> P: Params;
 @group(0) @binding(1) var<storage, read> W: array<u32>;
 fn ww(i: u32) -> u32 { return W[i]; }
@@ -111,6 +113,7 @@ export const PROBE_GATHER_WGSL = COMMON + /* wgsl */ `
 @group(0) @binding(7) var<storage, read_write> O: array<vec4f>;
 @group(0) @binding(8) var atlas: texture_2d_array<f32>;
 @group(0) @binding(9) var rings: texture_2d_array<f32>;
+@group(0) @binding(10) var<storage, read> ALB: array<u32>;
 
 // Irradiance from first-order SH (band 0, then the y, z, x terms), as the probe lighting reads it.
 fn shIrr(s0: vec4f, s1: vec4f, s2: vec4f, n: vec3f) -> vec3f {
@@ -166,6 +169,21 @@ fn texelLight(r: u32) -> vec3f {
   return vec3f(0.0);
 }
 
+// A hit's surface colour as the materials drawing it last put it in the cache (alpha 0: none drawn yet, the default).
+fn texelAlbedo(r: u32) -> vec3f {
+  let a = T[r * 2u];
+  let b = T[r * 2u + 1u];
+  let kind = a >> 30u;
+  let x = b & 0xffffu;
+  let y = b >> 16u;
+  var w = 0xffffffffu;
+  if (kind == ${RESOLVE_PAGE}u) { w = (a & 0x3fffffffu) * ${ALBEDO_CELLS}u + (y / ${ALBEDO_PAGE_STEP}u) * ${SURFACE_PAGE_TEXELS / ALBEDO_PAGE_STEP}u + x / ${ALBEDO_PAGE_STEP}u; }
+  if (kind == ${RESOLVE_RING}u) { w = P.albedoRingsAt + (((a >> 3u) & 0x7ffffffu) * ${TERRAIN_RINGS_MAX}u + (a & 7u)) * ${ALBEDO_CELLS}u + (y / ${ALBEDO_RING_STEP}u) * ${TERRAIN_RING_TEXELS / ALBEDO_RING_STEP}u + x / ${ALBEDO_RING_STEP}u; }
+  if (w >= arrayLength(&ALB)) { return vec3f(P.albedo); }
+  let c = unpack4x8unorm(ALB[w]);
+  return select(vec3f(P.albedo), c.rgb, c.a > 0.0);
+}
+
 // One ray's radiance toward the probe, and what it says of the probe's walls and validity.
 struct RayLight { L: vec3f, t: f32, back: f32 }
 fn rayLight(r: u32, o: vec3f, o0: vec4f, o1: vec4f, o2: vec4f) -> RayLight {
@@ -182,7 +200,7 @@ fn rayLight(r: u32, o: vec3f, o0: vec4f, o1: vec4f, o2: vec4f) -> RayLight {
   let n = bitcast<vec3f>(h0.yzw);
   if (dot(n, d) > 0.0) { out.back = 1.0; return out; }
   let p = o + d * out.t;
-  out.L = P.albedo / 3.14159265 * (texelLight(r) + probesAt(p + n * P.lift, n));
+  out.L = texelAlbedo(r) / 3.14159265 * (texelLight(r) + probesAt(p + n * P.lift, n));
   return out;
 }
 

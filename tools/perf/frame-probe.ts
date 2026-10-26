@@ -222,8 +222,8 @@ export function probeSceneCounts(): SceneCounts {
     }
     const st = o.isScene === true ? (ud?.['tlStreaming'] as { diagnostics?: () => unknown } | undefined) : undefined;
     if (typeof st?.diagnostics === 'function') out.streaming = st.diagnostics();
-    const sc = o.isScene === true ? (ud?.['tlSurfaceCache'] as { diagnostics?: () => unknown } | undefined) : undefined;
-    if (typeof sc?.diagnostics === 'function') out.surfaceCache = sc.diagnostics();
+    const sc = o.isScene === true ? (ud?.['tlSurfaceCache'] as { diagnostics?: () => object; light?: () => unknown } | undefined) : undefined;
+    if (typeof sc?.diagnostics === 'function') out.surfaceCache = { ...sc.diagnostics(), ...(typeof sc.light === 'function' ? { light: sc.light() } : {}) };
     const pd = o.isScene === true ? (ud?.['tlProjectedDecals'] as { diagnostics?: () => unknown } | undefined) : undefined;
     if (typeof pd?.diagnostics === 'function') out.projectedDecals = pd.diagnostics();
     const cd = o.isScene === true ? (ud?.['tlClippedDecals'] as { diagnostics?: () => unknown } | undefined) : undefined;

@@ -33,13 +33,16 @@ import * as TSLTyped from 'three/tsl';
 import type { N } from './effects-tsl';
 import { LIT } from './custom-lit';
 import { SURFACE_PAGE_TEXELS } from './surface-cache-atlas';
-import { ARCH_CELL, ARCH_FACING, ARCH_PLANE_METRES, BLOCK_INSET, CHART_TEXELS, EMPTY, FRAME_TEXELS, LAYER_TEXELS, LOOKUP_WIDTH, SURFACE_READ, TERRAIN_TEXELS, type SurfaceReadKind } from './surface-cache-lookup';
+import { ALBEDO_CELLS, ALBEDO_PAGE_STEP, ALBEDO_RING_STEP, albedoWords, ARCH_CELL, ARCH_FACING, ARCH_PLANE_METRES, BLOCK_INSET, CHART_TEXELS, EMPTY, FRAME_TEXELS, LAYER_TEXELS, LOOKUP_WIDTH, SURFACE_READ, TERRAIN_TEXELS, type SurfaceReadKind } from './surface-cache-lookup';
 import { TERRAIN_RING_TEXELS } from './surface-cache-terrain';
 import { SURFACE_TEXEL_LIT } from './surface-light-wgsl';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
 const { Break, If, Loop, abs, bool, clamp, cross, dot, float, floor, int, ivec2, max, mix, normalWorldGeometry, positionWorld, property, select, texture, textureLoad, uint, uintBitsToFloat, uniform, vec2, vec3 } = TSL;
+
+/** Rows of the lookup texture at first (it doubles when a scene's lookup outgrows it). */
+const TABLE_ROWS = 16;
 
 /** `mesh.userData[SURFACE_READ_KEY]`: the kind of static surface it draws (`SURFACE_READ`), whose light it reads from the cache. */
 export const SURFACE_READ_KEY = '__tlSurfaceRead';
@@ -49,13 +52,16 @@ export const SURFACE_READ_LIVE_KEY = '__tlSurfaceReadLive';
 export const SURFACE_READ_VARIANT = 'tlSurfaceRead';
 export const SURFACE_READ_TEXTURES = 'tlSurfaceReadTextures';
 
-/** What a drawn object reads of the cache in `scene`: its kind and the scene's textures (null: nothing). */
-export function surfaceReadOf(object: THREE.Object3D, scene: THREE.Object3D): { kind: number; textures: SurfaceCacheTextures } | null {
+/** What a drawn object reads of the cache in `scene`: its kind, the scene's textures, and whether this frame its colours are written (null: nothing). */
+export function surfaceReadOf(object: THREE.Object3D, scene: THREE.Object3D): { kind: number; textures: SurfaceCacheTextures; capture: boolean } | null {
   const textures = scene.userData[SURFACE_READ_LIVE_KEY] as SurfaceCacheTextures | undefined;
   if (textures === undefined) return null;
   const kind = (object.userData[SURFACE_READ_KEY] as number | undefined) ?? 0;
-  return kind === 0 ? null : { kind, textures };
+  return kind === 0 ? null : { kind, textures, capture: textures.capture };
 }
+
+/** Whether a reading build writes its surface's colour (a capture frame's program: a draw that writes cannot skip hidden pixels early). */
+export const SURFACE_READ_CAPTURE = 'tlSurfaceReadCapture';
 
 /** Put the kind on every mesh under `root` (undefined: none). */
 export function markSurfaceRead(root: THREE.Object3D, kind: SurfaceReadKind | undefined): void {
@@ -84,25 +90,50 @@ export class SurfaceCacheTextures {
   readonly id = ++texturesMade;
   readonly atlas: THREE.StorageArrayTexture;
   readonly rings: THREE.StorageArrayTexture;
+  /** The surfaces' colours (`albedoWords`): the materials reading the cache write their own there as they draw, the probes' bounce reads them. */
+  readonly albedo: THREE.StorageBufferAttribute;
+  readonly albedoNode: N;
+  /** Where the ring layers' colours start (words). */
+  readonly albedoRingsAt: number;
+  /** This frame the reading draws write their surfaces' colours (one frame now and then: the writes cost their draws early depth culling). */
+  capture = false;
   readonly table: THREE.DataTexture;
   /** The sun's colour × intensity, as the light pass counts it. */
   readonly sun = uniform(new THREE.Color(0, 0, 0));
   /** The lookup's texture node. */
   readonly tableNode: N;
 
-  constructor() {
+  /** `pages` and `ringLayers`: the most the cache's budget can hold (the colours' buffer is made once for them). */
+  constructor(readonly pages: number, readonly ringLayers: number) {
     this.atlas = arrayTexture(SURFACE_PAGE_TEXELS, THREE.ClampToEdgeWrapping, 'surface cache atlas');
     this.rings = arrayTexture(TERRAIN_RING_TEXELS, THREE.RepeatWrapping, 'surface cache rings');
-    this.table = tableTexture(new Uint32Array(LOOKUP_WIDTH * 4));
-    this.tableNode = textureLoad(this.table);
+    const words = albedoWords(pages, ringLayers);
+    this.albedo = new THREE.StorageBufferAttribute(new Uint32Array(words), 1);
+    this.albedoNode = TSL.storage(this.albedo, 'uint', words).toAtomic();
+    this.albedoRingsAt = pages * ALBEDO_CELLS;
+    this.table = tableTexture(new Uint32Array(LOOKUP_WIDTH * 4 * TABLE_ROWS));
+    // Integer texel loads: no uv transform (a texture's matrix would turn every index into floats and back).
+    this.tableNode = textureLoad(this.table).setUpdateMatrix(false);
   }
 
-  /** New lookup words (a whole number of rows, `packSurfaceLookup`): the same texture, made again by three when its rows change. */
+  /**
+   * New lookup words (a whole number of rows, `packSurfaceLookup`). The
+   * texture keeps its rows while they hold the words; when they do not it is
+   * let go and made again twice as tall (three re-creates a disposed
+   * texture and the bindings that held it; an image of another size written
+   * into the old one would be lost).
+   */
   setTable(words: Uint32Array): void {
-    const rows = words.length / 4 / LOOKUP_WIDTH;
     const img = this.table.image as { data: Uint32Array; width: number; height: number };
-    if (img.height === rows) img.data.set(words);
-    else this.table.image = { data: words.slice(), width: LOOKUP_WIDTH, height: rows };
+    if (words.length > img.data.length) {
+      let rows = img.height;
+      while (rows * LOOKUP_WIDTH * 4 < words.length) rows *= 2;
+      this.table.dispose();
+      this.table.image = { data: new Uint32Array(rows * LOOKUP_WIDTH * 4), width: LOOKUP_WIDTH, height: rows };
+    }
+    const data = (this.table.image as { data: Uint32Array }).data;
+    data.set(words);
+    data.fill(0, words.length);
     this.table.needsUpdate = true;
   }
 
@@ -111,7 +142,7 @@ export class SurfaceCacheTextures {
    * makes it, so materials bind it; the light pass writes it).
    */
   gpuTexture(renderer: unknown, which: 'atlas' | 'rings', layers: number): unknown {
-    const t = which === 'atlas' ? this.atlas : this.rings;
+    const t = this[which];
     const img = t.image as { width: number; height: number; depth: number };
     if (img.depth !== layers) t.setSize(img.width, img.height, layers);
     const r = renderer as { initTexture(t: THREE.Texture): void; backend: { get(t: THREE.Texture): { texture?: unknown } } };
@@ -119,10 +150,14 @@ export class SurfaceCacheTextures {
     return r.backend.get(t).texture;
   }
 
+  /** The GPU buffer behind the surfaces' colours once three made it for the first draw that writes them (null until then: the probes bounce the default). */
+  gpuAlbedo(renderer: unknown): unknown {
+    const r = renderer as { backend: { get(a: unknown): { buffer?: unknown } } };
+    return r.backend.get(this.albedo).buffer ?? null;
+  }
+
   dispose(): void {
-    this.atlas.dispose();
-    this.rings.dispose();
-    this.table.dispose();
+    for (const t of [this.atlas, this.rings, this.table]) t.dispose();
   }
 }
 
@@ -142,7 +177,6 @@ function arrayTexture(side: number, wrap: THREE.Wrapping, name: string): THREE.S
 
 function tableTexture(data: Uint32Array): THREE.DataTexture {
   const t = new THREE.DataTexture(data, LOOKUP_WIDTH, data.length / 4 / LOOKUP_WIDTH, THREE.RGBAIntegerFormat, THREE.UnsignedIntType);
-  t.internalFormat = 'RGBA32UI';
   t.magFilter = THREE.NearestFilter;
   t.minFilter = THREE.NearestFilter;
   t.generateMipmaps = false;
@@ -158,11 +192,7 @@ export const SURFACE_READ_FOUND = property('float', 'tlSurfaceReadFound');
 function lookupNodes(tex: SurfaceCacheTextures, kind: SurfaceReadKind): { layer: N; uv: N; found: N; rings: boolean } {
   const table = tex.tableNode;
   const texel = (t: N): N => table.load(ivec2(int(t.mod(uint(LOOKUP_WIDTH))), int(t.div(uint(LOOKUP_WIDTH)))));
-  const word = (w: N): N => {
-    const v = texel(w.div(uint(4)));
-    const k = w.mod(uint(4));
-    return select(k.equal(uint(0)), v.x, select(k.equal(uint(1)), v.y, select(k.equal(uint(2)), v.z, v.w)));
-  };
+  const word = (w: N): N => texel(w.div(uint(4))).element(w.mod(uint(4)));
   const asF = (v: N): N => uintBitsToFloat(v);
   const asI = (v: N): N => TSL.int(v);
   const p = positionWorld;
@@ -327,6 +357,16 @@ export class SurfaceReadLightNode extends (THREE.LightingNode as unknown as new 
     const sunShare = max(t.w.sub(SURFACE_TEXEL_LIT), float(0));
     const irr = max(t.xyz.sub(vec3(this.tex.sun).mul(sunShare)), vec3(0));
     SURFACE_READ_FOUND.assign(lit);
+    // The surface's own colour where it read (what its light bounces as), written as it draws on a capture frame.
+    if (builder.material?.[SURFACE_READ_CAPTURE] === true) If(found, () => {
+      const c = clamp(TSL.diffuseColor.rgb, vec3(0), vec3(1)).mul(255).round();
+      const word = uint(c.x).bitOr(uint(c.y).shiftLeft(uint(8))).bitOr(uint(c.z).shiftLeft(uint(16))).bitOr(uint(255 << 24 >>> 0));
+      const step = rings ? ALBEDO_RING_STEP : ALBEDO_PAGE_STEP;
+      const size = rings ? TERRAIN_RING_TEXELS : SURFACE_PAGE_TEXELS;
+      const at = TSL.uvec2(floor(uv.mul(size)).mod(size).div(step));
+      const base = uint(rings ? this.tex.albedoRingsAt : 0).add(layer.mul(uint(ALBEDO_CELLS)));
+      TSL.atomicStore(this.tex.albedoNode.element(base.add(at.y.mul(uint(size / step))).add(at.x)), word);
+    });
     const ctx = builder.context;
     if (builder.material?.isMeshCustomLitNodeMaterial === true) LIT.direct.addAssign(irr.mul(1 / Math.PI));
     else ctx.reflectedLight.directDiffuse.addAssign(irr.mul(TSL.diffuseColor.rgb).mul(1 / Math.PI));

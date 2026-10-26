@@ -64,6 +64,8 @@ export interface ProbeUpdateInput {
   readonly scene: PackedTraceScene;
   /** A hit's direct light from its cache texel (irradiance), by its point and normal and the hit itself. */
   readonly direct: (point: V3, normal: V3, hit: TraceHit) => V3;
+  /** A hit's surface colour as the cache holds it (absent, or null: none drawn there yet, `BOUNCE_ALBEDO`). */
+  readonly albedo?: (point: V3, normal: V3, hit: TraceHit) => V3 | null;
 }
 
 /**
@@ -122,7 +124,8 @@ export function probeUpdateCpu(input: ProbeUpdateInput): Float32Array {
           const p: V3 = [o[0] + d[0] * h.t, o[1] + d[1] * h.t, o[2] + d[2] * h.t];
           const dl = input.direct(p, n, h);
           const ind = probesIrradianceAt(probes.grids, state, [p[0] + n[0] * PROBE_HIT_LIFT, p[1] + n[1] * PROBE_HIT_LIFT, p[2] + n[2] * PROBE_HIT_LIFT], n, [0, 0, 0], rooms);
-          L = [0, 1, 2].map((q) => (BOUNCE_ALBEDO / Math.PI) * (dl[q]! + ind[q]!)) as V3;
+          const al = input.albedo?.(p, n, h) ?? null;
+          L = [0, 1, 2].map((q) => ((al?.[q] ?? BOUNCE_ALBEDO) / Math.PI) * (dl[q]! + ind[q]!)) as V3;
         }
       }
       if (k >= PROBE_AXIS_RAYS) {

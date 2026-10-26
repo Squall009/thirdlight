@@ -26,12 +26,15 @@ import { SurfaceLights } from './adapter-surface-cache';
 import type { SceneLights } from './lights-shadows';
 import type { RenderGraph } from './render-graph';
 import type { SurfaceCacheHost } from './surface-cache-host';
-import { SurfaceLightRuntime } from './surface-light-runtime';
+import { SurfaceLightRuntime, type SurfaceTextureSource } from './surface-light-runtime';
 import { TEXEL_POINT_FLOATS } from './surface-texels';
 import { AdapterLiveProbes } from './adapter-live-probes';
 import type { ProbeLightingHost } from './probe-grids';
 import { PROBE_HIT_LIFT, probesIrradianceAt } from './surface-probes';
-import type { GpuTexture, TracerDevice } from './tracer-gpu';
+import type { GpuBuffer, GpuTexture, TracerDevice } from './tracer-gpu';
+import { SURFACE_PAGE_BYTES } from './surface-cache-atlas';
+import { TERRAIN_RING_SHARE } from './surface-cache';
+import { TERRAIN_RINGS_MAX, TERRAIN_RING_BYTES } from './surface-cache-terrain';
 import { packSurfaceLookup } from './surface-cache-lookup';
 import { SURFACE_READ_LIVE_KEY, SurfaceCacheTextures } from './surface-cache-read';
 import type { CacheLight } from './surface-changes';
@@ -44,6 +47,10 @@ const VIEW_ALBEDO = 0.5;
 const VIEW_LIFT = 0.01;
 /** The page flag that keeps materials off the cache while it is lit live (`?surfaceRead=0`). */
 export const SURFACE_READ_URL_PARAM = 'surfaceRead';
+/** Every how many frames the reading draws write their surfaces' colours (a draw that writes loses early depth culling). */
+const ALBEDO_CAPTURE_FRAMES = 30;
+/** Shortest time (ms) between two read-backs of the surfaces' colours for the diagnostics. */
+const ALBEDO_READ_MS = 2000;
 /** Shortest time (ms) between two packings of the materials' lookup while residency keeps changing. */
 const LOOKUP_MS = 100;
 
@@ -64,6 +71,10 @@ export interface SurfaceLightDiagnostics {
   /** Whether static surfaces read the cache now, and the bytes of their lookup. */
   readonly read: boolean;
   readonly lookupBytes: number;
+  /** Cells of the surfaces' colours the materials have drawn, as last read back (null: not read yet; a read is asked by this call). */
+  readonly albedoDrawn: number | null;
+  /** Frames that wrote the surfaces' colours so far. */
+  readonly captures: number;
 }
 
 export class AdapterSurfaceLight {
@@ -84,6 +95,14 @@ export class AdapterSurfaceLight {
   /** `?surfaceRead=0`: the cache is lit but no material reads it (a comparison of what reading costs and changes). */
   private readonly readOn: boolean;
   private lookupAt = -Infinity;
+  /** The budget the textures were made for (another quality level's makes them again). */
+  private budgetFor = -1;
+  private albedoDrawn: number | null = null;
+  private albedoAsked = false;
+  private albedoReading = false;
+  private albedoAt = -Infinity;
+  private frames = 0;
+  private captures = 0;
 
   constructor(private readonly host: SurfaceCacheHost, private readonly scene: THREE.Scene, docs: ReadonlyMap<string, EntityDoc>, graph: RenderGraph, probes: ProbeLightingHost | null = null) {
     this.lights = new SurfaceLights(docs, graph);
@@ -105,16 +124,16 @@ export class AdapterSurfaceLight {
     this.host.update(eye);
     const gpu = deviceOf(renderer);
     const device = this.failed || this.host.relightBudgetMs <= 0 ? null : gpu;
-    if (device !== this.device) this.drop(device, renderer);
+    if (device !== this.device || (device !== null && this.host.cache.budgetBytes !== this.budgetFor)) this.drop(device, renderer);
     this.off = this.runtime !== null ? null : this.failed ? 'failed' : this.host.relightBudgetMs <= 0 ? 'no-budget' : gpu === null ? 'no-webgpu' : 'starting';
     this.runtime?.frame(lights);
-    this.syncRead(lights);
+    this.syncRead(lights, renderer);
     this.liveProbes?.frame(renderer, this.runtime);
     this.drawView();
   }
 
   /** What materials read, up to date: the lookup packed again when residency changed, the sun the texels were lit with; the scene says so once both are up. */
-  private syncRead(lights: readonly CacheLight[]): void {
+  private syncRead(lights: readonly CacheLight[], renderer: AnyRenderer): void {
     const tex = this.textures;
     if (this.runtime === null || tex === null || !this.readOn) {
       delete this.scene.userData[SURFACE_READ_LIVE_KEY];
@@ -131,6 +150,35 @@ export class AdapterSurfaceLight {
       this.lookupAt = now;
     }
     if (this.lookupFor !== '') this.scene.userData[SURFACE_READ_LIVE_KEY] = tex;
+    // The surfaces' colours are written one frame now and then, only where probes bounce them.
+    this.frames += 1;
+    tex.capture = this.host.probes.count > 0 && this.frames % ALBEDO_CAPTURE_FRAMES === 0;
+    if (tex.capture) this.captures += 1;
+    if (this.albedoAsked && !this.albedoReading && now - this.albedoAt >= ALBEDO_READ_MS) {
+      this.albedoAt = now;
+      this.readAlbedo(renderer);
+    }
+  }
+
+  /** Counts the surfaces' colours the materials drew (a diagnostics read: asked by `diagnostics`, done a frame or two later). */
+  private readAlbedo(renderer: AnyRenderer): void {
+    const tex = this.textures;
+    const r = renderer as unknown as { getArrayBufferAsync?(a: unknown): Promise<ArrayBuffer> };
+    if (tex === null || typeof r.getArrayBufferAsync !== 'function' || tex.gpuAlbedo(renderer) === null) return;
+    this.albedoAsked = false;
+    this.albedoReading = true;
+    r.getArrayBufferAsync(tex.albedo).then(
+      (bytes) => {
+        const w = new Uint32Array(bytes);
+        let n = 0;
+        for (let i = 0; i < w.length; i += 1) if (w[i]! >>> 24 !== 0) n += 1;
+        this.albedoDrawn = n;
+        this.albedoReading = false;
+      },
+      () => {
+        this.albedoReading = false;
+      },
+    );
   }
 
   /** A new device (or none): the old one's work goes; on a device, the pass is made and the host goes live when it is ready. */
@@ -144,8 +192,19 @@ export class AdapterSurfaceLight {
     this.textures = null;
     this.device = device;
     if (device === null) return;
-    const tex = new SurfaceCacheTextures();
-    SurfaceLightRuntime.create(device, this.host, (which, layers) => tex.gpuTexture(renderer, which, layers) as GpuTexture).then(
+    // The colours' buffer holds every page and ring layer the budget allows.
+    const pages = Math.max(1, Math.ceil(this.host.cache.budgetBytes / SURFACE_PAGE_BYTES));
+    const ringLayers = Math.max(1, Math.floor((this.host.cache.budgetBytes * TERRAIN_RING_SHARE) / TERRAIN_RING_BYTES)) * TERRAIN_RINGS_MAX;
+    const tex = new SurfaceCacheTextures(pages, ringLayers);
+    this.budgetFor = this.host.cache.budgetBytes;
+    const source: SurfaceTextureSource = {
+      texture: (which, layers) => tex.gpuTexture(renderer, which, layers) as GpuTexture,
+      albedo: () => {
+        const buffer = tex.gpuAlbedo(renderer) as GpuBuffer | null;
+        return buffer === null ? null : { buffer, pages, ringsAt: tex.albedoRingsAt };
+      },
+    };
+    SurfaceLightRuntime.create(device, this.host, source).then(
       (rt) => {
         if (this.device !== device) {
           rt.dispose();
@@ -167,7 +226,8 @@ export class AdapterSurfaceLight {
 
   diagnostics(): SurfaceLightDiagnostics {
     const read = this.scene.userData[SURFACE_READ_LIVE_KEY] !== undefined;
-    return { live: this.runtime !== null, off: this.off, view: this.viewOn, viewTexels: this.viewTexels, read, lookupBytes: read ? ((this.textures?.table.image as { data?: Uint32Array } | undefined)?.data?.byteLength ?? 0) : 0 };
+    this.albedoAsked = true;
+    return { live: this.runtime !== null, off: this.off, view: this.viewOn, viewTexels: this.viewTexels, read, lookupBytes: read ? ((this.textures?.table.image as { data?: Uint32Array } | undefined)?.data?.byteLength ?? 0) : 0, albedoDrawn: this.albedoDrawn, captures: this.captures };
   }
 
   /** Whether the cache's light is computed live on this page. */

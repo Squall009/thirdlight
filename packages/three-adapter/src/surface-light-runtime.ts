@@ -41,6 +41,7 @@ import type { GpuBuffer, GpuTexture, TracerDevice } from './tracer-gpu';
 import { packTraceScene } from './tracer-scene';
 import { SurfaceProbePass } from './surface-probe-pass';
 import { packResolveTable } from './surface-resolve';
+import { ALBEDO_CELLS, ALBEDO_PAGE_STEP, albedoWords } from './surface-cache-lookup';
 
 /** Bytes a cache texel takes (rgba16float). */
 export const SURFACE_TEXEL_BYTES = 8;
@@ -96,12 +97,24 @@ interface Pipeline {
   getBindGroupLayout(i: number): unknown;
 }
 
-/** Makes the cache's textures on the pass's device, `layers` deep (made again when the count grows). */
-export type SurfaceTextureSource = (which: 'atlas' | 'rings', layers: number) => GpuTexture;
+/** Which of the cache's light textures. */
+export type SurfaceTextureKind = 'atlas' | 'rings';
+/**
+ * The cache's GPU resources made by whoever draws them: the light
+ * textures, `layers` deep (made again when the count grows), and the
+ * surfaces' colours (`albedoWords`, made once for the budget's pages and
+ * ring layers, the rings' words from `ringsAt`).
+ */
+export interface SurfaceTextureSource {
+  texture(which: SurfaceTextureKind, layers: number): GpuTexture;
+  /** The colours' buffer (null until whoever draws them made it). */
+  albedo(): { readonly buffer: GpuBuffer; readonly pages: number; readonly ringsAt: number } | null;
+}
 
 export class SurfaceLightRuntime implements SurfaceCacheView {
   private atlas: GpuTexture | null = null;
   private rings: GpuTexture | null = null;
+  private albedo: { readonly buffer: GpuBuffer; readonly pages: number; readonly ringsAt: number } | null = null;
   private atlasLayers = 0;
   private ringLayers = 0;
   private addrBuf: GpuBuffer | null = null;
@@ -127,6 +140,7 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
   onTimed: ((ms: number, texels: number, passes: readonly number[]) => void) | null = null;
 
   private zeros: Uint8Array | null = null;
+  private noAlbedo: GpuBuffer | null = null;
 
   private constructor(private readonly device: TracerDevice, private readonly host: SurfaceCacheHost, readonly pass: SurfaceLightPass, private readonly scatter: Pipeline, readonly probePass: SurfaceProbePass, private readonly source: SurfaceTextureSource | null) {
     this.countBuf = device.createBuffer({ size: 16, usage: USAGE.UNIFORM | USAGE.COPY_DST, label: 'surface scatter count' });
@@ -143,8 +157,8 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
   }
 
   /** The atlas and ring textures (null until the first frame made them; they can be copied out: a bake saves them, a check reads them). */
-  get textures(): { atlas: GpuTexture | null; rings: GpuTexture | null } {
-    return { atlas: this.atlas, rings: this.rings };
+  get textures(): { atlas: GpuTexture | null; rings: GpuTexture | null; albedo: { readonly buffer: GpuBuffer; readonly ringsAt: number } | null } {
+    return { atlas: this.atlas, rings: this.rings, albedo: this.albedo };
   }
 
   /** Keep a CPU copy of the lit texels for a debug drawing (off: dropped). */
@@ -162,27 +176,54 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
     const pageBytes = SURFACE_PAGE_TEXELS * SURFACE_PAGE_TEXELS * SURFACE_TEXEL_BYTES;
     const pages = Math.max(1, Math.ceil(this.host.cache.budgetBytes / pageBytes));
     if (this.atlas === null || this.atlasLayers < pages) {
-      if (this.source === null) this.atlas?.destroy();
       this.atlasLayers = pages;
-      this.atlas = this.source?.('atlas', pages) ?? this.device.createTexture({ size: [SURFACE_PAGE_TEXELS, SURFACE_PAGE_TEXELS, pages], format: 'rgba16float', usage: TEXTURE.TEXTURE_BINDING | TEXTURE.STORAGE_BINDING | TEXTURE.COPY_DST | TEXTURE.COPY_SRC, label: 'surface cache atlas' });
+      this.atlas = this.make('atlas', this.atlas, SURFACE_PAGE_TEXELS, pages);
     }
     const ringLayers = Math.max(1, this.host.cache.ringTerrains().length) * TERRAIN_RINGS_MAX;
     if (this.rings === null || this.ringLayers < ringLayers) {
-      if (this.source === null) this.rings?.destroy();
       this.ringLayers = ringLayers;
-      this.rings = this.source?.('rings', ringLayers) ?? this.device.createTexture({ size: [TERRAIN_RING_TEXELS, TERRAIN_RING_TEXELS, ringLayers], format: 'rgba16float', usage: TEXTURE.TEXTURE_BINDING | TEXTURE.STORAGE_BINDING | TEXTURE.COPY_DST | TEXTURE.COPY_SRC, label: 'surface cache rings' });
+      this.rings = this.make('rings', this.rings, TERRAIN_RING_TEXELS, ringLayers);
     }
+    if (this.source !== null) this.albedo = this.source.albedo();
+    else if (this.albedo === null) this.albedo = this.ownAlbedo(pages);
   }
 
-  /** The atlas blocks newly handed to tiles, cleared (a new texture is cleared already). */
+  /** The surfaces' colours for the probe pass: the drawn ones, else an empty buffer (every hit bounces the default). */
+  private albedoForProbes(): { buffer: GpuBuffer; ringsAt: number } {
+    if (this.albedo !== null) return this.albedo;
+    this.noAlbedo ??= this.device.createBuffer({ size: 16, usage: USAGE.STORAGE | USAGE.COPY_DST, label: 'surface cache no albedo' });
+    return { buffer: this.noAlbedo, ringsAt: 0 };
+  }
+
+  /** The surfaces' colours when nobody draws them (no material writes: every hit bounces the default). */
+  private ownAlbedo(pages: number): { buffer: GpuBuffer; pages: number; ringsAt: number } {
+    const buffer = this.device.createBuffer({ size: albedoWords(pages, TERRAIN_RINGS_MAX) * 4, usage: USAGE.STORAGE | USAGE.COPY_DST, label: 'surface cache albedo' });
+    return { buffer, pages, ringsAt: pages * ALBEDO_CELLS };
+  }
+
+  /** One of the textures, `layers` deep: the source's, else made here (the old one let go). */
+  private make(which: SurfaceTextureKind, old: GpuTexture | null, side: number, layers: number): GpuTexture {
+    if (this.source !== null) return this.source.texture(which, layers);
+    old?.destroy();
+    return this.device.createTexture({ size: [side, side, layers], format: 'rgba16float', usage: TEXTURE.TEXTURE_BINDING | TEXTURE.STORAGE_BINDING | TEXTURE.COPY_DST | TEXTURE.COPY_SRC, label: `surface cache ${which}` });
+  }
+
+  /** The atlas blocks newly handed to tiles, cleared, their light and their colours (a new texture is cleared already). */
   private clearFresh(): void {
     const fresh = this.host.takeFreshBlocks();
     if (fresh.length === 0 || this.atlas === null) return;
+    const q = this.device.queue;
     for (const b of fresh) {
       if (b.page >= this.atlasLayers) continue;
       const bytes = b.side * b.side * SURFACE_TEXEL_BYTES;
       if (this.zeros === null || this.zeros.length < bytes) this.zeros = new Uint8Array(bytes);
-      this.device.queue.writeTexture({ texture: this.atlas, origin: [b.x, b.y, b.page] }, this.zeros.subarray(0, bytes), { bytesPerRow: b.side * SURFACE_TEXEL_BYTES, rowsPerImage: b.side }, [b.side, b.side, 1]);
+      q.writeTexture({ texture: this.atlas, origin: [b.x, b.y, b.page] }, this.zeros.subarray(0, bytes), { bytesPerRow: b.side * SURFACE_TEXEL_BYTES, rowsPerImage: b.side }, [b.side, b.side, 1]);
+      const a = this.albedo;
+      if (a === null || b.page >= a.pages) continue;
+      // Its colours' rows (a word per ALBEDO_PAGE_STEP² texels).
+      const row = SURFACE_PAGE_TEXELS / ALBEDO_PAGE_STEP;
+      const w = Math.max(1, b.side / ALBEDO_PAGE_STEP);
+      for (let y = 0; y < w; y += 1) q.writeBuffer(a.buffer, (b.page * ALBEDO_CELLS + (b.y / ALBEDO_PAGE_STEP + y) * row + b.x / ALBEDO_PAGE_STEP) * 4, this.zeros.subarray(0, w * 4));
     }
   }
 
@@ -213,7 +254,7 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
     if (slots.length === 0) return;
     if (!this.syncProbeInputs(now)) return;
     const layout = probes.layout;
-    this.probePass.run({ probes, slots, sky: this.sky, rooms: this.host.rooms()?.words ?? null, atlas: this.atlas!, rings: this.rings! }, (values, ms) => {
+    this.probePass.run({ probes, slots, sky: this.sky, rooms: this.host.rooms()?.words ?? null, atlas: this.atlas!, rings: this.rings!, albedo: this.albedoForProbes().buffer, albedoRingsAt: this.albedoForProbes().ringsAt }, (values, ms) => {
       if (probes.layout !== layout) return;
       probes.accept(slots, values, this.host.relight.isSettled, performance.now());
       if (ms === null) return;
@@ -352,13 +393,15 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
 
   dispose(): void {
     if (this.source === null) {
-      this.atlas?.destroy();
-      this.rings?.destroy();
+      for (const t of [this.atlas, this.rings]) t?.destroy();
+      this.albedo?.buffer.destroy();
     }
+    this.noAlbedo?.destroy();
     this.addrBuf?.destroy();
     this.countBuf.destroy();
     this.probePass.dispose();
     this.pass.dispose();
     this.atlas = this.rings = this.addrBuf = null;
+    this.albedo = null;
   }
 }

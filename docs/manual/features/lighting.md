@@ -187,10 +187,11 @@ rather than one point. Add one with **GameObject → Light → Area light** (a
   side it shines toward.
 - **How it lights** — through the surface cache, the static surfaces' light:
   on WebGPU at medium and high quality its light and soft shadows are traced
-  into the cache of the static surfaces around it. Per-pixel highlights from
-  area lights come with the materials that read the cache; until then its
-  light is seen in the surface cache's debug view. WebGL 2 draws the cache's
-  saved light. The lightmap bake does not take area lights.
+  into the cache of the static surfaces around it, and block layers,
+  terrain and generated buildings draw it from there. Moving objects and
+  static models get its light only as bounce through the probes, and it
+  draws no highlights yet. WebGL 2 draws the cache's saved light. The
+  lightmap bake does not take area lights.
 - **No per-pixel budget** — area lights, like baked point and spot lights,
   are not counted in the scene's 16 realtime point and spot lights.
 
@@ -218,8 +219,10 @@ only where something changed:
   and the sky where they hit nothing, so bounces build up over a few
   updates. Every lit material — moving objects, foliage and ground cover
   too — reads them through the usual probe lighting, in place of baked
-  probes while the light is live. Bounces assume an albedo of 0.3 (the
-  cache holds light, not surface colours).
+  probes while the light is live. A bounce takes the colour of the surface
+  it leaves: the surfaces that read the cache write their own colour beside
+  it (one frame in 30, at half the cache's resolution, a quarter on
+  terrain); where no material has drawn yet, it bounces as albedo 0.3.
 - **Rooms and portals** — a point, spot or area light standing in a room of
   generated architecture lights only that room and the rooms its open
   doorways join to it; a shut door (a door piece across the doorway) holds
@@ -233,9 +236,23 @@ only where something changed:
   probe bakers), what it saves follows the mode: a `baked` light's direct
   light and its bounce, a `mixed` light's bounce only, a `realtime` light
   nothing.
-- **What it is not yet** — materials do not read the cache yet (its direct
-  light is seen through the probes' bounce and the debug view); WebGL 2 and
-  the low tier compute nothing live.
+- **What surfaces draw** — block layers, terrain and generated buildings
+  read their diffuse light from the cache: one filtered lookup a pixel,
+  found from where the pixel is and which way it faces. The cache gives the
+  light of point, spot, area lights and glowing boxes with their soft
+  traced shadows; the sun is still drawn per pixel with its shadow map
+  (sharper than a cache texel), so the cache's share of it is left out; the
+  probes give the bounce; point and spot lights drawn per pixel keep their
+  highlights. A pixel with no cache texel under it (its surface not
+  resident yet, a trim off its wall's plane) is lit per pixel as before. A
+  surface that has a baked lightmap keeps drawing it until the scene is
+  baked again. Static models, boxes, moving objects, foliage and ground
+  cover are lit as before (probes and per-pixel lights). Add
+  `?surfaceRead=0` to a game page's address to light the cache without any
+  surface reading it (to compare).
+- **What it is not yet** — WebGL 2 and the low tier compute nothing live
+  (they draw the saved light). Static boxes do not block the cache's light
+  (only blocks, terrain, generated buildings and static models do).
 - **Looking at it** — add `?surfaceCacheView=1` to a game page's address to
   draw every lit cache texel as a small square on its surface, shaded as a
   mid-grey surface would be by its light and its probes' bounce;
