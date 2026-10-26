@@ -69,7 +69,7 @@ export class AdapterSurfaceLight {
     this.viewOn = new URLSearchParams(pageSearch()).get('surfaceCacheView') === '1';
   }
 
-  /** Before the frame's programs are built (ahead of the probes' frame): whether the light will be live, so the probe light is in every program from the start. */
+  /** Before the frame's programs are built (ahead of the probes' frame): whether the light is live with probes, so the probe light joins before the programs are built. */
   prepare(renderer: AnyRenderer): void {
     this.liveProbes?.hold(!this.failed && this.host.relightBudgetMs > 0 && deviceOf(renderer) !== null);
   }

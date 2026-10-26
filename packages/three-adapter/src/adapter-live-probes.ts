@@ -63,13 +63,14 @@ export class AdapterLiveProbes {
   }
 
   /**
-   * Before a frame's programs are built: whether the light will be live on
-   * this page. The probe light joins the scene then, with no tiles yet, so
-   * every lit program is built with it from the start: a light coming later
-   * would build every program again in the middle of a session. Not live:
-   * the bakes' tiles come back.
+   * Before a frame's programs are built: whether the light is live on this
+   * page with probes to light (`live`). The probe light joins the scene
+   * then (with no tiles yet), before the frame builds its programs; a page
+   * with no static surfaces never takes it (every lit program would carry
+   * it for nothing). Not live: the bakes' tiles come back.
    */
   hold(live: boolean): void {
+    live &&= this.host.probes.count > 0;
     if (live === this.on) return;
     this.probes.setLive(live ? [] : null, new Set());
     this.on = live;
