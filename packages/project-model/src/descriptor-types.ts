@@ -318,6 +318,7 @@ export const COMPONENT_ICONS = [
   'ambient',
   'point',
   'spot',
+  'area',
   'hemisphere',
   'terrain',
   'blocks',

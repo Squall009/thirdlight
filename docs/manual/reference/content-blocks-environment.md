@@ -121,9 +121,9 @@ The quality levels, the default level and the environment presets (each scene ha
 | `presets[].lights[]` | object |  |  | **Light.** The values this preset gives the lights it names (one of entity, tag or type; none: every light). (rules: A light entry names at most one of entity, tag or type (none: every light).) |
 | `presets[].lights[].entity` | object id (with `light`) |  |  | **Entity.** One light by its entity. |
 | `presets[].lights[].tag` | string, identifier, 1–32 chars |  |  | **Tag.** Every light with this tag. (format identifier) |
-| `presets[].lights[].type` | enum: `directional`, `ambient`, `point`, `spot`, `hemisphere` |  |  | **Type.** Every light of this type. |
+| `presets[].lights[].type` | enum: `directional`, `ambient`, `point`, `spot`, `hemisphere`, `area` |  |  | **Type.** Every light of this type. |
 | `presets[].lights[].color` | color |  |  | **Colour.** The light colour. |
-| `presets[].lights[].intensity` | number |  | 0 – 1000, step 0.05 | **Intensity.** The light intensity (candela for point and spot lights). |
+| `presets[].lights[].intensity` | number |  | 0 – 1000, step 0.05 | **Intensity.** The light intensity (candela for point, spot and area lights). |
 | `presets[].lights[].direction` | vec3 [x, y, z] |  | -1 – 1, step 0.05, not 0 | **Direction.** Where a directional or spot light shines (not all 0). |
 | `presets[].lights[].groundColor` | color |  |  | **Ground colour.** A hemisphere light's ground colour. |
 | `presets[].lightmap` | object |  |  | **Lightmap.** Multiplies baked lighting (a bake keeps the light of the moment it was baked). |

@@ -33,12 +33,13 @@ import { SOCKET_ATTACH_CONFLICTS, SOCKET_ATTACH_LIMITS } from './sockets';
 import { MODE_BLENDS, MODE_DEFAULTS, MODE_LIMITS, MODE_PHYSICS, MODE_UNGROUPED } from './modes';
 import { CAMERA_BLENDS, CAMERA_PATH_LIMITS, CAMERA_RAIL_MODES, CAMERA_REGION_DEFAULTS, CAMERA_REGION_LIMITS, VIRTUAL_CAMERA_DEFAULTS as VCD, VIRTUAL_CAMERA_LIMITS as VCL, VIRTUAL_CAMERA_RIGS } from './cameras';
 import { MAX_LEN } from './validate';
-import { LOCAL_LIGHT_MODES } from './local-lights';
+import { LOCAL_LIGHT_MODES, MAX_LOCAL_LIGHTS } from './local-lights';
 
 /** How the local-light modes read in the Inspector. */
 const LOCAL_LIGHT_LABELS = { pixel: 'Per pixel', none: 'None' } as const;
 import { DIRECTIONAL_SHADOW_DEFAULTS, DIRECTIONAL_SHADOW_LIMITS, MAX_ABS_V3, MAX_EMISSIVE_INTENSITY, MAX_INTENSITY, MAX_LOCAL_INTENSITY, SURFACE_DEFAULTS } from './scene-v3';
-import { MAX_INSTANCES } from './types-v3';
+import { AREA_LIGHT_DEFAULTS, AREA_LIGHT_SHAPES, AREA_LIGHT_SIZE_MAX } from './area-lights';
+import { LIGHT_TYPES, MAX_INSTANCES } from './types-v3';
 import { type ComponentDescriptor, type FieldDescriptor, type ObjectFieldDescriptor } from './descriptor-types';
 import { asset, bool, color, enm, entity, ID, int, json, lightLayerMask, list, map, NAME, num, obj, ref, scene, seeThroughField, signal, str, vec2, vec3, when } from './descriptor-builders';
 
@@ -536,20 +537,20 @@ export const socketAttach: ComponentDescriptor = {
   prefab: true,
 };
 
-const LIGHT_TYPES = ['directional', 'ambient', 'point', 'spot', 'hemisphere'] as const;
 export const light: ComponentDescriptor = {
   name: 'light',
   label: 'Light',
-  tooltip: 'A light: directional (the sun), ambient, point, spot or hemisphere (sky and ground).',
+  tooltip: 'A light: directional (the sun), ambient, point, spot, hemisphere (sky and ground) or area (a panel or strip with a size, shining toward the object\'s local −Y: unrotated, a ceiling panel shining down).',
   category: 'Lighting',
   value: obj('light', 'Light', 'A light source.', [
     enm('type', 'Type', 'The kind of light.', LIGHT_TYPES, { required: true, default: 'point' }),
     color('color', 'Colour', 'The light colour (a hemisphere light: the sky colour).', { required: true, default: '#ffffff' }),
     num('intensity', 'Intensity', 'Brightness.', { required: true, when: when('type', 'directional', 'ambient', 'hemisphere'), min: 0, max: MAX_INTENSITY, step: 0.05, default: 1 }),
-    num('intensity', 'Intensity', 'Brightness in candela.', { required: true, when: when('type', 'point', 'spot'), min: 0, max: MAX_LOCAL_INTENSITY, step: 1, unit: 'cd', default: 30 }),
+    num('intensity', 'Intensity', 'Brightness in candela (an area light: the whole light along its facing axis).', { required: true, when: when('type', 'point', 'spot', 'area'), min: 0, max: MAX_LOCAL_INTENSITY, step: 1, unit: 'cd', default: 30 }),
     vec3('direction', 'Direction', 'Where the light shines (need not be unit length; not all 0).', { required: true, when: when('type', 'directional'), min: -1, max: 1, step: 0.05, nonZero: true, handle: 'direction', default: [0.4, -1, -0.3] }),
     vec3('direction', 'Direction', 'Where the spot points (not all 0).', { required: true, when: when('type', 'spot'), min: -1, max: 1, step: 0.05, nonZero: true, handle: 'cone', default: [0, -1, 0] }),
     bool('castShadow', 'Cast shadows', 'The light casts shadows.', { when: when('type', 'directional', 'point', 'spot'), default: false }),
+    bool('castShadow', 'Cast shadows', 'The light casts soft shadows (its size softens them).', { when: when('type', 'area'), default: AREA_LIGHT_DEFAULTS.castShadow }),
     // The sun's shadow map as data (defaults and their reasons: project-model DIRECTIONAL_SHADOW_DEFAULTS).
     int('shadowMapSize', 'Shadow map size', 'Shadow resolution in texels per side (sharper, more memory).', { when: when('type', 'directional'), values: [...DIRECTIONAL_SHADOW_LIMITS.mapSizes], default: DIRECTIONAL_SHADOW_DEFAULTS.mapSize, omitDefault: true }),
     num('shadowBias', 'Shadow bias', 'Depth offset of the shadow test (more negative: less acne, shadows may detach).', { when: when('type', 'directional'), min: DIRECTIONAL_SHADOW_LIMITS.bias.min, max: DIRECTIONAL_SHADOW_LIMITS.bias.max, step: 0.0001, default: DIRECTIONAL_SHADOW_DEFAULTS.bias, omitDefault: true }),
@@ -557,15 +558,21 @@ export const light: ComponentDescriptor = {
     num('shadowExtent', 'Shadow extent', 'Half the side of the shadowed square around the camera (v4 games; a v3 game uses its level bounds).', { when: when('type', 'directional'), min: DIRECTIONAL_SHADOW_LIMITS.extent.min, max: DIRECTIONAL_SHADOW_LIMITS.extent.max, step: 1, unit: 'm', default: DIRECTIONAL_SHADOW_DEFAULTS.extent, omitDefault: true }),
     num('range', 'Range', 'Light reaches this far (0: unlimited).', { when: when('type', 'point'), min: 0, max: 1000, step: 0.5, unit: 'm', default: 0, handle: 'radius' }),
     num('range', 'Range', 'Light reaches this far (0: unlimited).', { when: when('type', 'spot'), min: 0, max: 1000, step: 0.5, unit: 'm', default: 0, handle: 'cone' }),
+    num('range', 'Range', 'Light reaches this far (0: unlimited).', { when: when('type', 'area'), min: 0, max: 1000, step: 0.5, unit: 'm', default: 0 }),
     num('decay', 'Decay', 'How fast it fades with distance (2: physically correct).', { when: when('type', 'point', 'spot'), min: 0, max: 4, step: 0.1, default: 2 }),
     num('angle', 'Angle', 'Half-angle of the spot cone.', { when: when('type', 'spot'), min: 1, max: 89, step: 1, unit: 'deg', default: 30, handle: 'cone' }),
     num('penumbra', 'Soft edge', 'How soft the cone edge is (0: hard).', { when: when('type', 'spot'), min: 0, max: 1, step: 0.05, default: 0.2 }),
     // A spot light's cookie (directional lights get none).
     asset('cookie', 'Cookie', 'A texture projected through the cone (the light is tinted and masked by it: a window frame, leaves, a logo).', ['texture'], { when: when('type', 'spot') }),
     color('groundColor', 'Ground colour', 'The colour from below.', { when: when('type', 'hemisphere'), default: '#444444' }),
+    // An area light's size; where it faces is the object's rotation (it has no direction field).
+    enm('shape', 'Shape', 'A rect (a panel in the object\'s local XZ plane, centred on it) or a line (a strip along its local X).', AREA_LIGHT_SHAPES, { when: when('type', 'area'), default: AREA_LIGHT_DEFAULTS.shape }),
+    num('width', 'Width', 'The rect\'s side along the object\'s local X, or the line\'s length.', { when: when('type', 'area'), min: 0, minExclusive: true, max: AREA_LIGHT_SIZE_MAX, step: 0.05, unit: 'm', default: AREA_LIGHT_DEFAULTS.width }),
+    num('height', 'Height', 'The rect\'s side along the object\'s local Z (rect only).', { when: [when('type', 'area'), when('shape', 'rect')], min: 0, minExclusive: true, max: AREA_LIGHT_SIZE_MAX, step: 0.05, unit: 'm', default: AREA_LIGHT_DEFAULTS.height }),
+    bool('twoSided', 'Two-sided', 'Shines from both faces (off: only toward the object\'s local −Y).', { when: when('type', 'area'), default: AREA_LIGHT_DEFAULTS.twoSided }),
     enm('mode', 'Mode', 'Realtime, baked into lightmaps, or both (mixed).', ['realtime', 'baked', 'mixed'], { default: 'realtime', omitDefault: true }),
     lightLayerMask('lightMask', 'Light mask', 'The light layers it lights: an object is lit only when it is in one of them.', 0),
-    lightLayerMask('shadowCasterMask', 'Shadow caster mask', 'Only objects in one of these light layers cast its shadow.', 0, { when: when('type', 'directional', 'point', 'spot') }),
+    lightLayerMask('shadowCasterMask', 'Shadow caster mask', 'Only objects in one of these light layers cast its shadow.', 0, { when: when('type', 'directional', 'point', 'spot', 'area') }),
   ]),
   add: { kind: 'menu', value: { type: 'point', color: '#ffd9a0', intensity: 30, range: 8, decay: 2 } },
   // Genre-neutral reasons (the GameObject menu creates these too):
@@ -577,12 +584,16 @@ export const light: ComponentDescriptor = {
   //   long pointing down (a ceiling spot or a stage light).
   // - hemisphere: a pale sky over a neutral grey ground (#444444, the field
   //   default; it was an earth brown, which assumes an outdoor ground).
+  // - area: a ceiling panel (1.2 × 0.6 m, the size of a common fixture),
+  //   slightly warm white at 40 cd reaching 10 m (a room), casting the soft
+  //   shadows an area light is for.
   presets: [
     { label: 'Directional light', value: { type: 'directional', color: '#ffffff', intensity: 1.2, direction: [0.4, -1, -0.3], castShadow: true } },
     { label: 'Ambient light', value: { type: 'ambient', color: '#8090a8', intensity: 0.6 } },
     { label: 'Point light', value: { type: 'point', color: '#ffd9a0', intensity: 30, range: 8, decay: 2 } },
     { label: 'Spot light', value: { type: 'spot', color: '#ffffff', intensity: 80, range: 12, decay: 2, angle: 30, penumbra: 0.3, direction: [0, -1, 0] } },
     { label: 'Hemisphere light', value: { type: 'hemisphere', color: '#bcd7ff', groundColor: '#444444', intensity: 0.8 } },
+    { label: 'Area light', value: { type: 'area', color: '#fff4e0', intensity: 40, shape: 'rect', width: 1.2, height: 0.6, range: 10, castShadow: true } },
   ],
   handles: [
     { kind: 'direction', label: 'Direction', bind: { direction: 'direction' }, space: 'world', when: when('type', 'directional') },
@@ -596,14 +607,16 @@ export const light: ComponentDescriptor = {
     { icon: 'ambient', label: 'Ambient light', when: [{ path: 'type', in: ['ambient'] }] },
     { icon: 'spot', label: 'Spot light', when: [{ path: 'type', in: ['spot'] }] },
     { icon: 'hemisphere', label: 'Hemisphere light', when: [{ path: 'type', in: ['hemisphere'] }] },
+    { icon: 'area', label: 'Area light', when: [{ path: 'type', in: ['area'] }] },
     { icon: 'point', label: 'Point light', when: [{ path: 'type', in: ['point'] }] },
   ],
   excludes: [{ component: 'instances', reason: 'an instance set is scenery' }],
   prefab: true,
   rules: [
-    'At most one directional, one ambient and one hemisphere light and 16 point/spot lights per scene; any scene may hold any light.',
+    `At most one directional, one ambient and one hemisphere light and ${MAX_LOCAL_LIGHTS} realtime or mixed point/spot lights per scene (baked point/spot lights and area lights are not counted); any scene may hold any light.`,
     'With scenes loaded together, the most recently loaded scene\'s directional, ambient and hemisphere light is on (each kind on its own); the others come back when it unloads.',
-    'Point and spot lights of all loaded scenes share the budget of 16; past it the most recently loaded scenes\' lights are on.',
+    `Realtime and mixed point and spot lights of all loaded scenes share the budget of ${MAX_LOCAL_LIGHTS}; past it the most recently loaded scenes' lights are on.`,
+    'An area light lights static surfaces through the surface cache (on WebGPU at medium and high quality its light and soft shadows are traced into the cache); WebGL 2 draws the cache\'s saved light.',
   ],
 };
 

@@ -222,5 +222,18 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a spot light's cookie is 
   await expect.poll(stored).toBeUndefined();
   await viewport.click({ position: { x: 5, y: 5 } });
   await expect.poll(async () => mostBrightRuns(decodePng(await viewport.screenshot())), { timeout: 20_000 }).toBe(plain);
+
+  // Turned into an area light in the Inspector: the cone fields go, the panel's shape, size and sides come,
+  // and a new width reaches the project.
+  await page.locator(`.tl-hierarchy__list li[data-entity-id="${lightId}"]`).click();
+  await page.locator('.tl-inspector').getByLabel('light type', { exact: true }).selectOption('area');
+  const light = async (): Promise<Record<string, unknown>> => ((await be.command({ op: 'queryEntity', projectId: be.projectId, args: { entityId: lightId } }))['entity'] as { components: { light: Record<string, unknown> } }).components.light;
+  await expect.poll(async () => (await light())['type']).toBe('area');
+  for (const key of ['shape', 'width', 'height', 'twoSided']) await expect(page.locator('.tl-inspector').getByLabel(`light ${key}`, { exact: true })).toBeVisible();
+  await expect(cookie).toHaveCount(0);
+  const width = page.locator('.tl-inspector').getByLabel('light width', { exact: true });
+  await width.fill('2.5');
+  await width.press('Enter');
+  await expect.poll(light).toMatchObject({ type: 'area', shape: 'rect', width: 2.5, height: 0.5, twoSided: false });
   await expect(page.locator('.tl-notice')).toHaveCount(0);
 });

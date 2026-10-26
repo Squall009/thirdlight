@@ -10,7 +10,7 @@ import { deleteEntitiesArgs } from '../../session/delete-entities';
 import { pasteValuesOf, type SelectionRead } from '../../session/copy-values';
 import { presetValue } from '../../session/descriptor-fields';
 import { withCopy, withoutCopy, type CopyTransform } from '../../session/instance-copies';
-import type { DescriptorRegistry, InstanceStroke } from '@thirdlight/project-model';
+import type { DescriptorRegistry, InstanceStroke, LightComponent } from '@thirdlight/project-model';
 import type { SceneAction } from '../Hierarchy';
 import type { EntityFlag, PatchRebase } from '../Inspector';
 import { waitFor } from '../wait-for';
@@ -97,7 +97,7 @@ export function useSceneEditing(deps: SceneEditingDeps) {
   const createEmpty = useCallback(() => createEntityAt('Create empty', { kind: 'group', name: `entity-${Date.now() % 10000}` }), [createEntityAt]);
   // The lights are the descriptor's add value and presets (one table for this menu and "+ Add component").
   const createLight = useCallback(
-    (type: 'directional' | 'ambient' | 'point' | 'spot' | 'hemisphere') => {
+    (type: LightComponent['type']) => {
       const name = `${type.charAt(0).toUpperCase()}${type.slice(1)} light`;
       const light = presetValue(registry, 'light', name);
       if (light === null) return setNotice(`Create ${type} light failed: the component defaults have not arrived yet`);

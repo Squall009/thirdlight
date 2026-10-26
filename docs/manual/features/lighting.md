@@ -138,8 +138,8 @@ mask, bit n = layer n + 1, 255 = every layer.
   layers** in the Inspector (`lightLayers`, 1–255; absent: every layer): the
   layers it is in. An object is in at least one layer.
 - **Lights** — every light has a **Light mask** (`lightMask`, 0–255): it
-  lights an object only when they share a layer; a directional, point or
-  spot light also has a **Shadow caster mask** (`shadowCasterMask`, 0–255):
+  lights an object only when they share a layer; a directional, point,
+  spot or area light also has a **Shadow caster mask** (`shadowCasterMask`, 0–255):
   only objects sharing a layer with it cast its shadow (the cached static map
   and the dynamic one alike). 0 lights nothing / takes no shadow.
 - **Names** — Project Settings → **Light layers** names the 8 layers
@@ -161,6 +161,38 @@ mask, bit n = layer n + 1, 255 = every layer.
   in a room lights only that room. A drawable a light leaves out skips the
   light's work altogether (a branch on the draw's own test), so layers and
   rooms make lit pixels cheaper, not dearer.
+
+## Area lights
+
+An area light (`light` with `type: "area"`) is a light with a size: a lit
+ceiling panel, a window, a light strip down a hall. Its light and shadows
+soften with its size, and close by it lights a surface from its whole face
+rather than one point. Add one with **GameObject → Light → Area light** (a
+1.2 × 0.6 m warm-white ceiling panel, 40 cd, reaching 10 m).
+
+- **Fields** — `shape`: `rect` (absent) or `line`; `width` (metres, 0–50,
+  absent 1): a rect's side along the object's local X, or a line's length;
+  `height` (metres, 0–50, absent 0.5, rect only): its side along local Z;
+  `twoSided` (absent false). Like point and spot lights it has `color`,
+  `intensity` (candela along its facing axis, for the whole light: far away
+  it lights like a point light of that intensity; 0–1000), `range` (0:
+  unlimited), `castShadow` (absent **true**: soft shadows are what an area
+  light is for), `mode` (realtime, baked, mixed), `lightMask` and
+  `shadowCasterMask`.
+- **Where it faces** — the object's transform places it: a rect lies in the
+  object's local XZ plane, centred on it, a line runs along its local X, and
+  it shines toward local −Y (both ways when two-sided). Unrotated, an area
+  light is a ceiling panel shining down; rotate the object to aim it (it has
+  no direction field). The Scene view draws its outline and a tick on the
+  side it shines toward.
+- **How it lights** — through the surface cache, the static surfaces' light:
+  on WebGPU at medium and high quality its light and soft shadows are traced
+  into the cache of the static surfaces around it. Per-pixel highlights from
+  area lights come with the materials that read the cache; until then its
+  light is seen in the surface cache's debug view. WebGL 2 draws the cache's
+  saved light. The lightmap bake does not take area lights.
+- **No per-pixel budget** — area lights, like baked point and spot lights,
+  are not counted in the scene's 16 realtime point and spot lights.
 
 ## Local lights per object
 

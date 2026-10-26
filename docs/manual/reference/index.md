@@ -28,8 +28,8 @@ What the engine offers, generated from its source: the objects, components and c
 | [Command ops](ops.md) | The request, Every op |
 | [Command op arguments](ops-detail.md) | 87 sections |
 | [Types (AcknowledgeBehaviorTrustArgs to CursorMode)](types-a-c.md) | 74 sections |
-| [Types (DecalCellRef to PackedFrom)](types-d-p.md) | 95 sections |
-| [Types (PaintInstancesArgs to TrimRow)](types-p-t.md) | 97 sections |
+| [Types (DecalCellRef to PackedChannel)](types-d-p.md) | 94 sections |
+| [Types (PackedFrom to TrimRow)](types-p-t.md) | 98 sections |
 | [Types (TrimSheet to WindOctave)](types-t-w.md) | 31 sections |
 | [Script API](script-api.md) | What a script exports, The context (`ctx`), Context members in full, `BehaviorPrepareConfig`, `BehaviorInstanceInfo` |
 | [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 21 sections |
@@ -68,7 +68,7 @@ What the engine offers, generated from its source: the objects, components and c
 | [Limits and defaults: commands](limits-commands.md) | `terrain-erosion-ops.ts` |
 | [Limits and defaults: game-host](limits-game-host.md) | `audio.ts`, `rebind.ts`, `sim-protocol.ts`, `storage.ts` |
 | [Limits and defaults: project-model (part 1, from `animator.ts`)](limits-project-model-1.md) | 37 sections |
-| [Limits and defaults: project-model (part 2, from `materials.ts`)](limits-project-model-2.md) | 39 sections |
+| [Limits and defaults: project-model (part 2, from `material-schema.ts`)](limits-project-model-2.md) | 40 sections |
 | [Limits and defaults: protocol](limits-protocol.md) | `bake.ts`, `bridge.ts`, `content.ts`, `delivery.ts`, `diagnostics-bound.ts`, `errors.ts`, `http.ts`, `job-export.ts`, `m3.ts`, `play-problems.ts`, `wire-change.ts`, `ws-events.ts` |
 | [Limits and defaults: runtime](limits-runtime.md) | 26 sections |
 | [MCP tools (part 1, from tl_command)](mcp-tools-1.md) | `tl_command` |

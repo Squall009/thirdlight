@@ -121,6 +121,8 @@ export function gatherBakeLights(host: Pick<BakeInputHost, 'projected' | 'nodeOf
   for (const e of host.projected) {
     const l = e.light;
     if (l === undefined || e.active === false || (l.mode !== 'baked' && l.mode !== 'mixed')) continue;
+    // The lightmap baker takes point-like and directional lights only; an area light's light and soft shadows reach static surfaces through the surface cache.
+    if (l.type === 'area') continue;
     const node = host.nodeOf(e.id);
     const p = new THREE.Vector3();
     node?.getWorldPosition(p);

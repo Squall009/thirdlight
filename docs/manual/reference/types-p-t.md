@@ -1,8 +1,32 @@
-# Types (PaintInstancesArgs to TrimRow)
+# Types (PackedFrom to TrimRow)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-packed-from"></a>
+### PackedFrom
+
+Declared in `packages/project-model/src/types-v2.ts`.
+
+```ts
+/**
+ * A KTX2 texture (an array when it has several layers) packed at
+ * import from texture assets, channel by channel: per layer its R, G, B and A
+ * sources.
+ */
+interface PackedFrom {
+  layers: PackedChannel[][];
+  converter: { name: 'ktx2-encoder'; version: string };
+  encoding: 'color' | 'normal' | 'data';
+  /**
+   * Per layer: made from texels transcoded out of a lossy KTX2 and encoded
+   * again (false: joined as stored, or encoded from a lossless image).
+   * Absent on textures packed before KTX2 sources were taken.
+   */
+  reencoded?: boolean[];
+}
+```
 
 <a id="type-paint-instances-args"></a>
 ### PaintInstancesArgs

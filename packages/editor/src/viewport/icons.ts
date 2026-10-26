@@ -19,6 +19,7 @@ export const ICON_FILES: Readonly<Record<IconKind, string>> = {
   ambient: './icons/ambient.png',
   point: './icons/light-point.png',
   spot: './icons/light-spot.png',
+  area: './icons/light-area.png',
   hemisphere: './icons/light-hemisphere.png',
   terrain: './icons/objects/terrain.webp',
   blocks: './icons/objects/blocks.webp',

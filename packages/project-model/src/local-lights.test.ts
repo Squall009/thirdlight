@@ -4,7 +4,9 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { upgradeVertexLocalLights, validateLocalLightMode } from './local-lights';
+import { MAX_LOCAL_LIGHTS, upgradeVertexLocalLights, validateLocalLightMode } from './local-lights';
+import { AREA_LIGHT_SIZE_MAX } from './area-lights';
+import { PROJECT_SCHEMA_VERSION } from './project-schema';
 import { validateSceneV4 } from './scene-v3';
 
 const T = { position: [0, 2, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
@@ -44,6 +46,48 @@ describe('local lights (v4)', () => {
     expect(validateSceneV4(scene([{ type: 'hemisphere', color: '#ffffff', intensity: 1 }, { type: 'hemisphere', color: '#ffffff', intensity: 1 }])).ok).toBe(false);
     // A light has no importance any more (the load drops a stored one: upgradeVertexLocalLights).
     expect(validateSceneV4(scene([{ type: 'point', color: '#ffffff', intensity: 5, importance: 'pixel' }])).ok).toBe(false);
+  });
+});
+
+describe('area lights', () => {
+  it('fills an area light\'s shape, size, sides and shadows and keeps what is set', () => {
+    const r = ok([
+      { type: 'area', color: '#FFF4E0', intensity: 40 },
+      { type: 'area', color: '#ffffff', intensity: 20, shape: 'line', width: 3, twoSided: true, castShadow: false, range: 6, mode: 'baked', lightMask: 2, shadowCasterMask: 1 },
+    ]);
+    const lights = r.normalized.entities.map((e) => (e.components as unknown as { light: Record<string, unknown> }).light);
+    expect(lights[0]).toEqual({ type: 'area', color: '#fff4e0', intensity: 40, shape: 'rect', width: 1, height: 0.5, twoSided: false, castShadow: true });
+    expect(lights[1]).toEqual({ type: 'area', color: '#ffffff', intensity: 20, shape: 'line', width: 3, twoSided: true, castShadow: false, range: 6, mode: 'baked', lightMask: 2, shadowCasterMask: 1 });
+    // The canonical form validates again unchanged.
+    const again = validateSceneV4(r.normalized);
+    expect(again.ok && again.normalized).toEqual(r.normalized);
+    // A new kind of light, not a new format: projects stay on the same schema.
+    expect(PROJECT_SCHEMA_VERSION).toBe(8);
+  });
+
+  it('refuses a bad shape, a size out of (0, max], a line with a height and fields of other lights', () => {
+    const area = (f: Record<string, unknown>) => validateSceneV4(scene([{ type: 'area', color: '#ffffff', intensity: 10, ...f }]));
+    const paths = (f: Record<string, unknown>) => { const r = area(f); return r.ok ? [] : r.errors.map((e) => e.path); };
+    expect(paths({ shape: 'disc' })).toEqual(['/entities/0/components/light/shape']);
+    expect(paths({ width: 0 })).toEqual(['/entities/0/components/light/width']);
+    expect(paths({ width: AREA_LIGHT_SIZE_MAX + 1 })).toEqual(['/entities/0/components/light/width']);
+    expect(paths({ height: -1 })).toEqual(['/entities/0/components/light/height']);
+    expect(paths({ shape: 'line', height: 1 })).toEqual(['/entities/0/components/light/height']);
+    expect(paths({ twoSided: 'yes' })).toEqual(['/entities/0/components/light/twoSided']);
+    expect(area({ width: AREA_LIGHT_SIZE_MAX }).ok).toBe(true);
+    expect(area({ direction: [0, -1, 0] }).ok).toBe(false);
+    expect(area({ decay: 2 }).ok).toBe(false);
+    expect(area({ intensity: 5000 }).ok).toBe(false);
+  });
+
+  it('counts only realtime and mixed point and spot lights against the per-scene budget', () => {
+    const point = (mode?: string) => ({ type: 'point', color: '#ffffff', intensity: 5, ...(mode !== undefined ? { mode } : {}) });
+    const area = { type: 'area', color: '#ffffff', intensity: 5 };
+    const drawn = [...Array.from({ length: MAX_LOCAL_LIGHTS - 1 }, () => point()), point('mixed')];
+    const statics = [...Array.from({ length: 10 }, () => point('baked')), ...Array.from({ length: 10 }, () => area)];
+    expect(validateSceneV4(scene([...drawn, ...statics])).ok).toBe(true);
+    const over = validateSceneV4(scene([...drawn, ...statics, point()]));
+    expect(over.ok ? [] : over.errors.map((e) => e.code)).toEqual(['limits_exceeded']);
   });
 });
 

@@ -28,6 +28,14 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | <a id="limit-architecture-roof-slot-default"></a>`ARCHITECTURE_ROOF_SLOT_DEFAULT` | `"upper_wall"` | The trim slot a roof wears when it names none (the starter row layout has no roof row; a sheet with one names it). |
 | <a id="limit-architecture-step-default"></a>`ARCHITECTURE_STEP_DEFAULT` | `0.5` | Metres between samples on arcs and curves. |
 
+<a id="limits-project-model--area-lights"></a>
+## `area-lights.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-area-light-defaults"></a>`AREA_LIGHT_DEFAULTS` | `{"shape":"rect","width":1,"height":0.5,"twoSided":false,"castShadow":true}` | The values an area light has when they are absent: a 1 × 0.5 m panel (a ceiling fixture's size) shining one way, casting shadows. |
+| <a id="limit-area-light-size-max"></a>`AREA_LIGHT_SIZE_MAX` | `50` | An area light's longest side in metres: a lit ceiling, a window or a light strip down a hall fits; a larger emitter is a sky or a lit surface, not a light. |
+
 <a id="limits-project-model--behavior-graph-nodes"></a>
 ## `behavior-graph-nodes.ts`
 
@@ -347,7 +355,7 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 
 | Constant | Value | What it is |
 |---|---|---|
-| <a id="limit-max-local-lights"></a>`MAX_LOCAL_LIGHTS` | `16` | Most point + spot lights per scene: the forward-lighting cost per drawn light (a quality level may draw fewer). |
+| <a id="limit-max-local-lights"></a>`MAX_LOCAL_LIGHTS` | `16` | Most realtime and mixed point + spot lights per scene: the forward-lighting cost per drawn light (a quality level may draw fewer). |
 
 <a id="limits-project-model--manifest"></a>
 ## `manifest.ts`
@@ -363,10 +371,3 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | Constant | Value | What it is |
 |---|---|---|
 | <a id="limit-material-data-max"></a>`MATERIAL_DATA_MAX` | `64` | The largest data parameter, cells per side (engine limit): 64 × 64 RGBA8 is 16 KiB per object — enough for a per-cell overlay of a large board or map region, small enough to send whole on every change. |
-
-<a id="limits-project-model--material-schema"></a>
-## `material-schema.ts`
-
-| Constant | Value | What it is |
-|---|---|---|
-| <a id="limit-default-wind"></a>`DEFAULT_WIND` | `{"direction":[1,0],"strength":0.5,"gust":0.4,"gustFrequency":0.3,"turbulence":0.3}` | The wind when a project sets none — a light breeze along +X (0.5 with 0.4 gusts every ~3 s, a little turbulence): foliage moves a little in any scene; 0 strength stills it. |

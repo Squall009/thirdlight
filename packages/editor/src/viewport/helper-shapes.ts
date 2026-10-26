@@ -1,20 +1,37 @@
 /**
  * Line shapes the Scene view draws for what has no mesh: a light's reach (a
- * point light's circles, a spot light's cone).
+ * point light's circles, a spot light's cone) or an area light's outline.
  * Drawn only: they never take a click meant for what is behind them.
  *
  * Browser-only (three.js).
  */
 import * as THREE from 'three';
 
+import { AREA_LIGHT_DEFAULTS } from '@thirdlight/project-model/limits';
 import type { ProjectedEntity } from '../session/projection';
 
-/** A point light's reach (three circles) or a spot light's cone, as lines. */
+/** A point light's reach (three circles), a spot light's cone or an area light's outline, as lines. */
 export function lightGizmo(e: ProjectedEntity): THREE.LineSegments {
   const l = e.light!;
   const pts: THREE.Vector3[] = [];
   const reach = l.range !== undefined && l.range > 0 ? l.range : 3;
-  if (l.type === 'point') {
+  if (l.type === 'area') {
+    // The emitter itself in the object's frame (a rect in local XZ, a line along local X) and a
+    // tick toward local −Y, where it shines (both ways when two-sided); its range is not drawn,
+    // a shape that large would hide the room it lights.
+    const hw = (l.width ?? AREA_LIGHT_DEFAULTS.width) / 2;
+    const tick = Math.max(0.25, Math.min(hw, 1));
+    if (l.shape === 'line') {
+      pts.push(new THREE.Vector3(-hw, 0, 0), new THREE.Vector3(hw, 0, 0));
+    } else {
+      const hd = (l.height ?? AREA_LIGHT_DEFAULTS.height) / 2;
+      const c = [new THREE.Vector3(-hw, 0, -hd), new THREE.Vector3(hw, 0, -hd), new THREE.Vector3(hw, 0, hd), new THREE.Vector3(-hw, 0, hd)];
+      for (let i = 0; i < 4; i += 1) pts.push(c[i]!, c[(i + 1) % 4]!);
+      pts.push(c[0]!, c[2]!, c[1]!, c[3]!);
+    }
+    pts.push(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, -tick, 0));
+    if (l.twoSided === true) pts.push(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, tick, 0));
+  } else if (l.type === 'point') {
     const n = 32;
     for (const axis of [0, 1, 2]) {
       for (let i = 0; i < n; i += 1) {

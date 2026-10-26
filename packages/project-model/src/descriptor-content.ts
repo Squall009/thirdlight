@@ -45,7 +45,7 @@ import { MAX_LOCAL_LIGHTS } from './local-lights';
 import { LOD_BIAS_MAX, LOD_BIAS_MIN } from './model-lod';
 import { DEFAULT_SURFACE_CACHE_MIB, DEFAULT_SURFACE_LIGHT_MS, MSAA_SAMPLE_COUNTS, PIXEL_RATIO_CAP_MAX, PIXEL_RATIO_CAP_MIN, QUALITY_POST_EFFECTS, SHADOW_MAP_SIZES, SURFACE_CACHE_MIB_MAX, SURFACE_CACHE_MIB_MIN, SURFACE_LIGHT_MS_MAX, SURFACE_LIGHT_MS_MIN } from './quality-levels';
 import { AMBIENT_OCCLUSION_KINDS, OCCLUSION_CULLING_MODES, RENDER_SCALE_MAX, RENDER_SCALE_MIN } from './render-settings';
-import { MAX_TAGS } from './types-v3';
+import { LIGHT_TYPES, MAX_TAGS } from './types-v3';
 import { WIND_DEFAULTS, WIND_LIMITS } from './wind';
 import { asset, bool, color, enm, entity, ID, int, json, list, map, NAME, num, obj, ref, scene, str, vec2, vec3, when } from './descriptor-builders';
 import { ASSET_KINDS, type ContentBlockDescriptor, type DescriptorJson, type DescriptorUnit, type FieldDescriptor, type ListFieldDescriptor, type ObjectFieldDescriptor } from './descriptor-types';
@@ -161,9 +161,9 @@ const POST = obj('post', 'Post-processing', 'Tone mapping, exposure and screen e
 const PRESET_LIGHT = obj('*', 'Light', 'The values this preset gives the lights it names (one of entity, tag or type; none: every light).', [
   entity('entity', 'Entity', 'One light by its entity.', { component: 'light' }),
   str('tag', 'Tag', 'Every light with this tag.', { format: 'identifier', minLength: 1, maxLength: 32 }),
-  enm('type', 'Type', 'Every light of this type.', ['directional', 'ambient', 'point', 'spot', 'hemisphere']),
+  enm('type', 'Type', 'Every light of this type.', LIGHT_TYPES),
   color('color', 'Colour', 'The light colour.'),
-  num('intensity', 'Intensity', 'The light intensity (candela for point and spot lights).', { min: 0, max: 1000, step: 0.05 }),
+  num('intensity', 'Intensity', 'The light intensity (candela for point, spot and area lights).', { min: 0, max: 1000, step: 0.05 }),
   vec3('direction', 'Direction', 'Where a directional or spot light shines (not all 0).', { min: -1, max: 1, step: 0.05, nonZero: true }),
   color('groundColor', 'Ground colour', 'A hemisphere light\'s ground colour.'),
 ], { rules: ['A light entry names at most one of entity, tag or type (none: every light).'] });

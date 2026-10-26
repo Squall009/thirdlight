@@ -156,6 +156,7 @@ export function editorMenus(input: EditorMenuInput): Menu[] {
           { label: 'Ambient light', disabled: hasAmbient, reason: lightReason('ambient'), onSelect: () => void createLight('ambient') },
           { label: 'Point light', onSelect: () => void createLight('point') },
           { label: 'Spot light', onSelect: () => void createLight('spot') },
+          { label: 'Area light', onSelect: () => void createLight('area') },
           { label: 'Hemisphere light', disabled: entities.some((e) => e.light?.type === 'hemisphere'), reason: 'the scene already has a hemisphere light', onSelect: () => void createLight('hemisphere') },
           ...(createMenu.into.get('Light') ?? []),
         ] },

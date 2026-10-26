@@ -36,7 +36,8 @@ holds this build's value.
   a larger edit is staged (an upload) or split (a long brush drag is
   several strokes). A script may spawn 64 objects a step
   ([`MAX_SPAWNS_PER_STEP`](../reference/limits-runtime.md#limit-max-spawns-per-step));
-  at most 16 point and spot lights shine across the loaded scenes
+  at most 16 realtime or mixed point and spot lights shine across the loaded
+  scenes (baked ones and area lights are not counted)
   ([`MAX_LOCAL_LIGHTS`](../reference/limits-project-model-1.md#limit-max-local-lights)).
 - **Runtime budgets.** Memory the running game may use: textures
   (`texture_budget_mb`, default

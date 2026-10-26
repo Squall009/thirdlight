@@ -1,4 +1,4 @@
-# Types (DecalCellRef to PackedFrom)
+# Types (DecalCellRef to PackedChannel)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -367,7 +367,8 @@ interface EmptyArgs {
 Declared in `packages/project-model/src/environment-presets.ts`.
 
 ```ts
-const ENVIRONMENT_LIGHT_TYPES: readonly ["directional", "ambient", "point", "spot", "hemisphere"];
+/** A preset light entry may name every kind of light by type. */
+const ENVIRONMENT_LIGHT_TYPES: readonly ["directional", "ambient", "point", "spot", "hemisphere", "area"];
 ```
 
 <a id="type-environment-config"></a>
@@ -1616,28 +1617,4 @@ Declared in `packages/project-model/src/types-v2.ts`.
 ```ts
 /** One channel of a packed texture: a channel of a texture asset's version, or a constant. */
 type PackedChannel = { assetId: string; digest: string; channel: 'r' | 'g' | 'b' | 'a' } | { value: number };
-```
-
-<a id="type-packed-from"></a>
-### PackedFrom
-
-Declared in `packages/project-model/src/types-v2.ts`.
-
-```ts
-/**
- * A KTX2 texture (an array when it has several layers) packed at
- * import from texture assets, channel by channel: per layer its R, G, B and A
- * sources.
- */
-interface PackedFrom {
-  layers: PackedChannel[][];
-  converter: { name: 'ktx2-encoder'; version: string };
-  encoding: 'color' | 'normal' | 'data';
-  /**
-   * Per layer: made from texels transcoded out of a lossy KTX2 and encoded
-   * again (false: joined as stored, or encoded from a lossless image).
-   * Absent on textures packed before KTX2 sources were taken.
-   */
-  reencoded?: boolean[];
-}
 ```

@@ -395,6 +395,8 @@ export {
   furnishingLightEntity,
   furnishingLightsOf,
   withFurnishingLights,
+  // Which lights take a slot of the scene's budget the furnishing lights fill.
+  takesLocalLightSlot,
   type ArchitecturePin,
   type FurnishedLight,
   type FurnishedProp,

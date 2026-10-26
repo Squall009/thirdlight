@@ -8,7 +8,7 @@
  *   room's middle (the expansion's `lights`), lighting through the same
  *   path as any light: room light layers, portals, the shadow budget. It
  *   casts no shadow (the engine's default for local lights).
- * - The scene's budget of point and spot lights (`MAX_LOCAL_LIGHTS`) holds:
+ * - The scene's budget of realtime and mixed point and spot lights (`MAX_LOCAL_LIGHTS`) holds:
  *   a scene's own lights first, then generated ones in object order until
  *   the budget is spent (a furnishing set's light count bounds one
  *   building's share). The lights past it are named to the caller (the
@@ -21,7 +21,7 @@ import { architectureLayerFurnishing, expandArchitecture } from './arch-rooms';
 import type { ArchitectureStyles } from './arch-style';
 import type { ArchitectureComponent } from './architecture';
 import type { FurnishedLight } from './arch-furnish';
-import { MAX_LOCAL_LIGHTS } from './local-lights';
+import { MAX_LOCAL_LIGHTS, takesLocalLightSlot } from './local-lights';
 
 /** An object of a scene document as the lights read it. */
 export interface LightSourceEntity {
@@ -66,10 +66,7 @@ export function furnishingLightsOf(entity: LightSourceEntity, table: Architectur
   return [...(expandArchitecture(c, comps.transform?.position ?? [0, 0, 0], table, { layerFurnishing }).lights ?? [])];
 }
 
-const isLocal = (e: { components: object }): boolean => {
-  const t = (e.components as { light?: { type?: unknown } }).light?.type;
-  return t === 'point' || t === 'spot';
-};
+const isLocal = (e: { components: object }): boolean => takesLocalLightSlot((e.components as { light?: unknown }).light);
 
 /** A scene's furnishing lights left out past its budget of point and spot lights (their names). */
 export interface DroppedFurnishingLights {

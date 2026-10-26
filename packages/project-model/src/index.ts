@@ -101,7 +101,8 @@ export { parseEnvelopeV3, parseManifest, parseSceneV3 } from './parse-api';
 export { validateManifest, normalizeManifest, boundedFound } from './validate';
 export * from './limits';
 export { lightLayerMaskOf, validateLightLayerMask, validateLightLayerNames } from './light-layers';
-export { localLightModeOf, upgradeVertexLocalLights, validateLocalLightMode, type LocalLightMode, type MaterialLocalLightMode } from './local-lights';
+export { localLightModeOf, takesLocalLightSlot, upgradeVertexLocalLights, validateLocalLightMode, type LocalLightMode, type MaterialLocalLightMode } from './local-lights';
+export type { AreaLightShape } from './area-lights';
 export { graphWithoutGrime, upgradeBuiltInGrime } from './grime-upgrade';
 
 export {
@@ -215,6 +216,7 @@ export {
   V3_REGISTRY,
   isFolderEntity,
   MAX_TAGS,
+  LIGHT_TYPES,
   type TagDefinition,
   type EntityFlagsV3,
   type FolderComponent,

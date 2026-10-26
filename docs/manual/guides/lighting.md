@@ -8,8 +8,13 @@ detail is in [Lighting](../features/lighting.md).
 ## What lights a scene
 
 - **Realtime lights:** at most one directional (the sun), one ambient and
-  one hemisphere light per scene, and 16 point and spot lights across the
-  loaded scenes ([`light`](../reference/components-lighting.md#component-light)).
+  one hemisphere light per scene, and 16 realtime or mixed point and spot
+  lights across the loaded scenes
+  ([`light`](../reference/components-lighting.md#component-light)); baked
+  ones are not counted.
+- **Area lights** (panels and strips with a size, aimed by the object's
+  rotation) light the static surfaces through the surface cache, with soft
+  shadows, and are not counted either ([Area lights](../features/lighting.md#area-lights)).
 - **Light probes** hold the indirect light (the sky, and light bounced off
   static objects) on a grid; every lit 3D object reads them per pixel, moving
   or not. Most scenes need probes and no lightmaps.

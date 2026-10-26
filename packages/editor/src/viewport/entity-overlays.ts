@@ -103,13 +103,13 @@ function windZoneGizmo(z: NonNullable<ReturnType<typeof windZoneOf>>): THREE.Gro
 
 /**
  * What an entity's overlays are built from — its kind, its light (type,
- * direction, range, cone, mode), whether it has a fog volume or is a
+ * direction, range, cone, mode, an area light's shape and size), whether it has a fog volume or is a
  * spawn (with its facing), and its probe volume's size. A change rebuilds them; sizes and colours update in place.
  */
 function buildKeyOf(e: ProjectedEntity): string {
   const l = e.light;
   const facing = e.playerSpawn === true ? ((e.components['playerSpawn'] as { yaw?: number } | undefined)?.yaw ?? null) : null;
-  return JSON.stringify([e.kind, l === undefined ? null : [l.type, l.direction ?? null, l.range ?? null, l.angle ?? null, l.mode ?? null], e.fogVolume !== undefined, e.playerSpawn === true, facing, probeVolumeSize(e), windZoneOf(e)]);
+  return JSON.stringify([e.kind, l === undefined ? null : [l.type, l.direction ?? null, l.range ?? null, l.angle ?? null, l.mode ?? null, l.shape ?? null, l.width ?? null, l.height ?? null, l.twoSided ?? null], e.fogVolume !== undefined, e.playerSpawn === true, facing, probeVolumeSize(e), windZoneOf(e)]);
 }
 
 interface Built {
@@ -258,8 +258,8 @@ export class EntityOverlays {
         line.visible = this.gizmos.lights;
         group.add(line);
       }
-      // A point light shows its reach, a spot light its cone.
-      if ((e.light.type === 'point' || e.light.type === 'spot') && e.light.mode !== 'baked') {
+      // A point light shows its reach, a spot light its cone; an area light its outline, baked or not (its size is what it is).
+      if (((e.light.type === 'point' || e.light.type === 'spot') && e.light.mode !== 'baked') || e.light.type === 'area') {
         const g = lightGizmo(e);
         g.userData['gizmo'] = 'light';
         g.visible = this.gizmos.lights;

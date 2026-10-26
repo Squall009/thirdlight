@@ -97,17 +97,26 @@ export interface PlayerSpawnComponent {
   yaw?: number;
 }
 
-/** One directional key light or one ambient fill. */
+/** The kinds of light a `light` component is (v3 projects: directional and ambient only). */
+export const LIGHT_TYPES = ['directional', 'ambient', 'point', 'spot', 'hemisphere', 'area'] as const;
+
+/**
+ * A light. An `area` light (area-lights.ts) has a size and no direction: a
+ * `rect` lies in the object's local XZ plane, centred on the object (`width`
+ * along local X, `height` along local Z), a `line` runs `width` long along
+ * local X; it faces local −Y (unrotated: a ceiling panel shining down) unless
+ * `twoSided`.
+ */
 export interface LightComponent {
-  /** v4 adds point, spot and hemisphere. */
-  type: 'directional' | 'ambient' | 'point' | 'spot' | 'hemisphere';
+  /** v4 adds point, spot, hemisphere and area. */
+  type: (typeof LIGHT_TYPES)[number];
   /** `^#[0-9a-f]{6}$`; canonical lowercase. */
   color: string;
   /** [0, 8]. */
   intensity: number;
   /** Required iff `type === 'directional'`; each `|v| <= 1`, `||v|| >= 1e-6`. */
   direction?: Vec3;
-  /** Directional only; defaulted to `false` by the normalizer. */
+  /** Directional, point, spot and area; the normalizer fills `false` on a directional light, `true` on an area light. */
   castShadow?: boolean;
   /** Directional: shadow map width = height in texels (absent: 1024). */
   shadowMapSize?: number;
@@ -117,7 +126,7 @@ export interface LightComponent {
   shadowNormalBias?: number;
   /** Directional: half the side of the shadowed square around the camera, metres (v4 games; absent: 24). */
   shadowExtent?: number;
-  /** Point/spot: the reach in meters (0 = unlimited). */
+  /** Point/spot/area: the reach in meters (0 = unlimited). */
   range?: number;
   /** Point/spot: light falloff (2 = physical). */
   decay?: number;
@@ -127,13 +136,21 @@ export interface LightComponent {
   penumbra?: number;
   /** Hemisphere: the ground colour (`color` is the sky). */
   groundColor?: string;
+  /** Area: a rectangle or a line (filled: `rect`). */
+  shape?: 'rect' | 'line';
+  /** Area: a rect's side along local X or a line's length, metres in (0, 50] (filled: 1). */
+  width?: number;
+  /** Area, rect only: its side along local Z, metres in (0, 50] (filled: 0.5). */
+  height?: number;
+  /** Area: shines from both faces, not only toward local −Y (filled: false). */
+  twoSided?: boolean;
   /** `baked` lights only feed light baking; `mixed` bakes indirect light (absent = realtime). */
   mode?: 'baked' | 'mixed';
   /** Spot only: a texture asset projected through the cone (three's `SpotLight.map`). */
   cookie?: string;
   /** v4: the light layers it lights, a bit mask (light-layers.ts; absent: every layer). */
   lightMask?: number;
-  /** v4, directional, point and spot: only objects in these light layers cast its shadow (absent: every layer). */
+  /** v4, directional, point, spot and area: only objects in these light layers cast its shadow (absent: every layer). */
   shadowCasterMask?: number;
 }
 

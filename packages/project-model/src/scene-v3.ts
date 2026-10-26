@@ -15,7 +15,8 @@
  * result, never throws, never reads files.
  */
 import { MAX_INSTANCE_CHUNK_SIZE } from './model-lod';
-import { MAX_LOCAL_LIGHTS } from './local-lights';
+import { MAX_LOCAL_LIGHTS, takesLocalLightSlot } from './local-lights';
+import { AREA_LIGHT_FIELDS, canonicalAreaLightFields, validateAreaLightFields } from './area-lights';
 import { SHADOW_MAP_SIZES } from './quality-levels';
 import { INSTANCE_DENSITY_SIZE_MIN } from './model-lod';
 import { canonicalProbeVolume, validateProbeVolumeComponent, type ProbeVolumeComponent } from './probe-grids';
@@ -190,7 +191,7 @@ export const DIRECTIONAL_SHADOW_DEFAULTS = { mapSize: 1024, bias: -0.0005, norma
 const KNOWN_LIGHT_FIELDS_V4 = new Set(['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode', 'cookie']);
 /** A spot light's cookie names a texture asset (the id pattern of every asset). */
 const COOKIE_ID_RE = ID_RE;
-/** point/spot intensity is in candela (three's physical units). */
+/** point/spot/area intensity is in candela (three's physical units). */
 export const MAX_LOCAL_INTENSITY = 1000;
 /** Most hemisphere lights per scene (the point and spot lights' `MAX_LOCAL_LIGHTS` is local-lights.ts's). */
 export const MAX_HEMISPHERE_LIGHTS = 1;
@@ -346,7 +347,7 @@ export function validateLightComponent(c: unknown, path: string, errors: ModelEr
     return;
   }
   const type = c['type'];
-  if (version === 4 && (type === 'point' || type === 'spot' || type === 'hemisphere')) {
+  if (version === 4 && (type === 'point' || type === 'spot' || type === 'hemisphere' || type === 'area')) {
     validateLocalLight(c, type, path, errors);
     return;
   }
@@ -431,21 +432,23 @@ export function validateLightComponent(c: unknown, path: string, errors: ModelEr
 function validateLightMasks(c: Record<string, unknown>, shadows: boolean, path: string, errors: ModelErrorV3[]): void {
   validateLightLayerMask(c['lightMask'], `${path}/lightMask`, errors, 0);
   if (shadows) validateLightLayerMask(c['shadowCasterMask'], `${path}/shadowCasterMask`, errors, 0);
-  else if (c['shadowCasterMask'] !== undefined) errors.push(fieldValue(`${path}/shadowCasterMask`, c['shadowCasterMask'], 'absent', 'only a directional, point or spot light casts shadows'));
+  else if (c['shadowCasterMask'] !== undefined) errors.push(fieldValue(`${path}/shadowCasterMask`, c['shadowCasterMask'], 'absent', 'only a directional, point, spot or area light casts shadows'));
 }
 
 /**
  * v4: a point light (at the entity, `range` 0 = unlimited,
  * `decay`), a spot light (also `direction`, `angle` in degrees, `penumbra`)
- * or a hemisphere light (`color` = sky, `groundColor`). Point and spot
- * intensity is in candela; any light may be `realtime`, `baked` or `mixed`.
+ * a hemisphere light (`color` = sky, `groundColor`) or an area light (a rect
+ * or a line placed by the object's transform, area-lights.ts). Point, spot
+ * and area intensity is in candela; any light may be `realtime`, `baked` or
+ * `mixed`.
  */
-function validateLocalLight(c: Record<string, unknown>, type: 'point' | 'spot' | 'hemisphere', path: string, errors: ModelErrorV3[]): void {
+function validateLocalLight(c: Record<string, unknown>, type: 'point' | 'spot' | 'hemisphere' | 'area', path: string, errors: ModelErrorV3[]): void {
   optionalColor(c['color'], `${path}/color`, 'required', errors);
   if (c['color'] === undefined) errors.push(fieldMissing(`${path}/color`, 'color'));
   if (c['intensity'] === undefined) errors.push(fieldMissing(`${path}/intensity`, 'intensity'));
   else checkFiniteNumber(c['intensity'], `${path}/intensity`, { min: 0, absMax: type === 'hemisphere' ? MAX_INTENSITY : MAX_LOCAL_INTENSITY }, `0 <= v <= ${type === 'hemisphere' ? MAX_INTENSITY : MAX_LOCAL_INTENSITY}`, errors);
-  const allowed = type === 'hemisphere' ? ['type', 'color', 'intensity', 'groundColor', 'mode', 'lightMask'] : type === 'point' ? ['type', 'color', 'intensity', 'range', 'decay', 'castShadow', 'mode', 'lightMask', 'shadowCasterMask'] : ['type', 'color', 'intensity', 'range', 'decay', 'castShadow', 'direction', 'angle', 'penumbra', 'mode', 'cookie', 'lightMask', 'shadowCasterMask'];
+  const allowed = type === 'hemisphere' ? ['type', 'color', 'intensity', 'groundColor', 'mode', 'lightMask'] : type === 'area' ? ['type', 'color', 'intensity', 'range', 'castShadow', ...AREA_LIGHT_FIELDS, 'mode', 'lightMask', 'shadowCasterMask'] : type === 'point' ? ['type', 'color', 'intensity', 'range', 'decay', 'castShadow', 'mode', 'lightMask', 'shadowCasterMask'] : ['type', 'color', 'intensity', 'range', 'decay', 'castShadow', 'direction', 'angle', 'penumbra', 'mode', 'cookie', 'lightMask', 'shadowCasterMask'];
   validateLightMasks(c, type !== 'hemisphere', path, errors);
   for (const k of Object.keys(c)) {
     if (!allowed.includes(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, allowed.join(', ')));
@@ -460,6 +463,7 @@ function validateLocalLight(c: Record<string, unknown>, type: 'point' | 'spot' |
   range('angle', 1, 89);
   range('penumbra', 0, 1);
   if (type === 'hemisphere') optionalColor(c['groundColor'], `${path}/groundColor`, '#444444', errors);
+  if (type === 'area') validateAreaLightFields(c, path, errors);
   if (c['castShadow'] !== undefined && typeof c['castShadow'] !== 'boolean') errors.push(fieldType(`${path}/castShadow`, c['castShadow'], 'boolean'));
   if (c['mode'] !== undefined && c['mode'] !== 'realtime' && c['mode'] !== 'baked' && c['mode'] !== 'mixed') {
     errors.push(fieldValue(`${path}/mode`, c['mode'], '"realtime" | "baked" | "mixed"', 'mode is realtime, baked or mixed'));
@@ -1000,6 +1004,15 @@ function canonicalLight(c: unknown): LightComponent {
   // The directional shadow settings, kept when set.
   if (out.type === 'directional') for (const k of ['shadowMapSize', 'shadowBias', 'shadowNormalBias', 'shadowExtent'] as const) if (typeof o[k] === 'number') out[k] = canonNum(o[k]);
   if ((out.type === 'point' || out.type === 'spot') && typeof o['castShadow'] === 'boolean') out.castShadow = o['castShadow'];
+  // An area light's size and sides, filled: the renderer and the surface cache read them as stored.
+  if (out.type === 'area') {
+    const a = canonicalAreaLightFields(o);
+    out.shape = a.shape;
+    out.width = canonNum(a.width);
+    if (a.height !== undefined) out.height = canonNum(a.height);
+    out.twoSided = a.twoSided;
+    out.castShadow = a.castShadow;
+  }
   // Local-light fields, kept when set.
   for (const k of ['range', 'decay', 'angle', 'penumbra'] as const) if (typeof o[k] === 'number') out[k] = canonNum(o[k]);
   if (typeof o['groundColor'] === 'string') out.groundColor = o['groundColor'].toLowerCase();
@@ -1397,7 +1410,7 @@ export function countsOfComponents(comps: Record<string, unknown>): EntityV3Coun
     spawns: comps['playerSpawn'] !== undefined ? 1 : 0,
     directional: lightType === 'directional' ? 1 : 0,
     ambient: lightType === 'ambient' ? 1 : 0,
-    local: lightType === 'point' || lightType === 'spot' ? 1 : 0,
+    local: takesLocalLightSlot(light) ? 1 : 0,
     fogVolumes: comps['fogVolume'] !== undefined ? 1 : 0,
     hemisphere: lightType === 'hemisphere' ? 1 : 0,
     cameras: comps['camera'] !== undefined ? 1 : 0,
@@ -1526,7 +1539,7 @@ export function sceneCountErrors(counts: EntityV3Counts, version: 3 | 4, merged:
     errors.push(limitsError('/entities', 'lights_ambient', counts.ambient, SCENE_LIMITS_V3.lightsAmbient, 'scene exceeds the ambient-light limit'));
   }
   if (!merged && counts.local > MAX_LOCAL_LIGHTS) {
-    errors.push(limitsError('/entities', 'lights_local', counts.local, MAX_LOCAL_LIGHTS, `a scene holds at most ${MAX_LOCAL_LIGHTS} point and spot lights`));
+    errors.push(limitsError('/entities', 'lights_local', counts.local, MAX_LOCAL_LIGHTS, `a scene holds at most ${MAX_LOCAL_LIGHTS} realtime and mixed point and spot lights (baked and area lights are not counted)`));
   }
   if (counts.fogVolumes > MAX_FOG_VOLUMES) {
     errors.push(limitsError('/entities', 'zones', counts.fogVolumes, MAX_FOG_VOLUMES, `a scene holds at most ${MAX_FOG_VOLUMES} fog volumes`));

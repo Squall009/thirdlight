@@ -469,6 +469,8 @@ const LIGHTS = [
   { type: 'point', color: '#ffd9a0', intensity: 30, range: 8, decay: 2, castShadow: true, mode: 'realtime', lightMask: 0, shadowCasterMask: 254 },
   { type: 'spot', color: '#ffffff', intensity: 80, range: 12, decay: 2, angle: 30, penumbra: 0.3, direction: [0, -1, 0], castShadow: false, cookie: 'tex-a' },
   { type: 'hemisphere', color: '#bcd7ff', groundColor: '#5a4a38', intensity: 0.8, mode: 'baked' },
+  { type: 'area', color: '#fff4e0', intensity: 40, range: 10, castShadow: false, shape: 'rect', width: 1.2, height: 0.6, twoSided: true, mode: 'mixed', lightMask: 3, shadowCasterMask: 1 },
+  { type: 'area', color: '#ffffff', intensity: 20, range: 0, castShadow: true, shape: 'line', width: 3, twoSided: false },
 ];
 
 /** One placed primitive collider shape of each type (compound bases list them). */
@@ -1055,8 +1057,8 @@ describe('descriptor registry', () => {
     // wind's gust pattern fields, about 4.4 KB; the physical sky's cloud cover, density and start, about 1.3 KB; how a
     // subject parts foliage, about 1.3 KB; foliage bases taking the ground's colour, about 0.4 KB; the cylinder collider
     // shape and a collider's depth for its 2D shapes on the 3D backend, about 1.5 KB; the controller's movement
-    // profile, about 0.3 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(351_300);
+    // profile, about 0.3 KB; area lights — their shape, size and sides fields, preset and icon — about 2 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(352_000);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 
@@ -1139,7 +1141,7 @@ describe('descriptor registry', () => {
     const light = comp('light').value;
     const types = light.type === 'object' ? light.fields.find((f) => f.key === 'type') : undefined;
     const icons = (types?.type === 'enum' ? types.options : []).map((o) => iconOf('light', { type: o.value }));
-    expect(icons).toHaveLength(5);
+    expect(icons).toHaveLength(6);
     expect(new Set(icons).size, 'one icon per light type').toBe(icons.length);
     expect(Object.fromEntries(comp('spline').create!.map((e) => [e.label, iconOf('spline', e.value)]))).toEqual({ Spline: 'spline', Road: 'road', River: 'river' });
     for (const c of DESCRIPTORS.components) if (c.iconCount !== undefined) expect(c.value.type === 'object' && c.value.fields.some((f) => f.key === c.iconCount!.path), `${c.name} count path`).toBe(true);

@@ -24,6 +24,7 @@
  */
 import { ID_RE } from './validate';
 import { MIN_DIRECTION_NORM } from './scene-v3';
+import { LIGHT_TYPES } from './types-v3';
 import type { ModelErrorV2 } from './errors';
 import { canonicalSceneEnvironment, validateFog, validateHeightFog, validatePost, validateSky, validateWetness, type FogConfig, type HeightFogConfig, type PostConfig, type SkyConfig } from './materials';
 
@@ -37,7 +38,8 @@ export const ENVIRONMENT_PRESET_LIMITS = Object.freeze({
   lightmapIntensity: 8,
 });
 
-export const ENVIRONMENT_LIGHT_TYPES = ['directional', 'ambient', 'point', 'spot', 'hemisphere'] as const;
+/** A preset light entry may name every kind of light by type. */
+export const ENVIRONMENT_LIGHT_TYPES = LIGHT_TYPES;
 export type EnvironmentLightType = (typeof ENVIRONMENT_LIGHT_TYPES)[number];
 
 /** One light entry: which lights (one of entity / tag / type; none: every light) and the values it sets. */
