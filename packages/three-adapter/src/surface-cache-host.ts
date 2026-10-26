@@ -19,7 +19,7 @@
  *
  * Measurements read it from `scene.userData[SURFACE_CACHE_KEY]`.
  */
-import { LIGHT_LAYERS_ALL, decodeDistanceBricks, type ArchitectureComponent, type BlockCell, type BlockGridReader, type DistanceBricks, type TerrainField, type TerrainTile } from '@thirdlight/runtime';
+import { DEFAULT_PROBE_SPACING, LIGHT_LAYERS_ALL, decodeDistanceBricks, type ArchitectureComponent, type BlockCell, type BlockGridReader, type DistanceBricks, type TerrainField, type TerrainTile } from '@thirdlight/runtime';
 
 import { SurfaceCache, type SurfaceCacheDiagnostics, type SurfaceTile } from './surface-cache';
 import { SurfaceChanges, type CacheLight } from './surface-changes';
@@ -34,6 +34,7 @@ import { invertAffine, type Affine } from './tracer-words';
 import type { TraceBlockLayer, TraceSceneSource, TraceTerrain } from './tracer-scene';
 import { traceBlockLayerOf, traceTerrainOf } from './tracer-sources';
 import { SurfaceRooms, type LightingRooms } from './surface-rooms';
+import { LiveProbes, PROBE_BUDGET_SHARE, type LiveProbeDiagnostics } from './surface-probes';
 
 /** `scene.userData[SURFACE_CACHE_KEY]`: the page's surface cache (a measurement reads its diagnostics). */
 export const SURFACE_CACHE_KEY = 'tlSurfaceCache';
@@ -87,6 +88,8 @@ export interface SurfaceCacheHostDiagnostics extends SurfaceCacheDiagnostics {
   readonly prepareMs: number;
   /** What waits for light, the GPU time used and whether the scene is settled. */
   readonly relight: RelightDiagnostics;
+  /** The live probes: how many, how many stale, and the last update's GPU time. */
+  readonly probes: LiveProbeDiagnostics;
 }
 
 /** A terrain ring patch as a unit of work. */
@@ -161,6 +164,10 @@ export class SurfaceCacheHost {
   private offered: SurfaceTile[] = [];
   readonly relight: SurfaceRelight;
   readonly changes: SurfaceChanges;
+  /** The live probes over the static scene and its rooms (lit only where a pass runs them). */
+  readonly probes: LiveProbes;
+  /** The drawn eye at the last update. */
+  readonly eye: number[] = [0, 0, 0];
   /** The first listing is done: what comes or goes after it is a change. */
   private listed = false;
   /** Each terrain's tile data as last listed (an edit hands in new data). */
@@ -191,6 +198,9 @@ export class SurfaceCacheHost {
     // Live only once a pass runs the work (`setLive`).
     this.relight = new SurfaceRelight(relightMs, false);
     this.changes = new SurfaceChanges(this.relight);
+    this.probes = new LiveProbes(DEFAULT_PROBE_SPACING, relightMs * PROBE_BUDGET_SHARE);
+    // What the cache's light marks, the probes' light may change with.
+    this.relight.onStale((min, max) => this.probes.markBox(min, max));
   }
 
   /** The GPU time a frame may spend on live light (0: none, the saved light is drawn). */
@@ -201,6 +211,7 @@ export class SurfaceCacheHost {
   /** The quality level's GPU time a frame for live light (0: none). */
   setRelightBudget(ms: number): void {
     this.relightMs = ms;
+    this.probes.setBudget(ms * PROBE_BUDGET_SHARE);
     this.relight.setBudget(ms, this.live);
   }
 
@@ -339,6 +350,9 @@ export class SurfaceCacheHost {
     // A tile with nothing to light (a chunk of hidden faces only) is made once and never offered.
     if (this.changed) this.offered = [...this.ready.values()].filter((t) => t.charts().length > 0);
     const at = [eye[0]!, eye[1]!, eye[2]!];
+    this.eye[0] = at[0]!;
+    this.eye[1] = at[1]!;
+    this.eye[2] = at[2]!;
     this.cache.update(at, this.offered, this.terrains, this.changed);
     this.changed = false;
     this.syncUnits();
@@ -513,6 +527,18 @@ export class SurfaceCacheHost {
     }
     for (const key of [...this.pending.keys()]) if (!seen.has(key)) this.pending.delete(key);
     this.listed = true;
+    this.placeProbes();
+  }
+
+  /** The probes over the static objects' bounds (block layers, architecture, models; not terrain, as a probe bake) and the rooms. */
+  private placeProbes(): void {
+    let min: number[] | null = null;
+    let max: number[] | null = null;
+    for (const t of this.ready.values()) {
+      min = min === null ? [...t.min] : min.map((v, k) => Math.min(v, t.min[k]!));
+      max = max === null ? [...t.max] : max.map((v, k) => Math.max(v, t.max[k]!));
+    }
+    this.probes.place(min === null ? null : { min, max: max! }, this.roomsNow);
   }
 
   /** A terrain's tiles whose data changed (an edit, live or scripted), came or went since the last listing: their boxes changed. */
@@ -576,6 +602,6 @@ export class SurfaceCacheHost {
   diagnostics(): SurfaceCacheHostDiagnostics {
     let reading = 0;
     for (const f of this.files.values()) if (f === 'reading') reading += 1;
-    return { ...this.cache.diagnostics(), preparing: this.pending.size, reading, prepareMs: this.prepareMs, relight: this.relight.diagnostics() };
+    return { ...this.cache.diagnostics(), preparing: this.pending.size, reading, prepareMs: this.prepareMs, relight: this.relight.diagnostics(), probes: this.probes.diagnostics() };
   }
 }

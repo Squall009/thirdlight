@@ -77,6 +77,15 @@ export interface CacheLight {
 }
 
 
+/** The sphere (m) a point or spot light's shadow rays aim over: three's lights have no size, a little softness reads as real. */
+export const POINT_LIGHT_RADIUS = 0.05;
+
+/** The sphere round a light's position its light leaves from (an area light's half diagonal; a point or spot light's shadow-ray sphere). */
+export function lightRadius(l: CacheLight): number {
+  if (l.area === undefined) return POINT_LIGHT_RADIUS;
+  return Math.hypot(...[0, 1, 2].map((k) => Math.abs(l.area!.u[k] ?? 0) + Math.abs(l.area!.v[k] ?? 0)));
+}
+
 /** How far a point, spot or area light reaches: its range, else where it falls under `LIGHT_REACH_FLOOR` (an area light: from its edge). */
 export function lightReach(l: CacheLight): number {
   const edge = l.area === undefined ? 0 : Math.hypot(...[0, 1, 2].map((k) => Math.abs(l.area!.u[k] ?? 0) + Math.abs(l.area!.v[k] ?? 0)));
@@ -131,9 +140,9 @@ export class SurfaceChanges {
     if (was === rooms) return;
     for (const l of this.lit.values()) {
       if (!l.on || l.kind === 'directional') continue;
-      const before = was?.lightRooms(l.position) ?? null;
-      const after = rooms?.lightRooms(l.position) ?? null;
-      if (before !== null && after !== null && before.length === after.length && before.every((r, i) => r === after[i])) continue;
+      const before = JSON.stringify(was?.lightMarks(l.position, lightRadius(l)) ?? null);
+      const after = JSON.stringify(rooms?.lightMarks(l.position, lightRadius(l)) ?? null);
+      if (before === after) continue;
       this.markLight(l);
       this.rooms = rooms;
       this.markLight(l);
@@ -179,8 +188,8 @@ export class SurfaceChanges {
 
   private markLight(l: CacheLight): void {
     const rooms = this.rooms;
-    const held = rooms?.lightRooms(l.position) ?? null;
-    this.relight.markSphere(l.position, lightReach(l), held === null ? undefined : (u) => rooms!.touches(u.min, u.max, held));
+    const marks = rooms?.lightMarks(l.position, lightRadius(l)) ?? null;
+    this.relight.markSphere(l.position, lightReach(l), marks === null ? undefined : (u) => rooms!.marks(u.min, u.max, marks));
   }
 
   /**

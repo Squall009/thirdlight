@@ -218,6 +218,17 @@ export class ProbeTileStore {
     return { uploaded, uploadedBytes, unplaced };
   }
 
+  /**
+   * A resident tile's probes changed (live probes; the same size): its
+   * region is uploaded again in place. False: it is not resident.
+   */
+  refresh(key: string, packed: PackedProbeTile, renderer: ProbeUploadRenderer): boolean {
+    const t = this.resident.get(key);
+    if (t === undefined) return false;
+    upload(renderer, this.atlas, packed, t.at);
+    return true;
+  }
+
   /** The texture at the layout's new size, the old one's contents copied in on the GPU. */
   private growTexture(renderer: ProbeUploadRenderer, before: { cols: number; height: number }): void {
     const layout = this.layout!;

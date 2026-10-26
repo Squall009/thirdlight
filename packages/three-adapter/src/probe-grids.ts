@@ -220,6 +220,13 @@ export interface ProbeLightingHost {
   follow(sceneIds: Iterable<string>): void;
   /** Before a frame: pick the resident tiles around the camera and put what arrived on the GPU. */
   beforeFrame(renderer: ProbeUploadRenderer, camera: THREE.Object3D): void;
+  /**
+   * Live probes (the surface cache's, on a page that lights live) stand in
+   * for the bakes' tiles while set: `tiles` in table order, `changed` the
+   * keys whose probes changed since the last call (uploaded again in
+   * place). Null: back to the bakes.
+   */
+  setLive(tiles: readonly ProbeTileForGpu[] | null, changed: ReadonlySet<string>): void;
   /** The probe light (null while no bake has probes). */
   light(): ProbeLighting | null;
   observe(): ProbeGridsObservation | null;
@@ -251,6 +258,7 @@ export function createProbeLightingHost(scene: THREE.Scene, resources: ResourceM
   let uploads = 0;
   let uploadedBytes = 0;
   let markedResident = false;
+  let bakesNow: Parameters<ProbeLightingHost['setBakes']>[0] = null;
   const told = new Set<string>();
   const tell = (code: string, message: string): void => {
     if (told.has(code)) return;
@@ -275,8 +283,49 @@ export function createProbeLightingHost(scene: THREE.Scene, resources: ResourceM
     const tile = Number.isFinite(smallest) ? smallest : 1;
     return { columnWidth, depth, step: Math.max(0.5, tile / 8), hysteresis: tile / 2 };
   };
+  let live: readonly ProbeTileForGpu[] | null = null;
+  let liveChanged = new Set<string>();
+  const syncLive = (renderer: ProbeUploadRenderer): void => {
+    if (live === null) return;
+    if (light === null) {
+      light = new ProbeLighting();
+      scene.add(light);
+    }
+    const keys = new Set(live.map((t) => t.key));
+    let columnWidth = 1;
+    let depth = 1;
+    for (const t of live) {
+      columnWidth = Math.max(columnWidth, t.packed.nx);
+      depth = Math.max(depth, t.packed.depth);
+    }
+    const before = light.store.revision;
+    // Placed tiles take their new probes in place; new ones (the first, or a layout change) are placed, and the bakes' let go.
+    for (const t of live) if (liveChanged.has(t.key)) light.store.refresh(t.key, t.packed, renderer);
+    light.store.sync(live, keys, renderer, budget * PROBE_ATLAS_SLACK, { columnWidth, depth });
+    liveChanged = new Set();
+    if (light.store.revision !== before) light.rebind();
+  };
   const host: ProbeLightingHost = {
+    setLive(tiles, changed) {
+      if (tiles === null) {
+        if (live !== null) {
+          live = null;
+          host.setBakes(bakesNow);
+        }
+        return;
+      }
+      if (live === null) {
+        // The bakes' tiles give way to the live ones (the next sync lets their places go).
+        set?.dispose();
+        set = null;
+        entriesSeen = null;
+      }
+      live = tiles;
+      for (const k of changed) liveChanged.add(k);
+    },
     setBakes(bakes) {
+      bakesNow = bakes;
+      if (live !== null) return;
       set?.dispose();
       set = null;
       entriesSeen = null;
@@ -304,6 +353,10 @@ export function createProbeLightingHost(scene: THREE.Scene, resources: ResourceM
       set?.follow(following);
     },
     beforeFrame(renderer, camera) {
+      if (live !== null) {
+        syncLive(renderer);
+        return;
+      }
       if (set === null || light === null) return;
       const e = camera.matrixWorld.elements;
       const at: [number, number, number] = [e[12]!, e[13]!, e[14]!];

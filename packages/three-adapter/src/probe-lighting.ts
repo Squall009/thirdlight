@@ -62,6 +62,11 @@ const SIDE_BIAS = 0.05;
 /** `light.userData[PROBE_HELD_KEY]`: an ambient or hemisphere light whose light the probes hold (baked or mixed). */
 const PROBE_HELD_KEY = '__tlProbeHeld';
 
+/** Whether an ambient or hemisphere light's light is held by the probes (baked or mixed). */
+export function isProbeHeld(light: THREE.Object3D): boolean {
+  return light.userData[PROBE_HELD_KEY] === true;
+}
+
 /** Mark an ambient or hemisphere light as held by probes (its light is in a probe bake) or not. */
 export function markProbeHeld(light: THREE.Light, held: boolean): void {
   if (held) light.userData[PROBE_HELD_KEY] = true;

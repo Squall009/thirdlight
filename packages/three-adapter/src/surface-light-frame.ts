@@ -48,8 +48,7 @@ export function raysAtLevel(rays: number, level: number): number {
 
 /** The sun's disc (radians, its angular radius): its shadows' penumbra. */
 export const SUN_DISC_RADIANS = 0.02;
-/** The sphere (m) a point or spot light's shadow rays aim over: three's lights have no size, a little softness reads as real. */
-export const POINT_LIGHT_RADIUS = 0.05;
+export { POINT_LIGHT_RADIUS } from './surface-changes';
 /** How far (m) a texel's rays start off its surface. */
 export const RAY_BIAS = 0.01;
 

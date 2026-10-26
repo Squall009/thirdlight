@@ -17,7 +17,9 @@
  *   (`roomExitCpu`, the shaders' `roomExit`), and no probe sees through a
  *   shut doorway (`closedPortalCpu`, `closedPortal`); a ray stopped there
  *   meets a wall or a door (the probe's own light falls back on it).
- * - **Marks.** A switched lamp marks only the units its rooms touch.
+ * - **Marks.** A switched lamp marks only the units its rooms touch and,
+ *   where its rooms open onto the outside, what it sees through those
+ *   portals (`lightMarks`).
  *
  * Words (`SurfaceRooms.words`, appended to a pass's word buffer; offsets
  * within them): a header (rooms, portals, room records, portal records),
@@ -73,6 +75,8 @@ function pointInPoly(x: number, z: number, poly: ArrayLike<number>, at: number, 
 export class SurfaceRooms {
   readonly words: Uint32Array;
   private readonly f: Float32Array;
+  /** Which portals were open when these rooms were made (the doors move on; a change makes new rooms). */
+  private readonly openNow: Uint8Array;
 
   constructor(readonly rooms: LightingRooms) {
     const g = rooms.graph;
@@ -88,6 +92,7 @@ export class SurfaceRooms {
     this.f = new Float32Array(this.words.buffer);
     const u = this.words;
     const f = this.f;
+    this.openNow = Uint8Array.from(g.portals, (_, i) => (rooms.open(i) ? 1 : 0));
     u.set([nr, np, roomAt, portalAt]);
     g.rooms.forEach((r, i) => {
       const at = roomAt + i * ROOM_WORDS;
@@ -101,7 +106,7 @@ export class SurfaceRooms {
     });
     g.portals.forEach((p, i) => {
       const at = portalAt + i * PORTAL_WORDS;
-      u[at] = KIND[p.kind] | ((rooms.open(i) ? 1 : 0) << 8);
+      u[at] = KIND[p.kind] | (this.openNow[i]! << 8);
       u[at + 1] = data;
       u[at + 2] = p.corners.length / 3;
       f.set(p.corners, data);
@@ -140,7 +145,7 @@ export class SurfaceRooms {
     while (queue.length > 0) {
       const r = queue.pop()!;
       for (const pi of g.byRoom[r]!) {
-        if (!this.rooms.open(pi)) continue;
+        if (this.openNow[pi] !== 1) continue;
         const portal = g.portals[pi]!;
         const other = portal.a === r ? portal.b : portal.a;
         if (other === ROOM_OUTSIDE) return null;
@@ -151,6 +156,44 @@ export class SurfaceRooms {
       }
     }
     return [...seen].sort((a, b) => a - b);
+  }
+
+  /**
+   * What a light at `p` (a sphere of `radius` round it: an area light's
+   * size) may reach, for its marks: its rooms (those its open portals join
+   * to its own) and, where they open onto the outside, the space beyond
+   * each such portal that the light can see through it (a frustum from the
+   * light's sphere through the portal's outline). Null: it stands outside.
+   */
+  lightMarks(p: readonly number[], radius: number): { rooms: number[]; exits: PortalFrustum[] } | null {
+    const start = this.roomAt(p);
+    if (start === NO_ROOM) return null;
+    const g = this.rooms.graph;
+    const seen = new Set<number>([start]);
+    const queue = [start];
+    const exits: PortalFrustum[] = [];
+    while (queue.length > 0) {
+      const r = queue.pop()!;
+      for (const pi of g.byRoom[r]!) {
+        if (this.openNow[pi] !== 1) continue;
+        const portal = g.portals[pi]!;
+        const other = portal.a === r ? portal.b : portal.a;
+        if (other === ROOM_OUTSIDE) {
+          exits.push(portalFrustum(portal.corners, portal.plane, p, radius));
+          continue;
+        }
+        if (!seen.has(other)) {
+          seen.add(other);
+          queue.push(other);
+        }
+      }
+    }
+    return { rooms: [...seen].sort((a, b) => a - b), exits };
+  }
+
+  /** Whether a world box can take light marked by `lightMarks`. */
+  marks(min: readonly number[], max: readonly number[], m: { rooms: readonly number[]; exits: readonly PortalFrustum[] }): boolean {
+    return this.touches(min, max, m.rooms) || m.exits.some((f) => frustumTouches(f, min, max));
   }
 
   /** The rooms whose box (± `ROOM_BOX_MARGIN`) a world box touches: the only rooms its texels can be in. */
@@ -174,6 +217,60 @@ export class SurfaceRooms {
       return !(max[0]! < r.box[0] - m || min[0]! > r.box[2] + m || max[2]! < r.box[1] - m || min[2]! > r.box[3] + m || max[1]! < r.floor - m || min[1]! > r.top + m);
     });
   }
+}
+
+/** Planes (nx, ny, nz, d: n · q + d ≥ 0 inside) bounding what a light sees through a portal. */
+export type PortalFrustum = readonly (readonly number[])[];
+
+/**
+ * The space beyond a portal (corners x y z each, its plane) that a light's
+ * sphere (centre `c`, `radius`) can see through it: beyond the portal's
+ * plane, and inside each plane through an edge of its outline that touches
+ * the sphere on its far side (for a point light, the plane through the
+ * light and the edge). Conservative for any point of the sphere.
+ */
+export function portalFrustum(corners: ArrayLike<number>, plane: ArrayLike<number>, c: readonly number[], radius: number): PortalFrustum {
+  const n = corners.length / 3;
+  const pt = (i: number): number[] => [corners[i * 3]!, corners[i * 3 + 1]!, corners[i * 3 + 2]!];
+  const mid = [0, 0, 0];
+  for (let i = 0; i < n; i += 1) for (let k = 0; k < 3; k += 1) mid[k]! += corners[i * 3 + k]! / n;
+  // Beyond: the portal plane's side away from the light.
+  const side = plane[0]! * c[0]! + plane[1]! * c[1]! + plane[2]! * c[2]! + plane[3]! >= 0 ? -1 : 1;
+  const planes: number[][] = [[plane[0]! * side, plane[1]! * side, plane[2]! * side, plane[3]! * side]];
+  for (let i = 0; i < n; i += 1) {
+    const a = pt(i);
+    const b = pt((i + 1) % n);
+    const e = [b[0]! - a[0]!, b[1]! - a[1]!, b[2]! - a[2]!];
+    const el = Math.hypot(e[0]!, e[1]!, e[2]!);
+    if (el < 1e-9) continue;
+    const u = e.map((v) => v / el);
+    const ca = [c[0]! - a[0]!, c[1]! - a[1]!, c[2]! - a[2]!];
+    const along = ca[0]! * u[0]! + ca[1]! * u[1]! + ca[2]! * u[2]!;
+    const perp = ca.map((v, k) => v - along * u[k]!);
+    const h = Math.hypot(perp[0]!, perp[1]!, perp[2]!);
+    // The sphere reaches the edge's line: no bound from this edge.
+    if (h <= radius + 1e-6) continue;
+    const w1 = perp.map((v) => v / h);
+    const w2 = [u[1]! * w1[2]! - u[2]! * w1[1]!, u[2]! * w1[0]! - u[0]! * w1[2]!, u[0]! * w1[1]! - u[1]! * w1[0]!];
+    const alpha = -radius / h;
+    let beta = Math.sqrt(Math.max(0, 1 - alpha * alpha));
+    const toMid = [mid[0]! - a[0]!, mid[1]! - a[1]!, mid[2]! - a[2]!];
+    if (alpha * (w1[0]! * toMid[0]! + w1[1]! * toMid[1]! + w1[2]! * toMid[2]!) + beta * (w2[0]! * toMid[0]! + w2[1]! * toMid[1]! + w2[2]! * toMid[2]!) < 0) beta = -beta;
+    const m = [0, 1, 2].map((k) => alpha * w1[k]! + beta * w2[k]!);
+    planes.push([m[0]!, m[1]!, m[2]!, -(m[0]! * a[0]! + m[1]! * a[1]! + m[2]! * a[2]!)]);
+  }
+  return planes;
+}
+
+/** Whether a world box has a corner inside every plane of a frustum (conservative). */
+export function frustumTouches(f: PortalFrustum, min: readonly number[], max: readonly number[]): boolean {
+  return f.every((p) => {
+    // The box's corner farthest along the plane's normal.
+    const x = p[0]! >= 0 ? max[0]! : min[0]!;
+    const y = p[1]! >= 0 ? max[1]! : min[1]!;
+    const z = p[2]! >= 0 ? max[2]! : min[2]!;
+    return p[0]! * x + p[1]! * y + p[2]! * z + p[3]! >= -1e-6;
+  });
 }
 
 /** Whether room `r` of packed room words holds `p` (the shaders' `roomHolds`). */

@@ -14,7 +14,12 @@
  * as three counts it; a pixel's diffuse light is albedo × it / π).
  *
  * The scene the shadow rays trace is the host's (`traceSource`), packed
- * again when it changed, at most every `REPACK_MS`. A look at the cache
+ * again when it changed, at most every `REPACK_MS`.
+ *
+ * After the texels, the host's stale probes (`LiveProbes`) are updated by
+ * the probe pass (`surface-probe-pass.ts`), which reads these textures at
+ * its rays' hits through the resolve tables (packed again with the traced
+ * scene, and when the cache's residency changed). A look at the cache
  * (`setView`) keeps a copy of every texel's point and light on the CPU, read
  * back a frame late, for a debug drawing.
  */
@@ -29,6 +34,8 @@ import { RESOLVE_PAGE, RESOLVE_RING } from './surface-resolve';
 import { TEXEL_POINT_FLOATS, patchTexelAddresses, tileTexelAddresses } from './surface-texels';
 import type { GpuBuffer, GpuTexture, TracerDevice } from './tracer-gpu';
 import { packTraceScene } from './tracer-scene';
+import { SurfaceProbePass } from './surface-probe-pass';
+import { packResolveTable } from './surface-resolve';
 
 /** Bytes a cache texel takes (rgba16float). */
 export const SURFACE_TEXEL_BYTES = 8;
@@ -98,13 +105,20 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
   private msPerRay: number | null = null;
   private packedAt = -Infinity;
   private viewOn = false;
+  /** The resolve tables' trace and residency versions (-1: none yet). */
+  private resolvedFor = -1;
+  private resolvedResidency = -1;
+  /** The sky the probes see where nothing is hit (radiance SH: `SkyProbe`'s). */
+  sky = new Float32Array(12);
+  /** Hears each timed probe update (GPU ms, probes). */
+  onProbeTimed: ((ms: number, probes: number) => void) | null = null;
   private readonly viewUnits = new Map<string, { points: Float32Array; light: Float32Array; texels: number; size: number }>();
   version = 0;
 
   /** Hears each timed run of the pass (GPU ms, texels, and its three passes' ms): the measurements read it. */
   onTimed: ((ms: number, texels: number, passes: readonly number[]) => void) | null = null;
 
-  private constructor(private readonly device: TracerDevice, private readonly host: SurfaceCacheHost, readonly pass: SurfaceLightPass, private readonly scatter: Pipeline) {
+  private constructor(private readonly device: TracerDevice, private readonly host: SurfaceCacheHost, readonly pass: SurfaceLightPass, private readonly scatter: Pipeline, readonly probePass: SurfaceProbePass) {
     this.countBuf = device.createBuffer({ size: 16, usage: USAGE.UNIFORM | USAGE.COPY_DST, label: 'surface scatter count' });
   }
 
@@ -115,7 +129,7 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
     const errors = info?.messages.filter((m) => m.type === 'error') ?? [];
     if (errors.length > 0) throw new Error(`surface scatter WGSL: ${errors.map((m) => `${m.lineNum}: ${m.message}`).join('; ')}`);
     const scatter = device.createComputePipeline({ layout: 'auto', compute: { module, entryPoint: 'main' }, label: 'surface scatter' });
-    return new SurfaceLightRuntime(device, host, pass, scatter);
+    return new SurfaceLightRuntime(device, host, pass, scatter, await SurfaceProbePass.create(device, pass.tracer));
   }
 
   /** The atlas and ring textures (null until the first frame made them). */
@@ -161,8 +175,39 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
     return true;
   }
 
-  /** One frame (after the host's `update`): light its planned texels and write them into the textures. */
+  /** One frame (after the host's `update`): light its planned texels, write them into the textures, then update stale probes. */
   frame(lights: readonly CacheLight[], now = performance.now()): void {
+    this.lightTexels(lights, now);
+    this.updateProbes(now);
+  }
+
+  /** The stale probes nearest the eye, within their share of the budget (one update on the GPU at a time). */
+  private updateProbes(now: number): void {
+    const probes = this.host.probes;
+    if (probes.count === 0 || this.probePass.busy) return;
+    const slots = probes.plan(this.host.eye, now);
+    if (slots.length === 0) return;
+    this.syncScene(now);
+    this.ensureTextures();
+    // The resolve tables follow the traced scene (the same object order) and the residency.
+    const { scene, version } = this.host.resolveScene();
+    if (version === this.sceneVersion && (version !== this.resolvedFor || this.host.residencyVersion !== this.resolvedResidency)) {
+      this.probePass.resolve.setTable(packResolveTable(scene, this.host.cache).words);
+      this.resolvedFor = version;
+      this.resolvedResidency = this.host.residencyVersion;
+    }
+    if (this.resolvedFor < 0) return;
+    const layout = probes.layout;
+    this.probePass.run({ probes, slots, sky: this.sky, rooms: this.host.rooms()?.words ?? null, atlas: this.atlas!, rings: this.rings! }, (values, ms) => {
+      if (probes.layout !== layout) return;
+      probes.accept(slots, values, this.host.relight.isSettled, performance.now());
+      if (ms === null) return;
+      probes.report(ms, slots.length);
+      this.onProbeTimed?.(ms, slots.length);
+    });
+  }
+
+  private lightTexels(lights: readonly CacheLight[], now: number): void {
     const slices = this.host.slicesThisFrame();
     if (slices.length === 0) return;
     this.syncScene(now);
@@ -278,6 +323,7 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
     this.rings?.destroy();
     this.addrBuf?.destroy();
     this.countBuf.destroy();
+    this.probePass.dispose();
     this.pass.dispose();
     this.atlas = this.rings = this.addrBuf = null;
   }

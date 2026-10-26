@@ -76,12 +76,11 @@ function lit(p: V3, n: V3, rooms: SurfaceRooms | null, scene: ReturnType<typeof 
 
 describe('surface cache: rooms and portals hold light in', () => {
   it('a lamp in a room lights that room while its door is shut, and is not held once the door opens onto the outside', () => {
-    const { rooms, open } = closedRoom(false);
+    const { rooms } = closedRoom(false);
     expect(rooms.roomAt([4, 2, 4])).toBe(0);
     expect(rooms.roomAt([4, 2, 10])).toBe(NO_ROOM);
     expect(rooms.lightRooms(lamp.position)).toEqual([0]);
-    open.value = true;
-    expect(rooms.lightRooms(lamp.position)).toBeNull();
+    expect(closedRoom(true).rooms.lightRooms(lamp.position)).toBeNull();
     // A lamp outside is never held.
     expect(rooms.lightRooms([4, 2, 12])).toBeNull();
   });
@@ -142,10 +141,43 @@ describe('surface cache: rooms and portals hold light in', () => {
     for (const k of ['floor', 'wall-in', 'wall-out', 'yard']) while (relight.isStale(k)) relight.plan([0, 0, 0], 0);
     changes.setLights([lamp]);
     expect(['floor', 'wall-in', 'wall-out', 'yard'].filter((k) => relight.isStale(k))).toEqual(['floor', 'wall-in']);
-    // The door opens: the lamp's rooms changed, so all it reaches is marked.
+    // The door opens: the lamp's rooms changed, so its room and what it sees through the doorway are marked (not the side wall's far face).
     while (['floor', 'wall-in'].some((k) => relight.isStale(k))) relight.plan([0, 0, 0], 0);
     open.value = true;
     changes.setRooms(new SurfaceRooms({ graph: rooms.rooms.graph, open: () => true, version: 1 }));
-    expect(['floor', 'wall-in', 'wall-out', 'yard'].filter((k) => relight.isStale(k))).toEqual(['floor', 'wall-in', 'wall-out', 'yard']);
+    expect(['floor', 'wall-in', 'wall-out', 'yard'].filter((k) => relight.isStale(k))).toEqual(['floor', 'wall-in', 'yard']);
+  });
+});
+
+describe('surface cache: a lamp in a room whose door is open marks what it sees through the door', () => {
+  it('its room, and outside only what the doorway shows it (a frustum from its sphere through the doorway)', () => {
+    const { rooms } = closedRoom(true);
+    const m = rooms.lightMarks(lamp.position, 0.3)!;
+    expect(m.rooms).toEqual([0]);
+    expect(m.exits.length).toBe(1);
+    // In front of the doorway, beyond it.
+    expect(rooms.marks([3.5, 1, 9], [4.5, 1, 10], m)).toBe(true);
+    // Beside the house, out of the doorway's sight.
+    expect(rooms.marks([10, 1, 2], [11, 1, 3], m)).toBe(false);
+    // The wall's outer face beside the doorway: behind the doorway's plane only at its edge, out of its sight.
+    expect(rooms.marks([0, 1, 8], [2, 4, 8], m)).toBe(false);
+    // The room's own floor.
+    expect(rooms.marks([1, 1, 1], [7, 1, 7], m)).toBe(true);
+    // Points the lamp's sphere sees through the doorway are inside the frustum (sampled).
+    let seen = 0;
+    for (let i = 0; i < 400; i += 1) {
+      const x = lamp.position[0]! + Math.sin(i) * 0.3;
+      const y = lamp.position[1]! + Math.cos(i * 1.7) * 0.3;
+      const z = lamp.position[2]! + Math.sin(i * 2.3) * 0.3;
+      // Through a point of the doorway, on to 6 m past it.
+      const dx = 3 + ((i * 37) % 100) / 50;
+      const dy = 1 + ((i * 53) % 100) / 50;
+      const t = 1 + ((i * 71) % 100) / 20;
+      const q = [x + (dx - x) * t, y + (dy - y) * t, z + (7.5 - z) * t];
+      if (q[2]! <= 7.5) continue;
+      seen += 1;
+      expect(rooms.marks(q, q, m)).toBe(true);
+    }
+    expect(seen).toBeGreaterThan(100);
   });
 });

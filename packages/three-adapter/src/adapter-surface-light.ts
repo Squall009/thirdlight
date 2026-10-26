@@ -7,8 +7,10 @@
  *
  * A debug look at the cache (`setView`, or `?surfaceCacheView=1` on the
  * page) draws every lit texel as a small square on its surface, coloured by
- * its light as a mid-grey surface would show it: what the cache holds,
- * whether or not materials read it yet.
+ * its light as a mid-grey surface would show it: what the cache holds
+ * (its direct light) and the bounce its room's probes add there, whether
+ * or not materials read it yet. The live probes stand in for the bakes'
+ * probe tiles meanwhile (`adapter-live-probes.ts`).
  */
 import * as THREE from 'three';
 
@@ -20,6 +22,9 @@ import type { RenderGraph } from './render-graph';
 import type { SurfaceCacheHost } from './surface-cache-host';
 import { SurfaceLightRuntime } from './surface-light-runtime';
 import { TEXEL_POINT_FLOATS } from './surface-texels';
+import { AdapterLiveProbes } from './adapter-live-probes';
+import type { ProbeLightingHost } from './probe-grids';
+import { PROBE_HIT_LIFT, probesIrradianceAt } from './surface-probes';
 import type { TracerDevice } from './tracer-gpu';
 
 /** How often (ms) the debug look is drawn again while texels change. */
@@ -56,9 +61,11 @@ export class AdapterSurfaceLight {
   private viewTexels = 0;
   private off: SurfaceLightDiagnostics['off'] = 'starting';
   readonly lights: SurfaceLights;
+  private readonly liveProbes: AdapterLiveProbes | null;
 
-  constructor(private readonly host: SurfaceCacheHost, private readonly scene: THREE.Scene, docs: ReadonlyMap<string, EntityDoc>, graph: RenderGraph) {
+  constructor(private readonly host: SurfaceCacheHost, private readonly scene: THREE.Scene, docs: ReadonlyMap<string, EntityDoc>, graph: RenderGraph, probes: ProbeLightingHost | null = null) {
     this.lights = new SurfaceLights(docs, graph);
+    this.liveProbes = probes === null ? null : new AdapterLiveProbes(host, probes, scene);
     this.viewOn = new URLSearchParams(pageSearch()).get('surfaceCacheView') === '1';
   }
 
@@ -72,6 +79,7 @@ export class AdapterSurfaceLight {
     if (device !== this.device) this.drop(device);
     this.off = this.runtime !== null ? null : this.failed ? 'failed' : this.host.relightBudgetMs <= 0 ? 'no-budget' : gpu === null ? 'no-webgpu' : 'starting';
     this.runtime?.frame(lights);
+    this.liveProbes?.frame(renderer, this.runtime);
     this.drawView();
   }
 
@@ -126,11 +134,14 @@ export class AdapterSurfaceLight {
 
   private drawView(): void {
     const rt = this.runtime;
-    if (!this.viewOn || rt === null || rt.version === this.viewVersion) return;
+    // Drawn again when texels were read back or probes updated.
+    if (!this.viewOn || rt === null) return;
+    const version = rt.version * 1e6 + this.host.probes.diagnostics().updates;
+    if (version === this.viewVersion) return;
     const now = performance.now();
     if (now - this.viewAt < VIEW_MS) return;
     this.viewAt = now;
-    this.viewVersion = rt.version;
+    this.viewVersion = version;
     let n = 0;
     rt.forEach((_, light, texels) => {
       for (let i = 0; i < texels; i += 1) if (light[i * 3]! >= 0) n += 1;
@@ -146,6 +157,9 @@ export class AdapterSurfaceLight {
     }
     const mesh = this.view;
     const m = mesh.instanceMatrix.array as Float32Array;
+    const probes = this.host.probes;
+    const rooms = this.host.rooms()?.words ?? null;
+    const bounce = [0, 0, 0];
     const c = mesh.instanceColor!.array as Float32Array;
     let k = 0;
     rt.forEach((pts, light, texels, size) => {
@@ -160,8 +174,9 @@ export class AdapterSurfaceLight {
         tx /= tl; ty /= tl; tz /= tl;
         const bx = ny * tz - nz * ty, by = nz * tx - nx * tz, bz = nx * ty - ny * tx;
         m.set([tx * size, ty * size, tz * size, 0, bx * size, by * size, bz * size, 0, nx, ny, nz, 0, pts[o]! + nx * VIEW_LIFT, pts[o + 1]! + ny * VIEW_LIFT, pts[o + 2]! + nz * VIEW_LIFT, 1], k * 16);
-        // Diffuse light off a mid-grey surface: albedo × irradiance / π.
-        for (let q = 0; q < 3; q += 1) c[k * 3 + q] = (VIEW_ALBEDO * light[i * 3 + q]!) / Math.PI;
+        // Diffuse light off a mid-grey surface: albedo × (direct + its room's probes' bounce) / π.
+        probesIrradianceAt(probes.grids, probes.state, [pts[o]! + nx * PROBE_HIT_LIFT, pts[o + 1]! + ny * PROBE_HIT_LIFT, pts[o + 2]! + nz * PROBE_HIT_LIFT], [nx, ny, nz], bounce, rooms);
+        for (let q = 0; q < 3; q += 1) c[k * 3 + q] = (VIEW_ALBEDO * (light[i * 3 + q]! + bounce[q]!)) / Math.PI;
         k += 1;
       }
     });
@@ -173,6 +188,7 @@ export class AdapterSurfaceLight {
 
   dispose(): void {
     this.clearView();
+    this.liveProbes?.dispose();
     this.runtime?.dispose();
     this.runtime = null;
     this.device = null;

@@ -63,6 +63,8 @@ export const PROBE_FLOATS = 24;
 export const GRID_WORDS = 12;
 /** The static scene's bounds are snapped out to this (m) before probes are placed over them. */
 export const PROBE_BOUNDS_SNAP = 16;
+/** The probe update's share of the live light's GPU time a frame (`surfaceLightMs`): medium's 1.5 ms gives the probes 0.5 ms. */
+export const PROBE_BUDGET_SHARE = 1 / 3;
 /** Probes an update takes before any cost is measured. */
 export const PROBE_START_COUNT = 256;
 /** Frames over which a waiting probe's distance halves when stale probes are ordered. */
