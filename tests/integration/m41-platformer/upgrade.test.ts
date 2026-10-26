@@ -190,7 +190,8 @@ describe('a 2D project opened over HTTP: one 3D backend, scenes with a default p
     const floor = ids.get('one-way')!.get('floor-0001')!;
     await command('setComponent', { entityId: floor, component: 'collider', value: { shape: { type: 'box', hx: 40, hy: 0.5, hz: 1 } } });
     const lines = await problems('migrated_from_2d');
-    expect(lines.some((l) => /^2D box colliders .*: 6 objects/.test(l))).toBe(true);
+    // The shorter line replaces the old one: Problems never lists both.
+    expect(lines.filter((l) => l.startsWith('2D box colliders'))).toEqual([expect.stringMatching(/: 6 objects/)]);
     const marks = readJson(sceneFile('scene-one-way')).scene.migratedFrom2D;
     expect(marks.objects[floor]).toBeUndefined();
     expect(marks.objects[ids.get('one-way')!.get('shelf-0001')!]).toEqual(['collider:box', 'collider:one-way']);
@@ -201,7 +202,8 @@ describe('a 2D project opened over HTTP: one 3D backend, scenes with a default p
     const rows = ((await api(`${tb.authUrl}/api/v1/projects/${PID}/commands`, { body: { op: 'queryProject', projectId: PID, args: {} }, token: tb.adminToken, origin: null })).json as Any).scenes as Any[];
     expect(rows.find((r) => r.sceneId === 'scene-one-way').plane).toEqual({ axis: 'z', origin: 0 });
     expect(rows.every((r) => r.plane !== undefined)).toBe(true);
-    expect((await problems('migrated_from_2d')).some((l) => l.startsWith('3 scenes'))).toBe(true);
+    const after = await problems('migrated_from_2d');
+    expect(after.filter((l) => l.includes('got a default plane'))).toEqual([expect.stringMatching(/^3 scenes/)]);
   });
 
   it('opening it again changes nothing (no upgrade runs twice)', async () => {

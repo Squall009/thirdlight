@@ -271,7 +271,7 @@ export function createBackend(
   // ---------- project problems log (editor Problems tab + MCP) and the checks that fill it ----------
   const problemLog = createProblemLog({ nowMs, sendToProject: (projectId, frame) => channel.sendToProject(projectId, frame) });
   const recordProblem = problemLog.record;
-  const checks = createProjectChecks({ service, recordProblem, logStartup, closed: () => closed, textureEncoder, heightChecks, assetFiles });
+  const checks = createProjectChecks({ service, recordProblem, withdrawProblem: problemLog.withdraw, logStartup, closed: () => closed, textureEncoder, heightChecks, assetFiles });
   const { missingFiles } = checks;
   const missingFilesRoute = makeMissingFilesRoute({ missingFiles, requireAuth, sendJson, sendError });
   const heightAlphaRoute = makeHeightAlphaRoute({ problems: checks.heightProblems, requireAuth, sendJson, sendError });

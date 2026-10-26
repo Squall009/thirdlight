@@ -38,8 +38,12 @@ export type RecordProblem = (projectId: string, source: Problem['source'], code:
 /** The newest problems a project keeps; older ones fall off the log. */
 const PROBLEMS_PER_PROJECT = 200;
 
+/** Take a problem a check has seen settled off the log (every entry with this code and message). */
+export type WithdrawProblem = (projectId: string, code: string, message: string) => void;
+
 export interface ProblemLog {
   readonly record: RecordProblem;
+  readonly withdraw: WithdrawProblem;
   /** The project's problems, oldest first. */
   list(projectId: string): readonly Problem[];
 }
@@ -58,12 +62,21 @@ export function createProblemLog(deps: { nowMs: () => number; sendToProject: (pr
     // The Problems query returns it anyway when the editor misses this.
     deps.sendToProject(projectId, { type: 'problems.added', problem: entry });
   };
-  return { record, list: (projectId) => problems.get(projectId) ?? [] };
+  const withdraw: WithdrawProblem = (projectId, code, message) => {
+    const list = problems.get(projectId);
+    const text = message.slice(0, 256);
+    const gone = (list ?? []).filter((p) => p.code === code && p.message === text).map((p) => p.seq);
+    if (list === undefined || gone.length === 0) return;
+    problems.set(projectId, list.filter((p) => !gone.includes(p.seq)));
+    deps.sendToProject(projectId, { type: 'problems.withdrawn', seqs: gone });
+  };
+  return { record, withdraw, list: (projectId) => problems.get(projectId) ?? [] };
 }
 
 export interface ProjectChecksDeps {
   readonly service: WorkspaceService;
   readonly recordProblem: RecordProblem;
+  readonly withdrawProblem: WithdrawProblem;
   readonly logStartup: (message: string) => void;
   readonly closed: () => boolean;
   readonly textureEncoder: TextureEncoder;
@@ -113,7 +126,7 @@ export function createProjectChecks(deps: ProjectChecksDeps) {
   // Linked prefab copies assembly could not make as stored (checked on load and after changes to copies or prefabs).
   const prefabProblems = createPrefabProblemChecker({ service, recordProblem: as('workspace'), logStartup, closed });
   // What the upgrade of a former 2D project converted, until each item is saved again (checked on load and after changes while any is open).
-  const migrated2D = createMigrated2DProblemChecker({ service, recordProblem: as('workspace'), logStartup, closed });
+  const migrated2D = createMigrated2DProblemChecker({ service, recordProblem: as('workspace'), withdrawProblem: deps.withdrawProblem, logStartup, closed });
   // Vertex paint a reimport left without its mesh (checked on load and after changes that can matter).
   const paintProblems = createPaintProblemChecker({ service, recordProblem: as('workspace'), logStartup, closed });
   // Textures in a layered surface's height slots without height in A (checked on load and after material and texture changes).

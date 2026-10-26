@@ -4,7 +4,8 @@
  * project's problems, one line per kind of conversion naming the objects and
  * the field to check. The notes live in the scene files, so the lines come
  * back in every backend run until each item is saved again; a line that
- * changed (an object settled) is logged again with what is left.
+ * changed (an object settled) is withdrawn and logged again with what is
+ * left, so Problems never shows the old and the new line together.
  *
  * Checked when the project loads and, while it has notes, after each change.
  */
@@ -18,6 +19,7 @@ export interface Migrated2DProblemChecker {
 export function createMigrated2DProblemChecker(deps: {
   service: Pick<WorkspaceService, 'readCapturedV3'>;
   recordProblem: (projectId: string, code: string, message: string) => void;
+  withdrawProblem: (projectId: string, code: string, message: string) => void;
   logStartup: (line: string) => void;
   closed: () => boolean;
 }): Migrated2DProblemChecker {
@@ -29,6 +31,7 @@ export function createMigrated2DProblemChecker(deps: {
       if (!captured.ok) return;
       const before = last.get(projectId);
       const now = new Set(migrated2DProblemLines(captured.read.scenes ?? []));
+      for (const line of before ?? []) if (!now.has(line)) deps.withdrawProblem(projectId, MIGRATED_2D_PROBLEM, line);
       for (const line of now) if (before?.has(line) !== true) deps.recordProblem(projectId, MIGRATED_2D_PROBLEM, line);
       last.set(projectId, now);
     } catch (e) {

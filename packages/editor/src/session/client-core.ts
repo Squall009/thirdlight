@@ -654,6 +654,15 @@ export class SessionClientCore extends SessionProjectState {
         }
         break;
       }
+      case 'problems.withdrawn': {
+        const seqs = Array.isArray(m.seqs) ? (m.seqs as unknown[]) : [];
+        const kept = this.problems.filter((x) => !seqs.includes(x.seq));
+        if (kept.length !== this.problems.length) {
+          this.problems = kept;
+          this.emit();
+        }
+        break;
+      }
       case 'workspace.resync':
         void this.fullResync().then(() => this.cb.onSceneChanged());
         break;
