@@ -33,6 +33,7 @@ import { buildRoomGraph, ROOM_OUTSIDE, roomVisibility, walkRooms, type Architect
 
 import type { BatchMembership } from './batching';
 import { lightsObject, ROOM_ATTRIBUTE, ROOM_KEY, ROOM_VERTEX_KEYS } from './light-layers';
+import type { LightingRooms } from './surface-rooms';
 import { HIDDEN_BY_ROOM, hideFromView } from './view-hidden';
 
 /** `mesh.userData[ROOM_TAG_KEY]`: the mesh spans rooms and takes their keys per vertex (true, or the block layer's id it belongs to). */
@@ -167,6 +168,8 @@ export class RoomCulling implements BatchMembership, RoomsSwitch {
   private readonly view = new Float64Array(16);
   private readonly eye = new Float64Array(3);
   private doorState = new Uint8Array(0);
+  /** Bumped whenever a door opened or shut (the light's rooms read it). */
+  private doorVersion = 0;
   /** Per room: 1 while a cut-away hides what covers it (its top opens to the sky). */
   private cutState = new Uint8Array(0);
   private sceneCount = -1;
@@ -355,6 +358,7 @@ export class RoomCulling implements BatchMembership, RoomsSwitch {
       return;
     }
     const doorsChanged = this.readDoors(g);
+    if (doorsChanged) this.doorVersion += 1;
     const cutsChanged = this.readCuts(g);
     const viewChanged = this.readView(camera);
     let sweep = false;
@@ -382,6 +386,20 @@ export class RoomCulling implements BatchMembership, RoomsSwitch {
     this.d.seen = this.walked ? seen : this.d.rooms;
     this.d.outside = this.walked ? this.vis.outside : true;
     return { ...this.d };
+  }
+
+  /**
+   * The rooms as light sees them (null: none): the graph, which portals are
+   * open now (a door shut, a cut-away's top), and a version that changes
+   * when either did. With the culling on, its frames read the doors; off,
+   * they are read here.
+   */
+  lighting(): LightingRooms | null {
+    if (this.dirty) this.rebuild();
+    const g = this.graph;
+    if (g === null || g.rooms.length === 0) return null;
+    if (!this.culling && this.readDoors(g)) this.doorVersion += 1;
+    return { graph: g, open: (p) => this.portalOpen(p), version: this.revision * 65536 + this.doorVersion };
   }
 
   /** Every drawable back in the view, keys and tags gone. */

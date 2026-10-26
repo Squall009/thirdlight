@@ -179,14 +179,16 @@ export class SurfaceRelight {
 
   /**
    * Every unit within `r` of a light at `c` is stale, but for flat units the
-   * light is behind (it cannot reach them); listeners hear of its box.
-   * Returns the units marked.
+   * light is behind (it cannot reach them) and units `keep` leaves out (the
+   * light's rooms do not reach them); listeners hear of its box. Returns the
+   * units marked.
    */
-  markSphere(c: readonly number[], r: number): number {
+  markSphere(c: readonly number[], r: number, keep?: (unit: RelightUnit) => boolean): number {
     this.marks += 1;
     let n = 0;
     for (const s of this.units.values()) {
       if (boxDistance(s.unit.min, s.unit.max, c) > r || facesAway(s.unit, c)) continue;
+      if (keep !== undefined && !keep(s.unit)) continue;
       this.stale(s);
       n += 1;
     }

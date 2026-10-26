@@ -167,7 +167,7 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
     if (slices.length === 0) return;
     this.syncScene(now);
     this.ensureTextures();
-    const f = lightFrameOf(this.host, lights, this.points);
+    const f = lightFrameOf(this.host, lights, this.points, this.host.rooms());
     this.points = f.points;
     const texels = f.slices.reduce((n, s) => n + s.texels, 0);
     if (this.addresses.length < texels * 2) this.addresses = new Uint32Array(texels * 2 * 2);

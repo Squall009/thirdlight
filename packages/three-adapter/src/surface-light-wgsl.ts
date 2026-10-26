@@ -9,15 +9,17 @@
  *   ray toward it, with the light's shadow caster mask; a light that casts
  *   no shadow gets a ray of length 0;
  * - gather: one thread per texel: each light's share over its rays
- *   (visible ones), into the texel's irradiance.
+ *   (visible ones), into the texel's irradiance; a light held to rooms
+ *   (`surface-rooms.ts`) adds nothing to a texel outside them.
  */
 import { AREA_CONE, AREA_LINE, LIGHT_SHADOWS, LIGHT_WORDS, POINT_LIGHT_RADIUS, RAY_BIAS, SLICE_WORDS, SUN_DISC_RADIANS, SUN_WORDS } from './surface-light-frame';
+import { NO_ROOM, roomsWgsl } from './surface-rooms';
 import { TRACE_MISS, TRACE_UNFINISHED } from './tracer-scene';
 
 export const LIGHT_WORKGROUP = 64;
 
 const COMMON = /* wgsl */ `
-struct Params { texels: u32, rays: u32, slices: u32, seed: u32, lights: u32, sunAt: u32, pad0: u32, pad1: u32 }
+struct Params { texels: u32, rays: u32, slices: u32, seed: u32, lights: u32, sunAt: u32, roomsAt: u32, pad1: u32 }
 @group(0) @binding(0) var<uniform> P: Params;
 @group(0) @binding(1) var<storage, read> F: array<u32>;
 @group(0) @binding(2) var<storage, read> PT: array<f32>;
@@ -122,6 +124,15 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
 export const LIGHT_GATHER_WGSL = COMMON + /* wgsl */ `
 @group(0) @binding(3) var<storage, read> H: array<vec4u>;
 @group(0) @binding(4) var<storage, read_write> E: array<vec4f>;
+fn fw(i: u32) -> u32 { return F[i]; }
+${roomsWgsl('fw', 'P.roomsAt')}
+// Whether light record 'at' may light a texel in room 'room' (a light held to no rooms lights all).
+fn lightsRoom(at: u32, room: u32) -> bool {
+  let n = F[at + 21u];
+  if (n == 0u) { return true; }
+  for (var q = 0u; q < n; q++) { if (F[F[at + 20u] + q] == room) { return true; } }
+  return false;
+}
 
 // A ray that ran out of steps found nothing within them: it counts as reaching the light.
 fn visible(r: u32) -> f32 { let k = H[r * 2u + 1u].x & 255u; return select(0.0, 1.0, k == ${TRACE_MISS}u || k == ${TRACE_UNFINISHED}u); }
@@ -148,10 +159,16 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
       let sd = fv(P.sunAt);
       e += fv(P.sunAt + 4u) * max(0.0, dot(n, sd)) * v / f32(sunRays);
     }
+    // The texel's room, found once the first light held to rooms asks.
+    var room = ${NO_ROOM - 1}u;
     for (var j = 0u; j < F[s + 5u]; j++) {
       let at = lightAt(F[F[s + 4u] + j]);
       let rj = raysOf(at, level);
       let reach = ff(at + 3u);
+      if (F[at + 21u] != 0u) {
+        if (room == ${NO_ROOM - 1}u) { room = texelRoom(F[s + 8u], F[s + 9u], p, n); }
+        if (!lightsRoom(at, room)) { k += rj; continue; }
+      }
       if (ff(at + 7u) == ${AREA_CONE}.0) {
         // Each ray's own point on the light: its share of the light's intensity there.
         let facing = fv(at + 8u);

@@ -7,6 +7,7 @@
  * Pure (no three.js, no device).
  */
 import { AREA_CONE, AREA_LINE, LIGHT_SHADOWS, LIGHT_WORDS, POINT_LIGHT_RADIUS, RAY_BIAS, SLICE_WORDS, SUN_DISC_RADIANS, SUN_WORDS, packLightFrame, type LightPassFrame } from './surface-light-frame';
+import { NO_ROOM, texelRoomCpu } from './surface-rooms';
 import { sceneView, traceRayCpu, type TraceOptions } from './tracer-cpu';
 import { TRACE_MISS, TRACE_UNFINISHED, type PackedTraceScene } from './tracer-scene';
 
@@ -57,7 +58,8 @@ export function lightFrameCpu(frame: LightPassFrame, scene: PackedTraceScene, se
   const f = new Float32Array(words.buffer);
   const fv = (i: number): V3 => [f[i]!, f[i + 1]!, f[i + 2]!];
   const view = sceneView(scene);
-  const { sunAt } = packLightFrame(frame);
+  const { sunAt, roomsAt } = packLightFrame(frame);
+  const roomWords = words.subarray(roomsAt);
   const lightAt = (j: number): number => sunAt + SUN_WORDS + j * LIGHT_WORDS;
   const raysOf = (at: number, level: number): number => Math.max(1, (F[at + 19]! & 255) >> level);
   const lightPoint = (at: number, k: number, n: number, rng: Rng): V3 => {
@@ -100,6 +102,8 @@ export function lightFrameCpu(frame: LightPassFrame, scene: PackedTraceScene, se
         for (let q = 0; q < 3; q += 1) e[q]! += c[q]! * k;
       };
       let k = 0;
+      // The texel's room, found once the first light held to rooms asks.
+      let room = NO_ROOM - 1;
       if (sunRays !== 0) {
         const sd = fv(sunAt);
         let v = 0;
@@ -121,6 +125,13 @@ export function lightFrameCpu(frame: LightPassFrame, scene: PackedTraceScene, se
         const reach = f[at + 3]!;
         const area = f[at + 7] === AREA_CONE;
         const shadows = (F[at + 19]! & LIGHT_SHADOWS) !== 0;
+        if (F[at + 21]! !== 0) {
+          if (room === NO_ROOM - 1) room = texelRoomCpu(roomWords, Array.from(F.subarray(F[s + 8]!, F[s + 8]! + F[s + 9]!)), p, n);
+          if (!Array.from(F.subarray(F[at + 20]!, F[at + 20]! + F[at + 21]!)).includes(room)) {
+            k += rj;
+            continue;
+          }
+        }
         // The rays' visibility, as the rays pass makes them.
         const vis: number[] = [];
         const pts: V3[] = [];

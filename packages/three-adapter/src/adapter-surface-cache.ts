@@ -54,6 +54,7 @@ export function createAdapterSurfaceCache(d: { opts: SceneAdapterOptions; scene:
       architecture: () => level.architecture.surfaceObjects().map((a) => ({ ...a, ...layersOf(a.id) })),
       models,
       bricks: (assetId, version) => opts.models?.resolveBricks?.(assetId, version) ?? null,
+      rooms: () => level.archHost.rooms.lighting(),
     },
     DEFAULT_SURFACE_CACHE_MIB * MIB,
   );

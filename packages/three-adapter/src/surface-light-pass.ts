@@ -112,7 +112,7 @@ export class SurfaceLightPass {
     d.queue.writeBuffer(this.frameBuf, 0, packed.words);
     d.queue.writeBuffer(this.pointsBuf, 0, frame.points.subarray(0, packed.texels * TEXEL_POINT_FLOATS));
     this.seed = (this.seed * 1664525 + 1013904223) >>> 0;
-    d.queue.writeBuffer(this.params, 0, new Uint32Array([packed.texels, packed.rays, frame.slices.length, this.seed, frame.lights.length, packed.sunAt, 0, 0]));
+    d.queue.writeBuffer(this.params, 0, new Uint32Array([packed.texels, packed.rays, frame.slices.length, this.seed, frame.lights.length, packed.sunAt, packed.roomsAt, 0]));
     const enc = d.createCommandEncoder();
     const timed = this.query !== null && !this.reading;
     // Each pass's start and end: the three passes' times and the whole.

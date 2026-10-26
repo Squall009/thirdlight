@@ -12,13 +12,19 @@
  * - static geometry changed (a block or terrain edit, live or scripted, an
  *   architecture object, a static object moved): the box itself and as far
  *   round it as bounced light reaches, the reach of every light that touches
- *   it (its shadows there changed), and its shadow's sweep away from the sun.
+ *   it (its shadows there changed), and its shadow's sweep away from the sun;
+ * - a door opened or shut (the rooms changed): every light whose rooms
+ *   changed, before and after.
+ *
+ * A light standing in rooms its open portals keep from the outside
+ * (`surface-rooms.ts`) marks only the units those rooms touch.
  *
  * Pure (no three.js).
  */
 import { DEFAULT_PROBE_SPACING, LIGHT_LAYERS_ALL } from '@thirdlight/runtime';
 
 import type { SurfaceRelight } from './surface-relight';
+import type { SurfaceRooms } from './surface-rooms';
 import { bounceRayMetres } from './tracer-scene';
 
 /** How far (radians) the sun turns before its light is computed again. */
@@ -115,8 +121,26 @@ function lightChanged(was: CacheLight, now: CacheLight): boolean {
 export class SurfaceChanges {
   /** The lights as last lit (a directional keeps the state its light was last computed for). */
   private lit = new Map<string, CacheLight>();
+  private rooms: SurfaceRooms | null = null;
 
   constructor(private readonly relight: SurfaceRelight, private readonly probeSpacing = DEFAULT_PROBE_SPACING) {}
+
+  /** The rooms now (null: none): the lights whose rooms changed are marked under the old rooms and the new. */
+  setRooms(rooms: SurfaceRooms | null): void {
+    const was = this.rooms;
+    if (was === rooms) return;
+    for (const l of this.lit.values()) {
+      if (!l.on || l.kind === 'directional') continue;
+      const before = was?.lightRooms(l.position) ?? null;
+      const after = rooms?.lightRooms(l.position) ?? null;
+      if (before !== null && after !== null && before.length === after.length && before.every((r, i) => r === after[i])) continue;
+      this.markLight(l);
+      this.rooms = rooms;
+      this.markLight(l);
+      this.rooms = was;
+    }
+    this.rooms = rooms;
+  }
 
   /** The lights now (every frame; cheap when nothing changed). */
   setLights(lights: readonly CacheLight[]): void {
@@ -154,7 +178,9 @@ export class SurfaceChanges {
   }
 
   private markLight(l: CacheLight): void {
-    this.relight.markSphere(l.position, lightReach(l));
+    const rooms = this.rooms;
+    const held = rooms?.lightRooms(l.position) ?? null;
+    this.relight.markSphere(l.position, lightReach(l), held === null ? undefined : (u) => rooms!.touches(u.min, u.max, held));
   }
 
   /**

@@ -34,6 +34,7 @@ import type { TerrainRingSource } from './surface-cache-terrain';
 import { invertAffine, type Affine } from './tracer-words';
 import type { TraceBlockLayer, TraceSceneSource, TraceTerrain } from './tracer-scene';
 import { traceBlockLayerOf, traceTerrainOf } from './tracer-sources';
+import { SurfaceRooms, type LightingRooms } from './surface-rooms';
 
 /** `scene.userData[SURFACE_CACHE_KEY]`: the page's surface cache (a measurement reads its diagnostics). */
 export const SURFACE_CACHE_KEY = 'tlSurfaceCache';
@@ -75,6 +76,8 @@ export interface SurfaceCacheHostDeps {
   readonly models: () => readonly SurfaceHostModel[];
   /** A model row's distance-field file (null: it has none). */
   readonly bricks: (assetId: string, version: number) => Promise<Uint8Array> | null;
+  /** The rooms of generated architecture and their open portals (absent or null: none). */
+  readonly rooms?: () => LightingRooms | null;
 }
 
 export interface SurfaceCacheHostDiagnostics extends SurfaceCacheDiagnostics {
@@ -177,6 +180,8 @@ export class SurfaceCacheHost {
   /** Bumped by every geometry change the listing sees. */
   private geometryVersion = 0;
   private traced: { source: TraceSceneSource; version: number } | null = null;
+  private roomsNow: SurfaceRooms | null = null;
+  private roomsVersion = -1;
 
   /** `relightMs`: the GPU time a frame may spend lighting stale texels (0: none, the saved light is drawn). */
   constructor(private readonly deps: SurfaceCacheHostDeps, budgetBytes: number, private relightMs = 0) {
@@ -206,6 +211,21 @@ export class SurfaceCacheHost {
   /** The lights now (once a frame). */
   setLights(lights: readonly CacheLight[]): void {
     this.changes.setLights(lights);
+  }
+
+  /** The rooms light keeps to (null: none). */
+  rooms(): SurfaceRooms | null {
+    return this.roomsNow;
+  }
+
+  /** The rooms again when they or a door changed: lights whose rooms changed are marked. */
+  private syncRooms(): void {
+    const r = this.deps.rooms?.() ?? null;
+    const version = r === null ? -1 : r.version;
+    if (version === this.roomsVersion && (r === null) === (this.roomsNow === null)) return;
+    this.roomsVersion = version;
+    this.roomsNow = r === null ? null : new SurfaceRooms(r);
+    this.changes.setRooms(this.roomsNow);
   }
 
   /** Where a unit's texels are: a resident tile's packing, or a ring patch and its terrain (null: gone). */
@@ -291,6 +311,7 @@ export class SurfaceCacheHost {
       this.listedAt = now;
       this.list();
     }
+    this.syncRooms();
     this.prepare(eye, now);
     // A tile with nothing to light (a chunk of hidden faces only) is made once and never offered.
     if (this.changed) this.offered = [...this.ready.values()].filter((t) => t.charts().length > 0);
