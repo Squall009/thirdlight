@@ -130,7 +130,7 @@ describe('tracer: block layers', () => {
     expect(hits).toBeGreaterThan(100);
   });
 
-  it('steps empty chunks whole across a large layer, and resumes rays that run out of steps', () => {
+  it('steps empty chunks and sub-blocks whole across a large layer, and resumes rays that run out of steps', () => {
     // 512 cells wide, nearly empty: a ray across it crosses ~30 chunks but few cells.
     const min: V3 = [0, 0, 0];
     const max: V3 = [512, 32, 512];
@@ -140,10 +140,15 @@ describe('tracer: block layers', () => {
       grid.set(c[0], c[1], c[2], { block: 'rock' });
       cells.push(c);
     }
-    // A dense band of chunks with one far cell each forces cell steps (every chunk occupied).
+    // A band of chunks with one far cell each: every chunk is occupied, but the ray's sub-blocks are empty.
     for (let x = 16; x < 496; x += 16) {
       grid.set(x + 15, 31, 0, { block: 'rock' });
       cells.push([x + 15, 31, 0]);
+    }
+    // A band with a cell in every sub-block along the ray (none on its row) forces cell steps.
+    for (let x = 16; x < 496; x += 4) {
+      grid.set(x, 28, 3, { block: 'rock' });
+      cells.push([x, 28, 3]);
     }
     const src: TraceSceneSource = { blocks: [traceBlockLayerOf(grid, origin, opaqueByBlockTypes(TYPES))] };
     const target: V3 = [origin[0] + 500.5, origin[1] + 3.5 * 0.5, origin[2] + 497.5];
@@ -154,7 +159,12 @@ describe('tracer: block layers', () => {
     expect(hit.kind).toBe(TRACE_BLOCKS);
     expect(hit.t).toBeCloseTo(ref.t, 3);
     expect(passes).toBe(1);
-    // Along the occupied band every chunk's cells are walked: more than one pass's budget.
+    // Past the sparse band in one pass; along the dense band every sub-block's cells are walked: more than one pass's budget.
+    const o1: V3 = [origin[0] + 16.2, origin[1] + 10.25, origin[2] + 8.5];
+    const sparse = traceToEnd(src, o1, unit([1, 0.00001, 0.00001]), 2000);
+    expect(brute(cells, o1, unit([1, 0.00001, 0.00001]), 2000)).toBeNull();
+    expect(sparse.hit.kind).toBe(TRACE_MISS);
+    expect(sparse.passes).toBe(1);
     const o2: V3 = [origin[0] + 16.2, origin[1] + 15.25, origin[2] + 0.5];
     const d2 = unit([1, 0.00001, 0.00001]);
     const ref2 = brute(cells, o2, d2, 2000);

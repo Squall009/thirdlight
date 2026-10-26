@@ -8,7 +8,7 @@
  * words, 2 the rays (two vec4 each), 3 the hits (two vec4u each).
  */
 import { TRACER_OBJECTS_WGSL } from './tracer-wgsl-objects';
-import { CHUNK_WORDS, HEADER, LAYER_WORDS, TERRAIN_WORDS, TRACE_BLOCKS, TRACE_CHUNK, TRACE_STEPS, TRACE_TERRAIN, TRACE_UNFINISHED } from './tracer-scene';
+import { CHUNK_BLOCK_WORDS, CHUNK_WORDS, HEADER, LAYER_WORDS, TERRAIN_WORDS, TRACE_BLOCKS, TRACE_CHUNK, TRACE_STEPS, TRACE_SUB, TRACE_TERRAIN, TRACE_UNFINISHED } from './tracer-scene';
 
 /** Threads per workgroup (the spike's measured size on the Iris Xe). */
 export const TRACER_WORKGROUP = 64;
@@ -24,6 +24,9 @@ struct Hit { t: f32, n: vec3f, kind: u32, face: u32, obj: u32, a0: u32, a1: u32 
 
 const CHUNK = ${TRACE_CHUNK};
 const CHUNK_WORDS = ${CHUNK_WORDS}u;
+const CHUNK_BLOCK_WORDS = ${CHUNK_BLOCK_WORDS}u;
+const SUB = ${TRACE_SUB};
+const SUBS = ${TRACE_CHUNK / TRACE_SUB};
 const BLOCK_STEPS = ${TRACE_STEPS.blocks}u;
 const TERRAIN_STEPS = ${TRACE_STEPS.terrain}u;
 const GRID_STEPS = ${TRACE_STEPS.grid}u;
@@ -101,62 +104,65 @@ fn traceLayer(layer: u32, at: u32, ro: vec3f, rd: vec3f, tmin: f32, h: ptr<funct
   let CD = vec3i(i32(S[at + 15u]), i32(S[at + 16u]), i32(S[at + 17u]));
   let table = S[at + 18u];
   let bits = S[at + 19u];
+  let lo = vec3i(i32(S[at + 20u]), i32(S[at + 21u]), i32(S[at + 22u]));
+  let hi = vec3i(i32(S[at + 23u]), i32(S[at + 24u]), i32(S[at + 25u]));
   let inv = 1.0 / d;
   var tEnter = tmin;
   var tExit = min((*h).t, *unf);
   var axis = -1;
-  let ta = (vec3f(0.0) - o) * inv;
-  let tb = (vec3f(D) - o) * inv;
+  let ta = (vec3f(lo) - o) * inv;
+  let tb = (vec3f(hi) - o) * inv;
   for (var k = 0; k < 3; k++) {
-    let lo = min(ta[k], tb[k]);
-    if (lo > tEnter) { tEnter = lo; axis = k; }
+    let near = min(ta[k], tb[k]);
+    if (near > tEnter) { tEnter = near; axis = k; }
     tExit = min(tExit, max(ta[k], tb[k]));
   }
   if (!(tEnter < tExit)) { return; }
   let stp = vec3i(sign(d));
   let up = select(vec3f(0.0), vec3f(1.0), d > vec3f(0.0));
-  var c = clamp(vec3i(floor((o + d * tEnter) / f32(CHUNK))), vec3i(0), CD - vec3i(1));
-  var sideC = ((vec3f(c) + up) * f32(CHUNK) - o) * inv;
-  let deltaC = abs(inv) * f32(CHUNK);
-  var delta = abs(inv);
-  var tc = tEnter;
-  var steps = 0u;
-  loop {
-    let tcExit = min(min(sideC.x, sideC.y), min(sideC.z, tExit));
+  let upi = vec3i(up);
+  var cell = clamp(vec3i(floor(o + d * tEnter)), lo, hi - vec3i(1));
+  var side = (vec3f(cell) + up - o) * inv;
+  let delta = abs(inv);
+  var t = tEnter;
+  for (var steps = 0u; ; steps++) {
+    if (steps >= BLOCK_STEPS) { *unf = min(*unf, t); return; }
+    let c = cell / CHUNK;
     let block = S[table + u32((c.y * CD.z + c.z) * CD.x + c.x)];
-    var exit = argmin3(sideC);
+    var size = CHUNK;
     if (block != 0u) {
-      let base = bits + (block - 1u) * CHUNK_WORDS;
-      let lo = c * CHUNK;
-      var cell = clamp(vec3i(floor(o + d * tc)), lo, min(lo + vec3i(CHUNK), D) - vec3i(1));
-      var side = (vec3f(cell) + up - o) * inv;
-      var t = tc;
-      loop {
-        let l = cell - lo;
+      let base = bits + (block - 1u) * CHUNK_BLOCK_WORDS;
+      let l = cell - c * CHUNK;
+      let sb = l / SUB;
+      let sbit = u32((sb.y * SUBS + sb.z) * SUBS + sb.x);
+      size = SUB;
+      if (((S[base + CHUNK_WORDS + (sbit >> 5u)] >> (sbit & 31u)) & 1u) != 0u) {
         let bit = u32((l.y * CHUNK + l.z) * CHUNK + l.x);
         if (((S[base + (bit >> 5u)] >> (bit & 31u)) & 1u) != 0u) {
           blockHit(layer, at, o, d, t, axis, cell, D, h);
           return;
         }
-        steps += 1u;
-        if (steps >= BLOCK_STEPS) { *unf = min(*unf, t); return; }
-        let a = argmin3(side);
-        t = side[a];
-        side[a] += delta[a];
-        cell[a] += stp[a];
-        axis = i32(a);
-        if (t >= tExit) { return; }
-        if (cell[a] < lo[a] || cell[a] >= lo[a] + CHUNK) { exit = a; break; }
+        size = 1;
       }
     }
-    steps += 1u;
-    if (steps >= BLOCK_STEPS) { *unf = min(*unf, tcExit); return; }
-    let a = exit;
-    tc = sideC[a];
-    sideC[a] += deltaC[a];
-    c[a] += stp[a];
+    var a = 0u;
+    if (size == 1) {
+      a = argmin3(side);
+      t = side[a];
+      side[a] += delta[a];
+      cell[a] += stp[a];
+    } else {
+      let n0 = (cell / size) * size;
+      let exitT = (vec3f(n0 + upi * size) - o) * inv;
+      a = argmin3(exitT);
+      t = max(t, exitT[a]);
+      let inside = clamp(vec3i(floor(o + d * t)), max(n0, lo), min(n0 + vec3i(size), hi) - vec3i(1));
+      cell = inside;
+      cell[a] = select(n0[a] - 1, n0[a] + size, stp[a] > 0);
+      side = (vec3f(cell) + up - o) * inv;
+    }
     axis = i32(a);
-    if (tc >= tExit || c[a] < 0 || c[a] >= CD[a]) { return; }
+    if (t >= tExit || cell[a] < lo[a] || cell[a] >= hi[a]) { return; }
   }
 }
 `;

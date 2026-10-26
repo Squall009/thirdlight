@@ -8,7 +8,10 @@
  * Each geometry kind keeps its own exact form instead of one voxelization:
  *
  * - block layers: occupancy bits in 16³ chunks plus a chunk table (an empty
- *   chunk is one zero word, stepped whole by the trace);
+ *   chunk is one zero word, stepped whole by the trace), a mask of the
+ *   chunk's occupied 4³ sub-blocks (empty ones are stepped whole too), and
+ *   the box of the layer's occupied cells (a ray is walked only inside it,
+ *   so a sun ray leaving the built area stops at once);
  * - terrain: the height samples and a min/max pyramid over their cells;
  * - architecture: oriented boxes in a uniform grid;
  * - imported static models: distance-field bricks per asset, placed by
@@ -66,8 +69,22 @@ export const TRACE_STEPS = {
 /** Cells per block-chunk side: the block layer's own chunk size (columns of 16 × 16, cut into 16 cells of height here). */
 export const TRACE_CHUNK = CHUNK_SIZE;
 const CHUNK_CELLS = TRACE_CHUNK * TRACE_CHUNK * TRACE_CHUNK;
-/** Occupancy words per occupied chunk. */
+/** Occupancy words per occupied chunk's cells. */
 export const CHUNK_WORDS = CHUNK_CELLS / 32;
+/** Cells per sub-block side within a chunk: a chunk holds (16 / 4)³ = 64 sub-blocks, one mask bit each. */
+export const TRACE_SUB = 4;
+const SUBS = TRACE_CHUNK / TRACE_SUB;
+/** Words per occupied chunk: its cells' bits, then the two words of its sub-block mask. */
+export const CHUNK_BLOCK_WORDS = CHUNK_WORDS + (SUBS * SUBS * SUBS) / 32;
+/**
+ * How far (m) a bounce or probe ray is traced: about the probe spacing, past
+ * which the probes give the far field, so a ray never marches across an open
+ * scene for light it would read from a probe anyway.
+ */
+export const BOUNCE_RAY_SPACINGS = 2;
+export function bounceRayMetres(probeSpacing: number): number {
+  return probeSpacing * BOUNCE_RAY_SPACINGS;
+}
 
 /** Words of the scene header: per kind its count and its section's offset. */
 export const SCENE_HEADER_WORDS = 16;
@@ -75,7 +92,7 @@ export const SCENE_HEADER_WORDS = 16;
 export const HEADER = { blocks: 0, terrain: 2, arch: 4, bricks: 6 } as const;
 
 /** Words of a block layer's record. */
-export const LAYER_WORDS = 20;
+export const LAYER_WORDS = 26;
 /** Words of a terrain's record. */
 export const TERRAIN_WORDS = 20;
 
@@ -128,9 +145,12 @@ export interface PackedTraceScene {
 /**
  * A block layer's record (`LAYER_WORDS`): 0–11 world → grid (cells from the
  * layer's min corner), 12–14 cells per axis, 15–17 chunks per axis, 18 the
- * chunk table's offset, 19 the occupancy's offset. The chunk table holds one
- * word per chunk (0: empty, else 1 + its occupancy block); a block holds
- * `CHUNK_WORDS` bits, cell (x, y, z) in the chunk at bit (y × 16 + z) × 16 + x.
+ * chunk table's offset, 19 the occupancy's offset, 20–22 the occupied
+ * cells' min corner and 23–25 their max corner (exclusive; all 0 when none).
+ * The chunk table holds one word per chunk (0: empty, else 1 + its
+ * occupancy block); a block (`CHUNK_BLOCK_WORDS`) holds `CHUNK_WORDS` bits,
+ * cell (x, y, z) in the chunk at bit (y × 16 + z) × 16 + x, then the
+ * sub-block mask, sub-block (x, y, z) at bit (y × 4 + z) × 4 + x.
  */
 function packBlockLayer(w: Words, at: number, layer: TraceBlockLayer): void {
   const dims = [0, 1, 2].map((k) => Math.max(0, (layer.max[k] ?? 0) - (layer.min[k] ?? 0)));
@@ -159,18 +179,34 @@ function packBlockLayer(w: Words, at: number, layer: TraceBlockLayer): void {
     cells.push(gx, gy, gz);
   });
   const blockOf = new Map<number, number>();
+  const lo = [Infinity, Infinity, Infinity];
+  const hi = [0, 0, 0];
   for (let i = 0; i < cells.length; i += 3) {
     const c = ((Math.floor(cells[i + 1]! / TRACE_CHUNK) * chunks[2]! + Math.floor(cells[i + 2]! / TRACE_CHUNK)) * chunks[0]!) + Math.floor(cells[i]! / TRACE_CHUNK);
     if (!blockOf.has(c)) blockOf.set(c, blockOf.size);
+    for (let k = 0; k < 3; k += 1) {
+      lo[k] = Math.min(lo[k]!, cells[i + k]!);
+      hi[k] = Math.max(hi[k]!, cells[i + k]! + 1);
+    }
   }
-  const bits = w.alloc(blockOf.size * CHUNK_WORDS);
+  for (let k = 0; k < 3; k += 1) {
+    w.setU(at + 20 + k, cells.length > 0 ? lo[k]! : 0);
+    w.setU(at + 23 + k, cells.length > 0 ? hi[k]! : 0);
+  }
+  const bits = w.alloc(blockOf.size * CHUNK_BLOCK_WORDS);
   w.setU(at + 19, bits);
   for (const [c, b] of blockOf) w.setU(table + c, b + 1);
   for (let i = 0; i < cells.length; i += 3) {
     const [x, y, z] = [cells[i]!, cells[i + 1]!, cells[i + 2]!];
     const c = ((Math.floor(y / TRACE_CHUNK) * chunks[2]! + Math.floor(z / TRACE_CHUNK)) * chunks[0]!) + Math.floor(x / TRACE_CHUNK);
-    const bit = ((y % TRACE_CHUNK) * TRACE_CHUNK + (z % TRACE_CHUNK)) * TRACE_CHUNK + (x % TRACE_CHUNK);
-    w.orU(bits + blockOf.get(c)! * CHUNK_WORDS + (bit >> 5), 1 << (bit & 31));
+    const lx = x % TRACE_CHUNK;
+    const ly = y % TRACE_CHUNK;
+    const lz = z % TRACE_CHUNK;
+    const base = bits + blockOf.get(c)! * CHUNK_BLOCK_WORDS;
+    const bit = (ly * TRACE_CHUNK + lz) * TRACE_CHUNK + lx;
+    w.orU(base + (bit >> 5), 1 << (bit & 31));
+    const sub = (Math.floor(ly / TRACE_SUB) * SUBS + Math.floor(lz / TRACE_SUB)) * SUBS + Math.floor(lx / TRACE_SUB);
+    w.orU(base + CHUNK_WORDS + (sub >> 5), 1 << (sub & 31));
   }
 }
 

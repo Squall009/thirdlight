@@ -6,6 +6,7 @@
  * with.
  */
 import {
+  CHUNK_BLOCK_WORDS,
   CHUNK_WORDS,
   HEADER,
   HIT_WORDS,
@@ -15,6 +16,7 @@ import {
   TRACE_CHUNK,
   TRACE_MISS,
   TRACE_STEPS,
+  TRACE_SUB,
   TRACE_TERRAIN,
   TRACE_UNFINISHED,
   type PackedTraceScene,
@@ -33,7 +35,12 @@ function argmin3(v: V3): Axis {
   return v[0] < v[1] && v[0] < v[2] ? 0 : v[1] < v[2] ? 1 : 2;
 }
 
-/** One block layer: a DDA over its chunks, and over the cells of every occupied one. */
+/**
+ * One block layer: one DDA loop inside the occupied cells' box whose step is
+ * the largest empty node the ray is in: a whole empty chunk, a whole empty
+ * 4³ sub-block of an occupied chunk, else one cell. A single loop keeps
+ * neighbouring GPU threads on the same path whatever node size each is at.
+ */
 function traceLayer(s: SceneView, layer: number, at: number, ro: readonly number[], rd: readonly number[], tmin: number, st: TraceState): void {
   const { u, f } = s;
   const { o, d: dRaw } = mapRay(f, at, ro, rd);
@@ -42,16 +49,18 @@ function traceLayer(s: SceneView, layer: number, at: number, ro: readonly number
   const CD: V3 = [u[at + 15]!, u[at + 16]!, u[at + 17]!];
   const table = u[at + 18]!;
   const bits = u[at + 19]!;
+  const lo: V3 = [u[at + 20]!, u[at + 21]!, u[at + 22]!];
+  const hi: V3 = [u[at + 23]!, u[at + 24]!, u[at + 25]!];
   const inv: V3 = [1 / d[0], 1 / d[1], 1 / d[2]];
   let tEnter = tmin;
   let tExit = Math.min(st.hit.t, st.unfinished);
   let axis: Axis | -1 = -1;
   for (const k of [0, 1, 2] as const) {
-    const a = (0 - o[k]) * inv[k];
-    const b = (D[k] - o[k]) * inv[k];
-    const lo = Math.min(a, b);
-    if (lo > tEnter) {
-      tEnter = lo;
+    const a = (lo[k] - o[k]) * inv[k];
+    const b = (hi[k] - o[k]) * inv[k];
+    const near = Math.min(a, b);
+    if (near > tEnter) {
+      tEnter = near;
       axis = k;
     }
     tExit = Math.min(tExit, Math.max(a, b));
@@ -59,58 +68,54 @@ function traceLayer(s: SceneView, layer: number, at: number, ro: readonly number
   if (!(tEnter < tExit)) return;
   const step: V3 = [Math.sign(d[0]), Math.sign(d[1]), Math.sign(d[2])];
   const up: V3 = [d[0] > 0 ? 1 : 0, d[1] > 0 ? 1 : 0, d[2] > 0 ? 1 : 0];
-  const p0 = [0, 1, 2].map((k) => o[k]! + d[k]! * tEnter);
-  const c: V3 = [0, 1, 2].map((k) => Math.min(CD[k]! - 1, Math.max(0, Math.floor(p0[k]! / TRACE_CHUNK)))) as V3;
-  const sideC: V3 = [0, 1, 2].map((k) => ((c[k]! + up[k]!) * TRACE_CHUNK - o[k]!) * inv[k]!) as V3;
-  const deltaC: V3 = [Math.abs(inv[0]) * TRACE_CHUNK, Math.abs(inv[1]) * TRACE_CHUNK, Math.abs(inv[2]) * TRACE_CHUNK];
+  const cell: V3 = [0, 1, 2].map((k) => Math.min(hi[k]! - 1, Math.max(lo[k]!, Math.floor(o[k]! + d[k]! * tEnter)))) as V3;
+  const side: V3 = [0, 1, 2].map((k) => (cell[k]! + up[k]! - o[k]!) * inv[k]!) as V3;
   const delta: V3 = [Math.abs(inv[0]), Math.abs(inv[1]), Math.abs(inv[2])];
-  let tc = tEnter;
-  let steps = 0;
-  for (;;) {
-    const tcExit = Math.min(sideC[0], sideC[1], sideC[2], tExit);
-    const block = u[table + (c[1] * CD[2] + c[2]) * CD[0] + c[0]]!;
-    // The axis the ray leaves this chunk by: the cells' own step when it walked them (the chunk's boundary distances round differently).
-    let exit: Axis = argmin3(sideC);
+  const subs = TRACE_CHUNK / TRACE_SUB;
+  let t = tEnter;
+  for (let steps = 0; ; steps += 1) {
+    if (steps >= TRACE_STEPS.blocks) {
+      st.unfinished = Math.min(st.unfinished, t);
+      return;
+    }
+    const cx = Math.floor(cell[0] / TRACE_CHUNK);
+    const cy = Math.floor(cell[1] / TRACE_CHUNK);
+    const cz = Math.floor(cell[2] / TRACE_CHUNK);
+    const block = u[table + (cy * CD[2] + cz) * CD[0] + cx]!;
+    let size = TRACE_CHUNK;
     if (block !== 0) {
-      const base = bits + (block - 1) * CHUNK_WORDS;
-      const lo: V3 = [c[0] * TRACE_CHUNK, c[1] * TRACE_CHUNK, c[2] * TRACE_CHUNK];
-      const cell: V3 = [0, 1, 2].map((k) => Math.min(Math.min(lo[k]! + TRACE_CHUNK, D[k]!) - 1, Math.max(lo[k]!, Math.floor(o[k]! + d[k]! * tc)))) as V3;
-      const side: V3 = [0, 1, 2].map((k) => (cell[k]! + up[k]! - o[k]!) * inv[k]!) as V3;
-      let t = tc;
-      for (;;) {
-        const bit = ((cell[1] - lo[1]) * TRACE_CHUNK + (cell[2] - lo[2])) * TRACE_CHUNK + (cell[0] - lo[0]);
+      const base = bits + (block - 1) * CHUNK_BLOCK_WORDS;
+      const l: V3 = [cell[0] - cx * TRACE_CHUNK, cell[1] - cy * TRACE_CHUNK, cell[2] - cz * TRACE_CHUNK];
+      const sbit = (Math.floor(l[1] / TRACE_SUB) * subs + Math.floor(l[2] / TRACE_SUB)) * subs + Math.floor(l[0] / TRACE_SUB);
+      size = TRACE_SUB;
+      if (((u[base + CHUNK_WORDS + (sbit >> 5)]! >>> (sbit & 31)) & 1) !== 0) {
+        const bit = (l[1] * TRACE_CHUNK + l[2]) * TRACE_CHUNK + l[0];
         if (((u[base + (bit >> 5)]! >>> (bit & 31)) & 1) !== 0) {
           blockHit(s, layer, at, o, d, t, axis, cell, D, st);
           return;
         }
-        steps += 1;
-        if (steps >= TRACE_STEPS.blocks) {
-          st.unfinished = Math.min(st.unfinished, t);
-          return;
-        }
-        const a = argmin3(side);
-        t = side[a];
-        side[a] += delta[a];
-        cell[a] += step[a];
-        axis = a;
-        if (t >= tExit) return;
-        if (cell[a] < lo[a] || cell[a] >= lo[a] + TRACE_CHUNK) {
-          exit = a;
-          break;
-        }
+        size = 1;
       }
     }
-    steps += 1;
-    if (steps >= TRACE_STEPS.blocks) {
-      st.unfinished = Math.min(st.unfinished, tcExit);
-      return;
+    let a: Axis;
+    if (size === 1) {
+      a = argmin3(side);
+      t = side[a];
+      side[a] += delta[a];
+      cell[a] += step[a];
+    } else {
+      // Leave the empty node whole: its exit face, then the cell just past it (the other axes clamped into the node and the box).
+      const n0: V3 = [0, 1, 2].map((k) => Math.floor(cell[k]! / size) * size) as V3;
+      const exitT: V3 = [0, 1, 2].map((k) => (n0[k]! + up[k]! * size - o[k]!) * inv[k]!) as V3;
+      a = argmin3(exitT);
+      t = Math.max(t, exitT[a]);
+      for (const k of [0, 1, 2] as const) {
+        cell[k] = k === a ? (step[k] > 0 ? n0[k] + size : n0[k] - 1) : Math.min(Math.min(n0[k] + size, hi[k]) - 1, Math.max(Math.max(n0[k], lo[k]), Math.floor(o[k] + d[k] * t)));
+        side[k] = (cell[k] + up[k] - o[k]) * inv[k];
+      }
     }
-    const a = exit;
-    tc = sideC[a];
-    sideC[a] += deltaC[a];
-    c[a] += step[a];
     axis = a;
-    if (tc >= tExit || c[a] < 0 || c[a] >= CD[a]) return;
+    if (t >= tExit || cell[a] < lo[a] || cell[a] >= hi[a]) return;
   }
 }
 

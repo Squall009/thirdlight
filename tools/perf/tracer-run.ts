@@ -10,6 +10,7 @@
  *   --rays N     rays per batch (default 131072)
  *   --frames N   timed passes per batch (default 60)
  *   --kinds a,b  only these cases (blocks, terrain, mixed, arch, bricks)
+ *   --bounce M   how far bounce rays go (default: the tracer's cap at the default probe spacing)
  *
  * GPU ms are raw timestamps at the GPU's clock during the run; the report
  * gives the clock (ms × clock ÷ max clock is the time at full clock). The
@@ -18,11 +19,11 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { BlockGrid, TerrainField, type BlockType, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
+import { BlockGrid, DEFAULT_PROBE_SPACING, TerrainField, type BlockType, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
 
 import { traceRaysCpu } from '../../packages/three-adapter/src/tracer-cpu';
 import { groupRays, reorderRays } from '../../packages/three-adapter/src/tracer-gpu';
-import { HIT_WORDS, RAY_FLOATS, TRACE_BLOCKS, TRACE_TERRAIN, packTraceScene, type PackedTraceScene, type TraceSceneSource } from '../../packages/three-adapter/src/tracer-scene';
+import { HIT_WORDS, RAY_FLOATS, TRACE_BLOCKS, TRACE_TERRAIN, bounceRayMetres, packTraceScene, type PackedTraceScene, type TraceSceneSource } from '../../packages/three-adapter/src/tracer-scene';
 import { opaqueByBlockTypes, traceBlockLayerOf, traceTerrainOf } from '../../packages/three-adapter/src/tracer-sources';
 import { PERF_ROOT, REPO } from './backend';
 import { gpuClockSampler, gpuMaxMhz, launchGpuBrowser, serveStatic } from './frame-run';
@@ -64,10 +65,10 @@ const SUN = ((): V3 => {
 
 /**
  * Rays as a cache texel casts them: half toward the sun over its disc
- * (0.02 rad), half over the hemisphere (cosine-weighted, 48 m), each from a
+ * (0.02 rad), half over the hemisphere (cosine-weighted, `bounce` m), each from a
  * surface point lifted off its surface; the sources in texel order.
  */
-export function lightingRays(sources: RaySource[], count: number, seed: number): { rays: Float32Array; kinds: Uint8Array } {
+export function lightingRays(sources: RaySource[], count: number, seed: number, bounce: number): { rays: Float32Array; kinds: Uint8Array } {
   const r = rng(seed);
   const rays = new Float32Array(count * RAY_FLOATS);
   const kinds = new Uint8Array(count);
@@ -92,7 +93,7 @@ export function lightingRays(sources: RaySource[], count: number, seed: number):
       const z = Math.sqrt(Math.max(0, 1 - u1));
       d = norm([t[0] * rr * Math.cos(phi) + b[0] * rr * Math.sin(phi) + s.n[0] * z, t[1] * rr * Math.cos(phi) + b[1] * rr * Math.sin(phi) + s.n[1] * z, t[2] * rr * Math.cos(phi) + b[2] * rr * Math.sin(phi) + s.n[2] * z]);
     }
-    rays.set([o[0], o[1], o[2], 0, d[0], d[1], d[2], i % 2 === 0 ? 1e4 : 48], i * RAY_FLOATS);
+    rays.set([o[0], o[1], o[2], 0, d[0], d[1], d[2], i % 2 === 0 ? 1e4 : bounce], i * RAY_FLOATS);
     kinds[i] = s.kind;
   }
   return { rays, kinds };
@@ -232,6 +233,7 @@ export async function runTracerCli(argv: readonly string[]): Promise<void> {
   const count = Number(arg('--rays', '131072'));
   const frames = Number(arg('--frames', '60'));
   const only = arg('--kinds', '').split(',').filter((s) => s !== '');
+  const bounce = Number(arg('--bounce', String(bounceRayMetres(DEFAULT_PROBE_SPACING))));
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const root = join(PERF_ROOT, 'runs', `tracer-${stamp}`);
   mkdirSync(root, { recursive: true });
@@ -241,7 +243,7 @@ export async function runTracerCli(argv: readonly string[]): Promise<void> {
   const list = cases().filter((c) => only.length === 0 || only.includes(c.name));
   const prepared = list.flatMap((c) => {
     const scene = packTraceScene(c.scene);
-    const { rays, kinds } = lightingRays(c.sources, count, 7);
+    const { rays, kinds } = lightingRays(c.sources, count, 7, bounce);
     // Random order: the same rays shuffled.
     const r = rng(3);
     const shuffle = new Uint32Array(count);
