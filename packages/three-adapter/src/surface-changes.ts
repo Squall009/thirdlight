@@ -57,11 +57,6 @@ export function lightReach(l: CacheLight): number {
   return Math.sqrt(Math.max(0, i) / LIGHT_REACH_FLOOR);
 }
 
-function lightBox(l: CacheLight): { min: number[]; max: number[] } {
-  const r = lightReach(l);
-  return { min: [0, 1, 2].map((k) => l.position[k]! - r), max: [0, 1, 2].map((k) => l.position[k]! + r) };
-}
-
 function colourChanged(a: readonly number[], b: readonly number[]): boolean {
   for (let k = 0; k < 3; k += 1) {
     const x = a[k] ?? 0;
@@ -129,8 +124,7 @@ export class SurfaceChanges {
   }
 
   private markLight(l: CacheLight): void {
-    const b = lightBox(l);
-    this.relight.markBox(b.min, b.max);
+    this.relight.markSphere(l.position, lightReach(l));
   }
 
   /**
@@ -152,8 +146,11 @@ export class SurfaceChanges {
         this.relight.markBox(lo, hi);
         continue;
       }
-      const b = lightBox(l);
-      if (b.min.every((v, k) => v <= max[k]!) && b.max.every((v, k) => v >= min[k]!)) this.relight.markBox(b.min, b.max);
+      // A light whose reach touches the box: all it reaches (its shadows there changed).
+      const r = lightReach(l);
+      let d2 = 0;
+      for (let k = 0; k < 3; k += 1) d2 += Math.max(min[k]! - l.position[k]!, 0, l.position[k]! - max[k]!) ** 2;
+      if (d2 <= r * r) this.markLight(l);
     }
   }
 }

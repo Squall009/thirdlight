@@ -11,7 +11,7 @@ import { BlockGrid, DEFAULT_PROBE_SPACING, TerrainField, buildDistanceBrickSet, 
 import { SurfaceCacheHost } from './surface-cache-host';
 import { SurfaceChanges, SUN_STEP_RADIANS, type CacheLight } from './surface-changes';
 import { RELIGHT_MIN_TEXELS, RELIGHT_START_TEXELS, SurfaceRelight, type RelightUnit } from './surface-relight';
-import { LIGHT_RAYS, SUN_RAYS, lightFrameOf, packLightFrame } from './surface-light-pass';
+import { LIGHT_RAYS, SUN_RAYS, lightFrameOf, packLightFrame, raysAtLevel } from './surface-light-pass';
 import { opaqueByBlockTypes } from './tracer-sources';
 import { bounceRayMetres } from './tracer-scene';
 
@@ -272,7 +272,9 @@ describe('surface relight on the page', () => {
     const all = (): string[] => r.unitsIn([-1e9, -1e9, -1e9], [1e9, 1e9, 1e9]);
     const staleNow = (): string[] => all().filter((k) => r.isStale(k)).sort();
     const keys = all();
-    expect(keys).toContain('town/3,3');
+    // Block tiles are lit chart by chart (a lamp marks the faces round it, not its whole chunk column).
+    const of = (list: string[], tile: string): boolean => list.some((k) => k.startsWith(`${tile}|`));
+    expect(of(keys, 'town/3,3')).toBe(true);
     expect(keys).toContain('crate/');
     expect(keys.some((k) => k.startsWith('land#'))).toBe(true);
     const box = (min: number[], max: number[]): string[] => r.unitsIn(min, max).sort();
@@ -291,7 +293,9 @@ describe('surface relight on the page', () => {
       expect(frame.slices[i]!.lights).toEqual(touches ? [0] : []);
     });
     const packed = packLightFrame(frame);
-    expect(packed.rays).toBe(frame.slices.reduce((n, s) => n + s.texels * (SUN_RAYS + s.lights.length * LIGHT_RAYS), 0));
+    expect(packed.rays).toBe(frame.slices.reduce((n, s) => n + s.texels * (raysAtLevel(SUN_RAYS, s.level) + s.lights.length * raysAtLevel(LIGHT_RAYS, s.level)), 0));
+    // Coarser texels cast fewer rays, never none.
+    expect([0, 1, 2, 3, 5].map((l) => raysAtLevel(SUN_RAYS, l))).toEqual([8, 4, 2, 1, 1]);
     // Every texel sits on a surface of its unit (spare surfel texels and holes have no normal).
     let placed = 0;
     let off = 0;
@@ -313,11 +317,11 @@ describe('surface relight on the page', () => {
 
     // A lamp switched on in the town: what it reaches, and nothing on the terrain 26 m away.
     host.setLights([lamp()]);
-    expect(staleNow()).toEqual(box([2, -4, 2], [14, 8, 14]));
+    expect(staleNow()).toEqual(r.unitsNear([8, 2, 8], 6).sort());
     expect(staleNow().some((k) => k.startsWith('land'))).toBe(false);
     await settle();
     host.setLights([lamp({ on: false })]);
-    expect(staleNow()).toEqual(box([2, -4, 2], [14, 8, 14]));
+    expect(staleNow()).toEqual(r.unitsNear([8, 2, 8], 6).sort());
     await settle();
 
     // Time of day: the sun steps, everything is stale; under a step nothing is.
@@ -331,13 +335,15 @@ describe('surface relight on the page', () => {
     // and its shadow straight down; not the far chunks, the crate or the terrain.
     grid.set(56, 1, 56, { block: 'rock' });
     gens.set('3,3', 2);
-    const chunk = box([48, 0, 48], [64, 4, 64]);
-    expect(chunk).toContain('town/3,3');
-    const expectBlocks = union(box([48 - reach, -reach, 48 - reach], [64 + reach, 4 + reach, 64 + reach]), box([48, 0, 48], [64, 4, 64]));
+    const before = box([48 - reach, -reach, 48 - reach], [64 + reach, 4 + reach, 64 + reach]);
     const staleBlocks = await relitUntilSettled();
-    // The edited chunk was packed again (stale as new) and every neighbour within reach is marked; nothing else.
+    // The edited chunk was packed again (its charts, the new block's among them, stale as new) and every unit
+    // within reach is marked; nothing else.
+    const fresh = all().filter((k) => k.startsWith('town/3,3|'));
+    expect(fresh.length).toBeGreaterThan(0);
+    const expectBlocks = union(before.filter((k) => !k.startsWith('town/3,3|')), fresh);
     expect(staleBlocks).toEqual(expectBlocks);
-    expect(staleBlocks).not.toContain('town/0,0');
+    expect(of(staleBlocks, 'town/0,0')).toBe(false);
     expect(staleBlocks).not.toContain('crate/');
     expect(staleBlocks.some((k) => k.startsWith('land'))).toBe(false);
 
@@ -356,10 +362,10 @@ describe('surface relight on the page', () => {
     world = world.map((v, i) => (i === 12 ? 30 : v));
     const moved = await relitUntilSettled();
     expect(moved).toContain('crate/');
-    expect(moved).toContain('town/1,1');
-    expect(moved).toContain('town/2,1');
-    expect(moved).not.toContain('town/1,2');
-    expect(moved).not.toContain('town/3,3');
+    expect(of(moved, 'town/1,1')).toBe(true);
+    expect(of(moved, 'town/2,1')).toBe(true);
+    expect(of(moved, 'town/1,2')).toBe(false);
+    expect(of(moved, 'town/3,3')).toBe(false);
     expect(moved.some((k) => k.startsWith('land'))).toBe(false);
     expect(host.diagnostics().relight).toMatchObject({ settled: true, stalePages: 0, live: true, budgetMs: 1.5 });
   });

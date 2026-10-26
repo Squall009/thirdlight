@@ -62,8 +62,8 @@ export const TRACE_STEPS = {
   terrain: 256,
   /** Grid cells crossed among the architecture boxes, and among model instances. */
   grid: 128,
-  /** Brick and sphere-tracing steps inside one model. */
-  bricks: 96,
+  /** Brick and sphere-tracing steps over every model a ray meets in one pass (shared, so a ray through a crowd of models stays bounded). */
+  bricks: 256,
 } as const;
 
 /** Cells per block-chunk side: the block layer's own chunk size (columns of 16 × 16, cut into 16 cells of height here). */

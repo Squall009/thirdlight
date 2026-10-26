@@ -23,7 +23,7 @@ import { BlockGrid, DEFAULT_PROBE_SPACING, TerrainField, type BlockType, type Te
 
 import { traceRaysCpu } from '../../packages/three-adapter/src/tracer-cpu';
 import { groupRays, reorderRays } from '../../packages/three-adapter/src/tracer-gpu';
-import { HIT_WORDS, RAY_FLOATS, TRACE_BLOCKS, TRACE_TERRAIN, bounceRayMetres, packTraceScene, type PackedTraceScene, type TraceSceneSource } from '../../packages/three-adapter/src/tracer-scene';
+import { HIT_WORDS, RAY_FLOATS, TRACE_BLOCKS, TRACE_TERRAIN, TRACE_UNFINISHED, bounceRayMetres, packTraceScene, type PackedTraceScene, type TraceSceneSource } from '../../packages/three-adapter/src/tracer-scene';
 import { opaqueByBlockTypes, traceBlockLayerOf, traceTerrainOf } from '../../packages/three-adapter/src/tracer-sources';
 import { PERF_ROOT, REPO } from './backend';
 import { gpuClockSampler, gpuMaxMhz, launchGpuBrowser, serveStatic } from './frame-run';
@@ -202,6 +202,7 @@ interface CaseResult {
   /** The GPU's mean clock while this case ran (MHz). */
   gpuMhz: number | null;
   hitShare: number;
+  unfinishedShare: number;
   mismatches: number;
 }
 
@@ -297,8 +298,12 @@ export async function runTracerCli(argv: readonly string[]): Promise<void> {
     const ns = [...g.ns].sort((a, b) => a - b);
     const med = ns.length > 0 ? ns[Math.floor(ns.length / 2)]! : null;
     let hit = 0;
-    for (let k = 0; k < c.cpu.length; k += HIT_WORDS) if ((c.cpu[k + 4]! & 0xff) !== 0) hit += 1;
-    return { name: c.name, order: c.order, rays: count, bytes: c.scene.bytes, gpuMsMedian: med === null ? null : med / 1e6, nsPerRay: med === null ? null : med / count, gpuMhz: clocks[i] ?? null, hitShare: hit / count, mismatches: mismatchesOf(gpu, c.cpu) };
+    let unfinished = 0;
+    for (let k = 0; k < c.cpu.length; k += HIT_WORDS) {
+      if ((c.cpu[k + 4]! & 0xff) !== 0) hit += 1;
+      if ((c.cpu[k + 4]! & 0xff) === TRACE_UNFINISHED) unfinished += 1;
+    }
+    return { name: c.name, order: c.order, rays: count, bytes: c.scene.bytes, gpuMsMedian: med === null ? null : med / 1e6, nsPerRay: med === null ? null : med / count, gpuMhz: clocks[i] ?? null, hitShare: hit / count, unfinishedShare: unfinished / count, mismatches: mismatchesOf(gpu, c.cpu) };
   });
   const report = { at: new Date().toISOString(), adapter, timed, gpuMaxMhz: maxMhz, rays: count, frames, results };
   const out = join(PERF_ROOT, 'reports', `tracer-${stamp}.json`);
@@ -306,7 +311,7 @@ export async function runTracerCli(argv: readonly string[]): Promise<void> {
   writeFileSync(out, JSON.stringify(report, null, 2));
   for (const r of results) {
     const full = r.nsPerRay !== null && r.gpuMhz !== null && maxMhz !== null ? (r.nsPerRay * r.gpuMhz) / maxMhz : null;
-    console.log(`${r.name.padEnd(8)} ${r.order.padEnd(8)} ${r.gpuMsMedian?.toFixed(2) ?? '-'} ms  ${r.nsPerRay?.toFixed(2) ?? '-'} ns/ray at ${r.gpuMhz ?? '-'} MHz (${full?.toFixed(2) ?? '-'} at full clock)  hits ${(r.hitShare * 100).toFixed(1)} %  GPU≠CPU ${r.mismatches}  scene ${JSON.stringify(r.bytes)}`);
+    console.log(`${r.name.padEnd(8)} ${r.order.padEnd(8)} ${r.gpuMsMedian?.toFixed(2) ?? '-'} ms  ${r.nsPerRay?.toFixed(2) ?? '-'} ns/ray at ${r.gpuMhz ?? '-'} MHz (${full?.toFixed(2) ?? '-'} at full clock)  hits ${(r.hitShare * 100).toFixed(1)} % (unfinished ${(r.unfinishedShare * 100).toFixed(2)} %)  GPU≠CPU ${r.mismatches}  scene ${JSON.stringify(r.bytes)}`);
   }
   console.log(`tracer: GPU max clock ${maxMhz ?? '-'} MHz; report ${out}`);
   const worst = Math.max(...results.map((r) => r.mismatches / r.rays));

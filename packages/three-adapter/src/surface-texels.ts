@@ -23,12 +23,25 @@ import { invertAffine } from './tracer-words';
 /** Floats per texel point: position xyz, normal xyz. */
 export const TEXEL_POINT_FLOATS = 6;
 
-/** A resident tile with its packing at its level. */
+/** Texels per side of a chart's unit: a chart is lit and marked in squares of this many texels (6.4 m at 10 cm). */
+export const CHART_UNIT_TEXELS = 64;
+
+/** A part of an area chart's rectangle on the atlas (texels, from its place's corner, its border included). */
+export interface ChartRect {
+  readonly chart: number;
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+}
+
+/** A resident tile with its packing at its level; `rect`: only that part of one chart (a chart's unit), its texels row by row. */
 export interface TileTexels {
   readonly tile: BlockTile | ArchTile | ModelTile;
   readonly level: number;
   readonly packing: TilePacking;
   readonly charts: readonly SurfaceChart[];
+  readonly rect?: ChartRect;
 }
 
 /** A terrain ring patch with its terrain. */
@@ -80,6 +93,22 @@ function archPoint(t: ArchTile): ChartPoint {
 export function tileTexelPoints(src: TileTexels, from: number, to: number, out: Float32Array, at: number): void {
   const { tile, level, packing, charts } = src;
   const area = tile.kind === 'blocks' ? blockPoint(tile) : tile.kind === 'arch' ? archPoint(tile) : null;
+  const rect = src.rect;
+  if (rect !== undefined) {
+    const chart = charts[rect.chart]!;
+    if (area === null || chart.kind !== 'area') {
+      out.fill(0, at, at + (to - from) * TEXEL_POINT_FLOATS);
+      return;
+    }
+    const iw = areaTexels(chart.w, level);
+    const ih = areaTexels(chart.h, level);
+    for (let i = from, o = at; i < to; i += 1, o += TEXEL_POINT_FLOATS) {
+      const tx = Math.min(iw - 1, Math.max(0, rect.x + (i % rect.w) - SURFACE_CHART_BORDER));
+      const ty = Math.min(ih - 1, Math.max(0, rect.y + Math.floor(i / rect.w) - SURFACE_CHART_BORDER));
+      area(rect.chart, ((tx + 0.5) / iw) * chart.w, ((ty + 0.5) / ih) * chart.h, out, o);
+    }
+    return;
+  }
   let first = 0;
   let o = at;
   for (let c = 0; c < charts.length && first < to; c += 1) {
@@ -112,6 +141,52 @@ export function tileTexelPoints(src: TileTexels, from: number, to: number, out: 
     }
     first += n;
   }
+}
+
+/** A chart's unit: its part of the chart, its world box and its plane (normal and offset: n · p = d on it). */
+export interface ChartUnitShape {
+  readonly rect: ChartRect;
+  readonly min: number[];
+  readonly max: number[];
+  readonly plane: [number, number, number, number];
+}
+
+/**
+ * An area chart of a block or architecture tile cut into units of at most
+ * `CHART_UNIT_TEXELS` a side (empty: a model's chart, whose surfels are lit
+ * as one unit with their tile).
+ */
+export function chartUnits(tile: BlockTile | ArchTile | ModelTile, c: number, chart: SurfaceChart, place: { readonly w: number; readonly h: number }, level: number): ChartUnitShape[] {
+  if (chart.kind !== 'area' || tile.kind === 'model') return [];
+  const at = tile.kind === 'blocks' ? blockPoint(tile) : archPoint(tile);
+  const p = new Float32Array(TEXEL_POINT_FLOATS);
+  const iw = areaTexels(chart.w, level);
+  const ih = areaTexels(chart.h, level);
+  const out: ChartUnitShape[] = [];
+  const S = CHART_UNIT_TEXELS;
+  for (let y = 0; y < place.h; y += S) {
+    for (let x = 0; x < place.w; x += S) {
+      const w = Math.min(S, place.w - x);
+      const h = Math.min(S, place.h - y);
+      // Its interior span in metres (border texels sit on the edge).
+      const u0 = (Math.max(0, x - SURFACE_CHART_BORDER) / iw) * chart.w;
+      const u1 = (Math.min(iw, x + w - SURFACE_CHART_BORDER) / iw) * chart.w;
+      const v0 = (Math.max(0, y - SURFACE_CHART_BORDER) / ih) * chart.h;
+      const v1 = (Math.min(ih, y + h - SURFACE_CHART_BORDER) / ih) * chart.h;
+      const min = [Infinity, Infinity, Infinity];
+      const max = [-Infinity, -Infinity, -Infinity];
+      for (const [u, v] of [[u0, v0], [u1, v0], [u0, v1], [u1, v1]] as const) {
+        at(c, u, v, p, 0);
+        for (let k = 0; k < 3; k += 1) {
+          min[k] = Math.min(min[k]!, p[k]!);
+          max[k] = Math.max(max[k]!, p[k]!);
+        }
+      }
+      const n = [p[3]!, p[4]!, p[5]!];
+      out.push({ rect: { chart: c, x, y, w, h }, min, max, plane: [n[0]!, n[1]!, n[2]!, n[0]! * p[0]! + n[1]! * p[1]! + n[2]! * p[2]!] });
+    }
+  }
+  return out;
 }
 
 const toWorlds = new WeakMap<object, number[]>();

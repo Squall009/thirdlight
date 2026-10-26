@@ -34,6 +34,8 @@ export interface TraceState {
   hit: TraceHit;
   /** The nearest distance at which a kind ran out of steps (Infinity: none did). */
   unfinished: number;
+  /** Brick steps the ray has taken in this pass, over every model it met (their budget is shared). */
+  brickSteps: number;
 }
 
 export type V3 = [number, number, number];

@@ -17,8 +17,8 @@
 
 /** Texels a frame takes before any cost is measured (a 32k dispatch kept the Iris Xe within budget in the door room). */
 export const RELIGHT_START_TEXELS = 32768;
-/** Texels a frame takes at least (smaller dispatches cost about twice as much per texel) unless less is stale. */
-export const RELIGHT_MIN_TEXELS = 4096;
+/** Texels a frame takes at least, however slow the GPU is now (below, the dispatch costs more than its texels). */
+export const RELIGHT_MIN_TEXELS = 1024;
 /** Texels a frame takes at most (one dispatch's rays stay within the tracer's buffers). */
 export const RELIGHT_MAX_TEXELS = 262144;
 /** Frames over which a waiting unit's distance halves when the stale units are ordered. */
@@ -34,6 +34,8 @@ export interface RelightUnit {
   readonly max: readonly number[];
   /** Texels it holds. */
   readonly texels: number;
+  /** A flat unit's plane (normal and offset, n · p = d on it): a light behind it cannot reach it. */
+  readonly plane?: readonly number[];
 }
 
 /** Texels `from` (inclusive) to `to` (exclusive) of a unit, in its own texel order. */
@@ -81,6 +83,12 @@ function boxDistance(min: readonly number[], max: readonly number[], p: readonly
     s += d * d;
   }
   return Math.sqrt(s);
+}
+
+/** Whether a flat unit's plane has the point behind it (a small margin keeps a light on the plane). */
+function facesAway(u: RelightUnit, c: readonly number[]): boolean {
+  const p = u.plane;
+  return p !== undefined && p[0]! * c[0]! + p[1]! * c[1]! + p[2]! * c[2]! - p[3]! < -1e-3;
 }
 
 function boxesTouch(aMin: readonly number[], aMax: readonly number[], bMin: readonly number[], bMax: readonly number[]): boolean {
@@ -158,6 +166,32 @@ export class SurfaceRelight {
     }
     for (const l of this.listeners) l(min, max);
     return n;
+  }
+
+  /**
+   * Every unit within `r` of a light at `c` is stale, but for flat units the
+   * light is behind (it cannot reach them); listeners hear of its box.
+   * Returns the units marked.
+   */
+  markSphere(c: readonly number[], r: number): number {
+    this.marks += 1;
+    let n = 0;
+    for (const s of this.units.values()) {
+      if (boxDistance(s.unit.min, s.unit.max, c) > r || facesAway(s.unit, c)) continue;
+      this.stale(s);
+      n += 1;
+    }
+    const min = c.map((v) => v - r);
+    const max = c.map((v) => v + r);
+    for (const l of this.listeners) l(min, max);
+    return n;
+  }
+
+  /** Units a light at `c` reaching `r` lights (for the checks). */
+  unitsNear(c: readonly number[], r: number): string[] {
+    const out: string[] = [];
+    for (const s of this.units.values()) if (boxDistance(s.unit.min, s.unit.max, c) <= r && !facesAway(s.unit, c)) out.push(s.unit.key);
+    return out;
   }
 
   /** Every unit is stale (the sun moved). */

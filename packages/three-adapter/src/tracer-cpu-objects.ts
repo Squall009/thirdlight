@@ -16,7 +16,8 @@ export const BRICK_HIT_VOXELS = 0.05;
 /** The shortest sphere-tracing step (voxels): thinner features than this may be stepped over. */
 export const BRICK_MIN_STEP_VOXELS = 0.25;
 
-type ItemTest = (s: SceneView, item: number, at: number, o: readonly number[], d: readonly number[], tmin: number, st: TraceState) => void;
+/** Test one item over [tmin, …): a model's march stops at `tcell` (the grid cell's far side; the next cell that lists it goes on). */
+type ItemTest = (s: SceneView, item: number, at: number, o: readonly number[], d: readonly number[], tmin: number, st: TraceState, tlo: number, tcell: number) => void;
 
 /** Walk a section's grid (record at `g`) and test the items each cell lists, nearest cells first. */
 function walkGrid(s: SceneView, g: number, o: readonly number[], d0: readonly number[], tmin: number, st: TraceState, test: ItemTest): void {
@@ -50,7 +51,7 @@ function walkGrid(s: SceneView, g: number, o: readonly number[], d0: readonly nu
     const cellExit = Math.min(side[0], side[1], side[2]);
     for (let k = u[starts + cell]!; k < u[starts + cell + 1]!; k += 1) {
       const item = u[list + k]!;
-      test(s, item, items + item * stride, o, d0, tmin, st);
+      test(s, item, items + item * stride, o, d0, tmin, st, Math.max(tmin, t), cellExit);
     }
     // A hit before this cell's far side is the nearest: later cells lie beyond it.
     if (Math.min(st.hit.t, st.unfinished) <= cellExit) return;
@@ -137,7 +138,7 @@ function brickDistance(u: Uint32Array, samples: number, blk: number, p: V3, band
 }
 
 /** One model instance: a DDA over its set's bricks, sphere tracing the ones the surface passes through. */
-const testInstance: ItemTest = (s, item, at, ro, rd, tmin, st) => {
+const testInstance: ItemTest = (s, item, at, ro, rd, _tmin, st, tlo, tcell) => {
   const { u, f } = s;
   const set = u[at + 12]!;
   const { o: ol, d: dl } = mapRay(f, at, ro, rd);
@@ -153,8 +154,9 @@ const testInstance: ItemTest = (s, item, at, ro, rd, tmin, st) => {
   const ob: V3 = [(ol[0] - lo[0]) / size, (ol[1] - lo[1]) / size, (ol[2] - lo[2]) / size];
   const d = safeDir([dl[0] / size, dl[1] / size, dl[2] / size]);
   const inv: V3 = [1 / d[0], 1 / d[1], 1 / d[2]];
-  let t = tmin;
-  let tEnd = Math.min(st.hit.t, st.unfinished);
+  // Only the grid cell's span: an instance listed in several cells is marched once along the ray, a cell at a time.
+  let t = tlo;
+  let tEnd = Math.min(st.hit.t, st.unfinished, tcell);
   let axis: 0 | 1 | 2 = 0;
   for (const k of [0, 1, 2] as const) {
     const a = (0 - ob[k]) * inv[k];
@@ -172,7 +174,6 @@ const testInstance: ItemTest = (s, item, at, ro, rd, tmin, st) => {
   const delta: V3 = [Math.abs(inv[0]), Math.abs(inv[1]), Math.abs(inv[2])];
   const hitEps = BRICK_HIT_VOXELS * voxel;
   const minStep = (BRICK_MIN_STEP_VOXELS * voxel) / speed;
-  let steps = 0;
   for (;;) {
     const bExit = Math.min(side[0], side[1], side[2], tEnd);
     const blk = u[table + (c[2] * D[1] + c[1]) * D[0] + c[0]]! | 0;
@@ -185,8 +186,8 @@ const testInstance: ItemTest = (s, item, at, ro, rd, tmin, st) => {
     if (blk !== DISTANCE_BRICK_OUTSIDE) {
       let ts = t;
       while (ts < bExit) {
-        steps += 1;
-        if (steps >= TRACE_STEPS.bricks) {
+        st.brickSteps += 1;
+        if (st.brickSteps >= TRACE_STEPS.bricks) {
           st.unfinished = Math.min(st.unfinished, ts);
           return;
         }
@@ -207,8 +208,8 @@ const testInstance: ItemTest = (s, item, at, ro, rd, tmin, st) => {
         ts += Math.max(dist / speed, minStep);
       }
     }
-    steps += 1;
-    if (steps >= TRACE_STEPS.bricks) {
+    st.brickSteps += 1;
+    if (st.brickSteps >= TRACE_STEPS.bricks) {
       st.unfinished = Math.min(st.unfinished, bExit);
       return;
     }

@@ -12,7 +12,7 @@
  *
  * Per-frame input (one word buffer): a slice table (`SLICE_WORDS` per
  * slice: first texel, texels, first ray, rays per texel, its lights' list,
- * their count, the sun on), the light lists, the light records
+ * their count, sun rays and rays per light), the light lists, the light records
  * (`LIGHT_WORDS`: position, reach, colour, the spot's cos outer, axis, cos
  * inner) and the sun (`SUN_WORDS`: direction toward it, colour); and the
  * texels' points (`surface-texels.ts`).
@@ -25,9 +25,22 @@ import { lightReach, type CacheLight } from './surface-changes';
 import type { SurfaceCacheHost } from './surface-cache-host';
 import { TEXEL_POINT_FLOATS, patchTexelPoints, tileTexelPoints } from './surface-texels';
 
-/** Rays a texel casts toward the sun (over its disc) and toward each light reaching it (the medium tier's counts). */
+/**
+ * Rays a texel casts toward the sun (over its disc) and toward each point
+ * or spot light reaching it (over its small sphere): the medium tier's
+ * counts. A light this small casts a penumbra of a few centimetres, which
+ * four rays resolve; the sun's wider one takes eight.
+ */
 export const SUN_RAYS = 8;
-export const LIGHT_RAYS = 16;
+export const LIGHT_RAYS = 4;
+
+/**
+ * Rays a texel of cache level `level` casts: halved a level (a coarser
+ * texel is wider than the detail more rays would resolve), at least one.
+ */
+export function raysAtLevel(rays: number, level: number): number {
+  return Math.max(1, rays >> Math.max(0, level));
+}
 /** The sun's disc (radians, its angular radius): its shadows' penumbra. */
 export const SUN_DISC_RADIANS = 0.02;
 /** The sphere (m) a point or spot light's shadow rays aim over: three's lights have no size, a little softness reads as real. */
@@ -89,7 +102,8 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
   var seed = pcg(g.x ^ (P.seed * 0x9e3779b9u));
   var d = vec3f(0.0, 1.0, 0.0);
   var tmax = 0.0;
-  let sunRays = select(0u, ${SUN_RAYS}u, F[s + 6u] != 0u);
+  let sunRays = F[s + 6u];
+  let lightRays = F[s + 7u];
   if (dot(n, n) > 0.0) {
     if (k < sunRays) {
       let sd = vec3f(ff(P.sunAt), ff(P.sunAt + 1u), ff(P.sunAt + 2u));
@@ -99,7 +113,7 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
       d = normalize(sd + (b[0] * cos(a) + b[1] * sin(a)) * q);
       if (dot(d, n) > 0.0) { tmax = 1e4; }
     } else if (F[s + 5u] > 0u) {
-      let j = F[F[s + 4u] + (k - sunRays) / ${LIGHT_RAYS}u];
+      let j = F[F[s + 4u] + (k - sunRays) / lightRays];
       let at = lightAt(j);
       let lp = vec3f(ff(at), ff(at + 1u), ff(at + 2u));
       let u = vec3f(rnd(&seed), rnd(&seed), rnd(&seed)) * 2.0 - 1.0;
@@ -133,19 +147,21 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
   var e = vec3f(0.0);
   if (dot(n, n) > 0.0) {
     var k = 0u;
-    if (F[s + 6u] != 0u) {
+    let sunRays = F[s + 6u];
+    let lightRays = F[s + 7u];
+    if (sunRays != 0u) {
       var v = 0.0;
-      for (; k < ${SUN_RAYS}u; k++) { v += visible(r0 + k); }
+      for (; k < sunRays; k++) { v += visible(r0 + k); }
       let sd = vec3f(ff(P.sunAt), ff(P.sunAt + 1u), ff(P.sunAt + 2u));
-      e += vec3f(ff(P.sunAt + 4u), ff(P.sunAt + 5u), ff(P.sunAt + 6u)) * max(0.0, dot(n, sd)) * v / ${SUN_RAYS}.0;
+      e += vec3f(ff(P.sunAt + 4u), ff(P.sunAt + 5u), ff(P.sunAt + 6u)) * max(0.0, dot(n, sd)) * v / f32(sunRays);
     }
     for (var j = 0u; j < F[s + 5u]; j++) {
       let at = lightAt(F[F[s + 4u] + j]);
       let lp = vec3f(ff(at), ff(at + 1u), ff(at + 2u));
       let reach = ff(at + 3u);
       var v = 0.0;
-      for (var i = 0u; i < ${LIGHT_RAYS}u; i++) { v += visible(r0 + k + i); }
-      k += ${LIGHT_RAYS}u;
+      for (var i = 0u; i < lightRays; i++) { v += visible(r0 + k + i); }
+      k += lightRays;
       let lv = lp - p;
       let d2 = max(dot(lv, lv), 1e-4);
       let l = lv * inverseSqrt(d2);
@@ -154,7 +170,7 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
       let axis = vec3f(ff(at + 8u), ff(at + 9u), ff(at + 10u));
       var cone = 1.0;
       if (ff(at + 7u) > -2.0) { cone = smoothstep(ff(at + 7u), ff(at + 11u), dot(-l, axis)); }
-      e += vec3f(ff(at + 4u), ff(at + 5u), ff(at + 6u)) * max(0.0, dot(n, l)) * w * w / d2 * cone * v / ${LIGHT_RAYS}.0;
+      e += vec3f(ff(at + 4u), ff(at + 5u), ff(at + 6u)) * max(0.0, dot(n, l)) * w * w / d2 * cone * v / f32(lightRays);
     }
   }
   E[g.x] = vec4f(e, 1.0);
@@ -165,7 +181,8 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
 export interface LightPassFrame {
   /** Texel points (`TEXEL_POINT_FLOATS` each), slices in order. */
   readonly points: Float32Array;
-  readonly slices: readonly { readonly texels: number; readonly lights: readonly number[]; readonly sun: boolean }[];
+  /** Per slice: its texels, the lights reaching its unit, whether the sun is on, and its cache level (ray counts fall with it). */
+  readonly slices: readonly { readonly texels: number; readonly lights: readonly number[]; readonly sun: boolean; readonly level: number }[];
   readonly lights: readonly CacheLight[];
   /** The sun (null: none on). */
   readonly sun: CacheLight | null;
@@ -182,8 +199,10 @@ export function packLightFrame(frame: LightPassFrame): { words: Uint32Array; tex
   let ray = 0;
   let list = n * SLICE_WORDS;
   frame.slices.forEach((sl, i) => {
-    const rpt = (sl.sun ? SUN_RAYS : 0) + sl.lights.length * LIGHT_RAYS;
-    words.set([texel, sl.texels, ray, Math.max(1, rpt), list, sl.lights.length, sl.sun ? 1 : 0, 0], i * SLICE_WORDS);
+    const sunRays = sl.sun ? raysAtLevel(SUN_RAYS, sl.level) : 0;
+    const lightRays = raysAtLevel(LIGHT_RAYS, sl.level);
+    const rpt = sunRays + sl.lights.length * lightRays;
+    words.set([texel, sl.texels, ray, Math.max(1, rpt), list, sl.lights.length, sunRays, lightRays], i * SLICE_WORDS);
     for (const j of sl.lights) words[list++] = j;
     texel += sl.texels;
     ray += sl.texels * Math.max(1, rpt);
@@ -234,7 +253,7 @@ export function lightFrameOf(host: SurfaceCacheHost, lights: readonly CacheLight
       for (let k = 0; k < 3; k += 1) if (l.position[k]! + r < s.unit.min[k]! || l.position[k]! - r > s.unit.max[k]!) return;
       touching.push(j);
     });
-    list.push({ texels: n, lights: touching, sun: sun !== null });
+    list.push({ texels: n, lights: touching, sun: sun !== null, level: src === null ? 0 : 'patch' in src ? src.patch.ring : src.level });
   }
   return { points: out, slices: list, lights: local, sun };
 }
@@ -261,8 +280,8 @@ export class SurfaceLightPass {
   private constructor(private readonly device: QueryDevice, readonly tracer: GpuTracer, private readonly gen: { getBindGroupLayout(i: number): unknown }, private readonly gather: { getBindGroupLayout(i: number): unknown }) {
     this.params = device.createBuffer({ size: 32, usage: USAGE.UNIFORM | USAGE.COPY_DST, label: 'surface light params' });
     const timed = device.features?.has('timestamp-query') === true && device.createQuerySet !== undefined;
-    this.query = timed ? device.createQuerySet!({ type: 'timestamp', count: 2 }) : null;
-    this.resolveBuf = timed ? device.createBuffer({ size: 16, usage: USAGE.QUERY_RESOLVE | USAGE.COPY_SRC, label: 'surface light timestamps' }) : null;
+    this.query = timed ? device.createQuerySet!({ type: 'timestamp', count: 6 }) : null;
+    this.resolveBuf = timed ? device.createBuffer({ size: 48, usage: USAGE.QUERY_RESOLVE | USAGE.COPY_SRC, label: 'surface light timestamps' }) : null;
   }
 
   static async create(device: TracerDevice): Promise<SurfaceLightPass> {
@@ -299,10 +318,11 @@ export class SurfaceLightPass {
   }
 
   /**
-   * Light one frame's texels. `done(ms, texels)` hears the GPU time once the
-   * timestamps are read (a frame later or so; never while the last is read).
+   * Light one frame's texels. `done(ms, texels, passes)` hears the GPU time
+   * (the whole, and making rays, tracing and gathering) once the timestamps
+   * are read (a frame later or so; never while the last is read).
    */
-  run(frame: LightPassFrame, done?: (ms: number, texels: number) => void): void {
+  run(frame: LightPassFrame, done?: (ms: number, texels: number, passes: readonly number[]) => void): void {
     const packed = packLightFrame(frame);
     if (packed.texels === 0) return;
     const d = this.device;
@@ -316,7 +336,8 @@ export class SurfaceLightPass {
     d.queue.writeBuffer(this.params, 0, new Uint32Array([packed.texels, packed.rays, frame.slices.length, this.seed, frame.lights.length, packed.sunAt, 0, 0]));
     const enc = d.createCommandEncoder();
     const timed = this.query !== null && !this.reading;
-    const stamp = (begin: boolean, end: boolean): Record<string, unknown> => (timed && (begin || end) ? { timestampWrites: { querySet: this.query, ...(begin ? { beginningOfPassWriteIndex: 0 } : {}), ...(end ? { endOfPassWriteIndex: 1 } : {}) } } : {});
+    // Each pass's start and end: the three passes' times and the whole.
+    const stamp = (i: number): Record<string, unknown> => (timed ? { timestampWrites: { querySet: this.query, beginningOfPassWriteIndex: i * 2, endOfPassWriteIndex: i * 2 + 1 } } : {});
     const bind = (pipe: { getBindGroupLayout(i: number): unknown }, last: GpuBuffer, out?: GpuBuffer): unknown =>
       d.createBindGroup({
         layout: pipe.getBindGroupLayout(0),
@@ -328,22 +349,22 @@ export class SurfaceLightPass {
           ...(out !== undefined ? [{ binding: 4, resource: { buffer: out } }] : []),
         ],
       });
-    let p = enc.beginComputePass(stamp(true, false));
+    let p = enc.beginComputePass(stamp(0));
     p.setPipeline(this.gen);
     p.setBindGroup(0, bind(this.gen, this.raysBuf));
     p.dispatchWorkgroups(Math.ceil(packed.rays / WORKGROUP));
     p.end();
-    this.tracer.encodeBuffer(enc, this.raysBuf, packed.rays);
-    p = enc.beginComputePass(stamp(false, true));
+    this.tracer.encodeBuffer(enc, this.raysBuf, packed.rays, stamp(1));
+    p = enc.beginComputePass(stamp(2));
     p.setPipeline(this.gather);
     p.setBindGroup(0, bind(this.gather, this.tracer.hitsBuffer!, this.outBuf));
     p.dispatchWorkgroups(Math.ceil(packed.texels / WORKGROUP));
     p.end();
     let read: GpuBuffer | null = null;
     if (timed && this.resolveBuf !== null) {
-      read = d.createBuffer({ size: 16, usage: USAGE.MAP_READ | USAGE.COPY_DST, label: 'surface light timestamps read' });
-      (enc as GpuEncoder & { resolveQuerySet(q: unknown, first: number, count: number, dst: GpuBuffer, offset: number): void }).resolveQuerySet(this.query, 0, 2, this.resolveBuf, 0);
-      enc.copyBufferToBuffer(this.resolveBuf, 0, read, 0, 16);
+      read = d.createBuffer({ size: 48, usage: USAGE.MAP_READ | USAGE.COPY_DST, label: 'surface light timestamps read' });
+      (enc as GpuEncoder & { resolveQuerySet(q: unknown, first: number, count: number, dst: GpuBuffer, offset: number): void }).resolveQuerySet(this.query, 0, 6, this.resolveBuf, 0);
+      enc.copyBufferToBuffer(this.resolveBuf, 0, read, 0, 48);
     }
     d.queue.submit([enc.finish()]);
     if (read !== null) {
@@ -356,8 +377,9 @@ export class SurfaceLightPass {
           buf.unmap();
           buf.destroy();
           this.reading = false;
-          const ns = Number(t[1]! - t[0]!);
-          if (ns > 0) done?.(ns / 1e6, texels);
+          const ns = Number(t[5]! - t[0]!);
+          const passes = [0, 1, 2].map((i) => Number(t[i * 2 + 1]! - t[i * 2]!) / 1e6);
+          if (ns > 0) done?.(ns / 1e6, texels, passes);
         },
         () => {
           buf.destroy();

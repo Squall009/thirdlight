@@ -104,7 +104,8 @@ fn localAddress(p: vec3f, D: vec3f) -> u32 {
   return q.x | (q.y << 11u) | (q.z << 22u);
 }
 
-fn testInstance(item: u32, at: u32, ro: vec3f, rd: vec3f, tmin: f32, h: ptr<function, Hit>, unf: ptr<function, f32>) {
+// Over the grid cell's span [tlo, tcell] only: an instance listed in several cells is marched once along the ray.
+fn testInstance(item: u32, at: u32, ro: vec3f, rd: vec3f, tlo: f32, tcell: f32, h: ptr<function, Hit>, unf: ptr<function, f32>, bs: ptr<function, u32>) {
   let rec = S[at + 12u];
   let ol = mapPoint(at, ro);
   let dl = mapDir(at, rd);
@@ -119,8 +120,8 @@ fn testInstance(item: u32, at: u32, ro: vec3f, rd: vec3f, tmin: f32, h: ptr<func
   let ob = (ol - lo) / size;
   let d = safeDir(dl / size);
   let inv = 1.0 / d;
-  var t = tmin;
-  var tEnd = min((*h).t, *unf);
+  var t = tlo;
+  var tEnd = min(min((*h).t, *unf), tcell);
   var axis = 0u;
   let ta = (vec3f(0.0) - ob) * inv;
   let tb = (vec3f(D) - ob) * inv;
@@ -136,7 +137,6 @@ fn testInstance(item: u32, at: u32, ro: vec3f, rd: vec3f, tmin: f32, h: ptr<func
   var delta = abs(inv);
   let hitEps = ${BRICK_HIT_VOXELS} * voxel;
   let minStep = ${BRICK_MIN_STEP_VOXELS} * voxel / speed;
-  var steps = 0u;
   loop {
     let bExit = min(min(side.x, side.y), min(side.z, tEnd));
     let blk = bitcast<i32>(S[table + u32((c.z * D.y + c.y) * D.x + c.x)]);
@@ -157,8 +157,8 @@ fn testInstance(item: u32, at: u32, ro: vec3f, rd: vec3f, tmin: f32, h: ptr<func
       var ts = t;
       loop {
         if (ts >= bExit) { break; }
-        steps += 1u;
-        if (steps >= BRICK_STEPS) { *unf = min(*unf, ts); return; }
+        *bs += 1u;
+        if (*bs >= BRICK_STEPS) { *unf = min(*unf, ts); return; }
         let p = (ob + d * ts - vec3f(c)) * BRICK_CELLS;
         let dist = brickDistance(samples, u32(blk), p, band);
         if (dist < hitEps) {
@@ -181,8 +181,8 @@ fn testInstance(item: u32, at: u32, ro: vec3f, rd: vec3f, tmin: f32, h: ptr<func
         ts += max(dist / speed, minStep);
       }
     }
-    steps += 1u;
-    if (steps >= BRICK_STEPS) { *unf = min(*unf, bExit); return; }
+    *bs += 1u;
+    if (*bs >= BRICK_STEPS) { *unf = min(*unf, bExit); return; }
     let a = argmin3(side);
     t = side[a];
     side[a] += delta[a];
@@ -216,13 +216,14 @@ fn walkGrid(kind: u32, g: u32, o: vec3f, d0: vec3f, tmin: f32, h: ptr<function, 
   var c = clamp(vec3i(floor(oc + d / cs * t)), vec3i(0), D - vec3i(1));
   var side = (vec3f(c) + select(vec3f(0.0), vec3f(1.0), d > vec3f(0.0)) - oc) * inv;
   var delta = abs(inv);
+  var bs = 0u;
   for (var steps = 0u; steps < GRID_STEPS; steps++) {
     let cell = u32((c.z * D.y + c.y) * D.x + c.x);
     let cellExit = min(side.x, min(side.y, side.z));
     for (var k = S[starts + cell]; k < S[starts + cell + 1u]; k++) {
       let item = S[list + k];
       if (kind == ARCH_ITEMS) { testArchItem(item, items + item * stride, o, d0, tmin, h, unf); }
-      else { testInstance(item, items + item * stride, o, d0, tmin, h, unf); }
+      else { testInstance(item, items + item * stride, o, d0, max(tmin, t), cellExit, h, unf, &bs); }
     }
     if (min((*h).t, *unf) <= cellExit) { return; }
     let a = argmin3(side);

@@ -248,7 +248,7 @@ function traceTerrain(s: SceneView, index: number, at: number, ro: readonly numb
 
 /** Trace one ray through every kind in the scene: the nearest hit, or where to resume. */
 export function traceRayCpu(s: SceneView, o: readonly number[], d: readonly number[], tmin: number, tmax: number): TraceHit {
-  const st: TraceState = { hit: { ...newHit(), t: tmax }, unfinished: Infinity };
+  const st: TraceState = { hit: { ...newHit(), t: tmax }, unfinished: Infinity, brickSteps: 0 };
   const { u } = s;
   for (let i = 0; i < u[HEADER.blocks]!; i += 1) traceLayer(s, i, u[HEADER.blocks + 1]! + i * LAYER_WORDS, o, d, tmin, st);
   traceArchCpu(s, o, d, tmin, st);

@@ -26,7 +26,7 @@ import { SurfaceChanges, type CacheLight } from './surface-changes';
 import { SurfaceRelight, type RelightDiagnostics, type RelightSlice, type RelightUnit } from './surface-relight';
 import type { RingPatch } from './surface-cache-terrain';
 import type { ArchTile, BlockTile, ModelTile } from './surface-cache-scene';
-import type { PatchTexels, TileTexels } from './surface-texels';
+import { chartUnits, type ChartRect, type PatchTexels, type TileTexels } from './surface-texels';
 import { architecturePiecesOf } from './surface-cache-arch';
 import type { SurfaceBlockGrid } from './surface-cache-blocks';
 import { architectureTile, blockChunkTile, modelPieceTiles } from './surface-cache-scene';
@@ -162,6 +162,9 @@ export class SurfaceCacheHost {
   /** Each terrain's ring patch units by key. */
   private readonly patchUnits = new Map<string, Map<string, RingPatchUnit>>();
   private slices: RelightSlice[] = [];
+  /** A block or architecture tile's chart units, and each one's tile and first texel there. */
+  private readonly tileUnits = new Map<string, string[]>();
+  private readonly chartUnits = new Map<string, RelightUnit & { readonly tile: string; readonly rect: ChartRect }>();
   private live = false;
 
   /** `relightMs`: the GPU time a frame may spend lighting stale texels (0: none, the saved light is drawn). */
@@ -191,6 +194,12 @@ export class SurfaceCacheHost {
 
   /** Where a unit's texels are: a resident tile's packing, or a ring patch and its terrain (null: gone). */
   texelsOf(key: string): TileTexels | PatchTexels | null {
+    const chart = this.chartUnits.get(key);
+    if (chart !== undefined) {
+      const r = this.cache.residentOf(chart.tile);
+      const tile = this.ready.get(chart.tile) as BlockTile | ArchTile | undefined;
+      return r === null || tile === undefined ? null : { tile, level: r.level, packing: r.packing, charts: r.charts, rect: chart.rect };
+    }
     const r = this.cache.residentOf(key);
     if (r !== null) {
       const tile = this.ready.get(key) as BlockTile | ArchTile | ModelTile | undefined;
@@ -243,14 +252,45 @@ export class SurfaceCacheHost {
     this.slices = this.relight.plan(at, now);
   }
 
+  /**
+   * A resident tile's units: a block or architecture tile's charts one by one
+   * (a lamp marks the walls round it, not every face of the chunk column), a
+   * model's surfels as one.
+   */
+  private addTileUnits(key: string): void {
+    const r = this.cache.residentOf(key);
+    const tile = this.ready.get(key) as BlockTile | ArchTile | ModelTile | undefined;
+    if (r === null || tile === undefined) return;
+    if (tile.kind === 'model') {
+      const u = this.cache.residentUnit(key)!;
+      this.relight.add({ key, ...u });
+      return;
+    }
+    const keys: string[] = [];
+    r.charts.forEach((chart, c) => {
+      for (const shape of chartUnits(tile, c, chart, r.packing.places[c]!, r.level)) {
+        const { rect } = shape;
+        const u = { key: `${key}|${c}:${rect.x},${rect.y}`, tile: key, rect, texels: rect.w * rect.h, min: shape.min, max: shape.max, plane: shape.plane };
+        keys.push(u.key);
+        this.chartUnits.set(u.key, u);
+        this.relight.add(u);
+      }
+    });
+    this.tileUnits.set(key, keys);
+  }
+
   /** The cache's resident tiles and ring patches as units of work: what came in or moved is stale. */
   private syncUnits(): void {
     const ch = this.cache.takeChanges();
-    for (const key of ch.freed) this.relight.remove(key);
-    for (const key of ch.allocated) {
-      const u = this.cache.residentUnit(key);
-      if (u !== null) this.relight.add({ key, ...u });
+    for (const key of ch.freed) {
+      for (const u of this.tileUnits.get(key) ?? []) {
+        this.relight.remove(u);
+        this.chartUnits.delete(u);
+      }
+      this.tileUnits.delete(key);
+      this.relight.remove(key);
     }
+    for (const key of ch.allocated) this.addTileUnits(key);
     const stepped = new Map<string, Set<number>>();
     for (const r of ch.rings) for (const k of r.rings) {
       let set = stepped.get(r.terrain);

@@ -43,7 +43,7 @@
  *
  * Pure (no three.js, no device).
  */
-import { DISTANCE_BRICK_CELLS, surfelFacing } from '@thirdlight/runtime';
+import { DISTANCE_BRICK_CELLS, surfelFacing, type DistanceBrickSet, type SurfelSet } from '@thirdlight/runtime';
 
 import { SURFACE_CHART_BORDER, SURFACE_CHART_METRES, areaTexels, surfelLevelFor, type AtlasBlock, type SurfaceChart, type TilePacking } from './surface-cache-atlas';
 import { FACE_PLANE_AXES } from './surface-cache-blocks';
@@ -102,6 +102,47 @@ function putCharts(w: Words, r: Resident | undefined): number {
     }
   });
   return out;
+}
+
+interface PackedSurfels {
+  readonly cell: number;
+  readonly hash: number;
+  readonly cap: number;
+  readonly pos: number;
+  /** 0: none. */
+  readonly uv: number;
+}
+
+/** A set's surfels of level `k`: hashed by cell and facing, their positions and (`uv1`) their UV1. */
+function packSurfels(w: Words, s: SurfelSet, k: number, uv1: boolean): PackedSurfels {
+  const cell = s.spacing * 2 ** k;
+  const n = s.levels[k] ?? 0;
+  let cap = 1;
+  while (cap < n * 2) cap *= 2;
+  const hash = w.alloc(cap * HASH_WORDS);
+  for (let i = 0; i < cap; i += 1) w.setU(hash + i * HASH_WORDS + 3, EMPTY_SLOT);
+  for (let i = 0; i < n; i += 1) {
+    const c = [0, 1, 2].map((a) => Math.floor(s.positions[i * 3 + a]! / cell));
+    const facing = surfelFacing([s.normals[i * 3]!, s.normals[i * 3 + 1]!, s.normals[i * 3 + 2]!]);
+    // Open addressing; a later surfel of the same cell and facing takes the slot, as the CPU lookup's map does.
+    for (let h = surfelHash(c[0]!, c[1]!, c[2]!, facing, cap); ; h = (h + 1) & (cap - 1)) {
+      const sa = hash + h * HASH_WORDS;
+      const tag = w.getU(sa + 3);
+      if (tag === EMPTY_SLOT || ((tag & 7) === facing && w.getU(sa) === c[0]! >>> 0 && w.getU(sa + 1) === c[1]! >>> 0 && w.getU(sa + 2) === c[2]! >>> 0)) {
+        for (let a = 0; a < 3; a += 1) w.setU(sa + a, c[a]!);
+        w.setU(sa + 3, facing | (i << 3));
+        break;
+      }
+    }
+  }
+  const pos = w.alloc(n * 3);
+  for (let i = 0; i < n * 3; i += 1) w.setF(pos + i, s.positions[i]!);
+  let uv = 0;
+  if (uv1 && s.uv1 !== null) {
+    uv = w.alloc(n * 2);
+    for (let i = 0; i < n * 2; i += 1) w.setF(uv + i, s.uv1[i]!);
+  }
+  return { cell, hash, cap, pos, uv };
 }
 
 /** Pack the resolve table of `scene` with what `cache` holds resident now (packed again when residency changes). */
@@ -229,6 +270,7 @@ export function packResolveTable(scene: SurfaceScene, cache: SurfaceCache): Reso
   });
   // Model pieces: the field's box, the normal map, and the surfels of the level the cache holds them at, hashed by cell and facing.
   const models = view.models;
+  const shared = new Map<DistanceBrickSet, Map<number, PackedSurfels>>();
   const mrec = w.alloc(models.length * MODEL_R_WORDS);
   w.setU(12, models.length);
   w.setU(13, mrec);
@@ -247,37 +289,18 @@ export function packResolveTable(scene: SurfaceScene, cache: SurfaceCache): Reso
     const m = invertAffine(tile.worldToLocal);
     for (let r = 0; r < 3; r += 1) for (let c = 0; c < 3; c += 1) w.setF(at + 7 + r * 3 + c, m[c * 4 + r]!);
     const k = tile.chart.kind === 'surfels' ? surfelLevelFor(tile.chart, level) : 0;
-    const cell = s.spacing * 2 ** k;
-    const n = s.levels[k] ?? 0;
-    let cap = 1;
-    while (cap < n * 2) cap *= 2;
-    const hash = w.alloc(cap * HASH_WORDS);
-    for (let i = 0; i < cap; i += 1) w.setU(hash + i * HASH_WORDS + 3, EMPTY_SLOT);
-    for (let i = 0; i < n; i += 1) {
-      const c = [0, 1, 2].map((a) => Math.floor(s.positions[i * 3 + a]! / cell));
-      const facing = surfelFacing([s.normals[i * 3]!, s.normals[i * 3 + 1]!, s.normals[i * 3 + 2]!]);
-      // Open addressing; a later surfel of the same cell and facing takes the slot, as the CPU lookup's map does.
-      for (let h = surfelHash(c[0]!, c[1]!, c[2]!, facing, cap); ; h = (h + 1) & (cap - 1)) {
-        const sa = hash + h * HASH_WORDS;
-        const tag = w.getU(sa + 3);
-        if (tag === EMPTY_SLOT || ((tag & 7) === facing && w.getU(sa) === c[0]! >>> 0 && w.getU(sa + 1) === c[1]! >>> 0 && w.getU(sa + 2) === c[2]! >>> 0)) {
-          for (let a = 0; a < 3; a += 1) w.setU(sa + a, c[a]!);
-          w.setU(sa + 3, facing | (i << 3));
-          break;
-        }
-      }
-    }
-    w.setF(at + 16, cell);
-    w.setU(at + 17, hash);
-    w.setU(at + 18, cap);
-    const pos = w.alloc(n * 3);
-    for (let i = 0; i < n * 3; i += 1) w.setF(pos + i, s.positions[i]!);
-    w.setU(at + 19, pos);
-    if (tile.chart.kind === 'area' && s.uv1 !== null) {
-      const uv = w.alloc(n * 2);
-      for (let i = 0; i < n * 2; i += 1) w.setF(uv + i, s.uv1[i]!);
-      w.setU(at + 20, uv);
-    }
+    const uv1 = tile.chart.kind === 'area' && s.uv1 !== null;
+    // Placed copies of one model share its set: its surfels' hash, positions and UV1 are packed once per level.
+    let byLevel = shared.get(tile.set);
+    if (byLevel === undefined) shared.set(tile.set, (byLevel = new Map()));
+    const key = k * 2 + (uv1 ? 1 : 0);
+    let sl = byLevel.get(key);
+    if (sl === undefined) byLevel.set(key, (sl = packSurfels(w, s, k, uv1)));
+    w.setF(at + 16, sl.cell);
+    w.setU(at + 17, sl.hash);
+    w.setU(at + 18, sl.cap);
+    w.setU(at + 19, sl.pos);
+    w.setU(at + 20, sl.uv);
   });
   return { words: w.done(), terrains: terrains.map((t) => t.key) };
 }
