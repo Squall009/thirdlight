@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import { BlockGrid, buildRoomGraph, type BlockType } from '@thirdlight/runtime';
 
-import { SurfaceChanges, type CacheLight } from './surface-changes';
+import { SurfaceChanges, savedLights, type CacheLight } from './surface-changes';
 import { lightFrameCpu } from './surface-light-cpu';
 import type { LightPassFrame } from './surface-light-frame';
 import { SHADOW_TRACE } from './surface-light-pass';
@@ -179,5 +179,13 @@ describe('surface cache: a lamp in a room whose door is open marks what it sees 
       expect(rooms.marks(q, q, m)).toBe(true);
     }
     expect(seen).toBeGreaterThan(100);
+  });
+});
+
+describe('surface cache: light modes in the saved result', () => {
+  it('baked lights give their direct light and bounce, mixed lights their bounce only, realtime lights nothing', () => {
+    const ls: CacheLight[] = [{ ...lamp, id: 'r' }, { ...lamp, id: 'b', mode: 'baked' }, { ...lamp, id: 'm', mode: 'mixed' }, { ...lamp, id: 'x', mode: 'realtime' }];
+    expect(savedLights(ls, 'direct').map((l) => l.id)).toEqual(['b']);
+    expect(savedLights(ls, 'bounce').map((l) => l.id)).toEqual(['b', 'm']);
   });
 });

@@ -201,6 +201,37 @@ export function probesIrradianceAt(grids: readonly LiveProbeGrid[], state: Float
   return out;
 }
 
+/** Put the `k` smallest of `keys[0..n)` (with their `order`) first, in no particular order (quickselect). */
+export function selectSmallest(keys: Float32Array, order: Uint32Array, n: number, k: number): void {
+  let lo = 0;
+  let hi = n - 1;
+  const swap = (a: number, b: number): void => {
+    const kk = keys[a]!;
+    keys[a] = keys[b]!;
+    keys[b] = kk;
+    const o = order[a]!;
+    order[a] = order[b]!;
+    order[b] = o;
+  };
+  while (lo < hi && k > lo && k <= hi) {
+    const pivot = keys[(lo + hi) >> 1]!;
+    let i = lo;
+    let j = hi;
+    while (i <= j) {
+      while (keys[i]! < pivot) i += 1;
+      while (keys[j]! > pivot) j -= 1;
+      if (i <= j) {
+        swap(i, j);
+        i += 1;
+        j -= 1;
+      }
+    }
+    if (k <= j) hi = j;
+    else if (k >= i) lo = i;
+    else return;
+  }
+}
+
 export interface LiveProbeDiagnostics {
   readonly grids: number;
   readonly probes: number;
@@ -236,6 +267,9 @@ export class LiveProbes {
   private settling: number | null = null;
   private lastSettleMs: number | null = null;
   private updates = 0;
+  /** Scratch for `plan`: the stale probes' keys and indices. */
+  private keys = new Float32Array(0);
+  private order = new Uint32Array(0);
   /** Grids whose probes changed since `takeChanged`. */
   private changed = new Set<number>();
 
@@ -339,15 +373,23 @@ export class LiveProbes {
     this.frame += 1;
     if (this.settling === -1) this.settling = now;
     if (this.staleCount === 0 || this.budgetMs <= 0) return new Uint32Array(0);
-    const list: { i: number; k: number }[] = [];
+    if (this.keys.length < this.staleCount) {
+      this.keys = new Float32Array(this.count);
+      this.order = new Uint32Array(this.count);
+    }
     const P = this.positions;
+    let n = 0;
     for (let i = 0; i < this.count; i += 1) {
       if (this.stale[i] === 0) continue;
       const d = Math.hypot(P[i * 3]! - eye[0]!, P[i * 3 + 1]! - eye[1]!, P[i * 3 + 2]! - eye[2]!);
-      list.push({ i, k: d / 2 ** ((this.frame - this.since[i]!) / PROBE_AGING_FRAMES) });
+      this.keys[n] = d / 2 ** ((this.frame - this.since[i]!) / PROBE_AGING_FRAMES);
+      this.order[n] = i;
+      n += 1;
     }
-    list.sort((a, b) => a.k - b.k || a.i - b.i);
-    return Uint32Array.from(list.slice(0, this.perUpdate).map((e) => e.i));
+    // The nearest `take` (a selection, not a sort: tens of thousands may wait).
+    const take = Math.min(n, this.perUpdate);
+    selectSmallest(this.keys, this.order, n, take);
+    return this.order.slice(0, take);
   }
 
   /**

@@ -211,11 +211,36 @@ only where something changed:
   lights through everything. **Light mask** and **Shadow caster mask** work
   as they do per pixel: a light lights only surfaces sharing a layer with
   its mask, and only objects in its caster mask cast its shadow.
-- **What it is not yet** — materials do not read the cache yet, and bounced
-  light is not in it; WebGL 2 and the low tier compute nothing live.
+- **Bounced light** — live probes carry it: probe grids stand where a probe
+  bake would put them (a grid inside each room of generated architecture,
+  then grids over the static objects), and each stale probe casts rays
+  that read the cache's light where they hit, the probes' own light there
+  and the sky where they hit nothing, so bounces build up over a few
+  updates. Every lit material — moving objects, foliage and ground cover
+  too — reads them through the usual probe lighting, in place of baked
+  probes while the light is live. Bounces assume an albedo of 0.3 (the
+  cache holds light, not surface colours).
+- **Rooms and portals** — a point, spot or area light standing in a room of
+  generated architecture lights only that room and the rooms its open
+  doorways join to it; a shut door (a door piece across the doorway) holds
+  its light in, though the door piece itself does not stop rays. A probe in
+  a room sees out only through open doorways, no probe sees through a shut
+  one, and a lamp switched in a room marks only its room and what it sees
+  through its doorways. Interiors of blocks or models keep the probes'
+  walls instead.
+- **Light modes** — live, every light lights the cache whatever its mode.
+  Once the bake saves the cache (today's bake still runs the lightmap and
+  probe bakers), what it saves follows the mode: a `baked` light's direct
+  light and its bounce, a `mixed` light's bounce only, a `realtime` light
+  nothing.
+- **What it is not yet** — materials do not read the cache yet (its direct
+  light is seen through the probes' bounce and the debug view); WebGL 2 and
+  the low tier compute nothing live.
 - **Looking at it** — add `?surfaceCacheView=1` to a game page's address to
   draw every lit cache texel as a small square on its surface, shaded as a
-  mid-grey surface would be by its light.
+  mid-grey surface would be by its light and its probes' bounce;
+  `?probesView=1` draws the live probes, each a small sphere lit by its own
+  light.
 
 ## Local lights per object
 

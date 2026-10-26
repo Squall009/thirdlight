@@ -18,7 +18,7 @@ import { describe, expect, it } from 'vitest';
 import { BlockGrid, buildRoomGraph, type BlockType } from '@thirdlight/runtime';
 
 import { probeUpdateCpu } from './surface-probe-cpu';
-import { BOUNCE_ALBEDO, LiveProbes, PROBE_FLOATS, shIrradiance } from './surface-probes';
+import { BOUNCE_ALBEDO, LiveProbes, PROBE_FLOATS, selectSmallest, shIrradiance } from './surface-probes';
 import { SurfaceRooms } from './surface-rooms';
 import { packTraceScene } from './tracer-scene';
 import { opaqueByBlockTypes, traceBlockLayerOf } from './tracer-sources';
@@ -115,6 +115,19 @@ describe('surface cache: live probes', () => {
     };
     expect(byDoor(null)).toBeGreaterThan(1e-3);
     expect(byDoor(rooms.words)).toBe(0);
+  });
+
+  it('the nearest stale probes are picked by selection, as a sort would pick them', () => {
+    let seed = 5;
+    const rnd = (): number => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296);
+    for (const [n, k] of [[1000, 64], [50, 64], [7, 3], [300, 300], [2000, 1]] as const) {
+      const keys = Float32Array.from({ length: n }, () => Math.floor(rnd() * 100));
+      const order = Uint32Array.from({ length: n }, (_, i) => i);
+      const want = [...keys].sort((a, b) => a - b).slice(0, Math.min(k, n));
+      selectSmallest(keys, order, n, Math.min(k, n));
+      expect([...keys.slice(0, Math.min(k, n))].sort((a, b) => a - b)).toEqual(want);
+      for (let i = 0; i < n; i += 1) expect(keys[i]).toBe(Math.floor(keys[i]!));
+    }
   });
 
   it('stale and settled: marks make probes stale, updates that no longer move them settle them', () => {

@@ -85,6 +85,7 @@ interface LightDoc {
   lightMask?: number;
   shadowCasterMask?: number;
   shape?: string;
+  mode?: string;
   width?: number;
   height?: number;
   twoSided?: boolean;
@@ -159,7 +160,8 @@ export class SurfaceLights {
     };
     const pos: V3 = [m[12]!, m[13]!, m[14]!];
     const masks = { lightMask: lightLayerMaskOf(l.lightMask), casterMask: lightLayerMaskOf(l.shadowCasterMask) };
-    const base = { id, on: true, position: pos, color: linear(l.color, l.intensity ?? 1, this.c), range: l.range ?? 0, cone: 0, penumbra: 0, ...masks };
+    const mode: Pick<CacheLight, 'mode'> = l.mode === 'baked' || l.mode === 'mixed' ? { mode: l.mode } : {};
+    const base = { id, on: true, position: pos, color: linear(l.color, l.intensity ?? 1, this.c), range: l.range ?? 0, cone: 0, penumbra: 0, ...masks, ...mode };
     if (l.type === 'directional') {
       const d = unit(l.direction ?? [0, -1, 0]);
       return { ...base, kind: 'directional', direction: [-d[0], -d[1], -d[2]], range: 0, shadows: l.castShadow === true };

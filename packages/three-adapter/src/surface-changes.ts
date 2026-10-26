@@ -74,6 +74,19 @@ export interface CacheLight {
   /** The light layers it lights and whose objects cast its shadow (bit masks; absent: every layer). */
   readonly lightMask?: number;
   readonly casterMask?: number;
+  /** How the light's light is kept (absent: `realtime`): see `savedLights`. */
+  readonly mode?: 'realtime' | 'baked' | 'mixed';
+}
+
+/**
+ * The lights whose light goes into the saved result (the bake that WebGL 2
+ * and the low tier draw, and that live tiers start from), per part: a
+ * `baked` light's direct light and bounce, a `mixed` light's bounce only
+ * (its direct light is drawn per pixel, with its shadows), a `realtime`
+ * light nothing (it is lit live only). Live, every light lights the cache.
+ */
+export function savedLights(lights: readonly CacheLight[], part: 'direct' | 'bounce'): CacheLight[] {
+  return lights.filter((l) => l.mode === 'baked' || (part === 'bounce' && l.mode === 'mixed'));
 }
 
 
