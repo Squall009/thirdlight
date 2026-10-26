@@ -239,6 +239,8 @@ export class SurfaceCacheHost {
     this.roomsVersion = version;
     this.roomsNow = r === null ? null : new SurfaceRooms(r);
     this.changes.setRooms(this.roomsNow);
+    // The probes name rooms by index: placed again over the new rooms at once.
+    this.placeProbes();
   }
 
   /** Where a unit's texels are: a resident tile's packing, or a ring patch and its terrain (null: gone). */

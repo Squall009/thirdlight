@@ -275,6 +275,7 @@ export function frustumTouches(f: PortalFrustum, min: readonly number[], max: re
 
 /** Whether room `r` of packed room words holds `p` (the shaders' `roomHolds`). */
 export function roomHoldsCpu(u: Uint32Array, r: number, p: readonly number[]): boolean {
+  if (r >= u[0]!) return false;
   const f = new Float32Array(u.buffer, u.byteOffset, u.length);
   const at = u[2]! + r * ROOM_WORDS;
   if (p[1]! < f[at + 2]! || p[1]! >= f[at + 3]!) return false;
@@ -295,6 +296,7 @@ export function texelRoomCpu(u: Uint32Array, list: readonly number[], p: readonl
  * nearest wall of its outline, its floor or its top.
  */
 export function roomExitCpu(u: Uint32Array, r: number, o: readonly number[], d: readonly number[]): { t: number; open: boolean } {
+  if (r >= u[0]!) return { t: 1e30, open: true };
   const f = new Float32Array(u.buffer, u.byteOffset, u.length);
   const at = u[2]! + r * ROOM_WORDS;
   const poly = u[at]!;
@@ -393,6 +395,8 @@ fn rmInPoly(x: f32, z: f32, at: u32, n: u32, stride: u32, zoff: u32) -> bool {
   return inside;
 }
 fn roomHolds(r: u32, p: vec3f) -> bool {
+  // A room the rooms no longer hold (they changed since its index was taken) holds nothing.
+  if (r >= rmU(0u)) { return false; }
   let at = rmU(2u) + r * ${ROOM_WORDS}u;
   if (p.y < rmF(at + 2u) || p.y >= rmF(at + 3u)) { return false; }
   if (p.x < rmF(at + 4u) || p.x > rmF(at + 6u) || p.z < rmF(at + 5u) || p.z > rmF(at + 7u)) { return false; }
@@ -451,6 +455,7 @@ fn closedPortal(o: vec3f, d: vec3f, tmax: f32) -> f32 {
 }
 // How far a ray inside room r runs before it leaves the room; negative (−t) when it leaves by an open portal.
 fn roomExit(r: u32, o: vec3f, d: vec3f) -> f32 {
+  if (r >= rmU(0u)) { return -1e30; }
   let at = rmU(2u) + r * ${ROOM_WORDS}u;
   let poly = rmU(at);
   let n = rmU(at + 1u);
