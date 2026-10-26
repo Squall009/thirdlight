@@ -224,13 +224,12 @@ starts `after("close", 4)`, which shows it again.
 - Object properties of a script (type object, `entityRef`) are pickers of
   the scene's objects in the Inspector. In a spawned prefab copy they name
   the copy's own objects.
-- `ctx.emit({ kind: 'character_place', position: [x, y, z] })` also works on
-  the 2D plane (z ignored): the character is placed from rest in that step.
-  An optional `facing` (degrees about +Y, 0 facing +Z — in 3D what
-  `ctx.physics.characterState().facing` reads; on the 2D plane its
-  face-movement models, 90 right and −90 left) turns it as it is placed;
-  without it it keeps facing as it was. `character_enable` works on the 2D
-  plane too.
+- `ctx.emit({ kind: 'character_place', position: [x, y, z] })` works free and
+  on a plane (there the part along the normal is the plane's): the
+  character is placed from rest in that step. An optional `facing`
+  (degrees about +Y, 0 facing +Z, what `ctx.physics.characterState().facing`
+  reads; on a Z plane 90 faces right and −90 left) turns it as it is
+  placed; without it it keeps facing as it was.
 - Visual scripts have the same as nodes: **Get component** and **Set
   component** (category Entity).
 - `ctx.shell` (`nextScene()`, `sceneIndex()`, `sceneCount()`; the Shell

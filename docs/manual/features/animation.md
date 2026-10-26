@@ -125,8 +125,8 @@ animator's clips, blends, crossfades and layers, the way the renderer poses
 the model) and replays, the simulation worker and the export agree bit for
 bit. The object's own children ride along. An object on a socket cannot be a
 physics body (collider, controller, mover) or the scene camera; a script's
-transform writes on it are overridden while it is attached. Works in 2D and
-3D projects.
+transform writes on it are overridden while it is attached. Works free and on a
+plane.
 
 **Scripts** (`ctx.sockets`): `attach(entityId, targetId?, node?, position?,
 rotation?, scale?)` (no target: the object's own Socket component),

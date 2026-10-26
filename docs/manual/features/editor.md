@@ -430,7 +430,8 @@ field's range.
 - **Collider from the model**: "+ Add component" (and the Component menu's
   Collider submenu, and buttons in the Collider section) offer **Box from
   model** and **Polygon from model outline**: the model's vertices (its own
-  and its children's models) projected on the play plane; the polygon is
+  and its children's models) projected on X/Y (the collider is a prism its
+  **Depth** deep across that); the polygon is
   their convex hull reduced to 8 corners, the box their bounds (a box
   collider is always centred, so an off-centre model gets the same rectangle
   as a 4-corner polygon).

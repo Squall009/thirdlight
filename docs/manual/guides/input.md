@@ -82,9 +82,8 @@ input. Use `setInput` to share one control set between projects. Test with
 - **Actions of a map the current game mode does not list read as
   released** (see [game modes](game-modes.md)). A focused document with
   `actionMap: "ui"` stops the character while a menu is open.
-- **Pointer picks in 3D need 3D physics.** `ctx.physics.pickAtPointer` and
-  the other 3D queries work in projects whose physics is 3D; the 2D starter's
-  is the 2D plane (Project Settings → Gameplay → Physics).
+- **Pointer picks need colliders.** `ctx.physics.pickAtPointer` and the
+  other queries hit colliders only, in every scene, side views included.
 - **A rebind listens to the real device.** Test input cannot answer it;
   `inputBindings.listening` shows it is waiting.
 - **64 actions per project**, 8 rebind requests per step from scripts.

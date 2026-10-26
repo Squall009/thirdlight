@@ -11,12 +11,12 @@ field: [Components: Gameplay](../reference/components-gameplay.md).
 The GameObject menu's create entries come from the component descriptors
 (each component's `create` list; MCP reads them with the
 descriptors). In a v4 project: **Spawn point**; **Gameplay** → a one-way
-platform (2D plane), a moving platform, a door (opens on the signal
+platform, a moving platform, a door (opens on the signal
 `open`), a trigger, a scene transition (a trigger that moves the character
 to another scene; needs a second scene), a switch, an object
 with health, a collectible, a patrolling object and a hitbox; **Cameras**
-→ a camera track and a camera region; **Light** → a fog volume. A 3D project gets the 3D forms
-(colliders, hitboxes and triggers with a depth). The hierarchy and Scene
+→ a camera track and a camera region; **Light** → a fog volume. Colliders,
+hitboxes and triggers are made with a depth. The hierarchy and Scene
 view icons come from the descriptors too. Any object can get these in the Inspector
 ("+ Add component", Gameplay):
 
@@ -24,10 +24,10 @@ view icons come from the descriptors too. Any object can get these in the Inspec
   speed, ping-pong / loop / once, a wait at each stop, smooth easing, and
   "waits for signal" (a door or a lift that starts when a switch or trigger
   fires). With a box or polygon collider it carries the player standing on
-  it (in 3D also one standing on its edge, its centre past the rim) and
-  pushes every player it moves into (a polygon by its exact shape); in 3D
-  any collider that can move (box, sphere, capsule, convex) does, by its
-  bounding box. A mover rising beside or under the player
+  it (also one standing on its edge, its centre past the rim) and pushes
+  every player it moves into; any collider that can move (box, sphere,
+  capsule, convex) does, by its bounding box, and a
+  plane-locked player is pushed within its plane. A mover rising beside or under the player
   (a gate opening, a pillar) pushes the player aside, never up: only a player
   above it rides it up. The Scene view draws its path. More
   signals — **Stop on signal** holds it where it is, **Toggle on signal** moves
@@ -48,12 +48,12 @@ view icons come from the descriptors too. Any object can get these in the Inspec
   (a pressure plate); sends a signal. Its box is `size` [w, h] or [w, h, d]
   (absent depth: the width), centred on it.
 - A collider's **one-way** flag: jump up through it, land on it from above,
-  Down + Jump drops through, in 2D and 3D projects (turned, it holds only
-  from the side its local +Y faces). A spawn inside one is not blocked on the
-  2D plane (the player drops to what is below).
+  Down + Jump drops through, on a plane and in free 3D alike (turned, it
+  holds only from the side its local +Y faces: a one-way wall). A spawn
+  inside one is not blocked (the player drops to what is below).
 - Colliders that share a face or overlap (a floor of tiles, a wall of
-  stacked blocks, a slope cut in pieces) act as one surface for the 2D
-  player: it does not stand on or catch at the seams between them.
+  stacked blocks, a slope cut in pieces) act as one surface: the player
+  does not stand on or catch at the seams between them.
 
 A HUD document shows counters and health through its bindings (see [the game shell](#the-game-shell-menus-and-hud-as-ui-documents)). `tl_game_observe` reports `counters` and `health`. Scripts use
 `ctx.signals.emit(name)` / `.on(name)` (seen the next step),
@@ -62,22 +62,23 @@ A HUD document shows counters and health through its bindings (see [the game she
 and `ctx.physics.raycast(origin, direction, maxDistance, filter?)`,
 `.overlapBox(center, half, filter?)` and `.overlapCircle(center, radius, filter?)` (the
 entities whose colliders overlap, never the player; 1,024 queries per step
-in all, 2D and 3D). With `{x, y}` points they ask on a plane: on the 3D
-backend, the plane the script's object is locked to (`ctx.physics.setPlane`;
-its x along −Z on an X plane), else z = 0, finding what crosses it; with
-`[x, y, z]` arrays `raycast` and `overlapBox` ask in the world (see
-[3D queries](input.md)). Visual scripts: **Set plane**, **Set character
+in all). With `{x, y}` points they ask on a plane: the plane the script's
+object is locked to (`ctx.physics.setPlane`; its x along −Z on an X
+plane), else its scene's default plane, else z = 0, finding what crosses
+it; with `[x, y, z]` arrays `raycast` and `overlapBox` ask in the world
+(see [Physics: queries](physics.md#queries)). Visual scripts: **Set plane**, **Set character
 plane** (axis `none` frees it) and **Plane of**.
 
 ### Generic primitives
 
-Four components that work the same on the 2D plane and in 3D (the
+Components that work the same on a plane and in free 3D (the
 Inspector's "+ Add component", Gameplay). They
 carry no game rules: what a collected item, a hit or 0 health *means* is the
 project's scripts' decision.
 
 - **Collectible** — the character (the controller's object) touching its
-  area (width, height and, in 3D, depth; default 1 m) adds **amount** to a
+  area (width, height and depth; default 1 m; `[w, h]` is as deep as it
+  is wide) adds **amount** to a
   named **counter** (any name), hides it, sends its **on collect** signal and
   comes back after **comes back after** seconds (0: never). Scripts:
   `ctx.collectible.collected(id)`, `ctx.collectible.restore(id)`.
@@ -109,10 +110,10 @@ project's scripts' decision.
   action**) takes hold and moves it along the box's up axis, sideways input
   moves it across, at the controller's **Climb speed** (2 m/s), with no
   gravity; a jump press lets go with a jump, and leaving the box lets go. A
-  2D project whose move action is left/right only names an up/down axis as
-  the controller's climb action. Scene-view size handle; GameObject →
+  game whose move action is left/right only (the side-view default) names
+  an up/down axis as the controller's climb action. Scene-view size handle; GameObject →
   Gameplay → Climb volume.
-- **Hitbox** — a box or sphere (a circle on the 2D plane). A hitbox touching
+- **Hitbox** — a box or sphere. A hitbox touching
   another hitbox or the character sends both a `contact` event (the other
   object and the contact **normal**, a unit vector toward the other: `[0, 1,
   0]` when the other came from above) and a `separate` event when they part.
@@ -131,7 +132,7 @@ patrollers and switched-off hitboxes. The play observation
 
 ### Scene transitions, impulses, facing, camera tracking, looks and event sounds
 
-These work in both dimensions.
+These work on a plane and in free 3D alike.
 
 - **Trigger → Scene transition** (Inspector, a trigger's "+ add"): entering
   the trigger loads **Load scene**, unloads **Unload scenes**, and once the
@@ -141,8 +142,9 @@ These work in both dimensions.
   it (`ctx.events`; `by` names the player that entered or left).
 - **Character impulse**: `ctx.character.impulse([x, y, z], entityId?)` adds a velocity
   (m/s) at a player's next move (a push, a launch, a bounce; up lifts it
-  off the ground; the 2D plane ignores z; absent id: the first player).
-- **Moving a character from a script** (3D and the 2D plane; absent id: the
+  off the ground; on a plane the part along its normal is dropped; absent
+  id: the first player).
+- **Moving a character from a script** (free or on a plane; absent id: the
   first player): `ctx.character.place([x, y, z], facing?, entityId?)` puts
   it there from rest; `ctx.character.walkTo([x, y, z], { run?, arrive?,
   facing?, entityId? })` has its own controller walk it to the mark (the
@@ -158,13 +160,14 @@ These work in both dimensions.
   still loading is waited for). A turn gives way to the player's input once
   the walk has ended. A blocked walk ends
   where it is with a log line: place the character or walk it round.
-  On the 2D plane a walk goes along x and `run` changes nothing. The
+  On a plane a walk goes along the plane, and under the arcade profile
+  `run` changes nothing (it has one speed). The
   timeline's Character track goes the same way ([Timelines](timelines.md)).
 - **Facing**: Face movement **Face velocity** turns a model toward its
   motion in any direction (3D too; **Yaw offset** for a model authored facing
   another way; at the top of the hierarchy it follows its own motion). A
-  player spawn's **Yaw** is the way the character faces on arrival (3D: the
-  character turns; 2D: its face-movement models).
+  player spawn's **Yaw** is the way the character faces on arrival (the
+  character turns to it).
 - **Switch → Action**: an interact switch reads the input action you name
   (default `interact`).
 - **Virtual camera → Track (dead zone)**: keeps its placed rotation and

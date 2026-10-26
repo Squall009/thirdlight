@@ -141,8 +141,7 @@ height above its feet**. A subject's height is its character controller's
 capsule, else the bounds of its meshes. So under a pitched follow camera a
 wall 0.3 m or 1 m behind the subject, or one beside it, stays solid even
 though the circle covers it; only the wall in front dithers. The height
-rule is the same everywhere, in a side view, from above and in 3D, in
-every project kind: floors, ground and anything low round the subject never
+rule is the same everywhere, in a side view, from above and in free 3D: floors, ground and anything low round the subject never
 fade. On a multi-storey level a character on the stairs fades the slab of
 the storey above, never the one it stands on or those below; walking up
 hands the fade to the next slab up. Each occluder fades in and out over the

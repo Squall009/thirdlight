@@ -80,7 +80,7 @@ player (each start scene's controller) were never unloaded before, so the
 object at the top of each one's hierarchy gets **Keep loaded**. A game with a
 camera entity in a start scene, or a title scene holding the camera and the
 player, plays as it did; clear Keep loaded to let them go with their scene.
-A 3D character moves as it did: a 3D project without any virtual camera
+A 3D character moves as it did: a project then on 3D physics without any virtual camera
 moved along the world axes, so the upgrade sets each controller's **Move
 relative to** to **World axes** (`moveFrame: "world"`); a project with virtual
 cameras keeps **Camera**, as they turned the input before. Only where such a
@@ -264,8 +264,7 @@ enabled virtual camera the view holds the default pose (see
   **Pitch** (limits **Pitch min/max**), plus a **Target offset** (e.g. head
   height). The player turns it with the **Turn action** (an axis; a 2D axis
   turns with x and tilts with y), tilts it with the **Tilt action** and zooms
-  with the **Zoom action** (between **Min/Max distance**). In a 3D project it
-  is pulled in front of colliders between it and the target (**Collision**,
+  with the **Zoom action** (between **Min/Max distance**). It is pulled in front of colliders between it and the target (**Collision**,
   **Collision radius**; never closer than Min distance). **Damping** lets it
   lag behind a moving target.
 - **Orbit a point** — circles the **Point** (a world point with a Scene

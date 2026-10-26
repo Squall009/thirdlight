@@ -10,6 +10,8 @@ replacements. The rule: [Existing projects keep their look](../concepts/existing
 
 Opening a project of schemaVersion 6 or 7 upgrades it on open and writes it
 back as 8 (Problems notes it once, `project_upgraded`, naming what changed).
+An 8 whose `project.json` `upgrades` list lacks `planes` gets that step
+once too ([below](#a-side-view-project-moves-onto-planes)).
 Commit what it wrote. A 7 with nothing to change only gets the new number in
 `project.json` (no new revision). A project older than 6 (schemaVersion 2 to
 5) is not opened: the open error and the project list say so and name the
@@ -53,7 +55,7 @@ The upgrade of a 6:
   a camera in a start scene, plays as it did; clear the flag to let them go
   with their scene;
 - writes `moveFrame: "world"` on every controller (scenes and prefabs) of a
-  3D project without any virtual camera, which moved along the world axes; a
+  project then on 3D physics without any virtual camera, which moved along the world axes; a
   project with virtual cameras keeps `view` (input relative to the live
   shot). Only where its old scene camera, turned about Y, is the one live
   shot does the input change; the upgrade note names that camera.
@@ -62,6 +64,104 @@ Nothing else changes: ids, recorded commands and replays stay valid. New in
 the format and additive (no upgrade step): `keepLoaded` on any object,
 `ctx.scenes.reload`, the `reloadScene` UI action, a save schema's `world`
 section and `legacyWorld`, and the other fields of schemaVersion 7.
+
+### A side-view project moves onto planes
+
+Every project runs on one physics backend, Rapier 3D; "2D" is a plane a
+body is locked to ([2D and 3D](../concepts/2d-and-3d.md)). The project
+setting `physics_dimension` is retired. The step `planes` runs once on
+open (on a 7, and on an 8 whose `upgrades` list does not name it) and is
+recorded in that list. A project without the setting was a 2D project (the
+setting's old default), as is one with any value but 3.
+
+**What it does to a former 2D project:**
+
+- every scene gets the **default plane** Z at 0, where the 2D backend
+  simulated: its colliders and controllers that name no `plane` of their
+  own are locked to it (Window → Scene settings);
+- **colliders take their 3D form, 1 m deep**, centred on the plane: a box
+  without depth gets `hz: 0.5`, a polygon becomes a convex prism, a concave
+  one a compound of convex prisms (`shapes`), a circle a cylinder across the
+  plane. A collider's own `depth` is used where it had one;
+- **controllers take the arcade profile** (`profile: "arcade"`, the 2D
+  controller's behaviour on the one controller, with the same tuning
+  fields; [Physics](physics.md#the-3d-character));
+- gameplay blocks (triggers, switches, hitboxes, collectibles, climb
+  volumes, patrols, gravity, movers) keep their data: the backend reads
+  their 2D forms as they were;
+- prefabs' bodies name the plane themselves (a prefab is in no scene, so a
+  spawned copy stays on the plane), and the overrides of linked copies that
+  hold a collider or controller are converted too; both are listed once in
+  the upgrade's `project_upgraded` notes, not as lines that stay;
+- a game without its own input actions gets the side-view input when its
+  first start scene has a plane (`move` a 1D axis), and with **Audio
+  sources** unset it hears sounds by their distance along the plane, as
+  before.
+
+A former 3D project only loses the setting (one note).
+
+**The Problems lines** (`migrated_from_2d`). The upgrade notes every
+converted item per scene (`migratedFrom2D` in the scene file), and Problems
+shows them as one line per kind, naming the objects (scene in brackets,
+five names, then "and N more") and the field to check. They are logged
+once each time the backend runs, and again after an edit with what is
+left, until each item is saved in its new form: an edit that changes the named component (or deletes the object)
+clears that object's note, and `setScenePlane` on a scene (even to the same
+plane: that confirms it) clears its plane line. An undo does not bring a
+note back.
+
+| Line | What to check |
+|---|---|
+| scenes got a default plane, Z at 0 | `defaultPlane`: is the side view Z at 0? Set it (or clear it for a free 3D scene) in Window → Scene settings |
+| box colliders became 3D boxes 1 m deep | `collider.shape.hz` (half the depth): deeper for ground a free character walks, thinner where depth shows |
+| polygon colliders became convex prisms | `collider.shape.points` and the collider's depth |
+| concave polygons became compounds of prisms | `collider.shape.shapes`: the convex pieces tile the outline exactly, always split the same way |
+| circle colliders became cylinders | `collider.shape.height` (the depth across the plane) |
+| one-way platforms | `collider.oneWay`: the platform holds from its local +Y side (by position, not by the contact normal) |
+| controllers took the arcade profile | `controller.profile`: keep `arcade` for the old feel, or try `character` |
+| block layers' plane cut | `blockLayer.planeZ` is no longer read: the layer collides as 3D blocks; check what crosses the plane |
+| circle triggers are spheres | `trigger.radius` |
+| `[w, h]` triggers, switches, hitboxes, collectibles, climb volumes, patrols and gravity areas are as deep as wide | their `size`: add a third value for a depth of its own |
+| box triggers and switches test the capsule | `trigger.size` / `switch.size`: a corner is reached up to 9 cm later at the default radius (2D tested the capsule's bounding box) |
+| areas on turned objects turn with them | `transform.rotation` of triggers, switches, hitboxes and collectibles (2D kept them axis-aligned) |
+| mover and patrol waypoints with a z part | `mover.waypoints`, `patrol.waypoints` / `patrol.direction`: a z offset now moves the collision in depth too, unless the body is on the plane |
+
+**Behaviour within stated tolerances.** The arcade profile on a plane was
+measured against recorded traces of the 2D controller (jump apex and air
+time, run speed, slopes and slope slides, stairs with autostep, wall slide
+and wall jump, ladders, one-way platforms and drop-through, lifts, a
+sideways platform, coyote time and the jump buffer):
+
+- each key event (leaving or touching the ground, a state change) on the
+  same fixed step (±1 allowed, none measured) and within 1 cm;
+- every step within 1.5 cm of the 2D path, a step either side (the 2D
+  backend's own bumps on flat ground reached 1.1 cm); the controller's
+  velocity the same;
+- two cases held otherwise, for the 2D backend's own reasons: at rest after
+  a flight of stairs within 5 cm, and on a sideways-moving platform 3.3 cm
+  ahead (the 2D backend stalled the carry for 4 steps; the 3D one carries on
+  every step).
+
+**Recorded runs change once.** The simulation is a different one, so a
+former 2D game's step digests (`tl_playtest`, `run.lastInput.digest`) and
+the positions a recorded input replay reaches differ from those recorded
+before the upgrade. Recorded inputs still play; re-record the expected
+digests and positions once after upgrading ([Playtesting](../guides/playtesting.md)).
+They are deterministic again from then on, in the page, the worker and the
+export.
+
+**Download size.** An export ships one physics engine for every game: a
+former 2D game's code grows by 551 KiB (208 KiB gzipped), from 7,142 to
+7,693 KiB (2,278 to 2,486 KiB gzipped), measured on the 2D starter: the 3D
+engine's WebAssembly is 1,974 KiB where the 2D one was 1,451 KiB, its
+script 213 KiB where the 2D one was 177 KiB. A 3D game's export is
+unchanged (+15 KiB).
+
+**Also worth a look:** a follow camera's **Collision** (on by default) now
+works in side views too and pulls the camera in front of colliders between
+it and its target; scripts' `{x, y}` queries ask on the scene's plane and
+`character_move` is accepted on a plane. How to switch a body between the
+plane and free 3D mid-game: [the guide](../guides/switching-to-a-plane.md).
 
 ### Problems lines a game may see after the upgrade
 
@@ -79,6 +179,8 @@ export's `warnings` or its refusal):
   `player_scene` (a player in a scene the game does not start with; the
   one-player-per-view `player_count` refusal is gone: players share the view), `kept_ignored` (Keep loaded under an object that is not kept),
   `kept_twice` (one id kept in two scenes: refused);
+- whenever the project opens, until each item is saved in its new form:
+  `migrated_from_2d`, one line per kind of converted item ([above](#a-side-view-project-moves-onto-planes));
 - whenever the project loads or a prefab or copy changes (one line per
   kind and prefab, naming its copies): `prefab_override_stale` (an override
   names a part or field the prefab no longer has: it is skipped),
@@ -200,16 +302,15 @@ engine:
 - **Play diagnostics fold copies and trim instead of refusing.** Repeated
   rows come as one with `count`; an answer over 16 KiB carries `trimmed`
   ([Play tools](play-tools.md#diagnostics-and-observations-that-fit)).
-- **Block layers collide on the 2D plane.** A 2D project's layer now
-  collides where it crosses the play plane. A layer meant as scenery only
-  can move its *Play plane z* to a z it does not reach
-  ([Blocks](blocks.md#block-layers)).
+- **Block layers collide as 3D blocks everywhere** (also on a plane; the
+  former 2D plane cut at *Play plane z* is gone). A layer meant as scenery
+  only stands clear of the plane's depth (behind the play area) ([Blocks](blocks.md#block-layers)).
 - **An unpainted wall with material rules** that name only tops is the
   material's second layer, as [Blocks](blocks.md#block-layers) says,
   instead of the first.
 - **3D movers push a player sideways** when they move into it (they used
   to stop against it).
-- **A transform key on a 2D player character** places it (before: a
+- **A transform key on a plane-locked player character** places it (before: a
   warning and nothing), and a rotation key on a player character turns its
   controller too. Walk characters with the Character track
   ([Timelines](timelines.md)).

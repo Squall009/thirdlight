@@ -87,9 +87,9 @@ re-points its presets, block types and pieces to the new sheet in one undo step.
 
 ## The workflow
 
-1. **Start from the 3D starter** (Projects page → *3D starter*): 3D
-   physics, a character with a follow camera, a block ground on the Basic
-   Kit, a small terrain, a sun and sky. In another 3D project, add the kit
+1. **Start from the 3D starter** (Projects page → *3D starter*): a free
+   3D scene, a character with a follow camera, a block ground on the Basic
+   Kit, a small terrain, a sun and sky. In another project, add the kit
    with **Create → Basic Kit (ready-made)** in the project window.
 2. **Make the kit yours** in the [kit editor](../guides/kit-editor.md)
    (double-click the kit): pick your trim sheet, drop your door and window

@@ -6,7 +6,8 @@ How to build terrain step by step: [the terrain guide](../guides/terrain.md).
 
 A `terrain` component makes an object a heightfield of square tiles for
 landscape (block layers stay the tool for authored structure). It is drawn in
-the Scene view, Play and an export alike and collides in 3D games, and is
+the Scene view, Play and an export alike and collides (for free and
+plane-locked bodies alike), and is
 edited in the editor's **terrain editor** (below).
 
 - **The component** `{tileSamples, spacing, heightRange: [low, high], tiles:
@@ -21,7 +22,7 @@ edited in the editor's **terrain editor** (below).
   tiles: [{x: 0, z: 0}, {x: 1, z: 0}]}`. Changing `heightRange` later
   stretches the stored heights with it; `tileSamples` is fixed once tiles hold
   data (a tile of another size is refused). **`collision`** (optional,
-  default on; stored only when off): the tiles are colliders in a 3D game —
+  default on; stored only when off): the tiles are colliders —
   turn it off for scenery the player never reaches.
 - **Tiles are files**: each tile's heights, baked layer weights (the four
   strongest layers per sample, so the number of layers is not tied to
@@ -121,7 +122,7 @@ edited in the editor's **terrain editor** (below).
   terrain; without it the page does it), and keeps one decoded copy of each,
   which the renderer, picking and the simulation's colliders share (a
   simulation in its worker gets a copy of the heights and holes).
-- **Collision** (3D games): a tile is one heightfield collider; a tile with
+- **Collision**: a tile is one heightfield collider; a tile with
   holes is cut into 16 × 16-cell patches — whole ones merged into
   rectangles, each a heightfield; cut ones a triangle mesh of their whole
   cells — so a character falls through a hole. Colliders are added and

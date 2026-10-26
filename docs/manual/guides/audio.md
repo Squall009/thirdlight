@@ -80,9 +80,10 @@ one-shots from scripts, event sounds or timeline keys.
   export ships only the assets objects and properties reference (or that
   carry an address or label). A literal id of a non-loadable asset is a
   Problems line.
-- **Audio sources are heard by X distance to the player in 2D projects**
-  and panned around the camera in 3D (the project setting **Audio
-  sources**, `audio_spatial`).
+- **Audio sources are heard by distance along the plane to the player**
+  when the game's first start scene has a default plane, and panned round
+  the camera otherwise (the project setting **Audio sources**,
+  `audio_spatial`, overrides it).
 - **Voices are limited** (`audio_voices`, 8 by default): the first sound
   dropped for it writes one Problems line, later ones are counted.
 - **A script's sounds stop with its object** (scene unload, a destroyed

@@ -23,16 +23,15 @@ nothing), so one timeline serves any actors.
 - **Transform** — the target's position, rotation, scale, each channel eased
   between keys (from its first key on). A 3D character's body moves with it
   (a teleport each step: use a Character track to walk it); on a player
-  character a rotation key turns its controller too, and on the 2D plane a
+  character a rotation key turns its controller too, and on a plane a
   position key places it.
 - **Character** — a player character (an object with a Character
-  controller, 3D or the 2D plane): **place** it at a position from rest,
+  controller, free or on a plane): **place** it at a position from rest,
   **walk** it there with its own controller (its speed, acceleration,
   collisions, slopes and animator speed, as with the player's input; **run**
   at the run speed; it slows down near the mark and arrives within 0.1 m),
   **facing** (degrees about +Y, 0 faces +Z, 90 faces +X: where it faces once
-  placed or arrived, or a turn now; on the 2D plane its face-movement models
-  turn), **enabled** off / on (its controller: no input, no gravity). While
+  placed or arrived, or a turn now), **enabled** off / on (its controller: no input, no gravity). While
   the track plays the player's input (its climb input too) does not move
   the character, from the play's start to its end (the track's **input**
   box lets it). A turn on arrival gives way to the player's input once
@@ -41,9 +40,9 @@ nothing), so one timeline serves any actors.
   it arrives); a walk that gets no closer for a second is blocked and ends
   there (a log line). A key reaches the character in the step after it
   fires (keys fire at the end of a step), and then has the last word over
-  a script's own move of that character in that step. On the 2D plane a
-  walk goes along x (the mark's y is where the ground is) and **run**
-  changes nothing (the 2D controller has one speed). Scripts do the same
+  a script's own move of that character in that step. On a plane a
+  walk goes along the plane (the mark's y is where the ground is), and
+  under the arcade profile **run** changes nothing (it has one speed). Scripts do the same
   with [`ctx.character`](gameplay.md#scene-transitions-impulses-facing-camera-tracking-looks-and-event-sounds).
 - **Animator** — set a parameter, fire a trigger, or go to a state (with a
   crossfade) on the target's animator.

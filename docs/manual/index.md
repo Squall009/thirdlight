@@ -36,7 +36,7 @@ backups, the MCP connection) is described in
 - [Scripts and the step model](concepts/scripts-and-the-step-model.md)
 - [The game shell](concepts/game-shell.md)
 - [Game flow belongs to your game](concepts/game-flow.md)
-- [2D and 3D](concepts/2d-and-3d.md)
+- [2D and 3D: planes, not project kinds](concepts/2d-and-3d.md)
 - [Kits, blocks and rooms: what to supply](concepts/kits-blocks-and-rooms.md)
 - [Existing projects keep their look](concepts/existing-projects.md)
 - [The editor and the API](concepts/editor-and-api.md)

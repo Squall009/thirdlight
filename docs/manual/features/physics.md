@@ -1,7 +1,8 @@
 # Physics
 
 The player's collision capsule, where the simulation runs (worker or
-page), 3D physics and the 3D character. Choosing 2D or 3D:
+page), the one physics backend with its planes, queries and the 3D
+character. Side views are planes, not a kind of project:
 [2D and 3D](../concepts/2d-and-3d.md). Every collider and controller field:
 [Physics components](../reference/components-physics.md).
 
@@ -87,7 +88,7 @@ instead — the same results, one copy less per frame:
   headers would be blocked), and Play works the same without it.
 
 **Limits.** The physics engine's WebAssembly memory may grow to
-512 MiB (`PHYSICS_MEMORY_CAP_BYTES`, an engine limit far above any 2D level);
+512 MiB (`PHYSICS_MEMORY_CAP_BYTES`, an engine limit far above any side-view level);
 past it the worker stops the simulation with `physics_memory_limit` instead
 of growing without bound. Stopping Play (or leaving an exported page) frees
 the worker's runtime and Rapier world before the worker ends. The physics
@@ -118,23 +119,27 @@ drew no more frames, and it showed unexplained stalls on WebGPU (numbers in
 
 ## One 3D backend; planes
 
-Every project simulates on the Rapier 3D backend (`@dimforge/rapier3d-compat`
-0.20.0). A side-view game locks its bodies to a plane: a scene's default
-plane (`setScenePlane`) or a collider's or controller's own `plane`
-(see [2D and 3D](../concepts/2d-and-3d.md)). The project setting
-`physics_dimension` is retired; a project that had it is upgraded on open.
+Every project and scene simulates on one backend, Rapier 3D
+(`@dimforge/rapier3d-compat` 0.20.0). A side view locks bodies to a plane:
+a scene's default plane (`setScenePlane`), a collider's or controller's own
+`plane`, or a script's `setPlane` (below; the idea:
+[2D and 3D](../concepts/2d-and-3d.md)). The project setting
+`physics_dimension` is retired; a project that had it is upgraded on open
+([Migration notes](migration.md#a-side-view-project-moves-onto-planes)).
 
-On the 3D backend:
+Colliders, free or on a plane:
 
 - a box collider's depth is its **Half depth** field (`hz`, metres; its
   Scene handle becomes a 3-axis box that turns with the object once the
   depth is set);
-- the 2D shapes take their **3D form**: a box without `hz` is a box the
+- the flat shapes take their **3D form**: a box without `hz` is a box the
   collider's **Depth** deep (`depth`, metres; absent: 1 m), a polygon a
   prism that deep (a concave outline is split into convex prisms, always the
   same way), along the plane's normal: Z, or X when the collider is locked
-  to an X plane (its outline then stands in Y/Z, its x along −Z). A 2D
-  circle's 3D form is a **cylinder** along that normal;
+  to an X plane (its outline then stands in Y/Z, its x along −Z). A
+  circle's 3D form is a **cylinder** along that normal. The orientation
+  comes from the collider's authored plane: a plane a script sets later
+  moves the body and never reshapes it;
 - a collider's **Shape** may also be a **sphere** (radius), a
   **capsule** (radius and total height, standing along the object's Y), a
   **cylinder** (radius and full height, standing along the object's Y; turn
@@ -142,7 +147,7 @@ On the 3D backend:
   **convex hull** (up to 64 points) or a **triangle mesh** (up to 1,024
   vertices and 2,048 triangles; static level geometry — never on a mover).
   Hulls and meshes are made from a model: dragging a model with a `_COL`
-  node into a 3D project gives it a mesh collider from that node (a convex
+  node into a scene gives it a mesh collider from that node (a convex
   hull when it is too big for a mesh), and the Inspector's **Box / Convex
   hull / Mesh from model** buttons make one from the object's model (its
   `_COL` node(s), else its LOD0 geometry). A 3D collider takes its object's
@@ -155,23 +160,33 @@ On the 3D backend:
 - **triggers** are 3D volumes: a **box** with a depth (`size` [w, h, d]),
   a **sphere** or a **capsule** (radius and height), turned with their
   object and tested exactly against the player's capsule — enter and exit
-  signals, `mode: stay`, `once` and scripts' trigger events work as in 2D.
-  A 2D trigger is taken as is: a circle is the sphere of its radius, a box
-  `[w, h]` is as deep as it is wide. **Switches** test the player's capsule
+  signals, `mode: stay`, `once` and scripts' trigger events work the same
+  on a plane. A flat trigger is taken as is: a circle is the sphere of its
+  radius, a box `[w, h]` is as deep as it is wide, so a plane through it
+  cuts the area it names. **Switches** test the player's capsule
   in their box the same way (`size` [w, h] or [w, h, d], turned with
   their object);
 - **one-way** colliders (`oneWay: true`) hold only from the side their
   local +Y faces: a platform is jumped up through and landed on, a turned
   one is a one-way wall, and in a full 3D level it is a one-way floor.
-  Down + jump drops a player standing on one through it, as on the plane.
-  The rule is the shape's lowest point along the platform's up against the
-  platform's top, so a player half way through is never caught by it;
+  Down + jump drops a player standing on one through it, free or on a
+  plane. The rule is the shape's lowest point along the platform's up
+  against the platform's top (within 6 cm), and the shape not moving up
+  through it, so a player half way through is never caught by it. One-way
+  block types work the same way ([Blocks](blocks.md#block-layers)). A spawn
+  inside a one-way platform is not blocked: the player drops to what is
+  below. Free in 3D, a drop through a 1 m deep shelf can push the
+  character up to 0.5 m along its depth (a known defect);
 - **movers** move 3D colliders (box, sphere, capsule, hull) along their
   waypoints and carry the player standing on them; a script may drive a
   collider no mover moves through its transform intents (the runtime turns
   it into a moving body; the player standing on it rides along);
-- colliders may be rotated about any axis; the player controller stays
-  upright; the capsule's **Offset** may have a z component;
+- colliders may be rotated about any axis (on a plane, about its normal
+  only); the player controller stays upright; the capsule's **Offset** may
+  have a z component;
+- colliders that share a face or overlap (a floor of tiles, a wall of
+  stacked boxes, a slope cut in pieces, a block layer's chunk pieces) act
+  as one surface: a character does not stand on or catch at the seams;
 - every collider shape takes a `center` ([x, y, z]; a plane reads x and y)
   and a `rotation` (a quaternion [x, y, z, w]; about Z only on a plane),
   placed in the object's space; `{type: "compound", shapes: […]}` is a list
@@ -187,7 +202,7 @@ On the 3D backend:
   its transform, a timeline's transform track or a mover — they then push
   the player as a mover does (a mesh collider stays static, one log line).
   In 3D with the controller a push can leave the player about 0.1 m inside
-  (a known defect). On the 2D plane children's colliders are placed at load;
+  (a known defect);
 - `colliderFromModel {entityId, kind: box | convex | mesh | polygon |
   compound}` (MCP/HTTP) is what the Inspector's model collider buttons do
   (**Compound of _COL parts** included): one `setComponent`, one undo;
@@ -196,6 +211,31 @@ On the 3D backend:
 - `tl_game_observe` reports such a play with `state: "running"`, its
   step and `player: { x, y, z }`; an exported page has the same observation
   in `window.__thirdlightObserve()`.
+
+### Queries
+
+One `ctx.physics` surface for every scene. The argument's shape picks the
+form:
+
+- **World** (`[x, y, z]` arrays): `raycast(origin, direction, maxDistance =
+  100, filter?)` → `{ entityId, point, normal, distance }` or null;
+  `overlapSphere(center, radius, filter?)`, `overlapBox(center, half,
+  rotation?, filter?)`, `overlapCapsule(center, radius, height, rotation?,
+  filter?)` → sorted ids (at most 64). `raycast3d` and `overlapBox3d` are
+  other names for the same calls.
+- **On a plane** (`{x, y}` points): `raycast`, `overlapBox(center, half,
+  filter?)` and `overlapCircle(center, radius, filter?)` ask on the plane
+  the calling script's object is locked to, else its scene's default
+  plane, else Z at 0 (engine modules, which have no object: Z at 0). x
+  runs along the plane's right (+X on a Z plane, −Z on an X plane); a ray's
+  hit gives its object, distance and normal, the normal in the plane. An overlap on a plane is a 2 cm
+  sliver across it, so it finds what crosses the plane, not what stands
+  beside it.
+
+A filter is `{ tags?, layers?, exclude? }` and works on every form. Queries
+never find the player. At most 1,024 queries a step for all scripts
+together (then nothing; warned once in the play log). Picks through the
+camera (`pickAt`, `pickAtPointer`): [Input](input.md).
 
 ### Plane locks
 
@@ -236,14 +276,14 @@ arrives; `ctx.physics.isSuspended(id)` reads it. See
 
 ### The 3D character
 
-The object with the **Player controller** walks, runs, jumps and climbs in a
-3D project. Its settings are fields of the controller (Inspector, 3D projects
-only; Autostep is the arcade profile's, below), each with a default that
-fits any genre:
+The object with the **Player controller** walks, runs, jumps and climbs,
+free or on a plane. Its settings are fields of the controller (Inspector;
+Autostep is the arcade profile's, below), each with a default that fits any
+genre:
 
 - **Movement:** Walk speed (2 m/s), Run speed (absent: the project's run
   speed setting — used while the `run` input action is held), Acceleration /
-  Deceleration (shared with the 2D controller), Air control (0.5: the share
+  Deceleration, Air control (0.5: the share
   of acceleration in the air), Gravity scale (× the project's gravity), Turn
   speed (720°/s; 0 turns at once) and Face movement (on: the object turns
   about its up axis so its +Z faces where it moves — its model turns with it),
@@ -264,27 +304,40 @@ fits any genre:
 The step-up and ledge heights have Scene-view handles above the capsule's
 feet (drag up or down; 5 cm snapping; one undo).
 
-**Movement profile** (`profile`, Movement group): **Character** (the
-default, everything above) or **Arcade** (`arcade`) — the 2D controller's
-rules, with its fields meaning what they mean there: one speed
-(the run speed, no walk), Acceleration while below the target speed along an
-axis and Deceleration while above it, in the air as on the ground; releasing
-jump while rising keeps Jump release of the upward speed and ends the jump;
-steps are climbed only with **Autostep** (up to its Step height; the
-character's Step-up height and Ledge climb are not used), the 2D way: the
-capsule rides up over the step's edge across a few steps and loses speed
-doing so, where the character profile is lifted onto it at once; the ground
-snap is as set; a character resting on a slope steeper than the project's slide
-angle slides down it at the run speed; Face movement is off unless set.
-Coyote time, the jump buffer, climbing, wall slide and wall jump, one-way
-platforms and what it stands on carrying it work as for the character.
-Either profile works free in 3D or locked to a plane. On a plane the
-arcade profile reads the move input's x along the plane (+X on a Z plane, −Z on
-an X plane: right for a camera on the plane's positive side, looking back),
-whatever the camera.
+**Movement profile** (`profile`, Movement group). Either profile works
+free in 3D or locked to a plane:
 
-**Climbing and walls** (both dimensions, the player controller's
-group of that name): **Climb speed** and **Climb action** (see Climb volume);
+- **Character** (`character`, the default): everything above.
+- **Arcade** (`arcade`): the feel of a classic side-scroller, the rules of
+  the old 2D controller, with the same tuning fields:
+  - one speed (the run speed; Walk speed and `run` are not used);
+    Acceleration while below the target speed along an axis and
+    Deceleration while above it, in the air as on the ground (Air control
+    is not used);
+  - releasing jump while rising keeps **Jump release** of the upward speed
+    and ends the jump;
+  - **Autostep** (up to its **Step height**): the capsule rides up over a
+    step's edge across a few steps and loses speed doing so, where the
+    character profile is lifted onto it at once; Step-up height and Ledge
+    climb are not used, and the ground snap is as set (not raised to the
+    step height);
+  - a character resting on a slope steeper than the project's slide angle
+    slides down it at the run speed;
+  - Face movement is off unless set;
+  - on a plane it reads the move input's x along the plane's right (+X on
+    a Z plane, −Z on an X plane: right for a camera on the plane's positive
+    side, looking back), whatever the camera; free in 3D it reads the move
+    as the character profile does (**Move relative to**).
+
+Both profiles have **coyote time** and the **jump buffer** (a jump pressed
+just after leaving the ground, or just before landing, still jumps),
+**climbing** in climb volumes, **wall slide** and **wall jump** (below),
+**one-way platforms** with down + jump to drop through, and **movers**
+carrying the character standing on them (a mover rising beside it pushes
+it aside, within the plane when it is locked).
+
+**Climbing and walls** (both profiles, free or on a plane; the player
+controller's group of that name): **Climb speed** and **Climb action** (see Climb volume);
 **Wall slide** (off; when on, falling in the air while pushing into a wall
 slides down it no faster than **Wall slide speed**, 2 m/s) and **Wall jump**
 (off; when on, jump in the air next to a wall it touches — or touched within
@@ -294,9 +347,11 @@ and **Wall jump up** (absent: the jump speed); the input does not steer for
 ends it). Both are off unless turned on.
 
 **Input.** The move is a 2D vector: a project without its own input actions
-gets the 3D defaults (W/A/S/D and the arrow keys or the left stick move,
-Shift or the left-stick press runs, Space jumps); a project's own `move`
-action moves in 2D when it is a 2D axis (a 1D `move` only moves sideways).
+gets the free 3D defaults (W/A/S/D and the arrow keys or the left stick
+move, Shift or the left-stick press runs, Space jumps), or the side-view
+ones when its first start scene has a default plane (`move` a 1D axis); a
+project's own `move` action moves in two axes when it is a 2D axis (a 1D
+`move` only moves sideways).
 The vector is read relative to the active virtual camera's yaw (see
 [Cameras](scenes-and-cameras.md#cameras-virtual-cameras): forward walks away from the camera); a scene without virtual
 cameras walks along world axes (+x input along +X, forward along −Z).
@@ -310,9 +365,8 @@ named `actions` (e.g. `run`).
 where it is: no input, no gravity) or on, and `control_move` takes an
 optional `y` (the forward input). `ctx.physics.characterState(id)` reads its
 position, velocity, grounding, contacts, whether it is on and climbing, and
-its facing. `character_move` is refused in a 2D-plane project
-(`character_place` and `character_enable` work there too; `ctx.character.walkTo`
-walks either). A recorded
+its facing. On a plane they keep the character on it (the part of a move
+or a placement along the normal is dropped). A recorded
 input replays the same positions in the page, the simulation worker and the
 export.
 
@@ -321,7 +375,10 @@ physics downloads none of it: Play loads `/physics-3d.js` from the preview
 origin; an export ships `js/physics-3d.js` with rapier's WebAssembly beside it
 as its own file (`js/physics-3d.wasm`, 1.9 MB, 0.7 MB gzipped), fetched when
 the physics starts, and lists the `@dimforge/rapier3d-compat` license. One
-engine ships for every game, side views included. The backend loads in
+engine ships for every game, side views included: a side-view game's
+export is 551 KiB larger (208 KiB gzipped) than when side views had a 2D
+backend of their own; a 3D game's is unchanged ([Migration
+notes](migration.md#a-side-view-project-moves-onto-planes)). The backend loads in
 the simulation worker or, single-threaded, in the page, and registers itself
 through game-host's dependency-free `physics-global` module; an export's page
 and worker scripts carry no physics of their own.

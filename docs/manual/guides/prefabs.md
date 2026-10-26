@@ -14,7 +14,7 @@ edit of the prefab reaches every copy, except what a copy overrides.
 1. Make the object: **GameObject → Box**, name it `Barrel`, give it a size
    and a colour, and **+ Add component → Collider: Box**. The collider
    starts at half sizes of 0.5 m, not the box's: set its **Half width**,
-   **Half height** and (in a 3D project) **Half depth** to half the box's
+   **Half height** and **Half depth** to half the box's
    size. Children come along, so a prefab can be a whole group.
 2. Select it and choose **GameObject → Create prefab from selection** (also
    in the Hierarchy's right-click menu). The prefab is made at once, named

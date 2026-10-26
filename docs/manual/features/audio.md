@@ -99,10 +99,11 @@ the music over any other track until `releaseMusic(fade)`;
 active camera, and fades by its distance model (defaults linear, 2–30 m).
 The project setting **Audio sources** (`audio_spatial`: 0 automatic, 1 by X
 distance to the player, 2 panned) decides how audio sources are heard;
-automatic hears 2D projects by X distance to the player and pans in 3D, where an
+automatic hears a game whose first start scene has a default plane by the
+distance along the plane to the player and pans the others, where an
 audio source's range is its max distance and **Distance model**, **Full
 volume within** and **Rolloff** are Inspector fields. Scenes without a game
-block (3D projects) play script sounds and audio sources too. A script
+block play script sounds and audio sources too. A script
 names its sounds through asset properties (the export carries only the
 assets objects and script properties reference). `tl_game_observe` and the
 export's `window.__thirdlightObserve()` report `audio`: live voices with

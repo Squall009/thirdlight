@@ -26,7 +26,7 @@ To take an improvement in an older project, set the setting yourself
 say what an unset value means.
 
 The rule is about defaults. A fixed bug, or a capability that was missing
-(block layers colliding on the 2D plane, for example), can change what an
+(one physics backend for side views, for example), can change what an
 existing game does; [Migration notes](../features/migration.md#what-else-behaves-differently-for-an-existing-game)
 list each one and how to keep the old behaviour where there is a way.
 

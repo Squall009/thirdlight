@@ -77,7 +77,7 @@ names (letters, digits, _; up to 32 characters, so a load screen binds them
 as `$item.meta.<name>`) to texts, as many as fit in **4 KiB** for the whole
 record as JSON (UTF-8 bytes; `SAVE_LIMITS.metaBytes`, read for every slot
 when the slots are listed); a record over it is refused (`save()` answers
-false). `slots()` gives `{}` for a slot saved without one. In a 3D project the save's `world.character` also keeps the
+false). `slots()` gives `{}` for a slot saved without one. The save's `world.character` also keeps the
 character's facing (degrees), and a load turns it back (older saves without
 it leave it as it is). A UI `image` widget shows a slot's picture with
 `saveSlot` (a slot number, or a binding to one such as `$item.slot` on a

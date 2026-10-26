@@ -64,17 +64,15 @@ frame — masks 1 left, 2 right, 4 middle) reproduces them; a frame without a
 pointer keeps the last position and held buttons. Its `actions` are
 passed through too.
 
-**3D queries** (the 3D backend): `ctx.physics.raycast(origin,
-direction, maxDistance = 100, filter?)` with `[x, y, z]` arrays → `{ entityId, point, normal,
-distance }` or null; `overlapSphere(center, radius, filter?)`,
-`overlapBox(center, half, rotation?, filter?)` with `[x, y, z]` arrays, `overlapCapsule(center,
-radius, height, rotation?, filter?)` → sorted ids (at most 64);
+**Picks and queries.** The physics queries (`ctx.physics.raycast`,
+`overlapSphere`, `overlapBox`, `overlapCapsule`, `overlapCircle`, in the
+world with `[x, y, z]` arrays or on a plane with `{x, y}` points) are in
+[Physics: queries](physics.md#queries). Through the camera:
 `pickAt(x, y, maxDistance = 1000, filter?)` casts the active camera's ray
 through a screen point (the default pose's when no virtual camera is live;
 `ctx.camera.screenToRay/worldToScreen` use the same view), `pickAtPointer`
 through the pointer (null while it is off the view). A filter is `{ tags?,
-layers?, exclude? }`. At most 1,024 queries a step for all scripts together
-(then nothing; warned once in the play log). A 3D scene without a player
+layers?, exclude? }`; picks count with the queries (1,024 a step). A scene without a player
 still has physics when it has colliders (they answer the queries).
 Hover edges on objects are the script's own: compare this step's pick with
 the last one.

@@ -52,8 +52,10 @@ A project directory holds:
   upgraded on open, an older one is refused, see [Migration notes](migration.md)),
   and `upgrades`: the one-time data upgrades the project has had (`trim-data`:
   old trim paint and COLOR_0 moved, see [Vertex paint](vertex-paint.md); also
-  recorded by the edit that adds a project's first trim material), so none
-  runs twice;
+  recorded by the edit that adds a project's first trim material; `planes`:
+  the move onto the one physics backend, see [Migration
+  notes](migration.md#a-side-view-project-moves-onto-planes)), so none runs
+  twice;
 - `content.json`: the project-wide settings: settings, tags, the scene list
   and the start scenes, the environment (its presets' order), input, the game
   shell, event sounds, modes, the save schema, speakers and dialogue
@@ -194,7 +196,7 @@ project scripts (in its own repository when it has one).
   [Saves](saves.md)).
 - **Input**: named actions only (input frame version 2); the character
   controller reads the actions it names (`moveAction`, `jumpAction`,
-  `runAction` in 3D; defaults `move`, `jump`, `run`).
+  `runAction`; defaults `move`, `jump`, `run`).
 - **Local co-op**: any number of player controllers share the view (see
   [Several player controllers](scenes-and-cameras.md#several-player-controllers-local-co-op)).
 - **Removed game data**: a game block, a level flow, enemies, game zones,
