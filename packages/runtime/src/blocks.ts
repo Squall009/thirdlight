@@ -30,7 +30,7 @@
  * same areas).
  */
 import type { ActionFrame } from './actions';
-import type { KinematicPose3D, PhysicsPort3D } from './ports';
+import type { KinematicPose3D, PhysicsPlane, PhysicsPort3D } from './ports';
 import { BLOCK_DEFAULTS, isCounterName, SWITCH_DEFAULT_ACTION, type EntityV3 } from '@thirdlight/project-model';
 import type { BehaviorMessage, PlayerCapsule, PrimitiveEventRecord, TransformState, TriggerEventRecord } from './types';
 import { colliderShape3DOf, shapeAabb3, solidShapeOf } from './collider-specs';
@@ -213,6 +213,8 @@ export interface BlocksHost {
   readonly characters: readonly BlocksCharacter[];
   /** The collider entity a player character stands on, or null. */
   groundEntityId(characterId: string): string | null;
+  /** The plane a player character is locked to now (absent or null: free); a mover's push keeps to it. */
+  characterPlane?(characterId: string): PhysicsPlane | null;
   /** Play or stop a visual effect (presentation only; the simulation never reads it back). */
   effect?(request: BlocksEffectRequest): void;
   /** The physics port movers are posed on and walkers probe (absent: a game without physics). */
@@ -897,7 +899,10 @@ export class GameplayBlocks {
    * One player character's carry: the motion of what it stands on (a
    * mover, a collider a script drives), plus the pushes of those moving into
    * it — out along the axis of least overlap (a mover moving mostly upward
-   * pushes a player beside or under it sideways, never up).
+   * pushes a player beside or under it sideways, never up). A player locked
+   * to a plane is pushed within it: its lock would drop a push along the
+   * plane's normal, so a flat mover (1 m deep by default) whose shallowest
+   * way out is that normal would not move it at all.
    */
   private carry3D(c: CharacterBoxSpec, moved: readonly { pos: Vec3; before: Vec3; id: string; aabb: { min: Vec3; max: Vec3 } | null; pushStep: number }[]): Readonly<Vec3> {
     const ground = this.host.groundEntityId(c.id);
@@ -906,6 +911,8 @@ export class GameplayBlocks {
     const t = this.host.curr.get(c.id);
     const player: Vec3 | null = t === undefined ? null : [t.position[0], t.position[1], t.position[2]];
     const capHalf: Vec3 = [c.hw, c.hh, c.hw];
+    const plane = this.host.characterPlane?.(c.id) ?? null;
+    const locked = plane === null ? -1 : plane.axis === 'x' ? 0 : 2;
     const push = (m: { pos: Vec3; aabb: { min: Vec3; max: Vec3 } | null; pushStep: number }, before: Vec3): void => {
       if (player === null || m.aabb === null) return;
       const box = m.aabb;
@@ -915,7 +922,8 @@ export class GameplayBlocks {
       if (over[0] <= 0 || over[1] <= 0 || over[2] <= 0) return;
       const d = sub3(m.pos, before);
       const sideways = d[1] > 0 && d[1] >= Math.hypot(d[0], d[2]) && pc[1] < m.pos[1] + box.max[1];
-      const axis: 0 | 1 | 2 = over[1] <= over[0] && over[1] <= over[2] && !sideways ? 1 : over[0] <= over[2] ? 0 : 2;
+      const across: 0 | 2 = locked === 0 ? 2 : locked === 2 ? 0 : over[0] <= over[2] ? 0 : 2;
+      const axis: 0 | 1 | 2 = over[1] <= over[across] && (locked !== -1 || over[1] <= over[across === 0 ? 2 : 0]) && !sideways ? 1 : across;
       pushed[axis] = pushed[axis] + Math.min(m.pushStep, over[axis]) * (pc[axis] >= centre[axis] ? 1 : -1);
     };
     for (const m of moved) {

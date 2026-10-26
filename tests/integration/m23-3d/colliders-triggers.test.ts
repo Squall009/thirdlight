@@ -257,6 +257,32 @@ describe('a mover sliding into the player in 3D', () => {
     expect(Math.max(...ends) - Math.min(...ends)).toBeLessThan(0.02);
   }, 120_000);
 
+  // A flat block (a box without hz: the collider's default 1 m depth) rises around a player locked to the plane z = 0
+  // and standing 1 m inside its left end, its centre under the block's top. Its shallowest way out is along z, which the
+  // lock drops: the push keeps to the plane and moves it out along −x, onto the floor beside the block.
+  it('pushes a plane-locked player out within its plane, not along the plane\'s normal', async () => {
+    const scene = sceneOf(
+      [
+        CAM,
+        { id: 'player-0001', components: { transform: T([0, 0.95, 0]), controller: { plane: { axis: 'z', origin: 0 } } } },
+        { id: 'floor-0001', components: { transform: T([0, -0.5, 0]), collider: { shape: { type: 'box', hx: 10, hy: 0.5, hz: 10 } } } },
+        { id: 'block-0001', components: { transform: T([1, 0.5, 0]), collider: { shape: { type: 'box', hx: 2, hy: 0.5 } }, mover: { waypoints: [[0, 2, 0]], speed: 1, mode: 'once' } } },
+      ],
+      'd3planepush',
+    );
+    const a = await run('single', scene, 480);
+    try {
+      expect(a.at('block-0001')[1]).toBeCloseTo(2.5, 6);
+      const p = a.at('player-0001');
+      expect(p[0]).toBeLessThan(-1.3 + 2e-3);
+      expect(p[0]).toBeGreaterThan(-1.5);
+      expect(p[1]).toBeLessThan(0.9 + 0.03);
+      expect(p[2]).toBe(0);
+    } finally {
+      await a.h.dispose();
+    }
+  }, 60_000);
+
   // A 2 m × 1 m × 2 m block slides 5 m along −x carrying two players (one in its middle, one on its rim with its centre
   // 0.12 m past the edge) into a third standing in its way. The first player is swept first and stands on the block;
   // the others are swept after it in the same step.

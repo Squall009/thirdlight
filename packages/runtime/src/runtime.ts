@@ -508,6 +508,7 @@ export class RuntimeInstance implements Runtime {
         gravityY: this.sim.settings.gravity_y,
         maxFallSpeed: this.sim.settings.max_fall_speed,
         groundEntityId: (id) => rt.controllers.groundEntityId(id),
+        characterPlane: (id) => rt.controllers.planeOf(id),
         // The physics world (movers posed on it, walkers' probes).
         ...(args.physics3d !== undefined ? { physics3d: args.physics3d, scriptColliders3D: () => rt.chars.colliders.poses() } : {}),
         // A trigger's scene transition.
