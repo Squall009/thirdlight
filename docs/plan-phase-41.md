@@ -391,6 +391,6 @@ with real Rapier on page and worker.
   `it.fails` (they turn red when the engine is fixed).
 - 2026-10-26 (41.6 fixes): default chosen, owner to confirm: every triangle-mesh collider (block chunks, terrain
   pieces, a model's collision mesh) fixes its internal edges (Rapier `FIX_INTERNAL_EDGES`, which also treats it as
-  oriented: a model mesh wound inward collides from the wrong side). One-way blocks are one collider per chunk and
+  oriented; a model mesh wound inward may then collide wrongly from its back — unverified, no such mesh in the tests). One-way blocks are one collider per chunk and
   row of cells. A character standing still settles onto its skin; a moving one keeps Rapier's own snap (settling every
   step broke slopes and stairs parity).
