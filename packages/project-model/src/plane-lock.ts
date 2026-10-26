@@ -109,3 +109,30 @@ export function planeCoords(plane: PlaneLock, v: readonly [number, number, numbe
   const z = v[2] ?? 0;
   return plane.axis === 'z' ? [v[0] ?? 0, v[1] ?? 0] : [z === 0 ? 0 : -z, v[1] ?? 0];
 }
+
+/** A quaternion as the plane twist reads and returns it. */
+export interface PlaneQuat {
+  x: number;
+  y: number;
+  z: number;
+  w: number;
+}
+
+/**
+ * A rotation reduced to its turn about the plane's normal axis (the twist of
+ * a swing-twist split): the normal's component of the quaternion with w,
+ * normalized, w kept non-negative. A rotation of exactly half a turn about an
+ * axis in the plane has no twist and becomes the identity. The one rule a
+ * locked body's pose (the physics port) and its drawn pose (the runtime) use.
+ */
+export function planeTwist(q: PlaneQuat, axis: PlaneAxis): PlaneQuat {
+  const a = axis === 'x' ? q.x : q.z;
+  const len = Math.hypot(a, q.w);
+  if (!(len > 1e-12)) return { x: 0, y: 0, z: 0, w: 1 };
+  const s = q.w < 0 ? -1 : 1;
+  const c = (s * a) / len;
+  const w = (s * q.w) / len;
+  // No negative zero: a twist of nothing is written as 0.
+  const t = c === 0 ? 0 : c;
+  return axis === 'x' ? { x: t, y: 0, z: 0, w } : { x: 0, y: 0, z: t, w };
+}

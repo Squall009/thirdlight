@@ -1132,7 +1132,7 @@ export class RuntimeGrid {
       const [cx, cz] = ck.split(',').map(Number) as [number, number];
       return collisionMeshChunk(layer.shown, cx, cz, this.types).map((p, i) => ({
         entityId: gridColliderId(entityId, ck, i, p.oneWay === true),
-        shape: { type: 'mesh', vertices: p.vertices, indices: p.indices },
+        shape: { type: 'mesh', vertices: p.vertices, indices: p.indices, oriented: true },
         position: { x: layer.origin.x, y: layer.origin.y, z: layer.origin.z },
         rotation: { x: 0, y: 0, z: 0, w: 1 },
         ...(layer.component.maxSlope !== undefined ? { maxSlope: (layer.component.maxSlope * Math.PI) / 180 } : {}),

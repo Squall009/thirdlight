@@ -203,6 +203,12 @@ function finite(v: unknown): v is number {
  */
 export type PhysicsPlane = PlaneLock;
 
+/** One body's plane change in a batch (`setBodyPlanes`; null: freed). */
+export interface BodyPlaneChange {
+  readonly entityId: string;
+  readonly plane: PhysicsPlane | null;
+}
+
 /** A 3D vector (m). */
 export interface PhysicsVec3 {
   x: number;
@@ -274,7 +280,15 @@ export type ColliderPrimitive3D =
   /** A cylinder along its local Y; `halfHeight` is half its full height (Rapier's convention). */
   | { type: 'cylinder'; radius: number; halfHeight: number }
   | { type: 'convex'; points: readonly number[] }
-  | { type: 'mesh'; vertices: readonly number[]; indices: readonly number[] }
+  /**
+   * A triangle mesh. `oriented`: its triangles are wound counter-clockwise
+   * seen from outside and nothing stands behind them (the engine's generated
+   * meshes: block chunks, terrain, architecture), so contacts on the edge
+   * between two triangles take the faces' normals; otherwise (an imported
+   * model's mesh, maybe open or walked from inside) it collides from both
+   * sides.
+   */
+  | { type: 'mesh'; vertices: readonly number[]; indices: readonly number[]; oriented?: boolean }
   /**
    * A heightfield (a static collider only; a terrain tile's): `cellsX` ×
    * `cellsZ` cells of `cellX` × `cellZ` metres from the collider's origin
@@ -466,6 +480,12 @@ export interface PhysicsPort3D {
    * no collider of that object.
    */
   setBodyPlane?(entityId: string, plane: PhysicsPlane | null): boolean;
+  /**
+   * `setBodyPlane` for many bodies at once (a level section switched in one
+   * step): the world is brought up to date once for the batch. One answer
+   * per change, in order.
+   */
+  setBodyPlanes?(changes: readonly BodyPlaneChange[]): boolean[];
   /**
    * Lock a character (absent id: the first) to a plane, or free it (null),
    * at a step boundary: locking snaps it onto the plane and its moves keep

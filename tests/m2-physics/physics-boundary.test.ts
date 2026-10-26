@@ -83,6 +83,8 @@ describe('runtime core imports no physics implementation', () => {
           specifier === '@thirdlight/runtime' ||
           // The model's collider limits, defined once in project-model (constants only).
           specifier === '@thirdlight/project-model/limits' ||
+          // A locked body's twist, the model's one rule the runtime uses too (pure math).
+          specifier === '@thirdlight/project-model/plane-lock' ||
           specifier === 'vitest';
         expect(allowed, `${file} imports '${specifier}' (dependencies.md §4.1/§4.3)`).toBe(true);
       }

@@ -94,7 +94,7 @@ export type {
 // The character capsule (default, limits, resolved form).
 export { CAPSULE_LIMITS, COLLIDER_3D_LIMITS, COLLIDER_3D_SHAPES, CONTROLLER_FIELDS, CONTROLLER_TUNING_FIELDS, CONTROLLER_TUNING_LIMITS, DEFAULT_CONTROLLER_CAPSULE, DEFAULT_CONTROLLER_TUNING, controllerCapsuleOf, controllerCapsuleOffsetZ, controllerTuningOf, CHARACTER_3D_LIMITS, CONTROLLER_3D_FIELDS, DEFAULT_CHARACTER_3D, character3DSettingsOf, CHARACTER_MOVE_FRAMES, type CharacterMoveFrame, CONTROLLER_PROFILES, type ControllerProfile, CONTROLLER_ACTION_FIELDS, CONTROLLER_ACTION_DEFAULTS, controllerActionsOf, type Character3DSettings, CONTROLLER_MOVEMENT_FIELDS, CONTROLLER_MOVEMENT_LIMITS, DEFAULT_CONTROLLER_MOVEMENT, controllerMovementOf, type ControllerMovementSettings } from './components';
 // Collision layers.
-export { DEFAULT_COLLISION_LAYER, MAX_COLLISION_LAYERS, PLANE_ROTATION_TOLERANCE, validateCollisionLayers } from './components';
+export { DEFAULT_COLLISION_LAYER, GROUND_NORMAL_TOLERANCE, MAX_COLLISION_LAYERS, PLANE_ROTATION_TOLERANCE, validateCollisionLayers } from './components';
 export { parseDocumentBytes, type ByteParse } from './parse-bytes';
 export { parseEnvelopeV3, parseManifest, parseSceneV3 } from './parse-api';
 
@@ -1784,5 +1784,5 @@ export { MODEL_OCCLUDER_MODES, modelOccluderChecks, modelOccluderModeOf, modelOc
 // Diagnostics rows folded with a count (the runtime's error ring and the Play answers' bound).
 export { BEHAVIOR_LOG_CODE, isErrorRow, mergeRepeatedRow, mergeRepeatedRows, REPEATED_ROW_ENTITY_IDS_MAX, repeatedRowKey, type RepeatedRowFields } from './repeated-rows';
 export { BLOCK_3D_CHANGE_KINDS, blocks2DTo3D, type Block3DChange, type Block3DChangeKind } from './block-2d-3d';
-export { PLANE_AXES, canonicalPlaneField, effectivePlaneOf, isPlaneLock, planeCoords, planeLockOf, planePoint, planeVector, validatePlaneLock, withScenePlane, type PlaneAxis, type PlaneLock } from './plane-lock';
+export { PLANE_AXES, canonicalPlaneField, effectivePlaneOf, isPlaneLock, planeCoords, planeLockOf, planePoint, planeTwist, planeVector, validatePlaneLock, withScenePlane, type PlaneAxis, type PlaneLock, type PlaneQuat } from './plane-lock';
 export { DEFAULT_COLLIDER_DEPTH, MAX_COLLIDER_DEPTH, colliderDepthOf, convexPieces, hasTwoDShape, shape2DTo3D, type ColliderCircleShape2D, type Shape3DChange, type Shape3DOptions } from './shape-2d-3d';

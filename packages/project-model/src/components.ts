@@ -577,6 +577,13 @@ export interface Character3DSettings {
 }
 
 /**
+ * The tolerance of a support normal tested against an angle's cosine (is a
+ * contact ground, too steep to stand on): the physics port's grounding and
+ * the controller's slide and climb tests use the same one.
+ */
+export const GROUND_NORMAL_TOLERANCE = 1e-6;
+
+/**
  * The 3D character settings a controller describes, with the
  * project settings it defers to (`run_speed`, `jump_velocity`, `gravity_y`,
  * `max_fall_speed`, `max_slope_climb_deg`).

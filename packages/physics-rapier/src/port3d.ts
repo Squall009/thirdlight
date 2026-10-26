@@ -22,7 +22,7 @@
  */
 import { COLLIDER_3D_LIMITS } from '@thirdlight/project-model/limits';
 import * as RAPIER from '@dimforge/rapier3d-compat';
-import type { AddedCharacter3D, CharacterClearanceResult3D, CharacterMoveResult3D, KinematicPose3D, OverlapShape3D, PhysicsDiagnostics, PhysicsInitConfig3D, PhysicsPlane, PhysicsPort3D, PhysicsQuat, PhysicsQueryFilter3D, PhysicsVec3, RaycastHit3D, StaticColliderSpec3D } from '@thirdlight/runtime';
+import type { AddedCharacter3D, BodyPlaneChange, CharacterClearanceResult3D, CharacterMoveResult3D, KinematicPose3D, OverlapShape3D, PhysicsDiagnostics, PhysicsInitConfig3D, PhysicsPlane, PhysicsPort3D, PhysicsQuat, PhysicsQueryFilter3D, PhysicsVec3, RaycastHit3D, StaticColliderSpec3D } from '@thirdlight/runtime';
 
 import { inPlane, isPlane, lockBody, onPlane, planePose } from './plane3d';
 import { capsuleLowAlong, holds, markOneWay, OneWaySweeps, upOf, type OneWayShape } from './oneway3d';
@@ -56,7 +56,7 @@ export type ColliderPrimitive3D =
   | { type: 'capsule'; radius: number; halfHeight: number }
   | { type: 'cylinder'; radius: number; halfHeight: number }
   | { type: 'convex'; points: readonly number[] }
-  | { type: 'mesh'; vertices: readonly number[]; indices: readonly number[] }
+  | { type: 'mesh'; vertices: readonly number[]; indices: readonly number[]; oriented?: boolean }
   | { type: 'heightfield'; cellsX: number; cellsZ: number; cellX: number; cellZ: number; heights: Float32Array };
 
 /** One shape of a compound, placed in its body's frame. */
@@ -227,9 +227,10 @@ function validatePrimitive3D(value: unknown): { ok: true; shape: ColliderPrimiti
       }
       indices.push(t[0]!, t[1]!, t[2]!);
     }
-    const extra = onlyKeys(v, ['type', 'vertices', 'indices'], 'mesh');
+    const extra = onlyKeys(v, ['type', 'vertices', 'indices', 'oriented'], 'mesh');
     if (extra !== null) return { ok: false, detail: extra };
-    return { ok: true, shape: { type: 'mesh', vertices, indices } };
+    if (v['oriented'] !== undefined && typeof v['oriented'] !== 'boolean') return { ok: false, detail: 'mesh oriented must be true or false' };
+    return { ok: true, shape: { type: 'mesh', vertices, indices, ...(v['oriented'] === true ? { oriented: true } : {}) } };
   }
   if (type === 'heightfield') {
     const extra = onlyKeys(v, ['type', 'cellsX', 'cellsZ', 'cellX', 'cellZ', 'heights'], 'heightfield');
@@ -447,7 +448,12 @@ interface Collider3DInfo {
   climbCos?: number;
   /** A one-way collider's top and reach (absent: it holds from every side). */
   oneWay?: OneWayShape;
+  /** A triangle mesh of unknown winding: it has no inside, so the between-collider internal-edge rule leaves it out. */
+  unoriented?: true;
 }
+
+/** Whether a collider counts as a solid static for the internal-edge rule (not one-way, of a known inside). */
+const solidStaticInfo = (info: Collider3DInfo | undefined): boolean => info?.oneWay === undefined && info?.unoriented !== true;
 
 /** Rotate `p` by the unit quaternion `q`. */
 function rotate(q: PhysicsQuat, p: readonly [number, number, number]): [number, number, number] {
@@ -471,11 +477,15 @@ function colliderDescOf(shape: ColliderPrimitive3D): RAPIER.ColliderDesc | null 
       return RAPIER.ColliderDesc.cylinder(shape.halfHeight, shape.radius);
     case 'convex':
       return RAPIER.ColliderDesc.convexHull(new Float32Array(shape.points));
-    case 'mesh':
-      // Duplicate vertices (a model's seams) are merged and degenerate triangles dropped. Contacts on an edge
-      // between two triangles take the faces' normals: a block layer's wall is cut into a quad per cell, and
-      // without it a capsule sliding down the wall was grounded on an edge between them and hung there.
-      return RAPIER.ColliderDesc.trimesh(new Float32Array(shape.vertices), new Uint32Array(shape.indices), RAPIER.TriMeshFlags.MERGE_DUPLICATE_VERTICES | RAPIER.TriMeshFlags.DELETE_DEGENERATE_TRIANGLES | RAPIER.TriMeshFlags.FIX_INTERNAL_EDGES);
+    case 'mesh': {
+      // Duplicate vertices (a model's seams) are merged and degenerate triangles dropped. On an oriented mesh,
+      // contacts on an edge between two triangles take the faces' normals: a block layer's wall is cut into a
+      // quad per cell, and without it a capsule sliding down the wall was grounded on an edge between them and
+      // hung there. The fix makes the mesh one-sided by its winding, so a mesh of unknown winding (an imported
+      // model's, perhaps open or used from inside) is left two-sided.
+      const flags = RAPIER.TriMeshFlags.MERGE_DUPLICATE_VERTICES | RAPIER.TriMeshFlags.DELETE_DEGENERATE_TRIANGLES | (shape.oriented === true ? RAPIER.TriMeshFlags.FIX_INTERNAL_EDGES : 0);
+      return RAPIER.ColliderDesc.trimesh(new Float32Array(shape.vertices), new Uint32Array(shape.indices), flags);
+    }
     case 'heightfield': {
       // Rapier's matrix: rows along z, columns along x, column-major (the shape's order), centred on the collider; its cells split the same diagonal.
       return RAPIER.ColliderDesc.heightfield(shape.cellsZ, shape.cellsX, shape.heights, { x: shape.cellsX * shape.cellX, y: 1, z: shape.cellsZ * shape.cellZ });
@@ -623,7 +633,8 @@ function addStaticBody(world: RAPIER.World, spec: StaticColliderSpec3D, bits: La
     const off = rotate(p.rotation, shapeOffset(p.shape));
     const desc = descs[i]!.setTranslation(p.position.x + off[0], p.position.y + off[1], p.position.z + off[2]).setRotation({ x: p.rotation.x, y: p.rotation.y, z: p.rotation.z, w: p.rotation.w });
     const collider = world.createCollider((oneWay !== undefined ? markOneWay(desc) : desc).setCollisionGroups(groups), body);
-    return { collider, info: { entityId: spec.entityId, body, kinematic, top, ...(spec.maxSlope !== undefined ? { climbCos: Math.cos(spec.maxSlope) } : {}), ...(oneWay !== undefined ? { oneWay } : {}) } };
+    const unoriented = p.shape.type === 'mesh' && p.shape.oriented !== true;
+    return { collider, info: { entityId: spec.entityId, body, kinematic, top, ...(spec.maxSlope !== undefined ? { climbCos: Math.cos(spec.maxSlope) } : {}), ...(oneWay !== undefined ? { oneWay } : {}), ...(unoriented ? { unoriented: true as const } : {}) } };
   });
   return { body, colliders };
 }
@@ -749,27 +760,49 @@ interface PlaneLockParts {
   assertLive: (op: string) => void;
 }
 
-/** Locking a collider's body or a character to a plane, and freeing it, at a step boundary. */
-function planeLocks3D(d: PlaneLockParts): Pick<RapierPhysicsPort3D, 'setBodyPlane' | 'setCharacterPlane'> {
+/** A pipeline update (broad phase, contacts, scene queries) in which no time passes: nothing integrates. */
+function refreshWithoutTime(world: RAPIER.World): void {
+  const dt = world.timestep;
+  world.timestep = 0;
+  try {
+    world.step();
+  } finally {
+    world.timestep = dt;
+  }
+}
+
+/** Locking colliders' bodies or a character to a plane, and freeing them, at a step boundary. */
+function planeLocks3D(d: PlaneLockParts): Pick<RapierPhysicsPort3D, 'setBodyPlane' | 'setBodyPlanes' | 'setCharacterPlane'> {
   return {
     setBodyPlane(entityId: string, plane: PhysicsPlane | null): boolean {
-      d.assertLive('setBodyPlane');
-      if (plane !== null && !isPlane(plane)) throw new Error(`setBodyPlane("${entityId}"): plane must be { axis: 'x' | 'z', origin } or null`);
-      const spec = d.staticSpecs.get(entityId);
-      if (spec === undefined) return false;
-      // The kept spec carries the plane, so a rebuilt world makes the body on it again.
-      const { plane: _was, ...free } = spec;
-      d.staticSpecs.set(entityId, plane !== null ? { ...free, plane: { axis: plane.axis, origin: plane.origin } } : free);
-      const body = d.bodies.get(entityId);
-      if (d.deferred() || body === undefined) return true;
-      lockBody(body, plane);
-      if (plane !== null && body.isKinematic()) {
-        const t = body.translation();
-        d.kinematicAt.set(entityId, { x: t.x, y: t.y, z: t.z });
-      }
-      // The scene queries and the next sweep see it where it is now.
-      d.world().step();
-      return true;
+      return this.setBodyPlanes!([{ entityId, plane }])[0] === true;
+    },
+
+    setBodyPlanes(changes: readonly BodyPlaneChange[]): boolean[] {
+      d.assertLive('setBodyPlanes');
+      for (const c of changes) if (c.plane !== null && !isPlane(c.plane)) throw new Error(`setBodyPlane("${c.entityId}"): plane must be { axis: 'x' | 'z', origin } or null`);
+      let moved = false;
+      const done = changes.map(({ entityId, plane }) => {
+        const spec = d.staticSpecs.get(entityId);
+        if (spec === undefined) return false;
+        // The kept spec carries the plane, so a rebuilt world makes the body on it again.
+        const { plane: _was, ...free } = spec;
+        d.staticSpecs.set(entityId, plane !== null ? { ...free, plane: { axis: plane.axis, origin: plane.origin } } : free);
+        const body = d.bodies.get(entityId);
+        if (d.deferred() || body === undefined) return true;
+        lockBody(body, plane);
+        moved = true;
+        if (plane !== null && body.isKinematic()) {
+          const t = body.translation();
+          d.kinematicAt.set(entityId, { x: t.x, y: t.y, z: t.z });
+        }
+        return true;
+      });
+      // The scene queries and the next sweep see them where they are now: one
+      // pipeline update for the whole batch, with no time passing (a step of
+      // the run's length would move dynamic bodies on by a step).
+      if (moved) refreshWithoutTime(d.world());
+      return done;
     },
 
     setCharacterPlane(plane: PhysicsPlane | null, characterId?: string): PhysicsVec3 {
@@ -921,7 +954,7 @@ function overlapOf(world: RAPIER.World, b: CharacterBody3D, c: PhysicsVec3, info
  */
 function wholeSpec(kept: StaticColliderSpec3D, colliders: readonly RAPIER.Collider[]): StaticColliderSpec3D {
   const fill = (s: ColliderPrimitive3D, c: RAPIER.Collider): ColliderPrimitive3D => {
-    if (s.type === 'mesh') return { type: 'mesh', vertices: c.vertices() as unknown as number[], indices: (c.indices() ?? new Uint32Array(0)) as unknown as number[] };
+    if (s.type === 'mesh') return { type: 'mesh', vertices: c.vertices() as unknown as number[], indices: (c.indices() ?? new Uint32Array(0)) as unknown as number[], ...(s.oriented === true ? { oriented: true } : {}) };
     if (s.type === 'heightfield') return { ...s, heights: c.heightfieldHeights() };
     return s;
   };
@@ -1025,7 +1058,7 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
       return world;
     },
     sees: (c) => !characterHandles.has(c.handle) && (othersOut === undefined || othersOut(c)),
-    solidStatic: (c) => infoByHandle.get(c.handle)?.oneWay === undefined && edges.fixed(c),
+    solidStatic: (c) => solidStaticInfo(infoByHandle.get(c.handle)) && edges.fixed(c),
     fixed: (c) => infoByHandle.get(c.handle)?.kinematic === false,
   };
   /** A step-up that has not reached the top after a second ends (the character falls as usual). */

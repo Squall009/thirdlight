@@ -17,7 +17,7 @@ export { DEFAULT_FIXED_STEP_HZ, FIXED_STEP_HZ_CHOICES } from './content-settings
 export { ASSET_KINDS } from './descriptor-types';
 // The resource kinds (the project window's search and kind menu name them).
 export { RESOURCE_KIND_TABLE } from './loadable';
-export { MAX_COLLISION_LAYERS } from './components';
+export { GROUND_NORMAL_TOLERANCE, MAX_COLLISION_LAYERS } from './components';
 export { MAX_EMISSIVE_INTENSITY, MAX_INTENSITY, MIN_DIRECTION_NORM } from './scene-v3';
 export { SCENE_OBJECT_BUDGET_BYTES } from './scene-memory';
 export { MAX_INSTANCES, SCENE_LIMITS_V3 } from './types-v3';

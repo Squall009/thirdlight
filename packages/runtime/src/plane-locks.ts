@@ -14,9 +14,9 @@
  * restarts (then every object has its authored plane again) or the object
  * leaves the game.
  */
-import { isPlaneLock, planeLockOf } from '@thirdlight/project-model';
+import { isPlaneLock, planeLockOf, planeTwist } from '@thirdlight/project-model';
 
-import type { PhysicsPlane, PhysicsPort3D } from './ports';
+import type { BodyPlaneChange, PhysicsPlane, PhysicsPort3D } from './ports';
 import type { TransformState } from './types-simulation';
 
 /** What the locks read of and ask of the runtime. */
@@ -39,19 +39,11 @@ export interface PlaneLockHost {
 
 /** The twist of a rotation [x, y, z, w] about a world axis (the turn about the plane's normal), written in place. */
 function twistInPlace(q: number[], axis: 'x' | 'z'): void {
-  const k = axis === 'x' ? 0 : 2;
-  const a = q[k]!;
-  const len = Math.hypot(a, q[3]!);
-  const s = q[3]! < 0 ? -1 : 1;
-  q[0] = 0;
-  q[1] = 0;
-  q[2] = 0;
-  if (!(len > 1e-12)) {
-    q[3] = 1;
-    return;
-  }
-  q[k] = (s * a) / len;
-  q[3] = (s * q[3]!) / len;
+  const t = planeTwist({ x: q[0]!, y: q[1]!, z: q[2]!, w: q[3]! }, axis);
+  q[0] = t.x;
+  q[1] = t.y;
+  q[2] = t.z;
+  q[3] = t.w;
 }
 
 export class PlaneLocks {
@@ -97,6 +89,7 @@ export class PlaneLocks {
     if (this.pending.size === 0) return;
     const requests = [...this.pending];
     this.pending.clear();
+    const bodies: BodyPlaneChange[] = [];
     for (const [id, plane] of requests) {
       this.touched.add(id);
       if (this.host.isCharacter(id)) {
@@ -105,9 +98,18 @@ export class PlaneLocks {
       }
       if (!this.host.hasBody(id)) continue;
       this.set.set(id, plane);
-      this.host.physics3d?.setBodyPlane?.(id, plane);
+      bodies.push({ entityId: id, plane });
       if (plane !== null) this.snapObject(id, plane);
     }
+    this.bodyPlanes(bodies);
+  }
+
+  /** The bodies' plane changes on the port in one batch (a section of hundreds is one world update). */
+  private bodyPlanes(changes: readonly BodyPlaneChange[]): void {
+    const port = this.host.physics3d;
+    if (changes.length === 0 || port === undefined) return;
+    if (port.setBodyPlanes !== undefined) port.setBodyPlanes(changes);
+    else for (const c of changes) port.setBodyPlane?.(c.entityId, c.plane);
   }
 
   /**
@@ -117,11 +119,13 @@ export class PlaneLocks {
   restart(): void {
     this.pending.clear();
     this.set.clear();
+    const bodies: BodyPlaneChange[] = [];
     for (const id of this.touched) {
       const authored = planeLockOf(this.host.componentsOf(id)?.[this.host.isCharacter(id) ? 'controller' : 'collider']);
       if (this.host.isCharacter(id)) this.host.setCharacterPlane(id, authored);
-      else if (this.host.hasBody(id)) this.host.physics3d?.setBodyPlane?.(id, authored);
+      else if (this.host.hasBody(id)) bodies.push({ entityId: id, plane: authored });
     }
+    this.bodyPlanes(bodies);
     this.touched.clear();
   }
 

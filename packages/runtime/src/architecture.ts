@@ -241,7 +241,7 @@ export class RuntimeArchitecture {
       if (c.kind === 'box') {
         out.push({ entityId: colliderId(id, c.id), shape: { type: 'box', hx: c.half[0], hy: c.half[1], hz: c.half[2] }, position: { x: o[0] + c.center[0], y: o[1] + c.center[1], z: o[2] + c.center[2] }, rotation: { x: c.rotation[0], y: c.rotation[1], z: c.rotation[2], w: c.rotation[3] } });
       } else if (c.kind === 'mesh') {
-        out.push({ entityId: colliderId(id, c.id), shape: { type: 'mesh', vertices: c.vertices, indices: c.indices }, position: { x: o[0], y: o[1], z: o[2] }, rotation: { x: 0, y: 0, z: 0, w: 1 } });
+        out.push({ entityId: colliderId(id, c.id), shape: { type: 'mesh', vertices: c.vertices, indices: c.indices, oriented: true }, position: { x: o[0], y: o[1], z: o[2] }, rotation: { x: 0, y: 0, z: 0, w: 1 } });
       } else {
         const shape = colliderShape3DOf({ type: 'model' }, c.scale, { model: { asset: { assetId: c.model.assetId }, ...(c.model.piece !== undefined ? { piece: c.model.piece } : {}) } }, this.modelColliders !== undefined ? { modelColliders: this.modelColliders } : undefined);
         if (shape === null) continue;

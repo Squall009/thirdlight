@@ -234,7 +234,7 @@ export class RuntimeSplines {
               indices[n++] = a + row;
             }
           }
-          out.push({ entityId: meshColliderId(id, k++), shape: { type: 'mesh', vertices, indices }, position: { x: o[0] + p.center[0], y: o[1] + p.center[1], z: o[2] + p.center[2] }, rotation: { x: 0, y: 0, z: 0, w: 1 } });
+          out.push({ entityId: meshColliderId(id, k++), shape: { type: 'mesh', vertices, indices, oriented: true }, position: { x: o[0] + p.center[0], y: o[1] + p.center[1], z: o[2] + p.center[2] }, rotation: { x: 0, y: 0, z: 0, w: 1 } });
         }
       }
     }

@@ -293,7 +293,7 @@ export const NODE_SIDE_ALLOWED = {
   // (the approved pin)". The adapter never imports a concrete runtime
   // value (the runtime owns stepping and hands it only the port shape), and it
   // may not reach editor/backend/protocol/workspace/three (of project-model,
-  // only its types and the limits subpath).
+  // only its types and the limits and plane-lock subpaths).
   'physics-rapier': {
     packages: ['runtime', 'project-model'],
     external: ['@dimforge/rapier3d-compat'],
@@ -302,6 +302,7 @@ export const NODE_SIDE_ALLOWED = {
     valueSubpaths: {
       'project-model': [
         'limits', // the ports re-check the model's collider shape limits
+        'plane-lock', // a locked body's twist is the model's one rule, shared with the runtime
       ],
     },
   },

@@ -70,7 +70,7 @@ export interface TerrainSimTile extends TerrainCollisionTile {
 
 /** One collider of a tile: its shape and where its origin sits from the tile's min corner (metres, the terrain's frame). */
 export interface TerrainColliderPiece {
-  readonly shape: { type: 'heightfield'; cellsX: number; cellsZ: number; cellX: number; cellZ: number; heights: Float32Array } | { type: 'mesh'; vertices: Float32Array; indices: Uint32Array };
+  readonly shape: { type: 'heightfield'; cellsX: number; cellsZ: number; cellX: number; cellZ: number; heights: Float32Array } | { type: 'mesh'; vertices: Float32Array; indices: Uint32Array; oriented: true };
   readonly x: number;
   readonly z: number;
 }
@@ -168,7 +168,7 @@ export function terrainColliderPieces(tile: TerrainCollisionTile, spacing: numbe
           indices[o++] = c + 1;
         }
       }
-      out.push({ shape: { type: 'mesh', vertices, indices }, x: cx0 * spacing, z: cz0 * spacing });
+      out.push({ shape: { type: 'mesh', vertices, indices, oriented: true }, x: cx0 * spacing, z: cz0 * spacing });
     }
   }
   return out;

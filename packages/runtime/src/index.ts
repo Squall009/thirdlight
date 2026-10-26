@@ -105,6 +105,7 @@ export {
   type PhysicsPort3D,
   type PhysicsQuat,
   type PhysicsPlane,
+  type BodyPlaneChange,
   type RaycastHit3D,
   type CharacterState3D,
   type StaticColliderSpec3D,

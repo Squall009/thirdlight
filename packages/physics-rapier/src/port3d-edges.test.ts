@@ -28,9 +28,10 @@ const box = (entityId: string, min: V3, max: V3): StaticColliderSpec3D => ({
 
 /**
  * A box of cells as a block layer's chunk mesh makes it: only its outer
- * faces, each cut into one quad (two triangles) per cell, wound outward.
+ * faces, each cut into one quad (two triangles) per cell, wound outward
+ * (and marked so: `oriented`, as the engine's generated meshes are).
  */
-function cellsMesh(entityId: string, min: V3, max: V3, cell: V3): StaticColliderSpec3D {
+function cellsMesh(entityId: string, min: V3, max: V3, cell: V3, oriented = true): StaticColliderSpec3D {
   const vertices: number[] = [];
   const indices: number[] = [];
   const n = [0, 1, 2].map((a) => Math.round((max[a]! - min[a]!) / cell[a]!));
@@ -55,7 +56,7 @@ function cellsMesh(entityId: string, min: V3, max: V3, cell: V3): StaticCollider
       }
     }
   }
-  return { entityId, shape: { type: 'mesh', vertices, indices }, position: { x: 0, y: 0, z: 0 }, rotation: IDENTITY };
+  return { entityId, shape: { type: 'mesh', vertices, indices, ...(oriented ? { oriented: true } : {}) }, position: { x: 0, y: 0, z: 0 }, rotation: IDENTITY };
 }
 
 async function portOf(statics: StaticColliderSpec3D[], start: V3, capsule: { radius: number; halfHeight: number } = { radius: 0.3, halfHeight: 0.6 }): Promise<PhysicsPort3D> {
@@ -127,6 +128,30 @@ describe('internal edges: a seam on a flat face is not a corner', () => {
       expect(steps.at(-1)!.position.x).toBeGreaterThan(4.5);
     });
   }
+});
+
+describe('a mesh of unknown winding (an imported model\'s) collides from both sides', () => {
+  it('an open floor wound facing down: the character lands on it and walks across', async () => {
+    const vertices = [-5, 0, -3, 5, 0, -3, 5, 0, 3, -5, 0, 3];
+    // Clockwise seen from above: its faces point down.
+    const flipped: StaticColliderSpec3D = { entityId: 'plane', shape: { type: 'mesh', vertices, indices: [0, 1, 2, 0, 2, 3] }, position: { x: 0, y: 0, z: 0 }, rotation: IDENTITY };
+    const port = await portOf([flipped], [-3, 2, 0]);
+    const steps = walk(port, 3, 240);
+    port.dispose();
+    expect(steps.at(-1)!.grounded).toBe(true);
+    expect(steps.at(-1)!.position.y).toBeCloseTo(REST, 2);
+    expect(steps.at(-1)!.position.x).toBeGreaterThan(1.5);
+  });
+
+  it('a room modelled from outside, walked inside: it stands on the floor and the wall stops it', async () => {
+    const room = cellsMesh('room', [-5, -1, -5], [5, 4, 5], [10, 5, 10], false);
+    const port = await portOf([room], [0, 1, 0]);
+    const steps = walk(port, 4, 360);
+    port.dispose();
+    expect(steps.at(-1)!.grounded).toBe(true);
+    expect(steps.at(-1)!.position.y).toBeCloseTo(-1 + REST, 2);
+    for (const r of steps) expect(r.position.x).toBeLessThan(5 - 0.3 + 1e-3);
+  });
 });
 
 describe('a small capsule under a low ceiling', () => {

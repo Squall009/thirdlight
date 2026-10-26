@@ -26,7 +26,7 @@
  * platforms, drop-through and what it stands on carrying it are the
  * runtime's and the port's, as for every controller.
  */
-import { character3DSettingsOf, controllerActionsOf, controllerMovementOf } from '@thirdlight/project-model';
+import { character3DSettingsOf, controllerActionsOf, controllerMovementOf, GROUND_NORMAL_TOLERANCE } from '@thirdlight/project-model';
 
 import { actionPhase } from './actions';
 import { CLIMB_GRAB_INPUT, climbInputOf, moveOf, turnToward, writeFacing, yawOf, type ControllerOne } from './character-moves';
@@ -34,9 +34,6 @@ import { CLIMB_GRAB_INPUT, climbInputOf, moveOf, turnToward, writeFacing, yawOf,
 import type { ControllerIntents } from './intents';
 import type { CharacterMoveResult3D, PhysicsVec3 } from './ports';
 import type { ModuleConfig, StepContext } from './types';
-
-/** The tolerance of the grounding and slide tests (a support normal against an angle's cosine). */
-const NORMAL_TOLERANCE = 1e-6;
 
 /** Move `v` toward `target` by `up` while below it and `down` while above it, never past it. */
 export function approachAxis(v: number, target: number, up: number, down: number): number {
@@ -61,10 +58,10 @@ function rightOf(plane: { readonly axis: 'x' | 'z' } | null): { x: number; z: nu
 export function slideDirection3D(p: CharacterMoveResult3D | undefined, cosSlide: number, tanSlide: number): { x: number; z: number } | null {
   if (p === undefined || !p.grounded) return null;
   const n = p.supportNormal;
-  const steep = n.y < cosSlide + NORMAL_TOLERANCE;
+  const steep = n.y < cosSlide + GROUND_NORMAL_TOLERANCE;
   const drop = p.requested.y - p.applied.y;
   const moved = Math.hypot(p.applied.x, p.applied.z);
-  const descending = p.snapped && drop > 1e-6 && moved > 1e-9 && drop >= moved * tanSlide - NORMAL_TOLERANCE;
+  const descending = p.snapped && drop > 1e-6 && moved > 1e-9 && drop >= moved * tanSlide - GROUND_NORMAL_TOLERANCE;
   if (!steep && !descending) return null;
   const h = Math.hypot(n.x, n.z);
   if (h > 0) return { x: n.x / h, z: n.z / h };
@@ -175,7 +172,7 @@ export function createArcadeOne(found: { id: string; controller: unknown; rotati
       iz = move.dz * k;
     }
     const p = prev;
-    const groundedPrev = p !== undefined && p.grounded && p.supportNormal.y >= cosClimb - NORMAL_TOLERANCE;
+    const groundedPrev = p !== undefined && p.grounded && p.supportNormal.y >= cosClimb - GROUND_NORMAL_TOLERANCE;
     const jump = intents.jump ?? actionPhase(ctx.action, names.jump);
 
     // Climbing: inside a climb volume up/down (and across) move it at the climb speed without gravity;

@@ -12,9 +12,8 @@
  * kept to it by its sweep.
  */
 import * as RAPIER from '@dimforge/rapier3d-compat';
+import { planeTwist } from '@thirdlight/project-model/plane-lock';
 import type { PhysicsPlane, PhysicsQuat, PhysicsVec3 } from '@thirdlight/runtime';
-
-const IDENTITY: PhysicsQuat = { x: 0, y: 0, z: 0, w: 1 };
 
 /** Whether `v` is a plane the port takes (an axis-aligned normal, a finite origin). */
 export function isPlane(v: unknown): v is PhysicsPlane {
@@ -33,20 +32,9 @@ export function inPlane(v: PhysicsVec3, plane: PhysicsPlane): PhysicsVec3 {
   return plane.axis === 'x' ? { x: 0, y: v.y, z: v.z } : { x: v.x, y: v.y, z: 0 };
 }
 
-/**
- * A rotation reduced to its turn about the plane's normal (the twist of a
- * swing-twist split): the normal's component of the quaternion with w,
- * normalized. A rotation of exactly half a turn about an axis in the plane
- * has no twist and becomes the identity.
- */
+/** A rotation reduced to its turn about the plane's normal (the project model's `planeTwist`). */
 export function twistAbout(q: PhysicsQuat, plane: PhysicsPlane): PhysicsQuat {
-  const a = plane.axis === 'x' ? q.x : q.z;
-  const len = Math.hypot(a, q.w);
-  if (!(len > 1e-12)) return IDENTITY;
-  const s = q.w < 0 ? -1 : 1;
-  const c = (s * a) / len;
-  const w = (s * q.w) / len;
-  return plane.axis === 'x' ? { x: c === 0 ? 0 : c, y: 0, z: 0, w } : { x: 0, y: 0, z: c === 0 ? 0 : c, w };
+  return planeTwist(q, plane.axis);
 }
 
 /** A pose on the plane: its position snapped, its rotation reduced to the turn about the normal. */

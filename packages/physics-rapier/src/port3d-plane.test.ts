@@ -6,7 +6,7 @@
  * jumps, all six degrees of freedom back when freed); a stack of dynamic
  * boxes locked to a plane staying in it; two runs bit for bit equal.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import * as RAPIER from '@dimforge/rapier3d-compat';
 
 import type { PhysicsInitConfig3D, PhysicsPlane, PhysicsPort3D, StaticColliderSpec3D } from '@thirdlight/runtime';
@@ -64,6 +64,22 @@ describe('plane locks on the 3D port', () => {
     expect(port.raycast!({ x: 4, y: 1, z: 5 }, { x: 0, y: 0, z: -1 }, 10)?.distance).toBeCloseTo(5.5, 5);
     expect(port.setBodyPlane!('nothing', Z0)).toBe(false);
     expect(() => port.setBodyPlane!('post', { axis: 'y', origin: 0 } as never)).toThrow(/axis/);
+    port.dispose();
+  });
+
+  it('a section of 200 bodies locked in one batch costs one world update', async () => {
+    const posts = Array.from({ length: 200 }, (_, i) => box(`post-${i}`, [i * 2, 1, 3 + (i % 5)], [0.4, 1, 0.4]));
+    const port = await portOf({ ...config(posts, [0, 0, 0]), noCharacter: true });
+    const counted = vi.spyOn(RAPIER.World.prototype, 'step');
+    try {
+      const done = port.setBodyPlanes!(posts.map((p) => ({ entityId: p.entityId, plane: Z0 })));
+      expect(done.every((d) => d)).toBe(true);
+      expect(counted).toHaveBeenCalledTimes(1);
+    } finally {
+      counted.mockRestore();
+    }
+    // Every post is on the plane for the next query.
+    for (const i of [0, 77, 199]) expect(port.raycast!({ x: i * 2, y: 1, z: 5 }, { x: 0, y: 0, z: -1 }, 10)?.distance, `post-${i}`).toBeCloseTo(4.6, 5);
     port.dispose();
   });
 
