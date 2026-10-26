@@ -76,9 +76,9 @@ export function lightFrameCpu(frame: LightPassFrame, scene: PackedTraceScene, se
     const r = POINT_LIGHT_RADIUS * rng.next() ** 0.3333;
     return [c[0] + d[0] * r, c[1] + d[1] * r, c[2] + d[2] * r];
   };
-  const visible = (o: V3, d: V3, tmax: number): number => {
+  const visible = (o: V3, d: V3, tmax: number, mask: number): number => {
     if (!(tmax > 0)) return 1;
-    const h = traceRayCpu(view, o, d, 0, tmax, opts);
+    const h = traceRayCpu(view, o, d, 0, tmax, { ...opts, casterMask: mask });
     return h.kind === TRACE_MISS || h.kind === TRACE_UNFINISHED ? 1 : 0;
   };
   const out = new Float32Array(frame.slices.reduce((n, s) => n + s.texels, 0) * 3);
@@ -111,7 +111,7 @@ export function lightFrameCpu(frame: LightPassFrame, scene: PackedTraceScene, se
           const tt = norm(cross(sd, ax));
           const bb = cross(sd, tt);
           const d = norm([0, 1, 2].map((j) => sd[j]! + (tt[j]! * Math.cos(a) + bb[j]! * Math.sin(a)) * q) as V3);
-          v += dot(d, n) > 0 && F[sunAt + 7] !== 0 ? visible(o, d, 1e4) : 1;
+          v += dot(d, n) > 0 && F[sunAt + 7] !== 0 ? visible(o, d, 1e4, F[sunAt + 3]!) : 1;
         }
         add(fv(sunAt + 4), (Math.max(0, dot(n, sd)) * v) / sunRays);
       }
@@ -131,7 +131,7 @@ export function lightFrameCpu(frame: LightPassFrame, scene: PackedTraceScene, se
           const len = Math.hypot(lv[0], lv[1], lv[2]);
           const d: V3 = [lv[0] / Math.max(len, 1e-6), lv[1] / Math.max(len, 1e-6), lv[2] / Math.max(len, 1e-6)];
           const margin = area ? RAY_BIAS : POINT_LIGHT_RADIUS;
-          vis.push(dot(d, n) > 0 && len < reach && shadows ? visible(o, d, Math.max(0, len - margin)) : 1);
+          vis.push(dot(d, n) > 0 && len < reach && shadows ? visible(o, d, Math.max(0, len - margin), (F[at + 19]! >>> 16) & 0xff) : 1);
         }
         if (area) {
           const facing = fv(at + 8);

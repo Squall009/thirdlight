@@ -98,9 +98,9 @@ export function reorderRays(rays: Float32Array, order: Uint32Array): Float32Arra
   return out;
 }
 
-/** A dispatch's parameter block: ray count, first ray, the options' cone (f32) and any-hit flag. */
-function paramWords(count: number, opts: TraceOptions): Uint32Array {
-  const w = new Uint32Array([count, 0, 0, opts.anyHit ? 1 : 0]);
+/** A dispatch's parameter block: ray count, first ray, the options' cone (f32) and flags (1: any hit, 2: each ray's caster mask in the mask buffer). */
+function paramWords(count: number, opts: TraceOptions, masked: boolean): Uint32Array {
+  const w = new Uint32Array([count, 0, 0, (opts.anyHit ? 1 : 0) | (masked ? 2 : 0)]);
   new Float32Array(w.buffer)[2] = opts.cone;
   return w;
 }
@@ -113,6 +113,9 @@ export class GpuTracer {
   private atlas: GpuTexture | null = null;
   private atlasView: unknown = null;
   private readonly sampler: unknown;
+  /** Stands in for the mask buffer when rays carry none. */
+  private readonly noMasks: GpuBuffer;
+  private outerMasks: GpuBuffer | null = null;
   private rays: GpuBuffer | null = null;
   private hits: GpuBuffer | null = null;
   private bind: unknown = null;
@@ -123,6 +126,7 @@ export class GpuTracer {
   private constructor(private readonly device: TracerDevice, pipeline: { getBindGroupLayout(i: number): unknown }) {
     this.pipeline = pipeline;
     this.params = device.createBuffer({ size: PARAM_BYTES, usage: USAGE.UNIFORM | USAGE.COPY_DST, label: 'tracer params' });
+    this.noMasks = device.createBuffer({ size: 16, usage: USAGE.STORAGE, label: 'tracer no masks' });
     this.sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge', addressModeW: 'clamp-to-edge', label: 'tracer bricks' });
   }
 
@@ -171,7 +175,7 @@ export class GpuTracer {
     const count = Math.floor(rays.length / RAY_FLOATS);
     this.ensure(Math.max(1, count));
     this.device.queue.writeBuffer(this.rays!, 0, rays);
-    this.device.queue.writeBuffer(this.params, 0, paramWords(count, opts));
+    this.device.queue.writeBuffer(this.params, 0, paramWords(count, opts, false));
     this.bind ??= this.device.createBindGroup({
       layout: this.pipeline.getBindGroupLayout(0),
       entries: [
@@ -181,6 +185,7 @@ export class GpuTracer {
         { binding: 3, resource: { buffer: this.hits } },
         { binding: 4, resource: this.atlasView },
         { binding: 5, resource: this.sampler },
+        { binding: 6, resource: { buffer: this.noMasks } },
       ],
     });
     const p = encoder.beginComputePass(pass);
@@ -194,7 +199,7 @@ export class GpuTracer {
    * Encode one pass over `count` rays already on the GPU (`rays`: storage,
    * `RAY_FLOATS` each, made by another pass); the hits stay in `hitsBuffer`.
    */
-  encodeBuffer(encoder: GpuEncoder, rays: GpuBuffer, count: number, pass: Record<string, unknown> = {}, opts: TraceOptions = EXACT_TRACE): void {
+  encodeBuffer(encoder: GpuEncoder, rays: GpuBuffer, count: number, pass: Record<string, unknown> = {}, opts: TraceOptions = EXACT_TRACE, masks: GpuBuffer | null = null): void {
     if (this.scene === null) throw new Error('tracer: no scene');
     if (this.hits === null || this.hits.size < count * HIT_WORDS * 4) {
       this.hits?.destroy();
@@ -202,9 +207,10 @@ export class GpuTracer {
       this.outerBind = null;
       this.bind = null;
     }
-    this.device.queue.writeBuffer(this.params, 0, paramWords(count, opts));
-    if (this.outerBind === null || this.outerRays !== rays) {
+    this.device.queue.writeBuffer(this.params, 0, paramWords(count, opts, masks !== null));
+    if (this.outerBind === null || this.outerRays !== rays || this.outerMasks !== masks) {
       this.outerRays = rays;
+      this.outerMasks = masks;
       this.outerBind = this.device.createBindGroup({
         layout: this.pipeline.getBindGroupLayout(0),
         entries: [
@@ -214,6 +220,7 @@ export class GpuTracer {
           { binding: 3, resource: { buffer: this.hits } },
           { binding: 4, resource: this.atlasView },
           { binding: 5, resource: this.sampler },
+          { binding: 6, resource: { buffer: masks ?? this.noMasks } },
         ],
       });
     }
@@ -246,7 +253,7 @@ export class GpuTracer {
   }
 
   dispose(): void {
-    for (const b of [this.params, this.scene, this.rays, this.hits]) b?.destroy();
+    for (const b of [this.params, this.scene, this.rays, this.hits, this.noMasks]) b?.destroy();
     this.atlas?.destroy();
     this.atlas = null;
     this.atlasView = null;

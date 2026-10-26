@@ -11,10 +11,12 @@
  *   axis, 7 the cells' list starts (cells + 1 words), 8 the lists, 9 the
  *   items, 10 the item count, 11 the item stride;
  * - an architecture item (`ARCH_ITEM_WORDS`): 0 its shape (`ARCH_BOX`: then
- *   1–12 world → unit-box map; `ARCH_TRIANGLE`: 1–9 its corners);
+ *   1–12 world → unit-box map; `ARCH_TRIANGLE`: 1–9 its corners), 13 its
+ *   light layers;
  * - a model instance (`INSTANCE_WORDS`): 0–11 world → model root map, 12
  *   its brick set's record, 13–18 its world box (min xyz, max xyz): a ray
- *   that misses the box skips the map and the set's words;
+ *   that misses the box skips the map and the set's words; 19 its light
+ *   layers (a shadow ray of a light whose caster mask shares none passes it);
  * - a brick set's record (`SET_WORDS`): 0–2 the field's first sample, 3
  *   voxel, 4 band, 5–7 bricks per axis, 8 the brick table (an i32 per
  *   brick: sample block, or OUTSIDE / INSIDE), 9 the set's first sample
@@ -24,12 +26,12 @@
  * blocks side by side (`brickAtlasOrigin`): the GPU reads a distance with
  * one filtered texture sample instead of eight word loads.
  */
-import { DISTANCE_BRICK_CELLS, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, type DistanceBrickSet } from '@thirdlight/runtime';
+import { DISTANCE_BRICK_CELLS, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, LIGHT_LAYERS_ALL, type DistanceBrickSet } from '@thirdlight/runtime';
 
 import { Words, invertAffine, putAffine, worldToLocalOf, type Affine } from './tracer-words';
 
 export const GRID_WORDS = 12;
-export const ARCH_ITEM_WORDS = 13;
+export const ARCH_ITEM_WORDS = 14;
 export const ARCH_BOX = 0;
 export const ARCH_TRIANGLE = 1;
 export const INSTANCE_WORDS = 20;
@@ -69,12 +71,16 @@ export interface TraceArchitecture {
   boxes: readonly TraceBox[];
   /** Flat pieces (floors, roofs) as world triangles, nine floats each. */
   triangles: Float32Array;
+  /** Each item's light layers, boxes then triangles (absent: every layer). */
+  layers?: readonly number[];
 }
 
 /** One placed brick set: the model's world → root map and the set (sets shared by instances are stored once). */
 export interface TraceModelInstance {
   worldToLocal: Affine;
   set: DistanceBrickSet;
+  /** Its object's light layers (absent: every layer). */
+  layers?: number;
 }
 
 /** A uniform grid over world boxes (six floats each: min xyz, max xyz) and the items' words after it. */
@@ -162,6 +168,7 @@ export function packArchitecture(w: Words, slot: number, arch: TraceArchitecture
     }),
   ];
   packGrid(w, slot, bounds, ARCH_ITEM_WORDS, (at, i) => {
+    w.setU(at + 13, arch?.layers?.[i] ?? LIGHT_LAYERS_ALL);
     if (i < maps.length) {
       w.setU(at, ARCH_BOX);
       putAffine(w, at + 1, maps[i]!);
@@ -207,6 +214,7 @@ export function packModelInstances(w: Words, slot: number, instances: readonly T
     putAffine(w, at, instances[i]!.worldToLocal);
     w.setU(at + 12, setAt.get(instances[i]!.set)!);
     for (let k = 0; k < 6; k += 1) w.setF(at + 13 + k, bounds[i]![k]!);
+    w.setU(at + 19, instances[i]!.layers ?? LIGHT_LAYERS_ALL);
   });
   return atlas;
 }

@@ -68,6 +68,7 @@ function walkGrid(s: SceneView, g: number, o: readonly number[], d0: readonly nu
 
 /** An architecture piece: a unit box through its map, or a triangle. */
 const testArchItem: ItemTest = (s, item, at, ro, rd, tmin, st) => {
+  if ((s.u[at + 13]! & st.mask) === 0) return;
   const { u, f } = s;
   const best = Math.min(st.hit.t, st.unfinished);
   if (u[at] === ARCH_BOX) {
@@ -140,6 +141,7 @@ function brickDistance(atlas: BrickAtlas, o: V3, p: V3, band: number): number {
 
 /** One model instance: a DDA over its set's bricks, sphere tracing the ones the surface passes through. */
 const testInstance: ItemTest = (s, item, at, ro, rd, tmin, st, tlo, tcell) => {
+  if ((s.u[at + 19]! & st.mask) === 0) return;
   const { u, f } = s;
   // Its world box first: most instances a cell lists lie off the ray. It is
   // marched whole from the cell the ray enters its box in, so an instance

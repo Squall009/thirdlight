@@ -15,7 +15,8 @@
  *   light faces, 11 the spot's cos inner (an area light: 1 when two-sided),
  *   12–14 an area light's half side u, 15 its shape (`AREA_RECT`,
  *   `AREA_LINE`; 0 none), 16–18 its half side v (0 for a line), 19 its
- *   rays a texel at level 0 | 1 << 8 when it casts shadows.
+ *   rays a texel at level 0 | 1 << 8 when it casts shadows | its shadow
+ *   caster mask << 16 (the sun's: word 3 of its record).
  *
  * Pure (no three.js, no device).
  */
@@ -146,6 +147,7 @@ export function packLightFrame(frame: LightPassFrame): { words: Uint32Array; tex
     f.set(frame.sun.direction, sunAt);
     f.set(frame.sun.color, sunAt + 4);
     words[sunAt + 7] = frame.sun.shadows === false ? 0 : 1;
+    words[sunAt + 3] = frame.sun.casterMask ?? LIGHT_LAYERS_ALL;
   }
   frame.lights.forEach((l, j) => {
     const at = sunAt + SUN_WORDS + j * LIGHT_WORDS;
@@ -165,7 +167,7 @@ export function packLightFrame(frame: LightPassFrame): { words: Uint32Array; tex
       // The penumbra's inner edge, as three's: the cone's angle less its penumbra share.
       f[at + 11] = spot ? Math.cos(Math.acos(Math.min(1, Math.max(-1, l.cone))) * (1 - l.penumbra)) : 1;
     }
-    words[at + 19] = lightRaysOf(l) | (l.shadows === false ? 0 : LIGHT_SHADOWS);
+    words[at + 19] = (lightRaysOf(l) | (l.shadows === false ? 0 : LIGHT_SHADOWS) | ((l.casterMask ?? LIGHT_LAYERS_ALL) << 16)) >>> 0;
   });
   return { words, texels: texel, rays: ray, sunAt };
 }

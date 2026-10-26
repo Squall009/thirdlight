@@ -194,6 +194,29 @@ rather than one point. Add one with **GameObject → Light → Area light** (a
 - **No per-pixel budget** — area lights, like baked point and spot lights,
   are not counted in the scene's 16 realtime point and spot lights.
 
+## The surface cache's live light
+
+On WebGPU at medium and high quality (`surfaceLightMs` above 0 in the
+quality level), the static surfaces' light is computed on the GPU into the
+surface cache, a little each frame within the level's GPU time, and again
+only where something changed:
+
+- **What lights it** — the sun (soft shadows over its disc), point and spot
+  lights, area lights (soft shadows over their shape) and static glowing
+  boxes (a `surface` with an emissive colour: each face lights as a
+  rectangle light as bright as the box glows). Every light in the scene
+  counts, including lights past the 16 drawn per pixel and baked ones.
+- **Shadows** — traced through the static scene (blocks, terrain,
+  generated buildings, static models). A light with **Cast shadows** off
+  lights through everything. **Light mask** and **Shadow caster mask** work
+  as they do per pixel: a light lights only surfaces sharing a layer with
+  its mask, and only objects in its caster mask cast its shadow.
+- **What it is not yet** — materials do not read the cache yet, and bounced
+  light is not in it; WebGL 2 and the low tier compute nothing live.
+- **Looking at it** — add `?surfaceCacheView=1` to a game page's address to
+  draw every lit cache texel as a small square on its surface, shaded as a
+  mid-grey surface would be by its light.
+
 ## Local lights per object
 
 Whether point, spot and effect lights reach an object. The sun, ambient

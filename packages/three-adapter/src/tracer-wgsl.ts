@@ -16,7 +16,7 @@ import { CHUNK_BLOCK_WORDS, CHUNK_WORDS, HEADER, LAYER_WORDS, TERRAIN_WORDS, TRA
 export const TRACER_WORKGROUP = 64;
 
 const COMMON = /* wgsl */ `
-struct Params { count: u32, base: u32, cone: f32, anyHit: u32 }
+struct Params { count: u32, base: u32, cone: f32, flags: u32 }
 struct Hit { t: f32, n: vec3f, kind: u32, face: u32, obj: u32, a0: u32, a1: u32 }
 
 @group(0) @binding(0) var<uniform> P: Params;
@@ -25,6 +25,9 @@ struct Hit { t: f32, n: vec3f, kind: u32, face: u32, obj: u32, a0: u32, a1: u32 
 @group(0) @binding(3) var<storage, read_write> H: array<vec4u>;
 @group(0) @binding(4) var BA: texture_3d<f32>;
 @group(0) @binding(5) var BS: sampler;
+@group(0) @binding(6) var<storage, read> M: array<u32>;
+// The ray's caster mask: the light layers whose objects stop it (its own when the dispatch has masks).
+var<private> RM: u32 = 0xffffffffu;
 
 const CHUNK = ${TRACE_CHUNK};
 const CHUNK_WORDS = ${CHUNK_WORDS}u;
@@ -102,6 +105,7 @@ fn blockHit(layer: u32, at: u32, o: vec3f, d: vec3f, t: f32, axisIn: i32, cell: 
 }
 
 fn traceLayer(layer: u32, at: u32, ro: vec3f, rd: vec3f, tmin: f32, h: ptr<function, Hit>, unf: ptr<function, f32>) {
+  if ((S[at + 26u] & RM) == 0u) { return; }
   let o = mapPoint(at, ro);
   let d = safeDir(mapDir(at, rd));
   let D = vec3i(i32(S[at + 12u]), i32(S[at + 13u]), i32(S[at + 14u]));
@@ -173,6 +177,7 @@ fn traceLayer(layer: u32, at: u32, ro: vec3f, rd: vec3f, tmin: f32, h: ptr<funct
 
 const TERRAIN = /* wgsl */ `
 fn traceTerrain(index: u32, at: u32, ro: vec3f, rd: vec3f, tmin: f32, h: ptr<function, Hit>, unf: ptr<function, f32>) {
+  if ((S[at + 19u] & RM) == 0u) { return; }
   let o = mapPoint(at, ro);
   let d = safeDir(mapDir(at, rd));
   let NX = S[at + 12u];
@@ -284,12 +289,13 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
   let tmin = r0.w;
   var h = Hit(r1.w, vec3f(0.0), 0u, 0u, 0u, 0u, 0u);
   var unf = 3.4e38;
+  RM = select(0xffffffffu, M[i], (P.flags & 2u) != 0u);
   let nb = S[${HEADER.blocks}u];
-  for (var k = 0u; k < nb && !(P.anyHit != 0u && h.kind != 0u); k++) { traceLayer(k, S[${HEADER.blocks + 1}u] + k * ${LAYER_WORDS}u, o, d, tmin, &h, &unf); }
-  if (!(P.anyHit != 0u && h.kind != 0u)) { traceArch(o, d, tmin, &h, &unf); }
+  for (var k = 0u; k < nb && !((P.flags & 1u) != 0u && h.kind != 0u); k++) { traceLayer(k, S[${HEADER.blocks + 1}u] + k * ${LAYER_WORDS}u, o, d, tmin, &h, &unf); }
+  if (!((P.flags & 1u) != 0u && h.kind != 0u)) { traceArch(o, d, tmin, &h, &unf); }
   let nt = S[${HEADER.terrain}u];
-  for (var k = 0u; k < nt && !(P.anyHit != 0u && h.kind != 0u); k++) { traceTerrain(k, S[${HEADER.terrain + 1}u] + k * ${TERRAIN_WORDS}u, o, d, tmin, &h, &unf); }
-  if (!(P.anyHit != 0u && h.kind != 0u)) { traceBricks(o, d, tmin, &h, &unf); }
+  for (var k = 0u; k < nt && !((P.flags & 1u) != 0u && h.kind != 0u); k++) { traceTerrain(k, S[${HEADER.terrain + 1}u] + k * ${TERRAIN_WORDS}u, o, d, tmin, &h, &unf); }
+  if (!((P.flags & 1u) != 0u && h.kind != 0u)) { traceBricks(o, d, tmin, &h, &unf); }
   if (unf < h.t) { h = Hit(unf, vec3f(0.0), ${TRACE_UNFINISHED}u, 0u, 0u, 0u, 0u); }
   H[i * 2u] = vec4u(bitcast<u32>(h.t), bitcast<u32>(h.n.x), bitcast<u32>(h.n.y), bitcast<u32>(h.n.z));
   H[i * 2u + 1u] = vec4u(h.kind | (h.face << 8u), h.obj, h.a0, h.a1);

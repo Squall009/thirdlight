@@ -40,6 +40,8 @@ export interface TraceState {
   brickSteps: number;
   /** `TraceOptions.cone`. */
   cone: number;
+  /** `TraceOptions.casterMask`. */
+  mask: number;
 }
 
 /**
@@ -53,6 +55,11 @@ export interface TraceState {
 export interface TraceOptions {
   readonly anyHit: boolean;
   readonly cone: number;
+  /**
+   * The light layers whose objects stop the ray (a light's shadow caster
+   * mask; absent: every layer). On the GPU each ray carries its own.
+   */
+  readonly casterMask?: number;
 }
 
 /** The nearest hit, exactly (bounce and reflection rays). */

@@ -5,6 +5,7 @@
  * against, and what a caller without a device (a worker, a test) traces
  * with.
  */
+import { LIGHT_LAYERS_ALL } from '@thirdlight/runtime';
 import {
   CHUNK_BLOCK_WORDS,
   CHUNK_WORDS,
@@ -42,6 +43,7 @@ function argmin3(v: V3): Axis {
  * neighbouring GPU threads on the same path whatever node size each is at.
  */
 function traceLayer(s: SceneView, layer: number, at: number, ro: readonly number[], rd: readonly number[], tmin: number, st: TraceState): void {
+  if ((s.u[at + 26]! & st.mask) === 0) return;
   const { u, f } = s;
   const { o, d: dRaw } = mapRay(f, at, ro, rd);
   const d = safeDir(dRaw);
@@ -141,6 +143,7 @@ function blockHit(s: SceneView, layer: number, at: number, o: V3, d: V3, t: numb
 
 /** One terrain: down and up its min/max pyramid, two triangles per cell at the bottom. */
 function traceTerrain(s: SceneView, index: number, at: number, ro: readonly number[], rd: readonly number[], tmin: number, st: TraceState): void {
+  if ((s.u[at + 19]! & st.mask) === 0) return;
   const { u, f } = s;
   const { o, d: dRaw } = mapRay(f, at, ro, rd);
   const d = safeDir(dRaw);
@@ -248,7 +251,7 @@ function traceTerrain(s: SceneView, index: number, at: number, ro: readonly numb
 
 /** Trace one ray through every kind in the scene: the nearest hit, or where to resume (with `anyHit`, the first kind's hit). */
 export function traceRayCpu(s: SceneView, o: readonly number[], d: readonly number[], tmin: number, tmax: number, opts: TraceOptions = EXACT_TRACE): TraceHit {
-  const st: TraceState = { hit: { ...newHit(), t: tmax }, unfinished: Infinity, brickSteps: 0, cone: opts.cone };
+  const st: TraceState = { hit: { ...newHit(), t: tmax }, unfinished: Infinity, brickSteps: 0, cone: opts.cone, mask: opts.casterMask ?? LIGHT_LAYERS_ALL };
   const { u } = s;
   const done = (): boolean => opts.anyHit && st.hit.kind !== TRACE_MISS;
   for (let i = 0; i < u[HEADER.blocks]! && !done(); i += 1) traceLayer(s, i, u[HEADER.blocks + 1]! + i * LAYER_WORDS, o, d, tmin, st);

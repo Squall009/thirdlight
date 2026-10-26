@@ -24,7 +24,7 @@
  *
  * Pure data (no three.js, no device).
  */
-import { CHUNK_SIZE } from '@thirdlight/runtime';
+import { CHUNK_SIZE, LIGHT_LAYERS_ALL } from '@thirdlight/runtime';
 
 import { packArchitecture, packModelInstances, type BrickAtlas, type TraceArchitecture, type TraceModelInstance } from './tracer-objects';
 import { Words, putAffine, type Affine } from './tracer-words';
@@ -92,7 +92,7 @@ export const SCENE_HEADER_WORDS = 16;
 export const HEADER = { blocks: 0, terrain: 2, arch: 4, bricks: 6 } as const;
 
 /** Words of a block layer's record. */
-export const LAYER_WORDS = 26;
+export const LAYER_WORDS = 27;
 /** Words of a terrain's record. */
 export const TERRAIN_WORDS = 20;
 
@@ -106,6 +106,8 @@ export interface TraceBlockLayer {
   max: readonly number[];
   /** Calls `cell` for every opaque cell (any order). */
   forEachOpaque(cell: (x: number, y: number, z: number) => void): void;
+  /** Its light layers (a bit mask; absent: every layer): a shadow ray of a light whose caster mask shares none passes it. */
+  layers?: number;
 }
 
 /** A terrain as the tracer takes it: its samples on one rectangle of the height grid. */
@@ -121,6 +123,8 @@ export interface TraceTerrain {
   cellZ0: number;
   /** Local height in metres per sample, row by row (z), (cellsX + 1) × (cellsZ + 1). */
   heights: Float32Array;
+  /** Its light layers (absent: every layer), as a block layer's. */
+  layers?: number;
   /** Whether a cell is open (a hole or no tile): rays pass it. Absent: none is. */
   hole?: (x: number, z: number) => boolean;
 }
@@ -148,7 +152,8 @@ export interface PackedTraceScene {
  * A block layer's record (`LAYER_WORDS`): 0–11 world → grid (cells from the
  * layer's min corner), 12–14 cells per axis, 15–17 chunks per axis, 18 the
  * chunk table's offset, 19 the occupancy's offset, 20–22 the occupied
- * cells' min corner and 23–25 their max corner (exclusive; all 0 when none).
+ * cells' min corner and 23–25 their max corner (exclusive; all 0 when none),
+ * 26 its light layers (shadow rays of lights whose caster mask shares none pass it).
  * The chunk table holds one word per chunk (0: empty, else 1 + its
  * occupancy block); a block (`CHUNK_BLOCK_WORDS`) holds `CHUNK_WORDS` bits,
  * cell (x, y, z) in the chunk at bit (y × 16 + z) × 16 + x, then the
@@ -195,6 +200,7 @@ function packBlockLayer(w: Words, at: number, layer: TraceBlockLayer): void {
     w.setU(at + 20 + k, cells.length > 0 ? lo[k]! : 0);
     w.setU(at + 23 + k, cells.length > 0 ? hi[k]! : 0);
   }
+  w.setU(at + 26, layer.layers ?? LIGHT_LAYERS_ALL);
   const bits = w.alloc(blockOf.size * CHUNK_BLOCK_WORDS);
   w.setU(at + 19, bits);
   for (const [c, b] of blockOf) w.setU(table + c, b + 1);
@@ -241,6 +247,7 @@ function packTerrain(w: Words, at: number, t: TraceTerrain): void {
   w.setU(at + 13, t.cellsZ);
   w.setU(at + 14, levels.length);
   w.setU(at + 17, t.cellX0);
+  w.setU(at + 19, t.layers ?? LIGHT_LAYERS_ALL);
   w.setU(at + 18, t.cellZ0);
   const sx = t.cellsX + 1;
   const h = w.alloc(sx * (t.cellsZ + 1));

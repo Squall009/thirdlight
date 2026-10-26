@@ -6,7 +6,8 @@
  * - rays: one thread per ray: the ray's light (the sun, or the slice's k-th
  *   light by its ray count), a point on it (the sun's disc, a small sphere
  *   round a point or spot light, an area light's rectangle or line) and the
- *   ray toward it; a light that casts no shadow gets a ray of length 0;
+ *   ray toward it, with the light's shadow caster mask; a light that casts
+ *   no shadow gets a ray of length 0;
  * - gather: one thread per texel: each light's share over its rays
  *   (visible ones), into the texel's irradiance.
  */
@@ -67,6 +68,7 @@ fn lightPoint(at: u32, k: u32, n: u32, seed: ptr<function, u32>) -> vec3f {
 
 export const LIGHT_RAYS_WGSL = COMMON + /* wgsl */ `
 @group(0) @binding(3) var<storage, read_write> R: array<vec4f>;
+@group(0) @binding(4) var<storage, read_write> M: array<u32>;
 
 @compute @workgroup_size(${LIGHT_WORKGROUP})
 fn main(@builtin(global_invocation_id) g: vec3u) {
@@ -81,6 +83,7 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
   var seed = raySeed(g.x);
   var d = vec3f(0.0, 1.0, 0.0);
   var tmax = 0.0;
+  var mask = 0xffu;
   let sunRays = F[s + 6u];
   let level = F[s + 7u];
   if (dot(n, n) > 0.0) {
@@ -92,6 +95,7 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
       let b = basis(sd);
       d = normalize(sd + (b[0] * cos(a) + b[1] * sin(a)) * q);
       if (dot(d, n) > 0.0 && F[P.sunAt + 7u] != 0u) { tmax = 1e4; }
+      mask = F[P.sunAt + 3u];
     } else {
       k -= sunRays;
       for (var i = 0u; i < F[s + 5u]; i++) {
@@ -104,12 +108,14 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
         d = v / max(len, 1e-6);
         let margin = select(${POINT_LIGHT_RADIUS}, ${RAY_BIAS}, ff(at + 7u) == ${AREA_CONE}.0);
         if (dot(d, n) > 0.0 && len < ff(at + 3u) && (F[at + 19u] & ${LIGHT_SHADOWS}u) != 0u) { tmax = max(0.0, len - margin); }
+        mask = (F[at + 19u] >> 16u) & 0xffu;
         break;
       }
     }
   }
   R[g.x * 2u] = vec4f(o, 0.0);
   R[g.x * 2u + 1u] = vec4f(d, tmax);
+  M[g.x] = mask;
 }
 `;
 

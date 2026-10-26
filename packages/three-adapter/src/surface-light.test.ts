@@ -135,6 +135,20 @@ describe('surface cache: direct light per light kind', () => {
     expect(meanAt([0.5, 0, 0.5], [0, 1, 0], { ...rect, shadows: false }, scene) / meanAt([0.5, 0, 0.5], [0, 1, 0], rect)).toBeCloseTo(1, 5);
   });
 
+  it('shadow caster masks: an object outside the caster mask of a light casts none of its shadow', () => {
+    const grid = new BlockGrid({ cellSize: [1, 1, 1], bounds: { min: [-8, 0, -8], max: [8, 4, 8] } });
+    grid.set(0, 1, 0, { block: 'rock' });
+    const layer = traceBlockLayerOf(grid, [0, 0, 0], opaqueByBlockTypes([{ blockId: 'rock', shape: 'full' } as BlockType]));
+    const scene = packTraceScene({ blocks: [{ ...layer, layers: 0b10 }] });
+    const lamp = light({ kind: 'point', position: [0.5, 3.5, 0.5], color: [20, 20, 20], range: 8, shadows: true });
+    const under: V3 = [0.5, 0, 0.5];
+    expect(meanAt(under, [0, 1, 0], { ...lamp, casterMask: 0b10 }, scene)).toBe(0);
+    expect(meanAt(under, [0, 1, 0], { ...lamp, casterMask: 0b01 }, scene)).toBeCloseTo(meanAt(under, [0, 1, 0], lamp), 5);
+    const sun = light({ kind: 'directional', direction: [0, 1, 0], color: [2, 2, 2], shadows: true });
+    expect(meanAt(under, [0, 1, 0], { ...sun, casterMask: 0b11 }, scene)).toBe(0);
+    expect(meanAt(under, [0, 1, 0], { ...sun, casterMask: 0b01 }, scene)).toBeCloseTo(2, 4);
+  });
+
   it('light layers: a light lights only the units in its mask; one past the per-pixel cap lights the cache all the same', () => {
     const units = [
       { key: 'a', min: [0, 0, 0], max: [1, 1, 1], texels: 2 },

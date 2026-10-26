@@ -19,7 +19,7 @@
  *
  * Measurements read it from `scene.userData[SURFACE_CACHE_KEY]`.
  */
-import { decodeDistanceBricks, type ArchitectureComponent, type BlockCell, type BlockGridReader, type DistanceBricks, type TerrainField, type TerrainTile } from '@thirdlight/runtime';
+import { LIGHT_LAYERS_ALL, decodeDistanceBricks, type ArchitectureComponent, type BlockCell, type BlockGridReader, type DistanceBricks, type TerrainField, type TerrainTile } from '@thirdlight/runtime';
 
 import { SurfaceCache, type SurfaceCacheDiagnostics, type SurfaceTile } from './surface-cache';
 import { SurfaceChanges, type CacheLight } from './surface-changes';
@@ -251,22 +251,26 @@ export class SurfaceCacheHost {
     const version = this.geometryVersion + this.ready.size * 0x100000;
     if (this.traced !== null && this.traced.version === version) return this.traced;
     const blocks: TraceBlockLayer[] = [];
-    for (const l of this.deps.layers()) if ('forEach' in l.grid) blocks.push(traceBlockLayerOf(l.grid as BlockGridReader, l.origin, l.opaque));
+    for (const l of this.deps.layers()) if ('forEach' in l.grid) blocks.push({ ...traceBlockLayerOf(l.grid as BlockGridReader, l.origin, l.opaque), ...(l.layers !== undefined ? { layers: l.layers } : {}) });
     const terrain: TraceTerrain[] = [];
-    for (const [, field] of this.fields) {
+    for (const [id, field] of this.fields) {
       const t = traceTerrainOf(field, field.heightSpan());
-      if (t !== null) terrain.push(t);
+      const layers = this.layersOf.get(id);
+      if (t !== null) terrain.push(layers !== undefined ? { ...t, layers } : t);
     }
+    const all = LIGHT_LAYERS_ALL;
     const arch = [...this.ready.values()].filter((t): t is ArchTile => (t as { kind?: string }).kind === 'arch');
     const boxes = arch.flatMap((t) => t.pieces.boxes);
     const tris = new Float32Array(arch.reduce((n, t) => n + t.pieces.triangles.length, 0));
+    // Each item's layers: its object's, boxes first, then triangles (the tracer's item order).
+    const archLayers = [...arch.flatMap((t) => t.pieces.boxes.map(() => this.layersOf.get(t.key) ?? all)), ...arch.flatMap((t) => Array.from({ length: t.pieces.triangles.length / 9 }, () => this.layersOf.get(t.key) ?? all))];
     let at = 0;
     for (const t of arch) {
       tris.set(t.pieces.triangles, at);
       at += t.pieces.triangles.length;
     }
-    const bricks = [...this.ready.values()].filter((t): t is ModelTile => (t as { kind?: string }).kind === 'model').map((t) => ({ worldToLocal: t.worldToLocal, set: t.set }));
-    this.traced = { source: { blocks, terrain, arch: { boxes, triangles: tris }, bricks }, version };
+    const bricks = [...this.ready.values()].filter((t): t is ModelTile => (t as { kind?: string }).kind === 'model').map((t) => ({ worldToLocal: t.worldToLocal, set: t.set, layers: this.layersOf.get(t.key) ?? all }));
+    this.traced = { source: { blocks, terrain, arch: { boxes, triangles: tris, layers: archLayers }, bricks }, version };
     return this.traced;
   }
 

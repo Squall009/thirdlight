@@ -43,6 +43,7 @@ export class SurfaceLightPass {
   private frameBuf: GpuBuffer | null = null;
   private pointsBuf: GpuBuffer | null = null;
   private raysBuf: GpuBuffer | null = null;
+  private masksBuf: GpuBuffer | null = null;
   private outBuf: GpuBuffer | null = null;
   private readonly query: unknown;
   private readonly resolveBuf: GpuBuffer | null;
@@ -106,6 +107,7 @@ export class SurfaceLightPass {
     this.frameBuf = this.grow(this.frameBuf, packed.words.byteLength, USAGE.STORAGE | USAGE.COPY_DST, 'surface light frame');
     this.pointsBuf = this.grow(this.pointsBuf, packed.texels * TEXEL_POINT_FLOATS * 4, USAGE.STORAGE | USAGE.COPY_DST, 'surface light points');
     this.raysBuf = this.grow(this.raysBuf, packed.rays * RAY_FLOATS * 4, USAGE.STORAGE, 'surface light rays');
+    this.masksBuf = this.grow(this.masksBuf, packed.rays * 4, USAGE.STORAGE, 'surface light ray masks');
     this.outBuf = this.grow(this.outBuf, packed.texels * 16, USAGE.STORAGE | USAGE.COPY_SRC, 'surface light irradiance');
     d.queue.writeBuffer(this.frameBuf, 0, packed.words);
     d.queue.writeBuffer(this.pointsBuf, 0, frame.points.subarray(0, packed.texels * TEXEL_POINT_FLOATS));
@@ -115,7 +117,7 @@ export class SurfaceLightPass {
     const timed = this.query !== null && !this.reading;
     // Each pass's start and end: the three passes' times and the whole.
     const stamp = (i: number): Record<string, unknown> => (timed ? { timestampWrites: { querySet: this.query, beginningOfPassWriteIndex: i * 2, endOfPassWriteIndex: i * 2 + 1 } } : {});
-    const bind = (pipe: { getBindGroupLayout(i: number): unknown }, last: GpuBuffer, out?: GpuBuffer): unknown =>
+    const bind = (pipe: { getBindGroupLayout(i: number): unknown }, last: GpuBuffer, out: GpuBuffer): unknown =>
       d.createBindGroup({
         layout: pipe.getBindGroupLayout(0),
         entries: [
@@ -123,15 +125,15 @@ export class SurfaceLightPass {
           { binding: 1, resource: { buffer: this.frameBuf } },
           { binding: 2, resource: { buffer: this.pointsBuf } },
           { binding: 3, resource: { buffer: last } },
-          ...(out !== undefined ? [{ binding: 4, resource: { buffer: out } }] : []),
+          { binding: 4, resource: { buffer: out } },
         ],
       });
     let p = enc.beginComputePass(stamp(0));
     p.setPipeline(this.gen);
-    p.setBindGroup(0, bind(this.gen, this.raysBuf));
+    p.setBindGroup(0, bind(this.gen, this.raysBuf, this.masksBuf));
     p.dispatchWorkgroups(Math.ceil(packed.rays / LIGHT_WORKGROUP));
     p.end();
-    this.tracer.encodeBuffer(enc, this.raysBuf, packed.rays, stamp(1), SHADOW_TRACE);
+    this.tracer.encodeBuffer(enc, this.raysBuf, packed.rays, stamp(1), SHADOW_TRACE, this.masksBuf);
     p = enc.beginComputePass(stamp(2));
     p.setPipeline(this.gather);
     p.setBindGroup(0, bind(this.gather, this.tracer.hitsBuffer!, this.outBuf));
@@ -167,7 +169,7 @@ export class SurfaceLightPass {
   }
 
   dispose(): void {
-    for (const b of [this.params, this.frameBuf, this.pointsBuf, this.raysBuf, this.outBuf, this.resolveBuf]) b?.destroy();
+    for (const b of [this.params, this.frameBuf, this.pointsBuf, this.raysBuf, this.masksBuf, this.outBuf, this.resolveBuf]) b?.destroy();
     (this.query as { destroy?(): void } | null)?.destroy?.();
     this.tracer.dispose();
   }

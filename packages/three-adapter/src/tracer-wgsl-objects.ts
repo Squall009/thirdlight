@@ -17,6 +17,7 @@ const BRICK_CELLS = ${DISTANCE_BRICK_CELLS}.0;
 const BRICK_SIDE = ${DISTANCE_BRICK_SIDE}u;
 
 fn testArchItem(item: u32, at: u32, ro: vec3f, rd: vec3f, tmin: f32, h: ptr<function, Hit>, unf: ptr<function, f32>) {
+  if ((S[at + 13u] & RM) == 0u) { return; }
   let best = min((*h).t, *unf);
   if (S[at] == ${ARCH_BOX}u) {
     let o = mapPoint(at + 1u, ro);
@@ -92,6 +93,7 @@ fn localAddress(p: vec3f, D: vec3f) -> u32 {
 
 // Its world box first; marched whole from the grid cell (spanning [tlo, tcell]) where the ray enters that box.
 fn testInstance(item: u32, at: u32, ro: vec3f, rd: vec3f, tmin: f32, tlo: f32, tcell: f32, h: ptr<function, Hit>, unf: ptr<function, f32>, bs: ptr<function, u32>) {
+  if ((S[at + 19u] & RM) == 0u) { return; }
   let rs = safeDir(rd);
   let ba = (vec3f(sf(at + 13u), sf(at + 14u), sf(at + 15u)) - ro) / rs;
   let bb = (vec3f(sf(at + 16u), sf(at + 17u), sf(at + 18u)) - ro) / rs;
