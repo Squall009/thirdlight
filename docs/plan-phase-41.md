@@ -163,6 +163,7 @@ with real Rapier on page and worker.
 | 41.4b | **Suspend bodies outside loaded collision** (above): one rule, tests with an NPC walking out of the rings and back, page and worker equal. |
 | 41.5 | **Scene default plane, editor and upgrade:** retire `physics_dimension`; scene plane setting; schema 8 upgrade of 2D projects (fixtures shaped like Sprout's); the Inspector without dimension filtering; gizmos locked to a scene's plane; templates updated (the 2D starter becomes a scene with a default plane). |
 | 41.6 | **Remove the 2D backend:** `rapier2d-compat`, the 2D port, the old 2D controller package, the 38.9 plane cut, dimension branches (target: none left outside the upgrade code); export ships one wasm; the licence list updated. |
+| 41.7 | Done. Pipe test = perf class `node tools/perf/run.mjs pipe` (`tools/perf/pipe.ts`, `pipe-run.ts`): the 3D starter + block-built stretch (pit on a once-mover, one-way platforms onto a wall), two pipe triggers; the game's script (`ctx.character.setPlane`, `ctx.physics.setPlane` on tagged `section` objects, `ctx.camera.activate/deactivate`, 0.6 s eased) switches. Real keys at the 60 Hz cap, 3 runs × both renderers: window round each switch (−1 s…+1.6 s, 156 frames) longest 16.8 ms (vsync jitter), p95 16.7–16.8, 0 missed; whole walk 0 missed; plane held (0 m off), free after (z −5.7 m); no program/pipeline built during the walk. Fixed on the way: a pipeline built 0.43 s after the entry (precompile now the whole scene, 1c904f92), the player stuck stepping off the stopped mover (8f496009; D326, D327). Shots `acceptance/41.7-{3d-before,2d-stretch,3d-after}-{webgpu,webgl2}.jpg` looked at; owner look pending. Guide `guides/switching-to-a-plane.md`. No e2e touched; fast gate (play-start-cache, character-3d) green, 9 min, 4.3 GB. |
 | 41.7 | **The pipe test (acceptance scene):** a 3D level where the player enters a pipe, the game locks player and level section to a plane (camera to a side view by script), plays a 2D stretch (one-way platforms, movers, a block-built floor), and leaves back into 3D. No frame over 16.7 ms at the 60 Hz cap during either switch. A how-to guide built from it. |
 | 41.8 | **Performance:** 2D-style scenes on the 3D backend within 10 % of the 41.0 baseline step cost; download size change recorded. |
 | 41.9 | **The manual and migration notes:** 2D and 3D concepts rewritten ("planes, not project kinds"), the controller profiles, one-way, the upgrade (what changes for 2D games, digests to re-baseline). |
@@ -394,3 +395,14 @@ with real Rapier on page and worker.
   oriented; a model mesh wound inward may then collide wrongly from its back — unverified, no such mesh in the tests). One-way blocks are one collider per chunk and
   row of cells. A character standing still settles onto its skin; a moving one keeps Rapier's own snap (settling every
   step broke slopes and stairs parity).
+- 2026-10-26 (41.7): default chosen, owner to confirm: the pipe test is a perf class (`run.mjs pipe`), not an e2e file
+  (no e2e budget); it builds the scene through the commands on the 3D starter and plays the export with real keys. A
+  switch passes when no frame in its window missed a refresh at the cap (an interval over 1.5 refreshes): drawn
+  intervals at the cap are 16.6–16.8 ms from the clock's jitter alone. Camera and input are the game's: the side view
+  is a second follow camera the script activates; the camera-relative move needs no input change in the side view (a
+  game that wants other keys switches maps with a game mode, as the guide says).
+- 2026-10-26 (41.7): default chosen, owner to confirm: the precompile builds every object of the scene, in or out of
+  the camera's view (three's compileAsync culls to the frustum), so a later camera never builds a program mid-frame; a
+  large scene builds more at load (the pipe scene 24 → 25 programs; the village check unchanged). A grounded character
+  stopped by only ground-like contacts is lifted just past its skin (0.1 mm) and swept again: walking replays that
+  stalled a step at a floor seam change (the move-frame fixture: up to 4.5 cm; its comparison is now within 5 cm).
