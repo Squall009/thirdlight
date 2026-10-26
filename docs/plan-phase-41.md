@@ -195,6 +195,7 @@ with real Rapier on page and worker.
 | 41.8 | Done, target missed (D328). The perf classes were side-view layouts run as free 3D characters with the default step-up (a probe every step against a wall): now a Z-plane scene + arcade player, the form a 2D project takes on upgrade (`tools/perf/build.ts`; `sim.ts` applies the scene plane as Play does). Port: a sweep stills only the movers within its reach (it flipped every mover in the world each step), the internal-edge ground check skips its contacts with fewer than two solid statics near, the stricter-climb pass only when a collider sets one. Step p50 at 2400 steps, 3 rounds (load 2.6–3.5, calibration 7.7 vs 41.0's 7.4 ms): small 0.084 → 0.063 ms (41.0 2D 0.044, +43 %), medium 0.143 → 0.145 (0.105, +38 %), script-heavy 0.050 → 0.054 (0.039, +38 %); `plane-step` plane-locked 1/4 levels 0.061/0.122 → 0.044/0.063 (2D 0.037/0.056: +19/+13 %), `--arcade` 0.12/0.18 → 0.115/0.131 (2D with step-up 0.060/0.085); the rest is Rapier's 3D sweep (capsule, ~50 % of the port step) and the internal-edge check. Download: a 2D game's export +551 KiB raw / +208 KiB gzip (41.6). Pipe at the cap 3 runs × both renderers 0 missed (longest 16.8 ms); fast gate (character-3d, physics-3d) green, 9 min, 4.0 GB, village 0 missed both renderers; e2e untouched. |
 | 41.9 | Done. Manual: `concepts/2d-and-3d.md` rewritten as "planes, not project kinds" (plane, scene default, switching, shapes, one-way, profiles, queries, suspension, editor); physics page gains Queries and a profile list (arcade: autostep, coyote/buffer, wall slide/jump, climb, one-way, movers); migration notes gain "A side-view project moves onto planes" (what the `planes` step does, a table of the 13 `migrated_from_2d` lines and what to check, parity tolerances, digests re-baselined once, export +551 / +208 KiB gzip); block collision, gameplay, input, audio, cameras, timelines and 14 other pages lose "2D/3D project" wording. Left in source (not docs): the block type editor's One-way hint still says layers collide solid, and some descriptor texts (trigger) still say "in a 3D project". Docs tests green; no e2e.
 | 41.10 | Browser acceptance done, owner look pending; full gate + review by lead. Both renderers, 1920×1080, 60 Hz cap. Pipe: walk/switch shots from 41.7, editor shots added (`acceptance/41.10-pipe-editor-*`). Upgraded 2D project: a throwaway copy of Sprout (schema 8 without the planes step, so only that step ran; the schema-7 path is `upgrade.test.ts`; copy deleted) opened in the editor: Problems lists the migrations grouped by kind (27 lines on first open, 25 on reopen), all 17 scenes have the Z plane at 0 (Scene settings), side view with the gizmo's Z arrow gone. Played with real keys in Play: farm (title, new game, cleared), spike (lever opens the gate mover, 114 m run), summit-1 (lands on two one-way scaffolds): WebGL2 p95 16.7–16.8 ms, 0 missed (1806 / 3607 / 1509 frames); WebGPU p95 16.7–16.8, farm 0 missed, spike and summit-1 one missed each (33 ms, an effect's first pipeline build: D330). Played differently from the 2D original: hung in the air beside the closed gate, fixed (D329, aa69d22e); nothing else seen, but no side-by-side run against the 2D engine (unverified beyond the 41.3 parity suite). Shots `acceptance/41.10-upgraded-*` looked at. No e2e touched; fast gate (character-3d) green, 9 min, 4.0 GB (e2e 2.9 min). |
+| 41.11 | Done. Review fixes: H1, M1–M3, D330 and seven Lows (757e341a, 06f4346a, 6fb03133, 2b8bf21e, f75e1e70); see §5. Pipe test at the cap with 200 more section objects switched in the same step and the entry's effect: switch windows longest 16.8 ms, 0 missed on both renderers (2 runs each); WebGPU entry without the effect made ahead 66.7 ms, 28 compute pipelines, 1 missed. `plane-step` p50 plane-locked 1 level 0.046 ms, 4 levels 0.064 ms (step cost unchanged by the batch). No e2e touched; fast gate (character-3d, effects-runtime, effects-gpu) green, 9 min, 4.0 GB, e2e 3.0 min. |
 
 ## 5. Decision log
 
@@ -423,3 +424,27 @@ with real Rapier on page and worker.
   serves. A character in the air whose sweep falls short of its vertical move while it pushes into a wall is
   swept again without the part into the wall from just past its skin, and that result is taken only when it gets
   further (D329); it changes nothing beside fixed walls (the 3D, platformer parity and edge suites unchanged).
+- 2026-10-26 (41.11, phase review): the independent review (read-only, `f8ae8adf..d4c92f39`) found 1 High,
+  3 Medium, 10 Low. Fixed: H1 the upgrade lost linked copies' deep collider overrides (leaf paths, type
+  changes): each touched part is now assembled in 2D, converted as a prefab part and re-diffed (757e341a);
+  M1 scenery that never collided in 2D (terrain, spline surfaces, architecture, scatter copies; model colliders
+  as 3D parts) gets grouped Problems lines and a migration paragraph (757e341a); M2 every locked body stepped the
+  world: plane changes are batched per step, one update with no time passing (6fb03133); M3 FIX_INTERNAL_EDGES
+  made every mesh one-sided: only generated meshes (block chunks, terrain, architecture, splines) are oriented,
+  an imported mesh collides from both sides (6fb03133; the two new port tests fail with the old flag); D330
+  effects named by a scene are made ahead on WebGPU (f75e1e70). Lows fixed: L1 turning a turned area's object
+  settles its note (757e341a), L2 a settled Problems line is withdrawn (06f4346a), L3 dead 2D model collider
+  removed, L5 texts, L6 template setting, L10 guide (2b8bf21e), L4 one plane twist and ground tolerance in
+  project-model (6fb03133). Default chosen, owner to confirm: spline surfaces count as oriented meshes too (their
+  winding is generated, and they had the flag before), and the scenery Problems kinds are one per component (an
+  edit of that component settles them). Open: L7 (one-way chunk pieces outside the between-collider rule), L8
+  (whole-scene precompile start time on the level/interior classes), L9 (STATUS row, the lead's); D328 stays.
+  Rule checks (review): no per-project caps, no dimension branches left outside the upgrade, sizes within the
+  ratchet, no history comments, no new e2e file. Full gate: GREEN, 384 passed + 2 failed once then passed alone
+  (D331 project-items, D332 shell-scenes: the latter an export that bundled sources being edited by this item),
+  29 min (e2e 23.0 min) against 29 min in 39c and 41 min (RED) in 40. Owner's eyes: D328 (side-view step
+  +38–43 %), +551 KiB raw / +208 KiB gzip download for 2D games, parity tolerances (stairs 5 cm, side platform
+  33 mm), no side-by-side run of upgraded Sprout against the 2D engine, the lock defaults (statics snapped and
+  their rotation reduced for good, a locked child's body and drawing diverging, off-plane bodies collide at the
+  plane but draw at their depth, suspension ignores height, prefab parts carry an explicit plane), and the visual
+  checks (Scene settings, the gizmo held to the plane, side view, pipe shots on both renderers).
