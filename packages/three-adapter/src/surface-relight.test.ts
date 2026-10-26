@@ -147,6 +147,17 @@ describe('surface relight: changes as marks', () => {
     expect(stale()).toEqual(['u9', 'u10']);
   });
 
+  it('a light marks only the flat units facing it', () => {
+    const r = new SurfaceRelight(1.5);
+    // A wall's two faces at x = 10: one facing −x, one +x.
+    r.add({ key: 'west', min: [10, 0, 0], max: [10, 3, 4], texels: 10, plane: [-1, 0, 0, -10] });
+    r.add({ key: 'east', min: [10, 0, 0], max: [10, 3, 4], texels: 10, plane: [1, 0, 0, 10] });
+    for (let f = 0; !r.isSettled; f += 1) r.plan([0, 0, 0], f);
+    const c = new SurfaceChanges(r);
+    c.setLights([lamp({ position: [6, 2, 2] })]);
+    expect(['west', 'east'].filter((k) => r.isStale(k))).toEqual(['west']);
+  });
+
   it('the sun marks everything, but only once it has turned a step', () => {
     const { c, stale } = settledRow();
     c.setLights([sun([0, 1, 0])]);
