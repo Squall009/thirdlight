@@ -89,13 +89,13 @@ describe('surface cache: live probes', () => {
       const probes = new LiveProbes(2, 0.5);
       probes.place(null, rooms);
       const e = run(probes, 4, scene, rooms.words, yard);
-      if (doorOpen) expect(e).toBeGreaterThan(0.01);
+      if (doorOpen) expect(e).toBeGreaterThan(1e-3);
       else expect(e).toBe(0);
       // Without rooms the shut door leaks: the doorway is open to the tracer.
       if (!doorOpen) {
         const leak = new LiveProbes(2, 0.5);
         leak.place(null, rooms);
-        expect(run(leak, 4, scene, null, yard)).toBeGreaterThan(0.01);
+        expect(run(leak, 4, scene, null, yard)).toBeGreaterThan(1e-3);
       }
     }
     // Probes in the yard by the shut door, at the doorway's height, facing it: they see the lit floor through it only without rooms.
@@ -113,7 +113,7 @@ describe('surface cache: live probes', () => {
       }
       return lit;
     };
-    expect(byDoor(null)).toBeGreaterThan(0.01);
+    expect(byDoor(null)).toBeGreaterThan(1e-3);
     expect(byDoor(rooms.words)).toBe(0);
   });
 

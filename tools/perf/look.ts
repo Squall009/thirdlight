@@ -26,7 +26,14 @@ import type { EntityValue } from './generate';
 import { STARTER_REMOVED } from './level';
 
 export const LOOK_SCENES = ['door', 'sunset', 'corridor', 'sign'] as const;
-export type LookScene = (typeof LOOK_SCENES)[number];
+/**
+ * The leak check (not run by default): generated rooms on a block floor, a
+ * lamp in room C behind a door piece; `shut-off` and `shut-on` with the
+ * door shut and the lamp off and on (nothing outside C may change),
+ * `open-on` with no door piece (the lamp's light reaches the room in front).
+ */
+export const LEAK_SCENES = ['shut-off', 'shut-on', 'open-on'] as const;
+export type LookScene = (typeof LOOK_SCENES)[number] | (typeof LEAK_SCENES)[number];
 
 type Vec3 = [number, number, number];
 type Cmd = (op: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>;
@@ -59,6 +66,9 @@ export const LOOK_PLANS: Readonly<Record<LookScene, LookPlan>> = {
   sunset: { scene: 'sunset', eye: [32, 2.6, 31], at: [17, 3, 17], shows: 'the sunlit east face, the shaded north face, the house\'s long shadow on the ground, the warm sky' },
   corridor: { scene: 'corridor', eye: [11.5, 2.7, 3], at: [11.5, 2.5, 20], shows: 'three ceiling panels (rectangle lights) and a wall strip (a line light) lighting the floor and walls' },
   sign: { scene: 'sign', eye: [64, 1.7, 55], at: [64, 1.6, 64], shows: 'the glowing sign and the ground and post it should light at night' },
+  'shut-off': { scene: 'shut-off', eye: [1.5, 1.6, 12], at: [1.5, 0.8, 4], shows: 'room R through its arch, the shut door to C at its back; the lamp in C off' },
+  'shut-on': { scene: 'shut-on', eye: [1.5, 1.6, 12], at: [1.5, 0.8, 4], shows: 'the same, the lamp in C on: nothing outside C changes' },
+  'open-on': { scene: 'open-on', eye: [1.5, 1.6, 12], at: [1.5, 0.8, 4], shows: 'the door piece gone, the lamp on: its light reaches R through the doorway' },
 };
 
 /** Post-processing of every look scene: the level classes' stack (SMAA, bloom, AO), neutral tone mapping. */
@@ -156,7 +166,32 @@ async function signScene(be: PerfBackend, projectId: string, cmd: Cmd, mode: Loo
   await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#070a14', environmentIntensity: 0.15 }, post: POST } });
 }
 
-const BUILDERS: Readonly<Record<LookScene, (be: PerfBackend, projectId: string, cmd: Cmd, mode: LookLightMode) => Promise<void>>> = { door: doorScene, sunset: sunsetScene, corridor: corridorScene, sign: signScene };
+/** Rooms R (an arch toward the camera, a doorway to C) and C (closed but for that doorway) on a block floor; a lamp in C. */
+async function leakScene(be: PerfBackend, projectId: string, cmd: Cmd, mode: LookLightMode, doorShut: boolean, lampOn: boolean): Promise<void> {
+  await cmd('setBlockType', { block: { blockId: 'door', name: 'Door', variants: [{ color: '#6b4a2b' }], shape: 'full', placement: 'edge' } });
+  const layer = await blockLayer(be, projectId, cmd, [7, 4, 9], [fill(0, 0, 0, 7, 1, 9, 'soil')]);
+  // The door piece on the cell edges across the doorway's foot (the line z = 4, column x 1, rows 1–2).
+  if (doorShut) await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'edges', at: [1, 1, 4, 1, 1, 2, 4, 1], edge: { block: 'door' } }] });
+  const box4 = (x0: number, z0: number, x1: number, z1: number): number[][] => [[x0, 1, z0], [x1, 1, z0], [x1, 1, z1], [x0, 1, z1]];
+  const outlines = [
+    { id: 'r', preset: 'starter-room', path: { points: box4(0, 4, 3, 8), closed: true }, openings: [{ id: 'arch', at: 8.5, width: 2.4, bottom: 0, top: 2.4 }, { id: 'door', at: 1.5, width: 1, bottom: 0, top: 2.1 }] },
+    { id: 'c', preset: 'starter-room', path: { points: box4(0, 0, 3, 4), closed: true } },
+  ];
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Rooms', static: true, transform: { position: [0, 0, 0] }, components: { architecture: { elements: [], layer, outlines } } });
+  if (lampOn) await light(cmd, 'Lamp in C', [1.5, 1.6, 2], { type: 'point', color: '#fff2d8', intensity: 30, range: 6, castShadow: true, mode });
+  await cmd('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 0.6, direction: [0.3, -0.8, -0.5], castShadow: true, mode } });
+  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#202634', environmentIntensity: 0.3 }, post: POST } });
+}
+
+const BUILDERS: Readonly<Record<LookScene, (be: PerfBackend, projectId: string, cmd: Cmd, mode: LookLightMode) => Promise<void>>> = {
+  door: doorScene,
+  sunset: sunsetScene,
+  corridor: corridorScene,
+  sign: signScene,
+  'shut-off': (be, id, cmd, mode) => leakScene(be, id, cmd, mode, true, false),
+  'shut-on': (be, id, cmd, mode) => leakScene(be, id, cmd, mode, true, true),
+  'open-on': (be, id, cmd, mode) => leakScene(be, id, cmd, mode, false, true),
+};
 
 /** Build one look scene into a new project through the backend's commands. */
 export async function buildLook(be: PerfBackend, projectId: string, scene: LookScene, mode: LookLightMode): Promise<{ ms: number; commands: number }> {

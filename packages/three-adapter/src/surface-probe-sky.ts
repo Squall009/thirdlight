@@ -7,8 +7,12 @@
  * hemisphere lights the probes hold (baked or mixed: inside the probes'
  * tiles the probe lighting draws them in their place).
  *
- * The environment is projected on the GPU (`SKY_SAMPLES` directions of the
- * map, four pixels read back), again only when what it is made of changed.
+ * The environment is taken as three's materials take it for diffuse light
+ * (the map's roughest level, × π: the irradiance a surface facing each way
+ * gets, `SKY_SAMPLES` directions on the GPU, read back), a sun in it held
+ * down (`projectSky`), projected and turned back into radiance, so the
+ * probes' sky lights a surface about as the environment would. Again only
+ * when what it is made of changed.
  */
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
@@ -18,15 +22,50 @@ import { isProbeHeld } from './probe-lighting';
 import { SH_E0, SH_E1, SH_Y0, SH_Y1 } from './surface-probes';
 
 const TSL: N = TSLTyped;
-const { Fn, Loop, float, int, pmremTexture, screenCoordinate, select, uniform, vec3, vec4 } = TSL;
+const { Fn, float, int, pmremTexture, screenCoordinate, uniform, vec3, vec4 } = TSL;
 
 /** Directions the environment is projected over (an equal-area Fibonacci sphere). */
 const SKY_SAMPLES = 512;
-/** How rough a lookup of the environment is (smooths a small bright sun in the map without moving its light). */
-const SKY_ROUGHNESS = 0.25;
+/** The roughness three's materials look the environment up at for their diffuse light. */
+const SKY_ROUGHNESS = 1;
 /** How often (ms) what the sky is made of is looked at again. */
 const SKY_CHECK_MS = 500;
+/** How far above the map's typical irradiance (the mean of its darker nine tenths) a direction's is held. */
+const SKY_SPIKE = 3;
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+
+/** Direction i of the equal-area Fibonacci sphere (a TSL node: i a float node). */
+function skyDirection(fi: N): N {
+  const y = float(1).sub(fi.mul(2).add(1).div(SKY_SAMPLES));
+  const r = y.mul(y).oneMinus().max(0).sqrt();
+  const phi = fi.mul(GOLDEN_ANGLE / (2 * Math.PI)).fract().mul(2 * Math.PI);
+  return vec3(r.mul(phi.cos()), y, r.mul(phi.sin()));
+}
+
+/**
+ * Radiance SH (band 0, then y, z, x; RGB each) from irradiance samples
+ * (RGBA, one a Fibonacci direction): each held to `SKY_SPIKE` × the typical
+ * one, projected, then irradiance → radiance (band 0 ÷ π, band 1 ÷ 2π/3).
+ */
+export function projectSky(px: ArrayLike<number>): Float32Array {
+  const n = Math.floor(px.length / 4);
+  const lum = Array.from({ length: n }, (_, i) => px[i * 4]! + px[i * 4 + 1]! + px[i * 4 + 2]!).sort((a, b) => a - b);
+  const keep = lum.slice(0, Math.max(1, Math.floor(n * 0.9)));
+  const cap = SKY_SPIKE * (keep.reduce((a, b) => a + b, 0) / keep.length);
+  const out = new Float32Array(12);
+  for (let i = 0; i < n; i += 1) {
+    const y = 1 - (2 * i + 1) / n;
+    const r = Math.sqrt(Math.max(0, 1 - y * y));
+    const phi = ((i * GOLDEN_ANGLE) / (2 * Math.PI) % 1) * 2 * Math.PI;
+    const d = [r * Math.cos(phi), y, r * Math.sin(phi)];
+    const l = px[i * 4]! + px[i * 4 + 1]! + px[i * 4 + 2]!;
+    const k = l > cap && l > 0 ? cap / l : 1;
+    const basis = [SH_Y0, SH_Y1 * d[1]!, SH_Y1 * d[2]!, SH_Y1 * d[0]!];
+    for (let b = 0; b < 4; b += 1) for (let q = 0; q < 3; q += 1) out[b * 3 + q]! += px[i * 4 + q]! * k * basis[b]!;
+  }
+  for (let b = 0; b < 4; b += 1) for (let q = 0; q < 3; q += 1) out[b * 3 + q]! *= ((4 * Math.PI) / n) * (b === 0 ? 1 / Math.PI : 3 / (2 * Math.PI));
+  return out;
+}
 
 interface SkyRenderer {
   getRenderTarget(): THREE.RenderTarget | null;
@@ -96,35 +135,32 @@ export class SkyProbe {
     this.version += 1;
   }
 
-  /** The environment's radiance SH, on the GPU: pixel k is coefficient k. */
+  /**
+   * The environment's radiance SH: the irradiance three's materials take
+   * from it, facing each of `SKY_SAMPLES` directions (one pixel each, read
+   * back), projected here. A sun in the map is a narrow, very bright lobe
+   * the first two bands cannot hold (it would light every way); the
+   * directional light carries the sun, so samples are held to
+   * `SKY_SPIKE` times the map's typical irradiance first.
+   */
   private async project(renderer: SkyRenderer, env: THREE.Texture, intensity: number, turn: number): Promise<Float32Array> {
     if (this.quad === null || this.env !== env) {
       this.env = env;
       (this.quad?.material as THREE.Material | undefined)?.dispose();
       const material = new THREE.NodeMaterial();
       material.outputNode = Fn(() => {
-        const coef = int(screenCoordinate.x).toVar();
-        const sum = vec3(0).toVar();
-        Loop(SKY_SAMPLES, ({ i }: { i: N }) => {
-          const fi = float(i);
-          const y = float(1).sub(fi.mul(2).add(1).div(SKY_SAMPLES));
-          const r = y.mul(y).oneMinus().max(0).sqrt();
-          const phi = fi.mul(GOLDEN_ANGLE);
-          const d = vec3(r.mul(phi.cos()), y, r.mul(phi.sin()));
-          // The map as the scene shows it turned (Ry(θ)ᵀ·d).
-          const cs = this.turn.cos();
-          const sn = this.turn.sin();
-          const look = vec3(d.x.mul(cs).sub(d.z.mul(sn)), d.y, d.x.mul(sn).add(d.z.mul(cs)));
-          const L = pmremTexture(env, look, float(SKY_ROUGHNESS)).rgb.mul(this.intensity);
-          const basis = select(coef.equal(0), float(SH_Y0), select(coef.equal(1), d.y.mul(SH_Y1), select(coef.equal(2), d.z.mul(SH_Y1), d.x.mul(SH_Y1))));
-          sum.addAssign(L.mul(basis));
-        });
-        return vec4(sum.mul((4 * Math.PI) / SKY_SAMPLES), 1);
+        const d = skyDirection(float(int(screenCoordinate.x)));
+        // The map as the scene shows it turned (Ry(θ)ᵀ·d).
+        const cs = this.turn.cos();
+        const sn = this.turn.sin();
+        const look = vec3(d.x.mul(cs).sub(d.z.mul(sn)), d.y, d.x.mul(sn).add(d.z.mul(cs)));
+        // The irradiance a surface facing d gets from the map, as three's EnvironmentNode gives it.
+        return vec4(pmremTexture(env, look, float(SKY_ROUGHNESS)).rgb.mul(this.intensity).mul(Math.PI), 1);
       })();
       material.depthTest = false;
       material.depthWrite = false;
       this.quad = new THREE.QuadMesh(material);
-      this.target ??= new THREE.RenderTarget(4, 1, { type: THREE.FloatType, format: THREE.RGBAFormat, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false, generateMipmaps: false });
+      this.target ??= new THREE.RenderTarget(SKY_SAMPLES, 1, { type: THREE.FloatType, format: THREE.RGBAFormat, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, depthBuffer: false, generateMipmaps: false });
     }
     this.intensity.value = intensity;
     this.turn.value = turn;
@@ -132,10 +168,8 @@ export class SkyProbe {
     renderer.setRenderTarget(this.target);
     this.quad.render(renderer as unknown as THREE.Renderer);
     renderer.setRenderTarget(was);
-    const px = (await renderer.readRenderTargetPixelsAsync(this.target!, 0, 0, 4, 1)) as Float32Array;
-    const out = new Float32Array(12);
-    for (let k = 0; k < 4; k += 1) for (let q = 0; q < 3; q += 1) out[k * 3 + q] = px[k * 4 + q]!;
-    return out;
+    const px = (await renderer.readRenderTargetPixelsAsync(this.target!, 0, 0, SKY_SAMPLES, 1)) as Float32Array;
+    return projectSky(px);
   }
 
   dispose(): void {

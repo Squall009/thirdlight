@@ -45,8 +45,12 @@ import { NO_ROOM, roomHoldsCpu, type SurfaceRooms } from './surface-rooms';
 export const PROBE_SH_RAYS = 64;
 export const PROBE_AXIS_RAYS = 6;
 export const PROBE_RAYS = PROBE_SH_RAYS + PROBE_AXIS_RAYS;
-/** The albedo bounced light is reflected with (the cache holds light, not its surfaces' colours). */
-export const BOUNCE_ALBEDO = 0.5;
+/**
+ * The albedo bounced light is reflected with (the cache holds light, not
+ * its surfaces' colours): a typical surface's, so a closed room's light
+ * builds up to about 1 / (1 − 0.3) of its direct light, not double it.
+ */
+export const BOUNCE_ALBEDO = 0.3;
 /** How far a probe ray runs (probe spacings) before it is taken to see the sky. */
 export const PROBE_RAY_SPACINGS = 8;
 /** How far (m) a hit's point is moved off its surface before the probes are read there: past a room's probe inset, so a wall's room side reads its room. */
