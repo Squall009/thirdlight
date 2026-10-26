@@ -10,6 +10,7 @@
  *   --scenes door,sunset,corridor,sign   (default all four)
  *   --renderers webgpu,webgl2            (default both)
  *   --no-bake                            the lights realtime, nothing baked (default: the lights baked, then baked)
+ *   --cache-view                         draw the surface cache's texels (`?surfaceCacheView=1`): what the live light wrote
  *   --shots DIR                          where the screenshots go (default the run folder, kept with --keep)
  *   --shot-prefix P                      screenshot names `<P><scene>-<renderer>.jpg` (default none)
  *   --record-ms N --warmup-ms N --gpu-ms N --out FILE --keep
@@ -87,7 +88,7 @@ export async function runLookCli(argv: readonly string[]): Promise<void> {
       try {
         for (const r of renderers) {
           const shot = join(shots, `${prefix}${scene}-${r}.jpg`);
-          const res = await measurePage(browser, { url: `${site.url}?renderer=${r}`, warmupMs, recordMs, gpuMs, profileMs: 0, sourceOf: sourcesOf(site), shot });
+          const res = await measurePage(browser, { url: `${site.url}?renderer=${r}${argv.includes('--cache-view') ? '&surfaceCacheView=1' : ''}`, warmupMs, recordMs, gpuMs, profileMs: 0, sourceOf: sourcesOf(site), shot });
           report.scenes[scene]!.runs[r] = res;
           report.scenes[scene]!.shots[r] = shot;
           log(`${frameLine(`${scene} ${r}`, res)}, missed ${res.frames.missed ?? '-'} of ${res.frames.n}`);

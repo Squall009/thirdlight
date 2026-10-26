@@ -5,7 +5,7 @@
  *
  * - `door`: the look scene's block room (rock walls, a ceiling, a 2 × 2 m
  *   door, a pillar) on a soil slab in 128 m of hills, the sun through the
- *   door and a lamp under the ceiling switched on and off.
+ *   door and a lamp (a rectangle light) under the ceiling switched on and off.
  * - `village`: the village perf class's block ground and its 650 static
  *   props (their distance-field files made here from the class's own model
  *   files), its sun stepped by 1° a round.
@@ -55,7 +55,8 @@ function doorInput(rounds: number, budgetMs: number, loadMs: number): RelightInp
     models: [],
     files: {},
     eye: [10, 2.6, 9.6],
-    lights: [sunLight([0.15, -0.55, -0.82], hexColour('#fff0dc', 3)), { id: 'lamp', kind: 'point', on: false, position: [12.5, 3.7, 12.5], direction: [0, -1, 0], color: hexColour('#fff0d8', 12), range: 10, cone: 0, penumbra: 0 }],
+    // The lamp: a 1.2 × 0.6 m ceiling panel (an area light) shining down.
+    lights: [sunLight([0.15, -0.55, -0.82], hexColour('#fff0dc', 3)), { id: 'lamp', kind: 'area', on: false, position: [12.5, 3.95, 12.5], direction: [0, -1, 0], color: hexColour('#fff0d8', 12), range: 10, cone: 0, penumbra: 0, area: { u: [0.6, 0, 0], v: [0, 0, 0.3], twoSided: false } }],
     event: 'lamp',
     rounds,
     budgetMs,
@@ -180,6 +181,8 @@ export async function runRelightCli(argv: readonly string[]): Promise<void> {
       for (const e of got['events'] as LoopResult[]) console.log(line(e.change ?? '', e));
       const r = got['resolve'] as { rays: number; resolved: number; mismatches: number; tableBytes: number };
       console.log(`${name.padEnd(8)} resolve      ${r.resolved} of ${r.rays} hits resolved, GPU≠CPU ${r.mismatches}, table ${r.tableBytes} B; GPU ${mhz ?? '-'} MHz of ${maxMhz ?? '-'}`);
+      const li = got['light'] as { texels: number; lit: number; within2pc: number };
+      console.log(`${name.padEnd(8)} light        GPU = CPU twin within 2 % on ${li.within2pc} of ${li.lit} lit texels (${li.texels} in the frame)`);
     }
   } finally {
     await browser.close();

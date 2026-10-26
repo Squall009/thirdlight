@@ -17,8 +17,15 @@
 
 /** Texels a frame takes before any cost is measured (a 32k dispatch kept the Iris Xe within budget in the door room). */
 export const RELIGHT_START_TEXELS = 32768;
-/** Texels a frame takes at least, however slow the GPU is now (below, the dispatch costs more than its texels). */
-export const RELIGHT_MIN_TEXELS = 1024;
+/**
+ * Texels a frame takes at least, however slow the GPU is now: a smaller
+ * dispatch costs about as much on an integrated GPU (one ray's latency, not
+ * the count, bounds it: 1 k and 8 k texels of sun rays each took about 2 ms
+ * on the Iris Xe at its floor clock), so fewer would only slow the light.
+ * The pass still holds a frame's rays to its budget (`MIN_PASS_RAYS` at
+ * least) and hands back the texels it did not light.
+ */
+export const RELIGHT_MIN_TEXELS = 8192;
 /** Texels a frame takes at most (one dispatch's rays stay within the tracer's buffers). */
 export const RELIGHT_MAX_TEXELS = 262144;
 /** Frames over which a waiting unit's distance halves when the stale units are ordered. */
@@ -36,6 +43,8 @@ export interface RelightUnit {
   readonly texels: number;
   /** A flat unit's plane (normal and offset, n · p = d on it): a light behind it cannot reach it. */
   readonly plane?: readonly number[];
+  /** The light layers its surface is in (a bit mask; absent: every layer): a light lights it when its mask shares one. */
+  readonly layers?: number;
 }
 
 /** Texels `from` (inclusive) to `to` (exclusive) of a unit, in its own texel order. */
@@ -199,6 +208,25 @@ export class SurfaceRelight {
     this.marks += 1;
     for (const s of this.units.values()) this.stale(s);
     for (const l of this.listeners) l(null, null);
+  }
+
+  /**
+   * Planned work a pass did not run (its frame's rays outgrew the budget):
+   * those texels wait again, from where they were, and stay first in line.
+   */
+  giveBack(slices: readonly RelightSlice[]): void {
+    for (const sl of slices) {
+      const s = this.units.get(sl.unit.key);
+      if (s === undefined || s.unit !== sl.unit) continue;
+      if (!s.stale) {
+        // Taken whole this frame (its cursor went back to 0): it resumes where the pass stopped.
+        s.stale = true;
+        s.cursor = sl.from;
+        this.staleCount += 1;
+        this.settling ??= { ms: -1, frame: this.frame };
+      } else s.cursor = Math.min(s.cursor, sl.from);
+      this.relit -= sl.to - sl.from;
+    }
   }
 
   /** One unit is stale. */

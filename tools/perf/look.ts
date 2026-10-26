@@ -10,11 +10,9 @@
  *   what bounces off that patch (and whatever leaks).
  * - `sunset`: a generated two-storey building on block ground under a low,
  *   warm sun and a physical sky: long shadows, a lit and an unlit face.
- * - `corridor`: a closed block corridor lit by rectangle and line lights. The
- *   engine has no area light yet, so each rectangle is a wide, fully soft spot
- *   under an emissive panel and each line a row of point lights along an
- *   emissive strip; the stand-ins keep the scene comparable once real area
- *   lights replace them.
+ * - `corridor`: a closed block corridor lit by rectangle area lights under
+ *   emissive ceiling panels and a line light along an emissive strip on a
+ *   wall.
  * - `sign`: an emissive sign standing on hilly terrain at night, under a faint
  *   moon: the sign is the only real light source the eye expects.
  *
@@ -59,7 +57,7 @@ export interface LookPlan {
 export const LOOK_PLANS: Readonly<Record<LookScene, LookPlan>> = {
   door: { scene: 'door', eye: [10, 2.6, 9.6], at: [13, 1, 15], shows: 'the sun through the door onto the floor; the walls, ceiling and corners lit only by bounce' },
   sunset: { scene: 'sunset', eye: [32, 2.6, 31], at: [17, 3, 17], shows: 'the sunlit east face, the shaded north face, the house\'s long shadow on the ground, the warm sky' },
-  corridor: { scene: 'corridor', eye: [11.5, 2.7, 3], at: [11.5, 2.5, 20], shows: 'three ceiling panels (rect stand-ins) and a wall strip (line stand-in) lighting the floor and walls' },
+  corridor: { scene: 'corridor', eye: [11.5, 2.7, 3], at: [11.5, 2.5, 20], shows: 'three ceiling panels (rectangle lights) and a wall strip (a line light) lighting the floor and walls' },
   sign: { scene: 'sign', eye: [64, 1.7, 55], at: [64, 1.6, 64], shows: 'the glowing sign and the ground and post it should light at night' },
 };
 
@@ -87,8 +85,8 @@ async function box(cmd: Cmd, name: string, at: Vec3, size: Vec3, surface: Record
   await cmd('setComponent', { entityId: id, component: 'surface', value: { roughness: 0.8, metalness: 0, ...surface } });
 }
 
-async function light(cmd: Cmd, name: string, at: Vec3, value: Record<string, unknown>): Promise<void> {
-  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name, transform: { position: at }, components: { light: value } });
+async function light(cmd: Cmd, name: string, at: Vec3, value: Record<string, unknown>, rotation?: readonly number[]): Promise<void> {
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name, transform: { position: at, ...(rotation !== undefined ? { rotation } : {}) }, components: { light: value } });
 }
 
 /** The room: rock walls round 8..16 × 8..16 on a soil slab, a ceiling 3 m over the floor, a 2 × 2 m door in the +z wall. */
@@ -118,21 +116,21 @@ async function sunsetScene(be: PerfBackend, projectId: string, cmd: Cmd, mode: L
   await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'procedural', sunFromLight: true, turbidity: 9, rayleigh: 2.5, cloudCoverage: 0.35 }, post: { ...POST, grading: { tint: '#fff2e4' } } } });
 }
 
-/** A closed block corridor 3 m wide, 3 m high, 28 m long; rect and line light stand-ins. */
+/** A closed block corridor 3 m wide, 3 m high, 28 m long; rectangle and line area lights. */
 async function corridorScene(be: PerfBackend, projectId: string, cmd: Cmd, mode: LookLightMode): Promise<void> {
   await blockLayer(be, projectId, cmd, [24, 8, 34], [
     fill(0, 0, 0, 24, 1, 34, 'soil'),
     fill(9, 1, 1, 14, 5, 32, 'rock'),
     fill(10, 1, 2, 13, 4, 31, null),
   ]);
-  // Rect stand-ins: a panel on the ceiling and a wide spot under it, fully soft (penumbra 1); the first is shadowed.
+  // Rectangles: a panel on the ceiling and an area light of its size just under it, shining down.
   for (const [i, z] of [6, 14, 22].entries()) {
     await box(cmd, `Panel ${i + 1}`, [11.5, 3.97, z], [1.2, 0.04, 0.6], { color: '#ffffff', emissive: '#fff4e0', emissiveIntensity: 4 });
-    await light(cmd, `Rect ${i + 1}`, [11.5, 3.9, z], { type: 'spot', color: '#fff4e0', intensity: 40, range: 8, decay: 2, angle: 75, penumbra: 1, direction: [0, -1, 0], castShadow: i === 0, mode });
+    await light(cmd, `Rect ${i + 1}`, [11.5, 3.94, z], { type: 'area', shape: 'rect', width: 1.2, height: 0.6, color: '#fff4e0', intensity: 40, range: 8, castShadow: true, mode });
   }
-  // Line stand-in: an emissive strip low on the west wall and five point lights along it.
+  // A line: an emissive strip low on the west wall and a line light along it (local X turned along +z, facing +x into the corridor).
   await box(cmd, 'Strip', [10.04, 1.6, 18], [0.06, 0.05, 8], { color: '#ffffff', emissive: '#9fd0ff', emissiveIntensity: 4 });
-  for (let k = 0; k < 5; k += 1) await light(cmd, `Line ${k + 1}`, [10.2, 1.6, 14.4 + k * 1.8], { type: 'point', color: '#9fd0ff', intensity: 4, range: 3.5, decay: 2, mode });
+  await light(cmd, 'Line', [10.1, 1.6, 18], { type: 'area', shape: 'line', width: 8, color: '#9fd0ff', intensity: 20, range: 4, castShadow: true, mode }, [0.5, -0.5, 0.5, 0.5]);
   // The corridor is closed: the sun only lights its outside.
   await cmd('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 1.5, direction: [0.4, -1, -0.3], castShadow: true, mode } });
   await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'procedural', sunFromLight: true }, post: POST } });

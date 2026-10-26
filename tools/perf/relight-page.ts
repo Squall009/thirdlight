@@ -13,7 +13,10 @@ import { BlockGrid, TerrainField, decodeDistanceBricks, type BlockType, type Ter
 import { GpuResolve } from '../../packages/three-adapter/src/surface-resolve-gpu';
 import { SurfaceCacheHost, type SurfaceHostModel } from '../../packages/three-adapter/src/surface-cache-host';
 import type { CacheLight } from '../../packages/three-adapter/src/surface-changes';
-import { SurfaceLightPass, lightFrameOf } from '../../packages/three-adapter/src/surface-light-pass';
+import { SHADOW_TRACE, lightFrameOf } from '../../packages/three-adapter/src/surface-light-pass';
+import { SurfaceLightRuntime } from '../../packages/three-adapter/src/surface-light-runtime';
+import { lightFrameCpu } from '../../packages/three-adapter/src/surface-light-cpu';
+import { splitLightFrame } from '../../packages/three-adapter/src/surface-light-frame';
 import { SurfaceScene } from '../../packages/three-adapter/src/surface-cache-scene';
 import { packResolveTable, resolveHitCpu } from '../../packages/three-adapter/src/surface-resolve';
 import type { TracerDevice } from '../../packages/three-adapter/src/tracer-gpu';
@@ -171,10 +174,11 @@ async function run(input: RelightInput): Promise<Record<string, unknown>> {
     bricks: input.models.flatMap((m) => traceModelInstancesOf(decoded.get(m.assetId)!, toLocal(m.world))),
   });
   const load = await frameLoad(device, input.loadMs);
-  const pass = await SurfaceLightPass.create(device as TracerDevice);
-  pass.setScene(trace);
+  const rt = await SurfaceLightRuntime.create(device as TracerDevice, host);
+  const pass = rt.pass;
+  let timed: ((ms: number, t: number, parts: readonly number[]) => void) | null = null;
+  rt.onTimed = (ms, t, parts) => timed?.(ms, t, parts);
   let lights = input.lights;
-  let points: Float32Array | null = null;
   const loop = async (maxMs: number): Promise<Record<string, unknown>> => {
     const t0 = performance.now();
     const gpuMs: number[] = [];
@@ -183,6 +187,11 @@ async function run(input: RelightInput): Promise<Record<string, unknown>> {
     const intervals: number[] = [];
     const passMs: number[][] = [];
     const perTexel: number[] = [];
+    timed = (ms, t, parts) => {
+      gpuMs.push(ms);
+      passMs.push([...parts]);
+      perTexel.push((ms * 1e6) / t);
+    };
     let last = await frame();
     let frames = 0;
     let roomMs: number | null = null;
@@ -196,16 +205,10 @@ async function run(input: RelightInput): Promise<Record<string, unknown>> {
       const c0 = performance.now();
       host.setLights(lights);
       host.update(input.eye, c0);
-      const f = lightFrameOf(host, lights, points);
-      points = f.points;
+      counts.push(host.slicesThisFrame().reduce((n, s) => n + s.to - s.from, 0));
+      // The page's own runtime: the frame's rays held to the GPU budget, the light written into the cache's textures.
+      rt.frame(lights, c0);
       cpuMs.push(performance.now() - c0);
-      counts.push(f.slices.reduce((n, s) => n + s.texels, 0));
-      pass.run(f, (ms, t, parts) => {
-        host.relight.report(ms, t);
-        gpuMs.push(ms);
-        passMs.push([...parts]);
-        perTexel.push((ms * 1e6) / t);
-      });
       frames += 1;
       if (roomMs === null && input.room !== null && !roomStale()) {
         roomMs = performance.now() - t0;
@@ -305,9 +308,34 @@ async function run(input: RelightInput): Promise<Record<string, unknown>> {
     if (want[0] !== texels[i * 2] || want[1] !== texels[i * 2 + 1]) mismatches += 1;
   }
   resolve.dispose();
-  pass.dispose();
+  // The GPU's light against its CPU twin on the same texels, rays and random sequence.
+  host.relight.markAll();
+  host.update(input.eye, performance.now());
+  const all = lightFrameOf(host, lights.map((l) => ({ ...l, on: true })));
+  const part = splitLightFrame(all, 1 << 17)[0]!.frame;
+  pass.run(part);
+  const gpuSeed = pass.lastSeed;
+  const nt = part.slices.reduce((k, s) => k + s.texels, 0);
+  const rb = device.createBuffer({ size: nt * 16, usage: 0x1 | 0x8 });
+  const enc = device.createCommandEncoder();
+  enc.copyBufferToBuffer(pass.irradiance, 0, rb, 0, nt * 16);
+  device.queue.submit([enc.finish()]);
+  await rb.mapAsync(0x1);
+  const gpuE = new Float32Array(rb.getMappedRange().slice(0));
+  rb.unmap();
+  const cpuE = lightFrameCpu(part, trace, gpuSeed, SHADOW_TRACE);
+  let lit = 0;
+  let close = 0;
+  for (let i = 0; i < nt; i += 1) {
+    const g = gpuE[i * 4]! + gpuE[i * 4 + 1]! + gpuE[i * 4 + 2]!;
+    const c = cpuE[i * 3]! + cpuE[i * 3 + 1]! + cpuE[i * 3 + 2]!;
+    if (Math.max(g, c) <= 1e-6) continue;
+    lit += 1;
+    if (Math.abs(g - c) <= 0.02 * Math.max(g, c) + 1e-4) close += 1;
+  }
+  rt.dispose();
   device.destroy();
-  return { adapter: adapter.info?.description ?? adapter.info?.vendor ?? '', timed: pass.timed, cold, still, events, resolve: { rays: n, resolved, mismatches, kinds, tableBytes: table.words.byteLength } };
+  return { adapter: adapter.info?.description ?? adapter.info?.vendor ?? '', timed: pass.timed, cold, still, events, resolve: { rays: n, resolved, mismatches, kinds, tableBytes: table.words.byteLength }, light: { texels: nt, lit, within2pc: close } };
 }
 
 (window as unknown as { __tlRelight: unknown }).__tlRelight = { run };

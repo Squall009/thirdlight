@@ -27,6 +27,7 @@ import type { ProbeLightingHost } from './probe-grids';
 import type { QualityControl } from './quality-control';
 import type { RenderControl } from './render-control';
 import type { RenderGraph } from './render-graph';
+import type { AdapterSurfaceLight } from './adapter-surface-light';
 import type { SurfaceCacheHost } from './surface-cache-host';
 import type { AnyRenderer } from './renderer-factory';
 import type { ViewCuller } from './view-cull';
@@ -61,6 +62,8 @@ export interface AdapterParts {
   readonly level: AdapterLevel;
   /** The surface cache (null: the host turned it off). */
   readonly surfaceCache: SurfaceCacheHost | null;
+  /** The cache's live light on a WebGPU device (null: no cache). */
+  readonly surfaceLight: AdapterSurfaceLight | null;
   readonly batcher: AutoBatcher | null;
   readonly viewCull: ViewCuller;
   readonly isolation: IsolationView;

@@ -72,6 +72,31 @@ describe('surface relight: the scheduler', () => {
     expect(r.diagnostics()).toMatchObject({ live: false, stalePages: 2 });
   });
 
+  it('texels a pass hands back wait again from where it stopped, and every texel is lit once', () => {
+    const r = new SurfaceRelight(1.5);
+    for (let i = 0; i < 4; i += 1) r.add(unitAt(`u${i}`, i * 3, 5000));
+    const lit = new Map<string, number[]>();
+    for (let f = 0; f < 100 && !r.isSettled; f += 1) {
+      const slices = r.plan([0, 0, 0], f * 16);
+      // The pass lights 3,000 texels a frame, the rest go back.
+      let left = 3000;
+      const back = [];
+      for (const s of slices) {
+        const take = Math.max(0, Math.min(left, s.to - s.from));
+        left -= take;
+        const got = lit.get(s.unit.key) ?? new Array<number>(5000).fill(0);
+        for (let i = s.from; i < s.from + take; i += 1) got[i]! += 1;
+        lit.set(s.unit.key, got);
+        if (take < s.to - s.from) back.push({ unit: s.unit, from: s.from + take, to: s.to });
+      }
+      r.giveBack(back);
+    }
+    expect(r.isSettled).toBe(true);
+    for (const [, n] of lit) expect(n.every((v) => v === 1)).toBe(true);
+    expect(lit.size).toBe(4);
+    expect(r.diagnostics().relitTexels).toBe(20000);
+  });
+
   it('takes as many texels a frame as the measured GPU time fits in the budget', () => {
     const r = new SurfaceRelight(1.5);
     expect(r.diagnostics().texelsPerFrame).toBe(RELIGHT_START_TEXELS);

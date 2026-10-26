@@ -14,10 +14,11 @@
  */
 import type { TerrainField } from '@thirdlight/runtime';
 
-import { SURFACE_CHART_BORDER, SURFACE_CHART_METRES, areaTexels, surfelLevelFor, type SurfaceChart, type TilePacking } from './surface-cache-atlas';
+import { SURFACE_CHART_BORDER, SURFACE_CHART_METRES, areaTexels, surfelLevelFor, type AtlasBlock, type SurfaceChart, type TilePacking } from './surface-cache-atlas';
+import { RESOLVE_PAGE, RESOLVE_RING } from './surface-resolve';
 import { FACE_PLANE_AXES } from './surface-cache-blocks';
 import type { ArchTile, BlockTile, ModelTile } from './surface-cache-scene';
-import type { RingPatch } from './surface-cache-terrain';
+import { TERRAIN_RING_TEXELS, type RingPatch } from './surface-cache-terrain';
 import { invertAffine } from './tracer-words';
 
 /** Floats per texel point: position xyz, normal xyz. */
@@ -35,20 +36,64 @@ export interface ChartRect {
   readonly h: number;
 }
 
-/** A resident tile with its packing at its level; `rect`: only that part of one chart (a chart's unit), its texels row by row. */
+/** A resident tile with its packing at its level and its atlas blocks; `rect`: only that part of one chart (a chart's unit), its texels row by row. */
 export interface TileTexels {
   readonly tile: BlockTile | ArchTile | ModelTile;
   readonly level: number;
   readonly packing: TilePacking;
   readonly charts: readonly SurfaceChart[];
+  readonly blocks: readonly AtlasBlock[];
   readonly rect?: ChartRect;
 }
 
-/** A terrain ring patch with its terrain. */
+/** A terrain ring patch with its terrain, and the terrain's index among the cache's ring terrains. */
 export interface PatchTexels {
   readonly patch: RingPatch;
   readonly texel: number;
   readonly field: TerrainField;
+  readonly terrain: number;
+}
+
+/**
+ * Where texels [from, to) of a resident tile are on the atlas, two words
+ * each from word `at`: `RESOLVE_PAGE << 30 | page`, then `x | y << 16` (the
+ * resolve pass's encoding, `surface-resolve.ts`).
+ */
+export function tileTexelAddresses(src: TileTexels, from: number, to: number, out: Uint32Array, at: number): void {
+  const { packing, blocks } = src;
+  const put = (place: number, x: number, y: number, o: number): void => {
+    const pl = packing.places[place]!;
+    const b = blocks[pl.block]!;
+    out[o] = ((RESOLVE_PAGE << 30) | b.page) >>> 0;
+    out[o + 1] = (b.x + pl.x + x) | ((b.y + pl.y + y) << 16);
+  };
+  const rect = src.rect;
+  if (rect !== undefined) {
+    for (let i = from, o = at; i < to; i += 1, o += 2) put(rect.chart, rect.x + (i % rect.w), rect.y + Math.floor(i / rect.w), o);
+    return;
+  }
+  let first = 0;
+  let o = at;
+  for (let c = 0; c < packing.places.length && first < to; c += 1) {
+    const place = packing.places[c]!;
+    const n = place.w * place.h;
+    const a = Math.max(from, first) - first;
+    const b = Math.min(to, first + n) - first;
+    for (let i = a; i < b; i += 1, o += 2) put(c, i % place.w, Math.floor(i / place.w), o);
+    first += n;
+  }
+}
+
+/** Where texels [from, to) of a ring patch are in its terrain's rings (`RESOLVE_RING << 30 | terrain << 3 | ring`, then `x | y << 16`, wrapped as the rings wrap). */
+export function patchTexelAddresses(src: PatchTexels, from: number, to: number, out: Uint32Array, at: number): void {
+  const { patch } = src;
+  const R = TERRAIN_RING_TEXELS;
+  for (let i = from, o = at; i < to; i += 1, o += 2) {
+    out[o] = ((RESOLVE_RING << 30) | (src.terrain << 3) | patch.ring) >>> 0;
+    const x = (((patch.ix + (i % patch.w)) % R) + R) % R;
+    const y = (((patch.iz + Math.floor(i / patch.w)) % R) + R) % R;
+    out[o + 1] = x | (y << 16);
+  }
 }
 
 /** A point of chart `c` of a tile at (u, v) metres: position and normal. */

@@ -18,7 +18,7 @@ import { traceRayCpu, sceneView, type V3 } from './tracer-cpu';
 import { opaqueByBlockTypes, traceBlockLayerOf, traceTerrainOf } from './tracer-sources';
 import { HIT_WORDS, TRACE_ARCH, TRACE_BLOCKS, TRACE_BRICKS, TRACE_MISS, TRACE_TERRAIN, TRACE_UNFINISHED, packTraceScene, worldToLocalOf } from './tracer-scene';
 import { packResolveTable, resolveHitCpu, texelWords } from './surface-resolve';
-import { TEXEL_POINT_FLOATS, patchTexelPoints, tileTexelPoints } from './surface-texels';
+import { TEXEL_POINT_FLOATS, patchTexelAddresses, patchTexelPoints, tileTexelAddresses, tileTexelPoints } from './surface-texels';
 
 function rng(seed: number): () => number {
   let a = seed >>> 0;
@@ -272,6 +272,7 @@ describe('surface cache: addressing per kind', () => {
     cache.update([10, 3, 0], scene.tiles, scene.terrains, true);
     const s = sceneView(packTraceScene(scene.traceSource()));
     const pts = new Float32Array(TEXEL_POINT_FLOATS);
+    const addr = new Uint32Array(2);
     const room = blockRoom();
     const tried = new Map<string, number>();
     const wrong = new Map<string, number>();
@@ -288,7 +289,9 @@ describe('surface cache: addressing per kind', () => {
       const t = tile as BlockTile | ArchTile | ModelTile;
       const texels = r.packing.places.reduce((n, p) => n + p.w * p.h, 0);
       for (let i = 0; i < texels; i += 13) {
-        tileTexelPoints({ tile: t, level: r.level, packing: r.packing, charts: r.charts }, i, i + 1, pts, 0);
+        const src = { tile: t, level: r.level, packing: r.packing, charts: r.charts, blocks: r.blocks };
+        tileTexelPoints(src, i, i + 1, pts, 0);
+        tileTexelAddresses(src, i, i + 1, addr, 0);
         if (pts[3] === 0 && pts[4] === 0 && pts[5] === 0) continue;
         // The texel's place on the atlas: its chart's rectangle, a border texel at its nearest interior one.
         let c = 0;
@@ -297,6 +300,8 @@ describe('surface cache: addressing per kind', () => {
         const place = r.packing.places[c]!;
         const b = r.blocks[place.block]!;
         const chart = r.charts[c]!;
+        // The light pass writes the texel at its own place.
+        expect([addr[0]! & 0x3fffffff, addr[1]! & 0xffff, addr[1]! >>> 16]).toEqual([b.page, b.x + place.x + ((i - first) % place.w), b.y + place.y + Math.floor((i - first) / place.w)]);
         let x = (i - first) % place.w;
         let y = Math.floor((i - first) / place.w);
         if (chart.kind === 'area') {
@@ -328,7 +333,8 @@ describe('surface cache: addressing per kind', () => {
       for (const patch of rings.patches(k)) {
         const field = terrainField();
         for (let i = 0; i < patch.w * patch.h; i += 97) {
-          patchTexelPoints({ patch, texel: rings.texelMetres(k), field }, i, i + 1, pts, 0);
+          patchTexelPoints({ patch, texel: rings.texelMetres(k), field, terrain: 0 }, i, i + 1, pts, 0);
+          patchTexelAddresses({ patch, texel: rings.texelMetres(k), field, terrain: 0 }, i, i + 1, addr, 0);
           if (pts[4] === 0) continue;
           const got = back(pts);
           expect(got).not.toBeNull();
@@ -336,6 +342,7 @@ describe('surface cache: addressing per kind', () => {
           expect(got).toEqual(want);
           if (want!.ring === k) {
             expect(want!.x).toBe((((patch.ix + (i % patch.w)) % 512) + 512) % 512);
+            expect([addr[0]! & 7, addr[1]! & 0xffff, addr[1]! >>> 16]).toEqual([want!.ring, want!.x, want!.y]);
             checked += 1;
           }
         }

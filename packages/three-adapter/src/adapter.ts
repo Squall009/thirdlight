@@ -57,6 +57,8 @@ import { PrecompileGate } from './precompile-gate';
 import { createProbeLightingHost } from './probe-grids';
 import { createQualityControl } from './quality-control';
 import { createAdapterSurfaceCache, surfaceCacheBytes } from './adapter-surface-cache';
+import { AdapterSurfaceLight } from './adapter-surface-light';
+import { SURFACE_CACHE_KEY } from './surface-cache-host';
 import { createRenderControl } from './render-control';
 import { RenderGraph } from './render-graph';
 import type { AnyRenderer } from './renderer-factory';
@@ -263,6 +265,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   selectLights();
   /** The static surfaces' light resident round the view, within the quality level's budget. */
   const surfaceCache = createAdapterSurfaceCache({ opts, scene, level, entities, docs: entityDocs, graph, matrix: new THREE.Matrix4() });
+  const surfaceLight = surfaceCache !== null ? new AdapterSurfaceLight(surfaceCache, scene, entityDocs, graph) : null;
+  if (surfaceLight !== null) (scene.userData[SURFACE_CACHE_KEY] as { setView?: (on: boolean) => void }).setView = (on) => surfaceLight.setView(on);
   /** The quality level drawn and its renderer settings (quality-control.ts). */
   const qualityControl = createQualityControl(
     {
@@ -284,7 +288,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   // Pipelines precompiled ahead of a present (precompile-gate.ts).
   const precompile = new PrecompileGate(() => state.disposed);
   const parts: AdapterParts = {
-    opts, scene, state, graph, materials, effects, entities, scenes, models, renderer, environment, lights, probes, level, surfaceCache, batcher, viewCull, isolation, occlusion, precompile, qualityControl, renderControl, gpuTiming,
+    opts, scene, state, graph, materials, effects, entities, scenes, models, renderer, environment, lights, probes, level, surfaceCache, surfaceLight, batcher, viewCull, isolation, occlusion, precompile, qualityControl, renderControl, gpuTiming,
     clockStart, followShadow: isV3, selectLights, regroupEntity,
     environmentFrame: {
       needed: () => qualityControl.needsEnvironment() || renderControl.needsEnvironment() || occlusion.needsEnvironment(),

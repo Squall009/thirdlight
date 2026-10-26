@@ -16,7 +16,7 @@
  *
  * Pure (no three.js).
  */
-import { DEFAULT_PROBE_SPACING } from '@thirdlight/runtime';
+import { DEFAULT_PROBE_SPACING, LIGHT_LAYERS_ALL } from '@thirdlight/runtime';
 
 import type { SurfaceRelight } from './surface-relight';
 import { bounceRayMetres } from './tracer-scene';
@@ -32,29 +32,56 @@ export const LIGHT_REACH_FLOOR = 0.01;
 /** The sun's elevation (sine) a shadow's sweep is taken at, at least: a sun on the horizon would sweep across the world. */
 const SWEEP_MIN_SINE = 0.1;
 
+/**
+ * An area light's shape in world space: centred on the light's `position`,
+ * `u` and `v` its half sides (a line has `v` zero), facing `direction`.
+ */
+export interface CacheLightArea {
+  readonly u: readonly number[];
+  readonly v: readonly number[];
+  /** Emits on both sides (a one-sided light emits toward `direction` only). */
+  readonly twoSided: boolean;
+}
+
 /** A light as the cache sees it: where it is, how far it reaches and what it gives. */
 export interface CacheLight {
   readonly id: string;
-  readonly kind: 'point' | 'spot' | 'directional';
+  readonly kind: 'point' | 'spot' | 'directional' | 'area';
   readonly on: boolean;
   /** World position (point, spot). */
   readonly position: readonly number[];
-  /** Unit direction toward the light (directional), or the spot's axis. */
+  /** Unit direction toward the light (directional), the spot's axis, or the way an area light faces. */
   readonly direction: readonly number[];
-  /** Linear colour × intensity. */
+  /** Linear colour × intensity (an area light: its whole intensity along its facing). */
   readonly color: readonly number[];
   /** Metres it reaches (0: no range; the falloff decides). */
   readonly range: number;
   /** The spot's cone (cos of the angle, penumbra); 0 for others. */
   readonly cone: number;
   readonly penumbra: number;
+  /** An area light's shape (absent: not an area light). */
+  readonly area?: CacheLightArea;
+  /** Rays a texel casts toward it at cache level 0 (absent: its kind's count). */
+  readonly rays?: number;
+  /** Whether it casts shadows (absent: it does): a light without traces no shadow rays. */
+  readonly shadows?: boolean;
+  /** The light layers it lights and whose objects cast its shadow (bit masks; absent: every layer). */
+  readonly lightMask?: number;
+  readonly casterMask?: number;
 }
 
-/** How far a point or spot light reaches: its range, else where it falls under `LIGHT_REACH_FLOOR`. */
+
+/** How far a point, spot or area light reaches: its range, else where it falls under `LIGHT_REACH_FLOOR` (an area light: from its edge). */
 export function lightReach(l: CacheLight): number {
-  if (l.range > 0) return l.range;
+  const edge = l.area === undefined ? 0 : Math.hypot(...[0, 1, 2].map((k) => Math.abs(l.area!.u[k] ?? 0) + Math.abs(l.area!.v[k] ?? 0)));
+  if (l.range > 0) return l.range + edge;
   const i = Math.max(l.color[0] ?? 0, l.color[1] ?? 0, l.color[2] ?? 0);
-  return Math.sqrt(Math.max(0, i) / LIGHT_REACH_FLOOR);
+  return Math.sqrt(Math.max(0, i) / LIGHT_REACH_FLOOR) + edge;
+}
+
+function vecMoved(a: readonly number[] | undefined, b: readonly number[] | undefined): boolean {
+  for (let k = 0; k < 3; k += 1) if (Math.abs((a?.[k] ?? 0) - (b?.[k] ?? 0)) >= LIGHT_MOVE_METRES) return true;
+  return false;
 }
 
 function colourChanged(a: readonly number[], b: readonly number[]): boolean {
@@ -77,9 +104,12 @@ function lightChanged(was: CacheLight, now: CacheLight): boolean {
   if (!now.on) return false;
   if (colourChanged(was.color, now.color)) return true;
   if (was.range !== now.range || was.cone !== now.cone || was.penumbra !== now.penumbra) return true;
+  if ((was.shadows ?? true) !== (now.shadows ?? true) || (was.lightMask ?? LIGHT_LAYERS_ALL) !== (now.lightMask ?? LIGHT_LAYERS_ALL) || (was.casterMask ?? LIGHT_LAYERS_ALL) !== (now.casterMask ?? LIGHT_LAYERS_ALL)) return true;
+  if ((was.area === undefined) !== (now.area === undefined) || was.area?.twoSided !== now.area?.twoSided) return true;
+  if (vecMoved(was.area?.u, now.area?.u) || vecMoved(was.area?.v, now.area?.v)) return true;
   if (now.kind === 'directional') return angle(was.direction, now.direction) >= SUN_STEP_RADIANS;
   if (Math.hypot(now.position[0]! - was.position[0]!, now.position[1]! - was.position[1]!, now.position[2]! - was.position[2]!) >= LIGHT_MOVE_METRES) return true;
-  return now.kind === 'spot' && angle(was.direction, now.direction) >= SUN_STEP_RADIANS;
+  return (now.kind === 'spot' || now.kind === 'area') && angle(was.direction, now.direction) >= SUN_STEP_RADIANS;
 }
 
 export class SurfaceChanges {

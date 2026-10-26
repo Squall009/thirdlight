@@ -60,6 +60,8 @@ export function createAdapterSurface(p: AdapterParts, frame: AdapterFrame, x: Ad
     x.ownResources?.dispose();
     // Release ALL owned Object3D/material/renderer lifetimes (repeatable disposal, as in runtime.md: no leaked
     // loop, no stale GPU state).
+    // The cache's GPU work before its device goes with the renderer.
+    p.surfaceLight?.dispose();
     p.renderer.dispose();
     p.entities.dispose();
     p.batcher?.dispose();

@@ -19,7 +19,7 @@
  *
  * Measurements read it from `scene.userData[SURFACE_CACHE_KEY]`.
  */
-import { decodeDistanceBricks, type ArchitectureComponent, type BlockCell, type DistanceBricks, type TerrainField, type TerrainTile } from '@thirdlight/runtime';
+import { decodeDistanceBricks, type ArchitectureComponent, type BlockCell, type BlockGridReader, type DistanceBricks, type TerrainField, type TerrainTile } from '@thirdlight/runtime';
 
 import { SurfaceCache, type SurfaceCacheDiagnostics, type SurfaceTile } from './surface-cache';
 import { SurfaceChanges, type CacheLight } from './surface-changes';
@@ -32,6 +32,8 @@ import type { SurfaceBlockGrid } from './surface-cache-blocks';
 import { architectureTile, blockChunkTile, modelPieceTiles } from './surface-cache-scene';
 import type { TerrainRingSource } from './surface-cache-terrain';
 import { invertAffine, type Affine } from './tracer-words';
+import type { TraceBlockLayer, TraceSceneSource, TraceTerrain } from './tracer-scene';
+import { traceBlockLayerOf, traceTerrainOf } from './tracer-sources';
 
 /** `scene.userData[SURFACE_CACHE_KEY]`: the page's surface cache (a measurement reads its diagnostics). */
 export const SURFACE_CACHE_KEY = 'tlSurfaceCache';
@@ -50,6 +52,8 @@ export interface SurfaceHostLayer {
   /** Its built chunk columns ("cx,cz") and each one's version (bumped when it is meshed again). */
   readonly chunks: readonly (readonly [string, number])[];
   readonly opaque: (cell: BlockCell) => boolean;
+  /** Its entity's light layers (absent: every layer). */
+  readonly layers?: number;
 }
 
 /** A static model object: its entity, model row and world matrix (column-major 4 × 4, as three's). */
@@ -59,13 +63,15 @@ export interface SurfaceHostModel {
   readonly version: number;
   readonly piece: string | null;
   readonly world: ArrayLike<number>;
+  /** Its entity's light layers (absent: every layer). */
+  readonly layers?: number;
 }
 
 export interface SurfaceCacheHostDeps {
   readonly layers: () => readonly SurfaceHostLayer[];
-  readonly terrains: () => readonly { readonly id: string; readonly field: TerrainField }[];
+  readonly terrains: () => readonly { readonly id: string; readonly field: TerrainField; readonly layers?: number }[];
   /** Generated architecture objects (a new component object is a new version). */
-  readonly architecture: () => readonly { readonly id: string; readonly component: ArchitectureComponent; readonly origin: readonly number[] }[];
+  readonly architecture: () => readonly { readonly id: string; readonly component: ArchitectureComponent; readonly origin: readonly number[]; readonly layers?: number }[];
   readonly models: () => readonly SurfaceHostModel[];
   /** A model row's distance-field file (null: it has none). */
   readonly bricks: (assetId: string, version: number) => Promise<Uint8Array> | null;
@@ -166,6 +172,11 @@ export class SurfaceCacheHost {
   private readonly tileUnits = new Map<string, string[]>();
   private readonly chartUnits = new Map<string, RelightUnit & { readonly tile: string; readonly rect: ChartRect }>();
   private live = false;
+  /** The light layers of each listed tile's (and terrain's) entity. */
+  private readonly layersOf = new Map<string, number | undefined>();
+  /** Bumped by every geometry change the listing sees. */
+  private geometryVersion = 0;
+  private traced: { source: TraceSceneSource; version: number } | null = null;
 
   /** `relightMs`: the GPU time a frame may spend lighting stale texels (0: none, the saved light is drawn). */
   constructor(private readonly deps: SurfaceCacheHostDeps, budgetBytes: number, private relightMs = 0) {
@@ -173,6 +184,11 @@ export class SurfaceCacheHost {
     // Live only once a pass runs the work (`setLive`).
     this.relight = new SurfaceRelight(relightMs, false);
     this.changes = new SurfaceChanges(this.relight);
+  }
+
+  /** The GPU time a frame may spend on live light (0: none, the saved light is drawn). */
+  get relightBudgetMs(): number {
+    return this.relightMs;
   }
 
   /** The quality level's GPU time a frame for live light (0: none). */
@@ -198,12 +214,12 @@ export class SurfaceCacheHost {
     if (chart !== undefined) {
       const r = this.cache.residentOf(chart.tile);
       const tile = this.ready.get(chart.tile) as BlockTile | ArchTile | undefined;
-      return r === null || tile === undefined ? null : { tile, level: r.level, packing: r.packing, charts: r.charts, rect: chart.rect };
+      return r === null || tile === undefined ? null : { tile, level: r.level, packing: r.packing, charts: r.charts, blocks: r.blocks, rect: chart.rect };
     }
     const r = this.cache.residentOf(key);
     if (r !== null) {
       const tile = this.ready.get(key) as BlockTile | ArchTile | ModelTile | undefined;
-      return tile === undefined ? null : { tile, level: r.level, packing: r.packing, charts: r.charts };
+      return tile === undefined ? null : { tile, level: r.level, packing: r.packing, charts: r.charts, blocks: r.blocks };
     }
     const hash = key.indexOf('#');
     if (hash < 0) return null;
@@ -212,7 +228,7 @@ export class SurfaceCacheHost {
     const field = this.fields.get(terrain);
     const rings = this.cache.ringsOf(terrain);
     if (u === undefined || field === undefined || rings === null) return null;
-    return { patch: u.patch, texel: rings.texelMetres(u.patch.ring), field };
+    return { patch: u.patch, texel: rings.texelMetres(u.patch.ring), field, terrain: this.cache.ringTerrains().indexOf(terrain) };
   }
 
   /** The texels to light this frame (what `update` planned). */
@@ -222,7 +238,36 @@ export class SurfaceCacheHost {
 
   /** Geometry in a box changed (after the first listing; the scene coming in is not a change). */
   private geometry(min: readonly number[], max: readonly number[]): void {
+    this.geometryVersion += 1;
     if (this.listed) this.changes.geometryChanged(min, max);
+  }
+
+  /**
+   * What the tracer packs for the light this host keeps: the listed block
+   * layers, terrains, architecture and static models, and a version that
+   * changes whenever any of them did (a pass packs again only then).
+   */
+  traceSource(): { source: TraceSceneSource; version: number } {
+    const version = this.geometryVersion + this.ready.size * 0x100000;
+    if (this.traced !== null && this.traced.version === version) return this.traced;
+    const blocks: TraceBlockLayer[] = [];
+    for (const l of this.deps.layers()) if ('forEach' in l.grid) blocks.push(traceBlockLayerOf(l.grid as BlockGridReader, l.origin, l.opaque));
+    const terrain: TraceTerrain[] = [];
+    for (const [, field] of this.fields) {
+      const t = traceTerrainOf(field, field.heightSpan());
+      if (t !== null) terrain.push(t);
+    }
+    const arch = [...this.ready.values()].filter((t): t is ArchTile => (t as { kind?: string }).kind === 'arch');
+    const boxes = arch.flatMap((t) => t.pieces.boxes);
+    const tris = new Float32Array(arch.reduce((n, t) => n + t.pieces.triangles.length, 0));
+    let at = 0;
+    for (const t of arch) {
+      tris.set(t.pieces.triangles, at);
+      at += t.pieces.triangles.length;
+    }
+    const bricks = [...this.ready.values()].filter((t): t is ModelTile => (t as { kind?: string }).kind === 'model').map((t) => ({ worldToLocal: t.worldToLocal, set: t.set }));
+    this.traced = { source: { blocks, terrain, arch: { boxes, triangles: tris }, bricks }, version };
+    return this.traced;
   }
 
   setBudget(bytes: number): void {
@@ -261,16 +306,17 @@ export class SurfaceCacheHost {
     const r = this.cache.residentOf(key);
     const tile = this.ready.get(key) as BlockTile | ArchTile | ModelTile | undefined;
     if (r === null || tile === undefined) return;
+    const layers = this.layersOf.get(key);
     if (tile.kind === 'model') {
       const u = this.cache.residentUnit(key)!;
-      this.relight.add({ key, ...u });
+      this.relight.add({ key, ...u, ...(layers !== undefined ? { layers } : {}) });
       return;
     }
     const keys: string[] = [];
     r.charts.forEach((chart, c) => {
       for (const shape of chartUnits(tile, c, chart, r.packing.places[c]!, r.level)) {
         const { rect } = shape;
-        const u = { key: `${key}|${c}:${rect.x},${rect.y}`, tile: key, rect, texels: rect.w * rect.h, min: shape.min, max: shape.max, plane: shape.plane };
+        const u = { key: `${key}|${c}:${rect.x},${rect.y}`, tile: key, rect, texels: rect.w * rect.h, min: shape.min, max: shape.max, plane: shape.plane, ...(layers !== undefined ? { layers } : {}) };
         keys.push(u.key);
         this.chartUnits.set(u.key, u);
         this.relight.add(u);
@@ -319,7 +365,8 @@ export class SurfaceCacheHost {
           const had = units.get(key);
           // A patch whose window grew or moved is lit again whole; one the step left as it was keeps its light.
           if (had !== undefined && had.patch.ix === p.ix && had.patch.iz === p.iz && had.patch.w === p.w && had.patch.h === p.h) continue;
-          const u: RingPatchUnit = { key, terrain, patch: p, texels: p.w * p.h, min: [p.ix * t, src.min[1]!, p.iz * t], max: [(p.ix + p.w) * t, src.max[1]!, (p.iz + p.h) * t] };
+          const layers = this.layersOf.get(terrain);
+          const u: RingPatchUnit = { key, terrain, patch: p, texels: p.w * p.h, min: [p.ix * t, src.min[1]!, p.iz * t], max: [(p.ix + p.w) * t, src.max[1]!, (p.iz + p.h) * t], ...(layers !== undefined ? { layers } : {}) };
           units.set(key, u);
           this.relight.add(u);
         }
@@ -359,17 +406,20 @@ export class SurfaceCacheHost {
         const key = `${layer.id}/${ck}`;
         const version = layer.version * 65536 + gen;
         if (this.ready.get(key)?.version === version || this.pending.get(key)?.version === version) {
+          this.layersOf.set(key, layer.layers);
           seen.add(key);
           continue;
         }
+        this.layersOf.set(key, layer.layers);
         const tile = blockChunkTile({ key: layer.id, grid: layer.grid, origin: layer.origin, opaque: layer.opaque, version }, 0, ck, memo);
         this.want(seen, key, version, tile.min, tile.max, () => (tile.charts(), tile));
       }
     }
     this.terrains = [];
     const terrainIds = new Set<string>();
-    for (const { id, field } of this.deps.terrains()) {
+    for (const { id, field, layers } of this.deps.terrains()) {
       terrainIds.add(id);
+      this.layersOf.set(id, layers);
       this.fields.set(id, field);
       const r = ringSourceOf(id, field);
       if (r !== null) this.terrains.push(r);
@@ -380,6 +430,7 @@ export class SurfaceCacheHost {
       this.fields.delete(id);
     }
     for (const a of this.deps.architecture()) {
+      this.layersOf.set(a.id, a.layers);
       let version = this.componentVersions.get(a.component);
       if (version === undefined) this.componentVersions.set(a.component, (version = ++this.componentVersion));
       this.want(seen, a.id, version, a.origin, a.origin, () => architectureTile(a.id, version, architecturePiecesOf(a.component, a.origin)));
@@ -391,6 +442,7 @@ export class SurfaceCacheHost {
       const pieces = m.piece !== null ? [m.piece] : file.sets.map((s) => s.piece);
       const fresh = pieces.every((piece) => {
         const key = `${m.id}/${piece}`;
+        this.layersOf.set(key, m.layers);
         seen.add(key);
         return this.ready.get(key)?.version === version;
       });

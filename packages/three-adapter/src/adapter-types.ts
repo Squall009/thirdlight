@@ -2,6 +2,7 @@
  * The scene adapter's public shapes: its options, its diagnostics block and
  * the adapter surface itself (`createSceneAdapter` in adapter.ts builds it).
  */
+import type { SurfaceLightDiagnostics } from './adapter-surface-light';
 import type { DecalPagesObservation } from './decal-pages';
 import type { DecalProjectorsObservation } from './decal-projectors';
 import type * as THREE from 'three';
@@ -433,7 +434,7 @@ export interface SceneAdapterDiagnostics {
   /** The loaded scenes' baked probe tiles: listed, loaded, their probes and GPU bytes, failed loads; ABSENT without any. */
   probes?: ProbeGridsObservation;
   /** The surface cache: its budget and what it holds round the view (`surface-cache.ts`); ABSENT when off or the loaded scenes have no static surface. */
-  surfaceCache?: SurfaceCacheHostDiagnostics;
+  surfaceCache?: SurfaceCacheHostDiagnostics & { light?: SurfaceLightDiagnostics };
   /** The decal pages the loaded decals hold (`decal-pages.ts`; present while a loaded decal has a place on them). */
   decals?: DecalPagesObservation;
   /** The projected decals: loaded, drawn, the index's cells and entries, its last build (`decal-projectors.ts`); ABSENT without any. */
