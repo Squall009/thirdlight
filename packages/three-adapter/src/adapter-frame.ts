@@ -270,6 +270,7 @@ export class AdapterFrame {
     // them); the first frame with the key light's shadow is its probe: if it throws, shadows go off
     // (soft degradation: the `shadows`/`shadowReason` pair is the diagnostic) and it is drawn again without.
     const probing = p.lights.beforeFrame(renderer);
+    p.surfaceLight?.prepare(renderer);
     p.probes.beforeFrame(renderer as unknown as Parameters<typeof p.probes.beforeFrame>[0], camera);
     try {
       p.environment.beforeFrame(renderer, w, h, p.environmentFrame);

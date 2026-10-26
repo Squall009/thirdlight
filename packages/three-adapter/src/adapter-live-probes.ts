@@ -62,15 +62,25 @@ export class AdapterLiveProbes {
     this.viewOn = new URLSearchParams(pageSearch()).get('probesView') === '1';
   }
 
-  /** After the light runtime's frame (null: not live; the bakes' tiles come back). */
+  /**
+   * Before a frame's programs are built: whether the light will be live on
+   * this page. The probe light joins the scene then, with no tiles yet, so
+   * every lit program is built with it from the start: a light coming later
+   * would build every program again in the middle of a session. Not live:
+   * the bakes' tiles come back.
+   */
+  hold(live: boolean): void {
+    if (live === this.on) return;
+    this.probes.setLive(live ? [] : null, new Set());
+    this.on = live;
+    this.layout = -1;
+    this.tiles = [];
+  }
+
+  /** After the light runtime's frame (null: not running yet). */
   frame(renderer: unknown, runtime: SurfaceLightRuntime | null, now = performance.now()): void {
     const probes = this.host.probes;
-    if (runtime === null || probes.count === 0) {
-      if (this.on) this.probes.setLive(null, new Set());
-      this.on = false;
-      this.layout = -1;
-      return;
-    }
+    if (runtime === null || !this.on) return;
     this.sky.update(renderer, this.scene as never, now);
     if (this.sky.version !== this.skyVersion) {
       this.skyVersion = this.sky.version;
@@ -103,10 +113,7 @@ export class AdapterLiveProbes {
       t.uploadedAt = now;
       changed.add(t.tile.key);
     }
-    if (changed.size > 0 || !this.on) {
-      this.probes.setLive(this.tiles.map((t) => t.tile), changed);
-      this.on = true;
-    }
+    if (changed.size > 0) this.probes.setLive(this.tiles.map((t) => t.tile), changed);
     this.drawView();
   }
 

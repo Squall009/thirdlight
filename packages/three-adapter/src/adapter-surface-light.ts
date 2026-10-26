@@ -69,6 +69,11 @@ export class AdapterSurfaceLight {
     this.viewOn = new URLSearchParams(pageSearch()).get('surfaceCacheView') === '1';
   }
 
+  /** Before the frame's programs are built (ahead of the probes' frame): whether the light will be live, so the probe light is in every program from the start. */
+  prepare(renderer: AnyRenderer): void {
+    this.liveProbes?.hold(!this.failed && this.host.relightBudgetMs > 0 && deviceOf(renderer) !== null);
+  }
+
   /** Before a frame's draw: the cache's lights, its residency and stale work, then this frame's light on the GPU. */
   beforeFrame(renderer: AnyRenderer, sceneLights: SceneLights, eye: ArrayLike<number>): void {
     const lights = this.lights.now(sceneLights);
