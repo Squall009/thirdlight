@@ -28,13 +28,15 @@ import type { EventCue, GameShell, TimelineAsset } from '@thirdlight/project-mod
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
 import { architectureCopies, architectureGraphsOf, architectureLayerFurnishing, architectureShipsMeshesOf, architectureStylesOf, expandArchitecture, graphForRuntime, type ArchitectureComponent, type ArchitectureStyles } from '@thirdlight/project-model';
 import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV5, restampManifestV5, type CatalogFile, dependencyTables, scanDependencies, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameplaySettings, type ManifestAssetInputV2, type ManifestAssetInputV5, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV5, type ManifestSceneRow, planeLockOf, type PlaneLock, resolveRequiredModules, materialsInUse, decalSheetsOf, resolveMaterialInstances, hasTextureSlots, withAssembledSlots, withLayerSheetRows, textureSlotSetKey, loadableAssetIds, loadableResourceIds, loadableRows, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
+import { collidersOfModel } from './closure-model-colliders';
+import { shipModelBricks, staticModelUses } from './model-bricks';
 import { isStoredVertexColors, MAX_LOCAL_LIGHTS, playChecks, projectWideRoots, startDrawSet, withBuildingInteriors, withFurnishingLights, type DroppedFurnishingLights, type LightSourceEntity, type MissingPlayFile, type PlayCheck, type SceneV4 } from '@thirdlight/project-model';
 import { ASSET_QUERY_PAGE_MAX, audioLoadOf, COLLIDER_3D_LIMITS, MODEL_RIG_LIMITS, modelCollisionParts, sceneColliderPoints, readModelGeometry, readModelRig, textureStreamingOf, type AudioLoadType, type ManifestMipPart, type ModelRig } from '@thirdlight/project-model';
 import type { BlobFile, WorkspaceService } from '@thirdlight/workspace';
 
 import { closureDecalPages, hasDecalMaterials, withDecalPages, type ClosureDecalPageArrays } from './closure-decal-pages';
 import { shippedMaterials } from './closure-materials';
-import { closureSlotArrays, type ClosureSlotArrays, type ClosureTextureSlots } from './closure-texture-slots';
+import { closureSlotArrays, readWhole, type ClosureSlotArrays, type ClosureTextureSlots } from './closure-texture-slots';
 import { blockDataPacker, type GzipPort } from './block-chunk-data';
 import { overviewsIn, terrainOverviewPacker } from './terrain-overview-data';
 import { architectureMeshPacker } from './architecture-meshes';
@@ -962,6 +964,8 @@ export async function buildContentClosureM3(given: ContentClosureM3Input): Promi
     assetArtifacts.push(...decalPages.artifacts.filter((f) => !have.has(f.path)));
     for (const r of decalPages.rows) shippedKey.push(`decals:${r.sourceDigest}`);
   }
+  // The models it places static ship their distance-field bricks (what the lighting tracer knows of their shape).
+  const bricks = await shipModelBricks({ service, projectId, uses: staticModelUses(input.scenes, prefabDefs, archStyles), assets, view: view.assets, shippedKey, streamed: mipPartsOf, checks, modelBytes, locate, readWhole: (f) => readWhole(service, projectId, f) });
   // Built arrays shipped beside the project's assets (slot arrays, decal pages).
   const builtRows = [...(slotArrays?.rows ?? []), ...(decalPages?.rows ?? [])];
   // The decoders the shipped assets need, from what their records say (the bytes are not read here):
@@ -1051,6 +1055,8 @@ export async function buildContentClosureM3(given: ContentClosureM3Input): Promi
     }
   }
 
+  const brickBuffers = bricks.asBuffers(buffers, bufferFiles, bufferArtifacts);
+
   stage('scenes');
   if (input.background === true) await new Promise<void>((resolve) => setTimeout(resolve, 0));
   // 5c. The model rigs, only when the project uses sockets or a look-at (a socketAttach component or an
@@ -1083,16 +1089,7 @@ export async function buildContentClosureM3(given: ContentClosureM3Input): Promi
       if (!read.ok) return { ok: false, error: readError(read.error) };
       bytes = read.bytes;
     }
-    const geometry = readModelGeometry(bytes);
-    for (const piece of [...pieces].sort()) {
-      const made = geometry.ok ? modelCollisionParts(geometry.geometry, piece === '' ? null : piece) : null;
-      if (made !== null && made.parts.length > 0) {
-        modelColliders ??= {};
-        (modelColliders[assetId] ??= {})[piece] = made.parts.map((p) => p.points);
-      }
-      const why = !geometry.ok ? geometry.message : made!.parts.length === 0 ? (made!.skipped[0] ?? 'it has no _COL node') : made!.skipped.length > 0 ? `some parts were left out: ${made!.skipped.slice(0, 2).join('; ')}` : null;
-      if (why !== null) checks.push({ code: 'collider_model', refuse: false, message: `the model collider of ${assetId}${piece !== '' ? ` (${piece})` : ''}: ${why}`.slice(0, 256) });
-    }
+    modelColliders = collidersOfModel(assetId, bytes, pieces, modelColliders, checks);
   }
   // A scene's 3D collider point budget counts its model colliders' parts too (an edit can only count the written shapes).
   if (modelColliders !== undefined) {
@@ -1247,7 +1244,7 @@ export async function buildContentClosureM3(given: ContentClosureM3Input): Promi
       ...(content['blockTypes'] !== undefined ? { blockTypes: content['blockTypes'] as BlockType[] } : {}),
       ...(content['cellFields'] !== undefined ? { cellFields: content['cellFields'] as CellField[] } : {}),
       // Every scene with what it needs; the scenes the game starts with; what the project-wide blocks need.
-      ...(input.scenes !== undefined ? { scenes: sceneRows.map((r) => ({ ...r, dependencies: sceneDependencies.get(r.sceneId) ?? [] })), buffers: [...buffers.entries(), ...blockData.filter((a) => !buffers.has(a.digest)).map((a) => [a.digest, a.bytes.length] as const)].sort(([a], [b]) => (a < b ? -1 : 1)).map(([digest, byteLength]) => ({ digest, byteLength })) } : {}),
+      ...(input.scenes !== undefined ? { scenes: sceneRows.map((r) => ({ ...r, dependencies: sceneDependencies.get(r.sceneId) ?? [] })), buffers: [...buffers.entries(), ...blockData.filter((a) => !buffers.has(a.digest)).map((a) => [a.digest, a.bytes.length] as const), ...brickBuffers].sort(([a], [b]) => (a < b ? -1 : 1)).map(([digest, byteLength]) => ({ digest, byteLength })) } : {}),
       start: input.startScenes ?? [],
       dependencies: sharedDependencies,
       media,

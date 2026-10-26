@@ -7,8 +7,7 @@
  * from a mesh as an import builds them).
  */
 import { describe, expect, it } from 'vitest';
-import { BlockGrid, TerrainField, decodeDistanceBricks, type ArchitectureComponent, type BlockType, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
-import { buildDistanceBrickSet, buildDistanceBricks, encodeDistanceBricks, type ModelGeometryPrimitive } from '@thirdlight/project-model';
+import { BlockGrid, TerrainField, buildDistanceBrickSet, buildDistanceBricks, decodeDistanceBricks, encodeDistanceBricks, type ArchitectureComponent, type BlockType, type ModelGeometryPrimitive, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
 
 import { rayTriangle, traceRayCpu, sceneView, unpackUnorm2, type TraceHit, type V3 } from './tracer-cpu';
 import { opaqueByBlockTypes, traceArchitectureOf, traceBlockLayerOf, traceModelInstancesOf, traceTerrainOf } from './tracer-sources';

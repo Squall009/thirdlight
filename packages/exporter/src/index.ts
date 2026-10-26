@@ -35,6 +35,7 @@ export {
   type ContentClosureM3Input,
 } from './content-closure';
 export { SLOT_ARRAY_ID_PREFIX, type ClosureSlotLayer, type ClosureTextureSlots } from './closure-texture-slots';
+export { MODEL_BRICKS_IMPORTER, ensureModelBricks, modelBricksBlob, modelBricksKey, staticModelUses, type ModelBricksRow } from './model-bricks';
 // What a build ships and how it plans its decal pages, without making the build (the editor's decal atlas).
 export { shippedMaterialsOfCapture } from './closure-materials';
 export { closureDecalPages, decalPageInput, decalPageReportOf, DECAL_PAGE_ID_PREFIX, type AssetRecordLike, type ClosureDecalPageArray, type ClosureDecalPageArrays, type ClosureDecalPages } from './closure-decal-pages';

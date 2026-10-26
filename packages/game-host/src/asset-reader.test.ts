@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { createResourceManager } from '@thirdlight/runtime';
 
-import { AssetReadError, createVerifiedAssetReader, mipPartsOf, startSceneAssets, type DeclaredAssetRow } from './asset-reader';
+import { AssetReadError, createVerifiedAssetReader, mipPartsOf, modelBricksOf, startSceneAssets, type DeclaredAssetRow } from './asset-reader';
 
 const hex = async (b: Uint8Array): Promise<string> => [...new Uint8Array(await crypto.subtle.digest('SHA-256', b as Uint8Array<ArrayBuffer>))].map((x) => x.toString(16).padStart(2, '0')).join('');
 
@@ -208,5 +208,22 @@ describe('streamed textures: read by part', () => {
     expect(mipPartsOf({ ...row, mipParts: [{ ...parts[0], path: 'content/sha256/x' }, parts[1], parts[2]] } as unknown as DeclaredAssetRow)).toBeNull();
     expect(mipPartsOf({ ...row, sourceByteLength: 301 })).toBeNull();
     expect(mipPartsOf({ ...row, kind: 'model' })).toBeNull();
+  });
+});
+
+describe("a model's distance-field bricks", () => {
+  it('are read at the path its row names and checked against their digest; a row without them has none', async () => {
+    const model = new Uint8Array([1, 2, 3, 4]);
+    const bricks = new Uint8Array(64).map((_, i) => i * 3);
+    const digest = await hex(bricks);
+    const row = await rowFor('statue', 'model', model, { bricks: { path: `content/sha256/${digest}`, digest, byteLength: bricks.byteLength } });
+    const files = new Map([[row.path, model], [`content/sha256/${digest}`, bricks]]);
+    const reader = createVerifiedAssetReader([row], { read: async (p) => files.get(p)!.slice().buffer, sha256Hex: hex });
+    expect([...(await reader.bricks(row))]).toEqual([...bricks]);
+    const changed = createVerifiedAssetReader([row], { read: async (p) => (p === row.path ? model : new Uint8Array(64)).slice().buffer, sha256Hex: hex });
+    await expect(changed.bricks(row)).rejects.toThrow(AssetReadError);
+    expect(modelBricksOf(await rowFor('plain', 'model', model))).toBeNull();
+    expect(modelBricksOf({ ...row, kind: 'texture' })).toBeNull();
+    expect(modelBricksOf({ ...row, bricks: { path: 'content/other', digest, byteLength: 64 } } as unknown as DeclaredAssetRow)).toBeNull();
   });
 });

@@ -369,6 +369,22 @@ what they have; the result's `textureExtraction.lods` says what was made
 converted from FBX gets no levels. Without the setting a model is stored as
 imported.
 
+## Distance-field bricks (lighting shape)
+
+Every imported model also gets **distance-field bricks**: a sparse signed
+distance field of its render geometry (level 0, without `_COL` and `_OCC`
+nodes), one set per top-level piece, made right after the import and kept
+in the import cache under the file's digest (a build makes them if the cache
+lacks them). The lighting tracer traces imported models by them; blocks,
+terrain and generated architecture are traced exactly from their own data.
+Samples lie at least 32 and at most 128 to the model's longest side, else
+10 cm apart, in bricks of 8 × 8 × 8 cells that store a byte per sample, and
+only bricks the surface passes through hold samples (the starter character,
+4,796 triangles: 19 KB, made in about 0.14 s). Play and the export ship them
+only for models a scene places **static** (the object's static flag, and
+generated architecture's kit copies), as a buffer the model's catalog row
+names (`bricks`); a model placed movable ships none.
+
 Standard-shader project materials share one prepared texture per (texture,
 colour space, wrap, UV channel, tiling and offset) across every model file
 that uses them, freed with the last: one material on 14 model files holds

@@ -65,6 +65,16 @@ export function mipPartsOf(row: DeclaredAssetRow): MipPartRow[] | null {
   return at === row.sourceByteLength ? out : null;
 }
 
+/** A model row's distance-field bricks file (null: it has none, or the row's entry is malformed). */
+export function modelBricksOf(row: DeclaredAssetRow): { path: string; digest: string; byteLength: number } | null {
+  const b = (row as unknown as { bricks?: { path?: unknown; digest?: unknown; byteLength?: unknown } }).bricks;
+  if (row.kind !== 'model' || typeof b !== 'object' || b === null) return null;
+  const { path, digest, byteLength } = b;
+  if (typeof digest !== 'string' || !DIGEST_RE.test(digest) || path !== `content/sha256/${digest}`) return null;
+  if (typeof byteLength !== 'number' || !Number.isInteger(byteLength) || byteLength < 1) return null;
+  return { path, digest, byteLength };
+}
+
 export interface AssetReaderIo {
   /** Read one manifest-declared relative path. */
   readonly read: (path: string) => Promise<ArrayBuffer>;
@@ -101,6 +111,8 @@ export interface VerifiedAssetReader {
    * read once while anyone holds them; without a `holder` handed over.
    */
   part(row: DeclaredAssetRow, index: number, holder?: string): Promise<Uint8Array>;
+  /** The verified bytes of a model's distance-field bricks (`modelBricksOf`), handed over. */
+  bricks(row: DeclaredAssetRow): Promise<Uint8Array>;
   /** The same by artifact path; null when the path is not a declared asset. */
   bytesAt(path: string, holder?: string): Promise<ArrayBuffer> | null;
   /** Bytes read, verified and still held (no read is started). */
@@ -230,6 +242,11 @@ export function createVerifiedAssetReader(rows: readonly DeclaredAssetRow[], io:
     },
     part(row, index, holder) {
       return readPart(row, index, holder);
+    },
+    bricks(row) {
+      const b = modelBricksOf(row);
+      if (b === null) return Promise.reject(new AssetReadError(row.assetId, `${row.assetId} has no distance-field bricks`));
+      return verifiedFile(row.assetId, b.path, b.byteLength, b.digest).then((buf) => new Uint8Array(buf));
     },
     bytesAt(path, holder) {
       const row = byPath.get(path) ?? catalog?.rowAt(path);

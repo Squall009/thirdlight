@@ -757,3 +757,5 @@ export {
 } from '@thirdlight/project-model';
 // Distance-field bricks of imported static models: what the lighting tracer traces them by (made at import, shipped in the export).
 export { DISTANCE_BRICK_CELLS, DISTANCE_BRICK_INSIDE, DISTANCE_BRICK_OUTSIDE, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, decodeDistanceBricks, distanceOfSample, type DistanceBrickSet, type DistanceBricks } from '@thirdlight/project-model';
+// How the import makes them (a game never does; tools and tests that trace a mesh of their own do).
+export { buildDistanceBrickSet, buildDistanceBricks, encodeDistanceBricks, type ModelGeometry, type ModelGeometryPrimitive } from '@thirdlight/project-model';

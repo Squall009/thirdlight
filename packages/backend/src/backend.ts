@@ -66,6 +66,7 @@ import { makeHeightAlphaRoute } from './height-alpha';
 
 import { MAX_DIAGNOSTICS, MAX_HTTP_BODY, SESSION_LIST_MAX, STARTUP_LOG_RING, utf8Len, type OriginDoc } from './util';
 export { MAX_DIAGNOSTICS, MAX_HTTP_BODY, SESSION_LIST_MAX, STARTUP_LOG_RING };
+import { createModelBrickImports, type ModelBrickImports } from './model-bricks';
 
 export interface SessionView {
   sessionId: string;
@@ -96,6 +97,7 @@ export interface Backend {
     playContent: PlayContentStore;
     textureSlots: TextureSlotAssembler;
     decalPages: { readonly stats: { composed: number; cached: number; arrays: number } };
+    modelBricks: ModelBrickImports;
   };
 }
 
@@ -285,6 +287,9 @@ export function createBackend(
   const manual = loadManual([join(dirname(config.editorStaticDir), 'docs'), ...(config.engineRoot !== undefined ? [join(config.engineRoot, 'docs')] : [])]);
   const docsRoute = makeDocsRoute({ manual, authorized: (req) => tokenScope(bearerToken(req), req) !== null, sendJson });
 
+  // Imported models get their distance-field bricks made right after the import (the lighting tracer's shape of them).
+  const modelBricks = createModelBrickImports({ service, log: logStartup });
+
   const notifyMutationApplied = (
     projectId: string,
     requestId: string,
@@ -294,6 +299,7 @@ export function createBackend(
     sceneId?: string,
   ): void => {
     checks.changed(projectId, change);
+    modelBricks.changed(projectId, change);
     channel.sendMutationApplied(projectId, requestId, revision, origin, change, sceneId);
   };
 
@@ -402,6 +408,7 @@ export function createBackend(
         }
         closed = true;
         checks.dispose();
+        modelBricks.dispose();
         void headless.dispose();
         channel.stopSweep();
         external.dispose();
@@ -417,7 +424,7 @@ export function createBackend(
           });
         });
       }),
-    _test: { sessions, plays, startupLog, service, contentRoutes, playContent, textureSlots, decalPages },
+    _test: { sessions, plays, startupLog, service, contentRoutes, playContent, textureSlots, decalPages, modelBricks },
   };
 
   return { ok: true, backend };

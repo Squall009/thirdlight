@@ -338,6 +338,8 @@ export interface ManifestAssetInputV2 {
    * mip tail, then one part per larger level), each a file of its own.
    */
   mipParts?: readonly ManifestMipPart[];
+  /** Model only, placed static: its distance-field bricks file (`distance-bricks.ts`), what the lighting tracer traces it by. */
+  bricks?: { digest: string; byteLength: number };
 }
 
 /** One part of a streamed texture as the catalog lists it (its file by digest, the levels in it). */
@@ -835,6 +837,7 @@ export function manifestAssetRow(a: ManifestAssetInputV2): Record<string, unknow
     ...(a.bounds !== undefined ? { bounds: boundsCopy(a.bounds) } : {}),
     ...(a.durationMs !== undefined && a.kind === 'audio' ? { durationMs: a.durationMs } : {}),
     ...(a.loadType !== undefined && a.kind === 'audio' ? { loadType: a.loadType, preload: a.preload !== false } : {}),
+    ...(a.bricks !== undefined && a.kind === 'model' ? { bricks: { path: `content/sha256/${a.bricks.digest}`, digest: a.bricks.digest, byteLength: a.bricks.byteLength } } : {}),
     ...(a.mipParts !== undefined && a.kind === 'texture'
       ? { mipParts: a.mipParts.map((p) => ({ path: `content/sha256/${p.digest}`, digest: p.digest, byteLength: p.byteLength, offset: p.offset, levels: [...p.levels] })) }
       : {}),
