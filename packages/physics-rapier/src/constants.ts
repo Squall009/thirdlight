@@ -54,3 +54,18 @@ export const FOOTPRINT_BALL = 0.9 as const;
 
 /** The largest collider dimension (project-model's collider vocabulary). */
 export const MAX_SHAPE_VALUE = MAX_LEN;
+
+/**
+ * Internal edges: the ground-contact search reaches the skin and the snap
+ * distance plus this slack; a contact normal counts as ground-like when its
+ * up component exceeds `GROUND_UP_EPS`; a point is on another collider's
+ * surface within `INTERNAL_EDGE_TOUCH_EPS` (f32 collider coordinates); the
+ * normal-cone probe pushes the point out by `INTERNAL_EDGE_PROBE` and calls
+ * the normal outside the cone when the projection back lands farther than
+ * `INTERNAL_EDGE_CONE_EPS` from it.
+ */
+export const INTERNAL_EDGE_PREDICTION_SLACK = 0.05 as const;
+export const GROUND_UP_EPS = 1e-3 as const;
+export const INTERNAL_EDGE_TOUCH_EPS = 1e-4 as const;
+export const INTERNAL_EDGE_PROBE = 1 as const;
+export const INTERNAL_EDGE_CONE_EPS = 1e-3 as const;

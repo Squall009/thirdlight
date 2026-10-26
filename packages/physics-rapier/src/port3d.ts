@@ -27,6 +27,8 @@ import type { AddedCharacter3D, CharacterClearanceResult3D, CharacterMoveResult3
 import { inPlane, isPlane, lockBody, onPlane, planePose } from './plane3d';
 import { capsuleLowAlong, holds, markOneWay, OneWaySweeps, upOf, type OneWayShape } from './oneway3d';
 import { createStepUp } from './step-up3d';
+import { groundContacts3D, type InternalEdgeWorld } from './internal-edges3d';
+import { restoreMovers, stillMovers, type StilledBody } from './kinematic-still3d';
 import { CLEARANCE_PENETRATION_EPS, CLEARANCE_RAY_EPS, CLEARANCE_SUPPORT_PROBE, FIXED_HZ_CHOICES, FOOTPRINT_BALL, GROUND_NORMAL_TOLERANCE, MAX_DROP_THROUGH_STEPS, MAX_SHAPE_VALUE } from './constants';
 
 /** The value of `PhysicsPort3D.implementation` for this adapter. */
@@ -990,6 +992,16 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
       othersOut = kept;
     }
   }
+  const edges: InternalEdgeWorld = {
+    get world() {
+      return world;
+    },
+    sees: (c) => !characterHandles.has(c.handle) && (othersOut === undefined || othersOut(c)),
+    solidStatic: (c) => {
+      const info = infoByHandle.get(c.handle);
+      return info !== undefined && info.oneWay === undefined && !info.kinematic;
+    },
+  };
   /** A step-up that has not reached the top after a second ends (the character falls as usual). */
   const maxSteppingSteps = config.solver.hz;
   let disposed = false;
@@ -1004,7 +1016,7 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
   const kinematicAt = new Map<string, PhysicsVec3>();
   let kinematicMoved = 0;
   /** The bodies at rest for the current sweep, with the velocities they get back after it. */
-  const stilled: { body: RAPIER.RigidBody; linvel: PhysicsVec3; angvel: PhysicsVec3 }[] = [];
+  const stilled: StilledBody[] = [];
   const assertLive = (op: string): void => {
     if (disposed) throw new Error(`physics port is disposed (${op})`);
   };
@@ -1142,50 +1154,28 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
     if (st !== null && (commanded.y > 0 || across < 1e-9 || commanded.x * st.x + commanded.z * st.z <= 0 || st.steps >= maxSteppingSteps)) b.stepping = null;
     const midStep = b.stepping !== null;
     const before = b.position;
+    const startGround = midStep || b.grounded ? 1 : groundContacts3D(edges, b.overlapCapsule, at(b, before), b.tuning);
     // A step that begins inside a collider is a real depenetration (counted; the deepest is kept for diagnostics).
     const overlap = overlapOf(world, b, at(b, before), infoByHandle, othersOut);
     if (overlap !== null) {
       penetrationCorrectedCount += 1;
       if (deepestOverlap === null || overlap.depth > deepestOverlap.depth) deepestOverlap = { ...overlap, step: steps };
     }
-    // Rapier's controller takes a touched kinematic body's velocity into its sweep
-    // ("kinematic friction"). In 3D that fights the runtime's own carry: a character riding a
-    // mover sideways (its move equal to the mover's) sticks in the mover's offset margin and
-    // stalls (measured: 20 iterations, no motion, about one step in three on a sliding lift).
-    // The runtime moves the character with what it stands on (the carry), so that body is at
-    // rest for the sweep — made velocity-based with zero velocity and turned back right after;
-    // its next pose is set below and the world step derives its velocity from it as always. So
-    // is a mover rising or sinking past the character (a rising one's drag would lift the
-    // character up the wall). A mover sliding across into the character keeps its
-    // velocity: with it at rest, Rapier's sweep of the runtime's push out of its way
-    // stopped at the ground contact after about 1 % (measured on a standing character: the
-    // mover passed through it), where its drag moves the character on ahead of it.
-    // What it stands on is what the carry moves it with (`supportUnder`, its footprint
-    // included). Each stilled body gets its velocity back after the sweep, so the next
-    // character's sweep sees the mover move as this one did.
-    stilled.length = 0;
-    let standsOn: number | null | undefined;
-    for (const info of infoByHandle.values()) {
-      if (!info.kinematic) continue;
-      const body = info.body;
-      if (body.bodyType() !== RAPIER.RigidBodyType.KinematicPositionBased) continue;
-      const v = body.linvel();
-      if (Math.hypot(v.x, v.z) > Math.abs(v.y)) {
-        standsOn ??= supportUnder(b, before)?.handle ?? null;
-        if (standsOn === null || infoByHandle.get(standsOn)?.body !== body) continue;
-      }
-      const w = body.angvel();
-      stilled.push({ body, linvel: { x: v.x, y: v.y, z: v.z }, angvel: { x: w.x, y: w.y, z: w.z } });
-      body.setBodyType(RAPIER.RigidBodyType.KinematicVelocityBased, false);
-      body.setLinvel({ x: 0, y: 0, z: 0 }, false);
-      body.setAngvel({ x: 0, y: 0, z: 0 }, false);
-    }
+    // Movers the carry moves the character with, or that rise or sink past it, are at rest for its sweep.
+    stillMovers(infoByHandle.values(), () => {
+      const under = supportUnder(b, before);
+      return under === null ? null : (infoByHandle.get(under.handle)?.body ?? null);
+    }, stilled);
     if (midStep) {
       // On the riser's height: across only, without the snap (which would pull it back down the riser).
       controller.disableSnapToGround();
       controller.computeColliderMovement(characterCollider, { x: commanded.x, y: 0, z: commanded.z }, undefined, undefined, othersOut);
       controller.enableSnapToGround(snapDistance);
     } else {
+      // Rapier also grounds (and snaps down) from where the sweep starts: an airborne character whose
+      // only ground-like contacts there are internal edges (sliding down a stacked wall past a seam)
+      // sweeps without the snap, so the seam neither catches nor pulls it.
+      if (startGround === -1) controller.disableSnapToGround();
       controller.computeColliderMovement(characterCollider, commanded, undefined, undefined, othersOut);
       // A slope the character could climb but whose collider sets a stricter limit (a block layer's maxSlope):
       // swept again with that limit, so the slope is a wall to it. Colliders without a limit never get here.
@@ -1195,6 +1185,7 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
         controller.computeColliderMovement(characterCollider, commanded, undefined, undefined, othersOut);
         controller.setMaxSlopeClimbAngle(b.tuning.maxSlopeClimbRad);
       }
+      if (startGround === -1) controller.enableSnapToGround(snapDistance);
     }
     let swept = { x: controller.computedMovement().x, y: controller.computedMovement().y, z: controller.computedMovement().z };
     // The support normal comes from the collision results (the obstacle's outward normal), never from a floor constant.
@@ -1219,6 +1210,11 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
     };
     readCollisions();
     let rawGrounded = midStep ? true : controller.computedGrounded();
+    // Refused when the capsule has no real ground-like contact where the sweep ended, and an internal one there or where it started.
+    if (rawGrounded && !midStep) {
+      const end = groundContacts3D(edges, b.overlapCapsule, at(b, { x: before.x + swept.x, y: before.y + swept.y, z: before.z + swept.z }), b.tuning);
+      if (end === -1 || (end === 0 && startGround === -1)) rawGrounded = false;
+    }
     if (b.stepping !== null) {
       b.stepping.steps += 1;
       // On top: the ground under its centre is walkable (the step's top) — the step-up ends.
@@ -1287,11 +1283,7 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
         b.stepping = walkableFloorUnder(b, { x: before.x + swept.x, y: before.y + swept.y, z: before.z + swept.z }) ? null : { x: dx, z: dz, steps: 0 };
       }
     }
-    for (const s of stilled) {
-      s.body.setLinvel(s.linvel, false);
-      s.body.setAngvel(s.angvel, false);
-      s.body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, false);
-    }
+    restoreMovers(stilled);
     // The plane's depth is held exactly: whatever the sweep slid it along the normal (a tilted
     // contact) is taken back, so a character on a plane ends every step on it.
     const movement = b.plane !== null ? (b.plane.axis === 'x' ? { x: b.plane.origin - before.x, y: swept.y, z: swept.z } : { x: swept.x, y: swept.y, z: b.plane.origin - before.z }) : swept;
