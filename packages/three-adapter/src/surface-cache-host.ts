@@ -191,6 +191,11 @@ export class SurfaceCacheHost {
   /** Bumped whenever the cache's residency changed (tiles placed, let go, rings stepped): the resolve tables are packed again. */
   residencyVersion = 0;
   private roomsNow: SurfaceRooms | null = null;
+  /** Traced layers and terrains, kept while their data is unchanged. */
+  private readonly layerTraces = new Map<string, { key: string; grid: SurfaceBlockGrid; trace: TraceBlockLayer }>();
+  private readonly terrainTraces = new Map<string, { field: TerrainField; version: number; trace: TraceTerrain | null }>();
+  /** Bumped per terrain when its tiles' data changed, came or went. */
+  private readonly terrainVersions = new Map<string, number>();
   /** Atlas blocks handed to tiles since the last `takeFreshBlocks`. */
   private fresh: AtlasBlock[] = [];
   private roomsVersion = -1;
@@ -292,14 +297,39 @@ export class SurfaceCacheHost {
    * layers, terrains, architecture and static models, and a version that
    * changes whenever any of them did (a pass packs again only then).
    */
+  /** The version `traceSource` would answer with (cheap: nothing is made). */
+  get traceVersion(): number {
+    return this.geometryVersion + this.ready.size * 0x100000;
+  }
+
+  /** A layer's traced grid, made again only when its cells changed (a scene's tiles arriving one by one would make it again each time). */
+  private layerTrace(l: SurfaceHostLayer): TraceBlockLayer {
+    const key = `${l.version}:${l.chunks.map(([, gen]) => gen).join(',')}`;
+    const had = this.layerTraces.get(l.id);
+    if (had !== undefined && had.key === key && had.grid === l.grid) return had.trace;
+    const trace = traceBlockLayerOf(l.grid as BlockGridReader, l.origin, l.opaque);
+    this.layerTraces.set(l.id, { key, grid: l.grid, trace });
+    return trace;
+  }
+
+  /** A terrain's traced heights, made again only when its tiles changed. */
+  private terrainTrace(id: string, field: TerrainField): TraceTerrain | null {
+    const version = this.terrainVersions.get(id) ?? 0;
+    const had = this.terrainTraces.get(id);
+    if (had !== undefined && had.field === field && had.version === version) return had.trace;
+    const trace = traceTerrainOf(field, field.heightSpan());
+    this.terrainTraces.set(id, { field, version, trace });
+    return trace;
+  }
+
   traceSource(): { source: TraceSceneSource; version: number } {
-    const version = this.geometryVersion + this.ready.size * 0x100000;
+    const version = this.traceVersion;
     if (this.traced !== null && this.traced.version === version) return this.traced;
     const blocks: TraceBlockLayer[] = [];
-    for (const l of this.deps.layers()) if ('forEach' in l.grid) blocks.push({ ...traceBlockLayerOf(l.grid as BlockGridReader, l.origin, l.opaque), ...(l.layers !== undefined ? { layers: l.layers } : {}) });
+    for (const l of this.deps.layers()) if ('forEach' in l.grid) blocks.push({ ...this.layerTrace(l), ...(l.layers !== undefined ? { layers: l.layers } : {}) });
     const terrain: TraceTerrain[] = [];
     for (const [id, field] of this.fields) {
-      const t = traceTerrainOf(field, field.heightSpan());
+      const t = this.terrainTrace(id, field);
       const layers = this.layersOf.get(id);
       if (t !== null) terrain.push(layers !== undefined ? { ...t, layers } : t);
     }
@@ -330,7 +360,7 @@ export class SurfaceCacheHost {
     const blocks = this.deps.layers().filter((l) => 'forEach' in l.grid).map((l, i) => ({ key: l.id, grid: l.grid, origin: l.origin, opaque: l.opaque, version: l.version, chunks: l.chunks.map(([k]) => k), trace: traced.source.blocks![i]! }));
     const terrain: { key: string; trace: TraceTerrain }[] = [];
     for (const [id, field] of this.fields) {
-      const t = traceTerrainOf(field, field.heightSpan());
+      const t = this.terrainTrace(id, field);
       if (t !== null) terrain.push({ key: id, trace: t });
     }
     const tiles = [...this.ready.values()];
@@ -518,7 +548,9 @@ export class SurfaceCacheHost {
       const file = this.file(m.assetId, m.version);
       if (file === null) continue;
       const version = placementHash(m.world, m.version);
-      const pieces = m.piece !== null ? [m.piece] : file.sets.map((s) => s.piece);
+      // The pieces with surfels (a piece without has no tile, and is never ready: it must not make the others new each listing).
+      const lit = file.sets.filter((st) => st.surfels !== null && (st.surfels.levels[0] ?? 0) > 0).map((st) => st.piece);
+      const pieces = m.piece !== null ? lit.filter((p) => p === m.piece) : lit;
       const fresh = pieces.every((piece) => {
         const key = `${m.id}/${piece}`;
         this.layersOf.set(key, m.layers);
@@ -565,6 +597,7 @@ export class SurfaceCacheHost {
     if (was === undefined) return;
     const [y0, y1] = field.heightSpan();
     const box = (key: string): void => {
+      this.terrainVersions.set(id, (this.terrainVersions.get(id) ?? 0) + 1);
       const [x, z] = key.split(',').map(Number) as [number, number];
       const b = field.tileBounds(x, z);
       this.geometry([b[0], y0, b[1]], [b[2], y1, b[3]]);

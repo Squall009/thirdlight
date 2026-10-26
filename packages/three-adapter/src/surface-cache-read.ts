@@ -102,6 +102,9 @@ export class SurfaceCacheTextures {
   readonly sun = uniform(new THREE.Color(0, 0, 0));
   /** The lookup's texture node. */
   readonly tableNode: N;
+  /** Its header as uniforms (`packSurfaceLookup`'s texels 0 and 1): layers and their records, terrains and theirs; the architecture hash's slots and first slot. */
+  readonly head = uniform(new THREE.Vector4());
+  readonly arch = uniform(new THREE.Vector2());
 
   /** `pages` and `ringLayers`: the most the cache's budget can hold (the colours' buffer is made once for them). */
   constructor(readonly pages: number, readonly ringLayers: number) {
@@ -133,6 +136,8 @@ export class SurfaceCacheTextures {
     }
     const data = (this.table.image as { data: Uint32Array }).data;
     data.set(words);
+    (this.head.value as THREE.Vector4).set(words[0]!, words[1]!, words[2]!, words[3]!);
+    (this.arch.value as THREE.Vector2).set(words[4]!, words[5]!);
     data.fill(0, words.length);
     this.table.needsUpdate = true;
   }
@@ -200,7 +205,6 @@ function lookupNodes(tex: SurfaceCacheTextures, kind: SurfaceReadKind): { layer:
   const layer = uint(0).toVar('tlCacheLayer');
   const uv = vec2(0).toVar('tlCacheUv');
   const found = bool(false).toVar('tlCacheFound');
-  const header = texel(uint(0));
   // A chart record's place for metres (uu, vv), held half a texel inside its interior; the uv on its page.
   const chartAt = (at: N, uu: N, vv: N): void => {
     const c0 = texel(at);
@@ -225,51 +229,57 @@ function lookupNodes(tex: SurfaceCacheTextures, kind: SurfaceReadKind): { layer:
     // The plane axes of a face on each axis: (z, y), (x, z), (x, y).
     const pu = select(axis.equal(int(0)), int(2), int(0));
     const pv = select(axis.equal(int(1)), int(2), int(1));
-    Loop(int(header.x), ({ i }: { i: N }) => {
-      const at = header.y.add(uint(i).mul(uint(LAYER_TEXELS)));
-      const r0 = asF(texel(at));
-      const r1 = asF(texel(at.add(uint(1))));
+    const head = tex.head;
+    Loop(int(head.x), ({ i }: { i: N }) => {
+      const at = uint(head.y).add(uint(i).mul(uint(LAYER_TEXELS)));
+      const r0 = texel(at);
+      const r1 = texel(at.add(uint(1)));
       const r2 = texel(at.add(uint(2)));
-      const r3 = texel(at.add(uint(3)));
-      const r4 = texel(at.add(uint(4)));
+      const origin = asF(r0).xyz;
+      const size = asF(r1).xyz;
       const axisVec = vec3(select(axis.equal(int(0)), sgn, float(0)), select(axis.equal(int(1)), sgn, float(0)), select(axis.equal(int(2)), sgn, float(0)));
-      const q = p.sub(r0.xyz).div(r1.xyz).sub(axisVec.mul(BLOCK_INSET)).toVar();
+      const q = p.sub(origin).div(size).sub(axisVec.mul(BLOCK_INSET)).toVar();
       const cell = TSL.ivec3(floor(q)).toVar();
-      const lo = TSL.ivec3(asI(r2.x), asI(r2.y), asI(r2.z));
-      const hi = TSL.ivec3(asI(r3.x), asI(r3.y), asI(r3.z));
-      const inside = cell.greaterThanEqual(lo).all().and(cell.lessThan(hi).all());
+      const y0 = asI(r1.w);
+      const cx = cell.x.shiftRight(uint(4));
+      const cz = cell.z.shiftRight(uint(4));
+      const jx = cx.sub(asI(r2.x));
+      const jz = cz.sub(asI(r2.y));
+      const ncx = asI(r2.z.bitAnd(uint(0xffff)));
+      const ncz = asI(r2.z.shiftRight(uint(16)));
+      const inside = cell.y.greaterThanEqual(y0).and(cell.y.lessThan(asI(r2.w))).and(jx.greaterThanEqual(0)).and(jz.greaterThanEqual(0)).and(jx.lessThan(ncx)).and(jz.lessThan(ncz));
       If(inside, () => {
-        const cx = floor(float(cell.x).div(16));
-        const cz = floor(float(cell.z).div(16));
-        const jx = int(cx).sub(asI(r4.x));
-        const jz = int(cz).sub(asI(r4.y));
-        If(jx.greaterThanEqual(0).and(jz.greaterThanEqual(0)).and(jx.lessThan(asI(r4.z))).and(jz.lessThan(asI(r4.w))), () => {
-          const rec = word(r2.w.mul(uint(4)).add(uint(jz.mul(asI(r4.z)).add(jx))));
-          If(rec.notEqual(uint(0)), () => {
-            const rr = texel(rec);
-            const lx = uint(cell.x.sub(int(cx).mul(16)));
-            const lz = uint(cell.z.sub(int(cz).mul(16)));
-            const key = uint(cell.y.sub(lo.y)).mul(uint(16)).add(lz).mul(uint(16)).add(lx).mul(uint(6)).add(face).toVar();
-            const h0 = key.mul(uint(0x9e3779b1));
-            const cap = rr.y;
-            const s = h0.bitXor(h0.shiftRight(uint(15))).bitAnd(cap.sub(uint(1))).toVar();
-            Loop(int(cap), () => {
-              const w = rr.x.mul(uint(4)).add(s.mul(uint(2)));
-              const k = word(w);
-              If(k.equal(uint(EMPTY)), () => {
-                Break();
-              });
-              If(k.equal(key), () => {
-                const e = word(w.add(uint(1)));
-                const fu = clamp(comp(q, pu).sub(float(comp(cell, pu))), float(0), float(1));
-                const fv = clamp(comp(q, pv).sub(float(comp(cell, pv))), float(0), float(1));
-                const uu = float(e.bitAnd(uint(255))).add(fu).mul(comp(r1, pu));
-                const vv = float(e.shiftRight(uint(8)).bitAnd(uint(255))).add(fv).mul(comp(r1, pv));
-                chartAt(rr.z.add(e.shiftRight(uint(16)).mul(uint(CHART_TEXELS))), uu, vv);
-                Break();
-              });
-              s.assign(s.add(uint(1)).bitAnd(cap.sub(uint(1))));
+        const col = texel(r0.w.add(uint(jz.mul(ncx).add(jx))));
+        const cap = col.y;
+        If(cap.notEqual(uint(0)), () => {
+          const lx = uint(cell.x.sub(cx.shiftLeft(uint(4))));
+          const lz = uint(cell.z.sub(cz.shiftLeft(uint(4))));
+          const key = uint(cell.y.sub(y0)).mul(uint(16)).add(lz).mul(uint(16)).add(lx).mul(uint(6)).add(face).toVar();
+          const h0 = key.mul(uint(0x9e3779b1));
+          const s = h0.bitXor(h0.shiftRight(uint(15))).bitAnd(cap.sub(uint(1))).toVar();
+          Loop(int(cap), () => {
+            const slot = texel(col.x.add(s));
+            If(slot.x.equal(uint(EMPTY)), () => {
+              Break();
             });
+            If(slot.x.equal(key), () => {
+              // The slot holds the chart's place: page | corner, its texels and the face's cell in it, its cells.
+              const fu = clamp(comp(q, pu).sub(float(comp(cell, pu))), float(0), float(1));
+              const fv = clamp(comp(q, pv).sub(float(comp(cell, pv))), float(0), float(1));
+              const iw = float(slot.z.bitAnd(uint(255)));
+              const ih = float(slot.z.shiftRight(uint(8)).bitAnd(uint(255)));
+              const ou = float(slot.z.shiftRight(uint(16)).bitAnd(uint(255)));
+              const ov = float(slot.z.shiftRight(uint(24)));
+              const wc = float(slot.w.bitAnd(uint(255)));
+              const hc = float(slot.w.shiftRight(uint(8)).bitAnd(uint(255)));
+              const x = float(slot.y.shiftRight(uint(12)).bitAnd(uint(255))).add(clamp(ou.add(fu).div(wc).mul(iw), float(0.5), iw.sub(0.5)));
+              const y = float(slot.y.shiftRight(uint(20)).bitAnd(uint(255))).add(clamp(ov.add(fv).div(hc).mul(ih), float(0.5), ih.sub(0.5)));
+              layer.assign(slot.y.bitAnd(uint(0xfff)));
+              uv.assign(vec2(x, y).div(SURFACE_PAGE_TEXELS));
+              found.assign(true);
+              Break();
+            });
+            s.assign(s.add(uint(1)).bitAnd(cap.sub(uint(1))));
           });
         });
       });
@@ -280,8 +290,8 @@ function lookupNodes(tex: SurfaceCacheTextures, kind: SurfaceReadKind): { layer:
     return { layer, uv, found, rings: false };
   }
   if (kind === SURFACE_READ.terrain) {
-    Loop(int(header.z), ({ i }: { i: N }) => {
-      const at = header.w.add(uint(i).mul(uint(TERRAIN_TEXELS)));
+    Loop(int(tex.head.z), ({ i }: { i: N }) => {
+      const at = uint(tex.head.w).add(uint(i).mul(uint(TERRAIN_TEXELS)));
       const t0 = texel(at);
       Loop(int(t0.x), ({ i: k }: { i: N }) => {
         const r = asF(texel(at.add(uint(1)).add(uint(k))));
@@ -300,7 +310,7 @@ function lookupNodes(tex: SurfaceCacheTextures, kind: SurfaceReadKind): { layer:
     return { layer, uv, found, rings: true };
   }
   // Architecture: the world cell's list of charts, the first whose plane and rectangle hold the pixel.
-  const h1 = texel(uint(1));
+  const h1 = TSL.uvec2(tex.arch);
   const c = TSL.ivec3(floor(p.div(ARCH_CELL)));
   const cu = TSL.uvec3(c);
   const cap = h1.x;

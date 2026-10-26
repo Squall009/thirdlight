@@ -229,9 +229,11 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
 
   /** The traced scene, packed again when the host's changed (not more often than `REPACK_MS`). */
   private syncScene(now: number): boolean {
-    const { source, version } = this.host.traceSource();
-    if (version === this.sceneVersion) return true;
+    // The version first: the scene is made (and packed) at most every REPACK_MS while it keeps changing.
+    const v = this.host.traceVersion;
+    if (v === this.sceneVersion) return true;
     if (this.sceneVersion >= 0 && now - this.packedAt < REPACK_MS) return true;
+    const { source, version } = this.host.traceSource();
     this.pass.setScene(packTraceScene(source));
     this.sceneVersion = version;
     this.packedAt = now;
@@ -271,9 +273,10 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
   syncProbeInputs(now = performance.now()): boolean {
     this.syncScene(now);
     this.ensureTextures();
-    const { scene, version } = this.host.resolveScene();
+    // The tables follow the packed scene (the same version), never a newer one the pack has not caught up with.
+    const version = this.host.traceVersion;
     if (version === this.sceneVersion && (version !== this.resolvedFor || this.host.residencyVersion !== this.resolvedResidency)) {
-      this.probePass.resolve.setTable(packResolveTable(scene, this.host.cache).words);
+      this.probePass.resolve.setTable(packResolveTable(this.host.resolveScene().scene, this.host.cache).words);
       this.resolvedFor = version;
       this.resolvedResidency = this.host.residencyVersion;
     }
