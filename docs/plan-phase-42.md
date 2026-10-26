@@ -312,7 +312,7 @@ cause.
 
 | Item | Status |
 |---|---|
-| — | Not started. |
+| 42.0 | Done 2026-10-26. three: 0.186.1 pinned is npm's latest (2026-09-24): no patch or minor to take. Baseline at the 60 Hz cap, Iris Xe, 1080p (one round, load 1.1–1.7): village / landscape / interior (40 rooms, doors) p95 16.7/16.7/16.7 WebGPU and 16.7/16.7/16.8 WebGL 2, 0 missed everywhere; WebGPU GPU at full clock 5.27 / 10.59 / 8.75 ms (scene pass 2.9 / 6.7 / 5.0 raw, SSAO 1.35 / 0.92 / 1.75, sun shadow 0.12–0.23, interior spot shadows 0.37); main CPU 5.0 / 4.0 / 3.3 (WebGPU), 4.5 / 3.8 / 2.7 ms (WebGL 2). Bakes: village probes 8,712 in 114 s; look scenes lightmap preview 0.2–1.2 s, probes 0.2–7.5 s. Look-reference scenes added (`node tools/perf/run.mjs look [--no-bake]`, tools/perf/look.ts: door, sunset, corridor with soft-spot and point-row stand-ins for rect and line lights, emissive sign at night): 0 missed, GPU 3.6–5.9 ms full clock; "before" shots looked at, `acceptance/42.0-{realtime,baked}-*` (no bounce in the door room, emissive lights nothing, baked sunset and corridor broken: D333). WebGPU on the Iris Xe (`run.mjs gpu-features`): timestamp-query, float32-filterable and -blendable, subgroups, shader-f16, read-write storage textures (r32float, r32uint, rgba8unorm, rgba16float, rgba32float, r16float, r8unorm, rgba8uint; not rg32float, rg16float, rg11b10ufloat, rgb10a2unorm); limits: 16 storage buffers per stage (default 8: the renderer asks no limits), 4 storage textures per stage, workgroups 1024 invocations, 48 KiB shared. Fixed on the way: the interior level class no longer sends an empty `setSettings` (refused). Details: `~/.cache/thirdlight-phase42/baseline.md`. No e2e file touched. |
 
 ## 5. Decision log
 
@@ -336,3 +336,4 @@ cause.
   moving objects receive all lighting but don't block or bounce it. The phase
   runs in the current autonomous run after 41, on its branch, with 42.1's
   go/no-go as a hard stop.
+- 2026-10-26 (42.0): Default chosen, owner to confirm: the corridor's rect and line lights are stood in by fully soft spots under emissive panels and a row of point lights along an emissive strip until `area` lights exist (42.5); the look scenes are run both realtime and baked (the browser bake only bakes `baked` lights). For 42.1: the renderer requests no device limits, so compute gets 8 storage buffers per stage, not the adapter's 16; only 4 storage textures per stage; rg11b10ufloat and rgb10a2unorm are not read-write, so the cache's read-write targets are r32float / rgba16float / rgba8unorm.

@@ -251,6 +251,20 @@ rasterising about 2.4 ms, its fragments 3.3 ms, its received shadows
 0.9 ms, the sky dome 0.65 ms. Cover rules, wind and bending: [Ground
 cover](terrain.md#ground-cover), [Wind](environment.md#wind).
 
+<a id="look-scenes"></a>
+**The look-reference scenes.** `node tools/perf/run.mjs look` builds four
+small scenes that test a lighting model (`tools/perf/look.ts`): a block room
+lit only through its door, a generated house under a low sun, a closed
+corridor of ceiling panels and a wall strip (soft spots and a row of point
+lights standing in for rectangle and line lights), and an emissive sign on
+hilly terrain at night. Each is baked in the editor ("Bake preview" and
+"Bake probes", both timed; `--no-bake` keeps the lights realtime and bakes
+nothing), exported, measured on both renderers at the 60 Hz cap and
+photographed (`--shots DIR`, `--shot-prefix P`). `node tools/perf/run.mjs
+gpu-features` lists what the host's WebGPU adapter offers in the same
+browser: features, limits, WGSL language features and which storage-texture
+formats compute can read, write or read and write.
+
 **Instance sets cast no shadow unless they say so.** An instance set's
 `castShadow` is off when absent (the Inspector's "Casts shadows" on an instance
 set; `setComponent instances … castShadow: true`). Older engines had instance

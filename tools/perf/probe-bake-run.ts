@@ -5,7 +5,8 @@
  * probes" button. Reports the bake's time (the editor's own count and the
  * click to the record), the probes, tiles, moved and filled probes, the GPU
  * bytes of the tiles and the bytes of their files, and the page's JS heap
- * before and after.
+ * before and after. The look scenes (look-run.ts) bake their lightmaps first
+ * with "Bake preview (browser)", timed the same way.
  *
  *   --class village|blocks       (default village; blocks bakes its block-layer ground, marked static here)
  *   --spacing M --bounces N      the bake's settings (default: the editor's, 2 m and 2)
@@ -30,10 +31,10 @@ export async function bakeProbesInEditor(
   be: Awaited<ReturnType<typeof startPerfBackend>>,
   projectId: string,
   log: (s: string) => void,
-  settings: { spacing?: string | undefined; bounces?: string | undefined } = {},
+  settings: { spacing?: string | undefined; bounces?: string | undefined; lightmap?: boolean } = {},
 ): Promise<Record<string, unknown>> {
   const report: Record<string, unknown> = {};
-  const { spacing, bounces } = settings;
+  const { spacing, bounces, lightmap } = settings;
   const browser = await launchGpuBrowser();
   try {
     const context = await browser.newContext({ viewport: { ...FRAME_VIEWPORT }, deviceScaleFactor: 1 });
@@ -58,11 +59,20 @@ export async function bakeProbesInEditor(
       if (spacing !== undefined) await page.getByRole('spinbutton', { name: 'probe spacing' }).fill(spacing);
       if (bounces !== undefined) await page.getByRole('spinbutton', { name: 'probe bounces' }).fill(bounces);
     }
+    const status = page.getByRole('status');
+    if (lightmap === true) {
+      // Both bakes end in a "Baked …" message: each waits for its own.
+      const t = Date.now();
+      await page.getByRole('button', { name: 'Bake preview (browser)' }).click();
+      await status.filter({ hasText: /Baked \d+ objects|fail|nothing|no static/i }).waitFor({ timeout: 3_600_000 });
+      const lightmapMessage = (await status.textContent()) ?? '';
+      Object.assign(report, { lightmapMessage, lightmapClickToRecordMs: Date.now() - t });
+      log(`lightmap: ${lightmapMessage} (click to record ${((Date.now() - t) / 1000).toFixed(1)} s)`);
+    }
     const heapBefore = await heap();
     const t0 = Date.now();
     await page.getByRole('button', { name: 'Bake probes' }).click();
-    const status = page.getByRole('status');
-    await status.filter({ hasText: /Baked|failed/ }).waitFor({ timeout: 3_600_000 });
+    await status.filter({ hasText: /Baked \d+ probes|failed/ }).waitFor({ timeout: 3_600_000 });
     const clickToRecordMs = Date.now() - t0;
     const message = (await status.textContent()) ?? '';
     const heapAfter = await heap();
