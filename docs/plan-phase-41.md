@@ -1,6 +1,6 @@
 # Phase 41 — One physics backend; 2D as a plane you can switch to at any time
 
-Status: planned 2026-10-21.
+Status: **done 2026-10-26, owner look pending** (full gate GREEN at `d4c92f39`, review 1 H + 3 M fixed in 41.11).
 
 Goal: every project and scene runs on one physics backend, Rapier 3D. "2D" is
 no longer a kind of project. It is a **plane constraint** on objects, which a
