@@ -46,7 +46,8 @@ export interface SurfaceTerrain {
 
 export interface SurfaceArchitectureObject {
   readonly key: string;
-  readonly component: ArchitectureComponent;
+  /** Its component (absent when its pieces are given). */
+  readonly component?: ArchitectureComponent;
   readonly origin: readonly number[];
   readonly version: number;
   /** Its pieces, when already made (else made from the component). */
@@ -67,6 +68,10 @@ export interface SurfaceSceneInput {
   readonly terrain?: readonly SurfaceTerrain[];
   readonly architecture?: readonly SurfaceArchitectureObject[];
   readonly models?: readonly SurfaceModel[];
+  /** Placed models' tiles already made (after `models`'s, in this order). */
+  readonly modelTiles?: readonly ModelTile[];
+  /** Block and architecture tiles already made, by key (a host's: their charts are not made again). */
+  readonly made?: ReadonlyMap<string, SurfaceTile>;
 }
 
 export interface BlockTile extends SurfaceTile {
@@ -170,7 +175,8 @@ export class SurfaceScene {
     (input.blocks ?? []).forEach((layer, li) => {
       const memo = new Map<number, boolean>();
       for (const ck of layer.chunks) {
-        const tile = blockChunkTile(layer, li, ck, memo);
+        const had = input.made?.get(`${layer.key}/${ck}`) as BlockTile | undefined;
+        const tile = had?.kind === 'blocks' ? had : blockChunkTile(layer, li, ck, memo);
         this.blockTiles.set(`${li}/${tile.cx},${tile.cz}`, tile);
         this.tiles.push(tile);
       }
@@ -183,7 +189,8 @@ export class SurfaceScene {
     }
     let tris = 0;
     for (const a of input.architecture ?? []) {
-      const tile = architectureTile(a.key, a.version, a.pieces ?? architecturePiecesOf(a.component, a.origin));
+      const had = input.made?.get(a.key) as ArchTile | undefined;
+      const tile = had?.kind === 'arch' ? had : architectureTile(a.key, a.version, a.pieces ?? architecturePiecesOf(a.component!, a.origin));
       const { pieces, made } = tile;
       const nt = Math.floor(pieces.triangles.length / 9);
       this.archBoxStarts.push(this.archBoxes);
@@ -193,11 +200,9 @@ export class SurfaceScene {
       this.archObjects.push({ tile, boxes: pieces.boxes.length, triangles: nt });
       if (made.charts.length > 0) this.tiles.push(tile);
     }
-    for (const m of input.models ?? []) {
-      for (const tile of modelPieceTiles(m)) {
-        this.modelTiles.push(tile);
-        if (tile.chart !== null) this.tiles.push(tile);
-      }
+    for (const tile of [...(input.models ?? []).flatMap((m) => modelPieceTiles(m)), ...(input.modelTiles ?? [])]) {
+      this.modelTiles.push(tile);
+      if (tile.chart !== null) this.tiles.push(tile);
     }
   }
 

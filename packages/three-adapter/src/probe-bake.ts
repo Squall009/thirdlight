@@ -46,6 +46,7 @@ import type { ProbeUploadRenderer } from './probe-atlas';
 import { LOCAL_LIGHTS_IGNORED_KEY } from './local-lights';
 import { ProbeLighting } from './probe-lighting';
 import { packProbeTile } from './probe-pack';
+import { edgeWalls } from './surface-probes';
 import { mergeLayout, mergeWorldGeometry, OBJECT_FRAME_KEY } from './static-merge';
 
 export interface ProbeBakeMesh {
@@ -227,34 +228,6 @@ function dilate(sh: Float32Array, validity: Float32Array, resolution: readonly n
       known[i] = 1;
     });
     filled += next.length;
-  }
-}
-
-/**
- * Each probe's walls from what the probes see straight along the axes
- * (`along`: 6 distances a probe, +x −x +y −y +z −z, 0 where nothing is hit):
- * the edge from a probe to the next one along an axis is cut when each of
- * the two sees a surface before the other; the cut is where its two
- * surfaces' middle is, as a share of the edge (0…1). `out`: 6 floats a probe,
- * per axis the cut flag (1 or 0) and the share.
- */
-export function edgeWalls(grid: ProbeGridBox, along: Float32Array, out: Float32Array): void {
-  const n = grid.resolution as readonly number[];
-  const [nx, ny] = n as [number, number, number];
-  const step = [0, 1, 2].map((a) => (grid.max[a]! - grid.min[a]!) / (n[a]! - 1));
-  const offset = [1, nx, nx * ny];
-  out.fill(0);
-  for (let i = 0; i < along.length / 6; i++) {
-    const at = [i % nx, Math.floor(i / nx) % ny, Math.floor(i / (nx * ny))];
-    for (let a = 0; a < 3; a++) {
-      if (at[a]! >= n[a]! - 1) continue;
-      const s = step[a]!;
-      const fromLo = along[i * 6 + a * 2]!;
-      const fromHi = along[(i + offset[a]!) * 6 + a * 2 + 1]!;
-      if (!(fromLo > 0 && fromLo < s && fromHi > 0 && fromHi < s)) continue;
-      out[i * 6 + a * 2] = 1;
-      out[i * 6 + a * 2 + 1] = (fromLo / s + (1 - fromHi / s)) / 2;
-    }
   }
 }
 

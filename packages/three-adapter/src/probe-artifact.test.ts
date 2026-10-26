@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { PROBE_ARTIFACT_ROW_PROBES, PROBE_FILLED, PROBE_GPU_TEXELS, PROBE_MOVED, PROBE_SH_TEXELS, PROBE_TEXELS, PROBE_VALID, probeGridGpuBytes } from '@thirdlight/runtime';
 
 import { atlasFromSamples, decodeProbeArtifact, decodeProbeSamples, encodePng16, packProbeTexels } from './probe-artifact';
-import { edgeWalls } from './probe-bake';
+import { edgeWalls } from './surface-probes';
 import { packProbeTile, PROBE_WEIGHT_FILLED, PROBE_WEIGHT_MOVED } from './probe-pack';
 
 const half = (v: number): number => THREE.DataUtils.fromHalfFloat(THREE.DataUtils.toHalfFloat(v));

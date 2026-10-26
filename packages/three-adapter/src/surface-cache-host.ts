@@ -25,11 +25,10 @@ import { SurfaceCache, type SurfaceCacheDiagnostics, type SurfaceTile } from './
 import { SurfaceChanges, type CacheLight } from './surface-changes';
 import { SurfaceRelight, type RelightDiagnostics, type RelightSlice, type RelightUnit } from './surface-relight';
 import type { RingPatch } from './surface-cache-terrain';
-import type { ArchTile, BlockTile, ModelTile } from './surface-cache-scene';
 import { chartUnits, type ChartRect, type PatchTexels, type TileTexels } from './surface-texels';
 import { architecturePiecesOf } from './surface-cache-arch';
 import type { SurfaceBlockGrid } from './surface-cache-blocks';
-import { architectureTile, blockChunkTile, modelPieceTiles } from './surface-cache-scene';
+import { SurfaceScene, architectureTile, blockChunkTile, modelPieceTiles, type ArchTile, type BlockTile, type ModelTile } from './surface-cache-scene';
 import type { TerrainRingSource } from './surface-cache-terrain';
 import { invertAffine, type Affine } from './tracer-words';
 import type { TraceBlockLayer, TraceSceneSource, TraceTerrain } from './tracer-scene';
@@ -180,6 +179,9 @@ export class SurfaceCacheHost {
   /** Bumped by every geometry change the listing sees. */
   private geometryVersion = 0;
   private traced: { source: TraceSceneSource; version: number } | null = null;
+  private resolved: { scene: SurfaceScene; version: number } | null = null;
+  /** Bumped whenever the cache's residency changed (tiles placed, let go, rings stepped): the resolve tables are packed again. */
+  residencyVersion = 0;
   private roomsNow: SurfaceRooms | null = null;
   private roomsVersion = -1;
 
@@ -294,6 +296,27 @@ export class SurfaceCacheHost {
     return this.traced;
   }
 
+  /**
+   * The scene the GPU resolve's tables are packed from (`packResolveTable`),
+   * in the order `traceSource` packs the tracer's, with the tiles made here
+   * (their charts are not made again), and the trace version it is of.
+   */
+  resolveScene(): { scene: SurfaceScene; version: number } {
+    const traced = this.traceSource();
+    if (this.resolved !== null && this.resolved.version === traced.version) return this.resolved;
+    const blocks = this.deps.layers().filter((l) => 'forEach' in l.grid).map((l, i) => ({ key: l.id, grid: l.grid, origin: l.origin, opaque: l.opaque, version: l.version, chunks: l.chunks.map(([k]) => k), trace: traced.source.blocks![i]! }));
+    const terrain: { key: string; trace: TraceTerrain }[] = [];
+    for (const [id, field] of this.fields) {
+      const t = traceTerrainOf(field, field.heightSpan());
+      if (t !== null) terrain.push({ key: id, trace: t });
+    }
+    const tiles = [...this.ready.values()];
+    const architecture = tiles.filter((t): t is ArchTile => (t as { kind?: string }).kind === 'arch').map((t) => ({ key: t.key, origin: [0, 0, 0], version: t.version, pieces: t.pieces }));
+    const modelTiles = tiles.filter((t): t is ModelTile => (t as { kind?: string }).kind === 'model');
+    this.resolved = { scene: new SurfaceScene({ blocks, terrain, architecture, modelTiles, made: this.ready }), version: traced.version };
+    return this.resolved;
+  }
+
   setBudget(bytes: number): void {
     if (bytes === this.cache.budgetBytes) return;
     this.cache.setBudget(bytes);
@@ -353,6 +376,7 @@ export class SurfaceCacheHost {
   /** The cache's resident tiles and ring patches as units of work: what came in or moved is stale. */
   private syncUnits(): void {
     const ch = this.cache.takeChanges();
+    if (ch.freed.length > 0 || ch.allocated.length > 0 || ch.rings.length > 0) this.residencyVersion += 1;
     for (const key of ch.freed) {
       for (const u of this.tileUnits.get(key) ?? []) {
         this.relight.remove(u);

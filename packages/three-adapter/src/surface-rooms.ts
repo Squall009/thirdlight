@@ -14,8 +14,9 @@
  *   GPU against the few rooms their unit's box touches (`unitRooms`).
  * - **Probe rays.** A probe in a room casts its rays only as far as the
  *   room's boundary, unless they leave through an open portal
- *   (`roomExitCpu`, the shaders' `roomExit`); a ray stopped there is met
- *   by the room's side of a wall (the probe's own light falls back on it).
+ *   (`roomExitCpu`, the shaders' `roomExit`), and no probe sees through a
+ *   shut doorway (`closedPortalCpu`, `closedPortal`); a ray stopped there
+ *   meets a wall or a door (the probe's own light falls back on it).
  * - **Marks.** A switched lamp marks only the units its rooms touch.
  *
  * Words (`SurfaceRooms.words`, appended to a pass's word buffer; offsets
@@ -249,6 +250,31 @@ function exitOpen(u: Uint32Array, f: Float32Array, at: number, q: readonly numbe
 }
 
 /**
+ * How far a ray runs before it meets a shut doorway (any room's opening
+ * whose portal is closed), else `tmax` (the shaders' `closedPortal`): a
+ * probe outside a shut room does not see into it.
+ */
+export function closedPortalCpu(u: Uint32Array, o: readonly number[], d: readonly number[], tmax: number): number {
+  const f = new Float32Array(u.buffer, u.byteOffset, u.length);
+  let t = tmax;
+  for (let i = 0; i < u[1]!; i += 1) {
+    const p = u[3]! + i * PORTAL_WORDS;
+    if ((u[p]! & 0xff) !== PORTAL_OPENING || ((u[p]! >>> 8) & 1) === 1) continue;
+    const c = u[p + 1]!;
+    const ax = f[c]!, ay = f[c + 1]!, az = f[c + 2]!;
+    const ex = f[c + 3]! - ax, ez = f[c + 5]! - az;
+    const den = -ez * d[0]! + ex * d[2]!;
+    if (Math.abs(den) < 1e-9) continue;
+    const tt = (-ez * (ax - o[0]!) + ex * (az - o[2]!)) / den;
+    if (!(tt > 1e-4 && tt < t)) continue;
+    const qx = o[0]! + d[0]! * tt, qy = o[1]! + d[1]! * tt, qz = o[2]! + d[2]! * tt;
+    const s = ((qx - ax) * ex + (qz - az) * ez) / (ex * ex + ez * ez);
+    if (s >= 0 && s <= 1 && qy >= ay && qy <= f[c + 7]!) t = tt;
+  }
+  return t;
+}
+
+/**
  * The shaders' room functions over packed room words read through
  * `word(i)` (a u32) at offset `base` (a WGSL expression): `roomHolds`,
  * `texelRoom` over a list of rooms in the same buffer, and `roomExit`
@@ -305,6 +331,26 @@ fn rmExitOpen(at: u32, q: vec3f) -> bool {
     if (rmInPoly(q.x, q.z, c, rmU(p + 2u), 3u, 2u)) { return true; }
   }
   return false;
+}
+// How far a ray runs before it meets a shut doorway, else tmax.
+fn closedPortal(o: vec3f, d: vec3f, tmax: f32) -> f32 {
+  var t = tmax;
+  for (var i = 0u; i < rmU(1u); i++) {
+    let p = rmU(3u) + i * ${PORTAL_WORDS}u;
+    let head = rmU(p);
+    if ((head & 255u) != ${PORTAL_OPENING}u || ((head >> 8u) & 1u) == 1u) { continue; }
+    let c = rmU(p + 1u);
+    let a = vec3f(rmF(c), rmF(c + 1u), rmF(c + 2u));
+    let e = vec2f(rmF(c + 3u) - a.x, rmF(c + 5u) - a.z);
+    let den = -e.y * d.x + e.x * d.z;
+    if (abs(den) < 1e-9) { continue; }
+    let tt = (-e.y * (a.x - o.x) + e.x * (a.z - o.z)) / den;
+    if (!(tt > 1e-4 && tt < t)) { continue; }
+    let q = o + d * tt;
+    let s = dot(vec2f(q.x - a.x, q.z - a.z), e) / dot(e, e);
+    if (s >= 0.0 && s <= 1.0 && q.y >= a.y && q.y <= rmF(c + 7u)) { t = tt; }
+  }
+  return t;
 }
 // How far a ray inside room r runs before it leaves the room; negative (−t) when it leaves by an open portal.
 fn roomExit(r: u32, o: vec3f, d: vec3f) -> f32 {
