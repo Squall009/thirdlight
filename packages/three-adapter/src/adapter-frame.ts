@@ -338,6 +338,8 @@ export class AdapterFrame {
     // Splines released and not realized again go now (one realized again kept drawing until its new data is in).
     level.splines.update();
     level.architecture.update(viewCull.view.eye);
+    // The static surfaces' light resident round the eye (what the views above hold now).
+    this.p.surfaceCache?.update(viewCull.view.eye);
     // Clipped decals follow their surfaces (chunks made, objects realized) and themselves.
     level.clipped?.beforeFrame();
     // (The near shadows follow the last frame's eye: the view is culled for this one further down.)

@@ -69,19 +69,19 @@ export interface SurfaceSceneInput {
   readonly models?: readonly SurfaceModel[];
 }
 
-interface BlockTile extends SurfaceTile {
+export interface BlockTile extends SurfaceTile {
   readonly layer: number;
   readonly cx: number;
   readonly cz: number;
   made: BlockChunkCharts | null;
 }
 
-interface ArchTile extends SurfaceTile {
+export interface ArchTile extends SurfaceTile {
   readonly pieces: TraceArchitecture;
   readonly made: ArchitectureCharts;
 }
 
-interface ModelTile extends SurfaceTile {
+export interface ModelTile extends SurfaceTile {
   readonly set: DistanceBrickSet;
   readonly worldToLocal: Affine;
   readonly chart: SurfaceChart | null;
@@ -102,6 +102,51 @@ function worldBox(toWorld: readonly number[], lo: readonly number[], hi: readonl
   return { min, max };
 }
 
+/** The tile of a block layer's chunk column ("cx,cz"): its box, and its charts made when first asked (`memo`: the layer's opaque-by-palette memo). */
+export function blockChunkTile(layer: Pick<SurfaceBlockLayer, 'key' | 'grid' | 'origin' | 'opaque' | 'version'>, index: number, ck: string, memo: Map<number, boolean>): BlockTile {
+  const { grid } = layer;
+  const [cx, cz] = ck.split(',').map(Number) as [number, number];
+  const x0 = Math.max(grid.min[0]!, cx * CHUNK_SIZE);
+  const z0 = Math.max(grid.min[2]!, cz * CHUNK_SIZE);
+  const x1 = Math.min(grid.max[0]!, cx * CHUNK_SIZE + CHUNK_SIZE);
+  const z1 = Math.min(grid.max[2]!, cz * CHUNK_SIZE + CHUNK_SIZE);
+  const s = grid.cellSize;
+  const o = layer.origin;
+  return {
+    key: `${layer.key}/${ck}`,
+    min: [o[0]! + x0 * s[0]!, o[1]! + grid.min[1]! * s[1]!, o[2]! + z0 * s[2]!],
+    max: [o[0]! + x1 * s[0]!, o[1]! + grid.max[1]! * s[1]!, o[2]! + z1 * s[2]!],
+    version: layer.version,
+    layer: index,
+    cx,
+    cz,
+    made: null,
+    charts() {
+      return (this.made ??= blockChunkCharts(grid, layer.opaque, cx, cz, memo)).charts;
+    },
+  };
+}
+
+/** The tile of an architecture object from its pieces (its charts give its box, so they are made here). */
+export function architectureTile(key: string, version: number, pieces: TraceArchitecture): ArchTile {
+  const made = architectureCharts(pieces);
+  return { key, min: made.min, max: made.max, version, pieces, made, charts: () => made.charts };
+}
+
+/** The tiles of a placed model: one per piece placed (a piece without surfels has no chart). */
+export function modelPieceTiles(m: SurfaceModel): ModelTile[] {
+  const toWorld = invertAffine(m.worldToLocal);
+  const out: ModelTile[] = [];
+  for (const set of m.bricks.sets) {
+    if (m.piece !== undefined && m.piece !== null && set.piece !== m.piece) continue;
+    const size = set.voxel * DISTANCE_BRICK_CELLS;
+    const box = worldBox(toWorld, set.min, [0, 1, 2].map((k) => set.min[k]! + set.dims[k]! * size));
+    const chart = modelChart(set, m.worldToLocal);
+    out.push({ key: `${m.key}/${set.piece}`, min: box.min, max: box.max, version: m.version, set, worldToLocal: m.worldToLocal, chart, charts: () => (chart === null ? [] : [chart]) });
+  }
+  return out;
+}
+
 export class SurfaceScene {
   readonly tiles: SurfaceTile[] = [];
   readonly terrains: TerrainRingSource[] = [];
@@ -115,29 +160,9 @@ export class SurfaceScene {
   constructor(readonly input: SurfaceSceneInput) {
     (input.blocks ?? []).forEach((layer, li) => {
       const memo = new Map<number, boolean>();
-      const { grid } = layer;
       for (const ck of layer.chunks) {
-        const [cx, cz] = ck.split(',').map(Number) as [number, number];
-        const x0 = Math.max(grid.min[0]!, cx * CHUNK_SIZE);
-        const z0 = Math.max(grid.min[2]!, cz * CHUNK_SIZE);
-        const x1 = Math.min(grid.max[0]!, cx * CHUNK_SIZE + CHUNK_SIZE);
-        const z1 = Math.min(grid.max[2]!, cz * CHUNK_SIZE + CHUNK_SIZE);
-        const s = grid.cellSize;
-        const o = layer.origin;
-        const tile: BlockTile = {
-          key: `${layer.key}/${ck}`,
-          min: [o[0]! + x0 * s[0]!, o[1]! + grid.min[1]! * s[1]!, o[2]! + z0 * s[2]!],
-          max: [o[0]! + x1 * s[0]!, o[1]! + grid.max[1]! * s[1]!, o[2]! + z1 * s[2]!],
-          version: layer.version,
-          layer: li,
-          cx,
-          cz,
-          made: null,
-          charts() {
-            return (this.made ??= blockChunkCharts(grid, layer.opaque, cx, cz, memo)).charts;
-          },
-        };
-        this.blockTiles.set(`${li}/${cx},${cz}`, tile);
+        const tile = blockChunkTile(layer, li, ck, memo);
+        this.blockTiles.set(`${li}/${tile.cx},${tile.cz}`, tile);
         this.tiles.push(tile);
       }
     });
@@ -149,10 +174,8 @@ export class SurfaceScene {
     }
     let tris = 0;
     for (const a of input.architecture ?? []) {
-      const pieces = a.pieces ?? architecturePiecesOf(a.component, a.origin);
-      // The charts give the object's box, so they are made with the scene (the tracer meets every piece anyway).
-      const made = architectureCharts(pieces);
-      const tile: ArchTile = { key: a.key, min: made.min, max: made.max, version: a.version, pieces, made, charts: () => made.charts };
+      const tile = architectureTile(a.key, a.version, a.pieces ?? architecturePiecesOf(a.component, a.origin));
+      const { pieces, made } = tile;
       const nt = Math.floor(pieces.triangles.length / 9);
       this.archBoxStarts.push(this.archBoxes);
       this.archTriStarts.push(tris);
@@ -162,15 +185,9 @@ export class SurfaceScene {
       if (made.charts.length > 0) this.tiles.push(tile);
     }
     for (const m of input.models ?? []) {
-      const toWorld = invertAffine(m.worldToLocal);
-      for (const set of m.bricks.sets) {
-        if (m.piece !== undefined && m.piece !== null && set.piece !== m.piece) continue;
-        const size = set.voxel * DISTANCE_BRICK_CELLS;
-        const box = worldBox(toWorld, set.min, [0, 1, 2].map((k) => set.min[k]! + set.dims[k]! * size));
-        const chart = modelChart(set, m.worldToLocal);
-        const tile: ModelTile = { key: `${m.key}/${set.piece}`, min: box.min, max: box.max, version: m.version, set, worldToLocal: m.worldToLocal, chart, charts: () => (chart === null ? [] : [chart]) };
+      for (const tile of modelPieceTiles(m)) {
         this.modelTiles.push(tile);
-        if (chart !== null) this.tiles.push(tile);
+        if (tile.chart !== null) this.tiles.push(tile);
       }
     }
   }

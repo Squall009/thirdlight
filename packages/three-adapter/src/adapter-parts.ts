@@ -27,6 +27,7 @@ import type { ProbeLightingHost } from './probe-grids';
 import type { QualityControl } from './quality-control';
 import type { RenderControl } from './render-control';
 import type { RenderGraph } from './render-graph';
+import type { SurfaceCacheHost } from './surface-cache-host';
 import type { AnyRenderer } from './renderer-factory';
 import type { ViewCuller } from './view-cull';
 
@@ -58,6 +59,8 @@ export interface AdapterParts {
   readonly lights: SceneLights;
   readonly probes: ProbeLightingHost;
   readonly level: AdapterLevel;
+  /** The surface cache (null: the host turned it off). */
+  readonly surfaceCache: SurfaceCacheHost | null;
   readonly batcher: AutoBatcher | null;
   readonly viewCull: ViewCuller;
   readonly isolation: IsolationView;

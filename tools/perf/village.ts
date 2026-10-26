@@ -21,6 +21,7 @@ import { INSTANCE_DENSITY_MIN_NEW } from '@thirdlight/project-model';
 
 import { BENCH_BEHAVIORS, EYE_HEIGHT_M, prng, type BehaviorPlan, type EntityValue } from './generate';
 import { publishBehaviorVia, publishBufferVia, publishFileVia, splitBySize } from './build';
+import { flightBehavior } from './level';
 import type { PerfBackend } from './backend';
 import { FIGURE_CLIP_SECONDS, figureGlb, propGlb, scatterKitGlb, type PropSpec } from './village-assets';
 
@@ -362,6 +363,17 @@ export async function addVillageLamps(be: PerfBackend, projectId: string, n: num
   await p.command('pasteEntities', { sceneId: 'scene-main', entities: lamps });
 }
 
+/**
+ * The camera flies a loop of `radius` metres round the village's middle, a lap a minute, at roof height
+ * (`node tools/perf/run.mjs village --flight R`): what streams round a moving view (the surface cache's tiles) while
+ * the village is drawn. Not part of the class (its baseline camera stands still).
+ */
+export async function addVillageFlight(be: PerfBackend, projectId: string, radius: number): Promise<void> {
+  const p = be.project(projectId);
+  const flight = flightBehavior(radius, false);
+  await publishBehaviorVia(be, p, (op, args) => p.command(op, args), flight);
+  await p.command('setBehaviorProperties', { entityId: 'cam-main', behaviorId: flight.behaviorId, values: {} });
+}
 
 /**
  * Flames and smoke in every fire (`node tools/perf/run.mjs village --fire-gpu-systems`): two small systems beside

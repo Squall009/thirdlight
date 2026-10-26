@@ -590,6 +590,13 @@ export class ArchitectureView {
     return [...this.recs.keys()];
   }
 
+  /** The objects drawn, as the surface cache reads them: the generator's component and where it stands. */
+  surfaceObjects(): { id: string; component: ArchitectureComponent; origin: readonly number[] }[] {
+    const out: { id: string; component: ArchitectureComponent; origin: readonly number[] }[] = [];
+    for (const [id, rec] of this.recs) if (!rec.hidden && !rec.leaving) out.push({ id, component: rec.component, origin: rec.origin });
+    return out;
+  }
+
   /** An object's drawn meshes at full detail (its chunks' near levels; kit copies left out): what a probe bake sees of it. */
   meshes(id: string): THREE.Mesh[] {
     const out: THREE.Mesh[] = [];

@@ -78,6 +78,7 @@ import {
   type BlockLayerData,
   type BlockMeshSource,
   type BlockRegion,
+  type BlockCell,
   type BlockType,
   type CutawayZone,
   type ChunkMeshPart,
@@ -106,6 +107,7 @@ import { currentLodLevel, LOD_CULL_LEVEL_KEY } from './lod-switch';
 import { askingRing, eyeMoved, recheckMetres, type PageWorldStream, type StreamCell } from './world-stream';
 import { perfMark } from './perf-marks';
 import { VIEW_OWNER_KEY } from './isolation-view';
+import { opaqueByBlockTypes } from './tracer-sources';
 
 /**
  * An edit's chunks mesh on the page while their estimated cost (the layer's
@@ -433,6 +435,26 @@ function regionsWithRooms(rooms: ReadonlyMap<string, readonly BlockRegion[]> | u
   const out = new Map<string, readonly (readonly number[])[]>(layer.grid.regions);
   for (const list of rooms.values()) for (const r of list) if (!out.has(r.regionId)) out.set(r.regionId, r.boxes);
   return out;
+}
+
+/** A drawn block layer (`BlockLayerView.drawnLayers`): see-through reads it as an occluder, the surface cache as its surfaces. */
+export interface DrawnBlockLayer extends OccluderLayer {
+  readonly grid: BlockGridReader;
+  /** Whether see-through may fade it (a layer can opt out). */
+  readonly seeThrough: boolean;
+  /** Changes with what stops light (the block types) and the layer's replacement. */
+  readonly surfaceVersion: number;
+  readonly chunks: readonly (readonly [string, number])[];
+  readonly opaque: (cell: BlockCell) => boolean;
+}
+
+/** Per block-type table (a new one each time the types change): its version and which cells stop light. */
+const typeStates = new WeakMap<ReadonlyMap<string, BlockType>, { version: number; opaque: (cell: BlockCell) => boolean }>();
+let typeVersions = 0;
+function typeStateOf(types: ReadonlyMap<string, BlockType>): { version: number; opaque: (cell: BlockCell) => boolean } {
+  let s = typeStates.get(types);
+  if (s === undefined) typeStates.set(types, (s = { version: ++typeVersions, opaque: opaqueByBlockTypes([...types.values()]) }));
+  return s;
 }
 
 export class BlockLayerView {
@@ -895,13 +917,29 @@ export class BlockLayerView {
     return () => void this.zoneListeners.delete(fn);
   }
 
-  /** The layers drawn, as see-through's occluder search reads them (a hidden layer, or one that opts out, is none). */
-  occluderLayers(): OccluderLayer[] {
-    const out: OccluderLayer[] = [];
+  /**
+   * The layers drawn (a hidden or metadata-only layer is none), as
+   * see-through's occluder search and the surface cache read them: where
+   * they are, their cells as meshed, their built chunks with each one's mesh
+   * generation, and which cells stop light under the current block types.
+   */
+  drawnLayers(): DrawnBlockLayer[] {
+    const types = typeStateOf(this.types);
+    const out: DrawnBlockLayer[] = [];
     for (const [id, layer] of this.layers) {
-      if (layer.hidden || layer.component.metadataOnly === true || (layer.component as { seeThrough?: unknown }).seeThrough === false) continue;
+      if (layer.hidden || layer.component.metadataOnly === true) continue;
       const g = layer.group.position;
-      out.push({ id, origin: [g.x, g.y, g.z], cellSize: layer.grid.cellSize, grid: layer.view, version: layer.serial * 1e6 + layer.cells });
+      out.push({
+        id,
+        origin: [g.x, g.y, g.z],
+        cellSize: layer.grid.cellSize,
+        grid: layer.view,
+        version: layer.serial * 1e6 + layer.cells,
+        seeThrough: (layer.component as { seeThrough?: unknown }).seeThrough !== false,
+        surfaceVersion: types.version * 1024 + (layer.serial % 1024),
+        chunks: [...layer.chunks.keys()].map((ck) => [ck, layer.gens.get(ck) ?? 0] as const),
+        opaque: types.opaque,
+      });
     }
     return out;
   }

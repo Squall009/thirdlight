@@ -12,13 +12,14 @@
  *   project's settings, under a player's fields and the page's flags);
  * - the LOD tuning: the bias (over the project's `lod_bias`);
  * - the scene lights: the largest shadow map and the point/spot light budget;
- * - the renderer's pixel ratio cap.
+ * - the renderer's pixel ratio cap;
+ * - the surface cache's memory budget.
  *
  * Kept out of `adapter.ts`: the adapter creates one with those targets, tells
  * it the project's environment and LOD tuning and a player's choice; a change
  * applies at once (nothing per frame).
  */
-import { qualityLevelOf, qualityLevelsOf, type QualityLevelConfig } from '@thirdlight/runtime';
+import { DEFAULT_SURFACE_CACHE_MIB, qualityLevelOf, qualityLevelsOf, type QualityLevelConfig } from '@thirdlight/runtime';
 
 import { MAX_RENDER_PIXEL_RATIO, type EnvironmentRenderer } from './environment';
 import type { RenderControl } from './render-control';
@@ -46,6 +47,8 @@ export interface QualityTargets {
   readonly reselectLights: () => void;
   /** The most drawing-buffer pixels per CSS pixel. */
   readonly setPixelRatioCap: (cap: number) => void;
+  /** The surface cache's budget (MiB; absent: the page keeps no cache). */
+  readonly setSurfaceCacheMiB?: (mib: number) => void;
   readonly environment: () => EnvironmentRenderer | null;
   /** Something drawn changed (a host drawing on demand draws again). */
   readonly changed: () => void;
@@ -65,6 +68,8 @@ export interface QualityDiagnostics {
   readonly shadowedLights: number | null;
   /** The LOD bias drawn with (the level's, else the project's). */
   readonly lodBias: number;
+  /** The surface cache's budget at the level (MiB). */
+  readonly surfaceCacheMiB: number;
 }
 
 export interface QualityControl {
@@ -117,6 +122,7 @@ export function createQualityControl(targets: QualityTargets, o: { readonly proj
       cap = nextCap;
       targets.setPixelRatioCap(cap);
     }
+    targets.setSurfaceCacheMiB?.(l.surfaceCacheMiB ?? DEFAULT_SURFACE_CACHE_MIB);
     targets.environment()?.setQuality(pinned ?? chosen);
     targets.changed();
   };
@@ -155,6 +161,7 @@ export function createQualityControl(targets: QualityTargets, o: { readonly proj
         localLights: l.localLights ?? null,
         shadowedLights: l.shadowedLights ?? null,
         lodBias: targets.lodTuning.bias,
+        surfaceCacheMiB: l.surfaceCacheMiB ?? DEFAULT_SURFACE_CACHE_MIB,
       };
     },
   };

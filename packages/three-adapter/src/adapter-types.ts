@@ -24,6 +24,7 @@ import type { ModelsSettledResult, SceneAdapterModels, SceneAdapterModelsDiagnos
 import type { GlbLoaderPort } from './visual';
 import type { ShadowReason } from './lighting';
 import type { ProbeGridsObservation } from './probe-grids';
+import type { SurfaceCacheHostDiagnostics } from './surface-cache-host';
 import type { ProbeLighting } from './probe-lighting';
 import type { CachedShadowCounts } from './cached-shadow';
 import type { EffectDefLike, EffectsDiagnostics, EffectsPlayerOptions } from './effects-player';
@@ -75,6 +76,8 @@ export interface SceneAdapterOptions {
   streaming?: { budgetBytes: number; onProblem?: (code: string, message: string) => void };
   /** Draw the scatter rules' copies (default true; false: none, a diagnostic comparison). */
   scatter?: boolean;
+  /** Keep the surface cache resident round the view (default true; false: none, a diagnostic comparison). */
+  surfaceCache?: boolean;
   /** Draw what splines make, their meshes and pieces (default true; false: none, a diagnostic comparison). */
   splines?: boolean;
   /** Draw generated architecture (default true; false: none, a diagnostic comparison). */
@@ -429,6 +432,8 @@ export interface SceneAdapterDiagnostics {
   environment?: { iblRebakes: number; post: boolean; passes: string[]; quality: QualityLevel; samples: number; fallback: string | null };
   /** The loaded scenes' baked probe tiles: listed, loaded, their probes and GPU bytes, failed loads; ABSENT without any. */
   probes?: ProbeGridsObservation;
+  /** The surface cache: its budget and what it holds round the view (`surface-cache.ts`); ABSENT when off or the loaded scenes have no static surface. */
+  surfaceCache?: SurfaceCacheHostDiagnostics;
   /** The decal pages the loaded decals hold (`decal-pages.ts`; present while a loaded decal has a place on them). */
   decals?: DecalPagesObservation;
   /** The projected decals: loaded, drawn, the index's cells and entries, its last build (`decal-projectors.ts`); ABSENT without any. */

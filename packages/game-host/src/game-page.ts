@@ -108,7 +108,7 @@ import {
   type VerifiedAssetReader,
 } from './index';
 import { pageAudio } from './page-audio';
-import { mipPartsOf } from './asset-reader';
+import { mipPartsOf, modelBricksOf } from './asset-reader';
 import { withBlockChunkData } from './block-chunk-data';
 import { feedTerrainCollision, preloadTerrainTiles } from './terrain-tiles';
 import { PageScatterBlobs } from './scatter-blobs';
@@ -314,7 +314,7 @@ function referencedModelAssetIds(snapshot: RuntimeSnapshot): Set<string> {
 /** The adapter's row of one model (id, version, digest; tint, material map, clips' rig). */
 function modelRowOf(r: { assetId: string; version: number; sourceDigest: string }): SceneAdapterModels['assets'][number] {
   const x = r as { vertexColors?: unknown; materials?: unknown; clipsFor?: unknown; textures?: unknown; lod?: unknown; occluder?: unknown };
-  return { assetId: r.assetId, version: r.version, sourceDigest: r.sourceDigest, ...(isStoredVertexColors(x.vertexColors) ? { vertexColors: x.vertexColors } : {}), ...(x.materials !== undefined ? { materials: x.materials as Record<string, string> } : {}), ...(typeof x.clipsFor === 'string' ? { clipsFor: x.clipsFor } : {}), ...(x.textures !== undefined ? { textures: x.textures as Record<string, string> } : {}), ...(typeof x.lod === 'object' && x.lod !== null ? { lod: x.lod as ModelLodSettings } : {}), ...(x.occluder === 'occ' || x.occluder === 'none' ? { occluder: x.occluder } : {}) };
+  return { assetId: r.assetId, version: r.version, sourceDigest: r.sourceDigest, ...(isStoredVertexColors(x.vertexColors) ? { vertexColors: x.vertexColors } : {}), ...(x.materials !== undefined ? { materials: x.materials as Record<string, string> } : {}), ...(typeof x.clipsFor === 'string' ? { clipsFor: x.clipsFor } : {}), ...(x.textures !== undefined ? { textures: x.textures as Record<string, string> } : {}), ...(typeof x.lod === 'object' && x.lod !== null ? { lod: x.lod as ModelLodSettings } : {}), ...(x.occluder === 'occ' || x.occluder === 'none' ? { occluder: x.occluder } : {}), ...(modelBricksOf(r as Parameters<typeof modelBricksOf>[0]) !== null ? { bricks: true } : {}) };
 }
 
 /**
@@ -357,6 +357,11 @@ function buildModelsBlock(manifest: GamePageManifest, snapshot: RuntimeSnapshot,
     // Read (once, checked) when the model is first needed — at start for the start scenes' models.
     resolveBytes: (assetId: string, version: number): Promise<ArrayBuffer> => reader.bytes(assetId, version),
     ...(manifest.buffers !== undefined ? { resolveBuffer: bufferResolver(manifest.buffers, { read, sha256Hex }) } : {}),
+    // A static model's distance-field file (bricks and surfels), checked like its bytes.
+    resolveBricks: (assetId: string, version: number): Promise<Uint8Array> => {
+      const row = manifest.assets.find((a) => a.assetId === assetId && a.version === version) ?? content.catalog.row(assetId);
+      return row === undefined ? Promise.reject(new Error(`${assetId} is not a model of this build`)) : reader.bricks(row as Parameters<typeof reader.bricks>[0]);
+    },
   };
 }
 

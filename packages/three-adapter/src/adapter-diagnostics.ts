@@ -60,6 +60,9 @@ export function adapterDiagnostics(p: AdapterParts, frame: AdapterFrame): SceneA
   if (!disposed) d.quality = { ...p.qualityControl.diagnostics(), ...(lit.shadowMapSize !== undefined ? { keyShadowMapSize: lit.shadowMapSize } : {}) };
   const probeState = disposed ? null : p.probes.observe();
   if (probeState !== null) d.probes = probeState;
+  // The surface cache once the loaded scene has a static surface for it.
+  const cache = p.surfaceCache !== null && !disposed ? p.surfaceCache.diagnostics() : null;
+  if (cache !== null && (cache.tiles.offered > 0 || cache.ringBytes > 0 || cache.preparing > 0 || cache.reading > 0)) d.surfaceCache = cache;
   if (p.opts.textureStreamer !== undefined && !disposed) d.textures = p.opts.textureStreamer.observe();
   decalDiagnostics(p, d);
   const painted = disposed ? null : vertexPaintDiagnostics(p.scene);

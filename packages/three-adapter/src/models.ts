@@ -109,6 +109,8 @@ export interface SceneAdapterModelAsset {
   readonly lod?: ModelLodSettings;
   /** What of it counts as an occluder (absent: auto; project-model `model-occluders.ts`). */
   readonly occluder?: ModelOccluderMode;
+  /** The row names a distance-field file (bricks and surfels: placed static, the lighting knows its shape). */
+  readonly bricks?: boolean;
 }
 
 /** One committed `modelAnimation` entity mapping. */
@@ -139,6 +141,8 @@ export interface SceneAdapterModels {
    * wrapper-verified bytes (`count × 40`). Absent: instance sets stay empty.
    */
   readonly resolveBuffer?: (digest: string) => Promise<ArrayBuffer>;
+  /** Resolves a model row's distance-field file (bricks and surfels; the row says `bricks`). Absent: none is read. */
+  readonly resolveBricks?: (assetId: string, version: number) => Promise<Uint8Array>;
   /** The idle/run/airborne blend time (the project's `animation_crossfade_s`; absent: 0.2 s). */
   readonly crossfadeSeconds?: number;
   /** The project's instance-set chunk size (m, `instance_chunk_m`; absent: INSTANCE_CHUNK_METERS). */

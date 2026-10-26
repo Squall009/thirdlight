@@ -6,11 +6,12 @@
  * to texels, and the atlas checked texel by texel.
  */
 import { describe, expect, it } from 'vitest';
-import { BlockGrid, TerrainField, buildDistanceBrickSet, type ArchitectureComponent, type BlockType, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
+import { BlockGrid, TerrainField, buildDistanceBrickSet, encodeDistanceBricks, type ArchitectureComponent, type BlockType, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
 
 import { SURFACE_PAGE_BYTES, SURFACE_PAGE_TEXELS, PageAtlas, packTile, type SurfaceChart } from './surface-cache-atlas';
 import { blockChunkCharts } from './surface-cache-blocks';
 import { SurfaceCache, surfaceLevelFor, type SurfaceTexel, type SurfaceTile } from './surface-cache';
+import { SurfaceCacheHost, SURFACE_PREPARE_MS } from './surface-cache-host';
 import { SurfaceScene, type SurfaceSceneInput } from './surface-cache-scene';
 import { TERRAIN_RING_BYTES } from './surface-cache-terrain';
 import { traceRayCpu, sceneView, type V3 } from './tracer-cpu';
@@ -326,5 +327,62 @@ describe('surface cache: residency within the budget', () => {
     // A tile larger than a page spreads over whole pages.
     const big = packTile(Array.from({ length: 30 }, () => ({ kind: 'area' as const, w: 9, h: 9 })), 0);
     expect(big.blocks.filter((b) => b === SURFACE_PAGE_TEXELS).length).toBeGreaterThan(1);
+  });
+});
+
+describe('surface cache on the page', () => {
+  it('offers the loaded scene as its charts are made, a little each frame, and reads static models\' files', async () => {
+    const { grid, origin } = blockRoom();
+    const big = new BlockGrid({ cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [96, 4, 96] } });
+    for (let x = 0; x < 96; x += 1) for (let z = 0; z < 96; z += 1) for (let y = 0; y < 1 + ((x * 7 + z * 13) % 3); y += 1) big.set(x, y, z, { block: 'rock' });
+    const file = encodeDistanceBricks({ sets: [buildDistanceBrickSet('', [crate(false)])!] });
+    let reads = 0;
+    const world = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 5, 1, 5, 1];
+    const host = new SurfaceCacheHost(
+      {
+        layers: () => [
+          { id: 'room', origin, grid, version: 1, chunks: [['0,0', 1], ['1,0', 1]], opaque: OPAQUE },
+          { id: 'town', origin: [0, 0, 40], grid: big, version: 1, chunks: Array.from({ length: 36 }, (_, i) => [`${i % 6},${Math.floor(i / 6)}`, 1] as const), opaque: OPAQUE },
+        ],
+        terrains: () => [{ id: 'land', field: terrainField() }],
+        architecture: () => [{ id: 'house', component: ROOM, origin: [0, 0.5, -16] }],
+        models: () => [{ id: 'crate', assetId: 'crate', version: 3, piece: null, world }, { id: 'crate-2', assetId: 'crate', version: 3, piece: null, world: world.map((v, i) => (i === 12 ? 9 : v)) }],
+        bricks: () => {
+          reads += 1;
+          return Promise.resolve(file);
+        },
+      },
+      64 * 1024 * 1024,
+    );
+    let frames = 0;
+    let worst = 0;
+    for (; frames < 400; frames += 1) {
+      host.update([4, 2, 4]);
+      await Promise.resolve();
+      const d = host.diagnostics();
+      worst = Math.max(worst, d.prepareMs);
+      if (frames > 2 && d.preparing === 0 && d.reading === 0 && d.tiles.resident === d.tiles.offered && d.tiles.offered > 0) {
+        host.touch();
+        host.update([4, 2, 4]);
+        if (host.diagnostics().tiles.offered === d.tiles.offered) break;
+      }
+    }
+    const d = host.diagnostics();
+    // Made over several frames, each within its share (one chart set may run past it).
+    expect(frames).toBeGreaterThan(1);
+    expect(worst).toBeLessThan(SURFACE_PREPARE_MS + 50);
+    // Two room chunks, the town's chunks with faces, the house and two crates.
+    expect(d.tiles.offered).toBe(2 + 36 + 1 + 2);
+    expect(d.tiles.resident).toBe(d.tiles.offered);
+    expect(d.usedBytes).toBeLessThanOrEqual(d.budgetBytes);
+    expect(d.rings['land']).toBe(3);
+    // One read per model file, however many objects place it.
+    expect(reads).toBe(1);
+    // A smaller budget holds less, never more than it.
+    host.setBudget(16 * 1024 * 1024);
+    host.update([4, 2, 4]);
+    const small = host.diagnostics();
+    expect(small.budgetBytes).toBe(16 * 1024 * 1024);
+    expect(small.usedBytes).toBeLessThanOrEqual(small.budgetBytes);
   });
 });

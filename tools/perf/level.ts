@@ -409,8 +409,8 @@ export const FLIGHT_SECONDS = 60;
 const FLIGHT_HEIGHT = 6;
 const FLIGHT_PITCH = 0.12;
 
-/** The flight's script, on the camera: its transform each step, scatter copies hidden, shown and removed on the way. */
-const flightBehavior = (radius: number, ops: boolean): BehaviorPlan => ({
+/** The flight's script, on the camera: its transform each step, scatter copies hidden, shown and removed on the way (the village flies it too). */
+export const flightBehavior = (radius: number, ops: boolean): BehaviorPlan => ({
   behaviorId: 'level-flight',
   displayName: 'Level flight',
   ownedTransforms: ['@self'],
