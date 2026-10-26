@@ -82,20 +82,12 @@ that phase plan's decision log, and move on. The owner reviews at the end.
 | 40 | `docs/plan-phase-40.md` | Ground cover at scale and wind (owner, 2026-10-21): GPU-driven cover on any surface, global wind with zones, bending from subjects; a 1 km² meadow at 60 Hz on the Iris Xe |
 | 41 | `docs/plan-phase-41.md` | One physics backend (owner, 2026-10-21): 2D as a switchable plane constraint, the 2D backend removed |
 | 42 | `docs/plan-phase-42.md` | Unified lighting (owner, 2026-10-22), on a branch after 41: one surface radiance cache for every static surface (direct light from every light kind with traced soft shadows, bounced light, emissive, a new `area` light), probes per room through portals, reflections from the same tracer, updates only where something changed, TAAU on an integrated GPU; the bake is the same system saved, drawn on WebGL 2
+| 43 | `docs/plan-phase-43.md` | Clustered forward lighting (owner, 2026-10-26), after 42: our own per-cluster light lists (points, spots, `area`), local-light shadows from one shadow atlas sized by a per-tier budget; lights reaching moving objects and pixel-rate highlights beside 42's surface cache; lifts the 16 per-pixel local lights (D204) |
 
 Future (owner, 2026-10-21), not planned yet:
-- **A lighting phase** after 41 (phase 42 covers most of it; which parts
-  it absorbs is an owner decision, `docs/plan-phase-42.md` §1):
-  - clustered (or tiled) forward lighting, so scenes are no longer limited to
-    16 local lights (D204);
-  - **adaptive probe placement** (owner, 2026-10-22), instead of an even 2 m
-    grid: probes dense near geometry and sparse in open space (bricks
-    subdivided by geometry, Unity APV-style), with invalid probes moved or
-    dropped;
-  - **light modes in probes** (owner, 2026-10-22), like Unity: a *baked*
-    light puts its direct and bounced light into the probes, so moving
-    objects are lit by it; a *mixed* light puts only its bounce there (direct
-    stays realtime); a *realtime* light puts nothing there.
+- **A lighting phase** after 41: absorbed. Phase 42 took light modes in
+  probes, area lights and adaptive probe placement (42.9b, owner
+  2026-10-26); clustered lighting is phase 43.
 - **The owner's own dogfood pass**: building a small game from the docs alone
   (deferred from 31.8).
 - **One walk graph for block layers and terrain** (owner, 2026-10-22): the
