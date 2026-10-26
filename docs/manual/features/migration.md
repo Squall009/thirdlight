@@ -104,9 +104,9 @@ A former 3D project only loses the setting (one note).
 converted item per scene (`migratedFrom2D` in the scene file), and Problems
 shows them as one line per kind, naming the objects (scene in brackets,
 five names, then "and N more") and the field to check. They are logged
-once each time the backend runs, and again after an edit with what is
-left, until each item is saved in its new form: an edit that changes the named component (or deletes the object)
-clears that object's note, and `setScenePlane` on a scene (even to the same
+once each time the backend runs, and after an edit the line is replaced by
+one with what is left, until each item is saved in its new form: an edit that changes the named component (or deletes the object)
+clears that object's note (for an area on a turned object, turning it does too), and `setScenePlane` on a scene (even to the same
 plane: that confirms it) clears its plane line. An undo does not bring a
 note back.
 
@@ -125,6 +125,19 @@ note back.
 | box triggers and switches test the capsule | `trigger.size` / `switch.size`: a corner is reached up to 9 cm later at the default radius (2D tested the capsule's bounding box) |
 | areas on turned objects turn with them | `transform.rotation` of triggers, switches, hitboxes and collectibles (2D kept them axis-aligned) |
 | mover and patrol waypoints with a z part | `mover.waypoints`, `patrol.waypoints` / `patrol.direction`: a z offset now moves the collision in depth too, unless the body is on the plane |
+| terrain, spline surfaces, generated architecture, block layers' scatter copies collide now | see below |
+| model colliders are their `_COL` parts in 3D | `collider.shape` and the object's depth: 2D flattened the parts onto the plane, so a part off the plane no longer reaches it |
+
+**Scenery collides now.** The 2D backend never collided with terrain, spline
+surfaces, generated architecture or scatter copies; the one backend does, so
+in a side view anything of theirs that crosses the play plane is solid
+there (background hills or a house behind the level, if they reach z = 0).
+Each kind gets its own Problems line naming the objects. Where a game wants
+the old behaviour, make it scenery only: `terrain.collision: false` (and
+`collide` off on its scatter rules), `spline.mesh.collision: false`,
+`collide: false` on architecture elements (or the style's collide setting
+for rooms and buildings), `collide` off on a block layer's scatter rules.
+Editing the component clears its line.
 
 **Behaviour within stated tolerances.** The arcade profile on a plane was
 measured against recorded traces of the 2D controller (jump apex and air

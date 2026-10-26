@@ -38,6 +38,11 @@ export const MIGRATED_2D_KINDS = [
   'collectible:turned-area',
   'mover:depth-motion',
   'patrol:depth-motion',
+  'terrain:collides',
+  'spline:collides',
+  'architecture:collides',
+  'blockLayer:scatter-collides',
+  'collider:model-parts',
 ] as const;
 export type Migrated2DKind = (typeof MIGRATED_2D_KINDS)[number];
 
@@ -52,6 +57,13 @@ export const MIGRATED_2D_PROBLEM = 'migrated_from_2d';
 
 /** The component a kind's note belongs to (its next edit clears the note). */
 export const migratedComponentOf = (kind: Migrated2DKind): string => kind.slice(0, kind.indexOf(':'));
+
+/**
+ * The field besides its component whose edit also settles a kind's note: a
+ * turned area's note asks for the rotation to be checked, so turning the
+ * object settles it too.
+ */
+const settledAlsoBy = (kind: Migrated2DKind): readonly [string, string] | null => (kind.endsWith(':turned-area') ? ['transform', 'rotation'] : null);
 
 const KINDS: ReadonlySet<string> = new Set(MIGRATED_2D_KINDS);
 
@@ -100,7 +112,7 @@ const sameJson = (a: unknown, b: unknown): boolean => a === b || JSON.stringify(
 /**
  * The scene after an edit, with the notes the edit settled taken off: an
  * object's note for a component whose value the edit changed (or that the
- * edit removed, with the object), and the plane note when the default plane
+ * edit removed, with the object, or a field `settledAlsoBy` names), and the plane note when the default plane
  * changed. The same scene when nothing was settled. Cost: the marked objects
  * only.
  */
@@ -127,7 +139,11 @@ export function withMigrationMarksCleared<S extends Sceneish>(before: Sceneish, 
         const c = migratedComponentOf(k);
         const ca = isPlainObject(a.components) ? a.components[c] : undefined;
         const cb = b !== undefined && isPlainObject(b.components) ? b.components[c] : undefined;
-        return ca !== undefined && sameJson(ca, cb);
+        if (ca === undefined || !sameJson(ca, cb)) return false;
+        const also = settledAlsoBy(k);
+        if (also === null) return true;
+        const field = (e: Entityish | undefined): unknown => (e !== undefined && isPlainObject(e.components) && isPlainObject(e.components[also[0]]) ? (e.components[also[0]] as Record<string, unknown>)[also[1]] : undefined);
+        return sameJson(field(a), field(b));
       });
       if (kept.length === kinds.length) continue;
       next ??= { ...objects };

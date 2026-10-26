@@ -8,8 +8,11 @@
  */
 import { describe, expect, it } from 'vitest';
 
+import { withMigrationMarksCleared } from './migrated-2d';
 import { migrated2DProblemLines, upgradeToPlanes } from './upgrade-planes';
+import { assembleSceneEntities, createPrefabAssembler } from './prefab-assembly';
 import { validateSceneV4 } from './scene-v3';
+import { linkPrefabCopies } from './upgrade-linked-copies';
 
 type Any = any;
 const T = (p: number[] = [0, 0, 0], rotation: number[] = [0, 0, 0, 1]): Any => ({ position: p, rotation, scale: [1, 1, 1] });
@@ -82,12 +85,46 @@ describe('upgradeToPlanes', () => {
     expect(r.notes[1]).toBe('2D box colliders became 3D boxes 1 m deep: 1 prefab part — check `collider.shape.hz` (half the depth): crate/root');
   });
 
-  it("a linked copy's collider and controller overrides take their 3D form too", () => {
-    const copy = ent('copy-1', { prefab: { prefabId: 'crate', overrides: [{ part: 'root', path: 'components/collider/shape', value: { type: 'box', hx: 2, hy: 1 } }, { part: 'root', path: 'components/box/size', value: [1, 1, 1] }] } });
-    const r = upgradeToPlanes(CONTENT, [scene('scene-main', [copy])]);
-    const link = (r.scenes[0] as Any).entities[0].components.prefab;
-    expect(link.overrides).toEqual([{ part: 'root', path: 'components/collider/shape', value: { type: 'box', hx: 2, hy: 1, hz: 0.5 } }, copy.components.prefab.overrides[1]]);
-    expect(r.notes.some((n) => n.startsWith('1 override of linked prefab copies'))).toBe(true);
+  it("a linked copy's body overrides, as the link step writes them (leaf paths, type changes), assemble to the copy's own 3D form", () => {
+    // Schema 7 copies are plain objects naming their prefab part; the link step diffs them into overrides.
+    const RAMP = [[0, 0], [4, 0], [4, 2]];
+    const prefabs = [
+      { prefabId: 'ramp', entities: [{ localId: 'root', components: { transform: T(), collider: { shape: { type: 'polygon', vertices: RAMP } } } }] },
+      { prefabId: 'crate', entities: [{ localId: 'root', components: { transform: T(), collider: { shape: { type: 'box', hx: 0.5, hy: 0.5 } } } }] },
+      { prefabId: 'hero', entities: [{ localId: 'root', components: { transform: T(), controller: { coyoteTime: 0.1 } } }] },
+    ];
+    const plain = (id: string, prefabId: string, components: Record<string, unknown>): Any => ({ id, components: { transform: T(), ...components, prefab: { prefabId, localId: 'root' } } });
+    const own: Record<string, Any> = {
+      'steep-1': { collider: { shape: { type: 'polygon', vertices: [[0, 0], [2, 0], [2, 3]] } } },
+      'boxed-1': { collider: { shape: { type: 'box', hx: 1, hy: 2 } } },
+      'deep-1': { collider: { shape: { type: 'polygon', vertices: RAMP }, depth: 3 } },
+      'wedge-1': { collider: { shape: { type: 'polygon', vertices: RAMP } } },
+      'hero-1': { controller: { coyoteTime: 0.2 } },
+    };
+    const prefabOf: Record<string, string> = { 'steep-1': 'ramp', 'boxed-1': 'ramp', 'deep-1': 'ramp', 'wedge-1': 'crate', 'hero-1': 'hero' };
+    const level = scene('scene-main', Object.keys(own).map((id) => plain(id, prefabOf[id]!, own[id])));
+    const linked = linkPrefabCopies({ settings: {}, prefabs }, [level]);
+    const linkedOverrides = (linked.scenes[0] as Any).entities.map((e: Any) => e.components.prefab.overrides);
+    // The real diff: leaf paths and whole shapes where the type changed, never what the 3D form needs.
+    expect(linkedOverrides[0].map((o: Any) => o.path)).toEqual(['components/collider/shape/vertices']);
+    expect(linkedOverrides[2].map((o: Any) => o.path)).toEqual(['components/collider/depth']);
+    const r = upgradeToPlanes(linked.content, linked.scenes);
+    // Each copy assembles to what the same 2D object converts to on its own, and the assembled scene validates.
+    const alone = upgradeToPlanes({ settings: {} }, [scene('scene-alone', Object.entries(own).map(([id, c]) => ent(id, c)))]).scenes[0] as Any;
+    const assembled = assembleSceneEntities((r.scenes[0] as Any).entities, createPrefabAssembler((r.content as Any).prefabs));
+    expect(assembled.problems).toEqual([]);
+    for (const id of Object.keys(own)) {
+      const got = assembled.entities.find((e) => e.id === id)!.components as Any;
+      const want = alone.entities.find((e: Any) => e.id === id).components;
+      if (want.collider !== undefined) expect({ id, shape: got.collider.shape, depth: got.collider.depth }).toEqual({ id, shape: want.collider.shape, depth: undefined });
+      if (want.controller !== undefined) expect(got.controller).toEqual({ ...want.controller, plane: { axis: 'z', origin: 0 } });
+    }
+    const v = validateSceneV4({ ...(r.scenes[0] as Any), entities: assembled.entities });
+    expect(v.ok, JSON.stringify(!v.ok && v.errors.slice(0, 3))).toBe(true);
+    const n = r.notes.find((x) => x.includes('override'));
+    expect(n).toMatch(/^\d+ overrides of linked prefab copies \(a collider or controller field\) took the 3D form too$/);
+    // Running again converts nothing more.
+    expect(upgradeToPlanes(r.content, r.scenes).scenes).toEqual(r.scenes);
   });
 
   it('a scene that has a default plane keeps it; running on its own output converts nothing more', () => {
@@ -98,6 +135,41 @@ describe('upgradeToPlanes', () => {
     const again = upgradeToPlanes(r.content, r.scenes);
     const sc = again.scenes[0] as Any;
     expect(sc.entities).toEqual((r.scenes[0] as Any).entities);
+  });
+  it('scenery the 2D backend never collided with is noted, with the field that makes it scenery only', () => {
+    const r = upgradeToPlanes(CONTENT, [scene('scene-scenery', [
+      ent('hills-1', { terrain: { heightRange: [0, 10], tiles: [] } }),
+      ent('hills-off', { terrain: { heightRange: [0, 10], tiles: [], collision: false } }),
+      ent('road-1', { spline: { points: [[0, 0, 0], [5, 0, 0]], mesh: {} } }),
+      ent('river-1', { spline: { points: [[0, 0, 0], [5, 0, 0]], mesh: { kind: 'water' } } }),
+      ent('house-1', { architecture: { elements: [{ id: 'wall', kind: 'sweep' }] } }),
+      ent('trim-1', { architecture: { elements: [{ id: 'moulding', kind: 'sweep', detail: true }] } }),
+      ent('rocks-1', { blockLayer: { cellSize: [1, 1, 1], scatter: [{ id: 'rocks', collide: true }] } }),
+      ent('statue-1', { model: { asset: { assetId: 'statue' } }, collider: { shape: { type: 'model' } } }),
+    ])]);
+    expect((r.scenes[0] as Any).migratedFrom2D.objects).toEqual({
+      'hills-1': ['terrain:collides'],
+      'road-1': ['spline:collides'],
+      'house-1': ['architecture:collides'],
+      'rocks-1': ['blockLayer:scatter-collides'],
+      'statue-1': ['collider:model-parts'],
+    });
+    const lines = migrated2DProblemLines(r.scenes);
+    expect(lines).toContain('terrain collides now (the 2D backend never did): tiles that cross the play plane are solid there: 1 object — check `terrain.collision` (false: scenery only) and its scatter rules\' `collide`: hills-1 (scene-scenery)');
+    expect(lines.some((l) => l.startsWith('spline surfaces collide now') && l.includes('`spline.mesh.collision`'))).toBe(true);
+    expect(lines.some((l) => l.startsWith('generated architecture collides now') && l.endsWith('house-1 (scene-scenery)'))).toBe(true);
+  });
+
+  it("a turned area's note goes when the object is turned (the field it asks to check), not only when its component is saved", () => {
+    const r = upgradeToPlanes(CONTENT, [scene('scene-t', [ent('check-1', { trigger: { size: [1.2, 2.4, 1.2], signal: 'reached' } }, TURNED)])]);
+    const before = r.scenes[0] as Any;
+    expect(before.migratedFrom2D.objects['check-1']).toContain('trigger:turned-area');
+    const turned = { ...before, entities: [{ ...before.entities[0], components: { ...before.entities[0].components, transform: T([0, 0, 0], [0, 0, 0, 1]) } }] };
+    const settled = withMigrationMarksCleared(before, turned) as Any;
+    expect(settled.migratedFrom2D?.objects?.['check-1'] ?? []).not.toContain('trigger:turned-area');
+    // Moving it does not settle the rotation note.
+    const moved = { ...before, entities: [{ ...before.entities[0], components: { ...before.entities[0].components, transform: T([1, 0, 0], TURNED) } }] };
+    expect((withMigrationMarksCleared(before, moved) as Any).migratedFrom2D.objects['check-1']).toContain('trigger:turned-area');
   });
 });
 

@@ -31,6 +31,8 @@ import type { PlaneLock } from './plane-lock';
 import { colliderDepthOf, DEFAULT_COLLIDER_DEPTH, hasTwoDShape, shape2DTo3D, type Shape3DChange } from './shape-2d-3d';
 import { MIGRATED_2D_KINDS, type Migrated2DKind, type Migrated2DMarks } from './migrated-2d';
 import { namedList } from './upgrade-linked-copies';
+import { createPrefabAssembler } from './prefab-assembly';
+import { assemblyPrefabs, linkBodyOverrides3D, prefabLinksConverted } from './upgrade-plane-overrides';
 import { isPlainObject } from './validate';
 
 type Obj = Record<string, unknown>;
@@ -72,6 +74,33 @@ function controllerArcade(controller: unknown, kinds: Migrated2DKind[]): Obj | n
   return { ...controller, profile: 'arcade' };
 }
 
+const rules = (v: unknown): Obj[] => (Array.isArray(v) ? v.filter(isPlainObject) : []);
+const scatterCollides = (c: Obj): boolean => rules(c['scatter']).some((r) => r['collide'] === true);
+
+/**
+ * The scenery an object holds that the 2D backend never collided with and the
+ * one backend does (terrain tiles, spline surfaces, generated architecture,
+ * scatter copies), and model colliders, which 2D flattened onto the plane.
+ */
+function sceneryKinds(components: Obj): Migrated2DKind[] {
+  const kinds: Migrated2DKind[] = [];
+  const terrain = components['terrain'];
+  if (isPlainObject(terrain) && (terrain['collision'] !== false || scatterCollides(terrain))) kinds.push('terrain:collides');
+  const spline = components['spline'];
+  const mesh = isPlainObject(spline) ? spline['mesh'] : undefined;
+  if (isPlainObject(mesh) && (mesh['collision'] === true || (mesh['collision'] === undefined && (mesh['kind'] ?? 'surface') === 'surface'))) kinds.push('spline:collides');
+  const arch = components['architecture'];
+  if (isPlainObject(arch)) {
+    const elementCollides = rules(arch['elements']).some((e) => (e['collide'] ?? (e['detail'] !== true)) === true);
+    if (elementCollides || rules(arch['outlines']).length > 0 || rules(arch['buildings']).length > 0 || scatterCollides(arch)) kinds.push('architecture:collides');
+  }
+  const layer = components['blockLayer'];
+  if (isPlainObject(layer) && scatterCollides(layer)) kinds.push('blockLayer:scatter-collides');
+  const collider = components['collider'];
+  if (isPlainObject(collider) && isPlainObject(collider['shape']) && collider['shape']['type'] === 'model') kinds.push('collider:model-parts');
+  return kinds;
+}
+
 /**
  * One object's components converted (null: unchanged) and its notes, in a
  * fixed order. A prefab's part (`ownPlane`) is in no scene, so its collider
@@ -91,6 +120,7 @@ function convertComponents(components: unknown, ownPlane = false): { components:
   if (ctlPlaned !== null && ctlPlaned !== ctlIn) next = { ...(next ?? components), controller: ctlPlaned };
   const layer = components['blockLayer'];
   if (isPlainObject(layer) && layer['planeZ'] !== undefined) kinds.push('blockLayer:plane-cut');
+  for (const k of sceneryKinds(components)) kinds.push(k);
   for (const n of blocks2DTo3D(components)) {
     const kind = `${n.component}:${n.kind}`;
     if (KIND_SET.has(kind) && !kinds.includes(kind as Migrated2DKind)) kinds.push(kind as Migrated2DKind);
@@ -98,27 +128,8 @@ function convertComponents(components: unknown, ownPlane = false): { components:
   return { components: next, kinds };
 }
 
-/** A linked copy's overrides with their 2D colliders and controllers converted (null: none changed). */
-function convertOverrides(link: unknown): { link: Obj | null; count: number } {
-  if (!isPlainObject(link) || !Array.isArray(link['overrides'])) return { link: null, count: 0 };
-  let count = 0;
-  const overrides = (link['overrides'] as unknown[]).map((o) => {
-    if (!isPlainObject(o) || !('value' in o)) return o;
-    const kinds: Migrated2DKind[] = [];
-    let value: Obj | null = null;
-    if (o['path'] === 'components/collider') value = collider3D(o['value'], kinds);
-    else if (o['path'] === 'components/collider/shape') {
-      const v = collider3D({ shape: o['value'] }, kinds);
-      if (v === null) return o;
-      count++;
-      return { ...o, value: v['shape'] };
-    } else if (o['path'] === 'components/controller') value = controllerArcade(o['value'], kinds);
-    if (value === null) return o;
-    count++;
-    return { ...o, value };
-  });
-  return count === 0 ? { link: null, count } : { link: { ...link, overrides }, count };
-}
+/** A part's components as a prefab's are converted (the copy's side of a body override diff). */
+const partBody3D = (components: Obj): Obj => convertComponents(components, true).components ?? components;
 
 export interface PlanesStepResult {
   content: unknown;
@@ -143,14 +154,43 @@ export function upgradeToPlanes(contentIn: unknown, scenesIn: readonly unknown[]
     return hadSetting ? { content, scenes: [...scenesIn], changed: true, notes: [`the project setting ${RETIRED_DIMENSION_SETTING} (3D) was retired: every project runs on the one 3D physics backend, and 2D is a plane a body or a scene is locked to`] } : unchanged;
   }
 
-  let overrides = 0;
+  // Prefabs first (the overrides of copies are diffed against their converted form), listed once in the notes.
+  const prefabsIn = Array.isArray(content['prefabs']) ? (content['prefabs'] as unknown[]) : [];
+  const before = createPrefabAssembler(assemblyPrefabs(prefabsIn));
+  const prefabNotes = new Map<Migrated2DKind, string[]>();
+  let prefabsChanged = false;
+  const prefabs3D = prefabsIn.map((p) => {
+    if (!isPlainObject(p) || !Array.isArray(p['entities'])) return p;
+    let changed = false;
+    const entities = (p['entities'] as unknown[]).map((e) => {
+      if (!isPlainObject(e)) return e;
+      const r = convertComponents(e['components'], true);
+      for (const k of r.kinds) {
+        const names = prefabNotes.get(k) ?? [];
+        const name = `${String(p['prefabId'])}/${String(e['localId'])}`;
+        if (!names.includes(name)) names.push(name);
+        prefabNotes.set(k, names);
+      }
+      if (r.components === null) return e;
+      changed = true;
+      return { ...e, components: r.components };
+    });
+    if (!changed) return p;
+    prefabsChanged = true;
+    return { ...p, entities };
+  });
+  const nested = prefabLinksConverted(prefabs3D, before, partBody3D);
+  let overrides = nested.count;
+  if (prefabsChanged || nested.changed) content = { ...content, prefabs: nested.prefabs };
+  const after = createPrefabAssembler(assemblyPrefabs(nested.prefabs));
+
   const scenes = scenesIn.map((sceneIn) => {
     if (!isPlainObject(sceneIn) || !Array.isArray(sceneIn['entities'])) return sceneIn;
     const objects: Record<string, Migrated2DKind[]> = {};
     const entities = (sceneIn['entities'] as unknown[]).map((e) => {
       if (!isPlainObject(e)) return e;
       const comps = e['components'];
-      const link = isPlainObject(comps) ? convertOverrides(comps['prefab']) : { link: null, count: 0 };
+      const link = isPlainObject(comps) ? linkBodyOverrides3D(comps['prefab'], before, after, partBody3D) : { link: null, count: 0 };
       overrides += link.count;
       const r = convertComponents(comps);
       if (r.kinds.length > 0 && typeof e['id'] === 'string') objects[e['id']] = r.kinds;
@@ -166,41 +206,11 @@ export function upgradeToPlanes(contentIn: unknown, scenesIn: readonly unknown[]
     };
   });
 
-  // Prefabs (and the overrides of linked copies, counted with them): converted, listed once in the notes.
-  const prefabNotes = new Map<Migrated2DKind, string[]>();
-  if (Array.isArray(content['prefabs'])) {
-    let prefabsChanged = false;
-    const prefabs = (content['prefabs'] as unknown[]).map((p) => {
-      if (!isPlainObject(p) || !Array.isArray(p['entities'])) return p;
-      let changed = false;
-      const entities = (p['entities'] as unknown[]).map((e) => {
-        if (!isPlainObject(e)) return e;
-        const comps = e['components'];
-        const link = isPlainObject(comps) ? convertOverrides(comps['prefab']) : { link: null, count: 0 };
-        overrides += link.count;
-        const r = convertComponents(comps, true);
-        for (const k of r.kinds) {
-          const names = prefabNotes.get(k) ?? [];
-          const name = `${String(p['prefabId'])}/${String(e['localId'])}`;
-          if (!names.includes(name)) names.push(name);
-          prefabNotes.set(k, names);
-        }
-        if (r.components === null && link.link === null) return e;
-        changed = true;
-        return { ...e, components: { ...(r.components ?? (comps as Obj)), ...(link.link !== null ? { prefab: link.link } : {}) } };
-      });
-      if (!changed) return p;
-      prefabsChanged = true;
-      return { ...p, entities };
-    });
-    if (prefabsChanged) content = { ...content, prefabs };
-  }
-
   const sceneCount = scenes.filter((s) => isPlainObject(s) && isPlainObject(s['migratedFrom2D']) && (s['migratedFrom2D'] as Obj)['plane'] === true).length;
   const notes = [
     `a 2D project (${RETIRED_DIMENSION_SETTING} retired) moved to the one 3D physics backend: ${sceneCount} scene${sceneCount === 1 ? '' : 's'} got a default plane (Z at 0), 2D colliders ${DEFAULT_COLLIDER_DEPTH} m deep, controllers the arcade profile; recorded digests change once`,
     ...[...prefabNotes].map(([kind, names]) => `${MIGRATED_2D_TEXT[kind].what}: ${names.length} prefab part${names.length === 1 ? '' : 's'} — check ${MIGRATED_2D_TEXT[kind].check}: ${namedList(names)}`),
-    ...(overrides > 0 ? [`${overrides} override${overrides === 1 ? '' : 's'} of linked prefab copies (a collider or controller) took the 3D form too`] : []),
+    ...(overrides > 0 ? [`${overrides} override${overrides === 1 ? '' : 's'} of linked prefab copies (a collider or controller field) took the 3D form too`] : []),
   ];
   return { content, scenes, changed: true, notes };
 }
@@ -230,6 +240,11 @@ export const MIGRATED_2D_TEXT: Readonly<Record<Migrated2DKind, { readonly what: 
   'collectible:turned-area': { what: 'collectible areas on turned objects turn with them (2D kept them axis-aligned)', check: '`transform.rotation`' },
   'mover:depth-motion': { what: 'mover waypoints with a z offset move the collision in depth too', check: '`mover.waypoints`' },
   'patrol:depth-motion': { what: 'patrols with a z part move in depth too', check: '`patrol.waypoints` / `patrol.direction`' },
+  'terrain:collides': { what: 'terrain collides now (the 2D backend never did): tiles that cross the play plane are solid there', check: '`terrain.collision` (false: scenery only) and its scatter rules\' `collide`' },
+  'spline:collides': { what: 'spline surfaces collide now (the 2D backend never did)', check: '`spline.mesh.collision` (false: scenery only)' },
+  'architecture:collides': { what: 'generated architecture collides now (the 2D backend never did)', check: 'the elements\' `collide` (false: scenery only)' },
+  'blockLayer:scatter-collides': { what: 'block layers\' scatter copies collide now (the 2D backend never did)', check: 'the scatter rules\' `collide` (false: scenery only)' },
+  'collider:model-parts': { what: 'model colliders are their model\'s `_COL` parts in 3D (2D flattened them onto the plane): parts off the plane no longer reach it', check: '`collider.shape` and the object\'s depth' },
 });
 
 /**
