@@ -687,7 +687,8 @@ export const SETTLED_PRECOMPILE: Precompile = {
 
 /**
  * `renderer.compileAsync(scene, camera)` for a pass that draws
- * into `target` with `mrt`. compileAsync collects the objects synchronously
+ * into `target` with `mrt`, every object of the scene in or out of the
+ * camera's view. compileAsync collects the objects synchronously
  * but builds each one's nodes and pipeline later, one per yield to the main
  * thread, and a material reads its outputs from the renderer's MRT at that
  * build: the target and outputs stay the pass's until the compile settles
@@ -714,6 +715,15 @@ export function compileIntoTarget(renderer: WebGPURenderer, scene: THREE.Scene, 
   };
   r.setRenderTarget(target);
   r.setMRT(mrt);
+  // The whole scene, not only what the camera frames now (compileAsync culls to its frustum while it
+  // collects): a material first framed later — a camera turned to a side view, a mover come into view —
+  // would build its pipeline in the frame that first draws it.
+  const framed: THREE.Object3D[] = [];
+  scene.traverse((o) => {
+    if (!o.frustumCulled) return;
+    o.frustumCulled = false;
+    framed.push(o);
+  });
   let job: Promise<void>;
   try {
     job = r.compileAsync(scene, camera, null, () => {
@@ -722,6 +732,8 @@ export function compileIntoTarget(renderer: WebGPURenderer, scene: THREE.Scene, 
   } catch (e) {
     release();
     throw e;
+  } finally {
+    for (const o of framed) o.frustumCulled = true;
   }
   return {
     done: job.finally(release),
