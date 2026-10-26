@@ -80,49 +80,61 @@ export interface PackedProbeTile {
 export function packProbeTile(grid: Pick<ProbeGridRecord, 'resolution'>, samples: Uint16Array, validity: Float32Array): PackedProbeTile {
   const [nx, ny, nz] = grid.resolution as [number, number, number];
   const fileWidth = probeArtifactSize(nx * ny * nz).width;
-  const pad = PROBE_ATLAS_PADDING;
-  const padded = nz + 2 * pad;
-  const depth = PROBE_GPU_TEXELS * padded;
-  const plane = nx * ny * 4;
-  const data = new Uint16Array(plane * depth);
-  const toHalf = THREE.DataUtils.toHalfFloat;
-  const fromHalf = THREE.DataUtils.fromHalfFloat;
+  const packed = emptyPackedProbeTile(grid.resolution);
   for (let iz = 0; iz < nz; iz++) {
     for (let iy = 0; iy < ny; iy++) {
       for (let ix = 0; ix < nx; ix++) {
         const p = ix + iy * nx + iz * nx * ny;
-        const w = probeWeight(validity[p]!);
         const base = (Math.floor(p / PROBE_ARTIFACT_ROW_PROBES) * fileWidth + (p % PROBE_ARTIFACT_ROW_PROBES) * PROBE_TEXELS) * 4;
-        const half = toHalf(w);
-        const xy = (iy * nx + ix) * 4;
-        for (let r = 0; r < PACKED.length; r++) {
-          const texel = PACKED[r]!;
-          const weighted = r < PACKED_LIGHT_TEXELS && w !== 1;
-          const o = (r * padded + pad + iz) * plane + xy;
-          for (let ch = 0; ch < 4; ch++) {
-            const src = texel[ch];
-            if (src === null || src === undefined) continue;
-            if (src === 'w') {
-              data[o + ch] = half;
-              continue;
-            }
-            const raw = samples[base + src]!;
-            data[o + ch] = weighted ? toHalf(fromHalf(raw) * w) : raw;
-          }
-        }
+        writePackedProbe(packed, ix, iy, iz, nz, probeWeight(validity[p]!), (src) => samples[base + src]!);
       }
     }
   }
-  // The padding slices copy each sub-volume's edge slices.
+  return packed;
+}
+
+/** A tile's GPU layout, all zero (`writePackedProbe` fills it a probe at a time). */
+export function emptyPackedProbeTile(resolution: readonly number[]): PackedProbeTile {
+  const [nx, ny, nz] = resolution as [number, number, number];
+  const depth = PROBE_GPU_TEXELS * (nz + 2 * PROBE_ATLAS_PADDING);
+  return { data: new Uint16Array(nx * ny * 4 * depth), nx, ny, depth };
+}
+
+/**
+ * Write one probe (at ix, iy, iz of a tile `nz` deep) into its tile's GPU
+ * layout: `half(src)` gives the file's value `src` of the probe as a half
+ * float (its 28 light values, then its 8 wall values), `w` its weight. A
+ * probe on the first or last z slice fills the padding slices next to it.
+ */
+export function writePackedProbe(packed: PackedProbeTile, ix: number, iy: number, iz: number, nz: number, w: number, half: (src: number) => number): void {
+  const { data, nx, ny } = packed;
+  const pad = PROBE_ATLAS_PADDING;
+  const padded = nz + 2 * pad;
+  const plane = nx * ny * 4;
+  const toHalf = THREE.DataUtils.toHalfFloat;
+  const fromHalf = THREE.DataUtils.fromHalfFloat;
+  const wHalf = toHalf(w);
+  const xy = (iy * nx + ix) * 4;
   for (let r = 0; r < PACKED.length; r++) {
-    const first = r * padded + pad;
-    const last = first + nz - 1;
+    const texel = PACKED[r]!;
+    const weighted = r < PACKED_LIGHT_TEXELS && w !== 1;
+    const o = (r * padded + pad + iz) * plane + xy;
+    for (let ch = 0; ch < 4; ch++) {
+      const src = texel[ch];
+      if (src === null || src === undefined) continue;
+      if (src === 'w') {
+        data[o + ch] = wHalf;
+        continue;
+      }
+      const raw = half(src);
+      data[o + ch] = weighted ? toHalf(fromHalf(raw) * w) : raw;
+    }
+    // The padding slices copy the edge slices.
     for (let s = 0; s < pad; s++) {
-      data.copyWithin((r * padded + s) * plane, first * plane, (first + 1) * plane);
-      data.copyWithin((last + 1 + s) * plane, last * plane, (last + 1) * plane);
+      if (iz === 0) for (let ch = 0; ch < 4; ch++) data[(r * padded + s) * plane + xy + ch] = data[o + ch]!;
+      if (iz === nz - 1) for (let ch = 0; ch < 4; ch++) data[(r * padded + pad + nz + s) * plane + xy + ch] = data[o + ch]!;
     }
   }
-  return { data, nx, ny, depth };
 }
 
 /** Texels per tile in the tile table, and tiles per line of the table texture. */

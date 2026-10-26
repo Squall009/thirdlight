@@ -37,7 +37,7 @@
  *
  * Pure (no three.js, no device).
  */
-import { PROBE_FILLED, PROBE_VALID, PROBE_VALIDITY_THRESHOLD, ROOM_PROBE_INSET, placeProbeGrids, type ProbeGridBox } from '@thirdlight/runtime';
+import { PROBE_VALIDITY_THRESHOLD, ROOM_PROBE_INSET, placeProbeGrids, type ProbeGridBox } from '@thirdlight/runtime';
 
 import { NO_ROOM, roomHoldsCpu, type SurfaceRooms } from './surface-rooms';
 
@@ -89,6 +89,12 @@ const PROBE_AGING_FRAMES = 30;
  * would take either cell by a rounding.
  */
 const PROBE_ORIGIN_NUDGE = [0.0013, 0.0017, 0.0011];
+
+/** A waiting probe's squared distance factor after `frames` frames: its distance halves every `PROBE_AGING_FRAMES` (looked up, not raised). */
+const AGING = Float32Array.from({ length: PROBE_AGING_FRAMES * 20 + 1 }, (_, f) => 0.25 ** (f / PROBE_AGING_FRAMES));
+function agingOf(frames: number): number {
+  return AGING[Math.min(AGING.length - 1, Math.max(0, frames))]!;
+}
 
 /** Index of the validity (back-face share) and the update count in a probe's record. */
 export const PROBE_VALIDITY_AT = 12;
@@ -270,7 +276,7 @@ export class LiveProbes {
   /** Scratch for `plan`: the stale probes' keys and indices. */
   private keys = new Float32Array(0);
   private order = new Uint32Array(0);
-  /** Grids whose probes changed since `takeChanged`. */
+  /** Probes whose records changed since `takeChangedProbes`. */
   private changed = new Set<number>();
 
   constructor(readonly spacing: number, private budgetMs: number) {}
@@ -336,7 +342,7 @@ export class LiveProbes {
       }
     }
     this.layout += 1;
-    this.changed = new Set(grids.map((_, k) => k));
+    this.changed = new Set();
     return true;
   }
 
@@ -378,11 +384,15 @@ export class LiveProbes {
       this.order = new Uint32Array(this.count);
     }
     const P = this.positions;
+    const [ex, ey, ez] = [eye[0]!, eye[1]!, eye[2]!];
     let n = 0;
+    // Squared distances, aged by the square of the halving (the order is the same; tens of thousands may wait).
     for (let i = 0; i < this.count; i += 1) {
       if (this.stale[i] === 0) continue;
-      const d = Math.hypot(P[i * 3]! - eye[0]!, P[i * 3 + 1]! - eye[1]!, P[i * 3 + 2]! - eye[2]!);
-      this.keys[n] = d / 2 ** ((this.frame - this.since[i]!) / PROBE_AGING_FRAMES);
+      const dx = P[i * 3]! - ex;
+      const dy = P[i * 3 + 1]! - ey;
+      const dz = P[i * 3 + 2]! - ez;
+      this.keys[n] = (dx * dx + dy * dy + dz * dz) * agingOf(this.frame - this.since[i]!);
       this.order[n] = i;
       n += 1;
     }
@@ -414,8 +424,7 @@ export class LiveProbes {
       const before = e0[0]! + e0[1]! + e0[2]!;
       const after = e1[0]! + e1[1]! + e1[2]!;
       const share = Math.abs(after - before) / Math.max(after, before, 1e-6);
-      const g = this.gridOf(i);
-      this.changed.add(g);
+      this.changed.add(i);
       this.marked[i]! += 1;
       const done = (share <= PROBE_SETTLE_SHARE && this.marked[i]! >= PROBE_MIN_UPDATES) || this.marked[i]! >= PROBE_MAX_UPDATES;
       if (had >= 1 && done && settledDirect) {
@@ -436,7 +445,8 @@ export class LiveProbes {
     }
   }
 
-  private gridOf(i: number): number {
+  /** The grid probe `i` is in (its index). */
+  gridOf(i: number): number {
     let lo = 0;
     let hi = this.grids.length - 1;
     while (lo < hi) {
@@ -456,30 +466,43 @@ export class LiveProbes {
     this.perUpdate = Math.min(4096, Math.max(64, Math.floor(this.budgetMs / Math.max(this.msPerProbe, 1e-9) / 64) * 64));
   }
 
-  /** The grids whose probes changed since the last call (their tiles are drawn again). */
-  takeChanged(): number[] {
-    const out = [...this.changed].sort((a, b) => a - b);
+  /** The probes whose records changed since the last call (their tiles take them again). */
+  takeChangedProbes(): number[] {
+    const out = [...this.changed];
     this.changed.clear();
     return out;
   }
 
-  /** A grid's probes as the probe lighting draws them: 27 SH floats a probe (only the first band's 12 set), validity and walls. */
-  tileOf(gi: number): { grid: LiveProbeGrid; sh: Float32Array; validity: Float32Array; walls: Float32Array } {
-    const g = this.grids[gi]!;
-    const n = g.resolution[0] * g.resolution[1] * g.resolution[2];
-    const sh = new Float32Array(n * 27);
-    const validity = new Float32Array(n);
-    const along = new Float32Array(n * 6);
-    for (let k = 0; k < n; k += 1) {
-      const at = (g.first + k) * PROBE_FLOATS;
-      sh.set(this.state.subarray(at, at + 12), k * 27);
-      validity[k] = this.state[at + PROBE_UPDATES_AT]! < 1 || this.state[at + PROBE_VALIDITY_AT]! > PROBE_VALIDITY_THRESHOLD ? PROBE_FILLED : PROBE_VALID;
-      along.set(this.state.subarray(at + PROBE_AXES_AT, at + PROBE_AXES_AT + 6), k * 6);
+  /** Whether probe `i` counts in the probe lighting: updated, and not inside geometry. */
+  probeValid(i: number): boolean {
+    const at = i * PROBE_FLOATS;
+    return this.state[at + PROBE_UPDATES_AT]! >= 1 && this.state[at + PROBE_VALIDITY_AT]! <= PROBE_VALIDITY_THRESHOLD;
+  }
+
+  /**
+   * Probe `i`'s walls (`out`: per axis the cut flag and the cut's share of
+   * the edge to the next probe along it), as `edgeWalls` gives them from
+   * what its and that probe's axis rays saw; none in a room's grid (a room's
+   * probes see only their room).
+   */
+  probeWalls(i: number, out: number[]): number[] {
+    out.fill(0);
+    const g = this.grids[this.gridOf(i)]!;
+    if (g.room !== NO_ROOM) return out;
+    const n = g.resolution;
+    const l = i - g.first;
+    const at = [l % n[0], Math.floor(l / n[0]) % n[1], Math.floor(l / (n[0] * n[1]))];
+    const offset = [1, n[0], n[0] * n[1]];
+    for (let a = 0; a < 3; a += 1) {
+      if (at[a]! >= n[a]! - 1) continue;
+      const step = (g.max[a]! - g.min[a]!) / (n[a]! - 1);
+      const fromLo = this.state[i * PROBE_FLOATS + PROBE_AXES_AT + a * 2]!;
+      const fromHi = this.state[(i + offset[a]!) * PROBE_FLOATS + PROBE_AXES_AT + a * 2 + 1]!;
+      if (!(fromLo > 0 && fromLo < step && fromHi > 0 && fromHi < step)) continue;
+      out[a * 2] = 1;
+      out[a * 2 + 1] = (fromLo / step + (1 - fromHi / step)) / 2;
     }
-    const walls = new Float32Array(n * 6);
-    // A room's probes see only their room: no walls inside it.
-    if (g.room === NO_ROOM) edgeWalls(g, along, walls);
-    return { grid: g, sh, validity, walls };
+    return out;
   }
 
   /** The grids' table as the pass reads it (`GRID_WORDS` each). */
