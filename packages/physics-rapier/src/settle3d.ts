@@ -13,7 +13,7 @@
 import * as RAPIER from '@dimforge/rapier3d-compat';
 import type { PhysicsVec3 } from '@thirdlight/runtime';
 
-import { REST_SETTLE_TOLERANCE } from './constants';
+import { REST_SETTLE_TOLERANCE, SKIN_LIFT_MARGIN } from './constants';
 
 const IDENTITY = { x: 0, y: 0, z: 0, w: 1 };
 const DOWN = { x: 0, y: -1, z: 0 };
@@ -35,4 +35,17 @@ export function settleDrop(w: SettleWorld, capsule: RAPIER.Capsule, centre: Phys
   const hit = w.world.castShape(centre, IDENTITY, DOWN, capsule, skin, reach, false, undefined, undefined, undefined, undefined, w.sees);
   if (hit === null || !w.fixed(hit.collider)) return 0;
   return hit.time_of_impact > REST_SETTLE_TOLERANCE ? hit.time_of_impact : 0;
+}
+
+/**
+ * How far up a capsule centred at `centre` moves to stand `SKIN_LIFT_MARGIN`
+ * past its skin over the ground right under it (0: it stands farther off, or
+ * nothing is under it). Rapier's sweep stops a character standing at or inside
+ * its skin, within rounding, at every cast: its time of impact is 0 even
+ * moving along the floor.
+ */
+export function skinLift(w: SettleWorld, capsule: RAPIER.Capsule, centre: PhysicsVec3, skin: number): number {
+  const clear = skin + SKIN_LIFT_MARGIN;
+  const hit = w.world.castShape(centre, IDENTITY, DOWN, capsule, 0, clear, false, undefined, undefined, undefined, undefined, w.sees);
+  return hit === null ? 0 : Math.max(0, clear - hit.time_of_impact);
 }

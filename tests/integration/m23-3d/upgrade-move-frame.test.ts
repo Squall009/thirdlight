@@ -39,11 +39,18 @@ function upgraded(shape: Shape): { entities: Any[]; notes: string[] } {
   return { entities: (u.scenes as { entities: Any[] }[]).flatMap((s) => s.entities), notes: u.notes };
 }
 
+/**
+ * How far (m) the path may differ from the recorded one: the engine that recorded it stopped the walking
+ * character for a step now and then where its sweep stood at its skin (on a floor's seam, measured: up to
+ * 4.5 cm behind); the 3D port lifts it off the skin and walks on. A wrong move frame ends over 0.2 m away.
+ */
+const RECORDED_STALLS_M = 0.05;
+
 const expectSamePath = (path: number[][], v6: number[][]): void => {
   expect(path.length).toBe(v6.length);
   path.forEach((p, i) => {
-    expect(p[0]).toBeCloseTo(v6[i]![0]!, 5);
-    expect(p[1]).toBeCloseTo(v6[i]![1]!, 5);
+    expect(Math.abs(p[0]! - v6[i]![0]!)).toBeLessThan(RECORDED_STALLS_M);
+    expect(Math.abs(p[1]! - v6[i]![1]!)).toBeLessThan(RECORDED_STALLS_M);
   });
 };
 

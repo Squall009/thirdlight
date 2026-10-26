@@ -28,7 +28,7 @@ import { inPlane, isPlane, lockBody, onPlane, planePose } from './plane3d';
 import { capsuleLowAlong, holds, markOneWay, OneWaySweeps, upOf, type OneWayShape } from './oneway3d';
 import { createStepUp } from './step-up3d';
 import { groundContacts3D, type InternalEdgeWorld } from './internal-edges3d';
-import { settleDrop, type SettleWorld } from './settle3d';
+import { settleDrop, skinLift, type SettleWorld } from './settle3d';
 import { restoreMovers, stillMovers, type StilledBody } from './kinematic-still3d';
 import { CLEARANCE_PENETRATION_EPS, CLEARANCE_RAY_EPS, CLEARANCE_SUPPORT_PROBE, FIXED_HZ_CHOICES, FOOTPRINT_BALL, GROUND_NORMAL_TOLERANCE, MAX_DROP_THROUGH_STEPS, MAX_SHAPE_VALUE } from './constants';
 
@@ -1219,21 +1219,21 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
       // On top: the ground under its centre is walkable (the step's top) — the step-up ends.
       if (walkableFloorUnder(b, { x: before.x + swept.x, y: before.y + swept.y, z: before.z + swept.z })) b.stepping = null;
     }
-    // Riding a kinematic body (a mover, a collider a script drives) Rapier's sweep
-    // sometimes reads the support's normal numerically tilted within its skin and takes it for a
-    // block — measured on a sliding lift: no motion at all, 20 iterations, about one step in
-    // three. When a grounded character's horizontal move is stopped by nothing but ground-like
-    // contacts while it stands on a kinematic body, the horizontal part is swept again without
-    // that one body (walls and everything else still block it); the vertical result and the
-    // grounding stay the first sweep's.
+    // Riding a kinematic body (a mover, a collider a script drives) Rapier's sweep sometimes reads the
+    // support's normal numerically tilted within its skin and takes it for a block — measured on a
+    // sliding lift: no motion at all, 20 iterations, about one step in three; stepped off a mover onto
+    // fixed ground it can stand inside its skin (0.28 mm), where every cast stops at once. When a grounded
+    // character's horizontal move is stopped by nothing but ground-like contacts, the horizontal part is
+    // swept again without the kinematic body it stands on, or lifted to its skin (walls and everything
+    // else still block it); the vertical result and the grounding stay the first sweep's.
     if (!midStep && b.grounded && rawGrounded && groundOnly && Math.hypot(commanded.x, commanded.z) > 1e-9 && Math.hypot(swept.x, swept.z) < 1e-9) {
       const support = supportUnder(b, before);
       const supportHandle = support !== null && infoByHandle.get(support.handle)?.kinematic === true ? support.handle : null;
-      if (supportHandle !== null) {
-        characterCollider.setTranslation(at(b, { x: before.x, y: before.y + swept.y, z: before.z }));
+      const lift = supportHandle !== null ? 0 : skinLift(edges, b.overlapCapsule, at(b, { x: before.x, y: before.y + swept.y, z: before.z }), skin);
+      if (supportHandle !== null || lift > 0) {
+        characterCollider.setTranslation(at(b, { x: before.x, y: before.y + swept.y + lift, z: before.z }));
         controller.computeColliderMovement(characterCollider, { x: commanded.x, y: 0, z: commanded.z }, undefined, undefined, bothPredicates(othersOut, (c) => c.handle !== supportHandle));
-        const again = controller.computedMovement();
-        swept = { x: again.x, y: swept.y, z: again.z };
+        swept = { x: controller.computedMovement().x, y: swept.y + lift, z: controller.computedMovement().z };
         readCollisions();
       }
     }

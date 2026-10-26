@@ -76,3 +76,12 @@ export const INTERNAL_EDGE_CONE_EPS = 1e-3 as const;
  * jitter on flat ground, below the centimetre a landing leaves.
  */
 export const REST_SETTLE_TOLERANCE = 1e-3 as const;
+
+/**
+ * How far past its skin a grounded character stopped by its own floor is
+ * lifted before its move across is swept again (m): Rapier's sweep stops it
+ * at once while it stands at or inside the skin within f32 rounding
+ * (measured: 0.2 µm over the skin on a mesh floor), and its ground snap takes
+ * the lift back in the next step.
+ */
+export const SKIN_LIFT_MARGIN = 1e-4 as const;
