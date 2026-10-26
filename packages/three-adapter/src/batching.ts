@@ -64,7 +64,8 @@ import { CUTAWAY_MESH_KEY } from './block-cutaway-view';
 import { LIGHT_LAYERS_KEY, objectLightLayers, ROOM_KEY, ROOM_VERTEX_KEYS, roomKeyOf } from './light-layers';
 import { objectSeeThrough, SEE_THROUGH_KEY, SUBJECT_DRAW_KEY } from './see-through';
 import { LOCAL_LIGHTS_KEY, objectLocalLights } from './local-lights';
-import { SURFACE_READ_KEY } from './surface-cache-read';
+import { SURFACE_READ } from './surface-cache-lookup';
+import { SURFACE_READ_KEY, surfaceSlotOf } from './surface-cache-read';
 import { meshDecalRenderOrder } from './mesh-decals';
 import { OCCLUDER_EARLY_RENDER_ORDER, occluderMarksOf, setOccluderMarks } from './occluders';
 import { DECAL_LAYERS_KEY } from './projected-decals';
@@ -126,6 +127,14 @@ export interface BatchKeyParts {
   readonly seeThrough: boolean;
   /** The kind of static surface whose light it reads from the surface cache (surface-cache-read.ts; undefined: none): one draw reads one kind. */
   readonly surfaceRead: number | undefined;
+}
+
+/** What a batch's draw takes from its members as they are now: whether it casts into the static shadow map, and (a batch made `surfaceSlots`) each static model copy's slot, by which it reads the surface cache. */
+function markMembersDraw(inst: AttributeInstancedMesh, staticCaster: boolean, members: readonly { readonly mesh: THREE.Mesh; readonly slot: number }[]): void {
+  if (staticCaster) inst.mesh.userData[STATIC_CASTER_KEY] = true;
+  else delete inst.mesh.userData[STATIC_CASTER_KEY];
+  const slots = inst.surfaceSlots;
+  if (slots !== null) for (const m of members) if (m.slot < slots.length) slots[m.slot] = surfaceSlotOf(m.mesh);
 }
 
 /** A group's draw carries what its members share and the draws after it read off the object (light layers, modes, room, decal layers, occluder marks, see-through, surface-cache reading). */
@@ -718,7 +727,7 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
     if (g.inst === null || g.inst.capacity < n || painted !== g.painted) {
       release(g);
       g.painted = painted;
-      const inst = createAttributeInstancedMesh(g.parts.geometry, g.parts.material, batchCapacity(n), { painted });
+      const inst = createAttributeInstancedMesh(g.parts.geometry, g.parts.material, batchCapacity(n), { painted, surfaceSlots: g.parts.surfaceRead === SURFACE_READ.model });
       const mesh = inst.mesh;
       mesh.name = `tl-batch:${g.key}`;
       mesh.castShadow = g.parts.castShadow;
@@ -765,8 +774,7 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
         batch(m);
       }
     }
-    if (g.staticCaster) g.inst!.mesh.userData[STATIC_CASTER_KEY] = true;
-    else delete g.inst!.mesh.userData[STATIC_CASTER_KEY];
+    markMembersDraw(g.inst!, g.staticCaster, g.members);
     if (g.painted) writeGroupPaint(g);
     writtenGroups.add(g);
   };

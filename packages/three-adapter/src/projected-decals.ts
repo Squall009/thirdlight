@@ -54,6 +54,7 @@ import { DECAL_FADE, DECAL_LAYERS_ALL } from '@thirdlight/runtime';
 import { DECAL_HASH, DECAL_ROW_TEXELS, DECAL_TEXTURE_WIDTH } from './decal-index';
 import type { N } from './effects-tsl';
 import { isLit, materialValuesKey } from './local-lights';
+import { texelTexture, untransformedTexture } from './texel-texture-node';
 import { decalDrawOf } from './mesh-decals';
 
 /** TSL untyped: three's typings lag the node API used here. */
@@ -446,40 +447,17 @@ function boundsOf(object: THREE.Object3D): THREE.Sphere | null {
 }
 
 /**
- * The decal textures' nodes leave out three's texture transform. A texture
- * node made without a UV (as `sample` and `load` clone it, through
- * `this.constructor`) turns its matrix update on: a uniform and a
- * `texture.updateMatrix()` for every read, every draw — sixty-odd reads of
- * the decal loop made three update them for each reached draw. Decal data and
- * pages are never transformed.
- */
-class DecalPageNode extends (THREE.TextureNode as unknown as new (value: THREE.Texture) => object) {
-  setUpdateMatrix(): this {
-    (this as unknown as { updateMatrix: boolean }).updateMatrix = false;
-    return this;
-  }
-}
-
-/**
- * A data texture read texel by texel, as uploaded. three's WebGL 2 builder
- * gives every texture read a flip-Y switch (render targets are stored upside
- * down there): a uniform updated for every draw and a `textureSize` and a
- * select in the shader for every read. The table and index are one plain
- * data texture, never flipped, and the decal loop reads it a dozen times a
- * decal: its reads go without it.
+ * The decal textures' nodes leave out three's texture transform (sixty-odd
+ * reads of the decal loop made three update them for each reached draw),
+ * and the table and index three's WebGL 2 flip (`texel-texture-node.ts`).
  *
  * Textures stay in each draw's own bind group (three's shared groups take
  * uniforms only), so every texture a decal program binds is checked and bound
  * for every reached draw: the table and the index share one texture, and a
  * page set no decal has an image on is not bound at all.
  */
-class DecalDataNode extends DecalPageNode {
-  setupUV(_builder: unknown, uvNode: N): N {
-    return uvNode;
-  }
-}
-const dataTextureNode = (t: THREE.Texture): N => TSL.nodeObject(new DecalDataNode(t));
-const pageNode = (t: THREE.Texture): N => TSL.nodeObject(new DecalPageNode(t));
+const dataTextureNode = texelTexture;
+const pageNode = untransformedTexture;
 
 interface DecalNodes {
   data: N;

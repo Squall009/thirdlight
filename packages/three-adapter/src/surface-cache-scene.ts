@@ -93,6 +93,8 @@ export interface ArchTile extends SurfaceTile {
 
 export interface ModelTile extends SurfaceTile {
   readonly kind: 'model';
+  /** The placed object's key (`SurfaceModel.key`): its pieces' tiles share it, and its drawn copies read by it. */
+  readonly owner: string;
   readonly set: DistanceBrickSet;
   readonly worldToLocal: Affine;
   readonly chart: SurfaceChart | null;
@@ -156,7 +158,7 @@ export function modelPieceTiles(m: SurfaceModel): ModelTile[] {
     const size = set.voxel * DISTANCE_BRICK_CELLS;
     const box = worldBox(toWorld, set.min, [0, 1, 2].map((k) => set.min[k]! + set.dims[k]! * size));
     const chart = modelChart(set, m.worldToLocal);
-    out.push({ kind: 'model', key: `${m.key}/${set.piece}`, min: box.min, max: box.max, version: m.version, set, worldToLocal: m.worldToLocal, chart, charts: () => (chart === null ? [] : [chart]) });
+    out.push({ kind: 'model', key: `${m.key}/${set.piece}`, owner: m.key, min: box.min, max: box.max, version: m.version, set, worldToLocal: m.worldToLocal, chart, charts: () => (chart === null ? [] : [chart]) });
   }
   return out;
 }

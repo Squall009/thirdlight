@@ -7,8 +7,8 @@
  * patch's texels row by row along +z.
  *
  * A texel with no place on a surface (a surfel rectangle's spare texels, a
- * UV1 model's chart, a terrain hole) gets a zero normal: the lighting pass
- * leaves it.
+ * UV1 square's texels off the unwrap, a terrain hole) gets a zero normal:
+ * the lighting pass leaves it.
  *
  * Pure (no three.js).
  */
@@ -134,10 +134,62 @@ function archPoint(t: ArchTile): ChartPoint {
   };
 }
 
+/** A set's surfels on a grid over UV1 (each cell's surfels), kept with the set. */
+const uvGrids = new WeakMap<object, { side: number; cells: number[][] }>();
+
+function uvGridOf(s: NonNullable<ModelTile['set']['surfels']>): { side: number; cells: number[][] } {
+  let g = uvGrids.get(s);
+  if (g !== undefined) return g;
+  const n = s.levels[0] ?? 0;
+  const side = Math.max(1, Math.ceil(Math.sqrt(n)));
+  const cells: number[][] = Array.from({ length: side * side }, () => []);
+  const at = (v: number): number => Math.min(side - 1, Math.max(0, Math.floor(v * side)));
+  for (let i = 0; i < n; i += 1) cells[at(s.uv1![i * 2 + 1]!) * side + at(s.uv1![i * 2]!)]!.push(i);
+  g = { side, cells };
+  uvGrids.set(s, g);
+  return g;
+}
+
+/**
+ * A UV1 model's square: a texel's point is the surfel nearest its UV1 (the
+ * model's surface as its surfels sample it); a texel farther than a couple
+ * of texels or surfel spacings from every surfel's UV1 lies off the unwrap
+ * and gets none.
+ */
+function modelUv1Point(t: ModelTile, iw: number): ChartPoint {
+  const s = t.set.surfels!;
+  const grid = uvGridOf(s);
+  const reach = Math.max(2 / iw, (3 * s.spacing) / Math.sqrt(Math.max(s.area, 1e-9)));
+  const chart = t.chart as { w: number; h: number };
+  return (_c, u, v, out, at) => {
+    const uu = u / chart.w;
+    const vv = v / chart.h;
+    const r = Math.ceil(reach * grid.side);
+    const cx = Math.floor(uu * grid.side);
+    const cy = Math.floor(vv * grid.side);
+    let best = -1;
+    let bestD = reach * reach;
+    for (let y = Math.max(0, cy - r); y <= Math.min(grid.side - 1, cy + r); y += 1) {
+      for (let x = Math.max(0, cx - r); x <= Math.min(grid.side - 1, cx + r); x += 1) {
+        for (const i of grid.cells[y * grid.side + x]!) {
+          const d = (s.uv1![i * 2]! - uu) ** 2 + (s.uv1![i * 2 + 1]! - vv) ** 2;
+          if (d < bestD) {
+            bestD = d;
+            best = i;
+          }
+        }
+      }
+    }
+    if (best < 0) out.fill(0, at, at + TEXEL_POINT_FLOATS);
+    else modelPoint(t, best, out, at);
+  };
+}
+
 /** Points of texels [from, to) of a resident tile into `out` from float `at`. */
 export function tileTexelPoints(src: TileTexels, from: number, to: number, out: Float32Array, at: number): void {
   const { tile, level, packing, charts } = src;
-  const area = tile.kind === 'blocks' ? blockPoint(tile) : tile.kind === 'arch' ? archPoint(tile) : null;
+  const uv1 = tile.kind === 'model' && tile.chart?.kind === 'area' && tile.set.surfels?.uv1 != null ? modelUv1Point(tile, areaTexels(tile.chart.w, level)) : null;
+  const area = tile.kind === 'blocks' ? blockPoint(tile) : tile.kind === 'arch' ? archPoint(tile) : uv1;
   const rect = src.rect;
   if (rect !== undefined) {
     const chart = charts[rect.chart]!;

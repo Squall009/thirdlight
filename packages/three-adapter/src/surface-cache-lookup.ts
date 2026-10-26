@@ -1,9 +1,10 @@
 /**
  * Where a drawn pixel's light is in the surface cache: the cache's addressing
  * packed for the materials' lookup (`surface-cache-read.ts`), which finds a
- * static surface's texel from the pixel's world position and normal alone —
- * no per-object data, so merged, batched and shared geometry need nothing of
- * their own — and samples it filtered, as a lightmap is.
+ * static surface's texel from the pixel's world position and normal — for
+ * the engine's own geometry with no per-object data, so merged, batched and
+ * shared geometry need nothing of their own — and samples it filtered, as a
+ * lightmap is.
  *
  * - Block layers: the pixel's cell (its point a little behind the face it
  *   faces) and face; the face's chart from its chunk column's hash of face
@@ -12,9 +13,17 @@
  * - Terrain: the finest ring whose window holds the point (one texel in
  *   from its edge, so the filter stays inside), at the point's world x, z.
  * - Generated architecture: the charts are planes; a hash of world cells
- *   (`ARCH_CELL` metres) lists the charts crossing each, and a pixel takes
- *   the first whose plane it lies on (within `ARCH_PLANE_METRES`, facing its
- *   way) inside its rectangle. Trims and mouldings off the planes find none.
+ *   (`ARCH_CELL` metres) and facings (a normal's major axis and sign) lists
+ *   the charts crossing each cell that a pixel of that facing may lie on,
+ *   and a pixel takes the first whose plane it lies on (within
+ *   `ARCH_PLANE_METRES`, facing its way) inside its rectangle. Trims and
+ *   mouldings off the planes find none.
+ * - Static models: a drawn copy carries its object's slot (`SurfaceModelSlots`:
+ *   an instance column, a merged cell's vertex attribute, or the object's
+ *   own); the slot's record holds the placement (world → model root) and its
+ *   pieces. A UV1 piece is read at the pixel's UV1 in its square; a piece on
+ *   surfels at the surfel of the pixel's cell (the set's grid at the level
+ *   the cache holds it at) and facing, found in the set's hash.
  *
  * The words are read four at a time (an RGBA32UI texture, `LOOKUP_WIDTH`
  * texels a row); addresses count texels. `lookupSurfaceCpu` walks the same
@@ -23,8 +32,9 @@
  * Layout:
  *
  * - header: texel 0 (layers, their records, terrains, their records),
- *   texel 1 (the architecture hash's slots, its first slot); the shaders
- *   take it as uniforms (`lookupHeader`), so no pixel waits on reading it;
+ *   texel 1 (the architecture hash's slots, its first slot, model slots,
+ *   their table); the shaders take it as uniforms (`lookupHeader`), so no
+ *   pixel waits on reading it, and the first terrain's rings too;
  * - a layer (`LAYER_TEXELS`): origin (f32 ×3) and its columns' first
  *   texel; cell size (f32 ×3) and its lowest row (i32); the first chunk
  *   column (cx, cz, i32), columns along x | along z << 16, and the row past
@@ -34,14 +44,22 @@
  *   chart's texels w | h << 8 | the face's cell offset u << 16 | v << 24,
  *   and the chart's cells w | h << 8 (the face's place along the chart,
  *   without a chart record to read);
- * - a chart (`CHART_TEXELS`): page, the interior's corner (x | y << 16), its
- *   texels (w | h << 16), a spare word; its metres (w, h, f32);
  * - a terrain (`TERRAIN_TEXELS`): rings, the first texture layer, then per
  *   ring its window's centre (x, z), half side and texel (m, f32);
- * - an architecture slot: cell (x, y, z, i32) and its list's texel (0:
- *   free); a list: its count, then the charts' frame texels; a frame
- *   (`FRAME_TEXELS`): corner (f32 ×3) and width, u axis and height, v axis,
- *   then its chart record.
+ * - an architecture slot: cell x, y (i32), z × 8 + facing (i32) and its
+ *   list's texel (0: free); a list: its count, then the charts' frame
+ *   texels; a frame (`FRAME_TEXELS`): corner (f32 ×3) and width, u axis and
+ *   height, v axis, then its chart: page, the interior's corner (x | y <<
+ *   16), its texels (w | h << 16);
+ * - a model slot: its record's texel (0: none); a record (`MODEL_TEXELS`):
+ *   the world → root map's rows (f32 ×4, three texels), then the root →
+ *   world map's columns (f32 ×3, three texels: a world normal's root
+ *   direction), the first's w the record's pieces; a piece
+ *   (`PIECE_TEXELS`): its surfel cell (m, f32), hash, slots and 1 for a UV1
+ *   piece; then page, corner (x | y << 16) and texels (w | h << 16: a UV1
+ *   square's interior, or the surfels' rectangle, a row `w` long); a
+ *   surfel hash slot: cell (x, y, z, i32), facing | surfel << 3 (`EMPTY`
+ *   when free; `surfelHash`).
  *
  * Pure (no three.js, no device).
  */
@@ -50,16 +68,19 @@ import { CHUNK_SIZE } from '@thirdlight/runtime';
 import { SURFACE_CHART_BORDER, SURFACE_CHART_METRES, areaTexels, type AtlasBlock, type SurfaceChart, type TilePacking } from './surface-cache-atlas';
 import { FACE_PLANE_AXES, type BlockChunkCharts } from './surface-cache-blocks';
 import type { SurfaceCache } from './surface-cache';
-import type { ArchTile, BlockTile, SurfaceScene } from './surface-cache-scene';
+import { surfelLevelFor } from './surface-cache-atlas';
+import type { ArchTile, BlockTile, ModelTile, SurfaceScene } from './surface-cache-scene';
 import { TERRAIN_RINGS_MAX } from './surface-cache-terrain';
-import { Words } from './tracer-words';
+import { surfelHash } from './surface-resolve';
+import { Words, invertAffine } from './tracer-words';
 
 /** Texels a row of the lookup texture. */
 export const LOOKUP_WIDTH = 2048;
 export const LAYER_TEXELS = 3;
-export const CHART_TEXELS = 2;
 export const TERRAIN_TEXELS = 1 + TERRAIN_RINGS_MAX;
-export const FRAME_TEXELS = 3 + CHART_TEXELS;
+export const FRAME_TEXELS = 4;
+export const MODEL_TEXELS = 6;
+export const PIECE_TEXELS = 2;
 /** A free slot's key. */
 export const EMPTY = 0xffffffff;
 /** The architecture hash's cells (m). */
@@ -68,6 +89,8 @@ export const ARCH_CELL = 2;
 export const ARCH_PLANE_METRES = 0.05;
 /** How far (as a cosine) a pixel's normal may turn from its chart's and still read it. */
 export const ARCH_FACING = 0.5;
+/** A chart is listed under each facing whose axis it faces at least this much (a cosine): a pixel on its plane faces one of them. */
+const ARCH_FACING_LISTED = 0.25;
 /** How far (cells) behind its face a block pixel's point is taken, so it falls in its own cell. */
 export const BLOCK_INSET = 0.001;
 
@@ -88,7 +111,7 @@ export function albedoWords(pages: number, ringLayers: number): number {
 }
 
 /** The kinds of static surface a material reads the cache for (a drawn mesh's `SURFACE_READ_KEY`). */
-export const SURFACE_READ = { blocks: 1, terrain: 2, arch: 3 } as const;
+export const SURFACE_READ = { blocks: 1, terrain: 2, arch: 3, model: 4 } as const;
 export type SurfaceReadKind = (typeof SURFACE_READ)[keyof typeof SURFACE_READ];
 
 /** A face key's slot in a hash of `cap` slots (the shaders hash alike, in u32). */
@@ -97,9 +120,9 @@ export function faceHash(key: number, cap: number): number {
   return ((h ^ (h >>> 15)) >>> 0) & (cap - 1);
 }
 
-/** A world cell's slot in a hash of `cap` slots. */
-export function cellHash(x: number, y: number, z: number, cap: number): number {
-  return ((Math.imul(x, 73856093) ^ Math.imul(y, 19349663) ^ Math.imul(z, 83492791)) >>> 0) & (cap - 1);
+/** A world cell's slot in a hash of `cap` slots (`zf`: the cell's z × 8 + the facing listed). */
+export function cellHash(x: number, y: number, zf: number, cap: number): number {
+  return ((Math.imul(x, 73856093) ^ Math.imul(y, 19349663) ^ Math.imul(zf, 83492791)) >>> 0) & (cap - 1);
 }
 
 function pow2AtLeast(n: number): number {
@@ -124,17 +147,19 @@ class Texels {
 
 type Resident = { level: number; blocks: readonly AtlasBlock[]; packing: TilePacking; charts: readonly SurfaceChart[] };
 
-/** An area chart's record (page, interior corner and texels, metres). */
+/** A chart's place: page, corner (x | y << 16), texels (w | h << 16): an area chart's interior, or a surfel chart's rectangle. */
 function putChart(t: Texels, at: number, r: Resident, c: number): void {
   const chart = r.charts[c]!;
   const place = r.packing.places[c]!;
   const b = r.blocks[place.block]!;
-  if (chart.kind !== 'area') return;
   t.setU(at, 0, b.page);
-  t.setU(at, 1, (b.x + place.x + SURFACE_CHART_BORDER) | ((b.y + place.y + SURFACE_CHART_BORDER) << 16));
-  t.setU(at, 2, areaTexels(chart.w, r.level) | (areaTexels(chart.h, r.level) << 16));
-  t.setF(at + 1, 0, chart.w);
-  t.setF(at + 1, 1, chart.h);
+  if (chart.kind === 'area') {
+    t.setU(at, 1, (b.x + place.x + SURFACE_CHART_BORDER) | ((b.y + place.y + SURFACE_CHART_BORDER) << 16));
+    t.setU(at, 2, areaTexels(chart.w, r.level) | (areaTexels(chart.h, r.level) << 16));
+  } else {
+    t.setU(at, 1, (b.x + place.x) | ((b.y + place.y) << 16));
+    t.setU(at, 2, place.w | (place.h << 16));
+  }
 }
 
 /** A block tile's face hash: each face's slot (open addressing by `faceHash`), kept with its charts: residency changes do not move them. */
@@ -167,7 +192,17 @@ interface ArchFrame {
   readonly h: number;
 }
 
-/** An architecture tile's chart frames and the world cells each crosses, kept with its charts. */
+/** The facings (`facingOf`) a pixel on a plane of normal `n` may have: each axis and sign `n` faces at least `ARCH_FACING_LISTED`. */
+function facingsOf(n: readonly number[]): number[] {
+  const out: number[] = [];
+  for (let a = 0; a < 3; a += 1) {
+    if (n[a]! >= ARCH_FACING_LISTED) out.push(a * 2);
+    if (-n[a]! >= ARCH_FACING_LISTED) out.push(a * 2 + 1);
+  }
+  return out;
+}
+
+/** An architecture tile's chart frames and the world cells and facings (`x,y,z × 8 + facing`) each may be read from, kept with its charts. */
 const archFrames = new WeakMap<ArchTile['made'], { frames: ArchFrame[]; cells: Map<string, number[]> }>();
 
 function archFramesOf(tile: ArchTile): { frames: ArchFrame[]; cells: Map<string, number[]> } {
@@ -199,11 +234,16 @@ function archFramesOf(tile: ArchTile): { frames: ArchFrame[]; cells: Map<string,
         }
         const c0 = lo.map((v) => Math.floor(v / ARCH_CELL));
         const c1 = hi.map((v) => Math.floor(v / ARCH_CELL));
+        const u = f.u;
+        const v = f.v;
+        const facings = facingsOf([u[1]! * v[2]! - u[2]! * v[1]!, u[2]! * v[0]! - u[0]! * v[2]!, u[0]! * v[1]! - u[1]! * v[0]!]);
         for (let z = c0[2]!; z <= c1[2]!; z += 1) for (let y = c0[1]!; y <= c1[1]!; y += 1) for (let x = c0[0]!; x <= c1[0]!; x += 1) {
-          const key = `${x},${y},${z}`;
-          const list = cells.get(key);
-          if (list === undefined) cells.set(key, [fi]);
-          else list.push(fi);
+          for (const facing of facings) {
+            const key = `${x},${y},${z * 8 + facing}`;
+            const list = cells.get(key);
+            if (list === undefined) cells.set(key, [fi]);
+            else list.push(fi);
+          }
         }
       }
     }
@@ -213,8 +253,92 @@ function archFramesOf(tile: ArchTile): { frames: ArchFrame[]; cells: Map<string,
   return got;
 }
 
-/** The lookup's words for `scene` with what `cache` holds resident now (packed again when residency changes). */
-export function packSurfaceLookup(scene: SurfaceScene, cache: SurfaceCache): Uint32Array {
+/** A set's surfels of level `k` hashed by cell and facing (`surfelHash`), kept with the set: placed copies share it. */
+const surfelHashes = new WeakMap<object, Map<number, { cap: number; slots: Uint32Array }>>();
+
+function surfelHashOf(tile: ModelTile, k: number): { cap: number; slots: Uint32Array } {
+  const s = tile.set.surfels!;
+  let byLevel = surfelHashes.get(s);
+  if (byLevel === undefined) surfelHashes.set(s, (byLevel = new Map()));
+  let h = byLevel.get(k);
+  if (h !== undefined) return h;
+  const cell = s.spacing * 2 ** k;
+  const n = s.levels[k] ?? 0;
+  const cap = pow2AtLeast(n * 2);
+  const slots = new Uint32Array(cap * 4);
+  for (let i = 0; i < cap; i += 1) slots[i * 4 + 3] = EMPTY;
+  for (let i = 0; i < n; i += 1) {
+    const c = [0, 1, 2].map((a) => Math.floor(s.positions[i * 3 + a]! / cell));
+    const facing = facingOf([s.normals[i * 3]!, s.normals[i * 3 + 1]!, s.normals[i * 3 + 2]!]);
+    // One surfel a cell and facing at each level; a later one of the same takes the slot, as the resolve's hash does.
+    for (let q = surfelHash(c[0]!, c[1]!, c[2]!, facing, cap); ; q = (q + 1) & (cap - 1)) {
+      const tag = slots[q * 4 + 3]!;
+      if (tag === EMPTY || ((tag & 7) === facing && slots[q * 4] === c[0]! >>> 0 && slots[q * 4 + 1] === c[1]! >>> 0 && slots[q * 4 + 2] === c[2]! >>> 0)) {
+        for (let a = 0; a < 3; a += 1) slots[q * 4 + a] = c[a]! >>> 0;
+        slots[q * 4 + 3] = (facing | (i << 3)) >>> 0;
+        break;
+      }
+    }
+  }
+  h = { cap, slots };
+  byLevel.set(k, h);
+  return h;
+}
+
+/** Static models' slots and records: per slot the placement and its resident pieces with surfels. */
+function packModels(t: Texels, models: readonly ModelTile[], resident: ReadonlyMap<string, Resident>, slotOf: (owner: string) => number | undefined): void {
+  const bySlot = new Map<number, ModelTile[]>();
+  let top = 0;
+  for (const tile of models) {
+    if (tile.chart === null || tile.set.surfels === null || !resident.has(tile.key)) continue;
+    const slot = slotOf(tile.owner);
+    if (slot === undefined || slot <= 0) continue;
+    const list = bySlot.get(slot);
+    if (list === undefined) bySlot.set(slot, [tile]);
+    else list.push(tile);
+    top = Math.max(top, slot);
+  }
+  const table = t.alloc(top + 1);
+  t.setU(1, 2, top + 1);
+  t.setU(1, 3, table);
+  const hashes = new Map<object, number>();
+  for (const [slot, tiles] of bySlot) {
+    const rec = t.alloc(MODEL_TEXELS + tiles.length * PIECE_TEXELS);
+    t.setU(table + slot, 0, rec);
+    const w = tiles[0]!.worldToLocal;
+    for (let r = 0; r < 3; r += 1) for (let k = 0; k < 4; k += 1) t.setF(rec + r, k, w[r * 4 + k]!);
+    // A world normal's direction in the root: the root → world map's linear part, transposed (its columns as rows).
+    const m = invertAffine(w);
+    for (let c = 0; c < 3; c += 1) for (let r = 0; r < 3; r += 1) t.setF(rec + 3 + c, r, m[r * 4 + c]!);
+    t.setU(rec + 3, 3, tiles.length);
+    tiles.forEach((tile, i) => {
+      const r = resident.get(tile.key)!;
+      const s = tile.set.surfels!;
+      const uv1 = tile.chart!.kind === 'area';
+      const k = tile.chart!.kind === 'surfels' ? surfelLevelFor(tile.chart!, r.level) : 0;
+      const h = surfelHashOf(tile, k);
+      let at = hashes.get(h);
+      if (at === undefined) {
+        at = t.alloc(h.cap);
+        for (let q = 0; q < h.cap * 4; q += 1) t.w.setU(at * 4 + q, h.slots[q]!);
+        hashes.set(h, at);
+      }
+      const pa = rec + MODEL_TEXELS + i * PIECE_TEXELS;
+      t.setF(pa, 0, s.spacing * 2 ** k);
+      t.setU(pa, 1, at);
+      t.setU(pa, 2, h.cap);
+      t.setU(pa, 3, uv1 ? 1 : 0);
+      putChart(t, pa + 1, r, 0);
+    });
+  }
+}
+
+/**
+ * The lookup's words for `scene` with what `cache` holds resident now
+ * (packed again when residency changes); `slotOf`: the slot a placed
+ * model's drawn copies carry (`ModelTile.owner`; none: its pieces are not read).
+ */
+export function packSurfaceLookup(scene: SurfaceScene, cache: SurfaceCache, slotOf: (owner: string) => number | undefined = () => undefined): Uint32Array {
   const t = new Texels();
   t.alloc(2);
   const view = scene.resolveView();
@@ -341,6 +465,7 @@ export function packSurfaceLookup(scene: SurfaceScene, cache: SurfaceCache): Uin
     t.setU(slots + s, 2, z);
     t.setU(slots + s, 3, la);
   }
+  packModels(t, view.models, resident, slotOf);
   // Whole rows of the texture.
   const texels = Math.max(LOOKUP_WIDTH, Math.ceil(t.w.length / 4 / LOOKUP_WIDTH) * LOOKUP_WIDTH);
   const out = new Uint32Array(texels * 4);
@@ -358,15 +483,15 @@ export interface LookedUp {
 
 const i32 = (v: number): number => v | 0;
 
-/** A chart record's place for metres (uu, vv) along it, held a half texel inside its interior (the filter never reads its border). */
-function chartPlace(u: Uint32Array, f: Float32Array, at: number, uu: number, vv: number): LookedUp {
+/** A chart's place (`putChart`, at texel `at`) for metres (uu, vv) along its `wm` × `hm`, held a half texel inside its interior (the filter never reads its border). */
+function chartPlace(u: Uint32Array, at: number, uu: number, vv: number, wm: number, hm: number): LookedUp {
   const w = at * 4;
   const x0 = u[w + 1]! & 0xffff;
   const y0 = u[w + 1]! >>> 16;
   const iw = u[w + 2]! & 0xffff;
   const ih = u[w + 2]! >>> 16;
-  const x = x0 + Math.min(iw - 0.5, Math.max(0.5, (uu / f[w + 4]!) * iw));
-  const y = y0 + Math.min(ih - 0.5, Math.max(0.5, (vv / f[w + 5]!) * ih));
+  const x = x0 + Math.min(iw - 0.5, Math.max(0.5, (uu / wm) * iw));
+  const y = y0 + Math.min(ih - 0.5, Math.max(0.5, (vv / hm) * ih));
   return { texture: 'atlas', layer: u[w]!, x, y };
 }
 
@@ -376,8 +501,12 @@ function facingOf(n: readonly number[]): number {
   return a * 2 + (n[a]! < 0 ? 1 : 0);
 }
 
-/** Where a pixel of `kind` at world point `p` with normal `n` reads its light (null: nowhere: it keeps its own lights). */
-export function lookupSurfaceCpu(words: Uint32Array, kind: SurfaceReadKind, p: readonly number[], n: readonly number[]): LookedUp | null {
+/**
+ * Where a pixel of `kind` at world point `p` with normal `n` reads its light
+ * (null: nowhere: it keeps its own lights); a model's pixel names its copy's
+ * slot and, on a UV1 model, its UV1.
+ */
+export function lookupSurfaceCpu(words: Uint32Array, kind: SurfaceReadKind, p: readonly number[], n: readonly number[], model?: { readonly slot: number; readonly uv1?: readonly number[] }): LookedUp | null {
   const u = words;
   const f = new Float32Array(u.buffer, u.byteOffset, u.length);
   if (kind === SURFACE_READ.blocks) {
@@ -433,13 +562,15 @@ export function lookupSurfaceCpu(words: Uint32Array, kind: SurfaceReadKind, p: r
     }
     return null;
   }
+  if (kind === SURFACE_READ.model) return model === undefined ? null : lookupModelCpu(u, f, p, n, model.slot, model.uv1);
   const cap = u[4]!;
   const slots = u[5]!;
   const c = p.map((v) => Math.floor(v / ARCH_CELL));
-  for (let s = cellHash(c[0]!, c[1]!, c[2]!, cap), tries = 0; tries < cap; s = (s + 1) & (cap - 1), tries += 1) {
+  const zf = c[2]! * 8 + facingOf(n);
+  for (let s = cellHash(c[0]!, c[1]!, zf, cap), tries = 0; tries < cap; s = (s + 1) & (cap - 1), tries += 1) {
     const w = (slots + s) * 4;
     if (u[w + 3] === 0) break;
-    if (i32(u[w]!) !== c[0] || i32(u[w + 1]!) !== c[1] || i32(u[w + 2]!) !== c[2]) continue;
+    if (i32(u[w]!) !== c[0] || i32(u[w + 1]!) !== c[1] || i32(u[w + 2]!) !== zf) continue;
     const la = u[w + 3]! * 4;
     for (let i = 0; i < u[la]!; i += 1) {
       const fa = u[la + 1 + i]! * 4;
@@ -454,9 +585,64 @@ export function lookupSurfaceCpu(words: Uint32Array, kind: SurfaceReadKind, p: r
       const wm = f[fa + 3]!;
       const hm = f[fa + 7]!;
       if (uu < -ARCH_PLANE_METRES || vv < -ARCH_PLANE_METRES || uu > wm + ARCH_PLANE_METRES || vv > hm + ARCH_PLANE_METRES) continue;
-      return chartPlace(u, f, fa / 4 + 3, uu, vv);
+      return chartPlace(u, fa / 4 + 3, uu, vv, wm, hm);
     }
     return null;
+  }
+  return null;
+}
+
+/** The surfel of cell `c` and `facing` in a set's hash (−1: none). */
+function surfelAt(u: Uint32Array, hash: number, cap: number, c: readonly number[], facing: number): number {
+  for (let q = surfelHash(c[0]!, c[1]!, c[2]!, facing, cap), tries = 0; tries < cap; q = (q + 1) & (cap - 1), tries += 1) {
+    const w = (hash + q) * 4;
+    const tag = u[w + 3]!;
+    if (tag === EMPTY) return -1;
+    if ((tag & 7) === facing && i32(u[w]!) === c[0] && i32(u[w + 1]!) === c[1] && i32(u[w + 2]!) === c[2]) return tag >>> 3;
+  }
+  return -1;
+}
+
+/** A model pixel's place: its slot's placement takes the point and normal into the root, then the first piece holding a surfel in that cell and facing (a lone UV1 piece needs none). */
+function lookupModelCpu(u: Uint32Array, f: Float32Array, p: readonly number[], n: readonly number[], slot: number, uv1: readonly number[] | undefined): LookedUp | null {
+  if (slot <= 0 || slot >= u[6]!) return null;
+  const rec = u[(u[7]! + slot) * 4]!;
+  if (rec === 0) return null;
+  const r = rec * 4;
+  const lp = [0, 1, 2].map((k) => f[r + k * 4]! * p[0]! + f[r + k * 4 + 1]! * p[1]! + f[r + k * 4 + 2]! * p[2]! + f[r + k * 4 + 3]!);
+  const ln = [0, 1, 2].map((k) => f[r + 12 + k * 4]! * n[0]! + f[r + 12 + k * 4 + 1]! * n[1]! + f[r + 12 + k * 4 + 2]! * n[2]!);
+  const facing = facingOf(ln);
+  const pieces = u[r + 15]!;
+  for (let i = 0; i < pieces; i += 1) {
+    const pa = (rec + MODEL_TEXELS + i * PIECE_TEXELS) * 4;
+    const isUv1 = u[pa + 3] === 1;
+    let index = -1;
+    if (!(isUv1 && pieces === 1)) {
+      const cell = f[pa]!;
+      const hash = u[pa + 1]!;
+      const cap = u[pa + 2]!;
+      const q = lp.map((v) => v / cell);
+      const c = q.map(Math.floor);
+      index = surfelAt(u, hash, cap, c, facing);
+      // A face on a cell boundary has its surfels on either side of it (their points round either way): the cell across the nearer boundary along its normal.
+      if (index < 0) {
+        const axis = facing >> 1;
+        c[axis]! += q[axis]! - c[axis]! < 0.5 ? -1 : 1;
+        index = surfelAt(u, hash, cap, c, facing);
+      }
+      if (index < 0) continue;
+    }
+    const ca = pa + 4;
+    const x0 = u[ca + 1]! & 0xffff;
+    const y0 = u[ca + 1]! >>> 16;
+    const w = u[ca + 2]! & 0xffff;
+    const h = u[ca + 2]! >>> 16;
+    if (isUv1) {
+      if (uv1 === undefined) return null;
+      return { texture: 'atlas', layer: u[ca]!, x: x0 + Math.min(w - 0.5, Math.max(0.5, uv1[0]! * w)), y: y0 + Math.min(h - 0.5, Math.max(0.5, uv1[1]! * h)) };
+    }
+    // A surfel's own texel, at its centre (its light is not filtered with its neighbours': they lie anywhere on the model).
+    return { texture: 'atlas', layer: u[ca]!, x: x0 + (index % w) + 0.5, y: y0 + Math.floor(index / w) + 0.5 };
   }
   return null;
 }

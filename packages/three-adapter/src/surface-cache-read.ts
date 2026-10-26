@@ -33,13 +33,15 @@ import * as TSLTyped from 'three/tsl';
 import type { N } from './effects-tsl';
 import { LIT } from './custom-lit';
 import { SURFACE_PAGE_TEXELS } from './surface-cache-atlas';
-import { ALBEDO_CELLS, ALBEDO_PAGE_STEP, ALBEDO_RING_STEP, albedoWords, ARCH_CELL, ARCH_FACING, ARCH_PLANE_METRES, BLOCK_INSET, CHART_TEXELS, EMPTY, FRAME_TEXELS, LAYER_TEXELS, LOOKUP_WIDTH, SURFACE_READ, TERRAIN_TEXELS, type SurfaceReadKind } from './surface-cache-lookup';
-import { TERRAIN_RING_TEXELS } from './surface-cache-terrain';
+import { buildReadsCopyColumns, instanceColumn } from './attribute-instancing';
+import { ALBEDO_CELLS, ALBEDO_PAGE_STEP, ALBEDO_RING_STEP, albedoWords, ARCH_CELL, ARCH_FACING, ARCH_PLANE_METRES, BLOCK_INSET, EMPTY, LAYER_TEXELS, LOOKUP_WIDTH, MODEL_TEXELS, PIECE_TEXELS, SURFACE_READ, TERRAIN_TEXELS, type SurfaceReadKind } from './surface-cache-lookup';
+import { TERRAIN_RING_TEXELS, TERRAIN_RINGS_MAX } from './surface-cache-terrain';
 import { SURFACE_TEXEL_LIT } from './surface-light-wgsl';
+import { texelTexture } from './texel-texture-node';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
-const { Break, If, Loop, abs, bool, clamp, cross, dot, float, floor, int, ivec2, max, mix, normalWorldGeometry, positionWorld, property, select, texture, textureLoad, uint, uintBitsToFloat, uniform, vec2, vec3 } = TSL;
+const { Break, Fn, If, Loop, abs, attribute, bool, clamp, cross, dot, float, floor, int, ivec2, max, mix, normalWorldGeometry, positionWorld, property, select, texture, uint, uintBitsToFloat, uniform, uniformArray, uv: uvOf, varying, vec2, vec3 } = TSL;
 
 /** Rows of the lookup texture at first (it doubles when a scene's lookup outgrows it). */
 const TABLE_ROWS = 16;
@@ -63,13 +65,27 @@ export function surfaceReadOf(object: THREE.Object3D, scene: THREE.Object3D): { 
 /** Whether a reading build writes its surface's colour (a capture frame's program: a draw that writes cannot skip hidden pixels early). */
 export const SURFACE_READ_CAPTURE = 'tlSurfaceReadCapture';
 
-/** Put the kind on every mesh under `root` (undefined: none). */
-export function markSurfaceRead(root: THREE.Object3D, kind: SurfaceReadKind | undefined): void {
+/** `mesh.userData[SURFACE_SLOT_KEY]`: a static model's slot (`SurfaceModelSlots`), whose record its pixels read. */
+export const SURFACE_SLOT_KEY = '__tlSurfaceSlot';
+/** A merged cell's vertex attribute: each member's slot (float). */
+export const SURFACE_SLOT_ATTRIBUTE = 'tlSurfaceSlot';
+/** Put the kind (and a model's slot) on every mesh under `root` (undefined: none). */
+export function markSurfaceRead(root: THREE.Object3D, kind: SurfaceReadKind | undefined, slot?: number): void {
   root.traverse((o) => {
     if ((o as THREE.Mesh).isMesh !== true) return;
-    if (kind === undefined) delete o.userData[SURFACE_READ_KEY];
-    else o.userData[SURFACE_READ_KEY] = kind;
+    if (kind === undefined) {
+      delete o.userData[SURFACE_READ_KEY];
+      delete o.userData[SURFACE_SLOT_KEY];
+    } else {
+      o.userData[SURFACE_READ_KEY] = kind;
+      if (slot !== undefined) o.userData[SURFACE_SLOT_KEY] = slot;
+    }
   });
+}
+
+/** A drawn mesh's slot (0: none). */
+export function surfaceSlotOf(mesh: THREE.Object3D): number {
+  return (mesh.userData[SURFACE_SLOT_KEY] as number | undefined) ?? 0;
 }
 
 /** The kind a material build reads the cache for (0: none). */
@@ -111,7 +127,10 @@ export class SurfaceCacheTextures {
   readonly tableNode: N;
   /** Its header as uniforms (`packSurfaceLookup`'s texels 0 and 1): layers and their records, terrains and theirs; the architecture hash's slots and first slot. */
   readonly head = uniform(new THREE.Vector4());
-  readonly arch = uniform(new THREE.Vector2());
+  readonly arch = uniform(new THREE.Vector4());
+  /** The first terrain's rings (centre x, z, half side, texel) and how many: read from uniforms, not the table (most scenes have one terrain). */
+  readonly rings0 = uniformArray(Array.from({ length: TERRAIN_RINGS_MAX }, () => new THREE.Vector4()), 'vec4');
+  readonly rings0Count = uniform(0, 'int');
 
   /** `pages` and `ringLayers`: the most the cache's budget can hold (the colours' buffer is made once for them). */
   constructor(readonly pages: number, readonly ringLayers: number) {
@@ -122,8 +141,8 @@ export class SurfaceCacheTextures {
     this.albedoNode = TSL.storage(this.albedo, 'uint', words).toAtomic();
     this.albedoRingsAt = pages * ALBEDO_CELLS;
     this.table = tableTexture(new Uint32Array(LOOKUP_WIDTH * 4 * TABLE_ROWS));
-    // Integer texel loads: no uv transform (a texture's matrix would turn every index into floats and back).
-    this.tableNode = textureLoad(this.table).setUpdateMatrix(false);
+    // Integer texel loads as stored: no uv transform (three's would turn every index into floats and back, a uniform per read).
+    this.tableNode = texelTexture(this.table);
   }
 
   /**
@@ -147,7 +166,13 @@ export class SurfaceCacheTextures {
     const data = (this.table.image as { data: Uint32Array }).data;
     data.set(words);
     (this.head.value as THREE.Vector4).set(words[0]!, words[1]!, words[2]!, words[3]!);
-    (this.arch.value as THREE.Vector2).set(words[4]!, words[5]!);
+    (this.arch.value as THREE.Vector4).set(words[4]!, words[5]!, words[6]!, words[7]!);
+    const f = new Float32Array(words.buffer, words.byteOffset, words.length);
+    const rings = (this.rings0 as unknown as { array: THREE.Vector4[] }).array;
+    const at = words[3]! * 4;
+    const n = words[2]! > 0 ? words[at]! : 0;
+    for (let k = 0; k < n; k += 1) rings[k]!.fromArray(f, at + 4 + k * 4);
+    (this.rings0Count as unknown as { value: number }).value = n;
     data.fill(0, words.length);
     this.table.needsUpdate = true;
   }
@@ -204,27 +229,24 @@ function tableTexture(data: Uint32Array): THREE.DataTexture {
 export const SURFACE_READ_FOUND = property('float', 'tlSurfaceReadFound');
 
 /** The shader's walk of the lookup's words (`lookupSurfaceCpu`'s twin). */
-function lookupNodes(tex: SurfaceCacheTextures, kind: SurfaceReadKind): { layer: N; uv: N; found: N; rings: boolean } {
+function lookupNodes(builder: N, tex: SurfaceCacheTextures, kind: SurfaceReadKind): { layer: N; uv: N; found: N; rings: boolean } {
   const table = tex.tableNode;
   const texel = (t: N): N => table.load(ivec2(int(t.mod(uint(LOOKUP_WIDTH))), int(t.div(uint(LOOKUP_WIDTH)))));
   const word = (w: N): N => texel(w.div(uint(4))).element(w.mod(uint(4)));
   const asF = (v: N): N => uintBitsToFloat(v);
-  const asI = (v: N): N => TSL.int(v);
   const p = positionWorld;
   const n = normalWorldGeometry;
   const layer = uint(0).toVar('tlCacheLayer');
   const uv = vec2(0).toVar('tlCacheUv');
   const found = bool(false).toVar('tlCacheFound');
-  // A chart record's place for metres (uu, vv), held half a texel inside its interior; the uv on its page.
-  const chartAt = (at: N, uu: N, vv: N): void => {
-    const c0 = texel(at);
-    const c1 = asF(texel(at.add(uint(1))));
+  // A chart's place (`c0`) for metres (uu, vv) along its wm × hm, held half a texel inside its interior; the uv on its page.
+  const chartAt = (c0: N, uu: N, vv: N, wm: N, hm: N): void => {
     const x0 = float(c0.y.bitAnd(uint(0xffff)));
     const y0 = float(c0.y.shiftRight(uint(16)));
     const iw = float(c0.z.bitAnd(uint(0xffff)));
     const ih = float(c0.z.shiftRight(uint(16)));
-    const x = x0.add(clamp(uu.div(c1.x).mul(iw), float(0.5), iw.sub(0.5)));
-    const y = y0.add(clamp(vv.div(c1.y).mul(ih), float(0.5), ih.sub(0.5)));
+    const x = x0.add(clamp(uu.div(wm).mul(iw), float(0.5), iw.sub(0.5)));
+    const y = y0.add(clamp(vv.div(hm).mul(ih), float(0.5), ih.sub(0.5)));
     layer.assign(c0.x);
     uv.assign(vec2(x, y).div(SURFACE_PAGE_TEXELS));
     found.assign(true);
@@ -300,43 +322,55 @@ function lookupNodes(tex: SurfaceCacheTextures, kind: SurfaceReadKind): { layer:
     return { layer, uv, found, rings: false };
   }
   if (kind === SURFACE_READ.terrain) {
-    Loop(int(tex.head.z), ({ i }: { i: N }) => {
+    // The first terrain's rings from uniforms; any others from the table.
+    const ringAt = (r: N, base: N, k: N): void => {
+      const half = r.z.sub(r.w);
+      If(abs(p.x.sub(r.x)).lessThanEqual(half).and(abs(p.z.sub(r.y)).lessThanEqual(half)), () => {
+        layer.assign(base.add(uint(k)));
+        uv.assign(vec2(p.x, p.z).div(r.w).div(TERRAIN_RING_TEXELS));
+        found.assign(true);
+        Break();
+      });
+    };
+    Loop(tex.rings0Count, ({ i: k }: { i: N }) => {
+      ringAt(tex.rings0.element(k), uint(0), k);
+    });
+    Loop({ start: int(1), end: int(tex.head.z) }, ({ i }: { i: N }) => {
+      If(found, () => {
+        Break();
+      });
       const at = uint(tex.head.w).add(uint(i).mul(uint(TERRAIN_TEXELS)));
       const t0 = texel(at);
       Loop(int(t0.x), ({ i: k }: { i: N }) => {
-        const r = asF(texel(at.add(uint(1)).add(uint(k))));
-        const half = r.z.sub(r.w);
-        If(abs(p.x.sub(r.x)).lessThanEqual(half).and(abs(p.z.sub(r.y)).lessThanEqual(half)), () => {
-          layer.assign(t0.y.add(uint(k)));
-          uv.assign(vec2(p.x, p.z).div(r.w).div(TERRAIN_RING_TEXELS));
-          found.assign(true);
-          Break();
-        });
-      });
-      If(found, () => {
-        Break();
+        ringAt(asF(texel(at.add(uint(1)).add(uint(k)))), t0.y, k);
       });
     });
     return { layer, uv, found, rings: true };
   }
-  // Architecture: the world cell's list of charts, the first whose plane and rectangle hold the pixel.
-  const h1 = TSL.uvec2(tex.arch);
+  if (kind === SURFACE_READ.model) {
+    modelLookup(builder, tex, texel, layer, uv, found);
+    return { layer, uv, found, rings: false };
+  }
+  // Architecture: the world cell's list of charts that face the pixel's way, the first whose plane and rectangle hold it.
+  const h1 = TSL.uvec4(tex.arch);
   const c = TSL.ivec3(floor(p.div(ARCH_CELL)));
-  const cu = TSL.uvec3(c);
+  const zf = c.z.mul(int(8)).add(int(facingNode(n)));
   const cap = h1.x;
-  const s = cu.x.mul(uint(73856093)).bitXor(cu.y.mul(uint(19349663))).bitXor(cu.z.mul(uint(83492791))).bitAnd(cap.sub(uint(1))).toVar();
+  const s = uint(c.x).mul(uint(73856093)).bitXor(uint(c.y).mul(uint(19349663))).bitXor(uint(zf).mul(uint(83492791))).bitAnd(cap.sub(uint(1))).toVar();
   Loop(int(cap), () => {
     const slot = texel(h1.y.add(s));
     If(slot.w.equal(uint(0)), () => {
       Break();
     });
-    If(TSL.ivec3(asI(slot.x), asI(slot.y), asI(slot.z)).equal(c).all(), () => {
+    If(TSL.ivec3(asI(slot.x), asI(slot.y), asI(slot.z)).equal(TSL.ivec3(c.x, c.y, zf)).all(), () => {
       const list = slot.w;
       Loop(int(word(list.mul(uint(4)))), ({ i }: { i: N }) => {
         const fa = word(list.mul(uint(4)).add(uint(1)).add(uint(i)));
+        // The frame and its chart's place read together (no load waits on another).
         const f0 = asF(texel(fa));
         const f1 = asF(texel(fa.add(uint(1))));
         const f2 = asF(texel(fa.add(uint(2))));
+        const c0 = texel(fa.add(uint(3)));
         const d = p.sub(f0.xyz);
         const nn = cross(f1.xyz, f2.xyz);
         const uu = dot(d, f1.xyz);
@@ -344,7 +378,7 @@ function lookupNodes(tex: SurfaceCacheTextures, kind: SurfaceReadKind): { layer:
         const on = abs(dot(d, nn)).lessThanEqual(ARCH_PLANE_METRES).and(dot(n, nn).greaterThanEqual(ARCH_FACING));
         const within = uu.greaterThanEqual(-ARCH_PLANE_METRES).and(vv.greaterThanEqual(-ARCH_PLANE_METRES)).and(uu.lessThanEqual(f0.w.add(ARCH_PLANE_METRES))).and(vv.lessThanEqual(f1.w.add(ARCH_PLANE_METRES)));
         If(on.and(within), () => {
-          chartAt(fa.add(uint(FRAME_TEXELS - CHART_TEXELS)), uu, vv);
+          chartAt(c0, uu, vv, f0.w, f1.w);
           Break();
         });
       });
@@ -354,6 +388,116 @@ function lookupNodes(tex: SurfaceCacheTextures, kind: SurfaceReadKind): { layer:
   });
   return { layer, uv, found, rings: false };
 }
+
+/** A normal's facing (its major axis × 2, + 1 along −axis), as `facingOf`. */
+function facingNode(n: N): N {
+  const an = abs(n);
+  const axis = select(an.x.greaterThanEqual(an.y).and(an.x.greaterThanEqual(an.z)), uint(0), select(an.y.greaterThanEqual(an.z), uint(1), uint(2)));
+  const comp = select(axis.equal(uint(0)), n.x, select(axis.equal(uint(1)), n.y, n.z));
+  return axis.mul(uint(2)).add(select(comp.lessThan(0), uint(1), uint(0)));
+}
+
+/** A per-object uniform: the drawn object's slot (an object drawn alone). */
+const objectSlot = uniform(0, 'float').onObjectUpdate(({ object }: { object: THREE.Object3D }) => surfaceSlotOf(object));
+
+/** The drawn copy's slot (vertex stage): a merged cell's per-vertex slot, an instanced draw's column, else the object's own. */
+const copySlot = Fn((builder: N) => {
+  const g = builder.geometry as THREE.BufferGeometry | undefined;
+  if (g?.getAttribute?.(SURFACE_SLOT_ATTRIBUTE) !== undefined) return attribute(SURFACE_SLOT_ATTRIBUTE, 'float');
+  // An instanced draw's slot rides in its columns (`SURFACE_SLOT_FLOAT`: the third column's w).
+  if (buildReadsCopyColumns(builder)) return (instanceColumn(2) as N).w;
+  return objectSlot;
+});
+
+/**
+ * A model pixel's place (`lookupModelCpu`'s twin). Per vertex, the copy's
+ * slot names its record (passed on flat); the pixel takes its point and
+ * normal into the model's root, then the first piece holding a surfel in its
+ * cell and facing (a lone UV1 piece needs none) and reads that surfel's
+ * texel, or its UV1 in the piece's square.
+ */
+function modelLookup(builder: N, tex: SurfaceCacheTextures, texel: (t: N) => N, layer: N, uv: N, found: N): void {
+  const asF = (v: N): N => uintBitsToFloat(v);
+  const hasUv1 = (builder.geometry as THREE.BufferGeometry | undefined)?.getAttribute?.('uv1') !== undefined;
+  const h1 = TSL.uvec4(tex.arch);
+  // Vertex stage: the copy's slot, passed on flat (one varying: a draw's varyings are few; the table is read per pixel only).
+  const slot = varying(uint(copySlot()), 'tlSurfaceCopySlot');
+  const rec = select(slot.greaterThan(uint(0)).and(slot.lessThan(h1.z)), texel(h1.w.add(slot)).x, uint(0)).toVar('tlSurfaceRecord');
+  // The point and its normal in the model's root; the record's six texels are read together.
+  const r0 = asF(texel(rec));
+  const r1 = asF(texel(rec.add(uint(1))));
+  const r2 = asF(texel(rec.add(uint(2))));
+  const r3 = texel(rec.add(uint(3)));
+  const r4 = asF(texel(rec.add(uint(4))));
+  const r5 = asF(texel(rec.add(uint(5))));
+  const wp = positionWorld;
+  const wn = normalWorldGeometry;
+  const lp = vec3(dot(r0.xyz, wp).add(r0.w), dot(r1.xyz, wp).add(r1.w), dot(r2.xyz, wp).add(r2.w)).toVar('tlSurfaceRootPosition');
+  const ln = vec3(dot(asF(r3).xyz, wn), dot(r4.xyz, wn), dot(r5.xyz, wn)).toVar('tlSurfaceRootNormal');
+  const pieces = select(rec.equal(uint(0)), uint(0), r3.w).toVar('tlSurfacePieces');
+  // The first piece that holds it.
+  const facing = facingNode(ln).toVar('tlSurfaceFacing');
+  Loop(int(pieces), ({ i }: { i: N }) => {
+    const pa = rec.add(uint(MODEL_TEXELS)).add(uint(i).mul(uint(PIECE_TEXELS)));
+    const a = texel(pa);
+    const ch = texel(pa.add(uint(1)));
+    const isUv1 = a.w.equal(uint(1));
+    const index = int(-1).toVar();
+    If(isUv1.and(pieces.equal(uint(1))).not(), () => {
+      const qp = lp.div(asF(a.x)).toVar();
+      const cc = TSL.ivec3(floor(qp)).toVar();
+      const probe = (): void => {
+        const cap = a.z;
+        const q = uint(cc.x).mul(uint(73856093)).bitXor(uint(cc.y).mul(uint(19349663))).bitXor(uint(cc.z).mul(uint(83492791))).bitXor(facing.mul(uint(0x9e3779b1))).bitAnd(cap.sub(uint(1))).toVar();
+        Loop(int(cap), () => {
+          const hs = texel(a.y.add(q));
+          If(hs.w.equal(uint(EMPTY)), () => {
+            Break();
+          });
+          If(hs.w.bitAnd(uint(7)).equal(facing).and(TSL.ivec3(asI(hs.x), asI(hs.y), asI(hs.z)).equal(cc).all()), () => {
+            index.assign(int(hs.w.shiftRight(uint(3))));
+            Break();
+          });
+          q.assign(q.add(uint(1)).bitAnd(cap.sub(uint(1))));
+        });
+      };
+      probe();
+      // A face on a cell boundary has its surfels on either side of it: the cell across the nearer boundary along its normal.
+      If(index.lessThan(int(0)), () => {
+        const axis = facing.shiftRight(uint(1));
+        const fr = select(axis.equal(uint(0)), qp.x.sub(float(cc.x)), select(axis.equal(uint(1)), qp.y.sub(float(cc.y)), qp.z.sub(float(cc.z))));
+        const step = select(fr.lessThan(0.5), int(-1), int(1));
+        cc.assign(cc.add(TSL.ivec3(select(axis.equal(uint(0)), step, int(0)), select(axis.equal(uint(1)), step, int(0)), select(axis.equal(uint(2)), step, int(0)))));
+        probe();
+      });
+    });
+    If(isUv1.and(pieces.equal(uint(1)).or(index.greaterThanEqual(int(0)))), () => {
+      if (hasUv1) {
+        const x0 = float(ch.y.bitAnd(uint(0xffff)));
+        const y0 = float(ch.y.shiftRight(uint(16)));
+        const w = float(ch.z.bitAnd(uint(0xffff)));
+        const h = float(ch.z.shiftRight(uint(16)));
+        const t = uvOf(1);
+        layer.assign(ch.x);
+        uv.assign(vec2(x0.add(clamp(t.x.mul(w), float(0.5), w.sub(0.5))), y0.add(clamp(t.y.mul(h), float(0.5), h.sub(0.5)))).div(SURFACE_PAGE_TEXELS));
+        found.assign(true);
+      }
+      Break();
+    });
+    If(index.greaterThanEqual(int(0)), () => {
+      const w = ch.z.bitAnd(uint(0xffff));
+      const ui = uint(index);
+      const x = float(ch.y.bitAnd(uint(0xffff)).add(ui.mod(w))).add(0.5);
+      const y = float(ch.y.shiftRight(uint(16)).add(ui.div(w))).add(0.5);
+      layer.assign(ch.x);
+      uv.assign(vec2(x, y).div(SURFACE_PAGE_TEXELS));
+      found.assign(true);
+      Break();
+    });
+  });
+}
+
+const asI = (v: N): N => TSL.int(v);
 
 /**
  * The cache's light at this pixel (built before the local lights, in a
@@ -369,7 +513,7 @@ export class SurfaceReadLightNode extends (THREE.LightingNode as unknown as new 
     super();
   }
   setup(builder: N): null {
-    const { layer, uv, found, rings } = lookupNodes(this.tex, this.kind);
+    const { layer, uv, found, rings } = lookupNodes(builder, this.tex, this.kind);
     const map = texture(rings ? this.tex.rings : this.tex.atlas, uv).depth(layer).level(float(0));
     const t = select(found, map, TSL.vec4(0));
     // Alpha: 0 where nothing is lit, 1 + the sun's share where it is (a filtered lookup blends the two).

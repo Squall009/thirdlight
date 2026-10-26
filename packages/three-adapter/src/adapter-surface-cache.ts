@@ -15,6 +15,9 @@ import type { SceneAdapterModelAsset } from './models';
 import type { RenderGraph } from './render-graph';
 import type { CacheLight } from './surface-changes';
 import { SURFACE_CACHE_KEY, SurfaceCacheHost, type SurfaceHostModel } from './surface-cache-host';
+import { SURFACE_READ } from './surface-cache-lookup';
+import { SURFACE_READ_KEY, SURFACE_SLOT_KEY } from './surface-cache-read';
+import { INSTANCE_SET_KEY } from './instancing';
 
 /** Bytes in a MiB (the quality level names its budget in MiB). */
 const MIB = 1024 * 1024;
@@ -55,11 +58,33 @@ export function createAdapterSurfaceCache(d: { opts: SceneAdapterOptions; scene:
       models,
       bricks: (assetId, version) => opts.models?.resolveBricks?.(assetId, version) ?? null,
       rooms: () => level.archHost.rooms.lighting(),
+      modelAlive: (id) => docs.has(id) && entities.staticScopes.has(id),
     },
     DEFAULT_SURFACE_CACHE_MIB * MIB,
   );
   d.scene.userData[SURFACE_CACHE_KEY] = { diagnostics: () => host.diagnostics() };
   return host;
+}
+
+/**
+ * A static model object's meshes, once attached: they read the surface
+ * cache by its slot when its row has a distance-field file (the cache holds
+ * light only for such models).
+ */
+export function markStaticModelRead(host: SurfaceCacheHost | null, opts: SceneAdapterOptions, docs: ReadonlyMap<string, EntityDoc>, id: string, root: THREE.Object3D): void {
+  if (host === null) return;
+  const assetId = (docs.get(id)?.components as { model?: { asset?: { assetId?: string } } } | undefined)?.model?.asset?.assetId;
+  if (assetId === undefined) return;
+  const row = opts.models?.assets.find((a) => a.assetId === assetId) ?? opts.models?.rowOf?.(assetId);
+  if (row?.bricks !== true) return;
+  const slot = host.modelSlots.slotOf(id);
+  root.traverse((o) => {
+    // An instance set's copies stand elsewhere than the object (the cache holds the object's own placement only).
+    if ((o as THREE.InstancedMesh).isInstancedMesh === true || o.userData[INSTANCE_SET_KEY] !== undefined) return;
+    if ((o as THREE.Mesh).isMesh !== true) return;
+    o.userData[SURFACE_READ_KEY] = SURFACE_READ.model;
+    o.userData[SURFACE_SLOT_KEY] = slot;
+  });
 }
 
 /** A level's surface-cache budget in bytes. */

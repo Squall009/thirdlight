@@ -11,6 +11,8 @@ import { BlockGrid, TerrainField, buildDistanceBrickSet, encodeDistanceBricks, t
 import { SURFACE_PAGE_BYTES, SURFACE_PAGE_TEXELS, PageAtlas, areaTexels, packTile, type SurfaceChart } from './surface-cache-atlas';
 import { blockChunkCharts } from './surface-cache-blocks';
 import { SurfaceCache, surfaceLevelFor, type SurfaceTexel, type SurfaceTile } from './surface-cache';
+import { surfelLevelFor } from './surface-cache-atlas';
+import { invertAffine } from './tracer-words';
 import { SurfaceCacheHost, SURFACE_PREPARE_MS } from './surface-cache-host';
 import { SurfaceScene, type ArchTile, type BlockTile, type ModelTile, type SurfaceSceneInput } from './surface-cache-scene';
 import { TERRAIN_RING_BYTES } from './surface-cache-terrain';
@@ -338,6 +340,81 @@ describe('surface cache: addressing per kind', () => {
     expect(lookupSurfaceCpu(gone, SURFACE_READ.blocks, [0.5, 1.5, 3], [0, 1, 0])).toBeNull();
   });
 
+  it('a static model\'s pixel finds its surfel\'s texel by its copy\'s slot, or its UV1 in the square', () => {
+    const scene = new SurfaceScene(sceneInput());
+    const cache = new SurfaceCache(256 * 1024 * 1024);
+    cache.update([10, 3, 0], scene.tiles, scene.terrains, true);
+    const slots = new Map([['crate-surfels', 1], ['crate-uv1', 2]]);
+    const words = packSurfaceLookup(scene, cache, (owner) => slots.get(owner));
+    const r = rng(3);
+    for (const [owner, uv1] of [['crate-surfels', false], ['crate-uv1', true]] as const) {
+      const tile = scene.tiles.find((t) => (t as ModelTile).owner === owner) as ModelTile;
+      const level = cache.levelOf(tile.key)!;
+      const toWorld = invertAffine(tile.worldToLocal);
+      const s = tile.set.surfels!;
+      const mesh = crate(uv1);
+      let tried = 0;
+      let missed = 0;
+      let nearCell = 0;
+      for (let i = 0; i < 2000; i += 1) {
+        // A point on a random triangle of the mesh, in the model's root, then in the world.
+        const tri = mesh.triangles[Math.floor(r() * mesh.triangles.length)]!;
+        let a = r();
+        let b = r();
+        if (a + b > 1) [a, b] = [1 - a, 1 - b];
+        const [p0, p1, p2] = tri.map((k) => mesh.positions[k]!) as [V3, V3, V3];
+        const lp = [0, 1, 2].map((k) => p0[k]! + (p1[k]! - p0[k]!) * a + (p2[k]! - p0[k]!) * b);
+        const e1 = [0, 1, 2].map((k) => p1[k]! - p0[k]!);
+        const e2 = [0, 1, 2].map((k) => p2[k]! - p0[k]!);
+        const ln = unit([e1[1]! * e2[2]! - e1[2]! * e2[1]!, e1[2]! * e2[0]! - e1[0]! * e2[2]!, e1[0]! * e2[1]! - e1[1]! * e2[0]!]);
+        const wp = [0, 1, 2].map((k) => toWorld[k * 4]! * lp[0]! + toWorld[k * 4 + 1]! * lp[1]! + toWorld[k * 4 + 2]! * lp[2]! + toWorld[k * 4 + 3]!);
+        // Normals through the inverse transpose: the world → root map's columns.
+        const w = tile.worldToLocal;
+        const wn = unit([0, 1, 2].map((k) => w[k]! * ln[0] + w[4 + k]! * ln[1] + w[8 + k]! * ln[2]) as V3);
+        const uv = uv1 ? (() => {
+          const t = tri.map((k) => [mesh.uv1![k * 2]!, mesh.uv1![k * 2 + 1]!]) as [number[], number[], number[]];
+          return [0, 1].map((k) => t[0]![k]! + (t[1]![k]! - t[0]![k]!) * a + (t[2]![k]! - t[0]![k]!) * b);
+        })() : undefined;
+        const got = lookupSurfaceCpu(words, SURFACE_READ.model, wp, wn, { slot: slots.get(owner)!, ...(uv !== undefined ? { uv1: uv } : {}) });
+        tried += 1;
+        if (got === null) {
+          missed += 1;
+          continue;
+        }
+        expect(got.texture).toBe('atlas');
+        if (uv !== undefined) {
+          // The UV1 square: the texel the CPU addressing gives the pixel's UV1.
+          const want = cache.texelOf(tile.key, 0, { u: uv[0]! * (tile.chart as { w: number }).w, v: uv[1]! * (tile.chart as { h: number }).h }) as { page: number; x: number; y: number };
+          expect([got.layer, Math.floor(got.x), Math.floor(got.y)]).toEqual([want.page, want.x, want.y]);
+          continue;
+        }
+        // A surfel's texel, whose surfel stands in the pixel's cell at the level the cache holds the tile at and faces its way.
+        const k = surfelLevelFor(tile.chart as unknown as { levels: number[]; spacing: number }, level);
+        const cell = s.spacing * 2 ** k;
+        let index = -1;
+        for (let j = 0; j < (s.levels[k] ?? 0); j += 1) {
+          const want = cache.texelOf(tile.key, 0, { index: j }) as { page: number; x: number; y: number };
+          if (want.page === got.layer && want.x === Math.floor(got.x) && want.y === Math.floor(got.y)) index = j;
+        }
+        expect(index).toBeGreaterThanOrEqual(0);
+        const sp = [s.positions[index * 3]!, s.positions[index * 3 + 1]!, s.positions[index * 3 + 2]!];
+        // f32 placements: a point within a hair of a cell's edge may take the neighbour cell's surfel, never one further.
+        const off = [0, 1, 2].reduce((n, q) => n + Math.abs(Math.floor(sp[q]! / cell) - Math.floor(lp[q]! / cell)), 0);
+        expect(off).toBeLessThanOrEqual(1);
+        if (off === 1) nearCell += 1;
+        expect(s.normals[index * 3]! * ln[0] + s.normals[index * 3 + 1]! * ln[1] + s.normals[index * 3 + 2]! * ln[2]).toBeGreaterThan(0.5);
+      }
+      // A point of the surface whose cell holds no surfel of its facing (a corner's sliver) keeps its own lights.
+      expect(missed / tried, owner).toBeLessThan(0.05);
+      expect(nearCell / tried, owner).toBeLessThan(0.01);
+    }
+    // No slot, another object's slot gone, or a slot past the table: nothing.
+    expect(lookupSurfaceCpu(words, SURFACE_READ.model, [30, 1.5, 6], [0, 1, 0], { slot: 0 })).toBeNull();
+    expect(lookupSurfaceCpu(words, SURFACE_READ.model, [30, 1.5, 6], [0, 1, 0], { slot: 9 })).toBeNull();
+    const without = packSurfaceLookup(scene, cache, (owner) => (owner === 'crate-uv1' ? 2 : undefined));
+    expect(lookupSurfaceCpu(without, SURFACE_READ.model, [30, 1.5, 6], [0, 1, 0], { slot: 1 })).toBeNull();
+  });
+
   it('every texel\'s point lies on its own texel: a ray onto it resolves back to it, for every kind', () => {
     const scene = new SurfaceScene(sceneInput());
     const cache = new SurfaceCache(256 * 1024 * 1024);
@@ -586,5 +663,21 @@ describe('surface cache on the page', () => {
     const small = host.diagnostics();
     expect(small.budgetBytes).toBe(16 * 1024 * 1024);
     expect(small.usedBytes).toBeLessThanOrEqual(small.budgetBytes);
+  });
+
+  it('static models\' slots are kept per object and used again once it leaves', () => {
+    const alive = new Set(['a', 'b']);
+    const host = new SurfaceCacheHost({ layers: () => [], terrains: () => [], architecture: () => [], models: () => [], bricks: () => null, modelAlive: (id) => alive.has(id) }, 64 * 1024 * 1024);
+    // Slots: one per object for as long as it is in the scene, then used again.
+    const slots = host.modelSlots;
+    const [a, b] = [slots.slotOf('a'), slots.slotOf('b')];
+    expect(a).toBeGreaterThan(0);
+    expect(b).not.toBe(a);
+    expect(slots.slotOf('a')).toBe(a);
+    alive.delete('a');
+    host.touch();
+    host.update([0, 2, 0]);
+    expect(slots.peek('a')).toBeUndefined();
+    expect(slots.slotOf('c')).toBe(a);
   });
 });

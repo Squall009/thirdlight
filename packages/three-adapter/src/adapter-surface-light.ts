@@ -141,10 +141,10 @@ export class AdapterSurfaceLight {
     }
     const sun = lights.find((l) => l.on && l.kind === 'directional');
     tex.sun.value.setRGB(sun?.color[0] ?? 0, sun?.color[1] ?? 0, sun?.color[2] ?? 0);
-    const key = `${this.host.traceVersion}/${this.host.residencyVersion}`;
+    const key = `${this.host.traceVersion}/${this.host.residencyVersion}/${this.host.modelSlots.version}`;
     const now = performance.now();
     if (key !== this.lookupFor && now - this.lookupAt >= LOOKUP_MS) {
-      tex.setTable(packSurfaceLookup(this.host.resolveScene().scene, this.host.cache));
+      tex.setTable(packSurfaceLookup(this.host.resolveScene().scene, this.host.cache, (owner) => this.host.modelSlots.peek(owner)));
       this.lookupFor = key;
       this.lookupAt = now;
     }

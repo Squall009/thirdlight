@@ -47,7 +47,8 @@ import { LIGHT_LAYERS_KEY, ROOM_KEY } from './light-layers';
 import { SEE_THROUGH_KEY } from './see-through';
 import { SEE_THROUGH_MEMBERS_KEY, SEE_THROUGH_PIECES_KEY, type SeeThroughMembers } from './see-through-occluders';
 import { LOCAL_LIGHTS_KEY } from './local-lights';
-import { SURFACE_READ_KEY } from './surface-cache-read';
+import { SURFACE_READ } from './surface-cache-lookup';
+import { SURFACE_READ_KEY, SURFACE_SLOT_ATTRIBUTE, surfaceSlotOf } from './surface-cache-read';
 import { LOD_OWNER_KEY } from './lod-switch';
 import { OCCLUDER_EARLY_RENDER_ORDER, setOccluderMarks } from './occluders';
 import { DECAL_LAYERS_KEY } from './projected-decals';
@@ -309,7 +310,7 @@ const tmpR = new THREE.Matrix3();
 const tmpV = new THREE.Vector3();
 
 /** Write a slot's vertices into the built attributes at its place, in world space. */
-function writeVertices(attrs: ReadonlyMap<string, THREE.BufferAttribute>, slot: Pick<Slot, 'geometry' | 'matrix' | 'vStart' | 'vCount' | 'sphere'>): void {
+function writeVertices(attrs: ReadonlyMap<string, THREE.BufferAttribute>, slot: Pick<Slot, 'geometry' | 'matrix' | 'vStart' | 'vCount' | 'sphere'> & { readonly mesh?: THREE.Object3D }): void {
   const g = slot.geometry;
   tmpM.fromArray(slot.matrix);
   tmpN.getNormalMatrix(tmpM);
@@ -321,6 +322,11 @@ function writeVertices(attrs: ReadonlyMap<string, THREE.BufferAttribute>, slot: 
     const size = out.itemSize;
     const dst = out.array as unknown as { [i: number]: number; set(a: ArrayLike<number>, at: number): void; fill(v: number, start: number, end: number): void };
     const base = slot.vStart * size;
+    // A static model's slot on each of its vertices: its pixels read the surface cache by it.
+    if (name === SURFACE_SLOT_ATTRIBUTE) {
+      dst.fill(slot.mesh === undefined ? 0 : surfaceSlotOf(slot.mesh), base, base + n * size);
+      continue;
+    }
     // An unpainted member of a cell with paint: no paint.
     if (src === undefined) {
       dst.fill(0, base, base + n * size);
@@ -742,6 +748,8 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
     }
     const geometry = new THREE.BufferGeometry();
     const attrs = layoutAttributes(first, vertices, list.some((s) => s.geometry.getAttribute(PAINT_ATTRIBUTE) !== undefined));
+    // Static models' members read the surface cache by their objects' slots.
+    if (cell.surfaceRead === SURFACE_READ.model) attrs.set(SURFACE_SLOT_ATTRIBUTE, new THREE.BufferAttribute(new Float32Array(vertices), 1));
     let vertexBytes = 0;
     for (const [name, attr] of attrs) {
       geometry.setAttribute(name, attr);

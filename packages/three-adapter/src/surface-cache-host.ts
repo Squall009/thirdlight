@@ -80,6 +80,49 @@ export interface SurfaceCacheHostDeps {
   readonly bricks: (assetId: string, version: number) => Promise<Uint8Array> | null;
   /** The rooms of generated architecture and their open portals (absent or null: none). */
   readonly rooms?: () => LightingRooms | null;
+  /** Whether a static model object is still in the scene (absent: its slot is kept): a slot whose object left is used again. */
+  readonly modelAlive?: (id: string) => boolean;
+}
+
+/**
+ * Slots of static model objects. Their copies share geometry (batched,
+ * merged, instanced), so a drawn copy carries its object's slot (an
+ * instance column, a merged cell's vertex attribute, the object's own) and
+ * the materials' lookup holds each slot's placement and pieces. A slot is
+ * its object's while it is in the scene, then used again.
+ */
+export class SurfaceModelSlots {
+  private readonly byId = new Map<string, number>();
+  private readonly free: number[] = [];
+  private next = 1;
+  /** Bumped whenever a slot is given or let go (the lookup is packed again). */
+  version = 0;
+
+  /** The object's slot, given now if it has none. */
+  slotOf(id: string): number {
+    let s = this.byId.get(id);
+    if (s === undefined) {
+      s = this.free.pop() ?? this.next++;
+      this.byId.set(id, s);
+      this.version += 1;
+    }
+    return s;
+  }
+
+  /** The object's slot if it has one. */
+  peek(id: string): number | undefined {
+    return this.byId.get(id);
+  }
+
+  /** Lets go the slots of objects no longer alive. */
+  prune(alive: (id: string) => boolean): void {
+    for (const [id, s] of this.byId) {
+      if (alive(id)) continue;
+      this.byId.delete(id);
+      this.free.push(s);
+      this.version += 1;
+    }
+  }
 }
 
 export interface SurfaceCacheHostDiagnostics extends SurfaceCacheDiagnostics {
@@ -191,6 +234,8 @@ export class SurfaceCacheHost {
   private resolved: { scene: SurfaceScene; version: number } | null = null;
   /** Bumped whenever the cache's residency changed (tiles placed, let go, rings stepped): the resolve tables are packed again. */
   residencyVersion = 0;
+  /** The static model objects' slots their drawn copies read the cache by. */
+  readonly modelSlots = new SurfaceModelSlots();
   private roomsNow: SurfaceRooms | null = null;
   /** Traced layers and terrains, kept while their data is unchanged. */
   private readonly layerTraces = new Map<string, { key: string; grid: SurfaceBlockGrid; trace: TraceBlockLayer; layers: number | undefined; withLayers: TraceBlockLayer }>();
@@ -534,6 +579,7 @@ export class SurfaceCacheHost {
   /** The loaded scene's surfaces: what is ready stays, what changed or is new waits to be made, what left goes. */
   private list(): void {
     const seen = new Set<string>();
+    if (this.deps.modelAlive !== undefined) this.modelSlots.prune(this.deps.modelAlive);
     for (const layer of this.deps.layers()) {
       let m = this.memos.get(layer.id);
       if (m === undefined || m.version !== layer.version) this.memos.set(layer.id, (m = { version: layer.version, memo: new Map() }));

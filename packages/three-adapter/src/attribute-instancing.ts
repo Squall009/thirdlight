@@ -43,6 +43,8 @@ export const INSTANCE_MATRIX_FLOATS = 16;
 
 /** Where in an instance's 16 floats its paint slot rides. */
 const PAINT_SLOT_FLOAT = 3;
+/** Where its surface-cache slot rides (the third column's `w`; `surface-cache-read.ts` reads it there). */
+export const SURFACE_SLOT_FLOAT = 11;
 
 /**
  * The marker of a draw whose copies are culled on the GPU (occlusion
@@ -379,6 +381,8 @@ export interface AttributeInstancedMesh extends ViewCullable, CullableCopies {
    * at {@link markChanged}.
    */
   readonly paintSlots: Float32Array | null;
+  /** Each slot's surface-cache slot (0: none), `capacity` long, on a draw made `surfaceSlots` (else null): written beside the matrices as the paint slots are. */
+  readonly surfaceSlots: Float32Array | null;
   /** Instance `i`'s matrix (mesh space). */
   getMatrixAt(i: number, out: THREE.Matrix4): THREE.Matrix4;
   /** What the view's draw holds, as culled for the current view (null: not culled for it; every pass draws all). */
@@ -476,15 +480,28 @@ function withInstanceMembers(handle: AttributeInstancedMesh, source: THREE.Buffe
   return handle;
 }
 
-export function createAttributeInstancedMesh(source: THREE.BufferGeometry, material: THREE.Material, capacity: number, options: {
-    readonly raycast?: boolean;
-    readonly filter?: InstanceFilter;
-    readonly group?: ViewCullable;
-    /** The slots' matrices, written already (`capacity × 16`; taken, not copied). */
-    readonly matrices?: Float32Array;
-    /** The instances carry paint slots (`paintSlots`; a draw of its own program). */
-    readonly painted?: boolean;
-  } = {}): AttributeInstancedMesh {
+/** How an instanced draw is made. */
+export interface AttributeInstancingOptions {
+  readonly raycast?: boolean;
+  readonly filter?: InstanceFilter;
+  readonly group?: ViewCullable;
+  /** The slots' matrices, written already (`capacity × 16`; taken, not copied). */
+  readonly matrices?: Float32Array;
+  /** The instances carry paint slots (`paintSlots`; a draw of its own program). */
+  readonly painted?: boolean;
+  /** The instances carry surface-cache slots (`surfaceSlots`: a draw reading static models' light). */
+  readonly surfaceSlots?: boolean;
+}
+
+/** The slots that ride in each copy's spare floats (paint, surface cache), copied with it (`order`: the slot each place draws). */
+function writeRiders(target: Float32Array, at: number, n: number, paint: Float32Array | null, surface: Float32Array | null, order?: Uint32Array): void {
+  for (const [slots, float] of [[paint, PAINT_SLOT_FLOAT], [surface, SURFACE_SLOT_FLOAT]] as const) {
+    if (slots === null) continue;
+    for (let i = 0; i < n; i += 1) target[(at + i) * INSTANCE_MATRIX_FLOATS + float] = slots[order === undefined ? i : order[i]!]!;
+  }
+}
+
+export function createAttributeInstancedMesh(source: THREE.BufferGeometry, material: THREE.Material, capacity: number, options: AttributeInstancingOptions = {}): AttributeInstancedMesh {
   const filter = options.filter;
   installAttributeInstancing();
   const geometry = new THREE.InstancedBufferGeometry();
@@ -505,6 +522,7 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
     return column;
   });
   const paintSlots = options.painted === true ? new Float32Array(capacity) : null;
+  const surfaceSlots = options.surfaceSlots === true ? new Float32Array(capacity) : null;
   if (paintSlots !== null) {
     const marker = new THREE.InterleavedBufferAttribute(buffer, 1, PAINT_SLOT_FLOAT);
     geometry.setAttribute(PAINT_SLOT_ATTRIBUTE, marker);
@@ -584,8 +602,8 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
       const to = at * INSTANCE_MATRIX_FLOATS;
       for (let k = 0; k < INSTANCE_MATRIX_FLOATS; k += 1) drawn[to + k] = array[from + k]!;
     }
-    // Each instance's paint slot travels with it in the order.
-    if (paintSlots !== null) for (let at = 0; at < len; at += 1) drawn[at * INSTANCE_MATRIX_FLOATS + PAINT_SLOT_FLOAT] = paintSlots[order[at]!]!;
+    // Each instance's paint and surface slots travel with it in the order.
+    writeRiders(drawn, 0, len, paintSlots, surfaceSlots, order);
     // Only what was written goes to the GPU (a large group's view moves every frame).
     buffer.addUpdateRange(0, len * INSTANCE_MATRIX_FLOATS);
     buffer.needsUpdate = true;
@@ -594,7 +612,7 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
   const copySlotOrder = (): void => {
     if (filter === undefined) {
       drawn.set(array.subarray(0, drawnCount * INSTANCE_MATRIX_FLOATS));
-      if (paintSlots !== null) for (let i = 0; i < drawnCount; i += 1) drawn[i * INSTANCE_MATRIX_FLOATS + PAINT_SLOT_FLOAT] = paintSlots[i]!;
+      writeRiders(drawn, 0, drawnCount, paintSlots, surfaceSlots);
       buffer.addUpdateRange(0, drawnCount * INSTANCE_MATRIX_FLOATS);
       buffer.needsUpdate = true;
       version += 1;
@@ -638,8 +656,8 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
     count: 0,
     write(target: Float32Array, at: number): void {
       target.set(array.subarray(0, drawnCount * INSTANCE_MATRIX_FLOATS), at * INSTANCE_MATRIX_FLOATS);
-      // Each slot's paint slot rides in its copy as it does in the drawn buffer.
-      if (paintSlots !== null) for (let i = 0; i < drawnCount; i += 1) target[(at + i) * INSTANCE_MATRIX_FLOATS + PAINT_SLOT_FLOAT] = paintSlots[i]!;
+      // Each slot's paint and surface slots ride in its copy as they do in the drawn buffer.
+      writeRiders(target, at, drawnCount, paintSlots, surfaceSlots);
     },
   };
   const viewDrawn = { version: 0, count: 0, drawn, order, spheres, slots: bySlot };
@@ -661,6 +679,7 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
     capacity,
     array,
     paintSlots,
+    surfaceSlots,
     count: 0,
     get inView() {
       return culledFor !== null && culledStamp === culledFor.stamp ? inView : includedCount;
