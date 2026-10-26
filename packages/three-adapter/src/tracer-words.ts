@@ -62,6 +62,9 @@ export class Words {
   setU(i: number, v: number): void {
     this.u[i] = v >>> 0;
   }
+  getU(i: number): number {
+    return this.u[i]!;
+  }
   setF(i: number, v: number): void {
     this.f[i] = v;
   }

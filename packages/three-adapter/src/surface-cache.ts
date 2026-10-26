@@ -295,6 +295,11 @@ export class SurfaceCache {
     return { min: r.min, max: r.max, texels };
   }
 
+  /** A resident tile's level, blocks, packing and charts (null: not resident). */
+  residentOf(key: string): { level: number; blocks: readonly AtlasBlock[]; packing: TilePacking; charts: readonly SurfaceChart[] } | null {
+    return this.resident.get(key) ?? null;
+  }
+
   /** A terrain's rings (null: none). */
   ringsOf(key: string): TerrainRings | null {
     return this.rings.get(key) ?? null;

@@ -11,6 +11,7 @@ import { BlockGrid, DEFAULT_PROBE_SPACING, TerrainField, buildDistanceBrickSet, 
 import { SurfaceCacheHost } from './surface-cache-host';
 import { SurfaceChanges, SUN_STEP_RADIANS, type CacheLight } from './surface-changes';
 import { RELIGHT_MIN_TEXELS, RELIGHT_START_TEXELS, SurfaceRelight, type RelightUnit } from './surface-relight';
+import { LIGHT_RAYS, SUN_RAYS, lightFrameOf, packLightFrame } from './surface-light-pass';
 import { opaqueByBlockTypes } from './tracer-sources';
 import { bounceRayMetres } from './tracer-scene';
 
@@ -277,6 +278,38 @@ describe('surface relight on the page', () => {
     const box = (min: number[], max: number[]): string[] => r.unitsIn(min, max).sort();
     const union = (...lists: string[][]): string[] => [...new Set(lists.flat())].sort();
     const reach = bounceRayMetres(DEFAULT_PROBE_SPACING);
+
+    // The light pass's frame: each slice's texels on their surfaces, with the lights reaching its unit.
+    host.setLights([lamp(), sun([0, 1, 0])]);
+    host.update(eye, (now += 16));
+    const frame = lightFrameOf(host, [lamp(), sun([0, 1, 0])]);
+    const planned = host.slicesThisFrame();
+    expect(frame.slices.map((s) => s.texels)).toEqual(planned.map((s) => s.to - s.from));
+    expect(frame.slices.every((s) => s.sun)).toBe(true);
+    planned.forEach((s, i) => {
+      const touches = s.unit.min.every((v, k) => v <= lamp().position[k]! + 6) && s.unit.max.every((v, k) => v >= lamp().position[k]! - 6);
+      expect(frame.slices[i]!.lights).toEqual(touches ? [0] : []);
+    });
+    const packed = packLightFrame(frame);
+    expect(packed.rays).toBe(frame.slices.reduce((n, s) => n + s.texels * (SUN_RAYS + s.lights.length * LIGHT_RAYS), 0));
+    // Every texel sits on a surface of its unit (spare surfel texels and holes have no normal).
+    let placed = 0;
+    let off = 0;
+    for (const s of planned) {
+      for (let t = 0; t < s.to - s.from; t += 1, off += 6) {
+        const p = frame.points.subarray(off, off + 6);
+        if (p[3] === 0 && p[4] === 0 && p[5] === 0) continue;
+        placed += 1;
+        for (let k = 0; k < 3; k += 1) {
+          expect(p[k]!).toBeGreaterThanOrEqual(s.unit.min[k]! - 1e-3);
+          expect(p[k]!).toBeLessThanOrEqual(s.unit.max[k]! + 1e-3);
+        }
+      }
+    }
+    expect(placed).toBeGreaterThan(0);
+    await settle();
+    host.setLights([]);
+    await settle();
 
     // A lamp switched on in the town: what it reaches, and nothing on the terrain 26 m away.
     host.setLights([lamp()]);

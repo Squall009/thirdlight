@@ -40,6 +40,8 @@ export interface BlockChunkCharts {
   readonly chartOf: Uint32Array;
   /** Per key: the face's cell offset within its chart's rectangle (u | v << 8). */
   readonly offsets: Uint16Array;
+  /** Per chart: its face, slice (the cells' coordinate on the face's axis) and first cell along u and v. */
+  readonly frames: Int32Array;
 }
 
 /** A face's key within its chunk column: the cell's index in the column (from the grid's lowest row) × 6 + the face. */
@@ -85,6 +87,7 @@ export function blockChunkCharts(grid: SurfaceBlockGrid, opaque: (cell: BlockCel
     }
   });
   const charts: SurfaceChart[] = [];
+  const frames: number[] = [];
   const entries: [number, number, number][] = [];
   let faces = 0;
   for (const g of [...groups.values()].sort((a, b) => a.face - b.face || a.slice - b.slice)) {
@@ -107,6 +110,7 @@ export function blockChunkCharts(grid: SurfaceBlockGrid, opaque: (cell: BlockCel
       }
       const chart = charts.length;
       charts.push({ kind: 'area', w: w * grid.cellSize[pu]!, h: h * grid.cellSize[pv]! });
+      frames.push(g.face, g.slice, u0, v0);
       for (let j = 0; j < h; j += 1) {
         for (let i = 0; i < w; i += 1) {
           taken.add(uvKey(u0 + i, v0 + j));
@@ -129,7 +133,7 @@ export function blockChunkCharts(grid: SurfaceBlockGrid, opaque: (cell: BlockCel
     chartOf[i] = c;
     offsets[i] = o;
   });
-  return { charts, faces, keys, chartOf, offsets };
+  return { charts, faces, keys, chartOf, offsets, frames: Int32Array.from(frames) };
 }
 
 /** The chart and place (metres along its u and v) of a point on a face: `fu`, `fv` its fractions across the face (null: not a visible face). */

@@ -15,7 +15,7 @@ import { TRACER_WGSL, TRACER_WORKGROUP } from './tracer-wgsl';
 const USAGE = { MAP_READ: 0x1, COPY_SRC: 0x4, COPY_DST: 0x8, UNIFORM: 0x40, STORAGE: 0x80 } as const;
 const MAP_READ = 0x1;
 
-interface GpuBuffer {
+export interface GpuBuffer {
   readonly size: number;
   destroy(): void;
   mapAsync(mode: number): Promise<void>;
@@ -92,6 +92,9 @@ export class GpuTracer {
   private rays: GpuBuffer | null = null;
   private hits: GpuBuffer | null = null;
   private bind: unknown = null;
+  /** The bind group over rays another pass made (`encodeBuffer`), and those rays. */
+  private outerBind: unknown = null;
+  private outerRays: GpuBuffer | null = null;
 
   private constructor(private readonly device: TracerDevice, pipeline: { getBindGroupLayout(i: number): unknown }) {
     this.pipeline = pipeline;
@@ -113,6 +116,7 @@ export class GpuTracer {
     this.scene = this.device.createBuffer({ size: Math.max(16, scene.words.byteLength), usage: USAGE.STORAGE | USAGE.COPY_DST, label: 'tracer scene' });
     this.device.queue.writeBuffer(this.scene, 0, scene.words);
     this.bind = null;
+    this.outerBind = null;
   }
 
   /** Room for `count` rays and hits (grown, never shrunk). */
@@ -124,6 +128,7 @@ export class GpuTracer {
     this.rays = this.device.createBuffer({ size: rayBytes, usage: USAGE.STORAGE | USAGE.COPY_DST, label: 'tracer rays' });
     this.hits = this.device.createBuffer({ size: count * HIT_WORDS * 4, usage: USAGE.STORAGE | USAGE.COPY_SRC, label: 'tracer hits' });
     this.bind = null;
+    this.outerBind = null;
   }
 
   /**
@@ -153,6 +158,38 @@ export class GpuTracer {
     p.end();
   }
 
+  /**
+   * Encode one pass over `count` rays already on the GPU (`rays`: storage,
+   * `RAY_FLOATS` each, made by another pass); the hits stay in `hitsBuffer`.
+   */
+  encodeBuffer(encoder: GpuEncoder, rays: GpuBuffer, count: number, pass: Record<string, unknown> = {}): void {
+    if (this.scene === null) throw new Error('tracer: no scene');
+    if (this.hits === null || this.hits.size < count * HIT_WORDS * 4) {
+      this.hits?.destroy();
+      this.hits = this.device.createBuffer({ size: Math.max(1, count) * HIT_WORDS * 4, usage: USAGE.STORAGE | USAGE.COPY_SRC, label: 'tracer hits' });
+      this.outerBind = null;
+      this.bind = null;
+    }
+    this.device.queue.writeBuffer(this.params, 0, new Uint32Array([count, 0, 0, 0]));
+    if (this.outerBind === null || this.outerRays !== rays) {
+      this.outerRays = rays;
+      this.outerBind = this.device.createBindGroup({
+        layout: this.pipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.params } },
+          { binding: 1, resource: { buffer: this.scene } },
+          { binding: 2, resource: { buffer: rays } },
+          { binding: 3, resource: { buffer: this.hits } },
+        ],
+      });
+    }
+    const p = encoder.beginComputePass(pass);
+    p.setPipeline(this.pipeline);
+    p.setBindGroup(0, this.outerBind);
+    p.dispatchWorkgroups(Math.ceil(count / TRACER_WORKGROUP));
+    p.end();
+  }
+
   /** The hits of the last pass. */
   get hitsBuffer(): GpuBuffer | null {
     return this.hits;
@@ -177,6 +214,7 @@ export class GpuTracer {
   dispose(): void {
     for (const b of [this.params, this.scene, this.rays, this.hits]) b?.destroy();
     this.scene = this.rays = this.hits = null;
-    this.bind = null;
+    this.bind = this.outerBind = null;
+    this.outerRays = null;
   }
 }

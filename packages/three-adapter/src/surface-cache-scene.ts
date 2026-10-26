@@ -70,6 +70,10 @@ export interface SurfaceSceneInput {
 }
 
 export interface BlockTile extends SurfaceTile {
+  readonly kind: 'blocks';
+  readonly grid: SurfaceBlockGrid;
+  /** The world position of cell 0, 0, 0's min corner. */
+  readonly origin: readonly number[];
   readonly layer: number;
   readonly cx: number;
   readonly cz: number;
@@ -77,11 +81,13 @@ export interface BlockTile extends SurfaceTile {
 }
 
 export interface ArchTile extends SurfaceTile {
+  readonly kind: 'arch';
   readonly pieces: TraceArchitecture;
   readonly made: ArchitectureCharts;
 }
 
 export interface ModelTile extends SurfaceTile {
+  readonly kind: 'model';
   readonly set: DistanceBrickSet;
   readonly worldToLocal: Affine;
   readonly chart: SurfaceChart | null;
@@ -117,6 +123,9 @@ export function blockChunkTile(layer: Pick<SurfaceBlockLayer, 'key' | 'grid' | '
     min: [o[0]! + x0 * s[0]!, o[1]! + grid.min[1]! * s[1]!, o[2]! + z0 * s[2]!],
     max: [o[0]! + x1 * s[0]!, o[1]! + grid.max[1]! * s[1]!, o[2]! + z1 * s[2]!],
     version: layer.version,
+    kind: 'blocks',
+    grid,
+    origin: o,
     layer: index,
     cx,
     cz,
@@ -130,7 +139,7 @@ export function blockChunkTile(layer: Pick<SurfaceBlockLayer, 'key' | 'grid' | '
 /** The tile of an architecture object from its pieces (its charts give its box, so they are made here). */
 export function architectureTile(key: string, version: number, pieces: TraceArchitecture): ArchTile {
   const made = architectureCharts(pieces);
-  return { key, min: made.min, max: made.max, version, pieces, made, charts: () => made.charts };
+  return { kind: 'arch', key, min: made.min, max: made.max, version, pieces, made, charts: () => made.charts };
 }
 
 /** The tiles of a placed model: one per piece placed (a piece without surfels has no chart). */
@@ -142,7 +151,7 @@ export function modelPieceTiles(m: SurfaceModel): ModelTile[] {
     const size = set.voxel * DISTANCE_BRICK_CELLS;
     const box = worldBox(toWorld, set.min, [0, 1, 2].map((k) => set.min[k]! + set.dims[k]! * size));
     const chart = modelChart(set, m.worldToLocal);
-    out.push({ key: `${m.key}/${set.piece}`, min: box.min, max: box.max, version: m.version, set, worldToLocal: m.worldToLocal, chart, charts: () => (chart === null ? [] : [chart]) });
+    out.push({ kind: 'model', key: `${m.key}/${set.piece}`, min: box.min, max: box.max, version: m.version, set, worldToLocal: m.worldToLocal, chart, charts: () => (chart === null ? [] : [chart]) });
   }
   return out;
 }
@@ -267,6 +276,11 @@ export class SurfaceScene {
     if (cache.levelOf(tile.key) === null) return null;
     const at = locateArchitecturePoint(tile.made, piece, p);
     return at === null ? null : cache.texelOf(tile.key, at.chart, at);
+  }
+
+  /** What the GPU resolve's tables are packed from (`surface-resolve.ts`), in the tracer's packing order. */
+  resolveView(): { blockTiles: ReadonlyMap<string, BlockTile>; arch: readonly { tile: ArchTile; boxes: number; triangles: number }[]; models: readonly ModelTile[] } {
+    return { blockTiles: this.blockTiles, arch: this.archObjects, models: this.modelTiles };
   }
 
   /** The block tile of layer `layer`'s chunk column (for the checks). */

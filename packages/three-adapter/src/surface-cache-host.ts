@@ -25,6 +25,8 @@ import { SurfaceCache, type SurfaceCacheDiagnostics, type SurfaceTile } from './
 import { SurfaceChanges, type CacheLight } from './surface-changes';
 import { SurfaceRelight, type RelightDiagnostics, type RelightSlice, type RelightUnit } from './surface-relight';
 import type { RingPatch } from './surface-cache-terrain';
+import type { ArchTile, BlockTile, ModelTile } from './surface-cache-scene';
+import type { PatchTexels, TileTexels } from './surface-texels';
 import { architecturePiecesOf } from './surface-cache-arch';
 import type { SurfaceBlockGrid } from './surface-cache-blocks';
 import { architectureTile, blockChunkTile, modelPieceTiles } from './surface-cache-scene';
@@ -155,6 +157,8 @@ export class SurfaceCacheHost {
   private listed = false;
   /** Each terrain's tile data as last listed (an edit hands in new data). */
   private readonly terrainTiles = new Map<string, Map<string, TerrainTile>>();
+  /** Each terrain's field as last listed. */
+  private readonly fields = new Map<string, TerrainField>();
   /** Each terrain's ring patch units by key. */
   private readonly patchUnits = new Map<string, Map<string, RingPatchUnit>>();
   private slices: RelightSlice[] = [];
@@ -183,6 +187,23 @@ export class SurfaceCacheHost {
   /** The lights now (once a frame). */
   setLights(lights: readonly CacheLight[]): void {
     this.changes.setLights(lights);
+  }
+
+  /** Where a unit's texels are: a resident tile's packing, or a ring patch and its terrain (null: gone). */
+  texelsOf(key: string): TileTexels | PatchTexels | null {
+    const r = this.cache.residentOf(key);
+    if (r !== null) {
+      const tile = this.ready.get(key) as BlockTile | ArchTile | ModelTile | undefined;
+      return tile === undefined ? null : { tile, level: r.level, packing: r.packing, charts: r.charts };
+    }
+    const hash = key.indexOf('#');
+    if (hash < 0) return null;
+    const terrain = key.slice(0, hash);
+    const u = this.patchUnits.get(terrain)?.get(key);
+    const field = this.fields.get(terrain);
+    const rings = this.cache.ringsOf(terrain);
+    if (u === undefined || field === undefined || rings === null) return null;
+    return { patch: u.patch, texel: rings.texelMetres(u.patch.ring), field };
   }
 
   /** The texels to light this frame (what `update` planned). */
@@ -309,11 +330,15 @@ export class SurfaceCacheHost {
     const terrainIds = new Set<string>();
     for (const { id, field } of this.deps.terrains()) {
       terrainIds.add(id);
+      this.fields.set(id, field);
       const r = ringSourceOf(id, field);
       if (r !== null) this.terrains.push(r);
       this.terrainEdits(id, field);
     }
-    for (const id of [...this.terrainTiles.keys()]) if (!terrainIds.has(id)) this.terrainTiles.delete(id);
+    for (const id of [...this.terrainTiles.keys()]) if (!terrainIds.has(id)) {
+      this.terrainTiles.delete(id);
+      this.fields.delete(id);
+    }
     for (const a of this.deps.architecture()) {
       let version = this.componentVersions.get(a.component);
       if (version === undefined) this.componentVersions.set(a.component, (version = ++this.componentVersion));

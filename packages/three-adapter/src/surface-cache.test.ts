@@ -8,15 +8,17 @@
 import { describe, expect, it } from 'vitest';
 import { BlockGrid, TerrainField, buildDistanceBrickSet, encodeDistanceBricks, type ArchitectureComponent, type BlockType, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
 
-import { SURFACE_PAGE_BYTES, SURFACE_PAGE_TEXELS, PageAtlas, packTile, type SurfaceChart } from './surface-cache-atlas';
+import { SURFACE_PAGE_BYTES, SURFACE_PAGE_TEXELS, PageAtlas, areaTexels, packTile, type SurfaceChart } from './surface-cache-atlas';
 import { blockChunkCharts } from './surface-cache-blocks';
 import { SurfaceCache, surfaceLevelFor, type SurfaceTexel, type SurfaceTile } from './surface-cache';
 import { SurfaceCacheHost, SURFACE_PREPARE_MS } from './surface-cache-host';
-import { SurfaceScene, type SurfaceSceneInput } from './surface-cache-scene';
+import { SurfaceScene, type ArchTile, type BlockTile, type ModelTile, type SurfaceSceneInput } from './surface-cache-scene';
 import { TERRAIN_RING_BYTES } from './surface-cache-terrain';
 import { traceRayCpu, sceneView, type V3 } from './tracer-cpu';
 import { opaqueByBlockTypes, traceBlockLayerOf, traceTerrainOf } from './tracer-sources';
-import { TRACE_ARCH, TRACE_BLOCKS, TRACE_BRICKS, TRACE_MISS, TRACE_TERRAIN, TRACE_UNFINISHED, packTraceScene, worldToLocalOf } from './tracer-scene';
+import { HIT_WORDS, TRACE_ARCH, TRACE_BLOCKS, TRACE_BRICKS, TRACE_MISS, TRACE_TERRAIN, TRACE_UNFINISHED, packTraceScene, worldToLocalOf } from './tracer-scene';
+import { packResolveTable, resolveHitCpu, texelWords } from './surface-resolve';
+import { TEXEL_POINT_FLOATS, patchTexelPoints, tileTexelPoints } from './surface-texels';
 
 function rng(seed: number): () => number {
   let a = seed >>> 0;
@@ -219,6 +221,126 @@ describe('surface cache: addressing per kind', () => {
     cache.forEachResident((key, _, __, ___, charts) => kinds.set(key, charts[0]?.kind ?? 'none'));
     expect(kinds.get('crate-surfels/')).toBe('surfels');
     expect(kinds.get('crate-uv1/')).toBe('area');
+  });
+
+  it('the GPU resolve\'s table and walk find the texel the CPU addressing does, for every kind', () => {
+    const scene = new SurfaceScene(sceneInput());
+    const cache = new SurfaceCache(256 * 1024 * 1024);
+    cache.update([10, 3, 0], scene.tiles, scene.terrains, true);
+    const table = packResolveTable(scene, cache);
+    const s = sceneView(packTraceScene(scene.traceSource()));
+    const r = rng(5);
+    const hits = new Uint32Array(HIT_WORDS);
+    const hf = new Float32Array(hits.buffer);
+    const byKind = new Map<number, number>();
+    let near = 0;
+    let n = 0;
+    for (let i = 0; i < 6000; i += 1) {
+      const o: V3 = [-6 + r() * 50, 1.6 + r() * 4.5, -22 + r() * 34];
+      const d = unit([r() * 2 - 1, r() * 2 - 1.3, r() * 2 - 1]);
+      let tmin = 0;
+      let hit = traceRayCpu(s, o, d, tmin, 120);
+      while (hit.kind === TRACE_UNFINISHED) {
+        tmin = hit.t;
+        hit = traceRayCpu(s, o, d, tmin, 120);
+      }
+      if (hit.kind === TRACE_MISS || hit.t <= 1e-4) continue;
+      hf[0] = hit.t;
+      hf.set(hit.normal, 1);
+      hits.set([hit.kind | (hit.face << 8), hit.object, hit.a0, hit.a1], 4);
+      const want = texelWords(scene.resolve(cache, hit), table.terrains);
+      const got = resolveHitCpu(table.words, hits, 0);
+      n += 1;
+      byKind.set(hit.kind, (byKind.get(hit.kind) ?? 0) + 1);
+      if (got[0] === want[0] && got[1] === want[1]) continue;
+      // The table holds f32: a point within a hair of a texel's edge may land in the neighbour, never further.
+      expect(got[0]).toBe(want[0]);
+      expect(Math.abs((got[1] & 0xffff) - (want[1] & 0xffff)) + Math.abs((got[1] >>> 16) - (want[1] >>> 16))).toBeLessThanOrEqual(1);
+      near += 1;
+    }
+    for (const kind of [TRACE_BLOCKS, TRACE_TERRAIN, TRACE_ARCH, TRACE_BRICKS]) expect(byKind.get(kind) ?? 0, `kind ${kind}`).toBeGreaterThan(30);
+    expect(near / n).toBeLessThan(0.002);
+    // A tile let go resolves to nothing.
+    cache.update([10, 3, 0], [], scene.terrains, true);
+    const gone = packResolveTable(scene, cache);
+    expect(resolveHitCpu(gone.words, hits, 0)[0] === 0 || hits[4]! % 256 === TRACE_TERRAIN).toBe(true);
+  });
+
+  it('every texel\'s point lies on its own texel: a ray onto it resolves back to it, for every kind', () => {
+    const scene = new SurfaceScene(sceneInput());
+    const cache = new SurfaceCache(256 * 1024 * 1024);
+    cache.update([10, 3, 0], scene.tiles, scene.terrains, true);
+    const s = sceneView(packTraceScene(scene.traceSource()));
+    const pts = new Float32Array(TEXEL_POINT_FLOATS);
+    const room = blockRoom();
+    const tried = new Map<string, number>();
+    const wrong = new Map<string, number>();
+    const back = (p: Float32Array): SurfaceTexel | null => {
+      const n: V3 = [p[3]!, p[4]!, p[5]!];
+      const o: V3 = [p[0]! + n[0] * 0.05, p[1]! + n[1] * 0.05, p[2]! + n[2] * 0.05];
+      const hit = traceRayCpu(s, o, [-n[0], -n[1], -n[2]], 0, 0.1);
+      return hit.kind === TRACE_MISS ? null : scene.resolve(cache, hit);
+    };
+    for (const tile of scene.tiles) {
+      const r = cache.residentOf(tile.key);
+      if (r === null) continue;
+      const t = tile as BlockTile | ArchTile | ModelTile;
+      const texels = r.packing.places.reduce((n, p) => n + p.w * p.h, 0);
+      for (let i = 0; i < texels; i += 13) {
+        tileTexelPoints({ tile: t, level: r.level, packing: r.packing, charts: r.charts }, i, i + 1, pts, 0);
+        if (pts[3] === 0 && pts[4] === 0 && pts[5] === 0) continue;
+        // The texel's place on the atlas: its chart's rectangle, a border texel at its nearest interior one.
+        let c = 0;
+        let first = 0;
+        while (first + r.packing.places[c]!.w * r.packing.places[c]!.h <= i) first += r.packing.places[c++]!.w * r.packing.places[c - 1]!.h;
+        const place = r.packing.places[c]!;
+        const b = r.blocks[place.block]!;
+        const chart = r.charts[c]!;
+        let x = (i - first) % place.w;
+        let y = Math.floor((i - first) / place.w);
+        if (chart.kind === 'area') {
+          x = Math.min(areaTexels(chart.w, r.level), Math.max(1, x));
+          y = Math.min(areaTexels(chart.h, r.level), Math.max(1, y));
+        }
+        // A half block's faces have texels but stop no ray (the tracer's rule): nothing to land on.
+        if (t.kind === 'blocks') {
+          const cell = [0, 1, 2].map((k) => Math.floor(pts[k]! - pts[3 + k]! * 0.01 - room.origin[k]!));
+          const at = room.grid.indexAt(cell[0]!, cell[1]!, cell[2]!);
+          if (at < 0 || !OPAQUE(room.grid.valueOf(at))) continue;
+        }
+        const got = back(pts);
+        tried.set(t.kind, (tried.get(t.kind) ?? 0) + 1);
+        if (got === null || !('page' in got) || got.page !== b.page || got.x !== b.x + place.x + x || got.y !== b.y + place.y + y) wrong.set(t.kind, (wrong.get(t.kind) ?? 0) + 1);
+      }
+    }
+    for (const kind of ['blocks', 'arch', 'model']) expect(tried.get(kind) ?? 0, kind).toBeGreaterThan(20);
+    // Block faces land exactly; a surfel's point may lie nearer a neighbour surfel after the hit's quantization.
+    expect(wrong.get('blocks') ?? 0).toBe(0);
+    expect((wrong.get('model') ?? 0) / tried.get('model')!).toBeLessThan(0.15);
+    // An architecture chart is its touching coplanar pieces' bounding rectangle: texels off the pieces (a room's
+    // inside on its wall tops' plane) have no surface to land on, and some lie under another rectangle's piece.
+    expect((wrong.get('arch') ?? 0) / tried.get('arch')!).toBeLessThan(0.25);
+    // Terrain: each ring patch's texel is where the rings hold that point, unless a finer ring holds it.
+    const rings = cache.ringsOf('land')!;
+    let checked = 0;
+    for (let k = 0; k < rings.rings; k += 1) {
+      for (const patch of rings.patches(k)) {
+        const field = terrainField();
+        for (let i = 0; i < patch.w * patch.h; i += 97) {
+          patchTexelPoints({ patch, texel: rings.texelMetres(k), field }, i, i + 1, pts, 0);
+          if (pts[4] === 0) continue;
+          const got = back(pts);
+          expect(got).not.toBeNull();
+          const want = cache.ringTexelOf('land', pts[0]!, pts[2]!);
+          expect(got).toEqual(want);
+          if (want!.ring === k) {
+            expect(want!.x).toBe((((patch.ix + (i % patch.w)) % 512) + 512) % 512);
+            checked += 1;
+          }
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(20);
   });
 
   it('terrain rings: a point is in the finest ring that holds it, and beyond the last it is not resident', () => {
