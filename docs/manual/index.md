@@ -77,6 +77,7 @@ use and why.
   - [Visual scripts](guides/visual-scripts.md)
   - [Title, new game, restart and scene changes](guides/game-flow.md)
   - [Game modes](guides/game-modes.md)
+  - [Switching to a plane and back (a side-view stretch in a 3D level)](guides/switching-to-a-plane.md)
   - [Saves](guides/saves.md)
   - [Input and rebinding](guides/input.md)
   - [Local co-op players](guides/co-op.md)

@@ -22,6 +22,7 @@
  *   export-size [options]          what an export downloads, raw/gzip/brotli (tools/perf/export-size.ts lists its options)
  *   trim [options]                 the trim material's GPU cost against the standard material on one mesh (tools/perf/trim-run.ts)
  *   meadow [options]               the meadow class (1 km² of terrain under grass cover) at the 60 Hz cap, and the GPU grass density sweep (tools/perf/meadow-run.ts)
+ *   pipe [options]                 the pipe scene played with real input at the 60 Hz cap: the frames round the switches into a side-view plane and back (tools/perf/pipe-run.ts)
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 
@@ -62,6 +63,11 @@ if (argv[0] === 'trim') {
 if (argv[0] === 'meadow') {
   const { runMeadowCli } = await import('./meadow-run');
   await runMeadowCli(argv.slice(1));
+  process.exit(process.exitCode ?? 0);
+}
+if (argv[0] === 'pipe') {
+  const { runPipeCli } = await import('./pipe-run');
+  await runPipeCli(argv.slice(1));
   process.exit(process.exitCode ?? 0);
 }
 if (argv[0] === 'export-size') {
