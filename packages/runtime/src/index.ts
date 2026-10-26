@@ -291,7 +291,7 @@ export { BLOCK_CHUNK_DATA_KEY, decodeBlockChunks, readBlockChunkData } from '@th
 // A terrain's tiles: decoded on the page from their blobs, asked for heights, normals, holes and layers (renderer, colliders, queries).
 // What a texture read gives without a texture (the material compiler's and the slot arrays' one table).
 export { TEXTURE_ABSENT_VALUES, type TextureAbsent } from '@thirdlight/project-model';
-export { TerrainField, decodeTerrainTile, readTerrainTileBlob, terrainCellStep, terrainTileKey, type TerrainComponent, type TerrainSample, type TerrainTile } from '@thirdlight/project-model';
+export { TerrainField, decodeTerrainTile, readTerrainTileBlob, terrainCellStep, terrainHoleAt, terrainTileKey, type TerrainComponent, type TerrainSample, type TerrainTile } from '@thirdlight/project-model';
 export { TERRAIN_HEIGHT_STEPS, TERRAIN_PAINT_BYTES, TERRAIN_SAMPLE_LAYERS, TERRAIN_WEIGHT_BYTES, WORLD_UV_PERIOD_METRES, flatTerrainTile, terrainFlatStep, terrainHeightOf, terrainLayersAt, terrainTileBytes, terrainTileSize, type TerrainTileRef } from '@thirdlight/project-model';
 // The terrain editing bounds and forms the editor's tools offer (the command checks them), and the noise hash its preview repeats.
 export { HEIGHTMAP_FORMATS, TERRAIN_ADD_TILES_MAX, TERRAIN_BRUSH_LIMITS, TERRAIN_HEIGHT_LIMIT, TERRAIN_LAYER_MAX, TERRAIN_LOD_DISTANCE_LIMITS, TERRAIN_MACRO_DISTANCE_LIMITS, TERRAIN_NOISE_HASH, TERRAIN_SPACING_LIMITS, TERRAIN_STAMP_SIZE_LIMITS, TERRAIN_TILE_COORD_MAX, TERRAIN_TILE_SAMPLES, TERRAIN_TILE_SAMPLES_DEFAULT, terrainDabSamples, type HeightmapFormat } from '@thirdlight/project-model';

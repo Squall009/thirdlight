@@ -25,6 +25,7 @@
  *   pipe [options]                 the pipe scene played with real input at the 60 Hz cap: the frames round the switches into a side-view plane and back (tools/perf/pipe-run.ts)
  *   gpu-features [--out FILE]      the host's WebGPU adapter: features, limits, WGSL language features, storage-texture formats per access (tools/perf/gpu-features.ts)
  *   cache-spike [options]          the surface-cache spike: one block room's cache re-lit by traced rays at the 60 Hz cap (tools/perf/cache-spike-run.ts)
+ *   tracer [options]               the lighting tracer per geometry kind on the GPU at the 60 Hz cap: cost per ray in random order and grouped, GPU hits against the CPU twin (tools/perf/tracer-run.ts)
  *   look [options]                 the look-reference scenes (a room lit through a door, a building at sunset, a corridor of rect and line lights, a sign at night) baked, measured at the 60 Hz cap and photographed on both renderers (tools/perf/look-run.ts)
  */
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -81,6 +82,11 @@ if (argv[0] === 'gpu-features') {
 if (argv[0] === 'cache-spike') {
   const { runCacheSpikeCli } = await import('./cache-spike-run');
   await runCacheSpikeCli(argv.slice(1));
+  process.exit(process.exitCode ?? 0);
+}
+if (argv[0] === 'tracer') {
+  const { runTracerCli } = await import('./tracer-run');
+  await runTracerCli(argv.slice(1));
   process.exit(process.exitCode ?? 0);
 }
 if (argv[0] === 'look') {
