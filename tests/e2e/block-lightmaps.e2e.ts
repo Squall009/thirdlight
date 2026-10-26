@@ -9,7 +9,11 @@
  * shadow). "Bake preview" in the Lighting window bakes the cube and each
  * chunk of the layer (a chunk entry: the layer, its chunk and the chunk's
  * lightmap layout); Play then shows the cube's shadow on the blocks from the
- * chunk's lightmap, and a lit spot keeps about the realtime brightness. The
+ * chunk's lightmap, and a lit spot keeps about the realtime brightness.
+ * Before the bake, on WebGPU, a small area light over the floor's front
+ * corner lights a pool there that its mirror spot across the floor lacks:
+ * an area light has no per-pixel light, so the pool is the blocks reading
+ * the surface cache (no per-pixel light draws an area light). The
  * static export, served with the backend stopped, shows the same. A cell
  * edit makes the bake stale. "Bake final" (Blender Cycles, when Blender is
  * there) bakes the chunks the same way.
@@ -25,7 +29,7 @@ import * as THREE from 'three';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
-import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
+import { backendOf, editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { openWindow } from './ui';
 
 let be: E2EBackend | null = null;
@@ -66,6 +70,11 @@ function brightnessAt(img: Image, world: [number, number, number]): number {
 
 const shadowSpot: [number, number, number] = [0.95, 0, -0.75];
 const litSpot: [number, number, number] = [-0.95, 0, -0.75];
+/** Under the area light (its reach ends well short of the spots above), and the same spot mirrored across the floor. */
+const lampSpot: [number, number, number] = [3.5, 0, 2];
+const mirrorSpot: [number, number, number] = [-3.5, 0, 2];
+/** How much brighter (of 255) the lamp's pool is than its mirror spot when the blocks read the cache. */
+const LAMP_POOL = 25;
 
 function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void> }> {
   const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm', '.png': 'image/png' };
@@ -96,13 +105,13 @@ const cubeFront: [number, number, number] = [0, 0.5, 0.5];
  * them) and the same as the frame before (loaded and staying put). Whether
  * the shadow is absent is asserted on that frame, not waited for.
  */
-function steadyLit(): (img: Image) => boolean {
+function steadyLit(pool = false): (img: Image) => boolean {
   let last = -1;
   return (img) => {
     const lit = brightnessAt(img, litSpot);
     const steady = Math.abs(lit - last) < 1;
     last = lit;
-    return lit > 60 && lit - brightnessAt(img, cubeFront) > 10 && steady;
+    return lit > 60 && lit - brightnessAt(img, cubeFront) > 10 && steady && (!pool || brightnessAt(img, lampSpot) - brightnessAt(img, mirrorSpot) > LAMP_POOL);
   };
 }
 
@@ -165,10 +174,18 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`Bake preview bakes a stat
   test.setTimeout(300_000);
   const { layer, cube } = await openScene(page, variant);
 
-  // Before the bake: the sun is realtime without a shadow.
-  const before = await play(page, variant, steadyLit());
+  // Before the bake: the sun is realtime without a shadow. A small area light, realtime, 0.5 m over the front corner
+  // (the bake does not take area lights; a baked chunk draws its lightmap, so the lamp leaves the picture after it).
+  const live = backendOf(variant) === 'webgpu';
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Lamp', transform: { position: [lampSpot[0], 0.5, lampSpot[2]] }, components: { light: { type: 'area', shape: 'rect', width: 0.6, height: 0.6, color: '#ffffff', intensity: 4, range: 1.5, castShadow: false, mode: 'realtime' } } });
+  const before = await play(page, variant, steadyLit(live));
   const beforeLit = brightnessAt(before, litSpot);
   expect(Math.abs(brightnessAt(before, shadowSpot) - beforeLit)).toBeLessThan(15);
+  const pool = brightnessAt(before, lampSpot) - brightnessAt(before, mirrorSpot);
+  console.log(`[block-lightmaps] ${variant}: area light pool ${pool.toFixed(1)} over its mirror spot (${live ? 'read from the surface cache' : 'no live cache'})`);
+  // Where the cache is lit live the blocks draw its light; WebGL 2 draws no area light before a bake.
+  if (live) expect(pool).toBeGreaterThan(LAMP_POOL);
+  else expect(Math.abs(pool)).toBeLessThan(LAMP_POOL);
 
   // Bake in the Lighting window: the cube and the layer's chunk.
   await openWindow(page, 'Lighting');

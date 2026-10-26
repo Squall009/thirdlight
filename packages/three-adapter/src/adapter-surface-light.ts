@@ -35,8 +35,8 @@ import type { GpuBuffer, GpuTexture, TracerDevice } from './tracer-gpu';
 import { SURFACE_PAGE_BYTES } from './surface-cache-atlas';
 import { TERRAIN_RING_SHARE } from './surface-cache';
 import { TERRAIN_RINGS_MAX, TERRAIN_RING_BYTES } from './surface-cache-terrain';
-import { packSurfaceLookup } from './surface-cache-lookup';
-import { SURFACE_READ_LIVE_KEY, SurfaceCacheTextures } from './surface-cache-read';
+import { packSurfaceLookup, SURFACE_READ } from './surface-cache-lookup';
+import { SURFACE_READ_ALL, SURFACE_READ_LIVE_KEY, SurfaceCacheTextures } from './surface-cache-read';
 import type { CacheLight } from './surface-changes';
 
 /** How often (ms) the debug look is drawn again while texels change. */
@@ -45,8 +45,18 @@ const VIEW_MS = 200;
 const VIEW_ALBEDO = 0.5;
 /** How far (m) the debug squares stand off their surfaces. */
 const VIEW_LIFT = 0.01;
-/** The page flag that keeps materials off the cache while it is lit live (`?surfaceRead=0`). */
+/** The page flag that keeps materials off the cache while it is lit live (`?surfaceRead=0`), or names the kinds that read it (`?surfaceRead=blocks,model`: each kind's cost, by comparison). */
 export const SURFACE_READ_URL_PARAM = 'surfaceRead';
+
+/** The kinds a `surfaceRead` flag names (a bit per `SURFACE_READ` kind; no flag or no known name: all). */
+export function surfaceReadKinds(flag: string | null): number {
+  let bits = 0;
+  for (const name of (flag ?? '').split(',')) {
+    const kind = (SURFACE_READ as Record<string, number>)[name.trim()];
+    if (kind !== undefined) bits |= 1 << kind;
+  }
+  return bits === 0 ? SURFACE_READ_ALL : bits;
+}
 /** Every how many frames the reading draws write their surfaces' colours (a draw that writes loses early depth culling). */
 const ALBEDO_CAPTURE_FRAMES = 30;
 /** Shortest time (ms) between two read-backs of the surfaces' colours for the diagnostics. */
@@ -99,6 +109,8 @@ export class AdapterSurfaceLight {
   private lookupFor = '';
   /** `?surfaceRead=0`: the cache is lit but no material reads it (a comparison of what reading costs and changes). */
   private readonly readOn: boolean;
+  /** The kinds of surface that read (a bit per `SURFACE_READ` kind). */
+  private readonly readKinds: number;
   private lookupAt = -Infinity;
   /** The budget the textures were made for (another quality level's makes them again). */
   private budgetFor = -1;
@@ -116,7 +128,9 @@ export class AdapterSurfaceLight {
     this.liveProbes = probes === null ? null : new AdapterLiveProbes(host, probes, scene);
     const q = new URLSearchParams(pageSearch());
     this.viewOn = q.get('surfaceCacheView') === '1';
-    this.readOn = q.get(SURFACE_READ_URL_PARAM) !== '0';
+    const read = q.get(SURFACE_READ_URL_PARAM);
+    this.readOn = read !== '0';
+    this.readKinds = surfaceReadKinds(read);
   }
 
   /** Before the frame's programs are built (ahead of the probes' frame): whether the light is live with probes, so the probe light joins before the programs are built. */
@@ -155,6 +169,7 @@ export class AdapterSurfaceLight {
       this.lookupFor = key;
       this.lookupAt = now;
     }
+    tex.readKinds = this.readKinds;
     if (this.lookupFor !== '') this.scene.userData[SURFACE_READ_LIVE_KEY] = tex;
     // The surfaces' colours are written one frame now and then, only where probes bounce them.
     this.frames += 1;

@@ -34,7 +34,7 @@ import type { N } from './effects-tsl';
 import { LIT } from './custom-lit';
 import { SURFACE_PAGE_TEXELS } from './surface-cache-atlas';
 import { buildReadsCopyColumns, instanceColumn } from './attribute-instancing';
-import { ALBEDO_CELLS, ALBEDO_PAGE_STEP, ALBEDO_RING_STEP, albedoWords, ARCH_CELL, ARCH_FACING, ARCH_PLANE_METRES, BLOCK_INSET, EMPTY, LAYER_TEXELS, LOOKUP_WIDTH, SLOT_TEXELS, SURFACE_READ, SURFEL_KEY_BITS, TERRAIN_TEXELS, type SurfaceReadKind } from './surface-cache-lookup';
+import { ALBEDO_CELLS, ALBEDO_PAGE_STEP, ALBEDO_RING_STEP, albedoWords, ARCH_CELL, ARCH_FACING, ARCH_PLANE_METRES, BLOCK_INSET, BLOCK_LAYERS_HELD, EMPTY, LAYER_TEXELS, LOOKUP_WIDTH, SLOT_TEXELS, SURFACE_READ, SURFEL_KEY_BITS, TERRAIN_TEXELS, type SurfaceReadKind } from './surface-cache-lookup';
 import { TERRAIN_RING_TEXELS, TERRAIN_RINGS_MAX } from './surface-cache-terrain';
 import { SURFACE_TEXEL_LIT } from './surface-light-wgsl';
 import { texelTexture } from './texel-texture-node';
@@ -45,6 +45,9 @@ const { Break, Fn, If, Loop, abs, attribute, bool, clamp, cross, dot, float, flo
 
 /** Rows of the lookup texture at first (it doubles when a scene's lookup outgrows it). */
 const TABLE_ROWS = 16;
+
+/** Every kind's bit (`SurfaceCacheTextures.readKinds`). */
+export const SURFACE_READ_ALL = Object.values(SURFACE_READ).reduce((bits, kind) => bits | (1 << kind), 0);
 
 /** `mesh.userData[SURFACE_READ_KEY]`: the kind of static surface it draws (`SURFACE_READ`), whose light it reads from the cache. */
 export const SURFACE_READ_KEY = '__tlSurfaceRead';
@@ -59,7 +62,7 @@ export function surfaceReadOf(object: THREE.Object3D, scene: THREE.Object3D): { 
   const textures = scene.userData[SURFACE_READ_LIVE_KEY] as SurfaceCacheTextures | undefined;
   if (textures === undefined) return null;
   const kind = (object.userData[SURFACE_READ_KEY] as number | undefined) ?? 0;
-  return kind === 0 ? null : { kind, textures, capture: textures.capture };
+  return kind === 0 || (textures.readKinds & (1 << kind)) === 0 ? null : { kind, textures, capture: textures.capture };
 }
 
 /** Whether a reading build writes its surface's colour (a capture frame's program: a draw that writes cannot skip hidden pixels early). */
@@ -111,6 +114,8 @@ export class SurfaceCacheTextures {
   readonly albedoNode: N;
   /** Where the ring layers' colours start (words). */
   readonly albedoRingsAt: number;
+  /** The kinds of surface that read (a bit per `SURFACE_READ` kind; the page flag can name fewer). */
+  readKinds = SURFACE_READ_ALL;
   /** This frame the reading draws write their surfaces' colours (one frame now and then: the writes cost their draws early depth culling). */
   capture = false;
   table: THREE.DataTexture;
@@ -134,6 +139,8 @@ export class SurfaceCacheTextures {
   /** The first terrain's rings (centre x, z, half side, texel) and how many: read from uniforms, not the table (most scenes have one terrain). */
   readonly rings0 = uniformArray(Array.from({ length: TERRAIN_RINGS_MAX }, () => new THREE.Vector4()), 'vec4');
   readonly rings0Count = uniform(0, 'int');
+  /** The first block layers' records (`LAYER_TEXELS` vec4 each, integers as floats: all are below 2^24): read from uniforms, not the table. */
+  readonly layers0 = uniformArray(Array.from({ length: BLOCK_LAYERS_HELD * LAYER_TEXELS }, () => new THREE.Vector4()), 'vec4');
 
   /** `pages` and `ringLayers`: the most the cache's budget can hold (the colours' buffer is made once for them). */
   constructor(readonly pages: number, readonly ringLayers: number) {
@@ -176,6 +183,17 @@ export class SurfaceCacheTextures {
     const n = words[2]! > 0 ? words[at]! : 0;
     for (let k = 0; k < n; k += 1) rings[k]!.fromArray(f, at + 4 + k * 4);
     (this.rings0Count as unknown as { value: number }).value = n;
+    // Block layers' records: floats as floats, integers (signed where they may be negative) as their values.
+    const layers = (this.layers0 as unknown as { array: THREE.Vector4[] }).array;
+    const i32 = new Int32Array(words.buffer, words.byteOffset, words.length);
+    for (let li = 0; li < Math.min(words[0]!, BLOCK_LAYERS_HELD); li += 1) {
+      const w = (words[1]! + li * LAYER_TEXELS) * 4;
+      const l = li * LAYER_TEXELS;
+      layers[l]!.set(f[w]!, f[w + 1]!, f[w + 2]!, words[w + 3]!);
+      layers[l + 1]!.set(f[w + 4]!, f[w + 5]!, f[w + 6]!, i32[w + 7]!);
+      layers[l + 2]!.set(i32[w + 8]!, i32[w + 9]!, words[w + 10]!, words[w + 11]!);
+      layers[l + 3]!.set(i32[w + 12]!, words[w + 13]!, words[w + 14]!, 0);
+    }
     data.fill(0, words.length);
     this.table.needsUpdate = true;
   }
@@ -256,71 +274,106 @@ function lookupNodes(builder: N, tex: SurfaceCacheTextures, kind: SurfaceReadKin
   };
   if (kind === SURFACE_READ.blocks) {
     const an = abs(n);
-    const axis = select(an.x.greaterThanEqual(an.y).and(an.x.greaterThanEqual(an.z)), int(0), select(an.y.greaterThanEqual(an.z), int(1), int(2)));
+    // Assigned here, at the top: built lazily inside the first layer's branch, the place computed after the layers
+    // would read them unset in a pixel whose branch did not run.
+    const axis = int(0).toVar('tlBlockAxis');
+    axis.assign(select(an.x.greaterThanEqual(an.y).and(an.x.greaterThanEqual(an.z)), int(0), select(an.y.greaterThanEqual(an.z), int(1), int(2))));
     const comp = (v: N, a: N): N => select(a.equal(int(0)), v.x, select(a.equal(int(1)), v.y, v.z));
     const neg = comp(n, axis).lessThan(0);
-    const face = uint(axis.mul(2)).add(select(neg, uint(1), uint(0)));
+    const face = uint(0).toVar('tlBlockFace');
+    face.assign(uint(axis.mul(2)).add(select(neg, uint(1), uint(0))));
     const sgn = select(neg, float(-1), float(1));
+    const axisVec = vec3(0).toVar('tlBlockInset');
+    axisVec.assign(vec3(select(axis.equal(int(0)), sgn, float(0)), select(axis.equal(int(1)), sgn, float(0)), select(axis.equal(int(2)), sgn, float(0))));
     // The plane axes of a face on each axis: (z, y), (x, z), (x, y).
-    const pu = select(axis.equal(int(0)), int(2), int(0));
-    const pv = select(axis.equal(int(1)), int(2), int(1));
-    const head = tex.head;
-    Loop(int(head.x), ({ i }: { i: N }) => {
-      const at = uint(head.y).add(uint(i).mul(uint(LAYER_TEXELS)));
-      const r0 = texel(at);
-      const r1 = texel(at.add(uint(1)));
-      const r2 = texel(at.add(uint(2)));
-      const origin = asF(r0).xyz;
-      const size = asF(r1).xyz;
-      const axisVec = vec3(select(axis.equal(int(0)), sgn, float(0)), select(axis.equal(int(1)), sgn, float(0)), select(axis.equal(int(2)), sgn, float(0)));
-      const q = p.sub(origin).div(size).sub(axisVec.mul(BLOCK_INSET)).toVar();
+    const pu = int(0).toVar('tlBlockPu');
+    pu.assign(select(axis.equal(int(0)), int(2), int(0)));
+    const pv = int(0).toVar('tlBlockPv');
+    pv.assign(select(axis.equal(int(1)), int(2), int(1)));
+    // The face's slot once found, and the pixel's place in its layer's cells.
+    const got = TSL.uvec4(0).toVar('tlBlockSlot');
+    const gq = vec3(0).toVar('tlBlockQ');
+    const gcell = TSL.ivec3(0).toVar('tlBlockCell');
+    const hit = bool(false).toVar('tlBlockHit');
+    // One layer: its cell, its chunk column and the face's key, then its hash from the face's home slot (no table read before
+    // it), probing on only while a slot is taken by another face and at most the layer's longest probe (a uniform's bound).
+    const walk = (L: { origin: N; size: N; hash: N; y0: N; cx0: N; cz0: N; ncx: N; ncz: N; y1: N; cap: N; probe: N }): void => {
+      const q = p.sub(L.origin).div(L.size).sub(axisVec.mul(BLOCK_INSET)).toVar();
       const cell = TSL.ivec3(floor(q)).toVar();
-      const y0 = asI(r1.w);
       const cx = cell.x.shiftRight(uint(4));
       const cz = cell.z.shiftRight(uint(4));
-      const jx = cx.sub(asI(r2.x));
-      const jz = cz.sub(asI(r2.y));
-      const ncx = asI(r2.z.bitAnd(uint(0xffff)));
-      const ncz = asI(r2.z.shiftRight(uint(16)));
-      const inside = cell.y.greaterThanEqual(y0).and(cell.y.lessThan(asI(r2.w))).and(jx.greaterThanEqual(0)).and(jz.greaterThanEqual(0)).and(jx.lessThan(ncx)).and(jz.lessThan(ncz));
+      const jx = cx.sub(L.cx0);
+      const jz = cz.sub(L.cz0);
+      const inside = cell.y.greaterThanEqual(L.y0).and(cell.y.lessThan(L.y1)).and(jx.greaterThanEqual(0)).and(jz.greaterThanEqual(0)).and(jx.lessThan(L.ncx)).and(jz.lessThan(L.ncz)).and(L.cap.notEqual(uint(0)));
       If(inside, () => {
-        const col = texel(r0.w.add(uint(jz.mul(ncx).add(jx))));
-        const cap = col.y;
-        If(cap.notEqual(uint(0)), () => {
-          const lx = uint(cell.x.sub(cx.shiftLeft(uint(4))));
-          const lz = uint(cell.z.sub(cz.shiftLeft(uint(4))));
-          const key = uint(cell.y.sub(y0)).mul(uint(16)).add(lz).mul(uint(16)).add(lx).mul(uint(6)).add(face).toVar();
-          const h0 = key.mul(uint(0x9e3779b1));
-          const s = h0.bitXor(h0.shiftRight(uint(15))).bitAnd(cap.sub(uint(1))).toVar();
-          Loop(int(cap), () => {
-            const slot = texel(col.x.add(s));
-            If(slot.x.equal(uint(EMPTY)), () => {
+        const j = uint(jz.mul(L.ncx).add(jx)).toVar();
+        const lx = uint(cell.x.sub(cx.shiftLeft(uint(4))));
+        const lz = uint(cell.z.sub(cz.shiftLeft(uint(4))));
+        const key = uint(cell.y.sub(L.y0)).mul(uint(16)).add(lz).mul(uint(16)).add(lx).mul(uint(6)).add(face).toVar();
+        const h0 = key.bitXor(j.mul(uint(0x85ebca6b))).mul(uint(0x9e3779b1));
+        const s = h0.bitXor(h0.shiftRight(uint(15))).bitAnd(L.cap.sub(uint(1))).toVar();
+        const done = bool(false).toVar();
+        const look = (): void => {
+          const slot = texel(L.hash.add(s));
+          If(slot.x.equal(uint(EMPTY)), () => {
+            done.assign(true);
+          }).ElseIf(slot.x.equal(key).and(slot.y.shiftRight(uint(28)).shiftLeft(uint(16)).bitOr(slot.w.shiftRight(uint(16))).equal(j)), () => {
+            done.assign(true);
+            hit.assign(true);
+            got.assign(slot);
+            gq.assign(q);
+            gcell.assign(cell);
+          });
+        };
+        look();
+        If(done.not().and(L.probe.greaterThan(int(0))), () => {
+          Loop(L.probe, () => {
+            s.assign(s.add(uint(1)).bitAnd(L.cap.sub(uint(1))));
+            look();
+            If(done, () => {
               Break();
             });
-            If(slot.x.equal(key), () => {
-              // The slot holds the chart's place: page | corner, its texels and the face's cell in it, its cells.
-              const fu = clamp(comp(q, pu).sub(float(comp(cell, pu))), float(0), float(1));
-              const fv = clamp(comp(q, pv).sub(float(comp(cell, pv))), float(0), float(1));
-              const iw = float(slot.z.bitAnd(uint(255)));
-              const ih = float(slot.z.shiftRight(uint(8)).bitAnd(uint(255)));
-              const ou = float(slot.z.shiftRight(uint(16)).bitAnd(uint(255)));
-              const ov = float(slot.z.shiftRight(uint(24)));
-              const wc = float(slot.w.bitAnd(uint(255)));
-              const hc = float(slot.w.shiftRight(uint(8)).bitAnd(uint(255)));
-              const x = float(slot.y.shiftRight(uint(12)).bitAnd(uint(255))).add(clamp(ou.add(fu).div(wc).mul(iw), float(0.5), iw.sub(0.5)));
-              const y = float(slot.y.shiftRight(uint(20)).bitAnd(uint(255))).add(clamp(ov.add(fv).div(hc).mul(ih), float(0.5), ih.sub(0.5)));
-              layer.assign(slot.y.bitAnd(uint(0xfff)));
-              uv.assign(vec2(x, y).div(SURFACE_PAGE_TEXELS));
-              found.assign(true);
-              Break();
-            });
-            s.assign(s.add(uint(1)).bitAnd(cap.sub(uint(1))));
           });
         });
       });
-      If(found, () => {
-        Break();
+    };
+    const head = tex.head;
+    // The first layers from uniforms, unrolled (a uniform array indexed by a loop's counter cost the village ~0.5 ms of GPU).
+    for (let li = 0; li < BLOCK_LAYERS_HELD; li += 1) {
+      If(hit.not().and(int(head.x).greaterThan(int(li))), () => {
+        const [r0, r1, r2, r3] = [0, 1, 2, 3].map((k) => tex.layers0.element(int(li * LAYER_TEXELS + k))) as [N, N, N, N];
+        walk({ origin: r0.xyz, size: r1.xyz, hash: uint(r0.w), y0: int(r1.w), cx0: int(r2.x), cz0: int(r2.y), ncx: int(r2.z), ncz: int(r2.w), y1: int(r3.x), cap: uint(r3.y), probe: int(r3.z) });
       });
+    }
+    // Any more from the table.
+    If(hit.not().and(int(head.x).greaterThan(int(BLOCK_LAYERS_HELD))), () => {
+      Loop({ start: int(BLOCK_LAYERS_HELD), end: int(head.x) }, ({ i }: { i: N }) => {
+        const at = uint(head.y).add(uint(i).mul(uint(LAYER_TEXELS)));
+        const r0 = texel(at);
+        const r1 = texel(at.add(uint(1)));
+        const r2 = texel(at.add(uint(2)));
+        const r3 = texel(at.add(uint(3)));
+        walk({ origin: asF(r0).xyz, size: asF(r1).xyz, hash: r0.w, y0: asI(r1.w), cx0: asI(r2.x), cz0: asI(r2.y), ncx: asI(r2.z), ncz: asI(r2.w), y1: asI(r3.x), cap: r3.y, probe: asI(r3.z) });
+        If(hit, () => {
+          Break();
+        });
+      });
+    });
+    // The slot holds the chart's place: page | corner, its texels and the face's cell in it, its cells (0: not on a page).
+    If(hit.and(got.w.bitAnd(uint(0xffff)).notEqual(uint(0))), () => {
+      const fu = clamp(comp(gq, pu).sub(float(comp(gcell, pu))), float(0), float(1));
+      const fv = clamp(comp(gq, pv).sub(float(comp(gcell, pv))), float(0), float(1));
+      const iw = float(got.z.bitAnd(uint(255)));
+      const ih = float(got.z.shiftRight(uint(8)).bitAnd(uint(255)));
+      const ou = float(got.z.shiftRight(uint(16)).bitAnd(uint(255)));
+      const ov = float(got.z.shiftRight(uint(24)));
+      const wc = float(got.w.bitAnd(uint(255)));
+      const hc = float(got.w.shiftRight(uint(8)).bitAnd(uint(255)));
+      const x = float(got.y.shiftRight(uint(12)).bitAnd(uint(255))).add(clamp(ou.add(fu).div(wc).mul(iw), float(0.5), iw.sub(0.5)));
+      const y = float(got.y.shiftRight(uint(20)).bitAnd(uint(255))).add(clamp(ov.add(fv).div(hc).mul(ih), float(0.5), ih.sub(0.5)));
+      layer.assign(got.y.bitAnd(uint(0xfff)));
+      uv.assign(vec2(x, y).div(SURFACE_PAGE_TEXELS));
+      found.assign(true);
     });
     return { layer, uv, found, rings: false };
   }
@@ -413,24 +466,28 @@ const copySlot = Fn((builder: N) => {
 });
 
 /**
- * A model pixel's place (`lookupModelCpu`'s twin). The copy's slot (per
- * vertex, passed on flat) is where its record is; the pixel reads the
- * record and its piece together. A UV1 piece is read at the pixel's UV1; a
- * piece on surfels at the surfel of the pixel's cell and facing in the
- * root: its home bucket and the next (two texels), then, on a miss, the
- * cell across the nearer boundary along its normal. No loop: on the Iris Xe
- * a hash walked in a loop of the texels' count stalled the GPU (a draw
- * without side effects kept looping where the same program with a storage
- * write did not).
+ * A model pixel's place (`lookupModelCpu`'s twin). The copy's slot is where
+ * its record is; the vertex stage reads the record and passes on what a
+ * pixel needs: its point in the piece's surfel cells (from the cells'
+ * origin) and its normal in the model's root (both affine in the vertex, so
+ * exact when interpolated), and, flat, the piece's hash, buckets, chart and
+ * kind. A pixel then reads only its surfel buckets (a UV1 piece nothing
+ * before the sample): no texel a pixel reads waits on another. A UV1 piece
+ * is read at the pixel's UV1; a piece on surfels at the surfel of the
+ * pixel's cell and facing: its home bucket and the next (two texels), then,
+ * on a miss, the cell across the nearer boundary along its normal. No loop:
+ * on the Iris Xe a hash walked in a loop of the texels' count stalled the
+ * GPU (a draw without side effects kept looping where the same program with
+ * a storage write did not).
  */
 function modelLookup(builder: N, tex: SurfaceCacheTextures, texel: (t: N) => N, layer: N, uv: N, found: N): void {
   const asF = (v: N): N => uintBitsToFloat(v);
   const hasUv1 = (builder.geometry as THREE.BufferGeometry | undefined)?.getAttribute?.('uv1') !== undefined;
   const h1 = TSL.uvec4(tex.arch);
-  // Vertex stage: the copy's slot, passed on flat (one varying: a draw's varyings are few; the table is read per pixel only).
-  const slot = varying(uint(copySlot()), 'tlSurfaceCopySlot');
+  // Vertex stage: the copy's slot and its record.
+  const slot = uint(copySlot());
   const live = slot.greaterThan(uint(0)).and(slot.lessThan(h1.z));
-  const rec = h1.w.add(select(live, slot, uint(0)).mul(uint(SLOT_TEXELS))).toVar('tlSurfaceRecord');
+  const rec = h1.w.add(select(live, slot, uint(0)).mul(uint(SLOT_TEXELS)));
   const r0 = asF(texel(rec));
   const r1 = asF(texel(rec.add(uint(1))));
   const r2 = asF(texel(rec.add(uint(2))));
@@ -439,26 +496,32 @@ function modelLookup(builder: N, tex: SurfaceCacheTextures, texel: (t: N) => N, 
   const r5 = asF(texel(rec.add(uint(5))));
   const a = texel(rec.add(uint(6)));
   const ch = texel(rec.add(uint(7)));
-  const origin = TSL.ivec3(texel(rec.add(uint(8))).xyz);
-  const has = live.and(r3.w.equal(uint(1)));
-  const x0 = ch.y.bitAnd(uint(0xffff));
-  const y0 = ch.y.shiftRight(uint(16));
-  const w = ch.z.bitAnd(uint(0xffff));
-  const h = ch.z.shiftRight(uint(16));
-  If(has.and(a.w.equal(uint(1))), () => {
+  const origin = vec3(TSL.ivec3(texel(rec.add(uint(8))).xyz));
+  const wp = positionWorld;
+  const wn = normalWorldGeometry;
+  const cellPoint = vec3(dot(r0.xyz, wp).add(r0.w), dot(r1.xyz, wp).add(r1.w), dot(r2.xyz, wp).add(r2.w)).div(asF(a.x)).sub(origin);
+  const rootNormal = vec3(dot(asF(r3).xyz, wn), dot(r4.xyz, wn), dot(r5.xyz, wn));
+  // What a pixel reads, passed on (a few varyings: a draw's are limited).
+  const qp = varying(cellPoint, 'tlSurfaceCellPoint');
+  const ln = varying(rootNormal, 'tlSurfaceRootNormal');
+  const piece = varying(TSL.uvec4(a.y, a.z, ch.y, ch.z), 'tlSurfacePiece');
+  // The page, and whether the slot holds a piece (bit 0) read at its UV1 (bit 1).
+  const kindPage = varying(select(live.and(r3.w.equal(uint(1))), uint(1), uint(0)).bitOr(select(a.w.equal(uint(1)), uint(2), uint(0))).bitOr(ch.x.shiftLeft(uint(2))), 'tlSurfacePiecePage');
+  const has = kindPage.bitAnd(uint(1)).equal(uint(1));
+  const page = kindPage.shiftRight(uint(2));
+  const x0 = piece.z.bitAnd(uint(0xffff));
+  const y0 = piece.z.shiftRight(uint(16));
+  const w = piece.w.bitAnd(uint(0xffff));
+  const h = piece.w.shiftRight(uint(16));
+  If(has.and(kindPage.bitAnd(uint(2)).notEqual(uint(0))), () => {
     if (!hasUv1) return;
     const t = uvOf(1);
-    layer.assign(ch.x);
+    layer.assign(page);
     uv.assign(vec2(float(x0).add(clamp(t.x.mul(float(w)), float(0.5), float(w).sub(0.5))), float(y0).add(clamp(t.y.mul(float(h)), float(0.5), float(h).sub(0.5)))).div(SURFACE_PAGE_TEXELS));
     found.assign(true);
   }).ElseIf(has, () => {
-    const wp = positionWorld;
-    const wn = normalWorldGeometry;
-    const lp = vec3(dot(r0.xyz, wp).add(r0.w), dot(r1.xyz, wp).add(r1.w), dot(r2.xyz, wp).add(r2.w));
-    const ln = vec3(dot(asF(r3).xyz, wn), dot(r4.xyz, wn), dot(r5.xyz, wn));
     const facing = facingNode(ln).toVar('tlSurfaceFacing');
-    const qp = lp.div(asF(a.x)).toVar();
-    const cc = TSL.ivec3(floor(qp)).sub(origin).toVar();
+    const cc = TSL.ivec3(floor(qp)).toVar();
     const index = int(-1).toVar();
     // The cell's two buckets (four slots); a key out of range has no surfel.
     const probe = (): void => {
@@ -467,9 +530,9 @@ function modelLookup(builder: N, tex: SurfaceCacheTextures, texel: (t: N) => N, 
         const key = uint(cc.x).bitOr(uint(cc.y).shiftLeft(uint(SURFEL_KEY_BITS))).bitOr(uint(cc.z).shiftLeft(uint(2 * SURFEL_KEY_BITS)));
         const h0 = key.mul(uint(0x9e3779b1)).bitXor(facing.add(uint(1)).mul(uint(0x85ebca6b))).toVar();
         h0.assign(h0.bitXor(h0.shiftRight(uint(16))).mul(uint(0x7feb352d)));
-        const home = h0.bitXor(h0.shiftRight(uint(15))).bitAnd(a.z.sub(uint(1)));
-        const b0 = texel(a.y.add(home));
-        const b1 = texel(a.y.add(home.add(uint(1)).bitAnd(a.z.sub(uint(1)))));
+        const home = h0.bitXor(h0.shiftRight(uint(15))).bitAnd(piece.y.sub(uint(1)));
+        const b0 = texel(piece.x.add(home));
+        const b1 = texel(piece.x.add(home.add(uint(1)).bitAnd(piece.y.sub(uint(1)))));
         const hit = (k: N, v: N): void => {
           If(index.lessThan(int(0)).and(v.notEqual(uint(EMPTY))).and(k.equal(key)).and(v.bitAnd(uint(7)).equal(facing)), () => {
             index.assign(int(v.shiftRight(uint(3))));
@@ -492,7 +555,7 @@ function modelLookup(builder: N, tex: SurfaceCacheTextures, texel: (t: N) => N, 
     });
     If(index.greaterThanEqual(int(0)), () => {
       const ui = uint(index);
-      layer.assign(ch.x);
+      layer.assign(page);
       uv.assign(vec2(float(x0.add(ui.mod(w))).add(0.5), float(y0.add(ui.div(w))).add(0.5)).div(SURFACE_PAGE_TEXELS));
       found.assign(true);
     });

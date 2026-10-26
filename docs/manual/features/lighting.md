@@ -260,7 +260,8 @@ only where something changed:
   baked again. Static boxes, moving objects, foliage and ground cover are
   lit as before (probes and per-pixel lights). Add
   `?surfaceRead=0` to a game page's address to light the cache without any
-  surface reading it (to compare).
+  surface reading it (to compare), or name the kinds that read it,
+  `?surfaceRead=blocks,terrain,arch,model` (any of them: each kind's cost).
 - **What it is not yet** — WebGL 2 and the low tier compute nothing live
   (they draw the saved light). Static boxes do not block the cache's light
   (only blocks, terrain, generated buildings and static models do).

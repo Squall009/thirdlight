@@ -7,9 +7,11 @@
  * lightmap is.
  *
  * - Block layers: the pixel's cell (its point a little behind the face it
- *   faces) and face; the face's chart from its chunk column's hash of face
- *   keys (`blockFaceKey`). Any geometry a block draws (cubes, slopes, a
- *   variant's model) reads the light of its cell's face on its facing.
+ *   faces) and face; the face's chart from the layer's one hash of its
+ *   resident faces, keyed by chunk column and face key (`blockFaceKey`), so
+ *   a pixel's first read is its slot (no column table between). Any
+ *   geometry a block draws (cubes, slopes, a variant's model) reads the
+ *   light of its cell's face on its facing.
  * - Terrain: the finest ring whose window holds the point (one texel in
  *   from its edge, so the filter stays inside), at the point's world x, z.
  * - Generated architecture: the charts are planes; a hash of world cells
@@ -35,15 +37,20 @@
  *   texel 1 (the architecture hash's slots, its first slot, model slots,
  *   their table); the shaders take it as uniforms (`lookupHeader`), so no
  *   pixel waits on reading it, and the first terrain's rings too;
- * - a layer (`LAYER_TEXELS`): origin (f32 ×3) and its columns' first
- *   texel; cell size (f32 ×3) and its lowest row (i32); the first chunk
- *   column (cx, cz, i32), columns along x | along z << 16, and the row past
- *   its highest (i32); a column is a texel (its tile's hash: first texel and
- *   slots, a power of two; 0 slots: none); a hash slot is a texel: the face
- *   key (`EMPTY` when free), page | interior corner x << 12 | y << 20, the
- *   chart's texels w | h << 8 | the face's cell offset u << 16 | v << 24,
- *   and the chart's cells w | h << 8 (the face's place along the chart,
- *   without a chart record to read);
+ * - a layer (`LAYER_TEXELS`): origin (f32 ×3) and its hash's first texel;
+ *   cell size (f32 ×3) and its lowest row (i32); the first chunk column
+ *   (cx, cz, i32), columns along x and along z; the row past its highest
+ *   (i32), the hash's slots (a power of two; 0: none) and the longest probe
+ *   any face took (a pixel reads at most that many slots past its home).
+ *   The first `BLOCK_LAYERS_HELD` layers' records also go to the shaders as
+ *   uniforms (`blockLayerUniforms`). A hash slot is a texel: the face key
+ *   (`EMPTY` when free); page | interior corner x << 12 | y << 20 | its
+ *   column's index (z × columns along x + x) >> 16 << 28; the chart's
+ *   texels w | h << 8 | the face's cell offset u << 16 | v << 24; and the
+ *   chart's cells w | h << 8 | the column's index & 0xffff << 16 (the
+ *   face's place along the chart, without a chart record to read). A layer
+ *   holds at most `BLOCK_COLUMNS_MAX` chunk columns (20 bits of index: 16 km
+ *   a side at 1 m cells); a larger one is not read;
  * - a terrain (`TERRAIN_TEXELS`): rings, the first texture layer, then per
  *   ring its window's centre (x, z), half side and texel (m, f32);
  * - an architecture slot: cell x, y (i32), z × 8 + facing (i32) and its
@@ -76,7 +83,11 @@ import { Words, invertAffine } from './tracer-words';
 
 /** Texels a row of the lookup texture. */
 export const LOOKUP_WIDTH = 2048;
-export const LAYER_TEXELS = 3;
+export const LAYER_TEXELS = 4;
+/** Block layers whose records the shaders hold as uniforms (more are read from the table). */
+export const BLOCK_LAYERS_HELD = 1;
+/** Chunk columns a block layer's hash can key (its column index has 20 bits). */
+export const BLOCK_COLUMNS_MAX = 1 << 20;
 export const TERRAIN_TEXELS = 1 + TERRAIN_RINGS_MAX;
 export const FRAME_TEXELS = 4;
 export const PIECE_TEXELS = 3;
@@ -132,9 +143,9 @@ export function albedoWords(pages: number, ringLayers: number): number {
 export const SURFACE_READ = { blocks: 1, terrain: 2, arch: 3, model: 4 } as const;
 export type SurfaceReadKind = (typeof SURFACE_READ)[keyof typeof SURFACE_READ];
 
-/** A face key's slot in a hash of `cap` slots (the shaders hash alike, in u32). */
-export function faceHash(key: number, cap: number): number {
-  const h = Math.imul(key, 0x9e3779b1) >>> 0;
+/** A block face's home slot in its layer's hash of `cap` slots: its chunk column's index `j` and face key (the shaders hash alike, in u32). */
+export function faceHash(j: number, key: number, cap: number): number {
+  const h = Math.imul((key ^ Math.imul(j, 0x85ebca6b)) >>> 0, 0x9e3779b1) >>> 0;
   return ((h ^ (h >>> 15)) >>> 0) & (cap - 1);
 }
 
@@ -180,23 +191,47 @@ function putChart(t: Texels, at: number, r: Resident, c: number): void {
   }
 }
 
-/** A block tile's face hash: each face's slot (open addressing by `faceHash`), kept with its charts: residency changes do not move them. */
-const faceHashes = new WeakMap<BlockChunkCharts, { cap: number; slotOf: Uint32Array }>();
+/** A layer's resident chunk column: its index and its faces. */
+interface LayerColumn {
+  readonly j: number;
+  readonly made: BlockChunkCharts;
+}
 
-function faceHashOf(made: BlockChunkCharts): { cap: number; slotOf: Uint32Array } {
-  let h = faceHashes.get(made);
-  if (h !== undefined) return h;
-  const cap = pow2AtLeast(made.keys.length * 2);
+/** Each face's slot in a layer's hash, kept while the same columns' faces are resident (residency levels move charts, not slots). */
+interface LayerHash {
+  readonly columns: readonly LayerColumn[];
+  readonly cap: number;
+  readonly probe: number;
+  readonly slotOf: readonly Uint32Array[];
+}
+
+const layerHashes = new WeakMap<object, LayerHash>();
+
+function layerHashOf(owner: object, columns: readonly LayerColumn[]): LayerHash {
+  const had = layerHashes.get(owner);
+  if (had !== undefined && had.columns.length === columns.length && had.columns.every((c, i) => c.j === columns[i]!.j && c.made === columns[i]!.made)) return had;
+  let faces = 0;
+  for (const c of columns) faces += c.made.keys.length;
+  const cap = faces === 0 ? 0 : pow2AtLeast(faces * 2);
   const used = new Uint8Array(cap);
-  const slotOf = new Uint32Array(made.keys.length);
-  for (let i = 0; i < made.keys.length; i += 1) {
-    let s = faceHash(made.keys[i]!, cap);
-    while (used[s] === 1) s = (s + 1) & (cap - 1);
-    used[s] = 1;
-    slotOf[i] = s;
-  }
-  h = { cap, slotOf };
-  faceHashes.set(made, h);
+  let probe = 0;
+  const slotOf = columns.map(({ j, made }) => {
+    const slots = new Uint32Array(made.keys.length);
+    for (let i = 0; i < made.keys.length; i += 1) {
+      let s = faceHash(j, made.keys[i]!, cap);
+      let n = 0;
+      while (used[s] === 1) {
+        s = (s + 1) & (cap - 1);
+        n += 1;
+      }
+      used[s] = 1;
+      slots[i] = s;
+      probe = Math.max(probe, n);
+    }
+    return slots;
+  });
+  const h = { columns, cap, probe, slotOf };
+  layerHashes.set(owner, h);
   return h;
 }
 
@@ -379,8 +414,8 @@ export function packSurfaceLookup(scene: SurfaceScene, cache: SurfaceCache, slot
   t.alloc(2);
   const view = scene.resolveView();
   const layers = scene.input.blocks ?? [];
-  const resident = new Map<string, Resident>();
-  cache.forEachResident((key, level, blocks, packing, charts) => resident.set(key, { level, blocks, packing, charts }));
+  const residentOf = new Map<string, Resident>();
+  cache.forEachResident((key, level, blocks, packing, charts) => residentOf.set(key, { level, blocks, packing, charts }));
   // Block layers.
   const lrec = t.alloc(layers.length * LAYER_TEXELS);
   t.setU(0, 0, layers.length);
@@ -399,48 +434,62 @@ export function packSurfaceLookup(scene: SurfaceScene, cache: SurfaceCache, slot
     t.setU(at + 1, 3, g.min[1]! | 0);
     t.setU(at + 2, 0, cx0 | 0);
     t.setU(at + 2, 1, cz0 | 0);
-    t.setU(at + 2, 2, (ncx | (ncz << 16)) >>> 0);
-    t.setU(at + 2, 3, g.max[1]! | 0);
-    const cols = t.alloc(ncx * ncz);
-    t.setU(at, 3, cols);
-    for (let cz = cz0; cz < cz0 + ncz; cz += 1) {
-      for (let cx = cx0; cx < cx0 + ncx; cx += 1) {
-        const tile: BlockTile | undefined = view.blockTiles.get(`${li}/${cx},${cz}`);
-        const r = tile === undefined ? undefined : resident.get(tile.key);
-        if (tile === undefined || r === undefined) continue;
-        tile.charts();
-        const made = tile.made!;
-        const { cap, slotOf } = faceHashOf(made);
-        const hash = t.alloc(cap);
-        for (let s = 0; s < cap; s += 1) t.setU(hash + s, 0, EMPTY);
-        // Each chart's place on its page, then each face's slot: its key, its chart's place and its own cell along it.
-        const place = r.charts.map((chart, c) => {
-          const pl = r.packing.places[c]!;
-          const b = r.blocks[pl.block]!;
-          return chart.kind !== 'area' ? null : { page: b.page, x: b.x + pl.x + SURFACE_CHART_BORDER, y: b.y + pl.y + SURFACE_CHART_BORDER, iw: areaTexels(chart.w, r.level), ih: areaTexels(chart.h, r.level) };
-        });
-        const frames = made.frames;
-        for (let i = 0; i < made.keys.length; i += 1) {
-          const c = made.chartOf[i]!;
-          const p = place[c];
-          if (p === null || p === undefined) continue;
-          const axis = frames[c * 4]! >> 1;
-          const [pu, pv] = FACE_PLANE_AXES[axis]!;
-          const chart = r.charts[c]! as { w: number; h: number };
-          const wc = Math.round(chart.w / g.cellSize[pu]!);
-          const hc = Math.round(chart.h / g.cellSize[pv]!);
-          const o = made.offsets[i]!;
-          const sl = hash + slotOf[i]!;
-          t.setU(sl, 0, made.keys[i]!);
-          t.setU(sl, 1, (p.page | (p.x << 12) | (p.y << 20)) >>> 0);
-          t.setU(sl, 2, (p.iw | (p.ih << 8) | ((o & 255) << 16) | ((o >> 8) << 24)) >>> 0);
-          t.setU(sl, 3, wc | (hc << 8));
+    t.setU(at + 2, 2, ncx);
+    t.setU(at + 2, 3, ncz);
+    t.setU(at + 3, 0, g.max[1]! | 0);
+    // The resident columns' faces, in one hash.
+    const columns: LayerColumn[] = [];
+    const resident: Resident[] = [];
+    if (ncx * ncz <= BLOCK_COLUMNS_MAX) {
+      for (let cz = cz0; cz < cz0 + ncz; cz += 1) {
+        for (let cx = cx0; cx < cx0 + ncx; cx += 1) {
+          const tile: BlockTile | undefined = view.blockTiles.get(`${li}/${cx},${cz}`);
+          const r = tile === undefined ? undefined : residentOf.get(tile.key);
+          if (tile === undefined || r === undefined) continue;
+          tile.charts();
+          columns.push({ j: (cz - cz0) * ncx + (cx - cx0), made: tile.made! });
+          resident.push(r);
         }
-        const j = (cz - cz0) * ncx + (cx - cx0);
-        t.setU(cols + j, 0, hash);
-        t.setU(cols + j, 1, cap);
       }
     }
+    const { cap, probe, slotOf } = layerHashOf(g, columns);
+    const hash = t.alloc(cap);
+    for (let s = 0; s < cap; s += 1) t.setU(hash + s, 0, EMPTY);
+    t.setU(at, 3, hash);
+    t.setU(at + 3, 1, cap);
+    t.setU(at + 3, 2, probe);
+    columns.forEach(({ j, made }, ci) => {
+      const r = resident[ci]!;
+      const slots = slotOf[ci]!;
+      // Each chart's place on its page, then each face's slot: its key, its chart's place and its own cell along it.
+      const place = r.charts.map((chart, c) => {
+        const pl = r.packing.places[c]!;
+        const b = r.blocks[pl.block]!;
+        return chart.kind !== 'area' ? null : { page: b.page, x: b.x + pl.x + SURFACE_CHART_BORDER, y: b.y + pl.y + SURFACE_CHART_BORDER, iw: areaTexels(chart.w, r.level), ih: areaTexels(chart.h, r.level) };
+      });
+      const frames = made.frames;
+      for (let i = 0; i < made.keys.length; i += 1) {
+        const c = made.chartOf[i]!;
+        const p = place[c];
+        // A face whose chart is not on a page keeps its slot (others probed past it), with no place: it reads as not found.
+        const sl = hash + slots[i]!;
+        t.setU(sl, 0, made.keys[i]!);
+        if (p === null || p === undefined) {
+          t.setU(sl, 3, ((j & 0xffff) << 16) >>> 0);
+          t.setU(sl, 1, ((j >>> 16) << 28) >>> 0);
+          continue;
+        }
+        const axis = frames[c * 4]! >> 1;
+        const [pu, pv] = FACE_PLANE_AXES[axis]!;
+        const chart = r.charts[c]! as { w: number; h: number };
+        const wc = Math.round(chart.w / g.cellSize[pu]!);
+        const hc = Math.round(chart.h / g.cellSize[pv]!);
+        const o = made.offsets[i]!;
+        t.setU(sl, 1, (p.page | (p.x << 12) | (p.y << 20) | ((j >>> 16) << 28)) >>> 0);
+        t.setU(sl, 2, (p.iw | (p.ih << 8) | ((o & 255) << 16) | ((o >> 8) << 24)) >>> 0);
+        t.setU(sl, 3, (wc | (hc << 8) | ((j & 0xffff) << 16)) >>> 0);
+      }
+    });
   });
   // Terrains with rings.
   const ringKeys = cache.ringTerrains();
@@ -463,7 +512,7 @@ export function packSurfaceLookup(scene: SurfaceScene, cache: SurfaceCache, slot
   // Architecture: every resident chart's frame, and the world cells' lists of them.
   const lists = new Map<string, number[]>();
   for (const o of view.arch) {
-    const r = resident.get(o.tile.key);
+    const r = residentOf.get(o.tile.key);
     if (r === undefined) continue;
     const { frames, cells } = archFramesOf(o.tile);
     const at = frames.map((f) => {
@@ -501,7 +550,7 @@ export function packSurfaceLookup(scene: SurfaceScene, cache: SurfaceCache, slot
     t.setU(slots + s, 2, z);
     t.setU(slots + s, 3, la);
   }
-  packModels(t, view.models, resident, slotOf);
+  packModels(t, view.models, residentOf, slotOf);
   // Whole rows of the texture.
   const texels = Math.max(LOOKUP_WIDTH, Math.ceil(t.w.length / 4 / LOOKUP_WIDTH) * LOOKUP_WIDTH);
   const out = new Uint32Array(texels * 4);
@@ -554,28 +603,31 @@ export function lookupSurfaceCpu(words: Uint32Array, kind: SurfaceReadKind, p: r
       const q = [0, 1, 2].map((k) => (p[k]! - f[at + k]!) / f[at + 4 + k]!);
       q[axis]! -= sgn * BLOCK_INSET;
       const cell = q.map(Math.floor);
-      if (cell[1]! < i32(u[at + 7]!) || cell[1]! >= i32(u[at + 11]!)) continue;
+      const y0 = i32(u[at + 7]!);
+      if (cell[1]! < y0 || cell[1]! >= i32(u[at + 12]!)) continue;
       const cx = Math.floor(cell[0]! / CHUNK_SIZE);
       const cz = Math.floor(cell[2]! / CHUNK_SIZE);
       const jx = cx - i32(u[at + 8]!);
       const jz = cz - i32(u[at + 9]!);
-      const ncx = u[at + 10]! & 0xffff;
-      if (jx < 0 || jz < 0 || jx >= ncx || jz >= u[at + 10]! >>> 16) continue;
-      const col = (u[at + 3]! + jz * ncx + jx) * 4;
-      const hash = u[col]!;
-      const cap = u[col + 1]!;
+      const ncx = u[at + 10]!;
+      if (jx < 0 || jz < 0 || jx >= ncx || jz >= u[at + 11]!) continue;
+      const hash = u[at + 3]!;
+      const cap = u[at + 13]!;
       if (cap === 0) continue;
-      const key = (((cell[1]! - i32(u[at + 7]!)) * CHUNK_SIZE + (cell[2]! - cz * CHUNK_SIZE)) * CHUNK_SIZE + (cell[0]! - cx * CHUNK_SIZE)) * 6 + face;
-      for (let s = faceHash(key, cap), tries = 0; tries < cap; s = (s + 1) & (cap - 1), tries += 1) {
+      const j = jz * ncx + jx;
+      const key = (((cell[1]! - y0) * CHUNK_SIZE + (cell[2]! - cz * CHUNK_SIZE)) * CHUNK_SIZE + (cell[0]! - cx * CHUNK_SIZE)) * 6 + face;
+      for (let s = faceHash(j, key, cap), tries = 0; tries <= u[at + 14]!; s = (s + 1) & (cap - 1), tries += 1) {
         const w = (hash + s) * 4;
         if (u[w] === EMPTY) break;
-        if (u[w] !== key) continue;
+        const a = u[w + 1]!;
+        const c = u[w + 3]!;
+        if (u[w] !== key || (((a >>> 28) << 16) | (c >>> 16)) !== j) continue;
+        // A resident face whose chart has no page: not found.
+        if ((c & 0xffff) === 0) return null;
         const [pu, pv] = FACE_PLANE_AXES[axis]!;
         const fu = Math.min(1, Math.max(0, q[pu]! - cell[pu]!));
         const fv = Math.min(1, Math.max(0, q[pv]! - cell[pv]!));
-        const a = u[w + 1]!;
         const b = u[w + 2]!;
-        const c = u[w + 3]!;
         const iw = b & 255;
         const ih = (b >>> 8) & 255;
         const x = ((a >>> 12) & 255) + Math.min(iw - 0.5, Math.max(0.5, ((((b >>> 16) & 255) + fu) / (c & 255)) * iw));

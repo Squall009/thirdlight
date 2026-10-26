@@ -170,7 +170,8 @@ export function installLocalLightModes(renderer: { renderObject: RenderObjectFn 
       const mode = drawMode(object, material);
       // A surface with a saved lightmap keeps drawing it until the scene is baked again.
       const textures = (material as { lightMap?: unknown }).lightMap ? undefined : (scene.userData[SURFACE_READ_LIVE_KEY] as SurfaceCacheTextures | undefined);
-      const kind = textures === undefined ? 0 : ((object.userData[SURFACE_READ_KEY] as number | undefined) ?? 0);
+      const named = textures === undefined ? 0 : ((object.userData[SURFACE_READ_KEY] as number | undefined) ?? 0);
+      const kind = named !== 0 && (textures!.readKinds & (1 << named)) !== 0 ? named : 0;
       if (mode !== 'pixel' || kind !== 0) {
         const v = kind === 0 ? variantFor(material, mode, 0, null, false, renderCallOf(this)) : variantFor(material, mode, kind, textures!, textures!.capture, renderCallOf(this));
         base.call(this, object, scene, camera, geometry, v, group, lightsNode, clippingContext, passId);
