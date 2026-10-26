@@ -20,6 +20,7 @@
 import type { BehaviorPlan } from './generate';
 import type { PerfBackend } from './backend';
 import { publishBehaviorVia } from './build';
+import { fireSystem } from './village';
 
 type Cmd = (op: string, args: Record<string, unknown>) => Promise<Record<string, unknown>>;
 
@@ -61,6 +62,7 @@ export const PIPE_SCRIPT = `import type { BehaviorContext } from '@thirdlight/ru
 export const properties = {
   side_camera: property.entityRef(null, { tooltip: 'The side-view camera' }),
   depth: property.number(0, { tooltip: 'Where the side-view plane lies along world Z (m)' }),
+  entry_fx: property.string('', { tooltip: 'The effect played at the entry pipe as the player goes in' }),
 };
 
 interface State { side: boolean }
@@ -78,6 +80,8 @@ export default {
       ctx.character.setPlane(null, plane);
       for (const id of ctx.tags.query(ctx.tags.mask('section'))) ctx.physics.setPlane?.(id, plane);
       ctx.camera?.activate(camera, { blend: 'eased', blendTime: ${SIDE_BLEND_S} });
+      const fx = ctx.properties.entry_fx as string;
+      if (fx !== '') ctx.effects?.play(fx, { position: [${PIPE_LAYOUT.entryX}, 1, 0] });
     } else if (state.side && ctx.signals.on('pipe-out')) {
       state.side = false;
       ctx.character.setPlane(null, null);
@@ -96,13 +100,27 @@ export const PIPE_BEHAVIOR: BehaviorPlan = {
     properties: [
       { key: 'side_camera', label: 'Side camera', type: 'entityRef', default: null },
       { key: 'depth', label: 'Depth', type: 'number', default: 0 },
+      { key: 'entry_fx', label: 'Entry effect', type: 'string', default: '' },
     ],
   },
   source: PIPE_SCRIPT,
 };
 
 const PIPE_GREEN = '#2f9e44';
+
+/** The entry's puff: a one-second one-shot of two GPU systems (sparks and smoke). */
+const PIPE_PUFF = {
+  effectId: 'pipe-puff',
+  name: 'Pipe puff',
+  duration: 1,
+  loop: false,
+  seed: 5,
+  bounds: { center: [0, 1, 0], size: [3, 4, 3] },
+  systems: [fireSystem('sparks', 'Sparks', 64, 48, '#ffb050', [{ type: 'output.billboard', data: { blend: 'additive' } }]), fireSystem('smoke', 'Smoke', 48, 30, '#404040', [{ type: 'output.billboard', data: { blend: 'alpha' } }])],
+};
 const SECTION_GREY = '#c9b79c';
+/** Section boxes per createEntities request. */
+const SECTION_BATCH = 100;
 
 /** The ids the driver and the measurement read. */
 export interface PipeScene {
@@ -123,8 +141,8 @@ async function pipeMouth(cmd: Cmd, name: string, x: number, signal: string): Pro
   await cmd('createEntity', { sceneId: 'scene-main', kind: 'group', name: `${name} trigger`, transform: { position: [x, 1.1, 0] }, components: { trigger: { size: [1, 2.2, 2.8], signal } } });
 }
 
-/** Build the pipe scene on the 3D starter in `projectId` (a new project). */
-export async function buildPipeScene(be: PerfBackend, projectId: string): Promise<PipeScene> {
+/** Build the pipe scene on the 3D starter in `projectId` (a new project); `sectionExtra` more section objects (a larger level section switched in the same step). */
+export async function buildPipeScene(be: PerfBackend, projectId: string, opts: { sectionExtra?: number } = {}): Promise<PipeScene> {
   const created = await be.post('/api/v1/admin/projects', { projectId, name: 'Pipe test', template: 'starter-3d' });
   if (created.status !== 201 && created.status !== 200) throw new Error(`project create failed: ${created.status} ${JSON.stringify(created.json)}`);
   const p = be.project(projectId);
@@ -163,14 +181,28 @@ export async function buildPipeScene(be: PerfBackend, projectId: string): Promis
     await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: `One-way ${i + 1}`, static: true, tags: ['section'], transform: { position: [(a + b) / 2, top - 0.1, 0] }, box: { size: [w, 0.2, 2], material: { color: SECTION_GREY } }, components: { collider: { shape: { type: 'box', hx: w / 2, hy: 0.1, hz: 1 }, oneWay: true } } });
   }
 
+  // A larger section: small static boxes high above the stretch (out of the walk wherever the lock puts them).
+  const extra = opts.sectionExtra ?? 0;
+  for (let from = 0; from < extra; from += SECTION_BATCH) {
+    const entities = Array.from({ length: Math.min(SECTION_BATCH, extra - from) }, (_, k) => {
+      const i = from + k;
+      const at: [number, number, number] = [L.entryX - 2 - (i % 30) * ((L.entryX - L.exitX - 4) / 30), 6 + Math.floor(i / 30) * 0.6, -1 - (i % 3)];
+      return { kind: 'box', name: `Section box ${i + 1}`, static: true, tags: ['section'], transform: { position: at }, box: { size: [0.4, 0.4, 0.4], material: { color: SECTION_GREY } }, components: { collider: { shape: { type: 'box', hx: 0.2, hy: 0.2, hz: 0.2 } } } };
+    });
+    await cmd('createEntities', { sceneId: 'scene-main', entities });
+  }
+
   await pipeMouth(cmd, 'Entry pipe', L.entryX, 'pipe-in');
   await pipeMouth(cmd, 'Exit pipe', L.exitX, 'pipe-out');
 
   // The side view: off at the start, above the follow camera's priority once the script activates it.
   const sideCamera = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Side camera', transform: { position: [0, 3, 14] }, components: { virtualCamera: { rig: 'follow', target: player, targetOffset: [0, 1.5, 0], distance: 14, yaw: 0, pitch: 6, damping: 0.15, collision: false, enabled: false, priority: 20 } } }))['createdId']);
 
+  // A puff at the entry as the player goes in: an effect first shown at the switch, named by the script's setting.
+  await cmd('setEffect', { effect: PIPE_PUFF });
+
   await publishBehaviorVia(be, p, cmd, PIPE_BEHAVIOR);
   const director = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Pipe switch', transform: { position: [0, 0, 0] } }))['createdId']);
-  await cmd('setBehaviorProperties', { entityId: director, behaviorId: PIPE_BEHAVIOR.behaviorId, values: { side_camera: sideCamera, depth: PIPE_PLANE.origin } });
+  await cmd('setBehaviorProperties', { entityId: director, behaviorId: PIPE_BEHAVIOR.behaviorId, values: { side_camera: sideCamera, depth: PIPE_PLANE.origin, entry_fx: PIPE_PUFF.effectId } });
   return { player, followCamera, sideCamera, lift };
 }

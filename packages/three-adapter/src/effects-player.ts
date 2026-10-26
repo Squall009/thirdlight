@@ -138,6 +138,15 @@ export interface EffectsPlayer {
   /** An entity's `effect` component: plays from `object` (following it); `play` false: waits for a signal or a script. */
   attach(entityId: string, object: THREE.Object3D, component: EffectComponentLike, play: boolean): void;
   detach(entityId: string): void;
+  /**
+   * An effect the scene names (an `effect` component that waits, a script's
+   * property value) has its play made ahead on WebGPU: its compute passes
+   * dispatched once over an empty slot, so their pipelines are built while
+   * the scene loads, not in the frame the effect first shows; the play waits
+   * in the pool for that first show. Nothing on WebGL 2 (CPU plays build
+   * nothing ahead).
+   */
+  warm(effectId: string, params: Readonly<Record<string, number | readonly number[] | string>> | null): void;
   /** Stop spawning on an attached entity while it is hidden (collected, defeated); resume when it shows again. */
   setAttachedActive(entityId: string, active: boolean): void;
   /** A runtime presentation request (`objectOf`: an entity's object, for plays on an entity). */
@@ -176,6 +185,32 @@ function paramsKey(p: Readonly<Record<string, unknown>> | null | undefined): str
   return p === null || p === undefined ? '' : JSON.stringify(Object.keys(p).sort().map((k) => [k, p[k]]));
 }
 
+/** The models an effect's graphs sample on the CPU (mesh-surface shapes). */
+function shapeModels(def: EffectDefLike): string[] {
+  const out = new Set<string>();
+  for (const s of def.systems) for (const n of s.graph.nodes) if (n.type === 'init.position.mesh') {
+    const m = (n as { data?: Record<string, unknown> }).data?.['model'];
+    if (typeof m === 'string' && m !== '') out.add(m);
+  }
+  return [...out];
+}
+
+/** Where a play stands now (its object's pose and offset, or its fixed position), also written into `out`. */
+function originOf(rec: Pick<Playing, 'object' | 'offset' | 'position'>, out: THREE.Matrix4): EffectOrigin {
+  const pos = new THREE.Vector3();
+  const quat = new THREE.Quaternion();
+  const scl = new THREE.Vector3(1, 1, 1);
+  if (rec.object !== null) {
+    rec.object.updateWorldMatrix(true, false);
+    rec.object.matrixWorld.decompose(pos, quat, scl);
+    pos.add(rec.offset.clone().multiply(scl).applyQuaternion(quat));
+  } else {
+    pos.copy(rec.position);
+  }
+  out.compose(pos, quat, scl);
+  return { position: [pos.x, pos.y, pos.z], rotation: [quat.x, quat.y, quat.z, quat.w], scale: [scl.x, scl.y, scl.z] };
+}
+
 export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlayer {
   const scene = options.scene;
   let defs = new Map(options.defs.map((d) => [d.effectId, d]));
@@ -195,6 +230,10 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
   let clock = 0;
   const models = new Map<string, Promise<THREE.Object3D | null>>();
   const meshes = new Map<string, EffectMesh | null>();
+  /** The effects asked to be made ahead (by id and parameters), made again on a new renderer. */
+  const warmWanted = new Map<string, { effectId: string; params: Readonly<Record<string, number | readonly number[] | string>> | null }>();
+  /** Where the made-ahead plays sort from (their slots are empty: the order is moot). */
+  const warmEye = new THREE.Vector3();
 
   const loadModel = (assetId: string): Promise<THREE.Object3D | null> => {
     let p = models.get(assetId);
@@ -213,16 +252,6 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
     lights,
   });
   const caps = (): EffectCaps => (api === 'webgpu' ? EFFECT_CAPS.webgpu : EFFECT_CAPS.cpu);
-
-  /** The models an effect's graphs sample on the CPU (mesh-surface shapes). */
-  const shapeModels = (def: EffectDefLike): string[] => {
-    const out = new Set<string>();
-    for (const s of def.systems) for (const n of s.graph.nodes) if (n.type === 'init.position.mesh') {
-      const m = (n as { data?: Record<string, unknown> }).data?.['model'];
-      if (typeof m === 'string' && m !== '') out.add(m);
-    }
-    return [...out];
-  };
 
   function allocated(): number {
     return playing.reduce((a, p) => a + p.capacity, 0);
@@ -322,19 +351,28 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
     disposeEffectPlay(rec, renderer);
   }
 
-  function originOf(rec: Playing, out: THREE.Matrix4): EffectOrigin {
-    const pos = new THREE.Vector3();
-    const quat = new THREE.Quaternion();
-    const scl = new THREE.Vector3(1, 1, 1);
-    if (rec.object !== null) {
-      rec.object.updateWorldMatrix(true, false);
-      rec.object.matrixWorld.decompose(pos, quat, scl);
-      pos.add(rec.offset.clone().multiply(scl).applyQuaternion(quat));
-    } else {
-      pos.copy(rec.position);
+  /** Make a play of an effect ahead and leave it in the pool (see `warm`); false when there is nothing to make. */
+  function warmNow(effectId: string, params: Readonly<Record<string, number | readonly number[] | string>> | null): boolean {
+    if (renderer === null || api !== 'webgpu') return false;
+    const def = defs.get(effectId);
+    if (def === undefined) return false;
+    const key = paramsKey(params);
+    const list = pool.get(effectId) ?? [];
+    if (list.some((r) => r.params === key) || playing.some((r) => r.effectId === effectId && r.params === key) || list.length >= POOL_PER_EFFECT) return false;
+    const rec = create(def, params);
+    if (rec === null) return false;
+    if (rec.gpu === null) {
+      destroy(rec);
+      return false;
     }
-    out.compose(pos, quat, scl);
-    return { position: [pos.x, pos.y, pos.z], rotation: [quat.x, quat.y, quat.z, quat.w], scale: [scl.x, scl.y, scl.z] };
+    // Every pass once (the step's, then the sort and gather): three builds a compute pipeline the first time it runs one.
+    rec.gpu.resetNow(renderer);
+    rec.gpu.sort(renderer, warmEye);
+    batches.flushDraw(renderer, warmEye);
+    rec.finished = true;
+    list.push(rec);
+    pool.set(effectId, list);
+    return true;
   }
 
   const frustum = new THREE.Frustum();
@@ -450,6 +488,14 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
         a.play = null;
         if (a.component.playOnStart !== false || a.play !== null) api_.attach(id, a.object, a.component, a.component.playOnStart !== false);
       }
+      for (const w of warmWanted.values()) warmNow(w.effectId, w.params);
+    },
+    warm(effectId, params) {
+      // Any string may be offered (a script's property values): only the project's effects are kept.
+      if (!defs.has(effectId)) return;
+      const key = `${effectId}|${paramsKey(params)}`;
+      if (!warmWanted.has(key)) warmWanted.set(key, { effectId, params });
+      warmNow(effectId, params);
     },
     setDefs(list) {
       defs = new Map(list.map((d) => [d.effectId, d]));

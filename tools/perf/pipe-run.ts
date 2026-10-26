@@ -14,10 +14,12 @@
  *   --renderers webgpu,webgl2   (default both)
  *   --runs N                    measured runs per renderer (default 3)
  *   --shots DIR                 one more run per renderer (not measured) with screenshots: 3D before, the stretch, 3D after
+ *   --section N                 N more static objects in the switched section (default 0; a large section's switch)
  *   --keep                      keep the project and the export under ~/.cache/thirdlight-perf/runs/
  *
  * The report goes to ~/.cache/thirdlight-perf/reports/pipe-<time>.json (latest-pipe.json too). Exit code 1 when a
- * run fails its walk or a frame in a switch window missed its refresh.
+ * run fails its walk, a frame in a switch window missed its refresh, or a switch window built a compute pipeline
+ * (the entry plays an effect the script names: its passes are made while the scene loads).
  */
 import { copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -240,6 +242,9 @@ export function pipeLine(i: number, r: PipeRun): string {
   return `pipe ${r.renderer} run ${i + 1}: ${winLine('enter', r.enter)}; ${winLine('exit', r.exit)}; walk p50/p95 ${r.walk.p50}/${r.walk.p95} ms, longest ${r.walk.longest}, ${r.walk.missed} missed (${r.walk.frames}); off the plane ${r.offPlane} m, z after the exit ${r.zAfter} m; programs ${r.programs.before} → ${r.programs.end}${r.errors.length > 0 ? `; errors ${r.errors.join(' | ')}` : ''}`;
 }
 
+/** Whether a switch window built a compute pipeline (the entry's effect was not made ahead while the scene loaded). */
+const buildsCompute = (r: PipeRun): boolean => [r.enter, r.exit].some((w) => w?.heavy.some((e) => (e.calls['createComputePipeline'] ?? 0) > 0) === true);
+
 /** A run that walked the whole scene, held the plane and was free after it. */
 const walked = (r: PipeRun): boolean => r.enter !== null && r.exit !== null && r.offPlane < 1e-3 && r.zAfter < -1 && r.errors.length === 0;
 
@@ -263,7 +268,7 @@ export async function runPipeCli(argv: readonly string[]): Promise<void> {
   const be = await startPerfBackend(join(runDir, 'data'), join(runDir, 'exports'));
   try {
     const t0 = performance.now();
-    scene = await buildPipeScene(be, 'pipe');
+    scene = await buildPipeScene(be, 'pipe', { sectionExtra: Number(get('section') ?? 0) });
     const res = await be.post('/api/v1/admin/projects/pipe/export', {});
     if (res.status !== 200) throw new Error(`export failed: ${JSON.stringify(res.json).slice(0, 400)}`);
     exportDir = join(be.exportRoot, String(res.json['outputDir']));
@@ -282,7 +287,7 @@ export async function runPipeCli(argv: readonly string[]): Promise<void> {
         const run = await walkOnce(browser, site.url, r, scene);
         report.runs.push(run);
         log(pipeLine(i, run));
-        if (!walked(run) || (run.enter?.missed ?? 1) > 0 || (run.exit?.missed ?? 1) > 0) process.exitCode = 1;
+        if (!walked(run) || (run.enter?.missed ?? 1) > 0 || (run.exit?.missed ?? 1) > 0 || buildsCompute(run)) process.exitCode = 1;
       }
       if (shotsDir !== undefined) {
         mkdirSync(shotsDir, { recursive: true });

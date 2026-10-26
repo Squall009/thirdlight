@@ -173,6 +173,8 @@ export class AdapterEntities {
     if (own.geometries.length > 0) this.resources.set(e.id, own);
     // An effect component plays from the object (on start unless it waits for a signal or a script).
     if (this.deps.effects.player !== null && c.effect !== undefined) this.deps.effects.attach(e.id, graph.nodeFor(e.id)!, c.effect);
+    // The effects it names are made ahead (WebGPU), so the first show builds no pipelines.
+    if (this.deps.effects.player !== null) this.deps.effects.warmNamed(e.components as unknown as Record<string, unknown>);
     // What a host hangs on it (back after the entity was realized again), last: the material, look and lightmap paths above never see it.
     const hung = this.overlays.get(e.id);
     if (hung !== undefined) {

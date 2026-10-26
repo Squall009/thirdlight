@@ -106,7 +106,7 @@ function fireEffect(gpuSystems = false): Record<string, unknown> {
   return { effectId: FIRE_EFFECT, name: 'Fire', duration: 1, loop: true, seed: 3, bounds: { center: [0, 1, 0], size: [3, 4, 3] }, systems: [sparks, ...more] };
 }
 
-function fireSystem(systemId: string, name: string, maxParticles: number, rate: number, color: string, output: { type: string; data?: Record<string, unknown> }[]): Record<string, unknown> {
+export function fireSystem(systemId: string, name: string, maxParticles: number, rate: number, color: string, output: { type: string; data?: Record<string, unknown> }[]): Record<string, unknown> {
   const chains: Record<string, { type: string; data?: Record<string, unknown> }[]> = {
     spawn: [{ type: 'spawn.rate', data: { rate } }],
     initialize: [

@@ -90,6 +90,29 @@ export class AdapterEffects {
     this.player.attach(entityId, node, component, component.playOnStart !== false);
   }
 
+  /**
+   * The effects an object names have their plays made ahead (see the player's
+   * `warm`): an `effect` component that waits for a signal or a script, a
+   * component's effect field (a string naming an effect), and its behavior's
+   * property values that name one (an effect a script plays later, named as
+   * the object's own setting).
+   */
+  warmNamed(components: Readonly<Record<string, unknown>>): void {
+    const player = this.player;
+    if (player === null) return;
+    for (const [name, c] of Object.entries(components)) {
+      if (typeof c !== 'object' || c === null) continue;
+      if (name === 'effect') {
+        const effect = c as EffectComponentLike;
+        if (effect.playOnStart === false) player.warm(effect.effectId, effect.params ?? null);
+        continue;
+      }
+      const fields = name === 'behavior' ? (c as { values?: unknown }).values : c;
+      if (typeof fields !== 'object' || fields === null) continue;
+      for (const v of Object.values(fields)) if (typeof v === 'string' && v !== '') player.warm(v, null);
+    }
+  }
+
   detach(entityId: string): void {
     if (this.player === null) return;
     this.player.detach(entityId);
