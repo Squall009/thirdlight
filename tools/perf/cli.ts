@@ -24,6 +24,7 @@
  *   meadow [options]               the meadow class (1 km² of terrain under grass cover) at the 60 Hz cap, and the GPU grass density sweep (tools/perf/meadow-run.ts)
  *   pipe [options]                 the pipe scene played with real input at the 60 Hz cap: the frames round the switches into a side-view plane and back (tools/perf/pipe-run.ts)
  *   gpu-features [--out FILE]      the host's WebGPU adapter: features, limits, WGSL language features, storage-texture formats per access (tools/perf/gpu-features.ts)
+ *   cache-spike [options]          the surface-cache spike: one block room's cache re-lit by traced rays at the 60 Hz cap (tools/perf/cache-spike-run.ts)
  *   look [options]                 the look-reference scenes (a room lit through a door, a building at sunset, a corridor of rect and line lights, a sign at night) baked, measured at the 60 Hz cap and photographed on both renderers (tools/perf/look-run.ts)
  */
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -75,6 +76,11 @@ if (argv[0] === 'pipe') {
 if (argv[0] === 'gpu-features') {
   const { runGpuFeaturesCli } = await import('./gpu-features');
   await runGpuFeaturesCli(argv.slice(1));
+  process.exit(process.exitCode ?? 0);
+}
+if (argv[0] === 'cache-spike') {
+  const { runCacheSpikeCli } = await import('./cache-spike-run');
+  await runCacheSpikeCli(argv.slice(1));
   process.exit(process.exitCode ?? 0);
 }
 if (argv[0] === 'look') {

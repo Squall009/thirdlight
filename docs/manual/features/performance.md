@@ -263,7 +263,12 @@ nothing), exported, measured on both renderers at the 60 Hz cap and
 photographed (`--shots DIR`, `--shot-prefix P`). `node tools/perf/run.mjs
 gpu-features` lists what the host's WebGPU adapter offers in the same
 browser: features, limits, WGSL language features and which storage-texture
-formats compute can read, write or read and write.
+formats compute can read, write or read and write. `node tools/perf/run.mjs
+cache-spike` is the lighting phase's go/no-go spike: the door room (with a
+ceiling lamp, a pillar and hills round it) lit by rays traced through the
+block grid and the terrain into a cache on the block faces, re-lit after
+light changes at a budget of texels per frame, at the 60 Hz cap, with GPU
+time and the GPU clock per re-light (`--P`, `--budgets`, `--shots`).
 
 **Instance sets cast no shadow unless they say so.** An instance set's
 `castShadow` is off when absent (the Inspector's "Casts shadows" on an instance

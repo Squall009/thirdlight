@@ -117,12 +117,12 @@ function gpuClockFile(name: 'gt_cur_freq_mhz' | 'gt_RP0_freq_mhz'): string | nul
   }
   return null;
 }
-const gpuMaxMhz = (): number | null => {
+export const gpuMaxMhz = (): number | null => {
   const f = gpuClockFile('gt_RP0_freq_mhz');
   return f === null ? null : Number(readFileSync(f, 'utf8'));
 };
 /** Samples the GPU's requested clock every 50 ms until `stop()`, which returns the mean (MHz). */
-function gpuClockSampler(): { stop(): number } | null {
+export function gpuClockSampler(): { stop(): number } | null {
   const f = gpuClockFile('gt_cur_freq_mhz');
   if (f === null) return null;
   const seen: number[] = [];
