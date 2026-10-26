@@ -25,6 +25,7 @@ import { SurfaceCache, type SurfaceCacheDiagnostics, type SurfaceTile } from './
 import { SurfaceChanges, type CacheLight } from './surface-changes';
 import { SurfaceRelight, type RelightDiagnostics, type RelightSlice, type RelightUnit } from './surface-relight';
 import type { RingPatch } from './surface-cache-terrain';
+import type { AtlasBlock } from './surface-cache-atlas';
 import { chartUnits, type ChartRect, type PatchTexels, type TileTexels } from './surface-texels';
 import { architecturePiecesOf } from './surface-cache-arch';
 import type { SurfaceBlockGrid } from './surface-cache-blocks';
@@ -190,6 +191,8 @@ export class SurfaceCacheHost {
   /** Bumped whenever the cache's residency changed (tiles placed, let go, rings stepped): the resolve tables are packed again. */
   residencyVersion = 0;
   private roomsNow: SurfaceRooms | null = null;
+  /** Atlas blocks handed to tiles since the last `takeFreshBlocks`. */
+  private fresh: AtlasBlock[] = [];
   private roomsVersion = -1;
 
   /** `relightMs`: the GPU time a frame may spend lighting stale texels (0: none, the saved light is drawn). */
@@ -264,6 +267,13 @@ export class SurfaceCacheHost {
     const rings = this.cache.ringsOf(terrain);
     if (u === undefined || field === undefined || rings === null) return null;
     return { patch: u.patch, texel: rings.texelMetres(u.patch.ring), field, terrain: this.cache.ringTerrains().indexOf(terrain) };
+  }
+
+  /** The atlas blocks handed to tiles since the last call (their texels hold another tile's light until cleared). */
+  takeFreshBlocks(): AtlasBlock[] {
+    const out = this.fresh;
+    this.fresh = [];
+    return out;
   }
 
   /** The texels to light this frame (what `update` planned). */
@@ -401,7 +411,11 @@ export class SurfaceCacheHost {
       this.tileUnits.delete(key);
       this.relight.remove(key);
     }
-    for (const key of ch.allocated) this.addTileUnits(key);
+    for (const key of ch.allocated) {
+      this.addTileUnits(key);
+      const r = this.cache.residentOf(key);
+      if (r !== null && this.live) this.fresh.push(...r.blocks);
+    }
     const stepped = new Map<string, Set<number>>();
     for (const r of ch.rings) for (const k of r.rings) {
       let set = stepped.get(r.terrain);

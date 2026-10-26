@@ -11,6 +11,12 @@
  * (its direct light) and the bounce its room's probes add there, whether
  * or not materials read it yet. The live probes stand in for the bakes'
  * probe tiles meanwhile (`adapter-live-probes.ts`).
+ *
+ * While the light is live, static surfaces read it (`surface-cache-read.ts`):
+ * the cache's textures are three's (the pass writes the GPU textures behind
+ * them), its lookup is packed again whenever what is resident changes
+ * (at most every `LOOKUP_MS`), and the scene says it may be read once the
+ * first lookup is up.
  */
 import * as THREE from 'three';
 
@@ -25,7 +31,10 @@ import { TEXEL_POINT_FLOATS } from './surface-texels';
 import { AdapterLiveProbes } from './adapter-live-probes';
 import type { ProbeLightingHost } from './probe-grids';
 import { PROBE_HIT_LIFT, probesIrradianceAt } from './surface-probes';
-import type { TracerDevice } from './tracer-gpu';
+import type { GpuTexture, TracerDevice } from './tracer-gpu';
+import { packSurfaceLookup } from './surface-cache-lookup';
+import { SURFACE_READ_LIVE_KEY, SurfaceCacheTextures } from './surface-cache-read';
+import type { CacheLight } from './surface-changes';
 
 /** How often (ms) the debug look is drawn again while texels change. */
 const VIEW_MS = 200;
@@ -33,6 +42,10 @@ const VIEW_MS = 200;
 const VIEW_ALBEDO = 0.5;
 /** How far (m) the debug squares stand off their surfaces. */
 const VIEW_LIFT = 0.01;
+/** The page flag that keeps materials off the cache while it is lit live (`?surfaceRead=0`). */
+export const SURFACE_READ_URL_PARAM = 'surfaceRead';
+/** Shortest time (ms) between two packings of the materials' lookup while residency keeps changing. */
+const LOOKUP_MS = 100;
 
 /** The renderer's WebGPU device (three's WebGPU backend keeps it as `backend.device`), or null on WebGL 2. */
 function deviceOf(renderer: AnyRenderer): TracerDevice | null {
@@ -48,6 +61,9 @@ export interface SurfaceLightDiagnostics {
   readonly view: boolean;
   /** Texels the debug look draws. */
   readonly viewTexels: number;
+  /** Whether static surfaces read the cache now, and the bytes of their lookup. */
+  readonly read: boolean;
+  readonly lookupBytes: number;
 }
 
 export class AdapterSurfaceLight {
@@ -62,11 +78,19 @@ export class AdapterSurfaceLight {
   private off: SurfaceLightDiagnostics['off'] = 'starting';
   readonly lights: SurfaceLights;
   private readonly liveProbes: AdapterLiveProbes | null;
+  /** What materials read (made with the first live runtime). */
+  private textures: SurfaceCacheTextures | null = null;
+  private lookupFor = '';
+  /** `?surfaceRead=0`: the cache is lit but no material reads it (a comparison of what reading costs and changes). */
+  private readonly readOn: boolean;
+  private lookupAt = -Infinity;
 
   constructor(private readonly host: SurfaceCacheHost, private readonly scene: THREE.Scene, docs: ReadonlyMap<string, EntityDoc>, graph: RenderGraph, probes: ProbeLightingHost | null = null) {
     this.lights = new SurfaceLights(docs, graph);
     this.liveProbes = probes === null ? null : new AdapterLiveProbes(host, probes, scene);
-    this.viewOn = new URLSearchParams(pageSearch()).get('surfaceCacheView') === '1';
+    const q = new URLSearchParams(pageSearch());
+    this.viewOn = q.get('surfaceCacheView') === '1';
+    this.readOn = q.get(SURFACE_READ_URL_PARAM) !== '0';
   }
 
   /** Before the frame's programs are built (ahead of the probes' frame): whether the light is live with probes, so the probe light joins before the programs are built. */
@@ -81,27 +105,55 @@ export class AdapterSurfaceLight {
     this.host.update(eye);
     const gpu = deviceOf(renderer);
     const device = this.failed || this.host.relightBudgetMs <= 0 ? null : gpu;
-    if (device !== this.device) this.drop(device);
+    if (device !== this.device) this.drop(device, renderer);
     this.off = this.runtime !== null ? null : this.failed ? 'failed' : this.host.relightBudgetMs <= 0 ? 'no-budget' : gpu === null ? 'no-webgpu' : 'starting';
     this.runtime?.frame(lights);
+    this.syncRead(lights);
     this.liveProbes?.frame(renderer, this.runtime);
     this.drawView();
   }
 
+  /** What materials read, up to date: the lookup packed again when residency changed, the sun the texels were lit with; the scene says so once both are up. */
+  private syncRead(lights: readonly CacheLight[]): void {
+    const tex = this.textures;
+    if (this.runtime === null || tex === null || !this.readOn) {
+      delete this.scene.userData[SURFACE_READ_LIVE_KEY];
+      return;
+    }
+    const sun = lights.find((l) => l.on && l.kind === 'directional');
+    tex.sun.value.setRGB(sun?.color[0] ?? 0, sun?.color[1] ?? 0, sun?.color[2] ?? 0);
+    const { scene, version } = this.host.resolveScene();
+    const key = `${version}/${this.host.residencyVersion}`;
+    const now = performance.now();
+    if (key !== this.lookupFor && now - this.lookupAt >= LOOKUP_MS) {
+      tex.setTable(packSurfaceLookup(scene, this.host.cache));
+      this.lookupFor = key;
+      this.lookupAt = now;
+    }
+    if (this.lookupFor !== '') this.scene.userData[SURFACE_READ_LIVE_KEY] = tex;
+  }
+
   /** A new device (or none): the old one's work goes; on a device, the pass is made and the host goes live when it is ready. */
-  private drop(device: TracerDevice | null): void {
+  private drop(device: TracerDevice | null, renderer: AnyRenderer): void {
     this.runtime?.dispose();
     this.runtime = null;
     this.host.setLive(false);
+    delete this.scene.userData[SURFACE_READ_LIVE_KEY];
+    this.lookupFor = '';
+    this.textures?.dispose();
+    this.textures = null;
     this.device = device;
     if (device === null) return;
-    SurfaceLightRuntime.create(device, this.host).then(
+    const tex = new SurfaceCacheTextures();
+    SurfaceLightRuntime.create(device, this.host, (which, layers) => tex.gpuTexture(renderer, which, layers) as GpuTexture).then(
       (rt) => {
         if (this.device !== device) {
           rt.dispose();
+          tex.dispose();
           return;
         }
         this.runtime = rt;
+        this.textures = tex;
         rt.setView(this.viewOn);
         this.host.setLive(true);
       },
@@ -114,7 +166,8 @@ export class AdapterSurfaceLight {
   }
 
   diagnostics(): SurfaceLightDiagnostics {
-    return { live: this.runtime !== null, off: this.off, view: this.viewOn, viewTexels: this.viewTexels };
+    const read = this.scene.userData[SURFACE_READ_LIVE_KEY] !== undefined;
+    return { live: this.runtime !== null, off: this.off, view: this.viewOn, viewTexels: this.viewTexels, read, lookupBytes: read ? ((this.textures?.table.image as { data?: Uint32Array } | undefined)?.data?.byteLength ?? 0) : 0 };
   }
 
   /** Whether the cache's light is computed live on this page. */
@@ -196,6 +249,9 @@ export class AdapterSurfaceLight {
     this.liveProbes?.dispose();
     this.runtime?.dispose();
     this.runtime = null;
+    delete this.scene.userData[SURFACE_READ_LIVE_KEY];
+    this.textures?.dispose();
+    this.textures = null;
     this.device = null;
   }
 }

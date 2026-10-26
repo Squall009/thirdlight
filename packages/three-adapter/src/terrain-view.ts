@@ -75,6 +75,8 @@ import { askingRing, eyeMoved, recheckMetres, type PageWorldStream, type StreamC
 import { terrainPackShape, type TerrainTileStore } from './terrain-tile-store';
 import { SphereSide, type CullView } from './view-cull';
 import { perfMark } from './perf-marks';
+import { SURFACE_READ } from './surface-cache-lookup';
+import { SURFACE_READ_KEY } from './surface-cache-read';
 
 /** Tiles per texture page: the array layers WebGL 2 and WebGPU both guarantee (256). */
 export const TERRAIN_PAGE_LAYERS = 256;
@@ -1397,6 +1399,8 @@ export class TerrainView {
     mesh.userData[STATIC_CASTER_KEY] = true;
     mesh.userData[GRAPH_SURFACE_KEY] = surface;
     mesh.userData[TERRAIN_ENTITY_KEY] = rec.id;
+    // Its light comes from the surface cache's rings where the page lights it live (surface-cache-read.ts).
+    mesh.userData[SURFACE_READ_KEY] = SURFACE_READ.terrain;
     markOccludee(mesh, 'terrain');
     const nodes = new PageNodes();
     const selectedForView = (): boolean => page.view !== null && page.stamp === page.view.stamp;

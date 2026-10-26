@@ -75,6 +75,16 @@ describe('surface cache: direct light per light kind', () => {
     const roof = packTraceScene({ blocks: [traceBlockLayerOf(grid, [0, 0, 0], opaqueByBlockTypes([{ blockId: 'rock', shape: 'full' } as BlockType]))] });
     expect(meanAt([0.5, 0, 0.5], [0, 1, 0], sun, roof)).toBe(0);
     expect(meanAt([0.5, 0, 0.5], [0, 1, 0], { ...sun, shadows: false }, roof)).toBeCloseTo((2 * 0.8) / l, 4);
+    // The sun's share (what materials take back out, drawing the sun per pixel): the cosine where it reaches, 0 in shadow.
+    const share = (scene: PackedTraceScene): number => {
+      const frame: LightPassFrame = { points: Float32Array.from([0.5, 0, 0.5, 0, 1, 0]), slices: [{ texels: 1, lights: [], sun: true, level: 0 }], lights: [], sun };
+      const out = new Float32Array(1);
+      const e = lightFrameCpu(frame, scene, 7, SHADOW_TRACE, out);
+      expect(e[0]).toBeCloseTo(2 * out[0]!, 5);
+      return out[0]!;
+    };
+    expect(share(EMPTY)).toBeCloseTo(0.8 / l, 5);
+    expect(share(roof)).toBe(0);
   });
 
   it('a point light: intensity × cosine over the distance squared, windowed to its range; a spot within its cone', () => {

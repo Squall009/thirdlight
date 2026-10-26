@@ -47,6 +47,7 @@ import { LIGHT_LAYERS_KEY, ROOM_KEY } from './light-layers';
 import { SEE_THROUGH_KEY } from './see-through';
 import { SEE_THROUGH_MEMBERS_KEY, SEE_THROUGH_PIECES_KEY, type SeeThroughMembers } from './see-through-occluders';
 import { LOCAL_LIGHTS_KEY } from './local-lights';
+import { SURFACE_READ_KEY } from './surface-cache-read';
 import { LOD_OWNER_KEY } from './lod-switch';
 import { OCCLUDER_EARLY_RENDER_ORDER, setOccluderMarks } from './occluders';
 import { DECAL_LAYERS_KEY } from './projected-decals';
@@ -273,6 +274,8 @@ interface Cell {
   readonly occluder: string;
   /** Whether they fade round see-through subjects (see-through.ts): one merged draw fades or not. */
   readonly seeThrough: boolean;
+  /** The kind of static surface whose light they read from the surface cache (undefined: none): one merged draw reads one kind. */
+  readonly surfaceRead: number | undefined;
   readonly slots: Set<Slot>;
   built: Built | null;
   /** Slots without vertices in the build, or too many dead ones. */
@@ -617,7 +620,7 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
     const cell = `${Math.floor(e[12]! / s)},${Math.floor(e[13]! / s)},${Math.floor(e[14]! / s)}`;
     // A decal's sort order is part of the key: one draw has one place among the decals.
     const order = parts.decalOrder;
-    return `${scope}|${parts.material.uuid}|${parts.castShadow ? 1 : 0}${parts.receiveShadow ? 1 : 0}${parts.lightLayers === LIGHT_LAYERS_ALL ? '' : `L${parts.lightLayers}`}${parts.localLights === undefined ? '' : `M${parts.localLights}`}${parts.room === undefined ? '' : `R${parts.room}`}${order === null ? '' : `D${order}`}${parts.decalLayers === undefined ? '' : `X${parts.decalLayers}`}${parts.occluder === '' ? '' : `O${parts.occluder}`}${parts.seeThrough ? '' : 'S0'}|${cell}|${mergeLayout(mesh.geometry)}`;
+    return `${scope}|${parts.material.uuid}|${parts.castShadow ? 1 : 0}${parts.receiveShadow ? 1 : 0}${parts.lightLayers === LIGHT_LAYERS_ALL ? '' : `L${parts.lightLayers}`}${parts.localLights === undefined ? '' : `M${parts.localLights}`}${parts.room === undefined ? '' : `R${parts.room}`}${order === null ? '' : `D${order}`}${parts.decalLayers === undefined ? '' : `X${parts.decalLayers}`}${parts.occluder === '' ? '' : `O${parts.occluder}`}${parts.seeThrough ? '' : 'S0'}${parts.surfaceRead === undefined ? '' : `C${parts.surfaceRead}`}|${cell}|${mergeLayout(mesh.geometry)}`;
   };
 
   const releaseBuilt = (b: Built): void => {
@@ -646,7 +649,7 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
   const cellFor = (key: string, parts: BatchKeyParts): Cell => {
     let cell = cells.get(key);
     if (cell !== undefined) return cell;
-    const c: Cell = { key, material: parts.material, castShadow: parts.castShadow, receiveShadow: parts.receiveShadow, lightLayers: parts.lightLayers, localLights: parts.localLights, room: parts.room, decalLayers: parts.decalLayers, decalOrder: parts.decalOrder, occluder: parts.occluder, seeThrough: parts.seeThrough, slots: new Set(), built: null, needsBuild: false, dead: 0, wanted: 0, addedAt: frame, unlisten: () => undefined };
+    const c: Cell = { key, material: parts.material, castShadow: parts.castShadow, receiveShadow: parts.receiveShadow, lightLayers: parts.lightLayers, localLights: parts.localLights, room: parts.room, decalLayers: parts.decalLayers, decalOrder: parts.decalOrder, occluder: parts.occluder, seeThrough: parts.seeThrough, surfaceRead: parts.surfaceRead, slots: new Set(), built: null, needsBuild: false, dead: 0, wanted: 0, addedAt: frame, unlisten: () => undefined };
     // A material disposed (its last wearer went) takes its cells with it; the objects are drawn alone again.
     const onDispose = (): void => {
       if (cells.get(key) !== c) return;
@@ -760,6 +763,7 @@ export function createStaticMerger(options: StaticMergerOptions): StaticMerger {
     mesh.receiveShadow = cell.receiveShadow;
     if (cell.lightLayers !== LIGHT_LAYERS_ALL) mesh.userData[LIGHT_LAYERS_KEY] = cell.lightLayers;
     if (cell.localLights !== undefined) mesh.userData[LOCAL_LIGHTS_KEY] = cell.localLights;
+    if (cell.surfaceRead !== undefined) mesh.userData[SURFACE_READ_KEY] = cell.surfaceRead;
     if (cell.room !== undefined) mesh.userData[ROOM_KEY] = cell.room;
     if (cell.decalLayers !== undefined) mesh.userData[DECAL_LAYERS_KEY] = cell.decalLayers;
     setOccluderMarks(mesh, cell.occluder);

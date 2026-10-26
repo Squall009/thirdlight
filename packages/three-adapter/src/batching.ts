@@ -64,6 +64,7 @@ import { CUTAWAY_MESH_KEY } from './block-cutaway-view';
 import { LIGHT_LAYERS_KEY, objectLightLayers, ROOM_KEY, ROOM_VERTEX_KEYS, roomKeyOf } from './light-layers';
 import { objectSeeThrough, SEE_THROUGH_KEY, SUBJECT_DRAW_KEY } from './see-through';
 import { LOCAL_LIGHTS_KEY, objectLocalLights } from './local-lights';
+import { SURFACE_READ_KEY } from './surface-cache-read';
 import { meshDecalRenderOrder } from './mesh-decals';
 import { OCCLUDER_EARLY_RENDER_ORDER, occluderMarksOf, setOccluderMarks } from './occluders';
 import { DECAL_LAYERS_KEY } from './projected-decals';
@@ -123,7 +124,21 @@ export interface BatchKeyParts {
   readonly occluder: string;
   /** Whether it fades round see-through subjects (see-through.ts): one draw fades or not. */
   readonly seeThrough: boolean;
+  /** The kind of static surface whose light it reads from the surface cache (surface-cache-read.ts; undefined: none): one draw reads one kind. */
+  readonly surfaceRead: number | undefined;
 }
+
+/** A group's draw carries what its members share and the draws after it read off the object (light layers, modes, room, decal layers, occluder marks, see-through, surface-cache reading). */
+function markGroupDraw(mesh: THREE.Mesh, parts: BatchKeyParts): void {
+  if (parts.lightLayers !== LIGHT_LAYERS_ALL) mesh.userData[LIGHT_LAYERS_KEY] = parts.lightLayers;
+  if (parts.localLights !== undefined) mesh.userData[LOCAL_LIGHTS_KEY] = parts.localLights;
+  if (parts.surfaceRead !== undefined) mesh.userData[SURFACE_READ_KEY] = parts.surfaceRead;
+  if (parts.room !== undefined) mesh.userData[ROOM_KEY] = parts.room;
+  if (parts.decalLayers !== undefined) mesh.userData[DECAL_LAYERS_KEY] = parts.decalLayers;
+  setOccluderMarks(mesh, parts.occluder);
+  if (!parts.seeThrough) mesh.userData[SEE_THROUGH_KEY] = false;
+}
+
 
 const DEFAULT_ON_BEFORE_RENDER = THREE.Object3D.prototype.onBeforeRender;
 
@@ -190,6 +205,7 @@ export function batchKeyParts(mesh: THREE.Mesh): BatchKeyParts | null {
     decalOrder: meshDecalRenderOrder(mesh),
     occluder: occluderMarksOf(mesh),
     seeThrough: objectSeeThrough(mesh),
+    surfaceRead: mesh.userData[SURFACE_READ_KEY] as number | undefined,
   };
 }
 
@@ -214,7 +230,7 @@ const keyIdOf = (o: object): number => {
 
 /** The group key of a batchable mesh: geometry, material, shadow flags, light layers and (detailed geometry only) the world cell. */
 export function batchKey(parts: BatchKeyParts, worldPosition: readonly [number, number, number] | null, cellSize: number): string {
-  const flags = `${parts.castShadow ? 1 : 0}${parts.receiveShadow ? 1 : 0}${parts.lightLayers === LIGHT_LAYERS_ALL ? '' : `L${parts.lightLayers}`}${parts.localLights === undefined ? '' : `M${parts.localLights}`}${parts.room === undefined ? '' : `R${parts.room}`}${parts.decalLayers === undefined ? '' : `X${parts.decalLayers}`}${parts.decalOrder === null ? '' : `D${parts.decalOrder}`}${parts.occluder === '' ? '' : `O${parts.occluder}`}${parts.seeThrough ? '' : 'S0'}`;
+  const flags = `${parts.castShadow ? 1 : 0}${parts.receiveShadow ? 1 : 0}${parts.lightLayers === LIGHT_LAYERS_ALL ? '' : `L${parts.lightLayers}`}${parts.localLights === undefined ? '' : `M${parts.localLights}`}${parts.room === undefined ? '' : `R${parts.room}`}${parts.decalLayers === undefined ? '' : `X${parts.decalLayers}`}${parts.decalOrder === null ? '' : `D${parts.decalOrder}`}${parts.occluder === '' ? '' : `O${parts.occluder}`}${parts.seeThrough ? '' : 'S0'}${parts.surfaceRead === undefined ? '' : `C${parts.surfaceRead}`}`;
   const base = `${keyIdOf(parts.geometry)}|${keyIdOf(parts.material)}|${flags}`;
   if (worldPosition === null) return base;
   return `${base}|${Math.floor(worldPosition[0] / cellSize)},${Math.floor(worldPosition[1] / cellSize)},${Math.floor(worldPosition[2] / cellSize)}`;
@@ -707,12 +723,7 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
       mesh.name = `tl-batch:${g.key}`;
       mesh.castShadow = g.parts.castShadow;
       mesh.receiveShadow = g.parts.receiveShadow;
-      if (g.parts.lightLayers !== LIGHT_LAYERS_ALL) mesh.userData[LIGHT_LAYERS_KEY] = g.parts.lightLayers;
-      if (g.parts.localLights !== undefined) mesh.userData[LOCAL_LIGHTS_KEY] = g.parts.localLights;
-      if (g.parts.room !== undefined) mesh.userData[ROOM_KEY] = g.parts.room;
-      if (g.parts.decalLayers !== undefined) mesh.userData[DECAL_LAYERS_KEY] = g.parts.decalLayers;
-      setOccluderMarks(mesh, g.parts.occluder);
-      if (!g.parts.seeThrough) mesh.userData[SEE_THROUGH_KEY] = false;
+      markGroupDraw(mesh, g.parts);
       mesh.userData['tlBatch'] = true;
       // A decal group draws in its decal order (its material's and its members' own; mesh-decals.ts).
       mesh.renderOrder = g.parts.decalOrder ?? 0;

@@ -52,7 +52,7 @@ export interface TracerDevice {
   createCommandEncoder(): GpuEncoder;
   readonly queue: {
     writeBuffer(b: GpuBuffer, offset: number, data: ArrayBufferView): void;
-    writeTexture(dst: { texture: GpuTexture }, data: ArrayBufferView, layout: { bytesPerRow: number; rowsPerImage: number }, size: readonly number[]): void;
+    writeTexture(dst: { texture: GpuTexture; origin?: readonly number[] }, data: ArrayBufferView, layout: { bytesPerRow: number; rowsPerImage: number }, size: readonly number[]): void;
     submit(list: unknown[]): void;
     onSubmittedWorkDone(): Promise<void>;
   };

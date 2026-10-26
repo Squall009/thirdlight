@@ -28,6 +28,7 @@ import * as THREE from 'three/webgpu';
 import { localLightModeOf, type LocalLightMode } from '@thirdlight/runtime';
 
 import { type EffectLights } from './effect-lights';
+import { SURFACE_READ_TEXTURES, SURFACE_READ_VARIANT, surfaceReadOf, type SurfaceCacheTextures } from './surface-cache-read';
 
 /** `object.userData[LOCAL_LIGHTS_KEY]` / `material.userData[LOCAL_LIGHTS_KEY]`: a set local-light mode. */
 export const LOCAL_LIGHTS_KEY = '__tlLocalLights';
@@ -102,23 +103,35 @@ export function materialValuesKey(m: THREE.Material): string {
   return key;
 }
 
-const variants = new WeakMap<THREE.Material, Map<LocalLightMode, THREE.Material>>();
+const variants = new WeakMap<THREE.Material, Map<string, THREE.Material>>();
 
 /** Variants made so far (diagnostics). */
 let variantCount = 0;
 
-/** The mode variant of `material` (made once, dropped when the material is disposed). */
-export function localLightVariant(material: THREE.Material, mode: Exclude<LocalLightMode, 'pixel'>): THREE.Material {
+/**
+ * The variant of `material` drawn in local-light `mode` and, when `read` is
+ * not 0, reading the surface cache's light for that kind of static surface
+ * (`surface-cache-read.ts`): made once, dropped when the material is
+ * disposed.
+ */
+export function localLightVariant(material: THREE.Material, mode: LocalLightMode, read: { kind: number; textures: SurfaceCacheTextures } | null = null): THREE.Material {
+  const key = read === null ? mode : `${mode}|${read.kind}|${read.textures.id}`;
   let byMode = variants.get(material);
-  const seen = byMode?.get(mode);
+  const seen = byMode?.get(key);
   if (seen !== undefined) return seen;
   const base = material as Keyed;
   const v = Object.create(base) as Keyed & Record<string, unknown>;
   // Own listeners: three's render objects listen for the variant's dispose, never the material's.
   v['_listeners'] = {};
   v[VARIANT_MODE] = mode;
+  if (read !== null) {
+    v[SURFACE_READ_VARIANT] = read.kind;
+    v[SURFACE_READ_TEXTURES] = read.textures;
+    // The cache holds what a lightmap would add (the lights node adds the cache's light).
+    v['setupLightMap'] = (): null => null;
+  }
   v.customProgramCacheKey = function variantKey(): string {
-    return `${base.customProgramCacheKey()}|${materialValuesKey(base)}|tlLocalLights=${mode}`;
+    return `${base.customProgramCacheKey()}|${materialValuesKey(base)}|tlLocalLights=${mode}${read !== null ? `|tlSurfaceRead=${read.kind}/${read.textures.id}` : ''}`;
   };
   if (byMode === undefined) {
     byMode = new Map();
@@ -129,7 +142,7 @@ export function localLightVariant(material: THREE.Material, mode: Exclude<LocalL
       for (const m of made?.values() ?? []) m.dispatchEvent({ type: 'dispose' });
     });
   }
-  byMode.set(mode, v);
+  byMode.set(key, v);
   variantCount += 1;
   return v;
 }
@@ -165,8 +178,9 @@ export function installLocalLightModes(renderer: { renderObject: RenderObjectFn 
   renderer.renderObject = function renderObjectWithMode(this: unknown, object, scene, camera, geometry, material, ...rest) {
     if (scene.overrideMaterial === null && scene.userData[LOCAL_LIGHTS_IGNORED_KEY] !== true && isLit(material)) {
       const mode = drawMode(object, material);
-      if (mode !== 'pixel') {
-        const v = localLightVariant(material, mode);
+      const read = surfaceReadOf(object, scene);
+      if (mode !== 'pixel' || read !== null) {
+        const v = localLightVariant(material, mode, read);
         base.call(this, object, scene, camera, geometry, v, ...rest);
         // A transparent double-sided draw sets `side` on the material it draws and back: keep reading the material's.
         if (Object.prototype.hasOwnProperty.call(v, 'side')) delete (v as unknown as Record<string, unknown>)['side'];
@@ -183,7 +197,7 @@ export function installLocalLightModes(renderer: { renderObject: RenderObjectFn 
 type LightNodeLike = { readonly light?: THREE.Light; build(builder: unknown): unknown };
 type LocalFlags = { isPointLight?: boolean; isSpotLight?: boolean; isEffectLights?: boolean };
 
-function isLocal(l: THREE.Light | undefined): boolean {
+export function isLocal(l: THREE.Light | undefined): boolean {
   const f = l as (THREE.Light & LocalFlags) | undefined;
   return f !== undefined && (f.isPointLight === true || f.isSpotLight === true || f.isEffectLights === true);
 }

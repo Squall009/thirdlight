@@ -48,6 +48,7 @@ import { PROBE_ATLAS_PADDING } from '@thirdlight/runtime';
 import type { N } from './effects-tsl';
 import { applyBlockOcclusion } from './block-ao-lighting';
 import { localLightsCacheKey, splitLocalLights } from './local-lights';
+import { buildReadLights, buildSurfaceRead } from './surface-cache-read';
 import { ProbeTileStore, type ResidentProbeTile } from './probe-atlas';
 import { PROBE_INDEX_WIDTH, probeRowAt } from './probe-index';
 import { PACKED_LIGHT_TEXELS, TABLE_ROW_FLOATS, TABLE_ROWS_PER_LINE, TABLE_TEXELS } from './probe-pack';
@@ -368,6 +369,9 @@ type LightNodeLike = { readonly isProbeLightingNode?: boolean; readonly light?: 
 
 const isHeld = (n: LightNodeLike): boolean => n.light?.userData[PROBE_HELD_KEY] === true;
 
+/** The lights the surface cache holds of those three draws: point and spot lights (the effect pool's lights are not in it). */
+const isCacheLight = (l: THREE.Light | undefined): boolean => (l as { isPointLight?: boolean } | undefined)?.isPointLight === true || (l as { isSpotLight?: boolean } | undefined)?.isSpotLight === true;
+
 /**
  * The scene's lights node: local lights split per the build's mode
  * (local-lights.ts); with a probe light present, the probe-held lights and
@@ -388,13 +392,17 @@ class ProbeOrderedLightsNode extends (THREE.LightsNode as unknown as new () => {
     // A block chunk's corner shading darkens the indirect light whatever lights it.
     applyBlockOcclusion(builder);
     const probe = nodes.find((n) => n.isProbeLightingNode === true);
+    // A build reading the surface cache: its light first, the lights the cache holds give only their highlights.
+    const read = buildSurfaceRead(builder) !== 0;
     if (probe === undefined) {
-      super.setupLights(builder, nodes);
+      if (read) buildReadLights(builder, nodes, isCacheLight);
+      else super.setupLights(builder, nodes);
       return;
     }
     const later = nodes.filter((n) => n !== probe && isHeld(n));
     const first = nodes.filter((n) => n !== probe && !later.includes(n));
-    for (const n of first) n.build(builder);
+    if (read) buildReadLights(builder, first, isCacheLight);
+    else for (const n of first) n.build(builder);
     KEPT_IRRADIANCE.assign(builder.context.irradiance);
     for (const n of later) n.build(builder);
     probe.build(builder);

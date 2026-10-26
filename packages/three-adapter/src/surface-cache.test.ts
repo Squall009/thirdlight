@@ -18,6 +18,8 @@ import { traceRayCpu, sceneView, type V3 } from './tracer-cpu';
 import { opaqueByBlockTypes, traceBlockLayerOf, traceTerrainOf } from './tracer-sources';
 import { HIT_WORDS, TRACE_ARCH, TRACE_BLOCKS, TRACE_BRICKS, TRACE_MISS, TRACE_TERRAIN, TRACE_UNFINISHED, packTraceScene, worldToLocalOf } from './tracer-scene';
 import { packResolveTable, resolveHitCpu, texelWords } from './surface-resolve';
+import { SURFACE_READ, lookupSurfaceCpu, packSurfaceLookup } from './surface-cache-lookup';
+import { TERRAIN_RINGS_MAX } from './surface-cache-terrain';
 import { TEXEL_POINT_FLOATS, patchTexelAddresses, patchTexelPoints, tileTexelAddresses, tileTexelPoints } from './surface-texels';
 
 function rng(seed: number): () => number {
@@ -264,6 +266,76 @@ describe('surface cache: addressing per kind', () => {
     cache.update([10, 3, 0], [], scene.terrains, true);
     const gone = packResolveTable(scene, cache);
     expect(resolveHitCpu(gone.words, hits, 0)[0] === 0 || hits[4]! % 256 === TRACE_TERRAIN).toBe(true);
+  });
+
+  it('a drawn pixel finds the texel the CPU addressing gives its point, from its position and normal alone (blocks, terrain, architecture)', () => {
+    const scene = new SurfaceScene(sceneInput());
+    const cache = new SurfaceCache(256 * 1024 * 1024);
+    cache.update([10, 3, 0], scene.tiles, scene.terrains, true);
+    const words = packSurfaceLookup(scene, cache);
+    const s = sceneView(packTraceScene(scene.traceSource()));
+    const r = rng(9);
+    const kindOf = new Map([[TRACE_BLOCKS, SURFACE_READ.blocks], [TRACE_TERRAIN, SURFACE_READ.terrain], [TRACE_ARCH, SURFACE_READ.arch]]);
+    const tried = new Map<number, number>();
+    const same = new Map<number, number>();
+    let coarser = 0;
+    let otherChart = 0;
+    for (let i = 0; i < 6000; i += 1) {
+      const o: V3 = [-6 + r() * 50, 1.6 + r() * 4.5, -22 + r() * 34];
+      const d = unit([r() * 2 - 1, r() * 2 - 1.3, r() * 2 - 1]);
+      let tmin = 0;
+      let hit = traceRayCpu(s, o, d, tmin, 120);
+      while (hit.kind === TRACE_UNFINISHED) {
+        tmin = hit.t;
+        hit = traceRayCpu(s, o, d, tmin, 120);
+      }
+      const kind = kindOf.get(hit.kind);
+      if (kind === undefined || hit.t <= 1e-4) continue;
+      const want = scene.resolve(cache, hit);
+      if (want === null) continue;
+      const p: V3 = [o[0] + d[0] * hit.t, o[1] + d[1] * hit.t, o[2] + d[2] * hit.t];
+      const got = lookupSurfaceCpu(words, kind, p, hit.normal);
+      tried.set(kind, (tried.get(kind) ?? 0) + 1);
+      expect(got, `kind ${kind} at ${p.map((v) => v.toFixed(3))}`).not.toBeNull();
+      if ('page' in want) {
+        expect(got!.texture).toBe('atlas');
+        // f32 positions: a point within a hair of a texel's edge may land in the neighbour, never further.
+        const off = Math.abs(Math.floor(got!.x) - want.x) + Math.abs(Math.floor(got!.y) - want.y);
+        // Architecture: disjoint pieces on one plane whose rectangles overlap each hold that point's light; the lookup takes the first.
+        if (kind === SURFACE_READ.arch && (got!.layer !== want.page || off > 1)) {
+          otherChart += 1;
+          continue;
+        }
+        expect(got!.layer).toBe(want.page);
+        // f32 positions: a point within a hair of a texel's edge may land in the neighbour, never further.
+        expect(off, `kind ${kind} at ${p.map((v) => v.toFixed(3))}`).toBeLessThanOrEqual(1);
+        if (off === 0) same.set(kind, (same.get(kind) ?? 0) + 1);
+      } else {
+        expect(got!.texture).toBe('rings');
+        const base = cache.ringTerrains().indexOf(want.terrain) * TERRAIN_RINGS_MAX;
+        // Within a texel of a ring's edge the next ring out is read (the filter stays inside a window).
+        if (got!.layer === base + want.ring + 1) {
+          coarser += 1;
+          continue;
+        }
+        expect(got!.layer).toBe(base + want.ring);
+        const wrap = (v: number): number => ((Math.floor(v) % 512) + 512) % 512;
+        if (wrap(got!.x) === want.x && wrap(got!.y) === want.y) same.set(kind, (same.get(kind) ?? 0) + 1);
+      }
+    }
+    for (const kind of [SURFACE_READ.blocks, SURFACE_READ.terrain, SURFACE_READ.arch]) {
+      expect(tried.get(kind) ?? 0, `kind ${kind}`).toBeGreaterThan(30);
+      expect((same.get(kind) ?? 0) / tried.get(kind)!, `kind ${kind}`).toBeGreaterThan(kind === SURFACE_READ.arch ? 0.95 : 0.99);
+    }
+    expect(coarser / tried.get(SURFACE_READ.terrain)!).toBeLessThan(0.02);
+    expect(otherChart / tried.get(SURFACE_READ.arch)!).toBeLessThan(0.05);
+    // Off every surface (in the air, a normal no chart faces) nothing is found.
+    expect(lookupSurfaceCpu(words, SURFACE_READ.blocks, [100, 50, 100], [0, 1, 0])).toBeNull();
+    expect(lookupSurfaceCpu(words, SURFACE_READ.arch, [4, 2, -12], [0, 1, 0])).toBeNull();
+    // A tile let go is read by nobody.
+    cache.update([10, 3, 0], [], scene.terrains, true);
+    const gone = packSurfaceLookup(scene, cache);
+    expect(lookupSurfaceCpu(gone, SURFACE_READ.blocks, [0.5, 1.5, 3], [0, 1, 0])).toBeNull();
   });
 
   it('every texel\'s point lies on its own texel: a ray onto it resolves back to it, for every kind', () => {

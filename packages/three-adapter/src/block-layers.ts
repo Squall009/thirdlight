@@ -108,6 +108,8 @@ import { askingRing, eyeMoved, recheckMetres, type PageWorldStream, type StreamC
 import { perfMark } from './perf-marks';
 import { VIEW_OWNER_KEY } from './isolation-view';
 import { opaqueByBlockTypes } from './tracer-sources';
+import { SURFACE_READ } from './surface-cache-lookup';
+import { SURFACE_READ_KEY } from './surface-cache-read';
 
 /**
  * An edit's chunks mesh on the page while their estimated cost (the layer's
@@ -1331,6 +1333,8 @@ export class BlockLayerView {
       markOccludee(m, 'blocks');
       // Rooms drawn on the layer stand on its cells: each face is lit by the room it looks into (room-culling.ts).
       m.userData[ROOM_TAG_KEY] = entityId;
+      // Its light comes from the surface cache where the page lights it live (surface-cache-read.ts).
+      m.userData[SURFACE_READ_KEY] = SURFACE_READ.blocks;
       // A chunk never moves (the layer moved lists its chunks again) and has no partner to instance with: drawn
       // alone, it merges with the other chunks of its material in its square of the merge cell's size, as placed
       // static objects do (static-merge.ts: one draw per square and material instead of one per chunk), unless

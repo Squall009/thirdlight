@@ -11,12 +11,20 @@
  * - gather: one thread per texel: each light's share over its rays
  *   (visible ones), into the texel's irradiance; a light held to rooms
  *   (`surface-rooms.ts`) adds nothing to a texel outside them.
+ *
+ * A texel's alpha says it was lit and how much of its light is the sun's:
+ * 1 + the sun's share (max(n·l, 0) × the share of its rays that reached
+ * it), 0 for a texel with no surface. Materials draw the sun per pixel
+ * (its shadow map is sharper than a texel), so they take the sun's colour
+ * × that share back out of the texel's light (`SURFACE_TEXEL_LIT`).
  */
 import { AREA_CONE, AREA_LINE, LIGHT_SHADOWS, LIGHT_WORDS, POINT_LIGHT_RADIUS, RAY_BIAS, SLICE_WORDS, SUN_DISC_RADIANS, SUN_WORDS } from './surface-light-frame';
 import { NO_ROOM, roomsWgsl } from './surface-rooms';
 import { TRACE_MISS, TRACE_UNFINISHED } from './tracer-scene';
 
 export const LIGHT_WORKGROUP = 64;
+/** A lit texel's alpha before the sun's share is added (an unlit texel's is 0, so a filtered lookup's alpha, held to 1, says how much of it is lit). */
+export const SURFACE_TEXEL_LIT = 1;
 
 const COMMON = /* wgsl */ `
 struct Params { texels: u32, rays: u32, slices: u32, seed: u32, lights: u32, sunAt: u32, roomsAt: u32, pad1: u32 }
@@ -150,6 +158,7 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
   let p = pointOf(g.x);
   let level = F[s + 7u];
   var e = vec3f(0.0);
+  var sun = 0.0;
   if (dot(n, n) > 0.0) {
     var k = 0u;
     let sunRays = F[s + 6u];
@@ -157,7 +166,8 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
       var v = 0.0;
       for (; k < sunRays; k++) { v += visible(r0 + k); }
       let sd = fv(P.sunAt);
-      e += fv(P.sunAt + 4u) * max(0.0, dot(n, sd)) * v / f32(sunRays);
+      sun = max(0.0, dot(n, sd)) * v / f32(sunRays);
+      e += fv(P.sunAt + 4u) * sun;
     }
     // The texel's room, found once the first light held to rooms asks.
     var room = ${NO_ROOM - 1}u;
@@ -200,6 +210,6 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
       k += rj;
     }
   }
-  E[g.x] = vec4f(e, 1.0);
+  E[g.x] = vec4f(e, select(0.0, ${SURFACE_TEXEL_LIT.toFixed(1)} + sun, dot(n, n) > 0.0));
 }
 `;

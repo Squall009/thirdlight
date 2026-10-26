@@ -16,6 +16,11 @@
  * The scene the shadow rays trace is the host's (`traceSource`), packed
  * again when it changed, at most every `REPACK_MS`.
  *
+ * The textures are made by whoever draws them (`SurfaceTextureSource`: the
+ * page's renderer, so materials sample them), else here; a block of the
+ * atlas newly handed to a tile is cleared before its light is written (its
+ * texels read as not lit until then, never as another tile's light).
+ *
  * After the texels, the host's stale probes (`LiveProbes`) are updated by
  * the probe pass (`surface-probe-pass.ts`), which reads these textures at
  * its rays' hits through the resolve tables (packed again with the traced
@@ -91,6 +96,9 @@ interface Pipeline {
   getBindGroupLayout(i: number): unknown;
 }
 
+/** Makes the cache's textures on the pass's device, `layers` deep (made again when the count grows). */
+export type SurfaceTextureSource = (which: 'atlas' | 'rings', layers: number) => GpuTexture;
+
 export class SurfaceLightRuntime implements SurfaceCacheView {
   private atlas: GpuTexture | null = null;
   private rings: GpuTexture | null = null;
@@ -118,18 +126,20 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
   /** Hears each timed run of the pass (GPU ms, texels, and its three passes' ms): the measurements read it. */
   onTimed: ((ms: number, texels: number, passes: readonly number[]) => void) | null = null;
 
-  private constructor(private readonly device: TracerDevice, private readonly host: SurfaceCacheHost, readonly pass: SurfaceLightPass, private readonly scatter: Pipeline, readonly probePass: SurfaceProbePass) {
+  private zeros: Uint8Array | null = null;
+
+  private constructor(private readonly device: TracerDevice, private readonly host: SurfaceCacheHost, readonly pass: SurfaceLightPass, private readonly scatter: Pipeline, readonly probePass: SurfaceProbePass, private readonly source: SurfaceTextureSource | null) {
     this.countBuf = device.createBuffer({ size: 16, usage: USAGE.UNIFORM | USAGE.COPY_DST, label: 'surface scatter count' });
   }
 
-  static async create(device: TracerDevice, host: SurfaceCacheHost): Promise<SurfaceLightRuntime> {
+  static async create(device: TracerDevice, host: SurfaceCacheHost, source: SurfaceTextureSource | null = null): Promise<SurfaceLightRuntime> {
     const pass = await SurfaceLightPass.create(device);
     const module = device.createShaderModule({ code: SCATTER_WGSL, label: 'surface scatter' });
     const info = await module.getCompilationInfo?.();
     const errors = info?.messages.filter((m) => m.type === 'error') ?? [];
     if (errors.length > 0) throw new Error(`surface scatter WGSL: ${errors.map((m) => `${m.lineNum}: ${m.message}`).join('; ')}`);
     const scatter = device.createComputePipeline({ layout: 'auto', compute: { module, entryPoint: 'main' }, label: 'surface scatter' });
-    return new SurfaceLightRuntime(device, host, pass, scatter, await SurfaceProbePass.create(device, pass.tracer));
+    return new SurfaceLightRuntime(device, host, pass, scatter, await SurfaceProbePass.create(device, pass.tracer), source);
   }
 
   /** The atlas and ring textures (null until the first frame made them; they can be copied out: a bake saves them, a check reads them). */
@@ -152,15 +162,27 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
     const pageBytes = SURFACE_PAGE_TEXELS * SURFACE_PAGE_TEXELS * SURFACE_TEXEL_BYTES;
     const pages = Math.max(1, Math.ceil(this.host.cache.budgetBytes / pageBytes));
     if (this.atlas === null || this.atlasLayers < pages) {
-      this.atlas?.destroy();
+      if (this.source === null) this.atlas?.destroy();
       this.atlasLayers = pages;
-      this.atlas = this.device.createTexture({ size: [SURFACE_PAGE_TEXELS, SURFACE_PAGE_TEXELS, pages], format: 'rgba16float', usage: TEXTURE.TEXTURE_BINDING | TEXTURE.STORAGE_BINDING | TEXTURE.COPY_DST | TEXTURE.COPY_SRC, label: 'surface cache atlas' });
+      this.atlas = this.source?.('atlas', pages) ?? this.device.createTexture({ size: [SURFACE_PAGE_TEXELS, SURFACE_PAGE_TEXELS, pages], format: 'rgba16float', usage: TEXTURE.TEXTURE_BINDING | TEXTURE.STORAGE_BINDING | TEXTURE.COPY_DST | TEXTURE.COPY_SRC, label: 'surface cache atlas' });
     }
     const ringLayers = Math.max(1, this.host.cache.ringTerrains().length) * TERRAIN_RINGS_MAX;
     if (this.rings === null || this.ringLayers < ringLayers) {
-      this.rings?.destroy();
+      if (this.source === null) this.rings?.destroy();
       this.ringLayers = ringLayers;
-      this.rings = this.device.createTexture({ size: [TERRAIN_RING_TEXELS, TERRAIN_RING_TEXELS, ringLayers], format: 'rgba16float', usage: TEXTURE.TEXTURE_BINDING | TEXTURE.STORAGE_BINDING | TEXTURE.COPY_DST | TEXTURE.COPY_SRC, label: 'surface cache rings' });
+      this.rings = this.source?.('rings', ringLayers) ?? this.device.createTexture({ size: [TERRAIN_RING_TEXELS, TERRAIN_RING_TEXELS, ringLayers], format: 'rgba16float', usage: TEXTURE.TEXTURE_BINDING | TEXTURE.STORAGE_BINDING | TEXTURE.COPY_DST | TEXTURE.COPY_SRC, label: 'surface cache rings' });
+    }
+  }
+
+  /** The atlas blocks newly handed to tiles, cleared (a new texture is cleared already). */
+  private clearFresh(): void {
+    const fresh = this.host.takeFreshBlocks();
+    if (fresh.length === 0 || this.atlas === null) return;
+    for (const b of fresh) {
+      if (b.page >= this.atlasLayers) continue;
+      const bytes = b.side * b.side * SURFACE_TEXEL_BYTES;
+      if (this.zeros === null || this.zeros.length < bytes) this.zeros = new Uint8Array(bytes);
+      this.device.queue.writeTexture({ texture: this.atlas, origin: [b.x, b.y, b.page] }, this.zeros.subarray(0, bytes), { bytesPerRow: b.side * SURFACE_TEXEL_BYTES, rowsPerImage: b.side }, [b.side, b.side, 1]);
     }
   }
 
@@ -177,6 +199,8 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
 
   /** One frame (after the host's `update`): light its planned texels, write them into the textures, then update stale probes. */
   frame(lights: readonly CacheLight[], now = performance.now()): void {
+    this.ensureTextures();
+    this.clearFresh();
     this.lightTexels(lights, now);
     this.updateProbes(now);
   }
@@ -327,8 +351,10 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
   }
 
   dispose(): void {
-    this.atlas?.destroy();
-    this.rings?.destroy();
+    if (this.source === null) {
+      this.atlas?.destroy();
+      this.rings?.destroy();
+    }
     this.addrBuf?.destroy();
     this.countBuf.destroy();
     this.probePass.dispose();

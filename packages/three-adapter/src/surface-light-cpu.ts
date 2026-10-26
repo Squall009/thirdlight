@@ -50,9 +50,11 @@ function smoothstep(a: number, b: number, x: number): number {
 
 /**
  * Each texel's irradiance (rgb, `frame.slices` in order) as the pass gives
- * it with this `seed`, its shadow rays traced through `scene` with `opts`.
+ * it with this `seed`, its shadow rays traced through `scene` with `opts`;
+ * `sunShare` (one a texel) takes the sun's share of it, the pass's alpha
+ * less `SURFACE_TEXEL_LIT` (the sun's colour × it is the sun's light there).
  */
-export function lightFrameCpu(frame: LightPassFrame, scene: PackedTraceScene, seed: number, opts: TraceOptions): Float32Array {
+export function lightFrameCpu(frame: LightPassFrame, scene: PackedTraceScene, seed: number, opts: TraceOptions, sunShare?: Float32Array): Float32Array {
   const { words } = packLightFrame(frame);
   const F = words;
   const f = new Float32Array(words.buffer);
@@ -118,6 +120,7 @@ export function lightFrameCpu(frame: LightPassFrame, scene: PackedTraceScene, se
           v += dot(d, n) > 0 && F[sunAt + 7] !== 0 ? visible(o, d, 1e4, F[sunAt + 3]!) : 1;
         }
         add(fv(sunAt + 4), (Math.max(0, dot(n, sd)) * v) / sunRays);
+        if (sunShare !== undefined) sunShare[t] = (Math.max(0, dot(n, sd)) * v) / sunRays;
       }
       for (let jj = 0; jj < F[s + 5]!; jj += 1) {
         const at = lightAt(F[F[s + 4]! + jj]!);

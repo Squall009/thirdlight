@@ -22,6 +22,7 @@
 import * as THREE from 'three';
 import { buildReadsCopyColumns, instanceOriginFromColumns } from './attribute-instancing';
 import { installProjectedDecalSteps } from './projected-decals';
+import { SURFACE_READ_VARIANT } from './surface-cache-read';
 import { buffer, float, Fn, instancedBufferAttribute, instanceIndex, mat4, OnBeforeFrameUpdate, vec3, vec4 } from 'three/tsl';
 import {
   MeshBasicNodeMaterial,
@@ -100,10 +101,11 @@ function withoutLights(material: THREE.Material, leaveOut: (l: THREE.Light) => b
   const m = material as THREE.Material & { setupLighting: (builder: NodeBuilder) => unknown };
   const base = m.setupLighting;
   const baseKey = m.customProgramCacheKey;
-  m.setupLighting = function setupLightingWithout(builder: NodeBuilder) {
+  m.setupLighting = function setupLightingWithout(this: unknown, builder: NodeBuilder) {
     const b = builder as unknown as BuilderLightsLike;
     const all = b.lightsNode;
-    if (all === null || all === undefined) return base.call(this, builder);
+    // A build reading the surface cache takes every light (its bounce from the probes, its own light from the cache, not a bake).
+    if (all === null || all === undefined || (this as Record<string, unknown>)[SURFACE_READ_VARIANT] !== undefined) return base.call(this, builder);
     b.lightsNode = b.renderer.lighting.createNode(all.getLights().filter((l) => !leaveOut(l)));
     try {
       return base.call(this, builder);

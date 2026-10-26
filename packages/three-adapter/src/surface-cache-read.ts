@@ -1,0 +1,369 @@
+/**
+ * Materials reading the surface cache: a static surface's diffuse light from
+ * the cache's texel under it, one filtered lookup (`surface-cache-lookup.ts`
+ * finds the texel from the pixel's world position and normal), in place of
+ * the lights the cache holds.
+ *
+ * What a reading pixel takes from where:
+ *
+ * - the cache: the direct light of every light it holds (point, spot, area,
+ *   glowing surfaces; their soft traced shadows), into the direct diffuse
+ *   light, never darkened by ambient occlusion;
+ * - per pixel: the sun (its shadow map is sharper than a texel), so the
+ *   sun's share of the texel (its alpha, `SURFACE_TEXEL_LIT`) is taken back
+ *   out; and the local lights' highlights;
+ * - the probes: bounced light, as every other surface (the cache holds
+ *   direct light only, its bounce is read where it is read).
+ *
+ * A pixel that finds no texel (its tile not resident, a trim off its
+ * chart's plane, a texel not lit yet) keeps its local lights' diffuse light
+ * per pixel, blended by how much of the filtered lookup was lit.
+ *
+ * Which draws read it: a mesh whose `userData[SURFACE_READ_KEY]` names its
+ * kind, in a scene whose `userData[SURFACE_READ_LIVE_KEY]` is true (a WebGPU
+ * page lighting the cache live). It draws with a variant of its material
+ * (`local-lights.ts`, as a local-light mode's), so shared materials, merged
+ * cells and batches keep their own programs and a scene without live light
+ * builds exactly the programs it built before.
+ */
+import * as THREE from 'three/webgpu';
+import * as TSLTyped from 'three/tsl';
+
+import type { N } from './effects-tsl';
+import { LIT } from './custom-lit';
+import { SURFACE_PAGE_TEXELS } from './surface-cache-atlas';
+import { ARCH_CELL, ARCH_FACING, ARCH_PLANE_METRES, BLOCK_INSET, CHART_TEXELS, EMPTY, FRAME_TEXELS, LAYER_TEXELS, LOOKUP_WIDTH, SURFACE_READ, TERRAIN_TEXELS, type SurfaceReadKind } from './surface-cache-lookup';
+import { TERRAIN_RING_TEXELS } from './surface-cache-terrain';
+import { SURFACE_TEXEL_LIT } from './surface-light-wgsl';
+
+/** TSL untyped: three's typings lag the node API used here. */
+const TSL: N = TSLTyped;
+const { Break, If, Loop, abs, bool, clamp, cross, dot, float, floor, int, ivec2, max, mix, normalWorldGeometry, positionWorld, property, select, texture, textureLoad, uint, uintBitsToFloat, uniform, vec2, vec3 } = TSL;
+
+/** `mesh.userData[SURFACE_READ_KEY]`: the kind of static surface it draws (`SURFACE_READ`), whose light it reads from the cache. */
+export const SURFACE_READ_KEY = '__tlSurfaceRead';
+/** `scene.userData[SURFACE_READ_LIVE_KEY]`: the scene's cache textures while its cache is lit live and its lookup is up to date (absent: not). */
+export const SURFACE_READ_LIVE_KEY = '__tlSurfaceReadLive';
+/** The own properties of a material variant that reads the cache: its kind, and the textures it reads. */
+export const SURFACE_READ_VARIANT = 'tlSurfaceRead';
+export const SURFACE_READ_TEXTURES = 'tlSurfaceReadTextures';
+
+/** What a drawn object reads of the cache in `scene`: its kind and the scene's textures (null: nothing). */
+export function surfaceReadOf(object: THREE.Object3D, scene: THREE.Object3D): { kind: number; textures: SurfaceCacheTextures } | null {
+  const textures = scene.userData[SURFACE_READ_LIVE_KEY] as SurfaceCacheTextures | undefined;
+  if (textures === undefined) return null;
+  const kind = (object.userData[SURFACE_READ_KEY] as number | undefined) ?? 0;
+  return kind === 0 ? null : { kind, textures };
+}
+
+/** Put the kind on every mesh under `root` (undefined: none). */
+export function markSurfaceRead(root: THREE.Object3D, kind: SurfaceReadKind | undefined): void {
+  root.traverse((o) => {
+    if ((o as THREE.Mesh).isMesh !== true) return;
+    if (kind === undefined) delete o.userData[SURFACE_READ_KEY];
+    else o.userData[SURFACE_READ_KEY] = kind;
+  });
+}
+
+/** The kind a material build reads the cache for (0: none). */
+export function buildSurfaceRead(builder: { material?: unknown }): number {
+  return ((builder.material as Record<string, unknown> | undefined)?.[SURFACE_READ_VARIANT] as number | undefined) ?? 0;
+}
+
+/**
+ * The textures materials read: the atlas and rings the light pass writes
+ * (three's storage array textures, so a material samples what the pass's
+ * own device writes), the lookup's words, and the sun's colour the cache's
+ * texels were lit with.
+ */
+let texturesMade = 0;
+
+export class SurfaceCacheTextures {
+  /** Tells textures apart in programs' keys (two pages' scenes never share a reading program's bindings). */
+  readonly id = ++texturesMade;
+  readonly atlas: THREE.StorageArrayTexture;
+  readonly rings: THREE.StorageArrayTexture;
+  readonly table: THREE.DataTexture;
+  /** The sun's colour × intensity, as the light pass counts it. */
+  readonly sun = uniform(new THREE.Color(0, 0, 0));
+  /** The lookup's texture node. */
+  readonly tableNode: N;
+
+  constructor() {
+    this.atlas = arrayTexture(SURFACE_PAGE_TEXELS, THREE.ClampToEdgeWrapping, 'surface cache atlas');
+    this.rings = arrayTexture(TERRAIN_RING_TEXELS, THREE.RepeatWrapping, 'surface cache rings');
+    this.table = tableTexture(new Uint32Array(LOOKUP_WIDTH * 4));
+    this.tableNode = textureLoad(this.table);
+  }
+
+  /** New lookup words (a whole number of rows, `packSurfaceLookup`): the same texture, made again by three when its rows change. */
+  setTable(words: Uint32Array): void {
+    const rows = words.length / 4 / LOOKUP_WIDTH;
+    const img = this.table.image as { data: Uint32Array; width: number; height: number };
+    if (img.height === rows) img.data.set(words);
+    else this.table.image = { data: words.slice(), width: LOOKUP_WIDTH, height: rows };
+    this.table.needsUpdate = true;
+  }
+
+  /**
+   * The GPU texture behind the atlas or the rings, `layers` deep (three
+   * makes it, so materials bind it; the light pass writes it).
+   */
+  gpuTexture(renderer: unknown, which: 'atlas' | 'rings', layers: number): unknown {
+    const t = which === 'atlas' ? this.atlas : this.rings;
+    const img = t.image as { width: number; height: number; depth: number };
+    if (img.depth !== layers) t.setSize(img.width, img.height, layers);
+    const r = renderer as { initTexture(t: THREE.Texture): void; backend: { get(t: THREE.Texture): { texture?: unknown } } };
+    r.initTexture(t);
+    return r.backend.get(t).texture;
+  }
+
+  dispose(): void {
+    this.atlas.dispose();
+    this.rings.dispose();
+    this.table.dispose();
+  }
+}
+
+function arrayTexture(side: number, wrap: THREE.Wrapping, name: string): THREE.StorageArrayTexture {
+  const t = new THREE.StorageArrayTexture(side, side, 1);
+  t.type = THREE.HalfFloatType;
+  t.format = THREE.RGBAFormat;
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearFilter;
+  t.generateMipmaps = false;
+  t.wrapS = wrap;
+  t.wrapT = wrap;
+  t.colorSpace = THREE.NoColorSpace;
+  t.name = name;
+  return t;
+}
+
+function tableTexture(data: Uint32Array): THREE.DataTexture {
+  const t = new THREE.DataTexture(data, LOOKUP_WIDTH, data.length / 4 / LOOKUP_WIDTH, THREE.RGBAIntegerFormat, THREE.UnsignedIntType);
+  t.internalFormat = 'RGBA32UI';
+  t.magFilter = THREE.NearestFilter;
+  t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  t.flipY = false;
+  t.needsUpdate = true;
+  return t;
+}
+
+/** Whether the cache's light was found at this pixel (0–1: how much of the filtered lookup was lit). */
+export const SURFACE_READ_FOUND = property('float', 'tlSurfaceReadFound');
+
+/** The shader's walk of the lookup's words (`lookupSurfaceCpu`'s twin). */
+function lookupNodes(tex: SurfaceCacheTextures, kind: SurfaceReadKind): { layer: N; uv: N; found: N; rings: boolean } {
+  const table = tex.tableNode;
+  const texel = (t: N): N => table.load(ivec2(int(t.mod(uint(LOOKUP_WIDTH))), int(t.div(uint(LOOKUP_WIDTH)))));
+  const word = (w: N): N => {
+    const v = texel(w.div(uint(4)));
+    const k = w.mod(uint(4));
+    return select(k.equal(uint(0)), v.x, select(k.equal(uint(1)), v.y, select(k.equal(uint(2)), v.z, v.w)));
+  };
+  const asF = (v: N): N => uintBitsToFloat(v);
+  const asI = (v: N): N => TSL.int(v);
+  const p = positionWorld;
+  const n = normalWorldGeometry;
+  const layer = uint(0).toVar('tlCacheLayer');
+  const uv = vec2(0).toVar('tlCacheUv');
+  const found = bool(false).toVar('tlCacheFound');
+  const header = texel(uint(0));
+  // A chart record's place for metres (uu, vv), held half a texel inside its interior; the uv on its page.
+  const chartAt = (at: N, uu: N, vv: N): void => {
+    const c0 = texel(at);
+    const c1 = asF(texel(at.add(uint(1))));
+    const x0 = float(c0.y.bitAnd(uint(0xffff)));
+    const y0 = float(c0.y.shiftRight(uint(16)));
+    const iw = float(c0.z.bitAnd(uint(0xffff)));
+    const ih = float(c0.z.shiftRight(uint(16)));
+    const x = x0.add(clamp(uu.div(c1.x).mul(iw), float(0.5), iw.sub(0.5)));
+    const y = y0.add(clamp(vv.div(c1.y).mul(ih), float(0.5), ih.sub(0.5)));
+    layer.assign(c0.x);
+    uv.assign(vec2(x, y).div(SURFACE_PAGE_TEXELS));
+    found.assign(true);
+  };
+  if (kind === SURFACE_READ.blocks) {
+    const an = abs(n);
+    const axis = select(an.x.greaterThanEqual(an.y).and(an.x.greaterThanEqual(an.z)), int(0), select(an.y.greaterThanEqual(an.z), int(1), int(2)));
+    const comp = (v: N, a: N): N => select(a.equal(int(0)), v.x, select(a.equal(int(1)), v.y, v.z));
+    const neg = comp(n, axis).lessThan(0);
+    const face = uint(axis.mul(2)).add(select(neg, uint(1), uint(0)));
+    const sgn = select(neg, float(-1), float(1));
+    // The plane axes of a face on each axis: (z, y), (x, z), (x, y).
+    const pu = select(axis.equal(int(0)), int(2), int(0));
+    const pv = select(axis.equal(int(1)), int(2), int(1));
+    Loop(int(header.x), ({ i }: { i: N }) => {
+      const at = header.y.add(uint(i).mul(uint(LAYER_TEXELS)));
+      const r0 = asF(texel(at));
+      const r1 = asF(texel(at.add(uint(1))));
+      const r2 = texel(at.add(uint(2)));
+      const r3 = texel(at.add(uint(3)));
+      const r4 = texel(at.add(uint(4)));
+      const axisVec = vec3(select(axis.equal(int(0)), sgn, float(0)), select(axis.equal(int(1)), sgn, float(0)), select(axis.equal(int(2)), sgn, float(0)));
+      const q = p.sub(r0.xyz).div(r1.xyz).sub(axisVec.mul(BLOCK_INSET)).toVar();
+      const cell = TSL.ivec3(floor(q)).toVar();
+      const lo = TSL.ivec3(asI(r2.x), asI(r2.y), asI(r2.z));
+      const hi = TSL.ivec3(asI(r3.x), asI(r3.y), asI(r3.z));
+      const inside = cell.greaterThanEqual(lo).all().and(cell.lessThan(hi).all());
+      If(inside, () => {
+        const cx = floor(float(cell.x).div(16));
+        const cz = floor(float(cell.z).div(16));
+        const jx = int(cx).sub(asI(r4.x));
+        const jz = int(cz).sub(asI(r4.y));
+        If(jx.greaterThanEqual(0).and(jz.greaterThanEqual(0)).and(jx.lessThan(asI(r4.z))).and(jz.lessThan(asI(r4.w))), () => {
+          const rec = word(r2.w.mul(uint(4)).add(uint(jz.mul(asI(r4.z)).add(jx))));
+          If(rec.notEqual(uint(0)), () => {
+            const rr = texel(rec);
+            const lx = uint(cell.x.sub(int(cx).mul(16)));
+            const lz = uint(cell.z.sub(int(cz).mul(16)));
+            const key = uint(cell.y.sub(lo.y)).mul(uint(16)).add(lz).mul(uint(16)).add(lx).mul(uint(6)).add(face).toVar();
+            const h0 = key.mul(uint(0x9e3779b1));
+            const cap = rr.y;
+            const s = h0.bitXor(h0.shiftRight(uint(15))).bitAnd(cap.sub(uint(1))).toVar();
+            Loop(int(cap), () => {
+              const w = rr.x.mul(uint(4)).add(s.mul(uint(2)));
+              const k = word(w);
+              If(k.equal(uint(EMPTY)), () => {
+                Break();
+              });
+              If(k.equal(key), () => {
+                const e = word(w.add(uint(1)));
+                const fu = clamp(comp(q, pu).sub(float(comp(cell, pu))), float(0), float(1));
+                const fv = clamp(comp(q, pv).sub(float(comp(cell, pv))), float(0), float(1));
+                const uu = float(e.bitAnd(uint(255))).add(fu).mul(comp(r1, pu));
+                const vv = float(e.shiftRight(uint(8)).bitAnd(uint(255))).add(fv).mul(comp(r1, pv));
+                chartAt(rr.z.add(e.shiftRight(uint(16)).mul(uint(CHART_TEXELS))), uu, vv);
+                Break();
+              });
+              s.assign(s.add(uint(1)).bitAnd(cap.sub(uint(1))));
+            });
+          });
+        });
+      });
+      If(found, () => {
+        Break();
+      });
+    });
+    return { layer, uv, found, rings: false };
+  }
+  if (kind === SURFACE_READ.terrain) {
+    Loop(int(header.z), ({ i }: { i: N }) => {
+      const at = header.w.add(uint(i).mul(uint(TERRAIN_TEXELS)));
+      const t0 = texel(at);
+      Loop(int(t0.x), ({ i: k }: { i: N }) => {
+        const r = asF(texel(at.add(uint(1)).add(uint(k))));
+        const half = r.z.sub(r.w);
+        If(abs(p.x.sub(r.x)).lessThanEqual(half).and(abs(p.z.sub(r.y)).lessThanEqual(half)), () => {
+          layer.assign(t0.y.add(uint(k)));
+          uv.assign(vec2(p.x, p.z).div(r.w).div(TERRAIN_RING_TEXELS));
+          found.assign(true);
+          Break();
+        });
+      });
+      If(found, () => {
+        Break();
+      });
+    });
+    return { layer, uv, found, rings: true };
+  }
+  // Architecture: the world cell's list of charts, the first whose plane and rectangle hold the pixel.
+  const h1 = texel(uint(1));
+  const c = TSL.ivec3(floor(p.div(ARCH_CELL)));
+  const cu = TSL.uvec3(c);
+  const cap = h1.x;
+  const s = cu.x.mul(uint(73856093)).bitXor(cu.y.mul(uint(19349663))).bitXor(cu.z.mul(uint(83492791))).bitAnd(cap.sub(uint(1))).toVar();
+  Loop(int(cap), () => {
+    const slot = texel(h1.y.add(s));
+    If(slot.w.equal(uint(0)), () => {
+      Break();
+    });
+    If(TSL.ivec3(asI(slot.x), asI(slot.y), asI(slot.z)).equal(c).all(), () => {
+      const list = slot.w;
+      Loop(int(word(list.mul(uint(4)))), ({ i }: { i: N }) => {
+        const fa = word(list.mul(uint(4)).add(uint(1)).add(uint(i)));
+        const f0 = asF(texel(fa));
+        const f1 = asF(texel(fa.add(uint(1))));
+        const f2 = asF(texel(fa.add(uint(2))));
+        const d = p.sub(f0.xyz);
+        const nn = cross(f1.xyz, f2.xyz);
+        const uu = dot(d, f1.xyz);
+        const vv = dot(d, f2.xyz);
+        const on = abs(dot(d, nn)).lessThanEqual(ARCH_PLANE_METRES).and(dot(n, nn).greaterThanEqual(ARCH_FACING));
+        const within = uu.greaterThanEqual(-ARCH_PLANE_METRES).and(vv.greaterThanEqual(-ARCH_PLANE_METRES)).and(uu.lessThanEqual(f0.w.add(ARCH_PLANE_METRES))).and(vv.lessThanEqual(f1.w.add(ARCH_PLANE_METRES)));
+        If(on.and(within), () => {
+          chartAt(fa.add(uint(FRAME_TEXELS - CHART_TEXELS)), uu, vv);
+          Break();
+        });
+      });
+      Break();
+    });
+    s.assign(s.add(uint(1)).bitAnd(cap.sub(uint(1))));
+  });
+  return { layer, uv, found, rings: false };
+}
+
+/**
+ * The cache's light at this pixel (built before the local lights, in a
+ * reading build's lights node): its direct diffuse light, the sun's share
+ * taken out, and `SURFACE_READ_FOUND` set.
+ */
+export class SurfaceReadLightNode extends (THREE.LightingNode as unknown as new () => { [k: string]: unknown }) {
+  static get type(): string {
+    return 'SurfaceReadLightNode';
+  }
+  readonly isSurfaceReadLightNode = true;
+  constructor(private readonly tex: SurfaceCacheTextures, private readonly kind: SurfaceReadKind) {
+    super();
+  }
+  setup(builder: N): null {
+    const { layer, uv, found, rings } = lookupNodes(this.tex, this.kind);
+    const map = texture(rings ? this.tex.rings : this.tex.atlas, uv).depth(layer).level(float(0));
+    const t = select(found, map, TSL.vec4(0));
+    // Alpha: 0 where nothing is lit, 1 + the sun's share where it is (a filtered lookup blends the two).
+    const lit = clamp(t.w, float(0), float(SURFACE_TEXEL_LIT));
+    const sunShare = max(t.w.sub(SURFACE_TEXEL_LIT), float(0));
+    const irr = max(t.xyz.sub(vec3(this.tex.sun).mul(sunShare)), vec3(0));
+    SURFACE_READ_FOUND.assign(lit);
+    const ctx = builder.context;
+    if (builder.material?.isMeshCustomLitNodeMaterial === true) LIT.direct.addAssign(irr.mul(1 / Math.PI));
+    else ctx.reflectedLight.directDiffuse.addAssign(irr.mul(TSL.diffuseColor.rgb).mul(1 / Math.PI));
+    return null;
+  }
+}
+
+const readNodes = new WeakMap<SurfaceCacheTextures, Map<number, unknown>>();
+
+/** The lights a reading build adds: the cache's light (one node a kind per textures, so programs are shared). */
+export function surfaceReadNode(tex: SurfaceCacheTextures, kind: SurfaceReadKind): SurfaceReadLightNode {
+  let m = readNodes.get(tex);
+  if (m === undefined) readNodes.set(tex, (m = new Map()));
+  let node = m.get(kind) as SurfaceReadLightNode | undefined;
+  if (node === undefined) m.set(kind, (node = new SurfaceReadLightNode(tex, kind)));
+  return node;
+}
+
+/**
+ * In a reading build's lights node: the cache's light first, then every
+ * other light; the local lights' diffuse light (the cache holds it) is put
+ * back to what it was before them where the cache was found, their
+ * highlights kept.
+ */
+export function buildReadLights(builder: N, nodes: readonly { light?: THREE.Light; build(b: unknown): unknown }[], isLocal: (l: THREE.Light | undefined) => boolean): void {
+  const kind = buildSurfaceRead(builder) as SurfaceReadKind;
+  const tex = (builder.material as Record<string, unknown> | undefined)?.[SURFACE_READ_TEXTURES] as SurfaceCacheTextures | undefined;
+  if (tex === undefined) {
+    for (const n of nodes) n.build(builder);
+    return;
+  }
+  (surfaceReadNode(tex, kind) as unknown as { build(b: unknown): unknown }).build(builder);
+  const local = nodes.filter((n) => isLocal(n.light));
+  for (const n of nodes) if (!local.includes(n)) n.build(builder);
+  if (local.length === 0) return;
+  const custom = builder.material?.isMeshCustomLitNodeMaterial === true;
+  const sink = custom ? LIT.direct : builder.context.reflectedLight.directDiffuse;
+  const before = vec3(sink).toVar('tlSurfaceReadBefore');
+  for (const n of local) n.build(builder);
+  sink.assign(mix(sink, before, SURFACE_READ_FOUND));
+}

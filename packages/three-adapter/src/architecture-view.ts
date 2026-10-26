@@ -74,6 +74,8 @@ import { PAINT_ATTRIBUTE } from './vertex-paint-draw';
 import { pathPaintAttribute, pathPaintSignature, PathPaintOverrides, PathPaintReader, PATH_PAINT_ENTITY_KEY, resamplePathPaint } from './vertex-paint-paths-view';
 import type { PathPaintPreview } from './vertex-paint-preview';
 import { pathPaintFrame, type PathPaintGrid, type PathPaintSide, type PathPaintSource } from '@thirdlight/runtime';
+import { SURFACE_READ } from './surface-cache-lookup';
+import { SURFACE_READ_KEY } from './surface-cache-read';
 
 /** At most this many generator workers (the block mesher, the simulation, the page and the GPU process want cores too). */
 export const ARCHITECTURE_WORKERS_MAX = 2;
@@ -1204,6 +1206,8 @@ export class ArchitectureView {
         markOccludee(mesh, 'architecture');
         // A chunk spans rooms: each face is lit by the room it looks into and drawn while that room is seen (room-culling.ts).
         mesh.userData[ROOM_TAG_KEY] = true;
+        // Its light comes from the surface cache's plane charts where the page lights it live (surface-cache-read.ts).
+        mesh.userData[SURFACE_READ_KEY] = SURFACE_READ.arch;
         flagMesh(mesh, flags);
         // Clipped decals may be cut from it (clipped-decals.ts).
         mesh.userData[DECAL_SURFACE_KEY] = true;

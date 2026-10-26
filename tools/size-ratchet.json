@@ -27,7 +27,7 @@
     {"file":"packages/runtime/src/runtime.ts","kind":"class","unit":"RuntimeInstance","size":147},
     {"file":"packages/runtime/src/snapshot.ts","kind":"function","unit":"validateRuntimeSnapshot","size":413},
     {"file":"packages/three-adapter/src/attribute-instancing.ts","kind":"function","unit":"createAttributeInstancedMesh","size":416},
-    {"file":"packages/three-adapter/src/batching.ts","kind":"function","unit":"createAutoBatcher","size":555},
+    {"file":"packages/three-adapter/src/batching.ts","kind":"function","unit":"createAutoBatcher","size":550},
     {"file":"packages/three-adapter/src/block-layers.ts","kind":"class","unit":"BlockLayerView","size":84},
     {"file":"packages/three-adapter/src/decal-projectors.ts","kind":"function","unit":"createDecalProjectors","size":514},
     {"file":"packages/three-adapter/src/environment-nodes.ts","kind":"function","unit":"buildPostPipeline","size":409},
