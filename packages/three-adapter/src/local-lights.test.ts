@@ -15,6 +15,7 @@ import { EffectLights } from './effect-lights';
 import { INSTANCE_SET_KEY } from './instancing';
 import { applyEntityRenderFlags } from './entity-render-flags';
 import { drawMode, installLocalLightModes, localLightsCacheKey, localLightVariant, LOCAL_LIGHTS_IGNORED_KEY, LOCAL_LIGHTS_KEY, splitLocalLights } from './local-lights';
+import { variantSource } from './material-variant';
 
 const lit = () => new THREE.MeshStandardNodeMaterial();
 
@@ -57,8 +58,20 @@ describe('local-light modes', () => {
     m.color.set('#00ff00');
     m.roughness = 0.25;
     m.needsUpdate = true;
+    // The values reach the variant at its next render call (each draw asks for it).
+    expect(localLightVariant(m, 'none', null, 7)).toBe(v);
     expect((v as THREE.MeshStandardNodeMaterial).color.getHexString()).toBe('00ff00');
+    expect((v as THREE.MeshStandardNodeMaterial).roughness).toBe(0.25);
     expect(v.version).toBe(m.version);
+    expect((v as unknown as { id: number }).id).toBe((m as unknown as { id: number }).id);
+    // Within one render call they are copied once.
+    m.roughness = 0.5;
+    localLightVariant(m, 'none', null, 7);
+    expect((v as THREE.MeshStandardNodeMaterial).roughness).toBe(0.25);
+    localLightVariant(m, 'none', null, 8);
+    expect((v as THREE.MeshStandardNodeMaterial).roughness).toBe(0.5);
+    m.roughness = 0.25;
+    localLightVariant(m, 'none');
     expect(v.customProgramCacheKey()).not.toBe(m.customProgramCacheKey());
     expect(v.customProgramCacheKey()).toContain('tlLocalLights=none');
     // Equal materials share programs: their variants' keys are equal.
@@ -69,9 +82,11 @@ describe('local-light modes', () => {
     const other = lit();
     other.color.set('#00ff00');
     other.roughness = 0.25;
-    // A different value that keys three's programs (a texture slot) keys the variant's too.
+    // A different value that keys three's programs (a texture slot) is the variant's own value, which three keys its program by.
     other.map = new THREE.Texture();
-    expect(localLightVariant(other, 'none').customProgramCacheKey()).not.toBe(v.customProgramCacheKey());
+    const ov = localLightVariant(other, 'none');
+    expect(Object.prototype.hasOwnProperty.call(ov, 'map') && (ov as THREE.MeshStandardNodeMaterial).map).toBe(other.map);
+    expect(Object.keys(ov).filter((k) => !k.startsWith('_') && !k.startsWith('tl') && k !== 'customProgramCacheKey')).toEqual(Object.keys(other).filter((k) => !k.startsWith('_')));
     let disposed = 0;
     v.addEventListener('dispose', () => (disposed += 1));
     m.dispose();
@@ -81,9 +96,11 @@ describe('local-light modes', () => {
 
   it('the draw-time swap uses the variant for lit draws only, never in an override pass, and leaves `side` to the material', () => {
     const drawn: THREE.Material[] = [];
+    const sides: THREE.Side[] = [];
     const renderer = {
       renderObject(_o: THREE.Object3D, _s: THREE.Scene, _c: THREE.Camera, _g: THREE.BufferGeometry, material: THREE.Material) {
         drawn.push(material);
+        sides.push(material.side);
         // three's transparent double-sided pass sets the side on what it draws, then back.
         material.side = THREE.DoubleSide;
       },
@@ -100,8 +117,12 @@ describe('local-light modes', () => {
     expect(draw(m)).toBe(m);
     mesh.userData[LOCAL_LIGHTS_KEY] = 'none';
     const v = draw(m);
-    expect(Object.getPrototypeOf(v)).toBe(m);
-    expect(Object.prototype.hasOwnProperty.call(v, 'side')).toBe(false);
+    expect(variantSource(v)).toBe(m);
+    // The side three set while drawing is the material's again at the next render call.
+    expect(v.side).toBe(THREE.DoubleSide);
+    m.side = THREE.FrontSide;
+    expect(draw(m)).toBe(v);
+    expect(sides[sides.length - 1]).toBe(THREE.FrontSide);
     mesh.userData[LOCAL_LIGHTS_KEY] = 'pixel';
     expect(draw(m)).toBe(m);
     mesh.userData[LOCAL_LIGHTS_KEY] = 'none';
@@ -113,11 +134,11 @@ describe('local-light modes', () => {
     // A plain lit material (a model file's own, converted by three) gets a variant too.
     scene.overrideMaterial = null;
     const plain = new THREE.MeshStandardMaterial();
-    expect(Object.getPrototypeOf(draw(plain))).toBe(plain);
+    expect(variantSource(draw(plain))).toBe(plain);
     // The probe bake's scene draws every material as it is: a material without local lights still bounces a lamp.
     m.userData[LOCAL_LIGHTS_KEY] = 'none';
     delete mesh.userData[LOCAL_LIGHTS_KEY];
-    expect(Object.getPrototypeOf(draw(m))).toBe(m);
+    expect(variantSource(draw(m))).toBe(m);
     scene.userData[LOCAL_LIGHTS_IGNORED_KEY] = true;
     expect(draw(m)).toBe(m);
   });

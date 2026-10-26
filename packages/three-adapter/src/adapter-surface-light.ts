@@ -71,7 +71,12 @@ export interface SurfaceLightDiagnostics {
   /** Whether static surfaces read the cache now, and the bytes of their lookup. */
   readonly read: boolean;
   readonly lookupBytes: number;
-  /** Cells of the surfaces' colours the materials have drawn, as last read back (null: not read yet; a read is asked by this call). */
+  /**
+   * Cells of the surfaces' colours the materials have drawn, as last read
+   * back (null: not read yet; a read is asked by this call until one finds
+   * colours drawn under the current lookup: the read copies the whole buffer
+   * back, too dear to repeat while a diagnostics panel or harness polls).
+   */
   readonly albedoDrawn: number | null;
   /** Frames that wrote the surfaces' colours so far. */
   readonly captures: number;
@@ -101,6 +106,8 @@ export class AdapterSurfaceLight {
   private albedoAsked = false;
   private albedoReading = false;
   private albedoAt = -Infinity;
+  /** The lookup the last read-back was made under. */
+  private albedoFor = '';
   private frames = 0;
   private captures = 0;
 
@@ -153,7 +160,8 @@ export class AdapterSurfaceLight {
     this.frames += 1;
     tex.capture = this.host.probes.count > 0 && this.frames % ALBEDO_CAPTURE_FRAMES === 0;
     if (tex.capture) this.captures += 1;
-    if (this.albedoAsked && !this.albedoReading && now - this.albedoAt >= ALBEDO_READ_MS) {
+    const albedoSeen = (this.albedoDrawn ?? 0) > 0 && this.albedoFor === this.lookupFor;
+    if (this.albedoAsked && !albedoSeen && !this.albedoReading && now - this.albedoAt >= ALBEDO_READ_MS) {
       this.albedoAt = now;
       this.readAlbedo(renderer);
     }
@@ -166,12 +174,14 @@ export class AdapterSurfaceLight {
     if (tex === null || typeof r.getArrayBufferAsync !== 'function' || tex.gpuAlbedo(renderer) === null) return;
     this.albedoAsked = false;
     this.albedoReading = true;
+    const lookup = this.lookupFor;
     r.getArrayBufferAsync(tex.albedo).then(
       (bytes) => {
         const w = new Uint32Array(bytes);
         let n = 0;
         for (let i = 0; i < w.length; i += 1) if (w[i]! >>> 24 !== 0) n += 1;
         this.albedoDrawn = n;
+        this.albedoFor = lookup;
         this.albedoReading = false;
       },
       () => {

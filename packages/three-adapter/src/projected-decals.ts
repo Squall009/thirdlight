@@ -53,7 +53,8 @@ import { DECAL_FADE, DECAL_LAYERS_ALL } from '@thirdlight/runtime';
 
 import { DECAL_HASH, DECAL_ROW_TEXELS, DECAL_TEXTURE_WIDTH } from './decal-index';
 import type { N } from './effects-tsl';
-import { isLit, materialValuesKey } from './local-lights';
+import { isLit } from './local-lights';
+import { makeMaterialVariant, renderCallOf, syncMaterialVariant } from './material-variant';
 import { texelTexture, untransformedTexture } from './texel-texture-node';
 import { decalDrawOf } from './mesh-decals';
 
@@ -490,32 +491,25 @@ export function projectedDecalsOf(scene: THREE.Object3D): ProjectedDecals | null
 /** The own property of a decal variant holding the decals it blends. */
 const VARIANT_DECALS = 'tlProjectedDecals';
 
-type Keyed = THREE.Material & { customProgramCacheKey(): string };
-
 /** Each material's decal variants by decals (one generation each). */
 const variants = new WeakMap<THREE.Material, Map<number, { generation: number; variant: THREE.Material }>>();
 
 /**
  * The variant of `material` that blends `decals` in (made once per
  * generation of the decals' textures; the one it replaces is disposed, so
- * three lets go of its render objects). Variants of equal materials share
- * programs: the key spells out the material's values, as the local-light
- * variants' do.
+ * three lets go of its render objects; `material-variant.ts`), its values
+ * copied from the material once per render call `call` (-1: now).
  */
-export function decalVariant(material: THREE.Material, decals: ProjectedDecals): THREE.Material {
+export function decalVariant(material: THREE.Material, decals: ProjectedDecals, call = -1): THREE.Material {
   let byHost = variants.get(material);
   const known = byHost?.get(decals.id);
-  if (known !== undefined && known.generation === decals.generation) return known.variant;
+  if (known !== undefined && known.generation === decals.generation) {
+    syncMaterialVariant(known.variant, call);
+    return known.variant;
+  }
   if (known !== undefined) known.variant.dispatchEvent({ type: 'dispose' });
-  const base = material as Keyed;
-  const v = Object.create(base) as Keyed & Record<string, unknown>;
-  // Own listeners: three's render objects listen for the variant's dispose, never the material's.
-  v['_listeners'] = {};
-  v[VARIANT_DECALS] = decals;
-  const tag = `|tlDecals=${decals.id}:${decals.generation}`;
-  v.customProgramCacheKey = function decalVariantKey(): string {
-    return `${base.customProgramCacheKey()}|${materialValuesKey(base)}${tag}`;
-  };
+  const v = makeMaterialVariant(material, { [VARIANT_DECALS]: decals }, `|tlDecals=${decals.id}:${decals.generation}`);
+  if (call !== -1) syncMaterialVariant(v, call);
   if (byHost === undefined) {
     byHost = new Map();
     variants.set(material, byHost);
@@ -823,11 +817,9 @@ export function registerProjectedDecals(renderer: { renderObject: RenderObjectFn
     }
     const d = scene.overrideMaterial === null ? lastDecals : undefined;
     if (d !== undefined && receives(material) && d.hits(object)) {
-      const v = decalVariant(material, d);
+      const v = decalVariant(material, d, renderCallOf(this));
       d.draws += 1;
       base.call(this, object, scene, camera, geometry, v, group, lightsNode, clippingContext, passId);
-      // A transparent double-sided draw sets `side` on the material it draws and back: keep reading the material's.
-      if (Object.prototype.hasOwnProperty.call(v, 'side')) delete (v as unknown as Record<string, unknown>)['side'];
       return;
     }
     base.call(this, object, scene, camera, geometry, material, group, lightsNode, clippingContext, passId);

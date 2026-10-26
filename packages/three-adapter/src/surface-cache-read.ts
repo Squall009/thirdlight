@@ -559,7 +559,7 @@ export function surfaceReadNode(tex: SurfaceCacheTextures, kind: SurfaceReadKind
  */
 export function buildReadLights(builder: N, nodes: readonly { light?: THREE.Light; build(b: unknown): unknown }[], isLocal: (l: THREE.Light | undefined) => boolean): void {
   const kind = buildSurfaceRead(builder) as SurfaceReadKind;
-  const tex = (builder.material as Record<string, unknown> | undefined)?.[SURFACE_READ_TEXTURES] as SurfaceCacheTextures | undefined;
+  const tex = ((builder.material as Record<string, unknown> | undefined)?.[SURFACE_READ_TEXTURES] as SurfaceCacheTextures | null | undefined) ?? undefined;
   if (tex === undefined) {
     for (const n of nodes) n.build(builder);
     return;
