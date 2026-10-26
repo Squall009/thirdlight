@@ -11,11 +11,20 @@
  *   at a time, nearest first, within `SURFACE_PREPARE_MS` a frame, so a
  *   scene coming in never stalls a frame.
  *
+ * - It keeps the cache's light up to date (`surface-relight.ts`): resident
+ *   tiles and terrain ring patches are the units of work, and every change
+ *   it sees while listing (a tile's new version, a terrain tile's new data,
+ *   a surface come or gone) marks what that geometry's light reaches
+ *   (`surface-changes.ts`); the page hands in its lights every frame.
+ *
  * Measurements read it from `scene.userData[SURFACE_CACHE_KEY]`.
  */
-import { decodeDistanceBricks, type ArchitectureComponent, type BlockCell, type DistanceBricks, type TerrainField } from '@thirdlight/runtime';
+import { decodeDistanceBricks, type ArchitectureComponent, type BlockCell, type DistanceBricks, type TerrainField, type TerrainTile } from '@thirdlight/runtime';
 
 import { SurfaceCache, type SurfaceCacheDiagnostics, type SurfaceTile } from './surface-cache';
+import { SurfaceChanges, type CacheLight } from './surface-changes';
+import { SurfaceRelight, type RelightDiagnostics, type RelightSlice, type RelightUnit } from './surface-relight';
+import type { RingPatch } from './surface-cache-terrain';
 import { architecturePiecesOf } from './surface-cache-arch';
 import type { SurfaceBlockGrid } from './surface-cache-blocks';
 import { architectureTile, blockChunkTile, modelPieceTiles } from './surface-cache-scene';
@@ -66,6 +75,14 @@ export interface SurfaceCacheHostDiagnostics extends SurfaceCacheDiagnostics {
   readonly reading: number;
   /** The last frame's time making charts (ms). */
   readonly prepareMs: number;
+  /** What waits for light, the GPU time used and whether the scene is settled. */
+  readonly relight: RelightDiagnostics;
+}
+
+/** A terrain ring patch as a unit of work. */
+export interface RingPatchUnit extends RelightUnit {
+  readonly terrain: string;
+  readonly patch: RingPatch;
 }
 
 /** A matrix (column-major 4 × 4) as the world → local affine map. */
@@ -86,7 +103,8 @@ function ringSourceOf(id: string, field: TerrainField): TerrainRingSource | null
   if (x0 === Infinity) return null;
   const side = field.n * field.spacing;
   const o = field.origin;
-  return { key: id, min: [o[0] + x0 * side, o[1], o[2] + z0 * side], max: [o[0] + x1 * side, o[1], o[2] + z1 * side] };
+  const [y0, y1] = field.heightSpan();
+  return { key: id, min: [o[0] + x0 * side, y0, o[2] + z0 * side], max: [o[0] + x1 * side, y1, o[2] + z1 * side] };
 }
 
 interface Pending {
@@ -105,6 +123,17 @@ function placementHash(m: ArrayLike<number>, version: number): number {
   return h >>> 0;
 }
 
+/** Whether two tiles' data stop light alike: their heights and holes (paint changes colour, not where light falls). */
+function sameShape(a: TerrainTile, b: TerrainTile): boolean {
+  const same = (x: ArrayLike<number> | null, y: ArrayLike<number> | null): boolean => {
+    if (x === y) return true;
+    if (x === null || y === null || x.length !== y.length) return false;
+    for (let i = 0; i < x.length; i += 1) if (x[i] !== y[i]) return false;
+    return true;
+  };
+  return same(a.heights, b.heights) && same(a.holes, b.holes);
+}
+
 export class SurfaceCacheHost {
   readonly cache: SurfaceCache;
   private listedAt = -Infinity;
@@ -120,9 +149,50 @@ export class SurfaceCacheHost {
   private changed = true;
   private prepareMs = 0;
   private offered: SurfaceTile[] = [];
+  readonly relight: SurfaceRelight;
+  readonly changes: SurfaceChanges;
+  /** The first listing is done: what comes or goes after it is a change. */
+  private listed = false;
+  /** Each terrain's tile data as last listed (an edit hands in new data). */
+  private readonly terrainTiles = new Map<string, Map<string, TerrainTile>>();
+  /** Each terrain's ring patch units by key. */
+  private readonly patchUnits = new Map<string, Map<string, RingPatchUnit>>();
+  private slices: RelightSlice[] = [];
+  private live = false;
 
-  constructor(private readonly deps: SurfaceCacheHostDeps, budgetBytes: number) {
+  /** `relightMs`: the GPU time a frame may spend lighting stale texels (0: none, the saved light is drawn). */
+  constructor(private readonly deps: SurfaceCacheHostDeps, budgetBytes: number, private relightMs = 0) {
     this.cache = new SurfaceCache(budgetBytes);
+    // Live only once a pass runs the work (`setLive`).
+    this.relight = new SurfaceRelight(relightMs, false);
+    this.changes = new SurfaceChanges(this.relight);
+  }
+
+  /** The quality level's GPU time a frame for live light (0: none). */
+  setRelightBudget(ms: number): void {
+    this.relightMs = ms;
+    this.relight.setBudget(ms, this.live);
+  }
+
+  /** A pass runs the planned work (`slicesThisFrame`) and reports its GPU time (`relight.report`). */
+  setLive(on: boolean): void {
+    this.live = on;
+    this.relight.setBudget(this.relightMs, on);
+  }
+
+  /** The lights now (once a frame). */
+  setLights(lights: readonly CacheLight[]): void {
+    this.changes.setLights(lights);
+  }
+
+  /** The texels to light this frame (what `update` planned). */
+  slicesThisFrame(): readonly RelightSlice[] {
+    return this.slices;
+  }
+
+  /** Geometry in a box changed (after the first listing; the scene coming in is not a change). */
+  private geometry(min: readonly number[], max: readonly number[]): void {
+    if (this.listed) this.changes.geometryChanged(min, max);
   }
 
   setBudget(bytes: number): void {
@@ -136,9 +206,8 @@ export class SurfaceCacheHost {
     this.listedAt = -Infinity;
   }
 
-  /** Once a frame, with the drawn eye. */
-  update(eye: ArrayLike<number>): void {
-    const now = performance.now();
+  /** Once a frame, with the drawn eye (`now`: the frame's time, ms). */
+  update(eye: ArrayLike<number>, now = performance.now()): void {
     if (now - this.listedAt >= LIST_MS) {
       this.listedAt = now;
       this.list();
@@ -146,8 +215,59 @@ export class SurfaceCacheHost {
     this.prepare(eye, now);
     // A tile with nothing to light (a chunk of hidden faces only) is made once and never offered.
     if (this.changed) this.offered = [...this.ready.values()].filter((t) => t.charts().length > 0);
-    this.cache.update([eye[0]!, eye[1]!, eye[2]!], this.offered, this.terrains, this.changed);
+    const at = [eye[0]!, eye[1]!, eye[2]!];
+    this.cache.update(at, this.offered, this.terrains, this.changed);
     this.changed = false;
+    this.syncUnits();
+    this.slices = this.relight.plan(at, now);
+  }
+
+  /** The cache's resident tiles and ring patches as units of work: what came in or moved is stale. */
+  private syncUnits(): void {
+    const ch = this.cache.takeChanges();
+    for (const key of ch.freed) this.relight.remove(key);
+    for (const key of ch.allocated) {
+      const u = this.cache.residentUnit(key);
+      if (u !== null) this.relight.add({ key, ...u });
+    }
+    const stepped = new Map<string, Set<number>>();
+    for (const r of ch.rings) for (const k of r.rings) {
+      let set = stepped.get(r.terrain);
+      if (set === undefined) stepped.set(r.terrain, (set = new Set()));
+      set.add(k);
+    }
+    const terrains = new Set(this.cache.ringTerrains());
+    for (const [terrain, units] of [...this.patchUnits]) if (!terrains.has(terrain)) {
+      for (const key of units.keys()) this.relight.remove(key);
+      this.patchUnits.delete(terrain);
+    }
+    for (const terrain of terrains) {
+      const rings = this.cache.ringsOf(terrain)!;
+      let units = this.patchUnits.get(terrain);
+      const fresh = units === undefined;
+      if (units === undefined) this.patchUnits.set(terrain, (units = new Map()));
+      const steps = stepped.get(terrain);
+      if (!fresh && steps === undefined && [...units.values()].every((u) => u.patch.ring < rings.rings)) continue;
+      const src = rings.source;
+      const seen = new Set<string>();
+      for (let k = 0; k < rings.rings; k += 1) {
+        const t = rings.texelMetres(k);
+        for (const p of rings.patches(k)) {
+          const key = `${terrain}#${k}/${p.px},${p.pz}`;
+          seen.add(key);
+          const had = units.get(key);
+          // A patch whose window grew or moved is lit again whole; one the step left as it was keeps its light.
+          if (had !== undefined && had.patch.ix === p.ix && had.patch.iz === p.iz && had.patch.w === p.w && had.patch.h === p.h) continue;
+          const u: RingPatchUnit = { key, terrain, patch: p, texels: p.w * p.h, min: [p.ix * t, src.min[1]!, p.iz * t], max: [(p.ix + p.w) * t, src.max[1]!, (p.iz + p.h) * t] };
+          units.set(key, u);
+          this.relight.add(u);
+        }
+      }
+      for (const key of [...units.keys()]) if (!seen.has(key)) {
+        units.delete(key);
+        this.relight.remove(key);
+      }
+    }
   }
 
   /** Whether `key` at `version` is made or waiting; else it waits (a changed one is let go first). */
@@ -158,9 +278,13 @@ export class SurfaceCacheHost {
     if (had !== undefined) {
       this.ready.delete(key);
       this.changed = true;
+      this.geometry(had.min, had.max);
     }
     const p = this.pending.get(key);
-    if (p === undefined || p.version !== version) this.pending.set(key, { min, max, version, make });
+    if (p === undefined || p.version !== version) {
+      this.pending.set(key, { min, max, version, make });
+      this.geometry(min, max);
+    }
   }
 
   /** The loaded scene's surfaces: what is ready stays, what changed or is new waits to be made, what left goes. */
@@ -182,10 +306,14 @@ export class SurfaceCacheHost {
       }
     }
     this.terrains = [];
+    const terrainIds = new Set<string>();
     for (const { id, field } of this.deps.terrains()) {
+      terrainIds.add(id);
       const r = ringSourceOf(id, field);
       if (r !== null) this.terrains.push(r);
+      this.terrainEdits(id, field);
     }
+    for (const id of [...this.terrainTiles.keys()]) if (!terrainIds.has(id)) this.terrainTiles.delete(id);
     for (const a of this.deps.architecture()) {
       let version = this.componentVersions.get(a.component);
       if (version === undefined) this.componentVersions.set(a.component, (version = ++this.componentVersion));
@@ -204,15 +332,43 @@ export class SurfaceCacheHost {
       if (fresh) continue;
       for (const tile of modelPieceTiles({ key: m.id, worldToLocal: worldToLocalOfMatrix(m.world), bricks: file, piece: m.piece, version })) {
         if (tile.chart === null) continue;
+        // A static object moved: where it was and where it is.
+        const had = this.ready.get(tile.key);
+        if (had !== undefined) this.geometry(had.min, had.max);
+        this.geometry(tile.min, tile.max);
         this.ready.set(tile.key, tile);
         this.changed = true;
       }
     }
-    for (const key of [...this.ready.keys()]) if (!seen.has(key)) {
+    for (const [key, t] of [...this.ready]) if (!seen.has(key)) {
       this.ready.delete(key);
       this.changed = true;
+      this.geometry(t.min, t.max);
     }
     for (const key of [...this.pending.keys()]) if (!seen.has(key)) this.pending.delete(key);
+    this.listed = true;
+  }
+
+  /** A terrain's tiles whose data changed (an edit, live or scripted), came or went since the last listing: their boxes changed. */
+  private terrainEdits(id: string, field: TerrainField): void {
+    const now = field.loadedTiles();
+    const was = this.terrainTiles.get(id);
+    this.terrainTiles.set(id, new Map(now));
+    if (was === undefined) return;
+    const [y0, y1] = field.heightSpan();
+    const box = (key: string): void => {
+      const [x, z] = key.split(',').map(Number) as [number, number];
+      const b = field.tileBounds(x, z);
+      this.geometry([b[0], y0, b[1]], [b[2], y1, b[3]]);
+    };
+    for (const [key, t] of now) {
+      const old = was.get(key);
+      if (old === t) continue;
+      // A field made again hands in new flat tiles, and paint changes colour only: same shape, no change.
+      if (old !== undefined && sameShape(old, t)) continue;
+      box(key);
+    }
+    for (const key of was.keys()) if (!now.has(key)) box(key);
   }
 
   /** A model's decoded file (null: none, or still being read). */
@@ -254,6 +410,6 @@ export class SurfaceCacheHost {
   diagnostics(): SurfaceCacheHostDiagnostics {
     let reading = 0;
     for (const f of this.files.values()) if (f === 'reading') reading += 1;
-    return { ...this.cache.diagnostics(), preparing: this.pending.size, reading, prepareMs: this.prepareMs };
+    return { ...this.cache.diagnostics(), preparing: this.pending.size, reading, prepareMs: this.prepareMs, relight: this.relight.diagnostics() };
   }
 }

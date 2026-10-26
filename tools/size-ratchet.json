@@ -32,7 +32,7 @@
     {"file":"packages/three-adapter/src/decal-projectors.ts","kind":"function","unit":"createDecalProjectors","size":514},
     {"file":"packages/three-adapter/src/environment-nodes.ts","kind":"function","unit":"buildPostPipeline","size":409},
     {"file":"packages/three-adapter/src/environment.ts","kind":"function","unit":"createEnvironmentRenderer","size":736},
-    {"file":"packages/three-adapter/src/lights-shadows.ts","kind":"function","unit":"createSceneLights","size":474},
+    {"file":"packages/three-adapter/src/lights-shadows.ts","kind":"function","unit":"createSceneLights","size":473},
     {"file":"packages/three-adapter/src/material-graph.ts","kind":"function","unit":"compileMaterialGraph","size":973},
     {"file":"packages/three-adapter/src/material-graph.ts","kind":"function","unit":"compileMaterialGraph > compileNode","size":509},
     {"file":"packages/three-adapter/src/material-library.ts","kind":"function","unit":"createMaterialLibrary","size":1013},

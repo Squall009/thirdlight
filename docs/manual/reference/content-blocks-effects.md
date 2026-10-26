@@ -188,7 +188,7 @@ HUDs, menus and screens drawn by the game over the view (widget trees bound to s
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `uiDocuments` | list of JSON: `UiDocument` ([UiDocument](types-u-w.md#type-ui-document)) | `[]` |  | **UI documents.** The project's documents (each its own file). |
+| `uiDocuments` | list of JSON: `UiDocument` ([UiDocument](types-t-w.md#type-ui-document)) | `[]` |  | **UI documents.** The project's documents (each its own file). |
 
 <a id="content-modes"></a>
 ## modes — Game modes
@@ -292,7 +292,7 @@ Named styles and icons UI documents share.
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `uiThemes` | list of JSON: `UiTheme` ([UiTheme](types-u-w.md#type-ui-theme)) | `[]` |  | **UI themes.** The project's themes (each its own file). |
+| `uiThemes` | list of JSON: `UiTheme` ([UiTheme](types-t-w.md#type-ui-theme)) | `[]` |  | **UI themes.** The project's themes (each its own file). |
 
 <a id="content-dialogues"></a>
 ## dialogues — Dialogues

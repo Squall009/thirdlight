@@ -1,4 +1,4 @@
-# Types (PaintInstancesArgs to TrimSheet)
+# Types (PaintInstancesArgs to TrimRow)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -526,6 +526,8 @@ interface QualityLevelConfig {
   occlusionCulling?: OcclusionCulling;
   /** 16–2048: the surface cache's memory budget in MiB (absent: `DEFAULT_SURFACE_CACHE_MIB`). */
   surfaceCacheMiB?: number;
+  /** 0–8: the GPU time a frame may spend lighting stale surface-cache texels, ms (absent: `DEFAULT_SURFACE_LIGHT_MS`; 0: saved light only). */
+  surfaceLightMs?: number;
 }
 ```
 
@@ -1603,31 +1605,5 @@ interface TrimRow {
   texelDensity?: number;
   /** The row tiles in v too (its padding continues its wrap, and strips may stack it up a wall). */
   tileV?: boolean;
-}
-```
-
-<a id="type-trim-sheet"></a>
-### TrimSheet
-
-Declared in `packages/project-model/src/trim-sheet.ts`.
-
-```ts
-/** A trim sheet's row table (a trim material's `trim`). */
-interface TrimSheet {
-  /** The sheet's size in pixels [width, height] (level 0 of its textures). */
-  size: [number, number];
-  /** Pixels per metre along u (each row may set its own). */
-  texelDensity: number;
-  /** Pixels above and below every row that repeat its edge (or continue its wrap). */
-  padding: number;
-  rows: TrimRow[];
-  /** Decal cells (absent: none). */
-  cells?: TrimCell[];
-  /**
-   * Rows are drawn at their real metre height (absent: the way sheets were
-   * drawn before, each part fitted to a whole number of rows — stored sheets
-   * keep their look until this is turned on). See `trimRunMapping`.
-   */
-  realHeight?: boolean;
 }
 ```

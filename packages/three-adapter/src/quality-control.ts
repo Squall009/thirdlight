@@ -19,7 +19,7 @@
  * it the project's environment and LOD tuning and a player's choice; a change
  * applies at once (nothing per frame).
  */
-import { DEFAULT_SURFACE_CACHE_MIB, qualityLevelOf, qualityLevelsOf, type QualityLevelConfig } from '@thirdlight/runtime';
+import { DEFAULT_SURFACE_CACHE_MIB, DEFAULT_SURFACE_LIGHT_MS, qualityLevelOf, qualityLevelsOf, type QualityLevelConfig } from '@thirdlight/runtime';
 
 import { MAX_RENDER_PIXEL_RATIO, type EnvironmentRenderer } from './environment';
 import type { RenderControl } from './render-control';
@@ -49,6 +49,8 @@ export interface QualityTargets {
   readonly setPixelRatioCap: (cap: number) => void;
   /** The surface cache's budget (MiB; absent: the page keeps no cache). */
   readonly setSurfaceCacheMiB?: (mib: number) => void;
+  /** The level's GPU time a frame for live surface light (ms; 0: saved light only). */
+  readonly setSurfaceLightMs?: (ms: number) => void;
   readonly environment: () => EnvironmentRenderer | null;
   /** Something drawn changed (a host drawing on demand draws again). */
   readonly changed: () => void;
@@ -70,6 +72,8 @@ export interface QualityDiagnostics {
   readonly lodBias: number;
   /** The surface cache's budget at the level (MiB). */
   readonly surfaceCacheMiB: number;
+  /** The GPU time a frame may spend on live surface light at the level (ms; 0: saved light only). */
+  readonly surfaceLightMs: number;
 }
 
 export interface QualityControl {
@@ -123,6 +127,7 @@ export function createQualityControl(targets: QualityTargets, o: { readonly proj
       targets.setPixelRatioCap(cap);
     }
     targets.setSurfaceCacheMiB?.(l.surfaceCacheMiB ?? DEFAULT_SURFACE_CACHE_MIB);
+    targets.setSurfaceLightMs?.(l.surfaceLightMs ?? DEFAULT_SURFACE_LIGHT_MS);
     targets.environment()?.setQuality(pinned ?? chosen);
     targets.changed();
   };
@@ -162,6 +167,7 @@ export function createQualityControl(targets: QualityTargets, o: { readonly proj
         shadowedLights: l.shadowedLights ?? null,
         lodBias: targets.lodTuning.bias,
         surfaceCacheMiB: l.surfaceCacheMiB ?? DEFAULT_SURFACE_CACHE_MIB,
+        surfaceLightMs: l.surfaceLightMs ?? DEFAULT_SURFACE_LIGHT_MS,
       };
     },
   };

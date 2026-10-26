@@ -1269,7 +1269,7 @@ Arguments (`args`):
 { document: UiDocument }
 ```
 
-Types: [`UiDocument`](types-u-w.md#type-ui-document).
+Types: [`UiDocument`](types-t-w.md#type-ui-document).
 
 <a id="op-setUiTheme"></a>
 ## setUiTheme
@@ -1282,7 +1282,7 @@ Arguments (`args`):
 { theme: UiTheme }
 ```
 
-Types: [`UiTheme`](types-u-w.md#type-ui-theme).
+Types: [`UiTheme`](types-t-w.md#type-ui-theme).
 
 <a id="op-undo"></a>
 ## undo

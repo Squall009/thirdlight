@@ -29,8 +29,8 @@ What the engine offers, generated from its source: the objects, components and c
 | [Command op arguments](ops-detail.md) | 87 sections |
 | [Types (AcknowledgeBehaviorTrustArgs to CursorMode)](types-a-c.md) | 74 sections |
 | [Types (DecalCellRef to PackedFrom)](types-d-p.md) | 95 sections |
-| [Types (PaintInstancesArgs to TrimSheet)](types-p-t.md) | 98 sections |
-| [Types (UiAction to WindOctave)](types-u-w.md) | 30 sections |
+| [Types (PaintInstancesArgs to TrimRow)](types-p-t.md) | 97 sections |
+| [Types (TrimSheet to WindOctave)](types-t-w.md) | 31 sections |
 | [Script API](script-api.md) | What a script exports, The context (`ctx`), Context members in full, `BehaviorPrepareConfig`, `BehaviorInstanceInfo` |
 | [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 21 sections |
 | [Script API types (from `BehaviorMessages`)](script-types-behavior-messages.md) | 21 sections |

@@ -217,7 +217,11 @@ sets:
   `ambientOcclusion` (off/ssao/gtao), `lodBias` (0.25–4, over `lod_bias`),
   `dynamicResolution` and `surfaceCacheMiB` (16–2048: the memory the surface
   cache, the static surfaces' light, holds around the view; absent 64; the
-  engine's low, medium and high hold 32, 64 and 128). What a level leaves out is the project's setting; a
+  engine's low, medium and high hold 32, 64 and 128) and `surfaceLightMs` (0–8:
+  the GPU time a frame may spend lighting what changed in the surface cache,
+  nearest the camera first; a settled scene spends none; 0 draws saved light
+  only, as WebGL 2 always does; absent 1.5; the engine's low, medium and high
+  take 0, 1.5 and 3). What a level leaves out is the project's setting; a
   value the player set in a settings field bound to `renderScale`,
   `ambientOcclusion` or `dynamicResolution` lays over the level, and the page flags (`?ao=`,
   `?renderScale=`, `?dynamicResolution=`) over everything.

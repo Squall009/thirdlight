@@ -1,8 +1,34 @@
-# Types (UiAction to WindOctave)
+# Types (TrimSheet to WindOctave)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-trim-sheet"></a>
+### TrimSheet
+
+Declared in `packages/project-model/src/trim-sheet.ts`.
+
+```ts
+/** A trim sheet's row table (a trim material's `trim`). */
+interface TrimSheet {
+  /** The sheet's size in pixels [width, height] (level 0 of its textures). */
+  size: [number, number];
+  /** Pixels per metre along u (each row may set its own). */
+  texelDensity: number;
+  /** Pixels above and below every row that repeat its edge (or continue its wrap). */
+  padding: number;
+  rows: TrimRow[];
+  /** Decal cells (absent: none). */
+  cells?: TrimCell[];
+  /**
+   * Rows are drawn at their real metre height (absent: the way sheets were
+   * drawn before, each part fitted to a whole number of rows — stored sheets
+   * keep their look until this is turned on). See `trimRunMapping`.
+   */
+  realHeight?: boolean;
+}
+```
 
 <a id="type-ui-action"></a>
 ### UiAction

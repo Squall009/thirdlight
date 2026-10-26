@@ -19,15 +19,32 @@ export const TERRAIN_RING_TEXELS = 512;
 export const TERRAIN_RINGS_MAX = 7;
 /** Texels a ring steps by when the eye has moved past it. */
 export const TERRAIN_RING_STEP = 16;
+/** Texels per side of a ring patch: the unit a ring's light is computed and marked stale by. */
+export const TERRAIN_PATCH_TEXELS = 64;
 /** Bytes of one ring. */
 export const TERRAIN_RING_BYTES = TERRAIN_RING_TEXELS * TERRAIN_RING_TEXELS * SURFACE_TEXEL_BYTES;
 
 /** A terrain's place: what the rings need to know of it. */
 export interface TerrainRingSource {
   readonly key: string;
-  /** The terrain's world box (x, z; heights do not matter to the rings). */
+  /** The terrain's world box (x, z place the rings; y is the heights' range, for marks). */
   readonly min: readonly number[];
   readonly max: readonly number[];
+}
+
+/**
+ * A square of a ring's texels on the world grid (`TERRAIN_PATCH_TEXELS` a
+ * side, cut to the ring's valid window): world texel indices `ix`, `iz`
+ * (world x / the ring's texel) from its corner, `w` × `h` of them.
+ */
+export interface RingPatch {
+  readonly ring: number;
+  readonly px: number;
+  readonly pz: number;
+  readonly ix: number;
+  readonly iz: number;
+  readonly w: number;
+  readonly h: number;
 }
 
 /** Where a point's light is in the rings: the ring (0 finest) and the texel in it. */
@@ -89,6 +106,43 @@ export class TerrainRings {
     }
     return null;
   }
+  /**
+   * Ring `k`'s patches over its valid window on the terrain, less those
+   * wholly inside the ring within it (that light is read from the finer ring).
+   */
+  patches(k: number): RingPatch[] {
+    const win = this.windows();
+    const w = win[k];
+    if (w === undefined) return [];
+    const t = texel(k);
+    const inner = k > 0 ? win[k - 1]! : null;
+    const P = TERRAIN_PATCH_TEXELS;
+    // The window, cut to the terrain (texels off it hold no light).
+    const src = this.source;
+    const ix0 = Math.ceil(Math.max(w[0], src.min[0]!) / t - 1e-9);
+    const iz0 = Math.ceil(Math.max(w[1], src.min[2]!) / t - 1e-9);
+    const ix1 = Math.floor(Math.min(w[2], src.max[0]!) / t + 1e-9);
+    const iz1 = Math.floor(Math.min(w[3], src.max[2]!) / t + 1e-9);
+    const out: RingPatch[] = [];
+    for (let pz = Math.floor(iz0 / P); pz * P < iz1; pz += 1) {
+      for (let px = Math.floor(ix0 / P); px * P < ix1; px += 1) {
+        const ax = Math.max(ix0, px * P);
+        const az = Math.max(iz0, pz * P);
+        const bx = Math.min(ix1, (px + 1) * P);
+        const bz = Math.min(iz1, (pz + 1) * P);
+        if (bx <= ax || bz <= az) continue;
+        if (inner !== null && ax * t >= inner[0] && bx * t <= inner[2] && az * t >= inner[1] && bz * t <= inner[3]) continue;
+        out.push({ ring: k, px, pz, ix: ax, iz: az, w: bx - ax, h: bz - az });
+      }
+    }
+    return out;
+  }
+
+  /** The world texel size of ring `k` (m). */
+  texelMetres(k: number): number {
+    return texel(k);
+  }
+
   /** Each ring's world square (x0, z0, x1, z1) that is valid now. */
   windows(): [number, number, number, number][] {
     const out: [number, number, number, number][] = [];

@@ -43,7 +43,7 @@ import { TRIM_DENSITY_MAX, TRIM_DENSITY_MIN, TRIM_PADDING_MAX, TRIM_SHEET_DEFAUL
 import { MODE_LIMITS } from './modes';
 import { MAX_LOCAL_LIGHTS } from './local-lights';
 import { LOD_BIAS_MAX, LOD_BIAS_MIN } from './model-lod';
-import { DEFAULT_SURFACE_CACHE_MIB, MSAA_SAMPLE_COUNTS, PIXEL_RATIO_CAP_MAX, PIXEL_RATIO_CAP_MIN, QUALITY_POST_EFFECTS, SHADOW_MAP_SIZES, SURFACE_CACHE_MIB_MAX, SURFACE_CACHE_MIB_MIN } from './quality-levels';
+import { DEFAULT_SURFACE_CACHE_MIB, DEFAULT_SURFACE_LIGHT_MS, MSAA_SAMPLE_COUNTS, PIXEL_RATIO_CAP_MAX, PIXEL_RATIO_CAP_MIN, QUALITY_POST_EFFECTS, SHADOW_MAP_SIZES, SURFACE_CACHE_MIB_MAX, SURFACE_CACHE_MIB_MIN, SURFACE_LIGHT_MS_MAX, SURFACE_LIGHT_MS_MIN } from './quality-levels';
 import { AMBIENT_OCCLUSION_KINDS, OCCLUSION_CULLING_MODES, RENDER_SCALE_MAX, RENDER_SCALE_MIN } from './render-settings';
 import { MAX_TAGS } from './types-v3';
 import { WIND_DEFAULTS, WIND_LIMITS } from './wind';
@@ -212,6 +212,7 @@ const QUALITY_LEVEL = obj('level', 'Quality level', 'Graphics settings players p
   bool('dynamicResolution', 'Dynamic resolution', 'Lower the scale while the GPU is over budget (absent: dynamic_resolution).'),
   enm('occlusionCulling', 'Occlusion culling', 'Leave out what solid objects hide: On culls, Auto none yet (absent: occlusion_culling).', [...OCCLUSION_CULLING_MODES], { labels: { off: 'Off', auto: 'Auto', on: 'On' } }),
   num('surfaceCacheMiB', 'Surface cache (MiB)', `Memory the static surfaces' light may hold around the view (absent: ${DEFAULT_SURFACE_CACHE_MIB}).`, { min: SURFACE_CACHE_MIB_MIN, max: SURFACE_CACHE_MIB_MAX, step: 16 }),
+  num('surfaceLightMs', 'Live light (ms)', `GPU time a frame may spend lighting what changed, nearest first; 0 draws saved light only (absent: ${DEFAULT_SURFACE_LIGHT_MS}).`, { min: SURFACE_LIGHT_MS_MIN, max: SURFACE_LIGHT_MS_MAX, step: 0.25 }),
 ], { rules: ['Level ids are unique.'] });
 
 const ENVIRONMENT: FieldDescriptor = obj('environment', 'Environment', 'The quality levels, the one a game starts at, and the presets; each scene has its own sky, fog, post-processing and wind.', [

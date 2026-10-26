@@ -22,6 +22,10 @@
  *   light) may hold around the view, in MiB: a budget, never a count of
  *   surfaces or lights. A level that leaves it out holds
  *   `DEFAULT_SURFACE_CACHE_MIB`.
+ * - `surfaceLightMs`: the GPU time a frame may spend lighting the surface
+ *   cache's stale texels, in ms (changes are lit within it, nearest first;
+ *   a settled scene spends none). 0 draws only saved light, as WebGL 2
+ *   always does. A level that leaves it out takes `DEFAULT_SURFACE_LIGHT_MS`.
  *
  * A player's settings field bound to one of those renderer settings (`renderScale`,
  * `ambientOcclusion`, `dynamicResolution`) lays over the level: a player's own
@@ -59,6 +63,11 @@ export const SURFACE_CACHE_MIB_MIN = 16;
 export const SURFACE_CACHE_MIB_MAX = 2048;
 /** The surface-cache budget of a level that names none (MiB): the medium tier's. */
 export const DEFAULT_SURFACE_CACHE_MIB = 64;
+/** The range of a level's GPU time a frame for live surface light (ms): above 8 a 60 Hz frame has little left to draw with. */
+export const SURFACE_LIGHT_MS_MIN = 0;
+export const SURFACE_LIGHT_MS_MAX = 8;
+/** The live surface-light time of a level that names none (ms): the medium tier's. */
+export const DEFAULT_SURFACE_LIGHT_MS = 1.5;
 
 /** The post effects a level may change (the costly passes and the anti-aliasing; tone, exposure and grading are the look's). */
 export const QUALITY_POST_EFFECTS = ['bloom', 'ssao', 'dof'] as const;
@@ -103,6 +112,8 @@ export interface QualityLevelConfig {
   occlusionCulling?: OcclusionCulling;
   /** 16–2048: the surface cache's memory budget in MiB (absent: `DEFAULT_SURFACE_CACHE_MIB`). */
   surfaceCacheMiB?: number;
+  /** 0–8: the GPU time a frame may spend lighting stale surface-cache texels, ms (absent: `DEFAULT_SURFACE_LIGHT_MS`; 0: saved light only). */
+  surfaceLightMs?: number;
 }
 
 /**
@@ -112,9 +123,9 @@ export interface QualityLevelConfig {
  * authored. The surface cache holds 32, 64 and 128 MiB.
  */
 export const DEFAULT_QUALITY_LEVELS: readonly Readonly<QualityLevelConfig>[] = Object.freeze([
-  Object.freeze({ id: 'low', name: 'Low', post: { bloom: { enabled: false }, ssao: { enabled: false }, dof: { enabled: false }, antialias: 'none' as const }, msaa: 0 as const, surfaceCacheMiB: 32 }),
-  Object.freeze({ id: 'medium', name: 'Medium', post: { ssao: { enabled: false }, dof: { enabled: false } }, surfaceCacheMiB: DEFAULT_SURFACE_CACHE_MIB }),
-  Object.freeze({ id: 'high', name: 'High', surfaceCacheMiB: 128 }),
+  Object.freeze({ id: 'low', name: 'Low', post: { bloom: { enabled: false }, ssao: { enabled: false }, dof: { enabled: false }, antialias: 'none' as const }, msaa: 0 as const, surfaceCacheMiB: 32, surfaceLightMs: 0 }),
+  Object.freeze({ id: 'medium', name: 'Medium', post: { ssao: { enabled: false }, dof: { enabled: false } }, surfaceCacheMiB: DEFAULT_SURFACE_CACHE_MIB, surfaceLightMs: DEFAULT_SURFACE_LIGHT_MS }),
+  Object.freeze({ id: 'high', name: 'High', surfaceCacheMiB: 128, surfaceLightMs: 3 }),
 ]);
 
 /** The project's levels (the engine's when it lists none). */

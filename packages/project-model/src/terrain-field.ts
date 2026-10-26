@@ -197,6 +197,11 @@ export class TerrainField {
     return this.tiles;
   }
 
+  /** The world heights the terrain may take: [lowest, highest] (its origin's y plus its height range). */
+  heightSpan(): [number, number] {
+    return [this.origin[1] + this.range[0]!, this.origin[1] + this.range[1]!];
+  }
+
   /** The world box of tile (x, z) in XZ: [minX, minZ, maxX, maxZ]. */
   tileBounds(x: number, z: number): [number, number, number, number] {
     const size = terrainTileSize({ tileSamples: this.n + 1, spacing: this.spacing });

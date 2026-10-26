@@ -275,7 +275,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         environment.resized();
       },
       environment: () => environment.renderer,
-      ...(surfaceCache !== null ? { setSurfaceCacheMiB: (mib: number) => surfaceCache.setBudget(surfaceCacheBytes(mib)) } : {}),
+      ...(surfaceCache !== null ? { setSurfaceCacheMiB: (mib: number) => surfaceCache.setBudget(surfaceCacheBytes(mib)), setSurfaceLightMs: (ms: number) => surfaceCache.setRelightBudget(ms) } : {}),
       changed: () => opts.onChange?.(),
     },
     { project: environment.look.value, ...(opts.lod !== undefined ? { lod: opts.lod } : {}), pinned: opts.qualityPinned ?? null },

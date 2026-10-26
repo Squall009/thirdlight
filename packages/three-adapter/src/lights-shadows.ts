@@ -117,6 +117,12 @@ type KeyRec = {
   readonly cached: CachedShadowNode | null;
 };
 
+/** A light's authored masks under the ones a script wrote (`w`; absent: none). */
+function masksUnder(w: { lightMask?: number; shadowCasterMask?: number } | undefined, l: LightLike): LightMasks {
+  const authored = lightMasksOf(l);
+  return w === undefined ? authored : { lightMask: w.lightMask ?? authored.lightMask, shadowCasterMask: w.shadowCasterMask ?? authored.shadowCasterMask };
+}
+
 /** A light environment presets and scripts may change, with its authored values. */
 type EnvLight = { light: THREE.Light; id: string; tags: number; type: string; authored: EnvironmentLightValues };
 
@@ -152,6 +158,8 @@ export interface SceneLights {
   select(rankOf: (entityId: string) => number, hidden: ReadonlySet<string>): void;
   /** The key light's direction now (a preset's or the authored one). */
   keyDirection(): readonly [number, number, number] | undefined;
+  /** Each realized light (`visible`: on), with a directional's direction now (where its light travels). */
+  forEachLight(cb: (id: string, kind: SceneLightKind, light: THREE.Light, direction: readonly number[] | null) => void): void;
   /**
    * The key light's shadow square follows the camera on the ground (its X and Z; Y is up), snapped to whole
    * shadow texels in the light's frame (no shimmer).
@@ -384,11 +392,7 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
   /** The masks scripts wrote, by light entity. */
   const maskOverrides = new Map<string, { lightMask?: number; shadowCasterMask?: number }>();
   /** A light's masks now: the authored ones under what a script wrote. */
-  const masksOf = (id: string, l: LightLike): LightMasks => {
-    const authored = lightMasksOf(l);
-    const w = maskOverrides.get(id);
-    return w === undefined ? authored : { lightMask: w.lightMask ?? authored.lightMask, shadowCasterMask: w.shadowCasterMask ?? authored.shadowCasterMask };
-  };
+  const masksOf = (id: string, l: LightLike): LightMasks => masksUnder(maskOverrides.get(id), l);
   /** Realize a light again from its entity (a light on its entity leaves the node first: release leaves it there). */
   function replaceLight(id: string): void {
     const e = realizedFrom.get(id);
@@ -513,6 +517,9 @@ function releaseLight(entityId: string): void {
     },
 
     keyDirection: () => keyDirectionOf(keyRec),
+    forEachLight(cb) {
+      for (const [id, r] of switchable) cb(id, r.kind, r.light, r.kind === 'directional' ? (keyDirectionOf(directionals.get(id) ?? null) ?? null) : null);
+    },
 
     followCamera(camera: THREE.Camera): void {
       if (keyRec === null) return;

@@ -69,6 +69,8 @@ export interface SurfaceCacheDiagnostics {
 }
 
 interface Resident {
+  min: readonly number[];
+  max: readonly number[];
   version: number;
   level: number;
   packing: TilePacking;
@@ -231,7 +233,7 @@ export class SurfaceCache {
         blocks.push(b);
       }
       if (ok) {
-        this.resident.set(t.key, { version: t.version, level: l, packing, charts, blocks });
+        this.resident.set(t.key, { min: t.min, max: t.max, version: t.version, level: l, packing, charts, blocks });
         this.allocated.push(t.key);
         this.stats.allocated += 1;
         return true;
@@ -282,6 +284,25 @@ export class SurfaceCache {
   /** A resident tile's level (null: not resident). */
   levelOf(key: string): number | null {
     return this.resident.get(key)?.level ?? null;
+  }
+
+  /** A resident tile's world box and the texels its charts hold (null: not resident). */
+  residentUnit(key: string): { min: readonly number[]; max: readonly number[]; texels: number } | null {
+    const r = this.resident.get(key);
+    if (r === undefined) return null;
+    let texels = 0;
+    for (const p of r.packing.places) texels += p.w * p.h;
+    return { min: r.min, max: r.max, texels };
+  }
+
+  /** A terrain's rings (null: none). */
+  ringsOf(key: string): TerrainRings | null {
+    return this.rings.get(key) ?? null;
+  }
+
+  /** The terrains holding rings. */
+  ringTerrains(): string[] {
+    return [...this.rings.keys()];
   }
 
   /** The texel of a point in chart `chart` of tile `key` (null: the tile is not resident). */

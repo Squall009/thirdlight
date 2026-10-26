@@ -632,6 +632,7 @@ const ENV_BASES: J[] = [
         dynamicResolution: true,
         occlusionCulling: 'off',
         surfaceCacheMiB: 48,
+        surfaceLightMs: 1,
       },
       { id: 'high' },
     ],

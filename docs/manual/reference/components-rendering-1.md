@@ -266,7 +266,7 @@ Paint on the object's vertices, 4 bytes (R, G, B, A) each, beside the mesh: its 
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `meshes` | JSON: `VertexPaintMesh[]` ([VertexPaintMesh](types-u-w.md#type-vertex-paint-mesh)) |  |  | **Meshes.** A model's painted meshes: [{mesh, vertices, positions, paint}]: mesh the node path and primitive ("Body/Hull#0"), vertices and positions (a hash) what it was painted on, paint the SHA-256 of 4 bytes a vertex. A reimport that changes a mesh keeps its paint but does not draw it (Problems: paint_mismatch). (written by a tool) |
+| `meshes` | JSON: `VertexPaintMesh[]` ([VertexPaintMesh](types-t-w.md#type-vertex-paint-mesh)) |  |  | **Meshes.** A model's painted meshes: [{mesh, vertices, positions, paint}]: mesh the node path and primitive ("Body/Hull#0"), vertices and positions (a hash) what it was painted on, paint the SHA-256 of 4 bytes a vertex. A reimport that changes a mesh keeps its paint but does not draw it (Problems: paint_mismatch). (written by a tool) |
 | `paths` | JSON: `PathPaintGrid[]` ([PathPaintGrid](types-p-t.md#type-path-paint-grid)) |  |  | **Paths.** Generated architecture's or a spline's paint in path space, which survives regeneration: [{path, side, origin, size, paint}]: path outline:<id>, building:<id>, element:<id> or spline; side left, right (wall faces) or top (faces looking up or down); a grid of points 0.25 m apart along the path and up or across it, origin and size in points; paint the SHA-256 of 4 bytes a point. (written by a tool) |
 
 <a id="component-windZone"></a>

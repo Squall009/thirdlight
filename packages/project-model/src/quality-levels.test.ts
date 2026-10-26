@@ -90,6 +90,10 @@ describe('quality levels', () => {
     expect(paths({ qualityLevels: [{ id: 'a', surfaceCacheMiB: 64 }, { id: 'b', surfaceCacheMiB: 2048 }] })).toEqual([]);
     expect(paths({ qualityLevels: [{ id: 'a', surfaceCacheMiB: 8 }] })).toEqual(['/qualityLevels/0/surfaceCacheMiB']);
     expect(DEFAULT_QUALITY_LEVELS.map((l) => l.surfaceCacheMiB)).toEqual([32, 64, 128]);
+    // Live surface light is GPU time a frame, 0 (saved light only) to 8 ms.
+    expect(paths({ qualityLevels: [{ id: 'a', surfaceLightMs: 0 }, { id: 'b', surfaceLightMs: 8 }] })).toEqual([]);
+    expect(paths({ qualityLevels: [{ id: 'a', surfaceLightMs: 9 }] })).toEqual(['/qualityLevels/0/surfaceLightMs']);
+    expect(DEFAULT_QUALITY_LEVELS.map((l) => l.surfaceLightMs)).toEqual([0, 1.5, 3]);
     // A level changes the costly effects and the anti-aliasing, not the look's tone or grading.
     expect(paths({ qualityLevels: [{ id: 'a', post: { exposure: 2 } }] })).toContain('/qualityLevels/0/post/exposure');
     expect(paths({ qualityLevels: [{ id: 'a', post: { ssao: { radius: 99 } } }] })).toEqual(['/qualityLevels/0/post/ssao/radius']);
