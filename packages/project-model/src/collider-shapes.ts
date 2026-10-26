@@ -128,7 +128,7 @@ export function validateColliderShape(shape: unknown, path: string, errors: Mode
     return;
   }
   if (!PRIMITIVE_TYPES.includes(type as string)) {
-    errors.push(fieldValue(`${path}/type`, type, '"box" | "polygon" | "sphere" | "capsule" | "cylinder" | "convex" | "mesh" | "compound" | "model"', 'collider shape type must be "box", "polygon", "compound" or "model" (a 3D project also "sphere", "capsule", "cylinder", "convex" or "mesh")'));
+    errors.push(fieldValue(`${path}/type`, type, '"box" | "polygon" | "sphere" | "capsule" | "cylinder" | "convex" | "mesh" | "compound" | "model"', 'collider shape type must be "box", "polygon", "sphere", "capsule", "cylinder", "convex", "mesh", "compound" or "model"'));
     return;
   }
   validatePrimitiveShape(shape, path, errors);
@@ -303,7 +303,7 @@ function validatePrimitiveShape(shape: unknown, path: string, errors: ModelError
       `${path}/type`,
       type,
       '"box" | "polygon" | "sphere" | "capsule" | "cylinder" | "convex" | "mesh"',
-      'a shape is "box" or "polygon" (a 3D project also "sphere", "capsule", "cylinder", "convex" or "mesh")',
+      'a shape is "box", "polygon", "sphere", "capsule", "cylinder", "convex" or "mesh"',
     ),
   );
 }

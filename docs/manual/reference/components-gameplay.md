@@ -64,7 +64,7 @@ GameObject menu: Gameplay → Moving platform, Gameplay → Door (opens on "open
 <a id="component-trigger"></a>
 ## trigger — Trigger
 
-Sends a signal when the player enters an area (a box or a circle; in a 3D project a box with a depth, a sphere or a capsule).
+Sends a signal when the player enters an area (a box, a sphere or a capsule; a [w, h] box is as deep as it is wide, a circle a sphere).
 
 - Category: Gameplay
 - Added: from "+ Add component", starting as `{"size":[2,2],"signal":"trigger"}`
@@ -165,7 +165,7 @@ The character touching it adds an amount to a named counter; it hides, sends a s
 |---|---|---|---|---|
 | `counter` | string, counter, 1–32 chars | `"items"` |  | **Counter.** The counter it adds to (any name: a letter or _, then letters, digits or _). (required; scripts read; format counter) |
 | `amount` | number | `1` | -1000000 – 1000000, step 1 | **Amount.** Added to the counter when collected (negative takes away). (scripts read) |
-| `size` | vec3 [w, h, d] (last may be left out) | `[1,1,1]` | 0.05 – 500, step 0.05, m | **Size.** The area that collects it: width, height (and depth in a 3D project; absent: the width). (Scene handle: box2; scripts read) |
+| `size` | vec3 [w, h, d] (last may be left out) | `[1,1,1]` | 0.05 – 500, step 0.05, m | **Size.** The area that collects it: width, height and depth (absent: the width). (Scene handle: box2; scripts read) |
 | `onCollect` | signal name |  |  | **On collect.** A signal sent when it is collected (absent: none). (scripts read) |
 | `respawn` | number | `0` | 0 – 3600, step 0.5, s | **Comes back after.** Seconds until it comes back after being collected (0: never). (scripts read) |
 
@@ -230,7 +230,7 @@ An area whose contacts with other hitboxes and the character are events for scri
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
 | `shape` | enum: `box`, `sphere` | `"box"` |  | **Shape.** A box or a sphere. (scripts read) |
-| `size` | vec3 [w, h, d] (last may be left out) | `[1,1]` | 0.05 – 500, step 0.05, m | **Size.** Width, height (and depth in a 3D project; absent: the width). (required; applies when `shape` is `box`; Scene handle: box2; scripts read) |
+| `size` | vec3 [w, h, d] (last may be left out) | `[1,1]` | 0.05 – 500, step 0.05, m | **Size.** Width, height and depth (absent: the width). (required; applies when `shape` is `box`; Scene handle: box2; scripts read) |
 | `radius` | number | `0.5` | 0.025 – 250, step 0.05, m | **Radius.** Radius of the sphere (or circle). (required; applies when `shape` is `sphere`; Scene handle: radius; scripts read) |
 | `damage` | int | `0` | 0 – 1000, step 1 | **Damage.** Health a new contact takes from the other object (its own health, or its nearest parent's; 0: none). (scripts read) |
 
@@ -261,7 +261,7 @@ A box the character climbs in (a ladder, a vine, a net, a climbing wall): up/dow
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `size` | vec3 [w, h, d] (last may be left out) | `[1,4]` | 0.05 – 500, step 0.05, m | **Size.** Width, height (and depth in a 3D project; absent: the width), centred on the object and turned with it. (required; Scene handle: box2; scripts read) |
+| `size` | vec3 [w, h, d] (last may be left out) | `[1,4]` | 0.05 – 500, step 0.05, m | **Size.** Width, height and depth (absent: the width), centred on the object and turned with it. (required; Scene handle: box2; scripts read) |
 
 Scene-view handles:
 

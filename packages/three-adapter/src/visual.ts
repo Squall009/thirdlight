@@ -36,7 +36,7 @@ import * as THREE from 'three';
 import { adapterError, type AdapterError, type AdapterErrorCode } from './errors';
 import { mergeOwnership, OwnershipLedger, type ResourceOwnership } from './ownership';
 import { applyTransformToObject3D, type AdapterQuat, type AdapterVec3 } from './sync';
-import { applyLodGroups, applyVertexColorMode, keepOnlyPiece, modelPieces, pieceBounds, pieceCollider2D,
+import { applyLodGroups, applyVertexColorMode, keepOnlyPiece, modelPieces, pieceBounds,
   pieceCollider3D, pieceCollisionParts, stripCollisionNodes, type ModelCollider3D, type VertexColorMode } from './pieces';
 import { applyModelOccluders } from './occluders';
 import { markFileDecals } from './mesh-decals';
@@ -245,8 +245,6 @@ export interface PreparedVisualResource {
     | { readonly ok: false; readonly error: AdapterError };
   /** The file's pieces (top-level nodes grouped by `<piece>_LOD<n>`/`<piece>_COL`). */
   pieces(): readonly { readonly name: string; readonly lods: number; readonly hasCollider: boolean; readonly skinned: boolean }[];
-  /** The 2D collider polygon from a piece's `_COL` node (null piece = the file's single `_COL`). */
-  collider2D(piece: string | null): [number, number][] | null;
   /** A 3D collider (triangle mesh or convex hull) from a piece's `_COL` node(s), else its LOD0 geometry. */
   collider3D(piece: string | null, kind: 'mesh' | 'convex'): ModelCollider3D;
   /** The convex parts of a piece's `_COL` node(s) (each mesh's hull points), as a build resolves a `{type: 'model'}` collider. */
@@ -857,9 +855,6 @@ function createResource(descriptor: AssetVersionDescriptor, loaded: LoadedGlb, l
           return found;
         }),
       }));
-    },
-    collider2D(piece: string | null) {
-      return pieceCollider2D(loaded.root, piece);
     },
     // A 3D mesh or convex-hull collider from the piece's `_COL` node(s), else its LOD0 geometry.
     collider3D(piece: string | null, kind: 'mesh' | 'convex') {

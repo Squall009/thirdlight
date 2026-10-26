@@ -158,6 +158,10 @@ with no script.
   another heading.
 - **Locks last until changed**, the object leaves the game or the run
   restarts.
+- **A save does not hold a script's locks.** A save keeps where objects
+  are, not the planes a script set: a game that can be saved inside a 2D
+  stretch keeps "in the stretch" in its own save data and sets the locks
+  (and the camera) again after loading.
 - **`{x, y}` queries follow the lock.** A script on a locked object casts
   `ctx.physics.raycast({x, y}, …)` on its plane; pass `[x, y, z]` for a
   world point.

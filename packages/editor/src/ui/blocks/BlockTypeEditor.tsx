@@ -317,7 +317,7 @@ function TurnsAndPlacement({ s, t }: { s: BlockSetup; t: BlockType }): JSX.Eleme
           }} />
         )}
         {t.placement !== 'edge' && (
-          <Toggle label="One-way" aria="block one-way" on={t.oneWay === true} hint="The player jumps up through it and lands on top (a floating ledge); down + jump drops through. Block layers do not apply it yet: their blocks collide solid." onChange={(on) => {
+          <Toggle label="One-way" aria="block one-way" on={t.oneWay === true} hint="The player jumps up through it and lands on top (a floating ledge); down + jump drops through. It holds from its top side: a character passes it from below and the sides." onChange={(on) => {
             const next = { ...t };
             if (on) next.oneWay = true;
             else delete next.oneWay;

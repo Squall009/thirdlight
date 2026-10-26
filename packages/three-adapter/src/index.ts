@@ -144,7 +144,6 @@ export { buildInstanceSet, chunkCopies, INSTANCE_CHUNK_COPIES, INSTANCE_CHUNK_ME
 export {
   applyLodGroups,
   applyVertexColorMode,
-  COLLIDER_POLYGON_MAX,
   convexHull,
   LOD_SCREEN_FRACTIONS,
   lodDistanceForSize,
@@ -152,7 +151,6 @@ export {
   modelPieces,
   pieceBaseName,
   pieceBounds,
-  pieceCollider2D,
   pieceCollider3D,
   pieceCollisionParts,
   COLLIDER_3D_FROM_MODEL,

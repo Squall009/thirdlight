@@ -164,7 +164,7 @@ function captureBase(): string {
   mkdirSync(join(ROOT, 'assets', 'model'), { recursive: true });
   copyFileSync(join(STARTER, 'assets', 'model', 'character.glb'), join(ROOT, 'assets', 'model', 'character.glb'));
 
-  const author = newAuthor(PROJECT_ID, [0, 6, 12], { physics_dimension: 3 });
+  const author = newAuthor(PROJECT_ID, [0, 6, 12]);
   run(author, 'publishAsset', publish.args);
   // The controller's capsule centre stands 0.91 m up (the character's origin): its feet on the ground blocks' tops.
   const player = run(author, 'createEntity', {

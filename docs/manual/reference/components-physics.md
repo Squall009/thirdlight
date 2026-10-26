@@ -7,7 +7,7 @@ The Physics components. Fields list the stored keys; paths with `[]` are list it
 <a id="component-collider"></a>
 ## collider — Collider
 
-A solid shape the player stands on and bumps into (a box or a convex polygon in the X/Y plane; in a 3D project a box with a depth, a sphere, a capsule, a cylinder, a convex hull or a triangle mesh), placed anywhere in the object's frame; several shapes as a compound, or the convex parts of its model's _COL node.
+A solid shape the player stands on and bumps into (a box, a sphere, a capsule, a cylinder, a convex hull, a triangle mesh, or a 2D box or polygon given its depth), placed anywhere in the object's frame; several shapes as a compound, or the convex parts of its model's _COL node.
 
 - Category: Physics
 - Added: from "+ Add component", starting as `{"shape":{"type":"box","hx":0.5,"hy":0.5}}`
@@ -24,7 +24,7 @@ A solid shape the player stands on and bumps into (a box or a convex polygon in 
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `shape` | object |  |  | **Shape.** A box (half extents) or a convex polygon; in a 3D project also a sphere, a capsule, a cylinder, a convex hull or a triangle mesh; a compound of several; or the model's _COL parts. (required; scripts read; rules: A polygon is convex, counter-clockwise, has no repeated corner, an area of at least 1e-6 m² and stays within 64 m of the origin.; A mesh is static level geometry (not on a mover).; A box without hz and a polygon (a prism) are the collider's depth deep.; A model shape needs a model on the same object; a build makes one convex hull of each mesh part of its _COL node.) |
+| `shape` | object |  |  | **Shape.** A box (half extents), a sphere, a capsule, a cylinder, a convex hull or a triangle mesh; a compound of several; or the model's _COL parts. (required; scripts read; rules: A polygon is convex, counter-clockwise, has no repeated corner, an area of at least 1e-6 m² and stays within 64 m of the origin.; A mesh is static level geometry (not on a mover).; A box without hz and a polygon (a prism) are the collider's depth deep.; A model shape needs a model on the same object; a build makes one convex hull of each mesh part of its _COL node.) |
 | `shape.type` | enum: `box`, `polygon`, `sphere`, `capsule`, `cylinder`, `convex`, `mesh`, `compound`, `model` | `"box"` |  | **Shape.** Box, polygon (a prism the collider's depth deep), sphere, capsule, cylinder, convex hull or mesh; a compound of shapes; or the convex parts of the model's _COL node (read when the game is built). (required) |
 | `shape.hx` | number | `0.5` | > 0, ≤ 1000000, step 0.05, m | **Half width.** Half the box width. (required; applies when `type` is `box`; Scene handle: box2) |
 | `shape.hy` | number | `0.5` | > 0, ≤ 1000000, step 0.05, m | **Half height.** Half the box height. (required; applies when `type` is `box`; Scene handle: box2) |
@@ -110,7 +110,7 @@ Makes this object the player: it runs, jumps and collides with a capsule.
 | `capsule` | object |  |  | **Capsule.** The collision capsule every system uses: physics, spawns, triggers, collectibles and hitboxes (absent: 0.3 m radius, 1.8 m tall — an adult human). (scripts read; rules: height ≥ 2 × radius) |
 | `capsule.radius` | number | `0.3` | 0.05 – 5, step 0.01, m | **Radius.** Half the capsule width. (required; Scene handle: capsule) |
 | `capsule.height` | number | `1.8` | 0.1 – 20, step 0.01, m | **Height.** Total height, both end caps included (at least twice the radius). (required; Scene handle: capsule) |
-| `capsule.offset` | vec3 [x, y, z] (last may be left out) | `[0,0]` | -5 – 5, step 0.01, m | **Offset.** The capsule centre from the object origin (z: in a 3D project). (Scene handle: capsule) |
+| `capsule.offset` | vec3 [x, y, z] (last may be left out) | `[0,0]` | -5 – 5, step 0.01, m | **Offset.** The capsule centre from the object origin (z absent: 0). (Scene handle: capsule) |
 | `acceleration` | number | `40` | 0.1 – 1000, step 1, m/s² | **Acceleration.** How fast it speeds up toward the run speed (40: a 4 m/s run in 0.1 s). (scripts read) |
 | `deceleration` | number | `60` | 0.1 – 1000, step 1, m/s² | **Deceleration.** How fast it slows down when the input eases or stops. (scripts read) |
 | `coyoteTime` | number | `0.05` | 0 – 1, step 0.01, s | **Coyote time.** A jump still starts this long after walking off an edge. (scripts read) |

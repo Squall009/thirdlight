@@ -11,7 +11,7 @@
  *
  * Pure three.js (no loader): safe on the adapter's root subpath.
  */
-import { COLLIDER_3D_LIMITS, LOD_REFERENCE_FOV_DEG, LOD_SCREEN_SIZES_DEFAULT, MAX_COLLIDER_EXTENT, MAX_POLYGON_VERTICES, MODEL_OCC_RE, colliderFromTriangles, convexFromPoints, convexHull2, lodCullSizeOf, lodScreenSizesFor, polygonFromPoints, roundMm, TRIM_DATA_OCCLUSION, TRIM_DATA_WETNESS, type ModelLodSettings } from '@thirdlight/runtime';
+import { COLLIDER_3D_LIMITS, LOD_REFERENCE_FOV_DEG, LOD_SCREEN_SIZES_DEFAULT, MAX_COLLIDER_EXTENT, MODEL_OCC_RE, colliderFromTriangles, convexFromPoints, convexHull2, lodCullSizeOf, lodScreenSizesFor, roundMm, TRIM_DATA_OCCLUSION, TRIM_DATA_WETNESS, type ModelLodSettings } from '@thirdlight/runtime';
 import * as THREE from 'three';
 
 import { LOD_CULL_LEVEL_KEY, LOD_MODEL_SCALE_KEY } from './lod-switch';
@@ -306,47 +306,6 @@ export function applyVertexColorMode(root: THREE.Object3D, mode: VertexColorMode
       }
     }
   });
-}
-
-// ---- 2D collider from a `_COL` node ---------------------------------------------
-
-/** Most vertices of a physics polygon (the model's collider limit). */
-export const COLLIDER_POLYGON_MAX = MAX_POLYGON_VERTICES;
-
-/**
- * The 2D collider for a piece: the convex hull of its `_COL` mesh projected on
- * the XY play plane, in the file's root space (the placement's local space),
- * counter-clockwise, at most {@link COLLIDER_POLYGON_MAX} vertices, rounded to
- * 1 mm. Null when the piece has no collision node or it is degenerate.
- */
-export function pieceCollider2D(root: THREE.Object3D, piece: string | null): [number, number][] | null {
-  let col: THREE.Object3D | null = null;
-  if (piece === null) {
-    const all: THREE.Object3D[] = [];
-    root.traverse((o) => {
-      if (isCollisionNode(o)) all.push(o);
-    });
-    if (all.length !== 1) return null;
-    col = all[0]!;
-  } else {
-    col = modelPieces(root).find((p) => p.name === piece)?.collider ?? null;
-  }
-  if (col === null) return null;
-  root.updateMatrixWorld(true);
-  const inverseRoot = new THREE.Matrix4().copy(root.matrixWorld).invert();
-  const points: [number, number][] = [];
-  const v = new THREE.Vector3();
-  col.traverse((o) => {
-    const mesh = o as THREE.Mesh;
-    const pos = mesh.isMesh ? mesh.geometry?.getAttribute('position') : undefined;
-    if (pos === undefined) return;
-    const m = new THREE.Matrix4().multiplyMatrices(inverseRoot, mesh.matrixWorld);
-    for (let i = 0; i < pos.count; i += 1) {
-      v.fromBufferAttribute(pos, i).applyMatrix4(m);
-      points.push([v.x, v.y]);
-    }
-  });
-  return polygonFromPoints(points);
 }
 
 /** Andrew's monotone chain: counter-clockwise, no collinear points (the project model's). */

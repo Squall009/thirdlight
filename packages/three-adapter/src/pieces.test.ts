@@ -14,11 +14,9 @@ import {
   applyVertexColorMode,
   lodDistanceForSize,
   lodSwitchDistance,
-  convexHull,
   keepOnlyPiece,
   modelPieces,
   pieceBounds,
-  pieceCollider2D,
   stripCollisionNodes,
 } from './pieces';
 
@@ -166,37 +164,6 @@ describe('vertex colours', () => {
     expect(copy.geometry).toBe(g);
     applyVertexColorMode(root, 'trim');
     expect(g.getAttribute(TRIM_DATA_ATTRIBUTE)).toBe(data);
-  });
-});
-
-describe('2D colliders', () => {
-  it('a _COL box becomes its convex outline on the XY plane, counter-clockwise, in the file space', () => {
-    expect(pieceCollider2D(kit(), 'rock')).toEqual([[0, 0], [1, 0], [1, 1], [0, 1]]);
-    expect(pieceCollider2D(kit(), 'bush')).toEqual([[0, 0], [2, 0], [2, 0.5], [0, 0.5]]);
-    expect(pieceCollider2D(kit(), 'flower')).toBeNull();
-  });
-
-  it('the whole file uses its single _COL; several make it ambiguous (null)', () => {
-    const one = new THREE.Group();
-    one.add(boxMesh('hero_LOD0', 1, 2), boxMesh('hero_COL', 1, 2, false));
-    one.children[1]!.position.set(0.5, 0, 0);
-    expect(pieceCollider2D(one, null)).toEqual([[0.5, 0], [1.5, 0], [1.5, 2], [0.5, 2]]);
-    expect(pieceCollider2D(kit(), null)).toBeNull();
-  });
-
-  it('a round outline is reduced to at most 8 vertices', () => {
-    const pts: [number, number][] = [];
-    for (let i = 0; i < 64; i += 1) pts.push([Math.cos((i / 64) * Math.PI * 2), Math.sin((i / 64) * Math.PI * 2)]);
-    const g = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(pts.flatMap(([x, y]) => [x, y, 0]), 3));
-    const root = new THREE.Group();
-    const col = new THREE.Mesh(g, material);
-    col.name = 'disc_COL';
-    const vis = boxMesh('disc_LOD0', 1, 1);
-    root.add(vis, col);
-    const hull = pieceCollider2D(root, 'disc')!;
-    expect(hull.length).toBeLessThanOrEqual(8);
-    expect(hull.length).toBeGreaterThanOrEqual(6);
-    expect(convexHull(hull)).toEqual(hull);
   });
 });
 

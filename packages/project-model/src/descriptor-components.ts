@@ -178,7 +178,7 @@ function colliderPrimitiveFields(): FieldDescriptor[] {
       maxItems: MAX_POLYGON_VERTICES,
       handle: 'polygon',
     }),
-    // The 3D shapes (a 3D project). A capsule stands along the object's Y, its height the controller's convention (end caps included).
+    // The 3D shapes. A capsule stands along the object's Y, its height the controller's convention (end caps included).
     num('radius', 'Radius', 'The sphere\'s radius.', { required: true, when: when('type', 'sphere'), min: 0, minExclusive: true, max: MAX_COLLIDER_EXTENT, step: 0.05, unit: 'm', default: 0.5, handle: 'radius' }),
     num('radius', 'Radius', 'The capsule\'s radius.', { required: true, when: when('type', 'capsule'), min: 0, minExclusive: true, max: MAX_COLLIDER_EXTENT, step: 0.05, unit: 'm', default: 0.5, handle: 'capsule' }),
     num('height', 'Height', 'The capsule\'s total height along the object\'s Y (end caps included; at least twice the radius).', { required: true, when: when('type', 'capsule'), min: 0, minExclusive: true, max: 2 * MAX_COLLIDER_EXTENT, step: 0.05, unit: 'm', default: 2, handle: 'capsule' }),
@@ -215,10 +215,10 @@ function colliderPrimitiveFields(): FieldDescriptor[] {
 export const collider: ComponentDescriptor = {
   name: 'collider',
   label: 'Collider',
-  tooltip: 'A solid shape the player stands on and bumps into (a box or a convex polygon in the X/Y plane; in a 3D project a box with a depth, a sphere, a capsule, a cylinder, a convex hull or a triangle mesh), placed anywhere in the object\'s frame; several shapes as a compound, or the convex parts of its model\'s _COL node.',
+  tooltip: 'A solid shape the player stands on and bumps into (a box, a sphere, a capsule, a cylinder, a convex hull, a triangle mesh, or a 2D box or polygon given its depth), placed anywhere in the object\'s frame; several shapes as a compound, or the convex parts of its model\'s _COL node.',
   category: 'Physics',
   value: obj('collider', 'Collider', 'The collision shape.', [
-    obj('shape', 'Shape', 'A box (half extents) or a convex polygon; in a 3D project also a sphere, a capsule, a cylinder, a convex hull or a triangle mesh; a compound of several; or the model\'s _COL parts.', [
+    obj('shape', 'Shape', 'A box (half extents), a sphere, a capsule, a cylinder, a convex hull or a triangle mesh; a compound of several; or the model\'s _COL parts.', [
       enm('type', 'Shape', 'Box, polygon (a prism the collider\'s depth deep), sphere, capsule, cylinder, convex hull or mesh; a compound of shapes; or the convex parts of the model\'s _COL node (read when the game is built).', ['box', 'polygon', 'sphere', 'capsule', 'cylinder', 'convex', 'mesh', 'compound', 'model'], { required: true, default: 'box' }),
       ...colliderPrimitiveFields(),
       list('shapes', 'Shapes', 'The compound\'s shapes (one body), each with its own centre and rotation.', obj('*', 'Shape', 'One shape of the compound.', [
@@ -288,7 +288,7 @@ export const controller: ComponentDescriptor = {
       num('radius', 'Radius', 'Half the capsule width.', { required: true, min: CAPSULE_LIMITS.minRadius, max: CAPSULE_LIMITS.maxRadius, step: 0.01, unit: 'm', default: DEFAULT_CONTROLLER_CAPSULE.radius, handle: 'capsule' }),
       num('height', 'Height', 'Total height, both end caps included (at least twice the radius).', { required: true, min: CAPSULE_LIMITS.minHeight, max: CAPSULE_LIMITS.maxHeight, step: 0.01, unit: 'm', default: DEFAULT_CONTROLLER_CAPSULE.height, handle: 'capsule' }),
       // [x, y] or [x, y, z] — z places the capsule in depth.
-      vec3('offset', 'Offset', 'The capsule centre from the object origin (z: in a 3D project).', { min: -CAPSULE_LIMITS.maxOffset, max: CAPSULE_LIMITS.maxOffset, step: 0.01, unit: 'm', default: [...DEFAULT_CONTROLLER_CAPSULE.offset], handle: 'capsule', optionalLast: true }),
+      vec3('offset', 'Offset', 'The capsule centre from the object origin (z absent: 0).', { min: -CAPSULE_LIMITS.maxOffset, max: CAPSULE_LIMITS.maxOffset, step: 0.01, unit: 'm', default: [...DEFAULT_CONTROLLER_CAPSULE.offset], handle: 'capsule', optionalLast: true }),
     ], { group: 'Collision', rules: ['height ≥ 2 × radius'] }),
     // The movement tuning (absent: the engine defaults, the values every project played with before).
     num('acceleration', 'Acceleration', 'How fast it speeds up toward the run speed (40: a 4 m/s run in 0.1 s).', { group: 'Movement', ...TL.acceleration, step: 1, unit: 'm/s²', default: CT.acceleration }),
@@ -412,7 +412,7 @@ export const virtualCamera: ComponentDescriptor = {
     num('yawStep', 'Turn step', 'How far one press turns (the yaw snaps to whole steps).', { when: when('rig', 'orbitPoint'), min: VCL.yawStep.min, max: VCL.yawStep.max, step: 5, unit: 'deg', default: VCD.yawStep }),
     num('turnTime', 'Turn time', 'How long a snapped turn takes (0: at once).', { when: when('rig', 'orbitPoint'), min: VCL.turnTime.min, max: VCL.turnTime.max, step: 0.05, unit: 's', default: VCD.turnTime }),
     vec3('point', 'Point', 'The world point it circles (absent: the target, else where the camera is placed).', { when: when('rig', 'orbitPoint'), min: VCL.point.min, max: VCL.point.max, step: 0.5, unit: 'm', handle: 'point' }),
-    bool('collision', 'Collision', 'Pulled in front of colliders between it and the target (3D projects).', { when: when('rig', 'follow'), default: VCD.collision }),
+    bool('collision', 'Collision', 'Pulled in front of colliders between it and the target (side views too).', { when: when('rig', 'follow'), default: VCD.collision }),
     num('collisionRadius', 'Collision radius', 'The clearance it keeps from what it is pulled in by.', { when: when('rig', 'follow'), min: VCL.collisionRadius.min, max: VCL.collisionRadius.max, step: 0.05, unit: 'm', default: VCD.collisionRadius }),
     // The track rig — its offset from the framed point, the dead zone and the bounds (world axes).
     vec3('trackOffset', 'Offset', 'Where the camera sits relative to the point it frames (absent: where it is placed relative to the target at the start).', { when: TRACK, min: VCL.offset.min, max: VCL.offset.max, step: 0.5, unit: 'm' }),
@@ -912,7 +912,7 @@ export const mover: ComponentDescriptor = {
 export const trigger: ComponentDescriptor = {
   name: 'trigger',
   label: 'Trigger',
-  tooltip: 'Sends a signal when the player enters an area (a box or a circle; in a 3D project a box with a depth, a sphere or a capsule).',
+  tooltip: 'Sends a signal when the player enters an area (a box, a sphere or a capsule; a [w, h] box is as deep as it is wide, a circle a sphere).',
   category: 'Gameplay',
   value: obj('trigger', 'Trigger', 'An area that emits signals.', [
     enm('shape', 'Shape', 'A box, a circle (the sphere of its radius), a sphere or a capsule.', TRIGGER_SHAPES, { default: 'box' }),
@@ -1017,7 +1017,7 @@ export const collectible: ComponentDescriptor = {
     str('counter', 'Counter', 'The counter it adds to (any name: a letter or _, then letters, digits or _).', { required: true, format: 'counter', minLength: 1, maxLength: 32, default: 'items' }),
     num('amount', 'Amount', 'Added to the counter when collected (negative takes away).', { ...PL.amount, step: 1, default: PD.collectibleAmount }),
     // Its depth (d): absent, the width.
-    vec3('size', 'Size', 'The area that collects it: width, height (and depth in a 3D project; absent: the width).', { min: PL.size.min, max: PL.size.max, step: 0.05, unit: 'm', default: [...PD.collectibleSize], labels: ['w', 'h', 'd'], handle: 'box2', optionalLast: true }),
+    vec3('size', 'Size', 'The area that collects it: width, height and depth (absent: the width).', { min: PL.size.min, max: PL.size.max, step: 0.05, unit: 'm', default: [...PD.collectibleSize], labels: ['w', 'h', 'd'], handle: 'box2', optionalLast: true }),
     signal('onCollect', 'On collect', 'A signal sent when it is collected (absent: none).'),
     num('respawn', 'Comes back after', 'Seconds until it comes back after being collected (0: never).', { ...PL.respawn, step: 0.5, unit: 's', default: 0 }),
   ]),
@@ -1078,7 +1078,7 @@ export const climbVolume: ComponentDescriptor = {
   category: 'Gameplay',
   value: obj('climbVolume', 'Climb volume', 'Climbed in.', [
     // Its depth (d): absent, the width. It turns with the object (its +Y is "up").
-    vec3('size', 'Size', 'Width, height (and depth in a 3D project; absent: the width), centred on the object and turned with it.', { required: true, min: PL.size.min, max: PL.size.max, step: 0.05, unit: 'm', default: [1, 4], labels: ['w', 'h', 'd'], handle: 'box2', optionalLast: true }),
+    vec3('size', 'Size', 'Width, height and depth (absent: the width), centred on the object and turned with it.', { required: true, min: PL.size.min, max: PL.size.max, step: 0.05, unit: 'm', default: [1, 4], labels: ['w', 'h', 'd'], handle: 'box2', optionalLast: true }),
   ]),
   // 1 m wide and 4 m tall: a ladder up one storey (about 3 m) and a little over the top, for the default 1.8 m character.
   add: { kind: 'menu', value: { size: [1, 4] } },
@@ -1118,7 +1118,7 @@ export const hitbox: ComponentDescriptor = {
   category: 'Gameplay',
   value: obj('hitbox', 'Hitbox', 'Contact events.', [
     enm('shape', 'Shape', 'A box or a sphere.', HITBOX_SHAPES, { default: 'box' }),
-    vec3('size', 'Size', 'Width, height (and depth in a 3D project; absent: the width).', { required: true, when: when('shape', 'box'), min: PL.size.min, max: PL.size.max, step: 0.05, unit: 'm', default: [1, 1], labels: ['w', 'h', 'd'], handle: 'box2', optionalLast: true }),
+    vec3('size', 'Size', 'Width, height and depth (absent: the width).', { required: true, when: when('shape', 'box'), min: PL.size.min, max: PL.size.max, step: 0.05, unit: 'm', default: [1, 1], labels: ['w', 'h', 'd'], handle: 'box2', optionalLast: true }),
     num('radius', 'Radius', 'Radius of the sphere (or circle).', { required: true, when: when('shape', 'sphere'), ...PL.radius, step: 0.05, unit: 'm', default: 0.5, handle: 'radius' }),
     int('damage', 'Damage', 'Health a new contact takes from the other object (its own health, or its nearest parent\'s; 0: none).', { ...PL.damage, default: 0 }),
   ]),

@@ -87,7 +87,7 @@ export interface TerrainComponent {
   tiles: TerrainTileRef[];
   /** Metres the finest level of detail reaches ({@link TERRAIN_LOD_DISTANCE_LIMITS}; absent: the renderer's nearest). */
   lodDistance?: number;
-  /** The tiles are heightfield colliders in a 3D project (absent: true; stored only when false — scenery-only terrain). */
+  /** The tiles are heightfield colliders (absent: true; stored only when false — scenery-only terrain). */
   collision?: boolean;
   /** Metres past which tiles draw their baked macro texture ({@link TERRAIN_MACRO_DISTANCE_LIMITS}; absent: the layer stack everywhere). */
   macroDistance?: number;

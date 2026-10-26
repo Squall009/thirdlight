@@ -87,14 +87,14 @@ export interface ColliderPolygonShape {
   vertices: [number, number][];
 }
 
-/** 3D projects: a sphere centred on the entity. */
+/** A sphere centred on the entity. */
 export interface ColliderSphereShape {
   type: 'sphere';
   radius: number;
 }
 
 /**
- * 3D projects: a capsule standing along the entity's local Y,
+ * A capsule standing along the entity's local Y,
  * centred on the entity — `height` is the total height, end caps included
  * (>= 2 x radius), the controller capsule's convention.
  */
@@ -125,7 +125,7 @@ export interface ColliderConvexShape {
 }
 
 /**
- * 3D projects, static only: a triangle mesh — `vertices`
+ * Static only: a triangle mesh — `vertices`
  * ([x, y, z] in the entity's frame) and `triangles` (index triples into
  * them), usually generated from a model's `_COL` node or its geometry.
  */
@@ -144,7 +144,7 @@ export interface ColliderShapePose {
   rotation?: [number, number, number, number];
 }
 
-/** One primitive shape (sphere, capsule, convex and mesh in 3D projects), placed by its pose. */
+/** One primitive shape, placed by its pose. */
 export type ColliderPrimitiveShape = (ColliderBoxShape | ColliderPolygonShape | ColliderSphereShape | ColliderCapsuleShape | ColliderCylinderShape | ColliderConvexShape | ColliderMeshShape) & ColliderShapePose;
 
 /** Several primitive shapes on one object (one body), each with its own pose. */
@@ -185,7 +185,7 @@ export interface ColliderComponent {
 export interface ControllerCapsule {
   radius: number;
   height: number;
-  /** May carry a third component (z) in a 3D project. */
+  /** May carry a third component (z). */
   offset?: [number, number] | [number, number, number];
 }
 
@@ -215,7 +215,7 @@ export interface ControllerComponent {
   autostep?: boolean;
   /** Metres: the highest step autostep climbs. */
   autostepHeight?: number;
-  /** 3D projects: m/s walking (absent: 2). */
+  /** m/s walking (absent: 2). */
   walkSpeed?: number;
   /** 3D: m/s while the `run` action is held (absent: the project's run_speed). */
   runSpeed?: number;

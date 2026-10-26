@@ -39,7 +39,7 @@ A camera shot the game cuts or blends to: follow/orbit a target, orbit a point i
 | `yawStep` | number | `90` | 1 – 180, step 5, deg | **Turn step.** How far one press turns (the yaw snaps to whole steps). (applies when `rig` is `orbitPoint`; scripts read) |
 | `turnTime` | number | `0.25` | 0 – 10, step 0.05, s | **Turn time.** How long a snapped turn takes (0: at once). (applies when `rig` is `orbitPoint`; scripts read) |
 | `point` | vec3 [x, y, z] |  | -1000000 – 1000000, step 0.5, m | **Point.** The world point it circles (absent: the target, else where the camera is placed). (applies when `rig` is `orbitPoint`; Scene handle: point; scripts read) |
-| `collision` | bool | `true` |  | **Collision.** Pulled in front of colliders between it and the target (3D projects). (applies when `rig` is `follow`; scripts read) |
+| `collision` | bool | `true` |  | **Collision.** Pulled in front of colliders between it and the target (side views too). (applies when `rig` is `follow`; scripts read) |
 | `collisionRadius` | number | `0.2` | 0 – 5, step 0.05, m | **Collision radius.** The clearance it keeps from what it is pulled in by. (applies when `rig` is `follow`; scripts read) |
 | `trackOffset` | vec3 [x, y, z] |  | -1000 – 1000, step 0.5, m | **Offset.** Where the camera sits relative to the point it frames (absent: where it is placed relative to the target at the start). (applies when `rig` is `track`; scripts read) |
 | `deadZone` | vec3 [w, h, d] | `[0,0,0]` | 0 – 1000, step 0.1, m | **Dead zone.** The box (width, height, depth) around the framed point the target moves in before the camera follows (0: always follows). (applies when `rig` is `track`; Scene handle: box3; scripts read) |

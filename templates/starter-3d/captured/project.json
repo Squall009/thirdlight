@@ -233,9 +233,7 @@
     ],
     "prefabs": [],
     "behaviors": [],
-    "settings": {
-      "physics_dimension": 3
-    },
+    "settings": {},
     "behaviorTrust": {
       "entries": []
     },

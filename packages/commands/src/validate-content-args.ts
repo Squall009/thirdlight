@@ -746,7 +746,7 @@ function validateSetComponentOne(
           '/args/value/shape/type',
           shape['type'],
           '"box", "polygon", "sphere", "capsule", "cylinder", "convex", "mesh", "compound" or "model"',
-          'collider.shape.type must be "box", "polygon", "compound" or "model" (a 3D project also "sphere", "capsule", "cylinder", "convex" or "mesh")',
+          'collider.shape.type must be "box", "polygon", "sphere", "capsule", "cylinder", "convex", "mesh", "compound" or "model"',
         ),
       };
     }
