@@ -51,15 +51,16 @@
  *   texels; a frame (`FRAME_TEXELS`): corner (f32 ×3) and width, u axis and
  *   height, v axis, then its chart: page, the interior's corner (x | y <<
  *   16), its texels (w | h << 16);
- * - a model slot: its record's texel (0: none); a record (`MODEL_TEXELS`):
- *   the world → root map's rows (f32 ×4, three texels), then the root →
- *   world map's columns (f32 ×3, three texels: a world normal's root
- *   direction), the first's w the record's pieces; a piece
- *   (`PIECE_TEXELS`): its surfel cell (m, f32), hash, slots and 1 for a UV1
- *   piece; then page, corner (x | y << 16) and texels (w | h << 16: a UV1
- *   square's interior, or the surfels' rectangle, a row `w` long); a
- *   surfel hash slot: cell (x, y, z, i32), facing | surfel << 3 (`EMPTY`
- *   when free; `surfelHash`).
+ * - model slots (`SLOT_TEXELS` each, at slot × that): the world → root
+ *   map's rows (f32 ×4, three texels), the root → world map's columns (f32
+ *   ×3, three texels: a world normal's root direction; the first's w 1 when
+ *   the slot holds a piece), then its piece (`PIECE_TEXELS`): its surfel
+ *   cell (m, f32), hash, buckets and 1 for a UV1 piece; page, corner (x | y
+ *   << 16) and texels (w | h << 16: a UV1 square's interior, or the
+ *   surfels' rectangle, a row `w` long); the cells' origin (i32 ×3). A
+ *   hash bucket is a texel of two slots: a cell key (`surfelKey`) and
+ *   facing | surfel << 3 (`EMPTY` when free); a cell is in its home bucket
+ *   or the next (`surfelBucket`), so a look-up reads two texels and no loop.
  *
  * Pure (no three.js, no device).
  */
@@ -71,7 +72,6 @@ import type { SurfaceCache } from './surface-cache';
 import { surfelLevelFor } from './surface-cache-atlas';
 import type { ArchTile, BlockTile, ModelTile, SurfaceScene } from './surface-cache-scene';
 import { TERRAIN_RINGS_MAX } from './surface-cache-terrain';
-import { surfelHash } from './surface-resolve';
 import { Words, invertAffine } from './tracer-words';
 
 /** Texels a row of the lookup texture. */
@@ -79,8 +79,26 @@ export const LOOKUP_WIDTH = 2048;
 export const LAYER_TEXELS = 3;
 export const TERRAIN_TEXELS = 1 + TERRAIN_RINGS_MAX;
 export const FRAME_TEXELS = 4;
-export const MODEL_TEXELS = 6;
-export const PIECE_TEXELS = 2;
+export const PIECE_TEXELS = 3;
+/** A model slot's record: its placement (six texels) and its piece, read by a pixel together with no table in between. */
+export const SLOT_TEXELS = 6 + PIECE_TEXELS;
+/** Bits of a surfel cell's coordinate in its key, from the set's lowest cell (a set spans at most ~130 cells along an axis: `distanceBrickVoxel`). */
+export const SURFEL_KEY_BITS = 10;
+
+/** A surfel cell's key: its place from the set's lowest cell (null: outside the key's range: no surfel there). */
+export function surfelKey(x: number, y: number, z: number): number | null {
+  const lim = 1 << SURFEL_KEY_BITS;
+  if (x < 0 || y < 0 || z < 0 || x >= lim || y >= lim || z >= lim) return null;
+  return (x | (y << SURFEL_KEY_BITS) | (z << (2 * SURFEL_KEY_BITS))) >>> 0;
+}
+
+/** A cell key and facing's home bucket among `buckets` (a power of two; the shaders hash alike, in u32). */
+export function surfelBucket(key: number, facing: number, buckets: number): number {
+  let h = (Math.imul(key, 0x9e3779b1) ^ Math.imul(facing + 1, 0x85ebca6b)) >>> 0;
+  h = (h ^ (h >>> 16)) >>> 0;
+  h = Math.imul(h, 0x7feb352d) >>> 0;
+  return ((h ^ (h >>> 15)) >>> 0) & (buckets - 1);
+}
 /** A free slot's key. */
 export const EMPTY = 0xffffffff;
 /** The architecture hash's cells (m). */
@@ -253,36 +271,54 @@ function archFramesOf(tile: ArchTile): { frames: ArchFrame[]; cells: Map<string,
   return got;
 }
 
-/** A set's surfels of level `k` hashed by cell and facing (`surfelHash`), kept with the set: placed copies share it. */
-const surfelHashes = new WeakMap<object, Map<number, { cap: number; slots: Uint32Array }>>();
+/** A set's surfels of level `k` in buckets by cell and facing, kept with the set: placed copies share it. */
+const surfelHashes = new WeakMap<object, Map<number, SurfelHash>>();
 
-function surfelHashOf(tile: ModelTile, k: number): { cap: number; slots: Uint32Array } {
+/** A surfel hash: its buckets (four words each) and the cells' origin. */
+interface SurfelHash {
+  readonly buckets: number;
+  readonly words: Uint32Array;
+  readonly origin: readonly number[];
+}
+
+function surfelHashOf(tile: ModelTile, k: number): SurfelHash {
   const s = tile.set.surfels!;
   let byLevel = surfelHashes.get(s);
   if (byLevel === undefined) surfelHashes.set(s, (byLevel = new Map()));
-  let h = byLevel.get(k);
-  if (h !== undefined) return h;
+  const had = byLevel.get(k);
+  if (had !== undefined) return had;
   const cell = s.spacing * 2 ** k;
   const n = s.levels[k] ?? 0;
-  const cap = pow2AtLeast(n * 2);
-  const slots = new Uint32Array(cap * 4);
-  for (let i = 0; i < cap; i += 1) slots[i * 4 + 3] = EMPTY;
-  for (let i = 0; i < n; i += 1) {
-    const c = [0, 1, 2].map((a) => Math.floor(s.positions[i * 3 + a]! / cell));
-    const facing = facingOf([s.normals[i * 3]!, s.normals[i * 3 + 1]!, s.normals[i * 3 + 2]!]);
-    // One surfel a cell and facing at each level; a later one of the same takes the slot, as the resolve's hash does.
-    for (let q = surfelHash(c[0]!, c[1]!, c[2]!, facing, cap); ; q = (q + 1) & (cap - 1)) {
-      const tag = slots[q * 4 + 3]!;
-      if (tag === EMPTY || ((tag & 7) === facing && slots[q * 4] === c[0]! >>> 0 && slots[q * 4 + 1] === c[1]! >>> 0 && slots[q * 4 + 2] === c[2]! >>> 0)) {
-        for (let a = 0; a < 3; a += 1) slots[q * 4 + a] = c[a]! >>> 0;
-        slots[q * 4 + 3] = (facing | (i << 3)) >>> 0;
-        break;
+  const cells = Array.from({ length: n }, (_, i) => [0, 1, 2].map((a) => Math.floor(s.positions[i * 3 + a]! / cell)));
+  const origin = [0, 1, 2].map((a) => cells.reduce((m, c) => Math.min(m, c[a]!), Infinity) - 1);
+  // Twice the buckets until every cell sits in its home bucket or the next (two slots each).
+  for (let buckets = pow2AtLeast(Math.max(1, n)); ; buckets *= 2) {
+    const words = new Uint32Array(buckets * 4);
+    for (let i = 0; i < buckets; i += 1) words[i * 4 + 1] = words[i * 4 + 3] = EMPTY;
+    let fits = true;
+    for (let i = 0; i < n && fits; i += 1) {
+      const c = cells[i]!;
+      const key = surfelKey(c[0]! - origin[0]!, c[1]! - origin[1]!, c[2]! - origin[2]!);
+      if (key === null) continue;
+      const facing = facingOf([s.normals[i * 3]!, s.normals[i * 3 + 1]!, s.normals[i * 3 + 2]!]);
+      const home = surfelBucket(key, facing, buckets);
+      let at = -1;
+      for (let j = 0; j < 4 && at < 0; j += 1) {
+        const w = (((home + (j >> 1)) & (buckets - 1)) * 4) + (j & 1) * 2;
+        // One surfel a cell and facing at each level; a later one of the same takes its slot.
+        if (words[w + 1] === EMPTY || (words[w] === key && (words[w + 1]! & 7) === facing)) at = w;
+      }
+      if (at < 0) fits = false;
+      else {
+        words[at] = key;
+        words[at + 1] = (facing | (i << 3)) >>> 0;
       }
     }
+    if (!fits) continue;
+    const h = { buckets, words, origin };
+    byLevel.set(k, h);
+    return h;
   }
-  h = { cap, slots };
-  byLevel.set(k, h);
-  return h;
 }
 
 /** Static models' slots and records: per slot the placement and its resident pieces with surfels. */
@@ -298,38 +334,38 @@ function packModels(t: Texels, models: readonly ModelTile[], resident: ReadonlyM
     else list.push(tile);
     top = Math.max(top, slot);
   }
-  const table = t.alloc(top + 1);
+  const table = t.alloc((top + 1) * SLOT_TEXELS);
   t.setU(1, 2, top + 1);
   t.setU(1, 3, table);
   const hashes = new Map<object, number>();
   for (const [slot, tiles] of bySlot) {
-    const rec = t.alloc(MODEL_TEXELS + tiles.length * PIECE_TEXELS);
-    t.setU(table + slot, 0, rec);
-    const w = tiles[0]!.worldToLocal;
+    const rec = table + slot * SLOT_TEXELS;
+    // A model placed whole with several pieces: its first piece is read (the others keep the probes' and their own lights).
+    const tile = tiles[0]!;
+    const w = tile.worldToLocal;
     for (let r = 0; r < 3; r += 1) for (let k = 0; k < 4; k += 1) t.setF(rec + r, k, w[r * 4 + k]!);
     // A world normal's direction in the root: the root → world map's linear part, transposed (its columns as rows).
     const m = invertAffine(w);
     for (let c = 0; c < 3; c += 1) for (let r = 0; r < 3; r += 1) t.setF(rec + 3 + c, r, m[r * 4 + c]!);
-    t.setU(rec + 3, 3, tiles.length);
-    tiles.forEach((tile, i) => {
-      const r = resident.get(tile.key)!;
-      const s = tile.set.surfels!;
-      const uv1 = tile.chart!.kind === 'area';
-      const k = tile.chart!.kind === 'surfels' ? surfelLevelFor(tile.chart!, r.level) : 0;
-      const h = surfelHashOf(tile, k);
-      let at = hashes.get(h);
-      if (at === undefined) {
-        at = t.alloc(h.cap);
-        for (let q = 0; q < h.cap * 4; q += 1) t.w.setU(at * 4 + q, h.slots[q]!);
-        hashes.set(h, at);
-      }
-      const pa = rec + MODEL_TEXELS + i * PIECE_TEXELS;
-      t.setF(pa, 0, s.spacing * 2 ** k);
-      t.setU(pa, 1, at);
-      t.setU(pa, 2, h.cap);
-      t.setU(pa, 3, uv1 ? 1 : 0);
-      putChart(t, pa + 1, r, 0);
-    });
+    t.setU(rec + 3, 3, 1);
+    const r = resident.get(tile.key)!;
+    const s = tile.set.surfels!;
+    const uv1 = tile.chart!.kind === 'area';
+    const k = tile.chart!.kind === 'surfels' ? surfelLevelFor(tile.chart!, r.level) : 0;
+    const h = surfelHashOf(tile, k);
+    let at = hashes.get(h);
+    if (at === undefined) {
+      at = t.alloc(h.buckets);
+      for (let q = 0; q < h.buckets * 4; q += 1) t.w.setU(at * 4 + q, h.words[q]!);
+      hashes.set(h, at);
+    }
+    const pa = rec + 6;
+    t.setF(pa, 0, s.spacing * 2 ** k);
+    t.setU(pa, 1, at);
+    t.setU(pa, 2, h.buckets);
+    t.setU(pa, 3, uv1 ? 1 : 0);
+    putChart(t, pa + 1, r, 0);
+    for (let a = 0; a < 3; a += 1) t.setU(pa + 2, a, h.origin[a]! | 0);
   }
 }
 
@@ -592,57 +628,48 @@ export function lookupSurfaceCpu(words: Uint32Array, kind: SurfaceReadKind, p: r
   return null;
 }
 
-/** The surfel of cell `c` and `facing` in a set's hash (−1: none). */
-function surfelAt(u: Uint32Array, hash: number, cap: number, c: readonly number[], facing: number): number {
-  for (let q = surfelHash(c[0]!, c[1]!, c[2]!, facing, cap), tries = 0; tries < cap; q = (q + 1) & (cap - 1), tries += 1) {
-    const w = (hash + q) * 4;
-    const tag = u[w + 3]!;
-    if (tag === EMPTY) return -1;
-    if ((tag & 7) === facing && i32(u[w]!) === c[0] && i32(u[w + 1]!) === c[1] && i32(u[w + 2]!) === c[2]) return tag >>> 3;
+/** The surfel of cell `c` (from the cells' origin) and `facing` in a set's buckets (−1: none). */
+function surfelAt(u: Uint32Array, hash: number, buckets: number, c: readonly number[], facing: number): number {
+  const key = surfelKey(c[0]!, c[1]!, c[2]!);
+  if (key === null) return -1;
+  const home = surfelBucket(key, facing, buckets);
+  for (let j = 0; j < 4; j += 1) {
+    const w = (hash + ((home + (j >> 1)) & (buckets - 1))) * 4 + (j & 1) * 2;
+    if (u[w + 1] !== EMPTY && u[w] === key && (u[w + 1]! & 7) === facing) return u[w + 1]! >>> 3;
   }
   return -1;
 }
 
-/** A model pixel's place: its slot's placement takes the point and normal into the root, then the first piece holding a surfel in that cell and facing (a lone UV1 piece needs none). */
+/** A model pixel's place: its slot's placement takes the point and normal into the root; a UV1 piece reads its UV1, a piece on surfels the surfel of the point's cell and facing (or of the cell across the nearer boundary along its normal). */
 function lookupModelCpu(u: Uint32Array, f: Float32Array, p: readonly number[], n: readonly number[], slot: number, uv1: readonly number[] | undefined): LookedUp | null {
   if (slot <= 0 || slot >= u[6]!) return null;
-  const rec = u[(u[7]! + slot) * 4]!;
-  if (rec === 0) return null;
+  const rec = u[7]! + slot * SLOT_TEXELS;
   const r = rec * 4;
+  if (u[r + 15] !== 1) return null;
+  const pa = (rec + 6) * 4;
+  const ca = pa + 4;
+  const x0 = u[ca + 1]! & 0xffff;
+  const y0 = u[ca + 1]! >>> 16;
+  const w = u[ca + 2]! & 0xffff;
+  const h = u[ca + 2]! >>> 16;
+  if (u[pa + 3] === 1) {
+    if (uv1 === undefined) return null;
+    return { texture: 'atlas', layer: u[ca]!, x: x0 + Math.min(w - 0.5, Math.max(0.5, uv1[0]! * w)), y: y0 + Math.min(h - 0.5, Math.max(0.5, uv1[1]! * h)) };
+  }
   const lp = [0, 1, 2].map((k) => f[r + k * 4]! * p[0]! + f[r + k * 4 + 1]! * p[1]! + f[r + k * 4 + 2]! * p[2]! + f[r + k * 4 + 3]!);
   const ln = [0, 1, 2].map((k) => f[r + 12 + k * 4]! * n[0]! + f[r + 12 + k * 4 + 1]! * n[1]! + f[r + 12 + k * 4 + 2]! * n[2]!);
   const facing = facingOf(ln);
-  const pieces = u[r + 15]!;
-  for (let i = 0; i < pieces; i += 1) {
-    const pa = (rec + MODEL_TEXELS + i * PIECE_TEXELS) * 4;
-    const isUv1 = u[pa + 3] === 1;
-    let index = -1;
-    if (!(isUv1 && pieces === 1)) {
-      const cell = f[pa]!;
-      const hash = u[pa + 1]!;
-      const cap = u[pa + 2]!;
-      const q = lp.map((v) => v / cell);
-      const c = q.map(Math.floor);
-      index = surfelAt(u, hash, cap, c, facing);
-      // A face on a cell boundary has its surfels on either side of it (their points round either way): the cell across the nearer boundary along its normal.
-      if (index < 0) {
-        const axis = facing >> 1;
-        c[axis]! += q[axis]! - c[axis]! < 0.5 ? -1 : 1;
-        index = surfelAt(u, hash, cap, c, facing);
-      }
-      if (index < 0) continue;
-    }
-    const ca = pa + 4;
-    const x0 = u[ca + 1]! & 0xffff;
-    const y0 = u[ca + 1]! >>> 16;
-    const w = u[ca + 2]! & 0xffff;
-    const h = u[ca + 2]! >>> 16;
-    if (isUv1) {
-      if (uv1 === undefined) return null;
-      return { texture: 'atlas', layer: u[ca]!, x: x0 + Math.min(w - 0.5, Math.max(0.5, uv1[0]! * w)), y: y0 + Math.min(h - 0.5, Math.max(0.5, uv1[1]! * h)) };
-    }
-    // A surfel's own texel, at its centre (its light is not filtered with its neighbours': they lie anywhere on the model).
-    return { texture: 'atlas', layer: u[ca]!, x: x0 + (index % w) + 0.5, y: y0 + Math.floor(index / w) + 0.5 };
+  const cell = f[pa]!;
+  const q = lp.map((v) => v / cell);
+  const c = q.map((v, a) => Math.floor(v) - i32(u[pa + 8 + a]!));
+  let index = surfelAt(u, u[pa + 1]!, u[pa + 2]!, c, facing);
+  // A face on a cell boundary has its surfels on either side of it (their points round either way): the cell across the nearer boundary along its normal.
+  if (index < 0) {
+    const axis = facing >> 1;
+    c[axis]! += q[axis]! - Math.floor(q[axis]!) < 0.5 ? -1 : 1;
+    index = surfelAt(u, u[pa + 1]!, u[pa + 2]!, c, facing);
   }
-  return null;
+  if (index < 0) return null;
+  // A surfel's own texel, at its centre (its light is not filtered with its neighbours': they lie anywhere on the model).
+  return { texture: 'atlas', layer: u[ca]!, x: x0 + (index % w) + 0.5, y: y0 + Math.floor(index / w) + 0.5 };
 }

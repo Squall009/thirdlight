@@ -56,7 +56,8 @@ import { OCCLUSION_ORACLE_KEY, runOcclusionOracle, type OracleOptions } from './
 import { PrecompileGate } from './precompile-gate';
 import { createProbeLightingHost } from './probe-grids';
 import { createQualityControl } from './quality-control';
-import { createAdapterSurfaceCache, surfaceCacheBytes } from './adapter-surface-cache';
+import { createAdapterSurfaceCache, markStaticModelRead, surfaceCacheBytes } from './adapter-surface-cache';
+import type { SurfaceCacheHost } from './surface-cache-host';
 import { AdapterSurfaceLight } from './adapter-surface-light';
 import { SURFACE_CACHE_KEY } from './surface-cache-host';
 import { createRenderControl } from './render-control';
@@ -190,6 +191,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   // The view's camera, posed every frame from the camera brain. Aspect is a viewport property, updated per frame.
   state.camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
   state.camera.position.set(startView[0], startView[1], startView[2]);
+  // The surface cache is made after the models' host (it reads the level and entities); models attach later, once loaded.
+  const surfaceHost: { current: SurfaceCacheHost | null } = { current: null };
   const models = new AdapterModels(opts, {
     graph, materialLibrary, resources,
     entityMaterials: (entityId) => materials.effective(entityId, (entityDocs.get(entityId)?.components as { materials?: Record<string, string> } | undefined)?.materials) ?? null,
@@ -211,6 +214,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       const scope = entities.staticScopes.get(entityId);
       if (scope !== undefined) {
         markStatic(root, scope);
+        markStaticModelRead(surfaceHost.current, opts, entityDocs, entityId, root);
         // Marked after its meshes came into the scene: the static shadow map takes them now.
         staticShadows?.bump();
       }
@@ -265,6 +269,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   selectLights();
   /** The static surfaces' light resident round the view, within the quality level's budget. */
   const surfaceCache = createAdapterSurfaceCache({ opts, scene, level, entities, docs: entityDocs, graph, matrix: new THREE.Matrix4() });
+  surfaceHost.current = surfaceCache;
   const surfaceLight = surfaceCache !== null ? new AdapterSurfaceLight(surfaceCache, scene, entityDocs, graph, probes) : null;
   if (surfaceLight !== null) Object.assign(scene.userData[SURFACE_CACHE_KEY] as object, { setView: (on: boolean) => surfaceLight.setView(on), light: () => surfaceLight.diagnostics() });
   /** The quality level drawn and its renderer settings (quality-control.ts). */

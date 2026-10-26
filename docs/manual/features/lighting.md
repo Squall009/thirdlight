@@ -188,8 +188,9 @@ rather than one point. Add one with **GameObject → Light → Area light** (a
 - **How it lights** — through the surface cache, the static surfaces' light:
   on WebGPU at medium and high quality its light and soft shadows are traced
   into the cache of the static surfaces around it, and block layers,
-  terrain and generated buildings draw it from there. Moving objects and
-  static models get its light only as bounce through the probes, and it
+  terrain, generated buildings and static models draw it from there.
+  Moving objects and static boxes get its light only as bounce through the
+  probes, and it
   draws no highlights yet. WebGL 2 draws the cache's saved light. The
   lightmap bake does not take area lights.
 - **No per-pixel budget** — area lights, like baked point and spot lights,
@@ -243,7 +244,12 @@ only where something changed:
   nothing.
 - **What surfaces draw** — block layers, terrain and generated buildings
   read their diffuse light from the cache: one filtered lookup a pixel,
-  found from where the pixel is and which way it faces. The cache gives the
+  found from where the pixel is and which way it faces. Static models (in
+  a built game, where their distance-field files are) read it too: a model
+  with a second UV set (UV1) at its UV1, filtered; any other at the surfel
+  nearest the pixel (one value per surfel, so the light steps at the
+  model's surfel spacing). A model placed whole with several top-level
+  pieces reads its first piece's light only. The cache gives the
   light of point, spot, area lights and glowing boxes with their soft
   traced shadows; the sun is still drawn per pixel with its shadow map
   (sharper than a cache texel), so the cache's share of it is left out; the
@@ -251,8 +257,8 @@ only where something changed:
   highlights. A pixel with no cache texel under it (its surface not
   resident yet, a trim off its wall's plane) is lit per pixel as before. A
   surface that has a baked lightmap keeps drawing it until the scene is
-  baked again. Static models, boxes, moving objects, foliage and ground
-  cover are lit as before (probes and per-pixel lights). Add
+  baked again. Static boxes, moving objects, foliage and ground cover are
+  lit as before (probes and per-pixel lights). Add
   `?surfaceRead=0` to a game page's address to light the cache without any
   surface reading it (to compare).
 - **What it is not yet** — WebGL 2 and the low tier compute nothing live

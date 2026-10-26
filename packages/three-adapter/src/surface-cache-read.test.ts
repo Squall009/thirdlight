@@ -47,9 +47,9 @@ describe('materials reading the surface cache', () => {
     const mat = new THREE.MeshStandardMaterial();
     const tex = new SurfaceCacheTextures(4, 7);
     const read = localLightVariant(mat, 'pixel', { kind: SURFACE_READ.model, textures: tex });
-    // The slot's record is read per vertex: the point and normal in the model's root reach the pixel as varyings.
+    // The slot reaches the pixel flat; the pixel reads its record and takes its facing in the model's root.
     const alone = wgslOf(r, scene, new THREE.Mesh(new THREE.BoxGeometry(), read));
-    expect(alone).toContain('tlSurfaceRootPosition');
+    expect(alone).toContain('tlSurfaceFacing');
     expect(alone).toContain('tlSurfaceCopySlot');
     const merged = new THREE.BoxGeometry();
     merged.setAttribute(SURFACE_SLOT_ATTRIBUTE, new THREE.BufferAttribute(new Float32Array(merged.getAttribute('position').count), 1));
