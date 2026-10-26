@@ -19,7 +19,7 @@ export function modelBricksKey(sourceDigest: string): ImportKey {
 
 /** The bricks blob of a model file (null: it has no render triangles to make a field of). */
 export function modelBricksBlob(glb: Uint8Array): { ok: true; bytes: Uint8Array | null } | { ok: false; message: string } {
-  const g = readModelGeometry(glb);
+  const g = readModelGeometry(glb, { uv1: true });
   if (!g.ok) return { ok: false, message: g.message };
   const b = buildDistanceBricks(g.geometry);
   return { ok: true, bytes: b.sets.length > 0 ? encodeDistanceBricks(b) : null };

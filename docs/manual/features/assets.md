@@ -385,6 +385,15 @@ only for models a scene places **static** (the object's static flag, and
 generated architecture's kit copies), as a buffer the model's catalog row
 names (`bricks`); a model placed movable ships none.
 
+The same import spreads **surfels** over each piece, at the field's sample
+spacing: one per occupied cell and facing (both sides of a thin wall keep
+their own), in nested levels so a coarser cache page takes a prefix of them,
+each with its point's UV1 when the model has a second UV set. They say where
+the surface cache keeps a static model's light: in its UV1 page when it has
+UV1, else on the surfels themselves, so no model needs an unwrap. They ride
+in the bricks file (the starter character: 1,116 surfels, the file 28 KB,
+both made in about 0.17 s).
+
 Standard-shader project materials share one prepared texture per (texture,
 colour space, wrap, UV channel, tiling and offset) across every model file
 that uses them, freed with the last: one material on 14 model files holds

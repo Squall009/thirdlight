@@ -5,6 +5,7 @@
  */
 import type { ModelGeometry } from './model-collision';
 import { modelRenderPrimitives } from './model-collision';
+import { buildSurfelSet } from './surfels';
 import { DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_INSIDE, DISTANCE_BRICK_OUTSIDE, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, distanceBrickVoxel, type DistanceBrickSet, type DistanceBricks } from './distance-bricks';
 
 type V3 = [number, number, number];
@@ -87,7 +88,7 @@ function weld(positions: readonly (readonly number[])[], triangles: readonly (re
 }
 
 /** A set's field from one piece's triangles (null: no triangles, or no extent). */
-export function buildDistanceBrickSet(piece: string, mesh: { positions: readonly (readonly number[])[]; triangles: readonly (readonly number[])[] }[]): DistanceBrickSet | null {
+export function buildDistanceBrickSet(piece: string, mesh: { positions: readonly (readonly number[])[]; triangles: readonly (readonly number[])[]; uv1?: readonly number[] | null }[]): DistanceBrickSet | null {
   const m: Mesh = { pos: [], tris: [] };
   const ids = new Map<string, number>();
   for (const part of mesh) weld(part.positions, part.triangles, m, ids);
@@ -218,16 +219,16 @@ export function buildDistanceBrickSet(piece: string, mesh: { positions: readonly
   }
   const samples = new Uint8Array(blocks.length * DISTANCE_BRICK_SAMPLES);
   blocks.forEach((b, i) => samples.set(b, i * DISTANCE_BRICK_SAMPLES));
-  return { piece, min, voxel, band, dims, bricks, samples };
+  return { piece, min, voxel, band, dims, bricks, samples, surfels: buildSurfelSet(mesh, voxel) };
 }
 
-/** A model's fields: one set per top-level piece of its render geometry (level 0, no collision or occluder helpers). */
+/** A model's fields and surfels: one set per top-level piece of its render geometry (level 0, no collision or occluder helpers; UV1 when read with `uv1`). */
 export function buildDistanceBricks(g: ModelGeometry): DistanceBricks {
-  const byPiece = new Map<string, { positions: readonly (readonly number[])[]; triangles: readonly (readonly number[])[] }[]>();
+  const byPiece = new Map<string, { positions: readonly (readonly number[])[]; triangles: readonly (readonly number[])[]; uv1: readonly number[] | null }[]>();
   for (const p of modelRenderPrimitives(g, null)) {
     if (p.triangles.length === 0) continue;
     const list = byPiece.get(p.piece) ?? [];
-    list.push({ positions: p.positions, triangles: p.triangles });
+    list.push({ positions: p.positions, triangles: p.triangles, uv1: p.uv1 ?? null });
     byPiece.set(p.piece, list);
   }
   const single = byPiece.size === 1;

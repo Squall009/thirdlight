@@ -19,9 +19,15 @@
  *   (flooded in from the field's border) cannot reach them, so a mesh with
  *   holes reads as a shell, never as solid.
  *
+ * Each set also carries the piece's surfels (`surfels.ts`): where the
+ * surface cache keeps the light of the surface the field describes, made by
+ * the same import from the same triangles.
+ *
  * Pure and deterministic. This module is the format (what a game reads);
  * `distance-bricks-build.ts` makes the fields at import.
  */
+import { decodeSurfelSet, encodeSurfelSet, surfelSetBytes, type SurfelSet } from './surfels';
+
 
 /** Cells per brick side. */
 export const DISTANCE_BRICK_CELLS = 8;
@@ -34,7 +40,7 @@ export const DISTANCE_BRICK_OUTSIDE = -1;
 /** A brick wholly inside the model. */
 export const DISTANCE_BRICK_INSIDE = -2;
 /** The format's version (raised when a blob made before would read differently). */
-export const DISTANCE_BRICKS_VERSION = 1;
+export const DISTANCE_BRICKS_VERSION = 2;
 /** Band of the stored distances, in voxels: a sample farther than this from the surface stores the band. */
 export const DISTANCE_BRICK_BAND_VOXELS = 2;
 
@@ -53,6 +59,8 @@ export interface DistanceBrickSet {
   bricks: Int32Array;
   /** Sample blocks of `DISTANCE_BRICK_SAMPLES` bytes (x fastest, then y, then z): 0 is −band, 255 is +band. */
   samples: Uint8Array;
+  /** The piece's surfels, spread at `voxel` (null: none were made). */
+  surfels: SurfelSet | null;
 }
 
 export interface DistanceBricks {
@@ -82,7 +90,7 @@ export function encodeDistanceBricks(b: DistanceBricks): Uint8Array {
   const names = b.sets.map((s) => enc.encode(s.piece));
   let size = 12;
   b.sets.forEach((s, i) => {
-    size += 4 + Math.ceil(names[i]!.length / 4) * 4 + 4 * 9 + s.bricks.length * 4 + Math.ceil(s.samples.length / 4) * 4;
+    size += 4 + Math.ceil(names[i]!.length / 4) * 4 + 4 * 9 + s.bricks.length * 4 + Math.ceil(s.samples.length / 4) * 4 + 4 + (s.surfels !== null ? Math.ceil(surfelSetBytes(s.surfels) / 4) * 4 : 0);
   });
   const out = new Uint8Array(size);
   const dv = new DataView(out.buffer);
@@ -113,6 +121,8 @@ export function encodeDistanceBricks(b: DistanceBricks): Uint8Array {
     }
     out.set(s.samples, o);
     o += Math.ceil(s.samples.length / 4) * 4;
+    u32(s.surfels !== null ? 1 : 0);
+    if (s.surfels !== null) o = Math.ceil(encodeSurfelSet(s.surfels, dv, o) / 4) * 4;
   });
   return out;
 }
@@ -156,7 +166,15 @@ export function decodeDistanceBricks(bytes: Uint8Array): DistanceBricks | null {
     }
     const samples = bytes.slice(o, o + filled * DISTANCE_BRICK_SAMPLES);
     o += Math.ceil((filled * DISTANCE_BRICK_SAMPLES) / 4) * 4;
-    sets.push({ piece, min, voxel, band, dims, bricks, samples });
+    if (!need(4)) return null;
+    let surfels: SurfelSet | null = null;
+    if (u32() === 1) {
+      const read = decodeSurfelSet(dv, o);
+      if (read === null) return null;
+      surfels = read.set;
+      o = read.end;
+    }
+    sets.push({ piece, min, voxel, band, dims, bricks, samples, surfels });
   }
   return { sets };
 }

@@ -1788,3 +1788,4 @@ export { PLANE_AXES, canonicalPlaneField, effectivePlaneOf, isPlaneLock, planeCo
 export { DEFAULT_COLLIDER_DEPTH, MAX_COLLIDER_DEPTH, colliderDepthOf, convexPieces, hasTwoDShape, shape2DTo3D, type ColliderCircleShape2D, type Shape3DChange, type Shape3DOptions } from './shape-2d-3d';
 export { DISTANCE_BRICK_BAND_VOXELS, DISTANCE_BRICK_CELLS, DISTANCE_BRICK_INSIDE, DISTANCE_BRICK_OUTSIDE, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, DISTANCE_BRICKS_VERSION, decodeDistanceBricks, distanceBrickVoxel, distanceOfSample, encodeDistanceBricks, isDistanceBricksBlob, type DistanceBrickSet, type DistanceBricks } from './distance-bricks';
 export { buildDistanceBrickSet, buildDistanceBricks } from './distance-bricks-build';
+export { buildSurfelSet, surfelCellKey, surfelCoverage, surfelFacing, type SurfelSet, type SurfelSource } from './surfels';

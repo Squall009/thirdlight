@@ -89,6 +89,8 @@ export interface ModelGeometryPrimitive {
   uv?: readonly number[] | null;
   /** With `surface`: the primitive carries COLOR_0. */
   colour?: boolean;
+  /** With `uv1`: TEXCOORD_1 (u, v pairs; null: none, or not readable), the lightmap UVs a surface cache can address. */
+  uv1?: readonly number[] | null;
 }
 
 export interface ModelGeometry {
@@ -256,7 +258,7 @@ export function modelNodePaths(json: Readonly<Record<string, unknown>>): Map<num
  * says its render level, material name, UV0 and whether it has vertex
  * colours (what a kit piece's checks read). Never throws.
  */
-export function readModelGeometry(bytes: Uint8Array, options: { surface?: boolean } = {}): { ok: true; geometry: ModelGeometry } | { ok: false; message: string } {
+export function readModelGeometry(bytes: Uint8Array, options: { surface?: boolean; uv1?: boolean } = {}): { ok: true; geometry: ModelGeometry } | { ok: false; message: string } {
   const chunks = glbChunks(bytes);
   if (typeof chunks === 'string') return { ok: false, message: chunks };
   const { json, bin } = chunks;
@@ -332,6 +334,11 @@ export function readModelGeometry(bytes: Uint8Array, options: { surface?: boolea
           surface.material = isObj(mat) && typeof mat['name'] === 'string' ? mat['name'] : null;
           surface.uv = uv !== null && typeof uv !== 'string' && uv.size === 2 ? uv.data : null;
           surface.colour = attrs['COLOR_0'] !== undefined;
+        }
+        if (options.uv1 === true) {
+          const attrs = prim['attributes'] as Json;
+          const uv1 = attrs['TEXCOORD_1'] !== undefined ? readNumbers(json, bin, attrs['TEXCOORD_1'], cache) : null;
+          surface.uv1 = uv1 !== null && typeof uv1 !== 'string' && uv1.size === 2 && uv1.data.length === count * 2 ? uv1.data : null;
         }
         primitives.push({ ...flags, occluder: occluder !== null, ...(occluder !== null ? { occluderNode: occluder } : {}), positions, triangles: trianglesOf(mode, indices), node: path, primitive: pi, local: pos.data, ...surface });
       });
