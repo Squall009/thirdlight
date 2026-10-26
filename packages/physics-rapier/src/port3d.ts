@@ -28,7 +28,7 @@ import { inPlane, isPlane, lockBody, onPlane, planePose } from './plane3d';
 import { capsuleLowAlong, holds, markOneWay, OneWaySweeps, upOf, type OneWayShape } from './oneway3d';
 import { createStepUp } from './step-up3d';
 import { groundContacts3D, type InternalEdgeWorld } from './internal-edges3d';
-import { settleDrop, skinLift, type SettleWorld } from './settle3d';
+import { offWallSweep, settleDrop, skinLift, sweepFrom, type SettleWorld } from './settle3d';
 import { moversNear, restoreMovers, stillMovers, type StilledBody } from './kinematic-still3d';
 import { CLEARANCE_PENETRATION_EPS, CLEARANCE_RAY_EPS, CLEARANCE_SUPPORT_PROBE, FIXED_HZ_CHOICES, FOOTPRINT_BALL, GROUND_NORMAL_TOLERANCE, MAX_DROP_THROUGH_STEPS, MAX_SHAPE_VALUE } from './constants';
 
@@ -1196,6 +1196,7 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
     // The support normal comes from the collision results (the obstacle's outward normal), never from a floor constant.
     let best: PhysicsVec3 | null = null;
     let wall = false;
+    let wallNormal: PhysicsVec3 | null = null;
     let head = false;
     let groundOnly = true;
     const readCollisions = (): void => {
@@ -1208,18 +1209,18 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
         if (!(len > 0)) continue;
         const u = { x: n.x / len, y: n.y / len, z: n.z / len };
         if (best === null || u.y > best.y) best = u;
-        if (Math.hypot(u.x, u.z) > climbCos) wall = true;
+        if (Math.hypot(u.x, u.z) > climbCos) {
+          wall = true;
+          wallNormal ??= u;
+        }
         if (u.y < -climbCos) head = true;
         if (u.y < climbCos) groundOnly = false;
       }
     };
     readCollisions();
-    let rawGrounded = midStep ? true : controller.computedGrounded();
     // Refused when the capsule has no real ground-like contact where the sweep ended, and an internal one there or where it started.
-    if (rawGrounded && !midStep) {
-      const end = groundContacts3D(edges, b.overlapCapsule, at(b, { x: before.x + swept.x, y: before.y + swept.y, z: before.z + swept.z }), b.tuning, startGround === -1);
-      if (end === -1 || (end === 0 && startGround === -1)) rawGrounded = false;
-    }
+    const groundedAt = (end: PhysicsVec3, there = controller.computedGrounded() ? groundContacts3D(edges, b.overlapCapsule, at(b, { x: before.x + end.x, y: before.y + end.y, z: before.z + end.z }), b.tuning, startGround === -1) : -1): boolean => there === 1 || (there === 0 && startGround !== -1);
+    let rawGrounded = midStep ? true : groundedAt(swept);
     if (b.stepping !== null) {
       b.stepping.steps += 1;
       // On top: the ground under its centre is walkable (the step's top) — the step-up ends.
@@ -1243,11 +1244,14 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
         readCollisions();
       }
     }
-    // Standing still. A grounded character asked for nothing across and at most a
-    // fall, whose sweep moved it less than its skin, on something that does not move (not a
-    // mover or a collider a script drives), comes to rest at its skin and stays exactly there —
-    // Rapier's sweep and ground snap otherwise alternate it by about 0.1 mm every step
-    // (measured), so it never comes to rest, and leave it where its landing step ended (`settleDrop`).
+    // Against a wall in the air, pushing into it (Rapier may call it grounded by the wall alone): see `offWallSweep`.
+    const off = !midStep && (!rawGrounded || commanded.y > 0 || best === null || (best as PhysicsVec3).y < climbCos) && !head && wallNormal !== null ? offWallSweep(edges, controller, characterCollider, b.overlapCapsule, before, (p) => at(b, p), commanded, swept, wallNormal, skin, othersOut) : null;
+    if (off !== null) {
+      swept = off;
+      readCollisions();
+      rawGrounded = groundedAt(swept);
+    }
+    // Standing still on something that does not move: at rest exactly at its skin (settle3d.ts says why).
     if (!midStep && b.grounded && rawGrounded && across < 1e-12 && commanded.y <= 0 && Math.hypot(swept.x, swept.y, swept.z) < skin) {
       const under = supportUnder(b, before);
       if (under !== null && infoByHandle.get(under.handle)?.kinematic !== true) swept = { x: 0, y: -settleDrop(edges, b.overlapCapsule, at(b, before), skin, snapDistance + skin), z: 0 };
@@ -1272,13 +1276,7 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
       const dz = commanded.z / across;
       const rise = stepProbe(b, before, dx, dz);
       if (rise !== null) {
-        const lifted = { x: before.x, y: before.y + rise, z: before.z };
-        characterCollider.setTranslation(at(b, lifted));
-        controller.disableSnapToGround();
-        controller.computeColliderMovement(characterCollider, { x: commanded.x, y: 0, z: commanded.z }, undefined, undefined, othersOut);
-        controller.enableSnapToGround(snapDistance);
-        const on = controller.computedMovement();
-        characterCollider.setTranslation(at(b, before));
+        const on = sweepFrom(controller, characterCollider, at(b, { x: before.x, y: before.y + rise, z: before.z }), at(b, before), { x: commanded.x, y: 0, z: commanded.z }, othersOut, snapDistance);
         swept = { x: on.x, y: rise + on.y, z: on.z };
         best = null;
         wall = false;
