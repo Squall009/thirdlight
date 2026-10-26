@@ -127,8 +127,6 @@ export function localLightVariant(material: THREE.Material, mode: LocalLightMode
   if (read !== null) {
     v[SURFACE_READ_VARIANT] = read.kind;
     v[SURFACE_READ_TEXTURES] = read.textures;
-    // The cache holds what a lightmap would add (the lights node adds the cache's light).
-    v['setupLightMap'] = (): null => null;
   }
   v.customProgramCacheKey = function variantKey(): string {
     return `${base.customProgramCacheKey()}|${materialValuesKey(base)}|tlLocalLights=${mode}${read !== null ? `|tlSurfaceRead=${read.kind}/${read.textures.id}` : ''}`;
@@ -178,7 +176,8 @@ export function installLocalLightModes(renderer: { renderObject: RenderObjectFn 
   renderer.renderObject = function renderObjectWithMode(this: unknown, object, scene, camera, geometry, material, ...rest) {
     if (scene.overrideMaterial === null && scene.userData[LOCAL_LIGHTS_IGNORED_KEY] !== true && isLit(material)) {
       const mode = drawMode(object, material);
-      const read = surfaceReadOf(object, scene);
+      // A surface with a saved lightmap keeps drawing it until the scene is baked again.
+      const read = (material as { lightMap?: unknown }).lightMap ? null : surfaceReadOf(object, scene);
       if (mode !== 'pixel' || read !== null) {
         const v = localLightVariant(material, mode, read);
         base.call(this, object, scene, camera, geometry, v, ...rest);

@@ -20,7 +20,8 @@
  * per pixel, blended by how much of the filtered lookup was lit.
  *
  * Which draws read it: a mesh whose `userData[SURFACE_READ_KEY]` names its
- * kind, in a scene whose `userData[SURFACE_READ_LIVE_KEY]` is true (a WebGPU
+ * kind and whose material holds no saved lightmap (a bake keeps drawing
+ * until the scene is baked again), in a scene whose `userData[SURFACE_READ_LIVE_KEY]` is true (a WebGPU
  * page lighting the cache live). It draws with a variant of its material
  * (`local-lights.ts`, as a local-light mode's), so shared materials, merged
  * cells and batches keep their own programs and a scene without live light
