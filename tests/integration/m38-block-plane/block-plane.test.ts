@@ -14,12 +14,13 @@
  * pit filled (an edit) walks over it, and a script's cell write in Play digs
  * a hole the player drops into in the same run.
  *
- * Two known engine gaps are pinned by expected failures (they turn red the
- * day the engine is fixed): one-way block types are solid on the 3D chunk
- * mesh (the player can neither jump up through the ledge nor drop through
- * it), and the plane-locked capsule falling into the dug hole while pushing
- * right is held on the hole's flat far wall (reported grounded) instead of
- * falling through.
+ * The player jumps up through the one-way ledge, stands on it and drops
+ * back through it with down + jump, on the plane and free.
+ *
+ * A known engine gap is pinned by an expected failure (it turns red the day
+ * the engine is fixed): the plane-locked capsule falling into the dug hole
+ * while pushing right is held on the hole's flat far wall (reported
+ * grounded) instead of falling through.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -107,9 +108,10 @@ function recording(n: number): Any[] {
   }));
 }
 
-async function run(mode: Mode, steps: number, opts: { pitFilled?: boolean; dig?: boolean } = {}): Promise<{ log: Any[]; digests: string[]; errors: Any[] }> {
+async function run(mode: Mode, steps: number, opts: { pitFilled?: boolean; dig?: boolean; free?: boolean } = {}): Promise<{ log: Any[]; digests: string[]; errors: Any[] }> {
+  const controller = opts.free === true ? { ...CONTROLLER, plane: undefined } : CONTROLLER;
   const entities: Any[] = [
-    { id: 'player-0001', components: { transform: T([2.5, 1 + FEET, 0]), controller: CONTROLLER } },
+    { id: 'player-0001', components: { transform: T([2.5, 1 + FEET, 0]), controller } },
     { id: L, components: { transform: T([0, 0, -1]), blockLayer: LAYER } },
     { id: 'watch-0001', components: { transform: T([0, -5, 0]), behavior: { behaviorId: 'watch', values: {} } } },
   ];
@@ -204,16 +206,18 @@ describe('a block layer is the ground of a side-view project', () => {
     expect(Math.min(...overHole.map((r) => r[2] - FEET))).toBeLessThan(3);
   }, 180_000);
 
-  it.fails('jumps up through the one-way ledge, stands on it and drops back through it with down + jump (fails today: block layers do not make one-way blocks one-way)', async () => {
-    const a = await run('single', 360);
-    expect(a.errors).toEqual([]);
-    const at = (s: number) => rowOf(a.log, s);
-    // Up through the one-way ledge (bottom 3) and standing on it (top 3.5), the surface query under it agreeing.
-    expect(at(200)[2]).toBeCloseTo(3.5 + FEET, 2);
-    expect(at(225)[2]).toBeCloseTo(3.5 + FEET, 2);
-    expect(at(200)[3]).toBeCloseTo(3.5, 4);
-    // Down + jump drops through it to the ground.
-    expect(at(350)[2]).toBeCloseTo(1 + FEET, 2);
+  it('jumps up through the one-way ledge, stands on it and drops back through it with down + jump; on the plane and free', async () => {
+    for (const free of [false, true]) {
+      const a = await run('single', 360, { free });
+      expect(a.errors).toEqual([]);
+      const at = (s: number) => rowOf(a.log, s);
+      // Up through the one-way ledge (bottom 3) and standing on it (top 3.5), the surface query under it agreeing.
+      expect(at(200)[2]).toBeCloseTo(3.5 + FEET, 2);
+      expect(at(225)[2]).toBeCloseTo(3.5 + FEET, 2);
+      expect(at(200)[3]).toBeCloseTo(3.5, 4);
+      // Down + jump drops through it to the ground.
+      expect(at(350)[2]).toBeCloseTo(1 + FEET, 2);
+    }
   }, 60_000);
 
   it.fails('falls through the hole dug in the plateau while pushing right (fails today: the character is held on the hole\'s far wall)', async () => {

@@ -300,6 +300,25 @@ describe('block layers: meshing and hidden faces', () => {
     applyBlockEdits(n, [{ kind: 'cells', at: [0, 0, 0], cell: { block: 'ghost' } }], { types: none, stamps: new Map() });
     expect(collisionMeshChunk(n, 0, 0, none)).toEqual([]);
   });
+
+  it('collision: one-way blocks are their own pieces, one per row, each with its own top', () => {
+    const types = new Map([...typeMap, ['plank', { blockId: 'plank', name: 'Plank', variants: [{ color: '#a0703a' }], shape: 'full' as const, oneWay: true }]]);
+    const g = new BlockGrid(LAYER);
+    applyBlockEdits(
+      g,
+      [
+        { kind: 'fill', box: [0, 0, 0, 4, 1, 1], cell: { block: 'stone' } },
+        { kind: 'fill', box: [0, 1, 0, 2, 2, 1], cell: { block: 'plank' } },
+        { kind: 'fill', box: [2, 3, 0, 4, 4, 1], cell: { block: 'plank' } },
+      ],
+      { types, stamps: new Map() },
+    );
+    const pieces = collisionMeshChunk(g, 0, 0, types);
+    const top = (p: { vertices: number[] }): number => Math.max(...p.vertices.filter((_, i) => i % 3 === 1));
+    expect(pieces.map((p) => [p.oneWay === true, top(p)])).toEqual([[false, 1], [true, 2], [true, 4]]);
+    // The stone's top under the plank stays (the plank is not solid to it), so the ground holds what drops through.
+    expect(pieces[0]!.indices.length / 3).toBe(2 * (4 + 4 + 8 + 2));
+  });
 });
 
 describe('block layers: PNG heightmaps', () => {

@@ -676,6 +676,8 @@ export interface BlockTopOptions {
    * wall under them: when the roof is cut the wall's top is there to see).
    */
   readonly seams?: (x: number, y: number, z: number) => number;
+  /** Only these cells (and edges) are meshed; their neighbours still hide faces as usual (absent: every one). */
+  readonly cells?: (x: number, y: number, z: number) => boolean;
 }
 
 /** A layer component's top options. */
@@ -1044,9 +1046,10 @@ export function meshBlockChunk(grid: BlockGridReader, cx: number, cz: number, ty
     }
     return false;
   };
+  const only = options.cells;
   grid.forEachInChunk(chunkKeyOf(cx, cz), (x, y, z, idx) => {
     const cell: BlockCell = grid.valueOf(idx);
-    if (cell.block === undefined) return;
+    if (cell.block === undefined || (only !== undefined && !only(x, y, z))) return;
     const placed = place(x, y, z, cell);
     if (placed === null) return;
     const { look, source: src, rotated, ox, oy, oz, hidden } = placed;
@@ -1088,6 +1091,7 @@ export function meshBlockChunk(grid: BlockGridReader, cx: number, cz: number, ty
   });
   // The chunk's edge pieces: each look turned onto its edge, nothing hidden (they are thinner than a cell).
   grid.forEachEdgeInChunk(chunkKeyOf(cx, cz), (x, y, z, axis, idx) => {
+    if (only !== undefined && !only(x, y, z)) return;
     const edge = grid.edgeValueOf(idx);
     const t = types.get(edge.block);
     if (t === undefined || !blockTypeIsEdge(t) || (looks.edge !== undefined && !looks.edge(t, edge))) return;
@@ -1245,20 +1249,47 @@ export function collisionLooks(include?: (t: BlockType) => boolean, closed = fal
 export interface CollisionMeshPiece {
   vertices: number[];
   indices: number[];
+  /** Made of one-way blocks: the port's one-way collider (held from above only). */
+  oneWay?: true;
 }
 
 /** A collision piece is one mesh collider, so it keeps the mesh collider's limits. */
 export const COLLISION_PIECE_LIMITS = Object.freeze({ vertices: COLLIDER_3D_LIMITS.meshVertices, triangles: COLLIDER_3D_LIMITS.meshTriangles });
+
+const isOneWay = (t: BlockType): boolean => t.oneWay === true;
 
 /**
  * The collision triangles of one chunk from its blocks' collision shapes
  * (faces between neighbours hidden with the collision rule: a neighbour with
  * a full single-cell shape, or the same face profile), vertices merged, split
  * into pieces within the port's mesh limits. Empty: nothing to collide with.
+ *
+ * One-way block types come as their own pieces, one row of cells at a time:
+ * a one-way collider holds what is above its one top, so a ledge must not
+ * share a collider with the ground under it or with a ledge at another
+ * height. Their faces against solid blocks are kept (each side is its own
+ * collider).
  */
 export function collisionMeshChunk(grid: BlockGridReader, cx: number, cz: number, types: ReadonlyMap<string, BlockType>): CollisionMeshPiece[] {
-  const parts = meshBlockChunk(grid, cx, cz, types, collisionLooks());
-  // Merge vertices (1e-4 m grid) and collect the triangles.
+  const ck = chunkKeyOf(cx, cz);
+  const rows = new Set<number>();
+  const note = (block: string | undefined, y: number): void => {
+    const t = block === undefined ? undefined : types.get(block);
+    if (t !== undefined && isOneWay(t)) rows.add(y);
+  };
+  grid.forEachInChunk(ck, (_x, y, _z, idx) => note(grid.valueOf(idx).block, y));
+  grid.forEachEdgeInChunk(ck, (_x, y, _z, _axis, idx) => note(grid.edgeValueOf(idx).block, y));
+  if (rows.size === 0) return weldIntoPieces(meshBlockChunk(grid, cx, cz, types, collisionLooks()));
+  const pieces = weldIntoPieces(meshBlockChunk(grid, cx, cz, types, collisionLooks((t) => !isOneWay(t))));
+  for (const row of [...rows].sort((a, b) => a - b)) {
+    const parts = meshBlockChunk(grid, cx, cz, types, collisionLooks(isOneWay), { cells: (_x, y) => y === row });
+    for (const p of weldIntoPieces(parts)) pieces.push({ ...p, oneWay: true });
+  }
+  return pieces;
+}
+
+/** Mesh parts' triangles with their vertices merged (1e-4 m grid), split into pieces within the limits. */
+function weldIntoPieces(parts: readonly ChunkMeshPart[]): CollisionMeshPiece[] {
   const tris: number[] = [];
   const verts: number[] = [];
   const at = new Map<string, number>();
@@ -1284,7 +1315,7 @@ export function collisionMeshChunk(grid: BlockGridReader, cx: number, cz: number
       tris.push(ia, ib, ic);
     }
   }
-  // Split into pieces within the limits (triangles in order; vertices remapped per piece).
+  // Triangles in order; vertices remapped per piece.
   const pieces: CollisionMeshPiece[] = [];
   let cur: CollisionMeshPiece = { vertices: [], indices: [] };
   let remap = new Map<number, number>();

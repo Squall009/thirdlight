@@ -18,7 +18,7 @@
  *   guard, transform-ownership validation, the settle pre-roll, per-step
  *   action sampling and fail-stop with no rollback.
  */
-import { RuntimeGrid, worldStreamSources, type GridCutawayState, type GridRenderChange } from './grid';
+import { RuntimeGrid, isOneWayGridCollider, worldStreamSources, type GridCutawayState, type GridRenderChange } from './grid';
 import type { TerrainSimData } from './scatter-copies';
 import { fail } from './runtime-config';
 import { RuntimeMaterials, type MaterialRenderChange, type RuntimeMaterialCatalog } from './material-params';
@@ -1382,7 +1382,7 @@ export class RuntimeInstance implements Runtime {
     if (held) this.blocks?.turnover(ordinal);
     else this.blocks?.beforeStep(ordinal);
     this.chars.placement.beginStep();
-    action = this.controllers.dropThrough(action, (id) => this.blocks?.isOneWay(id) === true, this.timing.dropThroughSteps);
+    action = this.controllers.dropThrough(action, (id) => this.blocks?.isOneWay(id) === true || (id !== null && isOneWayGridCollider(id)), this.timing.dropThroughSteps);
     // The pre-step copy goes into the reused buffer `prev` does not hold.
     const backupMirror = this.sim.spareMirror();
     backupMirror.copyFrom(this.sim.curr, this.sim.currShape);

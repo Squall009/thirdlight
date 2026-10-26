@@ -4,9 +4,21 @@
  * physics phase collide in its sweep), batched into one remove and one add.
  */
 
-/** The id of one chunk collider piece on the physics port. */
-export function gridColliderId(entityId: string, ck: string, piece: number): string {
-  return `${entityId}#blocks:${ck}:${piece}`;
+/** The id of one chunk collider piece on the physics port; a piece of one-way blocks says so in its id. */
+export function gridColliderId(entityId: string, ck: string, piece: number, oneWay = false): string {
+  return `${entityId}#blocks:${ck}:${oneWay ? ONE_WAY_PIECE : ''}${piece}`;
+}
+
+const ONE_WAY_PIECE = 'one-way-';
+
+/**
+ * Whether a collider id is a block layer's one-way piece (a character
+ * standing on it may drop through), read from the id so the drop check
+ * needs no lookup of the layer's chunks.
+ */
+export function isOneWayGridCollider(colliderId: string): boolean {
+  const i = colliderId.lastIndexOf(':');
+  return i > 0 && colliderId.startsWith(ONE_WAY_PIECE, i + 1) && colliderId.includes('#blocks:');
 }
 
 /** What the flush reads of a loaded layer. */

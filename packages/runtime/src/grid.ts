@@ -81,7 +81,7 @@ import {
 import { LiveBlocks, edgeKeyOf, type LiveBlockChanges } from './live-blocks';
 import { walkNeighboursQuery, walkPathQuery, walkReachQuery, type GridWalkOptions, type GridWalkPathOutcome, type GridWalkPlace, type WalkGraphCache, type WalkLayer } from './grid-walk';
 import type { PhysicsPort3D, StaticColliderSpec3D } from './ports';
-import { flushChunkColliders, gridColliderId } from './grid-chunk-colliders';
+import { flushChunkColliders, gridColliderId, isOneWayGridCollider } from './grid-chunk-colliders';
 import { TerrainColliders, type TerrainLayerData, type TerrainTileData } from './terrain-collision';
 import { RuntimeSurface, type SurfaceLayerView } from './surface';
 import { RuntimeScatter, type ScatterCopyChange, type TerrainScatterData, type TerrainSimData } from './scatter-copies';
@@ -587,7 +587,7 @@ interface Layer {
 
 const freezeVec = (x: number, y: number, z: number): GridVec3 => Object.freeze({ x, y, z });
 
-export { gridColliderId };
+export { gridColliderId, isOneWayGridCollider };
 
 export class RuntimeGrid {
   private readonly types: Map<string, BlockType>;
@@ -1131,11 +1131,12 @@ export class RuntimeGrid {
     flushChunkColliders(dirty, (id) => this.layerMap.get(id), (id, ck) => this.stream.has(id, 'collision', ck), (entityId, ck, layer): StaticColliderSpec3D[] => {
       const [cx, cz] = ck.split(',').map(Number) as [number, number];
       return collisionMeshChunk(layer.shown, cx, cz, this.types).map((p, i) => ({
-        entityId: gridColliderId(entityId, ck, i),
+        entityId: gridColliderId(entityId, ck, i, p.oneWay === true),
         shape: { type: 'mesh', vertices: p.vertices, indices: p.indices },
         position: { x: layer.origin.x, y: layer.origin.y, z: layer.origin.z },
         rotation: { x: 0, y: 0, z: 0, w: 1 },
         ...(layer.component.maxSlope !== undefined ? { maxSlope: (layer.component.maxSlope * Math.PI) / 180 } : {}),
+        ...(p.oneWay === true ? { oneWay: true } : {}),
       }));
     }, port);
   }
