@@ -52,6 +52,25 @@ export function stillMovers(colliders: Iterable<{ kinematic: boolean; body: RAPI
   }
 }
 
+/** The scratch list of `moversNear` (read at once by `stillMovers`, before any other sweep runs). */
+const near: { kinematic: boolean; body: RAPIER.RigidBody }[] = [];
+
+/**
+ * The movers a sweep from `centre` can touch: the kinematic colliders whose
+ * bounds come within `reach` of it. One farther away keeps its velocity, as
+ * nothing it does reaches the sweep, so a world's distant movers cost a
+ * character's step nothing.
+ */
+export function moversNear<I extends { kinematic: boolean; body: RAPIER.RigidBody }>(world: RAPIER.World, info: ReadonlyMap<number, I>, centre: PhysicsVec3, reach: number): readonly I[] {
+  near.length = 0;
+  world.collidersWithAabbIntersectingAabb(centre, { x: reach, y: reach, z: reach }, (c) => {
+    const i = info.get(c.handle);
+    if (i !== undefined && i.kinematic) near.push(i);
+    return true;
+  });
+  return near as I[];
+}
+
 /** Give the stilled movers their velocities back. */
 export function restoreMovers(stilled: readonly StilledBody[]): void {
   for (const s of stilled) {

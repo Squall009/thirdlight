@@ -35,15 +35,24 @@ const IDENTITY = { x: 0, y: 0, z: 0, w: 1 };
  * The ground-like contacts (normal up, within the skin, the snap and a
  * slack) of a standing capsule centred at `centre`: 1 when one is real, −1
  * when all are internal (and there is one), 0 when there is none.
+ * `realOrNone`: false when the caller only asks whether all are internal, so
+ * 0 may stand for 1. An internal contact needs two solid statics near, and
+ * with fewer the contacts are not read at all (the per-step check of a
+ * character on one floor collider).
  */
-export function groundContacts3D(w: InternalEdgeWorld, capsule: RAPIER.Capsule, centre: PhysicsVec3, tuning: { offsetSkin: number; groundSnap: number }): -1 | 0 | 1 {
+export function groundContacts3D(w: InternalEdgeWorld, capsule: RAPIER.Capsule, centre: PhysicsVec3, tuning: { offsetSkin: number; groundSnap: number }, realOrNone = true): -1 | 0 | 1 {
   const prediction = tuning.offsetSkin + tuning.groundSnap + INTERNAL_EDGE_PREDICTION_SLACK;
   const near: RAPIER.Collider[] = [];
   const reach = capsule.radius + prediction + 0.01;
+  let solids = 0;
   w.world.collidersWithAabbIntersectingAabb(centre, { x: reach, y: capsule.halfHeight + reach, z: reach }, (c) => {
-    if (w.sees(c)) near.push(c);
+    if (w.sees(c)) {
+      near.push(c);
+      if (!realOrNone && w.solidStatic(c)) solids += 1;
+    }
     return true;
   });
+  if (!realOrNone && solids < 2) return 0;
   let internal = false;
   for (const a of near) {
     const k = a.contactShape(capsule, centre, IDENTITY, prediction);

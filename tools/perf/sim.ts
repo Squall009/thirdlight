@@ -25,7 +25,7 @@ import v8 from 'node:v8';
 import { createBehaviorCompiler } from '@thirdlight/behavior-build';
 import { createGameHost, linkBehaviorModules } from '@thirdlight/game-host';
 import { createPhysicsPort3D } from '@thirdlight/physics-rapier';
-import { M2_SETTINGS_KEYS } from '@thirdlight/project-model';
+import { M2_SETTINGS_KEYS, withScenePlane } from '@thirdlight/project-model';
 import { physics3DConfigOf } from '@thirdlight/runtime';
 
 import { cpuCalibration } from './stats';
@@ -107,7 +107,12 @@ export async function runSim(input: SimInput): Promise<SimResult> {
   const dir = input.projectDir;
   const t0 = performance.now();
   const content = JSON.parse(readFileSync(join(dir, 'content.json'), 'utf8')).content;
-  const scenes: Record<string, Any[]> = Object.fromEntries(content.scenes.map((s: Any) => [s.sceneId, JSON.parse(readFileSync(join(dir, 'scenes', `${s.sceneId}.json`), 'utf8')).scene.entities]));
+  // A scene's bodies on its default plane, as the Play snapshot gives them.
+  const sceneOf = (id: string): Any[] => {
+    const scene = JSON.parse(readFileSync(join(dir, 'scenes', `${id}.json`), 'utf8')).scene;
+    return withScenePlane(scene.entities, scene.defaultPlane);
+  };
+  const scenes: Record<string, Any[]> = Object.fromEntries(content.scenes.map((s: Any) => [s.sceneId, sceneOf(s.sceneId)]));
   // The last of several start scenes starts unloaded and is loaded after the timed steps
   // (a scene's load step, measured); its lights stay out of the load.
   const later: string | undefined = content.startScenes.length > 1 ? content.startScenes[content.startScenes.length - 1] : undefined;

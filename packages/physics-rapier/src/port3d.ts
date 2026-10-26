@@ -29,7 +29,7 @@ import { capsuleLowAlong, holds, markOneWay, OneWaySweeps, upOf, type OneWayShap
 import { createStepUp } from './step-up3d';
 import { groundContacts3D, type InternalEdgeWorld } from './internal-edges3d';
 import { settleDrop, skinLift, type SettleWorld } from './settle3d';
-import { restoreMovers, stillMovers, type StilledBody } from './kinematic-still3d';
+import { moversNear, restoreMovers, stillMovers, type StilledBody } from './kinematic-still3d';
 import { CLEARANCE_PENETRATION_EPS, CLEARANCE_RAY_EPS, CLEARANCE_SUPPORT_PROBE, FIXED_HZ_CHOICES, FOOTPRINT_BALL, GROUND_NORMAL_TOLERANCE, MAX_DROP_THROUGH_STEPS, MAX_SHAPE_VALUE } from './constants';
 
 /** The value of `PhysicsPort3D.implementation` for this adapter. */
@@ -873,6 +873,28 @@ function clearanceAt(world: RAPIER.World, characterHandles: ReadonlySet<number>,
 }
 
 /**
+ * The strictest climb cosine among a character's last sweep contacts that it
+ * would walk up but their collider forbids (a slope steeper than a block
+ * layer's maxSlope, gentler than the character's own limit); null: none.
+ */
+function stricterClimb(b: CharacterBody3D, infoByHandle: ReadonlyMap<number, Collider3DInfo>): number | null {
+  const climbCos = Math.cos(b.tuning.maxSlopeClimbRad);
+  let out: number | null = null;
+  const collisions = b.controller.numComputedCollisions();
+  for (let i = 0; i < collisions; i += 1) {
+    const hit = b.controller.computedCollision(i);
+    const limit = hit?.collider?.handle !== undefined ? infoByHandle.get(hit.collider.handle)?.climbCos : undefined;
+    if (hit === null || limit === undefined || limit <= climbCos) continue;
+    const n = hit.normal1;
+    const len = Math.hypot(n.x, n.y, n.z);
+    if (!(len > 0)) continue;
+    const y = n.y / len;
+    if (y >= climbCos - GROUND_NORMAL_TOLERANCE && y < limit - GROUND_NORMAL_TOLERANCE && (out === null || limit > out)) out = limit;
+  }
+  return out;
+}
+
+/**
  * The deepest overlap of a character's capsule centred at `c` with a
  * collider (deeper than the clearance probe's epsilon), or null. A sweep
  * that starts in one moves the character out of it — a real depenetration.
@@ -979,7 +1001,12 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
     });
   };
   const oneWays = new OneWaySweeps(); // listed again whenever colliders come or go
-  const relistOneWay = (): void => oneWays.relist(infoByHandle);
+  /** Whether any collider sets a stricter climb limit than a character's own (a block layer's maxSlope). */
+  let climbLimits = false;
+  const relistOneWay = (): void => {
+    oneWays.relist(infoByHandle);
+    climbLimits = [...infoByHandle.values()].some((i) => i.climbCos !== undefined);
+  };
   relistOneWay();
   /** `run` with the one-way colliders that do not hold the character now out of every sweep and probe it makes (`moving`: its move this step; null: where it is only). */
   function withOneWay<T>(b: CharacterBody3D, moving: PhysicsVec3 | null, run: () => T): T {
@@ -1066,27 +1093,6 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
     const f = floorUnder(b, p);
     return f !== null && f.normal.y >= f.climbCos - GROUND_NORMAL_TOLERANCE;
   };
-  /**
-   * The strictest climb cosine among the sweep's contacts that the character
-   * would walk up but their collider forbids (a slope steeper than a block
-   * layer's maxSlope, gentler than the character's own limit); null: none.
-   */
-  const stricterClimb = (b: CharacterBody3D): number | null => {
-    const climbCos = Math.cos(b.tuning.maxSlopeClimbRad);
-    let out: number | null = null;
-    const collisions = b.controller.numComputedCollisions();
-    for (let i = 0; i < collisions; i += 1) {
-      const hit = b.controller.computedCollision(i);
-      const limit = hit?.collider?.handle !== undefined ? infoByHandle.get(hit.collider.handle)?.climbCos : undefined;
-      if (hit === null || limit === undefined || limit <= climbCos) continue;
-      const n = hit.normal1;
-      const len = Math.hypot(n.x, n.y, n.z);
-      if (!(len > 0)) continue;
-      const y = n.y / len;
-      if (y >= climbCos - GROUND_NORMAL_TOLERANCE && y < limit - GROUND_NORMAL_TOLERANCE && (out === null || limit > out)) out = limit;
-    }
-    return out;
-  };
   const { stepProbe, rideStep } = createStepUp<CharacterBody3D>({ at, filter: () => othersOut, walkableFloorUnder });
   const counters = (): Rapier3DDiagnostics => ({
     stallSteps,
@@ -1153,15 +1159,15 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
     if (st !== null && (commanded.y > 0 || across < 1e-9 || commanded.x * st.x + commanded.z * st.z <= 0 || st.steps >= maxSteppingSteps)) b.stepping = null;
     const midStep = b.stepping !== null;
     const before = b.position;
-    const startGround = midStep || b.grounded ? 1 : groundContacts3D(edges, b.overlapCapsule, at(b, before), b.tuning);
+    const startGround = midStep || b.grounded ? 1 : groundContacts3D(edges, b.overlapCapsule, at(b, before), b.tuning, false);
     // A step that begins inside a collider is a real depenetration (counted; the deepest is kept for diagnostics).
     const overlap = overlapOf(world, b, at(b, before), infoByHandle, othersOut);
     if (overlap !== null) {
       penetrationCorrectedCount += 1;
       if (deepestOverlap === null || overlap.depth > deepestOverlap.depth) deepestOverlap = { ...overlap, step: steps };
     }
-    // Movers the carry moves the character with, or that rise or sink past it, are at rest for its sweep.
-    stillMovers(infoByHandle.values(), () => {
+    // Movers within its reach that the carry moves the character with, or that rise or sink past it, are at rest for its sweep.
+    stillMovers(moversNear(world, infoByHandle, at(b, before), b.shape.halfHeight + b.shape.radius + Math.hypot(commanded.x, commanded.y, commanded.z) + stepLift + snapDistance + 2 * skin + 0.5), () => {
       const under = supportUnder(b, before);
       return under === null ? null : (infoByHandle.get(under.handle)?.body ?? null);
     }, stilled);
@@ -1178,7 +1184,7 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
       controller.computeColliderMovement(characterCollider, commanded, undefined, undefined, othersOut);
       // A slope the character could climb but whose collider sets a stricter limit (a block layer's maxSlope):
       // swept again with that limit, so the slope is a wall to it. Colliders without a limit never get here.
-      const stricter = stricterClimb(b);
+      const stricter = climbLimits ? stricterClimb(b, infoByHandle) : null;
       if (stricter !== null) {
         controller.setMaxSlopeClimbAngle(Math.acos(stricter));
         controller.computeColliderMovement(characterCollider, commanded, undefined, undefined, othersOut);
@@ -1211,7 +1217,7 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
     let rawGrounded = midStep ? true : controller.computedGrounded();
     // Refused when the capsule has no real ground-like contact where the sweep ended, and an internal one there or where it started.
     if (rawGrounded && !midStep) {
-      const end = groundContacts3D(edges, b.overlapCapsule, at(b, { x: before.x + swept.x, y: before.y + swept.y, z: before.z + swept.z }), b.tuning);
+      const end = groundContacts3D(edges, b.overlapCapsule, at(b, { x: before.x + swept.x, y: before.y + swept.y, z: before.z + swept.z }), b.tuning, startGround === -1);
       if (end === -1 || (end === 0 && startGround === -1)) rawGrounded = false;
     }
     if (b.stepping !== null) {
