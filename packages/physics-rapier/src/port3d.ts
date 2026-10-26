@@ -469,8 +469,10 @@ function colliderDescOf(shape: ColliderPrimitive3D): RAPIER.ColliderDesc | null 
     case 'convex':
       return RAPIER.ColliderDesc.convexHull(new Float32Array(shape.points));
     case 'mesh':
-      // Duplicate vertices (a model's seams) are merged and degenerate triangles dropped.
-      return RAPIER.ColliderDesc.trimesh(new Float32Array(shape.vertices), new Uint32Array(shape.indices), RAPIER.TriMeshFlags.MERGE_DUPLICATE_VERTICES | RAPIER.TriMeshFlags.DELETE_DEGENERATE_TRIANGLES);
+      // Duplicate vertices (a model's seams) are merged and degenerate triangles dropped. Contacts on an edge
+      // between two triangles take the faces' normals: a block layer's wall is cut into a quad per cell, and
+      // without it a capsule sliding down the wall was grounded on an edge between them and hung there.
+      return RAPIER.ColliderDesc.trimesh(new Float32Array(shape.vertices), new Uint32Array(shape.indices), RAPIER.TriMeshFlags.MERGE_DUPLICATE_VERTICES | RAPIER.TriMeshFlags.DELETE_DEGENERATE_TRIANGLES | RAPIER.TriMeshFlags.FIX_INTERNAL_EDGES);
     case 'heightfield': {
       // Rapier's matrix: rows along z, columns along x, column-major (the shape's order), centred on the collider; its cells split the same diagonal.
       return RAPIER.ColliderDesc.heightfield(shape.cellsZ, shape.cellsX, shape.heights, { x: shape.cellsX * shape.cellX, y: 1, z: shape.cellsZ * shape.cellZ });

@@ -15,12 +15,8 @@
  * a hole the player drops into in the same run.
  *
  * The player jumps up through the one-way ledge, stands on it and drops
- * back through it with down + jump, on the plane and free.
- *
- * A known engine gap is pinned by an expected failure (it turns red the day
- * the engine is fixed): the plane-locked capsule falling into the dug hole
- * while pushing right is held on the hole's flat far wall (reported
- * grounded) instead of falling through.
+ * back through it with down + jump, on the plane and free. Falling into
+ * the dug hole while pushing right, it is not held on the hole's far wall.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -197,13 +193,17 @@ describe('a block layer is the ground of a side-view project', () => {
     expect(dug.errors).toEqual([]);
     // Up to step 500 the same walk; then it drops into the hole dug at x 15-17 (below the plateau's top, no cell under it).
     expect(dug.log.filter((r) => r[0] <= 500)).toEqual(filled.log.filter((r) => r[0] <= 500));
-    const overHole = dug.log.filter((r) => r[0] > 500 && r[3] === null);
+    // Pushing right all the way down, it is not held on the hole's far wall: it falls out of the plateau's bottom within the hole.
+    const overHole = dug.log.filter((r) => r[0] > 500 && r[3] === null && r[2] - FEET >= 0);
     expect(overHole.length).toBeGreaterThan(3);
     for (const r of overHole) {
       expect(r[1]).toBeGreaterThan(14.5);
       expect(r[1]).toBeLessThan(17.5);
     }
-    expect(Math.min(...overHole.map((r) => r[2] - FEET))).toBeLessThan(3);
+    const fell = dug.log.find((r) => r[0] > 500 && r[2] - FEET < 0);
+    expect(fell, 'fell below the plateau\'s bottom').toBeDefined();
+    expect(fell![1]).toBeGreaterThan(14.5);
+    expect(fell![1]).toBeLessThan(17.5);
   }, 180_000);
 
   it('jumps up through the one-way ledge, stands on it and drops back through it with down + jump; on the plane and free', async () => {
@@ -219,15 +219,6 @@ describe('a block layer is the ground of a side-view project', () => {
       expect(at(350)[2]).toBeCloseTo(1 + FEET, 2);
     }
   }, 60_000);
-
-  it.fails('falls through the hole dug in the plateau while pushing right (fails today: the character is held on the hole\'s far wall)', async () => {
-    const dug = await run('single', 1100, { pitFilled: true, dig: true });
-    expect(dug.errors).toEqual([]);
-    const fell = dug.log.find((r) => r[0] > 500 && r[2] - FEET < 0);
-    expect(fell, 'fell below the plateau\'s bottom').toBeDefined();
-    expect(fell![1]).toBeGreaterThan(14.5);
-    expect(fell![1]).toBeLessThan(17.5);
-  }, 180_000);
 });
 
 describe('a block layer arriving with a later scene, its player with it', () => {
