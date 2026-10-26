@@ -10,6 +10,7 @@
  */
 import { EXACT_TRACE, type TraceOptions } from './tracer-cpu-math';
 import { HIT_WORDS, RAY_FLOATS, type PackedTraceScene } from './tracer-scene';
+import type { ScenePack } from './tracer-scene-packer';
 import { TRACER_WGSL, TRACER_WORKGROUP } from './tracer-wgsl';
 
 /** GPUTextureUsage bits (WebGPU's constants). */
@@ -50,6 +51,8 @@ export interface TracerDevice {
   createComputePipeline(desc: Record<string, unknown>): { getBindGroupLayout(i: number): unknown };
   createBindGroup(desc: Record<string, unknown>): unknown;
   createCommandEncoder(): GpuEncoder;
+  /** The device's limits (absent: WebGPU's defaults). */
+  readonly limits?: { readonly maxStorageBufferBindingSize?: number };
   readonly queue: {
     writeBuffer(b: GpuBuffer, offset: number, data: ArrayBufferView): void;
     writeTexture(dst: { texture: GpuTexture; origin?: readonly number[] }, data: ArrayBufferView, layout: { bytesPerRow: number; rowsPerImage: number }, size: readonly number[]): void;
@@ -141,16 +144,34 @@ export class GpuTracer {
 
   /** Upload a packed scene (replacing the last). */
   setScene(scene: PackedTraceScene): void {
-    this.scene?.destroy();
-    this.scene = this.device.createBuffer({ size: Math.max(16, scene.words.byteLength), usage: USAGE.STORAGE | USAGE.COPY_DST, label: 'tracer scene' });
-    this.device.queue.writeBuffer(this.scene, 0, scene.words);
-    this.atlas?.destroy();
-    const a = scene.brickAtlas;
-    this.atlas = this.device.createTexture({ size: a.size, dimension: '3d', format: 'r8unorm', usage: TEXTURE.TEXTURE_BINDING | TEXTURE.COPY_DST, label: 'tracer brick atlas' });
-    this.device.queue.writeTexture({ texture: this.atlas }, a.data, { bytesPerRow: a.size[0], rowsPerImage: a.size[1] }, a.size);
-    this.atlasView = this.atlas.createView();
-    this.bind = null;
-    this.outerBind = null;
+    this.updateScene({ ...scene, dirty: [[0, scene.words.length]], resized: true, atlasChanged: true });
+  }
+
+  /**
+   * Upload what changed of a packed scene: the whole buffer when its size
+   * changed, else only the `dirty` word ranges; the models' atlas only when
+   * it changed (bind groups are made again only for a new buffer or atlas).
+   */
+  updateScene(scene: Pick<ScenePack, 'words' | 'brickAtlas' | 'dirty' | 'resized' | 'atlasChanged'>): void {
+    const q = this.device.queue;
+    if (this.scene === null || scene.resized || this.scene.size !== Math.max(16, scene.words.byteLength)) {
+      this.scene?.destroy();
+      this.scene = this.device.createBuffer({ size: Math.max(16, scene.words.byteLength), usage: USAGE.STORAGE | USAGE.COPY_DST, label: 'tracer scene' });
+      q.writeBuffer(this.scene, 0, scene.words);
+      this.bind = null;
+      this.outerBind = null;
+    } else {
+      for (const [from, to] of scene.dirty) if (to > from) q.writeBuffer(this.scene, from * 4, scene.words.subarray(from, to));
+    }
+    if (this.atlas === null || scene.atlasChanged) {
+      this.atlas?.destroy();
+      const a = scene.brickAtlas;
+      this.atlas = this.device.createTexture({ size: a.size, dimension: '3d', format: 'r8unorm', usage: TEXTURE.TEXTURE_BINDING | TEXTURE.COPY_DST, label: 'tracer brick atlas' });
+      q.writeTexture({ texture: this.atlas }, a.data, { bytesPerRow: a.size[0], rowsPerImage: a.size[1] }, a.size);
+      this.atlasView = this.atlas.createView();
+      this.bind = null;
+      this.outerBind = null;
+    }
   }
 
   /** Room for `count` rays and hits (grown, never shrunk). */

@@ -14,7 +14,9 @@
  * as three counts it; a pixel's diffuse light is albedo × it / π).
  *
  * The scene the shadow rays trace is the host's (`traceSource`), packed
- * again when it changed, at most every `REPACK_MS`.
+ * again when it changed, at most every `REPACK_MS`, and then only in the
+ * sections that changed (`TraceScenePacker`), within the device's storage
+ * binding size.
  *
  * The textures are made by whoever draws them (`SurfaceTextureSource`: the
  * page's renderer, so materials sample them), else here; a block of the
@@ -38,7 +40,7 @@ import { SurfaceLightPass } from './surface-light-pass';
 import { RESOLVE_PAGE, RESOLVE_RING } from './surface-resolve';
 import { TEXEL_POINT_FLOATS, patchTexelAddresses, tileTexelAddresses } from './surface-texels';
 import type { GpuBuffer, GpuTexture, TracerDevice } from './tracer-gpu';
-import { packTraceScene } from './tracer-scene';
+import { DEFAULT_STORAGE_BINDING_BYTES, TraceScenePacker } from './tracer-scene-packer';
 import { SurfaceProbePass } from './surface-probe-pass';
 import { packResolveTable } from './surface-resolve';
 import { ALBEDO_CELLS, ALBEDO_PAGE_STEP, albedoWords } from './surface-cache-lookup';
@@ -125,6 +127,9 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
   /** GPU ms a ray of the pass costs (an average over the timed runs; null until the first). */
   private msPerRay: number | null = null;
   private packedAt = -Infinity;
+  private readonly packer: TraceScenePacker;
+  /** Words the last scene that did not fit the binding needed (0: it fit). */
+  private overWords = 0;
   private viewOn = false;
   /** The resolve tables' trace and residency versions (-1: none yet). */
   private resolvedFor = -1;
@@ -144,6 +149,12 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
 
   private constructor(private readonly device: TracerDevice, private readonly host: SurfaceCacheHost, readonly pass: SurfaceLightPass, private readonly scatter: Pipeline, readonly probePass: SurfaceProbePass, private readonly source: SurfaceTextureSource | null) {
     this.countBuf = device.createBuffer({ size: 16, usage: USAGE.UNIFORM | USAGE.COPY_DST, label: 'surface scatter count' });
+    this.packer = new TraceScenePacker(device.limits?.maxStorageBufferBindingSize ?? DEFAULT_STORAGE_BINDING_BYTES);
+  }
+
+  /** Bytes the traced scene needed when it last did not fit a storage binding (0: it fits). */
+  get sceneOverBytes(): number {
+    return this.overWords * 4;
   }
 
   static async create(device: TracerDevice, host: SurfaceCacheHost, source: SurfaceTextureSource | null = null): Promise<SurfaceLightRuntime> {
@@ -234,7 +245,10 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
     if (v === this.sceneVersion) return true;
     if (this.sceneVersion >= 0 && now - this.packedAt < REPACK_MS) return true;
     const { source, version } = this.host.traceSource();
-    this.pass.setScene(packTraceScene(source));
+    const packed = this.packer.pack(source);
+    if (packed.fits) this.pass.updateScene(packed);
+    else if (this.overWords === 0) console.warn(`surface light: the traced scene needs ${(packed.neededWords * 4 / 2 ** 20).toFixed(1)} MiB, over the ${(this.device.limits?.maxStorageBufferBindingSize ?? DEFAULT_STORAGE_BINDING_BYTES) / 2 ** 20} MiB a storage binding holds: the last scene that fit is traced`);
+    this.overWords = packed.fits ? 0 : packed.neededWords;
     this.sceneVersion = version;
     this.packedAt = now;
     return true;

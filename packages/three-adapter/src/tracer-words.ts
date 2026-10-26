@@ -39,11 +39,19 @@ export function worldToLocalOf(position: readonly number[], rotation: readonly n
   return invertAffine(m);
 }
 
-/** A growable word buffer with f32 views of the same words. */
+/**
+ * A growable word buffer with f32 views of the same words. Its words may
+ * start at `base` (a section packed where it will lie in a larger buffer):
+ * `alloc` and the setters take indices counted from the larger buffer's
+ * start, and indices below `base` go to `header` (the larger buffer's
+ * header slots, written by whoever places the section).
+ */
 export class Words {
   private u = new Uint32Array(1024);
   private f = new Float32Array(this.u.buffer);
+  /** Words allocated (from `base`). */
   length = 0;
+  constructor(readonly base = 0, private readonly header: Uint32Array | null = null) {}
   private grow(n: number): void {
     if (this.length + n <= this.u.length) return;
     let size = this.u.length;
@@ -53,23 +61,34 @@ export class Words {
     this.u = u;
     this.f = new Float32Array(u.buffer);
   }
+  /** The end of the allocated words (an index, as `alloc` returns). */
+  get end(): number {
+    return this.base + this.length;
+  }
   alloc(n: number): number {
     this.grow(n);
-    const at = this.length;
+    const at = this.base + this.length;
     this.length += n;
     return at;
   }
   setU(i: number, v: number): void {
-    this.u[i] = v >>> 0;
+    if (i < this.base) this.header![i] = v >>> 0;
+    else this.u[i - this.base] = v >>> 0;
   }
   getU(i: number): number {
-    return this.u[i]!;
+    return i < this.base ? this.header![i]! : this.u[i - this.base]!;
   }
   setF(i: number, v: number): void {
-    this.f[i] = v;
+    this.f[i - this.base] = v;
   }
   orU(i: number, v: number): void {
-    this.u[i] = (this.u[i]! | v) >>> 0;
+    const k = i - this.base;
+    this.u[k] = (this.u[k]! | v) >>> 0;
+  }
+  /** Allocated words [at, at + n) as u32 and f32 views (valid until the next `alloc`). */
+  views(at: number, n: number): { u: Uint32Array; f: Float32Array } {
+    const k = at - this.base;
+    return { u: this.u.subarray(k, k + n), f: this.f.subarray(k, k + n) };
   }
   done(): Uint32Array {
     return this.u.slice(0, this.length);

@@ -97,7 +97,14 @@ export class SurfaceCacheTextures {
   readonly albedoRingsAt: number;
   /** This frame the reading draws write their surfaces' colours (one frame now and then: the writes cost their draws early depth culling). */
   capture = false;
-  readonly table: THREE.DataTexture;
+  table: THREE.DataTexture;
+  /**
+   * Tables outgrown: kept until these textures are let go, as three keeps
+   * bind groups made on a disposed texture in some draws (a destroyed
+   * texture in a submit), while a live one is only read stale until the
+   * draw binds the new one.
+   */
+  private readonly retired: THREE.DataTexture[] = [];
   /** The sun's colour × intensity, as the light pass counts it. */
   readonly sun = uniform(new THREE.Color(0, 0, 0));
   /** The lookup's texture node. */
@@ -121,18 +128,21 @@ export class SurfaceCacheTextures {
 
   /**
    * New lookup words (a whole number of rows, `packSurfaceLookup`). The
-   * texture keeps its rows while they hold the words; when they do not it is
-   * let go and made again twice as tall (three re-creates a disposed
-   * texture and the bindings that held it; an image of another size written
-   * into the old one would be lost).
+   * texture keeps its rows while they hold the words; when they do not a
+   * new one twice as tall takes its place in the lookup's node (an image of
+   * another size written into the old one would be lost).
    */
   setTable(words: Uint32Array): void {
     const img = this.table.image as { data: Uint32Array; width: number; height: number };
     if (words.length > img.data.length) {
       let rows = img.height;
       while (rows * LOOKUP_WIDTH * 4 < words.length) rows *= 2;
-      this.table.dispose();
-      this.table.image = { data: new Uint32Array(rows * LOOKUP_WIDTH * 4), width: LOOKUP_WIDTH, height: rows };
+      const old = this.table;
+      this.table = tableTexture(new Uint32Array(rows * LOOKUP_WIDTH * 4));
+      // A binding notices a new texture by its version: the new one's starts past the old one's.
+      while (this.table.version <= old.version) this.table.needsUpdate = true;
+      (this.tableNode as unknown as { value: THREE.Texture }).value = this.table;
+      this.retired.push(old);
     }
     const data = (this.table.image as { data: Uint32Array }).data;
     data.set(words);
@@ -162,7 +172,7 @@ export class SurfaceCacheTextures {
   }
 
   dispose(): void {
-    for (const t of [this.atlas, this.rings, this.table]) t.dispose();
+    for (const t of [this.atlas, this.rings, this.table, ...this.retired]) t.dispose();
   }
 }
 

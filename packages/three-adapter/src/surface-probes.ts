@@ -90,6 +90,9 @@ const PROBE_AGING_FRAMES = 30;
  */
 const PROBE_ORIGIN_NUDGE = [0.0013, 0.0017, 0.0011];
 
+/** Updates one ordering of the stale probes feeds (`LiveProbes.plan`). */
+const PLAN_AHEAD = 8;
+
 /** A waiting probe's squared distance factor after `frames` frames: its distance halves every `PROBE_AGING_FRAMES` (looked up, not raised). */
 const AGING = Float32Array.from({ length: PROBE_AGING_FRAMES * 20 + 1 }, (_, f) => 0.25 ** (f / PROBE_AGING_FRAMES));
 function agingOf(frames: number): number {
@@ -276,6 +279,8 @@ export class LiveProbes {
   /** Scratch for `plan`: the stale probes' keys and indices. */
   private keys = new Float32Array(0);
   private order = new Uint32Array(0);
+  /** The nearest stale probes of the last ordering (`plan` picks among them for a few updates): keys, indices, how many, plans since, and where the eye was. */
+  private queue = { keys: new Float32Array(0), order: new Uint32Array(0), length: 0, plans: 0, eye: [Infinity, Infinity, Infinity] };
   /** Probes whose records changed since `takeChangedProbes`. */
   private changed = new Set<number>();
 
@@ -343,6 +348,7 @@ export class LiveProbes {
     }
     this.layout += 1;
     this.changed = new Set();
+    this.queue.plans = PLAN_AHEAD;
     return true;
   }
 
@@ -363,6 +369,8 @@ export class LiveProbes {
 
   /** The probes in a box are stale (null: all of them). */
   markBox(min: readonly number[] | null, max: readonly number[] | null): void {
+    // Newly marked probes may be nearer than the kept ordering's: order again.
+    this.queue.plans = PLAN_AHEAD;
     const P = this.positions;
     for (let i = 0; i < this.count; i += 1) {
       if (min !== null && max !== null && (P[i * 3]! < min[0]! || P[i * 3]! > max[0]! || P[i * 3 + 1]! < min[1]! || P[i * 3 + 1]! > max[1]! || P[i * 3 + 2]! < min[2]! || P[i * 3 + 2]! > max[2]!)) continue;
@@ -374,11 +382,24 @@ export class LiveProbes {
     return this.staleCount === 0;
   }
 
-  /** This update's probes: stale ones nearest `eye` first (a waiting one's distance halves every `PROBE_AGING_FRAMES`), as many as the budget holds. */
+  /**
+   * This update's probes: stale ones nearest `eye` first (a waiting one's
+   * distance halves every `PROBE_AGING_FRAMES`), as many as the budget
+   * holds. Ordering every stale probe (tens of thousands in an open scene)
+   * costs more main-thread time than the update it feeds, so one ordering
+   * keeps the nearest `PLAN_AHEAD` updates' worth, and the next updates pick
+   * among them while the eye stays within a probe spacing.
+   */
   plan(eye: readonly number[], now: number): Uint32Array {
     this.frame += 1;
     if (this.settling === -1) this.settling = now;
     if (this.staleCount === 0 || this.budgetMs <= 0) return new Uint32Array(0);
+    const q = this.queue;
+    const near = Math.max(Math.abs(eye[0]! - q.eye[0]!), Math.abs(eye[1]! - q.eye[1]!), Math.abs(eye[2]! - q.eye[2]!)) <= this.spacing;
+    if (q.plans < PLAN_AHEAD && near) {
+      const out = this.takeQueued(this.perUpdate);
+      if (out.length > 0) return out;
+    }
     if (this.keys.length < this.staleCount) {
       this.keys = new Float32Array(this.count);
       this.order = new Uint32Array(this.count);
@@ -396,10 +417,37 @@ export class LiveProbes {
       this.order[n] = i;
       n += 1;
     }
-    // The nearest `take` (a selection, not a sort: tens of thousands may wait).
-    const take = Math.min(n, this.perUpdate);
-    selectSmallest(this.keys, this.order, n, take);
-    return this.order.slice(0, take);
+    // The nearest few updates' worth (a selection, not a sort).
+    const keep = Math.min(n, this.perUpdate * PLAN_AHEAD);
+    selectSmallest(this.keys, this.order, n, keep);
+    if (q.keys.length < keep) {
+      q.keys = new Float32Array(keep);
+      q.order = new Uint32Array(keep);
+    }
+    q.keys.set(this.keys.subarray(0, keep));
+    q.order.set(this.order.subarray(0, keep));
+    q.length = keep;
+    q.plans = 0;
+    q.eye = [ex, ey, ez];
+    return this.takeQueued(this.perUpdate);
+  }
+
+  /** The nearest `take` of the kept ordering's probes still stale (as `plan` would pick among them; empty once none is). */
+  private takeQueued(take: number): Uint32Array {
+    const q = this.queue;
+    q.plans += 1;
+    let n = 0;
+    for (let i = 0; i < q.length; i += 1) {
+      if (this.stale[q.order[i]!] === 0) continue;
+      q.keys[n] = q.keys[i]!;
+      q.order[n] = q.order[i]!;
+      n += 1;
+    }
+    q.length = n;
+    const k = Math.min(take, n);
+    if (k <= 0) return new Uint32Array(0);
+    selectSmallest(q.keys, q.order, n, k);
+    return q.order.slice(0, k);
   }
 
   /**

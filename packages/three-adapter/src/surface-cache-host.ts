@@ -33,13 +33,14 @@ import { SurfaceScene, architectureTile, blockChunkTile, modelPieceTiles, type A
 import type { TerrainRingSource } from './surface-cache-terrain';
 import { invertAffine, type Affine } from './tracer-words';
 import type { TraceBlockLayer, TraceSceneSource, TraceTerrain } from './tracer-scene';
-import { traceBlockLayerOf, traceTerrainOf } from './tracer-sources';
+import { traceBlockLayerOf } from './tracer-sources';
+import { TerrainTraceRings } from './tracer-terrain-rings';
 import { SurfaceRooms, type LightingRooms } from './surface-rooms';
 import { LiveProbes, PROBE_BUDGET_SHARE, type LiveProbeDiagnostics } from './surface-probes';
 
 /** `scene.userData[SURFACE_CACHE_KEY]`: the page's surface cache (a measurement reads its diagnostics). */
 export const SURFACE_CACHE_KEY = 'tlSurfaceCache';
-/** Main-thread time a frame may spend making tiles' charts (ms). */
+/** Main-thread time a frame may spend making tiles' charts (ms), and as much again on the terrains' trace rings. */
 export const SURFACE_PREPARE_MS = 1;
 /** How often (ms) the host lists the loaded scene's surfaces again when nothing says it changed. */
 const LIST_MS = 250;
@@ -192,8 +193,13 @@ export class SurfaceCacheHost {
   residencyVersion = 0;
   private roomsNow: SurfaceRooms | null = null;
   /** Traced layers and terrains, kept while their data is unchanged. */
-  private readonly layerTraces = new Map<string, { key: string; grid: SurfaceBlockGrid; trace: TraceBlockLayer }>();
-  private readonly terrainTraces = new Map<string, { field: TerrainField; version: number; trace: TraceTerrain | null }>();
+  private readonly layerTraces = new Map<string, { key: string; grid: SurfaceBlockGrid; trace: TraceBlockLayer; layers: number | undefined; withLayers: TraceBlockLayer }>();
+  /** Each terrain's trace rings round the eye. */
+  private readonly terrainRings = new Map<string, TerrainTraceRings>();
+  /** A ring with its terrain's light layers (kept while both stay, so the packer sees the same item). */
+  private readonly ringLayers = new WeakMap<TraceTerrain, { layers: number | undefined; trace: TraceTerrain }>();
+  /** The architecture and models the last trace source packed, and the ready tiles they came from. */
+  private tracedObjects: { tiles: readonly SurfaceTile[]; layers: readonly (number | undefined)[]; arch: TraceSceneSource['arch']; bricks: TraceSceneSource['bricks'] } | null = null;
   /** Bumped per terrain when its tiles' data changed, came or went. */
   private readonly terrainVersions = new Map<string, number>();
   /** Atlas blocks handed to tiles since the last `takeFreshBlocks`. */
@@ -302,39 +308,62 @@ export class SurfaceCacheHost {
     return this.geometryVersion + this.ready.size * 0x100000;
   }
 
-  /** A layer's traced grid, made again only when its cells changed (a scene's tiles arriving one by one would make it again each time). */
+  /** A layer's traced grid with its light layers, made again only when its cells changed (a scene's tiles arriving one by one would make it again each time). */
   private layerTrace(l: SurfaceHostLayer): TraceBlockLayer {
     const key = `${l.version}:${l.chunks.map(([, gen]) => gen).join(',')}`;
     const had = this.layerTraces.get(l.id);
-    if (had !== undefined && had.key === key && had.grid === l.grid) return had.trace;
-    const trace = traceBlockLayerOf(l.grid as BlockGridReader, l.origin, l.opaque);
-    this.layerTraces.set(l.id, { key, grid: l.grid, trace });
-    return trace;
+    if (had !== undefined && had.key === key && had.grid === l.grid && had.layers === l.layers) return had.withLayers;
+    const trace = had !== undefined && had.key === key && had.grid === l.grid ? had.trace : traceBlockLayerOf(l.grid as BlockGridReader, l.origin, l.opaque);
+    this.layerTraces.set(l.id, { key, grid: l.grid, trace, layers: l.layers, withLayers: l.layers !== undefined ? { ...trace, layers: l.layers } : trace });
+    return this.layerTraces.get(l.id)!.withLayers;
   }
 
-  /** A terrain's traced heights, made again only when its tiles changed. */
-  private terrainTrace(id: string, field: TerrainField): TraceTerrain | null {
-    const version = this.terrainVersions.get(id) ?? 0;
-    const had = this.terrainTraces.get(id);
-    if (had !== undefined && had.field === field && had.version === version) return had.trace;
-    const trace = traceTerrainOf(field, field.heightSpan());
-    this.terrainTraces.set(id, { field, version, trace });
-    return trace;
+  /** The terrains' trace rings follow the eye and their tiles; a ring made again is a new trace (not a geometry change: the ground is the same). */
+  private followRings(eye: ArrayLike<number>): void {
+    for (const id of [...this.terrainRings.keys()]) if (!this.fields.has(id)) {
+      this.terrainRings.delete(id);
+      this.geometryVersion += 1;
+    }
+    for (const [id, field] of this.fields) {
+      let r = this.terrainRings.get(id);
+      if (r === undefined) this.terrainRings.set(id, (r = new TerrainTraceRings()));
+      if (r.update(field, this.terrainVersions.get(id) ?? 0, eye, SURFACE_PREPARE_MS)) this.geometryVersion += 1;
+    }
+  }
+
+  /** A terrain's rings as traced, with its light layers. */
+  private terrainTraces(id: string): TraceTerrain[] {
+    const layers = this.layersOf.get(id);
+    return (this.terrainRings.get(id)?.traces() ?? []).map((t) => {
+      if (layers === undefined) return t;
+      const had = this.ringLayers.get(t);
+      if (had !== undefined && had.layers === layers) return had.trace;
+      const trace = { ...t, layers };
+      this.ringLayers.set(t, { layers, trace });
+      return trace;
+    });
   }
 
   traceSource(): { source: TraceSceneSource; version: number } {
     const version = this.traceVersion;
     if (this.traced !== null && this.traced.version === version) return this.traced;
     const blocks: TraceBlockLayer[] = [];
-    for (const l of this.deps.layers()) if ('forEach' in l.grid) blocks.push({ ...this.layerTrace(l), ...(l.layers !== undefined ? { layers: l.layers } : {}) });
+    for (const l of this.deps.layers()) if ('forEach' in l.grid) blocks.push(this.layerTrace(l));
     const terrain: TraceTerrain[] = [];
-    for (const [id, field] of this.fields) {
-      const t = this.terrainTrace(id, field);
-      const layers = this.layersOf.get(id);
-      if (t !== null) terrain.push(layers !== undefined ? { ...t, layers } : t);
-    }
+    for (const id of this.fields.keys()) terrain.push(...this.terrainTraces(id));
+    const { arch, bricks } = this.objectsTraced();
+    this.traced = { source: { blocks, terrain, arch, bricks }, version };
+    return this.traced;
+  }
+
+  /** The architecture and models to trace, made again only when the ready tiles holding them (or their light layers) changed. */
+  private objectsTraced(): { arch: TraceSceneSource['arch']; bricks: TraceSceneSource['bricks'] } {
     const all = LIGHT_LAYERS_ALL;
-    const arch = [...this.ready.values()].filter((t): t is ArchTile => (t as { kind?: string }).kind === 'arch');
+    const tiles = [...this.ready.values()].filter((t) => { const k = (t as { kind?: string }).kind; return k === 'arch' || k === 'model'; });
+    const layers = tiles.map((t) => this.layersOf.get(t.key));
+    const was = this.tracedObjects;
+    if (was !== null && was.tiles.length === tiles.length && was.tiles.every((t, i) => t === tiles[i] && was.layers[i] === layers[i])) return was;
+    const arch = tiles.filter((t): t is ArchTile => (t as { kind?: string }).kind === 'arch');
     const boxes = arch.flatMap((t) => t.pieces.boxes);
     const tris = new Float32Array(arch.reduce((n, t) => n + t.pieces.triangles.length, 0));
     // Each item's layers: its object's, boxes first, then triangles (the tracer's item order).
@@ -344,9 +373,9 @@ export class SurfaceCacheHost {
       tris.set(t.pieces.triangles, at);
       at += t.pieces.triangles.length;
     }
-    const bricks = [...this.ready.values()].filter((t): t is ModelTile => (t as { kind?: string }).kind === 'model').map((t) => ({ worldToLocal: t.worldToLocal, set: t.set, layers: this.layersOf.get(t.key) ?? all }));
-    this.traced = { source: { blocks, terrain, arch: { boxes, triangles: tris, layers: archLayers }, bricks }, version };
-    return this.traced;
+    const bricks = tiles.filter((t): t is ModelTile => (t as { kind?: string }).kind === 'model').map((t) => ({ worldToLocal: t.worldToLocal, set: t.set, layers: this.layersOf.get(t.key) ?? all }));
+    this.tracedObjects = { tiles, layers, arch: { boxes, triangles: tris, layers: archLayers }, bricks };
+    return this.tracedObjects;
   }
 
   /**
@@ -358,11 +387,8 @@ export class SurfaceCacheHost {
     const traced = this.traceSource();
     if (this.resolved !== null && this.resolved.version === traced.version) return this.resolved;
     const blocks = this.deps.layers().filter((l) => 'forEach' in l.grid).map((l, i) => ({ key: l.id, grid: l.grid, origin: l.origin, opaque: l.opaque, version: l.version, chunks: l.chunks.map(([k]) => k), trace: traced.source.blocks![i]! }));
-    const terrain: { key: string; trace: TraceTerrain }[] = [];
-    for (const [id, field] of this.fields) {
-      const t = this.terrainTrace(id, field);
-      if (t !== null) terrain.push({ key: id, trace: t });
-    }
+    // One entry per traced ring, in the tracer's order (a hit names its ring; all of a terrain's rings light its cache rings).
+    const terrain = [...this.fields.keys()].flatMap((id) => this.terrainTraces(id).map((trace) => ({ key: id, trace })));
     const tiles = [...this.ready.values()];
     const architecture = tiles.filter((t): t is ArchTile => (t as { kind?: string }).kind === 'arch').map((t) => ({ key: t.key, origin: [0, 0, 0], version: t.version, pieces: t.pieces }));
     const modelTiles = tiles.filter((t): t is ModelTile => (t as { kind?: string }).kind === 'model');
@@ -388,6 +414,7 @@ export class SurfaceCacheHost {
       this.list();
     }
     this.syncRooms();
+    this.followRings(eye);
     this.prepare(eye, now);
     // A tile with nothing to light (a chunk of hidden faces only) is made once and never offered.
     if (this.changed) this.offered = [...this.ready.values()].filter((t) => t.charts().length > 0);

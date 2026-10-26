@@ -29,8 +29,10 @@
  *   2 its charts;
  * - a terrain (`TERRAIN_R_WORDS`): 0 cells along x, 1–2 the first cell (x,
  *   z), 3 spacing, 4–6 and 7–9 the local → world map's x and z rows (x, z
- *   and the offset), 10 rings, 11 unused, then per ring its centre (x, z),
- *   half side and texel (m);
+ *   and the offset), 10 rings, 11 its cache rings' terrain (the index its
+ *   texels' words carry: a terrain traced in several rings has a record per
+ *   ring, all naming the same one), then per ring its centre (x, z), half
+ *   side and texel (m);
  * - an architecture object (`ARCH_R_WORDS`): 0 its first box, 1 boxes, 2
  *   first triangle, 3 triangles, 4 each piece's component (i32, −1: none),
  *   5 its components (`COMP_WORDS`: origin, u and v axes, u0, v0, nu, nv,
@@ -200,8 +202,10 @@ export function packResolveTable(scene: SurfaceScene, cache: SurfaceCache): Reso
   const trec = w.alloc(terrains.length * TERRAIN_R_WORDS);
   w.setU(2, terrains.length);
   w.setU(3, trec);
+  const ringKeys = cache.ringTerrains();
   terrains.forEach((t, ti) => {
     const at = trec + ti * TERRAIN_R_WORDS;
+    w.setU(at + 11, Math.max(0, ringKeys.indexOf(t.key)));
     const m = invertAffine(t.trace.worldToLocal);
     w.setU(at, t.trace.cellsX);
     w.setU(at + 1, t.trace.cellX0 | 0);
@@ -302,7 +306,7 @@ export function packResolveTable(scene: SurfaceScene, cache: SurfaceCache): Reso
     w.setU(at + 19, sl.pos);
     w.setU(at + 20, sl.uv);
   });
-  return { words: w.done(), terrains: terrains.map((t) => t.key) };
+  return { words: w.done(), terrains: ringKeys };
 }
 
 /** A texel as the resolve pass writes it (two words; [0, 0]: none). */
@@ -399,7 +403,7 @@ export function resolveHitCpu(table: Uint32Array, hits: Uint32Array, i: number):
       if (Math.abs(x - f[r]!) > f[r + 2]! || Math.abs(z - f[r + 1]!) > f[r + 2]!) continue;
       const t = f[r + 3]!;
       const wrap = (v: number): number => ((Math.floor(v / t) % 512) + 512) % 512;
-      return [((RESOLVE_RING << 30) | (obj << 3) | k) >>> 0, (wrap(x) | (wrap(z) << 16)) >>> 0];
+      return [((RESOLVE_RING << 30) | (u[at + 11]! << 3) | k) >>> 0, (wrap(x) | (wrap(z) << 16)) >>> 0];
     }
     return NONE;
   }

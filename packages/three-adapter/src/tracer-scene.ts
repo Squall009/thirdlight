@@ -127,6 +127,10 @@ export interface TraceTerrain {
   layers?: number;
   /** Whether a cell is open (a hole or no tile): rays pass it. Absent: none is. */
   hole?: (x: number, z: number) => boolean;
+  /** The same as a mask, a byte per cell row by row (z), non-zero: open (read before `hole`). */
+  open?: Uint8Array;
+  /** Its item packed already (`packTerrainSteps`, run over frames by whoever made it); its light layers are written when placed. */
+  packed?: PackedItem;
 }
 
 /** Everything one tracer pass sees. */
@@ -228,6 +232,9 @@ export function pyramidLevels(cellsX: number, cellsZ: number): [number, number][
   return out;
 }
 
+/** Rows of a level a step of `packTerrainSteps` packs before it yields. */
+const PACK_ROWS = 32;
+
 /**
  * A terrain's record (`TERRAIN_WORDS`): 0–11 world → sample space (x and z
  * in samples from the rectangle's first, y in metres), 12 cells along x,
@@ -238,7 +245,7 @@ export function pyramidLevels(cellsX: number, cellsZ: number): [number, number][
  * per node; an open cell has min > max, so no ray meets it and its parents
  * ignore it.
  */
-function packTerrain(w: Words, at: number, t: TraceTerrain): void {
+function* packTerrain(w: Words, at: number, t: TraceTerrain): Generator<void, void> {
   const m = t.worldToLocal;
   const s = 1 / t.spacing;
   putAffine(w, at, [m[0]! * s, m[1]! * s, m[2]! * s, m[3]! * s - t.cellX0, m[4]!, m[5]!, m[6]!, m[7]!, m[8]! * s, m[9]! * s, m[10]! * s, m[11]! * s - t.cellZ0]);
@@ -250,77 +257,160 @@ function packTerrain(w: Words, at: number, t: TraceTerrain): void {
   w.setU(at + 19, t.layers ?? LIGHT_LAYERS_ALL);
   w.setU(at + 18, t.cellZ0);
   const sx = t.cellsX + 1;
-  const h = w.alloc(sx * (t.cellsZ + 1));
+  const samples = sx * (t.cellsZ + 1);
+  const h = w.alloc(samples);
   w.setU(at + 15, h);
-  for (let i = 0; i < sx * (t.cellsZ + 1); i += 1) w.setF(h + i, t.heights[i] ?? 0);
   let total = 0;
   for (const [x, z] of levels) total += x * z * 2;
   const p = w.alloc(levels.length * 3 + total);
   w.setU(at + 16, p);
-  let prev = new Float32Array(0);
-  let off = p + levels.length * 3;
-  levels.forEach(([lx, lz], l) => {
-    w.setU(p + l * 3, off);
-    w.setU(p + l * 3 + 1, lx);
-    w.setU(p + l * 3 + 2, lz);
-    const cur = new Float32Array(lx * lz * 2);
-    for (let z = 0; z < lz; z += 1) {
-      for (let x = 0; x < lx; x += 1) {
-        let lo = Infinity;
-        let hi = -Infinity;
-        if (l === 0) {
-          if (t.hole?.(x, z) !== true) {
-            const i = z * sx + x;
-            for (const v of [t.heights[i]!, t.heights[i + 1]!, t.heights[i + sx]!, t.heights[i + sx + 1]!]) {
-              lo = Math.min(lo, v);
-              hi = Math.max(hi, v);
-            }
+  w.views(h, samples).f.set(t.heights.subarray(0, samples));
+  const pyr = w.views(p, levels.length * 3 + total);
+  const H = t.heights;
+  const open = t.open;
+  const hole = t.hole;
+  // Open nodes keep min > max with finite values (WGSL has no infinity literal).
+  const OPEN_LO = 3e38;
+  const OPEN_HI = -3e38;
+  let off = levels.length * 3;
+  let prevAt = 0;
+  for (let l = 0; l < levels.length; l += 1) {
+    const [lx, lz] = levels[l]!;
+    pyr.u[l * 3] = p + off;
+    pyr.u[l * 3 + 1] = lx;
+    pyr.u[l * 3 + 2] = lz;
+    const cur = pyr.f;
+    if (l === 0) {
+      for (let z = 0; z < lz; z += 1) {
+        if (z % PACK_ROWS === PACK_ROWS - 1) yield;
+        for (let x = 0; x < lx; x += 1) {
+          const o = off + (z * lx + x) * 2;
+          if (open !== undefined ? open[z * lx + x] !== 0 : hole?.(x, z) === true) {
+            cur[o] = OPEN_LO;
+            cur[o + 1] = OPEN_HI;
+            continue;
           }
-        } else {
-          const [px, pz] = levels[l - 1]!;
+          const i = z * sx + x;
+          const a = H[i]!, b = H[i + 1]!, c = H[i + sx]!, d = H[i + sx + 1]!;
+          cur[o] = Math.min(a, b, c, d);
+          cur[o + 1] = Math.max(a, b, c, d);
+        }
+      }
+    } else {
+      const [px, pz] = levels[l - 1]!;
+      for (let z = 0; z < lz; z += 1) {
+        if (z % PACK_ROWS === PACK_ROWS - 1) yield;
+        for (let x = 0; x < lx; x += 1) {
+          let lo = OPEN_LO;
+          let hi = OPEN_HI;
           for (let dz = 0; dz < 2; dz += 1) {
+            const cz = z * 2 + dz;
+            if (cz >= pz) continue;
             for (let dx = 0; dx < 2; dx += 1) {
               const cx = x * 2 + dx;
-              const cz = z * 2 + dz;
-              if (cx >= px || cz >= pz) continue;
-              lo = Math.min(lo, prev[(cz * px + cx) * 2]!);
-              hi = Math.max(hi, prev[(cz * px + cx) * 2 + 1]!);
+              if (cx >= px) continue;
+              const q = prevAt + (cz * px + cx) * 2;
+              if (cur[q]! < lo) lo = cur[q]!;
+              if (cur[q + 1]! > hi) hi = cur[q + 1]!;
             }
           }
+          const o = off + (z * lx + x) * 2;
+          cur[o] = lo;
+          cur[o + 1] = hi;
         }
-        // Open nodes keep min > max with finite values (WGSL has no infinity literal).
-        cur[(z * lx + x) * 2] = Number.isFinite(lo) ? lo : 3e38;
-        cur[(z * lx + x) * 2 + 1] = Number.isFinite(hi) ? hi : -3e38;
       }
     }
-    for (let i = 0; i < cur.length; i += 1) w.setF(off + i, cur[i]!);
-    off += cur.length;
-    prev = cur;
-  });
+    prevAt = off;
+    off += lx * lz * 2;
+  }
 }
 
-/** Pack a scene for the tracer (the CPU twin and the GPU pass read the same words). */
+/**
+ * A block layer or a terrain packed on its own: its record, then its data,
+ * the record's offsets counted as if the item lay at word 0. `placeItem`
+ * copies it anywhere, so a scene packed again copies the items that did not
+ * change instead of packing them again.
+ */
+export type PackedItem = Uint32Array;
+
+export function packBlockLayerItem(layer: TraceBlockLayer): PackedItem {
+  const w = new Words();
+  packBlockLayer(w, w.alloc(LAYER_WORDS), layer);
+  return w.done();
+}
+
+export function packTerrainItem(t: TraceTerrain): PackedItem {
+  if (t.packed !== undefined) return t.packed;
+  const steps = packTerrainSteps(t);
+  for (let s = steps.next(); ; s = steps.next()) if (s.done === true) return s.value;
+}
+
+/** `packTerrainItem` in steps (a few rows each), for packing a large terrain over frames. */
+export function* packTerrainSteps(t: TraceTerrain): Generator<void, PackedItem> {
+  const w = new Words();
+  yield* packTerrain(w, w.alloc(TERRAIN_WORDS), t);
+  return w.done();
+}
+
+/** Where an item's record keeps its light layers (written when placed: one packed item serves any layers). */
+export const ITEM_LAYERS_WORD = { blocks: 26, terrain: 19 } as const;
+
+/** Words an item's data takes (past its record). */
+export function itemDataWords(kind: 'blocks' | 'terrain', item: PackedItem): number {
+  return item.length - (kind === 'blocks' ? LAYER_WORDS : TERRAIN_WORDS);
+}
+
+/** Copy an item into `dst`: its record at `rec`, its data at `data`, its offsets moved to match. */
+export function placeItem(dst: Uint32Array, kind: 'blocks' | 'terrain', item: PackedItem, rec: number, data: number, layers: number | undefined): void {
+  const rw = kind === 'blocks' ? LAYER_WORDS : TERRAIN_WORDS;
+  dst.set(item.subarray(0, rw), rec);
+  dst[rec + ITEM_LAYERS_WORD[kind]] = (layers ?? LIGHT_LAYERS_ALL) >>> 0;
+  dst.set(item.subarray(rw), data);
+  const delta = data - rw;
+  const move = (i: number): void => {
+    dst[i] = dst[i]! + delta;
+  };
+  if (kind === 'blocks') {
+    move(rec + 18);
+    move(rec + 19);
+    return;
+  }
+  move(rec + 15);
+  move(rec + 16);
+  const pb = dst[rec + 16]!;
+  for (let l = 0; l < dst[rec + 14]!; l += 1) move(pb + l * 3);
+}
+
+/** Pack the architecture and model sections into `w` (which may start past the scene's header: `Words`'s base); returns the models' atlas. */
+export function packObjectSections(w: Words, src: Pick<TraceSceneSource, 'arch' | 'bricks'>, bytes: { arch: number; bricks: number }): BrickAtlas {
+  let start = w.end;
+  packArchitecture(w, HEADER.arch, src.arch);
+  bytes.arch = (w.end - start) * 4;
+  start = w.end;
+  const brickAtlas = packModelInstances(w, HEADER.bricks, src.bricks ?? []);
+  bytes.bricks = (w.end - start) * 4 + (brickAtlas.data.length > 1 ? brickAtlas.data.length : 0);
+  return brickAtlas;
+}
+
+/** Pack a scene for the tracer at once (the CPU twin and the GPU pass read the same words; a page keeps a `TraceScenePacker`, which packs only what changed). */
 export function packTraceScene(src: TraceSceneSource): PackedTraceScene {
   const w = new Words();
   w.alloc(SCENE_HEADER_WORDS);
   const bytes = { blocks: 0, terrain: 0, arch: 0, bricks: 0 };
-  // Each section: its fixed-stride records, then their data.
-  const section = <T>(slot: number, kind: keyof typeof bytes, items: readonly T[] | undefined, recordWords: number, pack: (w: Words, at: number, item: T) => void): void => {
-    const list = items ?? [];
-    const start = w.length;
-    const recs = w.alloc(list.length * recordWords);
-    w.setU(slot, list.length);
+  // Each section: its fixed-stride records, then their items' data.
+  const items = <T extends { layers?: number }>(slot: number, kind: 'blocks' | 'terrain', list: readonly T[] | undefined, recordWords: number, pack: (item: T) => PackedItem): void => {
+    const all = (list ?? []).map(pack);
+    const start = w.end;
+    const recs = w.alloc(all.length * recordWords);
+    w.setU(slot, all.length);
     w.setU(slot + 1, recs);
-    list.forEach((item, i) => pack(w, recs + i * recordWords, item));
-    bytes[kind] = (w.length - start) * 4;
+    const at = all.map((item) => w.alloc(itemDataWords(kind, item)));
+    const dst = w.views(0, w.end).u;
+    all.forEach((item, i) => placeItem(dst, kind, item, recs + i * recordWords, at[i]!, list![i]!.layers));
+    bytes[kind] = (w.end - start) * 4;
   };
-  section(HEADER.blocks, 'blocks', src.blocks, LAYER_WORDS, packBlockLayer);
-  section(HEADER.terrain, 'terrain', src.terrain, TERRAIN_WORDS, packTerrain);
-  let start = w.length;
-  packArchitecture(w, HEADER.arch, src.arch);
-  bytes.arch = (w.length - start) * 4;
-  start = w.length;
-  const brickAtlas = packModelInstances(w, HEADER.bricks, src.bricks ?? []);
-  bytes.bricks = (w.length - start) * 4 + (brickAtlas.data.length > 1 ? brickAtlas.data.length : 0);
+  items(HEADER.blocks, 'blocks', src.blocks, LAYER_WORDS, packBlockLayerItem);
+  items(HEADER.terrain, 'terrain', src.terrain, TERRAIN_WORDS, packTerrainItem);
+  const brickAtlas = packObjectSections(w, src, bytes);
   return { words: w.done(), brickAtlas, bytes };
 }

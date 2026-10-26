@@ -145,6 +145,26 @@ describe('surface cache: live probes', () => {
     }
   });
 
+  it('in an open scene the nearest stale probes are picked from one ordering for a few updates, and ordered again when the eye moves', () => {
+    const probes = new LiveProbes(2, 0.5);
+    probes.place({ min: [0, 0, 0], max: [160, 8, 160] }, null);
+    expect(probes.count).toBeGreaterThan(20000);
+    const P = probes.positions;
+    const nearest = (eye: V3, k: number): number[] => Array.from({ length: probes.count }, (_, i) => i)
+      .map((i) => [i, (P[i * 3]! - eye[0]) ** 2 + (P[i * 3 + 1]! - eye[1]) ** 2 + (P[i * 3 + 2]! - eye[2]) ** 2] as const)
+      .sort((a, b) => a[1] - b[1]).slice(0, k).map(([i]) => (P[i * 3]! - eye[0]) ** 2 + (P[i * 3 + 1]! - eye[1]) ** 2 + (P[i * 3 + 2]! - eye[2]) ** 2);
+    const dist = (eye: V3, picked: Uint32Array): number[] => [...picked].map((i) => (P[i * 3]! - eye[0]) ** 2 + (P[i * 3 + 1]! - eye[1]) ** 2 + (P[i * 3 + 2]! - eye[2]) ** 2).sort((a, b) => a - b);
+    const eye: V3 = [40.3, 2.1, 51.7];
+    for (let u = 0; u < 5; u += 1) {
+      const picked = probes.plan(eye, u);
+      expect(dist(eye, picked)).toEqual(nearest(eye, picked.length));
+    }
+    // A step past a probe spacing orders them again round the new eye.
+    const moved: V3 = [120.4, 2.1, 30.2];
+    const picked = probes.plan(moved, 6);
+    expect(dist(moved, picked)).toEqual(nearest(moved, picked.length));
+  });
+
   it('stale and settled: marks make probes stale, updates that no longer move them settle them', () => {
     const { scene, rooms } = room(false, false);
     const probes = new LiveProbes(2, 0.5);

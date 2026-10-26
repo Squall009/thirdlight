@@ -181,12 +181,20 @@ export class SurfaceScene {
         this.tiles.push(tile);
       }
     });
+    // A terrain traced in rings has an entry per ring: its cache rings cover them all.
+    const boxes = new Map<string, { min: number[]; max: number[] }>();
     for (const t of input.terrain ?? []) {
       const toWorld = invertAffine(t.trace.worldToLocal);
       const s = t.trace.spacing;
       const box = worldBox(toWorld, [t.trace.cellX0 * s, 0, t.trace.cellZ0 * s], [(t.trace.cellX0 + t.trace.cellsX) * s, 0, (t.trace.cellZ0 + t.trace.cellsZ) * s]);
-      this.terrains.push({ key: t.key, min: box.min, max: box.max });
+      const had = boxes.get(t.key);
+      if (had === undefined) boxes.set(t.key, box);
+      else for (let k = 0; k < 3; k += 1) {
+        had.min[k] = Math.min(had.min[k]!, box.min[k]!);
+        had.max[k] = Math.max(had.max[k]!, box.max[k]!);
+      }
     }
+    for (const [key, b] of boxes) this.terrains.push({ key, min: b.min, max: b.max });
     let tris = 0;
     for (const a of input.architecture ?? []) {
       const had = input.made?.get(a.key) as ArchTile | undefined;

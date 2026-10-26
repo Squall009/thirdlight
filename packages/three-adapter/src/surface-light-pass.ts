@@ -14,6 +14,7 @@
  *
  * Only the few WebGPU calls this uses are typed (`tracer-gpu.ts`'s types).
  */
+import type { ScenePack } from './tracer-scene-packer';
 import { RAY_FLOATS, type PackedTraceScene } from './tracer-scene';
 import type { TraceOptions } from './tracer-cpu-math';
 import { GpuTracer, type GpuBuffer, type GpuEncoder, type TracerDevice } from './tracer-gpu';
@@ -80,6 +81,11 @@ export class SurfaceLightPass {
 
   setScene(scene: PackedTraceScene): void {
     this.tracer.setScene(scene);
+  }
+
+  /** Upload what changed of a page's packed scene (`TraceScenePacker`). */
+  updateScene(scene: ScenePack): void {
+    this.tracer.updateScene(scene);
   }
 
   private grow(buf: GpuBuffer | null, bytes: number, usage: number, label: string): GpuBuffer {

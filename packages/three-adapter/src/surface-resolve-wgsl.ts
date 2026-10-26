@@ -117,7 +117,7 @@ fn resolveTerrain(obj: u32, a0: u32, fu: f32, fv: f32) -> vec2u {
     let t = tf(r + 3u);
     let wx = u32(((i32(floor(x / t)) % 512) + 512) % 512);
     let wz = u32(((i32(floor(z / t)) % 512) + 512) % 512);
-    return vec2u((${RESOLVE_RING}u << 30u) | (obj << 3u) | k, wx | (wz << 16u));
+    return vec2u((${RESOLVE_RING}u << 30u) | (T[at + 11u] << 3u) | k, wx | (wz << 16u));
   }
   return NONE;
 }

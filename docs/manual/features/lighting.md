@@ -211,7 +211,12 @@ only where something changed:
   generated buildings, static models). A light with **Cast shadows** off
   lights through everything. **Light mask** and **Shadow caster mask** work
   as they do per pixel: a light lights only surfaces sharing a layer with
-  its mask, and only objects in its caster mask cast its shadow.
+  its mask, and only objects in its caster mask cast its shadow. Terrain
+  casts its shadows exactly within about 512 of its cells round the eye;
+  farther ground casts them from rings of coarser samples (each ring
+  twice as coarse and twice as wide), so a large terrain costs the same
+  memory as a small one, and walking moves the rings a little at a time,
+  never in one frame.
 - **Bounced light** — live probes carry it: probe grids stand where a probe
   bake would put them (a grid inside each room of generated architecture,
   then grids over the static objects), and each stale probe casts rays
