@@ -86,6 +86,10 @@ describe('quality levels', () => {
     expect(paths({ qualityLevels: [{ id: 'a', pixelRatio: 3 }] })).toEqual(['/qualityLevels/0/pixelRatio']);
     expect(paths({ qualityLevels: [{ id: 'a', occlusionCulling: 'off' }, { id: 'b', occlusionCulling: 'auto' }, { id: 'c', occlusionCulling: 'on' }] })).toEqual([]);
     expect(paths({ qualityLevels: [{ id: 'a', occlusionCulling: 'hiz' }] })).toEqual(['/qualityLevels/0/occlusionCulling']);
+    // The surface cache's budget is memory, within its range.
+    expect(paths({ qualityLevels: [{ id: 'a', surfaceCacheMiB: 64 }, { id: 'b', surfaceCacheMiB: 2048 }] })).toEqual([]);
+    expect(paths({ qualityLevels: [{ id: 'a', surfaceCacheMiB: 8 }] })).toEqual(['/qualityLevels/0/surfaceCacheMiB']);
+    expect(DEFAULT_QUALITY_LEVELS.map((l) => l.surfaceCacheMiB)).toEqual([32, 64, 128]);
     // A level changes the costly effects and the anti-aliasing, not the look's tone or grading.
     expect(paths({ qualityLevels: [{ id: 'a', post: { exposure: 2 } }] })).toContain('/qualityLevels/0/post/exposure');
     expect(paths({ qualityLevels: [{ id: 'a', post: { ssao: { radius: 99 } } }] })).toEqual(['/qualityLevels/0/post/ssao/radius']);

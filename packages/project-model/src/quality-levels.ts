@@ -18,6 +18,10 @@
  *   are drawn and how many of them draw their shadow, the kind of ambient
  *   occlusion, the LOD bias, dynamic resolution and occlusion culling. Each one a level leaves out is the
  *   project's setting.
+ * - `surfaceCacheMiB`: the memory the surface cache (the static surfaces'
+ *   light) may hold around the view, in MiB: a budget, never a count of
+ *   surfaces or lights. A level that leaves it out holds
+ *   `DEFAULT_SURFACE_CACHE_MIB`.
  *
  * A player's settings field bound to one of those renderer settings (`renderScale`,
  * `ambientOcclusion`, `dynamicResolution`) lays over the level: a player's own
@@ -49,6 +53,12 @@ export const SHADOW_MAP_SIZES: readonly number[] = Object.freeze([512, 1024, 204
  */
 export const PIXEL_RATIO_CAP_MIN = 1;
 export const PIXEL_RATIO_CAP_MAX = 2;
+
+/** The range of a level's surface-cache budget (MiB): below 16 the terrain rings alone fill it; above 2 GiB no integrated GPU has it to spare. */
+export const SURFACE_CACHE_MIB_MIN = 16;
+export const SURFACE_CACHE_MIB_MAX = 2048;
+/** The surface-cache budget of a level that names none (MiB): the medium tier's. */
+export const DEFAULT_SURFACE_CACHE_MIB = 64;
 
 /** The post effects a level may change (the costly passes and the anti-aliasing; tone, exposure and grading are the look's). */
 export const QUALITY_POST_EFFECTS = ['bloom', 'ssao', 'dof'] as const;
@@ -91,18 +101,20 @@ export interface QualityLevelConfig {
   dynamicResolution?: boolean;
   /** Occlusion culling at this level (absent: the project's `occlusion_culling`). */
   occlusionCulling?: OcclusionCulling;
+  /** 16–2048: the surface cache's memory budget in MiB (absent: `DEFAULT_SURFACE_CACHE_MIB`). */
+  surfaceCacheMiB?: number;
 }
 
 /**
  * The engine's levels, for a project that lists none: low draws no bloom,
  * ambient occlusion, depth of field or anti-aliasing (no MSAA either);
  * medium drops ambient occlusion and depth of field; high draws the look as
- * authored.
+ * authored. The surface cache holds 32, 64 and 128 MiB.
  */
 export const DEFAULT_QUALITY_LEVELS: readonly Readonly<QualityLevelConfig>[] = Object.freeze([
-  Object.freeze({ id: 'low', name: 'Low', post: { bloom: { enabled: false }, ssao: { enabled: false }, dof: { enabled: false }, antialias: 'none' as const }, msaa: 0 as const }),
-  Object.freeze({ id: 'medium', name: 'Medium', post: { ssao: { enabled: false }, dof: { enabled: false } } }),
-  Object.freeze({ id: 'high', name: 'High' }),
+  Object.freeze({ id: 'low', name: 'Low', post: { bloom: { enabled: false }, ssao: { enabled: false }, dof: { enabled: false }, antialias: 'none' as const }, msaa: 0 as const, surfaceCacheMiB: 32 }),
+  Object.freeze({ id: 'medium', name: 'Medium', post: { ssao: { enabled: false }, dof: { enabled: false } }, surfaceCacheMiB: DEFAULT_SURFACE_CACHE_MIB }),
+  Object.freeze({ id: 'high', name: 'High', surfaceCacheMiB: 128 }),
 ]);
 
 /** The project's levels (the engine's when it lists none). */

@@ -1697,6 +1697,7 @@ export {
 // Quality levels (the project's or the engine's low/medium/high) and how a level changes a scene's post.
 export {
   DEFAULT_QUALITY_LEVELS,
+  DEFAULT_SURFACE_CACHE_MIB,
   levelPost,
   MSAA_SAMPLE_COUNTS,
   PIXEL_RATIO_CAP_MAX,
@@ -1706,6 +1707,8 @@ export {
   qualityLevelOf,
   qualityLevelsOf,
   SHADOW_MAP_SIZES,
+  SURFACE_CACHE_MIB_MAX,
+  SURFACE_CACHE_MIB_MIN,
   type MsaaSamples,
   type QualityLevelConfig,
   type QualityLevelPost,

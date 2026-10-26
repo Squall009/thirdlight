@@ -94,9 +94,12 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 
 | Constant | Value | What it is |
 |---|---|---|
-| <a id="limit-default-quality-levels"></a>`DEFAULT_QUALITY_LEVELS` | `[{"id":"low","name":"Low","post":{"bloom":{"enabled":false},"ssao":{"enabled":false},"dof":{"enabled":false},"antialias":"none"},"msaa":0},{"id":"medium","name":"Medium","post":{"ssao":{"enabled":false},"dof":{"enabled":false}}},{"id":"high","name":"High"}]` | The engine's levels, for a project that lists none: low draws no bloom, ambient occlusion, depth of field or anti-aliasing (no MSAA either); medium drops ambient occlusion and depth of field; high draws the look as authored. |
+| <a id="limit-default-quality-levels"></a>`DEFAULT_QUALITY_LEVELS` | `[{"id":"low","name":"Low","post":{"bloom":{"enabled":false},"ssao":{"enabled":false},"dof":{"enabled":false},"antialias":"none"},"msaa":0,"surfaceCacheMiB":32},{"id":"medium","name":"Medium","post":{"ssao":{"enabled":false},"dof":{"enabled":false}},"surfaceCacheMiB":64},{"id":"high","name":"High","surfaceCacheMiB":128}]` | The engine's levels, for a project that lists none: low draws no bloom, ambient occlusion, depth of field or anti-aliasing (no MSAA either); medium drops ambient occlusion and depth of field; high draws the look as authored. The surface cache holds 32, 64 and 128 MiB. |
+| <a id="limit-default-surface-cache-mib"></a>`DEFAULT_SURFACE_CACHE_MIB` | `64` | The surface-cache budget of a level that names none (MiB): the medium tier's. |
 | <a id="limit-pixel-ratio-cap-max"></a>`PIXEL_RATIO_CAP_MAX` | `2` |  |
 | <a id="limit-pixel-ratio-cap-min"></a>`PIXEL_RATIO_CAP_MIN` | `1` | The range of a level's pixel-ratio cap. Below 1 the render scale is the knob (it upscales with FSR 1); above 2 a HiDPI display draws four times the pixels of a 1080p one for a difference few players see. |
+| <a id="limit-surface-cache-mib-max"></a>`SURFACE_CACHE_MIB_MAX` | `2048` |  |
+| <a id="limit-surface-cache-mib-min"></a>`SURFACE_CACHE_MIB_MIN` | `16` | The range of a level's surface-cache budget (MiB): below 16 the terrain rings alone fill it; above 2 GiB no integrated GPU has it to spare. |
 
 <a id="limits-project-model--render-settings"></a>
 ## `render-settings.ts`

@@ -214,8 +214,10 @@ sets:
   to it), `localLights` (0–16 point and spot lights drawn at once),
   `shadowedLights` (0–16 point and spot lights drawing their shadow at once;
   absent: every one that casts — see [Interior lighting best practice](architecture.md#interior-lighting-best-practice-shadow-rules)),
-  `ambientOcclusion` (off/ssao/gtao), `lodBias` (0.25–4, over `lod_bias`) and
-  `dynamicResolution`. What a level leaves out is the project's setting; a
+  `ambientOcclusion` (off/ssao/gtao), `lodBias` (0.25–4, over `lod_bias`),
+  `dynamicResolution` and `surfaceCacheMiB` (16–2048: the memory the surface
+  cache, the static surfaces' light, holds around the view; absent 64; the
+  engine's low, medium and high hold 32, 64 and 128). What a level leaves out is the project's setting; a
   value the player set in a settings field bound to `renderScale`,
   `ambientOcclusion` or `dynamicResolution` lays over the level, and the page flags (`?ao=`,
   `?renderScale=`, `?dynamicResolution=`) over everything.

@@ -1,7 +1,7 @@
 /**
  * Surfels: where the surface cache keeps the light of an imported static
  * model. Blocks, terrain and generated architecture are addressed from their
- * own data; a model's light lives in its UV1 when it has one (the lightmap
+ * own data; a model's light is kept in its UV1 when it has one (the lightmap
  * UVs) and otherwise on surfels, small discs spread over its surface at
  * import (no unwrap needed). Every static model gets surfels: a traced ray
  * hits a model's distance field, not its triangles, and the nearest surfel

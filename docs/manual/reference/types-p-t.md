@@ -524,6 +524,8 @@ interface QualityLevelConfig {
   dynamicResolution?: boolean;
   /** Occlusion culling at this level (absent: the project's `occlusion_culling`). */
   occlusionCulling?: OcclusionCulling;
+  /** 16–2048: the surface cache's memory budget in MiB (absent: `DEFAULT_SURFACE_CACHE_MIB`). */
+  surfaceCacheMiB?: number;
 }
 ```
 
