@@ -1,11 +1,13 @@
 /**
  * The tracer's inputs made from what the engine already holds: a block
- * layer's grid and a terrain's loaded tiles. Nothing is voxelized or
- * resampled; the tracer reads the cells and samples as they are.
+ * layer's grid, a terrain's loaded tiles, generated architecture's own
+ * parameters and a model's distance-field bricks. Nothing is voxelized or
+ * resampled here; the tracer reads the cells, samples and pieces as they are.
  */
-import { blockTypeSolid, terrainHeightOf, terrainHoleAt, terrainTileKey, type BlockCell, type BlockGridReader, type BlockType, type TerrainField } from '@thirdlight/runtime';
+import { COLLIDER_3D_LIMITS, architectureColliders, blockTypeSolid, terrainHeightOf, terrainHoleAt, terrainTileKey, type ArchitectureComponent, type BlockCell, type BlockGridReader, type BlockType, type DistanceBricks, type TerrainField } from '@thirdlight/runtime';
 
-import type { TraceBlockLayer, TraceTerrain } from './tracer-scene';
+import type { TraceArchitecture, TraceBox, TraceModelInstance } from './tracer-objects';
+import type { Affine, TraceBlockLayer, TraceTerrain } from './tracer-scene';
 
 /**
  * Which cells stop light: those whose block type fills its cell
@@ -75,4 +77,36 @@ export function traceTerrainOf(field: TerrainField, heightRange: readonly number
       return t === undefined || terrainHoleAt(t, x % n, z % n);
     },
   };
+}
+
+/**
+ * Generated architecture objects (expanded components and their world
+ * origins) as boxes and flat triangles: the pieces its colliders are made
+ * of (walls with their profile's thickness, cut round openings; stamped
+ * pieces; floors and roofs as meshes). Kit copies are models: they are
+ * traced by their bricks.
+ */
+export function traceArchitectureOf(objects: readonly { component: ArchitectureComponent; origin: readonly number[] }[]): TraceArchitecture {
+  const boxes: TraceBox[] = [];
+  const tris: number[] = [];
+  for (const { component, origin } of objects) {
+    const o = [origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0];
+    for (const c of architectureColliders(component, {}, { vertices: COLLIDER_3D_LIMITS.meshVertices, triangles: COLLIDER_3D_LIMITS.meshTriangles })) {
+      if (c.kind === 'box') boxes.push({ center: [o[0]! + c.center[0], o[1]! + c.center[1], o[2]! + c.center[2]], half: c.half, rotation: c.rotation });
+      else if (c.kind === 'mesh') {
+        for (let i = 0; i + 2 < c.indices.length; i += 3) {
+          for (let k = 0; k < 3; k += 1) {
+            const v = c.indices[i + k]! * 3;
+            tris.push(o[0]! + c.vertices[v]!, o[1]! + c.vertices[v + 1]!, o[2]! + c.vertices[v + 2]!);
+          }
+        }
+      }
+    }
+  }
+  return { boxes, triangles: new Float32Array(tris) };
+}
+
+/** A model placed by `worldToLocal` (its world → root map): one instance per brick set, or only `piece`'s. */
+export function traceModelInstancesOf(bricks: DistanceBricks, worldToLocal: Affine, piece: string | null = null): TraceModelInstance[] {
+  return bricks.sets.filter((s) => piece === null || s.piece === piece).map((set) => ({ worldToLocal, set }));
 }

@@ -7,6 +7,7 @@
  * Bindings: 0 the dispatch's parameters (ray count, first ray), 1 the scene
  * words, 2 the rays (two vec4 each), 3 the hits (two vec4u each).
  */
+import { TRACER_OBJECTS_WGSL } from './tracer-wgsl-objects';
 import { CHUNK_WORDS, HEADER, LAYER_WORDS, TERRAIN_WORDS, TRACE_BLOCKS, TRACE_CHUNK, TRACE_STEPS, TRACE_TERRAIN, TRACE_UNFINISHED } from './tracer-scene';
 
 /** Threads per workgroup (the spike's measured size on the Iris Xe). */
@@ -275,8 +276,10 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
   var unf = 3.4e38;
   let nb = S[${HEADER.blocks}u];
   for (var k = 0u; k < nb; k++) { traceLayer(k, S[${HEADER.blocks + 1}u] + k * ${LAYER_WORDS}u, o, d, tmin, &h, &unf); }
+  traceArch(o, d, tmin, &h, &unf);
   let nt = S[${HEADER.terrain}u];
   for (var k = 0u; k < nt; k++) { traceTerrain(k, S[${HEADER.terrain + 1}u] + k * ${TERRAIN_WORDS}u, o, d, tmin, &h, &unf); }
+  traceBricks(o, d, tmin, &h, &unf);
   if (unf < h.t) { h = Hit(unf, vec3f(0.0), ${TRACE_UNFINISHED}u, 0u, 0u, 0u, 0u); }
   H[i * 2u] = vec4u(bitcast<u32>(h.t), bitcast<u32>(h.n.x), bitcast<u32>(h.n.y), bitcast<u32>(h.n.z));
   H[i * 2u + 1u] = vec4u(h.kind | (h.face << 8u), h.obj, h.a0, h.a1);
@@ -284,4 +287,4 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
 `;
 
 /** The whole program. */
-export const TRACER_WGSL = COMMON + BLOCKS + TERRAIN + MAIN;
+export const TRACER_WGSL = COMMON + BLOCKS + TERRAIN + TRACER_OBJECTS_WGSL + MAIN;

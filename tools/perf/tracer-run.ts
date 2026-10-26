@@ -26,6 +26,7 @@ import { HIT_WORDS, RAY_FLOATS, TRACE_BLOCKS, TRACE_TERRAIN, packTraceScene, typ
 import { opaqueByBlockTypes, traceBlockLayerOf, traceTerrainOf } from '../../packages/three-adapter/src/tracer-sources';
 import { PERF_ROOT, REPO } from './backend';
 import { gpuClockSampler, gpuMaxMhz, launchGpuBrowser, serveStatic } from './frame-run';
+import { extraTracerCases } from './tracer-cases';
 
 type V3 = [number, number, number];
 
@@ -186,6 +187,7 @@ function cases(): TracerCaseSource[] {
     { name: 'blocks', scene: town.scene, sources: town.sources },
     { name: 'terrain', scene: land.scene, sources: land.sources },
     { name: 'mixed', scene: { ...town.scene, ...land.scene }, sources: mixedSources },
+    ...extraTracerCases(),
   ];
 }
 
@@ -196,6 +198,8 @@ interface CaseResult {
   bytes: PackedTraceScene['bytes'];
   gpuMsMedian: number | null;
   nsPerRay: number | null;
+  /** The GPU's mean clock while this case ran (MHz). */
+  gpuMhz: number | null;
   hitShare: number;
   mismatches: number;
 }
@@ -255,23 +259,35 @@ export async function runTracerCli(argv: readonly string[]): Promise<void> {
   const site = await serveStatic(root);
   const browser = await launchGpuBrowser({ vsync: true });
   const maxMhz = gpuMaxMhz();
-  const clock = gpuClockSampler();
-  let page: Record<string, unknown>;
+  // One call per case: its random and grouped batches take turns, and the GPU clock is sampled over them.
+  const got: { name: string; hits: string; ns: number[] }[] = [];
+  const clocks: (number | null)[] = [];
+  let adapter: unknown = null;
+  let timed: unknown = null;
   try {
     const p = await (await browser.newContext()).newPage();
     await p.goto(`${site.url}/index.html`);
-    page = (await p.evaluate(
-      (input) => (window as unknown as { __tlTracer: { run(c: unknown): Promise<Record<string, unknown>> } }).__tlTracer.run(input),
-      prepared.map((c) => ({ name: `${c.name}:${c.order}`, words: b64(c.scene.words), rays: b64(c.rays), frames })),
-    )) as Record<string, unknown>;
+    for (let i = 0; i < prepared.length; i += 2) {
+      const pair = prepared.slice(i, i + 2);
+      const clock = gpuClockSampler();
+      const page = (await p.evaluate(
+        (input) => (window as unknown as { __tlTracer: { run(c: unknown): Promise<Record<string, unknown>> } }).__tlTracer.run(input),
+        pair.map((c) => ({ name: `${c.name}:${c.order}`, words: b64(c.scene.words), rays: b64(c.rays), frames })),
+      )) as Record<string, unknown>;
+      const mhz = clock?.stop() ?? null;
+      if (page['error'] !== undefined) throw new Error(`tracer: ${String(page['error'])}`);
+      adapter = page['adapter'];
+      timed = page['timed'];
+      for (const c of page['cases'] as { name: string; hits: string; ns: number[] }[]) {
+        got.push(c);
+        clocks.push(mhz);
+      }
+    }
   } finally {
     await browser.close();
     await site.close();
   }
-  const mhz = clock?.stop() ?? null;
   rmSync(root, { recursive: true, force: true });
-  if (page['error'] !== undefined) throw new Error(`tracer: ${String(page['error'])}`);
-  const got = page['cases'] as { name: string; hits: string; ns: number[] }[];
   const results: CaseResult[] = prepared.map((c, i) => {
     const g = got[i]!;
     const hb = Buffer.from(g.hits, 'base64');
@@ -280,17 +296,17 @@ export async function runTracerCli(argv: readonly string[]): Promise<void> {
     const med = ns.length > 0 ? ns[Math.floor(ns.length / 2)]! : null;
     let hit = 0;
     for (let k = 0; k < c.cpu.length; k += HIT_WORDS) if ((c.cpu[k + 4]! & 0xff) !== 0) hit += 1;
-    return { name: c.name, order: c.order, rays: count, bytes: c.scene.bytes, gpuMsMedian: med === null ? null : med / 1e6, nsPerRay: med === null ? null : med / count, hitShare: hit / count, mismatches: mismatchesOf(gpu, c.cpu) };
+    return { name: c.name, order: c.order, rays: count, bytes: c.scene.bytes, gpuMsMedian: med === null ? null : med / 1e6, nsPerRay: med === null ? null : med / count, gpuMhz: clocks[i] ?? null, hitShare: hit / count, mismatches: mismatchesOf(gpu, c.cpu) };
   });
-  const report = { at: new Date().toISOString(), adapter: page['adapter'], timed: page['timed'], gpuMhz: mhz, gpuMaxMhz: maxMhz, rays: count, frames, results };
+  const report = { at: new Date().toISOString(), adapter, timed, gpuMaxMhz: maxMhz, rays: count, frames, results };
   const out = join(PERF_ROOT, 'reports', `tracer-${stamp}.json`);
   mkdirSync(join(out, '..'), { recursive: true });
   writeFileSync(out, JSON.stringify(report, null, 2));
   for (const r of results) {
-    const full = r.nsPerRay !== null && mhz !== null && maxMhz !== null ? (r.nsPerRay * mhz) / maxMhz : null;
-    console.log(`${r.name.padEnd(8)} ${r.order.padEnd(8)} ${r.gpuMsMedian?.toFixed(2) ?? '-'} ms  ${r.nsPerRay?.toFixed(2) ?? '-'} ns/ray (${full?.toFixed(2) ?? '-'} at full clock)  hits ${(r.hitShare * 100).toFixed(1)} %  GPU≠CPU ${r.mismatches}  scene ${JSON.stringify(r.bytes)}`);
+    const full = r.nsPerRay !== null && r.gpuMhz !== null && maxMhz !== null ? (r.nsPerRay * r.gpuMhz) / maxMhz : null;
+    console.log(`${r.name.padEnd(8)} ${r.order.padEnd(8)} ${r.gpuMsMedian?.toFixed(2) ?? '-'} ms  ${r.nsPerRay?.toFixed(2) ?? '-'} ns/ray at ${r.gpuMhz ?? '-'} MHz (${full?.toFixed(2) ?? '-'} at full clock)  hits ${(r.hitShare * 100).toFixed(1)} %  GPU≠CPU ${r.mismatches}  scene ${JSON.stringify(r.bytes)}`);
   }
-  console.log(`tracer: GPU clock ${mhz ?? '-'} of ${maxMhz ?? '-'} MHz; report ${out}`);
+  console.log(`tracer: GPU max clock ${maxMhz ?? '-'} MHz; report ${out}`);
   const worst = Math.max(...results.map((r) => r.mismatches / r.rays));
   if (worst > 0.002) {
     console.log(`tracer: GPU and CPU disagree on ${(worst * 100).toFixed(2)} % of rays`);

@@ -331,6 +331,7 @@ export {
   architectureOpeningEdges,
   architectureSheets,
   architectureChunkKeys,
+  architectureColliders,
   architectureCopies,
   architectureFloorTriangles,
   architectureMaterialSlots,
@@ -344,6 +345,7 @@ export {
   type ArchitectureChunk,
   type ArchitectureChunkKey,
   type ArchitectureChunkPart,
+  type ArchitectureCollider,
   type ArchitectureComponent,
   type ArchitectureCopySet,
   type ArchitectureOpening,
@@ -753,3 +755,5 @@ export {
   type ProbeGridRecord,
   type ProbeVolumeBox,
 } from '@thirdlight/project-model';
+// Distance-field bricks of imported static models: what the lighting tracer traces them by (made at import, shipped in the export).
+export { DISTANCE_BRICK_CELLS, DISTANCE_BRICK_INSIDE, DISTANCE_BRICK_OUTSIDE, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, decodeDistanceBricks, distanceOfSample, type DistanceBrickSet, type DistanceBricks } from '@thirdlight/project-model';
