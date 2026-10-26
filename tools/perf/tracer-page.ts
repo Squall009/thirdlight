@@ -10,8 +10,10 @@ import { GpuTracer, type TracerDevice } from '../../packages/three-adapter/src/t
 export interface TracerCase {
   name: string;
   words: string;
+  atlas: { data: string; size: [number, number, number]; blocksPerAxis: number };
   rays: string;
   frames: number;
+  opts: { anyHit: boolean; cone: number };
 }
 
 const bytesOf = (b64: string): Uint8Array => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
@@ -36,15 +38,15 @@ async function run(cases: TracerCase[]): Promise<Record<string, unknown>> {
     const r = bytesOf(c.rays);
     const rays = new Float32Array(r.buffer, r.byteOffset, r.byteLength / 4);
     const tr = await GpuTracer.create(device as TracerDevice);
-    tr.setScene({ words: new Uint32Array(words.buffer, words.byteOffset, words.byteLength / 4), bytes: { blocks: 0, terrain: 0, arch: 0, bricks: 0 } });
-    loaded.push({ c, rays, tr, hits: await tr.trace(rays), ns: [] as number[] });
+    tr.setScene({ words: new Uint32Array(words.buffer, words.byteOffset, words.byteLength / 4), brickAtlas: { ...c.atlas, data: bytesOf(c.atlas.data) }, bytes: { blocks: 0, terrain: 0, arch: 0, bricks: 0 } });
+    loaded.push({ c, rays, tr, hits: await tr.trace(rays, c.opts), ns: [] as number[] });
   }
   const frames = Math.max(...cases.map((c) => c.frames));
   for (let f = 0; f < frames * loaded.length; f += 1) {
     const l = loaded[f % loaded.length]!;
     await new Promise((ok) => requestAnimationFrame(ok));
     const enc = device.createCommandEncoder();
-    l.tr.encode(enc, l.rays, qs !== null ? { timestampWrites: { querySet: qs, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1 } } : {});
+    l.tr.encode(enc, l.rays, qs !== null ? { timestampWrites: { querySet: qs, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1 } } : {}, l.c.opts);
     if (qs !== null && resolve !== null) {
       const read = device.createBuffer({ size: 16, usage: 0x1 | 0x8 });
       enc.resolveQuerySet(qs, 0, 2, resolve, 0);

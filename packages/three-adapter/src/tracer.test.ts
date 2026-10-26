@@ -430,6 +430,41 @@ describe('tracer: imported static models (distance-field bricks)', () => {
     expect(disagree).toBeLessThan(15);
   });
 
+  it('shadow rays: any hit blocks wherever the nearest hit does; the cone blocks only rays passing close by', () => {
+    const set = buildDistanceBrickSet('', [boxAndSphere()])!;
+    const bricks = { sets: [set] };
+    // A row of the model, and a ground slab of blocks under it.
+    const grid = new BlockGrid({ cellSize: [1, 1, 1], bounds: { min: [-8, -1, -8], max: [8, 0, 8] } });
+    for (let z = -8; z < 8; z += 1) for (let x = -8; x < 8; x += 1) grid.set(x, -1, z, { block: 'rock' });
+    const src: TraceSceneSource = {
+      blocks: [traceBlockLayerOf(grid, [0, 0, 0], opaqueByBlockTypes([{ blockId: 'rock', shape: 'full' } as BlockType]))],
+      bricks: [-4, 0, 4].flatMap((x) => traceModelInstancesOf(bricks, worldToLocalOf([x, 0, 0], [0, 0, 0, 1], [1, 1, 1]))),
+    };
+    const s = sceneView(packTraceScene(src));
+    const r = rng(5);
+    let blocked = 0;
+    let extra = 0;
+    for (let i = 0; i < 600; i += 1) {
+      const o: V3 = [r() * 14 - 7, 0.02, r() * 6 - 3];
+      const d = unit([r() * 2 - 1, 0.2 + r(), r() * 2 - 1]);
+      const exact = traceRayCpu(s, o, d, 0, 40);
+      const any = traceRayCpu(s, o, d, 0, 40, { anyHit: true, cone: 0 });
+      const cone = traceRayCpu(s, o, d, 0, 40, { anyHit: true, cone: 0.01 });
+      if (exact.kind !== TRACE_MISS) {
+        blocked += 1;
+        expect(any.kind, `ray ${i}`).not.toBe(TRACE_MISS);
+        expect(cone.kind, `ray ${i}`).not.toBe(TRACE_MISS);
+      } else if (cone.kind !== TRACE_MISS) {
+        extra += 1;
+        // Blocked by the cone: the ray passes within cone × distance (plus a voxel) of the model.
+        expect(cone.kind).toBe(TRACE_BRICKS);
+      }
+      expect(any.kind === TRACE_MISS).toBe(exact.kind === TRACE_MISS);
+    }
+    expect(blocked).toBeGreaterThan(60);
+    expect(extra).toBeLessThan(blocked * 0.2);
+  });
+
   it('a model as the engine reads it: one set per top-level piece of its render geometry', () => {
     const mesh = boxAndSphere();
     const prim = (piece: string, extra: Partial<ModelGeometryPrimitive> = {}): ModelGeometryPrimitive => ({ piece, collision: false, higherLod: false, pieceCollision: false, occluder: false, positions: mesh.positions, triangles: mesh.triangles, node: piece, primitive: 0, local: [], ...extra });

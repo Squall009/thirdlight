@@ -189,14 +189,24 @@ export function chartUnits(tile: BlockTile | ArchTile | ModelTile, c: number, ch
   return out;
 }
 
+/**
+ * How far (voxels of the model's distance field) a surfel's point is lifted
+ * off the mesh along its normal: the field's zero level is trilinear over
+ * byte-quantized samples, so within about a voxel of the mesh a ray may
+ * start inside it and shadow its own surface.
+ */
+export const SURFEL_LIFT_VOXELS = 1;
+
 const toWorlds = new WeakMap<object, number[]>();
 
 function modelPoint(tile: ModelTile, i: number, out: Float32Array, o: number): void {
   let m = toWorlds.get(tile);
   if (m === undefined) toWorlds.set(tile, (m = invertAffine(tile.worldToLocal)));
   const s = tile.set.surfels!;
-  const p = [s.positions[i * 3]!, s.positions[i * 3 + 1]!, s.positions[i * 3 + 2]!];
   const n = [s.normals[i * 3]!, s.normals[i * 3 + 1]!, s.normals[i * 3 + 2]!];
+  // Off the mesh to where the model's distance field reads outside: its zero level is only as exact as its voxels.
+  const lift = SURFEL_LIFT_VOXELS * tile.set.voxel;
+  const p = [s.positions[i * 3]! + n[0]! * lift, s.positions[i * 3 + 1]! + n[1]! * lift, s.positions[i * 3 + 2]! + n[2]! * lift];
   // Normals through the inverse transpose: the world → local map's columns.
   const w = tile.worldToLocal;
   let len = 0;

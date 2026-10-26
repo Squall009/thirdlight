@@ -278,7 +278,8 @@ describe('surface cache: addressing per kind', () => {
     const back = (p: Float32Array): SurfaceTexel | null => {
       const n: V3 = [p[3]!, p[4]!, p[5]!];
       const o: V3 = [p[0]! + n[0] * 0.05, p[1]! + n[1] * 0.05, p[2]! + n[2] * 0.05];
-      const hit = traceRayCpu(s, o, [-n[0], -n[1], -n[2]], 0, 0.1);
+      // A surfel's point stands off its mesh by about a voxel of the model's field (`SURFEL_LIFT_VOXELS`).
+      const hit = traceRayCpu(s, o, [-n[0], -n[1], -n[2]], 0, 0.5);
       return hit.kind === TRACE_MISS ? null : scene.resolve(cache, hit);
     };
     for (const tile of scene.tiles) {

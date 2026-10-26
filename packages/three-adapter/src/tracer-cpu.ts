@@ -22,9 +22,9 @@ import {
   type PackedTraceScene,
 } from './tracer-scene';
 import { traceArchCpu, traceBricksCpu } from './tracer-cpu-objects';
-import { mapRay, newHit, packUnorm2, rayTriangle, safeDir, sceneView, worldNormal, type SceneView, type TraceHit, type TraceState, type V3 } from './tracer-cpu-math';
+import { EXACT_TRACE, mapRay, newHit, packUnorm2, rayTriangle, safeDir, sceneView, worldNormal, type SceneView, type TraceHit, type TraceOptions, type TraceState, type V3 } from './tracer-cpu-math';
 
-export { rayTriangle, sceneView, unpackUnorm2, packUnorm2, type SceneView, type TraceHit, type V3 } from './tracer-cpu-math';
+export { EXACT_TRACE, rayTriangle, sceneView, unpackUnorm2, packUnorm2, type SceneView, type TraceHit, type TraceOptions, type V3 } from './tracer-cpu-math';
 
 type Axis = 0 | 1 | 2;
 
@@ -246,28 +246,29 @@ function traceTerrain(s: SceneView, index: number, at: number, ro: readonly numb
   }
 }
 
-/** Trace one ray through every kind in the scene: the nearest hit, or where to resume. */
-export function traceRayCpu(s: SceneView, o: readonly number[], d: readonly number[], tmin: number, tmax: number): TraceHit {
-  const st: TraceState = { hit: { ...newHit(), t: tmax }, unfinished: Infinity, brickSteps: 0 };
+/** Trace one ray through every kind in the scene: the nearest hit, or where to resume (with `anyHit`, the first kind's hit). */
+export function traceRayCpu(s: SceneView, o: readonly number[], d: readonly number[], tmin: number, tmax: number, opts: TraceOptions = EXACT_TRACE): TraceHit {
+  const st: TraceState = { hit: { ...newHit(), t: tmax }, unfinished: Infinity, brickSteps: 0, cone: opts.cone };
   const { u } = s;
-  for (let i = 0; i < u[HEADER.blocks]!; i += 1) traceLayer(s, i, u[HEADER.blocks + 1]! + i * LAYER_WORDS, o, d, tmin, st);
-  traceArchCpu(s, o, d, tmin, st);
-  for (let i = 0; i < u[HEADER.terrain]!; i += 1) traceTerrain(s, i, u[HEADER.terrain + 1]! + i * TERRAIN_WORDS, o, d, tmin, st);
-  traceBricksCpu(s, o, d, tmin, st);
+  const done = (): boolean => opts.anyHit && st.hit.kind !== TRACE_MISS;
+  for (let i = 0; i < u[HEADER.blocks]! && !done(); i += 1) traceLayer(s, i, u[HEADER.blocks + 1]! + i * LAYER_WORDS, o, d, tmin, st);
+  if (!done()) traceArchCpu(s, o, d, tmin, st);
+  for (let i = 0; i < u[HEADER.terrain]! && !done(); i += 1) traceTerrain(s, i, u[HEADER.terrain + 1]! + i * TERRAIN_WORDS, o, d, tmin, st);
+  if (!done()) traceBricksCpu(s, o, d, tmin, st);
   if (st.unfinished < st.hit.t) return { ...newHit(), kind: TRACE_UNFINISHED, t: st.unfinished };
   if (st.hit.kind === TRACE_MISS) return { ...newHit(), t: tmax };
   return st.hit;
 }
 
 /** Trace a batch (`RAY_FLOATS` per ray) into hit words (`HIT_WORDS` per ray), as the GPU pass writes them. */
-export function traceRaysCpu(scene: PackedTraceScene, rays: Float32Array): Uint32Array {
+export function traceRaysCpu(scene: PackedTraceScene, rays: Float32Array, opts: TraceOptions = EXACT_TRACE): Uint32Array {
   const s = sceneView(scene);
   const n = Math.floor(rays.length / 8);
   const out = new Uint32Array(n * HIT_WORDS);
   const of = new Float32Array(out.buffer);
   for (let i = 0; i < n; i += 1) {
     const r = i * 8;
-    const h = traceRayCpu(s, [rays[r]!, rays[r + 1]!, rays[r + 2]!], [rays[r + 4]!, rays[r + 5]!, rays[r + 6]!], rays[r + 3]!, rays[r + 7]!);
+    const h = traceRayCpu(s, [rays[r]!, rays[r + 1]!, rays[r + 2]!], [rays[r + 4]!, rays[r + 5]!, rays[r + 6]!], rays[r + 3]!, rays[r + 7]!, opts);
     const w = i * HIT_WORDS;
     of[w] = h.t;
     of[w + 1] = h.normal[0];

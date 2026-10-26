@@ -20,6 +20,7 @@
  * Only the few WebGPU calls this uses are typed (`tracer-gpu.ts`'s types).
  */
 import { RAY_FLOATS, TRACE_MISS, TRACE_UNFINISHED, type PackedTraceScene } from './tracer-scene';
+import type { TraceOptions } from './tracer-cpu-math';
 import { GpuTracer, type GpuBuffer, type GpuEncoder, type TracerDevice } from './tracer-gpu';
 import { lightReach, type CacheLight } from './surface-changes';
 import type { SurfaceCacheHost } from './surface-cache-host';
@@ -43,8 +44,15 @@ export function raysAtLevel(rays: number, level: number): number {
 }
 /** The sun's disc (radians, its angular radius): its shadows' penumbra. */
 export const SUN_DISC_RADIANS = 0.02;
+const SHADOW_CONE = SUN_DISC_RADIANS / 2;
 /** The sphere (m) a point or spot light's shadow rays aim over: three's lights have no size, a little softness reads as real. */
 export const POINT_LIGHT_RADIUS = 0.05;
+/**
+ * Shadow rays are traced as such: any hit blocks, and a model's distance
+ * field blocks a ray passing within this cone (radians) of it: half the
+ * sun's disc, so a ray creeping along a surface stops early.
+ */
+export const SHADOW_TRACE: TraceOptions = { anyHit: true, cone: SHADOW_CONE };
 /** How far (m) a texel's rays start off its surface. */
 const RAY_BIAS = 0.01;
 export const SLICE_WORDS = 8;
@@ -354,7 +362,7 @@ export class SurfaceLightPass {
     p.setBindGroup(0, bind(this.gen, this.raysBuf));
     p.dispatchWorkgroups(Math.ceil(packed.rays / WORKGROUP));
     p.end();
-    this.tracer.encodeBuffer(enc, this.raysBuf, packed.rays, stamp(1));
+    this.tracer.encodeBuffer(enc, this.raysBuf, packed.rays, stamp(1), SHADOW_TRACE);
     p = enc.beginComputePass(stamp(2));
     p.setPipeline(this.gather);
     p.setBindGroup(0, bind(this.gather, this.tracer.hitsBuffer!, this.outBuf));

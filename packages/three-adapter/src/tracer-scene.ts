@@ -26,7 +26,7 @@
  */
 import { CHUNK_SIZE } from '@thirdlight/runtime';
 
-import { packArchitecture, packModelInstances, type TraceArchitecture, type TraceModelInstance } from './tracer-objects';
+import { packArchitecture, packModelInstances, type BrickAtlas, type TraceArchitecture, type TraceModelInstance } from './tracer-objects';
 import { Words, putAffine, type Affine } from './tracer-words';
 
 export { IDENTITY_AFFINE, invertAffine, worldToLocalOf, type Affine } from './tracer-words';
@@ -138,6 +138,8 @@ export interface TraceSceneSource {
 /** The packed scene and what it takes. */
 export interface PackedTraceScene {
   words: Uint32Array;
+  /** The models' distance samples (`tracer-objects.ts`), a 3D texture on the GPU. */
+  brickAtlas: BrickAtlas;
   /** Bytes per kind (memory budgets count these). */
   bytes: { blocks: number; terrain: number; arch: number; bricks: number };
 }
@@ -311,7 +313,7 @@ export function packTraceScene(src: TraceSceneSource): PackedTraceScene {
   packArchitecture(w, HEADER.arch, src.arch);
   bytes.arch = (w.length - start) * 4;
   start = w.length;
-  packModelInstances(w, HEADER.bricks, src.bricks ?? []);
-  bytes.bricks = (w.length - start) * 4;
-  return { words: w.done(), bytes };
+  const brickAtlas = packModelInstances(w, HEADER.bricks, src.bricks ?? []);
+  bytes.bricks = (w.length - start) * 4 + (brickAtlas.data.length > 1 ? brickAtlas.data.length : 0);
+  return { words: w.done(), brickAtlas, bytes };
 }

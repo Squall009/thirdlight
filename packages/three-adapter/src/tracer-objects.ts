@@ -13,14 +13,18 @@
  * - an architecture item (`ARCH_ITEM_WORDS`): 0 its shape (`ARCH_BOX`: then
  *   1–12 world → unit-box map; `ARCH_TRIANGLE`: 1–9 its corners);
  * - a model instance (`INSTANCE_WORDS`): 0–11 world → model root map, 12
- *   its brick set's record;
+ *   its brick set's record, 13–18 its world box (min xyz, max xyz): a ray
+ *   that misses the box skips the map and the set's words;
  * - a brick set's record (`SET_WORDS`): 0–2 the field's first sample, 3
  *   voxel, 4 band, 5–7 bricks per axis, 8 the brick table (an i32 per
- *   brick: sample block, or OUTSIDE / INSIDE), 9 the sample blocks
- *   (`BLOCK_WORDS` each, four samples a word, low byte first), 10 the set's
- *   index.
+ *   brick: sample block, or OUTSIDE / INSIDE), 9 the set's first sample
+ *   block in the brick atlas, 10 the set's index.
+ *
+ * The sample blocks (9³ bytes each) live in a brick atlas, a 3D texture of
+ * blocks side by side (`brickAtlasOrigin`): the GPU reads a distance with
+ * one filtered texture sample instead of eight word loads.
  */
-import { DISTANCE_BRICK_CELLS, DISTANCE_BRICK_SAMPLES, type DistanceBrickSet } from '@thirdlight/runtime';
+import { DISTANCE_BRICK_CELLS, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, type DistanceBrickSet } from '@thirdlight/runtime';
 
 import { Words, invertAffine, putAffine, worldToLocalOf, type Affine } from './tracer-words';
 
@@ -28,10 +32,24 @@ export const GRID_WORDS = 12;
 export const ARCH_ITEM_WORDS = 13;
 export const ARCH_BOX = 0;
 export const ARCH_TRIANGLE = 1;
-export const INSTANCE_WORDS = 16;
+export const INSTANCE_WORDS = 20;
 export const SET_WORDS = 12;
-/** Words per sample block (its bytes rounded up to a word). */
-export const BLOCK_WORDS = Math.ceil(DISTANCE_BRICK_SAMPLES / 4);
+/** Sample blocks along each side of the brick atlas at most (a 3D texture's default size limit is 2048 texels). */
+const ATLAS_AXIS_BLOCKS = Math.floor(2048 / DISTANCE_BRICK_SIDE);
+
+/** Every placed set's sample blocks, side by side in a 3D texture (r8unorm; `size` texels per axis). */
+export interface BrickAtlas {
+  readonly data: Uint8Array;
+  readonly size: readonly [number, number, number];
+  /** Blocks along x and y (z grows as needed). */
+  readonly blocksPerAxis: number;
+}
+
+/** The atlas texel at which sample block `g` starts. */
+export function brickAtlasOrigin(g: number, blocksPerAxis: number): [number, number, number] {
+  const S = DISTANCE_BRICK_SIDE;
+  return [(g % blocksPerAxis) * S, (Math.floor(g / blocksPerAxis) % blocksPerAxis) * S, Math.floor(g / (blocksPerAxis * blocksPerAxis)) * S];
+}
 /** Grid cells per item at most, on average (a cell lists a few items). */
 const CELLS_PER_ITEM = 2;
 /** Cells per grid axis at most. */
@@ -155,14 +173,17 @@ export function packArchitecture(w: Words, slot: number, arch: TraceArchitecture
   });
 }
 
-/** The models section: each distinct brick set once, then the instances in their grid. */
-export function packModelInstances(w: Words, slot: number, instances: readonly TraceModelInstance[]): void {
+/** The models section: each distinct brick set once, then the instances in their grid; the sets' samples go to the atlas. */
+export function packModelInstances(w: Words, slot: number, instances: readonly TraceModelInstance[]): BrickAtlas {
   const setAt = new Map<DistanceBrickSet, number>();
+  const sets: DistanceBrickSet[] = [];
+  let blocks = 0;
   for (const inst of instances) {
     const s = inst.set;
     if (setAt.has(s)) continue;
     const at = w.alloc(SET_WORDS);
     setAt.set(s, at);
+    sets.push(s);
     for (let k = 0; k < 3; k += 1) {
       w.setF(at + k, s.min[k]!);
       w.setU(at + 5 + k, s.dims[k]!);
@@ -173,13 +194,10 @@ export function packModelInstances(w: Words, slot: number, instances: readonly T
     const table = w.alloc(s.bricks.length);
     for (let i = 0; i < s.bricks.length; i += 1) w.setU(table + i, s.bricks[i]! >>> 0);
     w.setU(at + 8, table);
-    const blocks = s.samples.length / DISTANCE_BRICK_SAMPLES;
-    const samples = w.alloc(blocks * BLOCK_WORDS);
-    w.setU(at + 9, samples);
-    for (let b = 0; b < blocks; b += 1) {
-      for (let i = 0; i < DISTANCE_BRICK_SAMPLES; i += 1) w.orU(samples + b * BLOCK_WORDS + (i >> 2), s.samples[b * DISTANCE_BRICK_SAMPLES + i]! << ((i & 3) * 8));
-    }
+    w.setU(at + 9, blocks);
+    blocks += s.samples.length / DISTANCE_BRICK_SAMPLES;
   }
+  const atlas = packBrickAtlas(sets, blocks);
   const bounds = instances.map((inst) => {
     const s = inst.set;
     const size = s.voxel * DISTANCE_BRICK_CELLS;
@@ -188,5 +206,23 @@ export function packModelInstances(w: Words, slot: number, instances: readonly T
   packGrid(w, slot, bounds, INSTANCE_WORDS, (at, i) => {
     putAffine(w, at, instances[i]!.worldToLocal);
     w.setU(at + 12, setAt.get(instances[i]!.set)!);
+    for (let k = 0; k < 6; k += 1) w.setF(at + 13 + k, bounds[i]![k]!);
   });
+  return atlas;
+}
+
+/** The sets' sample blocks in atlas order (a set's blocks follow each other). */
+function packBrickAtlas(sets: readonly DistanceBrickSet[], blocks: number): BrickAtlas {
+  const S = DISTANCE_BRICK_SIDE;
+  const A = Math.max(1, Math.min(ATLAS_AXIS_BLOCKS, Math.ceil(Math.sqrt(blocks))));
+  const size: [number, number, number] = [Math.min(blocks, A) * S || 1, Math.min(Math.ceil(blocks / A), A) * S || 1, Math.ceil(blocks / (A * A)) * S || 1];
+  const data = new Uint8Array(size[0] * size[1] * size[2]);
+  let g = 0;
+  for (const s of sets) {
+    for (let b = 0; b < s.samples.length / DISTANCE_BRICK_SAMPLES; b += 1, g += 1) {
+      const [x0, y0, z0] = brickAtlasOrigin(g, A);
+      for (let z = 0; z < S; z += 1) for (let y = 0; y < S; y += 1) data.set(s.samples.subarray(b * DISTANCE_BRICK_SAMPLES + (z * S + y) * S, b * DISTANCE_BRICK_SAMPLES + (z * S + y) * S + S), ((z0 + z) * size[1] + y0 + y) * size[0] + x0);
+    }
+  }
+  return { data, size, blocksPerAxis: A };
 }

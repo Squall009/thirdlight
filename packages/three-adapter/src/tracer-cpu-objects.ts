@@ -5,18 +5,20 @@
  * its distance-field bricks. The GPU pass (`tracer-wgsl-objects.ts`) walks
  * the same way.
  */
-import { DISTANCE_BRICK_CELLS, DISTANCE_BRICK_INSIDE, DISTANCE_BRICK_OUTSIDE, DISTANCE_BRICK_SIDE } from '@thirdlight/runtime';
+import { DISTANCE_BRICK_CELLS, DISTANCE_BRICK_INSIDE, DISTANCE_BRICK_OUTSIDE } from '@thirdlight/runtime';
 
 import { mapRay, packUnorm2, rayTriangle, safeDir, worldNormal, type SceneView, type TraceState, type V3 } from './tracer-cpu-math';
-import { ARCH_BOX, BLOCK_WORDS } from './tracer-objects';
+import { ARCH_BOX, brickAtlasOrigin, type BrickAtlas } from './tracer-objects';
 import { HEADER, TRACE_ARCH, TRACE_BRICKS, TRACE_STEPS } from './tracer-scene';
 
 /** Sphere tracing stops this close to the surface (voxels). */
 export const BRICK_HIT_VOXELS = 0.05;
+/** Slack (relative to the distance) on whether a ray enters an instance's box in this grid cell: a tie is tested twice, never skipped. */
+export const ENTRY_EPS = 1e-4;
 /** The shortest sphere-tracing step (voxels): thinner features than this may be stepped over. */
 export const BRICK_MIN_STEP_VOXELS = 0.25;
 
-/** Test one item over [tmin, …): a model's march stops at `tcell` (the grid cell's far side; the next cell that lists it goes on). */
+/** Test one item over [tmin, …) from the grid cell spanning [tlo, tcell] along the ray. */
 type ItemTest = (s: SceneView, item: number, at: number, o: readonly number[], d: readonly number[], tmin: number, st: TraceState, tlo: number, tcell: number) => void;
 
 /** Walk a section's grid (record at `g`) and test the items each cell lists, nearest cells first. */
@@ -116,15 +118,14 @@ const testArchItem: ItemTest = (s, item, at, ro, rd, tmin, st) => {
   st.hit = { kind: TRACE_ARCH, t, normal: [n[0] / l, n[1] / l, n[2] / l], face: 0, object: item, a0: 0, a1: packUnorm2((d11 * d20 - d01 * d21) / den, (d00 * d21 - d01 * d20) / den) };
 };
 
-/** A brick set's stored distance at sample (x, y, z) of block `blk` (metres). */
-function sampleAt(u: Uint32Array, samples: number, blk: number, x: number, y: number, z: number, band: number): number {
-  const i = (z * DISTANCE_BRICK_SIDE + y) * DISTANCE_BRICK_SIDE + x;
-  const q = (u[samples + blk * BLOCK_WORDS + (i >> 2)]! >>> ((i & 3) * 8)) & 255;
+/** A sample block's stored distance at sample (x, y, z) (metres): `o` is the block's atlas origin. */
+function sampleAt(atlas: BrickAtlas, o: V3, x: number, y: number, z: number, band: number): number {
+  const q = atlas.data[((o[2] + z) * atlas.size[1] + o[1] + y) * atlas.size[0] + o[0] + x]!;
   return ((q / 255) * 2 - 1) * band;
 }
 
-/** Trilinear distance at a point of a brick (cells 0–8 on each axis). */
-function brickDistance(u: Uint32Array, samples: number, blk: number, p: V3, band: number): number {
+/** Trilinear distance at a point of a brick (cells 0–8 on each axis), as the GPU's filtered sample. */
+function brickDistance(atlas: BrickAtlas, o: V3, p: V3, band: number): number {
   const q = p.map((v) => Math.min(DISTANCE_BRICK_CELLS - 1e-4, Math.max(0, v))) as V3;
   const i = q.map(Math.floor) as V3;
   const w = [q[0] - i[0], q[1] - i[1], q[2] - i[2]];
@@ -132,14 +133,28 @@ function brickDistance(u: Uint32Array, samples: number, blk: number, p: V3, band
   for (let c = 0; c < 8; c += 1) {
     const dx = c & 1, dy = (c >> 1) & 1, dz = (c >> 2) & 1;
     const k = (dx ? w[0]! : 1 - w[0]!) * (dy ? w[1]! : 1 - w[1]!) * (dz ? w[2]! : 1 - w[2]!);
-    acc += k * sampleAt(u, samples, blk, i[0] + dx, i[1] + dy, i[2] + dz, band);
+    acc += k * sampleAt(atlas, o, i[0] + dx, i[1] + dy, i[2] + dz, band);
   }
   return acc;
 }
 
 /** One model instance: a DDA over its set's bricks, sphere tracing the ones the surface passes through. */
-const testInstance: ItemTest = (s, item, at, ro, rd, _tmin, st, tlo, tcell) => {
+const testInstance: ItemTest = (s, item, at, ro, rd, tmin, st, tlo, tcell) => {
   const { u, f } = s;
+  // Its world box first: most instances a cell lists lie off the ray. It is
+  // marched whole from the cell the ray enters its box in, so an instance
+  // listed in many cells costs one march.
+  let bLo = tmin;
+  let bHi = Math.min(st.hit.t, st.unfinished);
+  const rs = safeDir([rd[0]!, rd[1]!, rd[2]!]);
+  for (let k = 0; k < 3; k += 1) {
+    const a = (f[at + 13 + k]! - ro[k]!) / rs[k]!;
+    const b = (f[at + 16 + k]! - ro[k]!) / rs[k]!;
+    bLo = Math.max(bLo, Math.min(a, b));
+    bHi = Math.min(bHi, Math.max(a, b));
+  }
+  const eps = ENTRY_EPS * (1 + Math.abs(tlo));
+  if (!(bLo <= bHi) || bLo < tlo - eps || bLo >= tcell + eps) return;
   const set = u[at + 12]!;
   const { o: ol, d: dl } = mapRay(f, at, ro, rd);
   const lo: V3 = [f[set]!, f[set + 1]!, f[set + 2]!];
@@ -147,16 +162,15 @@ const testInstance: ItemTest = (s, item, at, ro, rd, _tmin, st, tlo, tcell) => {
   const band = f[set + 4]!;
   const D: V3 = [u[set + 5]!, u[set + 6]!, u[set + 7]!];
   const table = u[set + 8]!;
-  const samples = u[set + 9]!;
+  const first = u[set + 9]!;
   const size = voxel * DISTANCE_BRICK_CELLS;
   const speed = Math.hypot(dl[0], dl[1], dl[2]);
   // In brick units.
   const ob: V3 = [(ol[0] - lo[0]) / size, (ol[1] - lo[1]) / size, (ol[2] - lo[2]) / size];
   const d = safeDir([dl[0] / size, dl[1] / size, dl[2] / size]);
   const inv: V3 = [1 / d[0], 1 / d[1], 1 / d[2]];
-  // Only the grid cell's span: an instance listed in several cells is marched once along the ray, a cell at a time.
-  let t = tlo;
-  let tEnd = Math.min(st.hit.t, st.unfinished, tcell);
+  let t = tmin;
+  let tEnd = Math.min(st.hit.t, st.unfinished);
   let axis: 0 | 1 | 2 = 0;
   for (const k of [0, 1, 2] as const) {
     const a = (0 - ob[k]) * inv[k];
@@ -192,15 +206,16 @@ const testInstance: ItemTest = (s, item, at, ro, rd, _tmin, st, tlo, tcell) => {
           return;
         }
         const p: V3 = [(ob[0] + d[0] * ts - c[0]) * DISTANCE_BRICK_CELLS, (ob[1] + d[1] * ts - c[1]) * DISTANCE_BRICK_CELLS, (ob[2] + d[2] * ts - c[2]) * DISTANCE_BRICK_CELLS];
-        const dist = brickDistance(u, samples, blk, p, band);
-        if (dist < hitEps) {
+        const ao = brickAtlasOrigin(first + blk, s.atlas.blocksPerAxis);
+        const dist = brickDistance(s.atlas, ao, p, band);
+        if (dist < Math.max(hitEps, st.cone * ts * speed)) {
           const g: V3 = [0, 0, 0];
           for (const k of [0, 1, 2] as const) {
             const a: V3 = [...p];
             const b: V3 = [...p];
             a[k] += 0.5;
             b[k] -= 0.5;
-            g[k] = brickDistance(u, samples, blk, a, band) - brickDistance(u, samples, blk, b, band);
+            g[k] = brickDistance(s.atlas, ao, a, band) - brickDistance(s.atlas, ao, b, band);
           }
           st.hit = { kind: TRACE_BRICKS, t: ts, normal: worldNormal(f, at, g), face: 0, object: item, a0: localAddress(ob, d, ts, D), a1: u[set + 10]! };
           return;

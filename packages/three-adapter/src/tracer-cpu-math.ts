@@ -3,6 +3,7 @@
  * views, affine maps of rays and normals, and the ray / triangle test.
  */
 import { TRACE_MISS, type PackedTraceScene } from './tracer-scene';
+import type { BrickAtlas } from './tracer-objects';
 
 /** One traced ray's answer. */
 export interface TraceHit {
@@ -23,10 +24,11 @@ export interface TraceHit {
 export interface SceneView {
   u: Uint32Array;
   f: Float32Array;
+  atlas: BrickAtlas;
 }
 
 export function sceneView(scene: PackedTraceScene): SceneView {
-  return { u: scene.words, f: new Float32Array(scene.words.buffer, scene.words.byteOffset, scene.words.length) };
+  return { u: scene.words, f: new Float32Array(scene.words.buffer, scene.words.byteOffset, scene.words.length), atlas: scene.brickAtlas };
 }
 
 /** The best answer so far while a ray is traced through every kind. */
@@ -36,7 +38,25 @@ export interface TraceState {
   unfinished: number;
   /** Brick steps the ray has taken in this pass, over every model it met (their budget is shared). */
   brickSteps: number;
+  /** `TraceOptions.cone`. */
+  cone: number;
 }
+
+/**
+ * How a batch is traced. Shadow rays ask less than the nearest exact hit:
+ * - `anyHit`: stop at the first kind that hits (the light is blocked either way);
+ * - `cone` (radians): a model's distance field counts as hit once the ray
+ *   passes within `cone × distance` of it, as a cone toward a light of that
+ *   angular size would be touched. Grazing rays then stop early instead of
+ *   creeping along a surface.
+ */
+export interface TraceOptions {
+  readonly anyHit: boolean;
+  readonly cone: number;
+}
+
+/** The nearest hit, exactly (bounce and reflection rays). */
+export const EXACT_TRACE: TraceOptions = { anyHit: false, cone: 0 };
 
 export type V3 = [number, number, number];
 

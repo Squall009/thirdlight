@@ -4,8 +4,10 @@
  * CPU twin's walk (`tracer-cpu.ts`) line for line, so the two answer alike;
  * the browser run (`tools/perf/tracer-run.ts`) holds them to each other.
  *
- * Bindings: 0 the dispatch's parameters (ray count, first ray), 1 the scene
- * words, 2 the rays (two vec4 each), 3 the hits (two vec4u each).
+ * Bindings: 0 the dispatch's parameters (ray count, first ray, `TraceOptions`), 1 the scene
+ * words, 2 the rays (two vec4 each), 3 the hits (two vec4u each), 4 and 5
+ * the brick atlas (models' distance samples, `tracer-objects.ts`) and its
+ * linear sampler.
  */
 import { TRACER_OBJECTS_WGSL } from './tracer-wgsl-objects';
 import { CHUNK_BLOCK_WORDS, CHUNK_WORDS, HEADER, LAYER_WORDS, TERRAIN_WORDS, TRACE_BLOCKS, TRACE_CHUNK, TRACE_STEPS, TRACE_SUB, TRACE_TERRAIN, TRACE_UNFINISHED } from './tracer-scene';
@@ -14,13 +16,15 @@ import { CHUNK_BLOCK_WORDS, CHUNK_WORDS, HEADER, LAYER_WORDS, TERRAIN_WORDS, TRA
 export const TRACER_WORKGROUP = 64;
 
 const COMMON = /* wgsl */ `
-struct Params { count: u32, base: u32, pad0: u32, pad1: u32 }
+struct Params { count: u32, base: u32, cone: f32, anyHit: u32 }
 struct Hit { t: f32, n: vec3f, kind: u32, face: u32, obj: u32, a0: u32, a1: u32 }
 
 @group(0) @binding(0) var<uniform> P: Params;
 @group(0) @binding(1) var<storage, read> S: array<u32>;
 @group(0) @binding(2) var<storage, read> R: array<vec4f>;
 @group(0) @binding(3) var<storage, read_write> H: array<vec4u>;
+@group(0) @binding(4) var BA: texture_3d<f32>;
+@group(0) @binding(5) var BS: sampler;
 
 const CHUNK = ${TRACE_CHUNK};
 const CHUNK_WORDS = ${CHUNK_WORDS}u;
@@ -281,11 +285,11 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
   var h = Hit(r1.w, vec3f(0.0), 0u, 0u, 0u, 0u, 0u);
   var unf = 3.4e38;
   let nb = S[${HEADER.blocks}u];
-  for (var k = 0u; k < nb; k++) { traceLayer(k, S[${HEADER.blocks + 1}u] + k * ${LAYER_WORDS}u, o, d, tmin, &h, &unf); }
-  traceArch(o, d, tmin, &h, &unf);
+  for (var k = 0u; k < nb && !(P.anyHit != 0u && h.kind != 0u); k++) { traceLayer(k, S[${HEADER.blocks + 1}u] + k * ${LAYER_WORDS}u, o, d, tmin, &h, &unf); }
+  if (!(P.anyHit != 0u && h.kind != 0u)) { traceArch(o, d, tmin, &h, &unf); }
   let nt = S[${HEADER.terrain}u];
-  for (var k = 0u; k < nt; k++) { traceTerrain(k, S[${HEADER.terrain + 1}u] + k * ${TERRAIN_WORDS}u, o, d, tmin, &h, &unf); }
-  traceBricks(o, d, tmin, &h, &unf);
+  for (var k = 0u; k < nt && !(P.anyHit != 0u && h.kind != 0u); k++) { traceTerrain(k, S[${HEADER.terrain + 1}u] + k * ${TERRAIN_WORDS}u, o, d, tmin, &h, &unf); }
+  if (!(P.anyHit != 0u && h.kind != 0u)) { traceBricks(o, d, tmin, &h, &unf); }
   if (unf < h.t) { h = Hit(unf, vec3f(0.0), ${TRACE_UNFINISHED}u, 0u, 0u, 0u, 0u); }
   H[i * 2u] = vec4u(bitcast<u32>(h.t), bitcast<u32>(h.n.x), bitcast<u32>(h.n.y), bitcast<u32>(h.n.z));
   H[i * 2u + 1u] = vec4u(h.kind | (h.face << 8u), h.obj, h.a0, h.a1);

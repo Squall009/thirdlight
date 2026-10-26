@@ -6,8 +6,8 @@
  */
 import { DISTANCE_BRICK_CELLS, DISTANCE_BRICK_INSIDE, DISTANCE_BRICK_OUTSIDE, DISTANCE_BRICK_SIDE } from '@thirdlight/runtime';
 
-import { BRICK_HIT_VOXELS, BRICK_MIN_STEP_VOXELS } from './tracer-cpu-objects';
-import { ARCH_BOX, BLOCK_WORDS } from './tracer-objects';
+import { BRICK_HIT_VOXELS, BRICK_MIN_STEP_VOXELS, ENTRY_EPS } from './tracer-cpu-objects';
+import { ARCH_BOX } from './tracer-objects';
 import { HEADER, TRACE_ARCH, TRACE_BRICKS } from './tracer-scene';
 
 export const TRACER_OBJECTS_WGSL = /* wgsl */ `
@@ -15,7 +15,6 @@ const ARCH_ITEMS = 0u;
 const MODEL_ITEMS = 1u;
 const BRICK_CELLS = ${DISTANCE_BRICK_CELLS}.0;
 const BRICK_SIDE = ${DISTANCE_BRICK_SIDE}u;
-const BLOCK_WORDS = ${BLOCK_WORDS}u;
 
 fn testArchItem(item: u32, at: u32, ro: vec3f, rd: vec3f, tmin: f32, h: ptr<function, Hit>, unf: ptr<function, f32>) {
   let best = min((*h).t, *unf);
@@ -74,29 +73,16 @@ fn testArchItem(item: u32, at: u32, ro: vec3f, rd: vec3f, tmin: f32, h: ptr<func
   (*h).a1 = packUnorm2((d11 * d20 - d01 * d21) / den, (d00 * d21 - d01 * d20) / den);
 }
 
-fn brickSample(samples: u32, blk: u32, x: u32, y: u32, z: u32, band: f32) -> f32 {
-  let i = (z * BRICK_SIDE + y) * BRICK_SIDE + x;
-  let q = (S[samples + blk * BLOCK_WORDS + (i >> 2u)] >> ((i & 3u) * 8u)) & 255u;
-  return (f32(q) / 255.0 * 2.0 - 1.0) * band;
+// One filtered sample of the atlas: the hardware's trilinear between a block's samples (p in cells 0–8).
+fn brickDistance(origin: vec3f, pIn: vec3f, band: f32) -> f32 {
+  let q = clamp(pIn, vec3f(0.0), vec3f(BRICK_CELLS - 1e-4));
+  let uvw = (origin + q + vec3f(0.5)) / vec3f(textureDimensions(BA));
+  return (textureSampleLevel(BA, BS, uvw, 0.0).r * 2.0 - 1.0) * band;
 }
 
-fn brickDistance(samples: u32, blk: u32, pIn: vec3f, band: f32) -> f32 {
-  let q = clamp(pIn, vec3f(0.0), vec3f(BRICK_CELLS - 1e-4));
-  let i = vec3u(floor(q));
-  let w = q - floor(q);
-  let c000 = brickSample(samples, blk, i.x, i.y, i.z, band);
-  let c100 = brickSample(samples, blk, i.x + 1u, i.y, i.z, band);
-  let c010 = brickSample(samples, blk, i.x, i.y + 1u, i.z, band);
-  let c110 = brickSample(samples, blk, i.x + 1u, i.y + 1u, i.z, band);
-  let c001 = brickSample(samples, blk, i.x, i.y, i.z + 1u, band);
-  let c101 = brickSample(samples, blk, i.x + 1u, i.y, i.z + 1u, band);
-  let c011 = brickSample(samples, blk, i.x, i.y + 1u, i.z + 1u, band);
-  let c111 = brickSample(samples, blk, i.x + 1u, i.y + 1u, i.z + 1u, band);
-  let x00 = mix(c000, c100, w.x);
-  let x10 = mix(c010, c110, w.x);
-  let x01 = mix(c001, c101, w.x);
-  let x11 = mix(c011, c111, w.x);
-  return mix(mix(x00, x10, w.y), mix(x01, x11, w.y), w.z);
+fn atlasOrigin(g: u32) -> vec3f {
+  let per = textureDimensions(BA).x / BRICK_SIDE;
+  return vec3f(f32(g % per), f32((g / per) % per), f32(g / (per * per))) * f32(BRICK_SIDE);
 }
 
 fn localAddress(p: vec3f, D: vec3f) -> u32 {
@@ -104,8 +90,17 @@ fn localAddress(p: vec3f, D: vec3f) -> u32 {
   return q.x | (q.y << 11u) | (q.z << 22u);
 }
 
-// Over the grid cell's span [tlo, tcell] only: an instance listed in several cells is marched once along the ray.
-fn testInstance(item: u32, at: u32, ro: vec3f, rd: vec3f, tlo: f32, tcell: f32, h: ptr<function, Hit>, unf: ptr<function, f32>, bs: ptr<function, u32>) {
+// Its world box first; marched whole from the grid cell (spanning [tlo, tcell]) where the ray enters that box.
+fn testInstance(item: u32, at: u32, ro: vec3f, rd: vec3f, tmin: f32, tlo: f32, tcell: f32, h: ptr<function, Hit>, unf: ptr<function, f32>, bs: ptr<function, u32>) {
+  let rs = safeDir(rd);
+  let ba = (vec3f(sf(at + 13u), sf(at + 14u), sf(at + 15u)) - ro) / rs;
+  let bb = (vec3f(sf(at + 16u), sf(at + 17u), sf(at + 18u)) - ro) / rs;
+  let bn = min(ba, bb);
+  let bf = max(ba, bb);
+  let bLo = max(tmin, max(bn.x, max(bn.y, bn.z)));
+  let bHi = min(min((*h).t, *unf), min(bf.x, min(bf.y, bf.z)));
+  let eps = ${ENTRY_EPS} * (1.0 + abs(tlo));
+  if (!(bLo <= bHi) || bLo < tlo - eps || bLo >= tcell + eps) { return; }
   let rec = S[at + 12u];
   let ol = mapPoint(at, ro);
   let dl = mapDir(at, rd);
@@ -114,14 +109,14 @@ fn testInstance(item: u32, at: u32, ro: vec3f, rd: vec3f, tlo: f32, tcell: f32, 
   let band = sf(rec + 4u);
   let D = vec3i(i32(S[rec + 5u]), i32(S[rec + 6u]), i32(S[rec + 7u]));
   let table = S[rec + 8u];
-  let samples = S[rec + 9u];
+  let first = S[rec + 9u];
   let size = voxel * BRICK_CELLS;
   let speed = length(dl);
   let ob = (ol - lo) / size;
   let d = safeDir(dl / size);
   let inv = 1.0 / d;
-  var t = tlo;
-  var tEnd = min(min((*h).t, *unf), tcell);
+  var t = tmin;
+  var tEnd = min((*h).t, *unf);
   var axis = 0u;
   let ta = (vec3f(0.0) - ob) * inv;
   let tb = (vec3f(D) - ob) * inv;
@@ -155,20 +150,21 @@ fn testInstance(item: u32, at: u32, ro: vec3f, rd: vec3f, tlo: f32, tcell: f32, 
     }
     if (blk != ${DISTANCE_BRICK_OUTSIDE}) {
       var ts = t;
+      let ao = atlasOrigin(first + u32(blk));
       loop {
         if (ts >= bExit) { break; }
         *bs += 1u;
         if (*bs >= BRICK_STEPS) { *unf = min(*unf, ts); return; }
         let p = (ob + d * ts - vec3f(c)) * BRICK_CELLS;
-        let dist = brickDistance(samples, u32(blk), p, band);
-        if (dist < hitEps) {
+        let dist = brickDistance(ao, p, band);
+        if (dist < max(hitEps, P.cone * ts * speed)) {
           let ex = vec3f(0.5, 0.0, 0.0);
           let ey = vec3f(0.0, 0.5, 0.0);
           let ez = vec3f(0.0, 0.0, 0.5);
           let g = vec3f(
-            brickDistance(samples, u32(blk), p + ex, band) - brickDistance(samples, u32(blk), p - ex, band),
-            brickDistance(samples, u32(blk), p + ey, band) - brickDistance(samples, u32(blk), p - ey, band),
-            brickDistance(samples, u32(blk), p + ez, band) - brickDistance(samples, u32(blk), p - ez, band));
+            brickDistance(ao, p + ex, band) - brickDistance(ao, p - ex, band),
+            brickDistance(ao, p + ey, band) - brickDistance(ao, p - ey, band),
+            brickDistance(ao, p + ez, band) - brickDistance(ao, p - ez, band));
           (*h).t = ts;
           (*h).n = worldNormal(at, g);
           (*h).kind = ${TRACE_BRICKS}u;
@@ -223,7 +219,7 @@ fn walkGrid(kind: u32, g: u32, o: vec3f, d0: vec3f, tmin: f32, h: ptr<function, 
     for (var k = S[starts + cell]; k < S[starts + cell + 1u]; k++) {
       let item = S[list + k];
       if (kind == ARCH_ITEMS) { testArchItem(item, items + item * stride, o, d0, tmin, h, unf); }
-      else { testInstance(item, items + item * stride, o, d0, max(tmin, t), cellExit, h, unf, &bs); }
+      else { testInstance(item, items + item * stride, o, d0, tmin, max(tmin, t), cellExit, h, unf, &bs); }
     }
     if (min((*h).t, *unf) <= cellExit) { return; }
     let a = argmin3(side);

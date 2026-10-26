@@ -11,6 +11,8 @@
  *   --frames N   timed passes per batch (default 60)
  *   --kinds a,b  only these cases (blocks, terrain, mixed, arch, bricks)
  *   --bounce M   how far bounce rays go (default: the tracer's cap at the default probe spacing)
+ *   --any-hit    trace as shadow rays do: the first kind's hit
+ *   --cone R     shadow rays' cone (radians) against models' distance fields (default 0: exact)
  *
  * GPU ms are raw timestamps at the GPU's clock during the run; the report
  * gives the clock (ms × clock ÷ max clock is the time at full clock). The
@@ -235,6 +237,7 @@ export async function runTracerCli(argv: readonly string[]): Promise<void> {
   const frames = Number(arg('--frames', '60'));
   const only = arg('--kinds', '').split(',').filter((s) => s !== '');
   const bounce = Number(arg('--bounce', String(bounceRayMetres(DEFAULT_PROBE_SPACING))));
+  const opts = { anyHit: argv.includes('--any-hit'), cone: Number(arg('--cone', '0')) };
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const root = join(PERF_ROOT, 'runs', `tracer-${stamp}`);
   mkdirSync(root, { recursive: true });
@@ -255,7 +258,7 @@ export async function runTracerCli(argv: readonly string[]): Promise<void> {
     }
     return (['random', 'grouped'] as const).map((order) => {
       const batch = reorderRays(rays, order === 'random' ? shuffle : groupRays(rays, kinds));
-      return { name: c.name, order, scene, rays: batch, cpu: traceRaysCpu(scene, batch) };
+      return { name: c.name, order, scene, rays: batch, cpu: traceRaysCpu(scene, batch, opts) };
     });
   });
   const b64 = (u: ArrayBufferView): string => Buffer.from(u.buffer, u.byteOffset, u.byteLength).toString('base64');
@@ -275,7 +278,7 @@ export async function runTracerCli(argv: readonly string[]): Promise<void> {
       const clock = gpuClockSampler();
       const page = (await p.evaluate(
         (input) => (window as unknown as { __tlTracer: { run(c: unknown): Promise<Record<string, unknown>> } }).__tlTracer.run(input),
-        pair.map((c) => ({ name: `${c.name}:${c.order}`, words: b64(c.scene.words), rays: b64(c.rays), frames })),
+        pair.map((c) => ({ name: `${c.name}:${c.order}`, words: b64(c.scene.words), atlas: { data: b64(c.scene.brickAtlas.data), size: c.scene.brickAtlas.size, blocksPerAxis: c.scene.brickAtlas.blocksPerAxis }, rays: b64(c.rays), frames, opts })),
       )) as Record<string, unknown>;
       const mhz = clock?.stop() ?? null;
       if (page['error'] !== undefined) throw new Error(`tracer: ${String(page['error'])}`);

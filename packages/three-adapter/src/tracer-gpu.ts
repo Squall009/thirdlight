@@ -8,9 +8,12 @@
  * Only the few WebGPU calls this uses are typed here (the TypeScript DOM
  * library has no WebGPU types).
  */
+import { EXACT_TRACE, type TraceOptions } from './tracer-cpu-math';
 import { HIT_WORDS, RAY_FLOATS, type PackedTraceScene } from './tracer-scene';
 import { TRACER_WGSL, TRACER_WORKGROUP } from './tracer-wgsl';
 
+/** GPUTextureUsage bits (WebGPU's constants). */
+const TEXTURE = { COPY_DST: 0x2, TEXTURE_BINDING: 0x4 } as const;
 /** GPUBufferUsage and GPUMapMode bits this module uses (WebGPU's constants). */
 const USAGE = { MAP_READ: 0x1, COPY_SRC: 0x4, COPY_DST: 0x8, UNIFORM: 0x40, STORAGE: 0x80 } as const;
 const MAP_READ = 0x1;
@@ -34,17 +37,28 @@ export interface GpuEncoder {
   copyBufferToBuffer(src: GpuBuffer, srcOffset: number, dst: GpuBuffer, dstOffset: number, size: number): void;
   finish(): unknown;
 }
+export interface GpuTexture {
+  createView(desc?: Record<string, unknown>): unknown;
+  destroy(): void;
+}
 /** The part of a `GPUDevice` the tracer calls. */
 export interface TracerDevice {
   createBuffer(desc: { size: number; usage: number; label?: string }): GpuBuffer;
+  createTexture(desc: Record<string, unknown>): GpuTexture;
+  createSampler(desc: Record<string, unknown>): unknown;
   createShaderModule(desc: { code: string; label?: string }): { getCompilationInfo?(): Promise<{ messages: readonly { type: string; message: string; lineNum: number }[] }> };
   createComputePipeline(desc: Record<string, unknown>): { getBindGroupLayout(i: number): unknown };
   createBindGroup(desc: Record<string, unknown>): unknown;
   createCommandEncoder(): GpuEncoder;
-  readonly queue: { writeBuffer(b: GpuBuffer, offset: number, data: ArrayBufferView): void; submit(list: unknown[]): void; onSubmittedWorkDone(): Promise<void> };
+  readonly queue: {
+    writeBuffer(b: GpuBuffer, offset: number, data: ArrayBufferView): void;
+    writeTexture(dst: { texture: GpuTexture }, data: ArrayBufferView, layout: { bytesPerRow: number; rowsPerImage: number }, size: readonly number[]): void;
+    submit(list: unknown[]): void;
+    onSubmittedWorkDone(): Promise<void>;
+  };
 }
 
-/** Bytes of a dispatch's parameter block (count, first ray, two pads). */
+/** Bytes of a dispatch's parameter block (`paramWords`). */
 const PARAM_BYTES = 16;
 
 /**
@@ -84,11 +98,21 @@ export function reorderRays(rays: Float32Array, order: Uint32Array): Float32Arra
   return out;
 }
 
+/** A dispatch's parameter block: ray count, first ray, the options' cone (f32) and any-hit flag. */
+function paramWords(count: number, opts: TraceOptions): Uint32Array {
+  const w = new Uint32Array([count, 0, 0, opts.anyHit ? 1 : 0]);
+  new Float32Array(w.buffer)[2] = opts.cone;
+  return w;
+}
+
 /** The tracer's pipeline and its scene on one device. */
 export class GpuTracer {
   private readonly pipeline: { getBindGroupLayout(i: number): unknown };
   private readonly params: GpuBuffer;
   private scene: GpuBuffer | null = null;
+  private atlas: GpuTexture | null = null;
+  private atlasView: unknown = null;
+  private readonly sampler: unknown;
   private rays: GpuBuffer | null = null;
   private hits: GpuBuffer | null = null;
   private bind: unknown = null;
@@ -99,6 +123,7 @@ export class GpuTracer {
   private constructor(private readonly device: TracerDevice, pipeline: { getBindGroupLayout(i: number): unknown }) {
     this.pipeline = pipeline;
     this.params = device.createBuffer({ size: PARAM_BYTES, usage: USAGE.UNIFORM | USAGE.COPY_DST, label: 'tracer params' });
+    this.sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge', addressModeW: 'clamp-to-edge', label: 'tracer bricks' });
   }
 
   /** Compile the tracer on `device` (a WGSL error rejects with the compiler's messages). */
@@ -115,6 +140,11 @@ export class GpuTracer {
     this.scene?.destroy();
     this.scene = this.device.createBuffer({ size: Math.max(16, scene.words.byteLength), usage: USAGE.STORAGE | USAGE.COPY_DST, label: 'tracer scene' });
     this.device.queue.writeBuffer(this.scene, 0, scene.words);
+    this.atlas?.destroy();
+    const a = scene.brickAtlas;
+    this.atlas = this.device.createTexture({ size: a.size, dimension: '3d', format: 'r8unorm', usage: TEXTURE.TEXTURE_BINDING | TEXTURE.COPY_DST, label: 'tracer brick atlas' });
+    this.device.queue.writeTexture({ texture: this.atlas }, a.data, { bytesPerRow: a.size[0], rowsPerImage: a.size[1] }, a.size);
+    this.atlasView = this.atlas.createView();
     this.bind = null;
     this.outerBind = null;
   }
@@ -136,12 +166,12 @@ export class GpuTracer {
    * stay on the GPU (`hitsBuffer`) for the passes that read them. `pass` may
    * carry timestamp writes.
    */
-  encode(encoder: GpuEncoder, rays: Float32Array, pass: Record<string, unknown> = {}): void {
+  encode(encoder: GpuEncoder, rays: Float32Array, pass: Record<string, unknown> = {}, opts: TraceOptions = EXACT_TRACE): void {
     if (this.scene === null) throw new Error('tracer: no scene');
     const count = Math.floor(rays.length / RAY_FLOATS);
     this.ensure(Math.max(1, count));
     this.device.queue.writeBuffer(this.rays!, 0, rays);
-    this.device.queue.writeBuffer(this.params, 0, new Uint32Array([count, 0, 0, 0]));
+    this.device.queue.writeBuffer(this.params, 0, paramWords(count, opts));
     this.bind ??= this.device.createBindGroup({
       layout: this.pipeline.getBindGroupLayout(0),
       entries: [
@@ -149,6 +179,8 @@ export class GpuTracer {
         { binding: 1, resource: { buffer: this.scene } },
         { binding: 2, resource: { buffer: this.rays } },
         { binding: 3, resource: { buffer: this.hits } },
+        { binding: 4, resource: this.atlasView },
+        { binding: 5, resource: this.sampler },
       ],
     });
     const p = encoder.beginComputePass(pass);
@@ -162,7 +194,7 @@ export class GpuTracer {
    * Encode one pass over `count` rays already on the GPU (`rays`: storage,
    * `RAY_FLOATS` each, made by another pass); the hits stay in `hitsBuffer`.
    */
-  encodeBuffer(encoder: GpuEncoder, rays: GpuBuffer, count: number, pass: Record<string, unknown> = {}): void {
+  encodeBuffer(encoder: GpuEncoder, rays: GpuBuffer, count: number, pass: Record<string, unknown> = {}, opts: TraceOptions = EXACT_TRACE): void {
     if (this.scene === null) throw new Error('tracer: no scene');
     if (this.hits === null || this.hits.size < count * HIT_WORDS * 4) {
       this.hits?.destroy();
@@ -170,7 +202,7 @@ export class GpuTracer {
       this.outerBind = null;
       this.bind = null;
     }
-    this.device.queue.writeBuffer(this.params, 0, new Uint32Array([count, 0, 0, 0]));
+    this.device.queue.writeBuffer(this.params, 0, paramWords(count, opts));
     if (this.outerBind === null || this.outerRays !== rays) {
       this.outerRays = rays;
       this.outerBind = this.device.createBindGroup({
@@ -180,6 +212,8 @@ export class GpuTracer {
           { binding: 1, resource: { buffer: this.scene } },
           { binding: 2, resource: { buffer: rays } },
           { binding: 3, resource: { buffer: this.hits } },
+          { binding: 4, resource: this.atlasView },
+          { binding: 5, resource: this.sampler },
         ],
       });
     }
@@ -196,10 +230,10 @@ export class GpuTracer {
   }
 
   /** Trace `rays` and read the hits back (`HIT_WORDS` per ray, as `traceRaysCpu` writes them). */
-  async trace(rays: Float32Array): Promise<Uint32Array> {
+  async trace(rays: Float32Array, opts: TraceOptions = EXACT_TRACE): Promise<Uint32Array> {
     const count = Math.floor(rays.length / RAY_FLOATS);
     const encoder = this.device.createCommandEncoder();
-    this.encode(encoder, rays);
+    this.encode(encoder, rays, {}, opts);
     const bytes = count * HIT_WORDS * 4;
     const read = this.device.createBuffer({ size: Math.max(16, bytes), usage: USAGE.MAP_READ | USAGE.COPY_DST, label: 'tracer readback' });
     encoder.copyBufferToBuffer(this.hits!, 0, read, 0, bytes);
@@ -213,6 +247,9 @@ export class GpuTracer {
 
   dispose(): void {
     for (const b of [this.params, this.scene, this.rays, this.hits]) b?.destroy();
+    this.atlas?.destroy();
+    this.atlas = null;
+    this.atlasView = null;
     this.scene = this.rays = this.hits = null;
     this.bind = this.outerBind = null;
     this.outerRays = null;
