@@ -20,6 +20,21 @@ type Command = (op: string, args: Record<string, unknown>) => Promise<Record<str
 
 /** A canvas's picture once two shots in a row (`intervalMs` apart) are the same (shaders built, shadow map drawn, textures in); saved as `label`.png. */
 export async function settledShot(target: Locator, label: string, intervalMs = 1000): Promise<Image> {
+  // A page that lights live (WebGPU) keeps changing its picture until its surface light and probes settle: wait for them first.
+  await expect
+    .poll(
+      () =>
+        target.page().evaluate(() => {
+          const scenes = (window as unknown as { __tlScenes?: { userData?: Record<string, unknown> }[] }).__tlScenes ?? [];
+          return scenes.every((s) => {
+            const c = s.userData?.['tlSurfaceCache'] as { diagnostics?: () => { relight: { live: boolean; settled: boolean }; probes: { settled: boolean } } } | undefined;
+            const d = c?.diagnostics?.();
+            return d === undefined || !d.relight.live || (d.relight.settled && d.probes.settled);
+          });
+        }),
+      { timeout: 90_000, message: `${label}: the live light settles` },
+    )
+    .toBe(true);
   let last = '';
   await expect
     .poll(
