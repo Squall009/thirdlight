@@ -425,11 +425,13 @@ describe('surface cache: addressing per kind', () => {
     const room = blockRoom();
     const tried = new Map<string, number>();
     const wrong = new Map<string, number>();
-    const back = (p: Float32Array): SurfaceTexel | null => {
+    const back = (p: Float32Array): SurfaceTexel | 'hidden' | null => {
       const n: V3 = [p[3]!, p[4]!, p[5]!];
       const o: V3 = [p[0]! + n[0] * 0.05, p[1]! + n[1] * 0.05, p[2]! + n[2] * 0.05];
       // A surfel's point stands off its mesh by about a voxel of the model's field (`SURFEL_LIFT_VOXELS`).
       const hit = traceRayCpu(s, o, [-n[0], -n[1], -n[2]], 0, 0.5);
+      // A face resting on a piece that faces the other way (a wall's foot on its floor) is hidden: the ray meets either.
+      if (hit.kind !== TRACE_MISS && hit.normal[0] * n[0] + hit.normal[1] * n[1] + hit.normal[2] * n[2] < -0.5) return 'hidden';
       return hit.kind === TRACE_MISS ? null : scene.resolve(cache, hit);
     };
     for (const tile of scene.tiles) {
@@ -464,6 +466,7 @@ describe('surface cache: addressing per kind', () => {
           if (at < 0 || !OPAQUE(room.grid.valueOf(at))) continue;
         }
         const got = back(pts);
+        if (got === 'hidden') continue;
         tried.set(t.kind, (tried.get(t.kind) ?? 0) + 1);
         if (got === null || !('page' in got) || got.page !== b.page || got.x !== b.x + place.x + x || got.y !== b.y + place.y + y) wrong.set(t.kind, (wrong.get(t.kind) ?? 0) + 1);
       }

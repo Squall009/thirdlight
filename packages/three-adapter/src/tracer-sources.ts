@@ -4,7 +4,7 @@
  * parameters and a model's distance-field bricks. Nothing is voxelized or
  * resampled here; the tracer reads the cells, samples and pieces as they are.
  */
-import { COLLIDER_3D_LIMITS, architectureColliders, blockTypeSolid, terrainHeightOf, terrainHoleAt, terrainTileKey, type ArchitectureComponent, type BlockCell, type BlockGridReader, type BlockType, type DistanceBricks, type TerrainField } from '@thirdlight/runtime';
+import { COLLIDER_3D_LIMITS, architectureLightBlockers, blockTypeSolid, terrainHeightOf, terrainHoleAt, terrainTileKey, type ArchitectureComponent, type BlockCell, type BlockGridReader, type BlockType, type DistanceBricks, type TerrainField } from '@thirdlight/runtime';
 
 import type { TraceArchitecture, TraceBox, TraceModelInstance } from './tracer-objects';
 import type { Affine, TraceBlockLayer, TraceTerrain } from './tracer-scene';
@@ -81,9 +81,10 @@ export function traceTerrainOf(field: TerrainField, heightRange: readonly number
 
 /**
  * Generated architecture objects (expanded components and their world
- * origins) as boxes and flat triangles: the pieces its colliders are made
- * of (walls with their profile's thickness, cut round openings; stamped
- * pieces; floors and roofs as meshes). Kit copies are models: they are
+ * origins) as boxes and flat triangles: its light blockers, the pieces its
+ * colliders are made of plus those nobody collides with (walls with their
+ * profile's thickness, cut round openings; stamped pieces; floors,
+ * ceilings, vaults and roofs as meshes). Kit copies are models: they are
  * traced by their bricks.
  */
 export function traceArchitectureOf(objects: readonly { component: ArchitectureComponent; origin: readonly number[] }[]): TraceArchitecture {
@@ -91,7 +92,7 @@ export function traceArchitectureOf(objects: readonly { component: ArchitectureC
   const tris: number[] = [];
   for (const { component, origin } of objects) {
     const o = [origin[0] ?? 0, origin[1] ?? 0, origin[2] ?? 0];
-    for (const c of architectureColliders(component, {}, { vertices: COLLIDER_3D_LIMITS.meshVertices, triangles: COLLIDER_3D_LIMITS.meshTriangles })) {
+    for (const c of architectureLightBlockers(component, {}, { vertices: COLLIDER_3D_LIMITS.meshVertices, triangles: COLLIDER_3D_LIMITS.meshTriangles })) {
       if (c.kind === 'box') boxes.push({ center: [o[0]! + c.center[0], o[1]! + c.center[1], o[2]! + c.center[2]], half: c.half, rotation: c.rotation });
       else if (c.kind === 'mesh') {
         for (let i = 0; i + 2 < c.indices.length; i += 3) {

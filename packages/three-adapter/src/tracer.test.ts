@@ -7,8 +7,11 @@
  * from a mesh as an import builds them).
  */
 import { describe, expect, it } from 'vitest';
-import { BlockGrid, TerrainField, buildDistanceBrickSet, buildDistanceBricks, decodeDistanceBricks, encodeDistanceBricks, type ArchitectureComponent, type BlockType, type ModelGeometryPrimitive, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
+import { BlockGrid, TerrainField, architectureStylesOf, buildDistanceBrickSet, expandArchitecture, buildDistanceBricks, decodeDistanceBricks, encodeDistanceBricks, type ArchitectureComponent, type BlockType, type ModelGeometryPrimitive, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
 
+import type { CacheLight } from './surface-changes';
+import { lightFrameCpu } from './surface-light-cpu';
+import { SHADOW_TRACE } from './surface-light-pass';
 import { rayTriangle, traceRayCpu, sceneView, unpackUnorm2, type TraceHit, type V3 } from './tracer-cpu';
 import { opaqueByBlockTypes, traceArchitectureOf, traceBlockLayerOf, traceModelInstancesOf, traceTerrainOf } from './tracer-sources';
 import { TRACE_ARCH, TRACE_BLOCKS, TRACE_BRICKS, TRACE_MISS, TRACE_TERRAIN, TRACE_UNFINISHED, invertAffine, packTraceScene, worldToLocalOf, type TraceSceneSource } from './tracer-scene';
@@ -331,6 +334,35 @@ describe('tracer: generated architecture', () => {
     expect(beside.kind).toBe(TRACE_ARCH);
     expect(beside.t).toBeCloseTo(3 - 0.15, 4);
     expect(beside.normal[2]).toBeCloseTo(-1, 5);
+  });
+
+  it('a closed starter room holds its lamp in: its ceiling stops light though nothing collides with it, and faces the room', () => {
+    const outline = { id: 'r', preset: 'starter-room', path: { points: [[0, 0, 0], [6, 0, 0], [6, 0, 5], [0, 0, 5]] as [number, number, number][], closed: true } };
+    const component = expandArchitecture({ elements: [], outlines: [outline] } as ArchitectureComponent, [0, 0, 0], architectureStylesOf([])).component;
+    const arch = traceArchitectureOf([{ component, origin: [0, 0, 0] }]);
+    const scene = packTraceScene({ arch });
+    // From inside, straight up: the ceiling, wound to face down into the room.
+    const up = traceToEnd({ arch }, [3, 1.5, 2.5], [0, 1, 0], 20).hit;
+    expect(up.kind).toBe(TRACE_ARCH);
+    expect(up.normal[1]).toBeCloseTo(-1, 5);
+    const lamp: CacheLight = { id: 'lamp', kind: 'point', on: true, position: [3, 2, 2.5], direction: [0, -1, 0], color: [20, 20, 20], range: 14, cone: 0, penumbra: 0, shadows: true };
+    const lit = (p: V3, n: V3): number => {
+      const copies = 32;
+      const points = new Float32Array(copies * 6);
+      for (let i = 0; i < copies; i += 1) points.set([...p, ...n], i * 6);
+      const e = lightFrameCpu({ points, slices: [{ texels: copies, lights: [0], sun: false, level: 0 }], lights: [lamp], sun: null }, scene, 3, SHADOW_TRACE);
+      let sum = 0;
+      for (let i = 0; i < copies; i += 1) sum += e[i * 3]!;
+      return sum / copies;
+    };
+    expect(lit([3, 0.05, 2.5], [0, 1, 0])).toBeGreaterThan(0.5);
+    // Above the ceiling looking down at the lamp, and outside each wall looking in: dark.
+    expect(lit([3, 4, 2.5], [0, -1, 0])).toBe(0);
+    expect(lit([2, 6, 1.5], [0, -1, 0])).toBe(0);
+    expect(lit([-1, 1, 2.5], [1, 0, 0])).toBe(0);
+    expect(lit([7, 1, 2.5], [-1, 0, 0])).toBe(0);
+    expect(lit([3, 1, -1], [0, 0, 1])).toBe(0);
+    expect(lit([3, 1, 6], [0, 0, -1])).toBe(0);
   });
 });
 

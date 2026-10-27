@@ -332,6 +332,7 @@ export {
   architectureSheets,
   architectureChunkKeys,
   architectureColliders,
+  architectureLightBlockers,
   architectureCopies,
   architectureFloorTriangles,
   architectureMaterialSlots,

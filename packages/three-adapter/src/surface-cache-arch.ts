@@ -4,7 +4,7 @@
  * openings share their face's plane; a floor's triangles share theirs),
  * laid out on the plane itself and cut into charts of at most
  * `SURFACE_CHART_METRES` a side. The pieces are the ones the tracer meets
- * (`traceArchitectureOf`: its colliders' boxes and flat triangles), so a
+ * (`traceArchitectureOf`: its light blockers' boxes and flat triangles), so a
  * hit's box face or triangle always has a chart.
  *
  * Its render meshes' UVs are trim-sheet UVs that repeat, so they cannot say
@@ -89,6 +89,13 @@ function boxFace(toWorld: readonly number[], face: number): PlanePiece {
   return { o, u, v, n };
 }
 
+/** World x laid on the plane of normal `n` (world z where the plane faces x). */
+function planeAxis(n: V3): V3 {
+  const w: V3 = Math.abs(n[0]) < 0.9 ? [1, 0, 0] : [0, 0, 1];
+  const d = dot(w, n);
+  return unit([w[0] - n[0] * d, w[1] - n[1] * d, w[2] - n[2] * d]);
+}
+
 /** An object's charts from the pieces the tracer meets. */
 export function architectureCharts(arch: TraceArchitecture): ArchitectureCharts {
   const pieces: PlanePiece[] = [];
@@ -112,7 +119,9 @@ export function architectureCharts(arch: TraceArchitecture): ArchitectureCharts 
     const key = `${Math.round(p.n[0] * 1000)},${Math.round(p.n[1] * 1000)},${Math.round(p.n[2] * 1000)},${Math.round(dot(p.n, p.o) / PLANE_TOLERANCE)}`;
     let pl = planes.get(key);
     if (pl === undefined) {
-      const uAxis = unit(p.u);
+      // A box face's edge, or for a plane first met as a triangle (floors, ceilings) a world axis along the plane:
+      // a triangle's own edge may run diagonally, and the rectangle round its pieces would then hold twice their area.
+      const uAxis = i < maps.length * 6 ? unit(p.u) : planeAxis(p.n);
       planes.set(key, (pl = { origin: p.o, uAxis, vAxis: cross(p.n, uAxis), members: [] }));
     }
     const isTri = i >= maps.length * 6;

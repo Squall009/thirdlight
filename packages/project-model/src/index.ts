@@ -1541,6 +1541,7 @@ export {
   architectureChunkKeys,
   architectureChunks,
   architectureColliders,
+  architectureLightBlockers,
   architectureCopies,
   architectureFloorTriangles,
   generateArchitecture,

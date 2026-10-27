@@ -995,12 +995,29 @@ function meshColliders(id: string, pos: ArrayLike<number>, idx: ArrayLike<number
  * the kit copies whose models carry their own colliders.
  */
 export function architectureColliders(c: ArchitectureComponent, sheets: ArchitectureSheets, bounds: ArchitectureMeshBounds): ArchitectureCollider[] {
+  return architecturePieces(c, sheets, bounds, false);
+}
+
+/**
+ * The pieces of a component that stop light (object frame): the same boxes
+ * and meshes as its colliders, but every element that is not detail, whether
+ * or not it collides — a ceiling or roof nobody walks on still closes its
+ * room — and flat surfaces wound to face the way they are drawn (the light
+ * cache reads a flat piece on the side its winding faces). Panes and kit
+ * copies are left out as for colliders: glass lets light through, and kit
+ * models are traced by their own distance bricks.
+ */
+export function architectureLightBlockers(c: ArchitectureComponent, sheets: ArchitectureSheets, bounds: ArchitectureMeshBounds): ArchitectureCollider[] {
+  return architecturePieces(c, sheets, bounds, true);
+}
+
+function architecturePieces(c: ArchitectureComponent, sheets: ArchitectureSheets, bounds: ArchitectureMeshBounds, light: boolean): ArchitectureCollider[] {
   const st = jobState(c, sheets);
   const out: ArchitectureCollider[] = [];
   const all = (): boolean => true;
   for (const e of c.elements) {
     const s = samplesOf(st, e);
-    const collide = e.collide ?? e.detail !== true;
+    const collide = light ? e.detail !== true : (e.collide ?? e.detail !== true);
     if (e.kind === 'sweep' && collide && e.stepped === true) {
       const def = c.profiles?.[e.profile];
       if (def !== undefined) steppedColliders(e, def, s, out);
@@ -1056,11 +1073,11 @@ export function architectureColliders(c: ArchitectureComponent, sheets: Architec
           }
         }
       }
-    } else if (e.kind === 'fill' && (e.collide ?? (e.shape === 'flat' && (e.face ?? 'up') === 'up'))) {
+    } else if (e.kind === 'fill' && (light ? collide : (e.collide ?? (e.shape === 'flat' && (e.face ?? 'up') === 'up')))) {
       if (e.shape === 'flat' || e.shape === 'coffered') {
         const outline = fillPolygon(e, s);
         const y = fillBaseY(s) + (e.height ?? 0);
-        const tri = triangulatePolygon(outline);
+        const tri = light ? woundTo(outline, triangulatePolygon(outline), (e.face ?? (e.shape === 'flat' ? 'up' : 'down')) === 'up') : triangulatePolygon(outline);
         const pos: number[] = [];
         for (let i = 0; i < outline.length; i += 2) pos.push(outline[i]!, y, outline[i + 1]!);
         meshColliders(e.id, pos, tri, bounds, out);
@@ -1099,6 +1116,18 @@ export function architectureColliders(c: ArchitectureComponent, sheets: Architec
         out.push({ id, kind: 'model', model: set.model, position: [f[0]!, f[1]!, f[2]!], rotation: [f[3]!, f[4]!, f[5]!, f[6]!], scale: [f[7]!, f[8]!, f[9]!] });
       });
     }
+  }
+  return out;
+}
+
+/** An outline's triangles (pairs of x, z) wound counter-clockwise seen from above when `up`, else from below. */
+function woundTo(outline: readonly number[], tri: readonly number[], up: boolean): number[] {
+  const out: number[] = [];
+  for (let k = 0; k + 2 < tri.length; k += 3) {
+    const [a, b, d] = [tri[k]!, tri[k + 1]!, tri[k + 2]!];
+    // (b - a) × (d - a) has a positive y when the triangle faces up (x, z of the outline's pairs).
+    const facesUp = (outline[d * 2]! - outline[a * 2]!) * (outline[b * 2 + 1]! - outline[a * 2 + 1]!) - (outline[b * 2]! - outline[a * 2]!) * (outline[d * 2 + 1]! - outline[a * 2 + 1]!) > 0;
+    out.push(...(facesUp === up ? [a, b, d] : [a, d, b]));
   }
   return out;
 }
@@ -1153,13 +1182,7 @@ export function architectureFloorTriangles(c: ArchitectureComponent): Float32Arr
     const s = samplesOf(st, e);
     const outline = fillPolygon(e, s);
     const y = fillBaseY(s) + (e.height ?? 0);
-    const tri = triangulatePolygon(outline);
-    for (let k = 0; k + 2 < tri.length; k += 3) {
-      const [a, b, d] = [tri[k]!, tri[k + 1]!, tri[k + 2]!];
-      // Counter-clockwise seen from above: (b - a) × (d - a) has a positive y (x, z of the outline's pairs).
-      const up = (outline[d * 2]! - outline[a * 2]!) * (outline[b * 2 + 1]! - outline[a * 2 + 1]!) - (outline[b * 2]! - outline[a * 2]!) * (outline[d * 2 + 1]! - outline[a * 2 + 1]!) > 0;
-      for (const i of up ? [a, b, d] : [a, d, b]) out.push(outline[i * 2]!, y, outline[i * 2 + 1]!);
-    }
+    for (const i of woundTo(outline, triangulatePolygon(outline), true)) out.push(outline[i * 2]!, y, outline[i * 2 + 1]!);
   }
   return Float32Array.from(out);
 }
