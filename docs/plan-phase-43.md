@@ -30,19 +30,23 @@ lifts the 16 local lights drawn per pixel (`MAX_LOCAL_LIGHTS`,
 - **Performance** is measured at the 60 Hz cap on the Iris Xe: village,
   landscape and the interior class.
 
-Owner to decide (default used if the phase starts without an answer):
-
-- **WebGL 2.** Light lists can live in data textures read with `texelFetch`.
-  - Default: WebGL 2 gets the same clustered lists through data textures, so
-    one light path serves both renderers. The shadow atlas is shared.
-  - Alternative: WebGL 2 keeps today's 16-light path.
+- **One light path for both renderers** (owner, 2026-10-27). The light
+  lists live in data textures read with `texelFetch`, and the shadow atlas
+  is shared. WebGL 2 does not keep the 16-light per-pixel path as a
+  fallback: one renderer path to maintain, and players are expected to have
+  a GPU or iGPU with WebGPU.
+- **Cluster lists built one way for both backends** (owner, 2026-10-27),
+  e.g. on the CPU, which is cheap for a few hundred lights over a froxel
+  grid. A WebGPU compute build is taken only if measured clearly faster, and
+  then it must produce the same packed lists, so the shading code stays one
+  path.
 
 ## 2. Items (outline; the phase's first item turns them into a full plan)
 
 | Item | What |
 |---|---|
 | 43.0 | Release check (three.js) and a baseline: village, landscape, interior at the cap on both renderers, local lights per scene, GPU ms per pass. |
-| 43.1 | Cluster grid and light lists: a froxel grid at the render scale; point, spot (cone) and area (box) tests; lists packed for both renderers. |
+| 43.1 | Cluster grid and light lists: a froxel grid at the render scale; point, spot (cone) and area (box) tests; the lists built one way for both backends (on the CPU by default; a compute build only if measured clearly faster, producing the same packed lists) and read from data textures with `texelFetch`. |
 | 43.2 | The light loop: every lit material kind reads its cluster's list; area-light highlights with the same maths as 42.7b; cache-lit static surfaces keep only highlights. |
 | 43.3 | Shadow atlas: one depth texture, ranking by screen size and distance, per-tier budget, point lights as 6 faces, unshadowed fallback. |
 | 43.4 | `MAX_LOCAL_LIGHTS` retired as a per-pixel cap (D204); the build's Problems line goes. |
@@ -60,3 +64,8 @@ Owner to decide (default used if the phase starts without an answer):
 - 2026-10-26 (owner, relayed from session thirdlight-45): clustered lighting
   becomes its own phase after 42. The 2026-10-22 decision had made it "its
   own item inside 42", but no 42.x item was ever added.
+- 2026-10-27 (owner, relayed from session thirdlight-d0): WebGL 2 gets the
+  same clustered path (data textures, `texelFetch`, shared shadow atlas); the
+  16-light per-pixel path is not kept as a fallback. Cluster lists are built
+  one way for both backends (CPU by default); a compute build must produce
+  the same packed lists.
