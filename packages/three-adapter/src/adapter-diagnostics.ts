@@ -56,7 +56,11 @@ export function adapterDiagnostics(p: AdapterParts, frame: AdapterFrame): SceneA
   const env = p.environment.renderer;
   const envDiagnostics = env !== null && !disposed ? env.diagnostics() : null;
   if (envDiagnostics !== null) d.environment = envDiagnostics;
-  if (!disposed && frame.drawn) d.render = { ...p.renderControl.diagnostics(), internal: envDiagnostics?.render.internal ?? null };
+  if (!disposed && frame.drawn) {
+    const r = envDiagnostics?.render;
+    // The temporal upscale stands in for the render control's upscale filter where it draws.
+    d.render = { ...p.renderControl.diagnostics(), ...(r?.upscale === 'taau' ? { upscale: 'taau' as const } : {}), internal: r?.internal ?? null, taauHolding: r?.taauHolding ?? null };
+  }
   if (!disposed) d.quality = { ...p.qualityControl.diagnostics(), ...(lit.shadowMapSize !== undefined ? { keyShadowMapSize: lit.shadowMapSize } : {}) };
   const probeState = disposed ? null : p.probes.observe();
   if (probeState !== null) d.probes = probeState;

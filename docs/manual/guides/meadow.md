@@ -116,7 +116,8 @@ To stay inside it:
 - Keep the material's `windDistance` (the template's 40 m): far grass skips
   the wind's work.
 - Smooth edges with **SMAA** (Window → Environment, **Anti-aliasing**; the 3D
-  starter's scene already does). A scene without post effects draws with
+  starter's scene already does); the engine's medium and high quality levels
+  draw it as temporal upscaling on WebGPU, which keeps thin blades steady. A scene without post effects draws with
   4× MSAA, which the thin blades make about 5 ms of GPU time a frame dearer:
   past a 60 Hz frame on WebGL 2 on an integrated GPU, where walking through
   the grass then drops frames.

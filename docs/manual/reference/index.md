@@ -27,10 +27,10 @@ What the engine offers, generated from its source: the objects, components and c
 | [UI documents](ui.md) | UI document, Widget, Style, Tween |
 | [Command ops](ops.md) | The request, Every op |
 | [Command op arguments](ops-detail.md) | 87 sections |
-| [Types (AcknowledgeBehaviorTrustArgs to CursorMode)](types-a-c.md) | 74 sections |
-| [Types (DecalCellRef to PackedChannel)](types-d-p.md) | 94 sections |
-| [Types (PackedFrom to TrimCell)](types-p-t.md) | 99 sections |
-| [Types (TrimRow to WindOctave)](types-t-w.md) | 32 sections |
+| [Types (AcknowledgeBehaviorTrustArgs to CreatePrefabArgs)](types-a-c.md) | 74 sections |
+| [Types (CreatePrefabVariantArgs to PackedChannel)](types-c-p.md) | 96 sections |
+| [Types (PackedFrom to TimelineValue)](types-p-t.md) | 98 sections |
+| [Types (TrimCell to WindOctave)](types-t-w.md) | 33 sections |
 | [Script API](script-api.md) | What a script exports, The context (`ctx`), Context members in full, `BehaviorPrepareConfig`, `BehaviorInstanceInfo` |
 | [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 21 sections |
 | [Script API types (from `BehaviorMessages`)](script-types-behavior-messages.md) | 21 sections |

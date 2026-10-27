@@ -141,13 +141,15 @@ export interface QualityLevelConfig {
  * The engine's levels, for a project that lists none: low draws no bloom,
  * ambient occlusion, depth of field or anti-aliasing (no MSAA either);
  * medium drops ambient occlusion and depth of field; high draws the look as
- * authored. The surface cache holds 32, 64 and 128 MiB; low draws no
+ * authored. Medium and high anti-alias with temporal upscaling where the look
+ * anti-aliases (`ANTIALIAS_KINDS`: SMAA in its place on WebGL 2 and in the
+ * editor's Scene view). The surface cache holds 32, 64 and 128 MiB; low draws no
  * contact shadows and no reflections.
  */
 export const DEFAULT_QUALITY_LEVELS: readonly Readonly<QualityLevelConfig>[] = Object.freeze([
   Object.freeze({ id: 'low', name: 'Low', post: { bloom: { enabled: false }, ssao: { enabled: false }, dof: { enabled: false }, antialias: 'none' as const }, msaa: 0 as const, surfaceCacheMiB: 32, surfaceLightMs: 0, contactShadows: false, reflections: 'off' as const }),
-  Object.freeze({ id: 'medium', name: 'Medium', post: { ssao: { enabled: false }, dof: { enabled: false } }, surfaceCacheMiB: DEFAULT_SURFACE_CACHE_MIB, surfaceLightMs: DEFAULT_SURFACE_LIGHT_MS, contactShadows: true, reflections: 'medium' as const }),
-  Object.freeze({ id: 'high', name: 'High', surfaceCacheMiB: 128, surfaceLightMs: 3, contactShadows: true, reflections: 'high' as const }),
+  Object.freeze({ id: 'medium', name: 'Medium', post: { ssao: { enabled: false }, dof: { enabled: false }, antialias: 'taau' as const }, surfaceCacheMiB: DEFAULT_SURFACE_CACHE_MIB, surfaceLightMs: DEFAULT_SURFACE_LIGHT_MS, contactShadows: true, reflections: 'medium' as const }),
+  Object.freeze({ id: 'high', name: 'High', post: { antialias: 'taau' as const }, surfaceCacheMiB: 128, surfaceLightMs: 3, contactShadows: true, reflections: 'high' as const }),
 ]);
 
 /** The project's levels (the engine's when it lists none). */

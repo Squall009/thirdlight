@@ -1,4 +1,4 @@
-# Types (AcknowledgeBehaviorTrustArgs to CursorMode)
+# Types (AcknowledgeBehaviorTrustArgs to CreatePrefabArgs)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -324,6 +324,29 @@ interface AnimatorTransition {
   /** "source": a newer transition from the current state may cut in during the crossfade. */
   interruption?: 'none' | 'source';
 }
+```
+
+<a id="type-antialias-kinds"></a>
+### ANTIALIAS_KINDS
+
+Declared in `packages/project-model/src/materials.ts`.
+
+```ts
+/**
+ * The anti-aliasing kinds a look draws with: none (MSAA only), FXAA, SMAA,
+ * or temporal upscaling (`taau`: anti-aliased and upscaled from the render
+ * scale over frames; where a view cannot run it, SMAA).
+ */
+const ANTIALIAS_KINDS: readonly ["none", "fxaa", "smaa", "taau"];
+```
+
+<a id="type-antialias-kind"></a>
+### AntialiasKind
+
+Declared in `packages/project-model/src/materials.ts`.
+
+```ts
+type AntialiasKind = (typeof ANTIALIAS_KINDS)[number];
 ```
 
 <a id="type-apply-surface-preset-args"></a>
@@ -1398,28 +1421,4 @@ interface CreatePrefabArgs {
   /** Existing entity ID in the current scene. */
   sourceEntityId: string;
 }
-```
-
-<a id="type-create-prefab-variant-args"></a>
-### CreatePrefabVariantArgs
-
-Declared in `packages/commands/src/prefab-link-types.ts`.
-
-```ts
-/** `createPrefabVariant`: a new prefab made of one linked copy of `basePrefabId`. */
-interface CreatePrefabVariantArgs {
-  basePrefabId: string;
-  prefabId: string;
-  displayName: string;
-}
-```
-
-<a id="type-cursor-mode"></a>
-### CursorMode
-
-Declared in `packages/project-model/src/input.ts`.
-
-```ts
-/** The cursor while a map is active — free (visible, moves) or locked (hidden, held in the view; the movement still counts). */
-type CursorMode = 'free' | 'locked';
 ```

@@ -1,8 +1,23 @@
-# Types (TrimRow to WindOctave)
+# Types (TrimCell to WindOctave)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-trim-cell"></a>
+### TrimCell
+
+Declared in `packages/project-model/src/trim-sheet.ts`.
+
+```ts
+/** A decal cell's place on the sheet: a named rectangle in pixels, [x, y] its top-left corner counted from the image's top-left. */
+interface TrimCell {
+  /** The cell's name (an id), unique among the sheet's cells; decal materials name it. */
+  name: string;
+  /** [x, y, width, height] in pixels, inside the sheet. */
+  rect: [number, number, number, number];
+}
+```
 
 <a id="type-trim-row"></a>
 ### TrimRow

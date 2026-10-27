@@ -96,7 +96,7 @@ in this browser; every setting and key is on one page:
 as one command when you release.
 
 **API:** [`editTerrain`](../reference/ops-detail.md#op-editTerrain)
-([`EditTerrainArgs`](../reference/types-d-p.md#type-edit-terrain-args)),
+([`EditTerrainArgs`](../reference/types-c-p.md#type-edit-terrain-args)),
 points in world metres:
 
 ```json

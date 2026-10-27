@@ -275,6 +275,7 @@ export { alignedSkyRotation, applySkyRotation, azimuthDeg, cubePixelDirection, e
 // Ambient occlusion on the indirect light, render scale with FSR 1 upscaling, dynamic resolution.
 export { AO_RESOLUTION_SCALE } from './post-ao';
 export { FSR_SHARPNESS, UPSCALE_URL_PARAM, upscaleFilterFromUrl, type UpscaleFilter } from './post-upscale';
+export { TAAU_URL_PARAM, taauFlag, type TaauFlag } from './post-taau';
 export { DynamicResolution, SLOW_FRAMES_URL_PARAM, slowFramesFromUrl, type DynamicResolutionFrame, type DynamicResolutionState } from './dynamic-resolution';
 export { createRenderControl, RENDER_URL_PARAMS, renderSettingsFromUrl, type RenderControl, type RenderControlDiagnostics, type RenderControlOptions, type RenderSettingsLike } from './render-control';
 export { createQualityControl, QUALITY_URL_PARAM, qualityFromUrl, type QualityControl, type QualityDiagnostics, type QualityProjectLike } from './quality-control';

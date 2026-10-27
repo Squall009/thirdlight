@@ -7,7 +7,7 @@
  * renderer and game mode, clearing the Play save).
  */
 import { useCallback, useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
-import { BATCHING_URL_PARAM, batchingFromUrl, OCCLUSION_URL_PARAM, occlusionFromUrl, PORTALS_URL_PARAM, portalsFromUrl, BUILD_KEEP_URL_PARAM, buildKeepFromUrl, MERGING_URL_PARAM, RELEASED_BUILD_KEEP_MS, mergingFromUrl, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, RENDER_URL_PARAMS, renderSettingsFromUrl, SHADOW_CACHE_URL_PARAM, shadowCacheFromUrl, SLOW_FRAMES_URL_PARAM, slowFramesFromUrl, UPSCALE_URL_PARAM, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
+import { BATCHING_URL_PARAM, batchingFromUrl, OCCLUSION_URL_PARAM, occlusionFromUrl, PORTALS_URL_PARAM, portalsFromUrl, BUILD_KEEP_URL_PARAM, buildKeepFromUrl, MERGING_URL_PARAM, RELEASED_BUILD_KEEP_MS, mergingFromUrl, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, RENDER_URL_PARAMS, renderSettingsFromUrl, SHADOW_CACHE_URL_PARAM, shadowCacheFromUrl, SLOW_FRAMES_URL_PARAM, slowFramesFromUrl, UPSCALE_URL_PARAM, upscaleFilterFromUrl, TAAU_URL_PARAM, taauFlag } from '@thirdlight/three-adapter';
 import { FRAME_RATE_CAP_URL_PARAM, frameRateCapFromUrl, SIM_DELAY_URL_PARAM, simDelayFromUrl } from '@thirdlight/runtime';
 import type { readEditorConfig } from '../../config';
 import type { SessionClient } from '../../session/client';
@@ -392,5 +392,6 @@ function cullingFlags(search: string): string {
 /** The page's render-setting flags (`?ao=`, `?renderScale=`, `?dynamicResolution=`) as Play's query part. */
 function renderFlags(search: string): string {
   const pinned = renderSettingsFromUrl(search);
-  return `${pinned.ambientOcclusion !== undefined ? `&${RENDER_URL_PARAMS.ao}=${pinned.ambientOcclusion}` : ''}${pinned.renderScale !== undefined ? `&${RENDER_URL_PARAMS.renderScale}=${pinned.renderScale}` : ''}${pinned.dynamicResolution !== undefined ? `&${RENDER_URL_PARAMS.dynamicResolution}=${pinned.dynamicResolution ? 'on' : 'off'}` : ''}`;
+  const taau = taauFlag(search);
+  return `${taau !== null ? `&${TAAU_URL_PARAM}=${taau}` : ''}${pinned.ambientOcclusion !== undefined ? `&${RENDER_URL_PARAMS.ao}=${pinned.ambientOcclusion}` : ''}${pinned.renderScale !== undefined ? `&${RENDER_URL_PARAMS.renderScale}=${pinned.renderScale}` : ''}${pinned.dynamicResolution !== undefined ? `&${RENDER_URL_PARAMS.dynamicResolution}=${pinned.dynamicResolution ? 'on' : 'off'}` : ''}`;
 }

@@ -20,7 +20,7 @@ The quality levels, the default level and the environment presets (each scene ha
 | `qualityLevels[].id` | string, 1–32 chars |  |  | **Id.** Named by environment.quality, a player's setting and game-control setQuality. (required) |
 | `qualityLevels[].name` | string, 1–64 chars |  |  | **Name.** Shown to players (absent: the id). |
 | `qualityLevels[].post` | object |  |  | **Post-processing.** Per effect, what this level changes where the look has it on; Off turns it off (never on). |
-| `qualityLevels[].post.antialias` | enum: `none`, `fxaa`, `smaa` | `"none"` |  | **Anti-aliasing.** Smooths jagged edges. |
+| `qualityLevels[].post.antialias` | enum: `none`, `fxaa`, `smaa`, `taau` | `"none"` |  | **Anti-aliasing.** Smooths jagged edges. Temporal upscaling also draws a render scale below 1 at the full resolution. (choices: `none` = None, `fxaa` = FXAA, `smaa` = SMAA, `taau` = Temporal upscaling (TAAU)) |
 | `qualityLevels[].post.bloom` | object |  |  | **Bloom.** Bright parts glow. |
 | `qualityLevels[].post.bloom.enabled` | bool | `true` |  | **On.** Off: off at this level. |
 | `qualityLevels[].post.bloom.strength` | number | `0.6` | 0 – 3, step 0.05 | **Strength.** Glow strength. |
@@ -91,7 +91,7 @@ The quality levels, the default level and the environment presets (each scene ha
 | `presets[].post` | object |  |  | **Post-processing.** Tone mapping, exposure and screen effects. |
 | `presets[].post.toneMapping` | enum: `none`, `aces`, `agx`, `neutral` | `"agx"` |  | **Tone mapping.** How bright colours are mapped to the screen. |
 | `presets[].post.exposure` | number | `1` | 0 – 8, step 0.05 | **Exposure.** Overall brightness. |
-| `presets[].post.antialias` | enum: `none`, `fxaa`, `smaa` | `"none"` |  | **Anti-aliasing.** Smooths jagged edges. |
+| `presets[].post.antialias` | enum: `none`, `fxaa`, `smaa`, `taau` | `"none"` |  | **Anti-aliasing.** Smooths jagged edges. Temporal upscaling also draws a render scale below 1 at the full resolution. (choices: `none` = None, `fxaa` = FXAA, `smaa` = SMAA, `taau` = Temporal upscaling (TAAU)) |
 | `presets[].post.bloom` | object |  |  | **Bloom.** Bright parts glow. |
 | `presets[].post.bloom.enabled` | bool | `true` |  | **On.** Turns bloom on. (required) |
 | `presets[].post.bloom.strength` | number | `0.6` | 0 – 3, step 0.05 | **Strength.** Glow strength. |

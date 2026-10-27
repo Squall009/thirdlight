@@ -33,7 +33,7 @@ describe('quality levels', () => {
     expect(qualityLevelOf(own, 'low').id).toBe('ultra');
   });
 
-  it('the engine\'s levels draw as the fixed profile did: low no bloom/AO/DOF/AA, medium no AO/DOF, high the look', () => {
+  it('the engine\'s levels draw as the fixed profile did: low no bloom/AO/DOF/AA, medium no AO/DOF, high the look; medium and high anti-alias by temporal upscaling', () => {
     const [low, medium, high] = DEFAULT_QUALITY_LEVELS;
     const atLow = levelPost(LOOK, low!.post)!;
     expect(atLow.bloom?.enabled).toBe(false);
@@ -43,10 +43,11 @@ describe('quality levels', () => {
     const atMedium = levelPost(LOOK, medium!.post)!;
     expect(atMedium.bloom).toEqual(LOOK.bloom);
     expect(atMedium.ssao?.enabled).toBe(false);
-    expect(atMedium.antialias).toBe('smaa');
+    expect(atMedium.antialias).toBe('taau');
     expect(medium!.msaa).toBeUndefined();
-    // High changes nothing: the look's own object.
-    expect(levelPost(LOOK, high!.post)).toBe(LOOK);
+    // High draws the look but anti-aliases by temporal upscaling; a look without anti-aliasing keeps none.
+    expect(levelPost(LOOK, high!.post)).toEqual({ ...LOOK, antialias: 'taau' });
+    expect(levelPost({ ...LOOK, antialias: 'none' }, high!.post)!.antialias).toBe('none');
   });
 
   it('a level lays its effect fields over the look\'s where the look has the effect on, and never turns one on', () => {

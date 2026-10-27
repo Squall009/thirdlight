@@ -37,7 +37,7 @@ import { SCRIPT_LIBRARY_LIMITS } from './script-libraries';
 import { BLOCK_LIMITS, BLOCK_UV_MODES } from './block-layers';
 import { BLOCK_CONNECT_WITH_MAX } from './block-connect';
 import { KIT_LIMITS, KIT_STANDARD_SLOTS } from './kits';
-import { DEFAULT_WIND, HEIGHT_FOG_DEFAULTS, HEIGHT_FOG_LIMITS, SKY_CLOUD_DEFAULTS, SKY_CLOUD_TIME_MAX, SKY_ROTATION_MAX, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS, MATERIAL_LAYER_NAME_MAX, type MaterialParamType } from './materials';
+import { ANTIALIAS_KINDS, DEFAULT_WIND, HEIGHT_FOG_DEFAULTS, HEIGHT_FOG_LIMITS, SKY_CLOUD_DEFAULTS, SKY_CLOUD_TIME_MAX, SKY_ROTATION_MAX, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS, MATERIAL_LAYER_NAME_MAX, type MaterialParamType } from './materials';
 import { MATERIAL_DATA_MAX, MATERIAL_PARAMETER_TYPES } from './material-graph-kinds';
 import { TRIM_DENSITY_MAX, TRIM_DENSITY_MIN, TRIM_PADDING_MAX, TRIM_SHEET_DEFAULTS, TRIM_SHEET_SIZE_MAX, TRIM_STARTER_LAYOUT } from './trim-sheet';
 import { MODE_LIMITS } from './modes';
@@ -126,7 +126,7 @@ const effect = (key: string, label: string, tooltip: string, fields: readonly Fi
 const POST = obj('post', 'Post-processing', 'Tone mapping, exposure and screen effects.', [
   enm('toneMapping', 'Tone mapping', 'How bright colours are mapped to the screen.', ['none', 'aces', 'agx', 'neutral'], { default: 'agx', labels: { aces: 'ACES', agx: 'AgX' } }),
   num('exposure', 'Exposure', 'Overall brightness.', { min: 0, max: 8, step: 0.05, default: 1 }),
-  enm('antialias', 'Anti-aliasing', 'Smooths jagged edges.', ['none', 'fxaa', 'smaa'], { default: 'none', labels: { fxaa: 'FXAA', smaa: 'SMAA' } }),
+  enm('antialias', 'Anti-aliasing', 'Smooths jagged edges. Temporal upscaling also draws a render scale below 1 at the full resolution.', [...ANTIALIAS_KINDS], { default: 'none', labels: { fxaa: 'FXAA', smaa: 'SMAA', taau: 'Temporal upscaling (TAAU)' } }),
   effect('bloom', 'Bloom', 'Bright parts glow.', [
     num('strength', 'Strength', 'Glow strength.', { min: 0, max: 3, step: 0.05, default: 0.6 }),
     num('radius', 'Radius', 'Glow spread.', { min: 0, max: 1, step: 0.05, default: 0.4 }),

@@ -151,7 +151,8 @@ export function createRenderControl(opts: RenderControlOptions = {}): RenderCont
       if (env === applied && !dirty) return;
       applied = env;
       dirty = false;
-      env.setRender({ ao, scale: scaleNow(), dynamic, upscale });
+      // The editor's Scene view draws on demand: no temporal upscale there (it needs frame after frame).
+      env.setRender({ ao, scale: scaleNow(), dynamic, upscale, temporal: opts.fixedScale !== true });
     },
     occlusionCulling: () => resolved().occlusionCulling ?? OCCLUSION_CULLING_DEFAULT,
     frameDrawn(env, now, cpuMs, gpu) {

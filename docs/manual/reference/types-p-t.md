@@ -1,4 +1,4 @@
-# Types (PackedFrom to TrimCell)
+# Types (PackedFrom to TimelineValue)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -219,7 +219,8 @@ interface PostConfig {
   vignette?: { enabled: boolean; darkness?: number; offset?: number };
   ssao?: { enabled: boolean; radius?: number; intensity?: number };
   dof?: { enabled: boolean; focus?: number; aperture?: number; maxBlur?: number };
-  antialias?: 'none' | 'fxaa' | 'smaa';
+  /** `taau`: temporal upscaling (WebGPU in Play and exports; SMAA in its place elsewhere). */
+  antialias?: AntialiasKind;
 }
 ```
 
@@ -1619,19 +1620,4 @@ Declared in `packages/project-model/src/timelines.ts`.
 
 ```ts
 type TimelineValue = number | number[] | string;
-```
-
-<a id="type-trim-cell"></a>
-### TrimCell
-
-Declared in `packages/project-model/src/trim-sheet.ts`.
-
-```ts
-/** A decal cell's place on the sheet: a named rectangle in pixels, [x, y] its top-left corner counted from the image's top-left. */
-interface TrimCell {
-  /** The cell's name (an id), unique among the sheet's cells; decal materials name it. */
-  name: string;
-  /** [x, y, width, height] in pixels, inside the sheet. */
-  rect: [number, number, number, number];
-}
 ```

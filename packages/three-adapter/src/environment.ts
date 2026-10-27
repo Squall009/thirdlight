@@ -43,6 +43,7 @@ import { ContactShadowsLight } from './post-contact-shadows';
 import { ReflectionsLight, reflectionsFlag, type ReflectionStats } from './post-reflections';
 import { pageSearch } from './renderer-factory';
 import type { UpscaleFilter } from './post-upscale';
+import { taauFlag, type TaauFlag } from './post-taau';
 import type { ScenePasses } from './occlusion-passes';
 import { applySkyRotation, skyRotationRadians } from './sky-rotation';
 import { createHeightFog, type HeightFogLike } from './height-fog';
@@ -89,7 +90,7 @@ export interface PostLike {
   readonly vignette?: { readonly enabled: boolean; readonly darkness?: number; readonly offset?: number };
   readonly ssao?: { readonly enabled: boolean; readonly radius?: number; readonly intensity?: number };
   readonly dof?: { readonly enabled: boolean; readonly focus?: number; readonly aperture?: number; readonly maxBlur?: number };
-  readonly antialias?: 'none' | 'fxaa' | 'smaa';
+  readonly antialias?: 'none' | 'fxaa' | 'smaa' | 'taau';
 }
 export interface EnvironmentLike {
   readonly sky?: SkyLike;
@@ -208,8 +209,14 @@ export interface RenderOptions {
   readonly scale: number;
   readonly dynamic: boolean;
   readonly upscale: UpscaleFilter;
+  /**
+   * The view draws frame after frame (Play, an export), so the temporal
+   * upscale can run where the look asks for it; a view drawn on demand (the
+   * editor's Scene view, previews) draws SMAA in its place.
+   */
+  readonly temporal: boolean;
 }
-export const RENDER_OPTIONS_DEFAULT: RenderOptions = Object.freeze({ ao: AMBIENT_OCCLUSION_DEFAULT, scale: 1, dynamic: false, upscale: 'fsr1' });
+export const RENDER_OPTIONS_DEFAULT: RenderOptions = Object.freeze({ ao: AMBIENT_OCCLUSION_DEFAULT, scale: 1, dynamic: false, upscale: 'fsr1', temporal: false });
 
 export interface EnvironmentRendererOptions {
   loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
@@ -256,7 +263,7 @@ export interface EnvironmentRenderer {
   /** Canvas size in CSS pixels. */
   resize(width: number, height: number): void;
   /** `samples` = the MSAA samples the scene is drawn with (0: none — a level without MSAA, or a post stack with its own anti-aliasing). */
-  diagnostics(): { post: boolean; passes: string[]; fallback: string | null; quality: QualityLevel; samples: number; iblRebakes: number; render: { ao: RenderOptions['ao']; scale: number; dynamic: boolean; upscale: UpscaleFilter | null; internal: [number, number] | null }; reflections: ReflectionStats | null };
+  diagnostics(): { post: boolean; passes: string[]; fallback: string | null; quality: QualityLevel; samples: number; iblRebakes: number; render: { ao: RenderOptions['ao']; scale: number; dynamic: boolean; upscale: UpscaleFilter | 'taau' | null; internal: [number, number] | null; taauHolding: boolean | null }; reflections: ReflectionStats | null };
   /** The MSAA samples of the last frame path (allocation-free, for a per-frame read). */
   samples(): number;
   dispose(): void;
@@ -370,6 +377,27 @@ function reflectionsWanted(renderer: WebGPURenderer, level: QualityLevelConfig):
   const q = level.reflections ?? DEFAULT_REFLECTIONS;
   const webgpu = (renderer as unknown as { backend?: { isWebGPUBackend?: boolean } }).backend?.isWebGPUBackend === true;
   return q === 'off' || !webgpu || reflectionsFromUrl() === 'off' ? null : q;
+}
+
+/** Whether a stack drawn with `o` has the upscale stage (below scale 1, or under dynamic resolution). */
+const upscaled = (o: RenderOptions): boolean => o.scale < 1 || o.dynamic;
+
+let taauUrl: TaauFlag | undefined;
+/** `?taau=0` (SMAA in its place) or `?taau=motion` (the motion vectors shown). */
+function taauFromUrl(): TaauFlag {
+  if (taauUrl === undefined) taauUrl = taauFlag(pageSearch());
+  return taauUrl;
+}
+
+/**
+ * The anti-aliasing a look's kind draws as on this renderer: the temporal
+ * upscale only on WebGPU and in a view drawn frame after frame; SMAA in its
+ * place elsewhere (WebGL 2 keeps today's anti-aliasing).
+ */
+function drawnAntialias(aa: NonNullable<PostLike['antialias']>, renderer: WebGPURenderer, temporal: boolean): 'none' | 'fxaa' | 'smaa' | 'taau' {
+  if (aa !== 'taau') return aa;
+  const webgpu = (renderer as unknown as { backend?: { isWebGPUBackend?: boolean } }).backend?.isWebGPUBackend === true;
+  return webgpu && temporal && taauFromUrl() !== 'off' ? 'taau' : 'smaa';
 }
 
 let contactOff: boolean | null = null;
@@ -872,7 +900,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
   };
 
   // ---- post ----------------------------------------------------------------------
-  const wanted = (): { bloom: boolean; ssao: boolean; dof: boolean; fogVolumes: boolean; grading: boolean; aa: 'none' | 'fxaa' | 'smaa'; contact: boolean; reflections: 'medium' | 'high' | null; traced: boolean } => {
+  const wanted = (): { bloom: boolean; ssao: boolean; dof: boolean; fogVolumes: boolean; grading: boolean; aa: 'none' | 'fxaa' | 'smaa' | 'taau'; contact: boolean; reflections: 'medium' | 'high' | null; traced: boolean } => {
     const p = postNow();
     const g = p?.grading;
     return {
@@ -881,7 +909,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       dof: p?.dof?.enabled === true,
       fogVolumes: volumes.length > 0,
       grading: (g !== undefined && (g.brightness !== undefined || g.contrast !== undefined || g.saturation !== undefined || g.tint !== undefined || g.lut !== undefined || g.lift !== undefined || g.gamma !== undefined || g.gain !== undefined)) || p?.vignette?.enabled === true,
-      aa: p?.antialias ?? 'none',
+      aa: drawnAntialias(p?.antialias ?? 'none', renderer, render.temporal),
       // Not a post effect of its own: drawn with the look's post effects (it needs the scene pass's depth).
       contact: !contactShadowsOff() && (level().contactShadows ?? DEFAULT_CONTACT_SHADOWS),
       // As contact shadows: drawn with the look's post effects. WebGL 2 keeps the environment and probes.
@@ -958,6 +986,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
           }
         : null,
       aa: w.aa,
+      motionView: taauFromUrl() === 'motion',
       displayBackground,
       // The post stack renders without MSAA (as the archived EffectComposer did); a plain frame keeps the renderer's.
       samples: isPost || noMsaa ? 0 : renderer.samples,
@@ -1085,9 +1114,8 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     setRender(next) {
       const was = render;
       render = { ...render, ...next };
-      // What the stack is built with: the AO kind, the upscale stage (present below scale 1 or under dynamic resolution).
-      const upscaled = (o: RenderOptions): boolean => o.scale < 1 || o.dynamic;
-      if (render.ao !== was.ao || upscaled(render) !== upscaled(was) || render.upscale !== was.upscale) composerKey = '';
+      // What the stack is built with: the AO kind, the upscale stage, the temporal upscale's view kind.
+      if (render.ao !== was.ao || upscaled(render) !== upscaled(was) || render.upscale !== was.upscale || render.temporal !== was.temporal) composerKey = '';
       else if (render.scale !== was.scale) pipeline?.setScale(render.scale);
     },
     needsPipeline: () => render.scale < 1 || render.dynamic || (options.scenePasses?.() ?? null) !== null,
@@ -1134,7 +1162,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
         quality: level().id,
         samples: samplesNow,
         iblRebakes,
-        render: { ao: render.ao, scale: render.scale, dynamic: render.dynamic, upscale: upscaled ? render.upscale : null, internal: pipeline?.internalSize() ?? null },
+        render: { ao: render.ao, scale: render.scale, dynamic: render.dynamic, upscale: upscaled ? (passNames.includes('taau') ? 'taau' : render.upscale) : null, internal: pipeline?.internalSize() ?? null, taauHolding: pipeline?.temporalHolding() ?? null },
         reflections: screenLights.reflections?.stats ?? null,
       };
     },

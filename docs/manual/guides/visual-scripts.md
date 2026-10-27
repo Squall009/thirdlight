@@ -32,7 +32,7 @@ shows wire values on hover and stops at breakpoints (**F9** on a node).
 ## Through the API
 
 1. Create the script with its graph ([`publishBehavior`](../reference/ops-detail.md#op-publishBehavior),
-   [`GraphData`](../reference/types-d-p.md#type-graph-data)):
+   [`GraphData`](../reference/types-c-p.md#type-graph-data)):
    ```json
    {"behaviorId": "jumpcount", "displayName": "Jump counter", "mode": "declaration-create",
     "declaration": {"properties": []},

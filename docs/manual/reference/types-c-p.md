@@ -1,8 +1,32 @@
-# Types (DecalCellRef to PackedChannel)
+# Types (CreatePrefabVariantArgs to PackedChannel)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-create-prefab-variant-args"></a>
+### CreatePrefabVariantArgs
+
+Declared in `packages/commands/src/prefab-link-types.ts`.
+
+```ts
+/** `createPrefabVariant`: a new prefab made of one linked copy of `basePrefabId`. */
+interface CreatePrefabVariantArgs {
+  basePrefabId: string;
+  prefabId: string;
+  displayName: string;
+}
+```
+
+<a id="type-cursor-mode"></a>
+### CursorMode
+
+Declared in `packages/project-model/src/input.ts`.
+
+```ts
+/** The cursor while a map is active — free (visible, moves) or locked (hidden, held in the view; the movement still counts). */
+type CursorMode = 'free' | 'locked';
+```
 
 <a id="type-decal-cell-ref"></a>
 ### DecalCellRef

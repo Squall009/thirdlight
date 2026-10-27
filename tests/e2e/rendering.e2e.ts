@@ -877,7 +877,32 @@ function edgeEnergy(img: Image): number {
   return e;
 }
 
-test('render scale: 0.5 draws at half resolution, FSR 1 upscales sharper than bilinear; dynamic resolution steps down under slow frames and back up (both renderers)', async ({ page }) => {
+/** Each step the object moves 3 cm along +X, from 3.5 m back to −3.5 m (both out of view): a box crossing the view. */
+const MOVER = [
+  'export default {',
+  '  instantiate() { return {}; },',
+  '  step(_state: unknown, ctx: any) {',
+  "    if (ctx.phase !== 'transform') return;",
+  '    const t = ctx.world.transform(ctx.entityId);',
+  '    if (t === undefined) return;',
+  '    const x = t.position[0] > 3.5 ? -3.5 : t.position[0] + 0.03;',
+  "    ctx.emit({ kind: 'transform', entityId: ctx.entityId, position: { x, y: t.position[1], z: t.position[2] }, quaternion: [t.rotation[0], t.rotation[1], t.rotation[2], t.rotation[3]] });",
+  '  },',
+  '};',
+  '',
+].join('\n');
+
+/** Pixels of an image where `keep` holds (x, y pairs). */
+function mask(img: Image, keep: (p: readonly number[]) => boolean): [number, number][] {
+  const out: [number, number][] = [];
+  for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) if (keep(img.pixel(x, y))) out.push([x, y]);
+  return out;
+}
+const isMover = (p: readonly number[]): boolean => p[0]! > 70 && p[0]! > 2.5 * p[1]! && p[0]! > 2.5 * p[2]!;
+const isPlant = (p: readonly number[]): boolean => p[1]! > 90 && p[1]! > 1.6 * p[0]! && p[1]! > 1.6 * p[2]!;
+const isBoard = (p: readonly number[]): boolean => Math.min(p[0]!, p[1]!, p[2]!) > 110 && Math.max(p[0]!, p[1]!, p[2]!) - Math.min(p[0]!, p[1]!, p[2]!) < 35;
+
+test('render scale: 0.5 draws at half resolution, FSR 1 upscales sharper than bilinear; temporal upscaling draws at the scale with motion vectors and leaves no trail; dynamic resolution steps down under slow frames and back up (both renderers)', async ({ page }) => {
   test.skip(test.info().project.name === 'webgpu', 'both renderers run in the default project');
   test.setTimeout(300_000);
   // A white board turned 20° against a dark sky: long slanted edges in front of the camera.
@@ -902,10 +927,82 @@ test('render scale: 0.5 draws at half resolution, FSR 1 upscales sharper than bi
     await page.getByTitle('Stop the play preview').click();
     await expect(page.getByTitle('Start an isolated play preview')).toBeVisible({ timeout: 30_000 });
   };
+  /**
+   * The temporal upscale (the engine's levels draw it where the look anti-aliases) at the same scale: a box crossing
+   * the view above the board and a plant (the foliage shader) in a strong wind. The motion view shows the box moving
+   * right, the plant's top swaying and the board still; the picture shows the box with no trail of it behind.
+   */
+  const temporalUpscaling = async (variant: 'auto' | 'webgl2'): Promise<void> => {
+    const mover = String((await command('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'mover', transform: { position: [-3.5, 2.4, 0] }, box: { size: [0.5, 0.5, 0.5], material: { color: '#e03020' } } }))['createdId']);
+    await publishScript(be, 'mover', MOVER, mover, ['@self']);
+    await command('setMaterial', { material: { materialId: 'mat-plant', name: 'Plant', shader: 'foliage', params: { color: '#20c020', windBend: 4, windFlutter: 4, windDistance: 0 }, textures: {} } });
+    const plant = String((await command('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'plant', transform: { position: [-2, 1, 0] }, box: { size: [0.4, 1.6, 0.4], material: { color: '#20c020' } }, components: { materials: { '*': 'mat-plant' } } }))['createdId']);
+    await command('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#101418' }, post: { antialias: 'smaa' }, wind: { direction: [1, 0], strength: 1.5, gust: 0, gustFrequency: 0.3, turbulence: 0 } } });
+    const url = editorUrlFor(be.editorUrl, variant);
+    const canvas = page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first();
+    /** A shot once the box is in view, clear of the edges (it crosses the view in about four seconds). */
+    const withMover = async (moving: (p: readonly number[]) => boolean): Promise<Image> => {
+      let img: Image | null = null;
+      await expect
+        .poll(
+          async () => {
+            img = decodePng(await canvas.screenshot());
+            const m = mask(img, moving);
+            const xs = m.map(([x]) => x);
+            return m.length > 200 && Math.min(...xs) > img.width * 0.25 && Math.max(...xs) < img.width * 0.75;
+          },
+          { timeout: 30_000, intervals: [100] },
+        )
+        .toBe(true);
+      return img!;
+    };
+    // The picture: the box and no trail of it to its left.
+    const { psid } = await play(url, variant);
+    await expect.poll(async () => (await render(psid))?.upscale, { timeout: 30_000 }).toBe('taau');
+    const size = await canvas.evaluate((c: HTMLCanvasElement) => [c.width, c.height]);
+    expect((await render(psid))!.internal).toEqual([Math.floor(size[0]! * 0.5), Math.floor(size[1]! * 0.5)]);
+    const shot = await withMover(isMover);
+    const box = mask(shot, isMover);
+    const [x0, x1] = [Math.min(...box.map(([x]) => x)), Math.max(...box.map(([x]) => x))];
+    const [y0, y1] = [Math.min(...box.map(([, y]) => y)), Math.max(...box.map(([, y]) => y))];
+    const w = x1 - x0 + 1;
+    let trail = 0;
+    let band = 0;
+    for (let y = y0; y <= y1; y++) {
+      for (let x = Math.max(0, x0 - w); x < x0 - 2; x++) {
+        const p = shot.pixel(x, y);
+        band += 1;
+        if (p[0]! > 60 && p[0]! > p[1]! + 25) trail += 1;
+      }
+    }
+    const plantPixels = mask(shot, isPlant);
+    const boardPixels = mask(shot, isBoard);
+    console.log(`[render scale] taau: box ${w}×${y1 - y0 + 1} px, ${trail} of ${band} pixels reddish behind it; plant ${plantPixels.length}, board ${boardPixels.length} px`);
+    expect(w).toBeGreaterThan(8);
+    expect(trail / band).toBeLessThan(0.05);
+    expect(plantPixels.length).toBeGreaterThan(200);
+    expect(boardPixels.length).toBeGreaterThan(2000);
+    await stop();
+    // The motion vectors (0.5 grey still; red above it moving right).
+    await play(url.replace('#', '&taau=motion#'), variant);
+    const motion = await withMover((p) => p[0]! > 190 && Math.abs(p[2]! - 128) < 8);
+    const off = (p: readonly number[]): number => Math.max(Math.abs(p[0]! - 128), Math.abs(p[1]! - 128));
+    const plantTop = plantPixels.filter(([, y]) => y < (Math.min(...plantPixels.map(([, py]) => py)) + Math.max(...plantPixels.map(([, py]) => py))) / 2);
+    const swaying = plantTop.filter(([x, y]) => off(motion.pixel(x, y)) >= 5).length;
+    const boardMoving = boardPixels.filter(([x, y]) => off(motion.pixel(x, y)) > 3).length;
+    console.log(`[render scale] taau motion: ${mask(motion, (p) => p[0]! > 190).length} px moving right, ${swaying} of ${plantTop.length} plant-top px swaying, ${boardMoving} of ${boardPixels.length} board px moving`);
+    expect(swaying).toBeGreaterThan(plantTop.length * 0.2);
+    expect(boardMoving).toBeLessThan(boardPixels.length * 0.01);
+    await stop();
+    await command('deleteEntity', { entityId: mover, entityIds: [plant] });
+    await command('setEnvironment', { sceneId: 'scene-main', environment: { post: { antialias: 'none' } } });
+  };
   for (const variant of ['auto', 'webgl2'] as const) {
     await command('setSettings', { settings: { render_scale: 0.5, dynamic_resolution: 0 } });
     const shots: Record<string, number> = {};
-    for (const filter of ['fsr1', 'bilinear'] as const) {
+    // On WebGPU the temporal upscale's Plays stand where the bilinear comparison is (FSR 1 against bilinear: WebGL 2).
+    const temporal = backendOf(variant) === 'webgpu';
+    for (const filter of temporal ? (['fsr1'] as const) : (['fsr1', 'bilinear'] as const)) {
       const url = editorUrlFor(be.editorUrl, variant);
       const { psid } = await play(filter === 'bilinear' ? url.replace('#', '&upscale=bilinear#') : url, variant);
       const canvas = page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first();
@@ -919,7 +1016,8 @@ test('render scale: 0.5 draws at half resolution, FSR 1 upscales sharper than bi
       await stop();
     }
     // EASU keeps edges sharp and RCAS sharpens: more edge energy than a bilinear stretch of the same picture.
-    expect(shots['fsr1']!).toBeGreaterThan(shots['bilinear']! * 1.1);
+    if (!temporal) expect(shots['fsr1']!).toBeGreaterThan(shots['bilinear']! * 1.1);
+    else await temporalUpscaling(variant);
 
     // Dynamic resolution: six seconds of forced slow frames step the scale down (the window outlasts the start's
     // compiles, so two slow decision windows always fall in it); after them it comes back to 1.

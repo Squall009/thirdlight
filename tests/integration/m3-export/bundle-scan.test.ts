@@ -215,7 +215,7 @@ describe('M3 export bundle re-measurement + production parity', () => {
     // loaders with their helpers and the meshopt decoder, plus
     // the node post passes of the WebGPURenderer path (the DOF
     // node pulls in the Gaussian blur node, SSAO its depth-aware blur; FSR 1
-    // upscales a render scale below 1), and the LTC tables of three's rectangle-light maths (area lights' highlights) — nothing else (baked probes draw
+    // upscales a render scale below 1, TAAU with its helpers the temporal upscale), and the LTC tables of three's rectangle-light maths (area lights' highlights) — nothing else (baked probes draw
     // through the engine's own probe lighting, not three's grid; the physical
     // sky is the engine's own copy of three's TSL sky, its clouds on the
     // engine's drift). The WebGL sky, EffectComposer passes and shaders are
@@ -237,7 +237,9 @@ describe('M3 export bundle re-measurement + production parity', () => {
       'tsl/display/GaussianBlurNode.js',
       'tsl/display/SMAANode.js',
       'tsl/display/SSAONode.js',
+      'tsl/display/TAAUNode.js',
       'tsl/display/depthAwareBlur.js',
+      'tsl/utils/TAAUtils.js',
       'utils/BufferGeometryUtils.js',
       'utils/SkeletonUtils.js',
       'utils/WorkerPool.js',

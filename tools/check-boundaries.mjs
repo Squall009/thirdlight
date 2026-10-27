@@ -178,6 +178,9 @@ export const NODE_SIDE_ALLOWED = {
         // surface-highlights.ts: the LTC tables of three's rectangle-light maths
         // (the area lights' highlights on surfaces reading the surface cache).
         'examples/jsm/lights/RectAreaLightTexturesLib.js',
+        // post-taau.ts: the temporal upscale (three's TAAU: jittered frames
+        // resolved over the reprojected history, from the scene pass's motion).
+        'examples/jsm/tsl/display/TAAUNode.js',
       ],
     },
     node: [],

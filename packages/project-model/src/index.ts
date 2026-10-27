@@ -929,6 +929,8 @@ export {
   validateHeightFog,
   type FogVolumeComponent,
   type PostConfig,
+  ANTIALIAS_KINDS,
+  type AntialiasKind,
   type SkyConfig,
   type MaterialDef,
   type MaterialParamType,

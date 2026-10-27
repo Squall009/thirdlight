@@ -49,6 +49,7 @@ vi.mock('./environment-nodes', async (importOriginal) => {
         setSize: () => undefined,
         setScale: (s: number) => rec.scales.push(s),
         internalSize: () => null,
+        temporalHolding: () => (plan.aa === 'taau' ? false : null),
         setParams: (p: Pick<PostPlan, 'grading' | 'bloom'>) => rec.params.push(p),
         render: () => (rec.renders += 1),
         dispose: () => (rec.disposed = true),
@@ -157,6 +158,38 @@ describe('environment renderer on WebGPURenderer', () => {
     expect(built[1]!.plan).toMatchObject({ bloom: null, ao: null, dof: null, aa: 'none' });
     expect(env.diagnostics().passes).toEqual(['render', 'output', 'grading']);
     env.dispose();
+  });
+
+  it('temporal upscaling: the engine levels\' kind where the look anti-aliases, on WebGPU in a view drawn frame after frame; SMAA elsewhere', () => {
+    const webgpu = Object.assign(nodeRenderer(), { backend: { isWebGPUBackend: true } });
+    const env = createEnvironmentRenderer(webgpu, new THREE.Scene(), { loadTexture: async () => null });
+    const camera = new THREE.PerspectiveCamera();
+    env.set({ quality: 'medium', post: { antialias: 'smaa' } });
+    env.setRender({ temporal: true, scale: 0.6 });
+    env.render(camera);
+    expect(built.at(-1)!.plan).toMatchObject({ aa: 'taau', samples: 0, upscale: { filter: 'fsr1', scale: 0.6 } });
+    expect(env.diagnostics()).toMatchObject({ passes: ['render', 'output', 'taau', 'fsr1'], render: { upscale: 'taau', taauHolding: false } });
+    // The editor's Scene view (drawn on demand): SMAA in its place.
+    env.setRender({ temporal: false });
+    env.render(camera);
+    expect(built.at(-1)!.plan.aa).toBe('smaa');
+    // A look without anti-aliasing gets none (a level never turns it on), and low has none.
+    env.setRender({ temporal: true });
+    env.set({ quality: 'medium', post: {} });
+    env.render(camera);
+    expect(built.at(-1)!.plan.aa).toBe('none');
+    env.set({ quality: 'low', post: { antialias: 'smaa' } });
+    env.render(camera);
+    expect(built.at(-1)!.plan.aa).toBe('none');
+    env.dispose();
+    // WebGL 2 keeps SMAA.
+    const webgl2 = Object.assign(nodeRenderer(), { backend: { isWebGPUBackend: false } });
+    const env2 = createEnvironmentRenderer(webgl2, new THREE.Scene(), { loadTexture: async () => null });
+    env2.set({ quality: 'high', post: { antialias: 'smaa' } });
+    env2.setRender({ temporal: true });
+    env2.render(camera);
+    expect(built.at(-1)!.plan.aa).toBe('smaa');
+    env2.dispose();
   });
 
   it('render settings: the AO kind and a render scale rebuild the stack; under dynamic resolution a scale change only moves it', () => {

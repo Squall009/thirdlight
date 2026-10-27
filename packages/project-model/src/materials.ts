@@ -833,8 +833,17 @@ export interface PostConfig {
   vignette?: { enabled: boolean; darkness?: number; offset?: number };
   ssao?: { enabled: boolean; radius?: number; intensity?: number };
   dof?: { enabled: boolean; focus?: number; aperture?: number; maxBlur?: number };
-  antialias?: 'none' | 'fxaa' | 'smaa';
+  /** `taau`: temporal upscaling (WebGPU in Play and exports; SMAA in its place elsewhere). */
+  antialias?: AntialiasKind;
 }
+
+/**
+ * The anti-aliasing kinds a look draws with: none (MSAA only), FXAA, SMAA,
+ * or temporal upscaling (`taau`: anti-aliased and upscaled from the render
+ * scale over frames; where a view cannot run it, SMAA).
+ */
+export const ANTIALIAS_KINDS = ['none', 'fxaa', 'smaa', 'taau'] as const;
+export type AntialiasKind = (typeof ANTIALIAS_KINDS)[number];
 
 /**
  * A scene's look (sky, fog, post-processing, wind): each scene document
@@ -1152,7 +1161,7 @@ export function validatePost(value: unknown, path: string, errors: ModelErrorV2[
     {
       toneMapping: { kind: 'enum', values: ['none', 'aces', 'agx', 'neutral'] },
       exposure: { kind: 'num', min: 0, max: 8 },
-      antialias: { kind: 'enum', values: ['none', 'fxaa', 'smaa'] },
+      antialias: { kind: 'enum', values: [...ANTIALIAS_KINDS] },
       bloom: nested,
       grading: nested,
       vignette: nested,

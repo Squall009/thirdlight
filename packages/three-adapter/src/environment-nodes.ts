@@ -11,7 +11,8 @@
  *   pass order: scene (its lit materials taking the last frame's ambient
  *   occlusion into their indirect light, `post-ao.ts`) → fog volumes → depth of
  *   field → bloom → output (tone mapping + sRGB) → grading / LUT / vignette →
- *   SMAA / FXAA → upscale (render scale below 1, `post-upscale.ts`). The fog
+ *   SMAA / FXAA → upscale (render scale below 1, `post-upscale.ts`), or the
+ *   temporal upscale in place of both (`post-taau.ts`). The fog
  *   volume and grading passes mirror the archived (WebGL) GLSL line by line;
  *   AO, DOF, bloom, SMAA, FXAA and FSR 1 are three's TSL display nodes.
  *
@@ -58,7 +59,7 @@ import {
   vec4,
   renderGroup,
 } from 'three/tsl';
-import { MeshBasicNodeMaterial, RenderPipeline, type WebGPURenderer } from 'three/webgpu';
+import { BlendMode, MaterialBlending, MeshBasicNodeMaterial, RenderPipeline, type WebGPURenderer } from 'three/webgpu';
 import { dof } from 'three/examples/jsm/tsl/display/DepthOfFieldNode.js';
 import { bloom } from 'three/examples/jsm/tsl/display/BloomNode.js';
 import { smaa } from 'three/examples/jsm/tsl/display/SMAANode.js';
@@ -71,6 +72,8 @@ import { REFLECTION_LEVELS, type ReflectionsLight } from './post-reflections';
 import { buildReflections, reflectionNormal, type ReflectionsStage } from './post-reflections-pass';
 import type { ScenePasses } from './occlusion-passes';
 import { atScale, buildUpscale, scaledTexture, type ScaledTexture, type UpscaleFilter, type UpscaleStage } from './post-upscale';
+import { installMotionVectors, MOTION_TARGET, motionVectorOutput } from './motion-vectors';
+import { buildTaau, type TaauStage } from './post-taau';
 
 /** TSL nodes are loosely typed here (three's node typings are generic-heavy); values stay three objects. */
 type N = any;
@@ -190,7 +193,10 @@ export interface PostPlan {
     vignette: number;
     vignetteOffset: number;
   } | null;
-  aa: 'none' | 'fxaa' | 'smaa';
+  /** `taau`: the temporal upscale anti-aliases and upscales (motion vectors from the scene pass), in place of the upscale below. */
+  aa: 'none' | 'fxaa' | 'smaa' | 'taau';
+  /** The motion vectors shown instead of the picture (`?motionView=1`, with `taau`; absent: the picture). */
+  motionView?: boolean;
   /**
    * The scene's background (a colour or an sRGB sky image) is shown as a
    * display colour, not tone mapped — what the WebGL renderer does when it
@@ -233,6 +239,8 @@ export interface PostPipeline {
   setScale(scale: number): void;
   /** The scene pass's size in pixels as last drawn (null before the first frame). */
   internalSize(): [number, number] | null;
+  /** Whether the temporal upscale held a still picture on the last frame (null: none in this stack). */
+  temporalHolding(): boolean | null;
   /** New grading / vignette / bloom numbers for the built passes (uniforms: no rebuild, no new program). */
   setParams(params: Pick<PostPlan, 'grading' | 'bloom'>): void;
   render(): void;
@@ -334,7 +342,15 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
   const wantsReflections = plan.reflections != null && perspective && reflectionsLight !== null && renderer.logarithmicDepthBuffer !== true;
   // The MRT node is kept so the render contexts drawn with it can be released with the pipeline. Reflections
   // read each pixel's roughness beside its normal (AO reads the normal's rgb only).
-  const sceneMrt: unknown = wantsAo || wantsReflections ? mrt({ output, normal: wantsReflections ? reflectionNormal(!wantsAo) : normalView }) : null;
+  // The temporal upscale reads each pixel's motion; a blended draw keeps the motion behind it (its blend applied to
+  // the target: `motion-vectors.ts`).
+  const temporal = plan.aa === 'taau';
+  if (temporal) installMotionVectors();
+  const sceneMrt: N =
+    wantsAo || wantsReflections || temporal
+      ? mrt({ output, ...(wantsAo || wantsReflections ? { normal: wantsReflections ? reflectionNormal(!wantsAo) : normalView } : {}), ...(temporal ? { [MOTION_TARGET]: motionVectorOutput() } : {}) })
+      : null;
+  if (temporal) sceneMrt.setBlendMode(MOTION_TARGET, new BlendMode(MaterialBlending));
   if (sceneMrt !== null) scenePass.setMRT(sceneMrt);
   // Without AO only the reflections read it: 8 bits a channel.
   if (wantsReflections && !wantsAo) (scenePass.getTexture('normal') as THREE.Texture).type = THREE.UnsignedByteType;
@@ -487,8 +503,14 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
   }
 
   // Under a render scale the picture is drawn at the scale up to here (anti-aliasing included: FSR 1 wants an
-  // anti-aliased input), then upscaled.
-  if (plan.aa === 'smaa') {
+  // anti-aliased input), then upscaled; the temporal upscale does both from the scaled picture.
+  let taau: TaauStage | null = null;
+  if (temporal) {
+    taau = buildTaau({ beauty: atRenderScale(color), depth: scenePass.getTextureNode('depth'), motion: scenePass.getTextureNode(MOTION_TARGET), camera });
+    disposables.push(taau);
+    color = taau.output;
+    passes.push('taau');
+  } else if (plan.aa === 'smaa') {
     const n: N = upscaling ? atScale(smaa(atRenderScale(color)), () => scale) : smaa(asTexture(color));
     disposables.push(n);
     color = upscaling ? n.getTextureNode() : n;
@@ -501,7 +523,7 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
   } else if (upscaling) color = atRenderScale(color);
 
   let upscale: UpscaleStage | null = null;
-  if (plan.upscale !== null) {
+  if (plan.upscale !== null && !temporal) {
     upscale = buildUpscale(color, plan.upscale.filter, scale);
     disposables.push(upscale);
     color = upscale.output;
@@ -533,6 +555,13 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
     const h: N = texture(reflectionsLight.historyTarget.texture).sample(uv());
     color = vec4(h.rgb.mul(h.a), c.a.mul(0).add(1));
     passes.push('reflectionsView');
+  }
+  // The motion vectors instead of the picture (a debug view): 0.5 grey is still, red and green each way.
+  if (temporal && plan.motionView === true) {
+    const c = color;
+    const v: N = scenePass.getTextureNode(MOTION_TARGET).sample(uv());
+    color = vec4(v.xy.mul(MOTION_VIEW_GAIN).add(0.5), float(0.5), c.a.mul(0).add(1));
+    passes.push('motionView');
   }
   // The pyramid instead of the picture; the picture stays in the graph (× 0) so its scene pass still draws.
   const viewNear = uniform(0.1);
@@ -600,6 +629,7 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
       const t = (scenePass as { renderTarget: THREE.RenderTarget }).renderTarget;
       return t.width > 1 || t.height > 1 ? [t.width, t.height] : null;
     },
+    temporalHolding: () => taau?.holding() ?? null,
     compileAsync(cam) {
       return compileIntoTarget(renderer, scene, cam, (scenePass as { renderTarget: THREE.RenderTarget }).renderTarget, (scenePass as { getMRT(): unknown }).getMRT());
     },
@@ -726,6 +756,9 @@ function fogVolumes(base: N, depth: N, invProjection: N, cameraWorld: N): { node
     },
   };
 }
+
+/** How much the motion view magnifies motion (NDC per frame) around its 0.5 grey: one pixel of a 1080p frame reads about 12 of 255. */
+export const MOTION_VIEW_GAIN = 50;
 
 /** Bloom's own share of the picture's resolution (three's default; under a render scale, of the scaled picture). */
 const BLOOM_RESOLUTION_SCALE = 0.5;

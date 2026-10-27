@@ -154,11 +154,27 @@ player may change:
 - **Render scale** (`render_scale`, 0.5–1, default 1) draws the 3D view of
   Play and the export at that share of the screen's resolution — 0.75 draws
   about half the pixels, the post effects included — and upscales it with AMD
-  FidelityFX Super Resolution 1 (an edge-adaptive upscale, then sharpening).
+  FidelityFX Super Resolution 1 (an edge-adaptive upscale, then sharpening),
+  or with temporal upscaling where that draws (below).
   The Scene view always draws at full resolution. A colour sky is shown as
   its colour (not tone mapped) under a render scale or dynamic resolution
   as at full resolution, so Play and the Scene view agree; an image sky under
   a render scale is tone mapped with the scene.
+- **Temporal upscaling** (the look's **Anti-aliasing** `taau`, and the
+  engine's medium and high quality levels where the look anti-aliases):
+  each frame is drawn at the render scale with the camera moved by a
+  sub-pixel step, and the picture at the screen's resolution is built up
+  over frames from those samples and the last frames' picture moved along
+  each pixel's motion. It anti-aliases and upscales in one pass, in place of
+  SMAA or FXAA and FSR 1. Every material kind reports its motion (moving,
+  skinned, instanced and batched objects, the wind bending foliage and ground
+  cover, a graph's vertex offset over time, opaque particles); glass,
+  blended particles and decals keep the motion of what is behind them, so a
+  fast transparent thing can smear for a frame. Once the camera has stood
+  still for two seconds the sub-pixel steps stop and a pixel whose samples
+  did not change keeps its picture: a still view settles to one picture.
+  WebGPU in Play and the export only; WebGL 2 and the editor's Scene view
+  (drawn only when something changes) draw SMAA in its place.
 - **Dynamic resolution** (`dynamic_resolution`, 0 off — the default — or 1)
   lowers the render scale, down to 0.5, while the GPU takes longer than a
   frame and raises it again, up to the render scale, when it has room. A
@@ -185,9 +201,10 @@ the project's starting level; volume and `frameRateCap` fields apply their
 default from the start). The stored settings document keeps only the fields
 the player set. The Saves panel gives a new binding its shape.
 Play diagnostics report `renderer.render` (`ambientOcclusion`, `renderScale`,
-`dynamicResolution`, the `scale` drawn now, `internal`: the scene's size in
-pixels, and dynamic resolution's state: its source `gpu` or `frame`, the last
-load, steps down and up).
+`dynamicResolution`, the `scale` drawn now, `upscale` (`fsr1`, `bilinear` or
+`taau`), `internal`: the scene's size in pixels, `taauHolding`: temporal
+upscaling held a still picture on the last frame, and dynamic resolution's
+state: its source `gpu` or `frame`, the last load, steps down and up).
 
 ## Quality levels
 
@@ -204,7 +221,8 @@ sets:
 - `post` — per effect (`bloom`, `ssao`, `dof`) the fields it lays over each
   scene's look *where the look has the effect on* (a smaller AO radius, a
   weaker bloom); `enabled: false` (Off) turns the effect off; `antialias`
-  replaces the look's kind where the look has anti-aliasing (`none`: off). A
+  replaces the look's kind where the look has anti-aliasing (`none`: off; the
+  engine's medium and high take `taau`, temporal upscaling). A
   level never turns on an effect or anti-aliasing the look leaves off, and
   tone mapping, exposure and grading stay the look's.
 - renderer settings — `renderScale` (0.5–1), `pixelRatio` (1–2: the most

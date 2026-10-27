@@ -387,8 +387,12 @@ export interface SceneAdapterDiagnostics {
    * each level, culled past their size, thinned by distance); ABSENT before the first drawn frame.
    */
   lod?: { bias: number; hysteresis: number; switches: number; copySwitches: number; instances: InstanceSetStats };
-  /** The render settings and dynamic resolution's state; `internal`: the scene pass's size in pixels (null: drawn without a post pipeline). */
-  render?: RenderControlDiagnostics & { internal: [number, number] | null };
+  /**
+   * The render settings and dynamic resolution's state; `upscale` is `taau` where the temporal upscale draws;
+   * `internal`: the scene pass's size in pixels (null: drawn without a post pipeline); `taauHolding`: the temporal
+   * upscale held a still picture on the last frame (null: none drawn).
+   */
+  render?: Omit<RenderControlDiagnostics, 'upscale'> & { upscale: RenderControlDiagnostics['upscale'] | 'taau'; internal: [number, number] | null; taauHolding: boolean | null };
   /** The quality level drawn and its renderer settings; `keyShadowMapSize`: the key light's shadow map as drawn (absent: none). ABSENT after dispose. */
   quality?: QualityDiagnostics & { keyShadowMapSize?: number };
   /** The block layers drawn (layers, chunk meshes, triangles). */

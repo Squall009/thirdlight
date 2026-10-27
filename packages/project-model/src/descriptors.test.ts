@@ -1060,8 +1060,8 @@ describe('descriptor registry', () => {
     // subject parts foliage, about 1.3 KB; foliage bases taking the ground's colour, about 0.4 KB; the cylinder collider
     // shape and a collider's depth for its 2D shapes on the 3D backend, about 1.5 KB; the controller's movement
     // profile, about 0.3 KB; area lights — their shape, size and sides fields, preset and icon — about 2 KB; a quality
-    // level's reflections, about 0.4 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(352_400);
+    // level's reflections, about 0.4 KB; temporal upscaling as an anti-aliasing kind, about 0.1 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(352_500);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 
