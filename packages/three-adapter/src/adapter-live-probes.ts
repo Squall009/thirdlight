@@ -29,7 +29,7 @@ import type { ProbeLightingHost } from './probe-grids';
 import { probesFromUrl, type ProbeLighting } from './probe-lighting';
 import { emptyPackedProbeTile, writePackedProbe, type PackedProbeTile } from './probe-pack';
 import { PROBE_NEVER_LIT, PROBE_WEIGHT_FILLED } from './probe-weights';
-import { PROBE_FLOATS, type LiveProbes } from './surface-probes';
+import { PROBE_FLOATS, liveProbeTileKey, type LiveProbes } from './surface-probes';
 import type { SurfaceCacheHost } from './surface-cache-host';
 import { SkyProbe } from './surface-probe-sky';
 import type { SurfaceLightRuntime } from './surface-light-runtime';
@@ -115,7 +115,7 @@ export class AdapterLiveProbes {
       // Grids placed again keep their tiles (their probes kept their light); new ones are written whole.
       const old = new Map(this.tiles.map((t) => [t.tile.key, t]));
       this.tiles = probes.grids.map((g, gi) => {
-        const key = `live:${g.key}`;
+        const key = liveProbeTileKey(g);
         const kept = old.get(key);
         if (kept !== undefined) return kept;
         const grid: ProbeGridRecord = { min: [...g.min] as [number, number, number], max: [...g.max] as [number, number, number], resolution: [...g.resolution] as [number, number, number], asset: '' };

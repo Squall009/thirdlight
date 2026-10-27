@@ -207,7 +207,7 @@ export function lightFrameOf(host: SurfaceCacheHost, all: readonly CacheLight[],
   const local = all.filter((l) => l.on && l.kind !== 'directional');
   const sun = all.find((l) => l.on && l.kind === 'directional') ?? null;
   const reach = local.map((l) => lightReach(l));
-  const held = rooms === null ? null : local.map((l) => rooms.lightRooms(l.position));
+  const held = rooms === null ? null : local.map((l) => rooms.lightRooms(l.position, l.shadows === false));
   const list: LightPassFrame['slices'][number][] = [];
   let at = 0;
   for (const s of slices) {

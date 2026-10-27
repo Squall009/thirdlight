@@ -220,22 +220,40 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
     return this.device.createTexture({ size: [side, side, layers], format: 'rgba16float', usage: TEXTURE.TEXTURE_BINDING | TEXTURE.STORAGE_BINDING | TEXTURE.COPY_DST | TEXTURE.COPY_SRC, label: `surface cache ${which}` });
   }
 
-  /** The atlas blocks newly handed to tiles, cleared, their light and their colours (a new texture is cleared already). */
+  /**
+   * The atlas blocks newly handed to tiles: cleared, or given the saved
+   * light a bake left for them (`SurfaceSeeding`); their colours cleared (a
+   * new texture is cleared already).
+   */
   private clearFresh(): void {
-    const fresh = this.host.takeFreshBlocks();
-    if (fresh.length === 0 || this.atlas === null) return;
+    const { clear: fresh, copies: seeds } = this.host.seeding.take();
+    if ((fresh.length === 0 && seeds.length === 0) || this.atlas === null) return;
     const q = this.device.queue;
-    for (const b of fresh) {
+    // Cleared first: a block handed out and seeded in one frame keeps its saved light.
+    const cleared = new Set(fresh);
+    for (const b of [...fresh, ...seeds.map((s) => s.to)]) {
       if (b.page >= this.atlasLayers) continue;
       const bytes = b.side * b.side * SURFACE_TEXEL_BYTES;
       if (this.zeros === null || this.zeros.length < bytes) this.zeros = new Uint8Array(bytes);
-      q.writeTexture({ texture: this.atlas, origin: [b.x, b.y, b.page] }, this.zeros.subarray(0, bytes), { bytesPerRow: b.side * SURFACE_TEXEL_BYTES, rowsPerImage: b.side }, [b.side, b.side, 1]);
+      if (cleared.has(b)) q.writeTexture({ texture: this.atlas, origin: [b.x, b.y, b.page] }, this.zeros.subarray(0, bytes), { bytesPerRow: b.side * SURFACE_TEXEL_BYTES, rowsPerImage: b.side }, [b.side, b.side, 1]);
       const a = this.albedo;
       if (a === null || b.page >= a.pages) continue;
       // Its colours' rows (a word per ALBEDO_PAGE_STEP² texels).
       const row = SURFACE_PAGE_TEXELS / ALBEDO_PAGE_STEP;
       const w = Math.max(1, b.side / ALBEDO_PAGE_STEP);
       for (let y = 0; y < w; y += 1) q.writeBuffer(a.buffer, (b.page * ALBEDO_CELLS + (b.y / ALBEDO_PAGE_STEP + y) * row + b.x / ALBEDO_PAGE_STEP) * 4, this.zeros.subarray(0, w * 4));
+    }
+    const row = SURFACE_PAGE_TEXELS * 4;
+    for (const s of seeds) {
+      const b = s.to;
+      if (b.page >= this.atlasLayers) continue;
+      // The saved block's rows, one after another (a page holds SURFACE_PAGE_TEXELS rows of RGBA halves).
+      const block = new Uint16Array(b.side * b.side * 4);
+      for (let y = 0; y < b.side; y += 1) {
+        const at = (s.from.page * SURFACE_PAGE_TEXELS + s.from.y + y) * row + s.from.x * 4;
+        block.set(s.texels.subarray(at, at + b.side * 4), y * b.side * 4);
+      }
+      q.writeTexture({ texture: this.atlas, origin: [b.x, b.y, b.page] }, block, { bytesPerRow: b.side * SURFACE_TEXEL_BYTES, rowsPerImage: b.side }, [b.side, b.side, 1]);
     }
   }
 

@@ -126,6 +126,30 @@ export function writePackedProbe(packed: PackedProbeTile, ix: number, iy: number
   }
 }
 
+/**
+ * One probe read back from its tile's GPU layout (`writePackedProbe`'s
+ * inverse): `out[src]` the file's value `src` (light values unweighted;
+ * values the layout does not hold are left as they are). Returns its weight.
+ */
+export function readPackedProbe(packed: PackedProbeTile, ix: number, iy: number, iz: number, nz: number, out: Float32Array): number {
+  const { data, nx, ny } = packed;
+  const padded = nz + 2 * PROBE_ATLAS_PADDING;
+  const plane = nx * ny * 4;
+  const fromHalf = THREE.DataUtils.fromHalfFloat;
+  const xy = (iy * nx + ix) * 4;
+  const w = fromHalf(data[(PROBE_ATLAS_PADDING + iz) * plane + xy + 3]!);
+  for (let r = 0; r < PACKED.length; r++) {
+    const o = (r * padded + PROBE_ATLAS_PADDING + iz) * plane + xy;
+    for (let ch = 0; ch < 4; ch++) {
+      const src = PACKED[r]![ch];
+      if (src === null || src === undefined || src === 'w') continue;
+      const v = fromHalf(data[o + ch]!);
+      out[src] = r < PACKED_LIGHT_TEXELS && w !== 1 ? (w > 0 ? v / w : 0) : v;
+    }
+  }
+  return w;
+}
+
 /** Texels per tile in the tile table, and tiles per line of the table texture. */
 export const TABLE_TEXELS = 3;
 export const TABLE_ROWS_PER_LINE = 256;

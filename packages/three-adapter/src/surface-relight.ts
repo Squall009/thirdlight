@@ -140,6 +140,15 @@ export class SurfaceRelight {
     this.stale(this.units.get(unit.key)!);
   }
 
+  /** A unit holds its light already (a bake's saved light was put in its texels): not stale. */
+  settle(key: string): void {
+    const s = this.units.get(key);
+    if (s === undefined || !s.stale) return;
+    s.stale = false;
+    s.cursor = 0;
+    this.staleCount -= 1;
+  }
+
   /** A unit was let go. */
   remove(key: string): void {
     const s = this.units.get(key);
@@ -183,7 +192,7 @@ export class SurfaceRelight {
    * light's rooms do not reach them); listeners hear of its box. Returns the
    * units marked.
    */
-  markSphere(c: readonly number[], r: number, keep?: (unit: RelightUnit) => boolean): number {
+  markSphere(c: readonly number[], r: number, keep?: (unit: RelightUnit) => boolean, quiet = false): number {
     this.marks += 1;
     let n = 0;
     for (const s of this.units.values()) {
@@ -192,6 +201,8 @@ export class SurfaceRelight {
       this.stale(s);
       n += 1;
     }
+    // Quiet: the caller marks the probes itself (they may hold this light already).
+    if (quiet) return n;
     const min = c.map((v) => v - r);
     const max = c.map((v) => v + r);
     for (const l of this.listeners) l(min, max);
@@ -228,6 +239,15 @@ export class SurfaceRelight {
         this.settling ??= { ms: -1, frame: this.frame };
       } else s.cursor = Math.min(s.cursor, sl.from);
       this.relit -= sl.to - sl.from;
+    }
+  }
+
+  /** These units are stale; listeners hear nothing (the caller marks the probes itself). */
+  markUnits(keys: Iterable<string>): void {
+    this.marks += 1;
+    for (const key of keys) {
+      const s = this.units.get(key);
+      if (s !== undefined) this.stale(s);
     }
   }
 

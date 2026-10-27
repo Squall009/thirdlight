@@ -13,8 +13,9 @@
  *   to 8 bytes.
  *
  * The header names the cache level, the page count, each tile's key, chart
- * digest, level and atlas blocks (page, x, y, side), and each probe tile's
- * key, box, resolution and whether it is a brick.
+ * digest, level and atlas blocks (page, x, y, side), each probe tile's
+ * key, box, resolution and whether it is a brick, and the lights the bake
+ * kept as they were (absent in files made before it was saved).
  *
  * The bytes travel as 16-bit RGBA PNGs (texture assets, like probe files):
  * `SURFACE_BAKE_FILE_WIDTH` texels a row (8 bytes a texel, two bytes a
@@ -26,6 +27,7 @@ import { MAX_TEXTURE_EDGE } from '@thirdlight/runtime';
 import { SURFACE_PAGE_TEXELS, type AtlasBlock } from './surface-cache-atlas';
 import { decodePng16, encodePng16 } from './probe-artifact';
 import { emptyPackedProbeTile } from './probe-pack';
+import type { CacheLight } from './surface-changes';
 
 export const SURFACE_BAKE_VERSION = 1;
 /** Texels a row of a saved lighting PNG. */
@@ -63,6 +65,8 @@ export interface SavedSurfaceLight {
   readonly texels: Uint16Array;
   readonly tiles: readonly SavedTileRecord[];
   readonly probes: readonly SavedProbeTile[];
+  /** The lights whose light it keeps (baked and mixed) as they were (absent: not known): a live start marks what changed since. */
+  readonly lights?: readonly CacheLight[];
 }
 
 interface Header {
@@ -70,6 +74,7 @@ interface Header {
   pages: number;
   tiles: [string, string, number, number[]][];
   probes: [string, number[], number[], number[], number][];
+  lights?: CacheLight[];
 }
 
 const pad8 = (n: number): number => (n + 7) & ~7;
@@ -81,6 +86,7 @@ export function encodeSavedSurface(s: SavedSurfaceLight): Uint8Array {
     pages: s.pages,
     tiles: s.tiles.map((t) => [t.key, t.digest, t.level, t.blocks.flatMap((b) => [b.page, b.x, b.y, b.side])]),
     probes: s.probes.map((p) => [p.key, [...p.min], [...p.max], [...p.resolution], p.brick ? 1 : 0]),
+    ...(s.lights !== undefined ? { lights: [...s.lights] } : {}),
   };
   const json = new TextEncoder().encode(JSON.stringify(header));
   const headAt = 16;
@@ -151,7 +157,7 @@ export function decodeSavedSurface(bytes: Uint8Array): { ok: true; saved: SavedS
     for (let i = 0; i + 3 < b.length; i += 4) blocks.push({ page: b[i]!, x: b[i + 1]!, y: b[i + 2]!, side: b[i + 3]! });
     return { key, digest, level, blocks };
   });
-  return { ok: true, saved: { level: header.level, pages: header.pages, texels, tiles, probes } };
+  return { ok: true, saved: { level: header.level, pages: header.pages, texels, tiles, probes, ...(Array.isArray(header.lights) ? { lights: header.lights } : {}) } };
 }
 
 /** The saved file as 16-bit RGBA PNGs (each at most `MAX_TEXTURE_EDGE` rows). */

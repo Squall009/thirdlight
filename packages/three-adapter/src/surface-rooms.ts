@@ -134,11 +134,14 @@ export class SurfaceRooms {
   /**
    * The rooms a light at `p` may light: its room and every room its open
    * portals join to it; null when it stands outside or its light reaches
-   * the outside (nothing then holds it back but its shadow rays).
+   * the outside (nothing then holds it back but its shadow rays). A light
+   * casting no shadow (`shadowless`) lights only its own room, as it does
+   * drawn per pixel (its room's light layer): no ray of its stops at a wall.
    */
-  lightRooms(p: readonly number[]): number[] | null {
+  lightRooms(p: readonly number[], shadowless = false): number[] | null {
     const start = this.roomAt(p);
     if (start === NO_ROOM) return null;
+    if (shadowless) return [start];
     const g = this.rooms.graph;
     const seen = new Set<number>([start]);
     const queue = [start];

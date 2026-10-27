@@ -335,6 +335,25 @@ export interface ProbeLayoutWords {
   readonly mapAt: number;
 }
 
+/** The probe lighting's tile key of a live grid (what a bake saves its tile under). */
+export function liveProbeTileKey(g: Pick<LiveProbeGrid, 'key'>): string {
+  return `live:${g.key}`;
+}
+
+/**
+ * A saved grid's probes as a bake left them (`LiveProbes.seed`): its box and
+ * resolution, and per point its record's light (twelve values, as
+ * `PROBE_FLOATS` holds them), whether it was lit, filled from neighbours, and
+ * its walls (per axis the cut flag and the cut's share of the edge).
+ */
+export interface SavedProbeGrid {
+  readonly min: readonly number[];
+  readonly max: readonly number[];
+  readonly resolution: readonly number[];
+  /** Point `l`'s light into `light` (12) and walls into `walls` (6); null: never lit. */
+  read(l: number, light: Float32Array, walls: Float32Array): { filled: boolean } | null;
+}
+
 export class LiveProbes implements ProbeLookup {
   grids: LiveProbeGrid[] = [];
   roomGrids = 0;
@@ -593,6 +612,60 @@ export class LiveProbes implements ProbeLookup {
     }
     this.since[i] = this.frame;
     this.marked[i] = 0;
+  }
+
+  /**
+   * Probes placed and not yet updated take the light a bake saved for them
+   * (`saved`: a grid's saved probes by its tile key, null where none match
+   * its box and resolution): their light, the walls between them as cuts
+   * along their axes (what the axis rays would have seen), settled. The
+   * light of a probe already updated live is its own. Returns how many took
+   * the saved light.
+   */
+  seed(saved: (key: string) => SavedProbeGrid | null): number {
+    const fresh = new Uint8Array(this.count);
+    for (let i = 0; i < this.count; i += 1) fresh[i] = this.excluded[i] === 0 && this.state[i * PROBE_FLOATS + PROBE_UPDATES_AT]! < 1 ? 1 : 0;
+    const light = new Float32Array(12);
+    const walls = new Float32Array(6);
+    let n = 0;
+    for (const g of this.grids) {
+      const t = saved(liveProbeTileKey(g));
+      if (t === null || [0, 1, 2].some((k) => t.resolution[k] !== g.resolution[k] || Math.abs(t.min[k]! - g.min[k]!) > 1e-4 || Math.abs(t.max[k]! - g.max[k]!) > 1e-4)) continue;
+      const [nx, ny, nz] = g.resolution;
+      const offset = [1, nx, nx * ny];
+      for (let l = 0; l < nx * ny * nz; l += 1) {
+        const i = this.lattice[g.at + l]!;
+        if (fresh[i] === 0) continue;
+        const got = t.read(l, light, walls);
+        if (got === null) continue;
+        const at = i * PROBE_FLOATS;
+        if (this.state[at + PROBE_UPDATES_AT]! < 1) {
+          this.state.set(light, at);
+          this.state[at + PROBE_VALIDITY_AT] = got.filled ? 1 : 0;
+          // As if updated often: a later update blends in at the least share.
+          this.state[at + PROBE_UPDATES_AT] = PROBE_MIN_UPDATES;
+          if (this.stale[i] === 1) {
+            this.stale[i] = 0;
+            this.staleCount -= 1;
+          }
+          this.changed.add(i);
+          n += 1;
+        }
+        if (g.room !== NO_ROOM) continue;
+        // A cut at share s of the edge to the next point: this probe saw a surface s along it, the next one 1 − s back.
+        const p = [l % nx, Math.floor(l / nx) % ny, Math.floor(l / (nx * ny))];
+        for (let a = 0; a < 3; a += 1) {
+          if (!(walls[a * 2]! > 0.5) || p[a]! >= g.resolution[a]! - 1) continue;
+          const next = this.lattice[g.at + l + offset[a]!]!;
+          if (fresh[next] === 0) continue;
+          const step = (g.max[a]! - g.min[a]!) / (g.resolution[a]! - 1);
+          const share = Math.min(0.999, Math.max(0.001, walls[a * 2 + 1]!));
+          this.state[at + PROBE_AXES_AT + a * 2] = share * step;
+          this.state[next * PROBE_FLOATS + PROBE_AXES_AT + a * 2 + 1] = (1 - share) * step;
+        }
+      }
+    }
+    return n;
   }
 
   /** The probes in a box are stale (null: all of them). */

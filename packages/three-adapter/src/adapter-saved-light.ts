@@ -19,6 +19,9 @@
  *
  * Several loaded scenes' bakes are drawn together: each one's pages follow
  * the ones before it.
+ *
+ * Where the light is live the same saved light is its starting state
+ * (`seed`, `surface-seed.ts`): read the same way and handed to the host.
  */
 import * as THREE from 'three';
 
@@ -28,7 +31,13 @@ import { pageSearch } from './renderer-factory';
 import type { ProbeTileForGpu } from './probe-atlas';
 import type { SurfaceCacheHost } from './surface-cache-host';
 import type { SavedSurfaceTile } from './surface-cache';
-import { savedSurfaceFromFiles, type SavedSurfaceLight } from './surface-bake-file';
+import { savedSurfaceFromFiles, type SavedProbeTile, type SavedSurfaceLight } from './surface-bake-file';
+import { readPackedProbe } from './probe-pack';
+import { PROBE_FILLED, PROBE_SH_TEXELS } from '@thirdlight/runtime';
+import { PROBE_NEVER_LIT } from './probe-weights';
+import type { CacheLight } from './surface-changes';
+import type { SavedProbeGrid } from './surface-probes';
+import type { SurfaceSeed } from './surface-seed';
 import { BLOCK_LAYERS_HELD, LAYER_TEXELS, packSurfaceLookup } from './surface-cache-lookup';
 import { SURFACE_READ_LIVE_KEY, SurfaceCacheTextures } from './surface-cache-read';
 import { SURFACE_PAGE_TEXELS } from './surface-cache-atlas';
@@ -49,6 +58,61 @@ function uniformWords(words: Uint32Array): string {
 const LOOKUP_MS = 100;
 
 type Loaded = { saved: SavedSurfaceLight } | { failed: string };
+
+/** The file values of a probe (its light values, then its walls). */
+const PROBE_FILE_VALUES = PROBE_SH_TEXELS * 4 + 8;
+
+/** A saved probe tile as the live probes take it (`LiveProbes.seed`). */
+function savedProbeGrid(t: SavedProbeTile): SavedProbeGrid {
+  const [nx, ny, nz] = t.resolution;
+  const packed = { data: t.data, nx, ny, depth: t.data.length / (nx * ny * 4) };
+  const v = new Float32Array(PROBE_FILE_VALUES);
+  const walls = PROBE_SH_TEXELS * 4;
+  return {
+    min: t.min,
+    max: t.max,
+    resolution: t.resolution,
+    read(l, light, cut) {
+      if (t.validity[l] === PROBE_NEVER_LIT) return null;
+      readPackedProbe(packed, l % nx, Math.floor(l / nx) % ny, Math.floor(l / (nx * ny)), nz, v);
+      light.set(v.subarray(0, 12));
+      cut.set(v.subarray(walls, walls + 6));
+      return { filled: t.validity[l] === PROBE_FILLED };
+    },
+  };
+}
+
+/** The followed scenes' saved light together: each scene's pages after the ones before it. */
+function merged(ready: readonly [string, SavedSurfaceLight][]): { texels: Uint16Array<ArrayBuffer>; pages: number; tiles: Map<string, SavedSurfaceTile>; probeTiles: ProbeTileForGpu[]; seed: SurfaceSeed } {
+  const pageHalves = SURFACE_PAGE_TEXELS * SURFACE_PAGE_TEXELS * 4;
+  const pages = ready.reduce((n, [, s]) => n + s.pages, 0);
+  const texels = new Uint16Array(Math.max(1, pages) * pageHalves);
+  const tiles = new Map<string, SavedSurfaceTile>();
+  const probeTiles: ProbeTileForGpu[] = [];
+  const grids = new Map<string, SavedProbeTile>();
+  let lights: CacheLight[] | null = [];
+  let at = 0;
+  for (const [sceneId, s] of ready) {
+    texels.set(s.texels, at * pageHalves);
+    for (const t of s.tiles) tiles.set(t.key, { digest: t.digest, level: t.level, blocks: t.blocks.map((b) => ({ ...b, page: b.page + at })) });
+    for (const p of s.probes) {
+      const [nx, ny] = p.resolution;
+      probeTiles.push({ key: `saved:${sceneId}:${p.key}`, sceneId, grid: { min: [...p.min], max: [...p.max], resolution: [...p.resolution], asset: '' }, packed: { data: p.data, nx, ny, depth: p.data.length / (nx * ny * 4) }, validity: p.validity, ...(p.brick ? { brick: true } : {}) });
+      grids.set(p.key, p);
+    }
+    lights = lights === null || s.lights === undefined ? null : [...lights, ...s.lights];
+    at += s.pages;
+  }
+  const decoded = new Map<string, SavedProbeGrid>();
+  const probes = (key: string): SavedProbeGrid | null => {
+    const t = grids.get(key);
+    if (t === undefined) return null;
+    let g = decoded.get(key);
+    if (g === undefined) decoded.set(key, (g = savedProbeGrid(t)));
+    return g;
+  };
+  return { texels, pages, tiles, probeTiles, seed: { tiles, texels, probes, lights } };
+}
 
 export interface SavedLightDiagnostics {
   /** Scenes whose saved light is drawn, tiles drawn from it, pages, probe tiles. */
@@ -76,6 +140,8 @@ export class AdapterSavedLight {
   private pages = 1;
   private exposed = false;
   private headFor = '';
+  /** What the host was last handed as the live light's start. */
+  private seedKey: string | null = null;
   private diag: SavedLightDiagnostics = { scenes: 0, pages: 0, probeTiles: 0 };
   /** `?probes=off` draws without probes, saved ones too (a diagnostic comparison). */
   private readonly probesOn = probesFromUrl(pageSearch());
@@ -122,6 +188,13 @@ export class AdapterSavedLight {
   /** Before a frame where the light is not live: the followed scenes' saved light, read and drawn. */
   frame(): void {
     this.on = true;
+    const { ready, key, error } = this.readyNow();
+    if (key !== this.appliedKey) this.apply(key, ready, error);
+    this.syncLookup();
+  }
+
+  /** The followed scenes' bakes read so far (and why one could not be). */
+  private readyNow(): { ready: [string, SavedSurfaceLight][]; key: string; error: string | undefined } {
     const ready: [string, SavedSurfaceLight][] = [];
     let error: string | undefined;
     for (const id of this.followed) {
@@ -133,8 +206,15 @@ export class AdapterSavedLight {
       else ready.push([id, l.saved]);
     }
     const key = ready.map(([id, s]) => `${id}:${s.pages}:${s.tiles.length}:${s.probes.length}:${this.bakes[id]?.surface?.createdAt ?? ''}`).join('|');
-    if (key !== this.appliedKey) this.apply(key, ready, error);
-    this.syncLookup();
+    return { ready, key, error };
+  }
+
+  /** Before a frame where the light is live: the followed scenes' saved light, read and handed to the host as the live light's start. */
+  seed(): void {
+    const { ready, key } = this.readyNow();
+    if (key === this.seedKey) return;
+    this.seedKey = key;
+    this.host.seeding.set(ready.length === 0 ? null : merged(ready).seed);
   }
 
   private apply(key: string, ready: readonly [string, SavedSurfaceLight][], error: string | undefined): void {
@@ -144,26 +224,17 @@ export class AdapterSavedLight {
     this.lookupFor = '';
     delete this.scene.userData[SURFACE_READ_LIVE_KEY];
     if (ready.length === 0) {
+      this.seedKey = key;
+      this.host.seeding.set(null);
       this.host.cache.setSaved(null);
       this.dropProbes();
       this.diag = { scenes: 0, pages: 0, probeTiles: 0, ...(error !== undefined ? { error } : {}) };
       return;
     }
-    const pageHalves = SURFACE_PAGE_TEXELS * SURFACE_PAGE_TEXELS * 4;
-    const pages = ready.reduce((n, [, s]) => n + s.pages, 0);
-    const texels = new Uint16Array(Math.max(1, pages) * pageHalves);
-    const tiles = new Map<string, SavedSurfaceTile>();
-    const probeTiles: ProbeTileForGpu[] = [];
-    let at = 0;
-    for (const [sceneId, s] of ready) {
-      texels.set(s.texels, at * pageHalves);
-      for (const t of s.tiles) tiles.set(t.key, { digest: t.digest, level: t.level, blocks: t.blocks.map((b) => ({ ...b, page: b.page + at })) });
-      for (const p of s.probes) {
-        const [nx, ny] = p.resolution;
-        probeTiles.push({ key: `saved:${sceneId}:${p.key}`, sceneId, grid: { min: [...p.min], max: [...p.max], resolution: [...p.resolution], asset: '' }, packed: { data: p.data, nx, ny, depth: p.data.length / (nx * ny * 4) }, validity: p.validity, ...(p.brick ? { brick: true } : {}) });
-      }
-      at += s.pages;
-    }
+    const { texels, pages, tiles, probeTiles, seed } = merged(ready);
+    // The same saved light starts the live light once it runs.
+    this.seedKey = key;
+    this.host.seeding.set(seed);
     this.host.cache.setSaved(tiles, pages);
     this.texels = texels;
     this.pages = Math.max(1, pages);

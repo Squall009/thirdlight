@@ -54,17 +54,17 @@ function closedRoom(doorOpen: boolean): { rooms: SurfaceRooms; scene: ReturnType
 const lamp: CacheLight = { id: 'lamp', kind: 'point', on: true, position: [4, 3, 4], direction: [0, -1, 0], color: [20, 20, 20], range: 14, cone: 0, penumbra: 0, shadows: true };
 
 /** A texel's irradiance (red) from the lamp, its rooms as `rooms` gives them (null: no rooms). */
-function lit(p: V3, n: V3, rooms: SurfaceRooms | null, scene: ReturnType<typeof packTraceScene>): number {
+function lit(p: V3, n: V3, rooms: SurfaceRooms | null, scene: ReturnType<typeof packTraceScene>, light: CacheLight = lamp): number {
   const copies = 64;
   const points = new Float32Array(copies * 6);
   for (let i = 0; i < copies; i += 1) points.set([...p, ...n], i * 6);
   const min = p.map((v) => v - 0.05);
   const max = p.map((v) => v + 0.05);
-  const held = rooms?.lightRooms(lamp.position) ?? null;
+  const held = rooms?.lightRooms(light.position, light.shadows === false) ?? null;
   const frame: LightPassFrame = {
     points,
     slices: [{ texels: copies, lights: [0], sun: false, level: 0, ...(rooms !== null ? { rooms: rooms.unitRooms(min, max) } : {}) }],
-    lights: [lamp],
+    lights: [light],
     sun: null,
     ...(rooms !== null ? { lightRooms: [held], rooms: rooms.words } : {}),
   };
@@ -124,6 +124,15 @@ describe('surface cache: rooms and portals hold light in', () => {
     expect(lit(inside, [0, 1, 0], shut.rooms, shut.scene)).toBeCloseTo(lit(inside, [0, 1, 0], null, shut.scene), 6);
     const opened = closedRoom(true);
     expect(lit(outside, [0, 1, 0], opened.rooms, opened.scene)).toBeCloseTo(leak, 6);
+  });
+
+  it('a lamp casting no shadow lights only its own room, its door open or not (as drawn per pixel)', () => {
+    const opened = closedRoom(true);
+    const bare: CacheLight = { ...lamp, shadows: false };
+    expect(lit([4, 1, 10], [0, 1, 0], opened.rooms, opened.scene, bare)).toBe(0);
+    expect(lit([4, 1, 5], [0, 1, 0], opened.rooms, opened.scene, bare)).toBeGreaterThan(0.05);
+    // With its shadow it reaches the ground outside through the open doorway.
+    expect(lit([4, 1, 10], [0, 1, 0], opened.rooms, opened.scene)).toBeGreaterThan(0.05);
   });
 
   it('a lamp switched behind a shut door marks only the units its room touches', () => {

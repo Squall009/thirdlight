@@ -25,6 +25,7 @@ import { TERRAIN_RING_SHARE } from './surface-cache';
 import type { SurfaceCacheHost } from './surface-cache-host';
 import type { SavedProbeTile, SavedSurfaceLight } from './surface-bake-file';
 import type { SurfaceLightRuntime } from './surface-light-runtime';
+import type { CacheLight } from './surface-changes';
 import type { GpuBuffer, GpuTexture, TracerDevice } from './tracer-gpu';
 
 const MIB = 1024 * 1024;
@@ -54,6 +55,8 @@ export interface SurfaceBakeHooks {
   off(): string | null;
   /** The probes' tiles as the probe lighting holds them now. */
   probeTiles(): readonly SavedProbeTile[];
+  /** The lights whose light the bake keeps (baked and mixed), as they are now. */
+  lights(): readonly CacheLight[];
 }
 
 export interface SurfaceBakeOptions {
@@ -89,6 +92,8 @@ export async function runSurfaceBake(h: SurfaceBakeHooks, o: SurfaceBakeOptions)
     for (let i = 0; i < n; i += 1) await o.frame();
   };
   try {
+    // Lit from what the scene is, not from the last bake.
+    host.seeding.hold(true);
     host.setRelightBudget(SURFACE_LIGHT_MS_MAX);
     // Room for the terrain's rings beside the saved pages (the rings light the ground the probes see; they are not saved).
     host.setBudget(Math.ceil(savedBytes / (1 - TERRAIN_RING_SHARE)));
@@ -128,8 +133,9 @@ export async function runSurfaceBake(h: SurfaceBakeHooks, o: SurfaceBakeOptions)
     }
     const texels = await readPages(device, atlas, pages);
     const probes = h.probeTiles();
-    return { ok: true, saved: { level, pages, texels, tiles, probes }, millis: Math.round(performance.now() - t0), texels: texelCount };
+    return { ok: true, saved: { level, pages, texels, tiles, probes, lights: [...h.lights()] }, millis: Math.round(performance.now() - t0), texels: texelCount };
   } finally {
+    host.seeding.hold(false);
     h.setPart(null);
     host.cache.setBakeLevel(null);
     host.setBudget(before.bytes);

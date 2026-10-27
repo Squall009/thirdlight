@@ -199,6 +199,60 @@ export class SurfaceChanges {
     if (all) this.relight.markAll();
   }
 
+  /**
+   * Units a bake's saved light was just put in (`only`), stale where their
+   * saved light is not what the lights give now: the lights whose direct
+   * light a bake does not save (`mixed`, `realtime`), and `baked` lights
+   * added, changed or gone since the bake (`bake`: its lights as they were;
+   * null: not known, every baked light counts as changed).
+   */
+  markSinceBake(bake: readonly CacheLight[] | null, only: ReadonlySet<string>): void {
+    if (only.size === 0) return;
+    const was = new Map((bake ?? []).filter((l) => l.mode === 'baked' && l.on).map((l) => [l.id, l]));
+    const marks: CacheLight[] = [];
+    for (const l of this.lit.values()) {
+      if (!l.on) continue;
+      const b = was.get(l.id);
+      if (l.mode !== 'baked' || bake === null || b === undefined || lightChanged(b, l)) marks.push(l);
+      if (b !== undefined && (l.mode !== 'baked' || lightChanged(b, l))) marks.push(b);
+      was.delete(l.id);
+    }
+    // Saved but no longer lit as baked: where they lit.
+    for (const b of was.values()) if (!this.lit.get(b.id)?.on || this.lit.get(b.id)?.mode !== 'baked') marks.push(b);
+    for (const l of marks) {
+      if (l.kind === 'directional') {
+        this.relight.markUnits(only);
+        return;
+      }
+      const rooms = this.rooms;
+      const held = rooms?.lightMarks(l.position, lightRadius(l)) ?? null;
+      this.relight.markSphere(l.position, lightReach(l), (u) => only.has(u.key) && (held === null || rooms!.marks(u.min, u.max, held)), true);
+    }
+  }
+
+  /**
+   * Where probes holding a bake's saved light are not lit as now (null: all
+   * of them): the lights a bake's bounce leaves out (`realtime`), and
+   * `baked` or `mixed` lights added, changed or gone since the bake.
+   */
+  probeMarksSinceBake(bake: readonly CacheLight[] | null): ({ min: number[]; max: number[] } | null)[] {
+    const was = new Map((bake ?? []).filter((l) => l.on && (l.mode === 'baked' || l.mode === 'mixed')).map((l) => [l.id, l]));
+    const marks: CacheLight[] = [];
+    for (const l of this.lit.values()) {
+      const b = was.get(l.id);
+      was.delete(l.id);
+      const saved = l.mode === 'baked' || l.mode === 'mixed';
+      if (b !== undefined && (!l.on || !saved || lightChanged(b, l))) marks.push(b);
+      if (l.on && (!saved || bake === null || b === undefined || lightChanged(b, l))) marks.push(l);
+    }
+    marks.push(...was.values());
+    return marks.map((l) => {
+      if (l.kind === 'directional') return null;
+      const r = lightReach(l);
+      return { min: l.position.map((v) => v - r), max: l.position.map((v) => v + r) };
+    });
+  }
+
   private markLight(l: CacheLight): void {
     const rooms = this.rooms;
     const marks = rooms?.lightMarks(l.position, lightRadius(l)) ?? null;

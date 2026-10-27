@@ -130,6 +130,8 @@ export class AdapterSurfaceLight {
   private albedoFor = '';
   private frames = 0;
   private captures = 0;
+  /** Every light as the cache last saw them (a bake saves the ones it keeps). */
+  private allLights: readonly CacheLight[] = [];
   /** A bake's part: the lights whose light it saves light the cache (null: every light, live). */
   private part: BakePart = null;
 
@@ -168,6 +170,7 @@ export class AdapterSurfaceLight {
   /** Before a frame's draw: the cache's lights, its residency and stale work, then this frame's light on the GPU. */
   beforeFrame(renderer: AnyRenderer, sceneLights: SceneLights, eye: ArrayLike<number>): void {
     const all = this.lights.now(sceneLights);
+    this.allLights = all;
     const lights = this.part === null ? all : savedLights(all, this.part);
     this.host.setLights(lights);
     this.host.update(eye);
@@ -179,7 +182,11 @@ export class AdapterSurfaceLight {
     this.syncRead(all, renderer, eye);
     // Until the light is live (WebGL 2, a level without a live budget, a live light still starting) the saved light is drawn.
     if (this.runtime === null && this.readOn) this.saved.frame();
-    else this.saved.drop();
+    else {
+      this.saved.drop();
+      // Live: the saved light is where it starts.
+      this.saved.seed();
+    }
     this.liveProbes?.frame(renderer, this.runtime);
     this.drawView();
   }
@@ -302,6 +309,7 @@ export class AdapterSurfaceLight {
         device: () => this.device,
         off: () => this.off,
         probeTiles: () => this.liveProbes?.savedTiles() ?? [],
+        lights: () => savedLights(this.allLights, 'bounce'),
       },
       o,
     );

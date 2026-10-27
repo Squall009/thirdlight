@@ -291,14 +291,17 @@ test('saved probes light every object in place of the flat ambient light: no lea
   const look = { sky: { mode: 'color', color: '#a0b8e0' } };
   const frame = page.locator('iframe.tl-app__preview-frame');
 
-  /** One Play from `pose`, settled; brightness at the spots. */
-  const playAt = async (variant: RendererVariant, pose: { position: number[]; rotation: number[] }, label: string): Promise<Image> => {
+  /** One Play from `pose`, settled; brightness at the spots (`settled`: its diagnostics once settled). */
+  const playAt = async (variant: RendererVariant, pose: { position: number[]; rotation: number[] }, label: string, settled?: (d: Record<string, unknown>) => void): Promise<Image> => {
     await cmd('setTransform', { entityId: 'cam-main', transform: { position: pose.position, rotation: pose.rotation, scale: [1, 1, 1] } }, true);
+    const playing = page.waitForResponse((res) => res.request().method() === 'POST' && res.url().endsWith('/play'));
     await page.getByTitle('Start an isolated play preview').click();
+    const psid = String(((await (await playing).json()) as { playSessionId: string }).playSessionId);
     const canvas = page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first();
     await expectRendererBackend(canvas, variant);
     await expect(frame).toBeVisible();
     const img = await settledShot(frame, label);
+    if (settled !== undefined) settled(((await api(`play/${psid}/diagnostics`)).json['diagnostics'] as { renderer?: Record<string, unknown> } | undefined)?.renderer ?? {});
     await page.getByTitle('Stop the play preview').click();
     await expect(page.getByTitle('Start an isolated play preview')).toBeVisible({ timeout: 30_000 });
     return img;
@@ -351,7 +354,8 @@ test('saved probes light every object in place of the flat ambient light: no lea
   const yardDc = Math.max(...bricks.map(dc));
   console.log(`[probe lighting] saved: ${saved.saved.tiles.length} cache tiles at level ${saved.saved.level}, ${saved.saved.probes.length} probe tiles (${rooms.length} the room's); the room's probes' SH DC (red × weight) max ${roomDc.toFixed(4)}, the yard bricks' ${yardDc.toFixed(3)}`);
   expect(yardDc).toBeGreaterThan(0.1);
-  expect(roomDc).toBeLessThan(yardDc * 0.25);
+  // Its walls, floor and ceiling hold the sun out (the ceiling collides with nothing, yet stops light).
+  expect(roomDc).toBeLessThan(yardDc * 0.05);
 
   // The debug view: the probes drawn while on.
   const view = page.locator('canvas.tl-viewport');
@@ -368,7 +372,15 @@ test('saved probes light every object in place of the flat ambient light: no lea
       await expect(page.locator('.tl-statusbar')).toContainText('connected');
       await expectRendererBackend(view, 'webgl2');
     }
-    const lit = interior(await playAt(variant, insidePose, `${variant}-inside`));
+    // Live (WebGPU): the light starts from the bake, its tiles and probes seeded, not from nothing.
+    const seeded = (d: Record<string, unknown>): void => {
+      const c = d['surfaceCache'] as { seeded?: { tiles: number; probes: number }; light?: { live: boolean }; probes?: { lit: number; lastSettleMs: number | null } } | undefined;
+      console.log(`[probe lighting] ${backendOf(variant)} Play started from the bake: ${JSON.stringify(c?.seeded)} (of ${c?.probes?.lit} probes lit; probes settled in ${c?.probes?.lastSettleMs} ms)`);
+      if (c?.light?.live !== true) return;
+      expect(c.seeded?.tiles ?? 0, 'cache tiles seeded from the bake').toBeGreaterThan(0);
+      expect(c.seeded?.probes ?? 0, 'probes seeded from the bake').toBeGreaterThan(0);
+    };
+    const lit = interior(await playAt(variant, insidePose, `${variant}-inside`, seeded));
     const moved = await moverRatio(variant, `${variant}-mover`);
     console.log(`[probe lighting] ${backendOf(variant)}: inside ${lit.map((v) => v.toFixed(1)).join(' ')}; mover open ${moved.open.toFixed(1)} covered ${moved.covered.toFixed(1)}`);
     // No leak: every spot inside is dark, the ones by the sunlit wall included, where the flat light lit them (what is

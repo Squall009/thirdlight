@@ -43,8 +43,17 @@ the window says so.
   lookup and material variants as the live light, its light added to the
   per-pixel lights of mixed and realtime lights; the saved probes go to the
   probe lighting as live ones do. WebGPU at medium and high lights live (it
-  draws the saved light until its live light starts). Baked lights are not
-  drawn per pixel while a bake is used.
+  draws the saved light until its live light starts), and the live light
+  starts from the bake: tiles at the bake's level and probes take their
+  saved light, and only what the bake lacks is lit again — the direct light
+  of mixed and realtime lights, the bounce of realtime lights, and lights
+  changed since the bake (the bake records its lights). A tile whose
+  geometry changed since is marked as an edit is, and nothing more is taken
+  from that bake. Baked lights are not drawn per pixel while a bake is used.
+- **What stops light** — generated architecture stops light with every
+  piece that is not detail, whether or not it collides: ceilings, vaults and
+  roofs close their rooms though nobody walks on them. Glass panes and trims
+  let it through.
 - **The Scene view as Play** — both draw through the same adapter: the same
   quality level decides saved or live, the same lookup and the same probe
   lighting. The editor keeps drawing while the live light settles.

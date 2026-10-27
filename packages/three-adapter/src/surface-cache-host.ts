@@ -37,6 +37,7 @@ import { traceBlockLayerOf } from './tracer-sources';
 import { TerrainTraceRings } from './tracer-terrain-rings';
 import { SurfaceRooms, type LightingRooms } from './surface-rooms';
 import { LiveProbes, PROBE_BUDGET_SHARE, type LiveProbeDiagnostics } from './surface-probes';
+import { SurfaceSeeding } from './surface-seed';
 import { ProbeMarks, brickSide, type ProbeSolid, type Steps } from './probe-bricks';
 import { architectureMarks, blockTileMarks, probeSolid, terrainMarksSteps, type ProbeSolidModel } from './probe-geometry';
 import type { TraceArchitecture } from './tracer-objects';
@@ -144,6 +145,8 @@ export interface SurfaceCacheHostDiagnostics extends SurfaceCacheDiagnostics {
   readonly relight: RelightDiagnostics;
   /** The live probes: how many, how many stale, and the last update's GPU time. */
   readonly probes: LiveProbeDiagnostics;
+  /** Tiles and probes that started from a bake's saved light. */
+  readonly seeded: { readonly tiles: number; readonly probes: number };
 }
 
 /** A terrain ring patch as a unit of work. */
@@ -220,6 +223,8 @@ export class SurfaceCacheHost {
   readonly changes: SurfaceChanges;
   /** The live probes over the static scene and its rooms (lit only where a pass runs them). */
   readonly probes: LiveProbes;
+  /** The bakes' saved light the live light starts from (`surface-seed.ts`). */
+  readonly seeding: SurfaceSeeding;
   /** The drawn eye at the last update. */
   readonly eye: number[] = [0, 0, 0];
   /** The first listing is done: what comes or goes after it is a change. */
@@ -256,8 +261,6 @@ export class SurfaceCacheHost {
   private tracedObjects: { tiles: readonly SurfaceTile[]; layers: readonly (number | undefined)[]; arch: TraceSceneSource['arch']; bricks: TraceSceneSource['bricks'] } | null = null;
   /** Bumped per terrain when its tiles' data changed, came or went. */
   private readonly terrainVersions = new Map<string, number>();
-  /** Atlas blocks handed to tiles since the last `takeFreshBlocks`. */
-  private fresh: AtlasBlock[] = [];
   private roomsVersion = -1;
   /** Bumped whenever a ready tile came, went or changed (the probes are placed again). */
   private readyVersion = 0;
@@ -280,6 +283,7 @@ export class SurfaceCacheHost {
     this.probes = new LiveProbes(DEFAULT_PROBE_SPACING, relightMs * PROBE_BUDGET_SHARE);
     // What the cache's light marks, the probes' light may change with.
     this.relight.onStale((min, max) => this.probes.markBox(min, max));
+    this.seeding = new SurfaceSeeding({ cache: this.cache, relight: this.relight, changes: this.changes, probes: this.probes, tile: (key) => this.ready.get(key), unitsOf: (key) => this.tileUnits.get(key) ?? [key] });
   }
 
   /** The GPU time a frame may spend on live light (0: none, the saved light is drawn). */
@@ -296,6 +300,7 @@ export class SurfaceCacheHost {
 
   /** A pass runs the planned work (`slicesThisFrame`) and reports its GPU time (`relight.report`). */
   setLive(on: boolean): void {
+    if (on && !this.live) this.seeding.wentLive();
     this.live = on;
     this.relight.setBudget(this.relightMs, on);
   }
@@ -343,13 +348,6 @@ export class SurfaceCacheHost {
     const rings = this.cache.ringsOf(terrain);
     if (u === undefined || field === undefined || rings === null) return null;
     return { patch: u.patch, texel: rings.texelMetres(u.patch.ring), field, terrain: this.cache.ringTerrains().indexOf(terrain) };
-  }
-
-  /** The atlas blocks handed to tiles since the last call (their texels hold another tile's light until cleared). */
-  takeFreshBlocks(): AtlasBlock[] {
-    const out = this.fresh;
-    this.fresh = [];
-    return out;
   }
 
   /** The texels to light this frame (what `update` planned). */
@@ -508,6 +506,7 @@ export class SurfaceCacheHost {
     this.cache.update(at, this.offered, this.terrains, this.changed);
     this.changed = false;
     this.syncUnits();
+    this.seeding.frame(this.live);
     this.slices = this.relight.plan(at, now);
   }
 
@@ -554,7 +553,8 @@ export class SurfaceCacheHost {
     for (const key of ch.allocated) {
       this.addTileUnits(key);
       const r = this.cache.residentOf(key);
-      if (r !== null && this.live) this.fresh.push(...r.blocks);
+      // Its blocks hold another tile's light until cleared, or given the saved light.
+      if (r !== null && this.live) this.seeding.handOut(key, r.blocks);
     }
     const stepped = new Map<string, Set<number>>();
     for (const r of ch.rings) for (const k of r.rings) {
@@ -836,7 +836,7 @@ export class SurfaceCacheHost {
   diagnostics(): SurfaceCacheHostDiagnostics {
     let reading = 0;
     for (const f of this.files.values()) if (f === 'reading') reading += 1;
-    return { ...this.cache.diagnostics(), preparing: this.pending.size, reading, prepareMs: this.prepareMs, relight: this.relight.diagnostics(), probes: this.probesDiagnostics() };
+    return { ...this.cache.diagnostics(), preparing: this.pending.size, reading, prepareMs: this.prepareMs, relight: this.relight.diagnostics(), probes: this.probesDiagnostics(), seeded: { tiles: this.seeding.seededTiles, probes: this.seeding.seededProbes } };
   }
 
   /** The probes' diagnostics; not settled while a placement waits (its new probes are yet to be lit). */
