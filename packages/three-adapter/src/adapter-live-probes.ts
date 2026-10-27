@@ -6,13 +6,11 @@
  * objects, foliage and ground cover among them — reads bounced light from
  * the live cache through the probe sampling it always used.
  *
- * - Each grid (a room's, or a brick) is a tile in the bake's GPU layout
- *   (`writePackedProbe`); a probe whose record changed is written again
- *   into every tile holding it (with the walls of the points next to it,
- *   which read its axis rays), and a tile whose probes changed is uploaded
- *   in place, at most every `LIVE_TILE_MS` for each `LIVE_TILE_BYTES` it
- *   holds and `LIVE_TILE_WRITES` tiles a frame; tiles of grids placed again
- *   are kept.
+ * - Each grid is a tile in the bake's GPU layout (`writePackedProbe`); a
+ *   probe whose record changed is written into it again (with the walls of
+ *   the probes next to it, which read its axis rays), and a tile whose
+ *   probes changed is uploaded in place, at most every `LIVE_TILE_MS` for
+ *   each `LIVE_TILE_BYTES` it holds.
  * - The sky the probes see (`SkyProbe`) is looked at here; when it
  *   changes every probe is stale.
  * - `?probesView=1` on the page draws the probes (the editor's probe debug
@@ -20,15 +18,14 @@
  */
 
 import * as THREE from 'three';
-import { PROBE_FILLED, PROBE_MOVED, PROBE_SH_TEXELS, PROBE_VALID, type ProbeGridRecord } from '@thirdlight/runtime';
+import { PROBE_FILLED, PROBE_SH_TEXELS, PROBE_VALID, type ProbeGridRecord } from '@thirdlight/runtime';
 
 import { pageSearch } from './renderer-factory';
 import type { ProbeTileForGpu } from './probe-atlas';
 import { createProbeDebugView, type ProbeDebugView } from './probe-debug';
 import type { ProbeLightingHost } from './probe-grids';
 import type { ProbeLighting } from './probe-lighting';
-import { emptyPackedProbeTile, writePackedProbe, type PackedProbeTile } from './probe-pack';
-import { PROBE_WEIGHT_FILLED } from './probe-weights';
+import { emptyPackedProbeTile, probeWeight, writePackedProbe, type PackedProbeTile } from './probe-pack';
 import { PROBE_FLOATS, type LiveProbes } from './surface-probes';
 import type { SurfaceCacheHost } from './surface-cache-host';
 import { SkyProbe } from './surface-probe-sky';
@@ -42,12 +39,6 @@ import type { SurfaceLightRuntime } from './surface-light-runtime';
  */
 export const LIVE_TILE_MS = 200;
 export const LIVE_TILE_BYTES = 256 * 1024;
-/**
- * Tiles written to the GPU a frame at most once placed: each write is a
- * call into the GPU process (tens of microseconds of main thread), and a
- * sun step changes every brick's probes at once.
- */
-export const LIVE_TILE_WRITES = 16;
 /** The file value index of a probe's walls (after its light's texels). */
 const WALLS = PROBE_SH_TEXELS * 4;
 
@@ -62,8 +53,6 @@ export class AdapterLiveProbes {
   private skyVersion = -1;
   private layout = -1;
   private tiles: LiveTile[] = [];
-  /** Tiles made by the last placement, written whole once made. */
-  private fresh: [number, LiveTile][] = [];
   private readonly walls = [0, 0, 0, 0, 0, 0];
   private on = false;
   private viewOn: boolean;
@@ -99,70 +88,51 @@ export class AdapterLiveProbes {
       runtime.sky = this.sky.coefficients.slice();
       probes.markBox(null, null);
     }
-    let relaid = false;
     if (probes.layout !== this.layout) {
       this.layout = probes.layout;
-      // Grids placed again keep their tiles (their probes kept their light); new ones are written whole.
-      const old = new Map(this.tiles.map((t) => [t.tile.key, t]));
-      this.tiles = probes.grids.map((g, gi) => {
-        const key = `live:${g.key}`;
-        const kept = old.get(key);
-        if (kept !== undefined) return kept;
+      this.tiles = probes.grids.map((g) => {
         const grid: ProbeGridRecord = { min: [...g.min] as [number, number, number], max: [...g.max] as [number, number, number], resolution: [...g.resolution] as [number, number, number], asset: '' };
         const n = g.resolution[0] * g.resolution[1] * g.resolution[2];
-        const t: LiveTile = { tile: { key, sceneId: '', grid, packed: emptyPackedProbeTile(g.resolution), validity: new Float32Array(n).fill(PROBE_FILLED), ...(g.level >= 0 ? { brick: true } : {}) }, dirty: true, uploadedAt: -Infinity };
-        this.fresh.push([gi, t]);
-        return t;
+        return { tile: { key: `live:${g.key}`, sceneId: '', grid, packed: emptyPackedProbeTile(g.resolution), validity: new Float32Array(n).fill(PROBE_FILLED) }, dirty: true, uploadedAt: -Infinity };
       });
-      for (const [gi, t] of this.fresh) {
-        const n = t.tile.grid.resolution[0] * t.tile.grid.resolution[1] * t.tile.grid.resolution[2];
-        for (let l = 0; l < n; l += 1) this.write(probes, gi, l);
-        // Placed with what it holds now (the store uploads a tile it places).
-        t.dirty = false;
-        t.uploadedAt = now;
-      }
-      this.fresh = [];
-      relaid = true;
+      for (let i = 0; i < probes.count; i += 1) this.write(probes, i);
     }
     for (const i of probes.takeChangedProbes()) {
-      // Every grid holding it, and the points before it along each axis there (their walls take its axis rays).
-      for (let h = probes.holdersAt[i]!; h < probes.holdersAt[i + 1]!; h += 1) {
-        const gi = probes.holders[h * 2]!;
-        const l = probes.holders[h * 2 + 1]!;
-        const [nx, ny] = probes.grids[gi]!.resolution;
-        this.write(probes, gi, l);
-        if (l % nx > 0) this.write(probes, gi, l - 1);
-        if (Math.floor(l / nx) % ny > 0) this.write(probes, gi, l - nx);
-        if (Math.floor(l / (nx * ny)) > 0) this.write(probes, gi, l - nx * ny);
-      }
+      this.write(probes, i);
+      // The probes before it along each axis take their walls from its axis rays.
+      const g = probes.grids[probes.gridOf(i)]!;
+      const l = i - g.first;
+      const [nx, ny] = g.resolution;
+      if (l % nx > 0) this.write(probes, i - 1);
+      if (Math.floor(l / nx) % ny > 0) this.write(probes, i - nx);
+      if (Math.floor(l / (nx * ny)) > 0) this.write(probes, i - nx * ny);
     }
-    // The tiles waiting longest go first, a few a frame (each is one texture write).
     const changed = new Set<string>();
-    const due = this.tiles.filter((t) => t.dirty && now - t.uploadedAt >= LIVE_TILE_MS * Math.max(1, t.tile.packed.data.byteLength / LIVE_TILE_BYTES));
-    due.sort((a, b) => a.uploadedAt - b.uploadedAt);
-    for (const t of due.slice(0, LIVE_TILE_WRITES)) {
+    for (const t of this.tiles) {
+      if (!t.dirty || now - t.uploadedAt < LIVE_TILE_MS * Math.max(1, t.tile.packed.data.byteLength / LIVE_TILE_BYTES)) continue;
       t.dirty = false;
       t.uploadedAt = now;
       changed.add(t.tile.key);
     }
-    if (changed.size > 0 || relaid) this.probes.setLive(this.tiles.map((t) => t.tile), changed);
+    if (changed.size > 0) this.probes.setLive(this.tiles.map((t) => t.tile), changed);
     this.drawView();
   }
 
-  /** Point `l` of grid `gi` (its probe's light, weight and walls) into the grid's tile. */
-  private write(probes: LiveProbes, gi: number, l: number): void {
+  /** Probe `i` (its light, weight and walls) into its tile's GPU layout. */
+  private write(probes: LiveProbes, i: number): void {
+    const gi = probes.gridOf(i);
     const t = this.tiles[gi]!;
     const g = probes.grids[gi]!;
     const [nx, ny, nz] = g.resolution;
-    const i = probes.lattice[g.at + l]!;
-    const w = probes.probeWeight(i);
-    t.tile.validity[l] = w <= PROBE_WEIGHT_FILLED ? PROBE_FILLED : probes.probeMoved(i) ? PROBE_MOVED : PROBE_VALID;
-    const walls = probes.probeWalls(gi, l, this.walls);
+    const l = i - g.first;
+    const valid = probes.probeValid(i);
+    t.tile.validity[l] = valid ? PROBE_VALID : PROBE_FILLED;
+    const walls = probes.probeWalls(i, this.walls);
     const at = i * PROBE_FLOATS;
     const state = probes.state;
     const toHalf = THREE.DataUtils.toHalfFloat;
     // The file's values: the first band's twelve, then the walls (cut x, cut x × where, cut y, …).
-    writePackedProbe(t.tile.packed, l % nx, Math.floor(l / nx) % ny, Math.floor(l / (nx * ny)), nz, w, (src) => {
+    writePackedProbe(t.tile.packed, l % nx, Math.floor(l / nx) % ny, Math.floor(l / (nx * ny)), nz, probeWeight(t.tile.validity[l]!), (src) => {
       if (src < 12) return toHalf(state[at + src]!);
       if (src >= WALLS && src < WALLS + 6) {
         const k = src - WALLS;

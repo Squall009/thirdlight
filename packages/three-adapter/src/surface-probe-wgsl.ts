@@ -18,10 +18,8 @@
  *   reads the last update's light at its hits, whatever order the
  *   workgroups run in).
  *
- * Words (`W`): the probes' layout first (`LiveProbes.layoutWords`: the
- * grids, `GRID_WORDS` each, the lattice naming each grid point's probe, the
- * brick map), then per probe of the update `PROBE_SLOT_WORDS` (its index,
- * its room, where its rays start and how far they run), the sky's four RGB
+ * Words (`W`): per probe of the update `PROBE_SLOT_WORDS` (its index, its
+ * room, its position), the grids (`GRID_WORDS` each), the sky's four RGB
  * coefficients, the rooms (`surface-rooms.ts`).
  */
 import { RESOLVE_PAGE, RESOLVE_RING } from './surface-resolve';
@@ -29,21 +27,20 @@ import { TERRAIN_RINGS_MAX, TERRAIN_RING_TEXELS } from './surface-cache-terrain'
 import { SURFACE_PAGE_TEXELS } from './surface-cache-atlas';
 import { ALBEDO_CELLS, ALBEDO_PAGE_STEP, ALBEDO_RING_STEP } from './surface-cache-lookup';
 import { NO_ROOM, ROOM_EXIT_MARGIN, roomsWgsl } from './surface-rooms';
-import { GRID_WORDS, NO_BRICK_WORD, PROBE_AXIS_RAYS, PROBE_RAYS, PROBE_SH_RAYS, SH_E0, SH_E1, SH_Y0, SH_Y1 } from './surface-probes';
-import { PROBE_WEIGHT_FILLED, PROBE_WEIGHT_MOVED } from './probe-weights';
+import { GRID_WORDS, PROBE_AXIS_RAYS, PROBE_RAYS, PROBE_SH_RAYS, SH_E0, SH_E1, SH_Y0, SH_Y1 } from './surface-probes';
 import { PROBE_VALIDITY_THRESHOLD } from '@thirdlight/runtime';
 import { TRACE_MISS, TRACE_UNFINISHED } from './tracer-scene';
 
 export const PROBE_WORKGROUP = 64;
-/** Words per probe of an update: its index, room, position and its rays' length. */
-export const PROBE_SLOT_WORDS = 6;
+/** Words per probe of an update: its index, room and position. */
+export const PROBE_SLOT_WORDS = 5;
 /** Vec4s of a probe's record (`PROBE_FLOATS` / 4). */
 export const PROBE_VEC4S = 6;
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
 /** The probe passes' parameters and words, shared with the reflections' gather (which fills the same block). */
 export const PROBE_COMMON_WGSL = /* wgsl */ `
-struct Params { slots: u32, rays: u32, grids: u32, gridAt: u32, skyAt: u32, roomsAt: u32, seed: u32, probes: u32, pad0: f32, albedo: f32, lift: f32, blendMin: f32, albedoRingsAt: u32, latticeAt: u32, mapAt: u32, slotsAt: u32 }
+struct Params { slots: u32, rays: u32, grids: u32, gridAt: u32, skyAt: u32, roomsAt: u32, seed: u32, probes: u32, rayMax: f32, albedo: f32, lift: f32, blendMin: f32, albedoRingsAt: u32, pad1: u32, pad2: u32, pad3: u32 }
 @group(0) @binding(0) var<uniform> P: Params;
 @group(0) @binding(1) var<storage, read> W: array<u32>;
 fn ww(i: u32) -> u32 { return W[i]; }
@@ -87,12 +84,12 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
   if (g.x >= P.rays) { return; }
   let slot = g.x / ${PROBE_RAYS}u;
   let k = g.x % ${PROBE_RAYS}u;
-  let at = P.slotsAt + slot * ${PROBE_SLOT_WORDS}u;
+  let at = slot * ${PROBE_SLOT_WORDS}u;
   let probe = W[at];
   let room = W[at + 1u];
   let o = wv(at + 2u);
   let d = probeRay(probe, k);
-  var tmax = wf(at + 5u);
+  var tmax = P.rayMax;
   var held = 0u;
   if (P.roomsAt != 0u) {
     if (room != ${NO_ROOM}u) {
@@ -123,53 +120,7 @@ fn sky(d: vec3f) -> vec3f {
   let a = P.skyAt;
   return max(vec3f(0.0), ${SH_Y0} * wv(a) + ${SH_Y1} * (wv(a + 3u) * d.y + wv(a + 6u) * d.z + wv(a + 9u) * d.x));
 }
-// The probes' irradiance from grid gi at q facing n: q held inside it, trilinear between its probes (named by its lattice) by their weights.
-fn gridIrr(gi: u32, qq: vec3f, n: vec3f) -> vec3f {
-  let at = P.gridAt + gi * ${GRID_WORDS}u;
-  let mn = wv(at);
-  let mx = wv(at + 3u);
-  let q = clamp(qq, mn, mx);
-  let res = vec3u(W[at + 6u], W[at + 7u], W[at + 8u]);
-  let first = W[at + 9u];
-  let span = max(mx - mn, vec3f(1e-6));
-  let f = select(vec3f(0.0), (q - mn) / span * vec3f(res - 1u), res > vec3u(1u));
-  let i0 = vec3u(clamp(floor(f), vec3f(0.0), vec3f(max(vec3i(res) - 2, vec3i(0)))));
-  let t = select(vec3f(0.0), clamp(f - vec3f(i0), vec3f(0.0), vec3f(1.0)), res > vec3u(1u));
-  var s0 = vec4f(0.0); var s1 = vec4f(0.0); var s2 = vec4f(0.0);
-  var wsum = 0.0;
-  for (var c = 0u; c < 8u; c++) {
-    let o = vec3u(c & 1u, (c >> 1u) & 1u, (c >> 2u) & 1u);
-    let ix = min(i0 + o, res - 1u);
-    let tri = mix(1.0 - t.x, t.x, f32(o.x)) * mix(1.0 - t.y, t.y, f32(o.y)) * mix(1.0 - t.z, t.z, f32(o.z));
-    let b = W[first + ix.x + ix.y * res.x + ix.z * res.x * res.y] * ${PROBE_VEC4S}u;
-    let info = PR[b + 3u];
-    var w = select(select(select(1.0, ${PROBE_WEIGHT_MOVED}, info.z > 0.0), ${PROBE_WEIGHT_FILLED}, info.x > ${PROBE_VALIDITY_THRESHOLD}), 0.0, info.y < 1.0) * tri;
-    if (w <= 0.0) { continue; }
-    s0 += PR[b] * w; s1 += PR[b + 1u] * w; s2 += PR[b + 2u] * w;
-    wsum += w;
-  }
-  if (wsum <= 0.0) { return vec3f(0.0); }
-  return max(vec3f(0.0), shIrr(s0 / wsum, s1 / wsum, s2 / wsum, n));
-}
-// The finest brick at q (held at the map's edge within the lift), as brickMapAt finds it.
-fn brickAt(qq: vec3f) -> u32 {
-  let m = P.mapAt;
-  if (m == ${NO_BRICK_WORD}u) { return ${NO_BRICK_WORD}u; }
-  let dims = vec3u(W[m + 4u], W[m + 5u], W[m + 6u]);
-  if (dims.x == 0u) { return ${NO_BRICK_WORD}u; }
-  let o = wv(m);
-  let top = wf(m + 3u);
-  let hi = o + vec3f(dims) * top;
-  if (any(qq < o - vec3f(P.lift)) || any(qq > hi + vec3f(P.lift))) { return ${NO_BRICK_WORD}u; }
-  let q = clamp(qq, o, hi - vec3f(1e-4));
-  let cf = min(vec3u(floor((q - o) / top)), dims - 1u);
-  let ci = W[m + 7u] + (cf.x + dims.x * (cf.y + dims.y * cf.z)) * 2u;
-  let side = W[ci + 1u];
-  if (side == 0u) { return ${NO_BRICK_WORD}u; }
-  let s = min(vec3u(max(floor((q - o - vec3f(cf) * top) * f32(side) / top), vec3f(0.0))), vec3u(side - 1u));
-  return W[W[m + 8u] + W[ci] + s.x + side * (s.y + side * s.z)];
-}
-// The probes' irradiance at q facing n: the first room's grid within the lift of q (outside its box only for a point in its room), else the finest brick there.
+// The probes' irradiance at q facing n: the first grid within the lift of q (a room's only for a point in the room), q held inside it, trilinear by the probes' weights.
 fn probesAt(qq: vec3f, n: vec3f) -> vec3f {
   for (var gi = 0u; gi < P.grids; gi++) {
     let at = P.gridAt + gi * ${GRID_WORDS}u;
@@ -177,12 +128,32 @@ fn probesAt(qq: vec3f, n: vec3f) -> vec3f {
     let mx = wv(at + 3u);
     if (any(qq < mn - vec3f(P.lift)) || any(qq > mx + vec3f(P.lift))) { continue; }
     // Outside a room's grid only for a point in its room (not a doorway's far side).
-    if ((any(qq < mn) || any(qq > mx)) && (P.roomsAt == 0u || !roomHolds(W[at + 10u], qq))) { continue; }
-    return gridIrr(gi, qq, n);
+    let room = W[at + 10u];
+    if ((any(qq < mn) || any(qq > mx)) && room != ${NO_ROOM}u && (P.roomsAt == 0u || !roomHolds(room, qq))) { continue; }
+    let q = clamp(qq, mn, mx);
+    let res = vec3u(W[at + 6u], W[at + 7u], W[at + 8u]);
+    let first = W[at + 9u];
+    let span = max(mx - mn, vec3f(1e-6));
+    let f = select(vec3f(0.0), (q - mn) / span * vec3f(res - 1u), res > vec3u(1u));
+    let i0 = vec3u(clamp(floor(f), vec3f(0.0), vec3f(max(vec3i(res) - 2, vec3i(0)))));
+    let t = select(vec3f(0.0), clamp(f - vec3f(i0), vec3f(0.0), vec3f(1.0)), res > vec3u(1u));
+    var s0 = vec4f(0.0); var s1 = vec4f(0.0); var s2 = vec4f(0.0);
+    var wsum = 0.0;
+    for (var c = 0u; c < 8u; c++) {
+      let o = vec3u(c & 1u, (c >> 1u) & 1u, (c >> 2u) & 1u);
+      let ix = min(i0 + o, res - 1u);
+      let tri = mix(1.0 - t.x, t.x, f32(o.x)) * mix(1.0 - t.y, t.y, f32(o.y)) * mix(1.0 - t.z, t.z, f32(o.z));
+      let b = (first + ix.x + ix.y * res.x + ix.z * res.x * res.y) * ${PROBE_VEC4S}u;
+      let info = PR[b + 3u];
+      var w = select(select(1.0, 1.0 / 64.0, info.x > ${PROBE_VALIDITY_THRESHOLD}), 0.0, info.y < 1.0) * tri;
+      if (w <= 0.0) { continue; }
+      s0 += PR[b] * w; s1 += PR[b + 1u] * w; s2 += PR[b + 2u] * w;
+      wsum += w;
+    }
+    if (wsum <= 0.0) { return vec3f(0.0); }
+    return max(vec3f(0.0), shIrr(s0 / wsum, s1 / wsum, s2 / wsum, n));
   }
-  let b = brickAt(qq);
-  if (b == ${NO_BRICK_WORD}u) { return vec3f(0.0); }
-  return gridIrr(b, qq, n);
+  return vec3f(0.0);
 }
 // A hit's direct light from its cache texel (none when its surface is not resident).
 fn texelLight(r: u32) -> vec3f {
@@ -252,7 +223,7 @@ var<workgroup> AX: array<f32, ${PROBE_AXIS_RAYS}>;
 @compute @workgroup_size(${PROBE_SH_RAYS})
 fn main(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_index) li: u32) {
   let slot = wg.x;
-  let at = P.slotsAt + slot * ${PROBE_SLOT_WORDS}u;
+  let at = slot * ${PROBE_SLOT_WORDS}u;
   let probe = W[at];
   let o = wv(at + 2u);
   let base = probe * ${PROBE_VEC4S}u;
@@ -284,7 +255,7 @@ fn main(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_index) li: u
   let n0 = mix(o0, SH[0] * w, a);
   let n1 = mix(o1, SH[1] * w, a);
   let n2 = mix(o2, SH[2] * w, a);
-  let n3 = vec4f(BK[0] / ${PROBE_SH_RAYS}.0, info.y + 1.0, info.z, 0.0);
+  let n3 = vec4f(BK[0] / ${PROBE_SH_RAYS}.0, info.y + 1.0, 0.0, 0.0);
   let n4 = vec4f(AX[0], AX[1], AX[2], AX[3]);
   let n5 = vec4f(AX[4], AX[5], 0.0, 0.0);
   let ob = slot * ${PROBE_VEC4S}u;
@@ -302,6 +273,6 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
   if (g.x >= P.slots * ${PROBE_VEC4S}u) { return; }
   let slot = g.x / ${PROBE_VEC4S}u;
   let k = g.x % ${PROBE_VEC4S}u;
-  PR[W[P.slotsAt + slot * ${PROBE_SLOT_WORDS}u] * ${PROBE_VEC4S}u + k] = O[g.x];
+  PR[W[slot * ${PROBE_SLOT_WORDS}u] * ${PROBE_VEC4S}u + k] = O[g.x];
 }
 `;

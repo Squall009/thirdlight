@@ -278,7 +278,6 @@ async function run(input: RelightInput): Promise<Record<string, unknown>> {
       probeUpdates: d.probes.updates - updates0,
       probeCount: d.probes.probes,
       probesPerUpdate: d.probes.perUpdate,
-      probeLayout: { bricks: d.probes.bricks, lit: d.probes.lit, moved: d.probes.moved, grids: d.probes.grids, placeMs: d.probes.placeMs },
     };
   };
   const cold = await loop(60000);

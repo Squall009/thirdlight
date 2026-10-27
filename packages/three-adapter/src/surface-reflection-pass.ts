@@ -18,8 +18,8 @@
 import { EXACT_TRACE } from './tracer-cpu-math';
 import type { GpuBuffer, GpuTracer, GpuTexture, TracerDevice } from './tracer-gpu';
 import type { GpuResolve } from './surface-resolve-gpu';
-import type { LiveProbes } from './surface-probes';
-import { ProbeWordsBuffer, packProbeWords, probeParams } from './surface-probe-pass';
+import { BOUNCE_ALBEDO, PROBE_HIT_LIFT, type LiveProbes } from './surface-probes';
+import { packProbeWords } from './surface-probe-pass';
 import { PROBE_COMMON_WGSL, PROBE_HIT_LIGHT_WGSL } from './surface-probe-wgsl';
 import { TRACE_MISS, TRACE_UNFINISHED } from './tracer-scene';
 
@@ -85,7 +85,7 @@ interface QueryDevice extends TracerDevice {
 export class SurfaceReflectionPass {
   private readonly params: GpuBuffer;
   private readonly noRecords: GpuBuffer;
-  private readonly words: ProbeWordsBuffer;
+  private words: GpuBuffer | null = null;
   private readonly query: unknown;
   private readonly resolveTs: GpuBuffer | null;
   private timing = false;
@@ -97,7 +97,6 @@ export class SurfaceReflectionPass {
 
   private constructor(private readonly device: QueryDevice, private readonly tracer: GpuTracer, private readonly gather: Pipeline) {
     this.params = device.createBuffer({ size: 64, usage: USAGE.UNIFORM | USAGE.COPY_DST, label: 'reflection params' });
-    this.words = new ProbeWordsBuffer(device, 'reflection words');
     this.noRecords = device.createBuffer({ size: 96, usage: USAGE.STORAGE, label: 'reflection no probes' });
     const timed = device.features?.has('timestamp-query') === true && device.createQuerySet !== undefined;
     this.query = timed ? device.createQuerySet!({ type: 'timestamp', count: 2 }) : null;
@@ -118,8 +117,20 @@ export class SurfaceReflectionPass {
     const n = input.count;
     if (n === 0 || !this.tracer.ready) return;
     const packed = packProbeWords({ probes: input.probes, slots: new Uint32Array(0), sky: input.sky, rooms: input.rooms });
-    const words = this.words.write(packed);
-    d.queue.writeBuffer(this.params, 0, probeParams(input.probes, packed, 0, n, 0, input.albedoRingsAt, input.records !== null));
+    if (this.words === null || this.words.size < packed.words.byteLength) {
+      this.words?.destroy();
+      let size = 256;
+      while (size < packed.words.byteLength) size *= 2;
+      this.words = d.createBuffer({ size, usage: USAGE.STORAGE | USAGE.COPY_DST, label: 'reflection words' });
+    }
+    d.queue.writeBuffer(this.words, 0, packed.words);
+    const p = new Uint32Array(16);
+    const pf = new Float32Array(p.buffer);
+    const grids = input.records === null ? 0 : input.probes.grids.length;
+    p.set([0, n, grids, packed.gridAt, packed.skyAt, packed.roomsAt, 0, input.probes.count]);
+    pf.set([0, BOUNCE_ALBEDO, PROBE_HIT_LIFT, 0], 8);
+    p[12] = input.albedoRingsAt;
+    d.queue.writeBuffer(this.params, 0, p);
     // One frame timed at a time: the next waits for the read-back.
     const timed = this.query !== null && !this.timing;
     const enc = d.createCommandEncoder();
@@ -133,7 +144,7 @@ export class SurfaceReflectionPass {
         layout: this.gather.getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: { buffer: this.params } },
-          { binding: 1, resource: { buffer: words } },
+          { binding: 1, resource: { buffer: this.words } },
           { binding: 2, resource: { buffer: input.records ?? this.noRecords } },
           { binding: 3, resource: { buffer: input.rays } },
           { binding: 5, resource: { buffer: this.tracer.hitsBuffer } },
@@ -178,8 +189,8 @@ export class SurfaceReflectionPass {
   }
 
   dispose(): void {
-    for (const b of [this.params, this.noRecords, this.resolveTs]) b?.destroy();
+    for (const b of [this.params, this.noRecords, this.words, this.resolveTs]) b?.destroy();
     (this.query as { destroy?(): void } | null)?.destroy?.();
-    this.words.dispose();
+    this.words = null;
   }
 }

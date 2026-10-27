@@ -30,9 +30,7 @@
  * outside it looks up its cell of the index and tests the few tiles listed
  * there (where tiles share a face the first one in the table, which holds
  * the same probes there) — constant work a pixel and an object however many
- * tiles are loaded. Live probes' bricks (probe-bricks.ts) tile space
- * without overlapping and are not in the index: where no tile holds the
- * pixel, the brick map after the index names its finest brick in two reads. A frame samples one texture, and a new tile builds no
+ * tiles are loaded. A frame samples one texture, and a new tile builds no
  * program. Probes hold
  * first-order light (four samples a pixel). The sample keeps to one side of the walls
  * the bake found between probes (`probeSamplePoint`), so light does not leak
@@ -148,10 +146,7 @@ class ObjectTile {
       const g = (object as THREE.Mesh).geometry;
       if (g !== undefined && g.boundingSphere === null) g.computeBoundingSphere();
       _centre.copy(g?.boundingSphere?.center ?? _centre.set(0, 0, 0)).applyMatrix4(object.matrixWorld);
-      let r = probeRowAt(store.indexOf, store.boxes, _centre);
-      // Live probes' bricks: every pixel looks up its own (a brick next to one of another level holds other light on
-      // their shared face, so the object's brick and the pixel's own could differ there by which object drew it).
-      if (r >= 0 && store.brickRows.has(r)) r = -1;
+      const r = probeRowAt(store.indexOf, store.boxes, _centre);
       this.picked.set(object, { frame, revision: store.revision, row: r });
       return r;
     };
@@ -197,9 +192,6 @@ export interface ProbeTextureNodes {
   readonly indexOrigin: N;
   readonly indexInvCell: N;
   readonly indexDims: N;
-  /** The live bricks' map after the index (probe-index.ts `withBrickMap`): its corner and coarsest side, its cells per axis and where its cells start. */
-  readonly brickOrigin: N;
-  readonly brickDims: N;
   /** 1 / the packed texture's size. */
   readonly atlasScale: N;
   /** Copy the light's current textures into the nodes. */
@@ -215,8 +207,6 @@ export function probeTextureNodes(light: ProbeLighting): ProbeTextureNodes {
     indexOrigin: uniform(new THREE.Vector4()),
     indexInvCell: uniform(new THREE.Vector4()),
     indexDims: uniform(new THREE.Vector4()),
-    brickOrigin: uniform(new THREE.Vector4()),
-    brickDims: uniform(new THREE.Vector4()),
     atlasScale: uniform(new THREE.Vector3(1, 1, 1)),
     sync(l) {
       const st = l.store;
@@ -226,9 +216,6 @@ export function probeTextureNodes(light: ProbeLighting): ProbeTextureNodes {
       nodes.indexOrigin.value.set(...st.indexOf.origin, 0);
       nodes.indexInvCell.value.set(...st.indexOf.invCell, 0);
       nodes.indexDims.value.set(...st.indexOf.dims, 0);
-      const b = st.indexOf.bricks;
-      nodes.brickOrigin.value.set(...b.origin, b.top);
-      nodes.brickDims.value.set(...b.dims, st.indexOf.brickCellsAt);
       nodes.atlasScale.value.set(1 / st.atlas.image.width, 1 / st.atlas.image.height, 1 / st.atlas.image.depth);
     },
   };
@@ -360,34 +347,6 @@ class ProbeLightingNode extends (THREE.Node as unknown as new () => { updateType
             If(out.lessThanEqual(0), () => {
               Break();
             });
-          });
-        });
-      });
-    });
-    // Live probes' bricks tile space: the map names the finest brick at the pixel held inside the map (two reads).
-    If(bestOut.greaterThan(0).and(t.brickDims.x.greaterThan(0)), () => {
-      const top = t.brickOrigin.w;
-      const o = t.brickOrigin.xyz;
-      const q = p.clamp(o, o.add(t.brickDims.xyz.mul(top)).sub(1e-3));
-      const cf = q.sub(o).div(top).floor().min(t.brickDims.xyz.sub(1));
-      const head = indexTexel(t, int(t.brickDims.w).add(int(cf.x.add(t.brickDims.x.mul(cf.y.add(t.brickDims.y.mul(cf.z)))))));
-      const side = head.y;
-      If(side.greaterThan(0), () => {
-        const sub = q.sub(o).sub(cf.mul(top)).mul(side).div(top).floor().clamp(vec3(0), vec3(side.sub(1)));
-        const row = indexTexel(t, int(head.x).add(int(sub.x.add(side.mul(sub.y.add(side.mul(sub.z))))))).x;
-        If(row.greaterThanEqual(0), () => {
-          const ri = int(row);
-          const a = tableTexel(t, ri, 0);
-          const b = tableTexel(t, ri, 1);
-          const r = tableTexel(t, ri, 2);
-          const qq = p.mul(a.xyz).add(b.xyz);
-          const out = max(qq.negate(), vec3(0)).add(max(qq.sub(vec3(r.x, r.y, b.w).sub(1)), vec3(0))).div(a.xyz).length();
-          If(out.lessThan(bestOut), () => {
-            bestOut.assign(out);
-            found.assign(1);
-            sc.assign(a);
-            of.assign(b);
-            rs.assign(r);
           });
         });
       });

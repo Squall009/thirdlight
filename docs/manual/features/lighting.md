@@ -222,17 +222,12 @@ only where something changed:
   twice as coarse and twice as wide), so a large terrain costs the same
   memory as a small one, and walking moves the rings a little at a time,
   never in one frame.
-- **Bounced light** — live probes carry it: a grid inside each room of
-  generated architecture, and elsewhere bricks of 4 × 4 × 4 probes placed
-  by the geometry — 2 m apart where surfaces meet (a wall on a floor,
-  steps, props, buildings), 6 m over flat ground, 18 m in the open above
-  it, none far up in the sky; over terrain only near the eye (6 m within
-  about 25 m, 18 m to about 100 m, moving with you). A probe that would
-  stand inside geometry is moved up or sideways out of it (up to half its
-  spacing), else left out, and a brick's probe standing in a room is left
-  to the room's own grid. Each stale probe casts rays that read the
-  cache's light where they hit, the probes' own light there and the sky
-  where they hit nothing, so bounces build up over a few updates. Every lit material — moving objects, foliage and ground cover
+- **Bounced light** — live probes carry it: probe grids stand where a probe
+  bake would put them (a grid inside each room of generated architecture,
+  then grids over the static objects), and each stale probe casts rays
+  that read the cache's light where they hit, the probes' own light there
+  and the sky where they hit nothing, so bounces build up over a few
+  updates. Every lit material — moving objects, foliage and ground cover
   too — reads them through the usual probe lighting, in place of baked
   probes while the light is live. A bounce takes the colour of the surface
   it leaves: the surfaces that read the cache write their own colour beside
