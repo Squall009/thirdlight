@@ -1,8 +1,27 @@
-# Types (TrimSheet to WindOctave)
+# Types (TrimRow to WindOctave)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-trim-row"></a>
+### TrimRow
+
+Declared in `packages/project-model/src/trim-sheet.ts`.
+
+```ts
+/** A row's place on the sheet: pixel rows `top` (inclusive) to `bottom` (exclusive), counted from the image's top. */
+interface TrimRow {
+  /** The semantic slot the row fills (an id: `floor`, `lower_wall`, …); unique on the sheet. */
+  slot: string;
+  top: number;
+  bottom: number;
+  /** Pixels per metre along u for this row (absent: the sheet's). */
+  texelDensity?: number;
+  /** The row tiles in v too (its padding continues its wrap, and strips may stack it up a wall). */
+  tileV?: boolean;
+}
+```
 
 <a id="type-trim-sheet"></a>
 ### TrimSheet

@@ -67,6 +67,8 @@ import { releaseMrtContexts } from './dispose';
 import { PhysicalSky } from './physical-sky';
 import { buildAmbientOcclusion, type AmbientOcclusionStage, type AoKind, type ScreenSpaceOcclusion } from './post-ao';
 import { buildContactShadows, type ContactShadowsLight, type ContactShadowsStage } from './post-contact-shadows';
+import { REFLECTION_LEVELS, type ReflectionsLight } from './post-reflections';
+import { buildReflections, reflectionRoughness, type ReflectionsStage } from './post-reflections-pass';
 import type { ScenePasses } from './occlusion-passes';
 import { atScale, buildUpscale, scaledTexture, type ScaledTexture, type UpscaleFilter, type UpscaleStage } from './post-upscale';
 
@@ -172,6 +174,8 @@ export interface PostPlan {
   ao: { kind: AoKind; radius: number; intensity: number } | null;
   /** Screen-space contact shadows on the key light's light (`post-contact-shadows.ts`; absent: none). */
   contactShadows?: boolean;
+  /** Reflections on glossy surfaces at a quality, with traced rays where the screen misses or not (`post-reflections.ts`; absent or null: none). */
+  reflections?: { quality: keyof typeof REFLECTION_LEVELS; traced: boolean; view?: boolean } | null;
   fogVolumes: boolean;
   dof: { focus: number; aperture: number; maxBlur: number } | null;
   bloom: { strength: number; radius: number; threshold: number } | null;
@@ -251,7 +255,7 @@ function blankLut(): THREE.DataTexture {
   return t;
 }
 
-/** The screen-history stages a stack draws after its scene pass (ambient occlusion, contact shadows), driven as one. */
+/** The screen-history stages a stack draws after its scene pass (ambient occlusion, contact shadows, reflections), driven as one. */
 interface ScreenStages {
   /** Their nodes, built into the pipeline's output so it draws them. */
   readonly nodes: readonly N[];
@@ -261,8 +265,9 @@ interface ScreenStages {
 }
 
 /** The stages for the lights given (null: that stage is not drawn). */
-function screenStages(renderer: WebGPURenderer, scene: THREE.Scene, camera: THREE.Camera, scenePass: N, aoLight: ScreenSpaceOcclusion | null, contactLight: ContactShadowsLight | null, plan: PostPlan, passes: string[], disposables: { dispose(): void }[]): ScreenStages {
-  const stages: (AmbientOcclusionStage | ContactShadowsStage)[] = [];
+function screenStages(renderer: WebGPURenderer, scene: THREE.Scene, camera: THREE.Camera, scenePass: N, lights: ScreenStageLights, plan: PostPlan, passes: string[], disposables: { dispose(): void }[]): ScreenStages {
+  const { aoLight, contactLight, reflectionsLight } = lights;
+  const stages: (AmbientOcclusionStage | ContactShadowsStage | ReflectionsStage)[] = [];
   if (aoLight !== null && plan.ao !== null) {
     stages.push(buildAmbientOcclusion(renderer, plan.ao.kind, scenePass, camera, aoLight, { radius: plan.ao.radius, intensity: plan.ao.intensity }));
     passes.push(plan.ao.kind);
@@ -270,6 +275,10 @@ function screenStages(renderer: WebGPURenderer, scene: THREE.Scene, camera: THRE
   if (contactLight !== null) {
     stages.push(buildContactShadows(renderer, scenePass, scene, contactLight));
     passes.push('contactShadows');
+  }
+  if (reflectionsLight !== null && plan.reflections) {
+    stages.push(buildReflections(renderer, scenePass, scene, reflectionsLight, REFLECTION_LEVELS[plan.reflections.quality], plan.reflections.traced));
+    passes.push('reflections');
   }
   disposables.push(...stages);
   return {
@@ -280,8 +289,17 @@ function screenStages(renderer: WebGPURenderer, scene: THREE.Scene, camera: THRE
   };
 }
 
-/** `aoLight`, `contactLight`: the scene's occlusion and contact-shadows lights, which a plan with `ao` or `contactShadows` feeds (null: none in the scene). */
-export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, camera: THREE.Camera, plan: PostPlan, aoLight: ScreenSpaceOcclusion | null = null, contactLight: ContactShadowsLight | null = null): PostPipeline {
+/** The scene's screen-history lights a plan feeds (null: none of that kind in the scene). */
+export interface ScreenStageLights {
+  aoLight: ScreenSpaceOcclusion | null;
+  contactLight: ContactShadowsLight | null;
+  reflectionsLight: ReflectionsLight | null;
+}
+const NO_SCREEN_LIGHTS: ScreenStageLights = { aoLight: null, contactLight: null, reflectionsLight: null };
+
+/** `lights`: the scene's occlusion, contact-shadows and reflections lights, which a plan with `ao`, `contactShadows` or `reflections` feeds. */
+export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, camera: THREE.Camera, plan: PostPlan, lights: ScreenStageLights = NO_SCREEN_LIGHTS): PostPipeline {
+  const { aoLight, contactLight, reflectionsLight } = lights;
   const disposables: { dispose(): void }[] = [];
   const passes: string[] = ['render'];
   const perspective = camera instanceof THREE.PerspectiveCamera;
@@ -312,9 +330,12 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
     return t;
   };
   const wantsAo = plan.ao !== null && perspective && aoLight !== null;
-  // The MRT node is kept so the render contexts drawn with it can be released with the pipeline.
-  const sceneMrt: unknown = wantsAo ? mrt({ output, normal: normalView }) : null;
-  if (wantsAo) scenePass.setMRT(sceneMrt);
+  // A logarithmic depth buffer's depths are not the projection's: no reflections there.
+  const wantsReflections = plan.reflections != null && perspective && reflectionsLight !== null && renderer.logarithmicDepthBuffer !== true;
+  // The MRT node is kept so the render contexts drawn with it can be released with the pipeline. Reflections
+  // read each pixel's roughness beside its normal (AO reads the normal's rgb only).
+  const sceneMrt: unknown = wantsAo || wantsReflections ? mrt({ output, normal: wantsReflections ? vec4(normalView, reflectionRoughness()) : normalView }) : null;
+  if (sceneMrt !== null) scenePass.setMRT(sceneMrt);
   const depth: N = scenePass.getTextureNode('depth');
   let color: N = scenePass.getTextureNode('output');
 
@@ -322,70 +343,12 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
   const invProjection = uniform(new THREE.Matrix4());
   const cameraWorld = uniform(new THREE.Matrix4());
 
-  const screen = screenStages(renderer, scene, camera, scenePass, wantsAo ? aoLight : null, perspective && plan.contactShadows === true ? contactLight : null, plan, passes, disposables);
+  const screen = screenStages(renderer, scene, camera, scenePass, { aoLight: wantsAo ? aoLight : null, contactLight: perspective && plan.contactShadows === true ? contactLight : null, reflectionsLight: wantsReflections ? reflectionsLight : null }, plan, passes, disposables);
 
-  // ---- fog volumes (the archived (WebGL) TlFogVolumeShader, line by line) -----------------------
-  const count = uniform(0, 'int');
-  const vMin: N = uniformArray(Array.from({ length: MAX_FOG_VOLUMES }, () => new THREE.Vector3()), 'vec3');
-  const vMax: N = uniformArray(Array.from({ length: MAX_FOG_VOLUMES }, () => new THREE.Vector3()), 'vec3');
-  const vColor: N = uniformArray(Array.from({ length: MAX_FOG_VOLUMES }, () => new THREE.Color()), 'color');
-  const vDensity: N = uniformArray(new Array<number>(MAX_FOG_VOLUMES).fill(0), 'float');
-  const vFalloff: N = uniformArray(new Array<number>(MAX_FOG_VOLUMES).fill(0), 'float');
-  const vHeight: N = uniformArray(new Array<number>(MAX_FOG_VOLUMES).fill(0), 'float');
-  if (plan.fogVolumes) {
-    const base = color;
-    color = Fn(() => {
-      const coord = uv();
-      const src = base.toVar();
-      const d = depth.sample(coord).x;
-      const view = getViewPosition(coord, d, invProjection);
-      const world = cameraWorld.mul(vec4(view, 1)).xyz;
-      // The ray starts on the near plane: right for perspective and orthographic cameras.
-      const nearView = getViewPosition(coord, float(0), invProjection);
-      const origin = cameraWorld.mul(vec4(nearView, 1)).xyz.toVar();
-      const ray = world.sub(origin);
-      const dist = length(ray).toVar();
-      const dir = ray.div(max(dist, 1e-5)).toVar();
-      const optical = float(0).toVar();
-      const fogColor = vec3(0).toVar();
-      Loop({ start: int(0), end: count, type: 'int', condition: '<' }, ({ i }: { i: N }) => {
-        const lo = vMin.element(i);
-        const hi = vMax.element(i);
-        const inv = vec3(1).div(dir.add(vec3(1e-6)));
-        const t0 = lo.sub(origin).mul(inv);
-        const t1 = hi.sub(origin).mul(inv);
-        const tmin: N = min(t0, t1);
-        const tmax: N = max(t0, t1);
-        const tin = max(max(tmin.x, tmin.y), max(tmin.z, 0)).toVar();
-        const tout = min(min(tmax.x, tmax.y), min(tmax.z, dist)).toVar();
-        const len = max(tout.sub(tin), 0).toVar();
-        If(len.greaterThan(0), () => {
-          // Soft edges: less fog where the ray's middle is near the box edge.
-          const mid = origin.add(dir.mul(tin.add(tout).mul(0.5)));
-          const halfSize = hi.sub(lo).mul(0.5);
-          const qv = abs(mid.sub(lo.add(hi).mul(0.5))).div(max(halfSize, vec3(1e-4)));
-          const edge = float(1).sub(vFalloff.element(i).mul(smoothstep(0, 1, max(max(qv.x, qv.y), qv.z))));
-          // Height falloff: density × e^(−k·(y − bottom)), integrated along the segment in closed form.
-          const k = vHeight.element(i);
-          const heightLen = len.toVar();
-          If(k.greaterThan(0), () => {
-            const yIn = origin.y.add(dir.y.mul(tin)).sub(lo.y);
-            const kd = k.mul(dir.y);
-            heightLen.assign(
-              select(abs(kd.mul(len)).lessThan(1e-4), exp(k.negate().mul(yIn)).mul(len), exp(k.negate().mul(yIn)).mul(float(1).sub(exp(kd.negate().mul(len)))).div(kd)),
-            );
-          });
-          const od = vDensity.element(i).mul(heightLen).mul(edge);
-          optical.addAssign(od);
-          fogColor.addAssign(vColor.element(i).mul(od));
-        });
-      });
-      If(optical.greaterThan(0), () => {
-        fogColor.divAssign(optical);
-      });
-      const f = float(1).sub(exp(optical.negate()));
-      return vec4(mix(src.rgb, fogColor, f), src.a);
-    })();
+  // ---- fog volumes ------------------------------------------------------------------------------
+  const fog = plan.fogVolumes ? fogVolumes(color, depth, invProjection, cameraWorld) : null;
+  if (fog !== null) {
+    color = fog.node;
     passes.push('fogVolumes');
   }
 
@@ -543,7 +506,7 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
     passes.push(plan.upscale.filter);
   }
   for (const t of scaled) disposables.push(t);
-  // The AO, the contact shadows and their histories run each frame after the scene pass: their nodes are built into the output (adding
+  // The AO, the contact shadows, the reflections and their histories run each frame after the scene pass: their nodes are built into the output (adding
   // nothing: × 0) so the pipeline updates it. A bare statement would do, but WGSL has no expression statements.
   for (const node of screen.nodes) {
     const c = color;
@@ -562,6 +525,13 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
   let bokehBase = 1;
   if (upscaling) applyScale();
 
+  // The resolved reflections instead of the picture (a debug view; the picture stays in the graph, × 0).
+  if (wantsReflections && plan.reflections?.view === true && reflectionsLight !== null) {
+    const c = color;
+    const h: N = texture(reflectionsLight.historyTarget.texture).sample(uv());
+    color = vec4(h.rgb.mul(h.a), c.a.mul(0).add(1));
+    passes.push('reflectionsView');
+  }
   // The pyramid instead of the picture; the picture stays in the graph (× 0) so its scene pass still draws.
   const viewNear = uniform(0.1);
   const viewFar = uniform(1000);
@@ -584,17 +554,7 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
       viewFar.value = lens.far ?? 1000;
       invProjection.value.copy(cam.projectionMatrixInverse);
       cameraWorld.value.copy(cam.matrixWorld);
-      const n = Math.min(MAX_FOG_VOLUMES, volumes.length);
-      count.value = n;
-      for (let i = 0; i < n; i++) {
-        const v = volumes[i]!;
-        (vMin.array[i] as THREE.Vector3).set(v.min[0], v.min[1], v.min[2]);
-        (vMax.array[i] as THREE.Vector3).set(v.max[0], v.max[1], v.max[2]);
-        (vColor.array[i] as THREE.Color).set(v.color);
-        vDensity.array[i] = v.density;
-        vFalloff.array[i] = v.falloff;
-        vHeight.array[i] = v.heightFalloff;
-      }
+      fog?.setVolumes(volumes);
     },
     setLut(lut) {
       const old = lutNode.value as THREE.Texture;
@@ -684,6 +644,85 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
       renderer.setClearColor(clear, alpha);
     }
   }
+}
+
+/** The fog volumes over a picture (the archived (WebGL) TlFogVolumeShader, line by line): its node and the volumes it draws. */
+function fogVolumes(base: N, depth: N, invProjection: N, cameraWorld: N): { node: N; setVolumes(volumes: readonly FogVolumeBox[]): void } {
+  const count = uniform(0, 'int');
+  const vMin: N = uniformArray(Array.from({ length: MAX_FOG_VOLUMES }, () => new THREE.Vector3()), 'vec3');
+  const vMax: N = uniformArray(Array.from({ length: MAX_FOG_VOLUMES }, () => new THREE.Vector3()), 'vec3');
+  const vColor: N = uniformArray(Array.from({ length: MAX_FOG_VOLUMES }, () => new THREE.Color()), 'color');
+  const vDensity: N = uniformArray(new Array<number>(MAX_FOG_VOLUMES).fill(0), 'float');
+  const vFalloff: N = uniformArray(new Array<number>(MAX_FOG_VOLUMES).fill(0), 'float');
+  const vHeight: N = uniformArray(new Array<number>(MAX_FOG_VOLUMES).fill(0), 'float');
+  const node: N = Fn(() => {
+    const coord = uv();
+    const src = base.toVar();
+    const d = depth.sample(coord).x;
+    const view = getViewPosition(coord, d, invProjection);
+    const world = cameraWorld.mul(vec4(view, 1)).xyz;
+    // The ray starts on the near plane: right for perspective and orthographic cameras.
+    const nearView = getViewPosition(coord, float(0), invProjection);
+    const origin = cameraWorld.mul(vec4(nearView, 1)).xyz.toVar();
+    const ray = world.sub(origin);
+    const dist = length(ray).toVar();
+    const dir = ray.div(max(dist, 1e-5)).toVar();
+    const optical = float(0).toVar();
+    const fogColor = vec3(0).toVar();
+    Loop({ start: int(0), end: count, type: 'int', condition: '<' }, ({ i }: { i: N }) => {
+      const lo = vMin.element(i);
+      const hi = vMax.element(i);
+      const inv = vec3(1).div(dir.add(vec3(1e-6)));
+      const t0 = lo.sub(origin).mul(inv);
+      const t1 = hi.sub(origin).mul(inv);
+      const tmin: N = min(t0, t1);
+      const tmax: N = max(t0, t1);
+      const tin = max(max(tmin.x, tmin.y), max(tmin.z, 0)).toVar();
+      const tout = min(min(tmax.x, tmax.y), min(tmax.z, dist)).toVar();
+      const len = max(tout.sub(tin), 0).toVar();
+      If(len.greaterThan(0), () => {
+        // Soft edges: less fog where the ray's middle is near the box edge.
+        const mid = origin.add(dir.mul(tin.add(tout).mul(0.5)));
+        const halfSize = hi.sub(lo).mul(0.5);
+        const qv = abs(mid.sub(lo.add(hi).mul(0.5))).div(max(halfSize, vec3(1e-4)));
+        const edge = float(1).sub(vFalloff.element(i).mul(smoothstep(0, 1, max(max(qv.x, qv.y), qv.z))));
+        // Height falloff: density × e^(−k·(y − bottom)), integrated along the segment in closed form.
+        const k = vHeight.element(i);
+        const heightLen = len.toVar();
+        If(k.greaterThan(0), () => {
+          const yIn = origin.y.add(dir.y.mul(tin)).sub(lo.y);
+          const kd = k.mul(dir.y);
+          heightLen.assign(
+            select(abs(kd.mul(len)).lessThan(1e-4), exp(k.negate().mul(yIn)).mul(len), exp(k.negate().mul(yIn)).mul(float(1).sub(exp(kd.negate().mul(len)))).div(kd)),
+          );
+        });
+        const od = vDensity.element(i).mul(heightLen).mul(edge);
+        optical.addAssign(od);
+        fogColor.addAssign(vColor.element(i).mul(od));
+      });
+    });
+    If(optical.greaterThan(0), () => {
+      fogColor.divAssign(optical);
+    });
+    const f = float(1).sub(exp(optical.negate()));
+    return vec4(mix(src.rgb, fogColor, f), src.a);
+  })();
+  return {
+    node,
+    setVolumes(volumes) {
+      const n = Math.min(MAX_FOG_VOLUMES, volumes.length);
+      count.value = n;
+      for (let i = 0; i < n; i++) {
+        const v = volumes[i]!;
+        (vMin.array[i] as THREE.Vector3).set(v.min[0], v.min[1], v.min[2]);
+        (vMax.array[i] as THREE.Vector3).set(v.max[0], v.max[1], v.max[2]);
+        (vColor.array[i] as THREE.Color).set(v.color);
+        vDensity.array[i] = v.density;
+        vFalloff.array[i] = v.falloff;
+        vHeight.array[i] = v.heightFalloff;
+      }
+    },
+  };
 }
 
 /** Bloom's own share of the picture's resolution (three's default; under a render scale, of the scaled picture). */

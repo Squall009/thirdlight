@@ -13,7 +13,8 @@
  * `registerProbeLighting`) builds, when the probe light is present, first
  * every light the probes do not hold, then remembers the irradiance so far,
  * then the ambient and hemisphere lights the probes hold (baked or mixed:
- * `markProbeHeld`), and the probe node last (after the environment too).
+ * `markProbeHeld`), and the probe node last (after the environment too;
+ * only the reflections' node, `post-reflections.ts`, comes after it).
  * Inside a tile the probe node then puts the remembered irradiance plus the probes' in
  * place of the irradiance, drops the environment's diffuse light (the sky is
  * in the probes), and darkens the environment's reflections by how much
@@ -49,6 +50,7 @@ import type { N } from './effects-tsl';
 import { applyBlockOcclusion } from './block-ao-lighting';
 import { localLightsCacheKey, splitLocalLights } from './local-lights';
 import { buildReadLights, buildSurfaceRead } from './surface-cache-read';
+import { isReflectionsNode } from './post-reflections';
 import { ProbeTileStore, type ResidentProbeTile } from './probe-atlas';
 import { PROBE_INDEX_WIDTH, probeRowAt } from './probe-index';
 import { PACKED_LIGHT_TEXELS, TABLE_ROW_FLOATS, TABLE_ROWS_PER_LINE, TABLE_TEXELS } from './probe-pack';
@@ -387,6 +389,13 @@ class ProbeOrderedLightsNode extends (THREE.LightsNode as unknown as new () => {
     return own === 0 ? super.customCacheKey() : (Math.imul(super.customCacheKey(), 31) + own) | 0;
   }
   override setupLights(builder: N, all: LightNodeLike[]): void {
+    // The reflections replace part of the environment's radiance: built after everything that puts radiance in.
+    const reflections = all.find(isReflectionsNode);
+    this.setupOrdered(builder, reflections === undefined ? all : all.filter((n) => n !== reflections));
+    reflections?.build(builder);
+  }
+
+  private setupOrdered(builder: N, all: LightNodeLike[]): void {
     // Local lights left out of a build in mode none.
     const nodes = splitLocalLights(builder, all);
     // A block chunk's corner shading darkens the indirect light whatever lights it.

@@ -23,7 +23,7 @@ import { MAX_TEXTURE_LAYERS } from './content-limits';
 import { MAX_LOCAL_LIGHTS } from './local-lights';
 import { TERRAIN_LAYER_MAX } from './terrain-tile';
 import { LOD_BIAS_MAX, LOD_BIAS_MIN } from './model-lod';
-import { MSAA_SAMPLE_COUNTS, PIXEL_RATIO_CAP_MAX, PIXEL_RATIO_CAP_MIN, QUALITY_LEVEL_ID_RE, QUALITY_POST_EFFECTS, qualityLevelsOf, SHADOW_MAP_SIZES, SURFACE_CACHE_MIB_MAX, SURFACE_CACHE_MIB_MIN, SURFACE_LIGHT_MS_MAX, SURFACE_LIGHT_MS_MIN, type QualityLevelConfig } from './quality-levels';
+import { MSAA_SAMPLE_COUNTS, PIXEL_RATIO_CAP_MAX, PIXEL_RATIO_CAP_MIN, QUALITY_LEVEL_ID_RE, QUALITY_POST_EFFECTS, qualityLevelsOf, REFLECTION_QUALITIES, SHADOW_MAP_SIZES, SURFACE_CACHE_MIB_MAX, SURFACE_CACHE_MIB_MIN, SURFACE_LIGHT_MS_MAX, SURFACE_LIGHT_MS_MIN, type QualityLevelConfig } from './quality-levels';
 import { AMBIENT_OCCLUSION_KINDS, OCCLUSION_CULLING_MODES, RENDER_SCALE_MAX, RENDER_SCALE_MIN } from './render-settings';
 import { canonicalTrimSheet, trimSheetErrors, type TrimSheet } from './trim-sheet';
 import { canonicalDecalPageRef, validateDecalPageRef, type DecalPageRef } from './decal-pages';
@@ -896,7 +896,7 @@ export function validateEnvironment(value: unknown, path: string, errors: ModelE
 /** `environment.qualityLevels`: at least one level, unique ids, each field in its range (quality-levels.ts). */
 export function validateQualityLevels(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!Array.isArray(value) || value.length === 0) {
-    err(errors, 'field_type', path, 'qualityLevels is a list of at least one level { id, name?, post?, renderScale?, pixelRatio?, msaa?, shadowMapSize?, localLights?, shadowedLights?, ambientOcclusion?, lodBias?, dynamicResolution?, occlusionCulling?, surfaceCacheMiB?, surfaceLightMs?, contactShadows? }, lowest first', value);
+    err(errors, 'field_type', path, 'qualityLevels is a list of at least one level { id, name?, post?, renderScale?, pixelRatio?, msaa?, shadowMapSize?, localLights?, shadowedLights?, ambientOcclusion?, lodBias?, dynamicResolution?, occlusionCulling?, surfaceCacheMiB?, surfaceLightMs?, contactShadows?, reflections? }, lowest first', value);
     return;
   }
   const seen = new Set<string>();
@@ -922,6 +922,7 @@ export function validateQualityLevels(value: unknown, path: string, errors: Mode
         surfaceCacheMiB: { kind: 'num', min: SURFACE_CACHE_MIB_MIN, max: SURFACE_CACHE_MIB_MAX },
         surfaceLightMs: { kind: 'num', min: SURFACE_LIGHT_MS_MIN, max: SURFACE_LIGHT_MS_MAX },
         contactShadows: { kind: 'bool' },
+        reflections: { kind: 'enum', values: REFLECTION_QUALITIES },
       },
       ['id'],
       errors,

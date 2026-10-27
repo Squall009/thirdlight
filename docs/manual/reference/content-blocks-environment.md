@@ -48,6 +48,7 @@ The quality levels, the default level and the environment presets (each scene ha
 | `qualityLevels[].surfaceCacheMiB` | number |  | 16 – 2048, step 16 | **Surface cache (MiB).** Memory the static surfaces' light may hold around the view (absent: 64). |
 | `qualityLevels[].surfaceLightMs` | number |  | 0 – 8, step 0.25 | **Live light (ms).** GPU time a frame may spend lighting what changed, nearest first; 0 draws saved light only (absent: 1.5). |
 | `qualityLevels[].contactShadows` | bool |  |  | **Contact shadows.** Screen-space contact shadows on the sun's light, with the look's post effects (absent: on). |
+| `qualityLevels[].reflections` | enum: `off`, `medium`, `high` |  |  | **Reflections.** Glossy surfaces reflect what the screen shows, and where it misses the static world traced and lit from the surface cache; WebGPU, with the look's post effects (absent: medium). |
 | `presets` | list of objects, ≤ 64 items |  |  | **Presets.** Named looks scripts switch or blend to at run time (ctx.environment), laid over the active scene's look. |
 | `presets[]` | object |  |  | **Preset.** A named look: sky, fog, post-processing, light values, a lightmap multiplier and the wetness. (rules: Preset ids are unique.) |
 | `presets[].presetId` | string, identifier, 1–64 chars |  |  | **Id.** A stable id scripts use: a-z, 0-9, _ or -. (required; format identifier) |

@@ -1713,9 +1713,12 @@ export {
   SURFACE_CACHE_MIB_MIN,
   DEFAULT_SURFACE_LIGHT_MS,
   DEFAULT_CONTACT_SHADOWS,
+  DEFAULT_REFLECTIONS,
+  REFLECTION_QUALITIES,
   SURFACE_LIGHT_MS_MAX,
   SURFACE_LIGHT_MS_MIN,
   type MsaaSamples,
+  type ReflectionQuality,
   type QualityLevelConfig,
   type QualityLevelPost,
 } from './quality-levels';

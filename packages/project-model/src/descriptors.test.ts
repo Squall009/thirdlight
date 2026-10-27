@@ -636,6 +636,7 @@ const ENV_BASES: J[] = [
         surfaceCacheMiB: 48,
         surfaceLightMs: 1,
         contactShadows: false,
+        reflections: 'high',
       },
       { id: 'high' },
     ],
@@ -1058,8 +1059,9 @@ describe('descriptor registry', () => {
     // wind's gust pattern fields, about 4.4 KB; the physical sky's cloud cover, density and start, about 1.3 KB; how a
     // subject parts foliage, about 1.3 KB; foliage bases taking the ground's colour, about 0.4 KB; the cylinder collider
     // shape and a collider's depth for its 2D shapes on the 3D backend, about 1.5 KB; the controller's movement
-    // profile, about 0.3 KB; area lights — their shape, size and sides fields, preset and icon — about 2 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(352_000);
+    // profile, about 0.3 KB; area lights — their shape, size and sides fields, preset and icon — about 2 KB; a quality
+    // level's reflections, about 0.4 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(352_400);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

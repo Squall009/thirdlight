@@ -30,7 +30,6 @@
     {"file":"packages/three-adapter/src/batching.ts","kind":"function","unit":"createAutoBatcher","size":549},
     {"file":"packages/three-adapter/src/block-layers.ts","kind":"class","unit":"BlockLayerView","size":84},
     {"file":"packages/three-adapter/src/decal-projectors.ts","kind":"function","unit":"createDecalProjectors","size":514},
-    {"file":"packages/three-adapter/src/environment-nodes.ts","kind":"function","unit":"buildPostPipeline","size":404},
     {"file":"packages/three-adapter/src/environment.ts","kind":"function","unit":"createEnvironmentRenderer","size":721},
     {"file":"packages/three-adapter/src/lights-shadows.ts","kind":"function","unit":"createSceneLights","size":473},
     {"file":"packages/three-adapter/src/material-graph.ts","kind":"function","unit":"compileMaterialGraph","size":973},

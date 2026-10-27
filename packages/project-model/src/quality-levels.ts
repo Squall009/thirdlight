@@ -29,6 +29,11 @@
  * - `contactShadows`: screen-space contact shadows on the sun's light (its
  *   map's missing fine detail), where the frame is drawn through the post
  *   stack. A level that leaves it out takes `DEFAULT_CONTACT_SHADOWS`.
+ * - `reflections`: screen-space reflections on glossy surfaces (WebGPU,
+ *   with the look's post effects), where they miss traced through the
+ *   static world and lit from the surface cache: `off`, `medium` or `high`
+ *   (more steps, more traced rays). A level that leaves it out takes
+ *   `DEFAULT_REFLECTIONS`.
  *
  * A player's settings field bound to one of those renderer settings (`renderScale`,
  * `ambientOcclusion`, `dynamicResolution`) lays over the level: a player's own
@@ -74,6 +79,12 @@ export const DEFAULT_SURFACE_LIGHT_MS = 1.5;
 
 /** Whether a level that names none draws contact shadows (the medium tier's). */
 export const DEFAULT_CONTACT_SHADOWS = true;
+
+/** A level's reflections: none, or screen-space rays with traced fallback at a quality. */
+export const REFLECTION_QUALITIES = ['off', 'medium', 'high'] as const;
+export type ReflectionQuality = (typeof REFLECTION_QUALITIES)[number];
+/** The reflections of a level that names none (the medium tier's). */
+export const DEFAULT_REFLECTIONS: ReflectionQuality = 'medium';
 
 /** The post effects a level may change (the costly passes and the anti-aliasing; tone, exposure and grading are the look's). */
 export const QUALITY_POST_EFFECTS = ['bloom', 'ssao', 'dof'] as const;
@@ -122,6 +133,8 @@ export interface QualityLevelConfig {
   surfaceLightMs?: number;
   /** Screen-space contact shadows on the sun's light (absent: `DEFAULT_CONTACT_SHADOWS`). */
   contactShadows?: boolean;
+  /** Reflections on glossy surfaces (absent: `DEFAULT_REFLECTIONS`). */
+  reflections?: ReflectionQuality;
 }
 
 /**
@@ -129,12 +142,12 @@ export interface QualityLevelConfig {
  * ambient occlusion, depth of field or anti-aliasing (no MSAA either);
  * medium drops ambient occlusion and depth of field; high draws the look as
  * authored. The surface cache holds 32, 64 and 128 MiB; low draws no
- * contact shadows.
+ * contact shadows and no reflections.
  */
 export const DEFAULT_QUALITY_LEVELS: readonly Readonly<QualityLevelConfig>[] = Object.freeze([
-  Object.freeze({ id: 'low', name: 'Low', post: { bloom: { enabled: false }, ssao: { enabled: false }, dof: { enabled: false }, antialias: 'none' as const }, msaa: 0 as const, surfaceCacheMiB: 32, surfaceLightMs: 0, contactShadows: false }),
-  Object.freeze({ id: 'medium', name: 'Medium', post: { ssao: { enabled: false }, dof: { enabled: false } }, surfaceCacheMiB: DEFAULT_SURFACE_CACHE_MIB, surfaceLightMs: DEFAULT_SURFACE_LIGHT_MS, contactShadows: true }),
-  Object.freeze({ id: 'high', name: 'High', surfaceCacheMiB: 128, surfaceLightMs: 3, contactShadows: true }),
+  Object.freeze({ id: 'low', name: 'Low', post: { bloom: { enabled: false }, ssao: { enabled: false }, dof: { enabled: false }, antialias: 'none' as const }, msaa: 0 as const, surfaceCacheMiB: 32, surfaceLightMs: 0, contactShadows: false, reflections: 'off' as const }),
+  Object.freeze({ id: 'medium', name: 'Medium', post: { ssao: { enabled: false }, dof: { enabled: false } }, surfaceCacheMiB: DEFAULT_SURFACE_CACHE_MIB, surfaceLightMs: DEFAULT_SURFACE_LIGHT_MS, contactShadows: true, reflections: 'medium' as const }),
+  Object.freeze({ id: 'high', name: 'High', surfaceCacheMiB: 128, surfaceLightMs: 3, contactShadows: true, reflections: 'high' as const }),
 ]);
 
 /** The project's levels (the engine's when it lists none). */

@@ -1,4 +1,4 @@
-# Types (PackedFrom to TrimRow)
+# Types (PackedFrom to TrimCell)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -554,6 +554,8 @@ interface QualityLevelConfig {
   surfaceLightMs?: number;
   /** Screen-space contact shadows on the sun's light (absent: `DEFAULT_CONTACT_SHADOWS`). */
   contactShadows?: boolean;
+  /** Reflections on glossy surfaces (absent: `DEFAULT_REFLECTIONS`). */
+  reflections?: ReflectionQuality;
 }
 ```
 
@@ -571,6 +573,25 @@ interface QualityLevelPost {
   /** The anti-aliasing kind where the scene's look has anti-aliasing ('none': off). */
   antialias?: NonNullable<PostConfig['antialias']>;
 }
+```
+
+<a id="type-reflection-qualities"></a>
+### REFLECTION_QUALITIES
+
+Declared in `packages/project-model/src/quality-levels.ts`.
+
+```ts
+/** A level's reflections: none, or screen-space rays with traced fallback at a quality. */
+const REFLECTION_QUALITIES: readonly ["off", "medium", "high"];
+```
+
+<a id="type-reflection-quality"></a>
+### ReflectionQuality
+
+Declared in `packages/project-model/src/quality-levels.ts`.
+
+```ts
+type ReflectionQuality = (typeof REFLECTION_QUALITIES)[number];
 ```
 
 <a id="type-rename-folder-args"></a>
@@ -1612,24 +1633,5 @@ interface TrimCell {
   name: string;
   /** [x, y, width, height] in pixels, inside the sheet. */
   rect: [number, number, number, number];
-}
-```
-
-<a id="type-trim-row"></a>
-### TrimRow
-
-Declared in `packages/project-model/src/trim-sheet.ts`.
-
-```ts
-/** A row's place on the sheet: pixel rows `top` (inclusive) to `bottom` (exclusive), counted from the image's top. */
-interface TrimRow {
-  /** The semantic slot the row fills (an id: `floor`, `lower_wall`, …); unique on the sheet. */
-  slot: string;
-  top: number;
-  bottom: number;
-  /** Pixels per metre along u for this row (absent: the sheet's). */
-  texelDensity?: number;
-  /** The row tiles in v too (its padding continues its wrap, and strips may stack it up a wall). */
-  tileV?: boolean;
 }
 ```

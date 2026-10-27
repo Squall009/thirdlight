@@ -7,7 +7,9 @@
  * a patch (shadow acne or a self-shadowed floor would darken far more). The
  * cube still darkens a strip of floor at its foot through the contact
  * shadows (screen-space, from the depth: every object casts them), which the
- * same Play switched to a level without contact shadows lacks.
+ * same Play switched to a level without contact shadows lacks. A polished
+ * tile beside the cube reflects a glowing green box on WebGPU, which that
+ * level (without reflections) lacks too; WebGL 2 draws no reflections.
  *
  * Then the cached static shadow map (`cached-shadow.ts`): static boxes cast
  * into a map drawn only when they change, the rest into a dynamic map drawn
@@ -38,7 +40,7 @@ import { publishBytes, publishScript, startBackend, type E2EBackend } from './ba
 import { diff, diffPng, show, STRICT, within } from './parity';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
-import { editorUrlFor, expectRendererBackend, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
+import { backendOf, editorUrlFor, expectRendererBackend, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { menu, showView } from './ui';
 
 let be: E2EBackend;
@@ -67,11 +69,11 @@ async function command(op: string, args: Record<string, unknown>): Promise<Recor
   return res;
 }
 
-/** Pixels where `a` is darker than `b` by more than `delta` (luminance, 0–255). */
-function darkerPixels(a: Image, b: Image, delta = 40): number {
+/** Pixels where `a` is darker than `b` by more than `delta` (luminance, 0–255), but those `skip` names. */
+function darkerPixels(a: Image, b: Image, delta = 40, skip?: (x: number, y: number) => boolean): number {
   const lum = (p: readonly number[]): number => 0.2126 * p[0]! + 0.7152 * p[1]! + 0.0722 * p[2]!;
   let n = 0;
-  for (let y = 0; y < a.height; y++) for (let x = 0; x < a.width; x++) if (lum(b.pixel(x, y)) - lum(a.pixel(x, y)) > delta) n += 1;
+  for (let y = 0; y < a.height; y++) for (let x = 0; x < a.width; x++) if (lum(b.pixel(x, y)) - lum(a.pixel(x, y)) > delta && skip?.(x, y) !== true) n += 1;
   return n;
 }
 
@@ -116,8 +118,22 @@ async function playFrame(page: Page, variant: RendererVariant, label: string, th
   return img;
 }
 
-/** Two levels alike but for contact shadows (drawn with a post effect: the look anti-aliases). */
-const CONTACT_LEVELS = { quality: 'contact', qualityLevels: [{ id: 'flat', contactShadows: false }, { id: 'contact', contactShadows: true }] };
+/** Two levels alike but for contact shadows and reflections (drawn with a post effect: the look anti-aliases). */
+const CONTACT_LEVELS = { quality: 'contact', qualityLevels: [{ id: 'flat', contactShadows: false, reflections: 'off' }, { id: 'contact', contactShadows: true, reflections: 'medium' }] };
+
+/** Whether `a` is greener than `b` (green over red) at a pixel by more than `delta` (0–255). */
+function greener(a: Image, b: Image, x: number, y: number, delta: number): boolean {
+  const p = a.pixel(x, y);
+  const q = b.pixel(x, y);
+  return p[1]! - p[0]! - (q[1]! - q[0]!) > delta;
+}
+
+/** Pixels where `a` is greener than `b` by more than `delta`. */
+function greenerPixels(a: Image, b: Image, delta: number): number {
+  let n = 0;
+  for (let y = 0; y < a.height; y++) for (let x = 0; x < a.width; x++) if (greener(a, b, x, y, delta)) n += 1;
+  return n;
+}
 
 for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a box casts the sun's shadow on a floor box in Play; "Casts shadows" off removes it, its contact shadow stays (${variant})`, async ({ page }) => {
   onlyInItsProject(variant, PRODUCT_RENDERER_VARIANTS);
@@ -126,6 +142,12 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a box casts the sun's sha
   // The floor ends 2 m in front of the camera (a floor edge through the camera's own
   // plane breaks depth testing on SwiftShader, both backends).
   await command('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'floor', transform: { position: [0, -1, -1] }, box: { size: [8, 0.2, 6], material: { color: '#c8c8c8' } } });
+  // Left of the cube a polished tile on the floor, and behind it a glowing green box the camera sees in the tile
+  // (on WebGPU: screen-space reflections, which the level without them lacks).
+  const tile = await command('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'tile', transform: { position: [-1.5, -0.89, 0.1] }, box: { size: [1.4, 0.02, 1.4], material: { color: '#808080' } } });
+  await command('setComponent', { entityId: String(tile['createdId']), component: 'surface', value: { color: '#808080', roughness: 0.1, metalness: 0, emissive: '#000000', emissiveIntensity: 0 } });
+  const glow = await command('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'glow', transform: { position: [-2, -0.4, -1.5] }, box: { size: [0.8, 1, 0.8], material: { color: '#40ff40' } } });
+  await command('setComponent', { entityId: String(glow['createdId']), component: 'surface', value: { color: '#40ff40', roughness: 0.8, metalness: 0, emissive: '#40ff40', emissiveIntensity: 2 } });
   const cube = await command('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'cube', transform: { position: [0, -0.3, 0] }, box: { size: [1, 1, 1], material: { color: '#c05030' } } });
   const cubeId = String(cube['createdId']);
   // The sun from behind-left-above: the shadow falls right and towards the camera (in view).
@@ -171,7 +193,13 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a box casts the sun's sha
   console.log(`[shadows] ${variant}: ${contact} pixels darker by > 20 with contact shadows (the cube casting no shadow)`);
   expect(contact).toBeGreaterThan(150);
   expect(contact).toBeLessThan(total * 0.05);
-  expect(darkerPixels(flat, without, 20)).toBeLessThan(50);
+  // (but the tile, where the reflection lights it)
+  expect(darkerPixels(flat, without, 20, (x, y) => greener(without, flat, x, y, 6))).toBeLessThan(50);
+  // The reflections: the glowing box's green in the polished tile, only where they are drawn (WebGPU).
+  const green = greenerPixels(without, flat, 12);
+  console.log(`[shadows] ${variant}: ${green} pixels greener by > 12 with reflections`);
+  if (backendOf(variant) === 'webgpu') expect(green).toBeGreaterThan(300);
+  else expect(green).toBeLessThan(50);
 });
 
 /** The project script: `place {id, x, y, z}` moves an object, `hide {id}` hides it, `walk {z}` puts the camera at z. */

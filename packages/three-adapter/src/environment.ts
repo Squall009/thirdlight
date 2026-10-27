@@ -32,7 +32,7 @@
  */
 import * as THREE from 'three';
 import { PMREMGenerator as NodePMREMGenerator, type WebGPURenderer } from 'three/webgpu';
-import { AMBIENT_OCCLUSION_DEFAULT, DEFAULT_CONTACT_SHADOWS, levelPost, qualityLevelOf, qualityLevelsOf, SKY_DEFAULTS, type QualityLevelConfig } from '@thirdlight/runtime';
+import { AMBIENT_OCCLUSION_DEFAULT, DEFAULT_CONTACT_SHADOWS, DEFAULT_REFLECTIONS, levelPost, qualityLevelOf, qualityLevelsOf, SKY_DEFAULTS, type QualityLevelConfig } from '@thirdlight/runtime';
 
 import { CloudDrift, type CloudWind } from './cloud-drift';
 // Lit surfaces read the PMREM through a cube copy, made again after each bake.
@@ -40,6 +40,7 @@ import { SceneLighting, type PmremLike } from './environment-cube';
 
 import { ScreenSpaceOcclusion } from './post-ao';
 import { ContactShadowsLight } from './post-contact-shadows';
+import { ReflectionsLight, reflectionsFlag, type ReflectionStats } from './post-reflections';
 import { pageSearch } from './renderer-factory';
 import type { UpscaleFilter } from './post-upscale';
 import type { ScenePasses } from './occlusion-passes';
@@ -255,7 +256,7 @@ export interface EnvironmentRenderer {
   /** Canvas size in CSS pixels. */
   resize(width: number, height: number): void;
   /** `samples` = the MSAA samples the scene is drawn with (0: none — a level without MSAA, or a post stack with its own anti-aliasing). */
-  diagnostics(): { post: boolean; passes: string[]; fallback: string | null; quality: QualityLevel; samples: number; iblRebakes: number; render: { ao: RenderOptions['ao']; scale: number; dynamic: boolean; upscale: UpscaleFilter | null; internal: [number, number] | null } };
+  diagnostics(): { post: boolean; passes: string[]; fallback: string | null; quality: QualityLevel; samples: number; iblRebakes: number; render: { ao: RenderOptions['ao']; scale: number; dynamic: boolean; upscale: UpscaleFilter | null; internal: [number, number] | null }; reflections: ReflectionStats | null };
   /** The MSAA samples of the last frame path (allocation-free, for a per-frame read). */
   samples(): number;
   dispose(): void;
@@ -346,6 +347,31 @@ function skyInputs(sky: SkyLike, out: number[], params?: SkyParams): void {
   }
 }
 
+let reflectionsUrl: ReturnType<typeof reflectionsFlag> | undefined;
+/** `?reflections=0` (none) or `?reflections=screen` (no traced rays): comparisons of what they cost and change. */
+function reflectionsFromUrl(): ReturnType<typeof reflectionsFlag> {
+  if (reflectionsUrl === undefined) reflectionsUrl = reflectionsFlag(pageSearch());
+  return reflectionsUrl;
+}
+
+/** A grading LUT strip as the post stack samples it: data, not colour; one level, filtered. */
+function lutTexture(t: THREE.Texture): THREE.Texture {
+  const lut = t.clone();
+  lut.colorSpace = THREE.NoColorSpace;
+  lut.flipY = false;
+  lut.generateMipmaps = false;
+  lut.minFilter = THREE.LinearFilter;
+  lut.needsUpdate = true;
+  return lut;
+}
+
+/** The reflections a level draws on this renderer (null: none; WebGL 2 keeps the environment and probes). */
+function reflectionsWanted(renderer: WebGPURenderer, level: QualityLevelConfig): 'medium' | 'high' | null {
+  const q = level.reflections ?? DEFAULT_REFLECTIONS;
+  const webgpu = (renderer as unknown as { backend?: { isWebGPUBackend?: boolean } }).backend?.isWebGPUBackend === true;
+  return q === 'off' || !webgpu || reflectionsFromUrl() === 'off' ? null : q;
+}
+
 let contactOff: boolean | null = null;
 /** `?contactShadows=0`: none at any level (a comparison of what they cost and change). */
 function contactShadowsOff(): boolean {
@@ -355,7 +381,8 @@ function contactShadowsOff(): boolean {
 
 /**
  * The scene's screen-history lights (`screen-history.ts`): the occlusion
- * light (post-ao.ts) and the contact shadows' (post-contact-shadows.ts), each
+ * light (post-ao.ts), the contact shadows' (post-contact-shadows.ts) and the
+ * reflections' (post-reflections.ts), each
  * in the scene only while a stack draws it, so lit programs sample no
  * history nobody writes. Their coming and going changes the lights' program
  * key: the lit programs build again on the next frame, as for a shadow map
@@ -364,13 +391,15 @@ function contactShadowsOff(): boolean {
 class ScreenLights {
   ao: ScreenSpaceOcclusion | null = null;
   contact: ContactShadowsLight | null = null;
+  reflections: ReflectionsLight | null = null;
 
   constructor(private readonly scene: THREE.Scene) {}
 
   /** The lights the next stack draws are in the scene, the others gone. */
-  keep(ao: boolean, contact: boolean): void {
+  keep(ao: boolean, contact: boolean, reflections: boolean): void {
     this.ao = this.hold(this.ao, ao, () => new ScreenSpaceOcclusion());
     this.contact = this.hold(this.contact, contact, () => new ContactShadowsLight());
+    this.reflections = this.hold(this.reflections, reflections, () => new ReflectionsLight());
   }
 
   private hold<T extends THREE.Light>(light: T | null, wanted: boolean, make: () => T): T | null {
@@ -843,7 +872,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
   };
 
   // ---- post ----------------------------------------------------------------------
-  const wanted = (): { bloom: boolean; ssao: boolean; dof: boolean; fogVolumes: boolean; grading: boolean; aa: 'none' | 'fxaa' | 'smaa'; contact: boolean } => {
+  const wanted = (): { bloom: boolean; ssao: boolean; dof: boolean; fogVolumes: boolean; grading: boolean; aa: 'none' | 'fxaa' | 'smaa'; contact: boolean; reflections: 'medium' | 'high' | null; traced: boolean } => {
     const p = postNow();
     const g = p?.grading;
     return {
@@ -855,6 +884,9 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       aa: p?.antialias ?? 'none',
       // Not a post effect of its own: drawn with the look's post effects (it needs the scene pass's depth).
       contact: !contactShadowsOff() && (level().contactShadows ?? DEFAULT_CONTACT_SHADOWS),
+      // As contact shadows: drawn with the look's post effects. WebGL 2 keeps the environment and probes.
+      reflections: reflectionsWanted(renderer, level()),
+      traced: reflectionsFromUrl() !== 'screen',
     };
   };
 
@@ -901,12 +933,14 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     const perspective = camera instanceof THREE.PerspectiveCamera;
     // With a post effect only: a frame through the stack for another reason (render scale, culling, no MSAA) looks as without.
     const contact = w.contact && perspective && isPost;
-    screenLights.keep(w.ssao && perspective, contact);
+    const reflections = w.reflections !== null && perspective && isPost ? w.reflections : null;
+    screenLights.keep(w.ssao && perspective, contact, reflections !== null);
     if (!isPost && !noMsaa && displayBackground === null && !upscaling && scenePasses === null) return;
     const g = post?.grading;
     const plan: PostPlan = {
       ao: w.ssao && perspective && render.ao !== 'off' ? { kind: render.ao, radius: post?.ssao?.radius ?? 0.5, intensity: post?.ssao?.intensity ?? 1 } : null,
       contactShadows: contact,
+      reflections: reflections === null ? null : { quality: reflections, traced: w.traced, view: reflectionsFromUrl() === 'view' },
       fogVolumes: w.fogVolumes,
       dof: w.dof && perspective ? { focus: post?.dof?.focus ?? 10, aperture: post?.dof?.aperture ?? 0.002, maxBlur: post?.dof?.maxBlur ?? 0.01 } : null,
       bloom: w.bloom ? { strength: post?.bloom?.strength ?? 0.6, radius: post?.bloom?.radius ?? 0.4, threshold: post?.bloom?.threshold ?? 0.85 } : null,
@@ -932,7 +966,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       pyramidView,
     };
     try {
-      const p = buildPostPipeline(renderer, scene, camera, plan, screenLights.ao, screenLights.contact);
+      const p = buildPostPipeline(renderer, scene, camera, plan, { aoLight: screenLights.ao, contactLight: screenLights.contact, reflectionsLight: screenLights.reflections });
       p.setSize(width, height, renderer.getPixelRatio());
       pipeline = p;
       samplesNow = plan.samples;
@@ -942,13 +976,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       if (plan.grading !== null && g?.lut !== undefined) {
         void texture(g.lut).then((t) => {
           if (t === null || disposed || pipeline !== p) return;
-          const lut = t.clone();
-          lut.colorSpace = THREE.NoColorSpace;
-          lut.flipY = false;
-          lut.generateMipmaps = false;
-          lut.minFilter = THREE.LinearFilter;
-          lut.needsUpdate = true;
-          p.setLut(lut);
+          p.setLut(lutTexture(t));
           options.onChange?.();
         });
       }
@@ -1107,12 +1135,13 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
         samples: samplesNow,
         iblRebakes,
         render: { ao: render.ao, scale: render.scale, dynamic: render.dynamic, upscale: upscaled ? render.upscale : null, internal: pipeline?.internalSize() ?? null },
+        reflections: screenLights.reflections?.stats ?? null,
       };
     },
     dispose() {
       disposed = true;
       disposePipeline();
-      screenLights.keep(false, false);
+      screenLights.keep(false, false, false);
       disposeLayers();
       clearSky();
       heightFog.dispose();

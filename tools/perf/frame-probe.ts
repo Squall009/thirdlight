@@ -51,6 +51,8 @@ export interface SceneCounts {
   streaming?: unknown;
   /** The surface cache (three-adapter SURFACE_CACHE_KEY on the scene; absent: none): its budget and what it holds. */
   surfaceCache?: unknown;
+  /** The reflections' last frame (three-adapter `ReflectionsLight.stats`), where the scene holds them. */
+  reflections?: unknown;
   /** Projected decals (three-adapter PROJECTED_DECALS_KEY on the scene; absent: none): their diagnostics. */
   projectedDecals?: unknown;
   /** Clipped decals (three-adapter CLIPPED_DECALS_KEY on the scene; absent: none): their diagnostics. */
@@ -231,6 +233,7 @@ export function probeSceneCounts(): SceneCounts {
     const fx = o.isScene === true ? (ud?.['tlEffectsCpu'] as { ms?: number; gpuPlays?: number } | undefined) : undefined;
     if (fx?.ms !== undefined) out.effectsMs = Math.round(((out.effectsMs ?? 0) + fx.ms) * 1000) / 1000;
     if (fx?.gpuPlays !== undefined) out.effectsGpuPlays = (out.effectsGpuPlays ?? 0) + fx.gpuPlays;
+    if ((o as { isReflections?: boolean }).isReflections === true) out.reflections = (o as { stats?: unknown }).stats;
     if (o.isInstancedMesh === true) out.instancedMeshes += 1;
     if (o.isBatchedMesh === true) out.batchedMeshes += 1;
     if (o.isSkinnedMesh === true) out.skinnedMeshes += 1;
