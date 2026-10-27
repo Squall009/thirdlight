@@ -13,10 +13,14 @@
  * Before the bake, on WebGPU, a small area light over the floor's front
  * corner lights a pool there that its mirror spot across the floor lacks:
  * an area light has no per-pixel light, so the pool is the blocks reading
- * the surface cache (no per-pixel light draws an area light). The
- * static export, served with the backend stopped, shows the same. A cell
- * edit makes the bake stale. "Bake final" (Blender Cycles, when Blender is
- * there) bakes the chunks the same way.
+ * the surface cache (no per-pixel light draws an area light). The floor
+ * there is polished (a standard material): the lamp's highlight shows where
+ * the camera sees its mirror image, brighter than the spot as far from the
+ * lamp on its other side (the cache's diffuse light is the same at both).
+ * A cell edit makes the bake stale. "Bake final" (Blender Cycles, when
+ * Blender is there) bakes the chunks the same way, in the same session. The
+ * static export, served with the backend stopped, shows the last bake's
+ * shadow.
  */
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -75,6 +79,14 @@ const lampSpot: [number, number, number] = [3.5, 0, 2];
 const mirrorSpot: [number, number, number] = [-3.5, 0, 2];
 /** How much brighter (of 255) the lamp's pool is than its mirror spot when the blocks read the cache. */
 const LAMP_POOL = 25;
+/**
+ * Where the camera sees the lamp's mirror image in the floor (the line from the camera to the lamp's centre
+ * mirrored under y = 0 meets the floor there), and the spot as far from the lamp straight across it.
+ */
+const highlightSpot: [number, number, number] = [3, 0, 2.571];
+const acrossSpot: [number, number, number] = [4, 0, 1.429];
+/** How much brighter (of 255) the highlight is than the spot across the lamp from it on WebGPU. */
+const HIGHLIGHT = 12;
 
 function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void> }> {
   const types: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.wasm': 'application/wasm', '.png': 'image/png' };
@@ -111,7 +123,7 @@ function steadyLit(pool = false): (img: Image) => boolean {
     const lit = brightnessAt(img, litSpot);
     const steady = Math.abs(lit - last) < 1;
     last = lit;
-    return lit > 60 && lit - brightnessAt(img, cubeFront) > 10 && steady && (!pool || brightnessAt(img, lampSpot) - brightnessAt(img, mirrorSpot) > LAMP_POOL);
+    return lit > 60 && lit - brightnessAt(img, cubeFront) > 10 && steady && (!pool || (brightnessAt(img, lampSpot) - brightnessAt(img, mirrorSpot) > LAMP_POOL && brightnessAt(img, highlightSpot) - brightnessAt(img, acrossSpot) > HIGHLIGHT));
   };
 }
 
@@ -140,13 +152,15 @@ async function play(page: Page, variant: RendererVariant, shows: (img: Image) =>
   return shot.img!;
 }
 
-/** The scene: a static block-layer floor, a static cube on it, the sun and ambient "baked"; the editor open on it. */
+/** The scene: a static block-layer floor (polished at its front right), a static cube on it, the sun and ambient "baked"; the editor open on it. */
 async function openScene(page: Page, variant: RendererVariant, env: Record<string, string> = {}): Promise<{ layer: string; cube: string }> {
   be = await startBackend('block-lightmaps-e2e', undefined, env);
   await cmd('setBlockType', { block: { blockId: 'stone', name: 'Stone', variants: [{ color: '#b0b0b0' }], shape: 'full' } });
+  await cmd('setMaterial', { material: { materialId: 'mat-polished', name: 'Polished', shader: 'standard', params: { color: '#b0b0b0', roughness: 0.25, metalness: 0 }, textures: {} } });
+  await cmd('setBlockType', { block: { blockId: 'polished', name: 'Polished', variants: [{ color: '#b0b0b0' }], shape: 'full', materials: { '*': 'mat-polished' } } });
   const layer = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Floor', transform: { position: [-6, -1, -4] } }))['createdId']);
   await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [12, 4, 8] } } });
-  await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'fill', box: [0, 0, 0, 12, 1, 8], cell: { block: 'stone' } }] });
+  await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'fill', box: [0, 0, 0, 12, 1, 8], cell: { block: 'stone' } }, { kind: 'fill', box: [8, 0, 4, 12, 1, 8], cell: { block: 'polished' } }] });
   const cube = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'cube', box: { size: [1, 2, 1], material: { color: '#b0b0b0' } }, transform: { position: [0, 1, 0] } })).createdId);
   await cmd('setTransform', { entityId: 'cam-main', transform: { position: [0, 3, 6], rotation: [-0.2588190451, 0, 0, 0.9659258263] } });
   await cmd('updateEntity', { entityId: layer, static: true });
@@ -169,10 +183,17 @@ async function bakeEntries(): Promise<BakeRecord['entries']> {
   return (await bakeRecord()).entries;
 }
 
-for (const variant of PRODUCT_RENDERER_VARIANTS) test(`Bake preview bakes a static block layer's chunks: the cube's shadow on the blocks in Play and the export (${variant})`, async ({ page }) => {
+/** The final bake runs Blender here (THIRDLIGHT_BLENDER / blender on PATH), or on TL_BAKE_HOST with TL_BAKE_BLENDER. */
+const bakeBlender = process.env['TL_BAKE_BLENDER'] ?? process.env['THIRDLIGHT_BLENDER'] ?? 'blender';
+const bakeHost = process.env['TL_BAKE_HOST'] ?? 'local';
+const haveBlender = bakeHost !== 'local' || spawnSync(bakeBlender, ['--version'], { encoding: 'utf8' }).status === 0;
+
+for (const variant of PRODUCT_RENDERER_VARIANTS) test(`Bake preview bakes a static block layer's chunks: the cube's shadow on the blocks in Play and the export; Bake final (Blender Cycles) too where Blender is (${variant})`, async ({ page }) => {
   onlyInItsProject(variant, PRODUCT_RENDERER_VARIANTS);
-  test.setTimeout(300_000);
-  const { layer, cube } = await openScene(page, variant);
+  // The final bake once, on the product's own renderer (the renderer variants are covered by the preview bake).
+  const final = variant === 'auto' && haveBlender;
+  test.setTimeout(final ? 1_000_000 : 300_000);
+  const { layer, cube } = await openScene(page, variant, final ? { THIRDLIGHT_BAKE_HOST: bakeHost, THIRDLIGHT_BAKE_BLENDER: bakeBlender, THIRDLIGHT_BAKE_TIMEOUT_MINUTES: '12' } : {});
 
   // Before the bake: the sun is realtime without a shadow. A small area light, realtime, 0.5 m over the front corner
   // (the bake does not take area lights; a baked chunk draws its lightmap, so the lamp leaves the picture after it).
@@ -182,10 +203,16 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`Bake preview bakes a stat
   const beforeLit = brightnessAt(before, litSpot);
   expect(Math.abs(brightnessAt(before, shadowSpot) - beforeLit)).toBeLessThan(15);
   const pool = brightnessAt(before, lampSpot) - brightnessAt(before, mirrorSpot);
-  console.log(`[block-lightmaps] ${variant}: area light pool ${pool.toFixed(1)} over its mirror spot (${live ? 'read from the surface cache' : 'no live cache'})`);
-  // Where the cache is lit live the blocks draw its light; WebGL 2 draws no area light before a bake.
-  if (live) expect(pool).toBeGreaterThan(LAMP_POOL);
-  else expect(Math.abs(pool)).toBeLessThan(LAMP_POOL);
+  const highlight = brightnessAt(before, highlightSpot) - brightnessAt(before, acrossSpot);
+  console.log(`[block-lightmaps] ${variant}: area light pool ${pool.toFixed(1)} over its mirror spot, highlight ${highlight.toFixed(1)} over the spot across the lamp (${live ? 'read from the surface cache' : 'no live cache'})`);
+  // Where the cache is lit live the blocks draw its light and the lamp's highlight; WebGL 2 draws no area light before a bake.
+  if (live) {
+    expect(pool).toBeGreaterThan(LAMP_POOL);
+    expect(highlight).toBeGreaterThan(HIGHLIGHT);
+  } else {
+    expect(Math.abs(pool)).toBeLessThan(LAMP_POOL);
+    expect(Math.abs(highlight)).toBeLessThan(HIGHLIGHT);
+  }
 
   // Bake in the Lighting window: the cube and the layer's chunk.
   await openWindow(page, 'Lighting');
@@ -209,7 +236,28 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`Bake preview bakes a stat
   await expect(page.locator('[aria-label="bake status"]')).toContainText('stale');
   await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'cells', at: [11, 1, 7], cell: null }] });
 
-  // The static export with the backend stopped: the same shadow.
+  // Bake final: Blender Cycles bakes the cube and the layer's chunk; Play shows the shadow on the blocks.
+  if (final) {
+    await page.getByRole('button', { name: /settings/ }).click();
+    await page.getByRole('spinbutton', { name: 'bake finalSamples' }).fill(bakeHost === 'local' ? '32' : '256');
+    await page.getByRole('spinbutton', { name: 'bake texelsPerMeter' }).fill('8');
+    await page.getByRole('button', { name: 'Bake final (Blender)' }).click();
+    await expect(page.locator('[aria-label="bake status"]')).toContainText('Final (Blender) bake', { timeout: 840_000 });
+    const bake = await bakeRecord();
+    expect(bake.source).toBe('blender');
+    expect(bake.bounces).toBe(3);
+    expect(bake.entries.map((e) => [e.entityId, e.chunk ?? null])).toEqual(expect.arrayContaining([[cube, null], [layer, [0, 0]]]));
+    const baked = await play(page, variant, bakedShadow(beforeLit, 0.8, 0.7, 1.7));
+    const finalShadow = brightnessAt(baked, shadowSpot);
+    const finalLit = brightnessAt(baked, litSpot);
+    console.log(`[block-lightmaps] final: before lit ${beforeLit.toFixed(1)}; after lit ${finalLit.toFixed(1)} shadow ${finalShadow.toFixed(1)}`);
+    expect(finalShadow).toBeLessThan(finalLit * 0.8);
+    expect(finalLit / beforeLit).toBeGreaterThan(0.7);
+    expect(finalLit / beforeLit).toBeLessThan(1.7);
+  }
+
+  // The static export with the backend stopped: the last bake's shadow.
+  const share = final ? 0.8 : 0.75;
   const res = await be!.admin(`projects/${be!.projectId}/export`);
   expect(res.status, JSON.stringify(res.json)).toBe(200);
   await be!.halt();
@@ -226,7 +274,7 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`Bake preview bakes a stat
       .poll(async () => {
         const img = decodePng(await canvas.screenshot());
         const lit = brightnessAt(img, litSpot);
-        return brightnessAt(img, shadowSpot) < lit * 0.75 && lit / beforeLit > 0.6;
+        return brightnessAt(img, shadowSpot) < lit * share && lit / beforeLit > 0.6;
       }, { timeout: 60_000, message: 'the baked shadow on the blocks in the export' })
       .toBe(true);
     expect(errors).toEqual([]);
@@ -234,35 +282,4 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`Bake preview bakes a stat
     await game.close();
     await site.close();
   }
-});
-
-/** The final bake runs Blender here (THIRDLIGHT_BLENDER / blender on PATH), or on TL_BAKE_HOST with TL_BAKE_BLENDER. */
-const bakeBlender = process.env['TL_BAKE_BLENDER'] ?? process.env['THIRDLIGHT_BLENDER'] ?? 'blender';
-const bakeHost = process.env['TL_BAKE_HOST'] ?? 'local';
-const haveBlender = bakeHost !== 'local' || spawnSync(bakeBlender, ['--version'], { encoding: 'utf8' }).status === 0;
-
-test('Bake final (Blender Cycles) bakes the cube and the block layer\'s chunks; Play shows the shadow on the blocks', async ({ page }) => {
-  test.skip(!haveBlender, 'no Blender for the final bake on this machine');
-  test.skip(test.info().project.name === 'webgpu', 'the renderer variants are covered by the preview bake');
-  test.setTimeout(900_000);
-  const { layer, cube } = await openScene(page, 'auto', { THIRDLIGHT_BAKE_HOST: bakeHost, THIRDLIGHT_BAKE_BLENDER: bakeBlender, THIRDLIGHT_BAKE_TIMEOUT_MINUTES: '12' });
-  const beforeLit = brightnessAt(await play(page, 'auto', steadyLit()), litSpot);
-  await openWindow(page, 'Lighting');
-  await page.getByRole('button', { name: /settings/ }).click();
-  await page.getByRole('spinbutton', { name: 'bake finalSamples' }).fill(bakeHost === 'local' ? '32' : '256');
-  await page.getByRole('spinbutton', { name: 'bake texelsPerMeter' }).fill('8');
-  await page.getByRole('button', { name: 'Bake final (Blender)' }).click();
-  await expect(page.locator('[aria-label="bake status"]')).toContainText('Final (Blender) bake', { timeout: 840_000 });
-  const bake = await bakeRecord();
-  expect(bake.source).toBe('blender');
-  expect(bake.bounces).toBe(3);
-  // The cube (a box) and the layer's chunk.
-  expect(bake.entries.map((e) => [e.entityId, e.chunk ?? null])).toEqual(expect.arrayContaining([[cube, null], [layer, [0, 0]]]));
-  const after = await play(page, 'auto', bakedShadow(beforeLit, 0.8, 0.7, 1.7));
-  const afterShadow = brightnessAt(after, shadowSpot);
-  const afterLit = brightnessAt(after, litSpot);
-  console.log(`[block-lightmaps] final: before lit ${beforeLit.toFixed(1)}; after lit ${afterLit.toFixed(1)} shadow ${afterShadow.toFixed(1)}`);
-  expect(afterShadow).toBeLessThan(afterLit * 0.8);
-  expect(afterLit / beforeLit).toBeGreaterThan(0.7);
-  expect(afterLit / beforeLit).toBeLessThan(1.7);
 });

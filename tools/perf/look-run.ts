@@ -14,6 +14,8 @@
  *   --probes-view                        draw the live probes (`?probesView=1`): each lit by its own light
  *   --shots DIR                          where the screenshots go (default the run folder, kept with --keep)
  *   --shot-prefix P                      screenshot names `<P><scene>-<renderer>.jpg` (default none)
+ *   --variants a:q1,b:q2                 page queries measured in turn per scene (e.g. on:,off:surfaceRead=0): an A/B, the shots named `<scene>-<renderer>-<variant>.jpg`
+ *   --rounds N                           the variants measured N times in turn (default 1)
  *   --record-ms N --warmup-ms N --gpu-ms N --out FILE --keep
  *
  * The report goes to ~/.cache/thirdlight-perf/reports/look-<time>.json.
@@ -34,7 +36,7 @@ interface LookReport {
   startedAt: string;
   commit: string;
   bake: boolean;
-  scenes: Partial<Record<LookScene, { build: { ms: number; commands: number }; bake?: Record<string, unknown>; exportMs: number; runs: Partial<Record<FrameRenderer, FrameRunResult>>; shots: Partial<Record<FrameRenderer, string>> }>>;
+  scenes: Partial<Record<LookScene, { build: { ms: number; commands: number }; bake?: Record<string, unknown>; exportMs: number; runs: Partial<Record<FrameRenderer, FrameRunResult>>; shots: Partial<Record<FrameRenderer, string>>; variants?: { variant: string; round: number; renderer: FrameRenderer; result: FrameRunResult }[] }>>;
 }
 
 export async function runLookCli(argv: readonly string[]): Promise<void> {
@@ -54,6 +56,8 @@ export async function runLookCli(argv: readonly string[]): Promise<void> {
   const runDir = join(PERF_ROOT, 'runs', `look-${stamp}`);
   const shots = get('shots') ?? runDir;
   const prefix = get('shot-prefix') ?? '';
+  const variants = (get('variants') ?? '').split(',').filter((v) => v !== '').map((v) => ({ name: v.split(':')[0]!, query: v.slice(v.indexOf(':') + 1) }));
+  const rounds = Number(get('rounds') ?? 1);
   mkdirSync(runDir, { recursive: true });
   mkdirSync(shots, { recursive: true });
   const log = (s: string): void => console.log(`look: ${s}`);
@@ -90,11 +94,24 @@ export async function runLookCli(argv: readonly string[]): Promise<void> {
       const site = await serveStatic(exportDirs[scene]!);
       try {
         for (const r of renderers) {
-          const shot = join(shots, `${prefix}${scene}-${r}.jpg`);
-          const res = await measurePage(browser, { url: `${site.url}?renderer=${r}${argv.includes('--cache-view') ? '&surfaceCacheView=1' : ''}${argv.includes('--probes-view') ? '&probesView=1' : ''}`, warmupMs, recordMs, gpuMs, profileMs: 0, sourceOf: sourcesOf(site), shot });
-          report.scenes[scene]!.runs[r] = res;
-          report.scenes[scene]!.shots[r] = shot;
-          log(`${frameLine(`${scene} ${r}`, res)}, missed ${res.frames.missed ?? '-'} of ${res.frames.n}`);
+          const flags = `${argv.includes('--cache-view') ? '&surfaceCacheView=1' : ''}${argv.includes('--probes-view') ? '&probesView=1' : ''}`;
+          if (variants.length === 0) {
+            const shot = join(shots, `${prefix}${scene}-${r}.jpg`);
+            const res = await measurePage(browser, { url: `${site.url}?renderer=${r}${flags}`, warmupMs, recordMs, gpuMs, profileMs: 0, sourceOf: sourcesOf(site), shot });
+            report.scenes[scene]!.runs[r] = res;
+            report.scenes[scene]!.shots[r] = shot;
+            log(`${frameLine(`${scene} ${r}`, res)}, missed ${res.frames.missed ?? '-'} of ${res.frames.n}`);
+            continue;
+          }
+          const list = (report.scenes[scene]!.variants ??= []);
+          for (let round = 1; round <= rounds; round += 1) {
+            for (const v of variants) {
+              const shot = join(shots, `${prefix}${scene}-${r}-${v.name}.jpg`);
+              const res = await measurePage(browser, { url: `${site.url}?renderer=${r}${flags}${v.query !== '' ? `&${v.query}` : ''}`, warmupMs, recordMs, gpuMs, profileMs: 0, sourceOf: sourcesOf(site), shot });
+              list.push({ variant: v.name, round, renderer: r, result: res });
+              log(`${frameLine(`${scene} ${r} ${v.name} (round ${round})`, res)}, missed ${res.frames.missed ?? '-'} of ${res.frames.n}`);
+            }
+          }
         }
       } finally {
         await site.close();

@@ -17,6 +17,7 @@ import type { CacheLight } from './surface-changes';
 import { SURFACE_CACHE_KEY, SurfaceCacheHost, type SurfaceHostModel } from './surface-cache-host';
 import { SURFACE_READ } from './surface-cache-lookup';
 import { SURFACE_READ_KEY, SURFACE_SLOT_KEY } from './surface-cache-read';
+import { GLOW_LIGHT_MARK } from './surface-highlights';
 import { INSTANCE_SET_KEY } from './instancing';
 
 /** Bytes in a MiB (the quality level names its budget in MiB). */
@@ -222,7 +223,7 @@ export class SurfaceLights {
       for (const sign of [1, -1]) {
         const n = axes[k]!.map((v) => (v * sign) / len[k]!);
         out.push({
-          id: `${id}#glow${k}${sign > 0 ? '+' : '-'}`,
+          id: `${id}${GLOW_LIGHT_MARK}${k}${sign > 0 ? '+' : '-'}`,
           kind: 'area',
           on: true,
           position: [m[12]! + axes[k]![0]! * sign, m[13]! + axes[k]![1]! * sign, m[14]! + axes[k]![2]! * sign],

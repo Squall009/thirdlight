@@ -175,6 +175,9 @@ export const NODE_SIDE_ALLOWED = {
         // (its atlas and its light node; the engine bakes, stores and loads them).
         'examples/jsm/lighting/LightProbeGrid.js',
         'examples/jsm/tsl/lighting/LightProbeGridNode.js',
+        // surface-highlights.ts: the LTC tables of three's rectangle-light maths
+        // (the area lights' highlights on surfaces reading the surface cache).
+        'examples/jsm/lights/RectAreaLightTexturesLib.js',
       ],
     },
     node: [],

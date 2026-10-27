@@ -126,12 +126,16 @@ async function sunsetScene(be: PerfBackend, projectId: string, cmd: Cmd, mode: L
   await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'procedural', sunFromLight: true, turbidity: 9, rayleigh: 2.5, cloudCoverage: 0.35 }, post: { ...POST, grading: { tint: '#fff2e4' } } } });
 }
 
-/** A closed block corridor 3 m wide, 3 m high, 28 m long; rectangle and line area lights. */
+/** A closed block corridor 3 m wide, 3 m high, 28 m long, its floor polished; rectangle and line area lights. */
 async function corridorScene(be: PerfBackend, projectId: string, cmd: Cmd, mode: LookLightMode): Promise<void> {
+  // A polished floor (a standard material): the lamps' highlights show on it.
+  await cmd('setMaterial', { material: { materialId: 'mat-tile', name: 'Tile', shader: 'standard', params: { color: '#8a8478', roughness: 0.3, metalness: 0 }, textures: {} } });
+  await cmd('setBlockType', { block: { blockId: 'tile', name: 'Tile', variants: [{ color: '#8a8478' }], shape: 'full', materials: { '*': 'mat-tile' } } });
   await blockLayer(be, projectId, cmd, [24, 8, 34], [
     fill(0, 0, 0, 24, 1, 34, 'soil'),
     fill(9, 1, 1, 14, 5, 32, 'rock'),
     fill(10, 1, 2, 13, 4, 31, null),
+    fill(10, 0, 2, 13, 1, 31, 'tile'),
   ]);
   // Rectangles: a panel on the ceiling and an area light of its size just under it, shining down.
   for (const [i, z] of [6, 14, 22].entries()) {

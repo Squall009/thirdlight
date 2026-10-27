@@ -47,6 +47,8 @@ const VIEW_ALBEDO = 0.5;
 const VIEW_LIFT = 0.01;
 /** The page flag that keeps materials off the cache while it is lit live (`?surfaceRead=0`), or names the kinds that read it (`?surfaceRead=blocks,model`: each kind's cost, by comparison). */
 export const SURFACE_READ_URL_PARAM = 'surfaceRead';
+/** `?surfaceHighlights=0`: reading pixels draw no area light's highlight (a comparison of what they cost). */
+export const SURFACE_HIGHLIGHTS_URL_PARAM = 'surfaceHighlights';
 
 /** The kinds a `surfaceRead` flag names (a bit per `SURFACE_READ` kind; no flag or no known name: all). */
 export function surfaceReadKinds(flag: string | null): number {
@@ -111,6 +113,7 @@ export class AdapterSurfaceLight {
   private readonly readOn: boolean;
   /** The kinds of surface that read (a bit per `SURFACE_READ` kind). */
   private readonly readKinds: number;
+  private readonly highlightsOn: boolean;
   private lookupAt = -Infinity;
   /** The budget the textures were made for (another quality level's makes them again). */
   private budgetFor = -1;
@@ -131,6 +134,7 @@ export class AdapterSurfaceLight {
     const read = q.get(SURFACE_READ_URL_PARAM);
     this.readOn = read !== '0';
     this.readKinds = surfaceReadKinds(read);
+    this.highlightsOn = q.get(SURFACE_HIGHLIGHTS_URL_PARAM) !== '0';
   }
 
   /** Before the frame's programs are built (ahead of the probes' frame): whether the light is live with probes, so the probe light joins before the programs are built. */
@@ -148,13 +152,13 @@ export class AdapterSurfaceLight {
     if (device !== this.device || (device !== null && this.host.cache.budgetBytes !== this.budgetFor)) this.drop(device, renderer);
     this.off = this.runtime !== null ? null : this.failed ? 'failed' : this.host.relightBudgetMs <= 0 ? 'no-budget' : gpu === null ? 'no-webgpu' : 'starting';
     this.runtime?.frame(lights);
-    this.syncRead(lights, renderer);
+    this.syncRead(lights, renderer, eye);
     this.liveProbes?.frame(renderer, this.runtime);
     this.drawView();
   }
 
   /** What materials read, up to date: the lookup packed again when residency changed, the sun the texels were lit with; the scene says so once both are up. */
-  private syncRead(lights: readonly CacheLight[], renderer: AnyRenderer): void {
+  private syncRead(lights: readonly CacheLight[], renderer: AnyRenderer, eye: ArrayLike<number>): void {
     const tex = this.textures;
     if (this.runtime === null || tex === null || !this.readOn) {
       delete this.scene.userData[SURFACE_READ_LIVE_KEY];
@@ -162,6 +166,7 @@ export class AdapterSurfaceLight {
     }
     const sun = lights.find((l) => l.on && l.kind === 'directional');
     tex.sun.value.setRGB(sun?.color[0] ?? 0, sun?.color[1] ?? 0, sun?.color[2] ?? 0);
+    tex.highlights.set(this.highlightsOn ? lights : [], eye);
     const key = `${this.host.traceVersion}/${this.host.residencyVersion}/${this.host.modelSlots.version}`;
     const now = performance.now();
     if (key !== this.lookupFor && now - this.lookupAt >= LOOKUP_MS) {
