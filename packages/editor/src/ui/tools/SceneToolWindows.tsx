@@ -13,6 +13,7 @@ import { probesAreStale } from '../../viewport/probe-bake-run';
 import { alignSkyToKeyLight } from '../../viewport/sky-align';
 import { skyTurnDegrees } from '@thirdlight/three-adapter';
 import { EnvironmentPanel } from '../EnvironmentPanel';
+import { surfaceBakeIsStale } from '../../viewport/lighting-bake-run';
 import { LightingPanel } from '../LightingPanel';
 import { ScenePlanePanel } from '../ScenePlanePanel';
 import { refusal } from '../shell/commands';
@@ -133,6 +134,9 @@ export function SceneToolWindows(p: SceneToolWindowsProps): JSX.Element | null {
         probesStale={lighting[active.sceneId]?.probes !== undefined && probesAreStale(lighting[active.sceneId]!.probes!, (p.clientRef.current?.projection.listEntities() ?? []).filter((e) => e.sceneId === active.sceneId), (id) => p.clientRef.current?.getBlockLayers().get(id)?.chunks, skyTurnDegrees(sceneLook?.sky))}
         onBakeProbes={() => void b.bakeProbes()}
         onClearProbes={() => void b.clearProbes()}
+        onBakeLighting={() => void b.bakeLighting()}
+        lightingUnavailable={b.lightingUnavailable}
+        lightingStale={lighting[active.sceneId]?.surface !== undefined && surfaceBakeIsStale(lighting[active.sceneId]!.surface!, (p.clientRef.current?.projection.listEntities() ?? []).filter((e) => e.sceneId === active.sceneId), (id) => p.clientRef.current?.getBlockLayers().get(id)?.chunks, skyTurnDegrees(sceneLook?.sky))}
       />
     );
   return (

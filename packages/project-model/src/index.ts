@@ -835,14 +835,20 @@ export {
 // Baked lighting.
 export {
   canonicalLighting,
+  canonicalSurfaceBake,
+  lightingBakeIsOld,
   LIGHTMAP_SOURCES,
+  MAX_SURFACE_BAKE_FILES,
+  SURFACE_BAKE_LEVELS,
   MAX_LIGHTMAP_ATLASES,
   MAX_LIGHTMAP_ENTRIES,
   MAX_BAKED_LIGHTS,
   validateLighting,
   validateLightingBake,
+  validateSurfaceBake,
   type LightingBake,
   type LightingEntry,
+  type SurfaceBake,
   type LightingMap,
 } from './lighting';
 // Probe grids (baked indirect light).
@@ -1607,7 +1613,7 @@ export { buildingFloorPlan, buildingFrontDoors, floorPlanOutlines, propElement, 
 export { furnishingLightEntity, furnishingLightId, furnishingLightsOf, withFurnishingLights, type DroppedFurnishingLights, type LightSourceEntity } from './arch-lights';
 export { architectureOpeningEdges, architecturePaintOf, architectureRoomRegions, architectureWallEdges } from './arch-room-grid';
 export { buildRoomGraph, portalDistance, portalRect, RoomGraph, roomVisibility, ROOM_OUTSIDE, walkRooms, type GraphPortal, type GraphPortalKind, type GraphRoom, type RoomGraphObject, type RoomVisibility, type ViewProjection } from './arch-portals';
-export { chunkLightmapLayout, type ChunkLightmapLayout } from './block-lightmap';
+export { chunkLightmapLayout, textDigest, type ChunkLightmapLayout } from './block-lightmap';
 // The instance brush (paint and erase copies of an instance set on a surface).
 export {
   INSTANCE_BRUSH_DEFAULTS,
@@ -1712,6 +1718,7 @@ export {
   qualityLevelsOf,
   SHADOW_MAP_SIZES,
   SURFACE_CACHE_MIB_MAX,
+  SAVED_SURFACE_CACHE_MIB,
   SURFACE_CACHE_MIB_MIN,
   DEFAULT_SURFACE_LIGHT_MS,
   DEFAULT_CONTACT_SHADOWS,

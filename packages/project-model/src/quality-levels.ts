@@ -138,6 +138,13 @@ export interface QualityLevelConfig {
 }
 
 /**
+ * The memory (MiB) a scene's saved lighting may take on the cache's pages:
+ * the engine's low level's whole budget, so a low-tier device holds a
+ * scene's saved light whole (a larger scene is saved at coarser texels).
+ */
+export const SAVED_SURFACE_CACHE_MIB = 32;
+
+/**
  * The engine's levels, for a project that lists none: low draws no bloom,
  * ambient occlusion, depth of field or anti-aliasing (no MSAA either);
  * medium drops ambient occlusion and depth of field; high draws the look as
@@ -147,7 +154,7 @@ export interface QualityLevelConfig {
  * contact shadows and no reflections.
  */
 export const DEFAULT_QUALITY_LEVELS: readonly Readonly<QualityLevelConfig>[] = Object.freeze([
-  Object.freeze({ id: 'low', name: 'Low', post: { bloom: { enabled: false }, ssao: { enabled: false }, dof: { enabled: false }, antialias: 'none' as const }, msaa: 0 as const, surfaceCacheMiB: 32, surfaceLightMs: 0, contactShadows: false, reflections: 'off' as const }),
+  Object.freeze({ id: 'low', name: 'Low', post: { bloom: { enabled: false }, ssao: { enabled: false }, dof: { enabled: false }, antialias: 'none' as const }, msaa: 0 as const, surfaceCacheMiB: SAVED_SURFACE_CACHE_MIB, surfaceLightMs: 0, contactShadows: false, reflections: 'off' as const }),
   Object.freeze({ id: 'medium', name: 'Medium', post: { ssao: { enabled: false }, dof: { enabled: false }, antialias: 'taau' as const }, surfaceCacheMiB: DEFAULT_SURFACE_CACHE_MIB, surfaceLightMs: DEFAULT_SURFACE_LIGHT_MS, contactShadows: true, reflections: 'medium' as const }),
   Object.freeze({ id: 'high', name: 'High', post: { antialias: 'taau' as const }, surfaceCacheMiB: 128, surfaceLightMs: 3, contactShadows: true, reflections: 'high' as const }),
 ]);

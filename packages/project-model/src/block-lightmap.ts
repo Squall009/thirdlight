@@ -35,8 +35,8 @@ export interface ChunkLightmapLayout {
   slots: ReadonlyMap<string, Readonly<Slot>>;
 }
 
-/** 64-bit FNV-1a over a string, as 16 hex digits (two 32-bit lanes). */
-function digest(text: string): string {
+/** 64-bit FNV-1a over a string, as 16 hex digits (two 32-bit lanes): a layout's digest, and a saved lighting tile's. */
+export function textDigest(text: string): string {
   let a = 0x811c9dc5;
   let b = 0xcbf29ce4;
   for (let i = 0; i < text.length; i++) {
@@ -129,7 +129,7 @@ export function chunkLightmapLayout(parts: readonly ChunkMeshPart[], cellSize: r
   ordered.forEach((s, i) => (s.index = i));
   const side = reference?.side ?? Math.max(1, Math.ceil(Math.sqrt(ordered.length)));
   const round = (x: number): number => Math.round(x * 1e4);
-  const layout = reference?.layout ?? digest(`${shading !== undefined && shading !== '' ? `${shading}|` : ''}${side}|${ordered.map((s) => `${s.key}:${round(s.minU)},${round(s.minV)},${round(s.maxU)},${round(s.maxV)}`).join(';')}`);
+  const layout = reference?.layout ?? textDigest(`${shading !== undefined && shading !== '' ? `${shading}|` : ''}${side}|${ordered.map((s) => `${s.key}:${round(s.minU)},${round(s.minV)},${round(s.maxU)},${round(s.maxV)}`).join(';')}`);
   const out = parts.map((part, pi) => {
     const positions: number[] = [];
     const normals: number[] = [];

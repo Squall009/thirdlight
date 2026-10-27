@@ -832,6 +832,12 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
       bake['atlases'].forEach((id, i) => {
         if (plainKindOf.get(id) !== 'texture') errors.push(withFound({ code: 'asset_reference_missing', path: `/lighting/${pointerSegment(sceneId)}/atlases/${i}`, message: 'a lightmap atlas must name a texture asset of this project', expected: 'a texture assetId' }, id));
       });
+      const files = isPlainObject(bake['surface']) ? bake['surface']['files'] : undefined;
+      if (Array.isArray(files)) {
+        files.forEach((id, i) => {
+          if (plainKindOf.get(id) !== 'texture') errors.push(withFound({ code: 'asset_reference_missing', path: `/lighting/${pointerSegment(sceneId)}/surface/files/${i}`, message: 'a saved lighting file must name a texture asset of this project', expected: 'a texture assetId' }, id));
+        });
+      }
       const grids = isPlainObject(bake['probes']) ? bake['probes']['grids'] : undefined;
       if (Array.isArray(grids)) {
         grids.forEach((g, i) => {

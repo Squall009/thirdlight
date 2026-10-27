@@ -61,6 +61,7 @@ import { makeAdminRoutes } from './admin-routes';
 import { makeBehaviorSourceRoutes } from './behavior-source-routes';
 import { loadManual, makeDocsRoute, manualSummary } from './docs';
 import { makePlayRoutes } from './play-routes';
+import { makeLightingBakeRoute } from './lighting-bake-route';
 import { makeEngineInfo } from './engine';
 import { makeHeightAlphaRoute } from './height-alpha';
 
@@ -304,7 +305,7 @@ export function createBackend(
   };
 
   // ---------- the editor's WebSocket channel ----------
-  const channel = createWsChannel({ timeouts, nowMs, sessions, plays: () => plays, originRejected, logStartup, recordProblem, attachRevision: (projectId) => fullState(projectId) });
+  const channel = createWsChannel({ timeouts, nowMs, sessions, plays: () => plays, originRejected, logStartup, recordProblem, attachRevision: (projectId) => fullState(projectId), lightingBakeAck: (sessionId, ack) => lightingBake.resolveAck(sessionId, ack) });
   authoringServer.on('upgrade', channel.handleUpgrade);
   // External edits: while an editor is connected, its project's files are compared with what this backend wrote.
   const external = createExternalEdits({ service, sessions, recordProblem, sendToProject: channel.sendToProject, requireAuth });
@@ -314,6 +315,20 @@ export function createBackend(
   const playBuild = createPlayBuildCache(config.previewStaticDir);
   const { playStartRoute, playStopRoute, playSnapshotRoute, relayRoute, inputRelayRoute, gameControlRoute, gameObserveRoute, warmPlay: warmPlayBuild } = makePlayRoutes({ config, nowMs, logStartup, behaviorCompiler, service, sessions, playContent, plays, relayTimeoutMs, sendJson, sendError, bearerToken, tokenScope, badOriginError, requireAuth, readBody, fullState, workspaceError, connectedOwner, unavailableError, recordProblem, headless, playBuild, ensureImported: assetFiles.ensureImported, textureSlots });
   warmPlay = warmPlayBuild;
+  const lightingBake = makeLightingBakeRoute({
+    sessions,
+    headless,
+    sendToOwner: (sessionId, payload) => channel.sendToOwner(sessionId, payload),
+    requireAuth,
+    readBody,
+    sendJson,
+    sendError,
+    hasScene: (projectId, sceneId) => {
+      const captured = service.readCapturedV3(projectId);
+      return captured.ok && ((captured.read.content as { scenes?: readonly { sceneId?: string }[] } | undefined)?.scenes ?? []).some((s) => s.sceneId === sceneId);
+    },
+    logStartup,
+  });
 
   const { behaviorSourceRoute } = makeBehaviorSourceRoutes({ service, sessions, behaviorCompiler, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem, notifyMutationApplied });
   const { adminCreateProject, adminRegisterProject, adminUnregisterProject, adminProjectOp, adminExportRoute } = makeAdminRoutes({ config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem, ensureImported: assetFiles.ensureImported, textureSlots, packs });
@@ -357,6 +372,7 @@ export function createBackend(
       missingFiles: missingFilesRoute,
       externalResolve: external.resolveRoute,
     },
+    lighting: { bake: lightingBake.start, bakeJob: async (req, res, projectId, jobId) => lightingBake.read(req, res, projectId, jobId) },
     play: { start: playStartRoute, stop: playStopRoute, snapshot: playSnapshotRoute, relay: relayRoute, input: inputRelayRoute, control: gameControlRoute, observe: gameObserveRoute },
     admin: { createProject: adminCreateProject, registerProject: adminRegisterProject, unregisterProject: adminUnregisterProject, projectOp: adminProjectOp, exportProject: adminExportRoute },
     // Everything else is the editor's static bundle. The page gets its (non-secret) config injected here;
@@ -413,6 +429,7 @@ export function createBackend(
         channel.stopSweep();
         external.dispose();
         plays.dispose();
+        lightingBake.dispose();
         contentRoutes.dispose();
         playContent.dispose();
         channel.close(() => {

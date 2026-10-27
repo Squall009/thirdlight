@@ -37,7 +37,8 @@ import { TERRAIN_RING_SHARE } from './surface-cache';
 import { TERRAIN_RINGS_MAX, TERRAIN_RING_BYTES } from './surface-cache-terrain';
 import { packSurfaceLookup, SURFACE_READ } from './surface-cache-lookup';
 import { SURFACE_READ_ALL, SURFACE_READ_LIVE_KEY, SurfaceCacheTextures } from './surface-cache-read';
-import type { CacheLight } from './surface-changes';
+import { savedLights, type CacheLight } from './surface-changes';
+import { runSurfaceBake, type BakePart, type SurfaceBakeOptions, type SurfaceBakeOutcome } from './adapter-surface-bake';
 import { REFLECTION_TRACER_KEY, type ReflectionTracer } from './post-reflections';
 
 /** How often (ms) the debug look is drawn again while texels change. */
@@ -126,6 +127,8 @@ export class AdapterSurfaceLight {
   private albedoFor = '';
   private frames = 0;
   private captures = 0;
+  /** A bake's part: the lights whose light it saves light the cache (null: every light, live). */
+  private part: BakePart = null;
 
   constructor(private readonly host: SurfaceCacheHost, private readonly scene: THREE.Scene, docs: ReadonlyMap<string, EntityDoc>, graph: RenderGraph, probes: ProbeLightingHost | null = null) {
     this.lights = new SurfaceLights(docs, graph);
@@ -145,7 +148,8 @@ export class AdapterSurfaceLight {
 
   /** Before a frame's draw: the cache's lights, its residency and stale work, then this frame's light on the GPU. */
   beforeFrame(renderer: AnyRenderer, sceneLights: SceneLights, eye: ArrayLike<number>): void {
-    const lights = this.lights.now(sceneLights);
+    const all = this.lights.now(sceneLights);
+    const lights = this.part === null ? all : savedLights(all, this.part);
     this.host.setLights(lights);
     this.host.update(eye);
     const gpu = deviceOf(renderer);
@@ -153,7 +157,7 @@ export class AdapterSurfaceLight {
     if (device !== this.device || (device !== null && this.host.cache.budgetBytes !== this.budgetFor)) this.drop(device, renderer);
     this.off = this.runtime !== null ? null : this.failed ? 'failed' : this.host.relightBudgetMs <= 0 ? 'no-budget' : gpu === null ? 'no-webgpu' : 'starting';
     this.runtime?.frame(lights);
-    this.syncRead(lights, renderer, eye);
+    this.syncRead(all, renderer, eye);
     this.liveProbes?.frame(renderer, this.runtime);
     this.drawView();
   }
@@ -165,7 +169,8 @@ export class AdapterSurfaceLight {
       delete this.scene.userData[SURFACE_READ_LIVE_KEY];
       return;
     }
-    const sun = lights.find((l) => l.on && l.kind === 'directional');
+    // The sun's share is taken out of a texel where the sun is drawn per pixel (a light held by a bake is not).
+    const sun = this.lights.drawnSun;
     tex.sun.value.setRGB(sun?.color[0] ?? 0, sun?.color[1] ?? 0, sun?.color[2] ?? 0);
     tex.highlights.set(this.highlightsOn ? lights : [], eye);
     const key = `${this.host.traceVersion}/${this.host.residencyVersion}/${this.host.modelSlots.version}`;
@@ -259,6 +264,23 @@ export class AdapterSurfaceLight {
         console.warn(`surface cache: no live light (${e instanceof Error ? e.message : String(e)})`);
         this.failed = true;
       },
+    );
+  }
+
+  /** "Bake lighting": this page's live light run to settled and read back (`adapter-surface-bake.ts`). */
+  bake(o: SurfaceBakeOptions): Promise<SurfaceBakeOutcome> {
+    return runSurfaceBake(
+      {
+        host: this.host,
+        setPart: (part) => {
+          this.part = part;
+        },
+        runtime: () => this.runtime,
+        device: () => this.device,
+        off: () => this.off,
+        probeTiles: () => this.liveProbes?.savedTiles() ?? [],
+      },
+      o,
     );
   }
 

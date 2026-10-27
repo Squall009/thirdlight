@@ -44,6 +44,8 @@ export interface WsChannelDeps {
   readonly recordProblem: RecordProblem;
   /** The project's revision for the attach (not ok: the attach fails). */
   readonly attachRevision: (projectId: string) => { ok: true; revision: number } | { ok: false };
+  /** An editor's answer to a lighting bake it was asked for (false: none such). */
+  readonly lightingBakeAck?: (sessionId: string, ack: { relayId: string; ok: boolean; message?: string; error?: { code: string; message?: string } }) => boolean;
 }
 
 export function createWsChannel(deps: WsChannelDeps) {
@@ -224,6 +226,11 @@ export function createWsChannel(deps: WsChannelDeps) {
             : (r: unknown): boolean => validateGameObservation(r).ok;
         plays.resolveGameRelay(target.playSessionId, inbound.relayId, inbound, validate);
         sessions.record(session, 'play', inbound.relayId, target.revision, nowMs(), inbound.ok ? 'game_ok' : 'game_failed');
+        return;
+      }
+      case 'lighting.bake.ack': {
+        const known = deps.lightingBakeAck?.(session.sessionId, inbound) ?? false;
+        sessions.record(session, 'play', inbound.relayId, undefined, nowMs(), known ? (inbound.ok ? 'lighting_baked' : 'lighting_bake_failed') : 'unknown_lighting_bake');
         return;
       }
       default:

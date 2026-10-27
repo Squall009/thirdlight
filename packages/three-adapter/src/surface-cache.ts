@@ -17,8 +17,20 @@
  *
  * Pure (no three.js, no device).
  */
+import { textDigest } from '@thirdlight/runtime';
+
 import { SURFACE_CHART_BORDER, SURFACE_LEVELS, SURFACE_PAGE_BYTES, SURFACE_TEXEL_BYTES, PageAtlas, areaTexels, packTile, type AtlasBlock, type SurfaceChart, type TilePacking } from './surface-cache-atlas';
 import { TERRAIN_RING_BYTES, TerrainRings, terrainRingsNeeded, type RingTexel, type TerrainRingSource } from './surface-cache-terrain';
+
+/**
+ * A tile as a saved bake holds it: what its charts were (`digest`), the
+ * level it was lit at and its blocks of the saved pages.
+ */
+export interface SavedSurfaceTile {
+  readonly digest: string;
+  readonly level: number;
+  readonly blocks: readonly AtlasBlock[];
+}
 
 /** At most this share of the budget goes to terrain rings. */
 export const TERRAIN_RING_SHARE = 0.25;
@@ -103,6 +115,11 @@ export class SurfaceCache {
   private freed: string[] = [];
   private ringMoves: { terrain: string; rings: number[] }[] = [];
   private stats = { offered: 0, beyond: 0, evicted: 0, allocated: 0, relevelled: 0, ms: 0, peak: 0 };
+  /** A bake's run: every tile at this level whatever its distance, coarser only where the budget has no room (null: by distance). */
+  private bakeLevel: number | null = null;
+  /** A saved bake drawn (no live light): the tiles it holds stand where it put them, nothing else is resident (null: live residency). */
+  private saved: ReadonlyMap<string, SavedSurfaceTile> | null = null;
+  private savedPages = 0;
 
   constructor(private budget: number) {
     this.atlas = new PageAtlas(0);
@@ -122,6 +139,54 @@ export class SurfaceCache {
     return this.budget;
   }
 
+  /** A bake's run (`level`: every tile at it; null: back to levels by distance). Everything is decided again on the next update. */
+  setBakeLevel(level: number | null): void {
+    if (level === this.bakeLevel) return;
+    this.bakeLevel = level;
+    for (const key of [...this.resident.keys()]) this.evict(key);
+    this.at = null;
+  }
+
+  /**
+   * Draw a saved bake (`tiles` by key, on `pages` pages; null: live
+   * residency again). A tile is resident where the bake put it while its
+   * charts are the ones it was lit with; terrain rings are not saved.
+   */
+  setSaved(tiles: ReadonlyMap<string, SavedSurfaceTile> | null, pages = 0): void {
+    for (const key of [...this.resident.keys()]) this.evict(key);
+    this.saved = tiles;
+    this.savedPages = pages;
+    this.atlas = new PageAtlas(0);
+    this.rings.clear();
+    this.at = null;
+  }
+
+  /** The atlas's pages: the budget's, or the saved bake's. */
+  get pageCount(): number {
+    return this.saved !== null ? this.savedPages : this.atlas.pages;
+  }
+
+  /** Whether a saved bake is drawn. */
+  get drawsSaved(): boolean {
+    return this.saved !== null;
+  }
+
+  /** The finest level at which every one of `tiles` fits `bytes` of pages (null: none fits even at the coarsest). */
+  fitLevel(tiles: readonly SurfaceTile[], bytes: number): number | null {
+    for (let l = 0; l < SURFACE_LEVELS; l += 1) {
+      let sum = 0;
+      for (const t of tiles) sum += this.packingOf(t, l).packing.bytes;
+      if (sum <= bytes) return l;
+    }
+    return null;
+  }
+
+  /** A tile's charts and box as one digest: a saved tile is drawn only on the charts it was lit with. */
+  digestOf(t: SurfaceTile): string {
+    const { charts } = this.packingOf(t, 0);
+    return textDigest(JSON.stringify([charts, t.min.map((v) => Math.round(v * 1000)), t.max.map((v) => Math.round(v * 1000))]));
+  }
+
   private packingOf(t: SurfaceTile, level: number): { packing: TilePacking; charts: readonly SurfaceChart[] } {
     let p = this.packs.get(t.key);
     if (p === undefined || p.version !== t.version) this.packs.set(t.key, (p = { version: t.version, charts: t.charts(), byLevel: [] }));
@@ -131,7 +196,7 @@ export class SurfaceCache {
   private evict(key: string): void {
     const r = this.resident.get(key);
     if (r === undefined) return;
-    for (const b of r.blocks) this.atlas.release(b);
+    if (this.saved === null) for (const b of r.blocks) this.atlas.release(b);
     this.resident.delete(key);
     this.freed.push(key);
   }
@@ -150,6 +215,11 @@ export class SurfaceCache {
     if (!moved && !changed) return;
     const t0 = performance.now();
     this.at = [eye[0]!, eye[1]!, eye[2]!];
+    if (this.saved !== null) {
+      this.placeSaved(tiles);
+      this.stats.ms = performance.now() - t0;
+      return;
+    }
     this.placeRings(terrains, eye);
     const ringBytes = this.ringBytes();
     const pages = Math.max(0, Math.floor((this.budget - ringBytes) / SURFACE_PAGE_BYTES));
@@ -174,8 +244,8 @@ export class SurfaceCache {
     for (let n = 0; n < order.length; n += 1) {
       const { t, d } = order[n]!;
       const r = this.resident.get(t.key);
-      let level = surfaceLevelFor(d);
-      if (r !== undefined && r.version === t.version) {
+      let level = this.bakeLevel ?? surfaceLevelFor(d);
+      if (r !== undefined && r.version === t.version && this.bakeLevel === null) {
         const near = surfaceLevelFor(d * (1 - SURFACE_LEVEL_HYSTERESIS));
         const far = surfaceLevelFor(d * (1 + SURFACE_LEVEL_HYSTERESIS));
         if (r.level >= near && r.level <= far) level = r.level;
@@ -216,6 +286,30 @@ export class SurfaceCache {
     this.stats.beyond = beyond;
     this.stats.ms = performance.now() - t0;
     this.stats.peak = Math.max(this.stats.peak, this.usedBytes());
+  }
+
+  /** The offered tiles a saved bake holds, on its blocks (a tile whose charts changed since is not drawn from it). */
+  private placeSaved(tiles: readonly SurfaceTile[]): void {
+    const saved = this.saved!;
+    const offered = new Set<string>();
+    for (const t of tiles) {
+      const s = saved.get(t.key);
+      const r = this.resident.get(t.key);
+      if (s === undefined) continue;
+      if (r !== undefined && r.version === t.version) {
+        offered.add(t.key);
+        continue;
+      }
+      if (r !== undefined) this.evict(t.key);
+      const { packing, charts } = this.packingOf(t, s.level);
+      if (packing.blocks.length !== s.blocks.length || packing.blocks.some((side, i) => side !== s.blocks[i]!.side || s.blocks[i]!.page >= this.savedPages) || this.digestOf(t) !== s.digest) continue;
+      this.resident.set(t.key, { min: t.min, max: t.max, version: t.version, level: s.level, packing, charts, blocks: [...s.blocks] });
+      this.allocated.push(t.key);
+      offered.add(t.key);
+    }
+    for (const key of [...this.resident.keys()]) if (!offered.has(key)) this.evict(key);
+    this.stats.offered = tiles.length;
+    this.stats.beyond = 0;
   }
 
   /** Blocks for `t` at `level`, else at a coarser one (false: none fit, the pages are too cut up). */
@@ -278,6 +372,11 @@ export class SurfaceCache {
   }
 
   usedBytes(): number {
+    if (this.saved !== null) {
+      let texels = 0;
+      for (const r of this.resident.values()) for (const b of r.blocks) texels += b.side * b.side;
+      return texels * SURFACE_TEXEL_BYTES;
+    }
     return this.atlas.usedTexels * SURFACE_TEXEL_BYTES + this.ringBytes();
   }
 
@@ -363,8 +462,8 @@ export class SurfaceCache {
       budgetBytes: this.budget,
       usedBytes: this.usedBytes(),
       peakUsedBytes: this.stats.peak,
-      pageBytes: this.atlas.pages * SURFACE_PAGE_BYTES,
-      pages: this.atlas.pages,
+      pageBytes: this.pageCount * SURFACE_PAGE_BYTES,
+      pages: this.pageCount,
       ringBytes: this.ringBytes(),
       rings,
       tiles: { offered: this.stats.offered, resident: this.resident.size, beyond: this.stats.beyond },

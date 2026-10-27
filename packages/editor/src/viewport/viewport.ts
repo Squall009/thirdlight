@@ -49,6 +49,8 @@ import {
   type RendererPreference,
   type RendererPreferenceSource,
   type SceneAdapter,
+  type SurfaceBakeOptions,
+  type SurfaceBakeOutcome,
 } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { BlockType, DecalComponent, InstanceBrush, InstanceStroke } from '@thirdlight/project-model';
@@ -595,7 +597,7 @@ export class Viewport {
    * sky), the baked lights, and the hooks that gather the static objects and
    * probe volumes (world matrices current).
    */
-  probeBakeContext(): { host: ProbeBakeHost; lights: BakeInputs['lights']; renderer: unknown; scene: THREE.Scene | null } {
+  probeBakeContext(): { host: ProbeBakeHost; lights: BakeInputs['lights']; renderer: unknown; scene: THREE.Scene | null; bakeLighting: (o: Omit<SurfaceBakeOptions, 'frame'>) => Promise<SurfaceBakeOutcome> } {
     this.adapter.sync?.();
     const host: ProbeBakeHost = {
       projected: this.projected,
@@ -604,7 +606,18 @@ export class Viewport {
       architecture: this.adapter.architectureBake?.() ?? null,
       worldMatrix: (id, out) => this.adapter.worldMatrix?.(id, out) === true,
     };
-    return { host, lights: gatherBakeLights({ projected: this.projected, nodeOf: (id) => this.queries.frameOf(id) ?? undefined }), renderer: this.adapter.currentRenderer?.() ?? null, scene: this.adapter.threeScene?.() ?? null };
+    const adapter = this.adapter;
+    // "Bake lighting": the live lighting run to settled, each step a frame drawn here whether or not anything else asks for one.
+    const frame = (): Promise<void> =>
+      new Promise((resolve) => {
+        requestAnimationFrame(() => {
+          if (this.adapter === adapter) this.frame();
+          resolve();
+        });
+      });
+    const bakeLighting = (o: Omit<SurfaceBakeOptions, 'frame'>): Promise<SurfaceBakeOutcome> =>
+      adapter.bakeLighting === undefined ? Promise.resolve({ ok: false, message: 'this view cannot bake lighting' }) : adapter.bakeLighting({ ...o, frame }).finally(() => this.requestRender());
+    return { host, lights: gatherBakeLights({ projected: this.projected, nodeOf: (id) => this.queries.frameOf(id) ?? undefined }), renderer: this.adapter.currentRenderer?.() ?? null, scene: this.adapter.threeScene?.() ?? null, bakeLighting };
   }
 
   /**

@@ -37,7 +37,7 @@ fields: [Material graph nodes](../reference/graph-material.md).
 ## Through the API
 
 1. The material with its graph ([`setMaterial`](../reference/ops-detail.md#op-setMaterial),
-   [`MaterialDef`](../reference/types-c-p.md#type-material-def)):
+   [`MaterialDef`](../reference/types-c-o.md#type-material-def)):
    ```json
    {"material": {"materialId": "glow", "name": "Glow", "shader": "standard", "params": {}, "textures": {},
     "parameters": [

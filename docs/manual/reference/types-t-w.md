@@ -1,8 +1,58 @@
-# Types (TrimCell to WindOctave)
+# Types (TimelineTrack to WindOctave)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-timeline-track"></a>
+### TimelineTrack
+
+Declared in `packages/project-model/src/timelines.ts`.
+
+```ts
+interface TimelineTrack {
+  /** Unique in the timeline. */
+  trackId: string;
+  type: TimelineTrackType;
+  name?: string;
+  /** A muted track does nothing (editing aid). */
+  muted?: boolean;
+  /** The bound object (a slot name): transform, animator, activation, material. */
+  target?: string;
+  keys: TimelineKey[];
+  /** camera: what happens at the end (absent: release). */
+  end?: 'release' | 'keep';
+  endBlend?: 'cut' | 'linear' | 'eased';
+  endBlendTime?: number;
+  /** fade / letterbox: keep the last value after the timeline ends (absent: cleared). */
+  hold?: boolean;
+  /** audio: give the music back to the game flow when the timeline ends. */
+  releaseMusic?: boolean;
+  /** material: the parameter key and, optionally, the one material. */
+  param?: string;
+  material?: string;
+  /** character: the player's input still moves the character while the track plays (absent: the track holds it). */
+  playerInput?: boolean;
+}
+```
+
+<a id="type-timeline-track-type"></a>
+### TimelineTrackType
+
+Declared in `packages/project-model/src/timelines.ts`.
+
+```ts
+type TimelineTrackType = (typeof TIMELINE_TRACK_TYPES)[number];
+```
+
+<a id="type-timeline-value"></a>
+### TimelineValue
+
+Declared in `packages/project-model/src/timelines.ts`.
+
+```ts
+type TimelineValue = number | number[] | string;
+```
 
 <a id="type-trim-cell"></a>
 ### TrimCell

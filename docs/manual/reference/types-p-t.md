@@ -1,8 +1,18 @@
-# Types (PackedFrom to TimelineValue)
+# Types (PackedChannel to TimelineSlot)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-packed-channel"></a>
+### PackedChannel
+
+Declared in `packages/project-model/src/types-v2.ts`.
+
+```ts
+/** One channel of a packed texture: a channel of a texture asset's version, or a constant. */
+type PackedChannel = { assetId: string; digest: string; channel: 'r' | 'g' | 'b' | 'a' } | { value: number };
+```
 
 <a id="type-packed-from"></a>
 ### PackedFrom
@@ -1210,6 +1220,44 @@ Declared in `packages/project-model/src/instance-brush.ts`.
 type StrokeSurfaceSample = [number, number, number] | null;
 ```
 
+<a id="type-surface-bake"></a>
+### SurfaceBake
+
+Declared in `packages/project-model/src/lighting.ts`.
+
+```ts
+/**
+ * The saved result of the live lighting: what WebGL 2, the low tier and
+ * exports draw, and what live tiers start from.
+ *
+ * `files` are texture assets, each a 16-bit RGBA PNG used as a byte
+ * container (the three-adapter's `surface-bake-file.ts` writes and reads
+ * it): concatenated, their bytes are one saved file holding the tiles'
+ * places, the cache's pages (RGBA half floats) and the probes' tiles as the
+ * probe lighting draws them. The rest is a summary for the editor and the
+ * stale check.
+ */
+interface SurfaceBake {
+  /** ISO-8601 time of the bake. */
+  createdAt: string;
+  files: string[];
+  /** The cache level its tiles were saved at (0: 10 cm texels, each level doubles). */
+  level: number;
+  /** Cache tiles, pages and texels saved, probes saved, and the files' bytes. */
+  tiles: number;
+  pages: number;
+  probes: number;
+  bytes: number;
+  /** The run's time to settle (ms). */
+  millis: number;
+  /** Hashes of the baked/mixed lights and the static objects at bake time (stale check). */
+  lightsHash: string;
+  staticsHash: string;
+  /** The texture sky's turn the probes saw (degrees; absent: 0). */
+  skyRotation?: number;
+}
+```
+
 <a id="type-surface-preset-name"></a>
 ### SurfacePresetName
 
@@ -1570,54 +1618,4 @@ interface TimelineSlot {
   /** The default binding (an entity id); a play call may bind another. */
   entity?: string;
 }
-```
-
-<a id="type-timeline-track"></a>
-### TimelineTrack
-
-Declared in `packages/project-model/src/timelines.ts`.
-
-```ts
-interface TimelineTrack {
-  /** Unique in the timeline. */
-  trackId: string;
-  type: TimelineTrackType;
-  name?: string;
-  /** A muted track does nothing (editing aid). */
-  muted?: boolean;
-  /** The bound object (a slot name): transform, animator, activation, material. */
-  target?: string;
-  keys: TimelineKey[];
-  /** camera: what happens at the end (absent: release). */
-  end?: 'release' | 'keep';
-  endBlend?: 'cut' | 'linear' | 'eased';
-  endBlendTime?: number;
-  /** fade / letterbox: keep the last value after the timeline ends (absent: cleared). */
-  hold?: boolean;
-  /** audio: give the music back to the game flow when the timeline ends. */
-  releaseMusic?: boolean;
-  /** material: the parameter key and, optionally, the one material. */
-  param?: string;
-  material?: string;
-  /** character: the player's input still moves the character while the track plays (absent: the track holds it). */
-  playerInput?: boolean;
-}
-```
-
-<a id="type-timeline-track-type"></a>
-### TimelineTrackType
-
-Declared in `packages/project-model/src/timelines.ts`.
-
-```ts
-type TimelineTrackType = (typeof TIMELINE_TRACK_TYPES)[number];
-```
-
-<a id="type-timeline-value"></a>
-### TimelineValue
-
-Declared in `packages/project-model/src/timelines.ts`.
-
-```ts
-type TimelineValue = number | number[] | string;
 ```

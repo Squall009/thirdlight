@@ -245,6 +245,19 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     },
   },
   {
+    name: 'tl_bake_lighting',
+    description: toolDescription('tl_bake_lighting'),
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sceneId: { type: 'string', description: 'the scene to bake (the one the editor has open)' },
+        jobId: { type: 'string', pattern: '^relay-[0-9a-f]{32}$', description: 'wait on a bake started before instead of starting one' },
+        timeoutMs: { type: 'integer', minimum: 1000, maximum: 3600000, description: 'how long to wait (default 20 minutes)' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'tl_input_exercise',
     description: toolDescription('tl_input_exercise'),
     inputSchema: {
@@ -540,6 +553,8 @@ export async function handleToolCall(
         return await contentUpload(ctx, a);
       case 'tl_content_job':
         return await contentJob(ctx, a);
+      case 'tl_bake_lighting':
+        return await bakeLighting(ctx, a);
       case 'tl_playtest':
         return await playtest(ctx, a);
       case 'tl_docs':
@@ -1201,6 +1216,35 @@ async function contentJob(ctx: McpContext, a: Record<string, unknown>): Promise<
   if (typeof a.jobId !== 'string' || !/^job-[0-9a-f]{32}$/.test(a.jobId)) return toolError('jobId must be job- + 32 hex');
   const res = await ctx.client.contentJob(ctx.projectId, a.jobId);
   return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+}
+/** How long tl_bake_lighting waits for a bake by default, and how often it asks. */
+const BAKE_WAIT_MS = 20 * 60 * 1000;
+const BAKE_POLL_MS = 2000;
+
+async function bakeLighting(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
+  const wait = a.timeoutMs === undefined ? BAKE_WAIT_MS : isInt(a.timeoutMs) && a.timeoutMs >= 1000 && a.timeoutMs <= 3_600_000 ? a.timeoutMs : null;
+  if (wait === null) return toolError('timeoutMs must be an integer 1000–3600000');
+  let jobId: string;
+  if (a.jobId !== undefined) {
+    if (typeof a.jobId !== 'string' || !/^relay-[0-9a-f]{32}$/.test(a.jobId)) return toolError('jobId must be relay- + 32 hex');
+    if (a.sceneId !== undefined) return toolError('give sceneId (start a bake) or jobId (wait on one), not both');
+    jobId = a.jobId;
+  } else {
+    if (typeof a.sceneId !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(a.sceneId)) return toolError('sceneId is required (a scene id)');
+    const started = await ctx.client.bakeLighting(ctx.projectId, a.sceneId);
+    if (!(isObj(started.body) && started.body.ok === true && typeof started.body.jobId === 'string')) return surfaceBackendError(started);
+    jobId = started.body.jobId;
+  }
+  const until = Date.now() + wait;
+  for (;;) {
+    const res = await ctx.client.bakeLightingJob(ctx.projectId, jobId);
+    if (!(isObj(res.body) && res.body.ok === true)) return surfaceBackendError(res);
+    const state = res.body.state;
+    if (state === 'done') return toolOk(res.body);
+    if (state === 'failed') return toolError(`${String(res.body.code ?? 'bake_failed')}: ${String(res.body.message ?? 'the bake failed')}`);
+    if (Date.now() >= until) return toolOk({ ...res.body, note: 'still baking: call tl_bake_lighting {jobId} to wait on it' });
+    await new Promise((r) => setTimeout(r, BAKE_POLL_MS));
+  }
 }
 // ---- the headless play-test runner ------------------------------------------
 

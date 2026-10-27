@@ -123,6 +123,8 @@ export interface ClientCallbacks {
   onPlayStopRequested?: (playSessionId: string) => void;
   /** A backend relay request for the running play (screenshot, diagnostics, input, game control/observe). */
   onRelayRequest?: (request: Record<string, unknown>) => void;
+  /** The backend asks for "Bake lighting" of a scene (an agent's tl_bake_lighting); the editor answers with `lighting.bake.ack`. */
+  onLightingBakeRequest?: (relayId: string, sceneId: string) => void;
 }
 
 /** A session-scoped `sessionId` (`sess-` + 32 hex), client-generated. */
@@ -645,6 +647,9 @@ export class SessionClientCore extends SessionProjectState {
       case 'game.control.request':
       case 'game.observe.request':
         this.cb.onRelayRequest?.(m);
+        break;
+      case 'lighting.bake.request':
+        this.cb.onLightingBakeRequest?.(String(m.relayId ?? ''), String(m.sceneId ?? ''));
         break;
       case 'problems.added': {
         const p = m.problem as ProblemView | undefined;

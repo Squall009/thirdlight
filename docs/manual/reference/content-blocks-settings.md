@@ -188,4 +188,4 @@ Each scene's lightmap bake (written by the baker).
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `lighting` | map scene id → JSON: `LightingBake` ([LightingBake](types-c-p.md#type-lighting-bake)) |  |  | **Baked lighting.** Scene → its bake. (written by a tool) |
+| `lighting` | map scene id → JSON: `LightingBake` ([LightingBake](types-c-o.md#type-lighting-bake)) |  |  | **Baked lighting.** Scene → its bake. (written by a tool) |

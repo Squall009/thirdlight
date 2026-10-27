@@ -1,4 +1,4 @@
-# Types (CreatePrefabVariantArgs to PackedChannel)
+# Types (CreatePrefabVariantArgs to OwnedComponent)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -1148,7 +1148,7 @@ interface LightingBake {
   bakeId: string;
   /** ISO-8601 time of the bake. */
   createdAt: string;
-  source: 'browser' | 'blender';
+  source: 'browser' | 'blender' | 'cache';
   /** Irradiance at texel value 1.0. */
   range: number;
   texelsPerMeter: number;
@@ -1168,6 +1168,8 @@ interface LightingBake {
   staticsHash: string;
   /** The scene's baked probe grids (absent: none). */
   probes?: ProbeBake;
+  /** The saved live lighting (absent: a bake of the earlier bakers). */
+  surface?: SurfaceBake;
 }
 ```
 
@@ -1631,14 +1633,4 @@ type OwnedComponent =
   | 'collider'
   | 'controller'
   | V3OwnedComponent;
-```
-
-<a id="type-packed-channel"></a>
-### PackedChannel
-
-Declared in `packages/project-model/src/types-v2.ts`.
-
-```ts
-/** One channel of a packed texture: a channel of a texture asset's version, or a constant. */
-type PackedChannel = { assetId: string; digest: string; channel: 'r' | 'g' | 'b' | 'a' } | { value: number };
 ```

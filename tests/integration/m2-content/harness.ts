@@ -180,9 +180,10 @@ export interface BackendProcess {
 }
 
 /** Spawn the real backend process against `root` and wait for the ready line. */
-export async function spawnBackend(root: DisposableRoot, tokens: Array<{ token: string; scope: string }>): Promise<BackendProcess> {
+export async function spawnBackend(root: DisposableRoot, tokens: Array<{ token: string; scope: string }>, extra: Record<string, unknown> = {}): Promise<BackendProcess> {
   const bundlePath = await ensureBackendBundle();
   const config = {
+    ...extra,
     dataRoot: root.dataRoot,
     authoringOrigin: AUTHORING_ORIGIN,
     previewOrigin: PREVIEW_ORIGIN,
@@ -322,6 +323,8 @@ export async function establish(origin: string, sessionId = mkSessionId()): Prom
 
 export interface WsInbox {
   events: Array<Record<string, unknown>>;
+  /** Send one client → server event (as the editor page does). */
+  send: (event: Record<string, unknown>) => void;
   close: () => void;
   waitFor: (predicate: (e: Record<string, unknown>) => boolean, timeoutMs?: number) => Promise<Record<string, unknown>>;
 }
@@ -360,7 +363,7 @@ export async function openWs(origin: string, session: SessionInfo): Promise<WsIn
       };
       const interval = setInterval(check, 10);
     });
-  return { events, close: () => ws.close(), waitFor };
+  return { events, send: (event) => ws.send(JSON.stringify(event)), close: () => ws.close(), waitFor };
 }
 
 // ---- MCP (actual stdio MCP process ⇄ real SDK client ⇄ real backend) --------

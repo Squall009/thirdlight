@@ -55,6 +55,11 @@ export const ERROR_CODES = [
   'bake_busy',
   'bake_package_invalid',
   'bake_not_found',
+  // "Bake lighting", run by the project's editor.
+  'bake_failed',
+  'bake_timeout',
+  'scene_not_found',
+  'scene_not_open',
   'path_rejected',
   'asset_not_found',
   'asset_version_not_found',

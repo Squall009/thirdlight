@@ -46,6 +46,8 @@ export interface EditorMountDeps {
   /** The gizmo mode the Scene view's first picks select with. */
   gizmoMode: GizmoMode;
   play: Pick<PlaySession, 'setPlaying' | 'setPlayInfo' | 'bridgeRef' | 'forwardRelayRef'>;
+  /** Answers the backend's "Bake lighting" requests (the Lighting window's run, made after the mount). */
+  lightingBakeRef: MutableRefObject<(relayId: string, sceneId: string) => void>;
   blocks: Pick<ReturnType<typeof useBlockLayers>, 'setBlockEditor' | 'blockHandlersRef'>;
   terrainTools: ReturnType<typeof useTerrainTools>;
   content: ReturnType<typeof useProjectContent>;
@@ -107,6 +109,7 @@ export function useEditorMount(deps: EditorMountDeps): void {
         bridgeRef.current = null;
       },
       onRelayRequest: (req) => forwardRelayRef.current(req),
+      onLightingBakeRequest: (relayId, sceneId) => deps.lightingBakeRef.current(relayId, sceneId),
     });
     clientRef.current = client;
     setSessionClient(client);

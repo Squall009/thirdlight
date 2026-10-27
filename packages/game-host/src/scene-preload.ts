@@ -220,9 +220,10 @@ export function pageScenePreparation(o: {
       o.resources !== undefined &&
       ((r.kind === 'model' && (o.resources.has('model', assetVersionKey(r.assetId, r.version)) || o.resources.has('clip', assetVersionKey(r.assetId, r.version)))) || (r.kind === 'texture' && o.resources.has('texture', r.assetId)));
     const read = o.reader.preload(rows.filter((r) => !resident(r)), undefined, holder).catch(() => undefined);
-    // A probe tile's file is data the probe grids read as bytes: read ahead, never decoded as an image.
+    // A probe tile's file and a saved lighting file are data read as bytes: read ahead, never decoded as an image.
     const grids = (bake as { probes?: { grids?: readonly { asset?: unknown }[] } } | undefined)?.probes?.grids ?? [];
-    const probeFiles = new Set(grids.map((g) => g.asset));
+    const saved = (bake as { surface?: { files?: readonly unknown[] } } | undefined)?.surface?.files ?? [];
+    const probeFiles = new Set([...grids.map((g) => g.asset), ...saved]);
     const textures = rows.filter((r) => r.kind === 'texture' && !probeFiles.has(r.assetId)).map((r) => r.assetId);
     const prepared = o.adapter()?.prepareScene?.(sceneId, entities as unknown as readonly { id: string; components: unknown }[], textures) ?? null;
     const terrain = o.terrain?.(entities as unknown as readonly { readonly components?: unknown }[]) ?? Promise.resolve();

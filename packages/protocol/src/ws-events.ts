@@ -42,6 +42,8 @@ export const SERVER_EVENT_TYPES = [
   // The game control/observation relays forwarded to the owner editor.
   'game.control.request',
   'game.observe.request',
+  // "Bake lighting" of a scene, asked of the project's editor (an agent's tl_bake_lighting).
+  'lighting.bake.request',
   'error',
 ] as const;
 export type ServerEventType = (typeof SERVER_EVENT_TYPES)[number];
@@ -60,6 +62,8 @@ export const CLIENT_EVENT_TYPES = [
   // The owner editor's answers to the game control/observation relays.
   'game.control.ack',
   'game.observe.ack',
+  // The editor's answer to a lighting bake it was asked for.
+  'lighting.bake.ack',
   // The editor's current selection (so tools can inspect "what is selected").
   'selection.changed',
   // A running play's problem for the Problems log (once per kind and play).
@@ -267,6 +271,14 @@ export function makeGameControlRequest(relayId: string, command: string, expecte
   return emit(obj);
 }
 
+/** The longest answer (characters) a lighting bake's ack carries. */
+export const LIGHTING_BAKE_MESSAGE_MAX = 1024;
+
+/** "Bake lighting" of `sceneId`, asked of the project's editor (it answers with `lighting.bake.ack`). */
+export function makeLightingBakeRequest(relayId: string, sceneId: string): string {
+  return emit({ type: 'lighting.bake.request', relayId, sceneId });
+}
+
 /** Game observation request forwarded to the owner editor. */
 export function makeGameObserveRequest(relayId: string, timeoutMs: number, entityId?: string, sections?: readonly string[]): string {
   return emit({ type: 'game.observe.request', relayId, timeoutMs, ...(entityId !== undefined ? { entityId } : {}), ...(sections !== undefined ? { sections: [...sections] } : {}) });
@@ -327,6 +339,14 @@ export type InboundEvent =
       relayId: string;
       ok: boolean;
       result?: unknown;
+      error?: { code: string; message?: string };
+    }
+  | {
+      type: 'lighting.bake.ack';
+      relayId: string;
+      ok: boolean;
+      /** What the bake did, in words (when ok). */
+      message?: string;
       error?: { code: string; message?: string };
     };
 
@@ -655,6 +675,34 @@ export function parseInboundEvent(value: unknown):
         const verdict = isControl ? validateGameControlResult(s.value.result) : validateGameObservation(s.value.result);
         if (!verdict.ok) return { ok: false, kind: 'protocol_error', error: verdict.error };
         event.result = s.value.result;
+      }
+      const err = checkAckFields(s.value, event);
+      if (!err.ok) return { ok: false, kind: 'protocol_error', error: err.error };
+      return { ok: true, event };
+    }
+    case 'lighting.bake.ack': {
+      const s = checkShape(
+        obj,
+        '',
+        new Map([
+          ['type', '"lighting.bake.ack"'],
+          ['relayId', 'relay- + 32 hex'],
+          ['ok', 'boolean'],
+          ['message', `what the bake did, ≤ ${LIGHTING_BAKE_MESSAGE_MAX} characters — when ok`],
+          ['error', '{ code, message? } — when not ok'],
+        ]),
+        ['type', 'relayId', 'ok'],
+      );
+      if (!s.ok) return { ok: false, kind: 'protocol_error', error: s.error };
+      const rid = checkField(s.value, 'relayId', '', 'relay- + 32 hex', (v) => (isRelayId(v) ? null : { problem: 'relayId must be relay- + 32 hex', kind: 'value' }));
+      if (!rid.ok) return { ok: false, kind: 'protocol_error', error: rid.error };
+      const okf = checkField(s.value, 'ok', '', 'boolean', (v) => (typeof v === 'boolean' ? null : { problem: 'ok must be a boolean', kind: 'type' }));
+      if (!okf.ok) return { ok: false, kind: 'protocol_error', error: okf.error };
+      const event: InboundEvent = { type: 'lighting.bake.ack', relayId: rid.value as string, ok: okf.value as boolean };
+      if (s.value.message !== undefined) {
+        const m = checkField(s.value, 'message', '', `string ≤ ${LIGHTING_BAKE_MESSAGE_MAX}`, (v) => (typeof v === 'string' && v.length <= LIGHTING_BAKE_MESSAGE_MAX ? null : { problem: `message must be a string ≤ ${LIGHTING_BAKE_MESSAGE_MAX} chars`, kind: 'type' }));
+        if (!m.ok) return { ok: false, kind: 'protocol_error', error: m.error };
+        event.message = m.value as string;
       }
       const err = checkAckFields(s.value, event);
       if (!err.ok) return { ok: false, kind: 'protocol_error', error: err.error };

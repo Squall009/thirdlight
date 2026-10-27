@@ -490,7 +490,7 @@ Arguments (`args`):
 { owner: { kind: string; id: string }; ops: GraphOp[] }
 ```
 
-Types: [`GraphOp`](types-c-p.md#type-graph-op).
+Types: [`GraphOp`](types-c-o.md#type-graph-op).
 
 <a id="op-importAssets"></a>
 ## importAssets
@@ -961,7 +961,7 @@ Arguments (`args`):
 { dialogue: { dialogueId: string; name: string; graph?: GraphData } }
 ```
 
-Types: [`GraphData`](types-c-p.md#type-graph-data).
+Types: [`GraphData`](types-c-o.md#type-graph-data).
 
 <a id="op-setDialogueSettings"></a>
 ## setDialogueSettings
@@ -974,7 +974,7 @@ Arguments (`args`):
 { settings: DialogueSettings | null }
 ```
 
-Types: [`DialogueSettings`](types-c-p.md#type-dialogue-settings).
+Types: [`DialogueSettings`](types-c-o.md#type-dialogue-settings).
 
 <a id="op-setEffect"></a>
 ## setEffect
@@ -987,7 +987,7 @@ Arguments (`args`):
 { effect: EffectDef }
 ```
 
-Types: [`EffectDef`](types-c-p.md#type-effect-def).
+Types: [`EffectDef`](types-c-o.md#type-effect-def).
 
 <a id="op-setEnvironment"></a>
 ## setEnvironment
@@ -1000,7 +1000,7 @@ Arguments (`args`):
 { environment: EnvironmentConfig | SceneEnvironment; sceneId?: string }
 ```
 
-Types: [`EnvironmentConfig`](types-c-p.md#type-environment-config), [`SceneEnvironment`](types-p-t.md#type-scene-environment).
+Types: [`EnvironmentConfig`](types-c-o.md#type-environment-config), [`SceneEnvironment`](types-p-t.md#type-scene-environment).
 
 <a id="op-setEventCues"></a>
 ## setEventCues
@@ -1013,7 +1013,7 @@ Arguments (`args`):
 { cues: EventCue[] }
 ```
 
-Types: [`EventCue`](types-c-p.md#type-event-cue).
+Types: [`EventCue`](types-c-o.md#type-event-cue).
 
 <a id="op-setGraph"></a>
 ## setGraph
@@ -1026,7 +1026,7 @@ Arguments (`args`):
 { graph: GraphDocument }
 ```
 
-Types: [`GraphDocument`](types-c-p.md#type-graph-document).
+Types: [`GraphDocument`](types-c-o.md#type-graph-document).
 
 <a id="op-setInput"></a>
 ## setInput
@@ -1039,7 +1039,7 @@ Arguments (`args`):
 { input: InputConfig | null }
 ```
 
-Types: [`InputConfig`](types-c-p.md#type-input-config).
+Types: [`InputConfig`](types-c-o.md#type-input-config).
 
 <a id="op-setKit"></a>
 ## setKit
@@ -1052,7 +1052,7 @@ Arguments (`args`):
 { kit: KitDef }
 ```
 
-Types: [`KitDef`](types-c-p.md#type-kit-def).
+Types: [`KitDef`](types-c-o.md#type-kit-def).
 
 <a id="op-setLabels"></a>
 ## setLabels
@@ -1081,7 +1081,7 @@ Arguments (`args`):
 { sceneId: string; lighting: LightingBake | null }
 ```
 
-Types: [`LightingBake`](types-c-p.md#type-lighting-bake).
+Types: [`LightingBake`](types-c-o.md#type-lighting-bake).
 
 <a id="op-setLightLayers"></a>
 ## setLightLayers
@@ -1105,7 +1105,7 @@ Arguments (`args`):
 { material: MaterialDef }
 ```
 
-Types: [`MaterialDef`](types-c-p.md#type-material-def).
+Types: [`MaterialDef`](types-c-o.md#type-material-def).
 
 <a id="op-setModes"></a>
 ## setModes
@@ -1118,7 +1118,7 @@ Arguments (`args`):
 { modes: GameMode[] }
 ```
 
-Types: [`GameMode`](types-c-p.md#type-game-mode).
+Types: [`GameMode`](types-c-o.md#type-game-mode).
 
 <a id="op-setSaveSchema"></a>
 ## setSaveSchema
@@ -1183,7 +1183,7 @@ Arguments (`args`):
 { shell: GameShell | null }
 ```
 
-Types: [`GameShell`](types-c-p.md#type-game-shell).
+Types: [`GameShell`](types-c-o.md#type-game-shell).
 
 <a id="op-setSpeaker"></a>
 ## setSpeaker
@@ -1196,7 +1196,7 @@ Arguments (`args`):
 { speaker: DialogueSpeaker }
 ```
 
-Types: [`DialogueSpeaker`](types-c-p.md#type-dialogue-speaker).
+Types: [`DialogueSpeaker`](types-c-o.md#type-dialogue-speaker).
 
 <a id="op-setStartScenes"></a>
 ## setStartScenes

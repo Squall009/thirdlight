@@ -1,8 +1,17 @@
-# MCP tools (part 1, from tl_command)
+# MCP tools (part 1, from tl_bake_lighting)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 What each tool of the MCP server takes and returns. The descriptions an agent sees in `tools/list` are short summaries pointing here; read a tool with `tl_docs {topic: "tool.<name>"}` and an area of `tl_command` with `tool.tl_command.<area>`. Op argument shapes are on [Command ops](ops.md); component fields on the component pages.
+
+<a id="tool-tl_bake_lighting"></a>
+## `tl_bake_lighting`
+
+Bake a scene's lighting in the editor (WebGPU): the live lighting run until it settles and saved as the scene's bake (what WebGL 2, the low tier and exports draw). Waits for it and returns what it saved.
+
+In full:
+
+Bake a scene's lighting: the editor's Scene view (the connected browser, else a headless editor; WebGPU) runs the live lighting until it settles and saves it as the scene's bake — the surface cache's light of its static surfaces (block layers, generated architecture, static models) and its probes, in texture assets — what WebGL 2, the low quality tier and exports draw, and what live tiers start from. The same run as the Lighting window's "Bake lighting" (its changes go through the commands: publishAsset, setLighting). Lights' modes decide what is saved: baked lights' direct light and bounce, mixed lights' bounce (their direct light stays per pixel), realtime lights nothing. sceneId must be the scene the editor has open (scene_not_open otherwise). Waits for the bake (timeoutMs, default 20 minutes) and returns what it saved; a bake still running when it stops waiting is reported with its jobId (call again with jobId to wait on). One bake at a time per project (bake_busy).
 
 <a id="tool-tl_command"></a>
 ## `tl_command`

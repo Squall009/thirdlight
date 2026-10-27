@@ -167,7 +167,7 @@ One model placed many times (grass, rocks, trees), stored as a binary transform 
 | `densityStart` | number |  | 0.0001 – 1, step 0.001 | **Thinning starts at.** Copies start thinning out where they cover less than this share of the screen height (absent: 0.02). |
 | `densityEnd` | number |  | 0.0001 – 1, step 0.001 | **Thinnest at.** Below this share of the screen height only the "Thinnest density" share of copies is drawn (absent: 0.005). |
 | `densityMin` | number |  | 0 – 1, step 0.05 | **Thinnest density.** The share of copies drawn where they are smallest (1 or absent: no thinning; new sets from the scatter dialog start at 0.25). |
-| `paint` | JSON: `InstancePaint` ([InstancePaint](types-c-p.md#type-instance-paint)) |  |  | **Vertex paint.** The painted copies: {copies, painted, slots, meshes}: copies the SHA-256 of a table of (copy address, slot) entries, a copy's address its place in the buffer; per mesh a pool of slots, each 4 bytes (R, G, B, A) a vertex. Absent: no copy is painted (written by paintVertices; the table follows the copies when the brush or an edit takes some out). (written by a tool) |
+| `paint` | JSON: `InstancePaint` ([InstancePaint](types-c-o.md#type-instance-paint)) |  |  | **Vertex paint.** The painted copies: {copies, painted, slots, meshes}: copies the SHA-256 of a table of (copy address, slot) entries, a copy's address its place in the buffer; per mesh a pool of slots, each 4 bytes (R, G, B, A) a vertex. Absent: no copy is painted (written by paintVertices; the table follows the copies when the brush or an edit takes some out). (written by a tool) |
 
 <a id="component-fogVolume"></a>
 ## fogVolume — Fog volume

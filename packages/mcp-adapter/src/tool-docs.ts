@@ -529,6 +529,13 @@ export const TOOL_DETAILS = {
     'writeTo "assets/voice/line-001.ogg" with dataBase64 writes the file into the game folder at that path instead of inspecting it (its folders are made; never over another file, ' +
     'never into a hidden folder or the project\'s own files): upload a folder file by file this way, then import it with tl_command importAssets {folder}. ' +
     'addPack "basic-kit" (alone) adds an engine content pack as the project\'s own items through ordinary commands — the Basic Kit: its trim sheet\'s maps and door and window models published into assets/basic-kit, the trim material, presets, block types and the kit — as one undo step; a project that already has any of its ids is refused (pack_present), so changed copies are never replaced.',
+  tl_bake_lighting:
+    'Bake a scene\'s lighting: the editor\'s Scene view (the connected browser, else a headless editor; WebGPU) runs the live lighting until it settles and saves it ' +
+    'as the scene\'s bake — the surface cache\'s light of its static surfaces (block layers, generated architecture, static models) and its probes, in texture assets — ' +
+    'what WebGL 2, the low quality tier and exports draw, and what live tiers start from. The same run as the Lighting window\'s "Bake lighting" (its changes go through the commands: ' +
+    'publishAsset, setLighting). Lights\' modes decide what is saved: baked lights\' direct light and bounce, mixed lights\' bounce (their direct light stays per pixel), realtime lights nothing. ' +
+    'sceneId must be the scene the editor has open (scene_not_open otherwise). Waits for the bake (timeoutMs, default 20 minutes) and returns what it saved; a bake still running when it stops ' +
+    'waiting is reported with its jobId (call again with jobId to wait on). One bake at a time per project (bake_busy).',
   tl_content_job:
     'Read one bounded content job by its jobId (a bounded uploaded/inspected job record). Unknown jobs are ' +
     'job_not_found (404); an expired/late job is job_expired (503) and its result is never applied.',
@@ -691,6 +698,7 @@ export const TOOL_SUMMARIES: Readonly<Record<ToolName, string>> = {
     'projectPath inspects a file already in the game folder; pack builds a KTX2 texture (array) from texture assets; jobExport imports an asset tool\'s export; ' +
     'writeTo writes a file into the game folder (then tl_command importAssets {folder}); addPack "basic-kit" adds the engine\'s Basic Kit as the project\'s own items.',
   tl_content_job: TOOL_DETAILS.tl_content_job,
+  tl_bake_lighting: 'Bake a scene\'s lighting in the editor (WebGPU): the live lighting run until it settles and saved as the scene\'s bake (what WebGL 2, the low tier and exports draw). Waits for it and returns what it saved.',
   tl_input_exercise:
     'Drive a running play with step-indexed input: frames {stepOffset, steps?, actions?, pointer?, gamepad?, ui?} in exclusive test-input mode ' +
     '(physical input suppressed). restart begins at a new run\'s first step; hold makes consecutive exercises lockstep. Returns the steps it covered.',

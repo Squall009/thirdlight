@@ -175,10 +175,11 @@ export function collectAssetRefsV3(
   // The models an animator controller takes clips from.
   // The override layers' clips too.
   for (const c of (content as { animators?: AnimatorController[] }).animators ?? []) for (const id of animatorAssetIds(c)) setRef(id);
-  // The lightmap atlases and probe tiles of every scene's bake.
-  for (const bake of Object.values((content as { lighting?: Record<string, { atlases: string[]; probes?: { grids: { asset: string }[] } }> }).lighting ?? {})) {
+  // The lightmap atlases, probe tiles and saved lighting files of every scene's bake.
+  for (const bake of Object.values((content as { lighting?: Record<string, { atlases: string[]; probes?: { grids: { asset: string }[] }; surface?: { files: string[] } }> }).lighting ?? {})) {
     for (const id of bake.atlases) setRef(id);
     for (const g of bake.probes?.grids ?? []) setRef(g.asset);
+    for (const id of bake.surface?.files ?? []) setRef(id);
   }
   // The textures a model's images were extracted into travel with the model.
   const extracted = new Map(content.assets.map((a) => [a.assetId, (a as { textures?: Record<string, string> }).textures]));

@@ -9,6 +9,7 @@
  *
  * Browser-only.
  */
+import { LIGHTING_BAKE_MESSAGE_MAX } from '@thirdlight/protocol';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { forgetToken, readEditorConfig } from '../../config';
 import { useDockSizes } from '../layout';
@@ -210,9 +211,10 @@ export function useEditorModel() {
   useEffect(() => materialLibraryRef.current?.setWindHeld(!windPreview), [materialLibraryRef, windPreview, sessionClient]);
 
   // ---- mount: create the client + viewport, connect -----------------------
+  const lightingBakeRef = useRef<(relayId: string, sceneId: string) => void>(() => undefined);
   useEditorMount({
     cfg, clientRef, viewportRef, viewportHostRef, gestureRef, modelFilesRef, materialLibraryRef, loadTextureRef, previewTextureRef, workspaceRef, snappingRef, shiftRef, enterEditModeRef, gizmoMode,
-    play: playSession, blocks, terrainTools, content,
+    play: playSession, blocks, terrainTools, content, lightingBakeRef,
     editCopies: () => editCopiesRef.current,
     forgetAssetPreview: () => assets.assetPreview.forget(),
     refreshEntities, setLiveTransform, setUi, setCenterTab, workspaceDispatch, setSessionClient, setSceneRenderer, setViewFailures, setInstanceChunks, setSelectedId, setSelectedCopy, setSnapSettingsState, setTileThumbnails, setCatalogTick, reportFailure, setNotice,
@@ -383,6 +385,14 @@ export function useEditorModel() {
   const kitEditor = useKitEditor(clientRef, workspace, content.kits, ui.revision);
   const activeScene = sceneHeaders?.find((h) => h.active) ?? null;
   const bake = useLightingBake(clientRef, viewportRef, activeScene, refreshEntities, toolWindows.isOpen('lighting'), sceneRenderer?.api ?? null);
+  lightingBakeRef.current = (relayId, sceneId) => {
+    const ack = (r: { ok: true; message: string } | { ok: false; code: string; message: string }): void =>
+      clientRef.current?.sendRelayAck(r.ok ? { type: 'lighting.bake.ack', relayId, ok: true, message: r.message.slice(0, LIGHTING_BAKE_MESSAGE_MAX) } : { type: 'lighting.bake.ack', relayId, ok: false, error: { code: r.code, message: r.message.slice(0, LIGHTING_BAKE_MESSAGE_MAX) } });
+    // The bake runs on the scene the Scene view has open (its surfaces are what is lit).
+    if (activeScene === null || activeScene.sceneId !== sceneId) return ack({ ok: false, code: 'scene_not_open', message: activeScene === null ? 'the editor has no scene open' : `the editor has scene "${activeScene.sceneId}" open, not "${sceneId}": open it in the editor first` });
+    if (bake.bakeBusy !== null) return ack({ ok: false, code: 'bake_busy', message: 'a bake is running in the editor' });
+    void bake.bakeLighting().then((r) => ack(r.ok ? r : { ok: false, code: 'bake_failed', message: r.message }));
+  };
   const newMaterialId = useCallback((name: string) => freeItemId(name, 'material', (ids) => clientRef.current?.catalog.taken(ids, ['material']) ?? Promise.resolve(new Set<string>())), []);
   // The decal editor's selection, settings and commands (its tool is armed while the mode shows).
   const decalTools = useDecalTools({ clientRef, viewportRef, materials, sceneId: activeScene?.sceneId ?? null, newMaterialId, setNotice, reportFailure });

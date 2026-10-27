@@ -51,6 +51,10 @@ export interface ApiRoutes {
     readonly missingFiles: Route<[projectId: string, query: Query]>;
     readonly externalResolve: Route<[projectId: string, action: string]>;
   };
+  readonly lighting: {
+    readonly bake: Route<[projectId: string]>;
+    readonly bakeJob: Route<[projectId: string, jobId: string]>;
+  };
   readonly play: {
     readonly start: Route<[projectId: string]>;
     readonly stop: Route<[projectId: string, playSessionId: string]>;
@@ -74,7 +78,7 @@ export interface ApiRoutes {
 export function makeApiRouter(r: ApiRoutes) {
   /** The `/api/v1/…` table; false when no route matched (the caller answers unknown route). */
   const route = async (req: IncomingMessage, res: ServerResponse, method: string, parts: string[], query: Query): Promise<boolean> => {
-    const { content, sessions, catalog, project, play, admin } = r;
+    const { content, sessions, catalog, project, play, admin, lighting } = r;
     const projectContent = parts[2] === 'projects' && parts[4] === 'content';
     /** A route of one method: the handler, or a 405 naming the method. */
     const only = async (expected: string, run: () => void | Promise<void>): Promise<true> => {
@@ -197,6 +201,13 @@ export function makeApiRouter(r: ApiRoutes) {
     // POST /api/v1/projects/:projectId/commands
     if (parts.length === 5 && parts[2] === 'projects' && parts[4] === 'commands') {
       return only('POST', () => sessions.command(req, res, parts[3]!));
+    }
+    // POST /api/v1/projects/:projectId/lighting/bake {sceneId} — "Bake lighting" in the project's editor; GET …/bake/:jobId its state
+    if (parts.length === 6 && parts[2] === 'projects' && parts[4] === 'lighting' && parts[5] === 'bake') {
+      return only('POST', () => lighting.bake(req, res, parts[3]!));
+    }
+    if (parts.length === 7 && parts[2] === 'projects' && parts[4] === 'lighting' && parts[5] === 'bake') {
+      return only('GET', () => lighting.bakeJob(req, res, parts[3]!, parts[6]!));
     }
     // POST /api/v1/projects/:projectId/play
     if (parts.length === 5 && parts[2] === 'projects' && parts[4] === 'play') {

@@ -333,6 +333,16 @@ export class BackendClient {
   }
 
   /** GET one bounded content job (job_not_found / job_expired). */
+  /** Start "Bake lighting" of a scene in the project's editor (202 with its jobId). */
+  bakeLighting(projectId: string, sceneId: string): Promise<BackendResponse> {
+    return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/lighting/bake`, { sceneId });
+  }
+
+  /** A lighting bake's state. */
+  bakeLightingJob(projectId: string, jobId: string): Promise<BackendResponse> {
+    return this.request('GET', `/api/v1/projects/${encodeURIComponent(projectId)}/lighting/bake/${encodeURIComponent(jobId)}`);
+  }
+
   contentJob(projectId: string, jobId: string): Promise<BackendResponse> {
     return this.request('GET', `/api/v1/projects/${encodeURIComponent(projectId)}/content/jobs/${encodeURIComponent(jobId)}`);
   }

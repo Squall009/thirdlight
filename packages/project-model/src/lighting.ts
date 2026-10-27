@@ -13,11 +13,20 @@
  * A scene's probe grids (`probes`, see probe-grids.ts) are baked separately and
  * ride in the same record: a scene with probes and no lightmaps has no
  * atlases and no entries.
+ *
+ * "Bake lighting" (the live lighting run until settled and saved, source
+ * `cache`) writes `surface` instead: the surface cache's pages, the tiles'
+ * places in them and the live probes, in texture assets holding the saved
+ * file (see `SurfaceBake`). It has no atlases, entries or probe grids. A bake
+ * without `surface` was made by the earlier bakers: it keeps drawing as
+ * baked, and reads as stale until the scene is baked again
+ * (`lightingBakeIsOld`).
  */
 import { ID_RE } from './validate';
 import { BLOCK_LIMITS, CHUNK_SIZE } from './block-layers';
 import type { ModelErrorV2 } from './errors';
 import { canonicalProbeBake, validateProbeBake, type ProbeBake } from './probe-grids';
+import { SKY_ROTATION_MAX } from './materials';
 
 export interface LightingEntry {
   entityId: string;
@@ -42,7 +51,7 @@ export interface LightingBake {
   bakeId: string;
   /** ISO-8601 time of the bake. */
   createdAt: string;
-  source: 'browser' | 'blender';
+  source: 'browser' | 'blender' | 'cache';
   /** Irradiance at texel value 1.0. */
   range: number;
   texelsPerMeter: number;
@@ -62,6 +71,44 @@ export interface LightingBake {
   staticsHash: string;
   /** The scene's baked probe grids (absent: none). */
   probes?: ProbeBake;
+  /** The saved live lighting (absent: a bake of the earlier bakers). */
+  surface?: SurfaceBake;
+}
+
+/**
+ * The saved result of the live lighting: what WebGL 2, the low tier and
+ * exports draw, and what live tiers start from.
+ *
+ * `files` are texture assets, each a 16-bit RGBA PNG used as a byte
+ * container (the three-adapter's `surface-bake-file.ts` writes and reads
+ * it): concatenated, their bytes are one saved file holding the tiles'
+ * places, the cache's pages (RGBA half floats) and the probes' tiles as the
+ * probe lighting draws them. The rest is a summary for the editor and the
+ * stale check.
+ */
+export interface SurfaceBake {
+  /** ISO-8601 time of the bake. */
+  createdAt: string;
+  files: string[];
+  /** The cache level its tiles were saved at (0: 10 cm texels, each level doubles). */
+  level: number;
+  /** Cache tiles, pages and texels saved, probes saved, and the files' bytes. */
+  tiles: number;
+  pages: number;
+  probes: number;
+  bytes: number;
+  /** The run's time to settle (ms). */
+  millis: number;
+  /** Hashes of the baked/mixed lights and the static objects at bake time (stale check). */
+  lightsHash: string;
+  staticsHash: string;
+  /** The texture sky's turn the probes saw (degrees; absent: 0). */
+  skyRotation?: number;
+}
+
+/** Whether a scene's bake was made by the earlier bakers (lightmaps, probe grids): it draws until the scene is baked again, and reads as stale. */
+export function lightingBakeIsOld(bake: Pick<LightingBake, 'surface'>): boolean {
+  return bake.surface === undefined;
 }
 
 export type LightingMap = Record<string, LightingBake>;
@@ -70,7 +117,11 @@ export type LightingMap = Record<string, LightingBake>;
 export const MAX_LIGHTMAP_ATLASES = 16;
 export const MAX_LIGHTMAP_ENTRIES = 4096;
 export const MAX_BAKED_LIGHTS = 64;
-export const LIGHTMAP_SOURCES = ['browser', 'blender'] as const;
+export const LIGHTMAP_SOURCES = ['browser', 'blender', 'cache'] as const;
+/** Most files of one saved surface bake (each up to `MAX_TEXTURE_EDGE` rows of the container's width). */
+export const MAX_SURFACE_BAKE_FILES = 64;
+/** The cache levels a saved bake may hold (the surface cache's 0–5). */
+export const SURFACE_BAKE_LEVELS = 6;
 const HASH_RE = /^[0-9a-f]{16}$/;
 const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
 
@@ -84,7 +135,43 @@ const num = (v: unknown, lo: number, hi: number): boolean => typeof v === 'numbe
 const int = (v: unknown, lo: number, hi: number): boolean => num(v, lo, hi) && Number.isInteger(v);
 
 const BAKE_FIELDS = ['bakeId', 'createdAt', 'source', 'range', 'texelsPerMeter', 'samples', 'bounces', 'atlases', 'entries', 'bakedLights', 'lightsHash', 'staticsHash'];
-const OPTIONAL_BAKE_FIELDS = ['probes'];
+const OPTIONAL_BAKE_FIELDS = ['probes', 'surface'];
+const SURFACE_FIELDS = ['createdAt', 'files', 'level', 'tiles', 'pages', 'probes', 'bytes', 'millis', 'lightsHash', 'staticsHash'];
+const SURFACE_OPTIONAL = ['skyRotation'];
+
+/** `lighting[sceneId].surface` (structure and ranges; the files' kinds are checked with the content). */
+export function validateSurfaceBake(value: unknown, path: string, errors: ModelErrorV2[]): void {
+  if (!isPlainObject(value)) {
+    err(errors, 'field_type', path, 'surface is an object', value);
+    return;
+  }
+  for (const k of Object.keys(value)) if (!SURFACE_FIELDS.includes(k) && !SURFACE_OPTIONAL.includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown surface field "${k}"`, k, [...SURFACE_FIELDS, ...SURFACE_OPTIONAL].join(', '));
+  for (const k of SURFACE_FIELDS) if (value[k] === undefined) err(errors, 'field_missing', `${path}/${k}`, `"${k}" is required`, undefined, k);
+  const v = value;
+  if (v['createdAt'] !== undefined && (typeof v['createdAt'] !== 'string' || !ISO_RE.test(v['createdAt']))) err(errors, 'field_value', `${path}/createdAt`, 'createdAt is an ISO-8601 UTC time', v['createdAt']);
+  const files = v['files'];
+  if (files !== undefined && (!Array.isArray(files) || files.length < 1 || files.length > MAX_SURFACE_BAKE_FILES || !files.every((a) => typeof a === 'string' && ID_RE.test(a)))) err(errors, 'field_value', `${path}/files`, `files is 1–${MAX_SURFACE_BAKE_FILES} texture asset ids`, files);
+  if (v['level'] !== undefined && !int(v['level'], 0, SURFACE_BAKE_LEVELS - 1)) err(errors, 'field_value', `${path}/level`, `level is an integer in [0, ${SURFACE_BAKE_LEVELS - 1}]`, v['level']);
+  for (const k of ['tiles', 'pages', 'probes', 'bytes', 'millis']) if (v[k] !== undefined && !int(v[k], 0, Number.MAX_SAFE_INTEGER)) err(errors, 'field_value', `${path}/${k}`, `${k} is a non-negative integer`, v[k]);
+  for (const k of ['lightsHash', 'staticsHash']) if (v[k] !== undefined && (typeof v[k] !== 'string' || !HASH_RE.test(v[k] as string))) err(errors, 'field_value', `${path}/${k}`, `${k} is 16 lowercase hex digits`, v[k]);
+  if (v['skyRotation'] !== undefined && !num(v['skyRotation'], -SKY_ROTATION_MAX, SKY_ROTATION_MAX)) err(errors, 'field_value', `${path}/skyRotation`, `skyRotation is degrees in [${-SKY_ROTATION_MAX}, ${SKY_ROTATION_MAX}]`, v['skyRotation']);
+}
+
+export function canonicalSurfaceBake(b: SurfaceBake): SurfaceBake {
+  return {
+    createdAt: b.createdAt,
+    files: [...b.files],
+    level: b.level,
+    tiles: b.tiles,
+    pages: b.pages,
+    probes: b.probes,
+    bytes: b.bytes,
+    millis: b.millis,
+    lightsHash: b.lightsHash,
+    staticsHash: b.staticsHash,
+    ...(b.skyRotation !== undefined ? { skyRotation: b.skyRotation } : {}),
+  };
+}
 
 /** One scene's bake (structure and ranges; asset kinds are checked with the content). */
 export function validateLightingBake(value: unknown, path: string, errors: ModelErrorV2[]): void {
@@ -97,7 +184,7 @@ export function validateLightingBake(value: unknown, path: string, errors: Model
   const v = value;
   if (v['bakeId'] !== undefined && (typeof v['bakeId'] !== 'string' || !ID_RE.test(v['bakeId']))) err(errors, 'field_value', `${path}/bakeId`, 'bakeId is an id (a-z, 0-9, _ and -)', v['bakeId']);
   if (v['createdAt'] !== undefined && (typeof v['createdAt'] !== 'string' || !ISO_RE.test(v['createdAt']))) err(errors, 'field_value', `${path}/createdAt`, 'createdAt is an ISO-8601 UTC time', v['createdAt']);
-  if (v['source'] !== undefined && !(LIGHTMAP_SOURCES as readonly unknown[]).includes(v['source'])) err(errors, 'field_value', `${path}/source`, 'source is browser or blender', v['source']);
+  if (v['source'] !== undefined && !(LIGHTMAP_SOURCES as readonly unknown[]).includes(v['source'])) err(errors, 'field_value', `${path}/source`, `source is ${LIGHTMAP_SOURCES.join(', ')}`, v['source']);
   if (v['range'] !== undefined && !num(v['range'], 0.25, 64)) err(errors, 'field_value', `${path}/range`, 'range is a number in [0.25, 64]', v['range']);
   if (v['texelsPerMeter'] !== undefined && !num(v['texelsPerMeter'], 1, 256)) err(errors, 'field_value', `${path}/texelsPerMeter`, 'texelsPerMeter is a number in [1, 256]', v['texelsPerMeter']);
   if (v['samples'] !== undefined && !int(v['samples'], 1, 65536)) err(errors, 'field_value', `${path}/samples`, 'samples is an integer in [1, 65536]', v['samples']);
@@ -106,10 +193,11 @@ export function validateLightingBake(value: unknown, path: string, errors: Model
     if (v[k] !== undefined && (typeof v[k] !== 'string' || !HASH_RE.test(v[k] as string))) err(errors, 'field_value', `${path}/${k}`, `${k} is 16 lowercase hex digits`, v[k]);
   }
   if (v['probes'] !== undefined) validateProbeBake(v['probes'], `${path}/probes`, errors);
+  if (v['surface'] !== undefined) validateSurfaceBake(v['surface'], `${path}/surface`, errors);
   const atlases = v['atlases'];
   let atlasCount = 0;
-  // Without probes a bake is lightmaps, so it has at least one atlas.
-  const fewestAtlases = v['probes'] !== undefined ? 0 : 1;
+  // Without probes or a saved surface a bake is lightmaps, so it has at least one atlas.
+  const fewestAtlases = v['probes'] !== undefined || v['surface'] !== undefined ? 0 : 1;
   if (atlases !== undefined) {
     if (!Array.isArray(atlases) || atlases.length < fewestAtlases || atlases.length > MAX_LIGHTMAP_ATLASES || !atlases.every((a) => typeof a === 'string' && ID_RE.test(a))) {
       err(errors, 'field_value', `${path}/atlases`, `atlases is ${fewestAtlases}–${MAX_LIGHTMAP_ATLASES} texture asset ids`, atlases);
@@ -184,6 +272,7 @@ export function canonicalLightingBake(b: LightingBake): LightingBake {
     lightsHash: b.lightsHash,
     staticsHash: b.staticsHash,
     ...(b.probes !== undefined ? { probes: canonicalProbeBake(b.probes) } : {}),
+    ...(b.surface !== undefined ? { surface: canonicalSurfaceBake(b.surface) } : {}),
   };
 }
 

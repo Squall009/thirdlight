@@ -349,6 +349,7 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | <a id="limit-max-baked-lights"></a>`MAX_BAKED_LIGHTS` | `64` |  |
 | <a id="limit-max-lightmap-atlases"></a>`MAX_LIGHTMAP_ATLASES` | `16` | One scene bake's atlases, entries and baked lights: the bake format's own bounds (scalable lighting reworks the bake). |
 | <a id="limit-max-lightmap-entries"></a>`MAX_LIGHTMAP_ENTRIES` | `4096` |  |
+| <a id="limit-max-surface-bake-files"></a>`MAX_SURFACE_BAKE_FILES` | `64` | Most files of one saved surface bake (each up to `MAX_TEXTURE_EDGE` rows of the container's width). |
 
 <a id="limits-project-model--local-lights"></a>
 ## `local-lights.ts`

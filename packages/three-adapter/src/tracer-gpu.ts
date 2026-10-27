@@ -36,6 +36,8 @@ interface GpuPass {
 export interface GpuEncoder {
   beginComputePass(desc?: Record<string, unknown>): GpuPass;
   copyBufferToBuffer(src: GpuBuffer, srcOffset: number, dst: GpuBuffer, dstOffset: number, size: number): void;
+  /** A texture region into a buffer (a bake reads the cache's pages back). */
+  copyTextureToBuffer?(src: { texture: GpuTexture; origin?: Record<string, number> }, dst: { buffer: GpuBuffer; bytesPerRow: number; rowsPerImage: number }, size: Record<string, number>): void;
   finish(): unknown;
 }
 export interface GpuTexture {

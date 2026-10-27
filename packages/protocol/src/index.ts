@@ -156,6 +156,8 @@ export {
   makeGameControlRequest,
   makeGameObserveRequest,
   makeInputRelayRequest,
+  makeLightingBakeRequest,
+  LIGHTING_BAKE_MESSAGE_MAX,
   makeMutationApplied,
   makePong,
   makePlayStarted,

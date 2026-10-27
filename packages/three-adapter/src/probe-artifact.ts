@@ -272,3 +272,24 @@ export async function decodeProbeSamples(bytes: Uint8Array, grid: Pick<ProbeGrid
   if (src === undefined || decoded.png.width !== size.width || decoded.png.height !== size.height) return wrongSize(size);
   return { ok: true, samples: src, validity: validityOf(src, size.width, probes) };
 }
+
+/**
+ * Any 16-bit RGBA PNG's size and samples (the engine's own inflate natively
+ * where the platform can, as probe files do; others through the general
+ * decoder): what a saved lighting file is read with.
+ */
+export async function decodePng16(bytes: Uint8Array): Promise<{ ok: true; width: number; height: number; samples: Uint16Array } | { ok: false; message: string }> {
+  const parts = typeof DecompressionStream === 'function' ? probePngParts(bytes) : null;
+  if (parts !== null) {
+    if (parts.width * parts.height > MAX_TEXTURE_EDGE * MAX_TEXTURE_EDGE) return { ok: false, message: 'the image is larger than a texture may be' };
+    const raw = await inflateNative(parts.idat, (parts.width * 8 + 1) * parts.height).catch(() => null);
+    const samples = raw === null ? null : unfilterRgba16(raw, parts.width, parts.height);
+    if (samples === null) return { ok: false, message: 'the file does not inflate to its image' };
+    return { ok: true, width: parts.width, height: parts.height, samples };
+  }
+  const decoded = decodePngRgba(bytes, { keep16: true, maxPixels: MAX_TEXTURE_EDGE * MAX_TEXTURE_EDGE });
+  if (!decoded.ok) return decoded;
+  const src = decoded.png.rgba16;
+  if (src === undefined) return { ok: false, message: 'the file is not a 16-bit RGBA image' };
+  return { ok: true, width: decoded.png.width, height: decoded.png.height, samples: src };
+}

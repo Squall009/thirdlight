@@ -28,9 +28,9 @@ What the engine offers, generated from its source: the objects, components and c
 | [Command ops](ops.md) | The request, Every op |
 | [Command op arguments](ops-detail.md) | 87 sections |
 | [Types (AcknowledgeBehaviorTrustArgs to CreatePrefabArgs)](types-a-c.md) | 74 sections |
-| [Types (CreatePrefabVariantArgs to PackedChannel)](types-c-p.md) | 96 sections |
-| [Types (PackedFrom to TimelineValue)](types-p-t.md) | 98 sections |
-| [Types (TrimCell to WindOctave)](types-t-w.md) | 33 sections |
+| [Types (CreatePrefabVariantArgs to OwnedComponent)](types-c-o.md) | 95 sections |
+| [Types (PackedChannel to TimelineSlot)](types-p-t.md) | 97 sections |
+| [Types (TimelineTrack to WindOctave)](types-t-w.md) | 36 sections |
 | [Script API](script-api.md) | What a script exports, The context (`ctx`), Context members in full, `BehaviorPrepareConfig`, `BehaviorInstanceInfo` |
 | [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 21 sections |
 | [Script API types (from `BehaviorMessages`)](script-types-behavior-messages.md) | 21 sections |
@@ -71,7 +71,7 @@ What the engine offers, generated from its source: the objects, components and c
 | [Limits and defaults: project-model (part 2, from `material-schema.ts`)](limits-project-model-2.md) | 40 sections |
 | [Limits and defaults: protocol](limits-protocol.md) | `bake.ts`, `bridge.ts`, `content.ts`, `delivery.ts`, `diagnostics-bound.ts`, `errors.ts`, `http.ts`, `job-export.ts`, `m3.ts`, `play-problems.ts`, `wire-change.ts`, `ws-events.ts` |
 | [Limits and defaults: runtime](limits-runtime.md) | 26 sections |
-| [MCP tools (part 1, from tl_command)](mcp-tools-1.md) | `tl_command` |
+| [MCP tools (part 1, from tl_bake_lighting)](mcp-tools-1.md) | `tl_bake_lighting`, `tl_command` |
 | [MCP tools (part 2, from tl_command: Models, bulk creation, deleting, asset options, imports, labels, addresses, files)](mcp-tools-2.md) | 17 sections |
 | [MCP tools (part 3, from tl_command: Block layers: block types, the layer component, editBlocks, stamps)](mcp-tools-3.md) | `tl_content_job`, `tl_content_query`, `tl_content_upload`, `tl_diagnostics`, `tl_docs`, `tl_game_control`, `tl_game_observe` |
 | [MCP tools (part 4, from tl_input_exercise)](mcp-tools-4.md) | `tl_input_exercise`, `tl_inspect`, `tl_instance_buffer`, `tl_play_start`, `tl_play_stop`, `tl_playtest`, `tl_screenshot`, `tl_script_publish`, `tl_sessions` |

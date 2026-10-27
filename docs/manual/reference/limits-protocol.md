@@ -120,6 +120,7 @@ The limits and defaults `@thirdlight/protocol` defines, by source file. Values a
 
 | Constant | Value | What it is |
 |---|---|---|
+| <a id="limit-lighting-bake-message-max"></a>`LIGHTING_BAKE_MESSAGE_MAX` | `1024` | The longest answer (characters) a lighting bake's ack carries. |
 | <a id="limit-ws-in-frame-max"></a>`WS_IN_FRAME_MAX` | `65536` | Frame bounds: incoming ≤ 64 KiB, EXCEPT `screenshot.ack` ≤ 1.5 MiB. The check runs on the raw frame before validation: over the 64 KiB bound only a `screenshot.ack`-shaped frame may proceed; anything else is `frame_too_big` (close 1009). |
 | <a id="limit-ws-out-frame-max"></a>`WS_OUT_FRAME_MAX` | `1048576` | Outgoing (server → client) frames are at most 1 MiB — a documented limit that keeps one message from stalling the socket. Nothing is silently held over it: a large Play snapshot goes by reference (`PlaySnapshotRef`, fetched over HTTP), an oversized change record is replaced by `workspace.resync` (the editor re-reads over HTTP), and any other oversized frame is dropped with a visible problem. |
 | <a id="limit-ws-screenshot-ack-max"></a>`WS_SCREENSHOT_ACK_MAX` | `1572864` |  |

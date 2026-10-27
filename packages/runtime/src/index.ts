@@ -608,7 +608,7 @@ export { BLOCK_CONNECT_PIECES, BLOCK_EDGE_CONNECT_PIECES, BLOCK_EDGE_THICKNESS, 
 // What an unpainted wall point holds (the editor says why a wall stroke of that layer stores nothing).
 export { UNPAINTED_WALL } from '@thirdlight/project-model';
 // The editor previews a block stroke locally with the same edit code the backend runs (then commits one editBlocks).
-export { BLOCK_EDIT_MAX_EDITS, SCULPT_LIMITS, chunkLightmapLayout, applyBlockEdits, effectiveCellMeta, pickCell, surfaceBelow, type BlockEdit, type BlockStamp } from '@thirdlight/project-model';
+export { BLOCK_EDIT_MAX_EDITS, SCULPT_LIMITS, chunkLightmapLayout, textDigest, applyBlockEdits, effectiveCellMeta, pickCell, surfaceBelow, type BlockEdit, type BlockStamp } from '@thirdlight/project-model';
 // The instance brush's places and surface drop (the editor finds the surface under the same places the backend plans).
 export { INSTANCE_BRUSH_DEFAULTS, INSTANCE_BRUSH_LIMITS, StrokeCandidates, candidateDrop, dropOntoBlockLayers, instanceStrokeError } from '@thirdlight/project-model';
 // The paint brush and block-layer paint (the editor's Paint mode, the renderer's paint colours).
@@ -636,7 +636,7 @@ export { AMBIENT_OCCLUSION_DEFAULT, AMBIENT_OCCLUSION_KINDS, ambientOcclusionOf,
 export { OCCLUDEE_KINDS, occludeeClassOf, occludeeScreenShare, OCCLUDER_ROLES, occluderRoleOf, OCCLUSION_MAX_SCREEN_SHARE, OCCLUSION_MIN_TRIANGLES, OCCLUSION_PATHS, occlusionPathAvailable, occlusionPathFrom, occlusionPathOf, type OccludeeClass, type OccludeeFacts, type OccludeeKind, type OccluderFacts, type OccluderRole, type OcclusionPath, type OcclusionPathChoice, type OcclusionRenderer } from './occlusion';
 // Occluder stand-ins (`_OCC` nodes) in model files: the naming rule, the import check and the import setting's meaning.
 export { isModelHelperNode, MODEL_OCC_RE, modelOccluderModeOf, modelOccluderUse, OCCLUDER_COVERAGE_TEXELS, occluderCoverageBreaks, occluderPointsOutside, OCCLUDER_INSIDE_TOLERANCE_M, type ModelOccluderMode, type OccluderBounds } from '@thirdlight/project-model';
-export { DEFAULT_CONTACT_SHADOWS, DEFAULT_QUALITY_LEVELS, DEFAULT_REFLECTIONS, DEFAULT_SURFACE_CACHE_MIB, DEFAULT_SURFACE_LIGHT_MS, levelPost, LOD_BIAS_MAX, LOD_BIAS_MIN, PIXEL_RATIO_CAP_MAX, QUALITY_LEVEL_ID_RE, qualityLevelOf, qualityLevelsOf, type QualityLevelConfig, type QualityLevelPost, type ReflectionQuality } from '@thirdlight/project-model';
+export { DEFAULT_CONTACT_SHADOWS, DEFAULT_QUALITY_LEVELS, DEFAULT_REFLECTIONS, DEFAULT_SURFACE_CACHE_MIB, DEFAULT_SURFACE_LIGHT_MS, SAVED_SURFACE_CACHE_MIB, SURFACE_LIGHT_MS_MAX, levelPost, LOD_BIAS_MAX, LOD_BIAS_MIN, PIXEL_RATIO_CAP_MAX, QUALITY_LEVEL_ID_RE, qualityLevelOf, qualityLevelsOf, type QualityLevelConfig, type QualityLevelPost, type ReflectionQuality } from '@thirdlight/project-model';
 // The simulation's step rate when a project sets none (project-model's).
 export { DEFAULT_FIXED_STEP_HZ, fixedStepHzOf } from '@thirdlight/project-model';
 export { clampAlpha, previewFrameSeconds } from './frame-clock';

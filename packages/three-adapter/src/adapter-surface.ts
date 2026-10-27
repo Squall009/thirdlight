@@ -149,6 +149,7 @@ export function createAdapterSurface(p: AdapterParts, frame: AdapterFrame, x: Ad
       for (const id of level.blockView.layerIds()) level.blockView.setLightmapUv(id, state.lightmaps?.hasChunks(id) === true);
       level.blockView.remeshAll();
     },
+    bakeLighting: (o) => (state.disposed || p.surfaceLight === null ? Promise.resolve({ ok: false as const, message: 'this view has no surface cache' }) : p.surfaceLight.bake(o)),
     setArchitectureStyles(graphs): void {
       if (!state.disposed) level.architecture.setStyles(graphs);
     },

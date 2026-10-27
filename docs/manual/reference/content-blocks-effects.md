@@ -176,7 +176,7 @@ What a level style is built from, as one item: a trim sheet material, the archit
 | `kits[].trimMaterial` | material id |  |  | **Trim sheet.** The trim sheet material its presets and block faces read. |
 | `kits[].presets` | list of string, id, 1–64 chars, distinct |  |  | **Presets.** Architecture preset graphs (styles for rooms, buildings and runs). |
 | `kits[].blockTypes` | list of string, id, 1–64 chars, distinct |  |  | **Block types.** Block types the block editor's palette offers. |
-| `kits[].pieces` | JSON: `Record<string, KitPiece[]>` ([KitPiece](types-c-p.md#type-kit-piece)) |  |  | **Pieces.** Piece slots: {slot: [{assetId, piece?, weight?}, …]} (1-8 weighted pieces a slot). Standard slots: door, window, wall-override, corner, stairs, railing, roof-edge. |
+| `kits[].pieces` | JSON: `Record<string, KitPiece[]>` ([KitPiece](types-c-o.md#type-kit-piece)) |  |  | **Pieces.** Piece slots: {slot: [{assetId, piece?, weight?}, …]} (1-8 weighted pieces a slot). Standard slots: door, window, wall-override, corner, stairs, railing, roof-edge. |
 
 <a id="content-uiDocuments"></a>
 ## uiDocuments — UI documents
@@ -304,7 +304,7 @@ Conversations: node graphs of lines (speaker, expression, text, voice clip), cho
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `dialogues` | list of JSON: `DialogueDocument` ([DialogueDocument](types-c-p.md#type-dialogue-document)) | `[]` |  | **Dialogues.** The project's conversations (each its own file). |
+| `dialogues` | list of JSON: `DialogueDocument` ([DialogueDocument](types-c-o.md#type-dialogue-document)) | `[]` |  | **Dialogues.** The project's conversations (each its own file). |
 
 <a id="content-speakers"></a>
 ## speakers — Speakers
@@ -316,7 +316,7 @@ Who speaks in conversations: name, name-plate colour, portraits per expression, 
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `speakers` | list of JSON: `DialogueSpeaker` ([DialogueSpeaker](types-c-p.md#type-dialogue-speaker)) | `[]` |  | **Speakers.** The project's speakers. |
+| `speakers` | list of JSON: `DialogueSpeaker` ([DialogueSpeaker](types-c-o.md#type-dialogue-speaker)) | `[]` |  | **Speakers.** The project's speakers. |
 
 <a id="content-dialogueSettings"></a>
 ## dialogueSettings — Dialogue settings
@@ -328,7 +328,7 @@ Text speed, auto-advance and its delay, the music/SFX duck under a voice, the ba
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `value` | JSON: `DialogueSettings` ([DialogueSettings](types-c-p.md#type-dialogue-settings)) |  |  | **Dialogue settings.** { textSpeed? (chars/s, 0 instant), autoAdvance?, autoDelay? (s), duck? (0–1), backlog? (1–100), document? (uiDocumentId), theme? (uiThemeId), voiceMaxLateMs? (ms a voice whose file is not loaded may still start late; 1000) }. (written by a tool) |
+| `value` | JSON: `DialogueSettings` ([DialogueSettings](types-c-o.md#type-dialogue-settings)) |  |  | **Dialogue settings.** { textSpeed? (chars/s, 0 instant), autoAdvance?, autoDelay? (s), duck? (0–1), backlog? (1–100), document? (uiDocumentId), theme? (uiThemeId), voiceMaxLateMs? (ms a voice whose file is not loaded may still start late; 1000) }. (written by a tool) |
 
 <a id="content-timelines"></a>
 ## timelines — Timelines
@@ -352,7 +352,7 @@ Standalone node graphs, edited in the graph editor.
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `graphs` | list of JSON: `GraphDocument` ([GraphDocument](types-c-p.md#type-graph-document)) | `[]` |  | **Graphs.** The project's graphs (each its own file). |
+| `graphs` | list of JSON: `GraphDocument` ([GraphDocument](types-c-o.md#type-graph-document)) | `[]` |  | **Graphs.** The project's graphs (each its own file). |
 
 <a id="content-tags"></a>
 ## tags — Tags

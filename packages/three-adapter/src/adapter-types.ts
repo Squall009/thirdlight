@@ -532,6 +532,12 @@ export interface SceneAdapter {
   setEnvironment?(value: EnvironmentLike | null): void;
   /** Replace the bakes (lightmaps, and the lights they hold leave realtime): the scenes are realized again. Needs the `lighting` option. */
   setBakes?(bakes: Readonly<Record<string, LightingBakeLike>> | null): void;
+  /**
+   * "Bake lighting": the live lighting run on this page's WebGPU device until
+   * it settles, then read back as the saved result (`adapter-surface-bake.ts`;
+   * `frame` draws the page's next frame). Refused without WebGPU.
+   */
+  bakeLighting?(o: import('./adapter-surface-bake').SurfaceBakeOptions): Promise<import('./adapter-surface-bake').SurfaceBakeOutcome>;
   /** Replace the architecture style and preset graphs (an edit): outlines are made again where their elements changed. */
   setArchitectureStyles?(graphs: readonly import('@thirdlight/runtime').ArchitectureGraphLike[] | null): void;
   /** A slider being dragged: values over one preset and those derived from it (null: the stored values). How many objects are made again. */

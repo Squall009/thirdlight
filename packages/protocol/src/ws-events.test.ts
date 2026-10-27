@@ -28,15 +28,23 @@ const relay = `relay-${hex32}`;
 
 // The game control/observation relay has two server events and two client acks.
 describe('catalog constants', () => {
-  it('server → client: exactly the set + input.request + the relay rows', () => {
+  it('server → client: exactly the set + input.request + the relay rows + the lighting bake', () => {
     expect([...SERVER_EVENT_TYPES].sort()).toEqual(
-      ['attached', 'error', 'game.control.request', 'game.observe.request', 'input.request', 'mutation.applied', 'play.diagnostics.request', 'play.started', 'play.stop.request', 'play.stopped', 'pong', 'screenshot.request'].sort(),
+      ['attached', 'error', 'game.control.request', 'game.observe.request', 'input.request', 'lighting.bake.request', 'mutation.applied', 'play.diagnostics.request', 'play.started', 'play.stop.request', 'play.stopped', 'pong', 'screenshot.request'].sort(),
     );
   });
-  it('client → server: exactly the set + input.result + the relay acks + selection.changed', () => {
+  it('client → server: exactly the set + input.result + the relay acks + selection.changed + the lighting bake\'s answer', () => {
     expect([...CLIENT_EVENT_TYPES].sort()).toEqual(
-      ['game.control.ack', 'game.observe.ack', 'input.result', 'ping', 'play.diagnostics.ack', 'play.preview.failed', 'play.preview.progress', 'play.preview.ready', 'play.stopped.ack', 'screenshot.ack', 'selection.changed', 'play.problem'].sort(),
+      ['game.control.ack', 'game.observe.ack', 'input.result', 'lighting.bake.ack', 'ping', 'play.diagnostics.ack', 'play.preview.failed', 'play.preview.progress', 'play.preview.ready', 'play.stopped.ack', 'screenshot.ack', 'selection.changed', 'play.problem'].sort(),
     );
+  });
+  it('lighting.bake.ack: a relay id, ok with what it did or an error, nothing else', () => {
+    const id = `relay-${hex32}`;
+    expect(parseInboundEvent({ type: 'lighting.bake.ack', relayId: id, ok: true, message: 'Baked lighting' })).toMatchObject({ ok: true, event: { type: 'lighting.bake.ack', ok: true, message: 'Baked lighting' } });
+    expect(parseInboundEvent({ type: 'lighting.bake.ack', relayId: id, ok: false, error: { code: 'scene_not_open', message: 'x' } })).toMatchObject({ ok: true, event: { ok: false, error: { code: 'scene_not_open' } } });
+    expect(parseInboundEvent({ type: 'lighting.bake.ack', relayId: id, ok: false }).ok).toBe(false);
+    expect(parseInboundEvent({ type: 'lighting.bake.ack', relayId: id, ok: true, message: 'x'.repeat(2000) }).ok).toBe(false);
+    expect(parseInboundEvent({ type: 'lighting.bake.ack', relayId: id, ok: true, extra: 1 }).ok).toBe(false);
   });
   it('play.problem: a play id, a lowercase code and a bounded line', () => {
     const id = `play-${hex32}`;

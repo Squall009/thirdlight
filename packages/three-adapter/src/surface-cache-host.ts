@@ -467,6 +467,23 @@ export class SurfaceCacheHost {
     this.changed = true;
   }
 
+  /** The tiles offered to the cache (made, with something to light) once every surface of the loaded scene has its charts and every model file is read (null until then). */
+  preparedTiles(): readonly SurfaceTile[] | null {
+    if (this.pending.size > 0) return null;
+    for (const f of this.files.values()) if (f === 'reading') return null;
+    return this.offered;
+  }
+
+  /** The resident tiles as a bake saves them: key, charts' digest, level and blocks. */
+  savedTiles(): { key: string; digest: string; level: number; blocks: readonly AtlasBlock[] }[] {
+    const out: { key: string; digest: string; level: number; blocks: readonly AtlasBlock[] }[] = [];
+    this.cache.forEachResident((key, level, blocks) => {
+      const tile = this.ready.get(key);
+      if (tile !== undefined) out.push({ key, digest: this.cache.digestOf(tile), level, blocks });
+    });
+    return out;
+  }
+
   /** Something loaded or changed (a scene, a chunk built, an edit): the surfaces are listed again on the next frame. */
   touch(): void {
     this.listedAt = -Infinity;

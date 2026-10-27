@@ -33,6 +33,7 @@ import { PROBE_FLOATS, type LiveProbes } from './surface-probes';
 import type { SurfaceCacheHost } from './surface-cache-host';
 import { SkyProbe } from './surface-probe-sky';
 import type { SurfaceLightRuntime } from './surface-light-runtime';
+import type { SavedProbeTile } from './surface-bake-file';
 
 /**
  * Shortest time (ms) between two uploads of one grid's probes, for each
@@ -178,6 +179,12 @@ export class AdapterLiveProbes {
       return 0;
     });
     t.dirty = true;
+  }
+
+  /** The probes' tiles as the probe lighting holds them (empty while not live): what a bake saves. */
+  savedTiles(): SavedProbeTile[] {
+    const v3 = (a: readonly number[]): [number, number, number] => [a[0]!, a[1]!, a[2]!];
+    return this.tiles.map(({ tile: t }) => ({ key: t.key, min: v3(t.grid.min), max: v3(t.grid.max), resolution: v3(t.grid.resolution), brick: t.brick === true, validity: t.validity.slice(), data: t.packed.data.slice() }));
   }
 
   private drawView(): void {

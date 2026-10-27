@@ -17,6 +17,7 @@
  */
 import { useState, type JSX } from 'react';
 import type { LightingBake } from '@thirdlight/project-model';
+import { lightingBakeSummary } from '../viewport/lighting-bake-run';
 import { MAX_PROBE_BOUNCES, PROBE_SPACING_MAX, PROBE_SPACING_MIN } from '@thirdlight/runtime';
 
 import type { BakeSettings } from '../viewport/bake-run';
@@ -42,6 +43,12 @@ interface Props {
   probesStale: boolean;
   onBakeProbes: () => void;
   onClearProbes: () => void;
+  /** "Bake lighting": the live lighting run to settled and saved (WebGPU). */
+  onBakeLighting: () => void;
+  /** Why lighting cannot be baked here (null = it can). */
+  lightingUnavailable: string | null;
+  /** The saved lighting no longer matches the scene. */
+  lightingStale: boolean;
 }
 
 export function LightingPanel(p: Props): JSX.Element {
@@ -91,6 +98,16 @@ export function LightingPanel(p: Props): JSX.Element {
         Static objects (Inspector → Static) get lightmaps from the lights set to <b>baked</b> or <b>mixed</b>. Baked lights are then no longer
         realtime; mixed lights stay realtime and add their bounce light in the final bake.
       </p>
+      <div className="tl-lighting__status" aria-label="lighting status">
+        {p.bake?.surface === undefined ? (
+          <span>{p.bake === null ? 'No saved lighting for this scene.' : 'This scene\'s bake was made by the earlier bakers: stale; it draws until the scene is baked again.'}</span>
+        ) : (
+          <span>
+            Saved lighting from {p.bake.surface.createdAt.replace('T', ' ').slice(0, 16)}. {lightingBakeSummary(p.bake.surface)}
+            {p.lightingStale && <b className="tl-lighting__stale"> — stale: static objects, baked or mixed lights or the sky's rotation changed; bake again</b>}
+          </span>
+        )}
+      </div>
       <div className="tl-lighting__status" aria-label="bake status">
         {p.bake === null || p.bake.atlases.length === 0 ? (
           <span>No bake for this scene.</span>
@@ -128,6 +145,9 @@ export function LightingPanel(p: Props): JSX.Element {
         </div>
       )}
       <div className="tl-lighting__actions">
+        <button type="button" className="tl-button" disabled={p.busy !== null || p.lightingUnavailable !== null} title={p.lightingUnavailable ?? 'Run the live lighting until it settles and save it: what WebGL 2, the low tier and exports draw (WebGPU, in this browser)'} onClick={p.onBakeLighting}>
+          Bake lighting
+        </button>
         <button type="button" className="tl-button" disabled={p.busy !== null} onClick={p.onBakePreview}>
           Bake preview (browser)
         </button>
@@ -142,7 +162,7 @@ export function LightingPanel(p: Props): JSX.Element {
             Cancel
           </button>
         )}
-        <button type="button" className="tl-button" disabled={p.busy !== null || p.bake === null || p.bake.atlases.length === 0} onClick={p.onClear}>
+        <button type="button" className="tl-button" disabled={p.busy !== null || p.bake === null || (p.bake.atlases.length === 0 && p.bake.surface === undefined)} onClick={p.onClear}>
           Clear bake
         </button>
         <button type="button" className="tl-button" disabled={p.busy !== null || p.bake?.probes === undefined} onClick={p.onClearProbes}>
@@ -156,6 +176,11 @@ export function LightingPanel(p: Props): JSX.Element {
         </div>
       )}
       {p.finalUnavailable !== null && <p className="tl-hint">Final bake: {p.finalUnavailable}</p>}
+      {p.lightingUnavailable !== null && (
+        <p className="tl-hint" aria-label="lighting bake unavailable">
+          Lighting: {p.lightingUnavailable}.
+        </p>
+      )}
       {p.probeUnavailable !== null && (
         <p className="tl-hint" aria-label="probe bake unavailable">
           Probes: {p.probeUnavailable}.
