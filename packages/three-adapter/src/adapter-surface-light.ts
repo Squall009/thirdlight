@@ -331,7 +331,7 @@ export class AdapterSurfaceLight {
         const bx = ny * tz - nz * ty, by = nz * tx - nx * tz, bz = nx * ty - ny * tx;
         m.set([tx * size, ty * size, tz * size, 0, bx * size, by * size, bz * size, 0, nx, ny, nz, 0, pts[o]! + nx * VIEW_LIFT, pts[o + 1]! + ny * VIEW_LIFT, pts[o + 2]! + nz * VIEW_LIFT, 1], k * 16);
         // Diffuse light off a mid-grey surface: albedo × (direct + its room's probes' bounce) / π.
-        probesIrradianceAt(probes.grids, probes.state, [pts[o]! + nx * PROBE_HIT_LIFT, pts[o + 1]! + ny * PROBE_HIT_LIFT, pts[o + 2]! + nz * PROBE_HIT_LIFT], [nx, ny, nz], bounce, rooms);
+        probesIrradianceAt(probes, [pts[o]! + nx * PROBE_HIT_LIFT, pts[o + 1]! + ny * PROBE_HIT_LIFT, pts[o + 2]! + nz * PROBE_HIT_LIFT], [nx, ny, nz], bounce, rooms);
         for (let q = 0; q < 3; q += 1) c[k * 3 + q] = (VIEW_ALBEDO * (light[i * 3 + q]! + bounce[q]!)) / Math.PI;
         k += 1;
       }

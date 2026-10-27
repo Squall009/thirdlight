@@ -4,15 +4,16 @@
  * CPU twin, `surface-probe-cpu.ts`, compute them; this holds where they
  * are, which wait for light, and what the probe lighting draws).
  *
- * - **Where.** The same places a probe bake puts them (project-model
- *   `placeProbeGrids`): a grid per room of generated architecture, inset
- *   from its walls, listed first, then grids over the static scene's bounds
- *   (snapped out to `PROBE_BOUNDS_SNAP`, so a scene streaming in does not
- *   move them). A probe belongs to its room (a room grid's probes to its
- *   room; the others to the room they stand in, or none). A probe of the
- *   outside's grids standing in a room is never lit (its room's grid holds
- *   that light): it would carry the room's light through the wall to the
- *   outside's points next to it.
+ * - **Where.** A grid per room of generated architecture, inset from its
+ *   walls (project-model `placeProbeGrids`), listed first; elsewhere bricks
+ *   dense near geometry and sparse in open space (`probe-bricks.ts`, from
+ *   what the static scene marks: `probe-geometry.ts`), found through a
+ *   sparse map (`buildBrickMap`). A probe belongs to its room (a room
+ *   grid's probes to its room; a brick's to the room it stands in, or
+ *   none). A brick's probe standing in a room is never lit (its room's grid
+ *   holds that light): it would carry the room's light through the wall to
+ *   the outside's points next to it. A brick's probe inside geometry is
+ *   moved out or dropped (never lit, no weight).
  * - **Light.** Each update casts `PROBE_SH_RAYS` rays (a spherical
  *   Fibonacci set, turned at random each time) and `PROBE_AXIS_RAYS` along
  *   the axes. A ray that hits a static surface reads its cache texel's
@@ -21,8 +22,8 @@
  *   sees the sky. Probes read probes, so bounces build up over updates. A
  *   probe in a room casts its rays only to the room's walls unless they
  *   leave by an open portal (`surface-rooms.ts`).
- * - **Walls.** For grids not in rooms (interiors of blocks or imported
- *   models), what the axis rays see gives each probe its walls
+ * - **Walls.** For bricks (interiors of blocks or imported models), what
+ *   the axis rays see gives each probe its walls in each brick holding it
  *   (`edgeWalls`), which the probe lighting keeps samples on their side of.
  * - **Stale.** The cache's marks (`SurfaceRelight.onStale`) make the probes
  *   in their box stale; it stays stale for `PROBE_MIN_UPDATES` to
@@ -32,13 +33,16 @@
  *
  * A probe's record (`PROBE_FLOATS`): its first-order spherical harmonics
  * (four RGB coefficients, as the probe lighting reads them: band 0, then
- * y, z, x), its share of rays meeting back faces and its update count,
- * then what its axis rays saw (+x −x +y −y +z −z; 0: nothing).
+ * y, z, x), its share of rays meeting back faces, its update count and
+ * whether it was moved out of geometry, then what its axis rays saw (+x −x
+ * +y −y +z −z; 0: nothing).
  *
  * Pure (no three.js, no device).
  */
 import { PROBE_VALIDITY_THRESHOLD, ROOM_PROBE_INSET, placeProbeGrids, type ProbeGridBox } from '@thirdlight/runtime';
 
+import { EMPTY_BRICK_MAP, PROBE_BRICK_SIDE, PROBE_PLACED_DROPPED, PROBE_PLACED_MOVED, PLACE_STEP_ITEMS, brickMapAt, buildBrickMap, isSteps, levelSpacing, placeProbeBricksSteps, runSteps, type BrickMap, type PlacedBricks, type ProbeMarks, type ProbeSolid, type Steps } from './probe-bricks';
+import { PROBE_WEIGHT_FILLED, PROBE_WEIGHT_MOVED, PROBE_WEIGHT_VALID } from './probe-weights';
 import { NO_ROOM, roomHoldsCpu, type SurfaceRooms } from './surface-rooms';
 
 /** Rays an update casts for a probe's light, and along the axes for its walls. */
@@ -51,7 +55,7 @@ export const PROBE_RAYS = PROBE_SH_RAYS + PROBE_AXIS_RAYS;
  * builds up to about 1 / (1 − 0.3) of its direct light, not double it.
  */
 export const BOUNCE_ALBEDO = 0.3;
-/** How far a probe ray runs (probe spacings) before it is taken to see the sky. */
+/** How far a probe ray runs (spacings of its own level) before it is taken to see the sky. */
 export const PROBE_RAY_SPACINGS = 8;
 /** How far (m) a hit's point is moved off its surface before the probes are read there: past a room's probe inset, so a wall's room side reads its room. */
 export const PROBE_HIT_LIFT = ROOM_PROBE_INSET + 0.05;
@@ -69,17 +73,27 @@ export const PROBE_BLEND_MIN = 0.25;
 export const PROBE_SETTLE_SHARE = 0.05;
 /** Updates a probe takes at least, and at most, after it was marked (its rays turn each time). */
 export const PROBE_MIN_UPDATES = 4;
-export const PROBE_MAX_UPDATES = 16;
+export const PROBE_MAX_UPDATES = 8;
 /** Floats of a probe's record. */
 export const PROBE_FLOATS = 24;
-/** Words of a grid's record in the pass's words: min, max (f32), probes per axis, first probe, room. */
+/** Words of a grid's record in the pass's words: min, max (f32), probes per axis, its first lattice word, room, level. */
 export const GRID_WORDS = 12;
-/** The static scene's bounds are snapped out to this (m) before probes are placed over them. */
-export const PROBE_BOUNDS_SNAP = 16;
+/** Words of the brick map's header in the pass's words: origin, the coarsest side (f32), cells per axis, where its cells and entries start. */
+export const BRICK_MAP_WORDS = 9;
+/** A brick map entry's word for no brick. */
+export const NO_BRICK_WORD = 0xffffffff;
 /** The probe update's share of the live light's GPU time a frame (`surfaceLightMs`): medium's 1.5 ms gives the probes 0.5 ms. */
 export const PROBE_BUDGET_SHARE = 1 / 3;
-/** Probes an update takes before any cost is measured. */
+/**
+ * Probes an update takes before any cost is measured, and at least and at
+ * most. An update's GPU time is mostly its tracer's latency (its longest
+ * rays, through models' distance fields), not how many rays it casts: on
+ * the Iris Xe 64 and 256 of the village's probes cost about alike (1.6 and
+ * 2.0 ms at full clock), so an update never takes fewer than 256.
+ */
 export const PROBE_START_COUNT = 256;
+export const PROBE_MIN_COUNT = 256;
+export const PROBE_MAX_COUNT = 4096;
 /** Frames over which a waiting probe's distance halves when stale probes are ordered. */
 const PROBE_AGING_FRAMES = 30;
 
@@ -99,9 +113,10 @@ function agingOf(frames: number): number {
   return AGING[Math.min(AGING.length - 1, Math.max(0, frames))]!;
 }
 
-/** Index of the validity (back-face share) and the update count in a probe's record. */
+/** Index of the validity (back-face share), the update count and the moved flag in a probe's record. */
 export const PROBE_VALIDITY_AT = 12;
 export const PROBE_UPDATES_AT = 13;
+export const PROBE_MOVED_AT = 14;
 export const PROBE_AXES_AT = 16;
 
 /** SH basis constants (band 0, band 1) and three's irradiance factors for them. */
@@ -111,11 +126,38 @@ export const SH_E0 = 0.886227;
 export const SH_E1 = 1.023328;
 
 export interface LiveProbeGrid extends ProbeGridBox {
-  /** Stable while its box and probes stay (`min`, `max`, `resolution`). */
+  /** Stable while its box and probes stay. */
   readonly key: string;
-  readonly first: number;
+  /** Where its probes' indices start in `LiveProbes.lattice` (x fastest, then y, then z). */
+  readonly at: number;
   /** The room its probes are in (`NO_ROOM`: not a room's grid). */
   readonly room: number;
+  /** Its brick's level (`probe-bricks.ts`), or -1: a room's grid. */
+  readonly level: number;
+}
+
+/** The static scene's marks and solid test (`probe-geometry.ts`). */
+export interface ProbeGeometry {
+  readonly marks: ProbeMarks;
+  readonly solid: ProbeSolid;
+}
+
+/** What the probes are placed from outside rooms. */
+export interface ProbePlacement {
+  /** Nothing is placed again while this (and the rooms) stay. */
+  readonly key: string;
+  /** Asked only when the key changed (made at once, or in steps). */
+  readonly geometry: () => ProbeGeometry | Steps<ProbeGeometry>;
+}
+
+/** What a lookup of the probes reads (`LiveProbes` holds it). */
+export interface ProbeLookup {
+  readonly grids: readonly LiveProbeGrid[];
+  /** Grids of rooms (the first ones). */
+  readonly roomGrids: number;
+  readonly lattice: Uint32Array;
+  readonly map: BrickMap;
+  readonly state: Float32Array;
 }
 
 /** A probe's irradiance at normal `n` from its record's coefficients (the probe lighting's sum). */
@@ -126,10 +168,11 @@ export function shIrradiance(rec: ArrayLike<number>, at: number, n: readonly num
   return out;
 }
 
-/** A probe's weight in the interpolation: none before its first update, little when it sits inside geometry. */
+/** A probe's weight in the interpolation: none before its first update (or never lit), little when it sees back faces, half when it was moved out of geometry. */
 export function liveProbeWeight(rec: ArrayLike<number>, at: number): number {
   if (rec[at + PROBE_UPDATES_AT]! < 1) return 0;
-  return rec[at + PROBE_VALIDITY_AT]! > PROBE_VALIDITY_THRESHOLD ? 1 / 64 : 1;
+  if (rec[at + PROBE_VALIDITY_AT]! > PROBE_VALIDITY_THRESHOLD) return PROBE_WEIGHT_FILLED;
+  return rec[at + PROBE_MOVED_AT]! > 0 ? PROBE_WEIGHT_MOVED : PROBE_WEIGHT_VALID;
 }
 
 /**
@@ -160,7 +203,7 @@ export function edgeWalls(grid: ProbeGridBox, along: Float32Array, out: Float32A
   }
 }
 
-/** Where probe `i` of a grid stands (its lattice point). */
+/** Where probe `ix, iy, iz` of a grid stands (its lattice point). */
 function latticePoint(g: ProbeGridBox, ix: number, iy: number, iz: number, out: number[]): void {
   const at = [ix, iy, iz];
   for (let a = 0; a < 3; a += 1) {
@@ -170,45 +213,67 @@ function latticePoint(g: ProbeGridBox, ix: number, iy: number, iz: number, out: 
 }
 
 /**
- * The irradiance (rgb) the probes give a point `q` facing `n`: the first
+ * The grid the probes are read from at `q` (-1: none): the first room's
  * grid within `PROBE_HIT_LIFT` of it (a room's grid stands that far inside
  * its walls; outside its box only for a point in its room, `rooms` the
- * packed rooms), the point held inside it, trilinear between its probes by
- * their weights (0: no grid near, or none of its probes was updated).
+ * packed rooms), else the finest brick there (`brickMapAt`, held at the
+ * map's edge within the lift).
  */
-export function probesIrradianceAt(grids: readonly LiveProbeGrid[], state: Float32Array, q: readonly number[], n: readonly number[], out: number[] = [0, 0, 0], rooms: Uint32Array | null = null): number[] {
-  out[0] = out[1] = out[2] = 0;
+export function probeGridAt(p: ProbeLookup, q: readonly number[], rooms: Uint32Array | null = null): number {
   const m = PROBE_HIT_LIFT;
-  const g = grids.find((b) => {
-    if (!(q[0]! >= b.min[0] - m && q[0]! <= b.max[0] + m && q[1]! >= b.min[1] - m && q[1]! <= b.max[1] + m && q[2]! >= b.min[2] - m && q[2]! <= b.max[2] + m)) return false;
+  for (let k = 0; k < p.roomGrids; k += 1) {
+    const b = p.grids[k]!;
+    if (!(q[0]! >= b.min[0] - m && q[0]! <= b.max[0] + m && q[1]! >= b.min[1] - m && q[1]! <= b.max[1] + m && q[2]! >= b.min[2] - m && q[2]! <= b.max[2] + m)) continue;
     const inside = q[0]! >= b.min[0] && q[0]! <= b.max[0] && q[1]! >= b.min[1] && q[1]! <= b.max[1] && q[2]! >= b.min[2] && q[2]! <= b.max[2];
-    return inside || b.room === NO_ROOM || (rooms !== null && roomHoldsCpu(rooms, b.room, q));
-  });
-  if (g === undefined) return out;
-  const p = [0, 1, 2].map((a) => Math.min(g.max[a]!, Math.max(g.min[a]!, q[a]!)));
+    if (inside || (rooms !== null && roomHoldsCpu(rooms, b.room, q))) return k;
+  }
+  return brickMapAt(p.map, q, m);
+}
+
+/**
+ * The irradiance (rgb) the probes give a point `q` facing `n`: from the grid
+ * `probeGridAt` finds, the point held inside it, trilinear between its
+ * probes by their weights (0: no grid there, or none of its probes lit).
+ */
+export function probesIrradianceAt(p: ProbeLookup, q: readonly number[], n: readonly number[], out: number[] = [0, 0, 0], rooms: Uint32Array | null = null): number[] {
+  out[0] = out[1] = out[2] = 0;
+  const gi = probeGridAt(p, q, rooms);
+  if (gi < 0) return out;
+  const g = p.grids[gi]!;
+  const state = p.state;
   const r = g.resolution;
-  const f = [0, 1, 2].map((a) => (r[a]! > 1 ? ((p[a]! - g.min[a]!) / (g.max[a]! - g.min[a]!)) * (r[a]! - 1) : 0));
-  const i0 = f.map((v, a) => Math.min(Math.max(0, Math.floor(v)), Math.max(0, r[a]! - 2)));
-  const t = f.map((v, a) => (r[a]! > 1 ? Math.min(1, Math.max(0, v - i0[a]!)) : 0));
-  const sh = new Array<number>(12).fill(0);
+  const sh = LOOKUP_SH.fill(0);
+  const i0 = LOOKUP_I0;
+  const t = LOOKUP_T;
+  for (let a = 0; a < 3; a += 1) {
+    const c = Math.min(g.max[a]!, Math.max(g.min[a]!, q[a]!));
+    const f = r[a]! > 1 ? ((c - g.min[a]!) / (g.max[a]! - g.min[a]!)) * (r[a]! - 1) : 0;
+    i0[a] = Math.min(Math.max(0, Math.floor(f)), Math.max(0, r[a]! - 2));
+    t[a] = r[a]! > 1 ? Math.min(1, Math.max(0, f - i0[a]!)) : 0;
+  }
   let wsum = 0;
-  for (let c = 0; c < 8; c += 1) {
-    const ix = Math.min(r[0]! - 1, i0[0]! + (c & 1));
-    const iy = Math.min(r[1]! - 1, i0[1]! + ((c >> 1) & 1));
-    const iz = Math.min(r[2]! - 1, i0[2]! + ((c >> 2) & 1));
-    const tri = (c & 1 ? t[0]! : 1 - t[0]!) * ((c >> 1) & 1 ? t[1]! : 1 - t[1]!) * ((c >> 2) & 1 ? t[2]! : 1 - t[2]!);
-    const at = (g.first + ix + iy * r[0]! + iz * r[0]! * r[1]!) * PROBE_FLOATS;
+  for (let k = 0; k < 8; k += 1) {
+    const ix = Math.min(r[0]! - 1, i0[0]! + (k & 1));
+    const iy = Math.min(r[1]! - 1, i0[1]! + ((k >> 1) & 1));
+    const iz = Math.min(r[2]! - 1, i0[2]! + ((k >> 2) & 1));
+    const tri = (k & 1 ? t[0]! : 1 - t[0]!) * ((k >> 1) & 1 ? t[1]! : 1 - t[1]!) * ((k >> 2) & 1 ? t[2]! : 1 - t[2]!);
+    const at = p.lattice[g.at + ix + iy * r[0]! + iz * r[0]! * r[1]!]! * PROBE_FLOATS;
     const w = tri * liveProbeWeight(state, at);
     if (w <= 0) continue;
-    for (let k = 0; k < 12; k += 1) sh[k]! += state[at + k]! * w;
+    for (let j = 0; j < 12; j += 1) sh[j]! += state[at + j]! * w;
     wsum += w;
   }
   if (wsum <= 0) return out;
-  for (let k = 0; k < 12; k += 1) sh[k]! /= wsum;
+  for (let j = 0; j < 12; j += 1) sh[j]! /= wsum;
   shIrradiance(sh, 0, n, out);
-  for (let c = 0; c < 3; c += 1) out[c] = Math.max(0, out[c]!);
+  for (let k = 0; k < 3; k += 1) out[k] = Math.max(0, out[k]!);
   return out;
 }
+
+/** Scratch for `probesIrradianceAt` (it runs per traced ray in the CPU twin and per texel in the cache view). */
+const LOOKUP_SH = new Float64Array(12);
+const LOOKUP_I0 = [0, 0, 0];
+const LOOKUP_T = [0, 0, 0];
 
 /** Put the `k` smallest of `keys[0..n)` (with their `order`) first, in no particular order (quickselect). */
 export function selectSmallest(keys: Float32Array, order: Uint32Array, n: number, k: number): void {
@@ -243,7 +308,12 @@ export function selectSmallest(keys: Float32Array, order: Uint32Array, n: number
 
 export interface LiveProbeDiagnostics {
   readonly grids: number;
+  /** Bricks of each level (finest first). */
+  readonly bricks: readonly number[];
   readonly probes: number;
+  /** Probes lit (not dropped inside geometry, nor a brick's probe standing in a room), and of those moved out of geometry. */
+  readonly lit: number;
+  readonly moved: number;
   readonly stale: number;
   readonly settled: boolean;
   /** Probes an update takes now, and the last update's GPU time (ms; null: none measured). */
@@ -252,18 +322,40 @@ export interface LiveProbeDiagnostics {
   /** The last change's time until settled (ms) and updates (null: none yet). */
   readonly lastSettleMs: number | null;
   readonly updates: number;
+  /** The last placement's main-thread time (ms). */
+  readonly placeMs: number;
+  /** The most main-thread time (ms) one frame gave the last placement, where a host makes it a share a frame. */
+  readonly placeFrameMs?: number;
 }
 
-export class LiveProbes {
+/** The words of a layout the passes read (grids, lattice, brick map), and where the lattice and the map start in them. */
+export interface ProbeLayoutWords {
+  readonly words: Uint32Array;
+  readonly latticeAt: number;
+  readonly mapAt: number;
+}
+
+export class LiveProbes implements ProbeLookup {
   grids: LiveProbeGrid[] = [];
+  roomGrids = 0;
+  /** Per grid point (from each grid's `at`), its probe. */
+  lattice = new Uint32Array(0);
+  map: BrickMap = EMPTY_BRICK_MAP;
   /** Probe records (`PROBE_FLOATS` each): what the pass wrote, read back. */
   state = new Float32Array(0);
+  /** Where each probe's rays start, and how far they run (m). */
   positions = new Float32Array(0);
+  reach = new Float32Array(0);
   rooms = new Uint32Array(0);
-  /** Bumped when the grids were placed again (the pass uploads them and the probes start over). */
+  /** Bumped when the probes were placed again (the pass uploads them and the probes start over). */
   layout = 0;
+  /** Per probe, the grids holding it and where (pairs of grid and point index, from `holdersAt[i]` to `holdersAt[i + 1]`). */
+  holdersAt = new Uint32Array(1);
+  holders = new Uint32Array(0);
+  /** Per probe, what names its place across placements (a room grid's point, or a brick probe's lattice key). */
+  private keys: (string | number)[] = [];
   private stale = new Uint8Array(0);
-  /** Probes of the outside's grids standing in a room: never lit. */
+  /** Probes never lit: a brick's standing in a room, or dropped inside geometry. */
   private excluded = new Uint8Array(0);
   private since = new Int32Array(0);
   private marked = new Int32Array(0);
@@ -276,9 +368,12 @@ export class LiveProbes {
   private settling: number | null = null;
   private lastSettleMs: number | null = null;
   private updates = 0;
+  private placeMs = 0;
+  /** The placement's bricks per level and its lit and moved probes. */
+  private counts = { bricks: [0, 0, 0] as readonly number[], lit: 0, moved: 0 };
+  private words: ProbeLayoutWords | null = null;
   /** Scratch for `plan`: the stale probes' keys and indices. */
-  private keys = new Float32Array(0);
-  private order = new Uint32Array(0);
+  private order = { keys: new Float32Array(0), order: new Uint32Array(0) };
   /** The nearest stale probes of the last ordering (`plan` picks among them for a few updates): keys, indices, how many, plans since, and where the eye was. */
   private queue = { keys: new Float32Array(0), order: new Uint32Array(0), length: 0, plans: 0, eye: [Infinity, Infinity, Infinity] };
   /** Probes whose records changed since `takeChangedProbes`. */
@@ -291,64 +386,197 @@ export class LiveProbes {
   }
 
   /**
-   * Place the grids for the static scene's bounds (null: none) and the
-   * rooms; nothing changes while the snapped bounds and the rooms stay.
+   * Place the probes: the rooms' grids, and bricks from `placement` (null:
+   * none outside rooms); nothing changes while its key and the rooms stay.
+   * A probe at a place it held before keeps its light and its stale state.
    * True when they were placed again.
    */
-  place(bounds: { min: readonly number[]; max: readonly number[] } | null, rooms: SurfaceRooms | null): boolean {
-    const snap = (v: number, up: boolean): number => (up ? Math.ceil(v / PROBE_BOUNDS_SNAP) : Math.floor(v / PROBE_BOUNDS_SNAP)) * PROBE_BOUNDS_SNAP;
-    const b = bounds === null ? null : { min: bounds.min.map((v, a) => (a === 1 ? Math.floor(v) : snap(v, false))), max: bounds.max.map((v, a) => (a === 1 ? Math.ceil(v) : snap(v, true))) };
+  place(placement: ProbePlacement | null, rooms: SurfaceRooms | null): boolean {
+    return runSteps(this.placeSteps(placement, rooms));
+  }
+
+  /**
+   * `place` in steps: the probes stay as they are (and go on updating)
+   * until the last step puts the new ones in at once, carrying the light the
+   * kept ones hold by then.
+   */
+  *placeSteps(placement: ProbePlacement | null, rooms: SurfaceRooms | null): Steps<boolean> {
     const roomBoxes = rooms === null ? [] : rooms.rooms.graph.rooms.map((r) => ({ min: [r.box[0] + ROOM_PROBE_INSET, r.floor + ROOM_PROBE_INSET, r.box[1] + ROOM_PROBE_INSET], max: [r.box[2] - ROOM_PROBE_INSET, r.top - ROOM_PROBE_INSET, r.box[3] - ROOM_PROBE_INSET] }));
-    const key = JSON.stringify([b, roomBoxes]);
+    const key = JSON.stringify([placement?.key ?? null, roomBoxes]);
     if (key === this.placedFor) return false;
-    this.placedFor = key;
+    let busy = 0;
+    let t0 = performance.now();
+    // Main-thread time spent (between steps only: the time a caller waits between them is not the placement's).
+    const step = function* (): Steps<void> {
+      busy += performance.now() - t0;
+      yield;
+      t0 = performance.now();
+    };
     const roomTiles = roomBoxes.map((box, i) => ({ i, ok: box.max.every((v, a) => v > box.min[a]!) }));
-    const boxes = placeProbeGrids(b, this.spacing, [], roomBoxes.filter((_, i) => roomTiles[i]!.ok));
+    const boxes = placeProbeGrids(null, this.spacing, [], roomBoxes.filter((_, i) => roomTiles[i]!.ok));
     // A room's tiles come first, in its order: the grids of room i are those over its inset box.
     const owners = roomTiles.filter((r) => r.ok).map((r) => r.i);
-    const old = new Map(this.grids.map((g) => [g.key, g]));
-    const oldState = this.state;
-    let first = 0;
+    const made = placement?.geometry() ?? null;
+    let geometry: ProbeGeometry | null = null;
+    if (made !== null && isSteps(made)) {
+      for (let r = made.next(); ; r = made.next()) {
+        if (r.done === true) {
+          geometry = r.value;
+          break;
+        }
+        yield* step();
+      }
+    } else geometry = made;
+    let placed: PlacedBricks | null = null;
+    if (geometry !== null) {
+      const g = geometry;
+      const work = (function* (): Steps<PlacedBricks> {
+        return yield* placeProbeBricksSteps(yield* g.marks.finishSteps(), g.solid);
+      })();
+      for (let r = work.next(); ; r = work.next()) {
+        if (r.done === true) {
+          placed = r.value;
+          break;
+        }
+        yield* step();
+      }
+    }
     const grids: LiveProbeGrid[] = [];
+    let points = 0;
     for (const box of boxes) {
       const ownerIdx = owners.findIndex((i) => {
         const rb = roomBoxes[i]!;
         return box.min.every((v, a) => v >= rb.min[a]! - 1e-6) && box.max.every((v, a) => v <= rb.max[a]! + 1e-6);
       });
       const room = ownerIdx >= 0 ? owners[ownerIdx]! : NO_ROOM;
-      grids.push({ ...box, key: `${box.min.join(',')}|${box.max.join(',')}|${box.resolution.join(',')}|${room}`, first, room });
-      first += box.resolution[0] * box.resolution[1] * box.resolution[2];
+      grids.push({ ...box, key: `${box.min.join(',')}|${box.max.join(',')}|${box.resolution.join(',')}|${room}`, at: points, room, level: -1 });
+      points += box.resolution[0] * box.resolution[1] * box.resolution[2];
     }
-    this.grids = grids;
-    this.state = new Float32Array(first * PROBE_FLOATS);
-    this.positions = new Float32Array(first * 3);
-    this.rooms = new Uint32Array(first);
-    this.stale = new Uint8Array(first);
-    this.excluded = new Uint8Array(first);
-    this.since = new Int32Array(first);
-    this.marked = new Int32Array(first);
-    this.staleCount = 0;
+    const roomProbes = points;
+    const n3 = PROBE_BRICK_SIDE ** 3;
+    for (const b of placed?.bricks ?? []) {
+      const max = [b.min[0] + b.side, b.min[1] + b.side, b.min[2] + b.side] as [number, number, number];
+      grids.push({ min: [...b.min], max, resolution: [PROBE_BRICK_SIDE, PROBE_BRICK_SIDE, PROBE_BRICK_SIDE], key: `b${b.level}:${b.at.join(',')}`, at: points, room: NO_ROOM, level: b.level });
+      points += n3;
+    }
+    const count = roomProbes + (placed?.keys.length ?? 0);
+    const lattice = new Uint32Array(points);
+    for (let i = 0; i < roomProbes; i += 1) lattice[i] = i;
+    if (placed !== null) for (let i = 0; i < placed.ids.length; i += 1) lattice[roomProbes + i] = roomProbes + placed.ids[i]!;
+    const oldIndex = new Map(this.keys.map((k, i) => [k, i]));
+    yield* step();
+    const next = {
+      positions: new Float32Array(count * 3),
+      reach: new Float32Array(count),
+      rooms: new Uint32Array(count),
+      keys: new Array<string | number>(count),
+      excluded: new Uint8Array(count),
+      moved: new Uint8Array(count),
+      /** Per probe, the old probe it was (-1: none), whose light and stale state it takes when the placement is put in. */
+      was: new Int32Array(count).fill(-1),
+    };
+    const setProbe = (i: number, key: string | number, origin: ArrayLike<number>, point: ArrayLike<number>, room: number, level: number, excluded: boolean, moved: boolean): void => {
+      next.keys[i] = key;
+      for (let a = 0; a < 3; a += 1) next.positions[i * 3 + a] = origin[a]! + PROBE_ORIGIN_NUDGE[a]!;
+      next.reach[i] = PROBE_RAY_SPACINGS * levelSpacing(this.spacing, level);
+      next.rooms[i] = room !== NO_ROOM ? room : (rooms?.roomAt([point[0]!, point[1]!, point[2]!]) ?? NO_ROOM);
+      // A brick's probe moved out of geometry into a room counts as standing in it.
+      const movedIn = room === NO_ROOM && moved && rooms !== null && rooms.roomAt([origin[0]!, origin[1]!, origin[2]!]) !== NO_ROOM;
+      if (excluded || movedIn || (room === NO_ROOM && next.rooms[i] !== NO_ROOM)) {
+        next.excluded[i] = 1;
+        return;
+      }
+      next.was[i] = oldIndex.get(key) ?? -1;
+      next.moved[i] = moved ? 1 : 0;
+    };
     const p = [0, 0, 0];
-    for (const g of grids) {
+    for (const g of grids.slice(0, boxes.length)) {
       const [nx, ny, nz] = g.resolution;
-      const was = old.get(g.key);
-      if (was !== undefined) this.state.set(oldState.subarray(was.first * PROBE_FLOATS, (was.first + nx * ny * nz) * PROBE_FLOATS), g.first * PROBE_FLOATS);
       for (let iz = 0; iz < nz; iz += 1) for (let iy = 0; iy < ny; iy += 1) for (let ix = 0; ix < nx; ix += 1) {
-        const i = g.first + ix + iy * nx + iz * nx * ny;
         latticePoint(g, ix, iy, iz, p);
-        this.positions.set([p[0]! + PROBE_ORIGIN_NUDGE[0]!, p[1]! + PROBE_ORIGIN_NUDGE[1]!, p[2]! + PROBE_ORIGIN_NUDGE[2]!], i * 3);
-        this.rooms[i] = g.room !== NO_ROOM ? g.room : (rooms?.roomAt(p) ?? NO_ROOM);
-        if (g.room === NO_ROOM && this.rooms[i] !== NO_ROOM) {
-          this.excluded[i] = 1;
-          this.state.fill(0, i * PROBE_FLOATS, (i + 1) * PROBE_FLOATS);
-          continue;
-        }
-        this.markProbe(i);
+        const l = ix + iy * nx + iz * nx * ny;
+        setProbe(g.at + l, `${g.key}#${l}`, p, p, g.room, 0, false, false);
       }
     }
+    if (placed !== null) {
+      for (let k = 0; k < placed.keys.length; k += 1) {
+        if (k % PLACE_STEP_ITEMS === PLACE_STEP_ITEMS - 1) yield* step();
+        const pt = placed.points.subarray(k * 3, k * 3 + 3);
+        const st = placed.states[k]!;
+        setProbe(roomProbes + k, placed.keys[k]!, placed.origins.subarray(k * 3, k * 3 + 3), pt, NO_ROOM, placed.levels[k]!, st === PROBE_PLACED_DROPPED, st === PROBE_PLACED_MOVED);
+      }
+    }
+    yield* step();
+    // Who holds each probe (a brick's face probes are its neighbours' too): their tiles take its changes.
+    const holdersAt = new Uint32Array(count + 1);
+    for (let k = 0; k < points; k += 1) holdersAt[lattice[k]! + 1]! += 1;
+    for (let i = 0; i < count; i += 1) holdersAt[i + 1]! += holdersAt[i]!;
+    const holders = new Uint32Array(points * 2);
+    const fill = holdersAt.slice(0, count);
+    grids.forEach((g, gi) => {
+      const n = g.resolution[0] * g.resolution[1] * g.resolution[2];
+      for (let l = 0; l < n; l += 1) {
+        const at = fill[lattice[g.at + l]!]!++;
+        holders[at * 2] = gi;
+        holders[at * 2 + 1] = l;
+      }
+    });
+    yield* step();
+    const map = buildBrickMap(grids.slice(boxes.length).map((g, i) => ({ min: g.min, side: g.max[0] - g.min[0], id: boxes.length + i })));
+    yield* step();
+    // Put in at once: the kept probes take their light and stale state as they are now.
+    const old = { state: this.state, stale: this.stale, since: this.since, marked: this.marked, changed: this.changed, count: this.count };
+    /** Old probe → new, for those placed where they were. */
+    const carried = new Map<number, number>();
+    this.placedFor = key;
+    this.grids = grids;
+    this.roomGrids = boxes.length;
+    this.lattice = lattice;
+    this.map = map;
+    this.state = new Float32Array(count * PROBE_FLOATS);
+    this.positions = next.positions;
+    this.reach = next.reach;
+    this.rooms = next.rooms;
+    this.keys = next.keys;
+    this.stale = new Uint8Array(count);
+    this.excluded = next.excluded;
+    this.since = new Int32Array(count);
+    this.marked = new Int32Array(count);
+    this.staleCount = 0;
+    this.words = null;
+    let lit = 0;
+    let moved = 0;
+    for (let i = 0; i < count; i += 1) {
+      if (next.excluded[i] === 1) continue;
+      lit += 1;
+      const was = next.was[i]!;
+      if (was >= 0 && was < old.count) {
+        carried.set(was, i);
+        this.state.set(old.state.subarray(was * PROBE_FLOATS, (was + 1) * PROBE_FLOATS), i * PROBE_FLOATS);
+        this.since[i] = old.since[was]!;
+        this.marked[i] = old.marked[was]!;
+        if (old.stale[was] === 1) {
+          this.stale[i] = 1;
+          this.staleCount += 1;
+        }
+      } else this.markProbe(i);
+      this.state[i * PROBE_FLOATS + PROBE_MOVED_AT] = next.moved[i]!;
+      moved += next.moved[i]!;
+    }
+    this.holdersAt = holdersAt;
+    this.holders = holders;
+    const bricks = [0, 0, 0];
+    for (const g of grids) if (g.level >= 0) bricks[g.level]! += 1;
+    this.counts = { bricks, lit, moved };
     this.layout += 1;
+    // Changes not yet taken go on under the probes' new indices: tiles kept across the placement take them too.
     this.changed = new Set();
+    for (const o of old.changed) {
+      const i = carried.get(o);
+      if (i !== undefined) this.changed.add(i);
+    }
     this.queue.plans = PLAN_AHEAD;
+    this.placeMs = busy + performance.now() - t0;
     return true;
   }
 
@@ -400,10 +628,8 @@ export class LiveProbes {
       const out = this.takeQueued(this.perUpdate);
       if (out.length > 0) return out;
     }
-    if (this.keys.length < this.staleCount) {
-      this.keys = new Float32Array(this.count);
-      this.order = new Uint32Array(this.count);
-    }
+    if (this.order.keys.length < this.staleCount) this.order = { keys: new Float32Array(this.count), order: new Uint32Array(this.count) };
+    const { keys, order } = this.order;
     const P = this.positions;
     const [ex, ey, ez] = [eye[0]!, eye[1]!, eye[2]!];
     let n = 0;
@@ -413,19 +639,19 @@ export class LiveProbes {
       const dx = P[i * 3]! - ex;
       const dy = P[i * 3 + 1]! - ey;
       const dz = P[i * 3 + 2]! - ez;
-      this.keys[n] = (dx * dx + dy * dy + dz * dz) * agingOf(this.frame - this.since[i]!);
-      this.order[n] = i;
+      keys[n] = (dx * dx + dy * dy + dz * dz) * agingOf(this.frame - this.since[i]!);
+      order[n] = i;
       n += 1;
     }
     // The nearest few updates' worth (a selection, not a sort).
     const keep = Math.min(n, this.perUpdate * PLAN_AHEAD);
-    selectSmallest(this.keys, this.order, n, keep);
+    selectSmallest(keys, order, n, keep);
     if (q.keys.length < keep) {
       q.keys = new Float32Array(keep);
       q.order = new Uint32Array(keep);
     }
-    q.keys.set(this.keys.subarray(0, keep));
-    q.order.set(this.order.subarray(0, keep));
+    q.keys.set(keys.subarray(0, keep));
+    q.order.set(order.subarray(0, keep));
     q.length = keep;
     q.plans = 0;
     q.eye = [ex, ey, ez];
@@ -493,25 +719,13 @@ export class LiveProbes {
     }
   }
 
-  /** The grid probe `i` is in (its index). */
-  gridOf(i: number): number {
-    let lo = 0;
-    let hi = this.grids.length - 1;
-    while (lo < hi) {
-      const mid = (lo + hi + 1) >> 1;
-      if (this.grids[mid]!.first <= i) lo = mid;
-      else hi = mid - 1;
-    }
-    return lo;
-  }
-
-  /** The GPU time (ms) an update of `count` probes took: later updates take as many as the budget holds. */
+  /** The GPU time (ms) an update of `count` probes took: later updates take as many as the budget holds, at least `PROBE_MIN_COUNT`. */
   report(ms: number, count: number): void {
     if (!(count > 0) || !(ms >= 0)) return;
     this.msUsed = ms;
     const per = ms / count;
     this.msPerProbe = this.msPerProbe === null ? per : this.msPerProbe + (per - this.msPerProbe) * 0.25;
-    this.perUpdate = Math.min(4096, Math.max(64, Math.floor(this.budgetMs / Math.max(this.msPerProbe, 1e-9) / 64) * 64));
+    this.perUpdate = Math.min(PROBE_MAX_COUNT, Math.max(PROBE_MIN_COUNT, Math.floor(this.budgetMs / Math.max(this.msPerProbe, 1e-9) / 64) * 64));
   }
 
   /** The probes whose records changed since the last call (their tiles take them again). */
@@ -521,31 +735,41 @@ export class LiveProbes {
     return out;
   }
 
-  /** Whether probe `i` counts in the probe lighting: updated, and not inside geometry. */
-  probeValid(i: number): boolean {
-    const at = i * PROBE_FLOATS;
-    return this.state[at + PROBE_UPDATES_AT]! >= 1 && this.state[at + PROBE_VALIDITY_AT]! <= PROBE_VALIDITY_THRESHOLD;
+  /** Probe `i`'s weight in the probe lighting (`liveProbeWeight`). */
+  probeWeight(i: number): number {
+    return liveProbeWeight(this.state, i * PROBE_FLOATS);
+  }
+
+  /** Whether probe `i` is lit at all (not dropped inside geometry, nor a brick's probe standing in a room). */
+  probeLit(i: number): boolean {
+    return this.excluded[i] === 0;
+  }
+
+  /** Whether probe `i` was moved out of geometry. */
+  probeMoved(i: number): boolean {
+    return this.state[i * PROBE_FLOATS + PROBE_MOVED_AT]! > 0;
   }
 
   /**
-   * Probe `i`'s walls (`out`: per axis the cut flag and the cut's share of
-   * the edge to the next probe along it), as `edgeWalls` gives them from
-   * what its and that probe's axis rays saw; none in a room's grid (a room's
-   * probes see only their room).
+   * The walls of point `l` of grid `gi` (`out`: per axis the cut flag and
+   * the cut's share of the edge to the next point along it), as `edgeWalls`
+   * gives them from what its and that point's probes' axis rays saw; none in
+   * a room's grid (a room's probes see only their room).
    */
-  probeWalls(i: number, out: number[]): number[] {
+  probeWalls(gi: number, l: number, out: number[]): number[] {
     out.fill(0);
-    const g = this.grids[this.gridOf(i)]!;
+    const g = this.grids[gi]!;
     if (g.room !== NO_ROOM) return out;
     const n = g.resolution;
-    const l = i - g.first;
     const at = [l % n[0], Math.floor(l / n[0]) % n[1], Math.floor(l / (n[0] * n[1]))];
     const offset = [1, n[0], n[0] * n[1]];
+    const i = this.lattice[g.at + l]!;
     for (let a = 0; a < 3; a += 1) {
       if (at[a]! >= n[a]! - 1) continue;
       const step = (g.max[a]! - g.min[a]!) / (n[a]! - 1);
+      const next = this.lattice[g.at + l + offset[a]!]!;
       const fromLo = this.state[i * PROBE_FLOATS + PROBE_AXES_AT + a * 2]!;
-      const fromHi = this.state[(i + offset[a]!) * PROBE_FLOATS + PROBE_AXES_AT + a * 2 + 1]!;
+      const fromHi = this.state[next * PROBE_FLOATS + PROBE_AXES_AT + a * 2 + 1]!;
       if (!(fromLo > 0 && fromLo < step && fromHi > 0 && fromHi < step)) continue;
       out[a * 2] = 1;
       out[a * 2 + 1] = (fromLo / step + (1 - fromHi / step)) / 2;
@@ -553,22 +777,39 @@ export class LiveProbes {
     return out;
   }
 
-  /** The grids' table as the pass reads it (`GRID_WORDS` each). */
-  gridWords(): Uint32Array {
-    const u = new Uint32Array(this.grids.length * GRID_WORDS);
+  /** The grids' table, the lattice and the brick map as the passes read them (made once a layout). */
+  layoutWords(): ProbeLayoutWords {
+    if (this.words !== null) return this.words;
+    const map = this.map;
+    const latticeAt = this.grids.length * GRID_WORDS;
+    const mapAt = latticeAt + this.lattice.length;
+    const cellsAt = mapAt + BRICK_MAP_WORDS;
+    const entriesAt = cellsAt + map.cells.length;
+    const u = new Uint32Array(entriesAt + map.entries.length);
     const f = new Float32Array(u.buffer);
     this.grids.forEach((g, k) => {
       const at = k * GRID_WORDS;
       f.set(g.min, at);
       f.set(g.max, at + 3);
       u.set(g.resolution, at + 6);
-      u[at + 9] = g.first;
+      u[at + 9] = latticeAt + g.at;
       u[at + 10] = g.room;
+      u[at + 11] = g.level;
     });
-    return u;
+    u.set(this.lattice, latticeAt);
+    f.set(map.origin, mapAt);
+    f[mapAt + 3] = map.top;
+    u.set(map.dims, mapAt + 4);
+    u[mapAt + 7] = cellsAt;
+    u[mapAt + 8] = entriesAt;
+    u.set(map.cells, cellsAt);
+    for (let k = 0; k < map.entries.length; k += 1) u[entriesAt + k] = map.entries[k]! < 0 ? NO_BRICK_WORD : map.entries[k]!;
+    this.words = { words: u, latticeAt, mapAt };
+    return this.words;
   }
 
   diagnostics(): LiveProbeDiagnostics {
-    return { grids: this.grids.length, probes: this.count, stale: this.staleCount, settled: this.staleCount === 0, perUpdate: this.perUpdate, msUsed: this.msUsed, lastSettleMs: this.lastSettleMs, updates: this.updates };
+    const { bricks, lit, moved } = this.counts;
+    return { grids: this.grids.length, bricks, probes: this.count, lit, moved, stale: this.staleCount, settled: this.staleCount === 0, perUpdate: this.perUpdate, msUsed: this.msUsed, lastSettleMs: this.lastSettleMs, updates: this.updates, placeMs: this.placeMs };
   }
 }

@@ -14,12 +14,15 @@ import { PROBE_FILLED, PROBE_VALID } from '@thirdlight/runtime';
 
 import type { N } from './effects-tsl';
 import { packedIrradiance, probeTextureNodes, samplePackedProbes, tableTexel, type ProbeLighting } from './probe-lighting';
+import { PROBE_NEVER_LIT } from './probe-weights';
 
 const TSL: N = TSLTyped;
 const { Fn, abs, attribute, float, int, mix, normalView, normalWorld, select, vec3 } = TSL;
 
 /** A probe sphere's radius as a share of its tile's smallest spacing. */
 const SPHERE_SHARE = 0.15;
+/** The shortest time (ms) between two builds of the view for a change of validity. */
+const REBUILD_MS = 1000;
 /** Where the validity rim starts (1 − |n·view|). */
 const RIM_FROM = 0.45;
 
@@ -34,7 +37,12 @@ export interface ProbeDebugView {
   dispose(): void;
 }
 
-export function createProbeDebugView(light: ProbeLighting): ProbeDebugView {
+/**
+ * `validityVersion`: for live probes, a number that changes whenever a probe's
+ * validity did (its tiles stay while their probes are lit): the view is
+ * built again then, at most every `REBUILD_MS`.
+ */
+export function createProbeDebugView(light: ProbeLighting, validityVersion?: () => number): ProbeDebugView {
   const group = new THREE.Group();
   group.name = 'probe debug';
   const sphere = new THREE.IcosahedronGeometry(1, 1);
@@ -57,6 +65,8 @@ export function createProbeDebugView(light: ProbeLighting): ProbeDebugView {
   inside.colorNode = colour;
   const meshes: THREE.InstancedMesh[] = [];
   let shown: readonly unknown[] | null = null;
+  let shownValidity = 0;
+  let builtAt = -Infinity;
   let total = 0;
   let invalid = 0;
   const clear = (): void => {
@@ -84,6 +94,8 @@ export function createProbeDebugView(light: ProbeLighting): ProbeDebugView {
         for (let iy = 0; iy < r[1]; iy++) {
           for (let ix = 0; ix < r[0]; ix++) {
             const v = tile.validity[ix + iy * r[0] + iz * r[0] * r[1]]!;
+            // A live probe never lit (dropped inside geometry, a brick's standing in a room) has nothing to show.
+            if (v === PROBE_NEVER_LIT) continue;
             const k = kinds[v === PROBE_VALID ? 0 : 1]!;
             matrix.makeScale(radius, radius, radius).setPosition(min[0] + ix * step[0]!, min[1] + iy * step[1]!, min[2] + iz * step[2]!);
             for (const e of matrix.elements) k.matrices.push(e);
@@ -118,8 +130,12 @@ export function createProbeDebugView(light: ProbeLighting): ProbeDebugView {
     object: group,
     update() {
       t.sync(light);
-      if (light.tiles !== shown) {
+      const now = performance.now();
+      const v = validityVersion?.() ?? 0;
+      if (light.tiles !== shown || (v !== shownValidity && now - builtAt >= REBUILD_MS)) {
         shown = light.tiles;
+        shownValidity = v;
+        builtAt = now;
         rebuild();
       }
     },

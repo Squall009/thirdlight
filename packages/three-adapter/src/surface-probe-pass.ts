@@ -14,7 +14,7 @@ import { EXACT_TRACE } from './tracer-cpu-math';
 import type { GpuBuffer, GpuTexture, GpuTracer, TracerDevice } from './tracer-gpu';
 import { RAY_FLOATS } from './tracer-scene';
 import { GpuResolve } from './surface-resolve-gpu';
-import { BOUNCE_ALBEDO, PROBE_BLEND_MIN, PROBE_FLOATS, PROBE_HIT_LIFT, PROBE_RAY_SPACINGS, PROBE_RAYS, type LiveProbes } from './surface-probes';
+import { BOUNCE_ALBEDO, PROBE_BLEND_MIN, PROBE_FLOATS, PROBE_HIT_LIFT, PROBE_RAYS, NO_BRICK_WORD, type LiveProbes, type ProbeLayoutWords } from './surface-probes';
 import { PROBE_COMMIT_WGSL, PROBE_GATHER_WGSL, PROBE_RAYS_WGSL, PROBE_SLOT_WORDS, PROBE_VEC4S, PROBE_WORKGROUP } from './surface-probe-wgsl';
 
 const USAGE = { MAP_READ: 0x1, COPY_SRC: 0x4, COPY_DST: 0x8, UNIFORM: 0x40, STORAGE: 0x80, QUERY_RESOLVE: 0x200 } as const;
@@ -42,30 +42,81 @@ export interface ProbePassInput {
   readonly albedoRingsAt: number;
 }
 
-/** The words an update's passes read: its probes, the grids, the sky and the rooms, and where each starts. */
-export function packProbeWords(input: Pick<ProbePassInput, 'probes' | 'slots' | 'sky' | 'rooms'>): { words: Uint32Array; gridAt: number; skyAt: number; roomsAt: number } {
+/**
+ * The words an update's passes read after the probes' layout (which starts
+ * them, `LiveProbes.layoutWords`): its probes, the sky and the rooms, with
+ * where each starts (counted from the start of the whole, layout included).
+ */
+export function packProbeWords(input: Pick<ProbePassInput, 'probes' | 'slots' | 'sky' | 'rooms'>): { layout: ProbeLayoutWords; tail: Uint32Array; slotsAt: number; skyAt: number; roomsAt: number } {
   const { probes, slots } = input;
-  const grids = probes.gridWords();
-  const gridAt = slots.length * PROBE_SLOT_WORDS;
-  const skyAt = gridAt + grids.length;
+  const layout = probes.layoutWords();
+  const slotsAt = layout.words.length;
+  const skyAt = slotsAt + slots.length * PROBE_SLOT_WORDS;
   const roomsAt = input.rooms === null ? 0 : skyAt + 12;
-  const words = new Uint32Array(skyAt + 12 + (input.rooms?.length ?? 0));
-  const f = new Float32Array(words.buffer);
+  const tail = new Uint32Array(skyAt + 12 + (input.rooms?.length ?? 0) - slotsAt);
+  const f = new Float32Array(tail.buffer);
   slots.forEach((p, s) => {
     const at = s * PROBE_SLOT_WORDS;
-    words[at] = p;
-    words[at + 1] = probes.rooms[p]!;
+    tail[at] = p;
+    tail[at + 1] = probes.rooms[p]!;
     f.set(probes.positions.subarray(p * 3, p * 3 + 3), at + 2);
+    f[at + 5] = probes.reach[p]!;
   });
-  words.set(grids, gridAt);
-  f.set(input.sky.subarray(0, 12), skyAt);
-  if (input.rooms !== null) words.set(input.rooms, roomsAt);
-  return { words, gridAt, skyAt, roomsAt };
+  f.set(input.sky.subarray(0, 12), skyAt - slotsAt);
+  if (input.rooms !== null) tail.set(input.rooms, roomsAt - slotsAt);
+  return { layout, tail, slotsAt, skyAt, roomsAt };
+}
+
+/**
+ * A pass's word buffer holding the probes' layout and an update's words
+ * after it: the layout (tens of kilobytes in a large scene) is written only
+ * when it changed or the buffer grew.
+ */
+export class ProbeWordsBuffer {
+  private buf: GpuBuffer | null = null;
+  private written: ProbeLayoutWords | null = null;
+
+  constructor(private readonly device: TracerDevice, private readonly label: string) {}
+
+  /** The buffer with `packed` in it. */
+  write(packed: ReturnType<typeof packProbeWords>): GpuBuffer {
+    const bytes = (packed.slotsAt + packed.tail.length) * 4;
+    if (this.buf === null || this.buf.size < bytes) {
+      this.buf?.destroy();
+      let size = 256;
+      while (size < bytes) size *= 2;
+      this.buf = this.device.createBuffer({ size, usage: USAGE.STORAGE | USAGE.COPY_DST, label: this.label });
+      this.written = null;
+    }
+    if (this.written !== packed.layout && packed.layout.words.length > 0) this.device.queue.writeBuffer(this.buf, 0, packed.layout.words);
+    this.written = packed.layout;
+    if (packed.tail.length > 0) this.device.queue.writeBuffer(this.buf, packed.slotsAt * 4, packed.tail);
+    return this.buf;
+  }
+
+  dispose(): void {
+    this.buf?.destroy();
+    this.buf = null;
+  }
+}
+
+/** The parameters (`PROBE_COMMON_WGSL`'s `Params`) for an update or a gather of `rays`, the probes laid out as `packed`. */
+export function probeParams(probes: LiveProbes, packed: ReturnType<typeof packProbeWords>, slots: number, rays: number, seed: number, albedoRingsAt: number, withProbes = true): Uint32Array {
+  const p = new Uint32Array(16);
+  const pf = new Float32Array(p.buffer);
+  p.set([slots, rays, withProbes ? probes.roomGrids : 0, 0, packed.skyAt, packed.roomsAt, seed, probes.count]);
+  pf.set([0, BOUNCE_ALBEDO, PROBE_HIT_LIFT, PROBE_BLEND_MIN], 8);
+  p[12] = albedoRingsAt;
+  p[13] = packed.layout.latticeAt;
+  // No probes: no map.
+  p[14] = withProbes ? packed.layout.mapAt : NO_BRICK_WORD;
+  p[15] = packed.slotsAt;
+  return p;
 }
 
 export class SurfaceProbePass {
   private readonly params: GpuBuffer;
-  private wordsBuf: GpuBuffer | null = null;
+  private readonly words: ProbeWordsBuffer;
   private recordsBuf: GpuBuffer | null = null;
   private raysBuf: GpuBuffer | null = null;
   private heldBuf: GpuBuffer | null = null;
@@ -79,6 +130,7 @@ export class SurfaceProbePass {
 
   private constructor(private readonly device: QueryDevice, private readonly tracer: GpuTracer, readonly resolve: GpuResolve, private readonly rays: Pipeline, private readonly gather: Pipeline, private readonly commit: Pipeline) {
     this.params = device.createBuffer({ size: 64, usage: USAGE.UNIFORM | USAGE.COPY_DST, label: 'probe params' });
+    this.words = new ProbeWordsBuffer(device, 'probe words');
     const timed = device.features?.has('timestamp-query') === true && device.createQuerySet !== undefined;
     this.query = timed ? device.createQuerySet!({ type: 'timestamp', count: 2 }) : null;
     this.resolveTs = timed ? device.createBuffer({ size: 16, usage: USAGE.QUERY_RESOLVE | USAGE.COPY_SRC, label: 'probe timestamps' }) : null;
@@ -139,18 +191,12 @@ export class SurfaceProbePass {
     this.syncLayout(input.probes);
     const packed = packProbeWords(input);
     const rays = n * PROBE_RAYS;
-    this.wordsBuf = this.grow(this.wordsBuf, packed.words.byteLength, USAGE.STORAGE | USAGE.COPY_DST, 'probe words');
+    const wordsBuf = this.words.write(packed);
     this.raysBuf = this.grow(this.raysBuf, rays * RAY_FLOATS * 4, USAGE.STORAGE, 'probe rays');
     this.heldBuf = this.grow(this.heldBuf, rays * 4, USAGE.STORAGE, 'probe rays held');
     this.outBuf = this.grow(this.outBuf, n * PROBE_FLOATS * 4, USAGE.STORAGE | USAGE.COPY_SRC, 'probe updated');
-    d.queue.writeBuffer(this.wordsBuf, 0, packed.words);
     this.seed = (this.seed * 1664525 + 1013904223) >>> 0;
-    const p = new Uint32Array(16);
-    const pf = new Float32Array(p.buffer);
-    p.set([n, rays, input.probes.grids.length, packed.gridAt, packed.skyAt, packed.roomsAt, this.seed, input.probes.count]);
-    pf.set([PROBE_RAY_SPACINGS * input.probes.spacing, BOUNCE_ALBEDO, PROBE_HIT_LIFT, PROBE_BLEND_MIN], 8);
-    p[12] = input.albedoRingsAt;
-    d.queue.writeBuffer(this.params, 0, p);
+    d.queue.writeBuffer(this.params, 0, probeParams(input.probes, packed, n, rays, this.seed, input.albedoRingsAt));
     const timed = this.query !== null;
     const enc = d.createCommandEncoder();
     let pass = enc.beginComputePass(timed ? { timestampWrites: { querySet: this.query, beginningOfPassWriteIndex: 0 } } : {});
@@ -161,7 +207,7 @@ export class SurfaceProbePass {
         layout: this.rays.getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: { buffer: this.params } },
-          { binding: 1, resource: { buffer: this.wordsBuf } },
+          { binding: 1, resource: { buffer: wordsBuf } },
           { binding: 2, resource: { buffer: this.raysBuf } },
           { binding: 3, resource: { buffer: this.heldBuf } },
         ],
@@ -179,7 +225,7 @@ export class SurfaceProbePass {
         layout: this.gather.getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: { buffer: this.params } },
-          { binding: 1, resource: { buffer: this.wordsBuf } },
+          { binding: 1, resource: { buffer: wordsBuf } },
           { binding: 2, resource: { buffer: this.recordsBuf } },
           { binding: 3, resource: { buffer: this.raysBuf } },
           { binding: 4, resource: { buffer: this.heldBuf } },
@@ -203,7 +249,7 @@ export class SurfaceProbePass {
         layout: this.commit.getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: { buffer: this.params } },
-          { binding: 1, resource: { buffer: this.wordsBuf } },
+          { binding: 1, resource: { buffer: wordsBuf } },
           { binding: 2, resource: { buffer: this.recordsBuf } },
           { binding: 3, resource: { buffer: this.outBuf } },
         ],
@@ -247,7 +293,8 @@ export class SurfaceProbePass {
   }
 
   dispose(): void {
-    for (const b of [this.params, this.wordsBuf, this.recordsBuf, this.raysBuf, this.heldBuf, this.outBuf, this.resolveTs]) b?.destroy();
+    for (const b of [this.params, this.recordsBuf, this.raysBuf, this.heldBuf, this.outBuf, this.resolveTs]) b?.destroy();
+    this.words.dispose();
     (this.query as { destroy?(): void } | null)?.destroy?.();
     this.resolve.dispose();
     this.recordsBuf = null;

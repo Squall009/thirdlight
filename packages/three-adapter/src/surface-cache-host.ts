@@ -37,6 +37,9 @@ import { traceBlockLayerOf } from './tracer-sources';
 import { TerrainTraceRings } from './tracer-terrain-rings';
 import { SurfaceRooms, type LightingRooms } from './surface-rooms';
 import { LiveProbes, PROBE_BUDGET_SHARE, type LiveProbeDiagnostics } from './surface-probes';
+import { ProbeMarks, brickSide, type ProbeSolid, type Steps } from './probe-bricks';
+import { architectureMarks, blockTileMarks, probeSolid, terrainMarksSteps, type ProbeSolidModel } from './probe-geometry';
+import type { TraceArchitecture } from './tracer-objects';
 
 /** `scene.userData[SURFACE_CACHE_KEY]`: the page's surface cache (a measurement reads its diagnostics). */
 export const SURFACE_CACHE_KEY = 'tlSurfaceCache';
@@ -44,6 +47,12 @@ export const SURFACE_CACHE_KEY = 'tlSurfaceCache';
 export const SURFACE_PREPARE_MS = 1;
 /** How often (ms) the host lists the loaded scene's surfaces again when nothing says it changed. */
 const LIST_MS = 250;
+/** The probes are placed again at most this often (ms) while what they stand on changes. */
+export const PROBE_PLACE_MS = 1000;
+/** Main-thread time (ms) a frame gives a placement of the probes being made (a large scene's takes tens of ms: spread over frames). */
+export const PROBE_PLACE_SHARE_MS = 1;
+/** The terrain probes' window moves in steps of a brick of this level. */
+const PROBE_TERRAIN_SNAP_LEVEL = 1;
 
 /** A block layer as the host reads it from the block view. */
 export interface SurfaceHostLayer {
@@ -250,6 +259,17 @@ export class SurfaceCacheHost {
   /** Atlas blocks handed to tiles since the last `takeFreshBlocks`. */
   private fresh: AtlasBlock[] = [];
   private roomsVersion = -1;
+  /** Bumped whenever a ready tile came, went or changed (the probes are placed again). */
+  private readyVersion = 0;
+  /** The terrain probes' window centre (x, z), and the last placement's key and time. */
+  private probeCentre: [number, number] | null = null;
+  private probesPlacedKey = '';
+  private probesPlacedAt = -Infinity;
+  /** Since when (ms) a placement waits for the throttle or for changed tiles to be made again (null: none waits). */
+  private probesWaiting: number | null = null;
+  /** The placement being made, a share of each frame (`PROBE_PLACE_SHARE_MS`), and its key. */
+  private probeJob: { key: string; steps: Steps<boolean> } | null = null;
+  private placeFrameMs = 0;
 
   /** `relightMs`: the GPU time a frame may spend lighting stale texels (0: none, the saved light is drawn). */
   constructor(private readonly deps: SurfaceCacheHostDeps, budgetBytes: number, private relightMs = 0) {
@@ -291,7 +311,7 @@ export class SurfaceCacheHost {
   }
 
   /** The rooms again when they or a door changed: lights whose rooms changed are marked. */
-  private syncRooms(): void {
+  private syncRooms(now: number): void {
     const r = this.deps.rooms?.() ?? null;
     const version = r === null ? -1 : r.version;
     if (version === this.roomsVersion && (r === null) === (this.roomsNow === null)) return;
@@ -299,7 +319,7 @@ export class SurfaceCacheHost {
     this.roomsNow = r === null ? null : new SurfaceRooms(r);
     this.changes.setRooms(this.roomsNow);
     // The probes name rooms by index: placed again over the new rooms at once.
-    this.placeProbes();
+    this.placeProbes(true, now);
   }
 
   /** Where a unit's texels are: a resident tile's packing, or a ring patch and its terrain (null: gone). */
@@ -456,11 +476,12 @@ export class SurfaceCacheHost {
   update(eye: ArrayLike<number>, now = performance.now()): void {
     if (now - this.listedAt >= LIST_MS) {
       this.listedAt = now;
-      this.list();
+      this.list(now);
     }
-    this.syncRooms();
+    this.syncRooms(now);
     this.followRings(eye);
     this.prepare(eye, now);
+    this.stepProbeJob(now);
     // A tile with nothing to light (a chunk of hidden faces only) is made once and never offered.
     if (this.changed) this.offered = [...this.ready.values()].filter((t) => t.charts().length > 0);
     const at = [eye[0]!, eye[1]!, eye[2]!];
@@ -566,6 +587,7 @@ export class SurfaceCacheHost {
     if (had !== undefined && had.version === version) return;
     if (had !== undefined) {
       this.ready.delete(key);
+      this.readyVersion += 1;
       this.changed = true;
       this.geometry(had.min, had.max);
     }
@@ -577,7 +599,7 @@ export class SurfaceCacheHost {
   }
 
   /** The loaded scene's surfaces: what is ready stays, what changed or is new waits to be made, what left goes. */
-  private list(): void {
+  private list(now: number): void {
     const seen = new Set<string>();
     if (this.deps.modelAlive !== undefined) this.modelSlots.prune(this.deps.modelAlive);
     for (const layer of this.deps.layers()) {
@@ -638,28 +660,100 @@ export class SurfaceCacheHost {
         if (had !== undefined) this.geometry(had.min, had.max);
         this.geometry(tile.min, tile.max);
         this.ready.set(tile.key, tile);
+        this.readyVersion += 1;
         this.changed = true;
       }
     }
     for (const [key, t] of [...this.ready]) if (!seen.has(key)) {
       this.ready.delete(key);
+      this.readyVersion += 1;
       this.changed = true;
       this.geometry(t.min, t.max);
     }
     for (const key of [...this.pending.keys()]) if (!seen.has(key)) this.pending.delete(key);
     this.listed = true;
-    this.placeProbes();
+    this.placeProbes(false, now);
   }
 
-  /** The probes over the static objects' bounds (block layers, architecture, models; not terrain, as a probe bake) and the rooms. */
-  private placeProbes(): void {
-    let min: number[] | null = null;
-    let max: number[] | null = null;
-    for (const t of this.ready.values()) {
-      min = min === null ? [...t.min] : min.map((v, k) => Math.min(v, t.min[k]!));
-      max = max === null ? [...t.max] : max.map((v, k) => Math.max(v, t.max[k]!));
+  /**
+   * The probes: a grid per room, and bricks where the static scene's
+   * surfaces are (`probe-geometry.ts`: block layers' faces, architecture,
+   * models, terrain near the eye). Placed again when a surface came, went
+   * or changed, the terrain's window moved or the rooms changed, at most
+   * every `PROBE_PLACE_MS` (a scene streaming in, a block dug live).
+   */
+  private placeProbes(force = false, now = performance.now()): void {
+    const snap = brickSide(DEFAULT_PROBE_SPACING, PROBE_TERRAIN_SNAP_LEVEL);
+    const c = this.probeCentre;
+    if (c === null || Math.abs(this.eye[0]! - c[0]) > snap || Math.abs(this.eye[2]! - c[1]) > snap) this.probeCentre = [Math.round(this.eye[0]! / snap) * snap, Math.round(this.eye[2]! / snap) * snap];
+    const centre = this.probeCentre!;
+    const terrains = [...this.fields.keys()].map((id) => `${id}@${this.terrainVersions.get(id) ?? 0}`).join(',');
+    const key = `${this.readyVersion}|${terrains}|${terrains.length > 0 ? centre.join(',') : ''}`;
+    const placement = { key, geometry: () => this.probeGeometry(centre, snap) };
+    if (force) {
+      // The probes name rooms by index: placed over the new rooms at once (a placement being made is for the old ones).
+      this.probeJob?.steps.return(false);
+      this.probeJob = null;
+      if (this.probes.place(placement, this.roomsNow)) this.probesPlacedAt = now;
+      this.probesPlacedKey = key;
+      this.probesWaiting = null;
+      return;
     }
-    this.probes.place(min === null ? null : { min, max: max! }, this.roomsNow);
+    if (key === this.probesPlacedKey || this.probeJob !== null) return;
+    this.probesWaiting ??= now;
+    // A changed tile leaves the ready set until it is made again (a frame or so): placed without it, its probes would
+    // be dropped and placed again fresh a moment later. A scene that keeps streaming is placed at least every throttle.
+    const making = this.pending.size > 0 && now - this.probesWaiting < PROBE_PLACE_MS;
+    if (making || now - this.probesPlacedAt < PROBE_PLACE_MS) return;
+    this.probeJob = { key, steps: this.probes.placeSteps(placement, this.roomsNow) };
+    this.placeFrameMs = 0;
+  }
+
+  /** The placement being made, for this frame's share of main-thread time. */
+  private stepProbeJob(now: number): void {
+    const job = this.probeJob;
+    if (job === null) return;
+    const t0 = performance.now();
+    for (;;) {
+      const r = job.steps.next();
+      this.placeFrameMs = Math.max(this.placeFrameMs, performance.now() - t0);
+      if (r.done === true) {
+        if (r.value) this.probesPlacedAt = now;
+        this.probesPlacedKey = job.key;
+        this.probeJob = null;
+        // Settled once nothing newer waits (the next listing starts it).
+        this.probesWaiting = null;
+        return;
+      }
+      if (performance.now() - t0 >= PROBE_PLACE_SHARE_MS) return;
+    }
+  }
+
+  /** What the probes are placed from: the ready tiles' surfaces, the terrains' near the eye, and what is solid (a tile a step). */
+  private *probeGeometry(centre: readonly number[], snap: number): Steps<{ marks: ProbeMarks; solid: ProbeSolid }> {
+    const marks = new ProbeMarks(DEFAULT_PROBE_SPACING);
+    const arch: TraceArchitecture[] = [];
+    const models: ProbeSolidModel[] = [];
+    // The surfaces as they are now (tiles keep their charts; a later change places the probes again).
+    const ready = [...this.ready.values()];
+    const fields = [...this.fields.values()];
+    const layers = this.deps.layers().map((l) => ({ grid: l.grid, origin: l.origin, opaque: l.opaque }));
+    for (const t of ready) {
+      yield;
+      const kind = (t as { kind?: string }).kind;
+      if (kind === 'blocks') blockTileMarks(t as BlockTile, marks);
+      else if (kind === 'arch') {
+        architectureMarks((t as ArchTile).pieces, marks);
+        arch.push((t as ArchTile).pieces);
+      } else if (kind === 'model') {
+        marks.mark(t.min, t.max, 0);
+        const m = t as ModelTile;
+        models.push({ worldToLocal: m.worldToLocal, set: m.set, min: m.min, max: m.max });
+      }
+    }
+    for (const field of fields) yield* terrainMarksSteps(field, centre, snap, marks);
+    yield;
+    return { marks, solid: probeSolid({ layers, terrains: fields, arch, models }, brickSide(DEFAULT_PROBE_SPACING, 0)) };
   }
 
   /** A terrain's tiles whose data changed (an edit, live or scripted), came or went since the last listing: their boxes changed. */
@@ -716,6 +810,7 @@ export class SurfaceCacheHost {
       if (performance.now() - t0 >= SURFACE_PREPARE_MS) break;
       this.pending.delete(key);
       this.ready.set(key, p.make());
+      this.readyVersion += 1;
       this.changed = true;
     }
     this.prepareMs = performance.now() - t0;
@@ -724,6 +819,13 @@ export class SurfaceCacheHost {
   diagnostics(): SurfaceCacheHostDiagnostics {
     let reading = 0;
     for (const f of this.files.values()) if (f === 'reading') reading += 1;
-    return { ...this.cache.diagnostics(), preparing: this.pending.size, reading, prepareMs: this.prepareMs, relight: this.relight.diagnostics(), probes: this.probes.diagnostics() };
+    return { ...this.cache.diagnostics(), preparing: this.pending.size, reading, prepareMs: this.prepareMs, relight: this.relight.diagnostics(), probes: this.probesDiagnostics() };
+  }
+
+  /** The probes' diagnostics; not settled while a placement waits (its new probes are yet to be lit). */
+  private probesDiagnostics(): LiveProbeDiagnostics {
+    const d = this.probes.diagnostics();
+    const out = { ...d, placeFrameMs: this.placeFrameMs };
+    return this.probesWaiting === null && this.probeJob === null ? out : { ...out, settled: false };
   }
 }
