@@ -542,8 +542,6 @@ export interface SceneAdapter {
   setArchitectureStyles?(graphs: readonly import('@thirdlight/runtime').ArchitectureGraphLike[] | null): void;
   /** A slider being dragged: values over one preset and those derived from it (null: the stored values). How many objects are made again. */
   previewArchitecture?(preview: import('@thirdlight/runtime').ArchitecturePreview | null): number;
-  /** What a probe bake reads of generated architecture: an object's meshes at full detail, and each room's box inset `inset` metres (world). */
-  architectureBake?(): { meshes(entityId: string): THREE.Mesh[]; rooms(inset: number): { min: number[]; max: number[] }[] };
   /** A clipped decal's mesh as drawn now, in its entity's space (null: none, not made yet, or not a clipped decal): what "Bake to model" writes. */
   clippedDecalMesh?(entityId: string): THREE.Mesh | null;
   /** A clipped decal whose empty result is final at once (false: the editor's placement preview) or after the level's surfaces arrive (true, the default). */

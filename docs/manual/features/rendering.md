@@ -85,11 +85,9 @@ game without level bounds, default 24 m).
 The Scene view shows no realtime shadows (Play and the export do).
 
 The gradient sky is drawn inside every camera's far plane and tone mapped
-like the rest of the picture. The browser lightmap baker ("Bake preview")
-draws with the editor's renderer backend (it reads the atlases back
-asynchronously), and a lightmapped object in Play picks up its
-project material's texture even when the texture arrives after the
-lightmap.
+like the rest of the picture. A lightmapped object of an earlier bake picks
+up its project material's texture in Play even when the texture arrives
+after the lightmap.
 
 Kit materials apply their macro normal map. Thumbnails render with the backend the editor had
 when it drew the first one.

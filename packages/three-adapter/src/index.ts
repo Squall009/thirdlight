@@ -293,9 +293,7 @@ export {
 } from './lightmaps';
 // Decoded textures held in a resource manager by who draws with them (the editor's Scene view holds its cookies, sky and lightmaps so).
 export { textureHolds, type TextureHolds } from './texture-holds';
-export { bakeLightmapsInBrowser, type BakedAtlas, type BakeLightInput, type BakeMeshInput, type BakeTargetInput, type BrowserBakeInput, type BrowserBakeResult } from './lightmap-baker';
-// Probe grids: the bake (the editor's Scene view), the tile files, and the loaded tiles (Play, export, the Scene view).
-export { bakeProbeGrids, type BakedProbeTile, type ProbeBakeInput, type ProbeBakeMesh, type ProbeBakeResult } from './probe-bake';
+// Probe grids: the tile files of the earlier bakes and their loaded tiles (Play, export, the Scene view); the saved lighting's files.
 export { atlasFromSamples, decodeProbeArtifact, encodePng16, packProbeTexels } from './probe-artifact';
 export { decodeSavedSurface, encodeSavedSurface, savedSurfaceFiles, savedSurfaceFromFiles, SURFACE_BAKE_VERSION, type SavedProbeTile, type SavedSurfaceLight, type SavedTileRecord } from './surface-bake-file';
 export { SURFACE_TEXEL_METRES } from './surface-cache-atlas';

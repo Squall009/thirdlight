@@ -4,128 +4,103 @@ How to light and bake a scene step by step: [the lighting guide](../guides/light
 
 ## Baked lighting
 
-The Lighting window (Window → Lighting, floating over the Scene view; it
-names the scene it edits and its picker makes another scene active) bakes
-lightmaps for the active scene's static objects
-(Inspector → Static; boxes, and models with a second UV set) from the lights
-set to **baked** (direct + bounce; no longer realtime once baked) or
-**mixed** (realtime direct light, baked bounce light). The atlases become
-texture assets named `lightmap <scene> <n>`; a re-bake adds versions to them.
+The lighting a scene saves is the live lighting itself (see [the surface
+cache's live light](#the-surface-caches-live-light)), run until it settles:
+**Bake lighting** in the Lighting window (Window → Lighting, floating over
+the Scene view; it names the scene it edits and its picker makes another
+scene active), or `tl_bake_lighting {sceneId}` from an agent (the backend
+asks the editor — the connected browser, else a headless one — to run the
+same bake; the editor's changes go through the commands). It runs on the
+Scene view's renderer and needs **WebGPU**; on WebGL 2 the button is off and
+the window says so.
 
-- **Bake preview** runs in the browser: direct light and sky occlusion from
-  baked lights, no bounce. Seconds for a small scene.
-- **Bake final** sends the scene to Blender Cycles on the bake host:
-  `THIRDLIGHT_BAKE_HOST` is `user@host` (the backend copies the scene there
-  with `scp` and runs Blender over `ssh`, so the service user needs a key
-  login without a passphrase) or `local`; `THIRDLIGHT_BAKE_BLENDER` is Blender
-  on that host; `THIRDLIGHT_BAKE_TIMEOUT_MINUTES` stops a bake (default 60).
-  Cycles uses OptiX when the GPU has 4 GB free, else the CPU; the result is
-  denoised. One bake runs at a time. Without a bake host the button explains
-  what to set. Setting the bake host up is part of running the server
-  ([Deployment: requirements](../../deployment.md#requirements)).
+- **What is saved** — the static surfaces' light (block layers and
+  generated buildings; static models only where their distance-field files
+  are loaded, which the editor's Scene view does not do yet, so a bake saves
+  no model's light and models keep their per-pixel lights and the probes)
+  and the probes (each room's grid and the bricks). The lights' modes decide what: a `baked` light's direct
+  light and its bounce, a `mixed` light's bounce (its direct light stays per
+  pixel, with its shadows), a `realtime` light nothing. The bake first lets
+  the baked and mixed lights light the cache and the probes until both
+  settle, then holds the probes and lets only the baked lights' direct light
+  settle in the cache. Terrain and static boxes are not saved: terrain keeps
+  its per-pixel lights and the saved probes over it, as before.
+- **How fine** — every tile at one level, the finest whose pages fit 32 MiB
+  (`SAVED_SURFACE_CACHE_MIB`, the low quality level's whole cache budget):
+  10 cm texels for a small scene, coarser for a large one, so a low-tier
+  device holds a scene's saved light whole.
+- **Files** — the saved file (the cache's tiles and pages as RGBA half
+  floats, the probes' tiles as the probe lighting holds them) travels as
+  texture assets named `lighting <scene>` (16-bit PNGs used as byte
+  containers, up to 4,096 rows of 8 KiB each; a large scene takes several);
+  a re-bake adds versions to them. The scene's bake records them
+  (`lighting[sceneId].surface`: `files`, `level`, `tiles`, `pages`,
+  `probes`, `bytes`, `millis` — the run's time — and the hashes).
+- **Who draws it** — WebGL 2, a quality level without a live budget
+  (`surfaceLightMs` 0, the engine's low) and a live light still starting
+  draw the saved light: each tile where the bake put it (a tile whose
+  geometry changed since keeps its per-pixel lights), read by the same
+  lookup and material variants as the live light, its light added to the
+  per-pixel lights of mixed and realtime lights; the saved probes go to the
+  probe lighting as live ones do. WebGPU at medium and high lights live (it
+  draws the saved light until its live light starts). Baked lights are not
+  drawn per pixel while a bake is used.
+- **The Scene view as Play** — both draw through the same adapter: the same
+  quality level decides saved or live, the same lookup and the same probe
+  lighting. The editor keeps drawing while the live light settles.
 
-A bake whose static objects or baked/mixed lights changed since is shown as
-stale; it is still used until it is baked again or cleared (Clear bake). A
-scene with a bake cannot be deleted until the bake is cleared. MCP can clear
-a bake (`setLighting {sceneId, lighting: null}`); bakes are made in an
-editor (the headless one works too).
+A bake whose static objects (generated buildings included), baked or mixed
+lights or the sky's turn changed since is shown as stale; it is still drawn
+until it is baked again or cleared (Clear bake). A bake made by the earlier
+bakers (lightmaps and probe grids, before "Bake lighting") keeps drawing as
+it did — lightmaps on the objects they were baked for, probe tiles streamed
+round the camera — and the window shows it as stale until the scene is
+baked again. A scene with a bake cannot be deleted until the bake is
+cleared. MCP clears a bake with `setLighting {sceneId, lighting: null}`.
 
-### Probe grids
+Measured on this host (Iris Xe, WebGPU, 1920 × 1080): see the plan's 42.10
+row (`docs/plan-phase-42.md`) for the bake times and saved sizes of the
+village and the look-reference scenes.
 
-**Bake probes** (Lighting window, next to the lightmap buttons) bakes the
-active scene's light probes: points on a grid that hold the indirect light
-(the sky, and the baked/mixed lights' light bounced off the static objects)
-for 3D objects to sample. Without a **Probe volume** component in the scene
-the probes cover its static objects' bounds (and half a spacing above);
-with probe volumes (GameObject → Light → Probe volume: a box, its size and
-an optional spacing of its own, axis-aligned in the world) they cover those
-boxes instead.
-
-- **Settings** (the window's settings): `probe spacing` — metres between
-  probes horizontally, default 2 (0.25–32); in the lowest 2 spacings of each
-  box (the ground band) probes are twice as dense vertically. `probe
-  bounces` — extra bounce passes, default 2 (0–8). The scene's next bake
-  starts from its last bake's settings.
-- Large boxes are split into tiles of at most 64 probe intervals per axis;
-  there is no cap on the number of probes or tiles. The window reports the
-  probes, tiles, GPU memory (8 bytes × 6 per probe and padding) and file
-  size of each bake; each tile is a texture asset named `probes <scene>
-  <n>` (a 16-bit PNG of half floats; a re-bake adds versions). Files baked
-  before the probes held walls (an older layout) no longer load: bake again.
-- Probes inside geometry (seeing back faces in more than a quarter of their
-  directions) are moved out by a quarter or half a spacing, or filled from
-  their neighbours, so no light comes from inside walls. The bake also
-  records **walls**: where a surface lies between two neighbouring probes
-  (each sees it before the other), and where.
-- The bake runs on the Scene view's renderer and needs **WebGPU**; on WebGL 2
-  the button is off and the window says so. Baked probes load on both
-  renderers (Play, export, the Scene view). Measured on this host (Iris Xe):
-  the village perf class (8,712 probes) bakes in ~110 s, a 128 × 128 m block
-  ground (38,025 probes) in ~135 s.
-
-**Clear probes** removes them (Clear bake removes only the lightmaps).
-Probes show stale like lightmaps (a stale bake is still used); turning an
-image sky (`sky.rotation`) after the bake makes them stale too (the bake
-records the turn it saw as `probes.skyRotation`). Lightmaps do not see the
-sky's image and stay as they are.
+### Probes
 
 **How the probes light the scene.** Every lit 3D object — models, boxes,
 graph and kit materials, foliage and water, instance sets, block chunks,
 skinned characters, moving or not — takes its indirect light per pixel from
 the probes around it, in place of the flat ambient light, wherever it is
-inside a tile; outside every tile the flat ambient light stays (the probes
-fade out over one spacing past a tile's edge). What the probes replace: the
-sky's image-based diffuse light and the ambient and hemisphere lights whose
-mode is `baked` or `mixed` (the bake holds them); `realtime` ambient and
-hemisphere lights are added on top, and direct light (sun, point,
-spot, effect lights) is unchanged. The sky's reflections are darkened where
-the probes are darker than the light they replace (a closed room does not
-mirror the sky). Lightmapped surfaces keep their lightmap and ignore the
+inside a probe tile (a room's grid or a brick); outside every tile the flat
+ambient light stays. What the probes replace: the sky's image-based diffuse
+light and the ambient and hemisphere lights whose mode is `baked` or
+`mixed` (the probes hold them); `realtime` ambient and hemisphere lights are
+added on top, and direct light (sun, point, spot, effect lights) is
+unchanged. The sky's reflections are darkened where the probes are darker
+than the light they replace (a closed room does not mirror the sky).
+Lightmapped surfaces of an earlier bake keep their lightmap and ignore the
 probes.
 
 - A pixel samples the probes half a spacing off its surface, but never
-  across a wall the bake found: an inside wall, floor or object standing by
-  a closed wall reads only the probes on its own side, so sunlight outside
-  does not leak in. Probes moved out of geometry count half, filled ones
-  hardly at all.
+  across a wall: an inside wall, floor or object standing by a closed wall
+  reads only the probes on its own side, so sunlight outside does not leak
+  in. Moved probes count half, filled ones hardly at all.
 - The probes hold first-order light (soft directional indirect light; four
-  texture reads a pixel). Where tiles meet, the first tile of the scene
-  holds the shared face (both hold the same probes there).
-- **Large worlds stream their probes.** Only the tiles nearest the camera
-  are loaded and on the GPU, as many as the probe memory budget holds
-  (128 MB, `PROBE_RESIDENT_BYTES`; the tiles of every loaded scene compete
-  by distance, never by scene order); surfaces beyond them get the flat
-  ambient light, fading over one spacing past the last resident tile. As the
-  camera moves, tiles ahead load and tiles behind are dropped: an arriving
-  tile is uploaded into its own place of the shared texture and nothing else
-  is touched. When the budget leaves tiles out the Problems list says so
-  once (`probe_budget`; a tile that cannot be read: `probe_load`). Play
-  diagnostics `renderer.probes`: `tiles` (of the loaded scenes), `resident`,
-  `beyondBudget`, `loaded`, `budgetBytes`, `textureBytes` (the textures as
-  allocated), `indexCells`/`indexEntries` (the lookup grid), `uploads` /
-  `uploadedBytes`, `unplaced` (0 unless the texture's 2,048-texel edge is
-  reached). Measured on this host's Iris Xe at 1920 × 1080: a synthetic
-  2 km × 2 km world (512 tiles, 14 million probes, 663 MB if all were on the
-  GPU) keeps 98 tiles resident in 128 MB, has them on the GPU 2.8 s after
-  the page opened, and costs WebGPU 1.6 ms a frame over no probes (every
-  pixel probe-lit); a tile's arrival costs the main thread 20–30 ms
-  (34,000 probes: undoing the PNG row filters and packing; the file
-  inflates natively, off the JavaScript thread).
+  texture reads a pixel).
 - Light layers: the probes light every layer (they are indirect light).
-- A light with mode `baked` that a lightmap bake holds is off for moving
-  objects too: they get its bounce from the probes, not its direct light;
-  `mixed` lights stay realtime for direct light and their bounce is in the
-  probes.
-- Cost, measured on this host's Iris Xe at 1920 × 1080 (village perf class,
-  two tiles): about +0.8 ms GPU in the scene pass on WebGPU (2.7 → 3.5 ms;
-  frame p50 6.2 → 7.0 ms), within noise on WebGL 2. A scene without baked
-  probes builds exactly the shaders it built before (no cost).
-- `?probes=off` on a game page draws without the probes (a diagnostic
+- A light with mode `baked` that a bake holds is off for moving objects
+  too: they get its bounce from the probes, not its direct light; `mixed`
+  lights stay per pixel for direct light and their bounce is in the probes.
+- An earlier bake's probe tiles stream: only the tiles nearest the camera
+  are loaded, as many as the probe memory budget holds (128 MB,
+  `PROBE_RESIDENT_BYTES`); Play diagnostics `renderer.probes` report them.
+  The saved probes of "Bake lighting" are all on the GPU while their scene
+  is loaded (not streamed).
+- `?probes=off` on a game page draws without probes (a diagnostic
   comparison, like `?shadowcache=off`).
 - **Gizmos → Light probes** in the Scene view draws every probe as a small
   sphere lit by its own light; probes moved out of geometry have a yellow
-  rim, filled ones a red rim, and both are drawn through the geometry they
-  sit in.
+  rim, filled ones a red rim.
+- A **Probe volume** component (GameObject → Light → Probe volume) placed
+  the earlier probe bake's probes; it is not read now (the live probes stand
+  where the scene's geometry and rooms put them).
 
 ## Light layers
 
@@ -249,10 +224,9 @@ only where something changed:
   through its doorways. Interiors of blocks or models keep the probes'
   walls instead.
 - **Light modes** — live, every light lights the cache whatever its mode.
-  Once the bake saves the cache (today's bake still runs the lightmap and
-  probe bakers), what it saves follows the mode: a `baked` light's direct
-  light and its bounce, a `mixed` light's bounce only, a `realtime` light
-  nothing.
+  What "Bake lighting" saves follows the mode (see [Baked
+  lighting](#baked-lighting)): a `baked` light's direct light and its
+  bounce, a `mixed` light's bounce only, a `realtime` light nothing.
 - **What surfaces draw** — block layers, terrain and generated buildings
   read their diffuse light from the cache: one filtered lookup a pixel,
   found from where the pixel is and which way it faces. Static models (in
@@ -280,7 +254,7 @@ only where something changed:
   surface reading it (to compare), or name the kinds that read it,
   `?surfaceRead=blocks,terrain,arch,model` (any of them: each kind's cost).
 - **What it is not yet** — WebGL 2 and the low tier compute nothing live
-  (they draw the saved light). Static boxes do not block the cache's light
+  (they draw the saved light, [Baked lighting](#baked-lighting)). Static boxes do not block the cache's light
   (only blocks, terrain, generated buildings and static models do).
 - **Looking at it** — add `?surfaceCacheView=1` to a game page's address to
   draw every lit cache texel as a small square on its surface, shaded as a

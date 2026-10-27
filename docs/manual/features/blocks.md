@@ -265,11 +265,11 @@ How to build a level step by step: [the block layers guide](../guides/block-laye
     463 connected fence edges in 9 chunks): resolving a look takes about
     0.8 µs a cell or edge; meshing 7.5 → 7.9 ms a chunk against the same walls
     unconnected; the level `area` class is unchanged on both renderers.
-- **Lightmaps**: a block layer object marked **Static** is baked
-  like a static box or model — each chunk gets its own lightmap (one entry
-  per chunk in the bake, browser preview and Blender final alike); a chunk
-  changed after the bake is drawn without it (the bake shows stale); other
-  layers shade baked objects only.
+- **Baked lighting**: a block layer object marked **Static** is lit by the
+  surface cache, and "Bake lighting" saves its chunks' light (each chunk
+  column a tile); a chunk changed after the bake is drawn without it (the
+  bake shows stale) and keeps its per-pixel lights. An earlier bake's chunk
+  lightmaps keep drawing until the scene is baked again.
 - **Sloped terrain**: a single-cell `full` block may carry
   `corners` — the heights of its top corners (−x−z, +x−z, +x+z, −x+z) in cell
   heights, 0–4 in steps of 1/64 — and is drawn and collides with that sloped

@@ -260,8 +260,8 @@ small scenes that test a lighting model (`tools/perf/look.ts`): a block room
 lit only through its door, a generated house under a low sun, a closed
 corridor of ceiling panels and a wall strip (soft spots and a row of point
 lights standing in for rectangle and line lights), and an emissive sign on
-hilly terrain at night. Each is baked in the editor ("Bake preview" and
-"Bake probes", both timed; `--no-bake` keeps the lights realtime and bakes
+hilly terrain at night. Each is baked in the editor ("Bake lighting",
+timed; `--no-bake` keeps the lights realtime and bakes
 nothing), exported, measured on both renderers at the 60 Hz cap and
 photographed (`--shots DIR`, `--shot-prefix P`). `node tools/perf/run.mjs
 gpu-features` lists what the host's WebGPU adapter offers in the same
@@ -339,12 +339,6 @@ steady loop's allocation sites.
 (`dist/editor/editor-worker.js`, loaded next to the editor page on first
 use), so the page keeps answering input while they run:
 
-- *Bake preview (browser):* the whole bake — drawing the lightmaps with
-  WebGPURenderer on an `OffscreenCanvas` (WebGPU or WebGL 2, the editor's
-  renderer choice), reading them back, filling the padding, sRGB and the PNG
-  encoding — runs in its own worker, which ends after the bake. The Lighting
-  window's message says "(in a worker)". Placing the lightmaps in the atlas
-  still happens on the page (it reads the Scene view's objects).
 - *Asset thumbnails:* the model is still drawn on the page (the loaded models
   live there), but the PNG is encoded in the worker from a snapshot of the
   canvas instead of a synchronous read-back.

@@ -299,19 +299,14 @@ export {
   type GameControlRequest,
   type GameObserveRequest,
   type PlayState,
-} from './m3';// Light baking shared by the editor and the backend.
+} from './m3';
+// Whether a bake is stale (the editor's stale check, the bake's record).
 export {
   bakeHashes,
   bakeLightMode,
   hash16,
   isBakeStatic,
-  LIGHTMAP_MAX_ATLAS,
-  LIGHTMAP_MAX_ATLASES,
-  packLightmaps,
   type BakeHashEntity,
-  type LightmapItem,
-  type LightmapPacking,
-  type LightmapPlacement,
 } from './bake';
 
 // The change record on the WS (no previous side; keyed lists as deltas).

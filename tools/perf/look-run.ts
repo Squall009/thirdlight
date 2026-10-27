@@ -1,8 +1,8 @@
 /**
  * The look-reference scenes measured and photographed (`node tools/perf/run.mjs
  * look …`): each scene of look.ts built through a private backend, its
- * lighting baked in the editor on the host's GPU ("Bake preview" for the
- * lightmaps, then "Bake probes", both timed), exported, and the export
+ * lighting baked in the editor on the host's GPU ("Bake lighting", timed),
+ * exported, and the export
  * measured like the level classes (frame-run.ts: 1920×1080 at DPR 1, the
  * host's GPU, always at the display's 60 Hz cap) with a screenshot per
  * renderer.
@@ -29,7 +29,7 @@ import { launchGpuBrowser, measurePage, serveStatic, sourcesOf, type FrameRender
 import jpeg from 'jpeg-js';
 
 import { buildLook, LEAK_SCENES, LOOK_PLANS, LOOK_SCENES, type LookScene } from './look';
-import { bakeProbesInEditor } from './probe-bake-run';
+import { bakeLightingInEditor } from './bake-run';
 import { frameLine } from './village-run';
 
 interface LookReport {
@@ -77,7 +77,7 @@ export async function runLookCli(argv: readonly string[]): Promise<void> {
       const projectId = `look-${scene}`;
       const build = await buildLook(be, projectId, scene, bake ? 'baked' : 'realtime');
       log(`${scene}: built in ${build.ms} ms (${build.commands} commands); shows ${LOOK_PLANS[scene].shows}`);
-      const baked = bake ? await bakeProbesInEditor(be, projectId, (s) => log(`${scene}: ${s}`), { lightmap: true }) : undefined;
+      const baked = bake ? await bakeLightingInEditor(be, projectId, (s) => log(`${scene}: ${s}`)) : undefined;
       const t = performance.now();
       const res = await be.post(`/api/v1/admin/projects/${projectId}/export`, {});
       if (res.status !== 200) throw new Error(`export failed: ${JSON.stringify(res.json).slice(0, 400)}`);

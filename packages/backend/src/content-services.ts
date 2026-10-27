@@ -13,7 +13,6 @@ import type { SessionError } from '@thirdlight/protocol';
 import type { WorkspaceService } from '@thirdlight/workspace';
 
 import { createAssetFileCheck, reimportProblemLines } from './asset-files';
-import { createBakeService } from './bake';
 import type { BackendConfig } from './config';
 import { ContentRoutes, type createAssetInspector } from './content';
 import { createDecalPageAssembler } from './decal-page-assembly';
@@ -94,12 +93,6 @@ export function createContentServices(deps: ContentServicesDeps) {
     textureSlots,
     assetFiles,
     thumbnails: createThumbnailCache((projectId) => service.importCacheDir(projectId)),
-    bakes: createBakeService({
-      ...(config.bake !== undefined ? { host: config.bake.host } : {}),
-      blender: config.bake?.blender ?? 'blender',
-      timeoutMs: config.bake?.timeoutMs ?? 3_600_000,
-      workRoot: join(config.dataRoot, 'cache', 'bakes'),
-    }),
   });
   return { textureEncoder, decalPages, heightChecks, textureSlots, textures, assetFiles, packs, folderImport, contentRoutes };
 }

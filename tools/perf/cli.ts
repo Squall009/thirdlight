@@ -18,7 +18,7 @@
  *   village [options]              the village class's export against plain three.js (tools/perf/village-run.ts lists its options)
  *   level [options]                the level-building classes, block area and landscape (tools/perf/level-run.ts lists its options)
  *   blocks [options]               block meshing hitches on the blocks class (tools/perf/blocks-run.ts lists its options)
- *   probe-bake [options]           the editor's probe bake on the village or blocks class (tools/perf/probe-bake-run.ts)
+ *   bake [options]                 the editor's "Bake lighting" on the village or blocks class (tools/perf/bake-run.ts)
  *   export-size [options]          what an export downloads, raw/gzip/brotli (tools/perf/export-size.ts lists its options)
  *   trim [options]                 the trim material's GPU cost against the standard material on one mesh (tools/perf/trim-run.ts)
  *   meadow [options]               the meadow class (1 km² of terrain under grass cover) at the 60 Hz cap, and the GPU grass density sweep (tools/perf/meadow-run.ts)
@@ -50,9 +50,9 @@ if (argv[0] === 'level') {
   await runLevelCli(argv.slice(1));
   process.exit(process.exitCode ?? 0);
 }
-if (argv[0] === 'probe-bake') {
-  const { runProbeBakeCli } = await import('./probe-bake-run');
-  await runProbeBakeCli(argv.slice(1));
+if (argv[0] === 'bake') {
+  const { runBakeCli } = await import('./bake-run');
+  await runBakeCli(argv.slice(1));
   process.exit(process.exitCode ?? 0);
 }
 if (argv[0] === 'blocks') {

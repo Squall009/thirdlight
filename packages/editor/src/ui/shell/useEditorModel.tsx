@@ -384,7 +384,7 @@ export function useEditorModel() {
   // The kit editor (its tab and the Inspector beside it share its state).
   const kitEditor = useKitEditor(clientRef, workspace, content.kits, ui.revision);
   const activeScene = sceneHeaders?.find((h) => h.active) ?? null;
-  const bake = useLightingBake(clientRef, viewportRef, activeScene, refreshEntities, toolWindows.isOpen('lighting'), sceneRenderer?.api ?? null);
+  const bake = useLightingBake(clientRef, viewportRef, activeScene, sceneRenderer?.api ?? null);
   lightingBakeRef.current = (relayId, sceneId) => {
     const ack = (r: { ok: true; message: string } | { ok: false; code: string; message: string }): void =>
       clientRef.current?.sendRelayAck(r.ok ? { type: 'lighting.bake.ack', relayId, ok: true, message: r.message.slice(0, LIGHTING_BAKE_MESSAGE_MAX) } : { type: 'lighting.bake.ack', relayId, ok: false, error: { code: r.code, message: r.message.slice(0, LIGHTING_BAKE_MESSAGE_MAX) } });

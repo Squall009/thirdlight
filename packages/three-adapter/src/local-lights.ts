@@ -150,24 +150,15 @@ function buildMode(builder: { material?: unknown }): LocalLightMode {
 type RenderObjectFn = (this: unknown, object: THREE.Object3D, scene: THREE.Scene, camera: THREE.Camera, geometry: THREE.BufferGeometry, material: THREE.Material, group?: unknown, lightsNode?: unknown, clippingContext?: unknown, passId?: unknown) => void;
 
 /**
- * `scene.userData[LOCAL_LIGHTS_IGNORED_KEY]`: the scene draws every object
- * with its material as it is, whatever its or the material's mode (the probe
- * bake: a lamp's bounce off a surface that takes no local light itself is
- * still light in the room).
- */
-export const LOCAL_LIGHTS_IGNORED_KEY = 'tlLocalLightsIgnored';
-
-/**
  * Draw each object with the variant of its mode. Shadow and other override
  * passes draw with their own material and are left alone; unlit materials
- * have no lights to split; a scene marked {@link LOCAL_LIGHTS_IGNORED_KEY}
- * draws every object per pixel.
+ * have no lights to split.
  */
 export function installLocalLightModes(renderer: { renderObject: RenderObjectFn }): void {
   const base = renderer.renderObject;
   // Named arguments, not a rest array: this runs for every draw.
   renderer.renderObject = function renderObjectWithMode(this: unknown, object, scene, camera, geometry, material, group, lightsNode, clippingContext, passId) {
-    if (scene.overrideMaterial === null && scene.userData[LOCAL_LIGHTS_IGNORED_KEY] !== true && isLit(material)) {
+    if (scene.overrideMaterial === null && isLit(material)) {
       const mode = drawMode(object, material);
       // A surface with a saved lightmap keeps drawing it until the scene is baked again.
       const textures = (material as { lightMap?: unknown }).lightMap ? undefined : (scene.userData[SURFACE_READ_LIVE_KEY] as SurfaceCacheTextures | undefined);

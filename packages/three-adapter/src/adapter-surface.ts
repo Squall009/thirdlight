@@ -167,7 +167,6 @@ export function createAdapterSurface(p: AdapterParts, frame: AdapterFrame, x: Ad
       out.fromArray(graph.world.world, i * 16);
       return true;
     },
-    architectureBake: () => ({ meshes: (id) => level.architecture.meshes(id), rooms: (inset) => level.archHost.rooms.roomBoxes(inset) }),
     entityObject: (entityId, create) => (state.disposed ? null : ((create === true ? graph.nodeFor(entityId) : graph.node(entityId)) ?? null)),
     entityOf(object): string | null {
       for (let o: THREE.Object3D | null = object; o !== null; o = o.parent) if (o instanceof EntityNode) return o.entityId;

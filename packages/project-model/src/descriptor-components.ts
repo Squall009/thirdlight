@@ -798,7 +798,7 @@ export const fogVolume: ComponentDescriptor = {
 export const probeVolume: ComponentDescriptor = {
   name: 'probeVolume',
   label: 'Probe volume',
-  tooltip: 'A box the probe bake fills with light probes (Lighting window → Bake probes). Without any, the bake covers the static objects.',
+  tooltip: 'A box the earlier probe bake filled with light probes. Not read now: the live probes, and what Bake lighting saves of them, stand where the scene\'s geometry and rooms put them.',
   category: 'Rendering',
   value: obj('probeVolume', 'Probe volume', 'A box of light probes.', [
     vec3('size', 'Size', 'Width, height and depth (axis-aligned in the world).', { required: true, min: 0, minExclusive: true, max: 100000, step: 1, unit: 'm', default: [16, 6, 16], labels: ['w', 'h', 'd'], handle: 'box3' }),

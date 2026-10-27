@@ -17,8 +17,8 @@
  *   moon: the sign is the only real light source the eye expects.
  *
  * Every surface is static. The lights are built `realtime`, or `baked` for a
- * run that bakes (the browser's "Bake preview" bakes only baked lights), so
- * one scene shows both of today's ways of lighting it. Pure: the scenes are
+ * run that bakes ("Bake lighting" keeps a baked light's direct light and
+ * bounce), so one scene shows both ways of lighting it. Pure: the scenes are
  * fixed.
  */
 import type { PerfBackend } from './backend';

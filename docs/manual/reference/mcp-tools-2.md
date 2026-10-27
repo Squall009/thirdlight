@@ -27,7 +27,7 @@ Cameras: a virtualCamera component {rig: follow|orbitPoint|topDown|fixed|rail, p
 <a id="tool-tl_command-lighting"></a>
 ### `tl_command`: Baked lighting and probes
 
-setLighting {sceneId, lighting: null} clears a scene's baked lightmaps and probes (bakes are made in the editor's Lighting window; probes there with "Bake probes", WebGPU only); a probeVolume component {size [w,h,d] m, spacing? m} sets where the probe bake puts probes (none: over the static objects).
+setLighting {sceneId, lighting: null} clears a scene's bake (bakes are made by "Bake lighting": the editor's Lighting window, or tl_bake_lighting; WebGPU); a probeVolume component {size [w,h,d] m, spacing? m} is kept for the earlier probe bake and not read now (the live probes stand where the scene's geometry and rooms put them).
 
 <a id="tool-tl_command-animation"></a>
 ### `tl_command`: Animation: animator controllers

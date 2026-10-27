@@ -13,7 +13,7 @@ import type { JSX } from 'react';
 import type { SessionClient } from '../../session/client';
 import { ASSET_DRAG_TYPE, PREFAB_DRAG_TYPE, parseAssetDrag } from '../../session/placement';
 import { startsCopy } from '../../session/prefab-copy';
-import { publishBakeTexture } from '../../viewport/bake-run';
+import { publishFileAsset } from '../../session/publish-file';
 import { MenuBar } from '../MenuBar';
 import { Hierarchy, type SceneAction } from '../Hierarchy';
 import { Toolbar } from '../Toolbar';
@@ -91,7 +91,7 @@ function makeBlockModeHost(m: EditorModel, via?: SessionClient): BlockModeHost {
         setNotice(`${file.name}: a block look is a GLB file (export glTF binary from the modelling tool).`);
         return null;
       }
-      const id = await publishBakeTexture(c, new Uint8Array(await file.arrayBuffer()), file.name.replace(/\.[^.]+$/, ''), undefined, file.name, 'model');
+      const id = await publishFileAsset(c, new Uint8Array(await file.arrayBuffer()), file.name.replace(/\.[^.]+$/, ''), undefined, file.name, 'model');
       if (typeof id === 'string') return id;
       setNotice(id.message);
       return null;

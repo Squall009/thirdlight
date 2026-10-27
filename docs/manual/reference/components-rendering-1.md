@@ -199,7 +199,7 @@ GameObject menu: Light → Fog volume
 <a id="component-probeVolume"></a>
 ## probeVolume — Probe volume
 
-A box the probe bake fills with light probes (Lighting window → Bake probes). Without any, the bake covers the static objects.
+A box the earlier probe bake filled with light probes. Not read now: the live probes, and what Bake lighting saves of them, stand where the scene's geometry and rooms put them.
 
 - Category: Rendering
 - Added: from "+ Add component", starting as `{"size":[16,6,16]}`

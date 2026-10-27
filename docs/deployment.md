@@ -25,14 +25,10 @@ Importing FBX needs Blender on the server: `THIRDLIGHT_BLENDER` (default
 systemd unit's default `PATH` includes). How assets are stored, imported and
 streamed: [Assets](manual/features/assets.md).
 
-**The bake host.** Final light bakes run Blender Cycles on a bake host:
-`THIRDLIGHT_BAKE_HOST` is `user@host` (the backend copies the scene there
-with `scp` and runs Blender over `ssh`, so the service user needs a key
-login without a passphrase) or `local`; `THIRDLIGHT_BAKE_BLENDER` is Blender
-on that host; `THIRDLIGHT_BAKE_TIMEOUT_MINUTES` stops a bake (default 60).
-This install bakes on the RTX 5090 workstation (see the systemd unit;
-delete both lines there to switch the final bake off). What a bake does:
-[Lighting](manual/features/lighting.md).
+**Baking.** "Bake lighting" runs in the editor page on its WebGPU renderer
+(an agent's `tl_bake_lighting` asks the connected editor, else the headless
+one): the server needs no bake host. What a bake does:
+[Lighting](manual/features/lighting.md#baked-lighting).
 
 ## Start
 

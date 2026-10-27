@@ -14,7 +14,7 @@ import { batchKey, batchKeyParts, BATCH_KEY } from './batching';
 import { EffectLights } from './effect-lights';
 import { INSTANCE_SET_KEY } from './instancing';
 import { applyEntityRenderFlags } from './entity-render-flags';
-import { drawMode, installLocalLightModes, localLightsCacheKey, localLightVariant, LOCAL_LIGHTS_IGNORED_KEY, LOCAL_LIGHTS_KEY, splitLocalLights } from './local-lights';
+import { drawMode, installLocalLightModes, localLightsCacheKey, localLightVariant, LOCAL_LIGHTS_KEY, splitLocalLights } from './local-lights';
 import { variantSource } from './material-variant';
 
 const lit = () => new THREE.MeshStandardNodeMaterial();
@@ -135,12 +135,6 @@ describe('local-light modes', () => {
     scene.overrideMaterial = null;
     const plain = new THREE.MeshStandardMaterial();
     expect(variantSource(draw(plain))).toBe(plain);
-    // The probe bake's scene draws every material as it is: a material without local lights still bounces a lamp.
-    m.userData[LOCAL_LIGHTS_KEY] = 'none';
-    delete mesh.userData[LOCAL_LIGHTS_KEY];
-    expect(variantSource(draw(m))).toBe(m);
-    scene.userData[LOCAL_LIGHTS_IGNORED_KEY] = true;
-    expect(draw(m)).toBe(m);
   });
 
   it('a build in mode none leaves out the local lights and the effect pool; the sun, ambient light and every per-pixel build keep all', () => {

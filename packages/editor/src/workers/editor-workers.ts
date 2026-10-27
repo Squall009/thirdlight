@@ -9,11 +9,10 @@
  * (its buffers are transferred, so it copies what it needs — the caller's
  * own data is never detached and the inline version can still use it).
  *
- * Three lanes of the same script: `cpu` (kept: scatter, diagnostics, PNG
- * encoding), `thumbnails` (kept: model tile thumbnails, one renderer for
- * all of them, queued apart so a scroll through a large catalog never holds
- * up the small jobs) and `gpu` (one worker per job, ended after it: the
- * lightmap bake, whose renderer and scene are released at once).
+ * Two lanes of the same script: `cpu` (scatter, diagnostics, PNG encoding)
+ * and `thumbnails` (model tile thumbnails, one renderer for all of them,
+ * queued apart so a scroll through a large catalog never holds up the
+ * small jobs).
  */
 import type { FromWorker, ToWorker } from './protocol';
 import { isFromWorker } from './protocol';
@@ -26,7 +25,7 @@ export interface WorkerLike {
   terminate(): void;
 }
 
-export type Lane = 'cpu' | 'gpu' | 'thumbnails';
+export type Lane = 'cpu' | 'thumbnails';
 
 export interface RunOptions<T> {
   /** The same job on the page (identical result); runs when no worker can. */
@@ -161,7 +160,6 @@ export class EditorWorkers {
   }
 
   private lane(which: Lane): LaneWorker {
-    if (which === 'gpu') return new LaneWorker(this.options.create);
     if (which === 'thumbnails') {
       if (this.thumbnails === null || !this.thumbnails.alive) this.thumbnails = new LaneWorker(this.options.create);
       return this.thumbnails;
@@ -189,8 +187,6 @@ export class EditorWorkers {
     } catch (e) {
       if (e instanceof WorkerGone) return inline();
       throw e;
-    } finally {
-      if ((o.lane ?? 'cpu') === 'gpu') lane.kill();
     }
   }
 

@@ -234,16 +234,6 @@ export class RoomCulling implements BatchMembership, RoomsSwitch {
   }
 
   /**
-   * Each room's box (world; inset `inset` metres from its walls, floor and
-   * top): a probe volume per room, so a room's light is never read through
-   * a wall from the next room's probes.
-   */
-  roomBoxes(inset: number): { min: number[]; max: number[] }[] {
-    if (this.dirty) this.rebuild();
-    return (this.graph?.rooms ?? []).map((r) => ({ min: [r.box[0] + inset, r.floor + inset, r.box[1] + inset], max: [r.box[2] - inset, r.top - inset, r.box[3] - inset] })).filter((b) => b.max.every((v, i) => v > b.min[i]!));
-  }
-
-  /**
    * The room a kit copy standing at a world point is in, to draw copies per
    * room: the room's key ('' : the outside), null when it stands in a wall
    * (within {@link WALL_MARGIN} of another room or the outside along x or

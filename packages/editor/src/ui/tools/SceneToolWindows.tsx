@@ -8,8 +8,6 @@
  */
 import { useEffect, useState, type JSX, type RefObject } from 'react';
 import type { ProjectedEntity } from '../../session/projection';
-import { bakeIsStale } from '../../viewport/bake-run';
-import { probesAreStale } from '../../viewport/probe-bake-run';
 import { alignSkyToKeyLight } from '../../viewport/sky-align';
 import { skyTurnDegrees } from '@thirdlight/three-adapter';
 import { EnvironmentPanel } from '../EnvironmentPanel';
@@ -118,22 +116,10 @@ export function SceneToolWindows(p: SceneToolWindowsProps): JSX.Element | null {
     ) : (
       <LightingPanel
         bake={lighting[active.sceneId] ?? null}
-        stale={lighting[active.sceneId] !== undefined && bakeIsStale(lighting[active.sceneId]!, (p.clientRef.current?.projection.listEntities() ?? []).filter((e) => e.sceneId === active.sceneId), (id) => p.clientRef.current?.getBlockLayers().get(id)?.chunks)}
-        settings={b.bakeSettings}
-        onSettings={b.setBakeSettings}
         busy={b.bakeBusy}
-        finalUnavailable={b.bakeHost}
         message={b.bakeMessage}
-        onBakePreview={() => void b.bakePreview()}
-        onBakeFinal={() => void b.bakeFinal()}
         onCancel={() => b.bakeAbortRef.current?.abort()}
         onClear={() => void b.clearBake()}
-        probeSettings={b.probeSettings}
-        onProbeSettings={b.setProbeSettings}
-        probeUnavailable={b.probeUnavailable}
-        probesStale={lighting[active.sceneId]?.probes !== undefined && probesAreStale(lighting[active.sceneId]!.probes!, (p.clientRef.current?.projection.listEntities() ?? []).filter((e) => e.sceneId === active.sceneId), (id) => p.clientRef.current?.getBlockLayers().get(id)?.chunks, skyTurnDegrees(sceneLook?.sky))}
-        onBakeProbes={() => void b.bakeProbes()}
-        onClearProbes={() => void b.clearProbes()}
         onBakeLighting={() => void b.bakeLighting()}
         lightingUnavailable={b.lightingUnavailable}
         lightingStale={lighting[active.sceneId]?.surface !== undefined && surfaceBakeIsStale(lighting[active.sceneId]!.surface!, (p.clientRef.current?.projection.listEntities() ?? []).filter((e) => e.sceneId === active.sceneId), (id) => p.clientRef.current?.getBlockLayers().get(id)?.chunks, skyTurnDegrees(sceneLook?.sky))}

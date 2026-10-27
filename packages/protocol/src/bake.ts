@@ -1,114 +1,9 @@
 /**
- * The pieces of light baking the editor and the backend share —
- * lightmap atlas packing and the hashes that tell whether a bake is stale.
+ * The hashes that tell whether a scene's bake is stale: its static objects
+ * and its baked and mixed lights as they were when it was baked.
  *
  * Pure: values in, values out.
  */
-import { MAX_LIGHTMAP_ATLASES } from '@thirdlight/project-model/limits';
-
-/** One entity's lightmap: its size in texels (without padding). */
-export interface LightmapItem {
-  id: string;
-  width: number;
-  height: number;
-}
-
-export interface LightmapPlacement {
-  id: string;
-  atlas: number;
-  /** Texel rectangle of the lightmap inside the atlas (without padding). */
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  /** UV1 → atlas UV: `uv * [sx, sy] + [ox, oy]`. */
-  scaleOffset: [number, number, number, number];
-}
-
-export interface LightmapPacking {
-  atlases: { width: number; height: number }[];
-  placements: LightmapPlacement[];
-}
-
-export const LIGHTMAP_MAX_ATLAS = 2048;
-export const LIGHTMAP_MAX_ATLASES = MAX_LIGHTMAP_ATLASES;
-export const LIGHTMAP_MIN_ITEM = 4;
-
-/**
- * Shelf packing into square power-of-two atlases: the smallest single atlas
- * that holds everything, else as many `maxSize` atlases as needed (at most
- * 16). Items are sorted tallest first (ties by width, then id) so the result
- * only depends on the input set. `padding` texels surround every item (the
- * bakers dilate into them so bilinear filtering never reads a neighbour).
- */
-export function packLightmaps(items: readonly LightmapItem[], options: { maxSize?: number; padding?: number } = {}): LightmapPacking | { error: string } {
-  const maxSize = options.maxSize ?? LIGHTMAP_MAX_ATLAS;
-  const pad = options.padding ?? 2;
-  const inner = maxSize - 2 * pad;
-  const sized = items.map((it) => ({
-    id: it.id,
-    w: Math.max(LIGHTMAP_MIN_ITEM, Math.min(inner, Math.round(it.width))),
-    h: Math.max(LIGHTMAP_MIN_ITEM, Math.min(inner, Math.round(it.height))),
-  }));
-  sized.sort((a, b) => b.h - a.h || b.w - a.w || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  if (sized.length === 0) return { atlases: [], placements: [] };
-
-  const shelf = (size: number, multi: boolean): { atlas: number; x: number; y: number }[] | null => {
-    const out: { atlas: number; x: number; y: number }[] = [];
-    let atlas = 0;
-    let x = 0;
-    let y = 0;
-    let rowH = 0;
-    for (const it of sized) {
-      const w = it.w + 2 * pad;
-      const h = it.h + 2 * pad;
-      if (w > size || h > size) return null; // only at a smaller size (items are clamped to maxSize)
-      if (x + w > size) {
-        y += rowH;
-        x = 0;
-        rowH = 0;
-      }
-      if (y + h > size) {
-        if (!multi) return null;
-        atlas += 1;
-        x = 0;
-        y = 0;
-        rowH = 0;
-      }
-      out.push({ atlas, x: x + pad, y: y + pad });
-      x += w;
-      rowH = Math.max(rowH, h);
-    }
-    return out;
-  };
-
-  let size = 64;
-  let spots: { atlas: number; x: number; y: number }[] | null = null;
-  while (size <= maxSize && spots === null) {
-    spots = shelf(size, false);
-    if (spots === null) size *= 2;
-  }
-  if (spots === null) {
-    size = maxSize;
-    spots = shelf(size, true)!;
-  }
-  const count = Math.max(...spots.map((s) => s.atlas)) + 1;
-  if (count > LIGHTMAP_MAX_ATLASES) return { error: `the lightmaps need ${count} atlases of ${maxSize}²; at most ${LIGHTMAP_MAX_ATLASES} — lower the texel density` };
-  const placements = sized.map((it, i) => {
-    const s = spots![i]!;
-    return {
-      id: it.id,
-      atlas: s.atlas,
-      x: s.x,
-      y: s.y,
-      width: it.w,
-      height: it.h,
-      scaleOffset: [it.w / size, it.h / size, s.x / size, s.y / size] as [number, number, number, number],
-    };
-  });
-  placements.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  return { atlases: Array.from({ length: count }, () => ({ width: size, height: size })), placements };
-}
 
 // ---- stale detection ---------------------------------------------------------------
 
@@ -146,9 +41,11 @@ function stable(v: unknown): string {
   return JSON.stringify(v);
 }
 
-/** Static objects that take part in a bake: static, active, with a box, a model or a block layer. */
+/** Static objects that take part in a bake: static, active, with a box, a model or a block layer; generated architecture, which never moves, whether marked static or not. */
 export function isBakeStatic(e: BakeHashEntity): boolean {
-  return e.static === true && e.active !== false && (e.components['box'] !== undefined || e.components['model'] !== undefined || e.components['blockLayer'] !== undefined);
+  if (e.active === false) return false;
+  if (e.components['architecture'] !== undefined) return true;
+  return e.static === true && (e.components['box'] !== undefined || e.components['model'] !== undefined || e.components['blockLayer'] !== undefined);
 }
 
 /** Lights a bake uses: mode "baked" (direct + bounce) or "mixed" (bounce only). */
@@ -172,6 +69,7 @@ export function bakeHashes(entities: readonly BakeHashEntity[]): { staticsHash: 
     model: e.components['model'],
     materials: e.components['materials'],
     blockLayer: e.components['blockLayer'],
+    architecture: e.components['architecture'],
   }));
   const lights = entities.filter((e) => bakeLightMode(e) !== null).sort(byId).map((e) => ({
     id: e.id,

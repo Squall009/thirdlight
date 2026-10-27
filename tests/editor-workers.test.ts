@@ -7,17 +7,15 @@
  * structured-clones every message and moves the transferred buffers (as a
  * real worker boundary does), so a job that returned a detached or shared
  * buffer, or a message that cannot be cloned, fails here too. The browser
- * bundle, the OffscreenCanvas bake and the PNG encoder are covered by
- * tests/e2e/editor-workers.e2e.ts in Chromium.
+ * bundle and the PNG encoder are covered by tests/e2e/editor-workers.e2e.ts
+ * in Chromium.
  */
-import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 
 import { GRAPH_KINDS, type GraphDocument, type GraphKindDef, type MaterialDef } from '../packages/project-model/src/index';
 import { diagnoseGraph, portsResolver } from '../packages/editor/src/graph/model';
 import { graphsPortContext, materialPortContext } from '../packages/editor/src/session/material-graph';
 import { scatterTransforms, type ScatterOptions } from '../packages/editor/src/session/instances';
-import { packBakeInput, unpackBakeInput } from '../packages/editor/src/workers/bake-transfer';
 import { EditorWorkers, workersRequested, type WorkerLike } from '../packages/editor/src/workers/editor-workers';
 import { graphIssuesOf, materialIssuesOf } from '../packages/editor/src/workers/problems';
 import type { FromWorker, ToWorker } from '../packages/editor/src/workers/protocol';
@@ -108,20 +106,6 @@ describe('editor worker protocol and fallbacks', () => {
     const bad = { ...SCATTER, count: 0 };
     await expect(workers.run('scatter', () => ({ input: bad }), { inline: () => scatterTransforms(bad) })).rejects.toThrow(/count must be/);
     workers.dispose();
-  });
-
-  it('the gpu lane uses a worker per job and ends it afterwards; the cpu lane keeps one', async () => {
-    const made: ReturnType<typeof channelWorker>[] = [];
-    const workers = new EditorWorkers({ enabled: true, create: () => { const w = channelWorker(); made.push(w); return w; } });
-    await workers.run('scatter', () => ({ input: SCATTER }), { lane: 'gpu', inline: () => scatterTransforms(SCATTER) });
-    expect(made).toHaveLength(1);
-    expect(made[0]!.terminated).toBe(true);
-    await workers.run('scatter', () => ({ input: SCATTER }), { inline: () => scatterTransforms(SCATTER) });
-    await workers.run('scatter', () => ({ input: SCATTER }), { inline: () => scatterTransforms(SCATTER) });
-    expect(made).toHaveLength(2);
-    expect(made[1]!.terminated).toBe(false);
-    workers.dispose();
-    expect(made[1]!.terminated).toBe(true);
   });
 
   it('progress reaches the caller and an abort sends a cancel for the job', async () => {
@@ -251,60 +235,3 @@ describe('graph diagnostics on and off the worker', () => {
   });
 });
 
-// ---- the bake input across the boundary --------------------------------------------------
-
-describe('bake input transfer', () => {
-  it('geometries go once, keep their arrays, types, normalized flags and draw range; matrices exact; the source is not detached', () => {
-    const box = new THREE.BoxGeometry(1, 2, 3);
-    box.setAttribute('uv1', box.getAttribute('uv')!.clone());
-    // An interleaved, normalized UV1 on a second geometry (a quantized GLB).
-    const plane = new THREE.PlaneGeometry(4, 4);
-    const count = plane.getAttribute('position').count;
-    const inter = new THREE.InterleavedBuffer(new Int16Array(count * 4), 4);
-    for (let i = 0; i < count; i++) inter.array.set([i * 100, -i * 50, 7, 9], i * 4);
-    plane.setAttribute('uv1', new THREE.InterleavedBufferAttribute(inter, 2, 0, true));
-    plane.setDrawRange(0, 3);
-    const m1 = new THREE.Matrix4().makeRotationY(0.3).setPosition(1.25, -2, 3.5);
-    const m2 = new THREE.Matrix4().makeScale(2, 1, 0.5);
-    const input = {
-      atlases: [{ width: 256, height: 128 }],
-      targets: [
-        { entityId: 'a', atlas: 0, scaleOffset: [0.5, 0.5, 0, 0] as [number, number, number, number], meshes: [{ geometry: box, matrixWorld: m1 }, { geometry: box, matrixWorld: m2 }] },
-        { entityId: 'b', atlas: 0, scaleOffset: [0.25, 0.5, 0.5, 0] as [number, number, number, number], meshes: [{ geometry: plane, matrixWorld: m2 }] },
-      ],
-      occluders: [{ geometry: box, matrixWorld: m2 }],
-      lights: [{ type: 'directional' as const, color: '#ffffff', intensity: 1.2, direction: [0.4, -1, -0.3] as [number, number, number] }],
-      samples: 16,
-      range: 4,
-      padding: 2,
-      renderer: 'webgl2' as const,
-    };
-    const { input: packed, transfer } = packBakeInput(input);
-    expect(packed.geometries).toHaveLength(2);
-    const moved = structuredClone(packed, { transfer });
-    // The Scene view's arrays are still whole after the copies moved.
-    expect(box.getAttribute('position').array.length).toBe(box.getAttribute('position').count * 3);
-    expect(inter.array.length).toBe(count * 4);
-    const back = unpackBakeInput(moved);
-    const [ga, gb] = [back.targets[0]!.meshes[0]!.geometry, back.targets[1]!.meshes[0]!.geometry];
-    expect(back.targets[0]!.meshes[1]!.geometry).toBe(ga);
-    expect(back.occluders[0]!.geometry).toBe(ga);
-    for (const name of ['position', 'normal', 'uv1']) {
-      expect(Array.from(ga.getAttribute(name)!.array)).toEqual(Array.from(box.getAttribute(name)!.array));
-    }
-    expect(Array.from(ga.getIndex()!.array)).toEqual(Array.from(box.getIndex()!.array));
-    const uv = gb.getAttribute('uv1') as THREE.BufferAttribute;
-    expect(uv.array).toBeInstanceOf(Int16Array);
-    expect(uv.normalized).toBe(true);
-    const src = plane.getAttribute('uv1');
-    for (let i = 0; i < count; i++) {
-      expect(uv.getX(i)).toBe(src.getX(i));
-      expect(uv.getY(i)).toBe(src.getY(i));
-    }
-    expect([gb.drawRange.start, gb.drawRange.count]).toEqual([0, 3]);
-    expect(back.targets[0]!.meshes[0]!.matrixWorld.elements).toEqual(m1.elements);
-    expect(back.targets[1]!.meshes[0]!.matrixWorld.elements).toEqual(m2.elements);
-    expect(back.lights).toEqual(input.lights);
-    expect({ ...back, targets: undefined, occluders: undefined }).toEqual({ atlases: input.atlases, lights: input.lights, samples: 16, range: 4, padding: 2, renderer: 'webgl2', targets: undefined, occluders: undefined });
-  });
-});

@@ -21,7 +21,7 @@ import { activeDoc, type WorkspaceState } from '../../session/editor-window';
 import type { CommandResult, SessionClient } from '../../session/client';
 import { kitPieceAssets, kitSheetSwap, repointBlockType, repointMapping, repointPreset, withoutShared, type SharedKitPart } from '../../session/kit-edits';
 import { mergeDocumentEdit } from '../../session/own-commands';
-import { publishBakeTexture } from '../../viewport/bake-run';
+import { publishFileAsset } from '../../session/publish-file';
 import { refusal, type ClientRef } from '../shell/commands';
 
 /** What the kit editor has picked: a slot (and which of its variants), or one of its block types. */
@@ -137,7 +137,7 @@ export function useKitEditor(clientRef: ClientRef, workspace: WorkspaceState, ki
     if (!/\.glb$/i.test(file.name)) return { message: `${file.name}: a kit piece is a GLB file (export glTF binary from the modelling tool).` };
     setBusy(`Importing ${file.name}…`);
     try {
-      const id = await publishBakeTexture(c, new Uint8Array(await file.arrayBuffer()), file.name.replace(/\.[^.]+$/, ''), undefined, file.name, 'model');
+      const id = await publishFileAsset(c, new Uint8Array(await file.arrayBuffer()), file.name.replace(/\.[^.]+$/, ''), undefined, file.name, 'model');
       if (typeof id !== 'string') setError(id.message);
       return id;
     } finally {

@@ -4,14 +4,6 @@ _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit
 
 The limits and defaults `@thirdlight/protocol` defines, by source file. Values are the running build's.
 
-<a id="limits-protocol--bake"></a>
-## `bake.ts`
-
-| Constant | Value | What it is |
-|---|---|---|
-| <a id="limit-lightmap-max-atlas"></a>`LIGHTMAP_MAX_ATLAS` | `2048` |  |
-| <a id="limit-lightmap-max-atlases"></a>`LIGHTMAP_MAX_ATLASES` | `16` |  |
-
 <a id="limits-protocol--bridge"></a>
 ## `bridge.ts`
 

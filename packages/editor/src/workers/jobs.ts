@@ -8,32 +8,24 @@
  * - `encodePng`: RGBA pixels or an `ImageBitmap` to PNG bytes
  *   (`OffscreenCanvas.convertToBlob`);
  * - `modelThumbnail`: a model file's tile thumbnails, drawn on an
- *   `OffscreenCanvas` (model-thumbnail.ts);
- * - `bake`: the whole browser lightmap bake on an `OffscreenCanvas`
- *   (WebGPURenderer runs in a worker on WebGPU and on WebGL 2), then the
- *   atlases as PNG bytes.
+ *   `OffscreenCanvas` (model-thumbnail.ts).
  *
  * DOM-free: every job needs only what a dedicated worker has.
  */
 import type { GraphDocument, GraphKindDef, MaterialDef } from '@thirdlight/project-model';
-import { bakeLightmapsInBrowser, type BrowserBakeResult } from '@thirdlight/three-adapter';
 
 import { scatterTransforms, type ScatterOptions } from '../session/instances';
-import { unpackBakeInput, type PackedBakeInput } from './bake-transfer';
 import { graphIssuesOf, materialIssuesOf, type GraphIssue, type MaterialIssue } from './problems';
 import { encodePngOffscreen, type EncodeInput } from './png-offscreen';
 import { renderModelThumbnails, type ModelThumbnailInput, type ModelThumbnailOutput } from './model-thumbnail';
 
 export { encodePngOffscreen, type EncodeInput } from './png-offscreen';
 
-export type BakeJobResult = { ok: true; pngs: Uint8Array[]; millis: number } | Extract<BrowserBakeResult, { ok: false }>;
-
 export interface JobTypes {
   scatter: { input: ScatterOptions; output: Float32Array };
   graphIssues: { input: { graphs: readonly GraphDocument[]; kinds: Readonly<Record<string, GraphKindDef>> }; output: GraphIssue[] };
   materialIssues: { input: { materials: readonly MaterialDef[]; graphs: readonly GraphDocument[]; kinds: Readonly<Record<string, GraphKindDef>>; textureIds: readonly string[] }; output: MaterialIssue[] };
   encodePng: { input: EncodeInput; output: Uint8Array };
-  bake: { input: PackedBakeInput; output: BakeJobResult };
   modelThumbnail: { input: ModelThumbnailInput; output: ModelThumbnailOutput };
 }
 
@@ -70,12 +62,5 @@ export const JOBS: Handlers = {
   async modelThumbnail(input) {
     const output = await renderModelThumbnails(input);
     return { output, transfer: [...(output.file !== null ? [output.file.buffer] : []), ...output.pieces.map((p) => p.png.buffer)] };
-  },
-  async bake(input, ctx) {
-    const result = await bakeLightmapsInBrowser({ ...unpackBakeInput(input), canvas: new OffscreenCanvas(4, 4), onProgress: (d, t) => ctx.progress(d, t), signal: ctx.signal });
-    if (!result.ok) return { output: result, transfer: [] };
-    const pngs: Uint8Array[] = [];
-    for (const a of result.atlases) pngs.push(await encodePngOffscreen({ pixels: a.pixels, width: a.width, height: a.height }));
-    return { output: { ok: true, pngs, millis: result.millis }, transfer: pngs.map((p) => p.buffer) };
   },
 };

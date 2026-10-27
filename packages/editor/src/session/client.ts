@@ -3,8 +3,8 @@
  * client. `SessionClientCore` (`client-core.ts`) holds the connection, the
  * projection and the command path; this subclass adds the project operations
  * that go over HTTP: gameplay authoring queries and commands, the content
- * browser, behavior publication, instance buffers, thumbnails, the light
- * bake, asset uploads, project-file imports and content jobs.
+ * browser, behavior publication, instance buffers, thumbnails,
+ * asset uploads, project-file imports and content jobs.
  */
 
 import type { FolderImportView } from './folder-upload';
@@ -575,59 +575,6 @@ export class SessionClient extends SessionClientCore {
     if (res.status === 204 || res.status === 404) return null;
     if (!res.ok) throw new Error(`thumbnail read failed (HTTP ${res.status})`);
     return res.blob();
-  }
-
-  // ---- The final light bake (Blender on the bake host) --------------
-
-  /** Whether the backend has a bake host. */
-  async bakeHostStatus(): Promise<{ ok: true; host: string } | { ok: false; message: string }> {
-    try {
-      return await this.request<{ ok: true; host: string } | { ok: false; message: string }>(`/projects/${this.cfg.projectId}/content/bake/host`, { method: 'GET' });
-    } catch (e) {
-      return { ok: false, message: this.describeError(e).message };
-    }
-  }
-
-  /** Start a bake with a bake package (see backend bake.ts). */
-  async startBake(pkg: Uint8Array): Promise<{ ok: true; jobId: string } | { ok: false; error: { code: string; message: string } }> {
-    try {
-      const r = await this.request<{ ok: true; jobId: string }>(`/projects/${this.cfg.projectId}/content/bake/jobs`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/octet-stream' },
-        body: pkg as unknown as BodyInit,
-      });
-      return { ok: true, jobId: r.jobId };
-    } catch (e) {
-      return { ok: false, error: this.describeError(e) };
-    }
-  }
-
-  async bakeJob(jobId: string): Promise<{ ok: true; job: { state: string; progress: { done: number; total: number }; message: string | null; atlases: number; millis: number | null; device: string | null } } | { ok: false; error: { code: string; message: string } }> {
-    try {
-      const r = await this.request<{ ok: true; job: { state: string; progress: { done: number; total: number }; message: string | null; atlases: number; millis: number | null; device: string | null } }>(
-        `/projects/${this.cfg.projectId}/content/bake/jobs/${jobId}`,
-        { method: 'GET' },
-      );
-      return { ok: true, job: r.job };
-    } catch (e) {
-      return { ok: false, error: this.describeError(e) };
-    }
-  }
-
-  async bakeAtlas(jobId: string, index: number): Promise<Uint8Array> {
-    const res = await fetch(`${this.cfg.authoringOrigin}/api/v1/projects/${this.cfg.projectId}/content/bake/jobs/${jobId}/atlases/${index}`, {
-      headers: { authorization: `Bearer ${this.cfg.authoringToken}`, origin: this.cfg.authoringOrigin },
-    });
-    if (!res.ok) throw new Error(`lightmap ${index} could not be read (HTTP ${res.status})`);
-    return new Uint8Array(await res.arrayBuffer());
-  }
-
-  async cancelBake(jobId: string): Promise<void> {
-    try {
-      await this.request(`/projects/${this.cfg.projectId}/content/bake/jobs/${jobId}`, { method: 'DELETE' });
-    } catch {
-      // the job may already be over
-    }
   }
 
   /** Store a rendered tile thumbnail (PNG) in the backend's cache. */

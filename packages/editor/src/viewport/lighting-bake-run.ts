@@ -9,15 +9,56 @@
  *
  * Browser-only.
  */
-import { bakeHashes, type BakeHashEntity } from '@thirdlight/protocol';
+import { bakeHashes, hash16, type BakeHashEntity } from '@thirdlight/protocol';
 import { encodeSavedSurface, savedSurfaceFiles, skyTurnDegrees, SURFACE_TEXEL_METRES } from '@thirdlight/three-adapter';
-import type { LightingBake, SurfaceBake } from '@thirdlight/project-model';
+import type { BlockChunk, LightingBake, SurfaceBake } from '@thirdlight/project-model';
 
 import type { SessionClient } from '../session/client';
 import type { ProjectedEntity } from '../session/projection';
-import { bakeHashEntity, publishBakeTexture } from './bake-run';
-import { sameTurn } from './probe-bake-run';
+import { publishFileAsset } from '../session/publish-file';
 import type { Viewport } from './viewport';
+
+/** A block layer's stored cells, per layer entity (what a bake of the layer was made from). */
+export type BlockCellsOf = (entityId: string) => ReadonlyMap<string, BlockChunk> | undefined;
+
+const cellDigests = new WeakMap<ReadonlyMap<string, BlockChunk>, string>();
+
+/** A digest of a layer's chunks (cached per stored chunk map: the client replaces the map when cells change). */
+function cellsDigest(chunks: ReadonlyMap<string, BlockChunk>): string {
+  let d = cellDigests.get(chunks);
+  if (d === undefined) {
+    d = hash16(JSON.stringify([...chunks.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))));
+    cellDigests.set(chunks, d);
+  }
+  return d;
+}
+
+/** The hash view of a projected entity (the same for the bake and the stale check); a block layer carries its cells' digest. */
+export function bakeHashEntity(e: ProjectedEntity, cellsOf?: BlockCellsOf): BakeHashEntity {
+  const layer = e.components['blockLayer'];
+  const chunks = layer !== undefined ? cellsOf?.(e.id) : undefined;
+  return {
+    id: e.id,
+    parentId: e.parentId,
+    active: e.active,
+    static: e.static,
+    components: {
+      transform: { position: e.position, rotation: e.rotation, scale: e.scale },
+      ...(e.box !== undefined ? { box: e.box } : {}),
+      ...(e.kind === 'model' && e.assetId !== undefined ? { model: { assetId: e.assetId, ...(e.piece !== undefined ? { piece: e.piece } : {}) } } : {}),
+      ...(e.materials !== undefined ? { materials: e.materials } : {}),
+      ...(e.light !== undefined ? { light: e.light } : {}),
+      ...(layer !== undefined ? { blockLayer: { ...(layer as Record<string, unknown>), ...(chunks !== undefined ? { cells: cellsDigest(chunks) } : {}) } } : {}),
+      ...(e.components['architecture'] !== undefined ? { architecture: e.components['architecture'] } : {}),
+    },
+  };
+}
+
+/** Two turns in degrees are the same turn (0 and 360, 180 and −180 are). */
+export function sameTurn(a: number, b: number): boolean {
+  const d = (((a - b) % 360) + 360) % 360;
+  return Math.min(d, 360 - d) < 1e-6;
+}
 
 export interface LightingBakeDeps {
   client: SessionClient;
@@ -38,7 +79,7 @@ export function lightingBakeSummary(s: SurfaceBake): string {
 export async function runLightingBake(deps: LightingBakeDeps): Promise<LightingBakeResult> {
   const { client, viewport, sceneId } = deps;
   if (viewport.getLighting() !== 'game') viewport.setLighting('game');
-  const ran = await viewport.probeBakeContext().bakeLighting({ onProgress: (text, f) => deps.onProgress(text, f * 0.9), ...(deps.signal !== undefined ? { signal: deps.signal } : {}) });
+  const ran = await viewport.bakeLighting({ onProgress: (text, f) => deps.onProgress(text, f * 0.9), ...(deps.signal !== undefined ? { signal: deps.signal } : {}) });
   if (!ran.ok) return ran;
   // A user-timing mark (DevTools, the e2e): the light is settled and read back; what follows is saving it.
   performance.mark('tl:lighting:baked');
@@ -54,7 +95,7 @@ export async function runLightingBake(deps: LightingBakeDeps): Promise<LightingB
   let bytes = 0;
   for (let i = 0; i < files.length; i++) {
     deps.onProgress(`saving ${i + 1}/${files.length}`, 0.9 + (0.1 * i) / files.length);
-    const id = await publishBakeTexture(client, files[i]!, `lighting ${deps.sceneName}${files.length > 1 ? ` ${i + 1}` : ''}`, previous?.surface?.files[i], 'lighting file');
+    const id = await publishFileAsset(client, files[i]!, `lighting ${deps.sceneName}${files.length > 1 ? ` ${i + 1}` : ''}`, previous?.surface?.files[i], 'lighting file');
     if (typeof id !== 'string') return { ok: false, message: id.message };
     ids.push(id);
     bytes += files[i]!.byteLength;
@@ -99,7 +140,7 @@ export async function runLightingBake(deps: LightingBakeDeps): Promise<LightingB
 }
 
 /** Whether a scene's saved lighting no longer matches its static objects, baked or mixed lights or the sky's turn (it is still drawn). */
-export function surfaceBakeIsStale(surface: SurfaceBake, sceneEntities: readonly ProjectedEntity[], cellsOf: Parameters<typeof bakeHashEntity>[1], skyTurn = 0): boolean {
+export function surfaceBakeIsStale(surface: SurfaceBake, sceneEntities: readonly ProjectedEntity[], cellsOf: BlockCellsOf, skyTurn = 0): boolean {
   const h = bakeHashes(sceneEntities.map((e) => bakeHashEntity(e, cellsOf)));
   return h.staticsHash !== surface.staticsHash || h.lightsHash !== surface.lightsHash || !sameTurn(surface.skyRotation ?? 0, skyTurn);
 }

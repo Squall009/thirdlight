@@ -33,8 +33,8 @@
  *                                (village.ts addVillageFlight; not in the baseline): what streams round a moving view
  *   --fire-gpu-systems           every fire also has flames (64) and smoke (48, alpha-sorted) beside its sparks (village.ts
  *                                addFireGpuSystems; not in the baseline): many plays of one GPU-simulated effect
- *   --probes                     bake the class's probes in the editor (WebGPU) before the export: the export then
- *                                draws with probe lighting (its cost against a run without)
+ *   --bake                       "Bake lighting" in the editor (WebGPU) before the export: the export then draws the
+ *                                saved light where it is not live (its cost against a run without; the bake's time)
  *   --synthetic-probes N         record about N synthetic probe tiles (probe-synthetic.ts: a 2 m grid over a square
  *                                around the village, ~2 km a side for 512) as the scene's probe bake: probe streaming
  *                                at world scale (its frame time against --switches probes=off, the tiles' arrival)
@@ -69,7 +69,7 @@ import { hiddenFractions, ORACLE_KINDS, type OracleShare } from '@thirdlight/thr
 
 import { PERF_ROOT, REPO, startPerfBackend } from './backend';
 import { launchGpuBrowser, measurePage, serveStatic, sourcesOf, type FrameRenderer, type FrameRunResult, type PageStep } from './frame-run';
-import { bakeProbesInEditor } from './probe-bake-run';
+import { bakeLightingInEditor } from './bake-run';
 import { addSyntheticProbes } from './probe-synthetic';
 import { measureSceneView, sceneViewLine, type SceneViewResult } from './scene-view-run';
 import { FRAME_HISTOGRAM_EDGES_MS } from './stats';
@@ -112,8 +112,10 @@ export interface VillageReport {
   machine: { cpu: string; cores: number; gpu: string };
   subject: { name: string; version?: number; seed?: number; build?: VillageBuild; exportMs?: number };
   export: Partial<Record<FrameRenderer, FrameRunResult>>;
-  /** `--probes`: the probe bake before the export. */
+  /** `--synthetic-probes`: the probe tiles recorded before the export. */
   probes?: Record<string, unknown>;
+  /** `--bake`: "Bake lighting" before the export. */
+  bake?: Record<string, unknown>;
   bare: Partial<Record<BareVariant, Partial<Record<FrameRenderer, FrameRunResult>>>>;
   /** The editor's Scene view on the same content (`--scene-view`). */
   sceneView?: Partial<Record<FrameRenderer, SceneViewResult>>;
@@ -382,7 +384,7 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
       report.seeThrough = { subjects, byRenderer: {} };
       log(`village: see-through subjects ${subjects.join(', ')}`);
     }
-    if (has('probes')) report.probes = await bakeProbesInEditor(be, projectId, log);
+    if (has('bake')) report.bake = await bakeLightingInEditor(be, projectId, log);
     if (get('synthetic-probes') !== undefined) report.probes = { synthetic: await addSyntheticProbes(be, projectId, 'scene-main', Number(get('synthetic-probes')), log) };
     if (sceneView) {
       const browser = await launchGpuBrowser({ vsync: capped });

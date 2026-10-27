@@ -599,23 +599,6 @@ export class ArchitectureView {
     return out;
   }
 
-  /** An object's drawn meshes at full detail (its chunks' near levels; kit copies left out): what a probe bake sees of it. */
-  meshes(id: string): THREE.Mesh[] {
-    const out: THREE.Mesh[] = [];
-    const visit = (o: THREE.Object3D): void => {
-      if ((o as THREE.LOD).isLOD === true) {
-        const first = (o as THREE.LOD).levels[0]?.object;
-        if (first !== undefined) visit(first);
-        return;
-      }
-      const m = o as THREE.Mesh;
-      if (m.isMesh === true && (m as THREE.InstancedMesh).isInstancedMesh !== true) out.push(m);
-      for (const c of o.children) visit(c);
-    };
-    for (const ch of this.recs.get(id)?.chunks.values() ?? []) if (ch.built !== null) visit(ch.built.group);
-    return out;
-  }
-
   /** Once a frame before the draw: drop released objects, send jobs nearest `eye` first, draw arrived chunks within the frame's arrival time. */
   update(eye: ArrayLike<number>): void {
     // A Map may lose the entry being visited: no copy of it each frame.

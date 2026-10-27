@@ -2,7 +2,7 @@
  * The editor worker entry (bundled by tools/build.mjs as
  * dist/editor/editor-worker.js, loaded next to the editor page). It runs the
  * job table (`jobs.ts`) for the page: scatter, graph diagnostics, PNG
- * encoding and the browser lightmap bake on an OffscreenCanvas.
+ * encoding on an OffscreenCanvas.
  */
 import type { ToWorker } from './protocol';
 import { createWorkerHost } from './worker-host';

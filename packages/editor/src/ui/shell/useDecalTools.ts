@@ -27,7 +27,7 @@ import { DECAL_TOOL_DEFAULTS, decalToolSettingsError, type DecalToolSettings } f
 import { deletedIds, deleteEntitiesArgs } from '../../session/delete-entities';
 import type { ProjectedEntity } from '../../session/projection';
 import { createEntitiesArgs } from '../../session/request-batches';
-import { publishBakeTexture } from '../../viewport/bake-run';
+import { publishFileAsset } from '../../session/publish-file';
 import type { DecalToolMode } from '../../viewport/decal-tool';
 import { unionBoxes, type FrameBox } from '../../viewport/frame-view';
 import { bakeClippedDecal } from './decal-bake';
@@ -268,7 +268,7 @@ export function useDecalTools(deps: DecalToolsDeps): DecalTools {
       const name = file.name.replace(/\.[^.]+$/, '');
       setBusy(`Importing ${file.name}…`);
       try {
-        const id = await publishBakeTexture(c, new Uint8Array(await file.arrayBuffer()), name, undefined, file.name);
+        const id = await publishFileAsset(c, new Uint8Array(await file.arrayBuffer()), name, undefined, file.name);
         if (typeof id !== 'string') return setNotice(id.message);
         await fromTexture(id, name);
       } finally {

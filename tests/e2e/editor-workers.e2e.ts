@@ -4,11 +4,11 @@
  *
  * Long tasks (PerformanceObserver 'longtask', > 50 ms on the main thread) are
  * recorded over each job's window: a scatter of N copies into an instance
- * set, a preview bake, the asset tiles' thumbnails, graph diagnostics after
- * an edit of a 2000-node graph, and the projection of a change in a project
- * with a few thousand objects. Each window logs a `[editor-workers]` line
- * (count, longest, total) with the load average. The scatter and the preview
- * bake assert a bound on the longest task (relative and generous: this host
+ * set, the asset tiles' thumbnails, graph diagnostics after an edit of a
+ * 2000-node graph, and the projection of a change in a project with a few
+ * thousand objects. Each window logs a `[editor-workers]` line (count,
+ * longest, total) with the load average. The scatter asserts a bound on the
+ * longest task (relative and generous: this host
  * renders on the CPU and is shared with other test runs — see
  * docs/plan-phase-22.md for the numbers and the bound).
  *
@@ -46,8 +46,8 @@ function measuringOnly(): void {
 }
 
 /**
- * The bound on the longest main-thread task during a scatter and a preview
- * bake. On the main thread these jobs block it for 0.3–2 s here (CPU
+ * The bound on the longest main-thread task during a scatter. On the main
+ * thread such jobs block it for 0.3–2 s here (CPU
  * renderer, shared host); in the workers, what is left is the editor's own
  * frames and React commits. 400 ms is generous on purpose: this host's load
  * average swings between 8 and 25 while other suites run, which stretches
@@ -238,76 +238,6 @@ test('a scatter of 50 000 copies: the same buffer with and without workers; no l
   expectLongestTask(`scatter ${N} copies`, lt.longestMs, load0);
 });
 
-async function bakeScene(page: Page): Promise<void> {
-  const ground = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'ground', box: { size: [40, 0.5, 40], material: { color: '#b0b0b0' } }, transform: { position: [0, -0.25, 0] } })).createdId);
-  await cmd('updateEntity', { entityId: ground, static: true });
-  // A 40 m ground (a large lightmap: the CPU-side work grows with its texels) and a row of static boxes.
-  for (let i = 0; i < 12; i += 1) {
-    const id = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: `crate ${i}`, box: { size: [0.8, 1 + (i % 3) * 0.5, 0.8], material: { color: '#b0b0b0' } }, transform: { position: [-5 + (i % 6) * 2, 0.6, i < 6 ? -2 : 2] } })).createdId);
-    await cmd('updateEntity', { entityId: id, static: true });
-  }
-  await cmd('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 1.2, direction: [0.4, -1, -0.3], castShadow: false, mode: 'baked' } });
-  await cmd('setComponent', { entityId: 'light-0002', component: 'light', value: { type: 'ambient', color: '#8090a8', intensity: 0.6, mode: 'baked' } });
-}
-
-async function bakedAtlas(): Promise<string> {
-  const config = await query('queryGameConfig');
-  const bake = Object.values(config['lighting'] as Record<string, { atlases: string[] }>)[0]!;
-  const assets = (await query('queryAssets', { limit: 50, offset: 0 })).assets as { assetId: string; currentVersion: number }[];
-  const a = assets.find((x) => x.assetId === bake.atlases[0])!;
-  const bytes = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/content/assets/${a.assetId}/versions/${a.currentVersion}/bytes`, { headers: { authorization: `Bearer ${be.token}` } });
-  expect(bytes.status).toBe(200);
-  return createHash('sha256').update(Buffer.from(await bytes.arrayBuffer())).digest('hex');
-}
-
-test('a preview bake: no long main-thread task above the bound; the lightmap is the same with and without workers', async ({ page }) => {
-  defaultProjectOnly();
-  test.setTimeout(300_000);
-  be = await startBackend('workers-bake', undefined, extraEnv());
-  await installLongTaskObserver(page);
-  await bakeScene(page);
-  await page.goto(be.editorUrl);
-  await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await openWindow(page, 'Lighting');
-  await expect(page.locator('[aria-label="bake status"]')).toContainText('No bake for this scene');
-  await settle(page);
-  const prof = await startProfile(page);
-  const load0 = loadavg()[0]!;
-  const t0 = await now(page);
-  await page.getByRole('button', { name: 'Bake preview (browser)' }).click();
-  await expect(page.locator('[aria-label="bake status"]')).toContainText('Preview (browser) bake', { timeout: 180_000 });
-  const lt = await longTasksSince(page, t0);
-  await prof.stop('bake');
-  const where = await page.getByRole('status').textContent();
-  // The bake itself (render, read-back, dilation, encoding) ends at the 'tl:bake:rendered' mark; publishing and the
-  // Scene view loading the new lightmap follow.
-  const rendered = await page.evaluate(() => performance.getEntriesByName('tl:bake:rendered').at(-1)?.startTime ?? null);
-  expect(rendered).not.toBeNull();
-  const bakeOnly = await page.evaluate(([since, until]) => {
-    const list = (window as unknown as { __tlLong: { start: number; duration: number }[] }).__tlLong.filter((e) => e.start + e.duration >= since! && e.start <= until!);
-    return { count: list.length, longestMs: Math.round(list.reduce((m, e) => Math.max(m, e.duration), 0)), totalMs: Math.round(list.reduce((s, e) => s + e.duration, 0)), windowMs: Math.round(until! - since!) };
-  }, [t0, rendered]);
-  report('preview bake (13 objects, 64 samples), click to baked', bakeOnly, { status: where });
-  report('preview bake, click to the Scene view showing it', lt);
-  await expect(page.getByRole('status')).toContainText('Baked 13 objects');
-
-  if (label === 'after') {
-    // The same bake inline gives the same lightmap bytes (the PNG of the same pixels).
-    const worker = await bakedAtlas();
-    await page.goto(be.editorUrl.replace('#', '&workers=off#'));
-    await expect(page.locator('.tl-statusbar')).toContainText('connected');
-    await openWindow(page, 'Lighting');
-    await page.getByRole('button', { name: 'Bake preview (browser)' }).click();
-    await expect(page.getByRole('status')).toContainText('Baked 13 objects', { timeout: 180_000 });
-    await expect.poll(async () => bakedAtlas(), { timeout: 30_000 }).not.toBe('');
-    const inline = await bakedAtlas();
-    console.log(`[editor-workers] worker atlas ${worker.slice(0, 12)} inline atlas ${inline.slice(0, 12)}`);
-    expect(inline).toBe(worker);
-  }
-  expectLongestTask('preview bake', bakeOnly.longestMs, load0);
-});
-
-/** Each model tile's thumbnail PNG (by the tile's name), once every model tile shows one. */
 async function thumbnails(page: Page): Promise<Record<string, Buffer>> {
   const models = page.locator('.tl-assets__list li.tl-tile').filter({ hasText: 'model ·' });
   const total = await models.count();

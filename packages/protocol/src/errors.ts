@@ -50,12 +50,8 @@ export const ERROR_CODES = [
   // FBX import (headless Blender conversion).
   'converter_unavailable',
   'conversion_failed',
-  // The final light bake (Blender on the bake host).
-  'bake_unavailable',
-  'bake_busy',
-  'bake_package_invalid',
-  'bake_not_found',
   // "Bake lighting", run by the project's editor.
+  'bake_busy',
   'bake_failed',
   'bake_timeout',
   'scene_not_found',

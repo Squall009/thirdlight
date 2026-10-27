@@ -73,8 +73,6 @@ import { decalSurfaceOf, DECAL_PREVIEW_ID, type DecalArm, type DecalToolCallback
 import type { VertexPaintArm, VertexPaintToolCallbacks } from './vertex-paint-tool';
 import type { BrushStore } from '../session/brush';
 import { ViewportTools } from './tool-input';
-import { gatherBakeInputs, gatherBakeLights, type BakeInputs } from './bake-inputs';
-import type { ProbeBakeHost } from './probe-bake-inputs';
 import { SceneVisibility } from './scene-visibility';
 import { ViewIsolationState, type ViewIsolation } from './view-isolation';
 import { SceneSource } from './scene-source';
@@ -564,24 +562,6 @@ export class Viewport {
     this.look.setLightmaps(bakes);
   }
 
-  /**
-   * What a bake of these entities needs, in world space: each static object's
-   * meshes (with UV1: a lightmap target; without: a shadow caster only) and
-   * the baked lights. Models use their most detailed level.
-   */
-  bakeInputs(entityIds: ReadonlySet<string>): BakeInputs {
-    this.adapter.sync?.();
-    return gatherBakeInputs(
-      {
-        projected: this.projected,
-        rootOf: (e) => (e.kind === 'model' || e.kind === 'box' ? (this.adapter.entityObject?.(e.id) ?? null) : null),
-        nodeOf: (id) => this.queries.frameOf(id) ?? undefined,
-        blockView: this.adapter.blockLayers?.() ?? null,
-      },
-      entityIds,
-    );
-  }
-
   /** A texture asset as this view decodes it (the sky's image for "align the sky's sun"). */
   loadTexture(assetId: string): Promise<THREE.Texture | null> {
     return this.assets.loadTexture(assetId);
@@ -593,21 +573,13 @@ export class Viewport {
   }
 
   /**
-   * What the probe bake draws with: this view's renderer and its scene (the
-   * sky), the baked lights, and the hooks that gather the static objects and
-   * probe volumes (world matrices current).
+   * "Bake lighting": this view's live lighting run to settled (each step a
+   * frame drawn here, whether or not anything else asks for one) and read
+   * back. Refused without WebGPU.
    */
-  probeBakeContext(): { host: ProbeBakeHost; lights: BakeInputs['lights']; renderer: unknown; scene: THREE.Scene | null; bakeLighting: (o: Omit<SurfaceBakeOptions, 'frame'>) => Promise<SurfaceBakeOutcome> } {
-    this.adapter.sync?.();
-    const host: ProbeBakeHost = {
-      projected: this.projected,
-      rootOf: (e) => (e.kind === 'model' || e.kind === 'box' ? (this.adapter.entityObject?.(e.id) ?? null) : null),
-      blockView: this.adapter.blockLayers?.() ?? null,
-      architecture: this.adapter.architectureBake?.() ?? null,
-      worldMatrix: (id, out) => this.adapter.worldMatrix?.(id, out) === true,
-    };
+  bakeLighting(o: Omit<SurfaceBakeOptions, 'frame'>): Promise<SurfaceBakeOutcome> {
     const adapter = this.adapter;
-    // "Bake lighting": the live lighting run to settled, each step a frame drawn here whether or not anything else asks for one.
+    if (adapter.bakeLighting === undefined) return Promise.resolve({ ok: false, message: 'this view cannot bake lighting' });
     const frame = (): Promise<void> =>
       new Promise((resolve) => {
         requestAnimationFrame(() => {
@@ -615,9 +587,7 @@ export class Viewport {
           resolve();
         });
       });
-    const bakeLighting = (o: Omit<SurfaceBakeOptions, 'frame'>): Promise<SurfaceBakeOutcome> =>
-      adapter.bakeLighting === undefined ? Promise.resolve({ ok: false, message: 'this view cannot bake lighting' }) : adapter.bakeLighting({ ...o, frame }).finally(() => this.requestRender());
-    return { host, lights: gatherBakeLights({ projected: this.projected, nodeOf: (id) => this.queries.frameOf(id) ?? undefined }), renderer: this.adapter.currentRenderer?.() ?? null, scene: this.adapter.threeScene?.() ?? null, bakeLighting };
+    return adapter.bakeLighting({ ...o, frame }).finally(() => this.requestRender());
   }
 
   /**

@@ -32,7 +32,7 @@ import { cacheSpikeFrames, cacheSpikeRelight, cacheSpikeSetup, installCacheSpike
 import { CACHE_SPIKE_WGSL } from './cache-spike-wgsl';
 import { FRAME_VIEWPORT, gpuClockSampler, gpuMaxMhz, launchGpuBrowser, serveStatic } from './frame-run';
 import { buildLook } from './look';
-import { bakeProbesInEditor } from './probe-bake-run';
+import { bakeLightingInEditor } from './bake-run';
 
 type V3 = [number, number, number];
 const TERRAIN_AT: V3 = [-52, 0, -52];
@@ -174,7 +174,7 @@ export async function runCacheSpikeCli(argv: readonly string[]): Promise<void> {
     const build = await buildLook(be, projectId, 'door', 'baked');
     await addSpikeExtras(be.project(projectId));
     log(`built in ${build.ms} ms`);
-    report['bake'] = await bakeProbesInEditor(be, projectId, log, { lightmap: true });
+    report['bake'] = await bakeLightingInEditor(be, projectId, log);
     const res = await be.post(`/api/v1/admin/projects/${projectId}/export`, {});
     if (res.status !== 200) throw new Error(`export failed: ${JSON.stringify(res.json).slice(0, 400)}`);
     exportDir = join(be.exportRoot, String(res.json['outputDir']));

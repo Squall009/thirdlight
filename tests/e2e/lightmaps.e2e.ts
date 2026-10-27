@@ -198,8 +198,7 @@ for (const variant of RENDERER_VARIANTS) test(`a bake of the earlier bakers keep
   await expect(page.locator('[aria-label="lighting status"]')).toContainText('No saved lighting for this scene');
 
   await recordOldBake(ground, cube);
-  await expect(page.locator('[aria-label="lighting status"]')).toContainText('earlier bakers: stale');
-  await expect(page.locator('[aria-label="bake status"]')).toContainText('2 objects');
+  await expect(page.locator('[aria-label="lighting status"]')).toContainText('2 objects in 1 lightmap, 8 probes) was made by the earlier bakers: stale');
 
   // Play draws it: the dim lightmap in place of the baked sun, and its probe tile loaded.
   const playing = page.waitForResponse((res) => res.request().method() === 'POST' && res.url().endsWith('/play'));

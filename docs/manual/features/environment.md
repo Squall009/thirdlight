@@ -166,11 +166,13 @@ measured on the GPU host (Iris Xe), no step is dropped once loaded
 anti-aliasing, AO, depth of field and the LUT image cannot blend: the
 heavier look's is used.
 
-**Baked lighting.** A lightmap holds the light of the moment it was baked:
+**Baked lighting.** A bake holds the light of the moment it was baked:
 changing a baked light's colour in a preset does not change the baked
-surfaces (a light a bake holds is not realtime at all). Give such presets a
-`lightmap` multiplier — e.g. `{ intensity: 0.2, tint: '#8090ff' }` for night
-— and the baked surfaces darken and tint with the blend.
+surfaces (a light a bake holds is not drawn per pixel at all). Give such
+presets a `lightmap` multiplier — e.g. `{ intensity: 0.2, tint: '#8090ff' }`
+for night — and an earlier bake's lightmapped surfaces darken and tint with
+the blend; the saved lighting of "Bake lighting" does not take the
+multiplier yet.
 
 ## Wind
 
