@@ -226,8 +226,8 @@ export const MEDIUM_RENDER_SCALE = 0.667;
  * where it sets them: the adapter's quality control); high
  * draws the look as authored at the project's render scale. Medium and high
  * anti-alias with temporal upscaling where the look anti-aliases
- * (`ANTIALIAS_KINDS`: SMAA in its place on WebGL 2 and in the editor's Scene
- * view).
+ * (`ANTIALIAS_KINDS`: the look's own FXAA or SMAA in its place on WebGL 2 and
+ * in the editor's Scene view).
  */
 export const DEFAULT_QUALITY_LEVELS: readonly Readonly<QualityLevelConfig>[] = Object.freeze([
   Object.freeze({ id: 'low', name: 'Low', lighting: 'low' as const, post: { bloom: { enabled: false }, ssao: { enabled: false }, dof: { enabled: false }, antialias: 'none' as const }, msaa: 0 as const }),

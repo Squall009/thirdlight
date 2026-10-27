@@ -175,7 +175,7 @@ on an export's URL they apply directly):
   harness's `--switches`);
 - `?upscale=bilinear` — a render scale below 1 upscaled with plain bilinear
   filtering instead of FSR 1;
-- `?taau=0` — SMAA (and FSR 1 under a render scale) where temporal upscaling
+- `?taau=0` — the look's own FXAA or SMAA (and FSR 1 under a render scale) where temporal upscaling
   would draw; `?taau=motion` shows each pixel's motion instead of the picture
   (0.5 grey still, more red moving right, more green moving up);
 - `?slowFrames=N` — dynamic resolution counts the first N seconds' frames as

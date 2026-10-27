@@ -212,7 +212,7 @@ export interface RenderOptions {
   /**
    * The view draws frame after frame (Play, an export), so the temporal
    * upscale can run where the look asks for it; a view drawn on demand (the
-   * editor's Scene view, previews) draws SMAA in its place.
+   * editor's Scene view, previews) draws the look's own FXAA or SMAA in its place.
    */
   readonly temporal: boolean;
 }
@@ -385,7 +385,7 @@ function reflectionsWanted(renderer: WebGPURenderer, level: QualityLevelConfig):
 const upscaled = (o: RenderOptions): boolean => o.scale < 1 || o.dynamic;
 
 let taauUrl: TaauFlag | undefined;
-/** `?taau=0` (SMAA in its place) or `?taau=motion` (the motion vectors shown). */
+/** `?taau=0` (the look's own FXAA or SMAA in its place) or `?taau=motion` (the motion vectors shown). */
 function taauFromUrl(): TaauFlag {
   if (taauUrl === undefined) taauUrl = taauFlag(pageSearch());
   return taauUrl;
