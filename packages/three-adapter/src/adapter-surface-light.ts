@@ -39,6 +39,7 @@ import { packSurfaceLookup, SURFACE_READ } from './surface-cache-lookup';
 import { SURFACE_READ_ALL, SURFACE_READ_LIVE_KEY, SurfaceCacheTextures } from './surface-cache-read';
 import { savedLights, type CacheLight } from './surface-changes';
 import { runSurfaceBake, type BakePart, type SurfaceBakeOptions, type SurfaceBakeOutcome } from './adapter-surface-bake';
+import { AdapterSavedLight, type SavedLightDiagnostics, type SurfaceBakeLike } from './adapter-saved-light';
 import { REFLECTION_TRACER_KEY, type ReflectionTracer } from './post-reflections';
 
 /** How often (ms) the debug look is drawn again while texels change. */
@@ -94,6 +95,8 @@ export interface SurfaceLightDiagnostics {
   readonly albedoDrawn: number | null;
   /** Frames that wrote the surfaces' colours so far. */
   readonly captures: number;
+  /** The saved lighting drawn while the light is not live (WebGL 2, the low tier, a live light still starting). */
+  readonly saved: SavedLightDiagnostics;
 }
 
 export class AdapterSurfaceLight {
@@ -130,9 +133,14 @@ export class AdapterSurfaceLight {
   /** A bake's part: the lights whose light it saves light the cache (null: every light, live). */
   private part: BakePart = null;
 
-  constructor(private readonly host: SurfaceCacheHost, private readonly scene: THREE.Scene, docs: ReadonlyMap<string, EntityDoc>, graph: RenderGraph, probes: ProbeLightingHost | null = null) {
+  /** The scenes' saved lighting, drawn where the light is not live. */
+  private readonly saved: AdapterSavedLight;
+
+  constructor(private readonly host: SurfaceCacheHost, private readonly scene: THREE.Scene, docs: ReadonlyMap<string, EntityDoc>, graph: RenderGraph, probes: ProbeLightingHost | null = null, lighting: { bakes: Readonly<Record<string, { surface?: SurfaceBakeLike } | undefined>> | null; loadBytes?: ((assetId: string) => Promise<Uint8Array>) | undefined; changed?: () => void } = { bakes: null }) {
     this.lights = new SurfaceLights(docs, graph);
     this.liveProbes = probes === null ? null : new AdapterLiveProbes(host, probes, scene);
+    this.saved = new AdapterSavedLight(host, scene, probes, lighting.loadBytes, lighting.changed ?? (() => undefined));
+    this.saved.setBakes(lighting.bakes);
     const q = new URLSearchParams(pageSearch());
     this.viewOn = q.get('surfaceCacheView') === '1';
     const read = q.get(SURFACE_READ_URL_PARAM);
@@ -144,6 +152,17 @@ export class AdapterSurfaceLight {
   /** Before the frame's programs are built (ahead of the probes' frame): whether the light is live with probes, so the probe light joins before the programs are built. */
   prepare(renderer: AnyRenderer): void {
     this.liveProbes?.hold(!this.failed && this.host.relightBudgetMs > 0 && deviceOf(renderer) !== null);
+    if (this.runtime === null) this.saved.prepare();
+  }
+
+  /** The project's bakes (their saved lighting is drawn where the light is not live). */
+  setBakes(bakes: Readonly<Record<string, { surface?: SurfaceBakeLike } | undefined>> | null): void {
+    this.saved.setBakes(bakes);
+  }
+
+  /** The realized scenes (their saved lighting is drawn). */
+  followScenes(sceneIds: readonly string[]): void {
+    this.saved.follow(sceneIds);
   }
 
   /** Before a frame's draw: the cache's lights, its residency and stale work, then this frame's light on the GPU. */
@@ -158,6 +177,9 @@ export class AdapterSurfaceLight {
     this.off = this.runtime !== null ? null : this.failed ? 'failed' : this.host.relightBudgetMs <= 0 ? 'no-budget' : gpu === null ? 'no-webgpu' : 'starting';
     this.runtime?.frame(lights);
     this.syncRead(all, renderer, eye);
+    // Until the light is live (WebGL 2, a level without a live budget, a live light still starting) the saved light is drawn.
+    if (this.runtime === null && this.readOn) this.saved.frame();
+    else this.saved.drop();
     this.liveProbes?.frame(renderer, this.runtime);
     this.drawView();
   }
@@ -197,11 +219,12 @@ export class AdapterSurfaceLight {
   private readAlbedo(renderer: AnyRenderer): void {
     const tex = this.textures;
     const r = renderer as unknown as { getArrayBufferAsync?(a: unknown): Promise<ArrayBuffer> };
-    if (tex === null || typeof r.getArrayBufferAsync !== 'function' || tex.gpuAlbedo(renderer) === null) return;
+    if (tex === null || tex.albedo === null || typeof r.getArrayBufferAsync !== 'function' || tex.gpuAlbedo(renderer) === null) return;
+    const albedo = tex.albedo;
     this.albedoAsked = false;
     this.albedoReading = true;
     const lookup = this.lookupFor;
-    r.getArrayBufferAsync(tex.albedo).then(
+    r.getArrayBufferAsync(albedo).then(
       (bytes) => {
         const w = new Uint32Array(bytes);
         let n = 0;
@@ -287,7 +310,7 @@ export class AdapterSurfaceLight {
   diagnostics(): SurfaceLightDiagnostics {
     const read = this.scene.userData[SURFACE_READ_LIVE_KEY] !== undefined;
     this.albedoAsked = true;
-    return { live: this.runtime !== null, off: this.off, view: this.viewOn, viewTexels: this.viewTexels, read, lookupBytes: read ? ((this.textures?.table.image as { data?: Uint32Array } | undefined)?.data?.byteLength ?? 0) : 0, albedoDrawn: this.albedoDrawn, captures: this.captures };
+    return { live: this.runtime !== null, off: this.off, view: this.viewOn, viewTexels: this.viewTexels, read, lookupBytes: read ? ((this.textures?.table.image as { data?: Uint32Array } | undefined)?.data?.byteLength ?? 0) : 0, albedoDrawn: this.albedoDrawn, captures: this.captures, saved: this.saved.diagnostics() };
   }
 
   /** Whether the cache's light is computed live on this page. */
@@ -366,6 +389,7 @@ export class AdapterSurfaceLight {
 
   dispose(): void {
     this.clearView();
+    this.saved.drop();
     this.liveProbes?.dispose();
     this.runtime?.dispose();
     this.runtime = null;

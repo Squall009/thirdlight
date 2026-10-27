@@ -62,7 +62,8 @@ import { AdapterSurfaceLight } from './adapter-surface-light';
 import { SURFACE_CACHE_KEY } from './surface-cache-host';
 import { createRenderControl } from './render-control';
 import { RenderGraph } from './render-graph';
-import type { AnyRenderer } from './renderer-factory';
+import { pageSearch, type AnyRenderer } from './renderer-factory';
+import { probesFromUrl } from './probe-lighting';
 import { createScenePreparations } from './scene-preparation';
 import { StaticShadowRevision } from './shadow-casters';
 import { markStatic } from './static-merge';
@@ -102,7 +103,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       : null;
   state.lightmaps = lightmapSetOf(opts.lighting?.bakes ?? null);
   /** The loaded scenes' baked probe tiles (they follow the realized scenes) and the probe light every material samples. */
-  const probes = createProbeLightingHost(scene, resources, opts.lighting?.loadBytes, { onChange: () => opts.onChange?.(), ...(opts.lighting?.onProblem !== undefined ? { onProblem: opts.lighting.onProblem } : {}) });
+  // `?probes=off` draws without baked probes (a diagnostic comparison): their files are not read.
+  const probes = createProbeLightingHost(scene, resources, probesFromUrl(pageSearch()) ? opts.lighting?.loadBytes : undefined, { onChange: () => opts.onChange?.(), ...(opts.lighting?.onProblem !== undefined ? { onProblem: opts.lighting.onProblem } : {}) });
   probes.setBakes(opts.lighting?.bakes ?? null);
   /** The look drawn and the environment renderer (made with the renderer). */
   const environment = new AdapterEnvironment(scene, resources, opts, { lights: () => lights, lightmaps: () => state.lightmaps, materials: materialLibrary });
@@ -257,9 +259,17 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   const occlusion = new OcclusionCuller({ scene, setting: () => renderControl.occlusionCulling(), renderer: () => renderer.backend, pinned: opts.occlusion ?? null, showPyramid: opts.occlusionPyramid ?? null, view: viewCull.view, gpu: () => (renderer.backend === 'webgpu' ? renderer.current() : null), computeMs: () => gpuTiming.computeMs(), canvas: renderer.canvas, changed: () => opts.onChange?.(), keep: { scene, entityOf: (o) => surface.entityOf?.(o) ?? null, node: (id) => graph.node(id), drawOf: (m) => batcher?.drawOf(m) ?? null }, fades: (o, c) => level.seeThrough.bitsFor(o, c) !== 0, ...(opts.occlusionProblem !== undefined ? { onProblem: opts.occlusionProblem } : {}) });
   /** Scenes prepared ahead of their load (released once realized). */
   const preparations = createScenePreparations({ disposed: () => state.disposed, realization: () => models.realization, materialLibrary, architecture: level.architecture, blocks: level.blockView.prepared });
+  /** The realized scenes as last followed, and the live light that draws their saved lighting (made after the scenes). */
+  let followed: string[] = [];
+  let surfaceLightNow: AdapterSurfaceLight | null = null;
   const scenes: AdapterScenes = new AdapterScenes({
     runtime: opts.runtime, entities, realization: () => models.realization, lightmaps: () => state.lightmaps, forgetLook: (id) => frame.forgetLook(id), preparations,
-    requestPrecompile: () => precompile.want(), selectLights, followProbes: (ids) => probes.follow(ids), v3: isV3, vertexPaint: opts.vertexPaint !== false,
+    requestPrecompile: () => precompile.want(), selectLights, followProbes: (ids) => {
+      // The realized scenes: their probe tiles and their saved lighting.
+      followed = [...ids];
+      probes.follow(followed);
+      surfaceLightNow?.followScenes(followed);
+    }, v3: isV3, vertexPaint: opts.vertexPaint !== false,
     ownScene: (opts.snapshot.scene as { sceneId?: string }).sceneId,
   });
   /** The loaded scenes' lights switched (the most recently loaded scene's directional, ambient and hemisphere light, local ones within the budget). */
@@ -270,7 +280,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   /** The static surfaces' light resident round the view, within the quality level's budget. */
   const surfaceCache = createAdapterSurfaceCache({ opts, scene, level, entities, docs: entityDocs, graph, matrix: new THREE.Matrix4() });
   surfaceHost.current = surfaceCache;
-  const surfaceLight = surfaceCache !== null ? new AdapterSurfaceLight(surfaceCache, scene, entityDocs, graph, probes) : null;
+  const surfaceLight = surfaceCache !== null ? new AdapterSurfaceLight(surfaceCache, scene, entityDocs, graph, probes, { bakes: opts.lighting?.bakes ?? null, loadBytes: opts.lighting?.loadBytes, changed: () => opts.onChange?.() }) : null;
+  surfaceLightNow = surfaceLight;
+  surfaceLight?.followScenes(followed);
   if (surfaceLight !== null) Object.assign(scene.userData[SURFACE_CACHE_KEY] as object, { setView: (on: boolean) => surfaceLight.setView(on), light: () => surfaceLight.diagnostics() });
   /** The quality level drawn and its renderer settings (quality-control.ts). */
   const qualityControl = createQualityControl(

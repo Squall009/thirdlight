@@ -32,6 +32,13 @@ const MIB = 1024 * 1024;
 export const BAKE_TIMEOUT_MS = 20 * 60 * 1000;
 /** Frames drawn after each change of the bake's lights before settling is asked (the lights reach the cache's marks a frame later). */
 const BAKE_SWITCH_FRAMES = 4;
+/**
+ * Frames in a row the light must stay settled, the probes placed the same,
+ * before it is saved: the probes are placed again when what they stand on
+ * arrives (rooms, a surface made), and a placement's new probes are briefly
+ * settled before their first update.
+ */
+const BAKE_STEADY_FRAMES = 20;
 
 /** Which part of the saved light the cache holds during a bake (null: every light, live). */
 export type BakePart = 'bounce' | 'direct' | null;
@@ -91,8 +98,15 @@ export async function runSurfaceBake(h: SurfaceBakeHooks, o: SurfaceBakeOptions)
     host.cache.setBakeLevel(level);
     h.setPart('bounce');
     await frames(BAKE_SWITCH_FRAMES);
-    const probesSettled = (): boolean => host.diagnostics().probes.settled;
-    why = await until(() => host.relight.isSettled && probesSettled(), 'lighting the surfaces and the probes…', 0.1);
+    let steady = 0;
+    let layout = -1;
+    const settledSteadily = (): boolean => {
+      const ok = host.relight.isSettled && host.diagnostics().probes.settled && host.probes.layout === layout;
+      layout = host.probes.layout;
+      steady = ok ? steady + 1 : 0;
+      return steady >= BAKE_STEADY_FRAMES;
+    };
+    why = await until(settledSteadily, 'lighting the surfaces and the probes…', 0.1);
     if (why !== null) return { ok: false, message: why };
     // The probes hold the baked and mixed lights' bounce; the cache keeps only what is drawn as saved.
     host.probes.setBudget(0);

@@ -146,6 +146,7 @@ export function createAdapterSurface(p: AdapterParts, frame: AdapterFrame, x: Ad
       state.lightmaps?.dispose();
       state.lightmaps = x.lightmapSetOf(bakes);
       p.probes.setBakes(bakes);
+      p.surfaceLight?.setBakes(bakes);
       for (const id of level.blockView.layerIds()) level.blockView.setLightmapUv(id, state.lightmaps?.hasChunks(id) === true);
       level.blockView.remeshAll();
     },
@@ -206,6 +207,7 @@ export function createAdapterSurface(p: AdapterParts, frame: AdapterFrame, x: Ad
     cover: () => level.scatter.cover,
     currentRenderer: () => (state.disposed ? null : p.renderer.current()),
     frameSkipped: () => frame.skipped || p.precompile.active(),
+    lightSettling: () => p.surfaceLight !== null && p.surfaceLight.live && !(p.surfaceCache!.relight.isSettled && p.surfaceCache!.probes.isSettled),
     lastFrame: () => ({ drawCalls: frame.counts.drawCalls, triangles: frame.counts.triangles, samples: frame.msaaMark, batching: p.batcher !== null && frame.drawn ? p.batcher.diagnostics() : null }),
   };
   // The settle surface — present iff the `models` option was given; never rejects.

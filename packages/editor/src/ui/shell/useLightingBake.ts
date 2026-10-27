@@ -137,7 +137,13 @@ export function useLightingBake(clientRef: ClientRef, viewportRef: ViewportRef, 
     },
     [activeScene, clientRef],
   );
-  const clearBake = useCallback(() => clearPart('lightmaps'), [clearPart]);
+  /** Clear the scene's whole bake (saved lighting, or the earlier bakers' lightmaps and probes). */
+  const clearBake = useCallback(async () => {
+    const c = clientRef.current;
+    if (!c || activeScene === null || c.getLighting()[activeScene.sceneId] === undefined) return;
+    const err = refusal(await c.command('setLighting', { sceneId: activeScene.sceneId, lighting: null }, c.projection.revision));
+    setBakeMessage(err === null ? 'The bake was cleared.' : `Clear failed: ${err}`);
+  }, [activeScene, clientRef]);
   const clearProbes = useCallback(() => clearPart('probes'), [clearPart]);
   useEffect(() => {
     if (!lightingShown) return;

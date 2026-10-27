@@ -511,7 +511,7 @@ function materialsOptionOf(manifest: GamePageManifest, env: GamePageManifest['en
         ? { environment: { value: env ?? {}, loadTexture: loadWhole } }
         : {}),
     // The baked probes light the scene unless the page says ?probes=off (a diagnostic comparison).
-    ...(manifest.lighting !== undefined ? { lighting: { bakes: manifest.lighting, loadTexture: loadWhole, ...(probesFromUrl(pageSearch()) ? { loadBytes } : {}), ...(onProblem !== undefined ? { onProblem } : {}) } } : {}),
+    ...(manifest.lighting !== undefined ? { lighting: { bakes: manifest.lighting, loadTexture: loadWhole, loadBytes, ...(onProblem !== undefined ? { onProblem } : {}) } } : {}),
     materials: { defs: manifest.materials ?? [], functions: manifest.materialFunctions ?? [], wind: env?.wind ?? null, loadTexture, textureRefs: materialTexturesOf(manifest) },
   };
 }

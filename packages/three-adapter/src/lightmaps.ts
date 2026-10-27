@@ -24,6 +24,7 @@ import { copyMaterialKeepingHooks, isNodeMaterial, toNodeMaterial, withoutAmbien
 import { isOccluderStandin } from './occluders';
 import { textureHolds, type TextureHolds } from './texture-holds';
 import type { ProbeBakeLike } from './probe-grids';
+import type { SurfaceBakeLike } from './adapter-saved-light';
 
 /** A bake as the manifest carries it (project-model `LightingBake`, structurally). */
 export interface LightingBakeLike {
@@ -33,6 +34,8 @@ export interface LightingBakeLike {
   readonly bakedLights: readonly string[];
   /** The scene's baked probe tiles (probe-grids.ts). */
   readonly probes?: ProbeBakeLike;
+  /** The scene's saved live lighting ("Bake lighting", adapter-saved-light.ts). */
+  readonly surface?: SurfaceBakeLike;
 }
 
 const BOX_MARGIN = 0.04;

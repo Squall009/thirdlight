@@ -808,7 +808,8 @@ export class Viewport {
     }
     this.marks.counts(root, adapter);
     this.marks.failures(adapter, this.cb.onModelFailures);
-    if (playing || animated || this.occlusion.animating) this.requestRender();
+    // The live light settles over frames (a lamp switched, a bake's light restored): drawn again until it has.
+    if (playing || animated || this.occlusion.animating || adapter.lightSettling?.() === true) this.requestRender();
     if (!playing) this.effects.idle();
   }
 

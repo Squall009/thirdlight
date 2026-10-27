@@ -108,11 +108,19 @@ let texturesMade = 0;
 export class SurfaceCacheTextures {
   /** Tells textures apart in programs' keys (two pages' scenes never share a reading program's bindings). */
   readonly id = ++texturesMade;
-  readonly atlas: THREE.StorageArrayTexture;
-  readonly rings: THREE.StorageArrayTexture;
-  /** The surfaces' colours (`albedoWords`): the materials reading the cache write their own there as they draw, the probes' bounce reads them. */
-  readonly albedo: THREE.StorageBufferAttribute;
-  readonly albedoNode: N;
+  /** Storage array textures the light pass writes (live), or array textures of a bake's saved pages. */
+  readonly atlas: THREE.Texture;
+  readonly rings: THREE.Texture;
+  /**
+   * A bake's saved light (WebGL 2, the low tier): its texels hold only the
+   * lights a bake keeps the direct light of, so a reading pixel adds them to
+   * its per-pixel lights instead of standing in for them, and nothing is
+   * written (no colours, no highlights scaled by the cache).
+   */
+  readonly saved: boolean;
+  /** The surfaces' colours (`albedoWords`): the materials reading the cache write their own there as they draw, the probes' bounce reads them (null: saved light, nothing written). */
+  readonly albedo: THREE.StorageBufferAttribute | null;
+  readonly albedoNode: N | null;
   /** Where the ring layers' colours start (words). */
   readonly albedoRingsAt: number;
   /** The kinds of surface that read (a bit per `SURFACE_READ` kind; the page flag can name fewer). */
@@ -145,17 +153,31 @@ export class SurfaceCacheTextures {
   /** The first block layers' records (`LAYER_TEXELS` vec4 each, integers as floats: all are below 2^24): read from uniforms, not the table. */
   readonly layers0 = uniformArray(Array.from({ length: BLOCK_LAYERS_HELD * LAYER_TEXELS }, () => new THREE.Vector4()), 'vec4');
 
-  /** `pages` and `ringLayers`: the most the cache's budget can hold (the colours' buffer is made once for them). */
-  constructor(readonly pages: number, readonly ringLayers: number) {
-    this.atlas = arrayTexture(SURFACE_PAGE_TEXELS, THREE.ClampToEdgeWrapping, 'surface cache atlas');
-    this.rings = arrayTexture(TERRAIN_RING_TEXELS, THREE.RepeatWrapping, 'surface cache rings');
-    const words = albedoWords(pages, ringLayers);
-    this.albedo = new THREE.StorageBufferAttribute(new Uint32Array(words), 1);
-    this.albedoNode = TSL.storage(this.albedo, 'uint', words).toAtomic();
+  /** `pages` and `ringLayers`: the most the cache's budget can hold (the colours' buffer is made once for them); `savedTexels`: a bake's pages (saved light). */
+  constructor(readonly pages: number, readonly ringLayers: number, savedTexels?: Uint16Array) {
+    this.saved = savedTexels !== undefined;
+    if (savedTexels !== undefined) {
+      this.atlas = arrayTexture(SURFACE_PAGE_TEXELS, THREE.ClampToEdgeWrapping, 'surface cache saved atlas', savedTexels, pages);
+      // Terrain rings are not saved: one empty layer to bind.
+      this.rings = arrayTexture(1, THREE.RepeatWrapping, 'surface cache saved rings', new Uint16Array(4), 1);
+      this.albedo = null;
+      this.albedoNode = null;
+    } else {
+      this.atlas = arrayTexture(SURFACE_PAGE_TEXELS, THREE.ClampToEdgeWrapping, 'surface cache atlas');
+      this.rings = arrayTexture(TERRAIN_RING_TEXELS, THREE.RepeatWrapping, 'surface cache rings');
+      const words = albedoWords(pages, ringLayers);
+      this.albedo = new THREE.StorageBufferAttribute(new Uint32Array(words), 1);
+      this.albedoNode = TSL.storage(this.albedo, 'uint', words).toAtomic();
+    }
     this.albedoRingsAt = pages * ALBEDO_CELLS;
     this.table = tableTexture(new Uint32Array(LOOKUP_WIDTH * 4 * TABLE_ROWS));
     // Integer texel loads as stored: no uv transform (three's would turn every index into floats and back, a uniform per read).
     this.tableNode = texelTexture(this.table);
+  }
+
+  /** Textures of a bake's saved pages (`pages` × `SURFACE_PAGE_TEXELS`² RGBA half floats), read as saved light. */
+  static saved(texels: Uint16Array, pages: number): SurfaceCacheTextures {
+    return new SurfaceCacheTextures(pages, 1, texels);
   }
 
   /**
@@ -206,7 +228,7 @@ export class SurfaceCacheTextures {
    * makes it, so materials bind it; the light pass writes it).
    */
   gpuTexture(renderer: unknown, which: 'atlas' | 'rings', layers: number): unknown {
-    const t = this[which];
+    const t = this[which] as THREE.StorageArrayTexture;
     const img = t.image as { width: number; height: number; depth: number };
     if (img.depth !== layers) t.setSize(img.width, img.height, layers);
     const r = renderer as { initTexture(t: THREE.Texture): void; backend: { get(t: THREE.Texture): { texture?: unknown } } };
@@ -216,6 +238,7 @@ export class SurfaceCacheTextures {
 
   /** The GPU buffer behind the surfaces' colours once three made it for the first draw that writes them (null until then: the probes bounce the default). */
   gpuAlbedo(renderer: unknown): unknown {
+    if (this.albedo === null) return null;
     const r = renderer as { backend: { get(a: unknown): { buffer?: unknown } } };
     return r.backend.get(this.albedo).buffer ?? null;
   }
@@ -225,8 +248,9 @@ export class SurfaceCacheTextures {
   }
 }
 
-function arrayTexture(side: number, wrap: THREE.Wrapping, name: string): THREE.StorageArrayTexture {
-  const t = new THREE.StorageArrayTexture(side, side, 1);
+/** A cache texture: a storage array texture the passes write, or (`data`) an array texture of saved texels. */
+function arrayTexture(side: number, wrap: THREE.Wrapping, name: string, data?: Uint16Array, layers = 1): THREE.Texture {
+  const t = data !== undefined ? new THREE.DataArrayTexture(data, side, side, layers) : new THREE.StorageArrayTexture(side, side, 1);
   t.type = THREE.HalfFloatType;
   t.format = THREE.RGBAFormat;
   t.magFilter = THREE.LinearFilter;
@@ -236,6 +260,10 @@ function arrayTexture(side: number, wrap: THREE.Wrapping, name: string): THREE.S
   t.wrapT = wrap;
   t.colorSpace = THREE.NoColorSpace;
   t.name = name;
+  if (data !== undefined) {
+    t.flipY = false;
+    t.needsUpdate = true;
+  }
   return t;
 }
 
@@ -595,14 +623,15 @@ export class SurfaceReadLightNode extends (THREE.LightingNode as unknown as new 
     SURFACE_READ_FOUND.assign(lit);
     SURFACE_READ_IRRADIANCE.assign(irr.mul(1 / Math.PI));
     // The surface's own colour where it read (what its light bounces as), written as it draws on a capture frame.
-    if (builder.material?.[SURFACE_READ_CAPTURE] === true) If(found, () => {
+    const albedoNode = this.tex.albedoNode;
+    if (builder.material?.[SURFACE_READ_CAPTURE] === true && albedoNode !== null) If(found, () => {
       const c = clamp(TSL.diffuseColor.rgb, vec3(0), vec3(1)).mul(255).round();
       const word = uint(c.x).bitOr(uint(c.y).shiftLeft(uint(8))).bitOr(uint(c.z).shiftLeft(uint(16))).bitOr(uint(255 << 24 >>> 0));
       const step = rings ? ALBEDO_RING_STEP : ALBEDO_PAGE_STEP;
       const size = rings ? TERRAIN_RING_TEXELS : SURFACE_PAGE_TEXELS;
       const at = TSL.uvec2(floor(uv.mul(size)).mod(size).div(step));
       const base = uint(rings ? this.tex.albedoRingsAt : 0).add(layer.mul(uint(ALBEDO_CELLS)));
-      TSL.atomicStore(this.tex.albedoNode.element(base.add(at.y.mul(uint(size / step))).add(at.x)), word);
+      TSL.atomicStore(albedoNode.element(base.add(at.y.mul(uint(size / step))).add(at.x)), word);
     });
     const ctx = builder.context;
     if (builder.material?.isMeshCustomLitNodeMaterial === true) LIT.direct.addAssign(irr.mul(1 / Math.PI));
@@ -639,6 +668,11 @@ export function buildReadLights(builder: N, nodes: readonly { light?: THREE.Ligh
     return;
   }
   (surfaceReadNode(tex, kind) as unknown as { build(b: unknown): unknown }).build(builder);
+  // Saved light holds no per-pixel light's direct light: every light draws as it would, the cache's adds to them.
+  if (tex.saved) {
+    for (const n of nodes) n.build(builder);
+    return;
+  }
   const local = nodes.filter((n) => isLocal(n.light));
   for (const n of nodes) if (!local.includes(n)) n.build(builder);
   const highlights = buildsHighlights(builder);

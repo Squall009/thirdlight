@@ -1,28 +1,23 @@
 /**
- * Light baking of block layers. The preview bake runs on the product's own
- * renderer (renderer-variants.ts PRODUCT_RENDERER_VARIANTS): lightmaps.e2e
- * bakes and shows a lightmap on both backends.
+ * "Bake lighting" of block layers: the live lighting run until it settles
+ * and saved, drawn on WebGL 2 and the low tier the way WebGPU draws it live.
  *
  * The ground is a static block layer (a 12 × 8 floor of 1 m cells, top at
- * y = 0) with a static cube standing on it; the sun and the ambient light are
- * "baked". Before a bake Play shows no shadow (the sun casts no realtime
- * shadow). "Bake preview" in the Lighting window bakes the cube and each
- * chunk of the layer (a chunk entry: the layer, its chunk and the chunk's
- * lightmap layout); Play then shows the cube's shadow on the blocks from the
- * chunk's lightmap, and a lit spot keeps about the realtime brightness.
- * Before the bake, on WebGPU, a small area light over the floor's front
- * corner lights a pool there that its mirror spot across the floor lacks:
- * an area light has no per-pixel light, so the pool is the blocks reading
- * the surface cache (no per-pixel light draws an area light). The floor
- * there is polished (a standard material): the lamp's highlight shows where
- * the camera sees its mirror image, brighter than the spot as far from the
- * lamp on its other side (the cache's diffuse light is the same at both).
- * A cell edit makes the bake stale. "Bake final" (Blender Cycles, when
- * Blender is there) bakes the chunks the same way, in the same session. The
- * static export, served with the backend stopped, shows the last bake's
- * shadow.
+ * y = 0) with a static cube standing on it; the sun and the ambient light
+ * are "baked", and so is a small area light over the floor's front corner.
+ * Before a bake, on WebGPU, the area light lights a pool there that its
+ * mirror spot across the floor lacks: an area light has no per-pixel light,
+ * so the pool is the blocks reading the surface cache live. The floor there
+ * is polished (a standard material): the lamp's highlight shows where the
+ * camera sees its mirror image, brighter than the spot as far from the lamp
+ * on its other side (the cache's diffuse light is the same at both).
+ * "Bake lighting" in the Lighting window saves the cache's pages and the
+ * probes (the scene's bake: `surface`). The static export, served with the
+ * backend stopped, draws the saved light on WebGL 2 and at the low quality
+ * level on WebGPU (no live light there): the lamp's pool is on the blocks
+ * and the baked sun's light keeps about the brightness the realtime sun
+ * gave them. A cell edit makes the bake stale.
  */
-import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
@@ -127,14 +122,6 @@ function steadyLit(pool = false): (img: Image) => boolean {
   };
 }
 
-/** After a bake: the shadow and the lit blocks' brightness the step asserts (the lightmaps load after the first frames). */
-function bakedShadow(beforeLit: number, shadowShare: number, minRatio: number, maxRatio: number): (img: Image) => boolean {
-  return (img) => {
-    const lit = brightnessAt(img, litSpot);
-    return brightnessAt(img, shadowSpot) < lit * shadowShare && lit / beforeLit > minRatio && lit / beforeLit < maxRatio;
-  };
-}
-
 /** Play, the picture taken once it shows what the step waits for. */
 async function play(page: Page, variant: RendererVariant, shows: (img: Image) => boolean): Promise<Image> {
   const frame = page.locator('iframe.tl-app__preview-frame');
@@ -174,31 +161,20 @@ async function openScene(page: Page, variant: RendererVariant, env: Record<strin
   return { layer, cube };
 }
 
-type BakeRecord = { source: string; bounces: number; entries: { entityId: string; chunk?: number[]; layout?: string }[] };
+type BakeRecord = { source: string; atlases: string[]; bakedLights: string[]; surface?: { files: string[]; tiles: number } };
 async function bakeRecord(): Promise<BakeRecord> {
   const config = await be!.command({ op: 'queryGameConfig', projectId: be!.projectId });
   return Object.values(config['lighting'] as Record<string, BakeRecord>)[0]!;
 }
-async function bakeEntries(): Promise<BakeRecord['entries']> {
-  return (await bakeRecord()).entries;
-}
 
-/** The final bake runs Blender here (THIRDLIGHT_BLENDER / blender on PATH), or on TL_BAKE_HOST with TL_BAKE_BLENDER. */
-const bakeBlender = process.env['TL_BAKE_BLENDER'] ?? process.env['THIRDLIGHT_BLENDER'] ?? 'blender';
-const bakeHost = process.env['TL_BAKE_HOST'] ?? 'local';
-const haveBlender = bakeHost !== 'local' || spawnSync(bakeBlender, ['--version'], { encoding: 'utf8' }).status === 0;
-
-for (const variant of PRODUCT_RENDERER_VARIANTS) test(`Bake preview bakes a static block layer's chunks: the cube's shadow on the blocks in Play and the export; Bake final (Blender Cycles) too where Blender is (${variant})`, async ({ page }) => {
+for (const variant of PRODUCT_RENDERER_VARIANTS) test(`Bake lighting saves a static block layer's live light; the export draws it on WebGL 2 and the low tier (${variant})`, async ({ page }) => {
   onlyInItsProject(variant, PRODUCT_RENDERER_VARIANTS);
-  // The final bake once, on the product's own renderer (the renderer variants are covered by the preview bake).
-  const final = variant === 'auto' && haveBlender;
-  test.setTimeout(final ? 1_000_000 : 300_000);
-  const { layer, cube } = await openScene(page, variant, final ? { THIRDLIGHT_BAKE_HOST: bakeHost, THIRDLIGHT_BAKE_BLENDER: bakeBlender, THIRDLIGHT_BAKE_TIMEOUT_MINUTES: '12' } : {});
+  test.setTimeout(300_000);
+  const { layer } = await openScene(page, variant);
 
-  // Before the bake: the sun is realtime without a shadow. A small area light, realtime, 0.5 m over the front corner
-  // (the bake does not take area lights; a baked chunk draws its lightmap, so the lamp leaves the picture after it).
+  // Before the bake: the sun is per pixel without a shadow. A small area light, baked, 0.5 m over the front corner.
   const live = backendOf(variant) === 'webgpu';
-  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Lamp', transform: { position: [lampSpot[0], 0.5, lampSpot[2]] }, components: { light: { type: 'area', shape: 'rect', width: 0.6, height: 0.6, color: '#ffffff', intensity: 4, range: 1.5, castShadow: false, mode: 'realtime' } } });
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Lamp', transform: { position: [lampSpot[0], 0.5, lampSpot[2]] }, components: { light: { type: 'area', shape: 'rect', width: 0.6, height: 0.6, color: '#ffffff', intensity: 4, range: 1.5, castShadow: false, mode: 'baked' } } });
   const before = await play(page, variant, steadyLit(live));
   const beforeLit = brightnessAt(before, litSpot);
   expect(Math.abs(brightnessAt(before, shadowSpot) - beforeLit)).toBeLessThan(15);
@@ -214,72 +190,61 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`Bake preview bakes a stat
     expect(Math.abs(highlight)).toBeLessThan(HIGHLIGHT);
   }
 
-  // Bake in the Lighting window: the cube and the layer's chunk.
+  // Bake lighting in the Lighting window (WebGPU: the Scene view's live light; WebGL 2 says it cannot).
   await openWindow(page, 'Lighting');
-  await page.getByRole('button', { name: 'Bake preview (browser)' }).click();
-  await expect(page.locator('[aria-label="bake status"]')).toContainText('Preview (browser) bake', { timeout: 120_000 });
-  const entries = await bakeEntries();
-  expect(entries.map((e) => [e.entityId, e.chunk ?? null])).toEqual(expect.arrayContaining([[cube, null], [layer, [0, 0]]]));
-  expect(entries.find((e) => e.entityId === layer)!.layout).toMatch(/^[0-9a-f]{16}$/);
-
-  // Play: the shadow is in the chunk's lightmap; the lit blocks stay about as bright.
-  const after = await play(page, variant, bakedShadow(beforeLit, 0.75, 0.6, 1.5));
-  const afterShadow = brightnessAt(after, shadowSpot);
-  const afterLit = brightnessAt(after, litSpot);
-  console.log(`[block-lightmaps] ${variant}: before lit ${beforeLit.toFixed(1)}; after lit ${afterLit.toFixed(1)} shadow ${afterShadow.toFixed(1)}`);
-  expect(afterShadow).toBeLessThan(afterLit * 0.75);
-  expect(afterLit / beforeLit).toBeGreaterThan(0.6);
-  expect(afterLit / beforeLit).toBeLessThan(1.5);
-
-  // A cell edit makes the bake stale (it is still used).
-  await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'cells', at: [11, 1, 7], cell: { block: 'stone' } }] });
-  await expect(page.locator('[aria-label="bake status"]')).toContainText('stale');
-  await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'cells', at: [11, 1, 7], cell: null }] });
-
-  // Bake final: Blender Cycles bakes the cube and the layer's chunk; Play shows the shadow on the blocks.
-  if (final) {
-    await page.getByRole('button', { name: /settings/ }).click();
-    await page.getByRole('spinbutton', { name: 'bake finalSamples' }).fill(bakeHost === 'local' ? '32' : '256');
-    await page.getByRole('spinbutton', { name: 'bake texelsPerMeter' }).fill('8');
-    await page.getByRole('button', { name: 'Bake final (Blender)' }).click();
-    await expect(page.locator('[aria-label="bake status"]')).toContainText('Final (Blender) bake', { timeout: 840_000 });
-    const bake = await bakeRecord();
-    expect(bake.source).toBe('blender');
-    expect(bake.bounces).toBe(3);
-    expect(bake.entries.map((e) => [e.entityId, e.chunk ?? null])).toEqual(expect.arrayContaining([[cube, null], [layer, [0, 0]]]));
-    const baked = await play(page, variant, bakedShadow(beforeLit, 0.8, 0.7, 1.7));
-    const finalShadow = brightnessAt(baked, shadowSpot);
-    const finalLit = brightnessAt(baked, litSpot);
-    console.log(`[block-lightmaps] final: before lit ${beforeLit.toFixed(1)}; after lit ${finalLit.toFixed(1)} shadow ${finalShadow.toFixed(1)}`);
-    expect(finalShadow).toBeLessThan(finalLit * 0.8);
-    expect(finalLit / beforeLit).toBeGreaterThan(0.7);
-    expect(finalLit / beforeLit).toBeLessThan(1.7);
+  await expect(page.locator('[aria-label="lighting status"]')).toContainText('No saved lighting for this scene');
+  if (!live) {
+    await expect(page.getByRole('button', { name: 'Bake lighting' })).toBeDisabled();
+    await expect(page.locator('[aria-label="lighting bake unavailable"]')).toContainText('needs WebGPU');
+    return;
   }
+  const started = Date.now();
+  await page.getByRole('button', { name: 'Bake lighting' }).click();
+  await expect(page.locator('[aria-label="lighting status"]')).toContainText('Saved lighting from', { timeout: 120_000 });
+  console.log(`[block-lightmaps] ${variant}: ${((Date.now() - started) / 1000).toFixed(1)} s — ${await page.getByRole('status').textContent()}`);
+  const bake = await bakeRecord();
+  expect(bake.source).toBe('cache');
+  expect(bake.atlases).toEqual([]);
+  expect(bake.surface!.files.length).toBeGreaterThan(0);
+  expect(bake.surface!.tiles).toBeGreaterThan(0);
+  expect(bake.bakedLights.sort()).toEqual(expect.arrayContaining(['light-0001']));
 
-  // The static export with the backend stopped: the last bake's shadow.
-  const share = final ? 0.8 : 0.75;
+  // A cell edit makes the bake stale (it is still drawn), and back.
+  await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'cells', at: [11, 1, 7], cell: { block: 'stone' } }] });
+  await expect(page.locator('[aria-label="lighting status"]')).toContainText('stale');
+  await cmd('editBlocks', { entityId: layer, edits: [{ kind: 'cells', at: [11, 1, 7], cell: null }] });
+  await expect(page.locator('[aria-label="lighting status"]')).not.toContainText('stale');
+
+  // The static export with the backend stopped draws the saved light: on WebGL 2, and at the low level on WebGPU.
   const res = await be!.admin(`projects/${be!.projectId}/export`);
   expect(res.status, JSON.stringify(res.json)).toBe(200);
   await be!.halt();
   const site = await serveDir(join(be!.exportRoot, String(res.json.outputDir)));
-  const game = await page.context().newPage();
-  const errors: string[] = [];
-  game.on('pageerror', (e) => errors.push(e.message));
   try {
-    await game.setViewportSize({ width: 960, height: 540 });
-    await game.goto(`${site.url}${exportQueryFor(variant)}`);
-    const canvas = game.locator('canvas').first();
-    await expectRendererBackend(canvas, variant);
-    await expect
-      .poll(async () => {
-        const img = decodePng(await canvas.screenshot());
-        const lit = brightnessAt(img, litSpot);
-        return brightnessAt(img, shadowSpot) < lit * share && lit / beforeLit > 0.6;
-      }, { timeout: 60_000, message: 'the baked shadow on the blocks in the export' })
-      .toBe(true);
-    expect(errors).toEqual([]);
+    for (const [renderer, query] of [['webgl2', exportQueryFor('webgl2')], ['webgpu', '?quality=low']] as const) {
+      const game = await page.context().newPage();
+      const errors: string[] = [];
+      game.on('pageerror', (e) => errors.push(e.message));
+      try {
+        await game.setViewportSize({ width: 960, height: 540 });
+        await game.goto(`${site.url}${query}`);
+        const canvas = game.locator('canvas').first();
+        await expectRendererBackend(canvas, renderer === 'webgl2' ? 'webgl2' : variant);
+        let seen = { pool: 0, lit: 0 };
+        await expect
+          .poll(async () => {
+            const img = decodePng(await canvas.screenshot());
+            seen = { pool: brightnessAt(img, lampSpot) - brightnessAt(img, mirrorSpot), lit: brightnessAt(img, litSpot) };
+            return seen.pool > LAMP_POOL && seen.lit / beforeLit > 0.6 && seen.lit / beforeLit < 1.5;
+          }, { timeout: 60_000, message: `the saved light on the blocks in the export (${renderer})` })
+          .toBe(true);
+        console.log(`[block-lightmaps] export ${renderer}${query}: saved pool ${seen.pool.toFixed(1)} over its mirror spot, lit ${seen.lit.toFixed(1)} (before the bake ${beforeLit.toFixed(1)})`);
+        expect(errors).toEqual([]);
+      } finally {
+        await game.close();
+      }
+    }
   } finally {
-    await game.close();
     await site.close();
   }
 });

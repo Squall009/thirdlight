@@ -61,6 +61,8 @@ interface LiveTile {
 export class AdapterLiveProbes {
   private readonly sky = new SkyProbe();
   private skyVersion = -1;
+  /** The runtime the sky was handed to. */
+  private skyRuntime: SurfaceLightRuntime | null = null;
   private layout = -1;
   private tiles: LiveTile[] = [];
   /** Tiles made by the last placement, written whole once made. */
@@ -100,8 +102,10 @@ export class AdapterLiveProbes {
     const probes = this.host.probes;
     if (runtime === null || !this.on) return;
     this.sky.update(renderer, this.scene as never, now);
-    if (this.sky.version !== this.skyVersion) {
+    // A runtime made again (another budget, a bake's run) starts with no sky: it takes the one seen so far.
+    if (this.sky.version !== this.skyVersion || runtime !== this.skyRuntime) {
       this.skyVersion = this.sky.version;
+      this.skyRuntime = runtime;
       runtime.sky = this.sky.coefficients.slice();
       probes.markBox(null, null);
     }
