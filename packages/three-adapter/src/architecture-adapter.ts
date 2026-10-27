@@ -87,11 +87,10 @@ export function createAdapterArchitecture(d: AdapterArchitectureDeps): AdapterAr
     // Rooms drawn on a layer that name no furnishing set take the layer's.
     layerFurnishing: (layerId) => architectureLayerFurnishing({ layer: layerId }, (id) => d.components(id) as Readonly<Record<string, unknown>> | undefined),
     // Rooms drawn on a layer find its door pieces on its cell edges and are regions its cut-aways may name.
+    // Both from the drawn layer (where its cells are), not the layer object's document, which may come without them.
     rooms: (id, origin, component, plans) => {
-      const layer = component.layer === undefined ? undefined : (d.components(component.layer) as { blockLayer?: BlockLayerComponent; transform?: { position?: number[] } } | undefined);
-      const at = layer?.transform?.position ?? [0, 0, 0];
       rooms.setObject(id, origin, plans, component.layer ?? null);
-      if (layer?.blockLayer !== undefined) r.blocks().setRoomRegions(component.layer!, id, plans === null ? null : architectureRoomRegions(plans, origin.map((v, i) => v - (at[i] ?? 0)), layer.blockLayer.cellSize));
+      if (component.layer !== undefined) r.blocks().setRoomRegions(component.layer, id, plans === null ? null : (at, cellSize) => architectureRoomRegions(plans, origin.map((v, i) => v - (at[i] ?? 0)), cellSize));
     },
     ...(d.cover !== undefined ? { cover: d.cover } : {}),
     // Kit copies (furniture) are drawn per room, so they light and cull with it.

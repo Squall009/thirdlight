@@ -234,4 +234,23 @@ describe('block view: cut-aways', () => {
     expect(v.cutawayOf('house')).toBeNull();
     expect(seen).toEqual(['house', 'house']);
   });
+  it("rooms on a layer set after them take the drawn layer's place and cell size for their regions", () => {
+    // The rooms come first (the editor's Scene view hands the drawn layer its cells later, at its own place).
+    const v = new BlockLayerView();
+    v.setTypes(TYPES);
+    const asked: number[][] = [];
+    v.setRoomRegions('house', 'rooms', (at, cell) => {
+      asked.push([...at, ...cell]);
+      return [{ regionId: 'hall-s1', boxes: [[4 - at[0]!, 4, 4, 10 - at[0]!, 7, 10]] }];
+    });
+    expect(asked).toEqual([]);
+    v.setLayer('house', { ...LAYER, cutaway: { regions: [{ region: 'hall-s1' }] } }, [2, 0, 0], layerData() as never);
+    v.update();
+    // Asked with where the layer was drawn: the room's box in its cells, 2 cells along x.
+    expect(asked.at(-1)).toEqual([2, 0, 0, 1, 1, 1]);
+    expect(v.cutawayOf('house')?.zones.map((z) => z.key)).toEqual(['hall-s1']);
+    // The layer moved: its regions are made again from its new place.
+    v.setLayer('house', { ...LAYER, cutaway: { regions: [{ region: 'hall-s1' }] } }, [3, 0, 0], layerData() as never);
+    expect(asked.at(-1)).toEqual([3, 0, 0, 1, 1, 1]);
+  });
 });

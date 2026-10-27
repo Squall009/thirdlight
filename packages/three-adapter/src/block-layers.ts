@@ -431,11 +431,23 @@ function detailedMeshes(group: THREE.Object3D): THREE.Mesh[] {
   return out;
 }
 
+/**
+ * The regions an architecture object's rooms make on a layer: in its cells, or
+ * made from where the drawn layer is and its cell size (a host may hand the
+ * drawn layer its cells itself, as the editor's block tools do, and the layer
+ * may be set after the rooms drawn on it).
+ */
+export type RoomRegionSource = readonly BlockRegion[] | ((layerOrigin: readonly number[], cellSize: readonly number[]) => readonly BlockRegion[]);
+
 /** A layer's regions with the rooms drawn on it (a stored region of the same id wins). */
-function regionsWithRooms(rooms: ReadonlyMap<string, readonly BlockRegion[]> | undefined, layer: LayerState): ReadonlyMap<string, readonly (readonly number[])[]> {
+function regionsWithRooms(rooms: ReadonlyMap<string, RoomRegionSource> | undefined, layer: LayerState): ReadonlyMap<string, readonly (readonly number[])[]> {
   if (rooms === undefined) return layer.grid.regions;
   const out = new Map<string, readonly (readonly number[])[]>(layer.grid.regions);
-  for (const list of rooms.values()) for (const r of list) if (!out.has(r.regionId)) out.set(r.regionId, r.boxes);
+  const g = layer.group.position;
+  for (const src of rooms.values()) {
+    const list = typeof src === 'function' ? src([g.x, g.y, g.z], layer.grid.cellSize) : src;
+    for (const r of list) if (!out.has(r.regionId)) out.set(r.regionId, r.boxes);
+  }
   return out;
 }
 
@@ -493,7 +505,7 @@ export class BlockLayerView {
   /** The layers' cut-away zones: which chunk meshes they hold and how far each is faded. */
   private readonly cut: CutawayDrawing;
   /** Rooms drawn on each layer: their storeys' regions, per architecture object. */
-  private readonly roomRegions = new Map<string, Map<string, readonly BlockRegion[]>>();
+  private readonly roomRegions = new Map<string, Map<string, RoomRegionSource>>();
   private readonly zoneListeners = new Set<(layerId: string) => void>();
   private readonly stats = { meshedHere: 0, meshedInWorkers: 0, lastUpdate: { here: 0, applied: 0, ms: 0 }, longestUpdateMs: 0 };
   /** The restyle under way (null: none): when it began, its chunks, the last update's time and its frames. */
@@ -904,15 +916,15 @@ export class BlockLayerView {
    * more): its cut-aways may name a room as they name a region, and they cut
    * the rooms' generated walls as they cut the layer's cells.
    */
-  setRoomRegions(layerId: string, objectId: string, regions: readonly BlockRegion[] | null): void {
+  setRoomRegions(layerId: string, objectId: string, regions: RoomRegionSource | null): void {
     let byObject = this.roomRegions.get(layerId);
-    if (regions === null || regions.length === 0) {
+    if (regions === null || (typeof regions !== 'function' && regions.length === 0)) {
       if (byObject?.delete(objectId) !== true) return;
       if (byObject.size === 0) this.roomRegions.delete(layerId);
     } else {
       if (byObject === undefined) this.roomRegions.set(layerId, (byObject = new Map()));
       const had = byObject.get(objectId);
-      if (had !== undefined && JSON.stringify(had) === JSON.stringify(regions)) return;
+      if (had !== undefined && typeof had !== 'function' && typeof regions !== 'function' && JSON.stringify(had) === JSON.stringify(regions)) return;
       byObject.set(objectId, regions);
     }
     const layer = this.layers.get(layerId);
