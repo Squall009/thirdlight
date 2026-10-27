@@ -33,7 +33,8 @@ describe('the key light', () => {
     const sun = (id: string) => ({ id, components: { light: { type: 'directional', color: '#ffffff', intensity: 1, direction: [0.5, -1, 0.4], castShadow: true } } });
     lights.realize(sun('sun-a'));
     lights.realize(sun('sun-b'));
-    const nodeOf = (light: THREE.Object3D): { staticDirty: boolean } => (light as THREE.DirectionalLight).shadow.shadowNode as never;
+    // The cached shadow node under the contact shadows' wrapper.
+    const nodeOf = (light: THREE.Object3D): { staticDirty: boolean } => ((light as THREE.DirectionalLight).shadow.shadowNode as unknown as { inner: never }).inner;
     const [a] = scene.children.filter((c): c is THREE.DirectionalLight => (c as THREE.DirectionalLight).isDirectionalLight === true);
     expect(nodeOf(a!)).toBeDefined();
     // Sun A is key (B's scene ranks below it); its map was drawn.

@@ -896,7 +896,7 @@ export function validateEnvironment(value: unknown, path: string, errors: ModelE
 /** `environment.qualityLevels`: at least one level, unique ids, each field in its range (quality-levels.ts). */
 export function validateQualityLevels(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!Array.isArray(value) || value.length === 0) {
-    err(errors, 'field_type', path, 'qualityLevels is a list of at least one level { id, name?, post?, renderScale?, pixelRatio?, msaa?, shadowMapSize?, localLights?, shadowedLights?, ambientOcclusion?, lodBias?, dynamicResolution?, occlusionCulling?, surfaceCacheMiB?, surfaceLightMs? }, lowest first', value);
+    err(errors, 'field_type', path, 'qualityLevels is a list of at least one level { id, name?, post?, renderScale?, pixelRatio?, msaa?, shadowMapSize?, localLights?, shadowedLights?, ambientOcclusion?, lodBias?, dynamicResolution?, occlusionCulling?, surfaceCacheMiB?, surfaceLightMs?, contactShadows? }, lowest first', value);
     return;
   }
   const seen = new Set<string>();
@@ -921,6 +921,7 @@ export function validateQualityLevels(value: unknown, path: string, errors: Mode
         occlusionCulling: { kind: 'enum', values: OCCLUSION_CULLING_MODES },
         surfaceCacheMiB: { kind: 'num', min: SURFACE_CACHE_MIB_MIN, max: SURFACE_CACHE_MIB_MAX },
         surfaceLightMs: { kind: 'num', min: SURFACE_LIGHT_MS_MIN, max: SURFACE_LIGHT_MS_MAX },
+        contactShadows: { kind: 'bool' },
       },
       ['id'],
       errors,

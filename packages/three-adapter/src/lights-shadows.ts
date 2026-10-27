@@ -23,9 +23,11 @@
  *   the light again when it turns plain or layered.
  */
 import * as THREE from 'three';
+import { shadow } from 'three/tsl';
 import { blendLight, type EnvironmentBlendView, type EnvironmentLightValues, type ResourceManager } from '@thirdlight/runtime';
 
 import { CachedShadowNode, snapToLightGrid, type CachedShadowCounts } from './cached-shadow';
+import { withContactShadows } from './post-contact-shadows';
 import { shadowSeesCutaways } from './block-cutaway-view';
 import { decideShadows, deriveShadowCamera, directionalShadowSettings, planSceneLights, SHADOW_PROFILE, type AuthoredLight, type ShadowOutcome, type ShadowPlan, type ShadowReason, type ShadowRegion } from './lighting';
 import { selectSceneLights, type SceneLightEntry, type SceneLightKind, type SceneLightSelection } from './scene-lights';
@@ -337,8 +339,8 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
       shadowSeesCutaways(light.shadow.camera);
       if (o.staticShadows !== null) {
         cached = new CachedShadowNode(light, o.staticShadows, { mapSize: settings.mapSize, halfExtent: plan.halfExtent, near: plan.camera.near, far: plan.camera.far, distance: SHADOW_PROFILE.distance, bias: settings.bias, normalBias: settings.normalBias });
-        (light.shadow as { shadowNode?: unknown }).shadowNode = cached;
       }
+      (light.shadow as { shadowNode?: unknown }).shadowNode = withContactShadows(cached ?? shadow(light, light.shadow));
     }
     return { id, light, authored: l, settings, plan, outcome, directionNow: null, cached };
   };

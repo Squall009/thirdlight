@@ -4,7 +4,10 @@
  * Play; with the box's `castShadow` off (the Inspector's "Casts shadows"
  * checkbox, a component field) the shadow is gone. The difference between the
  * two Play frames is the shadow: a patch of the floor clearly darker, and only
- * a patch (shadow acne or a self-shadowed floor would darken far more).
+ * a patch (shadow acne or a self-shadowed floor would darken far more). The
+ * cube still darkens a strip of floor at its foot through the contact
+ * shadows (screen-space, from the depth: every object casts them), which the
+ * same Play switched to a level without contact shadows lacks.
  *
  * Then the cached static shadow map (`cached-shadow.ts`): static boxes cast
  * into a map drawn only when they change, the rest into a dynamic map drawn
@@ -75,37 +78,48 @@ function darkerPixels(a: Image, b: Image, delta = 40): number {
 /** How far apart two equal shots must be for a picture to count as settled. */
 const SETTLE_MS = 500;
 
-async function playFrame(page: Page, variant: RendererVariant, label: string): Promise<Image> {
+/** A Play frame once settled; `then` (given the session) runs before Play stops, with the frame it settles to after. */
+async function playFrame(page: Page, variant: RendererVariant, label: string, then?: (psid: string, settled: () => Promise<Image>) => Promise<void>): Promise<Image> {
+  const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
   await page.getByTitle('Start an isolated play preview').click();
+  const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
   const frame = page.locator('iframe.tl-app__preview-frame');
   await expect(frame).toBeVisible();
   await expectRendererBackend(page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first(), variant);
   await expect(page.locator('.tl-notice')).toHaveCount(0);
   // Two equal frames half a second apart: the scene has settled (shaders compiled, shadow map drawn).
-  let last = '';
-  let img: Image | null = null;
-  await expect
-    .poll(
-      async () => {
-        const png = await frame.screenshot();
-        img = decodePng(png);
-        const same = png.toString('base64') === last;
-        last = png.toString('base64');
-        return same;
-      },
-      { timeout: 60_000, intervals: [SETTLE_MS] },
-    )
-    .toBe(true);
-  const out = test.info().outputPath();
-  mkdirSync(out, { recursive: true });
-  writeFileSync(join(out, `${label}.png`), Buffer.from(last, 'base64'));
+  const settled = async (name: string): Promise<Image> => {
+    let last = '';
+    let img: Image | null = null;
+    await expect
+      .poll(
+        async () => {
+          const png = await frame.screenshot();
+          img = decodePng(png);
+          const same = png.toString('base64') === last;
+          last = png.toString('base64');
+          return same;
+        },
+        { timeout: 60_000, intervals: [SETTLE_MS] },
+      )
+      .toBe(true);
+    const out = test.info().outputPath();
+    mkdirSync(out, { recursive: true });
+    writeFileSync(join(out, `${name}.png`), Buffer.from(last, 'base64'));
+    return img!;
+  };
+  const img = await settled(label);
+  await then?.(psid, () => settled(`${label}-then`));
   await page.getByTitle('Stop the play preview').click();
   // Stop is a backend round trip plus the preview's teardown: seconds on a loaded CPU-rendered host.
   await expect(page.getByTitle('Start an isolated play preview')).toBeVisible({ timeout: 30_000 });
-  return img!;
+  return img;
 }
 
-for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a box casts the sun's shadow on a floor box in Play; "Casts shadows" off removes it (${variant})`, async ({ page }) => {
+/** Two levels alike but for contact shadows (drawn with a post effect: the look anti-aliases). */
+const CONTACT_LEVELS = { quality: 'contact', qualityLevels: [{ id: 'flat', contactShadows: false }, { id: 'contact', contactShadows: true }] };
+
+for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a box casts the sun's shadow on a floor box in Play; "Casts shadows" off removes it, its contact shadow stays (${variant})`, async ({ page }) => {
   onlyInItsProject(variant, PRODUCT_RENDERER_VARIANTS);
   test.setTimeout(240_000);
   // The new project's camera stands at (0, 0.5, 4) looking along −Z; its sun casts shadows.
@@ -116,6 +130,8 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a box casts the sun's sha
   const cubeId = String(cube['createdId']);
   // The sun from behind-left-above: the shadow falls right and towards the camera (in view).
   await command('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 1.2, direction: [0.5, -1, 0.6], castShadow: true } });
+  await command('setEnvironment', { environment: CONTACT_LEVELS });
+  await command('setEnvironment', { sceneId: 'scene-main', environment: { sky: { ...NEW_PROJECT_ENVIRONMENT.sky, cloudCoverage: 0 }, post: { antialias: 'fxaa' } } });
 
   await page.goto(editorUrlFor(be.editorUrl, variant));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
@@ -131,7 +147,13 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a box casts the sun's sha
   await expect
     .poll(async () => ((await be.command({ op: 'queryEntity', projectId: be.projectId, args: { entityId: cubeId } }))['entity'] as { components: { box: { castShadow?: boolean } } }).components.box.castShadow)
     .toBe(false);
-  const without = await playFrame(page, variant, 'without-shadow');
+  // Its contact shadow: the same Play at the level without them.
+  const shots: { flat?: Image } = {};
+  const without = await playFrame(page, variant, 'without-shadow', async (psid, settled) => {
+    const r = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/play/${psid}/control`, { method: 'POST', headers: { authorization: `Bearer ${be.token}`, origin: be.origin, 'content-type': 'application/json' }, body: JSON.stringify({ command: 'setQuality', level: 'flat' }) });
+    expect(r.status).toBe(200);
+    shots.flat = await settled();
+  });
 
   expect(withShadow.width).toBe(without.width);
   const shadow = darkerPixels(withShadow, without);
@@ -143,6 +165,13 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a box casts the sun's sha
   expect(shadow).toBeLessThan(total * 0.15);
   // Nothing got brighter (the shadow only takes light away).
   expect(darkerPixels(without, withShadow)).toBeLessThan(200);
+  // The contact shadow: a strip at the cube's foot, darker with them than without; nothing lighter.
+  const flat = shots.flat!;
+  const contact = darkerPixels(without, flat, 20);
+  console.log(`[shadows] ${variant}: ${contact} pixels darker by > 20 with contact shadows (the cube casting no shadow)`);
+  expect(contact).toBeGreaterThan(150);
+  expect(contact).toBeLessThan(total * 0.05);
+  expect(darkerPixels(flat, without, 20)).toBeLessThan(50);
 });
 
 /** The project script: `place {id, x, y, z}` moves an object, `hide {id}` hides it, `walk {z}` puts the camera at z. */

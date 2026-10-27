@@ -190,9 +190,13 @@ rather than one point. Add one with **GameObject → Light → Area light** (a
   into the cache of the static surfaces around it, and block layers,
   terrain, generated buildings and static models draw it from there.
   Moving objects and static boxes get its light only as bounce through the
-  probes, and it
-  draws no highlights yet. WebGL 2 draws the cache's saved light. The
-  lightmap bake does not take area lights.
+  probes. Its highlights are drawn per pixel on the surfaces that read the
+  cache (standard, physical, graph and layered materials; Lambert ones have
+  none), with three.js's rectangle-light maths; a line light's highlight is
+  drawn as a 2 cm strip along it. The 4 area lights that matter most at the
+  camera (brightest over distance squared) give highlights each frame; every
+  one lights the cache. WebGL 2 draws the cache's saved light and no area
+  light highlights. The lightmap bake does not take area lights.
 - **No per-pixel budget** — area lights, like baked point and spot lights,
   are not counted in the scene's 16 realtime point and spot lights.
 
@@ -254,7 +258,13 @@ only where something changed:
   traced shadows; the sun is still drawn per pixel with its shadow map
   (sharper than a cache texel), so the cache's share of it is left out; the
   probes give the bounce; point and spot lights drawn per pixel keep their
-  highlights. A pixel with no cache texel under it (its surface not
+  highlights and area lights add theirs (see Area lights). Highlights are
+  shadowed by the cache: each is scaled by the share of those lights' light
+  the cache's texel sees (its traced, soft-shadowed light over the light the
+  same lights would give the pixel unshadowed), so a lamp's highlight fades
+  in its shadow. It is one share for all of them: a pixel in one lamp's
+  shadow and another's light takes the mix. Add `?surfaceHighlights=0` to
+  a game page's address to draw no area light highlights (to compare). A pixel with no cache texel under it (its surface not
   resident yet, a trim off its wall's plane) is lit per pixel as before. A
   surface that has a baked lightmap keeps drawing it until the scene is
   baked again. Static boxes, moving objects, foliage and ground cover are
@@ -270,6 +280,30 @@ only where something changed:
   mid-grey surface would be by its light and its probes' bounce;
   `?probesView=1` draws the live probes, each a small sphere lit by its own
   light.
+
+## Contact shadows
+
+Screen-space contact shadows add the sun's shadow detail its shadow map is
+too coarse for: where a small thing meets the ground, a crease, a seam
+between a wall and the floor where the map lets light through. After the
+scene is drawn each pixel looks 0.3 m toward the sun through the frame's
+depth (6 steps); a step behind something there darkens the sun's light at
+that pixel on the next frame (moving objects' contact shadows lag a frame,
+as ambient occlusion does). They fade out from 25 to 40 m away, where the
+map's own texels are as fine. Only the sun's direct light darkens; lamps,
+sky and bounce do not.
+
+- **Setting** — the quality level's `contactShadows` (absent: on; the
+  engine's low level has none, medium and high have them). They are drawn
+  with the look's post effects: a look with any post effect or
+  anti-aliasing has them, a look with none has none (a render scale,
+  occlusion culling or MSAA off change nothing). Perspective cameras only; a
+  logarithmic depth buffer has none.
+- **What casts them** — everything in the depth buffer, an object whose own
+  **Cast shadows** is off included (the depth holds no caster flags);
+  transparent surfaces receive none.
+- **Both renderers** — WebGPU and WebGL 2 alike. Add `?contactShadows=0` to
+  a game page's address to draw none at any level (to compare).
 
 ## Local lights per object
 

@@ -32,6 +32,7 @@ import { WebGPURenderer } from 'three/webgpu';
 import { registerEffectLights } from './effect-lights';
 import { registerLayeredLights } from './light-layers';
 import { registerScreenSpaceOcclusion } from './post-ao';
+import { registerContactShadows } from './post-contact-shadows';
 import { registerProbeLighting } from './probe-lighting';
 import { registerProjectedDecals } from './projected-decals';
 import { installLocalLightModes } from './local-lights';
@@ -350,6 +351,7 @@ const BROWSER_DEPS: RendererFactoryDeps = {
     registerProjectedDecals(r as never);
     // And the screen-space ambient occlusion, a light every lit material takes into its indirect light.
     registerScreenSpaceOcclusion(r as never);
+    registerContactShadows(r as never);
     // And objects that take no local light (their material's mode variant per draw).
     installLocalLightModes(r as never);
     return r as unknown as NodeRendererLike;

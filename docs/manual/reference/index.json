@@ -523,6 +523,7 @@
 "limit.DEFAULT_CHARACTER_3D": {"page":"limits-project-model-1.md","section":"limits-project-model--components"},
 "limit.DEFAULT_COLLIDER_DEPTH": {"page":"limits-project-model-2.md","section":"limits-project-model--shape-2d-3d"},
 "limit.DEFAULT_COLLISION_LAYER": {"page":"limits-project-model-1.md","section":"limits-project-model--components"},
+"limit.DEFAULT_CONTACT_SHADOWS": {"page":"limits-project-model-2.md","section":"limits-project-model--quality-levels"},
 "limit.DEFAULT_CONTROLLER_CAPSULE": {"page":"limits-project-model-1.md","section":"limits-project-model--components"},
 "limit.DEFAULT_CONTROLLER_MOVEMENT": {"page":"limits-project-model-1.md","section":"limits-project-model--components"},
 "limit.DEFAULT_CONTROLLER_TUNING": {"page":"limits-project-model-1.md","section":"limits-project-model--components"},

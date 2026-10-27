@@ -32,13 +32,15 @@
  */
 import * as THREE from 'three';
 import { PMREMGenerator as NodePMREMGenerator, type WebGPURenderer } from 'three/webgpu';
-import { AMBIENT_OCCLUSION_DEFAULT, levelPost, qualityLevelOf, qualityLevelsOf, SKY_DEFAULTS, type QualityLevelConfig } from '@thirdlight/runtime';
+import { AMBIENT_OCCLUSION_DEFAULT, DEFAULT_CONTACT_SHADOWS, levelPost, qualityLevelOf, qualityLevelsOf, SKY_DEFAULTS, type QualityLevelConfig } from '@thirdlight/runtime';
 
 import { CloudDrift, type CloudWind } from './cloud-drift';
 // Lit surfaces read the PMREM through a cube copy, made again after each bake.
 import { SceneLighting, type PmremLike } from './environment-cube';
 
 import { ScreenSpaceOcclusion } from './post-ao';
+import { ContactShadowsLight } from './post-contact-shadows';
+import { pageSearch } from './renderer-factory';
 import type { UpscaleFilter } from './post-upscale';
 import type { ScenePasses } from './occlusion-passes';
 import { applySkyRotation, skyRotationRadians } from './sky-rotation';
@@ -344,6 +346,48 @@ function skyInputs(sky: SkyLike, out: number[], params?: SkyParams): void {
   }
 }
 
+let contactOff: boolean | null = null;
+/** `?contactShadows=0`: none at any level (a comparison of what they cost and change). */
+function contactShadowsOff(): boolean {
+  contactOff ??= new URLSearchParams(pageSearch()).get('contactShadows') === '0';
+  return contactOff;
+}
+
+/**
+ * The scene's screen-history lights (`screen-history.ts`): the occlusion
+ * light (post-ao.ts) and the contact shadows' (post-contact-shadows.ts), each
+ * in the scene only while a stack draws it, so lit programs sample no
+ * history nobody writes. Their coming and going changes the lights' program
+ * key: the lit programs build again on the next frame, as for a shadow map
+ * size change.
+ */
+class ScreenLights {
+  ao: ScreenSpaceOcclusion | null = null;
+  contact: ContactShadowsLight | null = null;
+
+  constructor(private readonly scene: THREE.Scene) {}
+
+  /** The lights the next stack draws are in the scene, the others gone. */
+  keep(ao: boolean, contact: boolean): void {
+    this.ao = this.hold(this.ao, ao, () => new ScreenSpaceOcclusion());
+    this.contact = this.hold(this.contact, contact, () => new ContactShadowsLight());
+  }
+
+  private hold<T extends THREE.Light>(light: T | null, wanted: boolean, make: () => T): T | null {
+    if (wanted) {
+      if (light !== null) return light;
+      const made = make();
+      this.scene.add(made);
+      return made;
+    }
+    if (light !== null) {
+      this.scene.remove(light);
+      light.dispose();
+    }
+    return null;
+  }
+}
+
 /** The physical sky's uniforms (`PhysicalSky`). */
 function setSkyUniforms(mesh: THREE.Mesh, p: SkyParams): void {
   const m = mesh as PhysicalSky;
@@ -387,12 +431,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
   const layers = new Map<string, SkyLayer>();
   let qualityOverride: QualityLevel | null = null;
   let render: RenderOptions = RENDER_OPTIONS_DEFAULT;
-  /**
-   * The scene's occlusion light (post-ao.ts): added with the first stack that
-   * draws AO and kept (taking it out again would rebuild every lit program; a
-   * stack without AO leaves it inactive).
-   */
-  let aoLight: ScreenSpaceOcclusion | null = null;
+  const screenLights = new ScreenLights(scene);
   let keyLight: [number, number, number] | null = null;
   let volumes: readonly FogVolumeLike[] = [];
   let width = 1;
@@ -804,7 +843,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
   };
 
   // ---- post ----------------------------------------------------------------------
-  const wanted = (): { bloom: boolean; ssao: boolean; dof: boolean; fogVolumes: boolean; grading: boolean; aa: 'none' | 'fxaa' | 'smaa' } => {
+  const wanted = (): { bloom: boolean; ssao: boolean; dof: boolean; fogVolumes: boolean; grading: boolean; aa: 'none' | 'fxaa' | 'smaa'; contact: boolean } => {
     const p = postNow();
     const g = p?.grading;
     return {
@@ -814,6 +853,8 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       fogVolumes: volumes.length > 0,
       grading: (g !== undefined && (g.brightness !== undefined || g.contrast !== undefined || g.saturation !== undefined || g.tint !== undefined || g.lut !== undefined || g.lift !== undefined || g.gamma !== undefined || g.gain !== undefined)) || p?.vignette?.enabled === true,
       aa: p?.antialias ?? 'none',
+      // Not a post effect of its own: drawn with the look's post effects (it needs the scene pass's depth).
+      contact: !contactShadowsOff() && (level().contactShadows ?? DEFAULT_CONTACT_SHADOWS),
     };
   };
 
@@ -856,20 +897,16 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     if (key === composerKey) return;
     composerKey = key;
     disposePipeline();
-    // AO switched off (the look, the level or the setting): the occlusion light leaves the scene, so lit
-    // programs no longer sample its history per pixel. Its coming and going changes the lights' program key:
-    // the lit programs build again on the next frame, as for a shadow map size change.
-    if (!(w.ssao && camera instanceof THREE.PerspectiveCamera) && aoLight !== null) {
-      scene.remove(aoLight);
-      aoLight.dispose();
-      aoLight = null;
-    }
     samplesNow = renderer.samples;
+    const perspective = camera instanceof THREE.PerspectiveCamera;
+    // With a post effect only: a frame through the stack for another reason (render scale, culling, no MSAA) looks as without.
+    const contact = w.contact && perspective && isPost;
+    screenLights.keep(w.ssao && perspective, contact);
     if (!isPost && !noMsaa && displayBackground === null && !upscaling && scenePasses === null) return;
     const g = post?.grading;
-    const perspective = camera instanceof THREE.PerspectiveCamera;
     const plan: PostPlan = {
       ao: w.ssao && perspective && render.ao !== 'off' ? { kind: render.ao, radius: post?.ssao?.radius ?? 0.5, intensity: post?.ssao?.intensity ?? 1 } : null,
+      contactShadows: contact,
       fogVolumes: w.fogVolumes,
       dof: w.dof && perspective ? { focus: post?.dof?.focus ?? 10, aperture: post?.dof?.aperture ?? 0.002, maxBlur: post?.dof?.maxBlur ?? 0.01 } : null,
       bloom: w.bloom ? { strength: post?.bloom?.strength ?? 0.6, radius: post?.bloom?.radius ?? 0.4, threshold: post?.bloom?.threshold ?? 0.85 } : null,
@@ -894,12 +931,8 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       scenePasses,
       pyramidView,
     };
-    if (plan.ao !== null && aoLight === null) {
-      aoLight = new ScreenSpaceOcclusion();
-      scene.add(aoLight);
-    }
     try {
-      const p = buildPostPipeline(renderer, scene, camera, plan, aoLight);
+      const p = buildPostPipeline(renderer, scene, camera, plan, screenLights.ao, screenLights.contact);
       p.setSize(width, height, renderer.getPixelRatio());
       pipeline = p;
       samplesNow = plan.samples;
@@ -1079,11 +1112,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     dispose() {
       disposed = true;
       disposePipeline();
-      if (aoLight !== null) {
-        scene.remove(aoLight);
-        aoLight.dispose();
-        aoLight = null;
-      }
+      screenLights.keep(false, false);
       disposeLayers();
       clearSky();
       heightFog.dispose();

@@ -636,7 +636,7 @@ export { AMBIENT_OCCLUSION_DEFAULT, AMBIENT_OCCLUSION_KINDS, ambientOcclusionOf,
 export { OCCLUDEE_KINDS, occludeeClassOf, occludeeScreenShare, OCCLUDER_ROLES, occluderRoleOf, OCCLUSION_MAX_SCREEN_SHARE, OCCLUSION_MIN_TRIANGLES, OCCLUSION_PATHS, occlusionPathAvailable, occlusionPathFrom, occlusionPathOf, type OccludeeClass, type OccludeeFacts, type OccludeeKind, type OccluderFacts, type OccluderRole, type OcclusionPath, type OcclusionPathChoice, type OcclusionRenderer } from './occlusion';
 // Occluder stand-ins (`_OCC` nodes) in model files: the naming rule, the import check and the import setting's meaning.
 export { isModelHelperNode, MODEL_OCC_RE, modelOccluderModeOf, modelOccluderUse, OCCLUDER_COVERAGE_TEXELS, occluderCoverageBreaks, occluderPointsOutside, OCCLUDER_INSIDE_TOLERANCE_M, type ModelOccluderMode, type OccluderBounds } from '@thirdlight/project-model';
-export { DEFAULT_QUALITY_LEVELS, DEFAULT_SURFACE_CACHE_MIB, DEFAULT_SURFACE_LIGHT_MS, levelPost, LOD_BIAS_MAX, LOD_BIAS_MIN, PIXEL_RATIO_CAP_MAX, QUALITY_LEVEL_ID_RE, qualityLevelOf, qualityLevelsOf, type QualityLevelConfig, type QualityLevelPost } from '@thirdlight/project-model';
+export { DEFAULT_CONTACT_SHADOWS, DEFAULT_QUALITY_LEVELS, DEFAULT_SURFACE_CACHE_MIB, DEFAULT_SURFACE_LIGHT_MS, levelPost, LOD_BIAS_MAX, LOD_BIAS_MIN, PIXEL_RATIO_CAP_MAX, QUALITY_LEVEL_ID_RE, qualityLevelOf, qualityLevelsOf, type QualityLevelConfig, type QualityLevelPost } from '@thirdlight/project-model';
 // The simulation's step rate when a project sets none (project-model's).
 export { DEFAULT_FIXED_STEP_HZ, fixedStepHzOf } from '@thirdlight/project-model';
 export { clampAlpha, previewFrameSeconds } from './frame-clock';

@@ -66,6 +66,7 @@ import { fxaa } from 'three/examples/jsm/tsl/display/FXAANode.js';
 import { releaseMrtContexts } from './dispose';
 import { PhysicalSky } from './physical-sky';
 import { buildAmbientOcclusion, type AmbientOcclusionStage, type AoKind, type ScreenSpaceOcclusion } from './post-ao';
+import { buildContactShadows, type ContactShadowsLight, type ContactShadowsStage } from './post-contact-shadows';
 import type { ScenePasses } from './occlusion-passes';
 import { atScale, buildUpscale, scaledTexture, type ScaledTexture, type UpscaleFilter, type UpscaleStage } from './post-upscale';
 
@@ -169,6 +170,8 @@ export function imageSkyMaterial(source: { color: THREE.Color } | { equirect: TH
 export interface PostPlan {
   /** Ambient occlusion on the lit materials' indirect light (`post-ao.ts`). */
   ao: { kind: AoKind; radius: number; intensity: number } | null;
+  /** Screen-space contact shadows on the key light's light (`post-contact-shadows.ts`; absent: none). */
+  contactShadows?: boolean;
   fogVolumes: boolean;
   dof: { focus: number; aperture: number; maxBlur: number } | null;
   bloom: { strength: number; radius: number; threshold: number } | null;
@@ -248,8 +251,37 @@ function blankLut(): THREE.DataTexture {
   return t;
 }
 
-/** `aoLight`: the scene's occlusion light, which a plan with `ao` feeds (null: none in the scene). */
-export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, camera: THREE.Camera, plan: PostPlan, aoLight: ScreenSpaceOcclusion | null = null): PostPipeline {
+/** The screen-history stages a stack draws after its scene pass (ambient occlusion, contact shadows), driven as one. */
+interface ScreenStages {
+  /** Their nodes, built into the pipeline's output so it draws them. */
+  readonly nodes: readonly N[];
+  setScale(sceneScale: number): void;
+  beforeFrame(camera: THREE.Camera): void;
+  afterFrame(camera: THREE.Camera): void;
+}
+
+/** The stages for the lights given (null: that stage is not drawn). */
+function screenStages(renderer: WebGPURenderer, scene: THREE.Scene, camera: THREE.Camera, scenePass: N, aoLight: ScreenSpaceOcclusion | null, contactLight: ContactShadowsLight | null, plan: PostPlan, passes: string[], disposables: { dispose(): void }[]): ScreenStages {
+  const stages: (AmbientOcclusionStage | ContactShadowsStage)[] = [];
+  if (aoLight !== null && plan.ao !== null) {
+    stages.push(buildAmbientOcclusion(renderer, plan.ao.kind, scenePass, camera, aoLight, { radius: plan.ao.radius, intensity: plan.ao.intensity }));
+    passes.push(plan.ao.kind);
+  }
+  if (contactLight !== null) {
+    stages.push(buildContactShadows(renderer, scenePass, scene, contactLight));
+    passes.push('contactShadows');
+  }
+  disposables.push(...stages);
+  return {
+    nodes: stages.map((st) => st.passes),
+    setScale: (sceneScale) => stages.forEach((st) => st.setScale(sceneScale)),
+    beforeFrame: (cam) => stages.forEach((st) => st.beforeFrame(cam)),
+    afterFrame: (cam) => stages.forEach((st) => st.afterFrame(cam)),
+  };
+}
+
+/** `aoLight`, `contactLight`: the scene's occlusion and contact-shadows lights, which a plan with `ao` or `contactShadows` feeds (null: none in the scene). */
+export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, camera: THREE.Camera, plan: PostPlan, aoLight: ScreenSpaceOcclusion | null = null, contactLight: ContactShadowsLight | null = null): PostPipeline {
   const disposables: { dispose(): void }[] = [];
   const passes: string[] = ['render'];
   const perspective = camera instanceof THREE.PerspectiveCamera;
@@ -290,12 +322,7 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
   const invProjection = uniform(new THREE.Matrix4());
   const cameraWorld = uniform(new THREE.Matrix4());
 
-  let aoStage: AmbientOcclusionStage | null = null;
-  if (wantsAo) {
-    aoStage = buildAmbientOcclusion(renderer, plan.ao!.kind, scenePass, camera, aoLight!, { radius: plan.ao!.radius, intensity: plan.ao!.intensity });
-    disposables.push(aoStage);
-    passes.push(plan.ao!.kind);
-  }
+  const screen = screenStages(renderer, scene, camera, scenePass, wantsAo ? aoLight : null, perspective && plan.contactShadows === true ? contactLight : null, plan, passes, disposables);
 
   // ---- fog volumes (the archived (WebGL) TlFogVolumeShader, line by line) -----------------------
   const count = uniform(0, 'int');
@@ -516,17 +543,17 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
     passes.push(plan.upscale.filter);
   }
   for (const t of scaled) disposables.push(t);
-  // The AO and its history run each frame after the scene pass: their node is built into the output (adding
+  // The AO, the contact shadows and their histories run each frame after the scene pass: their nodes are built into the output (adding
   // nothing: × 0) so the pipeline updates it. A bare statement would do, but WGSL has no expression statements.
-  if (aoStage !== null) {
+  for (const node of screen.nodes) {
     const c = color;
-    color = vec4(c.rgb, c.a.add(aoStage.passes.x.mul(0)));
+    color = vec4(c.rgb, c.a.add(node.x.mul(0)));
   }
 
   const applyScale = (): void => {
     scenePass.setResolutionScale(scale);
     bgPass?.setResolutionScale(scale);
-    aoStage?.setScale(scale);
+    screen.setScale(scale);
     for (const t of scaled) t.setScale(scale);
     bloomNode?.setResolutionScale(BLOOM_RESOLUTION_SCALE * scale);
     upscale?.setScale(scale);
@@ -615,11 +642,11 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
       return compileIntoTarget(renderer, scene, cam, (scenePass as { renderTarget: THREE.RenderTarget }).renderTarget, (scenePass as { getMRT(): unknown }).getMRT());
     },
     render() {
-      aoStage?.beforeFrame(camera);
+      screen.beforeFrame(camera);
       try {
         drawFrame();
       } finally {
-        aoStage?.afterFrame(camera);
+        screen.afterFrame(camera);
       }
     },
     dispose() {

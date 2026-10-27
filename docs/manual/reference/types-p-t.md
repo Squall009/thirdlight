@@ -552,6 +552,8 @@ interface QualityLevelConfig {
   surfaceCacheMiB?: number;
   /** 0–8: the GPU time a frame may spend lighting stale surface-cache texels, ms (absent: `DEFAULT_SURFACE_LIGHT_MS`; 0: saved light only). */
   surfaceLightMs?: number;
+  /** Screen-space contact shadows on the sun's light (absent: `DEFAULT_CONTACT_SHADOWS`). */
+  contactShadows?: boolean;
 }
 ```
 

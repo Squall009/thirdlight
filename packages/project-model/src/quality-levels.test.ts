@@ -94,6 +94,9 @@ describe('quality levels', () => {
     expect(paths({ qualityLevels: [{ id: 'a', surfaceLightMs: 0 }, { id: 'b', surfaceLightMs: 8 }] })).toEqual([]);
     expect(paths({ qualityLevels: [{ id: 'a', surfaceLightMs: 9 }] })).toEqual(['/qualityLevels/0/surfaceLightMs']);
     expect(DEFAULT_QUALITY_LEVELS.map((l) => l.surfaceLightMs)).toEqual([0, 1.5, 3]);
+    expect(paths({ qualityLevels: [{ id: 'a', contactShadows: false }, { id: 'b', contactShadows: true }] })).toEqual([]);
+    expect(paths({ qualityLevels: [{ id: 'a', contactShadows: 1 }] })).toEqual(['/qualityLevels/0/contactShadows']);
+    expect(DEFAULT_QUALITY_LEVELS.map((l) => l.contactShadows)).toEqual([false, true, true]);
     // A level changes the costly effects and the anti-aliasing, not the look's tone or grading.
     expect(paths({ qualityLevels: [{ id: 'a', post: { exposure: 2 } }] })).toContain('/qualityLevels/0/post/exposure');
     expect(paths({ qualityLevels: [{ id: 'a', post: { ssao: { radius: 99 } } }] })).toEqual(['/qualityLevels/0/post/ssao/radius']);

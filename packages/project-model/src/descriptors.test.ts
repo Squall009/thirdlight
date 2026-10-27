@@ -635,6 +635,7 @@ const ENV_BASES: J[] = [
         occlusionCulling: 'off',
         surfaceCacheMiB: 48,
         surfaceLightMs: 1,
+        contactShadows: false,
       },
       { id: 'high' },
     ],
