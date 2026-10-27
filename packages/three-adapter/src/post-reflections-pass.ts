@@ -13,9 +13,13 @@
  * 3. resolve: the screen's answer, the traced squares' light where it
  *    lacked one (taken from the up to four nearest traced pixels that share
  *    the pixel's depth and facing), blended into the reprojected history;
- * 4. depth: the trace's view depth, which the next frame's reads test;
- * 5. the resolve is copied into the light's history (the target lit
- *    programs bound stays the same).
+ * 4. the resolve and the trace's view depth (its second target, which the
+ *    next frame's reads test) are copied into the light's history and depth
+ *    (the targets lit programs bound stay the same).
+ *
+ * The history is found where the pixel's surface was on the last frame: by
+ * the scene pass's motion vectors under the temporal upscale (a moving
+ * object's reflection follows it), else by the camera's last matrices.
  *
  * The march has a fixed step count and no data-dependent loop bounds
  * (Intel GPUs lose most of their speed to divergent loops).
@@ -239,7 +243,7 @@ export interface ReflectionsStage {
 type Renderer = THREE.WebGPURenderer & { backend: { get(o: unknown): { buffer?: unknown } | undefined } };
 
 /** Light of `traced` over `level`, drawn from `scenePass` (MRT `normal`: view normal and roughness) into `light`; `scene` may hold the tracer. */
-export function buildReflections(renderer: THREE.WebGPURenderer, scenePass: N, scene: THREE.Scene, light: ReflectionsLight, level: ReflectionLevel, traced: boolean, packedNormal: boolean): ReflectionsStage {
+export function buildReflections(renderer: THREE.WebGPURenderer, scenePass: N, scene: THREE.Scene, light: ReflectionsLight, level: ReflectionLevel, traced: boolean, packedNormal: boolean, motion: N | null): ReflectionsStage {
   const depth: N = scenePass.getTextureNode('depth');
   const normalTex: N = scenePass.getTextureNode('normal');
   // The view normal (and roughness in w) at `at`: as written, or packed into 8 bits a channel (`reflectionNormal`).
@@ -267,7 +271,8 @@ export function buildReflections(renderer: THREE.WebGPURenderer, scenePass: N, s
   // A new frame's share: while the rays hold still a new frame repeats the last, so the history only smooths a change.
   const blend = uniform(REFLECTION_HISTORY_BLEND);
   const traceTarget = new THREE.RenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
-  const resolveTarget = new THREE.RenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
+  // The resolve and the view depth beside it (copied into the light's depth: the next frame's reads test it).
+  const resolveTarget = new THREE.RenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false, count: 2 });
   const traceTex: N = texture(traceTarget.texture);
   const viewZAt = (at: N): N => perspectiveDepthToViewZ(depth.sample(at).x, near, far);
   const toUv = (c: N): N => {
@@ -281,15 +286,15 @@ export function buildReflections(renderer: THREE.WebGPURenderer, scenePass: N, s
   let out: THREE.StorageBufferAttribute | null = null;
   let traceMat: THREE.NodeMaterial | null = null;
   let resolveMat: THREE.NodeMaterial | null = null;
-  const depthMat = new THREE.NodeMaterial();
-  depthMat.name = 'reflections depth';
-  depthMat.fragmentNode = vec4(viewZAt(uv()), 0, 0, 1);
-  const quad = new THREE.QuadMesh(depthMat);
+  const quad = new THREE.QuadMesh(new THREE.NodeMaterial());
 
-  /** The resolve: this frame's answer (the screen's, the traced squares' where it fell short) into the history. */
+  const resolvedOut = TSL.property('vec4');
+  const depthOut = TSL.property('vec4');
+  /** The resolve: this frame's answer (the screen's, the traced squares' where it fell short) into the history, and the view depth. */
   const resolveNode = (outNode: N): N =>
     Fn(() => {
       const at = uv();
+      depthOut.assign(vec4(viewZAt(at), 0, 0, 1));
       const res = vec4(0).toVar();
       const d = depth.sample(at).x.toVar();
       const s = traceTex.sample(at).toVar();
@@ -345,7 +350,7 @@ export function buildReflections(renderer: THREE.WebGPURenderer, scenePass: N, s
         // The history where this surface was on the last frame, if the depth there is its own.
         const l = light;
         const view = l.toLastView.mul(vec4(p, 1)).xyz.toVar();
-        const hu = toUv(l.toLastClip.mul(vec4(p, 1))).toVar();
+        const hu = (motion !== null ? at.sub(motion.sample(at).xy.mul(vec2(0.5, -0.5))) : toUv(l.toLastClip.mul(vec4(p, 1)))).toVar();
         const h = l.history.sample(hu).toVar();
         const hz = l.depth.sample(hu).x;
         const kept = inside(hu).and(abs(hz.sub(view.z)).lessThan(abs(view.z).mul(HISTORY_DEPTH_TOLERANCE).add(SPREAD_DEPTH_M))).and(l.active.greaterThan(0.5));
@@ -355,7 +360,8 @@ export function buildReflections(renderer: THREE.WebGPURenderer, scenePass: N, s
         });
         res.assign(vec4(rgb.div(max(c, 1e-4)), c));
       });
-      return res;
+      resolvedOut.assign(res);
+      return vec4(0);
     })();
 
   /** Storage for the traced rays and their light (`count` rays), and the two materials that use them. */
@@ -373,7 +379,8 @@ export function buildReflections(renderer: THREE.WebGPURenderer, scenePass: N, s
     traceMat.fragmentNode = traceNode({ depth, normalAt, color, viewZAt, toUv, inside, near, proj, invProj, camWorld, size, frameU, spacing, offset, tiles, traceOn, level }, storage(rays, 'uint', count * 8).toAtomic());
     resolveMat = new THREE.NodeMaterial();
     resolveMat.name = 'reflections resolve';
-    resolveMat.fragmentNode = resolveNode(storage(out, 'vec4', count).toReadOnly());
+    resolveMat.colorNode = resolveNode(storage(out, 'vec4', count).toReadOnly());
+    (resolveMat as unknown as { outputNode: N }).outputNode = TSL.outputStruct(resolvedOut, depthOut);
   };
 
   let frames = 0;
@@ -482,10 +489,8 @@ export function buildReflections(renderer: THREE.WebGPURenderer, scenePass: N, s
         quad.material = resolveMat!;
         r.setRenderTarget(resolveTarget);
         quad.render(r);
-        quad.material = depthMat;
-        r.setRenderTarget(light.depthTarget);
-        quad.render(r);
-        r.copyTextureToTexture(resolveTarget.texture, light.historyTarget.texture);
+        r.copyTextureToTexture(resolveTarget.textures[0]!, light.historyTarget.texture);
+        r.copyTextureToTexture(resolveTarget.textures[1]!, light.depthTarget.texture);
         drawn = true;
         const last = tracer?.last();
         light.stats = { width: w, height: h, spacing: held ? heldSpacing.value : 0, rays: held ? heldRays : 0, every: interval, traceMs: held ? (last?.ms ?? null) : null };
@@ -533,7 +538,6 @@ export function buildReflections(renderer: THREE.WebGPURenderer, scenePass: N, s
       resolveTarget.dispose();
       traceMat?.dispose();
       resolveMat?.dispose();
-      depthMat.dispose();
       releaseStorage(renderer, [rays, out]);
       node.dispose?.();
     },

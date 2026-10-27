@@ -985,10 +985,15 @@ test('render scale: 0.5 draws at half resolution, FSR 1 upscales sharper than bi
     await stop();
     // The motion vectors (0.5 grey still; red above it moving right).
     await play(url.replace('#', '&taau=motion#'), variant);
-    const motion = await withMover((p) => p[0]! > 190 && Math.abs(p[2]! - 128) < 8);
     const off = (p: readonly number[]): number => Math.max(Math.abs(p[0]! - 128), Math.abs(p[1]! - 128));
     const plantTop = plantPixels.filter(([, y]) => y < (Math.min(...plantPixels.map(([, py]) => py)) + Math.max(...plantPixels.map(([, py]) => py))) / 2);
-    const swaying = plantTop.filter(([x, y]) => off(motion.pixel(x, y)) >= 5).length;
+    // The plant sways back and forth as one (no COLOR_0: one phase): its motion passes through nothing twice a sway.
+    let motion = await withMover((p) => p[0]! > 190 && Math.abs(p[2]! - 128) < 8);
+    let swaying = 0;
+    for (let k = 0; k < 20 && swaying <= plantTop.length * 0.2; k++) {
+      if (k > 0) motion = decodePng(await canvas.screenshot());
+      swaying = plantTop.filter(([x, y]) => off(motion.pixel(x, y)) >= 5).length;
+    }
     const boardMoving = boardPixels.filter(([x, y]) => off(motion.pixel(x, y)) > 3).length;
     console.log(`[render scale] taau motion: ${mask(motion, (p) => p[0]! > 190).length} px moving right, ${swaying} of ${plantTop.length} plant-top px swaying, ${boardMoving} of ${boardPixels.length} board px moving`);
     expect(swaying).toBeGreaterThan(plantTop.length * 0.2);

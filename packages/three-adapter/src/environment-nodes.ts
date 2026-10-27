@@ -285,7 +285,7 @@ function screenStages(renderer: WebGPURenderer, scene: THREE.Scene, camera: THRE
     passes.push('contactShadows');
   }
   if (reflectionsLight !== null && plan.reflections) {
-    stages.push(buildReflections(renderer, scenePass, scene, reflectionsLight, REFLECTION_LEVELS[plan.reflections.quality], plan.reflections.traced, aoLight === null));
+    stages.push(buildReflections(renderer, scenePass, scene, reflectionsLight, REFLECTION_LEVELS[plan.reflections.quality], plan.reflections.traced, aoLight === null, plan.aa === 'taau' ? scenePass.getTextureNode(MOTION_TARGET) : null));
     passes.push('reflections');
   }
   disposables.push(...stages);

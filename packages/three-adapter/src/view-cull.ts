@@ -118,8 +118,11 @@ export class CullView {
     const v = camera.matrixWorldInverse.elements;
     const p = camera.projectionMatrix.elements;
     const s = this.snap;
+    // A view offset's shift (the temporal upscale's sub-pixel jitter, set only while the frame draws) is not a new view.
+    const shifted = (camera as THREE.PerspectiveCamera).view?.enabled === true;
     for (let k = 0; k < 16; k += 1) {
       if (Math.abs(s[k]! - v[k]!) > VIEW_SAME_TOLERANCE * (1 + Math.abs(v[k]!))) return false;
+      if (shifted && (k === 8 || k === 9)) continue;
       if (Math.abs(s[16 + k]! - p[k]!) > VIEW_SAME_TOLERANCE * (1 + Math.abs(p[k]!))) return false;
     }
     return true;
