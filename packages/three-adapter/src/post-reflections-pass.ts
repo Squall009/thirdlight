@@ -34,6 +34,8 @@ import {
   REFLECTION_SPACING_FRAMES,
   REFLECTION_STILL_BLEND,
   REFLECTION_STILL_FRAMES,
+  REFLECTION_STILL_TRACE_FRAMES,
+  REFLECTION_TRACE_INTERVAL_MAX,
   REFLECTION_TRACE_METRES,
   REFLECTION_TRACER_KEY,
   traceOffset,
@@ -90,9 +92,139 @@ class ReflectionRoughnessNode extends (THREE.Node as unknown as new (type?: stri
   }
 }
 
-/** The MRT value beside the normal that the reflections read (`ReflectionRoughnessNode`). */
-export function reflectionRoughness(): N {
-  return TSL.nodeObject(new ReflectionRoughnessNode());
+/**
+ * The scene pass's MRT `normal` the reflections read: the view normal and the
+ * pixel's roughness (`ReflectionRoughnessNode`), packed into 8 bits a channel
+ * where nothing else reads it (`packed`: half the bandwidth of the half-float
+ * target ambient occlusion reads).
+ */
+export function reflectionNormal(packed: boolean): N {
+  const r = TSL.nodeObject(new ReflectionRoughnessNode());
+  return packed ? vec4(TSL.directionToColor(TSL.normalView), r) : vec4(TSL.normalView, r);
+}
+
+/** What the trace's program reads: the scene pass's targets and the passes' uniforms. */
+interface TraceInputs {
+  depth: N;
+  normalAt(at: N): N;
+  color: N;
+  viewZAt(at: N): N;
+  toUv(c: N): N;
+  inside(q: N): N;
+  near: N;
+  proj: N;
+  invProj: N;
+  camWorld: N;
+  size: N;
+  frameU: N;
+  spacing: N;
+  offset: N;
+  tiles: N;
+  traceOn: N;
+  level: ReflectionLevel;
+}
+
+/** The trace: the screen's answer per pixel, and the traced pixels' rays into `raysNode`. */
+function traceNode(i: TraceInputs, raysNode: N): N {
+  const { depth, normalAt, color, viewZAt, toUv, inside, near, proj, invProj, camWorld, size, frameU, spacing, offset, tiles, traceOn, level } = i;
+  return Fn(() => {
+    const at = uv();
+    const res = vec4(0, 0, 0, -1).toVar();
+    const rayO = vec3(0).toVar();
+    const rayD = vec3(0, 1, 0).toVar();
+    const rayMax = float(0).toVar();
+    const d = depth.sample(at).x.toVar();
+    If(d.lessThan(1), () => {
+      const nr = normalAt(at).toVar();
+      If(nr.w.lessThanEqual(REFLECTION_ROUGHNESS_MAX), () => {
+        res.assign(vec4(0));
+        const p = getViewPosition(at, d, invProj).toVar();
+        const n = normalize(nr.xyz).toVar();
+        const inc = normalize(p).toVar();
+        // One direction of the roughness's lobe (GGX), turned per pixel and frame.
+        const px = at.mul(size);
+        const u1 = interleavedGradientNoise(px.add(frameU.mul(5.588238)));
+        const u2 = interleavedGradientNoise(px.yx.add(vec2(17.3, 41.7)).add(frameU.mul(3.31)));
+        const a = nr.w.mul(nr.w).mul(LOBE_SHRINK);
+        const phi = u1.mul(Math.PI * 2);
+        const cosT = sqrt(float(1).sub(u2).div(float(1).add(a.mul(a).sub(1).mul(u2))));
+        const sinT = sqrt(max(float(0), float(1).sub(cosT.mul(cosT))));
+        const up = select(abs(n.z).lessThan(0.999), vec3(0, 0, 1), vec3(1, 0, 0));
+        const t = normalize(cross(up, n));
+        const b = cross(n, t);
+        const h = t.mul(sinT.mul(cos(phi))).add(b.mul(sinT.mul(sin(phi)))).add(n.mul(cosT));
+        const dir = reflect(inc, h).toVar();
+        If(dot(dir, n).lessThanEqual(0.01), () => {
+          dir.assign(reflect(inc, n));
+        });
+        // The march in clip space: a step's view depth is the same blend of the ends' as its clip position.
+        const e = p.add(dir.mul(REFLECTION_SCREEN_METRES)).toVar();
+        If(e.z.greaterThan(near.negate().mul(1.01)), () => {
+          e.assign(p.add(dir.mul(near.negate().mul(1.01).sub(p.z).div(dir.z))));
+        });
+        const c0 = proj.mul(vec4(p, 1)).toVar();
+        const c1 = proj.mul(vec4(e, 1)).toVar();
+        const jitter = interleavedGradientNoise(px.add(frameU.mul(7.13)).add(13.1));
+        const found = float(0).toVar();
+        const tLo = float(0).toVar();
+        const tHi = float(0).toVar();
+        const prev = float(0).toVar();
+        const steps = level.steps;
+        Loop(steps, ({ i }: { i: N }) => {
+          const f = float(i).add(jitter).add(0.5).div(steps);
+          const s = f.mul(f).toVar();
+          const q = toUv(mix(c0, c1, s)).toVar();
+          If(inside(q).not(), () => {
+            Break();
+          });
+          const rz = mix(p.z, e.z, s);
+          const behind = viewZAt(q).sub(rz);
+          const thick = max(abs(rz.sub(mix(p.z, e.z, prev))), abs(rz).mul(THICKNESS_SHARE).add(THICKNESS_M));
+          If(behind.greaterThan(abs(rz).mul(HIT_BIAS_SHARE).add(HIT_BIAS_M)).and(behind.lessThan(thick)), () => {
+            found.assign(1);
+            tLo.assign(prev);
+            tHi.assign(s);
+            Break();
+          });
+          prev.assign(s);
+        });
+        If(found.greaterThan(0.5), () => {
+          for (let k = 0; k < level.refine; k += 1) {
+            const m = tLo.add(tHi).mul(0.5);
+            If(viewZAt(toUv(mix(c0, c1, m))).sub(mix(p.z, e.z, m)).greaterThan(0), () => {
+              tHi.assign(m);
+            }).Else(() => {
+              tLo.assign(m);
+            });
+          }
+          const q = toUv(mix(c0, c1, tHi)).toVar();
+          // A hit on a surface's back (the ray slipped behind it) is no answer.
+          const facing = dot(normalize(normalAt(q).xyz), dir).lessThan(0);
+          const edge = min(min(q.x, float(1).sub(q.x)), min(q.y, float(1).sub(q.y)));
+          const conf = smoothstep(0, EDGE_FADE, edge).mul(float(1).sub(smoothstep(FAR_FADE_FROM, 1, tHi)));
+          const c = color.sample(q).rgb.toVar();
+          c.mulAssign(min(float(1), float(MAX_LUMINANCE).div(max(luminance(c), 1e-4))));
+          res.assign(vec4(c, select(facing, conf, float(0))));
+        });
+        If(res.w.lessThan(SURE), () => {
+          rayO.assign(camWorld.mul(vec4(p.add(n.mul(TRACE_LIFT_M)), 1)).xyz);
+          rayD.assign(normalize(camWorld.mul(vec4(dir, 0)).xyz));
+          rayMax.assign(REFLECTION_TRACE_METRES);
+        });
+      });
+    });
+    // One pixel a square writes its ray (tmax 0: none needed).
+    const rel = floor(at.mul(size)).sub(offset);
+    const tile = floor(rel.div(spacing));
+    const mine = rel.x.greaterThanEqual(0).and(rel.y.greaterThanEqual(0)).and(rel.sub(tile.mul(spacing)).length().lessThan(0.5)).and(tile.x.lessThan(tiles.x)).and(tile.y.lessThan(tiles.y)).and(traceOn.greaterThan(0.5));
+    If(mine, () => {
+      // Word by word through atomics: the only storage writes three allows outside compute.
+      const at0 = int(tile.y.mul(tiles.x).add(tile.x)).mul(8);
+      const words = [rayO.x, rayO.y, rayO.z, float(0), rayD.x, rayD.y, rayD.z, rayMax];
+      words.forEach((v, j) => TSL.atomicStore(raysNode.element(at0.add(j)), TSL.floatBitsToUint(v)));
+    });
+    return res;
+  })();
 }
 
 export interface ReflectionsStage {
@@ -107,9 +239,14 @@ export interface ReflectionsStage {
 type Renderer = THREE.WebGPURenderer & { backend: { get(o: unknown): { buffer?: unknown } | undefined } };
 
 /** Light of `traced` over `level`, drawn from `scenePass` (MRT `normal`: view normal and roughness) into `light`; `scene` may hold the tracer. */
-export function buildReflections(renderer: THREE.WebGPURenderer, scenePass: N, scene: THREE.Scene, light: ReflectionsLight, level: ReflectionLevel, traced: boolean): ReflectionsStage {
+export function buildReflections(renderer: THREE.WebGPURenderer, scenePass: N, scene: THREE.Scene, light: ReflectionsLight, level: ReflectionLevel, traced: boolean, packedNormal: boolean): ReflectionsStage {
   const depth: N = scenePass.getTextureNode('depth');
-  const normal: N = scenePass.getTextureNode('normal');
+  const normalTex: N = scenePass.getTextureNode('normal');
+  // The view normal (and roughness in w) at `at`: as written, or packed into 8 bits a channel (`reflectionNormal`).
+  const normalAt = (at: N): N => {
+    const v = normalTex.sample(at);
+    return packedNormal ? vec4(TSL.colorToDirection(v.xyz), v.w) : v;
+  };
   const color: N = scenePass.getTextureNode('output');
   const near: N = scenePass._cameraNear;
   const far: N = scenePass._cameraFar;
@@ -122,6 +259,10 @@ export function buildReflections(renderer: THREE.WebGPURenderer, scenePass: N, s
   const offset = uniform(new THREE.Vector2());
   const tiles = uniform(new THREE.Vector2());
   const traceOn = uniform(0);
+  // The traced rays the light buffer holds: their frame's spacing, place and squares (the resolve reads them by those).
+  const heldSpacing = uniform(1);
+  const heldOffset = uniform(new THREE.Vector2());
+  const heldTiles = uniform(new THREE.Vector2());
   const tracedNow = uniform(0);
   // A new frame's share: while the rays hold still a new frame repeats the last, so the history only smooths a change.
   const blend = uniform(REFLECTION_HISTORY_BLEND);
@@ -144,107 +285,6 @@ export function buildReflections(renderer: THREE.WebGPURenderer, scenePass: N, s
   depthMat.name = 'reflections depth';
   depthMat.fragmentNode = vec4(viewZAt(uv()), 0, 0, 1);
   const quad = new THREE.QuadMesh(depthMat);
-
-  /** The trace: the screen's answer per pixel, and the traced pixels' rays. */
-  const traceNode = (raysNode: N): N =>
-    Fn(() => {
-      const at = uv();
-      const res = vec4(0, 0, 0, -1).toVar();
-      const rayO = vec3(0).toVar();
-      const rayD = vec3(0, 1, 0).toVar();
-      const rayMax = float(0).toVar();
-      const d = depth.sample(at).x.toVar();
-      If(d.lessThan(1), () => {
-        const nr = normal.sample(at).toVar();
-        If(nr.w.lessThanEqual(REFLECTION_ROUGHNESS_MAX), () => {
-          res.assign(vec4(0));
-          const p = getViewPosition(at, d, invProj).toVar();
-          const n = normalize(nr.xyz).toVar();
-          const inc = normalize(p).toVar();
-          // One direction of the roughness's lobe (GGX), turned per pixel and frame.
-          const px = at.mul(size);
-          const u1 = interleavedGradientNoise(px.add(frameU.mul(5.588238)));
-          const u2 = interleavedGradientNoise(px.yx.add(vec2(17.3, 41.7)).add(frameU.mul(3.31)));
-          const a = nr.w.mul(nr.w).mul(LOBE_SHRINK);
-          const phi = u1.mul(Math.PI * 2);
-          const cosT = sqrt(float(1).sub(u2).div(float(1).add(a.mul(a).sub(1).mul(u2))));
-          const sinT = sqrt(max(float(0), float(1).sub(cosT.mul(cosT))));
-          const up = select(abs(n.z).lessThan(0.999), vec3(0, 0, 1), vec3(1, 0, 0));
-          const t = normalize(cross(up, n));
-          const b = cross(n, t);
-          const h = t.mul(sinT.mul(cos(phi))).add(b.mul(sinT.mul(sin(phi)))).add(n.mul(cosT));
-          const dir = reflect(inc, h).toVar();
-          If(dot(dir, n).lessThanEqual(0.01), () => {
-            dir.assign(reflect(inc, n));
-          });
-          // The march in clip space: a step's view depth is the same blend of the ends' as its clip position.
-          const e = p.add(dir.mul(REFLECTION_SCREEN_METRES)).toVar();
-          If(e.z.greaterThan(near.negate().mul(1.01)), () => {
-            e.assign(p.add(dir.mul(near.negate().mul(1.01).sub(p.z).div(dir.z))));
-          });
-          const c0 = proj.mul(vec4(p, 1)).toVar();
-          const c1 = proj.mul(vec4(e, 1)).toVar();
-          const jitter = interleavedGradientNoise(px.add(frameU.mul(7.13)).add(13.1));
-          const found = float(0).toVar();
-          const tLo = float(0).toVar();
-          const tHi = float(0).toVar();
-          const prev = float(0).toVar();
-          const steps = level.steps;
-          Loop(steps, ({ i }: { i: N }) => {
-            const f = float(i).add(jitter).add(0.5).div(steps);
-            const s = f.mul(f).toVar();
-            const q = toUv(mix(c0, c1, s)).toVar();
-            If(inside(q).not(), () => {
-              Break();
-            });
-            const rz = mix(p.z, e.z, s);
-            const behind = viewZAt(q).sub(rz);
-            const thick = max(abs(rz.sub(mix(p.z, e.z, prev))), abs(rz).mul(THICKNESS_SHARE).add(THICKNESS_M));
-            If(behind.greaterThan(abs(rz).mul(HIT_BIAS_SHARE).add(HIT_BIAS_M)).and(behind.lessThan(thick)), () => {
-              found.assign(1);
-              tLo.assign(prev);
-              tHi.assign(s);
-              Break();
-            });
-            prev.assign(s);
-          });
-          If(found.greaterThan(0.5), () => {
-            for (let k = 0; k < level.refine; k += 1) {
-              const m = tLo.add(tHi).mul(0.5);
-              If(viewZAt(toUv(mix(c0, c1, m))).sub(mix(p.z, e.z, m)).greaterThan(0), () => {
-                tHi.assign(m);
-              }).Else(() => {
-                tLo.assign(m);
-              });
-            }
-            const q = toUv(mix(c0, c1, tHi)).toVar();
-            // A hit on a surface's back (the ray slipped behind it) is no answer.
-            const facing = dot(normalize(normal.sample(q).xyz), dir).lessThan(0);
-            const edge = min(min(q.x, float(1).sub(q.x)), min(q.y, float(1).sub(q.y)));
-            const conf = smoothstep(0, EDGE_FADE, edge).mul(float(1).sub(smoothstep(FAR_FADE_FROM, 1, tHi)));
-            const c = color.sample(q).rgb.toVar();
-            c.mulAssign(min(float(1), float(MAX_LUMINANCE).div(max(luminance(c), 1e-4))));
-            res.assign(vec4(c, select(facing, conf, float(0))));
-          });
-          If(res.w.lessThan(SURE), () => {
-            rayO.assign(camWorld.mul(vec4(p.add(n.mul(TRACE_LIFT_M)), 1)).xyz);
-            rayD.assign(normalize(camWorld.mul(vec4(dir, 0)).xyz));
-            rayMax.assign(REFLECTION_TRACE_METRES);
-          });
-        });
-      });
-      // One pixel a square writes its ray (tmax 0: none needed).
-      const rel = floor(at.mul(size)).sub(offset);
-      const tile = floor(rel.div(spacing));
-      const mine = rel.x.greaterThanEqual(0).and(rel.y.greaterThanEqual(0)).and(rel.sub(tile.mul(spacing)).length().lessThan(0.5)).and(tile.x.lessThan(tiles.x)).and(tile.y.lessThan(tiles.y)).and(traceOn.greaterThan(0.5));
-      If(mine, () => {
-        // Word by word through atomics: the only storage writes three allows outside compute.
-        const at0 = int(tile.y.mul(tiles.x).add(tile.x)).mul(8);
-        const words = [rayO.x, rayO.y, rayO.z, float(0), rayD.x, rayD.y, rayD.z, rayMax];
-        words.forEach((v, j) => TSL.atomicStore(raysNode.element(at0.add(j)), TSL.floatBitsToUint(v)));
-      });
-      return res;
-    })();
 
   /** The resolve: this frame's answer (the screen's, the traced squares' where it fell short) into the history. */
   const resolveNode = (outNode: N): N =>
@@ -272,8 +312,8 @@ export function buildReflections(renderer: THREE.WebGPURenderer, scenePass: N, s
         rgb.divAssign(n0);
         c.divAssign(n0);
         If(tracedNow.greaterThan(0.5).and(c.lessThan(1)), () => {
-          const nq = normalize(normal.sample(at).xyz).toVar();
-          const f = floor(at.mul(size)).sub(offset).div(spacing).toVar();
+          const nq = normalize(normalAt(at).xyz).toVar();
+          const f = floor(at.mul(size)).sub(heldOffset).div(heldSpacing).toVar();
           const t0 = floor(f).toVar();
           const fr = f.sub(t0).toVar();
           const sumW = float(0).toVar();
@@ -282,12 +322,12 @@ export function buildReflections(renderer: THREE.WebGPURenderer, scenePass: N, s
           for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]] as const) {
             const tt = t0.add(vec2(dx, dy));
             const bil = (dx === 0 ? float(1).sub(fr.x) : fr.x).mul(dy === 0 ? float(1).sub(fr.y) : fr.y);
-            const ok = tt.x.greaterThanEqual(0).and(tt.y.greaterThanEqual(0)).and(tt.x.lessThan(tiles.x)).and(tt.y.lessThan(tiles.y));
+            const ok = tt.x.greaterThanEqual(0).and(tt.y.greaterThanEqual(0)).and(tt.x.lessThan(heldTiles.x)).and(tt.y.lessThan(heldTiles.y));
             If(ok, () => {
-              const tuv = tt.mul(spacing).add(offset).add(0.5).div(size);
-              const o = outNode.element(int(tt.y.mul(tiles.x).add(tt.x))).toVar();
+              const tuv = tt.mul(heldSpacing).add(heldOffset).add(0.5).div(size);
+              const o = outNode.element(int(tt.y.mul(heldTiles.x).add(tt.x))).toVar();
               const zt = viewZAt(tuv);
-              const alike = abs(zt.sub(p.z)).lessThan(abs(p.z).mul(SPREAD_DEPTH_SHARE).add(SPREAD_DEPTH_M)).and(dot(normalize(normal.sample(tuv).xyz), nq).greaterThan(SPREAD_FACING)).and(o.w.greaterThanEqual(0));
+              const alike = abs(zt.sub(p.z)).lessThan(abs(p.z).mul(SPREAD_DEPTH_SHARE).add(SPREAD_DEPTH_M)).and(dot(normalize(normalAt(tuv).xyz), nq).greaterThan(SPREAD_FACING)).and(o.w.greaterThanEqual(0));
               const w = select(alike, bil.add(1e-3), float(0));
               sumW.addAssign(w);
               sumWC.addAssign(w.mul(o.w));
@@ -322,6 +362,7 @@ export function buildReflections(renderer: THREE.WebGPURenderer, scenePass: N, s
   const make = (count: number): void => {
     // The old buffers go with their materials (three would keep their GPU buffers otherwise).
     releaseStorage(renderer, [rays, out]);
+    held = false;
     capacity = count;
     rays = new THREE.StorageBufferAttribute(new Uint32Array(count * 8), 1);
     out = new THREE.StorageBufferAttribute(new Float32Array(count * 4), 4);
@@ -329,13 +370,19 @@ export function buildReflections(renderer: THREE.WebGPURenderer, scenePass: N, s
     resolveMat?.dispose();
     traceMat = new THREE.NodeMaterial();
     traceMat.name = 'reflections trace';
-    traceMat.fragmentNode = traceNode(storage(rays, 'uint', count * 8).toAtomic());
+    traceMat.fragmentNode = traceNode({ depth, normalAt, color, viewZAt, toUv, inside, near, proj, invProj, camWorld, size, frameU, spacing, offset, tiles, traceOn, level }, storage(rays, 'uint', count * 8).toAtomic());
     resolveMat = new THREE.NodeMaterial();
     resolveMat.name = 'reflections resolve';
     resolveMat.fragmentNode = resolveNode(storage(out, 'vec4', count).toReadOnly());
   };
 
   let frames = 0;
+  let all = 0;
+  let every = 1;
+  let held = false;
+  let heldW = 0;
+  let heldH = 0;
+  let heldRays = 0;
   let still = 0;
   const lastCam = new THREE.Matrix4();
   const lastProj = new THREE.Matrix4();
@@ -384,6 +431,16 @@ export function buildReflections(renderer: THREE.WebGPURenderer, scenePass: N, s
         frames += 1;
         if (frames % REFLECTION_SPACING_FRAMES === 1) k = traceSpacing(w, h, tracer?.msPerRay() ?? null, level.traceMs, level.minSpacing);
       }
+      // A run costs at least the GPU's latency floor (a few thousand rays cost about what tens of thousands do): one
+      // that costs more than the budget even at the coarsest spacing is run every few frames instead (the light
+      // buffer holds its rays' light meanwhile); a still view's rays are the same each frame, so they are traced
+      // again only now and then (a light's change still shows).
+      all += 1;
+      if (all % REFLECTION_SPACING_FRAMES === 1) {
+        const ms = tracer?.last().ms ?? null;
+        every = ms === null ? 1 : Math.min(REFLECTION_TRACE_INTERVAL_MAX, Math.max(1, Math.ceil(ms / level.traceMs)));
+      }
+      const interval = turning ? every : Math.max(every, REFLECTION_STILL_TRACE_FRAMES);
       frameU.value = frames % 4096;
       blend.value = turning ? REFLECTION_HISTORY_BLEND : REFLECTION_STILL_BLEND;
       const [ox, oy] = traceOffset(frames, k);
@@ -393,7 +450,9 @@ export function buildReflections(renderer: THREE.WebGPURenderer, scenePass: N, s
       spacing.value = k;
       offset.value.set(ox, oy);
       tiles.value.set(t.x, t.y);
-      traceOn.value = tracer !== null && t.count > 0 ? 1 : 0;
+      if (w !== heldW || h !== heldH) held = false;
+      const tracing = tracer !== null && t.count > 0 && (!held || all % interval === 0);
+      traceOn.value = tracing ? 1 : 0;
       traceTarget.setSize(w, h);
       resolveTarget.setSize(w, h);
       state = THREE.RendererUtils.resetRendererState(r, state as never);
@@ -404,13 +463,22 @@ export function buildReflections(renderer: THREE.WebGPURenderer, scenePass: N, s
         r.setRenderTarget(traceTarget);
         quad.render(r);
         let didTrace = false;
-        if (tracer !== null && t.count > 0) {
+        if (tracing) {
           const raysBuf = r.backend.get(rays!)?.buffer;
           const outBuf = r.backend.get(out!)?.buffer;
           // The light's buffer exists once the resolve bound it (the frame after the storage was made).
-          if (raysBuf !== undefined && outBuf !== undefined) didTrace = tracer.trace(raysBuf, outBuf, t.count);
+          if (raysBuf !== undefined && outBuf !== undefined) didTrace = tracer!.trace(raysBuf, outBuf, t.count);
         }
-        tracedNow.value = didTrace ? 1 : 0;
+        if (didTrace) {
+          held = true;
+          heldW = w;
+          heldH = h;
+          heldSpacing.value = k;
+          heldOffset.value.set(ox, oy);
+          heldTiles.value.set(t.x, t.y);
+          heldRays = t.count;
+        }
+        tracedNow.value = held && tracer !== null ? 1 : 0;
         quad.material = resolveMat!;
         r.setRenderTarget(resolveTarget);
         quad.render(r);
@@ -420,7 +488,7 @@ export function buildReflections(renderer: THREE.WebGPURenderer, scenePass: N, s
         r.copyTextureToTexture(resolveTarget.texture, light.historyTarget.texture);
         drawn = true;
         const last = tracer?.last();
-        light.stats = { width: w, height: h, spacing: didTrace ? k : 0, rays: didTrace ? t.count : 0, traceMs: didTrace ? (last?.ms ?? null) : null };
+        light.stats = { width: w, height: h, spacing: held ? heldSpacing.value : 0, rays: held ? heldRays : 0, every: interval, traceMs: held ? (last?.ms ?? null) : null };
       } finally {
         THREE.RendererUtils.restoreRendererState(r, state as never);
       }

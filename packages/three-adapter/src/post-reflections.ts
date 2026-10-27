@@ -44,9 +44,10 @@ import * as TSLTyped from 'three/tsl';
 
 import type { N } from './effects-tsl';
 import { ScreenHistoryLight, takesScreenHistory, HISTORY_DEPTH_TOLERANCE } from './screen-history';
+import { untransformedTexture } from './texel-texture-node';
 
 const TSL: N = TSLTyped;
-const { abs, float, Fn, mix, positionView, roughness, select, smoothstep, texture, vec2, vec4 } = TSL;
+const { If, abs, float, Fn, mix, positionView, roughness, select, smoothstep, vec2, vec4 } = TSL;
 
 /** The reflection passes' resolution relative to the scene pass (a quarter of its pixels). */
 export const REFLECTION_RESOLUTION_SCALE = 0.5;
@@ -72,6 +73,10 @@ export const REFLECTION_START_SPACING = 8;
 export const REFLECTION_STILL_FRAMES = 8;
 /** A new frame's share once the rays hold still (each frame then casts the same rays: a change shows sooner). */
 export const REFLECTION_STILL_BLEND = 0.5;
+/** The most frames between two traced runs when one run costs more than the budget. */
+export const REFLECTION_TRACE_INTERVAL_MAX = 8;
+/** Frames between two traced runs while the view stands still (its rays are the same; a light's change still shows). */
+export const REFLECTION_STILL_TRACE_FRAMES = 8;
 /** Frames between two choices of the spacing (each change moves every traced pixel). */
 export const REFLECTION_SPACING_FRAMES = 30;
 
@@ -139,9 +144,10 @@ export interface ReflectionStats {
   /** The trace's size in pixels. */
   width: number;
   height: number;
-  /** The traced rays' pixel spacing and count a frame (0: none traced). */
+  /** The traced rays' pixel spacing and count a run (0: none traced), and the frames between runs. */
   spacing: number;
   rays: number;
+  every: number;
   /** GPU ms of the last timed frame's traced rays (null: not timed or none). */
   traceMs: number | null;
 }
@@ -154,8 +160,8 @@ export interface ReflectionStats {
 export class ReflectionsLight extends ScreenHistoryLight {
   readonly isReflections = true;
   readonly depthTarget = new THREE.RenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
-  readonly depth: N = texture(this.depthTarget.texture);
-  stats: ReflectionStats = { width: 0, height: 0, spacing: 0, rays: 0, traceMs: null };
+  readonly depth: N = untransformedTexture(this.depthTarget.texture);
+  stats: ReflectionStats = { width: 0, height: 0, spacing: 0, rays: 0, every: 1, traceMs: null };
 
   constructor() {
     super('reflections');
@@ -207,9 +213,12 @@ class ReflectionsNode extends (THREE.LightingNode as unknown as new () => { [k: 
 
   setup(builder: N): void {
     if (!takesScreenHistory(builder) || !(builder.context?.lightingModel instanceof THREE.PhysicalLightingModel)) return;
-    const r = reflectionAt(this.light).toVar();
     const ctx = builder.context;
-    ctx.radiance.assign(mix(ctx.radiance, r.rgb, r.a.mul(roughnessShare(roughness))));
+    // A rough pixel reads nothing (the history's two samples cost every lit pixel otherwise).
+    If(roughness.lessThan(REFLECTION_ROUGHNESS_MAX), () => {
+      const r = reflectionAt(this.light).toVar();
+      ctx.radiance.assign(mix(ctx.radiance, r.rgb, r.a.mul(roughnessShare(roughness))));
+    });
   }
 }
 

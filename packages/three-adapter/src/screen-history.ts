@@ -26,9 +26,10 @@ import * as TSLTyped from 'three/tsl';
 
 import type { N } from './effects-tsl';
 import { decalDrawOf } from './mesh-decals';
+import { untransformedTexture } from './texel-texture-node';
 
 const TSL: N = TSLTyped;
-const { abs, float, Fn, logarithmicDepthToViewZ, positionView, renderGroup, rtt, select, texture, uniform, vec2, vec4 } = TSL;
+const { abs, float, Fn, logarithmicDepthToViewZ, positionView, renderGroup, rtt, select, uniform, vec2, vec4 } = TSL;
 
 /**
  * How far a pixel's depth (a share of it, plus a few centimetres) may be
@@ -58,7 +59,8 @@ export class ScreenHistoryLight extends THREE.Light {
    * resize is followed by three.
    */
   readonly historyTarget = new THREE.RenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
-  readonly history: N = texture(this.historyTarget.texture);
+  /** Read without three's texture transform (it would cost every lit draw a uniform and a matrix update). */
+  readonly history: N = untransformedTexture(this.historyTarget.texture);
   /** The target was made on the GPU as a render target (`buildScreenHistory`). */
   initialized = false;
   /**

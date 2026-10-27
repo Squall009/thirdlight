@@ -70,11 +70,14 @@ describe('reflections: the materials', () => {
     // The history and its depth: two more samples.
     expect(samples(read)).toBe(samples(plain) + 2);
     // Its blend is the last write of the radiance before the lighting model reads it.
-    // (through a node variable: the last value given the radiance was made by the blend, after the environment's.)
-    const writes = [...read.matchAll(/\tradiance = (\w+);/g)].map((m) => m[1]!);
+    // (directly or through a node variable: the last value given the radiance is the blend, after the environment's)
+    const writes = [...read.matchAll(/\tradiance = ([^;]+);/g)].map((m) => m[1]!);
     expect(writes.length).toBeGreaterThanOrEqual(2);
     const last = writes[writes.length - 1]!;
-    expect(read).toMatch(new RegExp(`\\t${last} = mix\\( radiance,`));
+    expect(last.startsWith('mix( radiance,') || new RegExp(`\\t${last} = mix\\( radiance,`).test(read)).toBe(true);
+    // Its reads sit behind the roughness test (a rough pixel reads nothing) and take no texture transform.
+    expect(read).toMatch(/= \( Roughness < 0\.5 \);/);
+    expect(read).not.toMatch(/nodeUniform\d+ \* vec3<f32>\( nodeVar\d+, 1\.0 \) \)\.xy \)/);
     // A Lambert material has no environment radiance: unchanged.
     expect(wgslOf(r, scene, new THREE.Mesh(new THREE.BoxGeometry(), lambert))).toBe(plainLambert);
     scene.remove(light);

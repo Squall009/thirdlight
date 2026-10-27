@@ -68,7 +68,7 @@ import { PhysicalSky } from './physical-sky';
 import { buildAmbientOcclusion, type AmbientOcclusionStage, type AoKind, type ScreenSpaceOcclusion } from './post-ao';
 import { buildContactShadows, type ContactShadowsLight, type ContactShadowsStage } from './post-contact-shadows';
 import { REFLECTION_LEVELS, type ReflectionsLight } from './post-reflections';
-import { buildReflections, reflectionRoughness, type ReflectionsStage } from './post-reflections-pass';
+import { buildReflections, reflectionNormal, type ReflectionsStage } from './post-reflections-pass';
 import type { ScenePasses } from './occlusion-passes';
 import { atScale, buildUpscale, scaledTexture, type ScaledTexture, type UpscaleFilter, type UpscaleStage } from './post-upscale';
 
@@ -277,7 +277,7 @@ function screenStages(renderer: WebGPURenderer, scene: THREE.Scene, camera: THRE
     passes.push('contactShadows');
   }
   if (reflectionsLight !== null && plan.reflections) {
-    stages.push(buildReflections(renderer, scenePass, scene, reflectionsLight, REFLECTION_LEVELS[plan.reflections.quality], plan.reflections.traced));
+    stages.push(buildReflections(renderer, scenePass, scene, reflectionsLight, REFLECTION_LEVELS[plan.reflections.quality], plan.reflections.traced, aoLight === null));
     passes.push('reflections');
   }
   disposables.push(...stages);
@@ -334,8 +334,10 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
   const wantsReflections = plan.reflections != null && perspective && reflectionsLight !== null && renderer.logarithmicDepthBuffer !== true;
   // The MRT node is kept so the render contexts drawn with it can be released with the pipeline. Reflections
   // read each pixel's roughness beside its normal (AO reads the normal's rgb only).
-  const sceneMrt: unknown = wantsAo || wantsReflections ? mrt({ output, normal: wantsReflections ? vec4(normalView, reflectionRoughness()) : normalView }) : null;
+  const sceneMrt: unknown = wantsAo || wantsReflections ? mrt({ output, normal: wantsReflections ? reflectionNormal(!wantsAo) : normalView }) : null;
   if (sceneMrt !== null) scenePass.setMRT(sceneMrt);
+  // Without AO only the reflections read it: 8 bits a channel.
+  if (wantsReflections && !wantsAo) (scenePass.getTexture('normal') as THREE.Texture).type = THREE.UnsignedByteType;
   const depth: N = scenePass.getTextureNode('depth');
   let color: N = scenePass.getTextureNode('output');
 

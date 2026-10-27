@@ -254,9 +254,9 @@ export function surfaceCacheNote(r: FrameRunResult): string {
 
 /** The reflections' traced rays on the last frame (where the scene draws reflections). */
 export function reflectionsNote(r: FrameRunResult): string {
-  const f = r.scene.reflections as { width: number; height: number; spacing: number; rays: number; traceMs: number | null } | undefined;
+  const f = r.scene.reflections as { width: number; height: number; spacing: number; rays: number; every?: number; traceMs: number | null } | undefined;
   if (f === undefined) return '';
-  return `, reflections ${f.width}x${f.height}, traced ${f.rays} rays (1 per ${f.spacing}x${f.spacing}) in ${f.traceMs?.toFixed(3) ?? '-'} ms`;
+  return `, reflections ${f.width}x${f.height}, traced ${f.rays} rays (1 per ${f.spacing}x${f.spacing}) every ${f.every ?? 1} frames in ${f.traceMs?.toFixed(3) ?? '-'} ms`;
 }
 
 export function frameLine(what: string, r: FrameRunResult): string {
