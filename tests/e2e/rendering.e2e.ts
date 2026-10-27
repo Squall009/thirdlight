@@ -1012,7 +1012,7 @@ test('render scale: 0.5 draws at half resolution, FSR 1 upscales sharper than bi
       const url = editorUrlFor(be.editorUrl, variant);
       const { psid } = await play(filter === 'bilinear' ? url.replace('#', '&upscale=bilinear#') : url, variant);
       const canvas = page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first();
-      const img = await settledShot(canvas, `${variant}-scale-0.5-${filter}`);
+      const img = await settledShot(canvas, `${variant}-scale-0.5-${filter}`, 500);
       const size = await canvas.evaluate((c: HTMLCanvasElement) => [c.width, c.height]);
       const r = (await render(psid))!;
       console.log(`[render scale] ${backendOf(variant)} ${filter}: canvas ${size.join('×')}, drawn at ${JSON.stringify(r.internal)}, edge energy ${edgeEnergy(img).toExponential(3)}`);
@@ -1059,7 +1059,7 @@ test('render scale: 0.5 draws at half resolution, FSR 1 upscales sharper than bi
     console.log(`[render scale] ${backendOf(variant)} dynamic: down to ${down.scale} (${down.dynamic?.source}), back to ${up.scale}: ${JSON.stringify(up.dynamic)}`);
     expect(up.dynamic!.stepsUp).toBeGreaterThan(0);
     expect(up.internal?.[0]).toBe(full);
-    const sky = (await settledShot(page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first(), `${variant}-dynamic-sky`)).pixel(4, 4);
+    const sky = (await settledShot(page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first(), `${variant}-dynamic-sky`, 500)).pixel(4, 4);
     console.log(`[render scale] ${backendOf(variant)} dynamic: sky ${JSON.stringify(sky)} (the colour is 122,138,160)`);
     for (const [i, want] of [122, 138, 160].entries()) expect(Math.abs(sky[i]! - want), `sky channel ${i}`).toBeLessThanOrEqual(3);
     await stop();
