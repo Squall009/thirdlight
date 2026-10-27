@@ -93,6 +93,8 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
 export interface SurfaceCacheView {
   /** Bumped when a unit's texels changed. */
   readonly version: number;
+  /** Read-backs of lit texels still on their way. */
+  readonly viewReading: number;
   forEach(cb: (points: Float32Array, light: Float32Array, texels: number, size: number) => void): void;
 }
 
@@ -141,6 +143,7 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
   onProbeTimed: ((ms: number, probes: number) => void) | null = null;
   private readonly viewUnits = new Map<string, { points: Float32Array; light: Float32Array; texels: number; size: number }>();
   version = 0;
+  viewReading = 0;
 
   /** Hears each timed run of the pass (GPU ms, texels, and its three passes' ms): the measurements read it. */
   onTimed: ((ms: number, texels: number, passes: readonly number[]) => void) | null = null;
@@ -417,8 +420,10 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
   }
 
   private keepView(read: GpuBuffer, slices: readonly { key: string; from: number; to: number; total: number; size: number }[], points: Float32Array): void {
+    this.viewReading += 1;
     read.mapAsync(USAGE.MAP_READ).then(
       () => {
+        this.viewReading -= 1;
         const e = new Float32Array(read.getMappedRange().slice(0));
         read.unmap();
         read.destroy();
@@ -437,7 +442,10 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
         }
         this.version += 1;
       },
-      () => read.destroy(),
+      () => {
+        this.viewReading -= 1;
+        read.destroy();
+      },
     );
   }
 

@@ -312,6 +312,9 @@ export class AdapterSurfaceLight {
         this.runtime = rt;
         this.textures = tex;
         rt.setView(this.viewOn);
+        // A runtime made again (a bake's budget given back) under the cache view: its copy starts empty, and the light
+        // may have settled before it came, so every unit is lit again for it as when the view is switched on.
+        if (this.viewOn) this.markAllForView();
         this.host.setLive(true);
         // Reflection rays that leave the screen are traced here, on the same device.
         const tracer: ReflectionTracer = {
@@ -372,8 +375,12 @@ export class AdapterSurfaceLight {
     this.runtime?.setView(on);
     // The look reads texels back as they are lit: switched on over settled light, every unit is lit again (to the
     // same light; the probes keep theirs).
-    if (on && !was && this.runtime !== null) this.host.relight.markUnits(this.host.relight.unitsIn([-Infinity, -Infinity, -Infinity], [Infinity, Infinity, Infinity]));
+    if (on && !was && this.runtime !== null) this.markAllForView();
     if (!on) this.clearView();
+  }
+
+  private markAllForView(): void {
+    this.host.relight.markUnits(this.host.relight.unitsIn([-Infinity, -Infinity, -Infinity], [Infinity, Infinity, Infinity]));
   }
 
   private clearView(): void {
@@ -385,11 +392,21 @@ export class AdapterSurfaceLight {
     this.viewVersion = -1;
   }
 
+  /** The cache view has texels read back, or on their way, that it has not drawn yet (a view drawn on demand asks for frames until it has). */
+  get viewBehind(): boolean {
+    const rt = this.runtime;
+    return this.viewOn && rt !== null && (rt.viewReading > 0 || this.viewVersionOf(rt) !== this.viewVersion);
+  }
+
+  private viewVersionOf(rt: SurfaceLightRuntime): number {
+    return rt.version * 1e6 + this.host.probes.diagnostics().updates;
+  }
+
   private drawView(): void {
     const rt = this.runtime;
     // Drawn again when texels were read back or probes updated.
     if (!this.viewOn || rt === null) return;
-    const version = rt.version * 1e6 + this.host.probes.diagnostics().updates;
+    const version = this.viewVersionOf(rt);
     if (version === this.viewVersion) return;
     const now = performance.now();
     if (now - this.viewAt < VIEW_MS) return;

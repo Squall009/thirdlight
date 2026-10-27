@@ -620,7 +620,7 @@ export interface SceneAdapter {
   probeLighting?(): ProbeLighting | null;
   /** The last frame was not drawn (the renderer starting, a precompile running): a host drawing on demand asks again. */
   frameSkipped?(): boolean;
-  /** Whether the live light still has work (stale texels or probes): a view drawn on demand draws again until it settles. */
+  /** Whether the live light still has work (stale texels or probes, or texels its cache view has not drawn yet): a view drawn on demand draws again until it settles. */
   lightSettling?(): boolean;
   /** The last drawn frame's draw calls, triangles, MSAA samples and batches, without the whole diagnostics walk. */
   lastFrame?(): { drawCalls: number; triangles: number; samples: number; batching: AutoBatcherDiagnostics | null };
