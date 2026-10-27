@@ -32,7 +32,7 @@ import type { N } from './effects-tsl';
 import { buildScreenHistory, scenePassViewZ, ScreenHistoryLight, screenHistoryAt, takesScreenHistory, type ScreenHistoryStage } from './screen-history';
 
 const TSL: N = TSLTyped;
-const { float, Fn, getViewPosition, interleavedGradientNoise, max, mix, perspectiveDepthToViewZ, screenCoordinate, smoothstep, uniform, uv, vec2, vec4 } = TSL;
+const { If, float, Fn, getViewPosition, interleavedGradientNoise, max, mix, perspectiveDepthToViewZ, screenCoordinate, smoothstep, uniform, uv, vec2, vec3, vec4 } = TSL;
 
 /**
  * The march's resolution relative to the scene pass: at the render scale it
@@ -104,7 +104,16 @@ class ContactShadowedNode extends (THREE.Node as unknown as new (type?: string |
 
   setup(builder: N): N {
     const c = contactShadowsOf(builder);
-    return c === null || !takesScreenHistory(builder) ? this.inner : this.inner.mul(screenHistoryAt(c));
+    if (c === null || !takesScreenHistory(builder)) return this.inner;
+    // Read only where the map lets the sun through: indoors and in the map's shadow a pixel skips the history's read.
+    return Fn(() => {
+      const s = this.inner.toVar();
+      const v = vec3(s);
+      If(max(max(v.x, v.y), v.z).greaterThan(0), () => {
+        s.mulAssign(screenHistoryAt(c));
+      });
+      return s;
+    })();
   }
 
   dispose(): void {
