@@ -38,7 +38,8 @@ export const PROBE_SLOT_WORDS = 5;
 export const PROBE_VEC4S = 6;
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
-const COMMON = /* wgsl */ `
+/** The probe passes' parameters and words, shared with the reflections' gather (which fills the same block). */
+export const PROBE_COMMON_WGSL = /* wgsl */ `
 struct Params { slots: u32, rays: u32, grids: u32, gridAt: u32, skyAt: u32, roomsAt: u32, seed: u32, probes: u32, rayMax: f32, albedo: f32, lift: f32, blendMin: f32, albedoRingsAt: u32, pad1: u32, pad2: u32, pad3: u32 }
 @group(0) @binding(0) var<uniform> P: Params;
 @group(0) @binding(1) var<storage, read> W: array<u32>;
@@ -48,7 +49,7 @@ fn wv(i: u32) -> vec3f { return vec3f(wf(i), wf(i + 1u), wf(i + 2u)); }
 ${roomsWgsl('ww', 'P.roomsAt')}
 `;
 
-export const PROBE_RAYS_WGSL = COMMON + /* wgsl */ `
+export const PROBE_RAYS_WGSL = PROBE_COMMON_WGSL + /* wgsl */ `
 @group(0) @binding(2) var<storage, read_write> R: array<vec4f>;
 @group(0) @binding(3) var<storage, read_write> M: array<u32>;
 fn pcg(v: u32) -> u32 {
@@ -104,17 +105,13 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
 }
 `;
 
-export const PROBE_GATHER_WGSL = COMMON + /* wgsl */ `
-@group(0) @binding(2) var<storage, read> PR: array<vec4f>;
-@group(0) @binding(3) var<storage, read> R: array<vec4f>;
-@group(0) @binding(4) var<storage, read> M: array<u32>;
-@group(0) @binding(5) var<storage, read> H: array<vec4u>;
-@group(0) @binding(6) var<storage, read> T: array<u32>;
-@group(0) @binding(7) var<storage, read_write> O: array<vec4f>;
-@group(0) @binding(8) var atlas: texture_2d_array<f32>;
-@group(0) @binding(9) var rings: texture_2d_array<f32>;
-@group(0) @binding(10) var<storage, read> ALB: array<u32>;
-
+/**
+ * What a gather reads at a traced hit (needs `PROBE_COMMON_WGSL` and the
+ * bindings `PR` (the probes' records), `T` (the hits' texels), `atlas`,
+ * `rings` and `ALB`): the sky's radiance, the probes' irradiance near a
+ * point, a texel's direct light and its surface's colour.
+ */
+export const PROBE_HIT_LIGHT_WGSL = /* wgsl */ `
 // Irradiance from first-order SH (band 0, then the y, z, x terms), as the probe lighting reads it.
 fn shIrr(s0: vec4f, s1: vec4f, s2: vec4f, n: vec3f) -> vec3f {
   return ${SH_E0} * s0.xyz + ${SH_E1} * (vec3f(s0.w, s1.xy) * n.y + vec3f(s1.zw, s2.x) * n.z + s2.yzw * n.x);
@@ -184,6 +181,20 @@ fn texelAlbedo(r: u32) -> vec3f {
   return select(vec3f(P.albedo), c.rgb, c.a > 0.0);
 }
 
+`;
+
+export const PROBE_GATHER_WGSL = PROBE_COMMON_WGSL + /* wgsl */ `
+@group(0) @binding(2) var<storage, read> PR: array<vec4f>;
+@group(0) @binding(3) var<storage, read> R: array<vec4f>;
+@group(0) @binding(4) var<storage, read> M: array<u32>;
+@group(0) @binding(5) var<storage, read> H: array<vec4u>;
+@group(0) @binding(6) var<storage, read> T: array<u32>;
+@group(0) @binding(7) var<storage, read_write> O: array<vec4f>;
+@group(0) @binding(8) var atlas: texture_2d_array<f32>;
+@group(0) @binding(9) var rings: texture_2d_array<f32>;
+@group(0) @binding(10) var<storage, read> ALB: array<u32>;
+
+${PROBE_HIT_LIGHT_WGSL}
 // One ray's radiance toward the probe, and what it says of the probe's walls and validity.
 struct RayLight { L: vec3f, t: f32, back: f32 }
 fn rayLight(r: u32, o: vec3f, o0: vec4f, o1: vec4f, o2: vec4f) -> RayLight {
@@ -253,7 +264,7 @@ fn main(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_index) li: u
 `;
 
 /** After the gather: the updated records into the probes' own (the gather reads only the last update's, as its CPU twin does). */
-export const PROBE_COMMIT_WGSL = COMMON + /* wgsl */ `
+export const PROBE_COMMIT_WGSL = PROBE_COMMON_WGSL + /* wgsl */ `
 @group(0) @binding(2) var<storage, read_write> PR: array<vec4f>;
 @group(0) @binding(3) var<storage, read> O: array<vec4f>;
 

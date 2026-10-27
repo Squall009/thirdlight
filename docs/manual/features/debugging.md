@@ -223,7 +223,10 @@ sets:
   only, as WebGL 2 always does; absent 1.5; the engine's low, medium and high
   take 0, 1.5 and 3) and `contactShadows` (screen-space contact shadows on the
   sun's light with the look's post effects; absent on; the
-  engine's low draws none — see [Contact shadows](lighting.md#contact-shadows)). What a level leaves out is the project's setting; a
+  engine's low draws none — see [Contact shadows](lighting.md#contact-shadows)) and `reflections`
+  (off/medium/high: glossy surfaces' reflections on WebGPU with the look's post effects; absent
+  medium; the engine's low, medium and high take off, medium and high — see
+  [Reflections](lighting.md#reflections)). What a level leaves out is the project's setting; a
   value the player set in a settings field bound to `renderScale`,
   `ambientOcclusion` or `dynamicResolution` lays over the level, and the page flags (`?ao=`,
   `?renderScale=`, `?dynamicResolution=`) over everything.

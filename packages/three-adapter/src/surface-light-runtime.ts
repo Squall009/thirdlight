@@ -42,6 +42,7 @@ import { TEXEL_POINT_FLOATS, patchTexelAddresses, tileTexelAddresses } from './s
 import type { GpuBuffer, GpuTexture, TracerDevice } from './tracer-gpu';
 import { DEFAULT_STORAGE_BINDING_BYTES, TraceScenePacker } from './tracer-scene-packer';
 import { SurfaceProbePass } from './surface-probe-pass';
+import { SurfaceReflectionPass } from './surface-reflection-pass';
 import { packResolveTable } from './surface-resolve';
 import { ALBEDO_CELLS, ALBEDO_PAGE_STEP, albedoWords } from './surface-cache-lookup';
 
@@ -147,7 +148,7 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
   private zeros: Uint8Array | null = null;
   private noAlbedo: GpuBuffer | null = null;
 
-  private constructor(private readonly device: TracerDevice, private readonly host: SurfaceCacheHost, readonly pass: SurfaceLightPass, private readonly scatter: Pipeline, readonly probePass: SurfaceProbePass, private readonly source: SurfaceTextureSource | null) {
+  private constructor(private readonly device: TracerDevice, private readonly host: SurfaceCacheHost, readonly pass: SurfaceLightPass, private readonly scatter: Pipeline, readonly probePass: SurfaceProbePass, readonly reflectionPass: SurfaceReflectionPass, private readonly source: SurfaceTextureSource | null) {
     this.countBuf = device.createBuffer({ size: 16, usage: USAGE.UNIFORM | USAGE.COPY_DST, label: 'surface scatter count' });
     this.packer = new TraceScenePacker(device.limits?.maxStorageBufferBindingSize ?? DEFAULT_STORAGE_BINDING_BYTES);
   }
@@ -164,7 +165,7 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
     const errors = info?.messages.filter((m) => m.type === 'error') ?? [];
     if (errors.length > 0) throw new Error(`surface scatter WGSL: ${errors.map((m) => `${m.lineNum}: ${m.message}`).join('; ')}`);
     const scatter = device.createComputePipeline({ layout: 'auto', compute: { module, entryPoint: 'main' }, label: 'surface scatter' });
-    return new SurfaceLightRuntime(device, host, pass, scatter, await SurfaceProbePass.create(device, pass.tracer), source);
+    return new SurfaceLightRuntime(device, host, pass, scatter, await SurfaceProbePass.create(device, pass.tracer), await SurfaceReflectionPass.create(device, pass.tracer), source);
   }
 
   /** The atlas and ring textures (null until the first frame made them; they can be copied out: a bake saves them, a check reads them). */
@@ -297,6 +298,20 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
     return this.resolvedFor >= 0;
   }
 
+  /**
+   * Trace `count` reflection rays (`rays`, `RAY_FLOATS` each, on this
+   * device) and write each one's light at its hit into `out`
+   * (`surface-reflection-pass.ts`). False: nothing to trace yet (no scene,
+   * tables or textures).
+   */
+  traceReflections(rays: GpuBuffer, out: GpuBuffer, count: number): boolean {
+    if (!this.syncProbeInputs() || this.atlas === null || this.rings === null || !this.pass.tracer.ready) return false;
+    const albedo = this.albedoForProbes();
+    const probes = this.host.probes;
+    this.reflectionPass.run({ rays, out, count, probes, records: this.probePass.recordsFor(probes), sky: this.sky, rooms: this.host.rooms()?.words ?? null, atlas: this.atlas, rings: this.rings, albedo: albedo.buffer, albedoRingsAt: albedo.ringsAt, resolve: this.probePass.resolve });
+    return true;
+  }
+
   private lightTexels(lights: readonly CacheLight[], now: number): void {
     const slices = this.host.slicesThisFrame();
     if (slices.length === 0) return;
@@ -417,6 +432,7 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
     this.addrBuf?.destroy();
     this.countBuf.destroy();
     this.probePass.dispose();
+    this.reflectionPass.dispose();
     this.pass.dispose();
     this.atlas = this.rings = this.addrBuf = null;
     this.albedo = null;

@@ -252,6 +252,11 @@ export class GpuTracer {
     p.end();
   }
 
+  /** Whether a scene is uploaded (a pass before it has nothing to trace). */
+  get ready(): boolean {
+    return this.scene !== null;
+  }
+
   /** The hits of the last pass. */
   get hitsBuffer(): GpuBuffer | null {
     return this.hits;

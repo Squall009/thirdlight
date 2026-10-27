@@ -108,6 +108,11 @@ export class SurfaceProbePass {
     return this.device.createBuffer({ size, usage, label });
   }
 
+  /** The probes' records on the GPU, if they are laid out as `probes` now (null: not yet, or placed again since). */
+  recordsFor(probes: LiveProbes): GpuBuffer | null {
+    return probes.layout === this.layout ? this.recordsBuf : null;
+  }
+
   /** The next update puts the probes' records on the GPU again from the CPU's copy (a check starting both from one state). */
   reload(): void {
     this.layout = -1;

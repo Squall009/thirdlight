@@ -38,6 +38,7 @@ import { TERRAIN_RINGS_MAX, TERRAIN_RING_BYTES } from './surface-cache-terrain';
 import { packSurfaceLookup, SURFACE_READ } from './surface-cache-lookup';
 import { SURFACE_READ_ALL, SURFACE_READ_LIVE_KEY, SurfaceCacheTextures } from './surface-cache-read';
 import type { CacheLight } from './surface-changes';
+import { REFLECTION_TRACER_KEY, type ReflectionTracer } from './post-reflections';
 
 /** How often (ms) the debug look is drawn again while texels change. */
 const VIEW_MS = 200;
@@ -216,6 +217,7 @@ export class AdapterSurfaceLight {
     this.runtime = null;
     this.host.setLive(false);
     delete this.scene.userData[SURFACE_READ_LIVE_KEY];
+    delete this.scene.userData[REFLECTION_TRACER_KEY];
     this.lookupFor = '';
     this.textures?.dispose();
     this.textures = null;
@@ -244,6 +246,13 @@ export class AdapterSurfaceLight {
         this.textures = tex;
         rt.setView(this.viewOn);
         this.host.setLive(true);
+        // Reflection rays that leave the screen are traced here, on the same device.
+        const tracer: ReflectionTracer = {
+          trace: (rays, out, count) => rt.traceReflections(rays as GpuBuffer, out as GpuBuffer, count),
+          msPerRay: () => rt.reflectionPass.msPerRay,
+          last: () => ({ ms: rt.reflectionPass.lastMs, rays: rt.reflectionPass.lastRays }),
+        };
+        this.scene.userData[REFLECTION_TRACER_KEY] = tracer;
       },
       (e: unknown) => {
         // A device that cannot make the pass draws the saved light, as WebGL 2 does.
@@ -339,6 +348,7 @@ export class AdapterSurfaceLight {
     this.runtime?.dispose();
     this.runtime = null;
     delete this.scene.userData[SURFACE_READ_LIVE_KEY];
+    delete this.scene.userData[REFLECTION_TRACER_KEY];
     this.textures?.dispose();
     this.textures = null;
     this.device = null;

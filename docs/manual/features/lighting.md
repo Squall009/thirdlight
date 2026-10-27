@@ -305,6 +305,45 @@ sky and bounce do not.
 - **Both renderers** — WebGPU and WebGL 2 alike. Add `?contactShadows=0` to
   a game page's address to draw none at any level (to compare).
 
+## Reflections
+
+Glossy surfaces (a standard or graph material's roughness up to 0.5)
+reflect what is around them, on WebGPU.
+
+- **On screen** — each glossy pixel, at half the render scale, casts one
+  ray turned at random within its roughness and marches it through the
+  frame's depth; where it meets something the picture shows, the reflection
+  is that point's own lit colour (emissive surfaces included).
+- **Off screen** — where the screen has no answer (the ray left it or went
+  behind something), one pixel in every few casts its ray through the static
+  world instead and reads the surface cache where it hits: the direct light
+  of every light the cache holds, its soft shadows and the probes' bounce,
+  times the surface's colour. So a polished floor shows the lit ceiling
+  above the camera. How many rays depends on the GPU time they cost: the
+  quality's budget (medium 0.5 ms, high 1 ms) sets one ray per 2 × 2 to
+  16 × 16 pixels. Rays that meet nothing within 32 m fall back to the
+  environment.
+- **Blending** — each frame's rays are blended into the last frames'
+  (reprojected with the camera), which turns a glossy surface's scattered
+  rays into its blur; while the view stands still the rays stop turning, so
+  a still view settles. From roughness 0.35 to 0.5 the reflection fades into
+  the environment's light (as the probes darken it indoors); rougher
+  surfaces only have that. Fresnel, metalness and ambient occlusion apply as
+  to any reflection.
+- **Setting** — the quality level's `reflections`: `off`, `medium` or
+  `high` (absent: medium; the engine's low, medium and high take off,
+  medium and high; high marches more steps and casts more traced rays). As
+  contact shadows, they are drawn with the look's post effects; a look with
+  none has none. Perspective cameras only.
+- **What it is not** — WebGL 2 keeps the environment and probes (no
+  reflections). The traced rays see only what the surface cache holds:
+  blocks, terrain, generated buildings and static models; glowing boxes,
+  moving objects and foliage show only where the screen shows them. Mirror-
+  sharp reflections of things off screen are out of scope.
+- **Comparing** — add `?reflections=0` to a game page's address to draw none,
+  `?reflections=screen` for screen-space rays only, `?reflections=view` to
+  draw the reflections alone.
+
 ## Local lights per object
 
 Whether point, spot and effect lights reach an object. The sun, ambient
