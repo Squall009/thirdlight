@@ -287,8 +287,8 @@ Screen-space contact shadows add the sun's shadow detail its shadow map is
 too coarse for: where a small thing meets the ground, a crease, a seam
 between a wall and the floor where the map lets light through. After the
 scene is drawn each pixel looks 0.3 m toward the sun through the frame's
-depth (6 steps); a step behind something there darkens the sun's light at
-that pixel on the next frame (moving objects' contact shadows lag a frame,
+depth (6 steps, at half the render scale); a step behind something there
+darkens the sun's light at that pixel on the next frame (moving objects' contact shadows lag a frame,
 as ambient occlusion does). They fade out from 25 to 40 m away, where the
 map's own texels are as fine. Only the sun's direct light darkens; lamps,
 sky and bounce do not.
