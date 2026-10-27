@@ -46,6 +46,9 @@ async function cmd(op: string, args: Record<string, unknown>, sameIsFine = false
   return res;
 }
 
+/** Two pages' live light, each settled: STRICT's share of bad pixels, a little more mean difference. */
+const LIVE = { ...STRICT, mean: 2.5 };
+
 /** The Play camera's pose in the lightmap scene. */
 const PLAY_POSE = { position: [0, 3, 6], rotation: [-0.2588190451, 0, 0, 0.9659258263] };
 
@@ -415,9 +418,11 @@ test('saved probes light every object in place of the flat ambient light: no lea
     await showView(page, 'Scene');
     const w = Math.min(scene.width, play.width);
     const h = Math.min(scene.height, play.height);
-    const d = diff(centre(scene, w, h), centre(play, w, h), STRICT);
-    console.log(`[probe lighting] ${backendOf(variant)} Scene view vs Play: ${show(d)}`);
-    // Both draw through the same adapter: the saved light (WebGL 2) or the live light settled (WebGPU).
-    expect(within(d), show(d)).toBe(true);
+    // Both draw through the same adapter: the saved light (WebGL 2), or the live light settled (WebGPU: two pages' probes
+    // settle a little apart, their rays turned at random each update).
+    const t = backendOf(variant) === 'webgpu' ? LIVE : STRICT;
+    const d = diff(centre(scene, w, h), centre(play, w, h), t);
+    console.log(`[probe lighting] ${backendOf(variant)} Scene view vs Play: ${show(d, t)}`);
+    expect(within(d, t), show(d, t)).toBe(true);
   }
 });
