@@ -295,6 +295,8 @@ export function renderEditorShell(m: EditorModel, projectId: string): JSX.Elemen
     setEffectPreview,
     occlusionView,
     setOcclusionView,
+    sceneLighting: bake.sceneLighting,
+    setSceneLighting: bake.setSceneLighting,
     workspace,
     workspaceDispatch,
     setCenterTab,

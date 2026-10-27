@@ -92,7 +92,7 @@ import { ViewPointer } from './view-pointer';
 import { ViewMarks } from './view-marks';
 import { ViewGround } from './view-ground';
 import { SelectionOutline } from './selection-outline';
-import { ProbeDebugOverlay } from './probe-debug-overlay';
+import { SceneViewLighting } from './lighting-view';
 
 export interface ViewportCallbacks {
   onPick: (entityId: string | null) => void;
@@ -129,7 +129,7 @@ export type { GizmoMode, GizmoTransform } from './selection-gizmo';
 const SCENE_BACKGROUND = 0x14161c;
 
 /** Which helpers the Scene view draws (the Gizmos menu). */
-type Gizmos = { icons: boolean; lights: boolean; colliders: boolean; gameplay: boolean; grid: boolean; probes: boolean };
+type Gizmos = { icons: boolean; lights: boolean; colliders: boolean; gameplay: boolean; grid: boolean };
 
 /**
  * The authoring viewport. Owns the camera, controls and overlays, and the
@@ -181,8 +181,9 @@ export class Viewport {
   /** The Scene view's tools; pointer input reaches them before the gizmo and picking. */
   private readonly tools: ViewportTools;
   /** Which helpers the Scene view draws (the Gizmos menu). */
-  private gizmos: Gizmos = { icons: true, lights: true, colliders: false, gameplay: true, grid: true, probes: false };
-  private readonly probeDebug = new ProbeDebugOverlay(this.overlay);
+  private gizmos: Gizmos = { icons: true, lights: true, colliders: false, gameplay: true, grid: true };
+  /** The lighting's debug views, pass-time overlay and preview (the View menu, the Lighting window: view only, nothing is saved). */
+  readonly sceneLighting = new SceneViewLighting(() => this.adapter, () => this.root, () => this.requestRender());
   private readonly orbit: OrbitControls;
   private readonly gizmo: SelectionGizmo;
   private readonly snapping: () => boolean;
@@ -753,7 +754,6 @@ export class Viewport {
     const animated = this.assets.materialLibrary.animated();
     const terrain = adapter.terrainDiagnostics?.() ?? null;
     this.marks.viewProjection(root, this.camera);
-    this.probeDebug.follow(adapter, this.gizmos.probes, root);
     this.occlusion.keep(this.keptFromOcclusion());
     const drawn = adapter.renderFrame();
     // The renderer starting or a precompile running skips the frame: ask again until one is drawn.
@@ -769,6 +769,7 @@ export class Viewport {
     else root.removeAttribute('data-terrain');
     this.tools.afterFrame();
     this.occlusion.afterFrame();
+    this.sceneLighting.afterFrame();
     this.seeThrough.stamp(root, adapter);
     this.marks.drawn(root);
     // An edit mode's isolation: drawables hidden and swept at this frame (tests and the perf check read it).
@@ -779,7 +780,7 @@ export class Viewport {
     this.marks.counts(root, adapter);
     this.marks.failures(adapter, this.cb.onModelFailures);
     // The live light settles over frames (a lamp switched, a bake's light restored): drawn again until it has.
-    if (playing || animated || this.occlusion.animating || adapter.lightSettling?.() === true) this.requestRender();
+    if (playing || animated || this.occlusion.animating || this.sceneLighting.animating || adapter.lightSettling?.() === true) this.requestRender();
     if (!playing) this.effects.idle();
   }
 
@@ -821,6 +822,7 @@ export class Viewport {
     this.rendererInfoNow = { requested: preference, source, backend: null, api: null, state: 'initialising', reason: 'choosing a backend', recoveries: 0 };
     this.adapter = this.makeAdapter(next);
     this.occlusion.apply();
+    this.sceneLighting.apply();
     this.isolation.apply();
     this.seeThrough.apply(this.adapter, this.selectedId, this.projected, true);
     this.look.adapterReplaced();
@@ -939,7 +941,7 @@ export class Viewport {
     this.root.setAttribute('data-collider-outlines-shown', c.collidersShown.join(' '));
     this.root.setAttribute('data-mover-paths', String(c.moverPaths.length));
     this.root.setAttribute('data-capsule-outlines', String(c.capsules));
-    this.root.setAttribute('data-gizmos', (['icons', 'lights', 'colliders', 'gameplay', 'probes'] as const).filter((k) => this.gizmos[k]).join(' '));
+    this.root.setAttribute('data-gizmos', (['icons', 'lights', 'colliders', 'gameplay'] as const).filter((k) => this.gizmos[k]).join(' '));
     this.root.setAttribute('data-grid', String(this.gizmos.grid));
   }
 
@@ -1076,6 +1078,7 @@ export class Viewport {
     this.pointer.unbind();
     this.gizmo.dispose();
     disposeOrbitControls(this.orbit);
+    this.sceneLighting.dispose();
     this.adapter.dispose();
   }
 }

@@ -42,7 +42,11 @@ detail is in [Lighting](../features/lighting.md).
    WebGPU; the window says so on WebGL 2). A bake shown *stale* is still
    used until you bake again or clear it; a bake of the earlier bakers
    (lightmaps, probe grids) shows as stale and draws until you bake again.
-3. **Gizmos → Light probes** draws every probe as a small sphere.
+3. **View** menu: **Cache texels**, **Light probes**, **Rooms and
+   portals**, **Stale pages** and **Lighting pass times** show what the
+   lighting holds and what each pass costs. The Lighting window previews a
+   quality level, turns live lighting off for the view, and sets the
+   level's lighting budgets ([In the Scene view](../features/lighting.md#in-the-scene-view)).
 4. **File → Project Settings… → Light layers** names the layers; each
    object's and light's Inspector then shows them as checkboxes.
 5. **Project Settings → Quality** lists the quality levels (*Customize

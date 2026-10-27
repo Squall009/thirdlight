@@ -14,10 +14,11 @@ same bake; the editor's changes go through the commands). It runs on the
 Scene view's renderer and needs **WebGPU**; on WebGL 2 the button is off and
 the window says so.
 
-- **What is saved** — the static surfaces' light (block layers and
-  generated buildings; static models only where their distance-field files
-  are loaded, which the editor's Scene view does not do yet, so a bake saves
-  no model's light and models keep their per-pixel lights and the probes)
+- **What is saved** — the static surfaces' light (block layers, generated
+  buildings and static models: the Scene view reads each static model's
+  distance-field file from the backend, which makes it first for a model
+  imported before such files existed; a model with nothing to make one of
+  keeps its per-pixel lights and the probes)
   and the probes (each room's grid and the bricks). The lights' modes decide what: a `baked` light's direct
   light and its bounce, a `mixed` light's bounce (its direct light stays per
   pixel, with its shadows), a `realtime` light nothing. The bake first lets
@@ -108,9 +109,9 @@ probes.
   is loaded (not streamed).
 - `?probes=off` on a game page draws without probes (a diagnostic
   comparison, like `?shadowcache=off`).
-- **Gizmos → Light probes** in the Scene view draws every probe as a small
-  sphere lit by its own light; probes moved out of geometry have a yellow
-  rim, filled ones a red rim.
+- **View → Light probes** in the Scene view draws every probe as a small
+  sphere lit by its own light (the live probes, else the saved ones);
+  probes moved out of geometry have a yellow rim, filled ones a red rim.
 - A **Probe volume** component (GameObject → Light → Probe volume) placed
   the earlier probe bake's probes; it is not read now (the live probes stand
   where the scene's geometry and rooms put them).
@@ -244,7 +245,8 @@ only where something changed:
 - **What surfaces draw** — block layers, terrain and generated buildings
   read their diffuse light from the cache: one filtered lookup a pixel,
   found from where the pixel is and which way it faces. Static models (in
-  a built game, where their distance-field files are) read it too: a model
+  a built game and in the editor's Scene view, from their distance-field
+  files) read it too: a model
   with a second UV set (UV1) at its UV1, filtered; any other at the surfel
   nearest the pixel (one value per surfel, so the light steps at the
   model's surfel spacing). A model placed whole with several top-level
@@ -274,7 +276,49 @@ only where something changed:
   draw every lit cache texel as a small square on its surface, shaded as a
   mid-grey surface would be by its light and its probes' bounce;
   `?probesView=1` draws the live probes, each a small sphere lit by its own
-  light.
+  light. The editor's Scene view has the same views in its **View** menu
+  (see [In the Scene view](#in-the-scene-view)).
+
+### In the Scene view
+
+The Scene view draws the same lighting Play does, through the same path:
+on WebGPU at a level with live-light time the light runs live (static
+models included), elsewhere it draws the saved light. The toolbar's
+**light: game** shows the scene's own lights (it switches to them once the
+scene has a light; **light: editor** is a fixed rig).
+
+**View** menu (each switch on or off; view only, nothing is saved):
+
+- **Cache texels** — every lit cache texel as a small square on its
+  surface (`?surfaceCacheView=1`).
+- **Light probes** — every probe as a small sphere lit by its own light
+  (`?probesView=1`; the saved probes where the light is not live).
+- **Rooms and portals** — the rooms light keeps to: each room's outline
+  from floor to top in cyan, each portal's outline green while light passes
+  it and red, crossed, while a door piece shuts it.
+- **Stale pages** — an orange box round each unit of the cache still to be
+  lit (none once the light has settled).
+- **Lighting pass times** — an overlay in the view's corner: the level and
+  tier drawn, live or saved (and why), the cache's re-lighting GPU time a
+  frame against its budget and the stale pages, the probes' update time and
+  stale probes, the reflections' traced rays and their time, whether TAAU
+  draws (the Scene view draws SMAA in its place), and whether the light has
+  settled. A time reads "—" until the GPU has measured one.
+
+**Lighting window** (Window → Lighting), above the bake:
+
+- **Preview level** — the quality level the Scene view draws at, with its
+  lighting tier; *As Play* is the project's starting level, else this
+  device's (view only).
+- **Live lighting** — off draws the saved light only, as WebGL 2 and the
+  low tier do (view only).
+- The previewed level's **Surface cache (MiB)**, **Live light (ms a
+  frame)**, **Contact shadows** and **Reflections** — the project's quality
+  level settings (empty or *Tier*: the tier's value). An edit is
+  `setEnvironment` on the project's quality levels, the command Project
+  Settings → Quality and MCP send; with the engine's levels it saves a copy
+  of them first, and an edit that takes the copy back to the engine's
+  removes it again.
 
 ## Contact shadows
 

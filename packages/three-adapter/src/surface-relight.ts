@@ -367,6 +367,11 @@ export class SurfaceRelight {
     return { min, max };
   }
 
+  /** Each stale unit's world box (the editor's stale-pages view). */
+  forEachStale(fn: (min: readonly number[], max: readonly number[]) => void): void {
+    for (const s of this.units.values()) if (s.stale) fn(s.unit.min, s.unit.max);
+  }
+
   diagnostics(): RelightDiagnostics {
     let staleTexels = 0;
     for (const s of this.units.values()) if (s.stale) staleTexels += s.unit.texels - s.cursor;

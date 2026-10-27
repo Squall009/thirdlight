@@ -23,6 +23,13 @@ export interface ViewportLookHost {
 
 export type LightingMode = 'editor' | 'game';
 
+/** What the editor rig still draws with of the project environment: its quality levels and starting level (null: neither). */
+function qualityOnly(env: EnvironmentLike | null): EnvironmentLike | null {
+  const quality = env?.quality;
+  const qualityLevels = env?.qualityLevels;
+  return quality !== undefined || qualityLevels !== undefined ? { ...(quality !== undefined ? { quality } : {}), ...(qualityLevels !== undefined ? { qualityLevels } : {}) } : null;
+}
+
 export class ViewportLook {
   /** The project's LOD bias and hysteresis (null: the defaults). */
   private lodTuning: { bias: number; hysteresis: number } | null = null;
@@ -68,10 +75,7 @@ export class ViewportLook {
   private applyLook(): void {
     const adapter = this.host.adapter();
     const game = this.lighting.mode === 'game';
-    // The editor rig still draws at the project's quality level (the engine's low: no MSAA).
-    const quality = this.environmentValue?.quality;
-    const qualityLevels = this.environmentValue?.qualityLevels;
-    adapter.setEnvironment?.(game ? this.environmentValue : quality !== undefined || qualityLevels !== undefined ? { ...(quality !== undefined ? { quality } : {}), ...(qualityLevels !== undefined ? { qualityLevels } : {}) } : null);
+    adapter.setEnvironment?.(game ? this.environmentValue : qualityOnly(this.environmentValue));
     adapter.setBakes?.(game ? this.bakes : null);
     adapter.previewEnvironmentBlend?.(game ? this.envPreview : null, this.envPreviewTags);
   }
@@ -135,8 +139,7 @@ export class ViewportLook {
   setEnvironment(value: EnvironmentLike | null): void {
     this.environmentValue = value;
     this.environmentSet = true;
-    const quality = value?.quality;
-    this.host.adapter().setEnvironment?.(this.lighting.mode === 'game' ? value : quality !== undefined ? { quality } : null);
+    this.host.adapter().setEnvironment?.(this.lighting.mode === 'game' ? value : qualityOnly(value));
     this.host.requestRender();
   }
 

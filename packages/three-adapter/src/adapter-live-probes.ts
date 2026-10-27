@@ -16,7 +16,8 @@
  * - The sky the probes see (`SkyProbe`) is looked at here; when it
  *   changes every probe is stale.
  * - `?probesView=1` on the page draws the probes (the editor's probe debug
- *   view): each a small sphere lit by its own light.
+ *   view, `setView`): each a small sphere lit by its own light, the bakes'
+ *   probes while the light is not live.
  */
 
 import * as THREE from 'three';
@@ -100,7 +101,11 @@ export class AdapterLiveProbes {
   /** After the light runtime's frame (null: not running yet). */
   frame(renderer: unknown, runtime: SurfaceLightRuntime | null, now = performance.now()): void {
     const probes = this.host.probes;
-    if (runtime === null || !this.on) return;
+    if (runtime === null || !this.on) {
+      // Not live: the view draws the bakes' probes.
+      this.drawView();
+      return;
+    }
     this.sky.update(renderer, this.scene as never, now);
     // A runtime made again (another budget, a bake's run) starts with no sky: it takes the one seen so far.
     if (this.sky.version !== this.skyVersion || runtime !== this.skyRuntime) {
@@ -191,8 +196,20 @@ export class AdapterLiveProbes {
     return this.tiles.map(({ tile: t }) => ({ key: t.key, min: v3(t.grid.min), max: v3(t.grid.max), resolution: v3(t.grid.resolution), brick: t.brick === true, validity: t.validity.slice(), data: t.packed.data.slice() }));
   }
 
+  /** The probes view (`?probesView=1` at load; the editor's debug view). */
+  setView(on: boolean): void {
+    this.viewOn = on;
+    if (!on) this.clearView();
+  }
+
+  /** Probes the view draws, and of those the ones moved or filled (0 0: off). */
+  viewCounts(): { spheres: number; invalid: number } {
+    return { spheres: this.view?.view.count() ?? 0, invalid: this.view?.view.invalid() ?? 0 };
+  }
+
   private drawView(): void {
     const light = this.probes.light();
+    if (light === null && this.view !== null) this.clearView();
     if (!this.viewOn || light === null) return;
     if (this.view?.light !== light) {
       this.clearView();

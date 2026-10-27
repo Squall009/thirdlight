@@ -126,6 +126,9 @@ button, input, select, textarea { font-family: inherit; }
 /* The Viewport owns the canvas inside this host (a renderer backend change swaps it). */
 .tl-viewport-host { position: absolute; inset: 0; }
 .tl-viewport { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+/* The lighting's pass times over the Scene view (View menu): read-only, never in the way of a click. */
+.tl-lighting-passes { position: absolute; left: 8px; bottom: 8px; padding: 6px 8px; white-space: pre; pointer-events: none;
+  font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: #e8ecf2; background: rgba(12, 14, 18, 0.78); border-radius: 4px; }
 .tl-app__preview-renderer { margin-left: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tl-statusbar__renderer { color: var(--muted); }
 .tl-app__preview { position: absolute; inset: 0; background: var(--panel); overflow: hidden;
@@ -698,6 +701,8 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 
 /* The Lighting window. */
 .tl-lighting__status { margin: 6px 0; font-size: 12px; }
+.tl-lighting__scene { padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px solid var(--border, #2a3140); }
+.tl-lighting .tl-field--check { display: flex; flex-direction: row; align-items: center; gap: 6px; }
 .tl-lighting__stale { color: #f2b544; }
 .tl-lighting__actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
 .tl-lighting__progress { position: relative; height: 18px; border-radius: 3px; background: #1d2330; overflow: hidden; font-size: 11px; line-height: 18px; }

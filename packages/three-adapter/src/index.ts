@@ -298,6 +298,7 @@ export { atlasFromSamples, decodeProbeArtifact, encodePng16, packProbeTexels } f
 export { decodeSavedSurface, encodeSavedSurface, savedSurfaceFiles, savedSurfaceFromFiles, SURFACE_BAKE_VERSION, type SavedProbeTile, type SavedSurfaceLight, type SavedTileRecord } from './surface-bake-file';
 export { SURFACE_TEXEL_METRES } from './surface-cache-atlas';
 export { BAKE_TIMEOUT_MS, type SurfaceBakeOptions, type SurfaceBakeOutcome } from './adapter-surface-bake';
+export { LIGHTING_VIEW_OFF, type LightingReport, type LightingViewCounts, type LightingViewState } from './adapter-lighting-views';
 export { createProbeGridSet, createProbeLightingHost, type LoadedProbeTile, type ProbeBakeLike, type ProbeGridSet, type ProbeGridsObservation, type ProbeLightingHost, type ProbeTileEntry } from './probe-grids';
 export { PROBE_ATLAS_SLACK, PROBE_RESIDENT_BYTES } from './probe-residency';
 export { PROBE_PACK_MAX_EDGE } from './probe-atlas';

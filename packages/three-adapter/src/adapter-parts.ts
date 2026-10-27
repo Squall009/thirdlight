@@ -64,6 +64,8 @@ export interface AdapterParts {
   readonly surfaceCache: SurfaceCacheHost | null;
   /** The cache's live light on a WebGPU device (null: no cache). */
   readonly surfaceLight: AdapterSurfaceLight | null;
+  /** Whether the light runs live where the level lets it (false: held to the saved light, as at a level without a live budget). */
+  readonly liveLighting: { readonly on: boolean; set(on: boolean): void };
   readonly batcher: AutoBatcher | null;
   readonly viewCull: ViewCuller;
   readonly isolation: IsolationView;

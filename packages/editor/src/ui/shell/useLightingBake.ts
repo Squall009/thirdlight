@@ -2,10 +2,15 @@
  * The Lighting window's bake of the active scene: "Bake lighting" running
  * with its progress and outcome, and clearing a bake. The same run answers
  * an agent's request through the backend (`lighting.bake.request`).
+ *
+ * Also the Scene view's lighting preview and debug views (the Lighting
+ * window's level and live switches, the View menu's views and pass times):
+ * view only, held here so they outlive the window.
  */
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SceneHeaderView } from '../Hierarchy';
 import { lightingBakeSummary, runLightingBake } from '../../viewport/lighting-bake-run';
+import { SCENE_LIGHTING_DEFAULT, type SceneLightingState } from '../../viewport/lighting-view';
 import { refusal, type ClientRef, type ViewportRef } from './commands';
 
 /** Why this view cannot bake lighting (null: it can). */
@@ -19,6 +24,8 @@ export function useLightingBake(clientRef: ClientRef, viewportRef: ViewportRef, 
   const [bakeMessage, setBakeMessage] = useState<string | null>(null);
   const bakeAbortRef = useRef<AbortController | null>(null);
   const lightingUnavailable = lightingBakeUnavailable(sceneApi);
+  const [sceneLighting, setSceneLighting] = useState<SceneLightingState>(SCENE_LIGHTING_DEFAULT);
+  useEffect(() => void viewportRef.current?.sceneLighting.set(sceneLighting), [sceneLighting, viewportRef]);
   /** "Bake lighting" of the active scene (the button, and an agent's request through the backend): the outcome in words. */
   const bakeLighting = useCallback(async (): Promise<{ ok: true; message: string } | { ok: false; message: string }> => {
     const c = clientRef.current;
@@ -43,7 +50,7 @@ export function useLightingBake(clientRef: ClientRef, viewportRef: ViewportRef, 
     setBakeMessage(err === null ? 'The bake was cleared.' : `Clear failed: ${err}`);
   }, [activeScene, clientRef]);
 
-  return { bakeBusy, bakeMessage, bakeAbortRef, bakeLighting, lightingUnavailable, clearBake };
+  return { bakeBusy, bakeMessage, bakeAbortRef, bakeLighting, lightingUnavailable, clearBake, sceneLighting, setSceneLighting };
 }
 
 export type LightingBakeState = ReturnType<typeof useLightingBake>;

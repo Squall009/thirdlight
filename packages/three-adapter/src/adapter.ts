@@ -286,6 +286,18 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   surfaceLightNow = surfaceLight;
   surfaceLight?.followScenes(followed);
   if (surfaceLight !== null) Object.assign(scene.userData[SURFACE_CACHE_KEY] as object, { setView: (on: boolean) => surfaceLight.setView(on), light: () => surfaceLight.diagnostics() });
+  /** The level's live-light time, and whether a host holds the light to its saved result (an editor's "live lighting" off). */
+  const liveLight = { ms: 0, on: true };
+  const liveLighting = {
+    get on(): boolean {
+      return liveLight.on;
+    },
+    set(on: boolean): void {
+      liveLight.on = on;
+      surfaceCache?.setRelightBudget(on ? liveLight.ms : 0);
+      opts.onChange?.();
+    },
+  };
   /** The quality level drawn and its renderer settings (quality-control.ts). */
   const qualityControl = createQualityControl(
     {
@@ -298,7 +310,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         environment.resized();
       },
       environment: () => environment.renderer,
-      ...(surfaceCache !== null ? { setSurfaceCacheMiB: (mib: number) => surfaceCache.setBudget(surfaceCacheBytes(mib)), setSurfaceLightMs: (ms: number) => surfaceCache.setRelightBudget(ms), setSurfaceDetail: (rays: number, reach: number) => surfaceCache.cache.setDetail(rays, reach) } : {}),
+      ...(surfaceCache !== null ? { setSurfaceCacheMiB: (mib: number) => surfaceCache.setBudget(surfaceCacheBytes(mib)), setSurfaceLightMs: (ms: number) => {
+        liveLight.ms = ms;
+        surfaceCache.setRelightBudget(liveLight.on ? ms : 0);
+      }, setSurfaceDetail: (rays: number, reach: number) => surfaceCache.cache.setDetail(rays, reach) } : {}),
       changed: () => opts.onChange?.(),
     },
     { project: environment.look.value, ...(opts.lod !== undefined ? { lod: opts.lod } : {}), pinned: opts.qualityPinned ?? null },
@@ -307,7 +322,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   // Pipelines precompiled ahead of a present (precompile-gate.ts).
   const precompile = new PrecompileGate(() => state.disposed);
   const parts: AdapterParts = {
-    opts, scene, state, graph, materials, effects, entities, scenes, models, renderer, environment, lights, probes, level, surfaceCache, surfaceLight, batcher, viewCull, isolation, occlusion, precompile, qualityControl, renderControl, gpuTiming,
+    opts, scene, state, graph, materials, effects, entities, scenes, models, renderer, environment, lights, probes, level, surfaceCache, surfaceLight, liveLighting, batcher, viewCull, isolation, occlusion, precompile, qualityControl, renderControl, gpuTiming,
     clockStart, followShadow: isV3, selectLights, regroupEntity,
     environmentFrame: {
       needed: () => qualityControl.needsEnvironment() || renderControl.needsEnvironment() || occlusion.needsEnvironment(),

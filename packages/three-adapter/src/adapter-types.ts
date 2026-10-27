@@ -486,8 +486,8 @@ export interface SceneAdapter {
    *  adapter disposed. The wrapper posts `tl.ready` on `ok: true`
    *  and `tl.error` (phase `"assets"`) on `ok: false`. */
   modelsSettled?(): Promise<ModelsSettledResult>;
-  /** A player's or the game-control API's quality level over the project's; false when the project has no such level. */
-  setQuality?(level: QualityLevel): boolean;
+  /** A player's or the game-control API's quality level over the project's (an editor's preview; null: none again); false when the project has no such level. */
+  setQuality?(level: QualityLevel | null): boolean;
   /** The project's LOD bias and hysteresis (`lod_bias`, `lod_hysteresis`); unset parts keep their value. */
   setLodTuning?(tuning: { readonly bias?: number; readonly hysteresis?: number }): void;
   /** Render settings (AO kind, render scale, dynamic resolution: a player's or the project's); unset parts keep their value. */
@@ -545,6 +545,12 @@ export interface SceneAdapter {
    * `frame` draws the page's next frame). Refused without WebGPU.
    */
   bakeLighting?(o: import('./adapter-surface-bake').SurfaceBakeOptions): Promise<import('./adapter-surface-bake').SurfaceBakeOutcome>;
+  /** The lighting's debug views: cache texels, probes, rooms and portals, stale pages (`adapter-lighting-views.ts`). */
+  setLightingView?(view: import('./adapter-lighting-views').LightingViewState): void;
+  /** Hold the static surfaces' light to its saved result (false), or let it run live where the level lets it (true, the default). */
+  setLiveLighting?(on: boolean): void;
+  /** What the lighting does now, per pass, and what the debug views draw (null: no surface cache). */
+  lightingReport?(): import('./adapter-lighting-views').LightingReport | null;
   /** Replace the architecture style and preset graphs (an edit): outlines are made again where their elements changed. */
   setArchitectureStyles?(graphs: readonly import('@thirdlight/runtime').ArchitectureGraphLike[] | null): void;
   /** A slider being dragged: values over one preset and those derived from it (null: the stored values). How many objects are made again. */

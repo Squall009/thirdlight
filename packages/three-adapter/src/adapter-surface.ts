@@ -8,6 +8,7 @@ import type { EnvironmentBlendView } from '@thirdlight/runtime';
 
 import { adapterDiagnostics } from './adapter-diagnostics';
 import type { AdapterFrame } from './adapter-frame';
+import type { LightingReport } from './adapter-lighting-views';
 import type { AdapterParts } from './adapter-parts';
 import type { SceneAdapter } from './adapter-types';
 import { createFrameCapture } from './capture';
@@ -28,6 +29,29 @@ export interface AdapterSurfaceExtras {
   readonly preparations: ScenePreparations;
   /** The adapter's own resource manager (null: the page's, which the page releases). */
   readonly ownResources: { dispose(): void } | null;
+}
+
+/** What the lighting does now (an editor's pass-time overlay; `adapter-lighting-views.ts`). */
+function lightingReportOf(p: AdapterParts, disposed: boolean): LightingReport | null {
+  const light = p.surfaceLight;
+  const host = p.surfaceCache;
+  if (disposed || light === null || host === null) return null;
+  const starting = p.renderer.backend === null;
+  const relight = host.relight.diagnostics();
+  const probes = host.probes.count > 0 ? host.probes.diagnostics() : null;
+  const env = p.environment.renderer?.diagnostics().render;
+  return {
+    level: p.qualityControl.level().id,
+    tier: p.qualityControl.tier(),
+    live: light.live,
+    off: light.offReason,
+    settled: !starting && light.settled,
+    relight: light.live ? { msUsed: relight.msUsed, budgetMs: relight.budgetMs, stalePages: relight.stalePages, staleTexels: relight.staleTexels } : null,
+    probes: light.live && probes !== null ? { msUsed: probes.msUsed, count: probes.probes, stale: probes.stale } : null,
+    reflections: light.reflectionsTraced(),
+    taau: env?.upscale === 'taau',
+    view: light.lightingView(),
+  };
 }
 
 export function createAdapterSurface(p: AdapterParts, frame: AdapterFrame, x: AdapterSurfaceExtras): SceneAdapter {
@@ -99,7 +123,7 @@ export function createAdapterSurface(p: AdapterParts, frame: AdapterFrame, x: Ad
       p.renderControl.set(settings, layer);
       opts.onChange?.();
     },
-    setQuality: (level: QualityLevel): boolean => p.qualityControl.choose(level),
+    setQuality: (level: QualityLevel | null): boolean => p.qualityControl.choose(level),
     qualityLevel: (): QualityLevel => p.qualityControl.level().id,
     lightingState: () => {
       const light = p.surfaceLight;
@@ -155,6 +179,9 @@ export function createAdapterSurface(p: AdapterParts, frame: AdapterFrame, x: Ad
       for (const id of level.blockView.layerIds()) level.blockView.setLightmapUv(id, state.lightmaps?.hasChunks(id) === true);
       level.blockView.remeshAll();
     },
+    setLightingView: (view) => p.surfaceLight?.setLightingView(view),
+    setLiveLighting: (on) => p.liveLighting.set(on),
+    lightingReport: () => lightingReportOf(p, state.disposed),
     bakeLighting: (o) => (state.disposed || p.surfaceLight === null ? Promise.resolve({ ok: false as const, message: 'this view has no surface cache' }) : p.surfaceLight.bake(o)),
     setArchitectureStyles(graphs): void {
       if (!state.disposed) level.architecture.setStyles(graphs);

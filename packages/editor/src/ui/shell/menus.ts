@@ -18,6 +18,7 @@ import type { SceneEditing } from './useSceneEditing';
 import type { EntityEditing } from './useEntityEditing';
 import type { EditorDialogsState } from './useEditorDialogs';
 import type { OcclusionViewState } from '../../viewport/occlusion-view';
+import type { SceneLightingState } from '../../viewport/lighting-view';
 import { BOTTOM_TABS, type BottomTab } from './dock-tabs';
 import { resetToolWindows, TOOL_WINDOWS, type ToolWindowId } from '../tools/tool-windows';
 
@@ -35,13 +36,16 @@ export interface EditorMenuInput {
   snapping: boolean;
   setSnapping: Dispatch<SetStateAction<boolean>>;
   snapSettings: SnapSettings;
-  gizmos: { icons: boolean; lights: boolean; colliders: boolean; gameplay: boolean; grid: boolean; probes: boolean };
-  setGizmos: Dispatch<SetStateAction<{ icons: boolean; lights: boolean; colliders: boolean; gameplay: boolean; grid: boolean; probes: boolean }>>;
+  gizmos: { icons: boolean; lights: boolean; colliders: boolean; gameplay: boolean; grid: boolean };
+  setGizmos: Dispatch<SetStateAction<{ icons: boolean; lights: boolean; colliders: boolean; gameplay: boolean; grid: boolean }>>;
   effectPreview: boolean;
   setEffectPreview: Dispatch<SetStateAction<boolean>>;
   /** The Scene view's occlusion culling switches (the View menu). */
   occlusionView: OcclusionViewState;
   setOcclusionView: Dispatch<SetStateAction<OcclusionViewState>>;
+  /** The Scene view's lighting debug views and pass times (the View menu; the Lighting window's preview shares it). */
+  sceneLighting: SceneLightingState;
+  setSceneLighting: Dispatch<SetStateAction<SceneLightingState>>;
   workspace: WorkspaceState;
   workspaceDispatch: Dispatch<WorkspaceAction>;
   setCenterTab: (key: 'scene' | 'game') => void;
@@ -67,7 +71,7 @@ export interface EditorMenuInput {
 
 export function editorMenus(input: EditorMenuInput): Menu[] {
   const { registry, sceneHeaders, closedScenes, entities, selected, selectedId, selectedComponents, ui, snapping, setSnapping, snapSettings } = input;
-  const { gizmos, setGizmos, effectPreview, setEffectPreview, occlusionView, setOcclusionView, workspace, workspaceDispatch, setCenterTab, setBottomTab, showProject, openProjectSettings, showToolWindow, openDecals, createPrefabFromSelection, createBlockLayer, createTerrain, resync } = input;
+  const { gizmos, setGizmos, effectPreview, setEffectPreview, occlusionView, setOcclusionView, sceneLighting, setSceneLighting, workspace, workspaceDispatch, setCenterTab, setBottomTab, showProject, openProjectSettings, showToolWindow, openDecals, createPrefabFromSelection, createBlockLayer, createTerrain, resync } = input;
   const { clipboardRef, copySelection, createEmpty, createEntityAt, createFolder, createLight, del, duplicate, newBox, paste, redo, undo } = input.scene;
   const { addComponentTo, colliderFromModel3D, editComponent } = input.entity;
   const { setDialog, setExportState, setSnapDraft } = input.dialogs;
@@ -219,7 +223,6 @@ export function editorMenus(input: EditorMenuInput): Menu[] {
         { label: `Collider outlines: ${gizmos.colliders ? 'on' : 'off'}`, onSelect: () => setGizmos((g) => ({ ...g, colliders: !g.colliders })) },
         { label: `Gameplay paths and areas: ${gizmos.gameplay ? 'on' : 'off'}`, onSelect: () => setGizmos((g) => ({ ...g, gameplay: !g.gameplay })) },
         { label: `Grid: ${gizmos.grid ? 'on' : 'off'}`, onSelect: () => setGizmos((g) => ({ ...g, grid: !g.grid })) },
-        { label: `Light probes: ${gizmos.probes ? 'on' : 'off'}`, onSelect: () => setGizmos((g) => ({ ...g, probes: !g.probes })) },
         { label: `Play selected effects: ${effectPreview ? 'on' : 'off'}`, onSelect: () => setEffectPreview((v) => !v) },
       ],
     },
@@ -230,6 +233,17 @@ export function editorMenus(input: EditorMenuInput): Menu[] {
         { label: `Occlusion culling: ${occlusionView.culling ? 'on' : 'off'}`, onSelect: () => setOcclusionView((v) => ({ ...v, culling: !v.culling })) },
         { label: `Show culled draws: ${occlusionView.culled ? 'on' : 'off'}`, disabled: !occlusionView.culling, reason: 'occlusion culling is off', onSelect: () => setOcclusionView((v) => ({ ...v, culled: !v.culled })) },
         { label: `Depth pyramid: ${occlusionView.pyramid ? 'on' : 'off'}`, disabled: !occlusionView.culling, reason: 'occlusion culling is off', onSelect: () => setOcclusionView((v) => ({ ...v, pyramid: !v.pyramid })) },
+        'separator',
+        // The lighting's debug views (the page's own: `?surfaceCacheView=1`, `?probesView=1`) and what each pass costs.
+        ...(
+          [
+            ['cache', 'Cache texels'],
+            ['probes', 'Light probes'],
+            ['rooms', 'Rooms and portals'],
+            ['stale', 'Stale pages'],
+            ['passes', 'Lighting pass times'],
+          ] as const
+        ).map<MenuEntry>(([key, label]) => ({ label: `${label}: ${sceneLighting[key] ? 'on' : 'off'}`, onSelect: () => setSceneLighting((v) => ({ ...v, [key]: !v[key] })) })),
       ],
     },
     {

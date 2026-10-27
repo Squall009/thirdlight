@@ -41,6 +41,7 @@ import { savedLights, type CacheLight } from './surface-changes';
 import { runSurfaceBake, type BakePart, type SurfaceBakeOptions, type SurfaceBakeOutcome } from './adapter-surface-bake';
 import { AdapterSavedLight, type SavedLightDiagnostics, type SurfaceBakeLike } from './adapter-saved-light';
 import { REFLECTION_TRACER_KEY, type ReflectionTracer } from './post-reflections';
+import { AdapterLightingViews, type LightingViewCounts, type LightingViewState } from './adapter-lighting-views';
 
 /** How often (ms) the debug look is drawn again while texels change. */
 const VIEW_MS = 200;
@@ -137,14 +138,21 @@ export class AdapterSurfaceLight {
 
   /** The scenes' saved lighting, drawn where the light is not live. */
   private readonly saved: AdapterSavedLight;
+  /** Something drawn changed (a host drawing on demand draws again). */
+  private readonly changed: () => void;
+  /** The rooms and stale-pages debug views (the cache and probe views are this page's own). */
+  private readonly views: AdapterLightingViews;
 
   constructor(private readonly host: SurfaceCacheHost, private readonly scene: THREE.Scene, docs: ReadonlyMap<string, EntityDoc>, graph: RenderGraph, probes: ProbeLightingHost | null = null, lighting: { bakes: Readonly<Record<string, { surface?: SurfaceBakeLike } | undefined>> | null; loadBytes?: ((assetId: string) => Promise<Uint8Array>) | undefined; changed?: () => void } = { bakes: null }) {
     this.lights = new SurfaceLights(docs, graph);
     this.liveProbes = probes === null ? null : new AdapterLiveProbes(host, probes, scene);
-    this.saved = new AdapterSavedLight(host, scene, probes, lighting.loadBytes, lighting.changed ?? (() => undefined));
+    this.changed = lighting.changed ?? (() => undefined);
+    this.saved = new AdapterSavedLight(host, scene, probes, lighting.loadBytes, this.changed);
     this.saved.setBakes(lighting.bakes);
     const q = new URLSearchParams(pageSearch());
     this.viewOn = q.get('surfaceCacheView') === '1';
+    this.views = new AdapterLightingViews(host, scene);
+    this.views.set({ cache: this.viewOn, probes: q.get('probesView') === '1', rooms: false, stale: false });
     const read = q.get(SURFACE_READ_URL_PARAM);
     this.readOn = read !== '0';
     this.readKinds = surfaceReadKinds(read);
@@ -189,6 +197,30 @@ export class AdapterSurfaceLight {
     }
     this.liveProbes?.frame(renderer, this.runtime);
     this.drawView();
+    this.views.frame();
+  }
+
+  /** The lighting's debug views (an editor's Scene view menu). */
+  setLightingView(state: LightingViewState): void {
+    this.views.set(state);
+    this.setView(state.cache);
+    this.liveProbes?.setView(state.probes);
+  }
+
+  /** The debug views drawn and what they hold. */
+  lightingView(): LightingViewState & LightingViewCounts {
+    const probes = this.liveProbes?.viewCounts() ?? { spheres: 0, invalid: 0 };
+    return { ...this.views.views, cacheTexels: this.viewOn && this.view !== null ? this.viewTexels : 0, probeSpheres: probes.spheres, invalidProbes: probes.invalid, ...this.views.counts() };
+  }
+
+  /** Why the light is not live (null: it is), and the reflections' last traced pass (null: none). */
+  get offReason(): SurfaceLightDiagnostics['off'] {
+    return this.off;
+  }
+
+  reflectionsTraced(): { ms: number | null; rays: number } | null {
+    const pass = this.runtime?.reflectionPass;
+    return pass === undefined || pass.lastRays === 0 ? null : { ms: pass.lastMs, rays: pass.lastRays };
   }
 
   /** What materials read, up to date: the lookup packed again when residency changed, the sun the texels were lit with; the scene says so once both are up. */
@@ -288,6 +320,8 @@ export class AdapterSurfaceLight {
           last: () => ({ ms: rt.reflectionPass.lastMs, rays: rt.reflectionPass.lastRays }),
         };
         this.scene.userData[REFLECTION_TRACER_KEY] = tracer;
+        // A host drawing on demand draws the live light now (it had drawn the saved light while this started).
+        this.changed();
       },
       (e: unknown) => {
         // A device that cannot make the pass draws the saved light, as WebGL 2 does.
@@ -333,8 +367,12 @@ export class AdapterSurfaceLight {
   }
 
   setView(on: boolean): void {
+    const was = this.viewOn;
     this.viewOn = on;
     this.runtime?.setView(on);
+    // The look reads texels back as they are lit: switched on over settled light, every unit is lit again (to the
+    // same light; the probes keep theirs).
+    if (on && !was && this.runtime !== null) this.host.relight.markUnits(this.host.relight.unitsIn([-Infinity, -Infinity, -Infinity], [Infinity, Infinity, Infinity]));
     if (!on) this.clearView();
   }
 
@@ -403,6 +441,7 @@ export class AdapterSurfaceLight {
 
   dispose(): void {
     this.clearView();
+    this.views.dispose();
     this.saved.drop();
     this.liveProbes?.dispose();
     this.runtime?.dispose();

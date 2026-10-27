@@ -171,7 +171,7 @@ export function useEditorModel() {
   const instanceBrush = useInstanceBrush(selectedId);
   // The Scene view's helpers (Gizmos menu).
   // Collider outlines are off until asked for; the selection's are always drawn.
-  const [gizmos, setGizmos] = useState({ icons: true, lights: true, colliders: false, gameplay: true, grid: true, probes: false });
+  const [gizmos, setGizmos] = useState({ icons: true, lights: true, colliders: false, gameplay: true, grid: true });
   useEffect(() => viewportRef.current?.setGizmos(gizmos), [gizmos]);
   // Behind the Game view the Scene view draws nothing (Play is not paid for twice).
   useEffect(() => viewportRef.current?.setHidden(centerTab === 'game'), [centerTab]);

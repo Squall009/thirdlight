@@ -13,6 +13,9 @@
  * The probes' saved light ("Bake lighting", WebGPU) drawn on both renderers.
  */
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { expect, test, type Page } from './pw';
 import * as THREE from 'three';
 
@@ -237,7 +240,10 @@ for (const variant of RENDERER_VARIANTS) test(`a bake of the earlier bakers keep
  *   and darker under the canopy with the probes (indirect light changes as it
  *   moves).
  * - The Scene view and Play draw the probe-lit scene alike.
- * - The probe debug view (Gizmos → Light probes) draws the probes.
+ * - The Scene view's lighting debug views (View menu: probes, cache texels,
+ *   rooms and portals) draw, and the pass-time overlay reads live; the
+ *   Lighting window's live-light time at the drawn level set to 0 (the
+ *   project's levels) turns the view to the saved light, and back.
  * - Ambient occlusion (the look's AO, SSAO by default) darkens the
  *   probe-lit foot of the room's shaded east wall, and leaves the sunlit
  *   north wall's foot as it was: it occludes only indirect light.
@@ -357,14 +363,34 @@ test('saved probes light every object in place of the flat ambient light: no lea
   // Its walls, floor and ceiling hold the sun out (the ceiling collides with nothing, yet stops light).
   expect(roomDc).toBeLessThan(yardDc * 0.05);
 
-  // The debug view: the probes drawn while on.
+  // The Scene view's lighting debug views (View menu) and pass times, drawn while on.
   const view = page.locator('canvas.tl-viewport');
+  type LightingView = { level: string; live: boolean; off: string | null; view: { cacheTexels: number; probeSpheres: number; roomOutlines: number; portalOutlines: number } };
+  const lightingView = async (): Promise<LightingView | null> => JSON.parse((await view.getAttribute('data-lighting-view')) ?? 'null') as LightingView | null;
+  const views = ['Light probes', 'Cache texels', 'Rooms and portals', 'Lighting pass times'];
   await showView(page, 'Scene');
-  await menu(page, 'Gizmos', 'Light probes: off');
-  await expect(view).toHaveAttribute('data-gizmos', /probes/);
-  await expect.poll(async () => Number(((await view.getAttribute('data-probe-spheres')) ?? '0 0').split(' ')[0]), { timeout: 30_000 }).toBeGreaterThan(0);
-  await menu(page, 'Gizmos', 'Light probes: on');
+  for (const item of views) await menu(page, 'View', `${item}: off`);
+  await expect.poll(async () => JSON.stringify((await lightingView())?.view), { timeout: 30_000 }).toMatch(/"cacheTexels":[1-9].*"probeSpheres":[1-9].*"roomOutlines":[1-9]/);
+  const passes = page.getByLabel('lighting pass times', { exact: true });
+  await expect(passes).toContainText('· live');
+  await expect(passes).toContainText('Relight');
+  // A lighting setting in the Lighting window: the drawn level's live-light time to 0 (`setEnvironment` on the project's
+  // levels, the engine's copied first), and the view draws the saved light; cleared, the engine's levels and live again.
+  const level = (await lightingView())!.level;
+  const levels = (): { id: string; surfaceLightMs?: number }[] | undefined => ((JSON.parse(readFileSync(join(be!.projectDir, 'content.json'), 'utf8')) as { content: { environment?: { qualityLevels?: { id: string; surfaceLightMs?: number }[] } } }).content.environment ?? {}).qualityLevels;
+  const liveMs = page.getByLabel('Live light (ms a frame)', { exact: true });
+  await liveMs.fill('0');
+  await liveMs.press('Enter');
+  await expect.poll(() => levels()?.find((l) => l.id === level)?.surfaceLightMs).toBe(0);
+  await expect.poll(async () => (await lightingView())?.off).toBe('no-budget');
+  await expect(passes).toContainText('saved light');
+  await liveMs.fill('');
+  await liveMs.press('Enter');
+  await expect.poll(() => levels()).toBeUndefined();
+  await expect.poll(async () => (await lightingView())?.live).toBe(true);
+  for (const item of views) await menu(page, 'View', `${item}: on`);
   await expect(view).toHaveAttribute('data-probe-spheres', '0 0');
+  await expect(passes).toBeHidden();
 
   for (const variant of ['auto', 'webgl2'] as const) {
     if (variant === 'webgl2') {

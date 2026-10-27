@@ -106,8 +106,8 @@ export interface QualityControl {
   setProject(project: QualityProjectLike | null): void;
   /** The project's LOD bias and hysteresis (a level's bias lays over the bias). */
   setProjectLod(tuning: { readonly bias?: number; readonly hysteresis?: number }): void;
-  /** A player's or the game-control API's choice; false when the project has no such level (nothing changes). */
-  choose(id: string): boolean;
+  /** A player's or the game-control API's choice (an editor's preview), null: none again; false when the project has no such level (nothing changes). */
+  choose(id: string | null): boolean;
   /** The level drawn. */
   level(): QualityLevelConfig;
   /** Whether frames go through the environment renderer for the level (a level was chosen or set, or it draws without MSAA). */
@@ -183,7 +183,7 @@ export function createQualityControl(targets: QualityTargets, o: { readonly proj
       apply();
     },
     choose(id) {
-      if (!levels().some((l) => l.id === id)) return false;
+      if (id !== null && !levels().some((l) => l.id === id)) return false;
       chosen = id;
       apply();
       return true;

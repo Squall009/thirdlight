@@ -12,7 +12,9 @@ import { alignSkyToKeyLight } from '../../viewport/sky-align';
 import { skyTurnDegrees } from '@thirdlight/three-adapter';
 import { EnvironmentPanel } from '../EnvironmentPanel';
 import { surfaceBakeIsStale } from '../../viewport/lighting-bake-run';
-import { LightingPanel } from '../LightingPanel';
+import { DEFAULT_QUALITY_LEVELS, qualityLevelsOf } from '@thirdlight/project-model/limits';
+import type { EnvironmentConfig, QualityLevelConfig } from '@thirdlight/project-model';
+import { LightingPanel, type LevelLightingEdit, type SceneLightingNow } from '../LightingPanel';
 import { ScenePlanePanel } from '../ScenePlanePanel';
 import { refusal } from '../shell/commands';
 import type { SceneHeaderView } from '../Hierarchy';
@@ -37,6 +39,57 @@ export function defaultToolPlace(area: HTMLElement | null, stage: HTMLElement | 
   const right = s.right - a.left - 12;
   const beside = right - (width + 12) * slot - width;
   return beside >= s.left - a.left + 12 ? { x: beside, y: s.top - a.top + 12, width, height } : { x: right - width - 24 * slot, y: s.top - a.top + 12 + 24 * slot, width, height };
+}
+
+/** How often (ms) the Lighting window reads what the Scene view draws (the level, live or saved). */
+const LIGHTING_NOW_MS = 500;
+
+/** What the Scene view draws now (its lighting report's level, tier, live, why not), followed while the windows show. */
+function useSceneLightingNow(viewportRef: ViewportRef): SceneLightingNow | null {
+  const [now, setNow] = useState<SceneLightingNow | null>(null);
+  useEffect(() => {
+    const read = (): void => {
+      const r = viewportRef.current?.sceneLighting.report() ?? null;
+      const next = r === null ? null : { level: r.level, tier: r.tier, live: r.live, off: r.off };
+      setNow((was) => (JSON.stringify(was) === JSON.stringify(next) ? was : next));
+    };
+    read();
+    const t = setInterval(read, LIGHTING_NOW_MS);
+    return () => clearInterval(t);
+  }, [viewportRef]);
+  return now;
+}
+
+/**
+ * The project's levels with one level's lighting fields set (undefined:
+ * removed, the tier's again); the engine's levels copied first, and the
+ * engine's again (undefined) when an edit takes the copy back to them.
+ */
+export function levelsWithLighting(levels: readonly QualityLevelConfig[] | undefined, levelId: string, edit: LevelLightingEdit): QualityLevelConfig[] | undefined {
+  const engine = levels === undefined || levels.length === 0;
+  const own = engine ? (JSON.parse(JSON.stringify(DEFAULT_QUALITY_LEVELS)) as QualityLevelConfig[]) : levels;
+  const next = own.map((l) => {
+    if (l.id !== levelId) return l;
+    const next: Record<string, unknown> = { ...l };
+    for (const [k, v] of Object.entries(edit)) {
+      if (v === undefined) delete next[k];
+      else next[k] = v;
+    }
+    return next as unknown as QualityLevelConfig;
+  });
+  return canonical(next) === canonical(DEFAULT_QUALITY_LEVELS) ? undefined : next;
+}
+
+/** JSON with every object's keys sorted (stored levels come back in another key order). */
+function canonical(v: unknown): string {
+  return JSON.stringify(v, (_, x: unknown) => (x !== null && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : x));
+}
+
+/** The project environment with these levels (undefined: the engine's, the field removed). */
+function withLevels(env: EnvironmentConfig | null, levels: QualityLevelConfig[] | undefined): EnvironmentConfig {
+  const rest: EnvironmentConfig = { ...(env ?? {}) };
+  delete rest.qualityLevels;
+  return levels === undefined ? rest : { ...rest, qualityLevels: levels };
 }
 
 /** The work area's size, followed as it changes (the windows are kept inside it). */
@@ -71,6 +124,7 @@ export interface SceneToolWindowsProps {
 
 export function SceneToolWindows(p: SceneToolWindowsProps): JSX.Element | null {
   const area = useAreaSize(p.area);
+  const drawn = useSceneLightingNow(p.viewportRef);
   if (p.tools.open.length === 0 || area.width === 0) return null;
   const active = p.sceneHeaders?.find((h) => h.active) ?? null;
   // Every scene in index order (the open ones and the closed ones; App re-renders when they change).
@@ -122,6 +176,12 @@ export function SceneToolWindows(p: SceneToolWindowsProps): JSX.Element | null {
         onClear={() => void b.clearBake()}
         onBakeLighting={() => void b.bakeLighting()}
         lightingUnavailable={b.lightingUnavailable}
+        preview={b.sceneLighting}
+        onPreview={b.setSceneLighting}
+        drawn={drawn}
+        levels={qualityLevelsOf(environment)}
+        onEditLevel={(levelId, edit) => void saveEnvironment(withLevels(environment, levelsWithLighting(environment?.qualityLevels, levelId, edit)), environment)}
+        levelError={materialError}
         lightingStale={lighting[active.sceneId]?.surface !== undefined && surfaceBakeIsStale(lighting[active.sceneId]!.surface!, (p.clientRef.current?.projection.listEntities() ?? []).filter((e) => e.sceneId === active.sceneId), (id) => p.clientRef.current?.getBlockLayers().get(id)?.chunks, skyTurnDegrees(sceneLook?.sky))}
       />
     );
