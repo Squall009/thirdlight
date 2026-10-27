@@ -72,6 +72,7 @@ import { checkTrimSheetTexture } from './trim-check';
 import { trimSheetErrors, type TrimSheet } from '@thirdlight/project-model/trim-sheet';
 import type { TextureSlotAssembler } from './texture-slots';
 import { slotArrayRoute, slotBaseRoute } from './texture-slot-routes';
+import { modelBricksRoute } from './model-bricks';
 import { losslessOriginal, textureVersionsOf } from './texture-originals';
 import type { AssetFileCheck } from './asset-files';
 import { THUMBNAIL_BYTES_MAX, type ThumbnailCache } from './thumbnails';
@@ -673,6 +674,12 @@ export class ContentRoutes {
     if (n === 10 && parts[5] === 'assets' && parts[7] === 'versions' && parts[9] === 'bytes') {
       if (method !== 'GET') return this.methodNotAllowed(res, 'GET');
       this.assetBytes(req, res, projectId, parts[6] ?? '', parts[8] ?? '');
+      return true;
+    }
+    // GET /api/v1/projects/:projectId/content/assets/:assetId/versions/:version/bricks (a model's distance-field file)
+    if (n === 10 && parts[5] === 'assets' && parts[7] === 'versions' && parts[9] === 'bricks') {
+      if (method !== 'GET') return this.methodNotAllowed(res, 'GET');
+      await modelBricksRoute({ service: this.deps.service, requireAuth: this.deps.requireAuth, sendError: this.deps.sendError, toSession: commandErrorToSession }, req, res, projectId, parts[6] ?? '', parts[8] ?? '');
       return true;
     }
     // GET /api/v1/projects/:projectId/content/assets/:assetId

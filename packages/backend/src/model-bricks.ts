@@ -6,8 +6,11 @@
  * ready. A failure is only a log line: the build makes them itself, or
  * says why in Problems.
  */
+import type { IncomingMessage, ServerResponse } from 'node:http';
+
 import { ensureModelBricks } from '@thirdlight/exporter';
-import type { WorkspaceService } from '@thirdlight/workspace';
+import { parseAssetByteParams, sessionError, type SessionError } from '@thirdlight/protocol';
+import type { CommandError, WorkspaceService } from '@thirdlight/workspace';
 
 type RecordLike = { assetId?: unknown; kind?: unknown; currentVersion?: unknown; versions?: readonly { version?: unknown; sourceDigest?: unknown }[] };
 
@@ -75,4 +78,56 @@ export function createModelBrickImports(deps: { service: WorkspaceService; log?:
       waiters = [];
     },
   };
+}
+
+export interface ModelBricksRouteDeps {
+  readonly service: WorkspaceService;
+  readonly requireAuth: (req: IncomingMessage, projectId: string, adminOnly: boolean) => SessionError | null;
+  readonly sendError: (res: ServerResponse, error: SessionError, statusOverride?: number) => void;
+  readonly toSession: (e: CommandError) => SessionError;
+}
+
+/**
+ * `GET …/content/assets/:assetId/versions/:version/bricks`: a model
+ * version's distance-field file (bricks and surfels), from the import cache,
+ * made there first when missing (an import before bricks existed). The
+ * editor's Scene view reads it for its static placements, so its live light
+ * and its bakes hold the model as Play's and the export's do. 204: the
+ * model has nothing to make a field of (no render triangles).
+ */
+export async function modelBricksRoute(d: ModelBricksRouteDeps, req: IncomingMessage, res: ServerResponse, projectIdRaw: string, rawAssetId: string, rawVersion: string): Promise<void> {
+  const auth = d.requireAuth(req, projectIdRaw, false);
+  if (auth !== null) return d.sendError(res, auth);
+  const parsed = parseAssetByteParams(projectIdRaw, rawAssetId, rawVersion);
+  if (!parsed.ok) return d.sendError(res, parsed.error);
+  const { projectId, assetId, version } = parsed.params;
+  const located = d.service.locateBlobs(projectId, [{ assetId, version }]);
+  if (!located.ok) return d.sendError(res, d.toSession(located.error));
+  const hit = located.results[0];
+  if (hit === undefined || !hit.ok) return d.sendError(res, hit === undefined ? sessionError('asset_not_found', 'not_found', `no asset "${assetId}" version ${version}`) : d.toSession(hit.error));
+  const made = ensureModelBricks(d.service, projectId, hit.file.digest, () => {
+    const r = d.service.readBlob(projectId, { assetId, version });
+    return r.ok ? r.bytes : null;
+  });
+  if (!made.ok) return d.sendError(res, sessionError('conversion_failed', 'validation', `the distance-field bricks of ${assetId}: ${made.message}`.slice(0, 256)));
+  if (made.file === null) {
+    res.statusCode = 204;
+    res.end();
+    return;
+  }
+  const opened = d.service.openBlobFile(projectId, made.file);
+  if (!opened.ok) return d.sendError(res, sessionError('asset_source_changed', 'conflict', 'the bricks file changed while it was read; ask again'));
+  const parts: Uint8Array[] = [];
+  try {
+    for await (const c of opened.blob.chunks()) parts.push(c);
+  } catch {
+    return d.sendError(res, sessionError('asset_source_changed', 'conflict', 'the bricks file changed while it was read; ask again'));
+  }
+  res.setHeader('content-type', 'application/octet-stream');
+  res.setHeader('content-length', String(made.file.byteLength));
+  res.setHeader('x-thirdlight-digest', made.file.digest);
+  // A version's file never changes, but the bricks made of it change with the engine's bricks format: asked again each load.
+  res.setHeader('cache-control', 'private, no-cache');
+  res.statusCode = 200;
+  res.end(Buffer.concat(parts));
 }

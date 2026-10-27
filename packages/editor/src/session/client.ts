@@ -903,6 +903,16 @@ export class SessionClient extends SessionClientCore {
     return new Uint8Array(await res.arrayBuffer());
   }
 
+  /** A model version's distance-field file (bricks and surfels; null: the model has nothing to make one of). */
+  async modelBricks(assetId: string, version: number): Promise<Uint8Array | null> {
+    const res = await fetch(`${this.cfg.authoringOrigin}/api/v1/projects/${this.cfg.projectId}/content/assets/${assetId}/versions/${version}/bricks`, {
+      headers: { authorization: `Bearer ${this.cfg.authoringToken}`, origin: this.cfg.authoringOrigin },
+    });
+    if (res.status === 204) return null;
+    if (!res.ok) throw new Error(`bricks read failed (HTTP ${res.status})`);
+    return new Uint8Array(await res.arrayBuffer());
+  }
+
   /**
    * The texture array of per-layer slots (the layers' current versions; the backend assembles it once and caches it).
    * `height`: its alpha is a height (a layer without one gets a height from its brightness).

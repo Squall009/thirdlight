@@ -178,6 +178,9 @@ export function createSceneViewAssets(o: {
       ...(a?.textures !== undefined ? { textures: a.textures } : {}),
       ...(a?.lod !== undefined ? { lod: a.lod } : {}),
       ...(a?.occluder !== undefined ? { occluder: a.occluder } : {}),
+      // Every model version's distance-field file can be asked of the backend (made there when missing): static
+      // placements feed the live light and the bakes with their shape and surfels, as in Play.
+      bricks: true,
     };
     rows.set(key, row);
     return row;
@@ -194,6 +197,12 @@ export function createSceneViewAssets(o: {
     resolveBytes: async (assetId, version) => ownBuffer(await client.assetBytes(assetId, version)),
     // Raw bytes: instance sets read them as floats, terrain tiles as their blobs.
     resolveBuffer: (digest) => client.bufferBytes(digest),
+    resolveBricks: async (assetId, version) => {
+      const bytes = await client.modelBricks(assetId, version);
+      // A model with nothing to make a field of is lit by the probes only (no tile, its pixels read no texel).
+      if (bytes === null) throw new Error(`${assetId} has no distance-field bricks`);
+      return bytes;
+    },
     loadTexture,
     ...(o.onSetBuilt !== undefined ? { onInstanceSetBuilt: o.onSetBuilt } : {}),
   };

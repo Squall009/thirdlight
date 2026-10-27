@@ -95,6 +95,29 @@ describe('imported models get distance-field bricks', () => {
     expect(new Uint8Array(readFileSync(file!.real))).toEqual(made.ok ? made.bytes : null);
   });
 
+  it("serves a version's file to the editor's Scene view, made again when the cache lost it", async () => {
+    await tb.backend._test.modelBricks.idle();
+    const versions = (tb.backend._test.service.query({ op: 'queryAssets', projectId: PID, args: { assetId, includeVersions: true, limit: 1, offset: 0 } }) as unknown as { assets: { currentVersion: number }[] }).assets;
+    const url = `${tb.authUrl}/api/v1/projects/${PID}/content/assets/${assetId}/versions/${versions[0]!.currentVersion}/bricks`;
+    const read = async (token: string | null): Promise<Response> => fetch(url, { headers: token === null ? {} : { authorization: `Bearer ${token}` } });
+    expect((await read(null)).status).toBe(401);
+    const cached = tb.backend._test.service.locateImportedArtifact(PID, modelBricksKey(sourceDigest))!;
+    const res = await read(tb.adminToken);
+    expect(res.status).toBe(200);
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    expect(bytes).toEqual(new Uint8Array(readFileSync(cached.real)));
+    // The model file's own bricks (made from the stored model, as the import made them).
+    const made = modelBricksBlob(stored);
+    expect(made.ok ? made.bytes : null).toEqual(bytes);
+    // A cache without the file (an import before bricks existed): the read makes it.
+    rmSync(cached.real);
+    const again = await read(tb.adminToken);
+    expect(again.status).toBe(200);
+    expect(new Uint8Array(await again.arrayBuffer())).toEqual(bytes);
+    const missing = await fetch(`${tb.authUrl}/api/v1/projects/${PID}/content/assets/no-such-model/versions/1/bricks`, { headers: { authorization: `Bearer ${tb.adminToken}` } });
+    expect(missing.status).toBeGreaterThanOrEqual(400);
+  }, 120_000);
+
   it('ships them with a model placed static, and not with one placed movable', async () => {
     const exportNow = async (): Promise<string> => {
       const r = await api(`${tb.authUrl}/api/v1/admin/projects/${PID}/export`, { body: {}, token: tb.adminToken, origin: null });
