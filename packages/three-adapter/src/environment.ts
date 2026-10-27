@@ -392,14 +392,17 @@ function taauFromUrl(): TaauFlag {
 }
 
 /**
- * The anti-aliasing a look's kind draws as on this renderer: the temporal
- * upscale only on WebGPU and in a view drawn frame after frame; SMAA in its
- * place elsewhere (WebGL 2 keeps today's anti-aliasing).
+ * The anti-aliasing a kind draws as on this renderer: the temporal upscale
+ * only on WebGPU and in a view drawn frame after frame. Elsewhere the look's
+ * own kind (`own`: what the look names before its level laid TAAU over it),
+ * so WebGL 2 and the Scene view keep the look's FXAA or SMAA; SMAA for a look
+ * that names TAAU itself.
  */
-function drawnAntialias(aa: NonNullable<PostLike['antialias']>, renderer: WebGPURenderer, temporal: boolean): 'none' | 'fxaa' | 'smaa' | 'taau' {
+function drawnAntialias(aa: NonNullable<PostLike['antialias']>, own: PostLike['antialias'], renderer: WebGPURenderer, temporal: boolean): 'none' | 'fxaa' | 'smaa' | 'taau' {
   if (aa !== 'taau') return aa;
   const webgpu = (renderer as unknown as { backend?: { isWebGPUBackend?: boolean } }).backend?.isWebGPUBackend === true;
-  return webgpu && temporal && taauFromUrl() !== 'off' ? 'taau' : 'smaa';
+  if (webgpu && temporal && taauFromUrl() !== 'off') return 'taau';
+  return own === 'fxaa' ? 'fxaa' : 'smaa';
 }
 
 let contactOff: boolean | null = null;
@@ -933,7 +936,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       dof: p?.dof?.enabled === true,
       fogVolumes: volumes.length > 0,
       grading: (g !== undefined && (g.brightness !== undefined || g.contrast !== undefined || g.saturation !== undefined || g.tint !== undefined || g.lut !== undefined || g.lift !== undefined || g.gamma !== undefined || g.gain !== undefined)) || p?.vignette?.enabled === true,
-      aa: drawnAntialias(p?.antialias ?? 'none', renderer, render.temporal),
+      aa: drawnAntialias(p?.antialias ?? 'none', env?.post?.antialias, renderer, render.temporal),
       // Not a post effect of its own: drawn with the look's post effects (it needs the scene pass's depth).
       contact: !contactShadowsOff() && levelLighting(level()).contactShadows,
       // As contact shadows: drawn with the look's post effects. WebGL 2 keeps the environment and probes.

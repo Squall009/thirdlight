@@ -175,8 +175,19 @@ const CASES: Record<string, Case> = {
   'quality-low': { env: { sky: colour, quality: 'low', post: { bloom: { enabled: true, threshold: 0 }, ssao: { enabled: true }, dof: { enabled: true, focus: 2 }, antialias: 'smaa' } } },
 };
 
+/**
+ * The level the reference cases draw at: the engine's highest (TAAU laid over the look's anti-aliasing, which
+ * this still harness, drawn by hand, cannot run: the look's own kind is drawn) without the two effects the
+ * archived stack never had and its references cannot hold — contact shadows (both renderers, with any post
+ * effect) and reflections (WebGPU). Pinned, so the references compare like with like whatever the engine's
+ * levels or the device choose. A case that names its own level (`quality-low`) keeps the engine's levels.
+ */
+const REFERENCE_LEVEL = { id: 'reference', lighting: 'high', contactShadows: false, reflections: 'off', post: { antialias: 'taau' } } as const;
+const pinned = (env: EnvironmentLike): EnvironmentLike => (env.quality !== undefined ? env : { ...env, qualityLevels: [REFERENCE_LEVEL], quality: REFERENCE_LEVEL.id });
+
 async function main(): Promise<void> {
-  const c = CASES[which];
+  const raw = CASES[which];
+  const c = raw === undefined ? undefined : { ...raw, env: pinned(raw.env) };
   if (c === undefined) throw new Error(`unknown case ${which}`);
   const handle = createRenderer({ canvas, preference: backend, source: 'url', antialias: false, clearColor: 0x000000, clearAlpha: 1 });
   const ok = await handle.whenReady();

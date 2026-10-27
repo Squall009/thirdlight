@@ -11,7 +11,9 @@
  * (`env-parity/harness.ts`) and are compared with the WebGL reference images
  * captured from the WebGLRenderer path before the port (`env-parity/refs/*.png`).
  * That path is archived (`archive/webgl-renderer-17/`); the
- * references are frozen as the contract.
+ * references are frozen as the contract. The harness pins the level they are
+ * drawn at (the engine's highest without contact shadows and reflections,
+ * which the archived stack never drew: `REFERENCE_LEVEL`).
  *
  * - `default` project: WebGPURenderer's WebGL 2 backend (TSL sky/fog
  *   volumes/post) matches them, with the archived stack's pass list.
