@@ -35,6 +35,8 @@
  *                                scatter copies on the way), recorded for 60 s at the display's rate (--uncapped:
  *                                not): the frames over 16.7 ms are counted (default: the still camera, as recorded)
  *   --vsync                      draw at the display's rate (a player's browser) instead of uncapped
+ *   --bake                       "Bake lighting" each class in the editor (WebGPU) before its export: the export then
+ *                                draws the saved light where it is not live (WebGL 2, a low level)
  *   --flight-plain               the same flight without the scatter copies' hides, shows and removals (streaming alone)
  *   --missed-marks               with --flight: each missed refresh's time and the engine's marks just before it
  *   --impostors S                the landscape's trees, pines and rocks drawn as impostors below screen size S (default:
@@ -101,6 +103,7 @@
  *
  * The report goes to ~/.cache/thirdlight-perf/reports/level-<time>.json (latest-level.json too).
  */
+import { bakeLightingInEditor } from './bake-run';
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { cpus } from 'node:os';
@@ -174,6 +177,8 @@ export const LEVEL_FRAME_TARGET_MS = 16.7;
 
 export interface LevelReport {
   reportVersion: 1;
+  /** `--bake`: each class's "Bake lighting" before its export. */
+  bakes?: Partial<Record<LevelKind, Record<string, unknown>>>;
   startedAt: string;
   commit: string;
   machine: { cpu: string; cores: number };
@@ -387,6 +392,8 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
         report.maskedDabs = await maskedDabRuns(be, b.projectId, log);
       }
       if (has('edits-only')) continue;
+      // "Bake lighting" in the editor first: the export then draws the saved light where it is not live.
+      if (has('bake')) (report.bakes ??= {})[kind] = await bakeLightingInEditor(be, b.projectId, (s) => log(`level ${kind}: ${s}`));
       const t = performance.now();
       const res = await be.post(`/api/v1/admin/projects/${b.projectId}/export`, {});
       if (res.status !== 200) throw new Error(`export failed: ${JSON.stringify(res.json).slice(0, 400)}`);

@@ -58,9 +58,13 @@ round the camera — and the window shows it as stale until the scene is
 baked again. A scene with a bake cannot be deleted until the bake is
 cleared. MCP clears a bake with `setLighting {sceneId, lighting: null}`.
 
-Measured on this host (Iris Xe, WebGPU, 1920 × 1080): see the plan's 42.10
-row (`docs/plan-phase-42.md`) for the bake times and saved sizes of the
-village and the look-reference scenes.
+Measured on this host (Iris Xe, WebGPU, 1920 × 1080; the run to settled,
+then saving): the village perf class 2.4 s (16 tiles at 10 cm, 10,240
+probes, 195 KB of files), the landscape class 17.6 s (49 tiles at 20 cm,
+30,016 probes, 394 KB), the interior class 12.8 s (13 tiles, 9,984 probes,
+244 KB), the look-reference scenes 3.3–4.9 s (41–258 KB). On WebGL 2 the
+saved light costs the main thread about 0.3–2 ms a frame (most of it with
+many saved probes).
 
 ### Probes
 

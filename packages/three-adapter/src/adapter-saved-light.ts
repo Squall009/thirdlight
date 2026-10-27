@@ -185,7 +185,8 @@ export class AdapterSavedLight {
   private syncLookup(): void {
     const tex = this.textures;
     if (tex === null) return;
-    if (this.host.cache.diagnostics().tiles.resident === 0) return;
+    // Read once a tile is resident (a header packed before them would stay in the programs).
+    if (!this.exposed && this.host.cache.diagnostics().tiles.resident === 0) return;
     const key = `${this.host.traceVersion}/${this.host.residencyVersion}`;
     const now = performance.now();
     if (key !== this.lookupFor && now - this.lookupAt >= LOOKUP_MS) {
