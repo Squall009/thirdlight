@@ -26,7 +26,12 @@ detail is in [Lighting](../features/lighting.md).
 - **Light layers** (8, named in Project Settings): a light lights only the
   objects that share a layer with its **Light mask**.
 - **Quality levels** set what a player's machine draws: render scale,
-  shadow map size, how many lamps cast shadows, ambient occlusion.
+  shadow map size, how many lamps cast shadows, ambient occlusion, and the
+  **lighting tier** — low (saved light), medium (live within a budget) or
+  high (more rays, reach and memory). A device starts at the highest level
+  whose tier it fits (WebGL 2 low, an integrated GPU medium, a discrete one
+  high) unless the player or the game picks one ([Lighting tiers](../features/debugging.md#lighting-tiers)).
+  Scripts wait for the light with `ctx.lighting.settled` / `justSettled`.
 
 ## In the editor
 
@@ -57,7 +62,7 @@ Everything the editor does, the bake included:
   `lightLayers` mask (bit n = layer n + 1).
 - Quality levels: [`setEnvironment`](../reference/ops-detail.md#op-setEnvironment)
   without `sceneId`, `environment.qualityLevels`
-  ([`QualityLevelConfig`](../reference/types-p-t.md#type-quality-level-config))
+  ([`QualityLevelConfig`](../reference/types-o-t.md#type-quality-level-config))
   and `environment.quality` (the starting level).
 - Bake: `tl_bake_lighting {"sceneId": "<scene>"}` asks the project's editor
   (the connected browser, else the backend's headless one, on WebGPU) to run

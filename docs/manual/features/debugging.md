@@ -213,12 +213,15 @@ state: its source `gpu` or `frame`, the last load, steps down and up).
 A project lists its own quality levels in **Project
 Settings → Quality → Quality levels** (`environment.qualityLevels`, lowest
 first; *Customize levels* starts from the engine's three); a project that
-lists none has the engine's low (no bloom, ambient occlusion, depth of field,
-anti-aliasing or MSAA), medium (no ambient occlusion or depth of field) and
-high (the look as authored). *Starting level* is
-`environment.quality` (absent: the highest). Each level has an `id` (what a
-player's setting and game control name), a `name`, and changes only what it
-sets:
+lists none has the engine's three, one per [lighting tier](#lighting-tiers):
+low (no bloom, ambient occlusion, depth of field, anti-aliasing or MSAA),
+medium (no ambient occlusion or depth of field; drawn at render scale 0.667,
+a 1080p screen from 1280 × 720, with dynamic resolution — both only where the
+project sets no `render_scale` or `dynamic_resolution` of its own) and high
+(the look as authored, at the project's render scale). *Starting level* is
+`environment.quality` (absent: the device's level, below). Each level has an
+`id` (what a player's setting and game control name), a `name`, and changes
+only what it sets:
 
 - `post` — per effect (`bloom`, `ssao`, `dof`) the fields it lays over each
   scene's look *where the look has the effect on* (a smaller AO radius, a
@@ -234,22 +237,52 @@ sets:
   to it), `localLights` (0–16 point and spot lights drawn at once),
   `shadowedLights` (0–16 point and spot lights drawing their shadow at once;
   absent: every one that casts — see [Interior lighting best practice](architecture.md#interior-lighting-best-practice-shadow-rules)),
-  `ambientOcclusion` (off/ssao/gtao), `lodBias` (0.25–4, over `lod_bias`),
-  `dynamicResolution` and `surfaceCacheMiB` (16–2048: the memory the surface
-  cache, the static surfaces' light, holds around the view; absent 64; the
-  engine's low, medium and high hold 32, 64 and 128) and `surfaceLightMs` (0–8:
-  the GPU time a frame may spend lighting what changed in the surface cache,
-  nearest the camera first; a settled scene spends none; 0 draws saved light
-  only, as WebGL 2 always does; absent 1.5; the engine's low, medium and high
-  take 0, 1.5 and 3) and `contactShadows` (screen-space contact shadows on the
-  sun's light with the look's post effects; absent on; the
-  engine's low draws none — see [Contact shadows](lighting.md#contact-shadows)) and `reflections`
-  (off/medium/high: glossy surfaces' reflections on WebGPU with the look's post effects; absent
-  medium; the engine's low, medium and high take off, medium and high — see
-  [Reflections](lighting.md#reflections)). What a level leaves out is the project's setting; a
+  `ambientOcclusion` (off/ssao/gtao), `lodBias` (0.25–4, over `lod_bias`) and
+  `dynamicResolution`. What a level leaves out is the project's setting; a
   value the player set in a settings field bound to `renderScale`,
   `ambientOcclusion` or `dynamicResolution` lays over the level, and the page flags (`?ao=`,
   `?renderScale=`, `?dynamicResolution=`) over everything.
+- `lighting` — the level's lighting tier (`low`, `medium`, `high`; absent
+  medium) and the four settings it sets, each of which the level may name
+  itself: `surfaceCacheMiB` (16–2048: the memory the surface cache, the
+  static surfaces' light, holds around the view), `surfaceLightMs` (0–8: the
+  GPU time a frame may spend lighting what changed in the surface cache,
+  nearest the camera first; a settled scene spends none; 0 draws saved light
+  only, as WebGL 2 always does), `contactShadows` (screen-space contact
+  shadows on the sun's light with the look's post effects — see [Contact
+  shadows](lighting.md#contact-shadows)) and `reflections` (off/medium/high:
+  glossy surfaces' reflections on WebGPU with the look's post effects — see
+  [Reflections](lighting.md#reflections)).
+
+### Lighting tiers
+
+One table in the engine (`LIGHTING_TIER_SETTINGS`) says what each tier sets:
+
+| Tier | Surface cache | Live light a frame | Contact shadows | Reflections | Rays a texel | Finest texels reach |
+|---|---|---|---|---|---|---|
+| low | 32 MiB | 0 (saved light and probes, the sun's shadow map) | off | off | — | — |
+| medium | 64 MiB | 1.5 ms | on | medium (screen-space, traced where the screen has no answer, probes on rough surfaces) | the engine's counts | 12 m |
+| high | 128 MiB | 3 ms | on | high (more steps, more traced rays) | twice | 24 m |
+
+The device picks the starting level when neither the player, the game
+(game control, `environment.quality`) nor the page names one: once its
+renderer is up it takes the device's tier and starts at the highest level
+whose tier is at most that (none: the lowest level that names a tier). The
+rule, written to the console once (`[thirdlight] quality: …`):
+
+- WebGL 2 or a software adapter (SwiftShader, llvmpipe): low — no compute,
+  so the light is the saved light whatever the level.
+- WebGPU on a phone or tablet GPU (Qualcomm, ARM, Imagination, Samsung): low.
+- WebGPU on an integrated GPU (Intel's integrated parts, Apple, an AMD APU
+  that names itself one): medium.
+- WebGPU on a discrete GPU (NVIDIA, Intel Arc, AMD Radeon RX or Pro): high.
+- Anything the adapter does not tell apart: medium.
+
+A project whose own levels name no tier is not chosen for: it starts at its
+highest, as before tiers. Scripts read the tier and whether the light has
+settled in `ctx.lighting` (`tier`, `live`, `settled`, and `justSettled`, true
+in the one step after it settled — a loading screen can lift then); UI
+documents read `$flow.stats.lighting`.
 
 The player's quality setting picks the level: a settings field bound with
 `engine: 'quality'` (an enum of the project's level ids — the project check
@@ -261,11 +294,11 @@ level}` or `POST …/play/<id>/control {"command":"setQuality","level":"low"}`
 a level the project lacks is refused) — to compare levels in one session.
 Scripts read the level drawn in `ctx.stats.quality` (UI documents:
 `$flow.stats.quality`). Play diagnostics report `renderer.quality` (`level`,
-`levels`, `source` page/chosen/project/highest, `pixelRatioCap`,
+`levels`, `source` page/chosen/project/device/highest, `tier`, `device` (the device's tier, its GPU class and the rule's line), `pixelRatioCap`,
 `shadowMapSize`, `localLights`, `shadowedLights`, `lodBias`, `keyShadowMapSize`: the key light's
 map as drawn) beside `renderer.render` and `renderer.environment` (passes,
 samples). The page flag `?quality=<id>` pins a level (the perf harness's
-`--switches quality=low`). The Scene view draws the starting level at full
-resolution. A level change rebuilds the post stack only when the passes
+`--switches quality=low`). The Scene view draws the starting level (the
+device's when the project names none) at full resolution. A level change rebuilds the post stack only when the passes
 change and frees the old one; shadow-casting lights are made again at the new
 size.

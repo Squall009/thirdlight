@@ -26,7 +26,7 @@ the window says so.
   settle in the cache. Terrain and static boxes are not saved: terrain keeps
   its per-pixel lights and the saved probes over it, as before.
 - **How fine** — every tile at one level, the finest whose pages fit 32 MiB
-  (`SAVED_SURFACE_CACHE_MIB`, the low quality level's whole cache budget):
+  (`SAVED_SURFACE_CACHE_MIB`, the low lighting tier's whole cache budget):
   10 cm texels for a small scene, coarser for a large one, so a low-tier
   device holds a scene's saved light whole.
 - **Files** — the saved file (the cache's tiles and pages as RGBA half
@@ -37,7 +37,7 @@ the window says so.
   (`lighting[sceneId].surface`: `files`, `level`, `tiles`, `pages`,
   `probes`, `bytes`, `millis` — the run's time — and the hashes).
 - **Who draws it** — WebGL 2, a quality level without a live budget
-  (`surfaceLightMs` 0, the engine's low) and a live light still starting
+  (`surfaceLightMs` 0: the low [lighting tier](debugging.md#lighting-tiers)) and a live light still starting
   draw the saved light: each tile where the bake put it (a tile whose
   geometry changed since keeps its per-pixel lights), read by the same
   lookup and material variants as the live light, its light added to the
@@ -190,8 +190,9 @@ rather than one point. Add one with **GameObject → Light → Area light** (a
 
 ## The surface cache's live light
 
-On WebGPU at medium and high quality (`surfaceLightMs` above 0 in the
-quality level), the static surfaces' light is computed on the GPU into the
+On WebGPU at the medium and high [lighting tiers](debugging.md#lighting-tiers)
+(`surfaceLightMs` above 0 in the quality level; high also casts twice the
+rays a texel and keeps the finest texels twice as far out), the static surfaces' light is computed on the GPU into the
 surface cache, a little each frame within the level's GPU time, and again
 only where something changed:
 
@@ -287,8 +288,8 @@ as ambient occlusion does). They fade out from 25 to 40 m away, where the
 map's own texels are as fine. Only the sun's direct light darkens; lamps,
 sky and bounce do not.
 
-- **Setting** — the quality level's `contactShadows` (absent: on; the
-  engine's low level has none, medium and high have them). They are drawn
+- **Setting** — the quality level's `contactShadows` (absent: its lighting
+  tier's — low none, medium and high on). They are drawn
   with the look's post effects: a look with any post effect or
   anti-aliasing has them, a look with none has none (a render scale,
   occlusion culling or MSAA off change nothing). Perspective cameras only; a
@@ -325,8 +326,8 @@ reflect what is around them, on WebGPU.
   surfaces only have that. Fresnel, metalness and ambient occlusion apply as
   to any reflection.
 - **Setting** — the quality level's `reflections`: `off`, `medium` or
-  `high` (absent: medium; the engine's low, medium and high take off,
-  medium and high; high marches more steps and casts more traced rays). As
+  `high` (absent: its lighting tier's — low off, medium medium, high high;
+  high marches more steps and casts more traced rays). As
   contact shadows, they are drawn with the look's post effects; a look with
   none has none. Perspective cameras only.
 - **What it is not** — WebGL 2 keeps the environment and probes (no
