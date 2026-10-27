@@ -81,7 +81,9 @@ function share(img: Image, test: (r: number, g: number, b: number) => boolean): 
   }
   return n / all;
 }
-const green = (r: number, g: number, b: number): boolean => g > 100 && g > 1.8 * r && g > 1.8 * b;
+// Green-dominant, as the default AgX tone mapping draws it: the unlit wall's (40, 210, 60) comes out about (114, 183, 98)
+// and a lit green floor under the sky as much washed, so a stricter ratio passes only on a dim lit surface, not on B itself.
+const green = (r: number, g: number, b: number): boolean => g > 100 && g > 1.4 * r && g > 1.4 * b;
 
 interface SceneLoad {
   sceneId: string;
