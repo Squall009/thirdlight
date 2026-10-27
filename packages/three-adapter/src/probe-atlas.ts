@@ -14,7 +14,8 @@
 import * as THREE from 'three/webgpu';
 import type { ProbeGridRecord } from '@thirdlight/runtime';
 
-import { buildProbeIndex, EMPTY_PROBE_INDEX, PROBE_INDEX_WIDTH, type ProbeIndex } from './probe-index';
+import { EMPTY_BRICK_MAP, buildBrickMap } from './probe-bricks';
+import { buildProbeIndex, EMPTY_PROBE_INDEX, PROBE_INDEX_WIDTH, withBrickMap, type ProbeIndexWithBricks } from './probe-index';
 import { ProbeAtlasLayout, probeFade, probeTableRow, TABLE_ROW_FLOATS, TABLE_ROWS_PER_LINE, TABLE_TEXELS, type PackedProbeTile, type ProbePlace } from './probe-pack';
 
 /** Largest edge of the packed probe texture (texels): WebGPU's default 3D texture limit (WebGL 2 desktop GPUs give at least as much). */
@@ -29,6 +30,8 @@ export interface ProbeTileForGpu {
   readonly packed: PackedProbeTile;
   /** Each probe's validity (PROBE_VALID, PROBE_MOVED or PROBE_FILLED), for the debug view. */
   readonly validity: Float32Array;
+  /** A brick of live probes (`probe-bricks.ts`): found through the brick map, not the index. */
+  readonly brick?: boolean;
 }
 
 /** A tile on the GPU: its table row and its place in the texture. */
@@ -39,6 +42,7 @@ export interface ResidentProbeTile {
   readonly validity: Float32Array;
   readonly row: number;
   readonly at: ProbePlace;
+  readonly brick: boolean;
 }
 
 /** What a sync uploads with (three's WebGPU renderer, on either backend). */
@@ -121,12 +125,14 @@ export class ProbeTileStore {
   atlas: THREE.Data3DTexture = placeholderAtlas();
   table: THREE.DataTexture = floatTexture(new Float32Array(TABLE_ROWS_PER_LINE * TABLE_ROW_FLOATS), TABLE_ROWS_PER_LINE * TABLE_TEXELS, 1);
   index: THREE.DataTexture = floatTexture(EMPTY_PROBE_INDEX.data, 1, 1);
-  indexOf: ProbeIndex = EMPTY_PROBE_INDEX;
+  indexOf: ProbeIndexWithBricks = withBrickMap(EMPTY_PROBE_INDEX, EMPTY_BRICK_MAP);
   /** The table as the texture holds it (row × TABLE_ROW_FLOATS) and per row its box, for the CPU's picks. */
   tableData: Float32Array = this.table.image.data as Float32Array;
   boxes: Float32Array = new Float32Array(TABLE_ROWS_PER_LINE * 6);
   /** The resident tiles in table order (scene, then the record's order). */
   tiles: readonly ResidentProbeTile[] = [];
+  /** Table rows of live probes' bricks. */
+  brickRows: ReadonlySet<number> = new Set();
   unplaced = 0;
   /** Counts the changes of the resident set (tiles, places or textures): the light rebinds lit objects when it changes. */
   revision = 0;
@@ -201,7 +207,7 @@ export class ProbeTileStore {
       uploaded++;
       uploadedBytes += t.packed.data.byteLength;
       const row = this.freeRows.length > 0 ? this.freeRows.pop()! : this.rows++;
-      this.resident.set(t.key, { key: t.key, sceneId: t.sceneId, grid: t.grid, validity: t.validity, row, at });
+      this.resident.set(t.key, { key: t.key, sceneId: t.sceneId, grid: t.grid, validity: t.validity, row, at, brick: t.brick === true });
       changed = true;
     }
     this.unplaced = unplaced;
@@ -272,7 +278,10 @@ export class ProbeTileStore {
     this.tiles = ranked;
     this.table.needsUpdate = true;
     renderer.initTexture(this.table);
-    const index = buildProbeIndex(ranked.map((t) => ({ row: t.row, min: t.grid.min, max: t.grid.max, fade: probeFade(t.grid) })));
+    const tiles = buildProbeIndex(ranked.filter((t) => !t.brick).map((t) => ({ row: t.row, min: t.grid.min, max: t.grid.max, fade: probeFade(t.grid) })));
+    const bricks = ranked.filter((t) => t.brick);
+    this.brickRows = new Set(bricks.map((t) => t.row));
+    const index = withBrickMap(tiles, buildBrickMap(bricks.map((t) => ({ min: t.grid.min, side: t.grid.max[0] - t.grid.min[0], id: t.row }))));
     this.indexOf = index;
     if (this.index.image.width !== PROBE_INDEX_WIDTH || this.index.image.height < index.height) {
       const height = 2 ** Math.ceil(Math.log2(index.height));

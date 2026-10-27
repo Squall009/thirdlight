@@ -57,7 +57,7 @@ export interface RingTexel {
 /** Rings a terrain needs so that its farthest point from anywhere on it is inside the last one. */
 export function terrainRingsNeeded(src: TerrainRingSource): number {
   const reach = Math.hypot((src.max[0] ?? 0) - (src.min[0] ?? 0), (src.max[2] ?? 0) - (src.min[2] ?? 0));
-  for (let k = 0; k < TERRAIN_RINGS_MAX; k += 1) if (ringHalf(k) >= reach) return k + 1;
+  for (let k = 0; k < TERRAIN_RINGS_MAX; k += 1) if (terrainRingHalf(k) >= reach) return k + 1;
   return TERRAIN_RINGS_MAX;
 }
 
@@ -66,7 +66,7 @@ function texel(k: number): number {
 }
 
 /** Half a ring's side less the step it may lag the eye by and a texel of border: what of it is always valid. */
-function ringHalf(k: number): number {
+export function terrainRingHalf(k: number): number {
   return texel(k) * (TERRAIN_RING_TEXELS / 2 - TERRAIN_RING_STEP - 1);
 }
 
@@ -98,7 +98,7 @@ export class TerrainRings {
     for (let k = 0; k < this.rings; k += 1) {
       const c = this.centres[k];
       if (c === undefined || c === null) return null;
-      const half = ringHalf(k);
+      const half = terrainRingHalf(k);
       if (Math.abs(x - c[0]) > half || Math.abs(z - c[1]) > half) continue;
       const t = texel(k);
       const wrap = (v: number): number => ((Math.floor(v / t) % TERRAIN_RING_TEXELS) + TERRAIN_RING_TEXELS) % TERRAIN_RING_TEXELS;
@@ -149,7 +149,7 @@ export class TerrainRings {
     for (let k = 0; k < this.rings; k += 1) {
       const c = this.centres[k];
       if (c === undefined || c === null) break;
-      const h = ringHalf(k);
+      const h = terrainRingHalf(k);
       out.push([c[0] - h, c[1] - h, c[0] + h, c[1] + h]);
     }
     return out;

@@ -7,7 +7,7 @@
  * Pure (no three.js, no device).
  */
 import { NO_ROOM, ROOM_EXIT_MARGIN, closedPortalCpu, roomExitCpu } from './surface-rooms';
-import { BOUNCE_ALBEDO, PROBE_AXIS_RAYS, PROBE_BLEND_MIN, PROBE_FLOATS, PROBE_HIT_LIFT, PROBE_RAY_SPACINGS, PROBE_RAYS, PROBE_SH_RAYS, SH_Y0, SH_Y1, probesIrradianceAt, shIrradiance, type LiveProbes } from './surface-probes';
+import { BOUNCE_ALBEDO, PROBE_AXIS_RAYS, PROBE_BLEND_MIN, PROBE_FLOATS, PROBE_HIT_LIFT, PROBE_MOVED_AT, PROBE_RAYS, PROBE_SH_RAYS, SH_Y0, SH_Y1, probesIrradianceAt, shIrradiance, type LiveProbes } from './surface-probes';
 import { EXACT_TRACE, type TraceHit } from './tracer-cpu-math';
 import { sceneView, traceRayCpu } from './tracer-cpu';
 import { TRACE_MISS, TRACE_UNFINISHED, type PackedTraceScene } from './tracer-scene';
@@ -77,7 +77,6 @@ export function probeUpdateCpu(input: ProbeUpdateInput): Float32Array {
   const { probes, slots, sky, rooms, seed } = input;
   const view = sceneView(input.scene);
   const state = probes.state;
-  const rayMax = PROBE_RAY_SPACINGS * probes.spacing;
   const out = new Float32Array(slots.length * PROBE_FLOATS);
   const e: number[] = [0, 0, 0];
   for (let s = 0; s < slots.length; s += 1) {
@@ -90,7 +89,7 @@ export function probeUpdateCpu(input: ProbeUpdateInput): Float32Array {
     const along = [0, 0, 0, 0, 0, 0];
     for (let k = 0; k < PROBE_RAYS; k += 1) {
       const d = probeRayCpu(probe, k, seed);
-      let tmax = rayMax;
+      let tmax = probes.reach[probe]!;
       let held = false;
       if (rooms !== null) {
         if (room !== NO_ROOM) {
@@ -123,7 +122,7 @@ export function probeUpdateCpu(input: ProbeUpdateInput): Float32Array {
         } else {
           const p: V3 = [o[0] + d[0] * h.t, o[1] + d[1] * h.t, o[2] + d[2] * h.t];
           const dl = input.direct(p, n, h);
-          const ind = probesIrradianceAt(probes.grids, state, [p[0] + n[0] * PROBE_HIT_LIFT, p[1] + n[1] * PROBE_HIT_LIFT, p[2] + n[2] * PROBE_HIT_LIFT], n, [0, 0, 0], rooms);
+          const ind = probesIrradianceAt(probes, [p[0] + n[0] * PROBE_HIT_LIFT, p[1] + n[1] * PROBE_HIT_LIFT, p[2] + n[2] * PROBE_HIT_LIFT], n, [0, 0, 0], rooms);
           const al = input.albedo?.(p, n, h) ?? null;
           L = [0, 1, 2].map((q) => ((al?.[q] ?? BOUNCE_ALBEDO) / Math.PI) * (dl[q]! + ind[q]!)) as V3;
         }
@@ -144,6 +143,7 @@ export function probeUpdateCpu(input: ProbeUpdateInput): Float32Array {
     for (let q = 0; q < 12; q += 1) out[at + q] = state[base + q]! + (c[q]! * w - state[base + q]!) * a;
     out[at + 12] = back / PROBE_SH_RAYS;
     out[at + 13] = updates + 1;
+    out[at + PROBE_MOVED_AT] = state[base + PROBE_MOVED_AT]!;
     out.set(along, at + 16);
   }
   return out;

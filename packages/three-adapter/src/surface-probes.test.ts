@@ -18,7 +18,9 @@ import { describe, expect, it } from 'vitest';
 import { BlockGrid, buildRoomGraph, type BlockType } from '@thirdlight/runtime';
 
 import { probeUpdateCpu } from './surface-probe-cpu';
-import { BOUNCE_ALBEDO, LiveProbes, PROBE_FLOATS, selectSmallest, shIrradiance } from './surface-probes';
+import { ProbeMarks } from './probe-bricks';
+import { probeSolid } from './probe-geometry';
+import { BOUNCE_ALBEDO, LiveProbes, PROBE_FLOATS, PROBE_MIN_COUNT, selectSmallest, shIrradiance, type ProbePlacement } from './surface-probes';
 import { SurfaceRooms } from './surface-rooms';
 import { packTraceScene } from './tracer-scene';
 import { opaqueByBlockTypes, traceBlockLayerOf } from './tracer-sources';
@@ -27,7 +29,7 @@ type V3 = [number, number, number];
 const ROCK = opaqueByBlockTypes([{ blockId: 'rock', shape: 'full' } as BlockType]);
 
 /** A closed block room (inside x, z 1..7, y 1..4) on a ground slab, a 2 m doorway gap in its +z wall (where a door piece stands, which the tracer does not stop). */
-function room(doorOpen: boolean, gap = true): { scene: ReturnType<typeof packTraceScene>; rooms: SurfaceRooms } {
+function room(doorOpen: boolean, gap = true): { scene: ReturnType<typeof packTraceScene>; rooms: SurfaceRooms; solid: (p: readonly number[]) => boolean } {
   const grid = new BlockGrid({ cellSize: [1, 1, 1], bounds: { min: [-10, 0, -10], max: [20, 6, 20] } });
   for (let z = -10; z < 20; z += 1) for (let x = -10; x < 20; x += 1) grid.set(x, 0, z, { block: 'rock' });
   for (let y = 1; y <= 4; y += 1) {
@@ -39,7 +41,19 @@ function room(doorOpen: boolean, gap = true): { scene: ReturnType<typeof packTra
   }
   for (let z = 0; z <= 7; z += 1) for (let x = 0; x <= 7; x += 1) grid.set(x, 4, z, { block: 'rock' });
   const graph = buildRoomGraph([{ id: 'house', origin: [0, 0, 0], rooms: [{ id: 'r', outline: 'r', storey: 0, points: [[1, 1], [7, 1], [7, 7], [1, 7]], floor: 1, top: 4, covered: true, holes: [], openings: [{ id: 'door', from: [3, 7], to: [5, 7], bottom: 1, top: 3 }] }] }]);
-  return { scene: packTraceScene({ blocks: [traceBlockLayerOf(grid, [0, 0, 0], ROCK)] }), rooms: new SurfaceRooms({ graph, open: () => doorOpen, version: 0 }) };
+  return { scene: packTraceScene({ blocks: [traceBlockLayerOf(grid, [0, 0, 0], ROCK)] }), rooms: new SurfaceRooms({ graph, open: () => doorOpen, version: 0 }), solid: probeSolid({ layers: [{ grid, origin: [0, 0, 0], opaque: ROCK }] }, 6) };
+}
+
+/** Probes outside rooms over a box: bricks of the finest level (nothing is solid unless `solid` says so). */
+function over(min: V3, max: V3, solid: (p: readonly number[]) => boolean = () => false): ProbePlacement {
+  return {
+    key: JSON.stringify([min, max]),
+    geometry: () => {
+      const marks = new ProbeMarks(2);
+      marks.mark(min, max, 0);
+      return { marks, solid };
+    },
+  };
 }
 
 /** Update every probe `n` times; returns the mean irradiance (red, facing up) of the probes. */
@@ -87,7 +101,7 @@ describe('surface cache: live probes', () => {
 
   it('the sky: a probe in the open sees it whole', () => {
     const probes = new LiveProbes(2, 0.5);
-    probes.place({ min: [0, 0, 0], max: [4, 2, 4] }, null);
+    probes.place(over([0, 0, 0], [4, 2, 4]), null);
     // A uniform sky of radiance 1: band 0 holds 1 × √(4π) … as SH, c₀ = L · Y₀ · 4π.
     const sky = new Float32Array(12);
     sky.fill(0.282095 * 4 * Math.PI, 0, 3);
@@ -114,10 +128,10 @@ describe('surface cache: live probes', () => {
       }
     }
     // Probes in the yard by the shut door, at the doorway's height, facing it: they see the lit floor through it only without rooms.
-    const { scene, rooms } = room(false);
+    const { scene, rooms, solid } = room(false);
     const byDoor = (rs: Uint32Array | null): number => {
       const outside = new LiveProbes(2, 0.5);
-      outside.place({ min: [2, 1, 8], max: [6, 3, 12] }, rooms);
+      outside.place(over([2, 1, 8], [6, 3, 12], solid), rooms);
       run(outside, 3, scene, rs, inside);
       const e = [0, 0, 0];
       let lit = 0;
@@ -147,7 +161,7 @@ describe('surface cache: live probes', () => {
 
   it('in an open scene the nearest stale probes are picked from one ordering for a few updates, and ordered again when the eye moves', () => {
     const probes = new LiveProbes(2, 0.5);
-    probes.place({ min: [0, 0, 0], max: [160, 8, 160] }, null);
+    probes.place(over([0, 0, 0], [160, 8, 160]), null);
     expect(probes.count).toBeGreaterThan(20000);
     const P = probes.positions;
     const nearest = (eye: V3, k: number): number[] => Array.from({ length: probes.count }, (_, i) => i)
@@ -163,6 +177,21 @@ describe('surface cache: live probes', () => {
     const moved: V3 = [120.4, 2.1, 30.2];
     const picked = probes.plan(moved, 6);
     expect(dist(moved, picked)).toEqual(nearest(moved, picked.length));
+  });
+
+  it('an update takes as many probes as the budget holds, and never fewer than the tracer latency makes worth it', () => {
+    const settle = (cost: (n: number) => number, budget: number): number => {
+      const probes = new LiveProbes(2, budget);
+      for (let k = 0; k < 20; k += 1) {
+        const n = probes.diagnostics().perUpdate;
+        probes.report(cost(n), n);
+      }
+      return probes.diagnostics().perUpdate;
+    };
+    // Work-bound: 1 µs a probe within 1 ms.
+    expect(settle((n) => n * 0.001, 1)).toBe(960);
+    // Latency-bound (the village's brick rays): 3 ms whatever the count.
+    expect(settle((n) => 3 + n * 0.0004, 0.5)).toBe(PROBE_MIN_COUNT);
   });
 
   it('stale and settled: marks make probes stale, updates that no longer move them settle them', () => {

@@ -14,8 +14,12 @@
  *
  * The index is one float texture, `PROBE_INDEX_WIDTH` texels a line: a
  * header texel per cell (first entry, count), then the entries (a table row
- * each).
+ * each). Live probes' bricks (`probe-bricks.ts`) are not in it: they tile
+ * space without overlapping, so their own map follows it in the texture
+ * (`withBrickMap`) and finds a point's brick in two reads.
  */
+import { brickMapAt, type BrickMap } from './probe-bricks';
+
 
 /** Texels a line of the index texture. */
 export const PROBE_INDEX_WIDTH = 1024;
@@ -96,35 +100,69 @@ export function buildProbeIndex(tiles: readonly ProbeIndexTile[]): ProbeIndex {
   return { origin: [lo[0]!, lo[1]!, lo[2]!], invCell: [1 / cell[0]!, 1 / cell[1]!, 1 / cell[2]!], dims, data, height, cells, entries };
 }
 
+/** An index with a brick map after it in the same texels: where the map's cells start (a texel each: its first entry's texel, its table's side), then its entries (a table row each, -1: none). */
+export interface ProbeIndexWithBricks extends ProbeIndex {
+  readonly bricks: BrickMap;
+  readonly brickCellsAt: number;
+}
+
+/** `index` with `bricks` (named by table row) after its texels. */
+export function withBrickMap(index: ProbeIndex, bricks: BrickMap): ProbeIndexWithBricks {
+  const cellsAt = index.cells + index.entries;
+  const cells = bricks.cells.length / 2;
+  const used = cellsAt + cells + bricks.entries.length;
+  const height = Math.max(index.height, Math.ceil(used / PROBE_INDEX_WIDTH));
+  const data = new Float32Array(height * PROBE_INDEX_WIDTH * 4);
+  data.set(index.data.subarray(0, Math.min(index.data.length, cellsAt * 4)));
+  const entriesAt = cellsAt + cells;
+  for (let c = 0; c < cells; c++) {
+    data[(cellsAt + c) * 4] = entriesAt + bricks.cells[c * 2]!;
+    data[(cellsAt + c) * 4 + 1] = bricks.cells[c * 2 + 1]!;
+  }
+  for (let e = 0; e < bricks.entries.length; e++) data[(entriesAt + e) * 4] = bricks.entries[e]!;
+  return { ...index, data, height, bricks, brickCellsAt: cellsAt };
+}
+
+/** How far (m) `point` lies outside table row `row`'s box (`boxes`: per row min.xyz, max.xyz). */
+function outside(boxes: Float32Array, row: number, point: { x: number; y: number; z: number }): number {
+  const o = row * 6;
+  const ox = Math.max(boxes[o]! - point.x, 0, point.x - boxes[o + 3]!);
+  const oy = Math.max(boxes[o + 1]! - point.y, 0, point.y - boxes[o + 4]!);
+  const oz = Math.max(boxes[o + 2]! - point.z, 0, point.z - boxes[o + 5]!);
+  return Math.hypot(ox, oy, oz);
+}
+
 /**
  * The table row of the tile holding `point` — the first of its cell's tiles
- * containing it, else the nearest of them — or -1 outside every tile's
- * reach. `boxes`: per row its box (min.xyz, max.xyz). The shader picks the
- * same way.
+ * containing it, else the nearest of them; where none holds it, the brick
+ * the map gives at the point held inside the map, if nearer — or -1 outside
+ * every tile's reach. `boxes`: per row its box (min.xyz, max.xyz). The
+ * shader picks the same way.
  */
-export function probeRowAt(index: ProbeIndex, boxes: Float32Array, point: { x: number; y: number; z: number }): number {
+export function probeRowAt(index: ProbeIndex & { readonly bricks?: BrickMap }, boxes: Float32Array, point: { x: number; y: number; z: number }): number {
   const [dx, dy, dz] = index.dims;
   const cx = Math.floor((point.x - index.origin[0]) * index.invCell[0]);
   const cy = Math.floor((point.y - index.origin[1]) * index.invCell[1]);
   const cz = Math.floor((point.z - index.origin[2]) * index.invCell[2]);
-  if (cx < 0 || cy < 0 || cz < 0 || cx >= dx || cy >= dy || cz >= dz) return -1;
-  const c = cx + dx * (cy + dy * cz);
-  const start = index.data[c * 4]!;
-  const count = index.data[c * 4 + 1]!;
   let best = -1;
   let bestOut = Infinity;
-  for (let i = 0; i < count; i++) {
-    const row = index.data[(start + i) * 4]!;
-    const o = row * 6;
-    const ox = Math.max(boxes[o]! - point.x, 0, point.x - boxes[o + 3]!);
-    const oy = Math.max(boxes[o + 1]! - point.y, 0, point.y - boxes[o + 4]!);
-    const oz = Math.max(boxes[o + 2]! - point.z, 0, point.z - boxes[o + 5]!);
-    const out = Math.hypot(ox, oy, oz);
-    if (out < bestOut) {
-      best = row;
-      bestOut = out;
-      if (out <= 0) break;
+  if (!(cx < 0 || cy < 0 || cz < 0 || cx >= dx || cy >= dy || cz >= dz)) {
+    const c = cx + dx * (cy + dy * cz);
+    const start = index.data[c * 4]!;
+    const count = index.data[c * 4 + 1]!;
+    for (let i = 0; i < count; i++) {
+      const row = index.data[(start + i) * 4]!;
+      const out = outside(boxes, row, point);
+      if (out < bestOut) {
+        best = row;
+        bestOut = out;
+        if (out <= 0) break;
+      }
     }
+  }
+  if (bestOut > 0 && index.bricks !== undefined) {
+    const row = brickMapAt(index.bricks, [point.x, point.y, point.z], Infinity);
+    if (row >= 0 && outside(boxes, row, point) < bestOut) best = row;
   }
   return best;
 }
