@@ -22,7 +22,8 @@ the window says so.
   and the probes (each room's grid and the bricks). The lights' modes decide what: a `baked` light's direct
   light and its bounce, a `mixed` light's bounce (its direct light stays per
   pixel, with its shadows), a `realtime` light nothing. The bake first lets
-  the baked and mixed lights light the cache and the probes until both
+  the baked and mixed lights light the cache, then starts the probes over
+  from it (none of the light they held live before is kept) until both
   settle, then holds the probes and lets only the baked lights' direct light
   settle in the cache. Terrain and static boxes are not saved: terrain keeps
   its per-pixel lights and the saved probes over it, as before.
@@ -218,7 +219,7 @@ only where something changed:
   steps, props, buildings), 6 m over flat ground, 18 m in the open above
   it, none far up in the sky; over terrain only near the eye (6 m within
   about 25 m, 18 m to about 100 m, moving with you). A probe that would
-  stand inside geometry is left out (one just under the ground is moved up
+  stand inside geometry is left out, a room's too (one just under the ground is moved up
   onto it), and a brick's probe standing in a room is left to the room's
   own grid. When the static scene changes (a block dug, a chunk streamed
   in) the probes are placed again within about a second, a little each

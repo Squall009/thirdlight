@@ -263,7 +263,8 @@ test('saved probes light every object in place of the flat ambient light: no lea
   await cmd('updateEntity', { entityId: yard, static: true });
   const mover = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'box', name: 'mover', box: { size: [0.8, 0.8, 0.8], material: { color: '#b0b0b0' } }, transform: { position: [-4, 0.4, 3] } })).createdId);
   // A room of generated architecture north of the yard's middle (the engine's starter room: walls 0.2 m thick, 3 m high,
-  // floor, ceiling, no opening): its probes a grid of its own, inside its walls.
+  // floor, ceiling, no opening): its probes a grid of its own, inside its walls. The canopy reaches 0.6 m into it through
+  // its south wall: the room's probes inside the slab are dropped, or they would read the yard's light beyond the wall.
   const archRoom = String((await cmd('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'arch room', transform: { position: [0, 0, 0] } }))['createdId']);
   await cmd('setComponent', { entityId: archRoom, component: 'architecture', value: { elements: [], outlines: [{ id: 'closed', preset: 'starter-room', path: { points: [[-2, 0, -9.6], [2, 0, -9.6], [2, 0, -6.4], [-2, 0, -6.4]], closed: true } }] } });
   // The sun comes from the north (behind the room's north wall, never onto the cube's front face).
@@ -361,7 +362,7 @@ test('saved probes light every object in place of the flat ambient light: no lea
   console.log(`[probe lighting] saved: ${saved.saved.tiles.length} cache tiles at level ${saved.saved.level}, ${saved.saved.probes.length} probe tiles (${rooms.length} the room's); the room's probes' SH DC (red × weight) max ${roomDc.toFixed(4)}, the yard bricks' ${yardDc.toFixed(3)}`);
   expect(yardDc).toBeGreaterThan(0.1);
   // Its walls, floor and ceiling hold the sun out (the ceiling collides with nothing, yet stops light).
-  expect(roomDc).toBeLessThan(yardDc * 0.05);
+  expect(roomDc).toBeLessThan(yardDc * 0.01);
 
   // The Scene view's lighting debug views (View menu) and pass times, drawn while on.
   const view = page.locator('canvas.tl-viewport');

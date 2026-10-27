@@ -8,8 +8,9 @@
  *   which all of them fit `SAVED_SURFACE_CACHE_MIB` (a low-tier device then
  *   holds the saved light whole), not by distance from the eye;
  * - the lights' modes decide what is saved (`savedLights`): first the
- *   `baked` and `mixed` lights light the cache and the probes settle on
- *   their bounce; then, the probes held, only the `baked` lights' direct
+ *   `baked` and `mixed` lights light the cache, then the probes start over
+ *   from it (`LiveProbes.restart`: none of the live light's past) and
+ *   settle on their bounce; then, the probes held, only the `baked` lights' direct
  *   light settles in the cache (a `mixed` light's direct light is drawn per
  *   pixel, a `realtime` light's is never saved);
  * - the budget is the most a frame may spend (`SURFACE_LIGHT_MS_MAX`).
@@ -103,6 +104,11 @@ export async function runSurfaceBake(h: SurfaceBakeHooks, o: SurfaceBakeOptions)
     host.cache.setBakeLevel(level);
     h.setPart('bounce');
     await frames(BAKE_SWITCH_FRAMES);
+    why = await until(() => host.relight.isSettled, 'lighting the surfaces…', 0.05);
+    if (why !== null) return { ok: false, message: why };
+    // The probes start over from the settled cache: what they blended in before (the live light's levels, lights
+    // and geometry since changed) would linger in the saved probes.
+    host.probes.restart();
     let steady = 0;
     let layout = -1;
     const settledSteadily = (): boolean => {
@@ -111,7 +117,7 @@ export async function runSurfaceBake(h: SurfaceBakeHooks, o: SurfaceBakeOptions)
       steady = ok ? steady + 1 : 0;
       return steady >= BAKE_STEADY_FRAMES;
     };
-    why = await until(settledSteadily, 'lighting the surfaces and the probes…', 0.1);
+    why = await until(settledSteadily, 'lighting the probes…', 0.1);
     if (why !== null) return { ok: false, message: why };
     // The probes hold the baked and mixed lights' bounce; the cache keeps only what is drawn as saved.
     host.probes.setBudget(0);

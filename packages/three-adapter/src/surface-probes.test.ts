@@ -12,18 +12,34 @@
  *   light once the door opens; a probe outside does not see a lit room
  *   through its shut door;
  * - stale and settled: marks make probes stale, updates that no longer
- *   move a probe settle it, and its tiles' walls come from its axis rays.
+ *   move a probe settle it, and its tiles' walls come from its axis rays;
+ *   restarted (as a bake starts them), probes keep none of the light they
+ *   blended in before, where marked ones keep some;
+ * - a closed generated room in a sunlit yard, a block slab reaching into
+ *   it through its wall: a real surface cache host lights its texels (the
+ *   light pass's twin), the probes read them where their rays hit, and the
+ *   room's probes stay dark whatever the rays' turns; its probes inside the
+ *   slab are dropped (their rays would start in the solid and read the
+ *   yard's probes beyond the wall).
  */
 import { describe, expect, it } from 'vitest';
-import { BlockGrid, buildRoomGraph, type BlockType } from '@thirdlight/runtime';
+import { BlockGrid, architectureStylesOf, buildRoomGraph, expandArchitecture, type ArchitectureComponent, type BlockType } from '@thirdlight/runtime';
 
 import { probeUpdateCpu } from './surface-probe-cpu';
+import type { CacheLight } from './surface-changes';
+import { SurfaceCacheHost } from './surface-cache-host';
+import { lightFrameCpu } from './surface-light-cpu';
+import { lightFrameOf } from './surface-light-frame';
+import { SHADOW_TRACE } from './surface-light-pass';
+import { texelWords } from './surface-resolve';
+import { patchTexelAddresses, tileTexelAddresses } from './surface-texels';
 import { ProbeMarks, type ProbeSolid } from './probe-bricks';
 import { probeSolid } from './probe-geometry';
 import { BOUNCE_ALBEDO, LiveProbes, PROBE_FLOATS, PROBE_MIN_COUNT, selectSmallest, shIrradiance, type ProbePlacement } from './surface-probes';
 import { SurfaceRooms } from './surface-rooms';
 import { packTraceScene } from './tracer-scene';
 import { opaqueByBlockTypes, traceBlockLayerOf } from './tracer-sources';
+import type { TraceHit } from './tracer-cpu-math';
 
 type V3 = [number, number, number];
 const ROCK = opaqueByBlockTypes([{ blockId: 'rock', shape: 'full' } as BlockType]);
@@ -226,4 +242,131 @@ describe('surface cache: live probes', () => {
     // Placing again over the same bounds keeps the probes.
     expect(probes.place(null, rooms)).toBe(false);
   });
+
+  it('restarted, a probe forgets the light it blended in: marked, a room that went dark keeps a tenth of its old light; restarted, none', () => {
+    const { scene, rooms } = room(false, false);
+    const lit = (restart: boolean): number => {
+      const probes = new LiveProbes(2, 0.5);
+      probes.place(null, rooms);
+      const all = Uint32Array.from({ length: probes.count }, (_, i) => i);
+      const before = run(probes, 20, scene, rooms.words, () => [3, 3, 3]);
+      const layout = probes.layout;
+      if (restart) probes.restart();
+      else probes.markBox(null, null);
+      // Restarted, the records go to the GPU again (as when the probes are placed again).
+      expect(probes.layout).toBe(restart ? layout + 1 : layout);
+      for (let u = 0; u < 60 && !probes.isSettled; u += 1) {
+        const slots = probes.plan([4, 2, 4], u);
+        if (slots.length > 0) probes.accept(slots, probeUpdateCpu({ probes, slots, sky: new Float32Array(12), rooms: rooms.words, seed: 100 + u, scene, direct: () => [0, 0, 0] }), true, u);
+      }
+      expect(probes.isSettled).toBe(true);
+      const e = [0, 0, 0];
+      let s = 0;
+      for (let i = 0; i < probes.count; i += 1) s += shIrradiance(probes.state, i * PROBE_FLOATS, [0, 1, 0], e)[0]!;
+      return s / probes.count / before;
+    };
+    expect(lit(false)).toBeGreaterThan(0.05);
+    expect(lit(true)).toBe(0);
+  });
 });
+
+/**
+ * A sunlit yard of 1 m blocks (ground top at y = 0) with a slab one cell thick at 1…2 m over x −8…0, z −7…1, and a
+ * starter room (walls on x ±2, z −9.6 and −6.4, 3 m high, a ceiling, no opening): the slab passes through the room's
+ * south wall into its south-west corner. Its texels lit by the sun through the CPU twin of the light pass, at `level`.
+ */
+function sunlitYardAndRoom(level: number): { host: SurfaceCacheHost; texels: Map<string, V3> } {
+  const outline = { id: 'closed', preset: 'starter-room', path: { points: [[-2, 0, -9.6], [2, 0, -9.6], [2, 0, -6.4], [-2, 0, -6.4]] as V3[], closed: true } };
+  const arch = expandArchitecture({ elements: [], outlines: [outline] } as ArchitectureComponent, [0, 0, 0], architectureStylesOf([]));
+  const grid = new BlockGrid({ cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [20, 6, 16] } });
+  for (const [x0, y0, z0, x1, y1, z1] of [[0, 0, 0, 20, 1, 16], [2, 2, 3, 10, 3, 11]] as const) {
+    for (let x = x0; x < x1; x += 1) for (let y = y0; y < y1; y += 1) for (let z = z0; z < z1; z += 1) grid.set(x, y, z, { block: 'rock' });
+  }
+  const graph = buildRoomGraph([{ id: 'arch', origin: [0, 0, 0], rooms: arch.rooms }]);
+  const host = new SurfaceCacheHost(
+    { layers: () => [{ id: 'yard', origin: [-10, -1, -10], grid, version: 1, chunks: [['0,0', 1], ['1,0', 1]], opaque: ROCK }], terrains: () => [], architecture: () => [{ id: 'arch', component: arch.component, origin: [0, 0, 0] }], models: () => [], bricks: () => null, rooms: () => ({ graph, open: () => false, version: 0 }) },
+    64 * 1024 * 1024,
+    1000,
+  );
+  const toSun: V3 = [-0.3, 1, -0.6];
+  const l = Math.hypot(...toSun);
+  const sun: CacheLight = { id: 'sun', kind: 'directional', on: true, position: [0, 0, 0], direction: toSun.map((v) => v / l) as V3, color: [2, 2, 2], range: 0, cone: 0, penumbra: 0, shadows: true };
+  host.setLights([sun]);
+  host.setLive(true);
+  const eye = [0, 2, 0];
+  let now = 0;
+  for (let i = 0; i < 400 && !(host.preparedTiles() !== null && host.diagnostics().tiles.offered > 0 && host.diagnostics().tiles.resident === host.diagnostics().tiles.offered); i += 1) host.update(eye, (now += 100));
+  host.cache.setBakeLevel(level);
+  const texels = new Map<string, V3>();
+  for (let f = 0; f < 3000; f += 1) {
+    host.update(eye, (now += 16));
+    const slices = host.slicesThisFrame();
+    if (slices.length === 0) {
+      if (host.relight.isSettled && f > 20) break;
+      continue;
+    }
+    const frame = lightFrameOf(host, [sun], null, host.rooms());
+    const e = lightFrameCpu(frame, packTraceScene(host.traceSource().source), f, SHADOW_TRACE);
+    const n = frame.slices.reduce((k, s) => k + s.texels, 0);
+    const addresses = new Uint32Array(n * 2);
+    let at = 0;
+    for (const s of slices) {
+      const src = host.texelsOf(s.unit.key);
+      if (src !== null) ('patch' in src ? patchTexelAddresses : tileTexelAddresses)(src as never, s.from, s.to, addresses, at * 2);
+      at += s.to - s.from;
+    }
+    for (let i = 0; i < n; i += 1) texels.set(`${addresses[i * 2]},${addresses[i * 2 + 1]}`, [e[i * 3]!, e[i * 3 + 1]!, e[i * 3 + 2]!]);
+  }
+  expect(host.relight.isSettled).toBe(true);
+  return { host, texels };
+}
+
+describe('surface cache: no outside light in a closed generated room', () => {
+  it("a slab through its wall: the room's probes stay dark at every cache level and rays' turns, its probes in the slab dropped", () => {
+    const sky = new Float32Array(12);
+    sky.fill(0.282095 * 4 * Math.PI, 0, 3);
+    for (const level of [0, 1]) {
+      for (const seed of [0, 1000, 77777]) {
+        const { host, texels } = sunlitYardAndRoom(level);
+        const probes = host.probes;
+        const rooms = host.rooms()!.words;
+        const scene = packTraceScene(host.traceSource().source);
+        const resolve = host.resolveScene().scene;
+        // A hit's direct light is its texel's, as the probe pass resolves it.
+        const direct = (_p: V3, _n: V3, hit: TraceHit): V3 => {
+          const w = texelWords(resolve.resolve(host.cache, hit), []);
+          return texels.get(`${w[0]},${w[1]}`) ?? [0, 0, 0];
+        };
+        let sawSun = 0;
+        for (let u = 0; u < 400 && !probes.isSettled; u += 1) {
+          const slots = probes.plan([0, 2, 0], u);
+          if (slots.length === 0) continue;
+          probes.accept(slots, probeUpdateCpu({ probes, slots, sky, rooms, seed: seed + u, scene, direct: (p, n, hit) => {
+            const v = direct(p, n, hit);
+            sawSun = Math.max(sawSun, v[0]);
+            return v;
+          } }), true, u);
+        }
+        expect(probes.isSettled).toBe(true);
+        expect(sawSun).toBeGreaterThan(0.5);
+        const roomEnd = probes.grids[probes.roomGrids]!.at;
+        let room = 0;
+        let yard = 0;
+        let dropped = 0;
+        for (let i = 0; i < probes.count; i += 1) {
+          const dc = probes.state[i * PROBE_FLOATS]!;
+          if (i < roomEnd) {
+            room = Math.max(room, dc);
+            const [x, y, z] = [probes.positions[i * 3]!, probes.positions[i * 3 + 1]!, probes.positions[i * 3 + 2]!];
+            if (x < 0 && z > -7 && y > 1 && y < 2) dropped += probes.state[i * PROBE_FLOATS + 13] === 0 ? 1 : 0;
+          } else yard = Math.max(yard, dc);
+        }
+        expect(yard).toBeGreaterThan(1);
+        expect(dropped).toBeGreaterThan(0);
+        // Without the slab's probes dropped the room held 7 % of the yard's light (the saved-probe check's bound is 5 %).
+        expect(room).toBeLessThan(yard * 0.002);
+      }
+    }
+  }, 120_000);
+});
+

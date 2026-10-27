@@ -13,7 +13,7 @@
  *   none). A brick's probe standing in a room is never lit (its room's grid
  *   holds that light): it would carry the room's light through the wall to
  *   the outside's points next to it. A brick's probe inside geometry is
- *   moved out or dropped (never lit, no weight).
+ *   moved out or dropped (never lit, no weight); a room grid's is dropped.
  * - **Light.** Each update casts `PROBE_SH_RAYS` rays (a spherical
  *   Fibonacci set, turned at random each time) and `PROBE_AXIS_RAYS` along
  *   the axes. A ray that hits a static surface reads its cache texel's
@@ -514,7 +514,9 @@ export class LiveProbes implements ProbeLookup {
       for (let iz = 0; iz < nz; iz += 1) for (let iy = 0; iy < ny; iy += 1) for (let ix = 0; ix < nx; ix += 1) {
         latticePoint(g, ix, iy, iz, p);
         const l = ix + iy * nx + iz * nx * ny;
-        setProbe(g.at + l, `${g.key}#${l}`, p, p, g.room, 0, false, false);
+        // A room's probe inside geometry (a slab through its wall, a pillar) is dropped as a brick's is: its rays start
+        // in the solid, and what they hit faces out of the room, where the probes read there are the outside's.
+        setProbe(g.at + l, `${g.key}#${l}`, p, p, g.room, 0, geometry?.solid.solid(p) === true, false);
       }
     }
     if (placed !== null) {
@@ -666,6 +668,24 @@ export class LiveProbes implements ProbeLookup {
       }
     }
     return n;
+  }
+
+  /**
+   * Every probe starts over, stale: its next update's light replaces what it
+   * held rather than being blended into it (at the least share a probe
+   * updated often keeps most of its past, so light it saw before a change
+   * lingers for many updates). The records go to the GPU again.
+   */
+  restart(): void {
+    for (let i = 0; i < this.count; i += 1) {
+      if (this.excluded[i] === 1) continue;
+      const at = i * PROBE_FLOATS;
+      this.state.fill(0, at, at + PROBE_UPDATES_AT + 1);
+      this.markProbe(i);
+      this.changed.add(i);
+    }
+    this.queue.plans = PLAN_AHEAD;
+    this.layout += 1;
   }
 
   /** The probes in a box are stale (null: all of them). */
