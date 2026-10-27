@@ -18,6 +18,15 @@
  *   {@link OWN_PREVIOUS_POSITION_KEY} and assigns `positionPrevious` in its
  *   own vertex stage (the offset at the last frame's clock).
  *
+ * The motion itself is this module's ({@link objectMotion}), not three's
+ * `velocity` node: three's multiplies the model, view and projection
+ * matrices together for every pixel, now and for the last frame (the village
+ * class's scene pass took 1.3 ms longer at 1080p on the Iris Xe). Here the
+ * camera's matrices are render-group uniforms set once a frame (unjittered:
+ * the temporal upscale's sub-pixel jitter is not motion), each object keeps
+ * its last world matrix, and both clip positions are worked out per vertex
+ * from the vertex stage's final places.
+ *
  * A blended draw (glass, particles, decals) writes no motion of its own: it
  * outputs the one value its blend leaves the target unchanged with, so the
  * surface behind it keeps its motion (Unreal's default for translucency). A
@@ -30,7 +39,7 @@ import * as TSLTyped from 'three/tsl';
 import type { N } from './effects-tsl';
 
 const TSL: N = TSLTyped;
-const { positionLocal, positionPrevious, renderGroup, subBuild, uniform, vec4 } = TSL;
+const { modelWorldMatrix, positionLocal, positionPrevious, renderGroup, subBuild, uniform, varying, vec4 } = TSL;
 
 /**
  * `material.userData[OWN_PREVIOUS_POSITION_KEY] = true`: the material's
@@ -44,6 +53,60 @@ export const MOTION_TARGET = 'velocity';
 
 /** Seconds between the last two frames drawn with motion vectors (one write a frame): what a moving particle's last place is worked out with. */
 export const motionFrameSeconds: N = uniform(1 / 60).setGroup(renderGroup);
+
+/** The camera's view-projection this frame and the last (unjittered; set once a frame by {@link setMotionCamera}). */
+const viewProjection: N = uniform(new THREE.Matrix4()).setGroup(renderGroup);
+const lastViewProjection: N = uniform(new THREE.Matrix4()).setGroup(renderGroup);
+let cameraSeen = false;
+
+/** Before a frame drawn with motion vectors: the camera's unjittered projection and view (the last frame's kept). */
+export function setMotionCamera(projection: THREE.Matrix4, viewInverse: THREE.Matrix4): void {
+  const now = viewProjection.value as THREE.Matrix4;
+  (lastViewProjection.value as THREE.Matrix4).copy(cameraSeen ? now : now.multiplyMatrices(projection, viewInverse));
+  now.multiplyMatrices(projection, viewInverse);
+  cameraSeen = true;
+}
+
+/** Each drawn object's world matrix as it was drawn on the last frame. */
+const lastWorld = new WeakMap<THREE.Object3D, THREE.Matrix4>();
+
+/**
+ * A draw's motion on screen (NDC, this frame's place minus the last's): the
+ * vertex now and as it was (its object's last matrix, its own last place),
+ * each through its frame's view-projection, per vertex.
+ */
+class ObjectMotionNode extends (THREE.TempNode as unknown as new (type: string) => { [k: string]: unknown; updateType: string }) {
+  static get type(): string {
+    return 'ObjectMotionNode';
+  }
+
+  /** The drawn object's last world matrix (the object's own uniform). */
+  readonly lastModel: N = uniform(new THREE.Matrix4());
+
+  constructor() {
+    super('vec2');
+    this.updateType = TSL.NodeUpdateType.OBJECT;
+  }
+
+  update({ object }: { object: THREE.Object3D }): void {
+    let last = lastWorld.get(object);
+    if (last === undefined) {
+      last = object.matrixWorld.clone();
+      lastWorld.set(object, last);
+    }
+    (this.lastModel.value as THREE.Matrix4).copy(last);
+    last.copy(object.matrixWorld);
+  }
+
+  setup(): N {
+    const now = varying(viewProjection.mul(modelWorldMatrix.mul(vec4(positionLocal, 1))));
+    const was = varying(lastViewProjection.mul(this.lastModel.mul(vec4(positionPrevious, 1))));
+    return now.xy.div(now.w).sub(was.xy.div(was.w));
+  }
+}
+
+/** The motion of the draw being built. */
+export const objectMotion: N = TSL.nodeObject(new ObjectMotionNode());
 
 /** Whether a build draws into a target holding motion vectors (three's own test: its MRT has `velocity`). */
 export function needsPreviousPlace(builder: unknown): boolean {
@@ -78,7 +141,7 @@ class MotionVectorNode extends (THREE.Node as unknown as new (type?: string) => 
   setup(builder: N): N {
     const m = builder.material as THREE.Material | null;
     if (m !== null && blendsOver(m)) return vec4(keepValueOf(m));
-    return vec4(TSL.velocity, 0, 1);
+    return vec4(objectMotion, 0, 1);
   }
 }
 

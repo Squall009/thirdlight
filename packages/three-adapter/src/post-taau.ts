@@ -37,7 +37,7 @@ import * as TSLTyped from 'three/tsl';
 import TAAUNode from 'three/examples/jsm/tsl/display/TAAUNode.js';
 
 import type { N } from './effects-tsl';
-import { motionFrameSeconds } from './motion-vectors';
+import { motionFrameSeconds, setMotionCamera } from './motion-vectors';
 
 const TSL: N = TSLTyped;
 const { Fn, If, abs, clamp, exp, float, ivec2, luminance, max, min, mix, select, texture, uniform, uv, vec2, vec3, vec4 } = TSL;
@@ -99,7 +99,6 @@ const Base = TAAUNode as unknown as new (beauty: N, depth: N, velocity: N, camer
   _historyRenderTarget: THREE.RenderTarget;
   _jitterOffset: N;
   _jitterIndex: number;
-  _originalProjectionMatrix: THREE.Matrix4;
   _textureNode: N;
   _needsPostProcessingSync: boolean;
   setViewOffset(w: number, h: number): void;
@@ -153,26 +152,25 @@ class TemporalUpscaleNode extends Base {
     this.sceneDepth = depth;
     this.movingMaterial = this._resolveMaterial;
     this.heldMaterial.name = 'TAAU.held';
-    // Motion is always worked out with the unjittered projection (three's node sets it only while it draws, and
-    // takes it away after: a program built outside its draw — a precompile — would bake the jittered one in).
-    this._originalProjectionMatrix.copy(camera.projectionMatrix);
-    TSL.velocity.setProjectionMatrix(this._originalProjectionMatrix);
   }
 
   override setViewOffset(w: number, h: number): void {
     // The camera before this frame's jitter (the last frame's was cleared): has it moved?
     const cam = this.camera as THREE.PerspectiveCamera;
+    // This frame's pose (three updates it inside its render, after this hook).
+    cam.updateMatrixWorld();
     cam.updateProjectionMatrix();
     const moved = !this.lastWorld.equals(cam.matrixWorld) || !this.lastProjection.equals(cam.projectionMatrix);
     this.lastWorld.copy(cam.matrixWorld);
     this.lastProjection.copy(cam.projectionMatrix);
+    setMotionCamera(cam.projectionMatrix, cam.matrixWorldInverse);
     this.still = moved ? 0 : this.still + 1;
     this.holding = this.still >= TAAU_HOLD_FRAMES;
     super.setViewOffset(w, h);
   }
 
   override clearViewOffset(): void {
-    // Three's clear, but the motion keeps the unjittered projection and, holding, the jitter stays where it is.
+    // Three's clear (the motion vectors are this engine's: `motion-vectors.ts`), but holding the jitter stays where it is.
     (this.camera as THREE.PerspectiveCamera).clearViewOffset();
     if (!this.holding) this._jitterIndex = (this._jitterIndex + 1) % JITTER_PHASES;
   }
@@ -340,7 +338,6 @@ class TemporalUpscaleNode extends Base {
   }
 
   override dispose(): void {
-    if ((TSL.velocity as { projectionMatrix?: unknown }).projectionMatrix === this._originalProjectionMatrix) TSL.velocity.setProjectionMatrix(null);
     this._resolveMaterial = this.movingMaterial;
     this.heldMaterial.dispose();
     this.previous.dispose();
