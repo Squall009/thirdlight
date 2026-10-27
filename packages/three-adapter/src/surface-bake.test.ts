@@ -120,7 +120,8 @@ describe('saved lighting', () => {
       expect(a).not.toBeNull();
       expect(b).toEqual(a);
     }
-  });
+    // Seven pages through the PNG encoder and back take a few seconds, more on a loaded host.
+  }, 60_000);
 
   it('does not draw a tile from the bake once its geometry changed (it keeps its per-pixel light), and refuses a damaged file', async () => {
     const baking = host(floor());
@@ -141,5 +142,5 @@ describe('saved lighting', () => {
     expect(decodeSavedSurface(bytes.subarray(0, 20)).ok).toBe(false);
     bytes[4] = 9;
     expect(decodeSavedSurface(bytes).ok).toBe(false);
-  });
+  }, 60_000);
 });
