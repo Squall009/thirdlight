@@ -123,6 +123,9 @@ export interface SavedLightDiagnostics {
   readonly error?: string;
 }
 
+/** A scene's bake as read once: its scene, time and files. */
+const loadKey = (sceneId: string, s: SurfaceBakeLike): string => `${sceneId}@${s.createdAt}@${s.files.join(',')}`;
+
 export class AdapterSavedLight {
   private bakes: Readonly<Record<string, { surface?: SurfaceBakeLike } | undefined>> = {};
   private followed: string[] = [];
@@ -164,9 +167,20 @@ export class AdapterSavedLight {
     this.followed = [...sceneIds];
   }
 
+  /** Whether a followed scene's bake is still being read (or not asked for yet). */
+  loading(): boolean {
+    for (const id of this.followed) {
+      const s = this.bakes[id]?.surface;
+      if (s === undefined) continue;
+      const l = this.loads.get(loadKey(id, s));
+      if (l === undefined || l === 'loading') return true;
+    }
+    return false;
+  }
+
   /** A scene's bake read from its files (once a bake). */
   private load(sceneId: string, s: SurfaceBakeLike): Loaded | 'loading' {
-    const key = `${sceneId}@${s.createdAt}@${s.files.join(',')}`;
+    const key = loadKey(sceneId, s);
     const had = this.loads.get(key);
     if (had !== undefined) return had;
     this.loads.set(key, 'loading');

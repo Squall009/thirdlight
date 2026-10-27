@@ -1,8 +1,51 @@
-# Types (PackedChannel to TimelineSlot)
+# Types (OCCLUSION_CULLING_MODES to TimelineEasing)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-occlusion-culling-modes"></a>
+### OCCLUSION_CULLING_MODES
+
+Declared in `packages/project-model/src/render-settings.ts`.
+
+```ts
+/**
+ * Occlusion culling: what solid things in front hide is not drawn. `on`
+ * culls with a depth pyramid on WebGPU (WebGL 2 has no culling path and
+ * draws everything); `auto` (and a project that does not set it) culls
+ * nothing for now: the depth pyramid's two-pass frame costs an open view more
+ * than it saves at the sizes measured; `off` draws everything in view.
+ * Culling draws the same picture as without it, so `on` changes cost, never
+ * the look.
+ */
+const OCCLUSION_CULLING_MODES: readonly ["off", "auto", "on"];
+```
+
+<a id="type-occlusion-culling"></a>
+### OcclusionCulling
+
+Declared in `packages/project-model/src/render-settings.ts`.
+
+```ts
+type OcclusionCulling = (typeof OCCLUSION_CULLING_MODES)[number];
+```
+
+<a id="type-owned-component"></a>
+### OwnedComponent
+
+Declared in `packages/commands/src/types.ts`.
+
+```ts
+/** Every `setComponent`-owned component (the base five plus the six v3 ones). */
+type OwnedComponent =
+  | 'box'
+  | 'camera'
+  | 'model'
+  | 'collider'
+  | 'controller'
+  | V3OwnedComponent;
+```
 
 <a id="type-packed-channel"></a>
 ### PackedChannel
@@ -559,13 +602,15 @@ interface QualityLevelConfig {
   dynamicResolution?: boolean;
   /** Occlusion culling at this level (absent: the project's `occlusion_culling`). */
   occlusionCulling?: OcclusionCulling;
-  /** 16–2048: the surface cache's memory budget in MiB (absent: `DEFAULT_SURFACE_CACHE_MIB`). */
+  /** The lighting tier (absent: `DEFAULT_LIGHTING_TIER`): sets the four settings below where the level leaves them out. */
+  lighting?: LightingTier;
+  /** 16–2048: the surface cache's memory budget in MiB (absent: the tier's). */
   surfaceCacheMiB?: number;
-  /** 0–8: the GPU time a frame may spend lighting stale surface-cache texels, ms (absent: `DEFAULT_SURFACE_LIGHT_MS`; 0: saved light only). */
+  /** 0–8: the GPU time a frame may spend lighting stale surface-cache texels, ms (absent: the tier's; 0: saved light only). */
   surfaceLightMs?: number;
-  /** Screen-space contact shadows on the sun's light (absent: `DEFAULT_CONTACT_SHADOWS`). */
+  /** Screen-space contact shadows on the sun's light (absent: the tier's). */
   contactShadows?: boolean;
-  /** Reflections on glossy surfaces (absent: `DEFAULT_REFLECTIONS`). */
+  /** Reflections on glossy surfaces (absent: the tier's). */
   reflections?: ReflectionQuality;
 }
 ```
@@ -1526,96 +1571,4 @@ Declared in `packages/project-model/src/timelines.ts`.
 
 ```ts
 type TimelineEasing = (typeof TIMELINE_EASINGS)[number];
-```
-
-<a id="type-timeline-key"></a>
-### TimelineKey
-
-Declared in `packages/project-model/src/timelines.ts`.
-
-```ts
-interface TimelineKey {
-  /** Seconds from the timeline's start (0 – duration). */
-  time: number;
-  /** A clip's length (seconds): effect, sfx. */
-  duration?: number;
-  easing?: TimelineEasing;
-  // camera
-  camera?: string;
-  release?: boolean;
-  blend?: 'cut' | 'linear' | 'eased';
-  blendTime?: number;
-  progress?: [number, number];
-  // transform
-  position?: [number, number, number];
-  rotation?: [number, number, number, number];
-  scale?: [number, number, number];
-  // animator / audio
-  kind?: 'set' | 'trigger' | 'play' | 'music' | 'release' | 'stinger' | 'sfx';
-  name?: string;
-  value?: TimelineValue | boolean;
-  fade?: number;
-  layer?: number;
-  asset?: string;
-  volume?: number;
-  loop?: boolean;
-  at?: string;
-  /** Stinger / sfx: how late (ms) it may still start when its file is not ready yet (absent: the engine's default). */
-  maxLateMs?: number;
-  // dialogue
-  dialogue?: string;
-  node?: string;
-  wait?: boolean;
-  // effect
-  effect?: string;
-  params?: Record<string, number | number[] | string>;
-  // activation
-  active?: boolean;
-  // materialSwap: slot (a model's material name, or "*") → materialId; null: the authored material again
-  materials?: Record<string, string | null>;
-  // signal
-  onSkip?: 'fire' | 'drop';
-  // fade
-  color?: string;
-  // wait
-  action?: string;
-  timeout?: number;
-  // environment
-  preset?: string;
-  // mode: the game mode; character: place | walk
-  mode?: string;
-  // character
-  /** Degrees about +Y (0 faces +Z, 90 faces +X): where a character faces once placed or arrived, or now. */
-  facing?: number;
-  /** A walk key: at the run speed. */
-  run?: boolean;
-  /** Switch the character's controller off (it stays where it is: no input, no gravity) or on. */
-  enabled?: boolean;
-}
-```
-
-<a id="type-timeline-marker"></a>
-### TimelineMarker
-
-Declared in `packages/project-model/src/timelines.ts`.
-
-```ts
-interface TimelineMarker {
-  name: string;
-  time: number;
-}
-```
-
-<a id="type-timeline-slot"></a>
-### TimelineSlot
-
-Declared in `packages/project-model/src/timelines.ts`.
-
-```ts
-interface TimelineSlot {
-  /** The name tracks use (`[A-Za-z_][A-Za-z0-9_]{0,31}`). */
-  name: string;
-  /** The default binding (an entity id); a play call may bind another. */
-  entity?: string;
-}
 ```

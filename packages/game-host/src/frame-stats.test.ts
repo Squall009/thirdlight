@@ -5,7 +5,9 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { createFrameStats, geometryBytesOf } from './frame-stats';
+import { engineStatsOf, type BehaviorStats, type BehaviorStatsLighting } from '@thirdlight/runtime';
+
+import { createFrameStats, createHostStats, geometryBytesOf } from './frame-stats';
 import { statsOverlayLines, statsOverlayModeOf } from './stats-overlay';
 
 const sources = (gpu: { ms: number; frames: number; worst: number } | null) => ({
@@ -50,6 +52,28 @@ describe('frame stats', () => {
     const lines = statsOverlayLines(snap);
     expect(lines.find((l) => l.startsWith('gpu'))).toBe('gpu   not measured');
     expect(lines.find((l) => l.startsWith('tex'))).toBe('tex   64.0 MiB / 512.0 MiB');
+  });
+
+  it('reports the adapter\'s lighting at the frame it changes, not at the window\'s end, in stats the runtime takes', () => {
+    let lighting: BehaviorStatsLighting = { tier: 'medium', live: true, settled: false };
+    const published: BehaviorStats[] = [];
+    const host = createHostStats({ adapter: () => ({ qualityLevel: () => 'medium', lightingState: () => lighting }), entities: () => 0, worker: true, frameRateCap: () => 60, published: (s) => void published.push(s) });
+    const frame = (): void => {
+      host.begin();
+      host.end();
+    };
+    frame();
+    // The first frame reports the lighting at once (before any window ended): nothing measured yet, the level drawn.
+    expect(published).toHaveLength(1);
+    expect(published[0]).toMatchObject({ fps: 0, quality: 'medium', frameRateCap: 60, lighting: { tier: 'medium', live: true, settled: false } });
+    frame();
+    expect(published).toHaveLength(1);
+    lighting = { tier: 'medium', live: true, settled: true };
+    frame();
+    expect(published).toHaveLength(2);
+    expect(published[1]!.lighting.settled).toBe(true);
+    // What the page publishes, the runtime takes.
+    expect(engineStatsOf(published[1])).toEqual(published[1]);
   });
 
   it('reads geometry bytes from the model kinds without their embedded images, and the overlay setting', () => {

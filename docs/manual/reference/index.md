@@ -28,15 +28,15 @@ What the engine offers, generated from its source: the objects, components and c
 | [Command ops](ops.md) | The request, Every op |
 | [Command op arguments](ops-detail.md) | 87 sections |
 | [Types (AcknowledgeBehaviorTrustArgs to CreatePrefabArgs)](types-a-c.md) | 74 sections |
-| [Types (CreatePrefabVariantArgs to OwnedComponent)](types-c-o.md) | 95 sections |
-| [Types (PackedChannel to TimelineSlot)](types-p-t.md) | 97 sections |
-| [Types (TimelineTrack to WindOctave)](types-t-w.md) | 36 sections |
+| [Types (CreatePrefabVariantArgs to MsaaSamples)](types-c-m.md) | 94 sections |
+| [Types (OCCLUSION_CULLING_MODES to TimelineEasing)](types-o-t.md) | 97 sections |
+| [Types (TimelineKey to WindOctave)](types-t-w.md) | 39 sections |
 | [Script API](script-api.md) | What a script exports, The context (`ctx`), Context members in full, `BehaviorPrepareConfig`, `BehaviorInstanceInfo` |
 | [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 21 sections |
 | [Script API types (from `BehaviorMessages`)](script-types-behavior-messages.md) | 21 sections |
-| [Script API types (from `BehaviorMaterials`)](script-types-behavior-materials.md) | 48 sections |
-| [Script API types (from `InputRebindTarget`)](script-types-input-rebind-target.md) | 77 sections |
-| [Script API types (from `BlockCell`)](script-types-block-cell.md) | 18 sections |
+| [Script API types (from `BehaviorMaterials`)](script-types-behavior-materials.md) | 47 sections |
+| [Script API types (from `InputGlyph`)](script-types-input-glyph.md) | 76 sections |
+| [Script API types (from `InputBindingConflict`)](script-types-input-binding-conflict.md) | 22 sections |
 | [Node graphs](graphs.md) | Graph kinds |
 | [Graph: Animator layer](graph-animator.md) | Animator layer, States |
 | [Graph: Animator override layer](graph-animator-layer.md) | Animator override layer, States |
@@ -46,14 +46,14 @@ What the engine offers, generated from its source: the objects, components and c
 | [Graph: Visual script (part 3, from Character state (`api.physics.characterState`))](graph-behavior-3.md) | Tags, World, Scenes, Input, Animator, Timers, Signals, Messages, Game, Health |
 | [Graph: Visual script (part 4, from Health events (`api.health.events`))](graph-behavior-4.md) | Patrol, Hitbox, Collectible, Character, Look, Audio, Effects, Decals, Save, Grid |
 | [Graph: Visual script (part 5, from World to cell (`api.grid.worldToCell`))](graph-behavior-5.md) | Scatter, Splines, Surface, Camera, Sockets, Materials |
-| [Graph: Visual script (part 6, from Material data cell (`api.materials.getData`))](graph-behavior-6.md) | Saves, Assets, UI, Stats, Display, Dialogue, Modes, Lifecycle, Timeline, Environment |
-| [Graph: Visual script (part 7, from Environment weight (`api.environment.weight`))](graph-behavior-7.md) | Entity, Shell |
+| [Graph: Visual script (part 6, from Material data cell (`api.materials.getData`))](graph-behavior-6.md) | Saves, Assets, UI, Stats, Display, Lighting, Dialogue, Modes, Lifecycle, Timeline |
+| [Graph: Visual script (part 7, from Environment)](graph-behavior-7.md) | Environment, Entity, Shell |
 | [Graph: Script function (part 1, from Script function)](graph-behavior-function-1.md) | 32 sections |
 | [Graph: Script function (part 2, from Input)](graph-behavior-function-2.md) | 23 sections |
-| [Graph: Script function (part 3, from Saves)](graph-behavior-function-3.md) | Saves, Assets, UI, Stats, Display, Dialogue, Modes, Lifecycle, Timeline, Environment, Entity, Shell |
+| [Graph: Script function (part 3, from Saves)](graph-behavior-function-3.md) | 13 sections |
 | [Graph: Shared script function (part 1, from Shared script function)](graph-behavior-library-1.md) | 21 sections |
 | [Graph: Shared script function (part 2, from Input)](graph-behavior-library-2.md) | 23 sections |
-| [Graph: Shared script function (part 3, from Saves)](graph-behavior-library-3.md) | Saves, Assets, UI, Stats, Display, Dialogue, Modes, Lifecycle, Timeline, Environment, Entity, Shell |
+| [Graph: Shared script function (part 3, from Saves)](graph-behavior-library-3.md) | 13 sections |
 | [Graph: Material graph](graph-material.md) | Material graph, Inputs, Lighting, Maths, Vectors, Textures, Utility, Functions, Output |
 | [Graph: Material function](graph-material-function.md) | Material function, Interface, Inputs, Lighting, Maths, Vectors, Textures, Utility, Functions |
 | [Graph: Particle system](graph-effect.md) | Particle system, Contexts, Spawn, Position, Initialize, Forces, Collision, Over life, Kill, Output, Values, Maths |

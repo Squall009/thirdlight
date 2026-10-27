@@ -105,6 +105,18 @@ export function renderScaleOf(v: unknown): number | undefined {
 }
 
 /** The project's render settings (the defaults for what it leaves out or sets out of range). */
+/**
+ * The render settings as a page applies them under the quality level: the
+ * render scale and dynamic resolution only where the project names them, so
+ * the engine's levels' own (medium's scale, its dynamic resolution) apply
+ * where it does not.
+ */
+export function ownRenderSettingsOf(settings: unknown): Pick<RenderSettings, 'ambientOcclusion' | 'occlusionCulling'> & Partial<Pick<RenderSettings, 'renderScale' | 'dynamicResolution'>> {
+  const s = typeof settings === 'object' && settings !== null ? (settings as Record<string, unknown>) : {};
+  const all = renderSettingsOf(s);
+  return { ambientOcclusion: all.ambientOcclusion, occlusionCulling: all.occlusionCulling, ...(s['render_scale'] !== undefined ? { renderScale: all.renderScale } : {}), ...(s['dynamic_resolution'] !== undefined ? { dynamicResolution: all.dynamicResolution } : {}) };
+}
+
 export function renderSettingsOf(settings: unknown): RenderSettings {
   const s = typeof settings === 'object' && settings !== null ? (settings as Record<string, unknown>) : {};
   return {

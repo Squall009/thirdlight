@@ -6,9 +6,11 @@
  *   none; a script still reads `ctx.stats` (published to the view model) and
  *   a UI text binds `$flow.stats`: fps, frame and CPU times, draw calls,
  *   objects, the texture budget, the quality level, occlusion culling's
- *   path. Play diagnostics carry the same frame times, the environment
- *   renderer's post passes and quality, and occlusion culling's setting,
- *   path and occludees. GPU time is a number only where the browser has timestamp
+ *   path; `ctx.lighting` its tier and settled state, `justSettled` in a
+ *   step once the light settled. Play diagnostics carry the same frame
+ *   times, the environment renderer's post passes and quality, the quality
+ *   level the device picked (the project names none) and its tier, and
+ *   occlusion culling's setting, path and occludees. GPU time is a number only where the browser has timestamp
  *   queries, else null (reported, never estimated).
  * - With `stats_overlay` 2 the overlay waits hidden; F3 shows it (fps, the
  *   times, "gpu"), F3 hides it again. With 1 the exported game (backend
@@ -47,12 +49,14 @@ async function settings(extra: Record<string, unknown>): Promise<void> {
 // A script publishes what it reads in ctx.stats to the view model; a document shows $flow.stats.
 const SCRIPT = [
   'export default {',
-  '  instantiate() { return { n: 0 }; },',
+  '  instantiate() { return { n: 0, just: 0 }; },',
   '  step(s: any, ctx: any) {',
   "    if (ctx.phase !== 'intent') return;",
   '    s.n += 1;',
   "    if (s.n === 2) ctx.ui.show('hud');",
   "    ctx.ui.set('seen', ctx.stats);",
+  '    if (ctx.lighting.justSettled) s.just += 1;',
+  "    ctx.ui.set('lit', { tier: ctx.lighting.tier, live: ctx.lighting.live, settled: ctx.lighting.settled, just: s.just });",
   '  },',
   '};',
   '',
@@ -94,20 +98,30 @@ test('ctx.stats, $flow.stats and Play diagnostics read the frame statistics; no 
   expect(s.triangles).toBeGreaterThan(0);
   expect(s.entities).toBeGreaterThan(1);
   expect(s.textureBudgetBytes).toBe(512 * 1024 * 1024);
-  expect(s.quality).toBe('high');
+  // The project names no level: the device's (the engine's level of its lighting tier), the rule in diagnostics.
+  const dq = ((await api(`play/${psid}/diagnostics`, {})).json['diagnostics'] as { renderer: { quality: { level: string; source: string; tier: string; device: { tier: string; reason: string } | null } } }).renderer.quality;
+  expect(dq).toMatchObject({ source: 'device', level: dq.device?.tier, tier: dq.device?.tier });
+  const level = dq.level;
+  test.info().annotations.push({ type: 'device', description: dq.device!.reason });
+  expect(s.quality).toBe(level);
+  // ctx.lighting: settled once the light caught up, and one step saw it settle.
+  const lit = async (): Promise<{ tier: string; live: boolean; settled: boolean; just: number } | null> => (((await api(`play/${psid}/observe`, {})).json['ui'] as { values?: { lit?: { tier: string; live: boolean; settled: boolean; just: number } } } | undefined)?.values?.lit ?? null);
+  await expect.poll(async () => (await lit())?.settled ?? false, { timeout: 30_000 }).toBe(true);
+  expect((await lit())!.tier).toBe(dq.tier);
+  expect((await lit())!.just).toBeGreaterThanOrEqual(1);
   if (s.gpuMs !== null) expect(s.gpuMs.avg).toBeGreaterThan(0);
   // Occlusion culling (the project leaves the setting unset: auto, which culls nothing on either renderer for now).
   expect(s.occlusion.path).toBe('off');
   // $flow.stats in a UI document.
   const hud = frame.locator('[data-tl-ui-doc="hud"] [data-widget="fps"]');
-  await expect(hud).toHaveText(/^fps \d+(\.\d+)? draws [1-9]\d* q high$/, { timeout: 10_000 });
+  await expect(hud).toHaveText(new RegExp(`^fps \\d+(\\.\\d+)? draws [1-9]\\d* q ${level}$`), { timeout: 10_000 });
 
   // Play diagnostics: the same frame times, the post passes and the quality level.
   const d = (await api(`play/${psid}/diagnostics`, {})).json['diagnostics'] as { frameTimes: Stats | null; renderer: { environment?: { post: boolean; passes: string[]; quality: string; samples: number }; occlusion?: { setting: string; path: string; occludees: number } } };
   expect(d.frameTimes).not.toBeNull();
   expect(d.frameTimes!.fps).toBeGreaterThan(1);
   expect(d.frameTimes!.gpuMs === null ? 'not measured' : 'measured').toBe(s.gpuMs === null ? 'not measured' : 'measured');
-  expect(d.renderer.environment).toMatchObject({ post: true, quality: 'high' });
+  expect(d.renderer.environment).toMatchObject({ post: true, quality: level });
   expect(d.renderer.occlusion).toMatchObject({ setting: 'auto', path: s.occlusion.path });
   expect(d.renderer.occlusion!.occludees, 'off keeps no occludees').toBe(0);
   // The vignette is drawn in the grading pass.
@@ -138,7 +152,7 @@ test('ctx.stats, $flow.stats and Play diagnostics read the frame statistics; no 
   await expect(overlay).toContainText(/frame +\d+\.\d \/ \d+\.\d ms/);
   await expect(overlay).toContainText(/gpu +(not measured|\d+\.\d \/ \d+\.\d ms)/);
   await expect(overlay).toContainText(/tex +\d+\.\d MiB \/ 512\.0 MiB/);
-  await expect(overlay).toContainText('quality high');
+  await expect(overlay).toContainText(`quality ${level}`);
   await page.keyboard.press('F3');
   await expect(overlay).toHaveAttribute('data-shown', 'false');
   await page.getByTitle('Stop the play preview').click();

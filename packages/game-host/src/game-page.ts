@@ -31,7 +31,7 @@
  * Browser-only (DOM, WebGL/WebGPU, Web Audio, Web Crypto).
  */
 import { audioSpatialOf, dependencyTables, isStoredVertexColors, depthBufferOf, instanceChunkSizeOf, lodTuningOf, type ModelLodSettings, materialTextureRefs, PHYSICS_3D_MODULE_ID, scanDependencies, sha256HexAsync, streamingBudgetBytesOf, textureBudgetBytesOf, type MaterialDef, type ModelColliderTable, type SaveSchema, type GraphDocument } from '@thirdlight/project-model';
-import { assetVersionKey, createResourceManager, fixedStepHzOf, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, qualityLevelOf, qualityLevelsOf, renderSettingsOf, seeThroughSettingsOfProject, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
+import { assetVersionKey, createResourceManager, fixedStepHzOf, ownRenderSettingsOf, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, qualityLevelOf, qualityLevelsOf, renderSettingsOf, seeThroughSettingsOfProject, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { architectureFromUrl, batchingFromUrl, decalsFromUrl, seeThroughFromUrl, occlusionFromUrl, occlusionPyramidFromUrl, paintFromUrl, portalsFromUrl, createBrowserMeshWorker, scatterFromUrl, splinesFromUrl, terrainFromUrl, terrainHorizonFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, mergingFromUrl, pageSearch, probesFromUrl, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, shadowCacheFromUrl, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
@@ -863,7 +863,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           // fields apply over them), the page's ?ao=, ?renderScale=, ?dynamicResolution= (over all of them),
           // ?upscale=bilinear and ?slowFrames= diagnostics, and the frame budget from the pacing (the cap the frames
           // are paced by, a page pin included, never under the display's refresh).
-          render: { ...renderSettings, pinned: pinnedRender, upscale: upscaleFilterFromUrl(pageSearch()), slowFramesMs: slowFramesFromUrl(pageSearch()), frameBudgetMs: () => frameTargetMs(host.runtime?.framePacing?.()) },
+          render: { ...ownRenderSettingsOf(settings), pinned: pinnedRender, upscale: upscaleFilterFromUrl(pageSearch()), slowFramesMs: slowFramesFromUrl(pageSearch()), frameBudgetMs: () => frameTargetMs(host.runtime?.framePacing?.()) },
           // The page's ?quality= pins a level (a diagnostic comparison).
           qualityPinned: pinnedQuality,
           // Repeated objects drawn instanced unless the page says ?batching=off (a diagnostic comparison).
@@ -945,7 +945,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
       inputConfig: structuredClone(manifest.input ?? defaultInputOf(startPlaneOf(manifest.scenes))) as unknown as NonNullable<GameHostConfig['inputConfig']>,
       setQuality: (level) => adapterRef.current?.setQuality?.(level) ?? false,
       // The game shell's quality setting steps through the project's levels.
-      qualityLevels: { ids: qualityLevels.map((l) => l.id), start: qualityLevelOf(qualityLevels, pinnedQuality ?? manifest.environment?.quality).id },
+      qualityLevels: { ids: qualityLevels.map((l) => l.id), start: qualityLevelOf(qualityLevels, pinnedQuality ?? manifest.environment?.quality).id, now: () => adapterRef.current?.qualityLevel?.() ?? qualityLevelOf(qualityLevels, pinnedQuality ?? manifest.environment?.quality).id },
       // The player's settings in this browser's localStorage, and project save slots in its IndexedDB.
       ...(browserSaveStorage() !== null ? { saveStorage: browserSaveStorage()!, saveNamespace: o.saveNamespace } : {}),
       // Without IndexedDB every save is refused as storage_unavailable (the game can say so) rather than kept for the page's life.

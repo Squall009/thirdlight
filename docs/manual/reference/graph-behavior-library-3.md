@@ -63,6 +63,7 @@ The Shared script function node catalogue: port types, then each category's node
 - [Stats quality](graph-behavior-6.md#node-behavior--api-stats-quality) (`api.stats.quality`, as in `behavior`): The quality level drawn: its id ("low", "medium", "high", or one of the project's own levels).
 - [Stats frame rate cap](graph-behavior-6.md#node-behavior--api-stats-frame-rate-cap) (`api.stats.frameRateCap`, as in `behavior`): The frame-rate cap the page draws under (30, 60 or 120 fps), or null for none (the display's rate).
 - [Stats occlusion](graph-behavior-6.md#node-behavior--api-stats-occlusion) (`api.stats.occlusion`, as in `behavior`): Occlusion culling in the last frame (the project's occlusion_culling setting, its quality level's).
+- [Stats lighting](graph-behavior-6.md#node-behavior--api-stats-lighting) (`api.stats.lighting`, as in `behavior`): The lighting drawn: its tier, live or saved, settled (reported again as soon as it changes).
 - [Stats window ms](graph-behavior-6.md#node-behavior--api-stats-window-ms) (`api.stats.windowMs`, as in `behavior`): The window the times are measured over (ms).
 
 <a id="graph-behavior-library--display"></a>
@@ -70,6 +71,14 @@ The Shared script function node catalogue: port types, then each category's node
 
 - [Frame-rate cap](graph-behavior-6.md#node-behavior--api-display-frame-rate-cap) (`api.display.frameRateCap`, as in `behavior`): The cap in frames per second (30, 60 or 120), or null for none (the display's rate).
 - [Set frame-rate cap](graph-behavior-6.md#node-behavior--api-display-set-frame-rate-cap) (`api.display.setFrameRateCap`, as in `behavior`): Cap the frame rate at 30, 60 or 120 fps, or null (or 0) for none (the display's rate); false for any other value (nothing changes).
+
+<a id="graph-behavior-library--lighting"></a>
+## Lighting
+
+- [Lighting tier](graph-behavior-6.md#node-behavior--api-lighting-tier) (`api.lighting.tier`, as in `behavior`): The lighting tier: 'low' (saved light only, always on WebGL 2), 'medium' or 'high' (live).
+- [Lighting live](graph-behavior-6.md#node-behavior--api-lighting-live) (`api.lighting.live`, as in `behavior`): The static surfaces' light is computed live on this device.
+- [Lighting settled](graph-behavior-6.md#node-behavior--api-lighting-settled) (`api.lighting.settled`, as in `behavior`): The lighting has caught up (live: nothing left to light again; saved: the saved light read).
+- [Lighting just settled](graph-behavior-6.md#node-behavior--api-lighting-just-settled) (`api.lighting.justSettled`, as in `behavior`): True in the first step after the lighting settled (the event: a loading screen may lift then); false in every other step.
 
 <a id="graph-behavior-library--dialogue"></a>
 ## Dialogue
@@ -128,9 +137,9 @@ The Shared script function node catalogue: port types, then each category's node
 <a id="graph-behavior-library--environment"></a>
 ## Environment
 
-- [Set environment](graph-behavior-6.md#node-behavior--api-environment-set) (`api.environment.set`, as in `behavior`): Switch to a preset ('' = the base look), blending over `blend` seconds from the look now (an interrupted blend continues from where it is). False when there is no such preset or an option is refused.
-- [Blend environments](graph-behavior-6.md#node-behavior--api-environment-blend) (`api.environment.blend`, as in `behavior`): Hold a mix of two presets: t = 0 shows a, 1 shows b (a timeline or a script drives t; '' = the base look). Stops a running blend.
-- [Environment state](graph-behavior-6.md#node-behavior--api-environment-state) (`api.environment.state`, as in `behavior`): The preset the last change went to ('' = the base look), how far its blend is (0–1) and whether one is running.
+- [Set environment](graph-behavior-7.md#node-behavior--api-environment-set) (`api.environment.set`, as in `behavior`): Switch to a preset ('' = the base look), blending over `blend` seconds from the look now (an interrupted blend continues from where it is). False when there is no such preset or an option is refused.
+- [Blend environments](graph-behavior-7.md#node-behavior--api-environment-blend) (`api.environment.blend`, as in `behavior`): Hold a mix of two presets: t = 0 shows a, 1 shows b (a timeline or a script drives t; '' = the base look). Stops a running blend.
+- [Environment state](graph-behavior-7.md#node-behavior--api-environment-state) (`api.environment.state`, as in `behavior`): The preset the last change went to ('' = the base look), how far its blend is (0–1) and whether one is running.
 - [Environment weight](graph-behavior-7.md#node-behavior--api-environment-weight) (`api.environment.weight`, as in `behavior`): How much of a preset is in the look now (0–1; '' = the base look).
 - [Environment presets](graph-behavior-7.md#node-behavior--api-environment-presets) (`api.environment.presets`, as in `behavior`): The project's environment preset ids.
 - [Set wind](graph-behavior-7.md#node-behavior--api-environment-set-wind) (`api.environment.setWind`, as in `behavior`): Change the scene's global wind: any of its fields (direction [x, z], strength, gust, gustFrequency, turbulence, speed m/s, scale m, noise texture), added to the last change's, blending over `blend` seconds; null goes back to the scene's own wind. Wind zones keep laying their values over it. False when a value or an option is refused.

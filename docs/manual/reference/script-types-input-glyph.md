@@ -1,8 +1,51 @@
-# Script API types (from `InputRebindTarget`)
+# Script API types (from `InputGlyph`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 Every declaration the script API reaches, as the runtime declares it (doc comments included), in the order the API reaches them.
+
+<a id="script-type-input-glyph"></a>
+## `InputGlyph`
+
+```ts
+/**
+ * What to show for a binding: a label a player reads ("Space", "A", "Cross",
+ * "Left button"), an icon id of the engine's generic glyph set (`key`,
+ * `pad-south`, `mouse-left`, …) and the project's own image when it has one.
+ * A composite binding (two or four keys) also lists its parts.
+ */
+export interface InputGlyph {
+  readonly label: string;
+  readonly icon: string;
+  readonly image?: string;
+  readonly parts?: readonly InputGlyphPart[];
+}
+```
+
+<a id="script-type-input-rebind-event"></a>
+## `InputRebindEvent`
+
+```ts
+/**
+ * What became of a binding request: a rebind `started` (listening),
+ * `rebound`, `cancelled` (the cancel key), `timeout`, `refused` (it does not
+ * fit the action, or it conflicts under the refuse policy — `conflicts` says
+ * with what), `reset`, or the player `profile` changed.
+ */
+export interface InputRebindEvent {
+  readonly type: 'started' | 'rebound' | 'cancelled' | 'timeout' | 'refused' | 'reset' | 'profile';
+  readonly action?: string;
+  readonly index?: number;
+  readonly part?: InputBindingPart;
+  /** The new binding's label (rebound). */
+  readonly label?: string;
+  readonly reason?: string;
+  readonly conflicts?: readonly InputBindingConflict[];
+  /** The bindings of these actions moved to make room (swap policy). */
+  readonly swapped?: readonly string[];
+  readonly profile?: string;
+}
+```
 
 <a id="script-type-input-rebind-target"></a>
 ## `InputRebindTarget`
@@ -1057,6 +1100,21 @@ export interface BehaviorStatsOcclusion {
 }
 ```
 
+<a id="script-type-behavior-stats-lighting"></a>
+## `BehaviorStatsLighting`
+
+```ts
+/** The lighting the page draws, as `ctx.stats.lighting` reports it. */
+export interface BehaviorStatsLighting {
+  /** The quality level's lighting tier: low (saved light only, always on WebGL 2), medium or high (live). */
+  readonly tier: 'low' | 'medium' | 'high';
+  /** Whether the static surfaces' light is computed live on this device. */
+  readonly live: boolean;
+  /** Whether it has caught up: live, nothing left to light again; saved, the saved light read. */
+  readonly settled: boolean;
+}
+```
+
 <a id="script-type-dialogue-variable-value"></a>
 ## `DialogueVariableValue`
 
@@ -1381,50 +1439,4 @@ export interface InputGlyphPart {
 ```ts
 /** A composite binding's part (two keys/buttons: negative, positive; four keys: up, down, left, right). */
 export type InputBindingPart = 'negative' | 'positive' | 'up' | 'down' | 'left' | 'right';
-```
-
-<a id="script-type-input-binding-conflict"></a>
-## `InputBindingConflict`
-
-```ts
-/** An action binding that uses the same input as a new binding. */
-export interface InputBindingConflict {
-  readonly action: string;
-  readonly index: number;
-  readonly part?: InputBindingPart;
-}
-```
-
-<a id="script-type-rebind-conflict-policy"></a>
-## `RebindConflictPolicy`
-
-```ts
-/** What happens when a new binding's input is already used by another action of the same map. */
-export type RebindConflictPolicy = 'swap' | 'refuse' | 'allow';
-```
-
-<a id="script-type-debug-command-arg-spec"></a>
-## `DebugCommandArgSpec`
-
-```ts
-/** One declared argument of a debug command. */
-export interface DebugCommandArgSpec {
-  /** The argument's name (a letter or _, then letters, digits, _ . : -). */
-  readonly name: string;
-  readonly type: DebugCommandArgType;
-  /** May be left out of a call (a call without it has no such key). */
-  readonly optional?: boolean;
-}
-```
-
-<a id="script-type-grid-door-side"></a>
-## `GridDoorSide`
-
-```ts
-/** One side of a linked door (world metres; `facing`: degrees about +Y turning +Z toward the way out of the door on that side). */
-export interface GridDoorSide {
-  readonly position: readonly [number, number, number];
-  readonly spawn: readonly [number, number, number];
-  readonly facing: number;
-}
 ```

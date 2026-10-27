@@ -5,10 +5,10 @@
  * window, outside the input frame, so they are never in the digest or a
  * save.
  */
-import { frameRateCapOf, QUALITY_LEVEL_ID_RE } from '@thirdlight/project-model';
+import { frameRateCapOf, LIGHTING_TIERS, QUALITY_LEVEL_ID_RE } from '@thirdlight/project-model';
 
 import { occlusionPathFrom } from './occlusion';
-import type { BehaviorStats, BehaviorStatsOcclusion, BehaviorStatsTime } from './types-behavior-world';
+import type { BehaviorLighting, BehaviorStats, BehaviorStatsLighting, BehaviorStatsOcclusion, BehaviorStatsTime } from './types-behavior-world';
 
 /**
  * The window the page measures frame times over (ms): the average and the
@@ -33,8 +33,18 @@ export const ENGINE_STATS_NONE: BehaviorStats = Object.freeze({
   quality: 'high',
   frameRateCap: null,
   occlusion: Object.freeze({ path: 'off' as const, tested: 0, culled: 0 }),
+  lighting: Object.freeze({ tier: 'medium' as const, live: false, settled: false }),
   windowMs: 0,
 });
+
+/** The lighting part of reported stats; absent reads as not settled (a host that draws no lighting reports none). */
+const lightingOf = (v: unknown): BehaviorStatsLighting | null => {
+  if (v === undefined) return ENGINE_STATS_NONE.lighting;
+  if (typeof v !== 'object' || v === null) return null;
+  const o = v as Record<string, unknown>;
+  const tier = LIGHTING_TIERS.find((t) => t === o['tier']);
+  return tier !== undefined && typeof o['live'] === 'boolean' && typeof o['settled'] === 'boolean' ? Object.freeze({ tier, live: o['live'], settled: o['settled'] }) : null;
+};
 
 /** The occlusion part of reported stats; absent reads as none culled on no path (a host without culling). */
 const occlusionOf = (v: unknown): BehaviorStatsOcclusion | null => {
@@ -69,6 +79,8 @@ export function engineStatsOf(v: unknown): BehaviorStats | null {
   if (frameRateCap === undefined) return null;
   const occlusion = occlusionOf(s['occlusion']);
   if (occlusion === null) return null;
+  const lighting = lightingOf(s['lighting']);
+  if (lighting === null) return null;
   return Object.freeze({
     fps: s['fps'] as number,
     frameMs,
@@ -83,18 +95,48 @@ export function engineStatsOf(v: unknown): BehaviorStats | null {
     quality: s['quality'],
     frameRateCap,
     occlusion,
+    lighting,
     windowMs: s['windowMs'] as number,
   });
 }
 
-/** The last stats the page reported (`ctx.stats`). */
+/**
+ * The last stats the page reported (`ctx.stats`) and the lighting read from
+ * them (`ctx.lighting`). The page reports again as soon as the lighting
+ * changes, between steps, so the step after a report that the lighting
+ * settled is the one whose `justSettled` is true.
+ */
 export class EngineStatsHolder {
   private current: BehaviorStats = ENGINE_STATS_NONE;
+  /** The step index during the step that sees the lighting just settled (null: none waiting). */
+  private settledAt: number | null = null;
+  readonly lighting: BehaviorLighting;
+
+  /** `stepIndex`: the simulation's last finished step (what a running step reads). */
+  constructor(private readonly stepIndex: () => number) {
+    const now = (): BehaviorStatsLighting => this.current.lighting;
+    const justSettled = (): boolean => this.current.lighting.settled && this.settledAt === this.stepIndex();
+    this.lighting = Object.freeze({
+      get tier() {
+        return now().tier;
+      },
+      get live() {
+        return now().live;
+      },
+      get settled() {
+        return now().settled;
+      },
+      get justSettled() {
+        return justSettled();
+      },
+    });
+  }
 
   /** Take reported stats (false: not stats; the last ones stay). */
   set(v: unknown): boolean {
     const s = engineStatsOf(v);
     if (s === null) return false;
+    if (s.lighting.settled && !this.current.lighting.settled) this.settledAt = this.stepIndex();
     this.current = s;
     return true;
   }

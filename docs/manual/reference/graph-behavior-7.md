@@ -1,8 +1,78 @@
-# Graph: Visual script (part 7, from Environment weight (`api.environment.weight`))
+# Graph: Visual script (part 7, from Environment)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The Visual script node catalogue: port types, then each category's nodes with their inputs, outputs and fields.
+
+<a id="graph-behavior--environment"></a>
+## Environment
+
+- Set environment (`api.environment.set`): Switch to a preset ('' = the base look), blending over `blend` seconds from the look now (an interrupted blend continues from where it is). False when there is no such preset or an option is refused.
+- Blend environments (`api.environment.blend`): Hold a mix of two presets: t = 0 shows a, 1 shows b (a timeline or a script drives t; '' = the base look). Stops a running blend.
+- Environment state (`api.environment.state`): The preset the last change went to ('' = the base look), how far its blend is (0–1) and whether one is running.
+- Environment weight (`api.environment.weight`): How much of a preset is in the look now (0–1; '' = the base look).
+- Environment presets (`api.environment.presets`): The project's environment preset ids.
+- Set wind (`api.environment.setWind`): Change the scene's global wind: any of its fields (direction [x, z], strength, gust, gustFrequency, turbulence, speed m/s, scale m, noise texture), added to the last change's, blending over `blend` seconds; null goes back to the scene's own wind. Wind zones keep laying their values over it. False when a value or an option is refused.
+
+<a id="node-behavior--api-environment-set"></a>
+### Set environment (`api.environment.set`)
+
+Switch to a preset ('' = the base look), blending over `blend` seconds from the look now (an interrupted blend continues from where it is). False when there is no such preset or an option is refused.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `presetId` "preset" (string)
+- `blend` "blend (seconds)" (number)
+- `override` (map)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `presetId` | preset | string | `""` | ≤ 256 chars |
+| `easing` | easing | enum | `"linear"` | `linear`, `easeIn`, `easeOut`, `easeInOut`, `none` |
+
+<a id="node-behavior--api-environment-blend"></a>
+### Blend environments (`api.environment.blend`)
+
+Hold a mix of two presets: t = 0 shows a, 1 shows b (a timeline or a script drives t; '' = the base look). Stops a running blend.
+
+Inputs:
+
+- `in` "" (exec): takes several wires
+- `a` (string)
+- `b` (string)
+- `t` (number)
+
+Outputs:
+
+- `then` "" (exec): one wire
+- `value` (boolean)
+
+Fields:
+
+| Field | Label | Type | Default | Range |
+|---|---|---|---|---|
+| `a` | a | string | `""` | ≤ 256 chars |
+| `b` | b | string | `""` | ≤ 256 chars |
+| `t` | t | number | `0.5` | -1000000000 – 1000000000 |
+
+<a id="node-behavior--api-environment-state"></a>
+### Environment state (`api.environment.state`)
+
+The preset the last change went to ('' = the base look), how far its blend is (0–1) and whether one is running.
+
+Outputs:
+
+- `target` (string)
+- `progress` (number)
+- `blending` (boolean)
 
 <a id="node-behavior--api-environment-weight"></a>
 ### Environment weight (`api.environment.weight`)

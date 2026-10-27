@@ -27,7 +27,7 @@ export interface RenderSettingsLike {
   readonly occlusionCulling?: OcclusionCulling;
 }
 
-/** The project's settings (the options' own fields) under the quality level's, under a player's, under the page's flags. */
+/** The project's settings (the options' own fields; one left out takes the level's default, else the engine's) under the quality level's, under a player's, under the page's flags. */
 export interface RenderControlOptions extends RenderSettingsLike {
   /** The page's flags (`?ao=`, `?renderScale=`, `?dynamicResolution=`): over everything else (a diagnostic comparison). */
   readonly pinned?: RenderSettingsLike;
@@ -57,8 +57,13 @@ export interface RenderControlDiagnostics {
 export interface RenderControl {
   /** New settings of the project's or a player's layer (the default; unset parts keep their value). */
   set(next: RenderSettingsLike, layer?: 'project' | 'player'): void;
-  /** The quality level's settings (in place of the last level's; what a level leaves out is the project's). */
-  setLevel(level: RenderSettingsLike): void;
+  /**
+   * The quality level's settings (in place of the last level's; what a level
+   * leaves out is the project's), and `defaults`: settings that apply only
+   * where the project sets none (the engine's levels' scale and dynamic
+   * resolution: a project's own `render_scale` stays its own).
+   */
+  setLevel(level: RenderSettingsLike, defaults?: RenderSettingsLike): void;
   /** Whether frames must go through the environment renderer for the scale (a scene without a look draws directly otherwise). */
   needsEnvironment(): boolean;
   /** Apply the settings to an environment renderer (a new one, or after a change). */
@@ -102,10 +107,11 @@ const defined = (s: RenderSettingsLike): RenderSettingsLike => ({
 export function createRenderControl(opts: RenderControlOptions = {}): RenderControl {
   let project: RenderSettingsLike = defined(opts);
   let level: RenderSettingsLike = {};
+  let under: RenderSettingsLike = {};
   let player: RenderSettingsLike = {};
   const pinned: RenderSettingsLike = defined(opts.pinned ?? {});
   const fixed: RenderSettingsLike = opts.fixedScale === true ? { renderScale: RENDER_SCALE_MAX, dynamicResolution: false } : {};
-  const resolved = (): RenderSettingsLike => ({ ...project, ...level, ...player, ...pinned, ...fixed });
+  const resolved = (): RenderSettingsLike => ({ ...under, ...project, ...level, ...player, ...pinned, ...fixed });
   const first = resolved();
   let ao: 'off' | 'ssao' | 'gtao' = first.ambientOcclusion ?? AMBIENT_OCCLUSION_DEFAULT;
   let renderScale = renderScaleOf(first.renderScale) ?? RENDER_SCALE_MAX;
@@ -142,8 +148,9 @@ export function createRenderControl(opts: RenderControlOptions = {}): RenderCont
       else player = { ...player, ...defined(next) };
       update();
     },
-    setLevel(next) {
+    setLevel(next, defaults) {
       level = defined(next);
+      under = defined(defaults ?? {});
       update();
     },
     needsEnvironment: () => renderScale < 1 || dynamic,

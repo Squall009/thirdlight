@@ -326,6 +326,12 @@ export class AdapterSurfaceLight {
     return this.runtime !== null;
   }
 
+  /** Whether the light drawn has caught up: live, nothing stale in the cache or the probes; else the followed scenes' saved light read (never while the live light is still starting). */
+  get settled(): boolean {
+    if (this.runtime !== null) return this.host.relight.isSettled && this.host.probes.isSettled;
+    return this.off !== 'starting' && !this.saved.loading();
+  }
+
   setView(on: boolean): void {
     this.viewOn = on;
     this.runtime?.setView(on);

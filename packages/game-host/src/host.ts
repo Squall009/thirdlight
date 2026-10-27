@@ -446,7 +446,7 @@ export interface GameHostConfig {
   /** Apply a player's or the game-control API's quality level (the wrapper forwards it to the renderer); false: the project has no such level. */
   readonly setQuality?: (level: string) => boolean;
   /** The project's quality level ids, lowest first, and the one a game starts at (the game shell's quality setting steps through them). */
-  readonly qualityLevels?: { readonly ids: readonly string[]; readonly start: string };
+  readonly qualityLevels?: { readonly ids: readonly string[]; readonly start: string; readonly now?: () => string };
   /**
    * Where the simulation runs. Absent: in this page — `mount()`
    * composes the runtime (`composeGameRuntime`) with `physics`,

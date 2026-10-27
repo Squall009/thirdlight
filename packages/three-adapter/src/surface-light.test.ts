@@ -116,6 +116,29 @@ describe('surface cache: direct light per light kind', () => {
     expect(AREA_RAYS).toBe(16);
   });
 
+  it('the high tier\'s rays: a frame with a ray scale of 2 casts twice the rays a texel for the sun and every light, to the same light', () => {
+    const u: V3 = [0.6, 0, 0];
+    const v: V3 = [0, 0, 0.3];
+    const rect = light({ kind: 'area', position: [0, 2.5, 0], direction: [0, -1, 0], color: [40, 40, 40], range: 10, area: { u, v, twoSided: false } });
+    const sun = light({ kind: 'directional', direction: [0.3, -1, 0.2], color: [2, 2, 2] });
+    const points = new Float32Array(COPIES * 6);
+    for (let i = 0; i < COPIES; i += 1) points.set([0.4, 0, 0.1, 0, 1, 0], i * 6);
+    const frame: LightPassFrame = { points, slices: [{ texels: COPIES, lights: [0], sun: true, level: 0 }], lights: [rect], sun };
+    const doubled: LightPassFrame = { ...frame, rayScale: 2 };
+    expect(sliceRays(frame, frame.slices[0]!)).toBe(8 + 16);
+    expect(sliceRays(doubled, doubled.slices[0]!)).toBe(16 + 32);
+    expect(packLightFrame(doubled).rays).toBe(2 * packLightFrame(frame).rays);
+    // A coarser level still halves them.
+    expect(sliceRays(doubled, { ...doubled.slices[0]!, level: 1 })).toBe(8 + 16);
+    const sum = (e: Float32Array): number => {
+      let t = 0;
+      for (let i = 0; i < COPIES; i += 1) t += e[i * 3]!;
+      return t / COPIES;
+    };
+    const base = sum(lightFrameCpu(frame, EMPTY, 7, SHADOW_TRACE));
+    expect(Math.abs(sum(lightFrameCpu(doubled, EMPTY, 7, SHADOW_TRACE)) - base) / base).toBeLessThan(0.03);
+  });
+
   it('a line light: the quadrature along it, its one side', () => {
     const u: V3 = [0, 0, 1.5];
     const line = light({ kind: 'area', position: [0.2, 1.6, 0], direction: [1, 0, 0], color: [12, 12, 12], range: 5, area: { u, v: [0, 0, 0], twoSided: false } });

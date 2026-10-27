@@ -4,7 +4,9 @@
  *
  * The level is the page's `?quality=` flag (a diagnostic comparison, as the
  * perf harness's `--switches`), else the one a player or the game-control
- * API chose, else the project's (`environment.quality`), else the highest.
+ * API chose, else the project's (`environment.quality`), else the device's
+ * (`deviceQualityLevel`: the highest level whose lighting tier the device's
+ * renderer and GPU fit, told once the renderer is up), else the highest.
  * Its settings go to:
  *
  * - the environment renderer (`setQuality`): the look's post per effect and MSAA;
@@ -13,13 +15,14 @@
  * - the LOD tuning: the bias (over the project's `lod_bias`);
  * - the scene lights: the largest shadow map and the point/spot light budget;
  * - the renderer's pixel ratio cap;
- * - the surface cache's memory budget.
+ * - the surface cache: its memory budget, live-light time, rays and reach
+ *   (the level's lighting tier, `levelLighting`).
  *
  * Kept out of `adapter.ts`: the adapter creates one with those targets, tells
  * it the project's environment and LOD tuning and a player's choice; a change
  * applies at once (nothing per frame).
  */
-import { DEFAULT_SURFACE_CACHE_MIB, DEFAULT_SURFACE_LIGHT_MS, qualityLevelOf, qualityLevelsOf, type QualityLevelConfig } from '@thirdlight/runtime';
+import { DEFAULT_QUALITY_LEVELS, deviceLightingTier, deviceQualityLevel, levelLighting, qualityLevelOf, qualityLevelsOf, type DeviceGpuInfo, type DeviceLightingTier, type LightingTier, type QualityLevelConfig } from '@thirdlight/runtime';
 
 import { MAX_RENDER_PIXEL_RATIO, type EnvironmentRenderer } from './environment';
 import type { RenderControl } from './render-control';
@@ -31,6 +34,22 @@ export const QUALITY_URL_PARAM = 'quality';
 export function qualityFromUrl(search: string): string | null {
   const v = new URLSearchParams(search).get(QUALITY_URL_PARAM);
   return v === null || v === '' ? null : v;
+}
+
+/**
+ * What a renderer says of its GPU: WebGPU's adapter info (`GPUDevice.adapterInfo`;
+ * three keeps no adapter), nothing more on WebGL 2 (its tier is low whatever
+ * the GPU: no compute, so saved light only).
+ */
+export function deviceGpuInfoOf(renderer: unknown, api: 'webgpu' | 'webgl2'): DeviceGpuInfo {
+  if (api === 'webgl2') return { api };
+  const info = (renderer as { backend?: { device?: { adapterInfo?: { vendor?: unknown; architecture?: unknown; device?: unknown; description?: unknown; isFallbackAdapter?: unknown } } } }).backend?.device?.adapterInfo;
+  const str = (v: unknown): string | undefined => (typeof v === 'string' && v !== '' ? v : undefined);
+  const vendor = str(info?.vendor);
+  const architecture = str(info?.architecture);
+  const device = str(info?.device);
+  const description = str(info?.description);
+  return { api, ...(vendor !== undefined ? { vendor } : {}), ...(architecture !== undefined ? { architecture } : {}), ...(device !== undefined ? { device } : {}), ...(description !== undefined ? { description } : {}), ...(info?.isFallbackAdapter === true ? { isFallbackAdapter: true } : {}) };
 }
 
 /** The project environment's part a level comes from (structural). */
@@ -51,6 +70,8 @@ export interface QualityTargets {
   readonly setSurfaceCacheMiB?: (mib: number) => void;
   /** The level's GPU time a frame for live surface light (ms; 0: saved light only). */
   readonly setSurfaceLightMs?: (ms: number) => void;
+  /** The level's lighting tier's multiples of the rays a cache texel casts and of each cache level's reach. */
+  readonly setSurfaceDetail?: (rays: number, reach: number) => void;
   readonly environment: () => EnvironmentRenderer | null;
   /** Something drawn changed (a host drawing on demand draws again). */
   readonly changed: () => void;
@@ -61,7 +82,11 @@ export interface QualityDiagnostics {
   readonly level: string;
   readonly levels: readonly string[];
   /** Where the level comes from. */
-  readonly source: 'page' | 'chosen' | 'project' | 'highest';
+  readonly source: 'page' | 'chosen' | 'project' | 'device' | 'highest';
+  /** The level's lighting tier (`low` on WebGL 2 whatever the level: its light is the saved light). */
+  readonly tier: LightingTier;
+  /** The device's tier and the rule's line (null: the renderer is not up yet). */
+  readonly device: DeviceLightingTier | null;
   readonly pixelRatioCap: number;
   /** The largest shadow map (null: each light's own size) and the point/spot light budget (null: the scenes'). */
   readonly shadowMapSize: number | null;
@@ -91,6 +116,10 @@ export interface QualityControl {
   applyEnvironment(env: EnvironmentRenderer): void;
   /** The pixel ratio cap now (a renderer made later starts with it). */
   pixelRatioCap(): number;
+  /** The renderer is up: its API and GPU give the device's tier, the level when nobody chose one. */
+  setDevice(info: DeviceGpuInfo): void;
+  /** The lighting tier drawn (`low` on WebGL 2). */
+  tier(): LightingTier;
   diagnostics(): QualityDiagnostics;
 }
 
@@ -99,8 +128,11 @@ export function createQualityControl(targets: QualityTargets, o: { readonly proj
   let projectLod: { bias?: number; hysteresis?: number } = { ...(o.lod ?? {}) };
   let chosen: string | null = null;
   const pinned = o.pinned ?? null;
+  let device: DeviceLightingTier | null = null;
+  let api: DeviceGpuInfo['api'] | null = null;
   const levels = (): readonly QualityLevelConfig[] => qualityLevelsOf(project);
-  const wanted = (): string | null => pinned ?? chosen ?? project?.quality ?? null;
+  const deviceLevel = (): string | null => (device === null ? null : (deviceQualityLevel(levels(), device.tier)?.id ?? null));
+  const wanted = (): string | null => pinned ?? chosen ?? project?.quality ?? deviceLevel();
   const current = (): QualityLevelConfig => qualityLevelOf(levels(), wanted());
   /** The level last applied and the project LOD it was applied with. */
   let applied: QualityLevelConfig | null = null;
@@ -113,12 +145,18 @@ export function createQualityControl(targets: QualityTargets, o: { readonly proj
     if (l === applied && lodKey === appliedLod) return;
     applied = l;
     appliedLod = lodKey;
-    targets.renderControl.setLevel({
-      ...(l.ambientOcclusion !== undefined ? { ambientOcclusion: l.ambientOcclusion } : {}),
-      ...(l.renderScale !== undefined ? { renderScale: l.renderScale } : {}),
-      ...(l.dynamicResolution !== undefined ? { dynamicResolution: l.dynamicResolution } : {}),
-      ...(l.occlusionCulling !== undefined ? { occlusionCulling: l.occlusionCulling } : {}),
-    });
+    // The engine's levels' scale and dynamic resolution are defaults: a project's own render_scale and
+    // dynamic_resolution settings stay its own. A project's own levels set them over the project's.
+    const scaling = { ...(l.renderScale !== undefined ? { renderScale: l.renderScale } : {}), ...(l.dynamicResolution !== undefined ? { dynamicResolution: l.dynamicResolution } : {}) };
+    const engine = levels() === DEFAULT_QUALITY_LEVELS;
+    targets.renderControl.setLevel(
+      {
+        ...(l.ambientOcclusion !== undefined ? { ambientOcclusion: l.ambientOcclusion } : {}),
+        ...(engine ? {} : scaling),
+        ...(l.occlusionCulling !== undefined ? { occlusionCulling: l.occlusionCulling } : {}),
+      },
+      engine ? scaling : {},
+    );
     targets.lodTuning.set({ ...projectLod, ...(l.lodBias !== undefined ? { bias: l.lodBias } : {}) });
     if (targets.setLightLimits({ shadowMapSize: l.shadowMapSize ?? null, localLights: l.localLights ?? null, shadowedLights: l.shadowedLights ?? null })) targets.reselectLights();
     const nextCap = l.pixelRatio ?? MAX_RENDER_PIXEL_RATIO;
@@ -126,9 +164,11 @@ export function createQualityControl(targets: QualityTargets, o: { readonly proj
       cap = nextCap;
       targets.setPixelRatioCap(cap);
     }
-    targets.setSurfaceCacheMiB?.(l.surfaceCacheMiB ?? DEFAULT_SURFACE_CACHE_MIB);
-    targets.setSurfaceLightMs?.(l.surfaceLightMs ?? DEFAULT_SURFACE_LIGHT_MS);
-    targets.environment()?.setQuality(pinned ?? chosen);
+    const lit = levelLighting(l);
+    targets.setSurfaceCacheMiB?.(lit.surfaceCacheMiB);
+    targets.setSurfaceLightMs?.(lit.surfaceLightMs);
+    targets.setSurfaceDetail?.(lit.surfaceRays, lit.surfaceReach);
+    targets.environment()?.setQuality(wanted());
     targets.changed();
   };
   apply();
@@ -151,23 +191,35 @@ export function createQualityControl(targets: QualityTargets, o: { readonly proj
     level: current,
     needsEnvironment: () => wanted() !== null || current().msaa === 0,
     applyEnvironment(env) {
-      env.setQuality(pinned ?? chosen);
+      env.setQuality(wanted());
     },
     pixelRatioCap: () => cap,
+    setDevice(info) {
+      const next = deviceLightingTier(info);
+      api = info.api;
+      if (device !== null && device.reason === next.reason) return;
+      device = next;
+      const level = deviceLevel();
+      console.info(`[thirdlight] quality: ${next.reason}${level !== null ? `; starts at level "${level}" unless the player, the game or the project names one` : '; the project\'s levels name no tier'}`);
+      apply();
+    },
+    tier: () => (api === 'webgl2' ? 'low' : levelLighting(current()).tier),
     diagnostics() {
       const l = current();
       const w = wanted();
       return {
         level: l.id,
         levels: levels().map((x) => x.id),
-        source: w === null || w !== l.id ? 'highest' : pinned !== null ? 'page' : chosen !== null ? 'chosen' : 'project',
+        source: w === null || w !== l.id ? 'highest' : pinned !== null ? 'page' : chosen !== null ? 'chosen' : project?.quality !== undefined ? 'project' : 'device',
+        tier: api === 'webgl2' ? 'low' : levelLighting(l).tier,
+        device,
         pixelRatioCap: cap,
         shadowMapSize: l.shadowMapSize ?? null,
         localLights: l.localLights ?? null,
         shadowedLights: l.shadowedLights ?? null,
         lodBias: targets.lodTuning.bias,
-        surfaceCacheMiB: l.surfaceCacheMiB ?? DEFAULT_SURFACE_CACHE_MIB,
-        surfaceLightMs: l.surfaceLightMs ?? DEFAULT_SURFACE_LIGHT_MS,
+        surfaceCacheMiB: levelLighting(l).surfaceCacheMiB,
+        surfaceLightMs: levelLighting(l).surfaceLightMs,
       };
     },
   };

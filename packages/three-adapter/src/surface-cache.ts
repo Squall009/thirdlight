@@ -99,10 +99,10 @@ function boxDistance(t: SurfaceTile, p: readonly number[]): number {
   return Math.sqrt(s);
 }
 
-/** The level for distance `d` (m). */
-export function surfaceLevelFor(d: number): number {
-  if (d <= SURFACE_LEVEL_METRES) return 0;
-  return Math.min(SURFACE_LEVELS - 1, Math.ceil(Math.log2(d / SURFACE_LEVEL_METRES) - 1e-9));
+/** The level for distance `d` (m), level 0 reaching `metres` (the lighting tier's reach × `SURFACE_LEVEL_METRES`). */
+export function surfaceLevelFor(d: number, metres = SURFACE_LEVEL_METRES): number {
+  if (d <= metres) return 0;
+  return Math.min(SURFACE_LEVELS - 1, Math.ceil(Math.log2(d / metres) - 1e-9));
 }
 
 export class SurfaceCache {
@@ -120,6 +120,9 @@ export class SurfaceCache {
   /** A saved bake drawn (no live light): the tiles it holds stand where it put them, nothing else is resident (null: live residency). */
   private saved: ReadonlyMap<string, SavedSurfaceTile> | null = null;
   private savedPages = 0;
+  /** How far level 0 reaches (m): the lighting tier's reach × `SURFACE_LEVEL_METRES`. */
+  private levelMetres = SURFACE_LEVEL_METRES;
+  private rays = 1;
 
   constructor(private budget: number) {
     this.atlas = new PageAtlas(0);
@@ -137,6 +140,24 @@ export class SurfaceCache {
 
   get budgetBytes(): number {
     return this.budget;
+  }
+
+  /** The lighting tier's multiple of every light's rays a texel casts (1: the engine's counts). */
+  get rayScale(): number {
+    return this.rays;
+  }
+
+  /**
+   * The lighting tier's detail: its multiple of the rays a texel casts, and
+   * of how far each level reaches (every tile takes its level again on the
+   * next update).
+   */
+  setDetail(rays: number, reach: number): void {
+    this.rays = rays;
+    const metres = SURFACE_LEVEL_METRES * reach;
+    if (metres === this.levelMetres) return;
+    this.levelMetres = metres;
+    this.at = null;
   }
 
   /** A bake's run (`level`: every tile at it; null: back to levels by distance). Everything is decided again on the next update. */
@@ -244,10 +265,10 @@ export class SurfaceCache {
     for (let n = 0; n < order.length; n += 1) {
       const { t, d } = order[n]!;
       const r = this.resident.get(t.key);
-      let level = this.bakeLevel ?? surfaceLevelFor(d);
+      let level = this.bakeLevel ?? surfaceLevelFor(d, this.levelMetres);
       if (r !== undefined && r.version === t.version && this.bakeLevel === null) {
-        const near = surfaceLevelFor(d * (1 - SURFACE_LEVEL_HYSTERESIS));
-        const far = surfaceLevelFor(d * (1 + SURFACE_LEVEL_HYSTERESIS));
+        const near = surfaceLevelFor(d * (1 - SURFACE_LEVEL_HYSTERESIS), this.levelMetres);
+        const far = surfaceLevelFor(d * (1 + SURFACE_LEVEL_HYSTERESIS), this.levelMetres);
         if (r.level >= near && r.level <= far) level = r.level;
       }
       let got = -1;

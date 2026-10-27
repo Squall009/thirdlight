@@ -50,7 +50,7 @@ Shared TypeScript and JSON modules every script can import as @lib/<id>.
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `scriptLibraries` | list of JSON: `ScriptLibrary` ([ScriptLibrary](types-p-t.md#type-script-library)) | `[]` |  | **Script libraries.** The project's libraries (each its own file). |
+| `scriptLibraries` | list of JSON: `ScriptLibrary` ([ScriptLibrary](types-o-t.md#type-script-library)) | `[]` |  | **Script libraries.** The project's libraries (each its own file). |
 
 <a id="content-blockTypes"></a>
 ## blockTypes — Block types
@@ -176,7 +176,7 @@ What a level style is built from, as one item: a trim sheet material, the archit
 | `kits[].trimMaterial` | material id |  |  | **Trim sheet.** The trim sheet material its presets and block faces read. |
 | `kits[].presets` | list of string, id, 1–64 chars, distinct |  |  | **Presets.** Architecture preset graphs (styles for rooms, buildings and runs). |
 | `kits[].blockTypes` | list of string, id, 1–64 chars, distinct |  |  | **Block types.** Block types the block editor's palette offers. |
-| `kits[].pieces` | JSON: `Record<string, KitPiece[]>` ([KitPiece](types-c-o.md#type-kit-piece)) |  |  | **Pieces.** Piece slots: {slot: [{assetId, piece?, weight?}, …]} (1-8 weighted pieces a slot). Standard slots: door, window, wall-override, corner, stairs, railing, roof-edge. |
+| `kits[].pieces` | JSON: `Record<string, KitPiece[]>` ([KitPiece](types-c-m.md#type-kit-piece)) |  |  | **Pieces.** Piece slots: {slot: [{assetId, piece?, weight?}, …]} (1-8 weighted pieces a slot). Standard slots: door, window, wall-override, corner, stairs, railing, roof-edge. |
 
 <a id="content-uiDocuments"></a>
 ## uiDocuments — UI documents
@@ -304,7 +304,7 @@ Conversations: node graphs of lines (speaker, expression, text, voice clip), cho
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `dialogues` | list of JSON: `DialogueDocument` ([DialogueDocument](types-c-o.md#type-dialogue-document)) | `[]` |  | **Dialogues.** The project's conversations (each its own file). |
+| `dialogues` | list of JSON: `DialogueDocument` ([DialogueDocument](types-c-m.md#type-dialogue-document)) | `[]` |  | **Dialogues.** The project's conversations (each its own file). |
 
 <a id="content-speakers"></a>
 ## speakers — Speakers
@@ -316,7 +316,7 @@ Who speaks in conversations: name, name-plate colour, portraits per expression, 
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `speakers` | list of JSON: `DialogueSpeaker` ([DialogueSpeaker](types-c-o.md#type-dialogue-speaker)) | `[]` |  | **Speakers.** The project's speakers. |
+| `speakers` | list of JSON: `DialogueSpeaker` ([DialogueSpeaker](types-c-m.md#type-dialogue-speaker)) | `[]` |  | **Speakers.** The project's speakers. |
 
 <a id="content-dialogueSettings"></a>
 ## dialogueSettings — Dialogue settings
@@ -328,7 +328,7 @@ Text speed, auto-advance and its delay, the music/SFX duck under a voice, the ba
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `value` | JSON: `DialogueSettings` ([DialogueSettings](types-c-o.md#type-dialogue-settings)) |  |  | **Dialogue settings.** { textSpeed? (chars/s, 0 instant), autoAdvance?, autoDelay? (s), duck? (0–1), backlog? (1–100), document? (uiDocumentId), theme? (uiThemeId), voiceMaxLateMs? (ms a voice whose file is not loaded may still start late; 1000) }. (written by a tool) |
+| `value` | JSON: `DialogueSettings` ([DialogueSettings](types-c-m.md#type-dialogue-settings)) |  |  | **Dialogue settings.** { textSpeed? (chars/s, 0 instant), autoAdvance?, autoDelay? (s), duck? (0–1), backlog? (1–100), document? (uiDocumentId), theme? (uiThemeId), voiceMaxLateMs? (ms a voice whose file is not loaded may still start late; 1000) }. (written by a tool) |
 
 <a id="content-timelines"></a>
 ## timelines — Timelines
@@ -340,7 +340,7 @@ Sequences of camera cuts, moves, animation, sound, dialogue, effects, signals an
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `timelines` | list of JSON: `TimelineAsset` ([TimelineAsset](types-p-t.md#type-timeline-asset)) | `[]` |  | **Timelines.** The project's timelines (each its own file). |
+| `timelines` | list of JSON: `TimelineAsset` ([TimelineAsset](types-o-t.md#type-timeline-asset)) | `[]` |  | **Timelines.** The project's timelines (each its own file). |
 
 <a id="content-graphs"></a>
 ## graphs — Graphs
@@ -352,7 +352,7 @@ Standalone node graphs, edited in the graph editor.
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `graphs` | list of JSON: `GraphDocument` ([GraphDocument](types-c-o.md#type-graph-document)) | `[]` |  | **Graphs.** The project's graphs (each its own file). |
+| `graphs` | list of JSON: `GraphDocument` ([GraphDocument](types-c-m.md#type-graph-document)) | `[]` |  | **Graphs.** The project's graphs (each its own file). |
 
 <a id="content-tags"></a>
 ## tags — Tags
@@ -431,4 +431,4 @@ The project save document (its version and migrations), the slot count, the engi
 | `thumbnail.height` | int |  | 16 – 512, step 1 | **Height.** Pixels. (required) |
 | `thumbnail.format` | enum: `jpeg`, `webp` |  |  | **Format.** JPEG or WebP. (required) |
 | `thumbnail.quality` | number |  | 0.1 – 1, step 0.05 | **Quality.** Encoder quality. |
-| `settings` | list of JSON: `SettingsField` ([SettingsField](types-p-t.md#type-settings-field)), ≤ 64 items |  |  | **Settings document.** Up to 64 fields the game's settings screen writes (ctx.saves.setSetting): { key, type: bool\|number\|string\|enum, default, label?, min?, max?, values?, engine?: music\|sfx\|ui\|quality\|frameRateCap }. |
+| `settings` | list of JSON: `SettingsField` ([SettingsField](types-o-t.md#type-settings-field)), ≤ 64 items |  |  | **Settings document.** Up to 64 fields the game's settings screen writes (ctx.saves.setSetting): { key, type: bool\|number\|string\|enum, default, label?, min?, max?, values?, engine?: music\|sfx\|ui\|quality\|frameRateCap }. |

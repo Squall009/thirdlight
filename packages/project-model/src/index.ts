@@ -1700,6 +1700,7 @@ export {
   RENDER_SCALE_MIN,
   RENDER_SETTINGS_DEFAULT,
   renderScaleOf,
+  ownRenderSettingsOf,
   renderSettingsOf,
   type AmbientOcclusionKind,
   type OcclusionCulling,
@@ -1731,7 +1732,18 @@ export {
   type ReflectionQuality,
   type QualityLevelConfig,
   type QualityLevelPost,
+  DEFAULT_LIGHTING_TIER,
+  LIGHTING_TIERS,
+  LIGHTING_TIER_SETTINGS,
+  levelLighting,
+  lightingTierRank,
+  lightingTierValues,
+  MEDIUM_RENDER_SCALE,
+  type LightingTier,
+  type LightingTierSettings,
 } from './quality-levels';
+// The quality level a device starts at (its lighting tier from its renderer and GPU).
+export { deviceGpuClassOf, deviceLightingTier, deviceQualityLevel, type DeviceGpuClass, type DeviceGpuInfo, type DeviceLightingTier } from './quality-device';
 // Dialogue (content.dialogues / speakers / dialogueSettings), its graph kind, expressions and the runtime form.
 export {
   DIALOGUE_DEFAULTS,

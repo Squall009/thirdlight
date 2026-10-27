@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { NEW_PROJECT_SETTINGS, resolveGameplaySettings } from './index';
-import { ambientOcclusionOf, occlusionCullingOf, occlusionCullingSettingValue, RENDER_SETTINGS_DEFAULT, renderScaleOf, renderSettingsOf } from './render-settings';
+import { ambientOcclusionOf, occlusionCullingOf, occlusionCullingSettingValue, ownRenderSettingsOf, RENDER_SETTINGS_DEFAULT, renderScaleOf, renderSettingsOf } from './render-settings';
 
 describe('render settings', () => {
   it('reads the project settings, with defaults for what is absent or out of range', () => {
@@ -27,6 +27,11 @@ describe('render settings', () => {
     expect(resolveGameplaySettings({ settings: { occlusion_culling: 0 } }).ok).toBe(true);
     expect(resolveGameplaySettings({ settings: { occlusion_culling: 2 } }).ok).toBe(true);
     expect(resolveGameplaySettings({ settings: { occlusion_culling: 3 } }).ok).toBe(false);
+  });
+
+  it('as a page applies them: the scale and dynamic resolution only where the project names them (the quality level\'s defaults otherwise)', () => {
+    expect(ownRenderSettingsOf({})).toEqual({ ambientOcclusion: RENDER_SETTINGS_DEFAULT.ambientOcclusion, occlusionCulling: RENDER_SETTINGS_DEFAULT.occlusionCulling });
+    expect(ownRenderSettingsOf({ render_scale: 0.5, dynamic_resolution: 0 })).toMatchObject({ renderScale: 0.5, dynamicResolution: false });
   });
 
   it("takes a player's choices by name", () => {

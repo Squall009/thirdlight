@@ -14,8 +14,8 @@ The quality levels, the default level and the environment presets (each scene ha
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `quality` | string, ≥ 1 chars |  |  | **Quality.** The quality level a game starts at, one of the levels' ids (players change it in Settings; absent: the highest). |
-| `qualityLevels` | list of objects, ≥ 1 items |  |  | **Quality levels.** The project's quality levels, lowest first (absent: the engine's low, medium and high: low draws no bloom, AO, depth of field, anti-aliasing or MSAA; medium no AO or depth of field). |
+| `quality` | string, ≥ 1 chars |  |  | **Quality.** The quality level a game starts at, one of the levels' ids (players change it in Settings; absent: the highest level whose lighting tier the device fits, else the highest). |
+| `qualityLevels` | list of objects, ≥ 1 items |  |  | **Quality levels.** The project's quality levels, lowest first (absent: the engine's low, medium and high, one per lighting tier: low draws no bloom, AO, depth of field, anti-aliasing or MSAA; medium no AO or depth of field, at a 0.667 render scale with dynamic resolution). |
 | `qualityLevels[]` | object |  |  | **Quality level.** Graphics settings players pick from. (rules: Level ids are unique.) |
 | `qualityLevels[].id` | string, 1–32 chars |  |  | **Id.** Named by environment.quality, a player's setting and game-control setQuality. (required) |
 | `qualityLevels[].name` | string, 1–64 chars |  |  | **Name.** Shown to players (absent: the id). |
@@ -45,10 +45,11 @@ The quality levels, the default level and the environment presets (each scene ha
 | `qualityLevels[].lodBias` | number |  | 0.25 – 4, step 0.05 | **LOD bias.** Above 1 keeps finer LODs further (absent: lod_bias). |
 | `qualityLevels[].dynamicResolution` | bool |  |  | **Dynamic resolution.** Lower the scale while the GPU is over budget (absent: dynamic_resolution). |
 | `qualityLevels[].occlusionCulling` | enum: `off`, `auto`, `on` |  |  | **Occlusion culling.** Leave out what solid objects hide: On culls, Auto none yet (absent: occlusion_culling). |
-| `qualityLevels[].surfaceCacheMiB` | number |  | 16 – 2048, step 16 | **Surface cache (MiB).** Memory the static surfaces' light may hold around the view (absent: 64). |
-| `qualityLevels[].surfaceLightMs` | number |  | 0 – 8, step 0.25 | **Live light (ms).** GPU time a frame may spend lighting what changed, nearest first; 0 draws saved light only (absent: 1.5). |
-| `qualityLevels[].contactShadows` | bool |  |  | **Contact shadows.** Screen-space contact shadows on the sun's light, with the look's post effects (absent: on). |
-| `qualityLevels[].reflections` | enum: `off`, `medium`, `high` |  |  | **Reflections.** Glossy surfaces reflect what the screen shows, and where it misses the static world traced and lit from the surface cache; WebGPU, with the look's post effects (absent: medium). |
+| `qualityLevels[].lighting` | enum: `low`, `medium`, `high` |  |  | **Lighting tier.** How much light runs live: low the saved light only, medium live within a GPU budget, high more rays, reach and memory; sets the four settings below where the level leaves them out (absent: medium). A device starts at the highest level whose tier it fits. |
+| `qualityLevels[].surfaceCacheMiB` | number |  | 16 – 2048, step 16 | **Surface cache (MiB).** Memory the static surfaces' light may hold around the view (absent: the tier's, low 32, medium 64, high 128). |
+| `qualityLevels[].surfaceLightMs` | number |  | 0 – 8, step 0.25 | **Live light (ms).** GPU time a frame may spend lighting what changed, nearest first; 0 draws saved light only (absent: the tier's, low 0, medium 1.5, high 3). |
+| `qualityLevels[].contactShadows` | bool |  |  | **Contact shadows.** Screen-space contact shadows on the sun's light, with the look's post effects (absent: the tier's, low off, medium on, high on). |
+| `qualityLevels[].reflections` | enum: `off`, `medium`, `high` |  |  | **Reflections.** Glossy surfaces reflect what the screen shows, and where it misses the static world traced and lit from the surface cache; WebGPU, with the look's post effects (absent: the tier's, low off, medium medium, high high). |
 | `presets` | list of objects, ≤ 64 items |  |  | **Presets.** Named looks scripts switch or blend to at run time (ctx.environment), laid over the active scene's look. |
 | `presets[]` | object |  |  | **Preset.** A named look: sky, fog, post-processing, light values, a lightmap multiplier and the wetness. (rules: Preset ids are unique.) |
 | `presets[].presetId` | string, identifier, 1–64 chars |  |  | **Id.** A stable id scripts use: a-z, 0-9, _ or -. (required; format identifier) |

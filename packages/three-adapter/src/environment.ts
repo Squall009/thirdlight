@@ -32,7 +32,7 @@
  */
 import * as THREE from 'three';
 import { PMREMGenerator as NodePMREMGenerator, type WebGPURenderer } from 'three/webgpu';
-import { AMBIENT_OCCLUSION_DEFAULT, DEFAULT_CONTACT_SHADOWS, DEFAULT_REFLECTIONS, levelPost, qualityLevelOf, qualityLevelsOf, SKY_DEFAULTS, type QualityLevelConfig } from '@thirdlight/runtime';
+import { AMBIENT_OCCLUSION_DEFAULT, levelLighting, levelPost, qualityLevelOf, qualityLevelsOf, SKY_DEFAULTS, type QualityLevelConfig } from '@thirdlight/runtime';
 
 import { CloudDrift, type CloudWind } from './cloud-drift';
 // Lit surfaces read the PMREM through a cube copy, made again after each bake.
@@ -376,7 +376,7 @@ function lutTexture(t: THREE.Texture): THREE.Texture {
 
 /** The reflections a level draws on this renderer (null: none; WebGL 2 keeps the environment and probes). */
 function reflectionsWanted(renderer: WebGPURenderer, level: QualityLevelConfig): 'medium' | 'high' | null {
-  const q = level.reflections ?? DEFAULT_REFLECTIONS;
+  const q = levelLighting(level).reflections;
   const webgpu = (renderer as unknown as { backend?: { isWebGPUBackend?: boolean } }).backend?.isWebGPUBackend === true;
   return q === 'off' || !webgpu || reflectionsFromUrl() === 'off' ? null : q;
 }
@@ -935,7 +935,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       grading: (g !== undefined && (g.brightness !== undefined || g.contrast !== undefined || g.saturation !== undefined || g.tint !== undefined || g.lut !== undefined || g.lift !== undefined || g.gamma !== undefined || g.gain !== undefined)) || p?.vignette?.enabled === true,
       aa: drawnAntialias(p?.antialias ?? 'none', renderer, render.temporal),
       // Not a post effect of its own: drawn with the look's post effects (it needs the scene pass's depth).
-      contact: !contactShadowsOff() && (level().contactShadows ?? DEFAULT_CONTACT_SHADOWS),
+      contact: !contactShadowsOff() && levelLighting(level()).contactShadows,
       // As contact shadows: drawn with the look's post effects. WebGL 2 keeps the environment and probes.
       reflections: reflectionsWanted(renderer, level()),
       traced: reflectionsFromUrl() !== 'screen',

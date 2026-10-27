@@ -190,6 +190,7 @@ function contextFields(p: ScriptContextParts, phase: SimulationPhase, modes: Beh
   fields['ui'] = { value: ui, enumerable: true };
   fields['stats'] = { get: () => p.engineStats.now(), enumerable: true };
   fields['display'] = { value: p.loop.display, enumerable: true };
+  fields['lighting'] = { value: p.engineStats.lighting, enumerable: true };
   // Conversations (ctx.dialogue; calls apply at the end of the step).
   fields['dialogue'] = { value: p.dialogue.api, enumerable: true };
   // The game modes, the run lifecycle, and which behaviors tick in the current mode.

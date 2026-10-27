@@ -633,6 +633,7 @@ const ENV_BASES: J[] = [
         lodBias: 0.5,
         dynamicResolution: true,
         occlusionCulling: 'off',
+        lighting: 'low',
         surfaceCacheMiB: 48,
         surfaceLightMs: 1,
         contactShadows: false,
@@ -1060,8 +1061,9 @@ describe('descriptor registry', () => {
     // subject parts foliage, about 1.3 KB; foliage bases taking the ground's colour, about 0.4 KB; the cylinder collider
     // shape and a collider's depth for its 2D shapes on the 3D backend, about 1.5 KB; the controller's movement
     // profile, about 0.3 KB; area lights — their shape, size and sides fields, preset and icon — about 2 KB; a quality
-    // level's reflections, about 0.4 KB; temporal upscaling as an anti-aliasing kind, about 0.1 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(352_500);
+    // level's reflections, about 0.4 KB; temporal upscaling as an anti-aliasing kind, about 0.1 KB; a quality level's
+    // lighting tier and the lighting fields' values per tier, about 0.7 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(353_300);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

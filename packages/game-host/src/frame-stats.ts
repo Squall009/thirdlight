@@ -7,8 +7,13 @@
  * geometry bytes against the texture budget, the objects, the quality
  * level, the frame-rate cap and what occlusion culling left out. One snapshot per window feeds `ctx.stats`, `$flow.stats`, the stats
  * overlay and Play diagnostics, so they all read the same numbers.
+ *
+ * The lighting drawn (its tier, live, settled) rides in the same snapshot,
+ * but a change of it is reported at the frame it happens, not at the
+ * window's end: `ctx.lighting.justSettled` is then the step after the light
+ * settled.
  */
-import { ENGINE_STATS_NONE, STATS_WINDOW_MS, type BehaviorStats, type BehaviorStatsOcclusion, type BehaviorStatsTime } from '@thirdlight/runtime';
+import { ENGINE_STATS_NONE, STATS_WINDOW_MS, type BehaviorStats, type BehaviorStatsLighting, type BehaviorStatsOcclusion, type BehaviorStatsTime } from '@thirdlight/runtime';
 
 /** What one window's snapshot is made from, read when the window ends. */
 export interface FrameStatsSources {
@@ -26,6 +31,8 @@ export interface FrameStatsSources {
   readonly frameRateCap: () => number | null;
   /** Occlusion culling in the last frame (absent: none, on no path). */
   readonly occlusion?: () => BehaviorStatsOcclusion | undefined;
+  /** The lighting drawn (absent: none reported). */
+  readonly lighting?: () => BehaviorStatsLighting | undefined;
 }
 
 export interface FrameStats {
@@ -36,6 +43,8 @@ export interface FrameStats {
   frame(cpuMs: number, now: number): boolean;
   /** The last window's snapshot (null before the first window ends). */
   snapshot(): BehaviorStats | null;
+  /** The lighting changed between windows: the last snapshot with it (a snapshot of nothing measured before the first window). */
+  relit(lighting: BehaviorStatsLighting): BehaviorStats;
 }
 
 const round = (v: number): number => Math.round(v * 100) / 100;
@@ -83,6 +92,7 @@ export function createFrameStats(sources: FrameStatsSources, windowMs: number = 
         quality: sources.quality(),
         frameRateCap: sources.frameRateCap(),
         occlusion: sources.occlusion?.() ?? ENGINE_STATS_NONE.occlusion,
+        lighting: sources.lighting?.() ?? ENGINE_STATS_NONE.lighting,
         windowMs: round(elapsed),
       };
       windowStart = now;
@@ -95,12 +105,16 @@ export function createFrameStats(sources: FrameStatsSources, windowMs: number = 
       return true;
     },
     snapshot: () => current,
+    relit(lighting) {
+      current = { ...(current ?? { ...ENGINE_STATS_NONE, quality: sources.quality(), frameRateCap: sources.frameRateCap() }), lighting };
+      return current;
+    },
   };
 }
 
 /** What the host gives its stats: the adapter, the runtime and the page's resource views, read when a window ends. */
 export interface HostStatsDeps {
-  readonly adapter: () => { diagnostics?(): { ok: true; diagnostics: { frame?: { drawCalls: number; triangles: number }; occlusion?: { path: BehaviorStatsOcclusion['path']; tested: number; culled: number } } } | { ok: false }; takeGpuTime?(): { ms: number; frames: number; worst: number } | null; qualityLevel?(): string } | null;
+  readonly adapter: () => { diagnostics?(): { ok: true; diagnostics: { frame?: { drawCalls: number; triangles: number }; occlusion?: { path: BehaviorStatsOcclusion['path']; tested: number; culled: number } } } | { ok: false }; takeGpuTime?(): { ms: number; frames: number; worst: number } | null; qualityLevel?(): string; lightingState?(): BehaviorStatsLighting } | null;
   readonly entities: () => number;
   /** The texture streamer's observation (resident and budget bytes). */
   readonly textureStreaming?: () => object;
@@ -134,6 +148,8 @@ export function geometryBytesOf(resident: Readonly<Record<string, { bytes: numbe
 
 export function createHostStats(deps: HostStatsDeps): HostStats {
   let lastOcclusion: { path: BehaviorStatsOcclusion['path']; tested: number; culled: number } | undefined;
+  /** The lighting last reported. */
+  let lit: BehaviorStatsLighting | undefined;
   const stats = createFrameStats({
     frame: () => {
       const d = deps.adapter()?.diagnostics?.();
@@ -151,6 +167,7 @@ export function createHostStats(deps: HostStatsDeps): HostStats {
     entities: deps.entities,
     quality: () => deps.adapter()?.qualityLevel?.() ?? 'high',
     frameRateCap: deps.frameRateCap,
+    lighting: () => lit,
   });
   let start = 0;
   return {
@@ -162,7 +179,11 @@ export function createHostStats(deps: HostStatsDeps): HostStats {
     },
     end() {
       const now = performance.now();
+      const l = deps.adapter()?.lightingState?.();
+      const relit = l !== undefined && (lit === undefined || l.tier !== lit.tier || l.live !== lit.live || l.settled !== lit.settled);
+      if (relit) lit = { tier: l.tier, live: l.live, settled: l.settled };
       if (stats.frame(now - start, now)) deps.published(stats.snapshot()!);
+      else if (relit) deps.published(stats.relit(lit!));
     },
     snapshot: () => stats.snapshot(),
   };

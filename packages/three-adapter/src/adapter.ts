@@ -55,7 +55,7 @@ import { OcclusionCuller } from './occlusion';
 import { OCCLUSION_ORACLE_KEY, runOcclusionOracle, type OracleOptions } from './occlusion-oracle';
 import { PrecompileGate } from './precompile-gate';
 import { createProbeLightingHost } from './probe-grids';
-import { createQualityControl } from './quality-control';
+import { createQualityControl, deviceGpuInfoOf } from './quality-control';
 import { createAdapterSurfaceCache, markStaticModelRead, surfaceCacheBytes } from './adapter-surface-cache';
 import type { SurfaceCacheHost } from './surface-cache-host';
 import { AdapterSurfaceLight } from './adapter-surface-light';
@@ -253,6 +253,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       lights.rendererReplaced();
       // A new renderer (a lost device) builds its programs ahead of its first present too.
       precompile.restart();
+      // The device's tier picks the quality level when nobody chose one.
+      qualityControl.setDevice(deviceGpuInfoOf(r, api));
     },
   });
   // Occlusion culling (occlusion.ts): the project's or quality level's setting, the renderer's path, the page's pin.
@@ -296,7 +298,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         environment.resized();
       },
       environment: () => environment.renderer,
-      ...(surfaceCache !== null ? { setSurfaceCacheMiB: (mib: number) => surfaceCache.setBudget(surfaceCacheBytes(mib)), setSurfaceLightMs: (ms: number) => surfaceCache.setRelightBudget(ms) } : {}),
+      ...(surfaceCache !== null ? { setSurfaceCacheMiB: (mib: number) => surfaceCache.setBudget(surfaceCacheBytes(mib)), setSurfaceLightMs: (ms: number) => surfaceCache.setRelightBudget(ms), setSurfaceDetail: (rays: number, reach: number) => surfaceCache.cache.setDetail(rays, reach) } : {}),
       changed: () => opts.onChange?.(),
     },
     { project: environment.look.value, ...(opts.lod !== undefined ? { lod: opts.lod } : {}), pinned: opts.qualityPinned ?? null },

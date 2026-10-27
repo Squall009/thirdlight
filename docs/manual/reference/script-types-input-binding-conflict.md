@@ -1,8 +1,54 @@
-# Script API types (from `BlockCell`)
+# Script API types (from `InputBindingConflict`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 Every declaration the script API reaches, as the runtime declares it (doc comments included), in the order the API reaches them.
+
+<a id="script-type-input-binding-conflict"></a>
+## `InputBindingConflict`
+
+```ts
+/** An action binding that uses the same input as a new binding. */
+export interface InputBindingConflict {
+  readonly action: string;
+  readonly index: number;
+  readonly part?: InputBindingPart;
+}
+```
+
+<a id="script-type-rebind-conflict-policy"></a>
+## `RebindConflictPolicy`
+
+```ts
+/** What happens when a new binding's input is already used by another action of the same map. */
+export type RebindConflictPolicy = 'swap' | 'refuse' | 'allow';
+```
+
+<a id="script-type-debug-command-arg-spec"></a>
+## `DebugCommandArgSpec`
+
+```ts
+/** One declared argument of a debug command. */
+export interface DebugCommandArgSpec {
+  /** The argument's name (a letter or _, then letters, digits, _ . : -). */
+  readonly name: string;
+  readonly type: DebugCommandArgType;
+  /** May be left out of a call (a call without it has no such key). */
+  readonly optional?: boolean;
+}
+```
+
+<a id="script-type-grid-door-side"></a>
+## `GridDoorSide`
+
+```ts
+/** One side of a linked door (world metres; `facing`: degrees about +Y turning +Z toward the way out of the door on that side). */
+export interface GridDoorSide {
+  readonly position: readonly [number, number, number];
+  readonly spawn: readonly [number, number, number];
+  readonly facing: number;
+}
+```
 
 <a id="script-type-block-cell"></a>
 ## `BlockCell`

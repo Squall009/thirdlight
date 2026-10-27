@@ -163,6 +163,45 @@ export interface BehaviorStatsOcclusion {
   readonly culled: number;
 }
 
+/** The lighting the page draws, as `ctx.stats.lighting` reports it. */
+export interface BehaviorStatsLighting {
+  /** The quality level's lighting tier: low (saved light only, always on WebGL 2), medium or high (live). */
+  readonly tier: 'low' | 'medium' | 'high';
+  /** Whether the static surfaces' light is computed live on this device. */
+  readonly live: boolean;
+  /** Whether it has caught up: live, nothing left to light again; saved, the saved light read. */
+  readonly settled: boolean;
+}
+
+/**
+ * `ctx.lighting`: the lighting the page draws on this device — the quality
+ * level's lighting tier and whether the light has settled after a load or a
+ * change (a lamp switched, a block dug, time of day). Presentation, as
+ * `ctx.stats`: measured by the page, not in the digest or a save.
+ */
+export interface BehaviorLighting {
+  /**
+   * The lighting tier: 'low' (saved light only, always on WebGL 2), 'medium' or 'high' (live).
+   * @graphNode Lighting tier
+   */
+  readonly tier: 'low' | 'medium' | 'high';
+  /**
+   * The static surfaces' light is computed live on this device.
+   * @graphNode Lighting live
+   */
+  readonly live: boolean;
+  /**
+   * The lighting has caught up (live: nothing left to light again; saved: the saved light read).
+   * @graphNode Lighting settled
+   */
+  readonly settled: boolean;
+  /**
+   * True in the first step after the lighting settled (the event: a loading screen may lift then); false in every other step.
+   * @graphNode Lighting just settled
+   */
+  readonly justSettled: boolean;
+}
+
 /**
  * `ctx.stats` (and `$flow.stats` in UI documents): how the game runs on this
  * device, measured by the page over its last stats window. Presentation, not
@@ -196,6 +235,8 @@ export interface BehaviorStats {
   readonly frameRateCap: number | null;
   /** Occlusion culling in the last frame (the project's occlusion_culling setting, its quality level's). */
   readonly occlusion: BehaviorStatsOcclusion;
+  /** The lighting drawn: its tier, live or saved, settled (reported again as soon as it changes). */
+  readonly lighting: BehaviorStatsLighting;
   /** The window the times are measured over (ms). */
   readonly windowMs: number;
 }

@@ -14,6 +14,13 @@ function harness(project: QualityProjectLike | null, o: { pinned?: string; lod?:
   let reselects = 0;
   let changes = 0;
   const envQuality: (string | null)[] = [];
+  const surface: { mib: number; ms: number; rays: number; reach: number }[] = [];
+  const at = (): { mib: number; ms: number; rays: number; reach: number } => {
+    const last = surface[surface.length - 1];
+    const next = { mib: last?.mib ?? 0, ms: last?.ms ?? 0, rays: last?.rays ?? 0, reach: last?.reach ?? 0 };
+    surface.push(next);
+    return next;
+  };
   const env = { setQuality: (id: string | null) => envQuality.push(id) } as unknown as EnvironmentRenderer;
   const q = createQualityControl(
     {
@@ -27,11 +34,14 @@ function harness(project: QualityProjectLike | null, o: { pinned?: string; lod?:
       reselectLights: () => void (reselects += 1),
       setPixelRatioCap: (cap) => void caps.push(cap),
       environment: () => env,
+      setSurfaceCacheMiB: (mib) => void (at().mib = mib),
+      setSurfaceLightMs: (ms) => void (at().ms = ms),
+      setSurfaceDetail: (rays, reach) => void Object.assign(at(), { rays, reach }),
       changed: () => void (changes += 1),
     },
     { project, ...(o.lod !== undefined ? { lod: o.lod } : {}), pinned: o.pinned ?? null },
   );
-  return { q, renderControl, lodTuning, limits, caps, envQuality, reselects: () => reselects, changes: () => changes };
+  return { q, renderControl, lodTuning, limits, caps, envQuality, surface: () => surface[surface.length - 1], reselects: () => reselects, changes: () => changes };
 }
 
 const LEVELS: QualityProjectLike = {
@@ -115,5 +125,43 @@ describe('quality control', () => {
     expect(h.renderControl.diagnostics()).toMatchObject({ ambientOcclusion: 'off', renderScale: 1, dynamicResolution: false });
     h.q.choose('ultra');
     expect(h.renderControl.diagnostics()).toMatchObject({ renderScale: 1, dynamicResolution: false });
+  });
+
+  it('the device picks the level when nobody chose one: its tier\'s lighting reaches the surface cache, the level\'s scale the render control', () => {
+    const intel = { api: 'webgpu' as const, vendor: 'intel', architecture: 'gen-12lp' };
+    const h = harness(null);
+    // Before the renderer is up: the highest, as before.
+    expect(h.q.level().id).toBe('high');
+    expect(h.surface()).toEqual({ mib: 128, ms: 3, rays: 2, reach: 2 });
+    h.q.setDevice(intel);
+    expect(h.q.diagnostics()).toMatchObject({ level: 'medium', source: 'device', tier: 'medium', surfaceCacheMiB: 64, surfaceLightMs: 1.5, device: { tier: 'medium', gpu: 'integrated' } });
+    expect(h.surface()).toEqual({ mib: 64, ms: 1.5, rays: 1, reach: 1 });
+    expect(h.renderControl.diagnostics()).toMatchObject({ renderScale: 0.667, dynamicResolution: true });
+    // The engine level's scale is a default: a project's own render_scale and dynamic_resolution stay its own.
+    const own = harness(null, { render: { renderScale: 0.5, dynamicResolution: false } });
+    own.q.setDevice(intel);
+    expect(own.renderControl.diagnostics()).toMatchObject({ renderScale: 0.5, dynamicResolution: false });
+    expect(h.envQuality.at(-1)).toBe('medium');
+    // The same device again (a renderer made again after a lost device) changes nothing.
+    const changes = h.changes();
+    h.q.setDevice(intel);
+    expect(h.changes()).toBe(changes);
+    // A player's choice wins over the device.
+    expect(h.q.choose('high')).toBe(true);
+    expect(h.q.diagnostics()).toMatchObject({ level: 'high', source: 'chosen', tier: 'high' });
+    // A project's starting level wins over the device; WebGL 2 is low, its tier low whatever the level.
+    const p = harness({ quality: 'high' });
+    p.q.setDevice(intel);
+    expect(p.q.diagnostics()).toMatchObject({ level: 'high', source: 'project' });
+    const gl = harness(null);
+    gl.q.setDevice({ api: 'webgl2' });
+    expect(gl.q.diagnostics()).toMatchObject({ level: 'low', source: 'device', tier: 'low' });
+    expect(gl.surface()).toMatchObject({ ms: 0, mib: 32 });
+    gl.q.choose('high');
+    expect(gl.q.tier()).toBe('low');
+    // A project whose levels name no tier: the device does not choose.
+    const untiered = harness({ qualityLevels: [{ id: 'a' }, { id: 'b' }] });
+    untiered.q.setDevice({ api: 'webgpu', vendor: 'nvidia' });
+    expect(untiered.q.diagnostics()).toMatchObject({ level: 'b', source: 'highest', tier: 'medium' });
   });
 });

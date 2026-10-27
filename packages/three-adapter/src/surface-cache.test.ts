@@ -539,6 +539,15 @@ describe('surface cache: residency within the budget', () => {
     expect(roomy.diagnostics().tiles.resident).toBe(2000);
     expect(roomy.levelOf('t0')).toBe(0);
     expect(roomy.levelOf('t1999')).toBe(surfaceLevelFor(1999 * 14));
+    // The high tier's reach: each level reaches twice as far, so a tile 20 m out stays at 10 cm.
+    expect(surfaceLevelFor(20, 24)).toBe(0);
+    roomy.setDetail(1, 2);
+    roomy.update([0, 0, 0], tiles, [], true);
+    expect([roomy.levelOf('t1'), roomy.levelOf('t2')]).toEqual([0, 1]);
+    expect(roomy.levelOf('t1999')).toBe(surfaceLevelFor(1999 * 14, 24));
+    roomy.setDetail(1, 1);
+    roomy.update([0, 0, 0], tiles, [], true);
+    expect(roomy.levelOf('t1')).toBe(surfaceLevelFor(14));
     // Four pages: a 24 m chart at level 0 takes one, at level 5 a 16² block.
     const tight = new SurfaceCache(4 * SURFACE_PAGE_BYTES);
     tight.update([0, 0, 0], tiles, [], true);

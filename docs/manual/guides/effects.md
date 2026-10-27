@@ -35,7 +35,7 @@ visual only: the game simulation never reads them back.
 ## Through the API
 
 1. The effect ([`setEffect`](../reference/ops-detail.md#op-setEffect),
-   [`EffectDef`](../reference/types-c-o.md#type-effect-def)) — one node of
+   [`EffectDef`](../reference/types-c-m.md#type-effect-def)) — one node of
    each context type, here with the type as its id:
    ```json
    {"effect": {"effectId": "sparks", "name": "Sparks", "duration": 2, "loop": true, "seed": 1,

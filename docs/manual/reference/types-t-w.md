@@ -1,8 +1,100 @@
-# Types (TimelineTrack to WindOctave)
+# Types (TimelineKey to WindOctave)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-timeline-key"></a>
+### TimelineKey
+
+Declared in `packages/project-model/src/timelines.ts`.
+
+```ts
+interface TimelineKey {
+  /** Seconds from the timeline's start (0 – duration). */
+  time: number;
+  /** A clip's length (seconds): effect, sfx. */
+  duration?: number;
+  easing?: TimelineEasing;
+  // camera
+  camera?: string;
+  release?: boolean;
+  blend?: 'cut' | 'linear' | 'eased';
+  blendTime?: number;
+  progress?: [number, number];
+  // transform
+  position?: [number, number, number];
+  rotation?: [number, number, number, number];
+  scale?: [number, number, number];
+  // animator / audio
+  kind?: 'set' | 'trigger' | 'play' | 'music' | 'release' | 'stinger' | 'sfx';
+  name?: string;
+  value?: TimelineValue | boolean;
+  fade?: number;
+  layer?: number;
+  asset?: string;
+  volume?: number;
+  loop?: boolean;
+  at?: string;
+  /** Stinger / sfx: how late (ms) it may still start when its file is not ready yet (absent: the engine's default). */
+  maxLateMs?: number;
+  // dialogue
+  dialogue?: string;
+  node?: string;
+  wait?: boolean;
+  // effect
+  effect?: string;
+  params?: Record<string, number | number[] | string>;
+  // activation
+  active?: boolean;
+  // materialSwap: slot (a model's material name, or "*") → materialId; null: the authored material again
+  materials?: Record<string, string | null>;
+  // signal
+  onSkip?: 'fire' | 'drop';
+  // fade
+  color?: string;
+  // wait
+  action?: string;
+  timeout?: number;
+  // environment
+  preset?: string;
+  // mode: the game mode; character: place | walk
+  mode?: string;
+  // character
+  /** Degrees about +Y (0 faces +Z, 90 faces +X): where a character faces once placed or arrived, or now. */
+  facing?: number;
+  /** A walk key: at the run speed. */
+  run?: boolean;
+  /** Switch the character's controller off (it stays where it is: no input, no gravity) or on. */
+  enabled?: boolean;
+}
+```
+
+<a id="type-timeline-marker"></a>
+### TimelineMarker
+
+Declared in `packages/project-model/src/timelines.ts`.
+
+```ts
+interface TimelineMarker {
+  name: string;
+  time: number;
+}
+```
+
+<a id="type-timeline-slot"></a>
+### TimelineSlot
+
+Declared in `packages/project-model/src/timelines.ts`.
+
+```ts
+interface TimelineSlot {
+  /** The name tracks use (`[A-Za-z_][A-Za-z0-9_]{0,31}`). */
+  name: string;
+  /** The default binding (an entity id); a play call may bind another. */
+  entity?: string;
+}
+```
 
 <a id="type-timeline-track"></a>
 ### TimelineTrack

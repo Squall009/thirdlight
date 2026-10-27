@@ -281,7 +281,7 @@ export class RuntimeInstance implements Runtime {
   private readonly ui: UiState;
   /** The dialogue runner (inert without conversations) and dialogue inputs waiting for the next sampled step. */
   private readonly dialogue: DialogueRunner;
-  private readonly engineStats = new EngineStatsHolder();
+  private readonly engineStats = new EngineStatsHolder(() => this.sim.stepIndex);
   /** The rAF driver's loop, paced by the game's frame-rate cap, and `ctx.display` over it. */
   private readonly loop: FrameLoop;
   // ---- Game modes and the run lifecycle ----

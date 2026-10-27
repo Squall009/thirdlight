@@ -80,6 +80,7 @@ What `step(state, ctx)` and the other callbacks receive. A member's own page sec
 | `ctx.ui?` | property | `BehaviorUi \| undefined` | [`BehaviorUi`](script-types-behavior-materials.md#script-type-behavior-ui) | The project UI — publish view-model values, show and hide UI documents, read the step's UI events. |
 | `ctx.stats?` | property | `BehaviorStats \| undefined` | [`BehaviorStats`](script-types-behavior-materials.md#script-type-behavior-stats) | How the game runs on this device (read-only): fps, frame, CPU and GPU times (average and worst over the last window; GPU null where not measured), draw calls, triangles, resident texture bytes against the budget, geometry bytes, objects, the quality level. |
 | `ctx.display?` | property | `BehaviorDisplay \| undefined` | [`BehaviorDisplay`](script-types-behavior-materials.md#script-type-behavior-display) | The frame-rate cap: the most frames per second the page draws (30, 60, 120 or none) — read it and set it. |
+| `ctx.lighting?` | property | `BehaviorLighting \| undefined` | [`BehaviorLighting`](script-types-behavior-materials.md#script-type-behavior-lighting) | The lighting on this device: the quality level's lighting tier, whether it runs live, whether it has settled, and `justSettled` in the step after it settled. |
 | `ctx.dialogue?` | property | `BehaviorDialogue \| undefined` | [`BehaviorDialogue`](script-types-behavior-materials.md#script-type-behavior-dialogue) | Conversations — start a dialogue, advance, choose, skip seen lines, auto-advance, dialogue variables, the backlog and the events of lines, choices and signals. |
 | `ctx.modes?` | property | `BehaviorModes \| undefined` | [`BehaviorModes`](script-types-behavior-materials.md#script-type-behavior-modes) | The game modes — the current mode, switching (input maps, camera, UI, ticking groups together), enter/exit events. |
 | `ctx.lifecycle?` | property | `BehaviorLifecycle \| undefined` | [`BehaviorLifecycle`](script-types-behavior-materials.md#script-type-behavior-lifecycle) | The run lifecycle — respawn the character at a spawn, restart the run. |
@@ -200,6 +201,9 @@ geometry bytes, objects, the quality level. Measured by the page, not simulation
 
 <a id="ctx-display"></a>**`ctx.display`** — The frame-rate cap: the most frames per second the page draws (30, 60, 120 or none) — read it and set it.
 Presentation: game time keeps its fixed step.
+
+<a id="ctx-lighting"></a>**`ctx.lighting`** — The lighting on this device: the quality level's lighting tier, whether it runs live, whether it has
+settled, and `justSettled` in the step after it settled. Measured by the page, not simulation state.
 
 <a id="ctx-dialogue"></a>**`ctx.dialogue`** — Conversations — start a dialogue, advance, choose, skip seen lines, auto-advance,
 dialogue variables, the backlog and the events of lines, choices and signals.

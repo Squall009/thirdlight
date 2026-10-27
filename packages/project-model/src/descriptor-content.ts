@@ -43,7 +43,7 @@ import { TRIM_DENSITY_MAX, TRIM_DENSITY_MIN, TRIM_PADDING_MAX, TRIM_SHEET_DEFAUL
 import { MODE_LIMITS } from './modes';
 import { MAX_LOCAL_LIGHTS } from './local-lights';
 import { LOD_BIAS_MAX, LOD_BIAS_MIN } from './model-lod';
-import { DEFAULT_CONTACT_SHADOWS, DEFAULT_REFLECTIONS, DEFAULT_SURFACE_CACHE_MIB, DEFAULT_SURFACE_LIGHT_MS, MSAA_SAMPLE_COUNTS, PIXEL_RATIO_CAP_MAX, PIXEL_RATIO_CAP_MIN, QUALITY_POST_EFFECTS, REFLECTION_QUALITIES, SHADOW_MAP_SIZES, SURFACE_CACHE_MIB_MAX, SURFACE_CACHE_MIB_MIN, SURFACE_LIGHT_MS_MAX, SURFACE_LIGHT_MS_MIN } from './quality-levels';
+import { DEFAULT_LIGHTING_TIER, LIGHTING_TIERS, lightingTierValues, MEDIUM_RENDER_SCALE, MSAA_SAMPLE_COUNTS, PIXEL_RATIO_CAP_MAX, PIXEL_RATIO_CAP_MIN, QUALITY_POST_EFFECTS, REFLECTION_QUALITIES, SHADOW_MAP_SIZES, SURFACE_CACHE_MIB_MAX, SURFACE_CACHE_MIB_MIN, SURFACE_LIGHT_MS_MAX, SURFACE_LIGHT_MS_MIN } from './quality-levels';
 import { AMBIENT_OCCLUSION_KINDS, OCCLUSION_CULLING_MODES, RENDER_SCALE_MAX, RENDER_SCALE_MIN } from './render-settings';
 import { LIGHT_TYPES, MAX_TAGS } from './types-v3';
 import { WIND_DEFAULTS, WIND_LIMITS } from './wind';
@@ -211,15 +211,16 @@ const QUALITY_LEVEL = obj('level', 'Quality level', 'Graphics settings players p
   num('lodBias', 'LOD bias', 'Above 1 keeps finer LODs further (absent: lod_bias).', { min: LOD_BIAS_MIN, max: LOD_BIAS_MAX, step: 0.05 }),
   bool('dynamicResolution', 'Dynamic resolution', 'Lower the scale while the GPU is over budget (absent: dynamic_resolution).'),
   enm('occlusionCulling', 'Occlusion culling', 'Leave out what solid objects hide: On culls, Auto none yet (absent: occlusion_culling).', [...OCCLUSION_CULLING_MODES], { labels: { off: 'Off', auto: 'Auto', on: 'On' } }),
-  num('surfaceCacheMiB', 'Surface cache (MiB)', `Memory the static surfaces' light may hold around the view (absent: ${DEFAULT_SURFACE_CACHE_MIB}).`, { min: SURFACE_CACHE_MIB_MIN, max: SURFACE_CACHE_MIB_MAX, step: 16 }),
-  num('surfaceLightMs', 'Live light (ms)', `GPU time a frame may spend lighting what changed, nearest first; 0 draws saved light only (absent: ${DEFAULT_SURFACE_LIGHT_MS}).`, { min: SURFACE_LIGHT_MS_MIN, max: SURFACE_LIGHT_MS_MAX, step: 0.25 }),
-  bool('contactShadows', 'Contact shadows', `Screen-space contact shadows on the sun's light, with the look's post effects (absent: ${DEFAULT_CONTACT_SHADOWS ? 'on' : 'off'}).`),
-  enm('reflections', 'Reflections', `Glossy surfaces reflect what the screen shows, and where it misses the static world traced and lit from the surface cache; WebGPU, with the look's post effects (absent: ${DEFAULT_REFLECTIONS}).`, [...REFLECTION_QUALITIES], { labels: { off: 'Off', medium: 'Medium', high: 'High' } }),
+  enm('lighting', 'Lighting tier', `How much light runs live: low the saved light only, medium live within a GPU budget, high more rays, reach and memory; sets the four settings below where the level leaves them out (absent: ${DEFAULT_LIGHTING_TIER}). A device starts at the highest level whose tier it fits.`, [...LIGHTING_TIERS], { labels: { low: 'Low', medium: 'Medium', high: 'High' } }),
+  num('surfaceCacheMiB', 'Surface cache (MiB)', `Memory the static surfaces' light may hold around the view (absent: the tier's, ${lightingTierValues((t) => t.surfaceCacheMiB)}).`, { min: SURFACE_CACHE_MIB_MIN, max: SURFACE_CACHE_MIB_MAX, step: 16 }),
+  num('surfaceLightMs', 'Live light (ms)', `GPU time a frame may spend lighting what changed, nearest first; 0 draws saved light only (absent: the tier's, ${lightingTierValues((t) => t.surfaceLightMs)}).`, { min: SURFACE_LIGHT_MS_MIN, max: SURFACE_LIGHT_MS_MAX, step: 0.25 }),
+  bool('contactShadows', 'Contact shadows', `Screen-space contact shadows on the sun's light, with the look's post effects (absent: the tier's, ${lightingTierValues((t) => (t.contactShadows ? 'on' : 'off'))}).`),
+  enm('reflections', 'Reflections', `Glossy surfaces reflect what the screen shows, and where it misses the static world traced and lit from the surface cache; WebGPU, with the look's post effects (absent: the tier's, ${lightingTierValues((t) => t.reflections)}).`, [...REFLECTION_QUALITIES], { labels: { off: 'Off', medium: 'Medium', high: 'High' } }),
 ], { rules: ['Level ids are unique.'] });
 
 const ENVIRONMENT: FieldDescriptor = obj('environment', 'Environment', 'The quality levels, the one a game starts at, and the presets; each scene has its own sky, fog, post-processing and wind.', [
-  str('quality', 'Quality', 'The quality level a game starts at, one of the levels\' ids (players change it in Settings; absent: the highest).', { minLength: 1 }),
-  list('qualityLevels', 'Quality levels', 'The project\'s quality levels, lowest first (absent: the engine\'s low, medium and high: low draws no bloom, AO, depth of field, anti-aliasing or MSAA; medium no AO or depth of field).', QUALITY_LEVEL, { minItems: 1 }),
+  str('quality', 'Quality', 'The quality level a game starts at, one of the levels\' ids (players change it in Settings; absent: the highest level whose lighting tier the device fits, else the highest).', { minLength: 1 }),
+  list('qualityLevels', 'Quality levels', `The project's quality levels, lowest first (absent: the engine's low, medium and high, one per lighting tier: low draws no bloom, AO, depth of field, anti-aliasing or MSAA; medium no AO or depth of field, at a ${MEDIUM_RENDER_SCALE} render scale with dynamic resolution).`, QUALITY_LEVEL, { minItems: 1 }),
   list('presets', 'Presets', 'Named looks scripts switch or blend to at run time (ctx.environment), laid over the active scene\'s look.', PRESET, { maxItems: 64 }),
 ]);
 

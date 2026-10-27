@@ -173,6 +173,11 @@ export interface BehaviorContext {
    */
   readonly display?: BehaviorDisplay;
   /**
+   * The lighting on this device: the quality level's lighting tier, whether it runs live, whether it has
+   * settled, and `justSettled` in the step after it settled. Measured by the page, not simulation state.
+   */
+  readonly lighting?: BehaviorLighting;
+  /**
    * Conversations — start a dialogue, advance, choose, skip seen lines, auto-advance,
    * dialogue variables, the backlog and the events of lines, choices and signals.
    */

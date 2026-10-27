@@ -18,22 +18,25 @@
  *   are drawn and how many of them draw their shadow, the kind of ambient
  *   occlusion, the LOD bias, dynamic resolution and occlusion culling. Each one a level leaves out is the
  *   project's setting.
+ * - `lighting`: the level's lighting tier (`low`, `medium`, `high`;
+ *   `LIGHTING_TIER_SETTINGS` holds what each tier sets, the one place its
+ *   values live). A level that names none is `DEFAULT_LIGHTING_TIER`. The
+ *   tier sets the four lighting settings below; a level's own value of one
+ *   lays over its tier's.
  * - `surfaceCacheMiB`: the memory the surface cache (the static surfaces'
  *   light) may hold around the view, in MiB: a budget, never a count of
- *   surfaces or lights. A level that leaves it out holds
- *   `DEFAULT_SURFACE_CACHE_MIB`.
+ *   surfaces or lights.
  * - `surfaceLightMs`: the GPU time a frame may spend lighting the surface
  *   cache's stale texels, in ms (changes are lit within it, nearest first;
  *   a settled scene spends none). 0 draws only saved light, as WebGL 2
- *   always does. A level that leaves it out takes `DEFAULT_SURFACE_LIGHT_MS`.
+ *   always does.
  * - `contactShadows`: screen-space contact shadows on the sun's light (its
  *   map's missing fine detail), where the frame is drawn through the post
- *   stack. A level that leaves it out takes `DEFAULT_CONTACT_SHADOWS`.
+ *   stack.
  * - `reflections`: screen-space reflections on glossy surfaces (WebGPU,
  *   with the look's post effects), where they miss traced through the
  *   static world and lit from the surface cache: `off`, `medium` or `high`
- *   (more steps, more traced rays). A level that leaves it out takes
- *   `DEFAULT_REFLECTIONS`.
+ *   (more steps, more traced rays).
  *
  * A player's settings field bound to one of those renderer settings (`renderScale`,
  * `ambientOcclusion`, `dynamicResolution`) lays over the level: a player's own
@@ -69,22 +72,82 @@ export const PIXEL_RATIO_CAP_MAX = 2;
 /** The range of a level's surface-cache budget (MiB): below 16 the terrain rings alone fill it; above 2 GiB no integrated GPU has it to spare. */
 export const SURFACE_CACHE_MIB_MIN = 16;
 export const SURFACE_CACHE_MIB_MAX = 2048;
-/** The surface-cache budget of a level that names none (MiB): the medium tier's. */
-export const DEFAULT_SURFACE_CACHE_MIB = 64;
 /** The range of a level's GPU time a frame for live surface light (ms): above 8 a 60 Hz frame has little left to draw with. */
 export const SURFACE_LIGHT_MS_MIN = 0;
 export const SURFACE_LIGHT_MS_MAX = 8;
-/** The live surface-light time of a level that names none (ms): the medium tier's. */
-export const DEFAULT_SURFACE_LIGHT_MS = 1.5;
-
-/** Whether a level that names none draws contact shadows (the medium tier's). */
-export const DEFAULT_CONTACT_SHADOWS = true;
 
 /** A level's reflections: none, or screen-space rays with traced fallback at a quality. */
 export const REFLECTION_QUALITIES = ['off', 'medium', 'high'] as const;
 export type ReflectionQuality = (typeof REFLECTION_QUALITIES)[number];
-/** The reflections of a level that names none (the medium tier's). */
-export const DEFAULT_REFLECTIONS: ReflectionQuality = 'medium';
+
+/**
+ * Lighting tiers, lowest first: how much of the lighting runs live.
+ *
+ * - low: the saved light (cache pages and probes from the bake) and the
+ *   sun's shadow map; nothing is lit live. What WebGL 2 always draws.
+ * - medium: the cache and probes re-lit live within a GPU budget,
+ *   screen-space reflections with a traced fallback, contact shadows (an
+ *   integrated GPU).
+ * - high: medium with twice the rays a cache texel casts, finer texels
+ *   twice as far out, a larger budget and memory, traced glossy
+ *   reflections at more of the pixels (a discrete GPU).
+ */
+export const LIGHTING_TIERS = ['low', 'medium', 'high'] as const;
+export type LightingTier = (typeof LIGHTING_TIERS)[number];
+
+/** What a lighting tier sets. */
+export interface LightingTierSettings {
+  /** The surface cache's memory budget (MiB). */
+  readonly surfaceCacheMiB: number;
+  /** GPU time a frame for live surface light (ms; 0: saved light only). */
+  readonly surfaceLightMs: number;
+  readonly contactShadows: boolean;
+  readonly reflections: ReflectionQuality;
+  /** Rays a cache texel casts toward each light, as a multiple of the engine's counts (a power of two). */
+  readonly surfaceRays: number;
+  /** How far out each cache level's texels reach, as a multiple of the engine's distances. */
+  readonly surfaceReach: number;
+}
+
+/** Each tier's settings: the one place they are defined (a level may lay its own surface-cache, live-light, contact-shadow and reflection values over them). */
+export const LIGHTING_TIER_SETTINGS: Readonly<Record<LightingTier, Readonly<LightingTierSettings>>> = Object.freeze({
+  low: Object.freeze({ surfaceCacheMiB: 32, surfaceLightMs: 0, contactShadows: false, reflections: 'off' as const, surfaceRays: 1, surfaceReach: 1 }),
+  medium: Object.freeze({ surfaceCacheMiB: 64, surfaceLightMs: 1.5, contactShadows: true, reflections: 'medium' as const, surfaceRays: 1, surfaceReach: 1 }),
+  high: Object.freeze({ surfaceCacheMiB: 128, surfaceLightMs: 3, contactShadows: true, reflections: 'high' as const, surfaceRays: 2, surfaceReach: 2 }),
+});
+
+/** The tier of a level that names none. */
+export const DEFAULT_LIGHTING_TIER: LightingTier = 'medium';
+/** The settings of a level that names neither a tier nor the setting (the default tier's). */
+export const DEFAULT_SURFACE_CACHE_MIB = LIGHTING_TIER_SETTINGS[DEFAULT_LIGHTING_TIER].surfaceCacheMiB;
+export const DEFAULT_SURFACE_LIGHT_MS = LIGHTING_TIER_SETTINGS[DEFAULT_LIGHTING_TIER].surfaceLightMs;
+export const DEFAULT_CONTACT_SHADOWS = LIGHTING_TIER_SETTINGS[DEFAULT_LIGHTING_TIER].contactShadows;
+export const DEFAULT_REFLECTIONS: ReflectionQuality = LIGHTING_TIER_SETTINGS[DEFAULT_LIGHTING_TIER].reflections;
+
+/** One lighting setting across the tiers, for help texts ("low 32, medium 64, high 128"). */
+export function lightingTierValues(pick: (t: LightingTierSettings) => string | number | boolean): string {
+  return LIGHTING_TIERS.map((t) => `${t} ${String(pick(LIGHTING_TIER_SETTINGS[t]))}`).join(', ');
+}
+
+/** A tier's place, lowest first. */
+export function lightingTierRank(tier: LightingTier): number {
+  return LIGHTING_TIERS.indexOf(tier);
+}
+
+/** A level's lighting: its tier's settings with the level's own values laid over them. */
+export function levelLighting(level: Pick<QualityLevelConfig, 'lighting' | 'surfaceCacheMiB' | 'surfaceLightMs' | 'contactShadows' | 'reflections'>): LightingTierSettings & { readonly tier: LightingTier } {
+  const tier = level.lighting ?? DEFAULT_LIGHTING_TIER;
+  const t = LIGHTING_TIER_SETTINGS[tier];
+  return {
+    tier,
+    surfaceCacheMiB: level.surfaceCacheMiB ?? t.surfaceCacheMiB,
+    surfaceLightMs: level.surfaceLightMs ?? t.surfaceLightMs,
+    contactShadows: level.contactShadows ?? t.contactShadows,
+    reflections: level.reflections ?? t.reflections,
+    surfaceRays: t.surfaceRays,
+    surfaceReach: t.surfaceReach,
+  };
+}
 
 /** The post effects a level may change (the costly passes and the anti-aliasing; tone, exposure and grading are the look's). */
 export const QUALITY_POST_EFFECTS = ['bloom', 'ssao', 'dof'] as const;
@@ -127,13 +190,15 @@ export interface QualityLevelConfig {
   dynamicResolution?: boolean;
   /** Occlusion culling at this level (absent: the project's `occlusion_culling`). */
   occlusionCulling?: OcclusionCulling;
-  /** 16–2048: the surface cache's memory budget in MiB (absent: `DEFAULT_SURFACE_CACHE_MIB`). */
+  /** The lighting tier (absent: `DEFAULT_LIGHTING_TIER`): sets the four settings below where the level leaves them out. */
+  lighting?: LightingTier;
+  /** 16–2048: the surface cache's memory budget in MiB (absent: the tier's). */
   surfaceCacheMiB?: number;
-  /** 0–8: the GPU time a frame may spend lighting stale surface-cache texels, ms (absent: `DEFAULT_SURFACE_LIGHT_MS`; 0: saved light only). */
+  /** 0–8: the GPU time a frame may spend lighting stale surface-cache texels, ms (absent: the tier's; 0: saved light only). */
   surfaceLightMs?: number;
-  /** Screen-space contact shadows on the sun's light (absent: `DEFAULT_CONTACT_SHADOWS`). */
+  /** Screen-space contact shadows on the sun's light (absent: the tier's). */
   contactShadows?: boolean;
-  /** Reflections on glossy surfaces (absent: `DEFAULT_REFLECTIONS`). */
+  /** Reflections on glossy surfaces (absent: the tier's). */
   reflections?: ReflectionQuality;
 }
 
@@ -142,21 +207,32 @@ export interface QualityLevelConfig {
  * the engine's low level's whole budget, so a low-tier device holds a
  * scene's saved light whole (a larger scene is saved at coarser texels).
  */
-export const SAVED_SURFACE_CACHE_MIB = 32;
+export const SAVED_SURFACE_CACHE_MIB = LIGHTING_TIER_SETTINGS.low.surfaceCacheMiB;
 
 /**
- * The engine's levels, for a project that lists none: low draws no bloom,
- * ambient occlusion, depth of field or anti-aliasing (no MSAA either);
- * medium drops ambient occlusion and depth of field; high draws the look as
- * authored. Medium and high anti-alias with temporal upscaling where the look
- * anti-aliases (`ANTIALIAS_KINDS`: SMAA in its place on WebGL 2 and in the
- * editor's Scene view). The surface cache holds 32, 64 and 128 MiB; low draws no
- * contact shadows and no reflections.
+ * The render scale of the engine's medium level: a 1080p screen drawn from
+ * 1280 × 720 and upscaled by TAAU, with dynamic resolution below it (on an
+ * integrated GPU every measured scene class holds 60 Hz there, and the
+ * interior misses it at full resolution).
+ */
+export const MEDIUM_RENDER_SCALE = 0.667;
+
+/**
+ * The engine's levels, for a project that lists none, one per lighting
+ * tier: low draws no bloom, ambient occlusion, depth of field or
+ * anti-aliasing (no MSAA either); medium drops ambient occlusion and depth
+ * of field and draws at `MEDIUM_RENDER_SCALE` with dynamic resolution
+ * (defaults under the project's own `render_scale` and `dynamic_resolution`,
+ * where it sets them: the adapter's quality control); high
+ * draws the look as authored at the project's render scale. Medium and high
+ * anti-alias with temporal upscaling where the look anti-aliases
+ * (`ANTIALIAS_KINDS`: SMAA in its place on WebGL 2 and in the editor's Scene
+ * view).
  */
 export const DEFAULT_QUALITY_LEVELS: readonly Readonly<QualityLevelConfig>[] = Object.freeze([
-  Object.freeze({ id: 'low', name: 'Low', post: { bloom: { enabled: false }, ssao: { enabled: false }, dof: { enabled: false }, antialias: 'none' as const }, msaa: 0 as const, surfaceCacheMiB: SAVED_SURFACE_CACHE_MIB, surfaceLightMs: 0, contactShadows: false, reflections: 'off' as const }),
-  Object.freeze({ id: 'medium', name: 'Medium', post: { ssao: { enabled: false }, dof: { enabled: false }, antialias: 'taau' as const }, surfaceCacheMiB: DEFAULT_SURFACE_CACHE_MIB, surfaceLightMs: DEFAULT_SURFACE_LIGHT_MS, contactShadows: true, reflections: 'medium' as const }),
-  Object.freeze({ id: 'high', name: 'High', post: { antialias: 'taau' as const }, surfaceCacheMiB: 128, surfaceLightMs: 3, contactShadows: true, reflections: 'high' as const }),
+  Object.freeze({ id: 'low', name: 'Low', lighting: 'low' as const, post: { bloom: { enabled: false }, ssao: { enabled: false }, dof: { enabled: false }, antialias: 'none' as const }, msaa: 0 as const }),
+  Object.freeze({ id: 'medium', name: 'Medium', lighting: 'medium' as const, post: { ssao: { enabled: false }, dof: { enabled: false }, antialias: 'taau' as const }, renderScale: MEDIUM_RENDER_SCALE, dynamicResolution: true }),
+  Object.freeze({ id: 'high', name: 'High', lighting: 'high' as const, post: { antialias: 'taau' as const } }),
 ]);
 
 /** The project's levels (the engine's when it lists none). */

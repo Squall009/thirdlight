@@ -6,7 +6,7 @@ import type { SurfaceLightDiagnostics } from './adapter-surface-light';
 import type { DecalPagesObservation } from './decal-pages';
 import type { DecalProjectorsObservation } from './decal-projectors';
 import type * as THREE from 'three';
-import type { Runtime, RuntimeSnapshot, EnvironmentBlendView, ResourceManager } from '@thirdlight/runtime';
+import type { Runtime, RuntimeSnapshot, EnvironmentBlendView, LightingTier, ResourceManager } from '@thirdlight/runtime';
 import type { MaterialFunctionLike } from './material-graph';
 import type { MaterialDefLike, MaterialLibrary, WindLike } from './material-library';
 import type { LightingBakeLike } from './lightmaps';
@@ -492,8 +492,15 @@ export interface SceneAdapter {
   setLodTuning?(tuning: { readonly bias?: number; readonly hysteresis?: number }): void;
   /** Render settings (AO kind, render scale, dynamic resolution: a player's or the project's); unset parts keep their value. */
   setRenderSettings?(settings: RenderSettingsLike, layer?: 'project' | 'player'): void;
-  /** The quality level drawn (the page's, else the chosen one, else the project's; the highest without any). */
+  /** The quality level drawn (the page's, else the chosen one, else the project's, else the device's; the highest without any). */
   qualityLevel?(): QualityLevel;
+  /**
+   * The lighting drawn: the level's tier (`low` on WebGL 2), whether the
+   * static surfaces' light runs live, and whether it has settled (live:
+   * nothing stale in the cache or the probes; else the saved light read; never
+   * while the renderer or the live light is still starting).
+   */
+  lightingState?(): { readonly tier: LightingTier; readonly live: boolean; readonly settled: boolean };
   /** The GPU time (ms) and frames measured since the last call; null where nothing is measured (no timestamp queries). */
   takeGpuTime?(): { ms: number; frames: number; worst: number } | null;
   /**

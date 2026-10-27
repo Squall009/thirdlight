@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { ModelErrorV2 } from './errors';
 import { canonicalEnvironment, validateEnvironment, type PostConfig } from './materials';
-import { DEFAULT_QUALITY_LEVELS, levelPost, qualityLevelOf, qualityLevelsOf, type QualityLevelConfig } from './quality-levels';
+import { DEFAULT_QUALITY_LEVELS, LIGHTING_TIER_SETTINGS, levelLighting, levelPost, MEDIUM_RENDER_SCALE, qualityLevelOf, qualityLevelsOf, type QualityLevelConfig } from './quality-levels';
 import { validateQualityBindings } from './save-schema';
 
 const errorsOf = (v: unknown): ModelErrorV2[] => {
@@ -90,18 +90,34 @@ describe('quality levels', () => {
     // The surface cache's budget is memory, within its range.
     expect(paths({ qualityLevels: [{ id: 'a', surfaceCacheMiB: 64 }, { id: 'b', surfaceCacheMiB: 2048 }] })).toEqual([]);
     expect(paths({ qualityLevels: [{ id: 'a', surfaceCacheMiB: 8 }] })).toEqual(['/qualityLevels/0/surfaceCacheMiB']);
-    expect(DEFAULT_QUALITY_LEVELS.map((l) => l.surfaceCacheMiB)).toEqual([32, 64, 128]);
+    expect(DEFAULT_QUALITY_LEVELS.map((l) => levelLighting(l).surfaceCacheMiB)).toEqual([32, 64, 128]);
     // Live surface light is GPU time a frame, 0 (saved light only) to 8 ms.
     expect(paths({ qualityLevels: [{ id: 'a', surfaceLightMs: 0 }, { id: 'b', surfaceLightMs: 8 }] })).toEqual([]);
     expect(paths({ qualityLevels: [{ id: 'a', surfaceLightMs: 9 }] })).toEqual(['/qualityLevels/0/surfaceLightMs']);
-    expect(DEFAULT_QUALITY_LEVELS.map((l) => l.surfaceLightMs)).toEqual([0, 1.5, 3]);
+    expect(DEFAULT_QUALITY_LEVELS.map((l) => levelLighting(l).surfaceLightMs)).toEqual([0, 1.5, 3]);
     expect(paths({ qualityLevels: [{ id: 'a', contactShadows: false }, { id: 'b', contactShadows: true }] })).toEqual([]);
     expect(paths({ qualityLevels: [{ id: 'a', contactShadows: 1 }] })).toEqual(['/qualityLevels/0/contactShadows']);
-    expect(DEFAULT_QUALITY_LEVELS.map((l) => l.contactShadows)).toEqual([false, true, true]);
+    expect(DEFAULT_QUALITY_LEVELS.map((l) => levelLighting(l).contactShadows)).toEqual([false, true, true]);
+    expect(paths({ qualityLevels: [{ id: 'a', lighting: 'low' }, { id: 'b', lighting: 'high' }] })).toEqual([]);
+    expect(paths({ qualityLevels: [{ id: 'a', lighting: 'ultra' }] })).toEqual(['/qualityLevels/0/lighting']);
     // A level changes the costly effects and the anti-aliasing, not the look's tone or grading.
     expect(paths({ qualityLevels: [{ id: 'a', post: { exposure: 2 } }] })).toContain('/qualityLevels/0/post/exposure');
     expect(paths({ qualityLevels: [{ id: 'a', post: { ssao: { radius: 99 } } }] })).toEqual(['/qualityLevels/0/post/ssao/radius']);
     expect(paths({ qualityLevels: [{ id: 'a', fps: 60 }] })).toEqual(['/qualityLevels/0/fps']);
+  });
+
+  it('the engine\'s levels are one per lighting tier; a tier sets the lighting a level leaves out, a level\'s own value wins', () => {
+    expect(DEFAULT_QUALITY_LEVELS.map((l) => l.lighting)).toEqual(['low', 'medium', 'high']);
+    const [low, medium, high] = DEFAULT_QUALITY_LEVELS;
+    expect(levelLighting(low!)).toEqual({ tier: 'low', ...LIGHTING_TIER_SETTINGS.low });
+    expect(levelLighting(low!)).toMatchObject({ surfaceLightMs: 0, contactShadows: false, reflections: 'off' });
+    expect(levelLighting(high!)).toMatchObject({ surfaceCacheMiB: 128, surfaceLightMs: 3, reflections: 'high', surfaceRays: 2, surfaceReach: 2 });
+    // Medium upscales from about 720p with dynamic resolution; high draws at the project's scale.
+    expect([medium!.renderScale, medium!.dynamicResolution]).toEqual([MEDIUM_RENDER_SCALE, true]);
+    expect([high!.renderScale, high!.dynamicResolution]).toEqual([undefined, undefined]);
+    // A level that names no tier is medium; its own values lay over its tier's.
+    expect(levelLighting({})).toEqual({ tier: 'medium', ...LIGHTING_TIER_SETTINGS.medium });
+    expect(levelLighting({ lighting: 'high', surfaceLightMs: 1, reflections: 'off' })).toMatchObject({ tier: 'high', surfaceCacheMiB: 128, surfaceLightMs: 1, reflections: 'off', surfaceRays: 2 });
   });
 
   it('stores a level\'s fields in a fixed order and keeps the levels\' order; a settings field bound to the quality names the project\'s levels', () => {

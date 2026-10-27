@@ -53,7 +53,7 @@ detail (`_LOD0`, `_LOD1`, …) and wind weights in the vertex colour
 
 1. The cover rules: [`editTerrain`](../reference/ops-detail.md#op-editTerrain)
    kind `bake` with `scatter`
-   ([`ScatterRule`](../reference/types-p-t.md#type-scatter-rule)):
+   ([`ScatterRule`](../reference/types-o-t.md#type-scatter-rule)):
    ```json
    {"entityId": "<terrain>", "kind": "bake", "scatter": [
      {"id": "grass_a", "asset": {"assetId": "meadow-grass", "piece": "grass_a"}, "density": 3,

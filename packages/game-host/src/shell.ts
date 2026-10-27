@@ -82,8 +82,8 @@ export interface ShellDeps {
   readonly pausePanel: () => { show(): void; hide(): void; readonly shown: boolean; handleEdges(e: { up: boolean; down: boolean; submit: boolean; cancel: boolean }): void } | null;
   readonly setVolume?: (bus: 'music' | 'sfx' | 'ui', value: number) => void;
   readonly setQuality?: (q: string) => void;
-  /** The project's quality level ids, lowest first, and the one a game starts at (absent: the engine's low, medium and high, at high). */
-  readonly qualityLevels?: { readonly ids: readonly string[]; readonly start: string };
+  /** The project's quality level ids, lowest first, the one a game starts at (absent: the engine's low, medium and high, at high), and the one drawn now (the device's until the player chooses). */
+  readonly qualityLevels?: { readonly ids: readonly string[]; readonly start: string; readonly now?: () => string };
   /** The frame-rate cap in effect (the game's: its setting, a script) and setting the player's (null: none). */
   readonly frameRateCap?: () => number | null;
   readonly setFrameRateCap?: (fps: number | null) => void;
@@ -132,7 +132,9 @@ export function createShellController(deps: ShellDeps): ShellController {
   let volumes = { music: 1, sfx: 1, ui: 1 };
   // The levels a quality setting steps through (the project's, else the engine's).
   const qualities: readonly string[] = deps.qualityLevels?.ids ?? DEFAULT_QUALITY_LEVELS.map((l) => l.id);
-  let quality: string = deps.qualityLevels?.start ?? qualities[qualities.length - 1]!;
+  /** The level the player chose (null: none, the one drawn shows). */
+  let chosenQuality: string | null = null;
+  const qualityNow = (): string => chosenQuality ?? deps.qualityLevels?.now?.() ?? deps.qualityLevels?.start ?? qualities[qualities.length - 1]!;
   /** The frame-rate cap the player chose (undefined: none chosen, the game's applies; null: no cap). */
   let frameRateCap: number | null | undefined = undefined;
   try {
@@ -147,8 +149,8 @@ export function createShellController(deps: ShellDeps): ShellController {
         }
       }
       if (typeof v.quality === 'string' && qualities.includes(v.quality)) {
-        quality = v.quality;
-        deps.setQuality?.(quality);
+        chosenQuality = v.quality;
+        deps.setQuality?.(v.quality);
       }
       const cap = v.frameRateCap === undefined ? undefined : frameRateCapOf(v.frameRateCap);
       if (cap !== undefined) {
@@ -162,7 +164,7 @@ export function createShellController(deps: ShellDeps): ShellController {
   const keepSettings = (): void => {
     if (deps.storage === undefined) return;
     // Refused (full, or no storage): the settings still apply for this session.
-    const refused = writeStored(deps.storage, settingsKey, JSON.stringify({ volumes, quality, ...(frameRateCap !== undefined ? { frameRateCap } : {}) }));
+    const refused = writeStored(deps.storage, settingsKey, JSON.stringify({ volumes, ...(chosenQuality !== null ? { quality: chosenQuality } : {}), ...(frameRateCap !== undefined ? { frameRateCap } : {}) }));
     if (refused !== null) deps.log(`the shell settings were not kept (${refused.code}): ${refused.reason}`);
   };
 
@@ -354,11 +356,10 @@ export function createShellController(deps: ShellDeps): ShellController {
           const k = a.setting;
           if (k === 'music' || k === 'sfx' || k === 'ui') setVolume(k, typeof a.value === 'number' ? a.value : volumes[k] + (a.step ?? 1) * 0.1);
           else if (k === 'quality') {
-            if (typeof a.value === 'string' && qualities.includes(a.value)) quality = a.value;
-            else {
-              const n = qualities.length;
-              quality = qualities[(Math.max(0, qualities.indexOf(quality)) + ((a.step ?? 1) < 0 ? n - 1 : 1)) % n]!;
-            }
+            const was = qualityNow();
+            const n = qualities.length;
+            const quality = typeof a.value === 'string' && qualities.includes(a.value) ? a.value : qualities[(Math.max(0, qualities.indexOf(was)) + ((a.step ?? 1) < 0 ? n - 1 : 1)) % n]!;
+            chosenQuality = quality;
             deps.setQuality?.(quality);
             keepSettings();
           } else if (k === 'frameRateCap') {
@@ -418,7 +419,7 @@ export function createShellController(deps: ShellDeps): ShellController {
         saves,
         note,
         volumes: { ...volumes },
-        quality,
+        quality: qualityNow(),
         // The cap in effect (the player's, else the game's): 30, 60, 120 or none.
         frameRateCap: (deps.frameRateCap !== undefined ? deps.frameRateCap() : (frameRateCap ?? null)) ?? 'none',
       };

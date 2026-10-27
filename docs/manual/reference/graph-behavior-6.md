@@ -643,6 +643,7 @@ Fields:
 - Stats quality (`api.stats.quality`): The quality level drawn: its id ("low", "medium", "high", or one of the project's own levels).
 - Stats frame rate cap (`api.stats.frameRateCap`): The frame-rate cap the page draws under (30, 60 or 120 fps), or null for none (the display's rate).
 - Stats occlusion (`api.stats.occlusion`): Occlusion culling in the last frame (the project's occlusion_culling setting, its quality level's).
+- Stats lighting (`api.stats.lighting`): The lighting drawn: its tier, live or saved, settled (reported again as soon as it changes).
 - Stats window ms (`api.stats.windowMs`): The window the times are measured over (ms).
 
 <a id="node-behavior--api-stats-fps"></a>
@@ -769,6 +770,17 @@ Outputs:
 - `tested` (number)
 - `culled` (number)
 
+<a id="node-behavior--api-stats-lighting"></a>
+### Stats lighting (`api.stats.lighting`)
+
+The lighting drawn: its tier, live or saved, settled (reported again as soon as it changes).
+
+Outputs:
+
+- `tier` (string)
+- `live` (boolean)
+- `settled` (boolean)
+
 <a id="node-behavior--api-stats-window-ms"></a>
 ### Stats window ms (`api.stats.windowMs`)
 
@@ -814,6 +826,50 @@ Fields:
 | Field | Label | Type | Default | Range |
 |---|---|---|---|---|
 | `fps` | fps | number | `0` | -1000000000 – 1000000000 |
+
+<a id="graph-behavior--lighting"></a>
+## Lighting
+
+- Lighting tier (`api.lighting.tier`): The lighting tier: 'low' (saved light only, always on WebGL 2), 'medium' or 'high' (live).
+- Lighting live (`api.lighting.live`): The static surfaces' light is computed live on this device.
+- Lighting settled (`api.lighting.settled`): The lighting has caught up (live: nothing left to light again; saved: the saved light read).
+- Lighting just settled (`api.lighting.justSettled`): True in the first step after the lighting settled (the event: a loading screen may lift then); false in every other step.
+
+<a id="node-behavior--api-lighting-tier"></a>
+### Lighting tier (`api.lighting.tier`)
+
+The lighting tier: 'low' (saved light only, always on WebGL 2), 'medium' or 'high' (live).
+
+Outputs:
+
+- `value` (string)
+
+<a id="node-behavior--api-lighting-live"></a>
+### Lighting live (`api.lighting.live`)
+
+The static surfaces' light is computed live on this device.
+
+Outputs:
+
+- `value` (boolean)
+
+<a id="node-behavior--api-lighting-settled"></a>
+### Lighting settled (`api.lighting.settled`)
+
+The lighting has caught up (live: nothing left to light again; saved: the saved light read).
+
+Outputs:
+
+- `value` (boolean)
+
+<a id="node-behavior--api-lighting-just-settled"></a>
+### Lighting just settled (`api.lighting.justSettled`)
+
+True in the first step after the lighting settled (the event: a loading screen may lift then); false in every other step.
+
+Outputs:
+
+- `value` (boolean)
 
 <a id="graph-behavior--dialogue"></a>
 ## Dialogue
@@ -1562,73 +1618,3 @@ Fields:
 |---|---|---|---|---|
 | `name` | name | string | `""` | ≤ 256 chars |
 | `handle` | handle | number | `0` | -1000000000 – 1000000000 |
-
-<a id="graph-behavior--environment"></a>
-## Environment
-
-- Set environment (`api.environment.set`): Switch to a preset ('' = the base look), blending over `blend` seconds from the look now (an interrupted blend continues from where it is). False when there is no such preset or an option is refused.
-- Blend environments (`api.environment.blend`): Hold a mix of two presets: t = 0 shows a, 1 shows b (a timeline or a script drives t; '' = the base look). Stops a running blend.
-- Environment state (`api.environment.state`): The preset the last change went to ('' = the base look), how far its blend is (0–1) and whether one is running.
-- Environment weight (`api.environment.weight`): How much of a preset is in the look now (0–1; '' = the base look).
-- Environment presets (`api.environment.presets`): The project's environment preset ids.
-- Set wind (`api.environment.setWind`): Change the scene's global wind: any of its fields (direction [x, z], strength, gust, gustFrequency, turbulence, speed m/s, scale m, noise texture), added to the last change's, blending over `blend` seconds; null goes back to the scene's own wind. Wind zones keep laying their values over it. False when a value or an option is refused.
-
-<a id="node-behavior--api-environment-set"></a>
-### Set environment (`api.environment.set`)
-
-Switch to a preset ('' = the base look), blending over `blend` seconds from the look now (an interrupted blend continues from where it is). False when there is no such preset or an option is refused.
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `presetId` "preset" (string)
-- `blend` "blend (seconds)" (number)
-- `override` (map)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `presetId` | preset | string | `""` | ≤ 256 chars |
-| `easing` | easing | enum | `"linear"` | `linear`, `easeIn`, `easeOut`, `easeInOut`, `none` |
-
-<a id="node-behavior--api-environment-blend"></a>
-### Blend environments (`api.environment.blend`)
-
-Hold a mix of two presets: t = 0 shows a, 1 shows b (a timeline or a script drives t; '' = the base look). Stops a running blend.
-
-Inputs:
-
-- `in` "" (exec): takes several wires
-- `a` (string)
-- `b` (string)
-- `t` (number)
-
-Outputs:
-
-- `then` "" (exec): one wire
-- `value` (boolean)
-
-Fields:
-
-| Field | Label | Type | Default | Range |
-|---|---|---|---|---|
-| `a` | a | string | `""` | ≤ 256 chars |
-| `b` | b | string | `""` | ≤ 256 chars |
-| `t` | t | number | `0.5` | -1000000000 – 1000000000 |
-
-<a id="node-behavior--api-environment-state"></a>
-### Environment state (`api.environment.state`)
-
-The preset the last change went to ('' = the base look), how far its blend is (0–1) and whether one is running.
-
-Outputs:
-
-- `target` (string)
-- `progress` (number)
-- `blending` (boolean)

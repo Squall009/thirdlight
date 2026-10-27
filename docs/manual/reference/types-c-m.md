@@ -1,4 +1,4 @@
-# Types (CreatePrefabVariantArgs to OwnedComponent)
+# Types (CreatePrefabVariantArgs to MsaaSamples)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -1138,6 +1138,27 @@ interface LayerCommon {
 }
 ```
 
+<a id="type-lighting-tiers"></a>
+### LIGHTING_TIERS
+
+Declared in `packages/project-model/src/quality-levels.ts`.
+
+```ts
+/**
+ * Lighting tiers, lowest first: how much of the lighting runs live.
+ *
+ * - low: the saved light (cache pages and probes from the bake) and the
+ *   sun's shadow map; nothing is lit live. What WebGL 2 always draws.
+ * - medium: the cache and probes re-lit live within a GPU budget,
+ *   screen-space reflections with a traced fallback, contact shadows (an
+ *   integrated GPU).
+ * - high: medium with twice the rays a cache texel casts, finer texels
+ *   twice as far out, a larger budget and memory, traced glossy
+ *   reflections at more of the pixels (a discrete GPU).
+ */
+const LIGHTING_TIERS: readonly ["low", "medium", "high"];
+```
+
 <a id="type-lighting-bake"></a>
 ### LightingBake
 
@@ -1197,6 +1218,15 @@ interface LightingEntry {
    */
   scaleOffset: [number, number, number, number];
 }
+```
+
+<a id="type-lighting-tier"></a>
+### LightingTier
+
+Declared in `packages/project-model/src/quality-levels.ts`.
+
+```ts
+type LightingTier = (typeof LIGHTING_TIERS)[number];
 ```
 
 <a id="type-loadable-item-ref"></a>
@@ -1590,47 +1620,4 @@ Declared in `packages/project-model/src/quality-levels.ts`.
 
 ```ts
 type MsaaSamples = (typeof MSAA_SAMPLE_COUNTS)[number];
-```
-
-<a id="type-occlusion-culling-modes"></a>
-### OCCLUSION_CULLING_MODES
-
-Declared in `packages/project-model/src/render-settings.ts`.
-
-```ts
-/**
- * Occlusion culling: what solid things in front hide is not drawn. `on`
- * culls with a depth pyramid on WebGPU (WebGL 2 has no culling path and
- * draws everything); `auto` (and a project that does not set it) culls
- * nothing for now: the depth pyramid's two-pass frame costs an open view more
- * than it saves at the sizes measured; `off` draws everything in view.
- * Culling draws the same picture as without it, so `on` changes cost, never
- * the look.
- */
-const OCCLUSION_CULLING_MODES: readonly ["off", "auto", "on"];
-```
-
-<a id="type-occlusion-culling"></a>
-### OcclusionCulling
-
-Declared in `packages/project-model/src/render-settings.ts`.
-
-```ts
-type OcclusionCulling = (typeof OCCLUSION_CULLING_MODES)[number];
-```
-
-<a id="type-owned-component"></a>
-### OwnedComponent
-
-Declared in `packages/commands/src/types.ts`.
-
-```ts
-/** Every `setComponent`-owned component (the base five plus the six v3 ones). */
-type OwnedComponent =
-  | 'box'
-  | 'camera'
-  | 'model'
-  | 'collider'
-  | 'controller'
-  | V3OwnedComponent;
 ```

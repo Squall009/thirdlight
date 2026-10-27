@@ -523,6 +523,9 @@ function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void
 
 test('the export draws the box field instanced and looks the same as without instancing', async ({ page }) => {
   test.setTimeout(240_000);
+  // The high quality level, drawn at full resolution (the occlusion pyramid's size is checked below; a device left to
+  // choose would draw this GPU's medium level at two-thirds of it).
+  await command('setEnvironment', { environment: { quality: 'high' } });
   await boxField();
   // The sun casts shadows: the instanced boxes cast and receive them like single ones.
   // The sun shines from behind the camera (+Z), on the box faces the camera sees.

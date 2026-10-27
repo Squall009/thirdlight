@@ -398,6 +398,9 @@ test('saved probes light every object in place of the flat ambient light: no lea
     // projected with: the Scene view comparison of an earlier variant gave the camera the view's.)
     const camLens = ((await be.command({ op: 'queryEntity', projectId: be.projectId, args: { entityId: 'cam-main' } }))['entity'] as { components: { virtualCamera?: Record<string, unknown> } }).components.virtualCamera;
     if (camLens !== undefined) await cmd('setComponent', { entityId: 'cam-main', component: 'virtualCamera', value: { ...camLens, fovY: 60, near: 0.1, far: 100 } }, true);
+    // The high quality level on both renderers: its ambient occlusion (a device left to choose starts this GPU at
+    // medium, which draws none, and WebGL 2 at low).
+    await cmd('setEnvironment', { environment: { quality: 'high' } }, true);
     const noAo = await playAt(variant, cornerPose, `${variant}-corner-no-ao`);
     await cmd('setEnvironment', { sceneId: 'scene-main', environment: { ...look, post: { ssao: { enabled: true } } } });
     const withAo = await playAt(variant, cornerPose, `${variant}-corner-ao`);

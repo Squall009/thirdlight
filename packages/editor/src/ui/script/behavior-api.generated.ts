@@ -952,6 +952,14 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "doc": "The frame-rate cap: the most frames per second the page draws (30, 60, 120 or none) — read it and set it. Presentation: game time keeps its fixed step."
     },
     {
+      "name": "lighting",
+      "kind": "property",
+      "detail": "BehaviorLighting | undefined",
+      "type": "BehaviorLighting",
+      "optional": true,
+      "doc": "The lighting on this device: the quality level's lighting tier, whether it runs live, whether it has settled, and `justSettled` in the step after it settled. Measured by the page, not simulation state."
+    },
+    {
       "name": "dialogue",
       "kind": "property",
       "detail": "BehaviorDialogue | undefined",
@@ -1920,6 +1928,32 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "doc": "Deprecated: the engine does not know what a run restart is. Restarts the run at the next step (scenes, objects, scripts, cameras, UI and the start mode as at the start) and writes one Problems line per Play; reload scenes with `ctx.scenes.r"
     }
   ],
+  "BehaviorLighting": [
+    {
+      "name": "tier",
+      "kind": "property",
+      "detail": "'low' | 'medium' | 'high'",
+      "doc": "The lighting tier: 'low' (saved light only, always on WebGL 2), 'medium' or 'high' (live)."
+    },
+    {
+      "name": "live",
+      "kind": "property",
+      "detail": "boolean",
+      "doc": "The static surfaces' light is computed live on this device."
+    },
+    {
+      "name": "settled",
+      "kind": "property",
+      "detail": "boolean",
+      "doc": "The lighting has caught up (live: nothing left to light again; saved: the saved light read)."
+    },
+    {
+      "name": "justSettled",
+      "kind": "property",
+      "detail": "boolean",
+      "doc": "True in the first step after the lighting settled (the event: a loading screen may lift then); false in every other step."
+    }
+  ],
   "BehaviorLook": [
     {
       "name": "set",
@@ -2782,10 +2816,37 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
       "doc": "Occlusion culling in the last frame (the project's occlusion_culling setting, its quality level's)."
     },
     {
+      "name": "lighting",
+      "kind": "property",
+      "detail": "BehaviorStatsLighting",
+      "type": "BehaviorStatsLighting",
+      "doc": "The lighting drawn: its tier, live or saved, settled (reported again as soon as it changes)."
+    },
+    {
       "name": "windowMs",
       "kind": "property",
       "detail": "number",
       "doc": "The window the times are measured over (ms)."
+    }
+  ],
+  "BehaviorStatsLighting": [
+    {
+      "name": "tier",
+      "kind": "property",
+      "detail": "'low' | 'medium' | 'high'",
+      "doc": "The quality level's lighting tier: low (saved light only, always on WebGL 2), medium or high (live)."
+    },
+    {
+      "name": "live",
+      "kind": "property",
+      "detail": "boolean",
+      "doc": "Whether the static surfaces' light is computed live on this device."
+    },
+    {
+      "name": "settled",
+      "kind": "property",
+      "detail": "boolean",
+      "doc": "Whether it has caught up: live, nothing left to light again; saved, the saved light read."
     }
   ],
   "BehaviorStatsOcclusion": [

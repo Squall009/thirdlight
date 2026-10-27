@@ -82,6 +82,7 @@ import type {
   BehaviorUi,
   BehaviorStats,
   BehaviorDisplay,
+  BehaviorLighting,
   BehaviorDialogue,
   BehaviorModes,
   BehaviorLifecycle,
@@ -316,6 +317,11 @@ export interface BehaviorContext {
    * Presentation: game time keeps its fixed step.
    */
   readonly display?: BehaviorDisplay;
+  /**
+   * The lighting on this device: the quality level's lighting tier, whether it runs live, whether it has
+   * settled, and `justSettled` in the step after it settled. Measured by the page, not simulation state.
+   */
+  readonly lighting?: BehaviorLighting;
   /**
    * Conversations — start a dialogue, advance, choose, skip seen lines, auto-advance,
    * dialogue variables, the backlog and the events of lines, choices and signals.
@@ -1019,10 +1025,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (src.messages !== undefined) fields['messages'] = { value: messagesOf(instance, src), enumerable: true };
         if (src.game !== undefined) fields['game'] = { value: src.game, enumerable: true };
         // The generic primitives (any object's health, patrols, hitboxes, collectibles).
-        if (src.health !== undefined) fields['health'] = { value: src.health, enumerable: true };
-        if (src.patrol !== undefined) fields['patrol'] = { value: src.patrol, enumerable: true };
-        if (src.hitbox !== undefined) fields['hitbox'] = { value: src.hitbox, enumerable: true };
-        if (src.collectible !== undefined) fields['collectible'] = { value: src.collectible, enumerable: true };
+        for (const k of ['health', 'patrol', 'hitbox', 'collectible'] as const) if (src[k] !== undefined) fields[k] = { value: src[k], enumerable: true };
         // The character's impulse and the look overrides.
         if (src.character !== undefined) fields['character'] = { value: src.character, enumerable: true };
         if (src.look !== undefined) fields['look'] = { value: src.look, enumerable: true };
@@ -1055,6 +1058,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if ('stats' in src) fields['stats'] = { get: () => src.stats, enumerable: true };
         // The frame-rate cap (presentation: the page paces its frames by it).
         if (src.display !== undefined) fields['display'] = { value: src.display, enumerable: true };
+        // The lighting drawn (presentation, as the stats).
+        if (src.lighting !== undefined) fields['lighting'] = { value: src.lighting, enumerable: true };
         // Conversations (run by the engine at the end of the step).
         if (src.dialogue !== undefined) fields['dialogue'] = { value: src.dialogue, enumerable: true };
         // The game modes and the run lifecycle.

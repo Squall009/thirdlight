@@ -332,6 +332,8 @@ export interface BehaviorStats {
   readonly frameRateCap: number | null;
   /** Occlusion culling in the last frame (the project's occlusion_culling setting, its quality level's). */
   readonly occlusion: BehaviorStatsOcclusion;
+  /** The lighting drawn: its tier, live or saved, settled (reported again as soon as it changes). */
+  readonly lighting: BehaviorStatsLighting;
   /** The window the times are measured over (ms). */
   readonly windowMs: number;
 }
@@ -361,6 +363,40 @@ export interface BehaviorDisplay {
    * @graphNode Set frame-rate cap
    */
   setFrameRateCap(fps: number | null): boolean;
+}
+```
+
+<a id="script-type-behavior-lighting"></a>
+## `BehaviorLighting`
+
+```ts
+/**
+ * `ctx.lighting`: the lighting the page draws on this device — the quality
+ * level's lighting tier and whether the light has settled after a load or a
+ * change (a lamp switched, a block dug, time of day). Presentation, as
+ * `ctx.stats`: measured by the page, not in the digest or a save.
+ */
+export interface BehaviorLighting {
+  /**
+   * The lighting tier: 'low' (saved light only, always on WebGL 2), 'medium' or 'high' (live).
+   * @graphNode Lighting tier
+   */
+  readonly tier: 'low' | 'medium' | 'high';
+  /**
+   * The static surfaces' light is computed live on this device.
+   * @graphNode Lighting live
+   */
+  readonly live: boolean;
+  /**
+   * The lighting has caught up (live: nothing left to light again; saved: the saved light read).
+   * @graphNode Lighting settled
+   */
+  readonly settled: boolean;
+  /**
+   * True in the first step after the lighting settled (the event: a loading screen may lift then); false in every other step.
+   * @graphNode Lighting just settled
+   */
+  readonly justSettled: boolean;
 }
 ```
 
@@ -1315,47 +1351,4 @@ export interface InputActionStatus {
 ```ts
 /** The device the player used last: keyboard and mouse are one device. */
 export type InputDeviceKind = 'keyboardMouse' | 'gamepad';
-```
-
-<a id="script-type-input-glyph"></a>
-## `InputGlyph`
-
-```ts
-/**
- * What to show for a binding: a label a player reads ("Space", "A", "Cross",
- * "Left button"), an icon id of the engine's generic glyph set (`key`,
- * `pad-south`, `mouse-left`, …) and the project's own image when it has one.
- * A composite binding (two or four keys) also lists its parts.
- */
-export interface InputGlyph {
-  readonly label: string;
-  readonly icon: string;
-  readonly image?: string;
-  readonly parts?: readonly InputGlyphPart[];
-}
-```
-
-<a id="script-type-input-rebind-event"></a>
-## `InputRebindEvent`
-
-```ts
-/**
- * What became of a binding request: a rebind `started` (listening),
- * `rebound`, `cancelled` (the cancel key), `timeout`, `refused` (it does not
- * fit the action, or it conflicts under the refuse policy — `conflicts` says
- * with what), `reset`, or the player `profile` changed.
- */
-export interface InputRebindEvent {
-  readonly type: 'started' | 'rebound' | 'cancelled' | 'timeout' | 'refused' | 'reset' | 'profile';
-  readonly action?: string;
-  readonly index?: number;
-  readonly part?: InputBindingPart;
-  /** The new binding's label (rebound). */
-  readonly label?: string;
-  readonly reason?: string;
-  readonly conflicts?: readonly InputBindingConflict[];
-  /** The bindings of these actions moved to make room (swap policy). */
-  readonly swapped?: readonly string[];
-  readonly profile?: string;
-}
 ```
