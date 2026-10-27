@@ -54,6 +54,7 @@ import { COVER_FADE_START, COVER_LANES, COVER_MIN_NORMAL_Y, coverMaskSide, listC
 import { COVER_POINT_BLOCK, COVER_POINT_ROW, CoverPointAtlas, listCoverPointBlocks } from './cover-points-gpu';
 import type { N } from './effects-tsl';
 import { instanceSetPlan, type InstanceSetPlan } from './instancing';
+import { needsPreviousPlace } from './motion-vectors';
 import { ROOT_COLOUR_KEY, setCopyBend, setCopyRoot, setCopySurface } from './node-materials';
 import { TAN_HALF_REFERENCE } from './instance-lod';
 import type { LodTuning } from './lod-switch';
@@ -65,7 +66,7 @@ import type { ModelInstance } from './visual';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
-const { Fn, If, abs, acos, clamp, cos, cross, dot, float, floor, instanceIndex, int, ivec2, length, max, min, normalLocal, normalize, positionLocal, select, sin, smoothstep, sqrt, texture, textureLoad, uint, uniform, vec2, vec3, vec4 } = TSL;
+const { Fn, If, abs, acos, clamp, cos, cross, dot, float, floor, instanceIndex, int, ivec2, length, max, min, normalLocal, normalize, positionLocal, positionPrevious, select, sin, smoothstep, sqrt, texture, textureLoad, uint, uniform, vec2, vec3, vec4 } = TSL;
 
 /**
  * A texture as a node the draws read through: a node made once and handed in
@@ -332,6 +333,8 @@ export function coverDrawPlacement(d: CoverDrawInputs): CoverPlacement {
         nrm.assign(rotateNode(quat, normalize(local.mul(vec4(vertexNormal, 0)).xyz)));
       });
       positionLocal.assign(pos);
+      // Motion vectors: a copy stands still (its last place is this one).
+      if (needsPreviousPlace(builder)) positionPrevious.assign(pos);
       normalLocal.assign(nrm);
     }, 'void') as unknown as () => void,
   };
@@ -393,6 +396,7 @@ export function coverPointsPlacement(d: CoverPointDrawInputs): CoverPlacement {
       setCopyRoot(builder, ground);
       setCopyBend(builder, float(rule.bendAway ?? FOLIAGE_BEND_DEFAULTS.ruleBend));
       positionLocal.assign(select(kept, rotateNode(quat, placed).add(ground), vec3(x, DROPPED_Y, z)));
+      if (needsPreviousPlace(builder)) positionPrevious.assign(positionLocal);
       normalLocal.assign(rotateNode(quat, normalize(local.mul(vec4(normalLocal, 0)).xyz)));
     }, 'void') as unknown as () => void,
   };

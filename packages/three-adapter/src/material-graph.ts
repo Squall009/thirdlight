@@ -63,6 +63,7 @@ import { LIT, litMainDirectionWorld, MeshCustomLitNodeMaterial } from './custom-
 import { copyRoot, normalGreenSign } from './node-materials';
 import { LOCAL_LIGHTS_KEY } from './local-lights';
 import { STEADY_SHAPE_KEY } from './shadow-casters';
+import { needsPreviousPlace, OWN_PREVIOUS_POSITION_KEY } from './motion-vectors';
 import { decalDrawOf, decalSortOrder, installDecalDraw, removeDecalDraw, type DecalDraw } from './mesh-decals';
 import { buildPaintSource, paintNode, withPaint } from './vertex-paint-draw';
 import { TRIM_DATA_ATTRIBUTE } from './trim-data-attribute';
@@ -123,6 +124,8 @@ export interface SamplerLike {
 /** The shared uniforms every graph material reads (the library's clock, wind and the scene's wetness). */
 export interface GraphGlobals {
   readonly time: N;
+  /** The clock as the last frame drawn read it (absent: none kept): a vertex offset's previous place, for motion vectors. */
+  readonly timePrevious?: N;
   readonly windDir: N;
   readonly strength: N;
   readonly gust: N;
@@ -216,6 +219,8 @@ export interface CompiledMaterialGraph {
     readonly opacity: N | null;
     readonly alphaTest: N | null;
     readonly position: N | null;
+    /** What a vertex offset that reads the clock had moved the vertex by on the last frame (object space; null: none, or a steady one). */
+    readonly positionPreviousOffset: N | null;
     /** False where a pixel is cut away (a surface's holes), or null. */
     readonly mask: N | null;
     /** Custom-lit: the graph's colour and emissive (computed after the lights are gathered). */
@@ -747,6 +752,32 @@ export { TRIM_DATA_ATTRIBUTE };
 const paintLayers = (p: N): N => T.vec4(T.float(1).sub(T.saturate(p.x.add(p.y).add(p.z))), p.x, p.y, p.z);
 
 /**
+ * The values a Projected sample's mode can take, when the graph fixes them:
+ * unwired (its default), or a component of a Split of a private parameter
+ * (objects cannot override it), or a constant — that component's value and, on a surface
+ * that draws more layers through each slot, the values of the layers drawn
+ * in that slot (`extraLayers` at L % 4). Null: anything (a public parameter,
+ * any other wire). A mode that can only be 0 compiles to the plain read.
+ */
+function projectedModes(scope: Scope, nodeId: string, parameters: readonly MaterialParameterLike[], perLayer: boolean): Set<number> | null {
+  const round = (x: number): number => Math.max(0, Math.min(UV_SOURCES.geometry, Math.round(x)));
+  const e = scope.incoming.get(nodeId)?.get('mode');
+  if (e === undefined) return new Set([0]);
+  const split = scope.byId.get(e.from.node);
+  if (split?.type === 'float') return new Set([round(numOf(field(split, 'value'), 0))]);
+  const k = ['x', 'y', 'z', 'w'].indexOf(e.from.port);
+  if (split?.type !== 'split' || k < 0) return null;
+  const pe = scope.incoming.get(split.id)?.get('in');
+  const pn = pe === undefined ? undefined : scope.byId.get(pe.from.node);
+  if (pn?.type !== 'parameter') return null;
+  const p = parameters.find((x) => x.key === str(field(pn, 'key'), ''));
+  if (p === undefined || p.visibility !== 'private' || !Array.isArray(p.default)) return null;
+  const out = new Set([round(Number((p.default as number[])[k] ?? 0))]);
+  if (perLayer) (p.extraLayers ?? []).forEach((x, i) => (i + 4) % 4 === k && out.add(round(x)));
+  return out;
+}
+
+/**
  * `trim`: the row table a layered material's mesh-UV layers keep their reads
  * inside (a trim material's own; a layered material's trim sheets'). Absent:
  * mesh-UV layers read the full mip chain.
@@ -759,6 +790,8 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
   let animated = false;
   let objectFrame = false;
   let nodeCount = 0;
+  /** The clock the nodes read while the vertex offset is compiled again at the last frame's (null: the globals' own). */
+  let clock: N | null = null;
   /** The surface is Custom-lit (Lighting inputs read light), set before any slot compiles. */
   let litSurface = false;
   let usesLight = false;
@@ -870,7 +903,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
         return T.screenUV;
       case 'time':
         animated = true;
-        return env.globals.time;
+        return clock ?? env.globals.time;
       default:
         problem(scope, nodeId, 'error', `unknown built-in input "${name}"`);
         return T.float(0);
@@ -929,31 +962,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
     const k = T.min(T.float(1), T.float(trimMaxFootprint(rows)).div(T.max(longest, 1e-6)));
     return sampleGrad(t, uv, dx.mul(k), dy.mul(k), layer);
   };
-  /**
-   * The values a Projected sample's mode can take, when the graph fixes them:
-   * unwired (its default), or a component of a Split of a private parameter
-   * (objects cannot override it), or a constant — that component's value and, on a surface
-   * that draws more layers through each slot, the values of the layers drawn
-   * in that slot (`extraLayers` at L % 4). Null: anything (a public parameter,
-   * any other wire). A mode that can only be 0 compiles to the plain read.
-   */
-  const modesOf = (scope: Scope, nodeId: string): Set<number> | null => {
-    const round = (x: number): number => Math.max(0, Math.min(UV_SOURCES.geometry, Math.round(x)));
-    const e = scope.incoming.get(nodeId)?.get('mode');
-    if (e === undefined) return new Set([0]);
-    const split = scope.byId.get(e.from.node);
-    if (split?.type === 'float') return new Set([round(numOf(field(split, 'value'), 0))]);
-    const k = ['x', 'y', 'z', 'w'].indexOf(e.from.port);
-    if (split?.type !== 'split' || k < 0) return null;
-    const pe = scope.incoming.get(split.id)?.get('in');
-    const pn = pe === undefined ? undefined : scope.byId.get(pe.from.node);
-    if (pn?.type !== 'parameter') return null;
-    const p = parameters.find((x) => x.key === str(field(pn, 'key'), ''));
-    if (p === undefined || p.visibility !== 'private' || !Array.isArray(p.default)) return null;
-    const out = new Set([round(Number((p.default as number[])[k] ?? 0))]);
-    if (env.surface?.perLayer !== undefined) (p.extraLayers ?? []).forEach((x, i) => (i + 4) % 4 === k && out.add(round(x)));
-    return out;
-  };
+  const modesOf = (scope: Scope, nodeId: string): Set<number> | null => projectedModes(scope, nodeId, parameters, env.surface?.perLayer !== undefined);
 
   const outputsOf = (scope: Scope, nodeId: string, stage: Stage): Record<string, Val> | undefined => {
     const key = `${scope.key}|${stage}|${nodeId}`;
@@ -1094,7 +1103,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
       return isValueType(t) ? t : 'float';
     };
     const one = (id: string, n: N): Record<string, Val> => ({ [id]: { t: outT(id), n } });
-    const g = env.globals;
+    const g = clock === null ? env.globals : { ...env.globals, time: clock };
     switch (node.type) {
       // ---- inputs
       case 'float':
@@ -1673,12 +1682,33 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
   const litAlpha = lit && (readsLight(surfaceNode!.id, 'opacity') || readsLight(surfaceNode!.id, 'alphaClip'));
   const vertex = input.graph.nodes.find((n) => n.type === 'vertexOffset');
   let position: N | null = env.surface?.position ?? null;
+  let positionPreviousOffset: N | null = null;
   if (env.surface !== undefined && vertex !== undefined && connected(top, vertex.id, 'offset')) problems.push({ nodeId: vertex.id, severity: 'warning', message: 'this surface places its own vertices (a terrain): the vertex offset is not applied' });
   else if (vertex !== undefined && connected(top, vertex.id, 'offset')) {
     const port = top.ports.get(vertex.id)!.inputs[0]!;
+    const animatedBefore = animated;
+    animated = false;
     const offset = v(inputOf(top, vertex, port, 'vertex'));
+    const moves = animated;
+    animated ||= animatedBefore;
     if (str(field(vertex, 'space'), 'object') !== 'world') objectFrame = true;
-    position = str(field(vertex, 'space'), 'object') === 'world' ? T.positionLocal.add(T.modelWorldMatrixInverse.mul(T.vec4(offset, 0)).xyz) : T.positionLocal.add(offset);
+    const world = str(field(vertex, 'space'), 'object') === 'world';
+    const toLocal = (o: N): N => (world ? T.modelWorldMatrixInverse.mul(T.vec4(o, 0)).xyz : o);
+    position = T.positionLocal.add(toLocal(offset));
+    // An offset that reads the clock moves by itself: compiled again at the last frame's clock, for motion vectors.
+    if (moves && env.globals.timePrevious !== undefined) {
+      const [kept, count] = [new Map(memo), nodeCount];
+      memo.clear();
+      clock = env.globals.timePrevious;
+      try {
+        positionPreviousOffset = toLocal(v(inputOf(top, vertex, port, 'vertex')));
+      } finally {
+        clock = null;
+        memo.clear();
+        for (const [k, x] of kept) memo.set(k, x);
+        nodeCount = count;
+      }
+    }
   }
   const slots = {
     color: colorNode !== null ? T.vec4(colorNode, 1) : null,
@@ -1694,6 +1724,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
     opacity: litAlpha ? null : slot('opacity', true),
     alphaTest: litAlpha ? null : slot('alphaClip', true),
     position,
+    positionPreviousOffset,
     mask: env.surface?.mask ?? null,
     litColor: lit ? slot('color', false) : null,
     litEmissive: lit ? slot('emissive', true) : null,
@@ -1753,6 +1784,14 @@ export function graphNeedsPhysical(c: CompiledMaterialGraph): boolean {
   return c.slots.specularIntensity !== null || c.slots.specularColor !== null;
 }
 
+/** `position`, and under motion vectors the vertex's previous place moved by `previous` (object space) instead of by the steady offset. */
+function withPreviousOffset(position: N, previous: N): N {
+  return T.Fn((builder: unknown) => {
+    if (needsPreviousPlace(builder)) T.positionPrevious.assign(T.positionPrevious.add(previous));
+    return position;
+  })();
+}
+
 /** A node material for a compiled graph (PBR → standard, or physical with specular; Unlit → basic, Custom-lit → `MeshCustomLitNodeMaterial`). */
 export function buildGraphMaterial(c: CompiledMaterialGraph, name: string): THREE.Material {
   const m =
@@ -1775,7 +1814,9 @@ export function applyGraphNodes(material: MeshBasicNodeMaterial | MeshStandardNo
   m.colorNode = c.slots.color;
   m.opacityNode = c.slots.opacity;
   m.alphaTestNode = c.slots.alphaTest;
-  m.positionNode = c.slots.position;
+  m.positionNode = c.slots.position === null || c.slots.positionPreviousOffset === null ? c.slots.position : withPreviousOffset(c.slots.position, c.slots.positionPreviousOffset);
+  if (c.slots.positionPreviousOffset !== null) m.userData[OWN_PREVIOUS_POSITION_KEY] = true;
+  else delete m.userData[OWN_PREVIOUS_POSITION_KEY];
   // A surface's holes (other masks — a cut-away's fade — are set on copies, never here).
   if (c.slots.mask !== null) m.maskNode = c.slots.mask;
   if (c.steadyShape) m.userData[STEADY_SHAPE_KEY] = true;

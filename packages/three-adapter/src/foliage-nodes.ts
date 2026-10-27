@@ -17,6 +17,7 @@ import type { MeshStandardNodeMaterial, NodeBuilder } from 'three/webgpu';
 import type { N } from './effects-tsl';
 import { OBJECT_FRAME_KEY } from './static-merge';
 import { declareVertexReach } from './vertex-reach';
+import { needsPreviousPlace, OWN_PREVIOUS_POSITION_KEY } from './motion-vectors';
 import { FOLIAGE_FALLBACK_HEIGHT_M, type FoliageBend } from './foliage-bend';
 import { copyBend, copyRoot, copySurface, ROOT_COLOUR_KEY } from './node-materials';
 import type { WindField } from './wind-field';
@@ -39,9 +40,11 @@ function meshHeight(mesh: THREE.Mesh): number {
   return Math.max(0, b.max.y - Math.min(0, b.min.y)) * Math.hypot(e[4]!, e[5]!, e[6]!);
 }
 
-/** The library's shared uniforms the foliage reads: the clock and the view's eye. */
+/** The library's shared uniforms the foliage reads: the clock (and its value a frame ago) and the view's eye. */
 export interface FoliageGlobals {
   readonly time: N;
+  /** The clock as the last frame drawn read it: the sway's previous place, for motion vectors. */
+  readonly timePrevious: N;
   readonly eye: N;
 }
 
@@ -70,12 +73,18 @@ export function installFoliage(m: THREE.MeshStandardMaterial, p: Readonly<Record
   // instance's, so modelWorldMatrix alone takes it to the world.
   // Wind only near the camera (`windDistance`, 0: everywhere): past it a vertex skips the wind's work and stands still.
   const windDistance = TSL.uniform(num(p['windDistance'], 0));
+  // Motion vectors: the sway's own motion is the offset now against the offset at the last frame's clock (the wind
+  // field and the subjects' push read as they are now: they change slowly against the sway).
+  m.userData[OWN_PREVIOUS_POSITION_KEY] = true;
   nm.positionNode = TSL.Fn((builder: NodeBuilder) => {
     const weighted = hasVertexData(builder);
+    const previous = needsPreviousPlace(builder);
     const local = TSL.positionLocal;
     const world = TSL.modelWorldMatrix.mul(TSL.vec4(local, 1)).xyz;
     const root = TSL.modelWorldMatrix.mul(TSL.vec4(copyRoot(), 1)).xyz;
     const out = TSL.vec3(local).toVar();
+    // What the vertex had moved by from its rest place on the last frame (object space).
+    const before = previous ? TSL.vec3(0).toVar() : null;
     const height = TSL.max(world.y.sub(root.y), 0).toVar();
     const share = TSL.clamp(height.div(FOLIAGE_FALLBACK_HEIGHT_M), 0, 1);
     // How far the vertex can lean (metres): its bend weight squared times its height above its root.
@@ -85,22 +94,34 @@ export function installFoliage(m: THREE.MeshStandardMaterial, p: Readonly<Record
       const near = windDistance.lessThanEqual(0).select(TSL.float(1), TSL.float(1).sub(TSL.smoothstep(windDistance.mul(0.8), windDistance, away)));
       const tlBend = weighted ? capacity.mul(bend) : share.mul(share).mul(bend);
       const phase = colour.g.mul(6.2831853);
-      const wind = windField.sample(TSL.vec2(world.x, world.z));
-      const sway = TSL.sin(g.time.mul(1.7).add(phase).add(world.x.mul(0.4).mul(wind.w))).mul(0.35);
+      // Read once for both clocks (a variable only then: the program without motion vectors stays as it was).
+      const sampled = windField.sample(TSL.vec2(world.x, world.z));
+      const wind = previous ? sampled.toVar() : sampled;
       const strength = wind.z.mul(near);
-      const bent = TSL.vec3(wind.x, 0, wind.y).mul(strength).mul(sway.add(0.65)).mul(tlBend).mul(FOLIAGE_BEND_M);
-      const sagged = bent.sub(TSL.vec3(0, TSL.length(bent).mul(FOLIAGE_SAG), 0));
       const normalWorld = TSL.normalize(TSL.modelWorldMatrix.mul(TSL.vec4(TSL.normalLocal, 0)).xyz);
-      const flutterAmount = TSL.sin(g.time.mul(flutterFreq).add(phase.mul(3)).add(world.x.mul(2.3))).mul(colour.b).mul(flutter).mul(FOLIAGE_FLUTTER_M).mul(strength.add(near.mul(0.5)));
-      const offset = sagged.add(normalWorld.mul(flutterAmount));
-      out.assign(local.add(TSL.modelWorldMatrixInverse.mul(TSL.vec4(offset, 0)).xyz));
+      /** The sway's offset (object space) at clock `t`. */
+      const offsetAt = (t: N): N => {
+        const sway = TSL.sin(t.mul(1.7).add(phase).add(world.x.mul(0.4).mul(wind.w))).mul(0.35);
+        const bent = TSL.vec3(wind.x, 0, wind.y).mul(strength).mul(sway.add(0.65)).mul(tlBend).mul(FOLIAGE_BEND_M);
+        const sagged = bent.sub(TSL.vec3(0, TSL.length(bent).mul(FOLIAGE_SAG), 0));
+        const flutterAmount = TSL.sin(t.mul(flutterFreq).add(phase.mul(3)).add(world.x.mul(2.3))).mul(colour.b).mul(flutter).mul(FOLIAGE_FLUTTER_M).mul(strength.add(near.mul(0.5)));
+        return TSL.modelWorldMatrixInverse.mul(TSL.vec4(sagged.add(normalWorld.mul(flutterAmount)), 0)).xyz;
+      };
+      out.assign(local.add(offsetAt(g.time)));
+      before?.assign(offsetAt(g.timePrevious));
     });
     // Round the view's subjects (none live, or a vertex that cannot lean: a root, a dropped cover candidate: skipped),
     // from the plant's rest pose, on top of the wind.
     TSL.If(bendField.live.greaterThan(0).and(capacity.greaterThan(0)), () => {
-      const pushed = bendField.offset(world, height, capacity.mul(copyBend()));
-      out.addAssign(TSL.modelWorldMatrixInverse.mul(TSL.vec4(pushed, 0)).xyz);
+      const pushed = TSL.modelWorldMatrixInverse.mul(TSL.vec4(bendField.offset(world, height, capacity.mul(copyBend())), 0)).xyz;
+      if (before === null) out.addAssign(pushed);
+      else {
+        const p = pushed.toVar();
+        out.addAssign(p);
+        before.addAssign(p);
+      }
     });
+    if (before !== null) TSL.positionPrevious.assign(TSL.positionPrevious.add(before));
     return out;
   })();
   installRootColour(nm, p);

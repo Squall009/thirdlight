@@ -294,8 +294,12 @@ function vec2(v: unknown, d: [number, number]): [number, number] {
 function createNodeGlobals() {
   return {
     time: TSL.uniform(0).setGroup(TSL.renderGroup),
+    // The clock at the frame before (graph vertex offsets' last place, for motion vectors).
+    timePrevious: TSL.uniform(0).setGroup(TSL.renderGroup),
     // The wind's own clock: the shared clock unless the wind is held (an editor view without wind preview).
     windTime: TSL.uniform(0).setGroup(TSL.renderGroup),
+    // The wind's clock at the frame before (the sway's last place, for motion vectors).
+    windTimePrevious: TSL.uniform(0).setGroup(TSL.renderGroup),
     windDir: TSL.uniform(new THREE.Vector2(1, 0)).setGroup(TSL.renderGroup),
     strength: TSL.uniform(DEFAULT_WIND_LIKE.strength).setGroup(TSL.renderGroup),
     gust: TSL.uniform(DEFAULT_WIND_LIKE.gust).setGroup(TSL.renderGroup),
@@ -342,7 +346,9 @@ function clockMethods(nodeGlobals: ReturnType<typeof createNodeGlobals>, windFie
     held: () => held,
     methods: {
       tick(seconds) {
+        nodeGlobals.timePrevious.value = nodeGlobals.time.value;
         nodeGlobals.time.value = seconds;
+        nodeGlobals.windTimePrevious.value = nodeGlobals.windTime.value;
         if (held) return;
         nodeGlobals.windTime.value = seconds;
         windField.tick(seconds);
@@ -350,6 +356,8 @@ function clockMethods(nodeGlobals: ReturnType<typeof createNodeGlobals>, windFie
       setWindHeld(on) {
         if (held === on) return;
         held = on;
+        // Held still: no sway motion from the next frame on (ticks may stop while held).
+        nodeGlobals.windTimePrevious.value = nodeGlobals.windTime.value;
         changed();
       },
       setWetness(wetness) {
@@ -715,7 +723,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
 
   function installFoliageNodes(m: THREE.MeshStandardMaterial, p: MaterialDefLike['params']): void {
     animatedCount += 1;
-    installFoliage(m, p, { time: nodeGlobals.windTime, eye: nodeGlobals.eye }, windField, foliageBend);
+    installFoliage(m, p, { time: nodeGlobals.windTime, timePrevious: nodeGlobals.windTimePrevious, eye: nodeGlobals.eye }, windField, foliageBend);
   }
 
   /** The x scale of a texture's UV transform (a shift added before the transform lands after it once divided by this). */

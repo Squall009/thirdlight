@@ -29,6 +29,7 @@ import { LIGHT_LAYERS_ALL, lightLayerMaskOf } from '@thirdlight/runtime';
 import { EffectLights, EffectLightSlot } from './effect-lights';
 import type { GpuPlaySystem } from './effects-gpu-batch';
 import type { N } from './effects-tsl';
+import { motionFrameSeconds, needsPreviousPlace, OWN_PREVIOUS_POSITION_KEY } from './motion-vectors';
 
 const TSL: N = TSLTyped;
 const { float, vec2, vec3, vec4, select, uniform, varying } = TSL;
@@ -205,7 +206,8 @@ export function outputSorted(block: CompiledNode): boolean {
   return BLEND_SORTED.has(String(block.fields['blend'] ?? 'alpha'));
 }
 
-function applyBlend(m: THREE.Material, blend: string): void {
+/** An effect output's blend (`blend` field) on its material. */
+export function applyBlend(m: THREE.Material, blend: string): void {
   m.transparent = blend !== 'opaque';
   m.depthWrite = blend === 'opaque';
   m.side = THREE.DoubleSide;
@@ -230,6 +232,20 @@ function applyBlend(m: THREE.Material, blend: string): void {
     default:
       m.blending = THREE.NormalBlending;
   }
+}
+
+/**
+ * A particle's vertex, `place`d round its `center` (world space); under
+ * motion vectors its last place is round the centre a frame back along its
+ * velocity (its turn and size as now). Blended particles write no motion
+ * (`motion-vectors.ts`), so this serves opaque ones.
+ */
+function withParticleMotion(m: THREE.Material, center: N, velocity: N, place: (c: N) => N): N {
+  m.userData[OWN_PREVIOUS_POSITION_KEY] = true;
+  return TSL.Fn((builder: unknown) => {
+    if (needsPreviousPlace(builder)) TSL.positionPrevious.assign(place(center.sub(velocity.mul(motionFrameSeconds))));
+    return place(center);
+  })();
 }
 
 /** Camera axes in world space from the view matrix rows. */
@@ -304,7 +320,7 @@ class BillboardRenderer implements OutputRenderer {
     const s = TSL.sin(rot);
     const size = d.sizeRot.x.mul(d.alive);
     const q = vec2(corner.x.mul(c).sub(corner.y.mul(s)), corner.x.mul(s).add(corner.y.mul(c))).mul(size);
-    material.positionNode = center.add(right.mul(q.x)).add(up.mul(q.y));
+    material.positionNode = withParticleMotion(material, center, velW, (c) => c.add(right.mul(q.x)).add(up.mul(q.y)));
     if (material instanceof THREE.MeshStandardNodeMaterial || String(f['shading']) === 'material') {
       const nW = TSL.cross(right, up);
       material.normalNode = TSL.normalize(TSL.cameraViewMatrix.mul(vec4(nW, 0)).xyz);
@@ -446,7 +462,7 @@ class MeshParticleRenderer implements OutputRenderer {
     const turn = (v: N): N => vec3(v.x.mul(c).add(v.z.mul(s)), v.y, v.z.mul(c).sub(v.x.mul(s)));
     const scale = d.sizeRot.x.mul(d.alive);
     // Local → world scale of a local-space system (uniform scale assumed for the model).
-    m.positionNode = center.add(turn(TSL.positionGeometry).mul(scale));
+    m.positionNode = withParticleMotion(m, center, local ? M.mul(vec4(d.velLife.xyz, 0)).xyz : d.velLife.xyz, (c) => c.add(turn(TSL.positionGeometry).mul(scale)));
     m.normalNode = TSL.normalize(TSL.cameraViewMatrix.mul(vec4(turn(TSL.normalGeometry), 0)).xyz);
     const vColor = varying(d.color);
     m.colorNode = vec4(vec4(base).xyz.mul(vColor.xyz), 1);
