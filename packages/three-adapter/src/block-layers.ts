@@ -709,8 +709,21 @@ export class BlockLayerView {
     this.deps.scatter?.setHidden(entityId, hidden);
   }
 
-  hasLayer(entityId: string): boolean {
-    return this.layers.has(entityId);
+  /** Whether a layer is set; with `out`, where its cells are written there (origin x, y, z, then cell size x, y, z). */
+  layerPlacement(entityId: string, out: number[] | null = null): boolean {
+    const layer = this.layers.get(entityId);
+    if (layer === undefined) return false;
+    if (out !== null) {
+      const g = layer.group.position;
+      const c = layer.grid.cellSize;
+      out[0] = g.x;
+      out[1] = g.y;
+      out[2] = g.z;
+      out[3] = c[0]!;
+      out[4] = c[1]!;
+      out[5] = c[2]!;
+    }
+    return true;
   }
 
   layerIds(): string[] {

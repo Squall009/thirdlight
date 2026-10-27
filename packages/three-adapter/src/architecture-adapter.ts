@@ -54,7 +54,7 @@ export interface AdapterArchitecture {
 export function createAdapterArchitecture(d: AdapterArchitectureDeps): AdapterArchitecture {
   const lib = d.materialLibrary;
   const r = d.rooms;
-  const rooms = new RoomCulling({ scene: r.scene, edgeClosed: (layer, x, y, z, axis) => r.blocks().edgeClosed(layer, x, y, z, axis), cutsOver: (x0, z0, x1, z1, floor) => r.blocks().cutsOver(x0, z0, x1, z1, floor), regroup: r.regroup, roomLights: r.roomLights, culling: r.culling, canvas: r.canvas, changed: d.changed });
+  const rooms = new RoomCulling({ scene: r.scene, edgeClosed: (layer, x, y, z, axis) => r.blocks().edgeClosed(layer, x, y, z, axis), layerPlacement: (layer, out) => r.blocks().layerPlacement(layer, out), cutsOver: (x0, z0, x1, z1, floor) => r.blocks().cutsOver(x0, z0, x1, z1, floor), regroup: r.regroup, roomLights: r.roomLights, culling: r.culling, canvas: r.canvas, changed: d.changed });
   const mapping = (id: string, extra: Readonly<Record<string, string>>): Readonly<Record<string, string>> | undefined => {
     const own = d.effectiveMaterials(id, (d.components(id) as { materials?: Record<string, string> } | undefined)?.materials);
     return Object.keys(extra).length === 0 ? own : { ...extra, ...(own ?? {}) };
@@ -90,7 +90,7 @@ export function createAdapterArchitecture(d: AdapterArchitectureDeps): AdapterAr
     rooms: (id, origin, component, plans) => {
       const layer = component.layer === undefined ? undefined : (d.components(component.layer) as { blockLayer?: BlockLayerComponent; transform?: { position?: number[] } } | undefined);
       const at = layer?.transform?.position ?? [0, 0, 0];
-      rooms.setObject(id, origin, plans, layer?.blockLayer !== undefined ? { id: component.layer!, origin: at, cellSize: layer.blockLayer.cellSize } : null);
+      rooms.setObject(id, origin, plans, component.layer ?? null);
       if (layer?.blockLayer !== undefined) r.blocks().setRoomRegions(component.layer!, id, plans === null ? null : architectureRoomRegions(plans, origin.map((v, i) => v - (at[i] ?? 0)), layer.blockLayer.cellSize));
     },
     ...(d.cover !== undefined ? { cover: d.cover } : {}),

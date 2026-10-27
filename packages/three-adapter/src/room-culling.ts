@@ -84,6 +84,14 @@ export interface RoomCullingDeps {
   readonly scene: THREE.Scene;
   /** Whether a closed piece that blocks passage stands on a block layer's cell edge. */
   edgeClosed(layerId: string, x: number, y: number, z: number, axis: number): boolean;
+  /**
+   * Where a block layer's cells are (origin x, y, z, then cell size x, y, z
+   * into `out`); false while it is not set. Asked of the drawn layer, not the
+   * layer object's document: a host may hand the drawn layer its cells
+   * itself (the editor's block tools do), and the layer may arrive after the
+   * rooms drawn on it.
+   */
+  layerPlacement(layerId: string, out: number[]): boolean;
   /** Whether a cut-away, cut or fading, hides anything over a ground box from `floor` up (absent: no cut-aways). */
   cutsOver?(x0: number, z0: number, x1: number, z1: number, floor: number): boolean;
   /** A drawable's room changed: its batch is made again. */
@@ -139,18 +147,22 @@ interface Tracked {
 interface ObjectRooms {
   origin: readonly number[];
   rooms: readonly ArchitectureRoomPlan[];
-  layer: RoomGraphObject['layer'];
+  /** The block layer its rooms are drawn on (null: none). */
+  layer: string | null;
 }
 
 const _box = new THREE.Box3();
 const _v = new THREE.Vector3();
 const _m = new THREE.Matrix4();
+const _placed: number[] = [0, 0, 0, 0, 0, 0];
 
 export class RoomCulling implements BatchMembership, RoomsSwitch {
   private readonly objects = new Map<string, ObjectRooms>();
   private graph: RoomGraph | null = null;
   /** The block layers rooms are drawn on (only their chunks take rooms per vertex). */
   private layersWithRooms = new Set<string>();
+  /** Where each of those layers was when the rooms were built (NaN: not set then): a layer set or moved since builds them again. */
+  private readonly placed = new Map<string, Float64Array>();
   private dirty = false;
   /** Bumped whenever the rooms change (tags and keys made before are stale). */
   private revision = 0;
@@ -214,14 +226,14 @@ export class RoomCulling implements BatchMembership, RoomsSwitch {
   }
 
   /** An architecture object's rooms (expanded), or null when it has none any more. */
-  setObject(id: string, origin: readonly number[], rooms: readonly ArchitectureRoomPlan[] | null, layer: RoomGraphObject['layer'] = null): void {
+  setObject(id: string, origin: readonly number[], rooms: readonly ArchitectureRoomPlan[] | null, layer: string | null = null): void {
     const had = this.objects.get(id);
     if (rooms === null || rooms.length === 0) {
       if (had === undefined) return;
       this.objects.delete(id);
     } else {
       // An edit re-expands the object (a block dug on its layer, a slider dragged): the rooms are often what they were.
-      if (had !== undefined && sameArray(had.origin, origin) && JSON.stringify(had.layer) === JSON.stringify(layer) && (had.rooms === rooms || JSON.stringify(had.rooms) === JSON.stringify(rooms))) return;
+      if (had !== undefined && sameArray(had.origin, origin) && had.layer === layer && (had.rooms === rooms || JSON.stringify(had.rooms) === JSON.stringify(rooms))) return;
       this.objects.set(id, { origin: [...origin], rooms, layer });
       // The lights become room-bound as the first rooms arrive (while the scene is realized, before its programs are built).
       if (!this.bound) {
@@ -332,7 +344,7 @@ export class RoomCulling implements BatchMembership, RoomsSwitch {
 
   /** Once a drawn frame, after the world matrices are current: rooms rebuilt if they changed, the walk, the sweep. */
   update(camera: THREE.Camera): void {
-    if (this.dirty) this.rebuild();
+    if (this.dirty || this.layersMoved()) this.rebuild();
     // What moved since the last frame: the parts moved with their objects (heard); the animated ones are looked at by `movers`.
     [this.moving, this.movingFrame] = [this.movingFrame, this.moving];
     this.movingFrame.length = 0;
@@ -385,7 +397,7 @@ export class RoomCulling implements BatchMembership, RoomsSwitch {
    * they are read here.
    */
   lighting(): LightingRooms | null {
-    if (this.dirty) this.rebuild();
+    if (this.dirty || this.layersMoved()) this.rebuild();
     const g = this.graph;
     if (g === null || g.rooms.length === 0) return null;
     if (!this.culling && this.readDoors(g)) this.doorVersion += 1;
@@ -407,10 +419,11 @@ export class RoomCulling implements BatchMembership, RoomsSwitch {
   private rebuild(): void {
     this.dirty = false;
     this.revision += 1;
-    const list: RoomGraphObject[] = [...this.objects].map(([id, r]) => ({ id, origin: r.origin, rooms: r.rooms, layer: r.layer }));
+    this.placed.clear();
+    const list: RoomGraphObject[] = [...this.objects].map(([id, r]) => ({ id, origin: r.origin, rooms: r.rooms, layer: r.layer === null ? null : this.placementOf(r.layer) }));
     const g = buildRoomGraph(list);
     this.graph = g;
-    this.layersWithRooms = new Set(list.flatMap((o) => (o.layer !== undefined && o.layer !== null ? [o.layer.id] : [])));
+    this.layersWithRooms = new Set([...this.objects.values()].flatMap((o) => (o.layer !== null ? [o.layer] : [])));
     this.keyOfIndex = new Int32Array(g.rooms.length);
     this.indexOfKey = new Map();
     g.rooms.forEach((r, i) => {
@@ -548,6 +561,27 @@ export class RoomCulling implements BatchMembership, RoomsSwitch {
     }
     if (keys.size > 1) out.attribute = new THREE.BufferAttribute(arr, 1);
     return out;
+  }
+
+  /** A layer's placement for the graph (null: not set yet), kept to see it move. */
+  private placementOf(layerId: string): RoomGraphObject['layer'] {
+    let at = this.placed.get(layerId);
+    if (at === undefined) {
+      at = new Float64Array(6).fill(NaN);
+      if (this.deps.layerPlacement(layerId, _placed)) at.set(_placed);
+      this.placed.set(layerId, at);
+    }
+    return Number.isNaN(at[0]!) ? null : { id: layerId, origin: [at[0]!, at[1]!, at[2]!], cellSize: [at[3]!, at[4]!, at[5]!] };
+  }
+
+  /** Whether a layer rooms are drawn on was set, moved or went since they were built (its door pieces' edges move with it). */
+  private layersMoved(): boolean {
+    for (const [id, at] of this.placed) {
+      const set = this.deps.layerPlacement(id, _placed);
+      if (set === Number.isNaN(at[0]!)) return true;
+      if (set) for (let k = 0; k < 6; k += 1) if (_placed[k] !== at[k]) return true;
+    }
+    return false;
   }
 
   /** Whether a portal lets sight through: no door piece across it, or one that is open. */

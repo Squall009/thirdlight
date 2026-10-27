@@ -36,13 +36,13 @@ function setup(culling = true, cuts?: CutawayDrawing): { rooms: RoomCulling; sce
   const closed = new Set<string>();
   const regrouped: THREE.Object3D[] = [];
   const bound: boolean[] = [];
-  const rooms = new RoomCulling({ scene, edgeClosed: (layer, x, y, z, axis) => closed.has(`${layer}:${x},${y},${z},${axis}`), regroup: (o) => void regrouped.push(o), roomLights: (on) => void bound.push(on), culling, changed: () => undefined, ...(cuts !== undefined ? { cutsOver: (x0: number, z0: number, x1: number, z1: number, floor: number) => cuts.cutsOver(x0, z0, x1, z1, floor) } : {}) });
+  const rooms = new RoomCulling({ scene, edgeClosed: (layer, x, y, z, axis) => closed.has(`${layer}:${x},${y},${z},${axis}`), layerPlacement: (layer, out) => layer === 'floor' && (out.splice(0, 6, 0, 0, 0, 1, 0.5, 1), true), regroup: (o) => void regrouped.push(o), roomLights: (on) => void bound.push(on), culling, changed: () => undefined, ...(cuts !== undefined ? { cutsOver: (x0: number, z0: number, x1: number, z1: number, floor: number) => cuts.cutsOver(x0, z0, x1, z1, floor) } : {}) });
   return { rooms, scene, closed, regrouped, bound };
 }
 
 const placeRooms = (rooms: RoomCulling): void => {
   const x = expandArchitecture(ROW, [0, 0, 0], architectureStylesOf([]));
-  rooms.setObject('house', [0, 0, 0], x.rooms, { id: 'floor', origin: [0, 0, 0], cellSize: [1, 0.5, 1] });
+  rooms.setObject('house', [0, 0, 0], x.rooms, 'floor');
 };
 
 /** A 0.4 m box at (x, 0.5, z), listed like the render graph lists a drawable. */

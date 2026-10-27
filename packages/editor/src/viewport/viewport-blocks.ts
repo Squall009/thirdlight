@@ -60,7 +60,7 @@ export class ViewportBlocks {
         // A layer with cut-aways is split by its regions: a region edit meshes it again.
         const key = JSON.stringify(l.component) + (l.component.cutaway !== undefined ? JSON.stringify(l.regions ?? []) : '');
         const prev = this.applied.get(id);
-        if (prev === undefined || prev.component !== key || !view.hasLayer(id)) view.setLayer(id, l.component, l.origin, { entityId: id, chunks: [...l.chunks.values()], ...(l.regions !== undefined && l.regions.length > 0 ? { regions: l.regions.map((r) => ({ regionId: r.regionId, boxes: r.boxes.map((b) => [...b]) })) } : {}) });
+        if (prev === undefined || prev.component !== key || !view.layerPlacement(id)) view.setLayer(id, l.component, l.origin, { entityId: id, chunks: [...l.chunks.values()], ...(l.regions !== undefined && l.regions.length > 0 ? { regions: l.regions.map((r) => ({ regionId: r.regionId, boxes: r.boxes.map((b) => [...b]) })) } : {}) });
         else {
           const changed: { cx: number; cz: number; chunk: BlockChunk | null }[] = [];
           for (const [k, c] of l.chunks) if (prev.chunks.get(k) !== c) changed.push({ cx: c.cx, cz: c.cz, chunk: c });

@@ -343,7 +343,7 @@ describe('a scene prepared ahead of its load', () => {
 describe('kit copies and rooms', () => {
   it('kit copies are drawn per room: each draw lit and culled with its room, copies in a wall in none', async () => {
     const scene = new THREE.Scene();
-    const rooms = new RoomCulling({ scene, edgeClosed: () => false, regroup: () => undefined, roomLights: () => undefined, culling: true, changed: () => undefined });
+    const rooms = new RoomCulling({ scene, edgeClosed: () => false, layerPlacement: () => false, regroup: () => undefined, roomLights: () => undefined, culling: true, changed: () => undefined });
     const kit = new THREE.Group();
     kit.add(new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), new THREE.MeshStandardMaterial()));
     const { view } = makeView({
