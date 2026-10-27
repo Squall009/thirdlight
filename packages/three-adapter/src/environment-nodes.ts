@@ -241,6 +241,8 @@ export interface PostPipeline {
   internalSize(): [number, number] | null;
   /** Whether the temporal upscale held a still picture on the last frame (null: none in this stack). */
   temporalHolding(): boolean | null;
+  /** Whether the temporal upscale may hold a still view's picture (not while something in view moves by itself). */
+  setTemporalHold(allowed: boolean): void;
   /** New grading / vignette / bloom numbers for the built passes (uniforms: no rebuild, no new program). */
   setParams(params: Pick<PostPlan, 'grading' | 'bloom'>): void;
   render(): void;
@@ -630,6 +632,7 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
       return t.width > 1 || t.height > 1 ? [t.width, t.height] : null;
     },
     temporalHolding: () => taau?.holding() ?? null,
+    setTemporalHold: (allowed) => taau?.setHoldAllowed(allowed),
     compileAsync(cam) {
       return compileIntoTarget(renderer, scene, cam, (scenePass as { renderTarget: THREE.RenderTarget }).renderTarget, (scenePass as { getMRT(): unknown }).getMRT());
     },

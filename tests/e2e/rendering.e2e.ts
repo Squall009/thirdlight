@@ -1005,9 +1005,10 @@ test('render scale: 0.5 draws at half resolution, FSR 1 upscales sharper than bi
   for (const variant of ['auto', 'webgl2'] as const) {
     await command('setSettings', { settings: { render_scale: 0.5, dynamic_resolution: 0 } });
     const shots: Record<string, number> = {};
-    // On WebGPU the temporal upscale's Plays stand where the bilinear comparison is (FSR 1 against bilinear: WebGL 2).
+    // On WebGPU the temporal upscale's Plays stand where FSR 1's are (FSR 1 against bilinear: WebGL 2; FSR 1 on
+    // WebGPU draws under the dynamic resolution below).
     const temporal = backendOf(variant) === 'webgpu';
-    for (const filter of temporal ? (['fsr1'] as const) : (['fsr1', 'bilinear'] as const)) {
+    for (const filter of temporal ? ([] as const) : (['fsr1', 'bilinear'] as const)) {
       const url = editorUrlFor(be.editorUrl, variant);
       const { psid } = await play(filter === 'bilinear' ? url.replace('#', '&upscale=bilinear#') : url, variant);
       const canvas = page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first();

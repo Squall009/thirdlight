@@ -29,8 +29,10 @@
  * nearest input samples are the same as the last frame's keeps the picture
  * it shows (the history) instead of resolving again. Anything that changes
  * (a moving object, a light switched, the surface light settling) resolves
- * as before; a moving camera starts the jitter again. Without the hold the
- * jitter would keep a still frame changing in its last bit for ever.
+ * as before; a moving camera starts the jitter again. A view where
+ * something moves by itself (wind, water, an animated material) never holds:
+ * its moving pixels would lose the jitter's anti-aliasing. Without the hold
+ * the jitter would keep a still frame changing in its last bit for ever.
  */
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
@@ -85,6 +87,8 @@ export interface TaauStage {
   readonly output: N;
   /** Whether the last frame held its picture (diagnostics). */
   holding(): boolean;
+  /** Whether a still camera may stop the jitter and hold the picture (not while something in view moves by itself). */
+  setHoldAllowed(allowed: boolean): void;
   dispose(): void;
 }
 
@@ -130,6 +134,8 @@ const blendFrames = (current: N, history: N, weight: N): N => {
 class TemporalUpscaleNode extends Base {
   /** The camera has stood still long enough (the jitter stopped). */
   holding = false;
+  /** Holding may start (nothing in view moves by itself: a held view would draw moving things without the jitter). */
+  holdAllowed = true;
   /** 1 while `previous` holds the last frame's input. */
   readonly previousValid: N = uniform(0);
   /** The last frame's input (only kept while holding). */
@@ -165,7 +171,7 @@ class TemporalUpscaleNode extends Base {
     this.lastProjection.copy(cam.projectionMatrix);
     setMotionCamera(cam.projectionMatrix, cam.matrixWorldInverse);
     this.still = moved ? 0 : this.still + 1;
-    this.holding = this.still >= TAAU_HOLD_FRAMES;
+    this.holding = this.holdAllowed && this.still >= TAAU_HOLD_FRAMES;
     super.setViewOffset(w, h);
   }
 
@@ -351,6 +357,9 @@ export function buildTaau(inputs: TaauInputs): TaauStage {
   return {
     output: TSL.nodeObject(node),
     holding: () => node.holding && node.previousValid.value === 1,
+    setHoldAllowed(allowed) {
+      node.holdAllowed = allowed;
+    },
     dispose: () => node.dispose(),
   };
 }

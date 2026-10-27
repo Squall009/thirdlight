@@ -260,6 +260,8 @@ export interface EnvironmentRenderer {
   compileAsync(camera: THREE.Camera): Precompile;
   /** Move the physical sky's clouds to the presentation clock `seconds` under the scene's global wind (one uniform write). */
   driftClouds(seconds: number, wind: CloudWind): void;
+  /** Something in view moves by itself this frame (animated materials): the temporal upscale keeps its jitter. */
+  setAnimating(on: boolean): void;
   /** Canvas size in CSS pixels. */
   resize(width: number, height: number): void;
   /** `samples` = the MSAA samples the scene is drawn with (0: none — a level without MSAA, or a post stack with its own anti-aliasing). */
@@ -445,6 +447,27 @@ class ScreenLights {
   }
 }
 
+/** The post stack's uniform numbers (grading, vignette, bloom) of a look's post, for the passes `w` draws. */
+function postNumbers(post: PostLike | undefined, w: { bloom: boolean; grading: boolean }): Pick<PostPlan, 'grading' | 'bloom'> {
+  const g = post?.grading;
+  return {
+    grading: w.grading
+      ? {
+          brightness: g?.brightness ?? 0,
+          contrast: g?.contrast ?? 0,
+          saturation: g?.saturation ?? 0,
+          tint: g?.tint ?? '#ffffff',
+          lift: g?.lift ?? 0,
+          gamma: g?.gamma ?? 1,
+          gain: g?.gain ?? 1,
+          vignette: post?.vignette?.enabled === true ? (post.vignette.darkness ?? 0.5) : 0,
+          vignetteOffset: post?.vignette?.offset ?? 1,
+        }
+      : null,
+    bloom: w.bloom ? { strength: post?.bloom?.strength ?? 0.6, radius: post?.bloom?.radius ?? 0.4, threshold: post?.bloom?.threshold ?? 0.85 } : null,
+  };
+}
+
 /** The physical sky's uniforms (`PhysicalSky`). */
 function setSkyUniforms(mesh: THREE.Mesh, p: SkyParams): void {
   const m = mesh as PhysicalSky;
@@ -488,6 +511,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
   const layers = new Map<string, SkyLayer>();
   let qualityOverride: QualityLevel | null = null;
   let render: RenderOptions = RENDER_OPTIONS_DEFAULT;
+  let animating = false;
   const screenLights = new ScreenLights(scene);
   let keyLight: [number, number, number] | null = null;
   let volumes: readonly FogVolumeLike[] = [];
@@ -971,20 +995,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       reflections: reflections === null ? null : { quality: reflections, traced: w.traced, view: reflectionsFromUrl() === 'view' },
       fogVolumes: w.fogVolumes,
       dof: w.dof && perspective ? { focus: post?.dof?.focus ?? 10, aperture: post?.dof?.aperture ?? 0.002, maxBlur: post?.dof?.maxBlur ?? 0.01 } : null,
-      bloom: w.bloom ? { strength: post?.bloom?.strength ?? 0.6, radius: post?.bloom?.radius ?? 0.4, threshold: post?.bloom?.threshold ?? 0.85 } : null,
-      grading: w.grading
-        ? {
-            brightness: g?.brightness ?? 0,
-            contrast: g?.contrast ?? 0,
-            saturation: g?.saturation ?? 0,
-            tint: g?.tint ?? '#ffffff',
-            lift: g?.lift ?? 0,
-            gamma: g?.gamma ?? 1,
-            gain: g?.gain ?? 1,
-            vignette: post?.vignette?.enabled === true ? (post.vignette.darkness ?? 0.5) : 0,
-            vignetteOffset: post?.vignette?.offset ?? 1,
-          }
-        : null,
+      ...postNumbers(post, w),
       aa: w.aa,
       motionView: taauFromUrl() === 'motion',
       displayBackground,
@@ -1015,27 +1026,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     }
   };
   /** The uniform numbers of the post stack from the drawn environment. */
-  const postParams = (): Pick<PostPlan, 'grading' | 'bloom'> => {
-    const post = postNow();
-    const g = post?.grading;
-    const w = wanted();
-    return {
-      grading: w.grading
-        ? {
-            brightness: g?.brightness ?? 0,
-            contrast: g?.contrast ?? 0,
-            saturation: g?.saturation ?? 0,
-            tint: g?.tint ?? '#ffffff',
-            lift: g?.lift ?? 0,
-            gamma: g?.gamma ?? 1,
-            gain: g?.gain ?? 1,
-            vignette: post?.vignette?.enabled === true ? (post.vignette.darkness ?? 0.5) : 0,
-            vignetteOffset: post?.vignette?.offset ?? 1,
-          }
-        : null,
-      bloom: w.bloom ? { strength: post?.bloom?.strength ?? 0.6, radius: post?.bloom?.radius ?? 0.4, threshold: post?.bloom?.threshold ?? 0.85 } : null,
-    };
-  };
+  const postParams = (): Pick<PostPlan, 'grading' | 'bloom'> => postNumbers(postNow(), wanted());
   const volumeBoxes = (): FogVolumeBox[] =>
     volumes.map((v) => ({
       min: [v.center[0] - v.size[0] / 2, v.center[1] - v.size[1] / 2, v.center[2] - v.size[2] / 2],
@@ -1096,6 +1087,9 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       if (sky !== undefined && sky.mode === 'procedural' && sky.sunFromLight !== false && skyMesh !== null && layers.size === 0) updateSkyInPlace(sky);
       else if (layers.size === 0) buildSky();
     },
+    setAnimating(on) {
+      animating = on;
+    },
     driftClouds(seconds, wind) {
       const sky = env?.sky;
       if (sky === undefined || sky.mode !== 'procedural') return;
@@ -1133,6 +1127,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
         return;
       }
       pipeline.update(camera, volumeBoxes());
+      pipeline.setTemporalHold(!animating);
       pipeline.render();
     },
     compileAsync(camera) {

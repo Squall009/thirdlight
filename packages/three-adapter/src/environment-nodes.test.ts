@@ -50,6 +50,7 @@ vi.mock('./environment-nodes', async (importOriginal) => {
         setScale: (s: number) => rec.scales.push(s),
         internalSize: () => null,
         temporalHolding: () => (plan.aa === 'taau' ? false : null),
+        setTemporalHold: () => undefined,
         setParams: (p: Pick<PostPlan, 'grading' | 'bloom'>) => rec.params.push(p),
         render: () => (rec.renders += 1),
         dispose: () => (rec.disposed = true),

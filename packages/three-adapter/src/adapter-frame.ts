@@ -300,6 +300,7 @@ export class AdapterFrame {
     if (library !== null && library.animated()) library.tick(seconds);
     // The sky's clouds on the same clock, along the global wind (still air without materials).
     p.environment.renderer?.driftClouds(seconds, library?.globalWind() ?? STILL_AIR);
+    p.environment.renderer?.setAnimating(library !== null && library.animated());
     p.models.animate(p.graph);
     // The animated hierarchies posed as the mixers left them (their bones and drawables follow).
     p.graph.poseAnimated();

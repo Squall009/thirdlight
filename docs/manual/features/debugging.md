@@ -172,7 +172,9 @@ player may change:
   blended particles and decals keep the motion of what is behind them, so a
   fast transparent thing can smear for a frame. Once the camera has stood
   still for two seconds the sub-pixel steps stop and a pixel whose samples
-  did not change keeps its picture: a still view settles to one picture.
+  did not change keeps its picture: a still view settles to one picture
+  (not while wind, water or another animated material moves in view: those
+  keep the steps, so moving blades stay smooth).
   WebGPU in Play and the export only; WebGL 2 and the editor's Scene view
   (drawn only when something changes) draw SMAA in its place.
 - **Dynamic resolution** (`dynamic_resolution`, 0 off — the default — or 1)
