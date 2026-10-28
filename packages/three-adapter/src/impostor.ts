@@ -226,8 +226,12 @@ export function impostorMesh(atlas: ImpostorAtlas, name: string): THREE.Mesh {
   const nc = TSL.texture(normals, at(vC)).rgb;
   const nEncoded = na.mul(wa).add(nb.mul(wb)).add(nc.mul(wc)).div(cover.max(1e-4));
   const nLocal = TSL.normalize(nEncoded.mul(2).sub(1).add(TSL.vec3(0, 1e-4, 0)));
-  // The model-frame normal turned with the copy, into the view.
-  const nChunk = c0.mul(nLocal.x).add(c1.mul(nLocal.y)).add(c2.mul(nLocal.z));
+  // The model-frame normal turned with the copy, into the view. The copy's columns are read in the vertex stage
+  // only (a culled draw finds them by its copy's index, which a pixel does not have): the pixel takes them passed on.
+  const vc0 = TSL.varying(c0);
+  const vc1 = TSL.varying(c1);
+  const vc2 = TSL.varying(c2);
+  const nChunk = vc0.mul(nLocal.x).add(vc1.mul(nLocal.y)).add(vc2.mul(nLocal.z));
   (material as unknown as { normalNode: N }).normalNode = TSL.normalize(TSL.modelViewMatrix.mul(TSL.vec4(nChunk, 0)).xyz);
   const mesh = new THREE.Mesh(geometry, material);
   mesh.name = `impostor:${name}`;

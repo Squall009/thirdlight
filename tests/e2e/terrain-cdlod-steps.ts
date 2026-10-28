@@ -1171,8 +1171,10 @@ export async function streamingPlay(psid: string, renderer: string): Promise<voi
 
   // The camera flies away: every ground tile and block chunk is let go but the player's (the overview drawn instead); then back.
   // Full size: a crack between a full tile and the overview's is a pixel wide.
-  const frame = async (): Promise<Image | null> => {
-    const r = await relay(`${psid}/screenshot`, { maxWidth: 2048 });
+  // A PNG over the relay's bound comes at a smaller width, which its content decides: `maxWidth` takes a frame at the
+  // width an earlier one came at.
+  const frame = async (maxWidth = 2048): Promise<Image | null> => {
+    const r = await relay(`${psid}/screenshot`, { maxWidth });
     return r.status === 200 ? decodePng(Buffer.from(String(r.json['dataUrl'] ?? '').split(',')[1] ?? '', 'base64')) : null;
   };
   const place = async (p: V3): Promise<void> => {
@@ -1201,13 +1203,13 @@ export async function streamingPlay(psid: string, renderer: string): Promise<voi
     return away;
   };
   /** Back: settled round the camera again, its picture. */
-  const flyBack = async (): Promise<Image> => {
+  const flyBack = async (maxWidth?: number): Promise<Image> => {
     await place(CAM_AT);
     let img: Image | null = null;
     await expect
       .poll(async () => {
         if ((await settled()) === null) return false;
-        img = await frame();
+        img = await frame(maxWidth);
         return img !== null;
       }, { timeout: 60_000, message: `${renderer} streamed Play: back home, settled` })
       .toBe(true);
@@ -1223,8 +1225,9 @@ export async function streamingPlay(psid: string, renderer: string): Promise<voi
   // tiles meet the overview's.
   expectFrame(once, `${renderer} streamed Play`);
   await flyAway();
-  const twice = await flyBack();
+  const twice = await flyBack(once.width);
   // The same ground, scatter and blocks: what still differs is what moves with time (the river's flow, the wind).
+  expect([twice.width, twice.height], `${renderer} streamed Play: both returns' pictures the same size`).toEqual([once.width, once.height]);
   const diff = meanDiff(once, twice);
   let changed = 0;
   for (let y = 0; y < once.height; y++) for (let x = 0; x < once.width; x++) {
