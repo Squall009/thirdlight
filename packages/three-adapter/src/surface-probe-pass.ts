@@ -26,6 +26,9 @@ interface QueryDevice extends TracerDevice {
 
 type Pipeline = { getBindGroupLayout(i: number): unknown };
 
+/** Timestamps an update writes: the start and end of making rays, tracing, resolving, and gathering through the commit. */
+const PROBE_STAMPS = 8;
+
 /** One update's inputs. */
 export interface ProbePassInput {
   readonly probes: LiveProbes;
@@ -132,8 +135,8 @@ export class SurfaceProbePass {
     this.params = device.createBuffer({ size: 64, usage: USAGE.UNIFORM | USAGE.COPY_DST, label: 'probe params' });
     this.words = new ProbeWordsBuffer(device, 'probe words');
     const timed = device.features?.has('timestamp-query') === true && device.createQuerySet !== undefined;
-    this.query = timed ? device.createQuerySet!({ type: 'timestamp', count: 2 }) : null;
-    this.resolveTs = timed ? device.createBuffer({ size: 16, usage: USAGE.QUERY_RESOLVE | USAGE.COPY_SRC, label: 'probe timestamps' }) : null;
+    this.query = timed ? device.createQuerySet!({ type: 'timestamp', count: PROBE_STAMPS }) : null;
+    this.resolveTs = timed ? device.createBuffer({ size: PROBE_STAMPS * 8, usage: USAGE.QUERY_RESOLVE | USAGE.COPY_SRC, label: 'probe timestamps' }) : null;
   }
 
   static async create(device: TracerDevice, tracer: GpuTracer): Promise<SurfaceProbePass> {
@@ -180,11 +183,12 @@ export class SurfaceProbePass {
   }
 
   /**
-   * Update `input.slots`. `done(values, ms)` hears the probes' new records
-   * (`PROBE_FLOATS` each, in slot order) and the GPU time (null: not timed)
-   * once they are read back.
+   * Update `input.slots`. `done(values, ms, passes)` hears the probes' new
+   * records (`PROBE_FLOATS` each, in slot order), the GPU time (null: not
+   * timed) and its parts (making rays, tracing, resolving, gathering with
+   * the commit) once they are read back.
    */
-  run(input: ProbePassInput, done: (values: Float32Array, ms: number | null) => void): void {
+  run(input: ProbePassInput, done: (values: Float32Array, ms: number | null, passes: readonly number[]) => void): void {
     const n = input.slots.length;
     if (n === 0 || this.busy) return;
     const d = this.device;
@@ -198,8 +202,9 @@ export class SurfaceProbePass {
     this.seed = (this.seed * 1664525 + 1013904223) >>> 0;
     d.queue.writeBuffer(this.params, 0, probeParams(input.probes, packed, n, rays, this.seed, input.albedoRingsAt));
     const timed = this.query !== null;
+    const stamp = (i: number): Record<string, unknown> => (timed ? { timestampWrites: { querySet: this.query, beginningOfPassWriteIndex: i * 2, endOfPassWriteIndex: i * 2 + 1 } } : {});
     const enc = d.createCommandEncoder();
-    let pass = enc.beginComputePass(timed ? { timestampWrites: { querySet: this.query, beginningOfPassWriteIndex: 0 } } : {});
+    let pass = enc.beginComputePass(stamp(0));
     pass.setPipeline(this.rays);
     pass.setBindGroup(
       0,
@@ -215,9 +220,9 @@ export class SurfaceProbePass {
     );
     pass.dispatchWorkgroups(Math.ceil(rays / PROBE_WORKGROUP));
     pass.end();
-    this.tracer.encodeBuffer(enc, this.raysBuf, rays, {}, EXACT_TRACE, null);
-    this.resolve.encode(enc, this.tracer.hitsBuffer!, rays);
-    pass = enc.beginComputePass();
+    this.tracer.encodeBuffer(enc, this.raysBuf, rays, stamp(1), EXACT_TRACE, null);
+    this.resolve.encode(enc, this.tracer.hitsBuffer!, rays, stamp(2));
+    pass = enc.beginComputePass(timed ? { timestampWrites: { querySet: this.query, beginningOfPassWriteIndex: 6 } } : {});
     pass.setPipeline(this.gather);
     pass.setBindGroup(
       0,
@@ -241,7 +246,7 @@ export class SurfaceProbePass {
     // One workgroup a probe.
     pass.dispatchWorkgroups(n);
     pass.end();
-    pass = enc.beginComputePass(timed ? { timestampWrites: { querySet: this.query, endOfPassWriteIndex: 1 } } : {});
+    pass = enc.beginComputePass(timed ? { timestampWrites: { querySet: this.query, endOfPassWriteIndex: 7 } } : {});
     pass.setPipeline(this.commit);
     pass.setBindGroup(
       0,
@@ -262,27 +267,28 @@ export class SurfaceProbePass {
     enc.copyBufferToBuffer(this.outBuf, 0, read, 0, bytes);
     let ts: GpuBuffer | null = null;
     if (timed && this.resolveTs !== null) {
-      ts = d.createBuffer({ size: 16, usage: USAGE.MAP_READ | USAGE.COPY_DST, label: 'probe timestamps read' });
-      (enc as unknown as { resolveQuerySet(q: unknown, first: number, count: number, dst: GpuBuffer, offset: number): void }).resolveQuerySet(this.query, 0, 2, this.resolveTs, 0);
-      enc.copyBufferToBuffer(this.resolveTs, 0, ts, 0, 16);
+      ts = d.createBuffer({ size: PROBE_STAMPS * 8, usage: USAGE.MAP_READ | USAGE.COPY_DST, label: 'probe timestamps read' });
+      (enc as unknown as { resolveQuerySet(q: unknown, first: number, count: number, dst: GpuBuffer, offset: number): void }).resolveQuerySet(this.query, 0, PROBE_STAMPS, this.resolveTs, 0);
+      enc.copyBufferToBuffer(this.resolveTs, 0, ts, 0, PROBE_STAMPS * 8);
     }
     d.queue.submit([enc.finish()]);
     this.busy = true;
-    const msOf = async (): Promise<number | null> => {
-      if (ts === null) return null;
+    const msOf = async (): Promise<{ ms: number | null; passes: number[] }> => {
+      if (ts === null) return { ms: null, passes: [] };
       await ts.mapAsync(USAGE.MAP_READ);
       const t = new BigUint64Array(ts.getMappedRange().slice(0));
       ts.unmap();
       ts.destroy();
-      const ns = Number(t[1]! - t[0]!);
-      return ns > 0 ? ns / 1e6 : null;
+      const ns = Number(t[PROBE_STAMPS - 1]! - t[0]!);
+      const passes = Array.from({ length: PROBE_STAMPS / 2 }, (_, i) => Number(t[i * 2 + 1]! - t[i * 2]!) / 1e6);
+      return { ms: ns > 0 ? ns / 1e6 : null, passes };
     };
     Promise.all([read.mapAsync(USAGE.MAP_READ).then(() => new Float32Array(read.getMappedRange().slice(0, bytes))), msOf()]).then(
-      ([values, ms]) => {
+      ([values, { ms, passes }]) => {
         read.unmap();
         read.destroy();
         this.busy = false;
-        done(values, ms);
+        done(values, ms, passes);
       },
       () => {
         read.destroy();

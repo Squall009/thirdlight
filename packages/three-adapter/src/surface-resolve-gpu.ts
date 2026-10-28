@@ -40,7 +40,7 @@ export class GpuResolve {
   }
 
   /** Encode the pass over `count` hits (the tracer's hits buffer). */
-  encode(encoder: GpuEncoder, hits: GpuBuffer, count: number): void {
+  encode(encoder: GpuEncoder, hits: GpuBuffer, count: number, pass: Record<string, unknown> = {}): void {
     if (this.table === null) throw new Error('surface resolve: no table');
     const bytes = Math.max(1, count) * TEXEL_WORDS * 4;
     if (this.out === null || this.out.size < bytes) {
@@ -57,7 +57,7 @@ export class GpuResolve {
         { binding: 3, resource: { buffer: this.out } },
       ],
     });
-    const p = encoder.beginComputePass();
+    const p = encoder.beginComputePass(pass);
     p.setPipeline(this.pipeline);
     p.setBindGroup(0, bind);
     p.dispatchWorkgroups(Math.ceil(count / RESOLVE_WORKGROUP));

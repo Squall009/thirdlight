@@ -32,9 +32,9 @@ import * as TSLTyped from 'three/tsl';
 
 import type { N } from './effects-tsl';
 import { LIT } from './custom-lit';
-import { SURFACE_PAGE_TEXELS } from './surface-cache-atlas';
+import { SURFACE_CHART_METRES, SURFACE_PAGE_TEXELS } from './surface-cache-atlas';
 import { buildReadsCopyColumns, instanceColumn } from './attribute-instancing';
-import { ALBEDO_CELLS, ALBEDO_PAGE_STEP, ALBEDO_RING_STEP, albedoWords, ARCH_CELL, ARCH_FACING, ARCH_PLANE_METRES, BLOCK_INSET, BLOCK_LAYERS_HELD, EMPTY, LAYER_TEXELS, LOOKUP_WIDTH, SLOT_TEXELS, SURFACE_READ, SURFEL_KEY_BITS, TERRAIN_TEXELS, type SurfaceReadKind } from './surface-cache-lookup';
+import { ALBEDO_CELLS, ALBEDO_PAGE_STEP, ALBEDO_RING_STEP, albedoWords, ARCH_CELL, ARCH_FACING, ARCH_PLANE_METRES, BLOCK_INSET, BLOCK_LAYERS_HELD, EMPTY, LAYER_TEXELS, LOOKUP_WIDTH, RECT_TEXELS, SLOT_TEXELS, SURFACE_READ, SURFEL_KEY_BITS, TERRAIN_TEXELS, type SurfaceReadKind } from './surface-cache-lookup';
 import { TERRAIN_RING_TEXELS, TERRAIN_RINGS_MAX } from './surface-cache-terrain';
 import { AreaHighlights, areaHighlightNodes, buildsHighlights, cacheVisibility } from './surface-highlights';
 import { SURFACE_TEXEL_LIT } from './surface-light-wgsl';
@@ -442,42 +442,86 @@ function lookupNodes(builder: N, tex: SurfaceCacheTextures, kind: SurfaceReadKin
     modelLookup(builder, tex, texel, layer, uv, found);
     return { layer, uv, found, rings: false };
   }
-  // Architecture: the world cell's list of charts that face the pixel's way, the first whose plane and rectangle hold it.
-  const h1 = TSL.uvec4(tex.arch);
-  const c = TSL.ivec3(floor(p.div(ARCH_CELL)));
-  const zf = c.z.mul(int(8)).add(int(facingNode(n)));
-  const cap = h1.x;
-  const s = uint(c.x).mul(uint(73856093)).bitXor(uint(c.y).mul(uint(19349663))).bitXor(uint(zf).mul(uint(83492791))).bitAnd(cap.sub(uint(1))).toVar();
-  Loop(int(cap), () => {
-    const slot = texel(h1.y.add(s));
-    If(slot.w.equal(uint(0)), () => {
-      Break();
-    });
-    If(TSL.ivec3(asI(slot.x), asI(slot.y), asI(slot.z)).equal(TSL.ivec3(c.x, c.y, zf)).all(), () => {
-      const list = slot.w;
-      Loop(int(word(list.mul(uint(4)))), ({ i }: { i: N }) => {
-        const fa = word(list.mul(uint(4)).add(uint(1)).add(uint(i)));
-        // The frame and its chart's place read together (no load waits on another).
-        const f0 = asF(texel(fa));
-        const f1 = asF(texel(fa.add(uint(1))));
-        const f2 = asF(texel(fa.add(uint(2))));
-        const c0 = texel(fa.add(uint(3)));
-        const d = p.sub(f0.xyz);
-        const nn = cross(f1.xyz, f2.xyz);
-        const uu = dot(d, f1.xyz);
-        const vv = dot(d, f2.xyz);
-        const on = abs(dot(d, nn)).lessThanEqual(ARCH_PLANE_METRES).and(dot(n, nn).greaterThanEqual(ARCH_FACING));
-        const within = uu.greaterThanEqual(-ARCH_PLANE_METRES).and(vv.greaterThanEqual(-ARCH_PLANE_METRES)).and(uu.lessThanEqual(f0.w.add(ARCH_PLANE_METRES))).and(vv.lessThanEqual(f1.w.add(ARCH_PLANE_METRES)));
-        If(on.and(within), () => {
-          chartAt(c0, uu, vv, f0.w, f1.w);
-          Break();
-        });
-      });
-      Break();
-    });
-    s.assign(s.add(uint(1)).bitAnd(cap.sub(uint(1))));
-  });
+  archLookup(tex, texel, chartAt);
   return { layer, uv, found, rings: false };
+}
+
+/**
+ * An architecture pixel's place (`lookupSurfaceCpu`'s twin). The vertex
+ * stage walks the world cell's list of plane rectangles facing its way and
+ * takes the first whose plane and rectangle hold the vertex (a triangle of
+ * a generated surface lies on one plane); it passes on, flat from the
+ * triangle's first vertex, the rectangle's record and where it is, and its
+ * pixels read only the chart under them. No pixel walks a hash or a list:
+ * on the Iris Xe that walk, a chain of dependent reads in a loop, cost the
+ * interior class more than every other kind's lookup together.
+ */
+function archLookup(tex: SurfaceCacheTextures, texel: (t: N) => N, chartAt: (c0: N, uu: N, vv: N, wm: N, hm: N) => void): void {
+  const asF = (v: N): N => uintBitsToFloat(v);
+  const word = (w: N): N => texel(w.div(uint(4))).element(w.mod(uint(4)));
+  // A point on a rectangle (its corner and width, u axis and height, v axis): on its plane facing its way inside it, and where along it.
+  const onRect = (f0: N, f1: N, f2: N, p: N, n: N): { on: N; uu: N; vv: N } => {
+    const d = p.sub(f0.xyz);
+    const nn = cross(f1.xyz, f2.xyz);
+    const uu = dot(d, f1.xyz);
+    const vv = dot(d, f2.xyz);
+    const on = abs(dot(d, nn)).lessThanEqual(ARCH_PLANE_METRES).and(dot(n, nn).greaterThanEqual(ARCH_FACING));
+    const within = uu.greaterThanEqual(-ARCH_PLANE_METRES).and(vv.greaterThanEqual(-ARCH_PLANE_METRES)).and(uu.lessThanEqual(f0.w.add(ARCH_PLANE_METRES))).and(vv.lessThanEqual(f1.w.add(ARCH_PLANE_METRES)));
+    return { on: on.and(within), uu, vv };
+  };
+  // Vertex stage: the rectangle's record (0: none).
+  const rectAt = Fn(() => {
+    const p = positionWorld;
+    const n = normalWorldGeometry;
+    const h1 = TSL.uvec4(tex.arch);
+    const c = TSL.ivec3(floor(p.div(ARCH_CELL)));
+    const zf = c.z.mul(int(8)).add(int(facingNode(n)));
+    const cap = h1.x;
+    const got = uint(0).toVar();
+    const s = uint(c.x).mul(uint(73856093)).bitXor(uint(c.y).mul(uint(19349663))).bitXor(uint(zf).mul(uint(83492791))).bitAnd(cap.sub(uint(1))).toVar();
+    Loop(int(cap), () => {
+      const slot = texel(h1.y.add(s));
+      If(slot.w.equal(uint(0)), () => {
+        Break();
+      });
+      If(TSL.ivec3(asI(slot.x), asI(slot.y), asI(slot.z)).equal(TSL.ivec3(c.x, c.y, zf)).all(), () => {
+        const list = slot.w;
+        Loop(int(word(list.mul(uint(4)))), ({ i }: { i: N }) => {
+          const fa = word(list.mul(uint(4)).add(uint(1)).add(uint(i)));
+          If(onRect(asF(texel(fa)), asF(texel(fa.add(uint(1)))), asF(texel(fa.add(uint(2)))), p, n).on, () => {
+            got.assign(fa);
+            Break();
+          });
+        });
+        Break();
+      });
+      s.assign(s.add(uint(1)).bitAnd(cap.sub(uint(1))));
+    });
+    return got;
+  });
+  const flat = (v: N, name: string): N => varying(v, name).setInterpolation(THREE.InterpolationSamplingType.FLAT, THREE.InterpolationSamplingMode.FIRST);
+  const rec = rectAt().toVar('tlSurfaceArchRectV');
+  const at = flat(rec, 'tlSurfaceArchRect');
+  const row = (k: number): N => select(rec.equal(uint(0)), TSL.vec4(0), asF(texel(rec.add(uint(k)))));
+  const f0 = flat(row(0), 'tlSurfaceArchRect0');
+  const f1 = flat(row(1), 'tlSurfaceArchRect1');
+  // The v axis, and its charts across and down as one float (both below 4096).
+  const r2 = row(2);
+  const charts = TSL.uvec4(texel(rec.add(uint(2)))).w;
+  const f2 = flat(TSL.vec4(r2.xyz, float(charts.bitAnd(uint(0xffff))).add(float(charts.shiftRight(uint(16))).mul(4096))), 'tlSurfaceArchRect2');
+  If(at.notEqual(uint(0)), () => {
+    const r = onRect(f0, f1, f2, positionWorld, normalWorldGeometry);
+    If(r.on, () => {
+      const nu = uint(f2.w.mod(4096));
+      const nv = uint(floor(f2.w.div(4096)));
+      const cm = float(SURFACE_CHART_METRES);
+      const i = TSL.min(uint(max(floor(r.uu.div(cm)), float(0))), nu.sub(uint(1)));
+      const j = TSL.min(uint(max(floor(r.vv.div(cm)), float(0))), nv.sub(uint(1)));
+      const wm = TSL.min(cm, f0.w.sub(float(i).mul(cm)));
+      const hm = TSL.min(cm, f1.w.sub(float(j).mul(cm)));
+      chartAt(texel(at.add(uint(RECT_TEXELS)).add(j.mul(nu)).add(i)), r.uu.sub(float(i).mul(cm)), r.vv.sub(float(j).mul(cm)), wm, hm);
+    });
+  });
 }
 
 /** A normal's facing (its major axis × 2, + 1 along −axis), as `facingOf`. */

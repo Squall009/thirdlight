@@ -139,8 +139,8 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
   private resolvedResidency = -1;
   /** The sky the probes see where nothing is hit (radiance SH: `SkyProbe`'s). */
   sky = new Float32Array(12);
-  /** Hears each timed probe update (GPU ms, probes). */
-  onProbeTimed: ((ms: number, probes: number) => void) | null = null;
+  /** Hears each timed probe update (GPU ms, probes, the parts: rays, trace, resolve, gather). */
+  onProbeTimed: ((ms: number, probes: number, passes: readonly number[]) => void) | null = null;
   private readonly viewUnits = new Map<string, { points: Float32Array; light: Float32Array; texels: number; size: number }>();
   version = 0;
   viewReading = 0;
@@ -292,12 +292,12 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
     if (slots.length === 0) return;
     if (!this.syncProbeInputs(now)) return;
     const layout = probes.layout;
-    this.probePass.run({ probes, slots, sky: this.sky, rooms: this.host.rooms()?.words ?? null, atlas: this.atlas!, rings: this.rings!, albedo: this.albedoForProbes().buffer, albedoRingsAt: this.albedoForProbes().ringsAt }, (values, ms) => {
+    this.probePass.run({ probes, slots, sky: this.sky, rooms: this.host.rooms()?.words ?? null, atlas: this.atlas!, rings: this.rings!, albedo: this.albedoForProbes().buffer, albedoRingsAt: this.albedoForProbes().ringsAt }, (values, ms, passes) => {
       if (probes.layout !== layout) return;
       probes.accept(slots, values, this.host.relight.isSettled, performance.now());
       if (ms === null) return;
       probes.report(ms, slots.length);
-      this.onProbeTimed?.(ms, slots.length);
+      this.onProbeTimed?.(ms, slots.length, passes);
     });
   }
 

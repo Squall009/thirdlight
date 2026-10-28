@@ -144,6 +144,8 @@ interface LoopResult {
   roomFrames: number | null;
   loadMs: number | null;
   passMsMedian: (number | null)[];
+  /** A probe update's parts (rays, trace, resolve, gather with the commit), raw ms medians. */
+  probePassMsMedian: (number | null)[];
   nsPerTexelMedian: number | null;
   relight: Record<string, unknown>;
   cache: Record<string, unknown>;
@@ -197,7 +199,7 @@ export async function runRelightCli(argv: readonly string[]): Promise<void> {
         const room = r.roomMs !== null ? ` (the room's texels in ${r.roomMs.toFixed(0)} ms, ${r.roomFrames} frames)` : '';
         const full2 = (ms: number | null): string => (ms !== null && mhz !== null && maxMhz !== null ? `${ms.toFixed(2)} (${((ms * mhz) / maxMhz).toFixed(2)} full clock)` : (ms?.toFixed(2) ?? '-'));
         const lay = r.probeLayout;
-        const probes = ` probes ${r.probeCount} (${lay.lit} lit, ${lay.moved} moved; bricks ${lay.bricks.join('/')}, ${lay.grids - lay.bricks.reduce((a, b) => a + b, 0)} room grids, placed in ${lay.placeMs.toFixed(1)} ms, at most ${lay.placeFrameMs.toFixed(1)} a frame) settled ${r.probesMs?.toFixed(0) ?? 'NOT'} ms, ${r.probeUpdates} updates of ${r.probesPerUpdate}, GPU ms/update median ${full2(r.probeMsMedian)} max ${full2(r.probeMsMax)};`;
+        const probes = ` probes ${r.probeCount} (${lay.lit} lit, ${lay.moved} moved; bricks ${lay.bricks.join('/')}, ${lay.grids - lay.bricks.reduce((a, b) => a + b, 0)} room grids, placed in ${lay.placeMs.toFixed(1)} ms, at most ${lay.placeFrameMs.toFixed(1)} a frame) settled ${r.probesMs?.toFixed(0) ?? 'NOT'} ms, ${r.probeUpdates} updates of ${r.probesPerUpdate}, GPU ms/update median ${full2(r.probeMsMedian)} max ${full2(r.probeMsMax)} (parts ${r.probePassMsMedian.map((v) => v?.toFixed(2) ?? '-').join('/')} raw);`;
         return `${name.padEnd(8)} ${label.padEnd(12)} ${r.settled ? 'settled' : 'NOT settled'} in ${r.wallMs.toFixed(0)} ms (direct light ${r.directMs?.toFixed(0) ?? 'NOT'} ms)${room}, ${r.frames} frames, ${r.texels} texels;${probes} GPU ms/frame max ${r.gpuMsMax?.toFixed(2) ?? '-'}${full} median ${r.gpuMsMedian?.toFixed(2) ?? '-'}; main ${r.cpuMsMedian.toFixed(2)} / ${r.cpuMsMax.toFixed(2)} ms; missed ${r.missed}; texels/frame ${String((r.relight as { texelsPerFrame?: number }).texelsPerFrame)}; load ${r.loadMs?.toFixed(2) ?? '-'} ms; passes ${r.passMsMedian.map((v) => v?.toFixed(2) ?? '-').join('/')} ms, ${r.nsPerTexelMedian?.toFixed(0) ?? '-'} ns/texel`;
       };
       console.log(line('cold', got['cold'] as LoopResult));

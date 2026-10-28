@@ -14,12 +14,14 @@
  *   light of its cell's face on its facing.
  * - Terrain: the finest ring whose window holds the point (one texel in
  *   from its edge, so the filter stays inside), at the point's world x, z.
- * - Generated architecture: the charts are planes; a hash of world cells
- *   (`ARCH_CELL` metres) and facings (a normal's major axis and sign) lists
- *   the charts crossing each cell that a pixel of that facing may lie on,
- *   and a pixel takes the first whose plane it lies on (within
- *   `ARCH_PLANE_METRES`, facing its way) inside its rectangle. Trims and
- *   mouldings off the planes find none.
+ * - Generated architecture: the charts are cut from planes (an object's
+ *   touching coplanar pieces, `surface-cache-arch.ts`); a hash of world
+ *   cells (`ARCH_CELL` metres) and facings (a normal's major axis and sign)
+ *   lists the planes' rectangles crossing each cell that a point of that
+ *   facing may lie on. A vertex takes the first whose plane it lies on
+ *   (within `ARCH_PLANE_METRES`, facing its way) inside its rectangle, and
+ *   its triangle's pixels read that rectangle's chart under them, with no
+ *   walk of their own. Trims and mouldings off the planes find none.
  * - Static models: a drawn copy carries its object's slot (`SurfaceModelSlots`:
  *   an instance column, a merged cell's vertex attribute, or the object's
  *   own); the slot's record holds the placement (world → model root) and its
@@ -54,10 +56,12 @@
  * - a terrain (`TERRAIN_TEXELS`): rings, the first texture layer, then per
  *   ring its window's centre (x, z), half side and texel (m, f32);
  * - an architecture slot: cell x, y (i32), z × 8 + facing (i32) and its
- *   list's texel (0: free); a list: its count, then the charts' frame
- *   texels; a frame (`FRAME_TEXELS`): corner (f32 ×3) and width, u axis and
- *   height, v axis, then its chart: page, the interior's corner (x | y <<
- *   16), its texels (w | h << 16);
+ *   list's texel (0: free); a list: its count, then the rectangles' record
+ *   texels; a rectangle's record (`RECT_TEXELS`, then a texel per chart):
+ *   corner (f32 ×3) and width, u axis and height, v axis and its charts
+ *   across | down << 16, then per chart (row by row, `SURFACE_CHART_METRES`
+ *   a side, the last ones shorter) its page, the interior's corner (x | y
+ *   << 16), its texels (w | h << 16);
  * - model slots (`SLOT_TEXELS` each, at slot × that): the world → root
  *   map's rows (f32 ×4, three texels), the root → world map's columns (f32
  *   ×3, three texels: a world normal's root direction; the first's w 1 when
@@ -89,7 +93,8 @@ export const BLOCK_LAYERS_HELD = 1;
 /** Chunk columns a block layer's hash can key (its column index has 20 bits). */
 export const BLOCK_COLUMNS_MAX = 1 << 20;
 export const TERRAIN_TEXELS = 1 + TERRAIN_RINGS_MAX;
-export const FRAME_TEXELS = 4;
+/** An architecture rectangle's record before its charts' places. */
+export const RECT_TEXELS = 3;
 export const PIECE_TEXELS = 3;
 /** A model slot's record: its placement (six texels) and its piece, read by a pixel together with no table in between. */
 export const SLOT_TEXELS = 6 + PIECE_TEXELS;
@@ -235,14 +240,17 @@ function layerHashOf(owner: object, columns: readonly LayerColumn[]): LayerHash 
   return h;
 }
 
-/** A chart of an architecture tile in world space: corner, axes and size. */
-interface ArchFrame {
-  readonly chart: number;
+/** A plane rectangle of an architecture tile (one of its components) in world space: corner, axes, size and its charts. */
+interface ArchRect {
   readonly o: readonly number[];
   readonly u: readonly number[];
   readonly v: readonly number[];
   readonly w: number;
   readonly h: number;
+  readonly nu: number;
+  readonly nv: number;
+  /** Its first chart (the tile's charts, row by row). */
+  readonly first: number;
 }
 
 /** The facings (`facingOf`) a pixel on a plane of normal `n` may have: each axis and sign `n` faces at least `ARCH_FACING_LISTED`. */
@@ -255,54 +263,53 @@ function facingsOf(n: readonly number[]): number[] {
   return out;
 }
 
-/** An architecture tile's chart frames and the world cells and facings (`x,y,z × 8 + facing`) each may be read from, kept with its charts. */
-const archFrames = new WeakMap<ArchTile['made'], { frames: ArchFrame[]; cells: Map<string, number[]> }>();
+/** An architecture tile's rectangles and the world cells and facings (`x,y,z × 8 + facing`) each may be read from, kept with its charts. */
+const archRects = new WeakMap<ArchTile['made'], { rects: ArchRect[]; cells: Map<string, number[]> }>();
 
-function archFramesOf(tile: ArchTile): { frames: ArchFrame[]; cells: Map<string, number[]> } {
-  let got = archFrames.get(tile.made);
+function archRectsOf(tile: ArchTile): { rects: ArchRect[]; cells: Map<string, number[]> } {
+  let got = archRects.get(tile.made);
   if (got !== undefined) return got;
-  const frames: ArchFrame[] = [];
+  const rects: ArchRect[] = [];
   const cells = new Map<string, number[]>();
   for (const comp of tile.made.components) {
-    for (let j = 0; j < comp.nv; j += 1) {
-      for (let i = 0; i < comp.nu; i += 1) {
-        const c = comp.first + j * comp.nu + i;
-        const chart = tile.made.charts[c]!;
-        if (chart.kind !== 'area') continue;
-        const du = comp.u0 + i * SURFACE_CHART_METRES;
-        const dv = comp.v0 + j * SURFACE_CHART_METRES;
-        const o = [0, 1, 2].map((k) => comp.origin[k]! + comp.uAxis[k]! * du + comp.vAxis[k]! * dv);
-        const f: ArchFrame = { chart: c, o, u: comp.uAxis, v: comp.vAxis, w: chart.w, h: chart.h };
-        const fi = frames.length;
-        frames.push(f);
-        // The cells its rectangle's box (a plane's tolerance thick) crosses.
-        const lo = [Infinity, Infinity, Infinity];
-        const hi = [-Infinity, -Infinity, -Infinity];
-        for (const [a, b] of [[0, 0], [1, 0], [0, 1], [1, 1]] as const) {
-          for (let k = 0; k < 3; k += 1) {
-            const p = o[k]! + f.u[k]! * f.w * a + f.v[k]! * f.h * b;
-            lo[k] = Math.min(lo[k]!, p - ARCH_PLANE_METRES);
-            hi[k] = Math.max(hi[k]!, p + ARCH_PLANE_METRES);
-          }
-        }
-        const c0 = lo.map((v) => Math.floor(v / ARCH_CELL));
-        const c1 = hi.map((v) => Math.floor(v / ARCH_CELL));
-        const u = f.u;
-        const v = f.v;
-        const facings = facingsOf([u[1]! * v[2]! - u[2]! * v[1]!, u[2]! * v[0]! - u[0]! * v[2]!, u[0]! * v[1]! - u[1]! * v[0]!]);
-        for (let z = c0[2]!; z <= c1[2]!; z += 1) for (let y = c0[1]!; y <= c1[1]!; y += 1) for (let x = c0[0]!; x <= c1[0]!; x += 1) {
-          for (const facing of facings) {
-            const key = `${x},${y},${z * 8 + facing}`;
-            const list = cells.get(key);
-            if (list === undefined) cells.set(key, [fi]);
-            else list.push(fi);
-          }
-        }
+    const o = [0, 1, 2].map((k) => comp.origin[k]! + comp.uAxis[k]! * comp.u0 + comp.vAxis[k]! * comp.v0);
+    let w = 0;
+    let h = 0;
+    const area = (c: number): { w: number; h: number } => {
+      const chart = tile.made.charts[c]!;
+      return chart.kind === 'area' ? chart : { w: 0, h: 0 };
+    };
+    for (let i = 0; i < comp.nu; i += 1) w += area(comp.first + i).w;
+    for (let j = 0; j < comp.nv; j += 1) h += area(comp.first + j * comp.nu).h;
+    const r: ArchRect = { o, u: comp.uAxis, v: comp.vAxis, w, h, nu: comp.nu, nv: comp.nv, first: comp.first };
+    const ri = rects.length;
+    rects.push(r);
+    // The cells its rectangle's box (a plane's tolerance thick) crosses.
+    const lo = [Infinity, Infinity, Infinity];
+    const hi = [-Infinity, -Infinity, -Infinity];
+    for (const [a, b] of [[0, 0], [1, 0], [0, 1], [1, 1]] as const) {
+      for (let k = 0; k < 3; k += 1) {
+        const p = o[k]! + r.u[k]! * r.w * a + r.v[k]! * r.h * b;
+        lo[k] = Math.min(lo[k]!, p - ARCH_PLANE_METRES);
+        hi[k] = Math.max(hi[k]!, p + ARCH_PLANE_METRES);
+      }
+    }
+    const c0 = lo.map((v) => Math.floor(v / ARCH_CELL));
+    const c1 = hi.map((v) => Math.floor(v / ARCH_CELL));
+    const u = r.u;
+    const v = r.v;
+    const facings = facingsOf([u[1]! * v[2]! - u[2]! * v[1]!, u[2]! * v[0]! - u[0]! * v[2]!, u[0]! * v[1]! - u[1]! * v[0]!]);
+    for (let z = c0[2]!; z <= c1[2]!; z += 1) for (let y = c0[1]!; y <= c1[1]!; y += 1) for (let x = c0[0]!; x <= c1[0]!; x += 1) {
+      for (const facing of facings) {
+        const key = `${x},${y},${z * 8 + facing}`;
+        const list = cells.get(key);
+        if (list === undefined) cells.set(key, [ri]);
+        else list.push(ri);
       }
     }
   }
-  got = { frames, cells };
-  archFrames.set(tile.made, got);
+  got = { rects, cells };
+  archRects.set(tile.made, got);
   return got;
 }
 
@@ -509,14 +516,14 @@ export function packSurfaceLookup(scene: SurfaceScene, cache: SurfaceCache, slot
       t.setF(at + 1 + k, 3, rings.texelMetres(k));
     });
   });
-  // Architecture: every resident chart's frame, and the world cells' lists of them.
+  // Architecture: every resident rectangle's record with its charts' places, and the world cells' lists of them.
   const lists = new Map<string, number[]>();
   for (const o of view.arch) {
     const r = residentOf.get(o.tile.key);
     if (r === undefined) continue;
-    const { frames, cells } = archFramesOf(o.tile);
-    const at = frames.map((f) => {
-      const fa = t.alloc(FRAME_TEXELS);
+    const { rects, cells } = archRectsOf(o.tile);
+    const at = rects.map((f) => {
+      const fa = t.alloc(RECT_TEXELS + f.nu * f.nv);
       for (let k = 0; k < 3; k += 1) {
         t.setF(fa, k, f.o[k]!);
         t.setF(fa + 1, k, f.u[k]!);
@@ -524,7 +531,8 @@ export function packSurfaceLookup(scene: SurfaceScene, cache: SurfaceCache, slot
       }
       t.setF(fa, 3, f.w);
       t.setF(fa + 1, 3, f.h);
-      putChart(t, fa + 3, r, f.chart);
+      t.setU(fa + 2, 3, f.nu | (f.nv << 16));
+      for (let c = 0; c < f.nu * f.nv; c += 1) putChart(t, fa + RECT_TEXELS + c, r, f.first + c);
       return fa;
     });
     for (const [key, list] of cells) {
@@ -589,9 +597,10 @@ function facingOf(n: readonly number[]): number {
 /**
  * Where a pixel of `kind` at world point `p` with normal `n` reads its light
  * (null: nowhere: it keeps its own lights); a model's pixel names its copy's
- * slot and, on a UV1 model, its UV1.
+ * slot and, on a UV1 model, its UV1; an architecture pixel may name the
+ * vertex its triangle found its rectangle at (absent: the pixel's own point).
  */
-export function lookupSurfaceCpu(words: Uint32Array, kind: SurfaceReadKind, p: readonly number[], n: readonly number[], model?: { readonly slot: number; readonly uv1?: readonly number[] }): LookedUp | null {
+export function lookupSurfaceCpu(words: Uint32Array, kind: SurfaceReadKind, p: readonly number[], n: readonly number[], at?: { readonly slot?: number; readonly uv1?: readonly number[]; readonly vertex?: readonly number[] }): LookedUp | null {
   const u = words;
   const f = new Float32Array(u.buffer, u.byteOffset, u.length);
   if (kind === SURFACE_READ.blocks) {
@@ -650,7 +659,28 @@ export function lookupSurfaceCpu(words: Uint32Array, kind: SurfaceReadKind, p: r
     }
     return null;
   }
-  if (kind === SURFACE_READ.model) return model === undefined ? null : lookupModelCpu(u, f, p, n, model.slot, model.uv1);
+  if (kind === SURFACE_READ.model) return at?.slot === undefined ? null : lookupModelCpu(u, f, p, n, at.slot, at.uv1);
+  const rect = archRectAt(u, f, at?.vertex ?? p, n);
+  return rect === null ? null : archPlace(u, f, rect, p, n);
+}
+
+/** Where point `p` with normal `n` lies on the rectangle whose record is at texel `at` (metres along it from its corner; null: off its plane, turned from it or outside it). */
+function onArchRect(u: Uint32Array, f: Float32Array, at: number, p: readonly number[], n: readonly number[]): { uu: number; vv: number } | null {
+  const fa = at * 4;
+  const d = [p[0]! - f[fa]!, p[1]! - f[fa + 1]!, p[2]! - f[fa + 2]!];
+  const uax = [f[fa + 4]!, f[fa + 5]!, f[fa + 6]!];
+  const vax = [f[fa + 8]!, f[fa + 9]!, f[fa + 10]!];
+  const nn = [uax[1]! * vax[2]! - uax[2]! * vax[1]!, uax[2]! * vax[0]! - uax[0]! * vax[2]!, uax[0]! * vax[1]! - uax[1]! * vax[0]!];
+  const dist = d[0]! * nn[0]! + d[1]! * nn[1]! + d[2]! * nn[2]!;
+  if (Math.abs(dist) > ARCH_PLANE_METRES || n[0]! * nn[0]! + n[1]! * nn[1]! + n[2]! * nn[2]! < ARCH_FACING) return null;
+  const uu = d[0]! * uax[0]! + d[1]! * uax[1]! + d[2]! * uax[2]!;
+  const vv = d[0]! * vax[0]! + d[1]! * vax[1]! + d[2]! * vax[2]!;
+  if (uu < -ARCH_PLANE_METRES || vv < -ARCH_PLANE_METRES || uu > f[fa + 3]! + ARCH_PLANE_METRES || vv > f[fa + 7]! + ARCH_PLANE_METRES) return null;
+  return { uu, vv };
+}
+
+/** The record (texel) of the first listed rectangle holding point `p` of normal `n` (a vertex's: its triangle's pixels read that one; null: none). */
+export function archRectAt(u: Uint32Array, f: Float32Array, p: readonly number[], n: readonly number[]): number | null {
   const cap = u[4]!;
   const slots = u[5]!;
   const c = p.map((v) => Math.floor(v / ARCH_CELL));
@@ -660,24 +690,25 @@ export function lookupSurfaceCpu(words: Uint32Array, kind: SurfaceReadKind, p: r
     if (u[w + 3] === 0) break;
     if (i32(u[w]!) !== c[0] || i32(u[w + 1]!) !== c[1] || i32(u[w + 2]!) !== zf) continue;
     const la = u[w + 3]! * 4;
-    for (let i = 0; i < u[la]!; i += 1) {
-      const fa = u[la + 1 + i]! * 4;
-      const d = [p[0]! - f[fa]!, p[1]! - f[fa + 1]!, p[2]! - f[fa + 2]!];
-      const uax = [f[fa + 4]!, f[fa + 5]!, f[fa + 6]!];
-      const vax = [f[fa + 8]!, f[fa + 9]!, f[fa + 10]!];
-      const nn = [uax[1]! * vax[2]! - uax[2]! * vax[1]!, uax[2]! * vax[0]! - uax[0]! * vax[2]!, uax[0]! * vax[1]! - uax[1]! * vax[0]!];
-      const dist = d[0]! * nn[0]! + d[1]! * nn[1]! + d[2]! * nn[2]!;
-      if (Math.abs(dist) > ARCH_PLANE_METRES || n[0]! * nn[0]! + n[1]! * nn[1]! + n[2]! * nn[2]! < ARCH_FACING) continue;
-      const uu = d[0]! * uax[0]! + d[1]! * uax[1]! + d[2]! * uax[2]!;
-      const vv = d[0]! * vax[0]! + d[1]! * vax[1]! + d[2]! * vax[2]!;
-      const wm = f[fa + 3]!;
-      const hm = f[fa + 7]!;
-      if (uu < -ARCH_PLANE_METRES || vv < -ARCH_PLANE_METRES || uu > wm + ARCH_PLANE_METRES || vv > hm + ARCH_PLANE_METRES) continue;
-      return chartPlace(u, fa / 4 + 3, uu, vv, wm, hm);
-    }
+    for (let i = 0; i < u[la]!; i += 1) if (onArchRect(u, f, u[la + 1 + i]!, p, n) !== null) return u[la + 1 + i]!;
     return null;
   }
   return null;
+}
+
+/** A pixel's place on rectangle `at`: its chart under the pixel (null: the pixel is off the rectangle). */
+function archPlace(u: Uint32Array, f: Float32Array, at: number, p: readonly number[], n: readonly number[]): LookedUp | null {
+  const on = onArchRect(u, f, at, p, n);
+  if (on === null) return null;
+  const nu = u[(at + 2) * 4 + 3]! & 0xffff;
+  const nv = u[(at + 2) * 4 + 3]! >>> 16;
+  const w = f[at * 4 + 3]!;
+  const h = f[at * 4 + 7]!;
+  const i = Math.min(nu - 1, Math.max(0, Math.floor(on.uu / SURFACE_CHART_METRES)));
+  const j = Math.min(nv - 1, Math.max(0, Math.floor(on.vv / SURFACE_CHART_METRES)));
+  const wm = Math.min(SURFACE_CHART_METRES, w - i * SURFACE_CHART_METRES);
+  const hm = Math.min(SURFACE_CHART_METRES, h - j * SURFACE_CHART_METRES);
+  return chartPlace(u, at + RECT_TEXELS + j * nu + i, on.uu - i * SURFACE_CHART_METRES, on.vv - j * SURFACE_CHART_METRES, wm, hm);
 }
 
 /** The surfel of cell `c` (from the cells' origin) and `facing` in a set's buckets (−1: none). */

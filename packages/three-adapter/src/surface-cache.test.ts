@@ -270,7 +270,7 @@ describe('surface cache: addressing per kind', () => {
     expect(resolveHitCpu(gone.words, hits, 0)[0] === 0 || hits[4]! % 256 === TRACE_TERRAIN).toBe(true);
   });
 
-  it('a drawn pixel finds the texel the CPU addressing gives its point, from its position and normal alone (blocks, terrain, architecture)', () => {
+  it('a drawn pixel finds the texel the CPU addressing gives its point, from its position and normal alone (blocks, terrain, architecture: its rectangle found at a vertex of its triangle)', () => {
     const scene = new SurfaceScene(sceneInput());
     const cache = new SurfaceCache(256 * 1024 * 1024);
     cache.update([10, 3, 0], scene.tiles, scene.terrains, true);
@@ -282,6 +282,7 @@ describe('surface cache: addressing per kind', () => {
     const same = new Map<number, number>();
     let coarser = 0;
     let otherChart = 0;
+    let fromVertex = 0;
     for (let i = 0; i < 6000; i += 1) {
       const o: V3 = [-6 + r() * 50, 1.6 + r() * 4.5, -22 + r() * 34];
       const d = unit([r() * 2 - 1, r() * 2 - 1.3, r() * 2 - 1]);
@@ -298,6 +299,19 @@ describe('surface cache: addressing per kind', () => {
       const p: V3 = [o[0] + d[0] * hit.t, o[1] + d[1] * hit.t, o[2] + d[2] * hit.t];
       const got = lookupSurfaceCpu(words, kind, p, hit.normal);
       tried.set(kind, (tried.get(kind) ?? 0) + 1);
+      if (kind === SURFACE_READ.arch) {
+        // A triangle's pixels read the rectangle its first vertex found: from a vertex elsewhere on the same plane the
+        // pixel still reads its own chart (or nothing, the vertex on another rectangle it is off), never another chart.
+        const n = hit.normal;
+        const t = unit(Math.abs(n[1]) > 0.9 ? [n[2], 0, -n[0]] : [-n[2], 0, n[0]]);
+        const vertex = [p[0] + t[0] * 1.5, p[1] + t[1] * 1.5 + 0.4, p[2] + t[2] * 1.5];
+        const moved = lookupSurfaceCpu(words, kind, p, n, { vertex });
+        if (moved !== null) {
+          expect(moved).toEqual(got);
+          fromVertex += 1;
+        }
+        expect(lookupSurfaceCpu(words, kind, p, n, { vertex: [p[0] + n[0] * 0.5, p[1] + n[1] * 0.5, p[2] + n[2] * 0.5] })).toBeNull();
+      }
       expect(got, `kind ${kind} at ${p.map((v) => v.toFixed(3))}`).not.toBeNull();
       if ('page' in want) {
         expect(got!.texture).toBe('atlas');
@@ -331,6 +345,7 @@ describe('surface cache: addressing per kind', () => {
     }
     expect(coarser / tried.get(SURFACE_READ.terrain)!).toBeLessThan(0.02);
     expect(otherChart / tried.get(SURFACE_READ.arch)!).toBeLessThan(0.05);
+    expect(fromVertex / tried.get(SURFACE_READ.arch)!).toBeGreaterThan(0.3);
     // Off every surface (in the air, a normal no chart faces) nothing is found.
     expect(lookupSurfaceCpu(words, SURFACE_READ.blocks, [100, 50, 100], [0, 1, 0])).toBeNull();
     expect(lookupSurfaceCpu(words, SURFACE_READ.arch, [4, 2, -12], [0, 1, 0])).toBeNull();

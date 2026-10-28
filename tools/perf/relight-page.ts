@@ -195,8 +195,8 @@ async function run(input: RelightInput): Promise<Record<string, unknown>> {
   const pass = rt.pass;
   let timed: ((ms: number, t: number, parts: readonly number[]) => void) | null = null;
   rt.onTimed = (ms, t, parts) => timed?.(ms, t, parts);
-  let probeTimed: ((ms: number) => void) | null = null;
-  rt.onProbeTimed = (ms) => probeTimed?.(ms);
+  let probeTimed: ((ms: number, passes: readonly number[]) => void) | null = null;
+  rt.onProbeTimed = (ms, _n, passes) => probeTimed?.(ms, passes);
   let lights = input.lights;
   const loop = async (maxMs: number): Promise<Record<string, unknown>> => {
     const t0 = performance.now();
@@ -212,7 +212,11 @@ async function run(input: RelightInput): Promise<Record<string, unknown>> {
       perTexel.push((ms * 1e6) / t);
     };
     const probeMs: number[] = [];
-    probeTimed = (ms) => probeMs.push(ms);
+    const probePassMs: number[][] = [];
+    probeTimed = (ms, passes) => {
+      probeMs.push(ms);
+      probePassMs.push([...passes]);
+    };
     const updates0 = host.probes.diagnostics().updates;
     let probesMs: number | null = null;
     let directMs: number | null = null;
@@ -264,6 +268,7 @@ async function run(input: RelightInput): Promise<Record<string, unknown>> {
       gpuMsMax: sorted.length > 0 ? sorted[sorted.length - 1] : null,
       gpuMsMedian: sorted.length > 0 ? sorted[Math.floor(sorted.length / 2)] : null,
       gpuMs,
+      probePassMsMedian: [0, 1, 2, 3].map((i) => [...probePassMs.map((p) => p[i]!)].sort((a, b) => a - b)[Math.floor(probePassMs.length / 2)] ?? null),
       passMsMedian: [0, 1, 2].map((i) => [...passMs.map((p) => p[i]!)].sort((a, b) => a - b)[Math.floor(passMs.length / 2)] ?? null),
       nsPerTexelMedian: [...perTexel].sort((a, b) => a - b)[Math.floor(perTexel.length / 2)] ?? null,
       cpuMsMax: Math.max(...cpuMs),
