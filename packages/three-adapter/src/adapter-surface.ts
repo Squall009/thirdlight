@@ -189,6 +189,8 @@ export function createAdapterSurface(p: AdapterParts, frame: AdapterFrame, x: Ad
     previewArchitecture: (preview): number => (state.disposed ? 0 : level.architecture.preview(preview)),
     materialsChanged(): void {
       state.lightmaps?.refresh();
+      // What the probes bounce is the surfaces' colours.
+      p.surfaceCache?.colours.all();
     },
     sync(): void {
       if (!state.disposed) frame.syncWorld();

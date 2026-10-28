@@ -3,12 +3,15 @@
  * (nearest first, waiting units moved forward, settled detection, the work
  * count following measured GPU time) and the page's host fed real engine
  * data (a `BlockGrid`, a `TerrainField`, a static model's bricks), where
- * every change path marks the units its light reaches and nothing else.
+ * every change path marks the units its light reaches and nothing else;
+ * and where surfaces' colours changed, the probes there are marked again
+ * once a frame has written the new colours (their bounce reads them).
  */
 import { describe, expect, it } from 'vitest';
 import { BlockGrid, DEFAULT_PROBE_SPACING, TerrainField, buildDistanceBrickSet, encodeDistanceBricks, type BlockType, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
 
 import { SurfaceCacheHost } from './surface-cache-host';
+import { PROBE_FLOATS, PROBE_MAX_UPDATES, PROBE_UPDATES_AT } from './surface-probes';
 import { SurfaceChanges, SUN_STEP_RADIANS, type CacheLight } from './surface-changes';
 import { RELIGHT_MIN_TEXELS, RELIGHT_START_TEXELS, SurfaceRelight, type RelightUnit } from './surface-relight';
 import { LIGHT_RAYS, SUN_RAYS, lightFrameOf, packLightFrame, raysAtLevel } from './surface-light-pass';
@@ -404,5 +407,83 @@ describe('surface relight on the page', () => {
     expect(of(moved, 'town/3,3')).toBe(false);
     expect(moved.some((k) => k.startsWith('land'))).toBe(false);
     expect(host.diagnostics().relight).toMatchObject({ settled: true, stalePages: 0, live: true, budgetMs: 1.5 });
+  });
+});
+
+describe('surface colours and the probes', () => {
+  it('the probes bounce colours again once a frame wrote them: the scene coming in (all), a block edit (round it), a material edited in place (all)', async () => {
+    const grid = new BlockGrid({ cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [64, 4, 64] } });
+    for (let x = 0; x < 64; x += 1) for (let z = 0; z < 64; z += 1) grid.set(x, 0, z, { block: 'rock' });
+    const gens = new Map<string, number>();
+    for (let cz = 0; cz < 4; cz += 1) for (let cx = 0; cx < 4; cx += 1) gens.set(`${cx},${cz}`, 1);
+    const host = new SurfaceCacheHost(
+      { layers: () => [{ id: 'town', origin: [0, 0, 0], grid, version: 1, chunks: [...gens], opaque: OPAQUE }], terrains: () => [], architecture: () => [], models: () => [], bricks: () => null },
+      64 * 1024 * 1024,
+      1.5,
+    );
+    host.setLive(true);
+    const eye = [8, 2, 8];
+    let now = 0;
+    const frames = async (until: () => boolean): Promise<void> => {
+      for (let f = 0; f < 2000 && !until(); f += 1) {
+        host.touch();
+        host.update(eye, (now += 16));
+        await Promise.resolve();
+      }
+    };
+    const probes = host.probes;
+    // What a GPU update would give back, again and again: the probes settle.
+    const settle = (): void => {
+      const all = Uint32Array.from({ length: probes.count }, (_, i) => i);
+      const values = new Float32Array(probes.count * PROBE_FLOATS);
+      for (let i = 0; i < probes.count; i += 1) values[i * PROBE_FLOATS + PROBE_UPDATES_AT] = 1;
+      for (let u = 0; u <= PROBE_MAX_UPDATES && !probes.isSettled; u += 1) probes.accept(all, values, true, u);
+    };
+    const stale = (): number => probes.diagnostics().stale;
+    const P = (): Float32Array => probes.positions;
+    const litIn = (box: { min: readonly number[]; max: readonly number[] } | null): number => {
+      let n = 0;
+      for (let i = 0; i < probes.count; i += 1) if (probes.probeLit(i) && (box === null || [0, 1, 2].every((k) => P()[i * 3 + k]! >= box.min[k]! && P()[i * 3 + k]! <= box.max[k]!))) n += 1;
+      return n;
+    };
+
+    await frames(() => host.diagnostics().preparing === 0 && host.diagnostics().tiles.offered > 0 && probes.count > 0);
+    expect(probes.count).toBeGreaterThan(0);
+    // The scene came in: its probes first bounced a stand-in colour.
+    expect(host.colours.waiting).toBe(true);
+    const first = host.colours.take();
+    expect(first).toBe(true);
+    expect(host.colours.waiting).toBe(false);
+    settle();
+    expect(stale()).toBe(0);
+    host.colours.mark(first!);
+    expect(stale()).toBe(litIn(null));
+    settle();
+
+    // A block edit in the far chunk: once its tile is made again, the box round it, as far as bounce rays reach.
+    grid.set(60, 1, 60, { block: 'rock' });
+    gens.set('3,3', 2);
+    await frames(() => host.colours.waiting);
+    expect(host.colours.waiting).toBe(true);
+    const edit = host.colours.take();
+    expect(edit).not.toBe(true);
+    const box = edit as { min: readonly number[]; max: readonly number[] };
+    const reach = bounceRayMetres(DEFAULT_PROBE_SPACING);
+    expect(box.min[0]).toBeLessThanOrEqual(48 - reach + 1e-6);
+    expect(box.max[0]).toBeGreaterThanOrEqual(64 + reach - 1e-6);
+    expect(box.min[0]).toBeGreaterThan(16);
+    // The edit's own marks (its light changed) settle first; its colours' marks come after.
+    settle();
+    host.colours.mark(box);
+    // The probes in the box, and no others.
+    expect(stale()).toBeGreaterThan(0);
+    expect(stale()).toBe(litIn(box));
+    expect(stale()).toBeLessThan(litIn(null));
+    settle();
+
+    // A material edited in place: every probe, once a frame wrote the colours.
+    host.colours.all();
+    expect(host.colours.take()).toBe(true);
+    expect(host.colours.take()).toBeNull();
   });
 });

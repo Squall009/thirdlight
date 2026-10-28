@@ -37,7 +37,7 @@ import { TERRAIN_RING_SHARE } from './surface-cache';
 import { TERRAIN_RINGS_MAX, TERRAIN_RING_BYTES } from './surface-cache-terrain';
 import { packSurfaceLookup, SURFACE_READ } from './surface-cache-lookup';
 import { SURFACE_READ_ALL, SURFACE_READ_LIVE_KEY, SurfaceCacheTextures } from './surface-cache-read';
-import { savedLights, type CacheLight } from './surface-changes';
+import { savedLights, type CacheLight, type ColourChanges } from './surface-changes';
 import { runSurfaceBake, type BakePart, type SurfaceBakeOptions, type SurfaceBakeOutcome } from './adapter-surface-bake';
 import { AdapterSavedLight, type SavedLightDiagnostics, type SurfaceBakeLike } from './adapter-saved-light';
 import { REFLECTION_TRACER_KEY, type ReflectionTracer } from './post-reflections';
@@ -131,6 +131,9 @@ export class AdapterSurfaceLight {
   private albedoFor = '';
   private frames = 0;
   private captures = 0;
+  /** Where colours changed, written on frame `colourFrame`: marked on the probes the frame after (null: none waits). */
+  private colourMarks: ColourChanges | null = null;
+  private colourFrame = -1;
   /** Every light as the cache last saw them (a bake saves the ones it keeps). */
   private allLights: readonly CacheLight[] = [];
   /** A bake's part: the lights whose light it saves light the cache (null: every light, live). */
@@ -245,7 +248,18 @@ export class AdapterSurfaceLight {
     if (this.lookupFor !== '') this.scene.userData[SURFACE_READ_LIVE_KEY] = tex;
     // The surfaces' colours are written one frame now and then, only where probes bounce them.
     this.frames += 1;
-    tex.capture = this.host.probes.count > 0 && this.frames % ALBEDO_CAPTURE_FRAMES === 0;
+    // Written last frame where colours had changed: the probes there bounce the new ones now.
+    if (this.colourMarks !== null && this.frames > this.colourFrame) {
+      this.host.colours.mark(this.colourMarks);
+      this.colourMarks = null;
+    }
+    // Colours changed (a surface made again, a material edited) and the lookup holds them: written this frame.
+    const recolour = this.colourMarks === null && key === this.lookupFor && this.host.colours.waiting;
+    if (recolour) {
+      this.colourMarks = this.host.colours.take();
+      this.colourFrame = this.frames;
+    }
+    tex.capture = this.host.probes.count > 0 && (recolour || this.frames % ALBEDO_CAPTURE_FRAMES === 0);
     if (tex.capture) this.captures += 1;
     const albedoSeen = (this.albedoDrawn ?? 0) > 0 && this.albedoFor === this.lookupFor;
     if (this.albedoAsked && !albedoSeen && !this.albedoReading && now - this.albedoAt >= ALBEDO_READ_MS) {

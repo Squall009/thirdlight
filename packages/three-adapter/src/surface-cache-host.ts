@@ -22,7 +22,7 @@
 import { DEFAULT_PROBE_SPACING, LIGHT_LAYERS_ALL, decodeDistanceBricks, type ArchitectureComponent, type BlockCell, type BlockGridReader, type DistanceBricks, type TerrainField, type TerrainTile } from '@thirdlight/runtime';
 
 import { SurfaceCache, type SurfaceCacheDiagnostics, type SurfaceTile } from './surface-cache';
-import { SurfaceChanges, type CacheLight } from './surface-changes';
+import { SurfaceChanges, SurfaceColourChanges, type CacheLight } from './surface-changes';
 import { SurfaceRelight, type RelightDiagnostics, type RelightSlice, type RelightUnit } from './surface-relight';
 import type { RingPatch } from './surface-cache-terrain';
 import type { AtlasBlock } from './surface-cache-atlas';
@@ -193,15 +193,21 @@ function placementHash(m: ArrayLike<number>, version: number): number {
   return h >>> 0;
 }
 
+function sameData(x: ArrayLike<number> | null, y: ArrayLike<number> | null): boolean {
+  if (x === y) return true;
+  if (x === null || y === null || x.length !== y.length) return false;
+  for (let i = 0; i < x.length; i += 1) if (x[i] !== y[i]) return false;
+  return true;
+}
+
 /** Whether two tiles' data stop light alike: their heights and holes (paint changes colour, not where light falls). */
 function sameShape(a: TerrainTile, b: TerrainTile): boolean {
-  const same = (x: ArrayLike<number> | null, y: ArrayLike<number> | null): boolean => {
-    if (x === y) return true;
-    if (x === null || y === null || x.length !== y.length) return false;
-    for (let i = 0; i < x.length; i += 1) if (x[i] !== y[i]) return false;
-    return true;
-  };
-  return same(a.heights, b.heights) && same(a.holes, b.holes);
+  return sameData(a.heights, b.heights) && sameData(a.holes, b.holes);
+}
+
+/** Whether two tiles' ground has the same colour: their layer weights and paint. */
+function sameColour(a: TerrainTile, b: TerrainTile): boolean {
+  return sameData(a.weights, b.weights) && sameData(a.paint, b.paint);
 }
 
 export class SurfaceCacheHost {
@@ -244,6 +250,8 @@ export class SurfaceCacheHost {
   private readonly layersOf = new Map<string, number | undefined>();
   /** Bumped by every geometry change the listing sees. */
   private geometryVersion = 0;
+  /** Where surfaces' colours changed: the probes there bounce them again once a frame wrote them. */
+  readonly colours: SurfaceColourChanges;
   private traced: { source: TraceSceneSource; version: number } | null = null;
   private resolved: { scene: SurfaceScene; version: number } | null = null;
   /** Bumped whenever the cache's residency changed (tiles placed, let go, rings stepped): the resolve tables are packed again. */
@@ -283,6 +291,8 @@ export class SurfaceCacheHost {
     this.probes = new LiveProbes(DEFAULT_PROBE_SPACING, relightMs * PROBE_BUDGET_SHARE);
     // What the cache's light marks, the probes' light may change with.
     this.relight.onStale((min, max) => this.probes.markBox(min, max));
+    // A surface's colour is written where it is made and the lookup holds it.
+    this.colours = new SurfaceColourChanges(this.probes, () => this.listed && this.pending.size === 0);
     this.seeding = new SurfaceSeeding({ cache: this.cache, relight: this.relight, changes: this.changes, probes: this.probes, tile: (key) => this.ready.get(key), unitsOf: (key) => this.tileUnits.get(key) ?? [key] });
   }
 
@@ -358,7 +368,9 @@ export class SurfaceCacheHost {
   /** Geometry in a box changed (after the first listing; the scene coming in is not a change). */
   private geometry(min: readonly number[], max: readonly number[]): void {
     this.geometryVersion += 1;
-    if (this.listed) this.changes.geometryChanged(min, max);
+    if (!this.listed) return;
+    this.changes.geometryChanged(min, max);
+    this.colours.changed(min, max);
   }
 
   /**
@@ -789,8 +801,15 @@ export class SurfaceCacheHost {
     for (const [key, t] of now) {
       const old = was.get(key);
       if (old === t) continue;
-      // A field made again hands in new flat tiles, and paint changes colour only: same shape, no change.
-      if (old !== undefined && sameShape(old, t)) continue;
+      // A field made again hands in new flat tiles, and paint changes colour only: same shape, no change of light, but
+      // painted ground bounces its new colour.
+      if (old !== undefined && sameShape(old, t)) {
+        if (sameColour(old, t)) continue;
+        const [x, z] = key.split(',').map(Number) as [number, number];
+        const b = field.tileBounds(x, z);
+        this.colours.changed([b[0], y0, b[1]], [b[2], y1, b[3]]);
+        continue;
+      }
       box(key);
     }
     for (const key of was.keys()) if (!now.has(key)) box(key);

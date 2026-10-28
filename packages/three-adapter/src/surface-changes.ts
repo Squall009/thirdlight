@@ -286,3 +286,56 @@ export class SurfaceChanges {
     }
   }
 }
+
+/** Where surfaces' colours changed: a box round every change, or anywhere (`true`). */
+export type ColourChanges = { readonly min: readonly number[]; readonly max: readonly number[] } | true;
+
+/**
+ * Where surfaces' colours changed since the probes last bounced them. The
+ * probes there were marked at once (the change's light), but they read the
+ * colours the materials wrote, which stay the old ones (a surface made again
+ * has new places in the cache, holding what was drawn there before) until a
+ * frame writes them again; once one has (`take`, then `mark` the frame
+ * after), they are marked again. The scene coming in is such a change: its
+ * first probes bounced a stand-in colour.
+ */
+export class SurfaceColourChanges {
+  /** One box round every change (`true`: anywhere; null: nowhere). */
+  private changes: ColourChanges | null = true;
+
+  /** `ready`: every changed surface is made and listed (its place in the cache is where a frame's colours go). */
+  constructor(private readonly probes: { markBox(min: readonly number[] | null, max: readonly number[] | null): void }, private readonly ready: () => boolean, private readonly probeSpacing = DEFAULT_PROBE_SPACING) {}
+
+  /** Static geometry in this box changed: its colours, as far as the probes round it bounce light from it. */
+  changed(min: readonly number[], max: readonly number[]): void {
+    const had = this.changes;
+    if (had === true) return;
+    const r = bounceRayMetres(this.probeSpacing);
+    const lo = min.map((v) => v - r);
+    const hi = max.map((v) => v + r);
+    this.changes = had === null ? { min: lo, max: hi } : { min: lo.map((v, k) => Math.min(v, had.min[k]!)), max: hi.map((v, k) => Math.max(v, had.max[k]!)) };
+  }
+
+  /** Colours changed anywhere (a material edited in place). */
+  all(): void {
+    this.changes = true;
+  }
+
+  /** Colours changed and the changed surfaces are made: a frame may write them now. */
+  get waiting(): boolean {
+    return this.changes !== null && this.ready();
+  }
+
+  /** The changes so far, taken (the caller has a frame write the colours, then marks them). */
+  take(): ColourChanges | null {
+    const c = this.changes;
+    this.changes = null;
+    return c;
+  }
+
+  /** The probes where colours changed bounce them again. */
+  mark(changes: ColourChanges): void {
+    if (changes === true) this.probes.markBox(null, null);
+    else this.probes.markBox(changes.min, changes.max);
+  }
+}

@@ -194,23 +194,25 @@ const TERRAIN_COVER_FROM_Z = AREA_AT[2] + 24 + 0.5;
 const RESTYLE_KEY = 'KeyR';
 const ENTER_KEY = 'KeyB';
 
-// ---- Colours (lit, tone mapped: ratios, not values).
+// ---- Colours (lit, tone mapped: ratios, not values). WebGPU's live probes light with the colour sky's blue and the
+// bounce round each surface (WebGL 2 without a bake has neither): AgX pulls those brighter, bluer colours toward
+// white, so the purple, pink and blue tests leave room for it.
 const isYellow: Pred = (r, g, b) => r > 110 && g > 95 && b < 0.45 * Math.min(r, g) && Math.abs(r - g) < 0.35 * r;
 const isChartreuse: Pred = (r, g, b) => g > 90 && r > 0.45 * g && r < 0.88 * g && b < 0.35 * g;
 const isTeal: Pred = (r, g, b) => g > 35 && b > 35 && r < 0.4 * Math.min(g, b) && Math.abs(g - b) < 0.35 * Math.max(g, b);
 const isWhite: Pred = (r, g, b) => Math.min(r, g, b) > 140 && Math.max(r, g, b) - Math.min(r, g, b) < 45;
 const isLavender: Pred = (r, g, b) => b > 100 && b > 1.2 * r && b > 1.2 * g && Math.min(r, g) > 0.45 * b;
 const isDarkGrey: Pred = (r, g, b) => Math.max(r, g, b) < 130 && Math.min(r, g, b) > 15 && Math.max(r, g, b) - Math.min(r, g, b) < 30;
-const isPink: Pred = (r, g, b) => r > 140 && b > 1.4 * g && r > 1.25 * b;
+const isPink: Pred = (r, g, b) => r > 140 && b > 1.4 * g && r > 1.1 * b;
 const isPeach: Pred = (r, g, b) => r > 170 && g > 0.5 * r && g < 0.88 * r && b < 0.8 * g;
 const isSkyBlue: Pred = (r, g, b) => b > 110 && b > 1.4 * r && b > 1.15 * g;
 const isSheetA: Pred = (r, g, b) => g > 70 && g > 1.5 * r && g > 1.5 * b;
 /** Sheet B's purple: trim draws at the sheet's own colour (a white tint), so its sunlit faces (the pipe, the shed roof) read a brighter, paler purple than the walls. */
-const isSheetB: Pred = (r, g, b) => b > 70 && r > 1.35 * g && b > 1.8 * g;
+const isSheetB: Pred = (r, g, b) => b > 70 && r > 1.15 * g && b > 1.7 * g;
 const isSheet: Pred = (r, g, b) => isSheetA(r, g, b) || isSheetB(r, g, b);
 /** The paint's red and blue tints over white; the white of an unpainted block. */
 const isPaintRed: Pred = (r, g, b) => r > 90 && g < 0.4 * r && b < 0.4 * r;
-const isPaintBlue: Pred = (r, g, b) => b > 90 && r < 0.5 * b && g < 0.5 * b;
+const isPaintBlue: Pred = (r, g, b) => b > 90 && r < 0.56 * b && g < 0.56 * b;
 const isPaintPlain: Pred = (r, g, b) => Math.min(r, g, b) > 90 && Math.max(r, g, b) - Math.min(r, g, b) < 45;
 /** The decals' yellow (lit, in the light or the shade). */
 const isDecalYellow: Pred = (r, g, b) => r > 80 && g > 0.7 * r && g < 1.2 * r && b < 0.6 * Math.min(r, g);

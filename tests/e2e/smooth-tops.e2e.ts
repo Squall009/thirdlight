@@ -187,11 +187,15 @@ function faceted(j: Jumps): string | null {
   return j.chunkEdge >= 8 ? null : `no facet at the chunk edge: ${JSON.stringify(j)}`;
 }
 
-/** Smooth: no jump at any edge of the rolling ground (the chunk edge included); the crease stays hard. */
+/**
+ * Smooth: no jump at any edge of the rolling ground (the chunk edge included); the crease stays hard. Where the live
+ * probes light the ground with the sky (WebGPU once its live light runs) the ground is brighter and AgX compresses
+ * the crease's step from ~27 to ~10, still well clear of the rolling ground's.
+ */
 function smooth(j: Jumps): string | null {
   if (!(j.chunkEdge <= 4)) return `a seam at the chunk edge: ${JSON.stringify(j)}`;
   if (!(j.rolling <= 6)) return `a facet on the rolling ground: ${JSON.stringify(j)}`;
-  if (!(j.crease >= 12)) return `no crease at the steep slope: ${JSON.stringify(j)}`;
+  if (!(j.crease >= 8)) return `no crease at the steep slope: ${JSON.stringify(j)}`;
   return null;
 }
 

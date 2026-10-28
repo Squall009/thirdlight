@@ -362,6 +362,10 @@ only where something changed:
   it leaves: the surfaces that read the cache write their own colour beside
   it (one frame in 30, at half the cache's resolution, a quarter on
   terrain); where no material has drawn yet, it bounces as albedo 0.3.
+  When colours change — the scene comes in, a surface is made again (a
+  block edit, architecture restyled), a material is edited — the colours
+  are written on the next frame and the probes round the change update
+  once more, so their bounce takes the new colours.
 - **Rooms and portals** — a point, spot or area light standing in a room of
   generated architecture lights only that room and the rooms its open
   doorways join to it; a shut door (a door piece across the doorway) holds
