@@ -128,7 +128,7 @@ const HASH_SLOT = '  instantiate(_p: unknown, inst: any) { let h = 0; for (const
 /** Id numbers per prefix (the backend numbers `<prefix>-0001..9999`). */
 const ID_MAX = 9999;
 /** Most entities one pasteEntities creates (commands' PASTE_ENTITIES_MAX). */
-const PASTE_MAX = 256;
+export const PASTE_MAX = 256;
 
 /** The generic scripts: a spinner and a bobber (own their transform), a counter, a prober, a messenger. */
 export const BENCH_BEHAVIORS: readonly BehaviorPlan[] = [

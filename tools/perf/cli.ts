@@ -28,6 +28,7 @@
  *   relight [options]              the surface cache's change tracking on the GPU at the 60 Hz cap: a lamp switched in the door room, the sun stepped on the village, time to settled at the per-frame budget (tools/perf/relight-run.ts)
  *   tracer [options]               the lighting tracer per geometry kind on the GPU at the 60 Hz cap: cost per ray in random order and grouped, GPU hits against the CPU twin (tools/perf/tracer-run.ts)
  *   look [options]                 the look-reference scenes (a room lit through a door, a building at sunset, a corridor of rect and line lights, a sign at night) baked, measured at the 60 Hz cap and photographed on both renderers (tools/perf/look-run.ts)
+ *   lights [options]               the many-lights class: 64, 256 and 1,000 point and spot lights (some shadowed, a few area lights) over a floor and pillars, at the 60 Hz cap on both renderers (tools/perf/lights-run.ts)
  *   look-accept [options]          the look scenes played: the starter character walking, a block dug, the sun run through the day, a lamp switched behind a shut door; frame windows and re-light times at the 60 Hz cap, shots and a webm per scene (tools/perf/look-accept.ts)
  */
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -100,6 +101,11 @@ if (argv[0] === 'look') {
   const { runLookCli } = await import('./look-run');
   await runLookCli(argv.slice(1));
   process.exit(process.exitCode ?? 0);
+}
+if (argv[0] === 'lights') {
+  const { runLightsCli } = await import('./lights-run');
+  await runLightsCli(argv.slice(1));
+  process.exit(0);
 }
 if (argv[0] === 'look-accept') {
   const { runLookAcceptCli } = await import('./look-accept');

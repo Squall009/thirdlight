@@ -72,7 +72,7 @@ export const LOOK_PLANS: Readonly<Record<LookScene, LookPlan>> = {
 };
 
 /** Post-processing of every look scene: the level classes' stack (SMAA, bloom, AO), neutral tone mapping. */
-const POST = { antialias: 'smaa', bloom: { enabled: true, radius: 0.4, strength: 0.35, threshold: 1 }, exposure: 1, ssao: { enabled: true, intensity: 1, radius: 0.5 }, toneMapping: 'neutral' };
+export const LOOK_POST = { antialias: 'smaa', bloom: { enabled: true, radius: 0.4, strength: 0.35, threshold: 1 }, exposure: 1, ssao: { enabled: true, intensity: 1, radius: 0.5 }, toneMapping: 'neutral' };
 
 const fill = (x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, block: string | null): Record<string, unknown> => ({ kind: 'fill', box: [x0, y0, z0, x1, y1, z1], cell: block === null ? null : { block } });
 
@@ -109,7 +109,7 @@ async function doorScene(be: PerfBackend, projectId: string, cmd: Cmd, mode: Loo
   ]);
   // A sun from +z, low enough to reach well into the room through the door.
   await cmd('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#fff0dc', intensity: 3, direction: [0.15, -0.55, -0.82], castShadow: true, mode } });
-  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'procedural', sunFromLight: true, cloudCoverage: 0.2 }, post: POST } });
+  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'procedural', sunFromLight: true, cloudCoverage: 0.2 }, post: LOOK_POST } });
 }
 
 /** A generated two-storey building (door, windows, gable roof) on a soil slab under a sunset. */
@@ -123,7 +123,7 @@ async function sunsetScene(be: PerfBackend, projectId: string, cmd: Cmd, mode: L
   const building = { id: 'house', preset: 'starter-room', outside: 'starter-room', storeys: 2, roof: { shape: 'gable' }, openings, path: { points: [[x0, 1, z0], [x1, 1, z0], [x1, 1, z1], [x0, 1, z1]], closed: true } };
   await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'House', static: true, transform: { position: [0, 0, 0] }, components: { architecture: { elements: [], buildings: [building] } } });
   await cmd('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffb36b', intensity: 1.8, direction: [-0.55, -0.17, 0.82], castShadow: true, shadowExtent: 32, mode } });
-  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'procedural', sunFromLight: true, turbidity: 9, rayleigh: 2.5, cloudCoverage: 0.35 }, post: { ...POST, grading: { tint: '#fff2e4' } } } });
+  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'procedural', sunFromLight: true, turbidity: 9, rayleigh: 2.5, cloudCoverage: 0.35 }, post: { ...LOOK_POST, grading: { tint: '#fff2e4' } } } });
 }
 
 /** A closed block corridor 3 m wide, 3 m high, 28 m long, its floor polished; rectangle and line area lights. */
@@ -147,7 +147,7 @@ async function corridorScene(be: PerfBackend, projectId: string, cmd: Cmd, mode:
   await light(cmd, 'Line', [10.1, 1.6, 18], { type: 'area', shape: 'line', width: 8, color: '#9fd0ff', intensity: 20, range: 4, castShadow: true, mode }, [0.5, -0.5, 0.5, 0.5]);
   // The corridor is closed: the sun only lights its outside.
   await cmd('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 1.5, direction: [0.4, -1, -0.3], castShadow: true, mode } });
-  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'procedural', sunFromLight: true }, post: POST } });
+  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'procedural', sunFromLight: true }, post: LOOK_POST } });
 }
 
 /** Hilly terrain (128 m square, flat round the sign) at night; the sign's face glows. */
@@ -167,7 +167,7 @@ async function signScene(be: PerfBackend, projectId: string, cmd: Cmd, mode: Loo
   await box(cmd, 'Sign', [64, 1.9, 64], [4, 1, 0.12], { color: '#20303a', emissive: '#40c8ff', emissiveIntensity: 4 });
   // A faint moon; the night sky gives almost no light.
   await cmd('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#8fa6ff', intensity: 0.15, direction: [0.3, -0.6, 0.5], castShadow: true, mode } });
-  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#070a14', environmentIntensity: 0.15 }, post: POST } });
+  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#070a14', environmentIntensity: 0.15 }, post: LOOK_POST } });
 }
 
 /** Rooms R (an arch toward the camera, a doorway to C) and C (closed but for that doorway) on a block floor; a lamp in C. */
@@ -184,7 +184,7 @@ async function leakScene(be: PerfBackend, projectId: string, cmd: Cmd, mode: Loo
   await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Rooms', static: true, transform: { position: [0, 0, 0] }, components: { architecture: { elements: [], layer, outlines } } });
   if (lampOn) await light(cmd, 'Lamp in C', [1.5, 1.6, 2], { type: 'point', color: '#fff2d8', intensity: 30, range: 6, castShadow: true, mode });
   await cmd('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 0.6, direction: [0.3, -0.8, -0.5], castShadow: true, mode } });
-  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#202634', environmentIntensity: 0.3 }, post: POST } });
+  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#202634', environmentIntensity: 0.3 }, post: LOOK_POST } });
 }
 
 const BUILDERS: Readonly<Record<LookScene, (be: PerfBackend, projectId: string, cmd: Cmd, mode: LookLightMode) => Promise<void>>> = {
