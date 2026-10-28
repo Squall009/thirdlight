@@ -228,7 +228,9 @@ export async function buildTerrain(): Promise<{ ground: string; big: string; blo
   const mat = layeredMaterial('mat-terrain', 'Terrain layers');
   await cmd('setMaterial', { material: mat });
   await useArrays(be!, 'mat-terrain', { albedoHeight: 'terrain-albedo', normals: 'terrain-normals', orm: 'terrain-orm' });
-  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: SKY } } });
+  // The sky's colour finds cracks (it shows through them); it gives no light, so the layers keep their own colours
+  // where the probes light live.
+  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: SKY, environmentIntensity: 0 } } });
   // 22 m over the terrain, looking down at 45° along −z: the sky out of frame, 22–85 m of ground in view.
   const pitch = (-45 * Math.PI) / 180;
   await cmd('setTransform', { entityId: 'cam-main', transform: { position: CAM_AT, rotation: [Math.sin(pitch / 2), 0, 0, Math.cos(pitch / 2)] } });

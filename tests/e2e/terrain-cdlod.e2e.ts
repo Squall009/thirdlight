@@ -375,8 +375,18 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
     };
     type ScatterDiag = { runtime?: { scatterCopies?: { hidden: number; colliders: number; copies: number } }; renderer?: { scatter?: { hidden: number; copies: number; instances: { byLevel: number[] }; impostors?: { baked: number; bytes: number; bakeMsMax: number } } } };
     const sdiag = async (sid: string): Promise<ScatterDiag> => ((await relay(`${sid}/diagnostics`, {})).json as { diagnostics?: ScatterDiag }).diagnostics ?? {};
+    // Where Play lights live (WebGPU) the ground's shade moves until the surface light and probes settle: frames
+    // compared pixel by pixel are taken once they have, or the ground's change reads as the posts'.
+    type CacheDiag = { renderer?: { surfaceCache?: { relight: { live: boolean; settled: boolean }; probes: { settled: boolean } } } };
+    const lightSettled = async (sid: string): Promise<boolean> => {
+      const c = (((await relay(`${sid}/diagnostics`, {})).json as { diagnostics?: CacheDiag }).diagnostics ?? {}).renderer?.surfaceCache;
+      return c === undefined || !c.relight.live || (c.relight.settled && c.probes.settled);
+    };
+    /** How much (summed over R, G and B) a pixel changes when the post drawn in it is hidden. */
+    const POST_CHANGE = 40;
     /** The posts' pixels: orange with them shown, not with them hidden (the frame's other orange stays), and their mean colour. */
     const posts = async (sid: string, what: string): Promise<{ n: number; tint: [number, number, number] }> => {
+      await expect.poll(() => lightSettled(sid), { timeout: 90_000, message: `${what}: the live light settles` }).toBe(true);
       const shownImg = (await frameNow(sid))!;
       await jump(sid);
       let d: ScatterDiag = {};
@@ -384,6 +394,7 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
         d = await sdiag(sid);
         return (d.runtime?.scatterCopies?.hidden ?? 0) > 0 && d.renderer?.scatter?.hidden === d.runtime?.scatterCopies?.hidden;
       }, { timeout: 30_000, message: `${what}: the hidden copies counted by the simulation and the renderer` }).toBe(true);
+      await expect.poll(() => lightSettled(sid), { timeout: 90_000, message: `${what}: the live light settles with the posts hidden` }).toBe(true);
       let out = { n: 0, tint: [0, 0, 0] as [number, number, number] };
       await expect.poll(async () => {
         const hiddenImg = await frameNow(sid);
@@ -392,7 +403,10 @@ test('terrain: CDLOD heights, layered material, paint and a hole in the Scene vi
         let n = 0;
         for (let y = 0; y < shownImg.height; y++) for (let x = 0; x < shownImg.width; x++) {
           const p = shownImg.pixel(x, y);
-          if (!isOrange(...p) || isOrange(...hiddenImg.pixel(x, y))) continue;
+          const q = hiddenImg.pixel(x, y);
+          // A post's pixel changes a lot once it is hidden; red ground beside the posts, lit a little orange by their
+          // bounce where the light is live, only a little.
+          if (!isOrange(...p) || isOrange(...q) || Math.abs(p[0] - q[0]) + Math.abs(p[1] - q[1]) + Math.abs(p[2] - q[2]) < POST_CHANGE) continue;
           sum[0] += p[0];
           sum[1] += p[1];
           sum[2] += p[2];

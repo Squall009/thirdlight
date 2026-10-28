@@ -21,7 +21,10 @@
  *   room's probes stay dark whatever the rays' turns; its probes inside the
  *   slab are dropped (their rays would start in the solid and read the
  *   yard's probes beyond the wall).
+ * - a colour sky lights the probes as much as the scene's sky lighting says
+ *   (none at 0), as an environment map does.
  */
+import * as THREE from 'three/webgpu';
 import { describe, expect, it } from 'vitest';
 import { BlockGrid, architectureStylesOf, buildRoomGraph, expandArchitecture, type ArchitectureComponent, type BlockType } from '@thirdlight/runtime';
 
@@ -37,6 +40,7 @@ import { ProbeMarks, type ProbeSolid } from './probe-bricks';
 import { probeSolid } from './probe-geometry';
 import { BOUNCE_ALBEDO, LiveProbes, PROBE_FLOATS, PROBE_MIN_COUNT, selectSmallest, shIrradiance, type ProbePlacement } from './surface-probes';
 import { SurfaceRooms } from './surface-rooms';
+import { SkyProbe } from './surface-probe-sky';
 import { packTraceScene } from './tracer-scene';
 import { opaqueByBlockTypes, traceBlockLayerOf } from './tracer-sources';
 import type { TraceHit } from './tracer-cpu-math';
@@ -370,3 +374,21 @@ describe('surface cache: no outside light in a closed generated room', () => {
   }, 120_000);
 });
 
+
+describe('surface cache: the sky the probes see', () => {
+  it('a colour sky gives light by the scene\'s sky lighting, none at 0', () => {
+    const band0 = (intensity: number): number[] => {
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0, 1, 1);
+      scene.environmentIntensity = intensity;
+      const sky = new SkyProbe();
+      sky.update(null, scene, 1e9);
+      return Array.from(sky.coefficients.slice(0, 3));
+    };
+    const full = band0(1);
+    expect(full[0]).toBe(0);
+    expect(full[1]).toBeGreaterThan(0);
+    expect(band0(0.5)[1]).toBeCloseTo(full[1]! / 2, 6);
+    expect(band0(0)).toEqual([0, 0, 0]);
+  });
+});

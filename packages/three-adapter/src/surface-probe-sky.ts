@@ -112,7 +112,8 @@ export class SkyProbe {
       [slope.r, slope.g, slope.b].forEach((v, k) => (c[3 + k]! += v / SH_E1));
     }
     if (env === null) {
-      if (bg !== null) [bg.r, bg.g, bg.b].forEach((v, k) => (c[k]! += v * SH_Y0 * 4 * Math.PI));
+      // A colour sky lights as much as the scene's sky lighting says (0: not at all), as an environment map does.
+      if (bg !== null) [bg.r, bg.g, bg.b].forEach((v, k) => (c[k]! += v * scene.environmentIntensity * SH_Y0 * 4 * Math.PI));
       this.publish(c);
       return;
     }
