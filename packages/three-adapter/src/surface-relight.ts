@@ -268,6 +268,11 @@ export class SurfaceRelight {
     };
   }
 
+  /** The unit under `key` as it was added (undefined: none). */
+  unitOf(key: string): RelightUnit | undefined {
+    return this.units.get(key)?.unit;
+  }
+
   /** Whether `key` waits for light. */
   isStale(key: string): boolean {
     return this.units.get(key)?.stale === true;

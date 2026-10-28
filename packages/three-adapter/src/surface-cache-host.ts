@@ -161,6 +161,41 @@ function worldToLocalOfMatrix(m: ArrayLike<number>): Affine {
 }
 
 /** A terrain's loaded tiles' world box: what its rings cover. */
+/** The boxes of a terrain's tiles `keys` ("x,z"), over its whole height span. */
+function terrainTileBoxes(field: TerrainField, keys: Iterable<string>): { min: number[]; max: number[] }[] {
+  const [y0, y1] = field.heightSpan();
+  return [...keys].map((key) => {
+    const [x, z] = key.split(',').map(Number) as [number, number];
+    const b = field.tileBounds(x, z);
+    return { min: [b[0], y0, b[1]], max: [b[2], y1, b[3]] };
+  });
+}
+
+/** Each listed tile's (and terrain's) entity's light layers, and the keys whose layers changed since last taken. */
+class LightLayersOf {
+  private readonly of = new Map<string, number | undefined>();
+  private moved = new Set<string>();
+
+  get(key: string): number | undefined {
+    return this.of.get(key);
+  }
+
+  set(key: string, layers: number | undefined): void {
+    if (this.of.has(key) && this.of.get(key) !== layers) this.moved.add(key);
+    this.of.set(key, layers);
+  }
+
+  delete(key: string): void {
+    this.of.delete(key);
+  }
+
+  takeMoved(): Set<string> {
+    const out = this.moved;
+    this.moved = new Set();
+    return out;
+  }
+}
+
 function ringSourceOf(id: string, field: TerrainField): TerrainRingSource | null {
   let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
   for (const key of field.loadedTiles().keys()) {
@@ -184,6 +219,8 @@ interface Pending {
   readonly version: number;
   /** Makes its tile and its charts. */
   readonly make: () => SurfaceTile;
+  /** Asked for after the scene came in: a change, whose made tile's bounds are marked too (`min`/`max` may only be a place, a building's origin). */
+  readonly change: boolean;
 }
 
 /** A number for a placement (its matrix to the millimetre): a moved static object is a new version of its tiles. */
@@ -220,8 +257,7 @@ export class SurfaceCacheHost {
   private readonly memos = new Map<string, { version: number; memo: Map<number, boolean> }>();
   /** Model files by asset and version: read (decoded), being read, or none. */
   private readonly files = new Map<string, DistanceBricks | 'reading' | null>();
-  private readonly componentVersions = new WeakMap<object, number>();
-  private componentVersion = 0;
+  private readonly componentVersions = { of: new WeakMap<object, number>(), last: 0 };
   private changed = true;
   private prepareMs = 0;
   private offered: SurfaceTile[] = [];
@@ -247,7 +283,7 @@ export class SurfaceCacheHost {
   private readonly chartUnits = new Map<string, RelightUnit & { readonly tile: string; readonly rect: ChartRect }>();
   private live = false;
   /** The light layers of each listed tile's (and terrain's) entity. */
-  private readonly layersOf = new Map<string, number | undefined>();
+  private readonly layersOf = new LightLayersOf();
   /** Bumped by every geometry change the listing sees. */
   private geometryVersion = 0;
   /** Where surfaces' colours changed: the probes there bounce them again once a frame wrote them. */
@@ -365,12 +401,44 @@ export class SurfaceCacheHost {
     return this.slices;
   }
 
-  /** Geometry in a box changed (after the first listing; the scene coming in is not a change). */
-  private geometry(min: readonly number[], max: readonly number[]): void {
+  /** Geometry in a box changed (after the first listing; the scene coming in is not a change); `terrain`: one of its tiles (its version moves: rings and probes follow). */
+  private geometry(min: readonly number[], max: readonly number[], terrain?: string): void {
+    if (terrain !== undefined) this.terrainVersions.set(terrain, (this.terrainVersions.get(terrain) ?? 0) + 1);
     this.geometryVersion += 1;
     if (!this.listed) return;
     this.changes.geometryChanged(min, max);
     this.colours.changed(min, max);
+  }
+
+  /**
+   * Objects moved to other light layers: their units take the new mask (a
+   * unit keeps the one it was added with), and their box is lit again as a
+   * geometry change (the shadows they cast and the light they take are
+   * another light's now; the tracer packs their new masks).
+   */
+  private applyLayerMoves(): void {
+    for (const key of this.layersOf.takeMoved()) {
+      const field = this.fields.get(key);
+      if (field !== undefined) {
+        // Its ring patches are made again with the new mask on the frame's unit sync.
+        for (const k of this.patchUnits.get(key)?.keys() ?? []) this.relight.remove(k);
+        this.patchUnits.delete(key);
+        for (const b of terrainTileBoxes(field, field.loadedTiles().keys())) this.geometry(b.min, b.max, key);
+        continue;
+      }
+      // One still being made takes its mask when it is.
+      const tile = this.ready.get(key);
+      if (tile === undefined) continue;
+      if (this.cache.residentOf(key) !== null) {
+        for (const u of this.tileUnits.get(key) ?? []) {
+          this.relight.remove(u);
+          this.chartUnits.delete(u);
+        }
+        this.relight.remove(key);
+        this.addTileUnits(key);
+      }
+      this.geometry(tile.min, tile.max);
+    }
   }
 
   /**
@@ -622,7 +690,7 @@ export class SurfaceCacheHost {
     }
     const p = this.pending.get(key);
     if (p === undefined || p.version !== version) {
-      this.pending.set(key, { min, max, version, make });
+      this.pending.set(key, { min, max, version, make, change: this.listed });
       this.geometry(min, max);
     }
   }
@@ -638,12 +706,11 @@ export class SurfaceCacheHost {
       for (const [ck, gen] of layer.chunks) {
         const key = `${layer.id}/${ck}`;
         const version = layer.version * 65536 + gen;
+        this.layersOf.set(key, layer.layers);
         if (this.ready.get(key)?.version === version || this.pending.get(key)?.version === version) {
-          this.layersOf.set(key, layer.layers);
           seen.add(key);
           continue;
         }
-        this.layersOf.set(key, layer.layers);
         const tile = blockChunkTile({ key: layer.id, grid: layer.grid, origin: layer.origin, opaque: layer.opaque, version }, 0, ck, memo);
         this.want(seen, key, version, tile.min, tile.max, () => (tile.charts(), tile));
       }
@@ -659,13 +726,19 @@ export class SurfaceCacheHost {
       this.terrainEdits(id, field);
     }
     for (const id of [...this.terrainTiles.keys()]) if (!terrainIds.has(id)) {
+      // A terrain gone: the shadows and bounce it gave go with it.
+      const field = this.fields.get(id);
+      if (field !== undefined) for (const b of terrainTileBoxes(field, this.terrainTiles.get(id)!.keys())) this.geometry(b.min, b.max, id);
       this.terrainTiles.delete(id);
       this.fields.delete(id);
+      this.layersOf.delete(id);
+      // The cache lets its rings go when it places again.
+      this.changed = true;
     }
     for (const a of this.deps.architecture()) {
       this.layersOf.set(a.id, a.layers);
-      let version = this.componentVersions.get(a.component);
-      if (version === undefined) this.componentVersions.set(a.component, (version = ++this.componentVersion));
+      let version = this.componentVersions.of.get(a.component);
+      if (version === undefined) this.componentVersions.of.set(a.component, (version = ++this.componentVersions.last));
       this.want(seen, a.id, version, a.origin, a.origin, () => architectureTile(a.id, version, architecturePiecesOf(a.component, a.origin)));
     }
     for (const m of this.deps.models()) {
@@ -675,12 +748,11 @@ export class SurfaceCacheHost {
       // The pieces with surfels (a piece without has no tile, and is never ready: it must not make the others new each listing).
       const lit = file.sets.filter((st) => st.surfels !== null && (st.surfels.levels[0] ?? 0) > 0).map((st) => st.piece);
       const pieces = m.piece !== null ? lit.filter((p) => p === m.piece) : lit;
-      const fresh = pieces.every((piece) => {
-        const key = `${m.id}/${piece}`;
-        this.layersOf.set(key, m.layers);
-        seen.add(key);
-        return this.ready.get(key)?.version === version;
-      });
+      for (const piece of pieces) {
+        this.layersOf.set(`${m.id}/${piece}`, m.layers);
+        seen.add(`${m.id}/${piece}`);
+      }
+      const fresh = pieces.every((piece) => this.ready.get(`${m.id}/${piece}`)?.version === version);
       if (fresh) continue;
       for (const tile of modelPieceTiles({ key: m.id, worldToLocal: worldToLocalOfMatrix(m.world), bricks: file, piece: m.piece, version })) {
         if (tile.chart === null) continue;
@@ -700,6 +772,7 @@ export class SurfaceCacheHost {
       this.geometry(t.min, t.max);
     }
     for (const key of [...this.pending.keys()]) if (!seen.has(key)) this.pending.delete(key);
+    this.applyLayerMoves();
     this.listed = true;
     this.placeProbes(false, now);
   }
@@ -785,18 +858,21 @@ export class SurfaceCacheHost {
     return { marks, solid: probeSolid({ layers, terrains: fields, arch, models }, brickSide(DEFAULT_PROBE_SPACING, 0)) };
   }
 
-  /** A terrain's tiles whose data changed (an edit, live or scripted), came or went since the last listing: their boxes changed. */
+  /** A terrain's tiles whose data changed (an edit, live or scripted), came or went since the last listing, or the whole terrain once it came after the scene: their boxes changed. */
   private terrainEdits(id: string, field: TerrainField): void {
     const now = field.loadedTiles();
     const was = this.terrainTiles.get(id);
     this.terrainTiles.set(id, new Map(now));
-    if (was === undefined) return;
+    if (was === undefined) {
+      if (this.listed) {
+        for (const b of terrainTileBoxes(field, now.keys())) this.geometry(b.min, b.max, id);
+        this.changed = true;
+      }
+      return;
+    }
     const [y0, y1] = field.heightSpan();
     const box = (key: string): void => {
-      this.terrainVersions.set(id, (this.terrainVersions.get(id) ?? 0) + 1);
-      const [x, z] = key.split(',').map(Number) as [number, number];
-      const b = field.tileBounds(x, z);
-      this.geometry([b[0], y0, b[1]], [b[2], y1, b[3]]);
+      for (const b of terrainTileBoxes(field, [key])) this.geometry(b.min, b.max, id);
     };
     for (const [key, t] of now) {
       const old = was.get(key);
@@ -845,9 +921,12 @@ export class SurfaceCacheHost {
     for (const [key, p] of order) {
       if (performance.now() - t0 >= SURFACE_PREPARE_MS) break;
       this.pending.delete(key);
-      this.ready.set(key, p.make());
+      const tile = p.make();
+      this.ready.set(key, tile);
       this.readyVersion += 1;
       this.changed = true;
+      // Only now are its bounds known (a building was asked for at its origin): a long new wall shadows its far end too.
+      if (p.change && [0, 1, 2].some((k) => tile.min[k] !== p.min[k] || tile.max[k] !== p.max[k])) this.geometry(tile.min, tile.max);
     }
     this.prepareMs = performance.now() - t0;
   }
@@ -864,4 +943,17 @@ export class SurfaceCacheHost {
     const out = { ...d, placeFrameMs: this.placeFrameMs };
     return this.probesWaiting === null && this.probeJob === null ? out : { ...out, settled: false };
   }
+}
+
+/**
+ * The texture behind the atlas or the rings was made again, empty (the
+ * cache grew, a second terrain took rings): every unit drawn into it is lit
+ * again.
+ */
+export function markTexturesLost(host: SurfaceCacheHost, which: 'atlas' | 'rings'): void {
+  const all = host.relight.unitsIn([-Infinity, -Infinity, -Infinity], [Infinity, Infinity, Infinity]);
+  host.relight.markUnits(all.filter((key) => {
+    const t = host.texelsOf(key);
+    return t !== null && 'patch' in t === (which === 'rings');
+  }));
 }

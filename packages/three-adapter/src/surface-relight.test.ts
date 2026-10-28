@@ -8,9 +8,9 @@
  * once a frame has written the new colours (their bounce reads them).
  */
 import { describe, expect, it } from 'vitest';
-import { BlockGrid, DEFAULT_PROBE_SPACING, TerrainField, buildDistanceBrickSet, encodeDistanceBricks, type BlockType, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
+import { BlockGrid, DEFAULT_PROBE_SPACING, TerrainField, buildDistanceBrickSet, encodeDistanceBricks, type ArchitectureComponent, type BlockType, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
 
-import { SurfaceCacheHost } from './surface-cache-host';
+import { SurfaceCacheHost, markTexturesLost } from './surface-cache-host';
 import { PROBE_FLOATS, PROBE_MAX_UPDATES, PROBE_UPDATES_AT } from './surface-probes';
 import { SurfaceChanges, SUN_STEP_RADIANS, type CacheLight } from './surface-changes';
 import { RELIGHT_MIN_TEXELS, RELIGHT_START_TEXELS, SurfaceRelight, type RelightUnit } from './surface-relight';
@@ -225,6 +225,11 @@ describe('surface relight: changes as marks', () => {
 
 const TYPES: BlockType[] = [{ blockId: 'rock', shape: 'full' } as BlockType];
 const OPAQUE = opaqueByBlockTypes(TYPES);
+const WALL: ArchitectureComponent = {
+  chunkSize: 16,
+  profiles: { wall: { points: [[0.15, 0], [0.15, 3], [-0.15, 3], [-0.15, 0]], slots: ['lower_wall', 'bevel', 'upper_wall'] } },
+  elements: [{ id: 'w', kind: 'sweep', path: { points: [[0, 0, 0], [20, 0, 0]], closed: false }, profile: 'wall', openings: [] }],
+} as unknown as ArchitectureComponent;
 
 function terrain(tiles: Map<string, TerrainTile>): TerrainField {
   const comp = { tileSamples: 17, spacing: 2, heightRange: [-8, 24], tiles: [{ x: 0, z: 0 }, { x: 1, z: 0 }] } as TerrainComponent;
@@ -268,12 +273,15 @@ describe('surface relight on the page', () => {
     let field = terrain(terrainTiles(0));
     const file = encodeDistanceBricks({ sets: [buildDistanceBrickSet('', [crate()])!] });
     let world = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 20, 1, 20, 1];
+    let crateLayers: number | undefined;
+    let landOn = true;
+    let buildings: { id: string; component: ArchitectureComponent; origin: readonly number[] }[] = [];
     const host = new SurfaceCacheHost(
       {
         layers: () => [{ id: 'town', origin: [0, 0, 0], grid, version: 1, chunks: [...gens], opaque: OPAQUE }],
-        terrains: () => [{ id: 'land', field }],
-        architecture: () => [],
-        models: () => [{ id: 'crate', assetId: 'crate', version: 1, piece: null, world }],
+        terrains: () => (landOn ? [{ id: 'land', field }] : []),
+        architecture: () => buildings,
+        models: () => [{ id: 'crate', assetId: 'crate', version: 1, piece: null, world, ...(crateLayers !== undefined ? { layers: crateLayers } : {}) }],
         bricks: () => Promise.resolve(file),
       },
       64 * 1024 * 1024,
@@ -406,6 +414,47 @@ describe('surface relight on the page', () => {
     expect(of(moved, 'town/1,2')).toBe(false);
     expect(of(moved, 'town/3,3')).toBe(false);
     expect(moved.some((k) => k.startsWith('land'))).toBe(false);
+
+    // A new generated building, a 20 m wall from x 2 to 22, with a lamp at its far end: the wall's whole length is the
+    // change (it is asked for at its origin), so the lamp's light on the ground there is lit again, not only round x 2.
+    const farLamp = lamp({ id: 'far', position: [21, 2, 41], range: 5 });
+    host.setLights([farLamp]);
+    await settle();
+    buildings = [{ id: 'wall', component: WALL, origin: [2, 1, 40] }];
+    const built = await relitUntilSettled();
+    expect(built.some((k) => k.startsWith('wall'))).toBe(true);
+    expect(of(built, 'town/1,2')).toBe(true);
+    expect(built).toEqual(expect.arrayContaining(r.unitsNear([21, 2, 41], 5).filter((k) => !k.startsWith('wall'))));
+    host.setLights([]);
+    await settle();
+
+    // The crate moved to another light layer: its units take the new mask and its box is lit again (its shadow is
+    // another light's now); the tracer packs it again.
+    const traced = host.traceVersion;
+    crateLayers = 2;
+    const layered = await relitUntilSettled();
+    expect(layered).toContain('crate/');
+    expect(of(layered, 'town/1,1')).toBe(true);
+    expect(host.traceVersion).not.toBe(traced);
+    expect(r.unitOf('crate/')?.layers).toBe(2);
+
+    // The terrain removed after the scene came in: its box (the shadows and bounce it gave go); added back: again.
+    const [ly0, ly1] = field.heightSpan();
+    const landBox = box([40 - reach, ly0 - reach, 0 - reach], [104 + reach, ly1 + reach, 32 + reach]).filter((k) => !k.startsWith('land'));
+    landOn = false;
+    const gone = await relitUntilSettled();
+    expect(gone.length).toBeGreaterThan(0);
+    expect(gone).toEqual(expect.arrayContaining(landBox));
+    expect(all().some((k) => k.startsWith('land'))).toBe(false);
+    landOn = true;
+    const back = await relitUntilSettled();
+    expect(back.some((k) => k.startsWith('land'))).toBe(true);
+    expect(back).toEqual(expect.arrayContaining(landBox));
+
+    // The rings' texture made again (a second terrain took rings): every ring patch is lit again.
+    markTexturesLost(host, 'rings');
+    expect(staleNow()).toEqual(all().filter((k) => k.startsWith('land#')).sort());
+    await settle();
     expect(host.diagnostics().relight).toMatchObject({ settled: true, stalePages: 0, live: true, budgetMs: 1.5 });
   });
 });

@@ -32,7 +32,7 @@
  */
 import { SURFACE_PAGE_TEXELS, SURFACE_TEXEL_METRES } from './surface-cache-atlas';
 import { TERRAIN_RINGS_MAX, TERRAIN_RING_TEXELS } from './surface-cache-terrain';
-import type { SurfaceCacheHost } from './surface-cache-host';
+import { markTexturesLost, type SurfaceCacheHost } from './surface-cache-host';
 import type { CacheLight } from './surface-changes';
 import { lightFrameOf, sliceRays, splitLightFrame } from './surface-light-frame';
 import type { RelightSlice } from './surface-relight';
@@ -190,14 +190,19 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
   private ensureTextures(): void {
     const pageBytes = SURFACE_PAGE_TEXELS * SURFACE_PAGE_TEXELS * SURFACE_TEXEL_BYTES;
     const pages = Math.max(1, Math.ceil(this.host.cache.budgetBytes / pageBytes));
+    // A texture made again starts empty: what was lit into the old one is lit again.
     if (this.atlas === null || this.atlasLayers < pages) {
+      const had = this.atlas !== null;
       this.atlasLayers = pages;
       this.atlas = this.make('atlas', this.atlas, SURFACE_PAGE_TEXELS, pages);
+      if (had) markTexturesLost(this.host, 'atlas');
     }
     const ringLayers = Math.max(1, this.host.cache.ringTerrains().length) * TERRAIN_RINGS_MAX;
     if (this.rings === null || this.ringLayers < ringLayers) {
+      const had = this.rings !== null;
       this.ringLayers = ringLayers;
       this.rings = this.make('rings', this.rings, TERRAIN_RING_TEXELS, ringLayers);
+      if (had) markTexturesLost(this.host, 'rings');
     }
     if (this.source !== null) this.albedo = this.source.albedo();
     else if (this.albedo === null) this.albedo = this.ownAlbedo(pages);
