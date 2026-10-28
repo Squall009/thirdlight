@@ -83,6 +83,7 @@ that phase plan's decision log, and move on. The owner reviews at the end.
 | 41 | `docs/plan-phase-41.md` | One physics backend (owner, 2026-10-21): 2D as a switchable plane constraint, the 2D backend removed |
 | 42 | `docs/plan-phase-42.md` | Unified lighting (owner, 2026-10-22), on a branch after 41: one surface radiance cache for every static surface (direct light from every light kind with traced soft shadows, bounced light, emissive, a new `area` light), probes per room through portals, reflections from the same tracer, updates only where something changed, TAAU on an integrated GPU; the bake is the same system saved, drawn on WebGL 2
 | 43 | `docs/plan-phase-43.md` | Clustered forward lighting (owner, 2026-10-26), after 42: our own per-cluster light lists (points, spots, `area`), local-light shadows from one shadow atlas sized by a per-tier budget; lights reaching moving objects and pixel-rate highlights beside 42's surface cache; lifts the 16 per-pixel local lights (D204) |
+| 45–49 | `docs/plan-phase-45.md` | Voxel world (owner, 2026-10-28): one 0.5 m voxel world replaces block layers, terrain and generated architecture; formats first (45), then core (46a–d), structures and tools (47a–c), migration and merge (48a–c), water (49); the Iris Xe is the floor tier |
 
 Future (owner, 2026-10-21), not planned yet:
 - **A lighting phase** after 41: absorbed. Phase 42 took light modes in
