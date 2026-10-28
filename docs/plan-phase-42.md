@@ -1,7 +1,8 @@
 # Phase 42 — Unified lighting
 
-Status: planned 2026-10-22. Built on a branch after the current phases
-(through 41) are done; merged to `main` only after acceptance.
+Status: **done 2026-10-28, owner look pending** (merged from branch
+`phase-42`; full gate RED at `c422325a` on 5 real failures, fixed in 42.16a and
+verified by fast gates of those files; review 1 High + 7 Medium fixed in 42.16).
 
 Goal: one lighting system for every static surface (terrain, block layers,
 generated architecture, static models). It gives direct light from every light
@@ -294,7 +295,7 @@ cause.
 | 42.13 | **Performance to target** on village, landscape and the interior class, medium tier, Iris Xe, 1080p output at the 60 Hz cap: frame p95 ≤ 16.7 ms, the §2 budget table, and low tier on WebGL 2 no slower than before the phase. High tier measured on a discrete GPU if one is available, otherwise unverified. |
 | 42.14 | **The manual:** the lighting model (what is cached, what is per pixel), light kinds including `area`, emissive lighting, rooms and portals for lighting, tiers and budgets, baking, and what the design does not cover. |
 | 42.15 | **Acceptance.** In a real browser on both renderers at 1920×1080, at the cap: the four look scenes, a lamp switched in a closed room (no light outside), time of day running, a block dug out live, and a character walking through all of them. Screenshots and a short capture to `~/.cache/thirdlight-phase42/acceptance`. Owner look pending; the owner judges the look. Full gate, then the phase review, then the merge to `main`. |
-| 42.16 | **Review fixes.** |
+| 42.16 | **Review fixes.** Done 2026-10-28 in 42.16a–e (rows below). |
 
 **Done when:**
 
@@ -422,3 +423,18 @@ from the logged clock (995–1,400 MHz): estimates. Lookup = scene pass reading 
 - 2026-10-28 (42.16c): Default chosen, owner to confirm: (1) a re-bake publishes new lighting assets and deletes the previous bake's after `setLighting` (one undo step per deleted file before the record's own undo; bytes stay in the store either way); (2) with several scenes open a bake saves only its own scene's tiles, the probe tiles whose box meets one of them (shared bricks at a border are saved by both) and its own lights, while all open scenes are lit together; (3) seeding keeps going after a changed, added or gone tile (marked round it, the marks made again after later seeds) rather than dropping the rest of the bake; a file saved before tiles had boxes marks everything lit so far for a gone tile.
 - 2026-10-28 (42.16d): Default chosen, owner to confirm: (1) a quality level's render scale and dynamic resolution are defaults under the project's own settings while they equal the engine's level of the same id (a project wanting to force medium's 0.667 over its own `render_scale` sets another value or turns `render_scale` itself); (2) every directional light lights the cache, at most 32 a frame (the strongest), and materials take the drawn suns' luminance-weighted share back out (exact for one sun, off by hue for suns of different colour and visibility); (3) a level naming no lighting tier counts as medium for the device's choice, so on WebGL 2 or a low device a project with untiered levels starts at its lowest, and a `?quality=` or starting level the levels lack falls to the device's choice instead of the highest.
 - 2026-10-28 (42.16e): Default chosen, owner to confirm: (1) a static glowing box's light mode is its surface's `emissiveMode` (as a light's `mode`), absent `baked`: a static object's glow is saved, as Unity and Godot bake emissive statics, so WebGL 2 and the low tier draw its pool; `mixed` saves only its bounce, `realtime` nothing; (2) a bake saves terrain as its rings: the finest at the bake's level, standing round the scene's content (the middle of its saved tiles and its lights with a place; a bare terrain scene, the terrains' middle) and as many as reach the terrain's far edge (at most `TERRAIN_RINGS_MAX`), pages and rings fitting the 32 MiB together (so a large terrain makes the tiles coarser: landscape 20 → 40 cm); terrain past the last saved ring keeps its per-pixel lights; (3) saved rings are drawn while their terrain is loaded, without a digest of their own (a terrain edit makes the bake stale through the statics hash, as before); (4) the live light starts terrain from nothing (its rings are not seeded); (5) static boxes stay out of the cache, live and saved (making them cache surfaces would change live shadows and bounce: its own item, D366).
+- 2026-10-28 (lead, phase end): **Full gate** `full --both-renderers` at
+  `c422325a`: RED, 375 passed, 7 failed, 5 of them again alone (play-memory,
+  window-tools, import-fbx, level-acceptance, smooth-tops), 34 min (41: 29),
+  memory peak 6.8 GB at an 8G cap. Fixed in 42.16a/42.16a2 (D379–D383) and
+  verified by fast gates of those files, not a second full gate; the two
+  once-only failures went to watch rows (D319, D349), vitest's two to D307 and
+  D311. **Review** (`~/.cache/thirdlight-phase42/review.md`, independent,
+  read-only): 1 High, 7 Medium, 7 Low. H1 ("done when" not all met): D378 and
+  the terrain part of D366 fixed in 42.16e; the remaining misses are recorded
+  per principle 7 (42.13 summary: cache lookup +0.7–1.6 ms against +0.3,
+  landscape TAAU 1.3 ms, probe settle after a sun step 16–17 s; static boxes
+  outside the cache, D366; sunset washed out on WebGPU medium, D339). M1–M7 and
+  L1–L7 fixed in 42.16b–d (D384–D394). Acceptance (42.15): every run holds the
+  60 Hz cap on both renderers; the merge goes ahead with the owner's look
+  pending.
