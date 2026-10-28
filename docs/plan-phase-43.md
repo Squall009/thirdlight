@@ -285,3 +285,14 @@ boundaries; each is green on its own. 43.4 can run any time after 43.3a (it drop
   lit result (blue 1 → red 64+, dimmed where listed lights do not reach), custom-lit graph materials keep their own
   look under it.
 
+- 2026-10-28 (lead, D398, default chosen, owner to confirm): the light path
+  keeps data textures read with `texelFetch` on both renderers (the owner's
+  one-path rule; WebGPU storage buffers are not used). (a) The records and
+  the headers/lists share ONE RGBA32UI texture (records bit-cast), so the
+  clusters take one unit. (b) Lit programs get a texture-unit budget of 16
+  (WebGPU's per-stage floor on the Iris Xe), checked by a test over every
+  lit program kind: the clusters, the shadow atlas and the cookie atlas take
+  3 units, and pay for them by retiring today's per-light spot/point shadow
+  maps and cookie textures; any program still over budget (the landscape's
+  terrain programs) packs its own textures (e.g. into array layers) in a new
+  item 43.1c before 43.2a.
