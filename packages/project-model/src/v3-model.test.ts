@@ -18,6 +18,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  GLOW_MODE_DEFAULT,
   SCENE_LIMITS_V3,
   SURFACE_PRESETS,
   captureContent,
@@ -427,5 +428,29 @@ describe('v3 scene rules and non-destructive refusals', () => {
     const a = serializeCanonical(first.normalized);
     const b = serializeCanonical(second.normalized);
     if (a.ok && b.ok) expect(sha256Hex(a.bytes)).toBe(sha256Hex(b.bytes));
+  });
+
+  it('a surface\'s glow mode is kept where it is not the default (baked), and a bad one is refused', () => {
+    const sceneWith = (emissiveMode: unknown): unknown => ({
+      schemaVersion: 3,
+      sceneId: 'scene-main',
+      revision: 0,
+      entities: [
+        { id: 'cam-main', components: { transform: {}, camera: { type: 'perspective', fovY: 45, near: 0.1, far: 100 } } },
+        { id: 'box-0001', components: { transform: {}, box: { size: [1, 1, 1], material: { color: '#abcdef' } }, surface: { emissive: '#ff8800', emissiveIntensity: 2, emissiveMode } } },
+      ],
+    });
+    const surfaceOf = (mode: unknown): unknown => {
+      const r = normalizeSceneV3(sceneWith(mode));
+      expect(r.ok).toBe(true);
+      return r.ok ? r.normalized.entities[1]!.components.surface : null;
+    };
+    expect(GLOW_MODE_DEFAULT).toBe('baked');
+    expect(surfaceOf('realtime')).toMatchObject({ emissiveMode: 'realtime' });
+    expect(surfaceOf('mixed')).toMatchObject({ emissiveMode: 'mixed' });
+    expect(surfaceOf('baked')).not.toHaveProperty('emissiveMode');
+    expect(surfaceOf(undefined)).not.toHaveProperty('emissiveMode');
+    const bad = normalizeSceneV3(sceneWith('sometimes'));
+    expect(bad.ok).toBe(false);
   });
 });

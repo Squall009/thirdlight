@@ -129,6 +129,7 @@ Simple look overrides for a box or model: colour, roughness, metalness and glow.
 | `metalness` | number | `0` | 0 – 1, step 0.05 | **Metalness.** 0: plastic/wood/stone, 1: metal. (scripts read) |
 | `emissive` | color | `"#000000"` |  | **Glow colour.** Light it gives off. (scripts read) |
 | `emissiveIntensity` | number | `0` | 0 – 4, step 0.1 | **Glow strength.** How strongly it glows. (scripts read) |
+| `emissiveMode` | enum: `realtime`, `baked`, `mixed` | `"baked"` |  | **Glow mode.** A static glowing box lights its surroundings as a light of this mode: baked (saved by the lighting bake, drawn on WebGL 2 and the low tier), mixed (its bounce saved, its direct light live only) or realtime (live only). (stored only when not the default; scripts read) |
 
 <a id="component-instances"></a>
 ## instances — Instance set

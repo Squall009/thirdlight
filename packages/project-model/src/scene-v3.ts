@@ -130,6 +130,15 @@ export const MAX_ZONE_SPAN = 1e6; // size bound
 export const MIN_BOUND_SPAN = 1e-6; // bounds span
 /** The shortest light or sun direction vector that still names a direction. */
 export const MIN_DIRECTION_NORM = 1e-6;
+/** How a light's light is kept: live only, saved by the lighting bake, or its bounce saved and its direct light live. */
+export const LIGHT_MODES = ['realtime', 'baked', 'mixed'] as const;
+export type LightMode = (typeof LIGHT_MODES)[number];
+/**
+ * A static glowing box's light mode when its surface names none: saved by
+ * the bake, as a static object's light is in most engines (WebGL 2 and the
+ * low tier draw only saved light, so a realtime glow lights nothing there).
+ */
+export const GLOW_MODE_DEFAULT: LightMode = 'baked';
 export const SURFACE_DEFAULTS = Object.freeze({
   color: '#b0b0b0',
   roughness: 0.9,
@@ -196,7 +205,7 @@ export const MAX_LOCAL_INTENSITY = 1000;
 /** Most hemisphere lights per scene (the point and spot lights' `MAX_LOCAL_LIGHTS` is local-lights.ts's). */
 export const MAX_HEMISPHERE_LIGHTS = 1;
 export { MAX_LOCAL_LIGHTS };
-const KNOWN_SURFACE_FIELDS = new Set(['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity']);
+const KNOWN_SURFACE_FIELDS = new Set(['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity', 'emissiveMode']);
 const KNOWN_MODEL_ANIMATION_FIELDS = new Set(['assetId', 'version', 'roles']);
 const ROLE_KEYS = ['idle', 'run', 'airborne'] as const;
 
@@ -501,9 +510,12 @@ export function validateSurfaceComponent(c: unknown, path: string, errors: Model
       errors,
     );
   }
+  if (c['emissiveMode'] !== undefined && !(LIGHT_MODES as readonly unknown[]).includes(c['emissiveMode'])) {
+    errors.push(fieldValue(`${path}/emissiveMode`, c['emissiveMode'], LIGHT_MODES.join(' | '), 'how a static glowing box\'s light is kept, as a light\'s mode'));
+  }
   for (const k of Object.keys(c)) {
     if (!KNOWN_SURFACE_FIELDS.has(k)) {
-      errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'color, roughness, metalness, emissive, emissiveIntensity'));
+      errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'color, roughness, metalness, emissive, emissiveIntensity, emissiveMode'));
     }
   }
 }
@@ -1033,6 +1045,8 @@ export function canonicalSurface(c: unknown): SurfaceComponent {
     emissive: typeof o['emissive'] === 'string' ? o['emissive'].toLowerCase() : SURFACE_DEFAULTS.emissive,
     emissiveIntensity:
       typeof o['emissiveIntensity'] === 'number' ? canonNum(o['emissiveIntensity']) : SURFACE_DEFAULTS.emissiveIntensity,
+    // Stored only where it differs from the default (a project saved before it reads the same).
+    ...(o['emissiveMode'] === 'realtime' || o['emissiveMode'] === 'mixed' ? { emissiveMode: o['emissiveMode'] } : {}),
   };
 }
 

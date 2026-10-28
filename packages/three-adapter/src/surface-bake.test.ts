@@ -9,13 +9,14 @@
  * tiles and probes take it and only what changed since the bake is stale.
  */
 import { describe, expect, it } from 'vitest';
-import { BlockGrid, type ArchitectureComponent, type BlockType } from '@thirdlight/runtime';
+import { BlockGrid, TerrainField, type ArchitectureComponent, type BlockType, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
 
 import { SURFACE_PAGE_TEXELS } from './surface-cache-atlas';
 import { SurfaceCacheHost, type SurfaceHostLayer } from './surface-cache-host';
 import { opaqueByBlockTypes } from './tracer-sources';
 import { SURFACE_READ, lookupSurfaceCpu, packSurfaceLookup } from './surface-cache-lookup';
-import { decodeSavedSurface, encodeSavedSurface, savedSurfaceFiles, savedSurfaceFromFiles, type SavedSurfaceLight } from './surface-bake-file';
+import { RING_HALVES, decodeSavedSurface, encodeSavedSurface, savedSurfaceFiles, savedSurfaceFromFiles, type SavedSurfaceLight } from './surface-bake-file';
+import { TERRAIN_RING_BYTES, terrainRingHalf, terrainRingsNeeded } from './surface-cache-terrain';
 import { emptyPackedProbeTile } from './probe-pack';
 import { ownSavedLight, surfaceKeyOwner } from './adapter-surface-bake';
 import { GLOW_LIGHT_MARK } from './surface-highlights';
@@ -44,6 +45,19 @@ function floor(edit = false): BlockGrid {
 function host(grid: BlockGrid, version = 1, relightMs = 0): SurfaceCacheHost {
   const layer: SurfaceHostLayer = { id: 'floor', origin: [0, 0, 0], grid, version, chunks: [['0,0', version], ['1,0', version], ['0,1', version], ['1,1', version]], opaque: OPAQUE };
   return new SurfaceCacheHost({ layers: () => [layer], terrains: () => [], architecture: () => [{ id: 'house', component: ROOM, origin: [2, 1, 30] }], models: () => [], bricks: () => null }, 64 * 1024 * 1024, relightMs);
+}
+
+/** A 64 m square of terrain (4 × 4 tiles of 17 samples 1 m apart) round x 0…64, z 0…64, gently rolling. */
+function land(): TerrainField {
+  const comp = { tileSamples: 17, spacing: 1, heightRange: [-4, 4], tiles: [] as { x: number; z: number }[] } as TerrainComponent;
+  for (let z = 0; z < 4; z += 1) for (let x = 0; x < 4; x += 1) comp.tiles.push({ x, z });
+  const tiles = new Map<string, TerrainTile>();
+  for (const t of comp.tiles) {
+    const heights = new Uint16Array(17 * 17);
+    for (let z = 0; z < 17; z += 1) for (let x = 0; x < 17; x += 1) heights[z * 17 + x] = Math.round((0.5 + 0.1 * Math.sin((t.x * 16 + x) * 0.2)) * 65535);
+    tiles.set(`${t.x},${t.z}`, { samples: 17, heights, weights: null, holes: null, paint: null });
+  }
+  return new TerrainField(comp, [0, -1, 0], tiles);
 }
 
 const lamp = (id: string, position: number[], mode: CacheLight['mode']): CacheLight => ({ id, kind: 'point', on: true, position, direction: [0, -1, 0], color: [5, 5, 5], range: 3, cone: 0, penumbra: 0, mode });
@@ -260,6 +274,65 @@ describe('saved lighting', () => {
     // Nothing lit again since (a layer taken for gone meanwhile marks the whole floor round it, and the seed is lit over).
     expect(late.relight.diagnostics().relitTexels).toBe(0);
   });
+
+  it('saves a terrain\'s rings at the bake\'s level round the scene\'s content, and draws them from the file at the same texels wherever the eye is', async () => {
+    const field = land();
+    const layer: SurfaceHostLayer = { id: 'floor', origin: [0, 0, 0], grid: floor(), version: 1, chunks: [['0,0', 1], ['1,0', 1], ['0,1', 1], ['1,1', 1]], opaque: OPAQUE };
+    const hostOf = (): SurfaceCacheHost => new SurfaceCacheHost({ layers: () => [layer], terrains: () => [{ id: 'land', field }], architecture: () => [], models: () => [], bricks: () => null }, 64 * 1024 * 1024, 0);
+    const baking = hostOf();
+    settle(baking, [500, 50, 500]);
+    // Live, the rings follow the eye from level 0, within their share of the budget.
+    expect(baking.cache.ringsOf('land')?.first).toBe(0);
+    // The bake: its level, the rings standing round the floor (its middle 10, 10), out to the terrain's far corner.
+    const at = [10, 10];
+    const src = baking.cache.ringsOf('land')!.source;
+    const need = terrainRingsNeeded(src, 1, at);
+    expect(terrainRingHalf(1 + need - 1)).toBeGreaterThanOrEqual(Math.hypot(54, 54));
+    expect(baking.cache.bakeRingBytes(1, at)).toBe(need * TERRAIN_RING_BYTES);
+    expect(baking.cache.bakeRingBytes(1, at, (k) => k !== 'land')).toBe(0);
+    baking.setBudget(32 * 1024 * 1024 + baking.cache.bakeRingBytes(1, at));
+    baking.cache.setBakeLevel(1, at);
+    settle(baking, [500, 50, 500]);
+    const rings = baking.cache.ringsOf('land')!;
+    expect(rings.first).toBe(1);
+    expect(rings.rings).toBe(need);
+    expect(rings.texelMetres(0)).toBeCloseTo(0.2);
+    // Where the eye is does not move them.
+    const centres = rings.centresNow();
+    baking.update([-300, 50, 200]);
+    expect(baking.cache.ringsOf('land')!.centresNow()).toEqual(centres);
+    for (const c of centres) expect(Math.hypot(c![0] - 10, c![1] - 10)).toBeLessThan(rings.texelMetres(centres.length - 1) * 16 + 1e-6);
+    // Saved with the tiles, through the PNG files and back.
+    const tiles = baking.savedTiles();
+    const pages = Math.max(...tiles.flatMap((t) => t.blocks.map((b) => b.page))) + 1;
+    const ringTexels = new Uint16Array(need * RING_HALVES).map((_, i) => 0x3c00 + (i % 2048));
+    const saved: SavedSurfaceLight = { level: 1, pages, texels: pattern(pages), tiles, probes: [], rings: [{ terrain: 'land', first: rings.first, centres: centres as [number, number][], texels: ringTexels }] };
+    const back = await savedSurfaceFromFiles(await savedSurfaceFiles(encodeSavedSurface(saved)));
+    expect(back.ok).toBe(true);
+    if (!back.ok) return;
+    expect(back.saved.rings?.map((r) => [r.terrain, r.first, r.centres])).toEqual([['land', 1, centres]]);
+    expect(back.saved.rings![0]!.texels).toEqual(ringTexels);
+    // A file without rings (made before terrain was saved) reads as none.
+    const plain = decodeSavedSurface(encodeSavedSurface({ ...saved, rings: undefined }));
+    expect(plain.ok && plain.saved.rings).toBe(undefined);
+    // Drawn from the file (WebGL 2, the low tier) with the eye elsewhere: the rings stand where the bake put them, and a
+    // terrain pixel's lookup finds the texel the bake lit (the saved layers packed from 0).
+    const drawing = hostOf();
+    const r0 = back.saved.rings![0]!;
+    drawing.cache.setSaved(new Map<string, SavedSurfaceTile>(back.saved.tiles.map((t) => [t.key, t])), back.saved.pages, new Map([['land', { first: r0.first, centres: r0.centres, layer: 0 }]]));
+    settle(drawing, [-200, 30, -200]);
+    expect(drawing.cache.ringsOf('land')!.centresNow()).toEqual(centres);
+    expect(drawing.cache.ringLayerBase('land')).toBe(0);
+    const live = packSurfaceLookup(baking.resolveScene().scene, baking.cache, () => undefined);
+    const fromFile = packSurfaceLookup(drawing.resolveScene().scene, drawing.cache, () => undefined);
+    for (const p of [[10.3, 0, 10.7], [33.3, 0, 51.9], [63.5, 0, 0.5]]) {
+      const a = lookupSurfaceCpu(live, SURFACE_READ.terrain, p, [0, 1, 0]);
+      expect(a?.texture).toBe('rings');
+      expect(lookupSurfaceCpu(fromFile, SURFACE_READ.terrain, p, [0, 1, 0])).toEqual(a);
+    }
+    // Past the last saved ring: nothing (the terrain keeps its per-pixel lights there).
+    expect(lookupSurfaceCpu(fromFile, SURFACE_READ.terrain, [10 + terrainRingHalf(need) * 2, 0, 10], [0, 1, 0])).toBeNull();
+  }, 60_000);
 
   it('saves one scene of the loaded ones: its tiles on their own pages, the probes over them, its own lights', () => {
     // Two scenes open: a floor (this scene) and a yard 100 m off (another scene), lit together at one level.

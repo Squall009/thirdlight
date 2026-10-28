@@ -162,6 +162,8 @@ export interface SurfaceComponent {
   metalness: number;
   emissive: string;
   emissiveIntensity: number;
+  /** A static glowing box's light mode, as a light's `mode` (absent: `GLOW_MODE_DEFAULT`, baked). */
+  emissiveMode?: 'realtime' | 'mixed';
 }
 
 /**

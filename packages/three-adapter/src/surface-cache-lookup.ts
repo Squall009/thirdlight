@@ -504,7 +504,7 @@ export function packSurfaceLookup(scene: SurfaceScene, cache: SurfaceCache, slot
     const rings = cache.ringsOf(key)!;
     const windows = rings.windows();
     t.setU(at, 0, windows.length);
-    t.setU(at, 1, ti * TERRAIN_RINGS_MAX);
+    t.setU(at, 1, cache.ringLayerBase(key));
     windows.forEach((win, k) => {
       t.setF(at + 1 + k, 0, (win[0] + win[2]) / 2);
       t.setF(at + 1 + k, 1, (win[1] + win[3]) / 2);

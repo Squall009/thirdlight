@@ -5,8 +5,11 @@
  * three changes for its run:
  *
  * - every tile of the loaded scene is resident at one level, the finest at
- *   which all of them fit `SAVED_SURFACE_CACHE_MIB` (a low-tier device then
- *   holds the saved light whole), not by distance from the eye;
+ *   which all of them and its terrains' rings fit `SAVED_SURFACE_CACHE_MIB`
+ *   (a low-tier device then holds the saved light whole), not by distance
+ *   from the eye; each terrain's rings start at that level and stand round
+ *   the scene's content (its tiles and lights; else its terrains), out to
+ *   the terrain's far edge;
  * - the lights' modes decide what is saved (`savedLights`): first the
  *   `baked` and `mixed` lights light the cache, then the probes start over
  *   from it (`LiveProbes.restart`: none of the live light's past) and
@@ -19,16 +22,18 @@
  *   probes over them and its own lights (`ownSavedLight`); the other
  *   scenes are lit beside it, as they light and shade it.
  *
- * The cache's pages are then read back, with each resident tile's place and
- * the probes' tiles as the probe lighting holds them; the page goes back to
- * its own residency, budget and lights.
+ * The cache's pages and the scene's terrains' rings are then read back,
+ * with each resident tile's place and the probes' tiles as the probe
+ * lighting holds them; the page goes back to its own residency, budget and
+ * lights.
  */
 import { SAVED_SURFACE_CACHE_MIB, SURFACE_LIGHT_MS_MAX } from '@thirdlight/runtime';
 
-import { SURFACE_LEVELS, SURFACE_PAGE_BYTES, SURFACE_PAGE_TEXELS, SURFACE_TEXEL_BYTES } from './surface-cache-atlas';
+import { SURFACE_LEVELS, SURFACE_PAGE_TEXELS, SURFACE_TEXEL_BYTES } from './surface-cache-atlas';
 import { TERRAIN_RING_SHARE } from './surface-cache';
+import { TERRAIN_RING_TEXELS, TERRAIN_RINGS_MAX } from './surface-cache-terrain';
 import type { SurfaceCacheHost } from './surface-cache-host';
-import type { SavedProbeTile, SavedSurfaceLight } from './surface-bake-file';
+import type { SavedProbeTile, SavedRingsRecord, SavedSurfaceLight } from './surface-bake-file';
 import type { SurfaceLightRuntime } from './surface-light-runtime';
 import type { CacheLight } from './surface-changes';
 import { GPU_BUFFER_USAGE, GPU_MAP_READ, type GpuBuffer, type GpuTexture, type TracerDevice } from './tracer-gpu';
@@ -111,11 +116,17 @@ export async function runSurfaceBake(h: SurfaceBakeHooks, o: SurfaceBakeOptions)
     const prepared = host.preparedTiles() ?? [];
     const ownTile = (key: string): boolean => o.owns === undefined || o.owns(surfaceKeyOwner(key));
     const own = prepared.filter((t) => ownTile(t.key));
-    const level = host.cache.fitLevel(own, savedBytes) ?? SURFACE_LEVELS - 1;
+    const at = ringsCentre(own, h.lights().filter((l) => ownTile(l.id)), host.cache.ringTerrains().filter(ownTile).map((k) => host.cache.ringsOf(k)!.source));
+    // The finest level whose pages and rings fit the saved budget.
+    let level = SURFACE_LEVELS - 1;
+    for (let l = 0; l < SURFACE_LEVELS; l += 1) if (host.cache.bytesAt(own, l) + host.cache.bakeRingBytes(l, at, ownTile) <= savedBytes) {
+      level = l;
+      break;
+    }
     // The other open scenes' tiles are lit beside it at the same level, given room up to as much again (coarser past it).
     const others = Math.min(savedBytes, host.cache.bytesAt(prepared.filter((t) => !ownTile(t.key)), level));
-    host.setBudget(Math.ceil((savedBytes + others) / (1 - TERRAIN_RING_SHARE)));
-    host.cache.setBakeLevel(level);
+    host.setBudget(Math.ceil((savedBytes + others) / (1 - TERRAIN_RING_SHARE)) + host.cache.bakeRingBytes(level, at));
+    host.cache.setBakeLevel(level, at);
     h.setPart('bounce');
     await frames(BAKE_SWITCH_FRAMES);
     why = await until(() => host.relight.isSettled, 'lighting the surfaces…', 0.05);
@@ -151,8 +162,16 @@ export async function runSurfaceBake(h: SurfaceBakeHooks, o: SurfaceBakeOptions)
       pages = Math.max(pages, b.page + 1);
       texelCount += b.side * b.side;
     }
-    const texels = await readPages(device, atlas, pages);
-    const all = { level, pages, texels, tiles, probes: h.probeTiles(), lights: [...h.lights()] };
+    const texels = await readLayers(device, atlas, SURFACE_PAGE_TEXELS, 0, pages);
+    const rings: SavedRingsRecord[] = [];
+    const ringTex = rt.textures.rings;
+    for (const [ti, key] of host.cache.ringTerrains().entries()) {
+      const r = host.cache.ringsOf(key);
+      const centres = r?.centresNow() ?? [];
+      if (r === null || ringTex === null || !ownTile(key) || r.rings === 0 || centres.some((c) => c === null)) continue;
+      rings.push({ terrain: key, first: r.first, centres: centres as [number, number][], texels: await readLayers(device, ringTex, TERRAIN_RING_TEXELS, ti * TERRAIN_RINGS_MAX, r.rings) });
+    }
+    const all = { level, pages, texels, tiles, probes: h.probeTiles(), lights: [...h.lights()], ...(rings.length > 0 ? { rings } : {}) };
     const saved = o.owns === undefined ? all : ownSavedLight(all, own, o.owns);
     return { ok: true, saved, millis: Math.round(performance.now() - t0), texels: texelCount };
   } finally {
@@ -164,13 +183,30 @@ export async function runSurfaceBake(h: SurfaceBakeHooks, o: SurfaceBakeOptions)
   }
 }
 
-/** The atlas's first `pages` pages as RGBA half floats. */
-async function readPages(device: TracerDevice, atlas: GpuTexture, pages: number): Promise<Uint16Array> {
-  if (pages === 0) return new Uint16Array(0);
-  const bytesPerRow = SURFACE_PAGE_TEXELS * SURFACE_TEXEL_BYTES;
-  const buffer: GpuBuffer = device.createBuffer({ size: pages * SURFACE_PAGE_BYTES, usage: MAP_READ | COPY_DST, label: 'surface bake read' });
+/**
+ * Where a bake's terrain rings stand (x, z): the middle of the scene's
+ * tiles and of its lights that have a place (a glowing sign on bare ground
+ * has no tile), else of its terrains.
+ */
+function ringsCentre(tiles: readonly Pick<SurfaceTile, 'min' | 'max'>[], lights: readonly CacheLight[], terrains: readonly { readonly min: readonly number[]; readonly max: readonly number[] }[]): [number, number] {
+  const boxes: { min: readonly number[]; max: readonly number[] }[] = [...tiles];
+  for (const l of lights) if (l.kind !== 'directional') boxes.push({ min: l.position, max: l.position });
+  if (boxes.length === 0) boxes.push(...terrains);
+  if (boxes.length === 0) return [0, 0];
+  const x0 = Math.min(...boxes.map((b) => b.min[0]!));
+  const x1 = Math.max(...boxes.map((b) => b.max[0]!));
+  const z0 = Math.min(...boxes.map((b) => b.min[2]!));
+  const z1 = Math.max(...boxes.map((b) => b.max[2]!));
+  return [(x0 + x1) / 2, (z0 + z1) / 2];
+}
+
+/** `count` layers of an array texture of `side`² RGBA half floats, from layer `first`. */
+async function readLayers(device: TracerDevice, texture: GpuTexture, side: number, first: number, count: number): Promise<Uint16Array> {
+  if (count === 0) return new Uint16Array(0);
+  const bytesPerRow = side * SURFACE_TEXEL_BYTES;
+  const buffer: GpuBuffer = device.createBuffer({ size: count * side * bytesPerRow, usage: MAP_READ | COPY_DST, label: 'surface bake read' });
   const enc = device.createCommandEncoder();
-  enc.copyTextureToBuffer!({ texture: atlas, origin: { x: 0, y: 0, z: 0 } }, { buffer, bytesPerRow, rowsPerImage: SURFACE_PAGE_TEXELS }, { width: SURFACE_PAGE_TEXELS, height: SURFACE_PAGE_TEXELS, depthOrArrayLayers: pages });
+  enc.copyTextureToBuffer!({ texture, origin: { x: 0, y: 0, z: first } }, { buffer, bytesPerRow, rowsPerImage: side }, { width: side, height: side, depthOrArrayLayers: count });
   device.queue.submit([enc.finish()]);
   await buffer.mapAsync(MAP_READ);
   const out = new Uint16Array(buffer.getMappedRange().slice(0));
@@ -203,5 +239,6 @@ export function ownSavedLight(saved: SavedSurfaceLight, own: readonly Pick<Surfa
   const tiles = saved.tiles.map((t) => ({ ...t, blocks: t.blocks.map((b) => ({ ...b, page: pageOf.get(b.page)! })) }));
   const meets = (p: SavedProbeTile): boolean => own.some((t) => [0, 1, 2].every((k) => p.min[k]! <= t.max[k]! && p.max[k]! >= t.min[k]!));
   const lights = saved.lights?.filter((l) => owns(surfaceKeyOwner(l.id)));
-  return { level: saved.level, pages: used.length, texels, tiles, probes: saved.probes.filter(meets), ...(lights !== undefined ? { lights } : {}) };
+  const rings = saved.rings?.filter((r) => owns(surfaceKeyOwner(r.terrain)));
+  return { level: saved.level, pages: used.length, texels, tiles, probes: saved.probes.filter(meets), ...(lights !== undefined ? { lights } : {}), ...(rings !== undefined && rings.length > 0 ? { rings } : {}) };
 }

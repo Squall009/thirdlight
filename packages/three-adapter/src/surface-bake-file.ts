@@ -10,12 +10,17 @@
  *   and the sun's share in alpha);
  * - per probe tile in header order: its probes' validity (f32 each), then
  *   its packed GPU layout (`probe-pack.ts`: RGBA half floats), each padded
- *   to 8 bytes.
+ *   to 8 bytes;
+ * - per terrain in header order, its rings finest first: each a
+ *   `TERRAIN_RING_TEXELS`² layer of RGBA half floats as the light pass
+ *   wrote it (absent in files made before terrain was saved).
  *
  * The header names the cache level, the page count, each tile's key, chart
  * digest, level and atlas blocks (page, x, y, side), each probe tile's
- * key, box, resolution and whether it is a brick, and the lights the bake
- * kept as they were (absent in files made before it was saved).
+ * key, box, resolution and whether it is a brick, the lights the bake
+ * kept as they were (absent in files made before it was saved), and each
+ * terrain's rings: its key, the finest ring's level and each ring's
+ * centre (x, z).
  *
  * The bytes travel as 16-bit RGBA PNGs (texture assets, like probe files):
  * `SURFACE_BAKE_FILE_WIDTH` texels a row (8 bytes a texel, two bytes a
@@ -25,6 +30,7 @@
 import { MAX_TEXTURE_EDGE } from '@thirdlight/runtime';
 
 import { SURFACE_PAGE_TEXELS, type AtlasBlock } from './surface-cache-atlas';
+import { TERRAIN_RING_TEXELS } from './surface-cache-terrain';
 import { decodePng16, encodePng16 } from './probe-artifact';
 import { emptyPackedProbeTile } from './probe-pack';
 import type { CacheLight } from './surface-changes';
@@ -36,6 +42,8 @@ const MAGIC = [0x54, 0x4c, 0x53, 0x4c];
 const ROW_BYTES = SURFACE_BAKE_FILE_WIDTH * 8;
 /** Halves of one saved page. */
 const PAGE_HALVES = SURFACE_PAGE_TEXELS * SURFACE_PAGE_TEXELS * 4;
+/** Halves of one saved terrain ring. */
+export const RING_HALVES = TERRAIN_RING_TEXELS * TERRAIN_RING_TEXELS * 4;
 
 /** A cache tile as saved: its key, its charts' digest, its level, its blocks and its box (absent in older files). */
 export interface SavedTileRecord {
@@ -59,6 +67,15 @@ export interface SavedProbeTile {
   readonly data: Uint16Array;
 }
 
+/** A terrain's rings as saved: the finest one's level, each one's centre (x, z) and its texels (a layer each, finest first). */
+export interface SavedRingsRecord {
+  readonly terrain: string;
+  readonly first: number;
+  readonly centres: readonly (readonly [number, number])[];
+  /** `centres.length` layers of `RING_HALVES`. */
+  readonly texels: Uint16Array;
+}
+
 export interface SavedSurfaceLight {
   /** The cache level the tiles were lit at. */
   readonly level: number;
@@ -69,6 +86,8 @@ export interface SavedSurfaceLight {
   readonly probes: readonly SavedProbeTile[];
   /** The lights whose light it keeps (baked and mixed) as they were (absent: not known): a live start marks what changed since. */
   readonly lights?: readonly CacheLight[];
+  /** The terrains' rings (absent: none saved). */
+  readonly rings?: readonly SavedRingsRecord[];
 }
 
 interface Header {
@@ -78,6 +97,8 @@ interface Header {
   tiles: [string, string, number, number[], number[]?][];
   probes: [string, number[], number[], number[], number][];
   lights?: CacheLight[];
+  /** Terrain key, the finest ring's level, the rings' centres (x, z each). */
+  rings?: [string, number, number[]][];
 }
 
 const pad8 = (n: number): number => (n + 7) & ~7;
@@ -93,6 +114,7 @@ export function encodeSavedSurface(s: SavedSurfaceLight): Uint8Array {
     }),
     probes: s.probes.map((p) => [p.key, [...p.min], [...p.max], [...p.resolution], p.brick ? 1 : 0]),
     ...(s.lights !== undefined ? { lights: [...s.lights] } : {}),
+    ...(s.rings !== undefined && s.rings.length > 0 ? { rings: s.rings.map((r): [string, number, number[]] => [r.terrain, r.first, r.centres.flat()]) } : {}),
   };
   const json = new TextEncoder().encode(JSON.stringify(header));
   const headAt = 16;
@@ -105,6 +127,11 @@ export function encodeSavedSurface(s: SavedSurfaceLight): Uint8Array {
     size = pad8(size + p.validity.length * 4);
     probeAt.push([v, size]);
     size = pad8(size + p.data.length * 2);
+  }
+  const ringAt: number[] = [];
+  for (const r of s.rings ?? []) {
+    ringAt.push(size);
+    size = pad8(size + r.centres.length * RING_HALVES * 2);
   }
   const out = new Uint8Array(size);
   const view = new DataView(out.buffer);
@@ -119,6 +146,7 @@ export function encodeSavedSurface(s: SavedSurfaceLight): Uint8Array {
     out.set(new Uint8Array(p.validity.buffer, p.validity.byteOffset, p.validity.byteLength), v);
     out.set(new Uint8Array(p.data.buffer, p.data.byteOffset, p.data.byteLength), d);
   });
+  (s.rings ?? []).forEach((r, i) => out.set(new Uint8Array(r.texels.buffer, r.texels.byteOffset, r.centres.length * RING_HALVES * 2), ringAt[i]!));
   return out;
 }
 
@@ -158,12 +186,20 @@ export function decodeSavedSurface(bytes: Uint8Array): { ok: true; saved: SavedS
     if (data === null) return fail('is cut short');
     probes.push({ key, min: min as [number, number, number], max: max as [number, number, number], resolution: resolution as [number, number, number], brick: brick === 1, validity, data });
   }
+  const rings: SavedRingsRecord[] = [];
+  for (const [terrain, first, c] of Array.isArray(header.rings) ? header.rings : []) {
+    const centres: [number, number][] = [];
+    for (let i = 0; i + 1 < c.length; i += 2) centres.push([c[i]!, c[i + 1]!]);
+    const ringTexels = halves(centres.length * RING_HALVES);
+    if (ringTexels === null) return fail('is cut short');
+    rings.push({ terrain, first, centres, texels: ringTexels });
+  }
   const tiles = header.tiles.map(([key, digest, level, b, box]): SavedTileRecord => {
     const blocks: AtlasBlock[] = [];
     for (let i = 0; i + 3 < b.length; i += 4) blocks.push({ page: b[i]!, x: b[i + 1]!, y: b[i + 2]!, side: b[i + 3]! });
     return { key, digest, level, blocks, ...(Array.isArray(box) && box.length === 6 ? { min: box.slice(0, 3), max: box.slice(3) } : {}) };
   });
-  return { ok: true, saved: { level: header.level, pages: header.pages, texels, tiles, probes, ...(Array.isArray(header.lights) ? { lights: header.lights } : {}) } };
+  return { ok: true, saved: { level: header.level, pages: header.pages, texels, tiles, probes, ...(Array.isArray(header.lights) ? { lights: header.lights } : {}), ...(rings.length > 0 ? { rings } : {}) } };
 }
 
 /** The saved file as 16-bit RGBA PNGs (each at most `MAX_TEXTURE_EDGE` rows). */

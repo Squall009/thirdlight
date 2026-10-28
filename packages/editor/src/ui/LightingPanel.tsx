@@ -178,8 +178,8 @@ export function LightingPanel(p: Props): JSX.Element {
     <div className="tl-panel tl-lighting" aria-label="lighting">
       <SceneLighting {...p} />
       <p className="tl-hint">
-        Static surfaces (block layers, generated architecture, static models) keep the light of the lights set to <b>baked</b> (direct light and bounce) and the
-        bounce of those set to <b>mixed</b> (their direct light stays per pixel). Baked lights then no longer light per pixel.
+        Static surfaces (block layers, terrain, generated architecture, static models) keep the light of the lights and static glowing boxes set to <b>baked</b>
+        (direct light and bounce) and the bounce of those set to <b>mixed</b> (their direct light stays per pixel). Baked lights then no longer light per pixel.
       </p>
       <div className="tl-lighting__status" aria-label="lighting status">
         {p.bake?.surface === undefined ? (

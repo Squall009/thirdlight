@@ -9,6 +9,10 @@
  * leaves every texel still inside where it was and only the strip that came
  * in needs light (`moved` names the rings that stepped).
  *
+ * A bake's rings start at its level (the finest ring has its tiles' texel)
+ * and stand round the scene's content, not the eye; drawn from the bake
+ * they stay where it put them.
+ *
  * Pure (no three.js).
  */
 import { SURFACE_TEXEL_BYTES, SURFACE_TEXEL_METRES } from './surface-cache-atlas';
@@ -54,36 +58,50 @@ export interface RingTexel {
   readonly y: number;
 }
 
-/** Rings a terrain needs so that its farthest point from anywhere on it is inside the last one. */
-export function terrainRingsNeeded(src: TerrainRingSource): number {
-  const reach = Math.hypot((src.max[0] ?? 0) - (src.min[0] ?? 0), (src.max[2] ?? 0) - (src.min[2] ?? 0));
-  for (let k = 0; k < TERRAIN_RINGS_MAX; k += 1) if (terrainRingHalf(k) >= reach) return k + 1;
+/**
+ * Rings a terrain needs, the finest at level `first`, so that its farthest
+ * point is inside the last one: from anywhere on it (rings following the
+ * eye), or from `at` (x, z: rings standing there).
+ */
+export function terrainRingsNeeded(src: TerrainRingSource, first = 0, at?: readonly number[]): number {
+  const dx = at === undefined ? (src.max[0] ?? 0) - (src.min[0] ?? 0) : Math.max(Math.abs((src.min[0] ?? 0) - at[0]!), Math.abs((src.max[0] ?? 0) - at[0]!));
+  const dz = at === undefined ? (src.max[2] ?? 0) - (src.min[2] ?? 0) : Math.max(Math.abs((src.min[2] ?? 0) - at[1]!), Math.abs((src.max[2] ?? 0) - at[1]!));
+  const reach = Math.hypot(dx, dz);
+  for (let k = 0; k < TERRAIN_RINGS_MAX; k += 1) if (terrainRingHalf(first + k) >= reach) return k + 1;
   return TERRAIN_RINGS_MAX;
 }
 
-function texel(k: number): number {
-  return SURFACE_TEXEL_METRES * 2 ** k;
+function texel(level: number): number {
+  return SURFACE_TEXEL_METRES * 2 ** level;
 }
 
-/** Half a ring's side less the step it may lag the eye by and a texel of border: what of it is always valid. */
-export function terrainRingHalf(k: number): number {
-  return texel(k) * (TERRAIN_RING_TEXELS / 2 - TERRAIN_RING_STEP - 1);
+/** Half the side of a ring at `level` less the step it may lag the eye by and a texel of border: what of it is always valid. */
+export function terrainRingHalf(level: number): number {
+  return texel(level) * (TERRAIN_RING_TEXELS / 2 - TERRAIN_RING_STEP - 1);
 }
 
-/** One terrain's rings. */
+/** One terrain's rings: ring k at level `first` + k. */
 export class TerrainRings {
   /** Each ring's centre (x, z), snapped to its step (null until the first update). */
   private centres: ([number, number] | null)[] = [];
-  constructor(readonly source: TerrainRingSource, public rings: number) {}
+  /** `at`: the rings' centres, kept where they are (a bake's rings drawn from it). */
+  constructor(readonly source: TerrainRingSource, public rings: number, readonly first = 0, private readonly at: readonly (readonly [number, number])[] | null = null) {
+    if (at !== null) this.centres = at.map(([x, z]) => [x, z]);
+  }
   get bytes(): number {
     return this.rings * TERRAIN_RING_BYTES;
   }
-  /** Follows the eye; returns the rings that stepped (their new strips need light). */
+  /** Each ring's centre (x, z) now (null: not placed yet). */
+  centresNow(): ([number, number] | null)[] {
+    return this.centres.slice(0, this.rings).map((c) => (c === null ? null : [c[0], c[1]]));
+  }
+  /** Follows the eye (never, for rings kept where they are); returns the rings that stepped (their new strips need light). */
   update(eye: readonly number[]): number[] {
     const moved: number[] = [];
+    if (this.at !== null) return moved;
     this.centres.length = this.rings;
     for (let k = 0; k < this.rings; k += 1) {
-      const step = texel(k) * TERRAIN_RING_STEP;
+      const step = texel(this.first + k) * TERRAIN_RING_STEP;
       const c = this.centres[k] ?? null;
       const x = eye[0] ?? 0;
       const z = eye[2] ?? 0;
@@ -98,9 +116,9 @@ export class TerrainRings {
     for (let k = 0; k < this.rings; k += 1) {
       const c = this.centres[k];
       if (c === undefined || c === null) return null;
-      const half = terrainRingHalf(k);
+      const half = terrainRingHalf(this.first + k);
       if (Math.abs(x - c[0]) > half || Math.abs(z - c[1]) > half) continue;
-      const t = texel(k);
+      const t = texel(this.first + k);
       const wrap = (v: number): number => ((Math.floor(v / t) % TERRAIN_RING_TEXELS) + TERRAIN_RING_TEXELS) % TERRAIN_RING_TEXELS;
       return { ring: k, x: wrap(x), y: wrap(z) };
     }
@@ -114,7 +132,7 @@ export class TerrainRings {
     const win = this.windows();
     const w = win[k];
     if (w === undefined) return [];
-    const t = texel(k);
+    const t = texel(this.first + k);
     const inner = k > 0 ? win[k - 1]! : null;
     const P = TERRAIN_PATCH_TEXELS;
     // The window, cut to the terrain (texels off it hold no light).
@@ -140,7 +158,7 @@ export class TerrainRings {
 
   /** The world texel size of ring `k` (m). */
   texelMetres(k: number): number {
-    return texel(k);
+    return texel(this.first + k);
   }
 
   /** Each ring's world square (x0, z0, x1, z1) that is valid now. */
@@ -149,7 +167,7 @@ export class TerrainRings {
     for (let k = 0; k < this.rings; k += 1) {
       const c = this.centres[k];
       if (c === undefined || c === null) break;
-      const h = terrainRingHalf(k);
+      const h = terrainRingHalf(this.first + k);
       out.push([c[0] - h, c[1] - h, c[0] + h, c[1] + h]);
     }
     return out;

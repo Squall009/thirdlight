@@ -672,7 +672,8 @@ export class SurfaceCacheHost {
       for (let k = 0; k < rings.rings; k += 1) {
         const t = rings.texelMetres(k);
         for (const p of rings.patches(k)) {
-          const key = `${terrain}#${k}/${p.px},${p.pz}`;
+          // Keyed by the ring's level: rings starting at another level (a bake's) light every patch again.
+          const key = `${terrain}#${rings.first + k}/${p.px},${p.pz}`;
           seen.add(key);
           const had = units.get(key);
           // A patch whose window grew or moved is lit again whole; one the step left as it was keeps its light.

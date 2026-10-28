@@ -37,6 +37,7 @@ import { lightReach, type CacheLight } from './surface-changes';
 import type { SurfaceRooms } from './surface-rooms';
 import type { SurfaceCacheHost } from './surface-cache-host';
 import { TEXEL_POINT_FLOATS, patchTexelPoints, tileTexelPoints } from './surface-texels';
+import { SURFACE_TEXEL_METRES } from './surface-cache-atlas';
 
 /**
  * Rays a texel casts toward the sun (over its disc), toward each point or
@@ -263,7 +264,7 @@ export function lightFrameOf(host: SurfaceCacheHost, all: readonly CacheLight[],
     suns.forEach((l, i) => {
       if (lights(l, layers)) sunBits |= 1 << i;
     });
-    list.push({ texels: n, lights: touching, suns: sunBits >>> 0, level: src === null ? 0 : 'patch' in src ? src.patch.ring : src.level, ...(unitRooms.length > 0 ? { rooms: unitRooms } : {}) });
+    list.push({ texels: n, lights: touching, suns: sunBits >>> 0, level: src === null ? 0 : 'patch' in src ? Math.round(Math.log2(src.texel / SURFACE_TEXEL_METRES)) : src.level, ...(unitRooms.length > 0 ? { rooms: unitRooms } : {}) });
   }
   return { points: out, slices: list, lights: local, suns, ...(drawnSuns !== undefined ? { drawnSuns } : {}), ...(rayScale !== 1 ? { rayScale } : {}), ...(rooms !== null && held!.some((h) => h !== null) ? { lightRooms: held!, rooms: rooms.words } : {}) };
 }

@@ -20,7 +20,7 @@
 import { textDigest } from '@thirdlight/runtime';
 
 import { SURFACE_CHART_BORDER, SURFACE_LEVELS, SURFACE_PAGE_BYTES, SURFACE_TEXEL_BYTES, PageAtlas, areaTexels, packTile, type AtlasBlock, type SurfaceChart, type TilePacking } from './surface-cache-atlas';
-import { TERRAIN_RING_BYTES, TerrainRings, terrainRingsNeeded, type RingTexel, type TerrainRingSource } from './surface-cache-terrain';
+import { TERRAIN_RING_BYTES, TERRAIN_RINGS_MAX, TerrainRings, terrainRingsNeeded, type RingTexel, type TerrainRingSource } from './surface-cache-terrain';
 
 /**
  * A tile as a saved bake holds it: what its charts were (`digest`), the
@@ -35,7 +35,14 @@ export interface SavedSurfaceTile {
   readonly max?: readonly number[];
 }
 
-/** At most this share of the budget goes to terrain rings. */
+/** A terrain's rings as a saved bake holds them: the finest one's level, each one's centre (x, z), its first layer of the saved rings. */
+export interface SavedTerrainRings {
+  readonly first: number;
+  readonly centres: readonly (readonly [number, number])[];
+  readonly layer: number;
+}
+
+/** At most this share of the budget goes to terrain rings (a bake's rings take what they need). */
 export const TERRAIN_RING_SHARE = 0.25;
 /** Level 0 (10 cm texels) reaches this far (m); each level after doubles the distance, as the texels double. */
 export const SURFACE_LEVEL_METRES = 12;
@@ -120,9 +127,14 @@ export class SurfaceCache {
   private stats = { offered: 0, beyond: 0, evicted: 0, allocated: 0, relevelled: 0, ms: 0, peak: 0 };
   /** A bake's run: every tile at this level whatever its distance, coarser only where the budget has no room (null: by distance). */
   private bakeLevel: number | null = null;
+  /** A bake's rings: where they stand (x, z: round the scene's content), the finest at the bake's level (null: following the eye). */
+  private bakeRingsAt: readonly number[] | null = null;
+  /** The terrains as last offered. */
+  private terrains: readonly TerrainRingSource[] = [];
   /** A saved bake drawn (no live light): the tiles it holds stand where it put them, nothing else is resident (null: live residency). */
   private saved: ReadonlyMap<string, SavedSurfaceTile> | null = null;
   private savedPages = 0;
+  private savedRings: ReadonlyMap<string, SavedTerrainRings> | null = null;
   /** How far level 0 reaches (m): the lighting tier's reach × `SURFACE_LEVEL_METRES`. */
   private levelMetres = SURFACE_LEVEL_METRES;
   private rays = 1;
@@ -163,10 +175,19 @@ export class SurfaceCache {
     this.at = null;
   }
 
-  /** A bake's run (`level`: every tile at it; null: back to levels by distance). Everything is decided again on the next update. */
-  setBakeLevel(level: number | null): void {
-    if (level === this.bakeLevel) return;
+  /**
+   * A bake's run (`level`: every tile at it; null: back to levels by
+   * distance), and where its terrain rings stand (`ringsAt`, x and z; null:
+   * they follow the eye): every terrain's rings from the bake's level out
+   * to its far edge, whatever the rings' share of the budget. Everything is
+   * decided again on the next update.
+   */
+  setBakeLevel(level: number | null, ringsAt: readonly number[] | null = null): void {
+    const at = level === null ? null : ringsAt;
+    if (level === this.bakeLevel && at?.join() === this.bakeRingsAt?.join()) return;
     this.bakeLevel = level;
+    this.bakeRingsAt = at;
+    this.rings.clear();
     for (const key of [...this.resident.keys()]) this.evict(key);
     this.at = null;
   }
@@ -174,12 +195,14 @@ export class SurfaceCache {
   /**
    * Draw a saved bake (`tiles` by key, on `pages` pages; null: live
    * residency again). A tile is resident where the bake put it while its
-   * charts are the ones it was lit with; terrain rings are not saved.
+   * charts are the ones it was lit with; a terrain's `rings` (by terrain)
+   * stand where the bake put them while the terrain is loaded.
    */
-  setSaved(tiles: ReadonlyMap<string, SavedSurfaceTile> | null, pages = 0): void {
+  setSaved(tiles: ReadonlyMap<string, SavedSurfaceTile> | null, pages = 0, rings: ReadonlyMap<string, SavedTerrainRings> | null = null): void {
     for (const key of [...this.resident.keys()]) this.evict(key);
     this.saved = tiles;
     this.savedPages = pages;
+    this.savedRings = tiles === null ? null : rings;
     this.atlas = new PageAtlas(0);
     this.rings.clear();
     this.at = null;
@@ -235,10 +258,13 @@ export class SurfaceCache {
    */
   update(eye: readonly number[], tiles: readonly SurfaceTile[], terrains: readonly TerrainRingSource[], changed: boolean): void {
     const moved = this.at === null || Math.hypot(eye[0]! - this.at[0]!, eye[1]! - this.at[1]!, eye[2]! - this.at[2]!) >= SURFACE_RECHECK_METRES;
+    this.terrains = terrains;
+    const ringEye = this.ringEye(eye);
     for (const [key, r] of this.rings) {
-      const steps = r.update(eye);
+      const steps = r.update(ringEye);
       if (steps.length > 0) this.ringMoves.push({ terrain: key, rings: steps });
     }
+    if (this.saved !== null) this.placeSavedRings(terrains);
     if (!moved && !changed) return;
     const t0 = performance.now();
     this.at = [eye[0]!, eye[1]!, eye[2]!];
@@ -364,12 +390,62 @@ export class SurfaceCache {
     return false;
   }
 
+  /** Where the rings stand: round the eye, or where a bake put them (x, z). */
+  private ringEye(eye: readonly number[]): readonly number[] {
+    const at = this.bakeRingsAt;
+    return at === null ? eye : [at[0]!, 0, at[1]!];
+  }
+
+  /** The bytes a bake's rings take at `level` standing at `at` (x, z), over the terrains `owns` names (absent: all). */
+  bakeRingBytes(level: number, at: readonly number[], owns?: (key: string) => boolean): number {
+    let n = 0;
+    for (const src of this.terrains) if (owns === undefined || owns(src.key)) n += terrainRingsNeeded(src, level, at);
+    return n * TERRAIN_RING_BYTES;
+  }
+
+  /** A saved bake's rings, for the loaded terrains it holds. */
+  private placeSavedRings(terrains: readonly TerrainRingSource[]): void {
+    const keys = new Set<string>();
+    for (const src of terrains) {
+      const s = this.savedRings?.get(src.key);
+      if (s === undefined) continue;
+      keys.add(src.key);
+      if (this.rings.has(src.key)) continue;
+      this.rings.set(src.key, new TerrainRings(src, s.centres.length, s.first, s.centres));
+      // Placed: the lookup is packed again with them.
+      this.ringMoves.push({ terrain: src.key, rings: s.centres.map((_, k) => k) });
+    }
+    for (const key of [...this.rings.keys()]) if (!keys.has(key)) {
+      this.rings.delete(key);
+      this.ringMoves.push({ terrain: key, rings: [] });
+    }
+  }
+
+  /** The first texture layer of a terrain's rings: its place among the terrains holding rings live, where the saved rings put it. */
+  ringLayerBase(key: string): number {
+    if (this.saved !== null) return this.savedRings?.get(key)?.layer ?? 0;
+    return Math.max(0, this.ringTerrains().indexOf(key)) * TERRAIN_RINGS_MAX;
+  }
+
   private placeRings(terrains: readonly TerrainRingSource[], eye: readonly number[]): void {
     const keys = new Set(terrains.map((t) => t.key));
     for (const key of [...this.rings.keys()]) if (!keys.has(key)) this.rings.delete(key);
+    const at = this.bakeRingsAt;
+    const first = this.bakeLevel ?? 0;
+    if (at !== null) {
+      // A bake's: each terrain's from the bake's level out to its far edge, standing round the scene's content.
+      for (const src of terrains) {
+        const n = terrainRingsNeeded(src, first, at);
+        let r = this.rings.get(src.key);
+        if (r === undefined || r.first !== first || r.rings !== n) this.rings.set(src.key, (r = new TerrainRings(src, n, first)));
+        const steps = r.update(this.ringEye(eye));
+        if (steps.length > 0) this.ringMoves.push({ terrain: src.key, rings: steps });
+      }
+      return;
+    }
     // Rings in turn, finest first across terrains, within their share of the budget.
     const share = Math.floor((this.budget * TERRAIN_RING_SHARE) / TERRAIN_RING_BYTES);
-    const need = terrains.map(terrainRingsNeeded);
+    const need = terrains.map((t) => terrainRingsNeeded(t));
     const give = terrains.map(() => 0);
     let left = share;
     for (let k = 0; left > 0; k += 1) {
@@ -385,7 +461,7 @@ export class SurfaceCache {
     }
     terrains.forEach((src, i) => {
       let r = this.rings.get(src.key);
-      if (r === undefined) this.rings.set(src.key, (r = new TerrainRings(src, give[i]!)));
+      if (r === undefined || r.first !== 0) this.rings.set(src.key, (r = new TerrainRings(src, give[i]!)));
       else r.rings = give[i]!;
       const steps = r.update(eye);
       if (steps.length > 0) this.ringMoves.push({ terrain: src.key, rings: steps });
@@ -402,7 +478,7 @@ export class SurfaceCache {
     if (this.saved !== null) {
       let texels = 0;
       for (const r of this.resident.values()) for (const b of r.blocks) texels += b.side * b.side;
-      return texels * SURFACE_TEXEL_BYTES;
+      return texels * SURFACE_TEXEL_BYTES + this.ringBytes();
     }
     return this.atlas.usedTexels * SURFACE_TEXEL_BYTES + this.ringBytes();
   }

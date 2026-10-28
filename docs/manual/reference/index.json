@@ -576,6 +576,7 @@
 "limit.GAME_OBSERVE_TIMEOUT_DEFAULT_MS": {"page":"limits-protocol.md","section":"limits-protocol--m3"},
 "limit.GAME_OBSERVE_TIMEOUT_MAX_MS": {"page":"limits-protocol.md","section":"limits-protocol--m3"},
 "limit.GAME_OBSERVE_TIMEOUT_MIN_MS": {"page":"limits-protocol.md","section":"limits-protocol--m3"},
+"limit.GLOW_MODE_DEFAULT": {"page":"limits-project-model-2.md","section":"limits-project-model--scene-v3"},
 "limit.GRAPH_CURVE_LIMITS": {"page":"limits-project-model-1.md","section":"limits-project-model--graph"},
 "limit.GRAPH_LIMITS": {"page":"limits-project-model-1.md","section":"limits-project-model--graph"},
 "limit.GROUND_FORWARD_MIN": {"page":"limits-project-model-1.md","section":"limits-project-model--cameras"},

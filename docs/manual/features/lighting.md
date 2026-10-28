@@ -108,9 +108,13 @@ What glows into the cache today, and what does not:
   box glows (radiance × the face's area), with soft traced shadows; faces
   under 5 % of its largest face (a sign's edges) are left out. Its light
   bounces through the probes like any other. It gives no per-pixel
-  highlight (a polished floor shows it through the reflections), and it
-  counts as a `realtime` light: **a bake does not save it**, so on WebGL 2
-  and the low tier it lights nothing around it.
+  highlight (a polished floor shows it through the reflections). Its
+  surface's **Glow mode** (`emissiveMode`) is its light mode, as a light's
+  `mode`: `baked` by default (a bake saves its direct light and bounce, so
+  WebGL 2 and the low tier draw its pool), `mixed` (only its bounce is
+  saved: on WebGL 2 and the low tier it lights only through the probes, as
+  it has no per-pixel light) or `realtime` (nothing saved: there it lights
+  nothing around it).
 - **Everything else that glows** — a model whose material is emissive, a
   block type with an emissive material, generated architecture's glowing
   trims, a graph material's emission: they draw their glow on their own
@@ -149,15 +153,21 @@ gone; what they baked still draws (below).
   the baked and mixed lights light the cache, then starts the probes over
   from it (none of the light they held live before is kept) until both
   settle, then holds the probes and lets only the baked lights' direct light
-  settle in the cache. Terrain and static boxes are not saved: terrain keeps
-  its per-pixel lights and the saved probes over it, as before. With
+  settle in the cache. Terrain is saved as its rings: the finest ring has
+  the bake's texel size and they stand round the scene's content (the
+  middle of its saved surfaces and lights; a scene of bare terrain, the
+  terrain's middle), out to the terrain's far edge; WebGL 2 and the low
+  tier read them through the same lookup, and terrain past the last ring
+  keeps its per-pixel lights. Static boxes are not saved (they never read
+  the cache, live or saved). With
   several scenes open, all are lit together (each lights and shades the
   others) but only the baked scene is saved: its surfaces at the level
   that fits them, the probes over them and its own lights.
-- **How fine** — every tile at one level, the finest whose pages fit 32 MiB
-  (`SAVED_SURFACE_CACHE_MIB`, the low lighting tier's whole cache budget):
-  10 cm texels for a small scene, coarser for a large one, so a low-tier
-  device holds a scene's saved light whole.
+- **How fine** — every tile at one level, the finest whose pages and
+  terrain rings (2 MiB each) fit 32 MiB together (`SAVED_SURFACE_CACHE_MIB`,
+  the low lighting tier's whole cache budget): 10 cm texels for a small
+  scene, coarser for a large one, so a low-tier device holds a scene's
+  saved light whole.
 - **Files** — the saved file (the cache's tiles and pages as RGBA half
   floats, the probes' tiles as the probe lighting holds them) travels as
   texture assets named `lighting <scene>` (16-bit PNGs used as byte
@@ -385,7 +395,9 @@ only where something changed:
 - **Light modes** — live, every light lights the cache whatever its mode.
   What "Bake lighting" saves follows the mode (see [Baked
   lighting](#baked-lighting)): a `baked` light's direct light and its
-  bounce, a `mixed` light's bounce only, a `realtime` light nothing.
+  bounce, a `mixed` light's bounce only, a `realtime` light nothing; a
+  static glowing box's surface names its own (`emissiveMode`, absent
+  `baked`).
 - **What surfaces draw** — block layers, terrain and generated buildings
   read their diffuse light from the cache: one filtered lookup a pixel,
   found from where the pixel is and which way it faces. Static models (in
@@ -608,11 +620,11 @@ The design's limits, and what is not built yet:
   behind it through the box. Use block layers, generated architecture or a
   model for walls that must stop light.
 - **Emissive materials** light nothing but their own pixels; only static
-  glowing boxes light the cache, and a bake does not save them ([Emissive
-  light](#emissive-light)).
-- **What a bake leaves out.** Terrain's own light is not saved (on WebGL 2
-  and the low tier terrain keeps its per-pixel lights and the saved probes
-  over it), nor are static boxes or glowing boxes; an environment preset's `lightmap`
+  glowing boxes light the cache ([Emissive light](#emissive-light)).
+- **What a bake leaves out.** Static boxes (they read no cache); terrain
+  past its last saved ring, and the live light starts terrain over (its
+  rings are drawn from the bake only where the light is not live); an
+  environment preset's `lightmap`
   multiplier does not reach the saved light (only an earlier bake's
   lightmaps); the saved probes are all on the GPU while their scene is
   loaded, not streamed; the **Probe volume** component is not read.

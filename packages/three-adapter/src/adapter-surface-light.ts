@@ -309,6 +309,8 @@ export class AdapterSurfaceLight {
     const pages = Math.max(1, Math.ceil(this.host.cache.budgetBytes / SURFACE_PAGE_BYTES));
     const ringLayers = Math.max(1, Math.floor((this.host.cache.budgetBytes * TERRAIN_RING_SHARE) / TERRAIN_RING_BYTES)) * TERRAIN_RINGS_MAX;
     const tex = new SurfaceCacheTextures(pages, ringLayers);
+    // A runtime made again (a new budget, a bake's or one given back; a new device) has new, empty textures.
+    const again = this.budgetFor >= 0;
     this.budgetFor = this.host.cache.budgetBytes;
     const source: SurfaceTextureSource = {
       texture: (which, layers) => tex.gpuTexture(renderer, which, layers) as GpuTexture,
@@ -327,9 +329,10 @@ export class AdapterSurfaceLight {
         this.runtime = rt;
         this.textures = tex;
         rt.setView(this.viewOn);
-        // A runtime made again (a bake's budget given back) under the cache view: its copy starts empty, and the light
-        // may have settled before it came, so every unit is lit again for it as when the view is switched on.
-        if (this.viewOn) this.markAllForView();
+        // A runtime made again starts with empty textures (and the cache view's copy empty), while the light may have
+        // settled into the old ones before it came (a bake's budget set: its pages would be read back blank): every unit
+        // is lit again, as when the view is switched on.
+        if (again || this.viewOn) this.markAllForView();
         this.host.setLive(true);
         // Reflection rays that leave the screen are traced here, on the same device.
         const tracer: ReflectionTracer = {

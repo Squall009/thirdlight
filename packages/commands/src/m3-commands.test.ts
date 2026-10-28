@@ -214,7 +214,7 @@ describe('applySurfacePreset', () => {
       preset: 'signal-red',
       previous: null,
       next: SURFACE_PRESETS['signal-red'],
-      changedFields: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
+      changedFields: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity', 'emissiveMode'],
     });
     state = nextState(state, req('applySurfacePreset', { entityId: 'box-0001', preset: 'signal-red' }, 0));
     // A second entity's copy is independent.

@@ -1300,6 +1300,8 @@ interface SurfaceBake {
   staticsHash: string;
   /** The texture sky's turn the probes saw (degrees; absent: 0). */
   skyRotation?: number;
+  /** Terrain rings saved (absent: none, or a bake made before terrain was saved). */
+  rings?: number;
 }
 ```
 

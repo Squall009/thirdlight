@@ -148,19 +148,25 @@ export class SurfaceCacheTextures {
    */
   readonly head = uniform(new THREE.Vector4());
   readonly arch = uniform(new THREE.Vector4());
-  /** The first terrain's rings (centre x, z, half side, texel) and how many: read from uniforms, not the table (most scenes have one terrain). */
+  /** The first terrain's rings (centre x, z, half side, texel), how many and their first layer: read from uniforms, not the table (most scenes have one terrain). */
   readonly rings0 = uniformArray(Array.from({ length: TERRAIN_RINGS_MAX }, () => new THREE.Vector4()), 'vec4');
   readonly rings0Count = uniform(0, 'int');
+  readonly rings0Layer = uniform(0, 'uint');
   /** The first block layers' records (`LAYER_TEXELS` vec4 each, integers as floats: all are below 2^24): read from uniforms, not the table. */
   readonly layers0 = uniformArray(Array.from({ length: BLOCK_LAYERS_HELD * LAYER_TEXELS }, () => new THREE.Vector4()), 'vec4');
 
-  /** `pages` and `ringLayers`: the most the cache's budget can hold (the colours' buffer is made once for them); `savedTexels`: a bake's pages (saved light). */
-  constructor(readonly pages: number, readonly ringLayers: number, savedTexels?: Uint16Array) {
+  /**
+   * `pages` and `ringLayers`: the most the cache's budget can hold (the
+   * colours' buffer is made once for them); `savedTexels`: a bake's pages
+   * (saved light), and `savedRings` its terrains' ring layers
+   * (`ringLayers` of them).
+   */
+  constructor(readonly pages: number, readonly ringLayers: number, savedTexels?: Uint16Array, savedRings?: Uint16Array) {
     this.saved = savedTexels !== undefined;
     if (savedTexels !== undefined) {
       this.atlas = arrayTexture(SURFACE_PAGE_TEXELS, THREE.ClampToEdgeWrapping, 'surface cache saved atlas', savedTexels, pages);
-      // Terrain rings are not saved: one empty layer to bind.
-      this.rings = arrayTexture(1, THREE.RepeatWrapping, 'surface cache saved rings', new Uint16Array(4), 1);
+      // A bake without terrain: one empty layer to bind.
+      this.rings = savedRings !== undefined && ringLayers > 0 ? arrayTexture(TERRAIN_RING_TEXELS, THREE.RepeatWrapping, 'surface cache saved rings', savedRings, ringLayers) : arrayTexture(1, THREE.RepeatWrapping, 'surface cache saved rings', new Uint16Array(4), 1);
       this.albedo = null;
       this.albedoNode = null;
     } else {
@@ -176,9 +182,9 @@ export class SurfaceCacheTextures {
     this.tableNode = texelTexture(this.table);
   }
 
-  /** Textures of a bake's saved pages (`pages` × `SURFACE_PAGE_TEXELS`² RGBA half floats), read as saved light. */
-  static saved(texels: Uint16Array, pages: number): SurfaceCacheTextures {
-    return new SurfaceCacheTextures(pages, 1, texels);
+  /** Textures of a bake's saved pages (`pages` × `SURFACE_PAGE_TEXELS`² RGBA half floats) and ring layers (`ringLayers` × `TERRAIN_RING_TEXELS`²), read as saved light. */
+  static saved(texels: Uint16Array, pages: number, rings: Uint16Array = new Uint16Array(0), ringLayers = 0): SurfaceCacheTextures {
+    return new SurfaceCacheTextures(pages, ringLayers, texels, ringLayers > 0 ? rings : undefined);
   }
 
   /**
@@ -209,6 +215,7 @@ export class SurfaceCacheTextures {
     const n = words[2]! > 0 ? words[at]! : 0;
     for (let k = 0; k < n; k += 1) rings[k]!.fromArray(f, at + 4 + k * 4);
     (this.rings0Count as unknown as { value: number }).value = n;
+    (this.rings0Layer as unknown as { value: number }).value = n > 0 ? words[at + 1]! : 0;
     // Block layers' records: floats as floats, integers (signed where they may be negative) as their values.
     const layers = (this.layers0 as unknown as { array: THREE.Vector4[] }).array;
     const i32 = new Int32Array(words.buffer, words.byteOffset, words.length);
@@ -425,7 +432,7 @@ function lookupNodes(builder: N, tex: SurfaceCacheTextures, kind: SurfaceReadKin
       });
     };
     Loop(tex.rings0Count, ({ i: k }: { i: N }) => {
-      ringAt(tex.rings0.element(k), uint(0), k);
+      ringAt(tex.rings0.element(k), tex.rings0Layer, k);
     });
     Loop({ start: int(1), end: int(tex.head.z) }, ({ i }: { i: N }) => {
       If(found, () => {

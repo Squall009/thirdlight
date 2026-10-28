@@ -12,6 +12,8 @@
  *   textures adds the cache's light to the per-pixel lights (those a bake
  *   saves no direct light of: mixed and realtime lights) instead of standing
  *   in for them.
+ * - A terrain's rings stand where the bake put them (its texels read at the
+ *   same wrapped places as live), while the terrain is loaded.
  * - The probes' tiles (rooms' grids and bricks, as the live probes held
  *   them) go to the probe lighting as the live ones do (`setLive`), so
  *   moving objects, foliage and every lit material read them through the
@@ -30,8 +32,8 @@ import { probesFromUrl } from './probe-lighting';
 import { pageSearch } from './renderer-factory';
 import type { ProbeTileForGpu } from './probe-atlas';
 import type { SurfaceCacheHost } from './surface-cache-host';
-import type { SavedSurfaceTile } from './surface-cache';
-import { savedSurfaceFromFiles, type SavedProbeTile, type SavedSurfaceLight } from './surface-bake-file';
+import type { SavedSurfaceTile, SavedTerrainRings } from './surface-cache';
+import { RING_HALVES, savedSurfaceFromFiles, type SavedProbeTile, type SavedSurfaceLight } from './surface-bake-file';
 import { readPackedProbe } from './probe-pack';
 import { PROBE_FILLED, PROBE_SH_TEXELS } from '@thirdlight/runtime';
 import { PROBE_NEVER_LIT } from './probe-weights';
@@ -82,11 +84,20 @@ function savedProbeGrid(t: SavedProbeTile): SavedProbeGrid {
   };
 }
 
-/** The followed scenes' saved light together: each scene's pages after the ones before it. */
-function merged(ready: readonly [string, SavedSurfaceLight][]): { texels: Uint16Array<ArrayBuffer>; pages: number; tiles: Map<string, SavedSurfaceTile>; probeTiles: ProbeTileForGpu[]; seed: SurfaceSeed } {
+/** The followed scenes' saved light together: each scene's pages after the ones before it, and its ring layers. */
+function merged(ready: readonly [string, SavedSurfaceLight][]): { texels: Uint16Array<ArrayBuffer>; pages: number; tiles: Map<string, SavedSurfaceTile>; probeTiles: ProbeTileForGpu[]; seed: SurfaceSeed; rings: Map<string, SavedTerrainRings>; ringTexels: Uint16Array<ArrayBuffer>; ringLayers: number } {
   const pageHalves = SURFACE_PAGE_TEXELS * SURFACE_PAGE_TEXELS * 4;
   const pages = ready.reduce((n, [, s]) => n + s.pages, 0);
   const texels = new Uint16Array(Math.max(1, pages) * pageHalves);
+  const ringLayers = ready.reduce((n, [, s]) => n + (s.rings ?? []).reduce((m, r) => m + r.centres.length, 0), 0);
+  const ringTexels = new Uint16Array(ringLayers * RING_HALVES);
+  const rings = new Map<string, SavedTerrainRings>();
+  let layer = 0;
+  for (const [, s] of ready) for (const r of s.rings ?? []) {
+    ringTexels.set(r.texels.subarray(0, r.centres.length * RING_HALVES), layer * RING_HALVES);
+    rings.set(r.terrain, { first: r.first, centres: r.centres, layer });
+    layer += r.centres.length;
+  }
   const tiles = new Map<string, SavedSurfaceTile>();
   const probeTiles: ProbeTileForGpu[] = [];
   const grids = new Map<string, SavedProbeTile>();
@@ -111,7 +122,7 @@ function merged(ready: readonly [string, SavedSurfaceLight][]): { texels: Uint16
     if (g === undefined) decoded.set(key, (g = savedProbeGrid(t)));
     return g;
   };
-  return { texels, pages, tiles, probeTiles, seed: { tiles, texels, probes, lights } };
+  return { texels, pages, tiles, probeTiles, seed: { tiles, texels, probes, lights }, rings, ringTexels, ringLayers };
 }
 
 export interface SavedLightDiagnostics {
@@ -119,6 +130,8 @@ export interface SavedLightDiagnostics {
   readonly scenes: number;
   readonly pages: number;
   readonly probeTiles: number;
+  /** Terrain ring layers drawn from it. */
+  readonly ringLayers: number;
   /** Why a scene's saved light could not be read (absent: none failed). */
   readonly error?: string;
 }
@@ -141,11 +154,13 @@ export class AdapterSavedLight {
   /** The saved pages the textures hold, and whether the scene reads them yet (the lookup's header the programs hold). */
   private texels = new Uint16Array(0);
   private pages = 1;
+  /** The saved ring layers the textures hold. */
+  private rings = { texels: new Uint16Array(0), layers: 0 };
   private exposed = false;
   private headFor = '';
   /** What the host was last handed as the live light's start. */
   private seedKey: string | null = null;
-  private diag: SavedLightDiagnostics = { scenes: 0, pages: 0, probeTiles: 0 };
+  private diag: SavedLightDiagnostics = { scenes: 0, pages: 0, probeTiles: 0, ringLayers: 0 };
   /** `?probes=off` draws without probes, saved ones too (a diagnostic comparison). */
   private readonly probesOn = probesFromUrl(pageSearch());
 
@@ -242,21 +257,22 @@ export class AdapterSavedLight {
       this.host.seeding.set(null);
       this.host.cache.setSaved(null);
       this.dropProbes();
-      this.diag = { scenes: 0, pages: 0, probeTiles: 0, ...(error !== undefined ? { error } : {}) };
+      this.diag = { scenes: 0, pages: 0, probeTiles: 0, ringLayers: 0, ...(error !== undefined ? { error } : {}) };
       return;
     }
-    const { texels, pages, tiles, probeTiles, seed } = merged(ready);
+    const { texels, pages, tiles, probeTiles, seed, rings, ringTexels, ringLayers } = merged(ready);
     // The same saved light starts the live light once it runs.
     this.seedKey = key;
     this.host.seeding.set(seed);
-    this.host.cache.setSaved(tiles, pages);
+    this.host.cache.setSaved(tiles, pages, rings);
     this.texels = texels;
     this.pages = Math.max(1, pages);
+    this.rings = { texels: ringTexels, layers: ringLayers };
     this.exposed = false;
-    this.textures = SurfaceCacheTextures.saved(texels, this.pages);
+    this.textures = SurfaceCacheTextures.saved(texels, this.pages, ringTexels, ringLayers);
     this.probeTiles = probeTiles;
     this.probesSent = false;
-    this.diag = { scenes: ready.length, pages, probeTiles: probeTiles.length, ...(error !== undefined ? { error } : {}) };
+    this.diag = { scenes: ready.length, pages, probeTiles: probeTiles.length, ringLayers, ...(error !== undefined ? { error } : {}) };
   }
 
   /** Before the frame's programs are built: the saved probes join the probe lighting (as live ones do). */
@@ -270,8 +286,8 @@ export class AdapterSavedLight {
   private syncLookup(): void {
     const tex = this.textures;
     if (tex === null) return;
-    // Read once a tile is resident (a header packed before them would stay in the programs).
-    if (!this.exposed && this.host.cache.diagnostics().tiles.resident === 0) return;
+    // Read once a tile or a terrain's rings are resident (a header packed before them would stay in the programs).
+    if (!this.exposed && this.host.cache.diagnostics().tiles.resident === 0 && this.host.cache.ringTerrains().length === 0) return;
     const key = `${this.host.traceVersion}/${this.host.residencyVersion}`;
     const now = performance.now();
     if (key !== this.lookupFor && now - this.lookupAt >= LOOKUP_MS) {
@@ -281,7 +297,7 @@ export class AdapterSavedLight {
       const head = uniformWords(words);
       if (this.exposed && head !== this.headFor) {
         tex.dispose();
-        this.textures = SurfaceCacheTextures.saved(this.texels, this.pages);
+        this.textures = SurfaceCacheTextures.saved(this.texels, this.pages, this.rings.texels, this.rings.layers);
         this.exposed = false;
       }
       this.headFor = head;

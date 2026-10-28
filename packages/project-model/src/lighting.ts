@@ -104,6 +104,8 @@ export interface SurfaceBake {
   staticsHash: string;
   /** The texture sky's turn the probes saw (degrees; absent: 0). */
   skyRotation?: number;
+  /** Terrain rings saved (absent: none, or a bake made before terrain was saved). */
+  rings?: number;
 }
 
 /** Whether a scene's bake was made by the earlier bakers (lightmaps, probe grids): it draws until the scene is baked again, and reads as stale. */
@@ -137,7 +139,7 @@ const int = (v: unknown, lo: number, hi: number): boolean => num(v, lo, hi) && N
 const BAKE_FIELDS = ['bakeId', 'createdAt', 'source', 'range', 'texelsPerMeter', 'samples', 'bounces', 'atlases', 'entries', 'bakedLights', 'lightsHash', 'staticsHash'];
 const OPTIONAL_BAKE_FIELDS = ['probes', 'surface'];
 const SURFACE_FIELDS = ['createdAt', 'files', 'level', 'tiles', 'pages', 'probes', 'bytes', 'millis', 'lightsHash', 'staticsHash'];
-const SURFACE_OPTIONAL = ['skyRotation'];
+const SURFACE_OPTIONAL = ['skyRotation', 'rings'];
 
 /** `lighting[sceneId].surface` (structure and ranges; the files' kinds are checked with the content). */
 export function validateSurfaceBake(value: unknown, path: string, errors: ModelErrorV2[]): void {
@@ -154,6 +156,7 @@ export function validateSurfaceBake(value: unknown, path: string, errors: ModelE
   if (v['level'] !== undefined && !int(v['level'], 0, SURFACE_BAKE_LEVELS - 1)) err(errors, 'field_value', `${path}/level`, `level is an integer in [0, ${SURFACE_BAKE_LEVELS - 1}]`, v['level']);
   for (const k of ['tiles', 'pages', 'probes', 'bytes', 'millis']) if (v[k] !== undefined && !int(v[k], 0, Number.MAX_SAFE_INTEGER)) err(errors, 'field_value', `${path}/${k}`, `${k} is a non-negative integer`, v[k]);
   for (const k of ['lightsHash', 'staticsHash']) if (v[k] !== undefined && (typeof v[k] !== 'string' || !HASH_RE.test(v[k] as string))) err(errors, 'field_value', `${path}/${k}`, `${k} is 16 lowercase hex digits`, v[k]);
+  if (v['rings'] !== undefined && !int(v['rings'], 0, Number.MAX_SAFE_INTEGER)) err(errors, 'field_value', `${path}/rings`, 'rings is a non-negative integer', v['rings']);
   if (v['skyRotation'] !== undefined && !num(v['skyRotation'], -SKY_ROTATION_MAX, SKY_ROTATION_MAX)) err(errors, 'field_value', `${path}/skyRotation`, `skyRotation is degrees in [${-SKY_ROTATION_MAX}, ${SKY_ROTATION_MAX}]`, v['skyRotation']);
 }
 
@@ -170,6 +173,7 @@ export function canonicalSurfaceBake(b: SurfaceBake): SurfaceBake {
     lightsHash: b.lightsHash,
     staticsHash: b.staticsHash,
     ...(b.skyRotation !== undefined ? { skyRotation: b.skyRotation } : {}),
+    ...(b.rings !== undefined && b.rings > 0 ? { rings: b.rings } : {}),
   };
 }
 

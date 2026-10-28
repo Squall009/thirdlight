@@ -4,7 +4,7 @@
  * the entities realized, with their rows' distance-field files.
  */
 import * as THREE from 'three';
-import { DEFAULT_SURFACE_CACHE_MIB, LIGHT_LAYERS_ALL, lightLayerMaskOf } from '@thirdlight/runtime';
+import { DEFAULT_SURFACE_CACHE_MIB, GLOW_MODE_DEFAULT, LIGHT_LAYERS_ALL, lightLayerMaskOf } from '@thirdlight/runtime';
 
 import type { AdapterEntities, EntityDoc } from './adapter-entities';
 import type { AdapterLevel } from './adapter-level';
@@ -167,7 +167,7 @@ export class SurfaceLights {
     const out: CacheLight[] = [];
     this.docIds = new Set();
     for (const [id, e] of this.docs) {
-      const comps = e.components as { light?: LightDoc; surface?: { emissive?: string; emissiveIntensity?: number }; box?: { size?: readonly number[] } };
+      const comps = e.components as { light?: LightDoc; surface?: { emissive?: string; emissiveIntensity?: number; emissiveMode?: CacheLight['mode'] }; box?: { size?: readonly number[] } };
       const l = comps.light;
       if (l !== undefined && (l.type === 'point' || l.type === 'spot' || l.type === 'directional' || l.type === 'area')) {
         if (!this.graph.worldMatrixOf(id, this.m)) continue;
@@ -177,7 +177,7 @@ export class SurfaceLights {
       const glow = comps.surface;
       if (glow?.emissive !== undefined && (glow.emissiveIntensity ?? 0) > 0 && (e as { static?: boolean }).static === true && comps.box?.size !== undefined) {
         const radiance = linear(glow.emissive, glow.emissiveIntensity ?? 0, this.c);
-        if (Math.max(...radiance) > 0 && this.graph.worldMatrixOf(id, this.m)) out.push(...this.glowingBox(id, comps.box.size, radiance));
+        if (Math.max(...radiance) > 0 && this.graph.worldMatrixOf(id, this.m)) out.push(...this.glowingBox(id, comps.box.size, radiance, glow.emissiveMode ?? GLOW_MODE_DEFAULT));
       }
     }
     this.fromDocs = out;
@@ -215,8 +215,8 @@ export class SurfaceLights {
     return { ...base, kind: spot ? 'spot' : 'point', direction: w, cone: spot ? Math.cos(((l.angle ?? 30) * Math.PI) / 180) : 0, penumbra: spot ? (l.penumbra ?? 0.2) : 0, shadows: l.castShadow === true };
   }
 
-  /** A glowing box's faces as one-sided rectangle lights, each as bright as the box's surface glows. */
-  private glowingBox(id: string, size: readonly number[], radiance: readonly number[]): CacheLight[] {
+  /** A glowing box's faces as one-sided rectangle lights of its glow's mode, each as bright as the box's surface glows. */
+  private glowingBox(id: string, size: readonly number[], radiance: readonly number[], mode: NonNullable<CacheLight['mode']>): CacheLight[] {
     const m = this.m.elements;
     const axes = [0, 1, 2].map((k) => [m[k * 4]! * (size[k] ?? 1) / 2, m[k * 4 + 1]! * (size[k] ?? 1) / 2, m[k * 4 + 2]! * (size[k] ?? 1) / 2]);
     const len = axes.map((a) => Math.hypot(a[0]!, a[1]!, a[2]!));
@@ -240,6 +240,7 @@ export class SurfaceLights {
           cone: 0,
           penumbra: 0,
           shadows: true,
+          ...(mode !== 'realtime' ? { mode } : {}),
           area: { u: axes[(k + 1) % 3]!, v: axes[(k + 2) % 3]!, twoSided: false },
         });
       }

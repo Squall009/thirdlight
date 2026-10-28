@@ -759,7 +759,7 @@ export {
   type ProbeVolumeBox,
 } from '@thirdlight/project-model';
 // The surface cache's resolution levels (a saved bake holds the same).
-export { SURFACE_BAKE_LEVELS } from '@thirdlight/project-model';
+export { GLOW_MODE_DEFAULT, SURFACE_BAKE_LEVELS } from '@thirdlight/project-model';
 // Distance-field bricks of imported static models: what the lighting tracer traces them by (made at import, shipped in the export).
 export { DISTANCE_BRICK_CELLS, DISTANCE_BRICK_INSIDE, DISTANCE_BRICK_OUTSIDE, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, decodeDistanceBricks, distanceOfSample, type DistanceBrickSet, type DistanceBricks, surfelCellKey, surfelCoverage, surfelFacing, type SurfelSet } from '@thirdlight/project-model';
 // How the import makes them (a game never does; tools and tests that trace a mesh of their own do).

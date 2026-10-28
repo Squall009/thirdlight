@@ -76,7 +76,7 @@ export type LightingBakeResult = { ok: true; bake: LightingBake; millis: number 
 
 /** What a bake reports in words (the Lighting window's message, an agent's answer). */
 export function lightingBakeSummary(s: SurfaceBake): string {
-  return `Baked lighting in ${(s.millis / 1000).toFixed(1)} s: ${s.tiles} surface tiles at ${(SURFACE_TEXEL_METRES * 2 ** s.level * 100).toFixed(0)} cm texels on ${s.pages} pages, ${s.probes} probes, ${(s.bytes / 1024).toFixed(0)} KB of files.`;
+  return `Baked lighting in ${(s.millis / 1000).toFixed(1)} s: ${s.tiles} surface tiles at ${(SURFACE_TEXEL_METRES * 2 ** s.level * 100).toFixed(0)} cm texels on ${s.pages} pages, ${(s.rings ?? 0) > 0 ? `${s.rings} terrain rings, ` : ''}${s.probes} probes, ${(s.bytes / 1024).toFixed(0)} KB of files.`;
 }
 
 export async function runLightingBake(deps: LightingBakeDeps): Promise<LightingBakeResult> {
@@ -89,13 +89,14 @@ export async function runLightingBake(deps: LightingBakeDeps): Promise<LightingB
   // A user-timing mark (DevTools, the e2e): the light is settled and read back; what follows is saving it.
   performance.mark('tl:lighting:baked');
   const saved = ran.saved;
-  if (saved.tiles.length === 0 && saved.probes.length === 0) return { ok: false, message: 'nothing to bake: the scene has no static surfaces the lighting keeps (block layers, generated architecture, static models)' };
+  if (saved.tiles.length === 0 && saved.probes.length === 0 && (saved.rings?.length ?? 0) === 0) return { ok: false, message: 'nothing to bake: the scene has no static surfaces the lighting keeps (block layers, terrain, generated architecture, static models)' };
   deps.onProgress('saving…', 0.9);
   const files = await savedSurfaceFiles(encodeSavedSurface(saved));
   const previous = client.getLighting()[sceneId] ?? null;
   const hashes = bakeHashes(sceneEntities.map((e): BakeHashEntity => bakeHashEntity(e, (id) => client.getBlockLayers().get(id)?.chunks)));
   const skyTurn = skyTurnDegrees(client.getSceneEnvironment(sceneId)?.sky);
   const createdAt = new Date().toISOString();
+  const rings = (saved.rings ?? []).reduce((n, r) => n + r.centres.length, 0);
   const record = (ids: string[], bytes: number): LightingBake => {
     const surface: SurfaceBake = {
       createdAt,
@@ -109,6 +110,7 @@ export async function runLightingBake(deps: LightingBakeDeps): Promise<LightingB
       lightsHash: hashes.lightsHash,
       staticsHash: hashes.staticsHash,
       ...(skyTurn !== 0 ? { skyRotation: skyTurn } : {}),
+      ...(rings > 0 ? { rings } : {}),
     };
     // The baked lights leave per-pixel drawing while the bake is used (the cache holds their light).
     const bakedLights = sceneEntities.filter((e) => e.active && (e.light as { mode?: string } | undefined)?.mode === 'baked').map((e) => e.id);

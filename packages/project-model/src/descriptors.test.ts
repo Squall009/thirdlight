@@ -491,7 +491,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
   materials: [{ '*': 'mat-a', Bark: 'mat-b' }],
   materialParams: [{ 'mat-a': { tint: '#aabbcc', speed: 2, offset: [1, 2] } }],
   effect: [{ effectId: 'fx-a', playOnStart: false, params: { rate: 3, tint: '#aabbcc', offset: [1, 2, 3] }, signal: 'go', stopSignal: 'halt' }],
-  surface: [{ color: '#aabbcc', roughness: 0.5, metalness: 0.2, emissive: '#112233', emissiveIntensity: 1 }],
+  surface: [{ color: '#aabbcc', roughness: 0.5, metalness: 0.2, emissive: '#112233', emissiveIntensity: 1, emissiveMode: 'realtime' }],
   instances: [{ asset: { assetId: 'model-a', piece: 'Rock' }, buffer: 'a'.repeat(64), count: 10, castShadow: false, receiveShadow: false, chunkSize: 24, lightLayers: 4, densityStart: 0.03, densityEnd: 0.01, densityMin: 0.5, lodPerCopy: true , localLights: 'pixel', decalLayers: 2, seeThrough: false, paint: { copies: 'e'.repeat(64), painted: 3, slots: 4, meshes: [{ mesh: 'Rock#0', vertices: 50, positions: 'f'.repeat(16), paint: 'a'.repeat(64) }] } }],
   fogVolume: [{ size: [6, 3, 4], density: 0.25, color: '#dfe7ef', falloff: 0.5, heightFalloff: 0.3 }],
   probeVolume: [{ size: [16, 6, 16], spacing: 1.5 }],
@@ -1062,8 +1062,8 @@ describe('descriptor registry', () => {
     // shape and a collider's depth for its 2D shapes on the 3D backend, about 1.5 KB; the controller's movement
     // profile, about 0.3 KB; area lights — their shape, size and sides fields, preset and icon — about 2 KB; a quality
     // level's reflections, about 0.4 KB; temporal upscaling as an anti-aliasing kind, about 0.1 KB; a quality level's
-    // lighting tier and the lighting fields' values per tier, about 0.7 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(353_300);
+    // lighting tier and the lighting fields' values per tier, about 0.7 KB; a static glowing box's glow mode, about 0.4 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(353_800);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 
