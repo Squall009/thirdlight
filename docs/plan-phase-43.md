@@ -243,3 +243,11 @@ boundaries; each is green on its own. 43.4 can run any time after 43.3a (it drop
   dropped by a schema-8 step. Open: the effect pool's `EFFECT_LIGHT_LIMIT`
   (16 slots) stays this phase; lifting it is cheap once clusters exist
   (owner to say); whether high's 256 MiB atlas is wanted on discrete GPUs.
+- 2026-10-28 (lead, default chosen, owner to confirm): the 43.0b open
+  questions are settled so the phase need not stop. (a) The effect pool's
+  16-slot `EFFECT_LIGHT_LIMIT` is lifted in 43.2b: effect lights join the
+  cluster lists like any other local light (no per-project count caps).
+  (b) The shadow atlas uses 16-bit depth (`depth16unorm` / `DEPTH_COMPONENT16`)
+  unless 43.3a measures visible acne or peter-panning it cannot bias away;
+  tier sides stay 2,048/4,096/8,192, so 8/32/128 MiB. High's 128 MiB atlas
+  is kept for discrete GPUs.
