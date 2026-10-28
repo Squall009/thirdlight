@@ -14,7 +14,9 @@ import { lightFrameCpu } from './surface-light-cpu';
 import { AREA_RAYS, lightFrameOf, packLightFrame, sliceRays, splitLightFrame, type LightPassFrame } from './surface-light-frame';
 import { SHADOW_TRACE } from './surface-light-pass';
 import type { SurfaceCacheHost } from './surface-cache-host';
-import { packTraceScene, type PackedTraceScene } from './tracer-scene';
+import { TRACE_ARCH, TRACE_UNFINISHED, packTraceScene, type PackedTraceScene } from './tracer-scene';
+import type { TraceBox } from './tracer-objects';
+import { sceneView, traceRayCpu } from './tracer-cpu';
 import { opaqueByBlockTypes, traceBlockLayerOf } from './tracer-sources';
 
 type V3 = [number, number, number];
@@ -221,5 +223,29 @@ describe('surface cache: direct light per light kind', () => {
     for (const p of parts) cut.set(lightFrameCpu(p.frame, EMPTY, 3, SHADOW_TRACE), p.first * 3);
     const sum = (a: Float32Array): number => a.reduce((x, y) => x + y, 0);
     expect(Math.abs(sum(cut) - sum(whole)) / sum(whole)).toBeLessThan(0.05);
+  });
+
+  it('a shadow ray longer than its step budget: traced on to the wall that stops it, and blocked (never lit) if it still runs out', () => {
+    // Posts round a 600 m line (none on it) cut the architecture grid into ~256 cells along it, twice one pass's budget; a wall stands before the lamp.
+    const posts: TraceBox[] = [];
+    for (let x = 0; x < 600; x += 1) for (const [y, z] of [[0.5, 0.5], [-0.5, 0.5], [0.5, -0.5], [-0.5, -0.5]] as const) posts.push({ center: [x + 0.5, y, z], half: [0.05, 0.05, 0.05], rotation: [0, 0, 0, 1] });
+    const wall: TraceBox = { center: [590, 0, 0], half: [0.5, 0.55, 0.55], rotation: [0, 0, 0, 1] };
+    const open = packTraceScene({ arch: { boxes: posts, triangles: new Float32Array(0) } });
+    const walled = packTraceScene({ arch: { boxes: [...posts, wall], triangles: new Float32Array(0) } });
+    const o: V3 = [1, 0, 0];
+    const d: V3 = [1, 0, 0];
+    expect(traceRayCpu(sceneView(walled), o, d, 0, 594, { ...SHADOW_TRACE, resumes: 0 }).kind).toBe(TRACE_UNFINISHED);
+    expect(traceRayCpu(sceneView(walled), o, d, 0, 594, SHADOW_TRACE).kind).toBe(TRACE_ARCH);
+    const lamp = light({ kind: 'point', position: [595, 0, 0], color: [1e6, 1e6, 1e6], range: 1000 });
+    const lit = (scene: PackedTraceScene, resumes?: number): number => {
+      const frame: LightPassFrame = { points: Float32Array.from([1, 0, 0, 1, 0, 0]), slices: [{ texels: 1, lights: [0], sun: false, level: 0 }], lights: [lamp], sun: null };
+      return lightFrameCpu(frame, scene, 7, { ...SHADOW_TRACE, ...(resumes === undefined ? {} : { resumes }) })[0]!;
+    };
+    // Resumed, the open line reaches the lamp and the walled one is in the wall's shadow.
+    expect(lit(open)).toBeGreaterThan(0);
+    expect(lit(walled)).toBe(0);
+    // Out of steps with no resume left: blocked, never light through the wall it did not reach.
+    expect(lit(walled, 0)).toBe(0);
+    expect(lit(open, 0)).toBe(0);
   });
 });

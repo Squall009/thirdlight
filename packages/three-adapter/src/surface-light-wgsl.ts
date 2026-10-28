@@ -20,7 +20,7 @@
  */
 import { AREA_CONE, AREA_LINE, LIGHT_SHADOWS, LIGHT_WORDS, POINT_LIGHT_RADIUS, RAY_BIAS, SLICE_WORDS, SUN_DISC_RADIANS, SUN_WORDS } from './surface-light-frame';
 import { NO_ROOM, roomsWgsl } from './surface-rooms';
-import { TRACE_MISS, TRACE_UNFINISHED } from './tracer-scene';
+import { TRACE_MISS } from './tracer-scene';
 
 export const LIGHT_WORKGROUP = 64;
 /** A lit texel's alpha before the sun's share is added (an unlit texel's is 0, so a filtered lookup's alpha, held to 1, says how much of it is lit). */
@@ -142,8 +142,8 @@ fn lightsRoom(at: u32, room: u32) -> bool {
   return false;
 }
 
-// A ray that ran out of steps found nothing within them: it counts as reaching the light.
-fn visible(r: u32) -> f32 { let k = H[r * 2u + 1u].x & 255u; return select(0.0, 1.0, k == ${TRACE_MISS}u || k == ${TRACE_UNFINISHED}u); }
+// Only a ray that met nothing reaches the light: one still out of steps after its resumes may have a wall ahead, so it counts as blocked.
+fn visible(r: u32) -> f32 { let k = H[r * 2u + 1u].x & 255u; return select(0.0, 1.0, k == ${TRACE_MISS}u); }
 
 // three's punctual falloff: inverse square, windowed to the light's reach.
 fn window(d2: f32, reach: f32) -> f32 { let w = clamp(1.0 - pow(d2 / (reach * reach), 2.0), 0.0, 1.0); return w * w; }

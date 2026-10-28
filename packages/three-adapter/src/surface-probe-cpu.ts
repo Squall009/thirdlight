@@ -107,7 +107,10 @@ export function probeUpdateCpu(input: ProbeUpdateInput): Float32Array {
       }
       const h = traceRayCpu(view, o, d, 0, tmax, EXACT_TRACE);
       let L: V3 = [0, 0, 0];
-      if (h.kind === TRACE_MISS || h.kind === TRACE_UNFINISHED) {
+      if (h.kind === TRACE_UNFINISHED) {
+        // No sample: the probe's own light that way stands in (the pass's `rayLight`).
+        L = [0, 1, 2].map((q) => Math.max(0, SH_Y0 * state[base + q]! + SH_Y1 * (state[base + 3 + q]! * d[1] + state[base + 6 + q]! * d[2] + state[base + 9 + q]! * d[0]))) as V3;
+      } else if (h.kind === TRACE_MISS) {
         if (held) {
           shIrradiance(state, base, [-d[0], -d[1], -d[2]], e);
           L = [0, 1, 2].map((q) => (BOUNCE_ALBEDO / Math.PI) * Math.max(0, e[q]!)) as V3;

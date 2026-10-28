@@ -19,6 +19,7 @@ import {
   TRACE_STEPS,
   TRACE_SUB,
   TRACE_TERRAIN,
+  TRACE_RESUMES,
   TRACE_UNFINISHED,
   type PackedTraceScene,
 } from './tracer-scene';
@@ -254,11 +255,21 @@ export function traceRayCpu(s: SceneView, o: readonly number[], d: readonly numb
   const st: TraceState = { hit: { ...newHit(), t: tmax }, unfinished: Infinity, brickSteps: 0, cone: opts.cone, mask: opts.casterMask ?? LIGHT_LAYERS_ALL };
   const { u } = s;
   const done = (): boolean => opts.anyHit && st.hit.kind !== TRACE_MISS;
-  for (let i = 0; i < u[HEADER.blocks]! && !done(); i += 1) traceLayer(s, i, u[HEADER.blocks + 1]! + i * LAYER_WORDS, o, d, tmin, st);
-  if (!done()) traceArchCpu(s, o, d, tmin, st);
-  for (let i = 0; i < u[HEADER.terrain]! && !done(); i += 1) traceTerrain(s, i, u[HEADER.terrain + 1]! + i * TERRAIN_WORDS, o, d, tmin, st);
-  if (!done()) traceBricksCpu(s, o, d, tmin, st);
-  if (st.unfinished < st.hit.t) return { ...newHit(), kind: TRACE_UNFINISHED, t: st.unfinished };
+  const resumes = Math.min(255, Math.max(0, opts.resumes ?? TRACE_RESUMES));
+  let from = tmin;
+  // A ray out of steps is traced on from where it stopped, keeping the hit found beyond that point as its bound.
+  for (let pass = 0; ; pass += 1) {
+    st.unfinished = Infinity;
+    st.brickSteps = 0;
+    for (let i = 0; i < u[HEADER.blocks]! && !done(); i += 1) traceLayer(s, i, u[HEADER.blocks + 1]! + i * LAYER_WORDS, o, d, from, st);
+    if (!done()) traceArchCpu(s, o, d, from, st);
+    for (let i = 0; i < u[HEADER.terrain]! && !done(); i += 1) traceTerrain(s, i, u[HEADER.terrain + 1]! + i * TERRAIN_WORDS, o, d, from, st);
+    if (!done()) traceBricksCpu(s, o, d, from, st);
+    // With any hit, a hit anywhere on the ray settles it, whatever ran out before it.
+    if (done() || !(st.unfinished < st.hit.t)) break;
+    if (pass >= resumes) return { ...newHit(), kind: TRACE_UNFINISHED, t: st.unfinished };
+    from = st.unfinished;
+  }
   if (st.hit.kind === TRACE_MISS) return { ...newHit(), t: tmax };
   return st.hit;
 }

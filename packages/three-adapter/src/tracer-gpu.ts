@@ -9,7 +9,7 @@
  * library has no WebGPU types).
  */
 import { EXACT_TRACE, type TraceOptions } from './tracer-cpu-math';
-import { HIT_WORDS, RAY_FLOATS, type PackedTraceScene } from './tracer-scene';
+import { HIT_WORDS, RAY_FLOATS, TRACE_RESUMES, type PackedTraceScene } from './tracer-scene';
 import type { ScenePack } from './tracer-scene-packer';
 import { TRACER_WGSL, TRACER_WORKGROUP } from './tracer-wgsl';
 
@@ -103,9 +103,10 @@ export function reorderRays(rays: Float32Array, order: Uint32Array): Float32Arra
   return out;
 }
 
-/** A dispatch's parameter block: ray count, first ray, the options' cone (f32) and flags (1: any hit, 2: each ray's caster mask in the mask buffer). */
+/** A dispatch's parameter block: ray count, first ray, the options' cone (f32) and flags (1: any hit, 2: each ray's caster mask in the mask buffer, bits 8–15: the resumes). */
 function paramWords(count: number, opts: TraceOptions, masked: boolean): Uint32Array {
-  const w = new Uint32Array([count, 0, 0, (opts.anyHit ? 1 : 0) | (masked ? 2 : 0)]);
+  const resumes = Math.min(255, Math.max(0, opts.resumes ?? TRACE_RESUMES));
+  const w = new Uint32Array([count, 0, 0, (opts.anyHit ? 1 : 0) | (masked ? 2 : 0) | (resumes << 8)]);
   new Float32Array(w.buffer)[2] = opts.cone;
   return w;
 }

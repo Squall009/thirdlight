@@ -231,7 +231,12 @@ fn rayLight(r: u32, o: vec3f, o0: vec4f, o1: vec4f, o2: vec4f) -> RayLight {
   let h0 = H[r * 2u];
   let kind = H[r * 2u + 1u].x & 255u;
   var out = RayLight(vec3f(0.0), 0.0, 0.0);
-  if (kind == ${TRACE_MISS}u || kind == ${TRACE_UNFINISHED}u) {
+  // Still out of steps after its resumes: no sample. The probe's own light that way stands in, so the update keeps what it had there (never the sky through a wall the ray did not reach).
+  if (kind == ${TRACE_UNFINISHED}u) {
+    out.L = max(vec3f(0.0), ${SH_Y0} * o0.xyz + ${SH_Y1} * (vec3f(o0.w, o1.xy) * d.y + vec3f(o1.zw, o2.x) * d.z + o2.yzw * d.x));
+    return out;
+  }
+  if (kind == ${TRACE_MISS}u) {
     if (M[r] == 1u) { out.L = P.albedo / 3.14159265 * max(vec3f(0.0), shIrr(o0, o1, o2, -d)); }
     else { out.L = sky(d); }
     return out;

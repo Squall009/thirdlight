@@ -9,7 +9,8 @@
  * The rays come from the screen-space pass (`post-reflections.ts`), one per
  * traced pixel, in a storage buffer it wrote; each ray's light goes into
  * another (rgb, then 1 for a hit, 0 where the ray met nothing or a surface's
- * back, -1 for a ray not cast: its tmax is 0). A miss is left to the
+ * back, -1 for no sample: a ray not cast, its tmax 0, or one still out of
+ * steps after its resumes). A miss is left to the
  * reflecting pixel's own environment light, which knows the sky better
  * than the probes' second-order sky does.
  *
@@ -48,7 +49,9 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
   if (r1.w <= 0.0) { O[g.x] = vec4f(0.0, 0.0, 0.0, -1.0); return; }
   let h0 = H[g.x * 2u];
   let kind = H[g.x * 2u + 1u].x & 255u;
-  if (kind == ${TRACE_MISS}u || kind == ${TRACE_UNFINISHED}u) { O[g.x] = vec4f(0.0); return; }
+  // Still out of steps after its resumes: no sample (as a ray not cast), so its neighbours' rays fill it rather than the sky.
+  if (kind == ${TRACE_UNFINISHED}u) { O[g.x] = vec4f(0.0, 0.0, 0.0, -1.0); return; }
+  if (kind == ${TRACE_MISS}u) { O[g.x] = vec4f(0.0); return; }
   let n = bitcast<vec3f>(h0.yzw);
   if (dot(n, r1.xyz) > 0.0) { O[g.x] = vec4f(0.0); return; }
   let p = R[g.x * 2u].xyz + r1.xyz * bitcast<f32>(h0.x);

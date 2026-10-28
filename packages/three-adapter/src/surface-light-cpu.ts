@@ -9,7 +9,7 @@
 import { AREA_CONE, AREA_LINE, LIGHT_SHADOWS, LIGHT_WORDS, POINT_LIGHT_RADIUS, RAY_BIAS, SLICE_WORDS, SUN_DISC_RADIANS, SUN_WORDS, packLightFrame, type LightPassFrame } from './surface-light-frame';
 import { NO_ROOM, texelRoomCpu } from './surface-rooms';
 import { sceneView, traceRayCpu, type TraceOptions } from './tracer-cpu';
-import { TRACE_MISS, TRACE_UNFINISHED, type PackedTraceScene } from './tracer-scene';
+import { TRACE_MISS, type PackedTraceScene } from './tracer-scene';
 
 type V3 = [number, number, number];
 
@@ -83,7 +83,8 @@ export function lightFrameCpu(frame: LightPassFrame, scene: PackedTraceScene, se
   const visible = (o: V3, d: V3, tmax: number, mask: number): number => {
     if (!(tmax > 0)) return 1;
     const h = traceRayCpu(view, o, d, 0, tmax, { ...opts, casterMask: mask });
-    return h.kind === TRACE_MISS || h.kind === TRACE_UNFINISHED ? 1 : 0;
+    // Still out of steps after its resumes: a wall may lie ahead, so blocked (as the pass's `visible`).
+    return h.kind === TRACE_MISS ? 1 : 0;
   };
   const out = new Float32Array(frame.slices.reduce((n, s) => n + s.texels, 0) * 3);
   let t = 0;

@@ -12,9 +12,9 @@ import { BlockGrid, TerrainField, architectureStylesOf, buildDistanceBrickSet, e
 import type { CacheLight } from './surface-changes';
 import { lightFrameCpu } from './surface-light-cpu';
 import { SHADOW_TRACE } from './surface-light-pass';
-import { rayTriangle, traceRayCpu, sceneView, unpackUnorm2, type TraceHit, type V3 } from './tracer-cpu';
+import { EXACT_TRACE, rayTriangle, traceRayCpu, sceneView, unpackUnorm2, type TraceHit, type V3 } from './tracer-cpu';
 import { opaqueByBlockTypes, traceArchitectureOf, traceBlockLayerOf, traceModelInstancesOf, traceTerrainOf } from './tracer-sources';
-import { TRACE_ARCH, TRACE_BLOCKS, TRACE_BRICKS, TRACE_MISS, TRACE_TERRAIN, TRACE_UNFINISHED, invertAffine, packTraceScene, worldToLocalOf, type TraceSceneSource } from './tracer-scene';
+import { TRACE_ARCH, TRACE_BLOCKS, TRACE_BRICKS, TRACE_MISS, TRACE_RESUMES, TRACE_TERRAIN, TRACE_UNFINISHED, invertAffine, packTraceScene, worldToLocalOf, type TraceSceneSource } from './tracer-scene';
 
 /** A seeded generator (mulberry32). */
 function rng(seed: number): () => number {
@@ -38,7 +38,7 @@ function traceToEnd(src: TraceSceneSource, o: V3, d: V3, tmax: number): { hit: T
   const s = sceneView(packTraceScene(src));
   let tmin = 0;
   for (let passes = 1; passes < 64; passes += 1) {
-    const hit = traceRayCpu(s, o, d, tmin, tmax);
+    const hit = traceRayCpu(s, o, d, tmin, tmax, { ...EXACT_TRACE, resumes: 0 });
     if (hit.kind !== TRACE_UNFINISHED) return { hit, passes };
     expect(hit.t).toBeGreaterThan(tmin);
     tmin = hit.t;
@@ -175,6 +175,10 @@ describe('tracer: block layers', () => {
     expect(ref2).toBeNull();
     expect(run.hit.kind).toBe(TRACE_MISS);
     expect(run.passes).toBeGreaterThan(1);
+    // Within one call the tracer resumes it itself, to the same answer.
+    const resumed = traceRayCpu(sceneView(packTraceScene(src)), o2, d2, 0, 2000);
+    expect(run.passes).toBeLessThanOrEqual(1 + TRACE_RESUMES);
+    expect(resumed.kind).toBe(TRACE_MISS);
   });
 });
 

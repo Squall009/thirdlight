@@ -60,6 +60,8 @@ export interface TraceOptions {
    * mask; absent: every layer). On the GPU each ray carries its own.
    */
   readonly casterMask?: number;
+  /** How often a ray that ran out of steps is traced on from where it stopped (absent: `TRACE_RESUMES`; at most 255). */
+  readonly resumes?: number;
 }
 
 /** The nearest hit, exactly (bounce and reflection rays). */

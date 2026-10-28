@@ -286,17 +286,25 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
   let r1 = R[i * 2u + 1u];
   let o = r0.xyz;
   let d = r1.xyz;
-  let tmin = r0.w;
+  var tmin = r0.w;
   var h = Hit(r1.w, vec3f(0.0), 0u, 0u, 0u, 0u, 0u);
-  var unf = 3.4e38;
   RM = select(0xffffffffu, M[i], (P.flags & 2u) != 0u);
-  let nb = S[${HEADER.blocks}u];
-  for (var k = 0u; k < nb && !((P.flags & 1u) != 0u && h.kind != 0u); k++) { traceLayer(k, S[${HEADER.blocks + 1}u] + k * ${LAYER_WORDS}u, o, d, tmin, &h, &unf); }
-  if (!((P.flags & 1u) != 0u && h.kind != 0u)) { traceArch(o, d, tmin, &h, &unf); }
-  let nt = S[${HEADER.terrain}u];
-  for (var k = 0u; k < nt && !((P.flags & 1u) != 0u && h.kind != 0u); k++) { traceTerrain(k, S[${HEADER.terrain + 1}u] + k * ${TERRAIN_WORDS}u, o, d, tmin, &h, &unf); }
-  if (!((P.flags & 1u) != 0u && h.kind != 0u)) { traceBricks(o, d, tmin, &h, &unf); }
-  if (unf < h.t) { h = Hit(unf, vec3f(0.0), ${TRACE_UNFINISHED}u, 0u, 0u, 0u, 0u); }
+  let anyHit = (P.flags & 1u) != 0u;
+  let resumes = (P.flags >> 8u) & 0xffu;
+  // A ray out of steps is traced on from where it stopped, keeping the hit found beyond that point as its bound.
+  for (var resumed = 0u; ; resumed++) {
+    var unf = 3.4e38;
+    let nb = S[${HEADER.blocks}u];
+    for (var k = 0u; k < nb && !(anyHit && h.kind != 0u); k++) { traceLayer(k, S[${HEADER.blocks + 1}u] + k * ${LAYER_WORDS}u, o, d, tmin, &h, &unf); }
+    if (!(anyHit && h.kind != 0u)) { traceArch(o, d, tmin, &h, &unf); }
+    let nt = S[${HEADER.terrain}u];
+    for (var k = 0u; k < nt && !(anyHit && h.kind != 0u); k++) { traceTerrain(k, S[${HEADER.terrain + 1}u] + k * ${TERRAIN_WORDS}u, o, d, tmin, &h, &unf); }
+    if (!(anyHit && h.kind != 0u)) { traceBricks(o, d, tmin, &h, &unf); }
+    // With any hit, a hit anywhere on the ray settles it, whatever ran out before it.
+    if ((anyHit && h.kind != 0u) || !(unf < h.t)) { break; }
+    if (resumed >= resumes) { h = Hit(unf, vec3f(0.0), ${TRACE_UNFINISHED}u, 0u, 0u, 0u, 0u); break; }
+    tmin = unf;
+  }
   H[i * 2u] = vec4u(bitcast<u32>(h.t), bitcast<u32>(h.n.x), bitcast<u32>(h.n.y), bitcast<u32>(h.n.z));
   H[i * 2u + 1u] = vec4u(h.kind | (h.face << 8u), h.obj, h.a0, h.a1);
 }

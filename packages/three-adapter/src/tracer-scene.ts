@@ -37,7 +37,13 @@ export const TRACE_BLOCKS = 1;
 export const TRACE_TERRAIN = 2;
 export const TRACE_ARCH = 3;
 export const TRACE_BRICKS = 4;
-/** The step budget ran out before the ray was resolved: re-trace it from the hit's `t` (`tmin`). */
+/**
+ * The step budget ran out before the ray was resolved, even after its
+ * resumes (`TRACE_RESUMES`): the hit's `t` is where it stopped. Callers
+ * treat it as unknown, never as a miss: a shadow ray is blocked and a
+ * probe ray gives no sample, so a long ray can never leak light through
+ * a wall it did not reach.
+ */
 export const TRACE_UNFINISHED = 255;
 
 /** Floats per ray: origin xyz, tmin, direction xyz (unit), tmax. */
@@ -65,6 +71,14 @@ export const TRACE_STEPS = {
   /** Brick and sphere-tracing steps over every model a ray meets in one pass (shared, so a ray through a crowd of models stays bounded). */
   bricks: 256,
 } as const;
+
+/**
+ * How many times a ray whose budget ran out is traced again from where it
+ * stopped, within the same dispatch (each time with fresh step counts). Most
+ * rays finish in the first pass, so the extra passes cost only the long ones
+ * (a low sun across a large town, a lamp ray through many props).
+ */
+export const TRACE_RESUMES = 3;
 
 /** Cells per block-chunk side: the block layer's own chunk size (columns of 16 × 16, cut into 16 cells of height here). */
 export const TRACE_CHUNK = CHUNK_SIZE;
