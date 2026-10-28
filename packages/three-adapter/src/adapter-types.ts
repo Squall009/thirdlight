@@ -408,6 +408,8 @@ export interface SceneAdapterDiagnostics {
   /** The rooms generated architecture makes: rooms and portals, what the view sees, draws hidden, lights per room. */
   rooms?: import('./room-culling').RoomCullingDiagnostics;
   /** Occlusion culling: the setting, the path frames cull on, the draws that could be left out and what the last frame left out. ABSENT after dispose. */
+  /** The local lights' cluster lists (present once a frame was drawn). */
+  clusters?: import('./cluster-frame').ClusterDiagnostics;
   occlusion?: import('./occlusion').OcclusionDiagnostics;
   /** Rule scatter's stored copies drawn (block layers' and terrains'). */
   scatter?: import('./stored-scatter').StoredScatterDiagnostics;

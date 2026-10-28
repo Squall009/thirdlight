@@ -162,6 +162,8 @@ export interface FrameRunResult {
   gpuCalls?: PageSample['gpuCallsPerFrame'];
   /** The WebGPU shader modules the page made (distinct programs and their sizes). */
   shaders?: PageSample['shaderModules'];
+  /** The most textures one program reads, and the API's per-stage limit. */
+  textureUnits?: PageSample['textureUnits'];
   gpu: GpuTimings | null;
   /**
    * The GPU's requested clock (MHz, the kernel's `gt_cur_freq_mhz`) over the frame record and over the GPU-timing
@@ -356,6 +358,7 @@ export async function measurePage(browser: Browser, opts: FrameRunOptions): Prom
       live: sample.live,
       gpuCalls: sample.gpuCallsPerFrame,
       shaders: sample.shaderModules,
+      ...(sample.textureUnits !== null ? { textureUnits: sample.textureUnits } : {}),
       gpu,
       gpuClock: recordMhz === null ? null : { recordMhz, gpuWindowMhz, maxMhz: gpuMaxMhz() ?? 0 },
       profile,

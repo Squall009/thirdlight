@@ -43,6 +43,7 @@ import { AdapterRenderer, type CanvasLike } from './adapter-renderer';
 import { AdapterScenes } from './adapter-scenes';
 import { createAdapterSurface } from './adapter-surface';
 import { createAutoBatcher, markBatchable, unitBoxGeometry } from './batching';
+import { AdapterClusters } from './cluster-frame';
 import { compileIntoTarget, type Precompile } from './environment-nodes';
 import { materialParamsOf } from './entity-refs';
 import { applyEntityRenderFlags } from './entity-render-flags';
@@ -298,6 +299,19 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       opts.onChange?.();
     },
   };
+  /** The local lights' cluster lists for the camera drawn (`?clusterView=1`: their heat map from the start). */
+  const clusters = new AdapterClusters({
+    scene, lights, docs: entityDocs, graph,
+    hidden: () => state.hiddenIds,
+    roomSeen: (k) => level.archHost.rooms.roomSeen(k),
+    bakedLight: (id) => state.lightmaps?.isBakedLight(id) === true,
+    sceneNames: () => (followed.length > 0 ? followed : [(opts.snapshot.scene as { sceneId?: string }).sceneId ?? '']),
+    canvas: renderer.canvas as { setAttribute?(name: string, value: string): void } | null,
+    shadingChanged: () => {
+      precompile.want();
+      opts.onChange?.();
+    },
+  }, new URLSearchParams(pageSearch()).get('clusterView') === '1');
   /** The quality level drawn and its renderer settings (quality-control.ts). */
   const qualityControl = createQualityControl(
     {
@@ -322,7 +336,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   // Pipelines precompiled ahead of a present (precompile-gate.ts).
   const precompile = new PrecompileGate(() => state.disposed);
   const parts: AdapterParts = {
-    opts, scene, state, graph, materials, effects, entities, scenes, models, renderer, environment, lights, probes, level, surfaceCache, surfaceLight, liveLighting, batcher, viewCull, isolation, occlusion, precompile, qualityControl, renderControl, gpuTiming,
+    opts, scene, state, graph, materials, effects, entities, scenes, models, renderer, environment, lights, clusters, probes, level, surfaceCache, surfaceLight, liveLighting, batcher, viewCull, isolation, occlusion, precompile, qualityControl, renderControl, gpuTiming,
     clockStart, followShadow: isV3, selectLights, regroupEntity,
     environmentFrame: {
       needed: () => qualityControl.needsEnvironment() || renderControl.needsEnvironment() || occlusion.needsEnvironment(),

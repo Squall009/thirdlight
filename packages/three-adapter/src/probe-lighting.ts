@@ -50,6 +50,7 @@ import { PROBE_ATLAS_PADDING } from '@thirdlight/runtime';
 
 import type { N } from './effects-tsl';
 import { applyBlockOcclusion } from './block-ao-lighting';
+import { isClusterHeatNode } from './cluster-heat';
 import { localLightsCacheKey, splitLocalLights } from './local-lights';
 import { buildReadLights, buildSurfaceRead } from './surface-cache-read';
 import { isReflectionsNode } from './post-reflections';
@@ -433,8 +434,11 @@ class ProbeOrderedLightsNode extends (THREE.LightsNode as unknown as new () => {
   override setupLights(builder: N, all: LightNodeLike[]): void {
     // The reflections replace part of the environment's radiance: built after everything that puts radiance in.
     const reflections = all.find(isReflectionsNode);
-    this.setupOrdered(builder, reflections === undefined ? all : all.filter((n) => n !== reflections));
+    // The light clusters' heat map replaces the whole lit result: built after everything.
+    const heat = all.find(isClusterHeatNode);
+    this.setupOrdered(builder, all.filter((n) => n !== reflections && n !== heat));
     reflections?.build(builder);
+    heat?.build(builder);
   }
 
   private setupOrdered(builder: N, all: LightNodeLike[]): void {

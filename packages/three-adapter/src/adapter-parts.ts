@@ -7,6 +7,7 @@
 import type * as THREE from 'three';
 
 import type { AdapterEffects } from './adapter-effects';
+import type { AdapterClusters } from './cluster-frame';
 import type { AdapterEntities } from './adapter-entities';
 import type { AdapterEnvironment, EnvironmentFrameHost } from './adapter-environment';
 import type { AdapterLevel } from './adapter-level';
@@ -58,6 +59,8 @@ export interface AdapterParts {
   /** What else asks for the environment renderer and is set on it each frame. */
   readonly environmentFrame: EnvironmentFrameHost;
   readonly lights: SceneLights;
+  /** The local lights' cluster lists, built and uploaded every frame for the camera drawn. */
+  readonly clusters: AdapterClusters;
   readonly probes: ProbeLightingHost;
   readonly level: AdapterLevel;
   /** The surface cache (null: the host turned it off). */

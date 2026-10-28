@@ -102,9 +102,14 @@ export function lightRadius(l: CacheLight): number {
 /** How far a point, spot or area light reaches: its range, else where it falls under `LIGHT_REACH_FLOOR` (an area light: from its edge). */
 export function lightReach(l: CacheLight): number {
   const edge = l.area === undefined ? 0 : Math.hypot(...[0, 1, 2].map((k) => Math.abs(l.area!.u[k] ?? 0) + Math.abs(l.area!.v[k] ?? 0)));
-  if (l.range > 0) return l.range + edge;
-  const i = Math.max(l.color[0] ?? 0, l.color[1] ?? 0, l.color[2] ?? 0);
-  return Math.sqrt(Math.max(0, i) / LIGHT_REACH_FLOOR) + edge;
+  return lightReachOf(l.range, l.color) + edge;
+}
+
+/** How far a light of `range` (0: none) and linear colour × intensity `color` reaches from its centre or emitting surface. */
+export function lightReachOf(range: number, color: ArrayLike<number>): number {
+  if (range > 0) return range;
+  const i = Math.max(color[0] ?? 0, color[1] ?? 0, color[2] ?? 0);
+  return Math.sqrt(Math.max(0, i) / LIGHT_REACH_FLOOR);
 }
 
 function vecMoved(a: readonly number[] | undefined, b: readonly number[] | undefined): boolean {

@@ -189,6 +189,11 @@ function isPool(l: THREE.Light | undefined): l is EffectLights {
   return (l as (THREE.Light & LocalFlags) | undefined)?.isEffectLights === true;
 }
 
+/** Whether a material build shades local lights (every mode but `none`). */
+export function buildsLocalLights(builder: { material?: unknown }): boolean {
+  return buildMode(builder) !== 'none';
+}
+
 /** The light nodes a build shades: all of them, or (a build in mode `none`) all but the local lights. */
 export function splitLocalLights<T extends LightNodeLike>(builder: { material?: unknown }, nodes: readonly T[]): T[] {
   if (buildMode(builder) !== 'none') return [...nodes];

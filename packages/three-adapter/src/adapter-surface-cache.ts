@@ -97,7 +97,7 @@ export function surfaceCacheBytes(mib: number | undefined): number {
 }
 
 /** How often (ms) the lights and glowing surfaces are read again from the entities (realized lights are read every frame). */
-const DOC_LIGHTS_MS = 250;
+export const DOC_LIGHTS_MS = 250;
 /** A glowing box's face smaller than this share of its largest face lights nothing worth tracing (a sign's edges). */
 const EMITTER_FACE_SHARE = 0.05;
 

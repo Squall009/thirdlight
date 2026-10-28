@@ -50,7 +50,7 @@ function lightingReportOf(p: AdapterParts, disposed: boolean): LightingReport | 
     probes: light.live && probes !== null ? { msUsed: probes.msUsed, count: probes.probes, stale: probes.stale } : null,
     reflections: light.reflectionsTraced(),
     taau: env?.upscale === 'taau',
-    view: light.lightingView(),
+    view: { ...light.lightingView(), clusters: p.clusters.heatView, clusterLights: p.clusters.heatLights() },
   };
 }
 
@@ -77,6 +77,7 @@ export function createAdapterSurface(p: AdapterParts, frame: AdapterFrame, x: Ad
     materials.dispose();
     p.environment.dispose();
     p.lights.dispose();
+    p.clusters.dispose();
     level.seeThrough.dispose();
     // The model realization first of what holds assets: every in-flight prepare cancelled, a late completion released.
     models.dispose();
@@ -179,7 +180,10 @@ export function createAdapterSurface(p: AdapterParts, frame: AdapterFrame, x: Ad
       for (const id of level.blockView.layerIds()) level.blockView.setLightmapUv(id, state.lightmaps?.hasChunks(id) === true);
       level.blockView.remeshAll();
     },
-    setLightingView: (view) => p.surfaceLight?.setLightingView(view),
+    setLightingView: (view) => {
+      p.surfaceLight?.setLightingView(view);
+      p.clusters.setHeatView(view.clusters === true);
+    },
     setLiveLighting: (on) => p.liveLighting.set(on),
     lightingReport: () => lightingReportOf(p, state.disposed),
     bakeLighting: (o) => (state.disposed || p.surfaceLight === null ? Promise.resolve({ ok: false as const, message: 'this view has no surface cache' }) : p.surfaceLight.bake(o)),

@@ -42,7 +42,8 @@ export const CLUSTER_INDEX_MIB = 16;
 /** Texels the headers and lists may use: the ceiling in 4-byte texels (2^22, which the header's 22-bit offset spans). */
 export const CLUSTER_INDEX_TEXELS = (CLUSTER_INDEX_MIB * 1024 * 1024) / 4;
 /** A header's count bits, and the count that marks a long list (its real count in the list's first texel). */
-const COUNT_BITS = 10;
+export const CLUSTER_COUNT_BITS = 10;
+const COUNT_BITS = CLUSTER_COUNT_BITS;
 export const CLUSTER_LONG_LIST = (1 << COUNT_BITS) - 1;
 const COUNT_MASK = CLUSTER_LONG_LIST;
 /** Decay is stored in 1/256 steps above the kind field's three bits. */

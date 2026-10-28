@@ -241,9 +241,10 @@ export function editorMenus(input: EditorMenuInput): Menu[] {
             ['probes', 'Light probes'],
             ['rooms', 'Rooms and portals'],
             ['stale', 'Stale pages'],
+            ['clusters', 'Light clusters'],
             ['passes', 'Lighting pass times'],
           ] as const
-        ).map<MenuEntry>(([key, label]) => ({ label: `${label}: ${sceneLighting[key] ? 'on' : 'off'}`, onSelect: () => setSceneLighting((v) => ({ ...v, [key]: !v[key] })) })),
+        ).map<MenuEntry>(([key, label]) => ({ label: `${label}: ${sceneLighting[key] === true ? 'on' : 'off'}`, onSelect: () => setSceneLighting((v) => ({ ...v, [key]: !v[key] })) })),
       ],
     },
     {

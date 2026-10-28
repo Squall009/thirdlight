@@ -46,6 +46,8 @@ export function adapterDiagnostics(p: AdapterParts, frame: AdapterFrame): SceneA
   const fx = disposed ? null : p.effects.diagnostics();
   if (fx !== null) d.effects = fx;
   if (!disposed && frame.drawn) drawnDiagnostics(p, d, liveRenderer);
+  const clusters = disposed ? null : p.clusters.diagnostics();
+  if (clusters !== null) d.clusters = clusters;
   if (!disposed) {
     p.level.diagnostics(d);
     d.occlusion = p.occlusion.diagnostics();

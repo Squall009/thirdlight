@@ -214,6 +214,7 @@ boundaries; each is green on its own. 43.4 can run any time after 43.3a (it drop
 |---|---|
 | 43.0b | done: full plan written (§2). |
 | 43.1a | done: `cluster-build.ts`, `cluster-pack.ts` (three-adapter exports), vitest `cluster-build.test.ts` (10k random lights, 0 false negatives, false-positive share 0.16; decode round-trip incl. long lists; overflow; render size). Bench `run.mjs clusters` (Node, Iris Xe host CPU, 3 × 600 frames): build + pack mean 0.08 / 0.23 / 0.91 ms at 64 / 256 / 1,000 (68 / 260 / 1,004 lights with the area lights; p95 0.08–0.14 / 0.24 / 0.96; budget 0.1 / 0.3 / 1.0: met on the mean, 64's p95 over in 2 of 3 rounds), upload 27 / 65 / 212 KB a frame (first frame 37 / 98 / 328 KB). Fast gate green (10 min, e2e smoke unchanged). |
+| 43.1b | partial (spike blocks 43.2a as planned, D398): `cluster-gpu.ts` (R32UI + RGBA32F textures, whole upload on growth, written rows only otherwise: `queue.writeTexture` / `texSubImage2D`), `cluster-frame.ts` (lights gathered past the 16-light selection, one grid per camera, diagnostics `clusters`, overflow warning, `data-tl-clusters`), heat map `cluster-heat.ts` (View → Light clusters, `?clusterView=1`). **Spike, Iris Xe, both renderers:** integer `textureLoad`/`texelFetch` of R32UI and RGBA32F works in TSL (WGSL `texture_2d<u32>`, GLSL `usampler2D`); the plain `Loop(count)` over a cell's list does not stall (D352 not hit): heat map at 64/256/1,000 lights 60 fps, 0 missed, p95 16.7, WebGPU scene pass 6.3 ms raw at 860 MHz at 1,000 (~70 records a pixel; today's loop 98.9 ms); both renderers draw the same cells. **Texture units:** WebGL 2 has 32; largest program today 10 (landscape) → 12 with the lists. WebGPU allows only 16 a fragment stage on this adapter; the landscape's largest programs bind 15, so +2 lists = 17 and those pipelines fail (D398): the plan's 4 added textures do not fit on WebGPU. **Cost at the cap, heat off** (gather / build+pack / upload ms a frame, WebGPU \| WebGL 2): 64: 0.02/0.16/0.03 \| 0.02/0.11/0.03; 256: 0.06/0.35/0.03 \| 0.04/0.31/0.04; 1,000: 0.21/1.02/0.04 \| 0.18/0.93/0.05; upload 41/86/225 KB; p95 16.7, 0 missed everywhere (build budget 0.1/0.3/1.0: over at 64 and 256, browser main thread ~2× the Node bench). Village 16.7/0 missed, main CPU 5.39 \| 4.03 ms (baseline 5.67 \| 3.99), GPU 5.01 ms full clock (4.76); landscape 16.8 \| 16.7, interior 16.8 \| 16.7, 0 missed. e2e `lights.e2e.ts` heat-map step on WebGPU and WebGL 2 (99.5 % of reddened samples list the light on both; first test 5.6 → 7.3 s). Fast gate green (10 min). |
 
 ## 4. Decision log
 
@@ -270,3 +271,17 @@ boundaries; each is green on its own. 43.4 can run any time after 43.3a (it drop
   top-left; the overflow console warning naming the scene is the frame's
   job (the build only counts); the build's slice range (`sliceNear`,
   `sliceFar`, `scale`, `bias`) changes every frame and goes in uniforms.
+- 2026-10-28 (43.1b spike, for the owner/lead before 43.2a): the Iris Xe's WebGPU adapter caps a fragment stage at
+  16 sampled textures (no higher limit to request), and the landscape's largest programs already bind 15 (D398).
+  The plan's lists (2), shadow atlas (1) and cookie atlas (1) do not fit there; WebGL 2 (32 units) has room. Options,
+  none a second light path: (a) one list texture: records and lists in one RGBA32UI texture (floats as bits), +1;
+  (b) a texture budget for lit programs (the engine's own maps leave room: 16 minus lists, atlas, cookies), the
+  terrain/layered programs merged into arrays to meet it; (c) lists in storage buffers on WebGPU and textures on
+  WebGL 2 (same packed data and decode; changes the owner's "texelFetch on both" decision); (d) cookies in the
+  shadow atlas's texture as a second layer. Lead default proposed: (a)+(b), checked by the texture-unit count the
+  perf harness now records (`textureUnits`). Not decided here: the item hands back.
+- 2026-10-28 (43.1b, default chosen, owner to confirm): the lists hold every realized local light, not the 16 the
+  per-pixel selection switches on (the build is measured at the counts 43.2a will pack); the heat map replaces the
+  lit result (blue 1 → red 64+, dimmed where listed lights do not reach), custom-lit graph materials keep their own
+  look under it.
+

@@ -4,7 +4,8 @@
  * edited in the Inspector (its light mask and the box's light layers as
  * checkboxes named in Project Settings, the box's local-light mode — per
  * pixel or none, which unlights it — as a select); the Scene view
- * toggles between the editor rig and the scene's own lights.
+ * toggles between the editor rig and the scene's own lights; the View
+ * menu's light clusters heat map lists the light where it reaches.
  *
  * Runs on the product's own renderer (renderer-variants.ts
  * PRODUCT_RENDERER_VARIANTS): scene-lights covers lights and cookies on both.
@@ -17,7 +18,7 @@ import { publishBytes, startBackend, type E2EBackend, withoutSky } from './backe
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { editorUrlFor, expectRendererBackend, onlyInItsProject, PRODUCT_RENDERER_VARIANTS } from './renderer-variants';
-import { closeProjectSettings, inspector, menu, openProjectSettings, settingsWindow } from './ui';
+import { closeProjectSettings, inspector, menu, openProjectSettings, settingsWindow, showView } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -28,14 +29,14 @@ test.afterEach(async () => {
   await be.stop();
 });
 
+const isReddish = ([r, g, b]: readonly number[]): boolean => r! > 60 && r! > 1.8 * g! && r! > 1.8 * b!;
 function reddish(img: Image): number {
   let n = 0;
-  for (let y = 0; y < img.height; y += 2) for (let x = 0; x < img.width; x += 2) {
-    const [r, g, b] = img.pixel(x, y);
-    if (r > 60 && r > 1.8 * g && r > 1.8 * b) n += 1;
-  }
+  for (let y = 0; y < img.height; y += 2) for (let x = 0; x < img.width; x += 2) if (isReddish(img.pixel(x, y))) n += 1;
   return n;
 }
+/** The heat map's colour for a cell listing one light (blue). */
+const isOneLight = ([r, g, b]: readonly number[]): boolean => b! > 60 && b! > 2 * r! && b! > 1.3 * g!;
 
 for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a red point light tints a box in the Scene view and in Play; lights are edited in the Inspector (${variant})`, async ({ page }) => {
   onlyInItsProject(variant, PRODUCT_RENDERER_VARIANTS);
@@ -141,6 +142,49 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a red point light tints a
   await expectRendererBackend(page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first(), variant);
   await expect.poll(async () => reddish(decodePng(await frame.screenshot())), { timeout: 20_000 }).toBeGreaterThan(200);
   await expect(page.locator('.tl-notice')).toHaveCount(0);
+  await page.getByTitle('Stop the play preview').click();
+  await showView(page, 'Scene');
+
+  // The light clusters' heat map (View menu), on this renderer and (once, from the auto pass) on WebGL 2: every lit
+  // pixel in the colour of how many local lights its cell lists. With the light's reach cut to 2.5 m, the pixels it
+  // reddens all list it (blue, one light) and the ground out of its reach lists none (black); its red tint is gone.
+  const lightNow = ((await be.command({ op: 'queryEntity', projectId: be.projectId, args: { entityId: lightId } }))['entity'] as { components: { light: Record<string, unknown> } }).components.light;
+  const r = await be.command({ op: 'setComponent', projectId: be.projectId, expectedRevision: (await be.command({ op: 'queryProject', projectId: be.projectId }))['revision'], requestId: `req-${randomBytes(16).toString('hex')}`, args: { entityId: lightId, component: 'light', value: { ...lightNow, range: 2.5 } } });
+  expect(r['ok'], JSON.stringify(r)).toBe(true);
+  for (const pass of variant === 'auto' ? (['auto', 'webgl2'] as const) : ([variant] as const)) {
+    if (pass === 'webgl2') {
+      await page.goto(editorUrlFor(be.editorUrl, 'webgl2'));
+      await expect(page.locator('.tl-statusbar')).toContainText('connected');
+      await expectRendererBackend(viewport, 'webgl2');
+    }
+    await viewport.click({ position: { x: 5, y: 5 } });
+    await expect.poll(redNow, { timeout: 20_000 }).toBeGreaterThan(300);
+    const tinted = decodePng(await viewport.screenshot());
+    await menu(page, 'View', 'Light clusters: off');
+    const ones = (img: Image): number => {
+      let n = 0;
+      for (let y = 0; y < img.height; y += 2) for (let x = 0; x < img.width; x += 2) if (isOneLight(img.pixel(x, y))) n += 1;
+      return n;
+    };
+    await expect.poll(async () => ones(decodePng(await viewport.screenshot())), { timeout: 30_000 }).toBeGreaterThan(300);
+    const heat = decodePng(await viewport.screenshot());
+    let red = 0;
+    let redListed = 0;
+    let dark = 0;
+    for (let y = 0; y < heat.height; y += 2) for (let x = 0; x < heat.width; x += 2) {
+      const h = heat.pixel(x, y);
+      if (h[0]! + h[1]! + h[2]! < 30) dark += 1;
+      if (!isReddish(tinted.pixel(x, y))) continue;
+      red += 1;
+      if (isOneLight(h)) redListed += 1;
+    }
+    console.log(`[lights] heat map (${pass}): ${redListed} of ${red} reddened samples list the light; ${ones(heat)} listed, ${dark} dark; red left ${reddish(heat)}`);
+    expect(redListed).toBeGreaterThan(red * 0.95);
+    expect(dark).toBeGreaterThan(ones(heat) * 0.2);
+    expect(reddish(heat)).toBeLessThan(50);
+    await menu(page, 'View', 'Light clusters: on');
+    await expect.poll(redNow, { timeout: 20_000 }).toBeGreaterThan(300);
+  }
 });
 
 /** Separate runs of bright pixels along row y (at least `minRun` long: the gizmo lines and icons are shorter). */

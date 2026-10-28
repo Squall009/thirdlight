@@ -57,6 +57,10 @@ export interface PerfPageState {
   gpuCalls: GpuCalls;
   /** WebGPU shader modules made, by their code (the programs' sizes; `__tlPerf.shaders` keeps the code for a look). */
   shaders: Map<string, number>;
+  /** WebGL programs linked (their texture units are counted when the sample is read, not while drawing). */
+  glPrograms: { gl: WebGL2RenderingContext; program: WebGLProgram }[];
+  /** The WebGPU device's sampled textures a stage may bind (null: no device seen). */
+  gpuTextureLimit: number | null;
 }
 
 /** One drawn frame's heavy calls: when it ended (page ms), how long it took, and the calls by name (`name` count, `name:bytes`). */
@@ -99,6 +103,8 @@ export function installPerfInstrumentation(): void {
     recording: false,
     gpuCalls: { renderPasses: 0, computePasses: 0, dispatches: 0, setPipeline: 0, setBindGroup: 0, createBindGroup: 0, writeBuffer: 0, writeBufferBytes: 0, textureUploads: 0, textureUploadBytes: 0, submits: 0 },
     shaders: new Map(),
+    glPrograms: [],
+    gpuTextureLimit: null,
     frames: [],
     missedAt: [],
     frameCalls: {},
@@ -284,6 +290,7 @@ export function installPerfInstrumentation(): void {
     wrap(proto, 'drawElementsInstanced', (_g, a) => { noteApi(api); draw(triCount(a[0], a[1], a[4])); });
     wrap(proto, 'drawRangeElements', (_g, a) => { noteApi(api); draw(triCount(a[0], a[3])); });
     wrap(proto, 'createProgram', (gl) => { P.live.programs += 1; ctxAdd(gl, 'webgl', 'programs', 1); });
+    if (api === 'webgl2') wrap(proto, 'linkProgram', (gl, a) => { P.glPrograms.push({ gl: gl as WebGL2RenderingContext, program: a[0] as WebGLProgram }); });
     wrap(proto, 'deleteProgram', (gl, a) => { if (firstDelete(a[0])) { P.live.programs -= 1; ctxAdd(gl, 'webgl', 'programs', -1); } });
     wrap(proto, 'createTexture', (gl) => { P.live.textures += 1; ctxAdd(gl, 'webgl', 'textures', 1); });
     wrap(proto, 'deleteTexture', (gl, a) => {
@@ -397,7 +404,8 @@ export function installPerfInstrumentation(): void {
   const sizeOf = (d: unknown): number => (typeof d === 'number' ? d : d !== null && typeof d === 'object' && 'byteLength' in (d as object) ? Number((d as { byteLength: number }).byteLength) : 0);
   if (device !== undefined) {
     wrap(device, 'createBindGroup', () => { if (on()) C.createBindGroup += 1; });
-    wrap(device, 'createShaderModule', (_d, a) => {
+    wrap(device, 'createShaderModule', (d, a) => {
+      P.gpuTextureLimit ??= (d as { limits?: { maxSampledTexturesPerShaderStage?: number } }).limits?.maxSampledTexturesPerShaderStage ?? null;
       const code = String((a[0] as { code?: string } | undefined)?.code ?? '');
       P.shaders.set(code, (P.shaders.get(code) ?? 0) + 1);
     });
@@ -493,15 +501,21 @@ export interface PageSample {
   uasm: string;
   /**
    * What drew: the canvas's data-tl-renderer attributes, its rooms' (`data-tl-rooms`: rooms seen, draws hidden,
-   * mesh–light pairs lit) and occlusion culling's (`data-tl-occlusion`: path|occludees|tested|culled|stand-ins drawn).
+   * mesh–light pairs lit), occlusion culling's (`data-tl-occlusion`: path|occludees|tested|culled|stand-ins drawn) and
+   * the light clusters' (`data-tl-clusters`: lights|packed|indices|overflow|gather, build, upload ms|upload bytes a frame).
    */
-  renderer: { requested?: string; backend?: string; state?: string; reason?: string; rooms?: string; occlusion?: string } | null;
+  renderer: { requested?: string; backend?: string; state?: string; reason?: string; rooms?: string; occlusion?: string; clusters?: string } | null;
   nav: { domContentLoaded: number; load: number } | null;
   fetches: PerfPageState['fetches'];
   /** WebGPU calls per drawn frame over the window (null: no WebGPU work seen). */
   gpuCallsPerFrame: GpuCalls | null;
   /** WebGPU shader modules made so far: how many distinct, and their WGSL sizes (characters). */
   shaderModules: { distinct: number; made: number; totalChars: number; maxChars: number } | null;
+  /**
+   * The most textures one program reads (WebGL 2: a linked program's active sampler uniforms; WebGPU: a module's
+   * texture bindings), how many programs read that many, and the API's per-stage limit.
+   */
+  textureUnits: { max: number; atMax: number; programs: number; limit: number | null } | null;
   /** The engine's user-timing marks (`tl:…`): when (ms since the page started) and their detail. */
   marks: { name: string; at: number; detail: unknown }[];
 }
@@ -511,6 +525,33 @@ export async function readSample(stop: boolean): Promise<PageSample> {
   const P = (window as unknown as { __tlPerf?: PerfPageState }).__tlPerf;
   if (P === undefined) throw new Error('perf instrumentation missing');
   if (stop) P.recording = false;
+  // Read inside the page (this function is sent there whole: helpers live in it).
+  /** The texture units the page's programs use (in the page; WebGL programs are asked once their link is done). */
+  function textureUnitsOf(P: PerfPageState): PageSample['textureUnits'] {
+    const counts: number[] = [];
+    let limit: number | null = null;
+    if (P.glPrograms.length > 0) {
+      for (const { gl, program } of P.glPrograms) {
+        if (!gl.isProgram(program) || gl.getProgramParameter(program, gl.LINK_STATUS) !== true) continue;
+        limit ??= gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS) as number;
+        const samplers = new Set<number>([gl.SAMPLER_2D, gl.SAMPLER_3D, gl.SAMPLER_CUBE, gl.SAMPLER_2D_SHADOW, gl.SAMPLER_2D_ARRAY, gl.SAMPLER_2D_ARRAY_SHADOW, gl.SAMPLER_CUBE_SHADOW, gl.INT_SAMPLER_2D, gl.INT_SAMPLER_3D, gl.INT_SAMPLER_CUBE, gl.INT_SAMPLER_2D_ARRAY, gl.UNSIGNED_INT_SAMPLER_2D, gl.UNSIGNED_INT_SAMPLER_3D, gl.UNSIGNED_INT_SAMPLER_CUBE, gl.UNSIGNED_INT_SAMPLER_2D_ARRAY]);
+        let n = 0;
+        const u = gl.getProgramParameter(program, gl.ACTIVE_UNIFORMS) as number;
+        for (let i = 0; i < u; i++) {
+          const info = gl.getActiveUniform(program, i);
+          if (info !== null && samplers.has(info.type)) n += info.size;
+        }
+        counts.push(n);
+      }
+    } else {
+      // A WGSL module per stage: a fragment stage's texture bindings (sampled, depth and storage), and the device's limit.
+      limit = P.gpuTextureLimit;
+      for (const code of P.shaders.keys()) if (code.includes('@fragment')) counts.push((code.match(/\bvar\s+\w+\s*:\s*texture_/g) ?? []).length);
+    }
+    if (counts.length === 0) return null;
+    const max = Math.max(...counts);
+    return { max, atMax: counts.filter((c) => c === max).length, programs: counts.length, limit };
+  }
   const gc = (globalThis as unknown as { gc?: () => void }).gc;
   if (typeof gc === 'function') gc();
   const mem = (performance as unknown as { memory?: { usedJSHeapSize: number; totalJSHeapSize: number } }).memory;
@@ -523,7 +564,7 @@ export async function readSample(stop: boolean): Promise<PageSample> {
       : 'available';
   const canvas = [...document.querySelectorAll('canvas[data-tl-renderer]')].sort((a, b) => b.clientWidth * b.clientHeight - a.clientWidth * a.clientHeight)[0] as HTMLCanvasElement | undefined;
   const renderer = canvas !== undefined
-    ? { requested: canvas.dataset['tlRendererRequested'], backend: canvas.dataset['tlRenderer'], state: canvas.dataset['tlRendererState'], reason: canvas.dataset['tlRendererReason'], ...(canvas.dataset['tlRooms'] !== undefined ? { rooms: canvas.dataset['tlRooms'] } : {}), ...(canvas.dataset['tlOcclusion'] !== undefined ? { occlusion: canvas.dataset['tlOcclusion'] } : {}) }
+    ? { requested: canvas.dataset['tlRendererRequested'], backend: canvas.dataset['tlRenderer'], state: canvas.dataset['tlRendererState'], reason: canvas.dataset['tlRendererReason'], ...(canvas.dataset['tlRooms'] !== undefined ? { rooms: canvas.dataset['tlRooms'] } : {}), ...(canvas.dataset['tlOcclusion'] !== undefined ? { occlusion: canvas.dataset['tlOcclusion'] } : {}), ...(canvas.dataset['tlClusters'] !== undefined ? { clusters: canvas.dataset['tlClusters'] } : {}) }
     : null;
   const navEntry = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
   return {
@@ -547,6 +588,7 @@ export async function readSample(stop: boolean): Promise<PageSample> {
       .getEntriesByType('mark')
       .filter((m) => m.name.startsWith('tl:'))
       .map((m) => ({ name: m.name, at: Math.round(m.startTime), detail: (m as PerformanceMark).detail ?? null })),
+    textureUnits: textureUnitsOf(P),
     shaderModules: P.shaders.size === 0 ? null : { distinct: P.shaders.size, made: [...P.shaders.values()].reduce((a, b) => a + b, 0), totalChars: [...P.shaders.keys()].reduce((a, c) => a + c.length, 0), maxChars: Math.max(...[...P.shaders.keys()].map((c) => c.length)) },
   };
 }

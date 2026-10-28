@@ -10,7 +10,9 @@
  *   them (`SurfaceCacheHost.rooms`), each room's outline from floor to top,
  *   and each portal's outline, green while it lets light through, red while
  *   a door piece shuts it;
- * - stale pages: a box round each unit of the cache still to light.
+ * - stale pages: a box round each unit of the cache still to light;
+ * - light clusters: each lit pixel in the colour of how many local lights
+ *   its cell lists (`?clusterView=1`; the clusters' own, `cluster-heat.ts`).
  *
  * The rooms and stale boxes are lines in the scene (never picked: no entity
  * owns them), drawn again when the rooms change, and the stale boxes at most
@@ -31,9 +33,11 @@ export interface LightingViewState {
   readonly rooms: boolean;
   /** A box round each unit still to light. */
   readonly stale: boolean;
+  /** The light clusters' heat map (absent: off). */
+  readonly clusters?: boolean;
 }
 
-export const LIGHTING_VIEW_OFF: LightingViewState = Object.freeze({ cache: false, probes: false, rooms: false, stale: false });
+export const LIGHTING_VIEW_OFF: LightingViewState = Object.freeze({ cache: false, probes: false, rooms: false, stale: false, clusters: false });
 
 /** What the debug views draw now. */
 export interface LightingViewCounts {
@@ -44,6 +48,8 @@ export interface LightingViewCounts {
   readonly roomOutlines: number;
   readonly portalOutlines: number;
   readonly staleBoxes: number;
+  /** Local lights whose cluster lists the heat map draws (0: off). */
+  readonly clusterLights?: number;
 }
 
 /** What the lighting does now, per pass (the overlay's numbers; nothing here is an estimate). */
@@ -144,7 +150,7 @@ export class AdapterLightingViews {
   }
 
   set(state: LightingViewState): void {
-    this.state = { cache: state.cache, probes: state.probes, rooms: state.rooms, stale: state.stale };
+    this.state = { cache: state.cache, probes: state.probes, rooms: state.rooms, stale: state.stale, clusters: state.clusters === true };
     if (!state.rooms && this.rooms !== null) {
       this.rooms.lines.dispose();
       this.rooms = null;

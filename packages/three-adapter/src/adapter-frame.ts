@@ -354,6 +354,8 @@ export class AdapterFrame {
     p.environment.applyBlend();
     this.materialsBeforeFrame();
     this.cullView(renderer, camera);
+    // The local lights' lists for this camera (after the rooms' walk: a light in a room no portal shows is left out).
+    p.clusters.frame(renderer as unknown as Parameters<typeof p.clusters.frame>[0], camera);
     return [w, h];
   }
 

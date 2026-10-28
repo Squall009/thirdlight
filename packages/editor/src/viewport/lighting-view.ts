@@ -4,8 +4,9 @@
  * editor adds to it:
  *
  * - the View menu's debug views: the surface cache's lit texels, the probes,
- *   the rooms and portals, the stale pages (the adapter's own views, as the
- *   page flags `?surfaceCacheView=1` and `?probesView=1` draw them);
+ *   the rooms and portals, the stale pages, the light clusters' heat map
+ *   (the adapter's own views, as the page flags `?surfaceCacheView=1`,
+ *   `?probesView=1` and `?clusterView=1` draw them);
  * - the pass-time overlay: what each lighting pass costs now, read from the
  *   adapter's lighting report (the cache's re-lighting, the probes' update,
  *   the reflections' traced rays, whether TAAU draws, settled);
@@ -73,7 +74,7 @@ export class SceneViewLighting {
   /** The View menu's and the Lighting window's switches; true when they changed. */
   set(state: SceneLightingState): boolean {
     const s = this.state;
-    if (s.cache === state.cache && s.probes === state.probes && s.rooms === state.rooms && s.stale === state.stale && s.passes === state.passes && s.level === state.level && s.live === state.live) return false;
+    if (s.cache === state.cache && s.probes === state.probes && s.rooms === state.rooms && s.stale === state.stale && s.clusters === state.clusters && s.passes === state.passes && s.level === state.level && s.live === state.live) return false;
     this.state = { ...state };
     this.apply();
     this.changed();
@@ -84,7 +85,7 @@ export class SceneViewLighting {
   apply(): void {
     const a = this.adapter();
     const s = this.state;
-    a.setLightingView?.({ cache: s.cache, probes: s.probes, rooms: s.rooms, stale: s.stale });
+    a.setLightingView?.({ cache: s.cache, probes: s.probes, rooms: s.rooms, stale: s.stale, clusters: s.clusters === true });
     a.setLiveLighting?.(s.live);
     // A level the project no longer has falls back to the one Play would draw.
     if (a.setQuality?.(s.level) === false) a.setQuality(null);

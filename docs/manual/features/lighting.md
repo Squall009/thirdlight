@@ -454,6 +454,14 @@ scene has a light; **light: editor** is a fixed rig).
   it and red, crossed, while a door piece shuts it.
 - **Stale pages** — an orange box round each unit of the cache still to be
   lit (none once the light has settled).
+- **Light clusters** — a heat map of the local-light lists: the view is
+  cut into 16 tiles across (rows to match the aspect) and 24 depth slices,
+  each listing the point, spot and area lights that can reach it. Every lit
+  pixel shows how many lights its cell lists, from blue (one) through green
+  and yellow to red (64 or more), black where none; dimmer where the listed
+  lights do not actually reach the pixel. Sky, unlit and emissive surfaces
+  draw as usual; objects set to take no local light draw black
+  (`?clusterView=1`).
 - **Lighting pass times** — an overlay in the view's corner: the level and
   tier drawn, live or saved (and why), the cache's re-lighting GPU time a
   frame against its budget and the stale pages, the probes' update time and
