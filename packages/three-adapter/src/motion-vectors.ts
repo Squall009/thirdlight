@@ -152,6 +152,56 @@ export function motionVectorOutput(): N {
 
 let installed = false;
 
+/** The draws whose last refresh was full: they get one more (see {@link motionRefresh}). */
+const refreshedFull = new WeakSet<object>();
+
+/**
+ * A draw's refresh under a target holding motion vectors. three refreshes
+ * every draw fully on every frame there (`NodeMaterialObserver.needsVelocity`):
+ * all its object-group uniforms, bindings and attributes, which cost the
+ * village's main thread ~1.7 ms a frame for draws that never move. What a full
+ * refresh does for motion is roll the last frame's data over (the object's last
+ * matrix here, three's previous instance and batch matrices after the draw), and
+ * that data is only out of date for the one frame after it last changed. So a
+ * draw gets three's refresh as if no motion were drawn (full when its object,
+ * instances, geometry or material changed), plus one more full refresh on the
+ * frame after a full one: then the last frame's data equals this frame's again
+ * and stays so until the next change.
+ */
+export function motionRefresh(drawn: object, ownRefresh: number, full: number): number {
+  if (ownRefresh === full) {
+    refreshedFull.add(drawn);
+    return full;
+  }
+  if (refreshedFull.delete(drawn)) return full;
+  return ownRefresh;
+}
+
+/** While set, three's observer is asked for a draw's refresh as if no motion were drawn. */
+let askingOwnRefresh = false;
+
+function installMotionRefresh(): void {
+  type Observer = { needsRefresh(renderObject: object, frame: { renderer: unknown }): number; needsVelocity(renderer: unknown): boolean };
+  const proto = (THREE as unknown as { NodeMaterialObserver: { prototype: Observer } }).NodeMaterialObserver.prototype;
+  const baseRefresh = proto.needsRefresh;
+  const baseVelocity = proto.needsVelocity;
+  const full = (THREE as unknown as { RenderObjectRefreshType: { FULL: number } }).RenderObjectRefreshType.FULL;
+  proto.needsVelocity = function needsVelocityOnChange(this: Observer, renderer: unknown): boolean {
+    return askingOwnRefresh ? false : baseVelocity.call(this, renderer);
+  };
+  proto.needsRefresh = function needsRefreshWithMotion(this: Observer, renderObject: object, frame: { renderer: unknown }): number {
+    if (!baseVelocity.call(this, frame.renderer)) return baseRefresh.call(this, renderObject, frame);
+    askingOwnRefresh = true;
+    let own: number;
+    try {
+      own = baseRefresh.call(this, renderObject, frame);
+    } finally {
+      askingOwnRefresh = false;
+    }
+    return motionRefresh(renderObject, own, full);
+  };
+}
+
 /**
  * Teach every node material's vertex stage its previous place under its own
  * `positionNode` (idempotent). Only builds whose target holds motion vectors
@@ -160,6 +210,7 @@ let installed = false;
 export function installMotionVectors(): void {
   if (installed) return;
   installed = true;
+  installMotionRefresh();
   const proto = THREE.NodeMaterial.prototype as unknown as { setupPosition(builder: unknown): unknown };
   const base = proto.setupPosition;
   proto.setupPosition = function setupPositionWithMotion(this: { positionNode: N; userData: Record<string, unknown> }, builder: unknown): unknown {
