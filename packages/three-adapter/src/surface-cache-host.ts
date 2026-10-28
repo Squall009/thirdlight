@@ -92,6 +92,8 @@ export interface SurfaceCacheHostDeps {
   readonly rooms?: () => LightingRooms | null;
   /** Whether a static model object is still in the scene (absent: its slot is kept): a slot whose object left is used again. */
   readonly modelAlive?: (id: string) => boolean;
+  /** Whether surfaces are still being built (block chunks meshing; absent: never): what is listed meanwhile is not the whole scene. */
+  readonly building?: () => boolean;
 }
 
 /**
@@ -271,8 +273,11 @@ export class SurfaceCacheHost {
   readonly seeding: SurfaceSeeding;
   /** The drawn eye at the last update. */
   readonly eye: number[] = [0, 0, 0];
-  /** The first listing is done: what comes or goes after it is a change. */
-  private listed = false;
+  /**
+   * The first listing is done: what comes or goes after it is a change
+   * (`whole`: the last one saw every surface built, none still meshing).
+   */
+  private listing: 'none' | 'part' | 'whole' = 'none';
   /** Each terrain's tile data as last listed (an edit hands in new data). */
   private readonly terrainTiles = new Map<string, Map<string, TerrainTile>>();
   /** Each terrain's field as last listed. */
@@ -330,7 +335,7 @@ export class SurfaceCacheHost {
     // What the cache's light marks, the probes' light may change with.
     this.relight.onStale((min, max) => this.probes.markBox(min, max));
     // A surface's colour is written where it is made and the lookup holds it.
-    this.colours = new SurfaceColourChanges(this.probes, () => this.listed && this.pending.size === 0);
+    this.colours = new SurfaceColourChanges(this.probes, () => this.listing !== 'none' && this.pending.size === 0);
     this.seeding = new SurfaceSeeding({ cache: this.cache, relight: this.relight, changes: this.changes, probes: this.probes, tile: (key) => this.ready.get(key), listed: () => this.preparedTiles(), unitsOf: (key) => this.tileUnits.get(key) ?? [key] });
   }
 
@@ -407,7 +412,7 @@ export class SurfaceCacheHost {
   private geometry(min: readonly number[], max: readonly number[], terrain?: string): void {
     if (terrain !== undefined) this.terrainVersions.set(terrain, (this.terrainVersions.get(terrain) ?? 0) + 1);
     this.geometryVersion += 1;
-    if (!this.listed) return;
+    if (this.listing === 'none') return;
     this.changes.geometryChanged(min, max);
     this.colours.changed(min, max);
   }
@@ -547,9 +552,15 @@ export class SurfaceCacheHost {
     this.changed = true;
   }
 
-  /** The tiles offered to the cache (made, with something to light) once every surface of the loaded scene has its charts and every model file is read (null until then). */
+  /**
+   * The tiles offered to the cache (made, with something to light) once
+   * every surface of the loaded scene is built and listed, has its charts and
+   * every model file is read (null until then): a block layer still meshing
+   * lists none of its chunks yet, and a seed compared against that listing
+   * would take the layer's saved tiles for gone.
+   */
   preparedTiles(): readonly SurfaceTile[] | null {
-    if (this.pending.size > 0) return null;
+    if (this.listing !== 'whole' || this.pending.size > 0) return null;
     for (const f of this.files.values()) if (f === 'reading') return null;
     return this.offered;
   }
@@ -692,7 +703,7 @@ export class SurfaceCacheHost {
     }
     const p = this.pending.get(key);
     if (p === undefined || p.version !== version) {
-      this.pending.set(key, { min, max, version, make, change: this.listed });
+      this.pending.set(key, { min, max, version, make, change: this.listing !== 'none' });
       this.geometry(min, max);
     }
   }
@@ -700,6 +711,7 @@ export class SurfaceCacheHost {
   /** The loaded scene's surfaces: what is ready stays, what changed or is new waits to be made, what left goes. */
   private list(now: number): void {
     const seen = new Set<string>();
+    const whole = this.deps.building?.() !== true;
     if (this.deps.modelAlive !== undefined) this.modelSlots.prune(this.deps.modelAlive);
     for (const layer of this.deps.layers()) {
       let m = this.memos.get(layer.id);
@@ -775,7 +787,7 @@ export class SurfaceCacheHost {
     }
     for (const key of [...this.pending.keys()]) if (!seen.has(key)) this.pending.delete(key);
     this.applyLayerMoves();
-    this.listed = true;
+    this.listing = whole ? 'whole' : 'part';
     this.placeProbes(false, now);
   }
 
@@ -866,7 +878,7 @@ export class SurfaceCacheHost {
     const was = this.terrainTiles.get(id);
     this.terrainTiles.set(id, new Map(now));
     if (was === undefined) {
-      if (this.listed) {
+      if (this.listing !== 'none') {
         for (const b of terrainTileBoxes(field, now.keys())) this.geometry(b.min, b.max, id);
         this.changed = true;
       }

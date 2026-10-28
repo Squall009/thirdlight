@@ -246,6 +246,19 @@ describe('saved lighting', () => {
     const same = liveFrom([floorLayer, pillarAt('pillar', [2, 1, 2])]);
     expect(waitsNear(same, [3.5, 1, 3.5])).toBe(false);
     expect(waitsNear(same, [16.5, 1, 16.5])).toBe(false);
+    // As baked, the layers still meshing when the light goes live (a block layer lists no chunk until meshed): nothing
+    // counts as gone meanwhile, so nothing is lit again once they come.
+    let meshing = 12;
+    const late = new SurfaceCacheHost({ layers: () => (meshing > 0 ? [] : [floorLayer, pillarAt('pillar', [2, 1, 2])]), terrains: () => [], architecture: () => [], models: () => [], bricks: () => null, building: () => meshing > 0 }, 64 * 1024 * 1024, 1.5);
+    late.setLive(true);
+    late.seeding.set({ tiles: new Map<string, SavedSurfaceTile>(tiles.map((t) => [t.key, t])), texels, probes: () => null, lights: [] });
+    let now = 0;
+    for (; meshing > 0; meshing -= 1) late.update([10, 2, 10], (now += 100));
+    settle(late, [10, 2, 10], false);
+    late.update([10, 2, 10]);
+    expect(late.seeding.seededTiles).toBeGreaterThan(0);
+    // Nothing lit again since (a layer taken for gone meanwhile marks the whole floor round it, and the seed is lit over).
+    expect(late.relight.diagnostics().relitTexels).toBe(0);
   });
 
   it('saves one scene of the loaded ones: its tiles on their own pages, the probes over them, its own lights', () => {
