@@ -31,7 +31,7 @@ import { SAVED_SURFACE_CACHE_MIB, SURFACE_LIGHT_MS_MAX } from '@thirdlight/runti
 
 import { SURFACE_LEVELS, SURFACE_PAGE_TEXELS, SURFACE_TEXEL_BYTES } from './surface-cache-atlas';
 import { TERRAIN_RING_SHARE } from './surface-cache';
-import { TERRAIN_RING_TEXELS, TERRAIN_RINGS_MAX } from './surface-cache-terrain';
+import { TERRAIN_RING_BYTES, TERRAIN_RING_TEXELS, TERRAIN_RINGS_MAX } from './surface-cache-terrain';
 import type { SurfaceCacheHost } from './surface-cache-host';
 import type { SavedProbeTile, SavedRingsRecord, SavedSurfaceLight } from './surface-bake-file';
 import type { SurfaceLightRuntime } from './surface-light-runtime';
@@ -109,8 +109,10 @@ export async function runSurfaceBake(h: SurfaceBakeHooks, o: SurfaceBakeOptions)
     // Lit from what the scene is, not from the last bake.
     host.seeding.hold(true);
     host.setRelightBudget(SURFACE_LIGHT_MS_MAX);
-    // Room for the terrain's rings beside the saved pages (the rings light the ground the probes see; they are not saved).
-    host.setBudget(Math.ceil(savedBytes / (1 - TERRAIN_RING_SHARE)));
+    // Room for every terrain's rings beside the saved pages, as many as a terrain may hold: the budget then stays
+    // the same once the level is fitted (a new budget makes the light's textures again, and lights everything again).
+    const ringRoom = host.cache.ringTerrains().length * TERRAIN_RINGS_MAX * TERRAIN_RING_BYTES;
+    host.setBudget(Math.ceil(savedBytes / (1 - TERRAIN_RING_SHARE)) + ringRoom);
     let why = await until(() => h.runtime() !== null && host.preparedTiles() !== null, 'starting the live lighting…', 0);
     if (why !== null) return { ok: false, message: why };
     const prepared = host.preparedTiles() ?? [];
@@ -125,7 +127,7 @@ export async function runSurfaceBake(h: SurfaceBakeHooks, o: SurfaceBakeOptions)
     }
     // The other open scenes' tiles are lit beside it at the same level, given room up to as much again (coarser past it).
     const others = Math.min(savedBytes, host.cache.bytesAt(prepared.filter((t) => !ownTile(t.key)), level));
-    host.setBudget(Math.ceil((savedBytes + others) / (1 - TERRAIN_RING_SHARE)) + host.cache.bakeRingBytes(level, at));
+    host.setBudget(Math.ceil((savedBytes + others) / (1 - TERRAIN_RING_SHARE)) + Math.max(ringRoom, host.cache.bakeRingBytes(level, at)));
     host.cache.setBakeLevel(level, at);
     h.setPart('bounce');
     await frames(BAKE_SWITCH_FRAMES);
