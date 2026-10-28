@@ -137,7 +137,7 @@ export function useKitEditor(clientRef: ClientRef, workspace: WorkspaceState, ki
     if (!/\.glb$/i.test(file.name)) return { message: `${file.name}: a kit piece is a GLB file (export glTF binary from the modelling tool).` };
     setBusy(`Importing ${file.name}…`);
     try {
-      const id = await publishFileAsset(c, new Uint8Array(await file.arrayBuffer()), file.name.replace(/\.[^.]+$/, ''), undefined, file.name, 'model');
+      const id = await publishFileAsset(c, new Uint8Array(await file.arrayBuffer()), file.name.replace(/\.[^.]+$/, ''), file.name, 'model');
       if (typeof id !== 'string') setError(id.message);
       return id;
     } finally {

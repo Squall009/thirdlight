@@ -640,7 +640,7 @@ export class LiveProbes implements ProbeLookup {
    * its box and resolution): their light, the walls between them as cuts
    * along their axes (what the axis rays would have seen), settled. The
    * light of a probe already updated live is its own. Returns how many took
-   * the saved light.
+   * the saved light (any: `layout` changes, so the records are uploaded).
    */
   seed(saved: (key: string) => SavedProbeGrid | null): number {
     const fresh = new Uint8Array(this.count);
@@ -685,6 +685,8 @@ export class LiveProbes implements ProbeLookup {
         }
       }
     }
+    // The GPU's records are put there again only on a new layout: saved light seeded after the first upload must reach it.
+    if (n > 0) this.layout += 1;
     return n;
   }
 

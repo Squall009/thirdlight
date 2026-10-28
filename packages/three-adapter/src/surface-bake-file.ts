@@ -37,12 +37,14 @@ const ROW_BYTES = SURFACE_BAKE_FILE_WIDTH * 8;
 /** Halves of one saved page. */
 const PAGE_HALVES = SURFACE_PAGE_TEXELS * SURFACE_PAGE_TEXELS * 4;
 
-/** A cache tile as saved: its key, its charts' digest, its level and its blocks. */
+/** A cache tile as saved: its key, its charts' digest, its level, its blocks and its box (absent in older files). */
 export interface SavedTileRecord {
   readonly key: string;
   readonly digest: string;
   readonly level: number;
   readonly blocks: readonly AtlasBlock[];
+  readonly min?: readonly number[];
+  readonly max?: readonly number[];
 }
 
 /** A probe tile as saved: a room's grid or a brick, in the probe lighting's GPU layout. */
@@ -72,7 +74,8 @@ export interface SavedSurfaceLight {
 interface Header {
   level: number;
   pages: number;
-  tiles: [string, string, number, number[]][];
+  /** Key, digest, level, blocks (page, x, y, side each) and the box (min then max; absent in older files). */
+  tiles: [string, string, number, number[], number[]?][];
   probes: [string, number[], number[], number[], number][];
   lights?: CacheLight[];
 }
@@ -84,7 +87,10 @@ export function encodeSavedSurface(s: SavedSurfaceLight): Uint8Array {
   const header: Header = {
     level: s.level,
     pages: s.pages,
-    tiles: s.tiles.map((t) => [t.key, t.digest, t.level, t.blocks.flatMap((b) => [b.page, b.x, b.y, b.side])]),
+    tiles: s.tiles.map((t): Header['tiles'][number] => {
+      const blocks = t.blocks.flatMap((b) => [b.page, b.x, b.y, b.side]);
+      return t.min !== undefined && t.max !== undefined ? [t.key, t.digest, t.level, blocks, [...t.min, ...t.max]] : [t.key, t.digest, t.level, blocks];
+    }),
     probes: s.probes.map((p) => [p.key, [...p.min], [...p.max], [...p.resolution], p.brick ? 1 : 0]),
     ...(s.lights !== undefined ? { lights: [...s.lights] } : {}),
   };
@@ -152,10 +158,10 @@ export function decodeSavedSurface(bytes: Uint8Array): { ok: true; saved: SavedS
     if (data === null) return fail('is cut short');
     probes.push({ key, min: min as [number, number, number], max: max as [number, number, number], resolution: resolution as [number, number, number], brick: brick === 1, validity, data });
   }
-  const tiles = header.tiles.map(([key, digest, level, b]) => {
+  const tiles = header.tiles.map(([key, digest, level, b, box]): SavedTileRecord => {
     const blocks: AtlasBlock[] = [];
     for (let i = 0; i + 3 < b.length; i += 4) blocks.push({ page: b[i]!, x: b[i + 1]!, y: b[i + 2]!, side: b[i + 3]! });
-    return { key, digest, level, blocks };
+    return { key, digest, level, blocks, ...(Array.isArray(box) && box.length === 6 ? { min: box.slice(0, 3), max: box.slice(3) } : {}) };
   });
   return { ok: true, saved: { level: header.level, pages: header.pages, texels, tiles, probes, ...(Array.isArray(header.lights) ? { lights: header.lights } : {}) } };
 }

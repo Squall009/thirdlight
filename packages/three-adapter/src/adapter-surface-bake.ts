@@ -13,7 +13,11 @@
  *   settle on their bounce; then, the probes held, only the `baked` lights' direct
  *   light settles in the cache (a `mixed` light's direct light is drawn per
  *   pixel, a `realtime` light's is never saved);
- * - the budget is the most a frame may spend (`SURFACE_LIGHT_MS_MAX`).
+ * - the budget is the most a frame may spend (`SURFACE_LIGHT_MS_MAX`);
+ * - with `owns`, one scene of the loaded ones is saved: the level is
+ *   fitted over its tiles, and it saves its tiles (their pages only), the
+ *   probes over them and its own lights (`ownSavedLight`); the other
+ *   scenes are lit beside it, as they light and shade it.
  *
  * The cache's pages are then read back, with each resident tile's place and
  * the probes' tiles as the probe lighting holds them; the page goes back to
@@ -28,6 +32,8 @@ import type { SavedProbeTile, SavedSurfaceLight } from './surface-bake-file';
 import type { SurfaceLightRuntime } from './surface-light-runtime';
 import type { CacheLight } from './surface-changes';
 import type { GpuBuffer, GpuTexture, TracerDevice } from './tracer-gpu';
+import type { SurfaceTile } from './surface-cache';
+import { GLOW_LIGHT_MARK } from './surface-highlights';
 
 const MIB = 1024 * 1024;
 /** A bake that has not settled in this long (ms) gives up. */
@@ -61,6 +67,8 @@ export interface SurfaceBakeHooks {
 }
 
 export interface SurfaceBakeOptions {
+  /** Whether an entity is of the scene being saved (absent: every loaded scene's surfaces are saved). */
+  owns?(entityId: string): boolean;
   /** Draw one frame of the page (the bake runs on the frames drawn). */
   frame(): Promise<void>;
   onProgress?(text: string, fraction: number): void;
@@ -100,7 +108,13 @@ export async function runSurfaceBake(h: SurfaceBakeHooks, o: SurfaceBakeOptions)
     host.setBudget(Math.ceil(savedBytes / (1 - TERRAIN_RING_SHARE)));
     let why = await until(() => h.runtime() !== null && host.preparedTiles() !== null, 'starting the live lighting…', 0);
     if (why !== null) return { ok: false, message: why };
-    const level = host.cache.fitLevel(host.preparedTiles() ?? [], savedBytes) ?? SURFACE_LEVELS - 1;
+    const prepared = host.preparedTiles() ?? [];
+    const ownTile = (key: string): boolean => o.owns === undefined || o.owns(surfaceKeyOwner(key));
+    const own = prepared.filter((t) => ownTile(t.key));
+    const level = host.cache.fitLevel(own, savedBytes) ?? SURFACE_LEVELS - 1;
+    // The other open scenes' tiles are lit beside it at the same level, given room up to as much again (coarser past it).
+    const others = Math.min(savedBytes, host.cache.bytesAt(prepared.filter((t) => !ownTile(t.key)), level));
+    host.setBudget(Math.ceil((savedBytes + others) / (1 - TERRAIN_RING_SHARE)));
     host.cache.setBakeLevel(level);
     h.setPart('bounce');
     await frames(BAKE_SWITCH_FRAMES);
@@ -130,7 +144,7 @@ export async function runSurfaceBake(h: SurfaceBakeHooks, o: SurfaceBakeOptions)
     const atlas = rt?.textures.atlas ?? null;
     if (rt === null || device === null || atlas === null) return { ok: false, message: 'the live lighting stopped during the bake' };
     o.onProgress?.('reading the light back…', 0.85);
-    const tiles = host.savedTiles();
+    const tiles = host.savedTiles().filter((t) => ownTile(t.key));
     let pages = 0;
     let texelCount = 0;
     for (const t of tiles) for (const b of t.blocks) {
@@ -138,8 +152,9 @@ export async function runSurfaceBake(h: SurfaceBakeHooks, o: SurfaceBakeOptions)
       texelCount += b.side * b.side;
     }
     const texels = await readPages(device, atlas, pages);
-    const probes = h.probeTiles();
-    return { ok: true, saved: { level, pages, texels, tiles, probes, lights: [...h.lights()] }, millis: Math.round(performance.now() - t0), texels: texelCount };
+    const all = { level, pages, texels, tiles, probes: h.probeTiles(), lights: [...h.lights()] };
+    const saved = o.owns === undefined ? all : ownSavedLight(all, own, o.owns);
+    return { ok: true, saved, millis: Math.round(performance.now() - t0), texels: texelCount };
   } finally {
     host.seeding.hold(false);
     h.setPart(null);
@@ -162,4 +177,31 @@ async function readPages(device: TracerDevice, atlas: GpuTexture, pages: number)
   buffer.unmap();
   buffer.destroy();
   return out;
+}
+
+/** The entity a surface tile's key (`<entity>/…`, an architecture object's id) or a cache light's id (`<entity>#glow…`) is of. */
+export function surfaceKeyOwner(key: string): string {
+  const glow = key.indexOf(GLOW_LIGHT_MARK);
+  const k = glow >= 0 ? key.slice(0, glow) : key;
+  const slash = k.indexOf('/');
+  return slash >= 0 ? k.slice(0, slash) : k;
+}
+
+/**
+ * One scene's part of a bake read back over every loaded scene: its tiles
+ * (already `saved.tiles`) on their pages only, packed down in order; the
+ * probe tiles whose box meets one of its tiles (`own`, as prepared); its
+ * own lights. Another scene's probes or lights saved with it would be
+ * merged with that scene's own bake when both are loaded.
+ */
+export function ownSavedLight(saved: SavedSurfaceLight, own: readonly Pick<SurfaceTile, 'min' | 'max'>[], owns: (entityId: string) => boolean): SavedSurfaceLight {
+  const used = [...new Set(saved.tiles.flatMap((t) => t.blocks.map((b) => b.page)))].sort((a, b) => a - b);
+  const pageOf = new Map(used.map((p, i) => [p, i]));
+  const halves = SURFACE_PAGE_TEXELS * SURFACE_PAGE_TEXELS * 4;
+  const texels = new Uint16Array(used.length * halves);
+  used.forEach((p, i) => texels.set(saved.texels.subarray(p * halves, (p + 1) * halves), i * halves));
+  const tiles = saved.tiles.map((t) => ({ ...t, blocks: t.blocks.map((b) => ({ ...b, page: pageOf.get(b.page)! })) }));
+  const meets = (p: SavedProbeTile): boolean => own.some((t) => [0, 1, 2].every((k) => p.min[k]! <= t.max[k]! && p.max[k]! >= t.min[k]!));
+  const lights = saved.lights?.filter((l) => owns(surfaceKeyOwner(l.id)));
+  return { level: saved.level, pages: used.length, texels, tiles, probes: saved.probes.filter(meets), ...(lights !== undefined ? { lights } : {}) };
 }

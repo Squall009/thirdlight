@@ -94,6 +94,35 @@ export function modelPieces(root: THREE.Object3D): ModelPiece[] {
   return pieces;
 }
 
+/** `mesh.userData[MODEL_PIECE_KEY]`: the piece of the file a mesh draws, as the model's distance-field file names it. */
+export const MODEL_PIECE_KEY = '__tlModelPiece';
+
+/**
+ * Names every mesh of a freshly loaded file with its piece as the
+ * distance-field file names it (`buildDistanceBricks`: a top-level piece's
+ * base name, `''` when the file has one piece with drawn triangles), so a
+ * mesh reads its own piece's light from the surface cache. Run on the whole
+ * file, before one piece is kept: a kept piece keeps the file's naming.
+ */
+export function tagModelPieces(root: THREE.Object3D): void {
+  const drawn = new Set<string>();
+  for (const child of root.children) {
+    if (isCollisionNode(child) || isOccluderNode(child)) continue;
+    child.traverse((o) => {
+      const g = (o as THREE.Mesh).isMesh === true ? (o as THREE.Mesh).geometry : undefined;
+      if (g === undefined || underHigherLod(o, root) || underHelperNode(o, root)) return;
+      if ((g.index?.count ?? g.getAttribute('position')?.count ?? 0) >= 3) drawn.add(pieceBaseName(child.name));
+    });
+  }
+  const single = drawn.size === 1;
+  for (const child of root.children) {
+    const name = single ? '' : pieceBaseName(child.name);
+    child.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh === true) o.userData[MODEL_PIECE_KEY] = name;
+    });
+  }
+}
+
 /**
  * Keep only one piece's top-level nodes under `root` (render nodes and its
  * collision node). Returns false when the file has no such piece.

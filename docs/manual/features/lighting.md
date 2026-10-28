@@ -150,7 +150,10 @@ gone; what they baked still draws (below).
   from it (none of the light they held live before is kept) until both
   settle, then holds the probes and lets only the baked lights' direct light
   settle in the cache. Terrain and static boxes are not saved: terrain keeps
-  its per-pixel lights and the saved probes over it, as before.
+  its per-pixel lights and the saved probes over it, as before. With
+  several scenes open, all are lit together (each lights and shades the
+  others) but only the baked scene is saved: its surfaces at the level
+  that fits them, the probes over them and its own lights.
 - **How fine** — every tile at one level, the finest whose pages fit 32 MiB
   (`SAVED_SURFACE_CACHE_MIB`, the low lighting tier's whole cache budget):
   10 cm texels for a small scene, coarser for a large one, so a low-tier
@@ -158,8 +161,11 @@ gone; what they baked still draws (below).
 - **Files** — the saved file (the cache's tiles and pages as RGBA half
   floats, the probes' tiles as the probe lighting holds them) travels as
   texture assets named `lighting <scene>` (16-bit PNGs used as byte
-  containers, up to 4,096 rows of 8 KiB each; a large scene takes several);
-  a re-bake adds versions to them. The scene's bake records them
+  containers, up to 4,096 rows of 8 KiB each; a large scene takes several).
+  Each bake publishes new assets; the previous bake's are deleted only once
+  the new record is taken, so a bake that fails or is refused leaves the
+  previous one whole, and undo (the deletes, then the record) brings it back
+  with its own files. The scene's bake records them
   (`lighting[sceneId].surface`: `files`, `level`, `tiles`, `pages`,
   `probes`, `bytes`, `millis` — the run's time — and the hashes).
 - **Who draws it** — WebGL 2, a quality level without a live budget
@@ -174,8 +180,9 @@ gone; what they baked still draws (below).
   saved light, and only what the bake lacks is lit again — the direct light
   of mixed and realtime lights, the bounce of realtime lights, and lights
   changed since the bake (the bake records its lights). A tile whose
-  geometry changed since is marked as an edit is, and nothing more is taken
-  from that bake. Baked lights are not drawn per pixel while a bake is used.
+  geometry changed since, one added since and one gone since (where the bake
+  saved it) are marked as an edit is: the light round them is lit again,
+  the rest keeps the bake. Baked lights are not drawn per pixel while a bake is used.
 - **What stops light** — generated architecture stops light with every
   piece that is not detail, whether or not it collides: ceilings, vaults and
   roofs close their rooms though nobody walks on them. Glass panes and trims
@@ -387,7 +394,7 @@ only where something changed:
   with a second UV set (UV1) at its UV1, filtered; any other at the surfel
   nearest the pixel (one value per surfel, so the light steps at the
   model's surfel spacing). A model placed whole with several top-level
-  pieces reads its first piece's light only. The cache gives the
+  pieces reads each piece's own light. The cache gives the
   light of point, spot, area lights and glowing boxes with their soft
   traced shadows; the sun is still drawn per pixel with its shadow map
   (sharper than a cache texel), so the cache's share of it is left out; the
@@ -609,9 +616,6 @@ The design's limits, and what is not built yet:
   multiplier does not reach the saved light (only an earlier bake's
   lightmaps); the saved probes are all on the GPU while their scene is
   loaded, not streamed; the **Probe volume** component is not read.
-- **Models with several top-level pieces** placed whole read only their
-  first piece's light from the cache; the others keep per-pixel lights and
-  probes.
 - **Reflections** are screen-space with a traced fallback that sees only
   what the cache holds (blocks, terrain, generated buildings, static
   models). Mirror-sharp reflections of things off screen are out of scope;

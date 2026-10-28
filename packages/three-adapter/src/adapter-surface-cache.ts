@@ -19,6 +19,7 @@ import { SURFACE_READ } from './surface-cache-lookup';
 import { SURFACE_READ_KEY, SURFACE_SLOT_KEY } from './surface-cache-read';
 import { GLOW_LIGHT_MARK } from './surface-highlights';
 import { INSTANCE_SET_KEY } from './instancing';
+import { MODEL_PIECE_KEY } from './pieces';
 
 /** Bytes in a MiB (the quality level names its budget in MiB). */
 const MIB = 1024 * 1024;
@@ -78,13 +79,14 @@ export function markStaticModelRead(host: SurfaceCacheHost | null, opts: SceneAd
   if (assetId === undefined) return;
   const row = opts.models?.assets.find((a) => a.assetId === assetId) ?? opts.models?.rowOf?.(assetId);
   if (row?.bricks !== true) return;
-  const slot = host.modelSlots.slotOf(id);
   root.traverse((o) => {
     // An instance set's copies stand elsewhere than the object (the cache holds the object's own placement only).
     if ((o as THREE.InstancedMesh).isInstancedMesh === true || o.userData[INSTANCE_SET_KEY] !== undefined) return;
     if ((o as THREE.Mesh).isMesh !== true) return;
     o.userData[SURFACE_READ_KEY] = SURFACE_READ.model;
-    o.userData[SURFACE_SLOT_KEY] = slot;
+    // Each piece its own slot: a multi-piece model's meshes read their own piece's light.
+    const piece = o.userData[MODEL_PIECE_KEY] as string | undefined;
+    o.userData[SURFACE_SLOT_KEY] = host.modelSlots.slotOf(id, piece ?? '');
   });
 }
 

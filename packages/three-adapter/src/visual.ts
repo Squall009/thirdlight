@@ -36,7 +36,7 @@ import * as THREE from 'three';
 import { adapterError, type AdapterError, type AdapterErrorCode } from './errors';
 import { mergeOwnership, OwnershipLedger, type ResourceOwnership } from './ownership';
 import { applyTransformToObject3D, type AdapterQuat, type AdapterVec3 } from './sync';
-import { applyLodGroups, applyVertexColorMode, keepOnlyPiece, modelPieces, pieceBounds,
+import { applyLodGroups, applyVertexColorMode, keepOnlyPiece, modelPieces, pieceBounds, tagModelPieces,
   pieceCollider3D, pieceCollisionParts, stripCollisionNodes, type ModelCollider3D, type VertexColorMode } from './pieces';
 import { applyModelOccluders } from './occluders';
 import { markFileDecals } from './mesh-decals';
@@ -905,6 +905,8 @@ function createResource(descriptor: AssetVersionDescriptor, loaded: LoadedGlb, l
       if (typeof glbRoot !== 'object' || glbRoot === null || (glbRoot as { isObject3D?: boolean }).isObject3D !== true) {
         return { ok: false as const, error: adapterError('asset_corrupt', 'the loader returned a non-Object3D instance') };
       }
+      // Each mesh's piece, named while the whole file is here (one piece kept keeps the file's naming).
+      tagModelPieces(glbRoot);
       if (options.piece !== undefined && !keepOnlyPiece(glbRoot, options.piece)) {
         return {
           ok: false as const,

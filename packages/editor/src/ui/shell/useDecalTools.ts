@@ -268,7 +268,7 @@ export function useDecalTools(deps: DecalToolsDeps): DecalTools {
       const name = file.name.replace(/\.[^.]+$/, '');
       setBusy(`Importing ${file.name}…`);
       try {
-        const id = await publishFileAsset(c, new Uint8Array(await file.arrayBuffer()), name, undefined, file.name);
+        const id = await publishFileAsset(c, new Uint8Array(await file.arrayBuffer()), name, file.name);
         if (typeof id !== 'string') return setNotice(id.message);
         await fromTexture(id, name);
       } finally {

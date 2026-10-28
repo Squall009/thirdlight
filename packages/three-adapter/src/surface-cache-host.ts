@@ -95,41 +95,43 @@ export interface SurfaceCacheHostDeps {
 }
 
 /**
- * Slots of static model objects. Their copies share geometry (batched,
- * merged, instanced), so a drawn copy carries its object's slot (an
- * instance column, a merged cell's vertex attribute, the object's own) and
- * the materials' lookup holds each slot's placement and pieces. A slot is
- * its object's while it is in the scene, then used again.
+ * Slots of static model objects' pieces. Their copies share geometry
+ * (batched, merged, instanced), so a drawn copy carries its piece's slot (an
+ * instance column, a merged cell's vertex attribute, the mesh's own) and
+ * the materials' lookup holds each slot's placement and piece. A slot is a
+ * piece's (keyed as its tile: `<object id>/<piece>`) while its object is in
+ * the scene, then used again.
  */
 export class SurfaceModelSlots {
-  private readonly byId = new Map<string, number>();
+  private readonly byKey = new Map<string, { slot: number; owner: string }>();
   private readonly free: number[] = [];
   private next = 1;
   /** Bumped whenever a slot is given or let go (the lookup is packed again). */
   version = 0;
 
-  /** The object's slot, given now if it has none. */
-  slotOf(id: string): number {
-    let s = this.byId.get(id);
+  /** The slot of the object's piece (`''`: a file of one piece), given now if it has none. */
+  slotOf(id: string, piece: string): number {
+    const key = `${id}/${piece}`;
+    let s = this.byKey.get(key);
     if (s === undefined) {
-      s = this.free.pop() ?? this.next++;
-      this.byId.set(id, s);
+      s = { slot: this.free.pop() ?? this.next++, owner: id };
+      this.byKey.set(key, s);
       this.version += 1;
     }
-    return s;
+    return s.slot;
   }
 
-  /** The object's slot if it has one. */
-  peek(id: string): number | undefined {
-    return this.byId.get(id);
+  /** A piece's slot by its tile key (`<object id>/<piece>`) if it has one. */
+  peek(key: string): number | undefined {
+    return this.byKey.get(key)?.slot;
   }
 
   /** Lets go the slots of objects no longer alive. */
   prune(alive: (id: string) => boolean): void {
-    for (const [id, s] of this.byId) {
-      if (alive(id)) continue;
-      this.byId.delete(id);
-      this.free.push(s);
+    for (const [key, s] of this.byKey) {
+      if (alive(s.owner)) continue;
+      this.byKey.delete(key);
+      this.free.push(s.slot);
       this.version += 1;
     }
   }
@@ -329,7 +331,7 @@ export class SurfaceCacheHost {
     this.relight.onStale((min, max) => this.probes.markBox(min, max));
     // A surface's colour is written where it is made and the lookup holds it.
     this.colours = new SurfaceColourChanges(this.probes, () => this.listed && this.pending.size === 0);
-    this.seeding = new SurfaceSeeding({ cache: this.cache, relight: this.relight, changes: this.changes, probes: this.probes, tile: (key) => this.ready.get(key), unitsOf: (key) => this.tileUnits.get(key) ?? [key] });
+    this.seeding = new SurfaceSeeding({ cache: this.cache, relight: this.relight, changes: this.changes, probes: this.probes, tile: (key) => this.ready.get(key), listed: () => this.preparedTiles(), unitsOf: (key) => this.tileUnits.get(key) ?? [key] });
   }
 
   /** The GPU time a frame may spend on live light (0: none, the saved light is drawn). */
@@ -552,12 +554,12 @@ export class SurfaceCacheHost {
     return this.offered;
   }
 
-  /** The resident tiles as a bake saves them: key, charts' digest, level and blocks. */
-  savedTiles(): { key: string; digest: string; level: number; blocks: readonly AtlasBlock[] }[] {
-    const out: { key: string; digest: string; level: number; blocks: readonly AtlasBlock[] }[] = [];
+  /** The resident tiles as a bake saves them: key, charts' digest, level, blocks and box. */
+  savedTiles(): { key: string; digest: string; level: number; blocks: readonly AtlasBlock[]; min: readonly number[]; max: readonly number[] }[] {
+    const out: { key: string; digest: string; level: number; blocks: readonly AtlasBlock[]; min: readonly number[]; max: readonly number[] }[] = [];
     this.cache.forEachResident((key, level, blocks) => {
       const tile = this.ready.get(key);
-      if (tile !== undefined) out.push({ key, digest: this.cache.digestOf(tile), level, blocks });
+      if (tile !== undefined) out.push({ key, digest: this.cache.digestOf(tile), level, blocks, min: [...tile.min], max: [...tile.max] });
     });
     return out;
   }

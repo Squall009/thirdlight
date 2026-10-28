@@ -1,9 +1,11 @@
 /**
  * "Bake lighting" of a scene: the Scene view's live lighting run to settled
  * on its WebGPU device (`SceneAdapter.bakeLighting`), saved as texture
- * assets holding the saved file (`surface-bake-file.ts`; a re-bake
- * publishes new versions of the previous bake's files) and recorded by
- * `setLighting` as the scene's bake (`surface`). The same run answers the
+ * assets holding the saved file (`surface-bake-file.ts`; new assets each
+ * bake, the previous bake's let go once the record is taken:
+ * `lighting-bake-save.ts`) and recorded by `setLighting` as the scene's
+ * bake (`surface`). Only this scene is saved: its surfaces, the probes over
+ * them and its lights (other open scenes are lit beside it). The same run answers the
  * Lighting window's button and an agent's `tl_bake_lighting` (the backend
  * asks the editor page): every change it makes goes through the commands.
  *
@@ -16,6 +18,7 @@ import type { BlockChunk, LightingBake, SurfaceBake } from '@thirdlight/project-
 import type { SessionClient } from '../session/client';
 import type { ProjectedEntity } from '../session/projection';
 import { publishFileAsset } from '../session/publish-file';
+import { saveLightingBakeFiles } from './lighting-bake-save';
 import type { Viewport } from './viewport';
 
 /** A block layer's stored cells, per layer entity (what a bake of the layer was made from). */
@@ -79,64 +82,69 @@ export function lightingBakeSummary(s: SurfaceBake): string {
 export async function runLightingBake(deps: LightingBakeDeps): Promise<LightingBakeResult> {
   const { client, viewport, sceneId } = deps;
   if (viewport.getLighting() !== 'game') viewport.setLighting('game');
-  const ran = await viewport.bakeLighting({ onProgress: (text, f) => deps.onProgress(text, f * 0.9), ...(deps.signal !== undefined ? { signal: deps.signal } : {}) });
+  const sceneEntities = client.projection.listEntities().filter((e) => (e.sceneId ?? sceneId) === sceneId) as ProjectedEntity[];
+  const own = new Set(sceneEntities.map((e) => e.id));
+  const ran = await viewport.bakeLighting({ owns: (id) => own.has(id), onProgress: (text, f) => deps.onProgress(text, f * 0.9), ...(deps.signal !== undefined ? { signal: deps.signal } : {}) });
   if (!ran.ok) return ran;
   // A user-timing mark (DevTools, the e2e): the light is settled and read back; what follows is saving it.
   performance.mark('tl:lighting:baked');
-  const sceneEntities = client.projection.listEntities().filter((e) => (e.sceneId ?? sceneId) === sceneId) as ProjectedEntity[];
-  // Only this scene's surfaces (other open scenes' tiles were lit beside them); a tile's key starts with its entity's id.
-  const own = new Set(sceneEntities.map((e) => e.id));
-  const saved = { ...ran.saved, tiles: ran.saved.tiles.filter((t) => own.has(t.key.split('/')[0]!)) };
+  const saved = ran.saved;
   if (saved.tiles.length === 0 && saved.probes.length === 0) return { ok: false, message: 'nothing to bake: the scene has no static surfaces the lighting keeps (block layers, generated architecture, static models)' };
   deps.onProgress('saving…', 0.9);
   const files = await savedSurfaceFiles(encodeSavedSurface(saved));
   const previous = client.getLighting()[sceneId] ?? null;
-  const ids: string[] = [];
-  let bytes = 0;
-  for (let i = 0; i < files.length; i++) {
-    deps.onProgress(`saving ${i + 1}/${files.length}`, 0.9 + (0.1 * i) / files.length);
-    const id = await publishFileAsset(client, files[i]!, `lighting ${deps.sceneName}${files.length > 1 ? ` ${i + 1}` : ''}`, previous?.surface?.files[i], 'lighting file');
-    if (typeof id !== 'string') return { ok: false, message: id.message };
-    ids.push(id);
-    bytes += files[i]!.byteLength;
-  }
   const hashes = bakeHashes(sceneEntities.map((e): BakeHashEntity => bakeHashEntity(e, (id) => client.getBlockLayers().get(id)?.chunks)));
   const skyTurn = skyTurnDegrees(client.getSceneEnvironment(sceneId)?.sky);
   const createdAt = new Date().toISOString();
-  const surface: SurfaceBake = {
-    createdAt,
-    files: ids,
-    level: ran.saved.level,
-    tiles: saved.tiles.length,
-    pages: ran.saved.pages,
-    probes: saved.probes.reduce((n, p) => n + p.validity.length, 0),
-    bytes,
-    millis: ran.millis,
-    lightsHash: hashes.lightsHash,
-    staticsHash: hashes.staticsHash,
-    ...(skyTurn !== 0 ? { skyRotation: skyTurn } : {}),
+  const record = (ids: string[], bytes: number): LightingBake => {
+    const surface: SurfaceBake = {
+      createdAt,
+      files: ids,
+      level: saved.level,
+      tiles: saved.tiles.length,
+      pages: saved.pages,
+      probes: saved.probes.reduce((n, p) => n + p.validity.length, 0),
+      bytes,
+      millis: ran.millis,
+      lightsHash: hashes.lightsHash,
+      staticsHash: hashes.staticsHash,
+      ...(skyTurn !== 0 ? { skyRotation: skyTurn } : {}),
+    };
+    // The baked lights leave per-pixel drawing while the bake is used (the cache holds their light).
+    const bakedLights = sceneEntities.filter((e) => e.active && (e.light as { mode?: string } | undefined)?.mode === 'baked').map((e) => e.id);
+    const bake: LightingBake = {
+      bakeId: `bake-${Date.now().toString(36)}`,
+      createdAt,
+      source: 'cache',
+      range: 1,
+      texelsPerMeter: 1 / (SURFACE_TEXEL_METRES * 2 ** saved.level),
+      samples: 1,
+      bounces: 0,
+      atlases: [],
+      entries: [],
+      bakedLights,
+      lightsHash: hashes.lightsHash,
+      staticsHash: hashes.staticsHash,
+      surface,
+    };
+    return bake;
   };
-  // The baked lights leave per-pixel drawing while the bake is used (the cache holds their light).
-  const bakedLights = sceneEntities.filter((e) => e.active && (e.light as { mode?: string } | undefined)?.mode === 'baked').map((e) => e.id);
-  const bake: LightingBake = {
-    bakeId: `bake-${Date.now().toString(36)}`,
-    createdAt,
-    source: 'cache',
-    range: 1,
-    texelsPerMeter: 1 / (SURFACE_TEXEL_METRES * 2 ** ran.saved.level),
-    samples: 1,
-    bounces: 0,
-    atlases: [],
-    entries: [],
-    bakedLights,
-    lightsHash: hashes.lightsHash,
-    staticsHash: hashes.staticsHash,
-    surface,
-  };
-  const res = await client.command('setLighting', { sceneId, lighting: bake }, client.projection.revision);
-  if (!res.ok) return { ok: false, message: `the bake was refused: ${(res.response as { message?: string }).message ?? 'unknown'}` };
+  const done = await saveLightingBakeFiles(
+    {
+      publish: (bytes, name) => publishFileAsset(client, bytes, name, 'lighting file'),
+      setLighting: async (lighting) => {
+        const res = await client.command('setLighting', { sceneId, lighting }, client.projection.revision);
+        return res.ok ? null : { message: (res.response as { message?: string }).message ?? 'unknown' };
+      },
+      remove: async (assetId) => {
+        await client.command('deleteAsset', { assetId }, client.projection.revision);
+      },
+    },
+    { files, name: `lighting ${deps.sceneName}`, previous: previous?.surface?.files ?? [], record, onProgress: (i, n) => deps.onProgress(`saving ${i + 1}/${n}`, 0.9 + (0.1 * i) / n) },
+  );
+  if (!done.ok) return done;
   deps.onProgress('done', 1);
-  return { ok: true, bake, millis: ran.millis };
+  return { ok: true, bake: done.bake, millis: ran.millis };
 }
 
 /** Whether a scene's saved lighting no longer matches its static objects, baked or mixed lights or the sky's turn (it is still drawn). */

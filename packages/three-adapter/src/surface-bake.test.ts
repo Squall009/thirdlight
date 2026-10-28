@@ -17,6 +17,8 @@ import { opaqueByBlockTypes } from './tracer-sources';
 import { SURFACE_READ, lookupSurfaceCpu, packSurfaceLookup } from './surface-cache-lookup';
 import { decodeSavedSurface, encodeSavedSurface, savedSurfaceFiles, savedSurfaceFromFiles, type SavedSurfaceLight } from './surface-bake-file';
 import { emptyPackedProbeTile } from './probe-pack';
+import { ownSavedLight, surfaceKeyOwner } from './adapter-surface-bake';
+import { GLOW_LIGHT_MARK } from './surface-highlights';
 import type { SavedSurfaceTile } from './surface-cache';
 import type { CacheLight } from './surface-changes';
 
@@ -180,8 +182,11 @@ describe('saved lighting', () => {
       const g = grids.get(key);
       return g === undefined ? null : { min: g.min, max: g.max, resolution: g.resolution, read: (_l, light) => (light.set(probeLight), { filled: false }) };
     } });
+    const layout = live.probes.layout;
     live.update([10, 2, 10], (t += 50));
     expect(live.seeding.seededProbes).toBeGreaterThan(0);
+    // Probes that took saved light are laid out again: the GPU's records are uploaded only on a new layout.
+    expect(live.probes.layout).not.toBe(layout);
     const P = live.probes.positions;
     let staleFar = 0;
     let lit = 0;
@@ -196,6 +201,95 @@ describe('saved lighting', () => {
     expect(staleFar).toBe(0);
     expect(live.probes.diagnostics().stale).toBeLessThan(lit);
     expect(live.probes.diagnostics().stale).toBeGreaterThan(0);
+  });
+
+  it('a live start marks round what the scene lost or gained since the bake: a tile gone (where its saved box was), a tile new', () => {
+    const floorLayer: SurfaceHostLayer = { id: 'floor', origin: [0, 0, 0], grid: floor(), version: 1, chunks: [['0,0', 1], ['1,0', 1], ['0,1', 1], ['1,1', 1]], opaque: OPAQUE };
+    const pillar = new BlockGrid({ cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [4, 4, 4] } });
+    for (let y = 0; y < 4; y += 1) pillar.set(0, y, 0, { block: 'rock' });
+    const pillarAt = (id: string, origin: number[]): SurfaceHostLayer => ({ id, origin, grid: pillar, version: 1, chunks: [['0,0', 1]], opaque: OPAQUE });
+    const hostOf = (layers: SurfaceHostLayer[], relightMs: number): SurfaceCacheHost => new SurfaceCacheHost({ layers: () => layers, terrains: () => [], architecture: () => [], models: () => [], bricks: () => null }, 64 * 1024 * 1024, relightMs);
+    // Baked: the floor with a pillar on it.
+    const baking = hostOf([floorLayer, pillarAt('pillar', [2, 1, 2])], 0);
+    settle(baking, [500, 50, 500]);
+    baking.cache.setBakeLevel(0);
+    settle(baking, [500, 50, 500]);
+    const tiles = baking.savedTiles();
+    expect(tiles.find((t) => t.key.startsWith('pillar/'))?.min).toBeDefined();
+    const pages = Math.max(...tiles.flatMap((t) => t.blocks.map((b) => b.page))) + 1;
+    const texels = pattern(pages);
+    /** A live host of `layers` started from the bake. */
+    const liveFrom = (layers: SurfaceHostLayer[]): SurfaceCacheHost => {
+      const live = hostOf(layers, 1.5);
+      settle(live, [10, 2, 10], false);
+      live.setLive(true);
+      live.seeding.set({ tiles: new Map<string, SavedSurfaceTile>(tiles.map((t) => [t.key, t])), texels, probes: () => null, lights: [] });
+      live.update([10, 2, 10]);
+      expect(live.seeding.seededTiles).toBeGreaterThan(0);
+      return live;
+    };
+    const waitsNear = (live: SurfaceCacheHost, p: number[]): boolean => {
+      const planned = new Set(live.slicesThisFrame().map((sl) => sl.unit.key));
+      const units = live.relight.unitsNear(p, 1).filter((k) => k.startsWith('floor/'));
+      expect(units.length, `units near ${p.join(',')}`).toBeGreaterThan(0);
+      return units.every((k) => live.relight.isStale(k) || planned.has(k));
+    };
+    // The pillar gone: the floor where it stood is lit again (it was saved in the pillar's shadow and bounce), the far corner keeps the bake.
+    const gone = liveFrom([floorLayer]);
+    expect(waitsNear(gone, [3.5, 1, 3.5])).toBe(true);
+    expect(waitsNear(gone, [19.5, 1, 19.5])).toBe(false);
+    // A second pillar added: the floor round it is lit again, the floor far from both keeps the bake.
+    const added = liveFrom([floorLayer, pillarAt('pillar', [2, 1, 2]), pillarAt('pillar-2', [15, 1, 15])]);
+    expect(waitsNear(added, [16.5, 1, 16.5])).toBe(true);
+    expect(waitsNear(added, [3.5, 1, 12])).toBe(false);
+    // As baked: neither waits.
+    const same = liveFrom([floorLayer, pillarAt('pillar', [2, 1, 2])]);
+    expect(waitsNear(same, [3.5, 1, 3.5])).toBe(false);
+    expect(waitsNear(same, [16.5, 1, 16.5])).toBe(false);
+  });
+
+  it('saves one scene of the loaded ones: its tiles on their own pages, the probes over them, its own lights', () => {
+    // Two scenes open: a floor (this scene) and a yard 100 m off (another scene), lit together at one level.
+    const yard = floor();
+    const layers: SurfaceHostLayer[] = [
+      { id: 'floor', origin: [0, 0, 0], grid: floor(), version: 1, chunks: [['0,0', 1], ['1,0', 1], ['0,1', 1], ['1,1', 1]], opaque: OPAQUE },
+      { id: 'yard', origin: [100, 0, 0], grid: yard, version: 1, chunks: [['0,0', 1], ['1,0', 1], ['0,1', 1], ['1,1', 1]], opaque: OPAQUE },
+    ];
+    const baking = new SurfaceCacheHost({ layers: () => layers, terrains: () => [], architecture: () => [], models: () => [], bricks: () => null }, 64 * 1024 * 1024, 0);
+    settle(baking, [500, 50, 500]);
+    baking.cache.setBakeLevel(0);
+    settle(baking, [500, 50, 500]);
+    const owns = (id: string): boolean => id === 'floor';
+    const tiles = baking.savedTiles();
+    expect(new Set(tiles.map((t) => surfaceKeyOwner(t.key)))).toEqual(new Set(['floor', 'yard']));
+    const pages = Math.max(...tiles.flatMap((t) => t.blocks.map((b) => b.page))) + 1;
+    const texels = pattern(pages);
+    const probe = (key: string, x: number): SavedSurfaceLight['probes'][number] => ({ key, min: [x, 0, 0], max: [x + 6, 6, 6], resolution: [4, 4, 4], brick: true, validity: new Float32Array(64).fill(1), data: emptyPackedProbeTile([4, 4, 4]).data });
+    const own = (baking.preparedTiles() ?? []).filter((t) => owns(surfaceKeyOwner(t.key)));
+    const mine = tiles.filter((t) => owns(surfaceKeyOwner(t.key)));
+    const all: SavedSurfaceLight = {
+      level: 0,
+      pages,
+      texels,
+      tiles: mine,
+      probes: [probe('live:b0:0,0,0', 0), probe('live:b0:16,0,0', 100)],
+      lights: [lamp('lamp-floor', [5, 1.5, 5], 'baked'), lamp('lamp-yard', [105, 1.5, 5], 'baked'), lamp(`floor${GLOW_LIGHT_MARK}0+`, [8, 1, 8], 'baked')],
+    };
+    const part = ownSavedLight(all, own, (id) => id === 'floor' || id === 'lamp-floor');
+    expect(part.tiles.map((t) => t.key).sort()).toEqual(mine.map((t) => t.key).sort());
+    expect(part.probes.map((p) => p.key)).toEqual(['live:b0:0,0,0']);
+    expect(part.lights?.map((l) => l.id)).toEqual(['lamp-floor', `floor${GLOW_LIGHT_MARK}0+`]);
+    // Only the pages its tiles are on, packed in order; each block holds the texels it was lit with.
+    const used = new Set(mine.flatMap((t) => t.blocks.map((b) => b.page)));
+    expect(part.pages).toBe(used.size);
+    expect(part.pages).toBeLessThan(pages);
+    const halves = SURFACE_PAGE_TEXELS * SURFACE_PAGE_TEXELS * 4;
+    const at = (tx: Uint16Array, page: number, x: number, y: number): number[] => [...tx.subarray(page * halves + (y * SURFACE_PAGE_TEXELS + x) * 4, page * halves + (y * SURFACE_PAGE_TEXELS + x) * 4 + 4)];
+    mine.forEach((t, i) => t.blocks.forEach((b, j) => {
+      const nb = part.tiles[i]!.blocks[j]!;
+      expect(nb.page).toBeLessThan(part.pages);
+      for (const [dx, dy] of [[0, 0], [b.side - 1, b.side - 1]]) expect(at(part.texels, nb.page, nb.x + dx!, nb.y + dy!)).toEqual(at(texels, b.page, b.x + dx!, b.y + dy!));
+    }));
   });
 
   it('does not draw a tile from the bake once its geometry changed (it keeps its per-pixel light), and refuses a damaged file', async () => {

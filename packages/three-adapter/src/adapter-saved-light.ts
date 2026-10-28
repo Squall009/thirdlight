@@ -94,7 +94,7 @@ function merged(ready: readonly [string, SavedSurfaceLight][]): { texels: Uint16
   let at = 0;
   for (const [sceneId, s] of ready) {
     texels.set(s.texels, at * pageHalves);
-    for (const t of s.tiles) tiles.set(t.key, { digest: t.digest, level: t.level, blocks: t.blocks.map((b) => ({ ...b, page: b.page + at })) });
+    for (const t of s.tiles) tiles.set(t.key, { digest: t.digest, level: t.level, blocks: t.blocks.map((b) => ({ ...b, page: b.page + at })), ...(t.min !== undefined && t.max !== undefined ? { min: t.min, max: t.max } : {}) });
     for (const p of s.probes) {
       const [nx, ny] = p.resolution;
       probeTiles.push({ key: `saved:${sceneId}:${p.key}`, sceneId, grid: { min: [...p.min], max: [...p.max], resolution: [...p.resolution], asset: '' }, packed: { data: p.data, nx, ny, depth: p.data.length / (nx * ny * 4) }, validity: p.validity, ...(p.brick ? { brick: true } : {}) });
@@ -275,7 +275,7 @@ export class AdapterSavedLight {
     const key = `${this.host.traceVersion}/${this.host.residencyVersion}`;
     const now = performance.now();
     if (key !== this.lookupFor && now - this.lookupAt >= LOOKUP_MS) {
-      const words = packSurfaceLookup(this.host.resolveScene().scene, this.host.cache, (owner) => this.host.modelSlots.peek(owner));
+      const words = packSurfaceLookup(this.host.resolveScene().scene, this.host.cache, (tileKey) => this.host.modelSlots.peek(tileKey));
       // The lookup's header and first records are uniforms of the reading programs, which keep the values they were
       // first drawn with: a header that changed once the textures are read takes textures of its own (new programs).
       const head = uniformWords(words);

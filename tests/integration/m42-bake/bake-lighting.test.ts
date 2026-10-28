@@ -9,7 +9,10 @@
  * agent gets the editor's answer; the project's bake names the files; the
  * export ships them and the files read back from the export are the saved
  * light. A scene the project lacks, and a second bake while one runs, are
- * refused.
+ * refused. The editor's own save steps (`saveLightingBakeFiles`) run
+ * against the backend's commands: a refused record leaves the previous
+ * bake and its files whole, a taken one lets the previous files go, and
+ * undo brings the previous record back with its own files.
  */
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
@@ -40,6 +43,8 @@ import { SurfaceCacheHost } from '../../../packages/three-adapter/src/surface-ca
 import { opaqueByBlockTypes } from '../../../packages/three-adapter/src/tracer-sources';
 import { encodeSavedSurface, savedSurfaceFiles, savedSurfaceFromFiles, type SavedSurfaceLight } from '../../../packages/three-adapter/src/surface-bake-file';
 import { SURFACE_PAGE_TEXELS } from '../../../packages/three-adapter/src/surface-cache-atlas';
+import { saveLightingBakeFiles, type BakeSaveCommands } from '../../../packages/editor/src/viewport/lighting-bake-save';
+import type { LightingBake } from '../../../packages/project-model/src/index';
 
 let root: DisposableRoot;
 let bp: BackendProcess;
@@ -176,4 +181,56 @@ describe('Bake lighting (real stdio MCP, real backend, real WS, real files)', ()
     expect(r.isError).toBe(true);
     expect(JSON.stringify(r.body)).toContain('scene_not_open');
   }, 60_000);
+
+  it('saves through the editor\'s steps: new files each bake, the previous let go only once the record is taken, undo whole', async () => {
+    const command = async (body: Record<string, unknown>): Promise<Record<string, unknown>> => (await http(`${bp.origin}/api/v1/projects/${CONTENT_PROJECT}/commands`, { body: { ...body, projectId: CONTENT_PROJECT }, token: AUTH_TOKEN })).body as Record<string, unknown>;
+    const filesOf = async (): Promise<string[]> => ((await command({ op: 'queryGameConfig' })) as { lighting: Record<string, { surface?: { files: string[] } }> }).lighting[SCENE]?.surface?.files ?? [];
+    const assets = async (ids: readonly string[]): Promise<Map<string, unknown>> => new Map(((await command({ op: 'queryAssets', args: { ids } })).assets as { assetId: string }[]).map((a) => [a.assetId, a]));
+    let n = 0;
+    const commands = (scene: string): BakeSaveCommands => ({
+      publish: async (png, displayName) => {
+        const up = await mcpOk('tl_content_upload', { dataBase64: base64(png), kind: 'texture' });
+        const p = up.proposal as Record<string, unknown>;
+        const assetId = `asset-bake-${(n += 1)}`;
+        await mcpOk('tl_command', { op: 'publishAsset', expectedRevision: await revision(), args: { mode: 'create', kind: 'texture', assetId, displayName, sourceDigest: p.sourceDigest, sourceByteLength: p.sourceByteLength, importRecipe: p.importRecipe, metrics: p.metrics, importedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z') } });
+        return assetId;
+      },
+      setLighting: async (lighting) => {
+        const r = await mcp.call('tl_command', { op: 'setLighting', expectedRevision: await revision(), args: { sceneId: scene, lighting } });
+        return r.isError ? { message: JSON.stringify(r.body).slice(0, 200) } : null;
+      },
+      remove: async (assetId) => {
+        await mcp.call('tl_command', { op: 'deleteAsset', expectedRevision: await revision(), args: { assetId } });
+      },
+    });
+    const hash = '0123456789abcdef';
+    const record = (files: string[], bytes: number): LightingBake => {
+      const createdAt = new Date().toISOString();
+      return { bakeId: `bake-${n}`, createdAt, source: 'cache', range: 1, texelsPerMeter: 10, samples: 1, bounces: 0, atlases: [], entries: [], bakedLights: [], lightsHash: hash, staticsHash: hash, surface: { createdAt, files, level: 0, tiles: 1, pages: 1, probes: 0, bytes, millis: 1, lightsHash: hash, staticsHash: hash } };
+    };
+    const files = await savedSurfaceFiles(encodeSavedSurface(bakedFloor()));
+    const save = (scene: string, previous: string[]): ReturnType<typeof saveLightingBakeFiles> => saveLightingBakeFiles(commands(scene), { files, name: 'lighting main', previous, record });
+
+    const first = await filesOf();
+    expect(first.length).toBeGreaterThan(0);
+    const before = await assets(first);
+    expect(before.size).toBe(first.length);
+    // A record the backend refuses: the previous bake keeps its files as they were, and what this save published goes.
+    const refused = await save('scene-none', first);
+    expect(refused.ok).toBe(false);
+    expect(await filesOf()).toEqual(first);
+    expect(await assets(first)).toEqual(before);
+    expect((await assets([`asset-bake-${n}`])).size).toBe(0);
+    // Taken: new assets, the previous ones let go.
+    const taken = await save(SCENE, first);
+    expect(taken.ok).toBe(true);
+    const second = await filesOf();
+    expect(second.some((id) => first.includes(id))).toBe(false);
+    expect((await assets(second)).size).toBe(second.length);
+    expect((await assets(first)).size).toBe(0);
+    // Undo (the deletes, then the record): the previous record with its own files, untouched.
+    for (let i = 0; i <= first.length; i += 1) await mcpOk('tl_command', { op: 'undo', expectedRevision: await revision(), args: {} });
+    expect(await filesOf()).toEqual(first);
+    expect(await assets(first)).toEqual(before);
+  }, 120_000);
 });

@@ -24,12 +24,15 @@ import { TERRAIN_RING_BYTES, TerrainRings, terrainRingsNeeded, type RingTexel, t
 
 /**
  * A tile as a saved bake holds it: what its charts were (`digest`), the
- * level it was lit at and its blocks of the saved pages.
+ * level it was lit at, its blocks of the saved pages and its box (absent
+ * in files saved before boxes were: where a tile gone since stood).
  */
 export interface SavedSurfaceTile {
   readonly digest: string;
   readonly level: number;
   readonly blocks: readonly AtlasBlock[];
+  readonly min?: readonly number[];
+  readonly max?: readonly number[];
 }
 
 /** At most this share of the budget goes to terrain rings. */
@@ -194,12 +197,15 @@ export class SurfaceCache {
 
   /** The finest level at which every one of `tiles` fits `bytes` of pages (null: none fits even at the coarsest). */
   fitLevel(tiles: readonly SurfaceTile[], bytes: number): number | null {
-    for (let l = 0; l < SURFACE_LEVELS; l += 1) {
-      let sum = 0;
-      for (const t of tiles) sum += this.packingOf(t, l).packing.bytes;
-      if (sum <= bytes) return l;
-    }
+    for (let l = 0; l < SURFACE_LEVELS; l += 1) if (this.bytesAt(tiles, l) <= bytes) return l;
     return null;
+  }
+
+  /** The bytes of pages `tiles` take at `level`. */
+  bytesAt(tiles: readonly SurfaceTile[], level: number): number {
+    let sum = 0;
+    for (const t of tiles) sum += this.packingOf(t, level).packing.bytes;
+    return sum;
   }
 
   /** A tile's charts and box as one digest: a saved tile is drawn only on the charts it was lit with. */

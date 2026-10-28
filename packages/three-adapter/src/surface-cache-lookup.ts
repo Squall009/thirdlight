@@ -363,27 +363,23 @@ function surfelHashOf(tile: ModelTile, k: number): SurfelHash {
   }
 }
 
-/** Static models' slots and records: per slot the placement and its resident pieces with surfels. */
-function packModels(t: Texels, models: readonly ModelTile[], resident: ReadonlyMap<string, Resident>, slotOf: (owner: string) => number | undefined): void {
-  const bySlot = new Map<number, ModelTile[]>();
+/** Static models' slots and records: per slot (one placed piece) its placement and surfels or UV1 chart. */
+function packModels(t: Texels, models: readonly ModelTile[], resident: ReadonlyMap<string, Resident>, slotOf: (key: string) => number | undefined): void {
+  const bySlot = new Map<number, ModelTile>();
   let top = 0;
   for (const tile of models) {
     if (tile.chart === null || tile.set.surfels === null || !resident.has(tile.key)) continue;
-    const slot = slotOf(tile.owner);
+    const slot = slotOf(tile.key);
     if (slot === undefined || slot <= 0) continue;
-    const list = bySlot.get(slot);
-    if (list === undefined) bySlot.set(slot, [tile]);
-    else list.push(tile);
+    bySlot.set(slot, tile);
     top = Math.max(top, slot);
   }
   const table = t.alloc((top + 1) * SLOT_TEXELS);
   t.setU(1, 2, top + 1);
   t.setU(1, 3, table);
   const hashes = new Map<object, number>();
-  for (const [slot, tiles] of bySlot) {
+  for (const [slot, tile] of bySlot) {
     const rec = table + slot * SLOT_TEXELS;
-    // A model placed whole with several pieces: its first piece is read (the others keep the probes' and their own lights).
-    const tile = tiles[0]!;
     const w = tile.worldToLocal;
     for (let r = 0; r < 3; r += 1) for (let k = 0; k < 4; k += 1) t.setF(rec + r, k, w[r * 4 + k]!);
     // A world normal's direction in the root: the root → world map's linear part, transposed (its columns as rows).
@@ -414,9 +410,9 @@ function packModels(t: Texels, models: readonly ModelTile[], resident: ReadonlyM
 /**
  * The lookup's words for `scene` with what `cache` holds resident now
  * (packed again when residency changes); `slotOf`: the slot a placed
- * model's drawn copies carry (`ModelTile.owner`; none: its pieces are not read).
+ * model piece's drawn copies carry, by its tile key (`ModelTile.key`; none: the piece is not read).
  */
-export function packSurfaceLookup(scene: SurfaceScene, cache: SurfaceCache, slotOf: (owner: string) => number | undefined = () => undefined): Uint32Array {
+export function packSurfaceLookup(scene: SurfaceScene, cache: SurfaceCache, slotOf: (key: string) => number | undefined = () => undefined): Uint32Array {
   const t = new Texels();
   t.alloc(2);
   const view = scene.resolveView();

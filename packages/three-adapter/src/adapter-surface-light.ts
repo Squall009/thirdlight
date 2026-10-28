@@ -240,7 +240,7 @@ export class AdapterSurfaceLight {
     const key = `${this.host.traceVersion}/${this.host.residencyVersion}/${this.host.modelSlots.version}`;
     const now = performance.now();
     if (key !== this.lookupFor && now - this.lookupAt >= LOOKUP_MS) {
-      tex.setTable(packSurfaceLookup(this.host.resolveScene().scene, this.host.cache, (owner) => this.host.modelSlots.peek(owner)));
+      tex.setTable(packSurfaceLookup(this.host.resolveScene().scene, this.host.cache, (tileKey) => this.host.modelSlots.peek(tileKey)));
       this.lookupFor = key;
       this.lookupAt = now;
     }

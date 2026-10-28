@@ -69,7 +69,7 @@ export function surfaceReadOf(object: THREE.Object3D, scene: THREE.Object3D): { 
 /** Whether a reading build writes its surface's colour (a capture frame's program: a draw that writes cannot skip hidden pixels early). */
 export const SURFACE_READ_CAPTURE = 'tlSurfaceReadCapture';
 
-/** `mesh.userData[SURFACE_SLOT_KEY]`: a static model's slot (`SurfaceModelSlots`), whose record its pixels read. */
+/** `mesh.userData[SURFACE_SLOT_KEY]`: a static model piece's slot (`SurfaceModelSlots`), whose record its pixels read. */
 export const SURFACE_SLOT_KEY = '__tlSurfaceSlot';
 /** A merged cell's vertex attribute: each member's slot (float). */
 export const SURFACE_SLOT_ATTRIBUTE = 'tlSurfaceSlot';

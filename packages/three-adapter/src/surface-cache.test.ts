@@ -5,6 +5,7 @@
  * import builds them) packed for the CPU tracer, traced rays' hits resolved
  * to texels, and the atlas checked texel by texel.
  */
+import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { BlockGrid, TerrainField, buildDistanceBrickSet, encodeDistanceBricks, type ArchitectureComponent, type BlockType, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
 
@@ -13,7 +14,12 @@ import { blockChunkCharts } from './surface-cache-blocks';
 import { SurfaceCache, surfaceLevelFor, type SurfaceTexel, type SurfaceTile } from './surface-cache';
 import { surfelLevelFor } from './surface-cache-atlas';
 import { invertAffine } from './tracer-words';
-import { SurfaceCacheHost, SURFACE_PREPARE_MS } from './surface-cache-host';
+import { SurfaceCacheHost, SurfaceModelSlots, SURFACE_PREPARE_MS } from './surface-cache-host';
+import { markStaticModelRead } from './adapter-surface-cache';
+import type { EntityDoc } from './adapter-entities';
+import type { SceneAdapterOptions } from './adapter-types';
+import { MODEL_PIECE_KEY, tagModelPieces } from './pieces';
+import { surfaceSlotOf } from './surface-cache-read';
 import { SurfaceScene, type ArchTile, type BlockTile, type ModelTile, type SurfaceSceneInput } from './surface-cache-scene';
 import { TERRAIN_RING_BYTES } from './surface-cache-terrain';
 import { traceRayCpu, sceneView, type V3 } from './tracer-cpu';
@@ -359,7 +365,7 @@ describe('surface cache: addressing per kind', () => {
     const scene = new SurfaceScene(sceneInput());
     const cache = new SurfaceCache(256 * 1024 * 1024);
     cache.update([10, 3, 0], scene.tiles, scene.terrains, true);
-    const slots = new Map([['crate-surfels', 1], ['crate-uv1', 2]]);
+    const slots = new Map([['crate-surfels/', 1], ['crate-uv1/', 2]]);
     const words = packSurfaceLookup(scene, cache, (owner) => slots.get(owner));
     const r = rng(3);
     for (const [owner, uv1] of [['crate-surfels', false], ['crate-uv1', true]] as const) {
@@ -390,7 +396,7 @@ describe('surface cache: addressing per kind', () => {
           const t = tri.map((k) => [mesh.uv1![k * 2]!, mesh.uv1![k * 2 + 1]!]) as [number[], number[], number[]];
           return [0, 1].map((k) => t[0]![k]! + (t[1]![k]! - t[0]![k]!) * a + (t[2]![k]! - t[0]![k]!) * b);
         })() : undefined;
-        const got = lookupSurfaceCpu(words, SURFACE_READ.model, wp, wn, { slot: slots.get(owner)!, ...(uv !== undefined ? { uv1: uv } : {}) });
+        const got = lookupSurfaceCpu(words, SURFACE_READ.model, wp, wn, { slot: slots.get(`${owner}/`)!, ...(uv !== undefined ? { uv1: uv } : {}) });
         tried += 1;
         if (got === null) {
           missed += 1;
@@ -426,8 +432,62 @@ describe('surface cache: addressing per kind', () => {
     // No slot, another object's slot gone, or a slot past the table: nothing.
     expect(lookupSurfaceCpu(words, SURFACE_READ.model, [30, 1.5, 6], [0, 1, 0], { slot: 0 })).toBeNull();
     expect(lookupSurfaceCpu(words, SURFACE_READ.model, [30, 1.5, 6], [0, 1, 0], { slot: 9 })).toBeNull();
-    const without = packSurfaceLookup(scene, cache, (owner) => (owner === 'crate-uv1' ? 2 : undefined));
+    const without = packSurfaceLookup(scene, cache, (key) => (key === 'crate-uv1/' ? 2 : undefined));
     expect(lookupSurfaceCpu(without, SURFACE_READ.model, [30, 1.5, 6], [0, 1, 0], { slot: 1 })).toBeNull();
+  });
+
+  it('each piece of a model placed whole reads its own piece\'s light: one slot per piece, named as its file names it', () => {
+    // A file of two pieces side by side, as an import builds its distance-field file (one set per top-level piece).
+    const shifted = (dx: number): ReturnType<typeof crate> => {
+      const c = crate(false);
+      return { ...c, positions: c.positions.map((p) => [p[0] + dx, p[1], p[2]] as V3) };
+    };
+    const input = sceneInput();
+    const bricks = { sets: [buildDistanceBrickSet('a', [shifted(0)])!, buildDistanceBrickSet('b', [shifted(4)])!] };
+    const scene = new SurfaceScene({ ...input, models: [...input.models!, { key: 'shelf', worldToLocal: worldToLocalOf([30, 1, 14], [0, 0, 0, 1], [1, 1, 1]), bricks, version: 1 }] });
+    const cache = new SurfaceCache(256 * 1024 * 1024);
+    cache.update([10, 3, 0], scene.tiles, scene.terrains, true);
+    // The realized file: its top-level nodes are its pieces; each mesh is named with its piece while the file is whole.
+    const root = new THREE.Group();
+    for (const [name, dx] of [['a', 0], ['b', 4]] as const) {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(2, 0.8, 1.2), new THREE.MeshBasicMaterial());
+      mesh.name = name;
+      mesh.position.set(dx, 0.4, 0);
+      root.add(mesh);
+    }
+    tagModelPieces(root);
+    const host = { modelSlots: new SurfaceModelSlots() } as unknown as SurfaceCacheHost;
+    const opts = { models: { assets: [{ assetId: 'shelf-glb', bricks: true }] } } as unknown as SceneAdapterOptions;
+    const docs = new Map([['shelf', { components: { model: { asset: { assetId: 'shelf-glb' } } } }]]) as unknown as ReadonlyMap<string, EntityDoc>;
+    markStaticModelRead(host, opts, docs, 'shelf', root);
+    const [ma, mb] = root.children as THREE.Mesh[];
+    expect(surfaceSlotOf(ma!)).toBeGreaterThan(0);
+    expect(surfaceSlotOf(mb!)).not.toBe(surfaceSlotOf(ma!));
+    const words = packSurfaceLookup(scene, cache, (key) => host.modelSlots.peek(key));
+    for (const [piece, mesh, x] of [['a', ma!, 30], ['b', mb!, 34]] as const) {
+      const key = `shelf/${piece}`;
+      const tile = scene.tiles.find((t) => t.key === key) as ModelTile;
+      const k = surfelLevelFor(tile.chart as unknown as { levels: number[]; spacing: number }, cache.levelOf(key)!);
+      const own = new Set<string>();
+      for (let j = 0; j < (tile.set.surfels!.levels[k] ?? 0); j += 1) {
+        const t = cache.texelOf(key, 0, { index: j }) as { page: number; x: number; y: number };
+        own.add(`${t.page}/${t.x}/${t.y}`);
+      }
+      // Points over the piece's top: each reads a texel of its own piece's surfels.
+      let found = 0;
+      for (const [dx, dz] of [[-0.5, -0.3], [0, 0], [0.5, 0.3], [0.7, -0.2]] as const) {
+        const got = lookupSurfaceCpu(words, SURFACE_READ.model, [x + dx, 1.8, 14 + dz], [0, 1, 0], { slot: surfaceSlotOf(mesh) });
+        if (got === null) continue;
+        found += 1;
+        expect(own.has(`${got.layer}/${Math.floor(got.x)}/${Math.floor(got.y)}`), `${piece} at ${dx},${dz}`).toBe(true);
+      }
+      expect(found, piece).toBeGreaterThanOrEqual(3);
+    }
+    // A file of one piece (its levels and collider under one name) is named as its file names it: ''.
+    const one = new THREE.Group();
+    for (const name of ['rock_LOD0', 'rock_LOD1', 'rock_COL']) one.add(Object.assign(new THREE.Mesh(new THREE.BoxGeometry()), { name }));
+    tagModelPieces(one);
+    expect(one.children.map((c) => c.userData[MODEL_PIECE_KEY])).toEqual(['', '', '']);
   });
 
   it('every texel\'s point lies on its own texel: a ray onto it resolves back to it, for every kind', () => {
@@ -692,19 +752,21 @@ describe('surface cache on the page', () => {
     expect(small.usedBytes).toBeLessThanOrEqual(small.budgetBytes);
   });
 
-  it('static models\' slots are kept per object and used again once it leaves', () => {
+  it('static models\' slots are kept per piece of an object and used again once it leaves', () => {
     const alive = new Set(['a', 'b']);
     const host = new SurfaceCacheHost({ layers: () => [], terrains: () => [], architecture: () => [], models: () => [], bricks: () => null, modelAlive: (id) => alive.has(id) }, 64 * 1024 * 1024);
-    // Slots: one per object for as long as it is in the scene, then used again.
+    // Slots: one per piece for as long as its object is in the scene, then used again.
     const slots = host.modelSlots;
-    const [a, b] = [slots.slotOf('a'), slots.slotOf('b')];
+    const [a, a2, b] = [slots.slotOf('a', ''), slots.slotOf('a', 'lid'), slots.slotOf('b', '')];
     expect(a).toBeGreaterThan(0);
-    expect(b).not.toBe(a);
-    expect(slots.slotOf('a')).toBe(a);
+    expect(new Set([a, a2, b]).size).toBe(3);
+    expect(slots.slotOf('a', '')).toBe(a);
+    expect(slots.peek('a/lid')).toBe(a2);
     alive.delete('a');
     host.touch();
     host.update([0, 2, 0]);
-    expect(slots.peek('a')).toBeUndefined();
-    expect(slots.slotOf('c')).toBe(a);
+    expect(slots.peek('a/')).toBeUndefined();
+    expect(slots.peek('a/lid')).toBeUndefined();
+    expect([slots.slotOf('c', ''), slots.slotOf('c', 'x')].sort()).toEqual([a, a2].sort());
   });
 });

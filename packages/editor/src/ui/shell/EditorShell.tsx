@@ -91,7 +91,7 @@ function makeBlockModeHost(m: EditorModel, via?: SessionClient): BlockModeHost {
         setNotice(`${file.name}: a block look is a GLB file (export glTF binary from the modelling tool).`);
         return null;
       }
-      const id = await publishFileAsset(c, new Uint8Array(await file.arrayBuffer()), file.name.replace(/\.[^.]+$/, ''), undefined, file.name, 'model');
+      const id = await publishFileAsset(c, new Uint8Array(await file.arrayBuffer()), file.name.replace(/\.[^.]+$/, ''), file.name, 'model');
       if (typeof id === 'string') return id;
       setNotice(id.message);
       return null;

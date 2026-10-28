@@ -11,9 +11,13 @@
  *   the saved texels lack is then marked stale on them: the direct light of
  *   `mixed` and `realtime` lights (a bake saves only `baked` lights' direct
  *   light) and of `baked` lights added, changed or gone since the bake.
- *   A tile whose charts changed since the bake is a geometry change (marked
- *   round it as any edit is), and the rest of the seed is let go: what it
- *   shadows or bounces onto was saved without it.
+ *   A tile whose charts changed since the bake, one listed now that the
+ *   bake did not save (an object added since) and one the bake saved that
+ *   is no longer listed (an object gone, where its saved box was) are
+ *   geometry changes, marked round them as any edit is: what they shadow
+ *   or bounce onto was saved without them (or with them). The marks are
+ *   made again after every tile or probe seeded later, so the saved light
+ *   seeded near a change never settles over it.
  * - **Probes.** Probes placed and never updated take their saved light
  *   (`LiveProbes.seed`); those `realtime` lights reach, and those of lights
  *   changed since the bake, are stale again.
@@ -55,6 +59,8 @@ export interface SurfaceSeedingDeps {
   readonly probes: LiveProbes;
   /** A ready tile by key. */
   tile(key: string): SurfaceTile | undefined;
+  /** The tiles listed now, once every surface of the loaded scenes is made (null until then). */
+  listed(): readonly SurfaceTile[] | null;
   /** A resident tile's unit keys. */
   unitsOf(key: string): readonly string[];
 }
@@ -67,6 +73,12 @@ export class SurfaceSeeding {
   /** The resident tiles wait for the seed (it came, or the light went live). */
   private residentDue = false;
   private probeLayout = -1;
+  /** Where the scenes differ from the seed (geometry changes since the bake; null: not compared yet). */
+  private changedBoxes: { min: readonly number[]; max: readonly number[] }[] | null = null;
+  /** Charts changed since the bake, found as tiles are seeded. */
+  private redrawn: { min: readonly number[]; max: readonly number[] }[] = [];
+  /** Light was seeded since the changes were last marked. */
+  private remark = false;
   /** Probes that took saved light (for the checks). */
   seededProbes = 0;
   /** Tiles that took saved light (for the checks). */
@@ -80,6 +92,8 @@ export class SurfaceSeeding {
     this.seed = seed;
     this.residentDue = true;
     this.probeLayout = -1;
+    this.changedBoxes = null;
+    this.redrawn = [];
   }
 
   /** While a bake runs nothing is seeded. */
@@ -118,9 +132,9 @@ export class SurfaceSeeding {
     const s = seed.tiles.get(key);
     if (s === undefined) return false;
     if (this.d.cache.digestOf(t) !== s.digest) {
-      // Changed since the bake: an edit's marks round it, and nothing further is seeded.
-      this.seed = null;
-      this.d.changes.geometryChanged(t.min, t.max);
+      // Changed since the bake: an edit's marks round it (made in `frame`); its own light starts over.
+      this.redrawn.push({ min: t.min, max: t.max });
+      this.remark = true;
       return false;
     }
     if (s.level !== r.level || s.blocks.length !== r.blocks.length || s.blocks.some((b, i) => b.side !== r.blocks[i]!.side)) return false;
@@ -129,12 +143,14 @@ export class SurfaceSeeding {
     for (const u of units) this.d.relight.settle(u);
     this.d.changes.markSinceBake(seed.lights, new Set(units));
     this.seededTiles += 1;
+    this.remark = true;
     return true;
   }
 
   /** Once a frame after the cache's units are synced: resident tiles waiting for the seed, and probes placed since. */
   frame(live: boolean): void {
     if (this.seed === null || this.held) return;
+    this.changedBoxes ??= this.compare(this.seed);
     if (live && this.residentDue) {
       this.residentDue = false;
       const keys: string[] = [];
@@ -142,12 +158,48 @@ export class SurfaceSeeding {
       for (const key of keys) this.tile(key);
     }
     const probes = this.d.probes;
-    if (this.seed !== null && probes.count > 0 && probes.layout !== this.probeLayout) {
-      this.probeLayout = probes.layout;
+    if (probes.count > 0 && probes.layout !== this.probeLayout) {
       const seed = this.seed;
       const n = probes.seed((key) => seed.probes(key));
-      if (n > 0) for (const m of this.d.changes.probeMarksSinceBake(seed.lights)) probes.markBox(m?.min ?? null, m?.max ?? null);
+      if (n > 0) {
+        for (const m of this.d.changes.probeMarksSinceBake(seed.lights)) probes.markBox(m?.min ?? null, m?.max ?? null);
+        this.remark = true;
+      }
+      // After the seed: probes that took saved light are laid out again (their records go to the GPU).
+      this.probeLayout = probes.layout;
       this.seededProbes += n;
     }
+    if (this.remark) {
+      this.remark = false;
+      // Every geometry change since the bake, marked over what was seeded (seeding settles what it lights).
+      for (const b of [...(this.changedBoxes ?? []), ...this.redrawn]) this.d.changes.geometryChanged(b.min, b.max);
+    }
+  }
+
+  /**
+   * The bake's tiles against those listed now: a box round each tile listed
+   * that the bake did not save, and round each saved tile no longer listed
+   * (a file saved without boxes: everywhere). Null until every surface is made.
+   */
+  private compare(seed: SurfaceSeed): { min: readonly number[]; max: readonly number[] }[] | null {
+    const listed = this.d.listed();
+    if (listed === null) return null;
+    const out: { min: readonly number[]; max: readonly number[] }[] = [];
+    const keys = new Set<string>();
+    for (const t of listed) {
+      keys.add(t.key);
+      if (!seed.tiles.has(t.key)) out.push({ min: t.min, max: t.max });
+    }
+    for (const [key, t] of seed.tiles) {
+      if (keys.has(key)) continue;
+      if (t.min !== undefined && t.max !== undefined) out.push({ min: t.min, max: t.max });
+      else {
+        // Where it stood is not known: every surface lit so far.
+        const b = this.d.relight.bounds();
+        if (b !== null) out.push(b);
+      }
+    }
+    if (out.length > 0) this.remark = true;
+    return out;
   }
 }
