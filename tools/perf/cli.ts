@@ -29,6 +29,7 @@
  *   tracer [options]               the lighting tracer per geometry kind on the GPU at the 60 Hz cap: cost per ray in random order and grouped, GPU hits against the CPU twin (tools/perf/tracer-run.ts)
  *   look [options]                 the look-reference scenes (a room lit through a door, a building at sunset, a corridor of rect and line lights, a sign at night) baked, measured at the 60 Hz cap and photographed on both renderers (tools/perf/look-run.ts)
  *   lights [options]               the many-lights class: 64, 256 and 1,000 point and spot lights (some shadowed, a few area lights) over a floor and pillars, at the 60 Hz cap on both renderers (tools/perf/lights-run.ts)
+ *   clusters [options]             the clustered light lists' CPU build and pack for the many-lights class's lights, main-thread ms and bytes uploaded a frame (tools/perf/cluster-bench.ts)
  *   look-accept [options]          the look scenes played: the starter character walking, a block dug, the sun run through the day, a lamp switched behind a shut door; frame windows and re-light times at the 60 Hz cap, shots and a webm per scene (tools/perf/look-accept.ts)
  */
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -105,6 +106,11 @@ if (argv[0] === 'look') {
 if (argv[0] === 'lights') {
   const { runLightsCli } = await import('./lights-run');
   await runLightsCli(argv.slice(1));
+  process.exit(0);
+}
+if (argv[0] === 'clusters') {
+  const { runClusterBenchCli } = await import('./cluster-bench');
+  await runClusterBenchCli(argv.slice(1));
   process.exit(0);
 }
 if (argv[0] === 'look-accept') {

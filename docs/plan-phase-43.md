@@ -213,6 +213,7 @@ boundaries; each is green on its own. 43.4 can run any time after 43.3a (it drop
 | Item | Status |
 |---|---|
 | 43.0b | done: full plan written (§2). |
+| 43.1a | done: `cluster-build.ts`, `cluster-pack.ts` (three-adapter exports), vitest `cluster-build.test.ts` (10k random lights, 0 false negatives, false-positive share 0.16; decode round-trip incl. long lists; overflow; render size). Bench `run.mjs clusters` (Node, Iris Xe host CPU, 3 × 600 frames): build + pack mean 0.08 / 0.23 / 0.91 ms at 64 / 256 / 1,000 (68 / 260 / 1,004 lights with the area lights; p95 0.08–0.14 / 0.24 / 0.96; budget 0.1 / 0.3 / 1.0: met on the mean, 64's p95 over in 2 of 3 rounds), upload 27 / 65 / 212 KB a frame (first frame 37 / 98 / 328 KB). Fast gate green (10 min, e2e smoke unchanged). |
 
 ## 4. Decision log
 
@@ -252,3 +253,20 @@ boundaries; each is green on its own. 43.4 can run any time after 43.3a (it drop
   unless 43.3a measures visible acne or peter-panning it cannot bias away;
   tier sides stay 2,048/4,096/8,192, so 8/32/128 MiB. High's 128 MiB atlas
   is kept for discrete GPUs.
+- 2026-10-28 (43.1a, default chosen, owner to confirm): (1) record slots as
+  packed: t2.w is the layer mask and t3.w the shadow record for every kind;
+  a spot's t3 is cos outer, cos inner, cookie; an area light's t2/t3 are its
+  half sides `u`, `v` (view) with `u × v` along its facing, a line's `v` the
+  `LINE_HIGHLIGHT_METRES` strip; t1.w = kind (2 bits) + two-sided bit +
+  8 × round(decay × 256). (2) A long list (≥ 1,023) keeps one header texel:
+  count 1,023 flags it and the list's first texel holds the real count, so a
+  header stays indexable by cell. (3) "Nearest" = the smallest centre
+  distance from the eye; it ranks first whatever its brightness. (4) The
+  list budget reserves two texels a cell (header, long-list count) off
+  `CLUSTER_INDEX_TEXELS`. (5) Area volume: within reach of the rect (or
+  segment), facing side only unless two-sided, reach measured from the
+  emitter. Notes for 43.1b: tiles are numbered from NDC (x right, y up), so
+  a fragment's y share must be flipped where the backend's screen origin is
+  top-left; the overflow console warning naming the scene is the frame's
+  job (the build only counts); the build's slice range (`sliceNear`,
+  `sliceFar`, `scale`, `bias`) changes every frame and goes in uniforms.

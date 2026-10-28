@@ -83,6 +83,43 @@ export {
   type ShadowReason,
 } from './lighting';
 // Which lights of the loaded scenes are on (lights-shadows.ts switches them; exported for tests and tools).
+// Clustered light lists: the CPU build and the data textures the light loop reads.
+export {
+  areaHitsBox,
+  CLUSTER_LINE,
+  CLUSTER_POINT,
+  CLUSTER_RECT,
+  CLUSTER_SLICE_NEAR,
+  CLUSTER_SLICES,
+  CLUSTER_SPOT,
+  CLUSTER_TILES_X,
+  CLUSTER_TWO_SIDED,
+  ClusterBuilder,
+  clusterIndex,
+  ClusterLights,
+  clusterSliceOf,
+  clusterTilesY,
+  sphereHitsBox,
+  spotHitsBox,
+  type ClusterBuild,
+  type ClusterCamera,
+  type ClusterGrid,
+  type ClusterLightKind,
+  type ClusterLightValue,
+} from './cluster-build';
+export {
+  CLUSTER_INDEX_MIB,
+  CLUSTER_INDEX_TEXELS,
+  CLUSTER_LIGHT_TEXELS,
+  CLUSTER_LONG_LIST,
+  CLUSTER_TEXTURE_WIDTH,
+  ClusterTextures,
+  decodeClusterCell,
+  decodeClusterLight,
+  decodeClusterList,
+  type ClusterPackResult,
+  type DecodedClusterLight,
+} from './cluster-pack';
 export { LOCAL_LIGHT_BUDGET, selectSceneLights, type SceneLightEntry, type SceneLightKind, type SceneLightSelection } from './scene-lights';
 // The runtime role selector and the bounded crossfade
 // (root subpath):
