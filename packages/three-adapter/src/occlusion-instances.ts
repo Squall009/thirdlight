@@ -840,7 +840,7 @@ export class InstanceOcclusion implements InstanceCullerHost {
         const py0 = px(TSL.float(0.5).sub(y1.mul(0.5)), H, fh).toVar();
         const py1 = px(TSL.float(0.5).sub(y0.mul(0.5)), H, fh).toVar();
         const span = TSL.max(px1.sub(px0), py1.sub(py0));
-        const l = TSL.select(span.greaterThan(0), TSL.uint(TSL.max(TSL.ceil(TSL.log2(TSL.float(span.add(1)))).sub(1), 0)), TSL.uint(0)).toVar();
+        const l = TSL.select(span.greaterThan(0), TSL.uint(TSL.max(TSL.ceil(TSL.log2(TSL.float(span.add(1)))).sub(2), 0)), TSL.uint(0)).toVar();
         TSL.If(px1.shiftRight(l.add(1)).sub(px0.shiftRight(l.add(1))).greaterThan(1).or(py1.shiftRight(l.add(1)).sub(py0.shiftRight(l.add(1))).greaterThan(1)), () => {
           l.addAssign(1);
         });

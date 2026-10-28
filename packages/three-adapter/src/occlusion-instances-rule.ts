@@ -203,10 +203,16 @@ export function depthOfViewZ(viewZ: number, t: Pick<SphereTest, 'near' | 'far' |
   return t.reversed ? 1 - d : d;
 }
 
-/** The pyramid level whose 2 × 2 texels cover pixel columns x0..x1 and rows y0..y1 (each texel of level L covers 2^(L+1) pixels a side). */
+/**
+ * The finest pyramid level whose 2 × 2 texels cover pixel columns x0..x1 and rows y0..y1 (each texel of level L
+ * covers 2^(L+1) pixels a side). It starts at the level whose texels are at least half the rectangle's pixels, where
+ * the rectangle spans two or three texels, and goes one coarser only for three: starting where one texel holds the
+ * whole rectangle reads texels up to twice as wide as needed, and a draw just behind a wall's edge then reads the
+ * sky beyond it, so it is culled at one render size and not at another.
+ */
 export function levelFor(x0: number, x1: number, y0: number, y1: number, levels: number): number {
   const span = Math.max(x1 - x0, y1 - y0);
-  let l = span > 0 ? Math.max(0, Math.ceil(Math.log2(span + 1)) - 1) : 0;
+  let l = span > 0 ? Math.max(0, Math.ceil(Math.log2(span + 1)) - 2) : 0;
   if ((x1 >> (l + 1)) - (x0 >> (l + 1)) > 1 || (y1 >> (l + 1)) - (y0 >> (l + 1)) > 1) l += 1;
   return Math.min(l, levels - 1);
 }

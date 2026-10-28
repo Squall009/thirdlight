@@ -114,11 +114,15 @@ describe('a copy\'s sphere against the depth pyramid', () => {
 
   it('reads the level whose 2 × 2 texels cover the box', () => {
     expect(levelFor(5, 5, 9, 9, 8)).toBe(0);
-    expect(levelFor(0, 3, 0, 0, 8)).toBe(1);
-    // Four pixels across a level-1 texel border still fit two texels of level 1.
-    expect(levelFor(2, 5, 0, 0, 8)).toBe(1);
+    // Four pixels on two level-0 texels read level 0; across a level-0 texel border (three texels) level 1.
+    expect(levelFor(0, 3, 0, 0, 8)).toBe(0);
+    expect(levelFor(2, 5, 0, 0, 8)).toBe(0);
     expect(levelFor(3, 6, 0, 0, 8)).toBe(1);
     expect(levelFor(3, 8, 0, 0, 8)).toBe(2);
+    // 21 pixels on two texels of 16 read them, not the texels of 32 (which reach the sky over a wall behind which a
+    // draw stands: culled at one render scale, not at another).
+    expect(levelFor(947, 967, 216, 233, 12)).toBe(3);
+    expect(levelFor(940, 967, 216, 233, 12)).toBe(4);
     expect(levelFor(0, 1000, 0, 0, 4)).toBe(3);
   });
 });

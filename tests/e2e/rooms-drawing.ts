@@ -189,6 +189,8 @@ async function furnishDrawnRooms(page: Page, cmd: Cmd, query: Query): Promise<vo
   await panel.getByLabel('room type', { exact: true }).press('Enter');
   await expect.poll(async () => (await bedroom())?.roomType, { timeout: 15_000 }).toBe('bedroom');
   const furnishing = panel.getByLabel('room bedroom furnishing');
+  // The panel edits the room it was handed: a pick made before the stored type reaches it would store the room without it.
+  await expect(furnishing.getByText('Give the room a type')).toHaveCount(0, { timeout: 15_000 });
   // The set falls back to the rooms object's (named in the pick); the room's own pick stores it on the room.
   await expect(furnishing.getByLabel('furnishing set', { exact: true }).locator('option').first()).toHaveText('— the rooms’: Furnishing (starter) —');
   await furnishing.getByLabel('furnishing set', { exact: true }).selectOption('starter-furnishing');
