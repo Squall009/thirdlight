@@ -55,11 +55,12 @@ import { buildReadLights, buildSurfaceRead } from './surface-cache-read';
 import { isReflectionsNode } from './post-reflections';
 import { ProbeTileStore, type ResidentProbeTile } from './probe-atlas';
 import { PROBE_INDEX_WIDTH, probeRowAt } from './probe-index';
+import { texelTexture } from './texel-texture-node';
 import { PACKED_LIGHT_TEXELS, TABLE_ROW_FLOATS, TABLE_ROWS_PER_LINE, TABLE_TEXELS } from './probe-pack';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
-const { Break, If, Loop, NodeUpdateType, float, int, ivec2, luminance, max, mix, normalWorld, positionWorld, property, select, smoothstep, step, texture, texture3D, uniform, vec3, vec4 } = TSL;
+const { Break, If, Loop, NodeUpdateType, float, int, ivec2, luminance, max, mix, normalWorld, positionWorld, property, select, smoothstep, step, texture3D, uniform, vec3, vec4 } = TSL;
 
 /** How far off a surface (a share of the spacing, along its normal) the side of a wall is decided. */
 const SIDE_BIAS = 0.05;
@@ -210,8 +211,8 @@ export function probeTextureNodes(light: ProbeLighting): ProbeTextureNodes {
   const s = light.store;
   const nodes: ProbeTextureNodes = {
     atlas: texture3D(s.atlas),
-    table: texture(s.table),
-    index: texture(s.index),
+    table: texelTexture(s.table),
+    index: texelTexture(s.index),
     indexOrigin: uniform(new THREE.Vector4()),
     indexInvCell: uniform(new THREE.Vector4()),
     indexDims: uniform(new THREE.Vector4()),

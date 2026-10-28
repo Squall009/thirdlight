@@ -8,6 +8,9 @@
  * without one marks every module with a `// <path>` line; a page that loads
  * its files one by one (the plain three.js page) is attributed by its URL path.
  */
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import type { CDPSession } from '@playwright/test';
 
 export interface ProfileSplit {
@@ -135,6 +138,12 @@ export async function profileSplit(cdp: CDPSession, ms: number, sourceOf: (url: 
   await new Promise((r) => setTimeout(r, ms));
   const { profile } = (await cdp.send('Profiler.stop')) as unknown as { profile: { nodes: ProfileNode[]; samples: number[]; timeDeltas: number[] } };
   await cdp.send('Profiler.disable');
+  // The whole profile for a call-tree look (inclusive time per function), which the split's self times hide.
+  const keep = process.env['TL_PERF_CPUPROFILE_DIR'];
+  if (keep !== undefined && keep !== '') {
+    mkdirSync(keep, { recursive: true });
+    writeFileSync(join(keep, `${new Date().toISOString().replace(/[:.]/g, '-')}.cpuprofile`), JSON.stringify(profile));
+  }
   const byId = new Map(profile.nodes.map((n) => [n.id, n]));
   const maps = new Map<string, ReturnType<typeof sourceMapIndex> | null>();
   const mapOf = (url: string): ReturnType<typeof sourceMapIndex> | null => {
