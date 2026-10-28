@@ -182,17 +182,21 @@ class TemporalUpscaleNode extends Base {
   }
 
   override updateBefore(frame: Frame): void {
-    // Both resolves' programs are built on the first frame: the held one would otherwise be built in the frame the
-    // camera first stands still long enough (a hitch).
+    // Everything the hold draws with is made on the first frame the input has a size, or the frame the camera first
+    // stands still long enough would make it (a hitch, and GPU resources that appear while the game runs): the last
+    // frame's input target at the input's size, and the held resolve drawn once through three's own resolve, so its
+    // program and its draw's bindings exist. With no last frame yet (`previousValid` 0) it draws the plain resolve.
     if (!this.warmed) {
-      this.warmed = true;
-      const target = new THREE.RenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
-      const r = frame.renderer;
-      const before = r.getRenderTarget();
-      r.setRenderTarget(target);
-      new THREE.QuadMesh(this.heldMaterial).render(r);
-      r.setRenderTarget(before);
-      target.dispose();
+      const input = (this.beautyNode as { renderTarget: THREE.RenderTarget }).renderTarget.texture.image as { width?: number; height?: number } | null;
+      const iw = input?.width ?? 0;
+      const ih = input?.height ?? 0;
+      if (iw >= 1 && ih >= 1) {
+        this.warmed = true;
+        this.previous.setSize(iw, ih);
+        frame.renderer.initRenderTarget(this.previous);
+        this._resolveMaterial = this.heldMaterial;
+        super.updateBefore(frame);
+      }
     }
     const now = performance.now();
     if (this.lastTime >= 0) motionFrameSeconds.value = Math.min(0.25, Math.max(1e-4, (now - this.lastTime) / 1000));

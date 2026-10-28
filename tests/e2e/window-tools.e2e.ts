@@ -108,7 +108,7 @@ test('Lighting and Environment float over the Scene view and edit the scene they
     await expect(toolWindowScene(page, name).getByRole('combobox')).toHaveValue('scene-main');
     await expect(toolWindowScene(page, name).getByRole('combobox').locator('option')).toHaveText(['Main', 'Two']);
   }
-  await expect(lit.getByLabel('bake status')).toContainText('No bake for this scene.');
+  await expect(lit.getByLabel('lighting status')).toContainText('No saved lighting for this scene.');
   await page.screenshot({ path: 'test-results/window-tools.png' });
 
   // The Environment window's picker: Two (closed until now) opens and becomes active; both windows follow, so does the Scene view.

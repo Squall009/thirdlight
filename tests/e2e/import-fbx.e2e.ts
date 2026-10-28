@@ -103,11 +103,14 @@ test('an FBX in the game folder is converted, placed, played, exported; rebuilt 
   await tile.click();
   await expect(page.locator('.tl-assets__source')).toHaveText('from FBX: assets/props/crate.fbx');
   // The FBX is the asset's file (with its sidecar); the converted GLB is in the import cache, nothing in sources/.
+  // The editor's lighting also asks for the model's distance-field bricks, which are made from the GLB into the same cache.
   expect(JSON.parse(readFileSync(join(assets, 'crate.fbx.tlasset'), 'utf8'))).toMatchObject({ kind: 'model', importSettings: { convert: { from: 'fbx', to: 'glb' } } });
   expect(existsSync(join(game, 'thirdlight', 'sources', 'sha256'))).toBe(false);
   const cached = readdirSync(join(game, 'thirdlight', 'cache', 'imported'), { recursive: true }).map(String).filter((f) => f.endsWith('.bin'));
-  expect(cached).toHaveLength(1);
-  expect(readFileSync(join(game, 'thirdlight', 'cache', 'imported', cached[0]!)).subarray(0, 4).toString()).toBe('glTF');
+  const converted = cached.filter((f) => !f.includes('/distance-bricks-'));
+  expect(converted).toHaveLength(1);
+  expect(cached.length - converted.length).toBeLessThanOrEqual(1);
+  expect(readFileSync(join(game, 'thirdlight', 'cache', 'imported', converted[0]!)).subarray(0, 4).toString()).toBe('glTF');
   await page.getByRole('button', { name: 'place' }).click();
   await closeEditor(page);
   await expect(page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'crate' })).toHaveCount(1);
