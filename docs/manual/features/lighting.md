@@ -225,7 +225,13 @@ only where something changed:
   in) the probes are placed again within about a second, a little each
   frame, and the ones that kept their place keep their light. Each stale probe casts rays that read the
   cache's light where they hit, the probes' own light there and the sky
-  where they hit nothing, so bounces build up over a few updates. Every lit material — moving objects, foliage and ground cover
+  where they hit nothing, so bounces build up over a few updates. The
+  updates share the level's GPU time: a third of it while the surface light
+  has stale work, all of it once that is done; an update that costs more
+  (its least cost is its slowest rays, through models' distance fields)
+  is followed by frames without one, so a scene of many models settles its
+  probes more slowly (the village perf class: about 16 s after a sun step,
+  its surface light in about 2.5 s). Every lit material — moving objects, foliage and ground cover
   too — reads them through the usual probe lighting, in place of baked
   probes while the light is live. A bounce takes the colour of the surface
   it leaves: the surfaces that read the cache write their own colour beside
