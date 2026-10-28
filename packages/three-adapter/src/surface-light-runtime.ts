@@ -287,6 +287,7 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
   /** The stale probes nearest the eye, within their share of the budget (one update on the GPU at a time). */
   private updateProbes(now: number): void {
     const probes = this.host.probes;
+    probes.tick(this.host.relight.isSettled);
     if (probes.count === 0 || this.probePass.busy) return;
     const slots = probes.plan(this.host.eye, now);
     if (slots.length === 0) return;

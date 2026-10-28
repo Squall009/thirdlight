@@ -214,6 +214,48 @@ describe('surface cache: live probes', () => {
     expect(settle((n) => 3 + n * 0.0004, 0.5)).toBe(PROBE_MIN_COUNT);
   });
 
+  it('updates that cost more than a frame\'s budget run every few frames, so the probes average the budget', () => {
+    const probes = new LiveProbes(2, 0.5);
+    probes.place(over([0, 0, 0], [40, 8, 40]), null);
+    const eye = [20, 2, 20];
+    // 2 ms an update against 0.5 a frame: one update, then three frames without, over and over.
+    let gpu = 0;
+    const ran: number[] = [];
+    for (let f = 0; f < 40; f += 1) {
+      probes.tick();
+      const slots = probes.plan(eye, f);
+      if (slots.length === 0) continue;
+      ran.push(f);
+      probes.report(2, slots.length);
+      gpu += 2;
+    }
+    expect(ran.slice(0, 4)).toEqual([0, 4, 8, 12]);
+    expect(gpu / 40).toBeLessThanOrEqual(0.5);
+    // Within the budget every frame takes one.
+    const cheap = new LiveProbes(2, 0.5);
+    cheap.place(over([0, 0, 0], [40, 8, 40]), null);
+    let n = 0;
+    for (let f = 0; f < 10; f += 1) {
+      cheap.tick();
+      const slots = cheap.plan(eye, f);
+      if (slots.length > 0) n += 1;
+      cheap.report(0.4, Math.max(1, slots.length));
+    }
+    expect(n).toBe(10);
+    // Once the surface light has nothing stale the probes take its whole budget: three times their share.
+    const idle = new LiveProbes(2, 0.5);
+    idle.place(over([0, 0, 0], [40, 8, 40]), null);
+    const runs: number[] = [];
+    for (let f = 0; f < 12; f += 1) {
+      idle.tick(true);
+      const slots = idle.plan(eye, f);
+      if (slots.length === 0) continue;
+      runs.push(f);
+      idle.report(3, slots.length);
+    }
+    expect(runs.slice(0, 3)).toEqual([0, 2, 4]);
+  });
+
   it('placed again, a probe at a place it held keeps its light, its stale state and its changes not yet taken (under its new index)', () => {
     const probes = new LiveProbes(2, 0.5);
     probes.place(over([0, 0, 0], [4, 2, 4]), null);

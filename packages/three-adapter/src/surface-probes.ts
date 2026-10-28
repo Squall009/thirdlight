@@ -88,8 +88,10 @@ export const PROBE_BUDGET_SHARE = 1 / 3;
  * Probes an update takes before any cost is measured, and at least and at
  * most. An update's GPU time is mostly its tracer's latency (its longest
  * rays, through models' distance fields), not how many rays it casts: on
- * the Iris Xe 64 and 256 of the village's probes cost about alike (1.6 and
- * 2.0 ms at full clock), so an update never takes fewer than 256.
+ * the Iris Xe 64 and 256 of the village's probes cost alike (2.9 ms raw
+ * each, 1,024 cost 8.2), so an update never takes fewer than 256, and one
+ * that costs more than a frame's budget is followed by frames without one
+ * (`tick`).
  */
 export const PROBE_START_COUNT = 256;
 export const PROBE_MIN_COUNT = 256;
@@ -384,6 +386,8 @@ export class LiveProbes implements ProbeLookup {
   private perUpdate = PROBE_START_COUNT;
   private msPerProbe: number | null = null;
   private msUsed: number | null = null;
+  /** GPU time (ms) the last updates took that frames have not paid off with their budget yet (the next waits for it). */
+  private owed = 0;
   private settling: number | null = null;
   private lastSettleMs: number | null = null;
   private updates = 0;
@@ -402,6 +406,20 @@ export class LiveProbes implements ProbeLookup {
 
   setBudget(ms: number): void {
     this.budgetMs = ms;
+  }
+
+  /**
+   * Once a frame: the frame's budget pays off what earlier updates took.
+   * While any is owed no update is planned, so updates whose least cost is
+   * over a frame's budget run every few frames and the probes average the
+   * budget (they settle later instead). A frame whose surface light has
+   * nothing stale (`lightIdle`) gives the probes the light's whole budget
+   * (their share is `PROBE_BUDGET_SHARE` of it).
+   */
+  tick(lightIdle = false): void {
+    if (this.owed <= 0) return;
+    const pay = lightIdle ? this.budgetMs / PROBE_BUDGET_SHARE : this.budgetMs;
+    this.owed = pay > 0 ? Math.max(0, this.owed - pay) : 0;
   }
 
   /**
@@ -685,6 +703,7 @@ export class LiveProbes implements ProbeLookup {
       this.changed.add(i);
     }
     this.queue.plans = PLAN_AHEAD;
+    this.owed = 0;
     this.layout += 1;
   }
 
@@ -714,7 +733,7 @@ export class LiveProbes implements ProbeLookup {
   plan(eye: readonly number[], now: number): Uint32Array {
     this.frame += 1;
     if (this.settling === -1) this.settling = now;
-    if (this.staleCount === 0 || this.budgetMs <= 0) return new Uint32Array(0);
+    if (this.staleCount === 0 || this.budgetMs <= 0 || this.owed > 0) return new Uint32Array(0);
     const q = this.queue;
     const near = Math.max(Math.abs(eye[0]! - q.eye[0]!), Math.abs(eye[1]! - q.eye[1]!), Math.abs(eye[2]! - q.eye[2]!)) <= this.spacing;
     if (q.plans < PLAN_AHEAD && near) {
@@ -812,10 +831,11 @@ export class LiveProbes implements ProbeLookup {
     }
   }
 
-  /** The GPU time (ms) an update of `count` probes took: later updates take as many as the budget holds, at least `PROBE_MIN_COUNT`. */
+  /** The GPU time (ms) an update of `count` probes took: later updates take as many as the budget holds, at least `PROBE_MIN_COUNT`, and wait while its time past the budget is owed. */
   report(ms: number, count: number): void {
     if (!(count > 0) || !(ms >= 0)) return;
     this.msUsed = ms;
+    this.owed += ms;
     const per = ms / count;
     this.msPerProbe = this.msPerProbe === null ? per : this.msPerProbe + (per - this.msPerProbe) * 0.25;
     this.perUpdate = Math.min(PROBE_MAX_COUNT, Math.max(PROBE_MIN_COUNT, Math.floor(this.budgetMs / Math.max(this.msPerProbe, 1e-9) / 64) * 64));
