@@ -22,6 +22,7 @@ import * as THREE from 'three';
 import * as TSLTyped from 'three/tsl';
 
 import type { N } from './effects-tsl';
+import { untransformedTexture } from './texel-texture-node';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
@@ -147,7 +148,8 @@ export class WindField {
   private readonly mapA = halfTexture(WIND_MAP_TEXELS);
   private readonly mapB = halfTexture(WIND_MAP_TEXELS);
   private readonly ownNoise = noiseTexture();
-  private readonly noiseNode = texture(this.ownNoise);
+  // Read at explicit places only: no texture transform per read and draw.
+  private readonly noiseNode = untransformedTexture(this.ownNoise);
   private readonly floats = new Float32Array(WIND_MAP_TEXELS * WIND_MAP_TEXELS * WIND_MAP_CHANNELS);
   private values: WindValues = windValues({ direction: [1, 0], strength: 0.5, gust: 0.4, gustFrequency: 0.3, turbulence: 0.3 });
   private octaveShares: { scale: number; speed: number } = { ...WIND_DEFAULTS.octave };
