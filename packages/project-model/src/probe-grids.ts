@@ -44,8 +44,7 @@ export const PROBE_GROUND_BAND = 2;
 export const PROBE_GROUND_DENSITY = 2;
 /** Most probe intervals along one axis of one tile (a tile is one 3D texture and one artifact file). */
 export const PROBE_TILE_INTERVALS = 64;
-/** Default extra bounce passes of a probe bake. */
-export const DEFAULT_PROBE_BOUNCES = 2;
+/** Most bounce passes an earlier probe bake's record may name (such bakes still draw until their scene is baked again). */
 export const MAX_PROBE_BOUNCES = 8;
 /**
  * A probe that sees back faces in more than this share of its directions is

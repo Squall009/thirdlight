@@ -20,12 +20,14 @@
  * architecture, the description often blank), so the rule leans on the
  * vendor and only reads the description where it names the part.
  *
- * Only the levels that name a tier take part: a project whose own levels
- * name none starts at its highest, as before tiers existed.
+ * A level that names no tier counts as the default tier
+ * (`DEFAULT_LIGHTING_TIER`, as `levelLighting` draws it), so a project whose
+ * own levels name none still starts where the device fits: its highest on a
+ * medium or high device, its lowest on a low one.
  *
  * Pure: no I/O.
  */
-import { lightingTierRank, type LightingTier, type QualityLevelConfig } from './quality-levels';
+import { levelLighting, lightingTierRank, type LightingTier, type QualityLevelConfig } from './quality-levels';
 
 /** What the page knows of its GPU. */
 export interface DeviceGpuInfo {
@@ -83,15 +85,13 @@ export function deviceLightingTier(info: DeviceGpuInfo): DeviceLightingTier {
 }
 
 /**
- * The level a device with `tier` starts at: the highest level whose tier is
- * at most the device's, else the lowest level that names a tier (null: no
- * level names a tier, so the device does not choose).
+ * The level a device with `tier` starts at: the highest level whose tier
+ * (the default tier where it names none) is at most the device's, else the
+ * lowest level (null: no levels).
  */
 export function deviceQualityLevel(levels: readonly QualityLevelConfig[], tier: LightingTier): QualityLevelConfig | null {
-  const tiered = levels.filter((l) => l.lighting !== undefined);
-  if (tiered.length === 0) return null;
   const rank = lightingTierRank(tier);
   let pick: QualityLevelConfig | null = null;
-  for (const l of tiered) if (lightingTierRank(l.lighting!) <= rank) pick = l;
-  return pick ?? tiered[0]!;
+  for (const l of levels) if (lightingTierRank(levelLighting(l).tier) <= rank) pick = l;
+  return pick ?? levels[0] ?? null;
 }

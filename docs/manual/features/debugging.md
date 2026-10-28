@@ -267,8 +267,10 @@ One table in the engine (`LIGHTING_TIER_SETTINGS`) says what each tier sets:
 The device picks the starting level when neither the player, the game
 (game control, `environment.quality`) nor the page names one: once its
 renderer is up it takes the device's tier and starts at the highest level
-whose tier is at most that (none: the lowest level that names a tier). The
-rule, written to the console once (`[thirdlight] quality: …`):
+whose tier is at most that (none: the lowest level). A level that names no
+tier counts as medium, and a name the levels lack (a mistyped `?quality=`, a
+removed starting level) is passed over for the device's choice. The rule,
+written to the console once (`[thirdlight] quality: …`):
 
 - WebGL 2 or a software adapter (SwiftShader, llvmpipe): low — no compute,
   so the light is the saved light whatever the level.
@@ -278,8 +280,7 @@ rule, written to the console once (`[thirdlight] quality: …`):
 - WebGPU on a discrete GPU (NVIDIA, Intel Arc, AMD Radeon RX or Pro): high.
 - Anything the adapter does not tell apart: medium.
 
-A project whose own levels name no tier is not chosen for: it starts at its
-highest, as before tiers. Scripts read the tier and whether the light has
+Scripts read the tier and whether the light has
 settled in `ctx.lighting` (`tier`, `live`, `settled`, and `justSettled`, true
 in the one step after it settled — a loading screen can lift then); UI
 documents read `$flow.stats.lighting`.

@@ -45,7 +45,7 @@ A light: directional (the sun), ambient, point, spot, hemisphere (sky and ground
 | `width` | number | `1` | > 0, ≤ 50, step 0.05, m | **Width.** The rect's side along the object's local X, or the line's length. (applies when `type` is `area`; scripts read) |
 | `height` | number | `0.5` | > 0, ≤ 50, step 0.05, m | **Height.** The rect's side along the object's local Z (rect only). (applies when `type` is `area` and `shape` is `rect`; scripts read) |
 | `twoSided` | bool | `false` |  | **Two-sided.** Shines from both faces (off: only toward the object's local −Y). (applies when `type` is `area`; scripts read) |
-| `mode` | enum: `realtime`, `baked`, `mixed` | `"realtime"` |  | **Mode.** Realtime, baked into lightmaps, or both (mixed). (stored only when not the default; scripts read) |
+| `mode` | enum: `realtime`, `baked`, `mixed` | `"realtime"` |  | **Mode.** Realtime (live only), baked (saved by the lighting bake), or mixed (bounce saved, direct light live). (stored only when not the default; scripts read) |
 | `lightMask` | int (light layer mask) | `255` | 0 – 255, step 1 | **Light mask.** The light layers it lights: an object is lit only when it is in one of them. (stored only when not the default; scripts read and write) |
 | `shadowCasterMask` | int (light layer mask) | `255` | 0 – 255, step 1 | **Shadow caster mask.** Only objects in one of these light layers cast its shadow. (applies when `type` is `directional` or `point` or `spot` or `area`; stored only when not the default; scripts read and write) |
 

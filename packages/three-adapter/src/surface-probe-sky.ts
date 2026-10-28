@@ -19,7 +19,7 @@ import * as TSLTyped from 'three/tsl';
 
 import type { N } from './effects-tsl';
 import { isProbeHeld } from './probe-lighting';
-import { SH_E0, SH_E1, SH_Y0, SH_Y1 } from './surface-probes';
+import { GOLDEN_ANGLE, SH_E0, SH_E1, SH_Y0, SH_Y1 } from './surface-probes';
 
 const TSL: N = TSLTyped;
 const { Fn, float, int, pmremTexture, screenCoordinate, uniform, vec3, vec4 } = TSL;
@@ -32,7 +32,6 @@ const SKY_ROUGHNESS = 1;
 const SKY_CHECK_MS = 500;
 /** How far above the map's typical irradiance (the mean of its darker nine tenths) a direction's is held. */
 const SKY_SPIKE = 3;
-const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
 /** Direction i of the equal-area Fibonacci sphere (a TSL node: i a float node). */
 function skyDirection(fi: N): N {

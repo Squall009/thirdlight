@@ -139,8 +139,8 @@ export class SurfaceLights {
   private readAt = -Infinity;
   private readonly m = new THREE.Matrix4();
   private readonly c = new THREE.Color();
-  /** The sun three draws per pixel this frame (null: none drawn, or held by a bake). */
-  drawnSun: CacheLight | null = null;
+  /** Ids of the directional lights three draws per pixel this frame (none held by a bake). */
+  drawnSuns: ReadonlySet<string> = new Set();
 
   constructor(private readonly docs: ReadonlyMap<string, EntityDoc>, private readonly graph: RenderGraph) {}
 
@@ -150,7 +150,7 @@ export class SurfaceLights {
       this.readDocs();
     }
     const drawn = surfaceLightsOf(lights);
-    this.drawnSun = drawn.find((l) => l.on && l.kind === 'directional') ?? null;
+    this.drawnSuns = new Set(drawn.filter((l) => l.on && l.kind === 'directional').map((l) => l.id));
     const byId = new Map(drawn.map((l) => [l.id, l]));
     const out: CacheLight[] = [];
     for (const l of this.fromDocs) {

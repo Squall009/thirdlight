@@ -11,6 +11,7 @@
  *
  * Pure (no three.js, no device).
  */
+import { SURFACE_BAKE_LEVELS } from '@thirdlight/runtime';
 
 /** Metres per texel at level 0 (each level doubles it). */
 export const SURFACE_TEXEL_METRES = 0.1;
@@ -20,8 +21,8 @@ export const SURFACE_TEXEL_BYTES = 8;
 export const SURFACE_PAGE_TEXELS = 256;
 /** Texels per side of the smallest block. */
 export const SURFACE_BLOCK_MIN = 8;
-/** Resolution levels: 0 (10 cm texels) to `SURFACE_LEVELS − 1` (3.2 m). */
-export const SURFACE_LEVELS = 6;
+/** Resolution levels: 0 (10 cm texels) to `SURFACE_LEVELS − 1` (3.2 m); a saved bake holds the same levels. */
+export const SURFACE_LEVELS = SURFACE_BAKE_LEVELS;
 /** Texels around each area chart, so a filtered lookup at its edge never reads a neighbour's light. */
 export const SURFACE_CHART_BORDER = 1;
 /** Bytes of one page. */

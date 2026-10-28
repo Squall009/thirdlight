@@ -638,7 +638,7 @@ export { OCCLUDEE_KINDS, occludeeClassOf, occludeeScreenShare, OCCLUDER_ROLES, o
 // Occluder stand-ins (`_OCC` nodes) in model files: the naming rule, the import check and the import setting's meaning.
 export { isModelHelperNode, MODEL_OCC_RE, modelOccluderModeOf, modelOccluderUse, OCCLUDER_COVERAGE_TEXELS, occluderCoverageBreaks, occluderPointsOutside, OCCLUDER_INSIDE_TOLERANCE_M, type ModelOccluderMode, type OccluderBounds } from '@thirdlight/project-model';
 export { DEFAULT_LIGHTING_TIER, deviceLightingTier, deviceQualityLevel, LIGHTING_TIERS, LIGHTING_TIER_SETTINGS, levelLighting, lightingTierRank, type DeviceGpuInfo, type DeviceLightingTier, type LightingTier } from '@thirdlight/project-model';
-export { DEFAULT_CONTACT_SHADOWS, DEFAULT_QUALITY_LEVELS, DEFAULT_REFLECTIONS, DEFAULT_SURFACE_CACHE_MIB, DEFAULT_SURFACE_LIGHT_MS, SAVED_SURFACE_CACHE_MIB, SURFACE_LIGHT_MS_MAX, levelPost, LOD_BIAS_MAX, LOD_BIAS_MIN, PIXEL_RATIO_CAP_MAX, QUALITY_LEVEL_ID_RE, qualityLevelOf, qualityLevelsOf, type QualityLevelConfig, type QualityLevelPost, type ReflectionQuality } from '@thirdlight/project-model';
+export { DEFAULT_CONTACT_SHADOWS, DEFAULT_QUALITY_LEVELS, DEFAULT_REFLECTIONS, DEFAULT_SURFACE_CACHE_MIB, DEFAULT_SURFACE_LIGHT_MS, levelScalingIsEngineDefault, SAVED_SURFACE_CACHE_MIB, SURFACE_LIGHT_MS_MAX, levelPost, LOD_BIAS_MAX, LOD_BIAS_MIN, PIXEL_RATIO_CAP_MAX, QUALITY_LEVEL_ID_RE, qualityLevelOf, qualityLevelsOf, type QualityLevelConfig, type QualityLevelPost, type ReflectionQuality } from '@thirdlight/project-model';
 // The simulation's step rate when a project sets none (project-model's).
 export { DEFAULT_FIXED_STEP_HZ, fixedStepHzOf } from '@thirdlight/project-model';
 export { clampAlpha, previewFrameSeconds } from './frame-clock';
@@ -733,7 +733,6 @@ export { DIALOGUE_VOICE_LOOKAHEAD_LINES, dialogueVoicesAhead, type DialogueVoice
 export { COLLIDER_3D_LIMITS, MAX_COLLIDER_EXTENT, colliderFromTriangles, convexFromPoints, convexHull2, polygonFromPoints, roundMm } from '@thirdlight/project-model';
 // Probe grids (baked indirect light): placement, the record, and the artifact's PNG decoder (16-bit samples kept).
 export {
-  DEFAULT_PROBE_BOUNCES,
   DEFAULT_PROBE_SPACING,
   MAX_PROBE_BOUNCES,
   MAX_TEXTURE_EDGE,
@@ -759,6 +758,8 @@ export {
   type ProbeGridRecord,
   type ProbeVolumeBox,
 } from '@thirdlight/project-model';
+// The surface cache's resolution levels (a saved bake holds the same).
+export { SURFACE_BAKE_LEVELS } from '@thirdlight/project-model';
 // Distance-field bricks of imported static models: what the lighting tracer traces them by (made at import, shipped in the export).
 export { DISTANCE_BRICK_CELLS, DISTANCE_BRICK_INSIDE, DISTANCE_BRICK_OUTSIDE, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, decodeDistanceBricks, distanceOfSample, type DistanceBrickSet, type DistanceBricks, surfelCellKey, surfelCoverage, surfelFacing, type SurfelSet } from '@thirdlight/project-model';
 // How the import makes them (a game never does; tools and tests that trace a mesh of their own do).

@@ -6,7 +6,8 @@
  * perf harness's `--switches`), else the one a player or the game-control
  * API chose, else the project's (`environment.quality`), else the device's
  * (`deviceQualityLevel`: the highest level whose lighting tier the device's
- * renderer and GPU fit, told once the renderer is up), else the highest.
+ * renderer and GPU fit, told once the renderer is up), else the highest. A
+ * name the levels lack is passed over (the device's choice, logged).
  * Its settings go to:
  *
  * - the environment renderer (`setQuality`): the look's post per effect and MSAA;
@@ -22,7 +23,7 @@
  * it the project's environment and LOD tuning and a player's choice; a change
  * applies at once (nothing per frame).
  */
-import { DEFAULT_QUALITY_LEVELS, deviceLightingTier, deviceQualityLevel, levelLighting, qualityLevelOf, qualityLevelsOf, type DeviceGpuInfo, type DeviceLightingTier, type LightingTier, type QualityLevelConfig } from '@thirdlight/runtime';
+import { deviceLightingTier, deviceQualityLevel, levelLighting, levelScalingIsEngineDefault, qualityLevelOf, qualityLevelsOf, type DeviceGpuInfo, type DeviceLightingTier, type LightingTier, type QualityLevelConfig } from '@thirdlight/runtime';
 
 import { MAX_RENDER_PIXEL_RATIO, type EnvironmentRenderer } from './environment';
 import type { RenderControl } from './render-control';
@@ -132,7 +133,10 @@ export function createQualityControl(targets: QualityTargets, o: { readonly proj
   let api: DeviceGpuInfo['api'] | null = null;
   const levels = (): readonly QualityLevelConfig[] => qualityLevelsOf(project);
   const deviceLevel = (): string | null => (device === null ? null : (deviceQualityLevel(levels(), device.tier)?.id ?? null));
-  const wanted = (): string | null => pinned ?? chosen ?? project?.quality ?? deviceLevel();
+  const known = (id: string | null | undefined): string | null => (id !== null && id !== undefined && levels().some((l) => l.id === id) ? id : null);
+  // A name the levels do not have (a mistyped `?quality=`, a project's level since removed) falls through to the
+  // next source and so to the device's choice; the highest only before the renderer is up.
+  const wanted = (): string | null => known(pinned) ?? known(chosen) ?? known(project?.quality) ?? deviceLevel();
   const current = (): QualityLevelConfig => qualityLevelOf(levels(), wanted());
   /** The level last applied and the project LOD it was applied with. */
   let applied: QualityLevelConfig | null = null;
@@ -146,9 +150,10 @@ export function createQualityControl(targets: QualityTargets, o: { readonly proj
     applied = l;
     appliedLod = lodKey;
     // The engine's levels' scale and dynamic resolution are defaults: a project's own render_scale and
-    // dynamic_resolution settings stay its own. A project's own levels set them over the project's.
+    // dynamic_resolution settings stay its own, also where the project copied the engine's level. A
+    // project's own scale on a level sets it over the project's.
     const scaling = { ...(l.renderScale !== undefined ? { renderScale: l.renderScale } : {}), ...(l.dynamicResolution !== undefined ? { dynamicResolution: l.dynamicResolution } : {}) };
-    const engine = levels() === DEFAULT_QUALITY_LEVELS;
+    const engine = levelScalingIsEngineDefault(l);
     targets.renderControl.setLevel(
       {
         ...(l.ambientOcclusion !== undefined ? { ambientOcclusion: l.ambientOcclusion } : {}),
@@ -200,7 +205,8 @@ export function createQualityControl(targets: QualityTargets, o: { readonly proj
       if (device !== null && device.reason === next.reason) return;
       device = next;
       const level = deviceLevel();
-      console.info(`[thirdlight] quality: ${next.reason}${level !== null ? `; starts at level "${level}" unless the player, the game or the project names one` : '; the project\'s levels name no tier'}`);
+      const unknown = pinned !== null && known(pinned) === null ? `; ?${QUALITY_URL_PARAM}=${pinned} names no level` : '';
+      console.info(`[thirdlight] quality: ${next.reason}; starts at level "${level ?? current().id}" unless the player, the game or the project names one${unknown}`);
       apply();
     },
     tier: () => (api === 'webgl2' ? 'low' : levelLighting(current()).tier),
@@ -210,7 +216,7 @@ export function createQualityControl(targets: QualityTargets, o: { readonly proj
       return {
         level: l.id,
         levels: levels().map((x) => x.id),
-        source: w === null || w !== l.id ? 'highest' : pinned !== null ? 'page' : chosen !== null ? 'chosen' : project?.quality !== undefined ? 'project' : 'device',
+        source: w === null || w !== l.id ? 'highest' : known(pinned) !== null ? 'page' : known(chosen) !== null ? 'chosen' : known(project?.quality) !== null ? 'project' : 'device',
         tier: api === 'webgl2' ? 'low' : levelLighting(l).tier,
         device,
         pixelRatioCap: cap,

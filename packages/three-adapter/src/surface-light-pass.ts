@@ -17,7 +17,7 @@
 import type { ScenePack } from './tracer-scene-packer';
 import { RAY_FLOATS, type PackedTraceScene } from './tracer-scene';
 import type { TraceOptions } from './tracer-cpu-math';
-import { GpuTracer, type GpuBuffer, type GpuEncoder, type TracerDevice } from './tracer-gpu';
+import { GPU_BUFFER_USAGE as USAGE, GpuTracer, type GpuBuffer, type GpuEncoder, type TracerDevice } from './tracer-gpu';
 import { SUN_DISC_RADIANS, packLightFrame, type LightPassFrame } from './surface-light-frame';
 import { LIGHT_GATHER_WGSL, LIGHT_RAYS_WGSL, LIGHT_WORKGROUP } from './surface-light-wgsl';
 import { TEXEL_POINT_FLOATS } from './surface-texels';
@@ -31,7 +31,6 @@ export { AREA_RAYS, LIGHT_RAYS, SUN_RAYS, lightFrameOf, packLightFrame, raysAtLe
  */
 export const SHADOW_TRACE: TraceOptions = { anyHit: true, cone: SUN_DISC_RADIANS / 2 };
 
-const USAGE = { MAP_READ: 0x1, COPY_SRC: 0x4, COPY_DST: 0x8, UNIFORM: 0x40, STORAGE: 0x80, QUERY_RESOLVE: 0x200 } as const;
 
 interface QueryDevice extends TracerDevice {
   readonly features?: { has(f: string): boolean };
@@ -118,7 +117,7 @@ export class SurfaceLightPass {
     d.queue.writeBuffer(this.frameBuf, 0, packed.words);
     d.queue.writeBuffer(this.pointsBuf, 0, frame.points.subarray(0, packed.texels * TEXEL_POINT_FLOATS));
     this.seed = (this.seed * 1664525 + 1013904223) >>> 0;
-    d.queue.writeBuffer(this.params, 0, new Uint32Array([packed.texels, packed.rays, frame.slices.length, this.seed, frame.lights.length, packed.sunAt, packed.roomsAt, 0]));
+    d.queue.writeBuffer(this.params, 0, new Uint32Array([packed.texels, packed.rays, frame.slices.length, this.seed, frame.lights.length, packed.sunAt, packed.roomsAt, packed.suns]));
     const enc = d.createCommandEncoder();
     const timed = this.query !== null && !this.reading;
     // Each pass's start and end: the three passes' times and the whole.

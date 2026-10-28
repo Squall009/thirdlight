@@ -38,6 +38,7 @@ import { ALBEDO_CELLS, ALBEDO_PAGE_STEP, ALBEDO_RING_STEP, albedoWords, ARCH_CEL
 import { TERRAIN_RING_TEXELS, TERRAIN_RINGS_MAX } from './surface-cache-terrain';
 import { AreaHighlights, areaHighlightNodes, buildsHighlights, cacheVisibility } from './surface-highlights';
 import { SURFACE_TEXEL_LIT } from './surface-light-wgsl';
+import { CHUNK_SIZE } from '@thirdlight/runtime';
 import { texelTexture } from './texel-texture-node';
 
 /** TSL untyped: three's typings lag the node API used here. */
@@ -335,16 +336,16 @@ function lookupNodes(builder: N, tex: SurfaceCacheTextures, kind: SurfaceReadKin
     const walk = (L: { origin: N; size: N; hash: N; y0: N; cx0: N; cz0: N; ncx: N; ncz: N; y1: N; cap: N; probe: N }): void => {
       const q = p.sub(L.origin).div(L.size).sub(axisVec.mul(BLOCK_INSET)).toVar();
       const cell = TSL.ivec3(floor(q)).toVar();
-      const cx = cell.x.shiftRight(uint(4));
-      const cz = cell.z.shiftRight(uint(4));
+      const cx = cell.x.shiftRight(uint(CHUNK_SHIFT));
+      const cz = cell.z.shiftRight(uint(CHUNK_SHIFT));
       const jx = cx.sub(L.cx0);
       const jz = cz.sub(L.cz0);
       const inside = cell.y.greaterThanEqual(L.y0).and(cell.y.lessThan(L.y1)).and(jx.greaterThanEqual(0)).and(jz.greaterThanEqual(0)).and(jx.lessThan(L.ncx)).and(jz.lessThan(L.ncz)).and(L.cap.notEqual(uint(0)));
       If(inside, () => {
         const j = uint(jz.mul(L.ncx).add(jx)).toVar();
-        const lx = uint(cell.x.sub(cx.shiftLeft(uint(4))));
-        const lz = uint(cell.z.sub(cz.shiftLeft(uint(4))));
-        const key = uint(cell.y.sub(L.y0)).mul(uint(16)).add(lz).mul(uint(16)).add(lx).mul(uint(6)).add(face).toVar();
+        const lx = uint(cell.x.sub(cx.shiftLeft(uint(CHUNK_SHIFT))));
+        const lz = uint(cell.z.sub(cz.shiftLeft(uint(CHUNK_SHIFT))));
+        const key = uint(cell.y.sub(L.y0)).mul(uint(CHUNK_SIZE)).add(lz).mul(uint(CHUNK_SIZE)).add(lx).mul(uint(6)).add(face).toVar();
         const h0 = key.bitXor(j.mul(uint(0x85ebca6b))).mul(uint(0x9e3779b1));
         const s = h0.bitXor(h0.shiftRight(uint(15))).bitAnd(L.cap.sub(uint(1))).toVar();
         const done = bool(false).toVar();
@@ -640,6 +641,10 @@ function modelLookup(builder: N, tex: SurfaceCacheTextures, texel: (t: N) => N, 
     });
   });
 }
+
+/** The block grid's chunk side as a shift (a power of two: a cell's chunk column is its cell shifted, floor for negative cells too). */
+const CHUNK_SHIFT = Math.log2(CHUNK_SIZE);
+if (!Number.isInteger(CHUNK_SHIFT)) throw new Error(`surface cache lookup: the block chunk size ${CHUNK_SIZE} is not a power of two`);
 
 const asI = (v: N): N => TSL.int(v);
 

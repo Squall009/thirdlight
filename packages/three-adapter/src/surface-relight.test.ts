@@ -334,7 +334,7 @@ describe('surface relight on the page', () => {
     const frame = lightFrameOf(host, [lamp(), sun([0, 1, 0])]);
     const planned = host.slicesThisFrame();
     expect(frame.slices.map((s) => s.texels)).toEqual(planned.map((s) => s.to - s.from));
-    expect(frame.slices.every((s) => s.sun)).toBe(true);
+    expect(frame.slices.every((s) => s.suns === 1)).toBe(true);
     planned.forEach((s, i) => {
       const touches = s.unit.min.every((v, k) => v <= lamp().position[k]! + 6) && s.unit.max.every((v, k) => v >= lamp().position[k]! - 6);
       expect(frame.slices[i]!.lights).toEqual(touches ? [0] : []);

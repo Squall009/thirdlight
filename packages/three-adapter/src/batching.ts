@@ -5,7 +5,7 @@
  * Objects that draw the same geometry with the same material and the same
  * shadow flags are drawn together: one instanced draw per group, its
  * instance matrices copied from the members' world matrices. The members
- * stay as they are — hierarchy, transforms, picking, bounds, lightmap bakes
+ * stay as they are — hierarchy, transforms, picking, bounds, saved lighting
  * and per-object overrides keep working on them — they only move to
  * {@link BATCHED_LAYER}, which cameras do not draw (the shadow cameras take
  * the main camera's layers, so the members cast no second shadow), and a host

@@ -5,11 +5,19 @@
  * points, the lights reaching each slice, and the words both read.
  *
  * Words (one buffer): a slice table (`SLICE_WORDS` per slice: first texel,
- * texels, first ray, rays per texel, its lights' list, their count, sun
- * rays, its cache level, the rooms its texels may be in and their count),
- * the light lists, the sun (`SUN_WORDS`: direction toward it, colour,
- * shadows), the light records (`LIGHT_WORDS`), the room lists, and the
- * rooms (`surface-rooms.ts`) at `roomsAt`. A light record:
+ * texels, first ray, rays per texel, its lights' list, their count, rays
+ * per sun, its cache level, the rooms its texels may be in and their count,
+ * the suns lighting it as bits), the light lists, the suns (`SUN_WORDS`
+ * each: direction toward it, caster mask, colour, shadows, its share
+ * weight), the light records (`LIGHT_WORDS`), the room lists, and the
+ * rooms (`surface-rooms.ts`) at `roomsAt`.
+ *
+ * Every directional light on lights the cache (its bounce and reflections
+ * read it). Materials draw directional lights per pixel, so a texel's
+ * alpha says how much of the drawn ones' light it holds: the luminance
+ * share of their summed colour (exact for one, close for several; a
+ * colour split between suns of different hue and visibility is off by
+ * that hue). A light record:
  *
  * - 0–2 position (an area light: its centre), 3 reach, 4–6 colour
  *   (× intensity), 7 the spot's cos outer (`POINT_CONE` a point light,
@@ -52,9 +60,11 @@ export { POINT_LIGHT_RADIUS } from './surface-changes';
 /** How far (m) a texel's rays start off its surface. */
 export const RAY_BIAS = 0.01;
 
-export const SLICE_WORDS = 10;
+export const SLICE_WORDS = 11;
 export const LIGHT_WORDS = 22;
-export const SUN_WORDS = 8;
+export const SUN_WORDS = 12;
+/** The most directional lights a frame lights the cache with (a slice names its suns as bits of one word); past it the strongest, logged. */
+export const MAX_CACHE_SUNS = 32;
 /** Word 7 of a point light's record (a spot's cosine is never below −1). */
 export const POINT_CONE = -3;
 /** Word 7 of an area light's record. */
@@ -72,10 +82,17 @@ export function lightRaysOf(l: CacheLight, scale = 1): number {
   return Math.min(MAX_LIGHT_RAYS, (l.rays ?? (l.kind === 'area' ? AREA_RAYS : l.kind === 'directional' ? SUN_RAYS : LIGHT_RAYS)) * scale);
 }
 
+/** How many suns a slice's bits name. */
+export function sunCount(bits: number): number {
+  let n = 0;
+  for (let b = bits >>> 0; b !== 0; b &= b - 1) n += 1;
+  return n;
+}
+
 /** Rays each texel of a frame's slice casts. */
 export function sliceRays(frame: LightPassFrame, sl: LightPassFrame['slices'][number]): number {
   const scale = frame.rayScale ?? 1;
-  const sunRays = sl.sun ? raysAtLevel(SUN_RAYS * scale, sl.level) : 0;
+  const sunRays = raysAtLevel(SUN_RAYS * scale, sl.level) * sunCount(sl.suns);
   return Math.max(1, sunRays + sl.lights.reduce((r, j) => r + raysAtLevel(lightRaysOf(frame.lights[j]!, scale), sl.level), 0));
 }
 
@@ -124,25 +141,27 @@ export function splitLightFrame(frame: LightPassFrame, maxRays: number): { frame
 export interface LightPassFrame {
   /** Texel points (`TEXEL_POINT_FLOATS` each), slices in order. */
   readonly points: Float32Array;
-  /** Per slice: its texels, the lights reaching its unit, whether the sun is on, and its cache level (ray counts fall with it). */
-  readonly slices: readonly { readonly texels: number; readonly lights: readonly number[]; readonly sun: boolean; readonly level: number; /** The rooms its texels may be in (absent: none). */ readonly rooms?: readonly number[] }[];
+  /** Per slice: its texels, the lights reaching its unit, the suns lighting it (bit i: `suns[i]`), and its cache level (ray counts fall with it). */
+  readonly slices: readonly { readonly texels: number; readonly lights: readonly number[]; readonly suns: number; readonly level: number; /** The rooms its texels may be in (absent: none). */ readonly rooms?: readonly number[] }[];
   /** The point, spot and area lights. */
   readonly lights: readonly CacheLight[];
   /** Per light, the rooms it may light (null or absent: not held to rooms), and the packed rooms (`SurfaceRooms.words`). */
   readonly lightRooms?: readonly (readonly number[] | null)[];
   readonly rooms?: Uint32Array;
-  /** The sun (null: none on). */
-  readonly sun: CacheLight | null;
+  /** The directional lights on (at most `MAX_CACHE_SUNS`). */
+  readonly suns: readonly CacheLight[];
+  /** Ids of the suns materials draw per pixel, whose share a texel's alpha holds (absent: every sun). */
+  readonly drawnSuns?: ReadonlySet<string>;
   /** The lighting tier's multiple of every light's rays (absent: 1). */
   readonly rayScale?: number;
 }
 
 /** The frame's word buffer and its counts (`roomsAt`: where the rooms start; 0 when there are none). */
-export function packLightFrame(frame: LightPassFrame): { words: Uint32Array; texels: number; rays: number; sunAt: number; roomsAt: number } {
+export function packLightFrame(frame: LightPassFrame): { words: Uint32Array; texels: number; rays: number; sunAt: number; roomsAt: number; suns: number } {
   const n = frame.slices.length;
   const listWords = frame.slices.reduce((s, sl) => s + sl.lights.length, 0);
   const sunAt = n * SLICE_WORDS + listWords;
-  const recordsEnd = sunAt + SUN_WORDS + frame.lights.length * LIGHT_WORDS;
+  const recordsEnd = sunAt + frame.suns.length * SUN_WORDS + frame.lights.length * LIGHT_WORDS;
   const roomLists = frame.slices.reduce((s, sl) => s + (sl.rooms?.length ?? 0), 0) + (frame.lightRooms ?? []).reduce((s, r) => s + (r?.length ?? 0), 0);
   const roomsAt = frame.rooms === undefined ? 0 : recordsEnd + roomLists;
   const words = new Uint32Array(recordsEnd + roomLists + (frame.rooms?.length ?? 0));
@@ -152,22 +171,28 @@ export function packLightFrame(frame: LightPassFrame): { words: Uint32Array; tex
   let list = n * SLICE_WORDS;
   let rooms = recordsEnd;
   frame.slices.forEach((sl, i) => {
-    const sunRays = sl.sun ? raysAtLevel(SUN_RAYS * (frame.rayScale ?? 1), sl.level) : 0;
+    const sunRays = sl.suns !== 0 ? raysAtLevel(SUN_RAYS * (frame.rayScale ?? 1), sl.level) : 0;
     const rpt = sliceRays(frame, sl);
-    words.set([texel, sl.texels, ray, rpt, list, sl.lights.length, sunRays, sl.level, rooms, sl.rooms?.length ?? 0], i * SLICE_WORDS);
+    words.set([texel, sl.texels, ray, rpt, list, sl.lights.length, sunRays, sl.level, rooms, sl.rooms?.length ?? 0, sl.suns >>> 0], i * SLICE_WORDS);
     for (const j of sl.lights) words[list++] = j;
     for (const r of sl.rooms ?? []) words[rooms++] = r;
     texel += sl.texels;
     ray += sl.texels * rpt;
   });
-  if (frame.sun !== null) {
-    f.set(frame.sun.direction, sunAt);
-    f.set(frame.sun.color, sunAt + 4);
-    words[sunAt + 7] = frame.sun.shadows === false ? 0 : 1;
-    words[sunAt + 3] = frame.sun.casterMask ?? LIGHT_LAYERS_ALL;
-  }
+  const drawn = (l: CacheLight): boolean => frame.drawnSuns === undefined || frame.drawnSuns.has(l.id);
+  const lum = luminance;
+  const drawnLum = frame.suns.reduce((t, l) => t + (drawn(l) ? lum(l.color) : 0), 0);
+  frame.suns.forEach((l, i) => {
+    const at = sunAt + i * SUN_WORDS;
+    f.set(l.direction, at);
+    f.set(l.color, at + 4);
+    words[at + 7] = l.shadows === false ? 0 : 1;
+    words[at + 3] = l.casterMask ?? LIGHT_LAYERS_ALL;
+    f[at + 8] = drawn(l) && drawnLum > 0 ? lum(l.color) / drawnLum : 0;
+  });
+  const lightsAt = sunAt + frame.suns.length * SUN_WORDS;
   frame.lights.forEach((l, j) => {
-    const at = sunAt + SUN_WORDS + j * LIGHT_WORDS;
+    const at = lightsAt + j * LIGHT_WORDS;
     f.set(l.position, at);
     f[at + 3] = lightReach(l);
     f.set(l.color, at + 4);
@@ -191,7 +216,7 @@ export function packLightFrame(frame: LightPassFrame): { words: Uint32Array; tex
     for (const r of held ?? []) words[rooms++] = r;
   });
   if (frame.rooms !== undefined) words.set(frame.rooms, roomsAt);
-  return { words, texels: texel, rays: ray, sunAt, roomsAt };
+  return { words, texels: texel, rays: ray, sunAt, roomsAt, suns: frame.suns.length };
 }
 
 /** Whether a light lights a unit of these light layers. */
@@ -202,16 +227,16 @@ function lights(l: CacheLight, layers: number): boolean {
 /**
  * This frame's planned work from the host (`SurfaceCacheHost.slicesThisFrame`):
  * each slice's texel points, the lights whose reach touches its unit and
- * whose mask shares a layer with it, and the sun when one is on. With
+ * whose mask shares a layer with it, and the suns on whose mask does. With
  * rooms, a light standing in a closed room set reaches only the units
  * those rooms touch, and the pass tests each texel's room.
  */
-export function lightFrameOf(host: SurfaceCacheHost, all: readonly CacheLight[], points: Float32Array | null = null, rooms: SurfaceRooms | null = null, rayScale = 1): LightPassFrame {
+export function lightFrameOf(host: SurfaceCacheHost, all: readonly CacheLight[], points: Float32Array | null = null, rooms: SurfaceRooms | null = null, rayScale = 1, drawnSuns?: ReadonlySet<string>): LightPassFrame {
   const slices = host.slicesThisFrame();
   const texels = slices.reduce((n, s) => n + (s.to - s.from), 0);
   const out = points !== null && points.length >= texels * TEXEL_POINT_FLOATS ? points : new Float32Array(texels * TEXEL_POINT_FLOATS);
   const local = all.filter((l) => l.on && l.kind !== 'directional');
-  const sun = all.find((l) => l.on && l.kind === 'directional') ?? null;
+  const suns = cacheSuns(all);
   const reach = local.map((l) => lightReach(l));
   const held = rooms === null ? null : local.map((l) => rooms.lightRooms(l.position, l.shadows === false));
   const list: LightPassFrame['slices'][number][] = [];
@@ -234,7 +259,30 @@ export function lightFrameOf(host: SurfaceCacheHost, all: readonly CacheLight[],
       touching.push(j);
     });
     const unitRooms = held !== null && touching.some((j) => held[j] !== null) ? rooms!.unitRooms(s.unit.min, s.unit.max) : [];
-    list.push({ texels: n, lights: touching, sun: sun !== null && lights(sun, layers), level: src === null ? 0 : 'patch' in src ? src.patch.ring : src.level, ...(unitRooms.length > 0 ? { rooms: unitRooms } : {}) });
+    let sunBits = 0;
+    suns.forEach((l, i) => {
+      if (lights(l, layers)) sunBits |= 1 << i;
+    });
+    list.push({ texels: n, lights: touching, suns: sunBits >>> 0, level: src === null ? 0 : 'patch' in src ? src.patch.ring : src.level, ...(unitRooms.length > 0 ? { rooms: unitRooms } : {}) });
   }
-  return { points: out, slices: list, lights: local, sun, ...(rayScale !== 1 ? { rayScale } : {}), ...(rooms !== null && held!.some((h) => h !== null) ? { lightRooms: held!, rooms: rooms.words } : {}) };
+  return { points: out, slices: list, lights: local, suns, ...(drawnSuns !== undefined ? { drawnSuns } : {}), ...(rayScale !== 1 ? { rayScale } : {}), ...(rooms !== null && held!.some((h) => h !== null) ? { lightRooms: held!, rooms: rooms.words } : {}) };
+}
+
+/** A linear colour's luminance (Rec. 709). */
+function luminance(c: readonly number[]): number {
+  return 0.2126 * (c[0] ?? 0) + 0.7152 * (c[1] ?? 0) + 0.0722 * (c[2] ?? 0);
+}
+
+let sunsDropped = 0;
+
+/** The directional lights on, the strongest `MAX_CACHE_SUNS` where more are (said once per count). */
+export function cacheSuns(all: readonly CacheLight[]): CacheLight[] {
+  const on = all.filter((l) => l.on && l.kind === 'directional');
+  if (on.length <= MAX_CACHE_SUNS) return on;
+  const kept = on.map((l, i) => ({ l, i, k: luminance(l.color) })).sort((a, b) => b.k - a.k || a.i - b.i).slice(0, MAX_CACHE_SUNS).sort((a, b) => a.i - b.i).map((x) => x.l);
+  if (on.length !== sunsDropped) {
+    sunsDropped = on.length;
+    console.warn(`[thirdlight] surface cache: ${on.length} directional lights on; the strongest ${MAX_CACHE_SUNS} light the cache, the rest only per pixel`);
+  }
+  return kept;
 }

@@ -38,7 +38,8 @@ const { abs, float, Fn, logarithmicDepthToViewZ, positionView, renderGroup, rtt,
  * narrow enough that an object in front of a wall never takes the wall's.
  */
 export const HISTORY_DEPTH_TOLERANCE = 0.06;
-const HISTORY_DEPTH_SLACK_M = 0.05;
+/** Metres of depth difference always taken (near the camera the tolerance's share is too thin to hold a still sample). */
+export const HISTORY_DEPTH_SLACK_M = 0.05;
 
 /**
  * The history's light. Its uniforms are per render: the stack drawing the

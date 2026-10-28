@@ -17,17 +17,14 @@
  * Only the WebGPU calls this uses are typed (`tracer-gpu.ts`'s types).
  */
 import { EXACT_TRACE } from './tracer-cpu-math';
-import type { GpuBuffer, GpuTracer, GpuTexture, TracerDevice } from './tracer-gpu';
+import { GPU_BUFFER_USAGE as USAGE, RAY_COST_WEIGHT, type GpuBuffer, type GpuTracer, type GpuTexture, type TracerDevice } from './tracer-gpu';
 import type { GpuResolve } from './surface-resolve-gpu';
 import type { LiveProbes } from './surface-probes';
 import { ProbeWordsBuffer, packProbeWords, probeParams } from './surface-probe-pass';
 import { PROBE_COMMON_WGSL, PROBE_HIT_LIGHT_WGSL } from './surface-probe-wgsl';
 import { TRACE_MISS, TRACE_UNFINISHED } from './tracer-scene';
 
-const USAGE = { MAP_READ: 0x1, COPY_SRC: 0x4, COPY_DST: 0x8, UNIFORM: 0x40, STORAGE: 0x80, QUERY_RESOLVE: 0x200 } as const;
 const WORKGROUP = 64;
-/** The weight a new frame's cost per ray gets in the average. */
-const RAY_COST_WEIGHT = 0.25;
 
 /** The gather: each traced ray's light at its hit (`O`: rgb, hit 1 / none 0 / not cast -1). */
 export const REFLECTION_GATHER_WGSL =

@@ -34,7 +34,7 @@ function meanAt(p: V3, n: V3, l: CacheLight, scene: PackedTraceScene = EMPTY): n
   const points = new Float32Array(COPIES * 6);
   for (let i = 0; i < COPIES; i += 1) points.set([...p, ...n], i * 6);
   const sun = l.kind === 'directional';
-  const frame: LightPassFrame = { points, slices: [{ texels: COPIES, lights: sun ? [] : [0], sun, level: 0 }], lights: sun ? [] : [l], sun: sun ? l : null };
+  const frame: LightPassFrame = { points, slices: [{ texels: COPIES, lights: sun ? [] : [0], suns: sun ? 1 : 0, level: 0 }], lights: sun ? [] : [l], suns: sun ? [l] : [] };
   const e = lightFrameCpu(frame, scene, 7, SHADOW_TRACE);
   let s = 0;
   for (let i = 0; i < COPIES; i += 1) s += e[i * 3]!;
@@ -79,7 +79,7 @@ describe('surface cache: direct light per light kind', () => {
     expect(meanAt([0.5, 0, 0.5], [0, 1, 0], { ...sun, shadows: false }, roof)).toBeCloseTo((2 * 0.8) / l, 4);
     // The sun's share (what materials take back out, drawing the sun per pixel): the cosine where it reaches, 0 in shadow.
     const share = (scene: PackedTraceScene): number => {
-      const frame: LightPassFrame = { points: Float32Array.from([0.5, 0, 0.5, 0, 1, 0]), slices: [{ texels: 1, lights: [], sun: true, level: 0 }], lights: [], sun };
+      const frame: LightPassFrame = { points: Float32Array.from([0.5, 0, 0.5, 0, 1, 0]), slices: [{ texels: 1, lights: [], suns: 1, level: 0 }], lights: [], suns: [sun] };
       const out = new Float32Array(1);
       const e = lightFrameCpu(frame, scene, 7, SHADOW_TRACE, out);
       expect(e[0]).toBeCloseTo(2 * out[0]!, 5);
@@ -125,7 +125,7 @@ describe('surface cache: direct light per light kind', () => {
     const sun = light({ kind: 'directional', direction: [0.3, -1, 0.2], color: [2, 2, 2] });
     const points = new Float32Array(COPIES * 6);
     for (let i = 0; i < COPIES; i += 1) points.set([0.4, 0, 0.1, 0, 1, 0], i * 6);
-    const frame: LightPassFrame = { points, slices: [{ texels: COPIES, lights: [0], sun: true, level: 0 }], lights: [rect], sun };
+    const frame: LightPassFrame = { points, slices: [{ texels: COPIES, lights: [0], suns: 1, level: 0 }], lights: [rect], suns: [sun] };
     const doubled: LightPassFrame = { ...frame, rayScale: 2 };
     expect(sliceRays(frame, frame.slices[0]!)).toBe(8 + 16);
     expect(sliceRays(doubled, doubled.slices[0]!)).toBe(16 + 32);
@@ -195,10 +195,43 @@ describe('surface cache: direct light per light kind', () => {
     const sun = light({ kind: 'directional', direction: [0, 1, 0], lightMask: 0b01 });
     const f = lightFrameOf(host, [...many, sun]);
     expect(f.slices[0]!.lights).toHaveLength(40);
-    expect(f.slices[0]!.sun).toBe(true);
+    expect(f.slices[0]!.suns).toBe(1);
     expect(f.slices[1]!.lights).toHaveLength(39);
     expect(f.slices[1]!.lights).not.toContain(0);
-    expect(f.slices[1]!.sun).toBe(false);
+    expect(f.slices[1]!.suns).toBe(0);
+    // Every directional light on lights the cache, each in the units its mask names.
+    const moon = light({ kind: 'directional', id: 'moon', direction: [1, 0, 0] });
+    const two = lightFrameOf(host, [sun, moon, { ...moon, id: 'off', on: false }]);
+    expect(two.suns.map((l) => l.id)).toEqual(['l', 'moon']);
+    expect(two.slices.map((s) => s.suns)).toEqual([0b11, 0b10]);
+  });
+
+  it('two suns: each lights the texel, and the share materials take back out is the drawn suns\' luminance share', () => {
+    const up = light({ kind: 'directional', id: 'up', direction: [0, 1, 0], color: [2, 2, 2] });
+    const slant = light({ kind: 'directional', id: 'slant', direction: [0.6, 0.8, 0], color: [0, 3, 0] });
+    const grid = new BlockGrid({ cellSize: [1, 1, 1], bounds: { min: [-20, 0, -20], max: [20, 4, 20] } });
+    for (let z = -20; z < 20; z += 1) for (let x = -20; x < 20; x += 1) grid.set(x, 3, z, { block: 'rock' });
+    const roof = packTraceScene({ blocks: [traceBlockLayerOf(grid, [0, 0, 0], opaqueByBlockTypes([{ blockId: 'rock', shape: 'full' } as BlockType]))] });
+    const run = (scene: PackedTraceScene, drawn?: ReadonlySet<string>): { e: Float32Array; share: number } => {
+      const frame: LightPassFrame = { points: Float32Array.from([0.5, 0, 0.5, 0, 1, 0]), slices: [{ texels: 1, lights: [], suns: 0b11, level: 0 }], lights: [], suns: [up, { ...slant, shadows: false }], ...(drawn !== undefined ? { drawnSuns: drawn } : {}) };
+      const out = new Float32Array(1);
+      const e = lightFrameCpu(frame, scene, 7, SHADOW_TRACE, out);
+      return { e, share: out[0]! };
+    };
+    // Open sky: both, green from the slanted one only.
+    const open = run(EMPTY);
+    expect(open.e[0]).toBeCloseTo(2, 4);
+    expect(open.e[1]).toBeCloseTo(2 + 3 * 0.8, 4);
+    const lu = 2, ls = 0.7152 * 3;
+    expect(open.share).toBeCloseTo((lu * 1 + ls * 0.8) / (lu + ls), 4);
+    // Under the roof: only the shadowless one reaches.
+    const under = run(roof);
+    expect(under.e[0]).toBeCloseTo(0, 5);
+    expect(under.e[1]).toBeCloseTo(3 * 0.8, 4);
+    expect(under.share).toBeCloseTo((ls * 0.8) / (lu + ls), 4);
+    // Only the first drawn per pixel: the share is its own, exactly.
+    expect(run(EMPTY, new Set(['up'])).share).toBeCloseTo(1, 5);
+    expect(run(roof, new Set(['up'])).share).toBe(0);
   });
 
   it('a frame reached by many lights is cut into runs within a ray budget, every texel once, its light unchanged', () => {
@@ -206,7 +239,7 @@ describe('surface cache: direct light per light kind', () => {
     const texels = 300;
     const points = new Float32Array(texels * 6);
     for (let i = 0; i < texels; i += 1) points.set([i * 0.01, 0, 0, 0, 1, 0], i * 6);
-    const frame: LightPassFrame = { points, slices: [{ texels: 120, lights: lights.map((_, j) => j), sun: false, level: 0 }, { texels: 180, lights: [0, 1, 2], sun: false, level: 1 }], lights, sun: null };
+    const frame: LightPassFrame = { points, slices: [{ texels: 120, lights: lights.map((_, j) => j), suns: 0, level: 0 }, { texels: 180, lights: [0, 1, 2], suns: 0, level: 1 }], lights, suns: [] };
     const parts = splitLightFrame(frame, 4000);
     expect(parts.length).toBeGreaterThan(3);
     let seen = 0;
@@ -238,7 +271,7 @@ describe('surface cache: direct light per light kind', () => {
     expect(traceRayCpu(sceneView(walled), o, d, 0, 594, SHADOW_TRACE).kind).toBe(TRACE_ARCH);
     const lamp = light({ kind: 'point', position: [595, 0, 0], color: [1e6, 1e6, 1e6], range: 1000 });
     const lit = (scene: PackedTraceScene, resumes?: number): number => {
-      const frame: LightPassFrame = { points: Float32Array.from([1, 0, 0, 1, 0, 0]), slices: [{ texels: 1, lights: [0], sun: false, level: 0 }], lights: [lamp], sun: null };
+      const frame: LightPassFrame = { points: Float32Array.from([1, 0, 0, 1, 0, 0]), slices: [{ texels: 1, lights: [0], suns: 0, level: 0 }], lights: [lamp], suns: [] };
       return lightFrameCpu(frame, scene, 7, { ...SHADOW_TRACE, ...(resumes === undefined ? {} : { resumes }) })[0]!;
     };
     // Resumed, the open line reaches the lamp and the walled one is in the wall's shadow.

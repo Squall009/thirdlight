@@ -570,7 +570,7 @@ export const light: ComponentDescriptor = {
     num('width', 'Width', 'The rect\'s side along the object\'s local X, or the line\'s length.', { when: when('type', 'area'), min: 0, minExclusive: true, max: AREA_LIGHT_SIZE_MAX, step: 0.05, unit: 'm', default: AREA_LIGHT_DEFAULTS.width }),
     num('height', 'Height', 'The rect\'s side along the object\'s local Z (rect only).', { when: [when('type', 'area'), when('shape', 'rect')], min: 0, minExclusive: true, max: AREA_LIGHT_SIZE_MAX, step: 0.05, unit: 'm', default: AREA_LIGHT_DEFAULTS.height }),
     bool('twoSided', 'Two-sided', 'Shines from both faces (off: only toward the object\'s local −Y).', { when: when('type', 'area'), default: AREA_LIGHT_DEFAULTS.twoSided }),
-    enm('mode', 'Mode', 'Realtime, baked into lightmaps, or both (mixed).', ['realtime', 'baked', 'mixed'], { default: 'realtime', omitDefault: true }),
+    enm('mode', 'Mode', 'Realtime (live only), baked (saved by the lighting bake), or mixed (bounce saved, direct light live).', ['realtime', 'baked', 'mixed'], { default: 'realtime', omitDefault: true }),
     lightLayerMask('lightMask', 'Light mask', 'The light layers it lights: an object is lit only when it is in one of them.', 0),
     lightLayerMask('shadowCasterMask', 'Shadow caster mask', 'Only objects in one of these light layers cast its shadow.', 0, { when: when('type', 'directional', 'point', 'spot', 'area') }),
   ]),

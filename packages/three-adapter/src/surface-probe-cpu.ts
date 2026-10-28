@@ -7,7 +7,7 @@
  * Pure (no three.js, no device).
  */
 import { NO_ROOM, ROOM_EXIT_MARGIN, closedPortalCpu, roomExitCpu } from './surface-rooms';
-import { BOUNCE_ALBEDO, PROBE_AXIS_RAYS, PROBE_BLEND_MIN, PROBE_FLOATS, PROBE_HIT_LIFT, PROBE_MOVED_AT, PROBE_RAYS, PROBE_SH_RAYS, SH_Y0, SH_Y1, probesIrradianceAt, shIrradiance, type LiveProbes } from './surface-probes';
+import { BOUNCE_ALBEDO, GOLDEN_ANGLE, PROBE_AXIS_RAYS, PROBE_BLEND_MIN, PROBE_FLOATS, PROBE_HIT_LIFT, PROBE_MOVED_AT, PROBE_RAYS, PROBE_SH_RAYS, SH_Y0, SH_Y1, probesIrradianceAt, shIrradiance, type LiveProbes } from './surface-probes';
 import { EXACT_TRACE, type TraceHit } from './tracer-cpu-math';
 import { sceneView, traceRayCpu } from './tracer-cpu';
 import { TRACE_MISS, TRACE_UNFINISHED, type PackedTraceScene } from './tracer-scene';
@@ -20,7 +20,6 @@ function pcg(v: number): number {
   return ((w >>> 22) ^ w) >>> 0;
 }
 
-const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 const cross = (a: readonly number[], b: readonly number[]): V3 => [a[1]! * b[2]! - a[2]! * b[1]!, a[2]! * b[0]! - a[0]! * b[2]!, a[0]! * b[1]! - a[1]! * b[0]!];
 
 /** Direction `k` of probe `probe`'s update with `seed` (the shaders' `probeRay`). */

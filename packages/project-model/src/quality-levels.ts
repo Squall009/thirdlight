@@ -235,6 +235,18 @@ export const DEFAULT_QUALITY_LEVELS: readonly Readonly<QualityLevelConfig>[] = O
   Object.freeze({ id: 'high', name: 'High', lighting: 'high' as const, post: { antialias: 'taau' as const } }),
 ]);
 
+/**
+ * Whether a level's render scale and dynamic resolution are the engine's
+ * level's of the same id. They are then defaults under the project's own
+ * `render_scale` and `dynamic_resolution`: a project that copied the engine's
+ * levels to change another field (the editor's Lighting window does) keeps
+ * its own scale, as with the engine's levels themselves.
+ */
+export function levelScalingIsEngineDefault(level: QualityLevelConfig): boolean {
+  const engine = DEFAULT_QUALITY_LEVELS.find((l) => l.id === level.id);
+  return engine !== undefined && engine.renderScale === level.renderScale && engine.dynamicResolution === level.dynamicResolution;
+}
+
 /** The project's levels (the engine's when it lists none). */
 export function qualityLevelsOf(env: { readonly qualityLevels?: readonly QualityLevelConfig[] } | null | undefined): readonly QualityLevelConfig[] {
   const own = env?.qualityLevels;

@@ -30,7 +30,7 @@
  * (`setView`) keeps a copy of every texel's point and light on the CPU, read
  * back a frame late, for a debug drawing.
  */
-import { SURFACE_PAGE_TEXELS, SURFACE_TEXEL_METRES } from './surface-cache-atlas';
+import { SURFACE_PAGE_TEXELS, SURFACE_TEXEL_BYTES, SURFACE_TEXEL_METRES } from './surface-cache-atlas';
 import { TERRAIN_RINGS_MAX, TERRAIN_RING_TEXELS } from './surface-cache-terrain';
 import { markTexturesLost, type SurfaceCacheHost } from './surface-cache-host';
 import type { CacheLight } from './surface-changes';
@@ -39,15 +39,13 @@ import type { RelightSlice } from './surface-relight';
 import { SurfaceLightPass } from './surface-light-pass';
 import { RESOLVE_PAGE, RESOLVE_RING } from './surface-resolve';
 import { TEXEL_POINT_FLOATS, patchTexelAddresses, tileTexelAddresses } from './surface-texels';
-import type { GpuBuffer, GpuTexture, TracerDevice } from './tracer-gpu';
+import { GPU_BUFFER_USAGE as USAGE, GPU_TEXTURE_USAGE as TEXTURE, RAY_COST_WEIGHT, type GpuBuffer, type GpuTexture, type TracerDevice } from './tracer-gpu';
 import { DEFAULT_STORAGE_BINDING_BYTES, TraceScenePacker } from './tracer-scene-packer';
 import { SurfaceProbePass } from './surface-probe-pass';
 import { SurfaceReflectionPass } from './surface-reflection-pass';
 import { packResolveTable } from './surface-resolve';
 import { ALBEDO_CELLS, ALBEDO_PAGE_STEP, albedoWords } from './surface-cache-lookup';
 
-/** Bytes a cache texel takes (rgba16float). */
-export const SURFACE_TEXEL_BYTES = 8;
 /**
  * Rays one run of the pass takes at most: its ray and hit buffers (32 B a
  * ray each) stay within the default storage binding size (128 MiB), so a
@@ -61,14 +59,10 @@ export const MAX_PASS_RAYS = 1 << 21;
  * on the Iris Xe at its floor clock), so fewer would only slow the light.
  */
 export const MIN_PASS_RAYS = 1 << 16;
-/** The weight a new run's cost per ray gets in the average. */
-const RAY_COST_WEIGHT = 0.25;
 /** Shortest time (ms) between packing the traced scene again after it changed. */
 export const REPACK_MS = 250;
 
 const WORKGROUP = 64;
-const USAGE = { MAP_READ: 0x1, COPY_SRC: 0x4, COPY_DST: 0x8, UNIFORM: 0x40, STORAGE: 0x80 } as const;
-const TEXTURE = { COPY_SRC: 0x1, COPY_DST: 0x2, TEXTURE_BINDING: 0x4, STORAGE_BINDING: 0x8 } as const;
 
 const SCATTER_WGSL = /* wgsl */ `
 @group(0) @binding(0) var<uniform> N: vec4u;
@@ -281,6 +275,9 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
     return true;
   }
 
+  /** Ids of the suns materials draw per pixel (absent: every sun): the share a texel's alpha holds. */
+  drawnSuns: ReadonlySet<string> | undefined = undefined;
+
   /** One frame (after the host's `update`): light its planned texels, write them into the textures, then update stale probes. */
   frame(lights: readonly CacheLight[], now = performance.now()): void {
     this.ensureTextures();
@@ -344,7 +341,7 @@ export class SurfaceLightRuntime implements SurfaceCacheView {
     if (slices.length === 0) return;
     this.syncScene(now);
     this.ensureTextures();
-    const f = lightFrameOf(this.host, lights, this.points, this.host.rooms(), this.host.cache.rayScale);
+    const f = lightFrameOf(this.host, lights, this.points, this.host.rooms(), this.host.cache.rayScale, this.drawnSuns);
     this.points = f.points;
     const texels = f.slices.reduce((n, s) => n + s.texels, 0);
     if (this.addresses.length < texels * 2) this.addresses = new Uint32Array(texels * 2 * 2);

@@ -13,11 +13,19 @@ import { HIT_WORDS, RAY_FLOATS, TRACE_RESUMES, type PackedTraceScene } from './t
 import type { ScenePack } from './tracer-scene-packer';
 import { TRACER_WGSL, TRACER_WORKGROUP } from './tracer-wgsl';
 
-/** GPUTextureUsage bits (WebGPU's constants). */
-const TEXTURE = { COPY_DST: 0x2, TEXTURE_BINDING: 0x4 } as const;
-/** GPUBufferUsage and GPUMapMode bits this module uses (WebGPU's constants). */
-const USAGE = { MAP_READ: 0x1, COPY_SRC: 0x4, COPY_DST: 0x8, UNIFORM: 0x40, STORAGE: 0x80 } as const;
-const MAP_READ = 0x1;
+/**
+ * WebGPU's GPUBufferUsage, GPUTextureUsage and GPUMapMode bits, written out
+ * (the globals exist only where WebGPU does; the cache's passes and their
+ * tests build descriptors without them). Every GPU pass takes them from here.
+ */
+export const GPU_BUFFER_USAGE = { MAP_READ: 0x1, COPY_SRC: 0x4, COPY_DST: 0x8, UNIFORM: 0x40, STORAGE: 0x80, QUERY_RESOLVE: 0x200 } as const;
+export const GPU_TEXTURE_USAGE = { COPY_SRC: 0x1, COPY_DST: 0x2, TEXTURE_BINDING: 0x4, STORAGE_BINDING: 0x8 } as const;
+export const GPU_MAP_READ = 0x1;
+/** The weight a new run's cost per ray gets in a pass's running average (the light and reflection passes' budgets). */
+export const RAY_COST_WEIGHT = 0.25;
+const USAGE = GPU_BUFFER_USAGE;
+const TEXTURE = GPU_TEXTURE_USAGE;
+const MAP_READ = GPU_MAP_READ;
 
 export interface GpuBuffer {
   readonly size: number;

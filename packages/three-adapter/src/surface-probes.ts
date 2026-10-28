@@ -45,6 +45,8 @@ import { EMPTY_BRICK_MAP, PROBE_BRICK_SIDE, PROBE_PLACED_DROPPED, PROBE_PLACED_M
 import { PROBE_WEIGHT_FILLED, PROBE_WEIGHT_MOVED, PROBE_WEIGHT_VALID } from './probe-weights';
 import { NO_ROOM, roomHoldsCpu, type SurfaceRooms } from './surface-rooms';
 
+/** The golden angle (radians): the turn between neighbours of a Fibonacci sphere, the probes' ray and sky directions (its WGSL takes it as a generated constant). */
+export const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 /** Rays an update casts for a probe's light, and along the axes for its walls. */
 export const PROBE_SH_RAYS = 64;
 export const PROBE_AXIS_RAYS = 6;

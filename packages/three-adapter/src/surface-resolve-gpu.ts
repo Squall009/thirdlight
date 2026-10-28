@@ -6,9 +6,8 @@
  */
 import { RESOLVE_WGSL, RESOLVE_WORKGROUP } from './surface-resolve-wgsl';
 import { TEXEL_WORDS } from './surface-resolve';
-import type { GpuBuffer, GpuEncoder, TracerDevice } from './tracer-gpu';
+import { GPU_BUFFER_USAGE as USAGE, type GpuBuffer, type GpuEncoder, type TracerDevice } from './tracer-gpu';
 
-const USAGE = { MAP_READ: 0x1, COPY_SRC: 0x4, COPY_DST: 0x8, UNIFORM: 0x40, STORAGE: 0x80 } as const;
 
 export class GpuResolve {
   private readonly params: GpuBuffer;

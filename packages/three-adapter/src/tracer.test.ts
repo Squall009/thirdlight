@@ -354,7 +354,7 @@ describe('tracer: generated architecture', () => {
       const copies = 32;
       const points = new Float32Array(copies * 6);
       for (let i = 0; i < copies; i += 1) points.set([...p, ...n], i * 6);
-      const e = lightFrameCpu({ points, slices: [{ texels: copies, lights: [0], sun: false, level: 0 }], lights: [lamp], sun: null }, scene, 3, SHADOW_TRACE);
+      const e = lightFrameCpu({ points, slices: [{ texels: copies, lights: [0], suns: 0, level: 0 }], lights: [lamp], suns: [] }, scene, 3, SHADOW_TRACE);
       let sum = 0;
       for (let i = 0; i < copies; i += 1) sum += e[i * 3]!;
       return sum / copies;

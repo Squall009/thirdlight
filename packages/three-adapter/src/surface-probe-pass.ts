@@ -11,13 +11,12 @@
  * Only the few WebGPU calls this uses are typed (`tracer-gpu.ts`'s types).
  */
 import { EXACT_TRACE } from './tracer-cpu-math';
-import type { GpuBuffer, GpuTexture, GpuTracer, TracerDevice } from './tracer-gpu';
+import { GPU_BUFFER_USAGE as USAGE, type GpuBuffer, type GpuTexture, type GpuTracer, type TracerDevice } from './tracer-gpu';
 import { RAY_FLOATS } from './tracer-scene';
 import { GpuResolve } from './surface-resolve-gpu';
 import { BOUNCE_ALBEDO, PROBE_BLEND_MIN, PROBE_FLOATS, PROBE_HIT_LIFT, PROBE_RAYS, NO_BRICK_WORD, type LiveProbes, type ProbeLayoutWords } from './surface-probes';
 import { PROBE_COMMIT_WGSL, PROBE_GATHER_WGSL, PROBE_RAYS_WGSL, PROBE_SLOT_WORDS, PROBE_VEC4S, PROBE_WORKGROUP } from './surface-probe-wgsl';
 
-const USAGE = { MAP_READ: 0x1, COPY_SRC: 0x4, COPY_DST: 0x8, UNIFORM: 0x40, STORAGE: 0x80, QUERY_RESOLVE: 0x200 } as const;
 
 interface QueryDevice extends TracerDevice {
   readonly features?: { has(f: string): boolean };

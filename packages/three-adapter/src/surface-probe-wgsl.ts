@@ -29,7 +29,7 @@ import { TERRAIN_RINGS_MAX, TERRAIN_RING_TEXELS } from './surface-cache-terrain'
 import { SURFACE_PAGE_TEXELS } from './surface-cache-atlas';
 import { ALBEDO_CELLS, ALBEDO_PAGE_STEP, ALBEDO_RING_STEP } from './surface-cache-lookup';
 import { NO_ROOM, ROOM_EXIT_MARGIN, roomsWgsl } from './surface-rooms';
-import { GRID_WORDS, NO_BRICK_WORD, PROBE_AXIS_RAYS, PROBE_RAYS, PROBE_SH_RAYS, SH_E0, SH_E1, SH_Y0, SH_Y1 } from './surface-probes';
+import { GOLDEN_ANGLE, GRID_WORDS, NO_BRICK_WORD, PROBE_AXIS_RAYS, PROBE_RAYS, PROBE_SH_RAYS, SH_E0, SH_E1, SH_Y0, SH_Y1 } from './surface-probes';
 import { PROBE_WEIGHT_FILLED, PROBE_WEIGHT_MOVED } from './probe-weights';
 import { PROBE_VALIDITY_THRESHOLD } from '@thirdlight/runtime';
 import { TRACE_MISS, TRACE_UNFINISHED } from './tracer-scene';
@@ -39,7 +39,6 @@ export const PROBE_WORKGROUP = 64;
 export const PROBE_SLOT_WORDS = 6;
 /** Vec4s of a probe's record (`PROBE_FLOATS` / 4). */
 export const PROBE_VEC4S = 6;
-const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
 /** The probe passes' parameters and words, shared with the reflections' gather (which fills the same block). */
 export const PROBE_COMMON_WGSL = /* wgsl */ `

@@ -15,7 +15,7 @@ import { ARCHITECTURE_PRESET_KIND, ARCHITECTURE_STARTER_GRAPHS, architectureGrap
 
 import type { ProjectedEntity } from '../../session/projection';
 import type { ClientRef, ReportFailure, ViewportRef } from '../shell/commands';
-import { withPresetSwapped } from '../../session/room-draw';
+import { allOutlines, withOutlineSet, withPresetSwapped } from '../../session/room-draw';
 import { groupedPresetChoices, type PickOption } from './preset-choices';
 import { waitFor } from '../wait-for';
 
@@ -52,6 +52,12 @@ export interface RoomsBinding {
   createScene(name: string): Promise<string | null>;
   /** Store the rooms (making the object on the first room). */
   setRooms(next: ArchitectureComponent, what: string): Promise<boolean>;
+  /**
+   * Store one room's or building's edit, made on the rooms as stored when
+   * the command is sent (after this editor's earlier edits), not as a panel
+   * last drew them: a field edited right after another keeps the other.
+   */
+  editOutline(id: string, edit: (o: ArchitectureOutline) => ArchitectureOutline, what: string): Promise<boolean>;
   /** Draw the object as `next` without storing it (null: as stored). */
   preview(entityId: string, next: ArchitectureComponent | null): void;
   /**
@@ -126,6 +132,24 @@ export function useRoomsBinding(layer: ProjectedEntity | null, entities: readonl
         return r.ok;
       }
       const r = await c.command('createEntity', { parentId: null, kind: 'group', name: `${layer.name} rooms`, transform: { position: [...layerOrigin] }, components: { architecture: next } }, c.projection.revision);
+      reportFailure(what, r);
+      return r.ok;
+    },
+    async editOutline(id, edit, what) {
+      const c = clientRef.current;
+      const stored = component;
+      if (!c || roomsId === null || stored === null) return false;
+      const r = await c.command(
+        'setComponent',
+        () => {
+          const latest = (c.projection.getEntity(roomsId)?.components['architecture'] as ArchitectureComponent | undefined) ?? stored;
+          const o = allOutlines(latest).find((x) => x.id === id);
+          const next = o === undefined ? latest : withOutlineSet(latest, id, edit(o));
+          const dropped = Object.fromEntries(Object.keys(latest).filter((k) => !(k in next)).map((k) => [k, null]));
+          return { entityId: roomsId, component: 'architecture', value: { ...next, ...dropped } };
+        },
+        c.projection.revision,
+      );
       reportFailure(what, r);
       return r.ok;
     },

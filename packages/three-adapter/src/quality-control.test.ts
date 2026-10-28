@@ -159,9 +159,19 @@ describe('quality control', () => {
     expect(gl.surface()).toMatchObject({ ms: 0, mib: 32 });
     gl.q.choose('high');
     expect(gl.q.tier()).toBe('low');
-    // A project whose levels name no tier: the device does not choose.
+    // A project whose levels name no tier: the device still chooses (the default tier), the lowest on WebGL 2.
     const untiered = harness({ qualityLevels: [{ id: 'a' }, { id: 'b' }] });
     untiered.q.setDevice({ api: 'webgpu', vendor: 'nvidia' });
-    expect(untiered.q.diagnostics()).toMatchObject({ level: 'b', source: 'highest', tier: 'medium' });
+    expect(untiered.q.diagnostics()).toMatchObject({ level: 'b', source: 'device', tier: 'medium' });
+    const untieredGl = harness({ qualityLevels: [{ id: 'a' }, { id: 'b' }] });
+    untieredGl.q.setDevice({ api: 'webgl2' });
+    expect(untieredGl.q.diagnostics()).toMatchObject({ level: 'a', source: 'device', tier: 'low' });
+    // A `?quality=` (or a project's level) the levels lack is passed over for the device's choice, not the highest.
+    const typo = harness(null, { pinned: 'ultra' });
+    typo.q.setDevice(intel);
+    expect(typo.q.diagnostics()).toMatchObject({ level: 'medium', source: 'device' });
+    const gone = harness({ quality: 'gone' });
+    gone.q.setDevice(intel);
+    expect(gone.q.diagnostics()).toMatchObject({ level: 'medium', source: 'device' });
   });
 });

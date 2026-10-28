@@ -535,7 +535,6 @@
 "limit.DEFAULT_INPUT": {"page":"limits-project-model-1.md","section":"limits-project-model--input"},
 "limit.DEFAULT_INPUT_3D": {"page":"limits-project-model-1.md","section":"limits-project-model--input"},
 "limit.DEFAULT_LIGHTING_TIER": {"page":"limits-project-model-2.md","section":"limits-project-model--quality-levels"},
-"limit.DEFAULT_PROBE_BOUNCES": {"page":"limits-project-model-2.md","section":"limits-project-model--probe-grids"},
 "limit.DEFAULT_PROBE_SPACING": {"page":"limits-project-model-2.md","section":"limits-project-model--probe-grids"},
 "limit.DEFAULT_QUALITY_LEVELS": {"page":"limits-project-model-2.md","section":"limits-project-model--quality-levels"},
 "limit.DEFAULT_RANDOM_SEED": {"page":"limits-runtime.md","section":"limits-runtime--random"},

@@ -14,7 +14,7 @@ The quality levels, the default level and the environment presets (each scene ha
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `quality` | string, ≥ 1 chars |  |  | **Quality.** The quality level a game starts at, one of the levels' ids (players change it in Settings; absent: the highest level whose lighting tier the device fits, else the highest). |
+| `quality` | string, ≥ 1 chars |  |  | **Quality.** The quality level a game starts at, one of the levels' ids (players change it in Settings; absent: the highest level whose lighting tier the device fits, an untiered level counting as medium). |
 | `qualityLevels` | list of objects, ≥ 1 items |  |  | **Quality levels.** The project's quality levels, lowest first (absent: the engine's low, medium and high, one per lighting tier: low draws no bloom, AO, depth of field, anti-aliasing or MSAA; medium no AO or depth of field, at a 0.667 render scale with dynamic resolution). |
 | `qualityLevels[]` | object |  |  | **Quality level.** Graphics settings players pick from. (rules: Level ids are unique.) |
 | `qualityLevels[].id` | string, 1–32 chars |  |  | **Id.** Named by environment.quality, a player's setting and game-control setQuality. (required) |

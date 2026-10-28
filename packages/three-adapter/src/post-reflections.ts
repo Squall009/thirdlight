@@ -43,7 +43,7 @@ import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 
 import type { N } from './effects-tsl';
-import { ScreenHistoryLight, takesScreenHistory, HISTORY_DEPTH_TOLERANCE } from './screen-history';
+import { ScreenHistoryLight, takesScreenHistory, HISTORY_DEPTH_SLACK_M, HISTORY_DEPTH_TOLERANCE } from './screen-history';
 import { untransformedTexture } from './texel-texture-node';
 
 const TSL: N = TSLTyped;
@@ -177,8 +177,6 @@ export class ReflectionsLight extends ScreenHistoryLight {
 export function isReflectionsLight(light: unknown): light is ReflectionsLight {
   return (light as Partial<ReflectionsLight> | null)?.isReflections === true;
 }
-
-const HISTORY_DEPTH_SLACK_M = 0.05;
 
 /** The last frame's resolved reflection where this pixel's surface was: rgb, and its confidence (0 where none holds). */
 export function reflectionAt(l: ReflectionsLight): N {

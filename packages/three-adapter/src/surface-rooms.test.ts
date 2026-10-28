@@ -71,9 +71,9 @@ function lit(p: V3, n: V3, rooms: SurfaceRooms | null, scene: ReturnType<typeof 
   const held = rooms?.lightRooms(light.position, light.shadows === false) ?? null;
   const frame: LightPassFrame = {
     points,
-    slices: [{ texels: copies, lights: [0], sun: false, level: 0, ...(rooms !== null ? { rooms: rooms.unitRooms(min, max) } : {}) }],
+    slices: [{ texels: copies, lights: [0], suns: 0, level: 0, ...(rooms !== null ? { rooms: rooms.unitRooms(min, max) } : {}) }],
     lights: [light],
-    sun: null,
+    suns: [],
     ...(rooms !== null ? { lightRooms: [held], rooms: rooms.words } : {}),
   };
   const e = lightFrameCpu(frame, scene, 3, SHADOW_TRACE);

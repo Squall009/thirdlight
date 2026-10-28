@@ -3,20 +3,21 @@
  * `surface-light-frame.ts` packs; `surface-light-cpu.ts` is their twin line
  * for line (the same random sequence per ray, so the two agree).
  *
- * - rays: one thread per ray: the ray's light (the sun, or the slice's k-th
- *   light by its ray count), a point on it (the sun's disc, a small sphere
- *   round a point or spot light, an area light's rectangle or line) and the
- *   ray toward it, with the light's shadow caster mask; a light that casts
- *   no shadow gets a ray of length 0;
+ * - rays: one thread per ray: the ray's light (one of the slice's suns, or
+ *   the slice's k-th light by its ray count), a point on it (the sun's
+ *   disc, a small sphere round a point or spot light, an area light's
+ *   rectangle or line) and the ray toward it, with the light's shadow
+ *   caster mask; a light that casts no shadow gets a ray of length 0;
  * - gather: one thread per texel: each light's share over its rays
  *   (visible ones), into the texel's irradiance; a light held to rooms
  *   (`surface-rooms.ts`) adds nothing to a texel outside them.
  *
- * A texel's alpha says it was lit and how much of its light is the sun's:
- * 1 + the sun's share (max(n·l, 0) × the share of its rays that reached
- * it), 0 for a texel with no surface. Materials draw the sun per pixel
- * (its shadow map is sharper than a texel), so they take the sun's colour
- * × that share back out of the texel's light (`SURFACE_TEXEL_LIT`).
+ * A texel's alpha says it was lit and how much of its light is the drawn
+ * suns': 1 + their share (per sun max(n·l, 0) × the share of its rays that
+ * reached it, weighted by its part of their summed luminance), 0 for a
+ * texel with no surface. Materials draw directional lights per pixel (a
+ * shadow map is sharper than a texel), so they take the drawn suns' summed
+ * colour × that share back out of the texel's light (`SURFACE_TEXEL_LIT`).
  */
 import { AREA_CONE, AREA_LINE, LIGHT_SHADOWS, LIGHT_WORDS, POINT_LIGHT_RADIUS, RAY_BIAS, SLICE_WORDS, SUN_DISC_RADIANS, SUN_WORDS } from './surface-light-frame';
 import { NO_ROOM, roomsWgsl } from './surface-rooms';
@@ -27,7 +28,7 @@ export const LIGHT_WORKGROUP = 64;
 export const SURFACE_TEXEL_LIT = 1;
 
 const COMMON = /* wgsl */ `
-struct Params { texels: u32, rays: u32, slices: u32, seed: u32, lights: u32, sunAt: u32, roomsAt: u32, pad1: u32 }
+struct Params { texels: u32, rays: u32, slices: u32, seed: u32, lights: u32, sunAt: u32, roomsAt: u32, suns: u32 }
 @group(0) @binding(0) var<uniform> P: Params;
 @group(0) @binding(1) var<storage, read> F: array<u32>;
 @group(0) @binding(2) var<storage, read> PT: array<f32>;
@@ -53,7 +54,8 @@ fn sliceOf(i: u32, w: u32) -> u32 {
 }
 fn pointOf(t: u32) -> vec3f { return vec3f(PT[t * 6u], PT[t * 6u + 1u], PT[t * 6u + 2u]); }
 fn normalOf(t: u32) -> vec3f { return vec3f(PT[t * 6u + 3u], PT[t * 6u + 4u], PT[t * 6u + 5u]); }
-fn lightAt(j: u32) -> u32 { return P.sunAt + ${SUN_WORDS}u + j * ${LIGHT_WORDS}u; }
+fn lightAt(j: u32) -> u32 { return P.sunAt + P.suns * ${SUN_WORDS}u + j * ${LIGHT_WORDS}u; }
+fn sunAt(i: u32) -> u32 { return P.sunAt + i * ${SUN_WORDS}u; }
 fn raysOf(at: u32, level: u32) -> u32 { return max(1u, (F[at + 19u] & 255u) >> level); }
 fn basis(n: vec3f) -> mat3x3f {
   let a = select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 1.0, 0.0), abs(n.x) > 0.9);
@@ -97,17 +99,27 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
   let sunRays = F[s + 6u];
   let level = F[s + 7u];
   if (dot(n, n) > 0.0) {
-    if (k < sunRays) {
-      let sd = fv(P.sunAt);
+    // The slice's suns first (sunRays each, in bit order), then its lights.
+    var sun = 0xffffffffu;
+    var bits = F[s + 10u];
+    loop {
+      if (bits == 0u) { break; }
+      let i = firstTrailingBit(bits);
+      bits &= bits - 1u;
+      if (k < sunRays) { sun = i; break; }
+      k -= sunRays;
+    }
+    if (sun != 0xffffffffu) {
+      let at = sunAt(sun);
+      let sd = fv(at);
       // Each ray its own sector of the disc.
       let a = (f32(k) + rnd(&seed)) / f32(sunRays) * 6.2831853;
       let q = ${SUN_DISC_RADIANS} * sqrt(rnd(&seed));
       let b = basis(sd);
       d = normalize(sd + (b[0] * cos(a) + b[1] * sin(a)) * q);
-      if (dot(d, n) > 0.0 && F[P.sunAt + 7u] != 0u) { tmax = 1e4; }
-      mask = F[P.sunAt + 3u];
+      if (dot(d, n) > 0.0 && F[at + 7u] != 0u) { tmax = 1e4; }
+      mask = F[at + 3u];
     } else {
-      k -= sunRays;
       for (var i = 0u; i < F[s + 5u]; i++) {
         let at = lightAt(F[F[s + 4u] + i]);
         let rj = raysOf(at, level);
@@ -162,12 +174,18 @@ fn main(@builtin(global_invocation_id) g: vec3u) {
   if (dot(n, n) > 0.0) {
     var k = 0u;
     let sunRays = F[s + 6u];
-    if (sunRays != 0u) {
+    var bits = F[s + 10u];
+    loop {
+      if (bits == 0u) { break; }
+      let at = sunAt(firstTrailingBit(bits));
+      bits &= bits - 1u;
       var v = 0.0;
-      for (; k < sunRays; k++) { v += visible(r0 + k); }
-      let sd = fv(P.sunAt);
-      sun = max(0.0, dot(n, sd)) * v / f32(sunRays);
-      e += fv(P.sunAt + 4u) * sun;
+      for (var i = 0u; i < sunRays; i++) { v += visible(r0 + k + i); }
+      k += sunRays;
+      let lit = max(0.0, dot(n, fv(at))) * v / f32(sunRays);
+      e += fv(at + 4u) * lit;
+      // The drawn suns' luminance share (word 8: this sun's weight), taken back out where materials draw them.
+      sun += ff(at + 8u) * lit;
     }
     // The texel's room, found once the first light held to rooms asks.
     var room = ${NO_ROOM - 1}u;

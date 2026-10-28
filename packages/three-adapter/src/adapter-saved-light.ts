@@ -54,8 +54,8 @@ function uniformWords(words: Uint32Array): string {
   return `${Array.from(words.subarray(0, 8)).join(',')}|${Array.from(layers).join(',')}`;
 }
 
-/** Shortest time (ms) between two packings of the lookup while residency keeps changing (as live). */
-const LOOKUP_MS = 100;
+/** Shortest time (ms) between two packings of the materials' lookup while residency keeps changing (saved and live light alike). */
+export const LOOKUP_MS = 100;
 
 type Loaded = { saved: SavedSurfaceLight } | { failed: string };
 

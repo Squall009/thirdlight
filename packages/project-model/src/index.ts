@@ -1709,6 +1709,7 @@ export {
 // Quality levels (the project's or the engine's low/medium/high) and how a level changes a scene's post.
 export {
   DEFAULT_QUALITY_LEVELS,
+  levelScalingIsEngineDefault,
   DEFAULT_SURFACE_CACHE_MIB,
   levelPost,
   MSAA_SAMPLE_COUNTS,

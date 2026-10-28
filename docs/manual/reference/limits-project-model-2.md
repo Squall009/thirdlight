@@ -90,9 +90,8 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 
 | Constant | Value | What it is |
 |---|---|---|
-| <a id="limit-default-probe-bounces"></a>`DEFAULT_PROBE_BOUNCES` | `2` | Default extra bounce passes of a probe bake. |
 | <a id="limit-default-probe-spacing"></a>`DEFAULT_PROBE_SPACING` | `2` | Default horizontal distance between probes (meters). |
-| <a id="limit-max-probe-bounces"></a>`MAX_PROBE_BOUNCES` | `8` |  |
+| <a id="limit-max-probe-bounces"></a>`MAX_PROBE_BOUNCES` | `8` | Most bounce passes an earlier probe bake's record may name (such bakes still draw until their scene is baked again). |
 | <a id="limit-probe-spacing-max"></a>`PROBE_SPACING_MAX` | `32` |  |
 | <a id="limit-probe-spacing-min"></a>`PROBE_SPACING_MIN` | `0.25` | The spacings a bake or a volume may ask for (meters). |
 

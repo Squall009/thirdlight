@@ -244,12 +244,12 @@ export function RoomInspector(p: RoomInspectorProps): JSX.Element {
       )}
       {building !== null && (
         <Section title="Floor plan">
-          <BuildingPlanFields building={building} binding={b} onSet={(next, what) => set(next, what)} />
+          <BuildingPlanFields building={building} binding={b} />
         </Section>
       )}
       {closed && building === null && room.building === undefined && (
         <Section title="Furnishing" aside={<span className="tl-sec__note">{b.props.filter((x) => x.outline === room.id).length}</span>}>
-          <RoomFurnishingFields room={room} binding={b} onSet={(next, what) => set(next, what)} />
+          <RoomFurnishingFields room={room} binding={b} />
         </Section>
       )}
       {closed && <StairsSection {...p} set={set} />}

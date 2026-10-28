@@ -1,7 +1,8 @@
 /**
  * The one renderer factory used by Play/export (the scene
  * adapter), the editor's Scene view and its previews (asset preview,
- * Animator preview, thumbnails) and the browser lightmap baker.
+ * Animator preview, thumbnails) and the lighting bake (the surface cache
+ * saved).
  *
  * Backends (the names are logged in docs/plan-phase-17.md), all three's
  * `WebGPURenderer` with the shading written once in TSL:

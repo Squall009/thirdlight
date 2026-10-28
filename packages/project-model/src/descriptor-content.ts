@@ -219,7 +219,7 @@ const QUALITY_LEVEL = obj('level', 'Quality level', 'Graphics settings players p
 ], { rules: ['Level ids are unique.'] });
 
 const ENVIRONMENT: FieldDescriptor = obj('environment', 'Environment', 'The quality levels, the one a game starts at, and the presets; each scene has its own sky, fog, post-processing and wind.', [
-  str('quality', 'Quality', 'The quality level a game starts at, one of the levels\' ids (players change it in Settings; absent: the highest level whose lighting tier the device fits, else the highest).', { minLength: 1 }),
+  str('quality', 'Quality', 'The quality level a game starts at, one of the levels\' ids (players change it in Settings; absent: the highest level whose lighting tier the device fits, an untiered level counting as medium).', { minLength: 1 }),
   list('qualityLevels', 'Quality levels', `The project's quality levels, lowest first (absent: the engine's low, medium and high, one per lighting tier: low draws no bloom, AO, depth of field, anti-aliasing or MSAA; medium no AO or depth of field, at a ${MEDIUM_RENDER_SCALE} render scale with dynamic resolution).`, QUALITY_LEVEL, { minItems: 1 }),
   list('presets', 'Presets', 'Named looks scripts switch or blend to at run time (ctx.environment), laid over the active scene\'s look.', PRESET, { maxItems: 64 }),
 ]);
@@ -770,5 +770,5 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
     ops: ['publishBehavior', 'deleteBehavior'],
   },
   { key: 'behaviorTrust', label: 'Script trust', tooltip: 'Which script sources the owner acknowledged.', required: true, value: obj('behaviorTrust', 'Script trust', 'Acknowledged sources.', [list('entries', 'Entries', 'Acknowledged source digests.', json('*', 'Entry', 'A source digest and the revision it was acknowledged at.', { readOnly: true }), { required: true, readOnly: true })], { required: true, readOnly: true }), ops: ['acknowledgeBehaviorTrust', 'revokeBehaviorTrust'] },
-  { key: 'lighting', label: 'Baked lighting', tooltip: 'Each scene\'s lightmap bake (written by the baker).', required: false, value: map('lighting', 'Baked lighting', 'Scene → its bake.', 'Scene', json('*', 'Bake', 'Lightmap atlases, entries and the hashes the bake was made from.', { readOnly: true, shape: 'LightingBake' }), { keyRef: 'scene', readOnly: true }), ops: ['setLighting'] },
+  { key: 'lighting', label: 'Baked lighting', tooltip: 'Each scene\'s saved lighting (written by the lighting bake).', required: false, value: map('lighting', 'Baked lighting', 'Scene → its bake.', 'Scene', json('*', 'Bake', 'Saved surface light and probes, and the hashes it was made from.', { readOnly: true, shape: 'LightingBake' }), { keyRef: 'scene', readOnly: true }), ops: ['setLighting'] },
 ];

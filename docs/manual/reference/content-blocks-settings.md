@@ -181,7 +181,7 @@ Which script sources the owner acknowledged.
 <a id="content-lighting"></a>
 ## lighting — Baked lighting
 
-Each scene's lightmap bake (written by the baker).
+Each scene's saved lighting (written by the lighting bake).
 
 - In every project: no
 - Written by: [`setLighting`](ops-detail.md#op-setLighting)

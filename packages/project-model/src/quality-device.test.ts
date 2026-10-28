@@ -26,14 +26,17 @@ describe('the device\'s lighting tier', () => {
     expect(deviceLightingTier({ api: 'webgpu', vendor: 'intel', architecture: 'gen-12lp' }).reason).toBe('WebGPU, intel gen-12lp: integrated GPU → medium');
   });
 
-  it('a device starts at the highest level whose tier it fits; levels without a tier are not chosen by the device', () => {
+  it('a device starts at the highest level whose tier it fits; a level without a tier counts as the default tier', () => {
     expect(deviceQualityLevel(DEFAULT_QUALITY_LEVELS, 'low')?.id).toBe('low');
     expect(deviceQualityLevel(DEFAULT_QUALITY_LEVELS, 'medium')?.id).toBe('medium');
     expect(deviceQualityLevel(DEFAULT_QUALITY_LEVELS, 'high')?.id).toBe('high');
     const own: QualityLevelConfig[] = [{ id: 'potato', lighting: 'medium' }, { id: 'nice', lighting: 'medium', renderScale: 1 }, { id: 'ultra', lighting: 'high' }];
     expect(deviceQualityLevel(own, 'medium')?.id).toBe('nice');
-    // None fits: the lowest that names a tier.
+    // None fits: the lowest.
     expect(deviceQualityLevel(own, 'low')?.id).toBe('potato');
-    expect(deviceQualityLevel([{ id: 'a' }, { id: 'b' }], 'high')).toBeNull();
+    // Levels that name no tier are the default tier (medium): the highest on a medium or high device, the lowest on a low one.
+    expect(deviceQualityLevel([{ id: 'a' }, { id: 'b' }], 'high')?.id).toBe('b');
+    expect(deviceQualityLevel([{ id: 'a' }, { id: 'b' }], 'low')?.id).toBe('a');
+    expect(deviceQualityLevel([{ id: 'a' }, { id: 'b', lighting: 'high' }], 'medium')?.id).toBe('a');
   });
 });

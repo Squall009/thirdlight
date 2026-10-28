@@ -28,6 +28,13 @@ import { Num, Pick, Text } from './RoomFields';
 type Pin = NonNullable<ArchitectureOutline['pins']>[number];
 const pinOf = (x: FurnishedProp): Pin => ({ id: x.id, ...(x.model !== undefined ? { model: x.model } : { height: x.height ?? x.size[1] }), position: x.position, facing: x.facing, size: x.size });
 
+/** The outline as stored with one field set (undefined or '': removed); every other field as stored. */
+function withField<K extends 'program' | 'furnishing' | 'layoutSeed' | 'pins'>(o: ArchitectureOutline, key: K, v: unknown): ArchitectureOutline {
+  const rest = { ...o } as Record<string, unknown>;
+  delete rest[key];
+  return (v === undefined || v === '' ? rest : { ...rest, [key]: v }) as unknown as ArchitectureOutline;
+}
+
 /** A furnished room's or building's props, each with Pin (kept where it is whatever is made again) or Unpin. */
 function PropPins(p: { props: readonly FurnishedProp[]; pins: readonly Pin[]; setPins: (pins: Pin[], what: string) => void }): JSX.Element {
   const pinned = new Set(p.pins.map((x) => x.id));
@@ -61,21 +68,14 @@ function PropPins(p: { props: readonly FurnishedProp[]; pins: readonly Pin[]; se
  * rooms object's, else the layer's), the layout's seed, Detach (every prop
  * pinned: nothing is made again) and its props to pin.
  */
-export function RoomFurnishingFields(p: { room: ArchitectureOutline; binding: RoomsBinding; onSet: (next: ArchitectureOutline, what: string) => void }): JSX.Element {
+export function RoomFurnishingFields(p: { room: ArchitectureOutline; binding: RoomsBinding }): JSX.Element {
   const { room, binding: B } = p;
   const props = B.props.filter((x) => x.outline === room.id);
   const pins = room.pins ?? [];
   const inherited = B.component?.furnishing ?? B.layerFurnishing;
   const nameOf = (id: string): string => B.furnishings.find(([g]) => g === id)?.[1] ?? id;
-  const setField = (key: 'furnishing' | 'layoutSeed', v: string | number | undefined, what: string): void => {
-    const rest: ArchitectureOutline = { ...room };
-    delete rest[key];
-    p.onSet(v === undefined || v === '' ? rest : ({ ...rest, [key]: v } as ArchitectureOutline), what);
-  };
-  const setPins = (next: Pin[], what: string): void => {
-    const { pins: _p, ...rest } = room;
-    p.onSet(next.length > 0 ? { ...rest, pins: next } : rest, what);
-  };
+  const setField = (key: 'furnishing' | 'layoutSeed', v: string | number | undefined, what: string): void => void B.editOutline(room.id, (o) => withField(o, key, v), what);
+  const setPins = (next: Pin[], what: string): void => void B.editOutline(room.id, (o) => withField(o, 'pins', next.length > 0 ? next : undefined), what);
   const pinned = new Set(pins.map((x) => x.id));
   return (
     <div aria-label={`room ${room.id} furnishing`}>
@@ -93,22 +93,15 @@ export function RoomFurnishingFields(p: { room: ArchitectureOutline; binding: Ro
   );
 }
 
-export function BuildingPlanFields(p: { building: ArchitectureBuilding; binding: RoomsBinding; onSet: (next: ArchitectureBuilding, what: string) => void }): JSX.Element {
+export function BuildingPlanFields(p: { building: ArchitectureBuilding; binding: RoomsBinding }): JSX.Element {
   const bld = p.building;
   const B = p.binding;
   const comp = B.component;
   const locked = (comp?.outlines ?? []).some((o) => o.building === bld.id);
   const props = B.props.filter((x) => x.building === bld.id);
   const pinned = new Set((bld.pins ?? []).map((x) => x.id));
-  const setField = (key: 'program' | 'furnishing' | 'layoutSeed', v: string | number | undefined, what: string): void => {
-    const rest: ArchitectureBuilding = { ...bld };
-    delete rest[key];
-    p.onSet(v === undefined || v === '' ? rest : ({ ...rest, [key]: v } as ArchitectureBuilding), what);
-  };
-  const setPins = (pins: Pin[], what: string): void => {
-    const { pins: _p, ...rest } = bld;
-    p.onSet(pins.length > 0 ? { ...rest, pins } : rest, what);
-  };
+  const setField = (key: 'program' | 'furnishing' | 'layoutSeed', v: string | number | undefined, what: string): void => void B.editOutline(bld.id, (o) => withField(o, key, v), what);
+  const setPins = (pins: Pin[], what: string): void => void B.editOutline(bld.id, (o) => withField(o, 'pins', pins.length > 0 ? pins : undefined), what);
   /** Stores the program's rooms as the building's (and, detaching, pins every prop). */
   const lock = (detach: boolean): void => {
     if (comp === null) return;

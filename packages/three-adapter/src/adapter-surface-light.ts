@@ -28,6 +28,7 @@ import type { RenderGraph } from './render-graph';
 import type { SurfaceCacheHost } from './surface-cache-host';
 import { SurfaceLightRuntime, type SurfaceTextureSource } from './surface-light-runtime';
 import { TEXEL_POINT_FLOATS } from './surface-texels';
+import { cacheSuns } from './surface-light-frame';
 import { AdapterLiveProbes } from './adapter-live-probes';
 import type { ProbeLightingHost } from './probe-grids';
 import { PROBE_HIT_LIFT, probesIrradianceAt } from './surface-probes';
@@ -39,7 +40,7 @@ import { packSurfaceLookup, SURFACE_READ } from './surface-cache-lookup';
 import { SURFACE_READ_ALL, SURFACE_READ_LIVE_KEY, SurfaceCacheTextures } from './surface-cache-read';
 import { savedLights, type CacheLight, type ColourChanges } from './surface-changes';
 import { runSurfaceBake, type BakePart, type SurfaceBakeOptions, type SurfaceBakeOutcome } from './adapter-surface-bake';
-import { AdapterSavedLight, type SavedLightDiagnostics, type SurfaceBakeLike } from './adapter-saved-light';
+import { AdapterSavedLight, LOOKUP_MS, type SavedLightDiagnostics, type SurfaceBakeLike } from './adapter-saved-light';
 import { REFLECTION_TRACER_KEY, type ReflectionTracer } from './post-reflections';
 import { AdapterLightingViews, type LightingViewCounts, type LightingViewState } from './adapter-lighting-views';
 
@@ -67,8 +68,6 @@ export function surfaceReadKinds(flag: string | null): number {
 const ALBEDO_CAPTURE_FRAMES = 30;
 /** Shortest time (ms) between two read-backs of the surfaces' colours for the diagnostics. */
 const ALBEDO_READ_MS = 2000;
-/** Shortest time (ms) between two packings of the materials' lookup while residency keeps changing. */
-const LOOKUP_MS = 100;
 
 /** The renderer's WebGPU device (three's WebGPU backend keeps it as `backend.device`), or null on WebGL 2. */
 function deviceOf(renderer: AnyRenderer): TracerDevice | null {
@@ -189,8 +188,9 @@ export class AdapterSurfaceLight {
     const device = this.failed || this.host.relightBudgetMs <= 0 ? null : gpu;
     if (device !== this.device || (device !== null && this.host.cache.budgetBytes !== this.budgetFor)) this.drop(device, renderer);
     this.off = this.runtime !== null ? null : this.failed ? 'failed' : this.host.relightBudgetMs <= 0 ? 'no-budget' : gpu === null ? 'no-webgpu' : 'starting';
+    if (this.runtime !== null) this.runtime.drawnSuns = this.lights.drawnSuns;
     this.runtime?.frame(lights);
-    this.syncRead(all, renderer, eye);
+    this.syncRead(all, lights, renderer, eye);
     // Until the light is live (WebGL 2, a level without a live budget, a live light still starting) the saved light is drawn.
     if (this.runtime === null && this.readOn) this.saved.frame();
     else {
@@ -227,15 +227,16 @@ export class AdapterSurfaceLight {
   }
 
   /** What materials read, up to date: the lookup packed again when residency changed, the sun the texels were lit with; the scene says so once both are up. */
-  private syncRead(lights: readonly CacheLight[], renderer: AnyRenderer, eye: ArrayLike<number>): void {
+  private syncRead(lights: readonly CacheLight[], lit: readonly CacheLight[], renderer: AnyRenderer, eye: ArrayLike<number>): void {
     const tex = this.textures;
     if (this.runtime === null || tex === null || !this.readOn) {
       delete this.scene.userData[SURFACE_READ_LIVE_KEY];
       return;
     }
-    // The sun's share is taken out of a texel where the sun is drawn per pixel (a light held by a bake is not).
-    const sun = this.lights.drawnSun;
-    tex.sun.value.setRGB(sun?.color[0] ?? 0, sun?.color[1] ?? 0, sun?.color[2] ?? 0);
+    // The suns' share is taken out of a texel where they are drawn per pixel (a light held by a bake is not): their summed colour.
+    const sun = [0, 0, 0];
+    for (const l of cacheSuns(lit)) if (this.lights.drawnSuns.has(l.id)) for (let i = 0; i < 3; i += 1) sun[i]! += l.color[i] ?? 0;
+    tex.sun.value.setRGB(sun[0]!, sun[1]!, sun[2]!);
     tex.highlights.set(this.highlightsOn ? lights : [], eye);
     const key = `${this.host.traceVersion}/${this.host.residencyVersion}/${this.host.modelSlots.version}`;
     const now = performance.now();

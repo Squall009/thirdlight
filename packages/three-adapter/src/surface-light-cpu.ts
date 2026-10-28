@@ -51,8 +51,9 @@ function smoothstep(a: number, b: number, x: number): number {
 /**
  * Each texel's irradiance (rgb, `frame.slices` in order) as the pass gives
  * it with this `seed`, its shadow rays traced through `scene` with `opts`;
- * `sunShare` (one a texel) takes the sun's share of it, the pass's alpha
- * less `SURFACE_TEXEL_LIT` (the sun's colour × it is the sun's light there).
+ * `sunShare` (one a texel) takes the drawn suns' share of it, the pass's
+ * alpha less `SURFACE_TEXEL_LIT` (their summed colour × it is their light
+ * there).
  */
 export function lightFrameCpu(frame: LightPassFrame, scene: PackedTraceScene, seed: number, opts: TraceOptions, sunShare?: Float32Array): Float32Array {
   const { words } = packLightFrame(frame);
@@ -60,9 +61,9 @@ export function lightFrameCpu(frame: LightPassFrame, scene: PackedTraceScene, se
   const f = new Float32Array(words.buffer);
   const fv = (i: number): V3 => [f[i]!, f[i + 1]!, f[i + 2]!];
   const view = sceneView(scene);
-  const { sunAt, roomsAt } = packLightFrame(frame);
+  const { sunAt, roomsAt, suns } = packLightFrame(frame);
   const roomWords = words.subarray(roomsAt);
-  const lightAt = (j: number): number => sunAt + SUN_WORDS + j * LIGHT_WORDS;
+  const lightAt = (j: number): number => sunAt + suns * SUN_WORDS + j * LIGHT_WORDS;
   const raysOf = (at: number, level: number): number => Math.max(1, (F[at + 19]! & 255) >> level);
   const lightPoint = (at: number, k: number, n: number, rng: Rng): V3 => {
     const c = fv(at);
@@ -107,22 +108,27 @@ export function lightFrameCpu(frame: LightPassFrame, scene: PackedTraceScene, se
       let k = 0;
       // The texel's room, found once the first light held to rooms asks.
       let room = NO_ROOM - 1;
-      if (sunRays !== 0) {
-        const sd = fv(sunAt);
+      let share = 0;
+      for (let bits = F[s + 10]!; bits !== 0; bits &= bits - 1) {
+        const at = sunAt + (31 - Math.clz32(bits & -bits)) * SUN_WORDS;
+        const sd = fv(at);
         let v = 0;
-        for (; k < sunRays; k += 1) {
-          const rng = new Rng(r0 + k, seed);
-          const a = ((k + rng.next()) / sunRays) * 6.2831853;
+        for (let i = 0; i < sunRays; i += 1) {
+          const rng = new Rng(r0 + k + i, seed);
+          const a = ((i + rng.next()) / sunRays) * 6.2831853;
           const q = SUN_DISC_RADIANS * Math.sqrt(rng.next());
           const ax = Math.abs(sd[0]) > 0.9 ? [0, 1, 0] : [1, 0, 0];
           const tt = norm(cross(sd, ax));
           const bb = cross(sd, tt);
           const d = norm([0, 1, 2].map((j) => sd[j]! + (tt[j]! * Math.cos(a) + bb[j]! * Math.sin(a)) * q) as V3);
-          v += dot(d, n) > 0 && F[sunAt + 7] !== 0 ? visible(o, d, 1e4, F[sunAt + 3]!) : 1;
+          v += dot(d, n) > 0 && F[at + 7] !== 0 ? visible(o, d, 1e4, F[at + 3]!) : 1;
         }
-        add(fv(sunAt + 4), (Math.max(0, dot(n, sd)) * v) / sunRays);
-        if (sunShare !== undefined) sunShare[t] = (Math.max(0, dot(n, sd)) * v) / sunRays;
+        k += sunRays;
+        const lit = (Math.max(0, dot(n, sd)) * v) / sunRays;
+        add(fv(at + 4), lit);
+        share += f[at + 8]! * lit;
       }
+      if (sunShare !== undefined) sunShare[t] = share;
       for (let jj = 0; jj < F[s + 5]!; jj += 1) {
         const at = lightAt(F[F[s + 4]! + jj]!);
         const rj = raysOf(at, level);

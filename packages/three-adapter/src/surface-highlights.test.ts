@@ -65,7 +65,7 @@ function cacheIrradiance(l: CacheLight, p: V3, n: V3): number {
   const copies = 400;
   const points = new Float32Array(copies * 6);
   for (let i = 0; i < copies; i += 1) points.set([...p, ...n], i * 6);
-  const frame: LightPassFrame = { points, slices: [{ texels: copies, lights: [0], sun: false, level: 0 }], lights: [l], sun: null };
+  const frame: LightPassFrame = { points, slices: [{ texels: copies, lights: [0], suns: 0, level: 0 }], lights: [l], suns: [] };
   const e = lightFrameCpu(frame, packTraceScene({}), 7, SHADOW_TRACE);
   let s = 0;
   for (let i = 0; i < copies; i += 1) s += e[i * 3]!;

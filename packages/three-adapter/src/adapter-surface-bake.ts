@@ -31,7 +31,7 @@ import type { SurfaceCacheHost } from './surface-cache-host';
 import type { SavedProbeTile, SavedSurfaceLight } from './surface-bake-file';
 import type { SurfaceLightRuntime } from './surface-light-runtime';
 import type { CacheLight } from './surface-changes';
-import type { GpuBuffer, GpuTexture, TracerDevice } from './tracer-gpu';
+import { GPU_BUFFER_USAGE, GPU_MAP_READ, type GpuBuffer, type GpuTexture, type TracerDevice } from './tracer-gpu';
 import type { SurfaceTile } from './surface-cache';
 import { GLOW_LIGHT_MARK } from './surface-highlights';
 
@@ -77,8 +77,8 @@ export interface SurfaceBakeOptions {
 
 export type SurfaceBakeOutcome = { ok: true; saved: SavedSurfaceLight; millis: number; texels: number } | { ok: false; message: string };
 
-const MAP_READ = 0x1;
-const COPY_DST = 0x8;
+const MAP_READ = GPU_MAP_READ;
+const COPY_DST = GPU_BUFFER_USAGE.COPY_DST;
 
 /** Run the page's live lighting to settled and read back what it saved. */
 export async function runSurfaceBake(h: SurfaceBakeHooks, o: SurfaceBakeOptions): Promise<SurfaceBakeOutcome> {
