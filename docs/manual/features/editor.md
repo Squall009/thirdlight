@@ -274,8 +274,9 @@ button (after "enable preview sound").
   - Inactive: hidden in the Scene view and left out of Play and the export.
   - Locked: editor only. The object cannot be picked or moved in the Scene
     view, but can still be selected in the hierarchy.
-  - Static: the object never moves in the game. Lightmap and probe bakes
-    use static objects ([Lighting](lighting.md)); a script cannot move a
+  - Static: the object never moves in the game. The surface cache traces
+    and lights static objects, and Bake lighting saves their light
+    ([Lighting](lighting.md)); a script cannot move a
     static object or switch it on and off (`entity_static`).
   - **Keep loaded** (`updateEntity {keepLoaded: true}`, the Inspector's
     flag): the object, its children and its scripts survive scene loads,

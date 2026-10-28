@@ -18,7 +18,11 @@ detail is in [Lighting](../features/lighting.md).
 - **The live light** (WebGPU, medium and high quality) lights the static
   surfaces and the light probes as the scene changes: direct light with soft
   shadows, and bounced light; every lit 3D object reads the probes per
-  pixel, moving or not.
+  pixel, moving or not. The sun stays per pixel with its shadow map and
+  contact shadows; moving objects receive the light but do not block or
+  bounce it ([How lighting works](../features/lighting.md#how-lighting-works)).
+- **Glow** lights its surroundings only from a static box with an emissive
+  `surface` ([Emissive light](../features/lighting.md#emissive-light)).
 - **Bake lighting** saves that light for WebGL 2, the low quality level and
   exports: a light set to **baked** keeps its direct light and bounce in the
   bake (and no longer lights per pixel); **mixed** keeps its direct light
@@ -67,7 +71,13 @@ Everything the editor does, the bake included:
 - Quality levels: [`setEnvironment`](../reference/ops-detail.md#op-setEnvironment)
   without `sceneId`, `environment.qualityLevels`
   ([`QualityLevelConfig`](../reference/types-o-t.md#type-quality-level-config))
-  and `environment.quality` (the starting level).
+  and `environment.quality` (the starting level). A level's `lighting` names
+  its tier; its own `surfaceCacheMiB`, `surfaceLightMs`, `contactShadows`
+  and `reflections` lay over the tier's, e.g. `{"id": "medium", "name":
+  "Medium", "lighting": "medium", "surfaceLightMs": 1}` for a slower but
+  cheaper live light.
+- Scripts: `ctx.lighting.tier`, `.live`, `.settled` and `.justSettled`
+  (true for one step after the light settled: lift a loading screen then).
 - Bake: `tl_bake_lighting {"sceneId": "<scene>"}` asks the project's editor
   (the connected browser, else the backend's headless one, on WebGPU) to run
   the Lighting window's bake on the scene it has open, and waits for it
@@ -93,14 +103,21 @@ way.
 
 - **Bake lighting needs WebGPU** (the saved light draws on both renderers).
 - **Terrain and static boxes are not baked**: they keep their per-pixel
-  lights and the probes on WebGL 2 and the low level.
+  lights and the probes on WebGL 2 and the low level. Glowing boxes are not
+  baked either: on WebGL 2 they light nothing around them.
+- **Static boxes do not stop light** in the surface cache: build walls that
+  must hold light in from block layers, generated architecture or models.
+- **Emissive materials light nothing around them** (models, blocks, trims):
+  add a static glowing box or an area light where the glow should fall.
+- **Moving objects get area lights only as bounce**: a lamp that must light
+  a character directly is a point or spot light (16 drawn at once).
 - **A baked light is gone from moving objects too:** they get its bounce
   from the probes, not its direct light. Use `mixed` for lights that must
   light moving things.
 - **Turning an image sky after a bake makes the bake stale.**
-- **Lamps cost every lit object.** Give lamps a range, use **Importance:
-  Per vertex** for cheap fill lights, and keep shadows for the few that need
-  them: a quality level's `shadowedLights` budget (2–4) keeps only the
+- **Lamps cost every lit object** drawn per pixel. Give lamps a range, set
+  **Local lights: None** on objects no lamp needs to reach, and keep shadows
+  for the few that need them: a quality level's `shadowedLights` budget (2–4) keeps only the
   largest on screen. Generated rooms keep a lamp's light inside its room;
   see the interior lighting best practice in
   [Generated architecture](../features/architecture.md#interior-lighting-best-practice-shadow-rules).

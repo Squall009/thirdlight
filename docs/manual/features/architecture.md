@@ -306,10 +306,12 @@ the outlines at load, in the editor's Scene view, Play and the export alike.
   its own key: any number of rooms, no two sharing a layer. An object
   spanning rooms counts as in the room of its middle; a moving one follows
   the rooms it walks through.
-- **Probes** — a probe bake gives each room a probe volume of its own
-  (inside its walls, listed first: a point in a room reads its room's
-  probes) and bakes the generated walls, so a room's indirect light is not
-  read through a wall from the next room's probes.
+- **Probes and the surface cache** — each room has a probe grid of its own
+  (inside its walls: a point in a room reads its room's probes), its probes'
+  rays leave only through open portals, and a lamp in a closed room lights
+  only that room in the surface cache, so neither direct nor indirect light
+  crosses a wall into the next room; a shut door keeps it in (see [Rooms,
+  portals and leaks](lighting.md#rooms-portals-and-leaks)).
 - **Cut-aways** — a block layer's cut-aways (`blockLayer.cutaway.regions`)
   may name the rooms drawn on it as regions (the outline's id, `-s1`,
   `-s2`… for the storeys above): e.g. `{region: "hall-s1"}` hides the

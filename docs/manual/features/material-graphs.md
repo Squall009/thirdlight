@@ -304,8 +304,8 @@ vertex's or the material's **wetness**, the larger, plus the scene's —
 darkens the albedo ×0.55, smooths toward roughness 0.1 and flattens the
 normal map (**wetFlatten**), occlusion darkens the indirect light
 (**occlusion** strength). **roughness**/**metalness** scale the ORM's (1:
-the sheet's own). No lightmaps: probes and the generator's vertex occlusion
-light it. Generated meshes on a block layer take the layer's painted
+the sheet's own). No lightmaps: the surface cache (on generated
+architecture), probes and the generator's vertex occlusion light it. Generated meshes on a block layer take the layer's painted
 wetness ([Blocks](blocks.md)) at their vertices each time they are made, so
 paint survives regeneration.
 

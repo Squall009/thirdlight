@@ -3,8 +3,8 @@
 Occlusion culling leaves out of the view what something solid in front of
 it hides: the houses behind a wall, the scatter behind a hill, the props in
 a room the camera cannot see into. The picture stays the same; the GPU has
-less to draw. It needs WebGPU: on WebGL 2 everything in view is drawn. Shadows, probe bakes and the
-cached static shadow always draw everything, so a hidden object's shadow
+less to draw. It needs WebGPU: on WebGL 2 everything in view is drawn. Shadows, the surface cache's traced light, the probes and the
+cached static shadow always see everything, so a hidden object's shadow
 still falls where you can see it.
 
 ## When it pays

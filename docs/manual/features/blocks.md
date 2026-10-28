@@ -735,12 +735,11 @@ layer**, or MCP `setComponent terrain {layers}`) makes the ground meet it:
 - **Lighting**: both sides of the border are lit alike — the same
   material, normals that read across the border (the ground under the
   blocks is theirs within 2 cm), the same cached shadow, and the same
-  probes: a probe bake over a scene without probe volumes grows its tiles
-  past the static objects by the widest blend of a terrain's blocks layers
-  and a spacing (and down by the blend), so the blended ground reads the
-  block area's probes, not the flat ambient past them. The far ground uses
-  its baked horizon light (see [Terrain](terrain.md#terrain), *Far ground*). The terrain is not yet an
-  occluder or bounce surface in the probe bake.
+  probes and the same surface cache (both the blocks and the terrain read
+  it, and both stop and bounce its light). The far ground uses its baked
+  horizon light (see [Terrain](terrain.md#terrain), *Far ground*). A bake
+  saves the blocks' light but not the terrain's (see [What the lighting
+  does not cover](lighting.md#what-the-lighting-does-not-cover)).
 - **Collision**: the terrain's edge is the blocks' top edge, so a character
   walks from the ground onto the blocks and off again without a step or a
   snag (terrain-cdlod e2e: a player crossing an 8 m area both ways never

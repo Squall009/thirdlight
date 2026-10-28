@@ -98,8 +98,9 @@ padding. Use the API to import a layout you keep with the texture source.
   neighbours' pixels; the material also caps each read at the sheet's safe
   mip level, so far trims alias a little instead.
 - **Rows may not overlap**; a table the model refuses is not saved.
-- **No lightmaps:** trim surfaces are lit by probes and the generator's
-  vertex occlusion.
+- **No lightmaps:** trim surfaces read the surface cache (their building's
+  plane charts, not the trim UVs), the probes and the generator's vertex
+  occlusion.
 - **Sheets are textures:** at most 4,096 px a side.
 - **Two sheets on one layered surface share one row table.** Sheets from
   different layouts disagree on some rows (a problem lists them): delete the
