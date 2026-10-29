@@ -1,7 +1,7 @@
 /**
  * What the Scene view reports on its element each frame (tests and the perf
  * check read it): its pose and lens, its view-projection matrix (both only
- * when they change), the frames drawn, the renderer's live resources and the
+ * when they change), the frames drawn and whether another is asked for, the renderer's live resources and the
  * frame's draw counts; and the model failures, handed on when they change.
  *
  * Browser-only (DOM attributes).
@@ -21,6 +21,7 @@ export class ViewMarks {
   /** The view-projection matrix last stamped on the canvas. */
   private viewProjMark = '';
   private readonly viewProj = new THREE.Matrix4();
+  private wantedMark: boolean | null = null;
 
   /** The view's pose and lens (a test frames a game camera the same way). */
   pose(root: HTMLElement, c: THREE.PerspectiveCamera): void {
@@ -37,6 +38,13 @@ export class ViewMarks {
     if (viewProj === this.viewProjMark) return;
     this.viewProjMark = viewProj;
     root.setAttribute('data-view-proj', viewProj);
+  }
+
+  /** Whether a frame is asked for (`data-frame-wanted`: 0 once the view has nothing more to draw; a test's still picture). */
+  wanted(root: HTMLElement, on: boolean): void {
+    if (on === this.wantedMark) return;
+    this.wantedMark = on;
+    root.setAttribute('data-frame-wanted', on ? '1' : '0');
   }
 
   /** A frame was drawn. */

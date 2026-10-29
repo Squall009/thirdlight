@@ -12,6 +12,11 @@
  * (measured before the atlases); area lights light the moving floor too,
  * more than four of them a pixel.
  *
+ * One backend and one test a variant: the point light's steps, then the
+ * spot's on the same project (the point light's box and light deleted) and
+ * the lamp room built on it. A still picture is the Scene view's once it has
+ * applied every edit sent and asks for no further frame (`stillPicture`).
+ *
  * Runs on the product's own renderer (renderer-variants.ts
  * PRODUCT_RENDERER_VARIANTS): scene-lights covers lights and cookies on both.
  */
@@ -25,17 +30,48 @@ import { encodeKtx2 } from '../../packages/backend/src/texture-encode';
 import { publishBytes, startBackend, type E2EBackend, withoutSky } from './backend';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
-import { editorUrlFor, expectRendererBackend, onlyInItsProject, PRODUCT_RENDERER_VARIANTS } from './renderer-variants';
+import { editorUrlFor, expectRendererBackend, onlyInItsProject, PRODUCT_RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
 import { closeProjectSettings, inspector, menu, openProjectSettings, settingsWindow, showView } from './ui';
 
 let be: E2EBackend;
-test.beforeEach(async () => {
+test.beforeAll(async () => {
   be = await startBackend();
   await withoutSky(be);
 });
-test.afterEach(async () => {
-  await be.stop();
+test.afterAll(async () => {
+  await be?.stop();
 });
+
+/** One command on the project at its current revision (it must succeed). */
+async function send(op: string, args: Record<string, unknown>): Promise<void> {
+  const q = await be.command({ op: 'queryProject', projectId: be.projectId });
+  const r = await be.command({ op, projectId: be.projectId, expectedRevision: q['revision'], requestId: `req-${randomBytes(16).toString('hex')}`, args });
+  expect(r['ok'], JSON.stringify(r)).toBe(true);
+}
+
+/**
+ * The Scene view's picture once it is still: the editor shows the project's revision (every edit sent has reached
+ * it), no frame is asked for (`data-frame-wanted`: no fade, tile, precompile or animation left), and none was
+ * drawn while the picture was taken. What arrives on its own later (an image, a GPU readback) is waited for by the
+ * caller first.
+ */
+async function stillPicture(page: Page): Promise<Buffer> {
+  const viewport = page.locator('canvas.tl-viewport');
+  const revision = Number((await be.command({ op: 'queryProject', projectId: be.projectId }))['revision']);
+  const applied = async (): Promise<number> => Number(((await page.locator('.tl-statusbar__rev').textContent()) ?? '').replace(/\D/g, ''));
+  const quiet = async (): Promise<string | null> => ((await applied()) >= revision && (await viewport.getAttribute('data-frame-wanted')) === '0' ? await viewport.getAttribute('data-frames') : null);
+  let png: Buffer | null = null;
+  await expect.poll(async () => {
+    // Quiet across two looks and the picture taken between them.
+    const before = await quiet();
+    if (before === null) return false;
+    const shot = await viewport.screenshot();
+    if ((await quiet()) !== before) return false;
+    png = shot;
+    return true;
+  }, { timeout: 30_000, intervals: [50] }).toBe(true);
+  return png!;
+}
 
 const isReddish = ([r, g, b]: readonly number[]): boolean => r! > 60 && r! > 1.8 * g! && r! > 1.8 * b!;
 function reddish(img: Image): number {
@@ -46,9 +82,18 @@ function reddish(img: Image): number {
 /** The heat map's colour for a cell listing one light (blue). */
 const isOneLight = ([r, g, b]: readonly number[]): boolean => b! > 60 && b! > 2 * r! && b! > 1.3 * g!;
 
-for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a red point light tints a box in the Scene view and in Play; lights are edited in the Inspector (${variant})`, async ({ page }) => {
+for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a red point light tints a box in the Scene view and in Play; lights are edited in the Inspector; a spot's cookie, the atlases' shadows and a room of lamps (${variant})`, async ({ page }) => {
   onlyInItsProject(variant, PRODUCT_RENDERER_VARIANTS);
-  test.setTimeout(120_000);
+  test.setTimeout(180_000);
+  await pointLight(page, variant);
+  await spotLight(page, variant);
+});
+
+/**
+ * A red point light next to a box tints it in the Scene view and in Play; it is edited in the Inspector; the
+ * light clusters' heat map lists it where it reaches. The box and the light go at the end.
+ */
+async function pointLight(page: Page, variant: RendererVariant): Promise<void> {
   await page.goto(editorUrlFor(be.editorUrl, variant));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await expectRendererBackend(page.locator('canvas.tl-viewport'), variant);
@@ -193,7 +238,9 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a red point light tints a
     await menu(page, 'View', 'Light clusters: on');
     await expect.poll(redNow, { timeout: 20_000 }).toBeGreaterThan(300);
   }
-});
+  // The spot's steps start from the new project's scene again.
+  for (const id of [lightId, boxId]) await send('deleteEntity', { entityId: id });
+}
 
 /** Separate runs of bright pixels along row y (at least `minRun` long: the gizmo lines and icons are shorter). */
 function brightRuns(img: Image, y: number, minRun = 12): number {
@@ -221,9 +268,7 @@ function mostBrightRuns(img: Image): number {
  * view: the spot's patch on a dark floor is one bright disc before and
  * striped after. Play draws it too (scene-lights.e2e.ts checks its pixels).
  */
-for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a spot light's cookie is set in the Inspector and shows in the Scene view (${variant})`, async ({ page }) => {
-  onlyInItsProject(variant, PRODUCT_RENDERER_VARIANTS);
-  test.setTimeout(120_000);
+async function spotLight(page: Page, variant: RendererVariant): Promise<void> {
   await publishBytes(be, makePng(64, 64, (x) => (Math.floor(x / 8) % 2 === 0 ? [255, 255, 255, 255] : [0, 0, 0, 255])), 'texture', 'tex-stripes');
   // A cookie no flip leaves alike: its lower right quarter dark, stripes across its left half; a second one with only
   // that quarter dark, and the first as a GPU-compressed KTX2 (the spot shadows' cookie swaps).
@@ -249,11 +294,6 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a spot light's cookie is 
   const entities = (await be.command({ op: 'queryEntities', projectId: be.projectId, args: { limit: 50, offset: 0 } }))['entities'] as { id: string; components: { box?: object; transform: { position: number[] } } }[];
   const box = entities.find((e) => e.components.box !== undefined)!;
   const at = box.components.transform.position;
-  const send = async (op: string, args: Record<string, unknown>): Promise<void> => {
-    const q = await be.command({ op: 'queryProject', projectId: be.projectId });
-    const r = await be.command({ op, projectId: be.projectId, expectedRevision: q['revision'], requestId: `req-${randomBytes(16).toString('hex')}`, args });
-    expect(r['ok'], JSON.stringify(r)).toBe(true);
-  };
   await send('setComponent', { entityId: box.id, component: 'box', value: { size: [12, 0.2, 12], material: { color: '#202020' } } });
   await send('setTransform', { entityId: lightId, transform: { position: [at[0]!, at[1]! + 4, at[2]!] } });
   await send('setComponent', { entityId: lightId, component: 'light', value: { type: 'spot', color: '#ffffff', intensity: 1000, range: 0, decay: 2, angle: 30, penumbra: 0, direction: [0, -1, 0] } });
@@ -299,8 +339,8 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a spot light's cookie is 
 
   // Many lamps, drawn by the light clusters, on this renderer and (once, from the auto pass) on WebGL 2.
   await send('deleteEntity', { entityId: lightId });
-  for (const pass of variant === 'auto' ? (['auto', 'webgl2'] as const) : ([variant] as const)) await lampRoom(page, pass, send, box.id, pass === 'auto' || pass === variant);
-});
+  for (const pass of variant === 'auto' ? (['auto', 'webgl2'] as const) : ([variant] as const)) await lampRoom(page, pass, box.id, pass === 'auto' || pass === variant);
+}
 
 /** Dark blobs: 4-connected runs of samples (every other pixel) where `a` is darker than `b` by more than `delta` (luminance), at least `minArea` samples, largest last. */
 function darkBlobs(a: Image, b: Image, delta = 12, minArea = 4): { area: number; x: number; y: number; mean: number; cells: Set<number> }[] {
@@ -406,22 +446,20 @@ const SHADOW_MATCH = 0.2;
  * outranks the first, which gives its tile away: no frame on the way shows a shadow where no cube casts one, and
  * then the other spot's shadow is the one drawn.
  */
-async function spotShadows(page: Page, pass: 'auto' | 'webgl2' | 'webgpu', send: (op: string, args: Record<string, unknown>) => Promise<void>, idOf: (name: string) => string, build: boolean): Promise<void> {
+async function spotShadows(page: Page, pass: 'auto' | 'webgl2' | 'webgpu', idOf: (name: string) => string, build: boolean, opened: boolean): Promise<void> {
   const viewport = page.locator('canvas.tl-viewport');
   const backend = pass === 'webgl2' ? 'webgl2' : 'webgpu';
+  // The forced WebGL 2 pass checks what its backend draws differently (the atlas's depth and rows, the cookie's
+  // orientation and decode, a swapped cookie's bindings); a moved caster's redraw and the atlas budget's choices are
+  // the plan's (shadow-atlas.test.ts) and the same draws, checked on the product's renderer.
+  const full = pass !== 'webgl2';
   const shot = async (): Promise<Image> => decodePng(await viewport.screenshot());
   const settled = async (label: string): Promise<Image> => {
-    let last = '';
-    await expect.poll(async () => {
-      const png = (await viewport.screenshot()).toString('base64');
-      const same = png === last;
-      last = png;
-      return same;
-    }, { timeout: 30_000, intervals: [500] }).toBe(true);
+    const png = await stillPicture(page);
     const out = test.info().outputPath();
     mkdirSync(out, { recursive: true });
-    writeFileSync(join(out, `spot-${label}-${pass}.png`), Buffer.from(last, 'base64'));
-    return decodePng(Buffer.from(last, 'base64'));
+    writeFileSync(join(out, `spot-${label}-${pass}.png`), png);
+    return decodePng(png);
   };
   // The spot lamps 2 (far, z −2.4) and 8 (near, z −0.8), and a 25 cm cube 0.2 m beside each axis (toward the view), 0.3 m over the floor.
   const lamps = [{ name: 'far', i: 2, x: -1, z: -2.4 }, { name: 'near', i: 8, x: -1, z: -0.8 }] as const;
@@ -457,11 +495,14 @@ async function spotShadows(page: Page, pass: 'auto' | 'webgl2' | 'webgpu', send:
     return { far: far!, near: near!, point: byX[0]! };
   };
   const atlas = async (): Promise<string[]> => ((await viewport.getAttribute('data-tl-shadow-atlas')) ?? '').split('|');
-  // The same view on each renderer: a new page frames the whole room, then the view orbits the near cube (F) and
-  // comes closer (the wheel: 5 % a notch), the two spots' patches large in it.
-  await page.goto(editorUrlFor(be.editorUrl, pass));
-  await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await expectRendererBackend(viewport, pass);
+  // The same view on each renderer: a new page frames the whole room (`opened`: the caller's page did, and has not
+  // moved the view since), then the view orbits the near cube (F) and comes closer (the wheel: 5 % a notch, the
+  // notches in one turn), the two spots' patches large in it.
+  if (!opened) {
+    await page.goto(editorUrlFor(be.editorUrl, pass));
+    await expect(page.locator('.tl-statusbar')).toContainText('connected');
+    await expectRendererBackend(viewport, pass);
+  }
   // (Gizmos off: a page keeps what the last one set.)
   for (const item of ['Icons: on', 'Light ranges: on']) {
     await page.getByRole('menubar').getByRole('menuitem', { name: 'Gizmos', exact: true }).click();
@@ -473,10 +514,7 @@ async function spotShadows(page: Page, pass: 'auto' | 'webgl2' | 'webgpu', send:
   await viewport.hover();
   await page.keyboard.press('f');
   await page.waitForTimeout(300);
-  for (let n = 0; n < VIEW_NOTCHES; n += 1) {
-    await page.mouse.wheel(0, -100);
-    await page.waitForTimeout(20);
-  }
+  await page.mouse.wheel(0, -100 * VIEW_NOTCHES);
   await page.keyboard.press('Escape');
   // The two spots and the point light hold tiles (none waiting).
   await casting(true);
@@ -498,25 +536,29 @@ async function spotShadows(page: Page, pass: 'auto' | 'webgl2' | 'webgpu', send:
   }
   // The far cube moved by an edit: its shadow follows (its tile drawn again), the near one stays.
   const far = lamps[0];
-  await casting(true);
-  await send('setTransform', { entityId: caster('far'), transform: { position: [far.x - 0.2, 0.3, far.z + 0.15], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } });
-  await viewport.click({ position: { x: 5, y: 5 } });
-  const movedOn = await settled('moved-on');
-  await casting(false);
-  const movedOff = await settled('moved-off');
-  const movedFound = shadowsOf(movedOn, movedOff);
-  const moved = movedFound === null ? [] : [movedFound.far, movedFound.near];
-  console.log(`[lights] moved cube (${pass}): far shadow ${blobs[0]!.x.toFixed(0)},${blobs[0]!.y.toFixed(0)} → ${moved[0]?.x.toFixed(0)},${moved[0]?.y.toFixed(0)}; near ${blobs[1]!.x.toFixed(0)},${blobs[1]!.y.toFixed(0)} → ${moved[1]?.x.toFixed(0)},${moved[1]?.y.toFixed(0)}`);
-  expect(moved.length).toBe(2);
-  expect(Math.hypot(moved[0]!.x - blobs[0]!.x, moved[0]!.y - blobs[0]!.y)).toBeGreaterThan(2);
-  expect(Math.hypot(moved[1]!.x - blobs[1]!.x, moved[1]!.y - blobs[1]!.y)).toBeLessThan(1.5);
+  let reference = off;
+  if (full) {
+    await casting(true);
+    await send('setTransform', { entityId: caster('far'), transform: { position: [far.x - 0.2, 0.3, far.z + 0.15], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } });
+    await viewport.click({ position: { x: 5, y: 5 } });
+    const movedOn = await settled('moved-on');
+    await casting(false);
+    const movedOff = await settled('moved-off');
+    const movedFound = shadowsOf(movedOn, movedOff);
+    const moved = movedFound === null ? [] : [movedFound.far, movedFound.near];
+    console.log(`[lights] moved cube (${pass}): far shadow ${blobs[0]!.x.toFixed(0)},${blobs[0]!.y.toFixed(0)} → ${moved[0]?.x.toFixed(0)},${moved[0]?.y.toFixed(0)}; near ${blobs[1]!.x.toFixed(0)},${blobs[1]!.y.toFixed(0)} → ${moved[1]?.x.toFixed(0)},${moved[1]?.y.toFixed(0)}`);
+    expect(moved.length).toBe(2);
+    expect(Math.hypot(moved[0]!.x - blobs[0]!.x, moved[0]!.y - blobs[0]!.y)).toBeGreaterThan(2);
+    expect(Math.hypot(moved[1]!.x - blobs[1]!.x, moved[1]!.y - blobs[1]!.y)).toBeLessThan(1.5);
+    reference = movedOff;
+  }
   // A cookie on the near spot (unshadowed now): the pattern its dark parts cast on the patch matches today's (their
   // samples, darkening and middle: a flip in either axis moves the middle).
   const near = lamps[1];
   await send('setComponent', { entityId: idOf(`Lamp lamp-${near.i}`), component: 'light', value: lampLight(near.i, near.x, near.z, { castShadow: false, cookie: 'tex-cookie' }) });
   await viewport.click({ position: { x: 5, y: 5 } });
-  await expect.poll(async () => darkBlobs(await shot(), movedOff, 12, 1).reduce((n, b) => n + b.area, 0), { timeout: 30_000 }).toBeGreaterThan(50);
-  const cookie = cookieDark(await settled('cookie'), movedOff);
+  await expect.poll(async () => darkBlobs(await shot(), reference, 12, 1).reduce((n, b) => n + b.area, 0), { timeout: 30_000 }).toBeGreaterThan(50);
+  const cookie = cookieDark(await settled('cookie'), reference);
   const todayCookie = TODAY_COOKIE[backend];
   console.log(`[lights] cookie (${pass}): ${cookie.area} samples, mean ${cookie.mean.toFixed(1)}, middle ${cookie.x.toFixed(1)},${cookie.y.toFixed(1)} (today: ${JSON.stringify(todayCookie)})`);
   expect(Math.abs(cookie.area - todayCookie.area), 'cookie samples vs today').toBeLessThanOrEqual(todayCookie.area * SHADOW_MATCH);
@@ -530,61 +572,63 @@ async function spotShadows(page: Page, pass: 'auto' | 'webgl2' | 'webgpu', send:
     await viewport.click({ position: { x: 5, y: 5 } });
     const drawn = (c: { area: number; x: number; y: number }): boolean =>
       name === 'tex-cookie-ktx2' ? Math.abs(c.area - cookie.area) <= cookie.area * SHADOW_MATCH && Math.hypot(c.x - cookie.x, c.y - cookie.y) <= COOKIE_MIDDLE_PX : c.area >= 0.4 * cookie.area && c.area <= 0.75 * cookie.area && c.x - cookie.x > COOKIE_MIDDLE_PX && c.y - cookie.y > COOKIE_MIDDLE_PX;
-    await expect.poll(async () => drawn(cookieDark(await shot(), movedOff)), { timeout: 30_000 }).toBe(true).catch(() => undefined);
-    const swapped = cookieDark(await settled(name), movedOff);
+    await expect.poll(async () => drawn(cookieDark(await shot(), reference)), { timeout: 30_000 }).toBe(true).catch(() => undefined);
+    const swapped = cookieDark(await settled(name), reference);
     console.log(`[lights] cookie swapped to ${name} (${pass}): ${swapped.area} samples, mean ${swapped.mean.toFixed(1)}, middle ${swapped.x.toFixed(1)},${swapped.y.toFixed(1)}`);
     expect(drawn(swapped), `${name} drawn`).toBe(true);
     expect(Math.abs(swapped.mean - cookie.mean), `${name} darkening`).toBeLessThanOrEqual(cookie.mean * SHADOW_MATCH);
   }
   // (A component write merges its fields: `null` takes the cookie away.)
   await send('setComponent', { entityId: idOf(`Lamp lamp-${near.i}`), component: 'light', value: lampLight(near.i, near.x, near.z, { cookie: null }) });
-  await send('setTransform', { entityId: caster('far'), transform: { position: [far.x - 0.2, 0.3, far.z], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } });
-  // The 512 atlas below is the two spots' alone.
-  await send('setComponent', { entityId: idOf(`Lamp lamp-${point.i}`), component: 'light', value: pointLight(false) });
 
   // A 512-texel atlas: one spot takes it whole, the other lights its patch unshadowed (the level draws its own look:
   // its pictures are compared with each other).
   const before = (JSON.parse(readFileSync(join(be.projectDir, 'content.json'), 'utf8')) as { content: { environment?: Record<string, unknown> } }).content.environment ?? {};
-  // An 8 m reach first: large enough on screen, from either page's view, to ask for the whole atlas once it is
-  // 512 texels (a light already holding a smaller tile there keeps it while nothing larger is free).
-  for (const l of lamps) await send('setComponent', { entityId: idOf(`Lamp lamp-${l.i}`), component: 'light', value: lampLight(l.i, l.x, l.z, { range: 8 }) });
-  await send('setEnvironment', { environment: { ...before, qualityLevels: [{ id: 'tight', shadowAtlas: 512 }], quality: 'tight' } });
-  await viewport.click({ position: { x: 5, y: 5 } });
-  const tightOff = await settled('512-off');
-  await casting(true);
-  await viewport.click({ position: { x: 5, y: 5 } });
-  await expect.poll(async () => (await atlas()).slice(0, 3).join('|'), { timeout: 30_000 }).toBe('512|1|1');
-  const tightOn = await settled('512');
-  const big = Math.min(blobs[0]!.area, blobs[1]!.area) / 3;
-  const tight = darkBlobs(tightOn, tightOff).filter((b) => b.area >= big);
-  console.log(`[lights] 512 atlas (${pass}): ${tight.length} shadow(s) at ${tight.map((b) => `${b.x.toFixed(0)},${b.y.toFixed(0)} (${b.area})`).join('; ')}`);
-  expect(tight.length).toBe(1);
-  const keptFar = Math.abs(tight[0]!.y - blobs[0]!.y) < Math.abs(tight[0]!.y - blobs[1]!.y);
-  const kept = tight[0]!;
-  // The other spot lights its patch as without the cube's shadow: nothing darker there but the kept shadow.
-  expect(darkOutside(tightOn, tightOff, kept.cells)).toBeLessThan(20);
-  // The unshadowed one's reach made four times the other's: it outranks it from any view, and the other gives its tile away. On the way, the kept
-  // light's patch (round its shadow) never shows a shadow other than its own cube's.
-  const swap = keptFar ? lamps[1] : lamps[0];
-  await send('setComponent', { entityId: idOf(`Lamp lamp-${swap.i}`), component: 'light', value: lampLight(swap.i, swap.x, swap.z, { range: 32 }) });
-  await viewport.click({ position: { x: 5, y: 5 } });
-  const frames: Image[] = [];
-  for (let f = 0; f < 8; f += 1) frames.push(await shot());
-  const swapped = await settled('swapped');
-  await casting(false);
-  const swappedOff = await settled('swapped-off');
-  const w = Math.floor(swapped.width / 2);
-  const reach = 2 * Math.sqrt(kept.area / Math.PI);
-  const patch = (c: number): boolean => Math.hypot((c % w) - kept.x / 2, Math.floor(c / w) - kept.y / 2) <= reach;
-  const wrong = frames.map((f) => darkBlobs(f, swappedOff, 12, 1).reduce((n, b) => n + [...b.cells].filter((c) => patch(c) && !kept.cells.has(c)).length, 0));
-  const after = darkBlobs(swapped, swappedOff).filter((b) => b.area >= big);
-  console.log(`[lights] rank swap (${pass}): samples darkened in the kept light's patch outside its shadow, per frame ${wrong.join(', ')}; after: ${after.map((b) => `${b.x.toFixed(0)},${b.y.toFixed(0)} (${b.area})`).join('; ')}`);
-  for (const n of wrong) expect(n).toBeLessThan(20);
-  expect(after.length).toBe(1);
-  const nowFar = Math.abs(after[0]!.y - blobs[0]!.y) < Math.abs(after[0]!.y - blobs[1]!.y);
-  expect(nowFar).toBe(!keptFar);
+  if (full) {
+    await send('setTransform', { entityId: caster('far'), transform: { position: [far.x - 0.2, 0.3, far.z], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } });
+    // The 512 atlas below is the two spots' alone.
+    await send('setComponent', { entityId: idOf(`Lamp lamp-${point.i}`), component: 'light', value: pointLight(false) });
+    // An 8 m reach first: large enough on screen, from either page's view, to ask for the whole atlas once it is
+    // 512 texels (a light already holding a smaller tile there keeps it while nothing larger is free).
+    for (const l of lamps) await send('setComponent', { entityId: idOf(`Lamp lamp-${l.i}`), component: 'light', value: lampLight(l.i, l.x, l.z, { range: 8 }) });
+    await send('setEnvironment', { environment: { ...before, qualityLevels: [{ id: 'tight', shadowAtlas: 512 }], quality: 'tight' } });
+    await viewport.click({ position: { x: 5, y: 5 } });
+    const tightOff = await settled('512-off');
+    await casting(true);
+    await viewport.click({ position: { x: 5, y: 5 } });
+    await expect.poll(async () => (await atlas()).slice(0, 3).join('|'), { timeout: 30_000 }).toBe('512|1|1');
+    const tightOn = await settled('512');
+    const big = Math.min(blobs[0]!.area, blobs[1]!.area) / 3;
+    const tight = darkBlobs(tightOn, tightOff).filter((b) => b.area >= big);
+    console.log(`[lights] 512 atlas (${pass}): ${tight.length} shadow(s) at ${tight.map((b) => `${b.x.toFixed(0)},${b.y.toFixed(0)} (${b.area})`).join('; ')}`);
+    expect(tight.length).toBe(1);
+    const keptFar = Math.abs(tight[0]!.y - blobs[0]!.y) < Math.abs(tight[0]!.y - blobs[1]!.y);
+    const kept = tight[0]!;
+    // The other spot lights its patch as without the cube's shadow: nothing darker there but the kept shadow.
+    expect(darkOutside(tightOn, tightOff, kept.cells)).toBeLessThan(20);
+    // The unshadowed one's reach made four times the other's: it outranks it from any view, and the other gives its tile away. On the way, the kept
+    // light's patch (round its shadow) never shows a shadow other than its own cube's.
+    const swap = keptFar ? lamps[1] : lamps[0];
+    await send('setComponent', { entityId: idOf(`Lamp lamp-${swap.i}`), component: 'light', value: lampLight(swap.i, swap.x, swap.z, { range: 32 }) });
+    await viewport.click({ position: { x: 5, y: 5 } });
+    const frames: Image[] = [];
+    for (let f = 0; f < 8; f += 1) frames.push(await shot());
+    const swapped = await settled('swapped');
+    await casting(false);
+    const swappedOff = await settled('swapped-off');
+    const w = Math.floor(swapped.width / 2);
+    const reach = 2 * Math.sqrt(kept.area / Math.PI);
+    const patch = (c: number): boolean => Math.hypot((c % w) - kept.x / 2, Math.floor(c / w) - kept.y / 2) <= reach;
+    const wrong = frames.map((f) => darkBlobs(f, swappedOff, 12, 1).reduce((n, b) => n + [...b.cells].filter((c) => patch(c) && !kept.cells.has(c)).length, 0));
+    const after = darkBlobs(swapped, swappedOff).filter((b) => b.area >= big);
+    console.log(`[lights] rank swap (${pass}): samples darkened in the kept light's patch outside its shadow, per frame ${wrong.join(', ')}; after: ${after.map((b) => `${b.x.toFixed(0)},${b.y.toFixed(0)} (${b.area})`).join('; ')}`);
+    for (const n of wrong) expect(n).toBeLessThan(20);
+    expect(after.length).toBe(1);
+    const nowFar = Math.abs(after[0]!.y - blobs[0]!.y) < Math.abs(after[0]!.y - blobs[1]!.y);
+    expect(nowFar).toBe(!keptFar);
+  }
   // Back: the project's levels, the lamps as they were, no casters.
-  await send('setEnvironment', { environment: before });
+  if (full) await send('setEnvironment', { environment: before });
   for (const l of [...lamps, { i: point.i, x: -5, z: -0.8 }]) await send('setComponent', { entityId: idOf(`Lamp lamp-${l.i}`), component: 'light', value: (patchLamp(`lamp-${l.i}`, l.x, l.z, l.i)['components'] as { light: Record<string, unknown> }).light });
   await send('setTransform', { entityId: idOf(`Lamp lamp-${point.i}`), transform: (patchLamp(`lamp-${point.i}`, -5, -0.8, point.i)['components'] as { transform: Record<string, unknown> }).transform });
   for (const c of casters) await send('setTransform', { entityId: caster(c.name), transform: { position: [c.at[0]!, -5, c.at[2]!], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } });
@@ -660,7 +704,7 @@ function patchLamp(id: string, x: number, z: number, i: number, castShadow = fal
  * (rectangles facing down) at the floor's far left and right light it too, though it moves: the middle of the
  * ring of six is brighter than that of the ring of four (more than four area lights reach a pixel).
  */
-async function lampRoom(page: Page, pass: 'auto' | 'webgl2' | 'webgpu', send: (op: string, args: Record<string, unknown>) => Promise<void>, floorId: string, build: boolean): Promise<void> {
+async function lampRoom(page: Page, pass: 'auto' | 'webgl2' | 'webgpu', floorId: string, build: boolean): Promise<void> {
   const viewport = page.locator('canvas.tl-viewport');
   // The grid: 6 × 4 lamps 2 m apart; the even ones in the main scene, the odd ones in the second.
   const grid = Array.from({ length: 24 }, (_, i) => ({ x: -5 + 2 * (i % 6), z: -2.4 + 1.6 * Math.floor(i / 6), i }));
@@ -715,11 +759,13 @@ async function lampRoom(page: Page, pass: 'auto' | 'webgl2' | 'webgpu', send: (o
   await expect.poll(async () => patches(await shot(), 150).length, { timeout: 20_000 }).toBeGreaterThanOrEqual(6);
   const clustered = await shot();
   await shadows(true);
-  // The atlas holds the six (side|tiled|waiting|drawn|handed in); the WebGL 2 page frames the room from about 40 m,
-  // where local shadows have faded out and hold no tile (`LOCAL_SHADOW_DISTANCE`).
-  const atlasNow = async (): Promise<string[]> => ((await viewport.getAttribute('data-tl-shadow-atlas')) ?? '').split('|');
-  await expect.poll(async () => (await atlasNow()).slice(2).join('|'), { timeout: 30_000 }).toBe('0|0|6');
-  if (pass !== 'webgl2') expect((await atlasNow())[1]).toBe('6');
+  // Once still (no tile left to draw, fade or resize), the atlas holds the six (side|tiled|waiting|drawn|handed in);
+  // the WebGL 2 page frames the room from about 40 m, where local shadows have faded out and hold no tile
+  // (`LOCAL_SHADOW_DISTANCE`).
+  await stillPicture(page);
+  const [, tiled, waiting, , handedIn] = ((await viewport.getAttribute('data-tl-shadow-atlas')) ?? '').split('|');
+  expect(`${waiting}|${handedIn}`).toBe('0|6');
+  if (pass !== 'webgl2') expect(tiled).toBe('6');
   expect(await listed()).toBe(12);
   // Tolerance: a mean of at most 1 level in 255 and at most 0.5 % of pixels off by more than 16 (the shadows darken
   // nothing; rounding and TAAU's frame-to-frame noise are what differs).
@@ -733,7 +779,8 @@ async function lampRoom(page: Page, pass: 'auto' | 'webgl2' | 'webgpu', send: (o
   console.log(`[lights] six lamps shadowed, nothing casting (${pass}): mean ${d.mean.toFixed(3)}, ${(d.bad * 100).toFixed(3)} % off by > 16; six lamps dark: mean ${dark.mean.toFixed(3)}, ${(dark.bad * 100).toFixed(2)} %; ${patches(clustered, 150).length} patches`);
   await shadows(false);
   await expect.poll(async () => pictureDiff(clustered, await shot()).bad <= 0.005, { timeout: 20_000 }).toBe(true);
-  await spotShadows(page, pass, send, idOf, build);
+  // (A pass that opened its own page hands it on: the view is still the one a new page frames.)
+  await spotShadows(page, pass, idOf, build, !build);
 
   // Play: six scenes, 24 + 20 + 16 lamps and 6 + 4 area lights.
   await page.getByTitle('Start an isolated play preview').click();

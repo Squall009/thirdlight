@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { ATLAS_FADE_SECONDS, ATLAS_HOLD_FRAMES, ATLAS_REDRAW_SHARE, FACE_TILE_MAX, FACE_TILE_MIN, QuadAllocator, ShadowAtlasPlan, shadowRank, SPOT_TILE_MAX, SPOT_TILE_MIN, tileSizeFor, type AtlasGrant, type AtlasRequest, type AtlasTile } from './shadow-atlas';
+import { ATLAS_FADE_SECONDS, ATLAS_FADE_STEP_MAX, ATLAS_HOLD_FRAMES, ATLAS_REDRAW_SHARE, FACE_TILE_MAX, FACE_TILE_MIN, QuadAllocator, ShadowAtlasPlan, shadowRank, SPOT_TILE_MAX, SPOT_TILE_MIN, tileSizeFor, type AtlasGrant, type AtlasRequest, type AtlasTile } from './shadow-atlas';
 
 function mulberry32(seed: number): () => number {
   let a = seed;
@@ -111,6 +111,27 @@ describe('the shadow atlas plan', () => {
     expect([...dirty.entries()].filter(([, x]) => x.draw !== null).map(([k]) => k)).toEqual([keys[3]]);
   });
 
+  it('fades a new tile in over frames after a long pause (a host drawing on demand), and says so until done', () => {
+    const plan = new ShadowAtlasPlan(4096);
+    plan.update([req(0, 1)], 1 / 60);
+    settle(plan, [req(0, 1)]);
+    // The next frame comes a second later (nothing moved meanwhile, or a precompile skipped frames) with new lights.
+    const requests = [req(0, 1), req(1, 0.8), req(2, 0.6)];
+    const late = plan.update(requests, 1);
+    expect(late.get(keys[1]!)!.draw).not.toBeNull();
+    expect(late.get(keys[1]!)!.intensity).toBeCloseTo(ATLAS_FADE_STEP_MAX / ATLAS_FADE_SECONDS, 5);
+    expect(plan.moving()).toBe(true);
+    let frames = 1;
+    while (plan.moving() && frames < 100) {
+      plan.update(requests, 1);
+      frames += 1;
+    }
+    expect(frames).toBe(Math.ceil(ATLAS_FADE_SECONDS / ATLAS_FADE_STEP_MAX));
+    // The frame that settles it draws nothing: a host's last frame says the atlas is still.
+    expect(plan.diagnostics()).toMatchObject({ tiled: 3, waiting: 0, drawn: 0 });
+    expect(plan.update(requests, 1).get(keys[2]!)!.intensity).toBe(1);
+  });
+
   it('keeps a tile size through small rank changes, and changes it after the hold, sampling the old tile until the new one is drawn', () => {
     const plan = new ShadowAtlasPlan(4096);
     settle(plan, [req(0, 1)]);
@@ -126,6 +147,35 @@ describe('the shadow atlas plan', () => {
       expect(after.intensity).toBe(1);
     }
     expect(after!.tiles![0]!.size).toBe(tileSizeFor(0.1, 4096));
+  });
+
+  it('asks a host drawing on demand for the frames a resize waits for, and not for one that found no room', () => {
+    const plan = new ShadowAtlasPlan(4096);
+    settle(plan, [req(0, 0.1)]);
+    expect(plan.moving()).toBe(false);
+    // The view comes closer in one step (one frame): the light asks for a larger tile, and the frames come until it has it.
+    let frames = 0;
+    do {
+      plan.update([req(0, 1)], 1 / 60);
+      frames += 1;
+    } while (plan.moving() && frames < 100);
+    expect(frames).toBe(ATLAS_HOLD_FRAMES);
+    expect(plan.update([req(0, 1)], 1 / 60).get(keys[0]!)!.tiles![0]!.size).toBe(SPOT_TILE_MAX);
+    // Four lights fill a 1,024 atlas with 512 tiles; one asks for the whole atlas: after the hold it finds no room,
+    // keeps its tile, and the view stops drawing.
+    const full = new ShadowAtlasPlan(1024);
+    const four = [0, 1, 2, 3].map((i) => req(i, 0.2));
+    settle(full, four);
+    expect([...full.update(four, 1 / 60).values()].map((g) => g.tiles?.[0]?.size)).toEqual([512, 512, 512, 512]);
+    const asks = [...four.slice(0, 3), req(3, 1)];
+    let more = 0;
+    do {
+      full.update(asks, 1 / 60);
+      more += 1;
+    } while (full.moving() && more < 200);
+    expect(more).toBe(ATLAS_HOLD_FRAMES);
+    expect(full.update(asks, 1 / 60).get(keys[3]!)!.tiles![0]!.size).toBe(512);
+    expect(full.moving()).toBe(false);
   });
 
   it('leaves the lowest-ranked lights unshadowed when the atlas is full, and a displaced light fades out before its tile is given away', () => {

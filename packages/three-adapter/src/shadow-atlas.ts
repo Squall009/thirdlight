@@ -20,9 +20,12 @@
  *   not fragment into slivers.
  * - **No thrash.** A light keeps its tile's size until its rank has asked
  *   for another for {@link ATLAS_HOLD_FRAMES} frames; a resized light keeps
- *   sampling its old tile until the new one is drawn.
+ *   sampling its old tile until the new one is drawn. A host drawing on
+ *   demand draws those frames (`moving`), so a still view ends with each
+ *   light's tile at the size its rank asks for, unless there was no room.
  * - **No pop.** A light gaining a tile fades its shadow in over
- *   {@link ATLAS_FADE_SECONDS}; one losing its tile to a better-ranked light
+ *   {@link ATLAS_FADE_SECONDS} (over frames, however long since the last:
+ *   {@link ATLAS_FADE_STEP_MAX}); one losing its tile to a better-ranked light
  *   fades it out over the same time before the tile is given away (it keeps
  *   sampling its own, still valid, depth meanwhile). Shadows also fade out
  *   with distance from the eye (from 3/4 of {@link LOCAL_SHADOW_DISTANCE}).
@@ -48,6 +51,12 @@ export const FACE_TILE_MAX = 512;
 export const ATLAS_HOLD_FRAMES = 30;
 /** Seconds a shadow takes to fade in on a new tile, and out when the tile is given away. */
 export const ATLAS_FADE_SECONDS = 0.25;
+/**
+ * The most a frame advances a fade by (s). A host drawing on demand draws again only while something moves, so
+ * the first frame after an idle spell or a skipped precompile has a long time step: taken whole, it ends a fade
+ * at once (the shadow pops in) and no later frame comes to show the atlas settled.
+ */
+export const ATLAS_FADE_STEP_MAX = 1 / 30;
 /** The share of the atlas's texels drawn a frame at most. */
 export const ATLAS_REDRAW_SHARE = 0.25;
 /** The reach a light without a range is ranked with (m). */
@@ -197,8 +206,10 @@ interface Held {
   /** Its sampled tile holds its depth. */
   drawn: boolean;
   dirty: boolean;
-  /** Frames its rank has asked for another size. */
+  /** Frames its rank has asked for another size, the size it asks for, and one it found no room for (0: none). */
   asking: number;
+  wants: number;
+  denied: number;
   /** The fade in (0–1) and whether it is giving its tile away. */
   shown: number;
   leaving: boolean;
@@ -251,7 +262,7 @@ export class ShadowAtlasPlan {
   /** The frame's plan for `requests` (`dt`: seconds since the last one). */
   update(requests: readonly AtlasRequest[], dt: number): ReadonlyMap<object, AtlasGrant> {
     const side = this.alloc.side;
-    const step = Math.max(0, dt) / ATLAS_FADE_SECONDS;
+    const step = Math.min(Math.max(0, dt), ATLAS_FADE_STEP_MAX) / ATLAS_FADE_SECONDS;
     this.freed = false;
     const wanted = new Map<object, AtlasRequest>();
     for (const r of requests) if (r.rank > 0) wanted.set(r.key, r);
@@ -266,7 +277,7 @@ export class ShadowAtlasPlan {
         this.drop(r.key, h);
         h = undefined;
       }
-      if (h === undefined) this.held.set(r.key, (h = { tile: null, next: null, faces, drawn: false, dirty: true, asking: 0, shown: 0, leaving: false, rank: r.rank }));
+      if (h === undefined) this.held.set(r.key, (h = { tile: null, next: null, faces, drawn: false, dirty: true, asking: 0, wants: 0, denied: 0, shown: 0, leaving: false, rank: r.rank }));
       h.rank = r.rank;
       h.dirty ||= r.dirty;
       const size = faces > 1 ? tileSizeFor(r.rank, side, FACE_TILE_MIN, FACE_TILE_MAX) : tileSizeFor(r.rank, side);
@@ -279,11 +290,14 @@ export class ShadowAtlasPlan {
       }
       if (h.leaving || h.next !== null) continue;
       const held = h.tile[0]!.size;
+      h.wants = size;
       h.asking = size !== held ? h.asking + 1 : 0;
+      if (size === held) h.denied = 0;
       if (h.asking >= ATLAS_HOLD_FRAMES) {
         h.asking = 0;
         // Its new size if there is room (smaller, if that is all there is, but never smaller than asked when shrinking).
         h.next = size < held ? this.take(size, faces, size) : this.take(size, faces, held * 2);
+        if (h.next === null) h.denied = size;
       }
     }
     // Redraws: new and resized tiles and dirty ones, best rank first, within the frame's share of texels.
@@ -338,10 +352,14 @@ export class ShadowAtlasPlan {
     return this.last;
   }
 
-  /** Whether a later frame changes what this one drew: a shadow fading, a tile waiting to be drawn or given away. */
+  /**
+   * Whether a later frame changes what this one drew: a shadow fading, a tile waiting to be drawn or given away, a
+   * light asking for another size (unless the last try found no room: then it tries again only on frames drawn for
+   * something else, and a still view stops drawing).
+   */
   moving(): boolean {
     if (this.freed) return true;
-    for (const h of this.held.values()) if (h.leaving || (h.tile !== null && (!h.drawn || h.shown < 1)) || h.next !== null || (h.tile !== null && h.dirty)) return true;
+    for (const h of this.held.values()) if (h.leaving || (h.tile !== null && (!h.drawn || h.shown < 1)) || h.next !== null || (h.tile !== null && h.dirty) || (h.asking > 0 && h.wants !== h.denied)) return true;
     return false;
   }
 

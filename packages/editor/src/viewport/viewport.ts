@@ -723,10 +723,12 @@ export class Viewport {
     if (!this.visibility.allows()) return;
     if (this.renderQueued) return;
     this.renderQueued = true;
+    this.marks.wanted(this.root, true);
     requestAnimationFrame(() => {
       this.renderQueued = false;
-      if (!this.visibility.allows()) return;
-      this.frame();
+      if (this.visibility.allows()) this.frame();
+      // Nothing asked for the next frame (no fade, no precompile, no animation): the picture stays as drawn.
+      if (!this.renderQueued) this.marks.wanted(this.root, false);
     });
   }
 
