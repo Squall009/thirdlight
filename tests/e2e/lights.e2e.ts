@@ -21,6 +21,7 @@ import { join } from 'node:path';
 
 import { expect, test, type Page } from './pw';
 
+import { encodeKtx2 } from '../../packages/backend/src/texture-encode';
 import { publishBytes, startBackend, type E2EBackend, withoutSky } from './backend';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
@@ -224,8 +225,14 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a spot light's cookie is 
   onlyInItsProject(variant, PRODUCT_RENDERER_VARIANTS);
   test.setTimeout(120_000);
   await publishBytes(be, makePng(64, 64, (x) => (Math.floor(x / 8) % 2 === 0 ? [255, 255, 255, 255] : [0, 0, 0, 255])), 'texture', 'tex-stripes');
-  // A cookie no flip leaves alike: its lower right quarter dark, stripes across its left half.
-  await publishBytes(be, makePng(64, 64, (x, y) => ((x >= 32 && y >= 32) || (x < 32 && Math.floor(y / 8) % 2 === 1) ? [0, 0, 0, 255] : [255, 255, 255, 255])), 'texture', 'tex-cookie');
+  // A cookie no flip leaves alike: its lower right quarter dark, stripes across its left half; a second one with only
+  // that quarter dark, and the first as a GPU-compressed KTX2 (the spot shadows' cookie swaps).
+  const cookiePng = makePng(64, 64, (x, y) => ((x >= 32 && y >= 32) || (x < 32 && Math.floor(y / 8) % 2 === 1) ? [0, 0, 0, 255] : [255, 255, 255, 255]));
+  await publishBytes(be, cookiePng, 'texture', 'tex-cookie');
+  await publishBytes(be, makePng(64, 64, (x, y) => (x >= 32 && y >= 32 ? [0, 0, 0, 255] : [255, 255, 255, 255])), 'texture', 'tex-cookie-quarter');
+  const cookieKtx2 = await encodeKtx2(new Uint8Array(cookiePng), 'color');
+  if (!cookieKtx2.ok) throw new Error(cookieKtx2.message);
+  await publishBytes(be, cookieKtx2.ktx2, 'texture', 'tex-cookie-ktx2');
   await page.goto(editorUrlFor(be.editorUrl, variant));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await expectRendererBackend(page.locator('canvas.tl-viewport'), variant);
@@ -515,6 +522,20 @@ async function spotShadows(page: Page, pass: 'auto' | 'webgl2' | 'webgpu', send:
   expect(Math.abs(cookie.area - todayCookie.area), 'cookie samples vs today').toBeLessThanOrEqual(todayCookie.area * SHADOW_MATCH);
   expect(Math.abs(cookie.mean - todayCookie.mean), 'cookie darkening vs today').toBeLessThanOrEqual(todayCookie.mean * SHADOW_MATCH);
   expect(Math.hypot(cookie.x - todayCookie.x, cookie.y - todayCookie.y), 'cookie middle vs today').toBeLessThanOrEqual(COOKIE_MIDDLE_PX);
+  // Swapped for another image, then for the first as KTX2 (GPU-compressed): each draws its own pattern. The quarter
+  // is half the first's dark texels and darkens a subset of its samples (more than half of them: the stripes' edges
+  // blur and the cube hides some), its middle toward the lower right; the KTX2 is the first's pattern again.
+  for (const name of ['tex-cookie-quarter', 'tex-cookie-ktx2'] as const) {
+    await send('setComponent', { entityId: idOf(`Lamp lamp-${near.i}`), component: 'light', value: lampLight(near.i, near.x, near.z, { castShadow: false, cookie: name }) });
+    await viewport.click({ position: { x: 5, y: 5 } });
+    const drawn = (c: { area: number; x: number; y: number }): boolean =>
+      name === 'tex-cookie-ktx2' ? Math.abs(c.area - cookie.area) <= cookie.area * SHADOW_MATCH && Math.hypot(c.x - cookie.x, c.y - cookie.y) <= COOKIE_MIDDLE_PX : c.area >= 0.4 * cookie.area && c.area <= 0.75 * cookie.area && c.x - cookie.x > COOKIE_MIDDLE_PX && c.y - cookie.y > COOKIE_MIDDLE_PX;
+    await expect.poll(async () => drawn(cookieDark(await shot(), movedOff)), { timeout: 30_000 }).toBe(true).catch(() => undefined);
+    const swapped = cookieDark(await settled(name), movedOff);
+    console.log(`[lights] cookie swapped to ${name} (${pass}): ${swapped.area} samples, mean ${swapped.mean.toFixed(1)}, middle ${swapped.x.toFixed(1)},${swapped.y.toFixed(1)}`);
+    expect(drawn(swapped), `${name} drawn`).toBe(true);
+    expect(Math.abs(swapped.mean - cookie.mean), `${name} darkening`).toBeLessThanOrEqual(cookie.mean * SHADOW_MATCH);
+  }
   // (A component write merges its fields: `null` takes the cookie away.)
   await send('setComponent', { entityId: idOf(`Lamp lamp-${near.i}`), component: 'light', value: lampLight(near.i, near.x, near.z, { cookie: null }) });
   await send('setTransform', { entityId: caster('far'), transform: { position: [far.x - 0.2, 0.3, far.z], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } });

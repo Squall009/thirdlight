@@ -22,8 +22,11 @@
  *   as three read the map (its rows the way three's upload puts them) on
  *   either renderer, and only the tile is sent (`queue.writeTexture` on
  *   WebGPU, `texSubImage2D` through three's copy on WebGL 2). A cookie whose
- *   pixels the page cannot read back (a GPU-compressed texture) draws
- *   none, with one console warning.
+ *   pixels the page cannot read (a GPU-compressed texture) is drawn back to
+ *   bytes on the GPU first (`cookie-decode.ts`) and its tile sent into the
+ *   same texture when they arrive, a frame or two later (the host is asked
+ *   for a frame then: the editor draws on demand); one that cannot be read
+ *   either way draws none, with one console warning.
  * - **Memory**: the tiles' half floats are kept per cookie (512 KiB each),
  *   not the whole atlas, so a new renderer gets its texture again from them.
  */
@@ -31,6 +34,7 @@ import * as THREE from 'three/webgpu';
 
 import { LTC_SIZE, ltcTablesData } from './cluster-area';
 import type { ClusterUploadRenderer } from './cluster-gpu';
+import { CookieDecoder, type CookieDecodeRenderer } from './cookie-decode';
 
 /** The atlas's side and a cookie tile's side (texels). */
 export const COOKIE_ATLAS_SIDE = 2048;
@@ -161,7 +165,11 @@ function pixelsOf(texture: THREE.Texture, side: number): Uint8ClampedArray | nul
  */
 export function rasterCookie(texture: THREE.Texture): Uint16Array | null {
   const px = pixelsOf(texture, COOKIE_TILE);
-  if (px === null) return null;
+  return px === null ? null : rasterPixels(px, texture);
+}
+
+/** {@link rasterCookie} of a texture's bytes at {@link COOKIE_TILE}², rows top first (as a 2D canvas or the GPU decode gives them). */
+export function rasterPixels(px: Uint8ClampedArray, texture: THREE.Texture): Uint16Array {
   const lut = texture.colorSpace === THREE.SRGBColorSpace ? SRGB_HALF : LINEAR_HALF;
   const out = new Uint16Array(COOKIE_TILE * COOKIE_TILE * 4);
   const flip = !texture.flipY;
@@ -192,7 +200,11 @@ interface Held {
   version: number;
   /** Sent to the renderer's texture. */
   sent: boolean;
+  /** The version being drawn back to bytes on the GPU (-1: none). */
+  decoding: number;
 }
+
+const isCompressed = (t: THREE.Texture): boolean => (t as { isCompressedTexture?: boolean }).isCompressedTexture === true;
 
 /** The cookie atlas of one scene: its tiles' contents, and the texture on the renderer drawn. */
 export class CookieAtlas {
@@ -202,6 +214,10 @@ export class CookieAtlas {
   private renderer: unknown = null;
   private staging: THREE.DataTexture | null = null;
   private readonly warned = new Set<string>();
+  private decoder: CookieDecoder | null = null;
+
+  /** `ready`: a cookie drawn back on the GPU has its tile's bytes (a host drawing on demand draws again). */
+  constructor(private readonly ready: () => void = () => undefined) {}
 
   /** Spots past the tiles this frame (no cookie drawn). */
   get dropped(): number {
@@ -219,7 +235,7 @@ export class CookieAtlas {
     const keyed = requests.map((r) => ({ key: r.texture.source as object, rank: r.rank }));
     const tiles = this.tiles.assign(
       keyed,
-      (key, tile) => this.held.set(key, { tile, data: null, version: -1, sent: false }),
+      (key, tile) => this.held.set(key, { tile, data: null, version: -1, sent: false, decoding: -1 }),
       (key) => this.held.delete(key),
     );
     let fresh = false;
@@ -235,7 +251,8 @@ export class CookieAtlas {
         h.version = r.texture.version;
         h.data = rasterCookie(r.texture);
         h.sent = false;
-        if (h.data === null) this.warn(r.texture);
+        if (h.data === null && isCompressed(r.texture) && 'readRenderTargetPixelsAsync' in renderer) this.decode(renderer as unknown as CookieDecodeRenderer, key, h, r.texture);
+        else if (h.data === null) this.warn(r.texture);
       }
       out.set(r.texture, h.data === null ? -1 : tile);
       if (!h.sent) fresh = true;
@@ -251,11 +268,41 @@ export class CookieAtlas {
     this.held.clear();
     this.staging?.dispose();
     this.staging = null;
+    this.decoder?.dispose();
+    this.decoder = null;
+  }
+
+  /** A compressed cookie's bytes drawn back on the GPU; its tile filled when they arrive (if it still holds that version). */
+  private decode(renderer: CookieDecodeRenderer, key: object, h: Held, texture: THREE.Texture): void {
+    if (h.decoding === h.version) return;
+    h.decoding = h.version;
+    const version = h.version;
+    this.decoder ??= new CookieDecoder(COOKIE_TILE);
+    this.decoder.pixels(renderer, texture).then(
+      (px) => {
+        if (this.held.get(key) !== h || h.version !== version) return;
+        h.data = rasterPixels(px, texture);
+        // Unsent: the next frame sends the tile into the texture the spots read, and names it in the spot's record.
+        h.sent = false;
+        this.ready();
+      },
+      () => {
+        if (this.held.get(key) === h && h.version === version) this.warn(texture);
+      },
+    );
   }
 
   /** The renderer's texture goes (every tile is sent again to the next one). */
   private drop(): void {
-    this.texture?.dispose();
+    const t = this.texture;
+    if (t !== null) {
+      // A program three keeps cached (a light shape seen before: the cookies gone and back) makes its draws' bindings
+      // with the texture it was built with and uploads that before it takes the current one. This atlas, disposed,
+      // would come back at full size from its let-go copy (a failed upload on WebGPU, 32 MiB of nothing on WebGL 2):
+      // it comes back as one texel, which the binding leaves at once.
+      t.image = { data: new Uint16Array(4), width: 1, height: 1 } as unknown as typeof t.image;
+      t.dispose();
+    }
     this.texture = null;
     this.renderer = null;
     for (const h of this.held.values()) h.sent = false;

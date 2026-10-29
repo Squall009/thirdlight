@@ -101,7 +101,7 @@ export interface AdapterClustersDeps {
   /** What moved this frame (spheres x, y, z, r) and the static casters' revision: a shadow tile they can reach is drawn again. */
   readonly movers: () => ArrayLike<number>;
   readonly staticRevision: () => number;
-  /** Draw another frame (a host drawing on demand: a shadow is still fading in or out). */
+  /** Draw another frame (a host drawing on demand: a shadow is still fading in or out, a cookie's tile arrived). */
   readonly drawAgain: () => void;
 }
 
@@ -152,7 +152,7 @@ export class AdapterClusters {
   private readonly shadowed: AtlasLight[] = [];
   private atlasWritten = '';
   /** The cookie atlas, this frame's cookie spots (slot, texture, rank) and the tile each texture got. */
-  private readonly cookieAtlas = new CookieAtlas();
+  private readonly cookieAtlas: CookieAtlas;
   private readonly cookieSpots: { slot: number; texture: THREE.Texture }[] = [];
   private readonly cookieRequests: CookieRequest[] = [];
   private readonly cookieTiles = new Map<THREE.Texture, number>();
@@ -171,6 +171,7 @@ export class AdapterClusters {
   constructor(private readonly d: AdapterClustersDeps, heatView = false) {
     this.heat.wanted = heatView;
     this.atlas = new AdapterShadowAtlas({ movers: d.movers, staticRevision: d.staticRevision }, DEFAULT_SHADOW_ATLAS);
+    this.cookieAtlas = new CookieAtlas(() => d.drawAgain());
   }
 
   /** The quality level's shadow atlas side (texels). */

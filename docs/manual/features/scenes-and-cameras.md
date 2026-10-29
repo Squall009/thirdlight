@@ -128,8 +128,8 @@ unique across the whole project. One command edits one scene.
   does; white passes the light, black blocks it, colour tints it), in the
   Scene view, Play and the export, on WebGPU and WebGL 2, from a tile of
   the cookie atlas ([Lighting](lighting.md)). A GPU-compressed (KTX2)
-  texture draws no cookie (a console warning says so). Directional lights
-  take no cookie.
+  texture is read back on the GPU first, so its cookie shows a frame or
+  two after the others. Directional lights take no cookie.
 - **In the editor.** Each open scene is a header in the hierarchy.
   - Click a header to make that scene active. New root objects go into the
     active scene; a child goes into its parent's scene.
