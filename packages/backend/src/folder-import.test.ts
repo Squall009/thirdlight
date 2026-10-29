@@ -11,6 +11,9 @@
  * - an uploaded file is written into the folder named, never over another
  *   file, never into a hidden folder or the project's own files; a
  *   `publishAsset` of uploaded bytes lands in the folder it names;
+ * - a job-export zip lands as a folder of the game folder only when no file
+ *   or folder of it is named as an upload may not be (a sidecar, a scene or
+ *   resource file, a hidden name): otherwise it is refused, nothing written;
  * - a whole folder moved outside the editor (with its sidecars) keeps its
  *   assets: "check files" re-points every one.
  */
@@ -19,6 +22,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFile
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { zipDirectory } from './exports';
 import { api, mkRequestId, startBackend, type TestBackend } from './test-helpers';
 
 const REPO = resolve(import.meta.dirname, '..', '..', '..');
@@ -234,6 +238,43 @@ describe('folder import and upload folders over HTTP (a project in the data root
     const file = join(dir(), 'assets', 'props', 'barrels', 'Barrel.glb');
     expect(createHash('sha256').update(readFileSync(file)).digest('hex')).toBe(p.sourceDigest);
     expect(sidecar('assets/props/barrels/Barrel.glb')).toMatchObject({ id: 'barrel', kind: 'model' });
+  });
+
+  it('refuses a job-export zip with a file named like project data or hidden, and writes nothing', async () => {
+    const sha = (b: Uint8Array): string => createHash('sha256').update(b).digest('hex');
+    const sidecarDoc = new TextEncoder().encode(JSON.stringify({ id: 'planted', kind: 'model' }));
+    let n = 0;
+    /** A zip of a job export with the model and one extra file, put in the game folder; the inspect route's answer. */
+    const inspectZip = async (name: string, extra: string | null) => {
+      n += 1;
+      const src = join(tb.root, `job-export-src-${n}`);
+      const files: { path: string; bytes: Uint8Array }[] = [{ path: 'crate.glb', bytes: GLB }];
+      if (extra !== null) files.push({ path: extra, bytes: sidecarDoc });
+      const manifest = { name, files: files.map((f, i) => ({ path: f.path, role: i === 0 ? 'model' : 'source', digest: sha(f.bytes) })) };
+      for (const f of [...files, { path: 'manifest.json', bytes: new TextEncoder().encode(JSON.stringify(manifest)) }]) {
+        mkdirSync(join(src, ...f.path.split('/').slice(0, -1)), { recursive: true });
+        writeFileSync(join(src, ...f.path.split('/')), f.bytes);
+      }
+      put(`inbox/${name}.zip`, zipDirectory(src));
+      return api(`${tb.authUrl}/api/v1/projects/${PID}/content/job-exports/inspect`, { body: { path: `inbox/${name}.zip` }, token: tb.adminToken, origin: null });
+    };
+    const bad: [string, string, RegExp][] = [
+      ['sidecar', 'crate.glb.tlasset', /sidecar name/],
+      ['scene', 'levels/level.scene.json', /scene file name/],
+      ['resource', 'crate.material.json', /resource file name/],
+      ['hidden', '.cache/x.bin', /hidden file name/],
+    ];
+    for (const [name, extra, why] of bad) {
+      const r = await inspectZip(name, extra);
+      expect(r.status, `${extra}: ${JSON.stringify(r.json)}`).toBe(400);
+      expect(JSON.stringify(r.json), extra).toMatch(why);
+      expect(existsSync(join(dir(), 'assets', name)), extra).toBe(false);
+    }
+    // The same export without the extra file lands and is inspected where it is.
+    const ok = await inspectZip('clean', null);
+    expect(ok.status, JSON.stringify(ok.json)).toBe(200);
+    expect((ok.json as { sourcePath: string }).sourcePath).toBe('assets/clean/crate.glb');
+    expect(readFileSync(join(dir(), 'assets', 'clean', 'crate.glb')).equals(GLB)).toBe(true);
   });
 
   it('keeps every asset of a folder moved outside the editor with its sidecars', async () => {

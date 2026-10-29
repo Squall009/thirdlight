@@ -11,14 +11,9 @@ import { basename, join, sep } from 'node:path';
 import type { CommandError, SceneDocument } from '@thirdlight/commands';
 import type { ContentCatalogV4, MissingAssetFile } from '@thirdlight/project-model';
 
-import { assetUsers, isValidSourcePath } from '@thirdlight/project-model';
+import { assetUsers } from '@thirdlight/project-model';
 
 import {
-  DEFAULT_ASSET_FOLDER,
-  fileStem,
-  gameFileExists,
-  takenPaths,
-  writeGameFile,
   assetRoot,
   checkAssetFolder,
   currentVersionOf,
@@ -80,7 +75,7 @@ import {
 } from './content-store';
 import { contentPublishFailed, pathRejected, projectNotFound, projectUnavailable } from './errors';
 import { locateMipParts, type MipPartFile } from './mip-parts';
-import { scanAssetFolder, writeUploadedFile, type FolderImportScan, type PreparedImportFile } from './folder-import';
+import { scanAssetFolder, writeImportFolder, writeUploadedFile, type FolderImportScan, type PreparedImportFile } from './folder-import';
 import { deepFreeze } from './isolate';
 import { sha256Hex } from './digest';
 import { rememberPublishedStage } from './behavior';
@@ -455,31 +450,9 @@ export function contentOps(core: Core) {
     withOpenSession(projectId, (s) => writeHeader(core, contentCtx(s), headerKey(header.sourceDigest, header.kind, toolchain), header), () => undefined);
   }
 
-  /**
-   * Write a set of files into a new folder of the game folder,
-   * `assets/<stem>/` (then `<stem>-2`, …), keeping their relative paths:
-   * an asset tool's export arriving as a zip lands there and its model is
-   * then imported where it is.
-   */
+  /** Write an outside tool's set of files into a new `assets/<stem>/` folder of the game folder (`writeImportFolder`). */
   function writeAssetFolder(projectId: string, stem: string, files: readonly { path: string; bytes: Uint8Array }[]): { ok: true; folder: string } | { ok: false; error: CommandError } {
-    return run(projectId, (s): { ok: true; folder: string } | { ok: false; error: CommandError } => {
-      const ctx = contentCtx(s);
-      for (const f of files) if (!isValidSourcePath(f.path)) return { ok: false, error: pathRejected(f.path, 'a file of the folder must have a relative path') };
-      const taken = takenPaths(s.content as ContentCatalogV4 | null);
-      const base = fileStem(stem, 'import');
-      let folder = '';
-      for (let n = 1; ; n += 1) {
-        folder = `${DEFAULT_ASSET_FOLDER}/${n === 1 ? base : `${base}-${n}`}`;
-        const lower = `${folder.toLowerCase()}/`;
-        if ([...taken].some((t) => t.startsWith(lower))) continue;
-        if (!resolveProjectFile(ctx, folder, 'dir').ok && !gameFileExists(ctx, folder)) break;
-      }
-      for (const f of files) {
-        const w = writeGameFile(core, ctx, `${folder}/${f.path}`, f.bytes);
-        if (!w.ok) return w;
-      }
-      return { ok: true, folder };
-    });
+    return run(projectId, (s) => writeImportFolder(core, contentCtx(s), s.content as ContentCatalogV4 | null, stem, files));
   }
 
   /** Every file of a folder, recursively: new importable files, files already imported, unsupported ones. */

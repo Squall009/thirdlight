@@ -27,7 +27,7 @@ import { join } from 'node:path';
 import { ID_RE, isAssetLabel, isValidSourcePath, MAX_FOLDER_DEPTH, type ContentCatalogV4 } from '@thirdlight/project-model';
 import type { CommandError, PreparedAssetImportItem } from '@thirdlight/commands';
 
-import { PROJECT_OWN_ENTRIES, SIDECAR_SUFFIX, assetRoot, checkAssetFolder, fileOfRecord, gameFileExists, parseSidecar, readGameFile, sidecarPath, takenPaths, writeGameFile, type RecordLike } from './asset-files';
+import { DEFAULT_ASSET_FOLDER, PROJECT_OWN_ENTRIES, SIDECAR_SUFFIX, assetRoot, checkAssetFolder, fileOfRecord, fileStem, gameFileExists, parseSidecar, readGameFile, sidecarPath, takenPaths, writeGameFile, type RecordLike } from './asset-files';
 import { IMPORTABLE, resolveProjectFile, type ContentConfig, type ContentContext } from './content-store';
 import { sha256Hex } from './digest';
 import { isSceneFileName, isSkippedFolderName, resourceKindOfName, SCENE_SUFFIX } from './resource-files';
@@ -272,4 +272,42 @@ export function writeUploadedFile(core: { ops: WriteOps; content: ContentConfig 
   if (gameFileExists(ctx, rel)) return { ok: false, error: pathRejected(rel, `${rel} cannot be replaced`) };
   const w = writeGameFile(core, ctx, rel, bytes);
   return w.ok ? { ok: true, written: true } : w;
+}
+
+/**
+ * Write a set of files into a new folder of the game folder,
+ * `assets/<stem>/` (then `<stem>-2`, …), keeping their relative paths: an
+ * asset tool's export arriving as a zip lands there and its model is then
+ * imported where it is. The bytes come from outside, like an upload, so a
+ * file or folder name an upload may not have (`uploadNameProblem`) refuses
+ * the whole set before anything is written.
+ */
+export function writeImportFolder(
+  core: { ops: WriteOps; content: ContentConfig },
+  ctx: ContentContext,
+  catalog: ContentCatalogV4 | null,
+  stem: string,
+  files: readonly { path: string; bytes: Uint8Array }[],
+): { ok: true; folder: string } | { ok: false; error: CommandError } {
+  for (const f of files) {
+    if (!isValidSourcePath(f.path)) return { ok: false, error: pathRejected(f.path, 'a file of the folder must have a relative path') };
+    for (const part of f.path.split('/')) {
+      const problem = uploadNameProblem(part);
+      if (problem !== null) return { ok: false, error: pathRejected(f.path, `${f.path}: ${problem}`) };
+    }
+  }
+  const taken = takenPaths(catalog);
+  const base = fileStem(stem, 'import');
+  let folder = '';
+  for (let n = 1; ; n += 1) {
+    folder = `${DEFAULT_ASSET_FOLDER}/${n === 1 ? base : `${base}-${n}`}`;
+    const lower = `${folder.toLowerCase()}/`;
+    if ([...taken].some((t) => t.startsWith(lower))) continue;
+    if (!resolveProjectFile(ctx, folder, 'dir').ok && !gameFileExists(ctx, folder)) break;
+  }
+  for (const f of files) {
+    const w = writeGameFile(core, ctx, `${folder}/${f.path}`, f.bytes);
+    if (!w.ok) return w;
+  }
+  return { ok: true, folder };
 }
