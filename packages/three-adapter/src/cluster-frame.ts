@@ -30,7 +30,7 @@ import { DOC_LIGHTS_MS } from './adapter-surface-cache';
 import { ClusterBuilder, ClusterLights, CLUSTER_SLICES, CLUSTER_TILES_X, clusterTilesY, type ClusterLightValue } from './cluster-build';
 import { ClusterGpu, type ClusterUploadRenderer } from './cluster-gpu';
 import { ClusterHeatLight } from './cluster-heat';
-import { CLUSTER_INDEX_MIB, CLUSTER_INDEX_TEXELS, ClusterTextures } from './cluster-pack';
+import { CLUSTER_INDEX_MIB, CLUSTER_INDEX_WORDS, ClusterTextures } from './cluster-pack';
 import { isLayeredLight, roomKeyOf } from './light-layers';
 import type { SceneLights } from './lights-shadows';
 import { lightReachOf } from './surface-changes';
@@ -52,9 +52,9 @@ export interface ClusterDiagnostics {
   readonly uploadMs: number;
   /** Bytes uploaded a frame. */
   readonly uploadBytes: number;
-  /** The grid (tiles across, tiles up, slices) and the packed textures' rows. */
+  /** The grid (tiles across, tiles up, slices) and the packed texture's rows. */
   readonly grid: readonly [number, number, number];
-  readonly rows: { readonly lights: number; readonly cells: number };
+  readonly rows: number;
   /** Whether the heat map is drawn. */
   readonly heatView: boolean;
 }
@@ -106,7 +106,7 @@ export class AdapterClusters {
   private readonly colour = new THREE.Color();
   private readonly warned = new Set<string>();
   /** The last frame's numbers and the sums toward the next means. */
-  private readonly last = { lights: 0, packed: 0, indices: 0, overflow: 0, lightRows: 1, cellRows: 1, tilesY: clusterTilesY(16 / 9) };
+  private readonly last = { lights: 0, packed: 0, indices: 0, overflow: 0, rows: 1, tilesY: clusterTilesY(16 / 9) };
   private sums = { frames: 0, gatherMs: 0, buildMs: 0, uploadMs: 0, uploadBytes: 0 };
   private means = { gatherMs: 0, buildMs: 0, uploadMs: 0, uploadBytes: 0 };
   private framed = false;
@@ -151,7 +151,7 @@ export class AdapterClusters {
     let bytes = 0;
     let t1 = tg;
     if (input.count > 0 || view.packed !== 0) {
-      const build = view.builder.build(input, { view: this.viewInverse.elements, projection: camera.projectionMatrix.elements, near: camera.near, far: camera.far }, CLUSTER_INDEX_TEXELS);
+      const build = view.builder.build(input, { view: this.viewInverse.elements, projection: camera.projectionMatrix.elements, near: camera.near, far: camera.far }, CLUSTER_INDEX_WORDS);
       const packed = view.textures.pack(build, input);
       view.packed = build.packed;
       t1 = performance.now();
@@ -161,8 +161,7 @@ export class AdapterClusters {
       l.packed = build.packed;
       l.indices = build.entries;
       l.overflow = build.overflow;
-      l.lightRows = packed.lightRows;
-      l.cellRows = packed.clusterRows;
+      l.rows = packed.rows;
       l.tilesY = build.grid.tilesY;
       if (build.overflow > 0) this.warnOverflow(build.overflow);
     } else {
@@ -178,7 +177,7 @@ export class AdapterClusters {
   diagnostics(): ClusterDiagnostics | null {
     if (!this.framed) return null;
     const l = this.last;
-    return { lights: l.lights, packed: l.packed, indices: l.indices, overflow: l.overflow, gatherMs: this.means.gatherMs, buildMs: this.means.buildMs, uploadMs: this.means.uploadMs, uploadBytes: this.means.uploadBytes, grid: [CLUSTER_TILES_X, l.tilesY, CLUSTER_SLICES], rows: { lights: l.lightRows, cells: l.cellRows }, heatView: this.heat.light !== null };
+    return { lights: l.lights, packed: l.packed, indices: l.indices, overflow: l.overflow, gatherMs: this.means.gatherMs, buildMs: this.means.buildMs, uploadMs: this.means.uploadMs, uploadBytes: this.means.uploadBytes, grid: [CLUSTER_TILES_X, l.tilesY, CLUSTER_SLICES], rows: l.rows, heatView: this.heat.light !== null };
   }
 
   dispose(): void {

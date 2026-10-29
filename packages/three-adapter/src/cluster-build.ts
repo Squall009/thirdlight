@@ -24,8 +24,8 @@
  *   (4) the count pass here, the prefix sum and the index writes in
  *   `cluster-pack.ts`.
  * - **A memory budget, not a count.** A frame's headers and lists fit in
- *   `maxTexels` (`cluster-pack.ts`'s `CLUSTER_INDEX_TEXELS`): each cell's
- *   header and the count texel a long list may need come off it first.
+ *   `maxWords` (`cluster-pack.ts`'s `CLUSTER_INDEX_WORDS`): each cell's
+ *   header and the count word a long list may need come off it first.
  *   Lights are listed best rank first, so when a frame does not fit, the
  *   lowest-ranked lights are left out of the cells that did not fit
  *   (`overflow` counts them). No cell has a cap of its own.
@@ -79,7 +79,7 @@ export interface ClusterLightValue {
   twoSided?: boolean;
   /** The light layers it lights (default every layer). */
   mask?: number;
-  /** Its shadow record's first texel in the light texture and its cookie's tile (-1: none). */
+  /** Its shadow record's first texel in the light records and its cookie's tile (-1: none). */
   shadow?: number;
   cookie?: number;
   /** False: off, or in a room no portal shows (not packed). */
@@ -305,7 +305,7 @@ export class ClusterBuilder {
   private readonly cell = new Float64Array(6);
   private readonly ndc = new Float64Array(4);
 
-  build(lights: ClusterLights, camera: ClusterCamera, maxTexels: number): ClusterBuild {
+  build(lights: ClusterLights, camera: ClusterCamera, maxWords: number): ClusterBuild {
     const n = lights.count;
     this.ensureLights(n);
     const P = camera.projection;
@@ -374,7 +374,7 @@ export class ClusterBuilder {
     const grid: ClusterGrid = { tilesX, tilesY, slices: CLUSTER_SLICES, clusters, sliceNear, sliceFar, scale, bias };
     this.setPlanes(P, grid, near);
     // Count pass: every packed light's cells, best rank first, until the budget is spent.
-    const budget = Math.max(0, maxTexels - 2 * clusters);
+    const budget = Math.max(0, maxWords - 2 * clusters);
     let entries = 0;
     let overflow = 0;
     const entryEnd = this.entryEnd;

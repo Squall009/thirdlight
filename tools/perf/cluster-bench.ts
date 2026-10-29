@@ -14,7 +14,7 @@
  *   --rounds N     rounds (default 3)
  */
 import * as THREE from 'three';
-import { CLUSTER_INDEX_TEXELS, ClusterBuilder, ClusterLights, ClusterTextures, type ClusterLightValue } from '@thirdlight/three-adapter';
+import { CLUSTER_INDEX_WORDS, ClusterBuilder, ClusterLights, ClusterTextures, type ClusterLightValue } from '@thirdlight/three-adapter';
 import { VIEW_LENS_DEFAULTS } from '@thirdlight/project-model';
 
 import { LIGHTS_COUNTS, lightsPlan, type LightsPlan } from './lights';
@@ -86,7 +86,7 @@ export async function runClusterBenchCli(argv: string[]): Promise<void> {
       const packMs: number[] = [];
       let firstUpload = 0;
       let upload = 0;
-      let last = { packed: 0, entries: 0, overflow: 0, lightRows: 0, clusterRows: 0 };
+      let last = { packed: 0, entries: 0, overflow: 0, rows: 0 };
       for (let f = 0; f < WARMUP_FRAMES + frames; f += 1) {
         const t = f / 60;
         cam.position.set(plan.camera.eye[0] + Math.sin(t) * 0.5, plan.camera.eye[1], plan.camera.eye[2] + Math.cos(t * 0.7) * 0.5);
@@ -94,7 +94,7 @@ export async function runClusterBenchCli(argv: string[]): Promise<void> {
         cam.updateMatrixWorld();
         const camera = { view: cam.matrixWorldInverse.elements, projection: cam.projectionMatrix.elements, near: cam.near, far: cam.far };
         const t0 = performance.now();
-        const build = builder.build(lights, camera, CLUSTER_INDEX_TEXELS);
+        const build = builder.build(lights, camera, CLUSTER_INDEX_WORDS);
         const t1 = performance.now();
         const r = tex.pack(build, lights);
         const t2 = performance.now();
@@ -104,7 +104,7 @@ export async function runClusterBenchCli(argv: string[]): Promise<void> {
           packMs.push(t2 - t1);
           upload += r.uploadBytes;
         }
-        last = { packed: build.packed, entries: build.entries, overflow: build.overflow, lightRows: r.lightRows, clusterRows: r.clusterRows };
+        last = { packed: build.packed, entries: build.entries, overflow: build.overflow, rows: r.rows };
       }
       const b = stats(buildMs);
       const p = stats(packMs);
@@ -112,7 +112,7 @@ export async function runClusterBenchCli(argv: string[]): Promise<void> {
       console.log(
         `clusters ${count} (round ${round + 1}): ${lights.count} lights, ${last.packed} packed, ${last.entries} cells listed, overflow ${last.overflow}; ` +
           `build ${b.mean.toFixed(3)} ms (p95 ${b.p95.toFixed(3)}), pack ${p.mean.toFixed(3)} (p95 ${p.p95.toFixed(3)}), total ${total.mean.toFixed(3)} (p95 ${total.p95.toFixed(3)}); ` +
-          `upload ${Math.round(upload / frames)} B a frame (first frame ${firstUpload} B), textures ${last.lightRows} + ${last.clusterRows} rows`,
+          `upload ${Math.round(upload / frames)} B a frame (first frame ${firstUpload} B), texture ${last.rows} rows`,
       );
     }
   }

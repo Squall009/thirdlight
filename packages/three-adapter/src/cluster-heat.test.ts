@@ -1,7 +1,7 @@
 /**
  * The light clusters' heat map at three's own node builders (the programs a
- * real build makes, no GPU): it reads the packed lists as integers and
- * floats with texel loads only, loops over a cell's list, replaces the lit
+ * real build makes, no GPU): it reads the packed lists from one unsigned
+ * integer texture with texel loads only (the records' floats bit-cast back), loops over a cell's list, replaces the lit
  * result in every lit build (the probe light's, the sun's), leaves a build
  * in mode `none` without the lists, and a scene without it builds the
  * programs it built before.
@@ -54,9 +54,11 @@ describe('the light clusters heat map', () => {
     const heat = new ClusterHeatLight(new ClusterGpu(new ClusterTextures()));
     scene.add(heat);
     const w = wgslOf(r, scene, new THREE.Mesh(new THREE.BoxGeometry(), mat));
-    // The headers and lists as unsigned integers, the records as floats: loads only, no sampler.
+    // One unsigned integer texture (one texture unit), the records' words bit-cast to floats: loads only, no sampler.
+    const plainUnits = (plain.match(/:\s*texture_/g) ?? []).length;
+    expect((w.match(/:\s*texture_/g) ?? []).length).toBe(plainUnits + 1);
     expect(w).toMatch(/texture_2d<u32>/);
-    expect(w).toMatch(/texture_2d<f32>/);
+    expect(w).toMatch(/bitcast<vec4<f32>>/);
     expect(w).toMatch(/textureLoad\(/);
     expect(w).toContain('tlClusterListed');
     expect(w).toMatch(/for \(/);
@@ -72,11 +74,12 @@ describe('the light clusters heat map', () => {
     expect(wgslOf(r, scene, new THREE.Mesh(new THREE.BoxGeometry(), mat))).toBe(plain);
   });
 
-  it('builds for WebGL 2 with texelFetch on an unsigned integer sampler', () => {
+  it('builds for WebGL 2 with texelFetch on an unsigned integer sampler, the records bit-cast', () => {
     const scene = litScene();
     scene.add(new ClusterHeatLight(new ClusterGpu(new ClusterTextures())));
     const f = glslOf(scene, new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial()));
     expect(f).toMatch(/usampler2D/);
+    expect(f).toMatch(/uintBitsToFloat\(/);
     expect(f).toMatch(/texelFetch\(/);
     expect(f).toContain('tlClusterListed');
   });

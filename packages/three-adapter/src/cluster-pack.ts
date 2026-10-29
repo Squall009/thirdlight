@@ -1,11 +1,15 @@
 /**
- * The packed light lists: two data textures every renderer reads with
- * `texelFetch` only (no filtering, no samplers per light), written from a
- * `ClusterBuild` (`cluster-build.ts`) each frame.
+ * The packed light lists: ONE data texture every renderer reads with
+ * `texelFetch` / `textureLoad` only (no filtering, no sampler), written from
+ * a `ClusterBuild` (`cluster-build.ts`) each frame. One texture, not one for
+ * the records and one for the lists, because a WebGPU fragment stage may
+ * bind only 16 textures on the low tier's GPUs: the lists cost one of them.
  *
- * - **Light texture**, RGBA32F, {@link CLUSTER_TEXTURE_WIDTH} texels wide,
- *   {@link CLUSTER_LIGHT_TEXELS} texels a light, in the lists' order (best
- *   rank first; a list's index is the light's record):
+ * RGBA32UI, {@link CLUSTER_TEXTURE_WIDTH} texels wide; its words (4 a texel,
+ * x y z w) hold, in order:
+ * - **Light records**, {@link CLUSTER_LIGHT_TEXELS} texels a light, floats
+ *   stored as their bits (the shader bit-casts them back), in the lists'
+ *   order (best rank first; a list's index is the light's record):
  *   - t0: view position xyz, reach;
  *   - t1: linear colour × intensity rgb, kind field + 8 × round(decay × 256)
  *     (kind: the two low bits, {@link CLUSTER_TWO_SIDED} above them);
@@ -16,32 +20,35 @@
  *     first texel (-1: none).
  *   Positions and axes are written in view space: the CPU rewrites the
  *   records every frame anyway, and the shader saves a matrix a light.
- * - **Cluster texture**, R32UI, as wide: one header texel per cell first
- *   (cell index = tile x + tiles x × (tile y + tiles y × slice)), then the
- *   index lists, one light index a texel. A header is the list's offset
- *   past the headers (22 bits) and its count (10 bits); a count of
- *   {@link CLUSTER_LONG_LIST} says the list is long and its first texel holds
- *   the real count (the list follows it). No cell has a cap.
- * - **Memory budget, not a count.** Both textures grow by doubling rows on
- *   demand and never shrink until `reset` (a scene change). The lists'
- *   ceiling is {@link CLUSTER_INDEX_MIB}; the build leaves the lowest-ranked
- *   lights out of the cells past it (`ClusterBuild.overflow`).
+ * - **Cell headers**, from the word right after the records
+ *   ({@link ClusterTextures.listWord}): one word per cell (cell index = tile
+ *   x + tiles x × (tile y + tiles y × slice)), then the index lists, one
+ *   light index a word. A header is the list's offset past the headers
+ *   (22 bits) and its count (10 bits); a count of {@link CLUSTER_LONG_LIST}
+ *   says the list is long and its first word holds the real count (the list
+ *   follows it). No cell has a cap.
+ * - **Memory budget, not a count.** The texture grows by doubling rows on
+ *   demand and never shrinks until `reset` (a scene change). The headers and
+ *   lists' ceiling is {@link CLUSTER_INDEX_MIB}; the build leaves the
+ *   lowest-ranked lights out of the cells past it (`ClusterBuild.overflow`).
  *
  * `decodeCluster*` are the shader's decode as plain code (the vitest suite
- * round-trips the textures through them; the light loop follows them line
+ * round-trips the texture through them; the light loop follows them line
  * for line).
  */
 import { CLUSTER_SPOT, clusterIndex, clusterSliceOf, type ClusterBuild, type ClusterGrid, type ClusterLights } from './cluster-build';
 
-/** Texels a row, both textures. */
+/** Texels a row. */
 export const CLUSTER_TEXTURE_WIDTH = 1024;
-/** RGBA32F texels a light record. */
+/** 32-bit words a texel (RGBA32UI). */
+export const CLUSTER_TEXEL_WORDS = 4;
+/** Texels a light record. */
 export const CLUSTER_LIGHT_TEXELS = 4;
-/** The index lists' ceiling (MiB of the R32UI cluster texture). */
+/** The headers and lists' ceiling (MiB of 32-bit words). */
 export const CLUSTER_INDEX_MIB = 16;
-/** Texels the headers and lists may use: the ceiling in 4-byte texels (2^22, which the header's 22-bit offset spans). */
-export const CLUSTER_INDEX_TEXELS = (CLUSTER_INDEX_MIB * 1024 * 1024) / 4;
-/** A header's count bits, and the count that marks a long list (its real count in the list's first texel). */
+/** Words the headers and lists may use: the ceiling in 4-byte words (2^22, which the header's 22-bit offset spans). */
+export const CLUSTER_INDEX_WORDS = (CLUSTER_INDEX_MIB * 1024 * 1024) / 4;
+/** A header's count bits, and the count that marks a long list (its real count in the list's first word). */
 export const CLUSTER_COUNT_BITS = 10;
 const COUNT_BITS = CLUSTER_COUNT_BITS;
 export const CLUSTER_LONG_LIST = (1 << COUNT_BITS) - 1;
@@ -49,77 +56,84 @@ const COUNT_MASK = CLUSTER_LONG_LIST;
 /** Decay is stored in 1/256 steps above the kind field's three bits. */
 const DECAY_STEPS = 256;
 const KIND_BITS = 8;
+const RECORD_WORDS = CLUSTER_LIGHT_TEXELS * CLUSTER_TEXEL_WORDS;
 
 /** What `pack` wrote this frame. */
 export interface ClusterPackResult {
-  /** Rows of each texture (a change: the whole texture is uploaded). */
-  lightRows: number;
-  clusterRows: number;
-  lightGrew: boolean;
-  clusterGrew: boolean;
-  /** Texels written (the upload range when the texture did not grow). */
-  lightTexels: number;
-  clusterTexels: number;
-  /** Bytes this frame's upload sends: a grown texture whole, otherwise the written ranges. */
+  /** Rows of the texture (a change: the whole texture is uploaded). */
+  rows: number;
+  grew: boolean;
+  /** Texels written, records and lists (the upload range when the texture did not grow). */
+  texels: number;
+  /** The first header's word (the records end there). */
+  listWord: number;
+  /** Words of headers and lists. */
+  listWords: number;
+  /** Bytes this frame's upload sends: a grown texture whole, otherwise the written range. */
   uploadBytes: number;
 }
 
-/** The two textures' data, kept between frames. */
+/** The texture's data, kept between frames: its words, and the same memory as floats (the records). */
 export class ClusterTextures {
-  lightData = new Float32Array(CLUSTER_TEXTURE_WIDTH * 4);
-  clusterData = new Uint32Array(CLUSTER_TEXTURE_WIDTH);
-  lightRows = 1;
-  clusterRows = 1;
+  data = new Uint32Array(CLUSTER_TEXTURE_WIDTH * CLUSTER_TEXEL_WORDS);
+  floats = new Float32Array(this.data.buffer);
+  rows = 1;
+  /** The first header's word (past the records) as the last pack wrote it. */
+  listWord = 0;
 
-  /** Drop the grown textures (a new scene). */
+  /** Drop the grown texture (a new scene). */
   reset(): void {
-    this.lightData = new Float32Array(CLUSTER_TEXTURE_WIDTH * 4);
-    this.clusterData = new Uint32Array(CLUSTER_TEXTURE_WIDTH);
-    this.lightRows = 1;
-    this.clusterRows = 1;
+    this.data = new Uint32Array(CLUSTER_TEXTURE_WIDTH * CLUSTER_TEXEL_WORDS);
+    this.floats = new Float32Array(this.data.buffer);
+    this.rows = 1;
+    this.listWord = 0;
   }
 
   /** Write `build`'s records, headers and lists. */
   pack(build: ClusterBuild, lights: ClusterLights): ClusterPackResult {
-    const lightTexels = build.packed * CLUSTER_LIGHT_TEXELS;
-    const lightGrew = this.growLights(lightTexels);
-    this.writeRecords(build, lights);
     const clusters = build.grid.clusters;
     const counts = build.counts;
-    // Prefix sum: offsets past the headers, a long list's count texel first.
-    let listTexels = 0;
-    for (let c = 0; c < clusters; c += 1) listTexels += counts[c]! + (counts[c]! >= CLUSTER_LONG_LIST ? 1 : 0);
-    const clusterTexels = clusters + listTexels;
-    if (clusterTexels > CLUSTER_INDEX_TEXELS) throw new Error(`cluster lists: ${clusterTexels} texels past the ${CLUSTER_INDEX_MIB} MiB ceiling (the build's budget was not the pack's)`);
-    const clusterGrew = this.growClusters(clusterTexels);
-    const data = this.clusterData;
-    // Headers: each cell's offset and count (a long list's count in its first texel).
+    // Prefix sum: offsets past the headers, a long list's count word first.
+    let listEntries = 0;
+    for (let c = 0; c < clusters; c += 1) listEntries += counts[c]! + (counts[c]! >= CLUSTER_LONG_LIST ? 1 : 0);
+    const listWords = clusters + listEntries;
+    if (listWords > CLUSTER_INDEX_WORDS) throw new Error(`cluster lists: ${listWords} words past the ${CLUSTER_INDEX_MIB} MiB ceiling (the build's budget was not the pack's)`);
+    const base = build.packed * RECORD_WORDS;
+    const texels = Math.ceil((base + listWords) / CLUSTER_TEXEL_WORDS);
+    const grew = this.grow(texels);
+    this.listWord = base;
+    this.writeRecords(build, lights);
+    const data = this.data;
+    // Headers: each cell's offset and count (a long list's count in its first word).
     let at = 0;
     for (let c = 0; c < clusters; c += 1) {
       const n = counts[c]!;
       if (n >= CLUSTER_LONG_LIST) {
-        data[c] = ((at << COUNT_BITS) | CLUSTER_LONG_LIST) >>> 0;
-        data[clusters + at] = n;
+        data[base + c] = ((at << COUNT_BITS) | CLUSTER_LONG_LIST) >>> 0;
+        data[base + clusters + at] = n;
         at += 1;
       } else {
-        data[c] = ((at << COUNT_BITS) | n) >>> 0;
+        data[base + c] = ((at << COUNT_BITS) | n) >>> 0;
       }
       at += n;
     }
     // Write pass: entries in slot order, so each list is best rank first.
     const cursor = this.cursorFor(clusters);
-    for (let c = 0; c < clusters; c += 1) cursor[c] = (data[c]! >>> COUNT_BITS) + ((data[c]! & COUNT_MASK) === CLUSTER_LONG_LIST ? 1 : 0);
+    for (let c = 0; c < clusters; c += 1) {
+      const h = data[base + c]!;
+      cursor[c] = base + clusters + (h >>> COUNT_BITS) + ((h & COUNT_MASK) === CLUSTER_LONG_LIST ? 1 : 0);
+    }
     let e = 0;
     for (let s = 0; s < build.packed; s += 1) {
       const end = build.entryEnd[s]!;
       for (; e < end; e += 1) {
         const c = build.entryCluster[e]!;
-        data[clusters + cursor[c]!] = s;
+        data[cursor[c]!] = s;
         cursor[c] = cursor[c]! + 1;
       }
     }
-    const uploadBytes = (lightGrew ? this.lightData.byteLength : lightTexels * 16) + (clusterGrew ? this.clusterData.byteLength : clusterTexels * 4);
-    return { lightRows: this.lightRows, clusterRows: this.clusterRows, lightGrew, clusterGrew, lightTexels, clusterTexels, uploadBytes };
+    const uploadBytes = grew ? data.byteLength : texels * CLUSTER_TEXEL_WORDS * 4;
+    return { rows: this.rows, grew, texels, listWord: base, listWords, uploadBytes };
   }
 
   private cursor = new Uint32Array(0);
@@ -131,10 +145,10 @@ export class ClusterTextures {
 
   private writeRecords(build: ClusterBuild, lights: ClusterLights): void {
     const V = build.view;
-    const out = this.lightData;
+    const out = this.floats;
     for (let s = 0; s < build.packed; s += 1) {
       const i = build.order[s]!;
-      const o = s * CLUSTER_LIGHT_TEXELS * 4;
+      const o = s * RECORD_WORDS;
       const wx = lights.position[i * 3]!;
       const wy = lights.position[i * 3 + 1]!;
       const wz = lights.position[i * 3 + 2]!;
@@ -161,23 +175,14 @@ export class ClusterTextures {
     }
   }
 
-  private growLights(texels: number): boolean {
-    const rows = grownRows(this.lightRows, texels);
-    if (rows === this.lightRows) return false;
-    const next = new Float32Array(rows * CLUSTER_TEXTURE_WIDTH * 4);
-    next.set(this.lightData);
-    this.lightData = next;
-    this.lightRows = rows;
-    return true;
-  }
-
-  private growClusters(texels: number): boolean {
-    const rows = grownRows(this.clusterRows, texels);
-    if (rows === this.clusterRows) return false;
-    const next = new Uint32Array(rows * CLUSTER_TEXTURE_WIDTH);
-    next.set(this.clusterData);
-    this.clusterData = next;
-    this.clusterRows = rows;
+  private grow(texels: number): boolean {
+    const rows = grownRows(this.rows, texels);
+    if (rows === this.rows) return false;
+    const next = new Uint32Array(rows * CLUSTER_TEXTURE_WIDTH * CLUSTER_TEXEL_WORDS);
+    next.set(this.data);
+    this.data = next;
+    this.floats = new Float32Array(next.buffer);
+    this.rows = rows;
     return true;
   }
 }
@@ -210,21 +215,21 @@ export function decodeClusterCell(grid: ClusterGrid, screenX: number, screenY: n
   return clusterIndex(grid, tx, ty, slice);
 }
 
-/** A cell's list of light records, read from the cluster texture's data as the shader does. */
-export function decodeClusterList(clusterData: Uint32Array, clusters: number, cell: number): number[] {
-  const h = clusterData[cell]!;
-  let at = clusters + (h >>> COUNT_BITS);
+/** A cell's list of light records, read from the texture's words as the shader does (`listWord`: the first header's word). */
+export function decodeClusterList(data: Uint32Array, listWord: number, clusters: number, cell: number): number[] {
+  const h = data[listWord + cell]!;
+  let at = listWord + clusters + (h >>> COUNT_BITS);
   let n = h & COUNT_MASK;
   if (n === CLUSTER_LONG_LIST) {
-    n = clusterData[at]!;
+    n = data[at]!;
     at += 1;
   }
   const out: number[] = [];
-  for (let k = 0; k < n; k += 1) out.push(clusterData[at + k]!);
+  for (let k = 0; k < n; k += 1) out.push(data[at + k]!);
   return out;
 }
 
-/** A light record read back from the light texture's data as the shader does. */
+/** A light record read back from the texture's words (bit-cast to floats) as the shader does. */
 export interface DecodedClusterLight {
   position: [number, number, number];
   reach: number;
@@ -244,9 +249,10 @@ export interface DecodedClusterLight {
   v?: [number, number, number];
 }
 
-export function decodeClusterLight(lightData: Float32Array, index: number): DecodedClusterLight {
-  const o = index * CLUSTER_LIGHT_TEXELS * 4;
-  const t = (k: number): number => lightData[o + k]!;
+export function decodeClusterLight(data: Uint32Array, index: number): DecodedClusterLight {
+  const floats = new Float32Array(data.buffer, data.byteOffset, data.length);
+  const o = index * RECORD_WORDS;
+  const t = (k: number): number => floats[o + k]!;
   const field = Math.trunc(t(7));
   const kind = field & 3;
   const base: DecodedClusterLight = {

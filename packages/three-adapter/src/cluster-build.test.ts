@@ -18,7 +18,7 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 
 import { areaHitsBox, CLUSTER_SLICES, CLUSTER_SPOT, ClusterBuilder, ClusterLights, sphereHitsBox, spotHitsBox, type ClusterCamera, type ClusterLightValue } from './cluster-build';
-import { CLUSTER_INDEX_TEXELS, CLUSTER_LONG_LIST, ClusterTextures, decodeClusterCell, decodeClusterLight, decodeClusterList } from './cluster-pack';
+import { CLUSTER_INDEX_WORDS, CLUSTER_LONG_LIST, ClusterTextures, decodeClusterCell, decodeClusterLight, decodeClusterList } from './cluster-pack';
 
 type V3 = [number, number, number];
 
@@ -158,13 +158,13 @@ interface Round {
 function checkRound(r: Round): { misses: string[]; listed: number; empty: number; packed: number } {
   const lights = new ClusterLights();
   for (const p of r.probes) lights.add(p.value);
-  const build = new ClusterBuilder().build(lights, clusterCamera(r.cam), CLUSTER_INDEX_TEXELS);
+  const build = new ClusterBuilder().build(lights, clusterCamera(r.cam), CLUSTER_INDEX_WORDS);
   const tex = new ClusterTextures();
   tex.pack(build, lights);
   const g = build.grid;
   const n = r.probes.length;
   const listed = new Uint8Array(n * g.clusters);
-  for (let c = 0; c < g.clusters; c += 1) for (const slot of decodeClusterList(tex.clusterData, g.clusters, c)) listed[build.order[slot]! * g.clusters + c] = 1;
+  for (let c = 0; c < g.clusters; c += 1) for (const slot of decodeClusterList(tex.data, tex.listWord, g.clusters, c)) listed[build.order[slot]! * g.clusters + c] = 1;
   const planes = [r.cam.near];
   for (let k = 1; k <= g.slices; k += 1) planes.push(g.sliceNear * (g.sliceFar / g.sliceNear) ** (k / g.slices));
   const samples = cellSamples(r.cam, g.tilesX, g.tilesY, planes);
@@ -292,7 +292,7 @@ describe('cluster lists', () => {
       values.push(v);
       lights.add(v);
     }
-    const build = new ClusterBuilder().build(lights, clusterCamera(cam), CLUSTER_INDEX_TEXELS);
+    const build = new ClusterBuilder().build(lights, clusterCamera(cam), CLUSTER_INDEX_WORDS);
     const tex = new ClusterTextures();
     const packed = tex.pack(build, lights);
     expect(build.overflow).toBe(0);
@@ -300,7 +300,7 @@ describe('cluster lists', () => {
     const view = cam.matrixWorldInverse;
     for (let s = 0; s < build.packed; s += 1) {
       const v = values[build.order[s]!]!;
-      const d = decodeClusterLight(tex.lightData, s);
+      const d = decodeClusterLight(tex.data, s);
       const at = new THREE.Vector3(...(v.position as V3)).applyMatrix4(view);
       expect(d.position[0]).toBeCloseTo(at.x, 4);
       expect(d.position[1]).toBeCloseTo(at.y, 4);
@@ -334,17 +334,18 @@ describe('cluster lists', () => {
     for (let s = 0; s < build.packed; s += 1) for (; e < build.entryEnd[s]!; e += 1) want[build.entryCluster[e]!]!.push(s);
     let longest = 0;
     for (let c = 0; c < g.clusters; c += 1) {
-      const got = decodeClusterList(tex.clusterData, g.clusters, c);
+      const got = decodeClusterList(tex.data, tex.listWord, g.clusters, c);
       expect(got).toEqual(want[c]);
       longest = Math.max(longest, got.length);
     }
     expect(longest).toBeGreaterThan(CLUSTER_LONG_LIST);
-    expect(packed.clusterTexels).toBe(g.clusters + build.entries + want.filter((l) => l.length >= CLUSTER_LONG_LIST).length);
+    expect(packed.listWords).toBe(g.clusters + build.entries + want.filter((l) => l.length >= CLUSTER_LONG_LIST).length);
+    expect(packed.listWord).toBe(build.packed * 16);
     // A pixel at the long list's point reads it.
     const ndc = new THREE.Vector3(0, 0, 0).project(cam);
     const depth = -new THREE.Vector3(0, 0, 0).applyMatrix4(view).z;
     const cell = decodeClusterCell(g, (ndc.x + 1) / 2, (ndc.y + 1) / 2, depth);
-    expect(decodeClusterList(tex.clusterData, g.clusters, cell).length).toBeGreaterThan(1400);
+    expect(decodeClusterList(tex.data, tex.listWord, g.clusters, cell).length).toBeGreaterThan(1400);
     expect(g.slices).toBe(CLUSTER_SLICES);
   });
 
@@ -359,7 +360,7 @@ describe('cluster lists', () => {
     // The nearest light, dim: ranks first all the same.
     const nearest = lights.add({ kind: 'point', position: [0, 2, -1.5], reach: 3, color: [0.001, 0.001, 0.001] });
     const builder = new ClusterBuilder();
-    const full = builder.build(lights, clusterCamera(cam), CLUSTER_INDEX_TEXELS);
+    const full = builder.build(lights, clusterCamera(cam), CLUSTER_INDEX_WORDS);
     const fullEntries = full.entries;
     const fullOrder = Array.from(full.order);
     const fullEnd = Array.from(full.entryEnd);
@@ -387,7 +388,7 @@ describe('cluster lists', () => {
     const first = fullEnd.findIndex((end) => end > cut.entries);
     expect(cut.overflow).toBe(cut.packed - first);
     const tex = new ClusterTextures();
-    expect(tex.pack(cut, lights).clusterTexels).toBeLessThanOrEqual(maxTexels);
+    expect(tex.pack(cut, lights).listWords).toBeLessThanOrEqual(maxTexels);
   });
 
   it('give the same lists whatever the render size, and a pixel its cell from its share of the screen', () => {
@@ -406,10 +407,10 @@ describe('cluster lists', () => {
       cam.updateMatrixWorld();
       const lights = new ClusterLights();
       for (const v of values) lights.add(v);
-      const build = new ClusterBuilder().build(lights, clusterCamera(cam), CLUSTER_INDEX_TEXELS);
+      const build = new ClusterBuilder().build(lights, clusterCamera(cam), CLUSTER_INDEX_WORDS);
       const tex = new ClusterTextures();
       const r = tex.pack(build, lights);
-      lists.push(tex.clusterData.slice(0, r.clusterTexels));
+      lists.push(tex.data.slice(0, r.texels * 4));
       // A pixel centre at this size lands in the tile its NDC position does.
       for (let n = 0; n < 200; n += 1) {
         const px = Math.floor(rnd() * w);
