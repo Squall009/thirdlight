@@ -278,12 +278,14 @@ interface ScreenStages {
 function screenStages(renderer: WebGPURenderer, scene: THREE.Scene, camera: THREE.Camera, scenePass: N, lights: ScreenStageLights, plan: PostPlan, passes: string[], disposables: { dispose(): void }[]): ScreenStages {
   const { aoLight, contactLight, reflectionsLight } = lights;
   const stages: (AmbientOcclusionStage | ContactShadowsStage | ReflectionsStage)[] = [];
+  // The contact shadows first: the occlusion's history draws them when it carries them.
+  const contact = contactLight !== null ? buildContactShadows(renderer, scenePass, scene, contactLight) : null;
   if (aoLight !== null && plan.ao !== null) {
-    stages.push(buildAmbientOcclusion(renderer, plan.ao.kind, scenePass, camera, aoLight, { radius: plan.ao.radius, intensity: plan.ao.intensity }));
+    stages.push(buildAmbientOcclusion(renderer, plan.ao.kind, scenePass, camera, aoLight, { radius: plan.ao.radius, intensity: plan.ao.intensity }, contact?.carried ?? null));
     passes.push(plan.ao.kind);
   }
-  if (contactLight !== null) {
-    stages.push(buildContactShadows(renderer, scenePass, scene, contactLight));
+  if (contact !== null) {
+    stages.push(contact);
     passes.push('contactShadows');
   }
   if (reflectionsLight !== null && plan.reflections) {
@@ -292,7 +294,7 @@ function screenStages(renderer: WebGPURenderer, scene: THREE.Scene, camera: THRE
   }
   disposables.push(...stages);
   return {
-    nodes: stages.map((st) => st.passes),
+    nodes: stages.flatMap((st) => (st.passes !== null ? [st.passes] : [])),
     setScale: (sceneScale) => stages.forEach((st) => st.setScale(sceneScale)),
     beforeFrame: (cam) => stages.forEach((st) => st.beforeFrame(cam)),
     afterFrame: (cam) => stages.forEach((st) => st.afterFrame(cam)),

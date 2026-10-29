@@ -89,7 +89,7 @@ export interface AmbientOcclusionStage {
  * The AO of a scene pass drawn with an MRT holding `normal` (view-space
  * normals), fed to `light`. `intensity` 0–n mixes the occlusion in (1: as computed).
  */
-export function buildAmbientOcclusion(renderer: THREE.WebGPURenderer, kind: AoKind, scenePass: N, camera: THREE.Camera, light: ScreenSpaceOcclusion, params: { radius: number; intensity: number }): AmbientOcclusionStage {
+export function buildAmbientOcclusion(renderer: THREE.WebGPURenderer, kind: AoKind, scenePass: N, camera: THREE.Camera, light: ScreenSpaceOcclusion, params: { radius: number; intensity: number }, carried: N | null = null): AmbientOcclusionStage {
   const depth: N = scenePass.getTextureNode('depth');
   const normal: N = scenePass.getTextureNode('normal');
   const node: N = kind === 'gtao' ? gtao(depth, normal, camera) : ssao(depth, normal, camera);
@@ -97,8 +97,9 @@ export function buildAmbientOcclusion(renderer: THREE.WebGPURenderer, kind: AoKi
   // SSAO's obscurance is much fainter than GTAO's for the same crease: scaled so the two kinds darken alike.
   if (kind === 'ssao') node.intensity.value = SSAO_STRENGTH;
   node.resolutionScale = AO_RESOLUTION_SCALE;
-  // The history: this frame's occlusion and view depth, kept for the next frame's scene pass (which overwrites the depth).
-  const history = buildScreenHistory(renderer, light, node.getTextureNode().r, scenePassViewZ(scenePass), AO_RESOLUTION_SCALE);
+  // The history: this frame's occlusion and view depth (and the contact shadows it carries), kept for the next frame's
+  // scene pass (which overwrites the depth).
+  const history = buildScreenHistory(renderer, light, node.getTextureNode().r, scenePassViewZ(scenePass), AO_RESOLUTION_SCALE, carried);
   return {
     passes: history.passes,
     setScale(sceneScale) {

@@ -203,8 +203,9 @@ edited in the editor's **terrain editor** (below).
 - **Drawing** (CDLOD): each tile is a quadtree whose nodes are one shared
   16 × 16 grid drawn instanced, raised in the vertex shader from the tile's
   heights and morphed between levels by distance, so levels meet without
-  cracks or pops; a page of up to 256 tiles (`TERRAIN_PAGE_LAYERS`, the
-  texture-array layers both renderers guarantee) is one draw. The finest
+  cracks or pops; a page of up to 128 tiles (`TERRAIN_PAGE_LAYERS`: a tile
+  takes two layers of the page's layer texture, weights and layer indices,
+  within the 256 texture-array layers both renderers guarantee) is one draw. The finest
   level reaches **`lodDistance`** metres (optional; each coarser level twice
   as far; absent or smaller: the least the tile size allows, 4.5 × 16 cells ×
   `spacing`); a quality level's or the project's **LOD bias** divides it. Past

@@ -428,10 +428,13 @@ class ScreenLights {
 
   constructor(private readonly scene: THREE.Scene) {}
 
-  /** The lights the next stack draws are in the scene, the others gone. */
-  keep(ao: boolean, contact: boolean, reflections: boolean): void {
+  /** The lights the next stack draws are in the scene, the others gone; `carried`: the occlusion's history carries the contact shadows (its stage draws). */
+  keep(ao: boolean, contact: boolean, reflections: boolean, carried: boolean): void {
     this.ao = this.hold(this.ao, ao, () => new ScreenSpaceOcclusion());
-    this.contact = this.hold(this.contact, contact, () => new ContactShadowsLight());
+    const carrier = carried ? this.ao : null;
+    // A light for the other way of keeping them (the lit programs read another texture: a new program key).
+    if (this.contact !== null && this.contact.carrier !== carrier) this.contact = this.hold(this.contact, false, () => new ContactShadowsLight());
+    this.contact = this.hold(this.contact, contact, () => new ContactShadowsLight(carrier));
     this.reflections = this.hold(this.reflections, reflections, () => new ReflectionsLight());
   }
 
@@ -989,7 +992,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     // With a post effect only: a frame through the stack for another reason (render scale, culling, no MSAA) looks as without.
     const contact = w.contact && perspective && isPost;
     const reflections = w.reflections !== null && perspective && isPost ? w.reflections : null;
-    screenLights.keep(w.ssao && perspective, contact, reflections !== null);
+    screenLights.keep(w.ssao && perspective, contact, reflections !== null, contact && w.ssao && render.ao !== 'off');
     if (!isPost && !noMsaa && displayBackground === null && !upscaling && scenePasses === null) return;
     const g = post?.grading;
     const plan: PostPlan = {
@@ -1167,7 +1170,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     dispose() {
       disposed = true;
       disposePipeline();
-      screenLights.keep(false, false, false);
+      screenLights.keep(false, false, false, false);
       disposeLayers();
       clearSky();
       heightFog.dispose();

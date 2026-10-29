@@ -319,6 +319,7 @@ export async function measurePage(browser: Browser, opts: FrameRunOptions): Prom
     await new Promise((r) => setTimeout(r, Math.max(0, opts.recordMs - (performance.now() - t1))));
     const recordMhz = recordClock?.stop() ?? null;
     const sample = await page.evaluate(readSample, true);
+    await dumpFragmentPrograms(page, opts.url);
     const b = await metrics();
     const wall = performance.now() - t0;
     const taskMs = ((b['TaskDuration'] ?? 0) - (a['TaskDuration'] ?? 0)) * 1000;
@@ -452,4 +453,22 @@ async function threadBusy(browser: Browser, page: import('@playwright/test').Pag
   const r = (v: number): number => Math.round((v / seconds) * 10) / 10;
   const frames = sample.frames.length;
   return { seconds: Math.round(seconds * 100) / 100, fps: Math.round((frames / (wall / 1000)) * 10) / 10, mainMsPerS: r(main), workerMsPerS: r(worker), gpuProcessMsPerS: r(gpuProcess) };
+}
+
+/**
+ * With `TL_PERF_WGSL_DIR` set, the page's WebGPU fragment programs that read the most textures go there
+ * (`<n>-textures-<k>.wgsl`): what a program over the device's per-stage texture limit binds, to read by eye.
+ */
+async function dumpFragmentPrograms(page: Page, url: string): Promise<void> {
+  const dir = process.env['TL_PERF_WGSL_DIR'];
+  if (dir === undefined || dir === '') return;
+  const programs = await page.evaluate(() => {
+    const shaders = (window as unknown as { __tlPerf?: { shaders: Map<string, number> } }).__tlPerf?.shaders;
+    const out: { n: number; code: string }[] = [];
+    for (const code of shaders?.keys() ?? []) if (code.includes('@fragment')) out.push({ n: (code.match(/\bvar\s+\w+\s*:\s*texture_/g) ?? []).length, code });
+    return out.sort((a, b) => b.n - a.n).slice(0, 6);
+  });
+  const sub = join(dir, url.replace(/[^a-z0-9]+/gi, '-').slice(-60));
+  mkdirSync(sub, { recursive: true });
+  programs.forEach((p, k) => writeFileSync(join(sub, `${p.n}-textures-${k}.wgsl`), p.code));
 }

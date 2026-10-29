@@ -57,7 +57,7 @@ import { isReflectionsNode } from './post-reflections';
 import { ProbeTileStore, type ResidentProbeTile } from './probe-atlas';
 import { PROBE_INDEX_WIDTH, probeRowAt } from './probe-index';
 import { texelTexture } from './texel-texture-node';
-import { PACKED_LIGHT_TEXELS, TABLE_ROW_FLOATS, TABLE_ROWS_PER_LINE, TABLE_TEXELS } from './probe-pack';
+import { PACKED_LIGHT_TEXELS, TABLE_ROW_FLOATS, TABLE_TEXELS } from './probe-pack';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
@@ -193,9 +193,10 @@ function shIrradiance(n: N, s: N[]): N {
 /** The packed texture's nodes and uniforms one light's node (and the debug view) read. */
 export interface ProbeTextureNodes {
   readonly atlas: N;
-  readonly table: N;
-  /** The spatial index (probe-index.ts): its texture, its grid's corner, 1 / its cell size and its cells per axis. */
-  readonly index: N;
+  /** The spatial index (probe-index.ts) and the tile table in one texture, the table from texel `tableAt` (a uniform). */
+  readonly lookup: N;
+  readonly tableAt: N;
+  /** The index's grid: its corner, 1 / its cell size and its cells per axis. */
   readonly indexOrigin: N;
   readonly indexInvCell: N;
   readonly indexDims: N;
@@ -212,8 +213,8 @@ export function probeTextureNodes(light: ProbeLighting): ProbeTextureNodes {
   const s = light.store;
   const nodes: ProbeTextureNodes = {
     atlas: texture3D(s.atlas),
-    table: texelTexture(s.table),
-    index: texelTexture(s.index),
+    lookup: texelTexture(s.lookup),
+    tableAt: uniform(0),
     indexOrigin: uniform(new THREE.Vector4()),
     indexInvCell: uniform(new THREE.Vector4()),
     indexDims: uniform(new THREE.Vector4()),
@@ -223,8 +224,8 @@ export function probeTextureNodes(light: ProbeLighting): ProbeTextureNodes {
     sync(l) {
       const st = l.store;
       nodes.atlas.value = st.atlas;
-      nodes.table.value = st.table;
-      nodes.index.value = st.index;
+      nodes.lookup.value = st.lookup;
+      nodes.tableAt.value = st.tableAt;
       nodes.indexOrigin.value.set(...st.indexOf.origin, 0);
       nodes.indexInvCell.value.set(...st.indexOf.invCell, 0);
       nodes.indexDims.value.set(...st.indexOf.dims, 0);
@@ -237,16 +238,14 @@ export function probeTextureNodes(light: ProbeLighting): ProbeTextureNodes {
   return nodes;
 }
 
-/** Texel `k` of table row `row` (an int node): rows run `TABLE_ROWS_PER_LINE` a line of the table texture. */
+/** Texel `k` of table row `row` (an int node): the table runs on from `tableAt` in the lookup texture. */
 export function tableTexel(t: ProbeTextureNodes, row: N, k: number): N {
-  const e = row.mul(TABLE_TEXELS).add(k);
-  const width = TABLE_ROWS_PER_LINE * TABLE_TEXELS;
-  return t.table.load(ivec2(e.mod(width), e.div(width)));
+  return indexTexel(t, int(t.tableAt).add(row.mul(TABLE_TEXELS).add(k)));
 }
 
-/** Texel `e` (an int node) of the index texture. */
+/** Texel `e` (an int node) of the lookup texture (the index's texels come first). */
 function indexTexel(t: ProbeTextureNodes, e: N): N {
-  return t.index.load(ivec2(e.mod(PROBE_INDEX_WIDTH), e.div(PROBE_INDEX_WIDTH)));
+  return t.lookup.load(ivec2(e.mod(PROBE_INDEX_WIDTH), e.div(PROBE_INDEX_WIDTH)));
 }
 
 /**

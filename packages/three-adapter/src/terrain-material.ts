@@ -25,8 +25,9 @@
  * slots reads there (`GraphSurface.arrayLayer`), so a terrain draws any
  * number of layers through four slots; a cell marked as a hole is cut away
  * (the mask, also in the shadow pass). The terrain's own reads per pixel are
- * three: the weights, the indices and the hole; the layered template's
- * twelve come on top (fifteen in all).
+ * three: the weights, the indices and the hole, all from the page's one
+ * layer texture ({@link terrainPartLayer}); the layered template's twelve
+ * come on top (fifteen in all).
  *
  * A layer slot's settings (tiling, normal strength, height contrast and
  * offset: the template's vec4 per-layer parameters) are its layer's own: a
@@ -124,16 +125,35 @@ export interface TerrainSurface extends GraphSurface {
   sunlit(h: TerrainHorizonUniforms): N;
 }
 
+/** A page's textures: `heights` (one array layer a tile) and `layers`, which holds two a tile. */
+export type TerrainPagePart = 'heights' | 'layers' | 'indices';
+
+/**
+ * The array layer of a page texture holding tile layer `layer`'s `part`: the
+ * heights' own, or in the page's layer texture the weights and holes at
+ * 2 · layer and the layer indices at 2 · layer + 1. One texture for both,
+ * not one each, so a terrain's lit program binds one texture fewer (a
+ * fragment stage's texture units are few: `texture-units.ts`).
+ */
+export function terrainPartLayer(part: TerrainPagePart, layer: number): number {
+  return part === 'heights' ? layer : 2 * layer + (part === 'indices' ? 1 : 0);
+}
+
+/** {@link terrainPartLayer} in a shader (`layer` an int node). */
+export function terrainPartLayerNode(part: 'layers' | 'indices', layer: N): N {
+  return layer.mul(2).add(part === 'indices' ? 1 : 0);
+}
+
 /** Decode a texel's 16-bit step (R high byte, G low byte, as `terrain-texels.ts` packs it): every shader reading heights decodes through this. */
 export const stepOf = (t: N): N => floor(t.r.mul(255).add(0.5)).mul(256).add(floor(t.g.mul(255).add(0.5)));
 
 /**
- * The surface a terrain page's materials compile against: its height,
- * layer-weight and layer-index texture arrays, its shape values, and `key`
+ * The surface a terrain page's materials compile against: its height and
+ * layer (weights and indices) texture arrays, its shape values, and `key`
  * naming it (a page's textures replaced by larger ones take a new key, so a
  * new compile).
  */
-export function terrainSurface(key: string, heights: THREE.DataArrayTexture, layers: THREE.DataArrayTexture, indices: THREE.DataArrayTexture, u: TerrainUniforms): TerrainSurface {
+export function terrainSurface(key: string, heights: THREE.DataArrayTexture, layers: THREE.DataArrayTexture, u: TerrainUniforms): TerrainSurface {
   const vSample = varyingProperty('vec2', 'tlTerrainSample');
   const vLayer = varyingProperty('float', 'tlTerrainLayer');
   const vUv = varyingProperty('vec2', 'tlTerrainUv');
@@ -179,14 +199,14 @@ export function terrainSurface(key: string, heights: THREE.DataArrayTexture, lay
   })();
   const pixelLayer = int(vLayer.add(0.5));
   const weights = Fn(() => {
-    const w = texture(layers, vSample.add(0.5).div(u.samples)).depth(pixelLayer);
+    const w = texture(layers, vSample.add(0.5).div(u.samples)).depth(terrainPartLayerNode('layers', pixelLayer));
     return vec4(w.r, w.g, w.b, max(float(1).sub(w.r).sub(w.g).sub(w.b), 0));
   })();
   const cell = clamp(floor(vSample), vec2(0), vec2(u.samples.sub(2)));
-  const mask = textureLoad(layers, ivec2(int(cell.x), int(cell.y))).depth(pixelLayer).a.lessThan(0.5);
+  const mask = textureLoad(layers, ivec2(int(cell.x), int(cell.y))).depth(terrainPartLayerNode('layers', pixelLayer)).a.lessThan(0.5);
   // The nearest sample's layer per channel (the weight filtered in from a neighbour names the same layer there: see terrain-texels.ts).
   const near = clamp(floor(vSample.add(0.5)), vec2(0), vec2(u.samples.sub(1)));
-  const ids = textureLoad(indices, ivec2(int(near.x), int(near.y))).depth(pixelLayer).mul(255).add(0.5).floor();
+  const ids = textureLoad(layers, ivec2(int(near.x), int(near.y))).depth(terrainPartLayerNode('indices', pixelLayer)).mul(255).add(0.5).floor();
   const arrayLayer = (slot: N): N => {
     const s = floor(slot.add(0.5));
     const mapped = select(s.lessThan(0.5), ids.x, select(s.lessThan(1.5), ids.y, select(s.lessThan(2.5), ids.z, ids.w)));

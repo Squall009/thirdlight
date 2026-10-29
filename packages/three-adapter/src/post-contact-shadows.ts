@@ -54,11 +54,17 @@ export const CONTACT_SHADOW_FADE_METRES: readonly [number, number] = [25, 40];
 const CONTACT_SHADOW_BIAS = 0.004;
 const CONTACT_SHADOW_BIAS_M = 0.01;
 
-/** The contact shadows as a light of the scene (only the key light's shadow reads it). */
+/**
+ * The contact shadows as a light of the scene (only the key light's shadow
+ * reads it). With a `carrier` (the ambient occlusion's light, when its
+ * stage draws too, at the same share), the shadows ride in the carrier's
+ * history (channel z) instead of a history of their own: a lit program then
+ * binds one texture for both.
+ */
 export class ContactShadowsLight extends ScreenHistoryLight {
   readonly isContactShadows = true;
 
-  constructor() {
+  constructor(readonly carrier: ScreenHistoryLight | null = null) {
     super('contact shadows');
   }
 }
@@ -110,7 +116,7 @@ class ContactShadowedNode extends (THREE.Node as unknown as new (type?: string |
       const s = this.inner.toVar();
       const v = vec3(s);
       If(max(max(v.x, v.y), v.z).greaterThan(0), () => {
-        s.mulAssign(screenHistoryAt(c));
+        s.mulAssign(c.carrier !== null ? screenHistoryAt(c.carrier, 'z') : screenHistoryAt(c));
       });
       return s;
     })();
@@ -127,8 +133,10 @@ export function withContactShadows(inner: N): N {
 }
 
 export interface ContactShadowsStage {
-  /** The node that draws the contact shadows into the history each frame (built into the pipeline's output). */
-  readonly passes: N;
+  /** The node that draws the contact shadows into the history each frame (built into the pipeline's output; null: the carrier's draws them). */
+  readonly passes: N | null;
+  /** The shadows a carrier's history draws (`ContactShadowsLight.carrier`; null: none carries them). */
+  readonly carried: N | null;
   /** The scene pass's resolution scale (the march runs at it). */
   setScale(sceneScale: number): void;
   beforeFrame(camera: THREE.Camera): void;
@@ -145,7 +153,7 @@ function keyLightOf(scene: THREE.Object3D): THREE.DirectionalLight | null {
   return null;
 }
 
-/** The contact shadows of a scene pass toward `scene`'s key light, fed to `light`. */
+/** The contact shadows of a scene pass toward `scene`'s key light, fed to `light` (or handed to its carrier's history as `carried`). */
 export function buildContactShadows(renderer: THREE.WebGPURenderer, scenePass: N, scene: THREE.Object3D, light: ContactShadowsLight): ContactShadowsStage {
   const depth: N = scenePass.getTextureNode('depth');
   const projection = uniform(new THREE.Matrix4());
@@ -182,13 +190,15 @@ export function buildContactShadows(renderer: THREE.WebGPURenderer, scenePass: N
     const fade = float(1).sub(smoothstep(CONTACT_SHADOW_FADE_METRES[0], CONTACT_SHADOW_FADE_METRES[1], p.z.negate()));
     return float(1).sub(hit.mul(fade));
   })();
-  const history: ScreenHistoryStage = buildScreenHistory(renderer, light, visible, scenePassViewZ(scenePass), CONTACT_SHADOW_RESOLUTION_SCALE);
+  // The carrier's history is drawn at the same share as this one's would be (both a half of the scene pass).
+  const history: ScreenHistoryStage | null = light.carrier === null ? buildScreenHistory(renderer, light, visible, scenePassViewZ(scenePass), CONTACT_SHADOW_RESOLUTION_SCALE) : null;
   const dir = new THREE.Vector3();
   const target = new THREE.Vector3();
   return {
-    passes: history.passes,
+    passes: history?.passes ?? null,
+    carried: history === null ? visible : null,
     setScale(sceneScale) {
-      history.setShare(CONTACT_SHADOW_RESOLUTION_SCALE * sceneScale);
+      history?.setShare(CONTACT_SHADOW_RESOLUTION_SCALE * sceneScale);
     },
     beforeFrame(cam) {
       projection.value.copy(cam.projectionMatrix);
@@ -200,13 +210,13 @@ export function buildContactShadows(renderer: THREE.WebGPURenderer, scenePass: N
         dir.setFromMatrixPosition(key.matrixWorld).sub(target.setFromMatrixPosition(key.target.matrixWorld)).normalize();
         (toSun.value as THREE.Vector3).copy(dir.transformDirection(cam.matrixWorldInverse).multiplyScalar(CONTACT_SHADOW_METRES));
       }
-      history.beforeFrame(cam);
+      history?.beforeFrame(cam);
     },
     afterFrame(cam) {
-      history.afterFrame(cam);
+      history?.afterFrame(cam);
     },
     dispose() {
-      history.dispose();
+      history?.dispose();
     },
   };
 }

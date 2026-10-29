@@ -128,11 +128,18 @@ export interface ProbeSyncResult {
 
 export class ProbeTileStore {
   atlas: THREE.Data3DTexture = placeholderAtlas();
-  table: THREE.DataTexture = floatTexture(new Float32Array(TABLE_ROWS_PER_LINE * TABLE_ROW_FLOATS), TABLE_ROWS_PER_LINE * TABLE_TEXELS, 1);
-  index: THREE.DataTexture = floatTexture(EMPTY_PROBE_INDEX.data, 1, 1);
+  /**
+   * The lookups in one texture, {@link PROBE_INDEX_WIDTH} texels wide: the
+   * spatial index's rows first, then the tile table from texel
+   * {@link tableAt} (`TABLE_TEXELS` a row). One texture, not one each, so
+   * the probes take two of a lit program's texture units (`texture-units.ts`).
+   */
+  lookup: THREE.DataTexture = floatTexture(new Float32Array(PROBE_INDEX_WIDTH * 4), PROBE_INDEX_WIDTH, 1);
+  /** The table's first texel in {@link lookup} (past the index's rows). */
+  tableAt = 0;
   indexOf: ProbeIndexWithBricks = withBrickMap(EMPTY_PROBE_INDEX, EMPTY_BRICK_MAP);
-  /** The table as the texture holds it (row × TABLE_ROW_FLOATS) and per row its box, for the CPU's picks. */
-  tableData: Float32Array = this.table.image.data as Float32Array;
+  /** The table (row × TABLE_ROW_FLOATS) and per row its box, for the CPU's picks. */
+  tableData: Float32Array = new Float32Array(TABLE_ROWS_PER_LINE * TABLE_ROW_FLOATS);
   boxes: Float32Array = new Float32Array(TABLE_ROWS_PER_LINE * 6);
   /** The resident tiles in table order (scene, then the record's order). */
   tiles: readonly ResidentProbeTile[] = [];
@@ -155,7 +162,7 @@ export class ProbeTileStore {
 
   /** The textures' bytes on the GPU. */
   get gpuBytes(): number {
-    return (this.layout?.bytes() ?? 0) + this.tableData.byteLength + this.indexOf.data.byteLength;
+    return (this.layout?.bytes() ?? 0) + (this.lookup.image.data as Float32Array).byteLength;
   }
 
   /**
@@ -264,13 +271,10 @@ export class ProbeTileStore {
   private rebuildLookups(order: readonly ProbeTileForGpu[], renderer: ProbeUploadRenderer): void {
     this.revision++;
     const lines = Math.max(1, Math.ceil(this.rows / TABLE_ROWS_PER_LINE));
-    if (this.table.image.height < lines) {
+    if (this.tableData.length < lines * TABLE_ROWS_PER_LINE * TABLE_ROW_FLOATS) {
       const height = 2 ** Math.ceil(Math.log2(lines));
       this.tableData = new Float32Array(height * TABLE_ROWS_PER_LINE * TABLE_ROW_FLOATS);
       this.boxes = new Float32Array(height * TABLE_ROWS_PER_LINE * 6);
-      this.retire(this.table);
-      this.table = floatTexture(this.tableData, TABLE_ROWS_PER_LINE * TABLE_TEXELS, height);
-      this.revision++;
     } else this.tableData.fill(0);
     const ranked = order.map((t) => this.resident.get(t.key)).filter((t): t is ResidentProbeTile => t !== undefined);
     // Resident tiles no longer in `order` (kept while their replacement loads) go last.
@@ -281,24 +285,28 @@ export class ProbeTileStore {
       this.boxes.set([...t.grid.min, ...t.grid.max], t.row * 6);
     }
     this.tiles = ranked;
-    this.table.needsUpdate = true;
-    renderer.initTexture(this.table);
     const tiles = buildProbeIndex(ranked.filter((t) => !t.brick).map((t) => ({ row: t.row, min: t.grid.min, max: t.grid.max, fade: probeFade(t.grid) })));
     const bricks = ranked.filter((t) => t.brick);
     this.brickRows = new Set(bricks.map((t) => t.row));
     const index = withBrickMap(tiles, buildBrickMap(bricks.map((t) => ({ min: t.grid.min, side: t.grid.max[0] - t.grid.min[0], id: t.row }))));
     this.indexOf = index;
-    if (this.index.image.width !== PROBE_INDEX_WIDTH || this.index.image.height < index.height) {
-      const height = 2 ** Math.ceil(Math.log2(index.height));
-      this.retire(this.index);
-      this.index = floatTexture(new Float32Array(height * PROBE_INDEX_WIDTH * 4), PROBE_INDEX_WIDTH, height);
+    // The index's rows, then the table (whole lines of it, so the texture grows by doubling only).
+    const tableAt = index.height * PROBE_INDEX_WIDTH;
+    const texels = tableAt + lines * TABLE_ROWS_PER_LINE * TABLE_TEXELS;
+    if (this.lookup.image.height * PROBE_INDEX_WIDTH < texels) {
+      const height = 2 ** Math.ceil(Math.log2(Math.ceil(texels / PROBE_INDEX_WIDTH)));
+      this.retire(this.lookup);
+      this.lookup = floatTexture(new Float32Array(height * PROBE_INDEX_WIDTH * 4), PROBE_INDEX_WIDTH, height);
       this.revision++;
     }
-    const data = this.index.image.data as Float32Array;
+    const data = this.lookup.image.data as Float32Array;
     data.set(index.data);
-    data.fill(0, index.data.length);
-    this.index.needsUpdate = true;
-    renderer.initTexture(this.index);
+    data.fill(0, index.data.length, tableAt * 4);
+    data.set(this.tableData.subarray(0, Math.min(this.tableData.length, data.length - tableAt * 4)), tableAt * 4);
+    data.fill(0, tableAt * 4 + this.tableData.length);
+    this.tableAt = tableAt;
+    this.lookup.needsUpdate = true;
+    renderer.initTexture(this.lookup);
   }
 
   private retire(texture: THREE.Texture): void {
@@ -316,7 +324,6 @@ export class ProbeTileStore {
     for (const r of this.retired) r.texture.dispose();
     this.retired = [];
     this.atlas.dispose();
-    this.table.dispose();
-    this.index.dispose();
+    this.lookup.dispose();
   }
 }

@@ -4,10 +4,12 @@
  *
  * A terrain's tiles come from the page's tile store (`terrain-tile-store.ts`:
  * read by digest, decoded and packed into texels on a worker, one decoded
- * copy shared with collision and queries) into three texture arrays per page
- * of tiles (`terrain-texels.ts`): a tile is one layer of each. Up to
- * {@link TERRAIN_PAGE_LAYERS} tiles share a page (the layer count both
- * renderers guarantee); a page is one draw of the shared grid mesh,
+ * copy shared with collision and queries) into two texture arrays per page
+ * of tiles (`terrain-texels.ts`): a tile is one layer of the heights and two
+ * of the layer texture (weights, then indices: `terrainPartLayer`). Up to
+ * {@link TERRAIN_PAGE_LAYERS} tiles share a page (the layer texture's two
+ * a tile within the 256 layers both renderers guarantee); a page is one draw
+ * of the shared grid mesh,
  * instanced once per selected quadtree node (`terrain-quadtree.ts`), its
  * vertices placed in the vertex shader (`terrain-material.ts`). Nothing is
  * meshed on the CPU: a sculpt replaces a tile's digest, the new tile is
@@ -17,7 +19,7 @@
  *
  * Arrived texels are copied into the pages and uploaded a layer texture at a
  * time, within a time and a byte budget per frame (at least one), so a large
- * tile is spread over a few frames; a tile is drawn once its three layers
+ * tile is spread over a few frames; a tile is drawn once its three parts
  * are up.
  *
  * Each frame the nodes are selected for the view's camera (only when it or
@@ -63,7 +65,7 @@ import { applyEntityRenderFlags } from './entity-render-flags';
 import { GRAPH_SURFACE_KEY, type MaterialLibrary, type MaterialOverridesLike } from './material-library';
 import type { GraphSurface } from './material-graph';
 import { STATIC_CASTER_KEY } from './shadow-casters';
-import { defaultTerrainMaterial, terrainEye, terrainMacroMaterial, terrainSurface, terrainUniforms, terrainUvShift, type TerrainSurface, type TerrainUniforms } from './terrain-material';
+import { defaultTerrainMaterial, terrainEye, terrainMacroMaterial, terrainPartLayer, terrainSurface, terrainUniforms, terrainUvShift, type TerrainSurface, type TerrainUniforms } from './terrain-material';
 import { sameMacroSource, TERRAIN_HORIZON_METRES, TerrainMacroBaker, terrainMacroArrays, terrainMacroSize, terrainMacroSource, type TerrainMacroArrays, type TerrainMacroJob } from './terrain-macro';
 import { gridGeometry, nodeGeometry } from './terrain-grid';
 import { PageNodes, selectTerrainNodes, splitFarNodes, terrainLodLayout, terrainLodRanges, TERRAIN_NODE_FLOATS, tileHeightBounds, type SelectStats, type SelectTile, type TerrainLodLayout, type TileHeightBounds } from './terrain-quadtree';
@@ -78,8 +80,8 @@ import { perfMark } from './perf-marks';
 import { SURFACE_READ } from './surface-cache-lookup';
 import { SURFACE_READ_KEY } from './surface-cache-read';
 
-/** Tiles per texture page: the array layers WebGL 2 and WebGPU both guarantee (256). */
-export const TERRAIN_PAGE_LAYERS = 256;
+/** Tiles per texture page: half the array layers WebGL 2 and WebGPU both guarantee (256), the layer texture holding two a tile. */
+export const TERRAIN_PAGE_LAYERS = 128;
 
 /** The page flag that draws no terrain (`?terrain=off`: what the terrain costs, by comparison). */
 export const TERRAIN_URL_PARAM = 'terrain';
@@ -194,7 +196,7 @@ export interface TerrainCoverSurface {
   readonly step: number;
   readonly origin: readonly number[];
   /** Its texture pages (a page grown holds new textures). */
-  readonly pages: readonly { readonly heights: THREE.DataArrayTexture; readonly layers: THREE.DataArrayTexture; readonly indices: THREE.DataArrayTexture }[];
+  readonly pages: readonly { readonly heights: THREE.DataArrayTexture; readonly layers: THREE.DataArrayTexture }[];
   /**
    * A page's baked albedo (linear RGB, a layer per tile as its heights; the sky's share in alpha, 0 until baked),
    * baked from then on as a far ground's is: what cover reads for the ground's colour at a root. Null: not a page of it.
@@ -267,14 +269,19 @@ interface SettleRec {
   snapshot: Promise<{ t: TileRec; part: TerrainBrushPart; rect: [number, number, number, number]; bytes: Uint8Array }[]> | null;
 }
 
-/** The page textures, in upload order. */
+/** A tile's parts, in upload order (the layers and indices share the page's layer texture: `terrainPartLayer`). */
 const PARTS = ['heights', 'layers', 'indices'] as const;
 type Part = (typeof PARTS)[number];
 
+/** The page texture holding a part. */
+function partTexture(p: Page, part: Part): THREE.DataArrayTexture {
+  return part === 'heights' ? p.heights : p.layers;
+}
+
 interface Page {
   heights: THREE.DataArrayTexture;
+  /** Two array layers a tile: its weights and holes, then its layer indices. */
   layers: THREE.DataArrayTexture;
-  indices: THREE.DataArrayTexture;
   capacity: number;
   used: Set<number>;
   surface: TerrainSurface;
@@ -835,7 +842,7 @@ export class TerrainView {
             around.push(nb !== undefined && nb.ready && nb.layer >= 0 && nb.page === t.page ? nb.layer : -1);
           }
         }
-        out.push({ heights: p.heights, layers: p.layers, indices: p.indices, layer: t.layer, cells: n, spacing: sp, metresPerStep: mps, ox: tx * n * sp, oz: tz * n * sp, around, rect });
+        out.push({ heights: p.heights, layers: p.layers, layer: t.layer, cells: n, spacing: sp, metresPerStep: mps, ox: tx * n * sp, oz: tz * n * sp, around, rect });
         t.preview ??= { parts: new Set(), rect: null, from: t.digest };
         for (const part of parts) t.preview.parts.add(part);
         t.preview.rect = rectUnion(t.preview.rect, rect);
@@ -854,7 +861,7 @@ export class TerrainView {
       const pv = t.preview;
       if (pv === null || pv.rect === null || t.layer < 0) continue;
       const rect = pv.rect;
-      for (const part of pv.parts) reads.push(brush.read(rec.pages[t.page]![part], t.layer, rect).then((bytes) => ({ t, part, rect, bytes })));
+      for (const part of pv.parts) reads.push(brush.read(partTexture(rec.pages[t.page]!, part), terrainPartLayer(part, t.layer), rect).then((bytes) => ({ t, part, rect, bytes })));
     }
     return Promise.all(reads);
   }
@@ -887,7 +894,10 @@ export class TerrainView {
     if (pv === null || t.layer < 0 || t.tile === null || t.pending !== null) return;
     const size = t.tile.samples * t.tile.samples * TERRAIN_TEXEL_BYTES;
     const p = rec.pages[t.page]!;
-    const copy = (part: TerrainBrushPart): Uint8Array | null => (pv.parts.has(part) ? (p[part].image.data as Uint8Array).subarray(t.layer * size, (t.layer + 1) * size) : null);
+    const copy = (part: TerrainBrushPart): Uint8Array | null => {
+      const at = terrainPartLayer(part, t.layer);
+      return pv.parts.has(part) ? (partTexture(p, part).image.data as Uint8Array).subarray(at * size, (at + 1) * size) : null;
+    };
     t.pending = { heights: copy('heights'), layers: copy('layers'), indices: copy('indices') };
     rec.uploads.add(t);
     rec.settle?.uploading.add(t);
@@ -911,8 +921,10 @@ export class TerrainView {
           if (rec.tiles.get(terrainTileKey(t.x, t.z)) !== t || t.layer < 0 || t.tile === null) continue;
           const size = t.tile.samples * t.tile.samples * TERRAIN_TEXEL_BYTES;
           const p = rec.pages[t.page]!;
-          const stored = (p[r.part].image.data as Uint8Array).subarray(t.layer * size, (t.layer + 1) * size);
-          const weights = (p.layers.image.data as Uint8Array).subarray(t.layer * size, (t.layer + 1) * size);
+          const at = terrainPartLayer(r.part, t.layer);
+          const stored = (partTexture(p, r.part).image.data as Uint8Array).subarray(at * size, (at + 1) * size);
+          const w = terrainPartLayer('layers', t.layer);
+          const weights = (p.layers.image.data as Uint8Array).subarray(w * size, (w + 1) * size);
           compareRect(diff, r.part, r.bytes, stored, r.rect, t.tile.samples, weights);
         }
         st.stats.diff = diff;
@@ -978,7 +990,7 @@ export class TerrainView {
           if (src === null) continue;
           if (!room(size)) break;
           const p = rec.pages[t.page]!;
-          (p[part].image.data as Uint8Array).set(src, t.layer * size);
+          (partTexture(p, part).image.data as Uint8Array).set(src, terrainPartLayer(part, t.layer) * size);
           bytes += this.markLayer(p, part, t.layer, t.tile.samples);
           parts += 1;
           pend[part] = null;
@@ -1054,7 +1066,7 @@ export class TerrainView {
         if (t.tile !== null && t.digest !== null) held.add(t.tile);
       }
       for (const p of rec.pages) {
-        gpuBytes += p.heights.image.data!.byteLength + p.layers.image.data!.byteLength + p.indices.image.data!.byteLength;
+        gpuBytes += p.heights.image.data!.byteLength + p.layers.image.data!.byteLength;
         if (p.nodes.count > 0) draws += 1;
         if (p.macro !== null) {
           gpuBytes += p.macro.arrays.albedo.image.data!.byteLength + p.macro.arrays.normal.image.data!.byteLength + p.macro.arrays.sun.image.data!.byteLength;
@@ -1305,8 +1317,9 @@ export class TerrainView {
 
   /** Mark one layer of a page texture for upload; its bytes. */
   private markLayer(p: Page, part: Part, layer: number, samples: number): number {
-    p[part].addLayerUpdate(layer);
-    p[part].needsUpdate = true;
+    const tex = partTexture(p, part);
+    tex.addLayerUpdate(terrainPartLayer(part, layer));
+    tex.needsUpdate = true;
     return samples * samples * TERRAIN_TEXEL_BYTES;
   }
 
@@ -1385,9 +1398,9 @@ export class TerrainView {
   private makePage(rec: TerrainRec, capacity: number): Page {
     const s = rec.component.tileSamples;
     const heights = arrayTexture(s, capacity, THREE.NearestFilter);
-    const layers = arrayTexture(s, capacity, THREE.LinearFilter);
-    const indices = arrayTexture(s, capacity, THREE.NearestFilter);
-    const surface = terrainSurface(`terrain:${rec.serial}:${++this.serials}`, heights, layers, indices, rec.uniforms);
+    // The indices are read texel by texel (never filtered), so they share the weights' linear texture.
+    const layers = arrayTexture(s, terrainPartLayer('indices', capacity - 1) + 1, THREE.LinearFilter);
+    const surface = terrainSurface(`terrain:${rec.serial}:${++this.serials}`, heights, layers, rec.uniforms);
     const fallback = defaultTerrainMaterial(surface);
     let grid = this.grids.get(rec.layout.grid);
     if (grid === undefined) this.grids.set(rec.layout.grid, (grid = gridGeometry(rec.layout.grid)));
@@ -1404,7 +1417,7 @@ export class TerrainView {
     markOccludee(mesh, 'terrain');
     const nodes = new PageNodes();
     const selectedForView = (): boolean => page.view !== null && page.stamp === page.view.stamp;
-    const page: Page = { heights, layers, indices, capacity, used: new Set(), surface, fallback, mesh, geometry, buffer, own, nodes, listed: false, undoMaterial: null, dressedWith: null, view: null, stamp: -1, macro: null, copies: new TerrainNodeCopies(mesh, () => page, nodes, selectedForView) };
+    const page: Page = { heights, layers, capacity, used: new Set(), surface, fallback, mesh, geometry, buffer, own, nodes, listed: false, undoMaterial: null, dressedWith: null, view: null, stamp: -1, macro: null, copies: new TerrainNodeCopies(mesh, () => page, nodes, selectedForView) };
     if (rec.component.macroDistance !== undefined || rec.albedoWanted) page.macro = this.makeMacro(rec, page, surface, capacity);
     // Picking reads the terrain's heights (the grid three would test is flat); its first page answers for it.
     mesh.raycast = (raycaster, hits) => {
@@ -1428,27 +1441,23 @@ export class TerrainView {
     const old = rec.pages[i]!;
     const s = rec.component.tileSamples;
     const heights = arrayTexture(s, capacity, THREE.NearestFilter);
-    const layers = arrayTexture(s, capacity, THREE.LinearFilter);
-    const indices = arrayTexture(s, capacity, THREE.NearestFilter);
+    const layers = arrayTexture(s, terrainPartLayer('indices', capacity - 1) + 1, THREE.LinearFilter);
     (heights.image.data as Uint8Array).set(old.heights.image.data as Uint8Array);
     (layers.image.data as Uint8Array).set(old.layers.image.data as Uint8Array);
-    (indices.image.data as Uint8Array).set(old.indices.image.data as Uint8Array);
     // Every layer in use goes up with the new textures' first upload: a layer queued before it (the tile this
     // grow makes room for) would otherwise make that upload write only the queued layer, and the tiles already
     // there would draw what the new texture held (no heights: the terrain drawn far below, or not at all).
-    for (const l of old.used) for (const tex of [heights, layers, indices]) tex.addLayerUpdate(l);
-    const surface = terrainSurface(`terrain:${rec.serial}:${++this.serials}`, heights, layers, indices, rec.uniforms);
+    for (const l of old.used) for (const part of PARTS) (part === 'heights' ? heights : layers).addLayerUpdate(terrainPartLayer(part, l));
+    const surface = terrainSurface(`terrain:${rec.serial}:${++this.serials}`, heights, layers, rec.uniforms);
     const fallback = defaultTerrainMaterial(surface);
     old.undoMaterial?.();
     old.undoMaterial = null;
     old.dressedWith = null;
     old.heights.dispose();
     old.layers.dispose();
-    old.indices.dispose();
     old.fallback.dispose();
     old.heights = heights;
     old.layers = layers;
-    old.indices = indices;
     old.capacity = capacity;
     old.surface = surface;
     old.fallback = fallback;
@@ -1700,7 +1709,6 @@ export class TerrainView {
       disposeSharingGeometry(p.geometry, p.own);
       p.heights.dispose();
       p.layers.dispose();
-      p.indices.dispose();
       p.fallback.dispose();
       if (p.macro !== null) this.disposeMacro(p.macro);
     }

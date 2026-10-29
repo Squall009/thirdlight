@@ -46,7 +46,7 @@ import { NodeMaterial, QuadMesh, type WebGPURenderer } from 'three/webgpu';
 import { TERRAIN_NOISE_HASH, type BrushFalloff, type BrushMask } from '@thirdlight/runtime';
 
 import type { N } from './effects-tsl';
-import { stepOf } from './terrain-material';
+import { stepOf, terrainPartLayer, terrainPartLayerNode } from './terrain-material';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
@@ -83,11 +83,11 @@ export interface TerrainBrushDab {
   opacity: number;
 }
 
-/** A tile a dab reaches: its page textures and layer, and the rectangle of samples written. */
+/** A tile a dab reaches: its page textures and layer (`terrainPartLayer` places it in each), and the rectangle of samples written. */
 export interface TerrainBrushTile {
   heights: THREE.DataArrayTexture;
+  /** The weights and holes, and the layer indices. */
   layers: THREE.DataArrayTexture;
-  indices: THREE.DataArrayTexture;
   layer: number;
   /** Cells along a side (samples − 1). */
   cells: number;
@@ -235,7 +235,8 @@ export class TerrainBrushGpu {
         this.quad.render(r);
         this.stats.passes += 1;
         // The coverage goes into the tile's own coverage texture (its only layer), the rest into the page's.
-        copies.push({ from: rt, to: v === 'coverage' ? cov! : v === 'point' || v === 'smooth' ? t.heights : v === 'indices' ? t.indices : t.layers, tile: t, w, h, layer: v === 'coverage' ? 0 : t.layer });
+        const part = v === 'point' || v === 'smooth' ? 'heights' : v === 'indices' ? 'indices' : 'layers';
+        copies.push({ from: rt, to: v === 'coverage' ? cov! : part === 'heights' ? t.heights : t.layers, tile: t, w, h, layer: v === 'coverage' ? 0 : terrainPartLayer(part, t.layer) });
       }
     }
     r.setRenderTarget(saved);
@@ -273,7 +274,7 @@ export class TerrainBrushGpu {
    * the passes of a dab through a noise mask (built when the mask is turned
    * on).
    */
-  warm(page: { heights: THREE.DataArrayTexture; layers: THREE.DataArrayTexture; indices: THREE.DataArrayTexture }, kind: TerrainBrushKind, masked = false): void {
+  warm(page: { heights: THREE.DataArrayTexture; layers: THREE.DataArrayTexture }, kind: TerrainBrushKind, masked = false): void {
     const key = `${kind}${masked ? '+mask' : ''}:${page.heights.uuid}`;
     if (this.warmed.has(key)) return;
     this.warmed.add(key);
@@ -494,7 +495,6 @@ export class TerrainBrushGpu {
     const u = this.u;
     const heights = t.heights;
     const layers = t.layers;
-    const indices = t.indices;
     const n = int(u.cells);
     const sp = u.spacing;
     const layer = int(u.layer);
@@ -601,7 +601,7 @@ export class TerrainBrushGpu {
       })();
     }
     if (v === 'holes') {
-      const texel = textureLoad(layers, ivec2(lx, lz)).depth(layer);
+      const texel = textureLoad(layers, ivec2(lx, lz)).depth(terrainPartLayerNode('layers', layer));
       // The cell whose min corner the sample is: cut (or filled) when its centre is within the radius.
       const dx = float(lx).add(0.5).mul(sp).sub(u.centre.x);
       const dz = float(lz).add(0.5).mul(sp).sub(u.centre.y);
@@ -617,7 +617,7 @@ export class TerrainBrushGpu {
       const next = select(weight.greaterThan(0).and(covered.lessThan(u.opacity)), min(u.opacity, covered.add(float(1).sub(covered).mul(weight))), covered);
       if (v === 'coverage') return vec4(byte(select(capped, next, float(0))), 0, 0, 1);
       const amount = select(capped, select(next.greaterThanEqual(1), float(1), next.sub(covered).div(max(float(1).sub(covered), 1e-6))), weight);
-      const texel = textureLoad(layers, ivec2(lx, lz)).depth(layer);
+      const texel = textureLoad(layers, ivec2(lx, lz)).depth(terrainPartLayerNode('layers', layer));
       const chan = floor(u.paintLayer.add(0.5)).mod(4);
       const one = (c: number): N => select(chan.equal(c), float(1), float(0));
       const w = vec4(texel.r, texel.g, texel.b, max(float(1).sub(texel.r).sub(texel.g).sub(texel.b), 0));
@@ -627,7 +627,7 @@ export class TerrainBrushGpu {
         return vec4(byte(moved.x), byte(moved.y), byte(moved.z), texel.a);
       }
       // Indices: the painted layer where it is painted, and one sample around where its channel is empty (filtered weight shows it).
-      const ids = textureLoad(indices, ivec2(lx, lz)).depth(layer);
+      const ids = textureLoad(layers, ivec2(lx, lz)).depth(terrainPartLayerNode('indices', layer));
       const reach = u.radius.add(sp.mul(1.5));
       const wc = select(chan.equal(0), w.x, select(chan.equal(1), w.y, select(chan.equal(2), w.z, w.w)));
       const set = amount.greaterThan(0).or(d2At(lx, lz).lessThanEqual(reach.mul(reach)).and(wc.mul(255).lessThan(0.5)));

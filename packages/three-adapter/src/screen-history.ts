@@ -53,7 +53,10 @@ export class ScreenHistoryLight extends THREE.Light {
   /** 1 while a stack with the result draws the scene and the history holds a frame. */
   readonly active: N = uniform(0).setGroup(renderGroup);
   /**
-   * The history: the result (x) and view depth (y) of the last frame. One
+   * The history: the result (x) and view depth (y) of the last frame, and
+   * (z) another history's result it carries (`ContactShadowsLight.carrier`:
+   * one texture read by both, so a lit program binds one texture for them,
+   * not two: `texture-units.ts`). One
    * target for the light's life, which every stack draws into: a texture node
    * whose texture is swapped for another after the lit programs bound it kept
    * reading the first one's destroyed GPU texture on WebGPU; a target's
@@ -92,8 +95,8 @@ export function takesScreenHistory(builder: N): boolean {
   return !(builder.material?.transparent === true && decalDrawOf(builder.material) === null);
 }
 
-/** The light's last-frame result where this pixel's surface was (1 where none holds). */
-export function screenHistoryAt(l: ScreenHistoryLight): N {
+/** The light's last-frame result where this pixel's surface was (1 where none holds); `channel` z: the result it carries. */
+export function screenHistoryAt(l: ScreenHistoryLight, channel: 'x' | 'z' = 'x'): N {
   return Fn(() => {
     const p = vec4(positionView, 1);
     const view = l.toLastView.mul(p).xyz.toVar();
@@ -102,7 +105,7 @@ export function screenHistoryAt(l: ScreenHistoryLight): N {
     const h = l.history.sample(at).toVar();
     const onScreen = at.x.greaterThanEqual(0).and(at.x.lessThanEqual(1)).and(at.y.greaterThanEqual(0)).and(at.y.lessThanEqual(1));
     const same = abs(h.y.sub(view.z)).lessThan(abs(view.z).mul(HISTORY_DEPTH_TOLERANCE).add(HISTORY_DEPTH_SLACK_M));
-    return select(onScreen.and(same).and(l.active.greaterThan(0.5)), h.x, float(1));
+    return select(onScreen.and(same).and(l.active.greaterThan(0.5)), h[channel], float(1));
   })();
 }
 
@@ -124,9 +127,13 @@ export interface ScreenHistoryStage {
   dispose(): void;
 }
 
-/** `value` (and the pixel's `viewZ`), each frame after the scene pass, at `share` of the screen's resolution, into `light`'s history. */
-export function buildScreenHistory(renderer: THREE.WebGPURenderer, light: ScreenHistoryLight, value: N, viewZ: N, share: number): ScreenHistoryStage {
-  const history: N = rtt(vec4(value, viewZ, 0, 1), null, null, { type: THREE.HalfFloatType, resolutionScale: share });
+/**
+ * `value` (and the pixel's `viewZ`, and `carried`: another result at the
+ * same share, read as channel z), each frame after the scene pass, at
+ * `share` of the screen's resolution, into `light`'s history.
+ */
+export function buildScreenHistory(renderer: THREE.WebGPURenderer, light: ScreenHistoryLight, value: N, viewZ: N, share: number, carried: N | null = null): ScreenHistoryStage {
+  const history: N = rtt(vec4(value, viewZ, carried ?? float(0), 1), null, null, { type: THREE.HalfFloatType, resolutionScale: share });
   // It draws into the light's target (see `ScreenHistoryLight.historyTarget`).
   const own = history.renderTarget as THREE.RenderTarget;
   history.renderTarget = light.historyTarget;

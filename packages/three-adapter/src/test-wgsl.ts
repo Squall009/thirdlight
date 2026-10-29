@@ -39,6 +39,11 @@ export function wgslOf(renderer: WebGPURenderer, scene: THREE.Scene, mesh: THREE
   return `${b.vertexShader}\n${b.fragmentShader}`;
 }
 
+/** The fragment WGSL three builds for a mesh in a scene. */
+export function fragmentWgslOf(renderer: WebGPURenderer, scene: THREE.Scene, mesh: THREE.Mesh): string {
+  return builtFor(renderer, scene, mesh).fragmentShader;
+}
+
 /** The observer three decides each frame by whether `mesh`'s draw is refreshed (`needsRefresh`). */
 export function observerOf(renderer: WebGPURenderer, scene: THREE.Scene, mesh: THREE.Mesh): { needsRefresh(renderObject: unknown, frame: unknown): number } {
   return (builtFor(renderer, scene, mesh) as unknown as { observer: { needsRefresh(renderObject: unknown, frame: unknown): number } }).observer;

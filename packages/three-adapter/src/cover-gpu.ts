@@ -59,7 +59,7 @@ import { ROOT_COLOUR_KEY, setCopyBend, setCopyRoot, setCopySurface } from './nod
 import { TAN_HALF_REFERENCE } from './instance-lod';
 import type { LodTuning } from './lod-switch';
 import type { WarmDraw } from './program-warmer';
-import { stepOf, terrainMacroFlip } from './terrain-material';
+import { stepOf, terrainMacroFlip, terrainPartLayerNode } from './terrain-material';
 import type { TerrainCoverSurface } from './terrain-view';
 import { SphereSide, type CullView } from './view-cull';
 import type { ModelInstance } from './visual';
@@ -263,10 +263,10 @@ export function coverDrawPlacement(d: CoverDrawInputs): CoverPlacement {
         const nxz = bil(t00.ba, t10.ba, t01.ba, t11.ba).mul(2).sub(1);
         const normal = normalize(vec3(nxz.x, sqrt(max(float(1).sub(dot(nxz, nxz)), 0.0001)), nxz.y)).toVar();
         const slope = acos(min(normal.y, 1)).mul(180 / Math.PI);
-        const hole = textureLoad(page.layers, ivec2(ix, iz)).depth(layer).a.greaterThanEqual(0.5);
+        const hole = textureLoad(page.layers, ivec2(ix, iz)).depth(terrainPartLayerNode('layers', layer)).a.greaterThanEqual(0.5);
         const near = ivec2(int(min(floor(u.add(0.5)), float(n))), int(min(floor(v.add(0.5)), float(n))));
-        const wts = textureLoad(page.layers, near).depth(layer).toVar();
-        const ids = floor(textureLoad(page.indices, near).depth(layer).mul(255).add(0.5)).toVar();
+        const wts = textureLoad(page.layers, near).depth(terrainPartLayerNode('layers', layer)).toVar();
+        const ids = floor(textureLoad(page.layers, near).depth(terrainPartLayerNode('indices', layer)).mul(255).add(0.5)).toVar();
         const weights = vec4(wts.r, wts.g, wts.b, max(float(1).sub(wts.r).sub(wts.g).sub(wts.b), 0));
         const shareOf = (l: number): N => dot(weights, vec4(select(abs(ids.x.sub(l)).lessThan(0.5), float(1), float(0)), select(abs(ids.y.sub(l)).lessThan(0.5), float(1), float(0)), select(abs(ids.z.sub(l)).lessThan(0.5), float(1), float(0)), select(abs(ids.w.sub(l)).lessThan(0.5), float(1), float(0))));
         // The rule's conditions (the world height and noise read world metres).
