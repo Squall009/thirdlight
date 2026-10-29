@@ -116,9 +116,7 @@ export class TextureUnitGuard {
     const limit = this.limit();
     if (used <= limit) return true;
     this.over += 1;
-    let byMaterial = this.fallbacks.get(ro.object);
-    if (byMaterial === undefined) this.fallbacks.set(ro.object, (byMaterial = new Map()));
-    byMaterial.set(given, this.fallbackOf(given));
+    this.fallBack(ro.object, given);
     if (!this.told.has(given)) {
       this.told.add(given);
       const message = `Material ${given.name === '' ? '(unnamed)' : given.name} on ${ro.object.name === '' ? 'an object' : ro.object.name} samples ${used} textures in one shader where this GPU allows ${limit}; it draws with a plain fallback there (its own textures left out). Sample fewer textures in the material (combine maps into one texture's channels).`;
@@ -127,6 +125,13 @@ export class TextureUnitGuard {
       else console.warn(message);
     }
     return false;
+  }
+
+  /** `object` draws `given`'s fallback from now on. */
+  fallBack(object: THREE.Object3D, given: THREE.Material): void {
+    let byMaterial = this.fallbacks.get(object);
+    if (byMaterial === undefined) this.fallbacks.set(object, (byMaterial = new Map()));
+    if (!byMaterial.has(given)) byMaterial.set(given, this.fallbackOf(given));
   }
 
   /** A plain lit material in `m`'s colour, side and transparency (shared by every object `m` falls back on). */
@@ -165,15 +170,17 @@ export function installTextureUnitGuard(renderer: GuardedRenderer): TextureUnitG
   guards.set(renderer, guard);
   const base = renderer.renderObject;
   /**
-   * The material the scene last gave each object (variants are made from it further down; three's precompile asks
-   * for bindings and pipelines after the draw calls it collected have returned, so the draw under way is not enough).
+   * The material the scene gave the draw under way (variants are made from it further down). three's precompile asks
+   * for bindings and pipelines after the draw calls it collected have returned: there a refused program's object gets
+   * its fallback the next time it is drawn (the same render object, refused again).
    */
-  const given = new WeakMap<THREE.Object3D, THREE.Material>();
+  let given: THREE.Material | null = null;
   const admitted = new WeakMap<RenderObjectLike, boolean>();
   /** Counted once a render object (three makes a new one when its program changes): asked every draw. */
   const admits = (ro: RenderObjectLike): boolean => {
     let ok = admitted.get(ro);
-    if (ok === undefined) admitted.set(ro, (ok = guard.admit(ro, given.get(ro.object) ?? ro.material, ro.scene)));
+    if (ok === undefined) admitted.set(ro, (ok = guard.admit(ro, given ?? ro.material, ro.scene)));
+    else if (!ok && given !== null) guard.fallBack(ro.object, given);
     return ok;
   };
   let hooked: unknown = null;
@@ -193,12 +200,18 @@ export function installTextureUnitGuard(renderer: GuardedRenderer): TextureUnitG
         return admits(ro) ? pipelineFor.call(this, ro, promises) : null;
       };
     }
+    // Every draw comes here: nothing but two assignments unless some program was refused.
     if (scene.overrideMaterial !== null) {
       base.call(this, object, scene, camera, geometry, material, group, lightsNode, clippingContext, passId);
       return;
     }
-    given.set(object, material);
-    base.call(this, object, scene, camera, geometry, guard.materialFor(object, material), group, lightsNode, clippingContext, passId);
+    const before = given;
+    given = material;
+    try {
+      base.call(this, object, scene, camera, geometry, guard.over > 0 ? guard.materialFor(object, material) : material, group, lightsNode, clippingContext, passId);
+    } finally {
+      given = before;
+    }
   };
   return guard;
 }
