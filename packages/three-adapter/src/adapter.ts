@@ -154,7 +154,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       opts.onChange?.();
     },
     tagBits: environment.look.tagBits,
-    localShadows: { roomSeen: (k) => level.archHost.rooms.roomSeen(k), movers: () => level.archHost.rooms.movers() },
   });
   /** The unit box every box is drawn through when batched. */
   const unitBox = unitBoxGeometry(addBoxLightmapUv);

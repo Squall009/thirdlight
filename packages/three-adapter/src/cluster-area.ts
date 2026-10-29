@@ -20,21 +20,28 @@
  * - **The tables**: three's two LTC tables side by side in ONE half-float
  *   texture (one texture unit, `texture-units.ts`), read at level 0 (the loop
  *   is non-uniform control flow, where WGSL allows no implicit derivatives).
+ *   While a spot projects a cookie they are the first tile of the cookie
+ *   atlas (`cookie-atlas.ts`): the reads scale into the share they take.
  */
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 import { RectAreaLightTexturesLib } from 'three/examples/jsm/lights/RectAreaLightTexturesLib.js';
 
+import type { ClusterNodes } from './cluster-gpu';
 import type { N } from './effects-tsl';
-import { texelTexture } from './texel-texture-node';
 
 const TSL: N = TSLTyped;
 const { LTC_Evaluate, clamp, cross, dot, float, mat3, max, normalView, positionView, positionViewDirection, select, vec2 } = TSL;
 
-/** Texels a side of each of three's LTC tables. */
-const LTC_SIZE = 64;
+/** Texels a side of each of three's LTC tables (side by side: the tables take twice this across). */
+export const LTC_SIZE = 64;
 
 let tables: THREE.DataTexture | null = null;
+
+/** three's two LTC tables as one texture's half floats, row by row: table 1 on the left half, table 2 on the right. */
+export function ltcTablesData(): Uint16Array {
+  return ltcTablesTexture().image.data as Uint16Array;
+}
 
 /** three's two LTC tables (half floats, filterable on every backend) as one texture: table 1 on the left half, table 2 on the right. */
 export function ltcTablesTexture(): THREE.DataTexture {
@@ -59,13 +66,12 @@ export function ltcTablesTexture(): THREE.DataTexture {
   return t;
 }
 
-/** The tables' node, and the two tables as three's `directRectArea` reads them (`sample(uv)`; `LTC_Uv` keeps uv a half texel inside a table, so neither bleeds into the other). */
-export function ltcNodes(): { node: N; one: { sample(uv: N): N }; two: { sample(uv: N): N } } {
-  const node = texelTexture(ltcTablesTexture());
+/** The two tables as three's `directRectArea` reads them from the lights' tables texture (`sample(uv)`; `LTC_Uv` keeps uv a half texel inside a table, so neither bleeds into the other). */
+export function ltcNodes(t: ClusterNodes): { one: { sample(uv: N): N }; two: { sample(uv: N): N } } {
+  const share = t.tablesShare;
   return {
-    node,
-    one: { sample: (uv: N) => node.sample(vec2(uv.x.mul(0.5), uv.y)).level(float(0)) },
-    two: { sample: (uv: N) => node.sample(vec2(uv.x.mul(0.5).add(0.5), uv.y)).level(float(0)) },
+    one: { sample: (uv: N) => t.tables.sample(vec2(uv.x.mul(0.5), uv.y).mul(share)).level(float(0)) },
+    two: { sample: (uv: N) => t.tables.sample(vec2(uv.x.mul(0.5).add(0.5), uv.y).mul(share)).level(float(0)) },
   };
 }
 

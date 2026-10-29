@@ -326,7 +326,8 @@ rather than one point. Add one with **GameObject → Light → Area light** (a
   light clusters, on both renderers, with three.js's rectangle-light maths
   (standard, physical, graph and layered materials: diffuse and highlight;
   Lambert, Phong and custom-lit graphs: its diffuse light as its exact form
-  factor toward its centre), unshadowed until the shadow atlas. A line
+  factor toward its centre), its shadow (when it casts one, the default)
+  five faces of the shadow atlas seen from its middle (six when two-sided). A line
   light is drawn as a 2 cm strip along it. Its light fades over its reach
   from its centre as the cache's does, so a moving object and the wall
   beside it get the same light. Every area light reaching a pixel is drawn
@@ -468,7 +469,8 @@ scene has a light; **light: editor** is a fixed rig).
   Diagnostics `renderer.clusters` give the lists' counts and costs, and
   `atlas` the shadow atlas's: its side, the shadowed lights, those with a
   tile and those waiting for one, tiles and texels drawn the last frame, the
-  share of the atlas in tiles and its memory (MiB).
+  share of the atlas in tiles and its memory (MiB); `cookies` the spots
+  projecting a cookie and `cookiesDropped` those past the cookie atlas.
 - **Lighting pass times** — an overlay in the view's corner: the level and
   tier drawn, live or saved (and why), the cache's re-lighting GPU time a
   frame against its budget and the stale pages, the probes' update time and
@@ -665,12 +667,16 @@ The design's limits, and what is not built yet:
   discrete GPU.
 - **Clustered lighting.** Point and spot lights reach every pixel they
   light through per-cell light lists, however many there are, on both
-  renderers. A shadowed spot light's shadow is a tile of one shared shadow
-  atlas: the lamps largest on screen get the larger tiles (128–1,024
-  texels), a lamp the atlas has no room for lights unshadowed, and a shadow
-  fades in and out over a quarter second as lamps gain and lose tiles. The
-  atlas's side is the quality level's `shadowAtlas` (texels; absent: the
-  tier's, low 2,048, medium 4,096, high 8,192 — 8, 32 and 128 MiB of
-  16-bit depth). A point light with a shadow, or a spot with a cookie, is
-  still drawn on its own (its own shadow map or cookie texture) until the
-  atlas takes point lights' six faces and the cookie atlas arrives.
+  renderers. A shadowed light's shadow is tiles of one shared shadow atlas:
+  a spot one (128–1,024 texels), a point light six faces (64–512 each,
+  ranked at half weight), an area light five (six when two-sided). The
+  lamps largest on screen get the larger tiles, a lamp the atlas has no
+  room for lights unshadowed, and a shadow fades in and out over a quarter
+  second as lamps gain and lose tiles. The atlas's side is the quality
+  level's `shadowAtlas` (texels; absent: the tier's, low 2,048, medium
+  4,096, high 8,192 — 8, 32 and 128 MiB of 16-bit depth). A spot's cookie
+  is a 256² tile of the cookie atlas, which is the area lights' tables
+  texture grown to 2,048² half floats (32 MiB) while any spot projects one:
+  63 cookie images at once (spots sharing an image share its tile), the
+  spots largest on screen first; past that a spot draws no cookie. No light
+  has a shadow map, cookie texture or program of its own.

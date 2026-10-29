@@ -336,23 +336,22 @@ The engine follows these rules, and games should too:
 - **No shadow by default.** A light casts only when its `castShadow` says
   so. Rooms keep an unshadowed lamp's light inside its room (above), so most
   lamps need no shadow at all.
-- **A budget of shadowed lamps per view.** Shadowed spot lights share the
-  quality level's shadow atlas (`shadowAtlas`, a memory budget): the lamps
-  largest on screen (their reach over their distance), in rooms that are
-  seen and in view, get the larger tiles, and a lamp without room lights
-  unshadowed. A point light's shadow is six views of the scene: a quality
-  level's `shadowedLights` (2–4 is a good start; absent: every lamp that
-  casts) keeps only the shadowed point lights largest on screen. Prefer
-  spots where a shadow matters.
-- **Fade with distance.** Budgeted shadows fade out between 30 and 40 m
-  (`LOCAL_SHADOW_DISTANCE`), so a lamp leaving the budget far away does not
-  pop.
-- **Cached maps.** A budgeted lamp's map is drawn when it enters the
-  budget, when it moves, when the static casters change, and while
-  something that moves is within its reach; a lamp in a still room draws its
-  map once. The sun's shadow keeps its cached static map and dynamic map.
-- Play diagnostics: `renderer.lights.localShadows` {budget, casting,
-  shadowed, drawn (maps drawn this frame)}.
+- **A budget of shadowed lamps per view.** Shadowed point, spot and area
+  lights share the quality level's shadow atlas (`shadowAtlas`, a memory
+  budget): the lamps largest on screen (their reach over their distance),
+  in rooms that are seen and in view, get the larger tiles, and a lamp
+  without room lights unshadowed. A spot takes one tile (128–1,024 texels);
+  a point light six faces (64–512 each, ranked at half weight); an area
+  light five (six when two-sided). Prefer spots where a shadow matters.
+- **Fade with distance.** Atlas shadows fade out between 30 and 40 m
+  (`LOCAL_SHADOW_DISTANCE`), and in or out over a quarter second when a
+  lamp gains or loses its tiles, so nothing pops.
+- **Cached tiles.** A lamp's tiles are drawn when it gets them, when it
+  moves, when the static casters change, and while something that moves is
+  within its reach; a lamp in a still room draws its tiles once. The sun's
+  shadow keeps its cached static map and dynamic map.
+- Diagnostics: `renderer.clusters.atlas` {side, lights, tiled, waiting,
+  drawn, drawnTexels, used, mib}.
 
 ## Buildings
 

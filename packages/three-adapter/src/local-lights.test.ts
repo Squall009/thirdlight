@@ -153,12 +153,17 @@ describe('local-light modes', () => {
     expect(split(localLightVariant(m, 'none'))).toEqual(['sun', 'ambient']);
   });
 
-  it('the light clusters\' layer test keys the lit programs (a change rebuilds them); scene lights add nothing to the key', () => {
+  it('the light clusters\' program flags key the lit programs (a change rebuilds them); scene lights add nothing to the key', () => {
     const clusters = new ClusteredLights(new ClusterGpu(new ClusterTextures()));
     const lights = [new THREE.PointLight(), new THREE.SpotLight(), clusters];
     expect(localLightsCacheKey(lights)).toBe(0);
-    clusters.layered = true;
-    expect(localLightsCacheKey(lights)).not.toBe(0);
+    const keys = new Set<number>([0]);
+    for (const flag of ['layered', 'areas', 'uncached', 'shadows', 'cookies'] as const) {
+      clusters[flag] = true;
+      keys.add(localLightsCacheKey(lights));
+      clusters[flag] = false;
+    }
+    expect(keys.size).toBe(6);
   });
 
   it('the batcher keeps objects of different modes in different draws and carries the mode', () => {

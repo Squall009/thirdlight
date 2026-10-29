@@ -26,12 +26,18 @@
  * - **The shadow atlas** (`shadow-atlas-draw.ts`) is the renderer's too: its
  *   depth texture and texel size ride here, so the light loop reads both
  *   from one place (a placeholder until the first shadowed light).
+ * - **The light tables**: the area lights' LTC tables alone
+ *   (`cluster-area.ts`), or, while a spot projects a cookie, the cookie atlas
+ *   (`cookie-atlas.ts`) holding the tables in its first tile: one texture,
+ *   one unit either way. The share of the texture the tables take rides with
+ *   it, so switching builds nothing.
  */
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 
 import type { ClusterGrid } from './cluster-build';
 import { CLUSTER_COUNT_BITS, CLUSTER_LIGHT_TEXELS, CLUSTER_LONG_LIST, CLUSTER_TEXEL_WORDS, CLUSTER_TEXTURE_WIDTH, type ClusterPackResult, type ClusterTextures } from './cluster-pack';
+import { ltcTablesTexture } from './cluster-area';
 import type { N } from './effects-tsl';
 import { texelTexture, untransformedTexture } from './texel-texture-node';
 
@@ -144,6 +150,9 @@ export class ClusterGpu {
   readonly extent = new THREE.Vector4(0, 0, 0, 1);
   /** The shadow atlas's depth (`shadow-atlas-draw.ts` sets it; `revision` moves when it does). */
   atlas: THREE.DepthTexture = placeholderAtlas();
+  /** The light tables (the LTC tables, or the cookie atlas holding them) and the share of it the tables take. */
+  tables: THREE.Texture = ltcTablesTexture();
+  readonly tablesShare = new THREE.Vector2(1, 1);
   /** The projection the lists were built with (the camera's, unjittered). */
   readonly projection = new THREE.Matrix4();
   /** Bumped when the texture was made again (its readers rebind). */
@@ -171,6 +180,14 @@ export class ClusterGpu {
     this.revision = ++gpuRevision;
   }
 
+  /** The light tables from now on (`share`: the part of the texture the LTC tables take): their readers bind them. */
+  setTables(texture: THREE.Texture, shareX: number, shareY: number): void {
+    if (texture === this.tables) return;
+    this.tables = texture;
+    this.tablesShare.set(shareX, shareY);
+    this.revision = ++gpuRevision;
+  }
+
   dispose(): void {
     this.lists.dispose();
   }
@@ -184,6 +201,9 @@ export interface ClusterNodes {
   readonly projection: N;
   /** The shadow atlas's depth (compare reads). */
   readonly atlas: N;
+  /** The light tables, and the share of them the LTC tables take (vec2). */
+  readonly tables: N;
+  readonly tablesShare: N;
   sync(gpu: ClusterGpu): void;
 }
 
@@ -196,9 +216,13 @@ export function clusterNodes(gpu: ClusterGpu): ClusterNodes {
     extent: uniform(new THREE.Vector4()).setGroup(renderGroup),
     projection: uniform(new THREE.Matrix4()).setGroup(renderGroup),
     atlas: untransformedTexture(gpu.atlas),
+    tables: texelTexture(gpu.tables),
+    tablesShare: uniform(new THREE.Vector2(1, 1)).setGroup(renderGroup),
     sync(g) {
       nodes.lists.value = g.lists.texture;
       nodes.atlas.value = g.atlas;
+      nodes.tables.value = g.tables;
+      nodes.tablesShare.value.copy(g.tablesShare);
       nodes.grid.value.copy(g.grid);
       nodes.extent.value.copy(g.extent);
       nodes.projection.value.copy(g.projection);

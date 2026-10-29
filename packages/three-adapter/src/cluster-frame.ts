@@ -4,14 +4,15 @@
  * and the camera drawn now uploaded (`cluster-gpu.ts`), every frame, on
  * both renderers alike.
  *
- * - **The lights.** Every realized point and spot light that is on and the
- *   clusters draw (`drawsClustered`: no cookie, a point light no shadow),
- *   a shadowed spot's shadow record from the shadow atlas
- *   (`shadow-atlas-draw.ts`, planned before the pack, its tiles drawn after
- *   the upload and before the frame's render), and every area
- *   light of the realized entities, unless it is hidden, held by a bake, or
- *   in a room no portal shows; and the slots in use of the effects' light
- *   pools in the scene (`effect-lights.ts`; not in the surface cache).
+ * - **The lights.** Every realized point and spot light that is on, and
+ *   every area light of the realized entities, unless it is hidden, held by
+ *   a bake, or in a room no portal shows; a shadowed light's shadow record
+ *   from the shadow atlas (`shadow-atlas-draw.ts`, planned before the pack,
+ *   its tiles drawn after the upload and before the frame's render) and a
+ *   spot's cookie tile from the cookie atlas (`cookie-atlas.ts`, the light
+ *   tables' texture from then on); and the slots in use of the effects'
+ *   light pools in the scene (`effect-lights.ts`; not in the surface
+ *   cache).
  *   Point and spot lights are read from their three.js lights (scripts
  *   move, dim and switch them there); area lights from their entities, their
  *   list every `DOC_LIGHTS_MS` (and after each selection of the lights) and
@@ -30,7 +31,8 @@
  *   the scenes it happened in.
  * - **Diagnostics** (`renderer.clusters`): lights, packed, indices,
  *   overflow, the shadow atlas's (`atlas`, also `data-tl-shadow-atlas` on the
- *   canvas: side, tiled, waiting, tiles drawn), and the gathering's, build's
+ *   canvas: side, tiled, waiting, tiles drawn, shadowed lights handed in), the cookies drawn and those
+ *   past the cookie atlas's tiles, and the gathering's, build's
  *   and upload's main-thread ms and bytes a frame
  *   (means over the last `CLUSTER_STATS_FRAMES` frames, also on the canvas
  *   as `data-tl-clusters` for pages without another diagnostics surface).
@@ -43,13 +45,15 @@ import { DOC_LIGHTS_MS } from './adapter-surface-cache';
 import { ClusterBuilder, ClusterLights, CLUSTER_SLICES, CLUSTER_TILES_X, clusterTilesY, type ClusterLightValue } from './cluster-build';
 import { ClusterGpu, type ClusterUploadRenderer } from './cluster-gpu';
 import { ClusterHeatLight } from './cluster-heat';
-import { ClusteredLights, drawsClustered } from './cluster-lights';
+import { ClusteredLights } from './cluster-lights';
+import { CookieAtlas, COOKIE_LTC_SHARE, type CookieRequest } from './cookie-atlas';
 import { effectLightPoolsIn, type EffectLights } from './effect-lights';
 import { CLUSTER_INDEX_MIB, CLUSTER_INDEX_WORDS, ClusterTextures } from './cluster-pack';
+import { ltcTablesTexture } from './cluster-area';
 import { isLayeredLight, roomKeyOf } from './light-layers';
 import type { SceneLights } from './lights-shadows';
 import { AdapterShadowAtlas, type AtlasLight, type AtlasRenderer } from './shadow-atlas-draw';
-import type { ShadowAtlasDiagnostics } from './shadow-atlas';
+import { shadowRank, type ShadowAtlasDiagnostics } from './shadow-atlas';
 import { lightReachOf } from './surface-changes';
 
 /** Frames the diagnostics' means are taken over. */
@@ -76,6 +80,9 @@ export interface ClusterDiagnostics {
   readonly heatView: boolean;
   /** The shadow atlas's last frame (null: no shadowed light drawn yet), and its memory (MiB). */
   readonly atlas: (ShadowAtlasDiagnostics & { readonly mib: number }) | null;
+  /** Spots projecting a cookie, and those past the cookie atlas's tiles (no cookie drawn). */
+  readonly cookies: number;
+  readonly cookiesDropped: number;
 }
 
 export interface AdapterClustersDeps {
@@ -108,13 +115,18 @@ interface ClusterView {
 /** An area light's document, as the gathering reads it. */
 interface AreaDoc {
   readonly id: string;
-  readonly light: { color?: string; intensity?: number; range?: number; shape?: string; width?: number; height?: number; twoSided?: boolean; lightMask?: number };
+  readonly light: { color?: string; intensity?: number; range?: number; shape?: string; width?: number; height?: number; twoSided?: boolean; lightMask?: number; castShadow?: boolean; shadowCasterMask?: number };
+  /** What stays the same for its shadow from one read to the next. */
+  readonly key: object;
 }
 
 /** A light value written in place for each light (nothing allocated per light and frame). */
 function scratchValue(): ClusterLightValue & { position: Float64Array; color: Float64Array; direction: Float64Array; u: Float64Array; v: Float64Array } {
   return { kind: 'point', position: new Float64Array(3), reach: 0, color: new Float64Array(3), direction: new Float64Array(3), u: new Float64Array(3), v: new Float64Array(3), decay: 2, cosOuter: -1, cosInner: -1, mask: LIGHT_LAYERS_ALL, room: -1, shadow: -1, cookie: -1, visible: true, twoSided: false, unbounded: false, uncached: false };
 }
+
+/** Whether an area light casts shadows (they do unless told not to, as the surface cache traces them). */
+const areaCasts = (a: AreaDoc): boolean => a.light.castShadow !== false;
 
 export class AdapterClusters {
   private readonly input = new ClusterLights();
@@ -135,10 +147,19 @@ export class AdapterClusters {
   private readonly viewInverse = new THREE.Matrix4();
   private readonly colour = new THREE.Color();
   private readonly warned = new Set<string>();
-  /** The shadow atlas, and this frame's shadowed lights. */
+  /** The shadow atlas, and this frame's shadowed lights (and cookie spots). */
   private readonly atlas: AdapterShadowAtlas;
   private readonly shadowed: AtlasLight[] = [];
   private atlasWritten = '';
+  /** The cookie atlas, this frame's cookie spots (slot, texture, rank) and the tile each texture got. */
+  private readonly cookieAtlas = new CookieAtlas();
+  private readonly cookieSpots: { slot: number; texture: THREE.Texture }[] = [];
+  private readonly cookieRequests: CookieRequest[] = [];
+  private readonly cookieTiles = new Map<THREE.Texture, number>();
+  /** Some realized spot projects a cookie (seen or not): the light's `cookies` follows it (a cookie arrives on its own time). */
+  private anyCookie = false;
+  /** An area light's shadow key by its entity (the documents are read again now and then). */
+  private readonly areaKeys = new Map<string, object>();
   /** The last frame's numbers and the sums toward the next means. */
   private readonly last = { lights: 0, packed: 0, indices: 0, overflow: 0, rows: 1, tilesY: clusterTilesY(16 / 9) };
   private sums = { frames: 0, gatherMs: 0, buildMs: 0, uploadMs: 0, uploadBytes: 0 };
@@ -149,7 +170,7 @@ export class AdapterClusters {
 
   constructor(private readonly d: AdapterClustersDeps, heatView = false) {
     this.heat.wanted = heatView;
-    this.atlas = new AdapterShadowAtlas({ roomSeen: d.roomSeen, movers: d.movers, staticRevision: d.staticRevision }, DEFAULT_SHADOW_ATLAS);
+    this.atlas = new AdapterShadowAtlas({ movers: d.movers, staticRevision: d.staticRevision }, DEFAULT_SHADOW_ATLAS);
   }
 
   /** The quality level's shadow atlas side (texels). */
@@ -179,18 +200,20 @@ export class AdapterClusters {
     this.readAreas();
     let any = this.areas.length > 0;
     let layered = this.areas.some((a) => lightLayerMaskOf(a.light.lightMask) !== LIGHT_LAYERS_ALL);
-    let shadows = false;
+    let shadows = this.areas.some(areaCasts);
+    let cookies = false;
     this.d.lights.forEachLight((_id, kind, light) => {
       if (kind !== 'point' && kind !== 'spot') return;
       any = true;
-      if (isLayeredLight(light) && drawsClustered(light)) layered = true;
-      if (light.castShadow && drawsClustered(light)) shadows = true;
+      if (isLayeredLight(light)) layered = true;
+      if (light.castShadow) shadows = true;
+      if (kind === 'spot' && (light as THREE.SpotLight).map !== null) cookies = true;
     });
     const pools = this.poolState();
     any ||= pools.any;
     layered ||= pools.layered;
     this.poolsSeen = pools;
-    const shape = { layered, areas: this.areas.length > 0, uncached: pools.any, shadows };
+    const shape = { layered, areas: this.areas.length > 0, uncached: pools.any, shadows, cookies };
     if (any && this.light === null) {
       this.light = new ClusteredLights(this.gpu);
       Object.assign(this.light, shape);
@@ -201,7 +224,7 @@ export class AdapterClusters {
       this.light.dispose();
       this.light = null;
       this.d.shadingChanged();
-    } else if (this.light !== null && (this.light.layered !== shape.layered || this.light.areas !== shape.areas || this.light.uncached !== shape.uncached || this.light.shadows !== shape.shadows)) {
+    } else if (this.light !== null && (this.light.layered !== shape.layered || this.light.areas !== shape.areas || this.light.uncached !== shape.uncached || this.light.shadows !== shape.shadows || this.light.cookies !== shape.cookies)) {
       Object.assign(this.light, shape);
       this.d.shadingChanged();
     }
@@ -231,6 +254,10 @@ export class AdapterClusters {
     }
     if (pools.any !== this.poolsSeen.any || pools.layered !== this.poolsSeen.layered || hadAreas !== this.areas.length > 0) this.syncLight();
     this.gather();
+    if (this.light !== null && this.light.cookies !== this.anyCookie) {
+      this.light.cookies = this.anyCookie;
+      this.d.shadingChanged();
+    }
     const tg = performance.now();
     let view = this.views.get(camera);
     if (view === undefined) {
@@ -245,7 +272,9 @@ export class AdapterClusters {
     // No light now nor at the last pack: the headers are all empty already.
     let bytes = 0;
     let t1 = tg;
-    // The shadowed lights' tiles and records (their slots in `input`), before the pack writes them.
+    // The cookies' tiles (the light tables become the cookie atlas while there are any), then the shadowed lights'
+    // tiles and records (their slots in `input`), before the pack writes them.
+    this.cookiesFor(renderer, camera, gpu);
     this.atlas.prepare(renderer as unknown as AtlasRenderer, gpu, camera, this.shadowed, input);
     if (input.count > 0 || view.packed !== 0) {
       const build = view.builder.build(input, { view: this.viewInverse.elements, projection: camera.projectionMatrix.elements, near: camera.near, far: camera.far }, CLUSTER_INDEX_WORDS);
@@ -281,7 +310,7 @@ export class AdapterClusters {
   private writeAtlas(): void {
     const a = this.atlas.diagnostics();
     if (a === null) return;
-    const line = `${a.side}|${a.tiled}|${a.waiting}|${a.drawn}`;
+    const line = `${a.side}|${a.tiled}|${a.waiting}|${a.drawn}|${a.lights}`;
     if (line === this.atlasWritten) return;
     this.atlasWritten = line;
     this.d.canvas?.setAttribute?.('data-tl-shadow-atlas', line);
@@ -290,7 +319,7 @@ export class AdapterClusters {
   diagnostics(): ClusterDiagnostics | null {
     if (!this.framed) return null;
     const l = this.last;
-    return { lights: l.lights, packed: l.packed, indices: l.indices, overflow: l.overflow, gatherMs: this.means.gatherMs, buildMs: this.means.buildMs, uploadMs: this.means.uploadMs, uploadBytes: this.means.uploadBytes, grid: [CLUSTER_TILES_X, l.tilesY, CLUSTER_SLICES], rows: l.rows, heatView: this.heat.light !== null, atlas: this.atlas.diagnostics() };
+    return { lights: l.lights, packed: l.packed, indices: l.indices, overflow: l.overflow, gatherMs: this.means.gatherMs, buildMs: this.means.buildMs, uploadMs: this.means.uploadMs, uploadBytes: this.means.uploadBytes, grid: [CLUSTER_TILES_X, l.tilesY, CLUSTER_SLICES], rows: l.rows, heatView: this.heat.light !== null, atlas: this.atlas.diagnostics(), cookies: this.cookieSpots.length, cookiesDropped: this.cookieAtlas.dropped };
   }
 
   dispose(): void {
@@ -301,6 +330,7 @@ export class AdapterClusters {
     this.light = null;
     this.gpu.dispose();
     this.atlas.dispose();
+    this.cookieAtlas.dispose();
   }
 
   /** The heat map's light in the scene while wanted and the lists are on a GPU; its objects rebind after new textures. */
@@ -328,6 +358,23 @@ export class AdapterClusters {
     this.gpu.dispose();
     this.gpu = new ClusterGpu(new ClusterTextures());
     this.gpuRenderer = null;
+  }
+
+  /** The cookie spots' tiles this frame into `input` (best on screen first); the light tables follow the cookie atlas. */
+  private cookiesFor(renderer: ClusterUploadRenderer, camera: THREE.Camera, gpu: ClusterGpu): void {
+    const requests = this.cookieRequests;
+    requests.length = 0;
+    const eye = camera.matrixWorld.elements;
+    for (const c of this.cookieSpots) {
+      const i = c.slot * 3;
+      const p = this.input.position;
+      const dist = Math.hypot(p[i]! - eye[12]!, p[i + 1]! - eye[13]!, p[i + 2]! - eye[14]!);
+      requests.push({ texture: c.texture, rank: shadowRank(this.input.reach[c.slot]!, dist, true).rank });
+    }
+    const atlas = this.cookieAtlas.frame(renderer, requests, this.cookieTiles);
+    if (atlas !== null) gpu.setTables(atlas, COOKIE_LTC_SHARE[0], COOKIE_LTC_SHARE[1]);
+    else gpu.setTables(ltcTablesTexture(), 1, 1);
+    for (const c of this.cookieSpots) this.input.cookie[c.slot] = this.cookieTiles.get(c.texture) ?? -1;
   }
 
   private count(gatherMs: number, buildMs: number, uploadMs: number, bytes: number): void {
@@ -362,11 +409,12 @@ export class AdapterClusters {
     const input = this.input;
     input.clear();
     this.shadowed.length = 0;
+    this.cookieSpots.length = 0;
+    this.anyCookie = false;
     const hidden = this.d.hidden();
     const v = this.value;
     this.d.lights.forEachLight((id, kind, light) => {
-      // Three's own node draws a point light with a shadow, and a light with a cookie.
-      if ((kind !== 'point' && kind !== 'spot') || !drawsClustered(light)) return;
+      if (kind !== 'point' && kind !== 'spot') return;
       const e = light.matrixWorld.elements;
       const k = light.intensity;
       v.kind = kind;
@@ -405,7 +453,27 @@ export class AdapterClusters {
         v.cosInner = -1;
       }
       const slot = input.add(v);
-      if (kind === 'spot' && light.castShadow && v.visible) this.shadowed.push({ slot, light: light as THREE.SpotLight, reach: v.reach });
+      const map = kind === 'spot' ? ((light as THREE.SpotLight).map ?? null) : null;
+      if (map !== null) this.anyCookie = true;
+      const cookie = v.visible ? map : null;
+      if (cookie !== null) this.cookieSpots.push({ slot, texture: cookie });
+      if ((light.castShadow && v.visible) || cookie !== null) {
+        this.shadowed.push({
+          slot,
+          key: light,
+          kind,
+          spot: kind === 'spot' ? (light as THREE.SpotLight) : null,
+          position: new THREE.Vector3(e[12]!, e[13]!, e[14]!),
+          turn: null,
+          reach: v.reach,
+          range: point.distance > 0 ? point.distance : 0,
+          seen: v.visible,
+          casterMask: isLayeredLight(light) ? light.shadowCasterMask : LIGHT_LAYERS_ALL,
+          shadowed: light.castShadow && v.visible,
+          cookie: cookie !== null,
+          twoSided: false,
+        });
+      }
     });
     for (const a of this.areas) this.addArea(a, hidden);
     for (const p of this.pools) this.addEffectLights(p);
@@ -444,8 +512,12 @@ export class AdapterClusters {
     for (const [id, e] of this.d.docs) {
       const l = (e.components as { light?: AreaDoc['light'] & { type?: string; mode?: string } } | undefined)?.light;
       if (l?.type !== 'area' || (l.mode === 'baked' && this.d.bakedLight(id))) continue;
-      out.push({ id, light: l });
+      let key = this.areaKeys.get(id);
+      if (key === undefined) this.areaKeys.set(id, (key = { area: id }));
+      out.push({ id, light: l, key });
     }
+    // Keys of area lights gone (their shadows' tiles go with them).
+    if (this.areaKeys.size > out.length) for (const id of this.areaKeys.keys()) if (!out.some((a) => a.id === id)) this.areaKeys.delete(id);
     this.areas = out;
   }
 
@@ -480,6 +552,12 @@ export class AdapterClusters {
     v.room = -1;
     const node = this.d.graph.node(a.id);
     v.visible = !hidden.has(a.id) && this.d.roomSeen(node === undefined ? undefined : roomKeyOf(node));
-    this.input.add(v);
+    const slot = this.input.add(v);
+    if (!areaCasts(a) || !v.visible) return;
+    // Its faces from its rectangle's middle, turned with it (scale left out).
+    const position = new THREE.Vector3();
+    const turn = new THREE.Quaternion();
+    this.m.decompose(position, turn, new THREE.Vector3());
+    this.shadowed.push({ slot, key: a.key, kind: 'area', spot: null, position, turn, reach: v.reach, range: l.range ?? 0, seen: true, casterMask: lightLayerMaskOf(l.shadowCasterMask), shadowed: true, cookie: false, twoSided: v.twoSided });
   }
 }

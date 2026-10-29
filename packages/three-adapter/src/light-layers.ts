@@ -7,8 +7,10 @@
  * `userData`; absent: every layer). A light whose masks are both every layer
  * stays a plain three.js light: it lights and shadows everything, and costs
  * exactly what it did before layers existed. A light with a narrower mask is
- * realized as a layered light (`LayeredPointLight`, …), a subclass three finds
- * its own light node for (`registerLayeredLights`):
+ * realized as a layered light (`LayeredDirectionalLight`, …), a subclass three
+ * finds its own light node for (`registerLayeredLights`; a layered point or
+ * spot light carries its masks to the light clusters, which test them per
+ * pixel, `cluster-lights.ts`):
  *
  * - its colour is multiplied by a per-object uniform, 1 when the object's
  *   layers share a bit with the light's mask and 0 otherwise. The test runs on
@@ -218,7 +220,6 @@ function casterFiltered(Base: ShadowNodeClass): ShadowNodeClass {
 }
 
 const LayeredShadowNode = casterFiltered(THREE.ShadowNode as unknown as ShadowNodeClass);
-const LayeredPointShadowNode = casterFiltered(THREE.PointShadowNode as unknown as ShadowNodeClass);
 
 /** Per light: 1 where the vertex's room is the light's (or the light is bound to none), else 0. */
 const roomFactors = new WeakMap<THREE.Light, N>();
@@ -276,8 +277,6 @@ function layeredAnalytic(Base: AnalyticNodeClass, Shadow: ShadowNodeClass): Anal
 }
 
 const LayeredDirectionalLightNode = layeredAnalytic(THREE.DirectionalLightNode as unknown as AnalyticNodeClass, LayeredShadowNode);
-const LayeredSpotLightNode = layeredAnalytic(THREE.SpotLightNode as unknown as AnalyticNodeClass, LayeredShadowNode);
-const LayeredPointLightNode = layeredAnalytic(THREE.PointLightNode as unknown as AnalyticNodeClass, LayeredPointShadowNode);
 
 const AmbientBase = THREE.AmbientLightNode as unknown as new (light: THREE.Light) => { colorNode: N };
 class LayeredAmbientLightNode extends AmbientBase {
@@ -310,11 +309,12 @@ class LayeredHemisphereLightNode extends HemisphereBase {
   }
 }
 
-/** Teach a renderer to shade layered lights (three finds a light's node class by its constructor). */
+/**
+ * Teach a renderer to shade layered lights (three finds a light's node class by its constructor). A layered point
+ * or spot light has no node: the light clusters draw it (`cluster-lights.ts`), its masks read from it.
+ */
 export function registerLayeredLights(renderer: { library: { addLight(node: unknown, light: unknown): void } }): void {
   renderer.library.addLight(LayeredDirectionalLightNode, LayeredDirectionalLight);
-  renderer.library.addLight(LayeredPointLightNode, LayeredPointLight);
-  renderer.library.addLight(LayeredSpotLightNode, LayeredSpotLight);
   renderer.library.addLight(LayeredAmbientLightNode, LayeredAmbientLight);
   renderer.library.addLight(LayeredHemisphereLightNode, LayeredHemisphereLight);
 }

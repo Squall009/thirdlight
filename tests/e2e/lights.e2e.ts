@@ -6,9 +6,11 @@
  * pixel or none, which unlights it — as a select); the Scene view
  * toggles between the editor rig and the scene's own lights; the View
  * menu's light clusters heat map lists the light where it reaches. A room
- * of lamps drawn by the light clusters looks as three's own light nodes draw
- * it, and lights more than 16 lamps at once, on both renderers; area lights
- * light the moving floor too, more than four of them a pixel.
+ * of lamps drawn by the light clusters lights more than 16 lamps at once, on
+ * both renderers; its spot and point lights' shadows and a spot's cookie,
+ * drawn from the shared shadow atlas and cookie atlas, match three's own maps
+ * (measured before the atlases); area lights light the moving floor too,
+ * more than four of them a pixel.
  *
  * Runs on the product's own renderer (renderer-variants.ts
  * PRODUCT_RENDERER_VARIANTS): scene-lights covers lights and cookies on both.
@@ -222,6 +224,8 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a spot light's cookie is 
   onlyInItsProject(variant, PRODUCT_RENDERER_VARIANTS);
   test.setTimeout(120_000);
   await publishBytes(be, makePng(64, 64, (x) => (Math.floor(x / 8) % 2 === 0 ? [255, 255, 255, 255] : [0, 0, 0, 255])), 'texture', 'tex-stripes');
+  // A cookie no flip leaves alike: its lower right quarter dark, stripes across its left half.
+  await publishBytes(be, makePng(64, 64, (x, y) => ((x >= 32 && y >= 32) || (x < 32 && Math.floor(y / 8) % 2 === 1) ? [0, 0, 0, 255] : [255, 255, 255, 255])), 'texture', 'tex-cookie');
   await page.goto(editorUrlFor(be.editorUrl, variant));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await expectRendererBackend(page.locator('canvas.tl-viewport'), variant);
@@ -346,25 +350,51 @@ function darkOutside(a: Image, b: Image, mask: ReadonlySet<number>, delta = 12, 
   return n;
 }
 
+type Blob = ReturnType<typeof darkBlobs>[number];
+
 /**
- * Today's spot shadows (three's own 1,024² map per light, before the shadow atlas; measured on the Iris Xe host with
- * this step at a63ac2c1, twice, the same numbers): the two cubes' shadow blobs (samples on the 2-pixel grid darker
- * by > 12) and their mean darkening, per renderer (the WebGL 2 page frames the room from farther). The atlas's must
- * match within {@link SHADOW_MATCH} of the area and the darkening.
+ * Today's shadows (three's own map per light, before the shadow atlas: a spot's 1,024², a point light's 512² cube;
+ * measured on the Iris Xe host with this step, the spots' at a63ac2c1 twice, the point light's at ea6c5891): the
+ * cubes' shadow blobs (samples on the 2-pixel grid darker by > 12) and their mean darkening, per renderer (the
+ * WebGL 2 page frames the room from farther). The atlas's must match within {@link SHADOW_MATCH} of the area and
+ * the darkening.
  */
-const TODAY_SPOT_SHADOWS: Record<'webgpu' | 'webgl2', { far: { area: number; mean: number }; near: { area: number; mean: number } }> = {
-  webgpu: { far: { area: 765, mean: 175.0 }, near: { area: 2552, mean: 180.0 } },
-  webgl2: { far: { area: 121, mean: 175.5 }, near: { area: 169, mean: 176.7 } },
+const TODAY_SHADOWS: Record<'webgpu' | 'webgl2', Record<'far' | 'near' | 'point', { area: number; mean: number }>> = {
+  webgpu: { far: { area: 765, mean: 175.0 }, near: { area: 2552, mean: 180.0 }, point: { area: 854, mean: 114.8 } },
+  webgl2: { far: { area: 121, mean: 175.5 }, near: { area: 169, mean: 176.7 }, point: { area: 155, mean: 114.0 } },
 };
+/** Shadowed lights holding an atlas tile in the shadows' view: the two spots and the point light. */
+const ATLAS_LIGHTS = 3;
+/**
+ * Today's cookie (three's `SpotLight.map` on its own light node; measured at ea6c5891): the samples the cookie's
+ * dark parts darken in the near spot's patch, their mean darkening and their middle (pixels), per renderer. three's
+ * two backends projected the image mirrored from each other (WebGL 2's middle was 681.0, 354.6); the cookie atlas
+ * draws WebGPU's on both, so WebGL 2's middle is the atlas's own (looked at: the WebGPU orientation).
+ */
+const TODAY_COOKIE: Record<'webgpu' | 'webgl2', { area: number; mean: number; x: number; y: number }> = {
+  webgpu: { area: 17836, mean: 137.0, x: 684.1, y: 538.8 },
+  webgl2: { area: 801, mean: 126.5, x: 661.2, y: 366.0 },
+};
+/** How far the cookie's middle may be from today's (pixels; a flip moves it by about a quarter of the patch). */
+const COOKIE_MIDDLE_PX = 4;
+
+/** The samples `a` is darker than `b` (by > 12) in all: their count, mean darkening and middle. */
+function cookieDark(a: Image, b: Image): { area: number; mean: number; x: number; y: number } {
+  const blobs = darkBlobs(a, b, 12, 1);
+  const area = blobs.reduce((n, p) => n + p.area, 0);
+  const sum = (f: (p: Blob) => number): number => blobs.reduce((n, p) => n + f(p) * p.area, 0) / Math.max(1, area);
+  return { area, mean: sum((p) => p.mean), x: sum((p) => p.x), y: sum((p) => p.y) };
+}
 /** Wheel notches the spot-shadow view comes closer by from the whole room. */
 const VIEW_NOTCHES = 36;
 /** The tolerance against today's shadows: a share of the area and of the mean darkening. */
 const SHADOW_MATCH = 0.2;
 
 /**
- * Shadowed spots through the shadow atlas, in the Scene view: two of the room's spot lamps cast the shadows of
- * small cubes floating beside their axes. Their shadows match today's (three's own map per light) within a stated
- * tolerance; a cube moved by an edit moves its shadow (the tile is drawn again). With a quality level whose atlas
+ * Shadows and a cookie through the shared atlases, in the Scene view: two of the room's spot lamps and a point
+ * lamp (six faces) cast the shadows of small cubes floating beside them. Their shadows match today's (three's own
+ * map per light) within a stated tolerance; a cube moved by an edit moves its shadow (the tile is drawn again).
+ * A cookie on a spot draws today's pattern, unflipped (from the light tables' texture). With a quality level whose atlas
  * is 512 texels, one spot takes it whole and the other lights its patch unshadowed; raising that one's range
  * outranks the first, which gives its tile away: no frame on the way shows a shadow where no cube casts one, and
  * then the other spot's shadow is the one drawn.
@@ -390,9 +420,16 @@ async function spotShadows(page: Page, pass: 'auto' | 'webgl2' | 'webgpu', send:
   const lamps = [{ name: 'far', i: 2, x: -1, z: -2.4 }, { name: 'near', i: 8, x: -1, z: -0.8 }] as const;
   const lampLight = (i: number, x: number, z: number, extra: Record<string, unknown> = {}): Record<string, unknown> => ({ ...(patchLamp(`lamp-${i}`, x, z, i, true)['components'] as { light: Record<string, unknown> }).light, ...extra });
   for (const l of lamps) await send('setComponent', { entityId: idOf(`Lamp lamp-${l.i}`), component: 'light', value: lampLight(l.i, l.x, l.z) });
+  // The point lamp 6 brought to their left, between them (0.8 m over the floor, 1.2 m reach, its patch clear of the
+  // spots'), a cube 0.2 m on its right.
+  const point = { name: 'point', i: 6, x: -2.6, z: -1.6, y: 0.8 } as const;
+  const pointLight = (castShadow: boolean): Record<string, unknown> => ({ ...lampLight(point.i, point.x, point.z), range: 1.2, castShadow });
+  await send('setTransform', { entityId: idOf(`Lamp lamp-${point.i}`), transform: { position: [point.x, point.y, point.z], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } });
+  await send('setComponent', { entityId: idOf(`Lamp lamp-${point.i}`), component: 'light', value: pointLight(true) });
+  const casters = [...lamps.map((l) => ({ name: l.name, at: [l.x - 0.2, 0.3, l.z] })), { name: point.name, at: [point.x + 0.2, 0.3, point.z] }];
   const cube = (castShadow: boolean): Record<string, unknown> => ({ size: [0.25, 0.25, 0.25], material: { color: '#808080' }, castShadow });
   if (build) {
-    await send('pasteEntities', { sceneId: 'scene-main', entities: lamps.map((l) => ({ id: `caster-${l.name}`, name: `Caster ${l.name}`, static: false, components: { transform: { position: [l.x - 0.2, 0.3, l.z], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, box: cube(true) } })) });
+    await send('pasteEntities', { sceneId: 'scene-main', entities: casters.map((c) => ({ id: `caster-${c.name}`, name: `Caster ${c.name}`, static: false, components: { transform: { position: c.at, rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, box: cube(true) } })) });
   }
   const all = (await be.command({ op: 'queryEntities', projectId: be.projectId, args: { limit: 100, offset: 0 } }))['entities'] as { id: string; name: string }[];
   const caster = (name: string): string => all.find((e) => e.name === `Caster ${name}`)!.id;
@@ -401,9 +438,17 @@ async function spotShadows(page: Page, pass: 'auto' | 'webgl2' | 'webgpu', send:
   const casting = async (on: boolean): Promise<void> => {
     if (cast === on) return;
     cast = on;
-    for (const l of lamps) await send('setComponent', { entityId: caster(l.name), component: 'box', value: cube(on) });
+    for (const c of casters) await send('setComponent', { entityId: caster(c.name), component: 'box', value: cube(on) });
   };
-  if (!build) for (const l of lamps) await send('setTransform', { entityId: caster(l.name), transform: { position: [l.x - 0.2, 0.3, l.z], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } });
+  if (!build) for (const c of casters) await send('setTransform', { entityId: caster(c.name), transform: { position: c.at, rotation: [0, 0, 0, 1], scale: [1, 1, 1] } });
+  // The three shadows of a pair of pictures: the two spots' (the far one higher in the picture) and the point's (leftmost).
+  const shadowsOf = (a: Image, b: Image): { far: Blob; near: Blob; point: Blob } | null => {
+    const top = darkBlobs(a, b).slice(-3);
+    if (top.length < 3) return null;
+    const byX = [...top].sort((p, q) => p.x - q.x);
+    const [far, near] = byX.slice(1).sort((p, q) => p.y - q.y);
+    return { far: far!, near: near!, point: byX[0]! };
+  };
   const atlas = async (): Promise<string[]> => ((await viewport.getAttribute('data-tl-shadow-atlas')) ?? '').split('|');
   // The same view on each renderer: a new page frames the whole room, then the view orbits the near cube (F) and
   // comes closer (the wheel: 5 % a notch), the two spots' patches large in it.
@@ -426,19 +471,21 @@ async function spotShadows(page: Page, pass: 'auto' | 'webgl2' | 'webgpu', send:
     await page.waitForTimeout(20);
   }
   await page.keyboard.press('Escape');
-  // Both spots hold a tile (none waiting).
+  // The two spots and the point light hold tiles (none waiting).
   await casting(true);
   await viewport.click({ position: { x: 5, y: 5 } });
-  await expect.poll(async () => (await atlas()).slice(1, 3).join('|'), { timeout: 30_000 }).toBe('2|0');
+  await expect.poll(async () => (await atlas()).slice(1, 3).join('|'), { timeout: 30_000 }).toBe(`${ATLAS_LIGHTS}|0`);
   const on = await settled('on');
   await casting(false);
   const off = await settled('off');
-  // The two largest blobs are the shadows (the far one higher in the picture).
-  const blobs = darkBlobs(on, off).slice(-2).sort((p, q) => p.y - q.y);
-  const today = TODAY_SPOT_SHADOWS[backend];
-  console.log(`[lights] spot shadows (${pass}): far ${blobs[0]?.area} samples, mean ${blobs[0]?.mean.toFixed(1)}; near ${blobs[1]?.area} samples, mean ${blobs[1]?.mean.toFixed(1)} (today: far ${today.far.area}/${today.far.mean}, near ${today.near.area}/${today.near.mean})`);
-  expect(blobs.length).toBe(2);
-  for (const [k, b] of [['far', blobs[0]!], ['near', blobs[1]!]] as const) {
+  const found = shadowsOf(on, off);
+  const today = TODAY_SHADOWS[backend];
+  const line = (b: Blob | undefined): string => `${b?.area} samples, mean ${b?.mean.toFixed(1)} at ${b?.x.toFixed(0)},${b?.y.toFixed(0)}`;
+  console.log(`[lights] shadows (${pass}): far ${line(found?.far)}; near ${line(found?.near)}; point ${line(found?.point)} (today: ${JSON.stringify(today)})`);
+  expect(found).not.toBeNull();
+  const blobs = [found!.far, found!.near];
+  for (const k of ['far', 'near', 'point'] as const) {
+    const b = found![k];
     expect(Math.abs(b.area - today[k].area), `${k} shadow area vs today's`).toBeLessThanOrEqual(today[k].area * SHADOW_MATCH);
     expect(Math.abs(b.mean - today[k].mean), `${k} shadow darkening vs today's`).toBeLessThanOrEqual(today[k].mean * SHADOW_MATCH);
   }
@@ -450,12 +497,29 @@ async function spotShadows(page: Page, pass: 'auto' | 'webgl2' | 'webgpu', send:
   const movedOn = await settled('moved-on');
   await casting(false);
   const movedOff = await settled('moved-off');
-  const moved = darkBlobs(movedOn, movedOff).slice(-2).sort((p, q) => p.y - q.y);
+  const movedFound = shadowsOf(movedOn, movedOff);
+  const moved = movedFound === null ? [] : [movedFound.far, movedFound.near];
   console.log(`[lights] moved cube (${pass}): far shadow ${blobs[0]!.x.toFixed(0)},${blobs[0]!.y.toFixed(0)} → ${moved[0]?.x.toFixed(0)},${moved[0]?.y.toFixed(0)}; near ${blobs[1]!.x.toFixed(0)},${blobs[1]!.y.toFixed(0)} → ${moved[1]?.x.toFixed(0)},${moved[1]?.y.toFixed(0)}`);
   expect(moved.length).toBe(2);
   expect(Math.hypot(moved[0]!.x - blobs[0]!.x, moved[0]!.y - blobs[0]!.y)).toBeGreaterThan(2);
   expect(Math.hypot(moved[1]!.x - blobs[1]!.x, moved[1]!.y - blobs[1]!.y)).toBeLessThan(1.5);
+  // A cookie on the near spot (unshadowed now): the pattern its dark parts cast on the patch matches today's (their
+  // samples, darkening and middle: a flip in either axis moves the middle).
+  const near = lamps[1];
+  await send('setComponent', { entityId: idOf(`Lamp lamp-${near.i}`), component: 'light', value: lampLight(near.i, near.x, near.z, { castShadow: false, cookie: 'tex-cookie' }) });
+  await viewport.click({ position: { x: 5, y: 5 } });
+  await expect.poll(async () => darkBlobs(await shot(), movedOff, 12, 1).reduce((n, b) => n + b.area, 0), { timeout: 30_000 }).toBeGreaterThan(50);
+  const cookie = cookieDark(await settled('cookie'), movedOff);
+  const todayCookie = TODAY_COOKIE[backend];
+  console.log(`[lights] cookie (${pass}): ${cookie.area} samples, mean ${cookie.mean.toFixed(1)}, middle ${cookie.x.toFixed(1)},${cookie.y.toFixed(1)} (today: ${JSON.stringify(todayCookie)})`);
+  expect(Math.abs(cookie.area - todayCookie.area), 'cookie samples vs today').toBeLessThanOrEqual(todayCookie.area * SHADOW_MATCH);
+  expect(Math.abs(cookie.mean - todayCookie.mean), 'cookie darkening vs today').toBeLessThanOrEqual(todayCookie.mean * SHADOW_MATCH);
+  expect(Math.hypot(cookie.x - todayCookie.x, cookie.y - todayCookie.y), 'cookie middle vs today').toBeLessThanOrEqual(COOKIE_MIDDLE_PX);
+  // (A component write merges its fields: `null` takes the cookie away.)
+  await send('setComponent', { entityId: idOf(`Lamp lamp-${near.i}`), component: 'light', value: lampLight(near.i, near.x, near.z, { cookie: null }) });
   await send('setTransform', { entityId: caster('far'), transform: { position: [far.x - 0.2, 0.3, far.z], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } });
+  // The 512 atlas below is the two spots' alone.
+  await send('setComponent', { entityId: idOf(`Lamp lamp-${point.i}`), component: 'light', value: pointLight(false) });
 
   // A 512-texel atlas: one spot takes it whole, the other lights its patch unshadowed (the level draws its own look:
   // its pictures are compared with each other).
@@ -500,8 +564,9 @@ async function spotShadows(page: Page, pass: 'auto' | 'webgl2' | 'webgpu', send:
   expect(nowFar).toBe(!keptFar);
   // Back: the project's levels, the lamps as they were, no casters.
   await send('setEnvironment', { environment: before });
-  for (const l of lamps) await send('setComponent', { entityId: idOf(`Lamp lamp-${l.i}`), component: 'light', value: (patchLamp(`lamp-${l.i}`, l.x, l.z, l.i)['components'] as { light: Record<string, unknown> }).light });
-  for (const l of lamps) await send('setTransform', { entityId: caster(l.name), transform: { position: [l.x, -5, l.z], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } });
+  for (const l of [...lamps, { i: point.i, x: -5, z: -0.8 }]) await send('setComponent', { entityId: idOf(`Lamp lamp-${l.i}`), component: 'light', value: (patchLamp(`lamp-${l.i}`, l.x, l.z, l.i)['components'] as { light: Record<string, unknown> }).light });
+  await send('setTransform', { entityId: idOf(`Lamp lamp-${point.i}`), transform: (patchLamp(`lamp-${point.i}`, -5, -0.8, point.i)['components'] as { transform: Record<string, unknown> }).transform });
+  for (const c of casters) await send('setTransform', { entityId: caster(c.name), transform: { position: [c.at[0]!, -5, c.at[2]!], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } });
 }
 
 /** Bright samples (every other pixel): r + g + b over `floor`. */
@@ -567,8 +632,8 @@ function patchLamp(id: string, x: number, z: number, i: number, castShadow = fal
 
 /**
  * A room of lamps on a dark floor (the floor casts no shadow). In the Scene view (one scene): twelve lamps each
- * light their own patch, and six of them drawn by three's own light nodes (casting shadows nothing is there to
- * cast) look as they do through the clusters, within a stated tolerance. In Play, five scenes loaded at once:
+ * light their own patch, and six of them casting shadows nothing is there to cast (atlas tiles, a point light's
+ * six faces) look as they did unshadowed, within a stated tolerance. In Play, five scenes loaded at once:
  * 24 lamps light 24 patches (more than the 16 a scene holds), and the middle of a ring of 20 lamps, every one
  * reaching it, is brighter than that of a ring of 16 (more than 16 lights reach a pixel). Two rings of area lights
  * (rectangles facing down) at the floor's far left and right light it too, though it moves: the middle of the
@@ -613,8 +678,8 @@ async function lampRoom(page: Page, pass: 'auto' | 'webgl2' | 'webgpu', send: (o
     await menu(page, 'Gizmos', 'Light ranges: on');
   }
   // Scene view: the main scene's twelve lamps through the clusters (the canvas lists them), then six of them casting a
-  // shadow, so three's own light nodes draw the four point lights of them (the clusters list eight: a shadowed spot
-  // stays listed, its shadow drawn into the shadow atlas).
+  // shadow (four point lights, six faces each, and two spots in the shadow atlas) where nothing casts one: the
+  // picture stays the same (no acne, no light lost at a face's seam), and every lamp stays listed.
   const listed = async (): Promise<number> => Number((await viewport.getAttribute('data-tl-clusters'))?.split('|')[0] ?? -1);
   // (A paste gives the lamps ids of the project's own: found by name.)
   const pasted = (await be.command({ op: 'queryEntities', projectId: be.projectId, args: { limit: 100, offset: 0 } }))['entities'] as { id: string; name: string }[];
@@ -631,9 +696,14 @@ async function lampRoom(page: Page, pass: 'auto' | 'webgl2' | 'webgpu', send: (o
   await expect.poll(async () => patches(await shot(), 150).length, { timeout: 20_000 }).toBeGreaterThanOrEqual(6);
   const clustered = await shot();
   await shadows(true);
-  await expect.poll(listed, { timeout: 30_000 }).toBe(8);
-  // Tolerance: a mean of at most 1 level in 255 and at most 0.5 % of pixels off by more than 16 (the paths compute the
-  // same light; rounding and TAAU's frame-to-frame noise are what differs).
+  // The atlas holds the six (side|tiled|waiting|drawn|handed in); the WebGL 2 page frames the room from about 40 m,
+  // where local shadows have faded out and hold no tile (`LOCAL_SHADOW_DISTANCE`).
+  const atlasNow = async (): Promise<string[]> => ((await viewport.getAttribute('data-tl-shadow-atlas')) ?? '').split('|');
+  await expect.poll(async () => (await atlasNow()).slice(2).join('|'), { timeout: 30_000 }).toBe('0|0|6');
+  if (pass !== 'webgl2') expect((await atlasNow())[1]).toBe('6');
+  expect(await listed()).toBe(12);
+  // Tolerance: a mean of at most 1 level in 255 and at most 0.5 % of pixels off by more than 16 (the shadows darken
+  // nothing; rounding and TAAU's frame-to-frame noise are what differs).
   let d = pictureDiff(clustered, await shot());
   await expect.poll(async () => ((d = pictureDiff(clustered, await shot())), d.mean <= 1 && d.bad <= 0.005), { timeout: 20_000 }).toBe(true);
   // The control: the six lamps dark are far off the picture (the comparison sees their light, however far the view).
@@ -641,7 +711,7 @@ async function lampRoom(page: Page, pass: 'auto' | 'webgl2' | 'webgpu', send: (o
   let dark = pictureDiff(clustered, await shot());
   const seen = (x: { mean: number; bad: number }): boolean => x.bad > 0.0005 && x.bad > 10 * d.bad && x.mean > 10 * d.mean;
   await expect.poll(async () => ((dark = pictureDiff(clustered, await shot())), seen(dark)), { timeout: 20_000 }).toBe(true);
-  console.log(`[lights] clusters vs three's lights (${pass}): mean ${d.mean.toFixed(3)}, ${(d.bad * 100).toFixed(3)} % off by > 16; six lamps dark: mean ${dark.mean.toFixed(3)}, ${(dark.bad * 100).toFixed(2)} %; ${patches(clustered, 150).length} patches`);
+  console.log(`[lights] six lamps shadowed, nothing casting (${pass}): mean ${d.mean.toFixed(3)}, ${(d.bad * 100).toFixed(3)} % off by > 16; six lamps dark: mean ${dark.mean.toFixed(3)}, ${(dark.bad * 100).toFixed(2)} %; ${patches(clustered, 150).length} patches`);
   await shadows(false);
   await expect.poll(async () => pictureDiff(clustered, await shot()).bad <= 0.005, { timeout: 20_000 }).toBe(true);
   await spotShadows(page, pass, send, idOf, build);

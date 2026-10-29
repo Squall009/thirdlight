@@ -70,10 +70,12 @@ describe('light layers', () => {
     expect(lightsObject(layered, new THREE.Mesh())).toBe(true);
   });
 
-  it("a layered light's own shadow pass draws only the casters in its shadow caster mask", () => {
+  it("a layered key light's own shadow pass draws only the casters in its shadow caster mask", () => {
     const nodes = new Map<unknown, new (light: THREE.Light) => { setupShadowNode(): { getShadowRenderObjectFunction(r: unknown, s: unknown): (o: THREE.Object3D, ...rest: unknown[]) => void } }>();
     registerLayeredLights({ library: { addLight: (node, light) => void nodes.set(light, node as never) } });
-    for (const light of [new LayeredPointLight(), new LayeredSpotLight(), new LayeredDirectionalLight()]) {
+    // A layered point or spot light has no node of its own: the light clusters draw it, its shadow from the atlas.
+    expect(nodes.has(LayeredPointLight) || nodes.has(LayeredSpotLight)).toBe(false);
+    for (const light of [new LayeredDirectionalLight()]) {
       light.shadowCasterMask = 1;
       const drawn: string[] = [];
       const renderer = { shadowMap: { type: THREE.PCFShadowMap }, getMRT: () => null, renderObject: (o: THREE.Object3D) => void drawn.push(o.name) };

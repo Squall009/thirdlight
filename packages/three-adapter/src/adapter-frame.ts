@@ -402,7 +402,6 @@ export class AdapterFrame {
     viewCull.update(camera);
     level.archHost.rooms.update(camera);
     p.isolation.sweep();
-    p.lights.budgetShadows(camera);
     // The terrains' nodes for this view (only when it or their tiles changed), and tiles that arrived uploaded.
     level.terrains.update(viewCull.view, renderer as never);
     // Ground cover around the view's eye, and the eye every pass reads distance from (foliage's wind distance).

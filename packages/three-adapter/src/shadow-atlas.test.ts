@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { ATLAS_FADE_SECONDS, ATLAS_HOLD_FRAMES, ATLAS_REDRAW_SHARE, QuadAllocator, ShadowAtlasPlan, shadowRank, SPOT_TILE_MAX, SPOT_TILE_MIN, tileSizeFor, type AtlasGrant, type AtlasRequest, type AtlasTile } from './shadow-atlas';
+import { ATLAS_FADE_SECONDS, ATLAS_HOLD_FRAMES, ATLAS_REDRAW_SHARE, FACE_TILE_MAX, FACE_TILE_MIN, QuadAllocator, ShadowAtlasPlan, shadowRank, SPOT_TILE_MAX, SPOT_TILE_MIN, tileSizeFor, type AtlasGrant, type AtlasRequest, type AtlasTile } from './shadow-atlas';
 
 function mulberry32(seed: number): () => number {
   let a = seed;
@@ -91,18 +91,18 @@ describe('the shadow atlas plan', () => {
     const requests = Array.from({ length: 20 }, (_, i) => req(i, 2 / (i + 1)));
     const first = plan.update(requests, 1 / 60);
     // New tiles: drawn (within the frame's share), not sampled until drawn, then faded in.
-    const drawnTexels = [...first.values()].reduce((s, g) => s + (g.draw?.size ?? 0) ** 2, 0);
+    const drawnTexels = [...first.values()].reduce((s, g) => s + (g.draw?.[0]?.size ?? 0) ** 2, 0);
     expect(drawnTexels).toBeLessThanOrEqual(4096 * 4096 * ATLAS_REDRAW_SHARE);
     const g0 = first.get(keys[0]!)!;
     expect(g0.draw).not.toBeNull();
     expect(g0.intensity).toBeGreaterThan(0);
     expect(g0.intensity).toBeLessThan(0.2);
     const g = settle(plan, requests);
-    const tiles = [...g.values()].map((x) => x.tile).filter((t): t is AtlasTile => t !== null);
+    const tiles = [...g.values()].map((x) => x.tiles?.[0] ?? null).filter((t): t is AtlasTile => t !== null);
     expect(tiles.length).toBe(20);
     expectDisjoint(tiles, 4096);
-    expect(g.get(keys[0]!)!.tile!.size).toBe(SPOT_TILE_MAX);
-    expect(g.get(keys[19]!)!.tile!.size).toBeLessThan(SPOT_TILE_MAX);
+    expect(g.get(keys[0]!)!.tiles![0]!.size).toBe(SPOT_TILE_MAX);
+    expect(g.get(keys[19]!)!.tiles![0]!.size).toBeLessThan(SPOT_TILE_MAX);
     expect(g.get(keys[0]!)!.intensity).toBe(1);
     // Settled and clean: nothing is drawn again.
     expect([...plan.update(requests, 1 / 60).values()].every((x) => x.draw === null)).toBe(true);
@@ -114,26 +114,26 @@ describe('the shadow atlas plan', () => {
   it('keeps a tile size through small rank changes, and changes it after the hold, sampling the old tile until the new one is drawn', () => {
     const plan = new ShadowAtlasPlan(4096);
     settle(plan, [req(0, 1)]);
-    const before = plan.update([req(0, 1)], 1 / 60).get(keys[0]!)!.tile!;
+    const before = plan.update([req(0, 1)], 1 / 60).get(keys[0]!)!.tiles![0]!;
     expect(before.size).toBe(SPOT_TILE_MAX);
     // Asking for a quarter of the size, one frame in two: never held long enough.
-    for (let f = 0; f < 3 * ATLAS_HOLD_FRAMES; f += 1) expect(plan.update([req(0, f % 2 === 0 ? 0.1 : 1)], 1 / 60).get(keys[0]!)!.tile).toEqual(before);
+    for (let f = 0; f < 3 * ATLAS_HOLD_FRAMES; f += 1) expect(plan.update([req(0, f % 2 === 0 ? 0.1 : 1)], 1 / 60).get(keys[0]!)!.tiles?.[0]).toEqual(before);
     // Asking for it steadily: after the hold, the smaller tile, drawn the frame it is taken (no frame unshadowed).
     let after: AtlasGrant | undefined;
     for (let f = 0; f < ATLAS_HOLD_FRAMES + 1; f += 1) {
       after = plan.update([req(0, 0.1)], 1 / 60).get(keys[0]!)!;
-      expect(after.tile).not.toBeNull();
+      expect(after.tiles).not.toBeNull();
       expect(after.intensity).toBe(1);
     }
-    expect(after!.tile!.size).toBe(tileSizeFor(0.1, 4096));
+    expect(after!.tiles![0]!.size).toBe(tileSizeFor(0.1, 4096));
   });
 
   it('leaves the lowest-ranked lights unshadowed when the atlas is full, and a displaced light fades out before its tile is given away', () => {
     const plan = new ShadowAtlasPlan(512);
     // A 512 atlas: the best light takes it whole; the second waits, unshadowed.
     let g = settle(plan, [req(0, 2), req(1, 1)]);
-    expect(g.get(keys[0]!)!.tile).toEqual({ x: 0, y: 0, size: 512 });
-    expect(g.get(keys[1]!)!.tile).toBeNull();
+    expect(g.get(keys[0]!)!.tiles?.[0]).toEqual({ x: 0, y: 0, size: 512 });
+    expect(g.get(keys[1]!)!.tiles).toBeNull();
     expect(g.get(keys[1]!)!.intensity).toBe(0);
     expect(plan.diagnostics()).toMatchObject({ side: 512, lights: 2, tiled: 1, waiting: 1 });
     // The second light comes nearer and outranks the first: the first fades out over the fade time, keeping its
@@ -144,9 +144,9 @@ describe('the shadow atlas plan', () => {
       g = plan.update([req(0, 1), req(1, 2)], 1 / 60);
       firstIntensity.push(g.get(keys[0]!)!.intensity);
       // Never both sampling one tile.
-      const a = g.get(keys[0]!)!.tile;
-      const b = g.get(keys[1]!)!.tile;
-      if (a !== null && b !== null) expect(overlaps(a, b)).toBe(false);
+      const a = g.get(keys[0]!)!.tiles?.[0];
+      const b = g.get(keys[1]!)!.tiles?.[0];
+      if (a !== undefined && b !== undefined) expect(overlaps(a, b)).toBe(false);
     }
     for (let i = 1; i < firstIntensity.length; i += 1) expect(firstIntensity[i]!).toBeLessThanOrEqual(firstIntensity[i - 1]!);
     // A host drawing on demand is asked for every frame of it, up to the one where the waiting light takes the tile.
@@ -154,24 +154,51 @@ describe('the shadow atlas plan', () => {
     expect(firstIntensity[0]!).toBeGreaterThan(0.9);
     expect(firstIntensity.at(-1)).toBe(0);
     g = settle(plan, [req(0, 1), req(1, 2)]);
-    expect(g.get(keys[1]!)!.tile).toEqual({ x: 0, y: 0, size: 512 });
+    expect(g.get(keys[1]!)!.tiles?.[0]).toEqual({ x: 0, y: 0, size: 512 });
     expect(g.get(keys[1]!)!.intensity).toBe(1);
-    expect(g.get(keys[0]!)!.tile).toBeNull();
+    expect(g.get(keys[0]!)!.tiles).toBeNull();
   });
 
   it('drops a light out of view at once, and redraws within the frame\'s share, best rank first', () => {
     const plan = new ShadowAtlasPlan(2048);
     const many = Array.from({ length: 40 }, (_, i) => req(i, 1 / (i + 1)));
     settle(plan, many, 80);
-    expectDisjoint([...plan.update(many, 1 / 60).values()].map((x) => x.tile).filter((t): t is AtlasTile => t !== null), 2048);
+    expectDisjoint([...plan.update(many, 1 / 60).values()].map((x) => x.tiles?.[0] ?? null).filter((t): t is AtlasTile => t !== null), 2048);
     // Every tile dirty: a quarter of the atlas a frame at most, best first; the rest keep their depth.
     const all = plan.update(many.map((r) => ({ ...r, dirty: true })), 1 / 60);
     const drawn = [...all.values()].filter((x) => x.draw !== null);
-    expect(drawn.reduce((s, x) => s + x.draw!.size ** 2, 0)).toBeLessThanOrEqual(2048 * 2048 * ATLAS_REDRAW_SHARE);
+    expect(drawn.reduce((s, x) => s + x.draw![0]!.size ** 2, 0)).toBeLessThanOrEqual(2048 * 2048 * ATLAS_REDRAW_SHARE);
     expect(all.get(keys[0]!)!.draw).not.toBeNull();
-    expect([...all.values()].every((x) => x.tile === null || x.intensity > 0)).toBe(true);
+    expect([...all.values()].every((x) => x.tiles === null || x.intensity > 0)).toBe(true);
     // Out of view (rank 0): no tile, no shadow.
     const g = plan.update([req(0, 0), ...many.slice(1)], 1 / 60);
     expect(g.get(keys[0]!)).toBeUndefined();
+  });
+  it('gives a light with faces all of them or none, one size, inside the face sizes, beside spots', () => {
+    const plan = new ShadowAtlasPlan(2048);
+    const cube = (i: number, rank: number, faces = 6): AtlasRequest => ({ ...req(i, rank), faces });
+    let g = settle(plan, [req(0, 1), cube(1, 1), cube(2, 0.05, 5)]);
+    const spot = g.get(keys[0]!)!.tiles!;
+    const point = g.get(keys[1]!)!.tiles!;
+    const area = g.get(keys[2]!)!.tiles!;
+    expect(spot.length).toBe(1);
+    expect(point.length).toBe(6);
+    expect(area.length).toBe(5);
+    expect(new Set(point.map((t) => t.size))).toEqual(new Set([FACE_TILE_MAX]));
+    expect(area[0]!.size).toBeGreaterThanOrEqual(FACE_TILE_MIN);
+    expect(area[0]!.size).toBeLessThan(FACE_TILE_MAX);
+    expectDisjoint([...spot, ...point, ...area], 2048);
+    // A full atlas: a 512 atlas holds one point light's six 64–128 faces, not a second's; that one waits whole.
+    const small = new ShadowAtlasPlan(512);
+    g = settle(small, [cube(0, 1), cube(1, 0.9)]);
+    const first = g.get(keys[0]!)!.tiles;
+    expect(first?.length).toBe(6);
+    expectDisjoint(first!, 512);
+    const second = g.get(keys[1]!)!.tiles;
+    expect(second === null || second.length === 6).toBe(true);
+    expect(small.diagnostics().used).toBeLessThanOrEqual(1);
+    // Every face of a dirty light is drawn together.
+    const d = small.update([{ ...cube(0, 1), dirty: true }, cube(1, 0.9)], 1 / 60);
+    expect(d.get(keys[0]!)!.draw?.length).toBe(6);
   });
 });

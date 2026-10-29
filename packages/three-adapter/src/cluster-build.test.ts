@@ -18,7 +18,7 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 
 import { areaHitsBox, CLUSTER_SLICES, CLUSTER_SPOT, ClusterBuilder, ClusterLights, sphereHitsBox, spotHitsBox, type ClusterCamera, type ClusterLightValue } from './cluster-build';
-import { CLUSTER_INDEX_WORDS, CLUSTER_LIGHT_TEXELS, CLUSTER_LONG_LIST, CLUSTER_SHADOW_TEXELS, ClusterShadows, ClusterTextures, decodeClusterCell, decodeClusterLight, decodeClusterList, decodeClusterShadow } from './cluster-pack';
+import { CLUSTER_INDEX_WORDS, CLUSTER_LIGHT_TEXELS, CLUSTER_LONG_LIST, CLUSTER_CUBE_SHADOW_TEXELS, CLUSTER_SHADOW_TEXELS, ClusterShadows, ClusterTextures, decodeClusterCell, decodeClusterCubeShadow, decodeClusterLight, decodeClusterList, decodeClusterShadow } from './cluster-pack';
 
 type V3 = [number, number, number];
 
@@ -277,16 +277,22 @@ describe('cluster lists', () => {
     const rnd = mulberry32(99);
     const lights = new ClusterLights();
     const values: ClusterLightValue[] = [];
-    // Shadow records: a world → atlas matrix each (here a light's own random one), its tile and biases.
+    // Shadow records: a spot's world → atlas matrix (here a light's own random one), its tile and biases; or a light
+    // seen through faces: world → its frame, depth terms and six face tiles (one missing).
     const shadows = new ClusterShadows();
-    const shadowMatrices: THREE.Matrix4[] = [];
+    const shadowMatrices = new Map<number, { cube: boolean; m: THREE.Matrix4 }>();
     for (let i = 0; i < 300; i += 1) {
       const p = randomLight(rnd, [0, 0, 0], 12).value;
       p.mask = Math.floor(rnd() * 255) + 1;
       if (i % 5 === 0) {
         const m = new THREE.Matrix4().makePerspective(-0.5, 0.5, 0.5, -0.5, 0.5, 9).multiply(new THREE.Matrix4().makeRotationY(i).setPosition(i % 7, 1, -i % 5));
-        shadowMatrices.push(m);
         p.shadow = shadows.add({ matrix: m.elements, rect: [i / 512, 0.25, 0.125], intensity: 0.5 + i / 1000, near: 0.5, far: 9, bias: -0.0002, normalBias: 0.002 });
+        shadowMatrices.set(p.shadow, { cube: false, m });
+      } else if (i % 5 === 2) {
+        const m = new THREE.Matrix4().makeRotationY(i).setPosition(i % 7, 1, -i % 5).invert();
+        const faces = [0, 1, 2, 3, 4, 5].map((f): [number, number] | null => (f === 2 ? null : [f / 8, i / 512]));
+        p.shadow = shadows.addCube({ matrix: m.elements, near: 0.5, far: 9, bias: -0.0002, normalBias: 0.004, depth: [1.05, -0.5], intensity: 0.75, size: 1 / 32, faces });
+        shadowMatrices.set(p.shadow, { cube: true, m });
       } else p.shadow = -1;
       p.cookie = p.kind === 'spot' && i % 3 === 0 ? i : -1;
       p.decay = [2, 1, 0, 1.5][i % 4]!;
@@ -307,7 +313,8 @@ describe('cluster lists', () => {
     const packed = tex.pack(build, lights, shadows);
     expect(build.overflow).toBe(0);
     // The shadow records sit between the light records and the headers.
-    expect(packed.listWord).toBe((build.packed * CLUSTER_LIGHT_TEXELS + shadows.count * CLUSTER_SHADOW_TEXELS) * 4);
+    expect(packed.listWord).toBe((build.packed * CLUSTER_LIGHT_TEXELS + shadows.texels) * 4);
+    expect(shadows.texels).toBe(60 * CLUSTER_SHADOW_TEXELS + 60 * CLUSTER_CUBE_SHADOW_TEXELS);
     // Records: what went in, in view space.
     const view = cam.matrixWorldInverse;
     for (let s = 0; s < build.packed; s += 1) {
@@ -326,18 +333,28 @@ describe('cluster lists', () => {
       expect(d.room).toBe(v.room ?? -1);
       expect(d.unbounded).toBe(v.unbounded === true);
       const slot = v.shadow ?? -1;
-      expect(d.shadow).toBe(slot < 0 ? -1 : build.packed * CLUSTER_LIGHT_TEXELS + slot * CLUSTER_SHADOW_TEXELS);
+      expect(d.shadow).toBe(slot < 0 ? -1 : build.packed * CLUSTER_LIGHT_TEXELS + slot);
       if (slot >= 0) {
         // The record's matrix takes a view-space point where the world matrix takes its world point.
-        const r = decodeClusterShadow(tex.data, d.shadow);
+        const { cube, m } = shadowMatrices.get(slot)!;
         const world = new THREE.Vector3(...(v.position as V3)).add(new THREE.Vector3(0.3, -0.7, 0.2));
         const viewP = world.clone().applyMatrix4(view);
-        const want = new THREE.Vector4(world.x, world.y, world.z, 1).applyMatrix4(shadowMatrices[slot]!);
+        const want = new THREE.Vector4(world.x, world.y, world.z, 1).applyMatrix4(m);
+        const r = cube ? decodeClusterCubeShadow(tex.data, d.shadow) : decodeClusterShadow(tex.data, d.shadow);
         const got = r.rows.map((row) => row[0]! * viewP.x + row[1]! * viewP.y + row[2]! * viewP.z + row[3]!);
-        for (const [k, c] of (['x', 'y', 'z', 'w'] as const).entries()) expect(got[k]!).toBeCloseTo(want[c], 3);
-        expect(r.rect[0]).toBeCloseTo(build.order[s]! / 512, 6);
-        expect(r.rect[1]).toBe(0.25);
-        expect([r.near, r.far, r.normalBias]).toEqual([0.5, 9, Math.fround(0.002)]);
+        for (const [k, c] of (['x', 'y', 'z', 'w'] as const).slice(0, r.rows.length).entries()) expect(got[k]!).toBeCloseTo(want[c], 3);
+        if (!cube) {
+          const spot = r as ReturnType<typeof decodeClusterShadow>;
+          expect(spot.rect[0]).toBeCloseTo(build.order[s]! / 512, 6);
+          expect(spot.rect[1]).toBe(0.25);
+          expect([spot.near, spot.far, spot.normalBias]).toEqual([0.5, 9, Math.fround(0.002)]);
+        } else {
+          const c = r as ReturnType<typeof decodeClusterCubeShadow>;
+          expect([c.near, c.far, c.depth[0], c.depth[1], c.intensity, c.size]).toEqual([0.5, 9, Math.fround(1.05), -0.5, 0.75, 1 / 32]);
+          expect(c.faces[2]).toBeNull();
+          expect(c.faces[5]![0]).toBeCloseTo(5 / 8, 6);
+          expect(c.faces[5]![1]).toBeCloseTo(build.order[s]! / 512, 6);
+        }
       }
       if (d.kind === CLUSTER_SPOT) {
         const ax = new THREE.Vector3(...(v.direction as V3)).transformDirection(view);
@@ -367,7 +384,7 @@ describe('cluster lists', () => {
     }
     expect(longest).toBeGreaterThan(CLUSTER_LONG_LIST);
     expect(packed.listWords).toBe(g.clusters + build.entries + want.filter((l) => l.length >= CLUSTER_LONG_LIST).length);
-    expect(packed.listWord).toBe(build.packed * 16 + shadows.count * CLUSTER_SHADOW_TEXELS * 4);
+    expect(packed.listWord).toBe(build.packed * 16 + shadows.texels * 4);
     // A pixel at the long list's point reads it.
     const ndc = new THREE.Vector3(0, 0, 0).project(cam);
     const depth = -new THREE.Vector3(0, 0, 0).applyMatrix4(view).z;

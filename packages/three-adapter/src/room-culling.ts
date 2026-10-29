@@ -24,7 +24,7 @@
  *   would. A spanning mesh stays while any room its vertices look into is
  *   seen. Lights are never switched (that would rebuild every lit program):
  *   a lamp in a room not seen lights only that room's drawables, which are
- *   not drawn, and its shadow map is left alone (`shadow-budget.ts`).
+ *   not drawn, and its shadow gives up its atlas tiles (`shadow-atlas.ts`).
  * - Nothing changes on a page without rooms; `?portals=off` keeps the room
  *   test of the lights and leaves the culling out (a diagnostic comparison).
  */

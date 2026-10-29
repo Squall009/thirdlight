@@ -15,27 +15,30 @@
  * lights it draws out of three's own list, so their count, their switching
  * and their values never shape a program.
  *
- * - **Which lights.** A spot light without a cookie, shadowed or not, and
- *   a point light that casts no shadow and projects no cookie
- *   (`drawsClustered`); every area light (rect and line); the effects'
- *   lights. A spot light's shadow is its tile of the shared shadow atlas
- *   (`shadow-atlas.ts`), sampled through the shadow record its light record
- *   names. A point light with a shadow, or a spot with a cookie, is still
- *   drawn by three's own node with its own map, until those move to the
- *   shared atlases; the gathering leaves it out of the lists, so nothing is
- *   lit twice.
+ * - **Which lights.** Every realized point and spot light (`drawsClustered`),
+ *   every area light (rect and line), the effects' lights. A light's shadow
+ *   is its tiles of the shared shadow atlas (`shadow-atlas.ts`): a spot's
+ *   one, a point light's six faces, an area light's five (six when it
+ *   lights both sides), sampled through the shadow record its light record
+ *   names. A spot's cookie is its tile of the cookie atlas
+ *   (`cookie-atlas.ts`, the light tables' texture), projected through its
+ *   shadow record's matrix. three draws none of them: no light node, shadow
+ *   map or cookie texture per light.
  * - **The loop.** The pixel's cell from its view position through the lists'
  *   projection (`clusterCellAt`), then each listed record: a range test,
  *   then per kind the material's own lighting model, as three's lights call
- *   it. A point or spot light: three's distance attenuation (with its window
- *   toward the light's range, none for a light without one), a spot's cone
- *   as three's `smoothstep`, and `direct`. An area light: three's rectangle
- *   light maths (`cluster-area.ts`). A shadowed spot's light is multiplied
- *   by its shadow: the pixel (moved along its normal by a share of its
- *   distance, against acne) through its record's matrix into its tile,
- *   four hardware depth compares 2 × 2 a texel apart, clamped a texel
- *   inside the tile, the result faded by the record's strength (1 outside
- *   the tile's view). The light-layer and room test runs per
+ *   it. A point or spot light: three's distance attenuation (with its
+ *   window toward the light's range, none for a light without one), a
+ *   spot's cone as three's `smoothstep`, its cookie's colour inside its
+ *   projection (as three's `SpotLight.map`), and `direct`. An area light:
+ *   three's rectangle light maths (`cluster-area.ts`). A shadowed light is
+ *   multiplied by its shadow: the pixel (moved along its normal by a share
+ *   of its distance, against acne) into its tile (a spot's through its
+ *   record's matrix; a point or area light's on the face it lies farthest
+ *   along, as `shadow-cube.ts` picks it), four hardware depth compares
+ *   2 × 2 a texel apart, clamped a texel inside the tile, the result faded
+ *   by the record's strength (1 outside the tile's view). The light-layer
+ *   and room test runs per
  *   pixel against the drawn object's layers and room (per-object uniforms; a
  *   mesh spanning rooms per vertex), and is built only while some listed
  *   light is layered (`layered`, part of the lit programs' key).
@@ -49,24 +52,25 @@
  *   the scene while any local light or effect light pool is there (the
  *   first one builds the lit programs once, as any first light did), and its
  *   textures are rebound when they are made again (`rebind`, as the probe
- *   light does). Four flags shape it (the lit programs' key): `layered`,
+ *   light does). Five flags shape it (the lit programs' key): `layered`,
  *   `areas` (the area kinds' code), `uncached` (a reading build's separate
- *   sums) and `shadows` (the atlas's reads and their texture unit), each
- *   built only while a light needs it.
+ *   sums), `shadows` (the atlas's reads and their texture unit) and
+ *   `cookies` (the cookie reads), each built only while a light needs it.
  */
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 import { LIGHT_LAYERS_ALL } from '@thirdlight/runtime';
 
 import { ltcNodes, shadeAreaLight } from './cluster-area';
-import { CLUSTER_RECT, CLUSTER_SPOT, CLUSTER_TWO_SIDED, CLUSTER_UNBOUNDED, CLUSTER_UNCACHED } from './cluster-build';
+import { CLUSTER_POINT, CLUSTER_RECT, CLUSTER_SPOT, CLUSTER_TWO_SIDED, CLUSTER_UNBOUNDED, CLUSTER_UNCACHED } from './cluster-build';
 import { clusterCellAt, clusterIndexAt, clusterLightTexel, clusterList, clusterNodes, clusterTexel, type ClusterGpu, type ClusterNodes } from './cluster-gpu';
 import { CLUSTER_DECAY_STEPS, CLUSTER_KIND_STEP, CLUSTER_ROOM_SHIFT } from './cluster-pack';
+import { COOKIE_ATLAS_SIDE, COOKIE_COLUMNS, COOKIE_TILE } from './cookie-atlas';
 import type { N } from './effects-tsl';
 import { objectLightLayers, ROOM_ATTRIBUTE, ROOM_KEY, SURFACE_ANCHOR } from './light-layers';
 
 const TSL: N = TSLTyped;
-const { If, Loop, NodeUpdateType, attribute, clamp, dot, float, getDistanceAttenuation, int, mix, normalView, positionView, round, select, smoothstep, uniform, vec2, vec3, vec4, viewZToLogarithmicDepth } = TSL;
+const { If, Loop, NodeUpdateType, abs, attribute, clamp, dot, float, getDistanceAttenuation, int, mix, normalView, positionView, round, select, smoothstep, uniform, vec2, vec3, vec4, viewZToLogarithmicDepth } = TSL;
 
 /**
  * `builder.context[UNCACHED_LIGHT_CONTEXT]`: set by a build reading the
@@ -100,6 +104,8 @@ export class ClusteredLights extends THREE.Light {
   uncached = false;
   /** Some listed light casts a shadow: the loop reads the shadow atlas (part of the key; one texture unit). */
   shadows = false;
+  /** Some spot projects a cookie: the loop reads the cookie atlas (part of the key; the light tables' unit). */
+  cookies = false;
 
   constructor(public gpu: ClusterGpu) {
     super(0xffffff, 1);
@@ -123,14 +129,32 @@ export function isClusteredLights(light: unknown): light is ClusteredLights {
   return (light as { isClusteredLights?: boolean } | null)?.isClusteredLights === true;
 }
 
-type LocalLight = { isPointLight?: boolean; isSpotLight?: boolean; castShadow?: boolean; map?: unknown };
+type LocalLight = { isPointLight?: boolean; isSpotLight?: boolean };
 
-/** Whether a realized point or spot light is drawn through the clusters: no cookie, and a point light no shadow (those keep three's own node). */
+/** Whether a realized light is drawn through the clusters: every point and spot light (three draws none of them). */
 export function drawsClustered(light: unknown): boolean {
   const l = light as LocalLight | null;
-  if (l === null || (l.isPointLight !== true && l.isSpotLight !== true)) return false;
-  if ((l.map ?? null) !== null) return false;
-  return l.isSpotLight === true || l.castShadow !== true;
+  return l !== null && (l.isPointLight === true || l.isSpotLight === true);
+}
+
+/** The depth compared at a tile: `depth` with the record's bias, three's convention (added; the other way round when reversed). */
+function biased(builder: N, depth: N, bias: N): N {
+  return (builder.renderer.reversedDepthBuffer === true ? depth.sub(bias) : depth.add(bias)).toVar();
+}
+
+/** Four hardware depth compares 2 × 2 a texel apart round `uv`, clamped a texel inside the tile from `corner` across `size` (shares of the atlas). */
+function atlasPcf(t: ClusterNodes, uv: N, corner: N, size: N, ref: N): N {
+  const texel = t.extent.w;
+  const lo = corner.add(texel);
+  const hi = corner.add(size).sub(texel);
+  const half = texel.mul(0.5);
+  const tap = (dx: number, dy: number): N => t.atlas.sample(clamp(uv.add(vec2(half.mul(dx), half.mul(dy))), lo, hi)).compare(ref);
+  return tap(-1, -1).add(tap(1, -1)).add(tap(-1, 1)).add(tap(1, 1)).mul(0.25);
+}
+
+/** A spot's record at texel `at` (an int node) applied to view position `p` (vec4): the atlas place, not yet over w. */
+function spotProject(t: ClusterNodes, at: N, p: N): N {
+  return vec4(dot(clusterTexel(t, at), p), dot(clusterTexel(t, at.add(1)), p), dot(clusterTexel(t, at.add(2)), p), dot(clusterTexel(t, at.add(3)), p)).toVar();
 }
 
 /**
@@ -141,23 +165,68 @@ export function drawsClustered(light: unknown): boolean {
 function spotShadow(builder: N, t: ClusterNodes, at: N, surface: N, distance: N): N {
   const tile = clusterTexel(t, at.add(4));
   const params = clusterTexel(t, at.add(5));
-  const p = vec4(surface.add(normalView.mul(params.w.mul(distance))), 1).toVar();
-  const c = vec4(dot(clusterTexel(t, at), p), dot(clusterTexel(t, at.add(1)), p), dot(clusterTexel(t, at.add(2)), p), dot(clusterTexel(t, at.add(3)), p)).toVar();
+  const c = spotProject(t, at, vec4(surface.add(normalView.mul(params.w.mul(distance))), 1));
   const w = c.w.max(1e-6);
   const uv = c.xy.div(w).toVar();
   const reversed = builder.renderer.reversedDepthBuffer === true;
   const depth = builder.renderer.logarithmicDepthBuffer === true ? viewZToLogarithmicDepth(c.w.negate(), params.x, params.y) : c.z.div(w);
-  // three's bias convention: added to the depth (negative toward the light), the other way round when reversed.
-  const ref = (reversed ? depth.sub(params.z) : depth.add(params.z)).toVar();
-  const texel = t.extent.w;
-  const lo = tile.xy.add(texel);
-  const hi = tile.xy.add(tile.z).sub(texel);
-  const half = texel.mul(0.5);
-  const tap = (dx: number, dy: number): N => t.atlas.sample(clamp(uv.add(vec2(half.mul(dx), half.mul(dy))), lo, hi)).compare(ref);
-  const lit = tap(-1, -1).add(tap(1, -1)).add(tap(-1, 1)).add(tap(1, 1)).mul(0.25);
+  const ref = biased(builder, depth, params.z);
+  const lit = atlasPcf(t, uv, tile.xy, tile.z, ref);
   const inTile = uv.x.greaterThanEqual(tile.x).and(uv.y.greaterThanEqual(tile.y)).and(uv.x.lessThanEqual(tile.x.add(tile.z))).and(uv.y.lessThanEqual(tile.y.add(tile.z)));
   const inDepth = c.w.greaterThan(0).and(reversed ? ref.greaterThanEqual(0) : ref.lessThanEqual(1));
   return select(inTile.and(inDepth), mix(float(1), lit, tile.w), float(1));
+}
+
+/**
+ * The shadow of a light seen through faces (a point or area light) at view
+ * position `surface` (`distance` from the light): its record from texel
+ * `at`, the face the pixel lies farthest along (`cubeFaceOf` in
+ * `shadow-cube.ts`, line for line), 1 where lit, 0 where shadowed, faded by
+ * the record's strength; 1 past the faces' depth range or on a face without
+ * a tile.
+ */
+function cubeShadow(builder: N, t: ClusterNodes, at: N, surface: N, distance: N): N {
+  const params = clusterTexel(t, at.add(3));
+  const terms = clusterTexel(t, at.add(4));
+  const p = vec4(surface.add(normalView.mul(params.w.mul(distance))), 1).toVar();
+  const l = vec3(dot(clusterTexel(t, at), p), dot(clusterTexel(t, at.add(1)), p), dot(clusterTexel(t, at.add(2)), p)).toVar();
+  const a = abs(l).toVar();
+  const onX = a.x.greaterThanEqual(a.y).and(a.x.greaterThanEqual(a.z)).toVar();
+  const onY = a.y.greaterThan(a.x).and(a.y.greaterThanEqual(a.z)).toVar();
+  const face = select(onX, select(l.x.greaterThan(0), int(0), int(1)), select(onY, select(l.y.greaterThan(0), int(2), int(3)), select(l.z.greaterThan(0), int(4), int(5)))).toVar();
+  const d = select(onX, a.x, select(onY, a.y, a.z)).max(1e-6).toVar();
+  // The point's place on the face's image (x right, y up), as its camera sees it.
+  const sx = select(onX, l.z.mul(select(l.x.greaterThan(0), float(-1), float(1))), select(onY, l.x, l.x.mul(select(l.z.greaterThan(0), float(1), float(-1)))));
+  const sy = select(onX, l.y.negate(), select(onY, l.z.mul(select(l.y.greaterThan(0), float(1), float(-1))), l.y.negate()));
+  const pair = clusterTexel(t, at.add(5).add(face.div(2)));
+  const corner = select(face.mod(2).equal(0), pair.xy, pair.zw).toVar();
+  const size = terms.w;
+  // As the face's tile holds it: its texture coordinates from the top left.
+  const uv = corner.add(vec2(sx.div(d).mul(0.5).add(0.5), sy.div(d).mul(-0.5).add(0.5)).mul(size)).toVar();
+  const depth = builder.renderer.logarithmicDepthBuffer === true ? viewZToLogarithmicDepth(d.negate(), params.x, params.y) : terms.x.add(terms.y.div(d));
+  const ref = biased(builder, depth, params.z);
+  const lit = atlasPcf(t, uv, corner, size, ref);
+  const inRange = d.greaterThanEqual(params.x).and(d.lessThanEqual(params.y)).and(corner.x.greaterThanEqual(0));
+  return select(inRange, mix(float(1), lit, terms.z), float(1));
+}
+
+/**
+ * A spot's cookie at view position `surface`: tile `tile` (an int node) of
+ * the cookie atlas sampled where the spot's projection (its shadow record
+ * from texel `at`) puts the pixel, as three's `SpotLight.map` is: inside the
+ * projection only (the light's colour unchanged outside).
+ */
+function spotCookie(t: ClusterNodes, at: N, tile: N, surface: N): N {
+  const rect = clusterTexel(t, at.add(4));
+  const params = clusterTexel(t, at.add(5));
+  const c = spotProject(t, at, vec4(surface, 1));
+  const local = c.xy.div(c.w.max(1e-6)).sub(rect.xy).div(rect.z).toVar();
+  const inside = local.x.greaterThanEqual(0).and(local.y.greaterThanEqual(0)).and(local.x.lessThanEqual(1)).and(local.y.lessThanEqual(1)).and(c.w.greaterThanEqual(params.x)).and(c.w.lessThanEqual(params.y));
+  const share = COOKIE_TILE / COOKIE_ATLAS_SIDE;
+  const half = 0.5 / COOKIE_TILE;
+  const origin = vec2(float(tile.mod(COOKIE_COLUMNS)), float(tile.div(COOKIE_COLUMNS))).mul(share);
+  const colour = t.tables.sample(origin.add(clamp(local, vec2(half), vec2(1 - half)).mul(share))).level(float(0)).rgb;
+  return select(inside, colour, vec3(1));
 }
 
 /** The drawn object's room key (-1: none, every light lights it). */
@@ -173,11 +242,12 @@ class ClusterLightsNode extends (THREE.Node as unknown as new () => { updateType
   private readonly t: ClusterNodes;
   private readonly objectLayers: N;
   private readonly objectRoom: N;
-  private readonly ltc = ltcNodes();
+  private readonly ltc: ReturnType<typeof ltcNodes>;
 
   constructor(readonly light: ClusteredLights) {
     super();
     this.t = clusterNodes(light.gpu);
+    this.ltc = ltcNodes(this.t);
     this.objectLayers = uniform(LIGHT_LAYERS_ALL).onObjectUpdate(({ object }: { object: THREE.Object3D }) => objectLightLayers(object));
     this.objectRoom = uniform(-1).onObjectUpdate(({ object }: { object: THREE.Object3D }) => objectRoom(object));
     this.updateType = NodeUpdateType.RENDER;
@@ -185,6 +255,15 @@ class ClusterLightsNode extends (THREE.Node as unknown as new () => { updateType
 
   update(): void {
     this.t.sync(this.light.gpu);
+  }
+
+  /** An area light's shadow (its record from `record`, -1: none) at `surface`, in a variable set only where it has one. */
+  private areaShadow(builder: N, record: N, surface: N, distance: N): N {
+    const shade = float(1).toVar();
+    If(record.greaterThanEqual(0), () => {
+      shade.assign(cubeShadow(builder, this.t, int(record), surface, distance));
+    });
+    return shade;
   }
 
   /** 1 where a record's layer word lets it light this pixel's object (its layers, and its room or the vertex's), else 0. */
@@ -205,6 +284,7 @@ class ClusterLightsNode extends (THREE.Node as unknown as new () => { updateType
     const layered = this.light.layered;
     const areas = this.light.areas;
     const shadows = this.light.shadows;
+    const cookies = this.light.cookies;
     const ltc = this.ltc;
     // A build reading the surface cache: the lights the cache does not hold go to its own sums (kept whole there).
     const uncachedSums = this.light.uncached ? ((builder.context[UNCACHED_LIGHT_CONTEXT] as LightSums | undefined) ?? null) : null;
@@ -238,18 +318,28 @@ class ClusterLightsNode extends (THREE.Node as unknown as new () => { updateType
             If(kind.equal(CLUSTER_SPOT), () => {
               // t2 holds the way it shines; three's cone compares the way back to the light.
               colour.mulAssign(smoothstep(r3.x, r3.y, direction.dot(r2.xyz.negate())));
+              if (cookies)
+                If(r3.z.greaterThanEqual(0), () => {
+                  colour.mulAssign(spotCookie(t, int(r3.w), int(r3.z), surface));
+                });
               if (shadows)
                 If(r3.w.greaterThanEqual(0), () => {
                   colour.mulAssign(spotShadow(builder, t, int(r3.w), surface, distance));
                 });
             });
+            if (shadows)
+              If(kind.equal(CLUSTER_POINT).and(r3.w.greaterThanEqual(0)), () => {
+                colour.mulAssign(cubeShadow(builder, t, int(r3.w), surface, distance));
+              });
             if (gate !== null) colour.mulAssign(gate);
             lightingModel.direct({ lightDirection: direction, lightColor: colour, lightNode: { light: {}, shadowNode: null }, reflectedLight: one }, builder);
           };
           if (!areas) pointOrSpot();
           else
             If(kind.lessThan(CLUSTER_RECT), pointOrSpot).Else(() => {
-              shadeAreaLight({ builder, ltc, centre: r0.xyz, reach: r0.w, colour: r1.xyz, u: r2.xyz, v: r3.xyz, twoSided: field.bitAnd(CLUSTER_TWO_SIDED).notEqual(0), toLight, distance, gate, reflectedLight: one });
+              const shade = shadows ? this.areaShadow(builder, r3.w, surface, distance) : null;
+              const areaGate = shade === null ? gate : gate === null ? shade : gate.mul(shade);
+              shadeAreaLight({ builder, ltc, centre: r0.xyz, reach: r0.w, colour: r1.xyz, u: r2.xyz, v: r3.xyz, twoSided: field.bitAnd(CLUSTER_TWO_SIDED).notEqual(0), toLight, distance, gate: areaGate, reflectedLight: one });
             });
           if (uncachedSums !== null) {
             const uncached = field.bitAnd(CLUSTER_UNCACHED).notEqual(0);

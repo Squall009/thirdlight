@@ -10,9 +10,12 @@
  *   and served best first. A light the atlas has no room for draws
  *   unshadowed; no number of lights is a limit.
  * - **Tile sizes** follow the rank, powers of two from
- *   {@link SPOT_TILE_MIN} to {@link SPOT_TILE_MAX} (today's spot map, the
- *   ceiling), never past the atlas; a light that does not fit at its size
- *   takes a smaller tile before none. Tiles come from a quadtree (buddy)
+ *   {@link SPOT_TILE_MIN} to {@link SPOT_TILE_MAX} for a spot (its own map
+ *   was the ceiling), {@link FACE_TILE_MIN} to {@link FACE_TILE_MAX} a face
+ *   for a light seen through several faces (a point light's six, an area
+ *   light's five), never past the atlas; a light that does not fit at its
+ *   size takes smaller tiles before none. A light's faces are one grant:
+ *   all of them or none, all the same size, so it is never half shadowed. Tiles come from a quadtree (buddy)
  *   allocator: a freed tile merges with its free siblings, so the atlas does
  *   not fragment into slivers.
  * - **No thrash.** A light keeps its tile's size until its rank has asked
@@ -30,6 +33,7 @@
  *   reach (the caller's `dirty`). At most {@link ATLAS_REDRAW_SHARE} of the
  *   atlas's texels are drawn a frame, best rank first (always at least one
  *   tile); a dirty tile left over keeps last frame's depth one frame more.
+ *   A light with faces counts all its faces' texels.
  */
 
 /** Metres from the eye at which a local light's shadow has faded out (from 3/4 of it on). */
@@ -37,6 +41,9 @@ export const LOCAL_SHADOW_DISTANCE = 40;
 /** A spot light's tile: the smallest and the largest side (texels; the largest was its own shadow map's). */
 export const SPOT_TILE_MIN = 128;
 export const SPOT_TILE_MAX = 1024;
+/** A face of a light seen through several (a point light's six): the smallest and the largest side (the largest was a point light's own map's). */
+export const FACE_TILE_MIN = 64;
+export const FACE_TILE_MAX = 512;
 /** Frames a light's rank must ask for another tile size before it gets it. */
 export const ATLAS_HOLD_FRAMES = 30;
 /** Seconds a shadow takes to fade in on a new tile, and out when the tile is given away. */
@@ -167,22 +174,26 @@ export interface AtlasRequest {
   readonly fade: number;
   /** What its tile shows can have changed (it moved, the static casters changed, something moved in its reach). */
   readonly dirty: boolean;
+  /** The views its shadow takes (absent: 1, a spot's; a point light's 6), each a tile of {@link FACE_TILE_MIN}–{@link FACE_TILE_MAX}. */
+  readonly faces?: number;
 }
 
 /** What a light has of the atlas this frame. */
 export interface AtlasGrant {
-  /** The tile it samples (null: unshadowed). */
-  readonly tile: AtlasTile | null;
+  /** The tiles it samples, one a face (null: unshadowed). */
+  readonly tiles: readonly AtlasTile[] | null;
   /** Its shadow's strength (0–1: the fades). */
   readonly intensity: number;
-  /** The tile to draw this frame (its sampled one, or the one it is moving to), or null. */
-  readonly draw: AtlasTile | null;
+  /** The tiles to draw this frame (its sampled ones, or those it is moving to), or null. */
+  readonly draw: readonly AtlasTile[] | null;
 }
 
 interface Held {
-  tile: AtlasTile | null;
-  /** A tile it moves to once drawn (a resize). */
-  next: AtlasTile | null;
+  /** Its tiles, one a face, all one size. */
+  tile: AtlasTile[] | null;
+  /** Tiles it moves to once drawn (a resize). */
+  next: AtlasTile[] | null;
+  readonly faces: number;
   /** Its sampled tile holds its depth. */
   drawn: boolean;
   dirty: boolean;
@@ -207,6 +218,13 @@ export interface ShadowAtlasDiagnostics {
   readonly used: number;
 }
 
+/** The allocator's smallest block: the smallest tile of either kind. */
+const SMALLEST_TILE = Math.min(SPOT_TILE_MIN, FACE_TILE_MIN);
+
+function texelsOf(tiles: readonly AtlasTile[] | null): number {
+  return tiles === null ? 0 : tiles.length * tiles[0]!.size ** 2;
+}
+
 export class ShadowAtlasPlan {
   private alloc: QuadAllocator;
   private readonly held = new Map<object, Held>();
@@ -215,11 +233,8 @@ export class ShadowAtlasPlan {
   /** A tile was given away this frame: the light waiting for it takes it next frame. */
   private freed = false;
 
-  constructor(
-    side: number,
-    private readonly sizes: { min: number; max: number } = { min: SPOT_TILE_MIN, max: SPOT_TILE_MAX },
-  ) {
-    this.alloc = new QuadAllocator(side, Math.min(sizes.min, side));
+  constructor(side: number) {
+    this.alloc = new QuadAllocator(side, Math.min(SMALLEST_TILE, side));
     this.last = { side, lights: 0, tiled: 0, waiting: 0, drawn: 0, drawnTexels: 0, used: 0 };
   }
 
@@ -229,7 +244,7 @@ export class ShadowAtlasPlan {
 
   /** Every tile given up (a new atlas texture, of `side`: each is drawn again). */
   reset(side: number): void {
-    this.alloc = new QuadAllocator(side, Math.min(this.sizes.min, side));
+    this.alloc = new QuadAllocator(side, Math.min(SMALLEST_TILE, side));
     this.held.clear();
   }
 
@@ -245,35 +260,42 @@ export class ShadowAtlasPlan {
     const ranked = [...wanted.values()].sort((a, b) => b.rank - a.rank);
     for (const r of ranked) {
       let h = this.held.get(r.key);
-      if (h === undefined) this.held.set(r.key, (h = { tile: null, next: null, drawn: false, dirty: true, asking: 0, shown: 0, leaving: false, rank: r.rank }));
+      const faces = Math.max(1, r.faces ?? 1);
+      if (h !== undefined && h.faces !== faces) {
+        // Another kind of light under the same key: its tiles go, it asks again.
+        this.drop(r.key, h);
+        h = undefined;
+      }
+      if (h === undefined) this.held.set(r.key, (h = { tile: null, next: null, faces, drawn: false, dirty: true, asking: 0, shown: 0, leaving: false, rank: r.rank }));
       h.rank = r.rank;
       h.dirty ||= r.dirty;
-      const size = tileSizeFor(r.rank, side, this.sizes.min, this.sizes.max);
+      const size = faces > 1 ? tileSizeFor(r.rank, side, FACE_TILE_MIN, FACE_TILE_MAX) : tileSizeFor(r.rank, side);
       if (h.tile === null) {
-        h.tile = this.take(size);
+        h.tile = this.take(size, faces);
         h.drawn = false;
         h.asking = 0;
         if (h.tile === null) this.makeRoom(r.rank);
         continue;
       }
       if (h.leaving || h.next !== null) continue;
-      h.asking = size !== h.tile.size ? h.asking + 1 : 0;
+      const held = h.tile[0]!.size;
+      h.asking = size !== held ? h.asking + 1 : 0;
       if (h.asking >= ATLAS_HOLD_FRAMES) {
         h.asking = 0;
         // Its new size if there is room (smaller, if that is all there is, but never smaller than asked when shrinking).
-        h.next = size < h.tile.size ? this.alloc.alloc(size) : this.take(size, h.tile.size * 2);
+        h.next = size < held ? this.take(size, faces, size) : this.take(size, faces, held * 2);
       }
     }
     // Redraws: new and resized tiles and dirty ones, best rank first, within the frame's share of texels.
     const budget = side * side * ATLAS_REDRAW_SHARE;
     let spent = 0;
     let drawn = 0;
-    const draws = new Map<object, AtlasTile>();
+    const draws = new Map<object, AtlasTile[]>();
     for (const r of ranked) {
       const h = this.held.get(r.key)!;
       const t = h.next ?? h.tile;
       if (t === null || (h.next === null && h.drawn && !h.dirty)) continue;
-      const texels = t.size * t.size;
+      const texels = t.length * t[0]!.size ** 2;
       if (drawn > 0 && spent + texels > budget) continue;
       spent += texels;
       drawn += 1;
@@ -287,7 +309,7 @@ export class ShadowAtlasPlan {
       const draw = draws.get(r.key) ?? null;
       if (draw !== null) {
         if (h.next !== null && draw === h.next) {
-          this.alloc.release(h.tile!);
+          for (const t of h.tile!) this.alloc.release(t);
           h.tile = h.next;
           h.next = null;
         }
@@ -300,14 +322,14 @@ export class ShadowAtlasPlan {
       if (h.leaving) h.shown = Math.max(0, h.shown - step);
       else if (h.tile !== null && h.drawn) h.shown = Math.min(1, h.shown + step);
       const shown = h.tile !== null && h.drawn ? h.shown : 0;
-      this.grants.set(r.key, { tile: shown > 0 ? h.tile : null, intensity: shown * r.fade, draw });
+      this.grants.set(r.key, { tiles: shown > 0 ? h.tile : null, intensity: shown * r.fade, draw });
       if (h.leaving && h.shown <= 0) {
         this.drop(r.key, h, false);
         this.freed = true;
       }
     }
     let used = 0;
-    for (const h of this.held.values()) used += (h.tile?.size ?? 0) ** 2 + (h.next?.size ?? 0) ** 2;
+    for (const h of this.held.values()) used += texelsOf(h.tile) + texelsOf(h.next);
     this.last = { side, lights: requests.length, tiled, waiting, drawn, drawnTexels: spent, used: used / (side * side) };
     return this.grants;
   }
@@ -323,11 +345,18 @@ export class ShadowAtlasPlan {
     return false;
   }
 
-  /** A tile of `size`, else the largest smaller one there is room for (down to the smallest; `floor`: no smaller than that). */
-  private take(size: number, floor = 0): AtlasTile | null {
-    for (let s = size; s >= this.alloc.min && s >= floor; s /= 2) {
-      const t = this.alloc.alloc(s);
-      if (t !== null) return t;
+  /** `faces` tiles of `size`, else of the largest smaller size there is room for (down to the smallest; `floor`: no smaller than that). */
+  private take(size: number, faces: number, floor = 0): AtlasTile[] | null {
+    const min = Math.max(floor, Math.min(faces > 1 ? FACE_TILE_MIN : SPOT_TILE_MIN, this.alloc.side));
+    for (let s = size; s >= min; s /= 2) {
+      const got: AtlasTile[] = [];
+      for (let f = 0; f < faces; f += 1) {
+        const t = this.alloc.alloc(s);
+        if (t === null) break;
+        got.push(t);
+      }
+      if (got.length === faces) return got;
+      for (const t of got) this.alloc.release(t);
     }
     return null;
   }
@@ -343,8 +372,8 @@ export class ShadowAtlasPlan {
   }
 
   private drop(key: object, h: Held, forget = true): void {
-    if (h.tile !== null) this.alloc.release(h.tile);
-    if (h.next !== null) this.alloc.release(h.next);
+    for (const t of h.tile ?? []) this.alloc.release(t);
+    for (const t of h.next ?? []) this.alloc.release(t);
     if (forget) this.held.delete(key);
     else {
       h.tile = null;

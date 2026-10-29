@@ -4,8 +4,8 @@
  * settings — the sun's shadow with contact shadows, ambient occlusion,
  * screen-space reflections, the probes, the surface cache read, a
  * lightmap, projected decals, the environment map, and the light clusters
- * with their light tables and shadow atlas — binds at most what a WebGPU
- * fragment stage may on the low tier's GPUs.
+ * with their light tables (the cookie atlas with them) and shadow atlas —
+ * binds at most what a WebGPU fragment stage may on the low tier's GPUs.
  */
 import * as THREE from 'three';
 import * as TSL from 'three/tsl';
@@ -63,6 +63,8 @@ function worstScene(): THREE.Scene {
   clustered.areas = true;
   clustered.uncached = true;
   clustered.shadows = true;
+  // Spot cookies: the cookie atlas is the light tables' texture (the area lights' unit).
+  clustered.cookies = true;
   scene.add(clustered);
   const env = new THREE.CubeTexture();
   scene.environment = env;

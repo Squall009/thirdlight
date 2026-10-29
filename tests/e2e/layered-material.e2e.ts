@@ -976,7 +976,7 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   // Every decal holds its pages but the wet one (a roughness value, no image); the cell's decal one more.
   expect(decalPages).toMatchObject({ decals: decalCount, pages: 2, layers: 2, onGpu: 2 });
   expect(decalPages!.bytes).toBeGreaterThan(0);
-  console.log(`lit rooms ${variant} Play: ${JSON.stringify(lit.lum)}; rooms ${JSON.stringify(renderer['rooms'])}; local shadows ${JSON.stringify((renderer['lights'] as Record<string, unknown> | undefined)?.['localShadows'] ?? null)}`);
+  console.log(`lit rooms ${variant} Play: ${JSON.stringify(lit.lum)}; rooms ${JSON.stringify(renderer['rooms'])}; shadow atlas ${JSON.stringify((renderer['clusters'] as Record<string, unknown> | undefined)?.['atlas'] ?? null)}`);
   // The lamp's light on the rooms' walls and floors comes from the surface cache where the page lights it live
   // (WebGPU): their materials read it and write their colours beside it for the bounce; WebGL 2 draws the saved light.
   type CacheLight = { live: boolean; read: boolean; albedoDrawn: number | null };

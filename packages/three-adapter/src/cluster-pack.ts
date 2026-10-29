@@ -24,14 +24,23 @@
  *     first texel (-1: none).
  *   Positions and axes are written in view space: the CPU rewrites the
  *   records every frame anyway, and the shader saves a matrix a light.
- * - **Shadow records** (`ClusterShadows`), right after the light records,
- *   {@link CLUSTER_SHADOW_TEXELS} texels each: t0–t3 the rows of the matrix
- *   from view space to the atlas (x, y: the atlas's texture coordinates,
- *   from the top left, inside the light's tile; z: the depth its tile
- *   stores; all over w), t4 the tile (left, top, side: shares of the atlas)
- *   and the shadow's strength, t5 the shadow camera's near and far (a
- *   logarithmic depth buffer's depth), the depth bias and the normal offset
- *   per metre of distance from the light.
+ * - **Shadow records** (`ClusterShadows`), right after the light records
+ *   (a light record names its record's first texel):
+ *   - a spot's, {@link CLUSTER_SHADOW_TEXELS} texels: t0–t3 the rows of the
+ *     matrix from view space to the atlas (x, y: the atlas's texture
+ *     coordinates, from the top left, inside the light's tile; z: the depth
+ *     its tile stores; all over w), t4 the tile (left, top, side: shares of
+ *     the atlas) and the shadow's strength (0 for a cookie's projection
+ *     alone), t5 the shadow camera's near and far (a logarithmic depth
+ *     buffer's depth), the depth bias and the normal offset per metre of
+ *     distance from the light;
+ *   - a light seen through faces (a point or area light,
+ *     `shadow-cube.ts`), {@link CLUSTER_CUBE_SHADOW_TEXELS} texels: t0–t2
+ *     the rows of the matrix from view space to the light's frame, t3 near,
+ *     far, depth bias, normal offset per metre, t4 the stored depth's terms
+ *     (`a + b / d` at depth `d` along a face's axis), the strength and a
+ *     face tile's side (a share of the atlas), t5–t7 the six faces' tiles'
+ *     left and top, two a texel (left −1: no tile, unshadowed there).
  * - **Cell headers**, from the word right after the shadow records
  *   ({@link ClusterTextures.listWord}): one word per cell (cell index = tile
  *   x + tiles x × (tile y + tiles y × slice)), then the index lists, one
@@ -61,10 +70,10 @@ export const CLUSTER_TEXTURE_WIDTH = 1024;
 export const CLUSTER_TEXEL_WORDS = 4;
 /** Texels a light record. */
 export const CLUSTER_LIGHT_TEXELS = 4;
-/** Texels a shadow record. */
+/** Texels a spot's shadow record. */
 export const CLUSTER_SHADOW_TEXELS = 6;
-/** Floats a shadow record holds as `ClusterShadows` keeps it (the matrix world → atlas, then t4 and t5). */
-const SHADOW_FLOATS = CLUSTER_SHADOW_TEXELS * 4;
+/** Texels the shadow record of a light seen through faces (a point or area light). */
+export const CLUSTER_CUBE_SHADOW_TEXELS = 8;
 /** The headers and lists' ceiling (MiB of 32-bit words). */
 export const CLUSTER_INDEX_MIB = 16;
 /** Words the headers and lists may use: the ceiling in 4-byte words (2^22, which the header's 22-bit offset spans). */
@@ -110,30 +119,85 @@ export interface ClusterShadowValue {
   readonly normalBias: number;
 }
 
-/** The frame's shadow records; a light's `shadow` in `ClusterLights` is its slot here. */
-export class ClusterShadows {
-  count = 0;
-  data = new Float32Array(SHADOW_FLOATS * 4);
+/** The shadow record of a light seen through faces (world space; the pack turns the matrix into the view's). */
+export interface ClusterCubeShadowValue {
+  /** World → the light's frame (column-major; its first three rows are used). */
+  readonly matrix: ArrayLike<number>;
+  readonly near: number;
+  readonly far: number;
+  readonly bias: number;
+  readonly normalBias: number;
+  /** The stored depth at `d` along a face's axis: `depth[0] + depth[1] / d`. */
+  readonly depth: readonly [number, number];
+  readonly intensity: number;
+  /** A face tile's side (a share of the atlas). */
+  readonly size: number;
+  /** Each face's tile's left and top (shares of the atlas; null: no tile). */
+  readonly faces: readonly (readonly [number, number] | null)[];
+}
 
-  clear(): void {
-    this.count = 0;
+/** The frame's shadow records; a light's `shadow` in `ClusterLights` is its record's first texel here. */
+export class ClusterShadows {
+  /** Texels written. */
+  texels = 0;
+  data = new Float32Array(CLUSTER_SHADOW_TEXELS * 16);
+  /** Each record's first texel and its matrix's rows (4: a spot's, 3: a light seen through faces). */
+  private starts: number[] = [];
+  private rows: number[] = [];
+
+  get count(): number {
+    return this.starts.length;
   }
 
-  /** Append a record; its slot. */
+  clear(): void {
+    this.texels = 0;
+    this.starts.length = 0;
+    this.rows.length = 0;
+  }
+
+  /** Append a spot's record; its first texel. */
   add(v: ClusterShadowValue): number {
-    const i = this.count;
-    if ((i + 1) * SHADOW_FLOATS > this.data.length) {
-      const next = new Float32Array(this.data.length * 2);
+    const o = this.open(CLUSTER_SHADOW_TEXELS, 4);
+    this.rowsOf(v.matrix, o, 4);
+    this.data.set([v.rect[0], v.rect[1], v.rect[2], v.intensity, v.near, v.far, v.bias, v.normalBias], o + 16);
+    return o / 4;
+  }
+
+  /** Append the record of a light seen through faces; its first texel. */
+  addCube(v: ClusterCubeShadowValue): number {
+    const o = this.open(CLUSTER_CUBE_SHADOW_TEXELS, 3);
+    this.rowsOf(v.matrix, o, 3);
+    this.data.set([v.near, v.far, v.bias, v.normalBias, v.depth[0], v.depth[1], v.intensity, v.size], o + 12);
+    for (let f = 0; f < 6; f += 1) {
+      const c = v.faces[f] ?? null;
+      this.data[o + 20 + 2 * f] = c === null ? -1 : c[0];
+      this.data[o + 21 + 2 * f] = c === null ? -1 : c[1];
+    }
+    return o / 4;
+  }
+
+  /** Each record's first texel and matrix rows, for the pack. */
+  forEach(fn: (texel: number, rows: number) => void): void {
+    for (let i = 0; i < this.starts.length; i += 1) fn(this.starts[i]!, this.rows[i]!);
+  }
+
+  /** Room for a record of `texels` (its first float). */
+  private open(texels: number, rows: number): number {
+    const o = this.texels * 4;
+    if (o + texels * 4 > this.data.length) {
+      const next = new Float32Array(Math.max(this.data.length * 2, o + texels * 4));
       next.set(this.data);
       this.data = next;
     }
-    this.count += 1;
-    const o = i * SHADOW_FLOATS;
-    const m = v.matrix;
-    // Rows of the column-major matrix.
-    for (let r = 0; r < 4; r += 1) for (let c = 0; c < 4; c += 1) this.data[o + r * 4 + c] = m[c * 4 + r]!;
-    this.data.set([v.rect[0], v.rect[1], v.rect[2], v.intensity, v.near, v.far, v.bias, v.normalBias], o + 16);
-    return i;
+    this.starts.push(this.texels);
+    this.rows.push(rows);
+    this.texels += texels;
+    return o;
+  }
+
+  /** The first `rows` rows of the column-major matrix `m` at float `o`. */
+  private rowsOf(m: ArrayLike<number>, o: number, rows: number): void {
+    for (let r = 0; r < rows; r += 1) for (let c = 0; c < 4; c += 1) this.data[o + r * 4 + c] = m[c * 4 + r]!;
   }
 }
 
@@ -155,7 +219,7 @@ export class ClusterTextures {
     this.listWord = 0;
   }
 
-  /** Write `build`'s records, `shadows`' records (the slots `lights.shadow` names), headers and lists. */
+  /** Write `build`'s records, `shadows`' records (the first texels `lights.shadow` names), headers and lists. */
   pack(build: ClusterBuild, lights: ClusterLights, shadows: ClusterShadows = NO_SHADOWS): ClusterPackResult {
     const clusters = build.grid.clusters;
     const counts = build.counts;
@@ -165,7 +229,7 @@ export class ClusterTextures {
     const listWords = clusters + listEntries;
     if (listWords > CLUSTER_INDEX_WORDS) throw new Error(`cluster lists: ${listWords} words past the ${CLUSTER_INDEX_MIB} MiB ceiling (the build's budget was not the pack's)`);
     const shadowTexel = build.packed * CLUSTER_LIGHT_TEXELS;
-    const base = build.packed * RECORD_WORDS + shadows.count * SHADOW_FLOATS;
+    const base = build.packed * RECORD_WORDS + shadows.texels * CLUSTER_TEXEL_WORDS;
     const texels = Math.ceil((base + listWords) / CLUSTER_TEXEL_WORDS);
     const grew = this.grow(texels);
     this.listWord = base;
@@ -213,7 +277,7 @@ export class ClusterTextures {
 
   /** The shadow records at word `at`: each matrix taken from world to `V`'s view space (times the view's inverse). */
   private writeShadows(V: ArrayLike<number>, shadows: ClusterShadows, at: number): void {
-    if (shadows.count === 0) return;
+    if (shadows.texels === 0) return;
     // The camera's world matrix: V is rigid (rotation and translation), so its inverse is its transpose and −Rᵀt.
     const W = this.inverse;
     for (let r = 0; r < 3; r += 1) {
@@ -224,19 +288,20 @@ export class ClusterTextures {
     W[15] = 1;
     const src = shadows.data;
     const out = this.floats;
-    for (let i = 0; i < shadows.count; i += 1) {
-      const o = i * SHADOW_FLOATS;
+    // Everything as written, then each record's matrix rows taken to view space.
+    out.set(src.subarray(0, shadows.texels * CLUSTER_TEXEL_WORDS), at);
+    shadows.forEach((texel, rows) => {
+      const o = texel * CLUSTER_TEXEL_WORDS;
       const d = at + o;
       // Row r of (M × W): the row of M times W's columns.
-      for (let r = 0; r < 4; r += 1) {
+      for (let r = 0; r < rows; r += 1) {
         const m0 = src[o + r * 4]!;
         const m1 = src[o + r * 4 + 1]!;
         const m2 = src[o + r * 4 + 2]!;
         const m3 = src[o + r * 4 + 3]!;
         for (let c = 0; c < 4; c += 1) out[d + r * 4 + c] = m0 * W[c * 4]! + m1 * W[c * 4 + 1]! + m2 * W[c * 4 + 2]! + m3 * W[c * 4 + 3]!;
       }
-      for (let k = 16; k < SHADOW_FLOATS; k += 1) out[d + k] = src[o + k]!;
-    }
+    });
   }
 
   private readonly inverse = new Float64Array(16);
@@ -270,7 +335,7 @@ export class ClusterTextures {
         rotateInto(V, lights.v, i, out, o + 12);
       }
       const shadow = lights.shadow[i]!;
-      out[o + 15] = shadow < 0 ? -1 : shadowTexel + shadow * CLUSTER_SHADOW_TEXELS;
+      out[o + 15] = shadow < 0 ? -1 : shadowTexel + shadow;
     }
   }
 
@@ -354,7 +419,7 @@ export interface DecodedClusterLight {
   v?: [number, number, number];
 }
 
-/** A shadow record read back as the shader does (`texel`: its first texel, the light record's `shadow`). */
+/** A spot's shadow record read back as the shader does (`texel`: its first texel, the light record's `shadow`). */
 export function decodeClusterShadow(data: Uint32Array, texel: number): { rows: number[][]; rect: [number, number, number]; intensity: number; near: number; far: number; bias: number; normalBias: number } {
   const floats = new Float32Array(data.buffer, data.byteOffset, data.length);
   const o = texel * CLUSTER_TEXEL_WORDS;
@@ -384,4 +449,13 @@ export function decodeClusterLight(data: Uint32Array, index: number): DecodedClu
   if (kind === CLUSTER_SPOT) return { ...base, axis: [t(8), t(9), t(10)], cosOuter: t(12), cosInner: t(13), cookie: Math.trunc(t(14)) };
   if (kind >= 2) return { ...base, u: [t(8), t(9), t(10)], v: [t(12), t(13), t(14)] };
   return base;
+}
+
+/** The shadow record of a light seen through faces, read back as the shader does. */
+export function decodeClusterCubeShadow(data: Uint32Array, texel: number): { rows: number[][]; near: number; far: number; bias: number; normalBias: number; depth: [number, number]; intensity: number; size: number; faces: ([number, number] | null)[] } {
+  const floats = new Float32Array(data.buffer, data.byteOffset, data.length);
+  const o = texel * CLUSTER_TEXEL_WORDS;
+  const t = (k: number): number => floats[o + k]!;
+  const faces = [0, 1, 2, 3, 4, 5].map((f): [number, number] | null => (t(20 + 2 * f) < 0 ? null : [t(20 + 2 * f), t(21 + 2 * f)]));
+  return { rows: [0, 1, 2].map((r) => [t(r * 4), t(r * 4 + 1), t(r * 4 + 2), t(r * 4 + 3)]), near: t(12), far: t(13), bias: t(14), normalBias: t(15), depth: [t(16), t(17)], intensity: t(18), size: t(19), faces };
 }

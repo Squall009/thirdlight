@@ -124,10 +124,12 @@ unique across the whole project. One command edits one scene.
   The Scene view applies the same rule to the open scenes, in hierarchy
   order. Play diagnostics (`renderer.lights`) name the lights that are on.
 - **Spot light cookies**: Inspector → Light → Cookie picks a
-  texture the spot projects through its cone (three's `SpotLight.map`;
-  white passes the light, black blocks it, colour tints it), in the Scene
-  view, Play and the export, on WebGPU and WebGL 2. Directional lights take
-  no cookie.
+  texture the spot projects through its cone (as three's `SpotLight.map`
+  does; white passes the light, black blocks it, colour tints it), in the
+  Scene view, Play and the export, on WebGPU and WebGL 2, from a tile of
+  the cookie atlas ([Lighting](lighting.md)). A GPU-compressed (KTX2)
+  texture draws no cookie (a console warning says so). Directional lights
+  take no cookie.
 - **In the editor.** Each open scene is a header in the hierarchy.
   - Click a header to make that scene active. New root objects go into the
     active scene; a child goes into its parent's scene.

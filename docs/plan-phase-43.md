@@ -360,3 +360,16 @@ boundaries; each is green on its own. 43.4 can run any time after 43.3a (it drop
   the level's `shadowMapSize` no longer touches spots); (6) a host drawing on demand (the editor) is asked for
   frames while an atlas shadow fades or a tile waits to be drawn.
 
+- 2026-10-29 (43.3b, default chosen, owner to confirm): (1) a point light's six faces are three's point-light shadow
+  faces (its WebGL table, `shadow-cube.ts`) on both renderers, 64–512 texels each, all six granted together or none,
+  the light ranked at half weight; an area light casts by default (as the surface cache traces it) with five faces
+  from its middle, turned with it (the face behind its emitter left out; six when two-sided). (2) The cookie atlas
+  is the light tables' texture grown to 2,048² RGBA16F (32 MiB) only while a spot projects a cookie (the LTC tables
+  in its first tile; one unit either way), 63 tiles of 256², one per image (spots sharing an image share it), spots
+  largest on screen first, the least recently used image's tile reused; drawn on the CPU (a 2D canvas, sRGB decoded
+  to half floats; only the tile is sent), so a GPU-compressed (KTX2) cookie draws none (D402). (3) three's own
+  cookie was mirrored between its two backends (WebGL 2 against WebGPU, measured on the same step); the atlas draws
+  WebGPU's on both. (4) `shadowedLights` limits nothing any more (no per-light shadow maps; 43.4 drops the field);
+  `ShadowBudget` and `POINT_SHADOW_MAP_SIZE` are gone, the renderer's shadow map is the key light's alone. (5) A new
+  atlas is wiped whole once before any light reads it: on WebGL 2 a depth texture never drawn into failed the draws
+  binding it (a strip of the floor went missing in the lamp room's far view).
