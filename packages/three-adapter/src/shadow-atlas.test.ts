@@ -3,11 +3,11 @@
  * atlas, sizes follow the rank, small rank changes move nothing, a full
  * atlas leaves the lowest-ranked lights unshadowed (and the light a better
  * one displaces fades out before its tile is given away), and the redraws
- * stay within their share of the atlas a frame.
+ * stay within their share of the atlas a frame without starving any tile.
  */
 import { describe, expect, it } from 'vitest';
 
-import { ATLAS_FADE_SECONDS, ATLAS_FADE_STEP_MAX, ATLAS_HOLD_FRAMES, ATLAS_REDRAW_SHARE, FACE_TILE_MAX, FACE_TILE_MIN, QuadAllocator, ShadowAtlasPlan, shadowRank, SPOT_TILE_MAX, SPOT_TILE_MIN, tileSizeFor, type AtlasGrant, type AtlasRequest, type AtlasTile } from './shadow-atlas';
+import { ATLAS_EVICT_MARGIN, ATLAS_FADE_SECONDS, ATLAS_FADE_STEP_MAX, ATLAS_HOLD_FRAMES, ATLAS_REDRAW_SHARE, ATLAS_REDRAW_WAIT_FRAMES, FACE_TILE_MAX, FACE_TILE_MIN, QuadAllocator, ShadowAtlasPlan, shadowRank, SPOT_TILE_MAX, SPOT_TILE_MIN, tileSizeFor, type AtlasGrant, type AtlasRequest, type AtlasTile } from './shadow-atlas';
 
 function mulberry32(seed: number): () => number {
   let a = seed;
@@ -250,5 +250,64 @@ describe('the shadow atlas plan', () => {
     // Every face of a dirty light is drawn together.
     const d = small.update([{ ...cube(0, 1), dirty: true }, cube(1, 0.9)], 1 / 60);
     expect(d.get(keys[0]!)!.draw?.length).toBe(6);
+  });
+  it('redraws every dirty tile within a few frames while a moving caster keeps the best lamp dirty on the low tier', () => {
+    // The low tier's 2,048 atlas: a near spot's 1,024 tile is the whole frame's share, a point light's six 512 faces
+    // more than it. A character walks between them, so both stay dirty every frame.
+    const side = 2048;
+    const plan = new ShadowAtlasPlan(side);
+    const cube = (i: number, rank: number, dirty: boolean): AtlasRequest => ({ ...req(i, rank, dirty), faces: 6 });
+    const lamps = (dirty: boolean, extra: AtlasRequest[] = []): AtlasRequest[] => [req(0, 1, dirty), req(1, 0.6, dirty), cube(2, 0.5, dirty), ...extra];
+    settle(plan, lamps(false), 80);
+    expect(plan.diagnostics()).toMatchObject({ tiled: 3, waiting: 0 });
+    expect(plan.update(lamps(false), 1 / 60).get(keys[0]!)!.tiles![0]!.size).toBe(1024);
+    const bound = ATLAS_REDRAW_WAIT_FRAMES + 3;
+    const lastDrawn = new Map<object, number>();
+    const longest = new Map<object, number>();
+    let newcomerDrawn = -1;
+    let newcomerShown = -1;
+    for (let f = 0; f < 120; f += 1) {
+      // Half way, a fourth lamp comes into view: its new tile is drawn, then shown, within the bound too.
+      const g = plan.update(lamps(true, f >= 60 ? [req(3, 0.3, true)] : []), 1 / 60);
+      const spent = [...g.values()].reduce((n, x) => n + (x.draw === null ? 0 : x.draw.length * x.draw[0]!.size ** 2), 0);
+      const tiles = [...g.values()].filter((x) => x.draw !== null).length;
+      if (tiles > 1) expect(spent).toBeLessThanOrEqual(side * side * ATLAS_REDRAW_SHARE);
+      for (const [key, x] of g) {
+        if (x.draw === null) continue;
+        longest.set(key, Math.max(longest.get(key) ?? 0, f - (lastDrawn.get(key) ?? (key === keys[3] ? 59 : -1))));
+        lastDrawn.set(key, f);
+      }
+      const n = g.get(keys[3]!);
+      if (n !== undefined && n.draw !== null && newcomerDrawn < 0) newcomerDrawn = f;
+      if (n !== undefined && n.intensity > 0 && newcomerShown < 0) {
+        newcomerShown = f;
+        expect(newcomerDrawn, 'shown only once drawn').toBeGreaterThanOrEqual(0);
+      }
+    }
+    for (const k of [keys[0]!, keys[1]!, keys[2]!, keys[3]!]) {
+      expect(lastDrawn.get(k), `light ${(k as { light: number }).light} drawn`).toBeGreaterThanOrEqual(120 - bound);
+      expect(longest.get(k)!, `light ${(k as { light: number }).light}'s longest wait`).toBeLessThanOrEqual(bound);
+    }
+    expect(newcomerDrawn - 60).toBeLessThanOrEqual(bound);
+    expect(newcomerShown).toBeGreaterThanOrEqual(newcomerDrawn);
+    // With four tiles that each fill the share the turns go round; with two, the best lamp still redraws most frames.
+    let best = 0;
+    for (let f = 0; f < 60; f += 1) if (plan.update([req(0, 1, true), req(1, 0.6, true), cube(2, 0.5, false), req(3, 0.3, false)], 1 / 60).get(keys[0]!)!.draw !== null) best += 1;
+    expect(best).toBeGreaterThanOrEqual(40);
+  });
+
+  it('keeps a full atlas\'s holder against a light of about its rank, and gives way to one clearly better', () => {
+    const plan = new ShadowAtlasPlan(512);
+    settle(plan, [req(0, 1), req(1, 0.5)]);
+    // Ranks within the margin, the newcomer just ahead: the holder keeps its tile for good.
+    const close = [req(0, 1), req(1, 1 * ATLAS_EVICT_MARGIN * 0.99)];
+    const g = settle(plan, close, 120);
+    expect(g.get(keys[0]!)!.tiles?.[0]).toEqual({ x: 0, y: 0, size: 512 });
+    expect(g.get(keys[1]!)!.tiles).toBeNull();
+    // Past the margin: it fades out and the better light takes the tile.
+    const clear = [req(0, 1), req(1, 1 * ATLAS_EVICT_MARGIN * 1.01)];
+    const h = settle(plan, clear, 60);
+    expect(h.get(keys[1]!)!.tiles?.[0]).toEqual({ x: 0, y: 0, size: 512 });
+    expect(h.get(keys[0]!)!.tiles).toBeNull();
   });
 });

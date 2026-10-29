@@ -34,9 +34,18 @@
  * - **Redraws.** A tile is drawn when it is new or resized, and when its
  *   light moved, the static casters changed or something moved within its
  *   reach (the caller's `dirty`). At most {@link ATLAS_REDRAW_SHARE} of the
- *   atlas's texels are drawn a frame, best rank first (always at least one
- *   tile); a dirty tile left over keeps last frame's depth one frame more.
- *   A light with faces counts all its faces' texels.
+ *   atlas's texels are drawn a frame (always at least one tile); a light
+ *   with faces counts all its faces' texels. Best rank goes first, except
+ *   that a tile which has waited {@link ATLAS_REDRAW_WAIT_FRAMES} frames goes
+ *   ahead of every rank (the longest waiting first): an animated character
+ *   standing by the best-ranked lamp keeps that lamp dirty every frame, and
+ *   on a small atlas one lamp can take the whole share, so pure rank order
+ *   would leave every other dirty tile stale, and a newly granted tile
+ *   unshadowed, for as long as the character stays. A tile left over keeps
+ *   its last depth until its turn (a new one is not sampled until drawn).
+ * - **Eviction.** A light without room takes a tile from a holder only when
+ *   it outranks it by {@link ATLAS_EVICT_MARGIN}: two lights of about the
+ *   same rank would otherwise take the tile from each other in turn.
  */
 
 /** Metres from the eye at which a local light's shadow has faded out (from 3/4 of it on). */
@@ -59,6 +68,14 @@ export const ATLAS_FADE_SECONDS = 0.25;
 export const ATLAS_FADE_STEP_MAX = 1 / 30;
 /** The share of the atlas's texels drawn a frame at most. */
 export const ATLAS_REDRAW_SHARE = 0.25;
+/**
+ * Frames a tile waiting for its redraw lets better-ranked tiles go first; then it goes ahead of them. Small, so a
+ * moving shadow under a lesser lamp lags by a few frames at most; above 1, so the best-ranked lamp still redraws
+ * most frames when it alone fills the share.
+ */
+export const ATLAS_REDRAW_WAIT_FRAMES = 3;
+/** How many times a holder's rank a light must have to take its tile when the atlas is full. */
+export const ATLAS_EVICT_MARGIN = 1.25;
 /** The reach a light without a range is ranked with (m). */
 export const UNBOUNDED_SHADOW_REACH = 20;
 
@@ -214,6 +231,11 @@ interface Held {
   shown: number;
   leaving: boolean;
   rank: number;
+  /** Frames it has needed a redraw and not had one (0 once drawn). */
+  waited: number;
+  /** The tiles it draws this frame (null: none), and its grant (kept, rewritten each frame). */
+  draw: AtlasTile[] | null;
+  readonly grant: { tiles: readonly AtlasTile[] | null; intensity: number; draw: readonly AtlasTile[] | null };
 }
 
 export interface ShadowAtlasDiagnostics {
@@ -232,6 +254,16 @@ export interface ShadowAtlasDiagnostics {
 /** The allocator's smallest block: the smallest tile of either kind. */
 const SMALLEST_TILE = Math.min(SPOT_TILE_MIN, FACE_TILE_MIN);
 
+const byRank = (a: AtlasRequest, b: AtlasRequest): number => b.rank - a.rank;
+/** Redraw order: overdue tiles first, longest waiting first; then best rank. */
+function byTurn(a: Held, b: Held): number {
+  const ao = a.waited >= ATLAS_REDRAW_WAIT_FRAMES;
+  const bo = b.waited >= ATLAS_REDRAW_WAIT_FRAMES;
+  if (ao !== bo) return ao ? -1 : 1;
+  if (ao && a.waited !== b.waited) return b.waited - a.waited;
+  return b.rank - a.rank;
+}
+
 function texelsOf(tiles: readonly AtlasTile[] | null): number {
   return tiles === null ? 0 : tiles.length * tiles[0]!.size ** 2;
 }
@@ -240,6 +272,13 @@ export class ShadowAtlasPlan {
   private alloc: QuadAllocator;
   private readonly held = new Map<object, Held>();
   private readonly grants = new Map<object, AtlasGrant>();
+  /** Scratch reused every frame: the requests with a rank, best first, and the tiles waiting for a redraw. */
+  private readonly wanted = new Map<object, AtlasRequest>();
+  private readonly ranked: AtlasRequest[] = [];
+  private readonly queue: Held[] = [];
+  /** The last schedule's tiles and texels drawn. */
+  private drawn = 0;
+  private spent = 0;
   private last: ShadowAtlasDiagnostics;
   /** A tile was given away this frame: the light waiting for it takes it next frame. */
   private freed = false;
@@ -259,16 +298,20 @@ export class ShadowAtlasPlan {
     this.held.clear();
   }
 
-  /** The frame's plan for `requests` (`dt`: seconds since the last one). */
+  /** The frame's plan for `requests` (`dt`: seconds since the last one). The map and its grants are reused next frame. */
   update(requests: readonly AtlasRequest[], dt: number): ReadonlyMap<object, AtlasGrant> {
     const side = this.alloc.side;
     const step = Math.min(Math.max(0, dt), ATLAS_FADE_STEP_MAX) / ATLAS_FADE_SECONDS;
     this.freed = false;
-    const wanted = new Map<object, AtlasRequest>();
+    const wanted = this.wanted;
+    wanted.clear();
     for (const r of requests) if (r.rank > 0) wanted.set(r.key, r);
     // Gone, out of view or faded out with distance: the tile goes now (nothing it lights is seen).
     for (const [key, h] of this.held) if (!wanted.has(key)) this.drop(key, h);
-    const ranked = [...wanted.values()].sort((a, b) => b.rank - a.rank);
+    const ranked = this.ranked;
+    ranked.length = 0;
+    for (const r of wanted.values()) ranked.push(r);
+    ranked.sort(byRank);
     for (const r of ranked) {
       let h = this.held.get(r.key);
       const faces = Math.max(1, r.faces ?? 1);
@@ -277,7 +320,7 @@ export class ShadowAtlasPlan {
         this.drop(r.key, h);
         h = undefined;
       }
-      if (h === undefined) this.held.set(r.key, (h = { tile: null, next: null, faces, drawn: false, dirty: true, asking: 0, wants: 0, denied: 0, shown: 0, leaving: false, rank: r.rank }));
+      if (h === undefined) this.held.set(r.key, (h = { tile: null, next: null, faces, drawn: false, dirty: true, asking: 0, wants: 0, denied: 0, shown: 0, leaving: false, rank: r.rank, waited: 0, draw: null, grant: { tiles: null, intensity: 0, draw: null } }));
       h.rank = r.rank;
       h.dirty ||= r.dirty;
       const size = faces > 1 ? tileSizeFor(r.rank, side, FACE_TILE_MIN, FACE_TILE_MAX) : tileSizeFor(r.rank, side);
@@ -300,27 +343,14 @@ export class ShadowAtlasPlan {
         if (h.next === null) h.denied = size;
       }
     }
-    // Redraws: new and resized tiles and dirty ones, best rank first, within the frame's share of texels.
-    const budget = side * side * ATLAS_REDRAW_SHARE;
-    let spent = 0;
-    let drawn = 0;
-    const draws = new Map<object, AtlasTile[]>();
-    for (const r of ranked) {
-      const h = this.held.get(r.key)!;
-      const t = h.next ?? h.tile;
-      if (t === null || (h.next === null && h.drawn && !h.dirty)) continue;
-      const texels = t.length * t[0]!.size ** 2;
-      if (drawn > 0 && spent + texels > budget) continue;
-      spent += texels;
-      drawn += 1;
-      draws.set(r.key, t);
-    }
+    this.scheduleRedraws(ranked, side * side * ATLAS_REDRAW_SHARE);
+    const { drawn, spent } = this;
     this.grants.clear();
     let tiled = 0;
     let waiting = 0;
     for (const r of ranked) {
       const h = this.held.get(r.key)!;
-      const draw = draws.get(r.key) ?? null;
+      const draw = h.draw;
       if (draw !== null) {
         if (h.next !== null && draw === h.next) {
           for (const t of h.tile!) this.alloc.release(t);
@@ -336,7 +366,10 @@ export class ShadowAtlasPlan {
       if (h.leaving) h.shown = Math.max(0, h.shown - step);
       else if (h.tile !== null && h.drawn) h.shown = Math.min(1, h.shown + step);
       const shown = h.tile !== null && h.drawn ? h.shown : 0;
-      this.grants.set(r.key, { tiles: shown > 0 ? h.tile : null, intensity: shown * r.fade, draw });
+      h.grant.tiles = shown > 0 ? h.tile : null;
+      h.grant.intensity = shown * r.fade;
+      h.grant.draw = draw;
+      this.grants.set(r.key, h.grant);
       if (h.leaving && h.shown <= 0) {
         this.drop(r.key, h, false);
         this.freed = true;
@@ -346,6 +379,40 @@ export class ShadowAtlasPlan {
     for (const h of this.held.values()) used += texelsOf(h.tile) + texelsOf(h.next);
     this.last = { side, lights: requests.length, tiled, waiting, drawn, drawnTexels: spent, used: used / (side * side) };
     return this.grants;
+  }
+
+  /**
+   * Which tiles are drawn this frame (each holder's `draw`), within `budget` texels: those that waited
+   * {@link ATLAS_REDRAW_WAIT_FRAMES} frames first, longest waiting first, then by rank (`ranked`'s order); always
+   * at least one. A tile passed over counts a frame of waiting.
+   */
+  private scheduleRedraws(ranked: readonly AtlasRequest[], budget: number): void {
+    const queue = this.queue;
+    queue.length = 0;
+    for (const r of ranked) {
+      const h = this.held.get(r.key)!;
+      h.draw = null;
+      const t = h.next ?? h.tile;
+      if (t === null || (h.next === null && h.drawn && !h.dirty)) h.waited = 0;
+      else queue.push(h);
+    }
+    queue.sort(byTurn);
+    let spent = 0;
+    let drawn = 0;
+    for (const h of queue) {
+      const t = h.next ?? h.tile!;
+      const texels = t.length * t[0]!.size ** 2;
+      if (drawn > 0 && spent + texels > budget) {
+        h.waited += 1;
+        continue;
+      }
+      spent += texels;
+      drawn += 1;
+      h.draw = t;
+      h.waited = 0;
+    }
+    this.drawn = drawn;
+    this.spent = spent;
   }
 
   diagnostics(): ShadowAtlasDiagnostics {
@@ -379,12 +446,12 @@ export class ShadowAtlasPlan {
     return null;
   }
 
-  /** A light of `rank` found no room: the lowest-ranked light below it holding a tile starts giving it away. */
+  /** A light of `rank` found no room: the lowest-ranked light it outranks by the margin, holding a tile, starts giving it away. */
   private makeRoom(rank: number): void {
     let worst: Held | null = null;
     for (const h of this.held.values()) {
       if (h.leaving) return;
-      if (h.tile !== null && h.rank < rank && (worst === null || h.rank < worst.rank)) worst = h;
+      if (h.tile !== null && h.rank * ATLAS_EVICT_MARGIN < rank && (worst === null || h.rank < worst.rank)) worst = h;
     }
     if (worst !== null) worst.leaving = true;
   }
@@ -400,6 +467,7 @@ export class ShadowAtlasPlan {
       h.dirty = true;
       h.leaving = false;
       h.shown = 0;
+      h.waited = 0;
     }
   }
 }
