@@ -10,8 +10,9 @@ replacements. The rule: [Existing projects keep their look](../concepts/existing
 
 Opening a project of schemaVersion 6 or 7 upgrades it on open and writes it
 back as 8 (Problems notes it once, `project_upgraded`, naming what changed).
-An 8 whose `project.json` `upgrades` list lacks `planes` gets that step
-once too ([below](#a-side-view-project-moves-onto-planes)).
+An 8 whose `project.json` `upgrades` list lacks `planes` or
+`light-counts` gets that step once too ([planes](#a-side-view-project-moves-onto-planes),
+[light counts](#light-counts-retired)).
 Commit what it wrote. A 7 with nothing to change only gets the new number in
 `project.json` (no new revision). A project older than 6 (schemaVersion 2 to
 5) is not opened: the open error and the project list say so and name the
@@ -175,6 +176,25 @@ works in side views too and pulls the camera in front of colliders between
 it and its target; scripts' `{x, y}` queries ask on the scene's plane and
 `character_move` is accepted on a plane. How to switch a body between the
 plane and free 3D mid-game: [the guide](../guides/switching-to-a-plane.md).
+
+### Light counts retired
+
+Local lights (point, spot, area and effect lights) have no count any more:
+each pixel loops over the lights of its light cluster, and shadowed ones
+share the quality level's shadow atlas (`shadowAtlas`, a memory budget; see
+[Lighting](lighting.md)). The `light-counts` step drops the fields that only
+kept a game within the old count of 16 lights a pixel:
+
+- a quality level's `localLights` (how many point and spot lights were on)
+  and `shadowedLights` (how many point lights drew a shadow). A level that
+  used them to keep a low-end machine cheap sets a smaller `shadowAtlas`
+  now; lights it switched off are on.
+- a furnishing set's **Lights** count: every room a Light node names gets
+  its light. A set whose count was 0 lit no room, so its Light nodes go and
+  it still lights none.
+
+Problems notes it once (`project_upgraded`). The `lights_local` scene check
+and the `lights_dropped` Problems line are gone with the count.
 
 ### Problems lines a game may see after the upgrade
 

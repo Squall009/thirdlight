@@ -185,7 +185,7 @@ block in the Scene view adds it then, once). No count caps them: the pool
 grows with the lit particles (a block's *Max lights* goes up to its
 system's particles), and each light costs only the pixels its cells reach
 (the clusters' memory budget, see
-[Local lights per object](lighting.md#local-lights-per-object)). The surface
+[What the lighting does not cover](lighting.md#what-the-lighting-does-not-cover)). The surface
 cache does not hold effect lights: a static wall reading the cache gets
 their light whole, per pixel. A *Lights* block has **Light layers (mask)** (bit n is
 layer n + 1; 255, the default, every layer: its lights light only objects

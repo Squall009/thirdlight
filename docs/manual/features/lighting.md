@@ -333,8 +333,6 @@ rather than one point. Add one with **GameObject → Light → Area light** (a
   beside it get the same light. Every area light reaching a pixel is drawn
   (no count). A baked area light (once baked) is drawn from the saved light
   only. Bake lighting saves its light by its `mode`, as any light's.
-- **No per-pixel budget** — area lights are not counted in the scene's 16
-  realtime point and spot lights.
 
 ## The surface cache's live light
 
@@ -665,18 +663,40 @@ The design's limits, and what is not built yet:
   many models runs a little over its 1.5 ms while it re-lights; temporal
   upscaling takes about 1 ms. The high tier has not been measured on a
   discrete GPU.
-- **Clustered lighting.** Point and spot lights reach every pixel they
-  light through per-cell light lists, however many there are, on both
-  renderers. A shadowed light's shadow is tiles of one shared shadow atlas:
+- **Clustered lighting.** Point, spot, area and effect lights reach every
+  pixel they light through per-cell light lists, however many there are, on
+  both renderers (there is no count of local lights). A shadowed light's shadow is tiles of one shared shadow atlas:
   a spot one (128–1,024 texels), a point light six faces (64–512 each,
   ranked at half weight), an area light five (six when two-sided). The
   lamps largest on screen get the larger tiles, a lamp the atlas has no
   room for lights unshadowed, and a shadow fades in and out over a quarter
   second as lamps gain and lose tiles. The atlas's side is the quality
   level's `shadowAtlas` (texels; absent: the tier's, low 2,048, medium
-  4,096, high 8,192 — 8, 32 and 128 MiB of 16-bit depth). A spot's cookie
+  4,096, high 8,192: 16-bit depth plus an unwritten 8-bit colour
+  attachment three's render targets need, 12, 48 and 192 MiB). A lamp's
+  tiles are drawn when it gets them, moves, or something moves within its
+  reach, and at most a quarter of the atlas a frame; a still lamp's tiles
+  are drawn once. A spot's cookie
   is a 256² tile of the cookie atlas, which is the area lights' tables
   texture grown to 2,048² half floats (32 MiB) while any spot projects one:
   63 cookie images at once (spots sharing an image share its tile), the
-  spots largest on screen first; past that a spot draws no cookie. No light
-  has a shadow map, cookie texture or program of its own.
+  spots largest on screen first; past that a spot draws no cookie. A
+  GPU-compressed (KTX2) cookie is read back on the GPU first and shows a
+  frame or two later. No light has a shadow map, cookie texture or program
+  of its own: adding, moving or switching a light builds no shader.
+- **What the light clusters cost.** The view is cut into 16 tiles across ×
+  rows by the aspect × 24 depth slices; each frame the CPU lists, per cell,
+  the lights whose reach touches it (point: a sphere, spot: its cone, area:
+  the box in front of it), and each pixel loops over its cell's list only.
+  The cost is the lights reaching a pixel, not the lights in the scene.
+  Measured on the Iris Xe at 1080p and the 60 Hz cap (the many-lights perf
+  class, `node tools/perf/run.mjs lights`: a floor point reached by about
+  4, 18 and 70 lights): building and sending the lists takes about 0.2,
+  0.45 and 1.3 ms of main thread a frame at 64, 256 and 1,000 lights; the
+  scene pass about 2, 4 and 12 ms on WebGPU, where the earlier loop over
+  every light took 6, 20 and about 99 ms. 64 and 256 lights hold 60 frames
+  a second on both renderers; 1,000 with ~70 lights a pixel does not (about
+  50 fps). The lists' index memory is capped at 16 MiB
+  (`CLUSTER_INDEX_MIB`); past it the lowest-ranked lights leave the cells
+  that did not fit (never the nearest), `renderer.clusters.overflow` counts
+  them and the console warns once, naming the scenes.

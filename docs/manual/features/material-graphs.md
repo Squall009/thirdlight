@@ -128,6 +128,18 @@ only input such as Screen UV used in a Vertex offset, which reads a fixed
 stand-in there) show on the node. Selected objects and look overrides
 (`ctx.look`) still glow (the object's own emissive is added to the graph's).
 
+**Texture budget.** A lit program may bind 16 textures (WebGPU's limit a
+shader stage on integrated GPUs such as the Iris Xe; a program past it fails
+there and draws nothing). The local lights take up to 3 however many there
+are (the light clusters, the shadow atlas, and the light tables with the
+cookies), plus the sun's shadow, probes, the surface cache, ambient
+occlusion, reflections and projected decals as they apply. At the worst
+case (all of them on, decals reaching it) a material keeps **4 textures of
+its own** (a colour, normal, ORM and emissive set); without projected
+decals, 6. Each distinct texture a graph samples counts once; sample one
+packed texture several times rather than adding textures. WebGL 2 allows
+more, so a graph over the budget may still draw there.
+
 **Custom-lit surfaces**: a **Custom-lit output** takes a
 colour the graph computes itself (plus emissive, a tangent-space normal,
 opacity and alpha clip) — cel bands, painterly, hatching — and still gets

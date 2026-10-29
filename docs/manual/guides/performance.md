@@ -49,7 +49,8 @@ Use the same numbers for your own game unless you target something else.
   120 Hz display does not burn its battery drawing a game that needs 60.
   Game time does not change with the cap.
 - **Quality levels** let the player trade picture for speed (render scale,
-  shadows, lamps, ambient occlusion); **dynamic resolution**
+  the sun's shadow map, the shadow atlas lamps share, ambient occlusion);
+  **dynamic resolution**
   (`dynamic_resolution` 1) lowers the render scale by itself while frames
   run long. See [lighting](lighting.md).
 - **Memory budgets** are project settings: textures (`texture_budget_mb`,
@@ -58,7 +59,8 @@ Use the same numbers for your own game unless you target something else.
 - **Thin and shorten:** density falloff and impostors on scatter and
   instance sets, shadows only near the camera, wind only near (the foliage
   policy in [Terrain](../features/terrain.md#foliage-best-practice-the-foliage-policy)),
-  a shadowed-lamp budget for interiors.
+  few shadowed lamps in interiors (they share the shadow atlas; unshadowed
+  lamps cost only the pixels they reach).
 - **Let solid things hide the rest:** occlusion culling (`occlusion_culling: 2`;
   off by default for now, it costs an open view more than it saves in the scenes
   measured) leaves out what walls, buildings and hills hide; turn it on where a

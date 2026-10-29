@@ -113,16 +113,17 @@ unique across the whole project. One command edits one scene.
   every reference to them) and world positions kept, one undo for both
   scene files.
 - **Lights belong to scenes** ([Lighting](lighting.md)). Any scene may hold any light:
-  at most one directional, one ambient and one hemisphere light and 16
-  point/spot lights per scene. With scenes loaded together (start scenes in
+  at most one directional, one ambient and one hemisphere light per scene,
+  and any number of point, spot and area lights. With scenes loaded together (start scenes in
   their listed order, then loads in order), the most recently loaded
   scene's directional light is on and the others are off; the same for
   ambient and hemisphere lights, each kind on its own (a scene with only a
   sun keeps the fill light below it). When that scene unloads, the previous
-  one's light comes back. Point and spot lights of all loaded scenes share
-  the budget of 16; past it the most recently loaded scenes' lights are on.
-  The Scene view applies the same rule to the open scenes, in hierarchy
-  order. Play diagnostics (`renderer.lights`) name the lights that are on.
+  one's light comes back. Point, spot and area lights of every loaded
+  scene are all on (no count; each pixel loops over the lights of its light
+  cluster). The Scene view applies the same rule to the open scenes, in
+  hierarchy order. Play diagnostics (`renderer.lights`) name the
+  directional, ambient and hemisphere lights that are on and count the local ones.
 - **Spot light cookies**: Inspector → Light → Cookie picks a
   texture the spot projects through its cone (as three's `SpotLight.map`
   does; white passes the light, black blocks it, colour tints it), in the

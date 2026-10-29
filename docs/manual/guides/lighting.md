@@ -31,7 +31,8 @@ detail is in [Lighting](../features/lighting.md).
 - **Light layers** (8, named in Project Settings): a light lights only the
   objects that share a layer with its **Light mask**.
 - **Quality levels** set what a player's machine draws: render scale,
-  shadow map size, how many lamps cast shadows, ambient occlusion, and the
+  the sun's shadow map size, the shadow atlas's size (the memory shadowed
+  lamps share; it never caps how many lamps there are), ambient occlusion, and the
   **lighting tier** — low (saved light), medium (live within a budget) or
   high (more rays, reach and memory). A device starts at the highest level
   whose tier it fits (WebGL 2 low, an integrated GPU medium, a discrete one
@@ -110,8 +111,11 @@ way.
   must hold light in from block layers, generated architecture or models.
 - **Emissive materials light nothing around them** (models, blocks, trims):
   add a static glowing box or an area light where the glow should fall.
-- **Area lights on moving objects are unshadowed** for now: a lamp that
-  must cast a character's shadow is a spot light with a shadow.
+- **Area lights cast shadows on what they light per pixel** (moving
+  objects included) through the shadow atlas, like spots and points: five
+  tiles (six when two-sided), so a spot is cheaper where one view will do.
+  Moving objects still cast nothing into the surface cache's light on
+  static surfaces, from any lamp ([What the lighting does not cover](../features/lighting.md#what-the-lighting-does-not-cover)).
 - **A baked light is gone from moving objects too:** they get its bounce
   from the probes, not its direct light. Use `mixed` for lights that must
   light moving things.

@@ -233,16 +233,16 @@ only what it sets:
 - renderer settings — `renderScale` (0.5–1), `pixelRatio` (1–2: the most
   drawing-buffer pixels per CSS pixel; absent 1), `msaa` (0 or 4 — WebGPU
   multisamples at 4 only; absent: the renderer's), `shadowMapSize` (512–4096:
-  the largest shadow map any light draws; a light's larger own size is lowered
-  to it; every shadowed spot, point and area light shares the shadow atlas,
-  `shadowAtlas` — see [Interior lighting best practice](architecture.md#interior-lighting-best-practice-shadow-rules)),
+  the largest map the sun (the directional light) draws; its larger own size
+  is lowered to it — point, spot and area lights have no maps of their own,
+  see `shadowAtlas` below),
   `ambientOcclusion` (off/ssao/gtao), `lodBias` (0.25–4, over `lod_bias`) and
   `dynamicResolution`. What a level leaves out is the project's setting; a
   value the player set in a settings field bound to `renderScale`,
   `ambientOcclusion` or `dynamicResolution` lays over the level, and the page flags (`?ao=`,
   `?renderScale=`, `?dynamicResolution=`) over everything.
 - `lighting` — the level's lighting tier (`low`, `medium`, `high`; absent
-  medium) and the four settings it sets, each of which the level may name
+  medium) and the settings it sets, each of which the level may name
   itself: `surfaceCacheMiB` (16–2048: the memory the surface cache, the
   static surfaces' light, holds around the view), `surfaceLightMs` (0–8: the
   GPU time a frame may spend lighting what changed in the surface cache,
@@ -251,17 +251,25 @@ only what it sets:
   shadows on the sun's light with the look's post effects — see [Contact
   shadows](lighting.md#contact-shadows)) and `reflections` (off/medium/high:
   glossy surfaces' reflections on WebGPU with the look's post effects — see
-  [Reflections](lighting.md#reflections)).
+  [Reflections](lighting.md#reflections)) and `shadowAtlas` (512–8192
+  texels a side: the one depth texture every shadowed point, spot and area
+  light draws its shadow into, a tile each; the lights largest on screen get
+  the larger tiles and a light without room lights unshadowed — a quality
+  budget, never a count of lights; see [Interior lighting best
+  practice](architecture.md#interior-lighting-best-practice-shadow-rules)).
+  A level has no count of local or shadowed lights: projects that stored
+  `localLights` or `shadowedLights` lose them on open ([Migration
+  notes](migration.md#light-counts-retired)).
 
 ### Lighting tiers
 
 One table in the engine (`LIGHTING_TIER_SETTINGS`) says what each tier sets:
 
-| Tier | Surface cache | Live light a frame | Contact shadows | Reflections | Rays a texel | Finest texels reach |
-|---|---|---|---|---|---|---|
-| low | 32 MiB | 0 (saved light and probes, the sun's shadow map) | off | off | — | — |
-| medium | 64 MiB | 1.5 ms | on | medium (screen-space, traced where the screen has no answer, probes on rough surfaces) | the engine's counts | 12 m |
-| high | 128 MiB | 3 ms | on | high (more steps, more traced rays) | twice | 24 m |
+| Tier | Surface cache | Live light a frame | Contact shadows | Reflections | Rays a texel | Finest texels reach | Shadow atlas |
+|---|---|---|---|---|---|---|---|
+| low | 32 MiB | 0 (saved light and probes, the sun's shadow map) | off | off | — | — | 2,048² (12 MiB) |
+| medium | 64 MiB | 1.5 ms | on | medium (screen-space, traced where the screen has no answer, probes on rough surfaces) | the engine's counts | 12 m | 4,096² (48 MiB) |
+| high | 128 MiB | 3 ms | on | high (more steps, more traced rays) | twice | 24 m | 8,192² (192 MiB) |
 
 The device picks the starting level when neither the player, the game
 (game control, `environment.quality`) nor the page names one: once its
