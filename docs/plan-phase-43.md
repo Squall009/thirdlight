@@ -1,6 +1,6 @@
 # Phase 43 — Clustered forward lighting
 
-Status: planned 2026-10-26 (owner), after phase 42 is merged.
+Status: **done 2026-10-30, owner look pending** (b78fb55a). Planned 2026-10-26 (owner), after phase 42.
 
 Goal: any number of local lights reach every pixel that needs them, with
 shadows, on both renderers. Phase 42 lights static surfaces from the surface
@@ -524,3 +524,18 @@ numbers, so low is the new reference):
   stays as reviewed). (2) The lights perf class gets walkers (`--walkers N`, the village's skinned figure on a
   scripted loop under the shadowed lamps) and `--tiers`; the atlas's redraws are read from `data-tl-shadow-atlas`
   (tiles a frame, share, longest wait), which the diagnostics' `longestWait` backs.
+- 2026-10-30 (lead, phase close): full gate `--both-renderers` at 15472037
+  RED, 32 min (phase 42: 34), memory peak 7.7 GB: two real failures fixed in
+  43.6a (D408 a test harness without a cluster frame; D407 a base-flaky
+  colour check), verified by a fast gate of those files; D409–D411 watch
+  (failed once, passed alone). Independent review
+  (~/.cache/thirdlight-phase43/review.md): 1 High (atlas starvation under
+  moving casters), 3 Medium (no runtime texture-unit guard, light-counts
+  step dropped count-0 furnishing lights, perf record gaps), 8 Low — High
+  and Mediums fixed in 43.6b/43.6c, cheap Lows fixed, five design Lows
+  listed in the 43.6b row. Acceptance 43.6d (shots on both renderers,
+  ~/.cache/thirdlight-phase43/acceptance/43.6d/README.md) found D414
+  (interior WebGL 2 +0.25 ms, fixed 43.6e) and D415 (test-scene depth
+  fighting, fixed). Open: D400 (WebGL 2 at 1,000 lights), D405 (CPU build
+  over budget), D413 (likely fixed by 5bc436c4, re-measured in 44.0),
+  D409–D412 watch.
