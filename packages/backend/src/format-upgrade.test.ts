@@ -575,9 +575,10 @@ describe('a project with trim data in COLOR_0 and old trim paint opened over HTT
 /**
  * The retired counts of local lights: a project written before (quality
  * levels with `localLights`/`shadowedLights`, furnishing sets with a Lights
- * count) opens once with the fields dropped, a set whose count was 0 losing
- * its Light nodes too, the step recorded in project.json and named in
- * Problems; the next open changes nothing.
+ * count) opens once with the fields dropped, a set whose count was 0
+ * keeping its Light nodes switched off (it lit no room before and lights
+ * none now) and a set with a count keeping them on, the step recorded in
+ * project.json and named in Problems; the next open changes nothing.
  */
 describe('a project with the retired light counts opened over HTTP', () => {
   const PID = 'demo-0001';
@@ -643,12 +644,17 @@ describe('a project with the retired light counts opened over HTTP', () => {
         const nodesOf = (id: string): { type: string; data?: Record<string, unknown> }[] => content.graphs.find((g) => g.graphId === id)!.graph.nodes;
         expect(nodesOf('lit-set').map((n) => n.type)).toEqual(['furnishing', 'light']);
         expect(nodesOf('lit-set')[0]!.data).toEqual({ doorClearance: 1 });
-        // A count of 0 lit no room: the set keeps lighting none.
-        expect(nodesOf('dark-set').map((n) => n.type)).toEqual(['furnishing']);
+        // A count above 0: its Light node stays as it was (on).
+        expect(nodesOf('lit-set')[1]!.data).toEqual({ height: 2 });
+        // A count of 0 lit no room: the Light node is kept, switched off, so the set keeps lighting none.
+        expect(nodesOf('dark-set').map((n) => n.type)).toEqual(['furnishing', 'light']);
+        expect(nodesOf('dark-set')[0]!.data).toEqual({ doorClearance: 1 });
+        expect(nodesOf('dark-set')[1]!.data).toEqual({ height: 2, on: false });
         expect(manifest()['upgrades']).toEqual(['light-counts', 'planes']);
         expect(await upgradeLines(first.url)).toEqual(expect.arrayContaining([
           expect.stringContaining('quality levels: localLights and shadowedLights were removed'),
-          expect.stringMatching(/furnishing sets: the Lights count was removed.*(lit-set|dark-set)/),
+          expect.stringMatching(/^furnishing sets: the Lights count was removed.*\(lit-set\)/),
+          expect.stringMatching(/^furnishing sets whose Lights count was 0: .*switched off.*\(dark-set\)/),
         ]));
         expect(readFileSync(join(root, 'content.json'), 'utf8')).not.toMatch(/localLights|shadowedLights/);
       } finally {

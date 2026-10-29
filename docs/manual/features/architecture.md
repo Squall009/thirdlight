@@ -460,7 +460,8 @@ a light in every room). A project's graph of the same id replaces one.
   wearing its room's trim sheet's `frame` row and colliding as a box),
   **count** and the **space round it**) and **Light** nodes (one point light
   in each room of the type, **height** over the floor, **colour**,
-  **intensity**, **range**; no shadow).
+  **intensity**, **range**, **On**: cleared, the node places no light; no
+  shadow).
 - **A building's floor plan** (the block editor's Rooms & buildings → a building) — **room program**
   and **furnishing set** pickers, **layout seed** and **New layout** (the
   next seed: rooms and props laid out again), the props list with **Pin** /

@@ -64,6 +64,15 @@ describe('furnishing lights in the Scene view', () => {
     architecture: { elements: [], buildings: [{ id: 'b', preset: 'starter-room', program: 'p', furnishing: 'f', path: { points: [[0, 0, 0], [8, 0, 0], [8, 0, 6], [0, 0, 6]], closed: true } }] },
   });
 
+  it('places no light for a Light node switched off; the set\'s lights that are on still light their rooms', () => {
+    const offTable = architectureStylesOf([
+      { graphId: 'p', kind: 'room-program', graph: { nodes: [{ id: 'program', type: 'program', position: [0, 0] }, { id: 'a', type: 'room', position: [0, 0], data: { type: 'a' } }, { id: 'b', type: 'room', position: [0, 0], data: { type: 'b' } }], edges: [] } },
+      { graphId: 'f', kind: 'furnishing-set', graph: { nodes: [{ id: 'furnishing', type: 'furnishing', position: [0, 0] }, { id: 'all', type: 'light', position: [0, 0], data: { on: false } }, { id: 'l', type: 'light', position: [0, 0], data: { room: 'a' } }], edges: [] } },
+    ]);
+    const lights = withSceneViewLights([furnished], offTable).filter((e) => e.kind === 'light');
+    expect(lights).toHaveLength(1);
+  });
+
   it('adds a light object per furnished room, the building object\'s child, the same objects while nothing changes, whatever lights the scene holds', () => {
     const shown = withSceneViewLights([furnished], table);
     const lights = shown.filter((e) => e.kind === 'light');

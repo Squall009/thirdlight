@@ -38,7 +38,7 @@ Fields:
 ## Props
 
 - Prop (`prop`): A kit model (none: a stand-in block of its size) placed in rooms of a type (empty: any room): its back against a wall facing the room, in a corner, or in the middle facing the door; its footprint (width along its X, depth along its Z, metres), height (not in front of windows above it), how many, and the space kept round it.
-- Light (`light`): A point light in the middle of each room of a type (empty: any room), this high over its floor.
+- Light (`light`): A point light in the middle of each room of a type (empty: any room), this high over its floor. Off: it places none (kept for later).
 
 <a id="node-furnishing-set--prop"></a>
 ### Prop (`prop`)
@@ -62,7 +62,7 @@ Fields:
 <a id="node-furnishing-set--light"></a>
 ### Light (`light`)
 
-A point light in the middle of each room of a type (empty: any room), this high over its floor.
+A point light in the middle of each room of a type (empty: any room), this high over its floor. Off: it places none (kept for later).
 
 Fields:
 
@@ -73,3 +73,4 @@ Fields:
 | `intensity` | Intensity | number | `1.5` | 0 – 8 |
 | `range` | Range | number | `6` | 0 – 1000 |
 | `height` | Height | number | `2.2` | 0 – 1000 |
+| `on` | On | boolean | `true` |  |

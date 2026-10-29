@@ -190,8 +190,9 @@ kept a game within the old count of 16 lights a pixel:
   used them to keep a low-end machine cheap sets a smaller `shadowAtlas`
   now; lights it switched off are on.
 - a furnishing set's **Lights** count: every room a Light node names gets
-  its light. A set whose count was 0 lit no room, so its Light nodes go and
-  it still lights none.
+  its light. A set whose count was 0 lit no room: its Light nodes are kept
+  and switched off (their **On** box cleared), so it still lights none;
+  switch one on to light its rooms. Nothing is deleted.
 
 Problems notes it once (`project_upgraded`). The `lights_local` scene check
 and the `lights_dropped` Problems line are gone with the count.

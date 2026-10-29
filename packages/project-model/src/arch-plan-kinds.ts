@@ -136,10 +136,10 @@ export const FURNISHING_SET_GRAPH_KIND: GraphKindDef = {
       type: 'light',
       label: 'Light',
       category: 'Props',
-      description: 'A point light in the middle of each room of a type (empty: any room), this high over its floor.',
+      description: 'A point light in the middle of each room of a type (empty: any room), this high over its floor. Off: it places none (kept for later).',
       inputs: [],
       outputs: [],
-      fields: [id('room', 'Room type', ''), { key: 'color', label: 'Colour', type: 'color', default: '#ffe2b8' }, num('intensity', 'Intensity', 1.5, 0, 8), num('range', 'Range', 6, 0, 1000), num('height', 'Height', 2.2, 0, L.distanceMax)],
+      fields: [id('room', 'Room type', ''), { key: 'color', label: 'Colour', type: 'color', default: '#ffe2b8' }, num('intensity', 'Intensity', 1.5, 0, 8), num('range', 'Range', 6, 0, 1000), num('height', 'Height', 2.2, 0, L.distanceMax), { key: 'on', label: 'On', type: 'boolean', default: true }],
       titleField: 'room',
     },
   ],
@@ -272,6 +272,8 @@ export function furnishingSetDef(graphId: string, graph: GraphData): FurnishingS
         spacing: numIn(K, n, 'spacing'),
       });
     } else if (n.type === 'light') {
+      // A Light node switched off places no light (as if it were not there; its values kept).
+      if (graphFieldOf(K, n, 'on') === false) continue;
       const color = graphFieldOf(K, n, 'color');
       lightDefs.push({ node: n.id, room: graphStr(K, n, 'room'), color: typeof color === 'string' && /^#[0-9a-f]{6}$/.test(color) ? color : '#ffffff', intensity: numIn(K, n, 'intensity'), range: numIn(K, n, 'range'), height: numIn(K, n, 'height') });
     }

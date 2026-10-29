@@ -8,8 +8,9 @@
  *   and `shadowedLights` (how many point lights drew a shadow);
  * - a furnishing set's `lights` (the most lights one building got, so a few
  *   buildings fit in a scene's count): every room a Light node names now
- *   gets its light. A set whose count was 0 lit no room, so its Light nodes
- *   go with the field and it still lights none.
+ *   gets its light. A set whose count was 0 lit no room: its Light nodes are
+ *   kept, switched off (`on: false`), so it still lights none and the author
+ *   can switch them back on; nothing the author made is deleted.
  *
  * Pure: works on the raw documents before they are validated; a project that
  * uses none of these fields is returned as it was.
@@ -37,7 +38,7 @@ function withoutLevelCounts(environment: unknown): Obj | null {
   return changed ? { ...environment, qualityLevels: levels } : null;
 }
 
-/** A furnishing set's graph without its light count (null: it had none); `unlit`: the count was 0. */
+/** A furnishing set's graph without its light count (null: it had none); `unlit`: the count was 0 (its Light nodes switched off). */
 function withoutFurnishingCount(graph: unknown): { graph: Obj; unlit: boolean } | null {
   if (!isPlainObject(graph) || !Array.isArray(graph['nodes'])) return null;
   const nodes = graph['nodes'] as unknown[];
@@ -50,7 +51,8 @@ function withoutFurnishingCount(graph: unknown): { graph: Obj; unlit: boolean } 
       const { [RETIRED_FURNISHING_FIELD]: _count, ...data } = head['data'] as Obj;
       return [{ ...head, data }];
     }
-    return unlit && isPlainObject(n) && n['type'] === 'light' ? [] : [n];
+    if (!unlit || !isPlainObject(n) || n['type'] !== 'light') return [n];
+    return [{ ...n, data: { ...(isPlainObject(n['data']) ? n['data'] : {}), on: false } }];
   });
   // A furnishing set's nodes have no ports, so no edge names a Light node.
   return { graph: { ...graph, nodes: next }, unlit };
@@ -68,18 +70,19 @@ export function retireLightCounts(contentIn: unknown, scenes: readonly unknown[]
     notes.push('quality levels: localLights and shadowedLights were removed (every local light is drawn and shadowed lights share the shadow atlas)');
   }
   if (Array.isArray(content['graphs'])) {
-    const sets: string[] = [];
+    const lit: string[] = [];
+    const dark: string[] = [];
     const graphs = (content['graphs'] as unknown[]).map((g) => {
       if (!isPlainObject(g) || g['kind'] !== FURNISHING_SET_KIND) return g;
       const r = withoutFurnishingCount(g['graph']);
       if (r === null) return g;
-      sets.push(String(g['name'] ?? g['graphId']));
+      (r.unlit ? dark : lit).push(String(g['name'] ?? g['graphId']));
       return { ...g, graph: r.graph };
     });
-    if (sets.length > 0) {
-      content = { ...content, graphs };
-      notes.push(`furnishing sets: the Lights count was removed, every room a Light node names gets its light (${sets.slice(0, 8).join(', ')}${sets.length > 8 ? ', …' : ''})`);
-    }
+    const names = (sets: readonly string[]): string => `${sets.slice(0, 8).join(', ')}${sets.length > 8 ? ', …' : ''}`;
+    if (lit.length > 0) notes.push(`furnishing sets: the Lights count was removed, every room a Light node names gets its light (${names(lit)})`);
+    if (dark.length > 0) notes.push(`furnishing sets whose Lights count was 0: the count was removed and their Light nodes were switched off (On), so they still light no room; switch a node on to light its rooms (${names(dark)})`);
+    if (lit.length + dark.length > 0) content = { ...content, graphs };
   }
   return content === contentIn ? unchanged : { content, scenes: [...scenes], changed: true, notes };
 }
