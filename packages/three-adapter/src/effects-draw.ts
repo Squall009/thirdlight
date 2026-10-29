@@ -23,7 +23,7 @@
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 
-import { billboardAxes, EFFECT_LIGHT_LIMIT, flipbookFrame, flipbookRect, lightParticles, ribbonOrder, type CompiledNode, type SystemState } from '@thirdlight/effects';
+import { billboardAxes, flipbookFrame, flipbookRect, lightParticles, ribbonOrder, type CompiledNode, type SystemState } from '@thirdlight/effects';
 import { LIGHT_LAYERS_ALL, lightLayerMaskOf } from '@thirdlight/runtime';
 
 import { EffectLights, EffectLightSlot } from './effect-lights';
@@ -641,15 +641,15 @@ class RibbonRenderer implements OutputRenderer {
   }
 }
 
-export { EFFECT_LIGHT_LIMIT };
-
 /**
- * The shared point lights: one `EffectLights` object holding the whole pool
- * (`effect-lights.ts`), added before the first frame of a game whose effects
- * emit light (`reserve`) and kept for the play, so the lit materials' shaders
- * are built once with it and never again. Each frame the slots are filled from
- * the oldest particles of the light renderers in play order; only the slots in
- * use are shaded. A game without light-emitting effects carries no pool.
+ * The effects' lights: one `EffectLights` pool (`effect-lights.ts`) the
+ * light clusters list, added before the first frame of a game whose effects
+ * emit light (`reserve`), so the clustered lights' node is in the lit
+ * programs from the start and the first effect light builds nothing. Each
+ * frame the slots are filled from the oldest particles of the light
+ * renderers in play order; the pool grows to whatever they ask for (no
+ * count: the clusters' budget is memory). A game without light-emitting
+ * effects carries no pool.
  */
 export class LightPool {
   private group: EffectLights | null = null;
@@ -663,7 +663,7 @@ export class LightPool {
    */
   reserve(defs: readonly EffectLightDefLike[] = []): void {
     if (this.group === null) {
-      this.group = new EffectLights(EFFECT_LIGHT_LIMIT);
+      this.group = new EffectLights();
       this.scene.add(this.group);
     }
     const a = this.group.abilities;
@@ -679,10 +679,10 @@ export class LightPool {
   begin(): void {
     this.used = 0;
   }
-  /** The next free slot (null when the pool is used up, or was never reserved: adding it now would rebuild the shaders). */
+  /** The next slot (null when the pool was never reserved: adding it now would build the lit programs again). */
   take(): EffectLightSlot | null {
-    if (this.group === null || this.used >= this.group.slots.length) return null;
-    const l = this.group.slots[this.used]!;
+    if (this.group === null) return null;
+    const l = this.group.slot(this.used);
     l.mask = LIGHT_LAYERS_ALL;
     this.used += 1;
     return l;
@@ -693,13 +693,12 @@ export class LightPool {
   get active(): number {
     return this.used;
   }
-  /** Lights the pool can shade (0 before `reserve`, else the whole pool). */
+  /** Slots the pool holds (0 before `reserve`; it grows with the lights asked for). */
   get size(): number {
     return this.group?.slots.length ?? 0;
   }
   dispose(): void {
     if (this.group === null) return;
-    this.group.removeFromParent();
     this.group.dispose();
     this.group = null;
   }

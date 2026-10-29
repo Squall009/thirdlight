@@ -11,7 +11,9 @@ import * as THREE from 'three/webgpu';
 import { describe, expect, it } from 'vitest';
 
 import { batchKey, batchKeyParts, BATCH_KEY } from './batching';
-import { EffectLights } from './effect-lights';
+import { ClusterGpu } from './cluster-gpu';
+import { ClusteredLights } from './cluster-lights';
+import { ClusterTextures } from './cluster-pack';
 import { INSTANCE_SET_KEY } from './instancing';
 import { applyEntityRenderFlags } from './entity-render-flags';
 import { drawMode, installLocalLightModes, localLightsCacheKey, localLightVariant, LOCAL_LIGHTS_KEY, splitLocalLights } from './local-lights';
@@ -137,25 +139,25 @@ describe('local-light modes', () => {
     expect(variantSource(draw(plain))).toBe(plain);
   });
 
-  it('a build in mode none leaves out the local lights and the effect pool; the sun, ambient light and every per-pixel build keep all', () => {
+  it('a build in mode none leaves out the local lights and the light clusters (effects\' lights included); the sun, ambient light and every per-pixel build keep all', () => {
     const sun = new THREE.DirectionalLight();
     const ambient = new THREE.AmbientLight();
     const point = new THREE.PointLight();
     const spot = new THREE.SpotLight();
-    const pool = new EffectLights(4);
-    const nodes = [sun, ambient, point, spot, pool].map((light) => ({ light, build: () => undefined }));
-    const names = new Map<THREE.Light, string>([[sun, 'sun'], [ambient, 'ambient'], [point, 'point'], [spot, 'spot'], [pool, 'pool']]);
+    const clusters = new ClusteredLights(new ClusterGpu(new ClusterTextures()));
+    const nodes = [sun, ambient, point, spot, clusters].map((light) => ({ light: light as THREE.Light, build: () => undefined }));
+    const names = new Map<THREE.Light, string>([[sun, 'sun'], [ambient, 'ambient'], [point, 'point'], [spot, 'spot'], [clusters, 'clusters']]);
     const split = (material: THREE.Material) => splitLocalLights({ material }, nodes).map((n) => names.get(n.light));
     const m = lit();
-    expect(split(m)).toEqual(['sun', 'ambient', 'point', 'spot', 'pool']);
+    expect(split(m)).toEqual(['sun', 'ambient', 'point', 'spot', 'clusters']);
     expect(split(localLightVariant(m, 'none'))).toEqual(['sun', 'ambient']);
   });
 
-  it('the effect pool\'s layer test keys the lit programs (a change rebuilds them); scene lights add nothing to the key', () => {
-    const pool = new EffectLights(4);
-    const lights = [new THREE.PointLight(), new THREE.SpotLight(), pool];
+  it('the light clusters\' layer test keys the lit programs (a change rebuilds them); scene lights add nothing to the key', () => {
+    const clusters = new ClusteredLights(new ClusterGpu(new ClusterTextures()));
+    const lights = [new THREE.PointLight(), new THREE.SpotLight(), clusters];
     expect(localLightsCacheKey(lights)).toBe(0);
-    pool.abilities.layered = true;
+    clusters.layered = true;
     expect(localLightsCacheKey(lights)).not.toBe(0);
   });
 

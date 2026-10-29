@@ -251,7 +251,7 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | Constant | Value | What it is |
 |---|---|---|
 | <a id="limit-effect-graph-limits"></a>`EFFECT_GRAPH_LIMITS` | `{"nodes":256}` | Engine limits of one system graph (not tuning values). |
-| <a id="limit-effect-light-limit"></a>`EFFECT_LIGHT_LIMIT` | `16` | Point lights every playing effect shares: the renderer adds them all, dark, when a game with light-emitting effects starts (a light added mid-play would recompile every lit material), and each costs shading time on every lit surface. Also the most a single Lights block may ask for. |
+| <a id="limit-effect-max-particles"></a>`EFFECT_MAX_PARTICLES` | `1048576` | The data bound of one system's capacity (2^20): executors cap lower (the CPU fallback has its own documented cap). A Lights block lights at most as many particles as its system holds. |
 
 <a id="limits-project-model--effects"></a>
 ## `effects.ts`

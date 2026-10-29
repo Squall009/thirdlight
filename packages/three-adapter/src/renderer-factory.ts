@@ -30,7 +30,6 @@
  */
 import { WebGPURenderer } from 'three/webgpu';
 
-import { registerEffectLights } from './effect-lights';
 import { registerLayeredLights } from './light-layers';
 import { registerScreenSpaceOcclusion } from './post-ao';
 import { registerContactShadows } from './post-contact-shadows';
@@ -345,9 +344,7 @@ const BROWSER_DEPS: RendererFactoryDeps = {
     } as unknown as ConstructorParameters<typeof WebGPURenderer>[0]);
     // Data textures read as given on WebGL 2 too (no flip uniform to set for every draw).
     installTexelReads();
-    // Every renderer can draw a scene holding the effect light pool.
-    registerEffectLights(r);
-    // And lights whose layer masks leave some objects unlit or unshadowed.
+    // Every renderer can draw lights whose layer masks leave some objects unlit or unshadowed.
     registerLayeredLights(r);
     // And the probe lighting (its light, and the lights node that lets it replace the ambient light).
     registerProbeLighting(r as never);

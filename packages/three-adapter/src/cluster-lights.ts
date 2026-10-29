@@ -1,8 +1,8 @@
 /**
- * The local lights as ONE light: every point and spot light the clusters
- * list (`cluster-frame.ts` gathers, builds and uploads them) is shaded by a
- * single light node that loops over the pixel's cell's list, on WebGPU and
- * WebGL 2 alike.
+ * The local lights as ONE light: every point, spot and area light and every
+ * effect light the clusters list (`cluster-frame.ts` gathers, builds and
+ * uploads them) is shaded by a single light node that loops over the
+ * pixel's cell's list, on WebGPU and WebGL 2 alike.
  *
  * three.js unrolls a node per light into every lit program and keys the
  * program by the set of lights: sixteen lamps made sixteen copies of the
@@ -16,42 +16,63 @@
  * and their values never shape a program.
  *
  * - **Which lights.** A point or spot light that casts no shadow and
- *   projects no cookie (`drawsClustered`). One with a shadow or a cookie is
+ *   projects no cookie (`drawsClustered`); every area light (rect and line);
+ *   the effects' lights. A point or spot light with a shadow or a cookie is
  *   still drawn by three's own node with its own map, until those move to
  *   the shared atlases; the gathering leaves it out of the lists, so nothing
- *   is lit twice. The effect pool and area lights keep their own paths.
+ *   is lit twice.
  * - **The loop.** The pixel's cell from its view position through the lists'
  *   projection (`clusterCellAt`), then each listed record: a range test,
- *   three's distance attenuation (with its window toward the light's range,
- *   none for a light without one), a spot's cone as three's `smoothstep`,
- *   and the material's own lighting model (`direct`), as three's analytic
- *   lights call it. The light-layer and room test runs per pixel against the
- *   drawn object's layers and room (per-object uniforms; a mesh spanning
- *   rooms per vertex), and is built only while some listed light is layered
- *   (`layered`, part of the lit programs' key, as the effect pool's).
+ *   then per kind the material's own lighting model, as three's lights call
+ *   it. A point or spot light: three's distance attenuation (with its window
+ *   toward the light's range, none for a light without one), a spot's cone
+ *   as three's `smoothstep`, and `direct`. An area light: three's rectangle
+ *   light maths (`cluster-area.ts`). The light-layer and room test runs per
+ *   pixel against the drawn object's layers and room (per-object uniforms; a
+ *   mesh spanning rooms per vertex), and is built only while some listed
+ *   light is layered (`layered`, part of the lit programs' key).
+ * - **Surfaces reading the surface cache** (`surface-cache-read.ts`) build
+ *   the same loop: the cache holds the diffuse light of the scene's lights,
+ *   so the reading build keeps only their highlights, and their unshadowed
+ *   diffuse light for the cache's visibility ratio; an effect's light
+ *   (`CLUSTER_UNCACHED`) is not in the cache and goes whole to the sums the
+ *   build hands in (`UNCACHED_LIGHT_CONTEXT`).
  * - **Program shape.** One whatever the lights: the object is in the scene
- *   while any point or spot light is realized (the first one builds the lit
- *   programs once, as any first light did), and its textures are rebound
- *   when they are made again (`rebind`, as the probe light does).
+ *   while any local light or effect light pool is there (the first one
+ *   builds the lit programs once, as any first light did), and its textures
+ *   are rebound when they are made again (`rebind`, as the probe light does).
  */
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 import { LIGHT_LAYERS_ALL } from '@thirdlight/runtime';
 
-import { CLUSTER_SPOT, CLUSTER_RECT, CLUSTER_UNBOUNDED } from './cluster-build';
+import { ltcNodes, shadeAreaLight } from './cluster-area';
+import { CLUSTER_RECT, CLUSTER_SPOT, CLUSTER_TWO_SIDED, CLUSTER_UNBOUNDED, CLUSTER_UNCACHED } from './cluster-build';
 import { clusterCellAt, clusterIndexAt, clusterLightTexel, clusterList, clusterNodes, type ClusterGpu, type ClusterNodes } from './cluster-gpu';
-import { CLUSTER_ROOM_SHIFT } from './cluster-pack';
+import { CLUSTER_DECAY_STEPS, CLUSTER_KIND_STEP, CLUSTER_ROOM_SHIFT } from './cluster-pack';
 import type { N } from './effects-tsl';
 import { objectLightLayers, ROOM_ATTRIBUTE, ROOM_KEY, SURFACE_ANCHOR } from './light-layers';
 
 const TSL: N = TSLTyped;
 const { If, Loop, NodeUpdateType, attribute, float, getDistanceAttenuation, int, positionView, round, select, smoothstep, uniform, vec3 } = TSL;
 
-/** Decay is stored in 1/256 steps above the kind field's three bits (`cluster-pack.ts`). */
-const KIND_BITS = 8;
-const DECAY_STEPS = 256;
+/**
+ * `builder.context[UNCACHED_LIGHT_CONTEXT]`: set by a build reading the
+ * surface cache while its local lights build: the sums the lights the cache
+ * does not hold go to (the reading build keeps them whole, and only the
+ * highlights of the others).
+ */
+export const UNCACHED_LIGHT_CONTEXT = 'tlUncachedLight';
 
-/** The clustered point and spot lights in the scene: its node reads the lists `gpu` holds. */
+/** A diffuse and a specular sum (vec3 variables). */
+export interface LightSums {
+  readonly diffuse: N;
+  readonly specular: N;
+  /** Where the build's lighting model puts diffuse light of its own accord (a custom-lit graph's), or null. */
+  readonly modelSink: N | null;
+}
+
+/** The clustered local lights in the scene: its node reads the lists `gpu` holds. */
 export class ClusteredLights extends THREE.Light {
   readonly isClusteredLights = true;
   /** Some listed light lights fewer than every layer, or only its room: the loop tests each record (part of the lit programs' key). */
@@ -101,6 +122,7 @@ class ClusterLightsNode extends (THREE.Node as unknown as new () => { updateType
   private readonly t: ClusterNodes;
   private readonly objectLayers: N;
   private readonly objectRoom: N;
+  private readonly ltc = ltcNodes();
 
   constructor(readonly light: ClusteredLights) {
     super();
@@ -130,6 +152,9 @@ class ClusterLightsNode extends (THREE.Node as unknown as new () => { updateType
     const { lightingModel, reflectedLight } = builder.context;
     const surface = builder.context.positionView ?? positionView;
     const layered = this.light.layered;
+    const ltc = this.ltc;
+    // A build reading the surface cache: the lights the cache does not hold go to its own sums (kept whole there).
+    const uncachedSums = (builder.context[UNCACHED_LIGHT_CONTEXT] as LightSums | undefined) ?? null;
     const diffuse = vec3(0).toVar('tlClusterLightsDiffuse');
     const specular = vec3(0).toVar('tlClusterLightsSpecular');
     const cell = clusterCellAt(t, surface).toVar('tlClusterLightsCell');
@@ -141,31 +166,44 @@ class ClusterLightsNode extends (THREE.Node as unknown as new () => { updateType
         const r0 = clusterLightTexel(t, index, 0);
         const toLight = r0.xyz.sub(surface).toVar();
         const distance = toLight.length().toVar();
-        const r1 = clusterLightTexel(t, index, 1);
-        const field = int(r1.w).toVar();
-        const kind = field.bitAnd(3);
-        // Area lights are listed too; they light through their own path.
-        If(distance.lessThan(r0.w).and(kind.lessThan(CLUSTER_RECT)), () => {
-          const decay = float(field.div(KIND_BITS)).div(DECAY_STEPS);
-          const cutoff = select(field.bitAnd(CLUSTER_UNBOUNDED).notEqual(0), float(0), r0.w);
-          const direction = toLight.div(distance.max(1e-6)).toVar();
-          const colour = r1.xyz.mul(getDistanceAttenuation({ lightDistance: distance, cutoffDistance: cutoff, decayExponent: decay })).toVar();
+        If(distance.lessThan(r0.w), () => {
+          const r1 = clusterLightTexel(t, index, 1);
+          const field = int(r1.w).toVar();
+          const kind = field.bitAnd(3);
           const r2 = clusterLightTexel(t, index, 2);
-          If(kind.equal(CLUSTER_SPOT), () => {
-            const r3 = clusterLightTexel(t, index, 3);
-            // t2 holds the way it shines; three's cone compares the way back to the light.
-            colour.mulAssign(smoothstep(r3.x, r3.y, direction.dot(r2.xyz.negate())));
+          const r3 = clusterLightTexel(t, index, 3);
+          const gate = layered ? this.layerTest(builder, r2.w) : null;
+          // Each light's terms on their own where the cache's lights and the others are summed apart.
+          const one = uncachedSums !== null ? { directDiffuse: vec3(0).toVar(), directSpecular: vec3(0).toVar() } : { directDiffuse: diffuse, directSpecular: specular };
+          const sinkBefore = uncachedSums !== null && uncachedSums.modelSink !== null ? vec3(uncachedSums.modelSink).toVar() : null;
+          If(kind.lessThan(CLUSTER_RECT), () => {
+            const decay = float(field.div(CLUSTER_KIND_STEP)).div(CLUSTER_DECAY_STEPS);
+            const cutoff = select(field.bitAnd(CLUSTER_UNBOUNDED).notEqual(0), float(0), r0.w);
+            const direction = toLight.div(distance.max(1e-6)).toVar();
+            const colour = r1.xyz.mul(getDistanceAttenuation({ lightDistance: distance, cutoffDistance: cutoff, decayExponent: decay })).toVar();
+            If(kind.equal(CLUSTER_SPOT), () => {
+              // t2 holds the way it shines; three's cone compares the way back to the light.
+              colour.mulAssign(smoothstep(r3.x, r3.y, direction.dot(r2.xyz.negate())));
+            });
+            if (gate !== null) colour.mulAssign(gate);
+            lightingModel.direct({ lightDirection: direction, lightColor: colour, lightNode: { light: {}, shadowNode: null }, reflectedLight: one }, builder);
+          }).Else(() => {
+            shadeAreaLight({ builder, ltc, centre: r0.xyz, reach: r0.w, colour: r1.xyz, u: r2.xyz, v: r3.xyz, twoSided: field.bitAnd(CLUSTER_TWO_SIDED).notEqual(0), toLight, distance, gate, reflectedLight: one });
           });
-          if (layered) colour.mulAssign(this.layerTest(builder, r2.w));
-          lightingModel.direct(
-            {
-              lightDirection: direction,
-              lightColor: colour,
-              lightNode: { light: {}, shadowNode: null },
-              reflectedLight: { directDiffuse: diffuse, directSpecular: specular },
-            },
-            builder,
-          );
+          if (uncachedSums !== null) {
+            const uncached = field.bitAnd(CLUSTER_UNCACHED).notEqual(0);
+            const u = select(uncached, float(1), float(0));
+            diffuse.addAssign(one.directDiffuse.mul(u.oneMinus()));
+            specular.addAssign(one.directSpecular.mul(u.oneMinus()));
+            uncachedSums.diffuse.addAssign(one.directDiffuse.mul(u));
+            uncachedSums.specular.addAssign(one.directSpecular.mul(u));
+            if (sinkBefore !== null && uncachedSums.modelSink !== null) {
+              // Moved out of the model's own sink: the reading build puts that sink back where the cache was found.
+              const moved = vec3(uncachedSums.modelSink).sub(sinkBefore).mul(u).toVar();
+              uncachedSums.modelSink.subAssign(moved);
+              uncachedSums.diffuse.addAssign(moved);
+            }
+          }
         });
       });
     });

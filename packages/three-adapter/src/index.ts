@@ -363,7 +363,6 @@ export {
 } from './effects-player';
 export { cpuSystemReason, cpuSystemReasons, cpuSystemsOf, GPU_SORT_LIMIT, GPU_STATE_FIELDS, GPU_STATE_STRIDE, gpuUnsupportedReason } from './effects-gpu';
 export { GPU_BATCH_PARTICLES, GPU_BATCH_SLOTS, GpuEffectBatches, GpuEffectExecutor } from './effects-gpu-batch';
-export { EFFECT_LIGHT_LIMIT } from './effects-draw';
 // One effect on a controllable timeline (the Effect tab's preview; same executors as Play).
 export { EFFECT_TIMELINE_STEP, EffectTimeline, type EffectSystemCounter, type EffectTimelineOptions } from './effects-timeline';
 

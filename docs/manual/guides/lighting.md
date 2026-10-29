@@ -14,7 +14,8 @@ detail is in [Lighting](../features/lighting.md).
   ones are not counted.
 - **Area lights** (panels and strips with a size, aimed by the object's
   rotation) light the static surfaces through the surface cache, with soft
-  shadows, and are not counted either ([Area lights](../features/lighting.md#area-lights)).
+  shadows, and moving objects per pixel through the light clusters; they
+  are not counted either ([Area lights](../features/lighting.md#area-lights)).
 - **The live light** (WebGPU, medium and high quality) lights the static
   surfaces and the light probes as the scene changes: direct light with soft
   shadows, and bounced light; every lit 3D object reads the probes per
@@ -109,8 +110,8 @@ way.
   must hold light in from block layers, generated architecture or models.
 - **Emissive materials light nothing around them** (models, blocks, trims):
   add a static glowing box or an area light where the glow should fall.
-- **Moving objects get area lights only as bounce**: a lamp that must light
-  a character directly is a point or spot light (16 drawn at once).
+- **Area lights on moving objects are unshadowed** for now: a lamp that
+  must cast a character's shadow is a spot light with a shadow.
 - **A baked light is gone from moving objects too:** they get its bounce
   from the probes, not its direct light. Use `mixed` for lights that must
   light moving things.

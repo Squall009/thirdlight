@@ -5,12 +5,17 @@
  * The ground is a static block layer (a 12 × 8 floor of 1 m cells, top at
  * y = 0) with a static cube standing on it; the sun and the ambient light
  * are "baked", and so is a small area light over the floor's front corner.
- * Before a bake, on WebGPU, the area light lights a pool there that its
- * mirror spot across the floor lacks: an area light has no per-pixel light,
- * so the pool is the blocks reading the surface cache live. The floor there
- * is polished (a standard material): the lamp's highlight shows where the
- * camera sees its mirror image, brighter than the spot as far from the lamp
- * on its other side (the cache's diffuse light is the same at both).
+ * Before a bake the area light lights a pool there that its mirror spot
+ * across the floor lacks: on WebGPU the blocks read its diffuse light from
+ * the surface cache live, and the light clusters' loop adds only its
+ * highlight (the pool is about as bright as the saved one the export draws,
+ * not twice as bright); without a live cache the loop draws it all per
+ * pixel. The floor there is polished (a standard material): the lamp's
+ * highlight shows where the camera sees its mirror image, brighter than the
+ * spot as far from the lamp on its other side (the diffuse light is the same
+ * at both). Five more area lights stand behind the camera, nearer the eye
+ * than the lamp and lighting nothing in view: the lamp keeps its highlight
+ * (no area light is left out of a pixel's highlights for others).
  * "Bake lighting" in the Lighting window saves the cache's pages and the
  * probes (the scene's bake: `surface`). The static export, served with the
  * backend stopped, draws the saved light on WebGL 2 and at the low quality
@@ -85,8 +90,10 @@ const LAMP_POOL = 25;
  */
 const highlightSpot: [number, number, number] = [3, 0, 2.571];
 const acrossSpot: [number, number, number] = [4, 0, 1.429];
-/** How much brighter (of 255) the highlight is than the spot across the lamp from it on WebGPU. */
+/** How much brighter (of 255) the highlight is than the spot across the lamp from it. */
 const HIGHLIGHT = 12;
+/** The live pool over the saved one past which the lamp's diffuse light is drawn twice (the cache's and the loop's). */
+const POOL_TWICE = 1.4;
 /** Under the glowing box over the floor and its mirror spot; under the one over the terrain and its mirror spot. */
 const glowSpot: [number, number, number] = [-3.5, 0, -2];
 const glowMirror: [number, number, number] = [3.5, 0, -2];
@@ -184,9 +191,12 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`Bake lighting saves a sta
   test.setTimeout(300_000);
   const { layer } = await openScene(page, variant);
 
-  // Before the bake: the sun is per pixel without a shadow. A small area light, baked, 0.5 m over the front corner.
+  // Before the bake: the sun is per pixel without a shadow. A small area light, baked, 0.5 m over the front corner,
+  // and five like it behind the camera (their reach ends short of the floor).
   const live = backendOf(variant) === 'webgpu';
-  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Lamp', transform: { position: [lampSpot[0], 0.5, lampSpot[2]] }, components: { light: { type: 'area', shape: 'rect', width: 0.6, height: 0.6, color: '#ffffff', intensity: 4, range: 1.5, castShadow: false, mode: 'baked' } } });
+  const lamp = { type: 'area', shape: 'rect', width: 0.6, height: 0.6, color: '#ffffff', intensity: 4, range: 1.5, castShadow: false, mode: 'baked' };
+  await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Lamp', transform: { position: [lampSpot[0], 0.5, lampSpot[2]] }, components: { light: lamp } });
+  for (let k = 0; k < 5; k += 1) await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: `Lamp behind ${k}`, transform: { position: [-2 + k, 0.5, 7] }, components: { light: lamp } });
   // A flat terrain behind the floor (x −8…8, z −12…−4, its top at y = 0), and a static glowing box 0.45 m over the
   // floor and one over the terrain (their surfaces name no glow mode: baked).
   const ground = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Ground', transform: { position: [-8, 0, -12] } }))['createdId']);
@@ -197,7 +207,7 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`Bake lighting saves a sta
     await cmd('setComponent', { entityId: glow, component: 'surface', value: { color: '#303030', emissive: '#ffc080', emissiveIntensity: 4 } });
     await cmd('updateEntity', { entityId: glow, static: true });
   }
-  const before = await play(page, variant, steadyLit(live));
+  const before = await play(page, variant, steadyLit(true));
   const beforeLit = brightnessAt(before, litSpot);
   const beforeGround = brightnessAt(before, groundMirror);
   const glows = (img: Image): { floor: number; ground: number } => ({ floor: brightnessAt(img, glowSpot) - brightnessAt(img, glowMirror), ground: brightnessAt(img, groundGlow) - brightnessAt(img, groundMirror) });
@@ -214,15 +224,10 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`Bake lighting saves a sta
   expect(Math.abs(brightnessAt(before, shadowSpot) - beforeLit)).toBeLessThan(15);
   const pool = brightnessAt(before, lampSpot) - brightnessAt(before, mirrorSpot);
   const highlight = brightnessAt(before, highlightSpot) - brightnessAt(before, acrossSpot);
-  console.log(`[block-lightmaps] ${variant}: area light pool ${pool.toFixed(1)} over its mirror spot, highlight ${highlight.toFixed(1)} over the spot across the lamp (${live ? 'read from the surface cache' : 'no live cache'})`);
-  // Where the cache is lit live the blocks draw its light and the lamp's highlight; WebGL 2 draws no area light before a bake.
-  if (live) {
-    expect(pool).toBeGreaterThan(LAMP_POOL);
-    expect(highlight).toBeGreaterThan(HIGHLIGHT);
-  } else {
-    expect(Math.abs(pool)).toBeLessThan(LAMP_POOL);
-    expect(Math.abs(highlight)).toBeLessThan(HIGHLIGHT);
-  }
+  console.log(`[block-lightmaps] ${variant}: area light pool ${pool.toFixed(1)} over its mirror spot, highlight ${highlight.toFixed(1)} over the spot across the lamp (${live ? 'read from the surface cache' : 'per pixel, no live cache'})`);
+  // Live, the blocks draw the cache's light and the loop the lamp's highlight; without a live cache the loop draws both.
+  expect(pool).toBeGreaterThan(LAMP_POOL);
+  expect(highlight).toBeGreaterThan(HIGHLIGHT);
 
   // Bake lighting in the Lighting window (WebGPU: the Scene view's live light; WebGL 2 says it cannot).
   await openWindow(page, 'Lighting');
@@ -278,7 +283,10 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`Bake lighting saves a sta
           console.log(`[block-lightmaps] export ${renderer}${query}: last seen ${JSON.stringify(seen)}`);
           throw shown;
         }
-        console.log(`[block-lightmaps] export ${renderer}${query}: saved pool ${seen.pool.toFixed(1)} over its mirror spot, lit ${seen.lit.toFixed(1)} (before the bake ${beforeLit.toFixed(1)}); glowing boxes' pools ${seen.glow.floor.toFixed(1)} floor, ${seen.glow.ground.toFixed(1)} terrain; terrain ${seen.ground.toFixed(1)} (before ${beforeGround.toFixed(1)})`);
+        console.log(`[block-lightmaps] export ${renderer}${query}: saved pool ${seen.pool.toFixed(1)} over its mirror spot (live ${pool.toFixed(1)}), lit ${seen.lit.toFixed(1)} (before the bake ${beforeLit.toFixed(1)}); glowing boxes' pools ${seen.glow.floor.toFixed(1)} floor, ${seen.glow.ground.toFixed(1)} terrain; terrain ${seen.ground.toFixed(1)} (before ${beforeGround.toFixed(1)})`);
+        // The saved pool is the cache's diffuse light alone: the live pool (the cache's plus the loop's highlight) is no
+        // brighter than it but for the highlight's spill (a diffuse light drawn twice would be).
+        expect(pool / seen.pool, 'the live pool is not lit twice').toBeLessThan(POOL_TWICE);
         expect(errors).toEqual([]);
       } finally {
         await game.close();

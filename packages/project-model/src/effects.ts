@@ -21,7 +21,7 @@
 import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { canonicalGraphData, validateGraphData, type GraphContext, type GraphData } from './graph';
-import { EFFECT_GRAPH_KIND } from './effect-graph-kinds';
+import { EFFECT_GRAPH_KIND, EFFECT_MAX_PARTICLES } from './effect-graph-kinds';
 import { graphForRuntime, MATERIAL_PARAMETER_KEY_RE, materialParameterValueError } from './materials';
 
 export const EFFECT_PARAMETER_TYPES = ['float', 'vec3', 'color'] as const;
@@ -88,8 +88,7 @@ export interface EffectComponent {
 export const EFFECT_LIMITS = {
   systems: 16,
   parameters: 32,
-  /** Data bound of one system's capacity (2^20); executors cap lower (the CPU fallback has its own documented cap). */
-  maxParticles: 1_048_576,
+  maxParticles: EFFECT_MAX_PARTICLES,
   duration: 3600,
   seed: 4_294_967_295,
   /** Bounds centre and size (metres). */

@@ -414,7 +414,7 @@ type LightNodeLike = { readonly isProbeLightingNode?: boolean; readonly light?: 
 
 const isHeld = (n: LightNodeLike): boolean => n.light?.userData[PROBE_HELD_KEY] === true;
 
-/** The lights the surface cache holds of those drawn: point and spot lights, three's or the clusters' (the effect pool's lights are not in it). */
+/** The lights the surface cache holds of those drawn: point and spot lights, three's or the clusters' (the clusters' loop keeps the effects' lights, which it does not hold, apart). */
 const isCacheLight = (l: THREE.Light | undefined): boolean => (l as { isPointLight?: boolean } | undefined)?.isPointLight === true || (l as { isSpotLight?: boolean } | undefined)?.isSpotLight === true || isClusteredLights(l);
 
 /**

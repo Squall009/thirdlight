@@ -29,7 +29,7 @@ import * as THREE from 'three/webgpu';
 
 import { compileEffect, EffectInstance, type CompiledNode, type EffectMesh, type EffectOrigin, type EffectProgram } from '@thirdlight/effects';
 
-import { CpuParticleSource, createOutputRenderer, EFFECT_LIGHT_LIMIT, emitsLight, GpuParticleSource, LightPool, outputSorted, type DrawContext, type FrameInfo, type OutputRenderer } from './effects-draw';
+import { CpuParticleSource, createOutputRenderer, emitsLight, GpuParticleSource, LightPool, outputSorted, type DrawContext, type FrameInfo, type OutputRenderer } from './effects-draw';
 import { cpuSystemReasons, GPU_SORT_LIMIT, gpuUnsupportedReason } from './effects-gpu';
 import { GpuEffectBatches, GpuEffectExecutor } from './effects-gpu-batch';
 import { decodeTexture } from './material-library';
@@ -93,7 +93,7 @@ const MAX_SUBSTEPS = 4;
 export interface EffectsDiagnostics {
   /** The executor for this backend: `webgpu` on WebGPU, `cpu` on WebGL 2 (null: no renderer yet). */
   executor: 'webgpu' | 'cpu' | null;
-  caps: { particlesPerSystem: number; particlesTotal: number; instances: number; lights: number; sortLimit: number | null };
+  caps: { particlesPerSystem: number; particlesTotal: number; instances: number; sortLimit: number | null };
   /** Effects playing now, and their living particles (GPU counts are read back every half second). */
   playing: number;
   particles: number;
@@ -106,7 +106,7 @@ export interface EffectsDiagnostics {
   problems: string[];
   /** Point lights in use of the shared pool. */
   lights: number;
-  /** Point lights the pool holds in the scene, dark when unused (the whole pool once an effect of the game emits light, else 0). */
+  /** Point-light slots the pool holds (0 until an effect of the game emits light; it grows with the lights asked for, never a cap). */
   lightPool: number;
 }
 
@@ -587,7 +587,7 @@ export function createEffectsPlayer(options: EffectsPlayerOptions): EffectsPlaye
       }
       return {
         executor: api === null ? null : api === 'webgpu' ? 'webgpu' : 'cpu',
-        caps: { particlesPerSystem: c.particlesPerSystem, particlesTotal: c.particlesTotal, instances: c.instances, lights: EFFECT_LIGHT_LIMIT, sortLimit: api === 'webgpu' ? GPU_SORT_LIMIT : null },
+        caps: { particlesPerSystem: c.particlesPerSystem, particlesTotal: c.particlesTotal, instances: c.instances, sortLimit: api === 'webgpu' ? GPU_SORT_LIMIT : null },
         playing: playing.length,
         particles,
         refused,

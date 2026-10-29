@@ -1,23 +1,27 @@
 /**
  * Effect lights never recompile the scene. A game whose effect emits
- * light (a Lights block) gets the whole effect light pool, dark, before its
- * first frame, so the number of lights in the scene never changes while it
- * plays: a script plays the glowing effect once at the start and once more
- * per key press until 16 play, each lighting a panel behind it. Counted at
- * the graphics API in every frame (WebGL programs linked, WebGPU shader
- * modules and pipelines created; monotonic, so a rebuilt-and-released
- * program still counts): once the first light shows and the counts are
- * still, lights rising from 1 to 16 build nothing more. In Play (the preview
- * iframe) and in the static export (backend stopped). Per renderer: `auto`
- * in `default`, `webgl2` with TL_E2E_ALL_VARIANTS=1, `webgpu` in `webgpu`.
+ * light (a Lights block) gets the effect light pool before its first frame,
+ * and the light clusters list its lights like any local light, so no light
+ * changes a program while it plays: a script plays the glowing effect once
+ * at the start and once more per key press until 16 play, each lighting a
+ * panel behind it, then on one more press a swarm whose one Lights block
+ * lights 24 of its particles (no count caps the effects' lights: 40 in
+ * all). Counted at the graphics API in every frame (WebGL programs linked,
+ * WebGPU shader modules and pipelines created; monotonic, so a
+ * rebuilt-and-released program still counts): once the first light shows
+ * and the counts are still, lights rising from 1 to 40 build nothing more.
+ * In Play (the preview iframe) and in the static export (backend stopped).
+ * Per renderer: `auto` in `default`, `webgl2` with TL_E2E_ALL_VARIANTS=1,
+ * `webgpu` in `webgpu`.
  *
  * The glow's sparks are one system and its light another, so on WebGPU the
  * sparks run on the GPU executor and only the light system on the CPU (a new
  * play builds its sparks' compute passes, counted apart: they are not the lit
  * materials).
  *
- * The pool is shaded: the panel is brighter with 16 lights than with one
- * (how it should look is not judged here).
+ * The pool is shaded: the panel is brighter with 16 lights than with one,
+ * and brighter again with the swarm's 24 more (how it should look is not
+ * judged here).
  */
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
@@ -129,6 +133,34 @@ const GLOW = {
   ],
 };
 
+/** A swarm along the panel: one light system whose Lights block lights all 24 of its particles. */
+const SWARM_LIGHTS = 24;
+const SWARM = {
+  effectId: 'fx-swarm',
+  name: 'Swarm',
+  duration: 1,
+  loop: true,
+  seed: 7,
+  bounds: { center: [0, 0, 0], size: [10, 2, 2] },
+  systems: [
+    {
+      systemId: 'light',
+      name: 'Light',
+      maxParticles: SWARM_LIGHTS,
+      space: 'world',
+      graph: chainGraph({
+        spawn: [{ type: 'spawn.burst', data: { count: SWARM_LIGHTS } }],
+        initialize: [
+          { type: 'init.lifetime', data: { min: 1000, max: 1000 } },
+          { type: 'init.position.line', data: { start: [-4, 0, 0], end: [4, 0, 0] } },
+          { type: 'init.color', data: { color: '#80c0ff' } },
+        ],
+        output: [{ type: 'output.light', data: { maxLights: SWARM_LIGHTS, intensity: 3, range: 3 } }],
+      }),
+    },
+  ],
+};
+
 const PLAYS = 16;
 /** Mean of the RGB channels over the whole image. */
 const brightness = (img: Image): number => {
@@ -148,6 +180,9 @@ const DRIVER = [
   `    if (state.n < ${PLAYS} && (state.n === 0 || ctx.input.pressed('more'))) {`,
   "      ctx.effects.play('fx-glow', { position: [-3.75 + 0.5 * state.n, 0.4, 0.4] });",
   '      state.n += 1;',
+  `    } else if (state.n === ${PLAYS} && ctx.input.pressed('more')) {`,
+  "      ctx.effects.play('fx-swarm', { position: [0, 0.2, 0.4] });",
+  '      state.n += 1;',
   '    }',
   '  },',
   '};',
@@ -155,19 +190,20 @@ const DRIVER = [
 
 const VARIANTS: readonly RendererVariant[] = ['auto', 'webgl2', 'webgpu'];
 
-for (const variant of VARIANTS) test(`effect lights rising from 1 to 16 build no shader after the first light, in Play and the export (${variant})`, async ({ page }) => {
+for (const variant of VARIANTS) test(`effect lights rising from 1 to 40 (one effect lighting 24) build no shader after the first light, in Play and the export (${variant})`, async ({ page }) => {
   onlyInItsProject(variant);
   test.setTimeout(420_000);
   be = await startBackend('effect-light-pool-e2e');
   await cmd('setTransform', { entityId: 'cam-main', transform: { position: [0, 1, 7], rotation: [0, 0, 0, 1] } });
   await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'box', name: 'Panel', transform: { position: [0, 0.5, -0.5] }, box: { size: [9, 3, 0.1], material: { color: '#c0c0c0' } } });
   await cmd('setEffect', { effect: GLOW });
+  await cmd('setEffect', { effect: SWARM });
   await cmd('setInput', { input: { actions: [{ name: 'more', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'KeyE' }] }] } });
   const driver = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Driver', transform: { position: [0, -20, 0] } }))['createdId']);
   await publishScript(be, 'glow-driver', DRIVER, driver);
   await page.context().addInitScript(countBuilds);
 
-  /** The first glow lights the panel; once the builds are still, 15 presses bring 16 lights and build nothing. */
+  /** The first glow lights the panel; once the builds are still, 15 presses bring 16 lights, one more the swarm's 24, and none builds anything. */
   const rise = async (where: string, keys: Page, canvas: Locator, frame: Frame, focus: () => Promise<void>): Promise<void> => {
     await expectRendererBackend(canvas, variant);
     await expect(canvas).toHaveAttribute('data-tl-effects-lights', '1', { timeout: 60_000 });
@@ -196,12 +232,20 @@ for (const variant of VARIANTS) test(`effect lights rising from 1 to 16 build no
     }
     await expect(canvas).toHaveAttribute('data-tl-effects-playing', String(PLAYS));
     await keys.waitForTimeout(2_000);
-    const after = await readBuilds(frame);
-    console.log(`[effect-light-pool] ${variant} ${where}: builds at 1 light ${JSON.stringify(before)}, at ${PLAYS} lights ${JSON.stringify(after)}`);
-    expect(drawBuilds(after), `${where}: no program or render pipeline built while the lights rose`).toEqual(drawBuilds(before));
     const lit = brightness(decodePng(await canvas.screenshot()));
-    console.log(`[effect-light-pool] ${variant} ${where}: mean brightness at 1 light ${dim.toFixed(1)}, at ${PLAYS} lights ${lit.toFixed(1)}`);
+    // The swarm: one effect lighting 24 particles.
+    await keys.keyboard.down('KeyE');
+    await expect(canvas).toHaveAttribute('data-tl-effects-lights', String(PLAYS + SWARM_LIGHTS), { timeout: 20_000 });
+    await keys.keyboard.up('KeyE');
+    await expect(canvas).toHaveAttribute('data-tl-effects-playing', String(PLAYS + 1));
+    await keys.waitForTimeout(2_000);
+    const after = await readBuilds(frame);
+    console.log(`[effect-light-pool] ${variant} ${where}: builds at 1 light ${JSON.stringify(before)}, at ${PLAYS + SWARM_LIGHTS} lights ${JSON.stringify(after)}`);
+    expect(drawBuilds(after), `${where}: no program or render pipeline built while the lights rose`).toEqual(drawBuilds(before));
+    const swarm = brightness(decodePng(await canvas.screenshot()));
+    console.log(`[effect-light-pool] ${variant} ${where}: mean brightness at 1 light ${dim.toFixed(1)}, at ${PLAYS} lights ${lit.toFixed(1)}, at ${PLAYS + SWARM_LIGHTS} ${swarm.toFixed(1)}`);
     expect(lit, `${where}: the 16 lights light the panel`).toBeGreaterThan(dim + 5);
+    expect(swarm, `${where}: the swarm's 24 lights light it more`).toBeGreaterThan(lit + 3);
   };
 
   // Play: the preview iframe (the editor passes the renderer flag on).
@@ -221,7 +265,7 @@ for (const variant of VARIANTS) test(`effect lights rising from 1 to 16 build no
   const res = await be.admin(`projects/${be.projectId}/export`);
   expect(res.status, JSON.stringify(res.json)).toBe(200);
   const out = join(be.exportRoot, String(res.json.outputDir));
-  expect((exportedContent(out) as { effects?: { effectId: string }[] }).effects?.map((e) => e.effectId)).toEqual(['fx-glow']);
+  expect((exportedContent(out) as { effects?: { effectId: string }[] }).effects?.map((e) => e.effectId).sort()).toEqual(['fx-glow', 'fx-swarm']);
   await page.goto('about:blank');
   await be.halt();
   const site = await serveDir(out);

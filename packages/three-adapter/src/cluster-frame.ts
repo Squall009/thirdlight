@@ -7,14 +7,17 @@
  * - **The lights.** Every realized point and spot light that is on and the
  *   clusters draw (`drawsClustered`: no shadow, no cookie), and every area
  *   light of the realized entities, unless it is hidden, held by a bake, or
- *   in a room no portal shows. Point and spot lights are read from their
- *   three.js lights (scripts move, dim and switch them there); area lights
- *   from their entities, their list every `DOC_LIGHTS_MS` and their place
- *   every frame.
+ *   in a room no portal shows; and the slots in use of the effects' light
+ *   pools in the scene (`effect-lights.ts`; not in the surface cache).
+ *   Point and spot lights are read from their three.js lights (scripts
+ *   move, dim and switch them there); area lights from their entities, their
+ *   list every `DOC_LIGHTS_MS` (and after each selection of the lights) and
+ *   their place every frame.
  * - **The light that draws them** (`ClusteredLights`, cluster-lights.ts) is
- *   in the scene while any point or spot light is realized (`syncLight`,
- *   after each selection of the lights), so the first lamp builds the lit
- *   programs once and later ones build nothing.
+ *   in the scene while any point, spot or area light is realized or an
+ *   effect light pool is there (`syncLight`, after each selection of the
+ *   lights, and when the area lights or pools change), so the first lamp
+ *   builds the lit programs once and later ones build nothing.
  * - **One grid per camera**, its builder and packed data kept with it; the
  *   GPU textures (one pair a renderer) take the camera drawn now.
  * - **A budget, not a count**: past `CLUSTER_INDEX_MIB` the lowest-ranked
@@ -35,6 +38,7 @@ import { ClusterBuilder, ClusterLights, CLUSTER_SLICES, CLUSTER_TILES_X, cluster
 import { ClusterGpu, type ClusterUploadRenderer } from './cluster-gpu';
 import { ClusterHeatLight } from './cluster-heat';
 import { ClusteredLights, drawsClustered } from './cluster-lights';
+import { effectLightPoolsIn, type EffectLights } from './effect-lights';
 import { CLUSTER_INDEX_MIB, CLUSTER_INDEX_WORDS, ClusterTextures } from './cluster-pack';
 import { isLayeredLight, roomKeyOf } from './light-layers';
 import type { SceneLights } from './lights-shadows';
@@ -94,7 +98,7 @@ interface AreaDoc {
 
 /** A light value written in place for each light (nothing allocated per light and frame). */
 function scratchValue(): ClusterLightValue & { position: Float64Array; color: Float64Array; direction: Float64Array; u: Float64Array; v: Float64Array } {
-  return { kind: 'point', position: new Float64Array(3), reach: 0, color: new Float64Array(3), direction: new Float64Array(3), u: new Float64Array(3), v: new Float64Array(3), decay: 2, cosOuter: -1, cosInner: -1, mask: LIGHT_LAYERS_ALL, room: -1, shadow: -1, cookie: -1, visible: true, twoSided: false, unbounded: false };
+  return { kind: 'point', position: new Float64Array(3), reach: 0, color: new Float64Array(3), direction: new Float64Array(3), u: new Float64Array(3), v: new Float64Array(3), decay: 2, cosOuter: -1, cosInner: -1, mask: LIGHT_LAYERS_ALL, room: -1, shadow: -1, cookie: -1, visible: true, twoSided: false, unbounded: false, uncached: false };
 }
 
 export class AdapterClusters {
@@ -108,6 +112,9 @@ export class AdapterClusters {
   private readonly heat: { wanted: boolean; light: ClusterHeatLight | null } = { wanted: false, light: null };
   private areas: AreaDoc[] = [];
   private areasAt = -Infinity;
+  /** The effect light pools in the scene this frame (and whether any is layered, as the light was last set). */
+  private readonly pools: EffectLights[] = [];
+  private poolsSeen = { any: false, layered: false };
   private readonly value = scratchValue();
   private readonly m = new THREE.Matrix4();
   private readonly viewInverse = new THREE.Matrix4();
@@ -143,15 +150,20 @@ export class AdapterClusters {
    * were selected: realized, released, hidden, or turned plain or layered).
    */
   syncLight(): void {
-    // The entities changed: the area lights are read again on the next frame (not only every `DOC_LIGHTS_MS`).
-    this.areasAt = -Infinity;
-    let any = false;
-    let layered = false;
+    // The entities changed: the area lights are read again now (not only every `DOC_LIGHTS_MS`).
+    this.areasAt = performance.now();
+    this.readAreas();
+    let any = this.areas.length > 0;
+    let layered = this.areas.some((a) => lightLayerMaskOf(a.light.lightMask) !== LIGHT_LAYERS_ALL);
     this.d.lights.forEachLight((_id, kind, light) => {
       if (kind !== 'point' && kind !== 'spot') return;
       any = true;
       if (isLayeredLight(light) && drawsClustered(light)) layered = true;
     });
+    const pools = this.poolState();
+    any ||= pools.any;
+    layered ||= pools.layered;
+    this.poolsSeen = pools;
     if (any && this.light === null) {
       this.light = new ClusteredLights(this.gpu);
       this.light.layered = layered;
@@ -168,6 +180,12 @@ export class AdapterClusters {
     }
   }
 
+  /** Whether an effect light pool is in the scene, and whether any asks for layer tests. */
+  private poolState(): { any: boolean; layered: boolean } {
+    const pools = effectLightPoolsIn(this.d.scene, this.pools);
+    return { any: pools.length > 0, layered: pools.some((p) => p.abilities.layered) };
+  }
+
   /** Lights the heat map draws the lists of (0 while it is off). */
   heatLights(): number {
     return this.heat.light !== null ? this.last.packed : 0;
@@ -177,7 +195,15 @@ export class AdapterClusters {
   frame(renderer: ClusterUploadRenderer, camera: THREE.Camera & { near: number; far: number }): void {
     const t0 = performance.now();
     if (this.gpuRenderer !== null && renderer !== this.gpuRenderer) this.dropGpu();
-    this.gather(t0);
+    // A pool came or went, or the area lights did (read again on their own clock): the light follows.
+    const pools = this.poolState();
+    const hadAreas = this.areas.length > 0;
+    if (t0 - this.areasAt >= DOC_LIGHTS_MS) {
+      this.areasAt = t0;
+      this.readAreas();
+    }
+    if (pools.any !== this.poolsSeen.any || pools.layered !== this.poolsSeen.layered || hadAreas !== this.areas.length > 0) this.syncLight();
+    this.gather();
     const tg = performance.now();
     let view = this.views.get(camera);
     if (view === undefined) {
@@ -288,7 +314,7 @@ export class AdapterClusters {
   }
 
   /** The local lights now, into `input`. */
-  private gather(now: number): void {
+  private gather(): void {
     const input = this.input;
     input.clear();
     const hidden = this.d.hidden();
@@ -335,11 +361,35 @@ export class AdapterClusters {
       }
       input.add(v);
     });
-    if (now - this.areasAt >= DOC_LIGHTS_MS) {
-      this.areasAt = now;
-      this.readAreas();
-    }
     for (const a of this.areas) this.addArea(a, hidden);
+    for (const p of this.pools) this.addEffectLights(p);
+  }
+
+  /** A pool's slots in use: point lights the surface cache does not hold. */
+  private addEffectLights(p: EffectLights): void {
+    const v = this.value;
+    v.kind = 'point';
+    v.twoSided = false;
+    v.unbounded = false;
+    v.uncached = true;
+    v.cosOuter = -1;
+    v.cosInner = -1;
+    v.room = -1;
+    v.visible = true;
+    for (let i = 0; i < p.count; i += 1) {
+      const s = p.slots[i]!;
+      v.position[0] = s.position.x;
+      v.position[1] = s.position.y;
+      v.position[2] = s.position.z;
+      v.color[0] = s.color.r * s.intensity;
+      v.color[1] = s.color.g * s.intensity;
+      v.color[2] = s.color.b * s.intensity;
+      v.reach = lightReachOf(s.distance, v.color);
+      v.decay = s.decay;
+      v.mask = s.mask;
+      this.input.add(v);
+    }
+    v.uncached = false;
   }
 
   /** The realized entities' area lights (not those a bake holds). */

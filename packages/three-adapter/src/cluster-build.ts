@@ -62,6 +62,12 @@ export const CLUSTER_TWO_SIDED = 4;
  * reach; the reach only bounds the cells that list it.
  */
 export const CLUSTER_UNBOUNDED = CLUSTER_TWO_SIDED;
+/**
+ * The kind field's bit for a light the surface cache does not hold (an
+ * effect's light): a pixel reading the cache shades it whole, where the
+ * cache's own lights give it only their highlights.
+ */
+export const CLUSTER_UNCACHED = 8;
 
 export type ClusterLightKind = 'point' | 'spot' | 'rect' | 'line';
 
@@ -85,6 +91,8 @@ export interface ClusterLightValue {
   twoSided?: boolean;
   /** A point or spot light without a range (three's `distance` 0): no window toward its reach. */
   unbounded?: boolean;
+  /** The surface cache does not hold its light (an effect's light). */
+  uncached?: boolean;
   /** The light layers it lights (default every layer). */
   mask?: number;
   /** The room it lights alone (`light-layers.ts` room keys; absent or -1: every room). */
@@ -131,7 +139,7 @@ export class ClusterLights {
     if (i >= this.kind.length) this.grow(Math.max(16, this.kind.length * 2));
     this.count += 1;
     const k = l.kind === 'point' ? CLUSTER_POINT : l.kind === 'spot' ? CLUSTER_SPOT : l.kind === 'rect' ? CLUSTER_RECT : CLUSTER_LINE;
-    this.kind[i] = k | (k >= CLUSTER_RECT ? (l.twoSided === true ? CLUSTER_TWO_SIDED : 0) : l.unbounded === true ? CLUSTER_UNBOUNDED : 0);
+    this.kind[i] = k | (k >= CLUSTER_RECT ? (l.twoSided === true ? CLUSTER_TWO_SIDED : 0) : l.unbounded === true ? CLUSTER_UNBOUNDED : 0) | (l.uncached === true ? CLUSTER_UNCACHED : 0);
     for (let a = 0; a < 3; a += 1) {
       this.position[i * 3 + a] = l.position[a] ?? 0;
       this.color[i * 3 + a] = l.color[a] ?? 0;

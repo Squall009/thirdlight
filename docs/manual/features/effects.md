@@ -176,13 +176,18 @@ One graph, two executors:
 
 A system's *max particles* is capped to its executor's cap; a play past the
 total or the instance cap is refused (counted in the diagnostics). Point
-lights: 16 shared by all effects, a fixed pool: when Play or an exported
-game starts and one of its effects has a *Lights* block, all 16 are added
-to the scene dark before the first frame, so the number of lights never
-changes while it plays and no lit material recompiles (a game without
+lights: one pool shared by all effects, listed by the light clusters like
+any local light: when Play or an exported game starts and one of its
+effects has a *Lights* block, the pool joins the scene before the first
+frame, so no effect light ever recompiles a lit material (a game without
 light-emitting effects carries none; an edit that adds the first *Lights*
-block in the Scene view adds them then, once). Past 16 lit particles the
-rest give no light. A *Lights* block has **Light layers (mask)** (bit n is
+block in the Scene view adds it then, once). No count caps them: the pool
+grows with the lit particles (a block's *Max lights* goes up to its
+system's particles), and each light costs only the pixels its cells reach
+(the clusters' memory budget, see
+[Local lights per object](lighting.md#local-lights-per-object)). The surface
+cache does not hold effect lights: a static wall reading the cache gets
+their light whole, per pixel. A *Lights* block has **Light layers (mask)** (bit n is
 layer n + 1; 255, the default, every layer: its lights light only objects
 in those layers, as a scene light's mask; 0 lights nothing and takes no
 slot); its lights are shaded per pixel, as a scene point light's (see
@@ -206,7 +211,7 @@ are read back every half second), refused plays, effect ids no effect of
 the game has, and per playing effect its executor (and why an effect runs
 on the CPU on WebGPU) with each system's executor (`systems`: `webgpu` |
 `cpu`, and why a system of a GPU effect runs on the CPU), the pool lights in use (`lights`) and in the scene
-(`lightPool`: 16 or 0); `tl_game_observe` has a compact `effects` block. The
+(`lightPool`: the slots the pool holds, 0 until an effect emits light); `tl_game_observe` has a compact `effects` block. The
 game canvas carries `data-tl-effects` (the executor), `data-tl-effects-playing`,
 `data-tl-effects-particles` and `data-tl-effects-lights` (pool lights in use).
 

@@ -7,8 +7,8 @@
  *
  * - **Which build sees which lights.** The renderer's lights node (installed
  *   by `registerProbeLighting`) asks `splitLocalLights` before it builds a
- *   material's lights: a build in mode `none` leaves the local lights (and
- *   the effect light pool, effect-lights.ts) out; every other build shades
+ *   material's lights: a build in mode `none` leaves the local lights (the
+ *   light clusters' loop, effects' lights included) out; every other build shades
  *   them per pixel with three's own light nodes.
  * - **Which build an object gets.** A program can't depend on the object
  *   drawn (three keys programs by material, geometry and lights), so an
@@ -28,9 +28,8 @@
 import * as THREE from 'three/webgpu';
 import { localLightModeOf, type LocalLightMode } from '@thirdlight/runtime';
 
-import { type EffectLights } from './effect-lights';
 import { makeMaterialVariant, renderCallOf, syncMaterialVariant } from './material-variant';
-import { SURFACE_READ_CAPTURE, SURFACE_READ_HIGHLIGHTS, SURFACE_READ_KEY, SURFACE_READ_LIVE_KEY, SURFACE_READ_TEXTURES, SURFACE_READ_VARIANT, type SurfaceCacheTextures } from './surface-cache-read';
+import { SURFACE_READ_CAPTURE, SURFACE_READ_KEY, SURFACE_READ_LIVE_KEY, SURFACE_READ_TEXTURES, SURFACE_READ_VARIANT, type SurfaceCacheTextures } from './surface-cache-read';
 
 /** `object.userData[LOCAL_LIGHTS_KEY]` / `material.userData[LOCAL_LIGHTS_KEY]`: a set local-light mode. */
 export const LOCAL_LIGHTS_KEY = '__tlLocalLights';
@@ -91,11 +90,11 @@ let variantCount = 0;
 /** A small number per local-light mode, for variant codes (no string is built per draw). */
 const modeIds = new Map<string, number>();
 
-/** A variant's code: its mode, the kind it reads (0: none), whether it draws area lights' highlights and whether it writes the colours. */
-function variantCode(mode: LocalLightMode, kind: number, highlights: boolean, capture: boolean): number {
+/** A variant's code: its mode, the kind it reads (0: none) and whether it writes the colours. */
+function variantCode(mode: LocalLightMode, kind: number, capture: boolean): number {
   let id = modeIds.get(mode);
   if (id === undefined) modeIds.set(mode, (id = modeIds.size));
-  return ((id * 256 + kind) * 2 + (highlights ? 1 : 0)) * 2 + (capture ? 1 : 0);
+  return (id * 256 + kind) * 2 + (capture ? 1 : 0);
 }
 
 /**
@@ -110,8 +109,7 @@ export function localLightVariant(material: THREE.Material, mode: LocalLightMode
 }
 
 function variantFor(material: THREE.Material, mode: LocalLightMode, kind: number, textures: SurfaceCacheTextures | null, capture: boolean, call: number): THREE.Material {
-  const highlights = textures?.highlights.present === true;
-  const code = variantCode(mode, kind, highlights, capture);
+  const code = variantCode(mode, kind, capture);
   let byCode = variants.get(material);
   const seen = byCode?.get(code);
   if (seen !== undefined && (seen as unknown as Record<string, unknown>)[SURFACE_READ_TEXTURES] === textures) {
@@ -121,7 +119,7 @@ function variantFor(material: THREE.Material, mode: LocalLightMode, kind: number
   // Another page's textures (the cache made again): the old variant goes, so three lets go of its draws.
   seen?.dispatchEvent({ type: 'dispose' });
   // Every mark always, in one order: a variant's shape is its class's.
-  const v = makeMaterialVariant(material, { [VARIANT_MODE]: mode, [SURFACE_READ_VARIANT]: kind, [SURFACE_READ_TEXTURES]: textures, [SURFACE_READ_HIGHLIGHTS]: highlights, [SURFACE_READ_CAPTURE]: capture }, `|tlLocalLights=${mode}${textures !== null ? `|tlSurfaceRead=${kind}/${textures.id}${highlights ? '/area' : ''}${capture ? '/capture' : ''}` : ''}`);
+  const v = makeMaterialVariant(material, { [VARIANT_MODE]: mode, [SURFACE_READ_VARIANT]: kind, [SURFACE_READ_TEXTURES]: textures, [SURFACE_READ_CAPTURE]: capture }, `|tlLocalLights=${mode}${textures !== null ? `|tlSurfaceRead=${kind}/${textures.id}${capture ? '/capture' : ''}` : ''}`);
   if (call !== -1) syncMaterialVariant(v, call);
   if (byCode === undefined) {
     byCode = new Map();
@@ -178,19 +176,15 @@ export function installLocalLightModes(renderer: { renderObject: RenderObjectFn 
 // The lights of one build
 
 type LightNodeLike = { readonly light?: THREE.Light; build(builder: unknown): unknown };
-type LocalFlags = { isPointLight?: boolean; isSpotLight?: boolean; isEffectLights?: boolean; isClusteredLights?: boolean };
+type LocalFlags = { isPointLight?: boolean; isSpotLight?: boolean; isClusteredLights?: boolean };
 
 export function isLocal(l: THREE.Light | undefined): boolean {
   const f = l as (THREE.Light & LocalFlags) | undefined;
-  return f !== undefined && (f.isPointLight === true || f.isSpotLight === true || f.isEffectLights === true || f.isClusteredLights === true);
+  return f !== undefined && (f.isPointLight === true || f.isSpotLight === true || f.isClusteredLights === true);
 }
 
 function isClustered(l: THREE.Light | undefined): l is THREE.Light & { layered: boolean } {
   return (l as (THREE.Light & LocalFlags) | undefined)?.isClusteredLights === true;
-}
-
-function isPool(l: THREE.Light | undefined): l is EffectLights {
-  return (l as (THREE.Light & LocalFlags) | undefined)?.isEffectLights === true;
 }
 
 /** Whether a material build shades local lights (every mode but `none`). */
@@ -204,12 +198,9 @@ export function splitLocalLights<T extends LightNodeLike>(builder: { material?: 
   return nodes.filter((n) => !isLocal(n.light));
 }
 
-/** The part of a lights node's program key the effect light pool and the clustered lights decide (whether their shaders test layer masks). */
+/** The part of a lights node's program key the clustered lights decide (whether their shaders test layer masks). */
 export function localLightsCacheKey(lights: readonly THREE.Light[]): number {
   let h = 0;
-  for (const l of lights) {
-    if (isPool(l) && l.abilities.layered) h = (Math.imul(h, 31) + l.id * 8 + 1) | 0;
-    else if (isClustered(l) && l.layered) h = (Math.imul(h, 31) + l.id * 8 + 2) | 0;
-  }
+  for (const l of lights) if (isClustered(l) && l.layered) h = (Math.imul(h, 31) + l.id * 8 + 2) | 0;
   return h;
 }

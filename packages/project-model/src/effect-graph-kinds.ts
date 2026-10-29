@@ -45,12 +45,11 @@ export const EFFECT_GRAPH_LIMITS = {
 } as const;
 
 /**
- * Point lights every playing effect shares: the renderer adds them all,
- * dark, when a game with light-emitting effects starts (a light added mid-play
- * would recompile every lit material), and each costs shading time on every
- * lit surface. Also the most a single Lights block may ask for.
+ * The data bound of one system's capacity (2^20): executors cap lower (the
+ * CPU fallback has its own documented cap). A Lights block lights at most
+ * as many particles as its system holds.
  */
-export const EFFECT_LIGHT_LIMIT = 16;
+export const EFFECT_MAX_PARTICLES = 1_048_576;
 
 /** The value port types (widening order: float → vec3 → color). */
 export const EFFECT_VALUE_TYPES = ['float', 'vec3', 'color'] as const;
@@ -335,8 +334,8 @@ const OUTPUT_NODES: readonly GraphNodeDef[] = [
     MATERIAL,
   ]),
   block('output', 'output.light', 'Lights', 'Output', 'A point light at up to `max lights` particles (the oldest living ones), coloured by the particle. It lights the objects in its light layers (bit n: layer n + 1), per pixel like a scene point light.', [
-    /** 4: point lights are costly; a few give the glow. */
-    fixed(num('maxLights', 'Max lights', 4, 1, EFFECT_LIGHT_LIMIT)),
+    /** 4: a few give the glow; each light costs the pixels it reaches. */
+    fixed(num('maxLights', 'Max lights', 4, 1, EFFECT_MAX_PARTICLES)),
     /** 1 cd per particle, 2 m range: a small glow. */
     num('intensity', 'Intensity (cd)', 1, 0, 1000),
     num('range', 'Range (m)', 2, 0.01, 1000),

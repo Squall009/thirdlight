@@ -36,7 +36,8 @@ import { SURFACE_CHART_METRES, SURFACE_PAGE_TEXELS } from './surface-cache-atlas
 import { buildReadsCopyColumns, instanceColumn } from './attribute-instancing';
 import { ALBEDO_CELLS, ALBEDO_PAGE_STEP, ALBEDO_RING_STEP, albedoWords, ARCH_CELL, ARCH_FACING, ARCH_PLANE_METRES, BLOCK_INSET, BLOCK_LAYERS_HELD, EMPTY, LAYER_TEXELS, LOOKUP_WIDTH, RECT_TEXELS, SLOT_TEXELS, SURFACE_READ, SURFEL_KEY_BITS, TERRAIN_TEXELS, type SurfaceReadKind } from './surface-cache-lookup';
 import { TERRAIN_RING_TEXELS, TERRAIN_RINGS_MAX } from './surface-cache-terrain';
-import { AreaHighlights, areaHighlightNodes, buildsHighlights, cacheVisibility } from './surface-highlights';
+import { buildsHighlights, cacheVisibility } from './surface-highlights';
+import { UNCACHED_LIGHT_CONTEXT, type LightSums } from './cluster-lights';
 import { SURFACE_TEXEL_LIT } from './surface-light-wgsl';
 import { CHUNK_SIZE } from '@thirdlight/runtime';
 import { texelTexture } from './texel-texture-node';
@@ -138,8 +139,6 @@ export class SurfaceCacheTextures {
   private readonly retired: THREE.DataTexture[] = [];
   /** The sun's colour × intensity, as the light pass counts it. */
   readonly sun = uniform(new THREE.Color(0, 0, 0));
-  /** The area lights whose highlights reading pixels draw. */
-  readonly highlights = new AreaHighlights();
   /** The lookup's texture node. */
   readonly tableNode: N;
   /**
@@ -289,8 +288,6 @@ function tableTexture(data: Uint32Array): THREE.DataTexture {
 export const SURFACE_READ_FOUND = property('float', 'tlSurfaceReadFound');
 /** The cache's irradiance at this pixel ÷ π, the sun's share out (0 where none was found). */
 const SURFACE_READ_IRRADIANCE = property('vec3', 'tlSurfaceReadIrradiance');
-/** A reading variant's mark: its programs draw the area lights' highlights (the scene has area lights). */
-export const SURFACE_READ_HIGHLIGHTS = 'tlSurfaceReadHighlights';
 
 /** The shader's walk of the lookup's words (`lookupSurfaceCpu`'s twin). */
 function lookupNodes(builder: N, tex: SurfaceCacheTextures, kind: SurfaceReadKind): { layer: N; uv: N; found: N; rings: boolean } {
@@ -711,9 +708,11 @@ export function surfaceReadNode(tex: SurfaceCacheTextures, kind: SurfaceReadKind
  * In a reading build's lights node: the cache's light first, then every
  * other light; the local lights' diffuse light (the cache holds it) is put
  * back to what it was before them where the cache was found, their
- * highlights kept, and the area lights' highlights added
- * (`surface-highlights.ts`), every highlight scaled by the share of those
- * lights the cache's texel sees.
+ * highlights kept (point, spot and area lights alike, from the light
+ * clusters' loop and three's own shadowed lights), every highlight scaled by
+ * the share of those lights the cache's texel sees. The lights the cache
+ * does not hold (effects' lights) are summed apart by the loop and kept
+ * whole.
  */
 export function buildReadLights(builder: N, nodes: readonly { light?: THREE.Light; build(b: unknown): unknown }[], isLocal: (l: THREE.Light | undefined) => boolean): void {
   const kind = buildSurfaceRead(builder) as SurfaceReadKind;
@@ -731,22 +730,29 @@ export function buildReadLights(builder: N, nodes: readonly { light?: THREE.Ligh
   }
   const local = nodes.filter((n) => isLocal(n.light));
   for (const n of nodes) if (!local.includes(n)) n.build(builder);
+  if (local.length === 0) return;
   const highlights = buildsHighlights(builder);
-  const area = highlights && material?.[SURFACE_READ_HIGHLIGHTS] === true;
-  if (local.length === 0 && !area) return;
   const custom = builder.material?.isMeshCustomLitNodeMaterial === true;
   const sink = custom ? LIT.direct : builder.context.reflectedLight.directDiffuse;
   const before = vec3(sink).toVar('tlSurfaceReadBefore');
   const specular = builder.context.reflectedLight.directSpecular;
   const specBefore = vec3(specular).toVar('tlSurfaceReadSpecBefore');
-  for (const n of local) n.build(builder);
+  const uncached: LightSums = { diffuse: vec3(0).toVar('tlSurfaceReadUncachedDiffuse'), specular: vec3(0).toVar('tlSurfaceReadUncachedSpecular'), modelSink: custom ? LIT.direct : null };
+  const context = builder.context as Record<string, unknown>;
+  context[UNCACHED_LIGHT_CONTEXT] = uncached;
+  try {
+    for (const n of local) n.build(builder);
+  } finally {
+    delete context[UNCACHED_LIGHT_CONTEXT];
+  }
   if (highlights) {
-    const a = area ? areaHighlightNodes(builder, tex.highlights) : null;
-    const visible = cacheVisibility(SURFACE_READ_IRRADIANCE, a?.irradiance ?? vec3(0), vec3(sink).sub(before), TSL.diffuseContribution).toVar('tlSurfaceReadVisible');
-    // Where nothing was found the per-pixel lights keep their own highlights, and area lights (cache light only) none.
+    const visible = cacheVisibility(SURFACE_READ_IRRADIANCE, vec3(sink).sub(before), TSL.diffuseContribution).toVar('tlSurfaceReadVisible');
+    // Where nothing was found the per-pixel lights keep their own highlights.
     const share = mix(float(1), visible, SURFACE_READ_FOUND);
     specular.assign(specBefore.add(vec3(specular).sub(specBefore).mul(share)));
-    if (a !== null) specular.addAssign(a.specular.mul(visible).mul(SURFACE_READ_FOUND));
   }
   sink.assign(mix(sink, before, SURFACE_READ_FOUND));
+  // A custom-lit graph's diffuse light is its own sink; the effects' lights add there whole.
+  sink.addAssign(uncached.diffuse);
+  specular.addAssign(uncached.specular);
 }

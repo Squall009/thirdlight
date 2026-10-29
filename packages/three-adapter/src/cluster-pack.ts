@@ -11,9 +11,10 @@
  *   stored as their bits (the shader bit-casts them back), in the lists'
  *   order (best rank first; a list's index is the light's record):
  *   - t0: view position xyz, reach;
- *   - t1: linear colour × intensity rgb, kind field + 8 × round(decay × 256)
+ *   - t1: linear colour × intensity rgb, kind field +
+ *     {@link CLUSTER_KIND_STEP} × round(decay × {@link CLUSTER_DECAY_STEPS})
  *     (kind: the two low bits, {@link CLUSTER_TWO_SIDED} or
- *     {@link CLUSTER_UNBOUNDED} above them);
+ *     {@link CLUSTER_UNBOUNDED} above them, then {@link CLUSTER_UNCACHED});
  *   - t2: a spot's view axis or an area light's half width `u` (view) xyz,
  *     the layer word: the light-layer mask in the low
  *     {@link CLUSTER_ROOM_SHIFT} bits and the room key it lights alone + 1
@@ -41,7 +42,7 @@
  */
 import { LIGHT_LAYER_COUNT } from '@thirdlight/runtime';
 
-import { CLUSTER_SPOT, CLUSTER_TWO_SIDED, CLUSTER_UNBOUNDED, clusterIndex, clusterSliceOf, type ClusterBuild, type ClusterGrid, type ClusterLights } from './cluster-build';
+import { CLUSTER_SPOT, CLUSTER_TWO_SIDED, CLUSTER_UNBOUNDED, CLUSTER_UNCACHED, clusterIndex, clusterSliceOf, type ClusterBuild, type ClusterGrid, type ClusterLights } from './cluster-build';
 
 /** The layer word's room key starts above the light-layer bits. */
 export const CLUSTER_ROOM_SHIFT = LIGHT_LAYER_COUNT;
@@ -61,9 +62,11 @@ export const CLUSTER_COUNT_BITS = 10;
 const COUNT_BITS = CLUSTER_COUNT_BITS;
 export const CLUSTER_LONG_LIST = (1 << COUNT_BITS) - 1;
 const COUNT_MASK = CLUSTER_LONG_LIST;
-/** Decay is stored in 1/256 steps above the kind field's three bits. */
-const DECAY_STEPS = 256;
-const KIND_BITS = 8;
+/** Decay is stored in 1/256 steps above the kind field's four bits. */
+export const CLUSTER_DECAY_STEPS = 256;
+export const CLUSTER_KIND_STEP = 16;
+const DECAY_STEPS = CLUSTER_DECAY_STEPS;
+const KIND_BITS = CLUSTER_KIND_STEP;
 const RECORD_WORDS = CLUSTER_LIGHT_TEXELS * CLUSTER_TEXEL_WORDS;
 
 /** What `pack` wrote this frame. */
@@ -247,6 +250,8 @@ export interface DecodedClusterLight {
   decay: number;
   /** Point or spot: no range (no window toward the reach). */
   unbounded: boolean;
+  /** The surface cache does not hold its light. */
+  uncached: boolean;
   mask: number;
   /** The room it lights alone (-1: every room). */
   room: number;
@@ -274,6 +279,7 @@ export function decodeClusterLight(data: Uint32Array, index: number): DecodedClu
     kind,
     twoSided: kind >= 2 && (field & CLUSTER_TWO_SIDED) !== 0,
     unbounded: kind < 2 && (field & CLUSTER_UNBOUNDED) !== 0,
+    uncached: (field & CLUSTER_UNCACHED) !== 0,
     decay: Math.floor(field / KIND_BITS) / DECAY_STEPS,
     mask: Math.trunc(t(11)) % (1 << CLUSTER_ROOM_SHIFT),
     room: Math.floor(Math.trunc(t(11)) / (1 << CLUSTER_ROOM_SHIFT)) - 1,

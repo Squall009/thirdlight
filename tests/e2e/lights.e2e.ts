@@ -7,7 +7,8 @@
  * toggles between the editor rig and the scene's own lights; the View
  * menu's light clusters heat map lists the light where it reaches. A room
  * of lamps drawn by the light clusters looks as three's own light nodes draw
- * it, and lights more than 16 lamps at once, on both renderers.
+ * it, and lights more than 16 lamps at once, on both renderers; area lights
+ * light the moving floor too, more than four of them a pixel.
  *
  * Runs on the product's own renderer (renderer-variants.ts
  * PRODUCT_RENDERER_VARIANTS): scene-lights covers lights and cookies on both.
@@ -292,20 +293,22 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a spot light's cookie is 
 const brightAt = (img: Image, x: number, y: number, floor: number): boolean => (([r, g, b]) => r + g + b > floor)(img.pixel(x, y));
 
 /** The bright patches of a picture (4-connected runs of bright samples on a 2-pixel grid, at least `minArea` samples), largest last. */
-function patches(img: Image, floor: number, minArea = 6): { area: number; peak: number; x: number }[] {
+function patches(img: Image, floor: number, minArea = 6): { area: number; peak: number; x: number; y: number }[] {
   const w = Math.floor(img.width / 2);
   const h = Math.floor(img.height / 2);
   const seen = new Uint8Array(w * h);
-  const out: { area: number; peak: number; x: number }[] = [];
+  const out: { area: number; peak: number; x: number; y: number }[] = [];
   for (let i = 0; i < w * h; i += 1) {
     if (seen[i] === 1 || !brightAt(img, (i % w) * 2, Math.floor(i / w) * 2, floor)) continue;
     const stack = [i];
     seen[i] = 1;
     const sums: number[] = [];
     let xs = 0;
+    let ys = 0;
     while (stack.length > 0) {
       const j = stack.pop()!;
       xs += (j % w) * 2;
+      ys += Math.floor(j / w) * 2;
       const [r, g, b] = img.pixel((j % w) * 2, Math.floor(j / w) * 2);
       sums.push(r! + g! + b!);
       const x = j % w;
@@ -318,7 +321,7 @@ function patches(img: Image, floor: number, minArea = 6): { area: number; peak: 
     // The patch's brightness: the mean of its brightest tenth (its middle).
     sums.sort((a, b) => b - a);
     const top = sums.slice(0, Math.max(1, Math.round(sums.length / 10)));
-    if (sums.length >= minArea) out.push({ area: sums.length, peak: top.reduce((a, b) => a + b, 0) / top.length, x: xs / sums.length });
+    if (sums.length >= minArea) out.push({ area: sums.length, peak: top.reduce((a, b) => a + b, 0) / top.length, x: xs / sums.length, y: ys / sums.length });
   }
   return out.sort((a, b) => a.area - b.area);
 }
@@ -352,7 +355,9 @@ function patchLamp(id: string, x: number, z: number, i: number, castShadow = fal
  * light their own patch, and six of them drawn by three's own light nodes (casting shadows nothing is there to
  * cast) look as they do through the clusters, within a stated tolerance. In Play, five scenes loaded at once:
  * 24 lamps light 24 patches (more than the 16 a scene holds), and the middle of a ring of 20 lamps, every one
- * reaching it, is brighter than that of a ring of 16 (more than 16 lights reach a pixel).
+ * reaching it, is brighter than that of a ring of 16 (more than 16 lights reach a pixel). Two rings of area lights
+ * (rectangles facing down) at the floor's far left and right light it too, though it moves: the middle of the
+ * ring of six is brighter than that of the ring of four (more than four area lights reach a pixel).
  */
 async function lampRoom(page: Page, pass: 'auto' | 'webgl2' | 'webgpu', send: (op: string, args: Record<string, unknown>) => Promise<void>, floorId: string, build: boolean): Promise<void> {
   const viewport = page.locator('canvas.tl-viewport');
@@ -361,24 +366,27 @@ async function lampRoom(page: Page, pass: 'auto' | 'webgl2' | 'webgpu', send: (o
   const main = grid.filter((g) => g.i % 2 === 0).map((g) => patchLamp(`lamp-${g.i}`, g.x, g.z, g.i));
   const ring = (prefix: string, n: number, cx: number): Record<string, unknown>[] =>
     Array.from({ length: n }, (_, k) => ({ id: `${prefix}-${k}`, name: `${prefix} ${k}`, components: { transform: { position: [cx + 1.5 * Math.cos((2 * Math.PI * k) / n), 3, 8.5 + 1.5 * Math.sin((2 * Math.PI * k) / n)], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, light: { type: 'point', color: '#ffffff', intensity: 15, range: 5, decay: 2 } } }));
+  // Area lights 1 m round a middle, 1.5 m over the floor, facing down (an area light shines along its local −Y).
+  const areaRing = (prefix: string, n: number, cx: number): Record<string, unknown>[] =>
+    Array.from({ length: n }, (_, k) => ({ id: `${prefix}-${k}`, name: `${prefix} ${k}`, components: { transform: { position: [cx + Math.cos((2 * Math.PI * k) / n), 1.5, -3 + Math.sin((2 * Math.PI * k) / n)], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, light: { type: 'area', shape: 'rect', width: 0.4, height: 0.4, color: '#ffffff', intensity: 25, range: 3 } } }));
   if (build) {
     const all = (await be.command({ op: 'queryEntities', projectId: be.projectId, args: { limit: 50, offset: 0 } }))['entities'] as { id: string; components: { light?: Record<string, unknown> } }[];
     // A dim sun and ambient light: the lamps' patches stand out.
     for (const e of all) if (e.components.light !== undefined) await send('setComponent', { entityId: e.id, component: 'light', value: { ...e.components.light, intensity: 0.02 } });
     // The floor moves (not static): the lamps light it per pixel, not through the static surfaces' light.
     await send('deleteEntity', { entityId: floorId });
-    const floor = { id: 'lamp-floor', name: 'Lamp floor', static: false, components: { transform: { position: [0, -0.1, 3], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, box: { size: [16, 0.2, 24], material: { color: '#404040' }, castShadow: false } } };
+    const floor = { id: 'lamp-floor', name: 'Lamp floor', static: false, components: { transform: { position: [0, -0.1, 3], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, box: { size: [22, 0.2, 24], material: { color: '#404040' }, castShadow: false } } };
     await send('pasteEntities', { sceneId: 'scene-main', entities: [floor, ...main] });
     // More scenes: the other twelve lamps, and the two rings (20 lamps round one middle, 16 round the other).
     await send('createScene', { sceneId: 'lamps-b', name: 'Lamps B' });
     await send('pasteEntities', { sceneId: 'lamps-b', entities: grid.filter((g) => g.i % 2 === 1).map((g) => patchLamp(`lamp-${g.i}`, g.x, g.z, g.i)) });
     // (A scene holds 16 point and spot lights: the ring of 20 is two scenes' halves.)
     const ring20 = ring('ring20', 20, -4.5);
-    for (const [id, part] of [['ring-20a', ring20.slice(0, 10)], ['ring-20b', ring20.slice(10)], ['ring-16', ring('ring16', 16, 4.5)]] as const) {
+    for (const [id, part] of [['ring-20a', ring20.slice(0, 10)], ['ring-20b', ring20.slice(10)], ['ring-16', ring('ring16', 16, 4.5)], ['area-6', areaRing('area6', 6, -8.5)], ['area-4', areaRing('area4', 4, 8.5)]] as const) {
       await send('createScene', { sceneId: id, name: id });
       await send('pasteEntities', { sceneId: id, entities: part });
     }
-    await send('setStartScenes', { sceneIds: ['scene-main', 'lamps-b', 'ring-20a', 'ring-20b', 'ring-16'] });
+    await send('setStartScenes', { sceneIds: ['scene-main', 'lamps-b', 'ring-20a', 'ring-20b', 'ring-16', 'area-6', 'area-4'] });
     // Play looks straight down on the room.
     await send('setTransform', { entityId: 'cam-main', transform: { position: [0, 19, 3], rotation: [-Math.SQRT1_2, 0, 0, Math.SQRT1_2], scale: [1, 1, 1] } });
   } else {
@@ -421,23 +429,28 @@ async function lampRoom(page: Page, pass: 'auto' | 'webgl2' | 'webgpu', send: (o
   await shadows(false);
   await expect.poll(async () => pictureDiff(clustered, await shot()).bad <= 0.005, { timeout: 20_000 }).toBe(true);
 
-  // Play: five scenes, 24 + 20 + 16 lamps.
+  // Play: seven scenes, 24 + 20 + 16 lamps and 6 + 4 area lights.
   await page.getByTitle('Start an isolated play preview').click();
   const frame = page.locator('iframe.tl-app__preview-frame');
   await expect(frame).toBeVisible();
   await expectRendererBackend(page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first(), pass);
   const playShot = async (): Promise<Image> => decodePng(await frame.screenshot());
   // (A higher floor than the Scene view's: Play's bloom joins the glow between neighbouring patches.)
-  await expect.poll(async () => patches(await playShot(), 300).length, { timeout: 30_000 }).toBeGreaterThanOrEqual(26);
+  await expect.poll(async () => patches(await playShot(), 300).length, { timeout: 30_000 }).toBeGreaterThanOrEqual(28);
   const picture = await playShot();
   const found = patches(picture, 300);
-  // The rings are the largest patch on each side: the left one (20 lamps) is the brighter, and neither is clipped.
-  const largest = (left: boolean) => found.filter((p) => p.x < picture.width / 2 === left).at(-1)!;
+  // The area rings are the patches farthest out on each side; of the rest, the point rings are the largest on each
+  // side: the left ones (20 lamps, 6 area lights) are the brighter, and none is clipped.
+  const byX = [...found].sort((a, b) => a.x - b.x);
+  const [area6, area4] = [byX[0]!, byX.at(-1)!];
+  const largest = (left: boolean) => found.filter((p) => p !== area6 && p !== area4 && p.x < picture.width / 2 === left).at(-1)!;
   const [ring20, ring16] = [largest(true), largest(false)];
-  console.log(`[lights] play (${pass}): ${found.length} patches; ring of 20: ${ring20.area} samples, peak ${ring20.peak.toFixed(0)}; ring of 16: ${ring16.area} samples, peak ${ring16.peak.toFixed(0)}`);
-  expect(found.length).toBeGreaterThanOrEqual(26);
+  console.log(`[lights] play (${pass}): ${found.length} patches; ring of 20: ${ring20.area} samples, peak ${ring20.peak.toFixed(0)}; ring of 16: ${ring16.area} samples, peak ${ring16.peak.toFixed(0)}; area 6: ${area6.area} samples, peak ${area6.peak.toFixed(0)} at ${area6.x.toFixed(0)},${area6.y.toFixed(0)}; area 4: ${area4.area} samples, peak ${area4.peak.toFixed(0)} at ${area4.x.toFixed(0)},${area4.y.toFixed(0)}`);
+  expect(found.length).toBeGreaterThanOrEqual(28);
   expect(ring20.peak).toBeGreaterThan(1.05 * ring16.peak);
   expect(ring20.peak).toBeLessThan(700);
+  expect(area6.peak).toBeGreaterThan(1.05 * area4.peak);
+  expect(area6.peak).toBeLessThan(700);
   await page.getByTitle('Stop the play preview').click();
   await showView(page, 'Scene');
 }

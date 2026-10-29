@@ -21,7 +21,7 @@ the bake: there is one baker, not two.
 | The sun's diffuse light on static surfaces | Per pixel, with its shadow map (the cached static map with moving casters on top) | Sharper than a cache texel; the cache keeps the sun's share for the probes and reflections |
 | Bounced light | Probes, updated by rays that read the cache where they hit | Static surfaces, moving objects, foliage and ground cover all read the probes |
 | Contact shadows | Per pixel, screen space | The sun's fine detail its map misses |
-| Highlights (specular) | Per pixel | Point and spot lights as three draws them; area lights with three's rectangle-light maths; each scaled by the cache's shadowing |
+| Highlights (specular) | Per pixel, through the light clusters | Point and spot lights as three draws them; area lights with three's rectangle-light maths; each scaled by the cache's shadowing |
 | Reflections | Per pixel: screen-space rays, then rays traced through the static world reading the cache | Glossy surfaces only; rough ones keep the environment and probes |
 
 **Who reads what.**
@@ -31,7 +31,7 @@ the bake: there is one baker, not two.
 | Block layers, terrain, generated architecture | The cache (one filtered lookup a pixel) | Probes |
 | Static models with a second UV set (UV1) | The cache at their UV1 | Probes |
 | Static models without UV1 | The cache at surfels spread over them at import (no unwrap needed; the light steps at the surfel spacing) | Probes |
-| Static boxes, moving objects, skinned characters, foliage, ground cover, particles | Per-pixel sun, point and spot lights (at most 16 drawn) | Probes |
+| Static boxes, moving objects, skinned characters, foliage, ground cover, particles | Per-pixel sun, point, spot and area lights and effects' lights (through the light clusters) | Probes |
 
 A surface with no cache texel under it yet (not resident, a trim off its
 wall's plane) is lit per pixel until it has one. Moving objects **receive**
@@ -316,21 +316,24 @@ rather than one point. Add one with **GameObject → Light → Area light** (a
   light is a ceiling panel shining down; rotate the object to aim it (it has
   no direction field). The Scene view draws its outline and a tick on the
   side it shines toward.
-- **How it lights** — through the surface cache, the static surfaces' light:
-  on WebGPU at medium and high quality its light and soft shadows are traced
+- **How it lights** — on static surfaces through the surface cache: on
+  WebGPU at medium and high quality its light and soft shadows are traced
   into the cache of the static surfaces around it, and block layers,
-  terrain, generated buildings and static models draw it from there.
-  Moving objects and static boxes get its light only as bounce through the
-  probes. Its highlights are drawn per pixel on the surfaces that read the
-  cache (standard, physical, graph and layered materials; Lambert ones have
-  none), with three.js's rectangle-light maths; a line light's highlight is
-  drawn as a 2 cm strip along it. The 4 area lights that matter most at the
-  camera (brightest over distance squared) give highlights each frame; every
-  one lights the cache. WebGL 2 draws the cache's saved light and no area
-  light highlights. Bake lighting saves its light by its `mode`, as any
-  light's.
-- **No per-pixel budget** — area lights, like baked point and spot lights,
-  are not counted in the scene's 16 realtime point and spot lights.
+  terrain, generated buildings and static models draw its diffuse light
+  from there and only its highlight per pixel. Everything else — moving
+  objects, static boxes, characters, foliage, and every surface on WebGL 2
+  or where no cache texel is found — gets its light per pixel through the
+  light clusters, on both renderers, with three.js's rectangle-light maths
+  (standard, physical, graph and layered materials: diffuse and highlight;
+  Lambert, Phong and custom-lit graphs: its diffuse light as its exact form
+  factor toward its centre), unshadowed until the shadow atlas. A line
+  light is drawn as a 2 cm strip along it. Its light fades over its reach
+  from its centre as the cache's does, so a moving object and the wall
+  beside it get the same light. Every area light reaching a pixel is drawn
+  (no count). A baked area light (once baked) is drawn from the saved light
+  only. Bake lighting saves its light by its `mode`, as any light's.
+- **No per-pixel budget** — area lights are not counted in the scene's 16
+  realtime point and spot lights.
 
 ## The surface cache's live light
 
@@ -410,14 +413,14 @@ only where something changed:
   light of point, spot, area lights and glowing boxes with their soft
   traced shadows; the sun is still drawn per pixel with its shadow map
   (sharper than a cache texel), so the cache's share of it is left out; the
-  probes give the bounce; point and spot lights drawn per pixel keep their
-  highlights and area lights add theirs (see Area lights). Highlights are
+  probes give the bounce; point, spot and area lights drawn per pixel keep
+  only their highlights there (see Area lights), and effects' lights (which
+  the cache does not hold) light it whole. Highlights are
   shadowed by the cache: each is scaled by the share of those lights' light
   the cache's texel sees (its traced, soft-shadowed light over the light the
   same lights would give the pixel unshadowed), so a lamp's highlight fades
   in its shadow. It is one share for all of them: a pixel in one lamp's
-  shadow and another's light takes the mix. Add `?surfaceHighlights=0` to
-  a game page's address to draw no area light highlights (to compare). A pixel with no cache texel under it (its surface not
+  shadow and another's light takes the mix. A pixel with no cache texel under it (its surface not
   resident yet, a trim off its wall's plane) is lit per pixel as before. A
   surface that has a baked lightmap keeps drawing it until the scene is
   baked again. Static boxes, moving objects, foliage and ground cover are
@@ -620,9 +623,8 @@ The design's limits, and what is not built yet:
   the wall beside it.
 - **Lights on what does not read the cache.** Moving objects, static boxes,
   foliage, ground cover and surfaces with an earlier bake's lightmap get
-  point and spot lights per pixel (every one, through the light clusters)
-  and area lights and glowing boxes only as bounce
-  through the probes: no direct area light and no area highlight on them.
+  point, spot and area lights per pixel (every one, through the light
+  clusters) and glowing boxes only as bounce through the probes.
 - **Static boxes** neither stop the cache's light nor read it, and a bake
   does not save their light: a lamp behind a static box lights the wall
   behind it through the box. Use block layers, generated architecture or a
@@ -639,7 +641,7 @@ The design's limits, and what is not built yet:
 - **Reflections** are screen-space with a traced fallback that sees only
   what the cache holds (blocks, terrain, generated buildings, static
   models). Mirror-sharp reflections of things off screen are out of scope;
-  WebGL 2 has no reflections and no area-light highlights.
+  WebGL 2 has no reflections.
 - **Approximations you may see.** A large change shows the light catching
   up over frames; a probe keeps some (10–30 %) of the light it held before a
   change for a few updates; light can step in brightness where one cache

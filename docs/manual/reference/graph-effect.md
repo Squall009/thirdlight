@@ -1007,7 +1007,7 @@ Fields:
 
 | Field | Label | Type | Default | Range |
 |---|---|---|---|---|
-| `maxLights` | Max lights | number | `4` | 1 – 16 |
+| `maxLights` | Max lights | number | `4` | 1 – 1048576 |
 | `intensity` | Intensity (cd) | number | `1` | 0 – 1000 |
 | `range` | Range (m) | number | `2` | 0.01 – 1000 |
 | `lightMask` | Light layers (mask) | number | `255` | 0 – 255 |

@@ -5,7 +5,7 @@
  * screen-space reflections, the probes, the surface cache read, a
  * lightmap, projected decals, the environment map, and the light clusters —
  * binds at most what a WebGPU fragment stage may on the low tier's GPUs,
- * with room left for the light path's shadow and cookie atlases.
+ * with room left for the light path's shadow atlas.
  */
 import * as THREE from 'three';
 import * as TSL from 'three/tsl';
@@ -152,8 +152,8 @@ async function countUnits(): Promise<Record<string, Record<string, number>>> {
 /** Time the program builds of one count take at most (a loaded host). */
 const BUILD_MS = 60_000;
 
-/** What a lit program may bind with the clusters in: the budget less the shadow and cookie atlases still to come. */
-const ROOM = LIT_TEXTURE_UNITS - (LIGHT_PATH_TEXTURE_UNITS - 1);
+/** What a lit program may bind with the clusters and the light tables in: the budget less the shadow atlas still to come. */
+const ROOM = LIT_TEXTURE_UNITS - (LIGHT_PATH_TEXTURE_UNITS - 2);
 
 describe('lit programs fit the texture-unit budget', () => {
   it('every lit kind, moving or reading the surface cache, leaves the light path its units', async () => {

@@ -10,8 +10,6 @@ import * as THREE from 'three/webgpu';
 import { compileEffect, EffectInstance } from '@thirdlight/effects';
 
 import { EffectLights } from './effect-lights';
-import { localLightsCacheKey } from './local-lights';
-import { EFFECT_LIGHT_LIMIT } from './effects-draw';
 import { createEffectsPlayer, EFFECT_CAPS, type EffectDefLike } from './effects-player';
 import { cpuSystemReason, cpuSystemReasons, cpuSystemsOf, gpuUnsupportedReason } from './effects-gpu';
 import { batchOptionsKey, GpuEffectBatches, GpuEffectExecutor } from './effects-gpu-batch';
@@ -74,7 +72,7 @@ const camera = (): THREE.PerspectiveCamera => {
 const play = (effectId: string, handle: number, position: [number, number, number] = [0, 0, 0]) => ({ op: 'play' as const, effectId, handle, entityId: null, position, params: null, source: 'script' });
 
 describe('effect player (CPU executor on WebGL 2)', () => {
-  it('adds the light pool as one object before the first frame and never changes the scene\'s lights while lights rise', () => {
+  it('adds the light pool as one object before the first frame; lights rise past sixteen with no three.js light added', () => {
     const GLOW = fx('glow', { spawn: [{ type: 'spawn.rate', data: { rate: 30 } }], initialize: [{ type: 'init.lifetime', data: { min: 5, max: 5 } }], output: [{ type: 'output.light', data: { maxLights: 1 } }] }, { loop: true });
     const lightsOf = (scene: THREE.Scene): THREE.Light[] => scene.children.filter((o): o is THREE.Light => (o as THREE.Light).isLight === true);
     const poolOf = (scene: THREE.Scene): EffectLights | undefined => scene.children.find((o): o is EffectLights => o instanceof EffectLights);
@@ -82,33 +80,36 @@ describe('effect player (CPU executor on WebGL 2)', () => {
     const plain = new THREE.Scene();
     createEffectsPlayer({ scene: plain, defs: [FOUNTAIN], loadTexture: async () => null });
     expect(lightsOf(plain)).toHaveLength(0);
+    expect(poolOf(plain)).toBeUndefined();
     const scene = new THREE.Scene();
     const p = createEffectsPlayer({ scene, defs: [FOUNTAIN, GLOW], loadTexture: async () => null });
-    const reserved = lightsOf(scene);
-    expect(reserved).toHaveLength(1);
-    expect(poolOf(scene)?.slots).toHaveLength(EFFECT_LIGHT_LIMIT);
+    const reserved = poolOf(scene);
+    expect(reserved).toBeDefined();
     expect(poolOf(scene)?.count).toBe(0);
     const { r } = stubRenderer();
     p.setRenderer(r, 'webgl2');
     const cam = camera();
-    for (let k = 1; k <= EFFECT_LIGHT_LIMIT + 2; k++) {
+    // Past the sixteen slots the pool once had: no count caps the effects' lights (the light clusters' budget is memory).
+    const plays = 24;
+    for (let k = 1; k <= plays; k++) {
       p.request(play('glow', k, [k - 9, 0, 0]), () => undefined);
       for (let f = 0; f < 3; f++) p.update(1 / 30, cam);
-      expect(lightsOf(scene)).toEqual(reserved);
-      expect(p.diagnostics().lights).toBe(Math.min(k, EFFECT_LIGHT_LIMIT));
-      // Only the slots in use are shaded.
-      expect(poolOf(scene)?.count).toBe(Math.min(k, EFFECT_LIGHT_LIMIT));
+      expect(lightsOf(scene)).toHaveLength(0);
+      expect(scene.children.filter((o) => o instanceof EffectLights)).toEqual([reserved]);
+      expect(p.diagnostics().lights).toBe(k);
+      // Only the slots in use are listed.
+      expect(poolOf(scene)?.count).toBe(k);
     }
-    expect(p.diagnostics().lightPool).toBe(EFFECT_LIGHT_LIMIT);
-    expect(poolOf(scene)!.slots.filter((l) => l.intensity > 0)).toHaveLength(EFFECT_LIGHT_LIMIT);
+    expect(p.diagnostics().lightPool).toBe(plays);
+    expect(poolOf(scene)!.slots.filter((l) => l.intensity > 0)).toHaveLength(plays);
     // An effect that gains a light output in an edit reserves the pool then, once.
     const later = new THREE.Scene();
     const q = createEffectsPlayer({ scene: later, defs: [FOUNTAIN], loadTexture: async () => null });
     q.setDefs([FOUNTAIN, GLOW]);
     q.setDefs([GLOW]);
-    expect(lightsOf(later)).toHaveLength(1);
+    expect(later.children.filter((o) => o instanceof EffectLights)).toHaveLength(1);
     p.dispose();
-    expect(lightsOf(scene)).toHaveLength(0);
+    expect(poolOf(scene)).toBeUndefined();
   });
 
   it('plays requests on the CPU executor, reports caps and unknown effects, stops by handle', () => {
@@ -122,7 +123,7 @@ describe('effect player (CPU executor on WebGL 2)', () => {
     for (let k = 0; k < 30; k++) p.update(1 / 30, cam);
     let d = p.diagnostics();
     expect(d.executor).toBe('cpu');
-    expect(d.caps).toEqual({ ...EFFECT_CAPS.cpu, lights: EFFECT_LIGHT_LIMIT, sortLimit: null });
+    expect(d.caps).toEqual({ ...EFFECT_CAPS.cpu, sortLimit: null });
     expect(d.playing).toBe(1);
     expect(d.particles).toBe(60);
     expect(d.unknownEffects).toEqual(['nope']);
@@ -225,8 +226,6 @@ describe('effect light pool: layers', () => {
     const scene = new THREE.Scene();
     createEffectsPlayer({ scene, defs: [glow('a', {})], loadTexture: async () => null });
     expect(poolOf(scene).abilities).toEqual({ layered: false });
-    const key = localLightsCacheKey([poolOf(scene)]);
-    expect(key).toBe(0);
   });
 
   it('fills slots in play order with each light\'s mask; a light in no layer takes no slot', () => {
@@ -235,7 +234,6 @@ describe('effect light pool: layers', () => {
     const p = createEffectsPlayer({ scene, defs, loadTexture: async () => null });
     const pool = poolOf(scene);
     expect(pool.abilities).toEqual({ layered: true });
-    expect(localLightsCacheKey([pool])).not.toBe(0);
     p.setRenderer(stubRenderer().r, 'webgl2');
     for (const [k, d] of defs.entries()) p.request(play(d.effectId, k + 1), () => undefined);
     p.update(1 / 30, camera());
