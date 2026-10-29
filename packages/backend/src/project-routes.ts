@@ -72,13 +72,21 @@ export function makeProjectRoutes(deps: ProjectRoutesDeps) {
     sendJson(res, 200, { ok: true, engine: await deps.engine() });
   };
 
-  /** GET /api/v1/projects — every project directory in the data root. */
+  /** Whether the request's credential is the owner's (admin): it sees every project and server folder. */
+  const isOwner = (req: IncomingMessage): boolean => requireAuth(req, '', true) === null;
+
+  /**
+   * GET /api/v1/projects — every project directory in the data root. A
+   * project-scoped token sees its own project only, the way the session list
+   * filters: the list names server folders, which only the owner may see.
+   */
   const listProjectsRoute = (req: IncomingMessage, res: ServerResponse): void => {
     if (!openGet(req, res)) return;
+    const owner = isOwner(req);
     const scan = service.scan();
     const engine = config.engineRoot !== undefined ? engineIdentity(config.engineRoot) : null;
     const projects = scan.entries
-      .filter((e) => e.kind === 'project')
+      .filter((e) => e.kind === 'project' && (owner || requireAuth(req, e.projectId, false) === null))
       .map((e) => {
         const session = sessions.sessionForProject(e.projectId);
         // Folder projects carry an engine pin in thirdlight.json; say when it differs.
@@ -105,13 +113,23 @@ export function makeProjectRoutes(deps: ProjectRoutesDeps) {
           connected: session !== undefined && session.connected,
         };
       });
-    sendJson(res, 200, { ok: true, projects, total: scan.total, truncated: scan.truncated });
+    sendJson(res, 200, { ok: true, projects, total: owner ? scan.total : projects.length, truncated: owner && scan.truncated });
   };
 
-  /** GET /api/v1/projects/resolve?path=<absolute server path> — which folder project a path belongs to. */
+  /**
+   * GET /api/v1/projects/resolve?path=<absolute server path> — which folder
+   * project a path belongs to. A project-scoped token (an MCP harness started
+   * in its game folder) learns only that a path is in its own project:
+   * anything else is refused without the reason, so the token cannot probe
+   * the server's folders.
+   */
   const resolveRoute = (req: IncomingMessage, res: ServerResponse, query: Query): void => {
     if (!openGet(req, res)) return;
     const r = service.resolveFolder(query.get('path'));
+    if (!isOwner(req) && !(r.ok && requireAuth(req, r.projectId, false) === null)) {
+      sendError(res, sessionError('unauthorized', 'validation', 'this token covers one project only, and the path is not in it; resolve other folders with the owner token'));
+      return;
+    }
     if (r.ok) {
       sendJson(res, 200, { ok: true, projectId: r.projectId, folder: r.folder });
       return;

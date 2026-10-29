@@ -104,7 +104,8 @@ describe('MCP onboarding (real client, real backend)', () => {
   });
 
   it('reads the manual and the engine before a project is picked; project tools say why they cannot', async () => {
-    // The checked-in docs folder holds no thirdlight.json, and neither do its parents.
+    // The checked-in docs folder holds no thirdlight.json, and neither do its parents. The token covers one
+    // project, so the backend says only that the folder is not in it; the adapter names what to do.
     const auth = new BackendClient({ authoringOrigin: `http://127.0.0.1:${backend.portAuthoring}`, token: TOKEN });
     const server = createMcpServer(folderContextProvider(auth, { origin: 'test', cwd: `${REPO}/docs`, clientId: 'mcp-no-project' }));
     const [ct, st] = InMemoryTransport.createLinkedPair();
@@ -120,7 +121,7 @@ describe('MCP onboarding (real client, real backend)', () => {
     const project = (await bare.callTool({ name: 'tl_inspect', arguments: { target: 'project' } })) as Result;
     expect(project.isError).toBe(true);
     expect(project.content[0]!.text).toContain('project_not_resolved');
-    expect(project.content[0]!.text).toContain('no thirdlight.json');
+    expect(project.content[0]!.text).toContain('is not in the project this token covers (or has no thirdlight.json');
   });
 
   it('bounds a long page: one part per call, the next named', async () => {

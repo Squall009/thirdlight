@@ -71,13 +71,17 @@ export function folderContextProvider(
     } catch (e) {
       return { ok: false, client, message: `the Thirdlight backend at ${origin} is not reachable (${e instanceof Error ? e.message : String(e)})` };
     }
-    const body = res.body as { ok?: boolean; projectId?: string; error?: { message?: string; reason?: string; folder?: string; markerProjectId?: string } } | null;
+    const body = res.body as { ok?: boolean; projectId?: string; error?: { code?: string; message?: string; reason?: string; folder?: string; markerProjectId?: string } } | null;
     if (body?.ok === true && typeof body.projectId === 'string') {
       resolved = { client, projectId: body.projectId, clientId };
       log(`project ${body.projectId} (from ${cwd})`);
       return { ok: true, ctx: resolved };
     }
     const e = body?.error;
+    if (e?.code === 'unauthorized') {
+      // A project-scoped token is told only whether the folder is in its project, never why not.
+      return { ok: false, client, message: `${cwd} is not in the project this token covers (or has no thirdlight.json in it or any parent folder). Run the harness inside that project's folder, set THIRDLIGHT_PROJECT_ID, or use the owner token.` };
+    }
     if (e?.reason === 'not_registered') {
       return { ok: false, client, message: `${e.folder ?? cwd}/thirdlight.json (project "${e.markerProjectId ?? '?'}") is not registered with the backend. Open it in the editor's project picker ("Open project folder…"), or run: node tools/project.mjs register ${e.folder ?? cwd}` };
     }
