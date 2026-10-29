@@ -17,7 +17,9 @@
  *   in the scene while any point, spot or area light is realized or an
  *   effect light pool is there (`syncLight`, after each selection of the
  *   lights, and when the area lights or pools change), so the first lamp
- *   builds the lit programs once and later ones build nothing.
+ *   builds the lit programs once and later ones build nothing; the first
+ *   area light and the first effect light pool build them once more (their
+ *   code is left out of scenes without them).
  * - **One grid per camera**, its builder and packed data kept with it; the
  *   GPU textures (one pair a renderer) take the camera drawn now.
  * - **A budget, not a count**: past `CLUSTER_INDEX_MIB` the lowest-ranked
@@ -164,9 +166,10 @@ export class AdapterClusters {
     any ||= pools.any;
     layered ||= pools.layered;
     this.poolsSeen = pools;
+    const shape = { layered, areas: this.areas.length > 0, uncached: pools.any };
     if (any && this.light === null) {
       this.light = new ClusteredLights(this.gpu);
-      this.light.layered = layered;
+      Object.assign(this.light, shape);
       this.d.scene.add(this.light);
       this.d.shadingChanged();
     } else if (!any && this.light !== null) {
@@ -174,8 +177,8 @@ export class AdapterClusters {
       this.light.dispose();
       this.light = null;
       this.d.shadingChanged();
-    } else if (this.light !== null && this.light.layered !== layered) {
-      this.light.layered = layered;
+    } else if (this.light !== null && (this.light.layered !== shape.layered || this.light.areas !== shape.areas || this.light.uncached !== shape.uncached)) {
+      Object.assign(this.light, shape);
       this.d.shadingChanged();
     }
   }

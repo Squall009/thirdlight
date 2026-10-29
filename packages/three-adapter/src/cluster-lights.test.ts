@@ -18,6 +18,8 @@ import { ClusterTextures } from './cluster-pack';
 import { LayeredPointLight } from './light-layers';
 import { localLightVariant } from './local-lights';
 import { registerProbeLighting } from './probe-lighting';
+import { SURFACE_READ } from './surface-cache-lookup';
+import { SurfaceCacheTextures } from './surface-cache-read';
 import { litScene, wgslOf, wgslRenderer } from './test-wgsl';
 
 /**
@@ -84,9 +86,9 @@ describe('the clustered lights', () => {
     });
     for (const s of shapes) expect(s).toBe(shapes[0]);
     const w = shapes[0]!;
-    // Two texture units more than the sun and the ambient light alone: the lists, read with loads, and the area lights' LTC tables; a loop.
+    // One texture unit more than the sun and the ambient light alone, read with loads (no sampler); a loop.
     const units = (src: string): number => (src.match(/:\s*texture_/g) ?? []).length;
-    expect(units(w)).toBe(units(plain) + 2);
+    expect(units(w)).toBe(units(plain) + 1);
     expect(w).toMatch(/texture_2d<u32>/);
     expect(w).toMatch(/textureLoad\(/);
     expect(w).toMatch(/for \(/);
@@ -142,8 +144,15 @@ describe('the clustered lights', () => {
   it('shade area lights with three\'s rectangle-light maths on the physical model and as a form factor through direct on the others', () => {
     const r = renderer();
     const scene = litScene();
-    scene.add(new ClusteredLights(new ClusterGpu(new ClusterTextures())));
+    const clustered = new ClusteredLights(new ClusterGpu(new ClusterTextures()));
+    scene.add(clustered);
+    const without = wgslOf(r, scene, box(new THREE.MeshStandardMaterial()));
+    // Built only while an area light is realized (their code costs every lit pixel): then one texture more, the LTC tables.
+    clustered.areas = true;
     const physical = wgslOf(r, scene, box(new THREE.MeshStandardMaterial()));
+    const units = (src: string): number => (src.match(/:\s*texture_/g) ?? []).length;
+    expect(without).not.toMatch(/LTC_Evaluate\(/);
+    expect(units(physical)).toBe(units(without) + 1);
     const lambert = wgslOf(r, scene, box(new THREE.MeshLambertMaterial()));
     // The specular and diffuse forms (two LTC integrals) on the physical model, one on Lambert; both tables read at level 0 from one texture.
     const calls = (src: string): number => (src.match(/LTC_Evaluate\(/g) ?? []).length;
@@ -151,10 +160,25 @@ describe('the clustered lights', () => {
     expect(calls(lambert)).toBe(1);
     expect(physical).toMatch(/textureSampleLevel\(/);
     expect(physical).not.toMatch(/LTC_Uv[^\n]*\n[^\n]*textureSample\(/);
-    // An area light added builds nothing: the program is the one the clustered lights already made.
     const glsl = glslOf(scene, box(new THREE.MeshStandardMaterial()));
     expect(glsl).toMatch(/textureLod\(/);
     expect(glsl).toMatch(/LTC_Evaluate\(/);
+  });
+
+  it('on a surface reading the cache, sum the lights the cache does not hold apart only while some are in the scene', () => {
+    const r = renderer();
+    const scene = litScene();
+    const clustered = new ClusteredLights(new ClusterGpu(new ClusterTextures()));
+    scene.add(clustered);
+    const reading = (): string => wgslOf(r, scene, box(localLightVariant(new THREE.MeshStandardMaterial(), 'pixel', { kind: SURFACE_READ.model, textures: new SurfaceCacheTextures(4, 7) })));
+    const plain = reading();
+    expect(plain).toContain('tlClusterLightsCount');
+    expect(plain).not.toMatch(/& 8\b/);
+    clustered.uncached = true;
+    const split = reading();
+    // The record's uncached bit decides which sums a light's terms go to.
+    expect(split).not.toBe(plain);
+    expect(split).toMatch(/& 8\b/);
   });
 
   it('build for WebGL 2 with texelFetch on an unsigned integer sampler, the records bit-cast', () => {

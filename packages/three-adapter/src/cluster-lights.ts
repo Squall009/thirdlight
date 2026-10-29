@@ -37,10 +37,13 @@
  *   diffuse light for the cache's visibility ratio; an effect's light
  *   (`CLUSTER_UNCACHED`) is not in the cache and goes whole to the sums the
  *   build hands in (`UNCACHED_LIGHT_CONTEXT`).
- * - **Program shape.** One whatever the lights: the object is in the scene
- *   while any local light or effect light pool is there (the first one
- *   builds the lit programs once, as any first light did), and its textures
- *   are rebound when they are made again (`rebind`, as the probe light does).
+ * - **Program shape.** One whatever the number of lights: the object is in
+ *   the scene while any local light or effect light pool is there (the
+ *   first one builds the lit programs once, as any first light did), and its
+ *   textures are rebound when they are made again (`rebind`, as the probe
+ *   light does). Three flags shape it (the lit programs' key): `layered`,
+ *   `areas` (the area kinds' code) and `uncached` (a reading build's
+ *   separate sums), each built only while a light needs it.
  */
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
@@ -77,6 +80,15 @@ export class ClusteredLights extends THREE.Light {
   readonly isClusteredLights = true;
   /** Some listed light lights fewer than every layer, or only its room: the loop tests each record (part of the lit programs' key). */
   layered = false;
+  /**
+   * Some area light is realized: the loop draws the area kinds (part of the
+   * key). Their code in the loop costs every lit pixel of a scene without
+   * one (registers and size; 0.5–1.5 ms on the Iris Xe at the cap), so it is
+   * built only while one is there.
+   */
+  areas = false;
+  /** Some light the surface cache does not hold (an effect light pool) is in the scene: a reading build sums those apart (part of the key). */
+  uncached = false;
 
   constructor(public gpu: ClusterGpu) {
     super(0xffffff, 1);
@@ -152,9 +164,10 @@ class ClusterLightsNode extends (THREE.Node as unknown as new () => { updateType
     const { lightingModel, reflectedLight } = builder.context;
     const surface = builder.context.positionView ?? positionView;
     const layered = this.light.layered;
+    const areas = this.light.areas;
     const ltc = this.ltc;
     // A build reading the surface cache: the lights the cache does not hold go to its own sums (kept whole there).
-    const uncachedSums = (builder.context[UNCACHED_LIGHT_CONTEXT] as LightSums | undefined) ?? null;
+    const uncachedSums = this.light.uncached ? ((builder.context[UNCACHED_LIGHT_CONTEXT] as LightSums | undefined) ?? null) : null;
     const diffuse = vec3(0).toVar('tlClusterLightsDiffuse');
     const specular = vec3(0).toVar('tlClusterLightsSpecular');
     const cell = clusterCellAt(t, surface).toVar('tlClusterLightsCell');
@@ -166,17 +179,18 @@ class ClusterLightsNode extends (THREE.Node as unknown as new () => { updateType
         const r0 = clusterLightTexel(t, index, 0);
         const toLight = r0.xyz.sub(surface).toVar();
         const distance = toLight.length().toVar();
-        If(distance.lessThan(r0.w), () => {
-          const r1 = clusterLightTexel(t, index, 1);
-          const field = int(r1.w).toVar();
-          const kind = field.bitAnd(3);
+        const r1 = clusterLightTexel(t, index, 1);
+        const field = int(r1.w).toVar();
+        const kind = field.bitAnd(3);
+        // Without area lights the lists hold none: the point and spot kinds alone.
+        If(areas ? distance.lessThan(r0.w) : distance.lessThan(r0.w).and(kind.lessThan(CLUSTER_RECT)), () => {
           const r2 = clusterLightTexel(t, index, 2);
           const r3 = clusterLightTexel(t, index, 3);
           const gate = layered ? this.layerTest(builder, r2.w) : null;
           // Each light's terms on their own where the cache's lights and the others are summed apart.
           const one = uncachedSums !== null ? { directDiffuse: vec3(0).toVar(), directSpecular: vec3(0).toVar() } : { directDiffuse: diffuse, directSpecular: specular };
           const sinkBefore = uncachedSums !== null && uncachedSums.modelSink !== null ? vec3(uncachedSums.modelSink).toVar() : null;
-          If(kind.lessThan(CLUSTER_RECT), () => {
+          const pointOrSpot = (): void => {
             const decay = float(field.div(CLUSTER_KIND_STEP)).div(CLUSTER_DECAY_STEPS);
             const cutoff = select(field.bitAnd(CLUSTER_UNBOUNDED).notEqual(0), float(0), r0.w);
             const direction = toLight.div(distance.max(1e-6)).toVar();
@@ -187,9 +201,12 @@ class ClusterLightsNode extends (THREE.Node as unknown as new () => { updateType
             });
             if (gate !== null) colour.mulAssign(gate);
             lightingModel.direct({ lightDirection: direction, lightColor: colour, lightNode: { light: {}, shadowNode: null }, reflectedLight: one }, builder);
-          }).Else(() => {
-            shadeAreaLight({ builder, ltc, centre: r0.xyz, reach: r0.w, colour: r1.xyz, u: r2.xyz, v: r3.xyz, twoSided: field.bitAnd(CLUSTER_TWO_SIDED).notEqual(0), toLight, distance, gate, reflectedLight: one });
-          });
+          };
+          if (!areas) pointOrSpot();
+          else
+            If(kind.lessThan(CLUSTER_RECT), pointOrSpot).Else(() => {
+              shadeAreaLight({ builder, ltc, centre: r0.xyz, reach: r0.w, colour: r1.xyz, u: r2.xyz, v: r3.xyz, twoSided: field.bitAnd(CLUSTER_TWO_SIDED).notEqual(0), toLight, distance, gate, reflectedLight: one });
+            });
           if (uncachedSums !== null) {
             const uncached = field.bitAnd(CLUSTER_UNCACHED).notEqual(0);
             const u = select(uncached, float(1), float(0));

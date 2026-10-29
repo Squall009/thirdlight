@@ -183,7 +183,7 @@ export function isLocal(l: THREE.Light | undefined): boolean {
   return f !== undefined && (f.isPointLight === true || f.isSpotLight === true || f.isClusteredLights === true);
 }
 
-function isClustered(l: THREE.Light | undefined): l is THREE.Light & { layered: boolean } {
+function isClustered(l: THREE.Light | undefined): l is THREE.Light & { layered: boolean; areas: boolean; uncached: boolean } {
   return (l as (THREE.Light & LocalFlags) | undefined)?.isClusteredLights === true;
 }
 
@@ -198,9 +198,13 @@ export function splitLocalLights<T extends LightNodeLike>(builder: { material?: 
   return nodes.filter((n) => !isLocal(n.light));
 }
 
-/** The part of a lights node's program key the clustered lights decide (whether their shaders test layer masks). */
+/** The part of a lights node's program key the clustered lights decide (whether their shaders test layer masks, draw area lights, sum uncached lights apart). */
 export function localLightsCacheKey(lights: readonly THREE.Light[]): number {
   let h = 0;
-  for (const l of lights) if (isClustered(l) && l.layered) h = (Math.imul(h, 31) + l.id * 8 + 2) | 0;
+  for (const l of lights) {
+    if (!isClustered(l)) continue;
+    const shape = (l.layered ? 1 : 0) | (l.areas ? 2 : 0) | (l.uncached ? 4 : 0);
+    if (shape !== 0) h = (Math.imul(h, 31) + l.id * 8 + shape) | 0;
+  }
   return h;
 }

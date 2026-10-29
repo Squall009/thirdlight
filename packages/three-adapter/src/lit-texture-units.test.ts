@@ -60,6 +60,8 @@ function worstScene(): THREE.Scene {
   // The local lights' loop, layered (its layer and room test reads no texture, but the worst case is the widest build).
   const clustered = new ClusteredLights(new ClusterGpu(new ClusterTextures()));
   clustered.layered = true;
+  clustered.areas = true;
+  clustered.uncached = true;
   scene.add(clustered);
   const env = new THREE.CubeTexture();
   scene.environment = env;
