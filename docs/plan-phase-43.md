@@ -262,6 +262,56 @@ base the same hour; landscape −0.6, interior −0.1) and on the main thread wi
 scene pass; p95 ≤ 16.7–16.8 with no missed frame everywhere except 1,000 lights on WebGL 2 (D400) and the build
 budget (D405). Reports: ~/.cache/thirdlight-phase43/work/ab (removed after; summaries above).
 
+**43.6c: the record's gaps (review finding 4).** Iris Xe, 1080p, the 60 Hz cap, 3 rounds unless said, 2026-10-29,
+uptime 5.9–6.0 d, load 0.7–3.2; GPU ms at full clock (raw × window MHz / 1,400; the window's clock in brackets
+where it matters), main = main-thread CPU ms a frame. Tiers by the page's `?quality=low|medium` (the engine's levels
+are its tiers). p95 16.7–16.8 and **0 missed refreshes in every run below** except 1,000 lights on WebGL 2 (D400).
+
+*Shadow atlas under motion* (`run.mjs lights --counts 64 --walkers 8 --tiers low,medium`, new): 64 lights, 8
+shadowed (4 point, 4 spot), 8 skinned figures walking one loop under the shadowed lamps, so every tiled lamp is
+dirty every frame (the review's case, worst form). Control: the same walkers with `--shadowed 0` (no atlas).
+Atlas counts from `data-tl-shadow-atlas` (new fields): 5 of the 8 lamps hold tiles (3 out of view), 0 waiting.
+
+| Tier | Renderer | main ms: control → walkers (atlas share) | after per-face redraws | GPU ms full | atlas pass full ms a frame (raw, every frame) | tiles drawn a frame / share of atlas / longest wait |
+|---|---|---|---|---|---|---|
+| low (2,048) | WebGPU | 1.70 → 2.02 (+0.32) | 1.88 (+0.18) | 2.59–2.81 (control 2.30–2.43) | 0.13–0.14 (0.44–0.48 at 370–440 MHz) → 0.12–0.13 | 1.75 / 23.1 % (share 25 %) / 3 frames |
+| low | WebGL 2 | 1.45 → 2.20 (+0.75) | 2.12 (+0.67) | - | - | same |
+| medium (4,096) | WebGPU | 2.77 → 3.36 (+0.58) | 3.02 (+0.25) | 3.57–3.95 (control 3.13–3.45) | 0.29–0.32 (0.44–0.61 at 670–1,030 MHz) → 0.26–0.27 | 5.00 / 10.6 % / 0 |
+| medium | WebGL 2 | 1.81 → 2.91 (+1.09) | 2.84 (+1.03) | - | - | same |
+
+No starving: on low the ¼ share takes 1.75 tiles a frame and the longest a dirty tile waited is 3 frames
+(`ATLAS_REDRAW_WAIT_FRAMES`); on medium every lamp redraws every frame. The atlas's GPU cost stays ≤ 0.32 ms a frame.
+The main thread is the cost: each face is a pass over the scene, so a lamp dirtied only by movers now redraws only
+the faces a mover is in or has just left (`FaceRedraws`, 42ac9741): WebGPU −0.14 (low) and −0.33 ms (medium).
+WebGL 2 keeps +0.7–1.0 ms whatever the faces drawn: not the face passes (cause in D-row below).
+
+*Many lights, medium, rounds 2 and 3* (43.6b's after-H1 run is round 1): 64 main 2.41 / 2.63 \| 1.37 / 1.39, GPU
+3.18 / 3.23, scene 1.10 / 1.12; 256 3.09 / 2.95 \| 1.95 / 1.89, GPU 5.40 / 5.39, scene 3.09 / 3.11; 1,000 5.09 / 5.05
+\| 4.07 / 3.86, GPU 13.37 / 13.58, scene 10.86 / 10.86 (1,400 MHz); WebGL 2 at 1,000 p95 33.4, 42/459 and 44/469 missed
+(43.6b 36/448; D400). Cluster build 0.19–0.21 / 0.44–0.59 / 1.51–1.60 ms (D405).
+
+*Look scenes* (`run.mjs look --variants medium:quality=medium,low:quality=low --rounds 3`, baked; first time in 43):
+
+| Scene | WebGPU medium main / GPU full | WebGPU low main / GPU full | WebGL 2 medium main | WebGL 2 low main |
+|---|---|---|---|---|
+| door | 1.94–2.09 / 2.75 | 0.93–0.98 / 2.16 | 1.13–1.21 | 0.81–0.84 |
+| sunset | 2.16–2.22 / 3.30–3.43 | 1.06–1.08 / 2.44–2.56 | 1.25–1.34 | 0.91–0.94 |
+| corridor | 2.13–2.23 / 3.29–3.70 | 1.03–1.13 / 2.44–2.52 | 1.27–1.31 | 0.92–0.98 |
+| sign | 1.98–2.08 / 2.76–3.08 | 0.92–0.99 / 0.81–0.82 | 1.13–1.19 | 0.77–0.78 |
+
+Phase 42: 42.0 GPU 3.6–5.9 ms full clock, 0 missed; 42.15 main 2.1–3.5 (WebGPU) and 0.85–1.8 (WebGL 2, low): all within
+or below. Corridor shot (WebGPU medium) looked at: lit as at 42.15 (its baked chart steps unchanged).
+
+*Classes at low and medium* (`run.mjs level --classes landscape,interior --switches quality=low`; rounds listed;
+43.0 has no low numbers, so low is the new reference):
+
+| Class | Tier | WebGPU main | WebGPU GPU full / scene pass | WebGL 2 main | atlas |
+|---|---|---|---|---|---|
+| landscape | medium | 5.13 / 5.01 (43.0 5.68) | 10.40 / 10.36, scene 7.13 / 7.14 (10.99) | 3.47 / 3.44 (3.61) | none |
+| landscape | low | 3.38 / 3.37 | 5.02 / 4.73, scene 4.35 / 4.12 (620–720 MHz) | 3.44 / 3.39 | none |
+| interior | medium | 3.25 / 3.38 (3.66) | 7.08 / 6.94, scene 3.91 / 3.92 (7.03) | 2.50 / 2.53 (2.22; same hour base 2.21) | 2.0–2.6 ms raw in 2 of 182 frames |
+| interior | low | 2.13 / 2.41 | 3.44 / 3.22, scene 2.97 / 2.78 (420–510 MHz) | 2.44 / 2.50 | 0.7–0.9 ms raw in 2 frames |
+
 ## 4. Decision log
 
 - 2026-10-26 (owner, relayed from session thirdlight-45): clustered lighting
