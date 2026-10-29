@@ -57,7 +57,32 @@ regression points at its cause.
 
 | Item | Status |
 |---|---|
-| 44.0 | in progress: three.js 0.186.1 is the newest release on npm (2026-10-29: 0.186.1 of 2026-09-24; no patch, no minor), so no upgrade; plan and global audit committed (exclude lines removed). Baselines and the D413 re-measure follow. |
+| 44.0 | done (ece9b2ab + this row): three.js 0.186.1 is still the newest (npm, 2026-10-29), no upgrade; plan and audit committed; baselines in **44.0 baseline**; D413 closed (WebGL 2 walkers' shadow cost +0.67 / +1.03 → +0.20 / +0.23 ms, low / medium). |
+
+### 44.0 baseline
+
+What the end of 44 is measured against (44.13).
+
+- **Full gate at the end of 43** (15472037, 2026-10-29): 32 min, memory peak 7.7 GB, 381 e2e, both renderers; RED (two real
+  failures, D407/D408, fixed in e8c5ec3a; D409–D411 watch). Logs ~/.cache/thirdlight-logs/gate-full-20261029-132952.
+- **Perf** at fb338eab: 60 Hz cap, Iris Xe, 1080p, medium tier, 2 rounds interleaved (22:10–22:54, load 1.9–4.1).
+  44's end must not exceed these. GPU ms at full clock; WebGL 2 has no GPU timer.
+
+| Scene | Renderer | p95 ms | missed | main ms | GPU ms full |
+|---|---|---|---|---|---|
+| village | WebGPU | 16.7 / 16.8 | 0/600, 0/600 | 5.48 / 5.51 | 5.66 / 5.68 |
+| village | WebGL 2 | 16.8 / 16.7 | 0/600, 0/600 | 3.96 / 3.97 | - |
+| landscape | WebGPU | 16.7 / 16.7 | 0/600, 0/600 | 4.94 / 4.88 | 10.42 / 10.44 |
+| landscape | WebGL 2 | 16.7 / 16.7 | 0/600, 0/601 | 3.37 / 3.43 | - |
+| interior | WebGPU | 16.7 / 16.7 | 0/600, 0/600 | 3.14 / 2.99 | 6.87 / 6.92 |
+| interior | WebGL 2 | 16.7 / 16.8 | 0/600, 0/600 | 1.86 / 1.86 | - |
+
+- **Size** (`git ls-files <dir>`, all files, `wc -l`) at fb338eab: packages 2,111 files / 518,342 lines (of which
+  `.ts`/`.tsx` 1,981 / 511,165); tools 125 / 29,598; tests 474 / 99,289.
+- **D413 re-measure** (`run.mjs lights --counts 64 --walkers 8 --tiers low,medium --renderers webgl2`, against
+  `--shadowed 0`, same rounds as above): WebGL 2 main ms, control → walkers, low 1.41 → 1.58 / 1.39 → 1.62
+  (+0.17 / +0.23), medium 1.86 → 2.00 / 1.82 → 2.13 (+0.14 / +0.31); p95 16.7–16.8, 0 missed. 43.6c read +0.67 /
+  +1.03, so 5bc436c4's atlas fix took this case too.
 
 ## 4. Decision log
 
