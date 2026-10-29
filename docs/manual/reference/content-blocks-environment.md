@@ -39,8 +39,6 @@ The quality levels, the default level and the environment presets (each scene ha
 | `qualityLevels[].pixelRatio` | number |  | 1 – 2, step 0.25 | **Pixel ratio cap.** Most pixels per CSS pixel on HiDPI displays (absent: 1). |
 | `qualityLevels[].msaa` | int (one of 0 = Off, 4 = 4×) |  | step 1 | **MSAA.** Multisampling without a post stack (absent: 4). |
 | `qualityLevels[].shadowMapSize` | int (one of 512, 1024, 2048, 4096) |  | step 1 | **Largest shadow map.** Larger light shadow maps are lowered to it (absent: each light's own). |
-| `qualityLevels[].localLights` | int |  | 0 – 16, step 1 | **Local lights.** Point and spot lights drawn at once (absent: 16). |
-| `qualityLevels[].shadowedLights` | int |  | 0 – 16, step 1 | **Shadowed point lights.** No longer used: every shadowed light (spot, point, area) shares the shadow atlas (Shadow atlas). |
 | `qualityLevels[].ambientOcclusion` | enum: `off`, `ssao`, `gtao` |  |  | **Ambient occlusion.** Where a look has AO (absent: ambient_occlusion). |
 | `qualityLevels[].lodBias` | number |  | 0.25 – 4, step 0.05 | **LOD bias.** Above 1 keeps finer LODs further (absent: lod_bias). |
 | `qualityLevels[].dynamicResolution` | bool |  |  | **Dynamic resolution.** Lower the scale while the GPU is over budget (absent: dynamic_resolution). |

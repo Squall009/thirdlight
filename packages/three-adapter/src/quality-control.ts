@@ -14,7 +14,7 @@
  * - the render control: AO kind, render scale, dynamic resolution, occlusion culling (over the
  *   project's settings, under a player's fields and the page's flags);
  * - the LOD tuning: the bias (over the project's `lod_bias`);
- * - the scene lights: the largest shadow map and the point/spot light budget;
+ * - the scene lights: the largest shadow map;
  * - the renderer's pixel ratio cap;
  * - the surface cache: its memory budget, live-light time, rays and reach
  *   (the level's lighting tier, `levelLighting`).
@@ -63,7 +63,7 @@ export interface QualityTargets {
   readonly renderControl: RenderControl;
   readonly lodTuning: { readonly bias: number; set(t: { readonly bias?: number; readonly hysteresis?: number }): boolean };
   /** The scene lights' limits; true when the lights that are on must be selected again. */
-  readonly setLightLimits: (limits: { readonly shadowMapSize: number | null; readonly localLights: number | null; readonly shadowedLights: number | null }) => boolean;
+  readonly setLightLimits: (limits: { readonly shadowMapSize: number | null }) => boolean;
   readonly reselectLights: () => void;
   /** The most drawing-buffer pixels per CSS pixel. */
   readonly setPixelRatioCap: (cap: number) => void;
@@ -91,11 +91,8 @@ export interface QualityDiagnostics {
   /** The device's tier and the rule's line (null: the renderer is not up yet). */
   readonly device: DeviceLightingTier | null;
   readonly pixelRatioCap: number;
-  /** The largest shadow map (null: each light's own size) and the point/spot light budget (null: the scenes'). */
+  /** The largest shadow map (null: each light's own size). */
   readonly shadowMapSize: number | null;
-  readonly localLights: number | null;
-  /** The shadowed point and spot lights' budget (null: every one). */
-  readonly shadowedLights: number | null;
   /** The LOD bias drawn with (the level's, else the project's). */
   readonly lodBias: number;
   /** The surface cache's budget at the level (MiB). */
@@ -167,7 +164,7 @@ export function createQualityControl(targets: QualityTargets, o: { readonly proj
       engine ? scaling : {},
     );
     targets.lodTuning.set({ ...projectLod, ...(l.lodBias !== undefined ? { bias: l.lodBias } : {}) });
-    if (targets.setLightLimits({ shadowMapSize: l.shadowMapSize ?? null, localLights: l.localLights ?? null, shadowedLights: l.shadowedLights ?? null })) targets.reselectLights();
+    if (targets.setLightLimits({ shadowMapSize: l.shadowMapSize ?? null })) targets.reselectLights();
     const nextCap = l.pixelRatio ?? MAX_RENDER_PIXEL_RATIO;
     if (nextCap !== cap) {
       cap = nextCap;
@@ -226,8 +223,6 @@ export function createQualityControl(targets: QualityTargets, o: { readonly proj
         device,
         pixelRatioCap: cap,
         shadowMapSize: l.shadowMapSize ?? null,
-        localLights: l.localLights ?? null,
-        shadowedLights: l.shadowedLights ?? null,
         lodBias: targets.lodTuning.bias,
         surfaceCacheMiB: levelLighting(l).surfaceCacheMiB,
         surfaceLightMs: levelLighting(l).surfaceLightMs,

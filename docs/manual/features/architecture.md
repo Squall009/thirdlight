@@ -483,9 +483,8 @@ a light in every room). A project's graph of the same id replaces one.
   **rooms furnishing set** (`architecture.furnishing`, for its rooms that
   name none) and the **layer furnishing set** (`blockLayer.furnishing`, for
   rooms drawn on the layer whose room and object name none). A room with no
-  type, or no set anywhere, is not furnished. Its lights count against the
-  scene's light budget like a building's (one per room, within the set's
-  **lights**).
+  type, or no set anywhere, is not furnished. It gets a light per room the
+  set's Light nodes name, like a building's.
 - **How it is made** — the rooms are room outlines inside the building: the
   building makes its walls on the footprint once (each room's face of them
   in the room's rows), partitions are shared walls (made once, a door cut
@@ -495,10 +494,10 @@ a light in every room). A project's graph of the same id replaces one.
   layers, cut-aways, with their type in `ArchitectureRoomPlan.type`. Props
   are the generator's kit copies: one instance set per model per chunk,
   with the model's colliders. Lights are light objects the build (Play and
-  the export) and the Scene view add as children of the building's object,
-  within the scene's budget of point and spot lights (`MAX_LOCAL_LIGHTS`,
-  16: the scene's own first) — many furnished buildings in one scene share
-  it; interiors in scenes of their own each get theirs.
+  the export) and the Scene view add as children of the building's object:
+  one per room a Light node names, however many rooms and buildings a scene
+  holds (local lights have no count; each pixel loops over the lights of
+  its light cluster).
 - **Generated at load, not baked**: a building's split takes about 0.08 ms
   and its furnishing under 1 ms (`docs/plan-phase-30.md`, §6), so
   only the parameters ship; plans and furnished rooms are remembered while

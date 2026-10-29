@@ -2,27 +2,21 @@
  * Which lights of the loaded scenes are on.
  *
  * Lights belong to scenes: any scene may hold any light kind (each scene at
- * most one directional, one ambient and one hemisphere light, and 16 point
- * and spot lights). With scenes loaded on top of each other:
+ * most one directional, one ambient and one hemisphere light, and any number
+ * of point and spot lights). With scenes loaded on top of each other:
  *
  * - directional, ambient and hemisphere: the most recently loaded scene that
  *   holds one of that kind has its light on; the others are off (not drawn).
  *   Each kind is chosen on its own, so a scene that holds only a directional
  *   light keeps the ambient light of the scene below it. When that scene
  *   unloads, the previous one's light is on again.
- * - point and spot lights of all loaded scenes share one budget
- *   (`LOCAL_LIGHT_BUDGET`); past it the most recently loaded scenes' lights
- *   are on (in document order within a scene), the rest off until a scene
- *   unloads.
+ * - point and spot lights of all loaded scenes are all on: each pixel loops
+ *   over its cluster's lights (cluster-lights.ts), so there is no count to
+ *   choose within.
  *
  * Pure: the adapter hands in the realized lights with their scene's load
  * rank and switches `visible` from the answer.
  */
-import { MAX_LOCAL_LIGHTS } from '@thirdlight/runtime';
-
-/** The point and spot lights drawn at once: the model's per-scene cap. */
-export const LOCAL_LIGHT_BUDGET = MAX_LOCAL_LIGHTS;
-
 export type SceneLightKind = 'directional' | 'ambient' | 'hemisphere' | 'point' | 'spot';
 
 export interface SceneLightEntry {
@@ -41,12 +35,11 @@ export interface SceneLightSelection {
   readonly directional: string | null;
   readonly ambient: string | null;
   readonly hemisphere: string | null;
-  /** Point and spot lights of the loaded scenes, and how many of them are on. */
+  /** Point and spot lights of the loaded scenes (all on). */
   readonly localTotal: number;
-  readonly localOn: number;
 }
 
-export function selectSceneLights(entries: readonly SceneLightEntry[], budget = LOCAL_LIGHT_BUDGET): SceneLightSelection {
+export function selectSceneLights(entries: readonly SceneLightEntry[]): SceneLightSelection {
   const active = new Set<string>();
   const pick = (kind: SceneLightKind): string | null => {
     let best: SceneLightEntry | null = null;
@@ -60,8 +53,11 @@ export function selectSceneLights(entries: readonly SceneLightEntry[], budget = 
   const directional = pick('directional');
   const ambient = pick('ambient');
   const hemisphere = pick('hemisphere');
-  const local = entries.filter((e) => e.kind === 'point' || e.kind === 'spot').sort((a, b) => b.rank - a.rank || a.order - b.order);
-  const on = local.slice(0, Math.max(0, budget));
-  for (const e of on) active.add(e.id);
-  return { active, directional, ambient, hemisphere, localTotal: local.length, localOn: on.length };
+  let localTotal = 0;
+  for (const e of entries) {
+    if (e.kind !== 'point' && e.kind !== 'spot') continue;
+    active.add(e.id);
+    localTotal++;
+  }
+  return { active, directional, ambient, hemisphere, localTotal };
 }

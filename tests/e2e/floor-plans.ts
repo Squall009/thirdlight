@@ -57,7 +57,7 @@ const PROGRAM = {
 };
 const FURNISHING = {
   nodes: [
-    { id: 'furnishing', type: 'furnishing', position: [0, 0], data: { doorClearance: 1, pathWidth: 0.8, lights: 3 } },
+    { id: 'furnishing', type: 'furnishing', position: [0, 0], data: { doorClearance: 1, pathWidth: 0.8 } },
     { id: 'cabinet', type: 'prop', position: [240, 0], data: { model: 'e2e-cabinet', place: 'wall', width: 1.2, depth: 0.5, height: 1.2, count: 2 } },
     { id: 'lamp', type: 'light', position: [240, 150], data: { intensity: 1, range: 5, height: 2.4 } },
   ],

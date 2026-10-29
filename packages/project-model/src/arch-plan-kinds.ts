@@ -13,7 +13,7 @@
  *   types: the door graph. Every room is reachable whether wired or not.
  * - A **furnishing set** says what goes in rooms by type: one Furnishing
  *   node (the clearance kept in front of doors, the walkable path's width,
- *   how many lights a building gets), Prop nodes (a kit model, the room
+ *   the gap between a prop and its wall), Prop nodes (a kit model, the room
  *   type it furnishes, against a wall, in a corner or in the middle, its
  *   footprint and count; no model: a stand-in block of that size) and Light
  *   nodes (one light per room of the type).
@@ -25,7 +25,6 @@
 import { graphBool, graphFieldOf, graphNum, graphStr } from './arch-style-kinds';
 import { ARCHITECTURE_LIMITS } from './architecture';
 import type { GraphData, GraphFieldDef, GraphKindDef, GraphNode } from './graph';
-import { MAX_LOCAL_LIGHTS } from './local-lights';
 
 export const ROOM_PROGRAM_KIND = 'room-program';
 export const FURNISHING_SET_KIND = 'furnishing-set';
@@ -106,10 +105,10 @@ export const FURNISHING_SET_GRAPH_KIND: GraphKindDef = {
       type: 'furnishing',
       label: 'Furnishing',
       category: 'Furnishing',
-      description: 'Kept free: metres in front of each door, and a walkable path this wide joining a room\'s doors and stairs. The gap between a prop and its wall, and the most lights one building or room drawn on its own gets (largest rooms first).',
+      description: 'Kept free: metres in front of each door, and a walkable path this wide joining a room\'s doors and stairs. The gap between a prop and its wall.',
       inputs: [],
       outputs: [],
-      fields: [num('doorClearance', 'Door clearance', 1, 0, 10), num('pathWidth', 'Path width', 0.8, 0, 10), num('wallGap', 'Wall gap', 0.02, 0, 1), num('lights', 'Lights', 4, 0, MAX_LOCAL_LIGHTS)],
+      fields: [num('doorClearance', 'Door clearance', 1, 0, 10), num('pathWidth', 'Path width', 0.8, 0, 10), num('wallGap', 'Wall gap', 0.02, 0, 1)],
       max: 1,
       required: true,
     },
@@ -200,7 +199,6 @@ export interface FurnishingSetDef {
   doorClearance: number;
   pathWidth: number;
   wallGap: number;
-  lights: number;
   props: readonly FurnishingPropDef[];
   lightDefs: readonly FurnishingLightDef[];
 }
@@ -279,7 +277,7 @@ export function furnishingSetDef(graphId: string, graph: GraphData): FurnishingS
     }
   }
   const at = (key: string, fallback: number): number => (head !== undefined ? numIn(K, head, key) : fallback);
-  return { id: graphId, doorClearance: at('doorClearance', 1), pathWidth: at('pathWidth', 0.8), wallGap: at('wallGap', 0.02), lights: Math.round(at('lights', 4)), props, lightDefs };
+  return { id: graphId, doorClearance: at('doorClearance', 1), pathWidth: at('pathWidth', 0.8), wallGap: at('wallGap', 0.02), props, lightDefs };
 }
 
 /** What a new program or furnishing set graph starts as: its head node. */

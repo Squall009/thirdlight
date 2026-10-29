@@ -660,13 +660,11 @@ async function lampRoom(page: Page, pass: 'auto' | 'webgl2' | 'webgpu', send: (o
     // More scenes: the other twelve lamps, and the two rings (20 lamps round one middle, 16 round the other).
     await send('createScene', { sceneId: 'lamps-b', name: 'Lamps B' });
     await send('pasteEntities', { sceneId: 'lamps-b', entities: grid.filter((g) => g.i % 2 === 1).map((g) => patchLamp(`lamp-${g.i}`, g.x, g.z, g.i)) });
-    // (A scene holds 16 point and spot lights: the ring of 20 is two scenes' halves.)
-    const ring20 = ring('ring20', 20, -4.5);
-    for (const [id, part] of [['ring-20a', ring20.slice(0, 10)], ['ring-20b', ring20.slice(10)], ['ring-16', ring('ring16', 16, 4.5)], ['area-6', areaRing('area6', 6, -8.5)], ['area-4', areaRing('area4', 4, 8.5)]] as const) {
+    for (const [id, part] of [['ring-20', ring('ring20', 20, -4.5)], ['ring-16', ring('ring16', 16, 4.5)], ['area-6', areaRing('area6', 6, -8.5)], ['area-4', areaRing('area4', 4, 8.5)]] as const) {
       await send('createScene', { sceneId: id, name: id });
       await send('pasteEntities', { sceneId: id, entities: part });
     }
-    await send('setStartScenes', { sceneIds: ['scene-main', 'lamps-b', 'ring-20a', 'ring-20b', 'ring-16', 'area-6', 'area-4'] });
+    await send('setStartScenes', { sceneIds: ['scene-main', 'lamps-b', 'ring-20', 'ring-16', 'area-6', 'area-4'] });
     // Play looks straight down on the room.
     await send('setTransform', { entityId: 'cam-main', transform: { position: [0, 19, 3], rotation: [-Math.SQRT1_2, 0, 0, Math.SQRT1_2], scale: [1, 1, 1] } });
   } else {
@@ -716,7 +714,7 @@ async function lampRoom(page: Page, pass: 'auto' | 'webgl2' | 'webgpu', send: (o
   await expect.poll(async () => pictureDiff(clustered, await shot()).bad <= 0.005, { timeout: 20_000 }).toBe(true);
   await spotShadows(page, pass, send, idOf, build);
 
-  // Play: seven scenes, 24 + 20 + 16 lamps and 6 + 4 area lights.
+  // Play: six scenes, 24 + 20 + 16 lamps and 6 + 4 area lights.
   await page.getByTitle('Start an isolated play preview').click();
   const frame = page.locator('iframe.tl-app__preview-frame');
   await expect(frame).toBeVisible();

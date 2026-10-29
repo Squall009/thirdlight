@@ -15,13 +15,9 @@
  * - The floor is static; the pillars are not (so the lights reach them per
  *   pixel whatever the static surfaces' light path is).
  *
- * A scene holds at most the model's realtime point and spot lights per
- * scene, so the lights are spread over as many start scenes as that takes
- * (all loaded at once: the renderer then picks what it can draw). Pure: the
- * plan is fixed for a count and its options.
+ * Every light is in the one scene. Pure: the plan is fixed for a count and
+ * its options.
  */
-import { MAX_LOCAL_LIGHTS } from '@thirdlight/project-model';
-
 import type { EntityValue } from './generate';
 import { lookRotation, LOOK_POST } from './look';
 
@@ -162,11 +158,7 @@ export function lightsPlan(count: number, options: LightsOptions = DEFAULT_LIGHT
     locals.push({ at, kind: k, shadowed: casts });
     lightEntities.push({ id: `light-${i + 1}`, name: `${k === 'spot' ? 'Spot' : 'Point'} ${i + 1}`, components: { transform: T(at), light } });
   }
-  const scenes: LightsScene[] = [];
-  for (let s = 0; s * MAX_LOCAL_LIGHTS < count; s += 1) {
-    const part = lightEntities.slice(s * MAX_LOCAL_LIGHTS, (s + 1) * MAX_LOCAL_LIGHTS);
-    scenes.push(s === 0 ? { sceneId: 'scene-main', name: 'Main', entities: [...main, ...part] } : { sceneId: `lights-${s + 1}`, name: `Lights ${s + 1}`, entities: part });
-  }
+  const scenes: LightsScene[] = [{ sceneId: 'scene-main', name: 'Main', entities: [...main, ...lightEntities] }];
   return { count, options, scenes, locals, counts, camera: { eye: S.eye, at: S.at } };
 }
 

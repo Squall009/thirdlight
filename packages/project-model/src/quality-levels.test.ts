@@ -73,7 +73,7 @@ describe('quality levels', () => {
   });
 
   it('validates the levels and the starting level against them', () => {
-    expect(errorsOf({ qualityLevels: [{ id: 'low', msaa: 0, post: { ssao: { radius: 0.2 } } }, { id: 'ultra', pixelRatio: 2, shadowMapSize: 4096, localLights: 16, lodBias: 2, renderScale: 1, ambientOcclusion: 'gtao', dynamicResolution: false }], quality: 'ultra' })).toEqual([]);
+    expect(errorsOf({ qualityLevels: [{ id: 'low', msaa: 0, post: { ssao: { radius: 0.2 } } }, { id: 'ultra', pixelRatio: 2, shadowMapSize: 4096, lodBias: 2, renderScale: 1, ambientOcclusion: 'gtao', dynamicResolution: false }], quality: 'ultra' })).toEqual([]);
     const paths = (v: unknown): string[] => errorsOf(v).map((e) => e.path ?? '');
     expect(paths({ quality: 'ultra' })).toEqual(['/quality']);
     expect(paths({ qualityLevels: [{ id: 'a' }], quality: 'low' })).toEqual(['/quality']);
@@ -82,7 +82,8 @@ describe('quality levels', () => {
     expect(paths({ qualityLevels: [{ id: 'Bad Id' }] })).toEqual(['/qualityLevels/0/id']);
     expect(paths({ qualityLevels: [{ id: 'a', msaa: 2 }] })).toEqual(['/qualityLevels/0/msaa']);
     expect(paths({ qualityLevels: [{ id: 'a', shadowMapSize: 1000 }] })).toEqual(['/qualityLevels/0/shadowMapSize']);
-    expect(paths({ qualityLevels: [{ id: 'a', localLights: 17 }] })).toEqual(['/qualityLevels/0/localLights']);
+    // The retired light counts are no level field (the schema-8 step drops them on open).
+    expect(paths({ qualityLevels: [{ id: 'a', localLights: 4 }] })).toEqual(['/qualityLevels/0/localLights']);
     expect(paths({ qualityLevels: [{ id: 'a', renderScale: 0.25 }] })).toEqual(['/qualityLevels/0/renderScale']);
     expect(paths({ qualityLevels: [{ id: 'a', pixelRatio: 3 }] })).toEqual(['/qualityLevels/0/pixelRatio']);
     expect(paths({ qualityLevels: [{ id: 'a', occlusionCulling: 'off' }, { id: 'b', occlusionCulling: 'auto' }, { id: 'c', occlusionCulling: 'on' }] })).toEqual([]);

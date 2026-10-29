@@ -170,7 +170,7 @@ export function composeV4(
     if (!sceneIds.has(id)) errors.push(projectError(`/startScenes/${i}`, 'reference_missing', 'a start scene names no scene of the project', 'an existing scene id', { document: 'content', reason: 'scene' } as never, id));
   });
   // Lights belong to scenes — any light kind may sit in any scene (each scene's own limits:
-  // one directional, one ambient, one hemisphere, 16 point/spot). Where the player and the cameras are is
+  // one directional, one ambient, one hemisphere). Where the player and the cameras are is
   // checked when the game starts (play-checks.ts), not per edit.
   // The shell's listed scenes are scenes of the project, each spawn a player spawn in its scene.
   const shell = (content as { shell?: { scenes?: { scene: string; spawn?: string }[] } }).shell;
@@ -633,7 +633,7 @@ function prefabCopyCountErrors(s: SceneV4, content: ContentCatalogV4, errors: Mo
   const prefabs = content.prefabs ?? [];
   const counted = derivedOf(prefabs, 'counted-parts', () => prefabs.some((d) => d.entities.some((e) => {
     const c = countsOfComponents(e.components as unknown as Record<string, unknown>);
-    return c.spawns + c.directional + c.ambient + c.local + c.hemisphere + c.fogVolumes + c.points3d > 0;
+    return c.spawns + c.directional + c.ambient + c.hemisphere + c.fogVolumes + c.points3d > 0;
   })));
   if (!counted || !s.entities.some((e) => isPrefabLink((e.components as { prefab?: unknown }).prefab))) return;
   const countErrors = (entities: readonly { components: unknown }[]): ModelErrorV3[] => {

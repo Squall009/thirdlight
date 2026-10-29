@@ -234,9 +234,8 @@ only what it sets:
   drawing-buffer pixels per CSS pixel; absent 1), `msaa` (0 or 4 — WebGPU
   multisamples at 4 only; absent: the renderer's), `shadowMapSize` (512–4096:
   the largest shadow map any light draws; a light's larger own size is lowered
-  to it), `localLights` (0–16 point and spot lights drawn at once),
-  `shadowedLights` (no longer used: every shadowed light shares the shadow
-  atlas, `shadowAtlas` — see [Interior lighting best practice](architecture.md#interior-lighting-best-practice-shadow-rules)),
+  to it; every shadowed spot, point and area light shares the shadow atlas,
+  `shadowAtlas` — see [Interior lighting best practice](architecture.md#interior-lighting-best-practice-shadow-rules)),
   `ambientOcclusion` (off/ssao/gtao), `lodBias` (0.25–4, over `lod_bias`) and
   `dynamicResolution`. What a level leaves out is the project's setting; a
   value the player set in a settings field bound to `renderScale`,
@@ -296,7 +295,7 @@ a level the project lacks is refused) — to compare levels in one session.
 Scripts read the level drawn in `ctx.stats.quality` (UI documents:
 `$flow.stats.quality`). Play diagnostics report `renderer.quality` (`level`,
 `levels`, `source` page/chosen/project/device/highest, `tier`, `device` (the device's tier, its GPU class and the rule's line), `pixelRatioCap`,
-`shadowMapSize`, `localLights`, `shadowedLights`, `lodBias`, `keyShadowMapSize`: the key light's
+`shadowMapSize`, `lodBias`, `keyShadowMapSize`: the key light's
 map as drawn) beside `renderer.render` and `renderer.environment` (passes,
 samples). The page flag `?quality=<id>` pins a level (the perf harness's
 `--switches quality=low`). The Scene view draws the starting level (the

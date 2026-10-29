@@ -20,8 +20,12 @@
  * - `planes` (recorded): the project-wide physics dimension is retired; a 2D
  *   project's scenes get a default plane and its 2D colliders and
  *   controllers their 3D forms (`upgrade-planes.ts`).
+ * - `light-counts` (recorded): the counts of local lights are retired: quality
+ *   levels' `localLights`/`shadowedLights` and furnishing sets' `lights`
+ *   (`upgrade-light-counts.ts`).
  */
 import { linkPrefabCopies } from './upgrade-linked-copies';
+import { retireLightCounts } from './upgrade-light-counts';
 import { upgradeToPlanes } from './upgrade-planes';
 
 export interface Schema8Step {
@@ -37,6 +41,7 @@ export interface Schema8Step {
 export const SCHEMA_8_STEPS: readonly Schema8Step[] = [
   { name: 'linkPrefabCopies', run: linkPrefabCopies },
   { name: 'planes', run: upgradeToPlanes, recorded: true },
+  { name: 'light-counts', run: retireLightCounts, recorded: true },
 ];
 
 /** The recorded steps' names: what a project made or upgraded by this build has had (a new project needs none of them). */

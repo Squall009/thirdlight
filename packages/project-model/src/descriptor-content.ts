@@ -41,7 +41,6 @@ import { ANTIALIAS_KINDS, DEFAULT_WIND, HEIGHT_FOG_DEFAULTS, HEIGHT_FOG_LIMITS, 
 import { MATERIAL_DATA_MAX, MATERIAL_PARAMETER_TYPES } from './material-graph-kinds';
 import { TRIM_DENSITY_MAX, TRIM_DENSITY_MIN, TRIM_PADDING_MAX, TRIM_SHEET_DEFAULTS, TRIM_SHEET_SIZE_MAX, TRIM_STARTER_LAYOUT } from './trim-sheet';
 import { MODE_LIMITS } from './modes';
-import { MAX_LOCAL_LIGHTS } from './local-lights';
 import { LOD_BIAS_MAX, LOD_BIAS_MIN } from './model-lod';
 import { DEFAULT_LIGHTING_TIER, LIGHTING_TIERS, lightingTierValues, MEDIUM_RENDER_SCALE, MSAA_SAMPLE_COUNTS, PIXEL_RATIO_CAP_MAX, PIXEL_RATIO_CAP_MIN, QUALITY_POST_EFFECTS, REFLECTION_QUALITIES, SHADOW_ATLAS_SIZES, SHADOW_MAP_SIZES, SURFACE_CACHE_MIB_MAX, SURFACE_CACHE_MIB_MIN, SURFACE_LIGHT_MS_MAX, SURFACE_LIGHT_MS_MIN } from './quality-levels';
 import { AMBIENT_OCCLUSION_KINDS, OCCLUSION_CULLING_MODES, RENDER_SCALE_MAX, RENDER_SCALE_MIN } from './render-settings';
@@ -205,8 +204,6 @@ const QUALITY_LEVEL = obj('level', 'Quality level', 'Graphics settings players p
   num('pixelRatio', 'Pixel ratio cap', 'Most pixels per CSS pixel on HiDPI displays (absent: 1).', { min: PIXEL_RATIO_CAP_MIN, max: PIXEL_RATIO_CAP_MAX, step: 0.25 }),
   int('msaa', 'MSAA', 'Multisampling without a post stack (absent: 4).', { values: [...MSAA_SAMPLE_COUNTS], valueLabels: MSAA_SAMPLE_COUNTS.map((n) => (n === 0 ? 'Off' : `${n}×`)) }),
   int('shadowMapSize', 'Largest shadow map', 'Larger light shadow maps are lowered to it (absent: each light\'s own).', { values: [...SHADOW_MAP_SIZES] }),
-  int('localLights', 'Local lights', `Point and spot lights drawn at once (absent: ${MAX_LOCAL_LIGHTS}).`, { min: 0, max: MAX_LOCAL_LIGHTS }),
-  int('shadowedLights', 'Shadowed point lights', 'No longer used: every shadowed light (spot, point, area) shares the shadow atlas (Shadow atlas).', { min: 0, max: MAX_LOCAL_LIGHTS }),
   enm('ambientOcclusion', 'Ambient occlusion', 'Where a look has AO (absent: ambient_occlusion).', [...AMBIENT_OCCLUSION_KINDS], { labels: { off: 'Off', ssao: 'SSAO', gtao: 'GTAO' } }),
   num('lodBias', 'LOD bias', 'Above 1 keeps finer LODs further (absent: lod_bias).', { min: LOD_BIAS_MIN, max: LOD_BIAS_MAX, step: 0.05 }),
   bool('dynamicResolution', 'Dynamic resolution', 'Lower the scale while the GPU is over budget (absent: dynamic_resolution).'),

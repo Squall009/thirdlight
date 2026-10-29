@@ -1,28 +1,26 @@
 /**
- * The many-lights class's plan without a browser: every scene it makes is one
- * the model accepts (so the backend's commands take it as built), the lights
+ * The many-lights class's plan without a browser: its one scene is one the
+ * model accepts (so the backend's commands take it as built), the lights
  * are the mix the class names (points and spots, the shadowed ones of both
  * kinds, a few area lights), the field is lit densely enough that a pixel
  * sees many lights, and a count builds the same plan every time.
  */
 import { describe, expect, it } from 'vitest';
 
-import { MAX_LOCAL_LIGHTS, takesLocalLightSlot, validateSceneV4 } from '@thirdlight/project-model';
+import { validateSceneV4 } from '@thirdlight/project-model';
 
 import { DEFAULT_LIGHTS_OPTIONS, LIGHTS_COUNTS, LIGHTS_SPEC, lightsPlan, meanLightsReaching } from '../../tools/perf/lights';
 
 const sceneDoc = (entities: unknown[]): unknown => ({ schemaVersion: 4, sceneId: 'main', revision: 1, entities: entities.map((e) => ({ parentId: null, ...(e as object) })) });
 
 describe('the many-lights class', () => {
-  it.each(LIGHTS_COUNTS)('%i lights: valid scenes holding exactly that many local lights, the mix and the shadowed ones as named', (n) => {
+  it.each(LIGHTS_COUNTS)('%i lights: one valid scene holding exactly that many local lights, the mix and the shadowed ones as named', (n) => {
     const plan = lightsPlan(n);
-    for (const s of plan.scenes) {
-      const r = validateSceneV4(sceneDoc(s.entities));
-      expect(r.ok ? [] : r.errors.slice(0, 3)).toEqual([]);
-      expect(s.entities.filter((e) => takesLocalLightSlot(e.components['light'])).length).toBeLessThanOrEqual(MAX_LOCAL_LIGHTS);
-    }
-    const lights = plan.scenes.flatMap((s) => s.entities.map((e) => e.components['light'] as Record<string, unknown> | undefined)).filter((l) => l !== undefined);
-    const local = lights.filter((l) => takesLocalLightSlot(l));
+    expect(plan.scenes).toHaveLength(1);
+    const r = validateSceneV4(sceneDoc(plan.scenes[0]!.entities));
+    expect(r.ok ? [] : r.errors.slice(0, 3)).toEqual([]);
+    const lights = plan.scenes[0]!.entities.map((e) => e.components['light'] as Record<string, unknown> | undefined).filter((l) => l !== undefined);
+    const local = lights.filter((l) => l['type'] === 'point' || l['type'] === 'spot');
     expect(local).toHaveLength(n);
     expect(plan.counts.point + plan.counts.spot).toBe(n);
     expect(plan.counts.spot).toBeGreaterThan(n / 4);
@@ -31,7 +29,6 @@ describe('the many-lights class', () => {
     expect(plan.counts.shadowedPoint).toBe(DEFAULT_LIGHTS_OPTIONS.shadowed / 2);
     expect(plan.counts.shadowedSpot).toBe(DEFAULT_LIGHTS_OPTIONS.shadowed / 2);
     expect(plan.scenes[0]!.sceneId).toBe('scene-main');
-    expect(plan.scenes).toHaveLength(Math.ceil(n / MAX_LOCAL_LIGHTS));
   });
 
   it('lights a floor point with more lights as the count grows (about one in fourteen of them)', () => {

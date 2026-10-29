@@ -20,7 +20,6 @@ import { canonicalEnvironmentPresets, validateEnvironmentPresets, type Environme
 import { MATERIAL_DATA_MAX, MATERIAL_GRAPH_KIND, MATERIAL_PARAMETER_KEY_RE, MATERIAL_PARAMETER_TYPES, type MaterialParameterType } from './material-graph-kinds';
 import { isTextureSlots, textureSlotsError } from './texture-slots';
 import { MAX_TEXTURE_LAYERS } from './content-limits';
-import { MAX_LOCAL_LIGHTS } from './local-lights';
 import { TERRAIN_LAYER_MAX } from './terrain-tile';
 import { LOD_BIAS_MAX, LOD_BIAS_MIN } from './model-lod';
 import { LIGHTING_TIERS, MSAA_SAMPLE_COUNTS, PIXEL_RATIO_CAP_MAX, PIXEL_RATIO_CAP_MIN, QUALITY_LEVEL_ID_RE, QUALITY_POST_EFFECTS, qualityLevelsOf, REFLECTION_QUALITIES, SHADOW_ATLAS_SIZES, SHADOW_MAP_SIZES, SURFACE_CACHE_MIB_MAX, SURFACE_CACHE_MIB_MIN, SURFACE_LIGHT_MS_MAX, SURFACE_LIGHT_MS_MIN, type QualityLevelConfig } from './quality-levels';
@@ -905,7 +904,7 @@ export function validateEnvironment(value: unknown, path: string, errors: ModelE
 /** `environment.qualityLevels`: at least one level, unique ids, each field in its range (quality-levels.ts). */
 export function validateQualityLevels(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!Array.isArray(value) || value.length === 0) {
-    err(errors, 'field_type', path, 'qualityLevels is a list of at least one level { id, name?, post?, renderScale?, pixelRatio?, msaa?, shadowMapSize?, localLights?, shadowedLights?, ambientOcclusion?, lodBias?, dynamicResolution?, occlusionCulling?, lighting?, surfaceCacheMiB?, surfaceLightMs?, contactShadows?, reflections?, shadowAtlas? }, lowest first', value);
+    err(errors, 'field_type', path, 'qualityLevels is a list of at least one level { id, name?, post?, renderScale?, pixelRatio?, msaa?, shadowMapSize?, ambientOcclusion?, lodBias?, dynamicResolution?, occlusionCulling?, lighting?, surfaceCacheMiB?, surfaceLightMs?, contactShadows?, reflections?, shadowAtlas? }, lowest first', value);
     return;
   }
   const seen = new Set<string>();
@@ -922,8 +921,6 @@ export function validateQualityLevels(value: unknown, path: string, errors: Mode
         pixelRatio: { kind: 'num', min: PIXEL_RATIO_CAP_MIN, max: PIXEL_RATIO_CAP_MAX },
         msaa: { kind: 'other' },
         shadowMapSize: { kind: 'other' },
-        localLights: { kind: 'other' },
-        shadowedLights: { kind: 'other' },
         ambientOcclusion: { kind: 'enum', values: AMBIENT_OCCLUSION_KINDS },
         lodBias: { kind: 'num', min: LOD_BIAS_MIN, max: LOD_BIAS_MAX },
         dynamicResolution: { kind: 'bool' },
@@ -948,10 +945,6 @@ export function validateQualityLevels(value: unknown, path: string, errors: Mode
     if (v['msaa'] !== undefined && !(MSAA_SAMPLE_COUNTS as readonly unknown[]).includes(v['msaa'])) err(errors, 'field_value', `${at}/msaa`, `msaa is one of ${MSAA_SAMPLE_COUNTS.join(', ')} samples (WebGPU multisamples at 4 only)`, v['msaa'], MSAA_SAMPLE_COUNTS.join(' | '));
     if (v['shadowMapSize'] !== undefined && !(SHADOW_MAP_SIZES as readonly unknown[]).includes(v['shadowMapSize'])) err(errors, 'field_value', `${at}/shadowMapSize`, `shadowMapSize is one of ${SHADOW_MAP_SIZES.join(', ')}`, v['shadowMapSize'], SHADOW_MAP_SIZES.join(' | '));
     if (v['shadowAtlas'] !== undefined && !(SHADOW_ATLAS_SIZES as readonly unknown[]).includes(v['shadowAtlas'])) err(errors, 'field_value', `${at}/shadowAtlas`, `shadowAtlas is one of ${SHADOW_ATLAS_SIZES.join(', ')}`, v['shadowAtlas'], SHADOW_ATLAS_SIZES.join(' | '));
-    const ll = v['localLights'];
-    if (ll !== undefined && !(typeof ll === 'number' && Number.isInteger(ll) && ll >= 0 && ll <= MAX_LOCAL_LIGHTS)) err(errors, 'field_value', `${at}/localLights`, `localLights is a whole number 0–${MAX_LOCAL_LIGHTS}`, ll);
-    const sl = v['shadowedLights'];
-    if (sl !== undefined && !(typeof sl === 'number' && Number.isInteger(sl) && sl >= 0 && sl <= MAX_LOCAL_LIGHTS)) err(errors, 'field_value', `${at}/shadowedLights`, `shadowedLights is a whole number 0–${MAX_LOCAL_LIGHTS}`, sl);
     if (v['post'] !== undefined) {
       const post = v['post'];
       if (isPlainObject(post)) {

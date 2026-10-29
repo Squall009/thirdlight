@@ -355,7 +355,7 @@ export interface SceneAdapterDiagnostics {
    * scenes and how many of them are on (the budget), and the spot cookies
    * drawn.
    */
-  lights?: { directional: string | null; ambient: string | null; hemisphere: string | null; local: number; localOn: number; cookies: number };
+  lights?: { directional: string | null; ambient: string | null; hemisphere: string | null; local: number; cookies: number };
   /** The bounded model-realization
    *  counters block; ABSENT when the `models` option is absent (or after
    *  dispose). Counters only: no paths, tokens, asset IDs or byte lengths.

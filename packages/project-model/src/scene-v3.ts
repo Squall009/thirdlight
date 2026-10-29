@@ -15,7 +15,6 @@
  * result, never throws, never reads files.
  */
 import { MAX_INSTANCE_CHUNK_SIZE } from './model-lod';
-import { MAX_LOCAL_LIGHTS, takesLocalLightSlot } from './local-lights';
 import { AREA_LIGHT_FIELDS, canonicalAreaLightFields, validateAreaLightFields } from './area-lights';
 import { SHADOW_MAP_SIZES } from './quality-levels';
 import { INSTANCE_DENSITY_SIZE_MIN } from './model-lod';
@@ -202,9 +201,8 @@ const KNOWN_LIGHT_FIELDS_V4 = new Set(['type', 'color', 'intensity', 'direction'
 const COOKIE_ID_RE = ID_RE;
 /** point/spot/area intensity is in candela (three's physical units). */
 export const MAX_LOCAL_INTENSITY = 1000;
-/** Most hemisphere lights per scene (the point and spot lights' `MAX_LOCAL_LIGHTS` is local-lights.ts's). */
+/** Most hemisphere lights per scene. */
 export const MAX_HEMISPHERE_LIGHTS = 1;
-export { MAX_LOCAL_LIGHTS };
 const KNOWN_SURFACE_FIELDS = new Set(['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity', 'emissiveMode']);
 const KNOWN_MODEL_ANIMATION_FIELDS = new Set(['assetId', 'version', 'roles']);
 const ROLE_KEYS = ['idle', 'run', 'airborne'] as const;
@@ -602,7 +600,6 @@ export interface EntityV3Counts {
   spawns: number;
   directional: number;
   ambient: number;
-  local: number;
   hemisphere: number;
   fogVolumes: number;
   cameras: number;
@@ -615,7 +612,6 @@ export const EMPTY_COUNTS: EntityV3Counts = {
   spawns: 0,
   directional: 0,
   ambient: 0,
-  local: 0,
   hemisphere: 0,
   fogVolumes: 0,
   cameras: 0,
@@ -1211,7 +1207,6 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
         counts.spawns += c.spawns;
         counts.directional += c.directional;
         counts.ambient += c.ambient;
-        counts.local += c.local;
         counts.fogVolumes += c.fogVolumes;
         counts.hemisphere += c.hemisphere;
         counts.cameras += c.cameras;
@@ -1424,7 +1419,6 @@ export function countsOfComponents(comps: Record<string, unknown>): EntityV3Coun
     spawns: comps['playerSpawn'] !== undefined ? 1 : 0,
     directional: lightType === 'directional' ? 1 : 0,
     ambient: lightType === 'ambient' ? 1 : 0,
-    local: takesLocalLightSlot(light) ? 1 : 0,
     fogVolumes: comps['fogVolume'] !== undefined ? 1 : 0,
     hemisphere: lightType === 'hemisphere' ? 1 : 0,
     cameras: comps['camera'] !== undefined ? 1 : 0,
@@ -1551,9 +1545,6 @@ export function sceneCountErrors(counts: EntityV3Counts, version: 3 | 4, merged:
   }
   if (!merged && counts.ambient > SCENE_LIMITS_V3.lightsAmbient) {
     errors.push(limitsError('/entities', 'lights_ambient', counts.ambient, SCENE_LIMITS_V3.lightsAmbient, 'scene exceeds the ambient-light limit'));
-  }
-  if (!merged && counts.local > MAX_LOCAL_LIGHTS) {
-    errors.push(limitsError('/entities', 'lights_local', counts.local, MAX_LOCAL_LIGHTS, `a scene holds at most ${MAX_LOCAL_LIGHTS} realtime and mixed point and spot lights (baked and area lights are not counted)`));
   }
   if (counts.fogVolumes > MAX_FOG_VOLUMES) {
     errors.push(limitsError('/entities', 'zones', counts.fogVolumes, MAX_FOG_VOLUMES, `a scene holds at most ${MAX_FOG_VOLUMES} fog volumes`));

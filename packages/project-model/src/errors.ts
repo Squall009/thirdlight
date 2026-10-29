@@ -52,7 +52,6 @@ export type LimitName =
   | 'player_spawns'
   | 'lights_directional'
   | 'lights_ambient'
-  | 'lights_local'
   | 'audio_assets'
   | 'audio_versions'
   | 'texture_assets'

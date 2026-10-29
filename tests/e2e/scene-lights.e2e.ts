@@ -263,7 +263,7 @@ for (const variant of RENDERER_VARIANTS) test(`lights belong to scenes: the most
   type Obs = { state?: string; scenes?: { loaded: string[] } };
   const observe = async (): Promise<Obs> => (await api(`play/${psid}/observe`)).json as Obs;
   await expect.poll(async () => (await observe()).state, { timeout: 60_000 }).toBe('running');
-  type Lights = { directional: string | null; ambient: string | null; hemisphere: string | null; local: number; localOn: number; cookies: number };
+  type Lights = { directional: string | null; ambient: string | null; hemisphere: string | null; local: number; cookies: number };
   const lights = async (): Promise<Lights | null> => {
     const r = await api(`play/${psid}/diagnostics`);
     return ((r.json as { diagnostics?: { renderer?: { lights?: Lights } } }).diagnostics?.renderer?.lights) ?? null;
@@ -312,7 +312,7 @@ for (const variant of RENDERER_VARIANTS) test(`lights belong to scenes: the most
   // lamp's mask leaves the wall's layer out), the spot's cookie stripes.
   await control('loadScene', 'scene-level');
   await loaded(['scene-main', 'scene-level']);
-  await expect.poll(async () => await lights(), { timeout: 30_000 }).toEqual({ directional: nightSun, ambient: expect.any(String), hemisphere: null, local: 13, localOn: 13, cookies: 1 });
+  await expect.poll(async () => await lights(), { timeout: 30_000 }).toEqual({ directional: nightSun, ambient: expect.any(String), hemisphere: null, local: 13, cookies: 1 });
   await expect.poll(async () => mostRuns(await shot(), 0.35, 0.65, green), { timeout: 20_000 }).toBe(11);
   const night = await log('level');
 
@@ -336,7 +336,7 @@ for (const variant of RENDERER_VARIANTS) test(`lights belong to scenes: the most
   // Level unloaded: the start scene's red sun and fill; its lamps and cookie are gone.
   await control('unloadScene', 'scene-level');
   await loaded(['scene-main']);
-  await expect.poll(async () => await lights(), { timeout: 30_000 }).toEqual({ directional: 'light-0001', ambient: 'light-0002', hemisphere: null, local: 0, localOn: 0, cookies: 0 });
+  await expect.poll(async () => await lights(), { timeout: 30_000 }).toEqual({ directional: 'light-0001', ambient: 'light-0002', hemisphere: null, local: 0, cookies: 0 });
   await expect.poll(async () => share(await shot(), red), { timeout: 20_000 }).toBeGreaterThan(0.3);
   expect(share(await log('level unloaded'), green)).toBeLessThan(0.01);
 

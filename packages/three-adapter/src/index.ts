@@ -123,7 +123,7 @@ export {
 export { ClusterGpu, type ClusterUploadRenderer } from './cluster-gpu';
 // The point and spot lights the clusters draw: one light whose node loops over a pixel's cell (cluster-lights.ts).
 export { ClusteredLights, drawsClustered } from './cluster-lights';
-export { LOCAL_LIGHT_BUDGET, selectSceneLights, type SceneLightEntry, type SceneLightKind, type SceneLightSelection } from './scene-lights';
+export { selectSceneLights, type SceneLightEntry, type SceneLightKind, type SceneLightSelection } from './scene-lights';
 // The runtime role selector and the bounded crossfade
 // (root subpath):
 // `createAnimationRoleController`/`AnimationRoleController` + the
@@ -365,6 +365,7 @@ export { cpuSystemReason, cpuSystemReasons, cpuSystemsOf, GPU_SORT_LIMIT, GPU_ST
 export { GPU_BATCH_PARTICLES, GPU_BATCH_SLOTS, GpuEffectBatches, GpuEffectExecutor } from './effects-gpu-batch';
 // One effect on a controllable timeline (the Effect tab's preview; same executors as Play).
 export { EFFECT_TIMELINE_STEP, EffectTimeline, type EffectSystemCounter, type EffectTimelineOptions } from './effects-timeline';
+export { createStageClusters, type StageClusters } from './cluster-stage';
 
 // Releasing objects that leave the scene for good (render objects, node-made buffers, shadow maps).
 export { disposeObjectTree, disposeSharingGeometry, installProgramRelease, installVaoSweep, liveRenderers, releaseNodeAttributes, trackRenderer, trackTextureListeners, type DisposeTreeOptions } from './dispose';

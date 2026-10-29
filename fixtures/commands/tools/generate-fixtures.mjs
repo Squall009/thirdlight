@@ -149,7 +149,7 @@ function defaultContent() {
 
 function manifestObj(id, name, createdAt) {
   // A current project: the recorded upgrades of 8 behind it (a new project has them).
-  return { schemaVersion: 8, engineVersion: "0.1.0", id, name, createdAt, upgrades: ["planes"] };
+  return { schemaVersion: 8, engineVersion: "0.1.0", id, name, createdAt, upgrades: ["light-counts", "planes"] };
 }
 
 const RETENTION = 128;

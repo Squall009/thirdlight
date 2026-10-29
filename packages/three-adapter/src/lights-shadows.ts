@@ -133,7 +133,7 @@ export interface LightsDiagnostics {
   shadowReason?: ShadowReason;
   /** The key light's static and dynamic shadow-map draws (absent: not cached, or no key light shadow). */
   shadowMaps?: CachedShadowCounts;
-  lights?: { directional: string | null; ambient: string | null; hemisphere: string | null; local: number; localOn: number; cookies: number };
+  lights?: { directional: string | null; ambient: string | null; hemisphere: string | null; local: number; cookies: number };
 }
 
 /** What a script may write over a realized light. */
@@ -187,12 +187,11 @@ export interface SceneLights {
    */
   applyOverrides(overrides: ReadonlyMap<string, LightValueOverride>, blending: boolean, rangeOf: (entityId: string) => number): boolean;
   /**
-   * A quality level's limits: the key light's largest shadow map, and how many point and spot lights are on
-   * (null: no limit beyond the light's own size and the scenes' budget). True when the lights that are on must
-   * be selected again (the key light was realized again at its new size, or the budget changed). (`shadowedLights`
-   * no longer limits anything: a point or spot light's shadow is shadow atlas tiles, a memory budget.)
+   * A quality level's limit: the key light's largest shadow map (null: the light's own size). True when the lights
+   * that are on must be selected again (the key light was realized again at its new size). Point, spot and area
+   * lights have no count: their shadows are shadow atlas tiles, a memory budget.
    */
-  setLimits(limits: { readonly shadowMapSize: number | null; readonly localLights: number | null; readonly shadowedLights?: number | null }): boolean;
+  setLimits(limits: { readonly shadowMapSize: number | null }): boolean;
   /**
    * The page has rooms (or none any more): point and spot lights are realized
    * as layered lights, whose room test (light-layers.ts) keeps them in their
@@ -212,9 +211,8 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
   let disposed = false;
   /** A light that stays out of realtime rendering: held by a bake (ambient/hemisphere always stay). */
   const bakedAway = (id: string, l: { type: string; mode?: string }): boolean => l.mode === 'baked' && l.type !== 'ambient' && l.type !== 'hemisphere' && o.bakedLight(id);
-  /** The quality level's largest shadow map (null: each light's own size) and point/spot light budget (null: the scenes'). */
+  /** The quality level's largest shadow map (null: each light's own size). */
   let shadowMapCap: number | null = null;
-  let localBudget: number | null = null;
   const capped = (size: number): number => (shadowMapCap === null ? size : Math.min(size, shadowMapCap));
   /** Every realized light by entity, switched on and off by `select`. */
   const switchable = new Map<string, { kind: SceneLightKind; light: THREE.Light }>();
@@ -487,7 +485,7 @@ function releaseLight(entityId: string): void {
       const entries: SceneLightEntry[] = [];
       let order = 0;
       // A light whose object is hidden or switched off is off and counts for nothing (the previous scene's
-      // light of its kind comes back; a point or spot light frees its place in the budget).
+      // light of its kind comes back).
       for (const [id, r] of switchable) {
         if (hidden.has(id)) {
           order++;
@@ -495,7 +493,7 @@ function releaseLight(entityId: string): void {
         }
         entries.push({ id, kind: r.kind, rank: rankOf(id), order: order++ });
       }
-      selection = selectSceneLights(entries, localBudget ?? Number.POSITIVE_INFINITY);
+      selection = selectSceneLights(entries);
       for (const [id, r] of switchable) r.light.visible = selection.active.has(id);
       const next = selection.directional !== null ? (directionals.get(selection.directional) ?? null) : null;
       if (next !== keyRec || keyRec === null) {
@@ -634,12 +632,8 @@ function releaseLight(entityId: string): void {
 
     setLimits(limits): boolean {
       const cap = limits.shadowMapSize;
-      const budget = limits.localLights;
-      const capChanged = cap !== shadowMapCap;
-      const budgetChanged = budget !== localBudget;
+      if (cap === shadowMapCap) return false;
       shadowMapCap = cap;
-      localBudget = budget;
-      if (!capChanged) return budgetChanged;
       // The shadow-casting lights again at the new size (a shadow map's size is fixed when it is made).
       // (Ids first: realizing a light again takes it out of `switchable` and puts it back. A point or spot light's shadow is
       // atlas tiles: the key light's map alone has a size.)
@@ -654,7 +648,7 @@ function releaseLight(entityId: string): void {
       // `shadowReason` is present iff `shadows === 'off'`.
       if (shadowState.shadows === 'off' && shadowState.reason !== undefined) d.shadowReason = shadowState.reason;
       if (shadowState.shadows === 'on' && keyRec?.cached != null && keyRec.light.castShadow) d.shadowMaps = keyRec.cached.diagnostics();
-      if (selection !== null && !disposed) d.lights = { directional: selection.directional, ambient: selection.ambient, hemisphere: selection.hemisphere, local: selection.localTotal, localOn: selection.localOn, cookies: cookies.size };
+      if (selection !== null && !disposed) d.lights = { directional: selection.directional, ambient: selection.ambient, hemisphere: selection.hemisphere, local: selection.localTotal, cookies: cookies.size };
       return d;
     },
 

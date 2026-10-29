@@ -22,8 +22,8 @@ import { footprintZones, splitFloorPlan, type FloorPlan, type PlanRect } from '.
 import { facingDir, FURNISH_CELL, type FurnishedProp } from '../packages/project-model/src/arch-furnish';
 import { architectureCopies, generateArchitecture } from '../packages/project-model/src/arch-generate';
 import { buildingInteriorId } from '../packages/project-model/src/arch-buildings';
-import { withFurnishingLights, type DroppedFurnishingLights } from '../packages/project-model/src/arch-lights';
-import { droppedLightChecks, withProjectSceneDerivations } from '../packages/exporter/src/content-closure';
+import { withFurnishingLights } from '../packages/project-model/src/arch-lights';
+import { withProjectSceneDerivations } from '../packages/exporter/src/content-closure';
 import { distanceToEdges, pointInPolygon } from '../packages/project-model/src/arch-mesh';
 import { FURNISHING_SET_KIND, ROOM_PROGRAM_KIND, roomProgramDef } from '../packages/project-model/src/arch-plan-kinds';
 import { expandArchitecture } from '../packages/project-model/src/arch-rooms';
@@ -121,7 +121,7 @@ describe('floor plans', () => {
 });
 
 describe('a building split into rooms and furnished', () => {
-  const table = architectureStylesOf(graphs({ lights: 3 }));
+  const table = architectureStylesOf(graphs());
   const comp = (b: ArchitectureBuilding): ArchitectureComponent => ({ elements: [], buildings: [b] });
 
   it('makes the rooms inside the building: one wall per stretch, its own floors gone, rooms with types and doors, generated without problems', () => {
@@ -155,16 +155,16 @@ describe('a building split into rooms and furnished', () => {
     expect(chunks.flatMap((c) => c.problems)).toEqual([]);
   });
 
-  it('furnishes by room type: against walls facing in, clear of doors, a walkable path between doors; lights within the count; deterministic', () => {
+  it('furnishes by room type: against walls facing in, clear of doors, a walkable path between doors; a light per room; deterministic', () => {
     const b = building(RECT, { layoutSeed: 3, furnishing: 'test-furnishing' });
     const x = expandArchitecture(comp(b), [0, 0, 0], table);
     expect(x.problems).toEqual([]);
     const props = x.props ?? [];
     expect(props.length).toBeGreaterThanOrEqual(8);
     expect(props.filter((p) => p.model?.assetId === 'kit-table').every((p) => x.rooms.find((r) => r.id === p.room)?.type === 'room-a')).toBe(true);
-    // Lights: the set's count, one per room, largest rooms first.
-    expect((x.lights ?? []).length).toBe(3);
-    expect(new Set((x.lights ?? []).map((l) => l.room)).size).toBe(3);
+    // Lights: one per room the set's Light node names (any room here).
+    expect((x.lights ?? []).length).toBe(x.rooms.length);
+    expect(new Set((x.lights ?? []).map((l) => l.room)).size).toBe(x.rooms.length);
     // Kit copies: one per prop, as instances of their models.
     const copies = architectureCopies(x.component);
     expect(copies.reduce((s, c) => s + c.ids.length, 0)).toBe(props.length);
@@ -238,21 +238,38 @@ describe('a building split into rooms and furnished', () => {
     expect(crates.length).toBeLessThan(many);
   });
 
-  it('makes the furnishing lights into the scene as light objects within its budget of point and spot lights', () => {
+  it('makes the furnishing lights into the scene as light objects, every one however many lights the scene holds', () => {
     const b = building(RECT, { layoutSeed: 3, furnishing: 'test-furnishing' });
     const arch = { id: 'arch', components: { transform: { position: [10, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, architecture: comp(b) } };
     const lamp = (i: number): { id: string; components: object } => ({ id: `lamp-${i}`, components: { transform: { position: [0, 0, 0] }, light: { type: 'point', color: '#ffffff', intensity: 1 } } });
     const [made] = withFurnishingLights([{ sceneId: 's', entities: [arch] }], table);
     const lights = made!.entities.filter((e) => (e as { parentId?: string }).parentId === 'arch');
-    expect(lights).toHaveLength(3);
+    expect(lights).toHaveLength(4);
     expect(lights[0]!.components).toMatchObject({ light: { type: 'point' } });
-    // A scene with 14 lamps of its own has room for two.
-    const [full] = withFurnishingLights([{ sceneId: 's', entities: [arch, ...Array.from({ length: 14 }, (_x, i) => lamp(i))] }], table);
-    expect(full!.entities.length - 15).toBe(2);
+    // A scene with 40 lamps of its own keeps every furnishing light (no count of local lights).
+    const [full] = withFurnishingLights([{ sceneId: 's', entities: [arch, ...Array.from({ length: 40 }, (_x, i) => lamp(i))] }], table);
+    expect(full!.entities.length - 41).toBe(4);
   });
 
-  it('the build: an interior that is a start scene is in the merged start scene with its lights; lights past the budget make a Problems line', () => {
-    const content = { graphs: graphs({ lights: 3 }).map((g) => ({ ...g, name: g.graphId })) };
+  it('a 40-room building keeps every furnishing light', () => {
+    // 40 small rooms on a 24 × 20 m storey, a light in each.
+    const program = programGraph();
+    program.nodes = program.nodes.map((n) => (n.id === 'c' ? { ...n, data: { ...n.data, count: 40 } } : n));
+    const big = architectureStylesOf([
+      { graphId: 'test-program', kind: ROOM_PROGRAM_KIND, graph: program },
+      { graphId: 'test-furnishing', kind: FURNISHING_SET_KIND, graph: furnishingGraph() },
+    ]);
+    const b = building([[0, 0], [24, 0], [24, 20], [0, 20]], { layoutSeed: 3, furnishing: 'test-furnishing' });
+    const x = expandArchitecture(comp(b), [0, 0, 0], big);
+    expect(x.rooms.length).toBeGreaterThanOrEqual(40);
+    expect(x.lights ?? []).toHaveLength(x.rooms.length);
+    const arch = { id: 'arch', components: { transform: { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, architecture: comp(b) } };
+    const [made] = withFurnishingLights([{ sceneId: 's', entities: [arch] }], big);
+    expect(made!.entities.filter((e) => (e as { parentId?: string }).parentId === 'arch')).toHaveLength(x.rooms.length);
+  });
+
+  it('the build: an interior that is a start scene is in the merged start scene with its lights', () => {
+    const content = { graphs: graphs().map((g) => ({ ...g, name: g.graphId })) };
     const b = building(RECT, { layoutSeed: 3, furnishing: 'test-furnishing', interior: { scene: 'inside' } });
     const house = { id: 'house-object', name: 'House', components: { transform: { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, architecture: comp(b) } };
     const scenes = [
@@ -264,19 +281,11 @@ describe('a building split into rooms and furnished', () => {
     const interior = buildingInteriorId('house-object', 'house');
     const inside = made.scenes!.find((d) => d.sceneId === 'inside')!.entities;
     expect(inside.map((e) => e.id)).toContain(interior);
-    expect(inside.filter((e) => (e as { parentId?: string }).parentId === interior)).toHaveLength(3);
+    expect(inside.filter((e) => (e as { parentId?: string }).parentId === interior)).toHaveLength(4);
     // The merged scene got what the inside scene got: the interior and its lights.
     expect(made.merged.entities.map((e) => e.id)).toEqual([house.id, ...inside.map((e) => e.id)]);
     // Not a start scene: the merged scene is left as it is.
     expect(withProjectSceneDerivations({ entities: [house] }, scenes, ['outside'], content).merged.entities).toEqual([house]);
-    // Fourteen lamps of the interior scene's own leave room for two of its three lights: the third is named.
-    const lamp = (i: number): { id: string; components: object } => ({ id: `lamp-${i}`, components: { transform: { position: [0, 0, 0] }, light: { type: 'point', color: '#ffffff', intensity: 1 } } });
-    const dropped: DroppedFurnishingLights[] = [];
-    withProjectSceneDerivations({ entities: [house] }, [scenes[0]!, { sceneId: 'inside', entities: Array.from({ length: 14 }, (_x, i) => lamp(i)) }], ['outside'], content, dropped);
-    expect(dropped).toEqual([{ scene: 'inside', lights: [expect.stringMatching(/^House house interior .* light$/)] }]);
-    const [line] = droppedLightChecks(dropped);
-    expect(line).toMatchObject({ code: 'lights_dropped', refuse: false });
-    expect(line!.message).toMatch(/^scene "inside": 1 furnishing light past its 16 point and spot lights left out, their rooms unlit: "House house interior .* light"$/);
   });
 
   it('validates the new fields', () => {
@@ -333,7 +342,7 @@ describe('a building split into rooms and furnished', () => {
   });
 
   it.runIf(process.env['TL_PERF'] === '1')('times split and furnish per building (a village of 64 two-storey houses)', () => {
-    const fresh = (): ReturnType<typeof architectureStylesOf> => architectureStylesOf(graphs({ upper: true, stairs: true, lights: 4 }));
+    const fresh = (): ReturnType<typeof architectureStylesOf> => architectureStylesOf(graphs({ upper: true, stairs: true }));
     const buildings: ArchitectureBuilding[] = [];
     for (let i = 0; i < 64; i++) {
       const [ox, oz] = [(i % 8) * 20, Math.floor(i / 8) * 20];

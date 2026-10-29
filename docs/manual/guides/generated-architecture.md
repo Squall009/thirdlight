@@ -153,8 +153,8 @@ the same either way: change presets, never the outlines.
   convex polygon, or one with only right angles. Others are reported in the
   object's problems and get no roof.
 - **Room programs need sides along x and z.**
-- **Furnished lights share the scene's budget** of 16 point and spot
-  lights.
+- **Every furnished room gets its light:** one per room a Light node of
+  the furnishing set names, with no count per scene.
 - **Generated at load:** an export ships parameters, and the player's
   browser makes the meshes. To ship meshes instead, turn on
   **Project Settings → Gameplay → Engine → Generated architecture**

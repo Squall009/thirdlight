@@ -587,16 +587,6 @@ interface QualityLevelConfig {
   msaa?: MsaaSamples;
   /** The largest shadow map any light draws (a light's own larger size is lowered to it). */
   shadowMapSize?: number;
-  /** How many point and spot lights the loaded scenes draw at once (0 – the scenes' budget). */
-  localLights?: number;
-  /**
-   * How many point lights draw their shadow at once (0 – the scenes' budget;
-   * absent: every one that casts, every frame): the ones largest on screen,
-   * fading out with distance, their maps drawn again only when something in
-   * reach changed. A spot light's shadow is a tile of the shadow atlas
-   * (`shadowAtlas`).
-   */
-  shadowedLights?: number;
   ambientOcclusion?: AmbientOcclusionKind;
   /** 0.25–4: divides every LOD switch point and cull size (over the project's `lod_bias`). */
   lodBias?: number;

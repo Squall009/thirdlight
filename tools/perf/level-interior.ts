@@ -29,7 +29,7 @@
  *
  * Pure: a function of the seed, so the measured content is the same every run.
  */
-import { ARCHITECTURE_FLOOR_ON_CELLS, architectureOpeningEdges, MAX_LOCAL_LIGHTS, type ArchitectureOpening, type ArchitectureOutline } from '@thirdlight/project-model';
+import { ARCHITECTURE_FLOOR_ON_CELLS, architectureOpeningEdges, type ArchitectureOpening, type ArchitectureOutline } from '@thirdlight/project-model';
 
 import { ROOM_OPENING_KINDS } from '../../packages/editor/src/session/room-draw';
 import { prng, type EntityValue } from './generate';
@@ -245,9 +245,9 @@ export function levelInteriorPlan(seed = LEVEL_SEED, storeys = 1): LevelPlan {
     }
   }
 
-  // Lamps: every room of the camera's row (what it sees), then rooms drawn by the seed, within the local-light budget;
+  // Lamps: every room of the camera's row (what it sees), then rooms drawn by the seed;
   // the spots (shadowed, pointing down) in the camera's room and the next one ahead.
-  const lampCount = Math.min(S.lamps, MAX_LOCAL_LIGHTS);
+  const lampCount = S.lamps;
   const row = Array.from({ length: cols }, (_, c) => index(c, cr));
   const spotRooms = [index(cc, cr), index(cc + 1, cr)].slice(0, S.spots);
   const others = shuffle(Array.from({ length: cols * rows }, (_, i) => i).filter((i) => !row.includes(i)), rnd);

@@ -351,13 +351,6 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | <a id="limit-max-lightmap-entries"></a>`MAX_LIGHTMAP_ENTRIES` | `4096` |  |
 | <a id="limit-max-surface-bake-files"></a>`MAX_SURFACE_BAKE_FILES` | `64` | Most files of one saved surface bake (each up to `MAX_TEXTURE_EDGE` rows of the container's width). |
 
-<a id="limits-project-model--local-lights"></a>
-## `local-lights.ts`
-
-| Constant | Value | What it is |
-|---|---|---|
-| <a id="limit-max-local-lights"></a>`MAX_LOCAL_LIGHTS` | `16` | Most realtime and mixed point + spot lights per scene: the forward-lighting cost per drawn light (a quality level may draw fewer). |
-
 <a id="limits-project-model--manifest"></a>
 ## `manifest.ts`
 
@@ -372,3 +365,10 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | Constant | Value | What it is |
 |---|---|---|
 | <a id="limit-material-data-max"></a>`MATERIAL_DATA_MAX` | `64` | The largest data parameter, cells per side (engine limit): 64 × 64 RGBA8 is 16 KiB per object — enough for a per-cell overlay of a large board or map region, small enough to send whole on every change. |
+
+<a id="limits-project-model--material-schema"></a>
+## `material-schema.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-default-wind"></a>`DEFAULT_WIND` | `{"direction":[1,0],"strength":0.5,"gust":0.4,"gustFrequency":0.3,"turbulence":0.3}` | The wind when a project sets none — a light breeze along +X (0.5 with 0.4 gusts every ~3 s, a little turbulence): foliage moves a little in any scene; 0 strength stills it. |

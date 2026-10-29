@@ -33,7 +33,7 @@ import { SOCKET_ATTACH_CONFLICTS, SOCKET_ATTACH_LIMITS } from './sockets';
 import { MODE_BLENDS, MODE_DEFAULTS, MODE_LIMITS, MODE_PHYSICS, MODE_UNGROUPED } from './modes';
 import { CAMERA_BLENDS, CAMERA_PATH_LIMITS, CAMERA_RAIL_MODES, CAMERA_REGION_DEFAULTS, CAMERA_REGION_LIMITS, VIRTUAL_CAMERA_DEFAULTS as VCD, VIRTUAL_CAMERA_LIMITS as VCL, VIRTUAL_CAMERA_RIGS } from './cameras';
 import { MAX_LEN } from './validate';
-import { LOCAL_LIGHT_MODES, MAX_LOCAL_LIGHTS } from './local-lights';
+import { LOCAL_LIGHT_MODES } from './local-lights';
 
 /** How the local-light modes read in the Inspector. */
 const LOCAL_LIGHT_LABELS = { pixel: 'Per pixel', none: 'None' } as const;
@@ -613,10 +613,10 @@ export const light: ComponentDescriptor = {
   excludes: [{ component: 'instances', reason: 'an instance set is scenery' }],
   prefab: true,
   rules: [
-    `At most one directional, one ambient and one hemisphere light and ${MAX_LOCAL_LIGHTS} realtime or mixed point/spot lights per scene (baked point/spot lights and area lights are not counted); any scene may hold any light.`,
+    'At most one directional, one ambient and one hemisphere light per scene; point, spot and area lights have no count (each pixel loops over the lights of its cluster); any scene may hold any light.',
     'With scenes loaded together, the most recently loaded scene\'s directional, ambient and hemisphere light is on (each kind on its own); the others come back when it unloads.',
-    `Realtime and mixed point and spot lights of all loaded scenes share the budget of ${MAX_LOCAL_LIGHTS}; past it the most recently loaded scenes' lights are on.`,
-    'An area light lights static surfaces through the surface cache (on WebGPU at medium and high quality its light and soft shadows are traced into the cache); WebGL 2 draws the cache\'s saved light.',
+    'Every point, spot and area light of the loaded scenes is drawn; shadowed ones share the shadow atlas (largest on screen get the larger tiles, one without room lights unshadowed).',
+    'An area light lights static surfaces through the surface cache (on WebGPU at medium and high quality its light and soft shadows are traced into the cache; WebGL 2 draws the cache\'s saved light) and moving objects per pixel on both renderers.',
   ],
 };
 

@@ -223,7 +223,7 @@ function starterFurnishing(): GraphData {
   const prop = (room: string, place: string, width: number, depth: number, height: number, count = 1, spacing = 0.2): Record<string, GraphValue> => ({ room, model: '', piece: '', place, width, depth, height, count, spacing });
   return graph(
     [
-      ['furnishing', 'furnishing', 0, { doorClearance: 1, pathWidth: 0.8, wallGap: 0.02, lights: 4 }],
+      ['furnishing', 'furnishing', 0, { doorClearance: 1, pathWidth: 0.8, wallGap: 0.02 }],
       ['living-table', 'prop', 1, prop('living', 'centre', 1.2, 0.8, 0.75, 1, 0.6)],
       ['living-bench', 'prop', 1, prop('living', 'wall', 1.6, 0.5, 0.45, 2)],
       ['living-shelf', 'prop', 1, prop('living', 'wall', 1, 0.35, 1.8)],

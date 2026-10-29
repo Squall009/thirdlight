@@ -32,11 +32,11 @@ export function programGraph(opts: { upper?: boolean; stairs?: boolean } = {}): 
 }
 
 /** A neutral furnishing set: two wall props and a corner prop in any room, a middle prop in room-a, lights everywhere. */
-export function furnishingGraph(lights = 3): GraphData {
+export function furnishingGraph(): GraphData {
   const prop = (id: string, data: Record<string, unknown>): GraphData['nodes'][number] => ({ id, type: 'prop', position: [0, 0], data: data as GraphData['nodes'][number]['data'] });
   return {
     nodes: [
-      { id: 'furnishing', type: 'furnishing', position: [0, 0], data: { lights, doorClearance: 1, pathWidth: 0.8 } },
+      { id: 'furnishing', type: 'furnishing', position: [0, 0], data: { doorClearance: 1, pathWidth: 0.8 } },
       prop('cabinet', { model: 'kit-cabinet', place: 'wall', width: 1.2, depth: 0.5, height: 2, count: 2 }),
       prop('crate', { model: 'kit-crate', place: 'corner', width: 0.6, depth: 0.6, height: 0.6 }),
       prop('table', { room: 'room-a', model: 'kit-table', place: 'centre', width: 1.4, depth: 0.8, height: 0.8 }),
@@ -46,10 +46,10 @@ export function furnishingGraph(lights = 3): GraphData {
   };
 }
 
-export function graphs(opts: { upper?: boolean; stairs?: boolean; lights?: number } = {}): ArchitectureGraphLike[] {
+export function graphs(opts: { upper?: boolean; stairs?: boolean } = {}): ArchitectureGraphLike[] {
   return [
     { graphId: 'test-program', kind: ROOM_PROGRAM_KIND, graph: programGraph(opts) },
-    { graphId: 'test-furnishing', kind: FURNISHING_SET_KIND, graph: furnishingGraph(opts.lights) },
+    { graphId: 'test-furnishing', kind: FURNISHING_SET_KIND, graph: furnishingGraph() },
   ];
 }
 

@@ -17,12 +17,12 @@ Port types:
 <a id="graph-furnishing-set--furnishing"></a>
 ## Furnishing
 
-- Furnishing (`furnishing`): Kept free: metres in front of each door, and a walkable path this wide joining a room's doors and stairs. The gap between a prop and its wall, and the most lights one building or room drawn on its own gets (largest rooms first).
+- Furnishing (`furnishing`): Kept free: metres in front of each door, and a walkable path this wide joining a room's doors and stairs. The gap between a prop and its wall.
 
 <a id="node-furnishing-set--furnishing"></a>
 ### Furnishing (`furnishing`)
 
-Kept free: metres in front of each door, and a walkable path this wide joining a room's doors and stairs. The gap between a prop and its wall, and the most lights one building or room drawn on its own gets (largest rooms first).
+Kept free: metres in front of each door, and a walkable path this wide joining a room's doors and stairs. The gap between a prop and its wall.
 
 (every graph needs one; at most 1 per graph)
 
@@ -33,7 +33,6 @@ Fields:
 | `doorClearance` | Door clearance | number | `1` | 0 – 10 |
 | `pathWidth` | Path width | number | `0.8` | 0 – 10 |
 | `wallGap` | Wall gap | number | `0.02` | 0 – 1 |
-| `lights` | Lights | number | `4` | 0 – 16 |
 
 <a id="graph-furnishing-set--props"></a>
 ## Props

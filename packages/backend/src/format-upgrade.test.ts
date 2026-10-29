@@ -503,8 +503,8 @@ describe('a project with trim data in COLOR_0 and old trim paint opened over HTT
       closed = true;
       const manifestFile = join(tb.root, 'data', 'projects', PID, 'project.json');
       const manifest = (): Record<string, unknown> => JSON.parse(readFileSync(manifestFile, 'utf8')) as Record<string, unknown>;
-      expect(manifest()['upgrades']).toEqual(['planes', 'trim-data']);
-      writeFileSync(manifestFile, `${JSON.stringify({ ...manifest(), upgrades: ['planes'] }, null, 2)}\n`);
+      expect(manifest()['upgrades']).toEqual(['light-counts', 'planes', 'trim-data']);
+      writeFileSync(manifestFile, `${JSON.stringify({ ...manifest(), upgrades: ['light-counts', 'planes'] }, null, 2)}\n`);
       // The same data root, a new backend: its first read of the project opens (and upgrades) it.
       const reopen = async (): Promise<{ backend: Backend; url: string; teardown: () => Promise<void> }> => {
         const b = await createTestBackend({ authoringOrigin: AUTHORING_ORIGIN, previewOrigin: PREVIEW_ORIGIN, authoringOrigins: [AUTHORING_ORIGIN], tokens: [{ token: tb.adminToken, scope: 'admin' }], dataRoot: join(tb.root, 'data') });
@@ -538,7 +538,7 @@ describe('a project with trim data in COLOR_0 and old trim paint opened over HTT
           expect.stringContaining('1 painted trim surface had its wetness moved from B to A'),
         ]));
         // Recorded with the moved data.
-        expect(manifest()['upgrades']).toEqual(['planes', 'trim-data']);
+        expect(manifest()['upgrades']).toEqual(['light-counts', 'planes', 'trim-data']);
 
         // Paint made after the upgrade, layers 3 and 4 (G and B) on both surfaces, the trim one included (a mapping can change).
         const paint = commands(second.backend, url);
@@ -564,6 +564,104 @@ describe('a project with trim data in COLOR_0 and old trim paint opened over HTT
         }
       } finally {
         if (secondOpen) await second.teardown();
+      }
+    } finally {
+      if (closed) rmSync(tb.root, { recursive: true, force: true });
+      else await tb.teardown();
+    }
+  }, 120_000);
+});
+
+/**
+ * The retired counts of local lights: a project written before (quality
+ * levels with `localLights`/`shadowedLights`, furnishing sets with a Lights
+ * count) opens once with the fields dropped, a set whose count was 0 losing
+ * its Light nodes too, the step recorded in project.json and named in
+ * Problems; the next open changes nothing.
+ */
+describe('a project with the retired light counts opened over HTTP', () => {
+  const PID = 'demo-0001';
+
+  it('drops the fields on open, records the step, and leaves the project alone after', async () => {
+    const tb = await startBackend({ tokens: [] });
+    let closed = false;
+    try {
+      const cmd = async (op: string, args: Record<string, unknown>): Promise<void> => {
+        const read = tb.backend._test.service.readCapturedV3(PID);
+        if (!read.ok) throw new Error(read.error.code);
+        const r = await api(`${tb.authUrl}/api/v1/projects/${PID}/commands`, { body: { op, projectId: PID, expectedRevision: read.read.revision, requestId: mkRequestId(), origin: { kind: 'mcp', clientId: 'light-counts-upgrade' }, args }, token: tb.adminToken, origin: null });
+        expect(r.status, JSON.stringify(r.json).slice(0, 400)).toBe(200);
+      };
+      const set = (graphId: string): Record<string, unknown> => ({ graph: { graphId, kind: 'furnishing-set', name: graphId, graph: { nodes: [{ id: 'furnishing', type: 'furnishing', position: [0, 0], data: { doorClearance: 1 } }, { id: 'lamp', type: 'light', position: [0, 0], data: { height: 2 } }], edges: [] } } });
+      await cmd('setGraph', set('lit-set'));
+      await cmd('setGraph', set('dark-set'));
+      await cmd('setEnvironment', { environment: { qualityLevels: [{ id: 'low', shadowMapSize: 512 }, { id: 'high' }] } });
+      await tb.backend.close();
+      closed = true;
+
+      // The files as an engine from before the step wrote them.
+      const root = join(tb.root, 'data', 'projects', PID);
+      const files = readdirSync(root, { recursive: true }).map(String);
+      const graphFile = (id: string): string => join(root, files.find((f) => f.endsWith(`${id}.graph.json`))!);
+      const edit = (file: string, f: (doc: Record<string, unknown>) => void): void => {
+        const doc = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+        f(doc);
+        writeFileSync(file, `${JSON.stringify(doc, null, 2)}\n`);
+      };
+      // A resource file: { tlresource, kind, id, data: the graph record }.
+      const furnishingNode = (doc: Record<string, unknown>): Record<string, unknown> => (doc as { data: { graph: { nodes: Record<string, unknown>[] } } }).data.graph.nodes.find((n) => n['type'] === 'furnishing')!;
+      edit(graphFile('lit-set'), (d) => void ((furnishingNode(d)['data'] as Record<string, unknown>)['lights'] = 4));
+      edit(graphFile('dark-set'), (d) => void ((furnishingNode(d)['data'] as Record<string, unknown>)['lights'] = 0));
+      edit(join(root, 'content.json'), (d) => {
+        const env = (d['content'] as { environment: { qualityLevels: Record<string, unknown>[] } }).environment;
+        env.qualityLevels[0]!['localLights'] = 4;
+        env.qualityLevels[0]!['shadowedLights'] = 2;
+        env.qualityLevels[1]!['localLights'] = 16;
+      });
+      const manifestFile = join(root, 'project.json');
+      const manifest = (): Record<string, unknown> => JSON.parse(readFileSync(manifestFile, 'utf8')) as Record<string, unknown>;
+      expect(manifest()['upgrades']).toEqual(['light-counts', 'planes']);
+      writeFileSync(manifestFile, `${JSON.stringify({ ...manifest(), upgrades: ['planes'] }, null, 2)}\n`);
+
+      const reopen = async (): Promise<{ backend: typeof tb.backend; url: string; teardown: () => Promise<void> }> => {
+        const b = await createTestBackend({ authoringOrigin: AUTHORING_ORIGIN, previewOrigin: PREVIEW_ORIGIN, authoringOrigins: [AUTHORING_ORIGIN], tokens: [{ token: tb.adminToken, scope: 'admin' }], dataRoot: join(tb.root, 'data') });
+        const url = `http://127.0.0.1:${b.backend.portAuthoring}`;
+        const s = await api(`${url}/api/v1/sessions`, { body: { projectId: PID, sessionId: mkSessionId(), clientInfo: { kind: 'browser', label: 'light-counts-upgrade' } }, token: tb.adminToken });
+        expect(s.status, JSON.stringify(s.json).slice(0, 400)).toBe(200);
+        return { backend: b.backend, url, teardown: () => b.teardown() };
+      };
+      const upgradeLines = async (url: string): Promise<string[]> => {
+        const problems = await api(`${url}/api/v1/projects/${PID}/problems`, { method: 'GET', token: tb.adminToken, origin: null });
+        return (problems.json as { problems: { code: string; message: string }[] }).problems.filter((x) => x.code === 'project_upgraded').map((x) => x.message);
+      };
+      const first = await reopen();
+      try {
+        const r = first.backend._test.service.readCapturedV3(PID);
+        if (!r.ok) throw new Error(r.error.code);
+        const content = r.read.content as { environment: { qualityLevels: Record<string, unknown>[] }; graphs: { graphId: string; graph: { nodes: { type: string; data?: Record<string, unknown> }[] } }[] };
+        expect(content.environment.qualityLevels).toEqual([{ id: 'low', shadowMapSize: 512 }, { id: 'high' }]);
+        const nodesOf = (id: string): { type: string; data?: Record<string, unknown> }[] => content.graphs.find((g) => g.graphId === id)!.graph.nodes;
+        expect(nodesOf('lit-set').map((n) => n.type)).toEqual(['furnishing', 'light']);
+        expect(nodesOf('lit-set')[0]!.data).toEqual({ doorClearance: 1 });
+        // A count of 0 lit no room: the set keeps lighting none.
+        expect(nodesOf('dark-set').map((n) => n.type)).toEqual(['furnishing']);
+        expect(manifest()['upgrades']).toEqual(['light-counts', 'planes']);
+        expect(await upgradeLines(first.url)).toEqual(expect.arrayContaining([
+          expect.stringContaining('quality levels: localLights and shadowedLights were removed'),
+          expect.stringMatching(/furnishing sets: the Lights count was removed.*(lit-set|dark-set)/),
+        ]));
+        expect(readFileSync(join(root, 'content.json'), 'utf8')).not.toMatch(/localLights|shadowedLights/);
+      } finally {
+        await first.teardown();
+      }
+      // The next open finds nothing to do.
+      const before = readFileSync(join(root, 'content.json'), 'utf8');
+      const next = await reopen();
+      try {
+        expect((await upgradeLines(next.url)).filter((l) => /light/i.test(l))).toEqual([]);
+        expect(readFileSync(join(root, 'content.json'), 'utf8')).toBe(before);
+      } finally {
+        await next.teardown();
       }
     } finally {
       if (closed) rmSync(tb.root, { recursive: true, force: true });

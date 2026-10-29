@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { MAX_LOCAL_LIGHTS, upgradeVertexLocalLights, validateLocalLightMode } from './local-lights';
+import { upgradeVertexLocalLights, validateLocalLightMode } from './local-lights';
 import { AREA_LIGHT_SIZE_MAX } from './area-lights';
 import { PROJECT_SCHEMA_VERSION } from './project-schema';
 import { validateSceneV4 } from './scene-v3';
@@ -36,13 +36,12 @@ describe('local lights (v4)', () => {
     expect(lights[3]).toMatchObject({ type: 'directional', mode: 'baked' });
   });
 
-  it('refuses wrong fields, ranges, a spot without direction and too many lights', () => {
+  it('refuses wrong fields, ranges, a spot without direction and a second hemisphere light', () => {
     expect(validateSceneV4(scene([{ type: 'point', color: '#ffffff', intensity: 5, angle: 30 }])).ok).toBe(false);
     expect(validateSceneV4(scene([{ type: 'point', color: '#ffffff', intensity: 5000 }])).ok).toBe(false);
     expect(validateSceneV4(scene([{ type: 'spot', color: '#ffffff', intensity: 5 }])).ok).toBe(false);
     expect(validateSceneV4(scene([{ type: 'spot', color: '#ffffff', intensity: 5, angle: 95, direction: [0, -1, 0] }])).ok).toBe(false);
     expect(validateSceneV4(scene([{ type: 'point', color: '#ffffff', intensity: 5, mode: 'sometimes' }])).ok).toBe(false);
-    expect(validateSceneV4(scene(Array.from({ length: 17 }, () => ({ type: 'point', color: '#ffffff', intensity: 5 })))).ok).toBe(false);
     expect(validateSceneV4(scene([{ type: 'hemisphere', color: '#ffffff', intensity: 1 }, { type: 'hemisphere', color: '#ffffff', intensity: 1 }])).ok).toBe(false);
     // A light has no importance any more (the load drops a stored one: upgradeVertexLocalLights).
     expect(validateSceneV4(scene([{ type: 'point', color: '#ffffff', intensity: 5, importance: 'pixel' }])).ok).toBe(false);
@@ -80,14 +79,14 @@ describe('area lights', () => {
     expect(area({ intensity: 5000 }).ok).toBe(false);
   });
 
-  it('counts only realtime and mixed point and spot lights against the per-scene budget', () => {
+  it('a scene holds any number of point, spot and area lights (no count of local lights)', () => {
     const point = (mode?: string) => ({ type: 'point', color: '#ffffff', intensity: 5, ...(mode !== undefined ? { mode } : {}) });
+    const spot = { type: 'spot', color: '#ffffff', intensity: 5, direction: [0, -1, 0] };
     const area = { type: 'area', color: '#ffffff', intensity: 5 };
-    const drawn = [...Array.from({ length: MAX_LOCAL_LIGHTS - 1 }, () => point()), point('mixed')];
-    const statics = [...Array.from({ length: 10 }, () => point('baked')), ...Array.from({ length: 10 }, () => area)];
-    expect(validateSceneV4(scene([...drawn, ...statics])).ok).toBe(true);
-    const over = validateSceneV4(scene([...drawn, ...statics, point()]));
-    expect(over.ok ? [] : over.errors.map((e) => e.code)).toEqual(['limits_exceeded']);
+    const many = [...Array.from({ length: 120 }, () => point()), ...Array.from({ length: 40 }, () => point('mixed')), ...Array.from({ length: 30 }, () => spot), ...Array.from({ length: 10 }, () => area)];
+    expect(many).toHaveLength(200);
+    const r = validateSceneV4(scene(many));
+    expect(r.ok ? [] : r.errors).toEqual([]);
   });
 });
 

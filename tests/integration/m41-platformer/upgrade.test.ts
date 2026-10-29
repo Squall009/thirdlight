@@ -225,7 +225,7 @@ describe('a 2D project opened over HTTP: one 3D backend, scenes with a default p
       writeFileSync(join(dir(), 'scenes', f), `${JSON.stringify({ ...doc, scene }, null, 2)}\n`);
     }
     await open();
-    expect(readJson(join(dir(), 'project.json'))).toMatchObject({ schemaVersion: 8, upgrades: ['planes'] });
+    expect(readJson(join(dir(), 'project.json'))).toMatchObject({ schemaVersion: 8, upgrades: ['light-counts', 'planes'] });
     expect(readJson(sceneFile('scene-slopes')).scene.defaultPlane).toEqual({ axis: 'z', origin: 0 });
     // Already 3D: shapes and the profile stay as they are, only the scenes' planes are new (and noted).
     expect(readJson(sceneFile('scene-slopes')).scene.migratedFrom2D).toEqual({ plane: true });

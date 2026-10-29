@@ -14,10 +14,10 @@ A light: directional (the sun), ambient, point, spot, hemisphere (sky and ground
 - On prefab objects: yes
 - Cannot share an object with [`instances`](components-rendering-1.md#component-instances): an instance set is scenery
 - Icon: sun as Directional light, ambient as Ambient light, spot as Spot light, hemisphere as Hemisphere light, area as Area light, point as Point light, else point
-- Rule: At most one directional, one ambient and one hemisphere light and 16 realtime or mixed point/spot lights per scene (baked point/spot lights and area lights are not counted); any scene may hold any light.
+- Rule: At most one directional, one ambient and one hemisphere light per scene; point, spot and area lights have no count (each pixel loops over the lights of its cluster); any scene may hold any light.
 - Rule: With scenes loaded together, the most recently loaded scene's directional, ambient and hemisphere light is on (each kind on its own); the others come back when it unloads.
-- Rule: Realtime and mixed point and spot lights of all loaded scenes share the budget of 16; past it the most recently loaded scenes' lights are on.
-- Rule: An area light lights static surfaces through the surface cache (on WebGPU at medium and high quality its light and soft shadows are traced into the cache); WebGL 2 draws the cache's saved light.
+- Rule: Every point, spot and area light of the loaded scenes is drawn; shadowed ones share the shadow atlas (largest on screen get the larger tiles, one without room lights unshadowed).
+- Rule: An area light lights static surfaces through the surface cache (on WebGPU at medium and high quality its light and soft shadows are traced into the cache; WebGL 2 draws the cache's saved light) and moving objects per pixel on both renderers.
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|

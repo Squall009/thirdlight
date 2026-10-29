@@ -23,7 +23,7 @@ import { building, graphs, L_SHAPE } from './arch-plan-fixtures';
 
 const SHEETS = { '*': defaultTrimSheet() };
 const ORIGIN = [0, 0, 0];
-const fresh = (): ArchitectureStyles => architectureStylesOf(graphs({ upper: true, stairs: true, lights: 4 }));
+const fresh = (): ArchitectureStyles => architectureStylesOf(graphs({ upper: true, stairs: true }));
 
 /** 64 furnished two-storey L houses, 20 m apart. */
 function village(): ArchitectureBuilding[] {

@@ -7,7 +7,8 @@
  *   re-simulates from the seed (t = 1 s → 40 spawned of a 40/s rate, 0.5 s
  *   → 20, back to 1 s → 40 and the same picture); restart goes back to 0; a
  *   preview-only parameter slider (the particle size) changes the picture
- *   and saves nothing; an edit of the graph (the rate) shows at once.
+ *   and saves nothing; an edit of the graph (the rate) shows at once; an
+ *   effect's light lights a lit panel in the preview (the light clusters).
  *   Leak check: switching the tab between two effects 5× leaves no preview open and
  *   every close returned the preview renderer's geometry and attribute
  *   counts to their baseline.
@@ -96,6 +97,55 @@ function streamEffect(rate: number, color = '#ff00ff'): Record<string, unknown> 
       },
     ],
   };
+}
+
+/** A lit grey panel (one big billboard) and one red effect light 1 m in front of it, `intensity` cd (neutral fixture). */
+function lampEffect(intensity: number): Record<string, unknown> {
+  const forever = { type: 'init.lifetime', data: { min: 1000, max: 1000 } };
+  return {
+    effectId: 'fx-lamp',
+    name: 'Lamp',
+    duration: 2,
+    loop: true,
+    seed: 3,
+    bounds: { center: [0, 0, 0], size: [3, 3, 3] },
+    systems: [
+      {
+        systemId: 'panel',
+        name: 'Panel',
+        maxParticles: 1,
+        space: 'local',
+        graph: graph({
+          spawn: [{ type: 'spawn.burst', data: { count: 1 } }],
+          initialize: [forever, { type: 'init.color', data: { color: '#808080' } }, { type: 'init.size', data: { min: 3, max: 3 } }],
+          output: [{ type: 'output.billboard', data: { blend: 'opaque', shading: 'lit' } }],
+        }),
+      },
+      {
+        systemId: 'light',
+        name: 'Light',
+        maxParticles: 1,
+        space: 'local',
+        graph: graph({
+          spawn: [{ type: 'spawn.burst', data: { count: 1 } }],
+          initialize: [forever, { type: 'init.position.line', data: { start: [0, 0, 1], end: [0, 0, 1] } }, { type: 'init.color', data: { color: '#ff2020' } }],
+          output: [{ type: 'output.light', data: { maxLights: 1, intensity, range: 4 } }],
+        }),
+      },
+    ],
+  };
+}
+
+/** Mean of red over green on the pixels (sampled every other one). */
+function redness(img: Image): number {
+  let sum = 0;
+  let n = 0;
+  for (let y = 0; y < img.height; y += 2) for (let x = 0; x < img.width; x += 2) {
+    const [r, g] = img.pixel(x, y);
+    sum += Math.max(0, r - g);
+    n += 1;
+  }
+  return sum / n;
 }
 
 function count(img: Image, test: (r: number, g: number, b: number) => boolean): number {
@@ -204,6 +254,18 @@ for (const variant of VARIANTS) test(`the Effect tab previews an effect: particl
   await cmd('setEffect', { effect: streamEffect(120) });
   await expect.poll(async () => spawned(page), { timeout: 30_000 }).toBe(120);
   expect((await state(page)).steps).toBe(60);
+
+  // Effect lights light the preview too (through the light clusters, as in the Scene view and Play): a lit grey panel
+  // with a red light in front of it is redder than with the light at 0 cd.
+  await cmd('setEffect', { effect: lampEffect(8) });
+  await openEditor(page, 'Effect', 'Lamp');
+  await expect(canvas).toHaveAttribute('data-subject', 'effect:fx-lamp');
+  let redLit = 0;
+  await expect.poll(async () => (redLit = redness(await shot(canvas))), { timeout: 60_000 }).toBeGreaterThan(8);
+  await cmd('setEffect', { effect: lampEffect(0) });
+  let redDark = redLit;
+  await expect.poll(async () => (redDark = redness(await shot(canvas))), { timeout: 30_000 }).toBeLessThan(redLit / 2);
+  console.log(`[effect-editor] ${variant}: lit panel redness with the effect's light ${redLit.toFixed(1)}, at 0 cd ${redDark.toFixed(1)}`);
 
   // Leak check: switching between two effects 5 times (a per-switch leak shows from the second) swaps the pane's subject on its one renderer (none is made
   // per switch) and every switch leaves the renderer's resource counts of the empty stage where they were.

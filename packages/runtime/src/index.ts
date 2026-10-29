@@ -396,8 +396,6 @@ export {
   furnishingLightEntity,
   furnishingLightsOf,
   withFurnishingLights,
-  // Which lights take a slot of the scene's budget the furnishing lights fill.
-  takesLocalLightSlot,
   type ArchitecturePin,
   type FurnishedLight,
   type FurnishedProp,
@@ -526,7 +524,6 @@ export {
   MAX_FOG_VOLUMES,
   MAX_INPUT_BINDINGS,
   PAD_BINDING_KINDS,
-  MAX_LOCAL_LIGHTS,
   LIGHT_LAYER_COUNT,
   LIGHT_LAYERS_ALL,
   lightLayerMaskOf,

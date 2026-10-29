@@ -30,7 +30,7 @@ import { architectureCopies, architectureGraphsOf, architectureLayerFurnishing, 
 import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV5, restampManifestV5, type CatalogFile, dependencyTables, scanDependencies, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameplaySettings, type ManifestAssetInputV2, type ManifestAssetInputV5, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV5, type ManifestSceneRow, planeLockOf, type PlaneLock, resolveRequiredModules, materialsInUse, decalSheetsOf, resolveMaterialInstances, hasTextureSlots, withAssembledSlots, withLayerSheetRows, textureSlotSetKey, loadableAssetIds, loadableResourceIds, loadableRows, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
 import { collidersOfModel } from './closure-model-colliders';
 import { shipModelBricks, staticModelUses } from './model-bricks';
-import { isStoredVertexColors, MAX_LOCAL_LIGHTS, playChecks, projectWideRoots, startDrawSet, withBuildingInteriors, withFurnishingLights, type DroppedFurnishingLights, type LightSourceEntity, type MissingPlayFile, type PlayCheck, type SceneV4 } from '@thirdlight/project-model';
+import { isStoredVertexColors, playChecks, projectWideRoots, startDrawSet, withBuildingInteriors, withFurnishingLights, type LightSourceEntity, type MissingPlayFile, type PlayCheck, type SceneV4 } from '@thirdlight/project-model';
 import { ASSET_QUERY_PAGE_MAX, audioLoadOf, COLLIDER_3D_LIMITS, MODEL_RIG_LIMITS, modelCollisionParts, sceneColliderPoints, readModelGeometry, readModelRig, textureStreamingOf, type AudioLoadType, type ManifestMipPart, type ModelRig } from '@thirdlight/project-model';
 import type { BlobFile, WorkspaceService } from '@thirdlight/workspace';
 
@@ -653,12 +653,10 @@ function sameIdentities(a: readonly unknown[], b: readonly unknown[]): boolean {
  */
 /**
  * Scene documents with their buildings' furnishing lights made into them,
- * the project's room programs and furnishing sets read from `content`
- * (within each scene's budget of point and spot lights; `dropped` receives
- * the lights left out past it).
+ * the project's room programs and furnishing sets read from `content`.
  */
-function withProjectFurnishingLights<D extends { entities: readonly LightSourceEntity[] }>(docs: readonly D[], content: unknown, dropped?: DroppedFurnishingLights[]): D[] {
-  return withFurnishingLights(docs, architectureStylesOf(architectureGraphsOf((content as { graphs?: GraphDocument[] } | null)?.graphs)), dropped);
+function withProjectFurnishingLights<D extends { entities: readonly LightSourceEntity[] }>(docs: readonly D[], content: unknown): D[] {
+  return withFurnishingLights(docs, architectureStylesOf(architectureGraphsOf((content as { graphs?: GraphDocument[] } | null)?.graphs)));
 }
 
 type DerivedEntity = LightSourceEntity & { components: object };
@@ -676,10 +674,9 @@ export function withProjectSceneDerivations<M extends { entities: readonly Deriv
   scenes: readonly { sceneId: string; entities: readonly DerivedEntity[] }[] | undefined,
   startScenes: readonly string[],
   content: unknown,
-  dropped?: DroppedFurnishingLights[],
 ): { merged: M; scenes: readonly { sceneId: string; entities: readonly DerivedEntity[] }[] | undefined } {
-  if (scenes === undefined) return { merged: withProjectFurnishingLights([merged], content, dropped)[0]!, scenes };
-  const derived = withProjectFurnishingLights(withBuildingInteriors(scenes), content, dropped);
+  if (scenes === undefined) return { merged: withProjectFurnishingLights([merged], content)[0]!, scenes };
+  const derived = withProjectFurnishingLights(withBuildingInteriors(scenes), content);
   const stored = new Map(scenes.map((d) => [d.sceneId, d]));
   const added: DerivedEntity[] = [];
   for (const d of derived) {
@@ -697,23 +694,13 @@ function scenePlaneRow(sc: unknown): { plane?: PlaneLock } {
   return plane !== null ? { plane } : {};
 }
 
-/** The Problems lines of furnishing lights left out (one per scene, naming the first few). */
-export function droppedLightChecks(dropped: readonly DroppedFurnishingLights[]): PlayCheck[] {
-  return dropped.map((d) => ({
-    code: 'lights_dropped' as const,
-    refuse: false,
-    message: `scene "${d.scene}": ${d.lights.length} furnishing light${d.lights.length > 1 ? 's' : ''} past its ${MAX_LOCAL_LIGHTS} point and spot lights left out, their rooms unlit: ${d.lights.slice(0, 4).map((n) => `"${n}"`).join(', ')}${d.lights.length > 4 ? ', …' : ''}`.slice(0, 256),
-  }));
-}
-
 export async function buildContentClosureM3(given: ContentClosureM3Input): Promise<{ ok: true; closure: ContentClosureM3 } | { ok: false; error: ContentClosureError }> {
   // Buildings whose interiors are scenes of their own: each interior is made into its scene here, for Play and the
   // export alike (the stored scenes never hold it). A derivation remembered from an earlier build is keyed by the scenes given.
-  // Buildings' furnishing lights are made into their scenes the same way (within each scene's light budget), and the
+  // Buildings' furnishing lights are made into their scenes the same way, and the
   // start scenes merged into one (what the game loads first) get what their scenes got.
-  const dropped: DroppedFurnishingLights[] = [];
   const merged = given.scene as { entities?: readonly DerivedEntity[] } | null;
-  const made = withProjectSceneDerivations(Array.isArray(merged?.entities) ? (merged as { entities: readonly DerivedEntity[] }) : { entities: [] }, given.scenes as readonly SceneV4[] | undefined, given.startScenes ?? [], given.content, dropped);
+  const made = withProjectSceneDerivations(Array.isArray(merged?.entities) ? (merged as { entities: readonly DerivedEntity[] }) : { entities: [] }, given.scenes as readonly SceneV4[] | undefined, given.startScenes ?? [], given.content);
   const input: ContentClosureM3Input = { ...given, ...(made.scenes !== undefined ? { scenes: made.scenes } : {}), ...(Array.isArray(merged?.entities) ? { scene: made.merged } : {}) };
   const { service, projectId } = input;
   // Stage times on the caller's clock (none when it gives none).
@@ -727,7 +714,7 @@ export async function buildContentClosureM3(given: ContentClosureM3Input): Promi
 
   const hash = input.sha256 ?? sha256Hex;
   // The scene rules a start needs (checked here, for Play and the export alike, not per command).
-  const checks: PlayCheck[] = [...(input.scenes !== undefined ? playChecks(input.content as Record<string, unknown>, input.scenes as readonly SceneV4[], input.drawnScenes ?? input.startScenes ?? []) : []), ...droppedLightChecks(dropped)];
+  const checks: PlayCheck[] = input.scenes !== undefined ? playChecks(input.content as Record<string, unknown>, input.scenes as readonly SceneV4[], input.drawnScenes ?? input.startScenes ?? []) : [];
   const refused = checks.filter((c) => c.refuse);
   if (refused.length > 0) {
     return { ok: false, error: { code: 'play_check_refused', cls: 'validation', reason: refused[0]!.code, message: refused.map((c) => c.message).join('; ') } };

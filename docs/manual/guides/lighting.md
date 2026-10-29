@@ -8,14 +8,14 @@ detail is in [Lighting](../features/lighting.md).
 ## What lights a scene
 
 - **Realtime lights:** at most one directional (the sun), one ambient and
-  one hemisphere light per scene, and 16 realtime or mixed point and spot
-  lights across the loaded scenes
-  ([`light`](../reference/components-lighting.md#component-light)); baked
-  ones are not counted.
+  one hemisphere light per scene, and any number of point, spot and area
+  lights ([`light`](../reference/components-lighting.md#component-light)):
+  each pixel loops over the lights of its light cluster, so the cost is the
+  lights reaching a pixel, not the lights in the scene.
 - **Area lights** (panels and strips with a size, aimed by the object's
   rotation) light the static surfaces through the surface cache, with soft
-  shadows, and moving objects per pixel through the light clusters; they
-  are not counted either ([Area lights](../features/lighting.md#area-lights)).
+  shadows, and moving objects per pixel through the light clusters
+  ([Area lights](../features/lighting.md#area-lights)).
 - **The live light** (WebGPU, medium and high quality) lights the static
   surfaces and the light probes as the scene changes: direct light with soft
   shadows, and bounced light; every lit 3D object reads the probes per

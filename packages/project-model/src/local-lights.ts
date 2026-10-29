@@ -17,21 +17,6 @@
 import type { ModelErrorV2 } from './errors';
 import { fieldValue, isPlainObject } from './validate';
 
-/** Most realtime and mixed point + spot lights per scene: the forward-lighting cost per drawn light (a quality level may draw fewer). */
-export const MAX_LOCAL_LIGHTS = 16;
-
-/**
- * Whether a light takes one of a scene's {@link MAX_LOCAL_LIGHTS}: a point or
- * spot light that is drawn per pixel, so not a baked one. Baked lights and
- * area lights reach static surfaces through the surface cache or the bake,
- * whose cost does not grow per pixel with their number, so they are not
- * bound by the per-pixel cap.
- */
-export function takesLocalLightSlot(light: unknown): boolean {
-  if (!isPlainObject(light)) return false;
-  return (light['type'] === 'point' || light['type'] === 'spot') && light['mode'] !== 'baked';
-}
-
 /** An object's local-light modes. */
 export const LOCAL_LIGHT_MODES = ['pixel', 'none'] as const;
 export type LocalLightMode = (typeof LOCAL_LIGHT_MODES)[number];

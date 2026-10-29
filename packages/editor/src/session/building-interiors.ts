@@ -9,7 +9,7 @@
  * objects; they follow every edit of the building. Buildings' furnishing
  * lights are added the same way.
  */
-import { architectureLayerFurnishing, buildingInteriorEntity, furnishingLightEntity, furnishingLightsOf, MAX_LOCAL_LIGHTS, takesLocalLightSlot, type ArchitectureComponent, type ArchitectureStyles } from '@thirdlight/runtime';
+import { architectureLayerFurnishing, buildingInteriorEntity, furnishingLightEntity, furnishingLightsOf, type ArchitectureComponent, type ArchitectureStyles } from '@thirdlight/runtime';
 import type { LightComponent } from '@thirdlight/project-model';
 
 import type { ProjectedEntity } from './projection';
@@ -102,25 +102,18 @@ function lightsOf(e: ProjectedEntity, table: ArchitectureStyles, layerSet: strin
 }
 
 /**
- * The entities the Scene view draws with furnishing lights added (buildings' and rooms drawn on their own)
- * (as the build adds them: within each scene's budget of point and spot
- * lights). The same array when there are none.
+ * The entities the Scene view draws with furnishing lights added (buildings' and rooms drawn on their own),
+ * as the build adds them. The same array when there are none.
  */
 export function withSceneViewLights(entities: readonly ProjectedEntity[], table: ArchitectureStyles): readonly ProjectedEntity[] {
   let extra: ProjectedEntity[] | null = null;
-  const used = new Map<string, number>();
-  for (const e of entities) if (takesLocalLightSlot(e.light)) used.set(e.sceneId ?? '', (used.get(e.sceneId ?? '') ?? 0) + 1);
   let byId: Map<string, ProjectedEntity> | null = null;
   for (const e of entities) {
     const arch = e.components['architecture'] as ArchitectureComponent | undefined;
     if (arch === undefined || (arch.buildings === undefined && arch.outlines === undefined) || e.active === false) continue;
     const layerSet = architectureLayerFurnishing(arch, (id) => (byId ??= new Map(entities.map((x) => [x.id, x]))).get(id)?.components);
-    for (const l of lightsOf(e, table, layerSet)) {
-      const scene = e.sceneId ?? '';
-      if ((used.get(scene) ?? 0) >= MAX_LOCAL_LIGHTS) break;
-      used.set(scene, (used.get(scene) ?? 0) + 1);
-      (extra ??= []).push(l);
-    }
+    const lights = lightsOf(e, table, layerSet);
+    if (lights.length > 0) (extra ??= []).push(...lights);
   }
   return extra === null ? entities : [...entities, ...extra];
 }

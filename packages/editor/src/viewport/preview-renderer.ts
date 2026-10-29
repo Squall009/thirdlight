@@ -21,12 +21,14 @@ import {
   createEnvironmentRenderer,
   createMaterialLibrary,
   createRenderer,
+  createStageClusters,
   rendererMemory,
   type EnvironmentLike,
   type EnvironmentRenderer,
   type MaterialLibrary,
   type RendererHandle,
   type RendererInfo,
+  type StageClusters,
   type WindLike,
 } from '@thirdlight/three-adapter';
 import * as THREE from 'three';
@@ -112,6 +114,8 @@ const DIAGNOSTICS_INTERVAL_MS = 200;
 export class PreviewRenderer implements PreviewStage {
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(40, 1, 0.01, 500);
+  /** The light clusters of the stage (its local lights are the effects' light pools). */
+  private readonly clusters: StageClusters = createStageClusters(this.scene as never);
   readonly library: MaterialLibrary;
   private readonly handle: RendererHandle;
   private readonly orbit: OrbitControls;
@@ -248,6 +252,8 @@ export class PreviewRenderer implements PreviewStage {
     const env = this.ensureEnvironment(r);
     const s = this.subject;
     s?.update?.(this, now);
+    // The stage's local lights (an effect's light pool) through the light clusters, as in the Scene view and Play.
+    this.clusters.frame(r, this.camera);
     const t0 = performance.now();
     if (env !== null) env.render(this.camera);
     else r.render(this.scene, this.camera);
@@ -299,6 +305,7 @@ export class PreviewRenderer implements PreviewStage {
     disposeOrbitControls(this.orbit);
     this.environmentRenderer?.dispose();
     this.environmentRenderer = null;
+    this.clusters.dispose();
     this.library.dispose();
     this.grid.geometry.dispose();
     (this.grid.material as THREE.Material).dispose();

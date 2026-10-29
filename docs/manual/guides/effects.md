@@ -91,8 +91,9 @@ when they belong to an object, and from scripts when a game event decides.
 - **The two executors have different caps:** WebGPU 262,144 particles per
   system, the CPU fallback (WebGL 2, and some blocks on WebGPU) 4,096. A
   system's max particles is cut to its executor's cap.
-- **Lit sparks cost lights.** A **Lights** block uses the shared pool of 16
-  point lights; past 16 lit particles the rest give no light.
+- **Lit sparks cost lights.** Each particle of a **Lights** block (up to its
+  max lights) is a point light in the light clusters: the cost is the lights
+  reaching a pixel, so keep their range small.
 - **Effects never change the game.** Do not use them for gameplay; a replay
   does not depend on them.
 - **An effect an object plays cannot be deleted** until the Effect

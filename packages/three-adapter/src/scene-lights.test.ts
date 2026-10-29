@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { LOCAL_LIGHT_BUDGET, selectSceneLights, type SceneLightEntry } from './scene-lights';
+import { selectSceneLights, type SceneLightEntry } from './scene-lights';
 
 const e = (id: string, kind: SceneLightEntry['kind'], rank: number, order: number): SceneLightEntry => ({ id, kind, rank, order });
 
@@ -27,16 +27,13 @@ describe('selectSceneLights', () => {
     expect(selectSceneLights([e('x', 'directional', 2, 0), e('y', 'directional', 2, 1)]).directional).toBe('x');
     expect(selectSceneLights([]).directional).toBeNull();
   });
-  it('point and spot lights of all loaded scenes share the budget; the most recent scenes win', () => {
+  it('every point and spot light of the loaded scenes is on, however many', () => {
     const entries: SceneLightEntry[] = [];
     let order = 0;
-    for (let i = 0; i < 10; i++) entries.push(e(`a${i}`, 'point', 0, order++));
-    for (let i = 0; i < 12; i++) entries.push(e(`b${i}`, i % 2 === 0 ? 'point' : 'spot', 1, order++));
+    for (let i = 0; i < 100; i++) entries.push(e(`a${i}`, 'point', 0, order++));
+    for (let i = 0; i < 100; i++) entries.push(e(`b${i}`, i % 2 === 0 ? 'point' : 'spot', 1, order++));
     const sel = selectSceneLights(entries);
-    expect(sel.localTotal).toBe(22);
-    expect(sel.localOn).toBe(LOCAL_LIGHT_BUDGET);
-    for (let i = 0; i < 12; i++) expect(sel.active.has(`b${i}`)).toBe(true);
-    expect([0, 1, 2, 3].every((i) => sel.active.has(`a${i}`))).toBe(true);
-    expect([4, 5, 6, 7, 8, 9].some((i) => sel.active.has(`a${i}`))).toBe(false);
+    expect(sel.localTotal).toBe(200);
+    expect(entries.every((x) => sel.active.has(x.id))).toBe(true);
   });
 });

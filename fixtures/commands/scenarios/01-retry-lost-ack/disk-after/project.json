@@ -5,6 +5,7 @@
   "name": "Demo Project",
   "createdAt": "2026-09-16T23:40:00Z",
   "upgrades": [
+    "light-counts",
     "planes"
   ]
 }

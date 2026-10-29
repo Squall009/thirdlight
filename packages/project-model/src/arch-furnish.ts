@@ -459,9 +459,9 @@ function placeProps(room: FurnishRoom, set: FurnishingSetDef, seed: number, pins
   return out;
 }
 
-/** One light per room a Light node names (by type), the largest rooms first, up to the set's count. */
+/** One light per room a Light node names (by type), the largest rooms first. */
 export function furnishLights(rooms: readonly FurnishRoom[], set: FurnishingSetDef): FurnishedLight[] {
-  if (set.lights <= 0 || set.lightDefs.length === 0) return [];
+  if (set.lightDefs.length === 0) return [];
   const sized = rooms.map((r) => {
     let a = 0;
     for (let i = 0; i < r.points.length; i++) {
@@ -474,7 +474,6 @@ export function furnishLights(rooms: readonly FurnishRoom[], set: FurnishingSetD
   sized.sort((p, q) => q.area - p.area || (p.r.id < q.r.id ? -1 : 1));
   const out: FurnishedLight[] = [];
   for (const { r } of sized) {
-    if (out.length >= set.lights) break;
     const def = set.lightDefs.find((d) => d.room === '' || d.room === r.type);
     if (def === undefined) continue;
     let cx = 0;

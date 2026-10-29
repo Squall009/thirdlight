@@ -1040,6 +1040,9 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   console.log(`floor plans ${variant} Play: architecture ${JSON.stringify(planRenderer['architecture'] ?? null)}; lights ${JSON.stringify((planRenderer['lights'] as Record<string, unknown> | undefined)?.['local'] ?? null)} (furnishing lights ${planRead.lights})`);
   // The furnishing's lights are lights of the start scene (made into its snapshot like the build's scene files).
   expect((planRenderer['lights'] as { local?: number } | undefined)?.local ?? 0).toBeGreaterThanOrEqual(planRead.lights);
+  // Every furnishing light is drawn: the start writes no Problems line about lights left out.
+  const problems = (await (await fetch(`${be!.origin}/api/v1/projects/${be!.projectId}/problems`, { headers: { authorization: `Bearer ${be!.token}` } })).json()) as { problems: { code: string; message: string }[] };
+  expect(problems.problems.filter((p) => /light/i.test(p.code) || /furnishing light/i.test(p.message))).toEqual([]);
   // The projected decals (a key loads their camera's scene and spawns a decal), as the Scene view drew them.
   await pressDecalsKey(page);
   const playDecals = await expectDecals(async () => {

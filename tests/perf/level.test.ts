@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { architectureStylesOf, expandArchitecture, MAX_LOCAL_LIGHTS, validateScatterRules, type ArchitectureComponent, type ModelErrorV2 } from '@thirdlight/project-model';
+import { architectureStylesOf, expandArchitecture, validateScatterRules, type ArchitectureComponent, type ModelErrorV2 } from '@thirdlight/project-model';
 
 import { levelHeightAt, levelPlan, levelTerrainHeight, levelTerrainOrigin, levelTerrainRaw, levelScatterBlocks, levelScatterTerrain, LEVEL_SPEC } from '../../tools/perf/level';
 import { levelInteriorPlan, LEVEL_INTERIOR_SPEC } from '../../tools/perf/level-interior';
@@ -171,9 +171,8 @@ describe('the interior class', () => {
     expect(p.interior!.doorType).toMatchObject({ placement: 'edge' });
   });
 
-  it('keeps its lamps within the local-light budget, two shadowed spots among them', () => {
+  it('places its lamps, two shadowed spots among them', () => {
     const lights = p.batches.flat().map((e) => e.components['light'] as { type: string; castShadow?: boolean; range: number } | undefined).filter((l) => l !== undefined);
-    expect(lights.length).toBeLessThanOrEqual(MAX_LOCAL_LIGHTS);
     expect(lights).toHaveLength(p.counts['lamps']!);
     expect(lights.filter((l) => l.type === 'spot' && l.castShadow === true)).toHaveLength(2);
     expect(lights.filter((l) => l.type === 'point')).toHaveLength(14);
