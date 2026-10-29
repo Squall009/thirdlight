@@ -16,8 +16,9 @@
  *
  * - Custom-lit outputs and the lighting inputs: N·L of the
  *   main light quantized into two bands (two tones on a sphere), the main
- *   light's shadow input (a caster's shadow on a wall), a point light in the
- *   accumulated diffuse light (a warm glow on one box), the main light's
+ *   light's shadow input (a caster's shadow on a wall), a point light drawn
+ *   by the light clusters in the accumulated diffuse light (a warm glow on
+ *   one box), the main light's
  *   colour (the shadow-casting sun, not a brighter fill) and fog.
  *
  * `default` runs WebGL 2, `webgpu` runs WebGPU.

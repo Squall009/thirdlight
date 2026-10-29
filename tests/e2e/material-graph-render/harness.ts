@@ -26,7 +26,24 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
-import { COMPILER_NODES, createMaterialLibrary, LIGHTING_TYPES, lightmappedMaterial, mainLightIndex, createRenderer, type MaterialDefLike, type MaterialGraphLike, type RendererPreference } from '@thirdlight/three-adapter';
+import {
+  CLUSTER_INDEX_WORDS,
+  ClusterBuilder,
+  ClusterGpu,
+  ClusteredLights,
+  ClusterLights,
+  ClusterTextures,
+  COMPILER_NODES,
+  createMaterialLibrary,
+  createRenderer,
+  LIGHTING_TYPES,
+  lightmappedMaterial,
+  mainLightIndex,
+  type ClusterUploadRenderer,
+  type MaterialDefLike,
+  type MaterialGraphLike,
+  type RendererPreference,
+} from '@thirdlight/three-adapter';
 
 export const SIZE = 256;
 
@@ -325,9 +342,11 @@ const cases: Record<string, () => void | Promise<void>> = {
     // Two white diffuse boxes; a warm point light (limited range) sits in front of one only.
     mesh(new THREE.BoxGeometry(0.9, 0.9, 0.9), 'diffuse', new THREE.Vector3(1.0, 2.3, 0));
     mesh(new THREE.BoxGeometry(0.9, 0.9, 0.9), 'diffuse', new THREE.Vector3(3.0, 2.3, 0));
+    // Drawn by the light clusters, as a page's point lights are: its record in the packed lists, one light for all.
     const glow = new THREE.PointLight('#ffa040', 1.2, 1.6, 2);
     glow.position.set(1.0, 2.3, 1.1);
     scene.add(glow);
+    clusterGlow(glow);
     probe('boxGlow', new THREE.Vector3(1.0, 2.3, 0.45));
     probe('boxPlain', new THREE.Vector3(3.0, 2.3, 0.45));
     // The main light's colour on a quad facing the camera.
@@ -383,6 +402,26 @@ const cases: Record<string, () => void | Promise<void>> = {
   },
 };
 
+/** The lists a scene's point lights are drawn from, built for the camera before each draw (the adapter's frame step, by hand). */
+let clusterFrame: (() => void) | null = null;
+
+function clusterGlow(light: THREE.PointLight): void {
+  const input = new ClusterLights();
+  const c = light.color;
+  input.add({ kind: 'point', position: [light.position.x, light.position.y, light.position.z], reach: light.distance, color: [c.r * light.intensity, c.g * light.intensity, c.b * light.intensity], decay: light.decay });
+  const textures = new ClusterTextures();
+  const gpu = new ClusterGpu(textures);
+  const builder = new ClusterBuilder();
+  const clustered = new ClusteredLights(gpu);
+  scene.add(clustered);
+  clusterFrame = () => {
+    camera.updateMatrixWorld();
+    const build = builder.build(input, { view: camera.matrixWorldInverse.elements, projection: camera.projectionMatrix.elements, near: camera.near, far: camera.far }, CLUSTER_INDEX_WORDS);
+    gpu.upload(renderer as unknown as ClusterUploadRenderer, build.grid, textures, textures.pack(build, input), camera.projectionMatrix.elements);
+    clustered.rebind();
+  };
+}
+
 async function main(): Promise<void> {
   const handle = createRenderer({ canvas, preference: backend, source: 'url', antialias: false, clearColor: 0x000000, clearAlpha: 1 });
   const ok = await handle.whenReady();
@@ -396,10 +435,13 @@ async function main(): Promise<void> {
   await make();
   // Textures arrive through promises (the graphs recompile when they land), then draw a few frames.
   for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 30));
+  clusterFrame?.();
   renderer.render(scene, camera);
   await new Promise((r) => setTimeout(r, 60));
+  clusterFrame?.();
   renderer.render(scene, camera);
   await new Promise((r) => requestAnimationFrame(() => r(null)));
+  clusterFrame?.();
   renderer.render(scene, camera);
   (window as unknown as { __graphCase: unknown }).__graphCase = { ok: true, backend: info.backend, probes, ...extra };
 }

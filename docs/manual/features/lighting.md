@@ -17,7 +17,7 @@ the bake: there is one baker, not two.
 
 | Light | Where it is computed | Notes |
 |---|---|---|
-| Direct diffuse light of point, spot and area lights and static glowing boxes, with soft traced shadows | Surface cache texels | Every light in the scene counts, past the 16 drawn per pixel too |
+| Direct diffuse light of point, spot and area lights and static glowing boxes, with soft traced shadows | Surface cache texels | Every light in the scene counts |
 | The sun's diffuse light on static surfaces | Per pixel, with its shadow map (the cached static map with moving casters on top) | Sharper than a cache texel; the cache keeps the sun's share for the probes and reflections |
 | Bounced light | Probes, updated by rays that read the cache where they hit | Static surfaces, moving objects, foliage and ground cover all read the probes |
 | Contact shadows | Per pixel, screen space | The sun's fine detail its map misses |
@@ -344,7 +344,7 @@ only where something changed:
   lights, area lights (soft shadows over their shape) and static glowing
   boxes (a `surface` with an emissive colour: each face lights as a
   rectangle light as bright as the box glows). Every light in the scene
-  counts, including lights past the 16 drawn per pixel and baked ones.
+  counts, baked ones included.
 - **Shadows** — traced through the static scene (blocks, terrain,
   generated buildings, static models). A light with **Cast shadows** off
   lights through everything. **Light mask** and **Shadow caster mask** work
@@ -620,8 +620,8 @@ The design's limits, and what is not built yet:
   the wall beside it.
 - **Lights on what does not read the cache.** Moving objects, static boxes,
   foliage, ground cover and surfaces with an earlier bake's lightmap get
-  point and spot lights per pixel (at most 16 drawn at once,
-  `MAX_LOCAL_LIGHTS`) and area lights and glowing boxes only as bounce
+  point and spot lights per pixel (every one, through the light clusters)
+  and area lights and glowing boxes only as bounce
   through the probes: no direct area light and no area highlight on them.
 - **Static boxes** neither stop the cache's light nor read it, and a bake
   does not save their light: a lamp behind a static box lights the wall
@@ -657,5 +657,8 @@ The design's limits, and what is not built yet:
   many models runs a little over its 1.5 ms while it re-lights; temporal
   upscaling takes about 1 ms. The high tier has not been measured on a
   discrete GPU.
-- **Clustered lighting** (many lamps per pixel on moving objects) is not
-  part of this system; it is planned separately.
+- **Clustered lighting.** Point and spot lights reach every pixel they
+  light through per-cell light lists, however many there are, on both
+  renderers; a point or spot light with a shadow or a cookie is still drawn
+  on its own (its own shadow map or cookie texture) until the shared shadow
+  and cookie atlases arrive.

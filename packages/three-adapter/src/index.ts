@@ -120,6 +120,9 @@ export {
   type ClusterPackResult,
   type DecodedClusterLight,
 } from './cluster-pack';
+export { ClusterGpu, type ClusterUploadRenderer } from './cluster-gpu';
+// The point and spot lights the clusters draw: one light whose node loops over a pixel's cell (cluster-lights.ts).
+export { ClusteredLights, drawsClustered } from './cluster-lights';
 export { LOCAL_LIGHT_BUDGET, selectSceneLights, type SceneLightEntry, type SceneLightKind, type SceneLightSelection } from './scene-lights';
 // The runtime role selector and the bounded crossfade
 // (root subpath):

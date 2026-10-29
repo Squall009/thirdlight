@@ -10,6 +10,7 @@
  *   --shadowed N                local lights casting a shadow (default LIGHTS_SPEC.shadowed)
  *   --shots DIR                 a screenshot per count and renderer (`lights-<count>-<renderer>.jpg`; default none)
  *   --query Q                   more page flags (`clusterView=1`: the light clusters' heat map)
+ *   --profile-ms N              a main-thread CPU profile of N ms after the record, split by package (default none)
  *   --record-ms N --warmup-ms N --gpu-ms N --out FILE --keep
  *
  * The report goes to ~/.cache/thirdlight-perf/reports/lights-<time>.json.
@@ -71,6 +72,7 @@ export async function runLightsCli(argv: readonly string[]): Promise<void> {
   const renderers = (get('renderers') ?? 'webgpu,webgl2').split(',') as FrameRenderer[];
   const options: LightsOptions = { range: wholeNumber('range', get('range'), DEFAULT_LIGHTS_OPTIONS.range, 0.1), shadowed: wholeNumber('shadowed', get('shadowed'), DEFAULT_LIGHTS_OPTIONS.shadowed, 0) };
   const recordMs = Number(get('record-ms') ?? 10000);
+  const profileMs = Number(get('profile-ms') ?? 0);
   const warmupMs = Number(get('warmup-ms') ?? 3000);
   const gpuMs = Number(get('gpu-ms') ?? 3000);
   const shots = get('shots');
@@ -115,7 +117,7 @@ export async function runLightsCli(argv: readonly string[]): Promise<void> {
       try {
         for (const r of renderers) {
           const shot = shots !== undefined ? join(shots, `lights-${n}-${r}.jpg`) : undefined;
-          const res = await measurePage(browser, { url: `${site.url}?renderer=${r}${query !== undefined ? `&${query}` : ''}`, warmupMs, recordMs, gpuMs, profileMs: 0, sourceOf: sourcesOf(site), ...(shot !== undefined ? { shot } : {}) });
+          const res = await measurePage(browser, { url: `${site.url}?renderer=${r}${query !== undefined ? `&${query}` : ''}`, warmupMs, recordMs, gpuMs, profileMs, sourceOf: sourcesOf(site), ...(shot !== undefined ? { shot } : {}) });
           report.counts[String(n)]!.runs[r] = res;
           log(`${frameLine(`${n} lights ${r}`, res)}, missed ${res.frames.missed ?? '-'} of ${res.frames.n}; clusters ${res.rendererChoice?.clusters ?? '-'}; texture units ${JSON.stringify(res.textureUnits ?? null)}`);
         }
