@@ -369,11 +369,16 @@ describe('clipped decals', () => {
 });
 
 describe('the decal material and the fade stream', () => {
-  /** The WGSL digests of decal materials on a mesh without the fade stream, recorded before clipped decals existed (three r186). */
-  const MESH_DECAL_WGSL = { stain: 'd729ba65ea75026b', soot: 'a36f95c2757b4fdc', own: '3d31e6aaff07c784' };
+  /**
+   * The WGSL digests of decal materials on a mesh without the fade stream (three r186): `own` as recorded before
+   * clipped decals existed; the paged ones since the pages became one array, whose albedo layers the shader decodes
+   * from sRGB (the program reads one texture and decodes, where it read three with the albedo's sRGB in its format).
+   */
+  const MESH_DECAL_WGSL = { stain: 'e5546e3d5b686c27', soot: '17439ef42ca850d4', own: '3d31e6aaff07c784' };
 
   it('a mesh decal without fades builds the program it built before; with fades it reads them', async () => {
-    const page = (layer: number) => ({ rect: [0.1, 0.1, 0.4, 0.4] as [number, number, number, number], mip: 2, albedo: { texture: 'decals-albedo', layer }, normal: { texture: 'decals-normal', layer: 0 }, orm: { texture: 'decals-orm', layer } });
+    // A build's pages: every set in one array, a page's sets side by side.
+    const page = (layer: number) => ({ rect: [0.1, 0.1, 0.4, 0.4] as [number, number, number, number], mip: 2, albedo: { texture: 'decals-pages', layer: layer * 3 }, normal: { texture: 'decals-pages', layer: layer * 3 + 1 }, orm: { texture: 'decals-pages', layer: layer * 3 + 2 } });
     const array = (layers: number): THREE.DataArrayTexture => {
       const t = new THREE.DataArrayTexture(new Uint8Array(4 * 4 * 4 * layers).fill(128), 4, 4, layers);
       t.needsUpdate = true;
@@ -384,7 +389,7 @@ describe('the decal material and the fade stream', () => {
       { materialId: 'soot', name: 'soot', shader: 'decal', params: { blend: 'multiply' }, textures: {}, decalPage: page(0) },
       { materialId: 'own', name: 'own', shader: 'decal', params: {}, textures: { map: 'tex' } },
     ];
-    const arrays: Record<string, THREE.Texture> = { 'decals-albedo': array(2), 'decals-normal': array(1), 'decals-orm': array(2), tex: testTexture() };
+    const arrays: Record<string, THREE.Texture> = { 'decals-pages': array(6), tex: testTexture() };
     const library = createMaterialLibrary({ loadTexture: async (id) => arrays[id] ?? null });
     library.setMaterials(defs);
     const scene = litScene();

@@ -43,11 +43,15 @@ import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 
 import type { N } from './effects-tsl';
-import { ScreenHistoryLight, takesScreenHistory, HISTORY_DEPTH_SLACK_M, HISTORY_DEPTH_TOLERANCE } from './screen-history';
+import { historyRow, ScreenHistoryLight, takesScreenHistory, HISTORY_DEPTH_SLACK_M, HISTORY_DEPTH_TOLERANCE } from './screen-history';
 import { untransformedTexture } from './texel-texture-node';
 
 const TSL: N = TSLTyped;
-const { If, abs, float, Fn, mix, positionView, roughness, select, smoothstep, vec2, vec4 } = TSL;
+const { If, abs, float, Fn, int, mix, positionView, roughness, select, smoothstep, vec2, vec4 } = TSL;
+
+/** The reflections' history layers: the row (view depth, a guest's results), then the reflection (`REFLECTION_LAYER`). */
+export const REFLECTION_HISTORY_LAYERS = 2;
+export const REFLECTION_LAYER = 1;
 
 /** The reflection passes' resolution relative to the scene pass (a quarter of its pixels). */
 export const REFLECTION_RESOLUTION_SCALE = 0.5;
@@ -153,9 +157,14 @@ export interface ReflectionStats {
 }
 
 /**
- * The reflections as a light of the scene: its history (`historyTarget`:
- * the last frame's resolved reflection, rgb and confidence) and that
- * frame's view depth beside it (`depthTarget`), both at the trace's size.
+ * The reflections as a light of the scene: its history (`historyTarget`,
+ * at the trace's size) holds two layers: the row (layer 0: view depth in y,
+ * the occlusion's row when its stage draws into it, else the
+ * reflections' own depth) and the last frame's resolved reflection (layer
+ * 1: rgb and confidence). A lit program reading reflections, occlusion and
+ * contact shadows binds that one texture. The resolve's own depth test
+ * reads `depthTarget` (its pass, not the lit programs): the occlusion's
+ * history pass may already hold this frame's depth when the resolve runs.
  */
 export class ReflectionsLight extends ScreenHistoryLight {
   readonly isReflections = true;
@@ -164,7 +173,7 @@ export class ReflectionsLight extends ScreenHistoryLight {
   stats: ReflectionStats = { width: 0, height: 0, spacing: 0, rays: 0, every: 1, traceMs: null };
 
   constructor() {
-    super('reflections');
+    super('reflections', REFLECTION_HISTORY_LAYERS);
   }
 
   override dispose(): void {
@@ -185,8 +194,8 @@ export function reflectionAt(l: ReflectionsLight): N {
     const view = l.toLastView.mul(p).xyz.toVar();
     const clip = l.toLastClip.mul(p).toVar();
     const at = clip.xy.div(clip.w).mul(vec2(0.5, -0.5)).add(0.5).toVar();
-    const h = l.history.sample(at).toVar();
-    const z = l.depth.sample(at).x;
+    const h = l.history.sample(at).depth(int(REFLECTION_LAYER)).toVar();
+    const z = historyRow(l, at).y;
     const onScreen = at.x.greaterThanEqual(0).and(at.x.lessThanEqual(1)).and(at.y.greaterThanEqual(0)).and(at.y.lessThanEqual(1));
     const same = abs(z.sub(view.z)).lessThan(abs(view.z).mul(HISTORY_DEPTH_TOLERANCE).add(HISTORY_DEPTH_SLACK_M));
     return vec4(h.rgb, select(onScreen.and(same).and(l.active.greaterThan(0.5)), h.a, float(0)));

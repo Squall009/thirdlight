@@ -29,7 +29,7 @@ import { decalDrawOf } from './mesh-decals';
 import { untransformedTexture } from './texel-texture-node';
 
 const TSL: N = TSLTyped;
-const { abs, float, Fn, logarithmicDepthToViewZ, positionView, renderGroup, rtt, select, uniform, vec2, vec4 } = TSL;
+const { abs, float, Fn, int, logarithmicDepthToViewZ, positionView, renderGroup, rtt, select, uniform, vec2, vec4 } = TSL;
 
 /**
  * How far a pixel's depth (a share of it, plus a few centimetres) may be
@@ -40,6 +40,21 @@ const { abs, float, Fn, logarithmicDepthToViewZ, positionView, renderGroup, rtt,
 export const HISTORY_DEPTH_TOLERANCE = 0.06;
 /** Metres of depth difference always taken (near the camera the tolerance's share is too thin to hold a still sample). */
 export const HISTORY_DEPTH_SLACK_M = 0.05;
+
+/**
+ * A history target that keeps its layers through a resize: three's
+ * render-to-texture node sizes its target without naming layers, which
+ * would make a layered history one layer.
+ */
+class HistoryTarget extends THREE.RenderTarget {
+  constructor(readonly layers: number) {
+    super(1, 1, { type: THREE.HalfFloatType, depthBuffer: false, depth: layers });
+  }
+
+  override setSize(width: number, height: number, depth?: number): void {
+    super.setSize(width, height, depth ?? this.layers);
+  }
+}
 
 /**
  * The history's light. Its uniforms are per render: the stack drawing the
@@ -56,17 +71,20 @@ export class ScreenHistoryLight extends THREE.Light {
    * The history: the result (x) and view depth (y) of the last frame, and
    * (z) another history's result it carries (`ContactShadowsLight.carrier`:
    * one texture read by both, so a lit program binds one texture for them,
-   * not two: `texture-units.ts`). One
+   * not two: `texture-units.ts`). With more than one layer that row is
+   * layer 0 and the other layers are the light's own (the reflections'
+   * colour). One
    * target for the light's life, which every stack draws into: a texture node
    * whose texture is swapped for another after the lit programs bound it kept
    * reading the first one's destroyed GPU texture on WebGPU; a target's
    * resize is followed by three.
    */
-  readonly historyTarget = new THREE.RenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
+  readonly historyTarget: THREE.RenderTarget;
   /** Read without three's texture transform (it would cost every lit draw a uniform and a matrix update). */
-  readonly history: N = untransformedTexture(this.historyTarget.texture);
-  /** The target was made on the GPU as a render target (`buildScreenHistory`). */
+  readonly history: N;
+  /** The target was made on the GPU as a render target (`buildScreenHistory`), and how many times. */
   initialized = false;
+  made = 0;
   /**
    * The history's size, as a shadow map's: resizing the target recreates its
    * GPU texture, and three refreshes the bindings of objects whose materials
@@ -76,12 +94,24 @@ export class ScreenHistoryLight extends THREE.Light {
    */
   readonly shadow = { mapSize: new THREE.Vector2(1, 1) } as unknown as THREE.LightShadow;
 
-  constructor(name: string) {
+  /**
+   * `historyLayers`: the history target's layers (the row, then the light's own).
+   * `host`: a light whose target keeps this one's row (its layer 0, drawn by
+   * this light's stage at the same share), so a lit program reading both
+   * binds one texture; this light's own target then stays unused.
+   */
+  constructor(
+    name: string,
+    readonly historyLayers = 1,
+    readonly host: ScreenHistoryLight | null = null,
+  ) {
     super(0xffffff, 1);
     this.castShadow = true;
     this.name = name;
     this.matrixAutoUpdate = false;
     this.matrixWorldAutoUpdate = false;
+    this.historyTarget = new HistoryTarget(historyLayers);
+    this.history = untransformedTexture(this.historyTarget.texture);
   }
 
   override dispose(): void {
@@ -95,6 +125,17 @@ export function takesScreenHistory(builder: N): boolean {
   return !(builder.material?.transparent === true && decalDrawOf(builder.material) === null);
 }
 
+/** The light whose target keeps `l`'s row. */
+export function rowHostOf(l: ScreenHistoryLight): ScreenHistoryLight {
+  return l.host !== null ? rowHostOf(l.host) : l;
+}
+
+/** `l`'s history row (result, view depth, carried result) at `at`: its host's layer 0, or its own target. */
+export function historyRow(l: ScreenHistoryLight, at: N): N {
+  const h = rowHostOf(l);
+  return h.historyLayers > 1 ? h.history.sample(at).depth(int(0)) : h.history.sample(at);
+}
+
 /** The light's last-frame result where this pixel's surface was (1 where none holds); `channel` z: the result it carries. */
 export function screenHistoryAt(l: ScreenHistoryLight, channel: 'x' | 'z' = 'x'): N {
   return Fn(() => {
@@ -102,7 +143,7 @@ export function screenHistoryAt(l: ScreenHistoryLight, channel: 'x' | 'z' = 'x')
     const view = l.toLastView.mul(p).xyz.toVar();
     const clip = l.toLastClip.mul(p).toVar();
     const at = clip.xy.div(clip.w).mul(vec2(0.5, -0.5)).add(0.5).toVar();
-    const h = l.history.sample(at).toVar();
+    const h = historyRow(l, at).toVar();
     const onScreen = at.x.greaterThanEqual(0).and(at.x.lessThanEqual(1)).and(at.y.greaterThanEqual(0)).and(at.y.lessThanEqual(1));
     const same = abs(h.y.sub(view.z)).lessThan(abs(view.z).mul(HISTORY_DEPTH_TOLERANCE).add(HISTORY_DEPTH_SLACK_M));
     return select(onScreen.and(same).and(l.active.greaterThan(0.5)), h[channel], float(1));
@@ -134,15 +175,19 @@ export interface ScreenHistoryStage {
  */
 export function buildScreenHistory(renderer: THREE.WebGPURenderer, light: ScreenHistoryLight, value: N, viewZ: N, share: number, carried: N | null = null): ScreenHistoryStage {
   const history: N = rtt(vec4(value, viewZ, carried ?? float(0), 1), null, null, { type: THREE.HalfFloatType, resolutionScale: share });
-  // It draws into the light's target (see `ScreenHistoryLight.historyTarget`).
+  // It draws into the light's target (see `ScreenHistoryLight.historyTarget`), its host's when it has one (layer 0:
+  // three draws a layered target's first layer when none is named).
+  const owner = rowHostOf(light);
+  const target = owner.historyTarget;
   const own = history.renderTarget as THREE.RenderTarget;
-  history.renderTarget = light.historyTarget;
-  history.value = light.historyTarget.texture;
+  history.renderTarget = target;
+  history.value = target.texture;
   own.dispose();
   const lastView = new THREE.Matrix4();
   const lastViewProjection = new THREE.Matrix4();
   const size = new THREE.Vector2();
   let drawn = false;
+  let made = -1;
   return {
     passes: history,
     setShare(next) {
@@ -154,13 +199,19 @@ export function buildScreenHistory(renderer: THREE.WebGPURenderer, light: Screen
       renderer.getDrawingBufferSize(size);
       const w = Math.max(1, Math.floor(size.x * share));
       const h = Math.max(1, Math.floor(size.y * share));
-      if (light.historyTarget.width !== w || light.historyTarget.height !== h || !light.initialized) {
-        light.historyTarget.setSize(w, h);
-        light.shadow.mapSize.set(w, h);
+      if (target.width !== w || target.height !== h || !owner.initialized) {
+        target.setSize(w, h);
+        owner.shadow.mapSize.set(w, h);
         // Made as a render target now: a texture first made for sampling (the lit programs bind it before the
         // history pass first draws) is made again as an attachment, and the programs keep the destroyed one.
-        renderer.initRenderTarget(light.historyTarget);
-        light.initialized = true;
+        renderer.initRenderTarget(target);
+        owner.initialized = true;
+        owner.made += 1;
+      }
+      // Made again (here or by its host's stage): nothing of it is a frame of this result yet.
+      if (made !== owner.made) {
+        made = owner.made;
+        light.shadow.mapSize.set(w, h);
         drawn = false;
       }
       light.toLastView.value.multiplyMatrices(lastView, cam.matrixWorld);

@@ -60,7 +60,7 @@ import { decalDrawOf } from './mesh-decals';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
-const { Break, If, Loop, abs, cameraPosition, cameraViewMatrix, cross, dFdx, dFdy, dot, float, int, ivec2, length, max, min, normalize, saturate, select, smoothstep, uint, uniform, uvec3, ivec3, vec2, vec3, vec4, positionView, cameraWorldMatrix, renderGroup } = TSL;
+const { Break, If, Loop, abs, sRGBTransferEOTF, cameraPosition, cameraViewMatrix, cross, dFdx, dFdy, dot, float, int, ivec2, length, max, min, normalize, saturate, select, smoothstep, uint, uniform, uvec3, ivec3, vec2, vec3, vec4, positionView, cameraWorldMatrix, renderGroup } = TSL;
 const { diffuseColor, metalness, roughness, ambientOcclusion, diffuseContribution } = TSL;
 
 /** `object.userData[DECAL_LAYERS_KEY]`: the decal layers a drawable is in (absent: every layer; a skinned mesh none). */
@@ -126,10 +126,10 @@ export function decalDataTexture(data: Float32Array, height: number): THREE.Data
   return fresh(tex);
 }
 
-/** A one-texel page array standing in for a set no decal has an image in (never read: its decals' layers are −1). */
-function placeholderPages(colour: boolean): THREE.DataArrayTexture {
+/** A one-texel page array standing in while no decal has an image (never read: its decals' layers are −1). */
+function placeholderPages(): THREE.DataArrayTexture {
   const tex = new THREE.DataArrayTexture(new Uint8Array([255, 255, 255, 255]), 1, 1, 1);
-  tex.colorSpace = colour ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+  tex.colorSpace = THREE.NoColorSpace;
   tex.minFilter = THREE.LinearMipmapLinearFilter;
   tex.generateMipmaps = false;
   return fresh(tex);
@@ -157,7 +157,8 @@ let nextId = 1;
 
 /**
  * The projected decals of a scene: the data texture (table, then index), the
- * page arrays and the grid's placement the receiving materials read, and the
+ * page array (every set's pages in one: project-model `decalPageArrays`, its
+ * albedo layers sRGB texels in a linear array) and the grid's placement the receiving materials read, and the
  * decals' boxes the CPU tests objects against. The host
  * (decal-projectors.ts) fills them and attaches them to its scene
  * ({@link attachProjectedDecals}).
@@ -166,8 +167,8 @@ export class ProjectedDecals {
   readonly id = nextId++;
   /** The table's lines, then the index's (`indexBase` texels in). */
   data: THREE.DataTexture = decalDataTexture(new Float32Array(DECAL_TEXTURE_WIDTH * 4), 1);
-  pages: Record<DecalPageSetName, THREE.Texture> = { albedo: placeholderPages(true), normal: placeholderPages(false), orm: placeholderPages(false) };
-  private readonly placeholders = { ...this.pages };
+  pages: THREE.Texture = placeholderPages();
+  private readonly placeholder = this.pages;
   /** The grid's corner and (w) the hash table's mask; 1 / its cell size and (w) the longest probe; (x) where the index starts in the data, (y) the pages' side. */
   readonly origin = new THREE.Vector4();
   readonly invCell = new THREE.Vector4();
@@ -197,13 +198,13 @@ export class ProjectedDecals {
   /** Each object's last test (a map: a property put on three's objects would give them another shape). */
   private readonly seen = new WeakMap<THREE.Object3D, Seen>();
 
-  /** A set's array (null: none; the placeholder stands in). */
-  setPages(set: DecalPageSetName, t: THREE.Texture | null): void {
-    const next = t ?? this.placeholders[set];
-    if (this.pages[set] === next) return;
-    this.pages[set] = next;
+  /** The page array (null: none; the placeholder stands in). */
+  setPages(t: THREE.Texture | null): void {
+    const next = t ?? this.placeholder;
+    if (this.pages === next) return;
+    this.pages = next;
     this.generation += 1;
-    if (this.nodes !== null) this.nodes[set].value = next;
+    if (this.nodes !== null) this.nodes.pages.value = next;
   }
 
   /** What the programs blend: a change is a new generation (the variants' programs blend other channels). */
@@ -376,9 +377,7 @@ export class ProjectedDecals {
     if (this.nodes === null) {
       this.nodes = {
         data: dataTextureNode(this.data),
-        albedo: pageNode(this.pages.albedo),
-        normal: pageNode(this.pages.normal),
-        orm: pageNode(this.pages.orm),
+        pages: pageNode(this.pages),
         origin: uniform(this.origin).setGroup(renderGroup),
         invCell: uniform(this.invCell).setGroup(renderGroup),
         layout: uniform(this.layout).setGroup(renderGroup),
@@ -393,7 +392,7 @@ export class ProjectedDecals {
     this.big.clear();
     this.live = 0;
     this.data.dispose();
-    for (const t of Object.values(this.placeholders)) t.dispose();
+    this.placeholder.dispose();
   }
 }
 
@@ -454,17 +453,16 @@ function boundsOf(object: THREE.Object3D): THREE.Sphere | null {
  *
  * Textures stay in each draw's own bind group (three's shared groups take
  * uniforms only), so every texture a decal program binds is checked and bound
- * for every reached draw: the table and the index share one texture, and a
- * page set no decal has an image on is not bound at all.
+ * for every reached draw: the table and the index share one texture, the
+ * three page sets another, and pages no decal has an image on are not bound
+ * at all.
  */
 const dataTextureNode = texelTexture;
 const pageNode = untransformedTexture;
 
 interface DecalNodes {
   data: N;
-  albedo: N;
-  normal: N;
-  orm: N;
+  pages: N;
   origin: N;
   invCell: N;
   layout: N;
@@ -561,9 +559,8 @@ export const DECAL_CHANNEL_BITS = { albedo: 1, normal: 2, roughness: 4, metalnes
 export const DECAL_LAYER_TEST_BIT = 64;
 /**
  * With the channels: the page sets some decal has an image on. A set no decal
- * reads is neither bound nor sampled (its reads are the fallback value), so a
- * stain with an albedo image and a roughness value binds one page array, not
- * three.
+ * reads is not sampled (its reads are the fallback value), and with none the
+ * page array is not bound.
  */
 export const DECAL_PAGE_BITS = { albedo: 128, normal: 256, orm: 512 } as const;
 const ORM_BITS = DECAL_CHANNEL_BITS.roughness | DECAL_CHANNEL_BITS.metalness | DECAL_CHANNEL_BITS.occlusion | DECAL_CHANNEL_BITS.emission;
@@ -668,23 +665,25 @@ function evaluate(n: DecalNodes, uses: number): DecalBlend {
             const k = min(float(1), place.w.div(max(longest, 1e-6)));
             const sx = gx.mul(k);
             const sy = gy.mul(k);
-            const read = (pages: N, layer: N, fallback: N, bit: number): N => {
-              // A set no decal has an image on is not bound: its value is the fallback's.
+            const read = (layer: N, fallback: N, bit: number, srgb = false): N => {
+              // A set no decal has an image on is not read: its value is the fallback's.
               if ((uses & bit) === 0) return fallback;
               const v = vec4(fallback).toVar();
               If(layer.greaterThanEqual(0), () => {
-                v.assign(pages.sample(uv).depth(int(layer)).grad(sx, sy));
+                const t = n.pages.sample(uv).depth(int(layer)).grad(sx, sy);
+                // The albedo layers keep their sRGB texels in the linear array.
+                v.assign(srgb ? vec4(sRGBTransferEOTF(t.rgb), t.a) : t);
               });
               return v;
             };
             // The image's alpha is the mark's shape for every channel.
-            const albedo = read(n.albedo, place.x, vec4(1, 1, 1, 1), DECAL_PAGE_BITS.albedo);
+            const albedo = read(place.x, vec4(1, 1, 1, 1), DECAL_PAGE_BITS.albedo, true);
             const cover = albedo.a.mul(tint.w).mul(w).toVar('tlDecalCover');
             blend(b.albedo, () => albedo.rgb.mul(tint.rgb), cover.mul(op.x));
             if ((uses & ORM_BITS) !== 0) {
               const glow = rowTexel(n, row, 9);
               const factors = rowTexel(n, row, 10);
-              const orm = read(n.orm, place.z, vec4(1, 1, 1, 0), DECAL_PAGE_BITS.orm);
+              const orm = read(place.z, vec4(1, 1, 1, 0), DECAL_PAGE_BITS.orm);
               blend(b.rough, () => saturate(orm.g.mul(factors.x)).max(0.0525), cover.mul(op.z));
               blend(b.metal, () => saturate(orm.b.mul(factors.y)), cover.mul(op.w));
               // three's aoMapIntensity rule: (r − 1) × intensity + 1.
@@ -695,7 +694,7 @@ function evaluate(n: DecalNodes, uses: number): DecalBlend {
             if (bend !== null) {
               If(place.y.greaterThanEqual(0), () => {
                 const scale = rowTexel(n, row, 10);
-                const s = n.normal.sample(uv).depth(int(place.y)).grad(sx, sy);
+                const s = n.pages.sample(uv).depth(int(place.y)).grad(sx, sy);
                 const tn = normalize(s.xyz.mul(2).sub(1).mul(vec3(scale.z, scale.w, 1)));
                 const x = normalize(m0.xyz);
                 const tangent = normalize(x.sub(ng.mul(dot(ng, x))));

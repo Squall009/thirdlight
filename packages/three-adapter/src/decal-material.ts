@@ -11,8 +11,9 @@
  * its rows, so a far decal never blends its page neighbours in.
  *
  * Three reads at most (albedo with opacity, normal, ORM with the emissive
- * mask in alpha), each a page of a texture array at a layer the material
- * names in a uniform: every decal material with the same sets builds the
+ * mask in alpha), each a layer of the build's page array (all three sets in
+ * one, the albedo's sRGB texels decoded here) the material names in a
+ * uniform: every decal material with the same sets builds the
  * same program, whatever its page. Without pages a fourth read is the
  * emissive map (its largest of R, G, B is the mask, as the page planner
  * writes it).
@@ -117,7 +118,9 @@ export function installDecalNodes(m: THREE.Material, params: Readonly<Record<str
       }
       return t.grad(gx, gy);
     };
-    const read0 = read(images.albedo, layers.albedo);
+    const page0 = read(images.albedo, layers.albedo);
+    // A page's albedo keeps its sRGB texels in the linear page array (project-model `decalPageArrays`).
+    const read0 = page0 !== null && images.albedo?.layer !== null ? (TSL.vec4(TSL.sRGBTransferEOTF(page0.rgb) as unknown as Vec4Node, page0.a) as unknown as Vec4Node) : page0;
     const albedo = read0 !== null && images.opaqueAlbedo === true ? TSL.vec4(read0.rgb, 1) : (read0 ?? TSL.vec4(1, 1, 1, images.albedoComing ? 0 : 1));
     const tinted = albedo.rgb.mul(TSL.materialColor.rgb);
     if (multiply) {

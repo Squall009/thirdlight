@@ -2,9 +2,9 @@
  * Decal pages in a build (Play and the export alike).
  *
  * The used decal materials' images go onto decal pages (project-model
- * `decal-pages.ts` plans the rectangles), and each channel set's pages ship
- * as texture arrays the backend makes (injected: `ClosureDecalPages`, cached
- * in the import cache). The arrays ship under ids of their own made from
+ * `decal-pages.ts` plans the rectangles), and the pages ship as texture
+ * arrays the backend makes, each page's channel sets side by side in one
+ * (injected: `ClosureDecalPages`, cached in the import cache). The arrays ship under ids of their own made from
  * their files' digests (`decals-…`), so the same pages give the same ids
  * build after build; each decal material reaches the runtime with its place
  * on them (`decalPage`: the rectangle, its mip cap, each set's array and
@@ -18,20 +18,23 @@ import { DECAL_PAGE_SETS, decalPageRefs, decalPageReport, heightAlphaTextures, p
 import type { ClosureArtifact, ClosureFileArtifact, ContentClosureError } from './content-closure';
 import { readWhole } from './closure-texture-slots';
 
-/** The backend's decal page arrays (one list of arrays per set, the set's pages in order). */
+/**
+ * The backend's decal page arrays (project-model `decalPageArrays`: each page's sets side by side in one array)
+ * and where each set's i-th page went.
+ */
 export interface ClosureDecalPages {
   decalPages?(
     projectId: string,
     request: {
       readonly size: number;
-      readonly sets: Readonly<Record<DecalPageSet, readonly { readonly layer: DecalPageLayer }[]>>;
+      readonly sets: Readonly<Record<DecalPageSet, readonly { readonly page: number; readonly layer: DecalPageLayer }[]>>;
       readonly sources: ReadonlyMap<string, { readonly assetId: string; readonly version: number; readonly sourceDigest: string }>;
     },
-  ): Promise<{ ok: true; sets: Record<DecalPageSet, ClosureDecalPageArray[]>; ms: number; preview?: true } | { ok: false; code: string; message: string }>;
+  ): Promise<{ ok: true; arrays: ClosureDecalPageArray[]; at: Record<DecalPageSet, readonly { readonly array: number; readonly layer: number }[]>; ms: number; preview?: true } | { ok: false; code: string; message: string }>;
 }
 
 /**
- * One array of a set's pages: its file in the import cache, or a preview's
+ * One array of pages: its file in the import cache, or a preview's
  * bytes (pages at a reduced size, never stored), which only the editor's
  * decal atlas asks for and a build refuses.
  */
@@ -135,35 +138,33 @@ export async function closureDecalPages(o: {
   const files: ClosureFileArtifact[] = [];
   const artifacts: ClosureArtifact[] = [];
   const shipped = new Set<string>();
-  // Each set's layer i: the array holding it and its layer there.
-  const layerAt = new Map<DecalPageSet, DecalPageLayerRef[]>();
-  for (const s of DECAL_PAGE_SETS) {
-    const at: DecalPageLayerRef[] = [];
-    for (const arr of made.sets[s]) {
-      if ('preview' in arr && o.previews !== true) return refused('decal pages: the assembly answered preview pages, which a build never ships');
-      const digest = 'preview' in arr ? arr.digest : arr.file.digest;
-      const id = `${DECAL_PAGE_ID_PREFIX}${digest.slice(0, 57)}`;
-      if (byId.has(id)) return refused(`the decal page array's id ${id} is an asset of the project`);
-      for (let l = 0; l < arr.layers; l++) at.push({ texture: id, layer: l });
-      if (shipped.has(id)) continue;
-      shipped.add(id);
-      const path = `content/sha256/${digest}`;
-      if ('preview' in arr) {
-        artifacts.push({ path, bytes: arr.preview, digest, contentType: 'image/x-texture' });
-        rows.push({ assetId: id, kind: 'texture', version: 1, sourceDigest: digest, sourceByteLength: arr.preview.byteLength, metricsDigest: o.hash(new TextEncoder().encode(JSON.stringify({ decalPages: s, digest }))) });
-        continue;
-      }
-      const f = arr.file;
-      if (o.locate) files.push({ path, digest: f.digest, byteLength: f.byteLength, contentType: 'image/x-texture', file: f });
-      else {
-        const bytes = await readWhole(o.service, o.projectId, f);
-        if (typeof bytes === 'string') return { ok: false, error: { code: 'asset_digest_mismatch', cls: 'unavailable', reason: 'asset_digest_mismatch', message: bytes } };
-        artifacts.push({ path, bytes, digest: f.digest, contentType: 'image/x-texture' });
-      }
-      rows.push({ assetId: id, kind: 'texture', version: 1, sourceDigest: f.digest, sourceByteLength: f.byteLength, metricsDigest: o.hash(new TextEncoder().encode(JSON.stringify({ decalPages: s, digest: f.digest }))) });
+  // Each array shipped once, under an id of its own.
+  const ids: string[] = [];
+  for (const arr of made.arrays) {
+    if ('preview' in arr && o.previews !== true) return refused('decal pages: the assembly answered preview pages, which a build never ships');
+    const digest = 'preview' in arr ? arr.digest : arr.file.digest;
+    const id = `${DECAL_PAGE_ID_PREFIX}${digest.slice(0, 57)}`;
+    if (byId.has(id)) return refused(`the decal page array's id ${id} is an asset of the project`);
+    ids.push(id);
+    if (shipped.has(id)) continue;
+    shipped.add(id);
+    const path = `content/sha256/${digest}`;
+    if ('preview' in arr) {
+      artifacts.push({ path, bytes: arr.preview, digest, contentType: 'image/x-texture' });
+      rows.push({ assetId: id, kind: 'texture', version: 1, sourceDigest: digest, sourceByteLength: arr.preview.byteLength, metricsDigest: o.hash(new TextEncoder().encode(JSON.stringify({ decalPages: 'array', digest }))) });
+      continue;
     }
-    layerAt.set(s, at);
+    const f = arr.file;
+    if (o.locate) files.push({ path, digest: f.digest, byteLength: f.byteLength, contentType: 'image/x-texture', file: f });
+    else {
+      const bytes = await readWhole(o.service, o.projectId, f);
+      if (typeof bytes === 'string') return { ok: false, error: { code: 'asset_digest_mismatch', cls: 'unavailable', reason: 'asset_digest_mismatch', message: bytes } };
+      artifacts.push({ path, bytes, digest: f.digest, contentType: 'image/x-texture' });
+    }
+    rows.push({ assetId: id, kind: 'texture', version: 1, sourceDigest: f.digest, sourceByteLength: f.byteLength, metricsDigest: o.hash(new TextEncoder().encode(JSON.stringify({ decalPages: 'array', digest: f.digest }))) });
   }
+  // Each set's layer i: the array holding it and its layer there.
+  const layerAt = new Map<DecalPageSet, DecalPageLayerRef[]>(DECAL_PAGE_SETS.map((s) => [s, made.at[s].map((a) => ({ texture: ids[a.array]!, layer: a.layer }))]));
   const refs = decalPageRefs(plan, (s, i) => layerAt.get(s)![i]!);
   return { ok: true, pages: { refs, rows, files, artifacts, size: plan.size, pages: plan.pages, notes: plan.notes } };
 }

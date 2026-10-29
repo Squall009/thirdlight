@@ -13,3 +13,8 @@ export function consoleErrors(page: Page): string[] {
 export function refusedObjects(errors: readonly string[]): string[] {
   return errors.filter((e) => /Objects of type .* (are )?not supported/i.test(e));
 }
+
+/** Errors the GPU reported that three's renderer logs (a pipeline WebGPU refused: past a stage's texture units, say). */
+export function gpuErrors(errors: readonly string[]): string[] {
+  return errors.filter((e) => /Uncaptured WebGPU/i.test(e));
+}

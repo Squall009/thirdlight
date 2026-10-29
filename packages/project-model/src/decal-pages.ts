@@ -4,9 +4,12 @@
  * Every decal of a scene may be drawn by one shader (projected decals are
  * evaluated in the receiving material, a loop over the decals under a
  * pixel), so their images cannot be separate textures: they are rectangles
- * on pages, and the pages of one channel set are the layers of one texture
- * array. Three sets, so a decal changing one channel reads one texture:
- * - `albedo`: colour with opacity in alpha (sRGB);
+ * on pages, and the pages are the layers of one texture array, a page's
+ * channel sets side by side (`decalPageArrays`): a lit program has few
+ * texture units to spare, and every set in one array takes one. Three sets,
+ * so a decal changing one channel reads one layer:
+ * - `albedo`: colour with opacity in alpha (its sRGB texels kept in the
+ *   linear array, the reader decodes them);
  * - `normal`: tangent-space normals;
  * - `orm`: occlusion, roughness, metalness and an emissive mask in alpha
  *   (linear data). The emissive colour is the material's; the mask says
@@ -431,6 +434,44 @@ export function planDecalPages(materials: readonly DecalPageMaterial[], sheets: 
 
   const sets = Object.fromEntries(DECAL_PAGE_SETS.map((s) => [s, pages.flatMap((p, page) => (p.layers[s] !== undefined ? [{ page, layer: p.layers[s]! }] : []))])) as unknown as DecalPagePlan['sets'];
   return { size, pages: pages.length, sets, entries, notes };
+}
+
+/** A set's page as the arrays hold it: the set and its index in the plan's list of that set's pages. */
+export interface DecalPageSlot {
+  readonly set: DecalPageSet;
+  readonly index: number;
+}
+
+/**
+ * How a build's pages become texture arrays: each page's layers (its sets,
+ * in {@link DECAL_PAGE_SETS} order) side by side, the pages in order, an
+ * array holding whole pages only and at most `perArray` layers (a page's
+ * own layers at least). So every set of a decal is in one array, and a
+ * program reading the decals binds one texture for all three sets. The
+ * array is linear: its albedo layers keep their sRGB texels, which the
+ * reader decodes.
+ */
+export function decalPageArrays(sets: Readonly<Record<DecalPageSet, readonly { readonly page: number }[]>>, perArray: number): DecalPageSlot[][] {
+  const byPage = new Map<number, DecalPageSlot[]>();
+  for (const set of DECAL_PAGE_SETS) {
+    sets[set].forEach((l, index) => {
+      const list = byPage.get(l.page);
+      if (list === undefined) byPage.set(l.page, [{ set, index }]);
+      else list.push({ set, index });
+    });
+  }
+  const arrays: DecalPageSlot[][] = [];
+  let open: DecalPageSlot[] = [];
+  for (const page of [...byPage.keys()].sort((a, b) => a - b)) {
+    const slots = byPage.get(page)!;
+    if (open.length > 0 && open.length + slots.length > perArray) {
+      arrays.push(open);
+      open = [];
+    }
+    open.push(...slots);
+  }
+  if (open.length > 0) arrays.push(open);
+  return arrays;
 }
 
 /**

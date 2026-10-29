@@ -9,8 +9,9 @@
  * - The export: a trim sheet the page size whose textures are UASTC is a
  *   layer as it is (each array level's slice of it equals the sheet's own
  *   level: nothing copied or encoded), a loose decal smaller than the page
- *   is copied onto a composed page; each set ships as one array, every
- *   decal material names its rectangle, mip cap, arrays and layers; a second
+ *   is copied onto a composed page; the sets ship as one linear array (a
+ *   page's sets side by side, the albedo's sRGB texels kept), every decal
+ *   material names its rectangle, mip cap, array and layers; a second
  *   export composes nothing (the import cache).
  */
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -24,7 +25,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { makeDecalAtlasRoutes } from './decal-atlas';
 import { composePageRgba, type ComposeLayer } from './decal-page-compose';
 import { encodeRgbaPng } from './image-thumbnail';
-import { ktx2LevelData, readKtx2 } from './ktx2-container';
+import { KTX2_TRANSFER_LINEAR, KTX2_TRANSFER_SRGB, ktx2LevelData, readKtx2 } from './ktx2-container';
 import { composeKtx2, encodeKtx2, KTX2_SOURCE_PIXELS_MAX, type Ktx2Mode } from './texture-encode';
 import { api, exportContentOf, mkRequestId, startBackend, type TestBackend } from './test-helpers';
 
@@ -140,7 +141,7 @@ describe('decal pages in a real export', () => {
     rmSync(exportRoot, { recursive: true, force: true });
   });
 
-  it('ships one array per set: the sheet as stored, the loose decal on a composed page; the materials name their places; a second export composes nothing', async () => {
+  it('ships one array for every set: the sheet as stored, the loose decal on a composed page; the materials name their places; a second export composes nothing', async () => {
     const t0 = performance.now();
     const r = await exportNow();
     const coldMs = performance.now() - t0;
@@ -154,30 +155,29 @@ describe('decal pages in a real export', () => {
     }
     console.log(`decal pages export ships: ${content.assets.map((a) => a.assetId).sort().join(' ')}`);
     const arrays = content.assets.filter((a) => a.assetId.startsWith('decals-'));
-    // Albedo (sheet + composed), normal (sheet), ORM (sheet + composed mask page).
-    expect(arrays).toHaveLength(3);
+    // The sheet's page (albedo, normal, ORM), then the composed page (albedo, ORM mask): one array of five layers.
+    expect(arrays).toHaveLength(1);
     const file = (id: string): Uint8Array => new Uint8Array(readFileSync(join(out, 'content', 'sha256', content.assets.find((a) => a.assetId === id)!.sourceDigest)));
     const crack = content.materials.find((m) => m.materialId === 'mat-crack')!.decalPage!;
     const mark = content.materials.find((m) => m.materialId === 'mat-mark')!.decalPage!;
     expect(crack.rect).toEqual([8.5 / 256, 136.5 / 256, 71.5 / 256, 199.5 / 256]);
     expect(crack.albedo!.layer).toBe(0);
-    expect(crack.normal!.layer).toBe(0);
-    expect(crack.orm!.layer).toBe(0);
-    expect(mark.albedo).toEqual({ texture: crack.albedo!.texture, layer: 1 });
-    expect(mark.orm).toEqual({ texture: crack.orm!.texture, layer: 1 });
+    expect(crack.normal).toEqual({ texture: crack.albedo!.texture, layer: 1 });
+    expect(crack.orm).toEqual({ texture: crack.albedo!.texture, layer: 2 });
+    expect(mark.albedo).toEqual({ texture: crack.albedo!.texture, layer: 3 });
+    expect(mark.orm).toEqual({ texture: crack.albedo!.texture, layer: 4 });
     expect(mark.normal).toBeUndefined();
     expect(mark.rect).toEqual([8.5 / 256, 8.5 / 256, 71.5 / 256, 71.5 / 256]);
     expect(mark.mip).toBeGreaterThanOrEqual(3);
-    // The sheet's layer is its file's texels: each level's first slice is the sheet's level.
-    const albedo = readKtx2(file(crack.albedo!.texture))!;
+    // The sheet's layer is its file's texels: each level's first slice is the sheet's level; the array is linear (the
+    // reader decodes the albedo layers' sRGB).
+    const pages = readKtx2(file(crack.albedo!.texture))!;
     const sheet = readKtx2(new Uint8Array(readFileSync(game('assets', 'decals', 'sheet-albedo.ktx2'))))!;
-    expect([albedo.width, albedo.layerCount, albedo.levels.length]).toEqual([256, 2, sheet.levels.length]);
+    expect([pages.width, pages.layerCount, pages.levels.length, pages.transfer, sheet.transfer]).toEqual([256, 5, sheet.levels.length, KTX2_TRANSFER_LINEAR, KTX2_TRANSFER_SRGB]);
     for (let l = 0; l < sheet.levels.length; l++) {
       const own = ktx2LevelData(sheet, l);
-      expect(Buffer.from(ktx2LevelData(albedo, l).subarray(0, own.length)).equals(Buffer.from(own))).toBe(true);
+      expect(Buffer.from(ktx2LevelData(pages, l).subarray(0, own.length)).equals(Buffer.from(own))).toBe(true);
     }
-    const normal = readKtx2(file(crack.normal!.texture))!;
-    expect(normal.layerCount).toBe(0);
     // Built again: the composed pages and arrays come from the import cache.
     const stats = tb.backend._test.decalPages.stats;
     const composed = stats.composed;
@@ -201,9 +201,11 @@ describe('decal pages in a real export', () => {
     expect(read.status, JSON.stringify(read.json).slice(0, 400)).toBe(200);
     const view = read.json as View;
     const report = view.report;
-    // The build's numbers: the page side, its pages (the albedo array's layers), each material's rectangle.
-    const albedo = readKtx2(new Uint8Array(readFileSync(join(out, 'content', 'sha256', content.assets.find((a) => a.assetId === shipped['mat-crack']!.albedo!.texture)!.sourceDigest))))!;
-    expect([report.size, report.pages.length]).toEqual([albedo.width, albedo.layerCount]);
+    // The build's numbers: the page side, its pages (two: the array's five layers are their sets), each material's rectangle.
+    const pages = readKtx2(new Uint8Array(readFileSync(join(out, 'content', 'sha256', content.assets.find((a) => a.assetId === shipped['mat-crack']!.albedo!.texture)!.sourceDigest))))!;
+    expect([report.size, report.pages.length, pages.layerCount]).toEqual([pages.width, 2, 5]);
+    // Each page's albedo layer: the sheet's page first (three sets), then the composed one.
+    const albedoLayerOf = [0, 3];
     expect(report.materials).toBe(Object.keys(shipped).length);
     for (const p of report.pages) {
       for (const rect of p.rects) {
@@ -211,7 +213,7 @@ describe('decal pages in a real export', () => {
           const [x, y, w, h] = rect.rect;
           const n = report.size;
           expect(shipped[id]!.rect, id).toEqual([(x + 0.5) / n, (y + 0.5) / n, (x + w - 0.5) / n, (y + h - 0.5) / n]);
-          expect(shipped[id]!.albedo!.layer, id).toBe(p.page);
+          expect(shipped[id]!.albedo!.layer, id).toBe(albedoLayerOf[p.page]);
         }
       }
     }

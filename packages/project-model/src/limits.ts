@@ -41,7 +41,7 @@ export { KIT_LIMITS, KIT_SLOT_RE, KIT_STANDARD_SLOTS, kitCheckTally, kitSlotLabe
 export { BLOCK_LAYER_DEFAULT, BLOCK_LIMITS } from './block-layers';
 export { LIGHT_LAYER_COUNT, LIGHT_LAYERS_ALL, MAX_LIGHT_LAYER_NAME, lightLayerLabel } from './light-layers';
 export { DECAL_CELL_BUDGET, DECAL_LAYER_COUNT, DECAL_LAYERS_ALL, DECAL_LIMITS, DECAL_TRANSIENT_BUDGET, DECAL_TRANSIENT_FADE_SECONDS } from './decals';
-export { DECAL_PAGE_ENCODINGS, DECAL_PAGE_LIMITS, DECAL_PAGE_SETS } from './decal-pages';
+export { DECAL_PAGE_ENCODINGS, DECAL_PAGE_LIMITS, DECAL_PAGE_SETS, decalPageArrays } from './decal-pages';
 export { PATH_PAINT_CELL, PATH_PAINT_SIDES, VERTEX_PAINT_BYTES, VERTEX_PAINT_LIMITS } from './vertex-paint';
 export { VERTEX_PAINT_BRUSH_LIMITS } from './vertex-paint-stroke';
 export { PATH_PAINT_REACH } from './vertex-paint-paths';

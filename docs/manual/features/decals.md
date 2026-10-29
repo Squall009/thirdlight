@@ -282,7 +282,7 @@ themselves, as Play does.
 
 **Diagnostics.** Play's `renderer.projectedDecals`: `decals` (loaded,
 spawned ones included), `drawn`, `unplaced` (an image on a page array other
-than its set's: not drawn), the grid's `cells` and `entries`, `dropped` (over
+than the one bound: not drawn), the grid's `cells` and `entries`, `dropped` (over
 the overlap budget), `builds` and `buildMs` (whole builds, the last one's
 time), `updates` and `updateMs` (frames that changed decals in place, the
 last one's time), `spawned` and `fading` (decals scripts spawned that are
@@ -504,13 +504,15 @@ without cells keeps its old data exactly.
 
 Every decal of a scene may be drawn by one shader, so Play and the export
 put the images of the decal materials the game uses on **decal pages**:
-square images, all of one size, each decal a rectangle on one. The pages of
-a channel set are the layers of one texture array, so a decal that changes
-one channel reads one texture:
+square images, all of one size, each decal a rectangle on one. Each page has
+a layer for each channel set its decals use, and every page's layers sit in
+one texture array, so a lit surface the decals reach binds one texture for
+all of them (WebGPU allows a shader stage 16, and the lighting takes most of
+them):
 
 | Set | Holds | Encoding |
 |---|---|---|
-| albedo | colour, opacity in alpha | UASTC, sRGB |
+| albedo | colour, opacity in alpha | UASTC, sRGB texels (the array is linear; the shader decodes them) |
 | normal | the normal map | UASTC, linear |
 | ORM | occlusion, roughness, metalness; an **emissive mask** in alpha | UASTC, linear |
 
@@ -555,9 +557,10 @@ that does not stream. A page array is loaded while a loaded decal names a
 material on it and let go when the last such decal leaves (its scene
 unloaded), and it goes to the GPU as soon as it arrives, before anything
 draws it (a mesh decal's material holds the arrays it draws with itself and
-uploads them with its first frame). There is no cap on decals or pages: a set holds as many pages as
-its decals need, split into several arrays when one would pass what a join
-takes. Play diagnostics show them as `renderer.decals` — `decals` (loaded
+uploads them with its first frame). There is no cap on decals or pages: the
+pages are split into several arrays (whole pages each) when one would pass
+what a join takes; a decal on an array other than the one bound is not drawn
+(`unplaced`). Play diagnostics show them as `renderer.decals` — `decals` (loaded
 decals with a page), `pages` (arrays), `layers`, `bytes`, `onGpu` and
 `missing` — next to `renderer.textures` (the budget); an exported game's
 canvas carries `data-tl-decal-pages` (`arrays|layers|bytes|uploaded`).

@@ -2,8 +2,13 @@
  * Decal pages made into KTX2 texture arrays (Play and the export alike; the
  * plan of what goes where is project-model's `planDecalPages`).
  *
- * Per channel set, each page becomes one single-layer UASTC KTX2, then the
- * pages are joined into arrays without touching a texel (`joinUastcLayers`):
+ * Each page of each channel set becomes one single-layer UASTC KTX2 (the
+ * albedo sRGB, the normal and ORM linear), then a page's sets are joined
+ * side by side and the pages one after another into arrays without
+ * touching a texel (`joinUastcLayers`, project-model `decalPageArrays`): one
+ * array holds every set of a page, so a program reading decals binds one
+ * texture for all three. The arrays are linear; their albedo layers keep
+ * their sRGB texels and the reader decodes them.
  * - a page that is a texture as it is (a trim sheet, a loose decal the page
  *   size) is that texture's file when it can join as stored (UASTC, the
  *   page size, a full mip chain, the set's colour space); nothing is copied
@@ -20,15 +25,15 @@
  * the layout, the encoder), so the next Play, the export and a restart find
  * it, and adding one decal encodes only the page it lands on.
  *
- * A set is split into several arrays when one would hold more than a join
- * takes (`KTX2_JOIN_LEVEL_BYTES_MAX`, `MAX_TEXTURE_LAYERS`): there is no cap
- * on pages.
+ * The pages are split into several arrays (at page boundaries) when one
+ * would hold more than a join takes (`KTX2_JOIN_LEVEL_BYTES_MAX`,
+ * `MAX_TEXTURE_LAYERS`): there is no cap on pages.
  */
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
-import type { DecalPageChannel, DecalPageLayer, DecalPageSet } from '@thirdlight/project-model';
-import { DECAL_PAGE_ENCODINGS, DECAL_PAGE_SETS, MAX_TEXTURE_LAYERS } from '@thirdlight/project-model/limits';
+import type { DecalPageChannel, DecalPageLayer, DecalPageSet, DecalPageSlot } from '@thirdlight/project-model';
+import { DECAL_PAGE_ENCODINGS, DECAL_PAGE_SETS, decalPageArrays, MAX_TEXTURE_LAYERS } from '@thirdlight/project-model/limits';
 import type { ClosureDecalPageArray } from '@thirdlight/exporter';
 import type { BlobFile, ImportKey, WorkspaceService } from '@thirdlight/workspace';
 
@@ -47,19 +52,23 @@ export interface DecalPageSource {
 export interface DecalPageRequest {
   /** The page side. */
   readonly size: number;
-  /** Per set, its pages in order (project-model `DecalPagePlan.sets`). */
-  readonly sets: Readonly<Record<DecalPageSet, readonly { readonly layer: DecalPageLayer }[]>>;
+  /** Per set, its pages in order and the page each is (project-model `DecalPagePlan.sets`). */
+  readonly sets: Readonly<Record<DecalPageSet, readonly { readonly page: number; readonly layer: DecalPageLayer }[]>>;
   /** Every texture the layers name. */
   readonly sources: ReadonlyMap<string, DecalPageSource>;
 }
 
-/** One array of a set, as the exporter's closure takes it (a preview's array is its bytes, never stored). */
+/** One array of pages, as the exporter's closure takes it (a preview's array is its bytes, never stored). */
 export type DecalPageArray = ClosureDecalPageArray;
+/** Where a set's page went: its array and layer there. */
+export type DecalPageLayerAt = { readonly array: number; readonly layer: number };
 
 export type DecalPageResult =
   | {
       ok: true;
-      sets: Record<DecalPageSet, DecalPageArray[]>;
+      /** The arrays (project-model `decalPageArrays`: each page's sets side by side, linear), and where each set's i-th page is. */
+      arrays: DecalPageArray[];
+      at: Record<DecalPageSet, DecalPageLayerAt[]>;
       /** Pages taken as stored, composed now, found composed in the cache. */
       stats: { asStored: number; composed: number; cached: number };
       /** The textures read from transcoded texels (a second lossy generation). */
@@ -104,6 +113,24 @@ const keyOf = (settings: Record<string, unknown>): ImportKey => ({ sourceDigest:
 export function decalPagesPerArray(size: number): number {
   const level0 = Math.ceil(size / 4) * Math.ceil(size / 4) * 16;
   return Math.max(1, Math.min(MAX_TEXTURE_LAYERS, Math.floor(KTX2_JOIN_LEVEL_BYTES_MAX / level0)));
+}
+
+/** The transfer a set's pages are encoded with (its own; the arrays they join into are linear). */
+const transferOf = (set: DecalPageSet): number => (DECAL_PAGE_ENCODINGS[set] === 'color' ? KTX2_TRANSFER_SRGB : KTX2_TRANSFER_LINEAR);
+
+const emptyAt = (): Record<DecalPageSet, DecalPageLayerAt[]> => ({ albedo: [], normal: [], orm: [] });
+
+/** Join pages (`pageOf` a slot's bytes) into the layout's arrays, in memory (the previews). */
+function joinPages(pageOf: (slot: DecalPageSlot) => Uint8Array, perArray: number, sets: DecalPageRequest['sets']): { ok: true; arrays: { ktx2: Uint8Array; layers: number }[]; at: Record<DecalPageSet, DecalPageLayerAt[]> } | { ok: false; which: string; reason: string } {
+  const at = emptyAt();
+  const arrays: { ktx2: Uint8Array; layers: number }[] = [];
+  for (const slots of decalPageArrays(sets, perArray)) {
+    const joined = joinUastcLayers(slots.map(pageOf), slots.map((slot) => transferOf(slot.set)), KTX2_TRANSFER_LINEAR);
+    if (!joined.ok) return { ok: false, which: `of array ${arrays.length + 1}`, reason: joined.reason };
+    slots.forEach((slot, layer) => (at[slot.set][slot.index] = { array: arrays.length, layer }));
+    arrays.push({ ktx2: joined.ktx2, layers: slots.length });
+  }
+  return { ok: true, arrays, at };
 }
 
 /** Whether a texture's file can be a page of a set as it is (it joins as stored). */
@@ -171,7 +198,6 @@ export function createDecalPageAssembler(deps: { service: WorkspaceService; enco
       };
       const made = { asStored: 0, composed: 0, cached: 0 };
       const reencoded = new Set<string>();
-      const sets = {} as Record<DecalPageSet, DecalPageArray[]>;
       // Every page of every set first: each is a texture as stored, found
       // in the cache, or a compose to run; the composes then run side by side
       // on the encoder's threads (pages are independent), in page order.
@@ -181,7 +207,7 @@ export function createDecalPageAssembler(deps: { service: WorkspaceService; enco
       const all: { set: DecalPageSet; at: number; preview: () => Promise<Uint8Array | DecalPageFailure> }[] = [];
       for (const set of DECAL_PAGE_SETS) {
         const mode = DECAL_PAGE_ENCODINGS[set];
-        const transfer = mode === 'color' ? KTX2_TRANSFER_SRGB : KTX2_TRANSFER_LINEAR;
+        const transfer = transferOf(set);
         const pages: (Uint8Array | null)[] = [];
         pagesOf.set(set, pages);
         for (const { layer } of request.sets[set]) {
@@ -264,20 +290,11 @@ export function createDecalPageAssembler(deps: { service: WorkspaceService; enco
           return null;
         });
         if (failed !== null) return failed;
-        const per = decalPagesPerArray(decalPreviewSide(size));
-        for (const set of DECAL_PAGE_SETS) {
-          const transfer = DECAL_PAGE_ENCODINGS[set] === 'color' ? KTX2_TRANSFER_SRGB : KTX2_TRANSFER_LINEAR;
-          const list = small.get(set)!;
-          const arrays: DecalPageArray[] = [];
-          for (let at = 0; at < list.length; at += per) {
-            const joined = joinUastcLayers(list.slice(at, at + per), transfer);
-            if (!joined.ok) return { ok: false, code: 'conversion_failed', message: `the ${set} decal page previews ${at + 1}-${Math.min(list.length, at + per)} do not join: ${joined.reason}` };
-            arrays.push({ preview: joined.ktx2, digest: sha256(joined.ktx2), layers: Math.min(per, list.length - at) });
-          }
-          sets[set] = arrays;
-        }
+        const joined = joinPages((slot) => small.get(slot.set)![slot.index]!, decalPagesPerArray(decalPreviewSide(size)), request.sets);
+        if (!joined.ok) return { ok: false, code: 'conversion_failed', message: `the decal page previews ${joined.which} do not join: ${joined.reason}` };
+        const arrays: DecalPageArray[] = joined.arrays.map((a) => ({ preview: a.ktx2, digest: sha256(a.ktx2), layers: a.layers }));
         stats.previews += 1;
-        return { ok: true, sets, stats: { asStored: 0, composed: 0, cached: 0 }, reencoded: [], ms: Math.round(deps.now() - t0), preview: true };
+        return { ok: true, arrays, at: joined.at, stats: { asStored: 0, composed: 0, cached: 0 }, reencoded: [], ms: Math.round(deps.now() - t0), preview: true };
       }
       const failure = await inFlight(composes, DECAL_COMPOSES_PER_THREAD * Math.max(1, encoder?.parallelism ?? 1), async (c) => {
         const r = await c.run();
@@ -286,30 +303,27 @@ export function createDecalPageAssembler(deps: { service: WorkspaceService; enco
         return null;
       });
       if (failure !== null) return failure;
-      for (const set of DECAL_PAGE_SETS) {
-        const transfer = DECAL_PAGE_ENCODINGS[set] === 'color' ? KTX2_TRANSFER_SRGB : KTX2_TRANSFER_LINEAR;
-        const pages = pagesOf.get(set)! as Uint8Array[];
-        const digests = pages.map((b) => sha256(b));
-        // Arrays of at most what a join takes, each cached by its pages' digests.
-        const per = decalPagesPerArray(size);
-        const arrays: DecalPageArray[] = [];
-        for (let at = 0; at < pages.length; at += per) {
-          const part = pages.slice(at, at + per);
-          const key = keyOf({ array: digests.slice(at, at + per), transfer });
-          let file = deps.service.locateImportedArtifact(projectId, key);
-          if (file === null) {
-            const joined = joinUastcLayers(part, transfer);
-            if (!joined.ok) return { ok: false, code: 'conversion_failed', message: `the ${set} decal pages ${at + 1}-${at + part.length} do not join: ${joined.reason}` };
-            const f = store(projectId, key, joined.ktx2);
-            if (typeof f === 'string') return { ok: false, code: 'internal', message: f };
-            file = f;
-            stats.arrays += 1;
-          }
-          arrays.push({ file, layers: part.length });
+      // Arrays of whole pages, at most what a join takes, each cached by its layers' digests and transfers.
+      const layout = decalPageArrays(request.sets, decalPagesPerArray(size));
+      const at = emptyAt();
+      const arrays: DecalPageArray[] = [];
+      for (const slots of layout) {
+        const part = slots.map((slot) => pagesOf.get(slot.set)![slot.index]!);
+        const transfers = slots.map((slot) => transferOf(slot.set));
+        const key = keyOf({ array: part.map((b) => sha256(b)), transfers, as: KTX2_TRANSFER_LINEAR });
+        let file = deps.service.locateImportedArtifact(projectId, key);
+        if (file === null) {
+          const joined = joinUastcLayers(part, transfers, KTX2_TRANSFER_LINEAR);
+          if (!joined.ok) return { ok: false, code: 'conversion_failed', message: `the decal pages of array ${arrays.length + 1} do not join: ${joined.reason}` };
+          const f = store(projectId, key, joined.ktx2);
+          if (typeof f === 'string') return { ok: false, code: 'internal', message: f };
+          file = f;
+          stats.arrays += 1;
         }
-        sets[set] = arrays;
+        slots.forEach((slot, layer) => (at[slot.set][slot.index] = { array: arrays.length, layer }));
+        arrays.push({ file, layers: part.length });
       }
-      return { ok: true, sets, stats: made, reencoded: [...reencoded].sort(), ms: Math.round(deps.now() - t0) };
+      return { ok: true, arrays, at, stats: made, reencoded: [...reencoded].sort(), ms: Math.round(deps.now() - t0) };
     },
   };
 }

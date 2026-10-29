@@ -68,7 +68,7 @@ import { releaseMrtContexts } from './dispose';
 import { PhysicalSky } from './physical-sky';
 import { buildAmbientOcclusion, type AmbientOcclusionStage, type AoKind, type ScreenSpaceOcclusion } from './post-ao';
 import { buildContactShadows, type ContactShadowsLight, type ContactShadowsStage } from './post-contact-shadows';
-import { REFLECTION_LEVELS, type ReflectionsLight } from './post-reflections';
+import { REFLECTION_LAYER, REFLECTION_LEVELS, type ReflectionsLight } from './post-reflections';
 import { buildReflections, reflectionNormal, type ReflectionsStage } from './post-reflections-pass';
 import type { ScenePasses } from './occlusion-passes';
 import { atScale, buildUpscale, scaledTexture, type ScaledTexture, type UpscaleFilter, type UpscaleStage } from './post-upscale';
@@ -289,7 +289,8 @@ function screenStages(renderer: WebGPURenderer, scene: THREE.Scene, camera: THRE
     passes.push('contactShadows');
   }
   if (reflectionsLight !== null && plan.reflections) {
-    stages.push(buildReflections(renderer, scenePass, scene, reflectionsLight, REFLECTION_LEVELS[plan.reflections.quality], plan.reflections.traced, aoLight === null, plan.aa === 'taau' ? scenePass.getTextureNode(MOTION_TARGET) : null));
+    const aoDrawsRow = aoLight !== null && plan.ao !== null && aoLight.host === reflectionsLight;
+    stages.push(buildReflections(renderer, scenePass, scene, reflectionsLight, REFLECTION_LEVELS[plan.reflections.quality], plan.reflections.traced, aoLight === null, plan.aa === 'taau' ? scenePass.getTextureNode(MOTION_TARGET) : null, !aoDrawsRow));
     passes.push('reflections');
   }
   disposables.push(...stages);
@@ -556,7 +557,7 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
   // The resolved reflections instead of the picture (a debug view; the picture stays in the graph, × 0).
   if (wantsReflections && plan.reflections?.view === true && reflectionsLight !== null) {
     const c = color;
-    const h: N = texture(reflectionsLight.historyTarget.texture).sample(uv());
+    const h: N = texture(reflectionsLight.historyTarget.texture).sample(uv()).depth(int(REFLECTION_LAYER));
     color = vec4(h.rgb.mul(h.a), c.a.mul(0).add(1));
     passes.push('reflectionsView');
   }

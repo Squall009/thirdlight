@@ -28,6 +28,10 @@
  * decal editor's "Bake to model"): a model asset of the same mark, drawn as a
  * mesh decal where the decal was.
  *
+ * A shadowed point light and a shadowed spot light hang over the receivers
+ * (white, so the green stays green), so a decal's receiver reads the light
+ * path's textures too: its programs bind all a lit program may.
+ *
  * Change while the game runs: a green decal carried by a mover goes 2.4 m
  * along the terrain once Play starts (Play shows it where it went, not
  * where it was placed), and the key's script spawns a decal from a prefab
@@ -77,6 +81,12 @@ const DECALS = [
   { name: 'Decal off layer 2', at: [259, 1, 27] as V3, size: [0.9, 0.9, 1], rotation: DOWN, material: 'mat-pd-green', layers: 1 },
   { name: 'Normal-only decal', at: [247, 0, 33] as V3, size: [2.4, 2.4, 2], rotation: DOWN, material: 'mat-pd-bump' },
   { name: 'Roughness-only decal', at: [257, 0, 33] as V3, size: [2.4, 2.4, 2], rotation: DOWN, material: 'mat-pd-wet' },
+] as const;
+
+/** The shadowed lamps over the receivers: a point light and a spot light looking straight down. */
+const DECAL_LAMPS = [
+  { name: 'Decal lamp', at: [250, 8, 31] as V3, light: { type: 'point', color: '#ffffff', intensity: 4, range: 14, decay: 2, castShadow: true } },
+  { name: 'Decal spot', at: [246, 9, 30] as V3, light: { type: 'spot', color: '#ffffff', intensity: 4, range: 14, decay: 2, angle: 35, penumbra: 0.3, direction: [0, -1, 0], castShadow: true } },
 ] as const;
 
 /** Tilted 45° down toward the camera: the box's −Z meets a block's top and its front (+Z) face alike. */
@@ -184,6 +194,11 @@ export async function makeProjectedDecals(cmd: Cmd, trimId: string, publish: { t
     const decal = { size: [...d.size], material: d.material, ...('layers' in d ? { layers: d.layers } : {}), ...('opacity' in d ? { opacity: d.opacity } : {}) };
     await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: d.name, transform: { position: [...d.at], rotation: [...d.rotation] }, components: { decal } });
   }
+  // Shadowed local lights over them (white, faint, high, so their shadows fall under what casts them and their
+  // highlights barely pale the green): the receivers' programs
+  // then read the light clusters, the shadow atlas and the light tables beside the decals (and the surface cache where
+  // it is read), every texture a lit program may bind.
+  for (const l of DECAL_LAMPS) await create(l.name, l.at, { components: { light: l.light } });
   const clippedIds: string[] = [];
   for (const d of CLIPPED) {
     const decal = { size: [...d.size], mode: 'clipped', material: 'mat-pd-green' };
@@ -561,9 +576,9 @@ export async function driveDecalTool(page: Page, view: Locator, query: Query, un
     await expect(drawer.getByRole('status')).toContainText(/Made in \d+ ms/);
     console.log(`decal atlas ${what}: the pages were composed ahead (the Play build made ahead); drawn from ${atlasPreviewMs} ms after Rebuild`);
   }
-  // The pages themselves on the GPU (their bytes the report's: the preview's smaller arrays let go).
+  // The pages themselves on the GPU (their bytes the report's: the preview's smaller arrays let go), every set's in one array.
   const gpuBytes = (await atlasMark())!.gpuBytes;
-  await expect.poll(async () => (await view.getAttribute('data-tl-decal-pages'))?.split('|').slice(2).join('|'), { timeout: 15_000, message: 'the composed page arrays on the GPU' }).toBe(`${gpuBytes}|2`);
+  await expect.poll(async () => (await view.getAttribute('data-tl-decal-pages'))?.split('|').slice(2).join('|'), { timeout: 15_000, message: 'the composed page arrays on the GPU' }).toBe(`${gpuBytes}|1`);
   console.log(`decal atlas ${what}: ${JSON.stringify(await atlasMark())}; ${await drawer.getByRole('status').textContent()}; page arrays ${await view.getAttribute('data-tl-decal-pages')}`);
   if (process.env['TL_ATLAS_SHOT'] !== undefined) await page.screenshot({ path: `${process.env['TL_ATLAS_SHOT']}-${what}.png` });
   // The atlas collapsed (its title bar stays) for the steps below; the marks drawn from the pages.

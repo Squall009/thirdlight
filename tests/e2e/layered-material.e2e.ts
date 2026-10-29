@@ -122,7 +122,7 @@ import { drawRooms, ROOM_READS } from './rooms-drawing';
 import { expectCulled, expectRoomsCullingMatch, judgeLitRooms, makeLitRooms, ROOMS_DOOR_ACTION } from './rooms-lighting';
 import { drawBuilding, ENTER_KEY, judgeInside, judgeOutside, onInterior } from './buildings';
 import { judgePlans, makeFloorPlans, onPlans, planReads, PLANS_ACTIONS, PLANS_KEY, type PlanReads } from './floor-plans';
-import { consoleErrors, refusedObjects } from './console-errors';
+import { consoleErrors, gpuErrors, refusedObjects } from './console-errors';
 import { expectLayeredWall, fmtLayeredWall, holdSlotArrays, makeLayeredWall } from './layered-walls-scene';
 import { gpuAvailable } from './browser-env.mjs';
 import { DECALS_KEY, driveDecalTool, expectSameGreen, fmtDecals, frameDecals, isDecalGreen, judgeChanges, judgeClipped, judgeDecals, makeProjectedDecals, onDecals, REMESH_CELL, sceneViewProjector, TOOL_READS, type DecalJudgement } from './projected-decals-scene';
@@ -374,6 +374,8 @@ for (const variant of RENDERER_VARIANTS) test(`normal maps light from the right 
   await trimSheetChecks(page, variant);
   expect(errors).toEqual([]);
   expect(refusedObjects(logged), 'no object three refuses to draw').toEqual([]);
+  // Every program built, the decals' receivers under the shadowed lamps included (WebGPU: none past its texture units).
+  expect(gpuErrors(logged), 'no WebGPU validation error').toEqual([]);
 });
 
 /** The trim patches in Play: the material's six (four rows, then floor with the old vertex grime, floor with vertex wetness), the standard material's four. */
@@ -969,12 +971,12 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   const renderer = await diagnostics();
   // The decals' pages: the trim sheet's cell copied onto the albedo page beside the green image (the layered wall reads
   // the sheet as a layer, so its A is a height and only its cell goes, opaque), the normal map on the normal set's:
-  // two arrays, held and uploaded, inside the budget.
+  // one array of both layers (every set's pages in one), held and uploaded, inside the budget.
   const decalPages = renderer['decals'] as { decals: number; pages: number; layers: number; bytes: number; onGpu: number } | undefined;
   const budget = renderer['textures'] as { budgetBytes: number; fixedBytes: number } | undefined;
   console.log(`decal pages ${variant} Play: ${JSON.stringify(decalPages ?? null)}; textures ${budget?.fixedBytes ?? '-'} fixed of a ${budget?.budgetBytes ?? '-'} byte budget`);
   // Every decal holds its pages but the wet one (a roughness value, no image); the cell's decal one more.
-  expect(decalPages).toMatchObject({ decals: decalCount, pages: 2, layers: 2, onGpu: 2 });
+  expect(decalPages).toMatchObject({ decals: decalCount, pages: 1, layers: 2, onGpu: 1 });
   expect(decalPages!.bytes).toBeGreaterThan(0);
   console.log(`lit rooms ${variant} Play: ${JSON.stringify(lit.lum)}; rooms ${JSON.stringify(renderer['rooms'])}; shadow atlas ${JSON.stringify((renderer['clusters'] as Record<string, unknown> | undefined)?.['atlas'] ?? null)}`);
   // The lamp's light on the rooms' walls and floors comes from the surface cache where the page lights it live
@@ -1090,6 +1092,7 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
   const game = await page.context().newPage();
   const errors: string[] = [];
   game.on('pageerror', (e) => errors.push(e.message));
+  const gameLogged = consoleErrors(game);
   // Its scenes kept: the occlusion and rooms switches are reachable.
   await game.addInitScript(keepThreeScenes);
   try {
@@ -1099,7 +1102,7 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
     let shown: { colours: [number, number, number][]; ok: boolean } = { colours: [], ok: false };
     await expect.poll(async () => (shown = readArchitecture(decodePng(await exported.screenshot()))).ok && shown.colours.every((c, i) => sameColour(c, arch.colours[i]!)), { timeout: 45_000, intervals: [500], message: 'the export picture of the architecture' }).toBe(true);
     // The decal page on the GPU: "<arrays>|<layers>|<bytes>|<uploaded>".
-    expect(String(await exported.getAttribute('data-tl-decal-pages'))).toBe(`2|${decalPages!.layers}|${decalPages!.bytes}|2`);
+    expect(String(await exported.getAttribute('data-tl-decal-pages'))).toBe(`1|${decalPages!.layers}|${decalPages!.bytes}|1`);
     let styledExport = readStyled(decodePng(await exported.screenshot()));
     await expect.poll(async () => (styledExport = readStyled(decodePng(await exported.screenshot()))).ok, { timeout: 30_000, intervals: [500], message: 'the export picture of the styled walls' }).toBe(true).catch((e: unknown) => {
       console.log(`styled walls ${variant} export (failed): low ${fmtColours(styledExport.low)} high ${fmtColours(styledExport.high)}`);
@@ -1188,6 +1191,7 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
     console.log(`clipped decals ${variant} export, second visit: ${JSON.stringify(again)}`);
     expect(again.every((m) => m.where === 'store')).toBe(true);
     expect(errors).toEqual([]);
+    expect(gpuErrors(gameLogged), 'no WebGPU validation error in the export').toEqual([]);
   } finally {
     await game.close();
     await site.close();

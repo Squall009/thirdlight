@@ -1,16 +1,18 @@
 /**
  * Decal pages made on the GPU for a view without the build's pages (the
  * editor's Scene view, which draws the project as it is, not a build):
- * every decal material a projected decal there uses gets a layer in each
- * set it has an image for, and its image (its own texture, or its trim
+ * every decal material a projected decal there uses gets a layer for each
+ * set it has an image for, in one array as a build's pages are (project-model
+ * `decalPageArrays`: one texture for all three sets, the albedo layers sRGB
+ * texels in a linear array), and its image (its own texture, or its trim
  * sheet's cell) is drawn into that layer, stretched to fill it. Projected
- * decals then read these arrays the way they read a build's (one program
+ * decals then read this array the way they read a build's (one program
  * either way), so the Scene view shows what Play shows.
  *
  * A layer is redrawn when its images change (an image arrived, the material
- * changed); the arrays grow by doubling, and all layers are drawn again then.
- * Each array keeps a full mip chain (made after each draw), so the layer's
- * whole chain is safe to read: its rectangle is the whole layer.
+ * changed); the array grows by doubling, and all layers are drawn again then.
+ * It keeps a full mip chain (made after each draw), so the layer's whole
+ * chain is safe to read: its rectangle is the whole layer.
  */
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
@@ -21,12 +23,12 @@ import type { DecalSource } from './material-library';
 import type { DecalPageSetName } from './projected-decals';
 
 const TSL: N = TSLTyped;
-const { float, max, mix, texture, uniform, uv, vec3, vec4 } = TSL;
+const { float, max, mix, sRGBTransferOETF, texture, uniform, uv, vec3, vec4 } = TSL;
 
 /**
  * The side of a view's decal layers (texels): an editing preview, at most
- * 1 MiB a layer and set with its mips (RGBA8). A build's pages keep each
- * image's own size.
+ * 1 MiB a layer with its mips (RGBA8). A build's pages keep each image's
+ * own size.
  */
 export const DECAL_VIEW_PAGE_SIZE = 512;
 
@@ -38,9 +40,9 @@ export type DecalViewLayers = readonly [number, number, number];
 export interface DecalViewPages {
   /** Bring the layers up to date for `sources` (the materials in use) and draw what changed; returns each source's layers. */
   update(renderer: THREE.Renderer, sources: ReadonlySet<DecalSource>): Map<DecalSource, DecalViewLayers>;
-  /** Each set's array (null: no material has an image in it). */
-  readonly arrays: Readonly<Record<DecalPageSetName, THREE.Texture | null>>;
-  /** Their GPU bytes (every level of every layer). */
+  /** The array (null: no material has an image). */
+  readonly array: THREE.Texture | null;
+  /** Its GPU bytes (every level of every layer). */
   bytes(): number;
   dispose(): void;
 }
@@ -48,12 +50,14 @@ export interface DecalViewPages {
 /** What a layer was drawn from (it is drawn again when this changes). */
 const signatureOf = (img: DecalImage | null, rect: readonly number[]): string => (img === null ? '' : `${img.texture.uuid}:${img.texture.version}:${rect.join(',')}`);
 
+/** A source's image in a set (the ORM layer: its ORM image, else its emissive one alone). */
+const imageOf = (s: DecalSource, set: DecalPageSetName): DecalImage | null => (set === 'albedo' ? s.images.albedo : set === 'normal' ? s.images.normal : (s.images.orm ?? s.images.emissive));
+
 export function createDecalViewPages(): DecalViewPages {
-  const arrays: Record<DecalPageSetName, THREE.Texture | null> = { albedo: null, normal: null, orm: null };
-  const targets: Record<DecalPageSetName, THREE.RenderTarget | null> = { albedo: null, normal: null, orm: null };
-  /** Each source's slot (its layer in every set), and what each slot's layers were drawn from. */
-  const slots = new Map<DecalSource, number>();
-  const drawn = new Map<string, string>();
+  let target: THREE.RenderTarget | null = null;
+  /** Each source's layers (one per set it has an image in, −1 elsewhere), and what each layer was drawn from. */
+  const layersOf = new Map<DecalSource, [number, number, number]>();
+  const drawn = new Map<number, string>();
   let capacity = 0;
 
   // One quad per set, each reading its source through texture nodes whose textures are swapped per draw.
@@ -76,7 +80,8 @@ export function createDecalViewPages(): DecalViewPages {
     return m;
   };
   const quads: Record<DecalPageSetName, THREE.QuadMesh> = {
-    albedo: new THREE.QuadMesh(material(src.a)),
+    // The albedo's sRGB texels, as a build's pages keep them in the linear array.
+    albedo: new THREE.QuadMesh(material(vec4(sRGBTransferOETF(src.a.rgb), src.a.a))),
     normal: new THREE.QuadMesh(material(src.a)),
     // Occlusion, roughness, metalness (white without an image) and the emissive mask: the emissive image's largest
     // of R, G, B, else the ORM image's alpha (as the build's page planner writes it).
@@ -85,16 +90,16 @@ export function createDecalViewPages(): DecalViewPages {
     ),
   };
 
-  const makeTarget = (set: DecalPageSetName, layers: number): THREE.RenderTarget => {
+  const makeTarget = (layers: number): THREE.RenderTarget => {
     const t = new THREE.RenderTarget(DECAL_VIEW_PAGE_SIZE, DECAL_VIEW_PAGE_SIZE, { depth: layers, depthBuffer: false, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter, type: THREE.UnsignedByteType });
-    t.texture.colorSpace = set === 'albedo' ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+    t.texture.colorSpace = THREE.NoColorSpace;
     t.texture.wrapS = THREE.ClampToEdgeWrapping;
     t.texture.wrapT = THREE.ClampToEdgeWrapping;
-    t.texture.name = `decal view pages ${set}`;
+    t.texture.name = 'decal view pages';
     return t;
   };
 
-  const draw = (renderer: THREE.Renderer, set: DecalPageSetName, slot: number, s: DecalSource): void => {
+  const draw = (renderer: THREE.Renderer, set: DecalPageSetName, layer: number, s: DecalSource): void => {
     const img = s.images;
     const r = s.place.rect;
     (rect.value as THREE.Vector4).set(r[0], r[1], r[2], r[3]);
@@ -104,69 +109,78 @@ export function createDecalViewPages(): DecalViewPages {
       src.b.value = img.emissive?.texture ?? blank;
       has.b.value = img.emissive !== null ? 1 : 0;
     } else src.a.value = (set === 'albedo' ? img.albedo : img.normal)?.texture ?? blank;
-    renderer.setRenderTarget(targets[set], slot);
+    renderer.setRenderTarget(target, layer);
     quads[set].render(renderer);
   };
 
   return {
-    arrays,
+    get array() {
+      return target?.texture ?? null;
+    },
     update(renderer, sources) {
-      for (const s of [...slots.keys()]) if (!sources.has(s)) slots.delete(s);
-      // Keep slots compact enough: a source takes the first free slot.
-      const used = new Set(slots.values());
-      for (const s of sources) {
-        if (slots.has(s)) continue;
+      for (const s of [...layersOf.keys()]) if (!sources.has(s)) layersOf.delete(s);
+      // Each source's layers: kept while it keeps the image, the first free one for a new image.
+      const used = new Set<number>();
+      for (const [s, ls] of layersOf) {
+        ls.forEach((l, k) => {
+          if (l >= 0 && imageOf(s, SETS[k]!) !== null) used.add(l);
+        });
+      }
+      const take = (): number => {
         let k = 0;
         while (used.has(k)) k += 1;
-        slots.set(s, k);
         used.add(k);
+        return k;
+      };
+      for (const s of sources) {
+        const ls = layersOf.get(s) ?? [-1, -1, -1];
+        SETS.forEach((set, k) => {
+          const want = imageOf(s, set) !== null;
+          if (!want) ls[k] = -1;
+          else if (ls[k]! < 0) ls[k] = take();
+        });
+        layersOf.set(s, ls);
       }
-      const need = Math.max(2, 2 ** Math.ceil(Math.log2(Math.max(1, ...[...slots.values()].map((k) => k + 1)))));
-      const want = (set: DecalPageSetName): boolean => [...slots.keys()].some((s) => (set === 'albedo' ? s.images.albedo : set === 'normal' ? s.images.normal : (s.images.orm ?? s.images.emissive)) !== null);
+      const top = Math.max(-1, ...used);
       const prevTarget = renderer.getRenderTarget();
       const prevFace = renderer.getActiveCubeFace();
       const prevLevel = renderer.getActiveMipmapLevel();
       try {
-        for (const set of SETS) {
-          if (!want(set)) {
-            targets[set]?.dispose();
-            targets[set] = null;
-            arrays[set] = null;
-            continue;
+        if (top < 0) {
+          target?.dispose();
+          target = null;
+          capacity = 0;
+          drawn.clear();
+        } else {
+          const need = Math.max(2, 2 ** Math.ceil(Math.log2(top + 1)));
+          if (target === null || capacity < need) {
+            target?.dispose();
+            capacity = Math.max(need, capacity);
+            target = makeTarget(capacity);
+            drawn.clear();
           }
-          if (targets[set] === null || capacity < need) {
-            targets[set]?.dispose();
-            targets[set] = makeTarget(set, Math.max(need, capacity));
-            arrays[set] = targets[set]!.texture;
-            for (const k of [...drawn.keys()]) if (k.startsWith(`${set}:`)) drawn.delete(k);
-          }
-          for (const [s, slot] of slots) {
-            const img = set === 'albedo' ? s.images.albedo : set === 'normal' ? s.images.normal : (s.images.orm ?? s.images.emissive);
-            const sig = img === null ? '' : `${signatureOf(img, s.place.rect)}|${set === 'orm' ? signatureOf(s.images.emissive, []) : ''}`;
-            const key = `${set}:${slot}`;
-            if (img === null || drawn.get(key) === sig) continue;
-            draw(renderer, set, slot, s);
-            drawn.set(key, sig);
+          for (const [s, ls] of layersOf) {
+            SETS.forEach((set, k) => {
+              const layer = ls[k]!;
+              if (layer < 0) return;
+              const sig = `${set}|${signatureOf(imageOf(s, set), s.place.rect)}|${set === 'orm' ? signatureOf(s.images.emissive, []) : ''}`;
+              if (drawn.get(layer) === sig) return;
+              draw(renderer, set, layer, s);
+              drawn.set(layer, sig);
+            });
           }
         }
-        capacity = Math.max(capacity, need);
       } finally {
         renderer.setRenderTarget(prevTarget, prevFace, prevLevel);
       }
-      const out = new Map<DecalSource, DecalViewLayers>();
-      for (const [s, slot] of slots) {
-        const i = s.images;
-        out.set(s, [i.albedo !== null && arrays.albedo !== null ? slot : -1, i.normal !== null && arrays.normal !== null ? slot : -1, (i.orm ?? i.emissive) !== null && arrays.orm !== null ? slot : -1]);
-      }
-      return out;
+      return new Map([...layersOf].map(([s, ls]) => [s, [ls[0], ls[1], ls[2]] as const]));
     },
     bytes() {
-      let b = 0;
-      for (const t of Object.values(targets)) if (t !== null) b += Math.round(t.width * t.height * 4 * t.depth * (4 / 3));
-      return b;
+      return target === null ? 0 : Math.round(target.width * target.height * 4 * target.depth * (4 / 3));
     },
     dispose() {
-      for (const t of Object.values(targets)) t?.dispose();
+      target?.dispose();
+      target = null;
       for (const q of Object.values(quads)) (q.material as THREE.Material).dispose();
       blank.dispose();
     },

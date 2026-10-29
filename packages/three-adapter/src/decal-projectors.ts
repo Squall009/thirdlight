@@ -7,13 +7,13 @@
  * something.
  *
  * Images come from the decal material as the material library built it: in
- * Play and the export a layer of the build's decal pages (each set one
- * texture array), in a view without pages (the editor's Scene view) the
- * material's own textures, which `decal-view-pages.ts` draws into arrays of
- * its own. A decal whose albedo image has not arrived marks nothing yet (as a
- * mesh decal draws nothing then). A decal naming an array other than the one
- * its set binds (a build whose set was split past what one array takes) is
- * not drawn and counted (`unplaced`).
+ * Play and the export a layer of the build's decal pages (every set's pages
+ * in one texture array), in a view without pages (the editor's Scene view)
+ * the material's own textures, which `decal-view-pages.ts` draws into an
+ * array of its own. A decal whose albedo image has not arrived marks nothing
+ * yet (as a mesh decal draws nothing then). A decal naming an array other
+ * than the one bound (a build whose pages were split past what one array
+ * takes) is not drawn and counted (`unplaced`).
  *
  * Changes are applied in place: a decal that moved (its entity, or the
  * object a spawned decal sticks to), a decal added or removed, a spawned one
@@ -37,7 +37,7 @@ import { DECAL_CELL_BUDGET, DECAL_DEFAULTS, DECAL_FADE, DECAL_LAYERS_ALL, DECAL_
 import { DecalGrid, DECAL_ROW_TEXELS, DECAL_TEXTURE_WIDTH, packDecalRow, type DecalRow } from './decal-index';
 import { createDecalViewPages, DECAL_VIEW_PAGE_SIZE, type DecalViewPages } from './decal-view-pages';
 import { decalSourceOf, type DecalSource } from './material-library';
-import { attachProjectedDecals, DECAL_LAYER_TEST_BIT, DECAL_PAGE_BITS, decalDataTexture, ProjectedDecals, type DecalPageSetName } from './projected-decals';
+import { attachProjectedDecals, DECAL_LAYER_TEST_BIT, DECAL_PAGE_BITS, decalDataTexture, ProjectedDecals } from './projected-decals';
 
 /** The decal component as the renderer reads it (project-model `DecalComponent`). */
 export interface ProjectedDecalLike {
@@ -145,7 +145,6 @@ interface Place {
   readonly footprint: number;
 }
 
-const SETS: readonly DecalPageSetName[] = ['albedo', 'normal', 'orm'];
 const RAD = Math.PI / 180;
 /** Table rows a build leaves room for beyond its decals (spawns and new decals go in without a build). */
 const ROWS_MIN = 64;
@@ -355,7 +354,8 @@ export function createDecalProjectors(o: {
     freeRows.length = 0;
     // Pages: the build's (an image with a layer is on a page array) or this view's own.
     const paged = live.filter(({ s }) => [s.images.albedo, s.images.normal, s.images.orm].some((i) => i !== null && i.layer !== null));
-    const arrays: Record<DecalPageSetName, THREE.Texture | null> = { albedo: null, normal: null, orm: null };
+    // One array holds every set's pages (project-model `decalPageArrays`): a decal whose sets are on another is not placed.
+    let pages: THREE.Texture | null = null;
     let side = 1;
     places = new Map();
     if (paged.length > 0 || live.every(({ s }) => s.images.albedo === null && s.images.normal === null && s.images.orm === null && s.images.emissive === null)) {
@@ -363,12 +363,11 @@ export function createDecalProjectors(o: {
         if (places.has(s)) continue;
         const imgs = [s.images.albedo, s.images.normal, s.images.orm] as const;
         let ok = true;
-        const layers = imgs.map((img, k) => {
+        const layers = imgs.map((img) => {
           if (img === null) return -1;
-          const set = SETS[k]!;
           if (img.layer === null) ok = false;
-          else if (arrays[set] === null) arrays[set] = img.texture;
-          else if (arrays[set] !== img.texture) ok = false;
+          else if (pages === null) pages = img.texture;
+          else if (pages !== img.texture) ok = false;
           return img.layer ?? -1;
         }) as [number, number, number];
         places.set(s, ok ? { layers, rect: s.place.rect, footprint: s.place.mip === null ? 1e9 : 2 ** s.place.mip } : null);
@@ -381,7 +380,7 @@ export function createDecalProjectors(o: {
       const layersOf = view.update(renderer, new Set(live.map(({ s }) => s)));
       const h = 0.5 / DECAL_VIEW_PAGE_SIZE;
       for (const { s } of live) places.set(s, { layers: layersOf.get(s) ?? [-1, -1, -1], rect: [h, h, 1 - h, 1 - h], footprint: 1e9 });
-      for (const set of SETS) arrays[set] = view.arrays[set];
+      pages = view.array;
       side = DECAL_VIEW_PAGE_SIZE;
     }
     const placed = live.filter(({ s }) => places.get(s) !== null);
@@ -420,7 +419,7 @@ export function createDecalProjectors(o: {
         decals.setData(tex);
         old.dispose();
       }
-      for (const set of SETS) decals.setPages(set, arrays[set]);
+      decals.setPages(pages);
       decals.setBoxes(rows);
       uses = 0;
       for (const r of rows) uses |= usesOf(r);

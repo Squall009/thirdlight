@@ -41,13 +41,18 @@ export const SSAO_STRENGTH = 3;
 
 export type AoKind = 'ssao' | 'gtao';
 
-/** The occlusion as a light of the scene (only its node knows it). */
+/**
+ * The occlusion as a light of the scene (only its node knows it). `host`:
+ * the reflections' light when they draw too: the occlusion's row (and the
+ * contact shadows it carries) is then the reflections' history's first
+ * layer, so a lit program binds one texture for all three.
+ */
 export class ScreenSpaceOcclusion extends ScreenHistoryLight {
   readonly isScreenSpaceOcclusion = true;
   readonly intensity: N = uniform(1).setGroup(renderGroup);
 
-  constructor() {
-    super('ambient occlusion');
+  constructor(host: ScreenHistoryLight | null = null) {
+    super('ambient occlusion', 1, host);
   }
 }
 

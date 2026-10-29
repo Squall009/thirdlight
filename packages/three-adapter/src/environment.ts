@@ -428,14 +428,20 @@ class ScreenLights {
 
   constructor(private readonly scene: THREE.Scene) {}
 
-  /** The lights the next stack draws are in the scene, the others gone; `carried`: the occlusion's history carries the contact shadows (its stage draws). */
+  /**
+   * The lights the next stack draws are in the scene, the others gone; `carried`: the occlusion's history carries
+   * the contact shadows (its stage draws). With the reflections the occlusion's row is the reflections' history's
+   * first layer (one texture for all three in a lit program).
+   */
   keep(ao: boolean, contact: boolean, reflections: boolean, carried: boolean): void {
-    this.ao = this.hold(this.ao, ao, () => new ScreenSpaceOcclusion());
+    this.reflections = this.hold(this.reflections, reflections, () => new ReflectionsLight());
+    const host = ao ? this.reflections : null;
+    // A light for each other way of keeping them (the lit programs read another texture: a new program key).
+    if (this.ao !== null && this.ao.host !== host) this.ao = this.hold(this.ao, false, () => new ScreenSpaceOcclusion());
+    this.ao = this.hold(this.ao, ao, () => new ScreenSpaceOcclusion(host));
     const carrier = carried ? this.ao : null;
-    // A light for the other way of keeping them (the lit programs read another texture: a new program key).
     if (this.contact !== null && this.contact.carrier !== carrier) this.contact = this.hold(this.contact, false, () => new ContactShadowsLight());
     this.contact = this.hold(this.contact, contact, () => new ContactShadowsLight(carrier));
-    this.reflections = this.hold(this.reflections, reflections, () => new ReflectionsLight());
   }
 
   private hold<T extends THREE.Light>(light: T | null, wanted: boolean, make: () => T): T | null {

@@ -54,9 +54,11 @@ function worstScene(): THREE.Scene {
   sun.castShadow = true;
   (sun.shadow as { shadowNode?: unknown }).shadowNode = withContactShadows(TSL.shadow(sun as never, sun.shadow as never));
   scene.add(sun, sun.target, new THREE.AmbientLight('#ffffff', 0.2));
-  // With both drawn, the occlusion's history carries the contact shadows (as the environment keeps them).
-  const ao = new ScreenSpaceOcclusion();
-  scene.add(ao, new ContactShadowsLight(ao), new ReflectionsLight(), new ProbeLighting());
+  // With all three drawn, the occlusion's history carries the contact shadows and is the reflections' history's
+  // first layer (as the environment keeps them).
+  const reflections = new ReflectionsLight();
+  const ao = new ScreenSpaceOcclusion(reflections);
+  scene.add(ao, new ContactShadowsLight(ao), reflections, new ProbeLighting());
   // The local lights' loop, layered (its layer and room test reads no texture, but the worst case is the widest build).
   const clustered = new ClusteredLights(new ClusterGpu(new ClusterTextures()));
   clustered.layered = true;
@@ -168,11 +170,10 @@ describe('lit programs fit the texture-unit budget', () => {
     // It builds some eighty programs: past vitest's 5 s on a loaded host.
   }, BUILD_MS);
 
-  // Projected decals add their data and three page arrays: with the rest of the worst case a decal-reached program
-  // passes the budget (and WebGPU's 16 already, before the light path's units).
-  it.fails('every lit kind reached by projected decals leaves the light path its units', async () => {
+  // Projected decals add two: their data and the one page array all three sets share.
+  it('every lit kind reached by projected decals leaves the light path its units', async () => {
     const counts = await countUnits();
     const over = Object.entries(counts).flatMap(([kind, by]) => ['decals', 'cache+decals'].filter((v) => by[v]! > ROOM).map((v) => `${kind} ${v}: ${by[v]}`));
-    expect(over).toEqual([]);
+    expect(over, JSON.stringify(counts)).toEqual([]);
   }, BUILD_MS);
 });

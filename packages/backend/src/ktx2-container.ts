@@ -26,6 +26,8 @@ const UASTC_CHANNEL_RGB = 0;
 const UASTC_CHANNEL_RGBA = 3;
 /** The DFD's flag of premultiplied alpha (KHR_DF_FLAG_ALPHA_PREMULTIPLIED). */
 const DF_FLAG_ALPHA_PREMULTIPLIED = 1;
+/** Where the DFD's basic block keeps its transfer function (bytes from the DFD's start). */
+const DFD_TRANSFER_BYTE = 14;
 /** The DFD's transfer function: linear, sRGB. */
 export const KTX2_TRANSFER_LINEAR = 1;
 export const KTX2_TRANSFER_SRGB = 2;
@@ -102,7 +104,7 @@ export function readKtx2(bytes: Uint8Array): Ktx2Container | null {
     mipsAtLoad,
     colorModel: bytes[dfdOffset + 12]!,
     colorPrimaries: bytes[dfdOffset + 13]!,
-    transfer: bytes[dfdOffset + 14]!,
+    transfer: bytes[dfdOffset + DFD_TRANSFER_BYTE]!,
     dfdFlags: bytes[dfdOffset + 15]!,
     channelId: bytes[dfdOffset + 31]! & 0x0f,
     dfd: bytes.subarray(dfdOffset, dfdOffset + dfdLength),
@@ -182,8 +184,17 @@ function orientationOf(c: Ktx2Container): string {
  * so a layer differing in any of them would be read as another image.
  * Opaque and alpha sources mix (the array's DFD says RGBA). The reason names
  * the first source that cannot join.
+ *
+ * `transfer` is each source's (one for all, or one per source); the array
+ * says `arrayTransfer` (by default the sources' one). Sources of different
+ * transfers join into a linear array whose reader decodes the sRGB layers
+ * itself (the decal pages: three channel sets in one array).
  */
-export function joinUastcLayers(sources: readonly Uint8Array[], transfer: number): { ok: true; ktx2: Uint8Array } | { ok: false; reason: string } {
+export function joinUastcLayers(sources: readonly Uint8Array[], transfer: number | readonly number[], arrayTransfer?: number): { ok: true; ktx2: Uint8Array } | { ok: false; reason: string } {
+  const transferOf = (i: number): number => (typeof transfer === 'number' ? transfer : transfer[i]!);
+  if (typeof transfer !== 'number' && transfer.length !== sources.length) return { ok: false, reason: `${transfer.length} transfers for ${sources.length} sources` };
+  if (arrayTransfer === undefined && typeof transfer !== 'number' && transfer.some((t) => t !== transfer[0])) return { ok: false, reason: 'sources of different transfers join only into an array that names its own' };
+  const outTransfer = arrayTransfer ?? transferOf(0);
   if (sources.length < 1) return { ok: false, reason: 'no sources' };
   const parsed: Ktx2Container[] = [];
   for (let i = 0; i < sources.length; i++) {
@@ -194,7 +205,8 @@ export function joinUastcLayers(sources: readonly Uint8Array[], transfer: number
     if (c.supercompression !== SUPERCOMPRESSION_NONE && c.supercompression !== SUPERCOMPRESSION_ZSTD) return { ok: false, reason: `${which} uses another supercompression` };
     if (c.layerCount > 1 || c.faceCount !== 1 || c.depth > 1) return { ok: false, reason: `${which} is not a single 2D image` };
     if (c.channelId !== UASTC_CHANNEL_RGB && c.channelId !== UASTC_CHANNEL_RGBA) return { ok: false, reason: `${which} stores other channels than RGB(A)` };
-    if (c.transfer !== transfer) return { ok: false, reason: `${which} is ${c.transfer === KTX2_TRANSFER_SRGB ? 'sRGB' : 'linear'}, the encoding wants ${transfer === KTX2_TRANSFER_SRGB ? 'sRGB' : 'linear'}` };
+    const want = transferOf(i);
+    if (c.transfer !== want) return { ok: false, reason: `${which} is ${c.transfer === KTX2_TRANSFER_SRGB ? 'sRGB' : 'linear'}, the encoding wants ${want === KTX2_TRANSFER_SRGB ? 'sRGB' : 'linear'}` };
     const first = parsed[0];
     if (first !== undefined) {
       if (c.width !== first.width || c.height !== first.height) return { ok: false, reason: `${which} is ${c.width}×${c.height}, layer 1 ${first.width}×${first.height}` };
@@ -224,7 +236,12 @@ export function joinUastcLayers(sources: readonly Uint8Array[], transfer: number
   } catch (e) {
     return { ok: false, reason: `a level could not be decompressed: ${e instanceof Error ? e.message : String(e)}` };
   }
-  return { ok: true, ktx2: writeKtx2({ ...head, layerCount: sources.length > 1 ? sources.length : 0, supercompression: SUPERCOMPRESSION_ZSTD }, levels) };
+  let dfd = head.dfd;
+  if (head.transfer !== outTransfer) {
+    dfd = new Uint8Array(head.dfd);
+    dfd[DFD_TRANSFER_BYTE] = outTransfer;
+  }
+  return { ok: true, ktx2: writeKtx2({ ...head, dfd, layerCount: sources.length > 1 ? sources.length : 0, supercompression: SUPERCOMPRESSION_ZSTD }, levels) };
 }
 
 /**

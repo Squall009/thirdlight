@@ -32,6 +32,7 @@ import { releaseStorage } from './dispose';
 import { HISTORY_DEPTH_TOLERANCE } from './screen-history';
 import {
   REFLECTION_HISTORY_BLEND,
+  REFLECTION_LAYER,
   REFLECTION_RESOLUTION_SCALE,
   REFLECTION_ROUGHNESS_MAX,
   REFLECTION_SCREEN_METRES,
@@ -242,8 +243,11 @@ export interface ReflectionsStage {
 
 type Renderer = THREE.WebGPURenderer & { backend: { get(o: unknown): { buffer?: unknown } | undefined } };
 
-/** Light of `traced` over `level`, drawn from `scenePass` (MRT `normal`: view normal and roughness) into `light`; `scene` may hold the tracer. */
-export function buildReflections(renderer: THREE.WebGPURenderer, scenePass: N, scene: THREE.Scene, light: ReflectionsLight, level: ReflectionLevel, traced: boolean, packedNormal: boolean, motion: N | null): ReflectionsStage {
+/**
+ * Light of `traced` over `level`, drawn from `scenePass` (MRT `normal`: view normal and roughness) into `light`;
+ * `scene` may hold the tracer. `writesRow`: the history's row is the reflections' own (no occlusion stage draws it).
+ */
+export function buildReflections(renderer: THREE.WebGPURenderer, scenePass: N, scene: THREE.Scene, light: ReflectionsLight, level: ReflectionLevel, traced: boolean, packedNormal: boolean, motion: N | null, writesRow: boolean): ReflectionsStage {
   const depth: N = scenePass.getTextureNode('depth');
   const normalTex: N = scenePass.getTextureNode('normal');
   // The view normal (and roughness in w) at `at`: as written, or packed into 8 bits a channel (`reflectionNormal`).
@@ -294,7 +298,8 @@ export function buildReflections(renderer: THREE.WebGPURenderer, scenePass: N, s
   const resolveNode = (outNode: N): N =>
     Fn(() => {
       const at = uv();
-      depthOut.assign(vec4(viewZAt(at), 0, 0, 1));
+      // As a history row (`ReflectionsLight`): no occlusion (1), the view depth, no contact shadow.
+      depthOut.assign(vec4(1, viewZAt(at), 0, 1));
       const res = vec4(0).toVar();
       const d = depth.sample(at).x.toVar();
       const s = traceTex.sample(at).toVar();
@@ -351,8 +356,8 @@ export function buildReflections(renderer: THREE.WebGPURenderer, scenePass: N, s
         const l = light;
         const view = l.toLastView.mul(vec4(p, 1)).xyz.toVar();
         const hu = (motion !== null ? at.sub(motion.sample(at).xy.mul(vec2(0.5, -0.5))) : toUv(l.toLastClip.mul(vec4(p, 1)))).toVar();
-        const h = l.history.sample(hu).toVar();
-        const hz = l.depth.sample(hu).x;
+        const h = l.history.sample(hu).depth(int(REFLECTION_LAYER)).toVar();
+        const hz = l.depth.sample(hu).y;
         const kept = inside(hu).and(abs(hz.sub(view.z)).lessThan(abs(view.z).mul(HISTORY_DEPTH_TOLERANCE).add(SPREAD_DEPTH_M))).and(l.active.greaterThan(0.5));
         If(kept, () => {
           rgb.assign(mix(h.rgb.mul(h.a), rgb, blend));
@@ -395,7 +400,11 @@ export function buildReflections(renderer: THREE.WebGPURenderer, scenePass: N, s
   const lastProj = new THREE.Matrix4();
   let k = level.minSpacing;
   let drawn = false;
+  let made = -1;
   let state: unknown;
+  // Where the resolve's two outputs go in the history: the reflection's layer, and the row (layer 0).
+  const reflectionLayerAt = new THREE.Vector3(0, 0, REFLECTION_LAYER);
+  const rowLayerAt = new THREE.Vector3(0, 0, 0);
   const lastView = new THREE.Matrix4();
   const lastViewProjection = new THREE.Matrix4();
   const buf = new THREE.Vector2();
@@ -489,8 +498,10 @@ export function buildReflections(renderer: THREE.WebGPURenderer, scenePass: N, s
         quad.material = resolveMat!;
         r.setRenderTarget(resolveTarget);
         quad.render(r);
-        r.copyTextureToTexture(resolveTarget.textures[0]!, light.historyTarget.texture);
+        r.copyTextureToTexture(resolveTarget.textures[0]!, light.historyTarget.texture, null, reflectionLayerAt);
         r.copyTextureToTexture(resolveTarget.textures[1]!, light.depthTarget.texture);
+        // The row the lit programs test the reflection's depth in (the occlusion's history pass draws it when it shares the target).
+        if (writesRow) r.copyTextureToTexture(resolveTarget.textures[1]!, light.historyTarget.texture, null, rowLayerAt);
         drawn = true;
         const last = tracer?.last();
         light.stats = { width: w, height: h, spacing: held ? heldSpacing.value : 0, rays: held ? heldRays : 0, every: interval, traceMs: held ? (last?.ms ?? null) : null };
@@ -513,14 +524,22 @@ export function buildReflections(renderer: THREE.WebGPURenderer, scenePass: N, s
       renderer.getDrawingBufferSize(buf);
       const w = Math.max(1, Math.floor(buf.x * share));
       const h = Math.max(1, Math.floor(buf.y * share));
+      // The occlusion's stage may have sized the history already (it shares it): the resolve's depth follows it.
       if (light.historyTarget.width !== w || light.historyTarget.height !== h || !light.initialized) {
         light.historyTarget.setSize(w, h);
-        light.depthTarget.setSize(w, h);
         light.shadow.mapSize.set(w, h);
         // Made as render targets now, before the lit programs bind them (see `buildScreenHistory`).
         renderer.initRenderTarget(light.historyTarget);
-        renderer.initRenderTarget(light.depthTarget);
         light.initialized = true;
+        light.made += 1;
+      }
+      if (light.depthTarget.width !== w || light.depthTarget.height !== h) {
+        light.depthTarget.setSize(w, h);
+        renderer.initRenderTarget(light.depthTarget);
+      }
+      // Made again (here or by the occlusion's stage, which shares it): no frame of the reflection in it yet.
+      if (made !== light.made) {
+        made = light.made;
         drawn = false;
       }
       light.toLastView.value.multiplyMatrices(lastView, cam.matrixWorld);
