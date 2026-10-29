@@ -229,6 +229,7 @@ boundaries; each is green on its own. 43.4 can run any time after 43.3a (it drop
 | 43.5c (D404) | done (83033bef; D404 closed): the Scene view's brighter bare terrain was the spot's cone gizmo line over the read point, not its lighting: with Light ranges off it reads 104,118,74 like Play and the export (WebGPU and WebGL 2). `layered-material.e2e.ts` reads the Scene view with the ranges off and checks the bare surfaces against Play and the export (≤ 4 levels a channel; the gizmo case is 21). e2e layered-material 1.7 → 1.6 min alone (WebGL 2 variant 1.1 min, passed). Fast gate green after a rerun (D349's openings timeout once; 1.8 min on rerun). Scratch dirs 43.1c and spike removed. |
 | 43.6a | done (e8c5ec3a; D407, D408 fixed, D412 watch): **D408** came with 3945af19 (its parent passes): effect lights became cluster lights and the effects-gpu harness drew a bare scene with no cluster frame; it now runs `createStageClusters` like the preview stage (walls 193.6/0/193.0 as at the base, both renderers). **D407** fails at the base too (no regression): the overlay's red classifier sat one level from the AgX-mapped plate and missed it once live probes lit the floor; now red dominance (r − g, r − b > 90), margin unchanged. e2e time unchanged (no step added): block-editor 12.0 s, effects-gpu light 0.4 s in the fast gate. Fast gate green (10 min, peak 4.5 GB; village p95 16.8 \| 16.8, 0 missed, main 5.94 \| 4.15 ms). |
 | 43.6b | done (e191971a, 14df0ca4, de8342e3, af9e6e92, ede86f9f; review fixes): **H1** a dirty tile waiting `ATLAS_REDRAW_WAIT_FRAMES` (3) frames redraws ahead of rank, longest first, within the same ¼-atlas share (vitest, low tier 2,048, two spots + a point light dirty every frame and a lamp arriving: every tile redrawn within 6 frames, the new one drawn before shown; the best lamp still 40+ of 60 frames with two; fails on the old scheduler); eviction needs `ATLAS_EVICT_MARGIN` 1.25× the holder's rank (L9). No e2e step (a mover kept dirty for frames in the on-demand Scene view is not cheap; the plan is pure). **M2** `texture-unit-guard.ts`: a render object's fragment textures counted from its bindings (GLSL: its sampler declarations) before three makes bind groups or a pipeline; past the device limit neither is made, the object draws a plain fallback, Play's Problems gets `texture_units` naming material and object (`material-graph-render.e2e.ts` units case, 40-texture graph: WebGPU 41/16, WebGL 2 41/32, sphere drawn, no validation or link error). **M3** a furnishing Light node has **On**; the `light-counts` step switches a 0-count set's Light nodes off instead of deleting them, with its own note (format-upgrade.test over HTTP: 0 → kept, `on: false`; 4 → kept on; Scene-view test: an off node places none). **Lows** fixed: L5 pooled shadowed-light entries, atlas draws, shadow records and the plan's maps/arrays; L6 placeholder atlas disposed; L11 area lights listed within reach of the centre, as the loop and cache cut them (vitest); L12 comments. Skipped (need design): L6 `ClusterTextures.reset` on scene change, L7 room as raw uint bits (shader decode), L8 a texture per view, L10 the cookie atlas's grace period, `CookieTiles.assign`'s allocations; review item 4 (moving-caster atlas run at low/medium, look class) not run. **At the cap after H1** (1 round, load 0.8–1.0, WebGPU \| WebGL 2): interior p95 16.7 \| 16.7, main 3.09 \| 2.45 (43.5: 3.36 \| 2.51), GPU 7.07 full clock (6.96), scene 4.33 raw at 1,178 MHz; lights 64 main 2.27 \| 1.35 (2.30 \| 1.35), GPU 3.25 (3.30), 0 missed; 256 2.81 \| 1.82 (2.93 \| 1.89), GPU 5.41 (5.70), 0 missed; 1,000 4.88 \| 4.01 (5.23 \| 4.08), GPU 13.58 (13.88), scene 10.86 (10.88), WebGL 2 36/448 missed (56/477, D400). e2e: material-graph-render +1 test (0.6–0.7 s a renderer), lights/shadows/block-lightmaps unchanged (28.0 / 8.2 + 20.1 / 12.3 s). Fast gates green: H1 + Lows (11 min, peak 4.4 GB; village 5.93 \| 4.17 ms main, 0 missed), M3 + M2 (11 min, peak 5.8 GB; village 6.18 \| 4.07), the guard's per-draw map write then removed and gated again (start.e2e's backend exit once, passed on rerun); village after at the cap, 2 rounds at load 3.5–4: 6.04/6.00 \| 4.20/4.27, 0 missed (5.93 before the guard at load ~1). |
+| 43.6c | done (42ac9741, + this row; D413 new): review finding 4's gaps measured, 3 rounds at the cap, both renderers (tables in **43.5 results**, 43.6c). Atlas under motion (new `lights --walkers 8 --tiers low,medium`, 8 skinned figures keeping every tiled lamp dirty): 0 missed, no starving (low 1.75 tiles a frame, 23 % of the atlas, longest wait 3 frames; medium all 5 every frame), atlas GPU 0.13 / 0.29–0.32 ms full clock; main thread +0.32 / +0.58 (WebGPU) and +0.75 / +1.09 ms (WebGL 2) over the same walkers unshadowed → per-face redraws (only the faces a mover is in or left): WebGPU +0.18 / +0.25, WebGL 2 +0.67 / +1.03 (three's per-render node updates on WebGL, D413). Low tier: village/landscape/interior 0 missed, p95 ≤ 16.8, WebGPU main 4.1–4.3 / 3.3–3.4 / 2.1–2.4, GPU 1.9 / 4.7–5.0 / 3.2–3.4 ms (new reference). Look scenes (first in 43) 0 missed, GPU 2.75–3.70 medium (42.0: 3.6–5.9). Many lights and landscape/interior medium to 3 rounds, within 43.5's numbers (interior WebGL 2 main 2.50 in all 3, 43.0's one round 2.22: a same-hour A/B not run). Fast gate green (10 min, peak 4.5 GB; scan-bounded-log failed once, passed alone, D307 watch; village 6.16 \| 4.16 ms main, 0 missed); e2e lights 27.4 s, shadows 12.8 + 20.2 s (unchanged steps). |
 
 ### 43.5 results
 
@@ -283,7 +284,8 @@ No starving: on low the ¼ share takes 1.75 tiles a frame and the longest a dirt
 (`ATLAS_REDRAW_WAIT_FRAMES`); on medium every lamp redraws every frame. The atlas's GPU cost stays ≤ 0.32 ms a frame.
 The main thread is the cost: each face is a pass over the scene, so a lamp dirtied only by movers now redraws only
 the faces a mover is in or has just left (`FaceRedraws`, 42ac9741): WebGPU −0.14 (low) and −0.33 ms (medium).
-WebGL 2 keeps +0.7–1.0 ms whatever the faces drawn: not the face passes (cause in D-row below).
+WebGL 2 keeps +0.7–1.0 ms whatever the faces drawn: not the face passes but three's per-render node updates on
+the WebGL backend (profile: `update`, `updateForRender`, `get value`), D413.
 
 *Many lights, medium, rounds 2 and 3* (43.6b's after-H1 run is round 1): 64 main 2.41 / 2.63 \| 1.37 / 1.39, GPU
 3.18 / 3.23, scene 1.10 / 1.12; 256 3.09 / 2.95 \| 1.95 / 1.89, GPU 5.40 / 5.39, scene 3.09 / 3.11; 1,000 5.09 / 5.05
@@ -302,15 +304,18 @@ WebGL 2 keeps +0.7–1.0 ms whatever the faces drawn: not the face passes (cause
 Phase 42: 42.0 GPU 3.6–5.9 ms full clock, 0 missed; 42.15 main 2.1–3.5 (WebGPU) and 0.85–1.8 (WebGL 2, low): all within
 or below. Corridor shot (WebGPU medium) looked at: lit as at 42.15 (its baked chart steps unchanged).
 
-*Classes at low and medium* (`run.mjs level --classes landscape,interior --switches quality=low`; rounds listed;
-43.0 has no low numbers, so low is the new reference):
+*Classes at low and medium* (`run.mjs level --classes landscape,interior --switches quality=low` and `run.mjs village
+--no-bare --switches quality=low`; rounds listed, the first level round on the build before 42ac9741; 43.0 has no low
+numbers, so low is the new reference):
 
 | Class | Tier | WebGPU main | WebGPU GPU full / scene pass | WebGL 2 main | atlas |
 |---|---|---|---|---|---|
-| landscape | medium | 5.13 / 5.01 (43.0 5.68) | 10.40 / 10.36, scene 7.13 / 7.14 (10.99) | 3.47 / 3.44 (3.61) | none |
-| landscape | low | 3.38 / 3.37 | 5.02 / 4.73, scene 4.35 / 4.12 (620–720 MHz) | 3.44 / 3.39 | none |
-| interior | medium | 3.25 / 3.38 (3.66) | 7.08 / 6.94, scene 3.91 / 3.92 (7.03) | 2.50 / 2.53 (2.22; same hour base 2.21) | 2.0–2.6 ms raw in 2 of 182 frames |
-| interior | low | 2.13 / 2.41 | 3.44 / 3.22, scene 2.97 / 2.78 (420–510 MHz) | 2.44 / 2.50 | 0.7–0.9 ms raw in 2 frames |
+| village | medium | 5.61 / 5.63 / 6.01 (43.0 5.67; 43.5 5.85) | 5.48 / 5.22 / 5.26, scene 2.59–2.64 (4.76; 43.5 5.29) | 4.02 / 4.04 / 4.00 (3.99) | none |
+| village | low | 4.30 / 4.09 / 4.07 | 1.89 / 1.91 / 1.88, scene 1.37–1.39 (300–360 MHz) | 4.11 / 4.00 / 4.02 | none |
+| landscape | medium | 5.13 / 5.01 / 5.11 (43.0 5.68) | 10.40 / 10.36 / 10.28, scene 7.09–7.14 (10.99) | 3.47 / 3.44 / 3.52 (3.61) | none |
+| landscape | low | 3.38 / 3.37 / 3.33 | 5.02 / 4.73 / 4.75, scene 4.12–4.35 (720–890 MHz) | 3.44 / 3.39 / 3.36 | none |
+| interior | medium | 3.25 / 3.38 / 3.33 (3.66) | 7.08 / 6.94 / 6.88, scene 3.88–3.92 (7.03) | 2.50 / 2.53 / 2.50 (2.22; same hour base 2.21) | 2.0–2.6 ms raw in 2 of 182 frames |
+| interior | low | 2.13 / 2.41 / 2.21 | 3.44 / 3.22 / 3.42, scene 2.78–2.97 (420–510 MHz) | 2.44 / 2.50 / 2.56 | 0.7–0.9 ms raw in 2 frames |
 
 ## 4. Decision log
 
@@ -511,3 +516,9 @@ or below. Corridor shot (WebGPU medium) looked at: lit as at 42.15 (its baked ch
   the `light-counts` step switches the Light nodes of a set whose count was 0 off rather than deleting them, and
   names those sets in their own Problems note. (4) An area light is listed only in cells within its reach of its
   centre, where the loop and the surface cache cut it off (43.1a(5)'s "reach from the emitter" is retired).
+- 2026-10-29 (43.6c, default chosen, owner to confirm): (1) a point or area light dirtied only by movers redraws the
+  faces a mover is in now or was in at the face's last draw; everything is redrawn when the light moves, the static
+  casters change or its tiles are new. The redraw share still charges all its faces (conservative: the schedule
+  stays as reviewed). (2) The lights perf class gets walkers (`--walkers N`, the village's skinned figure on a
+  scripted loop under the shadowed lamps) and `--tiers`; the atlas's redraws are read from `data-tl-shadow-atlas`
+  (tiles a frame, share, longest wait), which the diagnostics' `longestWait` backs.
