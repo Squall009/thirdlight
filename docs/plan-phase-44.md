@@ -58,6 +58,7 @@ regression points at its cause.
 | Item | Status |
 |---|---|
 | 44.0 | done (ece9b2ab + this row): three.js 0.186.1 is still the newest (npm, 2026-10-29), no upgrade; plan and audit committed; baselines in **44.0 baseline**; D413 closed (WebGL 2 walkers' shadow cost +0.67 / +1.03 → +0.20 / +0.23 ms, low / medium). |
+| 44.1a | done: G2 job-export zips refuse names an upload may not have (6be64ef2; writeAssetFolder's body moved to folder-import, contentOps 443 → 421 lines); G3 project list and resolve scoped (2d85017a; MCP adapter's message for a refused project token). Vitest over HTTP; no e2e touched; fast gates green (one D311 watch miss, passed alone). |
 
 ### 44.0 baseline
 
@@ -90,3 +91,8 @@ What the end of 44 is measured against (44.13).
   to 2026-10-28 (§1). The retired-area rule comes from the voxel world plan (`docs/plan-phase-45.md` §5b, §4).
 - 2026-10-29 (44.0, default chosen, owner to confirm): the global audit is committed as the phase's reference (§1's
   default); its G-ids stay and are cited beside the D-rows, nothing renumbered.
+- 2026-10-29 (44.1a, default chosen, owner to confirm): G3 scope. The owner (admin) token, or a trusted network, keeps
+  the full project list and folder resolve. A project-scoped token lists only its own project (as the session list
+  already filters) and gets a resolve answer only for a path inside that project; any other path is a 401 with no
+  reason or folder, so it cannot probe the server. The editor's picker and the MCP adapter use the owner token (or a
+  project token from its own folder) and are unchanged.
