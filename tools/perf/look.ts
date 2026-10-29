@@ -162,8 +162,9 @@ async function signScene(be: PerfBackend, projectId: string, cmd: Cmd, mode: Loo
   for (const [x, z, h] of [[40, 90, 8], [90, 96, 10], [100, 60, 6], [30, 50, 5], [70, 100, 7]] as const) await cmd('editTerrain', { entityId: terrainId, kind: 'raise', dabs: [[x, z]], radius: 18, strength: h, falloff: 'smooth' });
   await cmd('editTerrain', { entityId: terrainId, kind: 'noise', dabs: [[64, 64]], radius: 64, strength: 0.4, scale: 6, seed: 3, falloff: 'smooth' });
   await cmd('editTerrain', { entityId: terrainId, kind: 'flatten', dabs: [[64, 62]], radius: 7, strength: 1, height: 0, falloff: 'smooth' });
-  await box(cmd, 'Sign post', [62.2, 0.9, 64], [0.12, 1.8, 0.12], { color: '#3a3632' });
-  await box(cmd, 'Sign post 2', [65.8, 0.9, 64], [0.12, 1.8, 0.12], { color: '#3a3632' });
+  // The posts stand behind the panel: a post's front face in the panel's plane would z-fight with it (stripes).
+  await box(cmd, 'Sign post', [62.2, 0.9, 64.1], [0.12, 1.8, 0.12], { color: '#3a3632' });
+  await box(cmd, 'Sign post 2', [65.8, 0.9, 64.1], [0.12, 1.8, 0.12], { color: '#3a3632' });
   await box(cmd, 'Sign', [64, 1.9, 64], [4, 1, 0.12], { color: '#20303a', emissive: '#40c8ff', emissiveIntensity: 4 });
   // A faint moon; the night sky gives almost no light.
   await cmd('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#8fa6ff', intensity: 0.15, direction: [0.3, -0.6, 0.5], castShadow: true, mode } });

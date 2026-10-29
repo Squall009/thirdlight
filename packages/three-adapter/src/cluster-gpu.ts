@@ -39,7 +39,7 @@ import type { ClusterGrid } from './cluster-build';
 import { CLUSTER_COUNT_BITS, CLUSTER_LIGHT_TEXELS, CLUSTER_LONG_LIST, CLUSTER_TEXEL_WORDS, CLUSTER_TEXTURE_WIDTH, type ClusterPackResult, type ClusterTextures } from './cluster-pack';
 import { ltcTablesTexture } from './cluster-area';
 import type { N } from './effects-tsl';
-import { texelTexture, untransformedTexture } from './texel-texture-node';
+import { targetTexture, texelTexture } from './texel-texture-node';
 
 const TSL: N = TSLTyped;
 const { If, clamp, float, floor, int, ivec2, log2, max, renderGroup, select, uint, uintBitsToFloat, uniform, vec2, vec4 } = TSL;
@@ -219,7 +219,7 @@ export function clusterNodes(gpu: ClusterGpu): ClusterNodes {
     grid: uniform(new THREE.Vector4()).setGroup(renderGroup),
     extent: uniform(new THREE.Vector4()).setGroup(renderGroup),
     projection: uniform(new THREE.Matrix4()).setGroup(renderGroup),
-    atlas: untransformedTexture(gpu.atlas),
+    atlas: targetTexture(gpu.atlas),
     tables: texelTexture(gpu.tables),
     tablesShare: uniform(new THREE.Vector2(1, 1)).setGroup(renderGroup),
     sync(g) {

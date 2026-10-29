@@ -56,6 +56,11 @@ function lamps(scene: THREE.Scene, n: number, offset = 0): THREE.Light[] {
 
 /** The GLSL three's WebGL 2 backend builds for a mesh (its builder runs without a context). */
 function glslOf(scene: THREE.Scene, mesh: THREE.Mesh): string {
+  return glslBuild(scene, mesh).fragmentShader;
+}
+
+/** The WebGL 2 build of a mesh: its fragment shader and the nodes three updates for every draw of it. */
+function glslBuild(scene: THREE.Scene, mesh: THREE.Mesh): { fragmentShader: string; updateNodes: { updateType: string; value?: unknown }[] } {
   const canvas = { style: {}, width: 1, height: 1, addEventListener() {}, removeEventListener() {}, getContext: () => null };
   const r = new WebGPURenderer({ canvas: canvas as unknown as HTMLCanvasElement, forceWebGL: true });
   // WebGL 2 compares depth in hardware (its backend's answer; it is not initialized here).
@@ -64,7 +69,7 @@ function glslOf(scene: THREE.Scene, mesh: THREE.Mesh): string {
   registerClusteredLights(r as never);
   const lights: THREE.Light[] = [];
   scene.traverse((o) => void ((o as THREE.Light).isLight === true && lights.push(o as THREE.Light)));
-  const backend = (r as unknown as { backend: { createNodeBuilder(o: THREE.Object3D, r: WebGPURenderer): { scene: THREE.Scene; camera: THREE.Camera; material: THREE.Material; lightsNode: unknown; build(): void; fragmentShader: string } } }).backend;
+  const backend = (r as unknown as { backend: { createNodeBuilder(o: THREE.Object3D, r: WebGPURenderer): { scene: THREE.Scene; camera: THREE.Camera; material: THREE.Material; lightsNode: unknown; build(): void; fragmentShader: string; updateNodes: { updateType: string; value?: unknown }[] } } }).backend;
   const b = backend.createNodeBuilder(mesh, r);
   b.scene = scene;
   b.camera = new THREE.PerspectiveCamera();
@@ -73,7 +78,7 @@ function glslOf(scene: THREE.Scene, mesh: THREE.Mesh): string {
   lightsNode.setLights(lights);
   b.lightsNode = lightsNode;
   b.build();
-  return b.fragmentShader;
+  return { fragmentShader: b.fragmentShader, updateNodes: b.updateNodes };
 }
 
 describe('the clustered lights', () => {
@@ -153,8 +158,11 @@ describe('the clustered lights', () => {
     clustered.areas = true;
     expect((wgslOf(r, scene, box(new THREE.MeshStandardMaterial())).match(/textureSampleCompare\(/g) ?? []).length).toBe(12);
     clustered.areas = false;
-    const glsl = glslOf(scene, box(new THREE.MeshStandardMaterial()));
-    expect(glsl).toMatch(/sampler2DShadow/);
+    const built = glslBuild(scene, box(new THREE.MeshStandardMaterial()));
+    expect(built.fragmentShader).toMatch(/sampler2DShadow/);
+    // WebGL 2 stores targets upside down: the atlas is flipped in the shader, not through three's per-draw switch
+    // (a node updated and a uniform written for each compare tap on every draw).
+    expect(built.updateNodes.filter((n) => n.value === clustered.gpu.atlas).length).toBe(0);
     // Any number of shadowed spot and point lights: the same program.
     const lamps2 = (n: number): string => {
       const s = litScene();
