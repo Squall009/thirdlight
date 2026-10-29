@@ -25,7 +25,7 @@ import * as THREE from 'three/webgpu';
 
 import { EffectInstance } from '@thirdlight/effects';
 import { newEffectSystemGraph, type EffectDef, type GraphData, type GraphValue } from '@thirdlight/project-model';
-import { applyObjectLightLayers, createEffectsPlayer, createRenderer, GPU_STATE_FIELDS, GPU_STATE_STRIDE, GpuEffectBatches, GpuEffectExecutor, type RendererPreference } from '@thirdlight/three-adapter';
+import { applyObjectLightLayers, createEffectsPlayer, createRenderer, createStageClusters, GPU_STATE_FIELDS, GPU_STATE_STRIDE, GpuEffectBatches, GpuEffectExecutor, type RendererPreference } from '@thirdlight/three-adapter';
 
 const q = new URLSearchParams(location.search);
 const backend = (q.get('backend') ?? 'auto') as RendererPreference;
@@ -321,15 +321,22 @@ const result: Record<string, unknown> = {};
       });
       const player = createEffectsPlayer({ scene, defs: LIGHT_FX, loadTexture: async () => null });
       player.setRenderer(r, handle.info().api === 'webgpu' ? 'webgpu' : 'webgl2');
+      // Effect lights are local lights of the light clusters: a scene drawn outside a level runs its clusters'
+      // frame before each render, as the effect editor's preview stage does.
+      const clusters = createStageClusters(scene);
+      const draw = (): void => {
+        clusters.frame(r, camera);
+        r.render(scene, camera);
+      };
       const objectOf = (): undefined => undefined;
       ['fire', 'masked', 'layer3'].forEach((id, i) => player.request({ op: 'play', effectId: id, handle: i + 1, entityId: null, position: [WALLS[i]!, 0, -0.5], params: null, source: 'script' }, objectOf));
       for (let f = 0; f < 6; f++) {
         player.update(1 / 30, camera);
-        r.render(scene, camera);
+        draw();
       }
       for (let tries = 0; tries < 40 && player.diagnostics().particles < 203; tries++) {
         for (let f = 0; f < 5; f++) player.update(1 / 30, camera);
-        r.render(scene, camera);
+        draw();
         await new Promise((ok) => setTimeout(ok, 250));
       }
       result.diagnostics = player.diagnostics();

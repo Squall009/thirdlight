@@ -119,7 +119,11 @@ async function entity(id: string): Promise<EntityView> {
 type TypeView = { blockId: string; shape: string; boxes?: number[][]; variants: { model?: { assetId: string }; weight?: number; color?: string }[]; connect?: unknown; kits?: unknown; materials?: Record<string, string> };
 const typeOf = async (id: string): Promise<TypeView | undefined> => ((await query('queryGameConfig')) as { blockTypes?: TypeView[] }).blockTypes?.find((t) => t.blockId === id);
 
-const red = (r: number, g: number, b: number): boolean => r > 170 && g < 90 && b < 90;
+// The overlay's plates are #ff0000 at 0.85 over the floor, through the view's tone curve (AgX takes the green and
+// blue of a saturated red up to ~90): a plate is red by how far its red stands above the other two, which holds
+// whether the live probes have lit the floor yet (plate 213,89,75 before, 212,98,93 after) and leaves the grey
+// floor, the white blocks and the orange cursor box out.
+const red = (r: number, g: number, b: number): boolean => r > 170 && r - g > 90 && r - b > 90;
 function countPixels(png: Buffer, test: (r: number, g: number, b: number) => boolean): number {
   const img = decodePng(png);
   let n = 0;
