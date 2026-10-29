@@ -15,7 +15,8 @@
  *
  * In Play and the export a key loads a scene whose camera looks at them;
  * the Scene view is framed on them in the editor. Each read is a world
- * point; the Scene view's green must have Play's hue.
+ * point; the Scene view's green must have Play's hue, and the bare surfaces
+ * beside the marks Play's light.
  *
  * Clipped decals (the same green, in `clipped` mode): one across the block
  * layer's front edge (tilted 45°, so it marks the top and the front face
@@ -368,6 +369,20 @@ export const greenShare = (c: Rgb): number => c[1]! / (sum(c) + 1);
 export function expectSameGreen(scene: DecalJudgement, play: DecalJudgement, what: string): void {
   for (const k of ['terrain', 'blocks', 'prop'] as const) {
     expect(Math.abs(greenShare(scene.colours[k]) - greenShare(play.colours[k])), `${what}: ${k} Scene view ${scene.colours[k].map((v) => v.toFixed(0))}, ${play.colours[k].map((v) => v.toFixed(0))}`).toBeLessThan(0.1);
+  }
+}
+
+/** How far a bare surface's colour may be from the Scene view's (levels a channel): SMAA there, TAAU in Play. */
+const SAME_LIGHT_LEVELS = 4;
+
+/**
+ * The bare surfaces beside the marks (the terrain under the shadowed lamps, the bump's reference, the masked prop,
+ * the wall's row) are lit alike in the Scene view and in `play`: the Scene view draws the game's lighting.
+ */
+export function expectSameLight(scene: DecalJudgement, play: DecalJudgement, what: string): void {
+  for (const k of ['terrainClean', 'bumpClean', 'masked', 'wallClean'] as const) {
+    const off = Math.max(...scene.colours[k].map((v, i) => Math.abs(v - play.colours[k][i]!)));
+    expect(off, `${what}: ${k} Scene view ${scene.colours[k].map((v) => v.toFixed(0))}, ${play.colours[k].map((v) => v.toFixed(0))}`).toBeLessThanOrEqual(SAME_LIGHT_LEVELS);
   }
 }
 

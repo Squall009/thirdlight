@@ -125,7 +125,7 @@ import { judgePlans, makeFloorPlans, onPlans, planReads, PLANS_ACTIONS, PLANS_KE
 import { consoleErrors, gpuErrors, refusedObjects } from './console-errors';
 import { expectLayeredWall, fmtLayeredWall, holdSlotArrays, makeLayeredWall } from './layered-walls-scene';
 import { gpuAvailable } from './browser-env.mjs';
-import { DECALS_KEY, driveDecalTool, expectSameGreen, fmtDecals, frameDecals, isDecalGreen, judgeChanges, judgeClipped, judgeDecals, makeProjectedDecals, onDecals, REMESH_CELL, sceneViewProjector, TOOL_READS, type DecalJudgement } from './projected-decals-scene';
+import { DECALS_KEY, driveDecalTool, expectSameGreen, expectSameLight, fmtDecals, frameDecals, isDecalGreen, judgeChanges, judgeClipped, judgeDecals, makeProjectedDecals, onDecals, REMESH_CELL, sceneViewProjector, TOOL_READS, type DecalJudgement } from './projected-decals-scene';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -826,7 +826,10 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
     const img = decodePng(png);
     return { png, read: (p) => { const s = project(p); return s === null ? [0, 0, 0] : colourAt(img, s); } };
   };
+  // Read without the lights' range lines: the spot's cone crosses the bare terrain's read (it read 125 for Play's 104).
+  await menu(page, 'Gizmos', 'Light ranges: on');
   const sceneDecals = await expectDecals(sceneShot, `${variant} Scene view`);
+  await menu(page, 'Gizmos', 'Light ranges: off');
   // The clipped decals on the block edge and the wall; a block taken away under the edge re-meshes its chunk and the mark follows.
   await expectClipped(sceneShot, `${variant} Scene view`, false);
   await cmd('editBlocks', { entityId: decalSetup.blocksId, edits: [{ kind: 'cells', at: [...REMESH_CELL], cell: null }] });
@@ -1053,6 +1056,7 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
     return { png, read: (p) => colourAt(img, onDecals(p, img.width, img.height)) };
   }, `${variant} Play`);
   expectSameGreen(sceneDecals, playDecals, `${variant} Play`);
+  expectSameLight(sceneDecals, playDecals, `${variant} Play`);
   // The decals the tool placed, as the Scene view drew them.
   await expect.poll(async () => {
     const img = decodePng(await canvas.screenshot());
@@ -1169,6 +1173,7 @@ async function trimSheetChecks(page: Page, variant: RendererVariant): Promise<vo
       return { png, read: (p) => colourAt(img, onDecals(p, img.width, img.height)) };
     }, `${variant} export`);
     expectSameGreen(sceneDecals, exportDecals, `${variant} export`);
+  expectSameLight(sceneDecals, exportDecals, `${variant} export`);
     await expectClipped(async () => {
       const png = await exported.screenshot();
       const img = decodePng(png);
