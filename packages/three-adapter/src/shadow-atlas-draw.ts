@@ -35,7 +35,8 @@
  *   without a tile too (its projection, no strength).
  * - **Redraws** (`dirty`): the light moved or turned (its camera changed),
  *   the static casters changed (their revision), or something moved within
- *   its reach (the frame's movers).
+ *   its reach (the frame's movers). A light seen through faces then draws
+ *   only the faces a mover is in or was last drawn in (`FaceRedraws`).
  *
  * Diagnostics: `renderer.shadowAtlas` (side, lights, tiled, waiting, tiles
  * and texels drawn a frame, the share of the atlas in tiles, MiB).
@@ -51,7 +52,7 @@ import { LIGHT_LAYERS_ALL } from '@thirdlight/runtime';
 
 import { shadowSeesCutaways } from './block-cutaway-view';
 import { objectLightLayers } from './light-layers';
-import { ShadowAtlasPlan, shadowRank, type AtlasRequest, type AtlasTile, type ShadowAtlasDiagnostics } from './shadow-atlas';
+import { FaceRedraws, ShadowAtlasPlan, shadowRank, type AtlasRequest, type AtlasTile, type ShadowAtlasDiagnostics } from './shadow-atlas';
 import { AREA_BACK_FACE, CUBE_FACES, cubeDepthTerms, placeCubeFace } from './shadow-cube';
 
 const TSL: N = TSLTyped;
@@ -244,6 +245,8 @@ interface Kept {
   revision: number;
   /** What its cameras were placed from (`poseOf`): unchanged, they are not placed again. */
   readonly pose: Float64Array;
+  /** A light seen through faces: which faces a redraw draws. */
+  readonly faces: FaceRedraws;
 }
 
 /** Numbers a light's cameras are placed from: its place, a spot's target or a turn, its cone, its far, the renderer's depth conventions. */
@@ -258,6 +261,8 @@ interface Draw {
 }
 
 const _frustum = new THREE.Frustum();
+const _faceFrustum = new THREE.Frustum();
+const _facePv = new THREE.Matrix4();
 const _pv = new THREE.Matrix4();
 const _sphere = new THREE.Sphere();
 const _target = new THREE.Vector3();
@@ -342,8 +347,11 @@ export class AdapterShadowAtlas {
       const { rank, fade } = shadowRank(a.reach, dist, seen);
       const c0 = k.cameras[0]!;
       _place.multiplyMatrices(c0.projectionMatrix, c0.matrixWorldInverse);
-      let dirty = k.revision !== revision || !k.drawnWith.equals(_place);
-      for (let m = 0; !dirty && m + 3 < movers.length; m += 4) dirty = Math.hypot(movers[m]! - p.x, movers[m + 1]! - p.y, movers[m + 2]! - p.z) < a.reach + movers[m + 3]!;
+      const changed = k.revision !== revision || !k.drawnWith.equals(_place);
+      let near = false;
+      for (let m = 0; !near && m + 3 < movers.length; m += 4) near = Math.hypot(movers[m]! - p.x, movers[m + 1]! - p.y, movers[m + 2]! - p.z) < a.reach + movers[m + 3]!;
+      let dirty = changed || near;
+      if (a.kind !== 'spot') dirty = k.faces.note(changed, near ? moverFaces(k.cameras, this.facesOf(a), movers) : 0) || dirty;
       // A light seen through faces ranks at half weight: its faces cost six views.
       const faces = a.kind === 'spot' ? 1 : this.facesOf(a).length;
       requests.push({ key: a.key, rank: faces > 1 ? rank / 2 : rank, fade, dirty, faces });
@@ -359,7 +367,8 @@ export class AdapterShadowAtlas {
       const k = this.keptFor(a);
       const faces = a.kind === 'spot' ? [0] : this.facesOf(a);
       if (g !== undefined && g.draw !== null) {
-        for (let i = 0; i < g.draw.length; i += 1) this.addDraw(g.draw[i]!, k.cameras[faces[i]!]!, a.casterMask);
+        const want = a.kind === 'spot' ? 1 : k.faces.draw(g.draw, faceBits(faces));
+        for (let i = 0; i < g.draw.length; i += 1) if (a.kind === 'spot' || (want & (1 << faces[i]!)) !== 0) this.addDraw(g.draw[i]!, k.cameras[faces[i]!]!, a.casterMask);
         k.revision = revision;
         k.drawnWith.multiplyMatrices(k.cameras[0]!.projectionMatrix, k.cameras[0]!.matrixWorldInverse);
       }
@@ -460,7 +469,7 @@ export class AdapterShadowAtlas {
         shadowSeesCutaways(camera);
         return camera;
       });
-      this.kept.set(a.key, (k = { cameras, drawnWith: new THREE.Matrix4().set(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), revision: -1, pose: new Float64Array(POSE_NUMBERS).fill(Number.NaN) }));
+      this.kept.set(a.key, (k = { cameras, drawnWith: new THREE.Matrix4().set(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), revision: -1, pose: new Float64Array(POSE_NUMBERS).fill(Number.NaN), faces: new FaceRedraws() }));
     }
     return k;
   }
@@ -530,6 +539,32 @@ function poseOf(a: AtlasLight, renderer: Pick<AtlasRenderer, 'coordinateSystem' 
 }
 
 /** Face `face`'s camera of a light seen through faces: 90° at its place, turned with it, reaching its range (its reach without one). */
+/** The bits of `faces`. */
+function faceBits(faces: readonly number[]): number {
+  let bits = 0;
+  for (const f of faces) bits |= 1 << f;
+  return bits;
+}
+
+/** The faces (bits) whose views hold one of the movers' spheres (x, y, z, r). */
+export function moverFaces(cameras: readonly THREE.PerspectiveCamera[], faces: readonly number[], movers: ArrayLike<number>): number {
+  let bits = 0;
+  for (const f of faces) {
+    const c = cameras[f]!;
+    _facePv.multiplyMatrices(c.projectionMatrix, c.matrixWorldInverse);
+    _faceFrustum.setFromProjectionMatrix(_facePv, c.coordinateSystem, c.reversedDepth);
+    for (let m = 0; m + 3 < movers.length; m += 4) {
+      _sphere.center.set(movers[m]!, movers[m + 1]!, movers[m + 2]!);
+      _sphere.radius = movers[m + 3]!;
+      if (_faceFrustum.intersectsSphere(_sphere)) {
+        bits |= 1 << f;
+        break;
+      }
+    }
+  }
+  return bits;
+}
+
 function placeFaceCamera(camera: THREE.PerspectiveCamera, face: number, a: AtlasLight, renderer: Pick<AtlasRenderer, 'coordinateSystem' | 'reversedDepthBuffer'>): void {
   project(camera, 90, Math.max(SHADOW_CAMERA_NEAR * 2, a.range > 0 ? a.range : a.reach), renderer);
   placeCubeFace(camera, face, a.position, a.turn);

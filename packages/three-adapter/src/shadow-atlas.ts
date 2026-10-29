@@ -249,6 +249,8 @@ export interface ShadowAtlasDiagnostics {
   readonly drawn: number;
   readonly drawnTexels: number;
   readonly used: number;
+  /** Frames the longest-waiting dirty tile waited for its redraw (drawn this frame, or still waiting): a starved tile shows here. */
+  readonly longestWait: number;
 }
 
 /** The allocator's smallest block: the smallest tile of either kind. */
@@ -279,13 +281,14 @@ export class ShadowAtlasPlan {
   /** The last schedule's tiles and texels drawn. */
   private drawn = 0;
   private spent = 0;
+  private longest = 0;
   private last: ShadowAtlasDiagnostics;
   /** A tile was given away this frame: the light waiting for it takes it next frame. */
   private freed = false;
 
   constructor(side: number) {
     this.alloc = new QuadAllocator(side, Math.min(SMALLEST_TILE, side));
-    this.last = { side, lights: 0, tiled: 0, waiting: 0, drawn: 0, drawnTexels: 0, used: 0 };
+    this.last = { side, lights: 0, tiled: 0, waiting: 0, drawn: 0, drawnTexels: 0, used: 0, longestWait: 0 };
   }
 
   get side(): number {
@@ -344,7 +347,7 @@ export class ShadowAtlasPlan {
       }
     }
     this.scheduleRedraws(ranked, side * side * ATLAS_REDRAW_SHARE);
-    const { drawn, spent } = this;
+    const { drawn, spent, longest } = this;
     this.grants.clear();
     let tiled = 0;
     let waiting = 0;
@@ -377,7 +380,7 @@ export class ShadowAtlasPlan {
     }
     let used = 0;
     for (const h of this.held.values()) used += texelsOf(h.tile) + texelsOf(h.next);
-    this.last = { side, lights: requests.length, tiled, waiting, drawn, drawnTexels: spent, used: used / (side * side) };
+    this.last = { side, lights: requests.length, tiled, waiting, drawn, drawnTexels: spent, used: used / (side * side), longestWait: longest };
     return this.grants;
   }
 
@@ -399,13 +402,16 @@ export class ShadowAtlasPlan {
     queue.sort(byTurn);
     let spent = 0;
     let drawn = 0;
+    let longest = 0;
     for (const h of queue) {
       const t = h.next ?? h.tile!;
       const texels = t.length * t[0]!.size ** 2;
       if (drawn > 0 && spent + texels > budget) {
         h.waited += 1;
+        longest = Math.max(longest, h.waited);
         continue;
       }
+      longest = Math.max(longest, h.waited);
       spent += texels;
       drawn += 1;
       h.draw = t;
@@ -413,6 +419,7 @@ export class ShadowAtlasPlan {
     }
     this.drawn = drawn;
     this.spent = spent;
+    this.longest = longest;
   }
 
   diagnostics(): ShadowAtlasDiagnostics {
@@ -469,5 +476,42 @@ export class ShadowAtlasPlan {
       h.shown = 0;
       h.waited = 0;
     }
+  }
+}
+
+/**
+ * Which faces of a light seen through faces (a point or area light) a granted redraw draws. A face is drawn again
+ * when something moved inside it, or when what it shows still holds something that moved (so the old depth goes
+ * once the mover has left the face); the rest keep their depth. Everything is drawn when the light itself moved or
+ * turned, the static casters changed, or its tiles are new (another place in the atlas). A character walking past a
+ * lamp is in one or two of its six faces, and each face drawn is a pass over the scene: that is the saving.
+ * Pure: the caller tests which faces the frame's movers are in.
+ */
+export class FaceRedraws {
+  private stale = 0;
+  private held = 0;
+  private now = 0;
+  private full = true;
+  private lastTiles: readonly AtlasTile[] | null = null;
+
+  /**
+   * This frame's news: `changed` (the light or the static casters) and `moverFaces` (bits by face: a mover is in
+   * it now). True when a face must be drawn again though no mover is in it now (one left it).
+   */
+  note(changed: boolean, moverFaces: number): boolean {
+    if (changed) this.full = true;
+    this.now = moverFaces;
+    this.stale |= moverFaces;
+    return (this.held & ~moverFaces) !== 0;
+  }
+
+  /** A redraw of `tiles` was granted: the faces (bits of `all`) to draw; they then show what moved in them now. */
+  draw(tiles: readonly AtlasTile[], all: number): number {
+    const want = this.full || tiles !== this.lastTiles ? all : (this.stale | this.held) & all;
+    this.held = this.now & want;
+    this.stale = 0;
+    this.full = false;
+    this.lastTiles = tiles;
+    return want;
   }
 }

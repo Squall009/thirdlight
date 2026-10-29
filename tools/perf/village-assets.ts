@@ -386,6 +386,11 @@ export function clumpKitGlb(seed: number, height = 0.8): Buffer {
 /** The figure's clip length (s). */
 export const FIGURE_CLIP_SECONDS = 2;
 
+/** The figure's animator controller: its `idle` clip looping (the sway every figure of a class plays). */
+export function figureController(assetId: string, controllerId: string): Record<string, unknown> {
+  return { controllerId, name: 'Figure idle', parameters: [], states: [{ id: 'idle', name: 'Idle', motion: { kind: 'clip', clip: { assetId, clip: 'idle', duration: FIGURE_CLIP_SECONDS } }, speed: 1, loop: true }], transitions: [], entry: 'idle', events: [] };
+}
+
 /**
  * A skinned figure: a column of `sides`-sided rings, `joints` joints up a
  * chain (each `segment` m above its parent), every ring weighted to the two

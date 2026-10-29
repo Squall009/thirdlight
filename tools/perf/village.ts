@@ -23,7 +23,7 @@ import { BENCH_BEHAVIORS, EYE_HEIGHT_M, prng, type BehaviorPlan, type EntityValu
 import { publishBehaviorVia, publishBufferVia, publishFileVia, splitBySize } from './build';
 import { flightBehavior } from './level';
 import type { PerfBackend } from './backend';
-import { FIGURE_CLIP_SECONDS, figureGlb, propGlb, scatterKitGlb, type PropSpec } from './village-assets';
+import { figureController, figureGlb, propGlb, scatterKitGlb, type PropSpec } from './village-assets';
 
 /** Bump when the generated content changes (it keys the baseline). */
 export const VILLAGE_VERSION = 2;
@@ -305,7 +305,7 @@ export async function buildVillage(be: PerfBackend, projectId: string, plan = vi
   }
   await cmd('setEffect', { effect: fireEffect() });
   await cmd('setAnimator', {
-    controller: { controllerId: CONTROLLER, name: 'Figure idle', parameters: [], states: [{ id: 'idle', name: 'Idle', motion: { kind: 'clip', clip: { assetId: FIGURE_ASSET, clip: 'idle', duration: FIGURE_CLIP_SECONDS } }, speed: 1, loop: true }], transitions: [], entry: 'idle', events: [] },
+    controller: figureController(FIGURE_ASSET, CONTROLLER),
   });
   await cmd('setBlockType', { block: { blockId: 'soil', name: 'Soil', variants: [{ color: '#6f8a4a' }, { color: '#7a9050' }], shape: 'full' } });
   await cmd('setBlockType', { block: { blockId: 'rock', name: 'Rock', variants: [{ color: '#8a8580' }], shape: 'full' } });

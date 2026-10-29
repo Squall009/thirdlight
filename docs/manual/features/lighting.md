@@ -467,7 +467,8 @@ scene has a light; **light: editor** is a fixed rig).
   Diagnostics `renderer.clusters` give the lists' counts and costs, and
   `atlas` the shadow atlas's: its side, the shadowed lights, those with a
   tile and those waiting for one, tiles and texels drawn the last frame, the
-  share of the atlas in tiles and its memory (MiB); `cookies` the spots
+  share of the atlas in tiles, the frames the longest-waiting tile waited
+  for its redraw (`longestWait`) and its memory (MiB); `cookies` the spots
   projecting a cookie and `cookiesDropped` those past the cookie atlas.
 - **Lighting pass times** — an overlay in the view's corner: the level and
   tier drawn, live or saved (and why), the cache's re-lighting GPU time a
@@ -675,8 +676,9 @@ The design's limits, and what is not built yet:
   4,096, high 8,192: 16-bit depth plus an unwritten 8-bit colour
   attachment three's render targets need, 12, 48 and 192 MiB). A lamp's
   tiles are drawn when it gets them, moves, or something moves within its
-  reach, and at most a quarter of the atlas a frame; a still lamp's tiles
-  are drawn once. A spot's cookie
+  reach (a point or area light then draws only the faces the mover is in
+  or has just left), and at most a quarter of the atlas a frame, a tile
+  kept waiting three frames first; a still lamp's tiles are drawn once. A spot's cookie
   is a 256² tile of the cookie atlas, which is the area lights' tables
   texture grown to 2,048² half floats (32 MiB) while any spot projects one:
   63 cookie images at once (spots sharing an image share its tile), the

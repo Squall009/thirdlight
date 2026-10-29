@@ -8,6 +8,10 @@
  *   --renderers webgpu,webgl2   (default both)
  *   --range M                   each local light's reach (default LIGHTS_SPEC.range)
  *   --shadowed N                local lights casting a shadow (default LIGHTS_SPEC.shadowed)
+ *   --walkers N                 skinned figures walking a loop under the shadowed lamps (default none): the
+ *                               shadow atlas redrawn under motion
+ *   --tiers low,medium          each export measured once per quality level named (`?quality=<level>`; the
+ *                               engine's levels are its lighting tiers; default the project's own level)
  *   --shots DIR                 a screenshot per count and renderer (`lights-<count>-<renderer>.jpg`; default none)
  *   --query Q                   more page flags (`clusterView=1`: the light clusters' heat map)
  *   --profile-ms N              a main-thread CPU profile of N ms after the record, split by package (default none)
@@ -21,16 +25,20 @@ import { join } from 'node:path';
 
 import { PERF_ROOT, REPO, startPerfBackend, type PerfBackend } from './backend';
 import { launchGpuBrowser, measurePage, serveStatic, sourcesOf, type FrameRenderer, type FrameRunResult } from './frame-run';
+import { publishBehaviorVia, publishFileVia } from './build';
 import { PASTE_MAX } from './generate';
 import { STARTER_REMOVED } from './level';
-import { DEFAULT_LIGHTS_OPTIONS, LIGHTS_COUNTS, LIGHTS_ENVIRONMENT, LIGHTS_SUN, lightsCamera, lightsPlan, meanLightsReaching, type LightsOptions, type LightsPlan } from './lights';
+import { DEFAULT_LIGHTS_OPTIONS, LIGHTS_COUNTS, LIGHTS_ENVIRONMENT, LIGHTS_SUN, lightsCamera, lightsPlan, meanLightsReaching, WALKER_ASSET, WALKER_CONTROLLER, type LightsOptions, type LightsPlan } from './lights';
+import { figureController, figureGlb } from './village-assets';
 import { frameLine } from './village-run';
 
 interface LightsReport {
   startedAt: string;
   commit: string;
   options: LightsOptions;
-  counts: Record<string, { plan: LightsPlan['counts'] & { scenes: number; meanLightsReaching: number }; build: { ms: number; commands: number }; exportMs: number; runs: Partial<Record<FrameRenderer, FrameRunResult>> }>;
+  tiers: string[];
+  /** Runs by renderer, or by `<renderer>@<level>` with `--tiers`. */
+  counts: Record<string, { plan: LightsPlan['counts'] & { scenes: number; meanLightsReaching: number }; build: { ms: number; commands: number }; exportMs: number; runs: Record<string, FrameRunResult> }>;
 }
 
 /** Build one count's plan into a new project through the backend's commands. */
@@ -45,6 +53,11 @@ export async function buildLights(be: PerfBackend, projectId: string, plan: Ligh
     return p.command(op, args);
   };
   for (const id of STARTER_REMOVED) await cmd('deleteEntity', { entityId: id }).catch(() => undefined);
+  if (plan.walker !== null) {
+    await publishFileVia(be, projectId, cmd, { assetId: WALKER_ASSET, kind: 'model', displayName: 'Walker', bytes: figureGlb(43) });
+    await cmd('setAnimator', { controller: figureController(WALKER_ASSET, WALKER_CONTROLLER) });
+    await publishBehaviorVia(be, p, cmd, plan.walker);
+  }
   for (const scene of plan.scenes.slice(1)) await cmd('createScene', { sceneId: scene.sceneId, name: scene.name });
   if (plan.scenes.length > 1) await cmd('setStartScenes', { sceneIds: plan.scenes.map((s) => s.sceneId) });
   for (const scene of plan.scenes) {
@@ -70,7 +83,8 @@ export async function runLightsCli(argv: readonly string[]): Promise<void> {
   };
   const counts = (get('counts') ?? LIGHTS_COUNTS.join(',')).split(',').map((c) => wholeNumber('counts', c, 0, 1));
   const renderers = (get('renderers') ?? 'webgpu,webgl2').split(',') as FrameRenderer[];
-  const options: LightsOptions = { range: wholeNumber('range', get('range'), DEFAULT_LIGHTS_OPTIONS.range, 0.1), shadowed: wholeNumber('shadowed', get('shadowed'), DEFAULT_LIGHTS_OPTIONS.shadowed, 0) };
+  const options: LightsOptions = { range: wholeNumber('range', get('range'), DEFAULT_LIGHTS_OPTIONS.range, 0.1), shadowed: wholeNumber('shadowed', get('shadowed'), DEFAULT_LIGHTS_OPTIONS.shadowed, 0), walkers: wholeNumber('walkers', get('walkers'), DEFAULT_LIGHTS_OPTIONS.walkers, 0) };
+  const tiers = (get('tiers') ?? '').split(',').filter((t) => t !== '');
   const recordMs = Number(get('record-ms') ?? 10000);
   const profileMs = Number(get('profile-ms') ?? 0);
   const warmupMs = Number(get('warmup-ms') ?? 3000);
@@ -89,7 +103,7 @@ export async function runLightsCli(argv: readonly string[]): Promise<void> {
   } catch {
     /* not a git checkout */
   }
-  const report: LightsReport = { startedAt, commit, options, counts: {} };
+  const report: LightsReport = { startedAt, commit, options, tiers, counts: {} };
   const exportDirs = new Map<number, string>();
 
   // Built and exported with the backend running, then measured with it stopped (one backend or one browser at a time).
@@ -99,7 +113,7 @@ export async function runLightsCli(argv: readonly string[]): Promise<void> {
       const plan = lightsPlan(n, options);
       const build = await buildLights(be, `lights-${n}`, plan);
       const reach = meanLightsReaching(plan);
-      log(`${n}: built in ${build.ms} ms (${build.commands} commands); ${plan.counts.point} point, ${plan.counts.spot} spot, ${plan.counts.area} area, shadowed ${plan.counts.shadowedPoint} point + ${plan.counts.shadowedSpot} spot, over ${plan.scenes.length} scenes; ${reach} lights reach a floor point on average`);
+      log(`${n}: built in ${build.ms} ms (${build.commands} commands); ${plan.counts.point} point, ${plan.counts.spot} spot, ${plan.counts.area} area, shadowed ${plan.counts.shadowedPoint} point + ${plan.counts.shadowedSpot} spot, ${plan.counts.walkers} walkers, over ${plan.scenes.length} scenes; ${reach} lights reach a floor point on average`);
       const t = performance.now();
       const res = await be.post(`/api/v1/admin/projects/lights-${n}/export`, {});
       if (res.status !== 200) throw new Error(`export failed: ${JSON.stringify(res.json).slice(0, 400)}`);
@@ -116,10 +130,15 @@ export async function runLightsCli(argv: readonly string[]): Promise<void> {
       const site = await serveStatic(exportDirs.get(n)!);
       try {
         for (const r of renderers) {
-          const shot = shots !== undefined ? join(shots, `lights-${n}-${r}.jpg`) : undefined;
-          const res = await measurePage(browser, { url: `${site.url}?renderer=${r}${query !== undefined ? `&${query}` : ''}`, warmupMs, recordMs, gpuMs, profileMs, sourceOf: sourcesOf(site), ...(shot !== undefined ? { shot } : {}) });
-          report.counts[String(n)]!.runs[r] = res;
-          log(`${frameLine(`${n} lights ${r}`, res)}, missed ${res.frames.missed ?? '-'} of ${res.frames.n}; clusters ${res.rendererChoice?.clusters ?? '-'}; texture units ${JSON.stringify(res.textureUnits ?? null)}`);
+          for (const tier of tiers.length > 0 ? tiers : [null]) {
+            const key = tier === null ? r : `${r}@${tier}`;
+            const shot = shots !== undefined ? join(shots, `lights-${n}-${key.replace('@', '-')}.jpg`) : undefined;
+            const flags = [...(tier !== null ? [`quality=${tier}`] : []), ...(query !== undefined ? [query] : [])].map((f) => `&${f}`).join('');
+            const res = await measurePage(browser, { url: `${site.url}?renderer=${r}${flags}`, warmupMs, recordMs, gpuMs, profileMs, sourceOf: sourcesOf(site), ...(shot !== undefined ? { shot } : {}) });
+            report.counts[String(n)]!.runs[key] = res;
+            log(`${frameLine(`${n} lights ${key}`, res)}, missed ${res.frames.missed ?? '-'} of ${res.frames.n}; clusters ${res.rendererChoice?.clusters ?? '-'}; shadow atlas ${res.rendererChoice?.atlas ?? '-'}; texture units ${JSON.stringify(res.textureUnits ?? null)}`);
+            if (res.gpu?.available === true) log(`${n} lights ${key} passes (ms in the frames it ran / frames of ${res.gpu.frames}): ${res.gpu.passes.map((q) => `${q.label} ${q.msPerFrame}/${q.frames}`).join(', ')}`);
+          }
         }
       } finally {
         await site.close();

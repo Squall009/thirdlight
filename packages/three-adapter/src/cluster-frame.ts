@@ -31,7 +31,10 @@
  *   the scenes it happened in.
  * - **Diagnostics** (`renderer.clusters`): lights, packed, indices,
  *   overflow, the shadow atlas's (`atlas`, also `data-tl-shadow-atlas` on the
- *   canvas: side, tiled, waiting, tiles drawn, shadowed lights handed in), the cookies drawn and those
+ *   canvas: side, tiled, waiting, tiles drawn, shadowed lights handed in, then the tiles drawn a frame
+ *   and their share of the atlas as means over `CLUSTER_STATS_FRAMES` frames, the longest a dirty tile
+ *   waited for its redraw in those frames and since the page began: a perf run reads redraws under
+ *   motion from them), the cookies drawn and those
  *   past the cookie atlas's tiles, and the gathering's, build's
  *   and upload's main-thread ms and bytes a frame
  *   (means over the last `CLUSTER_STATS_FRAMES` frames, also on the canvas
@@ -157,6 +160,10 @@ export class AdapterClusters {
   /** The entries `shadowed` takes, kept from frame to frame (their vectors too): gathering allocates nothing per light. */
   private readonly shadowPool: ShadowEntry[] = [];
   private atlasWritten = '';
+  /** The atlas's redraws summed toward the next means, the last means, and the longest wait seen at all. */
+  private atlasSums = { frames: 0, drawn: 0, share: 0, longest: 0 };
+  private atlasMeans = '0|0|0';
+  private atlasLongest = 0;
   /** The cookie atlas, this frame's cookie spots (slot, texture, rank) and the tile each texture got. */
   private readonly cookieAtlas: CookieAtlas;
   private readonly cookieSpots: { slot: number; texture: THREE.Texture }[] = [];
@@ -317,7 +324,17 @@ export class AdapterClusters {
   private writeAtlas(): void {
     const a = this.atlas.diagnostics();
     if (a === null) return;
-    const line = `${a.side}|${a.tiled}|${a.waiting}|${a.drawn}|${a.lights}`;
+    const s = this.atlasSums;
+    s.frames += 1;
+    s.drawn += a.drawn;
+    s.share += a.drawnTexels / (a.side * a.side);
+    s.longest = Math.max(s.longest, a.longestWait);
+    this.atlasLongest = Math.max(this.atlasLongest, a.longestWait);
+    if (s.frames >= CLUSTER_STATS_FRAMES) {
+      this.atlasMeans = `${(s.drawn / s.frames).toFixed(2)}|${(s.share / s.frames).toFixed(4)}|${s.longest}`;
+      s.frames = s.drawn = s.share = s.longest = 0;
+    }
+    const line = `${a.side}|${a.tiled}|${a.waiting}|${a.drawn}|${a.lights}|${this.atlasMeans}|${this.atlasLongest}`;
     if (line === this.atlasWritten) return;
     this.atlasWritten = line;
     this.d.canvas?.setAttribute?.('data-tl-shadow-atlas', line);

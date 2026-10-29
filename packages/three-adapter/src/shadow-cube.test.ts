@@ -4,12 +4,16 @@
  * face table is three's own (read from three's `PointShadowNode`), and for
  * random points round a light, turned or not, the face picked is the one
  * whose camera (placed as three places a point light's face camera) sees the
- * point, at the place and depth that camera projects it to.
+ * point, at the place and depth that camera projects it to. A mover
+ * walking past a lamp has the faces it is in drawn again, and the faces it
+ * left, and no others: no face keeps its old depth.
  */
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 
-import { CUBE_DIRECTIONS, CUBE_UPS, cubeDepthTerms, cubeFaceOf, placeCubeFace } from './shadow-cube';
+import { FaceRedraws } from './shadow-atlas';
+import { moverFaces } from './shadow-atlas-draw';
+import { CUBE_DIRECTIONS, CUBE_FACES, CUBE_UPS, cubeDepthTerms, cubeFaceOf, placeCubeFace } from './shadow-cube';
 
 /** A `[ new Vector3( x, y, z ), … ]` table of three's source, by its name. */
 function threeTable(source: string, name: string): number[][] {
@@ -54,5 +58,51 @@ describe('the shadow atlas cube faces', () => {
         expect(a + b / f.d).toBeCloseTo((v.z / v.w) * 0.5 + 0.5, 5);
       }
     }
+  });
+
+  it('redraw the faces a walker is in or was last drawn in, so none keeps its old depth, and only those', () => {
+    const lamp = new THREE.Vector3(0, 2.5, 0);
+    const cameras = Array.from({ length: CUBE_FACES }, (_, f) => {
+      const c = new THREE.PerspectiveCamera(90, 1, 0.5, 8);
+      c.updateProjectionMatrix();
+      placeCubeFace(c, f, lamp, null);
+      return c;
+    });
+    const faces = [0, 1, 2, 3, 4, 5];
+    const faceAlong = (x: number, y: number, z: number): number => CUBE_DIRECTIONS.findIndex((d) => d[0] === x && d[1] === y && d[2] === z);
+    const sphere = (x: number, z: number): number[] => [x, 0.9, z, 0.5];
+    // Under the lamp: the face looking down only; far off along +x at its height: the face looking along +x.
+    expect(moverFaces(cameras, faces, sphere(0, 0))).toBe(1 << faceAlong(0, -1, 0));
+    expect(moverFaces(cameras, faces, [6, 2.5, 0, 0.3])).toBe(1 << faceAlong(1, 0, 0));
+    // A walker crosses under the lamp; every third frame the atlas makes it wait (the redraw budget).
+    const redraws = new FaceRedraws();
+    const tiles = [{ x: 0, y: 0, size: 64 }];
+    const shows: (number[] | null)[] = faces.map(() => null);
+    let drawn = 0;
+    let granted = 0;
+    for (let i = 0; i <= 280; i += 1) {
+      const at = sphere(-7 + i * 0.05, 1);
+      const now = moverFaces(cameras, faces, at);
+      const dirty = redraws.note(i === 0, now) || now !== 0 || i === 0;
+      if (!dirty || i % 3 === 2) continue;
+      granted += 1;
+      const want = redraws.draw(tiles, 0b111111);
+      for (const f of faces) {
+        if ((want & (1 << f)) === 0) continue;
+        drawn += 1;
+        shows[f] = (now & (1 << f)) !== 0 ? at : null;
+      }
+      // After a redraw every face shows the walker where it is now, or nothing.
+      for (const f of faces) expect(shows[f], `frame ${i} face ${f}`).toEqual((now & (1 << f)) !== 0 ? at : null);
+    }
+    expect(granted).toBeGreaterThan(150);
+    // The first redraw draws all six; then about two faces a redraw, not six.
+    expect(drawn / granted).toBeLessThan(2.5);
+    // The lamp moved: all six again.
+    redraws.note(true, 0);
+    expect(redraws.draw(tiles, 0b111111)).toBe(0b111111);
+    // New tiles (another place in the atlas): all six again.
+    redraws.note(false, 1);
+    expect(redraws.draw([{ x: 64, y: 0, size: 64 }], 0b111111)).toBe(0b111111);
   });
 });

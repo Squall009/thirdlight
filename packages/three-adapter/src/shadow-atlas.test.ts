@@ -266,6 +266,7 @@ describe('the shadow atlas plan', () => {
     const longest = new Map<object, number>();
     let newcomerDrawn = -1;
     let newcomerShown = -1;
+    let reported = 0;
     for (let f = 0; f < 120; f += 1) {
       // Half way, a fourth lamp comes into view: its new tile is drawn, then shown, within the bound too.
       const g = plan.update(lamps(true, f >= 60 ? [req(3, 0.3, true)] : []), 1 / 60);
@@ -277,6 +278,8 @@ describe('the shadow atlas plan', () => {
         longest.set(key, Math.max(longest.get(key) ?? 0, f - (lastDrawn.get(key) ?? (key === keys[3] ? 59 : -1))));
         lastDrawn.set(key, f);
       }
+      expect(plan.diagnostics()).toMatchObject({ drawn: tiles, drawnTexels: spent });
+      reported = Math.max(reported, plan.diagnostics().longestWait);
       const n = g.get(keys[3]!);
       if (n !== undefined && n.draw !== null && newcomerDrawn < 0) newcomerDrawn = f;
       if (n !== undefined && n.intensity > 0 && newcomerShown < 0) {
@@ -289,6 +292,8 @@ describe('the shadow atlas plan', () => {
       expect(longest.get(k)!, `light ${(k as { light: number }).light}'s longest wait`).toBeLessThanOrEqual(bound);
     }
     expect(newcomerDrawn - 60).toBeLessThanOrEqual(bound);
+    // The diagnostics' longest wait is the frames between draws less the frame drawn.
+    expect(reported).toBe(Math.max(...longest.values()) - 1);
     expect(newcomerShown).toBeGreaterThanOrEqual(newcomerDrawn);
     // With four tiles that each fill the share the turns go round; with two, the best lamp still redraws most frames.
     let best = 0;

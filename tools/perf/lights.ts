@@ -14,11 +14,20 @@
  * - A dim sun and a dark sky, so the local lights carry the picture.
  * - The floor is static; the pillars are not (so the lights reach them per
  *   pixel whatever the static surfaces' light path is).
+ * - `walkers` skinned figures (none by default) walk one loop under the
+ *   lamps that cast a shadow by default, spread evenly along it: each is a
+ *   mover in a shadowed lamp's reach, so the lamps' shadow tiles are
+ *   redrawn while they walk (the shadow atlas under motion; a figure
+ *   standing still counts too, since its skin moves). With `--shadowed 0`
+ *   they still walk under those lamps: the run without the atlas to
+ *   compare with.
  *
  * Every light is in the one scene. Pure: the plan is fixed for a count and
  * its options.
  */
-import type { EntityValue } from './generate';
+import { DEFAULT_FIXED_STEP_HZ } from '@thirdlight/project-model';
+
+import type { BehaviorPlan, EntityValue } from './generate';
 import { lookRotation, LOOK_POST } from './look';
 
 type Vec3 = [number, number, number];
@@ -41,6 +50,8 @@ export const LIGHTS_SPEC = {
   /** One spot per this many local lights; the rest are points. */
   spotEvery: 3,
   intensity: 6,
+  /** A walker's pace (m/s) along its loop. */
+  walkSpeed: 1.4,
   eye: [0, 24, 36] as Vec3,
   at: [0, 0, -2] as Vec3,
 } as const;
@@ -48,9 +59,15 @@ export const LIGHTS_SPEC = {
 export interface LightsOptions {
   range: number;
   shadowed: number;
+  /** Skinned figures walking the shadowed lamps' loop (0: none). */
+  walkers: number;
 }
 
-export const DEFAULT_LIGHTS_OPTIONS: LightsOptions = { range: LIGHTS_SPEC.range, shadowed: LIGHTS_SPEC.shadowed };
+export const DEFAULT_LIGHTS_OPTIONS: LightsOptions = { range: LIGHTS_SPEC.range, shadowed: LIGHTS_SPEC.shadowed, walkers: 0 };
+
+/** The walkers' model and animator (lights-run.ts publishes them; the figure is the village's). */
+export const WALKER_ASSET = 'lights-figure';
+export const WALKER_CONTROLLER = 'lights-figure-idle';
 
 export interface LightsScene {
   sceneId: string;
@@ -65,7 +82,11 @@ export interface LightsPlan {
   scenes: LightsScene[];
   /** The local lights' places and reach, for the coverage figure. */
   locals: { at: Vec3; kind: 'point' | 'spot'; shadowed: boolean }[];
-  counts: { point: number; spot: number; area: number; shadowedPoint: number; shadowedSpot: number };
+  counts: { point: number; spot: number; area: number; shadowedPoint: number; shadowedSpot: number; walkers: number };
+  /** The walkers' loop on the floor (x, z): under each lamp that casts a shadow by default in turn, round the field's middle. */
+  walk: [number, number][];
+  /** The walkers' script (null without walkers). */
+  walker: BehaviorPlan | null;
   camera: { eye: Vec3; at: Vec3 };
 }
 
@@ -141,7 +162,7 @@ export function lightsPlan(count: number, options: LightsOptions = DEFAULT_LIGHT
   const shadowed = spreadIndexes(count, options.shadowed);
   const locals: LightsPlan['locals'] = [];
   const lightEntities: EntityValue[] = [];
-  const counts = { point: 0, spot: 0, area: S.areaRects + S.areaLines, shadowedPoint: 0, shadowedSpot: 0 };
+  const counts = { point: 0, spot: 0, area: S.areaRects + S.areaLines, shadowedPoint: 0, shadowedSpot: 0, walkers: 0 };
   let shadowN = 0;
   for (let i = 0; i < count; i += 1) {
     const c = cells[i]!;
@@ -158,8 +179,80 @@ export function lightsPlan(count: number, options: LightsOptions = DEFAULT_LIGHT
     locals.push({ at, kind: k, shadowed: casts });
     lightEntities.push({ id: `light-${i + 1}`, name: `${k === 'spot' ? 'Spot' : 'Point'} ${i + 1}`, components: { transform: T(at), light } });
   }
-  const scenes: LightsScene[] = [{ sceneId: 'scene-main', name: 'Main', entities: [...main, ...lightEntities] }];
-  return { count, options, scenes, locals, counts, camera: { eye: S.eye, at: S.at } };
+  const walk = walkLoop([...spreadIndexes(count, S.shadowed)].map((i) => locals[i]!.at));
+  const walker = options.walkers > 0 && walk.length > 0 ? walkBehavior(walk) : null;
+  const walkers: EntityValue[] = [];
+  for (let i = 0; walker !== null && i < options.walkers; i += 1) {
+    const phase = r3(i / options.walkers);
+    walkers.push({ id: `walker-${i + 1}`, name: `Walker ${i + 1}`, components: { transform: T(walkAt(walk, phase * loopLength(walk))), model: { asset: { assetId: WALKER_ASSET } }, animator: { controller: WALKER_CONTROLLER }, behavior: { behaviorId: walker.behaviorId, values: { phase } } } });
+    counts.walkers += 1;
+  }
+  const scenes: LightsScene[] = [{ sceneId: 'scene-main', name: 'Main', entities: [...main, ...lightEntities, ...walkers] }];
+  return { count, options, scenes, locals, counts, walk, walker, camera: { eye: S.eye, at: S.at } };
+}
+
+/** The floor points under `lamps`, in order round the field's middle (a loop with no crossings for lamps spread round it). */
+function walkLoop(lamps: readonly Vec3[]): [number, number][] {
+  return lamps
+    .map((at): [number, number] => [at[0], at[2]])
+    .sort((a, b) => Math.atan2(a[1], a[0]) - Math.atan2(b[1], b[0]));
+}
+
+function loopLength(walk: readonly [number, number][]): number {
+  let len = 0;
+  for (let i = 0; i < walk.length; i += 1) {
+    const [a, b] = [walk[i]!, walk[(i + 1) % walk.length]!];
+    len += Math.hypot(b[0] - a[0], b[1] - a[1]);
+  }
+  return len;
+}
+
+/** The floor point `d` metres along the loop (wrapping); the walkers' script does the same sum. */
+export function walkAt(walk: readonly [number, number][], d: number): Vec3 {
+  const len = loopLength(walk);
+  let left = len > 0 ? ((d % len) + len) % len : 0;
+  for (let i = 0; i < walk.length; i += 1) {
+    const [a, b] = [walk[i]!, walk[(i + 1) % walk.length]!];
+    const seg = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (left <= seg || i === walk.length - 1) {
+      const t = seg > 0 ? Math.min(1, left / seg) : 0;
+      return [a[0] + (b[0] - a[0]) * t, 0, a[1] + (b[1] - a[1]) * t];
+    }
+    left -= seg;
+  }
+  return [0, 0, 0];
+}
+
+/** The walkers' script: each step, its place `phase` of the way round the loop plus the distance walked since the start. */
+function walkBehavior(walk: readonly [number, number][]): BehaviorPlan {
+  return {
+    behaviorId: 'lights-walk',
+    displayName: 'Lights walker',
+    ownedTransforms: ['@self'],
+    declaration: { properties: [{ key: 'phase', label: 'Start (share of the loop)', type: 'number', default: 0, min: 0, max: 1, step: 0.01 }] },
+    source: [
+      `const WALK: [number, number][] = ${JSON.stringify(walk.map(([x, z]) => [r3(x), r3(z)]))};`,
+      `const LEN = ${r3(loopLength(walk))};`,
+      'export default {',
+      '  instantiate() { return {}; },',
+      '  step(state: any, ctx: any) {',
+      "    if (ctx.phase !== 'transform') return;",
+      `    let left = (ctx.properties.phase * LEN + (ctx.stepIndex / ${DEFAULT_FIXED_STEP_HZ}) * ${LIGHTS_SPEC.walkSpeed}) % LEN;`,
+      '    for (let i = 0; i < WALK.length; i += 1) {',
+      '      const a = WALK[i], b = WALK[(i + 1) % WALK.length];',
+      '      const seg = Math.hypot(b[0] - a[0], b[1] - a[1]);',
+      '      if (left <= seg || i === WALK.length - 1) {',
+      '        const t = seg > 0 ? Math.min(1, left / seg) : 0;',
+      '        const yaw = Math.atan2(b[0] - a[0], b[1] - a[1]);',
+      "        ctx.emit({ kind: 'transform', entityId: ctx.entityId, position: { x: a[0] + (b[0] - a[0]) * t, y: 0, z: a[1] + (b[1] - a[1]) * t }, quaternion: [0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2)] });",
+      '        return;',
+      '      }',
+      '      left -= seg;',
+      '    }',
+      '  },',
+      '};',
+    ].join('\n'),
+  };
 }
 
 /** The mean number of local lights whose reach covers a floor point, over a grid of the field (cones ignored). */

@@ -502,9 +502,11 @@ export interface PageSample {
   /**
    * What drew: the canvas's data-tl-renderer attributes, its rooms' (`data-tl-rooms`: rooms seen, draws hidden,
    * mesh–light pairs lit), occlusion culling's (`data-tl-occlusion`: path|occludees|tested|culled|stand-ins drawn) and
-   * the light clusters' (`data-tl-clusters`: lights|packed|indices|overflow|gather, build, upload ms|upload bytes a frame).
+   * the light clusters' (`data-tl-clusters`: lights|packed|indices|overflow|gather, build, upload ms|upload bytes a frame)
+   * and the shadow atlas's (`data-tl-shadow-atlas`: side|tiled|waiting|drawn|lights|tiles drawn a frame|their share of
+   * the atlas|longest wait in frames, means over the last 60 frames|longest wait since the page began).
    */
-  renderer: { requested?: string; backend?: string; state?: string; reason?: string; rooms?: string; occlusion?: string; clusters?: string } | null;
+  renderer: { requested?: string; backend?: string; state?: string; reason?: string; rooms?: string; occlusion?: string; clusters?: string; atlas?: string } | null;
   nav: { domContentLoaded: number; load: number } | null;
   fetches: PerfPageState['fetches'];
   /** WebGPU calls per drawn frame over the window (null: no WebGPU work seen). */
@@ -564,7 +566,7 @@ export async function readSample(stop: boolean): Promise<PageSample> {
       : 'available';
   const canvas = [...document.querySelectorAll('canvas[data-tl-renderer]')].sort((a, b) => b.clientWidth * b.clientHeight - a.clientWidth * a.clientHeight)[0] as HTMLCanvasElement | undefined;
   const renderer = canvas !== undefined
-    ? { requested: canvas.dataset['tlRendererRequested'], backend: canvas.dataset['tlRenderer'], state: canvas.dataset['tlRendererState'], reason: canvas.dataset['tlRendererReason'], ...(canvas.dataset['tlRooms'] !== undefined ? { rooms: canvas.dataset['tlRooms'] } : {}), ...(canvas.dataset['tlOcclusion'] !== undefined ? { occlusion: canvas.dataset['tlOcclusion'] } : {}), ...(canvas.dataset['tlClusters'] !== undefined ? { clusters: canvas.dataset['tlClusters'] } : {}) }
+    ? { requested: canvas.dataset['tlRendererRequested'], backend: canvas.dataset['tlRenderer'], state: canvas.dataset['tlRendererState'], reason: canvas.dataset['tlRendererReason'], ...(canvas.dataset['tlRooms'] !== undefined ? { rooms: canvas.dataset['tlRooms'] } : {}), ...(canvas.dataset['tlOcclusion'] !== undefined ? { occlusion: canvas.dataset['tlOcclusion'] } : {}), ...(canvas.dataset['tlClusters'] !== undefined ? { clusters: canvas.dataset['tlClusters'] } : {}), ...(canvas.dataset['tlShadowAtlas'] !== undefined ? { atlas: canvas.dataset['tlShadowAtlas'] } : {}) }
     : null;
   const navEntry = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
   return {
