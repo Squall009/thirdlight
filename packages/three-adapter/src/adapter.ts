@@ -54,6 +54,7 @@ import { createSceneLights } from './lights-shadows';
 import { LOD_TUNING_KEY } from './lod-switch';
 import { OcclusionCuller } from './occlusion';
 import { OCCLUSION_ORACLE_KEY, runOcclusionOracle, type OracleOptions } from './occlusion-oracle';
+import { TEXTURE_UNIT_PROBLEM_KEY } from './texture-unit-guard';
 import { PrecompileGate } from './precompile-gate';
 import { createProbeLightingHost } from './probe-grids';
 import { createQualityControl, deviceGpuInfoOf } from './quality-control';
@@ -124,6 +125,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   scene.userData[LOD_TUNING_KEY] = graph.lodTuning;
   // The perf harness measures how much of the view's drawn work no pixel shows (occlusion-oracle.ts).
   scene.userData[OCCLUSION_ORACLE_KEY] = (renderer: Parameters<typeof runOcclusionOracle>[0], camera: THREE.Camera, options?: OracleOptions) => runOcclusionOracle(renderer, scene, camera, options);
+  // A material past the GPU's texture units drawn in this scene is the host's problem to show (texture-unit-guard.ts).
+  if (opts.textureUnitProblem !== undefined) scene.userData[TEXTURE_UNIT_PROBLEM_KEY] = opts.textureUnitProblem;
   // The values scripts set go on one object's own meshes (its child objects have nodes of their own).
   materials.trackRuntime((entityId) => {
     const out: THREE.Object3D[] = [];

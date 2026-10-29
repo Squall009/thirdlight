@@ -13,6 +13,10 @@
  *   specular intensity: the sun's highlight on a black sphere at F0 0.024 is
  *   dimmer than at the default 0.04 and matches a GLB material carrying
  *   KHR_materials_specular 0.6.
+ * - a graph sampling more textures than the GPU allows in one shader: no
+ *   pipeline is made for it (no validation or link error), the object draws a
+ *   plain fallback, and the scene's host hears a `texture_units` problem
+ *   naming the material and the object.
  *
  * - Custom-lit outputs and the lighting inputs: N·L of the
  *   main light quantized into two bands (two tones on a sphere), the main
@@ -51,6 +55,7 @@ interface CaseResult {
   probes: Record<string, [number, number]>;
   kinds?: string[];
   problems?: Record<string, { severity: string; message: string }[] | null>;
+  textureUnitProblems?: { code: string; message: string }[];
   sharedMaterial?: boolean;
 }
 
@@ -129,6 +134,21 @@ test('known values: constant, texture, per-object parameter, fresnel, vertex off
   // The lifted quad draws 1.2 m above its place, and not where its lower half was.
   expect(near(p('liftedAt'), [255, 255, 255], 3), JSON.stringify(p('liftedAt'))).toBe(true);
   expect(near(p('liftedFrom'), BACKGROUND, 3), JSON.stringify(p('liftedFrom'))).toBe(true);
+});
+
+test('a graph sampling more textures than the GPU allows draws a plain fallback and says so, with no shader or pipeline error', async ({ page }) => {
+  test.setTimeout(60_000);
+  const { img, result, errors } = await render(page, 'units');
+  console.log(`[material-graph-render] ${backendOf()} units: ${JSON.stringify(result.textureUnitProblems)} sphere ${JSON.stringify(px(img, result.probes['sphere']!))}`);
+  expect(errors).toEqual([]);
+  const told = result.textureUnitProblems ?? [];
+  expect(told.length).toBeGreaterThan(0);
+  for (const t of told) {
+    expect(t.code).toBe('texture_units');
+    expect(t.message).toMatch(/^Material many on many-sphere samples \d+ textures in one shader where this GPU allows \d+/);
+  }
+  // The sphere is drawn (its fallback, lit), not left out.
+  expect(near(px(img, result.probes['sphere']!), BACKGROUND, 6)).toBe(false);
 });
 
 test('specular: intensity 0.6 dims the highlight, as a GLB with KHR_materials_specular 0.6 draws it', async ({ page }) => {

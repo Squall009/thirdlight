@@ -2,7 +2,7 @@
  * The material-graph render harness (browser code, bundled by
  * `material-graph-render.e2e.ts` with esbuild). One case per page load:
  *
- *   index.html?backend=webgl2|webgpu&case=kinds|values|specular|lit
+ *   index.html?backend=webgl2|webgpu&case=kinds|values|specular|lit|units
  *
  * Graph materials go through the real three-adapter code
  * (`createRenderer`, `createMaterialLibrary` with graph definitions), with a
@@ -43,6 +43,7 @@ import {
   type MaterialDefLike,
   type MaterialGraphLike,
   type RendererPreference,
+  TEXTURE_UNIT_PROBLEM_KEY,
 } from '@thirdlight/three-adapter';
 
 export const SIZE = 256;
@@ -61,10 +62,13 @@ function dataTexture(w: number, h: number, fill: (x: number, y: number) => [numb
   t.needsUpdate = true;
   return t;
 }
+/** Textures one graph samples in the `units` case: past any GPU's fragment-stage limit (16 on WebGPU's floor, 32 on WebGL 2's common one). */
+const MANY_TEXTURES = 40;
 const TEXTURES: Record<string, () => THREE.Texture> = {
   // 2 × 2 checker: red / blue quadrants.
   checker: () => dataTexture(2, 2, (x, y) => ((x + y) % 2 === 0 ? [230, 40, 40, 255] : [40, 60, 230, 255])),
   flatNormal: () => dataTexture(2, 2, () => [128, 128, 255, 255]),
+  ...Object.fromEntries(Array.from({ length: MANY_TEXTURES }, (_, i) => [`t${i}`, () => dataTexture(2, 2, () => [4 + i, 4, 4, 255])])),
 };
 
 const canvas = document.querySelector('canvas') as HTMLCanvasElement;
@@ -99,6 +103,28 @@ const SAMPLING = new Set(['sampleTexture', 'normalMap', 'triplanar']);
 const PIXEL_ONLY = new Set(['sceneDepth']);
 
 const cases: Record<string, () => void | Promise<void>> = {
+  units() {
+    // One PBR graph adding up 40 sampled textures into its base colour: more than the GPU allows in one shader.
+    const nodes: MaterialGraphLike['nodes'][number][] = [{ id: 'out', type: 'pbr', position: [0, 0] }];
+    const edges: MaterialGraphLike['edges'][number][] = [];
+    for (let i = 0; i < MANY_TEXTURES; i++) {
+      nodes.push({ id: `s${i}`, type: 'sampleTexture', position: [0, 0], data: { texture: `t${i}` } });
+      if (i === 0) continue;
+      nodes.push({ id: `a${i}`, type: 'add', position: [0, 0] });
+      edges.push({ id: `ea${i}`, from: { node: i === 1 ? 's0' : `a${i - 1}`, port: i === 1 ? 'rgb' : 'out' }, to: { node: `a${i}`, port: 'a' } });
+      edges.push({ id: `eb${i}`, from: { node: `s${i}`, port: 'rgb' }, to: { node: `a${i}`, port: 'b' } });
+    }
+    edges.push({ id: 'base', from: { node: `a${MANY_TEXTURES - 1}`, port: 'out' }, to: { node: 'out', port: 'baseColor' } });
+    library.setMaterials([graphDef('many', { nodes, edges })]);
+    const told: { code: string; message: string }[] = [];
+    scene.userData[TEXTURE_UNIT_PROBLEM_KEY] = (code: string, message: string) => told.push({ code, message });
+    const s = new THREE.Mesh(new THREE.SphereGeometry(1.5, 32, 16), src());
+    s.name = 'many-sphere';
+    scene.add(s);
+    library.apply(s, { '*': 'many' });
+    probe('sphere', new THREE.Vector3(0, 0, 0));
+    extra = { textureUnitProblems: told };
+  },
   kinds() {
     const kinds = Object.keys(COMPILER_NODES).filter((t) => !SKIP.has(t));
     const defs: MaterialDefLike[] = [];

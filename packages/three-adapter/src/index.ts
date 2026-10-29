@@ -341,6 +341,7 @@ export { BAKE_TIMEOUT_MS, type SurfaceBakeOptions, type SurfaceBakeOutcome } fro
 export { LIGHTING_VIEW_OFF, type LightingReport, type LightingViewCounts, type LightingViewState } from './adapter-lighting-views';
 export { createProbeGridSet, createProbeLightingHost, type LoadedProbeTile, type ProbeBakeLike, type ProbeGridSet, type ProbeGridsObservation, type ProbeLightingHost, type ProbeTileEntry } from './probe-grids';
 export { PROBE_ATLAS_SLACK, PROBE_RESIDENT_BYTES } from './probe-residency';
+export { fragmentTexturesOf, TEXTURE_UNIT_PROBLEM_KEY, textureUnitGuardOf, type TextureUnitGuard } from './texture-unit-guard';
 export { PROBE_PACK_MAX_EDGE } from './probe-atlas';
 // Poses a model from an animator pose (the Animator window's live preview).
 export { createAnimatorPlayer, type AnimatorPlayer, type AnimatorPlayerOptions, type AnimatorPoseLike, type RenderedNodePose } from './animator-player';

@@ -885,7 +885,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           // Occlusion culling on the setting's path unless the page pins one (?occlusion=off|hiz|pyramid, a diagnostic comparison).
           occlusion: occlusionFromUrl(pageSearch()),
           occlusionPyramid: occlusionPyramidFromUrl(pageSearch()),
-          ...(o.onProblem !== undefined ? { occlusionProblem: o.onProblem } : {}),
+          ...(o.onProblem !== undefined ? { occlusionProblem: o.onProblem, textureUnitProblem: o.onProblem } : {}),
           ...(o.keepGeneratedArchitecture === true ? ((store) => (store !== null ? { architectureStore: store } : {}))(browserArchitectureStore()) : {}),
           // The style and preset graphs outlines are made by.
           ...(manifest.architectureStyles !== undefined ? { architectureStyles: manifest.architectureStyles } : {}),

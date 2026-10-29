@@ -39,6 +39,7 @@ import { registerClusterHeat } from './cluster-heat';
 import { registerClusteredLights } from './cluster-lights';
 import { registerProjectedDecals } from './projected-decals';
 import { installLocalLightModes } from './local-lights';
+import { installTextureUnitGuard } from './texture-unit-guard';
 import { installProgramRelease, installVaoSweep, trackRenderer, trackTextureListeners } from './dispose';
 import { buildKeepFromUrl, installBuildMarks, installBuildReuse, type BuildReuse } from './node-builds';
 import { installTexelReads } from './texel-reads';
@@ -359,6 +360,8 @@ const BROWSER_DEPS: RendererFactoryDeps = {
     registerReflections(r as never);
     // And objects that take no local light (their material's mode variant per draw).
     installLocalLightModes(r as never);
+    // Last, so it sees each draw's material as the scene gave it: a program past the GPU's texture units draws a fallback.
+    installTextureUnitGuard(r as never);
     return r as unknown as NodeRendererLike;
   },
   probe: (gpu, secure, timeoutMs) => probeWebGpu(gpu, secure, timeoutMs),

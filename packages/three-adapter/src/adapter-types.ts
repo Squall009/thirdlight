@@ -91,6 +91,8 @@ export interface SceneAdapterOptions {
   occlusionPyramid?: number | null;
   /** A problem for the game's author from occlusion culling (its setting on a renderer that cannot cull), once. */
   occlusionProblem?: (code: string, message: string) => void;
+  /** A problem for the game's author from a material whose shader samples more textures than the GPU allows (it draws a plain fallback), once a material. */
+  textureUnitProblem?: (code: string, message: string) => void;
   /** Where made architecture chunks are kept across visits (an exported game's IndexedDB; absent: memory only). */
   architectureStore?: import('./architecture-view').ArchitectureChunkStore;
   /** The style and preset graphs generated architecture's outlines are made by (absent: the engine's starters only). */
