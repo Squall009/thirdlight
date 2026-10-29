@@ -36,7 +36,10 @@ one): the server needs no bake host. What a bake does:
 npm start                      # = node tools/start.mjs
 ```
 
-On the first run this builds `dist/` if needed, creates the data root
+On the first run this builds `dist/` if needed (the editor, the Play bundles,
+and `dist/export-engine/`, the engine sources frozen at build time that every
+export bundles from, so an export never reads the source tree and always
+matches what Play serves), creates the data root
 `~/thirdlight` (projects under `projects/`, exports under `exports/`,
 backups under `backups/`), writes the owner token to
 `~/thirdlight/owner-token` (mode 0600) and starts the backend on ports 8501

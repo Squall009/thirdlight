@@ -94,7 +94,9 @@ export function ownerToken(dataRoot) {
 export function ensureBuilt(force) {
   const backend = join(ENGINE_ROOT, 'dist', 'backend', 'backend.mjs');
   const editor = join(ENGINE_ROOT, 'dist', 'editor', 'index.html');
-  if (!force && existsSync(backend) && existsSync(editor)) return;
+  // Exports bundle from the engine the build froze there; a dist/ from before that builds again.
+  const exportEngine = join(ENGINE_ROOT, 'dist', 'export-engine');
+  if (!force && existsSync(backend) && existsSync(editor) && existsSync(exportEngine)) return;
   process.stderr.write(`start: building dist/ (${force ? '--build' : 'not built yet'})\n`);
   const r = spawnSync('npm', ['run', 'build'], { cwd: ENGINE_ROOT, stdio: 'inherit', env: { ...process.env, NODE_ENV: 'development' } });
   if (r.status !== 0) {

@@ -166,13 +166,16 @@ function linkedPackageJson(metafile: { inputs: Record<string, unknown> }, pkg: s
   return null;
 }
 
-/** Build one probe bundle (stdin entry, the export's options without a map: a probe has no file). */
-async function probeBundle(ctx: ExportContext, contents: string, sourcefile: string): Promise<Uint8Array | null> {
+/**
+ * Build one probe bundle (stdin entry, the export's options without a map: a probe has no file).
+ * It resolves from the engine the bundles came from (`engineDir`), so it links the same packages.
+ */
+async function probeBundle(engineDir: string, contents: string, sourcefile: string): Promise<Uint8Array | null> {
   try {
     const r = await build({
       ...EXPORT_BUILD_OPTIONS,
       sourcemap: false,
-      stdin: { contents, resolveDir: ctx.repoRoot, sourcefile },
+      stdin: { contents, resolveDir: engineDir, sourcefile },
       write: false,
       plugins: [THREE_WEBGPU_ONLY_PLUGIN as never],
     });
@@ -240,6 +243,7 @@ export async function exportProjectM3(
   }
   // The workers and the physics backend, each its own script next to the bootstrap's (same directory, same rules).
   const here = ctx.fs.join(m3BootstrapEntry, '..');
+  const engineDir = ctx.fs.join(here, '..', '..', '..');
   const read = (path: string): Uint8Array => ctx.fs.read(path);
   // The view's worker (block chunks meshed, terrain tiles packed, architecture generated), for a game with block layers, terrain or
   // generated architecture (a scene or a prefab names one); without it chunks mesh, tiles pack and architecture generates on the page.
@@ -262,12 +266,12 @@ export async function exportProjectM3(
     if (s.wasm === true && r.wasm === null) return fail('export_bundle_graph_forbidden', 'internal', `the ${s.what} bundle linked no physics WASM`);
     scripts.push({ ...s, built: r });
   }
-  if (withPhysics && (await probeBundle(ctx, RAPIER_PROBE_ENTRY, 'rapier3d-compat-probe.ts')) === null) {
+  if (withPhysics && (await probeBundle(engineDir, RAPIER_PROBE_ENTRY, 'rapier3d-compat-probe.ts')) === null) {
     return fail('export_bundle_forbidden_content', 'internal', 'the pinned Rapier compat probe could not be built (the physics row fails closed)');
   }
 
   // The binding-3 reference build.
-  const referenceBytes = await probeBundle(ctx, REFERENCE_ENTRY, 'three-reference-entry.ts');
+  const referenceBytes = await probeBundle(engineDir, REFERENCE_ENTRY, 'three-reference-entry.ts');
   if (referenceBytes === null) {
     return fail('export_bundle_forbidden_content', 'internal', 'the reference three bundle could not be built (binding 3 fails closed)');
   }

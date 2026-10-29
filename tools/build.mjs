@@ -9,7 +9,10 @@
  * loaders, aliases, or externals. The editor bundle's .tsx files use
  * esbuild's default TSX loader (no option change).
  *
- * The EXPORT bundle is not built here: the exporter builds it at export time.
+ * The EXPORT bundle is not built here: the exporter builds it at export time,
+ * per game, from the engine sources this build freezes into
+ * dist/export-engine/ (tools/export-engine.mjs), so an export links the
+ * engine of this build and never the working tree.
  * With no bundle entries present there is nothing to build — reported
  * honestly, exit 0.
  *
@@ -22,6 +25,7 @@ import { cpSync, readdirSync, existsSync, mkdirSync, readFileSync, rmSync, statS
 import { dirname, join } from 'node:path';
 import process from 'node:process';
 import { spawnSync } from 'node:child_process';
+import { freezeExportEngine } from './export-engine.mjs';
 
 const root = process.cwd();
 
@@ -184,6 +188,12 @@ for (const b of BUNDLES) {
   await esbuild.build({ entryPoints: [entry], outfile: out, ...PINNED_OPTIONS, define: { ...PINNED_OPTIONS.define, ...(b.define ?? {}) }, plugins: [THREE_WEBGPU_ONLY_PLUGIN] });
   console.log(`build: ${b.name}: ${b.entry} -> ${b.out}`);
   built += 1;
+}
+
+// The engine exports bundle from, frozen with the Play bundles above.
+if (existsSync(join(root, 'packages/exporter/src/export-engine.ts'))) {
+  const frozen = await freezeExportEngine(root);
+  console.log(`build: export engine: ${frozen.packages.length} packages, ${frozen.files} files -> dist/export-engine`);
 }
 
 /**

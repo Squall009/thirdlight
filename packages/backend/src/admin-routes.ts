@@ -1,7 +1,7 @@
 import { type IncomingMessage, type ServerResponse } from 'node:http';
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
-import { exportProject, type ClosureTextureSlots, type ExportFs } from '@thirdlight/exporter';
+import { EXPORT_BOOTSTRAP, EXPORT_ENGINE_DIR, exportProject, type ClosureTextureSlots, type ExportFs } from '@thirdlight/exporter';
 import { loadTemplate, resolveTemplateModules, type TemplateSource } from './templates';
 import { loadPackDir, type PackInstaller } from './packs';
 import { engineIdentity } from './engine';
@@ -363,6 +363,13 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
       return;
     }
     const engineRoot = config.engineRoot;
+    // The engine an export bundles is the one `npm run build` froze beside Play's bundles, never the
+    // working tree: sources being edited under packages/ must not reach a user's export.
+    const bootstrap = join(engineRoot, EXPORT_ENGINE_DIR, EXPORT_BOOTSTRAP);
+    if (!existsSync(bootstrap)) {
+      sendError(res, sessionError('invalid_request', 'unavailable', `export is not available: the engine build has no ${EXPORT_ENGINE_DIR} (run npm run build)`));
+      return;
+    }
     await ensureImported?.(projectId);
     const result = await exportProject({
       projectId,
@@ -375,8 +382,8 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
       authoringOrigin: config.authoringOrigin,
       previewOrigin: config.previewOrigin,
       tokenValues: config.tokens.map((t) => t.token),
-      // The export bundle entry + the SAME behavior compiler instance the play build uses.
-      m3BootstrapEntry: join(engineRoot, 'packages/exporter/src/export-bootstrap-m3.ts'),
+      // The frozen export bundle entry + the SAME behavior compiler instance the play build uses.
+      m3BootstrapEntry: bootstrap,
       compiler: behaviorCompiler,
       ...(textureSlots !== undefined ? { textureSlots } : {}),
       // Block-layer cells ship as gzip-compressed chunk data.

@@ -15,10 +15,12 @@
  *
  * Forbidden (any node): `backend`, `editor`, `workspace`, `commands`,
  * `mcp-adapter`, `protocol`, `exporter` beyond the bootstrap, `behavior-build`,
- * `asset-pipeline`, and any `node:` builtin. Pure data processing, no I/O.
+ * `asset-pipeline`, and any `node:` builtin. A bundle built from the frozen
+ * engine (`export-engine.ts`) may link no engine source of the working tree:
+ * the copy and the live tree must never mix. Pure data processing, no I/O.
  */
 
-import { ENGINE_MODULES } from '@thirdlight/project-model';
+import { ENGINE_PACKAGES, inFrozenEngine, modulePackagesOf } from './export-engine';
 
 export interface GraphReport {
   ok: boolean;
@@ -42,16 +44,6 @@ function toRepoRel(p: string): string {
   return i >= 0 ? p.slice(i) : p;
 }
 
-/** The generic engine packages every export may link. */
-const ENGINE_PACKAGES = ['runtime', 'three-adapter', 'effects', 'project-model', 'input', 'physics-rapier', 'game-host'];
-
-/** The packages of the modules a manifest names (`@thirdlight/<name>` → `<name>`). */
-export function modulePackagesOf(moduleIds: readonly string[]): string[] {
-  const out = new Set<string>();
-  for (const m of ENGINE_MODULES) if (moduleIds.includes(m.id) && m.package.startsWith('@thirdlight/')) out.add(m.package.slice('@thirdlight/'.length));
-  return [...out].sort();
-}
-
 function allowed(p: string, packages: readonly string[]): boolean {
   if (packages.some((name) => p.includes(`packages/${name}/src/`))) return true;
   if (p.includes('node_modules/three/')) return true;
@@ -65,6 +57,7 @@ function allowed(p: string, packages: readonly string[]): boolean {
  */
 export function checkBundleGraphM3(metafile: { inputs: Record<string, unknown> }, bootstrapEntry: string, moduleIds: readonly string[]): GraphReport {
   const boot = toRepoRel(normalize(bootstrapEntry));
+  const frozen = inFrozenEngine(bootstrapEntry);
   const packages = [...new Set([...ENGINE_PACKAGES, ...modulePackagesOf(moduleIds)])];
   const forbidden: string[] = [];
   const reject = (p: string): void => {
@@ -80,6 +73,10 @@ export function checkBundleGraphM3(metafile: { inputs: Record<string, unknown> }
     if (toRepoRel(p) === boot) continue;
     if (p.includes('packages/exporter/')) {
       reject(p); // only the bootstrap file of the exporter may enter the graph
+      continue;
+    }
+    if (frozen && /(^|\/)packages\/[^/]+\/src\//.test(p) && !inFrozenEngine(p)) {
+      reject(p);
       continue;
     }
     if (allowed(p, packages)) continue;

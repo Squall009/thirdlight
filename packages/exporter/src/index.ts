@@ -43,6 +43,8 @@ export { type GzipPort } from './block-chunk-data';
 // A build read whole from its catalog (a tool or a test reads what the closure wrote; a game page reads it lazily, game-host).
 export { readRuntimeContentSync, type ExpandedRuntimeContent } from '@thirdlight/project-model';
 export { checkBundleGraphM3 } from './graph';
+// The frozen engine exports bundle from (`npm run build` writes it; the backend points exports at it).
+export { EXPORT_BOOTSTRAP, EXPORT_ENGINE_DIR, exportEnginePackages } from './export-engine';
 export { decodersNeeded } from './decoders';
 export {
   assertRelativeClosure,

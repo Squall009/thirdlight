@@ -14,6 +14,7 @@ import { build } from 'esbuild';
 import { ENGINE_MODULES } from '@thirdlight/project-model';
 
 import type { ContentClosureM3 } from './content-closure';
+import { EXPORT_ENGINE_DIR } from './export-engine';
 
 /**
  * The export's build options: minified and tree-shaken, what a player
@@ -133,11 +134,16 @@ function base64Bytes(text: string): Uint8Array {
   return out;
 }
 
-/** The engine root an entry under `packages/exporter/src/` belongs to. */
+/**
+ * The engine root an entry under `packages/exporter/src/` belongs to: for an
+ * entry in the frozen engine, the installation root above it, where the
+ * installed node_modules are, so a map names the same sources either way.
+ */
 function engineRootOf(entry: string): string {
   const p = entry.replace(/\\/g, '/');
   const i = p.lastIndexOf('/packages/');
-  return i >= 0 ? p.slice(0, i) : p.replace(/\/[^/]*$/, '');
+  const root = i >= 0 ? p.slice(0, i) : p.replace(/\/[^/]*$/, '');
+  return root.endsWith(`/${EXPORT_ENGINE_DIR}`) ? root.slice(0, -EXPORT_ENGINE_DIR.length - 1) : root;
 }
 
 /**
@@ -146,10 +152,12 @@ function engineRootOf(entry: string): string {
  * script's folder (`js/`, one level below the root); one that lies outside
  * the root (a dependency installed elsewhere, an absolute path) would name
  * the building host's folders, so it keeps only its path from the last
- * `node_modules/` on, or its file name, under `external/`.
+ * `node_modules/` on, or its file name, under `external/`. A source of the
+ * frozen engine is named as the package file it was copied from.
  */
 export function engineRelativeSource(src: string): string {
-  const s = src.replace(/\\/g, '/').replace(/^\.\.\//, '');
+  const rel = src.replace(/\\/g, '/').replace(/^\.\.\//, '');
+  const s = rel.startsWith(`${EXPORT_ENGINE_DIR}/packages/`) ? rel.slice(EXPORT_ENGINE_DIR.length + 1) : rel;
   if (!s.startsWith('../') && !s.startsWith('/') && !/^[A-Za-z]:/.test(s) && !s.includes('/../')) return s;
   const nm = s.lastIndexOf('node_modules/');
   return `external/${nm >= 0 ? s.slice(nm) : s.replace(/^.*\//, '')}`;
