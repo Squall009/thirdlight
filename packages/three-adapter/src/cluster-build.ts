@@ -24,7 +24,7 @@
  *   brightness; (3) each light's bounds give a range of slices and, per
  *   slice, of tiles, and every cell in it gets an exact test (sphere against
  *   the cell's box for a point; that and the cone against the cell's sphere
- *   for a spot; the emitting box against the cell's box for an area light);
+ *   for a spot; the lit box against the cell's box for an area light);
  *   (4) the count pass here, the prefix sum and the index writes in
  *   `cluster-pack.ts`.
  * - **A memory budget, not a count.** A frame's headers and lists fit in
@@ -79,7 +79,7 @@ export type ClusterLightKind = 'point' | 'spot' | 'rect' | 'line';
 export interface ClusterLightValue {
   kind: ClusterLightKind;
   position: ArrayLike<number>;
-  /** Metres the light reaches (from its centre; an area light: from its emitting surface). */
+  /** Metres the light reaches from its centre (an area light too: the loop and the surface cache cut it off there). */
   reach: number;
   /** Linear colour × intensity. */
   color: ArrayLike<number>;
@@ -742,9 +742,9 @@ function lightBox(lights: ClusterLights, i: number, V: ArrayLike<number>, x: num
   const lu = Math.hypot(ux, uy, uz) || 1;
   const lv = Math.hypot(vx, vy, vz) || 1;
   const two = (lights.kind[i]! & CLUSTER_TWO_SIDED) !== 0;
-  // The emitting box: the rect grown by the reach on its sides, and from it to the reach along its facing (both ways when two-sided).
-  const hu = 1 + r / lu;
-  const hv = 1 + r / lv;
+  // The lit box: the reach from the centre along u and v, and along its facing (both ways when two-sided).
+  const hu = r / lu;
+  const hv = r / lv;
   const hn = two ? r : r / 2;
   const ox = two ? 0 : nx * hn;
   const oy = two ? 0 : ny * hn;
@@ -843,11 +843,12 @@ export function spotHitsBox(x: number, y: number, z: number, r: number, ax: numb
 }
 
 /**
- * Whether an area light's volume (within `r` of its rect, on its facing
- * side unless two-sided) may touch the box: the rect's bounding sphere
- * grown by the reach against the box, then the emitting box (separating
- * axes: the box's three and the emitting box's three). `axes[a…]` holds the
- * view-space half sides u, v and the unit facing.
+ * Whether an area light's volume (within `r` of its centre, where the
+ * light loop and the surface cache cut it off, on its facing side unless
+ * two-sided) may touch the box: the reach's sphere against the box, then
+ * the lit box (the reach along u, v and the facing; separating axes: the
+ * box's three and the lit box's three). `axes[a…]` holds the view-space
+ * half sides u, v and the unit facing.
  */
 export function areaHitsBox(x: number, y: number, z: number, r: number, axes: ArrayLike<number>, a: number, twoSided: boolean, box: ArrayLike<number>): boolean {
   const ux = axes[a]!;
@@ -861,13 +862,13 @@ export function areaHitsBox(x: number, y: number, z: number, r: number, axes: Ar
   const nz = axes[a + 8]!;
   const lu = Math.sqrt(ux * ux + uy * uy + uz * uz);
   const lv = Math.sqrt(vx * vx + vy * vy + vz * vz);
-  if (!sphereHitsBox(x, y, z, Math.sqrt(lu * lu + lv * lv) + r, box)) return false;
+  if (!sphereHitsBox(x, y, z, r, box)) return false;
   const hn = twoSided ? r : r / 2;
   const ox = x + (twoSided ? 0 : nx * hn);
   const oy = y + (twoSided ? 0 : ny * hn);
   const oz = z + (twoSided ? 0 : nz * hn);
-  const hu = lu + r;
-  const hv = lv + r;
+  const hu = r;
+  const hv = r;
   const iu = 1 / (lu || 1);
   const iv = 1 / (lv || 1);
   const bx = (box[3]! - box[0]!) / 2;

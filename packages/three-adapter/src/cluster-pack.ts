@@ -157,7 +157,7 @@ export class ClusterShadows {
   add(v: ClusterShadowValue): number {
     const o = this.open(CLUSTER_SHADOW_TEXELS, 4);
     this.rowsOf(v.matrix, o, 4);
-    this.data.set([v.rect[0], v.rect[1], v.rect[2], v.intensity, v.near, v.far, v.bias, v.normalBias], o + 16);
+    put8(this.data, o + 16, v.rect[0], v.rect[1], v.rect[2], v.intensity, v.near, v.far, v.bias, v.normalBias);
     return o / 4;
   }
 
@@ -165,7 +165,7 @@ export class ClusterShadows {
   addCube(v: ClusterCubeShadowValue): number {
     const o = this.open(CLUSTER_CUBE_SHADOW_TEXELS, 3);
     this.rowsOf(v.matrix, o, 3);
-    this.data.set([v.near, v.far, v.bias, v.normalBias, v.depth[0], v.depth[1], v.intensity, v.size], o + 12);
+    put8(this.data, o + 12, v.near, v.far, v.bias, v.normalBias, v.depth[0], v.depth[1], v.intensity, v.size);
     for (let f = 0; f < 6; f += 1) {
       const c = v.faces[f] ?? null;
       this.data[o + 20 + 2 * f] = c === null ? -1 : c[0];
@@ -197,6 +197,18 @@ export class ClusterShadows {
   private rowsOf(m: ArrayLike<number>, o: number, rows: number): void {
     for (let r = 0; r < rows; r += 1) for (let c = 0; c < 4; c += 1) this.data[o + r * 4 + c] = m[c * 4 + r]!;
   }
+}
+
+/** Eight floats at `o` (written one by one: a record a shadowed light a frame would otherwise make an array each). */
+function put8(d: Float32Array, o: number, a: number, b: number, c: number, e: number, f: number, g: number, h: number, i: number): void {
+  d[o] = a;
+  d[o + 1] = b;
+  d[o + 2] = c;
+  d[o + 3] = e;
+  d[o + 4] = f;
+  d[o + 5] = g;
+  d[o + 6] = h;
+  d[o + 7] = i;
 }
 
 const NO_SHADOWS = new ClusterShadows();

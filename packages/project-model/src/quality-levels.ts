@@ -14,8 +14,7 @@
  *   never turns on an effect, or anti-aliasing, that the scene's look leaves
  *   off (each scene's look stays the author's).
  * - renderer settings: the render scale, the most drawing-buffer pixels per
- *   CSS pixel, MSAA, the largest shadow map, how many point and spot lights
- *   are drawn and how many point lights draw their shadow, the kind of ambient
+ *   CSS pixel, MSAA, the largest shadow map, the kind of ambient
  *   occlusion, the LOD bias, dynamic resolution and occlusion culling. Each one a level leaves out is the
  *   project's setting.
  * - `lighting`: the level's lighting tier (`low`, `medium`, `high`;
@@ -118,7 +117,7 @@ export interface LightingTierSettings {
   readonly surfaceRays: number;
   /** How far out each cache level's texels reach, as a multiple of the engine's distances. */
   readonly surfaceReach: number;
-  /** The shadow atlas's side (texels, one of `SHADOW_ATLAS_SIZES`): 16-bit depth, so 8, 32 and 128 MiB. */
+  /** The shadow atlas's side (texels, one of `SHADOW_ATLAS_SIZES`): 16-bit depth and the R8 colour three's render target needs, so 12, 48 and 192 MiB. */
   readonly shadowAtlas: number;
 }
 

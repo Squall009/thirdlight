@@ -9,10 +9,10 @@
  *
  * - **The texture.** A square `DepthTexture` of the quality level's side,
  *   16-bit (`depth16unorm` / `DEPTH_COMPONENT16`: a spot's depth range is
- *   its reach, so 16 bits hold it; 8, 32 and 128 MiB at 2,048, 4,096 and
- *   8,192), compared in hardware with linear filtering. three's render
- *   targets need a colour attachment: the smallest there is (R8, half the
- *   depth's memory), never written.
+ *   its reach, so 16 bits hold it), compared in hardware with linear
+ *   filtering. three's render targets need a colour attachment: the
+ *   smallest there is (R8, half the depth's memory), never written; with
+ *   it 12, 48 and 192 MiB at 2,048, 4,096 and 8,192.
  * - **Drawing a tile.** Through three's own shadow pass: the scene drawn with
  *   three's shadow material as the override and three's shadow
  *   render-object function (a stand-in light's `ShadowNode` gives both), so
@@ -141,8 +141,8 @@ class AtlasTarget {
     this.wipe.updateMatrixWorld();
   }
 
-  /** Draw `tiles` (their views' cameras placed) of `scene` into the atlas. */
-  draw(renderer: AtlasRenderer, scene: THREE.Scene, view: THREE.Camera, tiles: readonly { tile: AtlasTile; camera: THREE.PerspectiveCamera; mask: number }[]): void {
+  /** Draw the first `count` of `tiles` (their views' cameras placed) of `scene` into the atlas. */
+  draw(renderer: AtlasRenderer, scene: THREE.Scene, view: THREE.Camera, tiles: readonly { tile: AtlasTile; camera: THREE.PerspectiveCamera; mask: number }[], count: number): void {
     const state = RendererUtils.resetRendererAndSceneState(renderer, scene, {});
     const base = this.shadowNode.getShadowRenderObjectFunction(renderer, this.standIn.shadow);
     if (base !== this.base) {
@@ -171,7 +171,8 @@ class AtlasTarget {
         this.wiped = false;
         renderer.render(this.wipeScene, view);
       }
-      for (const { tile, camera, mask } of tiles) {
+      for (let i = 0; i < count; i += 1) {
+        const { tile, camera, mask } = tiles[i]!;
         this.target.viewport.set(tile.x, tile.y, tile.size, tile.size);
         this.target.scissor.set(tile.x, tile.y, tile.size, tile.size);
         camera.layers.mask = view.layers.mask;
@@ -251,9 +252,9 @@ const _pose = new Float64Array(POSE_NUMBERS);
 
 /** A tile drawn this frame: the view's camera and the layers that cast into it. */
 interface Draw {
-  readonly tile: AtlasTile;
-  readonly camera: THREE.PerspectiveCamera;
-  readonly mask: number;
+  tile: AtlasTile;
+  camera: THREE.PerspectiveCamera;
+  mask: number;
 }
 
 const _frustum = new THREE.Frustum();
@@ -264,6 +265,10 @@ const _place = new THREE.Matrix4();
 const _frame = new THREE.Matrix4();
 const _rotation = new THREE.Matrix4();
 const _toTile = new THREE.Matrix4();
+/** A spot record's tile rectangle, and a face record's corners (one a face), rewritten per light. */
+const _rect: [number, number, number] = [0, 0, 1];
+const _corners: ([number, number] | null)[] = [null, null, null, null, null, null];
+const _cornerStore: [number, number][] = Array.from({ length: 6 }, () => [0, 0]);
 /** The faces of a light seen all round, and of a one-sided area light (no face behind its emitter). */
 const ALL_FACES = [0, 1, 2, 3, 4, 5];
 const AREA_FACES = ALL_FACES.filter((f) => f !== AREA_BACK_FACE);
@@ -276,7 +281,9 @@ export class AdapterShadowAtlas {
   private readonly kept = new WeakMap<object, Kept>();
   readonly shadows = new ClusterShadows();
   private readonly requests: AtlasRequest[] = [];
-  private draws: Draw[] = [];
+  /** The tiles to draw this frame (entries kept from frame to frame: `drawCount` of them are this frame's). */
+  private readonly draws: Draw[] = [];
+  private drawCount = 0;
   private lastAt = -1;
 
   constructor(
@@ -301,7 +308,7 @@ export class AdapterShadowAtlas {
    */
   prepare(renderer: AtlasRenderer, gpu: ClusterGpu, camera: THREE.Camera, lights: readonly AtlasLight[], input: ClusterLights): void {
     this.shadows.clear();
-    this.draws = [];
+    this.drawCount = 0;
     const now = performance.now();
     const dt = this.lastAt < 0 ? 0 : (now - this.lastAt) / 1000;
     this.lastAt = now;
@@ -345,13 +352,14 @@ export class AdapterShadowAtlas {
     const side = this.plan.side;
     const webgl = renderer.coordinateSystem === THREE.WebGLCoordinateSystem;
     // Clip z over w → the depth a tile stores.
-    const [zs, zo] = webgl && !reversed ? [0.5, 0.5] : [1, 0];
+    const zs = webgl && !reversed ? 0.5 : 1;
+    const zo = webgl && !reversed ? 0.5 : 0;
     for (const a of lights) {
       const g = grants.get(a.key);
       const k = this.keptFor(a);
       const faces = a.kind === 'spot' ? [0] : this.facesOf(a);
       if (g !== undefined && g.draw !== null) {
-        g.draw.forEach((tile, i) => this.draws.push({ tile, camera: k.cameras[faces[i]!]!, mask: a.casterMask }));
+        for (let i = 0; i < g.draw.length; i += 1) this.addDraw(g.draw[i]!, k.cameras[faces[i]!]!, a.casterMask);
         k.revision = revision;
         k.drawnWith.multiplyMatrices(k.cameras[0]!.projectionMatrix, k.cameras[0]!.matrixWorldInverse);
       }
@@ -360,7 +368,10 @@ export class AdapterShadowAtlas {
         // A cookie's projection needs the record even without a shadow: the whole of [0, 1]², no strength.
         if (tiles === null && !a.cookie) continue;
         const t = tiles?.[0];
-        const rect: [number, number, number] = t === undefined ? [0, 0, 1] : [t.x / side, t.y / side, t.size / side];
+        const rect = _rect;
+        rect[0] = t === undefined ? 0 : t.x / side;
+        rect[1] = t === undefined ? 0 : t.y / side;
+        rect[2] = t === undefined ? 1 : t.size / side;
         const c = k.cameras[0]!;
         const s = rect[2];
         // Clip → the tile's texture coordinates (from the top left) and the depth its texture stores.
@@ -376,8 +387,14 @@ export class AdapterShadowAtlas {
       _rotation.identity();
       if (a.turn !== null) _rotation.makeRotationFromQuaternion(a.turn);
       _frame.copy(_rotation).setPosition(a.position).invert();
-      const corners: ([number, number] | null)[] = [null, null, null, null, null, null];
-      faces.forEach((f, i) => (corners[f] = [tiles[i]!.x / side, tiles[i]!.y / side]));
+      const corners = _corners;
+      corners.fill(null);
+      for (let i = 0; i < faces.length; i += 1) {
+        const c = _cornerStore[i]!;
+        c[0] = tiles[i]!.x / side;
+        c[1] = tiles[i]!.y / side;
+        corners[faces[i]!] = c;
+      }
       const c = k.cameras[0]!;
       input.shadow[a.slot] = this.shadows.addCube({
         matrix: _frame.elements,
@@ -396,9 +413,9 @@ export class AdapterShadowAtlas {
 
   /** Draw the planned tiles (before the frame's own render). */
   draw(renderer: AtlasRenderer, scene: THREE.Scene, view: THREE.Camera): void {
-    if (this.gpu === null || (this.draws.length === 0 && !this.gpu.needsWipe) || renderer._isPreCompiling === true) return;
-    this.gpu.draw(renderer, scene, view, this.draws);
-    this.draws = [];
+    if (this.gpu === null || (this.drawCount === 0 && !this.gpu.needsWipe) || renderer._isPreCompiling === true) return;
+    this.gpu.draw(renderer, scene, view, this.draws, this.drawCount);
+    this.drawCount = 0;
   }
 
   /** Whether the next frames draw something else (a host drawing on demand must draw them). */
@@ -415,6 +432,17 @@ export class AdapterShadowAtlas {
 
   dispose(): void {
     this.dropGpu();
+  }
+
+  private addDraw(tile: AtlasTile, camera: THREE.PerspectiveCamera, mask: number): void {
+    const d = this.draws[this.drawCount];
+    if (d === undefined) this.draws.push({ tile, camera, mask });
+    else {
+      d.tile = tile;
+      d.camera = camera;
+      d.mask = mask;
+    }
+    this.drawCount += 1;
   }
 
   /** The faces a light seen through faces draws, in tile order. */

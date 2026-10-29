@@ -84,29 +84,21 @@ function randomLight(rnd: () => number, around: V3, spread: number): Probe {
     const facing = scale(norm(cross(u, v)), rnd() < 0.5 ? 1 : -1);
     return {
       value: { kind, position: c, reach, color, direction: facing, u, v, twoSided },
-      bound: Math.hypot(len(u), len(v)) + reach,
+      bound: reach,
       inside: (p) => {
         const d = sub(p, c);
-        const a = dot(d, norm(u));
-        const b = dot(d, norm(v));
-        const n = dot(d, facing);
-        const da = Math.max(0, Math.abs(a) - len(u));
-        const db = Math.max(0, Math.abs(b) - len(v));
-        return da * da + db * db + n * n <= reach * reach && (twoSided || n >= 0);
+        return dot(d, d) <= reach * reach && (twoSided || dot(d, facing) >= 0);
       },
     };
   }
-  // A line: within reach of the segment, on its facing side unless two-sided.
+  // A line: within reach of its centre (where the loop cuts an area light off), on its facing side unless two-sided.
   const facing = across;
   return {
     value: { kind, position: c, reach, color, direction: facing, u, twoSided },
-    bound: len(u) + reach,
+    bound: reach,
     inside: (p) => {
       const d = sub(p, c);
-      const a = dot(d, norm(u));
-      const da = Math.max(0, Math.abs(a) - len(u));
-      const off = sub(d, scale(norm(u), a));
-      return da * da + dot(off, off) <= reach * reach && (twoSided || dot(d, facing) >= 0);
+      return dot(d, d) <= reach * reach && (twoSided || dot(d, facing) >= 0);
     },
   };
 }
@@ -285,6 +277,11 @@ describe('cluster lists', () => {
     }
     expect(hits).toBeGreaterThan(1000);
     expect(missed).toBe(0);
+    // A 4 m wide panel reaching 1 m (facing +y): a box 1.5 m along its side is in front of the panel but past the reach
+    // from its centre, where the loop lights nothing, so no cell there lists it; one by its centre does.
+    const panel = [2, 0, 0, 0, 0, 0.5, 0, 1, 0];
+    expect(areaHitsBox(0, 0, 0, 1, panel, 0, false, [1.4, 0.1, -0.1, 1.6, 0.3, 0.1])).toBe(false);
+    expect(areaHitsBox(0, 0, 0, 1, panel, 0, false, [-0.1, 0.1, -0.1, 0.1, 0.3, 0.1])).toBe(true);
   });
 
   it('round-trip records and lists through the shader decode, long lists too', () => {

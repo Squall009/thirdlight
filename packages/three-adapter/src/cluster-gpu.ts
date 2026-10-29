@@ -78,13 +78,12 @@ function dataTexture(data: Uint32Array, rows: number): THREE.DataTexture {
  * atlas does: three takes a depth texture without one to have the samples
  * of whatever the renderer draws at the time (MSAA's four), another binding.
  */
-export function placeholderAtlas(): THREE.DepthTexture {
+function placeholderAtlas(): THREE.RenderTarget {
   const t = new THREE.DepthTexture(1, 1, THREE.UnsignedShortType);
   t.compareFunction = THREE.LessEqualCompare;
   t.minFilter = THREE.LinearFilter;
   t.magFilter = THREE.LinearFilter;
-  new THREE.RenderTarget(1, 1, { depthTexture: t, format: THREE.RedFormat });
-  return t;
+  return new THREE.RenderTarget(1, 1, { depthTexture: t, format: THREE.RedFormat });
 }
 
 /** One packed texture on the GPU: made again when its rows or its data array change, else its written rows sent. */
@@ -149,7 +148,9 @@ export class ClusterGpu {
   /** slices, cells, the first header's word (past the records), the shadow atlas's texel (1 / its side). */
   readonly extent = new THREE.Vector4(0, 0, 0, 1);
   /** The shadow atlas's depth (`shadow-atlas-draw.ts` sets it; `revision` moves when it does). */
-  atlas: THREE.DepthTexture = placeholderAtlas();
+  atlas: THREE.DepthTexture;
+  /** The atlas read before a renderer has one (its render target freed with the rest). */
+  private readonly placeholder = placeholderAtlas();
   /** The light tables (the LTC tables, or the cookie atlas holding them) and the share of it the tables take. */
   tables: THREE.Texture = ltcTablesTexture();
   readonly tablesShare = new THREE.Vector2(1, 1);
@@ -160,6 +161,7 @@ export class ClusterGpu {
 
   constructor(textures: ClusterTextures) {
     this.lists = new ClusterTexture(textures.data, textures.rows);
+    this.atlas = this.placeholder.depthTexture as THREE.DepthTexture;
   }
 
   /** This frame's grid and packed texture on the GPU; the bytes sent. */
@@ -190,6 +192,8 @@ export class ClusterGpu {
 
   dispose(): void {
     this.lists.dispose();
+    this.placeholder.depthTexture?.dispose();
+    this.placeholder.dispose();
   }
 }
 

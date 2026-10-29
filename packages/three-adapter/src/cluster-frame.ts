@@ -128,6 +128,10 @@ function scratchValue(): ClusterLightValue & { position: Float64Array; color: Fl
 /** Whether an area light casts shadows (they do unless told not to, as the surface cache traces them). */
 const areaCasts = (a: AreaDoc): boolean => a.light.castShadow !== false;
 
+/** A shadowed light's entry, written in place each frame, with the quaternion an area light's turn is kept in. */
+type ShadowEntry = { -readonly [K in keyof AtlasLight]: AtlasLight[K] } & { readonly rotation: THREE.Quaternion };
+const _scale = new THREE.Vector3();
+
 export class AdapterClusters {
   private readonly input = new ClusterLights();
   private readonly views = new WeakMap<THREE.Camera, ClusterView>();
@@ -150,6 +154,8 @@ export class AdapterClusters {
   /** The shadow atlas, and this frame's shadowed lights (and cookie spots). */
   private readonly atlas: AdapterShadowAtlas;
   private readonly shadowed: AtlasLight[] = [];
+  /** The entries `shadowed` takes, kept from frame to frame (their vectors too): gathering allocates nothing per light. */
+  private readonly shadowPool: ShadowEntry[] = [];
   private atlasWritten = '';
   /** The cookie atlas, this frame's cookie spots (slot, texture, rank) and the tile each texture got. */
   private readonly cookieAtlas: CookieAtlas;
@@ -433,7 +439,7 @@ export class AdapterClusters {
       const layered = isLayeredLight(light);
       v.mask = layered ? light.lightMask : LIGHT_LAYERS_ALL;
       v.room = layered ? (roomKeyOf(light) ?? -1) : -1;
-      // Off: switched off by the selection (its entity hidden, or past a quality level's budget).
+      // Off: switched off by the selection (its entity hidden, or its room not seen).
       v.visible = light.visible && !hidden.has(id) && this.d.roomSeen(roomKeyOf(light));
       v.twoSided = false;
       if (kind === 'spot') {
@@ -459,21 +465,20 @@ export class AdapterClusters {
       const cookie = v.visible ? map : null;
       if (cookie !== null) this.cookieSpots.push({ slot, texture: cookie });
       if ((light.castShadow && v.visible) || cookie !== null) {
-        this.shadowed.push({
-          slot,
-          key: light,
-          kind,
-          spot: kind === 'spot' ? (light as THREE.SpotLight) : null,
-          position: new THREE.Vector3(e[12]!, e[13]!, e[14]!),
-          turn: null,
-          reach: v.reach,
-          range: point.distance > 0 ? point.distance : 0,
-          seen: v.visible,
-          casterMask: isLayeredLight(light) ? light.shadowCasterMask : LIGHT_LAYERS_ALL,
-          shadowed: light.castShadow && v.visible,
-          cookie: cookie !== null,
-          twoSided: false,
-        });
+        const a = this.nextShadowed();
+        a.slot = slot;
+        a.key = light;
+        a.kind = kind;
+        a.spot = kind === 'spot' ? (light as THREE.SpotLight) : null;
+        a.position.set(e[12]!, e[13]!, e[14]!);
+        a.turn = null;
+        a.reach = v.reach;
+        a.range = point.distance > 0 ? point.distance : 0;
+        a.seen = v.visible;
+        a.casterMask = isLayeredLight(light) ? light.shadowCasterMask : LIGHT_LAYERS_ALL;
+        a.shadowed = light.castShadow && v.visible;
+        a.cookie = cookie !== null;
+        a.twoSided = false;
       }
     });
     for (const a of this.areas) this.addArea(a, hidden);
@@ -556,9 +561,31 @@ export class AdapterClusters {
     const slot = this.input.add(v);
     if (!areaCasts(a) || !v.visible) return;
     // Its faces from its rectangle's middle, turned with it (scale left out).
-    const position = new THREE.Vector3();
-    const turn = new THREE.Quaternion();
-    this.m.decompose(position, turn, new THREE.Vector3());
-    this.shadowed.push({ slot, key: a.key, kind: 'area', spot: null, position, turn, reach: v.reach, range: l.range ?? 0, seen: true, casterMask: lightLayerMaskOf(l.shadowCasterMask), shadowed: true, cookie: false, twoSided: v.twoSided });
+    const s = this.nextShadowed();
+    this.m.decompose(s.position, s.rotation, _scale);
+    s.slot = slot;
+    s.key = a.key;
+    s.kind = 'area';
+    s.spot = null;
+    s.turn = s.rotation;
+    s.reach = v.reach;
+    s.range = l.range ?? 0;
+    s.seen = true;
+    s.casterMask = lightLayerMaskOf(l.shadowCasterMask);
+    s.shadowed = true;
+    s.cookie = false;
+    s.twoSided = v.twoSided;
+  }
+
+  /** The next of this frame's shadowed lights (its fields set by the caller). */
+  private nextShadowed(): ShadowEntry {
+    const i = this.shadowed.length;
+    let a = this.shadowPool[i];
+    if (a === undefined) {
+      const rotation = new THREE.Quaternion();
+      this.shadowPool.push((a = { slot: 0, key: this, kind: 'point', spot: null, position: new THREE.Vector3(), turn: null, rotation, reach: 0, range: 0, seen: false, casterMask: 0, shadowed: false, cookie: false, twoSided: false }));
+    }
+    this.shadowed.push(a);
+    return a;
   }
 }

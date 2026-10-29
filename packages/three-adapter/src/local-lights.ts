@@ -9,7 +9,7 @@
  *   by `registerProbeLighting`) asks `splitLocalLights` before it builds a
  *   material's lights: a build in mode `none` leaves the local lights (the
  *   light clusters' loop, effects' lights included) out; every other build shades
- *   them per pixel with three's own light nodes.
+ *   them per pixel through the clusters' loop.
  * - **Which build an object gets.** A program can't depend on the object
  *   drawn (three keys programs by material, geometry and lights), so an
  *   object in mode `none` draws with a *mode variant* of its material: a
