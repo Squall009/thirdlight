@@ -43,7 +43,7 @@ import { TRIM_DENSITY_MAX, TRIM_DENSITY_MIN, TRIM_PADDING_MAX, TRIM_SHEET_DEFAUL
 import { MODE_LIMITS } from './modes';
 import { MAX_LOCAL_LIGHTS } from './local-lights';
 import { LOD_BIAS_MAX, LOD_BIAS_MIN } from './model-lod';
-import { DEFAULT_LIGHTING_TIER, LIGHTING_TIERS, lightingTierValues, MEDIUM_RENDER_SCALE, MSAA_SAMPLE_COUNTS, PIXEL_RATIO_CAP_MAX, PIXEL_RATIO_CAP_MIN, QUALITY_POST_EFFECTS, REFLECTION_QUALITIES, SHADOW_MAP_SIZES, SURFACE_CACHE_MIB_MAX, SURFACE_CACHE_MIB_MIN, SURFACE_LIGHT_MS_MAX, SURFACE_LIGHT_MS_MIN } from './quality-levels';
+import { DEFAULT_LIGHTING_TIER, LIGHTING_TIERS, lightingTierValues, MEDIUM_RENDER_SCALE, MSAA_SAMPLE_COUNTS, PIXEL_RATIO_CAP_MAX, PIXEL_RATIO_CAP_MIN, QUALITY_POST_EFFECTS, REFLECTION_QUALITIES, SHADOW_ATLAS_SIZES, SHADOW_MAP_SIZES, SURFACE_CACHE_MIB_MAX, SURFACE_CACHE_MIB_MIN, SURFACE_LIGHT_MS_MAX, SURFACE_LIGHT_MS_MIN } from './quality-levels';
 import { AMBIENT_OCCLUSION_KINDS, OCCLUSION_CULLING_MODES, RENDER_SCALE_MAX, RENDER_SCALE_MIN } from './render-settings';
 import { LIGHT_TYPES, MAX_TAGS } from './types-v3';
 import { WIND_DEFAULTS, WIND_LIMITS } from './wind';
@@ -206,16 +206,17 @@ const QUALITY_LEVEL = obj('level', 'Quality level', 'Graphics settings players p
   int('msaa', 'MSAA', 'Multisampling without a post stack (absent: 4).', { values: [...MSAA_SAMPLE_COUNTS], valueLabels: MSAA_SAMPLE_COUNTS.map((n) => (n === 0 ? 'Off' : `${n}×`)) }),
   int('shadowMapSize', 'Largest shadow map', 'Larger light shadow maps are lowered to it (absent: each light\'s own).', { values: [...SHADOW_MAP_SIZES] }),
   int('localLights', 'Local lights', `Point and spot lights drawn at once (absent: ${MAX_LOCAL_LIGHTS}).`, { min: 0, max: MAX_LOCAL_LIGHTS }),
-  int('shadowedLights', 'Shadowed lights', 'Point and spot lights drawing their shadow at once: largest on screen first, spot before point, fading with distance (absent: every one).', { min: 0, max: MAX_LOCAL_LIGHTS }),
+  int('shadowedLights', 'Shadowed point lights', 'Point lights drawing their shadow at once: largest on screen first, fading with distance (absent: every one; a spot light\'s shadow is a tile of the shadow atlas).', { min: 0, max: MAX_LOCAL_LIGHTS }),
   enm('ambientOcclusion', 'Ambient occlusion', 'Where a look has AO (absent: ambient_occlusion).', [...AMBIENT_OCCLUSION_KINDS], { labels: { off: 'Off', ssao: 'SSAO', gtao: 'GTAO' } }),
   num('lodBias', 'LOD bias', 'Above 1 keeps finer LODs further (absent: lod_bias).', { min: LOD_BIAS_MIN, max: LOD_BIAS_MAX, step: 0.05 }),
   bool('dynamicResolution', 'Dynamic resolution', 'Lower the scale while the GPU is over budget (absent: dynamic_resolution).'),
   enm('occlusionCulling', 'Occlusion culling', 'Leave out what solid objects hide: On culls, Auto none yet (absent: occlusion_culling).', [...OCCLUSION_CULLING_MODES], { labels: { off: 'Off', auto: 'Auto', on: 'On' } }),
-  enm('lighting', 'Lighting tier', `How much light runs live: low the saved light only, medium live within a GPU budget, high more rays, reach and memory; sets the four settings below where the level leaves them out (absent: ${DEFAULT_LIGHTING_TIER}). A device starts at the highest level whose tier it fits.`, [...LIGHTING_TIERS], { labels: { low: 'Low', medium: 'Medium', high: 'High' } }),
+  enm('lighting', 'Lighting tier', `How much light runs live: low the saved light only, medium live within a GPU budget, high more rays, reach and memory; sets the five settings below where the level leaves them out (absent: ${DEFAULT_LIGHTING_TIER}). A device starts at the highest level whose tier it fits.`, [...LIGHTING_TIERS], { labels: { low: 'Low', medium: 'Medium', high: 'High' } }),
   num('surfaceCacheMiB', 'Surface cache (MiB)', `Memory the static surfaces' light may hold around the view (absent: the tier's, ${lightingTierValues((t) => t.surfaceCacheMiB)}).`, { min: SURFACE_CACHE_MIB_MIN, max: SURFACE_CACHE_MIB_MAX, step: 16 }),
   num('surfaceLightMs', 'Live light (ms)', `GPU time a frame may spend lighting what changed, nearest first; 0 draws saved light only (absent: the tier's, ${lightingTierValues((t) => t.surfaceLightMs)}).`, { min: SURFACE_LIGHT_MS_MIN, max: SURFACE_LIGHT_MS_MAX, step: 0.25 }),
   bool('contactShadows', 'Contact shadows', `Screen-space contact shadows on the sun's light, with the look's post effects (absent: the tier's, ${lightingTierValues((t) => (t.contactShadows ? 'on' : 'off'))}).`),
   enm('reflections', 'Reflections', `Glossy surfaces reflect what the screen shows, and where it misses the static world traced and lit from the surface cache; WebGPU, with the look's post effects (absent: the tier's, ${lightingTierValues((t) => t.reflections)}).`, [...REFLECTION_QUALITIES], { labels: { off: 'Off', medium: 'Medium', high: 'High' } }),
+  int('shadowAtlas', 'Shadow atlas', `Side in texels of the depth texture every shadowed point and spot light shares: lights largest on screen get the larger tiles, a light without room draws unshadowed (absent: the tier's, ${lightingTierValues((t) => t.shadowAtlas)}).`, { values: [...SHADOW_ATLAS_SIZES] }),
 ], { rules: ['Level ids are unique.'] });
 
 const ENVIRONMENT: FieldDescriptor = obj('environment', 'Environment', 'The quality levels, the one a game starts at, and the presets; each scene has its own sky, fog, post-processing and wind.', [

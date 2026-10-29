@@ -97,7 +97,7 @@ export interface ClusterLightValue {
   mask?: number;
   /** The room it lights alone (`light-layers.ts` room keys; absent or -1: every room). */
   room?: number;
-  /** Its shadow record's first texel in the light records and its cookie's tile (-1: none). */
+  /** Its shadow record's slot in the frame's `ClusterShadows` and its cookie's tile (-1: none). */
   shadow?: number;
   cookie?: number;
   /** False: off, or in a room no portal shows (not packed). */

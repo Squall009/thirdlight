@@ -336,12 +336,14 @@ The engine follows these rules, and games should too:
 - **No shadow by default.** A light casts only when its `castShadow` says
   so. Rooms keep an unshadowed lamp's light inside its room (above), so most
   lamps need no shadow at all.
-- **A budget of shadowed lamps per view.** A quality level's
-  `shadowedLights` (2–4 is a good start; absent: every lamp that casts)
-  keeps the shadows of the lamps largest on screen (their reach over their
-  distance), in rooms that are seen and in view; the rest draw none. A spot
-  ranks ahead of a point light of the same size: prefer spots where a shadow
-  matters.
+- **A budget of shadowed lamps per view.** Shadowed spot lights share the
+  quality level's shadow atlas (`shadowAtlas`, a memory budget): the lamps
+  largest on screen (their reach over their distance), in rooms that are
+  seen and in view, get the larger tiles, and a lamp without room lights
+  unshadowed. A point light's shadow is six views of the scene: a quality
+  level's `shadowedLights` (2–4 is a good start; absent: every lamp that
+  casts) keeps only the shadowed point lights largest on screen. Prefer
+  spots where a shadow matters.
 - **Fade with distance.** Budgeted shadows fade out between 30 and 40 m
   (`LOCAL_SHADOW_DISTANCE`), so a lamp leaving the budget far away does not
   pop.

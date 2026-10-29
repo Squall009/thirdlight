@@ -638,6 +638,7 @@ const ENV_BASES: J[] = [
         surfaceLightMs: 1,
         contactShadows: false,
         reflections: 'high',
+        shadowAtlas: 2048,
       },
       { id: 'high' },
     ],
@@ -1062,8 +1063,9 @@ describe('descriptor registry', () => {
     // shape and a collider's depth for its 2D shapes on the 3D backend, about 1.5 KB; the controller's movement
     // profile, about 0.3 KB; area lights — their shape, size and sides fields, preset and icon — about 2 KB; a quality
     // level's reflections, about 0.4 KB; temporal upscaling as an anti-aliasing kind, about 0.1 KB; a quality level's
-    // lighting tier and the lighting fields' values per tier, about 0.7 KB; a static glowing box's glow mode, about 0.4 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(353_800);
+    // lighting tier and the lighting fields' values per tier, about 0.7 KB; a static glowing box's glow mode, about 0.4 KB;
+    // a quality level's shadow atlas side, about 0.3 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(354_200);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

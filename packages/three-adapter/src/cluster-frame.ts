@@ -5,7 +5,10 @@
  * both renderers alike.
  *
  * - **The lights.** Every realized point and spot light that is on and the
- *   clusters draw (`drawsClustered`: no shadow, no cookie), and every area
+ *   clusters draw (`drawsClustered`: no cookie, a point light no shadow),
+ *   a shadowed spot's shadow record from the shadow atlas
+ *   (`shadow-atlas-draw.ts`, planned before the pack, its tiles drawn after
+ *   the upload and before the frame's render), and every area
  *   light of the realized entities, unless it is hidden, held by a bake, or
  *   in a room no portal shows; and the slots in use of the effects' light
  *   pools in the scene (`effect-lights.ts`; not in the surface cache).
@@ -26,13 +29,14 @@
  *   lights leave the cells that did not fit, and one console warning names
  *   the scenes it happened in.
  * - **Diagnostics** (`renderer.clusters`): lights, packed, indices,
- *   overflow, and the gathering's, build's and upload's main-thread ms and
- *   bytes a frame
+ *   overflow, the shadow atlas's (`atlas`, also `data-tl-shadow-atlas` on the
+ *   canvas: side, tiled, waiting, tiles drawn), and the gathering's, build's
+ *   and upload's main-thread ms and bytes a frame
  *   (means over the last `CLUSTER_STATS_FRAMES` frames, also on the canvas
  *   as `data-tl-clusters` for pages without another diagnostics surface).
  */
 import * as THREE from 'three';
-import { LIGHT_LAYERS_ALL, lightLayerMaskOf } from '@thirdlight/runtime';
+import { DEFAULT_SHADOW_ATLAS, LIGHT_LAYERS_ALL, lightLayerMaskOf } from '@thirdlight/runtime';
 
 import type { EntityDoc } from './adapter-entities';
 import { DOC_LIGHTS_MS } from './adapter-surface-cache';
@@ -44,6 +48,8 @@ import { effectLightPoolsIn, type EffectLights } from './effect-lights';
 import { CLUSTER_INDEX_MIB, CLUSTER_INDEX_WORDS, ClusterTextures } from './cluster-pack';
 import { isLayeredLight, roomKeyOf } from './light-layers';
 import type { SceneLights } from './lights-shadows';
+import { AdapterShadowAtlas, type AtlasLight, type AtlasRenderer } from './shadow-atlas-draw';
+import type { ShadowAtlasDiagnostics } from './shadow-atlas';
 import { lightReachOf } from './surface-changes';
 
 /** Frames the diagnostics' means are taken over. */
@@ -68,6 +74,8 @@ export interface ClusterDiagnostics {
   readonly rows: number;
   /** Whether the heat map is drawn. */
   readonly heatView: boolean;
+  /** The shadow atlas's last frame (null: no shadowed light drawn yet), and its memory (MiB). */
+  readonly atlas: (ShadowAtlasDiagnostics & { readonly mib: number }) | null;
 }
 
 export interface AdapterClustersDeps {
@@ -83,6 +91,11 @@ export interface AdapterClustersDeps {
   readonly canvas: { setAttribute?(name: string, value: string): void } | null;
   /** The view's programs changed (the heat map went on or off): built ahead, and drawn again. */
   readonly shadingChanged: () => void;
+  /** What moved this frame (spheres x, y, z, r) and the static casters' revision: a shadow tile they can reach is drawn again. */
+  readonly movers: () => ArrayLike<number>;
+  readonly staticRevision: () => number;
+  /** Draw another frame (a host drawing on demand: a shadow is still fading in or out). */
+  readonly drawAgain: () => void;
 }
 
 interface ClusterView {
@@ -122,6 +135,10 @@ export class AdapterClusters {
   private readonly viewInverse = new THREE.Matrix4();
   private readonly colour = new THREE.Color();
   private readonly warned = new Set<string>();
+  /** The shadow atlas, and this frame's shadowed lights. */
+  private readonly atlas: AdapterShadowAtlas;
+  private readonly shadowed: AtlasLight[] = [];
+  private atlasWritten = '';
   /** The last frame's numbers and the sums toward the next means. */
   private readonly last = { lights: 0, packed: 0, indices: 0, overflow: 0, rows: 1, tilesY: clusterTilesY(16 / 9) };
   private sums = { frames: 0, gatherMs: 0, buildMs: 0, uploadMs: 0, uploadBytes: 0 };
@@ -132,7 +149,12 @@ export class AdapterClusters {
 
   constructor(private readonly d: AdapterClustersDeps, heatView = false) {
     this.heat.wanted = heatView;
+    this.atlas = new AdapterShadowAtlas({ roomSeen: d.roomSeen, movers: d.movers, staticRevision: d.staticRevision }, DEFAULT_SHADOW_ATLAS);
+  }
 
+  /** The quality level's shadow atlas side (texels). */
+  setShadowAtlas(side: number): void {
+    this.atlas.setSide(side);
   }
 
   /** The heat map on or off (the lighting's debug views). */
@@ -157,16 +179,18 @@ export class AdapterClusters {
     this.readAreas();
     let any = this.areas.length > 0;
     let layered = this.areas.some((a) => lightLayerMaskOf(a.light.lightMask) !== LIGHT_LAYERS_ALL);
+    let shadows = false;
     this.d.lights.forEachLight((_id, kind, light) => {
       if (kind !== 'point' && kind !== 'spot') return;
       any = true;
       if (isLayeredLight(light) && drawsClustered(light)) layered = true;
+      if (light.castShadow && drawsClustered(light)) shadows = true;
     });
     const pools = this.poolState();
     any ||= pools.any;
     layered ||= pools.layered;
     this.poolsSeen = pools;
-    const shape = { layered, areas: this.areas.length > 0, uncached: pools.any };
+    const shape = { layered, areas: this.areas.length > 0, uncached: pools.any, shadows };
     if (any && this.light === null) {
       this.light = new ClusteredLights(this.gpu);
       Object.assign(this.light, shape);
@@ -177,7 +201,7 @@ export class AdapterClusters {
       this.light.dispose();
       this.light = null;
       this.d.shadingChanged();
-    } else if (this.light !== null && (this.light.layered !== shape.layered || this.light.areas !== shape.areas || this.light.uncached !== shape.uncached)) {
+    } else if (this.light !== null && (this.light.layered !== shape.layered || this.light.areas !== shape.areas || this.light.uncached !== shape.uncached || this.light.shadows !== shape.shadows)) {
       Object.assign(this.light, shape);
       this.d.shadingChanged();
     }
@@ -221,9 +245,11 @@ export class AdapterClusters {
     // No light now nor at the last pack: the headers are all empty already.
     let bytes = 0;
     let t1 = tg;
+    // The shadowed lights' tiles and records (their slots in `input`), before the pack writes them.
+    this.atlas.prepare(renderer as unknown as AtlasRenderer, gpu, camera, this.shadowed, input);
     if (input.count > 0 || view.packed !== 0) {
       const build = view.builder.build(input, { view: this.viewInverse.elements, projection: camera.projectionMatrix.elements, near: camera.near, far: camera.far }, CLUSTER_INDEX_WORDS);
-      const packed = view.textures.pack(build, input);
+      const packed = view.textures.pack(build, input, this.atlas.shadows);
       view.packed = build.packed;
       t1 = performance.now();
       bytes = gpu.upload(renderer, build.grid, view.textures, packed, camera.projectionMatrix.elements);
@@ -245,12 +271,26 @@ export class AdapterClusters {
     this.light?.rebind();
     this.syncHeat();
     this.count(tg - t0, t1 - tg, performance.now() - t1, bytes);
+    // The tiles that need it drawn now, before the frame's render samples them.
+    this.atlas.draw(renderer as unknown as AtlasRenderer, this.d.scene, camera);
+    this.writeAtlas();
+    if (this.atlas.moving()) this.d.drawAgain();
+  }
+
+  /** The atlas's counts on the canvas when they change (pages without another diagnostics surface read them). */
+  private writeAtlas(): void {
+    const a = this.atlas.diagnostics();
+    if (a === null) return;
+    const line = `${a.side}|${a.tiled}|${a.waiting}|${a.drawn}`;
+    if (line === this.atlasWritten) return;
+    this.atlasWritten = line;
+    this.d.canvas?.setAttribute?.('data-tl-shadow-atlas', line);
   }
 
   diagnostics(): ClusterDiagnostics | null {
     if (!this.framed) return null;
     const l = this.last;
-    return { lights: l.lights, packed: l.packed, indices: l.indices, overflow: l.overflow, gatherMs: this.means.gatherMs, buildMs: this.means.buildMs, uploadMs: this.means.uploadMs, uploadBytes: this.means.uploadBytes, grid: [CLUSTER_TILES_X, l.tilesY, CLUSTER_SLICES], rows: l.rows, heatView: this.heat.light !== null };
+    return { lights: l.lights, packed: l.packed, indices: l.indices, overflow: l.overflow, gatherMs: this.means.gatherMs, buildMs: this.means.buildMs, uploadMs: this.means.uploadMs, uploadBytes: this.means.uploadBytes, grid: [CLUSTER_TILES_X, l.tilesY, CLUSTER_SLICES], rows: l.rows, heatView: this.heat.light !== null, atlas: this.atlas.diagnostics() };
   }
 
   dispose(): void {
@@ -260,6 +300,7 @@ export class AdapterClusters {
     this.light?.dispose();
     this.light = null;
     this.gpu.dispose();
+    this.atlas.dispose();
   }
 
   /** The heat map's light in the scene while wanted and the lists are on a GPU; its objects rebind after new textures. */
@@ -320,10 +361,11 @@ export class AdapterClusters {
   private gather(): void {
     const input = this.input;
     input.clear();
+    this.shadowed.length = 0;
     const hidden = this.d.hidden();
     const v = this.value;
     this.d.lights.forEachLight((id, kind, light) => {
-      // Three's own node draws a light with a shadow or a cookie.
+      // Three's own node draws a point light with a shadow, and a light with a cookie.
       if ((kind !== 'point' && kind !== 'spot') || !drawsClustered(light)) return;
       const e = light.matrixWorld.elements;
       const k = light.intensity;
@@ -362,7 +404,8 @@ export class AdapterClusters {
         v.cosOuter = -1;
         v.cosInner = -1;
       }
-      input.add(v);
+      const slot = input.add(v);
+      if (kind === 'spot' && light.castShadow && v.visible) this.shadowed.push({ slot, light: light as THREE.SpotLight, reach: v.reach });
     });
     for (const a of this.areas) this.addArea(a, hidden);
     for (const p of this.pools) this.addEffectLights(p);

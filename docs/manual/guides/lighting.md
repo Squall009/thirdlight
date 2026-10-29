@@ -118,8 +118,10 @@ way.
 - **Turning an image sky after a bake makes the bake stale.**
 - **Lamps cost every lit object** drawn per pixel. Give lamps a range, set
   **Local lights: None** on objects no lamp needs to reach, and keep shadows
-  for the few that need them: a quality level's `shadowedLights` budget (2–4) keeps only the
-  largest on screen. Generated rooms keep a lamp's light inside its room;
+  for the few that need them: shadowed spot lights share the quality level's
+  shadow atlas (`shadowAtlas`; the largest on screen get the most texels, a lamp
+  without room lights unshadowed), and a level's `shadowedLights` budget (2–4)
+  keeps only the largest shadowed point lights on screen. Generated rooms keep a lamp's light inside its room;
   see the interior lighting best practice in
   [Generated architecture](../features/architecture.md#interior-lighting-best-practice-shadow-rules).
 - **`setEnvironment` replaces the whole document it names:** send the

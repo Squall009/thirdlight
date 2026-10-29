@@ -73,6 +73,8 @@ export interface QualityTargets {
   readonly setSurfaceLightMs?: (ms: number) => void;
   /** The level's lighting tier's multiples of the rays a cache texel casts and of each cache level's reach. */
   readonly setSurfaceDetail?: (rays: number, reach: number) => void;
+  /** The shadow atlas's side (texels) at the level. */
+  readonly setShadowAtlas?: (side: number) => void;
   readonly environment: () => EnvironmentRenderer | null;
   /** Something drawn changed (a host drawing on demand draws again). */
   readonly changed: () => void;
@@ -100,6 +102,8 @@ export interface QualityDiagnostics {
   readonly surfaceCacheMiB: number;
   /** The GPU time a frame may spend on live surface light at the level (ms; 0: saved light only). */
   readonly surfaceLightMs: number;
+  /** The shadow atlas's side at the level (texels). */
+  readonly shadowAtlas: number;
 }
 
 export interface QualityControl {
@@ -173,6 +177,7 @@ export function createQualityControl(targets: QualityTargets, o: { readonly proj
     targets.setSurfaceCacheMiB?.(lit.surfaceCacheMiB);
     targets.setSurfaceLightMs?.(lit.surfaceLightMs);
     targets.setSurfaceDetail?.(lit.surfaceRays, lit.surfaceReach);
+    targets.setShadowAtlas?.(lit.shadowAtlas);
     targets.environment()?.setQuality(wanted());
     targets.changed();
   };
@@ -226,6 +231,7 @@ export function createQualityControl(targets: QualityTargets, o: { readonly proj
         lodBias: targets.lodTuning.bias,
         surfaceCacheMiB: levelLighting(l).surfaceCacheMiB,
         surfaceLightMs: levelLighting(l).surfaceLightMs,
+        shadowAtlas: levelLighting(l).shadowAtlas,
       };
     },
   };

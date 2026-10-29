@@ -4,9 +4,12 @@
  * the pixel's cell's list reads every listed light from the one packed
  * texture, so the program is the same whatever the number of point and spot
  * lights, whichever are on and wherever they are; area lights are drawn
- * with three's rectangle-light maths in the same loop; a light with a shadow
- * or a cookie keeps three's own node; a build in mode `none` reads no list; the
- * layer and room test is built only for layered lights.
+ * with three's rectangle-light maths in the same loop; a shadowed spot light
+ * is listed too, its shadow read from the shadow atlas with hardware depth
+ * compares (one texture unit, built only while a listed light casts); a
+ * point light with a shadow, or a light with a cookie, keeps three's own
+ * node; a build in mode `none` reads no list; the layer and room test is
+ * built only for layered lights.
  */
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
@@ -54,6 +57,8 @@ function lamps(scene: THREE.Scene, n: number, offset = 0): THREE.Light[] {
 function glslOf(scene: THREE.Scene, mesh: THREE.Mesh): string {
   const canvas = { style: {}, width: 1, height: 1, addEventListener() {}, removeEventListener() {}, getContext: () => null };
   const r = new WebGPURenderer({ canvas: canvas as unknown as HTMLCanvasElement, forceWebGL: true });
+  // WebGL 2 compares depth in hardware (its backend's answer; it is not initialized here).
+  (r as unknown as { hasCompatibility: () => boolean }).hasCompatibility = () => true;
   registerProbeLighting(r as never);
   registerClusteredLights(r as never);
   const lights: THREE.Light[] = [];
@@ -100,7 +105,7 @@ describe('the clustered lights', () => {
     expect(wgslOf(r, own, box(mat))).not.toBe(plain);
   });
 
-  it('leave a light with a shadow or a cookie to three, and a build in mode none without lists', () => {
+  it('leave a point light with a shadow, or a light with a cookie, to three, and a build in mode none without lists', () => {
     const r = renderer();
     const mat = new THREE.MeshStandardMaterial();
     const scene = litScene();
@@ -113,6 +118,9 @@ describe('the clustered lights', () => {
     cookie.map = new THREE.Texture();
     expect(drawsClustered(shadowed)).toBe(false);
     expect(drawsClustered(cookie)).toBe(false);
+    const shadowedSpot = new THREE.SpotLight('#ffffff', 2, 5);
+    shadowedSpot.castShadow = true;
+    expect(drawsClustered(shadowedSpot)).toBe(true);
     expect(drawsClustered(new THREE.PointLight())).toBe(true);
     expect(drawsClustered(new THREE.DirectionalLight())).toBe(false);
     scene.add(cookie);
@@ -123,6 +131,44 @@ describe('the clustered lights', () => {
     const none = wgslOf(r, scene, box(localLightVariant(mat, 'none')));
     expect(none).not.toContain('tlClusterLightsCount');
     expect(none).not.toMatch(/texture_2d<u32>/);
+  });
+
+  it('read a shadowed spot\'s shadow from the atlas with four depth compares, only while a listed light casts', () => {
+    const r = renderer();
+    // Hardware depth compares (what the device offers; no device here).
+    (r as unknown as { hasCompatibility: () => boolean }).hasCompatibility = () => true;
+    const scene = litScene();
+    const clustered = new ClusteredLights(new ClusterGpu(new ClusterTextures()));
+    scene.add(clustered);
+    const units = (src: string): number => (src.match(/:\s*texture_/g) ?? []).length;
+    const plain = wgslOf(r, scene, box(new THREE.MeshStandardMaterial()));
+    expect(plain).not.toMatch(/texture_depth_2d/);
+    clustered.shadows = true;
+    const shadowed = wgslOf(r, scene, box(new THREE.MeshStandardMaterial()));
+    // One unit more (the atlas, a depth texture with a comparison sampler); four compares in the loop.
+    expect(units(shadowed)).toBe(units(plain) + 1);
+    expect(shadowed).toMatch(/texture_depth_2d/);
+    expect(shadowed).toMatch(/sampler_comparison/);
+    expect((shadowed.match(/textureSampleCompare\(/g) ?? []).length).toBe(4);
+    // The same on Lambert, and on WebGL 2 through a shadow sampler.
+    expect((wgslOf(r, scene, box(new THREE.MeshLambertMaterial())).match(/textureSampleCompare\(/g) ?? []).length).toBe(4);
+    const glsl = glslOf(scene, box(new THREE.MeshStandardMaterial()));
+    expect(glsl).toMatch(/sampler2DShadow/);
+    // Any number of shadowed spots: the same program.
+    const lamps2 = (n: number): string => {
+      const s = litScene();
+      const c = new ClusteredLights(new ClusterGpu(new ClusterTextures()));
+      c.shadows = true;
+      s.add(c);
+      for (let i = 0; i < n; i += 1) {
+        const l = new THREE.SpotLight('#ffffff', 3, 6, 0.5);
+        l.castShadow = true;
+        l.position.set(i, 3, 0);
+        s.add(l);
+      }
+      return wgslOf(r, s, box(new THREE.MeshStandardMaterial()));
+    };
+    expect(lamps2(1)).toBe(lamps2(12));
   });
 
   it('test layers and rooms only while a listed light is layered', () => {

@@ -315,6 +315,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       precompile.want();
       opts.onChange?.();
     },
+    movers: () => level.archHost.rooms.movers(),
+    staticRevision: () => staticShadows?.value ?? 0,
+    drawAgain: () => opts.onChange?.(),
   }, new URLSearchParams(pageSearch()).get('clusterView') === '1');
   /** The quality level drawn and its renderer settings (quality-control.ts). */
   const qualityControl = createQualityControl(
@@ -328,6 +331,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         environment.resized();
       },
       environment: () => environment.renderer,
+      setShadowAtlas: (side: number) => clusters.setShadowAtlas(side),
       ...(surfaceCache !== null ? { setSurfaceCacheMiB: (mib: number) => surfaceCache.setBudget(surfaceCacheBytes(mib)), setSurfaceLightMs: (ms: number) => {
         liveLight.ms = ms;
         surfaceCache.setRelightBudget(liveLight.on ? ms : 0);

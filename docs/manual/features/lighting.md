@@ -465,6 +465,10 @@ scene has a light; **light: editor** is a fixed rig).
   lights do not actually reach the pixel. Sky, unlit and emissive surfaces
   draw as usual; objects set to take no local light draw black
   (`?clusterView=1`).
+  Diagnostics `renderer.clusters` give the lists' counts and costs, and
+  `atlas` the shadow atlas's: its side, the shadowed lights, those with a
+  tile and those waiting for one, tiles and texels drawn the last frame, the
+  share of the atlas in tiles and its memory (MiB).
 - **Lighting pass times** — an overlay in the view's corner: the level and
   tier drawn, live or saved (and why), the cache's re-lighting GPU time a
   frame against its budget and the stale pages, the probes' update time and
@@ -661,6 +665,12 @@ The design's limits, and what is not built yet:
   discrete GPU.
 - **Clustered lighting.** Point and spot lights reach every pixel they
   light through per-cell light lists, however many there are, on both
-  renderers; a point or spot light with a shadow or a cookie is still drawn
-  on its own (its own shadow map or cookie texture) until the shared shadow
-  and cookie atlases arrive.
+  renderers. A shadowed spot light's shadow is a tile of one shared shadow
+  atlas: the lamps largest on screen get the larger tiles (128–1,024
+  texels), a lamp the atlas has no room for lights unshadowed, and a shadow
+  fades in and out over a quarter second as lamps gain and lose tiles. The
+  atlas's side is the quality level's `shadowAtlas` (texels; absent: the
+  tier's, low 2,048, medium 4,096, high 8,192 — 8, 32 and 128 MiB of
+  16-bit depth). A point light with a shadow, or a spot with a cookie, is
+  still drawn on its own (its own shadow map or cookie texture) until the
+  atlas takes point lights' six faces and the cookie atlas arrives.

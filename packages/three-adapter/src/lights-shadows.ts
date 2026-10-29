@@ -12,10 +12,13 @@
  *   scene-lights.ts): the most recently loaded scene's directional, ambient
  *   and hemisphere light, and every point and spot light (within a quality
  *   level's budget when it sets one). A light whose entity is hidden is off.
- * - A point or spot light without a shadow or a cookie is drawn by the light
- *   clusters (cluster-lights.ts), not by its own three.js light node; its
- *   three.js light still carries its place, values and masks. One with a
- *   shadow or a cookie keeps three's node (its own map).
+ * - A spot light without a cookie, and a point light without a shadow or a
+ *   cookie, is drawn by the light clusters (cluster-lights.ts), not by its
+ *   own three.js light node; its three.js light still carries its place,
+ *   values and masks. A shadowed spot's shadow is a tile of the shared
+ *   shadow atlas (shadow-atlas-draw.ts), not a map of its own. A point light
+ *   with a shadow, or a light with a cookie, keeps three's node (its own
+ *   map).
  * - The directional light that is on is the key light: its realtime shadow
  *   is planned when it is realized (lighting.ts) and probed on the first
  *   frame that draws it; a renderer that cannot draw it turns shadows off
@@ -70,13 +73,14 @@ interface LightLike {
   readonly shadowCasterMask?: number;
 }
 
-/** A realized entity as the lights read it. */
 /**
- * Shadow map sides of local lights, texels: a point light draws six faces
- * (512² each costs about what one 1,024² spot map does), a spot light one.
+ * A shadowed point light's map side, texels: it draws six faces (512² each
+ * costs about what one 1,024² spot tile does). A spot light's shadow is a
+ * tile of the shadow atlas (`shadow-atlas.ts` sizes it).
  */
 export const POINT_SHADOW_MAP_SIZE = 512;
-export const SPOT_SHADOW_MAP_SIZE = 1024;
+
+/** A realized entity as the lights read it. */
 
 export interface LightEntityLike {
   readonly id: string;
@@ -221,7 +225,7 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
   let disposed = false;
   /** A light that stays out of realtime rendering: held by a bake (ambient/hemisphere always stay). */
   const bakedAway = (id: string, l: { type: string; mode?: string }): boolean => l.mode === 'baked' && l.type !== 'ambient' && l.type !== 'hemisphere' && o.bakedLight(id);
-  /** point/spot lights casting shadows (the shadow map is enabled for them). */
+  /** Point lights casting shadows through three's own maps (the shadow map is enabled for them). */
   let localShadowLights = 0;
   /** The quality level's largest shadow map (null: each light's own size) and point/spot light budget (null: the scenes'). */
   let shadowMapCap: number | null = null;
@@ -288,8 +292,8 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
       s.position.set(0, 0, 0);
       const d = l.direction ?? [0, -1, 0];
       s.target.position.set(d[0] ?? 0, d[1] ?? -1, d[2] ?? 0);
+      // Its shadow is drawn into the shadow atlas by the light clusters (no map of its own).
       s.castShadow = l.castShadow === true;
-      if (s.castShadow) s.shadow.mapSize.set(capped(SPOT_SHADOW_MAP_SIZE), capped(SPOT_SHADOW_MAP_SIZE));
       // A cookie (three's SpotLight.map; the node lighting projects it through the cone on both backends).
       if (typeof l.cookie === 'string') attachCookie(s, l.cookie);
       return s;
@@ -436,7 +440,7 @@ function realizeLight(e: LightEntityLike): void {
         if (local instanceof THREE.SpotLight) local.add(local.target);
         o.place(e.id, local);
       }
-      if ((local as THREE.PointLight).castShadow === true) localShadowLights += 1;
+      if ((local as THREE.PointLight).isPointLight === true && (local as THREE.PointLight).castShadow === true) localShadowLights += 1;
       switchable.set(e.id, { kind: l.type as SceneLightKind, light: local });
       return;
     }
@@ -474,7 +478,7 @@ function releaseLight(entityId: string): void {
       cookie.dispose();
     }
     cookieHolds?.releaseHolder(lit.light.uuid);
-    if ((lit.light as THREE.PointLight).castShadow === true && (lit.kind === 'point' || lit.kind === 'spot')) localShadowLights = Math.max(0, localShadowLights - 1);
+    if ((lit.light as THREE.PointLight).castShadow === true && lit.kind === 'point') localShadowLights = Math.max(0, localShadowLights - 1);
     // A light on its entity goes with the entity's node; the scene-level ones leave the scene here.
     if (lit.kind === 'directional' || lit.kind === 'ambient' || lit.kind === 'hemisphere') {
       lit.light.removeFromParent();
@@ -666,8 +670,8 @@ function releaseLight(entityId: string): void {
       localBudget = budget;
       if (!capChanged) return budgetChanged;
       // The shadow-casting lights again at the new size (a shadow map's size is fixed when it is made).
-      // (Ids first: realizing a light again takes it out of `switchable` and puts it back.)
-      const casting = [...switchable].filter(([, r]) => (r.light as THREE.DirectionalLight).castShadow === true).map(([id]) => id);
+      // (Ids first: realizing a light again takes it out of `switchable` and puts it back. A spot's shadow is an atlas tile.)
+      const casting = [...switchable].filter(([, r]) => r.kind !== 'spot' && (r.light as THREE.DirectionalLight).castShadow === true).map(([id]) => id);
       for (const id of casting) replaceLight(id);
       return true;
     },

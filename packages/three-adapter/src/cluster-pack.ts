@@ -24,7 +24,15 @@
  *     first texel (-1: none).
  *   Positions and axes are written in view space: the CPU rewrites the
  *   records every frame anyway, and the shader saves a matrix a light.
- * - **Cell headers**, from the word right after the records
+ * - **Shadow records** (`ClusterShadows`), right after the light records,
+ *   {@link CLUSTER_SHADOW_TEXELS} texels each: t0–t3 the rows of the matrix
+ *   from view space to the atlas (x, y: the atlas's texture coordinates,
+ *   from the top left, inside the light's tile; z: the depth its tile
+ *   stores; all over w), t4 the tile (left, top, side: shares of the atlas)
+ *   and the shadow's strength, t5 the shadow camera's near and far (a
+ *   logarithmic depth buffer's depth), the depth bias and the normal offset
+ *   per metre of distance from the light.
+ * - **Cell headers**, from the word right after the shadow records
  *   ({@link ClusterTextures.listWord}): one word per cell (cell index = tile
  *   x + tiles x × (tile y + tiles y × slice)), then the index lists, one
  *   light index a word. A header is the list's offset past the headers
@@ -53,6 +61,10 @@ export const CLUSTER_TEXTURE_WIDTH = 1024;
 export const CLUSTER_TEXEL_WORDS = 4;
 /** Texels a light record. */
 export const CLUSTER_LIGHT_TEXELS = 4;
+/** Texels a shadow record. */
+export const CLUSTER_SHADOW_TEXELS = 6;
+/** Floats a shadow record holds as `ClusterShadows` keeps it (the matrix world → atlas, then t4 and t5). */
+const SHADOW_FLOATS = CLUSTER_SHADOW_TEXELS * 4;
 /** The headers and lists' ceiling (MiB of 32-bit words). */
 export const CLUSTER_INDEX_MIB = 16;
 /** Words the headers and lists may use: the ceiling in 4-byte words (2^22, which the header's 22-bit offset spans). */
@@ -84,6 +96,49 @@ export interface ClusterPackResult {
   uploadBytes: number;
 }
 
+/** One shadow record as the caller hands it in (world space; the pack turns the matrix into the view's). */
+export interface ClusterShadowValue {
+  /** World → atlas (column-major, three's `Matrix4.elements`): x, y the atlas's texture coordinates inside the tile, z the stored depth, over w. */
+  readonly matrix: ArrayLike<number>;
+  /** The tile: left, top and side as shares of the atlas. */
+  readonly rect: readonly [number, number, number];
+  readonly intensity: number;
+  readonly near: number;
+  readonly far: number;
+  readonly bias: number;
+  /** Metres the receiving point moves along its normal per metre from the light. */
+  readonly normalBias: number;
+}
+
+/** The frame's shadow records; a light's `shadow` in `ClusterLights` is its slot here. */
+export class ClusterShadows {
+  count = 0;
+  data = new Float32Array(SHADOW_FLOATS * 4);
+
+  clear(): void {
+    this.count = 0;
+  }
+
+  /** Append a record; its slot. */
+  add(v: ClusterShadowValue): number {
+    const i = this.count;
+    if ((i + 1) * SHADOW_FLOATS > this.data.length) {
+      const next = new Float32Array(this.data.length * 2);
+      next.set(this.data);
+      this.data = next;
+    }
+    this.count += 1;
+    const o = i * SHADOW_FLOATS;
+    const m = v.matrix;
+    // Rows of the column-major matrix.
+    for (let r = 0; r < 4; r += 1) for (let c = 0; c < 4; c += 1) this.data[o + r * 4 + c] = m[c * 4 + r]!;
+    this.data.set([v.rect[0], v.rect[1], v.rect[2], v.intensity, v.near, v.far, v.bias, v.normalBias], o + 16);
+    return i;
+  }
+}
+
+const NO_SHADOWS = new ClusterShadows();
+
 /** The texture's data, kept between frames: its words, and the same memory as floats (the records). */
 export class ClusterTextures {
   data = new Uint32Array(CLUSTER_TEXTURE_WIDTH * CLUSTER_TEXEL_WORDS);
@@ -100,8 +155,8 @@ export class ClusterTextures {
     this.listWord = 0;
   }
 
-  /** Write `build`'s records, headers and lists. */
-  pack(build: ClusterBuild, lights: ClusterLights): ClusterPackResult {
+  /** Write `build`'s records, `shadows`' records (the slots `lights.shadow` names), headers and lists. */
+  pack(build: ClusterBuild, lights: ClusterLights, shadows: ClusterShadows = NO_SHADOWS): ClusterPackResult {
     const clusters = build.grid.clusters;
     const counts = build.counts;
     // Prefix sum: offsets past the headers, a long list's count word first.
@@ -109,11 +164,13 @@ export class ClusterTextures {
     for (let c = 0; c < clusters; c += 1) listEntries += counts[c]! + (counts[c]! >= CLUSTER_LONG_LIST ? 1 : 0);
     const listWords = clusters + listEntries;
     if (listWords > CLUSTER_INDEX_WORDS) throw new Error(`cluster lists: ${listWords} words past the ${CLUSTER_INDEX_MIB} MiB ceiling (the build's budget was not the pack's)`);
-    const base = build.packed * RECORD_WORDS;
+    const shadowTexel = build.packed * CLUSTER_LIGHT_TEXELS;
+    const base = build.packed * RECORD_WORDS + shadows.count * SHADOW_FLOATS;
     const texels = Math.ceil((base + listWords) / CLUSTER_TEXEL_WORDS);
     const grew = this.grow(texels);
     this.listWord = base;
-    this.writeRecords(build, lights);
+    this.writeRecords(build, lights, shadowTexel);
+    this.writeShadows(build.view, shadows, build.packed * RECORD_WORDS);
     const data = this.data;
     // Headers: each cell's offset and count (a long list's count in its first word).
     let at = 0;
@@ -154,7 +211,37 @@ export class ClusterTextures {
     return this.cursor;
   }
 
-  private writeRecords(build: ClusterBuild, lights: ClusterLights): void {
+  /** The shadow records at word `at`: each matrix taken from world to `V`'s view space (times the view's inverse). */
+  private writeShadows(V: ArrayLike<number>, shadows: ClusterShadows, at: number): void {
+    if (shadows.count === 0) return;
+    // The camera's world matrix: V is rigid (rotation and translation), so its inverse is its transpose and −Rᵀt.
+    const W = this.inverse;
+    for (let r = 0; r < 3; r += 1) {
+      for (let c = 0; c < 3; c += 1) W[c * 4 + r] = V[r * 4 + c]!;
+      W[r * 4 + 3] = 0;
+    }
+    for (let r = 0; r < 3; r += 1) W[12 + r] = -(W[r]! * V[12]! + W[4 + r]! * V[13]! + W[8 + r]! * V[14]!);
+    W[15] = 1;
+    const src = shadows.data;
+    const out = this.floats;
+    for (let i = 0; i < shadows.count; i += 1) {
+      const o = i * SHADOW_FLOATS;
+      const d = at + o;
+      // Row r of (M × W): the row of M times W's columns.
+      for (let r = 0; r < 4; r += 1) {
+        const m0 = src[o + r * 4]!;
+        const m1 = src[o + r * 4 + 1]!;
+        const m2 = src[o + r * 4 + 2]!;
+        const m3 = src[o + r * 4 + 3]!;
+        for (let c = 0; c < 4; c += 1) out[d + r * 4 + c] = m0 * W[c * 4]! + m1 * W[c * 4 + 1]! + m2 * W[c * 4 + 2]! + m3 * W[c * 4 + 3]!;
+      }
+      for (let k = 16; k < SHADOW_FLOATS; k += 1) out[d + k] = src[o + k]!;
+    }
+  }
+
+  private readonly inverse = new Float64Array(16);
+
+  private writeRecords(build: ClusterBuild, lights: ClusterLights, shadowTexel: number): void {
     const V = build.view;
     const out = this.floats;
     for (let s = 0; s < build.packed; s += 1) {
@@ -182,7 +269,8 @@ export class ClusterTextures {
       } else {
         rotateInto(V, lights.v, i, out, o + 12);
       }
-      out[o + 15] = lights.shadow[i]!;
+      const shadow = lights.shadow[i]!;
+      out[o + 15] = shadow < 0 ? -1 : shadowTexel + shadow * CLUSTER_SHADOW_TEXELS;
     }
   }
 
@@ -264,6 +352,14 @@ export interface DecodedClusterLight {
   /** Area: half sides. */
   u?: [number, number, number];
   v?: [number, number, number];
+}
+
+/** A shadow record read back as the shader does (`texel`: its first texel, the light record's `shadow`). */
+export function decodeClusterShadow(data: Uint32Array, texel: number): { rows: number[][]; rect: [number, number, number]; intensity: number; near: number; far: number; bias: number; normalBias: number } {
+  const floats = new Float32Array(data.buffer, data.byteOffset, data.length);
+  const o = texel * CLUSTER_TEXEL_WORDS;
+  const t = (k: number): number => floats[o + k]!;
+  return { rows: [0, 1, 2, 3].map((r) => [t(r * 4), t(r * 4 + 1), t(r * 4 + 2), t(r * 4 + 3)]), rect: [t(16), t(17), t(18)], intensity: t(19), near: t(20), far: t(21), bias: t(22), normalBias: t(23) };
 }
 
 export function decodeClusterLight(data: Uint32Array, index: number): DecodedClusterLight {

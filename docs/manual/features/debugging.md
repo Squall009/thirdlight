@@ -235,7 +235,7 @@ only what it sets:
   multisamples at 4 only; absent: the renderer's), `shadowMapSize` (512–4096:
   the largest shadow map any light draws; a light's larger own size is lowered
   to it), `localLights` (0–16 point and spot lights drawn at once),
-  `shadowedLights` (0–16 point and spot lights drawing their shadow at once;
+  `shadowedLights` (0–16 shadowed point lights drawing their shadow at once;
   absent: every one that casts — see [Interior lighting best practice](architecture.md#interior-lighting-best-practice-shadow-rules)),
   `ambientOcclusion` (off/ssao/gtao), `lodBias` (0.25–4, over `lod_bias`) and
   `dynamicResolution`. What a level leaves out is the project's setting; a

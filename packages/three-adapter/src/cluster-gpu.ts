@@ -23,6 +23,9 @@
  *   farthest light), and so does where the headers start (past the
  *   records): its shape, slice mapping and that start are uniforms, so a new
  *   grid builds nothing.
+ * - **The shadow atlas** (`shadow-atlas-draw.ts`) is the renderer's too: its
+ *   depth texture and texel size ride here, so the light loop reads both
+ *   from one place (a placeholder until the first shadowed light).
  */
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
@@ -30,7 +33,7 @@ import * as TSLTyped from 'three/tsl';
 import type { ClusterGrid } from './cluster-build';
 import { CLUSTER_COUNT_BITS, CLUSTER_LIGHT_TEXELS, CLUSTER_LONG_LIST, CLUSTER_TEXEL_WORDS, CLUSTER_TEXTURE_WIDTH, type ClusterPackResult, type ClusterTextures } from './cluster-pack';
 import type { N } from './effects-tsl';
-import { texelTexture } from './texel-texture-node';
+import { texelTexture, untransformedTexture } from './texel-texture-node';
 
 const TSL: N = TSLTyped;
 const { If, clamp, float, floor, int, ivec2, log2, max, renderGroup, select, uint, uintBitsToFloat, uniform, vec2, vec4 } = TSL;
@@ -61,6 +64,21 @@ function dataTexture(data: Uint32Array, rows: number): THREE.DataTexture {
   tex.needsUpdate = true;
   tex.version = Math.max(tex.version, ++textureVersion);
   return tex;
+}
+
+/**
+ * A 1 × 1 compare-ready depth texture: what the light loop's atlas reads
+ * before a renderer has an atlas. It belongs to a render target, as the
+ * atlas does: three takes a depth texture without one to have the samples
+ * of whatever the renderer draws at the time (MSAA's four), another binding.
+ */
+export function placeholderAtlas(): THREE.DepthTexture {
+  const t = new THREE.DepthTexture(1, 1, THREE.UnsignedShortType);
+  t.compareFunction = THREE.LessEqualCompare;
+  t.minFilter = THREE.LinearFilter;
+  t.magFilter = THREE.LinearFilter;
+  new THREE.RenderTarget(1, 1, { depthTexture: t, format: THREE.RedFormat });
+  return t;
 }
 
 /** One packed texture on the GPU: made again when its rows or its data array change, else its written rows sent. */
@@ -122,8 +140,10 @@ export class ClusterGpu {
   readonly lists: ClusterTexture;
   /** tiles x, tiles y, slice scale, slice bias. */
   readonly grid = new THREE.Vector4(1, 1, 0, 0);
-  /** slices, cells, the first header's word (past the records), 0. */
-  readonly extent = new THREE.Vector4(0, 0, 0, 0);
+  /** slices, cells, the first header's word (past the records), the shadow atlas's texel (1 / its side). */
+  readonly extent = new THREE.Vector4(0, 0, 0, 1);
+  /** The shadow atlas's depth (`shadow-atlas-draw.ts` sets it; `revision` moves when it does). */
+  atlas: THREE.DepthTexture = placeholderAtlas();
   /** The projection the lists were built with (the camera's, unjittered). */
   readonly projection = new THREE.Matrix4();
   /** Bumped when the texture was made again (its readers rebind). */
@@ -137,10 +157,18 @@ export class ClusterGpu {
   upload(renderer: ClusterUploadRenderer, grid: ClusterGrid, textures: ClusterTextures, packed: ClusterPackResult, projection: ArrayLike<number>): number {
     this.grid.set(grid.tilesX, grid.tilesY, grid.scale, grid.bias);
     this.projection.fromArray(projection);
-    this.extent.set(grid.slices, grid.clusters, packed.listWord, 0);
+    this.extent.set(grid.slices, grid.clusters, packed.listWord, 1 / Math.max(1, this.atlas.image.width ?? 1));
     const a = this.lists.upload(renderer, textures.data, textures.rows, packed.texels);
     if (a.remade) this.revision = ++gpuRevision;
     return a.bytes;
+  }
+
+  /** The renderer's shadow atlas from now on: its readers bind it. */
+  setAtlas(depth: THREE.DepthTexture): void {
+    if (depth === this.atlas) return;
+    this.atlas = depth;
+    this.extent.w = 1 / Math.max(1, depth.image.width ?? 1);
+    this.revision = ++gpuRevision;
   }
 
   dispose(): void {
@@ -154,6 +182,8 @@ export interface ClusterNodes {
   readonly grid: N;
   readonly extent: N;
   readonly projection: N;
+  /** The shadow atlas's depth (compare reads). */
+  readonly atlas: N;
   sync(gpu: ClusterGpu): void;
 }
 
@@ -165,8 +195,10 @@ export function clusterNodes(gpu: ClusterGpu): ClusterNodes {
     grid: uniform(new THREE.Vector4()).setGroup(renderGroup),
     extent: uniform(new THREE.Vector4()).setGroup(renderGroup),
     projection: uniform(new THREE.Matrix4()).setGroup(renderGroup),
+    atlas: untransformedTexture(gpu.atlas),
     sync(g) {
       nodes.lists.value = g.lists.texture;
+      nodes.atlas.value = g.atlas;
       nodes.grid.value.copy(g.grid);
       nodes.extent.value.copy(g.extent);
       nodes.projection.value.copy(g.projection);
@@ -226,6 +258,11 @@ export function clusterList(t: ClusterNodes, cell: N, name = 'tlCluster'): { at:
 /** The light index (an int node) at word `w` of a list. */
 export function clusterIndexAt(t: ClusterNodes, w: N): N {
   return int(wordAt(t.lists, w));
+}
+
+/** Texel `e` (an int node) of the packed texture, its words as the floats they hold (a shadow record's). */
+export function clusterTexel(t: ClusterNodes, e: N): N {
+  return uintBitsToFloat(texelAt(t.lists, e));
 }
 
 /** Texel `k` of light record `index` (an int node), its words as the floats they hold. */

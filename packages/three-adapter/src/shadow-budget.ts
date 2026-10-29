@@ -1,20 +1,20 @@
 /**
- * Shadowed point and spot lights per view: a budget of shadow maps drawn,
- * the best placed lights first, shadows fading out with distance, and a
- * map drawn again only when what it shows can have changed.
+ * Shadowed point lights per view: a budget of shadow maps drawn, the best
+ * placed lights first, shadows fading out with distance, and a map drawn
+ * again only when what it shows can have changed. (A spot light's shadow is
+ * a tile of the shadow atlas, `shadow-atlas.ts`, ranked the same way.)
  *
- * A point light's shadow is six views of the scene, a spot light's one: a
- * level with a dozen lamps casting shadows draws more shadow views than
- * anything else. So, with a budget (a quality level's `shadowedLights`):
+ * A point light's shadow is six views of the scene: a level with a dozen
+ * lamps casting shadows draws more shadow views than anything else. So,
+ * with a budget (a quality level's `shadowedLights`):
  *
- * - **Who gets a shadow.** Each frame the shadow-casting lights that are on
- *   are ranked by how large they are on screen (their reach over their
- *   distance from the eye); lights out of view (their reach outside the
- *   frustum) or in a room no portal shows rank nowhere; a spot light ranks
- *   ahead of a point light of the same size (one view, not six). The first
- *   `budget` keep their shadow; the others draw none (their shadow's
+ * - **Who gets a shadow.** Each frame the shadow-casting point lights that
+ *   are on are ranked by how large they are on screen (`shadowRank`: their
+ *   reach over their distance from the eye); lights out of view (their reach
+ *   outside the frustum) or in a room no portal shows rank nowhere. The
+ *   first `budget` keep their shadow; the others draw none (their shadow's
  *   intensity is 0 and their map is not drawn).
- * - **Fade.** A shadow fades out between 3/4 of {@link LOCAL_SHADOW_DISTANCE}
+ * - **Fade.** A shadow fades out between 3/4 of `LOCAL_SHADOW_DISTANCE`
  *   and that distance from the eye, so leaving the budget far away is not a
  *   pop.
  * - **Cached.** A budgeted map is drawn when the light enters the budget,
@@ -31,13 +31,7 @@
 import * as THREE from 'three';
 
 import { roomKeyOf } from './light-layers';
-
-/** Metres from the eye at which a budgeted point or spot light's shadow has faded out (from 3/4 of it on). */
-export const LOCAL_SHADOW_DISTANCE = 40;
-/** The share of a point light's rank against a spot light of the same size on screen (its shadow is six views). */
-const POINT_RANK = 0.5;
-/** The reach a light without a range is ranked and tested with (m). */
-const UNBOUNDED_REACH = 20;
+import { shadowRank, UNBOUNDED_SHADOW_REACH as UNBOUNDED_REACH } from './shadow-atlas';
 
 export interface ShadowBudgetDeps {
   /** Whether the room a light is in is seen (no room: true). */
@@ -80,10 +74,10 @@ export class ShadowBudget {
     this.d.budget = n;
   }
 
-  /** Rank and fade the shadow-casting lights for this frame's view. */
+  /** Rank and fade the shadow-casting point lights for this frame's view. */
   update(camera: THREE.Camera, lights: Iterable<THREE.Light>): void {
     const casting: THREE.Light[] = [];
-    for (const l of lights) if (l.castShadow && l.visible && ((l as THREE.PointLight).isPointLight === true || (l as THREE.SpotLight).isSpotLight === true)) casting.push(l);
+    for (const l of lights) if (l.castShadow && l.visible && (l as THREE.PointLight).isPointLight === true) casting.push(l);
     this.d.casting = casting.length;
     if (this.budget === null) {
       this.release();
@@ -100,9 +94,8 @@ export class ShadowBudget {
       _pos.set(w[12]!, w[13]!, w[14]!);
       const reach = (l as THREE.PointLight).distance > 0 ? (l as THREE.PointLight).distance : UNBOUNDED_REACH;
       const dist = Math.hypot(_pos.x - e[12]!, _pos.y - e[13]!, _pos.z - e[14]!);
-      const fade = 1 - THREE.MathUtils.smoothstep(dist, LOCAL_SHADOW_DISTANCE * 0.75, LOCAL_SHADOW_DISTANCE);
-      const seen = fade > 0 && this.deps.roomSeen(roomKeyOf(l)) && _frustum.intersectsSphere(_sphere.set(_pos, reach));
-      const rank = seen ? (reach / Math.max(dist, 1)) * ((l as THREE.SpotLight).isSpotLight === true ? 1 : POINT_RANK) : -1;
+      const seen = this.deps.roomSeen(roomKeyOf(l)) && _frustum.intersectsSphere(_sphere.set(_pos, reach));
+      const { rank, fade } = shadowRank(reach, dist, seen);
       ranked.push({ l, rank, fade });
     }
     ranked.sort((a, b) => b.rank - a.rank);

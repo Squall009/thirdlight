@@ -14,6 +14,8 @@
  * PRODUCT_RENDERER_VARIANTS): scene-lights covers lights and cookies on both.
  */
 import { randomBytes } from 'node:crypto';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { expect, test, type Page } from './pw';
 
@@ -289,6 +291,219 @@ for (const variant of PRODUCT_RENDERER_VARIANTS) test(`a spot light's cookie is 
   for (const pass of variant === 'auto' ? (['auto', 'webgl2'] as const) : ([variant] as const)) await lampRoom(page, pass, send, box.id, pass === 'auto' || pass === variant);
 });
 
+/** Dark blobs: 4-connected runs of samples (every other pixel) where `a` is darker than `b` by more than `delta` (luminance), at least `minArea` samples, largest last. */
+function darkBlobs(a: Image, b: Image, delta = 12, minArea = 4): { area: number; x: number; y: number; mean: number; cells: Set<number> }[] {
+  const w = Math.floor(a.width / 2);
+  const h = Math.floor(a.height / 2);
+  const lum = (p: readonly number[]): number => 0.2126 * p[0]! + 0.7152 * p[1]! + 0.0722 * p[2]!;
+  const dark = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i += 1) dark[i] = lum(b.pixel((i % w) * 2, Math.floor(i / w) * 2)) - lum(a.pixel((i % w) * 2, Math.floor(i / w) * 2));
+  const seen = new Uint8Array(w * h);
+  const out: { area: number; x: number; y: number; mean: number; cells: Set<number> }[] = [];
+  for (let i = 0; i < w * h; i += 1) {
+    if (seen[i] === 1 || dark[i]! <= delta) continue;
+    const stack = [i];
+    seen[i] = 1;
+    const cells = new Set<number>();
+    let xs = 0;
+    let ys = 0;
+    let sum = 0;
+    while (stack.length > 0) {
+      const j = stack.pop()!;
+      cells.add(j);
+      xs += (j % w) * 2;
+      ys += Math.floor(j / w) * 2;
+      sum += dark[j]!;
+      const x = j % w;
+      for (const k of [x > 0 ? j - 1 : -1, x < w - 1 ? j + 1 : -1, j - w, j + w]) {
+        if (k < 0 || k >= w * h || seen[k] === 1 || dark[k]! <= delta) continue;
+        seen[k] = 1;
+        stack.push(k);
+      }
+    }
+    if (cells.size >= minArea) out.push({ area: cells.size, x: xs / cells.size, y: ys / cells.size, mean: sum / cells.size, cells });
+  }
+  return out.sort((p, q) => p.area - q.area);
+}
+
+/** Samples where `a` is darker than `b` by more than `delta` and that are not within `pad` samples of `mask`'s cells (sample indices on the 2-pixel grid). */
+function darkOutside(a: Image, b: Image, mask: ReadonlySet<number>, delta = 12, pad = 2): number {
+  const w = Math.floor(a.width / 2);
+  const h = Math.floor(a.height / 2);
+  const near = new Uint8Array(w * h);
+  for (const c of mask) {
+    const cx = c % w;
+    const cy = Math.floor(c / w);
+    for (let dy = -pad; dy <= pad; dy += 1) for (let dx = -pad; dx <= pad; dx += 1) {
+      const x = cx + dx;
+      const y = cy + dy;
+      if (x >= 0 && y >= 0 && x < w && y < h) near[x + y * w] = 1;
+    }
+  }
+  const lum = (p: readonly number[]): number => 0.2126 * p[0]! + 0.7152 * p[1]! + 0.0722 * p[2]!;
+  let n = 0;
+  for (let i = 0; i < w * h; i += 1) if (near[i] === 0 && lum(b.pixel((i % w) * 2, Math.floor(i / w) * 2)) - lum(a.pixel((i % w) * 2, Math.floor(i / w) * 2)) > delta) n += 1;
+  return n;
+}
+
+/**
+ * Today's spot shadows (three's own 1,024² map per light, before the shadow atlas; measured on the Iris Xe host with
+ * this step at a63ac2c1, twice, the same numbers): the two cubes' shadow blobs (samples on the 2-pixel grid darker
+ * by > 12) and their mean darkening, per renderer (the WebGL 2 page frames the room from farther). The atlas's must
+ * match within {@link SHADOW_MATCH} of the area and the darkening.
+ */
+const TODAY_SPOT_SHADOWS: Record<'webgpu' | 'webgl2', { far: { area: number; mean: number }; near: { area: number; mean: number } }> = {
+  webgpu: { far: { area: 765, mean: 175.0 }, near: { area: 2552, mean: 180.0 } },
+  webgl2: { far: { area: 121, mean: 175.5 }, near: { area: 169, mean: 176.7 } },
+};
+/** Wheel notches the spot-shadow view comes closer by from the whole room. */
+const VIEW_NOTCHES = 36;
+/** The tolerance against today's shadows: a share of the area and of the mean darkening. */
+const SHADOW_MATCH = 0.2;
+
+/**
+ * Shadowed spots through the shadow atlas, in the Scene view: two of the room's spot lamps cast the shadows of
+ * small cubes floating beside their axes. Their shadows match today's (three's own map per light) within a stated
+ * tolerance; a cube moved by an edit moves its shadow (the tile is drawn again). With a quality level whose atlas
+ * is 512 texels, one spot takes it whole and the other lights its patch unshadowed; raising that one's range
+ * outranks the first, which gives its tile away: no frame on the way shows a shadow where no cube casts one, and
+ * then the other spot's shadow is the one drawn.
+ */
+async function spotShadows(page: Page, pass: 'auto' | 'webgl2' | 'webgpu', send: (op: string, args: Record<string, unknown>) => Promise<void>, idOf: (name: string) => string, build: boolean): Promise<void> {
+  const viewport = page.locator('canvas.tl-viewport');
+  const backend = pass === 'webgl2' ? 'webgl2' : 'webgpu';
+  const shot = async (): Promise<Image> => decodePng(await viewport.screenshot());
+  const settled = async (label: string): Promise<Image> => {
+    let last = '';
+    await expect.poll(async () => {
+      const png = (await viewport.screenshot()).toString('base64');
+      const same = png === last;
+      last = png;
+      return same;
+    }, { timeout: 30_000, intervals: [500] }).toBe(true);
+    const out = test.info().outputPath();
+    mkdirSync(out, { recursive: true });
+    writeFileSync(join(out, `spot-${label}-${pass}.png`), Buffer.from(last, 'base64'));
+    return decodePng(Buffer.from(last, 'base64'));
+  };
+  // The spot lamps 2 (far, z −2.4) and 8 (near, z −0.8), and a 25 cm cube 0.2 m beside each axis (toward the view), 0.3 m over the floor.
+  const lamps = [{ name: 'far', i: 2, x: -1, z: -2.4 }, { name: 'near', i: 8, x: -1, z: -0.8 }] as const;
+  const lampLight = (i: number, x: number, z: number, extra: Record<string, unknown> = {}): Record<string, unknown> => ({ ...(patchLamp(`lamp-${i}`, x, z, i, true)['components'] as { light: Record<string, unknown> }).light, ...extra });
+  for (const l of lamps) await send('setComponent', { entityId: idOf(`Lamp lamp-${l.i}`), component: 'light', value: lampLight(l.i, l.x, l.z) });
+  const cube = (castShadow: boolean): Record<string, unknown> => ({ size: [0.25, 0.25, 0.25], material: { color: '#808080' }, castShadow });
+  if (build) {
+    await send('pasteEntities', { sceneId: 'scene-main', entities: lamps.map((l) => ({ id: `caster-${l.name}`, name: `Caster ${l.name}`, static: false, components: { transform: { position: [l.x - 0.2, 0.3, l.z], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, box: cube(true) } })) });
+  }
+  const all = (await be.command({ op: 'queryEntities', projectId: be.projectId, args: { limit: 100, offset: 0 } }))['entities'] as { id: string; name: string }[];
+  const caster = (name: string): string => all.find((e) => e.name === `Caster ${name}`)!.id;
+  // (The first pass makes the cubes casting; a later one finds them where the last left them: out of sight, not casting.)
+  let cast = build;
+  const casting = async (on: boolean): Promise<void> => {
+    if (cast === on) return;
+    cast = on;
+    for (const l of lamps) await send('setComponent', { entityId: caster(l.name), component: 'box', value: cube(on) });
+  };
+  if (!build) for (const l of lamps) await send('setTransform', { entityId: caster(l.name), transform: { position: [l.x - 0.2, 0.3, l.z], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } });
+  const atlas = async (): Promise<string[]> => ((await viewport.getAttribute('data-tl-shadow-atlas')) ?? '').split('|');
+  // The same view on each renderer: a new page frames the whole room, then the view orbits the near cube (F) and
+  // comes closer (the wheel: 5 % a notch), the two spots' patches large in it.
+  await page.goto(editorUrlFor(be.editorUrl, pass));
+  await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  await expectRendererBackend(viewport, pass);
+  // (Gizmos off: a page keeps what the last one set.)
+  for (const item of ['Icons: on', 'Light ranges: on']) {
+    await page.getByRole('menubar').getByRole('menuitem', { name: 'Gizmos', exact: true }).click();
+    const on = page.getByRole('menu').getByRole('menuitem', { name: item, exact: true });
+    if ((await on.count()) > 0) await on.click();
+    else await page.keyboard.press('Escape');
+  }
+  await page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'Caster near' }).click();
+  await viewport.hover();
+  await page.keyboard.press('f');
+  await page.waitForTimeout(300);
+  for (let n = 0; n < VIEW_NOTCHES; n += 1) {
+    await page.mouse.wheel(0, -100);
+    await page.waitForTimeout(20);
+  }
+  await page.keyboard.press('Escape');
+  // Both spots hold a tile (none waiting).
+  await casting(true);
+  await viewport.click({ position: { x: 5, y: 5 } });
+  await expect.poll(async () => (await atlas()).slice(1, 3).join('|'), { timeout: 30_000 }).toBe('2|0');
+  const on = await settled('on');
+  await casting(false);
+  const off = await settled('off');
+  // The two largest blobs are the shadows (the far one higher in the picture).
+  const blobs = darkBlobs(on, off).slice(-2).sort((p, q) => p.y - q.y);
+  const today = TODAY_SPOT_SHADOWS[backend];
+  console.log(`[lights] spot shadows (${pass}): far ${blobs[0]?.area} samples, mean ${blobs[0]?.mean.toFixed(1)}; near ${blobs[1]?.area} samples, mean ${blobs[1]?.mean.toFixed(1)} (today: far ${today.far.area}/${today.far.mean}, near ${today.near.area}/${today.near.mean})`);
+  expect(blobs.length).toBe(2);
+  for (const [k, b] of [['far', blobs[0]!], ['near', blobs[1]!]] as const) {
+    expect(Math.abs(b.area - today[k].area), `${k} shadow area vs today's`).toBeLessThanOrEqual(today[k].area * SHADOW_MATCH);
+    expect(Math.abs(b.mean - today[k].mean), `${k} shadow darkening vs today's`).toBeLessThanOrEqual(today[k].mean * SHADOW_MATCH);
+  }
+  // The far cube moved by an edit: its shadow follows (its tile drawn again), the near one stays.
+  const far = lamps[0];
+  await casting(true);
+  await send('setTransform', { entityId: caster('far'), transform: { position: [far.x - 0.2, 0.3, far.z + 0.15], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } });
+  await viewport.click({ position: { x: 5, y: 5 } });
+  const movedOn = await settled('moved-on');
+  await casting(false);
+  const movedOff = await settled('moved-off');
+  const moved = darkBlobs(movedOn, movedOff).slice(-2).sort((p, q) => p.y - q.y);
+  console.log(`[lights] moved cube (${pass}): far shadow ${blobs[0]!.x.toFixed(0)},${blobs[0]!.y.toFixed(0)} → ${moved[0]?.x.toFixed(0)},${moved[0]?.y.toFixed(0)}; near ${blobs[1]!.x.toFixed(0)},${blobs[1]!.y.toFixed(0)} → ${moved[1]?.x.toFixed(0)},${moved[1]?.y.toFixed(0)}`);
+  expect(moved.length).toBe(2);
+  expect(Math.hypot(moved[0]!.x - blobs[0]!.x, moved[0]!.y - blobs[0]!.y)).toBeGreaterThan(2);
+  expect(Math.hypot(moved[1]!.x - blobs[1]!.x, moved[1]!.y - blobs[1]!.y)).toBeLessThan(1.5);
+  await send('setTransform', { entityId: caster('far'), transform: { position: [far.x - 0.2, 0.3, far.z], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } });
+
+  // A 512-texel atlas: one spot takes it whole, the other lights its patch unshadowed (the level draws its own look:
+  // its pictures are compared with each other).
+  const before = (JSON.parse(readFileSync(join(be.projectDir, 'content.json'), 'utf8')) as { content: { environment?: Record<string, unknown> } }).content.environment ?? {};
+  // An 8 m reach first: large enough on screen, from either page's view, to ask for the whole atlas once it is
+  // 512 texels (a light already holding a smaller tile there keeps it while nothing larger is free).
+  for (const l of lamps) await send('setComponent', { entityId: idOf(`Lamp lamp-${l.i}`), component: 'light', value: lampLight(l.i, l.x, l.z, { range: 8 }) });
+  await send('setEnvironment', { environment: { ...before, qualityLevels: [{ id: 'tight', shadowAtlas: 512 }], quality: 'tight' } });
+  await viewport.click({ position: { x: 5, y: 5 } });
+  const tightOff = await settled('512-off');
+  await casting(true);
+  await viewport.click({ position: { x: 5, y: 5 } });
+  await expect.poll(async () => (await atlas()).slice(0, 3).join('|'), { timeout: 30_000 }).toBe('512|1|1');
+  const tightOn = await settled('512');
+  const big = Math.min(blobs[0]!.area, blobs[1]!.area) / 3;
+  const tight = darkBlobs(tightOn, tightOff).filter((b) => b.area >= big);
+  console.log(`[lights] 512 atlas (${pass}): ${tight.length} shadow(s) at ${tight.map((b) => `${b.x.toFixed(0)},${b.y.toFixed(0)} (${b.area})`).join('; ')}`);
+  expect(tight.length).toBe(1);
+  const keptFar = Math.abs(tight[0]!.y - blobs[0]!.y) < Math.abs(tight[0]!.y - blobs[1]!.y);
+  const kept = tight[0]!;
+  // The other spot lights its patch as without the cube's shadow: nothing darker there but the kept shadow.
+  expect(darkOutside(tightOn, tightOff, kept.cells)).toBeLessThan(20);
+  // The unshadowed one's reach made four times the other's: it outranks it from any view, and the other gives its tile away. On the way, the kept
+  // light's patch (round its shadow) never shows a shadow other than its own cube's.
+  const swap = keptFar ? lamps[1] : lamps[0];
+  await send('setComponent', { entityId: idOf(`Lamp lamp-${swap.i}`), component: 'light', value: lampLight(swap.i, swap.x, swap.z, { range: 32 }) });
+  await viewport.click({ position: { x: 5, y: 5 } });
+  const frames: Image[] = [];
+  for (let f = 0; f < 8; f += 1) frames.push(await shot());
+  const swapped = await settled('swapped');
+  await casting(false);
+  const swappedOff = await settled('swapped-off');
+  const w = Math.floor(swapped.width / 2);
+  const reach = 2 * Math.sqrt(kept.area / Math.PI);
+  const patch = (c: number): boolean => Math.hypot((c % w) - kept.x / 2, Math.floor(c / w) - kept.y / 2) <= reach;
+  const wrong = frames.map((f) => darkBlobs(f, swappedOff, 12, 1).reduce((n, b) => n + [...b.cells].filter((c) => patch(c) && !kept.cells.has(c)).length, 0));
+  const after = darkBlobs(swapped, swappedOff).filter((b) => b.area >= big);
+  console.log(`[lights] rank swap (${pass}): samples darkened in the kept light's patch outside its shadow, per frame ${wrong.join(', ')}; after: ${after.map((b) => `${b.x.toFixed(0)},${b.y.toFixed(0)} (${b.area})`).join('; ')}`);
+  for (const n of wrong) expect(n).toBeLessThan(20);
+  expect(after.length).toBe(1);
+  const nowFar = Math.abs(after[0]!.y - blobs[0]!.y) < Math.abs(after[0]!.y - blobs[1]!.y);
+  expect(nowFar).toBe(!keptFar);
+  // Back: the project's levels, the lamps as they were, no casters.
+  await send('setEnvironment', { environment: before });
+  for (const l of lamps) await send('setComponent', { entityId: idOf(`Lamp lamp-${l.i}`), component: 'light', value: (patchLamp(`lamp-${l.i}`, l.x, l.z, l.i)['components'] as { light: Record<string, unknown> }).light });
+  for (const l of lamps) await send('setTransform', { entityId: caster(l.name), transform: { position: [l.x, -5, l.z], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } });
+}
+
 /** Bright samples (every other pixel): r + g + b over `floor`. */
 const brightAt = (img: Image, x: number, y: number, floor: number): boolean => (([r, g, b]) => r + g + b > floor)(img.pixel(x, y));
 
@@ -398,7 +613,8 @@ async function lampRoom(page: Page, pass: 'auto' | 'webgl2' | 'webgpu', send: (o
     await menu(page, 'Gizmos', 'Light ranges: on');
   }
   // Scene view: the main scene's twelve lamps through the clusters (the canvas lists them), then six of them casting a
-  // shadow, so three's own light nodes draw those six (the clusters list six).
+  // shadow, so three's own light nodes draw the four point lights of them (the clusters list eight: a shadowed spot
+  // stays listed, its shadow drawn into the shadow atlas).
   const listed = async (): Promise<number> => Number((await viewport.getAttribute('data-tl-clusters'))?.split('|')[0] ?? -1);
   // (A paste gives the lamps ids of the project's own: found by name.)
   const pasted = (await be.command({ op: 'queryEntities', projectId: be.projectId, args: { limit: 100, offset: 0 } }))['entities'] as { id: string; name: string }[];
@@ -415,7 +631,7 @@ async function lampRoom(page: Page, pass: 'auto' | 'webgl2' | 'webgpu', send: (o
   await expect.poll(async () => patches(await shot(), 150).length, { timeout: 20_000 }).toBeGreaterThanOrEqual(6);
   const clustered = await shot();
   await shadows(true);
-  await expect.poll(listed, { timeout: 30_000 }).toBe(6);
+  await expect.poll(listed, { timeout: 30_000 }).toBe(8);
   // Tolerance: a mean of at most 1 level in 255 and at most 0.5 % of pixels off by more than 16 (the paths compute the
   // same light; rounding and TAAU's frame-to-frame noise are what differs).
   let d = pictureDiff(clustered, await shot());
@@ -428,6 +644,7 @@ async function lampRoom(page: Page, pass: 'auto' | 'webgl2' | 'webgpu', send: (o
   console.log(`[lights] clusters vs three's lights (${pass}): mean ${d.mean.toFixed(3)}, ${(d.bad * 100).toFixed(3)} % off by > 16; six lamps dark: mean ${dark.mean.toFixed(3)}, ${(dark.bad * 100).toFixed(2)} %; ${patches(clustered, 150).length} patches`);
   await shadows(false);
   await expect.poll(async () => pictureDiff(clustered, await shot()).bad <= 0.005, { timeout: 20_000 }).toBe(true);
+  await spotShadows(page, pass, send, idOf, build);
 
   // Play: seven scenes, 24 + 20 + 16 lamps and 6 + 4 area lights.
   await page.getByTitle('Start an isolated play preview').click();

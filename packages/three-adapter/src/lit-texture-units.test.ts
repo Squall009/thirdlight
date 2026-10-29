@@ -3,9 +3,9 @@
  * builds (WGSL, no GPU): every lit program kind under the worst-case
  * settings — the sun's shadow with contact shadows, ambient occlusion,
  * screen-space reflections, the probes, the surface cache read, a
- * lightmap, projected decals, the environment map, and the light clusters —
- * binds at most what a WebGPU fragment stage may on the low tier's GPUs,
- * with room left for the light path's shadow atlas.
+ * lightmap, projected decals, the environment map, and the light clusters
+ * with their light tables and shadow atlas — binds at most what a WebGPU
+ * fragment stage may on the low tier's GPUs.
  */
 import * as THREE from 'three';
 import * as TSL from 'three/tsl';
@@ -62,6 +62,7 @@ function worstScene(): THREE.Scene {
   clustered.layered = true;
   clustered.areas = true;
   clustered.uncached = true;
+  clustered.shadows = true;
   scene.add(clustered);
   const env = new THREE.CubeTexture();
   scene.environment = env;
@@ -154,8 +155,8 @@ async function countUnits(): Promise<Record<string, Record<string, number>>> {
 /** Time the program builds of one count take at most (a loaded host). */
 const BUILD_MS = 60_000;
 
-/** What a lit program may bind with the clusters and the light tables in: the budget less the shadow atlas still to come. */
-const ROOM = LIT_TEXTURE_UNITS - (LIGHT_PATH_TEXTURE_UNITS - 2);
+/** What a lit program may bind with the light path's units (clusters, light tables, shadow atlas) all in: the whole budget. */
+const ROOM = LIT_TEXTURE_UNITS - (LIGHT_PATH_TEXTURE_UNITS - 3);
 
 describe('lit programs fit the texture-unit budget', () => {
   it('every lit kind, moving or reading the surface cache, leaves the light path its units', async () => {

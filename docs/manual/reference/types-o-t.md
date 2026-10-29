@@ -590,10 +590,11 @@ interface QualityLevelConfig {
   /** How many point and spot lights the loaded scenes draw at once (0 – the scenes' budget). */
   localLights?: number;
   /**
-   * How many point and spot lights draw their shadow at once (0 – the scenes'
-   * budget; absent: every one that casts, every frame): the ones largest on
-   * screen, spot before point, fading out with distance, their maps drawn
-   * again only when something in reach changed.
+   * How many point lights draw their shadow at once (0 – the scenes' budget;
+   * absent: every one that casts, every frame): the ones largest on screen,
+   * fading out with distance, their maps drawn again only when something in
+   * reach changed. A spot light's shadow is a tile of the shadow atlas
+   * (`shadowAtlas`).
    */
   shadowedLights?: number;
   ambientOcclusion?: AmbientOcclusionKind;
@@ -602,7 +603,7 @@ interface QualityLevelConfig {
   dynamicResolution?: boolean;
   /** Occlusion culling at this level (absent: the project's `occlusion_culling`). */
   occlusionCulling?: OcclusionCulling;
-  /** The lighting tier (absent: `DEFAULT_LIGHTING_TIER`): sets the four settings below where the level leaves them out. */
+  /** The lighting tier (absent: `DEFAULT_LIGHTING_TIER`): sets the five settings below where the level leaves them out. */
   lighting?: LightingTier;
   /** 16–2048: the surface cache's memory budget in MiB (absent: the tier's). */
   surfaceCacheMiB?: number;
@@ -612,6 +613,8 @@ interface QualityLevelConfig {
   contactShadows?: boolean;
   /** Reflections on glossy surfaces (absent: the tier's). */
   reflections?: ReflectionQuality;
+  /** The shadow atlas's side in texels, one of `SHADOW_ATLAS_SIZES` (absent: the tier's). */
+  shadowAtlas?: number;
 }
 ```
 

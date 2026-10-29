@@ -539,6 +539,7 @@
 "limit.DEFAULT_QUALITY_LEVELS": {"page":"limits-project-model-2.md","section":"limits-project-model--quality-levels"},
 "limit.DEFAULT_RANDOM_SEED": {"page":"limits-runtime.md","section":"limits-runtime--random"},
 "limit.DEFAULT_REFLECTIONS": {"page":"limits-project-model-2.md","section":"limits-project-model--quality-levels"},
+"limit.DEFAULT_SHADOW_ATLAS": {"page":"limits-project-model-2.md","section":"limits-project-model--quality-levels"},
 "limit.DEFAULT_SURFACE_CACHE_MIB": {"page":"limits-project-model-2.md","section":"limits-project-model--quality-levels"},
 "limit.DEFAULT_SURFACE_LIGHT_MS": {"page":"limits-project-model-2.md","section":"limits-project-model--quality-levels"},
 "limit.DEFAULT_VIEW_ID": {"page":"limits-project-model-1.md","section":"limits-project-model--cameras"},

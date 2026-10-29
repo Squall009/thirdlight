@@ -15,13 +15,13 @@
  *   off (each scene's look stays the author's).
  * - renderer settings: the render scale, the most drawing-buffer pixels per
  *   CSS pixel, MSAA, the largest shadow map, how many point and spot lights
- *   are drawn and how many of them draw their shadow, the kind of ambient
+ *   are drawn and how many point lights draw their shadow, the kind of ambient
  *   occlusion, the LOD bias, dynamic resolution and occlusion culling. Each one a level leaves out is the
  *   project's setting.
  * - `lighting`: the level's lighting tier (`low`, `medium`, `high`;
  *   `LIGHTING_TIER_SETTINGS` holds what each tier sets, the one place its
  *   values live). A level that names none is `DEFAULT_LIGHTING_TIER`. The
- *   tier sets the four lighting settings below; a level's own value of one
+ *   tier sets the five lighting settings below; a level's own value of one
  *   lays over its tier's.
  * - `surfaceCacheMiB`: the memory the surface cache (the static surfaces'
  *   light) may hold around the view, in MiB: a budget, never a count of
@@ -37,6 +37,10 @@
  *   with the look's post effects), where they miss traced through the
  *   static world and lit from the surface cache: `off`, `medium` or `high`
  *   (more steps, more traced rays).
+ * - `shadowAtlas`: the side of the shadow atlas (texels), the memory every
+ *   shadowed local light's shadow shares: lights largest on screen get the
+ *   larger tiles, and a light the atlas has no room for draws unshadowed (a
+ *   quality budget, never a count of lights).
  *
  * A player's settings field bound to one of those renderer settings (`renderScale`,
  * `ambientOcclusion`, `dynamicResolution`) lays over the level: a player's own
@@ -60,6 +64,13 @@ export type MsaaSamples = (typeof MSAA_SAMPLE_COUNTS)[number];
 
 /** Shadow map sizes, texels per side: a directional light's own size and a level's largest shadow map name one. */
 export const SHADOW_MAP_SIZES: readonly number[] = Object.freeze([512, 1024, 2048, 4096]);
+
+/**
+ * Shadow atlas sides, texels: the one depth texture every shadowed local
+ * light draws its shadow into, a tile each (the shadow map sizes and 8,192,
+ * a discrete GPU's).
+ */
+export const SHADOW_ATLAS_SIZES: readonly number[] = Object.freeze([...SHADOW_MAP_SIZES, 8192]);
 
 /**
  * The range of a level's pixel-ratio cap. Below 1 the render scale is the
@@ -107,13 +118,15 @@ export interface LightingTierSettings {
   readonly surfaceRays: number;
   /** How far out each cache level's texels reach, as a multiple of the engine's distances. */
   readonly surfaceReach: number;
+  /** The shadow atlas's side (texels, one of `SHADOW_ATLAS_SIZES`): 16-bit depth, so 8, 32 and 128 MiB. */
+  readonly shadowAtlas: number;
 }
 
 /** Each tier's settings: the one place they are defined (a level may lay its own surface-cache, live-light, contact-shadow and reflection values over them). */
 export const LIGHTING_TIER_SETTINGS: Readonly<Record<LightingTier, Readonly<LightingTierSettings>>> = Object.freeze({
-  low: Object.freeze({ surfaceCacheMiB: 32, surfaceLightMs: 0, contactShadows: false, reflections: 'off' as const, surfaceRays: 1, surfaceReach: 1 }),
-  medium: Object.freeze({ surfaceCacheMiB: 64, surfaceLightMs: 1.5, contactShadows: true, reflections: 'medium' as const, surfaceRays: 1, surfaceReach: 1 }),
-  high: Object.freeze({ surfaceCacheMiB: 128, surfaceLightMs: 3, contactShadows: true, reflections: 'high' as const, surfaceRays: 2, surfaceReach: 2 }),
+  low: Object.freeze({ surfaceCacheMiB: 32, surfaceLightMs: 0, contactShadows: false, reflections: 'off' as const, surfaceRays: 1, surfaceReach: 1, shadowAtlas: 2048 }),
+  medium: Object.freeze({ surfaceCacheMiB: 64, surfaceLightMs: 1.5, contactShadows: true, reflections: 'medium' as const, surfaceRays: 1, surfaceReach: 1, shadowAtlas: 4096 }),
+  high: Object.freeze({ surfaceCacheMiB: 128, surfaceLightMs: 3, contactShadows: true, reflections: 'high' as const, surfaceRays: 2, surfaceReach: 2, shadowAtlas: 8192 }),
 });
 
 /** The tier of a level that names none. */
@@ -123,6 +136,7 @@ export const DEFAULT_SURFACE_CACHE_MIB = LIGHTING_TIER_SETTINGS[DEFAULT_LIGHTING
 export const DEFAULT_SURFACE_LIGHT_MS = LIGHTING_TIER_SETTINGS[DEFAULT_LIGHTING_TIER].surfaceLightMs;
 export const DEFAULT_CONTACT_SHADOWS = LIGHTING_TIER_SETTINGS[DEFAULT_LIGHTING_TIER].contactShadows;
 export const DEFAULT_REFLECTIONS: ReflectionQuality = LIGHTING_TIER_SETTINGS[DEFAULT_LIGHTING_TIER].reflections;
+export const DEFAULT_SHADOW_ATLAS = LIGHTING_TIER_SETTINGS[DEFAULT_LIGHTING_TIER].shadowAtlas;
 
 /** One lighting setting across the tiers, for help texts ("low 32, medium 64, high 128"). */
 export function lightingTierValues(pick: (t: LightingTierSettings) => string | number | boolean): string {
@@ -135,7 +149,7 @@ export function lightingTierRank(tier: LightingTier): number {
 }
 
 /** A level's lighting: its tier's settings with the level's own values laid over them. */
-export function levelLighting(level: Pick<QualityLevelConfig, 'lighting' | 'surfaceCacheMiB' | 'surfaceLightMs' | 'contactShadows' | 'reflections'>): LightingTierSettings & { readonly tier: LightingTier } {
+export function levelLighting(level: Pick<QualityLevelConfig, 'lighting' | 'surfaceCacheMiB' | 'surfaceLightMs' | 'contactShadows' | 'reflections' | 'shadowAtlas'>): LightingTierSettings & { readonly tier: LightingTier } {
   const tier = level.lighting ?? DEFAULT_LIGHTING_TIER;
   const t = LIGHTING_TIER_SETTINGS[tier];
   return {
@@ -146,6 +160,7 @@ export function levelLighting(level: Pick<QualityLevelConfig, 'lighting' | 'surf
     reflections: level.reflections ?? t.reflections,
     surfaceRays: t.surfaceRays,
     surfaceReach: t.surfaceReach,
+    shadowAtlas: level.shadowAtlas ?? t.shadowAtlas,
   };
 }
 
@@ -178,10 +193,11 @@ export interface QualityLevelConfig {
   /** How many point and spot lights the loaded scenes draw at once (0 – the scenes' budget). */
   localLights?: number;
   /**
-   * How many point and spot lights draw their shadow at once (0 – the scenes'
-   * budget; absent: every one that casts, every frame): the ones largest on
-   * screen, spot before point, fading out with distance, their maps drawn
-   * again only when something in reach changed.
+   * How many point lights draw their shadow at once (0 – the scenes' budget;
+   * absent: every one that casts, every frame): the ones largest on screen,
+   * fading out with distance, their maps drawn again only when something in
+   * reach changed. A spot light's shadow is a tile of the shadow atlas
+   * (`shadowAtlas`).
    */
   shadowedLights?: number;
   ambientOcclusion?: AmbientOcclusionKind;
@@ -190,7 +206,7 @@ export interface QualityLevelConfig {
   dynamicResolution?: boolean;
   /** Occlusion culling at this level (absent: the project's `occlusion_culling`). */
   occlusionCulling?: OcclusionCulling;
-  /** The lighting tier (absent: `DEFAULT_LIGHTING_TIER`): sets the four settings below where the level leaves them out. */
+  /** The lighting tier (absent: `DEFAULT_LIGHTING_TIER`): sets the five settings below where the level leaves them out. */
   lighting?: LightingTier;
   /** 16–2048: the surface cache's memory budget in MiB (absent: the tier's). */
   surfaceCacheMiB?: number;
@@ -200,6 +216,8 @@ export interface QualityLevelConfig {
   contactShadows?: boolean;
   /** Reflections on glossy surfaces (absent: the tier's). */
   reflections?: ReflectionQuality;
+  /** The shadow atlas's side in texels, one of `SHADOW_ATLAS_SIZES` (absent: the tier's). */
+  shadowAtlas?: number;
 }
 
 /**
