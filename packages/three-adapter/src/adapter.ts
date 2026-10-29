@@ -265,6 +265,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   /** The realized scenes as last followed, and the live light that draws their saved lighting (made after the scenes). */
   let followed: string[] = [];
   let surfaceLightNow: AdapterSurfaceLight | null = null;
+  /** The light clusters (made after the first selection of the lights). */
+  let clustersNow: AdapterClusters | null = null;
   const scenes: AdapterScenes = new AdapterScenes({
     runtime: opts.runtime, entities, realization: () => models.realization, lightmaps: () => state.lightmaps, forgetLook: (id) => frame.forgetLook(id), preparations,
     requestPrecompile: () => precompile.want(), selectLights, followProbes: (ids) => {
@@ -278,6 +280,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   /** The loaded scenes' lights switched (the most recently loaded scene's directional, ambient and hemisphere light, local ones within the budget). */
   function selectLights(): void {
     lights.select(scenes.rankOf, state.hiddenIds);
+    // The clustered lights' object follows the realized point and spot lights.
+    clustersNow?.syncLight();
   }
   selectLights();
   /** The static surfaces' light resident round the view, within the quality level's budget. */
@@ -335,6 +339,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   scenes.followProbes();
   // Pipelines precompiled ahead of a present (precompile-gate.ts).
   const precompile = new PrecompileGate(() => state.disposed);
+  // The clustered lights' object for the lights realized so far (its shading change asks for the precompile).
+  clustersNow = clusters;
+  clusters.syncLight();
   const parts: AdapterParts = {
     opts, scene, state, graph, materials, effects, entities, scenes, models, renderer, environment, lights, clusters, probes, level, surfaceCache, surfaceLight, liveLighting, batcher, viewCull, isolation, occlusion, precompile, qualityControl, renderControl, gpuTiming,
     clockStart, followShadow: isV3, selectLights, regroupEntity,

@@ -51,6 +51,7 @@ import { PROBE_ATLAS_PADDING } from '@thirdlight/runtime';
 import type { N } from './effects-tsl';
 import { applyBlockOcclusion } from './block-ao-lighting';
 import { isClusterHeatNode } from './cluster-heat';
+import { drawsClustered, isClusteredLights } from './cluster-lights';
 import { localLightsCacheKey, splitLocalLights } from './local-lights';
 import { buildReadLights, buildSurfaceRead } from './surface-cache-read';
 import { isReflectionsNode } from './post-reflections';
@@ -413,17 +414,25 @@ type LightNodeLike = { readonly isProbeLightingNode?: boolean; readonly light?: 
 
 const isHeld = (n: LightNodeLike): boolean => n.light?.userData[PROBE_HELD_KEY] === true;
 
-/** The lights the surface cache holds of those three draws: point and spot lights (the effect pool's lights are not in it). */
-const isCacheLight = (l: THREE.Light | undefined): boolean => (l as { isPointLight?: boolean } | undefined)?.isPointLight === true || (l as { isSpotLight?: boolean } | undefined)?.isSpotLight === true;
+/** The lights the surface cache holds of those drawn: point and spot lights, three's or the clusters' (the effect pool's lights are not in it). */
+const isCacheLight = (l: THREE.Light | undefined): boolean => (l as { isPointLight?: boolean } | undefined)?.isPointLight === true || (l as { isSpotLight?: boolean } | undefined)?.isSpotLight === true || isClusteredLights(l);
 
 /**
  * The scene's lights node: local lights split per the build's mode
  * (local-lights.ts); with a probe light present, the probe-held lights and
- * the probes build last (see the top).
+ * the probes build last (see the top). With the clustered lights' object in
+ * the scene, the point and spot lights it draws (cluster-lights.ts) are not
+ * three's to build: they are left out of the lights three makes nodes for
+ * and keys programs by.
  */
-class ProbeOrderedLightsNode extends (THREE.LightsNode as unknown as new () => { setupLights(builder: N, nodes: LightNodeLike[]): void; setLights(l: THREE.Light[]): unknown; customCacheKey(): number; getLights(): THREE.Light[] }) {
+class ProbeOrderedLightsNode extends (THREE.LightsNode as unknown as new () => { setupLights(builder: N, nodes: LightNodeLike[]): void; setLights(l: THREE.Light[]): unknown; customCacheKey(): number; getLights(): THREE.Light[]; getBuiltinLights(): THREE.Light[] }) {
   static get type(): string {
     return 'LightsNode';
+  }
+  /** three's lights but those the clusters draw (a scene without the clustered lights' object keeps three's own). */
+  override getBuiltinLights(): THREE.Light[] {
+    const all = this.getLights();
+    return all.some(isClusteredLights) ? all.filter((l) => !drawsClustered(l)) : all;
   }
   /** The effect light pool's abilities shape the lit programs: a change rebuilds them. */
   override customCacheKey(): number {

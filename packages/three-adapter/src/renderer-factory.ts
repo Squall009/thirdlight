@@ -37,6 +37,7 @@ import { registerContactShadows } from './post-contact-shadows';
 import { registerReflections } from './post-reflections';
 import { registerProbeLighting } from './probe-lighting';
 import { registerClusterHeat } from './cluster-heat';
+import { registerClusteredLights } from './cluster-lights';
 import { registerProjectedDecals } from './projected-decals';
 import { installLocalLightModes } from './local-lights';
 import { installProgramRelease, installVaoSweep, trackRenderer, trackTextureListeners } from './dispose';
@@ -350,7 +351,8 @@ const BROWSER_DEPS: RendererFactoryDeps = {
     registerLayeredLights(r);
     // And the probe lighting (its light, and the lights node that lets it replace the ambient light).
     registerProbeLighting(r as never);
-    // And the light clusters' heat map (a lighting debug view).
+    // And the clustered point and spot lights, and their heat map (a lighting debug view).
+    registerClusteredLights(r as never);
     registerClusterHeat(r as never);
     // And projected decals (each draw a decal can reach wears its material's decal variant).
     registerProjectedDecals(r as never);

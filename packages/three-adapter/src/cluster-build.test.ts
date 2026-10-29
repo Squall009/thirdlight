@@ -283,6 +283,9 @@ describe('cluster lists', () => {
       p.shadow = i % 5 === 0 ? 4096 + i * 7 : -1;
       p.cookie = p.kind === 'spot' && i % 3 === 0 ? i : -1;
       p.decay = [2, 1, 0, 1.5][i % 4]!;
+      // Room keys up to the layer word's float precision (2^24 / 256 rooms), and unbounded point and spot lights.
+      p.room = i % 4 === 0 ? -1 : (i * 211) % 65535;
+      p.unbounded = (p.kind === 'point' || p.kind === 'spot') && i % 2 === 0;
       values.push(p);
       lights.add(p);
     }
@@ -311,6 +314,8 @@ describe('cluster lists', () => {
       expect(d.twoSided).toBe(v.kind !== 'point' && v.kind !== 'spot' && v.twoSided === true);
       expect(d.decay).toBe(v.decay ?? 2);
       expect(d.mask).toBe(v.mask ?? 255);
+      expect(d.room).toBe(v.room ?? -1);
+      expect(d.unbounded).toBe(v.unbounded === true);
       expect(d.shadow).toBe(v.shadow ?? -1);
       if (d.kind === CLUSTER_SPOT) {
         const ax = new THREE.Vector3(...(v.direction as V3)).transformDirection(view);

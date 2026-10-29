@@ -49,8 +49,12 @@ import type { N } from './effects-tsl';
 const TSL: N = TSLTyped;
 const { uniform, attribute, select, If, positionView, positionViewDirection, positionWorld, normalView, normalWorld } = TSL;
 
-/** True everywhere (no surface value reaches 1e30); see `setup` of the layered light nodes for why it exists. */
-const SURFACE_ANCHOR: N = positionView.x.add(positionViewDirection.x).add(positionWorld.x).add(normalView.x).add(normalWorld.x).abs().lessThan(1e30);
+/**
+ * True everywhere (no surface value reaches 1e30): a light node that may skip
+ * its lighting in a branch names the surface values in the branch's condition,
+ * so they are set before it (see `setup` of the layered light nodes).
+ */
+export const SURFACE_ANCHOR: N = positionView.x.add(positionViewDirection.x).add(positionWorld.x).add(normalView.x).add(normalWorld.x).abs().lessThan(1e30);
 
 /** `object.userData[LIGHT_LAYERS_KEY]`: the light layers a drawable is in (absent: every layer). */
 export const LIGHT_LAYERS_KEY = '__tlLightLayers';

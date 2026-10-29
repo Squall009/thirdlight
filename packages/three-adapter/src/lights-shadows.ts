@@ -10,8 +10,12 @@
  *   on their entity (the host places them, `place`).
  * - The lights that are on follow the loaded scenes (`select`,
  *   scene-lights.ts): the most recently loaded scene's directional, ambient
- *   and hemisphere light, point and spot lights within the budget. A light
- *   whose entity is hidden is off.
+ *   and hemisphere light, and every point and spot light (within a quality
+ *   level's budget when it sets one). A light whose entity is hidden is off.
+ * - A point or spot light without a shadow or a cookie is drawn by the light
+ *   clusters (cluster-lights.ts), not by its own three.js light node; its
+ *   three.js light still carries its place, values and masks. One with a
+ *   shadow or a cookie keeps three's node (its own map).
  * - The directional light that is on is the key light: its realtime shadow
  *   is planned when it is realized (lighting.ts) and probed on the first
  *   frame that draws it; a renderer that cannot draw it turns shadows off
@@ -506,7 +510,7 @@ function releaseLight(entityId: string): void {
         }
         entries.push({ id, kind: r.kind, rank: rankOf(id), order: order++ });
       }
-      selection = selectSceneLights(entries, localBudget ?? undefined);
+      selection = selectSceneLights(entries, localBudget ?? Number.POSITIVE_INFINITY);
       for (const [id, r] of switchable) r.light.visible = selection.active.has(id);
       const next = selection.directional !== null ? (directionals.get(selection.directional) ?? null) : null;
       if (next !== keyRec || keyRec === null) {

@@ -15,7 +15,7 @@ import { WebGPURenderer } from 'three/webgpu';
 
 import { createAttributeInstancedMesh } from './attribute-instancing';
 import { ClusterGpu } from './cluster-gpu';
-import { ClusterHeatLight, registerClusterHeat } from './cluster-heat';
+import { ClusteredLights, registerClusteredLights } from './cluster-lights';
 import { ClusterTextures } from './cluster-pack';
 import { lightmappedMaterial } from './lightmaps';
 import { localLightVariant } from './local-lights';
@@ -35,7 +35,7 @@ function renderer(): WebGPURenderer {
   const r = wgslRenderer();
   r.shadowMap.enabled = true;
   registerProbeLighting(r as never);
-  registerClusterHeat(r as never);
+  registerClusteredLights(r as never);
   registerScreenSpaceOcclusion(r as never);
   registerContactShadows(r as never);
   registerReflections(r as never);
@@ -57,7 +57,10 @@ function worstScene(): THREE.Scene {
   // With both drawn, the occlusion's history carries the contact shadows (as the environment keeps them).
   const ao = new ScreenSpaceOcclusion();
   scene.add(ao, new ContactShadowsLight(ao), new ReflectionsLight(), new ProbeLighting());
-  scene.add(new ClusterHeatLight(new ClusterGpu(new ClusterTextures())));
+  // The local lights' loop, layered (its layer and room test reads no texture, but the worst case is the widest build).
+  const clustered = new ClusteredLights(new ClusterGpu(new ClusterTextures()));
+  clustered.layered = true;
+  scene.add(clustered);
   const env = new THREE.CubeTexture();
   scene.environment = env;
   return scene;
@@ -146,6 +149,9 @@ async function countUnits(): Promise<Record<string, Record<string, number>>> {
   return counts;
 }
 
+/** Time the program builds of one count take at most (a loaded host). */
+const BUILD_MS = 60_000;
+
 /** What a lit program may bind with the clusters in: the budget less the shadow and cookie atlases still to come. */
 const ROOM = LIT_TEXTURE_UNITS - (LIGHT_PATH_TEXTURE_UNITS - 1);
 
@@ -154,7 +160,8 @@ describe('lit programs fit the texture-unit budget', () => {
     const counts = await countUnits();
     const over = Object.entries(counts).flatMap(([kind, by]) => ['dynamic', 'cache'].filter((v) => by[v]! > ROOM).map((v) => `${kind} ${v}: ${by[v]}`));
     expect(over, JSON.stringify(counts)).toEqual([]);
-  });
+    // It builds some eighty programs: past vitest's 5 s on a loaded host.
+  }, BUILD_MS);
 
   // Projected decals add their data and three page arrays: with the rest of the worst case a decal-reached program
   // passes the budget (and WebGPU's 16 already, before the light path's units).
@@ -162,5 +169,5 @@ describe('lit programs fit the texture-unit budget', () => {
     const counts = await countUnits();
     const over = Object.entries(counts).flatMap(([kind, by]) => ['decals', 'cache+decals'].filter((v) => by[v]! > ROOM).map((v) => `${kind} ${v}: ${by[v]}`));
     expect(over).toEqual([]);
-  });
+  }, BUILD_MS);
 });

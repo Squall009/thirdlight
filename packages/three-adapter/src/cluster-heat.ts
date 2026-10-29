@@ -18,12 +18,12 @@
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 
-import { clusterCell, clusterIndexAt, clusterLightTexel, clusterList, clusterNodes, type ClusterGpu, type ClusterNodes } from './cluster-gpu';
+import { clusterCellAt, clusterIndexAt, clusterLightTexel, clusterList, clusterNodes, type ClusterGpu, type ClusterNodes } from './cluster-gpu';
 import type { N } from './effects-tsl';
 import { buildsLocalLights } from './local-lights';
 
 const TSL: N = TSLTyped;
-const { If, Loop, NodeUpdateType, abs, clamp, float, int, log2, max, positionView, screenUV, vec2, vec3 } = TSL;
+const { If, Loop, NodeUpdateType, abs, clamp, float, int, log2, max, positionView, vec3 } = TSL;
 
 /** Listed lights at which the colour reaches red (a power of two). */
 const HEAT_FULL = 64;
@@ -80,8 +80,7 @@ class ClusterHeatNode extends (THREE.Node as unknown as new () => { updateType: 
     const reached = int(0).toVar('tlClusterReached');
     if (buildsLocalLights(builder)) {
       const t = this.t;
-      // The tiles are numbered y up from the bottom of the render; the screen's share runs from the top.
-      const cell = clusterCell(t, vec2(screenUV.x, screenUV.y.oneMinus()), positionView.z.negate()).toVar('tlClusterCell');
+      const cell = clusterCellAt(t, positionView).toVar('tlClusterCell');
       If(cell.greaterThanEqual(0), () => {
         const { at, count } = clusterList(t, cell);
         listed.assign(count);

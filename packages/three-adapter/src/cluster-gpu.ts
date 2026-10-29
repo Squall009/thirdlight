@@ -11,8 +11,11 @@
  *   copy from a texture never given to the GPU) on WebGL 2. three's own
  *   update path would send the whole texture every frame.
  * - **Reads.** `clusterCell` finds a pixel's cell from its place on the
- *   screen (a share of the render size, so the render scale, dynamic
- *   resolution and TAAU change nothing) and its view depth; `clusterList`
+ *   screen (a share of the render size, so the render scale and dynamic
+ *   resolution change nothing) and its view depth; `clusterCellAt` takes
+ *   that place from the pixel's view position through the projection the
+ *   lists were built with, not the jittered one TAAU draws with, so a
+ *   pixel reads exactly the cell the build tested it in; `clusterList`
  *   decodes the cell's header (a long list's count in its first word);
  *   `clusterLightTexel` reads a record. They follow `decodeCluster*` in
  *   `cluster-pack.ts` line for line.
@@ -30,7 +33,7 @@ import type { N } from './effects-tsl';
 import { texelTexture } from './texel-texture-node';
 
 const TSL: N = TSLTyped;
-const { If, clamp, float, floor, int, ivec2, log2, max, select, uint, uintBitsToFloat, uniform } = TSL;
+const { If, clamp, float, floor, int, ivec2, log2, max, renderGroup, select, uint, uintBitsToFloat, uniform, vec2, vec4 } = TSL;
 
 /** What an upload uses of three's renderer (either backend). */
 export interface ClusterUploadRenderer {
@@ -46,6 +49,8 @@ type GpuQueue = { writeTexture(dst: { texture: unknown }, data: ArrayBufferView,
  * from the old one's.
  */
 let textureVersion = 0;
+/** Revisions no other `ClusterGpu` had (a renderer's new one must rebind its readers whatever the old one's count was). */
+let gpuRevision = 0;
 
 function dataTexture(data: Uint32Array, rows: number): THREE.DataTexture {
   const tex = new THREE.DataTexture(data, CLUSTER_TEXTURE_WIDTH, rows, THREE.RGBAIntegerFormat, THREE.UnsignedIntType);
@@ -119,6 +124,8 @@ export class ClusterGpu {
   readonly grid = new THREE.Vector4(1, 1, 0, 0);
   /** slices, cells, the first header's word (past the records), 0. */
   readonly extent = new THREE.Vector4(0, 0, 0, 0);
+  /** The projection the lists were built with (the camera's, unjittered). */
+  readonly projection = new THREE.Matrix4();
   /** Bumped when the texture was made again (its readers rebind). */
   revision = 0;
 
@@ -127,11 +134,12 @@ export class ClusterGpu {
   }
 
   /** This frame's grid and packed texture on the GPU; the bytes sent. */
-  upload(renderer: ClusterUploadRenderer, grid: ClusterGrid, textures: ClusterTextures, packed: ClusterPackResult): number {
+  upload(renderer: ClusterUploadRenderer, grid: ClusterGrid, textures: ClusterTextures, packed: ClusterPackResult, projection: ArrayLike<number>): number {
     this.grid.set(grid.tilesX, grid.tilesY, grid.scale, grid.bias);
+    this.projection.fromArray(projection);
     this.extent.set(grid.slices, grid.clusters, packed.listWord, 0);
     const a = this.lists.upload(renderer, textures.data, textures.rows, packed.texels);
-    if (a.remade) this.revision += 1;
+    if (a.remade) this.revision = ++gpuRevision;
     return a.bytes;
   }
 
@@ -145,18 +153,23 @@ export interface ClusterNodes {
   readonly lists: N;
   readonly grid: N;
   readonly extent: N;
+  readonly projection: N;
   sync(gpu: ClusterGpu): void;
 }
 
 export function clusterNodes(gpu: ClusterGpu): ClusterNodes {
   const nodes: ClusterNodes = {
     lists: texelTexture(gpu.lists.texture),
-    grid: uniform(new THREE.Vector4()),
-    extent: uniform(new THREE.Vector4()),
+    // Once a render for every draw (the render group): an object three finds unchanged keeps its own group's
+    // values, and the grid changes every frame.
+    grid: uniform(new THREE.Vector4()).setGroup(renderGroup),
+    extent: uniform(new THREE.Vector4()).setGroup(renderGroup),
+    projection: uniform(new THREE.Matrix4()).setGroup(renderGroup),
     sync(g) {
       nodes.lists.value = g.lists.texture;
       nodes.grid.value.copy(g.grid);
       nodes.extent.value.copy(g.extent);
+      nodes.projection.value.copy(g.projection);
     },
   };
   return nodes;
@@ -190,12 +203,19 @@ export function clusterCell(t: ClusterNodes, screen: N, depth: N): N {
   return select(slice.lessThan(t.extent.x), cell, int(-1));
 }
 
-/** A cell's list: the word its first index is at, and its count (int nodes, variables). */
-export function clusterList(t: ClusterNodes, cell: N): { at: N; count: N } {
+/** The cell (an int node; -1 past the last slice) of a pixel at view position `view` (vec3 node), placed through the lists' projection. */
+export function clusterCellAt(t: ClusterNodes, view: N): N {
+  const clip = t.projection.mul(vec4(view, 1));
+  const share = clip.xy.div(clip.w).mul(0.5).add(vec2(0.5));
+  return clusterCell(t, share, view.z.negate());
+}
+
+/** A cell's list: the word its first index is at, and its count (int nodes, variables named from `name`, one name per reader in a program). */
+export function clusterList(t: ClusterNodes, cell: N, name = 'tlCluster'): { at: N; count: N } {
   const base = int(t.extent.z);
   const head = wordAt(t.lists, base.add(cell));
-  const at = int(head.div(uint(1 << CLUSTER_COUNT_BITS))).add(base).add(int(t.extent.y)).toVar('tlClusterAt');
-  const count = int(head.mod(uint(1 << CLUSTER_COUNT_BITS))).toVar('tlClusterCount');
+  const at = int(head.div(uint(1 << CLUSTER_COUNT_BITS))).add(base).add(int(t.extent.y)).toVar(`${name}At`);
+  const count = int(head.mod(uint(1 << CLUSTER_COUNT_BITS))).toVar(`${name}Count`);
   If(count.equal(CLUSTER_LONG_LIST), () => {
     count.assign(int(wordAt(t.lists, at)));
     at.addAssign(1);

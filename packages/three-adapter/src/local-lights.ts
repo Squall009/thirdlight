@@ -178,11 +178,15 @@ export function installLocalLightModes(renderer: { renderObject: RenderObjectFn 
 // The lights of one build
 
 type LightNodeLike = { readonly light?: THREE.Light; build(builder: unknown): unknown };
-type LocalFlags = { isPointLight?: boolean; isSpotLight?: boolean; isEffectLights?: boolean };
+type LocalFlags = { isPointLight?: boolean; isSpotLight?: boolean; isEffectLights?: boolean; isClusteredLights?: boolean };
 
 export function isLocal(l: THREE.Light | undefined): boolean {
   const f = l as (THREE.Light & LocalFlags) | undefined;
-  return f !== undefined && (f.isPointLight === true || f.isSpotLight === true || f.isEffectLights === true);
+  return f !== undefined && (f.isPointLight === true || f.isSpotLight === true || f.isEffectLights === true || f.isClusteredLights === true);
+}
+
+function isClustered(l: THREE.Light | undefined): l is THREE.Light & { layered: boolean } {
+  return (l as (THREE.Light & LocalFlags) | undefined)?.isClusteredLights === true;
 }
 
 function isPool(l: THREE.Light | undefined): l is EffectLights {
@@ -200,9 +204,12 @@ export function splitLocalLights<T extends LightNodeLike>(builder: { material?: 
   return nodes.filter((n) => !isLocal(n.light));
 }
 
-/** The part of a lights node's program key the effect light pool decides (whether its shaders test layer masks). */
+/** The part of a lights node's program key the effect light pool and the clustered lights decide (whether their shaders test layer masks). */
 export function localLightsCacheKey(lights: readonly THREE.Light[]): number {
   let h = 0;
-  for (const l of lights) if (isPool(l) && l.abilities.layered) h = (Math.imul(h, 31) + l.id * 8 + 1) | 0;
+  for (const l of lights) {
+    if (isPool(l) && l.abilities.layered) h = (Math.imul(h, 31) + l.id * 8 + 1) | 0;
+    else if (isClustered(l) && l.layered) h = (Math.imul(h, 31) + l.id * 8 + 2) | 0;
+  }
   return h;
 }

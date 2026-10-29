@@ -4,13 +4,17 @@
  * and the camera drawn now uploaded (`cluster-gpu.ts`), every frame, on
  * both renderers alike.
  *
- * - **The lights.** Every realized point and spot light (whatever the
- *   per-pixel selection switched on: the lists are not bound by it) and
- *   every area light of the realized entities, unless it is hidden, held by
- *   a bake, or in a room no portal shows. Point and spot lights are read
- *   from their three.js lights (scripts move, dim and switch them there);
- *   area lights from their entities, their list every `DOC_LIGHTS_MS` and
- *   their place every frame.
+ * - **The lights.** Every realized point and spot light that is on and the
+ *   clusters draw (`drawsClustered`: no shadow, no cookie), and every area
+ *   light of the realized entities, unless it is hidden, held by a bake, or
+ *   in a room no portal shows. Point and spot lights are read from their
+ *   three.js lights (scripts move, dim and switch them there); area lights
+ *   from their entities, their list every `DOC_LIGHTS_MS` and their place
+ *   every frame.
+ * - **The light that draws them** (`ClusteredLights`, cluster-lights.ts) is
+ *   in the scene while any point or spot light is realized (`syncLight`,
+ *   after each selection of the lights), so the first lamp builds the lit
+ *   programs once and later ones build nothing.
  * - **One grid per camera**, its builder and packed data kept with it; the
  *   GPU textures (one pair a renderer) take the camera drawn now.
  * - **A budget, not a count**: past `CLUSTER_INDEX_MIB` the lowest-ranked
@@ -30,6 +34,7 @@ import { DOC_LIGHTS_MS } from './adapter-surface-cache';
 import { ClusterBuilder, ClusterLights, CLUSTER_SLICES, CLUSTER_TILES_X, clusterTilesY, type ClusterLightValue } from './cluster-build';
 import { ClusterGpu, type ClusterUploadRenderer } from './cluster-gpu';
 import { ClusterHeatLight } from './cluster-heat';
+import { ClusteredLights, drawsClustered } from './cluster-lights';
 import { CLUSTER_INDEX_MIB, CLUSTER_INDEX_WORDS, ClusterTextures } from './cluster-pack';
 import { isLayeredLight, roomKeyOf } from './light-layers';
 import type { SceneLights } from './lights-shadows';
@@ -89,14 +94,17 @@ interface AreaDoc {
 
 /** A light value written in place for each light (nothing allocated per light and frame). */
 function scratchValue(): ClusterLightValue & { position: Float64Array; color: Float64Array; direction: Float64Array; u: Float64Array; v: Float64Array } {
-  return { kind: 'point', position: new Float64Array(3), reach: 0, color: new Float64Array(3), direction: new Float64Array(3), u: new Float64Array(3), v: new Float64Array(3), decay: 2, cosOuter: -1, cosInner: -1, mask: LIGHT_LAYERS_ALL, shadow: -1, cookie: -1, visible: true, twoSided: false };
+  return { kind: 'point', position: new Float64Array(3), reach: 0, color: new Float64Array(3), direction: new Float64Array(3), u: new Float64Array(3), v: new Float64Array(3), decay: 2, cosOuter: -1, cosInner: -1, mask: LIGHT_LAYERS_ALL, room: -1, shadow: -1, cookie: -1, visible: true, twoSided: false, unbounded: false };
 }
 
 export class AdapterClusters {
   private readonly input = new ClusterLights();
   private readonly views = new WeakMap<THREE.Camera, ClusterView>();
-  private gpu: ClusterGpu | null = null;
+  /** The lists on the renderer drawn last (made again for another renderer). */
+  private gpu = new ClusterGpu(new ClusterTextures());
   private gpuRenderer: unknown = null;
+  /** The light whose node draws the clustered lights (in the scene while any point or spot light is realized). */
+  private light: ClusteredLights | null = null;
   private readonly heat: { wanted: boolean; light: ClusterHeatLight | null } = { wanted: false, light: null };
   private areas: AreaDoc[] = [];
   private areasAt = -Infinity;
@@ -110,9 +118,12 @@ export class AdapterClusters {
   private sums = { frames: 0, gatherMs: 0, buildMs: 0, uploadMs: 0, uploadBytes: 0 };
   private means = { gatherMs: 0, buildMs: 0, uploadMs: 0, uploadBytes: 0 };
   private framed = false;
+  /** The counts the canvas attribute holds. */
+  private readonly written = { lights: -1, packed: -1 };
 
   constructor(private readonly d: AdapterClustersDeps, heatView = false) {
     this.heat.wanted = heatView;
+
   }
 
   /** The heat map on or off (the lighting's debug views). */
@@ -126,6 +137,37 @@ export class AdapterClusters {
     return this.heat.wanted;
   }
 
+  /**
+   * The clustered lights' object in the scene while any point or spot light is
+   * realized, testing layers while any of them is layered (after the lights
+   * were selected: realized, released, hidden, or turned plain or layered).
+   */
+  syncLight(): void {
+    // The entities changed: the area lights are read again on the next frame (not only every `DOC_LIGHTS_MS`).
+    this.areasAt = -Infinity;
+    let any = false;
+    let layered = false;
+    this.d.lights.forEachLight((_id, kind, light) => {
+      if (kind !== 'point' && kind !== 'spot') return;
+      any = true;
+      if (isLayeredLight(light) && drawsClustered(light)) layered = true;
+    });
+    if (any && this.light === null) {
+      this.light = new ClusteredLights(this.gpu);
+      this.light.layered = layered;
+      this.d.scene.add(this.light);
+      this.d.shadingChanged();
+    } else if (!any && this.light !== null) {
+      this.light.removeFromParent();
+      this.light.dispose();
+      this.light = null;
+      this.d.shadingChanged();
+    } else if (this.light !== null && this.light.layered !== layered) {
+      this.light.layered = layered;
+      this.d.shadingChanged();
+    }
+  }
+
   /** Lights the heat map draws the lists of (0 while it is off). */
   heatLights(): number {
     return this.heat.light !== null ? this.last.packed : 0;
@@ -134,7 +176,7 @@ export class AdapterClusters {
   /** Before the draw (after the view's cull and rooms): the lights gathered, `camera`'s lists built and on the GPU. */
   frame(renderer: ClusterUploadRenderer, camera: THREE.Camera & { near: number; far: number }): void {
     const t0 = performance.now();
-    if (renderer !== this.gpuRenderer) this.dropGpu();
+    if (this.gpuRenderer !== null && renderer !== this.gpuRenderer) this.dropGpu();
     this.gather(t0);
     const tg = performance.now();
     let view = this.views.get(camera);
@@ -142,7 +184,7 @@ export class AdapterClusters {
       view = { builder: new ClusterBuilder(), textures: new ClusterTextures(), packed: -1 };
       this.views.set(camera, view);
     }
-    const gpu = (this.gpu ??= new ClusterGpu(view.textures));
+    const gpu = this.gpu;
     this.gpuRenderer = renderer;
     camera.updateMatrixWorld();
     this.viewInverse.copy(camera.matrixWorld).invert();
@@ -155,7 +197,7 @@ export class AdapterClusters {
       const packed = view.textures.pack(build, input);
       view.packed = build.packed;
       t1 = performance.now();
-      bytes = gpu.upload(renderer, build.grid, view.textures, packed);
+      bytes = gpu.upload(renderer, build.grid, view.textures, packed, camera.projectionMatrix.elements);
       const l = this.last;
       l.lights = build.lights;
       l.packed = build.packed;
@@ -170,6 +212,8 @@ export class AdapterClusters {
       l.lights = l.packed = l.indices = l.overflow = 0;
     }
     this.framed = true;
+    if (this.light !== null && this.light.gpu !== gpu) this.light.gpu = gpu;
+    this.light?.rebind();
     this.syncHeat();
     this.count(tg - t0, t1 - tg, performance.now() - t1, bytes);
   }
@@ -183,14 +227,17 @@ export class AdapterClusters {
   dispose(): void {
     this.heat.wanted = false;
     this.syncHeat();
-    this.dropGpu();
+    this.light?.removeFromParent();
+    this.light?.dispose();
+    this.light = null;
+    this.gpu.dispose();
   }
 
   /** The heat map's light in the scene while wanted and the lists are on a GPU; its objects rebind after new textures. */
   private syncHeat(): void {
     const h = this.heat;
     const gpu = this.gpu;
-    if (h.wanted && gpu !== null) {
+    if (h.wanted && this.gpuRenderer !== null) {
       if (h.light === null) {
         h.light = new ClusterHeatLight(gpu);
         this.d.scene.add(h.light);
@@ -206,10 +253,10 @@ export class AdapterClusters {
     }
   }
 
-  /** A new renderer (or none): the textures were the old one's. */
+  /** A new renderer: the textures were the old one's (every camera's lists are sent whole to the new ones). */
   private dropGpu(): void {
-    this.gpu?.dispose();
-    this.gpu = null;
+    this.gpu.dispose();
+    this.gpu = new ClusterGpu(new ClusterTextures());
     this.gpuRenderer = null;
   }
 
@@ -220,10 +267,16 @@ export class AdapterClusters {
     s.buildMs += buildMs;
     s.uploadMs += uploadMs;
     s.uploadBytes += bytes;
-    if (s.frames < CLUSTER_STATS_FRAMES) return;
-    this.means = { gatherMs: s.gatherMs / s.frames, buildMs: s.buildMs / s.frames, uploadMs: s.uploadMs / s.frames, uploadBytes: Math.round(s.uploadBytes / s.frames) };
-    this.sums = { frames: 0, gatherMs: 0, buildMs: 0, uploadMs: 0, uploadBytes: 0 };
     const l = this.last;
+    // The counts are written when they change too: a view drawn only on a change (the editor's) may never reach the means.
+    const changed = l.lights !== this.written.lights || l.packed !== this.written.packed;
+    if (s.frames < CLUSTER_STATS_FRAMES && !changed) return;
+    if (s.frames >= CLUSTER_STATS_FRAMES) {
+      this.means = { gatherMs: s.gatherMs / s.frames, buildMs: s.buildMs / s.frames, uploadMs: s.uploadMs / s.frames, uploadBytes: Math.round(s.uploadBytes / s.frames) };
+      this.sums = { frames: 0, gatherMs: 0, buildMs: 0, uploadMs: 0, uploadBytes: 0 };
+    }
+    this.written.lights = l.lights;
+    this.written.packed = l.packed;
     this.d.canvas?.setAttribute?.('data-tl-clusters', `${l.lights}|${l.packed}|${l.indices}|${l.overflow}|${this.means.gatherMs.toFixed(3)}|${this.means.buildMs.toFixed(3)}|${this.means.uploadMs.toFixed(3)}|${this.means.uploadBytes}`);
   }
 
@@ -241,7 +294,8 @@ export class AdapterClusters {
     const hidden = this.d.hidden();
     const v = this.value;
     this.d.lights.forEachLight((id, kind, light) => {
-      if (kind !== 'point' && kind !== 'spot') return;
+      // Three's own node draws a light with a shadow or a cookie.
+      if ((kind !== 'point' && kind !== 'spot') || !drawsClustered(light)) return;
       const e = light.matrixWorld.elements;
       const k = light.intensity;
       v.kind = kind;
@@ -253,9 +307,14 @@ export class AdapterClusters {
       v.color[2] = light.color.b * k;
       const point = light as THREE.PointLight;
       v.reach = lightReachOf(point.distance, v.color);
+      v.unbounded = !(point.distance > 0);
       v.decay = point.decay;
-      v.mask = isLayeredLight(light) ? light.lightMask : LIGHT_LAYERS_ALL;
-      v.visible = !hidden.has(id) && this.d.roomSeen(roomKeyOf(light));
+      // A layered light lights its layers and its room alone; a plain one lights everything.
+      const layered = isLayeredLight(light);
+      v.mask = layered ? light.lightMask : LIGHT_LAYERS_ALL;
+      v.room = layered ? (roomKeyOf(light) ?? -1) : -1;
+      // Off: switched off by the selection (its entity hidden, or past a quality level's budget).
+      v.visible = light.visible && !hidden.has(id) && this.d.roomSeen(roomKeyOf(light));
       v.twoSided = false;
       if (kind === 'spot') {
         const s = light as THREE.SpotLight;
@@ -320,7 +379,9 @@ export class AdapterClusters {
     v.reach = lightReachOf(l.range ?? 0, v.color);
     v.decay = 2;
     v.twoSided = l.twoSided === true;
+    v.unbounded = false;
     v.mask = lightLayerMaskOf(l.lightMask);
+    v.room = -1;
     const node = this.d.graph.node(a.id);
     v.visible = !hidden.has(a.id) && this.d.roomSeen(node === undefined ? undefined : roomKeyOf(node));
     this.input.add(v);

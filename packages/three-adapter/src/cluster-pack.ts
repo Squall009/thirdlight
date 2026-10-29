@@ -12,9 +12,12 @@
  *   order (best rank first; a list's index is the light's record):
  *   - t0: view position xyz, reach;
  *   - t1: linear colour × intensity rgb, kind field + 8 × round(decay × 256)
- *     (kind: the two low bits, {@link CLUSTER_TWO_SIDED} above them);
+ *     (kind: the two low bits, {@link CLUSTER_TWO_SIDED} or
+ *     {@link CLUSTER_UNBOUNDED} above them);
  *   - t2: a spot's view axis or an area light's half width `u` (view) xyz,
- *     light-layer mask (bits as a float, exact below 2^24);
+ *     the layer word: the light-layer mask in the low
+ *     {@link CLUSTER_ROOM_SHIFT} bits and the room key it lights alone + 1
+ *     above them (0: every room), as a float (exact below 2^24);
  *   - t3: a spot's cos outer, cos inner, cookie tile, or an area light's half
  *     height `v` (view; `u × v` along its facing) xyz; the shadow record's
  *     first texel (-1: none).
@@ -36,7 +39,12 @@
  * round-trips the texture through them; the light loop follows them line
  * for line).
  */
-import { CLUSTER_SPOT, clusterIndex, clusterSliceOf, type ClusterBuild, type ClusterGrid, type ClusterLights } from './cluster-build';
+import { LIGHT_LAYER_COUNT } from '@thirdlight/runtime';
+
+import { CLUSTER_SPOT, CLUSTER_TWO_SIDED, CLUSTER_UNBOUNDED, clusterIndex, clusterSliceOf, type ClusterBuild, type ClusterGrid, type ClusterLights } from './cluster-build';
+
+/** The layer word's room key starts above the light-layer bits. */
+export const CLUSTER_ROOM_SHIFT = LIGHT_LAYER_COUNT;
 
 /** Texels a row. */
 export const CLUSTER_TEXTURE_WIDTH = 1024;
@@ -163,7 +171,7 @@ export class ClusterTextures {
       out[o + 7] = kind + KIND_BITS * Math.max(0, Math.round(lights.decay[i]! * DECAY_STEPS));
       const spot = (kind & 3) === CLUSTER_SPOT;
       rotateInto(V, spot ? lights.direction : lights.u, i, out, o + 8);
-      out[o + 11] = lights.mask[i]!;
+      out[o + 11] = lights.mask[i]! + (lights.room[i]! + 1) * (1 << CLUSTER_ROOM_SHIFT);
       if (spot) {
         out[o + 12] = lights.cone[i * 2]!;
         out[o + 13] = lights.cone[i * 2 + 1]!;
@@ -237,7 +245,11 @@ export interface DecodedClusterLight {
   kind: number;
   twoSided: boolean;
   decay: number;
+  /** Point or spot: no range (no window toward the reach). */
+  unbounded: boolean;
   mask: number;
+  /** The room it lights alone (-1: every room). */
+  room: number;
   shadow: number;
   /** Spot: axis, cos outer, cos inner, cookie. */
   axis?: [number, number, number];
@@ -260,9 +272,11 @@ export function decodeClusterLight(data: Uint32Array, index: number): DecodedClu
     reach: t(3),
     color: [t(4), t(5), t(6)],
     kind,
-    twoSided: (field & 4) !== 0,
+    twoSided: kind >= 2 && (field & CLUSTER_TWO_SIDED) !== 0,
+    unbounded: kind < 2 && (field & CLUSTER_UNBOUNDED) !== 0,
     decay: Math.floor(field / KIND_BITS) / DECAY_STEPS,
-    mask: Math.trunc(t(11)),
+    mask: Math.trunc(t(11)) % (1 << CLUSTER_ROOM_SHIFT),
+    room: Math.floor(Math.trunc(t(11)) / (1 << CLUSTER_ROOM_SHIFT)) - 1,
     shadow: Math.trunc(t(15)),
   };
   if (kind === CLUSTER_SPOT) return { ...base, axis: [t(8), t(9), t(10)], cosOuter: t(12), cosInner: t(13), cookie: Math.trunc(t(14)) };

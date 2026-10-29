@@ -301,7 +301,13 @@ export async function measurePage(browser: Browser, opts: FrameRunOptions): Prom
   });
   try {
     await page.goto(uncappedUrl(opts.url));
-    const first = await page.waitForFunction(() => (window as unknown as { __tlPerf?: { firstDrawAt: number | null } }).__tlPerf?.firstDrawAt ?? null, null, { timeout: 180_000 }).then((h) => h.jsonValue() as Promise<number>);
+    const first = await page
+      .waitForFunction(() => (window as unknown as { __tlPerf?: { firstDrawAt: number | null } }).__tlPerf?.firstDrawAt ?? null, null, { timeout: 180_000 })
+      .then((h) => h.jsonValue() as Promise<number>)
+      // A page that never draws says why (its errors), not only that it timed out.
+      .catch((e: unknown) => {
+        throw new Error(`${e instanceof Error ? e.message : String(e)}; page errors: ${errors.join(' | ') || 'none'}`);
+      });
     await runSteps(page, opts.steps ?? []);
     await page.evaluate(probeSetGpuTiming, false);
     const settledMs = await settle(page, opts.settleMs ?? 90_000);
