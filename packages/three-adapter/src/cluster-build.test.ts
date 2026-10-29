@@ -233,6 +233,24 @@ describe('cluster lists', () => {
     expect(packed).toBeGreaterThan(2000);
   }, 120_000);
 
+  it('spend the slices where the lights reach: lights far from the eye get shallow cells and still no false negative', () => {
+    const rnd = mulberry32(29);
+    // A field of lights seen from high up and far back: none reaches nearer than ~20 m.
+    const cam = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 500);
+    cam.position.set(0, 24, 36);
+    cam.lookAt(0, 0, -2);
+    cam.updateMatrixWorld();
+    const probes = Array.from({ length: 400 }, () => randomLight(rnd, [0, 2, -4], 20)).filter((p) => cam.position.distanceTo(new THREE.Vector3(...(p.value.position as V3))) - p.bound > 20);
+    const r = checkRound({ cam, probes });
+    expect(r.misses.slice(0, 10)).toEqual([]);
+    const lights = new ClusterLights();
+    for (const p of probes) lights.add(p.value);
+    const build = new ClusterBuilder().build(lights, clusterCamera(cam), CLUSTER_INDEX_WORDS);
+    // The first slice starts no farther than the nearest light's box and well past the fixed 0.25 m floor.
+    expect(build.grid.sliceNear).toBeGreaterThan(10);
+    expect(build.grid.sliceNear).toBeLessThan(build.grid.sliceFar / 2 + 1e-9);
+  });
+
   it('the cone and box tests never miss a box a volume reaches', () => {
     const rnd = mulberry32(7);
     let missed = 0;

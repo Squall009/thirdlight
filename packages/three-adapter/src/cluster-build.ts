@@ -10,9 +10,13 @@
  *   exponential depth slices. A pixel finds its tile from where it is on the
  *   screen as a share of the render size, so the render scale, dynamic
  *   resolution and TAAU change nothing and nothing resizes. The slices run
- *   from `max(near, CLUSTER_SLICE_NEAR)` to the farthest packed light's
- *   reach (no farther than the camera's far): nearer pixels use slice 0,
- *   farther ones get no local light.
+ *   from the nearest packed light's reach (no nearer than
+ *   `max(near, CLUSTER_SLICE_NEAR)`) to the farthest one's (no farther than
+ *   the camera's far): nearer pixels use slice 0, farther ones get no local
+ *   light. Spending the slices only where lights reach keeps the cells
+ *   shallow when the lights are far from the eye (a field seen from above:
+ *   slices from 0.25 m would be metres deep there, and every list as long as
+ *   the lights within reach of a deep box, not of a pixel).
  * - **One build a frame**, pure, its typed arrays kept between frames: (1) lights
  *   switched off or in a room no portal shows (the caller's `visible`) and
  *   lights whose bounds miss the view are not packed; (2) the rest are
@@ -269,6 +273,9 @@ export function clusterSliceOf(grid: ClusterGrid, depth: number): number {
 
 /** Relative padding of every cell's box: float rounding at a plane must not lose a pixel. */
 const CELL_PAD = 1e-4;
+/** A header's count bits (the rest is its list's offset), and the count that marks a long list (its real count in the list's first word; `cluster-pack.ts`). */
+export const CLUSTER_COUNT_BITS = 10;
+export const CLUSTER_LONG_LIST = (1 << CLUSTER_COUNT_BITS) - 1;
 /** A light's luminance weights (linear Rec. 709). */
 const LUM_R = 0.2126;
 const LUM_G = 0.7152;
@@ -290,6 +297,8 @@ export interface ClusterBuild {
   entryEnd: Uint32Array;
   /** Lights per cell. */
   counts: Uint32Array;
+  /** Cells listing {@link CLUSTER_LONG_LIST} lights or more (each takes a count word more). */
+  longLists: number;
   /** Lights left out of at least one cell they reach (the index budget was full). */
   overflow: number;
 }
@@ -326,6 +335,7 @@ export class ClusterBuilder {
   private cellY = new Float64Array(0);
   private readonly cell = new Float64Array(6);
   private readonly ndc = new Float64Array(4);
+  private longLists = 0;
 
   build(lights: ClusterLights, camera: ClusterCamera, maxWords: number): ClusterBuild {
     const n = lights.count;
@@ -346,6 +356,7 @@ export class ClusterBuilder {
     let visibleN = 0;
     let packed = 0;
     let farthest = 0;
+    let nearestDepth = Infinity;
     let nearest = -1;
     let nearestD = Infinity;
     const ex = V[12]!;
@@ -382,6 +393,7 @@ export class ClusterBuilder {
         nearest = i;
       }
       if (dmax > farthest) farthest = dmax;
+      if (dmin < nearestDepth) nearestDepth = dmin;
       order[packed] = i;
       packed += 1;
     }
@@ -389,7 +401,7 @@ export class ClusterBuilder {
     const ordered = order.subarray(0, packed);
     sortByRank(ordered, rank, this.keys);
     // The grid for this frame's lights.
-    const sliceNear = Math.max(near, CLUSTER_SLICE_NEAR);
+    const sliceNear = Math.max(near, CLUSTER_SLICE_NEAR, Math.min(nearestDepth, farthest / 2));
     const sliceFar = Math.max(Math.min(far, farthest), sliceNear * 2);
     const scale = CLUSTER_SLICES / Math.log2(sliceFar / sliceNear);
     const bias = -Math.log2(sliceNear) * scale;
@@ -399,6 +411,7 @@ export class ClusterBuilder {
     const budget = Math.max(0, maxWords - 2 * clusters);
     let entries = 0;
     let overflow = 0;
+    this.longLists = 0;
     const entryEnd = this.entryEnd;
     for (let s = 0; s < packed; s += 1) {
       const i = ordered[s]!;
@@ -425,6 +438,7 @@ export class ClusterBuilder {
       entryCluster: this.entryCluster,
       entryEnd: entryEnd.subarray(0, packed),
       counts,
+      longLists: this.longLists,
       overflow,
     };
   }
@@ -494,27 +508,43 @@ export class ClusterBuilder {
         if (round && (y0 > y + rr || y1 < y - rr)) continue;
         const dyc = y < y0 ? y0 - y : y > y1 ? y - y1 : 0;
         const ryz = r * r - dzc * dzc - dyc * dyc;
+        const row = tx * (j + ty * k);
+        if (kind === CLUSTER_POINT) {
+          // sphereHitsBox, its y and z terms taken out of the row's loop. The cells a sphere reaches in a row are one
+          // run (the tiles' x ranges grow along it): its ends are tested, the cells between are listed untested.
+          let t0 = i0;
+          let t1 = i1;
+          while (t0 <= t1 && !pointHitsSpan(x, cellX[(ex + t0) * 2]!, cellX[(ex + t0) * 2 + 1]!, ryz)) t0 += 1;
+          while (t1 >= t0 && !pointHitsSpan(x, cellX[(ex + t1) * 2]!, cellX[(ex + t1) * 2 + 1]!, ryz)) t1 -= 1;
+          if (t1 < t0) continue;
+          const fits = entries + (t1 - t0 + 1) <= budget;
+          const end = fits ? t1 : t0 + (budget - entries) - 1;
+          if (entries + (end - t0 + 1) > entryCluster.length) entryCluster = this.growEntries(Math.min(budget, Math.max(entryCluster.length * 2, entries + (end - t0 + 1))));
+          for (let t = t0; t <= end; t += 1) {
+            const c = row + t;
+            entryCluster[entries] = c;
+            const listed = counts[c]! + 1;
+            counts[c] = listed;
+            if (listed === CLUSTER_LONG_LIST) this.longLists += 1;
+            entries += 1;
+          }
+          if (!fits) return -entries - 1;
+          continue;
+        }
         cell[1] = y0;
         cell[4] = y1;
         for (let t = i0; t <= i1; t += 1) {
-          const x0 = cellX[(ex + t) * 2]!;
-          const x1 = cellX[(ex + t) * 2 + 1]!;
-          let hit: boolean;
-          if (kind === CLUSTER_POINT) {
-            // sphereHitsBox, its y and z terms taken out of the row's loop.
-            const dxc = x < x0 ? x0 - x : x > x1 ? x - x1 : 0;
-            hit = dxc * dxc <= ryz;
-          } else {
-            cell[0] = x0;
-            cell[3] = x1;
-            hit = kind === CLUSTER_SPOT ? spotHitsBox(x, y, z, r, axes[a]!, axes[a + 1]!, axes[a + 2]!, cosO, sinO, cell) : areaHitsBox(x, y, z, r, axes, a, twoSided, cell);
-          }
+          cell[0] = cellX[(ex + t) * 2]!;
+          cell[3] = cellX[(ex + t) * 2 + 1]!;
+          const hit = kind === CLUSTER_SPOT ? spotHitsBox(x, y, z, r, axes[a]!, axes[a + 1]!, axes[a + 2]!, cosO, sinO, cell) : areaHitsBox(x, y, z, r, axes, a, twoSided, cell);
           if (!hit) continue;
           if (entries >= budget) return -entries - 1;
           if (entries >= entryCluster.length) entryCluster = this.growEntries(Math.min(budget, entryCluster.length * 2));
-          const c = t + tx * (j + ty * k);
+          const c = row + t;
           entryCluster[entries] = c;
-          counts[c] = counts[c]! + 1;
+          const listed = counts[c]! + 1;
+          counts[c] = listed;
+          if (listed === CLUSTER_LONG_LIST) this.longLists += 1;
           entries += 1;
         }
       }
@@ -531,16 +561,16 @@ export class ClusterBuilder {
     let y1 = -Infinity;
     for (let c = 0; c < 2; c += 1) {
       const zz = c === 0 ? zf : zn;
-      const w = this.pw11 * zz + this.pw15;
+      const iw = 1 / (this.pw11 * zz + this.pw15);
       const ox = this.p8 * zz + this.p12;
       const oy = this.p9 * zz + this.p13;
       for (let cxI = 0; cxI < 2; cxI += 1) {
-        const px = (this.p0 * (cxI === 0 ? bx0 : bx1) + ox) / w;
+        const px = (this.p0 * (cxI === 0 ? bx0 : bx1) + ox) * iw;
         if (px < x0) x0 = px;
         if (px > x1) x1 = px;
       }
       for (let cyI = 0; cyI < 2; cyI += 1) {
-        const py = (this.p5 * (cyI === 0 ? by0 : by1) + oy) / w;
+        const py = (this.p5 * (cyI === 0 ? by0 : by1) + oy) * iw;
         if (py < y0) y0 = py;
         if (py > y1) y1 = py;
       }
@@ -773,6 +803,12 @@ function projectRect(P: ArrayLike<number>, box: Float64Array, b: number, near: n
   out[2] = x1;
   out[3] = y1;
   return x1 >= -1 && x0 <= 1 && y1 >= -1 && y0 <= 1;
+}
+
+/** Whether a sphere centred at view x reaches the x span [x0, x1] when `ryz` is its radius² less the y and z gaps. */
+function pointHitsSpan(x: number, x0: number, x1: number, ryz: number): boolean {
+  const dxc = x < x0 ? x0 - x : x > x1 ? x - x1 : 0;
+  return dxc * dxc <= ryz;
 }
 
 /** Whether a sphere touches an axis-aligned box (minx, miny, minz, maxx, maxy, maxz). */

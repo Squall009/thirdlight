@@ -59,7 +59,7 @@
  */
 import { LIGHT_LAYER_COUNT } from '@thirdlight/runtime';
 
-import { CLUSTER_SPOT, CLUSTER_TWO_SIDED, CLUSTER_UNBOUNDED, CLUSTER_UNCACHED, clusterIndex, clusterSliceOf, type ClusterBuild, type ClusterGrid, type ClusterLights } from './cluster-build';
+import { CLUSTER_COUNT_BITS, CLUSTER_LONG_LIST, CLUSTER_SPOT, CLUSTER_TWO_SIDED, CLUSTER_UNBOUNDED, CLUSTER_UNCACHED, clusterIndex, clusterSliceOf, type ClusterBuild, type ClusterGrid, type ClusterLights } from './cluster-build';
 
 /** The layer word's room key starts above the light-layer bits. */
 export const CLUSTER_ROOM_SHIFT = LIGHT_LAYER_COUNT;
@@ -78,10 +78,8 @@ export const CLUSTER_CUBE_SHADOW_TEXELS = 8;
 export const CLUSTER_INDEX_MIB = 16;
 /** Words the headers and lists may use: the ceiling in 4-byte words (2^22, which the header's 22-bit offset spans). */
 export const CLUSTER_INDEX_WORDS = (CLUSTER_INDEX_MIB * 1024 * 1024) / 4;
-/** A header's count bits, and the count that marks a long list (its real count in the list's first word). */
-export const CLUSTER_COUNT_BITS = 10;
+export { CLUSTER_COUNT_BITS, CLUSTER_LONG_LIST };
 const COUNT_BITS = CLUSTER_COUNT_BITS;
-export const CLUSTER_LONG_LIST = (1 << COUNT_BITS) - 1;
 const COUNT_MASK = CLUSTER_LONG_LIST;
 /** Decay is stored in 1/256 steps above the kind field's four bits. */
 export const CLUSTER_DECAY_STEPS = 256;
@@ -223,10 +221,8 @@ export class ClusterTextures {
   pack(build: ClusterBuild, lights: ClusterLights, shadows: ClusterShadows = NO_SHADOWS): ClusterPackResult {
     const clusters = build.grid.clusters;
     const counts = build.counts;
-    // Prefix sum: offsets past the headers, a long list's count word first.
-    let listEntries = 0;
-    for (let c = 0; c < clusters; c += 1) listEntries += counts[c]! + (counts[c]! >= CLUSTER_LONG_LIST ? 1 : 0);
-    const listWords = clusters + listEntries;
+    // A long list's count word comes before its list.
+    const listWords = clusters + build.entries + build.longLists;
     if (listWords > CLUSTER_INDEX_WORDS) throw new Error(`cluster lists: ${listWords} words past the ${CLUSTER_INDEX_MIB} MiB ceiling (the build's budget was not the pack's)`);
     const shadowTexel = build.packed * CLUSTER_LIGHT_TEXELS;
     const base = build.packed * RECORD_WORDS + shadows.texels * CLUSTER_TEXEL_WORDS;
@@ -236,25 +232,23 @@ export class ClusterTextures {
     this.writeRecords(build, lights, shadowTexel);
     this.writeShadows(build.view, shadows, build.packed * RECORD_WORDS);
     const data = this.data;
-    // Headers: each cell's offset and count (a long list's count in its first word).
+    // Headers (each cell's offset and count) and where each list's next index goes, in one pass.
+    const cursor = this.cursorFor(clusters);
+    const lists = base + clusters;
     let at = 0;
     for (let c = 0; c < clusters; c += 1) {
       const n = counts[c]!;
       if (n >= CLUSTER_LONG_LIST) {
         data[base + c] = ((at << COUNT_BITS) | CLUSTER_LONG_LIST) >>> 0;
-        data[base + clusters + at] = n;
+        data[lists + at] = n;
         at += 1;
       } else {
         data[base + c] = ((at << COUNT_BITS) | n) >>> 0;
       }
+      cursor[c] = lists + at;
       at += n;
     }
     // Write pass: entries in slot order, so each list is best rank first.
-    const cursor = this.cursorFor(clusters);
-    for (let c = 0; c < clusters; c += 1) {
-      const h = data[base + c]!;
-      cursor[c] = base + clusters + (h >>> COUNT_BITS) + ((h & COUNT_MASK) === CLUSTER_LONG_LIST ? 1 : 0);
-    }
     let e = 0;
     for (let s = 0; s < build.packed; s += 1) {
       const end = build.entryEnd[s]!;

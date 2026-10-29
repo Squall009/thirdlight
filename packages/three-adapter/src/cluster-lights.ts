@@ -299,46 +299,60 @@ class ClusterLightsNode extends (THREE.Node as unknown as new () => { updateType
         const r0 = clusterLightTexel(t, index, 0);
         const toLight = r0.xyz.sub(surface).toVar();
         const distance = toLight.length().toVar();
-        const r1 = clusterLightTexel(t, index, 1);
-        const field = int(r1.w).toVar();
-        const kind = field.bitAnd(3);
-        // Without area lights the lists hold none: the point and spot kinds alone.
-        If(areas ? distance.lessThan(r0.w) : distance.lessThan(r0.w).and(kind.lessThan(CLUSTER_RECT)), () => {
-          const r2 = clusterLightTexel(t, index, 2);
-          const r3 = clusterLightTexel(t, index, 3);
-          const gate = layered ? this.layerTest(builder, r2.w) : null;
+        // Most listed lights miss the pixel (a cell is larger than a pixel): only the first texel is read for them.
+        If(distance.lessThan(r0.w), () => {
+          const r1 = clusterLightTexel(t, index, 1).toVar();
+          const field = int(r1.w).toVar();
+          const kind = field.bitAnd(3);
           // Each light's terms on their own where the cache's lights and the others are summed apart.
           const one = uncachedSums !== null ? { directDiffuse: vec3(0).toVar(), directSpecular: vec3(0).toVar() } : { directDiffuse: diffuse, directSpecular: specular };
           const sinkBefore = uncachedSums !== null && uncachedSums.modelSink !== null ? vec3(uncachedSums.modelSink).toVar() : null;
+          const gate = (): N | null => (layered ? this.layerTest(builder, clusterLightTexel(t, index, 2).w) : null);
           const pointOrSpot = (): void => {
             const decay = float(field.div(CLUSTER_KIND_STEP)).div(CLUSTER_DECAY_STEPS);
             const cutoff = select(field.bitAnd(CLUSTER_UNBOUNDED).notEqual(0), float(0), r0.w);
             const direction = toLight.div(distance.max(1e-6)).toVar();
             const colour = r1.xyz.mul(getDistanceAttenuation({ lightDistance: distance, cutoffDistance: cutoff, decayExponent: decay })).toVar();
+            const g = gate();
+            if (g !== null) colour.mulAssign(g);
             If(kind.equal(CLUSTER_SPOT), () => {
+              const r2 = clusterLightTexel(t, index, 2);
+              const r3 = clusterLightTexel(t, index, 3).toVar();
               // t2 holds the way it shines; three's cone compares the way back to the light.
               colour.mulAssign(smoothstep(r3.x, r3.y, direction.dot(r2.xyz.negate())));
-              if (cookies)
-                If(r3.z.greaterThanEqual(0), () => {
-                  colour.mulAssign(spotCookie(t, int(r3.w), int(r3.z), surface));
+              // Outside its cone (most of a spot's reach) a spot lights nothing: no cookie, shadow or lighting model.
+              if (cookies || shadows)
+                If(colour.x.add(colour.y).add(colour.z).greaterThan(0), () => {
+                  if (cookies)
+                    If(r3.z.greaterThanEqual(0), () => {
+                      colour.mulAssign(spotCookie(t, int(r3.w), int(r3.z), surface));
+                    });
+                  if (shadows)
+                    If(r3.w.greaterThanEqual(0), () => {
+                      colour.mulAssign(spotShadow(builder, t, int(r3.w), surface, distance));
+                    });
                 });
-              if (shadows)
-                If(r3.w.greaterThanEqual(0), () => {
-                  colour.mulAssign(spotShadow(builder, t, int(r3.w), surface, distance));
+            }).Else(() => {
+              if (shadows) {
+                const record = clusterLightTexel(t, index, 3).w.toVar();
+                If(record.greaterThanEqual(0), () => {
+                  colour.mulAssign(cubeShadow(builder, t, int(record), surface, distance));
                 });
+              }
             });
-            if (shadows)
-              If(kind.equal(CLUSTER_POINT).and(r3.w.greaterThanEqual(0)), () => {
-                colour.mulAssign(cubeShadow(builder, t, int(r3.w), surface, distance));
-              });
-            if (gate !== null) colour.mulAssign(gate);
-            lightingModel.direct({ lightDirection: direction, lightColor: colour, lightNode: { light: {}, shadowNode: null }, reflectedLight: one }, builder);
+            If(colour.x.add(colour.y).add(colour.z).greaterThan(0), () => {
+              lightingModel.direct({ lightDirection: direction, lightColor: colour, lightNode: { light: {}, shadowNode: null }, reflectedLight: one }, builder);
+            });
           };
-          if (!areas) pointOrSpot();
+          // Without area lights the lists hold none: the point and spot kinds alone.
+          if (!areas) If(kind.lessThan(CLUSTER_RECT), pointOrSpot);
           else
             If(kind.lessThan(CLUSTER_RECT), pointOrSpot).Else(() => {
+              const r2 = clusterLightTexel(t, index, 2).toVar();
+              const r3 = clusterLightTexel(t, index, 3).toVar();
+              const layerGate = layered ? this.layerTest(builder, r2.w) : null;
               const shade = shadows ? this.areaShadow(builder, r3.w, surface, distance) : null;
-              const areaGate = shade === null ? gate : gate === null ? shade : gate.mul(shade);
+              const areaGate = shade === null ? layerGate : layerGate === null ? shade : layerGate.mul(shade);
               shadeAreaLight({ builder, ltc, centre: r0.xyz, reach: r0.w, colour: r1.xyz, u: r2.xyz, v: r3.xyz, twoSided: field.bitAnd(CLUSTER_TWO_SIDED).notEqual(0), toLight, distance, gate: areaGate, reflectedLight: one });
             });
           if (uncachedSums !== null) {

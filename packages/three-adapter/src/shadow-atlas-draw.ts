@@ -241,7 +241,13 @@ interface Kept {
   /** The first camera's projection × view the tiles were drawn with, and the static revision. */
   readonly drawnWith: THREE.Matrix4;
   revision: number;
+  /** What its cameras were placed from (`poseOf`): unchanged, they are not placed again. */
+  readonly pose: Float64Array;
 }
+
+/** Numbers a light's cameras are placed from: its place, a spot's target or a turn, its cone, its far, the renderer's depth conventions. */
+const POSE_NUMBERS = 10;
+const _pose = new Float64Array(POSE_NUMBERS);
 
 /** A tile drawn this frame: the view's camera and the layers that cast into it. */
 interface Draw {
@@ -257,6 +263,7 @@ const _target = new THREE.Vector3();
 const _place = new THREE.Matrix4();
 const _frame = new THREE.Matrix4();
 const _rotation = new THREE.Matrix4();
+const _toTile = new THREE.Matrix4();
 /** The faces of a light seen all round, and of a one-sided area light (no face behind its emitter). */
 const ALL_FACES = [0, 1, 2, 3, 4, 5];
 const AREA_FACES = ALL_FACES.filter((f) => f !== AREA_BACK_FACE);
@@ -317,8 +324,11 @@ export class AdapterShadowAtlas {
     for (const a of lights) {
       const k = this.keptFor(a);
       const p = a.position;
-      if (a.kind === 'spot') placeSpotCamera(k.cameras[0]!, a.spot!, a.reach, renderer);
-      else for (let f = 0; f < CUBE_FACES; f += 1) placeFaceCamera(k.cameras[f]!, f, a, renderer);
+      // A light that stands still keeps its cameras (placing six faces a frame for every shadowed light is main-thread time).
+      if (poseOf(a, renderer, _pose, k.pose)) {
+        if (a.kind === 'spot') placeSpotCamera(k.cameras[0]!, a.spot!, a.reach, renderer);
+        else for (let f = 0; f < CUBE_FACES; f += 1) placeFaceCamera(k.cameras[f]!, f, a, renderer);
+      }
       if (!a.shadowed) continue;
       const dist = Math.hypot(p.x - eye[12]!, p.y - eye[13]!, p.z - eye[14]!);
       const seen = a.seen && _frustum.intersectsSphere(_sphere.set(p, a.reach));
@@ -354,7 +364,7 @@ export class AdapterShadowAtlas {
         const c = k.cameras[0]!;
         const s = rect[2];
         // Clip → the tile's texture coordinates (from the top left) and the depth its texture stores.
-        const toTile = new THREE.Matrix4().set(0.5 * s, 0, 0, rect[0] + 0.5 * s, 0, -0.5 * s, 0, rect[1] + 0.5 * s, 0, 0, zs, zo, 0, 0, 0, 1);
+        const toTile = _toTile.set(0.5 * s, 0, 0, rect[0] + 0.5 * s, 0, -0.5 * s, 0, rect[1] + 0.5 * s, 0, 0, zs, zo, 0, 0, 0, 1);
         toTile.multiply(c.projectionMatrix).multiply(c.matrixWorldInverse);
         // One tile texel's size per metre from the light: 2 tan(half angle) / side.
         const texelPerMetre = t === undefined ? 0 : (2 * Math.tan(a.spot!.angle)) / t.size;
@@ -422,7 +432,7 @@ export class AdapterShadowAtlas {
         shadowSeesCutaways(camera);
         return camera;
       });
-      this.kept.set(a.key, (k = { cameras, drawnWith: new THREE.Matrix4().set(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), revision: -1 }));
+      this.kept.set(a.key, (k = { cameras, drawnWith: new THREE.Matrix4().set(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), revision: -1, pose: new Float64Array(POSE_NUMBERS).fill(Number.NaN) }));
     }
     return k;
   }
@@ -448,6 +458,47 @@ function project(camera: THREE.PerspectiveCamera, fov: number, far: number, rend
   camera.coordinateSystem = renderer.coordinateSystem as THREE.CoordinateSystem;
   c._reversedDepth = reversed;
   camera.updateProjectionMatrix();
+}
+
+/**
+ * What `a`'s cameras are placed from, into `out`; whether it differs from
+ * `last` (then `last` takes it). A spot: its place, its target's, its cone
+ * and its far; a light seen through faces: its place, its turn and its far;
+ * both: the renderer's depth conventions.
+ */
+function poseOf(a: AtlasLight, renderer: Pick<AtlasRenderer, 'coordinateSystem' | 'reversedDepthBuffer'>, out: Float64Array, last: Float64Array): boolean {
+  if (a.kind === 'spot') {
+    const l = a.spot!;
+    const w = l.matrixWorld.elements;
+    const t = l.target.matrixWorld.elements;
+    out[0] = w[12]!;
+    out[1] = w[13]!;
+    out[2] = w[14]!;
+    out[3] = t[12]!;
+    out[4] = t[13]!;
+    out[5] = t[14]!;
+    out[6] = l.angle;
+    out[7] = l.distance > 0 ? l.distance : a.reach;
+  } else {
+    out[0] = a.position.x;
+    out[1] = a.position.y;
+    out[2] = a.position.z;
+    out[3] = a.turn?.x ?? 0;
+    out[4] = a.turn?.y ?? 0;
+    out[5] = a.turn?.z ?? 0;
+    out[6] = a.turn?.w ?? 1;
+    out[7] = a.range > 0 ? a.range : a.reach;
+  }
+  out[8] = renderer.coordinateSystem as number;
+  out[9] = renderer.reversedDepthBuffer === true ? 1 : 0;
+  let changed = false;
+  for (let i = 0; i < POSE_NUMBERS; i += 1) {
+    if (out[i] !== last[i]) {
+      changed = true;
+      last[i] = out[i]!;
+    }
+  }
+  return changed;
 }
 
 /** Face `face`'s camera of a light seen through faces: 90° at its place, turned with it, reaching its range (its reach without one). */
