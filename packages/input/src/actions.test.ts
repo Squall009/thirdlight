@@ -45,6 +45,45 @@ describe('input actions', () => {
     expect(e.sample(raw([], [], pad([], [0, 0, 0.6, 0])))['look']!.v).toBe(-1);
   });
 
+  it('a stick axis: the dead zone is zero on its boundary and rescaled past it, held to [-1, 1]; a non-finite axis reads 0', () => {
+    const cfg: InputConfigLike = { actions: [{ name: 'steer', type: 'axis1d', map: 'gameplay', bindings: [{ kind: 'gamepadAxis', axis: 0 }] }] };
+    const e = createActionEvaluator(cfg);
+    const at = (x: number): number => e.sample(raw([], [], pad([], [x, 0, 0, 0])))['steer']!.v;
+    expect(at(0.2)).toBe(0);
+    expect(at(-0.2)).toBe(0);
+    expect(at(0)).toBe(0);
+    expect(at(0.6)).toBe(0.5);
+    expect(at(-0.6)).toBe(-0.5);
+    expect(at(1)).toBe(1);
+    expect(at(-1)).toBe(-1);
+    // Just past the boundary: one step of the 1e-4 grid.
+    expect(at(0.2001)).toBe(0.0001);
+    expect(at(2)).toBe(1);
+    expect(at(-2)).toBe(-1);
+    expect(at(Number.NaN)).toBe(0);
+    expect(at(Number.POSITIVE_INFINITY)).toBe(0);
+  });
+
+  it('values sit on the 1e-4 grid and a zero is never -0 (inverted or not)', () => {
+    const cfg: InputConfigLike = {
+      actions: [
+        { name: 'fine', type: 'axis1d', map: 'gameplay', bindings: [{ kind: 'gamepadAxis', axis: 0 }], deadZone: 0 },
+        { name: 'flipped', type: 'axis1d', map: 'gameplay', bindings: [{ kind: 'gamepadAxis', axis: 0 }], deadZone: 0, invert: true },
+        { name: 'aim', type: 'axis2d', map: 'gameplay', bindings: [{ kind: 'gamepadStick', x: 0, y: 1 }], deadZone: 0, invert: true },
+      ],
+    };
+    const e = createActionEvaluator(cfg);
+    const s = (x: number): Record<string, { v: number; x?: number; y?: number }> => e.sample(raw([], [], pad([], [x, 0, 0, 0])));
+    expect(s(0.123456)['fine']!.v).toBe(0.1235);
+    expect(s(0.00005)['fine']!.v).toBe(0.0001);
+    for (const x of [0, -0, 0.00001, -0.00001]) {
+      const out = s(x);
+      for (const v of [out['fine']!.v, out['flipped']!.v, out['aim']!.v, out['aim']!.x!, out['aim']!.y!]) expect(Object.is(v, 0), `${x}: ${String(v)}`).toBe(true);
+    }
+    // A sample is a pure function of the state it reads: the same state gives the same values.
+    expect(createActionEvaluator(cfg).sample(raw([], [], pad([], [0.37, 0, 0, 0])))).toEqual(createActionEvaluator(cfg).sample(raw([], [], pad([], [0.37, 0, 0, 0]))));
+  });
+
   it('a binding naming a pad reads that pad only (each co-op player on their own pad); without one, the pad used last', () => {
     const cfg: InputConfigLike = {
       actions: [

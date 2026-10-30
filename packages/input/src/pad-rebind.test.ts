@@ -1,7 +1,8 @@
 /**
  * The character controller's pad controls are the project's `move` and
  * `jump` actions (rebindable in the game's settings), read through a fake
- * pad like every other action.
+ * pad like every other action: a project that binds them to keys only gets
+ * no pad layout of the engine's.
  */
 import { describe, expect, it } from 'vitest';
 import { viewSource } from './test-frame-view';
@@ -110,6 +111,20 @@ describe('the character controller on a fake pad', () => {
     h.pad.axes[2] = 0;
     h.pad.axes[0] = 1; // axis 0 is not bound
     expect(h.source.sample(4).moveX).toBe(0);
+  });
+
+  it('a project that binds move and jump to keys only gets no pad layout: no button, D-pad or stick moves or jumps', () => {
+    const keysOnly: InputConfigLike = { actions: DEFAULT_INPUT_CONFIG.actions.map((a) => (a.map === 'gameplay' ? { ...a, bindings: a.bindings.filter((b) => !b.kind.startsWith('gamepad')) } : a)) };
+    const h = attach(keysOnly);
+    h.pad.held.add(0);
+    h.pad.held.add(14);
+    h.pad.axes[0] = 1;
+    for (let step = 1; step <= 3; step += 1) expect(h.source.sample(step)).toMatchObject({ moveX: 0, jump: 'none' });
+    h.pad.held.clear();
+    h.pad.axes[0] = 0;
+    h.target.dispatch('keydown', { code: 'KeyD', repeat: false, target: h.target, preventDefault: () => undefined });
+    h.target.dispatch('keydown', { code: 'Space', repeat: false, target: h.target, preventDefault: () => undefined });
+    expect(h.source.sample(4)).toMatchObject({ moveX: 1, jump: 'pressed' });
   });
 
   it('a menu confirm on button 0 still held does not block a jump rebound to button 3', () => {
