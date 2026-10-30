@@ -241,6 +241,17 @@ export function createShellController(deps: ShellDeps): ShellController {
     note = '';
     play();
   };
+  /**
+   * The title's confirm starts the game: the run behind the title is already the project's start
+   * scenes as the scene set loaded them (a first start, or the restart that brought the title
+   * back), so it only leaves the title; nothing restarts. A game still on the shell's scene list
+   * starts at its first entry.
+   */
+  const startFromTitle = (): void => {
+    if (list.length > 0 && deps.listedScene() !== 0) deps.goToScene(0, 'nextScene');
+    note = '';
+    play();
+  };
   const newestSlot = (): number | null => {
     const slots = deps.saves?.slots() ?? [];
     let best: ShellSlotLike | null = null;
@@ -399,7 +410,7 @@ export function createShellController(deps: ShellDeps): ShellController {
       }
       if (e.cancel && screen !== 'title' && screen !== 'playing') back();
       // A title without a focusable button starts on the confirm.
-      else if (e.submit && screen === 'title') newGame();
+      else if (e.submit && screen === 'title') startFromTitle();
       paintStatus();
     },
     values(): Readonly<Record<string, unknown>> {

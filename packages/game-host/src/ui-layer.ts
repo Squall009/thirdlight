@@ -1407,7 +1407,8 @@ class LayerImpl implements UiLayer {
       out.up = out.down = out.left = out.right = false;
       this.move(v, dir);
     }
-    if (edges.submit) {
+    // A document with nothing to focus leaves the confirm to the shell (a title without a button starts on it).
+    if (edges.submit && v.focusables().length > 0) {
       out.submit = false;
       if (v.focus !== null && v.focus.enabled && v.focus.visible) this.activate(v, v.focus);
     }

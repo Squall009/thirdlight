@@ -93,6 +93,20 @@ describe('the game shell controller', () => {
     expect(log).toEqual([]);
   });
 
+  it('the title\'s confirm plays the start scenes without a restart; a game on the scene list starts at its first entry', () => {
+    const { ctl, state, log } = harness({ screens: { title: 'title' }, hud: ['hud'] });
+    ctl.start();
+    ctl.handleEdges({ ...NONE, submit: true });
+    expect([ctl.screen, state.paused, state.hud]).toEqual(['playing', false, ['hud']]);
+    expect(log).toEqual([]);
+    const listed = harness({ screens: { title: 'title' }, scenes: [{ scene: 'a' }, { scene: 'b' }] });
+    listed.state.listed = 1;
+    listed.ctl.start();
+    listed.ctl.handleEdges({ ...NONE, submit: true });
+    expect(listed.ctl.screen).toBe('playing');
+    expect(listed.log).toEqual(['scene 0 nextScene']);
+  });
+
   it('the scene actions reload (absent: the active scene), load and unload a scene and leave the screen as it is; the run restarts name their action', () => {
     const { ctl, state, log } = harness({});
     ctl.start();

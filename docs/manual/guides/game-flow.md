@@ -171,7 +171,9 @@ way, and to check the flow in a play-test (the
   it yourself, as the director does.
 - **`reloadScene` leaves a menu open.** The engine action changes nothing
   on screen; list `resume` after it on a pause-menu button.
-- **The shell's Title screen is for the first start only.** The `open`
+- **The shell's Title screen is for the first start only.** The game
+  waits behind it in its start scenes; a button with `resume` (or the
+  confirm key on a title without a button) starts it, with no restart. The `open`
   engine action with the title screen, `quitToTitle` and `newGame` restart
   the whole run (deprecated, one Problems line each; see the
   [migration notes](../features/migration.md#the-run-restart-and-the-engines-new-game-deprecated)).

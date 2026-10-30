@@ -236,8 +236,9 @@ them; each use writes one Problems line per Play naming its replacement:
   `ctx.scenes.reload(sceneId)` in a script) for the scene that starts over,
   and reset what the game keeps itself (its counters, its `ctx.save` values,
   a kept player's place: `ctx.lifecycle.respawn` or the scene list's spawn).
-- **`newGame`** (UI engine action; also a title without a focusable button
-  on submit) restarts the run and goes to the scene list's first entry.
+- **`newGame`** (UI engine action) restarts the run and goes to the scene
+  list's first entry. A shell title without a focusable button no longer
+  uses it: its confirm leaves the title and plays the start scenes.
 - **`quitToTitle`** (UI engine action) restarts the run and shows the
   shell's title screen. The `open` engine action with `screen: "title"` is
   the same (a run restart, and the same Problems line). A game's title is its own: a title scene (and its

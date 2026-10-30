@@ -14,7 +14,7 @@
  *   death, respawns the character (`ctx.lifecycle.respawn`) and heals it. The
  *   engine has no rule for what a death means.
  * - Play, driven by the input exercise relay (tl_input_exercise's route):
- *   the title holds the game until Start; walking left collects the item
+ *   the title holds the game until Enter; walking left collects the item
  *   (the HUD shows it), walking on into the patroller takes the character's
  *   only health point and the script respawns it at the spawn; walking right
  *   enters the door and the second scene loads with the character at its
@@ -115,7 +115,8 @@ const TITLE = {
     css: { background: '#1d3557' },
     children: [
       { type: 'text', id: 'name', anchor: [0.5, 0.3], pivot: [0.5, 0.5], text: 'Little Walk', css: { color: '#ffffff', fontSize: 40 } },
-      { type: 'button', id: 'start', anchor: [0.5, 0.7], pivot: [0.5, 0.5], size: [220, 56], text: 'Start', css: { color: '#ffffff', background: '#457b9d', fontSize: 22 }, onClick: { do: 'engine', action: 'newGame' } },
+      // No button: the engine's title starts the game on the confirm.
+      { type: 'text', id: 'start', anchor: [0.5, 0.7], pivot: [0.5, 0.5], text: 'Press Enter', css: { color: '#ffffff', fontSize: 22 } },
     ],
   },
 };
@@ -225,7 +226,9 @@ test('acceptance: a small game from the Starter template with primitives and a p
   await expect.poll(async () => (await observe()).shell?.screen ?? null, { timeout: 60_000 }).toBe('title');
   expect((await observe()).state).toBe('paused');
   await expect(frame.locator('[data-tl-ui-doc="title"] [data-widget="name"]')).toHaveText('Little Walk');
-  await frame.locator('[data-tl-ui-doc="title"] [data-widget="start"]').click();
+  // A click focuses the game (the title has nothing to click), then the confirm key.
+  await page.locator('iframe.tl-app__preview-frame').click();
+  await page.keyboard.press('Enter');
   await expect.poll(async () => (await observe()).shell?.screen ?? null, { timeout: 15_000 }).toBe('playing');
   expect((await observe()).state).toBe('running');
   const hud = frame.locator('[data-tl-ui-doc="hud"] [data-widget="line"]');
@@ -270,6 +273,9 @@ test('acceptance: a small game from the Starter template with primitives and a p
   expect(await counter('items')).toBe(1);
   expect(await counter('deaths')).toBe(1);
   await expect(hud).toContainText('Items 1');
+  // The title started the game without the deprecated new game (no run restart, so no Problems line in the whole Play).
+  const problems = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/problems`, { headers: { authorization: `Bearer ${be.token}`, origin: be.origin } });
+  expect(((await problems.json()) as { problems: { code: string }[] }).problems.filter((p) => p.code.startsWith('deprecated_'))).toEqual([]);
   await page.screenshot({ path: 'test-results/starter-game.png' });
   await expect(page.locator('.tl-notice')).toHaveCount(0);
 });
