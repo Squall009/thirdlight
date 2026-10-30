@@ -1,9 +1,6 @@
 {
   "entries": [
     {"file":"packages/backend/src/play-routes.ts","kind":"function","unit":"makePlayRoutes","size":849},
-    {"file":"packages/commands/src/apply.ts","kind":"function","unit":"applyMutation","size":519},
-    {"file":"packages/commands/src/history.ts","kind":"function","unit":"applyForward","size":510},
-    {"file":"packages/commands/src/history.ts","kind":"function","unit":"applyInverse","size":474},
     {"file":"packages/commands/src/validate-request.ts","kind":"function","unit":"validateOpArgs","size":424},
     {"file":"packages/editor/src/ui/Hierarchy.tsx","kind":"function","unit":"Hierarchy","size":462},
     {"file":"packages/editor/src/ui/project/ProjectWindow.tsx","kind":"function","unit":"ProjectWindow","size":489},
