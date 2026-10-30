@@ -47,33 +47,31 @@ function fakeClient(acknowledged: string[]): ScriptPublishClient & { acks: strin
 describe('publishing a script that links a library', () => {
   it('asks for the source digest first, then acknowledges the source and the library in one go', async () => {
     const c = fakeClient([]);
-    const seen: string[] = [];
-    expect(await publishScriptSource(c, BEHAVIOR, new Uint8Array(4), false, (d) => seen.push(d))).toEqual({ kind: 'needs-ack', digest: SOURCE });
+    expect(await publishScriptSource(c, BEHAVIOR, new Uint8Array(4), false)).toEqual({ kind: 'needs-ack', digest: SOURCE });
     expect(c.publishes).toBe(0);
-    const out = await publishScriptSource(c, BEHAVIOR, new Uint8Array(4), true, (d) => seen.push(d));
+    const out = await publishScriptSource(c, BEHAVIOR, new Uint8Array(4), true);
     expect(out).toEqual({ kind: 'published', revision: 13, digest: SOURCE });
     expect(c.acks).toEqual([SOURCE, LIBRARY]);
-    expect(seen).toEqual([SOURCE, LIBRARY]);
   });
 
   it('asks for the library digest the refusal names when the source is already acknowledged', async () => {
     const c = fakeClient([SOURCE]);
-    expect(await publishScriptSource(c, BEHAVIOR, new Uint8Array(4), false, () => undefined)).toEqual({ kind: 'needs-ack', digest: LIBRARY });
+    expect(await publishScriptSource(c, BEHAVIOR, new Uint8Array(4), false)).toEqual({ kind: 'needs-ack', digest: LIBRARY });
     expect(c.acks).toEqual([]);
-    expect((await publishScriptSource(c, BEHAVIOR, new Uint8Array(4), true, () => undefined)).kind).toBe('published');
+    expect((await publishScriptSource(c, BEHAVIOR, new Uint8Array(4), true)).kind).toBe('published');
     expect(c.acks).toEqual([LIBRARY]);
   });
 
   it('stops when a digest it acknowledged is refused again', async () => {
     const c = fakeClient([SOURCE]);
     c.publishBehaviorSource = async () => ({ ok: false, response: { ok: false, code: 'behavior_trust_unacknowledged', message: 'no acknowledgment', sourceDigest: LIBRARY } });
-    expect((await publishScriptSource(c, BEHAVIOR, new Uint8Array(4), true, () => undefined)).kind).toBe('failed');
+    expect((await publishScriptSource(c, BEHAVIOR, new Uint8Array(4), true)).kind).toBe('failed');
     expect(c.acks).toEqual([LIBRARY]);
   });
 
   it('passes any other refusal through', async () => {
     const c = fakeClient([SOURCE, LIBRARY]);
     c.publishBehaviorSource = async () => ({ ok: false, response: { ok: false, code: 'compile_failed', message: 'src/index.ts:3 no' } });
-    expect(await publishScriptSource(c, BEHAVIOR, new Uint8Array(4), true, () => undefined)).toEqual({ kind: 'failed', message: 'compile_failed: src/index.ts:3 no' });
+    expect(await publishScriptSource(c, BEHAVIOR, new Uint8Array(4), true)).toEqual({ kind: 'failed', message: 'compile_failed: src/index.ts:3 no' });
   });
 });

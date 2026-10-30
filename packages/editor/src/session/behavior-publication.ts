@@ -1,32 +1,22 @@
 /**
- * Behavior publication workflow.
- *
- * The editor's pure, Node-testable publication state machine. It owns:
+ * Behavior publication: what the editor shows and sends around publishing a
+ * script.
  *
  *  - the **normative trust notice** the UI must present before offering an
- *    acknowledgment: no hard runtime timeout, no
- *    hostile-code sandbox, and scripts observe their game origin's globals
- *    while no credentials enter the preview;
- *  - the staged-source facts (digest + byte length) and the bounded
- *    compile/publication diagnostics (≤ 32, truncated flag) the server can
- *    return;
+ *    acknowledgment: no hard runtime timeout, no hostile-code sandbox, and
+ *    scripts observe their game origin's globals while no credentials enter
+ *    the preview;
+ *  - the bounded compile diagnostics the server can return;
  *  - the exact typed command args for `acknowledgeBehaviorTrust` and
  *    `publishBehavior` (declaration and source modes). Source bytes are only
  *    ever *staged*; the published record carries `{ sourceDigest,
  *    sourceByteLength }` and never a caller-supplied manifest/output.
  *
- * It NEVER evaluates, imports or interprets behavior source: a source
- * evaluator is not part of the editor's public surface. The
- * state machine deliberately has no field that a staged edit can write except
- * `staged`, so "staged edits do not change active play or the published
- * revision" is structural, not a convention.
+ * It never evaluates, imports or interprets behavior source: a source
+ * evaluator is not part of the editor's public surface.
  */
-import type { DeclaredProperty, PropertyDeclaration } from '@thirdlight/project-model';
-import { MAX_BEHAVIOR_DIAGNOSTICS } from '@thirdlight/project-model/limits';
+import type { PropertyDeclaration } from '@thirdlight/project-model';
 import { DIGEST_RE } from '@thirdlight/project-model/content-helpers';
-
-/** The maximum bounded compile diagnostics the UI displays (the compiler's own cut). */
-export const COMPILE_DIAGNOSTIC_LIMIT = MAX_BEHAVIOR_DIAGNOSTICS;
 
 /**
  * The normative trust notice, defined here only: the editor is the one place
@@ -45,12 +35,6 @@ export const BEHAVIOR_TRUST_NOTICE: readonly string[] = Object.freeze([
 /** The acknowledgment button label (a reader must accept the notice). */
 export const BEHAVIOR_TRUST_ACKNOWLEDGE_LABEL = 'I understand the limits and acknowledge this exact source digest';
 
-export interface BehaviorStageView {
-  stageId: string;
-  digest: string;
-  byteLength: number;
-}
-
 /** One bounded compile diagnostic as the UI displays it. */
 export interface CompileDiagnosticView {
   code: string;
@@ -63,136 +47,6 @@ export interface CompileDiagnosticView {
   nodeId?: string;
   /** The script library whose file `path` names (absent: the script's own file). */
   library?: string;
-}
-
-/** The bounded compile failure the publication panel renders (≤ 32 entries). */
-export interface CompileFailureView {
-  code: string;
-  reason: string;
-  diagnostics: CompileDiagnosticView[];
-  truncated: boolean;
-}
-
-export type PublicationStatus =
-  | 'idle'
-  | 'staged'
-  | 'compile-failed'
-  | 'publication-failed'
-  | 'published';
-
-/** The publication workflow state (the ONLY thing a staged edit may change). */
-export interface BehaviorPublicationState {
-  /** The staged source facts; `null` when nothing is staged. */
-  staged: BehaviorStageView | null;
-  /** Digests acknowledged in this session (from `acknowledgeBehaviorTrust`). */
-  acknowledgedDigests: readonly string[];
-  status: PublicationStatus;
-  /** The last successful publication's revision (never changed by staging). */
-  publishedRevision: number | null;
-  compileFailure: CompileFailureView | null;
-  error: { code: string; message: string } | null;
-}
-
-export function initialPublicationState(): BehaviorPublicationState {
-  return {
-    staged: null,
-    acknowledgedDigests: [],
-    status: 'idle',
-    publishedRevision: null,
-    compileFailure: null,
-    error: null,
-  };
-}
-
-/** Stage one source container (non-authoritative: no revision, no publication). */
-export function sourceStaged(
-  state: BehaviorPublicationState,
-  stage: { stageId: string; digest: string; byteLength: number },
-): BehaviorPublicationState {
-  return {
-    ...state,
-    staged: { stageId: stage.stageId, digest: stage.digest, byteLength: stage.byteLength },
-    status: 'staged',
-    compileFailure: null,
-    error: null,
-  };
-}
-
-/** Record the acknowledged digests observed from a trust change/result. */
-export function trustObserved(
-  state: BehaviorPublicationState,
-  entries: readonly { sourceDigest: string }[],
-): BehaviorPublicationState {
-  return {
-    ...state,
-    acknowledgedDigests: [...new Set(entries.map((e) => e.sourceDigest))].sort(),
-  };
-}
-
-/** Bounded compile failure (≤ 32 diagnostics, `truncated`). */
-export function compileFailed(
-  state: BehaviorPublicationState,
-  failure: { code: string; reason: string; diagnostics?: readonly CompileDiagnosticView[] },
-): BehaviorPublicationState {
-  const all = failure.diagnostics ?? [];
-  const diagnostics = all.slice(0, COMPILE_DIAGNOSTIC_LIMIT).map((d) => ({
-    code: d.code,
-    reason: d.reason,
-    message: d.message.length > 256 ? `${d.message.slice(0, 255)}\u2026` : d.message,
-    ...(d.path !== undefined ? { path: d.path } : {}),
-    ...(d.line !== undefined ? { line: d.line } : {}),
-    ...(d.column !== undefined ? { column: d.column } : {}),
-  }));
-  return {
-    ...state,
-    status: 'compile-failed',
-    compileFailure: {
-      code: failure.code,
-      reason: failure.reason,
-      diagnostics,
-      truncated: all.length > COMPILE_DIAGNOSTIC_LIMIT,
-    },
-    error: null,
-  };
-}
-
-/** A refused publication (unchanged revision, bounded error). */
-export function publicationFailed(
-  state: BehaviorPublicationState,
-  error: { code: string; message: string },
-): BehaviorPublicationState {
-  return { ...state, status: 'publication-failed', error, compileFailure: null };
-}
-
-/** A successful publication (the served record advances the revision). */
-export function published(
-  state: BehaviorPublicationState,
-  result: { revision: number },
-): BehaviorPublicationState {
-  return { ...state, status: 'published', publishedRevision: result.revision, error: null, compileFailure: null };
-}
-
-/** Is the current staged digest acknowledged (the trust gate before publishing)? */
-export function isStagedDigestAcknowledged(state: BehaviorPublicationState): boolean {
-  return state.staged !== null && state.acknowledgedDigests.includes(state.staged.digest);
-}
-
-/** May the UI offer the source publication for the staged digest? */
-export function canPublishStagedSource(state: BehaviorPublicationState): boolean {
-  return state.staged !== null && isStagedDigestAcknowledged(state);
-}
-
-/**
- * A staged source edit. It returns a new state in which only `staged` (and the
- * status/error derived from staging) changed: `publishedRevision`,
- * `acknowledgedDigests`, and any active play/artifact outside this object are
- * untouched.
- */
-export function stageSourceEdit(
-  state: BehaviorPublicationState,
-  stage: { stageId: string; digest: string; byteLength: number },
-): BehaviorPublicationState {
-  return sourceStaged(state, stage);
 }
 
 /** The exact `acknowledgeBehaviorTrust` args. */
@@ -250,40 +104,6 @@ export function planPublishDeclaration(args: {
     displayName: args.displayName,
     mode: args.mode,
     declaration: cloneDeclaration(args.declaration),
-  };
-}
-
-/** The declared-property schema view the panel renders (never behavior code). */
-export interface DeclarationSchemaView {
-  behaviorId: string;
-  displayName: string;
-  properties: readonly DeclaredProperty[];
-  hasSource: boolean;
-  sourceDigest: string | null;
-  publishedRevision: number;
-  acknowledged: boolean;
-}
-
-/** Build the schema view from the published record + the observed trust set. */
-export function declarationSchemaView(
-  behavior: {
-    behaviorId: string;
-    displayName: string;
-    declaration: PropertyDeclaration;
-    source: { sourceDigest: string } | null;
-    publishedRevision: number;
-  },
-  acknowledgedDigests: readonly string[],
-): DeclarationSchemaView {
-  const digest = behavior.source?.sourceDigest ?? null;
-  return {
-    behaviorId: behavior.behaviorId,
-    displayName: behavior.displayName,
-    properties: behavior.declaration.properties,
-    hasSource: digest !== null,
-    sourceDigest: digest,
-    publishedRevision: behavior.publishedRevision,
-    acknowledged: digest !== null && acknowledgedDigests.includes(digest),
   };
 }
 

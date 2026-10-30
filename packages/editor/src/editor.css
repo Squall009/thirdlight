@@ -350,28 +350,15 @@ button, input, select, textarea { font-family: inherit; }
 .tl-comp__value { flex: 1; overflow: hidden; text-overflow: ellipsis; }
 .tl-comp__type { color: var(--muted); font-size: 10px; }
 
-/* Trusted behavior publication. Form rows, the trust notice and bounded
- * diagnostics only; there is deliberately no source evaluator or "run"
- * control here. */
-/* Wide (bottom-dock) layout: notice + list left, detail/source/new right. */
+/* The Scripts settings: the trust notice, the behavior tiles and the
+ * declaration editor. Code is edited and published in its Script tab. */
 .tl-behaviors__body { flex: 1; display: flex; min-height: 0; }
-.tl-behaviors__main { width: 38%; min-width: 260px; flex: none; display: flex; flex-direction: column; min-height: 0;
-  border-right: 1px solid var(--border); }
-.tl-behaviors__side { flex: 1; min-width: 0; overflow-y: auto; }
+.tl-behaviors__main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
 .tl-behaviors__notice { padding: 8px 10px; border-bottom: 1px solid var(--border);
   background: var(--warn-bg); max-height: 45%; overflow-y: auto; flex: none; }
 .tl-behaviors__notice-line { color: var(--warn); font-size: 10px; margin: 0 0 6px 0; line-height: 1.35; }
 .tl-behaviors__list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; min-height: 60px; }
-.tl-behaviors__meta { margin-left: auto; color: var(--muted); font-size: 11px; }
-.tl-behaviors__detail { padding: 8px 10px; border-bottom: 1px solid var(--border); }
-.tl-behaviors__props { width: 100%; font-size: 11px; border-collapse: collapse; }
-.tl-behaviors__props th { color: var(--muted); text-align: left; font-weight: 400; font-size: 10px; }
-.tl-behaviors__props td { font-variant-numeric: tabular-nums; }
-.tl-behaviors__source { padding: 8px 10px; overflow-y: auto; }
-.tl-behaviors__textarea { width: 100%; height: 96px; background: var(--panel-2); color: var(--text);
-  border: 1px solid var(--border); border-radius: 4px; font-family: monospace; font-size: 11px; }
 .tl-behaviors__row { display: flex; gap: 6px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
-.tl-behaviors__new { padding: 8px 10px; border-top: 1px solid var(--border); }
 
 /* Gameplay authoring (the settings and camera tabs). Practical form rows;
  * the backend projection stays authoritative. */

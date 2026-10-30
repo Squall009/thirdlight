@@ -40,7 +40,6 @@ export async function publishScriptSource(
   behavior: { behaviorId: string; displayName: string; declaration: PropertyDeclaration },
   bytes: Uint8Array,
   acknowledge: boolean,
-  onAcknowledged: (digest: string, revision: number) => void,
 ): Promise<ScriptPublishOutcome> {
   const staged = await c.stageBehaviorSource(bytes);
   if (!staged.ok) return { kind: 'failed', message: `${staged.error.code}: ${staged.error.message}` };
@@ -52,7 +51,6 @@ export async function publishScriptSource(
       return { kind: 'failed', message: e.ok ? 'the acknowledgment was not recorded' : `${e.code}: ${e.message ?? e.code}` };
     }
     revision = r.revision;
-    onAcknowledged(digest, r.revision);
     return null;
   };
   // Each refusal names a digest not acknowledged yet; one named again after this

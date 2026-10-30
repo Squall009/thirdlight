@@ -1,5 +1,5 @@
 /**
- * Scripts: the Behaviors panel (trust, staging, publication, declarations),
+ * Scripts: the Behaviors panel (the list, declarations, new scripts),
  * the script and visual-script tabs (check, publish, new visual scripts) and
  * the shared script libraries (drafts, staged saves committed once, "Save
  * all"). A digest not acknowledged yet asks first or is acknowledged with
@@ -7,8 +7,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch } from 'react';
 import type { BehaviorDeclarationView } from '../../session/prefab-projection';
-import { initialPublicationState, publicationFailed, published, sourceStaged, trustObserved, type BehaviorPublicationState } from '../../session/behavior-publication';
-import type { ScriptLibrary, PropertyDeclaration, TrustEntry } from '@thirdlight/project-model';
+import type { ScriptLibrary, PropertyDeclaration } from '@thirdlight/project-model';
 import type { BehaviorPanelProps } from '../BehaviorPanel';
 import type { ScriptCheckResult, ScriptDraft, ScriptPublishOutcome } from '../script/ScriptDocument';
 import { publishScriptSource } from '../../session/script-publish';
@@ -31,22 +30,14 @@ export interface ScriptingDeps {
   workspaceDispatch: Dispatch<WorkspaceAction>;
   openDocument: (kind: string, id: string) => void;
   playInfo: PlayInfo | null;
-  /** The acknowledged script sources (the backend's list). */
-  trustEntries: readonly TrustEntry[];
 }
 
 export function useScripting(deps: ScriptingDeps) {
-  const { clientRef, behaviorViews, scriptLibraries, refreshEntities, workspace, workspaceDispatch, openDocument, playInfo, trustEntries } = deps;
+  const { clientRef, behaviorViews, scriptLibraries, refreshEntities, workspace, workspaceDispatch, openDocument, playInfo } = deps;
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [selectedBehaviorId, setSelectedBehaviorId] = useState<string | null>(null);
-  const [publication, setPublication] = useState<BehaviorPublicationState>(() => initialPublicationState());
-  const [sourceDraft, setSourceDraft] = useState('');
   const [behaviorError, setBehaviorError] = useState<UiError | null>(null);
   const [trustError, setTrustError] = useState<{ sourceDigest: string; message: string } | null>(null);
-
-  // The publish controls ask for an acknowledgment only when the project's list lacks the digest
-  // (a revocation, or a list read at a full state, replaces what this page saw acknowledged).
-  useEffect(() => setPublication((s) => trustObserved(s, trustEntries)), [trustEntries]);
 
   /** Withdraw an acknowledged source (refused while a published script uses it; one undo brings it back). */
   const revokeTrust = useCallback(
@@ -58,79 +49,6 @@ export function useScripting(deps: ScriptingDeps) {
     },
     [clientRef],
   );
-
-  const stageBehaviorSource = useCallback(async () => {
-    const c = clientRef.current;
-    if (!c) return;
-    setBehaviorError(null);
-    const bytes = new TextEncoder().encode(sourceDraft);
-    try {
-      JSON.parse(sourceDraft);
-    } catch (e) {
-      setPublication((s) =>
-        publicationFailed(s, {
-          code: 'behavior_source_invalid',
-          message: `staged source is not JSON: ${String((e as Error).message).slice(0, 200)}`,
-        }),
-      );
-      return;
-    }
-    const staged = await c.stageBehaviorSource(bytes);
-    if (!staged.ok) {
-      setPublication((s) => publicationFailed(s, staged.error));
-      return;
-    }
-    setPublication((s) => sourceStaged(s, staged));
-  }, [clientRef, sourceDraft]);
-
-  const acknowledgeDigest = useCallback(
-    async (sourceDigest: string) => {
-      const c = clientRef.current;
-      if (!c) return;
-      setBehaviorError(null);
-      const res = await c.acknowledgeBehaviorTrust(sourceDigest, c.projection.revision);
-      if (!res.ok) {
-        const r = res.response;
-        setPublication((s) =>
-          publicationFailed(s, r.ok ? { code: 'internal', message: 'unexpected response' } : { code: r.code, message: r.message ?? r.code }),
-        );
-        return;
-      }
-      // Optimistic convergence: the authoritative record arrives with the same
-      // command's `mutation.applied` change; the observed set is also used.
-      setPublication((s) => trustObserved(s, [...c.prefabs.listTrust(), { sourceDigest, acknowledgedRevision: res.revision }]));
-      refreshEntities();
-    },
-    [clientRef, refreshEntities],
-  );
-
-  const publishStagedSource = useCallback(async () => {
-    const c = clientRef.current;
-    const view = behaviorViews.find((b) => b.behaviorId === selectedBehaviorId);
-    const staged = publication.staged;
-    if (!c || !view || !staged) return;
-    setBehaviorError(null);
-    const res = await c.publishBehaviorSource(
-      {
-        behaviorId: view.behaviorId,
-        displayName: view.displayName,
-        declaration: view.declaration,
-        sourceDigest: staged.digest,
-        sourceByteLength: staged.byteLength,
-        stageId: staged.stageId,
-      },
-      c.projection.revision,
-    );
-    if (!res.ok) {
-      const r = res.response;
-      setPublication((s) =>
-        publicationFailed(s, r.ok ? { code: 'internal', message: 'unexpected response' } : { code: r.code, message: r.message ?? r.code }),
-      );
-      return;
-    }
-    setPublication((s) => published(s, { revision: res.revision }));
-    refreshEntities();
-  }, [clientRef, behaviorViews, publication.staged, refreshEntities, selectedBehaviorId]);
 
   // ---- The script editor tab ------------------------------------
 
@@ -154,7 +72,7 @@ export function useScripting(deps: ScriptingDeps) {
       const c = clientRef.current;
       const view = behaviorViews.find((b) => b.behaviorId === behaviorId);
       if (!c || !view) return { kind: 'failed', message: 'the behavior is not available' };
-      const out = await publishScriptSource(c, view, bytes, acknowledge, (digest, revision) => setPublication((s) => trustObserved(s, [...c.prefabs.listTrust(), { sourceDigest: digest, acknowledgedRevision: revision }])));
+      const out = await publishScriptSource(c, view, bytes, acknowledge);
       if (out.kind === 'published') refreshEntities();
       return out;
     },
@@ -220,7 +138,6 @@ export function useScripting(deps: ScriptingDeps) {
             const a = ack.response;
             return { kind: 'failed', message: a.ok ? 'the acknowledgment was not recorded' : `${a.code}: ${a.message ?? a.code}` };
           }
-          setPublication((st) => trustObserved(st, [...c.prefabs.listTrust(), { sourceDigest: digest, acknowledgedRevision: ack.revision }]));
           continue;
         }
         await c.stageScriptLibrary({ stageId, discard: true });
@@ -255,7 +172,6 @@ export function useScripting(deps: ScriptingDeps) {
             const a = ack.response;
             return { kind: 'failed', message: a.ok ? 'the acknowledgment was not recorded' : `${a.code}: ${a.message ?? a.code}` };
           }
-          setPublication((st) => trustObserved(st, [...c.prefabs.listTrust(), { sourceDigest: digest, acknowledgedRevision: ack.revision }]));
           continue;
         }
         return { kind: 'failed', message: `${r.code}: ${r.message ?? r.code}`, ...(r.diagnostics !== undefined ? { diagnostics: r.diagnostics } : {}) };
@@ -356,7 +272,6 @@ export function useScripting(deps: ScriptingDeps) {
           return { kind: 'failed', message: r.ok ? 'the acknowledgment was not recorded' : `${r.code}: ${r.message ?? r.code}` };
         }
         revision = ack.revision;
-        setPublication((st) => trustObserved(st, [...c.prefabs.listTrust(), { sourceDigest: checked.sourceDigest, acknowledgedRevision: ack.revision }]));
       }
       const res = await c.publishBehaviorGraph(behaviorId, view.displayName, revision);
       if (!res.ok) {
@@ -414,26 +329,21 @@ export function useScripting(deps: ScriptingDeps) {
   const behaviorProps: BehaviorPanelProps = {
     behaviors: behaviorViews,
     selectedBehaviorId,
-    publication,
-    sourceDraft,
-    activePlay: playInfo ? { snapshotId: playInfo.snapshotId, revision: playInfo.revision } : null,
     error: behaviorError,
     onSelect: (id) => {
       setSelectedBehaviorId(id);
       setBehaviorError(null);
     },
-    onSourceDraft: setSourceDraft,
-    onStage: () => void stageBehaviorSource(),
-    onAcknowledge: (digest) => void acknowledgeDigest(digest),
-    onPublishSource: () => void publishStagedSource(),
     onSaveDeclaration: saveDeclaration,
     // A visual script opens as a Graph tab, any other behavior as a Script tab.
     onOpen: (id) => openDocument(behaviorViews.find((b) => b.behaviorId === id)?.graph !== undefined ? 'visual-script' : 'script', id),
     onCreateVisualScript: (name) => void createVisualScript(name),
   };
+  /** The running play the script tabs name (a publication never changes it). */
+  const activePlay = playInfo ? { snapshotId: playInfo.snapshotId, revision: playInfo.revision } : null;
 
   return {
-    selectedBehaviorId, publication, behaviorError, behaviorProps, scriptDrafts, checkScript, publishScript, libraryDrafts, libraryDependents, libraryCommand, libraryError,
+    selectedBehaviorId, behaviorError, behaviorProps, activePlay, scriptDrafts, checkScript, publishScript, libraryDrafts, libraryDependents, libraryCommand, libraryError,
     saveLibrary, sourceFocus, openSource, libraryDraftsVersion, onLibraryDraftChange, saveAllOutcome, dirtyLibraries, saveAllLibraries, saveDeclaration,
     checkVisualScript, publishVisualScript, createVisualScript, revokeTrust, trustError,
   };

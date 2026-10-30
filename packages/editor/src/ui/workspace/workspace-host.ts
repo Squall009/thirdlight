@@ -57,7 +57,7 @@ export function workspaceHostOf(input: WorkspaceHostInput): WorkspaceHost {
   const { setAnimatorFocus, setAnimatorSelection, setAnimatorTargets, setDialogueSelection, setEffectSelection, setEffectSystems, setGraphSelection, setMaterialSelection } = input.docState;
   const { setVisualBreakpoints, setVisualFocus, setVisualSelectionOf, setVisualWatches, visualBreakpoints, visualFocus, visualTargets, visualWatches } = input.docState;
   const { dialogueCommand, dialogueError, effectCommand, effectError, graphDocCommand, materialError, onTimelinePreview, saveMaterial, sendGraphEdit, setUiError, showGraph, timelineCommand, timelineError, uiCommand, uiError } = input.docCmds;
-  const { behaviorError, behaviorProps, checkScript, checkVisualScript, libraryDrafts, libraryDraftsVersion, onLibraryDraftChange, publishScript, publishVisualScript, saveDeclaration, saveLibrary, scriptDrafts, sourceFocus } = input.scripting;
+  const { activePlay, behaviorError, behaviorProps, checkScript, checkVisualScript, libraryDrafts, libraryDraftsVersion, onLibraryDraftChange, publishScript, publishVisualScript, saveDeclaration, saveLibrary, scriptDrafts, sourceFocus } = input.scripting;
   const { animatorError, animatorGraphEdit, animatorProps, deleteAnimator, previewAnimator, saveAnimator } = input.animator;
   const { clipsOf, skeletonOf } = input.animator;
   const workspaceHost: WorkspaceHost = {
@@ -85,7 +85,7 @@ export function workspaceHostOf(input: WorkspaceHostInput): WorkspaceHost {
     script: {
       drafts: scriptDrafts,
       declarationError: behaviorError,
-      activePlay: behaviorProps.activePlay,
+      activePlay,
       onSaveDeclaration: saveDeclaration,
       loadSource: async (behaviorId) => clientRef.current?.behaviorSource(behaviorId) ?? { ok: false, error: { code: 'disconnected', message: 'not connected' } },
       check: checkScript,
@@ -95,7 +95,7 @@ export function workspaceHostOf(input: WorkspaceHostInput): WorkspaceHost {
     library: {
       libraries: scriptLibraries,
       drafts: libraryDrafts,
-      activePlay: behaviorProps.activePlay,
+      activePlay,
       check: async (libraryId, files) => clientRef.current?.checkScriptLibrary(libraryId, files) ?? { ok: false, error: { code: 'disconnected', message: 'not connected' } },
       save: saveLibrary,
       onDraftChange: onLibraryDraftChange,
@@ -187,7 +187,7 @@ export function workspaceHostOf(input: WorkspaceHostInput): WorkspaceHost {
       kind: graphKinds['behavior'],
       graphs,
       kinds: graphKinds,
-      activePlay: behaviorProps.activePlay,
+      activePlay,
       onEdit: (ownerId, ops) => sendGraphEdit({ kind: 'behavior', id: ownerId }, ops),
       onSelection: (ids, owner) => setVisualSelectionOf({ owner, ids }),
       focus: visualFocus,

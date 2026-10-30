@@ -407,7 +407,7 @@ export function useEditorModel() {
   // The vertex paint editor's brush wiring.
   const vertexPaint = useVertexPaintTools({ clientRef, viewportRef, setNotice });
 
-  const scripting = useScripting({ clientRef, behaviorViews, scriptLibraries: content.scriptLibraries, refreshEntities, workspace, workspaceDispatch, openDocument, playInfo, trustEntries: content.trustEntries });
+  const scripting = useScripting({ clientRef, behaviorViews, scriptLibraries: content.scriptLibraries, refreshEntities, workspace, workspaceDispatch, openDocument, playInfo });
 
   // A rejected token is forgotten and asked for again; an unknown project
   // goes back to the picker.

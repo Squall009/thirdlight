@@ -28,7 +28,8 @@ Scripts share code through **script libraries** (`import { f } from
 same kind of script.
 
 Scripts are listed in **File → Project Settings… → Scripts** (**+ New
-behavior**, **+ Visual script**) and edited in their own tab. **Publish**
+behavior**, **+ Visual script**, and each one's properties) and their code
+is edited and published only in their own tab. **Publish**
 compiles the source with the backend's pinned compiler and stores it as one
 command. Each new source is acknowledged once before it is published:
 scripts are trusted code with full access to the page they run in, not

@@ -5,7 +5,6 @@
     {"file":"packages/editor/src/ui/Hierarchy.tsx","kind":"function","unit":"Hierarchy","size":462},
     {"file":"packages/editor/src/ui/project/ProjectWindow.tsx","kind":"function","unit":"ProjectWindow","size":489},
     {"file":"packages/editor/src/ui/script/VisualScriptDocument.tsx","kind":"function","unit":"VisualScriptDocument","size":579},
-    {"file":"packages/editor/src/ui/shell/useScripting.ts","kind":"function","unit":"useScripting","size":403},
     {"file":"packages/editor/src/ui/timeline/TimelineDocument.tsx","kind":"function","unit":"TimelineDocument","size":648},
     {"file":"packages/editor/src/viewport/block-editor.ts","kind":"class","unit":"BlockEditor","size":109},
     {"file":"packages/editor/src/viewport/viewport.ts","kind":"class","unit":"Viewport","size":114},
