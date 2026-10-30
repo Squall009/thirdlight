@@ -29,6 +29,8 @@ export {
   type ModelResultV2,
   type ModelResultV3,
   type SerializeResult,
+  MESSAGE_LIMIT,
+  clipMessage,
 } from './errors';
 
 export type {
@@ -265,6 +267,7 @@ export { captureContent, collectAssetRefsV3 } from './capture';
 // surface recorded as contract-change request C36-2 (docs/handoffs/36.md).
 export {
   BUILD_OPTIONS_RECORD,
+  ENGINE_VERSION,
   M2_ENGINE_PINS,
   M2_MODULE_PACKAGES,
   RUNTIME_CONTENT_MANIFEST_MAX_BYTES,
@@ -733,6 +736,8 @@ export {
   INPUT_ACTION_TYPES,
   INPUT_MAPS,
   MAX_INPUT_ACTIONS,
+  MOVE_QUANTUM,
+  quantizeMove,
   validateInput,
   type InputAction,
   type InputActionType,
@@ -1653,6 +1658,8 @@ export {
   saveWorldMode,
   SAVE_THUMBNAIL_DEFAULT,
   SETTINGS_ENGINE_BINDINGS,
+  PROJECT_SAVE_FORMAT,
+  PROJECT_SAVE_FORMAT_VERSION,
   canonicalSaveSchema,
   effectiveField,
   settingsDocumentOf,

@@ -53,7 +53,7 @@
  * additive read-only method).
  */
 
-import { AUDIO_MAX_LATE_MS_DEFAULT, createResourceManager, type ResourceManager } from '@thirdlight/runtime';
+import { AUDIO_MAX_LATE_MS_DEFAULT, clipMessage, createResourceManager, type ResourceManager } from '@thirdlight/runtime';
 import { AUDIO_VOICE_CAP, AUDIO_VOICES_DEFAULT, distanceGain, listenerRelative } from '@thirdlight/runtime';
 
 import { createAudioLoader, type AudioAssetSource, type AudioLoadType, type LoaderContextLike, type MediaElementLike, type Playable, type StreamValue } from './audio-loading';
@@ -401,10 +401,6 @@ interface Voice {
   released: boolean;
   /** What it holds its buffer as (a sound decoded when played). */
   holder?: string;
-}
-
-function clipMessage(message: string): string {
-  return message.length > 256 ? `${message.slice(0, 253)}...` : message;
 }
 
 /** The owner (the audio owner interface + the additive `diagnostics()` read). */

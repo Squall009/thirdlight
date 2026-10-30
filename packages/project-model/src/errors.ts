@@ -10,6 +10,15 @@
  * validators use them.
  */
 
+/** The longest error message (characters): session, runtime and Play errors are clipped to it, log-safe. */
+export const MESSAGE_LIMIT = 256;
+
+/** A message clipped to {@link MESSAGE_LIMIT} characters, an ellipsis marking the cut. */
+export function clipMessage(message: string): string {
+  if (message.length <= MESSAGE_LIMIT) return message;
+  return `${message.slice(0, MESSAGE_LIMIT - 1)}…`;
+}
+
 /** Exact limit names carried by a `limits_exceeded` error. */
 export type LimitName =
   | 'entities'

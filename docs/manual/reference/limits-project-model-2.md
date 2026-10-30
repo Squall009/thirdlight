@@ -1,8 +1,15 @@
-# Limits and defaults: project-model (part 2, from `materials.ts`)
+# Limits and defaults: project-model (part 2, from `material-schema.ts`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The limits and defaults `@thirdlight/project-model` defines, by source file. Values are the running build's.
+
+<a id="limits-project-model--material-schema"></a>
+## `material-schema.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-default-wind"></a>`DEFAULT_WIND` | `{"direction":[1,0],"strength":0.5,"gust":0.4,"gustFrequency":0.3,"turbulence":0.3}` | The wind when a project sets none — a light breeze along +X (0.5 with 0.4 gusts every ~3 s, a little turbulence): foliage moves a little in any scene; 0 strength stills it. |
 
 <a id="limits-project-model--materials"></a>
 ## `materials.ts`
@@ -159,7 +166,7 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | Constant | Value | What it is |
 |---|---|---|
 | <a id="limit-directional-shadow-defaults"></a>`DIRECTIONAL_SHADOW_DEFAULTS` | `{"mapSize":1024,"bias":-0.0005,"normalBias":0.02,"extent":24}` |  |
-| <a id="limit-directional-shadow-limits"></a>`DIRECTIONAL_SHADOW_LIMITS` | `{"mapSizes":[512,1024,2048,4096],"bias":{"min":-0.01,"max":0.01},"normalBias":{"min":0,"max":1},"extent":{"min":1,"max":64}}` | The directional light's shadow settings (data; absent = the defaults, three-adapter `DIRECTIONAL_SHADOW_DEFAULTS` holds the same values): - map size 1024²: over the default 48 m square a texel is 4.7 cm, a crisp shadow for a person-size object in a side, top-down or third-person view, at a quarter of the memory of 2048²; WebGL 2 guarantees 2048, WebGPU 8192 (4096 is the cap: the largest map worth its memory on common GPUs). - bias -0.0005: half a thousandth of the shadow depth range removes acne on surfaces facing the light without lifting the shadow off its caster. - normal bias 0.02 m: about half a texel at the defaults — removes the stripes on surfaces at a grazing angle (curved models, instance sets). - extent 24 m (half the side of the square that follows the camera in a v4 game): the previous engine constant, room for a screen of any common genre; a v3 game's level bounds decide its square instead. |
+| <a id="limit-directional-shadow-limits"></a>`DIRECTIONAL_SHADOW_LIMITS` | `{"mapSizes":[512,1024,2048,4096],"bias":{"min":-0.01,"max":0.01},"normalBias":{"min":0,"max":1},"extent":{"min":1,"max":64}}` | The directional light's shadow settings (data; absent = the defaults below, which the renderer draws with too): - map size 1024²: over the default 48 m square a texel is 4.7 cm, a crisp shadow for a person-size object in a side, top-down or third-person view, at a quarter of the memory of 2048²; WebGL 2 guarantees 2048, WebGPU 8192 (4096 is the cap: the largest map worth its memory on common GPUs). - bias -0.0005: half a thousandth of the shadow depth range removes acne on surfaces facing the light without lifting the shadow off its caster. - normal bias 0.02 m: about half a texel at the defaults — removes the stripes on surfaces at a grazing angle (curved models, instance sets). - extent 24 m (half the side of the square that follows the camera in a v4 game): the previous engine constant, room for a screen of any common genre; a v3 game's level bounds decide its square instead. |
 | <a id="limit-glow-mode-default"></a>`GLOW_MODE_DEFAULT` | `"baked"` | A static glowing box's light mode when its surface names none: saved by the bake, as a static object's light is in most engines (WebGL 2 and the low tier draw only saved light, so a realtime glow lights nothing there). |
 | <a id="limit-max-emissive-intensity"></a>`MAX_EMISSIVE_INTENSITY` | `4` |  |
 | <a id="limit-max-intensity"></a>`MAX_INTENSITY` | `8` |  |

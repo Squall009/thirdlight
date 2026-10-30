@@ -858,13 +858,6 @@ function scaleOk(v: number): boolean {
   return Number.isFinite(v) && v >= SCALE_MIN && v <= SCALE_MAX;
 }
 
-/** The `control_move` commit quantization (matching the action frame's `quantizeMove`). */
-export function quantizeIntentMove(v: number): number {
-  const clamped = v < -1 ? -1 : v > 1 ? 1 : v;
-  const q = Math.round(clamped * 1e4) / 1e4;
-  return q === 0 ? 0 : q;
-}
-
 /** The frozen empty intent set of a step before any commit. */
 export function emptyIntentSet(stepIndex: number): IntentSet {
   return Object.freeze({

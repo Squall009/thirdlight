@@ -37,6 +37,10 @@ import { QUALITY_LEVEL_ID_RE } from './quality-levels';
 import { AMBIENT_OCCLUSION_KINDS, RENDER_SCALE_MAX, RENDER_SCALE_MIN } from './render-settings';
 import { fieldType, unexpectedField, withFound } from './validate';
 
+/** The save document's format marker (and its engine format version; 2, with `world` when the game keeps it). */
+export const PROJECT_SAVE_FORMAT = 'thirdlight.save';
+export const PROJECT_SAVE_FORMAT_VERSION = 2;
+
 /** A script's `ctx.save` store (and a play's injected variables, which fill it): keys, and a value's JSON characters. */
 export const SCRIPT_SAVE_LIMITS = Object.freeze({ keys: 64, valueChars: 4096 });
 

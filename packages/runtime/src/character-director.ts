@@ -28,11 +28,11 @@
  * loaded save ends every walk, placement and turn (`saveLoaded`), since it
  * puts the characters where it says.
  */
-import { character3DSettingsOf, type EntityV3 } from '@thirdlight/project-model';
+import { character3DSettingsOf, quantizeMove, type EntityV3 } from '@thirdlight/project-model';
 
 import { actionAxis, type ActionFrame } from './actions';
 import { CHARACTER_IMPULSE_MAX } from './character-placement';
-import { quantizeIntentMove, validateIntentShape, validateIntentValue } from './intents';
+import { validateIntentShape, validateIntentValue } from './intents';
 import type { MutableControllerChannels } from './mutable-intents';
 import type { GameplaySettings, TransformState } from './types';
 
@@ -387,7 +387,7 @@ export class CharacterDirector {
     c.characterMove = { x, z, run };
     c.characterWriters.set('character_move', CHARACTER_DIRECTOR_ID);
     c.moveY = 0;
-    c.move = quantizeIntentMove(x);
+    c.move = quantizeMove(x);
     c.moveWriter = CHARACTER_DIRECTOR_ID;
     c.jump = 'none';
     c.jumpWriter = CHARACTER_DIRECTOR_ID;

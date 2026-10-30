@@ -30,7 +30,7 @@
  *
  * No I/O, no three.js.
  */
-import { ID_RE } from '@thirdlight/project-model';
+import { ID_RE, PROJECT_SAVE_FORMAT, PROJECT_SAVE_FORMAT_VERSION } from '@thirdlight/project-model';
 import {
   SAVE_LIMITS,
   saveSlotMetaProblem,
@@ -44,9 +44,8 @@ import {
 } from '@thirdlight/project-model';
 import { deepFreeze, isPlainObject, utf8LengthPairingHigh } from '@thirdlight/shared';
 
-/** The save document's format marker (and its engine format version; 2, with `world` when the game keeps it). */
-export const PROJECT_SAVE_FORMAT = 'thirdlight.save';
-export const PROJECT_SAVE_FORMAT_VERSION = 2;
+// The save document's format marker and version are the model's (the protocol checks a Play start's save by them too).
+export { PROJECT_SAVE_FORMAT, PROJECT_SAVE_FORMAT_VERSION };
 
 /**
  * Where the play stands in a save — the scenes loaded (in load

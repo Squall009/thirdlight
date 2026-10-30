@@ -196,27 +196,20 @@ export {
   type LoadPhase,
 } from './bridge';
 
-// Play delivery: locator/manifest identity + bounded input relay.
+// Play delivery: the locator + bounded input relay.
 export {
-  BUILD_OPTIONS_RECORD,
   INPUT_RELAY_ACK_TIMEOUT_MS,
   INPUT_RELAY_MAX_BODY_BYTES,
   INPUT_RELAY_MAX_FRAMES,
   INPUT_RELAY_MAX_STEPS,
   INPUT_RELAY_MODE,
   INPUT_RELAY_RESULT_MAX_BYTES,
-  MANIFEST_KEYS,
   PLAY_CONTENT_ARTIFACT_MAX_BYTES,
   PLAY_CONTENT_GRACE_SECONDS,
   PLAY_CONTENT_ID_BYTES,
   PLAY_CONTENT_MANIFEST_MAX_BYTES,
   PLAY_CONTENT_TTL_SECONDS,
-  RUNTIME_CONTENT_MANIFEST_VERSION,
-  RUNTIME_CONTENT_TYPE,
-  buildOptionsRecordBytes,
   classifyLocatorPath,
-  manifestBuildIdInput,
-  orderManifest,
   parseInputRelayRequest,
   parseRelayPointer,
   parseRelayGamepad,

@@ -86,7 +86,7 @@ import {
   serveQueryV4,
   type OpenV4Outcome,
 } from './session-v4';
-import { PROJECT_SCHEMA_VERSION, isRefusedProjectSchemaVersion, isUpgradedProjectSchemaVersion, validateManifestV2Project } from '@thirdlight/project-model';
+import { ENGINE_VERSION, PROJECT_SCHEMA_VERSION, isRefusedProjectSchemaVersion, isUpgradedProjectSchemaVersion, validateManifestV2Project } from '@thirdlight/project-model';
 import { type LruCache } from '@thirdlight/shared';
 
 // ---- internal state ------------------------------------------------------------
@@ -279,8 +279,8 @@ function livenessFn(core: Core): (pid: number, openedAt: string) => Liveness {
     evaluateLiveness(pid, openedAt, core.procRoot, core.processMarker);
 }
 
-/** The configured engine version. */
-export const ENGINE_VERSION = '0.1.0';
+/** The engine version (the model's). */
+export { ENGINE_VERSION };
 
 /**
  * The ONE containment policy: `projectsRoot` +

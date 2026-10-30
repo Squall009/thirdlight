@@ -10,6 +10,9 @@ import { canonicalJsonText, sha256Hex, sha256HexOfText } from '@thirdlight/share
  * canonical JSON text and the SHA-256 helpers (`./sha256`) already live here.
  */
 
+/** The engine version a new project's manifest and an export's record name. */
+export const ENGINE_VERSION = '0.1.0';
+
 /** The manifest discriminator. */
 export const RUNTIME_CONTENT_TYPE = 'thirdlight-runtime-content' as const;
 

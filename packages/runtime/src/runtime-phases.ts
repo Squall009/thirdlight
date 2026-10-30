@@ -6,6 +6,7 @@
  * writer per `(entityId, axis)` and every rejection is a fail-stop (a throw
  * the step loop turns into one).
  */
+import { quantizeMove } from '@thirdlight/project-model';
 import { neutralFrame, type ActionFrame } from './actions';
 import type { CharacterDirector } from './character-director';
 import type { ControllerPlacements } from './character-placement';
@@ -13,7 +14,6 @@ import { frozenContext, liveScopedState } from './guard';
 import {
   BehaviorIntentError,
   INTENT_LIMITS,
-  quantizeIntentMove,
   validateIntentPhase,
   validateIntentShape,
   validateIntentValue,
@@ -265,10 +265,10 @@ export class RuntimePhases {
         throw new BehaviorIntentError('behavior_intent_conflict', 'duplicate_writer', `control_move already committed by "${c.moveWriter}" and "${entry.id}"`);
       }
       this.bump();
-      c.move = quantizeIntentMove(intent.value);
+      c.move = quantizeMove(intent.value);
       c.moveWriter = entry.id;
       // The second axis (a 3D character's forward input).
-      if (intent.y !== undefined) c.moveY = quantizeIntentMove(intent.y);
+      if (intent.y !== undefined) c.moveY = quantizeMove(intent.y);
       return;
     }
     if (intent.kind === 'character_move' || intent.kind === 'character_place' || intent.kind === 'character_enable') {

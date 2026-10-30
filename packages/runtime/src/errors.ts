@@ -7,7 +7,7 @@
  * log-safe (no secrets/paths).
  */
 import type { ModelErrorV2 } from '@thirdlight/project-model';
-import { repeatedRowKey } from '@thirdlight/project-model';
+import { clipMessage, repeatedRowKey } from '@thirdlight/project-model';
 import { MAX_ERROR_ENTRIES } from './error-ring';
 import { hashSeed } from './random';
 import type { DiagnosticErrorEntry, ScriptStop } from './types';
@@ -87,13 +87,8 @@ export interface Err {
   error: RuntimeError;
 }
 
-export const MESSAGE_LIMIT = 256;
-
-/** Messages are clipped to 256 chars, log-safe. */
-export function clipMessage(message: string): string {
-  if (message.length <= MESSAGE_LIMIT) return message;
-  return `${message.slice(0, MESSAGE_LIMIT - 1)}…`;
-}
+// Messages are clipped to the model's bound, log-safe.
+export { clipMessage };
 /** The fields of one play-log error row (absent optional fields are left out). */
 export interface ErrorEntryFields {
   code: DiagnosticErrorEntry['code'];

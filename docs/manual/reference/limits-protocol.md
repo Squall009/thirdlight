@@ -50,13 +50,6 @@ The limits and defaults `@thirdlight/protocol` defines, by source file. Values a
 |---|---|---|
 | <a id="limit-play-diagnostics-max-bytes"></a>`PLAY_DIAGNOSTICS_MAX_BYTES` | `16384` | The largest Play diagnostics payload (its JSON text, UTF-8 bytes). |
 
-<a id="limits-protocol--errors"></a>
-## `errors.ts`
-
-| Constant | Value | What it is |
-|---|---|---|
-| <a id="limit-message-limit"></a>`MESSAGE_LIMIT` | `256` |  |
-
 <a id="limits-protocol--http"></a>
 ## `http.ts`
 

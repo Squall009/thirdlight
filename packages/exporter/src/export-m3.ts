@@ -30,6 +30,7 @@ import { canonicalJsonText } from '@thirdlight/shared';
 import { DECODER_LICENSES, decoderFiles, decodersNeeded } from './decoders';
 import { build, version as esbuildVersion } from 'esbuild';
 import {
+  ENGINE_VERSION,
   digestBytes,
   digestEmittedClosure,
   fixedStepHzOf,
@@ -55,7 +56,6 @@ import { clip, type ExportError, type ExportResult } from './errors';
 import { checkBundleGraphM3 } from './graph';
 
 const M3_SCHEMA_VERSION = 2;
-const ENGINE_VERSION = '0.1.0';
 const BUNDLE_NAME = 'js/main.js';
 /** The simulation worker (runtime + physics + scripts off the page's main thread). */
 const WORKER_BUNDLE_NAME = 'js/sim-worker.js';

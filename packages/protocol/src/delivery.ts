@@ -1,11 +1,10 @@
 /**
- * Delivery wire shapes: the immutable play-content locator, runtime-content
- * manifest identity and the bounded input-exercise relay.
+ * Delivery wire shapes: the immutable play-content locator and the bounded
+ * input-exercise relay. The runtime-content manifest's identity (its
+ * discriminator, build options and digests) is project-model's (`manifest.ts`).
  *
  * Pure: strict validators and constants only — no I/O, no crypto, no Node
- * built-ins. The digest algorithms live in the host (backend/tests); this
- * module owns the exact *bytes* a digest covers (`manifestBuildIdInput`) and
- * the exact request shapes.
+ * built-ins.
  *
  * The backend↔editor WS input-relay events are `input.request` /
  * `input.result`. Both `/play-content/<id>/` and `GET /play/:playSessionId`
@@ -68,77 +67,6 @@ export const INPUT_RELAY_RESULT_MAX_BYTES = 4_096;
 
 /** The one accepted relay mode. */
 export const INPUT_RELAY_MODE = 'exclusive-test' as const;
-
-/** The manifest discriminator. */
-export const RUNTIME_CONTENT_TYPE = 'thirdlight-runtime-content' as const;
-export const RUNTIME_CONTENT_MANIFEST_VERSION = 1 as const;
-
-/** The exact canonical option-set record. */
-export const BUILD_OPTIONS_RECORD = Object.freeze({
-  bundler: 'esbuild@0.28.2',
-  bundle: true,
-  platform: 'browser',
-  format: 'iife',
-  treeShaking: false,
-  sourcemap: false,
-  minify: false,
-  target: 'es2022',
-  loaders: ['ts', 'tsx'],
-});
-
-/** `JSON.stringify(record, null, 2) + "\n"` — the bytes `buildOptionsDigest` covers. */
-export function buildOptionsRecordBytes(): Uint8Array {
-  return new TextEncoder().encode(`${JSON.stringify(BUILD_OPTIONS_RECORD, null, 2)}\n`);
-}
-
-// ---- runtime-content manifest identity ------------------------------
-
-/** The manifest keys in their exact canonical order (`buildId` last). */
-export const MANIFEST_KEYS = [
-  'manifestVersion',
-  'type',
-  'projectId',
-  'revision',
-  'snapshotId',
-  'capturedAt',
-  'sceneDigest',
-  'contentDigest',
-  'assets',
-  'behaviors',
-  'modules',
-  'enginePins',
-  'recipes',
-  'toolchain',
-  'buildOptionsDigest',
-  'buildId',
-] as const;
-
-/**
- * The exact bytes `buildId` covers: the canonical document serialization of the
- * manifest without `buildId`, key order exactly as `MANIFEST_KEYS` lists it,
- * `JSON.stringify(…, null, 2) + "\n"`. Returns `null` when a key is missing.
- */
-export function manifestBuildIdInput(manifest: Record<string, unknown>): Uint8Array | null {
-  const without: Record<string, unknown> = {};
-  for (const key of MANIFEST_KEYS) {
-    if (key === 'buildId') continue;
-    if (!(key in manifest)) return null;
-    without[key] = manifest[key];
-  }
-  return new TextEncoder().encode(`${JSON.stringify(without, null, 2)}\n`);
-}
-
-/** Rebuild a parsed manifest in the canonical key order (unknown keys rejected). */
-export function orderManifest(manifest: Record<string, unknown>): Record<string, unknown> | null {
-  for (const key of Object.keys(manifest)) {
-    if (!(MANIFEST_KEYS as readonly string[]).includes(key)) return null;
-  }
-  const ordered: Record<string, unknown> = {};
-  for (const key of MANIFEST_KEYS) {
-    if (key in manifest) ordered[key] = manifest[key];
-  }
-  return ordered;
-}
 
 // ---- the locator path set -------------------------------------------
 

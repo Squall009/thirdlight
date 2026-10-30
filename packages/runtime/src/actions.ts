@@ -28,6 +28,7 @@ import { validateUiEvents, type UiEventRecord } from './ui';
 import { validateDialogueInputs, type DialogueInputRecord } from './dialogue';
 import { validateAssetAnswers, type AssetHandleAnswer } from './asset-handles';
 import { isPlainObject } from '@thirdlight/shared';
+import { MOVE_QUANTUM, quantizeMove } from '@thirdlight/project-model';
 
 /** The four jump phases. */
 export type JumpPhase = 'none' | 'pressed' | 'held' | 'released';
@@ -199,8 +200,8 @@ const POINTER_KEYS = new Set(['x', 'y', 'dx', 'dy', 'wheel', 'buttons', 'pressed
 export const MAX_FRAME_ACTIONS = 64;
 const ACTION_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 
-/** Movement quantization. */
-export const MOVE_QUANTUM = 1e-4;
+// Movement quantization: the model's step and rounding.
+export { MOVE_QUANTUM, quantizeMove };
 /** `maxRelaySteps`-independent upper bound for a step index. */
 const MAX_STEP_INDEX = 2 ** 53 - 1;
 const FRAME_KEYS = new Set(['stepIndex']);
@@ -313,12 +314,6 @@ export class InputFrameError extends Error {
     this.name = 'InputFrameError';
     this.field = field;
   }
-}
-
-/** `round(v·1e4)/1e4`, negative zero normalized to `0`. */
-export function quantizeMove(v: number): number {
-  const q = Math.round(v * 1e4) / 1e4;
-  return q === 0 ? 0 : q;
 }
 
 /**

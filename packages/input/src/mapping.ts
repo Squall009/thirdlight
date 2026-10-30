@@ -19,6 +19,7 @@
  */
 import type { ActionFrame, ActionValue, JumpPhase } from '@thirdlight/runtime';
 import { GAMEPAD_DEAD_ZONE, type RawInputSnapshot } from './types';
+import { quantizeMove } from '@thirdlight/project-model/input';
 
 /**
  * The character controls a raw snapshot maps to — the move axis
@@ -100,18 +101,8 @@ export function rescaleStick(axis0: number): number {
   return Math.sign(axis0) * scaled;
 }
 
-/**
- * `round(v·1e4)/1e4` after clamping to `[-1, 1]`, with negative zero
- * normalized to `0`. The rounding direction matches the
- * runtime's frame validator (`@thirdlight/runtime` `quantizeMove`, which uses
- * `Math.round`) so every frame this package emits passes `validateActionFrame`
- * unchanged.
- */
-export function quantizeMove(v: number): number {
-  const clamped = Math.max(-1, Math.min(1, v));
-  const q = Math.round(clamped * 1e4) / 1e4;
-  return q === 0 ? 0 : q;
-}
+// The move quantization is the model's (the runtime validates and commits moves with it).
+export { quantizeMove };
 
 /** Exactly one of two opposing controls held (the cancel rule). */
 function opposing(left: boolean, right: boolean): -1 | 0 | 1 {

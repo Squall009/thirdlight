@@ -150,6 +150,14 @@ export const OWNED_FAMILIES = Object.freeze([
   { family: 'shadow-defaults', owner: 'packages/project-model/src/scene-v3.ts', names: ['DIRECTIONAL_SHADOW_DEFAULTS'] },
   { family: 'surface-presets', owner: 'packages/project-model/src/types-v3.ts', names: ['SURFACE_PRESETS', 'SURFACE_PRESET_NAMES'] },
   { family: 'animation-roles', owner: 'packages/project-model/src/types-v3.ts', names: ['ANIMATION_ROLE_KEYS'] },
+  {
+    family: 'manifest-identity',
+    owner: 'packages/project-model/src/manifest.ts',
+    names: ['ENGINE_VERSION', 'RUNTIME_CONTENT_TYPE', 'BUILD_OPTIONS_RECORD', 'buildOptionsRecordBytes'],
+  },
+  { family: 'save-format', owner: 'packages/project-model/src/save-schema.ts', names: ['PROJECT_SAVE_FORMAT', 'PROJECT_SAVE_FORMAT_VERSION'] },
+  { family: 'message-limit', owner: 'packages/project-model/src/errors.ts', names: ['MESSAGE_LIMIT', 'clipMessage'] },
+  { family: 'move-quantum', owner: 'packages/project-model/src/input.ts', names: ['MOVE_QUANTUM', 'quantizeMove', 'quantizeIntentMove'] },
 ]);
 
 /**

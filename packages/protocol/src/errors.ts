@@ -9,6 +9,8 @@
  * Pure: no I/O.
  */
 
+import { MESSAGE_LIMIT, clipMessage } from '@thirdlight/project-model/limits';
+
 /** The stable session-layer error codes (normative). */
 export const ERROR_CODES = [
   'unauthorized',
@@ -164,12 +166,8 @@ export interface SessionError {
   runId?: string;
 }
 
-export const MESSAGE_LIMIT = 256;
-
-export function clipMessage(message: string): string {
-  if (message.length <= MESSAGE_LIMIT) return message;
-  return `${message.slice(0, MESSAGE_LIMIT - 1)}…`;
-}
+// The message bound and its clip are the model's (the runtime clips its errors with them too).
+export { MESSAGE_LIMIT, clipMessage };
 
 /** Build a structured session-layer error (message always clipped). */
 export function sessionError(

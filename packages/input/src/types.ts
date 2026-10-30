@@ -27,9 +27,6 @@ export const DEFAULT_KEYBOARD_MAP: Readonly<{
 /** The radial gamepad dead zone (`input.md`, hard constant). */
 export const GAMEPAD_DEAD_ZONE = 0.2;
 
-/** `moveX` quantization (`input.md`, hard constant). */
-export const MOVE_QUANTUM = 1e-4;
-
 /**
  * One plain-data snapshot of the raw device state at a single sampling
  * moment. `gamepad` is the *active* standard-mapped pad only;

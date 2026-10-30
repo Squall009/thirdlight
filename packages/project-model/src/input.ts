@@ -16,6 +16,21 @@ export type InputActionType = 'button' | 'axis1d' | 'axis2d';
 export const INPUT_ACTION_TYPES = ['button', 'axis1d', 'axis2d'] as const;
 export const INPUT_MAPS = ['gameplay', 'ui'] as const;
 
+/** The step a move axis is quantized to in an action frame and a committed move intent. */
+export const MOVE_QUANTUM = 1e-4;
+
+/**
+ * A move axis value clamped to [-1, 1] and rounded to {@link MOVE_QUANTUM}
+ * (`Math.round(v·1e4)/1e4`, the literal keeps the result exact), negative zero
+ * normalized to 0. The browser input, the frame validator and the intent
+ * commit all quantize with it, so every frame the input emits validates unchanged.
+ */
+export function quantizeMove(v: number): number {
+  const clamped = v < -1 ? -1 : v > 1 ? 1 : v;
+  const q = Math.round(clamped * 1e4) / 1e4;
+  return q === 0 ? 0 : q;
+}
+
 export type InputBinding =
   | { kind: 'key'; code: string; hold?: number }
   | { kind: 'gamepadButton'; button: number; hold?: number; pad?: number }

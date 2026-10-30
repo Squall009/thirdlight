@@ -10,7 +10,9 @@
  * Pure: no I/O.
  */
 import { ID_RE } from '@thirdlight/project-model/limits';
-import { SCRIPT_SAVE_LIMITS } from '@thirdlight/project-model/limits';
+import { PROJECT_SAVE_FORMAT, SCRIPT_SAVE_LIMITS } from '@thirdlight/project-model/limits';
+
+export { PROJECT_SAVE_FORMAT };
 import { MUTATION_OPS } from '@thirdlight/commands/mutation-ops';
 import {
   isProjectId,
@@ -118,7 +120,6 @@ const PLAY_SCENE_ID_RE = ID_RE;
 const PLAY_MODE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/;
 /** A project save document (`format: "thirdlight.save"`) may be as large as a save slot (1 MiB; the request body bound applies too). */
 export const PLAY_START_PROJECT_SAVE_MAX_BYTES = 1_048_576;
-export const PROJECT_SAVE_FORMAT = 'thirdlight.save';
 const PLAY_SAVE_SLOT_RE = /^[1-9][0-9]?$/;
 
 const PLAY_START_FIELDS = new Map([

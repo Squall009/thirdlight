@@ -9,6 +9,8 @@
  * packages that may otherwise import project-model types only can read them.
  */
 
+// The error message bound (the session layer clips with it too).
+export { MESSAGE_LIMIT, clipMessage } from './errors';
 export { ID_RE, MAX_ENTITY_DEPTH, MAX_LEN, MAX_REVISION, NAME_MAX, NAME_MIN } from './validate';
 export * from './content-limits';
 // The simulation's step rate (default and choices).
@@ -27,7 +29,7 @@ export { EVENT_CUE_LIMITS } from './event-cues';
 export { MODE_LIMITS } from './modes';
 export { MAX_ANIMATOR_LAYERS } from './animator';
 export { MATERIAL_DATA_MAX } from './material-graph-kinds';
-export { SAVE_LIMITS, SCRIPT_SAVE_LIMITS, SETTINGS_ENGINE_BINDINGS } from './save-schema';
+export { PROJECT_SAVE_FORMAT, SAVE_LIMITS, SCRIPT_SAVE_LIMITS, SETTINGS_ENGINE_BINDINGS } from './save-schema';
 // The frame-rate caps (the Saves panel's settings field and the UI action's choices).
 export { FRAME_RATE_CAP_CHOICES } from './frame-rate-cap';
 export { AMBIENT_OCCLUSION_DEFAULT, AMBIENT_OCCLUSION_KINDS, AMBIENT_OCCLUSION_NEW_PROJECT, OCCLUSION_CULLING_DEFAULT, OCCLUSION_CULLING_MODES, OCCLUSION_CULLING_SETTING_VALUES, RENDER_SCALE_MAX, RENDER_SCALE_MIN, renderSettingsOf } from './render-settings';
