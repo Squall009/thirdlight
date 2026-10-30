@@ -114,8 +114,13 @@ The cost of building one phase at a time shows in four places:
     (`useEntityEditing.ts:211`, `outline.ts`) is unreachable;
   - project-model: `captureManifest` and `captureManifestV2` are test-only (`captureManifest` retired ef3f6d99, 44.2; `captureManifestV2` kept as the v4 reader's test writer, see the 44.2 decision);
   - workspace: the `LEGACY_SESSION_PAGE` branch (`full-state.ts:27`) and `envelopeBytes` (retired bf1faada, 44.2).
+  **Status:** fixed (44.7: 53171674 the v1/v2 light branch, 417d32ea the editor's test-only planners and the outline
+  collider). `scatter-shadows.ts` is a scatter path and left for 48; `captureManifestV2` as in 44.2.
 - **G19: the early demo module is still the default module set** (`runtime/runtime-config.ts:19`), together with the
   old module shape and `legacyTransformOwners` it needs.
+  **Status:** fixed (44.7: 45a2e775): no default modules, the demo, its module id and `legacyTransformOwners` gone; a
+  module without phases may no longer join a phased set. The phase-less shape stays for a set of its own (the plain
+  step, which a game with no modules runs); the protocol's `demo` play option is accepted and ignored.
 
 **Constants**
 - **G20: constants and lists copied across packages**, each needing one owner:
@@ -152,21 +157,24 @@ The cost of building one phase at a time shows in four places:
 - **Version naming.** `*V2`/`*V3` names mean the current format (`ProjectManifestV2` = schema 8). There are 62
   `version === 3|4` forks, and `KNOWN_VERSIONS` in `errors.ts:162` is wrong.
 - **Milestone names in identifiers:** `M2_*`, `*M3`, `export-bootstrap-m3.ts`, `preview-m3.ts`, `m23-*` test
-  folders. 36 "M1/M2" mentions in runtime comments slip past `history-comments.mjs`.
+  folders. 36 "M1/M2" mentions in runtime comments slip past `history-comments.mjs`. (44.7: `export-bootstrap.ts`
+  and the m23 folders renamed; left: `preview-m3` (the served bundle's name), `play-m3.ts`, `export-m3.ts`,
+  `protocol/m3.ts`, the `M2_*`/`M3_*` constants and `*M3` functions, `isM2`, the other `m<N>-` folders.)
 - **Public surfaces wider than their users.** About 250 three-adapter exports, about 273 runtime and 187 game-host
   exports, and about 45 commands exports are imported nowhere outside their package.
 - **Stale rules and tools:**
   - `check-boundaries.mjs:415` names the removed `export-bootstrap.ts` (fixed 51e6cf83, 44.3);
-  - the unused `tools/dev/*`;
-  - `generate-phase9-icons.sh`, which writes to `/tmp`;
-  - a committed `tools/__pycache__/*.pyc`;
+  - the unused `tools/dev/*` (removed 3446265a, 44.7);
+  - `generate-phase9-icons.sh`, which writes to `/tmp` (removed 3446265a);
+  - a committed `tools/__pycache__/*.pyc` (removed and ignored 3446265a);
   - `character.glb` committed twice in the templates (fixed cb646f8d: the 3D starter links to the 2D starter's file);
   - `package.json` dependencies left out by exporter, game-host and physics-rapier.
 - **Tests:**
-  - 24 package tests default to `/tmp` (`TMPDIR ?? '/tmp'`);
-  - four env-gated e2e files run in no gate;
-  - `job-export-import.e2e.ts` needs no browser and belongs in vitest;
-  - `tests/evaluations/m3-browser` is a packet-era leftover.
+  - 24 package tests default to `/tmp` (`TMPDIR ?? '/tmp'`) (fixed 494d1877, 44.7: `testTempBase()`);
+  - four env-gated e2e files run in no gate (5349b08b: by-hand, editor-look and perf-harness removed; the
+    editor-workers measuring windows stay, the file runs in every gate);
+  - `job-export-import.e2e.ts` needs no browser and belongs in vitest (moved 616f98a1);
+  - `tests/evaluations/m3-browser` is a packet-era leftover (removed 5349b08b).
 - **Small items:**
   - `copies-gpu.ts:74` silently caps LOD levels at 8 per group (unverified against the model);
   - the editor disables "Directional light" when any open scene has one (`menus.ts:78`);
