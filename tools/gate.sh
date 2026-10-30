@@ -186,7 +186,9 @@ e2e() { # e2e <log> [playwright args…]
 # SwiftShader frame times say nothing about the product. Re-record: docs/manual/features/performance.md.
 perf_check() {
   if ! node -e "import('./tests/e2e/browser-env.mjs').then((m) => process.exit(m.gpuAvailable() ? 0 : 1))"; then
-    say "perf: skipped (no usable GPU)"; return 0
+    # Not a pass: the gate's last line says the village class went unmeasured.
+    PERF_SKIPPED=" — perf SKIPPED: no usable GPU, the village class was NOT measured"
+    say "perf: SKIPPED (no usable GPU): the village class was NOT measured"; return 0
   fi
   local t=$(date +%s) rc
   node tools/perf/run.mjs village --gate --check tests/perf/village-baseline.json > "$L/perf.log" 2>&1
@@ -225,7 +227,7 @@ case "$mode" in
     build; lint; unit
     fast_e2e "$@"
     fast_perf
-    done_ GREEN ;;
+    done_ "GREEN${PERF_SKIPPED:-}" ;;
   full)
     begin_state full "$@"
     build; lint; unit
@@ -251,6 +253,6 @@ case "$mode" in
         e2e e2e.log --last-failed --trace=retain-on-failure || { [ -n "$step" ] && fail_at e2e; done_ "RED e2e"; } ;;
     esac
     [ "$was" = fast ] && fast_perf
-    done_ GREEN ;;
+    done_ "GREEN${PERF_SKIPPED:-}" ;;
   *) echo "usage: tools/gate.sh fast [e2e files…] | full [--both-renderers] | rerun | start <mode> [args…] | wait"; exit 2 ;;
 esac
