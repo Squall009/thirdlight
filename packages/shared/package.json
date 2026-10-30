@@ -1,0 +1,14 @@
+{
+  "name": "@thirdlight/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Thirdlight shared helpers: the generic algorithms every package may import (hashing, canonical JSON, seeded random and noise, small math and container readers), each defined once. A leaf: no dependencies, no I/O, no three.js, no Node built-ins, so it runs in exported games, workers and the backend alike.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "sideEffects": false
+}

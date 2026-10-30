@@ -96,6 +96,8 @@ export const UNITS = [
   'effects',
   // The game host and its browser audio owner (the `.` entry).
   'game-host',
+  // The leaf of generic helpers (one definition each; imports nothing).
+  'shared',
 ];
 
 /**
@@ -112,6 +114,9 @@ export const UNITS = [
  * target that may be value-imported (pure code that cannot mutate a project).
  */
 export const NODE_SIDE_ALLOWED = {
+  // The leaf: generic helpers that run anywhere (exported games, workers, the
+  // backend), so it may import nothing at all.
+  shared: { packages: [], external: [], node: [] },
   'project-model': { packages: [], external: [], node: [] },
   commands: { packages: ['project-model'], external: [], node: [] },
   workspace: {
