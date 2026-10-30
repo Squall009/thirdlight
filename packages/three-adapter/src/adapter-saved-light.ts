@@ -35,7 +35,7 @@ import type { SurfaceCacheHost } from './surface-cache-host';
 import type { SavedSurfaceTile, SavedTerrainRings } from './surface-cache';
 import { RING_HALVES, savedSurfaceFromFiles, type SavedProbeTile, type SavedSurfaceLight } from './surface-bake-file';
 import { readPackedProbe } from './probe-pack';
-import { PROBE_FILLED, PROBE_SH_TEXELS } from '@thirdlight/runtime';
+import { PROBE_FILLED, PROBE_SH_TEXELS } from '@thirdlight/project-model';
 import { PROBE_NEVER_LIT } from './probe-weights';
 import type { CacheLight } from './surface-changes';
 import type { SavedProbeGrid } from './surface-probes';

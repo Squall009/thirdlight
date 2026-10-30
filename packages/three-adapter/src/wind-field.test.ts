@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import * as TSL from 'three/tsl';
 import { describe, expect, it } from 'vitest';
-import { fillWindMap, orderWindZones, placeWindZone, windAt, windValues, windZoneWeight, WIND_MAP_CHANNELS, type WindZoneComponent } from '@thirdlight/runtime';
+import { fillWindMap, orderWindZones, placeWindZone, windAt, windValues, windZoneWeight, WIND_MAP_CHANNELS, type WindZoneComponent } from '@thirdlight/project-model';
 
 import { createMaterialLibrary } from './material-library';
 import { litScene, wgslOf, wgslRenderer } from './test-wgsl';

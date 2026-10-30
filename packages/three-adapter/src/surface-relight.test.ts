@@ -8,7 +8,7 @@
  * once a frame has written the new colours (their bounce reads them).
  */
 import { describe, expect, it } from 'vitest';
-import { BlockGrid, DEFAULT_PROBE_SPACING, TerrainField, buildDistanceBrickSet, encodeDistanceBricks, type ArchitectureComponent, type BlockType, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
+import { BlockGrid, DEFAULT_PROBE_SPACING, TerrainField, buildDistanceBrickSet, encodeDistanceBricks, type ArchitectureComponent, type BlockType, type TerrainComponent, type TerrainTile } from '@thirdlight/project-model';
 
 import { SurfaceCacheHost, markTexturesLost } from './surface-cache-host';
 import { PROBE_FLOATS, PROBE_MAX_UPDATES, PROBE_UPDATES_AT } from './surface-probes';

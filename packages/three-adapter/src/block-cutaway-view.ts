@@ -27,7 +27,7 @@
  * fully faded, the copy goes and the mesh is out of the view's draws.
  */
 import * as THREE from 'three/webgpu';
-import { CUTAWAY_FADE_SECONDS, cutawayCuts, cutawayZones, type BlockLayerComponent, type CutawayZone } from '@thirdlight/runtime';
+import { CUTAWAY_FADE_SECONDS, cutawayCuts, cutawayZones, type BlockLayerComponent, type CutawayZone } from '@thirdlight/project-model';
 
 import { ditherKeep, fadeCopy, fadeVariant, FadeVariants, objectFade } from './dither-fade';
 import { HIDDEN_BY_CUTAWAY, hideFromView, OFF_VIEW_LAYER } from './view-hidden';

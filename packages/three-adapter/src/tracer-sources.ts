@@ -4,7 +4,7 @@
  * parameters and a model's distance-field bricks. Nothing is voxelized or
  * resampled here; the tracer reads the cells, samples and pieces as they are.
  */
-import { COLLIDER_3D_LIMITS, architectureLightBlockers, blockTypeSolid, terrainHeightOf, terrainHoleAt, terrainTileKey, type ArchitectureComponent, type BlockCell, type BlockGridReader, type BlockType, type DistanceBricks, type TerrainField } from '@thirdlight/runtime';
+import { COLLIDER_3D_LIMITS, architectureLightBlockers, blockTypeSolid, terrainHeightOf, terrainHoleAt, terrainTileKey, type ArchitectureComponent, type BlockCell, type BlockGridReader, type BlockType, type DistanceBricks, type TerrainField } from '@thirdlight/project-model';
 
 import type { TraceArchitecture, TraceBox, TraceModelInstance } from './tracer-objects';
 import type { Affine, TraceBlockLayer, TraceTerrain } from './tracer-scene';

@@ -48,7 +48,7 @@
 import * as THREE from 'three';
 import * as TSLTyped from 'three/tsl';
 import { NodeMaterial, type NodeBuilder } from 'three/webgpu';
-import { COVER_POINT_STEPS, FOLIAGE_BEND_DEFAULTS, SCATTER_COVER_DISTANCE_DEFAULT, scatterRuleSeed, type CoverPointSet, type RuleRange, type ScatterRule } from '@thirdlight/runtime';
+import { COVER_POINT_STEPS, FOLIAGE_BEND_DEFAULTS, SCATTER_COVER_DISTANCE_DEFAULT, scatterRuleSeed, type CoverPointSet, type RuleRange, type ScatterRule } from '@thirdlight/project-model';
 
 import { COVER_FADE_START, COVER_LANES, COVER_MIN_NORMAL_Y, coverMaskSide, listCoverPatches, planCover, type CoverPatch, type CoverPlan, type CoverRing, type CoverTileRef } from './cover-placement';
 import { COVER_POINT_BLOCK, COVER_POINT_ROW, CoverPointAtlas, listCoverPointBlocks } from './cover-points-gpu';

@@ -17,7 +17,7 @@
  * placed tile where it is — growing is one GPU copy of the old texture.
  */
 import * as THREE from 'three/webgpu';
-import { PROBE_ARTIFACT_ROW_PROBES, PROBE_ATLAS_PADDING, PROBE_GPU_TEXELS, PROBE_SH_TEXELS, PROBE_TEXELS, probeArtifactSize, type ProbeGridRecord } from '@thirdlight/runtime';
+import { PROBE_ARTIFACT_ROW_PROBES, PROBE_ATLAS_PADDING, PROBE_GPU_TEXELS, PROBE_SH_TEXELS, PROBE_TEXELS, probeArtifactSize, type ProbeGridRecord } from '@thirdlight/project-model';
 
 import { probeWeight } from './probe-weights';
 

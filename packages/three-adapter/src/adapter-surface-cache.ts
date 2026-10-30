@@ -4,7 +4,7 @@
  * the entities realized, with their rows' distance-field files.
  */
 import * as THREE from 'three';
-import { DEFAULT_SURFACE_CACHE_MIB, GLOW_MODE_DEFAULT, LIGHT_LAYERS_ALL, lightLayerMaskOf } from '@thirdlight/runtime';
+import { DEFAULT_SURFACE_CACHE_MIB, GLOW_MODE_DEFAULT, LIGHT_LAYERS_ALL, lightLayerMaskOf } from '@thirdlight/project-model';
 
 import type { AdapterEntities, EntityDoc } from './adapter-entities';
 import type { AdapterLevel } from './adapter-level';

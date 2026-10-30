@@ -12,7 +12,7 @@
  *
  * Pure (no three.js).
  */
-import { CHUNK_SIZE, type BlockCell } from '@thirdlight/runtime';
+import { CHUNK_SIZE, type BlockCell } from '@thirdlight/project-model';
 
 import { SURFACE_CHART_METRES, type SurfaceChart } from './surface-cache-atlas';
 

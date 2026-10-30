@@ -49,7 +49,7 @@
  * drawing while a changed receiver's new clip is made.
  */
 import * as THREE from 'three';
-import { DECAL_LAYERS_ALL, decalClipGeometryHash, decalClipKey, decalClipMeshBytes, decodeDecalClipMesh, encodeDecalClipMesh, sortDecalClipReceivers, type DecalClipMesh, type DecalClipProjector } from '@thirdlight/runtime';
+import { DECAL_LAYERS_ALL, decalClipGeometryHash, decalClipKey, decalClipMeshBytes, decodeDecalClipMesh, encodeDecalClipMesh, sortDecalClipReceivers, type DecalClipMesh, type DecalClipProjector } from '@thirdlight/project-model';
 
 import { BATCH_KEY } from './batching';
 import { answerDecalClipJob, type DecalClipJobReply, type DecalClipJobRequest, type DecalClipReceiverData } from './decal-clip-worker';

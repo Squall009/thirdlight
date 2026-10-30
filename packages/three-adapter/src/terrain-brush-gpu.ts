@@ -43,7 +43,7 @@
 import * as THREE from 'three';
 import * as TSLTyped from 'three/tsl';
 import { NodeMaterial, QuadMesh, type WebGPURenderer } from 'three/webgpu';
-import { TERRAIN_NOISE_HASH, type BrushFalloff, type BrushMask } from '@thirdlight/runtime';
+import { TERRAIN_NOISE_HASH, type BrushFalloff, type BrushMask } from '@thirdlight/project-model';
 
 import type { N } from './effects-tsl';
 import { stepOf, terrainPartLayer, terrainPartLayerNode } from './terrain-material';

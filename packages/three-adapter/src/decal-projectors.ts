@@ -32,7 +32,7 @@
  * spawn sticks to an object with follows the object and goes with it.
  */
 import * as THREE from 'three/webgpu';
-import { DECAL_CELL_BUDGET, DECAL_DEFAULTS, DECAL_FADE, DECAL_LAYERS_ALL, DECAL_TRANSIENT_BUDGET, DECAL_TRANSIENT_FADE_SECONDS, decalEdgeFade, decalLayersOf, decalNormalFade } from '@thirdlight/runtime';
+import { DECAL_CELL_BUDGET, DECAL_DEFAULTS, DECAL_FADE, DECAL_LAYERS_ALL, DECAL_TRANSIENT_BUDGET, DECAL_TRANSIENT_FADE_SECONDS, decalEdgeFade, decalLayersOf, decalNormalFade } from '@thirdlight/project-model';
 
 import { DecalGrid, DECAL_ROW_TEXELS, DECAL_TEXTURE_WIDTH, packDecalRow, type DecalRow } from './decal-index';
 import { createDecalViewPages, DECAL_VIEW_PAGE_SIZE, type DecalViewPages } from './decal-view-pages';

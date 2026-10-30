@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 
-import { LOD_REFERENCE_FOV_DEG } from '@thirdlight/runtime';
+import { LOD_REFERENCE_FOV_DEG } from '@thirdlight/project-model';
 
 import { LOD_CULL_LEVEL_KEY } from './lod-switch';
 import { TRIM_DATA_ATTRIBUTE } from './trim-data-attribute';

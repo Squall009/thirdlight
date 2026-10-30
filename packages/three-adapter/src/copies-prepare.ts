@@ -18,7 +18,7 @@
  *
  * Pure: plain arrays, no three.js (the worker bundle stays small).
  */
-import { INSTANCE_FLOATS } from '@thirdlight/runtime';
+import { INSTANCE_FLOATS } from '@thirdlight/project-model';
 
 import { chunkCopies, INSTANCE_CHUNK_COPIES, INSTANCE_MAX_CHUNKS } from './instance-prepare';
 

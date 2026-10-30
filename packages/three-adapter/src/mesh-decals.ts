@@ -31,7 +31,7 @@ import * as THREE from 'three';
 import * as TSL from 'three/tsl';
 import type { NodeBuilder } from 'three/webgpu';
 
-import { DECAL_LIMITS } from '@thirdlight/runtime';
+import { DECAL_LIMITS } from '@thirdlight/project-model';
 
 import { MATERIAL_NO_SHADOW_KEY } from './material-keys';
 

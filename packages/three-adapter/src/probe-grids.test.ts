@@ -1,4 +1,5 @@
-import { createResourceManager, type ProbeGridRecord } from '@thirdlight/runtime';
+import { createResourceManager } from '@thirdlight/runtime';
+import { type ProbeGridRecord } from '@thirdlight/project-model';
 import { describe, expect, it } from 'vitest';
 
 import { encodePng16, packProbeTexels } from './probe-artifact';

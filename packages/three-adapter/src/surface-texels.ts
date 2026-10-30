@@ -12,7 +12,7 @@
  *
  * Pure (no three.js).
  */
-import type { TerrainField } from '@thirdlight/runtime';
+import type { TerrainField } from '@thirdlight/project-model';
 
 import { SURFACE_CHART_BORDER, SURFACE_CHART_METRES, areaTexels, surfelLevelFor, type AtlasBlock, type SurfaceChart, type TilePacking } from './surface-cache-atlas';
 import { RESOLVE_PAGE, RESOLVE_RING } from './surface-resolve';

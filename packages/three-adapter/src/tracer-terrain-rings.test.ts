@@ -5,7 +5,7 @@
  * tracer and of its hit resolve.
  */
 import { describe, expect, it } from 'vitest';
-import { BlockGrid, TerrainField, type BlockType, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
+import { BlockGrid, TerrainField, type BlockType, type TerrainComponent, type TerrainTile } from '@thirdlight/project-model';
 
 import { SurfaceCache } from './surface-cache';
 import { SurfaceScene } from './surface-cache-scene';

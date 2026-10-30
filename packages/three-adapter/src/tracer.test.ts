@@ -7,7 +7,7 @@
  * from a mesh as an import builds them).
  */
 import { describe, expect, it } from 'vitest';
-import { BlockGrid, TerrainField, architectureStylesOf, buildDistanceBrickSet, expandArchitecture, buildDistanceBricks, decodeDistanceBricks, encodeDistanceBricks, type ArchitectureComponent, type BlockType, type ModelGeometryPrimitive, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
+import { BlockGrid, TerrainField, architectureStylesOf, buildDistanceBrickSet, expandArchitecture, buildDistanceBricks, decodeDistanceBricks, encodeDistanceBricks, type ArchitectureComponent, type BlockType, type ModelGeometryPrimitive, type TerrainComponent, type TerrainTile } from '@thirdlight/project-model';
 
 import type { CacheLight } from './surface-changes';
 import { lightFrameCpu } from './surface-light-cpu';

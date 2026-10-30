@@ -11,7 +11,7 @@
  *
  * Pure three.js (no loader): safe on the adapter's root subpath.
  */
-import { COLLIDER_3D_LIMITS, LOD_REFERENCE_FOV_DEG, LOD_SCREEN_SIZES_DEFAULT, MAX_COLLIDER_EXTENT, MODEL_OCC_RE, colliderFromTriangles, convexFromPoints, convexHull2, lodCullSizeOf, lodScreenSizesFor, roundMm, TRIM_DATA_OCCLUSION, TRIM_DATA_WETNESS, type ModelLodSettings } from '@thirdlight/runtime';
+import { COLLIDER_3D_LIMITS, LOD_REFERENCE_FOV_DEG, LOD_SCREEN_SIZES_DEFAULT, MAX_COLLIDER_EXTENT, MODEL_OCC_RE, colliderFromTriangles, convexFromPoints, convexHull2, lodCullSizeOf, lodScreenSizesFor, roundMm, TRIM_DATA_OCCLUSION, TRIM_DATA_WETNESS, type ModelLodSettings } from '@thirdlight/project-model';
 import * as THREE from 'three';
 
 import { LOD_CULL_LEVEL_KEY, LOD_MODEL_SCALE_KEY } from './lod-switch';

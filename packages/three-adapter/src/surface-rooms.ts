@@ -30,7 +30,7 @@
  *
  * Pure (no three.js, no device).
  */
-import { ROOM_OUTSIDE, type RoomGraph } from '@thirdlight/runtime';
+import { ROOM_OUTSIDE, type RoomGraph } from '@thirdlight/project-model';
 
 /** Rooms and which of their portals are open now (room-culling.ts reads the doors). */
 export interface LightingRooms {

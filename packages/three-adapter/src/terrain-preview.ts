@@ -8,7 +8,7 @@
  *
  * Pure.
  */
-import { BRUSH_HARDNESS_DEFAULT, TERRAIN_HEIGHT_STEPS, type BrushFalloff, type BrushMask } from '@thirdlight/runtime';
+import { BRUSH_HARDNESS_DEFAULT, TERRAIN_HEIGHT_STEPS, type BrushFalloff, type BrushMask } from '@thirdlight/project-model';
 
 import { terrainBrushMargin, type TerrainBrushDab, type TerrainBrushKind } from './terrain-brush-gpu';
 import { TERRAIN_TEXEL_BYTES } from './terrain-texels';

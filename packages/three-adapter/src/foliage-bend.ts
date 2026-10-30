@@ -33,7 +33,7 @@
  */
 import * as THREE from 'three';
 import * as TSLTyped from 'three/tsl';
-import { foliageBendOf, SEE_THROUGH_SUBJECTS } from '@thirdlight/runtime';
+import { foliageBendOf, SEE_THROUGH_SUBJECTS } from '@thirdlight/project-model';
 
 import type { N } from './effects-tsl';
 import { subjectExtent, type SeeThroughEntities, type SubjectExtent } from './see-through';

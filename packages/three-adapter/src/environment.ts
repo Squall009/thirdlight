@@ -32,7 +32,8 @@
  */
 import * as THREE from 'three';
 import { PMREMGenerator as NodePMREMGenerator, type WebGPURenderer } from 'three/webgpu';
-import { AMBIENT_OCCLUSION_DEFAULT, levelLighting, levelPost, qualityLevelOf, qualityLevelsOf, SKY_DEFAULTS, type QualityLevelConfig } from '@thirdlight/runtime';
+import { SKY_DEFAULTS } from '@thirdlight/runtime';
+import { AMBIENT_OCCLUSION_DEFAULT, levelLighting, levelPost, qualityLevelOf, qualityLevelsOf, type QualityLevelConfig } from '@thirdlight/project-model';
 
 import { CloudDrift, type CloudWind } from './cloud-drift';
 // Lit surfaces read the PMREM through a cube copy, made again after each bake.

@@ -15,7 +15,8 @@
  * with the reason a file cannot be read).
  */
 import type * as THREE from 'three';
-import { probeCount, probeGridGpuBytes, type ProbeGridRecord, type ResourceManager } from '@thirdlight/runtime';
+import { type ResourceManager } from '@thirdlight/runtime';
+import { probeCount, probeGridGpuBytes, type ProbeGridRecord } from '@thirdlight/project-model';
 
 import { decodeProbeSamples } from './probe-artifact';
 import { PROBE_PACK_MAX_EDGE, type ProbeTileForGpu, type ProbeUploadRenderer } from './probe-atlas';

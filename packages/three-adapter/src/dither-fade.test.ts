@@ -11,7 +11,7 @@ import * as THREE from 'three';
 import { MeshStandardNodeMaterial } from 'three/webgpu';
 import * as TSL from 'three/tsl';
 import { describe, expect, it } from 'vitest';
-import type { BlockLayerComponent } from '@thirdlight/runtime';
+import type { BlockLayerComponent } from '@thirdlight/project-model';
 
 import { CutawayDrawing } from './block-cutaway-view';
 import { andMask, ditherKeep, fadeCopy, fadeVariant, FadeVariants, nodeMaterialCopy, objectFade } from './dither-fade';

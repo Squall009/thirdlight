@@ -5,7 +5,7 @@
  * against, and what a caller without a device (a worker, a test) traces
  * with.
  */
-import { LIGHT_LAYERS_ALL } from '@thirdlight/runtime';
+import { LIGHT_LAYERS_ALL } from '@thirdlight/project-model';
 import {
   CHUNK_BLOCK_WORDS,
   CHUNK_WORDS,

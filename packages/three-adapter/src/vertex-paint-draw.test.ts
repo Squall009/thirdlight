@@ -13,7 +13,7 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 
-import { INSTANCE_FLOATS } from '@thirdlight/runtime';
+import { INSTANCE_FLOATS } from '@thirdlight/project-model';
 
 import { createAttributeInstancedMesh } from './attribute-instancing';
 import { BATCH_KEY, createAutoBatcher } from './batching';

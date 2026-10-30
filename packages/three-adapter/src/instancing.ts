@@ -31,14 +31,14 @@
  */
 import * as THREE from 'three';
 
-import type { InstanceDensity } from '@thirdlight/runtime';
+import type { InstanceDensity } from '@thirdlight/project-model';
 
 import { createAttributeInstancedMesh, type AttributeInstancedMesh } from './attribute-instancing';
 import type { CullView, ViewCullable } from './view-cull';
 import type { ModelInstance } from './visual';
 import { disposeObjectTree } from './dispose';
 import { ChunkLodPicker, TAN_HALF_REFERENCE, type CopyLodGroup } from './instance-lod';
-import { INSTANCE_CHUNK_METERS, INSTANCE_FLOATS } from '@thirdlight/runtime';
+import { INSTANCE_CHUNK_METERS, INSTANCE_FLOATS } from '@thirdlight/project-model';
 import { INSTANCE_CHUNK_COPIES, prepareInstanceSet, writeCopyMatrices, type PreparedChunk, type PreparedInstanceSet, type PrepareOptions, type PrepareParts } from './instance-prepare';
 
 export { chunkCopies, INSTANCE_CHUNK_COPIES, INSTANCE_MAX_CHUNKS, INSTANCE_MAX_SPATIAL_CHUNKS } from './instance-prepare';

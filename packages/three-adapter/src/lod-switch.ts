@@ -10,7 +10,7 @@
  * read back from the levels' `visible` flags.
  */
 import type * as THREE from 'three';
-import { LOD_BIAS_DEFAULT, LOD_HYSTERESIS_DEFAULT, type LodTuningSettings } from '@thirdlight/runtime';
+import { LOD_BIAS_DEFAULT, LOD_HYSTERESIS_DEFAULT, type LodTuningSettings } from '@thirdlight/project-model';
 
 /**
  * `lod.userData[LOD_LEVEL_KEY]`: the level the render graph attached last

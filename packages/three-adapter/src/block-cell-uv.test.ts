@@ -9,11 +9,11 @@
  */
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { BlockGrid, meshBlockChunk, shapeSource, type BlockLookResolver, type BlockType } from '@thirdlight/runtime';
+import { BlockGrid, meshBlockChunk, shapeSource, type BlockLookResolver, type BlockType } from '@thirdlight/project-model';
 
 import { cellUnitUvs, keepMetreUv, syncCellUv, trimStripUvs, trimWallRowSteps } from './block-cell-uv';
 import { CELL_UV_KEY, readsCellUv, TRIM_STRIPS_KEY, type MaterialGraphLike } from './material-graph';
-import { trimRowOf, trimRowV, type TrimSheet } from '@thirdlight/runtime';
+import { trimRowOf, trimRowV, type TrimSheet } from '@thirdlight/project-model';
 
 const TYPES = new Map<string, BlockType>([['ground', { blockId: 'ground', name: 'Ground', variants: [{ color: '#808080' }], shape: 'full' }]]);
 /** Stand-ins with a mapped material: world UVs and tangents. */

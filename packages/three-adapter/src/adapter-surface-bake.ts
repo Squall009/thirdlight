@@ -27,7 +27,7 @@
  * lighting holds them; the page goes back to its own residency, budget and
  * lights.
  */
-import { SAVED_SURFACE_CACHE_MIB, SURFACE_LIGHT_MS_MAX } from '@thirdlight/runtime';
+import { SAVED_SURFACE_CACHE_MIB, SURFACE_LIGHT_MS_MAX } from '@thirdlight/project-model';
 
 import { SURFACE_LEVELS, SURFACE_PAGE_TEXELS, SURFACE_TEXEL_BYTES } from './surface-cache-atlas';
 import { TERRAIN_RING_SHARE } from './surface-cache';

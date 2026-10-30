@@ -8,7 +8,7 @@
  */
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { SEE_THROUGH_DEFAULTS } from '@thirdlight/runtime';
+import { SEE_THROUGH_DEFAULTS } from '@thirdlight/project-model';
 
 import { applyEntityRenderFlags } from './entity-render-flags';
 import { batchKey, batchKeyParts, markBatchable } from './batching';

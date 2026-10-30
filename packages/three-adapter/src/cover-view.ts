@@ -25,7 +25,7 @@
  */
 import type * as THREE from 'three';
 
-import { CHUNK_SIZE, MESH_COVER_CHUNK_METRES, TERRAIN_BLOCKS_BLEND_DEFAULT, coverScatterRules, meshCoverChunks, scatterReach, splineScatterRect, terrainSplineInputs, type BlockChunk, type BlockLayerComponent, type BlockLayerData, type BlockType, type CoverPointSet, type ScatterRect, type ScatterRule, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
+import { CHUNK_SIZE, MESH_COVER_CHUNK_METRES, TERRAIN_BLOCKS_BLEND_DEFAULT, coverScatterRules, meshCoverChunks, scatterReach, splineScatterRect, terrainSplineInputs, type BlockChunk, type BlockLayerComponent, type BlockLayerData, type BlockType, type CoverPointSet, type ScatterRect, type ScatterRule, type TerrainComponent, type TerrainTile } from '@thirdlight/project-model';
 
 import type { MeshWorkerPort } from './block-mesh-pool';
 import { CoverGpu, type CoverGpuDiagnostics } from './cover-gpu';

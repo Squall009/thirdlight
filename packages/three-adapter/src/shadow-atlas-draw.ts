@@ -48,7 +48,7 @@ import type { ClusterLights } from './cluster-build';
 import type { ClusterGpu } from './cluster-gpu';
 import { ClusterShadows } from './cluster-pack';
 import type { N } from './effects-tsl';
-import { LIGHT_LAYERS_ALL } from '@thirdlight/runtime';
+import { LIGHT_LAYERS_ALL } from '@thirdlight/project-model';
 
 import { shadowSeesCutaways } from './block-cutaway-view';
 import { objectLightLayers } from './light-layers';

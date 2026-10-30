@@ -43,7 +43,7 @@
  *
  * Pure.
  */
-import { SCATTER_MIN_NORMAL_Y, SURFACE_RULE_CAVITY_RADIUS, copyRotation, ruleNoise, ruleRangeAt, type CoverPoint, type ScatterRule, type ScatterSurface } from '@thirdlight/runtime';
+import { SCATTER_MIN_NORMAL_Y, SURFACE_RULE_CAVITY_RADIUS, copyRotation, ruleNoise, ruleRangeAt, type CoverPoint, type ScatterRule, type ScatterSurface } from '@thirdlight/project-model';
 
 /** Where a rule's copies begin to fade out at the end of their reach, as a share of it. */
 export const COVER_FADE_START = 0.6;

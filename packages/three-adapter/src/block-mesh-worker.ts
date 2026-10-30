@@ -14,7 +14,7 @@
  * This module imports no three.js: the worker bundle stays small. The page
  * side is `block-mesh-pool.ts`.
  */
-import { BlockGrid, blockKitView, type BlockChunk, type BlockGridReader, type BlockLayerComponent, type BlockLayerData, type BlockLayerKit, type BlockType } from '@thirdlight/runtime';
+import { BlockGrid, blockKitView, type BlockChunk, type BlockGridReader, type BlockLayerComponent, type BlockLayerData, type BlockLayerKit, type BlockType } from '@thirdlight/project-model';
 
 import { chunkModelKey, chunkResultBuffers, meshChunkForDrawing, StandInShapes, type ChunkLooks, type ChunkMeshResult, type ChunkModelGeometry, type ChunkModelRef } from './block-chunk-mesh';
 

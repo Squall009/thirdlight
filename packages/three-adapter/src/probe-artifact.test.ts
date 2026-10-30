@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { PROBE_ARTIFACT_ROW_PROBES, PROBE_FILLED, PROBE_GPU_TEXELS, PROBE_MOVED, PROBE_SH_TEXELS, PROBE_TEXELS, PROBE_VALID, probeGridGpuBytes } from '@thirdlight/runtime';
+import { PROBE_ARTIFACT_ROW_PROBES, PROBE_FILLED, PROBE_GPU_TEXELS, PROBE_MOVED, PROBE_SH_TEXELS, PROBE_TEXELS, PROBE_VALID, probeGridGpuBytes } from '@thirdlight/project-model';
 
 import { atlasFromSamples, decodeProbeArtifact, decodeProbeSamples, encodePng16, packProbeTexels } from './probe-artifact';
 import { edgeWalls } from './surface-probes';

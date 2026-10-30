@@ -38,7 +38,7 @@
  *   base-2 logarithm.
  */
 import * as THREE from 'three';
-import { buildKtx2Subset, readKtx2Layout, type Ktx2Layout, type Ktx2Range } from '@thirdlight/runtime';
+import { buildKtx2Subset, readKtx2Layout, type Ktx2Layout, type Ktx2Range } from '@thirdlight/project-model';
 
 import { decodeKtx2 } from './ktx2';
 import { planMipLevels, residentBytes, type MipCandidate } from './texture-budget';

@@ -9,7 +9,7 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 
-import { DECAL_LIMITS, decalSheetCellSampling } from '@thirdlight/runtime';
+import { DECAL_LIMITS, decalSheetCellSampling } from '@thirdlight/project-model';
 
 import { BATCH_KEY, batchRefusal, createAutoBatcher } from './batching';
 import { decalPageArray } from './decal-material';

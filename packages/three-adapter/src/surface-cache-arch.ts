@@ -13,7 +13,7 @@
  *
  * Pure (no three.js).
  */
-import type { ArchitectureComponent } from '@thirdlight/runtime';
+import type { ArchitectureComponent } from '@thirdlight/project-model';
 
 import { SURFACE_CHART_METRES, type SurfaceChart } from './surface-cache-atlas';
 import type { TraceArchitecture } from './tracer-objects';

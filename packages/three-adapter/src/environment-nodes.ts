@@ -19,7 +19,7 @@
  * Pure three.js (`three/webgpu`, `three/tsl`, examples); nothing here needs a
  * GPU until a renderer builds the nodes.
  */
-import { MAX_FOG_VOLUMES } from '@thirdlight/runtime';
+import { MAX_FOG_VOLUMES } from '@thirdlight/project-model';
 import * as THREE from 'three';
 import {
   abs,

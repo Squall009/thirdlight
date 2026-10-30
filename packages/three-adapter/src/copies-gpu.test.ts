@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import { MeshStandardNodeMaterial } from 'three/webgpu';
 import { describe, expect, it } from 'vitest';
-import { INSTANCE_FLOATS } from '@thirdlight/runtime';
+import { INSTANCE_FLOATS } from '@thirdlight/project-model';
 
 import { BLOCK_FLOATS, copyDensityAt, copyLevel, prepareCopies } from './copies-prepare';
 import { buildGpuCopySet, GPU_COPIES_KEY, LIST_HEADER } from './copies-gpu';

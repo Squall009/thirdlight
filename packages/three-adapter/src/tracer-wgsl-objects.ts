@@ -4,7 +4,7 @@
  * architecture pieces or model instances, a slab test per box, a triangle
  * test per flat piece, and sphere tracing through a model's bricks.
  */
-import { DISTANCE_BRICK_CELLS, DISTANCE_BRICK_INSIDE, DISTANCE_BRICK_OUTSIDE, DISTANCE_BRICK_SIDE } from '@thirdlight/runtime';
+import { DISTANCE_BRICK_CELLS, DISTANCE_BRICK_INSIDE, DISTANCE_BRICK_OUTSIDE, DISTANCE_BRICK_SIDE } from '@thirdlight/project-model';
 
 import { BRICK_HIT_VOXELS, BRICK_MIN_STEP_VOXELS, ENTRY_EPS } from './tracer-cpu-objects';
 import { ARCH_BOX } from './tracer-objects';

@@ -7,7 +7,8 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 
-import { occludeeClassOf, type OcclusionCulling } from '@thirdlight/runtime';
+import { occludeeClassOf } from '@thirdlight/runtime';
+import { type OcclusionCulling } from '@thirdlight/project-model';
 
 import { markOccludee, occludeeFactsOf, occludeeKindOf, OccludeeRegistry, occludeeWorldBounds } from './occludees';
 import { OCCLUSION_NO_PATH_PROBLEM, OCCLUSION_SWITCH_KEY, OcclusionCuller, occlusionFromUrl, occlusionPyramidFromUrl, type OcclusionSwitch } from './occlusion';

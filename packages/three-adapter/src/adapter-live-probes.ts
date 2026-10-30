@@ -21,7 +21,7 @@
  */
 
 import * as THREE from 'three';
-import { PROBE_FILLED, PROBE_MOVED, PROBE_SH_TEXELS, PROBE_VALID, type ProbeGridRecord } from '@thirdlight/runtime';
+import { PROBE_FILLED, PROBE_MOVED, PROBE_SH_TEXELS, PROBE_VALID, type ProbeGridRecord } from '@thirdlight/project-model';
 
 import { pageSearch } from './renderer-factory';
 import type { ProbeTileForGpu } from './probe-atlas';

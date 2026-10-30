@@ -41,7 +41,7 @@
 import * as THREE from 'three';
 import * as TSLTyped from 'three/tsl';
 import { MeshStandardNodeMaterial } from 'three/webgpu';
-import { WORLD_UV_PERIOD_METRES } from '@thirdlight/runtime';
+import { WORLD_UV_PERIOD_METRES } from '@thirdlight/project-model';
 
 import { culledCopyVec4 } from './attribute-instancing';
 import type { N } from './effects-tsl';

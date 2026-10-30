@@ -21,7 +21,8 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { BlockGrid, DEFAULT_PROBE_SPACING, TerrainField, type BlockType, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
+import { BlockGrid, TerrainField, type BlockType, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
+import { DEFAULT_PROBE_SPACING } from '@thirdlight/project-model';
 
 import { traceRaysCpu } from '../../packages/three-adapter/src/tracer-cpu';
 import { groupRays, reorderRays } from '../../packages/three-adapter/src/tracer-gpu';

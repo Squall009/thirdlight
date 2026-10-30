@@ -42,7 +42,7 @@
  * Projections are three's (perspective or orthographic, off-axis allowed):
  * view x depends on the clip x row only, y on the clip y row, w on z.
  */
-import { LIGHT_LAYERS_ALL } from '@thirdlight/runtime';
+import { LIGHT_LAYERS_ALL } from '@thirdlight/project-model';
 
 import { LINE_HIGHLIGHT_METRES } from './surface-highlights';
 

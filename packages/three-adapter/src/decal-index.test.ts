@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { DECAL_CELL_BUDGET } from '@thirdlight/runtime';
+import { DECAL_CELL_BUDGET } from '@thirdlight/project-model';
 
 import { DecalGrid, decalRowsAt, type DecalBox } from './decal-index';
 

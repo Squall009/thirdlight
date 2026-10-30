@@ -24,7 +24,7 @@
  *
  * Pure data (no three.js, no device).
  */
-import { CHUNK_SIZE, LIGHT_LAYERS_ALL } from '@thirdlight/runtime';
+import { CHUNK_SIZE, LIGHT_LAYERS_ALL } from '@thirdlight/project-model';
 
 import { packArchitecture, packModelInstances, type BrickAtlas, type TraceArchitecture, type TraceModelInstance } from './tracer-objects';
 import { Words, putAffine, type Affine } from './tracer-words';

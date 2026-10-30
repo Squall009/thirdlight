@@ -36,7 +36,7 @@ import * as THREE from 'three';
 import * as TSLTyped from 'three/tsl';
 import { RenderObjectRefreshType } from 'three';
 import { NodeMaterial, TextureNode, type NodeBuilder } from 'three/webgpu';
-import { FOLIAGE_BEND_DEFAULTS, INSTANCE_FLOATS } from '@thirdlight/runtime';
+import { FOLIAGE_BEND_DEFAULTS, INSTANCE_FLOATS } from '@thirdlight/project-model';
 
 import { PAINT_SLOT_ATTRIBUTE, setGpuCopyColumns } from './attribute-instancing';
 import { CUTAWAY_LAYER } from './block-cutaway-view';

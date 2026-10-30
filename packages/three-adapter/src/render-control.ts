@@ -10,7 +10,8 @@
  * each drawn frame, and draws through the environment renderer while
  * `needsEnvironment()` says the scale needs its pipeline.
  */
-import { AMBIENT_OCCLUSION_DEFAULT, frameTargetMs, OCCLUSION_CULLING_DEFAULT, type OcclusionCulling, RENDER_SCALE_MAX, RENDER_SCALE_MIN, renderScaleOf } from '@thirdlight/runtime';
+import { frameTargetMs } from '@thirdlight/runtime';
+import { AMBIENT_OCCLUSION_DEFAULT, OCCLUSION_CULLING_DEFAULT, type OcclusionCulling, RENDER_SCALE_MAX, RENDER_SCALE_MIN, renderScaleOf } from '@thirdlight/project-model';
 
 import { DynamicResolution, type DynamicResolutionState } from './dynamic-resolution';
 import type { EnvironmentRenderer } from './environment';

@@ -15,7 +15,7 @@
  * - terrain probes follow the eye within the surface cache's rings.
  */
 import { describe, expect, it } from 'vitest';
-import { BlockGrid, TerrainField, buildDistanceBrickSet, placeProbeGrids, probeCount, type BlockType, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
+import { BlockGrid, TerrainField, buildDistanceBrickSet, placeProbeGrids, probeCount, type BlockType, type TerrainComponent, type TerrainTile } from '@thirdlight/project-model';
 
 import { NO_BRICK, PROBE_BRICK_SIDE, PROBE_PLACED_DROPPED, PROBE_PLACED_MOVED, PROBE_PLACED_VALID, ProbeMarks, brickMapAt, brickSide, latticeKey, levelSpacing, placeProbeBricks, type PlacedBricks, type ProbeSolid } from './probe-bricks';
 import { blockTileMarks, insideDistanceBricks, probeSolid, terrainMarks, terrainProbeWindow } from './probe-geometry';

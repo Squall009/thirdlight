@@ -8,7 +8,7 @@
  * what it held) or let go; assets a game page holds by name (its loading
  * screen's) are held the same way.
  */
-import type { ArchitectureComponent, BlockLayerComponent, BlockLayerData } from '@thirdlight/runtime';
+import type { ArchitectureComponent, BlockLayerComponent, BlockLayerData } from '@thirdlight/project-model';
 
 import type { ArchitectureView } from './architecture-view';
 import type { PreparedBlockLayers } from './block-layer-prepare';

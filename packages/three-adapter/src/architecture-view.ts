@@ -33,29 +33,7 @@
  */
 import * as THREE from 'three';
 import { markOccludee } from './occludees';
-import {
-  ARCHITECTURE_CHUNK_DEFAULT,
-  INSTANCE_FLOATS,
-  ARCHITECTURE_LOD_DISTANCE_DEFAULT,
-  ARCHITECTURE_MATERIAL_SLOT,
-  architectureChunkInput,
-  architectureChunkKeys,
-  architectureStylesOf,
-  decodeArchitectureChunks,
-  expandArchitecture,
-  encodeArchitectureChunks,
-  joinArchitectureChunkParts,
-  type ArchitectureChunk,
-  type ArchitectureChunkPart,
-  type ArchitectureComponent,
-  type ArchitectureGraphLike,
-  type ArchitecturePaint,
-  type ArchitecturePreview,
-  type ArchitectureRoomPlan,
-  type ArchitectureSheets,
-  type ArchitectureStyles,
-  type CutawayZone,
-} from '@thirdlight/runtime';
+import { ARCHITECTURE_CHUNK_DEFAULT, INSTANCE_FLOATS, ARCHITECTURE_LOD_DISTANCE_DEFAULT, ARCHITECTURE_MATERIAL_SLOT, architectureChunkInput, architectureChunkKeys, architectureStylesOf, decodeArchitectureChunks, expandArchitecture, encodeArchitectureChunks, joinArchitectureChunkParts, type ArchitectureChunk, type ArchitectureChunkPart, type ArchitectureComponent, type ArchitectureGraphLike, type ArchitecturePaint, type ArchitecturePreview, type ArchitectureRoomPlan, type ArchitectureSheets, type ArchitectureStyles, type CutawayZone } from '@thirdlight/project-model';
 
 import { TRIM_DATA_ATTRIBUTE } from './material-graph';
 import { answerArchitectureJob, type ArchitectureJobReply, type ArchitectureJobRequest } from './architecture-worker';
@@ -73,7 +51,7 @@ import { perfMark } from './perf-marks';
 import { PAINT_ATTRIBUTE } from './vertex-paint-draw';
 import { pathPaintAttribute, pathPaintSignature, PathPaintOverrides, PathPaintReader, PATH_PAINT_ENTITY_KEY, resamplePathPaint } from './vertex-paint-paths-view';
 import type { PathPaintPreview } from './vertex-paint-preview';
-import { pathPaintFrame, type PathPaintGrid, type PathPaintSide, type PathPaintSource } from '@thirdlight/runtime';
+import { pathPaintFrame, type PathPaintGrid, type PathPaintSide, type PathPaintSource } from '@thirdlight/project-model';
 import { SURFACE_READ } from './surface-cache-lookup';
 import { SURFACE_READ_KEY } from './surface-cache-read';
 

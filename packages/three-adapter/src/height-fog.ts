@@ -20,7 +20,8 @@
  * the node is made again only when the classic fog's mode or the sun glow is
  * switched on or off.
  */
-import { FOG_DEFAULTS, HEIGHT_FOG_DEFAULTS } from '@thirdlight/runtime';
+import { FOG_DEFAULTS } from '@thirdlight/runtime';
+import { HEIGHT_FOG_DEFAULTS } from '@thirdlight/project-model';
 import * as THREE from 'three';
 import { abs, cameraFar, cameraPosition, clamp, densityFogFactor, dot, exp, float, Fn, length, max, min, mix, normalize, output, positionLocal, positionWorld, pow, rangeFogFactor, renderGroup, select, uniform, vec4 } from 'three/tsl';
 import { MeshBasicNodeMaterial } from 'three/webgpu';

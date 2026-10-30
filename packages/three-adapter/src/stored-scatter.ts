@@ -25,7 +25,8 @@
  */
 import * as THREE from 'three';
 
-import { SCATTER_BLOB_DISTANCE, SCATTER_CHUNK_METERS_DEFAULT, INSTANCE_FLOATS, decodeChunkScatter, instanceDensityOf, resolveStreamingRings, scatterCellBytes, scatterCellOfBlob, squareDistance, storedScatterRules, type BlockChunk, type BlockLayerComponent, type BlockType, type ScatterCell, type ScatterCopyChange, type ScatterRule, type StreamingRings, type StreamRing, type TerrainComponent } from '@thirdlight/runtime';
+import { type ScatterCopyChange } from '@thirdlight/runtime';
+import { SCATTER_BLOB_DISTANCE, SCATTER_CHUNK_METERS_DEFAULT, INSTANCE_FLOATS, decodeChunkScatter, instanceDensityOf, resolveStreamingRings, scatterCellBytes, scatterCellOfBlob, squareDistance, storedScatterRules, type BlockChunk, type BlockLayerComponent, type BlockType, type ScatterCell, type ScatterRule, type StreamingRings, type StreamRing, type TerrainComponent } from '@thirdlight/project-model';
 
 import type { MeshWorkerPort } from './block-mesh-pool';
 import { COVER_FADE_START } from './cover-placement';

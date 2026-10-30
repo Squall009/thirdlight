@@ -24,7 +24,7 @@ import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 
 import { billboardAxes, flipbookFrame, flipbookRect, lightParticles, ribbonOrder, type CompiledNode, type SystemState } from '@thirdlight/effects';
-import { LIGHT_LAYERS_ALL, lightLayerMaskOf } from '@thirdlight/runtime';
+import { LIGHT_LAYERS_ALL, lightLayerMaskOf } from '@thirdlight/project-model';
 
 import { EffectLights, EffectLightSlot } from './effect-lights';
 import type { GpuPlaySystem } from './effects-gpu-batch';

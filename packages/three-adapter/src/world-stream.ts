@@ -19,7 +19,8 @@
  * again before it — a camera turning back — is kept, as a scene's model is
  * across a transition. Play diagnostics show them with every other resource.
  */
-import { inStreamRing, type ResourceManager, type StreamRing } from '@thirdlight/runtime';
+import { type ResourceManager } from '@thirdlight/runtime';
+import { inStreamRing, type StreamRing } from '@thirdlight/project-model';
 
 /** How far (m) the eye moves before a view asks again which of an object's cells to hold (sooner when its cells changed). */
 export const STREAM_RECHECK_EYE_METRES = 1;

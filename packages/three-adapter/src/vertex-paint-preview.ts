@@ -22,7 +22,7 @@
  * (an earlier stroke's result): the preview stays on top.
  */
 import * as THREE from 'three';
-import { INSTANCE_FLOATS, type PathFrame, type PathGrid, type PathPaintSide } from '@thirdlight/runtime';
+import { INSTANCE_FLOATS, type PathFrame, type PathGrid, type PathPaintSide } from '@thirdlight/project-model';
 
 import type { InstanceSetPaint } from './instancing';
 import { disposePaintedGeometry, meshPaintOf, paintBaseOf, paintedGeometry, paintSourceOf, paintStream, PAINT_ATTRIBUTE, PAINT_MESH_KEY, PAINT_PREVIEW_KEY, type PaintStream } from './vertex-paint-draw';

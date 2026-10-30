@@ -12,7 +12,7 @@ import * as THREE from 'three';
 import * as TSL from 'three/tsl';
 import { MeshStandardNodeMaterial } from 'three/webgpu';
 import { describe, expect, it } from 'vitest';
-import { BlockGrid, bakeCoverPoints, blockChunkRect, blockScatterSurface, coverPointAt, type BlockChunk, type BlockLayerComponent, type BlockType, type ScatterRule } from '@thirdlight/runtime';
+import { BlockGrid, bakeCoverPoints, blockChunkRect, blockScatterSurface, coverPointAt, type BlockChunk, type BlockLayerComponent, type BlockType, type ScatterRule } from '@thirdlight/project-model';
 
 import { COVER_DRAW_KEY, coverPointsPlacement, installCoverPlacement } from './cover-gpu';
 import { coverPointKept, coverShare, planCover } from './cover-placement';

@@ -26,7 +26,7 @@
  * switching to per-layer tilings, a trim layer added or dropped) puts them
  * back.
  */
-import { trimRowDensity, trimRowMetres, trimRowOf, trimRowV, type TrimSheet } from '@thirdlight/runtime';
+import { trimRowDensity, trimRowMetres, trimRowOf, trimRowV, type TrimSheet } from '@thirdlight/project-model';
 import type * as THREE from 'three';
 
 import { CELL_UV_KEY, TRIM_STRIPS_KEY } from './material-graph';

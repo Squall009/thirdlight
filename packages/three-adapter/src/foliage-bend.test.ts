@@ -9,7 +9,7 @@
 import * as THREE from 'three';
 import * as TSL from 'three/tsl';
 import { describe, expect, it } from 'vitest';
-import { SEE_THROUGH_DEFAULTS, type ScatterRule } from '@thirdlight/runtime';
+import { SEE_THROUGH_DEFAULTS, type ScatterRule } from '@thirdlight/project-model';
 
 import { FOLIAGE_BEND_FLOATS, FoliageBend, FoliageBendView, foliageBendAt, type FoliageBendDeps } from './foliage-bend';
 import { createMaterialLibrary } from './material-library';

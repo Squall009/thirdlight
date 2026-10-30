@@ -9,7 +9,7 @@
  */
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { BlockGrid, applyBlockEdits, type BlockType } from '@thirdlight/runtime';
+import { BlockGrid, applyBlockEdits, type BlockType } from '@thirdlight/project-model';
 
 import { BATCHED_LAYER, createAutoBatcher } from './batching';
 import { BlockLayerView, blockLookFromObject } from './block-layers';

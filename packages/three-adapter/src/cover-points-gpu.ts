@@ -12,7 +12,7 @@
  * holding that prefix.
  */
 import * as THREE from 'three';
-import { COVER_POINT_FLOATS, coverPointsBelow, type CoverPointSet } from '@thirdlight/runtime';
+import { COVER_POINT_FLOATS, coverPointsBelow, type CoverPointSet } from '@thirdlight/project-model';
 
 import type { CoverRing } from './cover-placement';
 

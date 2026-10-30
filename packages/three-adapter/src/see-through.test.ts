@@ -14,7 +14,7 @@ import * as THREE from 'three';
 import { MeshStandardNodeMaterial, NodeMaterial } from 'three/webgpu';
 import * as TSL from 'three/tsl';
 import { describe, expect, it } from 'vitest';
-import { BlockGrid, SEE_THROUGH_DEFAULTS, SEE_THROUGH_OCCLUDERS, SEE_THROUGH_SUBJECTS, type BlockLayerComponent, type SeeThroughSettings } from '@thirdlight/runtime';
+import { BlockGrid, SEE_THROUGH_DEFAULTS, SEE_THROUGH_OCCLUDERS, SEE_THROUGH_SUBJECTS, type BlockLayerComponent, type SeeThroughSettings } from '@thirdlight/project-model';
 
 import { createAttributeInstancedMesh } from './attribute-instancing';
 import { batchKey, batchKeyParts, batchRefusal, BATCH_KEY, createAutoBatcher } from './batching';

@@ -31,7 +31,7 @@
  * project-model type. Every public call returns a result object and never
  * throws across the module edge.
  */
-import { ASSET_METRIC_CAPS, MAX_SOURCE_BYTES, type ModelLodSettings, type ModelOccluderMode } from '@thirdlight/runtime';
+import { ASSET_METRIC_CAPS, MAX_SOURCE_BYTES, type ModelLodSettings, type ModelOccluderMode } from '@thirdlight/project-model';
 import * as THREE from 'three';
 import { adapterError, type AdapterError, type AdapterErrorCode } from './errors';
 import { mergeOwnership, OwnershipLedger, type ResourceOwnership } from './ownership';

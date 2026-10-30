@@ -50,7 +50,8 @@
  * diagnostic, the run proceeds).
  */
 import * as THREE from 'three';
-import { assetVersionKey, createResourceManager, instanceDensityOf, type InstanceDensity, type LoadedResource, type ModelLodSettings, type ModelOccluderMode, type ResourceManager } from '@thirdlight/runtime';
+import { assetVersionKey, createResourceManager, type LoadedResource, type ResourceManager } from '@thirdlight/runtime';
+import { instanceDensityOf, type InstanceDensity, type ModelLodSettings, type ModelOccluderMode } from '@thirdlight/project-model';
 import {
   adapterError,
   type AdapterError,
@@ -71,7 +72,7 @@ import { buildGpuCopySet } from './copies-gpu';
 import { INSTANCE_CHUNK_METERS, type BuiltInstanceSet, type InstanceSetPaint, type InstanceSetStats } from './instancing';
 import { applyModelPaint, instancePaintDigests, instanceSetPaint, modelPaintDigests } from './vertex-paint-models';
 import { copyMatrixOf, copyPreview, modelPreviewMeshes, PreviewLife, relayout, swapInPreview, type MeshPaintPreview } from './vertex-paint-preview';
-import type { InstancePaint, VertexPaintMesh } from '@thirdlight/runtime';
+import type { InstancePaint, VertexPaintMesh } from '@thirdlight/project-model';
 import type { LodTuning } from './lod-switch';
 import type { MaterialLibrary, MaterialOverridesLike } from './material-library';
 import { releaseEmissiveLooks, SHARED_MATERIAL_KEY } from './node-materials';

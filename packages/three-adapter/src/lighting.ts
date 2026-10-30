@@ -15,7 +15,7 @@
  * quaternions, presentation.md rule 2).
  */
 
-import { MIN_DIRECTION_NORM } from '@thirdlight/runtime';
+import { MIN_DIRECTION_NORM } from '@thirdlight/project-model';
 
 /** The single conservative shadow profile. Changing a value is a
  * contract change; the frozen configuration a real-browser probe ran. */

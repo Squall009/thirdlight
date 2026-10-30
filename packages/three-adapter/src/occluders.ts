@@ -27,7 +27,8 @@
  *   paths read (`occluderRoleOfDraw`).
  */
 import * as THREE from 'three';
-import { MODEL_OCC_RE, modelOccluderUse, occluderCoverageBreaks, occluderPointsOutside, occluderRoleOf, type ModelOccluderMode, type OccludeeKind, type OccluderRole } from '@thirdlight/runtime';
+import { occluderRoleOf, type OccludeeKind, type OccluderRole } from '@thirdlight/runtime';
+import { MODEL_OCC_RE, modelOccluderUse, occluderCoverageBreaks, occluderPointsOutside, type ModelOccluderMode } from '@thirdlight/project-model';
 
 import { pieceBaseName, pieceBounds, pieceLod0Meshes } from './pieces';
 import { HIDDEN_BEFORE_OCCLUSION, hiddenFromView } from './view-hidden';

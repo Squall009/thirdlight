@@ -51,7 +51,7 @@ import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { M2_GLTF_EXTENSION_ALLOWLIST, MODEL_JSON_CHUNK_BYTES_MAX, modelNodePaths } from '@thirdlight/runtime';
+import { M2_GLTF_EXTENSION_ALLOWLIST, MODEL_JSON_CHUNK_BYTES_MAX, modelNodePaths } from '@thirdlight/project-model';
 import { sharedKtx2Loader } from './ktx2';
 import {
   visualLoadFailure,

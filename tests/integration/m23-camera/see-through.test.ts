@@ -11,7 +11,8 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { physics3DConfigOf, SEE_THROUGH_LIMITS } from '@thirdlight/runtime';
+import { physics3DConfigOf } from '@thirdlight/runtime';
+import { SEE_THROUGH_LIMITS } from '@thirdlight/project-model';
 
 import { FakeNode, behaviorModule, startHarness, type Harness, type Mode } from '../m22-worker/harness';
 

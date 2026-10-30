@@ -7,7 +7,7 @@
 import * as THREE from 'three';
 import * as TSL from 'three/tsl';
 import { describe, expect, it } from 'vitest';
-import { scatterRuleSeed, type ScatterRule } from '@thirdlight/runtime';
+import { scatterRuleSeed, type ScatterRule } from '@thirdlight/project-model';
 
 import { COVER_DRAW_KEY, coverDrawPlacement, installCoverPlacement } from './cover-gpu';
 import { planCover } from './cover-placement';

@@ -13,7 +13,7 @@
  * A layer that streams is not prepared: it draws only the chunks round the
  * camera, which is not there yet, and meshes those as it arrives.
  */
-import { BlockGrid, type BlockGridReader, type BlockLayerComponent, type BlockLayerData } from '@thirdlight/runtime';
+import { BlockGrid, type BlockGridReader, type BlockLayerComponent, type BlockLayerData } from '@thirdlight/project-model';
 
 import type { ChunkMeshResult, ChunkModelRef } from './block-chunk-mesh';
 import type { MeshWorkerPool } from './block-mesh-pool';

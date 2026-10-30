@@ -3,7 +3,7 @@
  * the models, animations and instance sets it loads, and the overrides of
  * its graph materials' parameters (structural reads, no three.js).
  */
-import { instanceDensityOf, type InstancePaint, type PathPaintGrid, type VertexPaintMesh } from '@thirdlight/runtime';
+import { instanceDensityOf, type InstancePaint, type PathPaintGrid, type VertexPaintMesh } from '@thirdlight/project-model';
 
 import type { MaterialOverridesLike } from './material-library';
 import type { InstanceSetRef } from './models';

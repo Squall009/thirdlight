@@ -26,7 +26,7 @@
  * blocks side by side (`brickAtlasOrigin`): the GPU reads a distance with
  * one filtered texture sample instead of eight word loads.
  */
-import { DISTANCE_BRICK_CELLS, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, LIGHT_LAYERS_ALL, type DistanceBrickSet } from '@thirdlight/runtime';
+import { DISTANCE_BRICK_CELLS, DISTANCE_BRICK_SAMPLES, DISTANCE_BRICK_SIDE, LIGHT_LAYERS_ALL, type DistanceBrickSet } from '@thirdlight/project-model';
 
 import { Words, invertAffine, putAffine, worldToLocalOf, type Affine } from './tracer-words';
 

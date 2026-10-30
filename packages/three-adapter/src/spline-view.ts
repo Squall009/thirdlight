@@ -23,7 +23,7 @@
  *   edit does: a release takes effect at the next frame's update).
  */
 import * as THREE from 'three';
-import { LOD_REFERENCE_FOV_DEG, SPLINE_MATERIAL_SLOT, decodeSplineMade, type SplineComponent, type SplineMade } from '@thirdlight/runtime';
+import { LOD_REFERENCE_FOV_DEG, SPLINE_MATERIAL_SLOT, decodeSplineMade, type SplineComponent, type SplineMade } from '@thirdlight/project-model';
 
 import type { CoverSpline } from './cover-worker';
 import { buildInstanceSet, type BuiltInstanceSet } from './instancing';
@@ -34,7 +34,7 @@ import type { ModelInstance } from './visual';
 import { PAINT_ATTRIBUTE } from './vertex-paint-draw';
 import { pathPaintAttribute, pathPaintSignature, PathPaintOverrides, PathPaintReader, PATH_PAINT_ENTITY_KEY, resamplePathPaint } from './vertex-paint-paths-view';
 import type { PathPaintPreview } from './vertex-paint-preview';
-import { pathPaintFrame, type PathPaintGrid, type PathPaintSide, type PathPaintSource } from '@thirdlight/runtime';
+import { pathPaintFrame, type PathPaintGrid, type PathPaintSide, type PathPaintSource } from '@thirdlight/project-model';
 
 /** Screen rows a level's error is measured against (1080p): it switches where its error is under one of them. */
 const LOD_REFERENCE_ROWS = 1080;

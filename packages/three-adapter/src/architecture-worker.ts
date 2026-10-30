@@ -10,7 +10,7 @@
  *
  * This module imports no three.js: the worker bundle stays small.
  */
-import { generateArchitectureChunk, type ArchitectureChunk, type ArchitectureComponent, type ArchitectureSheets } from '@thirdlight/runtime';
+import { generateArchitectureChunk, type ArchitectureChunk, type ArchitectureComponent, type ArchitectureSheets } from '@thirdlight/project-model';
 
 import { runDecalClipWorker } from './decal-clip-worker';
 

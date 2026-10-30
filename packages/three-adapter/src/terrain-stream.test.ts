@@ -10,7 +10,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { createResourceManager, encodeTerrainOverview, encodeTerrainTile, flatTerrainTile, terrainOverviewTile, wrapTerrainOverview, wrapTerrainTile, type TerrainComponent } from '@thirdlight/runtime';
+import { createResourceManager } from '@thirdlight/runtime';
+import { encodeTerrainOverview, encodeTerrainTile, flatTerrainTile, terrainOverviewTile, wrapTerrainOverview, wrapTerrainTile, type TerrainComponent } from '@thirdlight/project-model';
 
 import { TerrainTileStore } from './terrain-tile-store';
 import { TerrainView } from './terrain-view';

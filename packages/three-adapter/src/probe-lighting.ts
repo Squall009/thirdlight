@@ -46,7 +46,7 @@
  */
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
-import { PROBE_ATLAS_PADDING } from '@thirdlight/runtime';
+import { PROBE_ATLAS_PADDING } from '@thirdlight/project-model';
 
 import type { N } from './effects-tsl';
 import { applyBlockOcclusion } from './block-ao-lighting';

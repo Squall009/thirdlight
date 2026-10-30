@@ -12,7 +12,7 @@
  */
 import * as THREE from 'three';
 import { afterEach, describe, expect, it } from 'vitest';
-import { applyBlockEdits, BlockGrid, type BlockLayerComponent, type BlockType } from '@thirdlight/runtime';
+import { applyBlockEdits, BlockGrid, type BlockLayerComponent, type BlockType } from '@thirdlight/project-model';
 
 import { PREPARED_KEEP_MS } from './block-layer-prepare';
 import { BlockLayerView, blockLookFromObject, MESH_WORKER_STALL_MS, SYNC_MESH_BUDGET_MS, type BlockLayerViewDeps } from './block-layers';

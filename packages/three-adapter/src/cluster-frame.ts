@@ -41,7 +41,7 @@
  *   as `data-tl-clusters` for pages without another diagnostics surface).
  */
 import * as THREE from 'three';
-import { DEFAULT_SHADOW_ATLAS, LIGHT_LAYERS_ALL, lightLayerMaskOf } from '@thirdlight/runtime';
+import { DEFAULT_SHADOW_ATLAS, LIGHT_LAYERS_ALL, lightLayerMaskOf } from '@thirdlight/project-model';
 
 import type { EntityDoc } from './adapter-entities';
 import { DOC_LIGHTS_MS } from './adapter-surface-cache';

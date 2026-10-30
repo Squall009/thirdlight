@@ -9,7 +9,7 @@
  */
 import * as THREE from 'three/webgpu';
 import { describe, expect, it } from 'vitest';
-import { architectureStylesOf, expandArchitecture, type ArchitectureComponent, type ArchitectureOutline } from '@thirdlight/runtime';
+import { architectureStylesOf, expandArchitecture, type ArchitectureComponent, type ArchitectureOutline } from '@thirdlight/project-model';
 
 import { batchKey, batchKeyParts, BATCH_KEY } from './batching';
 import { CutawayDrawing } from './block-cutaway-view';

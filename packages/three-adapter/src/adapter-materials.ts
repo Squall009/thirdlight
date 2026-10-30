@@ -7,7 +7,8 @@
  * Kept apart from the adapter so what objects wear is wired in one place.
  */
 import type * as THREE from 'three';
-import type { BlockType, ResourceManager } from '@thirdlight/runtime';
+import type { ResourceManager } from '@thirdlight/runtime';
+import type { BlockType } from '@thirdlight/project-model';
 
 import type { SceneAdapterOptions } from './adapter-types';
 import { createDecalPages, type AdapterDecalPages } from './decal-pages';

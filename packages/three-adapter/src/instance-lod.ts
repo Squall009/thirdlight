@@ -15,7 +15,7 @@
  * little leaves them as they are. A chunk wholly nearer than its first
  * switch, or wholly past its cull distance, is decided at once.
  */
-import { LOD_REFERENCE_FOV_DEG } from '@thirdlight/runtime';
+import { LOD_REFERENCE_FOV_DEG } from '@thirdlight/project-model';
 
 import type { LodTuning } from './lod-switch';
 import { maxScaleOf, type CullView } from './view-cull';

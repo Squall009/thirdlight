@@ -26,7 +26,7 @@
  *   drawable's `userData`), else its material's, else per pixel.
  */
 import * as THREE from 'three/webgpu';
-import { localLightModeOf, type LocalLightMode } from '@thirdlight/runtime';
+import { localLightModeOf, type LocalLightMode } from '@thirdlight/project-model';
 
 import { makeMaterialVariant, renderCallOf, syncMaterialVariant } from './material-variant';
 import { SURFACE_READ_CAPTURE, SURFACE_READ_KEY, SURFACE_READ_LIVE_KEY, SURFACE_READ_TEXTURES, SURFACE_READ_VARIANT, type SurfaceCacheTextures } from './surface-cache-read';

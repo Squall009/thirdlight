@@ -8,7 +8,8 @@
  */
 import * as THREE from 'three';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BlockGrid, applyBlockEdits, bakeScatterCell, createResourceManager, scatterBlobOf, type BlockType, type ScatterGround, type ScatterRule, type ScatterSurface, type TerrainComponent } from '@thirdlight/runtime';
+import { createResourceManager } from '@thirdlight/runtime';
+import { BlockGrid, applyBlockEdits, bakeScatterCell, scatterBlobOf, type BlockType, type ScatterGround, type ScatterRule, type ScatterSurface, type TerrainComponent } from '@thirdlight/project-model';
 
 import { BlockLayerView } from './block-layers';
 import { StoredScatter, SCATTER_GROUP_METRES } from './stored-scatter';

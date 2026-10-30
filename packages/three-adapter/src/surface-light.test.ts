@@ -7,7 +7,7 @@
  * light layers.
  */
 import { describe, expect, it } from 'vitest';
-import { BlockGrid, type BlockType } from '@thirdlight/runtime';
+import { BlockGrid, type BlockType } from '@thirdlight/project-model';
 
 import type { CacheLight } from './surface-changes';
 import { lightFrameCpu } from './surface-light-cpu';

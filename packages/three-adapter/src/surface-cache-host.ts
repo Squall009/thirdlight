@@ -19,7 +19,7 @@
  *
  * Measurements read it from `scene.userData[SURFACE_CACHE_KEY]`.
  */
-import { DEFAULT_PROBE_SPACING, LIGHT_LAYERS_ALL, decodeDistanceBricks, type ArchitectureComponent, type BlockCell, type BlockGridReader, type DistanceBricks, type TerrainField, type TerrainTile } from '@thirdlight/runtime';
+import { DEFAULT_PROBE_SPACING, LIGHT_LAYERS_ALL, decodeDistanceBricks, type ArchitectureComponent, type BlockCell, type BlockGridReader, type DistanceBricks, type TerrainField, type TerrainTile } from '@thirdlight/project-model';
 
 import { SurfaceCache, type SurfaceCacheDiagnostics, type SurfaceTile } from './surface-cache';
 import { SurfaceChanges, SurfaceColourChanges, type CacheLight } from './surface-changes';

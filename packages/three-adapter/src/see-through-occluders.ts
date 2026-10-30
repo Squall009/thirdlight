@@ -24,7 +24,7 @@
  * meet the volume are boxes, so only those members fade.
  */
 import * as THREE from 'three/webgpu';
-import { BLOCK_EDGE_THICKNESS } from '@thirdlight/runtime';
+import { BLOCK_EDGE_THICKNESS } from '@thirdlight/project-model';
 
 /** `userData[SEE_THROUGH_MEMBERS_KEY]` on a draw of many members: its members' world bounds (only those in front fade). */
 export const SEE_THROUGH_MEMBERS_KEY = '__tlSeeThroughMembers';

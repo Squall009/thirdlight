@@ -63,7 +63,7 @@
  */
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
-import { controllerCapsuleOf, controllerCapsuleOffsetZ, SEE_THROUGH_DEFAULTS, SEE_THROUGH_FIELDS, SEE_THROUGH_OCCLUDERS, SEE_THROUGH_SUBJECTS, seeThroughSettingsOf, type SeeThroughSettings } from '@thirdlight/runtime';
+import { controllerCapsuleOf, controllerCapsuleOffsetZ, SEE_THROUGH_DEFAULTS, SEE_THROUGH_FIELDS, SEE_THROUGH_OCCLUDERS, SEE_THROUGH_SUBJECTS, seeThroughSettingsOf, type SeeThroughSettings } from '@thirdlight/project-model';
 
 import { ditherKeep } from './dither-fade';
 import type { N } from './effects-tsl';

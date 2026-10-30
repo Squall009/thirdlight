@@ -17,7 +17,7 @@
  *   maps do: two reads half a period apart, each restarting while its weight
  *   is zero, so a pattern that differs from place to place never shears.
  */
-import { fillWindMap, orderWindZones, placeWindZone, WIND_DEFAULTS, WIND_MAP_CHANNELS, windValues, type PlacedWindZone, type WindValues, type WindZoneComponent } from '@thirdlight/runtime';
+import { fillWindMap, orderWindZones, placeWindZone, WIND_DEFAULTS, WIND_MAP_CHANNELS, windValues, type PlacedWindZone, type WindValues, type WindZoneComponent } from '@thirdlight/project-model';
 import * as THREE from 'three';
 import * as TSLTyped from 'three/tsl';
 

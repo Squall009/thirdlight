@@ -63,31 +63,8 @@
 import type { ScatterSink } from './stored-scatter';
 import * as THREE from 'three';
 import { markOccludee } from './occludees';
-import {
-  BlockGrid,
-  CHUNK_SIZE,
-  blockKitView,
-  edgeBlocks,
-  kitKey,
-  LIGHT_LAYERS_ALL,
-  lightLayerMaskOf,
-  type BlockChunk,
-  type BlockGridReader,
-  type BlockLayerComponent,
-  type BlockLayerKit,
-  type BlockLayerData,
-  type BlockMeshSource,
-  type BlockRegion,
-  type BlockCell,
-  type BlockType,
-  type CutawayZone,
-  type ChunkMeshPart,
-  type GridRenderChange,
-  type ScatterCopyChange,
-  type StreamRing,
-  resolveStreamingRings,
-  squareDistance,
-} from '@thirdlight/runtime';
+import { type GridRenderChange, type ScatterCopyChange } from '@thirdlight/runtime';
+import { BlockGrid, CHUNK_SIZE, blockKitView, edgeBlocks, kitKey, LIGHT_LAYERS_ALL, lightLayerMaskOf, type BlockChunk, type BlockGridReader, type BlockLayerComponent, type BlockLayerKit, type BlockLayerData, type BlockMeshSource, type BlockRegion, type BlockCell, type BlockType, type CutawayZone, type ChunkMeshPart, type StreamRing, resolveStreamingRings, squareDistance } from '@thirdlight/project-model';
 
 import { keepMetreUv, syncCellUv } from './block-cell-uv';
 import { CUTAWAY_COPY_KEY, CutawayDrawing, splitByCutaway, type CutawayDiagnostics } from './block-cutaway-view';

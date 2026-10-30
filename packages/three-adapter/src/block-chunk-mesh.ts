@@ -12,23 +12,7 @@
  * (`chunkMeshPaint`, the layer's material rules evaluated there too), and a layer with corner shading its per-vertex
  * occlusion (`chunkMeshAO`), made here so the workers make them too.
  */
-import {
-  blockTopOptions,
-  cutawaySeams,
-  cutawayZones,
-  blockVariantUv,
-  chunkLightmapLayout,
-  chunkMeshAO,
-  chunkMeshPaint,
-  meshBlockChunk,
-  shapeSource,
-  SurfaceRuleSet,
-  type BlockGridReader,
-  type BlockLayerComponent,
-  type BlockMeshSource,
-  type BlockType,
-  type ChunkMeshPart,
-} from '@thirdlight/runtime';
+import { blockTopOptions, cutawaySeams, cutawayZones, blockVariantUv, chunkLightmapLayout, chunkMeshAO, chunkMeshPaint, meshBlockChunk, shapeSource, SurfaceRuleSet, type BlockGridReader, type BlockLayerComponent, type BlockMeshSource, type BlockType, type ChunkMeshPart } from '@thirdlight/project-model';
 
 /** A model a block variant draws (an asset, optionally one piece of it). */
 export interface ChunkModelRef {

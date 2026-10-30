@@ -11,7 +11,7 @@
  */
 import * as THREE from 'three';
 
-import { coverScatterRules, type ScatterRule } from '@thirdlight/runtime';
+import { coverScatterRules, type ScatterRule } from '@thirdlight/project-model';
 
 import { isCollisionNode, isOccluderNode, lodLevel } from './pieces';
 import type { ModelInstance } from './visual';

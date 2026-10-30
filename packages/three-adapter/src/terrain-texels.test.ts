@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { flatTerrainTile, terrainLayersAt, type TerrainTile } from '@thirdlight/runtime';
+import { flatTerrainTile, terrainLayersAt, type TerrainTile } from '@thirdlight/project-model';
 
 import { metresPerStep, packFlat, packHeightNormal, packHeightNormalAlone, packHeightNormalBorder, packLayers, TERRAIN_TEXEL_BYTES } from './terrain-texels';
 

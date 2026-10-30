@@ -23,7 +23,7 @@
  * it the project's environment and LOD tuning and a player's choice; a change
  * applies at once (nothing per frame).
  */
-import { deviceLightingTier, deviceQualityLevel, levelLighting, levelScalingIsEngineDefault, qualityLevelOf, qualityLevelsOf, type DeviceGpuInfo, type DeviceLightingTier, type LightingTier, type QualityLevelConfig } from '@thirdlight/runtime';
+import { deviceLightingTier, deviceQualityLevel, levelLighting, levelScalingIsEngineDefault, qualityLevelOf, qualityLevelsOf, type DeviceGpuInfo, type DeviceLightingTier, type LightingTier, type QualityLevelConfig } from '@thirdlight/project-model';
 
 import { MAX_RENDER_PIXEL_RATIO, type EnvironmentRenderer } from './environment';
 import type { RenderControl } from './render-control';

@@ -59,7 +59,7 @@
  */
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
-import { LIGHT_LAYERS_ALL } from '@thirdlight/runtime';
+import { LIGHT_LAYERS_ALL } from '@thirdlight/project-model';
 
 import { ltcNodes, shadeAreaLight } from './cluster-area';
 import { CLUSTER_POINT, CLUSTER_RECT, CLUSTER_SPOT, CLUSTER_TWO_SIDED, CLUSTER_UNBOUNDED, CLUSTER_UNCACHED } from './cluster-build';

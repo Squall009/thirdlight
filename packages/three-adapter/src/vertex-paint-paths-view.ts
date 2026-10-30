@@ -10,7 +10,7 @@
  * never makes it again. Only painted objects pay for it.
  */
 import * as THREE from 'three';
-import { pathPaintFrame, samplePathPaint, VERTEX_PAINT_BYTES, type ArchitectureComponent, type PathGrid, type PathPaintGrid, type PathPaintSide, type PathPaintSource, type SplineComponent } from '@thirdlight/runtime';
+import { pathPaintFrame, samplePathPaint, VERTEX_PAINT_BYTES, type ArchitectureComponent, type PathGrid, type PathPaintGrid, type PathPaintSide, type PathPaintSource, type SplineComponent } from '@thirdlight/project-model';
 
 import { PAINT_ATTRIBUTE } from './vertex-paint-draw';
 import { PreviewLife, type PathPaintPreview } from './vertex-paint-preview';

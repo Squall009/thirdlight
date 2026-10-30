@@ -31,7 +31,7 @@ import { ALBEDO_CELLS, ALBEDO_PAGE_STEP, ALBEDO_RING_STEP } from './surface-cach
 import { NO_ROOM, ROOM_EXIT_MARGIN, roomsWgsl } from './surface-rooms';
 import { GOLDEN_ANGLE, GRID_WORDS, NO_BRICK_WORD, PROBE_AXIS_RAYS, PROBE_RAYS, PROBE_SH_RAYS, SH_E0, SH_E1, SH_Y0, SH_Y1 } from './surface-probes';
 import { PROBE_WEIGHT_FILLED, PROBE_WEIGHT_MOVED } from './probe-weights';
-import { PROBE_VALIDITY_THRESHOLD } from '@thirdlight/runtime';
+import { PROBE_VALIDITY_THRESHOLD } from '@thirdlight/project-model';
 import { TRACE_MISS, TRACE_UNFINISHED } from './tracer-scene';
 
 export const PROBE_WORKGROUP = 64;

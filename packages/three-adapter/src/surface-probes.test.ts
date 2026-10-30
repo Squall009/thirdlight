@@ -26,7 +26,7 @@
  */
 import * as THREE from 'three/webgpu';
 import { describe, expect, it } from 'vitest';
-import { BlockGrid, architectureStylesOf, buildRoomGraph, expandArchitecture, type ArchitectureComponent, type BlockType } from '@thirdlight/runtime';
+import { BlockGrid, architectureStylesOf, buildRoomGraph, expandArchitecture, type ArchitectureComponent, type BlockType } from '@thirdlight/project-model';
 
 import { probeUpdateCpu } from './surface-probe-cpu';
 import type { CacheLight } from './surface-changes';

@@ -29,7 +29,7 @@
  *   test of the lights and leaves the culling out (a diagnostic comparison).
  */
 import * as THREE from 'three';
-import { buildRoomGraph, ROOM_OUTSIDE, roomVisibility, walkRooms, type ArchitectureRoomPlan, type RoomGraph, type RoomGraphObject, type RoomVisibility } from '@thirdlight/runtime';
+import { buildRoomGraph, ROOM_OUTSIDE, roomVisibility, walkRooms, type ArchitectureRoomPlan, type RoomGraph, type RoomGraphObject, type RoomVisibility } from '@thirdlight/project-model';
 
 import type { BatchMembership } from './batching';
 import { lightsObject, ROOM_ATTRIBUTE, ROOM_KEY, ROOM_VERTEX_KEYS } from './light-layers';

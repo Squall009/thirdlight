@@ -12,7 +12,8 @@
  *
  * This module imports no three.js: the worker bundle stays small.
  */
-import { terrainTileOf, type TerrainTile } from '@thirdlight/runtime';
+import { terrainTileOf } from '@thirdlight/runtime';
+import { type TerrainTile } from '@thirdlight/project-model';
 
 import { terrainLodLayout, tileHeightBounds, type TileHeightBounds } from './terrain-quadtree';
 import { packHeightNormalAlone, packLayers, TERRAIN_TEXEL_BYTES } from './terrain-texels';

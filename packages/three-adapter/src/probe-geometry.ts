@@ -11,7 +11,7 @@
  *
  * Pure (no three.js, no device).
  */
-import { DISTANCE_BRICK_CELLS, DISTANCE_BRICK_INSIDE, DISTANCE_BRICK_OUTSIDE, DISTANCE_BRICK_SIDE, distanceOfSample, type BlockCell, type DistanceBrickSet, type TerrainField } from '@thirdlight/runtime';
+import { DISTANCE_BRICK_CELLS, DISTANCE_BRICK_INSIDE, DISTANCE_BRICK_OUTSIDE, DISTANCE_BRICK_SIDE, distanceOfSample, type BlockCell, type DistanceBrickSet, type TerrainField } from '@thirdlight/project-model';
 
 import { brickSide, latticeKey, runSteps, type ProbeMarks, type ProbeSolid, type Steps } from './probe-bricks';
 import { FACE_PLANE_AXES, type BlockChunkCharts, type SurfaceBlockGrid } from './surface-cache-blocks';

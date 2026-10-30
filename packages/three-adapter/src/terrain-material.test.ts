@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { WORLD_UV_PERIOD_METRES } from '@thirdlight/runtime';
+import { WORLD_UV_PERIOD_METRES } from '@thirdlight/project-model';
 
 import { terrainUvShift } from './terrain-material';
 

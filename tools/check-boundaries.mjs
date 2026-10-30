@@ -147,7 +147,10 @@ export const NODE_SIDE_ALLOWED = {
     // + effects — the visual-effect executors (WebGPU compute and
     // the CPU fallback) compile and step effect graphs with the shared
     // reference semantics of @thirdlight/effects (runtime-safe, pure).
-    packages: ['runtime', 'effects'],
+    // + project-model — the renderer draws the model's own constants, limits
+    // and pure data helpers (pure code, no I/O), imported from their one
+    // definition rather than relayed through the runtime or copied.
+    packages: ['runtime', 'effects', 'project-model'],
     external: ['three', '@types/three'],
     // Only the pinned three package's own GLTFLoader subpath is approved;
     // the empty subpath '' is the bare `three` specifier. For compressed

@@ -14,7 +14,8 @@
  * packed ahead at a game's start (`preload`), held until the renderer takes
  * them.
  */
-import { terrainOverviewOf, terrainTileBytes, terrainTileOf, type TerrainComponent, type TerrainOverviewTile, type TerrainTile } from '@thirdlight/runtime';
+import { terrainOverviewOf, terrainTileOf } from '@thirdlight/runtime';
+import { terrainTileBytes, type TerrainComponent, type TerrainOverviewTile, type TerrainTile } from '@thirdlight/project-model';
 
 import type { MeshWorkerPort } from './block-mesh-pool';
 import { packTerrainTile, type TerrainPackReply, type TerrainPackRequest, type TerrainPackShape, type TerrainTexels } from './terrain-pack-worker';

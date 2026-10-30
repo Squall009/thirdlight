@@ -57,7 +57,7 @@
  * round-trips the texture through them; the light loop follows them line
  * for line).
  */
-import { LIGHT_LAYER_COUNT } from '@thirdlight/runtime';
+import { LIGHT_LAYER_COUNT } from '@thirdlight/project-model';
 
 import { CLUSTER_COUNT_BITS, CLUSTER_LONG_LIST, CLUSTER_SPOT, CLUSTER_TWO_SIDED, CLUSTER_UNBOUNDED, CLUSTER_UNCACHED, clusterIndex, clusterSliceOf, type ClusterBuild, type ClusterGrid, type ClusterLights } from './cluster-build';
 

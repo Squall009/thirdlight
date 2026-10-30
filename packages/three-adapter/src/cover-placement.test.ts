@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import * as TSL from 'three/tsl';
 import { MeshStandardNodeMaterial } from 'three/webgpu';
 import { describe, expect, it } from 'vitest';
-import { bakeScatterCell, flatTerrainTile, regionExcluder, scatterRuleSeed, SplineScatterBands, terrainScatterSurface, terrainSplineInputs, TerrainField, ruleRangeAt, type BlockLayerComponent, type ScatterRule, type SplineComponent, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
+import { bakeScatterCell, flatTerrainTile, regionExcluder, scatterRuleSeed, SplineScatterBands, terrainScatterSurface, terrainSplineInputs, TerrainField, ruleRangeAt, type BlockLayerComponent, type ScatterRule, type SplineComponent, type TerrainComponent, type TerrainTile } from '@thirdlight/project-model';
 
 import { COVER_DRAW_KEY, CoverGpu, coverDrawPlacement, installCoverPlacement } from './cover-gpu';
 import { coverCandidate, coverMaskSide, coverRandom, coverShare, listCoverPatches, planCover, type CoverPatch, type CoverRuleConsts, type CoverTexels, type CoverTileRef } from './cover-placement';

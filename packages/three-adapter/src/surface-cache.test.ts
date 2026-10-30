@@ -7,7 +7,7 @@
  */
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { BlockGrid, TerrainField, buildDistanceBrickSet, encodeDistanceBricks, type ArchitectureComponent, type BlockType, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
+import { BlockGrid, TerrainField, buildDistanceBrickSet, encodeDistanceBricks, type ArchitectureComponent, type BlockType, type TerrainComponent, type TerrainTile } from '@thirdlight/project-model';
 
 import { SURFACE_PAGE_BYTES, SURFACE_PAGE_TEXELS, PageAtlas, areaTexels, packTile, type SurfaceChart } from './surface-cache-atlas';
 import { blockChunkCharts } from './surface-cache-blocks';

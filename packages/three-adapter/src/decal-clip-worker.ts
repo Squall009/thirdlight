@@ -14,7 +14,7 @@
  *
  * This module imports no three.js: the worker bundle stays small.
  */
-import { clipDecal, type DecalClipMesh, type DecalClipProjector } from '@thirdlight/runtime';
+import { clipDecal, type DecalClipMesh, type DecalClipProjector } from '@thirdlight/project-model';
 
 import type { ArchitectureEndpoint } from './architecture-worker';
 

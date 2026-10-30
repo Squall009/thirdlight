@@ -75,7 +75,7 @@
  *
  * Pure (no three.js, no device).
  */
-import { CHUNK_SIZE } from '@thirdlight/runtime';
+import { CHUNK_SIZE } from '@thirdlight/project-model';
 
 import { SURFACE_CHART_BORDER, SURFACE_CHART_METRES, areaTexels, type AtlasBlock, type SurfaceChart, type TilePacking } from './surface-cache-atlas';
 import { FACE_PLANE_AXES, type BlockChunkCharts } from './surface-cache-blocks';

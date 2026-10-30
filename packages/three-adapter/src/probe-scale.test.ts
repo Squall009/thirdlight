@@ -4,7 +4,8 @@
  * 2 km world of 512 tiles through the whole CPU path (load, pick, upload)
  * with an upload-recording renderer. Pixels are the e2e's (lightmaps.e2e).
  */
-import { createResourceManager, placeProbeGrids, type ProbeGridRecord } from '@thirdlight/runtime';
+import { createResourceManager } from '@thirdlight/runtime';
+import { placeProbeGrids, type ProbeGridRecord } from '@thirdlight/project-model';
 import * as THREE from 'three/webgpu';
 import { describe, expect, it } from 'vitest';
 

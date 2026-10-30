@@ -39,7 +39,7 @@
  *
  * Pure (no three.js, no device).
  */
-import { PROBE_VALIDITY_THRESHOLD, ROOM_PROBE_INSET, placeProbeGrids, type ProbeGridBox } from '@thirdlight/runtime';
+import { PROBE_VALIDITY_THRESHOLD, ROOM_PROBE_INSET, placeProbeGrids, type ProbeGridBox } from '@thirdlight/project-model';
 
 import { EMPTY_BRICK_MAP, PROBE_BRICK_SIDE, PROBE_PLACED_DROPPED, PROBE_PLACED_MOVED, PLACE_STEP_ITEMS, brickMapAt, buildBrickMap, isSteps, levelSpacing, placeProbeBricksSteps, runSteps, type BrickMap, type PlacedBricks, type ProbeMarks, type ProbeSolid, type Steps } from './probe-bricks';
 import { PROBE_WEIGHT_FILLED, PROBE_WEIGHT_MOVED, PROBE_WEIGHT_VALID } from './probe-weights';

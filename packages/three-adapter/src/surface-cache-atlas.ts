@@ -11,7 +11,7 @@
  *
  * Pure (no three.js, no device).
  */
-import { SURFACE_BAKE_LEVELS } from '@thirdlight/runtime';
+import { SURFACE_BAKE_LEVELS } from '@thirdlight/project-model';
 
 /** Metres per texel at level 0 (each level doubles it). */
 export const SURFACE_TEXEL_METRES = 0.1;

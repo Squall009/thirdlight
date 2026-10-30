@@ -5,7 +5,7 @@
  * neighbours inside geometry is only a fallback where no valid probe is
  * near. Pure.
  */
-import { PROBE_FILLED, PROBE_MOVED } from '@thirdlight/runtime';
+import { PROBE_FILLED, PROBE_MOVED } from '@thirdlight/project-model';
 
 export const PROBE_WEIGHT_VALID = 1;
 export const PROBE_WEIGHT_MOVED = 0.5;

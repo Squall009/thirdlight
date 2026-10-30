@@ -20,7 +20,7 @@
  * Pure apart from `CompressionStream` (encoding, in the editor's bake).
  */
 import * as THREE from 'three';
-import { decodePngRgba, MAX_TEXTURE_EDGE, PROBE_ARTIFACT_ROW_PROBES, PROBE_ATLAS_PADDING, PROBE_SH_TEXELS, PROBE_TEXELS, probeArtifactSize, probeCount, type ProbeGridBox } from '@thirdlight/runtime';
+import { decodePngRgba, MAX_TEXTURE_EDGE, PROBE_ARTIFACT_ROW_PROBES, PROBE_ATLAS_PADDING, PROBE_SH_TEXELS, PROBE_TEXELS, probeArtifactSize, probeCount, type ProbeGridBox } from '@thirdlight/project-model';
 
 /** The value index of a probe's validity (the last of its light's texels). */
 const VALIDITY = PROBE_SH_TEXELS * 4 - 1;

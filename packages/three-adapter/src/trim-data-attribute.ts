@@ -1,4 +1,4 @@
-import { TRIM_DATA_GLTF_ATTRIBUTE } from '@thirdlight/runtime';
+import { TRIM_DATA_GLTF_ATTRIBUTE } from '@thirdlight/project-model';
 
 /**
  * The vertex attribute trim data is kept in (the trim sheet's convention: R

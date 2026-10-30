@@ -31,7 +31,7 @@
  *
  * Pure (no three.js, no device).
  */
-import { LIGHT_LAYERS_ALL } from '@thirdlight/runtime';
+import { LIGHT_LAYERS_ALL } from '@thirdlight/project-model';
 
 import { lightReach, type CacheLight } from './surface-changes';
 import type { SurfaceRooms } from './surface-rooms';

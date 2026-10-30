@@ -11,7 +11,7 @@
  *
  * Pure (no three.js, no device).
  */
-import { CHUNK_SIZE, DISTANCE_BRICK_CELLS, type ArchitectureComponent, type BlockCell, type DistanceBricks, type DistanceBrickSet } from '@thirdlight/runtime';
+import { CHUNK_SIZE, DISTANCE_BRICK_CELLS, type ArchitectureComponent, type BlockCell, type DistanceBricks, type DistanceBrickSet } from '@thirdlight/project-model';
 
 import { blockChunkCharts, chunkOfCell, locateBlockFace, type BlockChunkCharts, type SurfaceBlockGrid } from './surface-cache-blocks';
 import { architectureCharts, architecturePiecesOf, boxFacePoint, locateArchitecturePoint, trianglePoint, type ArchitectureCharts } from './surface-cache-arch';

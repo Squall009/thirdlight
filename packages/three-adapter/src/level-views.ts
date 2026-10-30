@@ -10,7 +10,7 @@
  */
 import * as THREE from 'three';
 
-import { blockLookEntities } from '@thirdlight/runtime';
+import { blockLookEntities } from '@thirdlight/project-model';
 
 import { trimWallRowSteps } from './block-cell-uv';
 import { createCutawayFollower, type CutawayFollower } from './block-cutaway-follow';

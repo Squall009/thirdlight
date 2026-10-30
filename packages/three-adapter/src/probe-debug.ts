@@ -10,7 +10,7 @@
  */
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
-import { PROBE_FILLED, PROBE_VALID } from '@thirdlight/runtime';
+import { PROBE_FILLED, PROBE_VALID } from '@thirdlight/project-model';
 
 import type { N } from './effects-tsl';
 import { packedIrradiance, probeTextureNodes, samplePackedProbes, tableTexel, type ProbeLighting } from './probe-lighting';

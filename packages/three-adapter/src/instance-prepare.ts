@@ -14,7 +14,7 @@
  * matrix maths is three's (`Matrix4.compose`, `multiplyMatrices`,
  * `Sphere.union`), so a set made here equals one made on the page.
  */
-import { INSTANCE_FLOATS } from '@thirdlight/runtime';
+import { INSTANCE_FLOATS } from '@thirdlight/project-model';
 
 /**
  * Copies per chunk the grid aims at (a chunk is one draw per mesh: large

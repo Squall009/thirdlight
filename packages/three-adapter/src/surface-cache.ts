@@ -17,7 +17,7 @@
  *
  * Pure (no three.js, no device).
  */
-import { textDigest } from '@thirdlight/runtime';
+import { textDigest } from '@thirdlight/project-model';
 
 import { SURFACE_CHART_BORDER, SURFACE_LEVELS, SURFACE_PAGE_BYTES, SURFACE_TEXEL_BYTES, PageAtlas, areaTexels, packTile, type AtlasBlock, type SurfaceChart, type TilePacking } from './surface-cache-atlas';
 import { TERRAIN_RING_BYTES, TERRAIN_RINGS_MAX, TerrainRings, terrainRingsNeeded, type RingTexel, type TerrainRingSource } from './surface-cache-terrain';

@@ -5,7 +5,7 @@
  * its distance-field bricks. The GPU pass (`tracer-wgsl-objects.ts`) walks
  * the same way.
  */
-import { DISTANCE_BRICK_CELLS, DISTANCE_BRICK_INSIDE, DISTANCE_BRICK_OUTSIDE } from '@thirdlight/runtime';
+import { DISTANCE_BRICK_CELLS, DISTANCE_BRICK_INSIDE, DISTANCE_BRICK_OUTSIDE } from '@thirdlight/project-model';
 
 import { mapRay, packUnorm2, rayTriangle, safeDir, worldNormal, type SceneView, type TraceState, type V3 } from './tracer-cpu-math';
 import { ARCH_BOX, brickAtlasOrigin, type BrickAtlas } from './tracer-objects';

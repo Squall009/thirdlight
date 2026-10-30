@@ -9,7 +9,7 @@
  * tiles and probes take it and only what changed since the bake is stale.
  */
 import { describe, expect, it } from 'vitest';
-import { BlockGrid, TerrainField, type ArchitectureComponent, type BlockType, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
+import { BlockGrid, TerrainField, type ArchitectureComponent, type BlockType, type TerrainComponent, type TerrainTile } from '@thirdlight/project-model';
 
 import { SURFACE_PAGE_TEXELS } from './surface-cache-atlas';
 import { SurfaceCacheHost, type SurfaceHostLayer } from './surface-cache-host';

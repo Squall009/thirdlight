@@ -44,7 +44,7 @@
  * Pure three.js: textures come from an injected loader (the host resolves
  * bytes; nothing here fetches).
  */
-import { decalSheetCellSampling, heightAlphaTextures, layerSheetRows, localLightModeOf, resolveMaterialInstances, trimSurfaceMaterial, type TrimSheet } from '@thirdlight/runtime';
+import { decalSheetCellSampling, heightAlphaTextures, layerSheetRows, localLightModeOf, resolveMaterialInstances, trimSurfaceMaterial, type TrimSheet } from '@thirdlight/project-model';
 import * as THREE from 'three';
 import * as TSL from 'three/tsl';
 import { MeshBasicNodeMaterial, MeshStandardNodeMaterial, type NodeBuilder } from 'three/webgpu';

@@ -9,7 +9,7 @@
  */
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { BlockGrid, applyBlockEdits, cutawayZones, type BlockLayerComponent, type BlockType } from '@thirdlight/runtime';
+import { BlockGrid, applyBlockEdits, cutawayZones, type BlockLayerComponent, type BlockType } from '@thirdlight/project-model';
 
 import { BlockLayerView } from './block-layers';
 import { CUTAWAY_COPY_KEY, CUTAWAY_LAYER, shadowSeesCutaways, splitByCutaway } from './block-cutaway-view';

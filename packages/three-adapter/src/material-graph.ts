@@ -67,7 +67,7 @@ import { needsPreviousPlace, OWN_PREVIOUS_POSITION_KEY } from './motion-vectors'
 import { decalDrawOf, decalSortOrder, installDecalDraw, removeDecalDraw, type DecalDraw } from './mesh-decals';
 import { buildPaintSource, paintNode, withPaint } from './vertex-paint-draw';
 import { TRIM_DATA_ATTRIBUTE } from './trim-data-attribute';
-import { LAYER_NOT_READ, localLightModeOf, TEXTURE_ABSENT_VALUES, trimMaxFootprint, UV_SOURCES, WORLD_UV_PERIOD_METRES, type LocalLightMode, type TextureAbsent, type TrimSheet } from '@thirdlight/runtime';
+import { LAYER_NOT_READ, localLightModeOf, TEXTURE_ABSENT_VALUES, trimMaxFootprint, UV_SOURCES, WORLD_UV_PERIOD_METRES, type LocalLightMode, type TextureAbsent, type TrimSheet } from '@thirdlight/project-model';
 
 // TSL's typings do not follow values whose width is known only at run time.
 type N = any;

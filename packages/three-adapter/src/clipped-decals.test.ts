@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { describe, expect, it, vi } from 'vitest';
 
-import { bakedDecalMaterialName, clipDecal, decalClipGlb } from '@thirdlight/runtime';
+import { bakedDecalMaterialName, clipDecal, decalClipGlb } from '@thirdlight/project-model';
 
 import { BATCH_KEY, createAutoBatcher } from './batching';
 import { CLIPPED_DECAL_EMPTY_WAIT_MS, CLIPPED_DECAL_KEY, CLIPPED_DECAL_SETTLE_MS, ClippedDecals, CLIPPED_DECAL_STORE_PREFIX, isDecalSurface, type ClippedDecalStore, type ClippedDecalWorkers } from './clipped-decals';

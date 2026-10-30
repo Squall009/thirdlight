@@ -15,7 +15,7 @@
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
 
-import { INSTANCE_FLOATS } from '@thirdlight/runtime';
+import { INSTANCE_FLOATS } from '@thirdlight/project-model';
 
 import { CUTAWAY_LAYER } from './block-cutaway-view';
 import type { N } from './effects-tsl';

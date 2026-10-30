@@ -11,7 +11,7 @@
  *
  * Pure (no three.js).
  */
-import { DISTANCE_BRICK_CELLS, surfelCellKey, surfelFacing, type DistanceBrickSet, type SurfelSet } from '@thirdlight/runtime';
+import { DISTANCE_BRICK_CELLS, surfelCellKey, surfelFacing, type DistanceBrickSet, type SurfelSet } from '@thirdlight/project-model';
 
 import { surfelLevelFor, type SurfaceChart } from './surface-cache-atlas';
 import { invertAffine, type Affine } from './tracer-words';

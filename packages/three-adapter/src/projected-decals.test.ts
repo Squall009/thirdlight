@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 
-import { DECAL_CELL_BUDGET } from '@thirdlight/runtime';
+import { DECAL_CELL_BUDGET } from '@thirdlight/project-model';
 
 import { buildDecalIndex, DECAL_ROW_TEXELS, decalRowsAt, packDecalTable, type DecalRow } from './decal-index';
 import { createDecalProjectors } from './decal-projectors';

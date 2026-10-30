@@ -57,7 +57,7 @@
  */
 import * as THREE from 'three';
 
-import { LIGHT_LAYERS_ALL, type LocalLightMode } from '@thirdlight/runtime';
+import { LIGHT_LAYERS_ALL, type LocalLightMode } from '@thirdlight/project-model';
 
 import { createAttributeInstancedMesh, type AttributeInstancedMesh } from './attribute-instancing';
 import { CUTAWAY_MESH_KEY } from './block-cutaway-view';

@@ -33,7 +33,8 @@
  * reads its diagnostics.
  */
 import * as THREE from 'three';
-import { occlusionPathFrom, occlusionPathOf, type OccludeeKind, type OccluderRole, type OcclusionCulling, type OcclusionPath, type OcclusionRenderer } from '@thirdlight/runtime';
+import { occlusionPathFrom, occlusionPathOf, type OccludeeKind, type OccluderRole, type OcclusionPath, type OcclusionRenderer } from '@thirdlight/runtime';
+import { type OcclusionCulling } from '@thirdlight/project-model';
 
 import { OccludeeRegistry, occludeeWorldBounds, type Occludee } from './occludees';
 import { isOccluderStandin, STANDIN_VIEW_KEY, standinFollowsSurfaces, standinMaterialOf } from './occluders';

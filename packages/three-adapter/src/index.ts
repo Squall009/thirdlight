@@ -290,7 +290,7 @@ export { snapToLightGrid, staticShadowSize, STATIC_SHADOW_STEP, STATIC_SHADOW_TU
 // Static batching: static objects' meshes merged per material and world cell.
 export { markStatic, MERGE_QUIET_MS, mergeRefusal, OBJECT_FRAME_KEY, STATIC_KEY, type StaticMergeDiagnostics } from './static-merge';
 // Height fog (its defaults: what the Environment window shows for an absent field).
-export { HEIGHT_FOG_DEFAULTS } from '@thirdlight/runtime';
+export { HEIGHT_FOG_DEFAULTS } from '@thirdlight/project-model';
 // Sky, fog, fog volumes, tone mapping and the post stack.
 export {
   createEnvironmentRenderer,

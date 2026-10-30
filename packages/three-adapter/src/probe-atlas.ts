@@ -12,7 +12,7 @@
  * and are rebuilt whole when the set changes.
  */
 import * as THREE from 'three/webgpu';
-import type { ProbeGridRecord } from '@thirdlight/runtime';
+import type { ProbeGridRecord } from '@thirdlight/project-model';
 
 import { EMPTY_BRICK_MAP, buildBrickMap } from './probe-bricks';
 import { buildProbeIndex, EMPTY_PROBE_INDEX, PROBE_INDEX_WIDTH, withBrickMap, type ProbeIndexWithBricks } from './probe-index';

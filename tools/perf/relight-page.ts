@@ -8,7 +8,8 @@
  * timed until the cache is settled again. The GPU resolve is held to its
  * CPU twin on the same hits.
  */
-import { BlockGrid, PROBE_VALIDITY_THRESHOLD, TerrainField, buildRoomGraph, decodeDistanceBricks, type ArchitectureRoomPlan, type BlockType, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
+import { BlockGrid, TerrainField, type BlockType, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
+import { PROBE_VALIDITY_THRESHOLD, buildRoomGraph, decodeDistanceBricks, type ArchitectureRoomPlan } from '@thirdlight/project-model';
 
 import { probeUpdateCpu } from '../../packages/three-adapter/src/surface-probe-cpu';
 import { PROBE_FLOATS } from '../../packages/three-adapter/src/surface-probes';

@@ -39,7 +39,7 @@ import { TERRAIN_RING_TEXELS, TERRAIN_RINGS_MAX } from './surface-cache-terrain'
 import { buildsHighlights, cacheVisibility } from './surface-highlights';
 import { UNCACHED_LIGHT_CONTEXT, type LightSums } from './cluster-lights';
 import { SURFACE_TEXEL_LIT } from './surface-light-wgsl';
-import { CHUNK_SIZE } from '@thirdlight/runtime';
+import { CHUNK_SIZE } from '@thirdlight/project-model';
 import { texelTexture } from './texel-texture-node';
 
 /** TSL untyped: three's typings lag the node API used here. */

@@ -7,7 +7,8 @@
  * grid changes), and the rooms its objects make (room-culling.ts).
  */
 import type * as THREE from 'three';
-import { architectureLayerFurnishing, architecturePaintOf, architectureRoomRegions, architectureSheets, type ArchitectureGraphLike, type BlockLayerComponent, type BlockLayerData, type GridRenderChange } from '@thirdlight/runtime';
+import { type GridRenderChange } from '@thirdlight/runtime';
+import { architectureLayerFurnishing, architecturePaintOf, architectureRoomRegions, architectureSheets, type ArchitectureGraphLike, type BlockLayerComponent, type BlockLayerData } from '@thirdlight/project-model';
 
 import { ArchitectureView, type ArchitectureChunkStore, type ArchitectureViewDeps } from './architecture-view';
 import type { BlockLayerView } from './block-layers';

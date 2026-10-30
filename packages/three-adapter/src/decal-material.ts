@@ -23,7 +23,7 @@
  */
 import * as THREE from 'three';
 import * as TSL from 'three/tsl';
-import { DECAL_FADE_GLTF_ATTRIBUTE } from '@thirdlight/runtime';
+import { DECAL_FADE_GLTF_ATTRIBUTE } from '@thirdlight/project-model';
 import type { MeshBasicNodeMaterial, MeshStandardNodeMaterial } from 'three/webgpu';
 
 type Node = ReturnType<typeof TSL.float>;

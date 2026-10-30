@@ -21,7 +21,7 @@
  *
  * Pure (no three.js).
  */
-import { DEFAULT_PROBE_SPACING, LIGHT_LAYERS_ALL } from '@thirdlight/runtime';
+import { DEFAULT_PROBE_SPACING, LIGHT_LAYERS_ALL } from '@thirdlight/project-model';
 
 import type { SurfaceRelight } from './surface-relight';
 import type { SurfaceRooms } from './surface-rooms';

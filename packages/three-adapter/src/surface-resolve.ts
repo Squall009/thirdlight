@@ -45,7 +45,7 @@
  *
  * Pure (no three.js, no device).
  */
-import { DISTANCE_BRICK_CELLS, surfelFacing, type DistanceBrickSet, type SurfelSet } from '@thirdlight/runtime';
+import { DISTANCE_BRICK_CELLS, surfelFacing, type DistanceBrickSet, type SurfelSet } from '@thirdlight/project-model';
 
 import { SURFACE_CHART_BORDER, SURFACE_CHART_METRES, areaTexels, surfelLevelFor, type AtlasBlock, type SurfaceChart, type TilePacking } from './surface-cache-atlas';
 import { FACE_PLANE_AXES } from './surface-cache-blocks';

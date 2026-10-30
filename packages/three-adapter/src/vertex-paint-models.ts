@@ -11,7 +11,7 @@
  * numbers.
  */
 import * as THREE from 'three';
-import { copySlot, decodeCopyTable, normalizedPositionScale, paintPositionsHash, VERTEX_PAINT_BYTES, type InstancePaint, type VertexPaintMesh } from '@thirdlight/runtime';
+import { copySlot, decodeCopyTable, normalizedPositionScale, paintPositionsHash, VERTEX_PAINT_BYTES, type InstancePaint, type VertexPaintMesh } from '@thirdlight/project-model';
 
 import type { InstanceSetPaint } from './instancing';
 import { disposePaintedGeometry, paintedGeometry, paintStream, PAINT_MESH_KEY, type PaintStream } from './vertex-paint-draw';

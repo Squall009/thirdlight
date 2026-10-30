@@ -20,32 +20,7 @@
  *
  * This module imports no three.js: the worker bundle stays small.
  */
-import {
-  BlockGrid,
-  SurfaceRuleSet,
-  TERRAIN_BLOCKS_BLEND_DEFAULT,
-  TerrainBlockSeam,
-  TerrainField,
-  bakeCoverPoints,
-  blockChunkRect,
-  meshCoverChunkRect,
-  meshScatterSurface,
-  blockScatterSurface,
-  regionExcluder,
-  SplineScatterBands,
-  terrainScatterSurface,
-  terrainSplineInputs,
-  type BlockChunk,
-  type BlockLayerComponent,
-  type BlockLayerData,
-  type BlockType,
-  type CoverPointSet,
-  type ScatterRule,
-  type ScatterSurface,
-  type SplineComponent,
-  type TerrainComponent,
-  type TerrainTile,
-} from '@thirdlight/runtime';
+import { BlockGrid, SurfaceRuleSet, TERRAIN_BLOCKS_BLEND_DEFAULT, TerrainBlockSeam, TerrainField, bakeCoverPoints, blockChunkRect, meshCoverChunkRect, meshScatterSurface, blockScatterSurface, regionExcluder, SplineScatterBands, terrainScatterSurface, terrainSplineInputs, type BlockChunk, type BlockLayerComponent, type BlockLayerData, type BlockType, type CoverPointSet, type ScatterRule, type ScatterSurface, type SplineComponent, type TerrainComponent, type TerrainTile } from '@thirdlight/project-model';
 
 import { coverMask, coverMaskSide } from './cover-placement';
 

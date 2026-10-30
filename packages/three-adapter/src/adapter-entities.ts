@@ -7,7 +7,7 @@
  * Kept apart from the adapter so the component table grows in one place.
  */
 import * as THREE from 'three';
-import type { ArchitectureComponent, BlockLayerComponent, BlockLayerData, SplineComponent, TerrainComponent } from '@thirdlight/runtime';
+import type { ArchitectureComponent, BlockLayerComponent, BlockLayerData, SplineComponent, TerrainComponent } from '@thirdlight/project-model';
 
 import type { AdapterEffects } from './adapter-effects';
 import type { AdapterMaterials } from './adapter-materials';
@@ -25,7 +25,7 @@ import { materialParamsOf, modelRefsOf, pathPaintOf } from './entity-refs';
 import { applyEntityRenderFlags } from './entity-render-flags';
 import type { FogVolumeLike } from './environment';
 import type { WindZoneLike } from './wind-field';
-import type { WindZoneComponent } from '@thirdlight/runtime';
+import type { WindZoneComponent } from '@thirdlight/project-model';
 import type { AuthoredSurface } from './lighting';
 import { addBoxLightmapUv, type LightmapSet } from './lightmaps';
 import type { SceneLights } from './lights-shadows';

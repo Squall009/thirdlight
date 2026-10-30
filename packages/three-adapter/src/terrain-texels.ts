@@ -27,7 +27,7 @@
  *
  * Pure.
  */
-import { TERRAIN_HEIGHT_STEPS, TERRAIN_PAINT_BYTES, TERRAIN_SAMPLE_LAYERS, TERRAIN_WEIGHT_BYTES, type TerrainTile } from '@thirdlight/runtime';
+import { TERRAIN_HEIGHT_STEPS, TERRAIN_PAINT_BYTES, TERRAIN_SAMPLE_LAYERS, TERRAIN_WEIGHT_BYTES, type TerrainTile } from '@thirdlight/project-model';
 
 /** Weight channels a texel carries (a layer goes in channel `layer % 4`). */
 export const TERRAIN_LAYER_CHANNELS = 4;

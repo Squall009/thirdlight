@@ -27,7 +27,7 @@
  * sample), at most `MAX_TEXTURE_EDGE` rows a file; the files' samples,
  * concatenated, are the saved file (its own length says where it ends).
  */
-import { MAX_TEXTURE_EDGE } from '@thirdlight/runtime';
+import { MAX_TEXTURE_EDGE } from '@thirdlight/project-model';
 
 import { SURFACE_PAGE_TEXELS, type AtlasBlock } from './surface-cache-atlas';
 import { TERRAIN_RING_TEXELS } from './surface-cache-terrain';

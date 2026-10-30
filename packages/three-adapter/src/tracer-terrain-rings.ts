@@ -19,7 +19,7 @@
  *
  * Pure (no three.js, no device).
  */
-import { terrainHeightOf, terrainHoleAt, type TerrainField, type TerrainTile } from '@thirdlight/runtime';
+import { terrainHeightOf, terrainHoleAt, type TerrainField, type TerrainTile } from '@thirdlight/project-model';
 
 import { packTerrainSteps, type TraceTerrain } from './tracer-scene';
 

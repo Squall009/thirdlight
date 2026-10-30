@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 
-import { pathPaintFrame, samplePathPaint, type PathPaintGrid } from '@thirdlight/runtime';
+import { pathPaintFrame, samplePathPaint, type PathPaintGrid } from '@thirdlight/project-model';
 
 import { batchRefusal, BATCH_KEY } from './batching';
 import { meshPaintOf, paintedGeometry, paintStream, PAINT_ATTRIBUTE, PAINT_MESH_KEY } from './vertex-paint-draw';

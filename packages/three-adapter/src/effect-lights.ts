@@ -18,7 +18,7 @@
  */
 import * as THREE from 'three/webgpu';
 
-import { LIGHT_LAYERS_ALL } from '@thirdlight/runtime';
+import { LIGHT_LAYERS_ALL } from '@thirdlight/project-model';
 
 /** One slot of the pool: a point light by value (world position, linear colour). */
 export class EffectLightSlot {

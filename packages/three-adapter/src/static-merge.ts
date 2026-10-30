@@ -40,7 +40,7 @@
  */
 import * as THREE from 'three';
 
-import { LIGHT_LAYERS_ALL, type LocalLightMode } from '@thirdlight/runtime';
+import { LIGHT_LAYERS_ALL, type LocalLightMode } from '@thirdlight/project-model';
 
 import type { BatchKeyParts } from './batching';
 import { LIGHT_LAYERS_KEY, ROOM_KEY } from './light-layers';

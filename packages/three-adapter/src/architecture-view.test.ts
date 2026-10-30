@@ -7,7 +7,7 @@
  */
 import * as THREE from 'three';
 import { afterEach, describe, expect, it } from 'vitest';
-import { architectureChunkInput, architectureChunkKeys, architectureStylesOf, encodeArchitectureChunks, expandArchitecture, generateArchitectureChunk, type ArchitectureComponent } from '@thirdlight/runtime';
+import { architectureChunkInput, architectureChunkKeys, architectureStylesOf, encodeArchitectureChunks, expandArchitecture, generateArchitectureChunk, type ArchitectureComponent } from '@thirdlight/project-model';
 
 import { answerArchitectureJob, runArchitectureWorker, type ArchitectureJobReply } from './architecture-worker';
 import { ARCHITECTURE_CHUNK_MARK, ArchitectureView, type ArchitectureViewDeps } from './architecture-view';

@@ -5,7 +5,7 @@
  */
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
-import { INSTANCE_FLOATS } from '@thirdlight/runtime';
+import { INSTANCE_FLOATS } from '@thirdlight/project-model';
 
 import { INSTANCE_MATRIX_ATTRIBUTE, withEmptyInstanceDraws, type AttributeInstancedMesh } from './attribute-instancing';
 import { ChunkLodPicker, REPICK_MOVE_FRACTION, TAN_HALF_REFERENCE } from './instance-lod';

@@ -49,7 +49,7 @@
  */
 import * as THREE from 'three/webgpu';
 import * as TSLTyped from 'three/tsl';
-import { DECAL_FADE, DECAL_LAYERS_ALL } from '@thirdlight/runtime';
+import { DECAL_FADE, DECAL_LAYERS_ALL } from '@thirdlight/project-model';
 
 import { DECAL_HASH, DECAL_ROW_TEXELS, DECAL_TEXTURE_WIDTH } from './decal-index';
 import type { N } from './effects-tsl';

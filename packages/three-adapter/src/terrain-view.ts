@@ -57,7 +57,8 @@ import type { ScatterSink } from './stored-scatter';
 import * as THREE from 'three';
 import { markOccludee } from './occludees';
 import type { WebGPURenderer } from 'three/webgpu';
-import { flatTerrainTile, resolveStreamingRings, squareDistance, TerrainField, terrainFlatStep, terrainHeightOf, terrainTileBytes, terrainTileKey, terrainTileSize, TERRAIN_OVERVIEW_SAMPLES, type GridRenderChange, type ResolvedStreamingRings, type TerrainComponent, type TerrainTile } from '@thirdlight/runtime';
+import { type GridRenderChange } from '@thirdlight/runtime';
+import { flatTerrainTile, resolveStreamingRings, squareDistance, TerrainField, terrainFlatStep, terrainHeightOf, terrainTileBytes, terrainTileKey, terrainTileSize, TERRAIN_OVERVIEW_SAMPLES, type ResolvedStreamingRings, type TerrainComponent, type TerrainTile } from '@thirdlight/project-model';
 
 import { disposeSharingGeometry } from './dispose';
 import { TerrainNodeCopies } from './terrain-node-culling';

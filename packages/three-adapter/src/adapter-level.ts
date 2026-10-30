@@ -7,7 +7,8 @@
  * Kept apart from the adapter so the level's views are wired in one place.
  */
 import type * as THREE from 'three';
-import { architectureFloorTriangles, coverScatterRules, type ArchitectureComponent, type BlockType, type ResourceManager } from '@thirdlight/runtime';
+import { type ResourceManager } from '@thirdlight/runtime';
+import { architectureFloorTriangles, coverScatterRules, type ArchitectureComponent, type BlockType } from '@thirdlight/project-model';
 
 import type { SceneAdapterOptions } from './adapter-types';
 import { createAdapterArchitecture, type AdapterArchitecture } from './architecture-adapter';

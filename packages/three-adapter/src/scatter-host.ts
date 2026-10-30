@@ -12,7 +12,7 @@ import { CoverView } from './cover-view';
 import type { LodTuning } from './lod-switch';
 import type { WarmDraw } from './program-warmer';
 import { StoredScatter, type ScatterSink } from './stored-scatter';
-import type { TerrainTile } from '@thirdlight/runtime';
+import type { TerrainTile } from '@thirdlight/project-model';
 import type { TerrainCoverSurface } from './terrain-view';
 import type { CullView } from './view-cull';
 import type { ModelInstance } from './visual';

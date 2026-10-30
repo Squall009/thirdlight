@@ -32,7 +32,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { buildDistanceBricks, encodeDistanceBricks, readModelGeometry } from '@thirdlight/project-model';
-import { DEFAULT_SURFACE_CACHE_MIB, DEFAULT_SURFACE_LIGHT_MS } from '@thirdlight/runtime';
+import { DEFAULT_SURFACE_CACHE_MIB, DEFAULT_SURFACE_LIGHT_MS } from '@thirdlight/project-model';
 
 import type { CacheLight } from '../../packages/three-adapter/src/surface-changes';
 import { PERF_ROOT, REPO } from './backend';
