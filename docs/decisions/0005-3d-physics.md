@@ -1,7 +1,8 @@
 # Decision 0005 — 3D physics (phase 23.0)
 
 Status: **SUPERSEDED by decision 0007 (one physics backend; 2D is a plane),
-2026-10-25.** It stays binding until phase 41 removes the 2D backend.
+2026-10-25.** Phase 41 removed the 2D backend (2026-10-26); historical record only.
+§1's pin is still the one in use.
 Formerly: **ACCEPTED — phase 23 owner approval (2026-09-26: "phase 23 approved
 from the Skyforge gap list"); the design was decided by the main session
 (`docs/plan-phase-23.md` 23.0 "Design"); final owner manual review

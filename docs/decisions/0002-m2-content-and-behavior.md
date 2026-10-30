@@ -1,5 +1,11 @@
 # Decision 0002 — M2 content and behavior
 
+> **Superseded, historical record (2026-10-30).** Written in the packet workflow; the `docs/handoffs/` and
+> `docs/contracts/` it cites are archived in `archive/packet-workflow/docs/`. The code, its tests and the manual
+> (`docs/manual`) are the authority now. Since then: §1's 2D Rapier pin is gone (one Rapier 3D backend,
+> decision 0007), the v1/v2 storage and schemas were removed (phases 8–9; schema 8 is current), and the game
+> rules M2 carried left the engine (phase 24).
+
 Status: **APPROVED — owner pre-approval (autonomous M2 build instruction,
 2026-09-18); final manual review pending.** Gate E accepted every proposal/diff
 row 2026-09-18 (`docs/handoffs/gate-e.md`) and the docs-only promotion applied

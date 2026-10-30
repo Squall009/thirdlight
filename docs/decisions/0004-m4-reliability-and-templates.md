@@ -1,5 +1,9 @@
 # Decision 0004 — M4 reliability and templates
 
+> **Superseded, historical record (2026-10-30).** Templates, the game pin, backups and the starter are what the
+> code and `docs/manual` describe today (templates are stored game folders in the current format since phase 44).
+> The `docs/handoffs/` and `docs/contracts/` it cites are archived in `archive/packet-workflow/docs/`.
+
 Status: **ACCEPTED at Gate Q (2026-09-22) — owner pre-approval under the
 standing M4 authorization ("continue until all of M4 is implemented — do not
 stop until it is finished"); final owner manual review pending.** Promotion

@@ -3,7 +3,9 @@
 > **Resolved by phase 24** (2026-09-28, `docs/plan-phase-24.md`). The genre
 > layer described below is deleted, not kept as a kit: enemies, pickups,
 > zones, the game session, the level flow, lives, score, the classic HUD and
-> Beacon Reach are gone; `packages/platformer` is `packages/character`.
+> Beacon Reach are gone; `packages/platformer` became `packages/character`,
+> which phase 41 removed with the 2D backend (the one controller is in
+> `packages/physics-rapier`).
 > Generic primitives (collectible, health, patrol, hitbox, trigger scene
 > transitions, camera track, look overrides, event sounds, the game shell)
 > replace them; old game data is refused on load by name. Tests no longer
