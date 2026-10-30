@@ -40,6 +40,8 @@
 import {
   BUILTIN_MODULES,
   ENGINE_STATS_NONE,
+  MODULE_IDS,
+  PORT_MODULE_IDS,
   type BehaviorStats,
   character3DSpec,
   behaviorModuleId,
@@ -653,8 +655,6 @@ function toControlError(error: RuntimeError): GameControlError {
  * composition's injected spec table (`moduleSpecs`).
  */
 const RUNTIME_SIMULATION_SPECS: readonly SimulationModuleSpec[] = [character3DSpec];
-/** The port modules the delivery wrapper injects (checked, not registered). */
-const PORT_MODULES = new Set(['thirdlight.physics-rapier:3d', 'thirdlight.input:keyboard-gamepad', 'thirdlight.three-adapter:gltf-loader']);
 
 /**
  * Select the simulation modules from the manifest's module list (the build's
@@ -680,8 +680,9 @@ function selectModules(
       picked.add(spec);
       continue;
     }
-    if (id === 'thirdlight.demo:box-motion') continue; // a runtime built-in (already registered)
-    if (PORT_MODULES.has(id)) {
+    if (id === MODULE_IDS.boxMotionDemo) continue; // a runtime built-in (already registered)
+    // The port modules the delivery wrapper injects (checked, not registered).
+    if (PORT_MODULE_IDS.has(id)) {
       ports.push(id);
       continue;
     }
@@ -696,7 +697,7 @@ function selectModules(
     }
   }
   for (const id of ports) {
-    if (id === 'thirdlight.physics-rapier:3d' && !hasPhysics) {
+    if (id === MODULE_IDS.physics3d && !hasPhysics) {
       return { ok: false, error: { code: 'host_module_unresolved', message: `module ${id} is required but no physics port was injected` } };
     }
   }

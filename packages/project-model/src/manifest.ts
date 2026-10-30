@@ -1,4 +1,5 @@
 import { canonicalJsonText, sha256Hex, sha256HexOfText } from '@thirdlight/shared';
+import { MODULE_IDS } from './modules';
 /**
  * The runtime-content manifest's shared pieces: its discriminator, the content
  * file size caps, the build-options record, the engine pins and module table
@@ -70,9 +71,9 @@ export const M2_ENGINE_PINS: ReadonlyArray<{ id: string; version: string; apiVer
 
 /** The package a known module id belongs to (the manifest `modules` rows). */
 export const M2_MODULE_PACKAGES: Readonly<Record<string, string>> = Object.freeze({
-  'thirdlight.demo:box-motion': '@thirdlight/runtime',
-  'thirdlight.input:keyboard-gamepad': '@thirdlight/input',
-  'thirdlight.three-adapter:gltf-loader': '@thirdlight/three-adapter',
+  [MODULE_IDS.boxMotionDemo]: '@thirdlight/runtime',
+  [MODULE_IDS.keyboardGamepad]: '@thirdlight/input',
+  [MODULE_IDS.gltfLoader]: '@thirdlight/three-adapter',
 });
 
 /** One reachable source-bearing behavior. */

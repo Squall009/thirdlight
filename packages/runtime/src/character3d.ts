@@ -23,7 +23,7 @@
  * (frame, intents, the previous result), so a recorded input run replays the
  * same positions in the page, the simulation worker and the export.
  */
-import { CONTROLLER_ACTION_DEFAULTS, character3DSettingsOf, controllerActionsOf, controllerCapsuleOf, controllerCapsuleOffsetZ, controllerMovementOf } from '@thirdlight/project-model';
+import { CONTROLLER_ACTION_DEFAULTS, MODULE_IDS, character3DSettingsOf, controllerActionsOf, controllerCapsuleOf, controllerCapsuleOffsetZ, controllerMovementOf } from '@thirdlight/project-model';
 import { actionPhase } from './actions';
 import { CLIMB_GRAB_INPUT, climbInputOf, moveOf, originOf, turnToward, writeFacing, yawOf, type Character3DStatus, type ControllerOne } from './character-moves';
 import { createArcadeOne } from './character-arcade';
@@ -33,8 +33,8 @@ import type { CharacterMoveResult3D, PhysicsVec3 } from './ports';
 import type { EntityV3 } from '@thirdlight/project-model';
 import type { ModuleConfig, RuntimeSnapshot, SimulationModuleSpec, SimulationPhaseModule, StepContext } from './types';
 
-/** The module id (project-model's engine module table names it too). */
-export const CHARACTER_3D_MODULE_ID = 'thirdlight.character3d:controller';
+/** The module id (the model's). */
+export const CHARACTER_3D_MODULE_ID = MODULE_IDS.character3d;
 
 /** The name of the input action that switches walking to running while held (a controller's `runAction` default). */
 export const RUN_ACTION = CONTROLLER_ACTION_DEFAULTS.runAction;
@@ -468,7 +468,7 @@ function createOne(found: { id: string; controller: unknown; rotation: readonly 
 export const character3DSpec: SimulationModuleSpec = {
   id: CHARACTER_3D_MODULE_ID,
   phases: ['controller', 'transform'],
-  excludes: ['thirdlight.demo:box-motion'],
+  excludes: [MODULE_IDS.boxMotionDemo],
   requiresPhysicsPort: true,
   create: createCharacter3DModule,
 };

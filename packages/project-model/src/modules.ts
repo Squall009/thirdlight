@@ -16,9 +16,30 @@
  * `unresolved` and the caller refuses (creation, Play, export).
  */
 
+/**
+ * The engine's module ids, by what each module is. Compositions, the manifest
+ * tables and the runtime's own modules name a module through these, so a
+ * module id is spelled once.
+ */
+export const MODULE_IDS = Object.freeze({
+  /** The early demo simulation (a box oscillating on X). */
+  boxMotionDemo: 'thirdlight.demo:box-motion',
+  /** The keyboard and gamepad input port. */
+  keyboardGamepad: 'thirdlight.input:keyboard-gamepad',
+  /** The physics backend port. */
+  physics3d: 'thirdlight.physics-rapier:3d',
+  /** The kinematic character controller (a runtime built-in). */
+  character3d: 'thirdlight.character3d:controller',
+  /** The glTF model loader port. */
+  gltfLoader: 'thirdlight.three-adapter:gltf-loader',
+} as const);
+
+/** One engine module id. */
+export type EngineModuleId = (typeof MODULE_IDS)[keyof typeof MODULE_IDS];
+
 export interface EngineModule {
   /** The module id (`<package-short>:<module>`). */
-  id: string;
+  id: EngineModuleId;
   /** The package that provides it. */
   package: string;
   /**
@@ -27,7 +48,7 @@ export interface EngineModule {
    */
   kind: 'simulation' | 'port';
   /** Modules this one needs (closed transitively at resolution). */
-  requires: readonly string[];
+  requires: readonly EngineModuleId[];
   /**
    * A simulation module outside the runtime — the name its
    * package exports its `SimulationModuleSpec` under. A composition (the
@@ -38,23 +59,26 @@ export interface EngineModule {
 }
 
 /** The physics backend's module id: a host whose manifest names it injects the port. */
-export const PHYSICS_3D_MODULE_ID = 'thirdlight.physics-rapier:3d';
+export const PHYSICS_3D_MODULE_ID = MODULE_IDS.physics3d;
 
 export const ENGINE_MODULES: readonly EngineModule[] = Object.freeze(([
-  { id: 'thirdlight.demo:box-motion', package: '@thirdlight/runtime', kind: 'simulation', requires: [] },
-  { id: 'thirdlight.input:keyboard-gamepad', package: '@thirdlight/input', kind: 'port', requires: [] },
+  { id: MODULE_IDS.boxMotionDemo, package: '@thirdlight/runtime', kind: 'simulation', requires: [] },
+  { id: MODULE_IDS.keyboardGamepad, package: '@thirdlight/input', kind: 'port', requires: [] },
   { id: PHYSICS_3D_MODULE_ID, package: '@thirdlight/physics-rapier', kind: 'port', requires: [] },
   // The kinematic character controller (a runtime built-in, like the demo module). Listed in
   // dependency order (a module after the modules it needs): a composition registers the selected
   // specs in this order.
-  { id: 'thirdlight.character3d:controller', package: '@thirdlight/runtime', kind: 'simulation', requires: [PHYSICS_3D_MODULE_ID, 'thirdlight.input:keyboard-gamepad'] },
-  { id: 'thirdlight.three-adapter:gltf-loader', package: '@thirdlight/three-adapter', kind: 'port', requires: [] },
+  { id: MODULE_IDS.character3d, package: '@thirdlight/runtime', kind: 'simulation', requires: [PHYSICS_3D_MODULE_ID, MODULE_IDS.keyboardGamepad] },
+  { id: MODULE_IDS.gltfLoader, package: '@thirdlight/three-adapter', kind: 'port', requires: [] },
 ] as EngineModule[]).map((m) => Object.freeze(m)));
 
 const BY_ID: ReadonlyMap<string, EngineModule> = new Map(ENGINE_MODULES.map((m) => [m.id, m]));
 
 /** Every module id this engine provides (ascending). */
-export const ENGINE_MODULE_IDS: readonly string[] = Object.freeze([...BY_ID.keys()].sort());
+export const ENGINE_MODULE_IDS: readonly EngineModuleId[] = Object.freeze(ENGINE_MODULES.map((m) => m.id).sort());
+
+/** The port modules: capabilities a delivery wrapper injects, which a host checks rather than registers. */
+export const PORT_MODULE_IDS: ReadonlySet<string> = new Set(ENGINE_MODULES.filter((m) => m.kind === 'port').map((m) => m.id));
 
 /**
  * What a behavior may require, by engine package id → the modules that
@@ -62,22 +86,22 @@ export const ENGINE_MODULE_IDS: readonly string[] = Object.freeze([...BY_ID.keys
  * (always present). A script that needs the character controller
  * references it through a `controller` component.
  */
-export const BEHAVIOR_PACKAGE_MODULES: Readonly<Record<string, readonly string[]>> = Object.freeze({
+export const BEHAVIOR_PACKAGE_MODULES: Readonly<Record<string, readonly EngineModuleId[]>> = Object.freeze({
   '@thirdlight/runtime': [],
   '@thirdlight/physics-rapier': [PHYSICS_3D_MODULE_ID],
-  '@thirdlight/input': ['thirdlight.input:keyboard-gamepad'],
-  '@thirdlight/three-adapter': ['thirdlight.three-adapter:gltf-loader'],
+  '@thirdlight/input': [MODULE_IDS.keyboardGamepad],
+  '@thirdlight/three-adapter': [MODULE_IDS.gltfLoader],
 });
 
 /**
  * The module a scene component references. Presence of the component is the
  * reference; nothing else about a project selects a module.
  */
-export const COMPONENT_MODULES: Readonly<Record<string, string>> = Object.freeze({
+export const COMPONENT_MODULES: Readonly<Record<string, EngineModuleId>> = Object.freeze({
   // The kinematic character controller.
-  controller: 'thirdlight.character3d:controller',
+  controller: MODULE_IDS.character3d,
   // A glTF model needs the loader port.
-  model: 'thirdlight.three-adapter:gltf-loader',
+  model: MODULE_IDS.gltfLoader,
   // A collider alone needs the backend (rays and picks without a character).
   collider: PHYSICS_3D_MODULE_ID,
   blockLayer: PHYSICS_3D_MODULE_ID,
@@ -118,7 +142,7 @@ export function resolveRequiredModules(input: ResolveModulesInput): ResolveModul
     if (!wanted.has(id)) wanted.set(id, requiredBy);
   };
 
-  if (input.demo === true) want('thirdlight.demo:box-motion', 'declared');
+  if (input.demo === true) want(MODULE_IDS.boxMotionDemo, 'declared');
   for (const e of input.scene?.entities ?? []) {
     const c = (e['components'] ?? {}) as Record<string, unknown>;
     for (const [component, id] of Object.entries(COMPONENT_MODULES)) if (c[component] !== undefined) want(id, 'scene');

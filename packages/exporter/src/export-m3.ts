@@ -31,6 +31,7 @@ import { DECODER_LICENSES, decoderFiles, decodersNeeded } from './decoders';
 import { build, version as esbuildVersion } from 'esbuild';
 import {
   ENGINE_VERSION,
+  PHYSICS_3D_MODULE_ID,
   digestBytes,
   digestEmittedClosure,
   fixedStepHzOf,
@@ -63,8 +64,6 @@ const WORKER_BUNDLE_NAME = 'js/sim-worker.js';
 const MESH_WORKER_BUNDLE_NAME = 'js/mesh-worker.js';
 /** The physics backend (rapier3d), emitted only for a game that needs physics. */
 const PHYSICS_BUNDLE_NAME = 'js/physics-3d.js';
-/** The module that marks a 3D project's physics. */
-const PHYSICS_3D_MODULE = 'thirdlight.physics-rapier:3d';
 const SCENE_NAME = 'scene.json';
 const MANIFEST_NAME = 'manifest.json';
 const META_NAME = 'meta.json';
@@ -253,7 +252,7 @@ export async function exportProjectM3(
     return text.includes('"blockLayer"') || text.includes('"tileSamples"') || text.includes('"architecture"');
   });
   // The physics engine ships only with a game that needs it.
-  const withPhysics = closure.moduleIds.includes(PHYSICS_3D_MODULE);
+  const withPhysics = closure.moduleIds.includes(PHYSICS_3D_MODULE_ID);
   const planned: { name: string; entry: string; what: string; moduleIds?: readonly string[]; wasm?: true }[] = [
     { name: WORKER_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-sim-worker.ts'), what: 'simulation worker', moduleIds: closure.moduleIds },
     ...(hasBlockLayers ? [{ name: MESH_WORKER_BUNDLE_NAME, entry: ctx.fs.join(here, 'export-mesh-worker.ts'), what: 'block mesh, terrain and architecture worker' }] : []),

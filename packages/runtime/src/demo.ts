@@ -15,6 +15,7 @@
  *
  * No user scripts: this module is compile-time-linked through the narrow registry.
  */
+import { MODULE_IDS } from '@thirdlight/project-model';
 import type {
   RuntimeSnapshot,
   SimState,
@@ -22,8 +23,8 @@ import type {
   SimulationModuleSpec,
 } from './types';
 
-/** Module ID (the registry's name syntax). */
-export const DEMO_MODULE_ID = 'thirdlight.demo:box-motion';
+/** Module ID (the model's). */
+export const DEMO_MODULE_ID = MODULE_IDS.boxMotionDemo;
 
 /** A = 0.5 m (half-amplitude of the X oscillation). */
 export const DEMO_AMPLITUDE = 0.5;

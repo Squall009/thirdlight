@@ -3,6 +3,7 @@
  * settings block, a media identity, one model asset, and one value for every
  * optional block (a block added to the manifest must be added here).
  */
+import { MODULE_IDS } from './modules';
 import { mediaProfileDigest } from './manifest-v2';
 
 // A small synthetic settings block in registry order (all defaults).
@@ -58,7 +59,7 @@ export function v2Input(over: Record<string, unknown> = {}) {
     behaviors: [],
     settings: SETTINGS,
     media: MEDIA,
-    moduleIds: ['thirdlight.physics-rapier:3d', 'thirdlight.character3d:controller'],
+    moduleIds: [MODULE_IDS.physics3d, MODULE_IDS.character3d],
     ...over,
   };
 }

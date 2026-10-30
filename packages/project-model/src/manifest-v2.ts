@@ -43,6 +43,7 @@
  */
 import { sha256Hex, sha256HexOfText } from '@thirdlight/shared';
 import type { PlaneLock } from './plane-lock';
+import { MODULE_IDS } from './modules';
 import { canonicalSaveSchema, validateSaveSchema, type SaveSchema } from './save-schema';
 import { canonicalBlockTypes, canonicalCellFields, validateBlockTypes, validateCellFields, type BlockType, type CellField } from './block-layers';
 import { canonicalEnvironment, canonicalMaterialMapping, canonicalMaterials, validateEnvironment, validateMaterials, type EnvironmentConfig, type MaterialDef, type SceneEnvironment } from './materials';
@@ -229,9 +230,9 @@ export const M3_ENGINE_PINS: ReadonlyArray<{ id: string; version: string; apiVer
 /** The package a known module id belongs to (the manifest `modules` rows). */
 export const M3_MODULE_PACKAGES: Readonly<Record<string, string>> = Object.freeze({
   // The physics backend.
-  'thirdlight.physics-rapier:3d': '@thirdlight/physics-rapier',
+  [MODULE_IDS.physics3d]: '@thirdlight/physics-rapier',
   // The character controller (a runtime built-in).
-  'thirdlight.character3d:controller': '@thirdlight/runtime',
+  [MODULE_IDS.character3d]: '@thirdlight/runtime',
 });
 
 /** The engine module IDs this model version knows (ascending). */

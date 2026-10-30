@@ -163,6 +163,12 @@ export const OWNED_FAMILIES = Object.freeze([
   { family: 'toolchain-pins', owner: 'packages/project-model/src/manifest.ts', names: ['TOOLCHAIN_PINS', 'ESBUILD_PIN', 'TYPESCRIPT_PIN'] },
   { family: 'shell-screens', owner: 'packages/project-model/src/shell.ts', names: ['SHELL_SCREENS', 'UI_SHELL_SCREENS'] },
   { family: 'ui-engine-actions', owner: 'packages/project-model/src/ui-documents.ts', names: ['UI_ENGINE_ACTIONS', 'ENGINE_ACTIONS', 'UI_SAVE_SLOTS', 'SAVE_SLOTS'] },
+  // The module ids; the runtime's and the exporter's named ids alias these (a string literal id is not caught by name).
+  {
+    family: 'module-ids',
+    owner: 'packages/project-model/src/modules.ts',
+    names: ['MODULE_IDS', 'PORT_MODULE_IDS', 'PORT_MODULES', 'PHYSICS_3D_MODULE_ID', 'PHYSICS_3D_MODULE', 'DEMO_MODULE_ID', 'CHARACTER_3D_MODULE_ID'],
+  },
 ]);
 
 /**
