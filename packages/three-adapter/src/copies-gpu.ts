@@ -35,7 +35,7 @@
 import * as THREE from 'three';
 import * as TSLTyped from 'three/tsl';
 import { RenderObjectRefreshType } from 'three';
-import { NodeMaterial, TextureNode, type NodeBuilder } from 'three/webgpu';
+import { NodeMaterial, type NodeBuilder } from 'three/webgpu';
 import { FOLIAGE_BEND_DEFAULTS, INSTANCE_FLOATS } from '@thirdlight/project-model';
 
 import { PAINT_SLOT_ATTRIBUTE, setGpuCopyColumns } from './attribute-instancing';
@@ -51,6 +51,7 @@ import { KEEP_MATERIAL_KEY } from './material-keys';
 import { setCopyBend, setCopyRoot } from './node-materials';
 import { PAINT_COPIES_KEY, PAINT_MESH_KEY, PAINT_STREAM_KEY } from './vertex-paint-draw';
 import { maxScaleOf, SphereSide, STATIC_SHADOW_CAMERA_KEY, VIEW_CULL_KEY, type CullView, type ViewCullable } from './view-cull';
+import { texelTexture } from './texel-texture-node';
 import type { ModelInstance } from './visual';
 import type { WarmDraw } from './program-warmer';
 
@@ -74,17 +75,6 @@ export const LIST_HEADER = 5;
 const MAX_LEVELS = 8;
 /** A switch distance never reached (a level the model does not have). */
 const NEVER = 3.4e38;
-
-/** A data texture read texel by texel as uploaded (no transform, no flip-Y uniform), its value bound per draw. */
-class CopyTextureNode extends (TextureNode as unknown as new (value: THREE.Texture) => object) {
-  setUpdateMatrix(): this {
-    (this as unknown as { updateMatrix: boolean }).updateMatrix = false;
-    return this;
-  }
-  setupUV(_builder: unknown, uvNode: N): N {
-    return uvNode;
-  }
-}
 
 const floatTexture = (data: Float32Array, width: number, height: number): THREE.DataTexture => {
   const t = new THREE.DataTexture(data, width, height, THREE.RGBAFormat, THREE.FloatType);
@@ -111,8 +101,8 @@ interface CopyDraw {
 }
 
 const drawOf = (object: THREE.Object3D | null | undefined): CopyDraw | undefined => object?.userData[GPU_COPIES_KEY] as CopyDraw | undefined;
-const copiesTexture: N = TSL.nodeObject(new CopyTextureNode(NO_COPIES));
-const listTexture: N = TSL.nodeObject(new CopyTextureNode(NO_LIST));
+const copiesTexture: N = texelTexture(NO_COPIES);
+const listTexture: N = texelTexture(NO_LIST);
 const ZERO4 = new THREE.Vector4(0, 0, 0, 0);
 const IDENTITY = new THREE.Matrix4();
 /**

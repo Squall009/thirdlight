@@ -39,6 +39,7 @@ import * as TSLTyped from 'three/tsl';
 import { instanceColumn, PAINT_SLOT_ATTRIBUTE } from './attribute-instancing';
 import { disposeSharingGeometry } from './dispose';
 import type { N } from './effects-tsl';
+import { texelTexture } from './texel-texture-node';
 
 /** TSL untyped: three's typings lag the node API used here. */
 const TSL: N = TSLTyped;
@@ -205,17 +206,6 @@ export function disposePaintedGeometry(g: THREE.BufferGeometry): void {
 
 // ---- the paint a build reads ------------------------------------------------------------------------
 
-/** A data texture read texel by texel as uploaded: no transform, no flip-Y switch (each would cost a per-draw uniform). */
-class PaintStreamNode extends (THREE.TextureNode as unknown as new (value: THREE.Texture) => object) {
-  setUpdateMatrix(): this {
-    (this as unknown as { updateMatrix: boolean }).updateMatrix = false;
-    return this;
-  }
-  setupUV(_builder: unknown, uvNode: N): N {
-    return uvNode;
-  }
-}
-
 /** What a draw without a stream binds in its place (never read: its slots are all 0). */
 const NO_STREAM = ((): THREE.DataTexture => {
   const t = new THREE.DataTexture(new Uint8Array(4), 1, 1, THREE.RGBAFormat, THREE.UnsignedByteType);
@@ -223,7 +213,7 @@ const NO_STREAM = ((): THREE.DataTexture => {
   return t;
 })();
 
-const streamTexture: N = TSL.nodeObject(new PaintStreamNode(NO_STREAM));
+const streamTexture: N = texelTexture(NO_STREAM);
 /** The drawn object's stream: its vertices per slot, and (set on the way) the texture the read binds. */
 const streamVertices: N = uniform(0, 'int').onObjectUpdate(({ object }: { object: THREE.Object3D }) => {
   const s = object.userData[PAINT_STREAM_KEY] as PaintStream | undefined;
