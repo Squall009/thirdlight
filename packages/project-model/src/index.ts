@@ -214,6 +214,8 @@ export {
   SURFACE_PRESETS,
   SURFACE_PRESET_NAMES,
   type SurfacePresetName,
+  ANIMATION_ROLE_KEYS,
+  type AnimationRoleKey,
   V3_REGISTRY,
   isFolderEntity,
   MAX_TAGS,

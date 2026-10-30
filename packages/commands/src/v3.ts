@@ -16,7 +16,7 @@
 import { CONTROLLER_FIELDS, DECAL_FIELDS, VERTEX_PAINT_FIELDS, WIND_ZONE_FIELDS, FOLIAGE_BEND_FIELDS, validateFoliageBendComponent, validateDecalComponent, validateVertexPaintComponent, validateWindZoneComponent } from '@thirdlight/project-model';
 import { CAMERA_PATH_FIELDS, CAMERA_REGION_FIELDS, VIRTUAL_CAMERA_FIELDS, validateCameraPathComponent, validateCameraRegionComponent, validateVirtualCameraComponent, validateProbeVolumeComponent } from '@thirdlight/project-model';
 import { BLOCK_LAYER_FIELDS, validateBlockLayerComponent, validateBlockFootprintComponent } from '@thirdlight/project-model';
-import { validateBehaviorGroupComponent } from '@thirdlight/project-model';
+import { ANIMATION_ROLE_KEYS, validateBehaviorGroupComponent } from '@thirdlight/project-model';
 import { SPLINE_FIELDS, TERRAIN_FIELDS, validateSplineComponent, validateTerrainComponent } from '@thirdlight/project-model';
 import { ARCHITECTURE_FIELDS, validateArchitectureComponent } from '@thirdlight/project-model';
 import { SOCKET_ATTACH_FIELDS, validateSocketAttachComponent } from '@thirdlight/project-model';
@@ -36,7 +36,6 @@ import type {
   CommandError,
   ContentDocument,
   OwnedComponent,
-  SurfacePresetName,
   V3OwnedComponent,
 } from './types';
 import { escapePointer as pointerSegment, isPlainObject } from '@thirdlight/shared';
@@ -113,8 +112,6 @@ export const COMPONENT_FIELD_ORDER: Record<OwnedComponent, readonly string[]> = 
 /** `applySurfacePreset`'s `changedFields` (the surface field order). */
 export const SURFACE_CHANGED_FIELDS: readonly string[] = COMPONENT_FIELD_ORDER_V3.surface;
 
-/** The three role keys, in canonical order. */
-export const ANIMATION_ROLE_KEYS = ['idle', 'run', 'airborne'] as const;
 
 /** All six v3 add-capable components, in `setComponent` table order. */
 export const V3_COMPONENTS: readonly V3OwnedComponent[] = [
@@ -190,13 +187,6 @@ export const REMOVABLE_COMPONENTS: readonly string[] = [
   'collider',
   'controller',
   ...V3_COMPONENTS,
-];
-
-/** The built-in preset names (generic names). */
-export const SURFACE_PRESET_NAMES: readonly SurfacePresetName[] = [
-  'matte-ground',
-  'signal-red',
-  'emissive-accent',
 ];
 
 /**

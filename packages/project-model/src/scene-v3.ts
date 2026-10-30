@@ -176,8 +176,8 @@ export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY.filter((c) => c !=
 const KNOWN_LIGHT_FIELDS = new Set(['type', 'color', 'intensity', 'direction', 'castShadow', 'shadowMapSize', 'shadowBias', 'shadowNormalBias', 'shadowExtent']);
 
 /**
- * The directional light's shadow settings (data; absent = the
- * defaults, three-adapter `DIRECTIONAL_SHADOW_DEFAULTS` holds the same values):
+ * The directional light's shadow settings (data; absent = the defaults
+ * below, which the renderer draws with too):
  * - map size 1024²: over the default 48 m square a texel is 4.7 cm, a crisp
  *   shadow for a person-size object in a side, top-down or third-person view,
  *   at a quarter of the memory of 2048²; WebGL 2 guarantees 2048, WebGPU 8192
@@ -196,7 +196,7 @@ export const DIRECTIONAL_SHADOW_LIMITS = {
   normalBias: { min: 0, max: 1 },
   extent: { min: 1, max: 64 },
 } as const;
-export const DIRECTIONAL_SHADOW_DEFAULTS = { mapSize: 1024, bias: -0.0005, normalBias: 0.02, extent: 24 } as const;
+export const DIRECTIONAL_SHADOW_DEFAULTS = Object.freeze({ mapSize: 1024, bias: -0.0005, normalBias: 0.02, extent: 24 } as const);
 /** v4: the local light fields. */
 const KNOWN_LIGHT_FIELDS_V4 = new Set(['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode', 'cookie']);
 /** A spot light's cookie names a texture asset (the id pattern of every asset). */

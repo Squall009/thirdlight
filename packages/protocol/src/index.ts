@@ -268,7 +268,6 @@ export {
   V3_SCENE_KEYS,
   V3_STORAGE_VERSION,
   CONTENT_PROJECTION_KEYS,
-  ANIMATION_ROLE_KEYS,
   parseStageInspectRequest,
   parseProjectFilesQuery,
   parseProjectFileInspectRequest,

@@ -9,7 +9,11 @@
  */
 import type { ProjectedEntity } from './projection';
 import { CONTENT_STAGE_MAX } from '@thirdlight/protocol';
-import { MAX_EMISSIVE_INTENSITY, MAX_INTENSITY, MIN_DIRECTION_NORM, SCENE_LIMITS_V3 } from '@thirdlight/project-model/limits';
+import { ANIMATION_ROLE_KEYS, MAX_EMISSIVE_INTENSITY, MAX_INTENSITY, MIN_DIRECTION_NORM, SCENE_LIMITS_V3, SURFACE_PRESET_NAMES } from '@thirdlight/project-model/limits';
+import type { AnimationRoleKey, SurfacePresetName } from '@thirdlight/project-model';
+
+export type { AnimationRoleKey, SurfacePresetName };
+export { SURFACE_PRESET_NAMES };
 
 // ---------------------------------------------------------------------------
 // Drop validation (the extension decides the kind; the bytes are checked at import)
@@ -240,22 +244,6 @@ export interface SurfaceForm {
   emissiveIntensity: string;
 }
 
-/** The three built-in preset names (commands.md). */
-export const SURFACE_PRESET_NAMES = ['matte-ground', 'signal-red', 'emissive-accent'] as const;
-export type SurfacePresetName = (typeof SURFACE_PRESET_NAMES)[number];
-
-/**
- * The frozen preset rows (a display mirror of project-model's
- * `SURFACE_PRESETS` — the backend applies the authoritative row on
- * `applySurfacePreset`; the panel shows what will be applied).
- */
-export const SURFACE_PRESETS: Readonly<Record<SurfacePresetName, SurfaceView>> = Object.freeze({
-  // They must equal the authoritative rows (media.test.ts pins them).
-  'matte-ground': Object.freeze({ color: '#6f6f6f', roughness: 0.95, metalness: 0, emissive: '#000000', emissiveIntensity: 0 }),
-  'signal-red': Object.freeze({ color: '#d42a1e', roughness: 0.55, metalness: 0, emissive: '#3a0703', emissiveIntensity: 0.35 }),
-  'emissive-accent': Object.freeze({ color: '#2f7fd4', roughness: 0.4, metalness: 0.1, emissive: '#1bc8ff', emissiveIntensity: 1.2 }),
-});
-
 /**
  * Parse + validate the surface form: two `#hex` colors,
  * `0 <= roughness <= 1`, `0 <= metalness <= 1`, `0 <= emissiveIntensity <= 4`.
@@ -312,8 +300,6 @@ export function planSetSurface(
 // Model animation profiles and the animated reimport
 // ---------------------------------------------------------------------------
 
-export const ANIMATION_ROLE_KEYS = ['idle', 'run', 'airborne'] as const;
-export type AnimationRoleKey = (typeof ANIMATION_ROLE_KEYS)[number];
 export const ANIMATION_PROFILE_BYTES_MAX = SCENE_LIMITS_V3.animationProfileBytes;
 
 export interface AnimationRoleBinding {

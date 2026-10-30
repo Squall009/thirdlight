@@ -15,7 +15,7 @@
  * quaternions, presentation.md rule 2).
  */
 
-import { MIN_DIRECTION_NORM } from '@thirdlight/project-model';
+import { DIRECTIONAL_SHADOW_DEFAULTS, MIN_DIRECTION_NORM } from '@thirdlight/project-model';
 
 /** The single conservative shadow profile. Changing a value is a
  * contract change; the frozen configuration a real-browser probe ran. */
@@ -36,24 +36,10 @@ export const SHADOW_PROFILE = Object.freeze({
   farMax: 200,
 } as const);
 
-/**
- * The directional light's shadow settings when its data sets
- * none (`light.shadowMapSize`, `shadowBias`, `shadowNormalBias`,
- * `shadowExtent`; the same values and their genre-neutral reasons as
- * project-model `DIRECTIONAL_SHADOW_DEFAULTS`). They replace the frozen
- * profile's 512² map without bias (which striped instance sets and curved
- * models with self-shadowing); SHADOW_PROFILE keeps the camera derivation.
- */
-export const DIRECTIONAL_SHADOW_DEFAULTS = Object.freeze({
-  /** 1024²: a 4.7 cm texel over the default 48 m square. */
-  mapSize: 1024,
-  /** Removes acne on surfaces facing the light without lifting the shadow off its caster. */
-  bias: -0.0005,
-  /** Metres along the normal: about half a texel at the defaults (no stripes on grazing surfaces). */
-  normalBias: 0.02,
-  /** Half the side of the square that follows the camera in a v4 game (the former engine constant). */
-  extent: 24,
-} as const);
+// The directional light's shadow settings when its data sets none, and the
+// three built-in surface rows: the model's own values (they replace the frozen
+// profile's 512² map without bias; SHADOW_PROFILE keeps the camera derivation).
+export { DIRECTIONAL_SHADOW_DEFAULTS, SURFACE_PRESETS } from '@thirdlight/project-model';
 
 /** The shadow settings of a directional light (its data over the defaults). */
 export function directionalShadowSettings(l: AuthoredLight | null): { mapSize: number; bias: number; normalBias: number; extent: number } {
@@ -66,38 +52,6 @@ export function directionalShadowSettings(l: AuthoredLight | null): { mapSize: n
     extent: fin(l?.shadowExtent, d.extent),
   };
 }
-
-/**
- * The three frozen preset rows (a **value row**, never a resource).
- * Single change point per package (the dependencies.md pattern):
- * `three-adapter` has no `project-model` edge, so it keeps its own
- * copy of the closed table; `lighting.test.ts` pins it bit-equal against the
- * contract rows, and the media checker pins the promoted fixture against the
- * model table — the two are transitively equal.
- */
-export const SURFACE_PRESETS = Object.freeze({
-  'matte-ground': Object.freeze({
-    color: '#6f6f6f',
-    roughness: 0.95,
-    metalness: 0,
-    emissive: '#000000',
-    emissiveIntensity: 0,
-  }),
-  'signal-red': Object.freeze({
-    color: '#d42a1e',
-    roughness: 0.55,
-    metalness: 0,
-    emissive: '#3a0703',
-    emissiveIntensity: 0.35,
-  }),
-  'emissive-accent': Object.freeze({
-    color: '#2f7fd4',
-    roughness: 0.4,
-    metalness: 0.1,
-    emissive: '#1bc8ff',
-    emissiveIntensity: 1.2,
-  }),
-} as const);
 
 /** The XY region the key light's shadow covers (a square around the camera's start). */
 export interface ShadowRegion {

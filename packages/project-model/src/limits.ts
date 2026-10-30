@@ -21,6 +21,8 @@ export { GROUND_NORMAL_TOLERANCE, MAX_COLLISION_LAYERS } from './components';
 export { MAX_EMISSIVE_INTENSITY, MAX_INTENSITY, MIN_DIRECTION_NORM } from './scene-v3';
 export { SCENE_OBJECT_BUDGET_BYTES } from './scene-memory';
 export { MAX_INSTANCES, SCENE_LIMITS_V3 } from './types-v3';
+// The animation role keys and the built-in surface rows (the importer, the protocol and the editor name them).
+export { ANIMATION_ROLE_KEYS, SURFACE_PRESET_NAMES, SURFACE_PRESETS } from './types-v3';
 export { EVENT_CUE_LIMITS } from './event-cues';
 export { MODE_LIMITS } from './modes';
 export { MAX_ANIMATOR_LAYERS } from './animator';

@@ -28,7 +28,8 @@ import {
   settingUnknown,
 } from './errors';
 import { COLLIDER_SHAPE_TYPES, MAX_BEHAVIOR_SOURCE_BYTES, SET_COMPONENT_ENTITIES_MAX, isValidSourcePath, type PropertyValue, type SettingsKeySpec, DIGEST_RE } from '@thirdlight/project-model';
-import { COMPONENT_FIELD_ORDER, SURFACE_PRESET_NAMES } from './v3';
+import { COMPONENT_FIELD_ORDER } from './v3';
+import { SURFACE_PRESET_NAMES } from '@thirdlight/project-model';
 import type {
   AcknowledgeBehaviorTrustArgs,
   ApplySurfacePresetArgs,

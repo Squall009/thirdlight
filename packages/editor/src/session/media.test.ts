@@ -12,8 +12,6 @@ import {
   LIGHT_INTENSITY_MAX,
   SURFACE_EMISSIVE_INTENSITY_MAX,
   SURFACE_METALNESS_MAX,
-  SURFACE_PRESETS,
-  SURFACE_PRESET_NAMES,
   SURFACE_ROUGHNESS_MAX,
   canonicalColor,
   lightCounts,
@@ -278,29 +276,6 @@ describe('planSetSurface — add = complete, edit = changed fields only', () => 
   it('is a noop when equal or invalid', () => {
     expect(planSetSurface('box-0001', current, form()).kind).toBe('noop');
     expect(planSetSurface('box-0001', current, form({ roughness: '2' })).kind).toBe('noop');
-  });
-});
-
-describe('the built-in presets are the frozen preset rows (display mirror)', () => {
-  it('lists exactly the three preset names', () => {
-    expect([...SURFACE_PRESET_NAMES]).toEqual(['matte-ground', 'signal-red', 'emissive-accent']);
-  });
-
-  it('each row is a complete, frozen surface value', () => {
-    for (const name of SURFACE_PRESET_NAMES) {
-      const p = SURFACE_PRESETS[name];
-      expect(Object.isFrozen(p)).toBe(true);
-      expect(Object.keys(p).sort()).toEqual(['color', 'emissive', 'emissiveIntensity', 'metalness', 'roughness']);
-      expect(Number.isFinite(p.roughness)).toBe(true);
-    }
-  });
-
-  it('equals the authoritative project-model rows', () => {
-    expect(SURFACE_PRESETS).toEqual({
-      'matte-ground': { color: '#6f6f6f', roughness: 0.95, metalness: 0, emissive: '#000000', emissiveIntensity: 0 },
-      'signal-red': { color: '#d42a1e', roughness: 0.55, metalness: 0, emissive: '#3a0703', emissiveIntensity: 0.35 },
-      'emissive-accent': { color: '#2f7fd4', roughness: 0.4, metalness: 0.1, emissive: '#1bc8ff', emissiveIntensity: 1.2 },
-    });
   });
 });
 

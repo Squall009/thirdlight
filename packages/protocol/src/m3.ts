@@ -18,7 +18,7 @@
  * Pure: no I/O, no Node built-ins, types-only edges to `commands`/`project-model`.
  */
 import { ID_RE, QUALITY_LEVEL_ID_RE } from '@thirdlight/project-model/limits';
-import { MAX_TEXTURE_LAYERS } from '@thirdlight/project-model/limits';
+import { ANIMATION_ROLE_KEYS, MAX_TEXTURE_LAYERS } from '@thirdlight/project-model/limits';
 import type {
   ApplySurfacePresetArgs,
   ChangeData,
@@ -874,8 +874,6 @@ export function validateGameObservation(value: unknown): FieldErrorResult {
 
 // ---- the additive stage-inspect request ---------------------------
 
-/** `idle`/`run`/`airborne` — the exact animation role keys. */
-export const ANIMATION_ROLE_KEYS = ['idle', 'run', 'airborne'] as const;
 
 /** One animation role binding (structurally identical to the pipeline's input). */
 export interface AnimationRoleBindingValue {

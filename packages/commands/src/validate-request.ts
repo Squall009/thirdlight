@@ -51,7 +51,7 @@ import {
   limitsExceeded,
 } from './errors';
 import { MUTATION_OPS } from './mutation-ops';
-import { SURFACE_PRESET_NAMES } from './v3';
+import { SURFACE_PRESET_NAMES } from '@thirdlight/project-model';
 import { validatePasteArgs } from './paste-ops';
 import { CREATE_ENTITIES_MAX } from './ops';
 import {

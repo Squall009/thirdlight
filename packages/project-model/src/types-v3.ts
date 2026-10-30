@@ -174,6 +174,10 @@ export interface SurfaceComponent {
  */
 export type AnimationRoleBinding = Record<string, unknown>;
 
+/** The animation role keys, in their fixed order (the importer, the commands, the protocol and the editor list them). */
+export const ANIMATION_ROLE_KEYS = Object.freeze(['idle', 'run', 'airborne'] as const);
+export type AnimationRoleKey = (typeof ANIMATION_ROLE_KEYS)[number];
+
 /** Animated model instance. */
 export interface ModelAnimationComponent {
   /** Resolves in `content.assets` with `kind === 'model'`. */

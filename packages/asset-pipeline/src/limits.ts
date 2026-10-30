@@ -59,8 +59,8 @@ export const ANIMATION_PROFILE_MAX_TRACKS_PER_CLIP = 32;
 export const ANIMATION_PROFILE_MAX_TRACK_TIMES = 4_096;
 export const ANIMATION_PROFILE_MAX_CLIP_MS = 10_000;
 
-/** The fixed role key order. */
-export const ANIMATION_ROLE_KEYS = Object.freeze(['idle', 'run', 'airborne'] as const);
+/** The fixed role key order (the model's). */
+export { ANIMATION_ROLE_KEYS } from '@thirdlight/project-model/limits';
 
 /** `clipName` is 1–128 characters with no control characters. */
 export const ANIMATION_ROLE_NAME_CHARS = 128;
