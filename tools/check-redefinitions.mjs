@@ -161,6 +161,8 @@ export const OWNED_FAMILIES = Object.freeze([
   { family: 'import-extensions', owner: 'packages/project-model/src/descriptor-types.ts', names: ['IMPORT_EXTENSIONS', 'IMPORTABLE', 'importKindOf'] },
   // The recorded toolchain; behavior-build names its two pins as aliases of these, and tools/check-deps.mjs checks them against the installed pins.
   { family: 'toolchain-pins', owner: 'packages/project-model/src/manifest.ts', names: ['TOOLCHAIN_PINS', 'ESBUILD_PIN', 'TYPESCRIPT_PIN'] },
+  { family: 'shell-screens', owner: 'packages/project-model/src/shell.ts', names: ['SHELL_SCREENS', 'UI_SHELL_SCREENS'] },
+  { family: 'ui-engine-actions', owner: 'packages/project-model/src/ui-documents.ts', names: ['UI_ENGINE_ACTIONS', 'ENGINE_ACTIONS', 'UI_SAVE_SLOTS', 'SAVE_SLOTS'] },
 ]);
 
 /**

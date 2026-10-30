@@ -336,6 +336,9 @@ test("a button's engine action reloads the scene it names or the active one; the
   await expect(action.locator('option[value="restartLevel"]')).toHaveText('restartLevel (deprecated)');
   await expect(action.locator('option[value="newGame"]')).toHaveAttribute('title', /^Deprecated: use a new game the game builds in a script/);
   await expect(action.locator('option[value="reloadScene"]')).toHaveText('reloadScene');
+  // The list is the model's: the binding resets are offered; rebind (it names an input action this field cannot pick) is not.
+  await expect(action.locator('option[value="resetBindings"]')).toHaveCount(1);
+  await expect(action.locator('option[value="rebind"]')).toHaveCount(0);
   // reloadScene: the active scene unless a scene is named.
   await action.selectOption('reloadScene');
   await expect.poll(onClick).toEqual({ do: 'engine', action: 'reloadScene' });

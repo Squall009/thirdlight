@@ -11,7 +11,7 @@
  *
  * Browser-only (React).
  */
-import { SETTINGS_ENGINE_BINDINGS, UI_DEPRECATED_ENGINE_ACTIONS, UI_LIMITS } from '@thirdlight/project-model/limits';
+import { SETTINGS_ENGINE_BINDINGS, SHELL_SCREENS, UI_DEPRECATED_ENGINE_ACTIONS, UI_ENGINE_ACTIONS, UI_LIMITS, UI_SAVE_SLOTS } from '@thirdlight/project-model/limits';
 import { useEffect, useState, type JSX } from 'react';
 import type { FieldDescriptor, ObjectFieldDescriptor, UiAction, UiEngineAction, UiStyle } from '@thirdlight/project-model';
 
@@ -343,8 +343,6 @@ export function StyleMapEditor(p: {
 // ---------------------------------------------------------------------------
 
 // + open (a game shell screen), nextScene (the shell's scene list, deprecated), reloadScene (a scene as authored again), loadScene and unloadScene.
-const ENGINE_ACTIONS: readonly UiEngineAction[] = ['resume', 'pause', 'reloadScene', 'loadScene', 'unloadScene', 'restartLevel', 'newGame', 'continue', 'quitToTitle', 'settings', 'load', 'save', 'back', 'setSetting', 'mute', 'unmute', 'open', 'nextScene'];
-const SHELL_SCREENS = ['title', 'pause', 'settings', 'controls', 'save', 'load'] as const;
 // + dialogue (advance, choose, skip, auto, backlog — a dialogue document's buttons).
 const DO_KINDS = ['event', 'engine', 'show', 'hide', 'toggle', 'play', 'dialogue'] as const;
 const DIALOGUE_INPUTS = ['advance', 'choose', 'skip', 'auto', 'backlog'] as const;
@@ -410,7 +408,8 @@ export function ActionsField(p: {
           {a.do === 'engine' && (
             <>
               <select className="tl-input" aria-label={`${p.aria} ${i + 1} engine action`} value={a.action} onChange={(e) => setAtI(i, { do: 'engine', action: e.target.value as UiEngineAction, ...(e.target.value === 'setSetting' ? { setting: 'music', step: 1 } : {}), ...(e.target.value === 'open' ? { screen: 'settings' } : {}), ...((e.target.value === 'loadScene' || e.target.value === 'unloadScene') && p.scenes?.[0] !== undefined ? { scene: a.scene ?? p.scenes[0].sceneId } : {}) })}>
-                {ENGINE_ACTIONS.map((x) => (
+                {/* rebind names the input action it rebinds, which this field cannot pick: it is listed only for an action that already is one. */}
+                {UI_ENGINE_ACTIONS.filter((x) => x !== 'rebind' || a.action === 'rebind').map((x) => (
                   <option key={x} value={x} title={UI_DEPRECATED_ENGINE_ACTIONS[x] !== undefined ? `Deprecated: use ${UI_DEPRECATED_ENGINE_ACTIONS[x].replacement}` : undefined}>
                     {UI_DEPRECATED_ENGINE_ACTIONS[x] !== undefined ? `${x} (deprecated)` : x}
                   </option>
@@ -449,7 +448,7 @@ export function ActionsField(p: {
               {(a.action === 'load' || a.action === 'save') && (
                 <select className="tl-input" aria-label={`${p.aria} ${i + 1} slot`} value={a.slot ?? ''} onChange={(e) => setAtI(i, e.target.value === '' ? (({ slot: _s, ...r }) => r)(a) : { ...a, slot: e.target.value })}>
                   <option value="">default slot</option>
-                  {['auto', '1', '2', '3'].map((s) => (
+                  {UI_SAVE_SLOTS.map((s) => (
                     <option key={s} value={s}>
                       {s}
                     </option>

@@ -82,4 +82,7 @@ export { GRAPH_CURVE_LIMITS } from './graph';
 export { INSTANCE_BRUSH_LIMITS, INSTANCE_BRUSH_REACH } from './instance-brush';
 // The deprecated UI engine actions and what replaces them (the editor marks them).
 export { UI_DEPRECATED_ENGINE_ACTIONS } from './ui-documents';
+// The engine actions, the shell screens an `open` action names and the save slots a load/save action names (the UI document editor offers them).
+export { UI_ENGINE_ACTIONS, UI_SAVE_SLOTS } from './ui-documents';
+export { SHELL_SCREENS } from './shell';
 export { SEE_THROUGH_DEFAULTS, SEE_THROUGH_LIMITS, SEE_THROUGH_OCCLUDERS, SEE_THROUGH_SETTING_KEYS, SEE_THROUGH_SUBJECTS, seeThroughSettingsOfProject } from './see-through';

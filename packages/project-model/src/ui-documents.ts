@@ -23,6 +23,7 @@
  */
 import { canonicalJsonValue, isPlainObject } from '@thirdlight/shared';
 import { ID_RE } from './validate';
+import { SHELL_SCREENS } from './shell';
 import type { ModelErrorV2 } from './errors';
 import { projectInputMaps } from './input';
 import { frameRateCapOf } from './frame-rate-cap';
@@ -329,7 +330,8 @@ export const UI_LIMITS = Object.freeze({
 });
 
 export const UI_WIDGET_TYPES: readonly UiWidgetType[] = ['panel', 'stack', 'grid', 'text', 'image', 'bar', 'button', 'list', 'input'];
-export const UI_ENGINE_ACTIONS: readonly UiEngineAction[] = ['resume', 'pause', 'restartLevel', 'newGame', 'continue', 'quitToTitle', 'settings', 'load', 'save', 'back', 'setSetting', 'mute', 'unmute', 'rebind', 'cancelRebind', 'resetBindings', 'open', 'nextScene', 'reloadScene', 'loadScene', 'unloadScene'];
+/** The engine actions, in the order the editor offers them (the scene actions before the deprecated flow actions they replace). */
+export const UI_ENGINE_ACTIONS: readonly UiEngineAction[] = Object.freeze(['resume', 'pause', 'reloadScene', 'loadScene', 'unloadScene', 'restartLevel', 'newGame', 'continue', 'quitToTitle', 'settings', 'load', 'save', 'back', 'setSetting', 'mute', 'unmute', 'rebind', 'cancelRebind', 'resetBindings', 'open', 'nextScene'] as const);
 /**
  * Engine actions that decide a game's flow — the engine does not know what a
  * level restart, a new game or the next level is. They keep working (a run
@@ -346,8 +348,6 @@ export const UI_DEPRECATED_ENGINE_ACTIONS: Readonly<Partial<Record<UiEngineActio
 export const UI_TWEEN_KINDS: readonly UiTweenKind[] = ['fade', 'slide', 'scale', 'stamp'];
 export const UI_EASINGS: readonly UiEasing[] = ['linear', 'easeIn', 'easeOut', 'easeInOut', 'back'];
 export const UI_GENERIC_FONTS = ['sans', 'serif', 'mono', 'rounded'] as const;
-/** The shell screens an engine `open` action names (project-model `SHELL_SCREENS`). */
-export const UI_SHELL_SCREENS = ['title', 'pause', 'settings', 'controls', 'save', 'load'] as const;
 /** The save slots an engine load/save action names (the game host's). */
 export const UI_SAVE_SLOTS = ['auto', '1', '2', '3'] as const;
 /** Widget ids, style/tween/icon names and event names. */
@@ -538,8 +538,8 @@ function validateActions(errors: ModelErrorV2[], v: unknown, path: string, refs:
         if (a['scene'] !== undefined && !(typeof a['scene'] === 'string' && ID_RE.test(a['scene']))) err(errors, 'field_value', `${p}/scene`, 'scene names a scene', a['scene'], 'a sceneId');
         if ((a['action'] === 'loadScene' || a['action'] === 'unloadScene') && a['scene'] === undefined) err(errors, 'field_missing', `${p}/scene`, `${String(a['action'])} names the scene it ${a['action'] === 'loadScene' ? 'loads' : 'unloads'}`, undefined, 'a sceneId');
         // Open names the shell screen it opens.
-        oneOf(errors, a['screen'], `${p}/screen`, UI_SHELL_SCREENS, 'screen');
-        if (a['action'] === 'open' && a['screen'] === undefined) err(errors, 'field_missing', `${p}/screen`, 'open names the shell screen it opens', undefined, UI_SHELL_SCREENS.join(' | '));
+        oneOf(errors, a['screen'], `${p}/screen`, SHELL_SCREENS, 'screen');
+        if (a['action'] === 'open' && a['screen'] === undefined) err(errors, 'field_missing', `${p}/screen`, 'open names the shell screen it opens', undefined, SHELL_SCREENS.join(' | '));
         // Rebind names the input action (and optionally the device, binding index, composite part and conflict policy).
         if (a['input'] !== undefined && !(typeof a['input'] === 'string' && /^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(a['input']))) err(errors, 'field_value', `${p}/input`, 'input names an input action', a['input'], 'an action name');
         if (a['action'] === 'rebind' && a['input'] === undefined) err(errors, 'field_missing', `${p}/input`, 'rebind names its input action', undefined, 'an action name');

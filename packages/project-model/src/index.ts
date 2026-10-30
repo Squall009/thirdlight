@@ -600,7 +600,6 @@ export {
   UI_SAVE_SLOTS,
   UI_SCALE_MODES,
   UI_SOUND_EVENTS,
-  UI_SHELL_SCREENS,
   UI_TWEEN_KINDS,
   UI_WIDGET_TYPES,
   canonicalUiDocument,
