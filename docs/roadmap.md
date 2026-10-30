@@ -1,9 +1,9 @@
-# Thirdlight roadmap (phases 14–22)
+# Thirdlight roadmap
 
-Owner decisions, 2026-09-24. A session works these phases in order, from
-top to bottom, without asking the owner: where a plan leaves a choice open,
-take the plan's default (or the most generic sound choice), record it in
-that phase plan's decision log, and move on. The owner reviews at the end.
+The order of the phases since 14 and the principles every phase follows (owner decisions from 2026-09-24 on).
+Each phase's status is in `docs/STATUS.md`. Where a plan leaves a choice open, the session takes the plan's default
+(or the most generic sound choice), records it in that plan's decision log as "default chosen, owner to confirm",
+and moves on; unanswered defaults count as approved (owner, 2026-10-26; `docs/decisions/owner-defaults.md`).
 
 ## Principles (apply to every phase)
 
@@ -66,6 +66,7 @@ that phase plan's decision log, and move on. The owner reviews at the end.
 | 26 | `docs/plan-phase-26.md` | Asset scale and streaming: no per-project asset count caps, a Unity/Godot-style asset database (files with sidecars, resources as files), one audio kind, addresses and labels, refcounted runtime loading, texture streaming, the editor at thousands of assets |
 | 27 | `docs/plan-phase-27.md` | Editor layout (owner, 2026-09-30): first Skyforge's upgrade gaps E46–E51 (screenshots of real scenes, messages in physics-holding modes, missing files, re-import reports, replay answers, textures inside models; owner, 2026-10-01), then full-window editors with the one Inspector, Project Settings as one window, Lighting and Environment from the Window menu, a small dock, environment per scene, icons and a visual pass |
 | 28 | `docs/plan-phase-28.md` | Requests from Sprout and Skyforge Tactics, second batch (owner, 2026-10-02): small defects, script sounds owned by their object, a fixed effect-light pool, an engine-owned view with keep-loaded objects instead of start scenes, `ctx.scenes.reload` with the engine's run restart and new game deprecated, no behavior property cap, world transforms, runtime material swap, game UI (sounds, cover scaling, bindable offset and opacity), animation (blend speeds, start times, look-at), compound and offset colliders, WebP to KTX2, shared textures, `ctx.stats` |
+| 28c | `docs/plan-phase-28c.md` | Performance baseline (owner, 2026-10-04, after the verdict): three.js gets only what is drawn, LOD attaches one level, matrices only for what moved, the Scene view on Play's render path, the simulation one frame behind, a frame cap |
 | 28b | `docs/plan-phase-28b.md` | Immediate block and texture fixes (owner, 2026-10-03): square cells (D52), texture arrays packed from KTX2 textures and per-slot layers, world-aligned block UVs in metres with box mapping, per-layer settings on the layered material, bulk block meshing off the frame, block undo and footprint leftovers |
 | 29 | `docs/plan-phase-29.md` | Scalable lighting: probes baked from static objects for every 3D object, cached static shadows with dynamic casters on top, light layers, per-vertex local lights, effect lights on the GPU, AO and render scale, measured at 1080p on an iGPU |
 | 30 | `docs/plan-phase-30.md` | Level building (owner, 2026-10-03): blocks completed (binary chunks, per-chunk undo, no cell caps, a mesh simplifier, live blocks, edge pieces, auto-connect, side-face paint, interiors, kit swaps), terrain (heightfield tiles, CDLOD, heightfield collision, one baked rule system for materials and scatter on blocks and terrain, GPU ground cover, impostors, splines for roads, paths and rivers, edit layers, stamps, erosion, tile streaming) and the handoff between them (matching heights, one material and lighting across the seam, a surface query, height fog); soft targets at 1080p on an iGPU |
@@ -75,6 +76,7 @@ that phase plan's decision log, and move on. The owner reviews at the end.
 | 34 | `docs/plan-phase-34.md` | Level editors (owner, 2026-10-12): an icon per object type, a full-screen edit mode on the live Scene view showing only the edited object, one brush kit for every brush, noise-masked paint, a layer palette, the terrain editor; runs before 33 |
 | 35 | `docs/plan-phase-35.md` | One layered surface material for terrain, blocks, walls and props (trim and tiling layers, wetness), material types that declare what they read, height in albedo alpha, the vertex paint editor, the decal editor and atlas |
 | 36 | `docs/plan-phase-36.md` | The block editor, kits as one item with a kit editor and an engine Basic Kit, the trim sheet spec with real-height trims, a 3D starter template |
+| 37 | `docs/plan-phase-37.md` | Level editor polish (owner, 2026-10-16): tools can be deselected (Navigate), docked collapsible panels, no white blocks while textures encode, a fast cold decal atlas; runs before 33 |
 | 38 | `docs/plan-phase-38.md` | Requests from Sprout, Skyforge Tactics and Temporal, third batch (owner, 2026-10-21): scripts that fail alone, type-checked publish, Play tools that keep errors, a character timeline track, prefab updates, 2D block collision; `ctx.scenes.load`/`unload` the one way to change levels |
 | 39 | `docs/plan-phase-39.md` | See-through around subjects (owner, 2026-10-21, from Temporal G7): a dithered circle around each subject through whatever is in front of it, above its feet only, every object by default |
 | 39b | `docs/plan-phase-39b.md` | Consolidation (owner, 2026-10-21, from the maintainability assessment): unit-size rule, the large roots split, gate within budget, defect statuses, owner decisions applied |
@@ -83,48 +85,24 @@ that phase plan's decision log, and move on. The owner reviews at the end.
 | 41 | `docs/plan-phase-41.md` | One physics backend (owner, 2026-10-21): 2D as a switchable plane constraint, the 2D backend removed |
 | 42 | `docs/plan-phase-42.md` | Unified lighting (owner, 2026-10-22), on a branch after 41: one surface radiance cache for every static surface (direct light from every light kind with traced soft shadows, bounced light, emissive, a new `area` light), probes per room through portals, reflections from the same tracer, updates only where something changed, TAAU on an integrated GPU; the bake is the same system saved, drawn on WebGL 2
 | 43 | `docs/plan-phase-43.md` | Clustered forward lighting (owner, 2026-10-26), after 42: our own per-cluster light lists (points, spots, `area`), local-light shadows from one shadow atlas sized by a per-tier budget; lights reaching moving objects and pixel-rate highlights beside 42's surface cache; lifts the 16 per-pixel local lights (D204) |
+| 44 | `docs/plan-phase-44.md` | Consolidation (owner, 2026-10-26): the global audit's findings G1–G22 (`docs/audit-2026-10-26-global.md`), helpers with one home and a redefinition check, caps lifted, splits, a docs reset; no new features |
+| 44b | (owner draft) | Camera (owner, 2026-10-28): occlusion modes chosen per camera, adaptive exposure, the bloom fix |
 | 45–49 | `docs/plan-phase-45.md` | Voxel world (owner, 2026-10-28): one 0.5 m voxel world replaces block layers, terrain and generated architecture; formats first (45), then core (46a–d), structures and tools (47a–c), migration and merge (48a–c), water (49); the Iris Xe is the floor tier |
 
-Future (owner, 2026-10-21), not planned yet:
-- **A lighting phase** after 41: absorbed. Phase 42 took light modes in
-  probes, area lights and adaptive probe placement (42.9b, owner
-  2026-10-26); clustered lighting is phase 43.
-- **The owner's own dogfood pass**: building a small game from the docs alone
-  (deferred from 31.8).
-- **One walk graph for block layers and terrain** (owner, 2026-10-22): the
-  block layers' A* (`ctx.grid.path`) becomes one navigation graph over blocks
-  and terrain (slope and holes from the terrain field, stitched where they
-  meet, cached per tile with streaming). Search is hierarchical A* (a coarse
-  region graph, then local A*), so its cost follows the path, not the map,
-  and the 65,536-node cap goes. Long queries can be time-sliced across steps
-  with a handle.
-- **A performance pass** that revisits occlusion culling on WebGPU (D282,
-  D286).
+Future, not planned yet:
+- **Water** (phase 49, after the voxel merge): ordinary voxels with a `liquid` role, rivers, lakes and waterfalls
+  (`docs/plan-phase-45.md` §8).
+- **A performance phase after 49** over the whole voxel world, from the numbers every phase recorded (owner,
+  2026-10-28); it also revisits occlusion culling on WebGPU (D282, D286). The Iris Xe is the floor tier: 720p at
+  60 Hz the goal, 30 Hz acceptable during 45–49.
+- **The owner's own dogfood pass**: building a small game from the docs alone (deferred from 31.8).
+- The one walk graph for blocks and terrain (owner, 2026-10-22) is now the voxel world's hierarchical walk graph
+  (46d); the lighting phase after 41 became phases 42 and 43.
 
 Phase 13 (material node graph) moved to phase 18, after the renderer phase,
 because the graph compiles to TSL (owner decision, 2026-09-24).
 
 ## How every phase is worked
 
-The rules of `docs/plan-phase-9.md` §3 (including its **Traps**) and the
-extra traps in `docs/plan-phase-14.md` §3 apply to every phase. In short:
-items in order; schema/commands → runtime/adapter/host → editor → exporter
-→ tests → docs; every editor change gets a Playwright test against a real
-backend; green is tiered (2026-09-26, owner: a 50-minute gate per commit was
-too slow): **per commit** `tools/gate.sh fast <the e2e files of the area
-you changed>` (build, all of vitest, a smoke set, those files — a few
-minutes); **per finished item, before its STATUS row says done**
-`tools/gate.sh full` (every spec in both projects, the leak test included);
-while fixing a failure `tools/gate.sh rerun` runs only what failed last
-time. Commit to `main`, push, `sudo systemctl restart thirdlight`;
-tick the phase plan's progress table and one or two lines in its
-`docs/STATUS.md` row; decisions in the phase plan's decision log. Sprout:
-commit there, never push. Never print the owner token.
-
-Large items may be done by subagents in git worktrees (as in phase 9): the
-main session reviews the diff, runs the full suites after merging, and only
-then pushes and restarts.
-
-A phase is done when its "done when" holds, its STATUS row says done
-(owner look pending where visual/audible) and `docs/deployment.md` describes
-what a user can now do. Then the next phase starts without waiting.
+`AGENTS.md` holds the work rules: tiered gates, commits, the phase review, docs, sizes. A phase is done when its
+"done when" holds, its STATUS row says done and `docs/manual` describes what a user can now do.
