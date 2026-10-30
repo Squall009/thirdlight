@@ -60,9 +60,12 @@ The cost of building one phase at a time shows in four places:
   - `MAX_INPUT_ACTIONS` 64 and `MAX_INPUT_MAPS` 8 (`input.ts:95,60`);
   - `BLOCK_LIMITS.cellFields` 32 (`block-layers.ts:764`).
 
-  `tests/count-caps.test.ts` matches names, so it misses all of them.
+  `tests/count-caps.test.ts` matches names, so it misses all of them. **Status:** fixed 89816355 (44.8): the four
+  are lifted (the whole list is one command, bounded by its bytes); the test now finds caps by shape and found three
+  more (D420); `cellFields` is left for 48.
 - **G8: selection-sized caps.** `MOVE_ENTITIES_MAX` 64 and `PASTE_ENTITIES_MAX` 256 are applied to whole editor
   selections, which are not split (`validate-request.ts:130`, `paste-ops.ts:23`, `useSceneEditing.ts:135,157,231`).
+  **Status:** fixed f314e909 (44.8): no undo group exists, so both counts went; the request's bytes bound them.
 - **G9: missing upgrade-checklist entries.** These private three.js hooks are not in
   `docs/three-upgrade-checklist.md`:
   - `see-through.ts:1490` wraps `setupObserver` (with no guard);
