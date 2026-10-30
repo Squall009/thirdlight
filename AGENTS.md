@@ -2,7 +2,8 @@
 
 Thirdlight is a self-hosted browser game editor built on three.js. The goal
 and scope are in `docs/architecture/charter.md`. Current work and its status
-are in `docs/STATUS.md`; known defects are in `docs/audit-2026-09-22.md`.
+are in `docs/STATUS.md`; known defects are in `docs/audit-2026-09-22.md`
+(closed ones in `docs/audit-closed.md`).
 
 ## Architecture rules
 

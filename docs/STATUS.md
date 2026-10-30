@@ -5,8 +5,8 @@ voxel world, 45–49 (`docs/plan-phase-45.md`). Order and future work: `docs/roa
 `docs/architecture/charter.md`. Work rules: `AGENTS.md`. Each phase's items, numbers and decisions are in its plan;
 this file holds one row per phase, two lines at most.
 
-Defects: `docs/audit-2026-09-22.md` (D-numbers below). On 2026-10-30: 119 open (M 31, L 88; no C or H), 19 watch;
-266 fixed, 13 superseded, 3 won't fix.
+Defects: open and watch rows in `docs/audit-2026-09-22.md`, closed rows in `docs/audit-closed.md` (D-numbers below).
+On 2026-10-30: 118 open (M 31, L 87; no C or H), 18 watch; closed 284 (266 fixed, 14 superseded, 4 won't fix).
 
 Done: an item works in a real browser and has an automated test at the boundary it fixes (Playwright for the editor).
 Visual and audible results no test observes in pixels are marked "owner look pending": that is the normal done state.
