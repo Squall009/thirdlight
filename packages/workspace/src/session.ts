@@ -87,6 +87,7 @@ import {
   type OpenV4Outcome,
 } from './session-v4';
 import { PROJECT_SCHEMA_VERSION, isRefusedProjectSchemaVersion, isUpgradedProjectSchemaVersion, validateManifestV2Project } from '@thirdlight/project-model';
+import { type LruCache } from '@thirdlight/shared';
 
 // ---- internal state ------------------------------------------------------------
 
@@ -218,7 +219,7 @@ export interface ProjectSession {
    * from the immutable blob, so it is answered as a duplicate instead of
    * `stage_not_found`. Never persisted (a restart forgets it).
    */
-  publishedStages?: Map<string, string>;
+  publishedStages?: LruCache<string, string>;
   /**
    * Staged script library edits (several patches, one commit) by
    * stageId, oldest first; never authoritative and never persisted (a

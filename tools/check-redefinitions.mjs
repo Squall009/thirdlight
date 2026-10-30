@@ -118,6 +118,7 @@ export const OWNED_FAMILIES = Object.freeze([
     owner: 'packages/shared/src/objects.ts',
     names: ['isPlainObject', 'isPlainObjectStrict', 'isPlainRecord', 'isRecord', 'isObject', 'isObj', 'isPlain', 'isRow', 'isMap', 'deepFreeze', 'deepFreezeAll', 'deepFreezeExceptViews', 'deepFreezeForTest'],
   },
+  { family: 'lru', owner: 'packages/shared/src/lru.ts', names: ['LruCache', 'LRUCache', 'LruMap', 'BoundedLru'] },
   { family: 'strict-json', owner: 'packages/shared/src/strict-json.ts', names: ['parseStrictJson', 'strictJson'] },
   {
     family: 'digest-format',

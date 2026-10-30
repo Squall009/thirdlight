@@ -15,7 +15,7 @@
  * bytes.
  */
 
-import { canonicalJsonTextStrict, sha256Hex, sha256HexOfText, utf8Encode } from '@thirdlight/shared';
+import { canonicalJsonTextStrict, sha256Hex, sha256HexOfText, utf8Encode, LruCache } from '@thirdlight/shared';
 import { build as esbuildBuild, type BuildOptions, type Plugin } from 'esbuild';
 import { declarationBytes, type DeclaredProperty } from '@thirdlight/project-model';
 
@@ -542,7 +542,7 @@ export function createBehaviorCompiler(
   // declaration, the libraries it may link (their digests), the pinned modules, the limits and the
   // compiler's recipe. A Play of unchanged scripts then compiles nothing.
   const maxEntries = options.build !== undefined ? 0 : Math.max(0, options.cacheEntries ?? 256);
-  const memo = new Map<string, BehaviorCompileSuccess>();
+  const memo = new LruCache<string, BehaviorCompileSuccess>(maxEntries);
   const stats = { hits: 0, misses: 0 };
   let typeChecker: ScriptTypeChecker | undefined;
   const keyOf = (input: BehaviorCompileInput): string =>
@@ -565,16 +565,11 @@ export function createBehaviorCompiler(
       const hit = memo.get(key);
       if (hit !== undefined) {
         stats.hits += 1;
-        memo.delete(key);
-        memo.set(key, hit);
         return Promise.resolve(hit);
       }
       stats.misses += 1;
       return compileBehavior({ ...input, pinnedModules }, compileOptions).then((r) => {
-        if (r.ok) {
-          memo.set(key, r);
-          if (memo.size > maxEntries) memo.delete(memo.keys().next().value as string);
-        }
+        if (r.ok) memo.set(key, r);
         return r;
       });
     },

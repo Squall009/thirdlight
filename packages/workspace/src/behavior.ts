@@ -45,6 +45,7 @@ import {
   workspaceClosed,
 } from './errors';
 import { ensureSession, type Core, type LibraryStage } from './session';
+import { LruCache } from '@thirdlight/shared';
 
 export interface PrepareBehaviorSourceRequest {
   /** The staged canonical container to prepare. */
@@ -118,7 +119,7 @@ export async function prepareBehaviorSource(
     if (r.ok) bytes = r.stage.bytes;
     else {
       // A published stage that gave way to newer uploads: its bytes are in the immutable blob.
-      const digest = r.error.code === 'stage_not_found' ? s.publishedStages?.get(request.stageId) : undefined;
+      const digest = r.error.code === 'stage_not_found' ? s.publishedStages?.peek(request.stageId) : undefined;
       const blob = digest !== undefined ? readSourceBlob(core, s as never, { digest }) : null;
       if (blob === null || !blob.ok) return { ok: false, kind: 'error', error: r.error };
       bytes = blob.bytes;
@@ -213,14 +214,8 @@ export async function prepareBehaviorSource(
  * digest for a retry of it. Kept for as many publications as the retry
  * records answer (an older retry is refused by the command layer anyway).
  */
-export function rememberPublishedStage(s: { publishedStages?: Map<string, string> }, stageId: string, sourceDigest: string): void {
-  const m = (s.publishedStages ??= new Map());
-  m.delete(stageId);
-  m.set(stageId, sourceDigest);
-  for (const oldest of m.keys()) {
-    if (m.size <= RETRY_RETENTION) break;
-    m.delete(oldest);
-  }
+export function rememberPublishedStage(s: { publishedStages?: LruCache<string, string> }, stageId: string, sourceDigest: string): void {
+  (s.publishedStages ??= new LruCache(RETRY_RETENTION)).set(stageId, sourceDigest);
 }
 
 /**

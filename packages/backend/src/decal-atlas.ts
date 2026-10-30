@@ -33,6 +33,7 @@ import type { DecalPageRef, DecalPageReport, MaterialDef } from '@thirdlight/pro
 import { ID_RE } from '@thirdlight/project-model/limits';
 import { sessionError, type SessionError } from '@thirdlight/protocol';
 import type { BlobFile, WorkspaceService } from '@thirdlight/workspace';
+import { LruCache } from '@thirdlight/shared';
 
 const sha256 = (b: Uint8Array | string): string => createHash('sha256').update(b).digest('hex');
 
@@ -85,21 +86,12 @@ export function makeDecalAtlasRoutes(o: {
   readonly sendError: (res: ServerResponse, error: SessionError, statusOverride?: number) => void;
 }) {
   /** The last composition per project, least recently composed or read first (a preview's arrays are bytes). */
-  const last = new Map<string, { composed: DecalAtlasComposed; files: Map<string, BlobFile | Uint8Array> }>();
-  const lastOf = (projectId: string): { composed: DecalAtlasComposed; files: Map<string, BlobFile | Uint8Array> } | undefined => {
-    const known = last.get(projectId);
-    if (known !== undefined) {
-      last.delete(projectId);
-      last.set(projectId, known);
-    }
-    return known;
-  };
-  /** Each project's last preview's arrays (by id). */
-  const lastPreview = new Map<string, Map<string, BlobFile | Uint8Array>>();
+  const last = new LruCache<string, { composed: DecalAtlasComposed; files: Map<string, BlobFile | Uint8Array> }>(DECAL_ATLAS_PROJECTS_KEPT);
+  const lastOf = (projectId: string): { composed: DecalAtlasComposed; files: Map<string, BlobFile | Uint8Array> } | undefined => last.get(projectId);
+  /** Each project's last preview's arrays (by id), least recently previewed first (reads leave the order). */
+  const lastPreview = new LruCache<string, Map<string, BlobFile | Uint8Array>>(DECAL_ATLAS_PROJECTS_KEPT);
   const remember = (projectId: string, entry: { composed: DecalAtlasComposed; files: Map<string, BlobFile | Uint8Array> }): void => {
-    last.delete(projectId);
     last.set(projectId, entry);
-    while (last.size > DECAL_ATLAS_PROJECTS_KEPT) last.delete(last.keys().next().value!);
   };
   /**
    * Per project, one composition at a time: the one running, and the one
@@ -177,9 +169,7 @@ export function makeDecalAtlasRoutes(o: {
     const composed: DecalAtlasComposed = { signature: r.signature, refs: Object.fromEntries(made.pages.refs), ms: Math.round(performance.now() - t0), stats: previewed ? null : stats, ...(previewed ? { preview: true as const } : {}) };
     // A preview's arrays stay readable after the pages themselves replace it (a view may still be fetching them).
     if (previewed) {
-      lastPreview.delete(projectId);
       lastPreview.set(projectId, files);
-      while (lastPreview.size > DECAL_ATLAS_PROJECTS_KEPT) lastPreview.delete(lastPreview.keys().next().value!);
     }
     // A preview never replaces the pages themselves (a composition that finished first).
     const known = lastOf(projectId)?.composed;
@@ -229,7 +219,7 @@ export function makeDecalAtlasRoutes(o: {
     // none and asks again (the error reaches the request that shares this composition).
     if (out.ok && out.view.composed?.preview === true) {
       void enqueue(projectId).then((made) => {
-        if (!made.ok && last.get(projectId)?.composed.preview === true) last.delete(projectId);
+        if (!made.ok && last.peek(projectId)?.composed.preview === true) last.delete(projectId);
       });
     }
     return out;
@@ -242,7 +232,7 @@ export function makeDecalAtlasRoutes(o: {
   };
 
   const array = async (res: ServerResponse, projectId: string, arrayId: string): Promise<void> => {
-    const file = ID_RE.test(arrayId) ? (lastOf(projectId)?.files.get(arrayId) ?? lastPreview.get(projectId)?.get(arrayId)) : undefined;
+    const file = ID_RE.test(arrayId) ? (lastOf(projectId)?.files.get(arrayId) ?? lastPreview.peek(projectId)?.get(arrayId)) : undefined;
     if (file === undefined) return o.sendError(res, sessionError('asset_not_found', 'not_found', `no composed decal page array "${arrayId}" (rebuild the pages)`, { path: '/arrayId' }), 404);
     if (file instanceof Uint8Array) {
       res.setHeader('content-type', 'application/octet-stream');

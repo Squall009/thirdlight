@@ -26,24 +26,20 @@ import { publishBlob, readBlob, readSourceBlob, verifyReferencedBlob } from './c
 import { sha256HexNative } from './digest';
 import { contentCtx } from './service-content';
 import type { Core, ProjectSession } from './session';
+import { LruCache } from '@thirdlight/shared';
 
 /** Models' paintable meshes kept by file digest: a cache's bound (the models one brush session paints), not a project's. */
 const MODELS_KEPT = 8;
-const models = new Map<string, readonly PaintableMesh[]>();
+const models = new LruCache<string, readonly PaintableMesh[]>(MODELS_KEPT);
 
 function modelMeshes(core: Core, s: ProjectSession, assetId: string, version: number): { ok: true; meshes: readonly PaintableMesh[] } | { ok: false; error: CommandError } {
   const r = readBlob(core, contentCtx(s), { assetId, version });
   if (!r.ok) return { ok: false, error: r.error };
   const kept = models.get(r.digest);
-  if (kept !== undefined) {
-    models.delete(r.digest);
-    models.set(r.digest, kept);
-    return { ok: true, meshes: kept };
-  }
+  if (kept !== undefined) return { ok: true, meshes: kept };
   const g = readModelGeometry(r.bytes);
   if (!g.ok) return { ok: false, error: { code: 'field_value', cls: 'validation', path: '/args/entityId', message: `the model ${assetId} cannot be read: ${g.message}`.slice(0, 256) } as CommandError };
   const meshes = paintableMeshes(g.geometry, sha256HexNative);
-  if (models.size >= MODELS_KEPT) models.delete(models.keys().next().value!);
   models.set(r.digest, meshes);
   return { ok: true, meshes };
 }
