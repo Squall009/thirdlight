@@ -67,6 +67,7 @@ regression points at its cause.
 | 44.5 | done: one owner each in project-model, 12 families in `check-redefinitions`: shadow/surface/role lists (3f9764bd, 9 copies, +32/−117), manifest identity, engine version, save format, message clip, move quantum (4558f922, 17, +85/−152), import extensions (cf3d1c6b, 8, +63/−55), toolchain pins + check-deps agreement (d50ef8ac, 7, +64/−8), engine actions/shell screens/save slots (73429812, 4, +17/−11), typed module ids (844c2bb6, 25 literals, +76/−36). e2e s: play-export 4.9 → 5.1, input 11.6 → 11.6, project-saves 9.0 → 7.9 (alone, WebGL 2), import-extensions 19.8 → 19.2, folder-import 3.2 → 3.3, ui-editor 10.3 → 10.4, shell 17.0 → 16.5, character-3d 15.4 → 15.1; village at the cap unchanged. Fast gates green (start.e2e's stop exited 1 once, D307 once; both passed alone). |
 | 44.6a | done: G10 op table (9bcac089: 7 family modules hold each op's step, undo and redo; apply.ts + history.ts 2,174 → 484 lines, 2,232 with the families; 3 ratchet entries gone; 3,979 traced commands byte-identical), G11 admin accept/discard resync (fbbebece), G12 one publish step (f1eee815: packs and the file check extract as uploads do). e2e s: authoring-loop 1.9–4.0, hierarchy 7.2, delete-content 5.6, edit-copy 2.9, project-window 3.4–4.9, loadable 3.4, external-edit 4.3/1.9, editor-chrome 6.3, assets 16.9, asset-files 5.0, folder-assets 17.4, import-extensions 19.8 (19.2 at 44.5); village at the cap unchanged. Fast gates green (start.e2e watch miss once, passed alone). |
 | 44.6b | done: G13 one set of authoring rules (682a9094 rule, ae4ceeb7: project-model `authoring-rules` = property value rule, prefab subtree/external ref, transform check, name rule; commands and editor call them, code −461/+311), G15 raw-JSON publish panel retired (7b1f7092, −499/+95, useScripting off the size ratchet), G16 one `CommitField`/`NumberField` in 7 editors (8f130267, −235/+185). Room drawing left for 48. e2e s (43 full → 44.6b): inspector 14.9 → 15.2 (with the Escape/blur step), animator 10.5 → 10.4 (with the clamp step), graph 14.7 → 13.9, lightmaps 60.6 → 56.1, ui-editor 10.3 → 10.2, script-properties 7.7 → 7.3, project-settings 4.1 → 4.9, script-editor 10.7 → 11.0, project-window 15.0 → 13.1; village at the cap unchanged. Fast gates green (D307 watch miss once, passed alone). |
+| 44.6c | done: G5 (1e1b2680: bypass reproduced, a `scale` on move read 1; move/jump only from the action evaluator, fresh activation and consumed-confirm rules moved into it; raw-snapshot mapping, step source and m2 input fixtures gone, −2491/+221; frame v2 unchanged), G14 (96544a26: title confirm plays the start scenes, no `newGame`; a screen with nothing to focus passes the confirm on). e2e s: starter-game 6.7 → 6.3 (Enter + no-deprecation check), shell 16.5 → 16.2, input/rebind/relay/replay/playtest/sim-worker/character-3d untouched; village at the cap unchanged. Fast gates green (D311 watch miss once, passed alone). |
 
 ### 44.0 baseline
 
@@ -176,3 +177,14 @@ What the end of 44 is measured against (44.13).
   state speed and transition times, lighting budgets). Fields elsewhere in the editor (about 30 files with their own
   `onBlur` commits, e.g. the color widget, brush and block panels) are not moved: block/terrain/architecture ones go in 48,
   the rest when touched.
+- 2026-10-30 (44.6c, default chosen, owner to confirm): G5: `move` and `jump` read only their own bindings, like every
+  action. An action with no pad binding no longer gets the standard pad layout (A jumps, D-pad and left stick move); every
+  game and both templates bind their pads, and the virtual pad already read only the bindings. A tap between two samples
+  now moves for one sample (it jumped already). Any pad button or stick past the dead zone wakes a pad, not only the
+  move/jump controls. A consumed menu confirm still held is hidden from every action outside the `ui` map (was: jump only);
+  after focus returns or the pad changes, every action already down reads `held`, then `none` on release (was: jump only).
+  G14: the title's confirm (a shell title without a button) leaves the title and plays; the run behind it already is the
+  start scenes (first start, or the restart `quitToTitle` made), so no reload or restart is queued. A game on the shell's
+  scene list (deprecated) not at its first entry is moved there with the list's own move (`nextScene` line). A focused
+  document with nothing focusable now passes the confirm to the shell (it swallowed it, so the engine title never started
+  on Enter in a browser).
