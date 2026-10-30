@@ -48,6 +48,19 @@ export function createExternalEdits(deps: ExternalEditsDeps) {
     }
   }, EXTERNAL_CHECK_MS);
 
+  /**
+   * Accept or discard a pending external edit, from the project route or the
+   * admin one alike: the connected editors reload either way.
+   */
+  const resolve = (projectId: string, action: 'accept' | 'discard') => {
+    const result = action === 'accept' ? service.acceptExternalState(projectId) : service.discardExternalState(projectId);
+    if (result.ok) {
+      announced.delete(projectId);
+      sendToProject(projectId, { type: 'workspace.resync' });
+    }
+    return result;
+  };
+
   /** POST /api/v1/projects/:projectId/external/(accept|discard) — resolve an external edit. */
   const resolveRoute = async (req: IncomingMessage, res: ServerResponse, projectId: string, action: string): Promise<void> => {
     const authError = deps.requireAuth(req, projectId, false);
@@ -55,17 +68,16 @@ export function createExternalEdits(deps: ExternalEditsDeps) {
       sendError(res, authError);
       return;
     }
-    const result = action === 'accept' ? service.acceptExternalState(projectId) : service.discardExternalState(projectId);
+    const result = resolve(projectId, action === 'accept' ? 'accept' : 'discard');
     if (!result.ok) {
       sendError(res, workspaceError(result.error), statusFor(result.error.cls));
       return;
     }
-    announced.delete(projectId);
-    sendToProject(projectId, { type: 'workspace.resync' });
     sendJson(res, 200, result);
   };
 
   return {
+    resolve,
     resolveRoute,
     dispose(): void {
       clearInterval(timer);

@@ -13,6 +13,7 @@ import { createBehaviorCompilerPort } from './content';
 import { nodeGzip } from './gzip-port';
 
 import type { Problem } from './backend';
+import type { createExternalEdits } from './external-edits';
 
 export interface AdminRoutesContext {
   readonly config: BackendConfig;
@@ -30,13 +31,15 @@ export interface AdminRoutesContext {
   readonly textureSlots?: ClosureTextureSlots;
   /** Adds engine packs and a template's setup to a new project. */
   readonly packs?: PackInstaller;
+  /** Accept or discard a pending external edit (the one path, shared with the project route). */
+  readonly resolveExternal: ReturnType<typeof createExternalEdits>['resolve'];
 }
 
 /** A game folder's entries before a project was made in it ('absent': there was no folder; 'unknown': it could not be read). */
 type FolderBefore = ReadonlySet<string> | 'absent' | 'unknown';
 
 export function makeAdminRoutes(ctx: AdminRoutesContext) {
-  const { config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem, ensureImported, textureSlots, packs } = ctx;
+  const { config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem, ensureImported, textureSlots, packs, resolveExternal } = ctx;
 
   /**
    * A project just made from a template gets the template's packs, then its
@@ -280,10 +283,10 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
         result = service.takeoverWorkspace(projectId);
         break;
       case 'accept-external':
-        result = service.acceptExternalState(projectId);
+        result = resolveExternal(projectId, 'accept');
         break;
       case 'discard-external':
-        result = service.discardExternalState(projectId);
+        result = resolveExternal(projectId, 'discard');
         break;
     }
     if (result.ok) {

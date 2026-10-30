@@ -1,6 +1,8 @@
 /**
  * POST /sessions + session listing/log + admin operations.
  */
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { api, AUTHORING_ORIGIN, establish, mkSessionId, sleep, startBackend, upgrade, type TestBackend, type TestWs } from './test-helpers';
 
@@ -289,6 +291,26 @@ describe('admin operator operations', () => {
     expect(takeJ.ok).toBe(true);
     expect(typeof takeJ.lockEpoch).toBe('number');
     expect(typeof takeJ.pid).toBe('number');
+  });
+
+  it('an admin accept or discard of an external edit resyncs the connected editor, as the project route does', async () => {
+    const a = await establish(tb, mkSessionId());
+    const ws = await upgrade(tb, a.sessionId, a.wsToken);
+    try {
+      await ws.waitFor((m) => (m as { type?: string }).type === 'attached');
+      const file = join(tb.root, 'data', 'projects', 'demo-0001', 'scenes', 'scene-main.json');
+      const type = (t: string) => (m: unknown): boolean => (m as { type?: string }).type === t;
+      for (const op of ['accept-external', 'discard-external']) {
+        // The same scene, written by another program: the editor is told, then resolves it as the owner.
+        writeFileSync(file, `${JSON.stringify(JSON.parse(readFileSync(file, 'utf8')))}${op === 'accept-external' ? '' : '\n'}`);
+        await ws.waitFor(type('workspace.externalChange'), 10_000);
+        const r = await api(`${tb.authUrl}/api/v1/admin/projects/demo-0001/${op}`, { body: {}, token: tb.adminToken });
+        expect(r.status, op).toBe(200);
+        await ws.waitFor(type('workspace.resync'));
+      }
+    } finally {
+      ws.close();
+    }
   });
 
   it('a non-admin token on an operator op ⇒ 401 (admin scope enforced)', async () => {

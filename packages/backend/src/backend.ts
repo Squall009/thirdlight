@@ -331,7 +331,7 @@ export function createBackend(
   });
 
   const { behaviorSourceRoute } = makeBehaviorSourceRoutes({ service, sessions, behaviorCompiler, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem, notifyMutationApplied });
-  const { adminCreateProject, adminRegisterProject, adminUnregisterProject, adminProjectOp, adminExportRoute } = makeAdminRoutes({ config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem, ensureImported: assetFiles.ensureImported, textureSlots, packs });
+  const { adminCreateProject, adminRegisterProject, adminUnregisterProject, adminProjectOp, adminExportRoute } = makeAdminRoutes({ config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem, ensureImported: assetFiles.ensureImported, textureSlots, packs, resolveExternal: external.resolve });
 
   const { serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml, isolationHeaders } = makeStaticRoutes({ config, sendJson });
 
