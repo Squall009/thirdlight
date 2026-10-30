@@ -10,8 +10,9 @@
 #                                             product's own renderer; --both-renderers (for shader /
 #                                             rendering changes) adds the forced WebGL 2 variants and
 #                                             the webgpu project
-#   tools/gate.sh rerun                       the fix loop: only the tests that failed last time
-#                                             (Playwright --last-failed), nothing else
+#   tools/gate.sh rerun                       the fix loop: the build, then the step the last RED gate
+#                                             stopped at (lint, the vitest files that failed, the e2e
+#                                             tests that failed, the perf check) and the steps after it
 #   tools/gate.sh start <mode> [args…]        the same, detached as the systemd unit thirdlight-gate
 #                                             under a memory cap (TL_GATE_MEM, default 7G): a caller
 #                                             that ends (an agent session) no longer kills the gate
@@ -125,15 +126,32 @@ prev_full() { # the last green full gate before this one, from its summary: "<n>
 done_() {
   local min=$(( ($(date +%s) - t0) / 60 )) prev=''
   [ "$mode" = full ] && prev=$(prev_full) && prev=", previous green full gate ${prev:-not recorded}"
-  say "$1 (${min} min${prev}, $(peak), logs $L)"; case "$1" in GREEN*) exit 0 ;; *) exit 1 ;; esac
+  say "$1 (${min} min${prev}, $(peak), logs $L)"; case "$1" in GREEN*) rm -rf "$STATE"; exit 0 ;; *) exit 1 ;; esac
 }
 
-build_and_unit() {
+# What `rerun` picks up (STATE): the gate that went RED (`mode`, its arguments in `args`), the step it stopped at
+# (`step`: lint, vitest, e2e or perf; a failed build reruns from lint) and the vitest files that failed (`vitest`;
+# empty: the whole suite). A GREEN gate clears it. The steps after the failed one never ran, so a rerun runs them too.
+STATE=$LOGS/rerun-state
+fail_at() { # fail_at <step> [vitest files]
+  mkdir -p "$STATE" && echo "$1" > "$STATE/step" && echo "${2:-}" > "$STATE/vitest"
+}
+begin_state() { # begin_state <mode> [args…]: a new fast or full gate replaces the last one's state
+  rm -rf "$STATE" && mkdir -p "$STATE" && echo "$1" > "$STATE/mode" && shift && printf '%s\0' "$@" > "$STATE/args"
+}
+
+build() {
   npm run build > "$L/build.log" 2>&1
-  grep -q '^build: done' "$L/build.log" || { grep -E 'FAIL|error' "$L/build.log" | head -20; done_ "RED build"; }
-  npm run lint > "$L/lint.log" 2>&1 || { grep -E 'error|✖' "$L/lint.log" | head -20; done_ "RED lint"; }
+  grep -q '^build: done' "$L/build.log" || { grep -E 'FAIL|error' "$L/build.log" | head -20; [ -s "$STATE/step" ] || fail_at lint; done_ "RED build"; }
+}
+
+lint() {
+  npm run lint > "$L/lint.log" 2>&1 || { grep -E 'error|✖' "$L/lint.log" | head -20; fail_at lint; done_ "RED lint (fix, then: tools/gate.sh rerun)"; }
   say "lint: clean"
-  npx vitest run --exclude '.claude/**' --exclude 'archive/**' ${TL_VITEST_WORKERS:+--maxWorkers="$TL_VITEST_WORKERS"} > "$L/vitest.log" 2>&1
+}
+
+unit() { # unit [test files…]: the whole suite, or (a rerun) only the files named
+  npx vitest run --exclude '.claude/**' --exclude 'archive/**' ${TL_VITEST_WORKERS:+--maxWorkers="$TL_VITEST_WORKERS"} "$@" > "$L/vitest.log" 2>&1
   if ! grep -qE 'Test Files .*passed' "$L/vitest.log" || grep -qE 'Test Files .*failed' "$L/vitest.log"; then
     # Like the e2e step: rerun the failed files once alone (timeouts and CPU budgets on a loaded host).
     local failed
@@ -146,13 +164,13 @@ build_and_unit() {
       if grep -qE 'Test Files .*passed' "$L/vitest-rerun.log" && ! grep -qE 'Test Files .*failed' "$L/vitest-rerun.log"; then
         say "vitest-rerun: $(grep -E 'Test Files' "$L/vitest-rerun.log" | tail -1 | sed 's/^ *//') (failed once, passed alone)"
       else
-        grep -E 'FAIL|✗|×' "$L/vitest-rerun.log" | head -20; done_ "RED vitest"
+        grep -E 'FAIL|✗|×' "$L/vitest-rerun.log" | head -20; fail_at vitest "$failed"; done_ "RED vitest (fix, then: tools/gate.sh rerun)"
       fi
     else
-      grep -E 'FAIL|✗|×' "$L/vitest.log" | head -20; done_ "RED vitest"
+      grep -E 'FAIL|✗|×' "$L/vitest.log" | head -20; fail_at vitest; done_ "RED vitest (fix, then: tools/gate.sh rerun)"
     fi
   fi
-  say "$(grep -E 'Test Files' "$L/vitest.log" | tail -1 | sed 's/^ *//')"
+  say "$(sed 's/\x1b\[[0-9;]*m//g' "$L/vitest.log" | grep -E 'Test Files' | tail -1 | sed 's/^ *//')"
 }
 
 e2e() { # e2e <log> [playwright args…]
@@ -177,39 +195,62 @@ perf_check() {
   return $rc
 }
 
+fast_e2e() { # fast_e2e [e2e files…]: the smoke set and the named files
+  e2e e2e.log --project=default "${SMOKE[@]}" "$@" || { fail_at e2e; done_ "RED e2e (fix, then: tools/gate.sh rerun)"; }
+}
+fast_perf() {
+  perf_check || { fail_at perf; done_ "RED perf (the village class at the cap; fix, then: tools/gate.sh rerun)"; }
+}
+full_e2e() { # full_e2e [--both-renderers]
+  # Measured on the GPU: a CPU-rendered host keeps 2 (SwiftShader slows every test past ~cores/3).
+  if [ -z "$workers_set" ] && node -e "import('./tests/e2e/browser-env.mjs').then((m) => process.exit(m.gpuAvailable() ? 0 : 1))"; then
+    export TL_E2E_WORKERS=$FULL_WORKERS
+    [ "${1:-}" = "--both-renderers" ] && export TL_E2E_WORKERS=$FULL_WORKERS_BOTH
+  fi
+  export TL_MEMORY=1
+  PROJECTS=(--project=default)
+  if [ "${1:-}" = "--both-renderers" ]; then export TL_E2E_ALL_VARIANTS=1; PROJECTS=(); fi
+  say "renderer: $(node -e "import('./tests/e2e/browser-env.mjs').then((m) => console.log(m.gpuAvailable() ? 'GPU' : 'SwiftShader (no usable GPU)'))") ${PROJECTS[*]:-both projects, all variants}, ${TL_E2E_WORKERS} workers"
+  if e2e e2e.log "${PROJECTS[@]}"; then done_ GREEN; fi
+  fail_at e2e
+  grep -qE '^\s+[0-9]+ failed' "$L/e2e.log" || done_ "RED e2e (no summary)"
+  say "rerunning the failed tests alone"
+  TL_E2E_WORKERS=1 e2e e2e-rerun.log --last-failed --trace=retain-on-failure && done_ "GREEN (failed once, passed alone: see e2e.log)"
+  done_ "RED e2e (fix, then: tools/gate.sh rerun)"
+}
+
 case "$mode" in
   fast)
-    build_and_unit
-    e2e e2e.log --project=default "${SMOKE[@]}" "$@" || done_ "RED e2e (fix, then: tools/gate.sh rerun)"
-    rm -f "$LOGS/perf-failed"
-    perf_check || { touch "$LOGS/perf-failed"; done_ "RED perf (the village class at the cap; fix, then: tools/gate.sh rerun)"; }
+    begin_state fast "$@"
+    build; lint; unit
+    fast_e2e "$@"
+    fast_perf
     done_ GREEN ;;
   full)
-    # Measured on the GPU: a CPU-rendered host keeps 2 (SwiftShader slows every test past ~cores/3).
-    if [ -z "$workers_set" ] && node -e "import('./tests/e2e/browser-env.mjs').then((m) => process.exit(m.gpuAvailable() ? 0 : 1))"; then
-      export TL_E2E_WORKERS=$FULL_WORKERS
-      [ "${1:-}" = "--both-renderers" ] && export TL_E2E_WORKERS=$FULL_WORKERS_BOTH
-    fi
-    build_and_unit
-    export TL_MEMORY=1
-    PROJECTS=(--project=default)
-    if [ "${1:-}" = "--both-renderers" ]; then export TL_E2E_ALL_VARIANTS=1; PROJECTS=(); fi
-    say "renderer: $(node -e "import('./tests/e2e/browser-env.mjs').then((m) => console.log(m.gpuAvailable() ? 'GPU' : 'SwiftShader (no usable GPU)'))") ${PROJECTS[*]:-both projects, all variants}, ${TL_E2E_WORKERS} workers"
-    if e2e e2e.log "${PROJECTS[@]}"; then done_ GREEN; fi
-    grep -qE '^\s+[0-9]+ failed' "$L/e2e.log" || done_ "RED e2e (no summary)"
-    say "rerunning the failed tests alone"
-    TL_E2E_WORKERS=1 e2e e2e-rerun.log --last-failed --trace=retain-on-failure && done_ "GREEN (failed once, passed alone: see e2e.log)"
-    done_ "RED e2e (fix, then: tools/gate.sh rerun)" ;;
+    begin_state full "$@"
+    build; lint; unit
+    full_e2e "$@" ;;
   rerun)
-    npm run build > "$L/build.log" 2>&1
-    grep -q '^build: done' "$L/build.log" || done_ "RED build"
-    # A fast gate that failed on its perf check reruns that check alone.
-    if [ -e "$LOGS/perf-failed" ]; then
-      perf_check || done_ "RED perf"
-      rm -f "$LOGS/perf-failed"; done_ GREEN
-    fi
-    export TL_MEMORY=1
-    e2e e2e.log --last-failed --trace=retain-on-failure && done_ GREEN
-    done_ "RED e2e" ;;
+    # The failed step of the last RED gate, then the steps after it; without a recorded step (an older gate's run),
+    # the e2e tests that failed last time.
+    step=$(cat "$STATE/step" 2> /dev/null); was=$(cat "$STATE/mode" 2> /dev/null)
+    args=(); [ -r "$STATE/args" ] && mapfile -d '' -t args < "$STATE/args"
+    say "rerun of the ${was:-last} gate from ${step:-its failed e2e tests}${args[*]:+ (${args[*]})}"
+    build
+    case "$step" in
+      lint) lint; unit ;;
+      vitest)
+        # A failed file the fix deleted has nothing left to run (vitest refuses a missing file).
+        files=(); for f in $(cat "$STATE/vitest"); do [ -e "$f" ] && files+=("$f"); done
+        if [ -n "$(tr -d ' \n' < "$STATE/vitest")" ] && [ ${#files[@]} -eq 0 ]; then say "vitest: the files that failed are gone"; else unit "${files[@]}"; fi ;;
+    esac
+    case "$step" in
+      lint | vitest) if [ "$was" = full ]; then full_e2e "${args[@]}"; else fast_e2e "${args[@]}"; fi ;;
+      e2e | '')
+        export TL_MEMORY=1
+        e2e e2e.log --last-failed --trace=retain-on-failure || { [ -n "$step" ] && fail_at e2e; done_ "RED e2e"; } ;;
+    esac
+    [ "$was" = fast ] && fast_perf
+    done_ GREEN ;;
   *) echo "usage: tools/gate.sh fast [e2e files…] | full [--both-renderers] | rerun | start <mode> [args…] | wait"; exit 2 ;;
 esac

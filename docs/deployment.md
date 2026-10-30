@@ -250,7 +250,7 @@ action, `ctx.shell`); a game loads its levels with `ctx.scenes.load` /
 ```sh
 tools/gate.sh fast [e2e files…]             # per change: build, vitest, smoke e2e + the named files (minutes)
 tools/gate.sh full                          # everything incl. the leak test, before an item is done
-tools/gate.sh rerun                         # only the tests that failed last time
+tools/gate.sh rerun                         # from the step the last red gate stopped at (lint, failed vitest files, failed e2e, perf)
 npm test                                    # unit + integration (vitest)
 npm run build && npm run test:e2e           # Playwright: real backend + Chromium
 npx playwright test --project=default       # every spec, WebGL 2 (no WebGPU)
