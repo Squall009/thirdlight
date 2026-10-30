@@ -14,7 +14,8 @@ import { architectureStylesOf, expandArchitecture, type ArchitectureComponent, t
 import { batchKey, batchKeyParts, BATCH_KEY } from './batching';
 import { CutawayDrawing } from './block-cutaway-view';
 import { LayeredPointLight, lightsObject, ROOM_ATTRIBUTE, ROOM_KEY, ROOM_VERTEX_KEYS } from './light-layers';
-import { portalsFromUrl, RoomCulling, ROOM_TAG_KEY, ROOMS_SWITCH_KEY, type RoomsSwitch } from './room-culling';
+import { pageFlagOn } from '@thirdlight/shared';
+import { PORTALS_URL_PARAM, RoomCulling, ROOM_TAG_KEY, ROOMS_SWITCH_KEY, type RoomsSwitch } from './room-culling';
 import { OFF_VIEW_LAYER } from './view-hidden';
 
 const box = (x0: number, z0: number, x1: number, z1: number): [number, number, number][] => [
@@ -69,8 +70,8 @@ const inView = (m: THREE.Object3D): boolean => m.layers.isEnabled(0);
 
 describe('room culling', () => {
   it('the URL switch', () => {
-    expect(portalsFromUrl('')).toBe(true);
-    expect(portalsFromUrl('?portals=off')).toBe(false);
+    expect(pageFlagOn('', PORTALS_URL_PARAM)).toBe(true);
+    expect(pageFlagOn('?portals=off', PORTALS_URL_PARAM)).toBe(false);
   });
 
   it('drawables take their room; the walk hides what no open portal shows, the shadow cameras still draw it', () => {

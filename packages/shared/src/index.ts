@@ -31,3 +31,4 @@ export { mulberry32 } from './random';
 export { seedCellHash, fractalNoise01, latticeHash, latticeHash4, NOISE_HASH_LANES, NOISE_HASH_Y_LANE, terrainNoise, tileHash, valueNoise01 } from './noise';
 export { LruCache } from './lru';
 export { escapePointer, hasUtf8Bom, parseStrictJsonText, type StrictJsonFailure, type StrictJsonOptions, type StrictJsonResult } from './strict-json';
+export { pageFlagOn } from './page-flags';

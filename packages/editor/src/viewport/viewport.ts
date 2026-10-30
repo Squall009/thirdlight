@@ -30,16 +30,17 @@
  * Browser-only: uses the DOM (canvas, events) + WebGPU/WebGL via three.js.
  */
 
+import { pageFlagOn } from '@thirdlight/shared';
 import {
-  batchingFromUrl,
-  mergingFromUrl,
-  shadowCacheFromUrl,
+  BATCHING_URL_PARAM,
+  MERGING_URL_PARAM,
+  SHADOW_CACHE_URL_PARAM,
   createSceneAdapter,
   DEFAULT_RENDERER_PREFERENCE,
   markHostDrawing,
   occlusionFromUrl,
   occlusionPyramidFromUrl,
-  portalsFromUrl,
+  PORTALS_URL_PARAM,
   pageSearch,
   type EffectComponentLike,
   type EffectDefLike,
@@ -395,7 +396,7 @@ export class Viewport {
       // Occlusion culling as Play culls; `?occlusion=` and `?portals=off` on the editor page compare, as in Play.
       occlusion: occlusionFromUrl(pageSearch()),
       occlusionPyramid: occlusionPyramidFromUrl(pageSearch()),
-      portals: portalsFromUrl(pageSearch()),
+      portals: pageFlagOn(pageSearch(), PORTALS_URL_PARAM),
       onChange: () => this.contentArrived(),
       renderer: {
         ...this.rendererChoice,
@@ -407,11 +408,11 @@ export class Viewport {
         },
       },
       // `?batching=off` on the editor page: every object drawn on its own (a diagnostic comparison).
-      batching: batchingFromUrl(pageSearch()),
+      batching: pageFlagOn(pageSearch(), BATCHING_URL_PARAM),
       // Static objects merged in the background (drawn alone until their cell is built); `?merging=off` compares.
-      merging: mergingFromUrl(pageSearch()) ? 'background' : 'off',
+      merging: pageFlagOn(pageSearch(), MERGING_URL_PARAM) ? 'background' : 'off',
       // The sun's static casters cached in their own shadow map; `?shadowcache=off` compares.
-      shadowCache: shadowCacheFromUrl(pageSearch()),
+      shadowCache: pageFlagOn(pageSearch(), SHADOW_CACHE_URL_PARAM),
       models: assets.models,
       // Draco/Basis decoder files are served next to the editor page (dist/editor/decoders/).
       modelsLoader: createGltfLoaderPort({ decoderBase: './decoders/' }),

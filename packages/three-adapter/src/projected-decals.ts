@@ -828,8 +828,3 @@ export function registerProjectedDecals(renderer: { renderObject: RenderObjectFn
 /** The page flag that draws without projected and clipped decals (`?decals=off`: their cost, by comparison). */
 export const DECALS_URL_PARAM = 'decals';
 
-/** Whether a page's query string leaves projected and clipped decals on (the default) — `decals=off` or `0` turns them off. */
-export function decalsFromUrl(search: string): boolean {
-  const v = new URLSearchParams(search).get(DECALS_URL_PARAM);
-  return v !== 'off' && v !== '0' && v !== 'false';
-}

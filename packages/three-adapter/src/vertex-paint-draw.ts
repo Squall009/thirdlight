@@ -269,11 +269,6 @@ export const withPaint = (base: N, mix: (base: N, paint: N) => N): N => Fn((buil
 /** The page flag that draws without vertex paint (`?paint=off`: its cost, by comparison). */
 export const PAINT_URL_PARAM = 'paint';
 
-/** Whether a page's query string leaves vertex paint on (the default) — `paint=off` or `0` turns it off. */
-export function paintFromUrl(search: string): boolean {
-  const v = new URLSearchParams(search).get(PAINT_URL_PARAM);
-  return v !== 'off' && v !== '0' && v !== 'false';
-}
 
 /** What a scene draws of vertex paint (diagnostics; counted when asked, not per frame). */
 export interface VertexPaintDiagnostics {

@@ -54,11 +54,6 @@ export const SCATTER_BUILD_MS = 4;
 /** The page query that leaves the scatter out (`?scatter=off`: a diagnostic comparison). */
 export const SCATTER_URL_PARAM = 'scatter';
 
-/** Whether a page draws scatter (`?scatter=off|0|false`: no). */
-export function scatterFromUrl(search: string): boolean {
-  const v = new URLSearchParams(search).get(SCATTER_URL_PARAM);
-  return v !== 'off' && v !== '0' && v !== 'false';
-}
 
 /** What the view needs from its host. */
 export interface ScatterViewDeps {

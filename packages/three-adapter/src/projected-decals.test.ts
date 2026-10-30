@@ -9,13 +9,14 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 
 import { DECAL_CELL_BUDGET } from '@thirdlight/project-model';
+import { pageFlagOn } from '@thirdlight/shared';
 
 import { buildDecalIndex, DECAL_ROW_TEXELS, decalRowsAt, packDecalTable, type DecalRow } from './decal-index';
 import { createDecalProjectors } from './decal-projectors';
 import { digestOf } from './material-graph';
 import { createMaterialLibrary, decalSourceOf } from './material-library';
 import { withoutAmbientLight } from './node-materials';
-import { applyObjectDecalLayers, DECAL_CHANNEL_BITS, DECAL_LAYER_TEST_BIT, decalsFromUrl, decalVariant, installProjectedDecalSteps, objectDecalLayers, ProjectedDecals, projectedDecalsOf } from './projected-decals';
+import { applyObjectDecalLayers, DECAL_CHANNEL_BITS, DECAL_LAYER_TEST_BIT, DECALS_URL_PARAM, decalVariant, installProjectedDecalSteps, objectDecalLayers, ProjectedDecals, projectedDecalsOf } from './projected-decals';
 import { graphDef, libraryScene, PLAIN_GRAPH_WGSL, PLAIN_GRAPHS, settle, SHADER_TYPE_MATERIALS, SHADER_TYPE_WGSL, testTexture, wgslOf, wgslRenderer } from './test-wgsl';
 
 installProjectedDecalSteps();
@@ -265,8 +266,8 @@ describe('the decal host', () => {
   });
 
   it('`?decals=off` leaves them out', () => {
-    expect(decalsFromUrl('')).toBe(true);
-    expect(decalsFromUrl('?decals=off')).toBe(false);
-    expect(decalsFromUrl('?decals=0')).toBe(false);
+    expect(pageFlagOn('', DECALS_URL_PARAM)).toBe(true);
+    expect(pageFlagOn('?decals=off', DECALS_URL_PARAM)).toBe(false);
+    expect(pageFlagOn('?decals=0', DECALS_URL_PARAM)).toBe(false);
   });
 });

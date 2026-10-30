@@ -29,6 +29,7 @@
  * (adapter-*.ts) and is made here in the order the scene depends on.
  */
 import * as THREE from 'three';
+import { pageFlagOn } from '@thirdlight/shared';
 import { createResourceManager, type ResourceManager } from '@thirdlight/runtime';
 
 import { AdapterEffects } from './adapter-effects';
@@ -65,7 +66,7 @@ import { SURFACE_CACHE_KEY } from './surface-cache-host';
 import { createRenderControl } from './render-control';
 import { RenderGraph } from './render-graph';
 import { pageSearch, type AnyRenderer } from './renderer-factory';
-import { probesFromUrl } from './probe-lighting';
+import { PROBES_URL_PARAM } from './probe-lighting';
 import { createScenePreparations } from './scene-preparation';
 import { StaticShadowRevision } from './shadow-casters';
 import { markStatic } from './static-merge';
@@ -106,7 +107,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   state.lightmaps = lightmapSetOf(opts.lighting?.bakes ?? null);
   /** The loaded scenes' baked probe tiles (they follow the realized scenes) and the probe light every material samples. */
   // `?probes=off` draws without baked probes (a diagnostic comparison): their files are not read.
-  const probes = createProbeLightingHost(scene, resources, probesFromUrl(pageSearch()) ? opts.lighting?.loadBytes : undefined, { onChange: () => opts.onChange?.(), ...(opts.lighting?.onProblem !== undefined ? { onProblem: opts.lighting.onProblem } : {}) });
+  const probes = createProbeLightingHost(scene, resources, pageFlagOn(pageSearch(), PROBES_URL_PARAM) ? opts.lighting?.loadBytes : undefined, { onChange: () => opts.onChange?.(), ...(opts.lighting?.onProblem !== undefined ? { onProblem: opts.lighting.onProblem } : {}) });
   probes.setBakes(opts.lighting?.bakes ?? null);
   /** The look drawn and the environment renderer (made with the renderer). */
   const environment = new AdapterEnvironment(scene, resources, opts, { lights: () => lights, lightmaps: () => state.lightmaps, materials: materialLibrary });

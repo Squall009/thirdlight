@@ -204,8 +204,3 @@ export class StaticShadowRevision {
 /** The page flag that draws every caster into one shadow map every frame (`?shadowcache=off`: a diagnostic comparison). */
 export const SHADOW_CACHE_URL_PARAM = 'shadowcache';
 
-/** Whether a page's query string leaves the cached static shadow map on (the default) — `shadowcache=off` or `0` turns it off. */
-export function shadowCacheFromUrl(search: string): boolean {
-  const v = new URLSearchParams(search).get(SHADOW_CACHE_URL_PARAM);
-  return v !== 'off' && v !== '0' && v !== 'false';
-}

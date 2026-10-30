@@ -486,8 +486,3 @@ export function registerProbeLighting(renderer: { library: { addLight(node: unkn
 /** The page flag that draws without the baked probes (`?probes=off`: the flat ambient light, a diagnostic comparison). */
 export const PROBES_URL_PARAM = 'probes';
 
-/** Whether a page's query string leaves the probe lighting on (the default) — `probes=off` or `0` turns it off. */
-export function probesFromUrl(search: string): boolean {
-  const v = new URLSearchParams(search).get(PROBES_URL_PARAM);
-  return v !== 'off' && v !== '0' && v !== 'false';
-}

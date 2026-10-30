@@ -994,17 +994,7 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
 /** The page flag that turns automatic instancing off (`?batching=off`: a diagnostic comparison; drawn the same, one draw per object). */
 export const BATCHING_URL_PARAM = 'batching';
 
-/** Whether a page's query string leaves automatic instancing on (the default) — `batching=off` or `0` turns it off. */
-export function batchingFromUrl(search: string): boolean {
-  const v = new URLSearchParams(search).get(BATCHING_URL_PARAM);
-  return v !== 'off' && v !== '0' && v !== 'false';
-}
 
 /** The page flag that turns static batching off (`?merging=off`: a diagnostic comparison; instancing stays on). */
 export const MERGING_URL_PARAM = 'merging';
 
-/** Whether a page's query string leaves static batching on (the default) — `merging=off` or `0` turns it off. */
-export function mergingFromUrl(search: string): boolean {
-  const v = new URLSearchParams(search).get(MERGING_URL_PARAM);
-  return v !== 'off' && v !== '0' && v !== 'false';
-}

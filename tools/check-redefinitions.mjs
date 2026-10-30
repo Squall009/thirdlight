@@ -146,6 +146,26 @@ export const OWNED_FAMILIES = Object.freeze([
   },
   { family: 'bounded-found', owner: 'packages/project-model/src/validate.ts', names: ['withFound', 'boundedFound'] },
   { family: 'request-id-format', owner: 'packages/project-model/src/request-id.ts', names: ['REQUEST_ID_RE'] },
+  {
+    // The page's on-unless-off diagnostic switches; the names are the per-switch parsers each view once kept.
+    family: 'page-flags',
+    owner: 'packages/shared/src/page-flags.ts',
+    names: [
+      'pageFlagOn',
+      'architectureFromUrl',
+      'batchingFromUrl',
+      'decalsFromUrl',
+      'mergingFromUrl',
+      'paintFromUrl',
+      'portalsFromUrl',
+      'probesFromUrl',
+      'scatterFromUrl',
+      'shadowCacheFromUrl',
+      'splinesFromUrl',
+      'terrainFromUrl',
+      'terrainHorizonFromUrl',
+    ],
+  },
   // Domain constants and lists: one definition in the model, read by every package that names them.
   { family: 'shadow-defaults', owner: 'packages/project-model/src/scene-v3.ts', names: ['DIRECTIONAL_SHADOW_DEFAULTS'] },
   { family: 'surface-presets', owner: 'packages/project-model/src/types-v3.ts', names: ['SURFACE_PRESETS', 'SURFACE_PRESET_NAMES'] },

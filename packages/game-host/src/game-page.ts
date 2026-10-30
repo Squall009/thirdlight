@@ -30,11 +30,11 @@
  *
  * Browser-only (DOM, WebGL/WebGPU, Web Audio, Web Crypto).
  */
-import { sha256HexAsync } from '@thirdlight/shared';
+import { pageFlagOn, sha256HexAsync } from '@thirdlight/shared';
 import { audioSpatialOf, dependencyTables, isStoredVertexColors, depthBufferOf, instanceChunkSizeOf, lodTuningOf, type ModelLodSettings, materialTextureRefs, PHYSICS_3D_MODULE_ID, scanDependencies, streamingBudgetBytesOf, textureBudgetBytesOf, type MaterialDef, type ModelColliderTable, type SaveSchema, type GraphDocument } from '@thirdlight/project-model';
 import { assetVersionKey, createResourceManager, fixedStepHzOf, ownRenderSettingsOf, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, qualityLevelOf, qualityLevelsOf, renderSettingsOf, seeThroughSettingsOfProject, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
-import { architectureFromUrl, batchingFromUrl, decalsFromUrl, seeThroughFromUrl, occlusionFromUrl, occlusionPyramidFromUrl, paintFromUrl, portalsFromUrl, createBrowserMeshWorker, scatterFromUrl, splinesFromUrl, terrainFromUrl, terrainHorizonFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, mergingFromUrl, pageSearch, probesFromUrl, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, shadowCacheFromUrl, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
+import { architectureFromUrl, BATCHING_URL_PARAM, DECALS_URL_PARAM, seeThroughFromUrl, occlusionFromUrl, occlusionPyramidFromUrl, PAINT_URL_PARAM, PORTALS_URL_PARAM, createBrowserMeshWorker, SCATTER_URL_PARAM, SPLINES_URL_PARAM, terrainFromUrl, terrainHorizonFromUrl, TerrainTileStore, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, MERGING_URL_PARAM, pageSearch, qualityFromUrl, resolveRendererPreference, setKtx2DecoderBase, renderSettingsFromUrl, SHADOW_CACHE_URL_PARAM, slowFramesFromUrl, upscaleFilterFromUrl } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EffectDefLike, EnvironmentLike, FrameDrawnInfo, TextureStreamer, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
 import {
@@ -868,7 +868,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           // The page's ?quality= pins a level (a diagnostic comparison).
           qualityPinned: pinnedQuality,
           // Repeated objects drawn instanced unless the page says ?batching=off (a diagnostic comparison).
-          batching: batchingFromUrl(pageSearch()),
+          batching: pageFlagOn(pageSearch(), BATCHING_URL_PARAM),
           // Terrains drawn unless the page says ?terrain=off (a diagnostic comparison); their tiles are the build's buffers.
           terrain: terrainDrawn,
           // The far ground's horizon light unless the page says ?terrainHorizon=off (a diagnostic comparison).
@@ -877,12 +877,12 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           // Terrains and block layers with streaming rings keep what is round the camera, within the project's budget.
           streaming: { budgetBytes: streamingBudgetBytesOf(settings as unknown as Readonly<Record<string, unknown>>), ...(o.onProblem !== undefined ? { onProblem: o.onProblem } : {}) },
           // The scatter rules' copies drawn unless the page says ?scatter=off (a diagnostic comparison).
-          scatter: scatterFromUrl(pageSearch()),
-          splines: splinesFromUrl(pageSearch()),
+          scatter: pageFlagOn(pageSearch(), SCATTER_URL_PARAM),
+          splines: pageFlagOn(pageSearch(), SPLINES_URL_PARAM),
           // Generated architecture drawn unless the page says ?architecture=off; an export keeps its chunks between visits.
           architecture: architectureFromUrl(pageSearch()),
           // What the rooms' portals do not show is left out unless the page says ?portals=off (a diagnostic comparison).
-          portals: portalsFromUrl(pageSearch()),
+          portals: pageFlagOn(pageSearch(), PORTALS_URL_PARAM),
           // Occlusion culling on the setting's path unless the page pins one (?occlusion=off|hiz|pyramid, a diagnostic comparison).
           occlusion: occlusionFromUrl(pageSearch()),
           occlusionPyramid: occlusionPyramidFromUrl(pageSearch()),
@@ -894,15 +894,15 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           // The project's LOD bias and hysteresis.
           lod: lodTuningOf(settings),
           // Static objects merged at load unless the page says ?merging=off (a diagnostic comparison).
-          merging: mergingFromUrl(pageSearch()) ? 'load' : 'off',
+          merging: pageFlagOn(pageSearch(), MERGING_URL_PARAM) ? 'load' : 'off',
           // The sun's static casters cached in their own shadow map unless the page says ?shadowcache=off (a diagnostic comparison).
-          shadowCache: shadowCacheFromUrl(pageSearch()),
+          shadowCache: pageFlagOn(pageSearch(), SHADOW_CACHE_URL_PARAM),
           // Projected decals drawn unless the page says ?decals=off (a diagnostic comparison).
-          projectedDecals: decalsFromUrl(pageSearch()) && (o.onProblem !== undefined ? { onProblem: o.onProblem } : true),
+          projectedDecals: pageFlagOn(pageSearch(), DECALS_URL_PARAM) && (o.onProblem !== undefined ? { onProblem: o.onProblem } : true),
           // Clipped decals too (an export keeps their meshes with the architecture's chunks between visits).
-          clippedDecals: decalsFromUrl(pageSearch()),
+          clippedDecals: pageFlagOn(pageSearch(), DECALS_URL_PARAM),
           // Vertex paint drawn unless the page says ?paint=off (a diagnostic comparison).
-          vertexPaint: paintFromUrl(pageSearch()) && (o.onProblem !== undefined ? { onProblem: o.onProblem } : true),
+          vertexPaint: pageFlagOn(pageSearch(), PAINT_URL_PARAM) && (o.onProblem !== undefined ? { onProblem: o.onProblem } : true),
           // See-through as the project sets it (scripts change it through the view); ?seethrough=on|off pins it (a look and cost comparison).
           // With the setting on the mask is built at load (a script turning it off and on rebuilds nothing); off, nothing is built
           // and a script that turns it on anyway rebuilds every program then (reported).

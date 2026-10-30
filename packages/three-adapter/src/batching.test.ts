@@ -6,9 +6,10 @@
  */
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
+import { pageFlagOn } from '@thirdlight/shared';
 
 import { INSTANCE_MATRIX_ATTRIBUTE } from './attribute-instancing';
-import { BATCH_KEY, BATCHED_LAYER, batchCapacity, batchingFromUrl, batchKey, batchKeyParts, batchRefusal, createAutoBatcher, instanceCapacity, markBatchable, triangleCount, unitBoxGeometry } from './batching';
+import { BATCH_KEY, BATCHED_LAYER, BATCHING_URL_PARAM, batchCapacity, batchKey, batchKeyParts, batchRefusal, createAutoBatcher, instanceCapacity, markBatchable, triangleCount, unitBoxGeometry } from './batching';
 import { addBoxLightmapUv } from './lightmaps';
 import { OVERRIDES_KEY } from './material-graph';
 import { OCCLUDER_EARLY_RENDER_ORDER } from './occluders';
@@ -401,10 +402,10 @@ describe('auto batcher', () => {
   });
 
   it('the page flag turns batching off', () => {
-    expect(batchingFromUrl('')).toBe(true);
-    expect(batchingFromUrl('?renderer=webgl2')).toBe(true);
-    expect(batchingFromUrl('?batching=off')).toBe(false);
-    expect(batchingFromUrl('?x=1&batching=0')).toBe(false);
+    expect(pageFlagOn('', BATCHING_URL_PARAM)).toBe(true);
+    expect(pageFlagOn('?renderer=webgl2', BATCHING_URL_PARAM)).toBe(true);
+    expect(pageFlagOn('?batching=off', BATCHING_URL_PARAM)).toBe(false);
+    expect(pageFlagOn('?x=1&batching=0', BATCHING_URL_PARAM)).toBe(false);
   });
 
   it('a raycaster that enables the batched layer still hits members', () => {

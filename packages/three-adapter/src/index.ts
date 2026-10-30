@@ -257,7 +257,6 @@ export {
   BATCH_KEY,
   BATCHED_LAYER,
   BATCHING_URL_PARAM,
-  batchingFromUrl,
   batchKey,
   batchKeyParts,
   batchRefusal,
@@ -266,7 +265,6 @@ export {
   MIN_INSTANCE_CAPACITY,
   markBatchable,
   MERGING_URL_PARAM,
-  mergingFromUrl,
   unitBoxGeometry,
   type AutoBatcher,
   type AutoBatcherDiagnostics,
@@ -275,12 +273,12 @@ export {
 } from './batching';
 // An editor's edit mode drawing only the objects it edits.
 export { drawOwner, VIEW_OWNER_KEY, type IsolationDiagnostics } from './isolation-view';
-export { isStaticCaster, SHADOW_CACHE_URL_PARAM, shadowCacheFromUrl, STATIC_CASTER_KEY } from './shadow-casters';
+export { isStaticCaster, SHADOW_CACHE_URL_PARAM, STATIC_CASTER_KEY } from './shadow-casters';
 export { TERRAIN_HORIZON_URL_PARAM, TERRAIN_PAGE_LAYERS, TERRAIN_URL_PARAM, terrainFromUrl, terrainHorizonFromUrl, type TerrainPreviewStats, type TerrainView, type TerrainViewDiagnostics } from './terrain-view';
-export { SCATTER_BUILD_MS, SCATTER_GROUP_METRES, SCATTER_URL_PARAM, scatterFromUrl, type StoredScatter, type StoredScatterDiagnostics } from './stored-scatter';
-export { SPLINES_URL_PARAM, splinesFromUrl, type SplineViewDiagnostics } from './spline-view';
+export { SCATTER_BUILD_MS, SCATTER_GROUP_METRES, SCATTER_URL_PARAM, type StoredScatter, type StoredScatterDiagnostics } from './stored-scatter';
+export { SPLINES_URL_PARAM, type SplineViewDiagnostics } from './spline-view';
 export { ARCHITECTURE_STAND_IN_COLOUR, ARCHITECTURE_URL_PARAM, architectureFromUrl, type ArchitectureChunkStore, type ArchitectureViewDiagnostics } from './architecture-view';
-export { PORTALS_URL_PARAM, portalsFromUrl, ROOMS_SWITCH_KEY, type RoomCullingDiagnostics, type RoomsSwitch } from './room-culling';
+export { PORTALS_URL_PARAM, ROOMS_SWITCH_KEY, type RoomCullingDiagnostics, type RoomsSwitch } from './room-culling';
 export { brushDabOf, type PreviewDiff, type TerrainPreviewDab } from './terrain-preview';
 export type { TerrainBrushKind } from './terrain-brush-gpu';
 export { TERRAIN_DEFAULT_COLOURS } from './terrain-material';
@@ -376,14 +374,14 @@ export { MESH_WORKERS_MAX, createBrowserMeshWorker, meshWorkerCount, type MeshWo
 // The strip UVs block faces wear under a trim sheet (the kit preview's sample wall wears the same).
 export { trimStripUvs, trimWallRowSteps } from './block-cell-uv';
 // Probe lighting: the probe light every lit material samples, and the editor's probe debug view.
-export { isProbeLighting, PROBES_URL_PARAM, probesFromUrl, ProbeLighting } from './probe-lighting';
+export { isProbeLighting, PROBES_URL_PARAM, ProbeLighting } from './probe-lighting';
 export { packProbeTile, PROBE_WEIGHT_FILLED, PROBE_WEIGHT_MOVED, PROBE_WEIGHT_VALID, probeWeight, type PackedProbeTile } from './probe-pack';
 export { createProbeDebugView, type ProbeDebugView } from './probe-debug';
 // Projected decals: blended into every lit material under them (`?decals=off` leaves them out).
-export { DECALS_URL_PARAM, decalsFromUrl } from './projected-decals';
+export { DECALS_URL_PARAM } from './projected-decals';
 // See-through: what stands between the camera and a subject dithers away round it (`?seethrough=on|off` over the project's setting).
 export { applyObjectSeeThrough, objectSeeThrough, SEE_THROUGH_KEY, SEE_THROUGH_URL_PARAM, seeThroughFromUrl, SeeThroughView, type SeeThroughControl, type SeeThroughDiagnostics, type SeeThroughPatch } from './see-through';
-export { PAINT_URL_PARAM, paintFromUrl } from './vertex-paint-draw';
+export { PAINT_URL_PARAM } from './vertex-paint-draw';
 export type { MeshPaintPreview, PaintPreviewMesh, PaintPreviewTarget, PathPaintPreview, VertexPaintPreview } from './vertex-paint-preview';
 export { paintOnlyChange } from './vertex-paint-update';
 export { isDecalMark } from './clipped-decals';

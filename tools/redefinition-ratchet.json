@@ -18,8 +18,11 @@
     {"file":"packages/project-model/src/terrain.test.ts","name":"crc32 fingerprint","retired":true},
     {"file":"packages/project-model/src/terrain.ts","name":"DIGEST_RE","retired":true},
     {"file":"packages/project-model/src/terrain.ts","name":"isObj","retired":true},
+    {"file":"packages/three-adapter/src/architecture-view.ts","name":"architectureFromUrl","retired":true},
     {"file":"packages/three-adapter/src/effects-tsl.ts","name":"seeded-random fingerprint"},
     {"file":"packages/three-adapter/src/material-graph.ts","name":"valueNoise"},
+    {"file":"packages/three-adapter/src/terrain-view.ts","name":"terrainFromUrl","retired":true},
+    {"file":"packages/three-adapter/src/terrain-view.ts","name":"terrainHorizonFromUrl","retired":true},
     {"file":"tests/integration/m3-export/block-chunk-data.test.ts","name":"deepFreeze","retired":true},
     {"file":"tests/perf/terrain.test.ts","name":"crc32 fingerprint","retired":true},
     {"file":"tools/check-deps.mjs","name":"isObj"}

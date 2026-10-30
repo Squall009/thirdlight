@@ -21,13 +21,14 @@
  */
 
 import * as THREE from 'three';
+import { pageFlagOn } from '@thirdlight/shared';
 import { PROBE_FILLED, PROBE_MOVED, PROBE_SH_TEXELS, PROBE_VALID, type ProbeGridRecord } from '@thirdlight/project-model';
 
 import { pageSearch } from './renderer-factory';
 import type { ProbeTileForGpu } from './probe-atlas';
 import { createProbeDebugView, type ProbeDebugView } from './probe-debug';
 import type { ProbeLightingHost } from './probe-grids';
-import { probesFromUrl, type ProbeLighting } from './probe-lighting';
+import { PROBES_URL_PARAM, type ProbeLighting } from './probe-lighting';
 import { emptyPackedProbeTile, writePackedProbe, type PackedProbeTile } from './probe-pack';
 import { PROBE_NEVER_LIT, PROBE_WEIGHT_FILLED } from './probe-weights';
 import { PROBE_FLOATS, liveProbeTileKey, type LiveProbes } from './surface-probes';
@@ -79,7 +80,7 @@ export class AdapterLiveProbes {
 
   constructor(private readonly host: SurfaceCacheHost, private readonly probes: ProbeLightingHost, private readonly scene: THREE.Scene) {
     this.viewOn = new URLSearchParams(pageSearch()).get('probesView') === '1';
-    this.enabled = probesFromUrl(pageSearch());
+    this.enabled = pageFlagOn(pageSearch(), PROBES_URL_PARAM);
   }
 
   /**

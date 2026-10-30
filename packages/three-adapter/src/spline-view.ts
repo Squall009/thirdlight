@@ -46,11 +46,6 @@ const PIECE_CHUNK_METRES = 64;
 /** The page query that leaves out what splines make (`?splines=off`: a diagnostic comparison). */
 export const SPLINES_URL_PARAM = 'splines';
 
-/** Whether a page draws what splines make (`?splines=off|0|false`: no). */
-export function splinesFromUrl(search: string): boolean {
-  const v = new URLSearchParams(search).get(SPLINES_URL_PARAM);
-  return v !== 'off' && v !== '0' && v !== 'false';
-}
 
 export interface SplineViewDeps {
   /** The splines whose scatter bands terrain ground cover keeps clear of. */

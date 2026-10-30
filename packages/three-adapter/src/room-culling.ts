@@ -56,11 +56,6 @@ const WALL_MARGIN = 0.15;
 /** The page query that leaves room culling out (`?portals=off`: a diagnostic comparison; the lights' room test stays). */
 export const PORTALS_URL_PARAM = 'portals';
 
-/** Whether a page culls by rooms (`?portals=off|0|false`: no). */
-export function portalsFromUrl(search: string): boolean {
-  const v = new URLSearchParams(search).get(PORTALS_URL_PARAM);
-  return v !== 'off' && v !== '0' && v !== 'false';
-}
 
 /** `scene.userData[ROOMS_SWITCH_KEY]`: the scene's {@link RoomsSwitch}. */
 export const ROOMS_SWITCH_KEY = 'tlRooms';

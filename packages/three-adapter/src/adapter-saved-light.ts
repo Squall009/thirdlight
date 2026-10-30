@@ -26,9 +26,10 @@
  * (`seed`, `surface-seed.ts`): read the same way and handed to the host.
  */
 import * as THREE from 'three';
+import { pageFlagOn } from '@thirdlight/shared';
 
 import type { ProbeLightingHost } from './probe-grids';
-import { probesFromUrl } from './probe-lighting';
+import { PROBES_URL_PARAM } from './probe-lighting';
 import { pageSearch } from './renderer-factory';
 import type { ProbeTileForGpu } from './probe-atlas';
 import type { SurfaceCacheHost } from './surface-cache-host';
@@ -162,7 +163,7 @@ export class AdapterSavedLight {
   private seedKey: string | null = null;
   private diag: SavedLightDiagnostics = { scenes: 0, pages: 0, probeTiles: 0, ringLayers: 0 };
   /** `?probes=off` draws without probes, saved ones too (a diagnostic comparison). */
-  private readonly probesOn = probesFromUrl(pageSearch());
+  private readonly probesOn = pageFlagOn(pageSearch(), PROBES_URL_PARAM);
 
   constructor(
     private readonly host: SurfaceCacheHost,
