@@ -45,6 +45,7 @@
  * Cover draws receive shadows and cast none unless the rule says
  * `castShadow` (contact darkening comes from SSAO).
  */
+import { NOISE_HASH_LANES, NOISE_HASH_Y_LANE } from '@thirdlight/shared';
 import * as THREE from 'three';
 import * as TSLTyped from 'three/tsl';
 import { NodeMaterial, type NodeBuilder } from 'three/webgpu';
@@ -110,11 +111,14 @@ export function installCoverPlacement(): void {
   };
 }
 
+/** The lattice hash lanes (shared `NOISE_HASH_LANES`): x, z, seed, then the two mixing rounds. */
+const [HX, HZ, HS, HM1, HM2] = NOISE_HASH_LANES as readonly [number, number, number, number, number];
+
 /** The integer hash of `coverRandom` (cover-placement.ts) in the vertex stage: `seed` a uint, `ix`/`iz` uint cell indices. */
 function randomNode(seed: N, ix: N, iz: N, lane: number): N {
-  let h = seed.bitXor(ix.mul(uint(0x27d4eb2d))).bitXor(iz.mul(uint(0x165667b1))).bitXor(uint(Math.imul(lane + 1, 0x9e3779b1) >>> 0));
-  h = h.bitXor(h.shiftRight(uint(16))).mul(uint(0x85ebca6b));
-  h = h.bitXor(h.shiftRight(uint(13))).mul(uint(0xc2b2ae35));
+  let h = seed.bitXor(ix.mul(uint(HX))).bitXor(iz.mul(uint(HZ))).bitXor(uint(Math.imul(lane + 1, HS) >>> 0));
+  h = h.bitXor(h.shiftRight(uint(16))).mul(uint(HM1));
+  h = h.bitXor(h.shiftRight(uint(13))).mul(uint(HM2));
   h = h.bitXor(h.shiftRight(uint(16)));
   return float(h.shiftRight(uint(8))).div(16777216);
 }
@@ -123,7 +127,7 @@ function randomNode(seed: N, ix: N, iz: N, lane: number): N {
 const asUint = (v: N): N => uint(int(v.add(CELL_OFFSET))).sub(uint(CELL_OFFSET));
 
 /** The noise hash of the surface rules (`ruleNoise`), its top 24 bits. */
-const NOISE_H = [0x27d4eb2d, 0x1b873593, 0x165667b1, 0x9e3779b1, 0x85ebca6b, 0xc2b2ae35] as const;
+const NOISE_H = [HX, NOISE_HASH_Y_LANE, HZ, HS, HM1, HM2] as const;
 function noiseHash(ix: N, iy: N, iz: N, seed: number): N {
   let h = ix.mul(uint(NOISE_H[0])).bitXor(iy.mul(uint(NOISE_H[1]))).bitXor(iz.mul(uint(NOISE_H[2]))).bitXor(uint(Math.imul(seed | 0, NOISE_H[3]) >>> 0));
   h = h.bitXor(h.shiftRight(uint(15))).mul(uint(NOISE_H[4]));

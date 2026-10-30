@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 import { applyBlockEdits, BlockGrid, type BlockEdit } from './block-grid';
 import type { BlockLayerComponent, BlockType } from './block-layers';
 import { BRUSH_HARDNESS_DEFAULT, StrokeCoverage, brushFalloff, brushHalfRadius, brushMask, brushStrokeError, paintPoint, strokeCoverage, type BrushMask, type PaintLayout } from './paint-brush';
-import { fractalNoise01, valueNoise01 } from './value-noise';
+import { fractalNoise01, valueNoise01 } from '@thirdlight/shared';
 import { paintVertexDabs, type PaintVec3 } from './vertex-paint-stroke';
 
 const MASK: BrushMask = { scale: 3, contrast: 1.6, threshold: 0.45, octaves: 4, seed: 1207 };

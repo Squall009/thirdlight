@@ -4,6 +4,7 @@
  * static models (the starter character and generated props) traced by
  * their distance-field bricks, built here as an import builds them.
  */
+import { mulberry32 } from '@thirdlight/shared';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -18,17 +19,6 @@ import type { RaySource, TracerCaseSource } from './tracer-run';
 import { propGlb } from './village-assets';
 
 type V3 = [number, number, number];
-
-function rng(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 /** Sources on the faces of boxes (centre, half, rotation) and on flat triangles. */
 function archSources(arch: ReturnType<typeof traceArchitectureOf>, r: () => number): RaySource[] {
@@ -76,7 +66,7 @@ function archSources(arch: ReturnType<typeof traceArchitectureOf>, r: () => numb
 /** 36 generated buildings (rooms, doors, hip roofs) on a 6 × 6 grid 16 m apart. */
 function district(): TracerCaseSource {
   const styles = architectureStylesOf([]);
-  const r = rng(5);
+  const r = mulberry32(5);
   const objects: { component: ArchitectureComponent; origin: number[] }[] = [];
   for (let z = 0; z < 6; z += 1) {
     for (let x = 0; x < 6; x += 1) {
@@ -114,7 +104,7 @@ function modelField(): TracerCaseSource {
     bricksOf('prop (1 part, 24 × 16)', new Uint8Array(propGlb(12, { parts: 1, rings: 24, sides: 16, textureSize: 0 }))),
     bricksOf('prop (2 parts, 32 × 24)', new Uint8Array(propGlb(13, { parts: 2, rings: 32, sides: 24, textureSize: 0 }))),
   ];
-  const r = rng(8);
+  const r = mulberry32(8);
   const instances = [];
   const sources: RaySource[] = [];
   const probes: { pos: number[]; ext: number }[] = [];

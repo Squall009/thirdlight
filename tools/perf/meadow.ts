@@ -15,7 +15,8 @@
  * by a plain three.js probe page, tools/perf/bare/grass.js) and the budget
  * proposed from its rows.
  */
-import { EYE_HEIGHT_M, prng } from './generate';
+import { mulberry32 } from '@thirdlight/shared';
+import { EYE_HEIGHT_M } from './generate';
 
 export const MEADOW_VERSION = 1;
 export const MEADOW_SEED = 40;
@@ -70,7 +71,7 @@ export function meadowTerrainRaw(heights: Float32Array = meadowHeights()): Uint8
 
 /** The painted patches: layer (1–3), centre (world x, z), radius (m) and strength; layer 0 elsewhere. */
 export function meadowPaint(seed = MEADOW_SEED): { layer: number; at: [number, number]; radius: number; strength: number }[] {
-  const rnd = prng(seed * 7919 + 5);
+  const rnd = mulberry32(seed * 7919 + 5);
   const half = MEADOW_SIDE / 2;
   const out: { layer: number; at: [number, number]; radius: number; strength: number }[] = [];
   for (let i = 0; i < MEADOW_SPEC.patches; i += 1) {

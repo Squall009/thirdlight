@@ -5,6 +5,7 @@
  * import builds them) packed for the CPU tracer, traced rays' hits resolved
  * to texels, and the atlas checked texel by texel.
  */
+import { mulberry32 } from '@thirdlight/shared';
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import { BlockGrid, TerrainField, buildDistanceBrickSet, encodeDistanceBricks, type ArchitectureComponent, type BlockType, type TerrainComponent, type TerrainTile } from '@thirdlight/project-model';
@@ -30,16 +31,6 @@ import { SURFACE_READ, lookupSurfaceCpu, packSurfaceLookup } from './surface-cac
 import { TERRAIN_RINGS_MAX } from './surface-cache-terrain';
 import { TEXEL_POINT_FLOATS, patchTexelAddresses, patchTexelPoints, tileTexelAddresses, tileTexelPoints } from './surface-texels';
 
-function rng(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 const unit = (v: V3): V3 => {
   const l = Math.hypot(v[0], v[1], v[2]);
   return [v[0] / l, v[1] / l, v[2] / l];
@@ -195,7 +186,7 @@ describe('surface cache: addressing per kind', () => {
     cache.update(eye, scene.tiles, scene.terrains, true);
     expect(cache.diagnostics().tiles.beyond).toBe(0);
     const s = sceneView(packTraceScene(scene.traceSource()));
-    const r = rng(5);
+    const r = mulberry32(5);
     const byKind = new Map<number, number>();
     const owner = new Map<string, string>();
     let unresolved = 0;
@@ -239,7 +230,7 @@ describe('surface cache: addressing per kind', () => {
     cache.update([10, 3, 0], scene.tiles, scene.terrains, true);
     const table = packResolveTable(scene, cache);
     const s = sceneView(packTraceScene(scene.traceSource()));
-    const r = rng(5);
+    const r = mulberry32(5);
     const hits = new Uint32Array(HIT_WORDS);
     const hf = new Float32Array(hits.buffer);
     const byKind = new Map<number, number>();
@@ -282,7 +273,7 @@ describe('surface cache: addressing per kind', () => {
     cache.update([10, 3, 0], scene.tiles, scene.terrains, true);
     const words = packSurfaceLookup(scene, cache);
     const s = sceneView(packTraceScene(scene.traceSource()));
-    const r = rng(9);
+    const r = mulberry32(9);
     const kindOf = new Map([[TRACE_BLOCKS, SURFACE_READ.blocks], [TRACE_TERRAIN, SURFACE_READ.terrain], [TRACE_ARCH, SURFACE_READ.arch]]);
     const tried = new Map<number, number>();
     const same = new Map<number, number>();
@@ -367,7 +358,7 @@ describe('surface cache: addressing per kind', () => {
     cache.update([10, 3, 0], scene.tiles, scene.terrains, true);
     const slots = new Map([['crate-surfels/', 1], ['crate-uv1/', 2]]);
     const words = packSurfaceLookup(scene, cache, (owner) => slots.get(owner));
-    const r = rng(3);
+    const r = mulberry32(3);
     for (const [owner, uv1] of [['crate-surfels', false], ['crate-uv1', true]] as const) {
       const tile = scene.tiles.find((t) => (t as ModelTile).owner === owner) as ModelTile;
       const level = cache.levelOf(tile.key)!;
@@ -678,7 +669,7 @@ describe('surface cache: residency within the budget', () => {
 
   it('the atlas hands out blocks from 8 texels to a page and joins them again', () => {
     const atlas = new PageAtlas(3);
-    const r = rng(9);
+    const r = mulberry32(9);
     const got = [];
     for (let i = 0; i < 400; i += 1) {
       const side = 8 << Math.floor(r() * 4);

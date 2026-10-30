@@ -42,7 +42,8 @@
  * rooms and props, each kind from a generator of its own, so the class's own
  * content never moves with the counts.
  */
-import { prng, type EntityValue } from './generate';
+import { mulberry32 } from '@thirdlight/shared';
+import { type EntityValue } from './generate';
 
 /** The switches' counts (all 0: the class as recorded). */
 export interface LevelMarksOptions {
@@ -206,7 +207,7 @@ function wallFaces(rooms: LevelMarkReceivers['rooms'], groundY: LevelMarkReceive
 /** `count` decals spread over the surfaces by `spread`, the first `DECAL_PAIR_SHARE` of them in overlapping pairs. */
 function placeDecals(r: LevelMarkReceivers, count: number, spread: Readonly<Record<MarkSurface, number>>, salt: number): LevelDecalPlacement[] {
   if (count === 0) return [];
-  const rnd = prng(r.seed * 8191 + salt);
+  const rnd = mulberry32(r.seed * 8191 + salt);
   const faces = wallFaces(r.rooms, r.groundY, r.cellHeight);
   const inRoom = (x: number, z: number, m: number): boolean => r.rooms.some(({ box }) => x >= box[0] - m && x < box[2] + m && z >= box[1] - m && z < box[3] + m);
   const [ox, oy, oz] = r.origin;

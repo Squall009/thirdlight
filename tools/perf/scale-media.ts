@@ -5,12 +5,12 @@
  * bytes, so nothing the engine does per file (hashing, storing, reading,
  * decoding, caching) is hidden by content addressing.
  */
+import { mulberry32 } from '@thirdlight/shared';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { makePng } from '../../tests/e2e/png-make';
 import { REPO } from './backend';
-import { prng } from './generate';
 
 /** Opus always counts 48 kHz samples; one pool packet is 20 ms. */
 const OPUS_RATE = 48_000;
@@ -102,7 +102,7 @@ function oggPage(serial: number, sequence: number, granule: bigint, flags: numbe
  */
 export function opusVoice(seed: number, durationMs: number, title: string): Buffer {
   const pool = loadOpusPool();
-  const rnd = prng(seed);
+  const rnd = mulberry32(seed);
   const count = Math.max(1, Math.round(durationMs / 20));
   const packets: Uint8Array[] = [];
   while (packets.length < count) {
@@ -149,7 +149,7 @@ export function opusVoice(seed: number, durationMs: number, title: string): Buff
 
 /** A mono 48 kHz 16-bit PCM WAV of `durationMs`: a decaying tone with seeded pitch and noise. */
 export function pcmWav(seed: number, durationMs: number): Buffer {
-  const rnd = prng(seed);
+  const rnd = mulberry32(seed);
   const frames = Math.round((durationMs / 1000) * OPUS_RATE);
   const out = Buffer.alloc(44 + frames * 2);
   out.write('RIFF', 0, 'latin1');
@@ -178,7 +178,7 @@ export function pcmWav(seed: number, durationMs: number): Buffer {
 
 /** An RGBA PNG (`size` × `size`): a seeded gradient with noise, so it neither dedupes nor compresses to nothing. */
 export function scalePng(seed: number, size: number): Buffer {
-  const rnd = prng(seed);
+  const rnd = mulberry32(seed);
   const base = [rnd() * 255, rnd() * 255, rnd() * 255];
   const slope = [rnd() * 2 - 1, rnd() * 2 - 1, rnd() * 2 - 1];
   let i = 0;

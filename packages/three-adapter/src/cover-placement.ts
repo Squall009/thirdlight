@@ -43,6 +43,7 @@
  *
  * Pure.
  */
+import { seedCellHash } from '@thirdlight/shared';
 import { SCATTER_MIN_NORMAL_Y, SURFACE_RULE_CAVITY_RADIUS, copyRotation, ruleNoise, ruleRangeAt, type CoverPoint, type ScatterRule, type ScatterSurface } from '@thirdlight/project-model';
 
 /** Where a rule's copies begin to fade out at the end of their reach, as a share of it. */
@@ -77,11 +78,7 @@ const LANES_PER_RING = 8;
  * exactly, so the shader's answer is this one's to the bit.
  */
 export function coverRandom(seed: number, ix: number, iz: number, lane: number): number {
-  let h = (seed | 0) ^ Math.imul(ix | 0, 0x27d4eb2d) ^ Math.imul(iz | 0, 0x165667b1) ^ Math.imul(lane + 1, 0x9e3779b1);
-  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
-  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
-  h ^= h >>> 16;
-  return (h >>> 8) / 16777216;
+  return (seedCellHash(seed, ix, iz, lane) >>> 8) / 16777216;
 }
 
 /** `t` eased (smoothstep), clamped to [0, 1]. */

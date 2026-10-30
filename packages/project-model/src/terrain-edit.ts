@@ -16,9 +16,9 @@
  * Pure and deterministic.
  */
 import { brushFalloff, brushMask, latticeKey, paintPoint, strokeAmount, type BrushFalloff, type BrushMask, type StrokeCoverage } from './paint-brush';
-import { terrainNoise } from './value-noise';
+import { terrainNoise } from '@thirdlight/shared';
 
-export { TERRAIN_NOISE_HASH, terrainNoise } from './value-noise';
+export { NOISE_HASH_LANES as TERRAIN_NOISE_HASH, terrainNoise } from '@thirdlight/shared';
 import { terrainFlatStep, terrainHeightOf, terrainStepOf, terrainTileKey, type TerrainComponent } from './terrain';
 import { cloneTerrainTile, flatTerrainTile, setTerrainHole, writeSampleLayers, TERRAIN_PAINT_BYTES, TERRAIN_SAMPLE_LAYERS, type TerrainTile } from './terrain-tile';
 

@@ -8,6 +8,7 @@
  * xyz, rotation quaternion xyzw, scale xyz), in the entity's local space.
  */
 
+import { mulberry32 } from '@thirdlight/shared';
 import { MAX_INSTANCES } from '@thirdlight/project-model/limits';
 
 /** A scatter fills one instance set, so it places at most the set's copies. */
@@ -38,23 +39,11 @@ export function scatterProblem(o: ScatterOptions): string | null {
   return null;
 }
 
-/** mulberry32: a small deterministic PRNG in [0, 1). */
-export function prng(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 /** The instance buffer for the options (throws on invalid options; check `scatterProblem` first). */
 export function scatterTransforms(o: ScatterOptions): Float32Array {
   const problem = scatterProblem(o);
   if (problem !== null) throw new Error(problem);
-  const rand = prng(o.seed);
+  const rand = mulberry32(o.seed);
   const out = new Float32Array(o.count * 10);
   for (let i = 0; i < o.count; i += 1) {
     const x = (rand() - 0.5) * o.width;

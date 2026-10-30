@@ -17,9 +17,10 @@
  * `buildVillage` applies the plan through the real command API, like the
  * editor or MCP would (the same helpers as the benchmark classes).
  */
+import { mulberry32 } from '@thirdlight/shared';
 import { INSTANCE_DENSITY_MIN_NEW } from '@thirdlight/project-model';
 
-import { BENCH_BEHAVIORS, EYE_HEIGHT_M, prng, type BehaviorPlan, type EntityValue } from './generate';
+import { BENCH_BEHAVIORS, EYE_HEIGHT_M, type BehaviorPlan, type EntityValue } from './generate';
 import { publishBehaviorVia, publishBufferVia, publishFileVia, splitBySize } from './build';
 import { flightBehavior } from './level';
 import type { PerfBackend } from './backend';
@@ -149,7 +150,7 @@ export function villageViewCamera(view: VillageView): VillagePlan['camera'] {
 
 export function villagePlan(seed = VILLAGE_SEED): VillagePlan {
   const S = VILLAGE_SPEC;
-  const rnd = prng(seed * 7919 + S.entities);
+  const rnd = mulberry32(seed * 7919 + S.entities);
   const props = Array.from({ length: S.propFiles }, (_, i) => {
     const u = rnd();
     return { assetId: `village-prop-${String(i + 1).padStart(2, '0')}`, seed: Math.floor(rnd() * 2 ** 31), spec: { parts: u < 0.45 ? 1 : u < 0.85 ? 2 : 3, rings: 6 + Math.floor(rnd() * 4), sides: 10 + Math.floor(rnd() * 6), textureSize: i % 3 === 0 ? S.textureSize : 0 } };
@@ -353,7 +354,7 @@ export async function buildVillage(be: PerfBackend, projectId: string, plan = vi
  */
 export async function addVillageLamps(be: PerfBackend, projectId: string, n: number): Promise<void> {
   const p = be.project(projectId);
-  const rnd = prng(VILLAGE_SEED + 1);
+  const rnd = mulberry32(VILLAGE_SEED + 1);
   const lamps: EntityValue[] = [];
   for (let i = 0; i < n; i += 1) {
     const a = (i / n) * Math.PI * 2 + rnd() * 0.3;

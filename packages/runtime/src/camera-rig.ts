@@ -12,7 +12,7 @@
  * `pivot + distance · (sin ψ cos θ, sin θ, cos ψ cos θ)` looking at the pivot.
  */
 
-import { quatMultiply } from '@thirdlight/shared';
+import { latticeHash, quatMultiply } from '@thirdlight/shared';
 
 export type V3 = [number, number, number];
 export type Q4 = [number, number, number, number];
@@ -266,13 +266,7 @@ export function pointOnPath(path: SampledPath, progress: number, pos: V3, tangen
 // ---- seeded shake --------------------------------------------------------------------
 
 /** A deterministic hash of three integers to [−1, 1]. */
-function hash3(a: number, b: number, c: number): number {
-  let h = Math.imul(a | 0, 0x27d4eb2d) ^ Math.imul(b | 0, 0x165667b1) ^ Math.imul(c | 0, 0x9e3779b1);
-  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
-  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
-  h ^= h >>> 16;
-  return ((h >>> 0) / 0xffffffff) * 2 - 1;
-}
+const hash3 = (a: number, b: number, c: number): number => (latticeHash(a, b, c) / 0xffffffff) * 2 - 1;
 
 /** Smooth 1D value noise in [−1, 1] at time `t` (lattice per unit), one channel per `axis`. */
 export function shakeNoise(seed: number, axis: number, t: number): number {

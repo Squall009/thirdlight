@@ -20,9 +20,10 @@
  *
  * Pure: no DOM, no three.js.
  */
+import { mulberry32 } from '@thirdlight/shared';
 import type { DecalComponent, DecalOpacity, MaterialDef } from '@thirdlight/project-model';
 import { SET_COMPONENT_ENTITIES_MAX } from '@thirdlight/project-model/limits';
-import { DECAL_CHANNELS, DECAL_LAYERS_ALL, DECAL_LIMITS, decalEdgeFade, decalNormalFade, seededRandom } from '@thirdlight/runtime';
+import { DECAL_CHANNELS, DECAL_LAYERS_ALL, DECAL_LIMITS, decalEdgeFade, decalNormalFade } from '@thirdlight/runtime';
 
 import { decalPlacement, type DecalToolSettings } from './decal-place';
 import { jsonBytes, requestBatches } from './request-batches';
@@ -329,7 +330,7 @@ export class ScatterStroke {
     const v = cross(n, u);
     const area = Math.PI * radius * radius;
     const want = this.s.density * area;
-    const rnd = seededRandom((this.s.seed ^ Math.imul(this.dabs.length + 1, 0x85ebca6b)) >>> 0);
+    const rnd = mulberry32((this.s.seed ^ Math.imul(this.dabs.length + 1, 0x85ebca6b)) >>> 0);
     // The whole count is drawn; the fraction left over is drawn as a chance (a sparse scatter still lays some).
     const tries = Math.floor(want) + (rnd() < want - Math.floor(want) ? 1 : 0);
     const added: ScatterPlace[] = [];

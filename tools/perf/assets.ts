@@ -6,13 +6,12 @@
  * PNGs near their raw size, the way photographic textures are. Synthetic load
  * for timing, not art.
  */
-import { glbBytes } from '@thirdlight/shared';
+import { glbBytes, mulberry32 } from '@thirdlight/shared';
 import { makePng } from '../../tests/e2e/png-make';
-import { prng } from './generate';
 
 /** An RGBA noise PNG (`size` × `size`), tinted by the seed. */
 export function noisePng(seed: number, size: number): Buffer {
-  const rnd = prng(seed);
+  const rnd = mulberry32(seed);
   const tint = [rnd(), rnd(), rnd()];
   return makePng(size, size, () => {
     const n = rnd();

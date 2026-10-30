@@ -26,6 +26,7 @@
  * Pure and deterministic: the noise is a lattice hash with products and
  * `Math.floor` only, every other condition plain arithmetic.
  */
+import { latticeHash4 } from '@thirdlight/shared';
 import type { ModelErrorV2 } from './errors';
 import type { CellMetaValue } from './block-layers';
 import { TERRAIN_LAYER_MAX } from './terrain-sizes';
@@ -235,16 +236,8 @@ export function ruleRangeAt(r: RuleRange, v: number): number {
   return k;
 }
 
-/** The noise hash's multipliers: x, y, z and seed lanes, then two mixing rounds. */
-const H = [0x27d4eb2d, 0x1b873593, 0x165667b1, 0x9e3779b1, 0x85ebca6b, 0xc2b2ae35] as const;
-
-function hash01(ix: number, iy: number, iz: number, seed: number): number {
-  let h = Math.imul(ix | 0, H[0]) ^ Math.imul(iy | 0, H[1]) ^ Math.imul(iz | 0, H[2]) ^ Math.imul(seed | 0, H[3]);
-  h = Math.imul(h ^ (h >>> 15), H[4]);
-  h = Math.imul(h ^ (h >>> 13), H[5]);
-  h ^= h >>> 16;
-  return (h >>> 0) / 4294967296;
-}
+/** {@link latticeHash4} in [0, 1). */
+const hash01 = (ix: number, iy: number, iz: number, seed: number): number => latticeHash4(ix, iy, iz, seed) / 4294967296;
 
 /** Value noise in [0, 1) at a point in units of its lattice (smoothstep between lattice points). */
 export function ruleNoise(x: number, y: number, z: number, seed: number): number {

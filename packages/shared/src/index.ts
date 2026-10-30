@@ -26,3 +26,5 @@ export { pngBytes, pngChunk, type PngParts } from './png';
 export { GLB_CHUNK_BIN, GLB_CHUNK_JSON, GLB_MAGIC, glbBytes, readGlb, type GlbParts } from './glb';
 export { quatFromRotation, quatMultiply, type Quat } from './quat';
 export { composeMat4, decomposeMat4, invertMat4, mat4, mulMat4, type Mat4, type Mat4Out } from './mat4';
+export { mulberry32 } from './random';
+export { seedCellHash, fractalNoise01, latticeHash, latticeHash4, NOISE_HASH_LANES, NOISE_HASH_Y_LANE, terrainNoise, tileHash, valueNoise01 } from './noise';

@@ -18,6 +18,7 @@
  * gives the clock (ms × clock ÷ max clock is the time at full clock). The
  * report goes to ~/.cache/thirdlight-perf/reports/tracer-<time>.json.
  */
+import { mulberry32 } from '@thirdlight/shared';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -33,18 +34,6 @@ import { gpuClockSampler, gpuMaxMhz, launchGpuBrowser, serveStatic } from './fra
 import { extraTracerCases } from './tracer-cases';
 
 type V3 = [number, number, number];
-
-/** A seeded generator (mulberry32). */
-export function rng(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 /** A surface point a lighting ray leaves from. */
 export interface RaySource {
@@ -72,7 +61,7 @@ const SUN = ((): V3 => {
  * surface point lifted off its surface; the sources in texel order.
  */
 export function lightingRays(sources: RaySource[], count: number, seed: number, bounce: number): { rays: Float32Array; kinds: Uint8Array } {
-  const r = rng(seed);
+  const r = mulberry32(seed);
   const rays = new Float32Array(count * RAY_FLOATS);
   const kinds = new Uint8Array(count);
   const perSource = 8;
@@ -115,7 +104,7 @@ function blockTown(): { scene: TraceSceneSource; sources: RaySource[] } {
   const cellSize: V3 = [0.5, 0.5, 0.5];
   const origin: V3 = [-48, 0, -48];
   const grid = new BlockGrid({ cellSize, bounds: { min: [0, 0, 0], max: [192, 40, 192] } });
-  const r = rng(42);
+  const r = mulberry32(42);
   for (let z = 0; z < 192; z += 1) for (let x = 0; x < 192; x += 1) for (let y = 0; y < 2; y += 1) grid.set(x, y, z, { block: 'rock' });
   for (let b = 0; b < 60; b += 1) {
     const w = 8 + Math.floor(r() * 16);
@@ -166,7 +155,7 @@ function hills(): { scene: TraceSceneSource; sources: RaySource[]; field: Terrai
   }
   const origin: V3 = [-256, 0, -256];
   const field = new TerrainField(comp, origin, tiles);
-  const r = rng(9);
+  const r = mulberry32(9);
   const sources: RaySource[] = [];
   // Texels in rows over the height grid.
   for (let z = 0; z < 512; z += 4) {
@@ -250,7 +239,7 @@ export async function runTracerCli(argv: readonly string[]): Promise<void> {
     const scene = packTraceScene(c.scene);
     const { rays, kinds } = lightingRays(c.sources, count, 7, bounce);
     // Random order: the same rays shuffled.
-    const r = rng(3);
+    const r = mulberry32(3);
     const shuffle = new Uint32Array(count);
     for (let i = 0; i < count; i += 1) shuffle[i] = i;
     for (let i = count - 1; i > 0; i -= 1) {

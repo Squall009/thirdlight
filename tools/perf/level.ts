@@ -86,13 +86,14 @@
  * `levelPlan` is a pure function of the kind and the seed; `buildLevel`
  * applies it through the real command API, like the village.
  */
+import { mulberry32 } from '@thirdlight/shared';
 import { DEFAULT_FIXED_STEP_HZ, FOLIAGE_NEAR_METRES, INSTANCE_DENSITY_MIN_NEW, INSTANCE_FLOATS } from '@thirdlight/project-model';
 
 import { layeredMaterial, riverMaterial } from '../../packages/editor/src/session/material-graph';
 import { makePng } from '../../tests/e2e/png-make';
 import { publishBehaviorVia, publishBufferVia, publishFileVia, splitBySize } from './build';
 import type { PerfBackend } from './backend';
-import { EYE_HEIGHT_M, prng, type BehaviorPlan, type EntityValue } from './generate';
+import { EYE_HEIGHT_M, type BehaviorPlan, type EntityValue } from './generate';
 import { levelMarks, markCounts, markEntities, marksNotBuilt, spawnScript, COPY_STROKE_RADIUS, MARK_DECAL_IMAGE, MARK_DECAL_MATERIAL, MARK_QUAD, MARK_QUAD_MATERIAL, MARK_SPAWN_PREFAB, NO_LEVEL_MARKS, PAINT_STROKE_RADIUS, PAINTED_MATERIAL, type LevelMarks, type LevelMarksOptions } from './level-marks';
 import { layeredWallMaterial, layeredWalls, wallCounts, wallEntities, wallLayerIds, wallLayerTextures, wallSheetMaterial, wallStrokes, wallTrimSheet, NO_LAYERED_WALLS, WALL_LAYER_SETS, WALL_MATERIAL, type LayeredWalls, type LayeredWallsOptions } from './level-walls';
 import { coverKitGlb, propGlb, quadGlb, scatterKitGlb, type PropSpec } from './village-assets';
@@ -275,7 +276,7 @@ export function levelTerrainRaw(kind: LevelKind = 'landscape', part?: { at: [num
 
 /** The painted discs over the terrain: layer, centre (world x, z) and radius (m); layer 0 elsewhere. */
 export function levelTerrainPaint(seed: number): { layer: number; at: [number, number]; radius: number }[] {
-  const rnd = prng(seed * 7151 + 3);
+  const rnd = mulberry32(seed * 7151 + 3);
   const out: { layer: number; at: [number, number]; radius: number }[] = [];
   for (let i = 0; i < 24; i += 1) {
     const a = rnd() * Math.PI * 2;
@@ -550,7 +551,7 @@ export function levelViewCamera(plan: Pick<LevelPlan, 'kind'>, view: LevelView):
 export function levelPlan(kind: LevelOutdoorKind, seed = LEVEL_SEED, liveDoorCount = 0, edgeWalls = false, wallPaint = false, roofs: LevelRoofs = 'none', kitSwap = false, vertexAO = 0, rules = false, projection = 0, macro = 0, foliage: LevelFoliage = 'on', flight = false, impostorSize = 0, splines = true, flightOps = true, blocksSeam = false, markOptions: LevelMarksOptions = NO_LEVEL_MARKS, wallOptions: LayeredWallsOptions = NO_LAYERED_WALLS): LevelPlan {
   const S = LEVEL_SPEC;
   const N = S.areaSide;
-  const rnd = prng(seed * 104729 + N);
+  const rnd = mulberry32(seed * 104729 + N);
   const half = N / 2;
   const counts: Record<string, number> = { props: 0, propColliders: 0, foliageSets: 0, foliageCopies: 0, rooms: 0, pointLights: 0, terrainTiles: 0 };
   const props = levelPropFiles(rnd);
@@ -711,7 +712,7 @@ export function levelPlan(kind: LevelOutdoorKind, seed = LEVEL_SEED, liveDoorCou
   // Live doors on free ground columns outside the rooms, a row above the column's highest corner (its own
   // generator, so the classes' content does not change with the count).
   const liveDoors: [number, number, number][] = [];
-  const doorRnd = prng(seed * 7919 + liveDoorCount);
+  const doorRnd = mulberry32(seed * 7919 + liveDoorCount);
   const taken = new Set<number>();
   while (liveDoors.length < liveDoorCount) {
     const x = 1 + Math.floor(doorRnd() * (N - 2));
@@ -768,7 +769,7 @@ export function levelPlan(kind: LevelOutdoorKind, seed = LEVEL_SEED, liveDoorCou
  */
 export function levelFields(seed: number, foliage: LevelFoliage): { layer: EntityValue; edits: Record<string, unknown>[] } {
   const F = LEVEL_SPEC.world.fields;
-  const rnd = prng(seed * 6007 + F.side);
+  const rnd = mulberry32(seed * 6007 + F.side);
   const edits: Record<string, unknown>[] = [];
   for (let pz = 0; pz < F.side; pz += F.patch) {
     for (let px = 0; px < F.side; px += F.patch) {
@@ -802,13 +803,13 @@ export function levelTerrainTextures(seed: number, size: number): { assetId: str
   ];
   const out: { assetId: string; png: Buffer }[] = [];
   tints.forEach((tint, i) => {
-    const rnd = prng(seed * 31 + i);
+    const rnd = mulberry32(seed * 31 + i);
     out.push({ assetId: `level-terrain-albedo-${i + 1}`, png: makePng(size, size, () => {
       const n = 0.7 + 0.3 * rnd();
       return [Math.floor(255 * tint[0]! * n), Math.floor(255 * tint[1]! * n), Math.floor(255 * tint[2]! * n), Math.floor(255 * rnd())];
     }) });
   });
-  const rn = prng(seed * 31 + 9);
+  const rn = mulberry32(seed * 31 + 9);
   out.push({ assetId: 'level-terrain-normal', png: makePng(size, size, () => [Math.floor(128 + 40 * (rn() - 0.5)), Math.floor(128 + 40 * (rn() - 0.5)), 250, 255]) });
   out.push({ assetId: 'level-terrain-orm', png: makePng(size, size, () => [255, 230, 0, 255]) });
   return out;
@@ -816,7 +817,7 @@ export function levelTerrainTextures(seed: number, size: number): { assetId: str
 
 /** A stain: a dark blot fading out to a clear edge, with grain (the mesh decals' image). */
 export function markStainPng(seed: number, size: number): Buffer {
-  const rnd = prng(seed * 31 + 17);
+  const rnd = mulberry32(seed * 31 + 17);
   return makePng(size, size, (x, y) => {
     const r = Math.hypot(x - size / 2 + 0.5, y - size / 2 + 0.5) / (size / 2);
     const grain = 0.8 + 0.2 * rnd();

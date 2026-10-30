@@ -20,8 +20,6 @@ import * as shared from '@thirdlight/shared';
 import * as workspace from '../packages/workspace/src/digest';
 import { Rng } from '../packages/effects/src/rng';
 import { seededRandom } from '../packages/project-model/src/arch-math';
-import { prng } from '../packages/editor/src/session/instances';
-import { fractalNoise01, terrainNoise, valueNoise01 } from '../packages/project-model/src/value-noise';
 import { ruleNoise } from '../packages/project-model/src/surface-rules';
 import { brushHash } from '../packages/project-model/src/instance-brush';
 import { shakeNoise } from '../packages/runtime/src/camera-rig';
@@ -247,11 +245,11 @@ const DRAWS = 64;
 const draws = (next: () => number): number[] => Array.from({ length: DRAWS }, next);
 
 /**
- * mulberry32 copies. All three draw the same today (one golden). Not here:
- * the GPU copy (three-adapter TslRng, a shader node), the visual-script
- * prelude's copy (behavior-build, source text compiled into scripts), the
- * terrain erosion generator (a retired area) and the copies inside tests and
- * perf tools.
+ * mulberry32: the shared one, the particles' generator built on it and the
+ * architecture generator's copy (a retired area), one golden. Not here: the
+ * GPU copy (three-adapter TslRng, a shader node), the visual-script
+ * prelude's copy (behavior-build, source text compiled into scripts) and the
+ * terrain erosion generator (a retired area).
  */
 const RANDOM_COPIES: Record<string, (seed: number) => () => number> = {
   'effects Rng': (seed) => {
@@ -259,12 +257,12 @@ const RANDOM_COPIES: Record<string, (seed: number) => () => number> = {
     return () => rng.next();
   },
   'project-model seededRandom': seededRandom,
-  'editor prng': prng,
+  'shared mulberry32': shared.mulberry32,
 };
 const RANDOM_GOLDENS: Record<string, string> = {
   "effects Rng": 'bca8278e289d4c17e90716b2f716c266e1ba9781c4c6bac3ff6dc88bd43467bd',
   "project-model seededRandom": 'bca8278e289d4c17e90716b2f716c266e1ba9781c4c6bac3ff6dc88bd43467bd',
-  "editor prng": 'bca8278e289d4c17e90716b2f716c266e1ba9781c4c6bac3ff6dc88bd43467bd',
+  "shared mulberry32": 'bca8278e289d4c17e90716b2f716c266e1ba9781c4c6bac3ff6dc88bd43467bd',
 };
 
 describe('seeded random: every copy draws the same sequences', () => {
@@ -290,9 +288,9 @@ const NOISE_SEEDS = [0, 7, -3, 0x12345678];
  * the wind texture).
  */
 const NOISE_VARIANTS: Record<string, () => number[]> = {
-  'value-noise terrainNoise': () => NOISE_SEEDS.flatMap((s) => POINTS.map(([x, , z]) => terrainNoise(x, z, s))),
-  'value-noise valueNoise01': () => NOISE_SEEDS.flatMap((s) => POINTS.map(([x, y, z]) => valueNoise01(x, z, s, y))),
-  'value-noise fractalNoise01': () => NOISE_SEEDS.flatMap((s) => POINTS.map(([x, y, z]) => fractalNoise01(x, z, 4, s, y))),
+  'value-noise terrainNoise': () => NOISE_SEEDS.flatMap((s) => POINTS.map(([x, , z]) => shared.terrainNoise(x, z, s))),
+  'value-noise valueNoise01': () => NOISE_SEEDS.flatMap((s) => POINTS.map(([x, y, z]) => shared.valueNoise01(x, z, s, y))),
+  'value-noise fractalNoise01': () => NOISE_SEEDS.flatMap((s) => POINTS.map(([x, y, z]) => shared.fractalNoise01(x, z, 4, s, y))),
   'surface-rules ruleNoise': () => NOISE_SEEDS.flatMap((s) => POINTS.map(([x, y, z]) => ruleNoise(x, y, z, s))),
   'instance-brush brushHash': () => NOISE_SEEDS.flatMap((s) => POINTS.map(([x, y, z], i) => brushHash(s, Math.floor(x), Math.floor(z), Math.floor(y) + i))),
   'cover-placement coverRandom': () => NOISE_SEEDS.flatMap((s) => POINTS.map(([x, y, z], i) => coverRandom(s, Math.floor(x), Math.floor(z), Math.floor(y) + i))),

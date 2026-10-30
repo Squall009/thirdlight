@@ -17,6 +17,7 @@
  *   maps do: two reads half a period apart, each restarting while its weight
  *   is zero, so a pattern that differs from place to place never shears.
  */
+import { tileHash } from '@thirdlight/shared';
 import { fillWindMap, orderWindZones, placeWindZone, WIND_DEFAULTS, WIND_MAP_CHANNELS, windValues, type PlacedWindZone, type WindValues, type WindZoneComponent } from '@thirdlight/project-model';
 import * as THREE from 'three';
 import * as TSLTyped from 'three/tsl';
@@ -63,12 +64,7 @@ export interface WindZoneLike {
   readonly matrix: ArrayLike<number>;
 }
 
-const hash2 = (x: number, y: number, seed: number): number => {
-  let h = Math.imul(x, 0x27d4eb2d) ^ Math.imul(y, 0x165667b1) ^ Math.imul(seed, 0x9e3779b9);
-  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
-  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
-};
+const hash2 = (x: number, y: number, seed: number): number => tileHash(x, y, seed) / 4294967296;
 
 /**
  * The engine's neutral gust pattern: tiling value noise (three octaves on

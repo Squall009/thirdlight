@@ -5,19 +5,10 @@
  * one displaces fades out before its tile is given away), and the redraws
  * stay within their share of the atlas a frame without starving any tile.
  */
+import { mulberry32 } from '@thirdlight/shared';
 import { describe, expect, it } from 'vitest';
 
 import { ATLAS_EVICT_MARGIN, ATLAS_FADE_SECONDS, ATLAS_FADE_STEP_MAX, ATLAS_HOLD_FRAMES, ATLAS_REDRAW_SHARE, ATLAS_REDRAW_WAIT_FRAMES, FACE_TILE_MAX, FACE_TILE_MIN, QuadAllocator, ShadowAtlasPlan, shadowRank, SPOT_TILE_MAX, SPOT_TILE_MIN, tileSizeFor, type AtlasGrant, type AtlasRequest, type AtlasTile } from './shadow-atlas';
-
-function mulberry32(seed: number): () => number {
-  let a = seed;
-  return () => {
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 function overlaps(a: AtlasTile, b: AtlasTile): boolean {
   return a.x < b.x + b.size && b.x < a.x + a.size && a.y < b.y + b.size && b.y < a.y + a.size;

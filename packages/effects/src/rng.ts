@@ -7,6 +7,8 @@
  * hash). No Math.random, no clock.
  */
 
+import { mulberry32 } from '@thirdlight/shared';
+
 /** A 32-bit integer hash of several 32-bit values (murmur3-style mixing). */
 export function hash32(...values: number[]): number {
   let h = 0x9e3779b9;
@@ -44,17 +46,10 @@ export function hashString(s: string): number {
 
 /** A sequential generator (mulberry32): the draws of one particle's Initialize chain. */
 export class Rng {
-  private state: number;
-  constructor(seed: number) {
-    this.state = seed >>> 0;
-  }
   /** A number in [0, 1). */
-  next(): number {
-    this.state = (this.state + 0x6d2b79f5) >>> 0;
-    let t = this.state;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  readonly next: () => number;
+  constructor(seed: number) {
+    this.next = mulberry32(seed);
   }
   /** A number in [a, b]. */
   range(a: number, b: number): number {

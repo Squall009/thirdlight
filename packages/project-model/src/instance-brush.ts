@@ -27,6 +27,7 @@
  * set's (`MAX_INSTANCES`).
  */
 
+import { seedCellHash } from '@thirdlight/shared';
 import { surfaceBelow, type SurfaceGrid } from './block-surface';
 import type { BlockType } from './block-layers';
 import { INSTANCE_FLOATS, MAX_INSTANCES } from './types-v3';
@@ -139,11 +140,7 @@ export function instanceStrokeError(stroke: unknown): { path: string; message: s
 
 /** A 32-bit mix of the seed, a cell and a salt in [0, 1) (the same in every JavaScript engine: integer arithmetic only). */
 export function brushHash(seed: number, ix: number, iz: number, salt: number): number {
-  let h = (seed | 0) ^ Math.imul(ix | 0, 0x27d4eb2d) ^ Math.imul(iz | 0, 0x165667b1) ^ Math.imul(salt + 1, 0x9e3779b1);
-  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
-  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
-  h ^= h >>> 16;
-  return (h >>> 0) / 4294967296;
+  return seedCellHash(seed, ix, iz, salt) / 4294967296;
 }
 
 /** One place a copy may go: its cell, its point across the ground and the first dab that holds it. */

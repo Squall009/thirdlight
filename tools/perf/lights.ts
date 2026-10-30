@@ -25,6 +25,7 @@
  * Every light is in the one scene. Pure: the plan is fixed for a count and
  * its options.
  */
+import { mulberry32 } from '@thirdlight/shared';
 import { DEFAULT_FIXED_STEP_HZ } from '@thirdlight/project-model';
 
 import type { BehaviorPlan, EntityValue } from './generate';
@@ -92,18 +93,6 @@ export interface LightsPlan {
 
 const r3 = (v: number): number => Math.round(v * 1000) / 1000;
 const T = (at: Vec3): Record<string, unknown> => ({ position: at.map(r3), rotation: [0, 0, 0, 1], scale: [1, 1, 1] });
-
-/** A small deterministic generator (the plan must not change between runs). */
-function mulberry32(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 /** A saturated colour for light `i` (hues spread round the wheel). */
 function hueColor(i: number): string {

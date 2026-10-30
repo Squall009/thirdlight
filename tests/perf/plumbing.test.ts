@@ -8,6 +8,7 @@
  * harness on the small benchmark; tests/perf/regression.test.ts is the opt-in
  * comparison.)
  */
+import { mulberry32 } from '@thirdlight/shared';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -15,7 +16,7 @@ import { describe, expect, it } from 'vitest';
 
 import { splitBySize } from '../../tools/perf/build';
 import { BENCH_CLASSES, BUDGETS, CLASS_SPECS } from '../../tools/perf/classes';
-import { GENERATOR_VERSION, generate, prng } from '../../tools/perf/generate';
+import { GENERATOR_VERSION, generate } from '../../tools/perf/generate';
 import { metricsOf, parseArgs } from '../../tools/perf/harness';
 import { compare, summarize, type Metric } from '../../tools/perf/stats';
 
@@ -84,8 +85,8 @@ describe('benchmark generator', () => {
     expect(JSON.stringify(a.scenes)).toBe(JSON.stringify(b.scenes));
     expect(Buffer.from(a.buffers[0]!.floats.buffer).equals(Buffer.from(b.buffers[0]!.floats.buffer))).toBe(true);
     expect(JSON.stringify(generate('medium', 7).scenes)).not.toBe(JSON.stringify(a.scenes));
-    const r1 = prng(5);
-    const r2 = prng(5);
+    const r1 = mulberry32(5);
+    const r2 = mulberry32(5);
     for (let i = 0; i < 100; i += 1) expect(r1()).toBe(r2());
   });
 

@@ -3,23 +3,12 @@
  * removed decal rewrites only its cells, and every lookup then finds what a
  * whole build of the same decals finds. Pure, no GPU.
  */
+import { mulberry32 } from '@thirdlight/shared';
 import { describe, expect, it } from 'vitest';
 
 import { DECAL_CELL_BUDGET } from '@thirdlight/project-model';
 
 import { DecalGrid, decalRowsAt, type DecalBox } from './decal-index';
-
-/** A seeded random in [0, 1) (mulberry32). */
-function rng(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 const box = (x: number, y: number, z: number, side = 1, sortOrder = 0): DecalBox => ({ min: [x - side / 2, y - side / 2, z - side / 2], max: [x + side / 2, y + side / 2, z + side / 2], sortOrder });
 
@@ -36,7 +25,7 @@ function probes(boxes: readonly (DecalBox | undefined)[], r: () => number): { x:
 
 describe('the decal index changing in place', () => {
   it('after moves, spawns and removals every lookup lists what a whole build lists', () => {
-    const r = rng(7);
+    const r = mulberry32(7);
     const boxes: (DecalBox | undefined)[] = Array.from({ length: 300 }, () => box(-40 + r() * 80, -1 + r() * 2, -40 + r() * 80, 0.6 + r() * 1.4, Math.floor(r() * 3)));
     const seq = boxes.map((_, i) => i);
     const grid = new DecalGrid(DECAL_CELL_BUDGET);
@@ -82,7 +71,7 @@ describe('the decal index changing in place', () => {
 
   it('large authored decals, then many small spawns: the cells follow the sizes as a whole build sizes them', () => {
     // Ten 4 m puddles on the floor, then bullet holes (0.15 m) spawned one by one in a cluster on a wall.
-    const r = rng(11);
+    const r = mulberry32(11);
     const boxes: (DecalBox | undefined)[] = Array.from({ length: 10 }, (_, k) => ({ min: [k * 9 - 2, -0.25, -2], max: [k * 9 + 2, 0.25, 2], sortOrder: 0 }));
     const seq = boxes.map((_, i) => i);
     const grid = new DecalGrid(DECAL_CELL_BUDGET);
@@ -162,7 +151,7 @@ describe('the decal index changing in place', () => {
   });
 
   it('moving one decal of a few hundred stays far inside the frame (≤ 0.2 ms each)', () => {
-    const r = rng(3);
+    const r = mulberry32(3);
     const boxes = Array.from({ length: 400 }, () => box(-50 + r() * 100, 0, -50 + r() * 100, 0.6 + r() * 1.4));
     const grid = new DecalGrid(DECAL_CELL_BUDGET);
     grid.build(boxes);

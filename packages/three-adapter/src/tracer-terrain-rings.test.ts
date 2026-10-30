@@ -4,6 +4,7 @@
  * `TerrainField` over its tiles, a `BlockGrid`), the CPU twin of the GPU
  * tracer and of its hit resolve.
  */
+import { mulberry32 } from '@thirdlight/shared';
 import { describe, expect, it } from 'vitest';
 import { BlockGrid, TerrainField, type BlockType, type TerrainComponent, type TerrainTile } from '@thirdlight/project-model';
 
@@ -15,17 +16,6 @@ import { HIT_WORDS, TRACE_MISS, TRACE_TERRAIN, TRACE_UNFINISHED, packTraceScene,
 import { DEFAULT_STORAGE_BINDING_BYTES, TraceScenePacker } from './tracer-scene-packer';
 import { opaqueByBlockTypes, traceBlockLayerOf, traceTerrainOf } from './tracer-sources';
 import { TRACE_RING_CELLS, TerrainTraceRings } from './tracer-terrain-rings';
-
-function rng(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 const unit = (v: V3): V3 => {
   const l = Math.hypot(v[0], v[1], v[2]);
@@ -87,7 +77,7 @@ describe('tracer: terrain in rings round the eye', () => {
     const whole = traceTerrainOf(field, field.heightSpan())!;
     const exact = packTraceScene({ terrain: [whole] });
     const ringed = packTraceScene({ terrain: traces });
-    const r = rng(7);
+    const r = mulberry32(7);
     let hits = 0;
     for (let i = 0; i < 600; i += 1) {
       const o: V3 = [eye[0] + r() * 120 - 60, 8 + r() * 30, eye[2] + r() * 120 - 60];
@@ -134,7 +124,7 @@ describe('tracer: terrain in rings round the eye', () => {
     cache.update(eye, scene.tiles, scene.terrains, true);
     const table = packResolveTable(scene, cache);
     const packed = packTraceScene(scene.traceSource());
-    const r = rng(11);
+    const r = mulberry32(11);
     const words = new Uint32Array(HIT_WORDS);
     const wf = new Float32Array(words.buffer);
     const seen = new Set<number>();
@@ -216,7 +206,7 @@ describe('the traced scene packed section by section', () => {
     expect(ms).toBeLessThan(50);
     // What the packer holds traces as a scene packed whole.
     const whole = packTraceScene({ blocks: more, terrain: moved });
-    const r = rng(3);
+    const r = mulberry32(3);
     for (let i = 0; i < 200; i += 1) {
       const o: V3 = [eye[0] + 200 + r() * 200 - 100, 40, eye[2] + r() * 200 - 100];
       const d = unit([r() * 2 - 1, -0.05 - r(), r() * 2 - 1]);

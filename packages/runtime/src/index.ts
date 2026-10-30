@@ -427,7 +427,6 @@ export {
   DECAL_BLENDS,
   trimCellMetres,
   trimCellOf,
-  seededRandom,
   DECAL_FADE_GLTF_ATTRIBUTE,
   decalClipGlb,
 } from '@thirdlight/project-model';

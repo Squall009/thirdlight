@@ -14,6 +14,7 @@
  *
  * Browser-free.
  */
+import { mulberry32 } from '@thirdlight/shared';
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 
@@ -21,17 +22,6 @@ import { areaHitsBox, CLUSTER_SLICES, CLUSTER_SPOT, ClusterBuilder, ClusterLight
 import { CLUSTER_INDEX_WORDS, CLUSTER_LIGHT_TEXELS, CLUSTER_LONG_LIST, CLUSTER_CUBE_SHADOW_TEXELS, CLUSTER_SHADOW_TEXELS, ClusterShadows, ClusterTextures, decodeClusterCell, decodeClusterCubeShadow, decodeClusterLight, decodeClusterList, decodeClusterShadow } from './cluster-pack';
 
 type V3 = [number, number, number];
-
-function mulberry32(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const dot = (a: V3, b: V3): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];

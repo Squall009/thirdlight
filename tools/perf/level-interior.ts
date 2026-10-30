@@ -29,10 +29,11 @@
  *
  * Pure: a function of the seed, so the measured content is the same every run.
  */
+import { mulberry32 } from '@thirdlight/shared';
 import { ARCHITECTURE_FLOOR_ON_CELLS, architectureOpeningEdges, type ArchitectureOpening, type ArchitectureOutline } from '@thirdlight/project-model';
 
 import { ROOM_OPENING_KINDS } from '../../packages/editor/src/session/room-draw';
-import { prng, type EntityValue } from './generate';
+import { type EntityValue } from './generate';
 import { LEVEL_SEED, LEVEL_SPEC, LEVEL_VERSION, levelProp, levelPropFiles, levelTransform, levelYaw, type LevelPlan, type LevelRoom } from './level';
 
 /** The interior's sizes (the plan fills them exactly). */
@@ -125,7 +126,7 @@ export function levelInteriorPlan(seed = LEVEL_SEED, storeys = 1): LevelPlan {
   const { cols, rows } = S.grid;
   const side = S.room;
   // The level's prop files: the same first draws the other classes take, so the same files.
-  const rnd = prng(seed * 104729 + LEVEL_SPEC.areaSide);
+  const rnd = mulberry32(seed * 104729 + LEVEL_SPEC.areaSide);
   const props = levelPropFiles(rnd);
   const cellSize = [1, LEVEL_SPEC.cellHeight, 1];
   // The building centred on the layer, the layer centred on the world's origin.

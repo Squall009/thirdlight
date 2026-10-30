@@ -24,7 +24,7 @@
  * same dabs give the same bytes in every JavaScript engine (the editor's
  * preview and the backend's edit agree).
  */
-import { fractalNoise01 } from './value-noise';
+import { fractalNoise01 } from '@thirdlight/shared';
 
 export type BrushFalloff = 'smooth' | 'linear' | 'constant' | 'curve';
 export const BRUSH_FALLOFFS: readonly BrushFalloff[] = ['smooth', 'linear', 'constant', 'curve'];

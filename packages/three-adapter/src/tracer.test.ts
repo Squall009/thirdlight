@@ -6,6 +6,7 @@
  * `TerrainField` over its tiles, architecture's own colliders, bricks built
  * from a mesh as an import builds them).
  */
+import { mulberry32 } from '@thirdlight/shared';
 import { describe, expect, it } from 'vitest';
 import { BlockGrid, TerrainField, architectureStylesOf, buildDistanceBrickSet, expandArchitecture, buildDistanceBricks, decodeDistanceBricks, encodeDistanceBricks, type ArchitectureComponent, type BlockType, type ModelGeometryPrimitive, type TerrainComponent, type TerrainTile } from '@thirdlight/project-model';
 
@@ -15,18 +16,6 @@ import { SHADOW_TRACE } from './surface-light-pass';
 import { EXACT_TRACE, rayTriangle, traceRayCpu, sceneView, unpackUnorm2, type TraceHit, type V3 } from './tracer-cpu';
 import { opaqueByBlockTypes, traceArchitectureOf, traceBlockLayerOf, traceModelInstancesOf, traceTerrainOf } from './tracer-sources';
 import { TRACE_ARCH, TRACE_BLOCKS, TRACE_BRICKS, TRACE_MISS, TRACE_RESUMES, TRACE_TERRAIN, TRACE_UNFINISHED, invertAffine, packTraceScene, worldToLocalOf, type TraceSceneSource } from './tracer-scene';
-
-/** A seeded generator (mulberry32). */
-function rng(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 function unit(v: V3): V3 {
   const l = Math.hypot(v[0], v[1], v[2]);
@@ -77,7 +66,7 @@ describe('tracer: block layers', () => {
   const origin: V3 = [-10.5, 2, 4.25];
   function layer(seed: number, min: V3, max: V3, fill: number): { grid: BlockGrid; cells: V3[] } {
     const grid = new BlockGrid({ cellSize, bounds: { min, max } });
-    const r = rng(seed);
+    const r = mulberry32(seed);
     const cells: V3[] = [];
     for (let y = min[1]; y < max[1]; y += 1) {
       for (let z = min[2]; z < max[2]; z += 1) {
@@ -108,7 +97,7 @@ describe('tracer: block layers', () => {
     const max: V3 = [30, 20, 26];
     const { grid, cells } = layer(7, min, max, 0.03);
     const src: TraceSceneSource = { blocks: [traceBlockLayerOf(grid, origin, opaqueByBlockTypes(TYPES))] };
-    const r = rng(11);
+    const r = mulberry32(11);
     let hits = 0;
     for (let i = 0; i < 400; i += 1) {
       const o: V3 = [origin[0] + (r() * 44 - 8), origin[1] + r() * 12 - 1, origin[2] + r() * 40 - 8];
@@ -186,7 +175,7 @@ describe('tracer: terrain', () => {
   const comp: TerrainComponent = { tileSamples: 17, spacing: 2, heightRange: [-8, 24], tiles: [{ x: 0, z: 0 }, { x: 1, z: 0 }, { x: 0, z: 1 }, { x: 2, z: 1 }] } as TerrainComponent;
   const origin: V3 = [-20, 1.5, 7];
   function field(seed: number): TerrainField {
-    const r = rng(seed);
+    const r = mulberry32(seed);
     const tiles = new Map<string, TerrainTile>();
     for (const t of comp.tiles) {
       const heights = new Uint16Array(17 * 17);
@@ -230,7 +219,7 @@ describe('tracer: terrain', () => {
     const t = traceTerrainOf(f, comp.heightRange)!;
     const src: TraceSceneSource = { terrain: [t] };
     const tris = triangles(f);
-    const r = rng(5);
+    const r = mulberry32(5);
     let hits = 0;
     let unfinished = 0;
     for (let i = 0; i < 500; i += 1) {
@@ -309,7 +298,7 @@ describe('tracer: generated architecture', () => {
     expect(arch.boxes.length).toBeGreaterThan(4);
     expect(arch.triangles.length).toBeGreaterThan(0);
     const src: TraceSceneSource = { arch };
-    const r = rng(21);
+    const r = mulberry32(21);
     let hits = 0;
     for (let i = 0; i < 600; i += 1) {
       const o: V3 = [-2 + r() * 28, 0.6 + r() * 3.5, -6 + r() * 18];
@@ -428,7 +417,7 @@ describe('tracer: imported static models (distance-field bricks)', () => {
     const world = (p: V3): V3 => [0, 1, 2].map((r) => toWorld[r * 4]! * p[0] + toWorld[r * 4 + 1]! * p[1] + toWorld[r * 4 + 2]! * p[2] + toWorld[r * 4 + 3]!) as V3;
     const tris = mesh.triangles.map((t) => t.map((i) => world(mesh.positions[i]!)) as [V3, V3, V3]);
     const src: TraceSceneSource = { bricks: traceModelInstancesOf(bricks, toLocal) };
-    const r = rng(33);
+    const r = mulberry32(33);
     const tolerance = set.voxel * scale;
     let hits = 0;
     let disagree = 0;
@@ -477,7 +466,7 @@ describe('tracer: imported static models (distance-field bricks)', () => {
       bricks: [-4, 0, 4].flatMap((x) => traceModelInstancesOf(bricks, worldToLocalOf([x, 0, 0], [0, 0, 0, 1], [1, 1, 1]))),
     };
     const s = sceneView(packTraceScene(src));
-    const r = rng(5);
+    const r = mulberry32(5);
     let blocked = 0;
     let extra = 0;
     for (let i = 0; i < 600; i += 1) {

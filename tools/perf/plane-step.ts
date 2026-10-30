@@ -21,13 +21,13 @@
  * Input: env TL_PLANE = JSON { levels, warmup, steps, seed, plane?, arcade? }.
  * Output: one JSON line on stdout.
  */
+import { mulberry32 } from '@thirdlight/shared';
 import v8 from 'node:v8';
 import { performance } from 'node:perf_hooks';
 
 import { createPhysicsPort3D } from '@thirdlight/physics-rapier';
 import { playerCapsuleOf, playerPhysicsOf } from '@thirdlight/runtime';
 
-import { prng } from './generate';
 
 type Any = any;
 
@@ -74,7 +74,7 @@ interface Layout {
 }
 
 function layoutOf(levels: number, seed: number): Layout {
-  const rnd = prng(seed);
+  const rnd = mulberry32(seed);
   const L: Layout = { chunks: [], platforms: [], pillars: [], oneWay: [], movers: [], enemies: [], length: LEVEL_M * levels };
   for (let lv = 0; lv < levels; lv += 1) {
     const x0 = lv * LEVEL_M;

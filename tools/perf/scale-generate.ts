@@ -21,6 +21,7 @@
  * lines. Every file is distinct bytes (seeded), so nothing per file is hidden
  * by content addressing.
  */
+import { mulberry32 } from '@thirdlight/shared';
 import { createHash } from 'node:crypto';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -41,7 +42,7 @@ import { encodeKtx2 } from '../../packages/backend/src/texture-encode';
 import { makePng } from '../../tests/e2e/png-make';
 import { makeTwoColourWebp } from '../../tests/e2e/webp-make';
 import { sphereGlb, sphereGlbWith } from './assets';
-import { prng } from './generate';
+
 import { opusVoice, pcmWav, scalePng } from './scale-media';
 
 /** Bump when the generated content changes (it keys cached projects and recorded numbers). */
@@ -281,7 +282,7 @@ export async function generateScaleProject(dataRoot: string, projectId: string, 
     writeFileSync(join(dir, `${sourcePath}.tlasset`), `${layout({ tlasset: SIDECAR_FORMAT, id: assetId, kind, importSettings: kind === 'audio' ? { ...audioLoadOf(record) } : {}, labels, address: null, record })}\n`);
     assets.push(record);
   };
-  const rnd = prng(seed * 2654435761);
+  const rnd = mulberry32(seed * 2654435761);
   const seedOf = (): number => Math.floor(rnd() * 2 ** 31);
 
   // Voices: the walkthrough's first, short; the rest spread over min..max.

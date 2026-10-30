@@ -86,7 +86,7 @@ export const OWNED_FAMILIES = Object.freeze([
   {
     family: 'value-noise',
     owner: 'packages/shared/src/noise.ts',
-    names: ['valueNoise', 'valueNoise01', 'fractalNoise01'],
+    names: ['valueNoise', 'valueNoise01', 'fractalNoise01', 'terrainNoise', 'latticeHash', 'latticeHash4', 'seedCellHash', 'tileHash', 'NOISE_HASH_LANES'],
     // The lattice hash's x lane multiplier, which the brushes', ground cover's, wind's and camera shake's hashes share.
     fingerprints: [0x27d4eb2d],
   },

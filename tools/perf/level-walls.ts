@@ -27,10 +27,11 @@
  * Pure: the placements and textures are a function of the seed and the
  * options, from a generator of their own.
  */
+import { mulberry32 } from '@thirdlight/shared';
 import { equalTrimRows, LAYERED_TEXTURES, TRIM_STARTER_LAYOUT, layeredMaterial, TEMPLATE_LAYERS, UV_SOURCES, type MaterialDef, type TrimSheet } from '@thirdlight/project-model';
 
 import { makePng } from '../../tests/e2e/png-make';
-import { prng, type EntityValue } from './generate';
+import { type EntityValue } from './generate';
 
 /** The layer counts a variant can have. */
 export const WALL_LAYER_COUNTS = [1, 2, 4] as const;
@@ -129,7 +130,7 @@ const overlaps = (a: readonly number[], b: readonly number[], m: number): boolea
 
 /** The buildings of `o` on the area (none at 0); throws when the area has no room for them all. */
 export function layeredWalls(r: WallReceivers, o: LayeredWallsOptions): LayeredWalls {
-  const rnd = prng(r.seed * 6007 + 11);
+  const rnd = mulberry32(r.seed * 6007 + 11);
   const buildings: WallBuilding[] = [];
   const half = r.side / 2;
   const camera = [half - CAMERA_CLEAR[0], r.side - CAMERA_CLEAR[1], half + CAMERA_CLEAR[0], r.side];
@@ -271,7 +272,7 @@ export function wallLayerTextures(layer: WallLayer, seed: number): { albedo: Buf
   const sheet = wallTrimSheet();
   const size = layer.kind === 'trim' ? sheet.size[0] : WALL_TILING_TEXTURE;
   const salt = [...layer.id].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, seed);
-  const rnd = prng(salt);
+  const rnd = mulberry32(salt);
   const grain = new Float32Array(64 * 64).map(() => rnd());
   const noise = (x: number, y: number): number => grain[((y >> 2) & 63) * 64 + ((x >> 2) & 63)]!;
   const rowOf = (y: number): number => (layer.kind === 'trim' ? Math.min(sheet.rows.length - 1, Math.floor((y / size) * sheet.rows.length)) : 0);

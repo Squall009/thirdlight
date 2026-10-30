@@ -846,7 +846,6 @@ export * from './vertex-paint';
 export * from './vertex-paint-stroke';
 export * from './vertex-paint-paths';
 // A small seeded generator (the editor's decal stamps draw their turns and sizes from it, as the generators do).
-export { seededRandom } from './arch-math';
 // Decal pages: where a build's decal images sit on texture arrays (rectangles, gutters, mip caps).
 export * from './decal-pages';
 export * from './decal-page-report';
@@ -1139,7 +1138,6 @@ export {
 export { SCULPT_LIMITS, SCULPT_OPS, columnHeights, sculptHeights, setColumnSurface, type ColumnHeights, type SculptDab, type SculptOp } from './block-sculpt';
 // The paint brush (any paint target) and a block layer's surface paint.
 export { BRUSH_FALLOFFS, BRUSH_HARDNESS_DEFAULT, BRUSH_MASK_LIMITS, BRUSH_STROKE_KEYS, PAINT_BRUSH_LIMITS, StrokeCoverage, brushFalloff, brushHalfRadius, brushMask, brushStrokeError, brushStrokeOptions, paintBrushError, paintPoint, strokeAmount, strokeCoverage, type BrushFalloff, type BrushMask, type BrushStrokeOptions, type DabStroke, type PaintBrush, type PaintLayout } from './paint-brush';
-export { fractalNoise01, valueNoise01 } from './value-noise';
 export {
   BLOCK_EDGE_SHAPES,
   BLOCK_EDGE_SIDES,

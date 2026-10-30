@@ -11,8 +11,8 @@
  * - A figure: a skinned column on a chain of joints with a looping `idle`
  *   clip that sways every joint, for animated characters.
  */
+import { mulberry32 } from '@thirdlight/shared';
 import { noisePng, packGlb } from './assets';
-import { prng } from './generate';
 
 /** Accessors and buffer views of one GLB under construction. */
 class GlbData {
@@ -113,7 +113,7 @@ export interface PropSpec {
 
 /** A prop file: root `prop` → parts `partN` (each `partN_LOD0..2`), one material. */
 export function propGlb(seed: number, spec: PropSpec): Buffer {
-  const rnd = prng(seed);
+  const rnd = mulberry32(seed);
   const g = new GlbData();
   const meshes: Record<string, unknown>[] = [];
   const nodes: Record<string, unknown>[] = [{ name: 'prop', children: [] as number[] }];
@@ -192,7 +192,7 @@ export function quadGlb(material: string): Buffer {
 
 /** A scatter kit: top-level pieces `<name>_LOD0..2` (small lathes), one material. */
 export function scatterKitGlb(seed: number, names: readonly string[]): Buffer {
-  const rnd = prng(seed);
+  const rnd = mulberry32(seed);
   const g = new GlbData();
   const meshes: Record<string, unknown>[] = [];
   const nodes: Record<string, unknown>[] = [];
@@ -228,7 +228,7 @@ export function scatterKitGlb(seed: number, names: readonly string[]): Buffer {
  * so a few thousand near the camera cost what they would in a game.
  */
 export function coverKitGlb(seed: number, names: readonly string[]): Buffer {
-  const rnd = prng(seed);
+  const rnd = mulberry32(seed);
   const g = new GlbData();
   const meshes: Record<string, unknown>[] = [];
   const nodes: Record<string, unknown>[] = [];
@@ -281,7 +281,7 @@ export interface ClumpMesh {
  * most; A thinness), so the engine's wind moves it as it would a game's grass.
  */
 export function bladeClump(seed: number, blades: number, segments: number, height = 0.8, spread = 0.12): ClumpMesh {
-  const rnd = prng(seed);
+  const rnd = mulberry32(seed);
   const perBlade = 2 * segments + 1;
   const verts = blades * perBlade;
   const pos = new Float32Array(verts * 3);
@@ -397,7 +397,7 @@ export function figureController(assetId: string, controllerId: string): Record<
  * joints around it, and an `idle` clip that sways the chain (four keys).
  */
 export function figureGlb(seed: number, joints = 22, sides = 10, ringsPerJoint = 3): Buffer {
-  const rnd = prng(seed);
+  const rnd = mulberry32(seed);
   const segment = 1.6 / joints;
   const rings = joints * ringsPerJoint;
   const verts = (rings + 1) * (sides + 1);

@@ -16,8 +16,9 @@
  *
  * Pure: no DOM, no three.js.
  */
+import { mulberry32 } from '@thirdlight/shared';
 import type { DecalComponent, DecalMode } from '@thirdlight/project-model';
-import { DECAL_LIMITS, DECAL_MODES, seededRandom } from '@thirdlight/runtime';
+import { DECAL_LIMITS, DECAL_MODES } from '@thirdlight/runtime';
 
 type V3 = readonly [number, number, number];
 export type Quat = [number, number, number, number];
@@ -125,7 +126,7 @@ export function turnAboutNormal(rotation: readonly number[], degrees: number): Q
 
 /** The `index`-th stamp's extra turn (degrees) and size factor. */
 export function decalStamp(stamp: DecalStampSettings, index: number): { turn: number; scale: number } {
-  const rnd = seededRandom((stamp.seed ^ Math.imul(index + 1, 0x9e3779b1)) >>> 0);
+  const rnd = mulberry32((stamp.seed ^ Math.imul(index + 1, 0x9e3779b1)) >>> 0);
   const a = rnd();
   const b = rnd();
   return { turn: (a * 2 - 1) * stamp.turn, scale: stamp.scaleMin + b * (stamp.scaleMax - stamp.scaleMin) };

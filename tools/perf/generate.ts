@@ -7,6 +7,7 @@
  * a floor, platforms, background blocks, props of one generated model kit,
  * scripted objects, effects and instanced scatter.
  */
+import { mulberry32 } from '@thirdlight/shared';
 import { CLASS_SPECS, type BenchClass, type ClassSpec } from './classes';
 
 /** Bump when the generated content changes (it keys the cached projects and the baseline). */
@@ -83,18 +84,6 @@ export interface BenchPlan {
 
 /** A standing player's eye over the ground (m): the eye height of the classes' occluded views. */
 export const EYE_HEIGHT_M = 1.7;
-
-/** mulberry32: a tiny, well-mixed 32-bit PRNG. */
-export function prng(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 const round3 = (v: number): number => Math.round(v * 1000) / 1000;
 const T = (x: number, y: number, z: number, yawDeg = 0, s: [number, number, number] = [1, 1, 1]): Record<string, unknown> => {
@@ -303,9 +292,9 @@ function scatter(count: number, x0: number, rnd: () => number): Float32Array {
  */
 export function generate(className: BenchClass, seed = DEFAULT_SEED): BenchPlan {
   const spec = CLASS_SPECS[className];
-  const rnd = prng(seed * 7919 + spec.entities);
+  const rnd = mulberry32(seed * 7919 + spec.entities);
   // The class's own files (none for the other classes, so their plans match their baselines).
-  const fileRnd = prng(seed * 104729 + spec.entities);
+  const fileRnd = mulberry32(seed * 104729 + spec.entities);
   const modelFiles: FilePlan[] = Array.from({ length: spec.modelFiles ?? 0 }, (_, i) => ({ assetId: `bench-model-${String(i + 1).padStart(3, '0')}`, displayName: `Bench model ${i + 1}`, seed: Math.floor(fileRnd() * 2 ** 31), segments: spec.modelSegments ?? 32, size: spec.modelTextureSize ?? 128 }));
   const textureFiles: FilePlan[] = Array.from({ length: spec.textureFiles ?? 0 }, (_, i) => ({ assetId: `bench-tex-${String(i + 1).padStart(3, '0')}`, displayName: `Bench texture ${i + 1}`, seed: Math.floor(fileRnd() * 2 ** 31), segments: 0, size: spec.textureSize ?? 256 }));
   const materials = Array.from({ length: spec.materials }, (_, i) => ({
