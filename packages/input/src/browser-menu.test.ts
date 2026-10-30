@@ -9,7 +9,7 @@
  * slices of menu state.
  */
 import { describe, expect, it } from 'vitest';
-import { viewSource } from './test-frame-view';
+import { MOVE_JUMP_CONFIG, viewSource } from './test-frame-view';
 import { attachBrowserInput } from './browser';
 
 /** A minimal EventTarget stand-in (same pattern as browser.test.ts). */
@@ -87,6 +87,7 @@ function harness(pads: ArrayLike<Gamepad | null> = []): Harness {
     document: doc as unknown as Document,
     navigator: (win as unknown as { navigator: object }).navigator as unknown as Navigator,
     getGamepads: () => padList,
+    inputConfig: MOVE_JUMP_CONFIG,
   }));
   const key = (code: string, down = true, extra: Record<string, unknown> = {}): void => {
     const targetLike = { isContentEditable: false, tagName: 'CANVAS' };

@@ -6,7 +6,7 @@
  * init config built from a scene by the runtime's `physics3DConfigOf`),
  * `@thirdlight/three-adapter/gltf-loader` (pinned GLTFLoader port) over a
  * committed fixture GLB, three's AnimationMixer crossfade over the real clips,
- * and `@thirdlight/input`'s pure `mapRawInput` for the movement/menu key path.
+ * and `@thirdlight/input`'s action evaluator for the movement/jump key path.
  *
  * The page is served under the production preview-origin CSP
  * (`default-src 'none'; script-src 'self'; connect-src 'self'; …`) so a
@@ -14,7 +14,7 @@
  */
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import { createPhysicsPort3D } from '@thirdlight/physics-rapier';
-import { mapRawInput } from '@thirdlight/input';
+import { createActionEvaluator, DEFAULT_INPUT_CONFIG } from '@thirdlight/input';
 import { physics3DConfigOf } from '@thirdlight/runtime';
 import * as THREE from 'three';
 
@@ -173,33 +173,15 @@ void (async () => {
     R['glbError'] = e instanceof Error ? e.message : String(e);
   }
 
-  // 5. Production input mapping (movement + the keys a menu screen would use).
+  // 5. Production input mapping (movement and jump from the default bindings).
   try {
-    const snap = (over: Partial<Record<string, unknown>>): unknown => ({
-      keyboardLeft: false,
-      keyboardRight: false,
-      keyboardJump: false,
-      gamepad: null,
-      ...over,
-    });
-    const pad = (over: Record<string, unknown>): Record<string, unknown> => ({
-      index: 0,
-      id: 'probe-pad',
-      mapping: 'standard',
-      axis0: 0,
-      button0: false,
-      button14: false,
-      button15: false,
-      ...over,
-    });
-    const frame = (over: Partial<Record<string, unknown>>): unknown => mapRawInput(snap(over) as never, { stepIndex: 0 });
-    R['inputRight'] = frame({ keyboardRight: true });
-    R['inputSpaceHeld'] = frame({ keyboardJump: true });
-    R['inputSpaceLatch'] = frame({ keyboardJump: true, jumpLatch: true });
-    R['inputEnter'] = frame({});
-    R['inputGamepadButton'] = frame({ gamepad: pad({ button0: true }) });
-    R['inputGamepadAxis'] = frame({ gamepad: pad({ axis0: 0.9 }) });
-    R['inputNonStandardPad'] = frame({ gamepad: pad({ mapping: 'xinput', button0: true }) });
+    const frame = (keys: string[], buttons: number[] = [], axis0 = 0): unknown =>
+      createActionEvaluator(DEFAULT_INPUT_CONFIG).sample({ keys: new Set(keys), pressedKeys: new Set(), gamepad: { buttons: Array.from({ length: 17 }, (_, i) => buttons.includes(i)), axes: [axis0, 0, 0, 0] } });
+    R['inputRight'] = frame(['KeyD']);
+    R['inputSpaceHeld'] = frame(['Space']);
+    R['inputEnter'] = frame(['Enter']);
+    R['inputGamepadButton'] = frame([], [0]);
+    R['inputGamepadAxis'] = frame([], [], 0.9);
   } catch (e) {
     R['inputError'] = e instanceof Error ? e.message : String(e);
   }

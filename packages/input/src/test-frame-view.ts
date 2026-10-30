@@ -1,12 +1,16 @@
 /**
- * Tests only: the character controls of a version 2 action
- * frame as the version 1 channels (`moveX`, `moveY`, `jump`) the input
- * tests assert — the inverse of `toActionFrame`. The `actions` map is kept
- * when it holds other actions too (then with `move` and `jump`), else dropped.
+ * Tests only: the `move` and `jump` actions of a version 2 action frame as
+ * the version 1 channels (`moveX`, `moveY`, `jump`) the input tests assert.
+ * The `actions` map is kept when another action has a value or an edge (then
+ * with `move` and `jump`), else dropped.
  * The frame's `press` (any key, for `anyPressed`) is not a control: tests of
  * it read the source's own frames.
  */
 import type { ActionFrame, ActionValue, JumpPhase } from '@thirdlight/runtime';
+import { DEFAULT_INPUT_CONFIG, type InputConfigLike } from './actions';
+
+/** The side-view defaults' `move` and `jump` alone: frames the tests compare whole. */
+export const MOVE_JUMP_CONFIG: InputConfigLike = { actions: DEFAULT_INPUT_CONFIG.actions.filter((a) => a.name === 'move' || a.name === 'jump') };
 
 export type ChannelView = Omit<ActionFrame, 'actions' | 'press'> & { moveX: number; moveY?: number; jump: JumpPhase; actions?: Readonly<Record<string, ActionValue>> };
 
@@ -15,7 +19,7 @@ export function channelView(frame: ActionFrame): ChannelView {
   const move = actions?.['move'];
   const jump = actions?.['jump'];
   const others: Record<string, ActionValue> = {};
-  for (const [k, v] of Object.entries(actions ?? {})) if (k !== 'move' && k !== 'jump') others[k] = v;
+  for (const [k, v] of Object.entries(actions ?? {})) if (k !== 'move' && k !== 'jump' && (v.v !== 0 || (v.x ?? 0) !== 0 || (v.y ?? 0) !== 0 || v.p !== 'none')) others[k] = v;
   return {
     ...rest,
     moveX: move === undefined ? 0 : (move.x ?? move.v),

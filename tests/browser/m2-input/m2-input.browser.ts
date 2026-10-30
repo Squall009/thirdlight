@@ -8,8 +8,7 @@
  * and a physical gamepad are both required"; a synthetic trace complements
  * but cannot replace it). The pure
  * half of A11 and the exact sampled frames are already Node-verified:
- * `packages/input/src/{mapping,browser,step-source}.test.ts` and
- * `fixtures/m2/input/raw-sequences.json` (re-derived by its own checker).
+ * `packages/input/src/{actions,browser}.test.ts`.
  *
  * Gamepad/secure-context topology: the intended authoring topology is plain-HTTP LAN.
  * `navigator.getGamepads()` availability varies by browser in non-secure

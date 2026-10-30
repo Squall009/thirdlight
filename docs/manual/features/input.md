@@ -14,11 +14,11 @@ listens for the next key (an axis asks for two or four keys), "+ pad" for
 the next gamepad button; × removes a binding; new actions can be added. The
 first edit makes the controls the project's own; "Reset to defaults" goes
 back. The character controller moves and jumps with the actions it names
-(`moveAction`, `jumpAction`; defaults the `move` and `jump` bindings; each
-player of a co-op game names its own):
-their keys, and their pad buttons and stick axis (`jump`'s pad buttons,
-`move`'s button pair and axis; a part with no pad binding of its kind keeps
-the standard layout — A jumps, D-pad and left stick move). Players rebind
+(`moveAction`, `jumpAction`; defaults `move` and `jump`; each player of a
+co-op game names its own). They are actions like any other: their keys, pad
+buttons and stick axes, dead zone, `invert`, `scale` and hold bindings all
+count, and only what they bind moves the character (an action with no pad
+binding does not read the pad). Players rebind
 the pad on the game shell's Controls screen (see [The game shell](gameplay.md#the-game-shell-menus-and-hud-as-ui-documents)). Scripts read
 `ctx.input.value(name)`, `.vector(name)`, `.pressed(name)`, `.held(name)`,
 `.released(name)`; the actions are part of the recorded input, so replays

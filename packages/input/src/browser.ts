@@ -6,9 +6,9 @@
  * `browser-rebind`, `browser-ui`, `browser-keys`,
  * `browser-status`) get what it resolved passed in. It owns
  * every listener it installs,
- * reduces raw events and `Navigator.getGamepads()` to plain
- * `RawInputSnapshot` values, and delegates all mapping to the pure
- * `mapRawStep`. It never throws into the caller and never pretends the
+ * reduces raw events and `Navigator.getGamepads()` to plain device state,
+ * and delegates all mapping to the action evaluator: every action, `move` and
+ * `jump` included, reads its own bindings and processors. It never throws into the caller and never pretends the
  * gamepad API works: a blocked/insecure/absent API degrades to keyboard-only
  * with a structured `input_unavailable` diagnostic.
  *
@@ -18,8 +18,8 @@
  *  - reconnect and **index reuse** → the active pad is keyed by `index`+`id`,
  *    and a changed id at a reused index is treated as a disconnect;
  *  - keyboard auto-repeat (`event.repeat === true`) → ignored entirely;
- *  - hidden tab / focus loss / `pagehide` → held state cleared, jump forced up,
- *    `awaitingRelease` so resume cannot produce a phantom `pressed`;
+ *  - hidden tab / focus loss / `pagehide` → held state cleared, and a fresh
+ *    activation so resume cannot produce a phantom `pressed`;
  *  - typing in the inspector → editable `event.target` events are suppressed
  *    (detected per event, never via `document.activeElement`), and focus
  *    entering an editable element suspends the binding;
@@ -27,23 +27,15 @@
  *    state, idempotently.
  */
 import type { ActionFrame, ActionSource, InputStatusEntry } from '@thirdlight/runtime';
-import { mapRawStep, quantizeMove, toActionFrame, type StepState } from './mapping';
-import {
-  createMenuController,
-  type MenuSample,
-} from './menu';
-import { actionKeys, bindsPointerButton, bindsWheel, createActionEvaluator, DEFAULT_INPUT_CONFIG, characterKeys, characterPad, STANDARD_CHARACTER_PAD, type InputConfigLike, type CharacterPad } from './actions';
+import { createMenuController, MENU_CONFIRM_CODES, MENU_GAMEPAD_CONFIRM_BUTTON, type MenuSample } from './menu';
+import { actionKeys, bindsPointerButton, bindsWheel, createActionEvaluator, DEFAULT_INPUT_CONFIG, type InputConfigLike, type RawDeviceState } from './actions';
 import { createKeyboard, isEditableTarget, type KeyboardEventLike } from './browser-keys';
-import { clipDeviceId, createPadTracker, padAxes, padButtons, padSnapshot } from './browser-pads';
+import { clipDeviceId, createPadTracker, padAxes, padButtons } from './browser-pads';
 import { createPointerChannel } from './browser-pointer';
 import { createRebind, type CaptureInputOptions, type CapturedInput } from './browser-rebind';
 import { createInputStatus } from './browser-status';
 import { createUiChannel, uiKeys, type UiKeys, type UiSample } from './browser-ui';
-import {
-  DEFAULT_KEYBOARD_MAP,
-  type InputBindingOptions,
-  type RawInputSnapshot,
-} from './types';
+import type { InputBindingOptions } from './types';
 
 export type { CaptureInputOptions, CapturedInput } from './browser-rebind';
 export type { UiSample } from './browser-ui';
@@ -59,6 +51,21 @@ function messageOf(error: unknown): string {
 
 function neutral(stepIndex: number): ActionFrame {
   return { stepIndex };
+}
+
+const CONFIRM_CODES: ReadonlySet<string> = new Set(MENU_CONFIRM_CODES);
+const without = (codes: ReadonlySet<string>): Set<string> => new Set([...codes].filter((c) => !CONFIRM_CODES.has(c)));
+type PadState = NonNullable<RawDeviceState['gamepad']>;
+const releaseConfirm = (pad: PadState): PadState => ({ buttons: pad.buttons.map((b, i) => b && i !== MENU_GAMEPAD_CONFIRM_BUTTON), axes: pad.axes });
+
+/** The device state without the menu confirm the host consumed (its keys, or the active pad's confirm button). */
+function withoutConfirm(raw: RawDeviceState, suppressed: { readonly keyboard: boolean; readonly gamepad: boolean }, activeSlot: number | null): RawDeviceState {
+  const padOff = suppressed.gamepad && raw.gamepad !== null;
+  return {
+    ...raw,
+    ...(suppressed.keyboard ? { keys: without(raw.keys), pressedKeys: without(raw.pressedKeys) } : {}),
+    ...(padOff ? { gamepad: releaseConfirm(raw.gamepad!), pads: (raw.pads ?? []).map((p, i) => (p !== null && i === activeSlot ? releaseConfirm(p) : p)) } : {}),
+  };
 }
 
 /**
@@ -132,8 +139,7 @@ export interface BrowserInputSource extends ActionSource {
   setFrameInput(source: (() => InputStatusEntry | undefined) | null): void;
   /**
    * Only the actions of these maps feed the frame (null: every
-   * map) — the host switches to a focused UI document's map. With the
-   * gameplay map off the character controller's move and jump read neutral too; when it
+   * map) — the host switches to a focused UI document's map. When a map
    * comes back, a control still held must be released before it acts.
    */
   setActiveMaps(maps: readonly string[] | null): void;
@@ -157,26 +163,19 @@ export interface BrowserInputSource extends ActionSource {
 }
 
 /**
- * The project's input map as the binding reads it (`configure` rebinds at runtime): the character
- * controller's keys and pad controls, the action evaluator, every key an action uses, the `ui`
- * actions' keys and whether the view keeps its context menu and the page its wheel scroll.
+ * The project's input map as the binding reads it (`configure` rebinds at runtime): the action
+ * evaluator, every key an action uses, the `ui` actions' keys and whether the view keeps its
+ * context menu and the page its wheel scroll.
  */
-function bindingConfig(cfg: InputConfigLike | undefined) {
-  const keyMap = cfg !== undefined ? characterKeys(cfg) : DEFAULT_KEYBOARD_MAP;
+function bindingConfig(given: InputConfigLike | undefined) {
+  const cfg = given ?? DEFAULT_INPUT_CONFIG;
   return {
-    suppressContextMenu: cfg !== undefined && bindsPointerButton(cfg, 'right'),
-    suppressWheel: cfg !== undefined && bindsWheel(cfg),
-    left: new Set<string>(keyMap.left),
-    right: new Set<string>(keyMap.right),
-    jump: new Set<string>(keyMap.jump),
-    /** The pad buttons/axes of the character controller's move and jump. */
-    pad: (cfg !== undefined ? characterPad(cfg) : STANDARD_CHARACTER_PAD) as CharacterPad,
-    evaluator: cfg !== undefined ? createActionEvaluator(cfg) : null,
+    suppressContextMenu: bindsPointerButton(cfg, 'right'),
+    suppressWheel: bindsWheel(cfg),
+    evaluator: createActionEvaluator(cfg),
     /** Every key an action uses (held keys and taps between samples feed the evaluator). */
-    actionCodes: new Set<string>(cfg?.actions.flatMap(actionKeys) ?? []),
-    uiKeys: uiKeys(cfg ?? DEFAULT_INPUT_CONFIG) as UiKeys,
-    /** The project's `move` action is a 2D axis (a 3D character's move vector: the frame's moveX and moveY). */
-    move2d: cfg?.actions.some((a) => a.name === 'move' && a.type === 'axis2d') === true,
+    actionCodes: new Set<string>(cfg.actions.flatMap(actionKeys)),
+    uiKeys: uiKeys(cfg) as UiKeys,
   };
 }
 
@@ -210,8 +209,7 @@ export function attachBrowserInput(
     return () => candidate.call(nav);
   })();
 
-  // The character controller keys come from the project's move/jump actions
-  // (`configure` rebinds them at runtime).
+  // `configure` rebinds at runtime.
   let cfg = bindingConfig(options.inputConfig);
   let lastPad: { buttons: boolean[]; axes: number[] } | null = null;
   /** Every standard-mapped pad by its slot this sample (a binding naming its `pad` reads its own: local co-op). */
@@ -236,16 +234,13 @@ export function attachBrowserInput(
   let detached = false;
   let suspendPending = false;
 
-  let jumpLatch = false;
-  let state: StepState = { down: false, awaitingRelease: false };
   // The bounded semantic menu channel — separate
   // from the gameplay ActionFrame: the owner feeds its device events into
   // the pure controller; the game host consumes `sampleMenu()` and calls
   // `markConfirmConsumed()`. The controller's `suppress()` state feeds the
-  // gameplay sampler so a consumed menu press can never become a jump from
-  // the same physical press (the fresh-release rule).
+  // gameplay sampler so a consumed menu press can never become a jump (or any
+  // other game action) from the same physical press (the fresh-release rule).
   const menu = createMenuController();
-  let prevGamepadJumpDown = false;
 
   const status = createInputStatus(options);
   const { emit, markUnavailable, counters } = status;
@@ -253,14 +248,11 @@ export function attachBrowserInput(
   // --- suspension / fresh activation ------------------------
 
   /**
-   * Fresh activation after a suspension or an active-pad change: held state and pending edges are discarded and every control
-   * enters `awaitingRelease`, so a physically down control yields `held` —
-   * never `pressed` — until it is observed up once.
+   * Fresh activation after a suspension or an active-pad change: a physically down control
+   * yields `held` — never `pressed` — until it is observed up once.
    */
   const freshActivation = (): void => {
-    jumpLatch = false;
-    state = { down: false, awaitingRelease: true };
-    prevGamepadJumpDown = false;
+    cfg.evaluator.freshActivation();
   };
 
   // The parts: rebinding, menu edges, gamepads and the pointer (made before any listener can run).
@@ -271,7 +263,6 @@ export function attachBrowserInput(
   const ui = createUiChannel(rebind, usePad);
   const pads = createPadTracker({
     detached: () => detached,
-    pad: () => cfg.pad,
     freshActivation,
     lost: (id, reason) => {
       menu.clear('gamepad'); // disconnect clears that device's held menu state;
@@ -313,16 +304,13 @@ export function attachBrowserInput(
     notePress: (code) => {
       if (firstPress === null) firstPress = { device: 'keyboard', code };
     },
-    jumpPressed: () => {
-      jumpLatch = true;
-    },
   });
 
   const suspend = (reason: string): void => {
     if (detached) return;
     keys.clear();
     firstPress = null;
-    cfg.evaluator?.reset();
+    cfg.evaluator.reset();
     pointer.suspend();
     menu.clear('all'); // focus/visibility loss: every held key/button and the
     // menu latch clear
@@ -426,11 +414,9 @@ export function attachBrowserInput(
       return neutral(stepIndex);
     }
 
-    let gamepad: NonNullable<RawInputSnapshot['gamepad']> | null = null;
-    let keyboardJumpSuppressed = false;
     let active: Gamepad | null = null;
-    /** The pad the character channel reads: the one its move/jump bindings name, else the active pad. */
-    let characterGamepad: Gamepad | null = null;
+    /** The active pad's slot in the poll (null: none). */
+    let activeSlot: number | null = null;
     if (gamepadEnabled && pollGamepads) {
       try {
         const list = pollGamepads();
@@ -440,73 +426,33 @@ export function attachBrowserInput(
         if (press !== null) firstPress = press;
         lastPad = active ? { buttons: padButtons(active), axes: padAxes(active) } : null;
         lastPads = Array.from(list, (gp) => (gp && gp.connected !== false && gp.mapping === 'standard' ? { buttons: padButtons(gp), axes: padAxes(gp) } : null));
-        const named = cfg.pad.slot !== null ? (list[cfg.pad.slot] ?? null) : null;
-        characterGamepad = cfg.pad.slot === null ? active : named !== null && named.connected !== false && named.mapping === 'standard' ? named : null;
-        if (active !== null && (active.buttons.some((b) => b?.pressed === true) || active.axes.some((v) => Math.abs(v ?? 0) > 0.5))) {
-          usePad(clipDeviceId(active.id));
+        if (active !== null) {
+          activeSlot = Array.prototype.indexOf.call(list, active) as number;
+          if (active.buttons.some((b) => b?.pressed === true) || active.axes.some((v) => Math.abs(v ?? 0) > 0.5)) usePad(clipDeviceId(active.id));
         }
       } catch (error) {
         markUnavailable('gamepad', `getGamepads failed: ${messageOf(error)}; keyboard-only`);
         active = null;
+        lastPad = null;
         lastPads = [];
       }
     }
-    // The menu channel sees the primary button (a fresh press confirms; the
-    // same button is the pad's jump unless rebound — suppression below). A disabled/blocked poll reads as released.
-    menu.gamepadButton0(active !== null && active.buttons[0]?.pressed === true);
+    // The menu channel sees the primary button (a fresh press confirms). A disabled/blocked poll reads as released.
+    menu.gamepadButton0(active !== null && active.buttons[MENU_GAMEPAD_CONFIRM_BUTTON]?.pressed === true);
     const suppressed = menu.suppress();
-    // A consumed confirm press still held: the SAME physical button must
-    // not also drive the pad jump until it is released (only when button 0 is one of the jump buttons; a rebound jump is another button).
-    gamepad = characterGamepad !== null ? padSnapshot(cfg.pad, characterGamepad, suppressed.gamepad && characterGamepad === active ? new Set([0]) : undefined) : null;
-    if (suppressed.keyboard) {
-      // A consumed confirm press still held: the same physical key must not
-      // contribute to the jump at all — the mapping derives the jump
-      // down-transition from the HELD keyboard state, so the suppression
-      // zeroes the held contribution, not just the owner's press latch
-      // (the delivery.md fresh-release rule).
-      jumpLatch = false;
-      keyboardJumpSuppressed = true;
-    }
 
-    const gamepadJumpDown = gamepad !== null && gamepad.button0;
-    if (gamepadJumpDown && !prevGamepadJumpDown) jumpLatch = true;
-    prevGamepadJumpDown = gamepadJumpDown;
-
-    // The gameplay map switched off (a focused UI document): move and jump read neutral.
-    const gameplayOn = activeMaps === null || activeMaps.has('gameplay');
-    const snapshot: RawInputSnapshot = gameplayOn
-      ? {
-          keyboardLeft: keys.anyHeld(cfg.left),
-          keyboardRight: keys.anyHeld(cfg.right),
-          keyboardJump: keyboardJumpSuppressed ? false : keys.anyHeld(cfg.jump),
-          jumpLatch,
-          gamepad,
-        }
-      : { keyboardLeft: false, keyboardRight: false, keyboardJump: false, jumpLatch: false, gamepad: null };
-    const { frame, next } = mapRawStep(snapshot, {
-      stepIndex,
-      previousJumpDown: state.down,
-      jumpAwaitingRelease: state.awaitingRelease,
-    });
-    state = next;
-    jumpLatch = false; // the latch is cleared after the sample, in the same call
     // The pointer (once seen) rides in every frame; the cursor follows the last device.
     const pointerFrame = pointer.sample();
     const rawPointer = pointer.take();
     pointer.present();
-    // The mapped controls are the frame's `move` and `jump` actions (frame version 2).
-    const evaluator = cfg.evaluator;
-    if (evaluator === null) {
-      pointer.clearEdges();
-      return toActionFrame(frame, pointerFrame === null ? {} : { pointer: pointerFrame });
-    }
-    const actions = evaluator.sample({ keys: keys.actionHeld, pressedKeys: keys.actionPressed, gamepad: gamepadEnabled ? lastPad : null, pads: gamepadEnabled ? lastPads : [], pointer: rawPointer, now: clock() }, activeMaps === null ? undefined : actionActive);
+    const raw: RawDeviceState = { keys: keys.actionHeld, pressedKeys: keys.actionPressed, gamepad: gamepadEnabled ? lastPad : null, pads: gamepadEnabled ? lastPads : [], pointer: rawPointer, now: clock() };
+    // A consumed menu confirm still held: the game's actions must not see that press until it
+    // is released (the ui map's own actions still do).
+    const game = suppressed.keyboard || suppressed.gamepad ? withoutConfirm(raw, suppressed, activeSlot) : undefined;
+    const actions = cfg.evaluator.sample(raw, activeMaps === null ? undefined : actionActive, game);
     keys.actionPressed.clear();
     pointer.clearEdges();
-    // A 2D `move` action gives the move vector (x right, y forward/up); a 1D one keeps the 1D frame exactly.
-    const move = cfg.move2d ? actions['move'] : undefined;
-    if (move !== undefined) return toActionFrame({ ...frame, moveX: quantizeMove(move.x ?? 0), moveY: quantizeMove(move.y ?? 0) }, { actions, ...(pointerFrame !== null ? { pointer: pointerFrame } : {}) });
-    return toActionFrame(frame, { actions, ...(pointerFrame !== null ? { pointer: pointerFrame } : {}) });
+    return { stepIndex, actions, ...(pointerFrame !== null ? { pointer: pointerFrame } : {}) };
   };
 
   const reset = (reason?: string): void => suspend(reason ?? 'reset');
@@ -519,10 +465,7 @@ export function attachBrowserInput(
     }
     listeners.length = 0;
     keys.clear();
-    jumpLatch = false;
     menu.clear('all');
-    state = { down: false, awaitingRelease: false };
-    prevGamepadJumpDown = false;
     pads.clear();
     // Give the cursor back.
     pointer.detach();
@@ -563,10 +506,7 @@ export function attachBrowserInput(
       activeMaps = next;
       const isGameplay = next === null || next.has('gameplay');
       // Back to gameplay: a key or button still held from the menu must be released before it moves or jumps.
-      if (!wasGameplay && isGameplay) {
-        freshActivation();
-        cfg.evaluator?.holdUntilReleased();
-      }
+      if (!wasGameplay && isGameplay) cfg.evaluator.holdUntilReleased();
     },
     configure(inputConfig: InputConfigLike): void {
       cfg = bindingConfig(inputConfig);

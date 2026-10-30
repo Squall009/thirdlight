@@ -3,13 +3,14 @@
  *
  * Pure apart from each action's previous "down" bit (for its phase), which
  * the evaluator keeps. Bindings never add up: an action takes the binding
- * with the largest magnitude (like the character move mapping). A 1D axis from
- * a stick gets a radial dead zone (default 0.2) and is rescaled; 2D axes are
+ * with the largest magnitude. A 1D axis from
+ * a stick gets a radial dead zone (default `GAMEPAD_DEAD_ZONE`) and is rescaled; 2D axes are
  * clipped to length 1. `invert` and `scale` apply last. A button — or an axis
  * past 0.5 — is "down"; its phase is pressed / held / released / none.
  */
 import { DEFAULT_INPUT, DEFAULT_INPUT_3D } from '@thirdlight/project-model/input';
 import type { ActionValue, JumpPhase } from '@thirdlight/runtime';
+import { GAMEPAD_DEAD_ZONE } from './types';
 
 export interface InputBindingLike {
   readonly kind: string;
@@ -97,8 +98,6 @@ const POINTER_BUTTON_BIT: Readonly<Record<string, number>> = Object.freeze({ lef
 const POINTER_AXIS_PERCENT = 100;
 const clamp10 = (v: number): number => (v > 10 ? 10 : v < -10 ? -10 : v);
 
-const DEFAULT_STICK_DEAD_ZONE = 0.2;
-
 function deadZone(v: number, dz: number): number {
   if (!Number.isFinite(v)) return 0;
   const a = Math.abs(v);
@@ -122,12 +121,21 @@ export function actionKeys(action: InputActionLike): string[] {
 }
 
 export function createActionEvaluator(config: InputConfigLike): {
-  /** `active` (absent: all) — an inactive action reads as released (its map is switched off). */
-  sample(raw: RawDeviceState, active?: (action: InputActionLike) => boolean): Record<string, ActionValue>;
+  /**
+   * `active` (absent: all) — an inactive action reads as released (its map is switched off).
+   * `game` (absent: `raw`) — what the actions outside the `ui` map read: the browser hides a menu
+   * confirm the host consumed and that is still held, so one press never both confirms and acts.
+   */
+  sample(raw: RawDeviceState, active?: (action: InputActionLike) => boolean, game?: RawDeviceState): Record<string, ActionValue>;
   /** Forget every previous state (a suspension). */
   reset(): void;
   /** Every action down at the next sample reads neutral until it is released once (a map switched back on). */
   holdUntilReleased(): void;
+  /**
+   * Every action down at the next sample reads `held`, never `pressed`, until it is released once,
+   * and that release reads `none` (focus came back or the pad changed: no press was seen, so none is reported).
+   */
+  freshActivation(): void;
 } {
   const prevDown = new Map<string, boolean>();
   /** When each hold binding (action#index) went down (absent: up). */
@@ -205,7 +213,7 @@ export function createActionEvaluator(config: InputConfigLike): {
           x = axisOf(padOf(raw, b), b.x);
           y = -axisOf(padOf(raw, b), b.y); // a stick's y axis is down-positive
           const len = Math.hypot(x, y);
-          const dz = a.deadZone ?? DEFAULT_STICK_DEAD_ZONE;
+          const dz = a.deadZone ?? GAMEPAD_DEAD_ZONE;
           const scaled = deadZone(len, dz);
           x = len > 0 ? (x / len) * scaled : 0;
           y = len > 0 ? (y / len) * scaled : 0;
@@ -244,7 +252,7 @@ export function createActionEvaluator(config: InputConfigLike): {
       else if (b.kind === 'gamepadButton') v = pad(padOf(raw, b), b.button);
       else if (b.kind === 'keys1d') v = key(raw, b.positive) - key(raw, b.negative);
       else if (b.kind === 'gamepadButtons1d') v = pad(padOf(raw, b), b.positive) - pad(padOf(raw, b), b.negative);
-      else if (b.kind === 'gamepadAxis') v = deadZone(axisOf(padOf(raw, b), typeof b.axis === 'number' ? b.axis : undefined), a.deadZone ?? DEFAULT_STICK_DEAD_ZONE);
+      else if (b.kind === 'gamepadAxis') v = deadZone(axisOf(padOf(raw, b), typeof b.axis === 'number' ? b.axis : undefined), a.deadZone ?? GAMEPAD_DEAD_ZONE);
       if (Math.abs(v) > Math.abs(best)) {
         best = v;
         impulse = false;
@@ -256,11 +264,14 @@ export function createActionEvaluator(config: InputConfigLike): {
     return { v: q(Math.max(-1, Math.min(1, best)) * s) };
   };
 
+  let freshNext = false;
+  /** Actions down since a fresh activation, not yet released. */
+  const fresh = new Set<string>();
   return {
-    sample(raw, active) {
+    sample(raw, active, game) {
       const out: Record<string, ActionValue> = {};
       for (const a of config.actions) {
-        let e = active === undefined || active(a) ? evaluate(a, raw) : a.type === 'axis2d' ? { v: 0, x: 0, y: 0 } : { v: 0 };
+        let e = active === undefined || active(a) ? evaluate(a, game !== undefined && a.map !== 'ui' ? game : raw) : a.type === 'axis2d' ? { v: 0, x: 0, y: 0 } : { v: 0 };
         let down = a.type === 'button' ? e.v !== 0 : Math.abs(e.v) > 0.5;
         if (holdNext && down) held.add(a.name);
         if (held.has(a.name)) {
@@ -269,21 +280,31 @@ export function createActionEvaluator(config: InputConfigLike): {
             down = false;
           } else held.delete(a.name);
         }
+        if (freshNext && down) fresh.add(a.name);
         const was = prevDown.get(a.name) ?? false;
-        const p: JumpPhase = down ? (was ? 'held' : 'pressed') : was ? 'released' : 'none';
+        let p: JumpPhase = down ? (was ? 'held' : 'pressed') : was ? 'released' : 'none';
+        if (fresh.has(a.name)) {
+          p = down ? 'held' : 'none';
+          if (!down) fresh.delete(a.name);
+        }
         prevDown.set(a.name, down);
         out[a.name] = Object.freeze({ v: e.v, ...(e.x !== undefined ? { x: e.x, y: e.y! } : {}), p, ...(e.i === 1 ? { i: 1 as const } : {}) });
       }
       holdNext = false;
+      freshNext = false;
       return out;
     },
     reset() {
       prevDown.clear();
       holdSince.clear();
       held.clear();
+      fresh.clear();
     },
     holdUntilReleased() {
       holdNext = true;
+    },
+    freshActivation() {
+      freshNext = true;
     },
   };
 }
@@ -305,94 +326,6 @@ export function bindsPointerButton(config: InputConfigLike, button: 'left' | 'ri
 /** Whether an action binds the wheel (the view then keeps the wheel from scrolling the page). */
 export function bindsWheel(config: InputConfigLike): boolean {
   return config.actions.some((a) => a.bindings.some((b) => b.kind === 'pointerAxis' && (b as { axis?: unknown }).axis === 'wheel'));
-}
-
-/** The keyboard codes the character controller's move and jump come from (the character mapping reads these). */
-export function characterKeys(config: InputConfigLike): { left: string[]; right: string[]; jump: string[] } {
-  const move = config.actions.find((a) => a.name === 'move');
-  const jump = config.actions.find((a) => a.name === 'jump');
-  const left: string[] = [];
-  const right: string[] = [];
-  for (const b of move?.bindings ?? []) {
-    if (b.kind === 'keys1d') {
-      if (typeof b.negative === 'string') left.push(b.negative);
-      if (typeof b.positive === 'string') right.push(b.positive);
-    } else if (b.kind === 'key' && typeof b.code === 'string' && b.hold === undefined) right.push(b.code);
-  }
-  // A hold binding counts in the action values only (the character controller reads its keys directly).
-  const jumpKeys = (jump?.bindings ?? []).filter((b) => b.kind === 'key' && typeof b.code === 'string' && b.hold === undefined).map((b) => b.code as string);
-  return { left, right, jump: jumpKeys };
-}
-
-/** The pad controls the character controller's move and jump come from. */
-export interface CharacterPad {
-  /** Buttons that jump (any held = jump down). */
-  readonly jump: readonly number[];
-  /** Buttons that move left / right (digital, like the D-pad). */
-  readonly left: readonly number[];
-  readonly right: readonly number[];
-  /** Stick axes that move (the one pushed furthest wins). */
-  readonly axes: readonly number[];
-  /**
-   * The pad they are read from: the slot the `move`/`jump` pad bindings
-   * name (a co-op player's own pad), or null — the pad used last.
-   */
-  readonly slot: number | null;
-}
-
-/** The standard layout the character controller used before pad rebinding: A jumps, D-pad left/right and the left stick move. */
-export const STANDARD_CHARACTER_PAD: CharacterPad = Object.freeze({ jump: Object.freeze([0]), left: Object.freeze([14]), right: Object.freeze([15]), axes: Object.freeze([0]), slot: null });
-
-const PAD_BUTTON_MAX = 31;
-const padIndex = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= PAD_BUTTON_MAX;
-
-/**
- * The pad buttons and axes of the project's `move` and `jump`
- * actions (`gamepadButton`, `gamepadButtons1d`, `gamepadAxis` bindings). A
- * part with no pad binding of its kind keeps the standard layout — so every
- * project made before pad rebinding (whose pad bindings were never read)
- * plays exactly as before; a rebinding replaces the part.
- */
-export function characterPad(config: InputConfigLike): CharacterPad {
-  const move = config.actions.find((a) => a.name === 'move');
-  const jump = config.actions.find((a) => a.name === 'jump');
-  // The pad the first binding naming one names; a binding naming another pad is not this channel's.
-  const slot = [...(move?.bindings ?? []), ...(jump?.bindings ?? [])].find((b) => typeof b.pad === 'number')?.pad ?? null;
-  const mine = (b: InputBindingLike): boolean => (typeof b.pad === 'number' ? b.pad === slot : true);
-  const jumpButtons = (jump?.bindings ?? []).filter((b) => b.kind === 'gamepadButton' && padIndex(b.button) && b.hold === undefined && mine(b)).map((b) => b.button as number);
-  const left: number[] = [];
-  const right: number[] = [];
-  const axes: number[] = [];
-  for (const b of move?.bindings ?? []) {
-    if (!mine(b)) continue;
-    if (b.kind === 'gamepadButtons1d') {
-      if (padIndex(b.negative)) left.push(b.negative);
-      if (padIndex(b.positive)) right.push(b.positive);
-    } else if (b.kind === 'gamepadAxis' && padIndex(b.axis)) axes.push(b.axis);
-  }
-  const hasButtons = (move?.bindings ?? []).some((b) => b.kind === 'gamepadButtons1d');
-  return {
-    jump: jumpButtons.length > 0 ? jumpButtons : STANDARD_CHARACTER_PAD.jump,
-    left: hasButtons ? left : STANDARD_CHARACTER_PAD.left,
-    right: hasButtons ? right : STANDARD_CHARACTER_PAD.right,
-    axes: axes.length > 0 ? axes : STANDARD_CHARACTER_PAD.axes,
-    slot,
-  };
-}
-
-/**
- * Reduce one pad's buttons and axes to the character controller's jump,
- * left, right and stick values through `pad` (pure; the fake pads of the
- * tests and the browser owner both go through here).
- */
-export function readCharacterPad(pad: CharacterPad, buttons: readonly boolean[], axes: readonly number[], ignoreButtons?: ReadonlySet<number>): { jump: boolean; left: boolean; right: boolean; axis: number } {
-  const down = (i: number): boolean => buttons[i] === true && ignoreButtons?.has(i) !== true;
-  let axis = 0;
-  for (const i of pad.axes) {
-    const v = axes[i];
-    if (typeof v === 'number' && Number.isFinite(v) && Math.abs(v) > Math.abs(axis)) axis = v;
-  }
-  return { jump: pad.jump.some(down), left: pad.left.some(down), right: pad.right.some(down), axis };
 }
 
 /** The default actions (project-model's, defined once there), seen through this package's structural shape. */

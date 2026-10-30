@@ -1,12 +1,10 @@
 /**
  * The browser binding's gamepads: which pad is active (the lowest-index standard pad showing
  * activity; the browser reuses indexes, so a pad is known by index and id), the hot-plug
- * listeners, the pads' fresh presses for `anyPressed`, and the reduction of a pad to the raw
- * snapshot through the character controller's pad bindings. What a lost or unsupported pad means
+ * listeners and the pads' fresh presses for `anyPressed`. What a lost or unsupported pad means
  * for the rest of the binding (menus, held state, diagnostics) is the host's.
  */
-import { readCharacterPad, type CharacterPad } from './actions';
-import { GAMEPAD_DEAD_ZONE, type RawInputSnapshot } from './types';
+import { GAMEPAD_DEAD_ZONE } from './types';
 
 const DEVICE_ID_MAX = 64;
 
@@ -22,31 +20,9 @@ export function clipDeviceId(id: unknown): string {
 export const padButtons = (gp: Gamepad): boolean[] => Array.from(gp.buttons, (b) => b?.pressed === true);
 export const padAxes = (gp: Gamepad): number[] => Array.from(gp.axes, (a) => (typeof a === 'number' && Number.isFinite(a) ? a : 0));
 
-/**
- * The pad reduced to the snapshot through the character controller's pad bindings
- * (`button0` is the mapped jump, `button14`/`button15` the
- * mapped left/right buttons, `axis0` the mapped stick — the standard
- * layout unless rebound). `ignore`: buttons that must not count (a
- * consumed menu confirm still held).
- */
-export function padSnapshot(pad: CharacterPad, gp: Gamepad, ignore?: ReadonlySet<number>): NonNullable<RawInputSnapshot['gamepad']> {
-  const r = readCharacterPad(pad, padButtons(gp), padAxes(gp), ignore);
-  return {
-    index: gp.index,
-    id: clipDeviceId(gp.id),
-    mapping: typeof gp.mapping === 'string' ? gp.mapping : '',
-    axis0: r.axis,
-    button0: r.jump,
-    button14: r.left,
-    button15: r.right,
-  };
-}
-
 /** What the pad tracker tells and asks the rest of the binding. */
 export interface PadHost {
   detached(): boolean;
-  /** The character controller's pad bindings now (rebindable). */
-  pad(): CharacterPad;
   /** The active pad changed to another one: held state needs a fresh activation. */
   freshActivation(): void;
   /** The active pad is gone (its id, as it was). */
@@ -63,12 +39,8 @@ export function createPadTracker(host: PadHost) {
   /** Each standard pad's buttons at the last sample (by index), for the frame's press. */
   let padsSeen = new Map<number, boolean[]>();
 
-  const deviceHasActivity = (gp: Gamepad): boolean => {
-    const r = readCharacterPad(host.pad(), padButtons(gp), padAxes(gp));
-    if (Math.abs(r.axis) > GAMEPAD_DEAD_ZONE) return true;
-    // The menu confirm (button 0) wakes a pad too, whatever jump is bound to.
-    return r.jump || r.left || r.right || gp.buttons[0]?.pressed === true;
-  };
+  // Any button or a stick past the dead zone wakes a pad, whatever the actions bind.
+  const deviceHasActivity = (gp: Gamepad): boolean => padButtons(gp).includes(true) || padAxes(gp).some((v) => Math.abs(v) > GAMEPAD_DEAD_ZONE);
 
   const reportMappingUnsupported = (gp: Gamepad): void => {
     const id = clipDeviceId(gp.id);

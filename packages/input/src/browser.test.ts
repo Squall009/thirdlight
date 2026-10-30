@@ -14,8 +14,7 @@ import { describe, expect, it } from 'vitest';
 
 import { attachBrowserInput } from './browser';
 import { DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, type InputConfigLike } from './actions';
-import { DEFAULT_KEYBOARD_MAP } from './types';
-import { viewSource } from './test-frame-view';
+import { MOVE_JUMP_CONFIG, viewSource } from './test-frame-view';
 
 type Handler = (event: Event) => void;
 
@@ -96,6 +95,7 @@ interface HarnessOptions {
   gamepads?: (() => ArrayLike<Gamepad | null>) | null;
   secure?: boolean;
   inputConfig?: InputConfigLike;
+  now?: () => number;
 }
 
 function harness(options: HarnessOptions = {}) {
@@ -116,7 +116,8 @@ function harness(options: HarnessOptions = {}) {
     navigator: win.navigator as unknown as Navigator,
     getGamepads: options.gamepads ?? null,
     onDiagnostic: (event) => diagnostics.push({ ...event }),
-    ...(options.inputConfig !== undefined ? { inputConfig: options.inputConfig } : {}),
+    inputConfig: options.inputConfig ?? MOVE_JUMP_CONFIG,
+    ...(options.now !== undefined ? { now: options.now } : {}),
   });
   const source = viewSource(raw);
   const keyEvent = (
@@ -155,6 +156,36 @@ describe('a 2D move action gives the frame its move vector', () => {
   });
 });
 
+describe('move and jump read their bindings and processors like every action', () => {
+  it('a scale on move, a dead zone on the stick and a hold binding on jump all count', () => {
+    let t = 0;
+    let axis0 = 0;
+    const cfg: InputConfigLike = {
+      actions: DEFAULT_INPUT_CONFIG.actions.map((a) =>
+        a.name === 'move'
+          ? { ...a, scale: 0.5, deadZone: 0.5 }
+          : a.name === 'jump'
+            ? { ...a, bindings: [{ kind: 'key', code: 'KeyW', hold: 0.1 }] }
+            : a,
+      ),
+    };
+    const h = harness({ inputConfig: cfg, now: () => t, gamepads: () => [pad({ axis0 })] });
+    h.target.dispatch('keydown', h.keyEvent('KeyD'));
+    expect(h.raw.sample(1).actions?.['move']?.v).toBe(0.5);
+    h.target.dispatch('keyup', h.keyEvent('KeyD'));
+    axis0 = 0.4; // inside the action's own dead zone
+    expect(h.raw.sample(2).actions?.['move']?.v).toBe(0);
+    axis0 = 0;
+    h.target.dispatch('keydown', h.keyEvent('Space'));
+    expect(h.raw.sample(3).actions?.['jump']?.p).toBe('none'); // Space is not bound any more
+    h.target.dispatch('keyup', h.keyEvent('Space'));
+    h.target.dispatch('keydown', h.keyEvent('KeyW'));
+    expect(h.raw.sample(4).actions?.['jump']?.p).toBe('none');
+    t = 150;
+    expect(h.raw.sample(5).actions?.['jump']).toMatchObject({ v: 1, p: 'pressed' });
+  });
+});
+
 describe('any key or pad button (the frame\'s press, for anyPressed)', () => {
   it('the first fresh key since the last sample, bound or not; repeats and later samples carry none', () => {
     const h = harness({ inputConfig: DEFAULT_INPUT_CONFIG_3D });
@@ -187,7 +218,7 @@ describe('keyboard mapping and release', () => {
     expect(h.source.sample(13)).toEqual(neutralFrame(13));
   });
 
-  it('maps every code in DEFAULT_KEYBOARD_MAP', () => {
+  it('maps every default move key', () => {
     const h = harness();
     h.target.dispatch('keydown', h.keyEvent('ArrowLeft'));
     expect(h.source.sample(12).moveX).toBe(-1);
@@ -197,7 +228,6 @@ describe('keyboard mapping and release', () => {
     h.target.dispatch('keyup', h.keyEvent('ArrowRight'));
     h.target.dispatch('keydown', h.keyEvent('KeyA'));
     expect(h.source.sample(14).moveX).toBe(-1);
-    expect(DEFAULT_KEYBOARD_MAP.jump).toContain('Space');
   });
 
   it('produces one pressed/hold/release chain for Space', () => {
@@ -240,8 +270,17 @@ describe('keyboard mapping and release', () => {
   it('releases a held key even when the keyup lands on an editable target', () => {
     const h = harness();
     h.target.dispatch('keydown', h.keyEvent('KeyD'));
+    expect(h.source.sample(12).moveX).toBe(1);
     h.target.dispatch('keyup', h.keyEvent('KeyD', { target: { tagName: 'INPUT' } }));
-    expect(h.source.sample(12)).toEqual(neutralFrame(12));
+    expect(h.source.sample(13)).toEqual(neutralFrame(13));
+  });
+
+  it('a tap between two samples counts for one sample, like every action', () => {
+    const h = harness();
+    h.target.dispatch('keydown', h.keyEvent('KeyD'));
+    h.target.dispatch('keyup', h.keyEvent('KeyD'));
+    expect(h.source.sample(12).moveX).toBe(1);
+    expect(h.source.sample(13)).toEqual(neutralFrame(13));
   });
 });
 

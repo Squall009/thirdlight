@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { createActionEvaluator, characterKeys, type InputConfigLike } from './actions';
+import { createActionEvaluator, type InputConfigLike } from './actions';
 import { attachBrowserInput, type CapturedInput } from './browser';
 
 const HOLD: InputConfigLike = {
@@ -35,9 +35,6 @@ describe('hold instead of tap', () => {
     const n = createActionEvaluator(HOLD);
     n.sample(raw(['KeyC'], undefined));
     expect(n.sample(raw(['KeyC'], undefined)).charge!.v).toBe(0);
-  });
-  it('the character controller reads only tap keys (a hold binding counts in action values)', () => {
-    expect(characterKeys(HOLD).jump).toEqual(['KeyW']);
   });
 });
 

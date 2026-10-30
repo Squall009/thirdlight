@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { viewSource } from './test-frame-view';
 
-import { createActionEvaluator, DEFAULT_INPUT_CONFIG, characterKeys, type InputConfigLike, type RawDeviceState } from './actions';
+import { createActionEvaluator, DEFAULT_INPUT_CONFIG, type InputConfigLike, type RawDeviceState } from './actions';
 import { attachBrowserInput } from './browser';
 
 const raw = (keys: string[] = [], pressed: string[] = [], gamepad: RawDeviceState['gamepad'] = null): RawDeviceState => ({ keys: new Set(keys), pressedKeys: new Set(pressed), gamepad });
@@ -70,8 +70,20 @@ describe('input actions', () => {
     expect(e.sample({ ...raw(), pads: [first, null] })['move_p2']!.x).toBe(0);
   });
 
-  it('derives the character controller keys from move/jump', () => {
-    expect(characterKeys(DEFAULT_INPUT_CONFIG)).toEqual({ left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'], jump: ['Space'] });
+  it('a fresh activation reads a control already down as held, and its release as none', () => {
+    const e = createActionEvaluator(DEFAULT_INPUT_CONFIG);
+    e.freshActivation();
+    expect(e.sample(raw(['Space']))['jump']).toMatchObject({ v: 1, p: 'held' });
+    expect(e.sample(raw(['Space']))['jump']!.p).toBe('held');
+    expect(e.sample(raw())['jump']!.p).toBe('none');
+    expect(e.sample(raw(['Space']))['jump']!.p).toBe('pressed');
+  });
+
+  it('the game state hides a press from every action but the ui map', () => {
+    const e = createActionEvaluator(DEFAULT_INPUT_CONFIG);
+    const out = e.sample(raw([], [], { buttons: [true], axes: [] }), undefined, raw());
+    expect(out['jump']!.p).toBe('none');
+    expect(out['submit']!.p).toBe('pressed');
   });
 
   it('the browser owner jumps with a rebound key and reports named actions in the frame', () => {
