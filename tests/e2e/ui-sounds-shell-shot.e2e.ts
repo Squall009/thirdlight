@@ -157,9 +157,32 @@ test('UI sounds on the ui bus (hover, an engine action\'s click, a keyboard focu
   expect(errors).toEqual([]);
 });
 
+/**
+ * Moves its object 2.4 m along x in its first 120 steps of the whole Play (a counter, which a scene reload
+ * keeps) and reports where the object is: under a title whose scripts run it walks away; a fresh start puts
+ * it back where it was authored, and it stays there.
+ */
+const MOVER = [
+  'export default {',
+  '  instantiate() { return { go: false }; },',
+  '  step(s: any, ctx: any) {',
+  '    const t = ctx.world.transform(ctx.entityId);',
+  '    if (t === undefined) return;',
+  "    if (ctx.phase === 'intent') {",
+  "      ctx.ui.set('probe.mover', t.position[0]);",
+  "      s.go = ctx.game.counter('moved') < 120;",
+  "      if (s.go) ctx.game.add('moved', 1);",
+  '      return;',
+  '    }',
+  "    if (ctx.phase === 'transform' && s.go) ctx.emit({ kind: 'transform', entityId: ctx.entityId, position: { x: t.position[0] + 0.02, y: t.position[1], z: t.position[2] }, quaternion: [t.rotation[0], t.rotation[1], t.rotation[2], t.rotation[3]] });",
+  '  },',
+  '};',
+  '',
+].join('\n');
+
 const COUNTER = (path: string): string => `export default { instantiate() { return { n: 0 }; }, step(s: any, ctx: any) { if (ctx.phase !== 'intent') return; s.n += 1; ctx.ui.set('${path}', s.n); } };\n`;
 
-test('a shell title with simulate: scripts lets the scripts outside groups step while physics and grouped scripts hold; Start plays them all', async ({ page }) => {
+test('a shell title with simulate: scripts lets the scripts outside groups step while physics and grouped scripts hold; its confirm starts fresh and plays them all', async ({ page }) => {
   test.setTimeout(240_000);
   const create = async (name: string): Promise<string> => String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name, transform: { position: [0, -3, 0] } }))['createdId']);
   await cmd('setBehaviorGroups', { groups: ['world'] });
@@ -168,13 +191,16 @@ test('a shell title with simulate: scripts lets the scripts outside groups step 
   const grouped = await create('World counter');
   await publishScript(be, 'world-counter', COUNTER('probe.grouped'), grouped);
   await cmd('setComponent', { entityId: grouped, component: 'behaviorGroup', value: { group: 'world' } });
+  const mover = await create('Mover');
+  await publishScript(be, 'mover', MOVER, mover, ['@self']);
+  // No button: the engine's title starts the game on the confirm.
   await cmd('setUiDocument', { document: { uiDocumentId: 'title', name: 'Title', root: { type: 'panel', anchor: [0, 0], pivot: [0, 0], offset: [12, 12], size: [180, 56], css: { background: '#203040' }, children: [
-    { id: 'start', type: 'button', size: [160, 40], text: 'Start', css: { color: '#ffffff', background: '#406080' }, onClick: { do: 'engine', action: 'resume' } },
+    { id: 'start', type: 'text', text: 'Press Enter', css: { color: '#ffffff' } },
   ] } } });
   await cmd('setShell', { shell: { screens: { title: 'title' }, simulate: { title: 'scripts' } } });
 
   const { observe } = await startPlay(page);
-  type Obs = { shell?: { screen: string }; player?: { x: number }; ui?: { values?: { probe?: { free?: number; grouped?: number } } } };
+  type Obs = { shell?: { screen: string }; player?: { x: number }; counters?: Record<string, number>; ui?: { values?: { probe?: { free?: number; grouped?: number; mover?: number } } } };
   const obs = async (): Promise<Obs> => (await observe()) as Obs;
   await expect.poll(async () => (await obs()).shell?.screen ?? null, { timeout: 20_000 }).toBe('title');
   // The ungrouped script steps under the title; the grouped one stands where the page's first steps left it.
@@ -192,10 +218,16 @@ test('a shell title with simulate: scripts lets the scripts outside groups step 
   expect(Math.abs((await obs()).player!.x - x0)).toBeLessThan(0.01);
   await page.keyboard.up('d');
 
-  // Start: play — the grouped script steps and the player walks.
-  const frame = page.locator('iframe.tl-app__preview-frame').contentFrame();
-  await frame.locator('[data-tl-ui-doc="title"] [data-widget="start"]').click();
+  // The ungrouped mover walked its 2.4 m under the title.
+  await expect.poll(async () => (await obs()).counters?.['moved'] ?? 0, { timeout: 10_000 }).toBe(120);
+  await expect.poll(async () => (await obs()).ui?.values?.probe?.mover ?? 0, { timeout: 10_000 }).toBeGreaterThan(2.3);
+
+  // The confirm: a fresh start (the start scenes reloaded: the mover back where it was authored, its script
+  // started over), then play — the grouped script steps and the player walks.
+  await page.keyboard.press('Enter');
   await expect.poll(async () => (await obs()).shell?.screen ?? null, { timeout: 10_000 }).toBe('playing');
+  await expect.poll(async () => (await obs()).ui?.values?.probe?.mover ?? 99, { timeout: 10_000 }).toBeLessThan(0.01);
+  expect((await obs()).counters?.['moved']).toBe(120);
   await expect.poll(async () => (await obs()).ui?.values?.probe?.grouped ?? 0, { timeout: 10_000 }).toBeGreaterThan(g0 + 30);
   await page.keyboard.down('d');
   await expect.poll(async () => (await obs()).player!.x - x0, { timeout: 10_000 }).toBeGreaterThan(0.3);

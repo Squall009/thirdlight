@@ -340,6 +340,18 @@ export function composeGameRuntime(args: GameRuntimeArgs): { ok: true; runtime: 
   return { ok: true, runtime: res.runtime };
 }
 
+/** A restart of the game, named by the action that asked: an input-frame entry (so recordings replay it). */
+function queueRestart(rt: Runtime | null, cause: string): void {
+  const r = rt?.queueUiEvent?.({ kind: 'restart', doc: '', widget: '', name: cause });
+  if (r !== undefined && r.ok === false) console.warn('[game-host] restart refused:', r.error.message);
+}
+
+/** A scene engine action — reload (absent: the active scene), load, unload: an input-frame entry, so recordings replay it. */
+function queueSceneOp(rt: Runtime | null, op: 'reload' | 'load' | 'unload', sceneId: string | undefined): void {
+  const r = rt?.queueUiEvent?.({ kind: op, doc: '', widget: '', name: '', ...(sceneId !== undefined ? { value: sceneId } : {}) });
+  if (r !== undefined && r.ok === false) console.warn(`[game-host] scene ${op} refused:`, r.error.message);
+}
+
 export function createGameHost(config: GameHostConfig): GameHost {
   const invalid = validateConfig(config);
   const configError: GameControlError = invalid !== null
@@ -432,16 +444,6 @@ export function createGameHost(config: GameHostConfig): GameHost {
     }
     return mv;
   };
-  /** A restart of the game, named by the action that asked: an input-frame entry (so recordings replay it). */
-  const queueRestart = (rt: Runtime | null, cause: string): void => {
-    const r = rt?.queueUiEvent?.({ kind: 'restart', doc: '', widget: '', name: cause });
-    if (r !== undefined && r.ok === false) console.warn('[game-host] restart refused:', r.error.message);
-  };
-  /** A scene engine action — reload (absent: the active scene), load, unload: an input-frame entry, so recordings replay it. */
-  const queueSceneOp = (rt: Runtime | null, op: 'reload' | 'load' | 'unload', sceneId: string | undefined): void => {
-    const r = rt?.queueUiEvent?.({ kind: op, doc: '', widget: '', name: '', ...(sceneId !== undefined ? { value: sceneId } : {}) });
-    if (r !== undefined && r.ok === false) console.warn(`[game-host] scene ${op} refused:`, r.error.message);
-  };
   const sceneRestart = (cause: string): void => {
     queueRestart(runtime, cause);
     setScenePause(false);
@@ -494,6 +496,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
       },
       restart: (cause) => queueRestart(rt, cause),
       sceneOp: (op, sceneId) => queueSceneOp(rt, op, sceneId),
+      startScenes: (config.snapshot.scenes ?? []).filter((r) => r.start).map((r) => r.sceneId),
       goToScene: (index, cause) => {
         const r = rt.queueUiEvent?.({ kind: 'scene', doc: '', widget: '', name: cause, value: index });
         if (r !== undefined && r.ok === false) console.warn('[game-host] scene move refused:', r.error.message);

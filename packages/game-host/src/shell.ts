@@ -59,6 +59,8 @@ export interface ShellDeps {
   readonly restart: (cause: 'restartLevel' | 'newGame' | 'quitToTitle') => void;
   /** A scene operation of the scene API (a UI event on the next input frame): reload (absent: the active scene), load, unload. */
   readonly sceneOp: (op: 'reload' | 'load' | 'unload', sceneId: string | undefined) => void;
+  /** The project's start scenes (absent: none; a title whose scripts ran reloads them when it starts the game). */
+  readonly startScenes?: readonly string[];
   /**
    * Move to an entry of the scene list (a scene UI event on the next input frame), named by the action that asked
    * (the runtime writes the deprecated nextScene's Problems line).
@@ -242,12 +244,15 @@ export function createShellController(deps: ShellDeps): ShellController {
     play();
   };
   /**
-   * The title's confirm starts the game: the run behind the title is already the project's start
-   * scenes as the scene set loaded them (a first start, or the restart that brought the title
-   * back), so it only leaves the title; nothing restarts. A game still on the shell's scene list
+   * The title's confirm starts the game. Under a paused title the run behind it is still the
+   * project's start scenes as the scene set loaded them (a first start, or the restart that brought
+   * the title back), so it only leaves the title. A title whose scripts ran let them change those
+   * scenes, so the start scenes are reloaded first (the scene API's reload: objects as authored,
+   * their scripts started over) and the player starts fresh. A game still on the shell's scene list
    * starts at its first entry.
    */
   const startFromTitle = (): void => {
+    if (shell.simulate?.title === 'scripts') for (const id of deps.startScenes ?? []) deps.sceneOp('reload', id);
     if (list.length > 0 && deps.listedScene() !== 0) deps.goToScene(0, 'nextScene');
     note = '';
     play();

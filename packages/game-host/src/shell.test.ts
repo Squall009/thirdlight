@@ -107,6 +107,22 @@ describe('the game shell controller', () => {
     expect(listed.log).toEqual(['scene 0 nextScene']);
   });
 
+  it('a title whose scripts ran reloads the start scenes on its confirm (a fresh start); resume does not', () => {
+    const { ctl, log } = harness({ screens: { title: 'title' }, simulate: { title: 'scripts' } }, { startScenes: ['a', 'b'] });
+    ctl.start();
+    ctl.handleEdges({ ...NONE, submit: true });
+    expect(ctl.screen).toBe('playing');
+    expect(log).toEqual(['reload a', 'reload b']);
+    const resumed = harness({ screens: { title: 'title' }, simulate: { title: 'scripts' } }, { startScenes: ['a'] });
+    resumed.ctl.start();
+    resumed.ctl.engine({ do: 'engine', action: 'resume' });
+    expect(resumed.log).toEqual([]);
+    const paused = harness({ screens: { title: 'title' }, simulate: { title: 'pause' } }, { startScenes: ['a'] });
+    paused.ctl.start();
+    paused.ctl.handleEdges({ ...NONE, submit: true });
+    expect(paused.log).toEqual([]);
+  });
+
   it('the scene actions reload (absent: the active scene), load and unload a scene and leave the screen as it is; the run restarts name their action', () => {
     const { ctl, state, log } = harness({});
     ctl.start();
