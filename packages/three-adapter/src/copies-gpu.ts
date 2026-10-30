@@ -46,7 +46,7 @@ import { disposeSharingGeometry } from './dispose';
 import type { N } from './effects-tsl';
 import { INSTANCE_SET_KEY, instanceSetPlan, type BuiltInstanceSet, type InstancePlanOptions, type InstanceSetOptions, type InstanceSetPlan, type InstanceSetStats } from './instancing';
 import { TAN_HALF_REFERENCE } from './instance-lod';
-import { LodTuning } from './lod-switch';
+import { lodSwitchesOf, LodTuning, pickLodLevel, type LodSwitch } from './lod-switch';
 import { KEEP_MATERIAL_KEY } from './material-keys';
 import { setCopyBend, setCopyRoot } from './node-materials';
 import { PAINT_COPIES_KEY, PAINT_MESH_KEY, PAINT_STREAM_KEY } from './vertex-paint-draw';
@@ -323,6 +323,8 @@ export class GpuCopySet {
   /** Whether each copy picks its own level; else each block's level per LOD group (-1: none yet) and its copies' mean scale. */
   private readonly perCopy: boolean;
   private readonly blockLevels: Int16Array;
+  /** Each LOD group's switches as the block picks read them. */
+  private readonly switches: readonly (readonly LodSwitch[])[];
   private readonly blockMean: Float32Array;
   private readonly lists: CopyList[] = [];
   private readonly draws: { mesh: THREE.Mesh; list: CopyList; part: InstanceSetPlan['parts'][number]; near: boolean; geometry: THREE.BufferGeometry }[] = [];
@@ -368,6 +370,7 @@ export class GpuCopySet {
       this.blockMean[b] = n > 0 ? sum / n : 0;
     }
     this.blockLevels = new Int16Array(nb * Math.max(1, this.plan.groups.length)).fill(-1);
+    this.switches = this.plan.groups.map((g) => lodSwitchesOf(g.distances));
     this.blockOf = new Int32Array(p.count);
     for (let b = 0; b < p.blocks.length / BLOCK_FLOATS; b++) this.blockOf.fill(b, p.blocks[b * BLOCK_FLOATS + 6]!, p.blocks[b * BLOCK_FLOATS + 6]! + p.blocks[b * BLOCK_FLOATS + 7]!);
     this.texture = floatTexture(p.texels, COPY_ROW * COPY_TEXELS, p.texels.length / (COPY_ROW * COPY_TEXEL_FLOATS));
@@ -638,8 +641,8 @@ export class GpuCopySet {
 
   /**
    * Each block's level in every LOD group, picked at its centre for its
-   * copies' mean size with the project's hysteresis (the rule of
-   * `pickLodLevel`, as a chunk of a CPU instance set picks).
+   * copies' mean size with the project's hysteresis, as a chunk of a CPU
+   * instance set picks.
    */
   private pickBlockLevels(w: ArrayLike<number>, ws: number, toDistance: number): void {
     const bl = this.prepared.blocks;
@@ -649,14 +652,11 @@ export class GpuCopySet {
       const o = b * BLOCK_FLOATS;
       const cx = bl[o]!, cy = bl[o + 1]!, cz = bl[o + 2]!;
       const dc = Math.hypot(w[0]! * cx + w[4]! * cy + w[8]! * cz + w[12]! - this.eye.x, w[1]! * cx + w[5]! * cy + w[9]! * cz + w[13]! - this.eye.y, w[2]! * cx + w[6]! * cy + w[10]! * cz + w[14]! - this.eye.z) * toDistance;
-      const sc = this.blockMean[b]! * ws;
+      // Switch distances scale with the copies' size.
+      const d = dc / (this.blockMean[b]! * ws);
       for (let g = 0; g < groups.length; g += 1) {
-        const dist = groups[g]!.distances;
         const at = b * groups.length + g;
-        const current = this.blockLevels[at]!;
-        let l = 1;
-        for (; l < dist.length; l += 1) if (dc < dist[l]! * sc * (current === l ? 1 - hys : 1)) break;
-        this.blockLevels[at] = l - 1;
+        this.blockLevels[at] = pickLodLevel(this.switches[g]!, d, this.blockLevels[at]!, hys);
       }
     }
   }

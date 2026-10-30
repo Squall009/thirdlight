@@ -32,7 +32,7 @@ export const LOD_OWNER_KEY = '__tlLodOwner';
  * applies to all). `hysteresis`: the project's margin, a fraction of the
  * switch distance a shown level switches back to the finer one by.
  */
-export function pickLodLevel(levels: readonly { readonly distance: number; readonly hysteresis: number }[], distance: number, current: number, hysteresis = 0): number {
+export function pickLodLevel(levels: readonly LodSwitch[], distance: number, current: number, hysteresis = 0): number {
   if (levels.length <= 1) return 0;
   let i = 1;
   for (; i < levels.length; i += 1) {
@@ -46,6 +46,26 @@ export function pickLodLevel(levels: readonly { readonly distance: number; reado
     if (distance < switchAt) break;
   }
   return i - 1;
+}
+
+/** One level's switch as {@link pickLodLevel} reads it. */
+export interface LodSwitch {
+  readonly distance: number;
+  readonly hysteresis: number;
+}
+
+const switchesByDistances = new WeakMap<readonly number[], readonly LodSwitch[]>();
+
+/**
+ * An instance set's LOD group's switch distances as levels for
+ * {@link pickLodLevel} (made once per list). The group keeps distances only:
+ * its levels carry no margin of their own (pieces add them with none), so a
+ * chunk or block of copies switches by the project's hysteresis alone.
+ */
+export function lodSwitchesOf(distances: readonly number[]): readonly LodSwitch[] {
+  let s = switchesByDistances.get(distances);
+  if (s === undefined) switchesByDistances.set(distances, (s = distances.map((distance) => ({ distance, hysteresis: 0 }))));
+  return s;
 }
 
 /**

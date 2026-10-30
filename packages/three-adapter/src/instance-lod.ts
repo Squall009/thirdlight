@@ -17,7 +17,7 @@
  */
 import { LOD_REFERENCE_FOV_DEG } from '@thirdlight/project-model';
 
-import type { LodTuning } from './lod-switch';
+import { lodSwitchesOf, pickLodLevel, type LodSwitch, type LodTuning } from './lod-switch';
 import { maxScaleOf, type CullView } from './view-cull';
 import type { InstanceFilter } from './attribute-instancing';
 import type { PreparedPickStats } from './instance-prepare';
@@ -58,6 +58,8 @@ export interface ChunkLodCounts {
 export class ChunkLodPicker {
   /** Per LOD group, the chunk's level (-1: none picked yet: then level 0). */
   private readonly levels: Int16Array;
+  /** Each group's switches as the pick reads them. */
+  private readonly switches: readonly (readonly LodSwitch[])[];
   private readonly world = new Float64Array(16).fill(Number.NaN);
   /** The eye and zoom the picks were last made at, and how far the eye may move before they are made again (squared). */
   private readonly pickedEye = new Float64Array(3).fill(Number.NaN);
@@ -85,6 +87,7 @@ export class ChunkLodPicker {
     stats?: PreparedPickStats,
   ) {
     this.levels = new Int16Array(groups.length).fill(-1);
+    this.switches = groups.map((g) => lodSwitchesOf(g.distances));
     this.all = Uint32Array.from({ length: copies.count }, (_, i) => i);
     this.scaleSum = 0;
     for (let i = 0; i < copies.count; i += 1) this.scaleSum += copies.scales[i]!;
@@ -213,17 +216,9 @@ export class ChunkLodPicker {
     const sc = (this.copies.count > 0 ? this.scaleSum / this.copies.count : 1) * ws;
     let changed = false;
     for (let gi = 0; gi < groups.length; gi += 1) {
-      const dist = groups[gi]!.distances;
       const current = this.levels[gi]!;
-      let l: number;
-      if (allNear) l = 0;
-      else if (allCulled) l = dist.length - 1;
-      else {
-        // The rule of `pickLodLevel` at the chunk's centre for the copies' mean size.
-        l = 1;
-        for (; l < dist.length; l += 1) if (dc < dist[l]! * sc * (current === l ? 1 - hys : 1)) break;
-        l -= 1;
-      }
+      // At the chunk's centre for the copies' mean size (switch distances scale with size).
+      const l = allNear ? 0 : allCulled ? groups[gi]!.distances.length - 1 : pickLodLevel(this.switches[gi]!, dc / sc, current, hys);
       if (l === current) continue;
       if (current >= 0) tuning.copySwitches += this.copies.count;
       if (current >= 0 || l !== 0) changed = true;
