@@ -116,7 +116,7 @@ const COLLIDERS_PER_SCENE = 200;
 const HASH_SLOT = '  instantiate(_p: unknown, inst: any) { let h = 0; for (const c of inst.entityId) h = (h * 31 + c.charCodeAt(0)) | 0; return { slot: Math.abs(h) % 4, yaw: 0, y0: null as number | null }; },';
 /** Id numbers per prefix (the backend numbers `<prefix>-0001..9999`). */
 const ID_MAX = 9999;
-/** Most entities one pasteEntities creates (commands' PASTE_ENTITIES_MAX). */
+/** Entities per pasteEntities the generator sends: each batch stays well inside a request's bytes, and the generated projects' ids and revisions follow from it. */
 export const PASTE_MAX = 256;
 
 /** The generic scripts: a spinner and a bobber (own their transform), a counter, a prober, a messenger. */

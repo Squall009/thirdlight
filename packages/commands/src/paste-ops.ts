@@ -19,9 +19,6 @@ import { deepClone, derivedPrefix, gateResultState, type OpOutcome } from './ops
 import { nextFreeEntityIdOf } from '@thirdlight/project-model';
 import type { ContentDocument, PasteEntitiesArgs, PasteEntitiesChange, SceneDocument } from './types';
 
-/** Most entities one paste may create. */
-export const PASTE_ENTITIES_MAX = 256;
-
 type Value = { id: string; parentId?: string; name?: string; components: Record<string, unknown> } & Record<string, unknown>;
 
 export function applyPasteEntities(scene: SceneDocument, args: PasteEntitiesArgs, content?: ContentDocument, reservedIds?: ReadonlySet<string>): OpOutcome {
@@ -132,8 +129,9 @@ export function validatePasteArgs(args: Record<string, unknown>):
     }
   }
   const entities = args['entities'];
-  if (!Array.isArray(entities) || entities.length < 1 || entities.length > PASTE_ENTITIES_MAX) {
-    return { ok: false, error: fieldValue('/args/entities', Array.isArray(entities) ? entities.length : entities, `array of 1-${PASTE_ENTITIES_MAX} entity values`, `a paste creates 1 to ${PASTE_ENTITIES_MAX} entities`) };
+  // No count: a whole copied selection pastes in one command (one undo step), bounded by the request's bytes.
+  if (!Array.isArray(entities) || entities.length < 1) {
+    return { ok: false, error: fieldValue('/args/entities', Array.isArray(entities) ? entities.length : entities, 'array of entity values', 'a paste creates at least one entity') };
   }
   for (let i = 0; i < entities.length; i += 1) {
     const e = entities[i] as Record<string, unknown> | null;

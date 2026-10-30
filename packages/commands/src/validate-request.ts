@@ -127,9 +127,6 @@ const SINGLE_ID_KEY = { deleteAsset: 'assetId', deletePrefab: 'prefabId', delete
 
 const ORIGIN_KINDS = ['browser', 'mcp', 'admin'] as const;
 
-/** The most entities one `moveEntities` may name. */
-export const MOVE_ENTITIES_MAX = 64;
-
 const TRANSFORM_FIELDS = ['position', 'rotation', 'scale'] as const;
 type TransformField = (typeof TRANSFORM_FIELDS)[number];
 
@@ -1087,9 +1084,10 @@ function validateMoveEntitiesArgs(args: Record<string, unknown>):
   }
   const ids = args['entityIds'];
   if (ids === undefined) return { ok: false, error: fieldMissing('/args/entityIds', 'entityIds') };
-  if (!Array.isArray(ids)) return { ok: false, error: fieldType('/args/entityIds', ids, `array of 1-${MOVE_ENTITIES_MAX} entity IDs`) };
-  if (ids.length < 1 || ids.length > MOVE_ENTITIES_MAX) {
-    return { ok: false, error: fieldValue('/args/entityIds', ids.length, `1-${MOVE_ENTITIES_MAX} entity IDs`, `moveEntities moves 1 to ${MOVE_ENTITIES_MAX} entities`) };
+  if (!Array.isArray(ids)) return { ok: false, error: fieldType('/args/entityIds', ids, 'array of entity IDs') };
+  // No count: a whole selection moves in one command (one undo step), bounded by the request's bytes.
+  if (ids.length < 1) {
+    return { ok: false, error: fieldValue('/args/entityIds', ids.length, 'at least 1 entity ID', 'moveEntities moves at least one entity') };
   }
   for (let i = 0; i < ids.length; i++) {
     if (typeof ids[i] !== 'string') return { ok: false, error: fieldType(`/args/entityIds/${i}`, ids[i], 'string (entity ID)') };

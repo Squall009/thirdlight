@@ -20,7 +20,7 @@
 import { mulberry32 } from '@thirdlight/shared';
 import { INSTANCE_DENSITY_MIN_NEW } from '@thirdlight/project-model';
 
-import { BENCH_BEHAVIORS, EYE_HEIGHT_M, type BehaviorPlan, type EntityValue } from './generate';
+import { BENCH_BEHAVIORS, EYE_HEIGHT_M, PASTE_MAX, type BehaviorPlan, type EntityValue } from './generate';
 import { publishBehaviorVia, publishBufferVia, publishFileVia, splitBySize } from './build';
 import { flightBehavior } from './level';
 import type { PerfBackend } from './backend';
@@ -66,8 +66,6 @@ const FIRE_EFFECT = 'village-fire';
 const STARTER_REMOVED = ['model-0001', 'spawn-0001', 'box-0001', 'box-0002', 'box-0003', 'box-0004', 'model-0002'];
 /** The starter's built-ins the village keeps: camera, sun, ambient. */
 const KEPT_BUILT_INS = 3;
-/** Most entities one pasteEntities creates (commands' PASTE_ENTITIES_MAX). */
-const PASTE_MAX = 256;
 /** Ground height (m): base rows × the cell height. */
 const GROUND_ROWS = 4;
 const CELL_HEIGHT = 0.5;

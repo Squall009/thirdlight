@@ -1559,7 +1559,7 @@ Declared in `packages/commands/src/types.ts`.
 
 ```ts
 /**
- * `moveEntities`: up to 64 entities, moved with their subtrees
+ * `moveEntities`: any number of entities (one request's bytes), moved with their subtrees
  * under `parentId` (null = root), just before the sibling `beforeId` or
  * (absent/null) after the parent's last child. World transforms are kept.
  */
