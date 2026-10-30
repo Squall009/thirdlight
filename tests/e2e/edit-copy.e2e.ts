@@ -1,7 +1,7 @@
 /**
  * Duplicate a multi-selection with its children in one undo, and
  * Copy/Paste between scenes; a selection larger than any per-command count
- * the engine once had moves and pastes as one command, one undo each.
+ * the engine once had moves, pastes and deletes as one command, one undo each.
  */
 import { expect, test, type Page } from './pw';
 
@@ -84,6 +84,7 @@ test('Duplicate (Ctrl+D) copies the whole selection with children, one undo; Cop
   await page.keyboard.press('Escape');
 
   await test.step('a selection of 270 (over the old 64 per move and 256 per paste) moves and pastes in one undo each', () => largeSelection(page, secondId));
+  await test.step('a selection of 1,100 (over the old 1,024 per delete) deletes in one command, one undo', () => largeDelete(page, secondId));
 });
 
 /** The objects of a scene (every page of the query). */
@@ -140,4 +141,38 @@ async function largeSelection(page: Page, sceneId: string): Promise<void> {
   expect((await query('queryProject')).revision).toBe(pasteRev + 1);
   await page.keyboard.press('Control+z');
   await expect.poll(() => countIn(sceneId)).toBe(before);
+}
+
+async function largeDelete(page: Page, sceneId: string): Promise<void> {
+  const N = 1100;
+  // The earlier step's folder folds away, so the new rows start near the top of the list.
+  await page.getByRole('button', { name: 'collapse Many', exact: true }).click();
+  const made = await be.command({
+    op: 'createEntities',
+    projectId: be.projectId,
+    expectedRevision: (await query('queryProject')).revision,
+    requestId: `req-${'e'.repeat(31)}3`,
+    args: { sceneId, entities: [{ ref: 'bulk', kind: 'folder', name: 'Bulk' }, ...Array.from({ length: N }, (_, i) => ({ kind: 'group', name: `b${i}`, parentId: 'bulk' }))] },
+  });
+  expect(made.ok, JSON.stringify(made).slice(0, 300)).toBe(true);
+  const named = (name: string) => rows(page).filter({ has: page.locator('.tl-row__name', { hasText: new RegExp(`^${name}$`) }) });
+  const list = page.locator('.tl-hierarchy__list');
+  // The list is windowed now: a row is in the DOM once it is scrolled to.
+  await expect(named('b0')).toBeVisible();
+  await named('b0').click();
+  await list.evaluate((el) => (el.scrollTop = el.scrollHeight));
+  await expect(named(`b${N - 1}`)).toHaveCount(1);
+  await named(`b${N - 1}`).click({ modifiers: ['Shift'] });
+  await expect(named(`b${N - 1}`)).toHaveClass(/is-selected/);
+
+  // Delete: every selected object in one deleteEntity; one undo brings them all back.
+  const before = await countIn(sceneId);
+  const rev = (await query('queryProject')).revision as number;
+  await page.locator('canvas.tl-viewport').hover();
+  await page.keyboard.press('Delete');
+  await expect.poll(() => countIn(sceneId)).toBe(before - N);
+  expect((await query('queryProject')).revision).toBe(rev + 1);
+  await page.keyboard.press('Control+z');
+  await expect.poll(() => countIn(sceneId)).toBe(before);
+  expect((await query('queryProject')).revision).toBe(rev + 2);
 }

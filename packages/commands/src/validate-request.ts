@@ -73,7 +73,6 @@ import {
 } from './errors';
 import { MUTATION_OPS } from './mutation-ops';
 import { validatePasteArgs } from './paste-ops';
-import { CREATE_ENTITIES_MAX } from './ops';
 import {
   validateAcknowledgeBehaviorTrustArgs,
   validateApplySurfacePresetArgs,
@@ -681,8 +680,8 @@ export function validateOpArgs(
       const list = args['entities'];
       if (list === undefined) return { ok: false, error: fieldMissing('/args/entities', 'entities') };
       if (!Array.isArray(list)) return { ok: false, error: fieldType('/args/entities', list, 'array of createEntity args') };
-      if (list.length < 1 || list.length > CREATE_ENTITIES_MAX) {
-        return { ok: false, error: fieldValue('/args/entities', list.length, `1-${CREATE_ENTITIES_MAX} items`, `createEntities creates 1 to ${CREATE_ENTITIES_MAX} entities`) };
+      if (list.length < 1) {
+        return { ok: false, error: fieldValue('/args/entities', list.length, 'at least 1 item', 'createEntities creates at least one entity') };
       }
       const refs = new Set<string>();
       const entities: (CreateEntityArgs & { ref?: string })[] = [];

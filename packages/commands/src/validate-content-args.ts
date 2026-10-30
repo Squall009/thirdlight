@@ -27,7 +27,7 @@ import {
   limitsExceeded,
   settingUnknown,
 } from './errors';
-import { COLLIDER_SHAPE_TYPES, MAX_BEHAVIOR_SOURCE_BYTES, SET_COMPONENT_ENTITIES_MAX, isValidSourcePath, type PropertyValue, type SettingsKeySpec, DIGEST_RE } from '@thirdlight/project-model';
+import { COLLIDER_SHAPE_TYPES, MAX_BEHAVIOR_SOURCE_BYTES, isValidSourcePath, type PropertyValue, type SettingsKeySpec, DIGEST_RE } from '@thirdlight/project-model';
 import { COMPONENT_FIELD_ORDER } from './v3';
 import { SURFACE_PRESET_NAMES } from '@thirdlight/project-model';
 import type {
@@ -583,16 +583,16 @@ export const SET_COMPONENT_NAMES: readonly OwnedComponent[] = OWNED;
 const COMPONENT_EXPECTED =
   'one of "box", "model", "collider", "controller", "playerSpawn", "light", "surface", "modelAnimation", "instances", "materials", "materialParams", "effect"';
 
-export { SET_COMPONENT_ENTITIES_MAX };
 
 export function validateSetComponentArgs(
   args: Record<string, unknown>,
 ): ArgsOk<SetComponentArgs> | { ok: false; error: CommandError } {
   const { entityIds, ...one } = args;
   if (entityIds === undefined) return validateSetComponentOne(one);
-  if (!Array.isArray(entityIds)) return { ok: false, error: fieldType('/args/entityIds', entityIds, `array of 1-${SET_COMPONENT_ENTITIES_MAX} entity IDs`) };
-  if (entityIds.length < 1 || entityIds.length > SET_COMPONENT_ENTITIES_MAX) {
-    return { ok: false, error: fieldValue('/args/entityIds', entityIds.length, `1-${SET_COMPONENT_ENTITIES_MAX} entity IDs`, `setComponent writes 1 to ${SET_COMPONENT_ENTITIES_MAX} further entities`) };
+  if (!Array.isArray(entityIds)) return { ok: false, error: fieldType('/args/entityIds', entityIds, 'array of entity IDs') };
+  // No count: a whole selection is edited in one command (one undo step), bounded by the request's bytes.
+  if (entityIds.length < 1) {
+    return { ok: false, error: fieldValue('/args/entityIds', entityIds.length, 'at least 1 entity ID', 'setComponent writes at least one further entity') };
   }
   for (let i = 0; i < entityIds.length; i++) {
     if (typeof entityIds[i] !== 'string') return { ok: false, error: fieldType(`/args/entityIds/${i}`, entityIds[i], 'string (entity ID)') };

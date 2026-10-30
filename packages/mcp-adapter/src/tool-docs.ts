@@ -234,7 +234,7 @@ export const TOOL_DETAILS = {
     '<piece>_COL / <piece>_OCC nodes, or a top-level node); LOD nodes switch by screen size, _COL nodes are never drawn, and _OCC nodes are occluder stand-ins drawn into the view\'s depth only ' +
     '(never in colour or shadows; one with a vertex outside its piece\'s LOD0 bounds is ignored and reported, model_occluder_ignored). occluder: false (model or box) keeps an object from hiding what is behind it for occlusion culling. A folder create ' +
     'may carry children: [createEntity args without parentId] (up to 256, one undo). createEntity also takes active, visible, locked, static (booleans) ' +
-    'and tags ([tag names]). createEntities {entities: [createEntity args + ref?], sceneId?} creates up to 1024 in one revision and one undo ' +
+    'and tags ([tag names]). createEntities {entities: [createEntity args + ref?], sceneId?} creates them all (as many as one request\'s 64 KiB holds) in one revision and one undo ' +
     '(a later item\'s parentId may name an earlier item\'s ref; the change lists the created entities in order). deleteAsset {assetId} and ' +
     'deletePrefab {prefabId} remove a record; refused (reference_in_use, the uses in details) while any object, prefab, asset, material, document ' +
     'or a script\'s string literal still names it; deleteAsset also deletes the asset\'s file and its .tlasset sidecar from the game folder ' +

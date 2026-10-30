@@ -5,7 +5,7 @@
  * parent goes with it; a refusal on any object deletes nothing.
  */
 import { describe, expect, it } from 'vitest';
-import { DELETE_ENTITIES_MAX, type SceneV4 } from '@thirdlight/project-model';
+import type { SceneV4 } from '@thirdlight/project-model';
 
 import { applyMutation, createCommandState } from './index';
 import type { CommandState, ContentDocument } from './index';
@@ -70,6 +70,5 @@ describe('deleteEntity on several objects', () => {
     const missing = run(s0, 'deleteEntity', { entityId: 'decal-000001', entityIds: ['nope-000009'] });
     expect(missing.code).toBe('entity_not_found');
     expect(missing.state).toBe(s0);
-    expect(DELETE_ENTITIES_MAX).toBeGreaterThanOrEqual(256);
   });
 });

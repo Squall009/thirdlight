@@ -168,10 +168,8 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | <a id="limit-audio-max-late-ms-limit"></a>`AUDIO_MAX_LATE_MS_LIMIT` | `60000` | The largest lateness bound a caller may set (ms): a minute, longer than any wait for one file. |
 | <a id="limit-audio-voice-cap"></a>`AUDIO_VOICE_CAP` | `32` | The engine cap on concurrent sound voices (the `audio_voices` setting's maximum): mixing cost per voice, as common engines' real-voice defaults. |
 | <a id="limit-audio-voices-default"></a>`AUDIO_VOICES_DEFAULT` | `8` | The `audio_voices` default: enough for overlapping effects in any scene. |
-| <a id="limit-create-entities-max"></a>`CREATE_ENTITIES_MAX` | `1024` | The most entities one `createEntities` creates (folders' children included; the 64 KiB request bound bounds it too). A request's size, not a cap on objects in a project: a larger batch (a long scatter stroke) goes as more requests. |
 | <a id="limit-declaration-string-length-default"></a>`DECLARATION_STRING_LENGTH_DEFAULT` | `256` | A declared `string` property's length (code points) when it sets no `maxLength`, and the largest `maxLength` it may set. |
 | <a id="limit-default-asset-folder"></a>`DEFAULT_ASSET_FOLDER` | `"assets"` | The folder of the game folder uploads land in when the user names none. |
-| <a id="limit-delete-entities-max"></a>`DELETE_ENTITIES_MAX` | `1024` | The most further objects one `deleteEntity` removes (`entityIds`): a request's size, not a cap on objects in a project — a larger selection is deleted in more requests. |
 | <a id="limit-index-page-default"></a>`INDEX_PAGE_DEFAULT` | `256` |  |
 | <a id="limit-index-page-max"></a>`INDEX_PAGE_MAX` | `1024` | A page of the project index (`queryIndex`): its largest (also the most ids one page asks for) and its default size. |
 | <a id="limit-max-asset-versions"></a>`MAX_ASSET_VERSIONS` | `32` | The content catalog's limits: the sizes of one file, one record and one model. A leaf module (no imports), so every model module can use them without an import cycle; `content.ts` re-exports them. Nothing here bounds how many assets or resources a project holds: a game has as many as it needs, each stored as its own file, so only a file's size and the runtime's memory are bounded (a guard test fails if a count of assets or resources comes back as a `MAX_*` here). |
@@ -195,7 +193,7 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | <a id="limit-max-prefab-depth"></a>`MAX_PREFAB_DEPTH` | `16` |  |
 | <a id="limit-max-prefab-entities"></a>`MAX_PREFAB_ENTITIES` | `1024` | One prefab: its entities (a building or a vehicle of many parts) and its depth. A prefab is one content file, so its bytes have the content file cap. |
 | <a id="limit-max-prefab-overrides"></a>`MAX_PREFAB_OVERRIDES` | `64` | The most overrides one prefab instantiation request carries (commands and the editor's planner check it). |
-| <a id="limit-max-request-bytes"></a>`MAX_REQUEST_BYTES` | `65536` | The largest command request, in canonical bytes (the whole envelope). It bounds what one parse and one undo step carry; an editor that sends a batch (a scatter stroke, an edit or delete of a large selection) splits it by these bytes as well as by the per-command counts below. Defined here, not in commands, because the editor reads model limits but not commands. |
+| <a id="limit-max-request-bytes"></a>`MAX_REQUEST_BYTES` | `65536` | The largest command request, in canonical bytes (the whole envelope). It bounds what one parse and one undo step carry, and with it how many objects one command names: a selection is moved, pasted, edited or deleted in one command (one undo step) with no count of its own. Only a stream of batches (a scatter or decal stroke as it is drawn) is split by these bytes. Defined here, not in commands, because the editor reads model limits but not commands. |
 | <a id="limit-max-source-bytes"></a>`MAX_SOURCE_BYTES` | `33554432` | The largest imported file (bytes): a model, an image, a font, an audio file of any length. It is the upload stage's bound too; the number of files is not bounded. |
 | <a id="limit-max-source-path-length"></a>`MAX_SOURCE_PATH_LENGTH` | `512` | The longest accepted `sourcePath` (UTF-16 code units). |
 | <a id="limit-max-staged-bytes-per-project"></a>`MAX_STAGED_BYTES_PER_PROJECT` | `134217728` |  |
@@ -204,7 +202,6 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | <a id="limit-max-texture-versions"></a>`MAX_TEXTURE_VERSIONS` | `8` | Versions of one texture asset record (PNG/JPEG/WebP/KTX2). |
 | <a id="limit-max-total-decoded-bytes"></a>`MAX_TOTAL_DECODED_BYTES` | `536870912` | The total decoded bytes of one model (`decodedGeometryBytes + decodedImageBytes`). |
 | <a id="limit-model-json-chunk-bytes-max"></a>`MODEL_JSON_CHUNK_BYTES_MAX` | `8388608` | The largest JSON chunk of an imported GLB (bytes). |
-| <a id="limit-set-component-entities-max"></a>`SET_COMPONENT_ENTITIES_MAX` | `1024` | The most further objects one `setComponent` writes (`entityIds`): a request's size, not a cap on objects in a project — a larger selection is edited in more requests (the 64 KiB request bound holds about this many ids). |
 
 <a id="limits-project-model--content-settings"></a>
 ## `content-settings.ts`
@@ -370,3 +367,10 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | Constant | Value | What it is |
 |---|---|---|
 | <a id="limit-material-data-max"></a>`MATERIAL_DATA_MAX` | `64` | The largest data parameter, cells per side (engine limit): 64 × 64 RGBA8 is 16 KiB per object — enough for a per-cell overlay of a large board or map region, small enough to send whole on every change. |
+
+<a id="limits-project-model--material-schema"></a>
+## `material-schema.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-default-wind"></a>`DEFAULT_WIND` | `{"direction":[1,0],"strength":0.5,"gust":0.4,"gustFrequency":0.3,"turbulence":0.3}` | The wind when a project sets none — a light breeze along +X (0.5 with 0.4 gusts every ~3 s, a little turbulence): foliage moves a little in any scene; 0 strength stills it. |

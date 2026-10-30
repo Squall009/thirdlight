@@ -12,7 +12,6 @@
 
 import { withoutLayersOf } from './block-ops';
 import {
-  CREATE_ENTITIES_MAX,
   serializeCanonical,
   validateContentV3,
   validateEnvelopeV3,
@@ -490,7 +489,6 @@ export function applyCreateEntity(
   };
 }
 
-export { CREATE_ENTITIES_MAX };
 
 /**
  * `createEntities {entities}` — several creates in one
@@ -515,9 +513,6 @@ export function applyCreateEntities(
     const staged = stageCreate(work, scene, { ...create, parentId }, content, `/args/entities/${i}`);
     if (!staged.ok) return staged;
     if (ref !== undefined) refs.set(ref, staged.id);
-    if (work.created.length > CREATE_ENTITIES_MAX) {
-      return { ok: false, error: limitsExceeded('entities', work.created.length, CREATE_ENTITIES_MAX, `one createEntities creates at most ${CREATE_ENTITIES_MAX} entities`) };
-    }
   }
   const result = { ...scene, revision: scene.revision + 1, entities: [...scene.entities, ...work.created] };
   const gate = gateResultState({ scene, content }, result, content);

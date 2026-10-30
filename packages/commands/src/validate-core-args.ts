@@ -11,7 +11,6 @@ import {
   MODEL_OCCLUDER_MODES,
   modelLodProblems,
   type ModelOccluderMode,
-  DELETE_ENTITIES_MAX,
 } from '@thirdlight/project-model';
 import { ENTITY_FLAGS, MAX_TAGS, TAG_NAME_RE } from '@thirdlight/project-model';
 import { fieldType, fieldMissing, fieldUnexpected, fieldValue, isPlainObjectStrict, isValidName } from './errors';
@@ -564,9 +563,10 @@ export function validateDeleteArgs(args: Record<string, unknown>):
   }
   const more = args['entityIds'];
   if (more === undefined) return { ok: true, args: { entityId: args['entityId'] } };
-  if (!Array.isArray(more)) return { ok: false, error: fieldType('/args/entityIds', more, `array of 1-${DELETE_ENTITIES_MAX} entity IDs`) };
-  if (more.length < 1 || more.length > DELETE_ENTITIES_MAX) {
-    return { ok: false, error: fieldValue('/args/entityIds', more.length, `1-${DELETE_ENTITIES_MAX} entity IDs`, `deleteEntity removes 1 to ${DELETE_ENTITIES_MAX} further entities`) };
+  if (!Array.isArray(more)) return { ok: false, error: fieldType('/args/entityIds', more, 'array of entity IDs') };
+  // No count: a whole selection is deleted in one command (one undo step), bounded by the request's bytes.
+  if (more.length < 1) {
+    return { ok: false, error: fieldValue('/args/entityIds', more.length, 'at least 1 entity ID', 'deleteEntity removes at least one further entity') };
   }
   for (let i = 0; i < more.length; i++) {
     if (typeof more[i] !== 'string') return { ok: false, error: fieldType(`/args/entityIds/${i}`, more[i], 'string (entity ID)') };

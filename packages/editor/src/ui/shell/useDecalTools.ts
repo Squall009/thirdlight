@@ -176,7 +176,7 @@ export function useDecalTools(deps: DecalToolsDeps): DecalTools {
         return r.createdId;
       },
       placeMany: async (items: Record<string, unknown>[]) => {
-        // One command for the stroke, or as many as the request's count and bytes take; a refused one ends it with what was stored.
+        // One command for the stroke, or as many as the request's bytes take; a refused one ends it with what was stored.
         const ids: string[] = [];
         for (const args of createEntitiesArgs(items)) {
           const r = await latest.current.run('Scatter decals', 'createEntities', args);
@@ -294,7 +294,7 @@ export function useDecalTools(deps: DecalToolsDeps): DecalTools {
 
   const edit = useCallback(
     async (entities: readonly ProjectedEntity[], e: DecalFieldEdit) => {
-      // One command for the selection (a selection larger than one request holds goes as more).
+      // One command for the whole selection (one undo step).
       for (const args of selectionEdit(selected(entities), e)) {
         if ((await run('Edit decals', 'setComponent', args))?.ok !== true) break;
       }

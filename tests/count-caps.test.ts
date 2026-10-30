@@ -22,6 +22,7 @@ import { validateBehaviorGroups, validateModes } from '../packages/project-model
 import { validateSaveSchema } from '../packages/project-model/src/save-schema';
 import { validateShell } from '../packages/project-model/src/shell';
 import { MAX_FRAME_ACTIONS, validateActionFrame } from '../packages/runtime/src/actions';
+import { validateOpArgs } from '../packages/commands/src/validate-request';
 import { validateInputStatus } from '../packages/runtime/src/input-status';
 
 const REPO = resolve(import.meta.dirname, '..');
@@ -175,5 +176,60 @@ describe('no per-project count cap by shape', () => {
     expect(frame.ok, JSON.stringify(frame).slice(0, 200)).toBe(true);
     const status = validateInputStatus({ actions: Array.from({ length: 300 }, (_, i) => ({ name: `a${i}`, type: 'button', map: 'gameplay', bindings: [] })) });
     expect(status.ok, JSON.stringify(status).slice(0, 200)).toBe(true);
+  });
+});
+
+/**
+ * A count of the objects one command names (`DELETE_ENTITIES_MAX`,
+ * `MAX_MOVE_ENTITIES`): a selection's size. A selection goes as one command,
+ * one undo step, so only the request's bytes bound it; a count would make the
+ * editor split it into several undo steps or refuse it. Containers bound
+ * their own objects (one prefab's), and are listed with their reason.
+ */
+const SELECTION_NAME = /^(?:MAX_[A-Z0-9_]+_(?:ENTITIES|ENTITY_IDS|IDS|OBJECTS)|[A-Z0-9_]+_(?:ENTITIES|ENTITY_IDS|IDS|OBJECTS)_MAX)$/;
+const NOT_A_SELECTION: Record<string, string> = {
+  MAX_PREFAB_ENTITIES: 'the objects of one prefab (a container, as a scene\'s depth is)',
+  REPEATED_ROW_ENTITY_IDS_MAX: 'the example objects one Problems row names',
+};
+const isSelectionCap = (name: string): boolean => SELECTION_NAME.test(name) && NOT_A_SELECTION[name] === undefined;
+
+describe('no count on a selection one command names', () => {
+  it('the names say so (a guard: it flags the per-command counts the engine once had)', () => {
+    for (const name of ['DELETE_ENTITIES_MAX', 'SET_COMPONENT_ENTITIES_MAX', 'CREATE_ENTITIES_MAX', 'MOVE_ENTITIES_MAX', 'PASTE_ENTITIES_MAX', 'MAX_SELECTED_IDS']) expect(isSelectionCap(name), name).toBe(true);
+    for (const name of ['MAX_PREFAB_ENTITIES', 'REPEATED_ROW_ENTITY_IDS_MAX', 'MAX_SCENE_DEPTH', 'MAX_REQUEST_BYTES']) expect(isSelectionCap(name), name).toBe(false);
+  });
+
+  it('no limit the model exports and no package constant counts one', () => {
+    const found = Object.keys(limits).filter(isSelectionCap);
+    const packages = join(REPO, 'packages');
+    for (const pkg of readdirSync(packages)) {
+      let files: string[];
+      try {
+        files = sourceFiles(join(packages, pkg, 'src'));
+      } catch {
+        continue;
+      }
+      for (const file of files) {
+        for (const m of readFileSync(file, 'utf8').matchAll(/\bconst\s+([A-Z][A-Z0-9_]*)\s*(?::[^=]+)?=/g)) if (isSelectionCap(m[1]!)) found.push(`${file.slice(REPO.length + 1)}: ${m[1]}`);
+      }
+    }
+    expect(found).toEqual([]);
+  });
+
+  it('delete, edit, create, move and paste each take 1,200 objects in one command, within one request\'s bytes', () => {
+    const n = 1200;
+    const ids = Array.from({ length: n }, (_, i) => `group-${String(i).padStart(6, '0')}`);
+    const requests: [string, Record<string, unknown>][] = [
+      ['deleteEntity', { entityId: ids[0], entityIds: ids.slice(1) }],
+      ['setComponent', { entityId: ids[0], component: 'playerSpawn', value: {}, entityIds: ids.slice(1) }],
+      ['createEntities', { entities: ids.map((_, i) => ({ kind: 'group', name: `g${i}` })) }],
+      ['moveEntities', { entityIds: ids, parentId: null }],
+      ['pasteEntities', { entities: ids.map((id) => ({ id, name: 'g', components: {} })) }],
+    ];
+    for (const [op, args] of requests) {
+      expect(JSON.stringify(args).length, op).toBeLessThan(limits.MAX_REQUEST_BYTES);
+      const r = validateOpArgs(op as Parameters<typeof validateOpArgs>[0], args);
+      expect(r.ok, `${op}: ${JSON.stringify(r).slice(0, 300)}`).toBe(true);
+    }
   });
 });

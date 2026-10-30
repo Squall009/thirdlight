@@ -1,13 +1,11 @@
 /**
- * Splitting one edit of many items (a scatter stroke's decals, an edit or a
- * delete of a large selection) into commands the backend takes. A command
- * is bounded twice: by its op's item count and by the request's canonical
- * bytes (project-model `MAX_REQUEST_BYTES`, the whole envelope). Counting
- * items alone lets a batch of large items (a decal is a couple of hundred
- * bytes) pass the count and be refused whole for its size, so every batch
- * the editor sends is cut here by both.
+ * Splitting a stream of new objects (a scatter stroke's decals, stored as
+ * the stroke is drawn) into `createEntities` commands the backend takes: a
+ * command is bounded by the request's canonical bytes (project-model
+ * `MAX_REQUEST_BYTES`, the whole envelope), not by a count. A selection is
+ * never split here: it goes as one command (one undo step).
  */
-import { CREATE_ENTITIES_MAX, MAX_REQUEST_BYTES } from '@thirdlight/project-model/limits';
+import { MAX_REQUEST_BYTES } from '@thirdlight/project-model/limits';
 
 /**
  * Bytes kept free for what the envelope adds around the arguments: the op,
@@ -46,12 +44,10 @@ export class RequestBatcher<T> {
   private readonly budget: number;
 
   /**
-   * @param maxCount the op's item count per command
    * @param fixedBytes the arguments' bytes without the items (`jsonBytes` of the arguments with empty lists)
    * @param cost one item's bytes in the request (its separator is added here)
    */
   constructor(
-    private readonly maxCount: number,
     fixedBytes: number,
     private readonly cost: (item: T) => number = jsonBytes,
   ) {
@@ -64,7 +60,7 @@ export class RequestBatcher<T> {
 
   add(item: T): T[] | null {
     const c = this.cost(item) + 1;
-    const full = this.items.length > 0 && (this.items.length >= this.maxCount || this.bytes + c > this.budget) ? this.take() : null;
+    const full = this.items.length > 0 && this.bytes + c > this.budget ? this.take() : null;
     this.items.push(item);
     this.bytes += c;
     return full;
@@ -89,11 +85,6 @@ function batchesOf<T>(b: RequestBatcher<T>, items: readonly T[]): T[][] {
   return out;
 }
 
-/** `items` in batches of at most `maxCount` that each fit one request (none for none). */
-export function requestBatches<T>(items: readonly T[], maxCount: number, fixedBytes: number, cost?: (item: T) => number): T[][] {
-  return batchesOf(new RequestBatcher<T>(maxCount, fixedBytes, cost), items);
-}
-
 /** A `createEntity` argument item without its `sceneId`: in `createEntities` the scene goes on the batch (it routes the command). */
 function withoutScene(item: Record<string, unknown>): Record<string, unknown> {
   const { sceneId: _scene, ...rest } = item;
@@ -102,7 +93,7 @@ function withoutScene(item: Record<string, unknown>): Record<string, unknown> {
 
 /** Collects `createEntity` argument items (of one scene, `sceneId` null: the active one) into `createEntities` batches. */
 export function createEntitiesBatcher(sceneId: string | null): RequestBatcher<Record<string, unknown>> {
-  return new RequestBatcher(CREATE_ENTITIES_MAX, jsonBytes({ ...(sceneId !== null ? { sceneId } : {}), entities: [] }), (item) => jsonBytes(withoutScene(item)));
+  return new RequestBatcher(jsonBytes({ ...(sceneId !== null ? { sceneId } : {}), entities: [] }), (item) => jsonBytes(withoutScene(item)));
 }
 
 /** The `createEntities` arguments that create `items` (`createEntity` arguments of one scene), as many as the request size takes. */

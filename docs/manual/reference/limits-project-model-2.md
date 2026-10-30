@@ -1,15 +1,8 @@
-# Limits and defaults: project-model (part 2, from `material-schema.ts`)
+# Limits and defaults: project-model (part 2, from `materials.ts`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The limits and defaults `@thirdlight/project-model` defines, by source file. Values are the running build's.
-
-<a id="limits-project-model--material-schema"></a>
-## `material-schema.ts`
-
-| Constant | Value | What it is |
-|---|---|---|
-| <a id="limit-default-wind"></a>`DEFAULT_WIND` | `{"direction":[1,0],"strength":0.5,"gust":0.4,"gustFrequency":0.3,"turbulence":0.3}` | The wind when a project sets none — a light breeze along +X (0.5 with 0.4 gusts every ~3 s, a little turbulence): foliage moves a little in any scene; 0 strength stills it. |
 
 <a id="limits-project-model--materials"></a>
 ## `materials.ts`

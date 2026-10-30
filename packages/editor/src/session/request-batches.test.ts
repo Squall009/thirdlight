@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { CREATE_ENTITIES_MAX, DELETE_ENTITIES_MAX, MAX_REQUEST_BYTES, SET_COMPONENT_ENTITIES_MAX } from '@thirdlight/project-model/limits';
+import { MAX_REQUEST_BYTES } from '@thirdlight/project-model/limits';
 
 import { DECAL_SCATTER_DEFAULTS, scatterPlacement, selectionEdit } from './decal-editor';
 import { DECAL_TOOL_DEFAULTS, decalPlaceCommand } from './decal-place';
-import { deleteEntitiesArgs } from './delete-entities';
 import { makeEnvelope } from './envelope';
-import { createEntitiesArgs, jsonBytes, requestBatches } from './request-batches';
+import { createEntitiesArgs, jsonBytes } from './request-batches';
 
 /** The bytes the backend measures: the whole envelope the client posts, at its largest ids and revision. */
 function envelopeBytes(op: string, args: unknown): number {
@@ -24,12 +23,10 @@ describe('request batches', () => {
       return decalPlaceCommand(SCENE, 'Decal', p).args;
     });
     const args = createEntitiesArgs(items);
-    // The count alone would allow two requests; the bytes need more.
-    expect(args.length).toBeGreaterThan(Math.ceil(items.length / CREATE_ENTITIES_MAX));
+    expect(args.length).toBeGreaterThan(1);
     expect(args.flatMap((a) => a.entities)).toHaveLength(2000);
     for (const a of args) {
       expect(a.sceneId).toBe(SCENE);
-      expect(a.entities.length).toBeLessThanOrEqual(CREATE_ENTITIES_MAX);
       expect(a.entities.every((e) => e['sceneId'] === undefined)).toBe(true);
       expect(envelopeBytes('createEntities', a)).toBeLessThanOrEqual(MAX_REQUEST_BYTES);
     }
@@ -37,29 +34,24 @@ describe('request batches', () => {
     for (const a of args.slice(0, -1)) expect(envelopeBytes('createEntities', a)).toBeGreaterThan(MAX_REQUEST_BYTES * 0.9);
   });
 
-  it('splits a selection edit with a value per decal by the request bytes', () => {
-    const decal = { material: 'mat-puddle-with-a-long-name', size: [1, 1, 0.5] as [number, number, number] };
-    const entries = Array.from({ length: 3000 }, (_, i) => ({ id: `decal-${'x'.repeat(50)}-${i}`, decal: { ...decal, size: [1, 1 + i / 1000, 0.5] as [number, number, number] } }));
-    const args = selectionEdit(entries, { field: 'size', axis: 0, value: 2 });
-    expect(args.reduce((n, a) => n + 1 + (a.entityIds?.length ?? 0), 0)).toBe(3000);
-    for (const a of args) {
-      expect(a.entityIds!.length).toBeLessThanOrEqual(SET_COMPONENT_ENTITIES_MAX);
-      expect(a.values).toHaveLength(a.entityIds!.length);
-      expect(envelopeBytes('setComponent', a)).toBeLessThanOrEqual(MAX_REQUEST_BYTES);
-    }
-  });
-
-  it('splits a delete of long ids by the request bytes before the id count', () => {
-    const ids = Array.from({ length: DELETE_ENTITIES_MAX + 1 }, (_, i) => `${'e'.repeat(58)}-${String(i).padStart(5, '0')}`);
-    const args = deleteEntitiesArgs(ids);
-    expect(args.length).toBe(2);
-    expect(args.flatMap((a) => [a.entityId, ...(a.entityIds ?? [])])).toEqual(ids);
-    for (const a of args) expect(envelopeBytes('deleteEntity', a)).toBeLessThanOrEqual(MAX_REQUEST_BYTES);
+  it('edits a whole selection in one command: one id list and a value per decal only where they differ', () => {
+    const decal = { material: 'mat-puddle', size: [1, 1, 0.5] as [number, number, number] };
+    const same = Array.from({ length: 1500 }, (_, i) => ({ id: `decal-${i}`, decal }));
+    const one = selectionEdit(same, { field: 'size', axis: 0, value: 2 });
+    expect(one).toHaveLength(1);
+    expect(one[0]!.entityIds).toHaveLength(1499);
+    expect(one[0]!.values).toBeUndefined();
+    expect(envelopeBytes('setComponent', one[0])).toBeLessThanOrEqual(MAX_REQUEST_BYTES);
+    const differing = same.slice(0, 300).map((e, i) => ({ id: e.id, decal: { ...decal, size: [1, 1 + i / 1000, 0.5] as [number, number, number] } }));
+    const each = selectionEdit(differing, { field: 'size', axis: 0, value: 2 });
+    expect(each).toHaveLength(1);
+    expect(each[0]!.values).toHaveLength(299);
+    expect(selectionEdit([], { field: 'size', axis: 0, value: 2 })).toEqual([]);
   });
 
   it('keeps an item too large for any request as a batch of its own', () => {
-    const big = 'x'.repeat(MAX_REQUEST_BYTES);
-    expect(requestBatches(['a', big, 'b'], 10, 0)).toEqual([['a'], [big], ['b']]);
+    const big = { kind: 'group', name: 'x'.repeat(MAX_REQUEST_BYTES) };
+    expect(createEntitiesArgs([{ kind: 'group', name: 'a' }, big, { kind: 'group', name: 'b' }]).map((a) => a.entities.map((e) => String(e['name']).slice(0, 1)))).toEqual([['a'], ['x'], ['b']]);
     expect(jsonBytes('é😀')).toBe(new TextEncoder().encode(JSON.stringify('é😀')).length);
   });
 });

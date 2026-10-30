@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import type { SceneV4 } from '@thirdlight/project-model';
 
-import { applyMutation, createCommandState, SET_COMPONENT_ENTITIES_MAX } from './index';
+import { applyMutation, createCommandState } from './index';
 import type { CommandState, ContentDocument } from './index';
 import { m2EnvelopeV4 } from './test-fixtures';
 
@@ -86,6 +86,5 @@ describe('setComponent on several objects', () => {
     expect(run(s0, 'setComponent', { entityId: 'decal-000001', component: 'decal', value: { sortOrder: 1 }, entityIds: ['decal-000001'] }).code).toBe('field_value');
     expect(run(s0, 'setComponent', { entityId: 'decal-000001', component: 'decal', value: { sortOrder: 1 }, entityIds: [] }).code).toBe('field_value');
     expect(run(s0, 'setComponent', { entityId: 'decal-000001', component: 'decal', value: { sortOrder: 1 }, entityIds: ['nope-000009'] }).code).toBe('entity_not_found');
-    expect(SET_COMPONENT_ENTITIES_MAX).toBeGreaterThanOrEqual(256);
   });
 });

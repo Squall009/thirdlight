@@ -414,8 +414,8 @@ or the Scene view (it opens in Select with that decal selected) or a decal's
   spacing), each with a random turn and size from the **seed**. Each place
   is dropped onto the surface along the dab's normal, so walls and slopes
   take marks as floors do. A stroke is one `createEntities` (one undo); one
-  longer than a command holds
-  ([`CREATE_ENTITIES_MAX`](../reference/limits-project-model-1.md#limit-create-entities-max))
+  longer than a request holds
+  ([`MAX_REQUEST_BYTES`](../reference/limits-project-model-1.md#limit-max-request-bytes))
   goes on as the next stroke.
 - **Select:** with no tool armed (Navigate, in every mode) a click picks
   the decal under the pointer, Shift adds, Ctrl removes, and a drag orbits;

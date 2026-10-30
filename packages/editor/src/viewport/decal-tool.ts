@@ -12,8 +12,8 @@
  *   the density, spacing and seeded turns and sizes are the scatter's own
  *   (`session/decal-editor.ts`). Each place is dropped onto the surface along
  *   the dab's normal and marked; the release stores the stroke as one
- *   `createEntities` (one undo; a stroke past what one command holds, by
- *   count or by bytes, goes on as the next stroke).
+ *   `createEntities` (one undo; a stroke past what one request's bytes hold
+ *   goes on as the next stroke).
  * - **Select:** with no tool (Navigate, in every rail mode) a click picks the
  *   decal under the pointer (the front one of those whose image covers it,
  *   among those the filter lets through), Shift adds, Ctrl removes, a click

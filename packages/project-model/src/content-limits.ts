@@ -33,31 +33,14 @@ export const MAX_PREFAB_DEPTH = 16;
 export const MAX_PREFAB_BYTES = MAX_CONTENT_FILE_BYTES;
 /**
  * The largest command request, in canonical bytes (the whole envelope). It
- * bounds what one parse and one undo step carry; an editor that sends a
- * batch (a scatter stroke, an edit or delete of a large selection) splits it
- * by these bytes as well as by the per-command counts below. Defined here,
- * not in commands, because the editor reads model limits but not commands.
+ * bounds what one parse and one undo step carry, and with it how many
+ * objects one command names: a selection is moved, pasted, edited or
+ * deleted in one command (one undo step) with no count of its own. Only a
+ * stream of batches (a scatter or decal stroke as it is drawn) is split by
+ * these bytes. Defined here, not in commands, because the editor reads model
+ * limits but not commands.
  */
 export const MAX_REQUEST_BYTES = 65_536;
-/**
- * The most entities one `createEntities` creates (folders' children
- * included; the 64 KiB request bound bounds it too). A request's size, not a
- * cap on objects in a project: a larger batch (a long scatter stroke) goes as
- * more requests.
- */
-export const CREATE_ENTITIES_MAX = 1024;
-/**
- * The most further objects one `setComponent` writes (`entityIds`): a
- * request's size, not a cap on objects in a project — a larger selection is
- * edited in more requests (the 64 KiB request bound holds about this many ids).
- */
-export const SET_COMPONENT_ENTITIES_MAX = 1024;
-/**
- * The most further objects one `deleteEntity` removes (`entityIds`): a
- * request's size, not a cap on objects in a project — a larger selection is
- * deleted in more requests.
- */
-export const DELETE_ENTITIES_MAX = 1024;
 /** The most overrides one prefab instantiation request carries (commands and the editor's planner check it). */
 export const MAX_PREFAB_OVERRIDES = 64;
 export const MAX_ENUM_VALUES = 32;

@@ -22,11 +22,9 @@
  */
 import { mulberry32 } from '@thirdlight/shared';
 import type { DecalComponent, DecalOpacity, MaterialDef } from '@thirdlight/project-model';
-import { SET_COMPONENT_ENTITIES_MAX } from '@thirdlight/project-model/limits';
 import { DECAL_CHANNELS, DECAL_LAYERS_ALL, DECAL_LIMITS, decalEdgeFade, decalNormalFade } from '@thirdlight/runtime';
 
 import { decalPlacement, type DecalToolSettings } from './decal-place';
-import { jsonBytes, requestBatches } from './request-batches';
 
 type V3 = readonly [number, number, number];
 
@@ -188,22 +186,17 @@ export type DecalFieldEdit =
 /** The `setComponent` arguments of an edit of several decals. */
 export type DecalEditArgs = { entityId: string; component: 'decal'; value: Record<string, unknown>; entityIds?: string[]; values?: Record<string, unknown>[] };
 
-/** What `setComponent` holds besides its decals' ids and values (the arguments with empty lists). */
-const EDIT_FIXED_BYTES = jsonBytes({ entityId: '', component: 'decal', value: {}, entityIds: [], values: [] });
-
 /**
- * The `setComponent` commands an edit of the selection is: one for all of
- * it when it fits a request (one revision, one undo), else as many as the
- * request's count and bytes take. Each has its first decal's new value, the
- * others in `entityIds`, each with its own value in `values` when they
- * differ (a width set on decals of different heights keeps each one's
- * height). None: nothing selected.
+ * The `setComponent` command an edit of the selection is: one for all of it
+ * (one revision, one undo), with its first decal's new value, the others in
+ * `entityIds`, each with its own value in `values` when they differ (a width
+ * set on decals of different heights keeps each one's height). The request's
+ * bytes bound it; a selection too large for them is refused whole. None:
+ * nothing selected.
  */
 export function selectionEdit(entries: readonly { id: string; decal: DecalComponent }[], edit: DecalFieldEdit): DecalEditArgs[] {
   const pairs = entries.map((e) => ({ id: e.id, value: fieldValue(e.decal, edit) }));
-  // An id and its value each take a list place (and a separator) in the request.
-  const batches = requestBatches(pairs, SET_COMPONENT_ENTITIES_MAX + 1, EDIT_FIXED_BYTES, (p) => jsonBytes(p.id) + 1 + jsonBytes(p.value));
-  return batches.map(editArgs);
+  return pairs.length > 0 ? [editArgs(pairs)] : [];
 }
 
 function editArgs(pairs: readonly { id: string; value: Record<string, unknown> }[]): DecalEditArgs {
