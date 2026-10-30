@@ -25,6 +25,8 @@
  *
  * Pure: the backend parses the request and the manifest here.
  */
+import { DIGEST_RE } from '@thirdlight/project-model/content-helpers';
+
 import { parseStageId } from './content';
 import { sessionError, type SessionError } from './errors';
 import { isPlainObject, isStringNoControl } from './strict';
@@ -65,7 +67,6 @@ export interface JobExportRequest {
 }
 
 const ROLE_RE = /^[a-z][a-z0-9_-]{0,31}$/;
-const HEX64 = /^[0-9a-f]{64}$/;
 
 /** A relative path inside an export: forward slashes, no empty, "." or ".." parts, no backslash, colon or control characters. */
 export function isJobExportPath(s: unknown): s is string {
@@ -96,7 +97,7 @@ export function parseJobExportManifest(value: unknown): { ok: true; manifest: Jo
     seen.add(f['path']);
     if (typeof f['role'] !== 'string' || !ROLE_RE.test(f['role'])) return invalid(`${at}/role`, 'role is a lowercase word (a letter, then up to 31 letters, digits, _ or -)', f['role']);
     const raw = typeof f['digest'] === 'string' ? f['digest'].replace(/^sha256:/, '').toLowerCase() : '';
-    if (!HEX64.test(raw)) return invalid(`${at}/digest`, 'digest is the SHA-256 of the file (64 hex, optionally "sha256:" first)', f['digest']);
+    if (!DIGEST_RE.test(raw)) return invalid(`${at}/digest`, 'digest is the SHA-256 of the file (64 hex, optionally "sha256:" first)', f['digest']);
     out.push({ path: f['path'], role: f['role'], digest: raw });
   }
   const models = out.filter((f) => f.role === 'model');
