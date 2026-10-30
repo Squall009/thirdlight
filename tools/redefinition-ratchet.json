@@ -1,6 +1,5 @@
 {
   "entries": [
-    {"file":"packages/exporter/src/export-content-scan.ts","name":"strictJson"},
     {"file":"packages/project-model/src/arch-math.ts","name":"seededRandom","retired":true},
     {"file":"packages/project-model/src/architecture.ts","name":"DIGEST_RE","retired":true},
     {"file":"packages/project-model/src/architecture.ts","name":"isObj","retired":true},
@@ -19,7 +18,6 @@
     {"file":"packages/project-model/src/terrain.test.ts","name":"crc32 fingerprint","retired":true},
     {"file":"packages/project-model/src/terrain.ts","name":"DIGEST_RE","retired":true},
     {"file":"packages/project-model/src/terrain.ts","name":"isObj","retired":true},
-    {"file":"packages/protocol/src/strict.ts","name":"parseStrictJson"},
     {"file":"packages/three-adapter/src/effects-tsl.ts","name":"seeded-random fingerprint"},
     {"file":"packages/three-adapter/src/material-graph.ts","name":"valueNoise"},
     {"file":"tests/integration/m3-export/block-chunk-data.test.ts","name":"deepFreeze","retired":true},

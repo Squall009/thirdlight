@@ -110,7 +110,7 @@ import type {
   PasteEntitiesArgs,
   SceneIndexArgs,
 } from './types';
-import { utf8Length } from '@thirdlight/shared';
+import { escapePointer as pointerSegment, utf8Length } from '@thirdlight/shared';
 
 const TOP_FIELDS = [
   'op',
@@ -160,17 +160,6 @@ const EXPECT = {
 } as const;
 
 export const TOP_FIELDS_EXPECTED = 'known fields: op, projectId, expectedRevision, requestId, origin (optional), args';
-
-/**
- * RFC 6901 escaping of one JSON Pointer reference token (every field error
- * carries `path`, a JSON Pointer into the request). DYNAMIC keys (unknown fields at
- * any nesting level) are interpolated into `path` ONLY through this helper:
- * `~` → `~0` FIRST, then `/` → `~1`. Static segment names (`op`, `args`,
- * `position`, …) and numeric indices never need escaping.
- */
-function pointerSegment(segment: string): string {
-  return segment.replace(/~/g, '~0').replace(/\//g, '~1');
-}
 
 export type ValidatedMutationRequest = {
   op: MutationOp;

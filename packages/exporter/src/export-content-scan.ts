@@ -22,7 +22,7 @@
  *
  * Pure byte/string processing: no I/O.
  */
-import { GLB_CHUNK_JSON, GLB_MAGIC, isKtx2, isPng } from '@thirdlight/shared';
+import { GLB_CHUNK_JSON, GLB_MAGIC, isKtx2, isPng, parseStrictJsonText } from '@thirdlight/shared';
 import { nodeSpecifierOffsets, type ScanHit } from './scan';
 import { DIGEST_RE } from '@thirdlight/project-model';
 
@@ -50,83 +50,16 @@ function collectKeyValues(value: unknown, key: string, out: unknown[]): void {
   }
 }
 
-/** The first duplicate object key in a JSON text (null when none). */
-function findDuplicateKey(text: string): string | null {
-  interface Frame {
-    kind: 'object' | 'array';
-    keys: Set<string>;
-    expectKey: boolean;
-  }
-  const stack: Frame[] = [];
-  const isWs = (c: string): boolean => c === ' ' || c === '\t' || c === '\n' || c === '\r';
-  let i = 0;
-  while (i < text.length) {
-    const c = text[i] as string;
-    if (isWs(c)) {
-      i += 1;
-      continue;
-    }
-    if (c === '{') {
-      stack.push({ kind: 'object', keys: new Set(), expectKey: true });
-      i += 1;
-      continue;
-    }
-    if (c === '[') {
-      stack.push({ kind: 'array', keys: new Set(), expectKey: false });
-      i += 1;
-      continue;
-    }
-    if (c === '}' || c === ']') {
-      stack.pop();
-      i += 1;
-      continue;
-    }
-    if (c === ',') {
-      const f = stack[stack.length - 1];
-      if (f !== undefined && f.kind === 'object') f.expectKey = true;
-      i += 1;
-      continue;
-    }
-    if (c === ':') {
-      const f = stack[stack.length - 1];
-      if (f !== undefined) f.expectKey = false;
-      i += 1;
-      continue;
-    }
-    if (c === '"') {
-      const start = i;
-      i += 1;
-      while (i < text.length) {
-        const ch = text[i] as string;
-        if (ch === '\\') {
-          i += 2;
-          continue;
-        }
-        i += 1;
-        if (ch === '"') break;
-      }
-      const raw = text.slice(start, i);
-      const f = stack[stack.length - 1];
-      if (f !== undefined && f.kind === 'object' && f.expectKey) {
-        const name = JSON.parse(raw) as string;
-        if (f.keys.has(name)) return name;
-        f.keys.add(name);
-        f.expectKey = false;
-      }
-      continue;
-    }
-    i += 1;
-  }
-  return null;
-}
-
-/** Strict JSON parse rejecting duplicate object keys. */
+/**
+ * Strict JSON parse rejecting duplicate object keys (a syntax error anywhere
+ * is reported first). The value is `JSON.parse`'s, which keeps a `__proto__`
+ * member as an own property.
+ */
 function strictJson(text: string): { ok: true; value: unknown } | { ok: false; message: string } {
   try {
-    const value = JSON.parse(text) as unknown;
-    const duplicate = findDuplicateKey(text);
-    if (duplicate !== null) return { ok: false, message: `duplicate JSON key "${duplicate}"` };
-    return { ok: true, value };
+    const r = parseStrictJsonText(text, { duplicates: 'after-syntax' });
+    if (r.ok) return { ok: true, value: JSON.parse(text) as unknown };
+    return { ok: false, message: r.kind === 'duplicate' ? `duplicate JSON key "${r.name}"` : r.message };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : 'invalid JSON' };
   }

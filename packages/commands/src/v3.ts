@@ -39,7 +39,7 @@ import type {
   SurfacePresetName,
   V3OwnedComponent,
 } from './types';
-import { isPlainObject } from '@thirdlight/shared';
+import { escapePointer as pointerSegment, isPlainObject } from '@thirdlight/shared';
 
 /** Registry field order for the components `setComponent` can edit. */
 export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[]> = {
@@ -438,9 +438,4 @@ export function entityHasComponent(
   component: string,
 ): boolean {
   return Object.prototype.hasOwnProperty.call(entity.components, component);
-}
-
-/** RFC 6901 escaping for one JSON Pointer segment. */
-function pointerSegment(segment: string): string {
-  return segment.replace(/~/g, '~0').replace(/\//g, '~1');
 }

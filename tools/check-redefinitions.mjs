@@ -119,7 +119,13 @@ export const OWNED_FAMILIES = Object.freeze([
     names: ['isPlainObject', 'isPlainObjectStrict', 'isPlainRecord', 'isRecord', 'isObject', 'isObj', 'isPlain', 'isRow', 'isMap', 'deepFreeze', 'deepFreezeAll', 'deepFreezeExceptViews', 'deepFreezeForTest'],
   },
   { family: 'lru', owner: 'packages/shared/src/lru.ts', names: ['LruCache', 'LRUCache', 'LruMap', 'BoundedLru'] },
-  { family: 'strict-json', owner: 'packages/shared/src/strict-json.ts', names: ['parseStrictJson', 'strictJson'] },
+  {
+    family: 'strict-json',
+    owner: 'packages/shared/src/strict-json.ts',
+    // The parser and its helpers; the callers' own wrappers (protocol's parseStrictJson, the importer's
+    // strictJsonParse) map its failures to their error shapes and are not copies.
+    names: ['parseStrictJsonText', 'findDuplicateKey', 'escapePointer', 'pointerSegment', 'hasUtf8Bom'],
+  },
   {
     family: 'digest-format',
     owner: 'packages/project-model/src/content-helpers.ts',

@@ -22,6 +22,7 @@ import { ERROR_CODES as COMMAND_ERROR_CODES } from '@thirdlight/commands';
 import type { CommandError } from '@thirdlight/commands';
 import type { ErrorCode, LimitName, ModelError } from '@thirdlight/project-model';
 import { isPlainObjectStrict } from '@thirdlight/shared';
+export { escapePointer as pointerSegment } from '@thirdlight/shared';
 export { isPlainObjectStrict } from '@thirdlight/shared';
 
 /** The workspace code table (stable). The content-storage codes follow in
@@ -598,16 +599,6 @@ export function isSafeInt(v: unknown): v is number {
   return typeof v === 'number' && Number.isInteger(v) && Math.abs(v) <= Number.MAX_SAFE_INTEGER;
 }
 
-/**
- * RFC 6901 escaping of one JSON Pointer reference token (Error `path` values are
- * "a JSON Pointer into the request"/envelope; RFC 6901 is the JSON Pointer
- * standard). `~` → `~0` FIRST, then `/` → `~1`. Every DYNAMIC key
- * interpolated into a `path` goes through this helper; static segment
- * names and numeric indices never need escaping.
- */
-export function pointerSegment(segment: string): string {
-  return segment.replace(/~/g, '~0').replace(/\//g, '~1');
-}
 // ---- content-storage errors -----------------
 
 /** A `limits_exceeded`-style staging bound. */

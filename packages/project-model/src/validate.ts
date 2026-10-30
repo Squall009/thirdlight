@@ -31,8 +31,8 @@ import type {
   Vec3,
   Quat,
 } from './types';
-import { isPlainObject } from '@thirdlight/shared';
-export { isPlainObject } from '@thirdlight/shared';
+import { escapePointer as pointerSegment, isPlainObject } from '@thirdlight/shared';
+export { escapePointer as pointerSegment, isPlainObject } from '@thirdlight/shared';
 
 // ---- constants -------------------------------------------------
 
@@ -60,21 +60,6 @@ export const KNOWN_MANIFEST_FIELDS = new Set([
 ]);
 
 // ---- helpers ----------------------------------------------------------------
-
-/**
- * RFC 6901 escaping of one JSON Pointer reference token (G3 — Gate B
- * re-review round 1; `path` is a JSON Pointer to
- * the offending value). DYNAMIC keys (unknown fields) are interpolated
- * into `path` ONLY through this helper: `~` → `~0` FIRST, then `/` →
- * `~1`. Static segment names (`entities`, `components`, `position`, …) and
- * numeric indices never need escaping. Deliberate duplication of the same
- * two-line pure helper (commands' `pointerSegment`, parse-bytes' exported
- * `escapePointer`): the dependency direction keeps
- * validate.ts module-local, and neither helper is a public export.
- */
-export function pointerSegment(segment: string): string {
-  return segment.replace(/~/g, '~0').replace(/\//g, '~1');
-}
 
 export function fail<E extends AnyError = ModelError>(errors: readonly E[]): { ok: false; errors: readonly E[] } {
   return { ok: false, errors };
