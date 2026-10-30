@@ -47,18 +47,18 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
    * with no undo history: the template is where it begins, not a step to
    * undo. Null, or why it stopped (the caller takes the project back).
    */
-  const setUpFromTemplate = (projectId: string, templateId: string, source: TemplateSource): string | null => {
+  const setUpFromTemplate = async (projectId: string, templateId: string, source: TemplateSource): Promise<string | null> => {
     if (source.packs.length === 0 && source.setupDir === undefined) return null;
     if (packs === undefined) return 'packs are not available on this backend';
     const origin = { kind: 'admin' as const, clientId: `template-${templateId}` };
     for (const id of source.packs) {
-      const r = packs.add(projectId, id, origin);
+      const r = await packs.add(projectId, id, origin);
       if (!r.ok) return r.message;
     }
     if (source.setupDir !== undefined) {
       const loaded = loadPackDir(source.setupDir, templateId);
       if (!loaded.ok) return loaded.message;
-      const r = packs.install(projectId, loaded.pack, loaded.files, origin);
+      const r = await packs.install(projectId, loaded.pack, loaded.files, origin);
       if (!r.ok) return r.message;
     }
     service.forgetHistory(projectId);
@@ -163,7 +163,7 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
       }
       source = loaded.source;
     }
-    const setUp = (): string | null => (result !== undefined && result.ok && result.created && source !== undefined && template !== undefined ? setUpFromTemplate(projectId, template, source) : null);
+    const setUp = async (): Promise<string | null> => (result !== undefined && result.ok && result.created && source !== undefined && template !== undefined ? await setUpFromTemplate(projectId, template, source) : null);
     if (folder !== undefined) {
       // In the game's own folder: marker + thirdlight/ subfolder, registered, pinned to this engine.
       const engine = config.engineRoot !== undefined ? engineIdentity(config.engineRoot) : null;
@@ -175,7 +175,7 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
         before = 'unknown';
       }
       result = service.createProjectInFolder(folder, projectId, name, { ...(engine !== null ? { engine } : {}), ...(source !== undefined ? { source } : {}) });
-      const failed = setUp();
+      const failed = await setUp();
       if (failed !== null) {
         await setupFailed(res, projectId, failed, before);
         return;
@@ -187,7 +187,7 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
       }
     } else if (source !== undefined) {
       result = service.createProjectFrom(projectId, name, source);
-      const failed = setUp();
+      const failed = await setUp();
       if (failed !== null) {
         await setupFailed(res, projectId, failed, null);
         return;

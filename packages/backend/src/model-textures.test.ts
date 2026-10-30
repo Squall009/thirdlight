@@ -15,7 +15,8 @@
  */
 import { glbBytes } from '@thirdlight/shared';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -376,5 +377,56 @@ describe('extract textures over HTTP (a project in the data root)', () => {
     expect(line).toContain('Play draws it from the cache, an export refuses it until the file is back');
     put('assets/kit/door.glb', glb);
     await check();
+  });
+});
+
+describe("a pack's model goes through the same publish step (over HTTP)", () => {
+  let tb: TestBackend;
+  let engineRoot = '';
+  const content = (): { assets: AssetRow[] } => {
+    const r = tb.backend._test.service.readCapturedV3(PID);
+    if (!r.ok) throw new Error(r.error.code);
+    return r.read.content as { assets: AssetRow[] };
+  };
+  const asset = (id: string): AssetRow | undefined => content().assets.find((a) => a.assetId === id);
+  const lamp = quadGlb({ base: checker(64, [250, 230, 90], [60, 40, 20]) }, 'lamp');
+
+  beforeAll(async () => {
+    engineRoot = mkdtempSync(join(tmpdir(), 'tl-pack-extract-'));
+    const dir = join(engineRoot, 'packs', 'lamp-pack');
+    mkdirSync(join(dir, 'assets', 'models'), { recursive: true });
+    writeFileSync(join(dir, 'assets', 'models', 'lamp.glb'), lamp);
+    const sha256 = createHash('sha256').update(lamp).digest('hex');
+    const pack = { format: 1, packId: 'lamp-pack', name: 'Lamp pack', description: 'one model with its image inside', folder: 'assets/lamps', assets: [{ assetId: 'lamp', kind: 'model', displayName: 'lamp', file: 'models/lamp.glb', sha256, bytes: lamp.length }], commands: [] };
+    writeFileSync(join(dir, 'pack.json'), JSON.stringify(pack));
+    tb = await startBackend({ engineRoot });
+  });
+  afterAll(async () => {
+    await tb.teardown();
+    rmSync(engineRoot, { recursive: true, force: true });
+  });
+
+  it("extracts a pack model's image as an upload's, and the file check extracts it again when the file changes", async () => {
+    const added = await api(`${tb.authUrl}/api/v1/projects/${PID}/packs/lamp-pack`, { body: {}, token: tb.authToken, origin: null });
+    expect(added.status, JSON.stringify(added.json).slice(0, 400)).toBe(200);
+    expect((added.json as { added: { op: string }[] }).added.map((a) => a.op)).toEqual(['importAssets', 'publishAsset']);
+    const model = asset('lamp')!;
+    expect(model.extractTextures).toBe(true);
+    const first = model.textures!['0']!;
+    expect(asset(first)!.kind).toBe('texture');
+    expect(asset(first)!.versions[0]!.metrics.format).toBe('ktx2');
+    // The stored model is the file without its image.
+    expect(model.versions[0]!.sourceByteLength).toBeLessThan(lamp.length);
+    // The model's file in the game folder changes: the check publishes it through the same step.
+    const file = model.versions[0]!.convertedFrom!.sourcePath!;
+    writeFileSync(join(tb.root, 'data', 'projects', PID, ...file.split('/')), quadGlb({ base: checker(64, [20, 220, 240], [240, 20, 20]) }, 'lamp'));
+    const r = await api(`${tb.authUrl}/api/v1/projects/${PID}/content/files/check`, { body: {}, token: tb.adminToken, origin: null });
+    expect(r.status, JSON.stringify(r.json)).toBe(200);
+    const check = (r.json as { check: { reimported: { assetId: string }[]; failed: unknown[] } }).check;
+    expect(check.failed).toEqual([]);
+    expect(check.reimported.map((x) => x.assetId)).toEqual(['lamp']);
+    const next = asset('lamp')!.textures!['0']!;
+    expect(next).not.toBe(first);
+    expect(asset(next)!.kind).toBe('texture');
   });
 });

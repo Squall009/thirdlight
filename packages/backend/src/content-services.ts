@@ -77,7 +77,7 @@ export function createContentServices(deps: ContentServicesDeps) {
     },
   });
   // Engine content packs (the Basic Kit) added to a project as ordinary items, one command at a time.
-  const packs = createPackInstaller({ service, inspector: assetInspector, engineRoot: config.engineRoot, now: nowMs, onApplied: (projectId, r, origin) => deps.onApplied(projectId, r.requestId, r.revision, origin, r.change, (r as { sceneId?: string }).sceneId) });
+  const packs = createPackInstaller({ service, inspector: assetInspector, engineRoot: config.engineRoot, now: nowMs, textures, onApplied: (projectId, r, origin) => deps.onApplied(projectId, r.requestId, r.revision, origin, r.change, (r as { sceneId?: string }).sceneId) });
   // A folder's files are inspected before its importAssets command.
   const folderImport = createFolderImport({ service, assetFiles, textures, now: nowMs });
   const contentRoutes = new ContentRoutes({

@@ -483,13 +483,34 @@ export function createTextureExtraction(deps: TextureExtractionDeps) {
   }
 
   /**
-   * The command route's step before a `publishAsset`: extract, bring the
-   * new textures in at the revision the publish was sent for (one
-   * `importAssets`, its own request id derived from the publish's), and
-   * prepare the publish to run with the model's facts and `textures` at the
-   * following revision. The publish request itself runs as sent, so a retry
-   * of it is the same request (the workspace answers it from its record).
-   * Null: nothing to prepare.
+   * The step every publish of an asset goes through, whoever publishes it
+   * (the command route, the file check, packs): a model's images extracted
+   * and its levels generated as its settings say, the new textures brought
+   * in through `run` (one `importAssets`), and the publish's args with the
+   * model's facts and `textures`. Null: nothing to change (the publish runs
+   * as sent).
+   */
+  async function extractForPublish(
+    projectId: string,
+    args: Record<string, unknown>,
+    run: (op: string, args: Record<string, unknown>) => ExtractionCommandResult,
+  ): Promise<{ ok: true; args: Record<string, unknown>; report: TextureExtractionReport | null } | { ok: false; code: string; message: string } | null> {
+    const prep = await preparePublish(projectId, args);
+    if (prep === null || !prep.ok) return prep;
+    const p = prep.plan;
+    if (p === null || p.model === null) return { ok: true, args: prep.args, report: p?.report ?? null };
+    const committed = commit(projectId, p, run);
+    if (!committed.ok) return committed;
+    return { ok: true, args: { ...prep.args, ...(Object.keys(committed.textures).length > 0 ? { textures: committed.textures } : {}) }, report: p.report };
+  }
+
+  /**
+   * The command route's step before a `publishAsset`: the shared step, its
+   * textures brought in at the revision the publish was sent for (their own
+   * request id derived from the publish's), and the publish prepared to run
+   * with the model's facts and `textures` at the following revision. The
+   * publish request itself runs as sent, so a retry of it is the same request
+   * (the workspace answers it from its record). Null: nothing to prepare.
    */
   async function beforePublish(
     projectId: string,
@@ -500,25 +521,18 @@ export function createTextureExtraction(deps: TextureExtractionDeps) {
     const requestId = envelope['requestId'];
     const expectedRevision = envelope['expectedRevision'];
     if (typeof args !== 'object' || args === null || Array.isArray(args) || typeof requestId !== 'string' || typeof expectedRevision !== 'number') return null;
-    const prep = await preparePublish(projectId, args as Record<string, unknown>);
-    if (prep === null || !prep.ok) return prep;
-    const p = prep.plan;
-    if (p === null || p.model === null) {
-      service.preparePublish(projectId, requestId, { args: prep.args, expectedRevision });
-      return { ok: true, report: p?.report ?? null };
-    }
     let expected = expectedRevision;
-    const committed = commit(projectId, p, (op, a) => {
+    const prepared = await extractForPublish(projectId, args as Record<string, unknown>, (op, a) => {
       const r = run({ ...envelope, op, args: a, requestId: `req-${sha256(new TextEncoder().encode(`${requestId}:textures`)).slice(0, 32)}` });
       if (r.ok) expected = r.revision;
       return r;
     });
-    if (!committed.ok) return committed;
-    service.preparePublish(projectId, requestId, { args: { ...prep.args, ...(Object.keys(committed.textures).length > 0 ? { textures: committed.textures } : {}) }, expectedRevision: expected });
-    return { ok: true, report: p.report };
+    if (prepared === null || !prepared.ok) return prepared;
+    service.preparePublish(projectId, requestId, { args: prepared.args, expectedRevision: expected });
+    return { ok: true, report: prepared.report };
   }
 
-  return { plan, commit, discard, readModelFile, preparePublish, beforePublish };
+  return { plan, readModelFile, extractForPublish, beforePublish };
 }
 
 export type TextureExtraction = ReturnType<typeof createTextureExtraction>;

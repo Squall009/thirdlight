@@ -217,7 +217,7 @@ describe('adding the Basic Kit to a project over HTTP', () => {
     expect(graphsNow()).not.toContain('grp-h');
   });
 
-  it('adds a pack whole or not at all: a command refused partway takes back what ran, a bad ref or a taken id runs nothing', () => {
+  it('adds a pack whole or not at all: a command refused partway takes back what ran, a bad ref or a taken id runs nothing', async () => {
     const service = tb.backend._test.service;
     const applied: string[] = [];
     const installer = createPackInstaller({ service, inspector: createAssetInspector(), engineRoot: REPO, now: () => Date.now(), onApplied: (_p, r) => applied.push(r.requestId) });
@@ -237,7 +237,7 @@ describe('adding the Basic Kit to a project over HTTP', () => {
     const before = revision();
     // The last of its commands is refused: the files, material, presets, block types and kit that ran are taken back.
     const broken: Pack = { ...PACK, commands: [...PACK.commands, { op: 'setGraph', args: { graph: { graphId: 'Not An Id' } } }] };
-    const r = installer.install(Q, broken, FILES, origin);
+    const r = await installer.install(Q, broken, FILES, origin);
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.message).toContain('setGraph');
@@ -252,11 +252,11 @@ describe('adding the Basic Kit to a project over HTTP', () => {
     expect(revision()).toBe(before + applied.length);
     // A ref no earlier command makes: refused before anything runs.
     const dangling: Pack = { ...PACK, commands: [...PACK.commands.slice(0, 1), { op: 'setKit', args: { kit: { kitId: 'x', name: 'x', trimMaterial: '$ref:nowhere' } } }] };
-    const d = installer.install(Q, dangling, FILES, origin);
+    const d = await installer.install(Q, dangling, FILES, origin);
     expect(d.ok ? null : [d.code, d.message]).toEqual(['pack_invalid', expect.stringContaining('$ref:nowhere')]);
     expect(revision()).toBe(before + applied.length);
     // The same pack added again afterwards: all of it.
-    const again = installer.install(Q, PACK, FILES, origin);
+    const again = await installer.install(Q, PACK, FILES, origin);
     expect(again.ok, again.ok ? '' : again.message).toBe(true);
     expect(ids(Q, 'kits', 'kitId')).toEqual(['basic-kit']);
     expect(kitProblems(contentOf(Q) as never)).toEqual([]);
@@ -265,7 +265,7 @@ describe('adding the Basic Kit to a project over HTTP', () => {
     service.createProject(R, 'Three');
     const own = runCommandNow(service, R, 'setMaterial', { material: { materialId: 'basic-trim', name: 'My trim', shader: 'standard', params: {}, textures: {} } }, origin);
     expect(own.ok, own.ok ? '' : own.message).toBe(true);
-    const clash = installer.install(R, PACK, FILES, origin);
+    const clash = await installer.install(R, PACK, FILES, origin);
     expect(clash.ok ? null : clash.code).toBe('pack_present');
     expect(clash.ok ? '' : clash.message).toMatch(/basic-trim \(materials\).*Rename those items/);
   });

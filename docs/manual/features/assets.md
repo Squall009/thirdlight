@@ -237,6 +237,8 @@ normal map, data), and the stored model keeps none of them. When a lossless
 PNG of the image's name and size lies beside the model (in its folder or
 its `textures/`, Blender's export layout), the KTX2 is encoded from that PNG
 instead of the lossy copy inside; a PNG of another size is not taken.
+Every publish of a model takes the same step: an upload, a folder import,
+the file check's re-import of a changed file, and a pack's models.
 
 The project setting **Import → Extract model textures**
 (`import_extract_textures`: 0 *New models*, the default; 1 *Every model*)

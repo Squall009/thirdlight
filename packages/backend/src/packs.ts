@@ -5,7 +5,8 @@
  *
  * Adding a pack to a project makes its items ordinary project items through
  * the one mutation path: each asset file is held and inspected as an upload
- * is, then published (`publishAsset`, into the pack's folder of the game
+ * is, then published through the same step as an upload (a model's images
+ * become texture assets; `publishAsset`, into the pack's folder of the game
  * folder); the pack's own commands follow (`setMaterial`, `setGraph`,
  * `setBlockType`, `setKit`), then the models' material mappings
  * (`setAssetOptions`), which name the pack's materials.
@@ -30,7 +31,8 @@ import { join } from 'node:path';
 import { ID_RE } from '@thirdlight/project-model/limits';
 import type { MutationSuccess, StageInspector, WorkspaceService } from '@thirdlight/workspace';
 
-import { importJobPort, runCommandNow } from './asset-files';
+import { importJobPort, inspectAssetBytes, runCommandNow } from './asset-files';
+import type { TextureExtraction } from './model-textures';
 
 export interface PackAsset {
   assetId: string;
@@ -176,16 +178,18 @@ export interface PackInstallerDeps {
   now: () => number;
   /** A command the add ran was applied (the change feed). */
   onApplied: (projectId: string, result: MutationSuccess, origin: { kind: 'admin' | 'browser' | 'mcp'; clientId: string }) => void;
+  /** The publish step every asset goes through (a model's images extracted as texture assets). */
+  textures?: TextureExtraction;
 }
 
 export function createPackInstaller(deps: PackInstallerDeps) {
   const { service } = deps;
   /** Add pack `packId` to the project: all of it, or nothing (see `install`). */
-  const add = (projectId: string, packId: string, origin: Origin): PackAddResult => {
+  const add = async (projectId: string, packId: string, origin: Origin): Promise<PackAddResult> => {
     if (deps.engineRoot === undefined) return { ok: false, status: 503, code: 'unavailable', message: 'packs need the engine root (THIRDLIGHT_ENGINE_ROOT)' };
     const loaded = loadPack(deps.engineRoot, packId);
     if (!loaded.ok) return { ok: false, status: 404, code: 'not_found', message: loaded.message };
-    return install(projectId, loaded.pack, loaded.files, origin);
+    return await install(projectId, loaded.pack, loaded.files, origin);
   };
   /**
    * Add a loaded pack (an engine pack, a template's setup) to the project:
@@ -195,8 +199,8 @@ export function createPackInstaller(deps: PackInstallerDeps) {
    * importer); a command refused partway takes back what ran before it, so
    * no half-added pack outlives the in-memory undo history (a restart).
    */
-  const install = (projectId: string, pack: Pack, files: ReadonlyMap<string, Uint8Array>, origin: Origin): PackAddResult => {
-    const r = addCommands(projectId, pack, files, origin);
+  const install = async (projectId: string, pack: Pack, files: ReadonlyMap<string, Uint8Array>, origin: Origin): Promise<PackAddResult> => {
+    const r = await addCommands(projectId, pack, files, origin);
     if (r.ok) {
       if (r.added.length > 1) service.groupHistory(projectId, r.added.length);
       return r;
@@ -236,7 +240,7 @@ export function createPackInstaller(deps: PackInstallerDeps) {
     }
     return null;
   };
-  const addCommands = (projectId: string, pack: Pack, files: ReadonlyMap<string, Uint8Array>, origin: Origin): PackAddResult => {
+  const addCommands = async (projectId: string, pack: Pack, files: ReadonlyMap<string, Uint8Array>, origin: Origin): Promise<PackAddResult> => {
     const packId = pack.packId;
     const captured = service.readCapturedV3(projectId);
     if (!captured.ok) return { ok: false, status: 404, code: captured.error.code, message: captured.error.message ?? captured.error.code };
@@ -248,18 +252,20 @@ export function createPackInstaller(deps: PackInstallerDeps) {
       const bytes = files.get(a.file)!;
       const held = service.holdAssetBytes(projectId, bytes);
       if (!held.ok) return { ok: false, status: 500, code: held.error.code, message: `${a.file}: ${held.error.message ?? held.error.code}` };
-      const p = deps.inspector(bytes, importJobPort(deps.now, 'pack', a.displayName), { kind: a.kind }) as unknown as { status: string; sourceDigest: string; sourceByteLength: number; importRecipe?: unknown; metrics?: unknown; diagnostics?: { message?: string }[] };
-      if (p.status !== 'ok') return { ok: false, status: 400, code: 'import_rejected', message: `${a.file}: ${p.diagnostics?.[0]?.message ?? 'not accepted by the importer'}` };
+      const p = inspectAssetBytes(deps.inspector, importJobPort(deps.now, 'pack', a.displayName), bytes, a.kind);
+      if ('code' in p) return { ok: false, status: 400, code: p.code, message: `${a.file}: ${p.message}` };
       inspected.push({ asset: a, sourceDigest: p.sourceDigest, sourceByteLength: p.sourceByteLength, importRecipe: p.importRecipe, metrics: p.metrics });
     }
     const added: { op: string; id: string }[] = [];
     let revision = captured.read.revision;
     const refs = new Map<string, string>();
+    let lastChange: unknown = null;
     const run = (op: string, args: Record<string, unknown>, id: string, ref?: string): PackAddResult | null => {
       const r = runCommandNow(service, projectId, op, withRefs(args, refs) as Record<string, unknown>, origin);
       if (!r.ok) return { ok: false, status: 400, code: r.code, message: `${op} ${id}: ${r.message}`, added };
       deps.onApplied(projectId, r.result, origin);
       revision = r.result.revision;
+      lastChange = r.result.change;
       added.push({ op, id });
       const made = (r.result as { createdId?: unknown }).createdId;
       if (ref !== undefined && typeof made === 'string') refs.set(ref, made);
@@ -267,7 +273,16 @@ export function createPackInstaller(deps: PackInstallerDeps) {
     };
     for (const { asset: a, ...p } of inspected) {
       const importedAt = new Date(deps.now()).toISOString().replace(/\.\d{3}Z$/, 'Z');
-      const stopped = run('publishAsset', { mode: 'create', assetId: a.assetId, kind: a.kind, displayName: a.displayName, sourceDigest: p.sourceDigest, sourceByteLength: p.sourceByteLength, importRecipe: p.importRecipe, metrics: p.metrics, importedAt, folder: pack.folder }, a.assetId);
+      const args = { mode: 'create', assetId: a.assetId, kind: a.kind, displayName: a.displayName, sourceDigest: p.sourceDigest, sourceByteLength: p.sourceByteLength, importRecipe: p.importRecipe, metrics: p.metrics, importedAt, folder: pack.folder };
+      // The publish step every asset goes through: a model's images become texture assets, as an upload's do.
+      let failed: PackAddResult | null = null;
+      const prepared = deps.textures === undefined ? null : await deps.textures.extractForPublish(projectId, args, (op, a2) => {
+        failed = run(op, a2, a.assetId);
+        return failed === null ? { ok: true, revision, change: lastChange } : { ok: false, code: failed.ok ? '' : failed.code, message: failed.ok ? '' : failed.message };
+      });
+      if (failed !== null) return failed;
+      if (prepared !== null && !prepared.ok) return { ok: false, status: 400, code: prepared.code, message: `${a.file}: ${prepared.message}`, added };
+      const stopped = run('publishAsset', prepared?.args ?? args, a.assetId);
       if (stopped !== null) return stopped;
     }
     for (const c of pack.commands) {

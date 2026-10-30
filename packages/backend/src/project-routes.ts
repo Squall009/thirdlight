@@ -216,7 +216,7 @@ export function makeProjectRoutes(deps: ProjectRoutesDeps) {
     const strict = parseStrictJsonBytes(body.bytes.length === 0 ? new TextEncoder().encode('{}') : body.bytes);
     const o = strict.ok ? (strict.value as { origin?: { kind?: unknown; clientId?: unknown } } | null)?.origin : undefined;
     const origin = o !== undefined && (o.kind === 'browser' || o.kind === 'mcp') && typeof o.clientId === 'string' ? { kind: o.kind as 'browser' | 'mcp', clientId: o.clientId } : { kind: 'admin' as const, clientId: 'pack' };
-    const r = deps.packs.add(projectId, packId, origin);
+    const r = await deps.packs.add(projectId, packId, origin);
     if (r.ok) sendJson(res, 200, r);
     else sendJson(res, r.status, { ok: false, error: { code: r.code, cls: r.status === 409 ? 'conflict' : 'validation', message: r.message }, ...(r.added !== undefined ? { added: r.added } : {}) });
   };
