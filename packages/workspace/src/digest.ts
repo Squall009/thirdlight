@@ -19,48 +19,26 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto';
-
-/** Canonical JSON text (throws on non-JSON values). */
-export function canonicalize(value: unknown): string {
-  if (value === null) return 'null';
-  const t = typeof value;
-  if (t === 'string') return JSON.stringify(value);
-  if (t === 'number') {
-    // JSON.stringify double semantics; non-finite values are not JSON
-    // values — fail closed.
-    if (!Number.isFinite(value)) throw new Error('non-finite number in request');
-    return JSON.stringify(value);
-  }
-  if (t === 'boolean') return value ? 'true' : 'false';
-  if (Array.isArray(value)) {
-    return `[${value.map((x) => canonicalize(x)).join(',')}]`;
-  }
-  if (t === 'object') {
-    // Default Array.prototype.sort compares UTF-16 code units = codepoint
-    // order for the BMP keys all project JSON documents use.
-    const obj = value as Record<string, unknown>;
-    const parts = Object.keys(obj)
-      .sort()
-      .map((k) => `${JSON.stringify(k)}:${canonicalize(obj[k])}`);
-    return `{${parts.join(',')}}`;
-  }
-  throw new Error(`non-JSON value in request: ${t}`);
-}
+import { canonicalJsonUtf16 } from '@thirdlight/shared';
 
 /**
  * SHA-256 (lowercase hex) of the canonical request bytes. Returns `null` when the value is not a JSON value (fail-closed).
  */
 export function requestDigest(value: unknown): string | null {
   try {
-    const text = canonicalize(value);
+    const text = canonicalJsonUtf16(value);
     return createHash('sha256').update(new TextEncoder().encode(text)).digest('hex');
   } catch {
     return null;
   }
 }
 
-/** SHA-256 (lowercase hex) of raw bytes. */
-export function sha256Hex(bytes: Uint8Array): string {
+/**
+ * SHA-256 (lowercase hex) of raw bytes through node:crypto. The backend
+ * hashes whole asset files (tens of megabytes), where the native hash is
+ * about ten times faster than the shared pure one; both give the same digest.
+ */
+export function sha256HexNative(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');
 }
 

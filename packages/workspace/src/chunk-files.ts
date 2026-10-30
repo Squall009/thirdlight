@@ -20,7 +20,7 @@ import { constants as zlibConstants, gunzipSync, zstdCompressSync, zstdDecompres
 
 import { decodeBlockChunks, encodeBlockChunks, readBlockChunkData, wrapBlockChunkData, type BlockChunk, type SceneV4 } from '@thirdlight/project-model';
 
-import { sha256Hex } from './digest';
+import { sha256HexNative } from './digest';
 
 export type ChunkFileFormat = 'json' | 'binary';
 
@@ -100,7 +100,7 @@ export function chunkFileBytes(projectId: string, sceneId: string, entityId: str
     ];
     bytes = new TextEncoder().encode(`{\n${head.join(',\n')}\n}\n`);
   }
-  const out = { key, bytes, hash: sha256Hex(bytes) };
+  const out = { key, bytes, hash: sha256HexNative(bytes) };
   chunkBytesCache.set(chunk, out);
   return out;
 }

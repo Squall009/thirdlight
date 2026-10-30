@@ -62,11 +62,11 @@ import {
 } from 'node:fs';
 import { basename, join } from 'node:path';
 
-import { sha256Hex } from './digest';
+import { sha256HexNative } from './digest';
 
 /** The empty snapshot (a deletion is foreign bytes = empty content). */
 export const EMPTY_BYTES = new Uint8Array(0);
-export const EMPTY_HASH = sha256Hex(EMPTY_BYTES);
+export const EMPTY_HASH = sha256HexNative(EMPTY_BYTES);
 
 /** Max attempts of the whole W sequence. */
 export const WRITE_MAX_ATTEMPTS = 3;
@@ -335,7 +335,7 @@ function preWriteCheck(
         : [...opts.allowedPreHashes, intendedHash];
   try {
     const b = ops.readFile(target);
-    const preHash = sha256Hex(b);
+    const preHash = sha256HexNative(b);
     if (allowed.includes(preHash)) return { kind: 'proceed' };
     // Mismatch (or an unexpected appearance): an unexpected external
     // modification — the REAL bytes are surfaced (never fabricated).
@@ -365,7 +365,7 @@ function preWriteCheck(
  */
 export function writeAtomic(opts: WriteAtomicOptions): WriteOutcome {
   const ops = opts.ops ?? defaultOps;
-  const intendedHash = sha256Hex(opts.bytes);
+  const intendedHash = sha256HexNative(opts.bytes);
   const target = join(opts.dir, basename(opts.target));
 
   let lastErrno: string | undefined;
@@ -422,7 +422,7 @@ export function writeAtomic(opts: WriteAtomicOptions): WriteOutcome {
         lastErrno = errnoOf(e);
         continue; // the read failed as an I/O error — retry the sequence
       }
-      const vh = sha256Hex(vbytes);
+      const vh = sha256HexNative(vbytes);
       if (vh === intendedHash) return { ok: true };
       // A foreign writer won the race (or a mid-sequence replacement).
       // NOT retried — the external-change protocol.
@@ -452,7 +452,7 @@ export function writeAtomic(opts: WriteAtomicOptions): WriteOutcome {
     // ENOENT: absence — the existing absent classification below.
   }
   if (onDisk !== null) {
-    const h = sha256Hex(onDisk);
+    const h = sha256HexNative(onDisk);
     if (h === intendedHash) {
       // The rename took effect but step 4 failed — durability unproven.
       return { ok: false, failed: { onDiskState: 'new-undurable', errno: lastErrno } };

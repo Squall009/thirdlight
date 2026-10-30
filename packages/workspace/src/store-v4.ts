@@ -83,7 +83,7 @@ import {
   NEW_PROJECT_SETTINGS,
 } from '@thirdlight/project-model';
 
-import { sha256Hex } from './digest';
+import { sha256HexNative } from './digest';
 import { RETRY_RECORD_VERSION, RETRY_RETENTION, validateRetryBlock, type RetryRecord } from './envelope';
 import { snapshotForeignBytes } from './recovery';
 import { pointerSegment, type LoadDetail, type UnavailableReason } from './errors';
@@ -229,7 +229,7 @@ export function withUntrackedSidecars(ops: WriteOps, dir: string, gameRoot: stri
     try {
       const bytes = ops.readFile(absOf(dir, gameRoot, w.rel));
       out ??= new Map(known);
-      out.set(w.rel, { bytes, hash: sha256Hex(bytes) });
+      out.set(w.rel, { bytes, hash: sha256HexNative(bytes) });
     } catch {
       // absent: a new sidecar
     }
@@ -417,8 +417,8 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string, gameRoot: 
   const index = (content.value['content'] as { scenes?: unknown } | null)?.scenes;
   const sceneIds = Array.isArray(index) ? index.map((e) => (e as { sceneId?: unknown })?.sceneId).filter((x): x is string => typeof x === 'string') : [];
   const files = new Map<string, KnownFile>();
-  files.set(MANIFEST_REL_V4, { bytes: man.bytes, hash: sha256Hex(man.bytes) });
-  files.set(CONTENT_REL, { bytes: content.bytes, hash: sha256Hex(content.bytes) });
+  files.set(MANIFEST_REL_V4, { bytes: man.bytes, hash: sha256HexNative(man.bytes) });
+  files.set(CONTENT_REL, { bytes: content.bytes, hash: sha256HexNative(content.bytes) });
   const sceneDocs: unknown[] = [];
   const sceneRetry: { rel: string; retry: unknown; revision: number }[] = [];
   let revision = contentRevision;
@@ -440,7 +440,7 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string, gameRoot: 
     if (scene?.sceneId !== id) {
       return blocked('manifest_scene_mismatch', [{ code: 'manifest_scene_mismatch', path: `/${label}`, message: `${label} holds scene "${String(scene?.sceneId)}" (the file name is the scene id)`, expected: id }]);
     }
-    files.set(rel, { bytes: f.bytes, hash: sha256Hex(f.bytes) });
+    files.set(rel, { bytes: f.bytes, hash: sha256HexNative(f.bytes) });
     scenePaths.set(id, rel);
     // The scene's block chunks, one file each (listed by the scene file).
     const joined = joinChunkFiles(ops, dir, projectId, id, f.value['scene'], f.value['blockChunks'], files, sceneChunkFormat(f.value));
@@ -667,7 +667,7 @@ function joinResourceFiles(
   for (const [id, a] of assets) {
     stored.push(a.record as unknown as RecordLike);
     if (a.preAddress !== undefined) preAddress.set(id, a.preAddress);
-    files.set(gameRel(a.path), { bytes: a.bytes, hash: sha256Hex(a.bytes) });
+    files.set(gameRel(a.path), { bytes: a.bytes, hash: sha256HexNative(a.bytes) });
   }
   doc['assets'] = stored;
   for (const path of scan.resources) {
@@ -692,7 +692,7 @@ function joinResourceFiles(
     if (first !== undefined && !(resourceStem(path) === r.id && resourceStem(first) !== r.id)) continue;
     if (first !== undefined) files.delete(gameRel(first));
     byId.set(r.id, path);
-    files.set(gameRel(path), { bytes, hash: sha256Hex(bytes) });
+    files.set(gameRel(path), { bytes, hash: sha256HexNative(bytes) });
     let list = lists.get(r.kind.list);
     if (list === undefined) {
       list = new Map();
@@ -787,7 +787,7 @@ export function joinChunkFiles(
       };
       bytes = f.bytes;
     }
-    files.set(rel, { bytes, hash: sha256Hex(bytes) });
+    files.set(rel, { bytes, hash: sha256HexNative(bytes) });
     let entry = blocks.get(e.entityId);
     if (entry === undefined) {
       entry = { entityId: e.entityId };
@@ -1010,7 +1010,7 @@ function rollForwardOne(ops: WriteOps, dir: string, thirdlightDir: string, proje
     if (w.bytes === null) writes.push({ rel: w.rel, bytes: null });
     else {
       const bytes = fromBase64(w.bytes);
-      if (sha256Hex(bytes) !== w.sha256) return bad(`the transaction journal entry for ${w.rel} does not match its digest`);
+      if (sha256HexNative(bytes) !== w.sha256) return bad(`the transaction journal entry for ${w.rel} does not match its digest`);
       writes.push({ rel: w.rel, bytes });
     }
   }
@@ -1039,7 +1039,7 @@ export type TransactionOutcome =
   /** `previous`: nothing changed on disk. `new-undurable`: committed (journal or rename), durability unproven. */
   | { ok: false; failed: { onDiskState: 'previous' | 'new-undurable'; errno?: string } };
 
-const EMPTY_HASH = sha256Hex(new Uint8Array(0));
+const EMPTY_HASH = sha256HexNative(new Uint8Array(0));
 
 /** The pre-write check of one file against what this backend last knew. */
 function preCheck(ops: WriteOps, dir: string, gameRoot: string, rel: string, known: KnownFile | undefined): TransactionOutcome | null {
@@ -1055,7 +1055,7 @@ function preCheck(ops: WriteOps, dir: string, gameRoot: string, rel: string, kno
     }
     return { ok: false, unreadable: { rel, ...(code !== undefined ? { errno: code } : {}) } };
   }
-  const hash = sha256Hex(bytes);
+  const hash = sha256HexNative(bytes);
   if (known !== undefined && hash === known.hash) return null;
   return { ok: false, external: { rel, bytes, hash } };
 }
@@ -1127,7 +1127,7 @@ function writeFiles(
   const journal: JournalDoc = {
     journalVersion: 1,
     projectId,
-    writes: writes.map((w) => ({ rel: w.rel, bytes: w.bytes === null ? null : toBase64(w.bytes), sha256: w.bytes === null ? null : sha256Hex(w.bytes) })),
+    writes: writes.map((w) => ({ rel: w.rel, bytes: w.bytes === null ? null : toBase64(w.bytes), sha256: w.bytes === null ? null : sha256HexNative(w.bytes) })),
   };
   if (!ops.dirExists(thirdlightDir)) {
     return { ok: false, failed: { onDiskState: 'previous', errno: 'ENOENT' } };
@@ -1412,7 +1412,7 @@ export function migrateDirV3ToV4(
   for (const rel of [MANIFEST_REL_V4, 'scenes/main.json']) {
     try {
       const b = ops.readFile(join(dir, rel));
-      known.set(rel, { bytes: b, hash: sha256Hex(b) });
+      known.set(rel, { bytes: b, hash: sha256HexNative(b) });
     } catch {
       // absent: the transaction's pre-check treats it as new
     }

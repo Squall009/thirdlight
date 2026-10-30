@@ -7,7 +7,6 @@
  * behavior.
  */
 import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
-import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -65,9 +64,8 @@ export function seedProject(root: string, diskDir: string, projectId: string): s
   return dest;
 }
 
-export function sha256Hex(bytes: Uint8Array | string): string {
-  return createHash('sha256').update(bytes).digest('hex');
-}
+import { sha256Hex } from '@thirdlight/shared';
+export { sha256Hex };
 
 export function fixtureBytes(rel: string): Uint8Array {
   return new Uint8Array(readFileSync(join(BUILD_FIXTURES, rel)));

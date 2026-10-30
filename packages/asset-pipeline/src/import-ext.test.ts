@@ -4,10 +4,10 @@
  * Read through the Vite raw import like the M2 fixtures (this package has no
  * I/O); every file's bytes are checked against its recorded SHA-256 first.
  */
+import { sha256Hex } from '@thirdlight/shared';
 import { describe, expect, it } from 'vitest';
 
 import { inspectGlb, type ImportJobPort } from './index';
-import { sha256Hex } from './sha256';
 import { base64ToBytes } from './test-fixtures';
 
 const RAW = import.meta.glob('../../../fixtures/import-ext/*.json', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>;

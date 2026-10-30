@@ -1,21 +1,21 @@
 /**
- * The `behavior-build` SHA-256 padding known-answer regression.
+ * The shared SHA-256 padding known-answer regression, as the behaviour build
+ * uses it.
  *
  * Padding with `(((len + 9) >> 6) + 1) << 6` allocates an EXTRA zero block whenever
  * `(len + 9) % 64 === 0` (i.e. `len ≡ 55 (mod 64)`) and then writes the 64-bit
  * bit-length into that extra block — producing a WRONG digest for every such
- * input length (the same pitfall as in
- * `packages/project-model/src/sha256.ts`). The correct count is
+ * input length. The correct count is
  * `ceil((len + 9) / 64)` blocks.
  *
  * Known-answer vectors below are the correct FIPS 180-4 digests (cross-checked
  * against Node's OpenSSL SHA-256; the live cross-check runs in
- * `tests/integration/m2-builds/canonical-cross-check.test.ts`, because this
- * package's allowed edges contain no Node builtins).
+ * `tests/integration/m2-builds/canonical-cross-check.test.ts`, because the
+ * shared package has no Node built-ins).
  */
+import { sha256Hex, sha256HexOfText } from '@thirdlight/shared';
 import { describe, expect, it } from 'vitest';
 
-import { sha256Hex, sha256HexOfText } from '../../packages/behavior-build/src/canonical';
 
 /** The regression input: `bytes[i] = (i * 7 + 3) & 0xff`. */
 function pattern(len: number): Uint8Array {

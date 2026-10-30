@@ -11,6 +11,7 @@
  * well-formed PCM or float file among them and refuses what no browser plays.
  */
 
+import { canonicalJsonUtf16 } from '@thirdlight/shared';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -41,16 +42,7 @@ const bytesOf = (rel: string): Buffer => readFileSync(join(MEDIA, rel));
 const sha256 = (buf: Uint8Array): string => createHash('sha256').update(buf).digest('hex');
 const json = <T>(p: string): T => JSON.parse(readFileSync(p, 'utf8')) as T;
 
-/** Canonical JSON (independent of the package's copy). */
-function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  if (value !== null && typeof value === 'object') {
-    const keys = Object.keys(value as Record<string, unknown>).sort();
-    return `{${keys.map((k) => `${JSON.stringify(k)}:${canonicalJson((value as Record<string, unknown>)[k])}`).join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
-const canonicalDigest = (value: unknown): string => sha256(Buffer.from(canonicalJson(value), 'utf8'));
+const canonicalDigest = (value: unknown): string => sha256(Buffer.from(canonicalJsonUtf16(value), 'utf8'));
 
 const AUDIO_OPTIONS: AudioImportOptions = {
   profile: 'audio',

@@ -9,7 +9,7 @@
  */
 import { paintableMeshes, readModelGeometry, vertexPaintMismatches, type InstancePaint, type PaintableMesh, type VertexPaintComponent } from '@thirdlight/project-model';
 
-import { sha256Hex } from './digest';
+import { sha256HexNative } from './digest';
 import type { WorkspaceService } from './types';
 
 /** One painted object whose paint does not fit its model. */
@@ -51,7 +51,7 @@ export function paintMismatches(service: Pick<WorkspaceService, 'readCapturedV3'
       let meshes = cache.get(blob.digest);
       if (meshes === undefined) {
         const g = readModelGeometry(blob.bytes);
-        meshes = g.ok ? paintableMeshes(g.geometry, sha256Hex).map(({ mesh, vertices, positions }) => ({ mesh, vertices, positions })) : g.message;
+        meshes = g.ok ? paintableMeshes(g.geometry, sha256HexNative).map(({ mesh, vertices, positions }) => ({ mesh, vertices, positions })) : g.message;
         if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value!);
         cache.set(blob.digest, meshes);
       }

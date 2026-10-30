@@ -11,6 +11,7 @@
  *   scene row and what the simulation reads of each asset, so a recorded run
  *   replays the same. The project's last command replays from its record.
  */
+import { sha256HexAsync } from '@thirdlight/shared';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -27,14 +28,13 @@ import { api, establish, mkRequestId, mkSessionId, startBackend, upgrade, type T
 
 const REPO = resolve(import.meta.dirname, '..', '..', '..');
 const sha = (b: Uint8Array): string => createHash('sha256').update(b).digest('hex');
-const sha256Hex = (b: Uint8Array): Promise<string> => Promise.resolve(sha(b));
 type Manifest = Record<string, unknown> & { assets: { assetId: string; kind: string }[]; scenes?: { sceneId: string; path: string; digest: string; byteLength: number; start: boolean }[] };
 
 /** A reader over a build's folder that records every path read. */
-function dirIo(dir: string, reads: string[] = []): { read: (p: string) => Promise<ArrayBuffer>; sha256Hex: typeof sha256Hex; reads: string[] } {
+function dirIo(dir: string, reads: string[] = []): { read: (p: string) => Promise<ArrayBuffer>; sha256Hex: typeof sha256HexAsync; reads: string[] } {
   return {
     reads,
-    sha256Hex,
+    sha256Hex: sha256HexAsync,
     read: (p) => {
       reads.push(p);
       const file = join(dir, p);
@@ -89,7 +89,7 @@ describe('a scene load reads its own catalog files (HTTP, a real Play)', () => {
     const j = start.json as { playSessionId: string; playContent: { path: string } };
     const reads: string[] = [];
     const io = {
-      sha256Hex,
+      sha256Hex: sha256HexAsync,
       read: async (p: string): Promise<ArrayBuffer> => {
         reads.push(p);
         const res = await fetch(`${tb.prevUrl}${j.playContent.path}${p}`);

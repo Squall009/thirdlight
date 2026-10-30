@@ -13,7 +13,7 @@ import { mkdirSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { utcStamp } from './ownership';
-import { sha256Hex } from './digest';
+import { sha256HexNative } from './digest';
 import { defaultOps, errnoOf, writeAtomic, type WriteOps } from './write';
 
 /** At most 16 recovery snapshots are kept; the oldest are pruned. */
@@ -64,7 +64,7 @@ export function snapshotForeignBytes(
   } catch {
     return null;
   }
-  const hash = sha256Hex(bytes);
+  const hash = sha256HexNative(bytes);
   const st = stamp();
   const base = `${SNAPSHOT_PREFIX}${st}-${hash.slice(0, 8)}.json`;
   // A same-second, same-content snapshot is identical — reuse the name.
@@ -160,7 +160,7 @@ export function pruneSnapshots(
       } catch {
         content = null;
       }
-      if (content !== null && sha256Hex(content) === exemptHash) {
+      if (content !== null && sha256HexNative(content) === exemptHash) {
         exemptName = n;
         break;
       }

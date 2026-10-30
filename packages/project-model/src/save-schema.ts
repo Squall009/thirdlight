@@ -30,11 +30,11 @@
  *
  * Pure: no I/O.
  */
+import { utf8Encode } from '@thirdlight/shared';
 import type { ModelErrorV2 } from './errors';
 import { FRAME_RATE_CAP_CHOICES } from './frame-rate-cap';
 import { QUALITY_LEVEL_ID_RE } from './quality-levels';
 import { AMBIENT_OCCLUSION_KINDS, RENDER_SCALE_MAX, RENDER_SCALE_MIN } from './render-settings';
-import { utf8Encode } from './sha256';
 import { fieldType, unexpectedField, withFound } from './validate';
 
 /** A script's `ctx.save` store (and a play's injected variables, which fill it): keys, and a value's JSON characters. */

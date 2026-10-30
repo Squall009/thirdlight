@@ -9,13 +9,12 @@
  * accepted beside `.ts`). Nothing here is executed: the
  * container is data and is parsed with the accepted strict byte parser.
  */
+import { compareCodePoints, utf8Decode } from '@thirdlight/shared';
 import { ID_RE } from '@thirdlight/project-model';
 
 import { parseDocumentBytes } from '@thirdlight/project-model';
 import type { CompileDiagnostic, BehaviorCompileFailure, BehaviorCompilerLimits, SourceGraphContainer, SourceGraphFile } from './types';
 import { COMPILER_LIMITS, ENTRY_PATH } from './limits';
-import { utf8Decode } from './canonical';
-import { compareCodePoints } from './canonical';
 
 /** The stored-path grammar. */
 const PATH_RE = /^[a-z0-9][a-z0-9._-]*(\/[a-z0-9][a-z0-9._-]*)*$/;

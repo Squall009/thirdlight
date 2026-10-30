@@ -30,7 +30,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { sha256Hex } from '@thirdlight/shared';
 import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -50,9 +50,6 @@ const roots: string[] = [];
 let scratch: string;
 let childBundle: string;
 
-function sha256Hex(bytes: Uint8Array): string {
-  return createHash('sha256').update(bytes).digest('hex');
-}
 
 const FRESH_BYTES = new TextEncoder().encode('packet-23 crash-test fresh blob\n');
 const ALPHA = sha256Hex(readFileSync(join(STORAGE, 'blobs', 'alpha.bin')));

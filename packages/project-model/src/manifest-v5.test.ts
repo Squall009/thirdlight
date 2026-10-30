@@ -3,6 +3,7 @@
  * entry shards, the scenes' dependency files, the strict readers, and the
  * reading of a whole build (v5, and v4 in the same shape).
  */
+import { sha256Hex } from '@thirdlight/shared';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -16,7 +17,6 @@ import {
   MANIFEST_KEYS_V5,
   readRuntimeContentSync,
   scanDependencies,
-  sha256Hex,
   validateManifestV5,
   type CaptureManifestV5Input,
   type CaptureSceneV5,

@@ -17,7 +17,8 @@
  *
  * Pure simulation state.
  */
-import { COLLIDER_3D_LIMITS, architectureColliders, architectureDoorLinks, architectureRoomRegions, architectureStylesOf, architectureWallEdges, canonicalJsonText, expandArchitecture, type ArchitectureComponent, type ArchitectureGraphLike, type ArchitectureStyles, type EntityV3, type ModelColliderTable } from '@thirdlight/project-model';
+import { canonicalJsonText } from '@thirdlight/shared';
+import { COLLIDER_3D_LIMITS, architectureColliders, architectureDoorLinks, architectureRoomRegions, architectureStylesOf, architectureWallEdges, expandArchitecture, type ArchitectureComponent, type ArchitectureGraphLike, type ArchitectureStyles, type EntityV3, type ModelColliderTable } from '@thirdlight/project-model';
 
 import { colliderShape3DOf } from './collider-specs';
 import type { GridDoorLink } from './grid';

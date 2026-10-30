@@ -49,6 +49,7 @@
  * materials are checked against the project by `validateTimelineReferences`.
  * Pure: no I/O.
  */
+import { canonicalJsonValue } from '@thirdlight/shared';
 import { AUDIO_MAX_LATE_MS_LIMIT } from './content-limits';
 import { MAX_MATERIAL_SLOTS } from './materials';
 import { ID_RE } from './validate';
@@ -292,16 +293,6 @@ function materialValueOk(v: unknown): boolean {
   return Array.isArray(v) && v.length >= 2 && v.length <= 4 && v.every((x) => isNum(x, -1e6, 1e6));
 }
 
-function canonicalJson(v: unknown): unknown {
-  if (Array.isArray(v)) return v.map(canonicalJson);
-  if (isPlainObject(v)) {
-    const out: Record<string, unknown> = {};
-    for (const k of Object.keys(v).sort()) if (v[k] !== undefined) out[k] = canonicalJson(v[k]);
-    return out;
-  }
-  return Object.is(v, -0) ? 0 : v;
-}
-
 function validateKey(type: TimelineTrackType, k: unknown, path: string, duration: number, slots: ReadonlySet<string>, errors: ModelErrorV2[]): void {
   if (!isPlainObject(k)) {
     err(errors, 'field_type', path, 'a key is an object { time, … }', k, 'object');
@@ -531,7 +522,7 @@ export function validateTimeline(value: unknown, path: string, errors: ModelErro
   });
   let bytes = 0;
   try {
-    bytes = new TextEncoder().encode(JSON.stringify(canonicalJson(value))).length;
+    bytes = new TextEncoder().encode(JSON.stringify(canonicalJsonValue(value))).length;
   } catch {
     bytes = 0;
   }
@@ -612,7 +603,7 @@ export function validateTimelineReferences(
 
 /** The canonical timeline: keys sorted by name, each track's keys by time (stable), no undefined fields, no negative zero. */
 export function canonicalTimeline(t: TimelineAsset): TimelineAsset {
-  const c = canonicalJson(t) as TimelineAsset;
+  const c = canonicalJsonValue(t) as TimelineAsset;
   for (const tr of c.tracks) tr.keys = tr.keys.map((k, i) => ({ k, i })).sort((a, b) => a.k.time - b.k.time || a.i - b.i).map((x) => x.k);
   if (c.markers !== undefined) c.markers = c.markers.map((m, i) => ({ m, i })).sort((a, b) => a.m.time - b.m.time || a.i - b.i).map((x) => x.m);
   return c;

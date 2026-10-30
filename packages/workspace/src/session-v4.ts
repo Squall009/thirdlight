@@ -16,7 +16,7 @@ import { loadPreparedSources, publishBlob, readBlob, readSourceBlob, type Conten
 import { hasTrimMaterials, upgradeTrimData, withTrimDataRecorded } from './trim-data-upgrade';
 import { loadabilityNotes, SCRIPT_NAMED_LABEL, upgradeLoadability, writeLoadabilityReport } from './upgrade-loadable';
 import { missingReferenceIds, rebuildFromFiles, restoreFromRecordCache, type RecoveryProblem } from './asset-recovery';
-import { sha256Hex } from './digest';
+import { sha256HexNative } from './digest';
 import type { RetryRecord } from './envelope';
 import {
   entityNotFound,
@@ -291,26 +291,26 @@ function writeUpgradedProject(core: Core, dir: string, thirdlightDir: string, pr
   const contentRevision = bump ? revision : contentRevisionOf(state);
   const contentBytes = contentFileBytes(projectId, contentRevision, state.content, state.fileRecords.get(CONTENT_REL) ?? []);
   writes.push({ rel: CONTENT_REL, bytes: contentBytes });
-  files.set(CONTENT_REL, { bytes: contentBytes, hash: sha256Hex(contentBytes) });
+  files.set(CONTENT_REL, { bytes: contentBytes, hash: sha256HexNative(contentBytes) });
   const scenes = new Map<string, SceneV4>(state.scenes);
   // A new schemaVersion alone is written without a new revision.
   if (bump || manifest) {
     const manifestBytes = manifestV2Bytes(state.manifest);
     writes.push({ rel: MANIFEST_REL_V4, bytes: manifestBytes });
-    files.set(MANIFEST_REL_V4, { bytes: manifestBytes, hash: sha256Hex(manifestBytes) });
+    files.set(MANIFEST_REL_V4, { bytes: manifestBytes, hash: sha256HexNative(manifestBytes) });
   }
   for (const [id, scene] of bump ? state.scenes : []) {
     const stamped: SceneV4 = { ...scene, revision };
     const rel = sceneRelOf(state, id);
     const bytes = sceneFileBytes(projectId, stamped, state.fileRecords.get(rel) ?? [], chunkFormatOnRecord(state.files, scene));
     writes.push({ rel, bytes });
-    files.set(rel, { bytes, hash: sha256Hex(bytes) });
+    files.set(rel, { bytes, hash: sha256HexNative(bytes) });
     scenes.set(id, stamped);
   }
   // Every resource its own file, every asset's record in its sidecar (an older content.json held them all).
   const resources = resourceFilesOf(state.content, state.resourcePaths);
   for (const w of resources.writes) {
-    const hash = sha256Hex(w.bytes as Uint8Array);
+    const hash = sha256HexNative(w.bytes as Uint8Array);
     if (files.get(w.rel)?.hash === hash) continue;
     writes.push(w);
     files.set(w.rel, { bytes: w.bytes as Uint8Array, hash });
@@ -388,7 +388,7 @@ function writeOpenMigration(core: Core, dir: string, thirdlightDir: string, proj
   const res = writeTransaction(core.ops, dir, thirdlightDir, projectId, withUntrackedSidecars(core.ops, dir, gameRoot, state.files, writes), writes, gameRoot);
   if (!res.ok) return { why: 'the project files could not be written' };
   const files = plan.commitFiles();
-  if (manifestBytes !== null) files.set(MANIFEST_REL_V4, { bytes: manifestBytes, hash: sha256Hex(manifestBytes) });
+  if (manifestBytes !== null) files.set(MANIFEST_REL_V4, { bytes: manifestBytes, hash: sha256HexNative(manifestBytes) });
   return { state: { manifest: manifest ?? state.manifest, content: content.normalized, scenes: nextScenes, revision, files, fileRecords: plan.fileRecords, resourcePaths: plan.resourcePaths, scenePaths: plan.scenePaths, formerPaths: plan.formerPaths } };
 }
 
@@ -400,7 +400,7 @@ function writeOpenManifest(core: Core, dir: string, thirdlightDir: string, proje
   const res = writeTransaction(core.ops, dir, thirdlightDir, projectId, withUntrackedSidecars(core.ops, dir, gameRoot, state.files, writes), writes, gameRoot);
   if (!res.ok) return null;
   const files = new Map(state.files);
-  files.set(MANIFEST_REL_V4, { bytes, hash: sha256Hex(bytes) });
+  files.set(MANIFEST_REL_V4, { bytes, hash: sha256HexNative(bytes) });
   return { ...state, manifest, files };
 }
 
@@ -430,7 +430,7 @@ function upgradeTrimDataOnOpen(core: Core, dir: string, thirdlightDir: string, p
       return r.ok ? r.bytes : null;
     },
     publish: (bytes) => {
-      const digest = sha256Hex(bytes);
+      const digest = sha256HexNative(bytes);
       const r = publishBlob(core, ctx, { digest, byteLength: bytes.byteLength, source: { kind: 'bytes', bytes } });
       return r.ok ? digest : null;
     },
@@ -556,7 +556,7 @@ export function changedFiles(projectId: string, before: V4State, after: { conten
     const stamped: SceneV4 = { ...scene, revision: after.revision };
     const bytes = sceneFileBytes(projectId, stamped, recs, chunkFormat);
     writes.push({ rel, bytes });
-    files.set(rel, { bytes, hash: sha256Hex(bytes) });
+    files.set(rel, { bytes, hash: sha256HexNative(bytes) });
     fileRecords.set(rel, recs);
     after.scenes.set(id, stamped);
     // The chunk files that changed, appeared or went away (or are in the other form).
@@ -611,7 +611,7 @@ export function changedFiles(projectId: string, before: V4State, after: { conten
     const recs = appendTo(CONTENT_REL);
     const bytes = contentFileBytes(projectId, after.revision, after.content, recs);
     writes.push({ rel: CONTENT_REL, bytes });
-    files.set(CONTENT_REL, { bytes, hash: sha256Hex(bytes) });
+    files.set(CONTENT_REL, { bytes, hash: sha256HexNative(bytes) });
     fileRecords.set(CONTENT_REL, recs);
   }
   return { writes, commitFiles: () => files.commit(), fileRecords, resourcePaths, scenePaths, formerPaths };
@@ -688,7 +688,7 @@ function resourceWrites(before: V4State, next: V4State['content'], writes: FileW
       const w = sidecarWrite(a);
       if (oldFile !== null && oldFile !== fileOfRecord(a)) removeAt(oldFile);
       if (w === null) continue;
-      const hash = sha256Hex(w.bytes as Uint8Array);
+      const hash = sha256HexNative(w.bytes as Uint8Array);
       if (files.get(w.rel)?.hash === hash) continue;
       const at = writes.findIndex((x) => x.rel === w.rel);
       if (at >= 0) writes.splice(at, 1);
@@ -757,7 +757,7 @@ function resourceWrites(before: V4State, next: V4State['content'], writes: FileW
         setPath(id, path);
         const rel = gameRel(path);
         const bytes = resourceFileBytes(k, id, r, loading.get(`${k.kind}:${id}`));
-        const hash = sha256Hex(bytes);
+        const hash = sha256HexNative(bytes);
         if (files.get(rel)?.hash === hash) continue;
         writes.push({ rel, bytes });
         files.set(rel, { bytes, hash });
@@ -812,7 +812,7 @@ export function restoreSidecars(core: Core, s: ProjectSession, records: readonly
   const res = writeTransaction(core.ops, s.dir, s.thirdlightDir, s.projectId, known, writes, gameRoot);
   if (!res.ok) return writes.map((w) => `the sidecar ${gamePathOf(w.rel) ?? w.rel} could not be written`);
   const files = new Map(state.files);
-  for (const w of writes) files.set(w.rel, { bytes: w.bytes as Uint8Array, hash: sha256Hex(w.bytes as Uint8Array) });
+  for (const w of writes) files.set(w.rel, { bytes: w.bytes as Uint8Array, hash: sha256HexNative(w.bytes as Uint8Array) });
   publishV4(s, { ...state, files });
   return [];
 }
@@ -855,7 +855,7 @@ function diskBaseline(core: Core, s: ProjectSession, rels: Iterable<string>): Ma
   for (const rel of rels) {
     try {
       const bytes = core.ops.readFile(absOf(s.dir, gameRootOf(s), rel));
-      out.set(rel, { bytes, hash: sha256Hex(bytes) });
+      out.set(rel, { bytes, hash: sha256HexNative(bytes) });
     } catch {
       // absent: the resolution recreates it
     }
@@ -926,14 +926,14 @@ export function acceptExternalV4(core: Core, s: ProjectSession): { ok: true; rev
   const files = new Map<string, KnownFile>();
   const contentBytes = contentFileBytes(s.projectId, state.revision, state.content, []);
   writes.push({ rel: CONTENT_REL, bytes: contentBytes });
-  files.set(CONTENT_REL, { bytes: contentBytes, hash: sha256Hex(contentBytes) });
+  files.set(CONTENT_REL, { bytes: contentBytes, hash: sha256HexNative(contentBytes) });
   for (const scene of state.scenes.values()) {
     // In the form they are in (a project's form changes only through its setting).
     const chunkFormat = chunkFormatOnRecord(state.files, scene);
     const bytes = sceneFileBytes(s.projectId, scene, [], chunkFormat);
     const rel = sceneRelOf(state, scene.sceneId);
     writes.push({ rel, bytes });
-    files.set(rel, { bytes, hash: sha256Hex(bytes) });
+    files.set(rel, { bytes, hash: sha256HexNative(bytes) });
     // Its chunk files, canonical.
     for (const [crel, f] of sceneChunkFiles(s.projectId, scene, chunkFormat)) {
       writes.push({ rel: crel, bytes: f.bytes });
@@ -941,7 +941,7 @@ export function acceptExternalV4(core: Core, s: ProjectSession): { ok: true; rev
     }
   }
   const man = manifestV2Bytes(state.manifest);
-  files.set(MANIFEST_REL_V4, { bytes: man, hash: sha256Hex(man) });
+  files.set(MANIFEST_REL_V4, { bytes: man, hash: sha256HexNative(man) });
   // The resource files are what is on disk already.
   for (const [rel, f] of state.files) if (gamePathOf(rel) !== null && !files.has(rel)) files.set(rel, f);
   const res = writeTransaction(core.ops, s.dir, s.thirdlightDir, s.projectId, diskBaseline(core, s, writes.map((w) => w.rel)), writes, gameRootOf(s));
@@ -980,7 +980,7 @@ export function discardExternalV4(core: Core, s: ProjectSession): { ok: true; re
   for (const [rel, known] of state.files) {
     if (isSidecarRel(rel)) continue;
     const onDisk = baseline.get(rel);
-    const hash = onDisk?.hash ?? sha256Hex(new Uint8Array(0));
+    const hash = onDisk?.hash ?? sha256HexNative(new Uint8Array(0));
     if (hash === known.hash || (rel === pendingFile && hash === pc.externalHash)) continue;
     const again = detectExternalChangeV4(core, s, { rel, bytes: onDisk?.bytes ?? new Uint8Array(0), hash });
     return { ok: false, error: externalChangeUnresolved({ snapshotState: again.snapshotState, externalHash: again.externalHash, externalValid: again.externalValid, externalErrorCount: again.externalErrors?.length ?? null }) };
@@ -1027,7 +1027,7 @@ export function clearRecordsV4(core: Core, s: ProjectSession): { ok: true } | { 
         ? contentFileBytes(s.projectId, (JSON.parse(new TextDecoder().decode(state.files.get(rel)!.bytes)) as { revision: number }).revision, state.content, [])
         : sceneFileBytes(s.projectId, state.scenes.get(sceneId!)!, [], chunkFormatOnRecord(state.files, state.scenes.get(sceneId!)!));
     writes.push({ rel, bytes });
-    files.set(rel, { bytes, hash: sha256Hex(bytes) });
+    files.set(rel, { bytes, hash: sha256HexNative(bytes) });
   }
   if (writes.length === 0) return { ok: true };
   const res = writeTransaction(core.ops, s.dir, s.thirdlightDir, s.projectId, state.files, writes, gameRootOf(s));

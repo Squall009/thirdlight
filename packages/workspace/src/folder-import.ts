@@ -29,7 +29,7 @@ import type { CommandError, PreparedAssetImportItem } from '@thirdlight/commands
 
 import { DEFAULT_ASSET_FOLDER, PROJECT_OWN_ENTRIES, SIDECAR_SUFFIX, assetRoot, checkAssetFolder, fileOfRecord, fileStem, gameFileExists, parseSidecar, readGameFile, sidecarPath, takenPaths, writeGameFile, type RecordLike } from './asset-files';
 import { IMPORTABLE, resolveProjectFile, type ContentConfig, type ContentContext } from './content-store';
-import { sha256Hex } from './digest';
+import { sha256HexNative } from './digest';
 import { isSceneFileName, isSkippedFolderName, resourceKindOfName, SCENE_SUFFIX } from './resource-files';
 import { pathRejected } from './errors';
 import type { WriteOps } from './write';
@@ -266,7 +266,7 @@ export function writeUploadedFile(core: { ops: WriteOps; content: ContentConfig 
   if (!vetted.ok) return vetted;
   const there = readGameFile(ctx, rel);
   if (there !== null) {
-    if (sha256Hex(there) === sha256Hex(bytes)) return { ok: true, written: false };
+    if (sha256HexNative(there) === sha256HexNative(bytes)) return { ok: true, written: false };
     return { ok: false, error: pathRejected(rel, `${rel} already holds another file; upload into another folder`) };
   }
   if (gameFileExists(ctx, rel)) return { ok: false, error: pathRejected(rel, `${rel} cannot be replaced`) };

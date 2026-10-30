@@ -15,6 +15,7 @@
  * bytes.
  */
 
+import { canonicalJsonTextStrict, sha256Hex, sha256HexOfText, utf8Encode } from '@thirdlight/shared';
 import { build as esbuildBuild, type BuildOptions, type Plugin } from 'esbuild';
 import { declarationBytes, type DeclaredProperty } from '@thirdlight/project-model';
 
@@ -32,7 +33,6 @@ import {
   compilerToolchain,
   esbuildPinMatches,
 } from './limits';
-import { canonicalJsonText, sha256Hex, sha256HexOfText, utf8Encode } from './canonical';
 import { canonicalContainerText, containerFailure, parseSourceGraphContainer } from './container';
 import { analyzeSourceGraph, LIBRARY_SPECIFIER_RE, resolveRelativeTarget, withLimits } from './scan';
 import { createLibraryCache, resolveLibraries, type CompiledLibrary } from './libraries';
@@ -64,7 +64,7 @@ export function manifestBytesOf(manifest: BehaviorManifest): Uint8Array {
 
 /** Digest of the canonical declaration bytes (compact canonical JSON). */
 export function declarationDigestOf(declaration: { properties: readonly DeclaredProperty[] }): string {
-  return sha256HexOfText(canonicalJsonText(declaration));
+  return sha256HexOfText(canonicalJsonTextStrict(declaration));
 }
 
 /** The compile recipe the prepared output is bound to (hashed into `recipeDigest`). */
@@ -99,7 +99,7 @@ export function compileRecipeDigest(
   libraries: readonly LibraryPin[] = [],
   linking: 'shared' | 'bundle' = 'bundle',
 ): string {
-  return sha256HexOfText(canonicalJsonText(compileRecipe(declaration, pinnedModules, limits, libraries, linking)));
+  return sha256HexOfText(canonicalJsonTextStrict(compileRecipe(declaration, pinnedModules, limits, libraries, linking)));
 }
 
 function diag(d: CompileDiagnostic, limits: BehaviorCompilerLimits): CompileDiagnostic[] {
@@ -547,7 +547,7 @@ export function createBehaviorCompiler(
   let typeChecker: ScriptTypeChecker | undefined;
   const keyOf = (input: BehaviorCompileInput): string =>
     sha256HexOfText(
-      canonicalJsonText({
+      canonicalJsonTextStrict({
         behaviorId: input.behaviorId,
         declaration: input.declaration,
         source: sha256Hex(input.containerBytes),

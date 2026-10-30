@@ -36,7 +36,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 
 import { openWorkspaceService, type WriteOps } from '@thirdlight/workspace';
 import { defaultOps } from './write';
-import { sha256Hex } from './digest';
+import { sha256HexNative } from './digest';
 
 // ---- disposable roots (mkdtemp data roots; cleaned per test + backstop) ---
 
@@ -44,7 +44,7 @@ const PROJECT = 'demo-0001';
 
 /** A syntactically valid requestId (`req-` + 32 hex), unique per tag. */
 function reqId(tag: string): string {
-  return `req-${sha256Hex(new TextEncoder().encode(tag)).slice(0, 32)}`;
+  return `req-${sha256HexNative(new TextEncoder().encode(tag)).slice(0, 32)}`;
 }
 
 const roots: string[] = [];

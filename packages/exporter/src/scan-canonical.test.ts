@@ -9,10 +9,11 @@
  * and the forbidden-content scan (incl. the recorded-exception counts) run
  * against genuine bytes.
  */
+import { indentedJsonText } from '@thirdlight/shared';
 import { describe, it, expect } from 'vitest';
 
 import { nodeSpecifierOffsets, scanExportFiles, THREE_RECORD } from './scan';
-import { canonicalDocument, canonicalJson } from './canonical';
+import { canonicalDocument } from './canonical';
 
 // ---- fixtures --------------------------------------------------------------------
 
@@ -225,13 +226,13 @@ describe('pattern e: Node built-in module specifiers', () => {
 describe('canonical serialization', () => {
   it('emits fixed field order, 2-space indent, LF, one trailing newline, no BOM', () => {
     const doc = { a: 1, b: ['x', 'y'], c: { d: true, e: null }, f: 's' };
-    const text = canonicalJson(doc, 0) + '\n';
+    const text = indentedJsonText(doc, 0) + '\n';
     expect(text).toBe('{\n  "a": 1,\n  "b": [\n    "x",\n    "y"\n  ],\n  "c": {\n    "d": true,\n    "e": null\n  },\n  "f": "s"\n}\n');
     const bytes = canonicalDocument(doc);
     expect(bytes[0]).not.toBe(0xef);
     expect(new TextDecoder().decode(bytes).endsWith('}\n')).toBe(true);
   });
   it('escapes strings per JSON semantics', () => {
-    expect(canonicalJson({ s: 'a"b\nc' }, 0)).toBe('{\n  "s": "a\\"b\\nc"\n}');
+    expect(indentedJsonText({ s: 'a"b\nc' }, 0)).toBe('{\n  "s": "a\\"b\\nc"\n}');
   });
 });

@@ -33,7 +33,7 @@ import {
 import type { BehaviorCompileFailure, BehaviorCompiler, BehaviorCompileSuccess, PreparedBehaviorSource, ScriptLibraryInput } from '@thirdlight/behavior-build';
 
 import { publishBlob, readSourceBlob, resolveStage, writeDerivedPrepared, type BlobPublishResult } from './content-store';
-import { sha256Hex } from './digest';
+import { sha256HexNative } from './digest';
 import { RETRY_RETENTION } from './envelope';
 import {
   behaviorPublicationUnavailable,
@@ -132,7 +132,7 @@ export async function prepareBehaviorSource(
       error: pathRejected('', 'prepareBehaviorSource requires a stageId or bytes'),
     };
   }
-  const sourceDigest = sha256Hex(bytes);
+  const sourceDigest = sha256HexNative(bytes);
   // The trust acknowledgment must precede the first compile.
   if (!s.content.behaviorTrust.entries.some((e) => e.sourceDigest === sourceDigest)) {
     return { ok: false, kind: 'error', error: behaviorTrustUnacknowledged(sourceDigest) };

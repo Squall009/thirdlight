@@ -34,6 +34,7 @@
  * `buildId` covers the whole catalog. Pure: no I/O, no clock; the caller
  * supplies `capturedAt` and may supply a faster SHA-256.
  */
+import { sha256Hex } from '@thirdlight/shared';
 import { isPlaneLock } from './plane-lock';
 import { MANIFEST_CONTENT_FILE_MAX_BYTES, RUNTIME_CONTENT_MANIFEST_MAX_BYTES, RUNTIME_CONTENT_TYPE, type ManifestBehaviorInput } from './manifest';
 import {
@@ -65,7 +66,6 @@ import {
   type MediaAnimationRow,
   type RuntimeContentManifestV2,
 } from './manifest-v2';
-import { sha256Hex } from './sha256';
 import { compact, deepFreeze, listFile, listParts, listText, mapParts, shardEntries, type MadeFile, type Part } from './catalog-files';
 import { ID_RE, isPlainObject } from './validate';
 import { isAddress, loadableRowsProblem, type LoadableRow } from './loadable';

@@ -31,7 +31,7 @@ import { join } from 'node:path';
 
 import { parseDocumentBytes } from '@thirdlight/project-model';
 
-import { generateBackendId, sha256Hex } from './digest';
+import { generateBackendId, sha256HexNative } from './digest';
 import { isPlainObject, isSafeInt, type Holder } from './errors';
 import { errnoOf, writeAtomic, type WriteOps } from './write';
 
@@ -780,7 +780,7 @@ export function claimOwnership(opts: ClaimOptions): ClaimOutcome {
     previousHash:
       opts.previousRecord === null || opts.previousRecord === undefined
         ? null
-        : sha256Hex(opts.previousRecord),
+        : sha256HexNative(opts.previousRecord),
     ops,
   });
 
@@ -1005,7 +1005,7 @@ export function releaseOwnership(
     target: recPath,
     bytes: buildOwnershipRecordBytes(released),
     allowedPreHashes: [],
-    previousHash: sha256Hex(buildOwnershipRecordBytes(current)),
+    previousHash: sha256HexNative(buildOwnershipRecordBytes(current)),
     ops,
   });
   if (res.ok) {

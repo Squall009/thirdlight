@@ -24,6 +24,7 @@
  *
  * Named `.browser.ts` so vitest never collects it.
  */
+import { sha256HexAsync } from '@thirdlight/shared';
 import * as THREE from 'three';
 import {
   ANIMATION_CROSSFADE_SECONDS,
@@ -118,12 +119,6 @@ function fail(s: string): void {
   console.error('[m3-animation]', s);
 }
 
-async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const copy = new Uint8Array(bytes);
-  const digest = await crypto.subtle.digest('SHA-256', copy.buffer as ArrayBuffer);
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
-}
-
 /** One host-owned committed view slice (the controllers' view accessor). */
 function hostView() {
   const host = { motion: { speed: 0, grounded: true } as AnimationRoleMotion, step: 0 };
@@ -144,7 +139,7 @@ async function prepareFromFixture(rel: string, version: number): Promise<{ resou
   const bytes = new Uint8Array(await r.arrayBuffer());
   const idx = JSON.parse(await (await fetch(`${FIXTURES}/index.json`)).text()) as { files: Record<string, { sha256: string }> };
   const expected = idx.files[rel]?.sha256 ?? '';
-  const actual = await sha256Hex(bytes);
+  const actual = await sha256HexAsync(bytes);
   evidence.fixtureDigests[rel] = { expected, actual, match: expected === actual };
   if (!evidence.fixtureDigests[rel].match) fail(`fixture digest mismatch for ${rel}`);
   const handle = prepareVisualResource(

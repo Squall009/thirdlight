@@ -44,6 +44,7 @@
  *
  * Pure: no I/O; identical inputs give byte-identical containers.
  */
+import { utf8Encode } from '@thirdlight/shared';
 import {
   BEHAVIOR_GRAPH_LIMITS,
   CALLBACK_EVENT_NODES,
@@ -86,7 +87,6 @@ import {
 } from '@thirdlight/project-model';
 
 import { canonicalContainerText } from './container';
-import { utf8Encode } from './canonical';
 import { ENTRY_PATH } from './limits';
 import type { BehaviorCompileFailure, BehaviorCompileInput, BehaviorCompileResult, BehaviorCompiler, CompileDiagnostic, SourceGraphContainer } from './types';
 

@@ -18,7 +18,7 @@
  * are read from the committed `fixtures/m3/media/**` files.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -58,7 +58,8 @@ function hex(n: number): string {
 
 export const mkRequestId = (): string => `req-${hex(16)}`;
 export const mkSessionId = (): string => `sess-${hex(16)}`;
-export const sha256Hex = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
+import { sha256Hex } from '@thirdlight/shared';
+export { sha256Hex };
 
 export interface DisposableRoot {
   root: string;

@@ -25,7 +25,7 @@ import { applyFollows, blocksUvOrigin, planTerrainSplineRebake, splineRebakeRect
 import { MESH_LOD_RATIOS_DEFAULT, decodeSplineMade, encodeSplineMade, makeSpline, scatterBlobOf, scatterCellOfBlob, splineMakesData, terrainFlatStep, terrainTileKey, type ScatterCell, type SplineComponent, type SplineMade, type TerrainComponent, type TerrainTile } from '@thirdlight/project-model';
 
 import { readSourceBlob } from './content-store';
-import { sha256Hex } from './digest';
+import { sha256HexNative } from './digest';
 import { contentCtx } from './service-content';
 import type { Core, ProjectSession } from './session';
 import { terrainBlobOf, terrainTileOfBlob, type TerrainBlob } from './terrain-edits';
@@ -104,7 +104,7 @@ export function planSplineFollows(core: Core, s: ProjectSession, before: SceneDo
     const scatterDigests = new Map<string, string | null>();
     for (const [key, cell] of plan.scatter) {
       const bytes = scatterBlobOf(cell);
-      const digest = bytes === null ? null : sha256Hex(bytes);
+      const digest = bytes === null ? null : sha256HexNative(bytes);
       if (bytes !== null) blobs.push({ digest: digest!, bytes });
       scatterDigests.set(key, digest);
     }
@@ -167,7 +167,7 @@ export function splineMadeBlob(core: Core, c: SplineComponent): TerrainBlob {
     }
   }
   const bytes = encodeSplineMade(made);
-  return { digest: sha256Hex(bytes), bytes };
+  return { digest: sha256HexNative(bytes), bytes };
 }
 
 /** What the splines of `after` make, where it changed from `before` (a spline's `data` written, or dropped when it makes nothing). */

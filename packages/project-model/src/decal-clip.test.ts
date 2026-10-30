@@ -5,10 +5,10 @@
  * clipper's version). Comparisons with three's DecalGeometry, real
  * generated receivers and the cost are in tests/decal-clip.test.ts.
  */
+import { sha256Hex } from '@thirdlight/shared';
 import { describe, expect, it } from 'vitest';
 
 import { clipDecal, DECAL_CLIP_LIFT, DECAL_CLIP_VERSION, type DecalClipMesh, type DecalClipReceiver } from './decal-clip';
-import { sha256Hex } from './sha256';
 
 type M4 = number[];
 /** Column-major translation × rotation (quaternion) × scale, three's `compose`. */

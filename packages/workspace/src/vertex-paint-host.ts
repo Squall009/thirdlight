@@ -23,7 +23,7 @@ import { readModelGeometry, paintableMeshes, INSTANCE_FLOATS, decodeCopyTable, e
 import { planVertexPaint, validatePaintVerticesArgs, type CommandError, type ContentDocument, type PreparedVertexPaint, type SceneDocument, type VertexPaintBlob } from '@thirdlight/commands';
 
 import { publishBlob, readBlob, readSourceBlob, verifyReferencedBlob } from './content-store';
-import { sha256Hex } from './digest';
+import { sha256HexNative } from './digest';
 import { contentCtx } from './service-content';
 import type { Core, ProjectSession } from './session';
 
@@ -42,7 +42,7 @@ function modelMeshes(core: Core, s: ProjectSession, assetId: string, version: nu
   }
   const g = readModelGeometry(r.bytes);
   if (!g.ok) return { ok: false, error: { code: 'field_value', cls: 'validation', path: '/args/entityId', message: `the model ${assetId} cannot be read: ${g.message}`.slice(0, 256) } as CommandError };
-  const meshes = paintableMeshes(g.geometry, sha256Hex);
+  const meshes = paintableMeshes(g.geometry, sha256HexNative);
   if (models.size >= MODELS_KEPT) models.delete(models.keys().next().value!);
   models.set(r.digest, meshes);
   return { ok: true, meshes };
@@ -57,7 +57,7 @@ const readStored = (core: Core, s: ProjectSession) => (digest: string): { ok: tr
 export function prepareVertexPaint(core: Core, s: ProjectSession, scene: SceneDocument, content: ContentDocument | undefined, args: Record<string, unknown>): { ok: true; prepared: PreparedVertexPaint; blobs: VertexPaintBlob[] } | { ok: false; error: CommandError } {
   const v = validatePaintVerticesArgs(args);
   if (!v.ok) return v;
-  const plan = planVertexPaint(scene, content, v.args, { blob: readStored(core, s), model: (assetId, version) => modelMeshes(core, s, assetId, version), hash: sha256Hex });
+  const plan = planVertexPaint(scene, content, v.args, { blob: readStored(core, s), model: (assetId, version) => modelMeshes(core, s, assetId, version), hash: sha256HexNative });
   return plan.ok ? { ok: true, prepared: plan.prepared, blobs: plan.blobs } : plan;
 }
 
@@ -101,7 +101,7 @@ export function followCopyPaint(core: Core, s: ProjectSession, paint: InstancePa
   if (moved.copies.length === 0) return { ok: true, paint: null, blobs: [] };
   if (moved.copies.length === table.copies.length && moved.copies.every((c, i) => c === table.copies[i])) return { ok: true, blobs: [] };
   const bytes = encodeCopyTable(moved);
-  const digest = sha256Hex(bytes);
+  const digest = sha256HexNative(bytes);
   return { ok: true, paint: { ...paint, copies: digest, painted: moved.copies.length }, blobs: [{ digest, bytes }] };
 }
 

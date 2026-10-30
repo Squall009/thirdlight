@@ -24,7 +24,7 @@
  *
  * Browser-only: DOM + WebGL/WebGPU.
  */
-import { sha256HexAsync } from '@thirdlight/project-model';
+import { sha256HexAsync } from '@thirdlight/shared';
 import { openRuntimeContent, type HostDomNode } from '@thirdlight/game-host';
 import { startGamePage, type GamePageManifest } from '@thirdlight/game-host/game-page';
 import { SCRIPT_ERROR_PROBLEM, type RuntimeSnapshot, type SimulationModuleSpec } from '@thirdlight/runtime';

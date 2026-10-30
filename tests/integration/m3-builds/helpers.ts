@@ -7,7 +7,6 @@
  * audio → `audio/wav`) with digests that MATCH the emitted bytes. Node built-ins
  * are allowed here (this lives under `tests/`).
  */
-import { createHash } from 'node:crypto';
 
 /** Build one valid glTF 2.0 GLB (JSON chunk only — no external uris). */
 export function minimalGlb(): Uint8Array {
@@ -69,9 +68,8 @@ function concatU8(a: Uint8Array, b: Uint8Array): Uint8Array {
 }
 
 /** The SHA-256 (lowercase hex) of the bytes (independent `node:crypto`). */
-export function sha256Hex(bytes: Uint8Array): string {
-  return createHash('sha256').update(bytes).digest('hex');
-}
+import { sha256Hex } from '@thirdlight/shared';
+export { sha256Hex };
 
 /** A synthetic v3 authoring envelope (scene + content) with one model asset
  * and one audio asset, self-consistent digests. The model is reached through

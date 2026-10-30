@@ -28,7 +28,7 @@ import { audioLoadOf, DEFAULT_ASSET_FOLDER, isValidSourcePath, MAX_FOLDER_DEPTH,
 import type { ContentCatalogV4 } from '@thirdlight/project-model';
 import type { ChangeData, CommandError } from '@thirdlight/commands';
 
-import { sha256Hex } from './digest';
+import { sha256HexNative } from './digest';
 import { contentPublishFailed, contentQuotaExceeded, pathRejected } from './errors';
 import { writeAtomic, type WriteOps } from './write';
 import type { ContentConfig, ContentContext } from './content-store';
@@ -438,11 +438,11 @@ const DIGEST_RE = /^[0-9a-f]{64}$/;
 
 /** Keep bytes by their digest until a command files them (or an undo puts them back). */
 export function holdBytes(core: Core, ctx: ContentContext, bytes: Uint8Array): { ok: true; digest: string } | { ok: false; error: CommandError } {
-  const digest = sha256Hex(bytes);
+  const digest = sha256HexNative(bytes);
   const dir = heldDir(ctx);
   const target = join(dir, digest);
   const existing = readBlobBytes(target);
-  if (existing.ok && sha256Hex(existing.bytes) === digest) {
+  if (existing.ok && sha256HexNative(existing.bytes) === digest) {
     touch(target);
     return { ok: true, digest };
   }
@@ -464,7 +464,7 @@ export function holdBytes(core: Core, ctx: ContentContext, bytes: Uint8Array): {
 export function readHeld(ctx: ContentContext, digest: string): Uint8Array | null {
   if (!DIGEST_RE.test(digest)) return null;
   const r = readBlobBytes(join(heldDir(ctx), digest));
-  if (!r.ok || sha256Hex(r.bytes) !== digest) return null;
+  if (!r.ok || sha256HexNative(r.bytes) !== digest) return null;
   return r.bytes;
 }
 
@@ -562,11 +562,11 @@ export function importedArtifactFile(dir: string, key: ImportKey, digest: string
 export function writeImported(core: Core, ctx: ContentContext, key: ImportKey, bytes: Uint8Array): { ok: true; digest: string } | { ok: false; error: CommandError } {
   const segs = importCacheSegments(key);
   if (segs === null) return { ok: false, error: pathRejected('', 'the import cache key is malformed') };
-  const digest = sha256Hex(bytes);
+  const digest = sha256HexNative(bytes);
   const dir = join(ctx.dir, ...segs);
   const target = join(dir, artifactName(digest));
   const existing = readBlobBytes(target);
-  if (existing.ok && sha256Hex(existing.bytes) === digest) return { ok: true, digest };
+  if (existing.ok && sha256HexNative(existing.bytes) === digest) return { ok: true, digest };
   try {
     mkdirSync(dir, { recursive: true, mode: 0o755 });
   } catch {
@@ -582,7 +582,7 @@ export function readImported(ctx: ContentContext, key: ImportKey, digest: string
   const segs = importCacheSegments(key);
   if (segs === null || !DIGEST_RE.test(digest)) return null;
   const r = readBlobBytes(join(ctx.dir, ...segs, artifactName(digest)));
-  if (!r.ok || sha256Hex(r.bytes) !== digest) return null;
+  if (!r.ok || sha256HexNative(r.bytes) !== digest) return null;
   return r.bytes;
 }
 
@@ -809,7 +809,7 @@ function syncOne(core: Core, ctx: ContentContext, c: AssetRecordChange, named: R
   if (v !== undefined) {
     const want = fileFactsOfVersion(v);
     const have = readGameFile(ctx, nextFile);
-    if (have === null || sha256Hex(have) !== want.digest) {
+    if (have === null || sha256HexNative(have) !== want.digest) {
       const held = readHeld(ctx, want.digest);
       if (held !== null) {
         if (have !== null) holdBytes(core, ctx, have);
@@ -926,7 +926,7 @@ export function planPlacement(core: Core, ctx: ContentContext, args: Record<stri
     args: placed,
     write() {
       previous = readGameFile(ctx, rel);
-      if (previous !== null && sha256Hex(previous) === fileDigest) return null;
+      if (previous !== null && sha256HexNative(previous) === fileDigest) return null;
       if (previous !== null) {
         const held = holdBytes(core, ctx, previous);
         if (!held.ok) return held.error;

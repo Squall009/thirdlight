@@ -25,7 +25,7 @@ import { blockTypesOf, erosionInput, planErosion, planTerrainSplineRebake, terra
 import { decodeHeightmap, decodeTerrainDelta, encodeTerrainDelta, scatterBlobOf, terrainFlatStep, terrainTileKey, type BlockType, type Heightmap, type TerrainComponent, type TerrainErosionLayer, type TerrainLayer } from '@thirdlight/project-model';
 
 import { readBlob, readSourceBlob } from './content-store';
-import { sha256Hex } from './digest';
+import { sha256HexNative } from './digest';
 import { contentCtx } from './service-content';
 import type { Core, ProjectSession } from './session';
 import { readScatter, readTile, terrainBlobOf, type TerrainBlob } from './terrain-edits';
@@ -53,7 +53,7 @@ function unread(digest: string, what: string, message: string): CommandError {
 /** An erosion difference's stored blob (gzip). */
 export function deltaBlobOf(samples: number, delta: Int16Array): TerrainBlob {
   const bytes = new Uint8Array(gzipSync(encodeTerrainDelta(samples, delta)));
-  return { digest: sha256Hex(bytes), bytes };
+  return { digest: sha256HexNative(bytes), bytes };
 }
 
 /** An erosion blob's steps (throws a short message when it is not one). */
@@ -206,7 +206,7 @@ export function prepareErodeEdit(core: Core, s: ProjectSession, scene: SceneDocu
     }
     for (const [key, cell] of r.scatter) {
       const bytes = scatterBlobOf(cell);
-      const digest = bytes === null ? null : sha256Hex(bytes);
+      const digest = bytes === null ? null : sha256HexNative(bytes);
       if (bytes !== null) blobs.push({ digest: digest!, bytes });
       scatter.set(key, digest);
     }

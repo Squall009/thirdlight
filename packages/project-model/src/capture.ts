@@ -10,13 +10,13 @@
  * before any capture. Pure: no I/O, no filesystem, no three.js.
  */
 
+import { canonicalJsonText, sha256HexOfText } from '@thirdlight/shared';
 import { scatterRuleAssets, type ScatterRule } from './scatter';
 import { splinePieceAssets, type SplineComponent } from './spline';
 import { architectureModelAssets, type ArchitectureComponent } from './architecture';
 import { timelineRefs, type TimelineAsset } from './timelines';
 import { uiAssetRefs, type UiDocument, type UiTheme } from './ui-documents';
 import { dialogueAssetRefs, type DialogueDocument, type DialogueSpeaker } from './dialogue';
-import { canonicalJsonText, sha256HexOfText } from './sha256';
 import { fail, fieldValue, isPlainObject, withFound } from './validate';
 import { ID_RE_V2 } from './components';
 import { validateContentV3 } from './content';

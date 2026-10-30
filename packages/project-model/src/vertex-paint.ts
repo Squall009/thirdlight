@@ -29,11 +29,11 @@
  *
  * Pure data rules: no three.js, no I/O.
  */
+import { sha256Hex } from '@thirdlight/shared';
 import type { ModelErrorV2 } from './errors';
 import { MODEL_READ_LIMITS, type ModelGeometry } from './model-collision';
 import { COMPONENT_TYPES as GLTF_COMPONENT_TYPES } from './model-rig';
 import type { PaintLayout } from './paint-brush';
-import { sha256Hex } from './sha256';
 import { MAX_INSTANCES } from './types-v3';
 import { ID_RE } from './validate';
 

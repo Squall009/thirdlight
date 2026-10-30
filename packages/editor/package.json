@@ -39,6 +39,7 @@
     "@thirdlight/game-host": "0.1.0",
     "@thirdlight/protocol": "0.1.0",
     "@thirdlight/runtime": "0.1.0",
+    "@thirdlight/shared": "0.1.0",
     "@thirdlight/three-adapter": "0.1.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",

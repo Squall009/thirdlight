@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@thirdlight/project-model": "0.1.0",
+    "@thirdlight/shared": "0.1.0",
     "meshoptimizer": "1.1.1"
   }
 }

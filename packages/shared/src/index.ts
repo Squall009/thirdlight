@@ -9,4 +9,14 @@
  * helpers this package owns and fails the build when one is defined again
  * elsewhere.
  */
-export {};
+export { utf8Decode, utf8Encode } from './utf8';
+export { sha256Hex, sha256HexAsync, sha256HexOfText } from './sha256';
+export {
+  canonicalJsonKey,
+  canonicalJsonText,
+  canonicalJsonTextStrict,
+  canonicalJsonUtf16,
+  canonicalJsonValue,
+  compareCodePoints,
+  indentedJsonText,
+} from './canonical-json';

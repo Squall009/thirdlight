@@ -15,7 +15,7 @@ import { INSTANCE_FLOATS } from '@thirdlight/project-model';
 import { planInstanceStroke, planModelCollider, validateColliderFromModelArgs, validatePaintInstancesArgs, type CommandError, type ContentDocument, type PreparedInstanceStroke, type PreparedModelCollider, type SceneDocument } from '@thirdlight/commands';
 
 import { publishBlob, readBlob, readSourceBlob } from './content-store';
-import { sha256Hex } from './digest';
+import { sha256HexNative } from './digest';
 import { contentCtx } from './service-content';
 import type { Core, ProjectSession } from './session';
 
@@ -31,7 +31,7 @@ export function prepareInstanceStroke(core: Core, s: ProjectSession, scene: Scen
   const plan = planInstanceStroke(scene, content, v.args, (digest) => readSourceBlob(core, contentCtx(s), { digest }));
   if (!plan.ok) return plan;
   const bytes = new Uint8Array(plan.floats.buffer, plan.floats.byteOffset, plan.floats.byteLength);
-  const digest = sha256Hex(bytes);
+  const digest = sha256HexNative(bytes);
   return { ok: true, prepared: { entityId: v.args.entityId, buffer: digest, count: plan.floats.length / INSTANCE_FLOATS }, buffer: { digest, bytes } };
 }
 

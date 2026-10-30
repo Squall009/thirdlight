@@ -24,7 +24,7 @@ import { planKtx2Parts, readKtx2Layout, TEXTURE_STREAM_TAIL_PX, type Ktx2Part } 
 import { importCacheSegments, importedArtifactPath, rebuildable, writeImported, type ImportKey } from './asset-files';
 import type { BlobFile } from './blob-files';
 import { readBlobBytes, type ContentConfig, type ContentContext } from './content-store';
-import { sha256Hex } from './digest';
+import { sha256HexNative } from './digest';
 import { writeAtomic, type WriteOps } from './write';
 
 /** The importer name and version of the cut (a change to the cut changes the version). */
@@ -92,7 +92,7 @@ export function locateMipParts(core: { ops: WriteOps; content: ContentConfig }, 
     if (files !== null) return { ok: true, parts: files };
   }
   const read = readBlobBytes(whole.real);
-  if (!read.ok || read.bytes.length !== whole.byteLength || sha256Hex(read.bytes) !== whole.digest) return { ok: true, parts: null };
+  if (!read.ok || read.bytes.length !== whole.byteLength || sha256HexNative(read.bytes) !== whole.digest) return { ok: true, parts: null };
   const bytes = read.bytes;
   const layout = readKtx2Layout(bytes);
   const plan: Ktx2Part[] | null = layout.ok ? planKtx2Parts(layout.layout, bytes.length, TEXTURE_STREAM_TAIL_PX) : null;

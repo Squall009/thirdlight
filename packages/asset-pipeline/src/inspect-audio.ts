@@ -13,11 +13,11 @@
  * MPEG layer other than III) is refused; one only some browsers play is
  * imported, and the backend reports the gap (`audioPlaybackGaps`).
  */
+import { sha256Hex } from '@thirdlight/shared';
 import { AUDIO_PIPELINE_NAME, AUDIO_PIPELINE_VERSION, MAX_SOURCE_BYTES } from '@thirdlight/project-model/limits';
 import type { AudioFormat, AudioMetrics, AudioRecipe } from '@thirdlight/project-model';
 import { resolveImportJob } from './inspect';
 import { M2_GLTF_MAX_DIAGNOSTICS } from './limits';
-import { sha256Hex } from './sha256';
 import type { ImportDiagnostic, ImportJobPort } from './types';
 
 export type { AudioFormat, AudioMetrics, AudioRecipe };

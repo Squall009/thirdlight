@@ -2,11 +2,9 @@
  * A reader puts the manifest's content files back under their
  * keys, each checked against its row (length and SHA-256) before it is used.
  */
+import { sha256HexAsync } from '@thirdlight/shared';
 import { describe, expect, it } from 'vitest';
 import { expandManifestContentFiles } from './scene-catalog';
-
-const sha256HexAsync = async (bytes: Uint8Array): Promise<string> =>
-  [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes as BufferSource))].map((x) => x.toString(16).padStart(2, '0')).join('');
 
 /** A manifest with three content files (the blocks' canonical bytes, as project-model's capture writes them). */
 async function capture(): Promise<{ manifest: Record<string, unknown>; files: Map<string, Uint8Array> }> {

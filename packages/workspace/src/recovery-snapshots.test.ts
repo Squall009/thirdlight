@@ -55,7 +55,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 
 import { openWorkspaceService, type WriteOps } from '@thirdlight/workspace';
 
-import { sha256Hex } from './digest';
+import { sha256HexNative } from './digest';
 import { defaultOps } from './write';
 
 // ---- disposable roots (mkdtemp data roots; cleaned per test + backstop) ---
@@ -215,7 +215,7 @@ function foreignInWindow(tag: string, slot: number): { bytes: Uint8Array; h8: st
   let v: number;
   do {
     content = `${tag}-${slot + 1}-p${k++}`;
-    v = parseInt(sha256Hex(enc.encode(content)).slice(0, 8), 16);
+    v = parseInt(sha256HexNative(enc.encode(content)).slice(0, 8), 16);
   } while (v < lo || v >= hi);
   return { bytes: enc.encode(content), h8: v.toString(16).padStart(8, '0') };
 }
@@ -259,7 +259,7 @@ describe('recovery snapshots: edge cases', () => {
       const scene = scenePath(root);
       const lkgBytes = readFileSync(scene);
       const foreign = foreignValidEnvelope(lkgBytes);
-      const foreignHash = sha256Hex(foreign);
+      const foreignHash = sha256HexNative(foreign);
 
       writeFileSync(scene, foreign); // readable foreign bytes
       flag.on = true; // the snapshot's temp-file open now fails (ENOSPC)
@@ -295,7 +295,7 @@ describe('recovery snapshots: edge cases', () => {
       expect(s.runCommand(request(0)).ok).toBe(true); // LKG at revision 1
       const scene = scenePath(root);
       const foreign = foreignValidEnvelope(readFileSync(scene));
-      const foreignHash = sha256Hex(foreign);
+      const foreignHash = sha256HexNative(foreign);
       writeFileSync(scene, foreign);
       flag.on = true;
       const m = s.runCommand(request(1));
@@ -345,7 +345,7 @@ describe('recovery snapshots: edge cases', () => {
       const scene = scenePath(root);
       const lkgBytes = readFileSync(scene);
       const foreign = foreignValidEnvelope(lkgBytes);
-      const foreignHash = sha256Hex(foreign);
+      const foreignHash = sha256HexNative(foreign);
       writeFileSync(scene, foreign);
       flag.on = true;
       const m = s.runCommand(request(1));
@@ -398,7 +398,7 @@ describe('recovery snapshots: edge cases', () => {
       flag.on = false;
       // A second foreign edit lands before the operator resolves.
       const foreign2 = new TextEncoder().encode(new TextDecoder().decode(foreign).replace('(foreign edit)', '(second edit)'));
-      const foreign2Hash = sha256Hex(foreign2);
+      const foreign2Hash = sha256HexNative(foreign2);
       writeFileSync(scene, foreign2);
       const a = s.acceptExternalState(PROJECT);
       expect(a.ok).toBe(false);
@@ -427,7 +427,7 @@ describe('recovery snapshots: edge cases', () => {
       const scene = scenePath(root);
       const lkgBytes = readFileSync(scene);
       const foreign = foreignValidEnvelope(lkgBytes);
-      const foreignHash = sha256Hex(foreign);
+      const foreignHash = sha256HexNative(foreign);
 
       // REAL permission fault: the recovery dir exists (created by
       // createProject) and is made non-writable ⇒ the snapshot's temp-file
@@ -525,7 +525,7 @@ describe('recovery snapshots: edge cases', () => {
         expect(m.ok).toBe(false);
         const pc = unresolvedError(m);
         expect(pc['snapshotState']).toBe('ok'); // snapshot durable each cycle
-        expect(pc['externalHash']).toBe(sha256Hex(f.bytes));
+        expect(pc['externalHash']).toBe(sha256HexNative(f.bytes));
         if (i < 16) {
           // Resolve cycles 1–16 so each next foreign write is a fresh
           // detection (LKG restored, unpaused).
@@ -541,10 +541,10 @@ describe('recovery snapshots: edge cases', () => {
       const snaps = recoverySnaps(root);
       expect(snaps.length).toBe(16);
       const expected = new Set(
-        foreigns.slice(0, 15).map((f) => snapshotName(sha256Hex(f.bytes))),
+        foreigns.slice(0, 15).map((f) => snapshotName(sha256HexNative(f.bytes))),
       );
-      const h17 = sha256Hex(foreigns[16]!.bytes);
-      const h16 = sha256Hex(foreigns[15]!.bytes);
+      const h17 = sha256HexNative(foreigns[16]!.bytes);
+      const h16 = sha256HexNative(foreigns[15]!.bytes);
       expected.add(snapshotName(h17)); // the pending (exempt) snapshot
       expect(snaps).toEqual([...expected].sort());
       expect(snaps.includes(snapshotName(h17))).toBe(true);
@@ -589,7 +589,7 @@ describe('recovery snapshots: edge cases', () => {
       expect(m18.ok).toBe(false);
       const pc18 = unresolvedError(m18);
       expect(pc18['snapshotState']).toBe('ok');
-      expect(pc18['externalHash']).toBe(sha256Hex(f18.bytes));
+      expect(pc18['externalHash']).toBe(sha256HexNative(f18.bytes));
 
       // Exactly 16 on disk INCLUDING the new pending one: one older
       // non-exempt snapshot was pruned (h17 — the oldest non-exempt by
@@ -599,7 +599,7 @@ describe('recovery snapshots: edge cases', () => {
       expect(snaps.includes(snapshotName(h18))).toBe(true);
       expect(snaps.includes(snapshotName(foreigns[16]!.h8))).toBe(false);
       // The pending file's name is the just-written one.
-      expect(queryWs(s).externalHash).toBe(sha256Hex(f18.bytes));
+      expect(queryWs(s).externalHash).toBe(sha256HexNative(f18.bytes));
 
       // Resolving the 18th cycle normally still works.
       const d18 = s.discardExternalState(PROJECT);
@@ -629,7 +629,7 @@ describe('recovery snapshots: edge cases', () => {
           let h: string;
           do {
             content = `${tag}-${i + 1}-p${k}`;
-            h = sha256Hex(enc2.encode(content)).slice(0, 8);
+            h = sha256HexNative(enc2.encode(content)).slice(0, 8);
             k += 1;
           } while (hashes.includes(h));
           hashes.push(h);
@@ -672,7 +672,7 @@ describe('recovery snapshots: edge cases', () => {
       const scene = scenePath(rootB);
       const lkgBytes = readFileSync(scene);
       const foreign = foreignValidEnvelope(lkgBytes);
-      const foreignHash = sha256Hex(foreign);
+      const foreignHash = sha256HexNative(foreign);
       writeFileSync(scene, foreign);
 
       const m = s.runCommand(request(1));

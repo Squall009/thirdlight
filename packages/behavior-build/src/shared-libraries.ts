@@ -22,9 +22,9 @@
  * Nothing is evaluated: parse, scan and build over in-memory bytes only.
  */
 
+import { sha256Hex } from '@thirdlight/shared';
 import { build as esbuildBuild, type BuildOptions, type Plugin } from 'esbuild';
 
-import { sha256Hex } from './canonical';
 import { ENTRY_PATH } from './limits';
 import { LIBRARY_SPECIFIER_RE, resolveRelativeTarget } from './scan';
 import type { CompiledLibrary } from './libraries';

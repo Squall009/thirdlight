@@ -1,19 +1,16 @@
 /**
- * The SHA-256 padding regression test (bounded defect repair).
+ * SHA-256 known answers around the padding boundary. Padding with
+ * `(((len + 9) >> 6) + 1) << 6` bytes adds an extra zero block whenever
+ * `len ≡ 55 (mod 64)` and writes the bit length into it, giving a wrong
+ * digest for that whole length class; these vectors catch it.
  *
- * `packages/project-model/src/sha256.ts` padded the message with
- * `(((len + 9) >> 6) + 1) << 6` bytes, which allocates an EXTRA zero block
- * whenever `(len + 9) % 64 === 0` (i.e. `len ≡ 55 (mod 64)`) and then writes
- * the 64-bit bit-length into that extra block — producing a WRONG digest for
- * every such input length. The repair uses `ceil((len + 9) / 64)` blocks.
- *
- * Known-answer vectors below are the correct FIPS 180-4 digests (cross-checked
- * against Node's OpenSSL SHA-256 while repairing; the cross-check itself runs
- * in `tests/integration/m2-export/sha256-cross-check.test.ts`, because this
- * package's allowed edges contain no Node builtins).
+ * The vectors are the FIPS 180-4 digests (cross-checked against Node's
+ * OpenSSL SHA-256 in `tests/integration/m2-builds/canonical-cross-check.test.ts`
+ * and in `tests/helper-goldens.test.ts`, since this package has no Node
+ * built-ins).
  */
-import { describe, expect, it } from 'vitest';
 import { sha256Hex, sha256HexOfText } from './sha256';
+import { describe, expect, it } from 'vitest';
 
 /** The regression input: `bytes[i] = (i * 7 + 3) & 0xff`. */
 function pattern(len: number): Uint8Array {

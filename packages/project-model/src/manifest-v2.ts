@@ -41,6 +41,7 @@
  * pure owner of the manifest derivation); it reuses the canonical helpers
  * and the `./sha256` digest primitives.
  */
+import { sha256Hex, sha256HexOfText } from '@thirdlight/shared';
 import type { PlaneLock } from './plane-lock';
 import { canonicalSaveSchema, validateSaveSchema, type SaveSchema } from './save-schema';
 import { canonicalBlockTypes, canonicalCellFields, validateBlockTypes, validateCellFields, type BlockType, type CellField } from './block-layers';
@@ -51,7 +52,6 @@ import { validateModelColliderTable, type ModelColliderTable } from './model-col
 import { canonicalInput, projectInputMaps, validateInput, type InputConfig } from './input';
 import { validateCollisionLayers } from './components';
 import { canonicalLighting, validateLighting, type LightingMap } from './lighting';
-import { sha256Hex, sha256HexOfText } from './sha256';
 import { canonicalGraphDocuments, graphDocumentsContext, validateGraphDocuments, type GraphDocument } from './graph';
 import { GRAPH_KINDS } from './graph-kinds';
 import { ARCHITECTURE_GRAPH_KINDS, validateArchitectureGraphs } from './arch-style';

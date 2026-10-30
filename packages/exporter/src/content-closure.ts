@@ -21,13 +21,14 @@
  * bytes-in/bytes-out call on the injected compiler; the returned behavior
  * bytes are linked into the bundle by the caller.
  */
+import { sha256Hex } from '@thirdlight/shared';
 import type { BlockType, CellField, SaveSchema } from '@thirdlight/project-model';
 import { dialogueForRuntime, instancePaintBlobs, vertexPaintBlobs, type DialogueDocument, type DialogueSettings, type DialogueSpeaker, type InstancePaint, type VertexPaintComponent } from '@thirdlight/project-model';
 import type { GameMode } from '@thirdlight/project-model';
 import type { EventCue, GameShell, TimelineAsset } from '@thirdlight/project-model';
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
 import { architectureCopies, architectureGraphsOf, architectureLayerFurnishing, architectureShipsMeshesOf, architectureStylesOf, expandArchitecture, graphForRuntime, type ArchitectureComponent, type ArchitectureStyles } from '@thirdlight/project-model';
-import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV5, restampManifestV5, type CatalogFile, dependencyTables, scanDependencies, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameplaySettings, type ManifestAssetInputV2, type ManifestAssetInputV5, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV5, type ManifestSceneRow, planeLockOf, type PlaneLock, resolveRequiredModules, materialsInUse, decalSheetsOf, resolveMaterialInstances, hasTextureSlots, withAssembledSlots, withLayerSheetRows, textureSlotSetKey, loadableAssetIds, loadableResourceIds, loadableRows, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
+import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV5, restampManifestV5, type CatalogFile, dependencyTables, scanDependencies, M3_ENGINE_PINS, resolveMediaIdentityV3, type GameplaySettings, type ManifestAssetInputV2, type ManifestAssetInputV5, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV5, type ManifestSceneRow, planeLockOf, type PlaneLock, resolveRequiredModules, materialsInUse, decalSheetsOf, resolveMaterialInstances, hasTextureSlots, withAssembledSlots, withLayerSheetRows, textureSlotSetKey, loadableAssetIds, loadableResourceIds, loadableRows, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
 import { collidersOfModel } from './closure-model-colliders';
 import { shipModelBricks, staticModelUses } from './model-bricks';
 import { isStoredVertexColors, playChecks, projectWideRoots, startDrawSet, withBuildingInteriors, withFurnishingLights, type LightSourceEntity, type MissingPlayFile, type PlayCheck, type SceneV4 } from '@thirdlight/project-model';

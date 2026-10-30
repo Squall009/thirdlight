@@ -26,10 +26,10 @@
  * temp directory is removed and the previous output tree is byte-untouched. Source-bearing behaviors ship as separate
  * `behaviors/<outputDigest>.js` modules the bootstrap imports.
  */
+import { canonicalJsonText } from '@thirdlight/shared';
 import { DECODER_LICENSES, decoderFiles, decodersNeeded } from './decoders';
 import { build, version as esbuildVersion } from 'esbuild';
 import {
-  canonicalJsonText,
   digestBytes,
   digestEmittedClosure,
   fixedStepHzOf,

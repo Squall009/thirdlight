@@ -93,7 +93,7 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { openWorkspaceService, type WriteOps } from '@thirdlight/workspace';
-import { sha256Hex } from './digest';
+import { sha256HexNative } from './digest';
 import { buildOwnershipRecordBytes } from './ownership';
 import { defaultOps } from './write';
 
@@ -103,7 +103,7 @@ const PROJECT = 'demo-0001';
 
 /** A syntactically valid requestId (`req-` + 32 hex), unique per tag. */
 function reqId(tag: string): string {
-  return `req-${sha256Hex(new TextEncoder().encode(tag)).slice(0, 32)}`;
+  return `req-${sha256HexNative(new TextEncoder().encode(tag)).slice(0, 32)}`;
 }
 
 const roots: string[] = [];
@@ -619,7 +619,7 @@ describe('T4: R5 — operator envelope writes honor new-undurable (memory reconc
     // A readable foreign change at revision 10 ⇒ the triggering mutation
     // pauses the project (external_change_unresolved, durable snapshot).
     const foreign = externalEnvelopeRev10(root);
-    const foreignHash = sha256Hex(foreign);
+    const foreignHash = sha256HexNative(foreign);
     writeFileSync(scenePath(root), foreign);
     const trigger = svcA.runCommand(mutation(reqId('e2-t4a-trigger'), 0)) as MutOut;
     expect(trigger.ok).toBe(false);

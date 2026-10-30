@@ -6,11 +6,11 @@
  * proposal out, no decoding. The magic bytes decide the format (never the
  * file name); the container header's declared size decides the pixel budget.
  */
+import { sha256Hex } from '@thirdlight/shared';
 import { MAX_TEXTURE_EDGE } from '@thirdlight/project-model/limits';
 import { resolveImportJob } from './inspect';
 import { AUDIO_PIPELINE_NAME, AUDIO_PIPELINE_VERSION, M2_GLTF_MAX_DIAGNOSTICS } from './limits';
 import { decodedImageBytes, detectImageMime, imageDimensions, ktx2Info } from './images';
-import { sha256Hex } from './sha256';
 import type { ImportDiagnostic, ImportJobPort } from './types';
 
 /** Largest texture file accepted (bytes). */

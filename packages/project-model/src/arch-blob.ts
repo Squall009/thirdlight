@@ -7,10 +7,10 @@
  *
  * Pure.
  */
+import { utf8Decode, utf8Encode } from '@thirdlight/shared';
 import type { ArchitectureChunk, ArchitectureChunkMesh, ArchitectureCopySet } from './arch-generate';
 import type { ArchMeshArrays } from './arch-mesh';
 import { hasBinaryMagic, readBinaryBlob, wrapBinaryBlob } from './binary-container';
-import { utf8Decode, utf8Encode } from './sha256';
 
 /** The first bytes of a generated-architecture blob ("TLAR"). */
 export const ARCHITECTURE_BLOB_MAGIC = Object.freeze([0x54, 0x4c, 0x41, 0x52]);

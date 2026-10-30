@@ -21,9 +21,9 @@
  *
  * Pure data rules; the compiler is in behavior-build.
  */
+import { sha256HexOfText } from '@thirdlight/shared';
 import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
-import { sha256HexOfText } from './sha256';
 import { MAX_BEHAVIOR_FILES, MAX_BEHAVIOR_FILE_BYTES, MAX_BEHAVIOR_SOURCE_BYTES } from './content-limits';
 
 export interface ScriptLibraryFile {

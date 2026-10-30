@@ -13,7 +13,8 @@
   },
   "dependencies": {
     "@thirdlight/input": "0.1.0",
-    "@thirdlight/runtime": "0.1.0"
+    "@thirdlight/runtime": "0.1.0",
+    "@thirdlight/shared": "0.1.0"
   },
   "scripts": {
     "test": "vitest run"

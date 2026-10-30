@@ -20,7 +20,7 @@ import { contentCtx } from './service-content';
 import { libraryStageFacts, preparedFactsOf } from './behavior';
 import { externalChangeUnreadable, externalChangeUnresolved, pathRejected, writeFailed } from './errors';
 import { MANIFEST_REL_V4, manifestV2Bytes, withUntrackedSidecars, writeTransaction, type KnownFile, type V4State } from './store-v4';
-import { sha256Hex } from './digest';
+import { sha256HexNative } from './digest';
 import { hasTrimMaterials, withTrimDataRecorded } from './trim-data-upgrade';
 import { changedFiles, detectExternalChangeV4, gameRootOf, publishV4, setPendingUnreadableV4, type Placement } from './session-v4';
 import { pendingInfo, type Core, type ProjectSession } from './session';
@@ -385,7 +385,7 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
   // The state after the write (its known files are brought up to date only once the write is done).
   const nextState = (): V4State => {
     const files = plan.commitFiles();
-    if (manifestBytes !== null) files.set(MANIFEST_REL_V4, { bytes: manifestBytes, hash: sha256Hex(manifestBytes) });
+    if (manifestBytes !== null) files.set(MANIFEST_REL_V4, { bytes: manifestBytes, hash: sha256HexNative(manifestBytes) });
     return { manifest: manifest ?? state.manifest, content: nextContent, scenes: nextScenes, revision: newRevision, files, fileRecords: plan.fileRecords, resourcePaths: plan.resourcePaths, scenePaths: plan.scenePaths, formerPaths: plan.formerPaths };
   };
   if (!res.ok) {

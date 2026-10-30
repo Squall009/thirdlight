@@ -56,7 +56,17 @@ export const OWNED_FAMILIES = Object.freeze([
   {
     family: 'canonical-json',
     owner: 'packages/shared/src/canonical-json.ts',
-    names: ['canonicalJson', 'canonicalJsonText', 'canonicalize', 'compareCodePoints'],
+    names: [
+      'canonicalJson',
+      'canonicalJsonText',
+      'canonicalJsonTextStrict',
+      'canonicalJsonKey',
+      'canonicalJsonUtf16',
+      'canonicalJsonValue',
+      'indentedJsonText',
+      'canonicalize',
+      'compareCodePoints',
+    ],
   },
   { family: 'utf8', owner: 'packages/shared/src/utf8.ts', names: ['utf8Encode', 'utf8Decode', 'utf8Length'] },
   {

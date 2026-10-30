@@ -16,6 +16,7 @@
  * rewrote them).
  */
 
+import { sha256Hex } from '@thirdlight/shared';
 import { describe, it, expect } from 'vitest';
 import {
   GLOW_MODE_DEFAULT,
@@ -29,7 +30,6 @@ import {
   parseEnvelopeV3,
   parseSceneV3,
   serializeCanonical,
-  sha256Hex,
   validateContentV3,
   validateEnvelopeV3,
   validateProjectV3,

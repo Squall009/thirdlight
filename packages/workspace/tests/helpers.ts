@@ -11,7 +11,6 @@
 import { mkdirSync, cpSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync, statSync } from 'node:fs';
 import { tmpdir, uptime } from 'node:os';
 import { join, dirname } from 'node:path';
-import { createHash } from 'node:crypto';
 
 import { openWorkspaceService, type WorkspaceService, type WriteOps } from '@thirdlight/workspace';
 
@@ -156,9 +155,8 @@ export function fileBytes(p: string): Uint8Array {
   return new Uint8Array(readFileSync(p));
 }
 
-export function sha256Hex(bytes: Uint8Array | string): string {
-  return createHash('sha256').update(bytes).digest('hex');
-}
+import { sha256HexNative as sha256Hex } from '../src/digest';
+export { sha256Hex };
 
 /**
  * Compare an authoring-state disk against a fixture disk state: every file

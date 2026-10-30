@@ -10,6 +10,7 @@
  * `buildId` `41b5a60b…`) is in `tests/integration/m3-builds/` where Node
  * `crypto`/`fs` are allowed and the digests are re-derived independently.
  */
+import { sha256Hex } from '@thirdlight/shared';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -21,7 +22,6 @@ import {
   mediaProfileDigest,
   RUNTIME_CONTENT_MANIFEST_VERSION_4,
   MANIFEST_CONTENT_FILE_KEYS,
-  sha256Hex,
   validateManifestV2,
 } from './index';
 import { ASSETS, DIGEST, everyOptionalKey, MEDIA, ROLES, SETTINGS, v2Input } from './manifest-test-inputs';

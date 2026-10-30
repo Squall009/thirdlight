@@ -12,10 +12,10 @@
  * This lives under `tests/integration/**` because `behavior-build`'s allowed
  * edges contain no Node builtins.
  */
+import { sha256Hex, utf8Encode } from '@thirdlight/shared';
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 
-import { sha256Hex, utf8Encode } from '../../../packages/behavior-build/src/canonical';
 
 function nodeSha256(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex');

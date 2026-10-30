@@ -5,6 +5,7 @@
  * workers are compared in three-adapter's own test and the pixels in the
  * layered-material e2e.
  */
+import { sha256Hex } from '@thirdlight/shared';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -27,7 +28,6 @@ import { resolveProfile, sweepProfile } from '../packages/project-model/src/arch
 import type { ArchitectureComponent, ArchitectureProfile, ArchitectureSweep } from '../packages/project-model/src/architecture';
 import { validateArchitectureComponent } from '../packages/project-model/src/architecture';
 import { defaultTrimSheet, trimRowOf, trimRowV, type TrimSheet } from '../packages/project-model/src/trim-sheet';
-import { sha256Hex } from '../packages/project-model/src/sha256';
 import { architectureMeshPacker } from '../packages/exporter/src/architecture-meshes';
 import { TEST_PROFILES, testArchitecture } from './arch-test-style';
 

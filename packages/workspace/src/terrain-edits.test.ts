@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { flatTerrainTile, readTerrainTileBlob, setTerrainHole, terrainNoise, type TerrainTile } from '@thirdlight/project-model';
 
-import { sha256Hex } from './digest';
+import { sha256HexNative } from './digest';
 import { terrainBlobOf, terrainTileOfBlob } from './terrain-edits';
 
 function hills(samples: number): TerrainTile {
@@ -21,7 +21,7 @@ describe('terrain tile blobs', () => {
     const t = hills(129);
     setTerrainHole(t, 3, 4, true);
     const blob = terrainBlobOf(t);
-    expect(blob.digest).toBe(sha256Hex(blob.bytes));
+    expect(blob.digest).toBe(sha256HexNative(blob.bytes));
     expect(readTerrainTileBlob(blob.bytes).compression).toBe('gzip');
     expect(terrainTileOfBlob(blob.bytes)).toEqual(t);
     expect(terrainBlobOf(hills(129)).digest).not.toBe(blob.digest);

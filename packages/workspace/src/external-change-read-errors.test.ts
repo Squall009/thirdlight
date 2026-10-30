@@ -61,7 +61,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 
 import { openWorkspaceService, type WriteOps } from '@thirdlight/workspace';
 
-import { sha256Hex } from './digest';
+import { sha256HexNative } from './digest';
 import { defaultOps, writeAtomic } from './write';
 
 // ---- disposable roots (mkdtemp data roots; cleaned per test + backstop) ---
@@ -126,7 +126,7 @@ const LKG = new TextEncoder().encode('last-known-good envelope bytes (group C)')
 const FOREIGN = new TextEncoder().encode(
   '{"not":"a thirdlight envelope — foreign edit, must never be lost"}',
 );
-const FOREIGN_HASH = sha256Hex(FOREIGN);
+const FOREIGN_HASH = sha256HexNative(FOREIGN);
 /** The next-intended bytes for W-level tests (differ from LKG). */
 const INTENDED = new TextEncoder().encode('intended next envelope bytes (group C)');
 
@@ -355,7 +355,7 @@ describe('external-change reads: error and edge cases', () => {
     try {
       const target = join(dir, 'main.json');
       writeFileSync(target, LKG);
-      const prevHash = sha256Hex(LKG);
+      const prevHash = sha256HexNative(LKG);
       const flag: { on: boolean } = { on: false };
       const ops: WriteOps = {
         ...defaultOps,
@@ -425,7 +425,7 @@ describe('external-change reads: error and edge cases', () => {
     try {
       const target = join(dir, 'main.json');
       writeFileSync(target, LKG);
-      const prevHash = sha256Hex(LKG);
+      const prevHash = sha256HexNative(LKG);
       let renames = 0;
       let between: number[] = [];
       const ops: WriteOps = {
@@ -516,7 +516,7 @@ describe('external-change reads: error and edge cases', () => {
     try {
       const target = join(dir, 'main.json');
       writeFileSync(target, LKG);
-      const prevHash = sha256Hex(LKG);
+      const prevHash = sha256HexNative(LKG);
       let dirFlushes = 0;
       const ops: WriteOps = {
         ...defaultOps,
@@ -594,7 +594,7 @@ describe('external-change reads: error and edge cases', () => {
     try {
       const target = join(dir, 'main.json');
       writeFileSync(target, LKG);
-      const prevHash = sha256Hex(LKG);
+      const prevHash = sha256HexNative(LKG);
       let dirFlushes = 0;
       const ops: WriteOps = {
         ...defaultOps,
@@ -655,7 +655,7 @@ describe('external-change reads: error and edge cases', () => {
     try {
       const target = join(dir, 'main.json');
       writeFileSync(target, LKG);
-      const prevHash = sha256Hex(LKG);
+      const prevHash = sha256HexNative(LKG);
       let renames = 0;
       const ops: WriteOps = {
         ...defaultOps,
@@ -734,7 +734,7 @@ describe('external-change reads: error and edge cases', () => {
     try {
       const target = join(dir, 'main.json');
       writeFileSync(target, LKG);
-      const prevHash = sha256Hex(LKG);
+      const prevHash = sha256HexNative(LKG);
       const ops: WriteOps = {
         ...defaultOps,
         writeAll(fd, bytes) {

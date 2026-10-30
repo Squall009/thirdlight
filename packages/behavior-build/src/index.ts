@@ -53,7 +53,6 @@ export type { BehaviorPrepareResult } from './prepare';
 // Visual scripts (behavior graph → TypeScript → the same compiler).
 export { compileBehaviorGraph, diagnosticsWithNodes, generateGraphSource, graphProblemsFailure, GRAPH_SOURCE_BANNER } from './graph';
 export type { BehaviorGraphCompileResult, GraphSourceOptions, GraphSourceResult } from './graph';
-export { canonicalJsonText, sha256Hex, sha256HexOfText } from './canonical';
 // The script type check (the pinned TypeScript against the generated API typings).
 export { createScriptTypeChecker, SCRIPT_GLOBALS_DTS, TYPE_ERROR_CODE } from './type-check';
 export type { ScriptTypeChecker, ScriptTypeCheckInput, ScriptTypeCheckResult } from './type-check';

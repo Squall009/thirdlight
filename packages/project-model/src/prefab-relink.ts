@@ -7,27 +7,19 @@
  * again from the result. One diff, so a copy is only ever stored as overrides
  * that assemble back to exactly what was edited.
  */
+import { canonicalJsonKey } from '@thirdlight/shared';
 import type { AssemblyEntity, PrefabAssembler } from './prefab-assembly';
-import { canonicalJsonText } from './sha256';
 import type { PrefabLinkComponent, PrefabOverride } from './prefab-links';
 
 type Obj = Record<string, unknown>;
 const isObject = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
-
-/**
- * The canonical JSON text of a value (two values are the same object when it
- * is equal); an absent field stays apart from one set to null.
- */
-export function canonicalJson(v: unknown): string {
-  return v === undefined ? 'undefined' : canonicalJsonText(v);
-}
 
 /** A field name a part path can hold (paths are `/`-separated). */
 const pathSafe = (k: string): boolean => k.length > 0 && !k.includes('/');
 
 /** The overrides that turn `was` (the prefab's) into `now` (the copy's) at `path`. */
 function diffInto(out: PrefabOverride[], part: string, path: string, was: unknown, now: unknown): void {
-  if (canonicalJson(was) === canonicalJson(now)) return;
+  if (canonicalJsonKey(was) === canonicalJsonKey(now)) return;
   if (isObject(was) && isObject(now) && Object.keys({ ...was, ...now }).every(pathSafe)) {
     for (const k of Object.keys({ ...was, ...now })) {
       if (now[k] === undefined) out.push({ part, path: `${path}/${k}`, remove: true });
@@ -44,7 +36,7 @@ export function partOverrides(out: PrefabOverride[], key: string, pristine: Asse
   if (!isRoot) {
     for (const f of ['name', 'tags'] as const) {
       if (now[f] === undefined && pristine[f] !== undefined) out.push({ part: key, path: f, remove: true });
-      else if (now[f] !== undefined && canonicalJson(now[f]) !== canonicalJson(pristine[f])) out.push({ part: key, path: f, value: now[f] });
+      else if (now[f] !== undefined && canonicalJsonKey(now[f]) !== canonicalJsonKey(pristine[f])) out.push({ part: key, path: f, value: now[f] });
     }
   }
   const was = pristine.components as Obj;
@@ -67,7 +59,7 @@ export function linkedRoot(root: Obj, pristineRoot: AssemblyEntity, rootKey: str
   for (const [k, v] of Object.entries(root)) if (k !== 'components' && k !== 'name' && k !== 'tags') own[k] = v;
   for (const f of ['name', 'tags'] as const) {
     if (root[f] === undefined && pristineRoot[f] !== undefined) overrides.push({ part: rootKey, path: f, remove: true });
-    else if (root[f] !== undefined && canonicalJson(root[f]) !== canonicalJson(pristineRoot[f])) own[f] = root[f];
+    else if (root[f] !== undefined && canonicalJsonKey(root[f]) !== canonicalJsonKey(pristineRoot[f])) own[f] = root[f];
   }
   const link: PrefabLinkComponent = { prefabId, ...(overrides.length > 0 ? { overrides } : {}), ...(partIds !== undefined && Object.keys(partIds).length > 0 ? { partIds } : {}) };
   return { ...own, components: { transform: (root['components'] as Obj)['transform'], prefab: link } };
@@ -133,7 +125,7 @@ export function relinkCopy(assembler: PrefabAssembler, stored: AssemblyEntity, n
   const made = assembler.assembleCopy(next as AssemblyEntity);
   for (const m of made.entities) {
     const e = now(m.id);
-    if (e === undefined || canonicalJson(m) !== canonicalJson(e)) {
+    if (e === undefined || canonicalJsonKey(m) !== canonicalJsonKey(e)) {
       return { ok: false, reason: 'unrepresentable', entityId: m.id, message: `the change to "${m.id}" is not one a copy can keep as an override (a part's own flags, or a field the prefab's parts do not hold): edit the prefab, or unpack the copy` };
     }
   }

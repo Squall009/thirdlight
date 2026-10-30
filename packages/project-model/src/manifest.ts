@@ -1,3 +1,4 @@
+import { canonicalJsonText, sha256Hex, sha256HexOfText } from '@thirdlight/shared';
 /**
  * The runtime-content manifest's shared pieces: its discriminator, the content
  * file size caps, the build-options record, the engine pins and module table
@@ -8,7 +9,6 @@
  * This module is in the zero-dependency `project-model` leaf because the
  * canonical JSON text and the SHA-256 helpers (`./sha256`) already live here.
  */
-import { canonicalJsonText, sha256Hex, sha256HexOfText } from './sha256';
 
 /** The manifest discriminator. */
 export const RUNTIME_CONTENT_TYPE = 'thirdlight-runtime-content' as const;

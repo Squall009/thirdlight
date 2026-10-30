@@ -273,8 +273,6 @@ export {
   type EmittedArtifactDigest,
   type ManifestBehaviorInput,
 } from './manifest';
-export { canonicalJsonText, sha256Hex, sha256HexOfText,
-  sha256HexAsync, sha256Hex as sha256HexBytes } from './sha256';
 
 // The pure manifest v2 derivation — the immutable runtime-content identity,
 // the captured v3 content view, the media identity and the strict v2 reader
@@ -411,7 +409,7 @@ export { canonicalLoadable, ENV_PRESETS_LIST, isAddress, isLoadable, liveLoadabl
 export { PREFAB_EXCLUDED_COMPONENTS, PREFAB_V4_COMPONENTS, canonicalPrefabs, validatePrefabDefinitions } from './content';
 // Linked copies: the override format, part paths and ids, nesting cycles, and assembly into plain objects.
 export { isPartKey, isPrefabLink, keptPartIds, nestedPrefabIds, partPathKey, partPathOf, prefabNestingCycles, prefabPartId, prefabStageId, prefabStageRootOf, validatePrefabLink, PART_PATH_SEPARATOR, PREFAB_STAGE_ID_PREFIX, type PrefabFieldOverride, type PrefabFieldRemoval, type PrefabLinkComponent, type PrefabOverride, type PrefabPartRemoval } from './prefab-links';
-export { canonicalJson, relinkCopy, type RelinkResult } from './prefab-relink';
+export { relinkCopy, type RelinkResult } from './prefab-relink';
 export { applyPartField, assembleSceneEntities, createPrefabAssembler, sceneObjectsAssembled, flatPrefabEntities, isPrivateProperty, type AssemblyEntity, type AssemblyPrefab, type AssemblyPrefabEntity, type PrefabAssembler, type PrefabAssemblerOptions, type PrefabAssemblyProblem, type PrefabAssemblyProblemCode } from './prefab-assembly';
 export { COMPONENT_ENTITY_REFS, componentRefsNaming, mapComponentRefs, mapRefsInValue, valueAtPath, setValueAtPath } from './prefab-entity-refs';
 export { declarationBytes } from './content-behaviors';

@@ -23,9 +23,9 @@
  *
  * Browser-only (WebGL/WebGPU, DOM, Web Audio, Web Crypto).
  */
+import { sha256HexAsync } from '@thirdlight/shared';
 import { PREVIEW_MODULE_SPECS } from './module-specs';
 import type { RuntimeSnapshot } from '@thirdlight/runtime';
-import { sha256HexAsync } from '@thirdlight/project-model';
 import {
   openRuntimeContent,
   type GameHost,

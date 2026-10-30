@@ -4,7 +4,7 @@
  * and version patterns.
  */
 
-import { utf8Encode } from './sha256';
+import { utf8Encode } from '@thirdlight/shared';
 import { withFound } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { MAX_SOURCE_PATH_LENGTH } from './content-limits';

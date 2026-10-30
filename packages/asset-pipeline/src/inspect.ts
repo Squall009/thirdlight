@@ -20,6 +20,7 @@
  * wall-clock value is ever persisted in the proposal.
  */
 
+import { canonicalJsonText, sha256Hex, sha256HexOfText } from '@thirdlight/shared';
 import type { AssetMetrics, ImportRecipe } from '@thirdlight/project-model';
 import type { AudioImportProposal, AudioRecipe } from './inspect-audio';
 import {
@@ -36,7 +37,6 @@ import {
   M2_GLTF_SOURCE_BYTES,
   M2_GLTF_TOOLCHAIN,
 } from './limits';
-import { canonicalJsonText, sha256Hex, sha256HexOfText } from './sha256';
 import type { ImportDiagnostic, ImportInspection, ImportJobPort, ImportLimits, ImportMetadataFacts, ImportOptions, ImportProposal, PrepareImportOptions } from './types';
 import { isPlainObject, diag, ptr, GlbState, type ResolvedAnimation, type ResolvedJob } from './inspect-glb-state';
 import { checkContainer, checkChunks, checkJson, checkVersionAndExtensions } from './inspect-glb-container';

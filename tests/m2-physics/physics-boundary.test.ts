@@ -37,7 +37,7 @@ describe('runtime core imports no physics implementation', () => {
   it('declares no Rapier dependency and no physics-rapier edge', () => {
     const runtime = packageJson('runtime');
     const deps = (runtime['dependencies'] ?? {}) as Record<string, string>;
-    expect(Object.keys(deps)).toEqual(['@thirdlight/project-model']);
+    expect(Object.keys(deps)).toEqual(['@thirdlight/project-model', '@thirdlight/shared']);
   });
 
   it('contains no Rapier import anywhere in its sources', () => {

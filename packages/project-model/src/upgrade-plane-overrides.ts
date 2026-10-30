@@ -11,9 +11,10 @@
  * written again as the difference from the converted prefab's part — the
  * same diff the commands store a copy with.
  */
+import { canonicalJsonKey } from '@thirdlight/shared';
 import { createPrefabAssembler, type AssemblyEntity, type AssemblyPrefab, type PrefabAssembler } from './prefab-assembly';
 import { nestedPrefabIds, type PrefabOverride } from './prefab-links';
-import { canonicalJson, partOverrides } from './prefab-relink';
+import { partOverrides } from './prefab-relink';
 import { isPlainObject } from './validate';
 
 type Obj = Record<string, unknown>;
@@ -81,7 +82,7 @@ export function linkBodyOverrides3D(link: unknown, before: PrefabAssembler, afte
     const out: PrefabOverride[] = [];
     partOverrides(out, part, { id: ASSEMBLY_ID, components: pick(b.components, comps) }, { components: pick(convert(w.components as Obj), comps) }, true);
     rewritten.set(part, out);
-    if (canonicalJson(out) !== canonicalJson(old)) count += out.length;
+    if (canonicalJsonKey(out) !== canonicalJsonKey(old)) count += out.length;
   }
   if (count === 0) return none;
   // Each part's new body overrides stand where its first one stood.

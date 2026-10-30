@@ -25,9 +25,10 @@
  *
  * Pure: works on the raw documents before they are validated.
  */
+import { canonicalJsonKey } from '@thirdlight/shared';
 import { assembleSceneEntities, createPrefabAssembler, type AssemblyEntity, type AssemblyPrefab } from './prefab-assembly';
 import type { PrefabOverride } from './prefab-links';
-import { canonicalJson, linkedRoot, partOverrides } from './prefab-relink';
+import { linkedRoot, partOverrides } from './prefab-relink';
 import type { DeclaredProperty } from './types-v2';
 
 type Obj = Record<string, unknown>;
@@ -45,7 +46,7 @@ export interface LinkPrefabCopiesResult {
   notes: string[];
 }
 
-const canon = canonicalJson;
+const canon = canonicalJsonKey;
 
 /** A part's provenance (`{prefabId, localId}`), or null. */
 function provenanceOf(e: Obj): { prefabId: string; localId: string } | null {

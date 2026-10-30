@@ -10,6 +10,7 @@
  * adversarial fixture outputs.
  */
 
+import { sha256Hex } from '@thirdlight/shared';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -26,7 +27,6 @@ import {
 function proposalSourceBytes(): number {
   return M2_GLTF_SOURCE_BYTES;
 }
-import { sha256Hex } from './sha256';
 import { expectedIndex, fixtureBytes } from './test-fixtures';
 
 const index = expectedIndex();

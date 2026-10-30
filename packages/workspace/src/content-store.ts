@@ -45,7 +45,7 @@ import type {
 } from '@thirdlight/asset-pipeline';
 import type { BehaviorCompiler, PreparedBehaviorSource } from '@thirdlight/behavior-build';
 
-import { sha256Hex } from './digest';
+import { sha256HexNative } from './digest';
 import {
   assetSourceChanged,
   assetSourceMissing,
@@ -575,7 +575,7 @@ export function stageContent(
       // absent is fine
     }
   }
-  const digest = sha256Hex(bytes);
+  const digest = sha256HexNative(bytes);
   const expiresAt = new Date(core.content.now() + STAGE_TTL_SECONDS * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
   return { ok: true, stageId, byteLength: bytes.length, digest, expiresAt };
 }
@@ -646,7 +646,7 @@ export function resolveStage(
   } catch {
     return { ok: false, error: stageNotFound(stageId) };
   }
-  return { ok: true, stage: { stageId, dir, bytes, digest: sha256Hex(bytes) } };
+  return { ok: true, stage: { stageId, dir, bytes, digest: sha256HexNative(bytes) } };
 }
 
 /** `discardStage(projectId, stageId)`. */
@@ -766,7 +766,7 @@ export function publishBlob(
   if (bytes.length > MAX_SOURCE_BYTES) {
     return { ok: false, error: stageLimitError('stage_bytes', bytes.length, MAX_SOURCE_BYTES) };
   }
-  const actual = sha256Hex(bytes);
+  const actual = sha256HexNative(bytes);
   // A caller-supplied digest/byteLength is never authoritative.
   if (actual !== digest || bytes.length !== byteLength) {
     return { ok: false, error: blobCorrupt(digest, `sources/sha256/${digest}`, actual) };
@@ -792,7 +792,7 @@ export function publishBlob(
       if (r.code === 'ENOENT') return { ok: false, error: contentPublishFailed('write') };
       return { ok: false, error: blobCorrupt(digest, target) };
     }
-    const h = sha256Hex(r.bytes);
+    const h = sha256HexNative(r.bytes);
     if (h === digest) return { ok: true, digest, byteLength: bytes.length, published: false, alreadyPresent: true };
     return { ok: false, error: blobCorrupt(digest, target, h) };
   }
@@ -816,7 +816,7 @@ export function publishBlob(
   });
   if (wr.ok) return { ok: true, digest, byteLength: bytes.length, published: true, alreadyPresent: false };
   if (wr.external) {
-    const h = sha256Hex(wr.external.bytes);
+    const h = sha256HexNative(wr.external.bytes);
     if (h === digest) return { ok: true, digest, byteLength: bytes.length, published: false, alreadyPresent: true };
     return { ok: false, error: blobCorrupt(digest, target, h) };
   }
@@ -945,7 +945,7 @@ export function readBlob(
     // A project from before the import cache kept them in the blob store.
     const legacy = join(ctx.dir, 'sources', 'sha256', found.digest);
     const r = readBlobBytes(legacy);
-    if (r.ok && sha256Hex(r.bytes) === found.digest) {
+    if (r.ok && sha256HexNative(r.bytes) === found.digest) {
       return { ok: true, assetId: request.assetId, version: found.version, digest: found.digest, byteLength: r.bytes.length, verified: true, bytes: r.bytes };
     }
     return { ok: false, error: importedMissing(found.digest, found.convertedFrom.sourcePath ?? found.convertedFrom.sourceDigest, request.assetId, found.version) };
@@ -981,7 +981,7 @@ export function readBlob(
     if (r.code === 'ENOENT') return { ok: false, error: blobMissing(found.digest, `sources/sha256/${found.digest}`, request.assetId, found.version) };
     return { ok: false, error: blobCorrupt(found.digest, path, undefined, request.assetId, found.version) };
   }
-  const h = sha256Hex(r.bytes);
+  const h = sha256HexNative(r.bytes);
   if (h !== found.digest || r.bytes.length !== found.byteLength) {
     return { ok: false, error: blobCorrupt(found.digest, path, h, request.assetId, found.version) };
   }
@@ -1042,7 +1042,7 @@ export function readSourceBlob(
     if (r.code === 'ENOENT') return { ok: false, error: blobMissing(digest, `sources/sha256/${digest}`) };
     return { ok: false, error: blobCorrupt(digest, path) };
   }
-  const h = sha256Hex(r.bytes);
+  const h = sha256HexNative(r.bytes);
   if (h !== digest) return { ok: false, error: blobCorrupt(digest, path, h) };
   return { ok: true, digest, byteLength: r.bytes.length, bytes: r.bytes, verified: true };
 }
@@ -1154,7 +1154,7 @@ function readReferencedSource(
 ): { ok: true; bytes: Uint8Array } | { ok: false; error: CommandError } {
   const r = readProjectFileBytes(ctx, sourcePath);
   if (!r.ok) return { ok: false, error: r.missing === true ? assetSourceMissing(digest, sourcePath, assetId, version) : r.error };
-  const h = sha256Hex(r.bytes);
+  const h = sha256HexNative(r.bytes);
   rememberRead(ctx, r.real, r.bytes.length, h);
   if (h !== digest || r.bytes.length !== byteLength) {
     return { ok: false, error: assetSourceChanged(digest, sourcePath, h, assetId, version) };
@@ -1266,7 +1266,7 @@ export function conversionSource(ctx: ContentContext, sourcePath: unknown): Conv
   if (res.size > MAX_CONVERTED_SOURCE_BYTES) return { ok: false, error: stageLimitError('stage_bytes', res.size, MAX_CONVERTED_SOURCE_BYTES) };
   const r = readBlobBytes(res.real);
   if (!r.ok) return { ok: false, error: pathRejected(path, `${path} could not be read`) };
-  const digest = sha256Hex(r.bytes);
+  const digest = sha256HexNative(r.bytes);
   rememberRead(ctx, res.real, r.bytes.length, digest);
   return { ok: true, sourcePath: path, real: res.real, digest, byteLength: r.bytes.length };
 }
@@ -1283,7 +1283,7 @@ export function verifyConvertedOriginal(ctx: ContentContext, original: Converted
   if (original.sourcePath === undefined) return verifyReferencedBlob(ctx, original.sourceDigest, original.sourceByteLength);
   const r = readProjectFileBytes(ctx, original.sourcePath);
   if (!r.ok) return { ok: false, error: r.missing === true ? assetSourceMissing(original.sourceDigest, original.sourcePath) : r.error };
-  const h = sha256Hex(r.bytes);
+  const h = sha256HexNative(r.bytes);
   if (h !== original.sourceDigest || r.bytes.length !== original.sourceByteLength) {
     return { ok: false, error: assetSourceChanged(original.sourceDigest, original.sourcePath, h) };
   }
@@ -1315,7 +1315,7 @@ export function inspectProjectFile(
   if (!read.ok) return read;
   const path = sourcePath as string;
   if (read.bytes.length === 0) return { ok: false, error: pathRejected(path, `${path} is empty`) };
-  rememberRead(ctx, read.real, read.bytes.length, sha256Hex(read.bytes));
+  rememberRead(ctx, read.real, read.bytes.length, sha256HexNative(read.bytes));
   const makeProposalId = options.proposalId ?? defaultProposalId;
   const expiresAt = new Date(core.content.now() + STAGE_TTL_SECONDS * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
   const job: ImportJobPort = {
@@ -1587,7 +1587,7 @@ export function verifyReferencedBlob(
     if (r.code === 'ENOENT') return { ok: false, error: blobMissing(digest, `sources/sha256/${digest}`) };
     return { ok: false, error: blobCorrupt(digest, path) };
   }
-  const h = sha256Hex(r.bytes);
+  const h = sha256HexNative(r.bytes);
   if (h !== digest || r.bytes.length !== byteLength) return { ok: false, error: blobCorrupt(digest, path, h) };
   return { ok: true };
 }
@@ -1600,7 +1600,7 @@ export function verifyReferencedBlob(
 export function verifyImported(ctx: ContentContext, conv: ConvertedLike, digest: string): { ok: true } | { ok: false; error: CommandError } {
   if (readImported(ctx, importKeyOfConverted(conv), digest) !== null) return { ok: true };
   const r = readBlobBytes(join(ctx.dir, 'sources', 'sha256', digest));
-  if (r.ok && sha256Hex(r.bytes) === digest) return { ok: true };
+  if (r.ok && sha256HexNative(r.bytes) === digest) return { ok: true };
   return { ok: false, error: blobMissing(digest, `cache/imported/${conv.sourceDigest}/`) };
 }
 

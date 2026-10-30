@@ -1,8 +1,8 @@
+import { utf8Encode } from '@thirdlight/shared';
 import { describe, expect, it } from 'vitest';
 
 import { canonicalContainerText } from './container';
 import { createBehaviorCompiler } from './compile';
-import { utf8Encode } from './canonical';
 
 const container = (files: { path: string; text: string }[]): Uint8Array =>
   utf8Encode(canonicalContainerText({ graphVersion: 1, entryPath: 'src/index.ts', requiredModules: ['@thirdlight/runtime'], ownedTransforms: [], files: [...files].sort((a, b) => (a.path < b.path ? -1 : 1)) }));

@@ -24,6 +24,7 @@
  *
  * Pure.
  */
+import { canonicalJsonText, sha256HexOfText } from '@thirdlight/shared';
 import { len3, DEG, detSinCos, hashString, hashText64, quatFromBasis, seededRandom, yawQuat } from './arch-math';
 import { ArchChunkWriters, type ArchMeshArrays, ArchMeshWriter, triangulatePolygon } from './arch-mesh';
 import { authoredSegments, type PathSamples, pathPointAt, samplePath } from './arch-path';
@@ -50,7 +51,6 @@ import {
   type ArchitectureSweep,
   architectureMaterialSlots,
 } from './architecture';
-import { canonicalJsonText, sha256HexOfText } from './sha256';
 import { INSTANCE_FLOATS } from './types-v3';
 import { equalTrimRows, TRIM_STARTER_LAYOUT, type TrimRow, type TrimSheet, trimRowOf } from './trim-sheet';
 import { GEOMETRY_EPS } from './geometry-tolerance';

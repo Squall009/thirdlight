@@ -25,6 +25,7 @@
  * container). Counters + the real context
  * state prove the graph, not the ear.
  */
+import { sha256HexAsync } from '@thirdlight/shared';
 import {
   AUDIO_MAX_VOICES,
   browserContextFactory,
@@ -135,13 +136,6 @@ function expectedDurationSeconds(bytes: Uint8Array): number {
   return dv.getUint32(40, true) / 2 / 48_000;
 }
 
-async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const copy = new Uint8Array(bytes.length);
-  copy.set(bytes);
-  const digest = await crypto.subtle.digest('SHA-256', copy.buffer as ArrayBuffer);
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
-}
-
 async function loadFixture(file: string): Promise<{ bytes: Uint8Array; expectedSha: string; actualSha: string; match: boolean }> {
   const [blobRes, indexRes] = await Promise.all([
     fetch(file),
@@ -152,7 +146,7 @@ async function loadFixture(file: string): Promise<{ bytes: Uint8Array; expectedS
   const index = (await indexRes.json()) as { files: Record<string, { sha256: string; bytes: number }> };
   const entry = index.files[file];
   const expectedSha = entry?.sha256 ?? 'missing-from-index';
-  const actualSha = await sha256Hex(bytes);
+  const actualSha = await sha256HexAsync(bytes);
   return { bytes, expectedSha, actualSha, match: actualSha === expectedSha && entry?.bytes === bytes.length };
 }
 

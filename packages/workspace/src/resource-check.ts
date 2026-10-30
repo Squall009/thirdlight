@@ -32,7 +32,7 @@ import { join } from 'node:path';
 import { nextFreeEntityIdOf, validateContentV4, validateSceneV4, type ContentCatalogV4, type SceneV4 } from '@thirdlight/project-model';
 import type { AdoptedScene, PreparedResourceImport, PreparedResourceRecord } from '@thirdlight/commands';
 
-import { sha256Hex } from './digest';
+import { sha256HexNative } from './digest';
 import { freeAssetId, idStemOf } from './folder-import';
 import { ENV_PRESETS, gamePathOf, gameRel, parseResourceFile, recordsOfKind, resourceKindOfList, resourceStem, scanResourceFiles, type ResourceKind } from './resource-files';
 import { sceneChunkFormat } from './chunk-files';
@@ -204,7 +204,7 @@ export function checkResourceFiles(core: Core, s: ProjectSession): { report: Res
   const current = state;
 
   const pause = (rel: string, bytes: Uint8Array): { report: ResourceCheckReport; prepared: boolean } => {
-    detectExternalChangeV4(core, s, { rel, bytes, hash: sha256Hex(bytes) });
+    detectExternalChangeV4(core, s, { rel, bytes, hash: sha256HexNative(bytes) });
     report.paused = gamePathOf(rel) ?? rel;
     return { report, prepared: false };
   };
@@ -218,7 +218,7 @@ export function checkResourceFiles(core: Core, s: ProjectSession): { report: Res
       if (goneScenes.some((g) => g.path === path)) return pause(rel, new Uint8Array(0));
       continue;
     }
-    if (sha256Hex(bytes) !== current.files.get(rel)?.hash) return pause(rel, bytes);
+    if (sha256HexNative(bytes) !== current.files.get(rel)?.hash) return pause(rel, bytes);
   }
 
   const records: PreparedResourceRecord[] = [];
@@ -250,7 +250,7 @@ export function checkResourceFiles(core: Core, s: ProjectSession): { report: Res
       if (seen.get(rel) === stamp) continue;
       const bytes = read(path);
       if (bytes === null) continue;
-      const hash = sha256Hex(bytes);
+      const hash = sha256HexNative(bytes);
       if (hash === known?.hash) {
         seen.set(rel, stamp);
         continue;
@@ -292,7 +292,7 @@ export function checkResourceFiles(core: Core, s: ProjectSession): { report: Res
     content = next;
     records.push({ list: u.kind.list, idKey: u.kind.idKey, id, record });
     at.set(formerKey(u.kind.list, id), u.path);
-    disk.set(gameRel(u.path), { bytes: u.bytes, hash: sha256Hex(u.bytes) });
+    disk.set(gameRel(u.path), { bytes: u.bytes, hash: sha256HexNative(u.bytes) });
     report.adopted.push({ kind: u.kind.kind, id, path: u.path, ...(copy ? { copyOf: u.id } : {}) });
   }
 
@@ -322,7 +322,7 @@ export function checkResourceFiles(core: Core, s: ProjectSession): { report: Res
     sceneIds.add(sceneId);
     scenes.push({ sceneId, name: sceneNameOf(f.path, sceneId), scene });
     at.set(formerKey('scene', sceneId), f.path);
-    disk.set(gameRel(f.path), { bytes: f.bytes, hash: sha256Hex(f.bytes) });
+    disk.set(gameRel(f.path), { bytes: f.bytes, hash: sha256HexNative(f.bytes) });
     report.adopted.push({ kind: 'scene', id: sceneId, path: f.path, ...(copy ? { copyOf: fromId } : {}) });
   }
 

@@ -16,12 +16,8 @@ import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import * as assetPipeline from '../packages/asset-pipeline/src/sha256';
-import * as behaviorBuild from '../packages/behavior-build/src/canonical';
-import * as projectModel from '../packages/project-model/src/sha256';
+import * as shared from '@thirdlight/shared';
 import * as workspace from '../packages/workspace/src/digest';
-import { canonicalJson as exporterCanonicalJson } from '../packages/exporter/src/canonical';
-import { canonicalJson as prefabCanonicalJson } from '../packages/project-model/src/prefab-relink';
 import { Rng } from '../packages/effects/src/rng';
 import { seededRandom } from '../packages/project-model/src/arch-math';
 import { prng } from '../packages/editor/src/session/instances';
@@ -36,18 +32,14 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const reference = (bytes: Uint8Array | string): string => createHash('sha256').update(bytes).digest('hex');
 const digestOf = (values: ArrayLike<number>): string => reference(new Uint8Array(Float64Array.from(values).buffer));
 
-/** Every synchronous SHA-256 copy over bytes, by where it lives. */
+/** Every synchronous SHA-256 over bytes: the shared one, and the backend's node:crypto one. */
 const SHA256_COPIES: Record<string, (bytes: Uint8Array) => string> = {
-  'asset-pipeline': assetPipeline.sha256Hex,
-  'behavior-build': behaviorBuild.sha256Hex,
-  'project-model': projectModel.sha256Hex,
-  workspace: workspace.sha256Hex,
+  shared: shared.sha256Hex,
+  'workspace native': workspace.sha256HexNative,
 };
-/** Every SHA-256-of-text copy. */
+/** SHA-256 of text. */
 const SHA256_TEXT_COPIES: Record<string, (text: string) => string> = {
-  'asset-pipeline': assetPipeline.sha256HexOfText,
-  'behavior-build': behaviorBuild.sha256HexOfText,
-  'project-model': projectModel.sha256HexOfText,
+  shared: shared.sha256HexOfText,
 };
 
 /** Content-addressed files in the committed fixtures: each file is named by its digest. */
@@ -127,7 +119,7 @@ describe('SHA-256: every copy gives the stored digests', () => {
       const bytes = patterned(n);
       expect(reference(bytes), `node:crypto, ${n} bytes`).toBe(PADDING_GOLDENS[n]);
       for (const [where, sha] of Object.entries(SHA256_COPIES)) expect(sha(bytes), `${where}, ${n} bytes`).toBe(PADDING_GOLDENS[n]);
-      expect(await projectModel.sha256HexAsync(bytes), `project-model async, ${n} bytes`).toBe(PADDING_GOLDENS[n]);
+      expect(await shared.sha256HexAsync(bytes), `shared async, ${n} bytes`).toBe(PADDING_GOLDENS[n]);
     }
   });
 
@@ -148,22 +140,21 @@ describe('SHA-256: every copy gives the stored digests', () => {
 });
 
 /**
- * Canonical JSON. The copies already differ, so each keeps its own goldens,
- * named by its variant: "keys by code point" (compact, keys sorted by code
- * point; the four copies agree on every input), "keys by UTF-16 unit" (the
+ * Canonical JSON. The variants differ, so each keeps its own goldens:
+ * "keys by code point" (compact, keys sorted by code point; the plain, strict
+ * and key forms agree on every JSON input), "keys by UTF-16 unit" (the
  * same text while every key is in the BMP, as in the fixture documents, but
  * not for the astral key of the edge value) and "indented, keys as inserted"
- * (the exporter's document text: not sorted at all). A move may merge only
- * copies whose goldens agree.
+ * (the exporter's document text: not sorted at all). Variants may merge only
+ * if their goldens agree.
  */
 const CANONICAL_VARIANTS: Record<string, (value: unknown) => string> = {
-  'keys by code point: asset-pipeline canonicalJsonText': assetPipeline.canonicalJsonText,
-  'keys by code point: behavior-build canonicalJsonText': behaviorBuild.canonicalJsonText,
-  'keys by code point: project-model canonicalJsonText': projectModel.canonicalJsonText,
-  'keys by code point: project-model prefab-relink canonicalJson': prefabCanonicalJson,
-  'keys by UTF-16 unit: workspace canonicalize': workspace.canonicalize,
-  'indented, keys as inserted: exporter canonicalJson': (v) => exporterCanonicalJson(v),
-  'indented, keys as inserted: exporter canonicalJson at depth 2': (v) => exporterCanonicalJson(v, 2),
+  'keys by code point: canonicalJsonText': shared.canonicalJsonText,
+  'keys by code point: canonicalJsonTextStrict': shared.canonicalJsonTextStrict,
+  'keys by code point: canonicalJsonKey': shared.canonicalJsonKey,
+  'keys by UTF-16 unit: canonicalJsonUtf16': shared.canonicalJsonUtf16,
+  'indented, keys as inserted: indentedJsonText': (v) => shared.indentedJsonText(v),
+  'indented, keys as inserted: indentedJsonText at depth 2': (v) => shared.indentedJsonText(v, 2),
 };
 /** Real documents from the committed fixtures, and one value at the edges (key order across UTF-16 and code points, escapes, numbers). */
 const DOCUMENTS = [
@@ -182,7 +173,7 @@ const EDGES = {
   nested: { y: { b: [], a: {} }, x: [[1, [2]], 'z'] },
 };
 const CANONICAL_GOLDENS: Record<string, Record<string, string>> = {
-  "keys by code point: asset-pipeline canonicalJsonText": {
+  "keys by code point: canonicalJsonText": {
     "fixtures/phase26/legacy-v4-build/project/project.json": '7ba829855e38489970b422f3a15d0b76757d1b64a12e02281e7abcb46f4458c0',
     "fixtures/phase26/legacy-v4-build/project/content.json": '68fc6e837e502f7ebd606360ed76a7cc7e941e05109b2ce3a1a43de484909414',
     "fixtures/phase26/legacy-v4-build/project/scenes/scene-main.json": '001164d31263319885cc91e0c10ec5c049d5bb8a74c6f6363e106ace1ac3284e',
@@ -191,7 +182,7 @@ const CANONICAL_GOLDENS: Record<string, Record<string, string>> = {
     "fixtures/phase26/legacy-v4-build/build/manifest.json": 'a2f4fc83dfbdf7d67204d57ebfdc974a441a9fa9ab2fea0674f6561e8c014c98',
     "edges": '2cc433c05e7b264f413f68b095ba3263792898f4992b563e912c5e8fd6c3e818',
   },
-  "keys by code point: behavior-build canonicalJsonText": {
+  "keys by code point: canonicalJsonTextStrict": {
     "fixtures/phase26/legacy-v4-build/project/project.json": '7ba829855e38489970b422f3a15d0b76757d1b64a12e02281e7abcb46f4458c0',
     "fixtures/phase26/legacy-v4-build/project/content.json": '68fc6e837e502f7ebd606360ed76a7cc7e941e05109b2ce3a1a43de484909414',
     "fixtures/phase26/legacy-v4-build/project/scenes/scene-main.json": '001164d31263319885cc91e0c10ec5c049d5bb8a74c6f6363e106ace1ac3284e',
@@ -200,16 +191,7 @@ const CANONICAL_GOLDENS: Record<string, Record<string, string>> = {
     "fixtures/phase26/legacy-v4-build/build/manifest.json": 'a2f4fc83dfbdf7d67204d57ebfdc974a441a9fa9ab2fea0674f6561e8c014c98',
     "edges": '2cc433c05e7b264f413f68b095ba3263792898f4992b563e912c5e8fd6c3e818',
   },
-  "keys by code point: project-model canonicalJsonText": {
-    "fixtures/phase26/legacy-v4-build/project/project.json": '7ba829855e38489970b422f3a15d0b76757d1b64a12e02281e7abcb46f4458c0',
-    "fixtures/phase26/legacy-v4-build/project/content.json": '68fc6e837e502f7ebd606360ed76a7cc7e941e05109b2ce3a1a43de484909414',
-    "fixtures/phase26/legacy-v4-build/project/scenes/scene-main.json": '001164d31263319885cc91e0c10ec5c049d5bb8a74c6f6363e106ace1ac3284e',
-    "fixtures/phase26/legacy-v4-build/project/assets/materials/wall-mat.material.json": '3c8ee6b239a0fdf6abfe3c05663957a17c4e87edf1d6958e678e1034fc35ed06',
-    "fixtures/phase26/legacy-v4-build/project/assets/prefabs/crate-prefab.prefab.json": 'f153c9d0fdd52a7a47dcab3cb096f45ad8b243cae2db1d4a50c47b66c87b6f52',
-    "fixtures/phase26/legacy-v4-build/build/manifest.json": 'a2f4fc83dfbdf7d67204d57ebfdc974a441a9fa9ab2fea0674f6561e8c014c98',
-    "edges": '2cc433c05e7b264f413f68b095ba3263792898f4992b563e912c5e8fd6c3e818',
-  },
-  "keys by UTF-16 unit: workspace canonicalize": {
+  "keys by UTF-16 unit: canonicalJsonUtf16": {
     "fixtures/phase26/legacy-v4-build/project/project.json": '7ba829855e38489970b422f3a15d0b76757d1b64a12e02281e7abcb46f4458c0',
     "fixtures/phase26/legacy-v4-build/project/content.json": '68fc6e837e502f7ebd606360ed76a7cc7e941e05109b2ce3a1a43de484909414',
     "fixtures/phase26/legacy-v4-build/project/scenes/scene-main.json": '001164d31263319885cc91e0c10ec5c049d5bb8a74c6f6363e106ace1ac3284e',
@@ -218,7 +200,7 @@ const CANONICAL_GOLDENS: Record<string, Record<string, string>> = {
     "fixtures/phase26/legacy-v4-build/build/manifest.json": 'a2f4fc83dfbdf7d67204d57ebfdc974a441a9fa9ab2fea0674f6561e8c014c98',
     "edges": '648dae3ca41696ec37d578e3a7edd6ce8aac4f3c175a938a0582eba03688b130',
   },
-  "indented, keys as inserted: exporter canonicalJson": {
+  "indented, keys as inserted: indentedJsonText": {
     "fixtures/phase26/legacy-v4-build/project/project.json": 'd2fff9c43bc6f5c569d2b1ce31e23f6a55f719c225567c4c1e362271351eac81',
     "fixtures/phase26/legacy-v4-build/project/content.json": '3940a23346ee4aaf7e9e4babf10ddcc2ea99408b89c452daf7fafec884bda261',
     "fixtures/phase26/legacy-v4-build/project/scenes/scene-main.json": '25c5df0a7f23d03cff096a8c765895dd24a8d313740cfd78f40f4f8a982dd1dc',
@@ -227,7 +209,7 @@ const CANONICAL_GOLDENS: Record<string, Record<string, string>> = {
     "fixtures/phase26/legacy-v4-build/build/manifest.json": '2e97726879fd7ab93cb595b3c1120720246ff3e70bab09cc1ee9022147d00f4e',
     "edges": 'fe478cdea66bbb72921d0ddaa55fa7863fcda3a08139f2fd558a71be0511961c',
   },
-  "indented, keys as inserted: exporter canonicalJson at depth 2": {
+  "indented, keys as inserted: indentedJsonText at depth 2": {
     "fixtures/phase26/legacy-v4-build/project/project.json": 'f4c92b502d27931716d149827c6146777be52bf9a4b5f2ee7585087810a9e8e1',
     "fixtures/phase26/legacy-v4-build/project/content.json": '4e03e346868579789a3c1b3d72cf07b4e8497d529fe6841366529a677c3fe747',
     "fixtures/phase26/legacy-v4-build/project/scenes/scene-main.json": 'fc23d011eddeb52506011d1eed87385f14970d33836f30d3fbe4888905dd0757',
@@ -236,7 +218,7 @@ const CANONICAL_GOLDENS: Record<string, Record<string, string>> = {
     "fixtures/phase26/legacy-v4-build/build/manifest.json": 'f24e5a55e0bf9aa1609e80ae7dee459b452ae9e5fa795289a8d25f2d6d972dcd',
     "edges": 'b7441e2c9763069ca94bc9c725cf34f1ec5c83ed84dbe53694047a389a919dce',
   },
-  "keys by code point: project-model prefab-relink canonicalJson": {
+  "keys by code point: canonicalJsonKey": {
     "fixtures/phase26/legacy-v4-build/project/project.json": '7ba829855e38489970b422f3a15d0b76757d1b64a12e02281e7abcb46f4458c0',
     "fixtures/phase26/legacy-v4-build/project/content.json": '68fc6e837e502f7ebd606360ed76a7cc7e941e05109b2ce3a1a43de484909414',
     "fixtures/phase26/legacy-v4-build/project/scenes/scene-main.json": '001164d31263319885cc91e0c10ec5c049d5bb8a74c6f6363e106ace1ac3284e',

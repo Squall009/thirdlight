@@ -77,7 +77,7 @@ import { contentPublishFailed, pathRejected, projectNotFound, projectUnavailable
 import { locateMipParts, type MipPartFile } from './mip-parts';
 import { scanAssetFolder, writeImportFolder, writeUploadedFile, type FolderImportScan, type PreparedImportFile } from './folder-import';
 import { deepFreeze } from './isolate';
-import { sha256Hex } from './digest';
+import { sha256HexNative } from './digest';
 import { rememberPublishedStage } from './behavior';
 import { ensureSession, type Core, type ProjectSession } from './session';
 import { restoreSidecars } from './session-v4';
@@ -629,7 +629,7 @@ export function contentOps(core: Core) {
         (s) => {
           const ctx = contentCtx(s);
           const there = readGameFile(ctx, path);
-          if (there !== null && sha256Hex(there) === digest) removeGameFile(ctx, path);
+          if (there !== null && sha256HexNative(there) === digest) removeGameFile(ctx, path);
           return null;
         },
         () => null,

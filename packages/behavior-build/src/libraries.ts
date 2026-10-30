@@ -20,9 +20,9 @@
  * Nothing is evaluated: parse, scan and transpile only.
  */
 
+import { sha256Hex } from '@thirdlight/shared';
 import { transform as esbuildTransform } from 'esbuild';
 
-import { sha256Hex } from './canonical';
 import { containerFailure, parseSourceGraphContainer } from './container';
 import { analyzeSourceGraph } from './scan';
 import type {

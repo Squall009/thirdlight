@@ -42,7 +42,7 @@ import {
 
 import { publishBlob, readSourceBlob, resolveStage, type ContentContext } from './content-store';
 import { deltaOfBlob, terrainLayerReads } from './terrain-layer-reads';
-import { sha256Hex } from './digest';
+import { sha256HexNative } from './digest';
 import { contentCtx } from './service-content';
 import type { Core, ProjectSession } from './session';
 
@@ -65,7 +65,7 @@ export function terrainTileOfBlob(bytes: Uint8Array): TerrainTile {
 export function terrainBlobOf(tile: TerrainTile): TerrainBlob {
   const encoded = encodeTerrainTile(tile);
   const bytes = wrapTerrainTile('gzip', encoded, new Uint8Array(gzipSync(encoded.payload)));
-  return { digest: sha256Hex(bytes), bytes };
+  return { digest: sha256HexNative(bytes), bytes };
 }
 
 const isBare = (t: TerrainTile, flat: number): boolean => t.weights === null && t.holes === null && t.paint === null && t.heights.every((h) => h === flat);
@@ -139,7 +139,7 @@ export function prepareTerrainEdit(core: Core, s: ProjectSession, scene: SceneDo
   const scattered: [number, number][] = [];
   for (const [key, cell] of plan.plan.scatter) {
     const bytes = scatterBlobOf(cell);
-    const digest = bytes === null ? null : sha256Hex(bytes);
+    const digest = bytes === null ? null : sha256HexNative(bytes);
     if (bytes !== null) blobs.push({ digest: digest!, bytes });
     if ((oldScatter.get(key) ?? null) === digest) continue;
     scatterDigests.set(key, digest);

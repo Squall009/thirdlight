@@ -10,10 +10,10 @@
  * applying copy looks like, only what the prefab (and so every other copy)
  * holds.
  */
+import { canonicalJsonKey } from '@thirdlight/shared';
 import {
   ID_RE,
   applyPartField,
-  canonicalJson,
   isPrefabLink,
   mapRefsInValue,
   prefabNestingCycles,
@@ -400,7 +400,7 @@ export function applyApplyPrefabOverrides(input: OpInput, args: PrefabOverrideTa
     if (!wanted.has(e.id)) return true;
     const was = before.get(e.id);
     // An added object that became a part now says which part it is, and holds its behavior's declared defaults.
-    return absorbed.has(e.id) && !absorbedLinks.has(e.id) ? canonicalJson(asAdded(e, was)) !== canonicalJson(was) : canonicalJson(e) !== canonicalJson(was);
+    return absorbed.has(e.id) && !absorbedLinks.has(e.id) ? canonicalJsonKey(asAdded(e, was)) !== canonicalJsonKey(was) : canonicalJsonKey(e) !== canonicalJsonKey(was);
   });
   if (differs !== undefined || after.entities.length !== wanted.size) {
     return { ok: false, error: prefabOverrideUnsupported(differs?.id ?? t.copyId, `applying would change the copy "${t.copyId}" itself${differs !== undefined ? ` ("${differs.id}")` : ''}: apply its overrides one at a time, or edit the prefab`) };

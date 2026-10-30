@@ -21,6 +21,7 @@
  * edit them with plain commands (`setUiDocument` / `deleteUiDocument`,
  * `setUiTheme` / `deleteUiTheme`), one undo step each. Pure data rules.
  */
+import { canonicalJsonValue } from '@thirdlight/shared';
 import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { projectInputMaps } from './input';
@@ -859,7 +860,7 @@ function validateName(errors: ModelErrorV2[], v: unknown, path: string, what: st
 function sizeCheck(errors: ModelErrorV2[], value: unknown, path: string, what: string): void {
   let bytes = 0;
   try {
-    bytes = new TextEncoder().encode(JSON.stringify(canonicalJson(value))).length;
+    bytes = new TextEncoder().encode(JSON.stringify(canonicalJsonValue(value))).length;
   } catch {
     return;
   }
@@ -1026,29 +1027,14 @@ export function validateUiReferences(content: Record<string, unknown>, errors: M
 // Canonical form and runtime rows
 // ---------------------------------------------------------------------------
 
-/**
- * The canonical JSON of a validated value: objects with their keys sorted,
- * arrays in order, nothing added or dropped (validation refuses unknown
- * fields, so every field survives).
- */
-function canonicalJson(v: unknown): unknown {
-  if (Array.isArray(v)) return v.map(canonicalJson);
-  if (isPlainObject(v)) {
-    const out: Record<string, unknown> = {};
-    for (const k of Object.keys(v).sort()) if (v[k] !== undefined) out[k] = canonicalJson(v[k]);
-    return out;
-  }
-  return Object.is(v, -0) ? 0 : v;
-}
-
 export function canonicalUiDocument(d: UiDocument): UiDocument {
-  return canonicalJson(d) as UiDocument;
+  return canonicalJsonValue(d) as UiDocument;
 }
 export function canonicalUiDocuments(list: readonly UiDocument[]): UiDocument[] {
   return [...list].map(canonicalUiDocument).sort((a, b) => (a.uiDocumentId < b.uiDocumentId ? -1 : a.uiDocumentId > b.uiDocumentId ? 1 : 0));
 }
 export function canonicalUiTheme(t: UiTheme): UiTheme {
-  return canonicalJson(t) as UiTheme;
+  return canonicalJsonValue(t) as UiTheme;
 }
 export function canonicalUiThemes(list: readonly UiTheme[]): UiTheme[] {
   return [...list].map(canonicalUiTheme).sort((a, b) => (a.uiThemeId < b.uiThemeId ? -1 : a.uiThemeId > b.uiThemeId ? 1 : 0));
