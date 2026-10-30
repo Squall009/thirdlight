@@ -84,6 +84,8 @@ The cost of building one phase at a time shows in four places:
   - property-value checks (`property-controls.ts:117` vs `commands/properties.ts:435`);
   - prefab rules (`prefab-authoring.ts:10-21`);
   - room edits computed only in the browser (`room-draw.ts:202,408,537`), with no MCP equivalent (unverified).
+
+  **Status:** fixed ae4ceeb7 (44.6b) for the property and prefab rules: project-model `authoring-rules` holds them, the commands and the editor call the same functions (`tests/authoring-rules.test.ts`). Room edits are architecture, left for phase 48.
 - **G14: deprecated level-change and restart paths still live:**
   - shell scene list and `nextScene` (`runtime/scene-list.ts:39`, `game-host/shell.ts:325`);
   - `lifecycle.restart`;
@@ -92,9 +94,9 @@ The cost of building one phase at a time shows in four places:
 
   The engine's own title screen calls `newGame` (`shell.ts:401`), and Sprout still falls back to `ctx.shell`.
 - **G15: two ways to publish a script.** `BehaviorPanel` still has a raw-JSON publish UI in Project Settings, and its
-  header claims to be the Script tab, which is now `ScriptDocument` (`BehaviorPanel.tsx:13,153`).
+  header claims to be the Script tab, which is now `ScriptDocument` (`BehaviorPanel.tsx:13,153`). **Status:** fixed 7b1f7092 (44.6b): the raw-JSON source panel and its state machine are gone; Project Settings → Scripts lists, declares and creates, the Script tab publishes.
 - **G16: about 6 commit-on-Enter/blur inputs** that disagree on clamping, rejecting and Escape (`GraphInspector.tsx:212`,
-  `TrimSheetTable.tsx:244`, `AnimatorInspector.tsx:479`, `Inspector.tsx:184`, `DescriptorFields.tsx:95`).
+  `TrimSheetTable.tsx:244`, `AnimatorInspector.tsx:479`, `Inspector.tsx:184`, `DescriptorFields.tsx:95`). **Status:** fixed 8f130267 (44.6b): one `CommitField`/`NumberField` (Enter/blur commits, Escape reverts, out of range refused or clamped per field) in these five and the UI editor's and lighting panel's boxes.
 - **G17: renderer copy-paste:**
   - a page-flag parser copied 13 times (`*FromUrl`);
   - the material-variant-per-draw machinery copied twice (`local-lights.ts:111` / `projected-decals.ts:527`);

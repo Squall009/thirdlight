@@ -66,6 +66,7 @@ regression points at its cause.
 | 44.4b | done: objects/utf8 (5cbcf50e: 85 copies, −870/+719, ratchet 82 → 40), digest + request id (2f9a728a rule, fae753d6: 41 copies incl. 20 inline literals, −102/+85, → 25), LruCache (4b7c8cb7: 5 LRUs, −42/+90), strict JSON (aa69ea2c: 4 parsers + 6 pointer escapes, −843/+370, → 23; 200k-text differential identical), errors (74d5dca2: 2 copies, 5 named variants). e2e play-export 4.7 → 4.9 s. Fast gates green (D307 watch miss, passed alone). |
 | 44.5 | done: one owner each in project-model, 12 families in `check-redefinitions`: shadow/surface/role lists (3f9764bd, 9 copies, +32/−117), manifest identity, engine version, save format, message clip, move quantum (4558f922, 17, +85/−152), import extensions (cf3d1c6b, 8, +63/−55), toolchain pins + check-deps agreement (d50ef8ac, 7, +64/−8), engine actions/shell screens/save slots (73429812, 4, +17/−11), typed module ids (844c2bb6, 25 literals, +76/−36). e2e s: play-export 4.9 → 5.1, input 11.6 → 11.6, project-saves 9.0 → 7.9 (alone, WebGL 2), import-extensions 19.8 → 19.2, folder-import 3.2 → 3.3, ui-editor 10.3 → 10.4, shell 17.0 → 16.5, character-3d 15.4 → 15.1; village at the cap unchanged. Fast gates green (start.e2e's stop exited 1 once, D307 once; both passed alone). |
 | 44.6a | done: G10 op table (9bcac089: 7 family modules hold each op's step, undo and redo; apply.ts + history.ts 2,174 → 484 lines, 2,232 with the families; 3 ratchet entries gone; 3,979 traced commands byte-identical), G11 admin accept/discard resync (fbbebece), G12 one publish step (f1eee815: packs and the file check extract as uploads do). e2e s: authoring-loop 1.9–4.0, hierarchy 7.2, delete-content 5.6, edit-copy 2.9, project-window 3.4–4.9, loadable 3.4, external-edit 4.3/1.9, editor-chrome 6.3, assets 16.9, asset-files 5.0, folder-assets 17.4, import-extensions 19.8 (19.2 at 44.5); village at the cap unchanged. Fast gates green (start.e2e watch miss once, passed alone). |
+| 44.6b | done: G13 one set of authoring rules (682a9094 rule, ae4ceeb7: project-model `authoring-rules` = property value rule, prefab subtree/external ref, transform check, name rule; commands and editor call them, code −461/+311), G15 raw-JSON publish panel retired (7b1f7092, −499/+95, useScripting off the size ratchet), G16 one `CommitField`/`NumberField` in 7 editors (8f130267, −235/+185). Room drawing left for 48. e2e s (43 full → 44.6b): inspector 14.9 → 15.2 (with the Escape/blur step), animator 10.5 → 10.4 (with the clamp step), graph 14.7 → 13.9, lightmaps 60.6 → 56.1, ui-editor 10.3 → 10.2, script-properties 7.7 → 7.3, project-settings 4.1 → 4.9, script-editor 10.7 → 11.0, project-window 15.0 → 13.1; village at the cap unchanged. Fast gates green (D307 watch miss once, passed alone). |
 
 ### 44.0 baseline
 
@@ -164,3 +165,14 @@ What the end of 44 is measured against (44.13).
   generated levels in an "every model" project is now extracted on re-import too. The folder import keeps its own batched
   extraction (one `importAssets` for the folder). G10's records (op → change type, inverse kind) were checked once against
   every command the suites run; the test checks each op has a step and every recorded kind an undo and a redo.
+- 2026-10-30 (44.6b, default chosen, owner to confirm): G13: the commands' value rule is the one rule, so the editor no longer
+  refuses a stored `entityRef`/`assetRef` that is a string but not ID-shaped (the model's validation keeps such values out of
+  a project), and a placed copy's out-of-range transform shows the backend's `number_out_of_range` (was `field_value`).
+  Typed input still parses as before (a reference field takes ID text only). G15: Project Settings → Scripts keeps the tiles,
+  + New behavior, + Visual script, the declaration editor and the trust notice; code is published only in the Script tab.
+  G16: a field shows the stored value whenever it is not being edited, so a refused or not-yet-applied commit shows the old
+  value until the backend answers; Escape never commits; multi-line boxes commit on Enter (Shift+Enter is a new line), the
+  graph inspector's comment box included. Out of range: refused by default, clamped where the field clamped before (animator
+  state speed and transition times, lighting budgets). Fields elsewhere in the editor (about 30 files with their own
+  `onBlur` commits, e.g. the color widget, brush and block panels) are not moved: block/terrain/architecture ones go in 48,
+  the rest when touched.
