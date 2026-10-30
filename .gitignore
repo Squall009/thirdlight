@@ -2,6 +2,8 @@
 node_modules/
 dist/
 *.tsbuildinfo
+# Python bytecode (tools/png-alpha-clean.py)
+__pycache__/
 
 # Local environment / logs
 .env
