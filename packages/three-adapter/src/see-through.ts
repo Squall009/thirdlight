@@ -67,6 +67,7 @@ import { controllerCapsuleOf, controllerCapsuleOffsetZ, SEE_THROUGH_DEFAULTS, SE
 
 import { ditherKeep } from './dither-fade';
 import type { N } from './effects-tsl';
+import { addRefreshRule } from './observer-refresh';
 import type { RenderGraph } from './render-graph';
 import { layerOccluders, memberOccluders, mergeToFit, readMemberBounds, PieceCache, SEE_THROUGH_MEMBERS_KEY, SEE_THROUGH_PIECES_KEY, sphereMeetsBox, SubjectVolume, type OccluderBox, type OccluderLayer, type PackedBox, type SeeThroughMembers } from './see-through-occluders';
 
@@ -1475,9 +1476,7 @@ export function installSeeThroughStep(): void {
   installed = true;
   type Builder = { context: Record<string, unknown> };
   type Step = (this: THREE.NodeMaterial, builder: Builder) => unknown;
-  type Draw = { readonly object: THREE.Object3D; readonly camera: THREE.Camera };
-  type Observer = { needsRefresh(renderObject: Draw, frame: unknown): number };
-  const proto = THREE.NodeMaterial.prototype as unknown as { setupDiffuseColor: Step; setupObserver: (this: THREE.NodeMaterial, builder: Builder) => Observer };
+  const proto = THREE.NodeMaterial.prototype as unknown as { setupDiffuseColor: Step };
   const diffuse = proto.setupDiffuseColor;
   proto.setupDiffuseColor = function setupDiffuseColorWithSeeThrough(builder) {
     const view = builder.context[CONTEXT_KEY] as SeeThroughView | undefined;
@@ -1485,22 +1484,17 @@ export function installSeeThroughStep(): void {
     if (view !== undefined && takesPart(this)) view.keep().not().discard();
     return diffuse.call(this, builder);
   };
-  const observe = proto.setupObserver as typeof proto.setupObserver | undefined;
-  // A three without the observer step keeps the mask, refreshed only when three refreshes the draw for its own reasons.
-  if (typeof observe !== 'function') return;
-  proto.setupObserver = function setupObserverWithSeeThrough(builder) {
-    const observer = observe.call(this, builder) as Observer | null;
-    const view = builder.context[CONTEXT_KEY] as SeeThroughView | undefined;
-    if (view === undefined || !takesPart(this) || observer === null || typeof observer !== 'object' || typeof observer.needsRefresh !== 'function') return observer as Observer;
-    // A draw's subject bits change while its object, material and lights stay as they are, and three refreshes such
-    // an unchanged draw's own uniforms only when its material has nodes of its own (a classic material three
-    // converts has none): such a draw is refreshed in the frames its bits change, not every frame.
-    const needs = observer.needsRefresh.bind(observer);
-    observer.needsRefresh = (renderObject, frame) => {
+  // A draw's subject bits change while its object, material and lights stay as they are, and three refreshes such
+  // an unchanged draw's own uniforms only when its material has nodes of its own (a classic material three
+  // converts has none): such a draw is refreshed in the frames its bits change, not every frame. A three without the
+  // observer step keeps the mask, refreshed only when three refreshes the draw for its own reasons.
+  addRefreshRule('see-through', (needs, builder, material) => {
+    const view = (builder as unknown as Builder).context[CONTEXT_KEY] as SeeThroughView | undefined;
+    if (view === undefined || !takesPart(material)) return null;
+    return (renderObject, frame) => {
       const kind = needs(renderObject, frame);
       if (kind === THREE.RenderObjectRefreshType.FULL) return kind;
       return view.bitsChanged(renderObject, renderObject.object, renderObject.camera) ? THREE.RenderObjectRefreshType.FULL : kind;
     };
-    return observer;
-  };
+  });
 }

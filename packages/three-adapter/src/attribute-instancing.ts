@@ -25,6 +25,7 @@ import { attribute, Fn, instanceIndex, mat4, normalLocal, positionLocal, positio
 import { NodeMaterial, StorageBufferAttribute, type NodeBuilder } from 'three/webgpu';
 import { disposeSharingGeometry } from './dispose';
 import { instanceSphereBounds } from './instance-prepare';
+import { addRefreshRule, type NeedsRefresh } from './observer-refresh';
 import { SEE_THROUGH_MEMBERS_KEY, type SeeThroughMembers } from './see-through-occluders';
 import { maxScaleOf, SphereSide, STATIC_SHADOW_CAMERA_KEY, VIEW_CULL_KEY, type CullView, type ViewCullable } from './view-cull';
 
@@ -198,7 +199,7 @@ const applyColumns = Fn((builder: NodeBuilder) => {
 const culledSeen = new WeakMap<object, { list: number; base: number; cap: number; matrices: unknown; slots: unknown; lists: unknown }>();
 
 /** A full refresh whenever what the render object's culled draw reads changed since its last draw, else three's own answer. */
-function refreshOnCulledChange(base: (renderObject: { object: THREE.Object3D }, frame: unknown) => number): (renderObject: { object: THREE.Object3D }, frame: unknown) => number {
+function refreshOnCulledChange(base: NeedsRefresh): NeedsRefresh {
   return (renderObject, frame) => {
     const refresh = base(renderObject, frame);
     const c = renderObject.object.userData[CULLED_COPIES_KEY] as CulledCopies | undefined;
@@ -237,7 +238,7 @@ export function culledCopiesSupported(): boolean {
 export function installAttributeInstancing(): void {
   if (installed) return;
   installed = true;
-  const proto = NodeMaterial.prototype as unknown as { setupPosition(builder: NodeBuilder): unknown; setupObserver(builder: NodeBuilder): unknown };
+  const proto = NodeMaterial.prototype as unknown as { setupPosition(builder: NodeBuilder): unknown };
   const base = proto.setupPosition;
   proto.setupPosition = function setupPositionWithColumns(this: unknown, builder: NodeBuilder): unknown {
     if (buildHasInstanceColumns(builder)) applyColumns();
@@ -245,15 +246,7 @@ export function installAttributeInstancing(): void {
   };
   // three refreshes an object's own uniforms and bindings only when its observer sees a change it knows of; what a
   // culled draw's vertex stage reads (its list, its range, the pools, which may be made anew) is not among them.
-  const observe = proto.setupObserver;
-  if (typeof observe === 'function') {
-    culledRefreshInstalled = true;
-    proto.setupObserver = function setupObserverOfCulled(this: unknown, builder: NodeBuilder): unknown {
-      const observer = observe.call(this, builder) as { needsRefresh?: (renderObject: { object: THREE.Object3D }, frame: unknown) => number } | null;
-      if (observer !== null && typeof observer === 'object' && typeof observer.needsRefresh === 'function' && buildReadsCulledCopies(builder)) observer.needsRefresh = refreshOnCulledChange(observer.needsRefresh.bind(observer));
-      return observer;
-    };
-  }
+  culledRefreshInstalled = addRefreshRule('culled-copies', (needs, builder) => (buildReadsCulledCopies(builder) ? refreshOnCulledChange(needs) : null));
 }
 
 /**

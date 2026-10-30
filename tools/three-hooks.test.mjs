@@ -13,7 +13,7 @@ describe('three upgrade checklist', () => {
     const sites = hookSites();
     const has = (file, member) => sites.some((s) => s.file.endsWith(file) && s.member === member);
     // One of each kind the scan looks for, so a scan that finds nothing does not pass.
-    expect(has('see-through.ts', 'setupObserver')).toBe(true);
+    expect(has('observer-refresh.ts', 'setupObserver')).toBe(true);
     expect(has('local-lights.ts', 'renderObject')).toBe(true);
     expect(has('post-ao.ts', 'library.addLight')).toBe(true);
     expect(has('post-upscale.ts', 'updateBefore')).toBe(true);

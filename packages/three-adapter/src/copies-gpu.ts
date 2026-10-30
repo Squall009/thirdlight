@@ -51,6 +51,7 @@ import { KEEP_MATERIAL_KEY } from './material-keys';
 import { setCopyBend, setCopyRoot } from './node-materials';
 import { PAINT_COPIES_KEY, PAINT_MESH_KEY, PAINT_STREAM_KEY } from './vertex-paint-draw';
 import { maxScaleOf, SphereSide, STATIC_SHADOW_CAMERA_KEY, VIEW_CULL_KEY, type CullView, type ViewCullable } from './view-cull';
+import { addRefreshRule, type NeedsRefresh } from './observer-refresh';
 import { texelTexture } from './texel-texture-node';
 import type { ModelInstance } from './visual';
 import type { WarmDraw } from './program-warmer';
@@ -217,7 +218,7 @@ const boundSeen = new WeakMap<object, { set: GpuCopySet; revision: number; copie
  * bindings only when its observer sees a change it knows of, and a draw's
  * eye, lists and copies are none of those.
  */
-function refreshOnCopiesChange(base: (renderObject: { object: THREE.Object3D }, frame: unknown) => number): (renderObject: { object: THREE.Object3D }, frame: unknown) => number {
+function refreshOnCopiesChange(base: NeedsRefresh): NeedsRefresh {
   return (renderObject, frame) => {
     const refresh = base(renderObject, frame);
     const d = drawOf(renderObject.object);
@@ -238,16 +239,7 @@ export function installGpuCopies(): void {
   if (installed) return;
   installed = true;
   installCoverPlacement();
-  const proto = NodeMaterial.prototype as unknown as { setupObserver?(builder: NodeBuilder): unknown };
-  const observe = proto.setupObserver;
-  if (typeof observe === 'function') {
-    proto.setupObserver = function setupObserverOfCopies(this: unknown, builder: NodeBuilder): unknown {
-      const observer = observe.call(this, builder) as { needsRefresh?: (renderObject: { object: THREE.Object3D }, frame: unknown) => number } | null;
-      const object = (builder as unknown as { object?: THREE.Object3D | null }).object;
-      if (observer !== null && typeof observer === 'object' && typeof observer.needsRefresh === 'function' && drawOf(object) !== undefined) observer.needsRefresh = refreshOnCopiesChange(observer.needsRefresh.bind(observer));
-      return observer;
-    };
-  }
+  addRefreshRule('gpu-copies', (needs, builder) => (drawOf((builder as unknown as { object?: THREE.Object3D | null }).object) !== undefined ? refreshOnCopiesChange(needs) : null));
   setGpuCopyColumns({
     has: (builder) => drawOf((builder as unknown as { object?: THREE.Object3D | null }).object) !== undefined,
     column: (i) => copyColumn(i),
