@@ -17,7 +17,7 @@ import { describe, expect, it } from 'vitest';
 import * as limits from '../packages/project-model/src/limits';
 import { CONTENT } from '../packages/project-model/src/descriptor-content';
 import type { FieldDescriptor } from '../packages/project-model/src/descriptor-types';
-import { INPUT_ACTIONS_BOUND, INPUT_SETTINGS_MAX_BYTES, validateInput } from '../packages/project-model/src/input';
+import { INPUT_ACTION_TYPES, INPUT_ACTIONS_BOUND, INPUT_SETTINGS_MAX_BYTES, validateInput } from '../packages/project-model/src/input';
 import { validateBehaviorGroups, validateModes } from '../packages/project-model/src/modes';
 import { validateSaveSchema } from '../packages/project-model/src/save-schema';
 import { validateShell } from '../packages/project-model/src/shell';
@@ -166,6 +166,30 @@ describe('no per-project count cap by shape', () => {
       settings: Array.from({ length: n }, (_, i) => ({ key: `field_${i}`, type: 'number', default: i })),
     }, '/saveSchema', errs as never);
     expect(errs).toEqual([]);
+  });
+
+  it('the derived action bound holds: no valid action is smaller than the one it is derived from', () => {
+    const bytes = (v: unknown): number => new TextEncoder().encode(JSON.stringify(v)).length;
+    const valid = (action: Record<string, unknown>): boolean => {
+      const e: unknown[] = [];
+      validateInput({ actions: [action], maps: ['a'] }, '/input', e as never);
+      return e.length === 0;
+    };
+    const smallest = { name: 'a', type: 'button', map: 'a', bindings: [] };
+    expect(valid(smallest)).toBe(true);
+    expect(INPUT_ACTIONS_BOUND).toBe(Math.floor(INPUT_SETTINGS_MAX_BYTES / (bytes(smallest) + 1)));
+    // Every way to write it shorter (a field left out, a value shortened) is refused; no type name is shorter.
+    const shorter: Record<string, unknown>[] = [
+      { type: 'button', map: 'a', bindings: [] },
+      { name: 'a', map: 'a', bindings: [] },
+      { name: 'a', type: 'button', bindings: [] },
+      { name: 'a', type: 'button', map: 'a' },
+      { name: '', type: 'button', map: 'a', bindings: [] },
+      { name: 'a', type: 'button', map: '', bindings: [] },
+      { name: 'a', type: 'b', map: 'a', bindings: [] },
+    ];
+    for (const a of shorter) expect(valid(a), JSON.stringify(a)).toBe(false);
+    for (const type of INPUT_ACTION_TYPES) expect(type.length).toBeGreaterThanOrEqual(smallest.type.length);
   });
 
   it('a frame and an input status carry every action the input settings can name', () => {
