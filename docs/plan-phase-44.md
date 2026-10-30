@@ -75,6 +75,7 @@ regression points at its cause.
 | 44.10 | done: G9 (a4fa4136: 75 hook sites the checklist missed, 196 in all, now in rows; `tools/three-hooks.mjs` lists them with file:line, its test fails on a new one; see-through's `setupObserver` wrap guarded; terrain-view's builder use is gone), G21 (33bb7921: probe `info` per frame, village 208 calls/123k tris; instanced 0 → 237, batched 0 → 255; indirect draws counted apart; SwiftShader baseline + opt-in test retired), G22 (107dd94b: rerun from the failed step, tried lint → vitest → green), perf CLI (64247a97: `--help`, memory-cap refusal). No e2e touched; fast gate green, village at the cap unchanged (D419 again once). |
 | 44.11 | done (23838ca9 … fbac056b, then the defect split): STATUS 108.7 → 8.8 KB, two-line rows; roadmap, charter, environment, decisions 0002–0005 current; plans 9, 14–38 → `archive/plans/`, rules → AGENTS.md Traps; 143 defaults approved (`decisions/owner-defaults.md`); defects split: 136 open+watch / 284 closed (`audit-closed.md`). docs/ 219 files 6.33 MB → 193 / 4.24 MB. |
 | 44.12 | done: `tools/check-docs.mjs` in the build: a STATUS or progress row ≤ 400 characters; ratchet `tools/docs-ratchet.json` 155 rows (39–42 all, 43 19, 44.1b–44.10 14); STATUS plan links and defect lists checked (all pass). AGENTS: D blocks, closed rows, game answers. No e2e. |
+| 44.13a | done (review M1, G17): `pageFlagOn` f4c7bde1, `TexelTextureNode` 47344568, `MaterialVariants` f879b540, one `setupObserver` hook baa109da, `pickLodLevel` 9e0c0934, copies' 8-level cap gone b4a3e190. At the cap vs cda7fe34, p95 ≤ 16.8, 0 missed: village main 5.60 → 5.60 \| 4.04 → 4.06 ms; lights 64/256 WebGPU 2.21/2.72 → 2.27/2.84 (noise), WebGL 2 equal. No e2e touched; gates green. |
 
 ### 44.0 baseline
 
@@ -237,3 +238,17 @@ What the end of 44 is measured against (44.13).
   rewritten. The defect check holds the closed list to closed rows and a D-number to one row; a row closed in the
   open list may wait there until the phase end (44.11's tidy rule), so it is not failed. A branch reserves D numbers
   with a `Reserved: D<first>–D<last> for branch <name>` line in the open list; none is reserved yet.
+- 2026-10-30 (44.13a, default chosen, owner to confirm): G17's page-flag family is the on-unless-off switch only
+  (`pageFlagOn`, nine views). The other `*FromUrl` readers parse different things (a renderer name, a quality level,
+  a tri-state see-through pin, a number of ms, an occlusion path, render settings) and are not copies; they stay. The
+  scatter, paint and spline views were converted (plan-45 keeps paint and scatter as tools); terrain and architecture
+  keep theirs on the redefinition ratchet.
+- 2026-10-30 (44.13a, default chosen, owner to confirm): the `setupObserver` rules compose innermost first: culled
+  copies, GPU copies, see-through. The first two keep a record per render object and must see every draw; see-through
+  stops at an inner full refresh, so it asks last.
+- 2026-10-30 (44.13a, review Low on `copies-gpu.ts:74`): the eight-level limit was a real mismatch, not a model
+  rule. A model's own screen sizes allow eight switches, and with LOD0 and the cull that is ten distances, and
+  `_LOD<n>` nodes are not counted at all. The GPU copies drew the coarse levels as the eighth or culled them early,
+  while the CPU picks used every level. Fixed rather than capped: the list header holds every distance (four a
+  texel), and the vertex stage loops over them. It is one program for any count. Unity's LODGroup stops at eight;
+  the engine needs no such cap.

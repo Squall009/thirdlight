@@ -112,6 +112,10 @@ The cost of building one phase at a time shows in four places:
   - three identical raw-data-texture node classes;
   - three `setupObserver` wrappers, whose install order depends on which feature runs first;
   - the LOD pick loop inlined twice instead of calling `pickLodLevel` (`instance-lod.ts:222`, `copies-gpu.ts:680`).
+  **Status:** fixed (44.13a: f4c7bde1 `pageFlagOn` in the shared leaf for the nine on-unless-off switches, the
+  terrain and architecture views' three kept on the ratchet; 47344568 `TexelTextureNode` for the copies' and paint
+  stream's nodes; f879b540 `MaterialVariants` for the local-light and decal variants; baa109da one `setupObserver`
+  hook, rules in a fixed order; 9e0c0934 both loops call `pickLodLevel`; b4a3e190 the copies' 8-level cap gone).
 
 **Dead code**
 - **G18: dead and test-only code:**
