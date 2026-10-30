@@ -26,7 +26,8 @@
  *
  * Browser-only (React).
  */
-import { useState, type JSX, type KeyboardEvent, type ReactNode } from 'react';
+import { CommitField } from './CommitField';
+import type { JSX, ReactNode } from 'react';
 import type { ComponentDescriptor, DescriptorRegistry, PropertyDeclaration } from '@thirdlight/project-model';
 import type { ProjectedEntity } from '../session/projection';
 import type { EffectiveEntityFlags } from '../session/hierarchy';
@@ -180,34 +181,6 @@ function FlagControls(props: { entity: ProjectedEntity; flags: EffectiveEntityFl
   );
 }
 
-/** A text field that commits on Enter/blur and reverts on Escape. */
-function CommitField(props: { value: string; label: string; className: string; onCommit: (raw: string) => void }): JSX.Element {
-  const [draft, setDraft] = useState<string | null>(null);
-  const commit = (): void => {
-    if (draft !== null && draft !== props.value) props.onCommit(draft);
-    setDraft(null);
-  };
-  const onKey = (e: KeyboardEvent<HTMLInputElement>): void => {
-    if (e.key === 'Enter') e.currentTarget.blur();
-    if (e.key === 'Escape') {
-      setDraft(null);
-      requestAnimationFrame(() => (e.target as HTMLInputElement).blur());
-    }
-  };
-  return (
-    <input
-      className={props.className}
-      aria-label={props.label}
-      title={props.label}
-      value={draft ?? props.value}
-      onFocus={() => setDraft(props.value)}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={commit}
-      onKeyDown={onKey}
-    />
-  );
-}
-
 /**
  * A descriptor-keyed extension of the controller section: "Fit to model" and
  * "Default" next to the capsule fields (their ranges and rules are the descriptor's).
@@ -278,6 +251,7 @@ export function Inspector({ entity, editAction, gizmoMode, onGizmoMode, registry
           <CommitField
             className="tl-inspector__name"
             label="name"
+            title="name"
             value={entity.name}
             onCommit={(raw) => {
               if (raw.trim() !== '') onRename(entity.id, raw.trim());

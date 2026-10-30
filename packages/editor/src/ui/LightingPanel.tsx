@@ -23,7 +23,8 @@
  *
  * Browser-only (React).
  */
-import { useState, type JSX } from 'react';
+import { NumberField } from './CommitField';
+import type { JSX } from 'react';
 import type { LightingBake, QualityLevelConfig } from '@thirdlight/project-model';
 import { LIGHTING_TIER_SETTINGS, levelLighting } from '@thirdlight/runtime';
 import { REFLECTION_QUALITIES, SURFACE_CACHE_MIB_MAX, SURFACE_CACHE_MIB_MIN, SURFACE_LIGHT_MS_MAX, SURFACE_LIGHT_MS_MIN } from '@thirdlight/project-model/limits';
@@ -66,35 +67,12 @@ interface Props {
   levelError: string | null;
 }
 
-/** A number field that saves on Enter or when it loses focus (empty: the tier's value). */
-function NumberField(p: { label: string; title: string; value: number | undefined; placeholder: number; min: number; max: number; step: number; onSave: (v: number | undefined) => void }): JSX.Element {
-  const [text, setText] = useState<string | null>(null);
-  const save = (): void => {
-    if (text === null) return;
-    const t = text.trim();
-    setText(null);
-    if (t === '') return p.onSave(undefined);
-    const v = Number(t);
-    if (Number.isFinite(v)) p.onSave(Math.min(p.max, Math.max(p.min, v)));
-  };
+/** A level's number with its label: empty is the tier's value, out of range is clamped (the shared field's rules). */
+function LevelNumber(p: { label: string; title: string; value: number | undefined; placeholder: number; min: number; max: number; step: number; onSave: (v: number | undefined) => void }): JSX.Element {
   return (
     <label className="tl-field" title={p.title}>
       <span className="tl-field__label">{p.label}</span>
-      <input
-        className="tl-input"
-        type="number"
-        aria-label={p.label}
-        min={p.min}
-        max={p.max}
-        step={p.step}
-        placeholder={String(p.placeholder)}
-        value={text ?? (p.value === undefined ? '' : String(p.value))}
-        onChange={(e) => setText(e.target.value)}
-        onBlur={save}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') save();
-        }}
-      />
+      <NumberField optional className="tl-input" type="number" label={p.label} title={p.title} min={p.min} max={p.max} step={p.step} outOfRange="clamp" placeholder={String(p.placeholder)} value={p.value ?? null} onCommit={(v) => p.onSave(v ?? undefined)} />
     </label>
   );
 }
@@ -132,8 +110,8 @@ function SceneLighting(p: Props): JSX.Element {
           <div className="tl-panel__subtitle">
             Level {level.name ?? level.id} ({lit.tier} tier)
           </div>
-          <NumberField label="Surface cache (MiB)" title={`Memory the static surfaces' light may hold around the view (empty: the tier's, ${tier.surfaceCacheMiB}).`} value={level.surfaceCacheMiB} placeholder={tier.surfaceCacheMiB} min={SURFACE_CACHE_MIB_MIN} max={SURFACE_CACHE_MIB_MAX} step={16} onSave={(v) => p.onEditLevel(level.id, { surfaceCacheMiB: v })} />
-          <NumberField label="Live light (ms a frame)" title={`GPU time a frame for re-lighting what changed; 0 draws the saved light only (empty: the tier's, ${tier.surfaceLightMs}).`} value={level.surfaceLightMs} placeholder={tier.surfaceLightMs} min={SURFACE_LIGHT_MS_MIN} max={SURFACE_LIGHT_MS_MAX} step={0.5} onSave={(v) => p.onEditLevel(level.id, { surfaceLightMs: v })} />
+          <LevelNumber label="Surface cache (MiB)" title={`Memory the static surfaces' light may hold around the view (empty: the tier's, ${tier.surfaceCacheMiB}).`} value={level.surfaceCacheMiB} placeholder={tier.surfaceCacheMiB} min={SURFACE_CACHE_MIB_MIN} max={SURFACE_CACHE_MIB_MAX} step={16} onSave={(v) => p.onEditLevel(level.id, { surfaceCacheMiB: v })} />
+          <LevelNumber label="Live light (ms a frame)" title={`GPU time a frame for re-lighting what changed; 0 draws the saved light only (empty: the tier's, ${tier.surfaceLightMs}).`} value={level.surfaceLightMs} placeholder={tier.surfaceLightMs} min={SURFACE_LIGHT_MS_MIN} max={SURFACE_LIGHT_MS_MAX} step={0.5} onSave={(v) => p.onEditLevel(level.id, { surfaceLightMs: v })} />
           <label className="tl-field" title="Screen-space contact shadows on the sun's light.">
             <span className="tl-field__label">Contact shadows</span>
             <select className="tl-input" aria-label="contact shadows" value={level.contactShadows === undefined ? '' : level.contactShadows ? 'on' : 'off'} onChange={(e) => p.onEditLevel(level.id, { contactShadows: e.target.value === '' ? undefined : e.target.value === 'on' })}>

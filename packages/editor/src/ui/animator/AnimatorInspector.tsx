@@ -18,6 +18,7 @@
  * Browser-only (React).
  */
 import { useEffect, useState, type JSX } from 'react';
+import { CommitField, NumberField } from '../CommitField';
 import type { AnimatorCondition, AnimatorController, AnimatorState, AnimatorTransition, GraphNode, GraphValue } from '@thirdlight/project-model';
 
 import { GraphInspector } from '../../graph/GraphInspector';
@@ -187,21 +188,12 @@ interface StateFieldsProps {
 
 function StateFields({ controller: c, state: s, node, kind, clips, model, entry, edit, onSave, outgoing, onFocus, onOpenBlend }: StateFieldsProps): JSX.Element {
   const set = (patch: Record<string, GraphValue>): void => edit([{ op: 'setNodeData', id: node.id, data: dataWith(node, kind, patch) }]);
-  const [speed, setSpeed] = useState(String(s.speed));
-  useEffect(() => setSpeed(String(s.speed)), [s.speed]);
-  const commitSpeed = (): void => {
-    const n = Number(speed);
-    if (speed.trim() === '' || !Number.isFinite(n)) return setSpeed(String(s.speed));
-    const v = Math.min(10, Math.max(0, n));
-    if (v !== s.speed) set({ speed: v });
-    else setSpeed(String(s.speed));
-  };
   return (
     <div aria-label="state inspector">
       <div className="tl-inspector__title">{s.motion.kind === 'blend1d' ? 'Blend tree' : s.motion.kind === 'empty' ? 'Empty state' : 'State'}{entry ? ' (entry)' : ''}</div>
       <label className="tl-field">
         <span>Name</span>
-        <input className="tl-input" aria-label="state name" defaultValue={s.name} key={s.name} onBlur={(e) => e.target.value.trim() !== '' && e.target.value.trim() !== s.name && set({ name: e.target.value.trim() })} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
+        <CommitField label="state name" value={s.name} onCommit={(t) => t.trim() !== '' && t.trim() !== s.name && set({ name: t.trim() })} />
       </label>
       {s.motion.kind === 'empty' && <p className="tl-hint">Empty: this layer plays nothing here (the layers under it show through).</p>}
       {s.motion.kind === 'clip' && (
@@ -228,7 +220,7 @@ function StateFields({ controller: c, state: s, node, kind, clips, model, entry,
       )}
       <label className="tl-field">
         <span>Speed</span>
-        <input className="tl-input tl-input--num" aria-label="state speed" value={speed} onChange={(e) => setSpeed(e.target.value)} onBlur={commitSpeed} onKeyDown={(e) => e.key === 'Enter' && commitSpeed()} />
+        <NumberField label="state speed" value={s.speed} min={0} max={10} outOfRange="clamp" onCommit={(v) => set({ speed: v })} />
       </label>
       <label className="tl-field">
         <span>× parameter</span>
@@ -262,7 +254,7 @@ function StateFields({ controller: c, state: s, node, kind, clips, model, entry,
             const put = (ne: typeof ev | null): void => onSave({ ...c, events: ne === null ? c.events.filter((_, q) => q !== j) : c.events.map((x, q) => (q === j ? ne : x)) });
             return (
               <div className="tl-animator__row" key={j}>
-                <input className="tl-input" aria-label={`event ${j + 1} name`} defaultValue={ev.name} onBlur={(e) => /^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(e.target.value) && e.target.value !== ev.name && put({ ...ev, name: e.target.value })} />
+                <CommitField label={`event ${j + 1} name`} value={ev.name} onCommit={(t) => /^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(t) && put({ ...ev, name: t })} />
                 <input className="tl-input tl-input--num" type="number" step={0.01} min={0} aria-label={`event ${j + 1} time`} value={ev.time} onChange={(e) => Number(e.target.value) >= 0 && put({ ...ev, time: Number(e.target.value) })} />
                 <button type="button" className="tl-button" aria-label={`remove event ${j + 1}`} onClick={() => put(null)}>
                   ×
@@ -298,31 +290,16 @@ function StateFields({ controller: c, state: s, node, kind, clips, model, entry,
 function BlendClip({ node, kind, clips, model, edit }: { node: GraphNode; kind: GraphKindDef; clips: Parameters<typeof ClipSelect>[0]['clips']; model: string; edit: (ops: GraphOp[]) => void }): JSX.Element {
   const d = node.data ?? {};
   const threshold = typeof d['threshold'] === 'number' ? d['threshold'] : 0;
-  const [text, setText] = useState(String(threshold));
-  useEffect(() => setText(String(threshold)), [threshold]);
   const set = (patch: Record<string, GraphValue>): void => edit([{ op: 'setNodeData', id: node.id, data: dataWith(node, kind, patch) }]);
-  const commit = (): void => {
-    const n = Number(text);
-    if (text.trim() === '' || !Number.isFinite(n)) return setText(String(threshold));
-    if (n !== threshold) set({ threshold: n });
-  };
   // The ground speed the clip was authored for (empty: none; −1 in the graph data).
   const speed = typeof d['speed'] === 'number' && d['speed'] >= 0 ? d['speed'] : null;
-  const [speedText, setSpeedText] = useState(speed === null ? '' : String(speed));
-  useEffect(() => setSpeedText(speed === null ? '' : String(speed)), [speed]);
-  const commitSpeed = (): void => {
-    if (speedText.trim() === '') return void (speed !== null && set({ speed: -1 }));
-    const n = Number(speedText);
-    if (!Number.isFinite(n) || n < 0) return setSpeedText(speed === null ? '' : String(speed));
-    if (n !== speed) set({ speed: n });
-  };
   const value = { assetId: String(d['asset'] ?? ''), clip: String(d['clip'] ?? ''), duration: typeof d['duration'] === 'number' ? d['duration'] : 1 };
   return (
     <div aria-label="blend clip inspector">
       <div className="tl-inspector__title">Blend clip</div>
       <label className="tl-field">
         <span>Threshold</span>
-        <input className="tl-input tl-input--num" aria-label="blend threshold" value={text} onChange={(e) => setText(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && commit()} />
+        <NumberField label="blend threshold" value={threshold} onCommit={(v) => set({ threshold: v })} />
       </label>
       <label className="tl-field">
         <span>Clip</span>
@@ -330,7 +307,7 @@ function BlendClip({ node, kind, clips, model, edit }: { node: GraphNode; kind: 
       </label>
       <label className="tl-field">
         <span>Ground speed (m/s)</span>
-        <input className="tl-input tl-input--num" aria-label="blend ground speed" placeholder="none" value={speedText} onChange={(e) => setSpeedText(e.target.value)} onBlur={commitSpeed} onKeyDown={(e) => e.key === 'Enter' && commitSpeed()} />
+        <NumberField optional label="blend ground speed" placeholder="none" value={speed} min={0} onCommit={(v) => set({ speed: v ?? -1 })} />
       </label>
       <p className="tl-hint">Clips are kept in threshold order; two clips cannot share a threshold. With a ground speed on every clip, the blend parameter is read as a speed and the clips play at the rate that matches it.</p>
       <button type="button" className="tl-button" onClick={() => edit([{ op: 'removeNodes', ids: [node.id] }])}>
@@ -436,8 +413,6 @@ function TransitionList({ controller: c, title, transitions, indices, onChange, 
 function ConditionRow({ controller: c, condition: cond, index: j, onChange }: { controller: AnimatorController; condition: AnimatorCondition; index: number; onChange: (c: AnimatorCondition | null) => void }): JSX.Element {
   const type = c.parameters.find((x) => x.name === cond.parameter)?.type ?? 'float';
   const ops = type === 'trigger' ? ['trigger'] : type === 'bool' ? ['true', 'false'] : ['greater', 'less', 'equals', 'notEquals'];
-  const [value, setValue] = useState(String(cond.value ?? 0));
-  useEffect(() => setValue(String(cond.value ?? 0)), [cond.value]);
   return (
     <div className="tl-animator__row">
       <select
@@ -459,14 +434,7 @@ function ConditionRow({ controller: c, condition: cond, index: j, onChange }: { 
         ))}
       </select>
       {cond.value !== undefined && (
-        <input
-          className="tl-input tl-input--num"
-          aria-label={`condition ${j + 1} value`}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onBlur={() => (Number.isFinite(Number(value)) && value.trim() !== '' && Number(value) !== cond.value ? onChange({ ...cond, value: Number(value) }) : setValue(String(cond.value)))}
-          onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-        />
+        <NumberField label={`condition ${j + 1} value`} value={cond.value} onCommit={(v) => onChange({ ...cond, value: v })} />
       )}
       <button type="button" className="tl-button" aria-label={`remove condition ${j + 1}`} onClick={() => onChange(null)}>
         ×
@@ -475,21 +443,12 @@ function ConditionRow({ controller: c, condition: cond, index: j, onChange }: { 
   );
 }
 
-/** A number field that commits on Enter or blur (one command per commit). */
+/** A number with its title, clamped to [min, max] (one command per commit). */
 function NumberRow({ label, title, value, min, max, onCommit }: { label: string; title: string; value: number; min: number; max: number; onCommit: (v: number) => void }): JSX.Element {
-  const [text, setText] = useState(String(value));
-  useEffect(() => setText(String(value)), [value]);
-  const commit = (): void => {
-    const n = Number(text);
-    if (text.trim() === '' || !Number.isFinite(n)) return setText(String(value));
-    const v = Math.min(max, Math.max(min, n));
-    if (v !== value) onCommit(v);
-    else setText(String(value));
-  };
   return (
     <label className="tl-field">
       <span>{title}</span>
-      <input className="tl-input tl-input--num" aria-label={label} value={text} onChange={(e) => setText(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && commit()} />
+      <NumberField label={label} value={value} min={min} max={max} outOfRange="clamp" onCommit={onCommit} />
     </label>
   );
 }

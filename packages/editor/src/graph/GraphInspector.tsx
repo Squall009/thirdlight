@@ -14,6 +14,7 @@ import { useEffect, useState, type JSX, type ReactNode } from 'react';
 import { diagnoseGraph, edgeConversion, fieldValue, nodeDefOf, portDef, portsResolver, portTypeLabel, type GraphContext, type GraphData, type GraphKindDef, type GraphOp, type PortsOf } from './model';
 import type { GraphFieldDef, GraphNode, GraphValue } from '@thirdlight/project-model';
 import { CurveField, GradientField } from './CurveFields';
+import { CommitField, NumberField } from '../ui/CommitField';
 
 interface Props {
   kind: GraphKindDef;
@@ -74,7 +75,7 @@ export function GraphInspector({ kind, graph, ids, onEdit, extension, empty, por
           <div className="tl-inspector__title">Group</div>
           <label className="tl-field">
             <span>Title</span>
-            <TextField value={group.title} maxLength={64} label="Group title" onCommit={(title) => edit([{ op: 'setGroups', groups: [{ ...group, title }] }])} />
+            <CommitField value={group.title} maxLength={64} label="Group title" onCommit={(title) => edit([{ op: 'setGroups', groups: [{ ...group, title }] }])} />
           </label>
           <label className="tl-field">
             <span>Colour</span>
@@ -85,7 +86,7 @@ export function GraphInspector({ kind, graph, ids, onEdit, extension, empty, por
       {comment !== undefined && (
         <>
           <div className="tl-inspector__title">Comment</div>
-          <TextField multiline value={comment.text} maxLength={2000} label="Comment text" onCommit={(text) => text.length > 0 && edit([{ op: 'setComments', comments: [{ ...comment, text }] }])} />
+          <CommitField multiline value={comment.text} maxLength={2000} label="Comment text" onCommit={(text) => text.length > 0 && edit([{ op: 'setComments', comments: [{ ...comment, text }] }])} />
         </>
       )}
       {error !== null && (
@@ -192,7 +193,7 @@ function NodeFields({
                 ))}
               </span>
             ) : (
-              <TextField label={f.label} value={String(v)} maxLength={f.maxLength ?? 256} onCommit={(s) => setField(f, s)} />
+              <CommitField label={f.label} value={String(v)} maxLength={f.maxLength ?? 256} onCommit={(s) => setField(f, s)} />
             )}
           </label>
         );
@@ -205,33 +206,5 @@ function NodeFields({
         </p>
       )}
     </>
-  );
-}
-
-/** A number input that commits on Enter or blur (one edit per commit). */
-function NumberField({ label, value, min, max, onCommit }: { label: string; value: number; min?: number; max?: number; onCommit: (v: number) => void }): JSX.Element {
-  const [text, setText] = useState(String(value));
-  useEffect(() => setText(String(value)), [value]);
-  const commit = (): void => {
-    const n = Number(text);
-    if (text.trim() === '' || !Number.isFinite(n) || (min !== undefined && n < min) || (max !== undefined && n > max)) {
-      setText(String(value));
-      return;
-    }
-    if (n !== value) onCommit(n);
-  };
-  return <input className="tl-input tl-input--num" aria-label={label} value={text} onChange={(e) => setText(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && commit()} />;
-}
-
-function TextField({ label, value, maxLength, multiline, onCommit }: { label: string; value: string; maxLength: number; multiline?: boolean; onCommit: (v: string) => void }): JSX.Element {
-  const [text, setText] = useState(value);
-  useEffect(() => setText(value), [value]);
-  const commit = (): void => {
-    if (text !== value) onCommit(text);
-  };
-  return multiline === true ? (
-    <textarea className="tl-input" aria-label={label} rows={4} maxLength={maxLength} value={text} onChange={(e) => setText(e.target.value)} onBlur={commit} />
-  ) : (
-    <input className="tl-input" aria-label={label} maxLength={maxLength} value={text} onChange={(e) => setText(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && commit()} />
   );
 }

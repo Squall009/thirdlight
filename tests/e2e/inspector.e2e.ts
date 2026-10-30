@@ -333,6 +333,16 @@ test('the gameplay settings are built from their descriptor: a number and the st
   await run.fill('5');
   await run.press('Enter');
   await expect.poll(() => settings()['run_speed']).toBe(5);
+  // Every commit field behaves alike: Escape puts the stored value back and sends nothing, leaving the field commits.
+  const revision = async (): Promise<number> => Number((await be.command({ op: 'queryProject', projectId: be.projectId, args: {} })).revision);
+  const before = await revision();
+  await run.fill('7');
+  await run.press('Escape');
+  await expect(run).toHaveValue('5');
+  await run.fill('6');
+  await run.blur();
+  await expect.poll(() => settings()['run_speed']).toBe(6);
+  expect(await revision()).toBe(before + 1);
   // An int with allowed values is a select of exactly those values.
   const hz = tab.getByLabel('settings fixed_step_hz', { exact: true });
   await expect(hz).toHaveValue('120');

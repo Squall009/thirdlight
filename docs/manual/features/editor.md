@@ -190,7 +190,9 @@ section per component, built from the engine's component descriptions (the
 same ones MCP reads with `tl_content_query {target: "game",
 includeDescriptors: true}`): every stored field has a control, with its unit
 in the label and what it does in the tooltip. Numbers have a text box (Enter
-or leaving the box commits, Escape reverts) and, when bounded, a slider
+or leaving the box commits, Escape reverts; every text and number box in the
+editor works this way, and a number out of its range is refused, or pulled to
+the nearest end where the field says so) and, when bounded, a slider
 (commits on release); whole numbers, switches, choices, colours, vectors
 (one box per axis), rotations (degrees), asset pickers (only assets of the
 right kind — models, audio, textures), object pickers (only objects

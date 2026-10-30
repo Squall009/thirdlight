@@ -184,6 +184,18 @@ test('a controller built in the Animator tab poses a skinned model in Play by it
   expect(stored).toHaveLength(1);
   expect(stored[0]!.states.map((s) => s.name)).toEqual(['idle', 'Bent']);
   expect(stored[0]!.transitions).toEqual([{ from: 'state-01', to: bentId, conditions: [{ parameter: 'bent', op: 'true' }], duration: 0 }]);
+  // A clamped field: 99 s is past the 10 s bound and commits as 10; Escape puts the stored value back.
+  const duration = inspector.getByLabel('transition duration');
+  await duration.fill('99');
+  await duration.press('Enter');
+  await expect.poll(async () => (await controllers())[0]!.transitions[0]!.duration).toBe(10);
+  await expect(duration).toHaveValue('10');
+  await duration.fill('3');
+  await duration.press('Escape');
+  await expect(duration).toHaveValue('10');
+  await duration.fill('0');
+  await duration.blur();
+  await expect.poll(async () => (await controllers())[0]!.transitions[0]!.duration).toBe(0);
 
   // The preview pane above the Inspector: the controller runs on its model; flipping `bent` moves to Bent and changes the pose.
   const pane = previewPane(page);

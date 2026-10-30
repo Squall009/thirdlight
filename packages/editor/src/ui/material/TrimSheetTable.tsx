@@ -32,6 +32,7 @@ import {
 } from '@thirdlight/project-model/trim-sheet';
 
 import type { TrimCheckView } from '../../session/client';
+import { CommitField, NumberField } from '../CommitField';
 
 export type TrimCheck = (texture: string, trim: TrimSheet) => Promise<TrimCheckView | { ok: false; error: { code: string; message: string } }>;
 
@@ -126,10 +127,10 @@ export function TrimSheetTable({ material, onSave, onCheck }: { material: Materi
     <div className="tl-trim-sheet">
       <div className="tl-subhead">Trim sheet</div>
       <div className="tl-trim-sheet__fields">
-        <NumberField label="sheet width (px)" value={sheet.size[0]} onCommit={(v) => save({ ...sheet, size: [v!, sheet.size[1]] })} />
-        <NumberField label="sheet height (px)" value={sheet.size[1]} onCommit={(v) => save({ ...sheet, size: [sheet.size[0], v!] })} />
-        <NumberField label="texel density (px/m)" value={sheet.texelDensity} onCommit={(v) => save({ ...sheet, texelDensity: v! })} />
-        <NumberField label="padding (px)" value={sheet.padding} onCommit={(v) => save({ ...sheet, padding: v! })} />
+        <SheetNumber label="sheet width (px)" value={sheet.size[0]} onCommit={(v) => save({ ...sheet, size: [v, sheet.size[1]] })} />
+        <SheetNumber label="sheet height (px)" value={sheet.size[1]} onCommit={(v) => save({ ...sheet, size: [sheet.size[0], v] })} />
+        <SheetNumber label="texel density (px/m)" value={sheet.texelDensity} onCommit={(v) => save({ ...sheet, texelDensity: v })} />
+        <SheetNumber label="padding (px)" value={sheet.padding} onCommit={(v) => save({ ...sheet, padding: v })} />
         <label className="tl-field tl-field--inline" title="Draw every row at its own height in metres: fields repeat up a wall at that height, trims show at their painted scale. Off: each part is fitted to whole rows (how sheets made before this option drew).">
           <input type="checkbox" aria-label="rows at their real height" checked={sheet.realHeight === true} onChange={(e) => save({ ...sheet, realHeight: e.target.checked })} />
           <span className="tl-field__label">rows at their real height</span>
@@ -152,16 +153,16 @@ export function TrimSheetTable({ material, onSave, onCheck }: { material: Materi
           {sheet.rows.map((r, i) => (
             <tr key={`${i}:${r.slot}`}>
               <td>
-                <TextField label={`row ${i + 1} slot`} value={r.slot} onCommit={(v) => setRow(i, { slot: v })} />
+                <CommitField label={`row ${i + 1} slot`} value={r.slot} onCommit={(v) => v.trim() !== r.slot && setRow(i, { slot: v.trim() })} />
               </td>
               <td>
-                <NumberField label={`row ${i + 1} top`} value={r.top} onCommit={(v) => setRow(i, { top: v! })} bare />
+                <NumberField label={`row ${i + 1} top`} value={r.top} onCommit={(v) => setRow(i, { top: v })} />
               </td>
               <td>
-                <NumberField label={`row ${i + 1} bottom`} value={r.bottom} onCommit={(v) => setRow(i, { bottom: v! })} bare />
+                <NumberField label={`row ${i + 1} bottom`} value={r.bottom} onCommit={(v) => setRow(i, { bottom: v })} />
               </td>
               <td>
-                <NumberField label={`row ${i + 1} texel density`} value={r.texelDensity ?? null} onCommit={(v) => setRow(i, { texelDensity: v ?? undefined })} bare optional />
+                <NumberField optional placeholder="sheet" label={`row ${i + 1} texel density`} value={r.texelDensity ?? null} onCommit={(v) => setRow(i, { texelDensity: v ?? undefined })} />
               </td>
               <td>
                 <input type="checkbox" aria-label={`row ${i + 1} tiles in v`} checked={r.tileV === true} onChange={(e) => setRow(i, { tileV: e.target.checked })} />
@@ -240,37 +241,12 @@ export function TrimSheetTable({ material, onSave, onCheck }: { material: Materi
   );
 }
 
-/** One whole number (or empty when optional), committed on Enter or blur; a value the field cannot take puts the stored one back. */
-function NumberField({ label, value, onCommit, bare = false, optional = false }: { label: string; value: number | null; onCommit: (v: number | null) => boolean | void; bare?: boolean; optional?: boolean }): JSX.Element {
-  const shown = value === null ? '' : String(value);
-  const [draft, setDraft] = useState(shown);
-  useEffect(() => setDraft(shown), [shown]);
-  const commit = (): void => {
-    const t = draft.trim();
-    if (t === shown) return;
-    if (t === '' && optional) {
-      if (onCommit(null) === false) setDraft(shown);
-      return;
-    }
-    const v = Number(t);
-    if (t === '' || !Number.isFinite(v) || onCommit(v) === false) setDraft(shown);
-  };
-  const input = <input className="tl-input tl-input--num" aria-label={label} value={draft} placeholder={optional ? 'sheet' : undefined} onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && commit()} />;
-  if (bare) return input;
+/** A sheet-wide number with its label (the field's rules are the shared NumberField's). */
+function SheetNumber({ label, value, onCommit }: { label: string; value: number; onCommit: (v: number) => void }): JSX.Element {
   return (
     <label className="tl-field">
       <span className="tl-field__label">{label}</span>
-      {input}
+      <NumberField label={label} value={value} onCommit={onCommit} />
     </label>
   );
-}
-
-function TextField({ label, value, onCommit }: { label: string; value: string; onCommit: (v: string) => boolean | void }): JSX.Element {
-  const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
-  const commit = (): void => {
-    const t = draft.trim();
-    if (t !== value && onCommit(t) === false) setDraft(value);
-  };
-  return <input className="tl-input" aria-label={label} value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && commit()} />;
 }

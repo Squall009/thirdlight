@@ -11,7 +11,8 @@
  *
  * Browser-only (React).
  */
-import { useContext, useEffect, useId, useState, type JSX, type KeyboardEvent, type ReactNode } from 'react';
+import { CommitField } from './CommitField';
+import { useContext, useEffect, useId, useState, type JSX, type ReactNode } from 'react';
 import * as THREE from 'three';
 import type { CellField, CellMetaValue, ComponentDescriptor, FieldDescriptor, MapFieldDescriptor, ObjectFieldDescriptor } from '@thirdlight/project-model';
 import { defaultOf as cellFieldDefault } from '../session/block-overlay';
@@ -91,35 +92,6 @@ interface RowProps {
   label?: string;
 }
 
-/** A text box that commits on Enter or blur when it changed, reverts on Escape. */
-function CommitInput(p: { value: string; aria: string; title?: string; className?: string; placeholder?: string; list?: string; multiline?: boolean; onCommit: (raw: string) => void }): JSX.Element {
-  const [draft, setDraft] = useState<string | null>(null);
-  const commit = (): void => {
-    if (draft !== null && draft !== p.value) p.onCommit(draft);
-    setDraft(null);
-  };
-  const onKey = (e: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>): void => {
-    if (e.key === 'Enter' && !(p.multiline === true && e.shiftKey)) e.currentTarget.blur();
-    if (e.key === 'Escape') {
-      setDraft(null);
-      const t = e.currentTarget;
-      requestAnimationFrame(() => t.blur());
-    }
-  };
-  const common = {
-    className: p.className ?? 'tl-input',
-    'aria-label': p.aria,
-    title: p.title,
-    value: draft ?? p.value,
-    placeholder: p.placeholder,
-    onFocus: () => setDraft(p.value),
-    onChange: (e: { target: { value: string } }) => setDraft(e.target.value),
-    onBlur: commit,
-    onKeyDown: onKey,
-  };
-  return p.multiline === true ? <textarea {...common} rows={3} /> : <input {...common} {...(p.list !== undefined ? { list: p.list } : {})} />;
-}
-
 const DEG = 180 / Math.PI;
 const eulerOf = (q: readonly number[]): number[] => {
   const e = new THREE.Euler().setFromQuaternion(new THREE.Quaternion(q[0] ?? 0, q[1] ?? 0, q[2] ?? 0, q[3] ?? 1), 'XYZ');
@@ -152,9 +124,9 @@ function NumberWidget(p: RowProps & { shown: number | undefined; aria: string })
   };
   return (
     <span className="tl-param__number">
-      <CommitInput
+      <CommitField
         className="tl-input tl-input--num"
-        aria={p.aria}
+        label={p.aria}
         title={p.f.tooltip}
         value={p.shown === undefined ? '' : formatNumber(p.shown)}
         onCommit={(raw) => {
@@ -191,10 +163,10 @@ function VectorWidget(p: RowProps & { shown: readonly number[]; valueOf: (stored
   return (
     <span className="tl-vec__nums">
       {p.labels.map((l, i) => (
-        <CommitInput
+        <CommitField
           key={i}
           className="tl-vec__num"
-          aria={`${p.aria} ${l}`}
+          label={`${p.aria} ${l}`}
           title={`${p.f.label} ${l}`}
           value={p.shown[i] === undefined ? '' : formatNumber(p.shown[i]!)}
           onCommit={(raw) => {
@@ -392,7 +364,7 @@ export function FieldRow(p: RowProps): JSX.Element | null {
       if (list === undefined) {
         return (
           <Row f={f} label={p.label} isDefault={isDefault}>
-            <CommitInput aria={aria} title={f.tooltip} value={typeof shown === 'string' ? shown : ''} onCommit={(raw) => (raw.trim() === '' ? clear() : p.onEdit(p.path, raw.trim()))} />
+            <CommitField label={aria} title={f.tooltip} value={typeof shown === 'string' ? shown : ''} onCommit={(raw) => (raw.trim() === '' ? clear() : p.onEdit(p.path, raw.trim()))} />
           </Row>
         );
       }
@@ -423,8 +395,8 @@ export function FieldRow(p: RowProps): JSX.Element | null {
       }
       return (
         <Row f={f} label={p.label} isDefault={isDefault}>
-          <CommitInput
-            aria={aria}
+          <CommitField
+            label={aria}
             title={f.tooltip}
             multiline={kind === 'multiline'}
             value={typeof shown === 'string' ? shown : ''}
@@ -569,9 +541,9 @@ function AnimatorParametersWidget(p: RowProps & { aria: string; params: readonly
               {param.name} <span className="tl-inspector__hint">({param.type})</span>
             </span>
             <div className="tl-desc__control">
-              <CommitInput
+              <CommitField
                 value={formatNumber(shown)}
-                aria={aria}
+                label={aria}
                 onCommit={(raw) => {
                   const n = Number(raw.trim());
                   if (raw.trim() === '' || !Number.isFinite(n) || Math.abs(n) > 1e6) return p.onFail(`${param.name}: a number within ±1000000`);
@@ -625,9 +597,9 @@ function EffectParametersWidget(p: RowProps & { aria: string; params: readonly {
               {param.type === 'color' ? (
                 <input type="color" aria-label={aria} value={String(shown)} onChange={(e) => set(e.target.value.toLowerCase())} />
               ) : (
-                <CommitInput
+                <CommitField
                   value={Array.isArray(shown) ? shown.map((x) => formatNumber(Number(x))).join(', ') : formatNumber(Number(shown))}
-                  aria={aria}
+                  label={aria}
                   onCommit={(raw) => {
                     const parts = raw.split(',').map((x) => Number(x.trim()));
                     const n = param.type === 'vec3' ? 3 : 1;

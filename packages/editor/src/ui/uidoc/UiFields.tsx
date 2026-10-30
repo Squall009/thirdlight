@@ -12,33 +12,18 @@
  * Browser-only (React).
  */
 import { SETTINGS_ENGINE_BINDINGS, SHELL_SCREENS, UI_DEPRECATED_ENGINE_ACTIONS, UI_ENGINE_ACTIONS, UI_LIMITS, UI_SAVE_SLOTS } from '@thirdlight/project-model/limits';
-import { useEffect, useState, type JSX } from 'react';
+import { useState, type JSX } from 'react';
 import type { FieldDescriptor, ObjectFieldDescriptor, UiAction, UiEngineAction, UiStyle } from '@thirdlight/project-model';
 
 import { ObjectFields, type FieldContext } from '../DescriptorFields';
 import { getAt, resolveEdit, setAt, type FieldPath } from '../../session/descriptor-fields';
 import { setStyleValue, uniqueName } from '../../session/ui-edit';
 import { FONT_KINDS, RefPicker, TEXTURE_KINDS, useFirstEntry } from '../catalog/RefPicker';
+import { CommitField } from '../CommitField';
 
-/** A text box that commits on Enter or blur. */
+/** A text box that commits on Enter or blur (the shared field's rules). */
 export function CommitText(p: { value: string; aria: string; placeholder?: string; title?: string; wide?: boolean; onCommit: (v: string) => void }): JSX.Element {
-  const [draft, setDraft] = useState(p.value);
-  useEffect(() => setDraft(p.value), [p.value]);
-  return (
-    <input
-      className={p.wide === true ? 'tl-input tl-input--wide' : 'tl-input'}
-      aria-label={p.aria}
-      title={p.title}
-      placeholder={p.placeholder}
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={() => draft !== p.value && p.onCommit(draft)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-        if (e.key === 'Escape') setDraft(p.value);
-      }}
-    />
-  );
+  return <CommitField className={p.wide === true ? 'tl-input tl-input--wide' : 'tl-input'} label={p.aria} value={p.value} onCommit={p.onCommit} {...(p.placeholder !== undefined ? { placeholder: p.placeholder } : {})} {...(p.title !== undefined ? { title: p.title } : {})} />;
 }
 
 const isBinding = (v: unknown): v is { bind: string } => typeof v === 'object' && v !== null && !Array.isArray(v) && typeof (v as { bind?: unknown }).bind === 'string';
