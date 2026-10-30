@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { INSTANCE_FLOATS } from '@thirdlight/project-model';
 
 import { BLOCK_FLOATS, copyDensityAt, copyLevel, prepareCopies } from './copies-prepare';
-import { buildGpuCopySet, GPU_COPIES_KEY, LIST_HEADER } from './copies-gpu';
+import { buildGpuCopySet, GPU_COPIES_KEY } from './copies-gpu';
 import { TAN_HALF_REFERENCE } from './instance-lod';
 import { LOD_CULL_LEVEL_KEY, LodTuning } from './lod-switch';
 import { litScene, wgslOf, wgslRenderer } from './test-wgsl';
@@ -68,10 +68,11 @@ function cullFor(meshes: readonly THREE.Mesh[], cam: THREE.Camera): CullView {
 /** The copies (buffer indices) a draw lists for a pass of `cam`, read through its list as the vertex stage does. */
 function listed(mesh: THREE.Mesh, cam: THREE.Camera, order: Uint32Array): number[] {
   mesh.onBeforeRender(null as never, null as never, cam, mesh.geometry, mesh.material as THREE.Material, null as never);
-  const draw = mesh.userData[GPU_COPIES_KEY] as { list: { data: Float32Array }; set: { block: number } };
+  const draw = mesh.userData[GPU_COPIES_KEY] as { list: { data: Float32Array; header: number }; set: { block: number } };
   const n = (mesh.geometry as THREE.InstancedBufferGeometry).instanceCount / draw.set.block;
   const out: number[] = [];
-  for (let e = LIST_HEADER; e < LIST_HEADER + n; e++) for (let k = 0; k < draw.list.data[e * 4 + 1]!; k++) out.push(order[draw.list.data[e * 4]! + k]!);
+  const h = draw.list.header;
+  for (let e = h; e < h + n; e++) for (let k = 0; k < draw.list.data[e * 4 + 1]!; k++) out.push(order[draw.list.data[e * 4]! + k]!);
   return out;
 }
 
@@ -245,6 +246,36 @@ describe('stored copies on the GPU', () => {
     for (let b = 0; b < p.blocks.length / BLOCK_FLOATS; b++) widest = Math.max(widest, p.blocks[b * BLOCK_FLOATS + 3]!);
     // 64 copies 1 m apart: a block is about an 8 × 8 m square (radius ~5.7 m), never a strip across the set.
     expect(widest).toBeLessThan(8);
+  });
+
+  it('a model of more than eight levels keeps every switch: its lists carry all its distances, and the vertex stage is the same program', () => {
+    const root = new THREE.Group();
+    const mat = new MeshStandardNodeMaterial();
+    const lod = new THREE.LOD();
+    for (let l = 0; l < 10; l += 1) lod.addLevel(new THREE.Mesh(new THREE.BoxGeometry(1, 1 - l * 0.05, 1), mat), l * 10);
+    const none = new THREE.Group();
+    none.userData[LOD_CULL_LEVEL_KEY] = true;
+    lod.addLevel(none, 120);
+    root.add(lod);
+    const many = buildGpuCopySet({ glbRoot: root } as unknown as ModelInstance, copies(200, 2), 200, 'many', { tuning: new LodTuning(), lodPerCopy: true });
+    expect(many.meshes).toHaveLength(10);
+    const distances = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 120];
+    for (const m of many.meshes) {
+      const list = (m.userData[GPU_COPIES_KEY] as { list: { data: Float32Array; header: number } }).list;
+      // Three fixed texels, then the 11 distances four a texel.
+      expect(list.header).toBe(6);
+      expect(list.data[5]).toBe(distances.length);
+      expect(Array.from(list.data.subarray(12, 12 + distances.length))).toEqual(distances);
+    }
+    const few = buildGpuCopySet(lodTemplate(60).template, copies(50, 2), 50, 'few', { tuning: new LodTuning(), lodPerCopy: true });
+    const renderer = wgslRenderer();
+    const sa = litScene();
+    sa.add(many.group);
+    const sb = litScene();
+    sb.add(few.group);
+    expect(wgslOf(renderer, sa, many.meshes[0]!)).toBe(wgslOf(renderer, sb, few.meshes[0]!));
+    many.dispose();
+    few.dispose();
   });
 
   it('every set\'s draws build one vertex stage (their inputs bound per draw)', () => {

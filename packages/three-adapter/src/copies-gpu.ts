@@ -57,7 +57,7 @@ import type { ModelInstance } from './visual';
 import type { WarmDraw } from './program-warmer';
 
 const TSL: N = TSLTyped;
-const { Fn, abs, float, instanceIndex, int, ivec2, length, max, modelWorldMatrix, normalLocal, normalize, positionLocal, positionPrevious, select, uint, uniform, vec3, vec4 } = TSL;
+const { Fn, Loop, abs, float, instanceIndex, int, ivec2, length, max, modelWorldMatrix, normalLocal, normalize, positionLocal, positionPrevious, select, uint, uniform, vec3, vec4 } = TSL;
 
 /** `mesh.userData[GPU_COPIES_KEY]`: the draw's state its vertex stage binds ({@link CopyDraw}). */
 export const GPU_COPIES_KEY = '__tlGpuCopies';
@@ -66,15 +66,16 @@ const GPU_COPIES_ATTRIBUTE = 'tlGpuCopies';
 /** Entries a row of a draw's list texture holds. */
 const LIST_ROW = 1024;
 /**
- * Texels a list's header takes before its entries: copies per block, reach
- * (m), world scale and how readily the copies give way to subjects; the level it draws, the group's level count, whether
- * the last level culls and how the level is decided; the switch distances
- * (two texels); the density falloff.
+ * Texels a list's header starts with: copies per block, reach (m), world
+ * scale and how readily the copies give way to subjects; the level it
+ * draws, the group's level count, whether the last level culls and how the
+ * level is decided; the density falloff. The group's switch distances
+ * follow, four a texel, as many as its model has levels; then the entries.
  */
-export const LIST_HEADER = 5;
-/** Levels of detail a copy's model may have in one LOD group (two vec4s of switch distances). */
-const MAX_LEVELS = 8;
-/** A switch distance never reached (a level the model does not have). */
+const LIST_FIXED_HEADER = 3;
+/** Texels before a list's entries for a LOD group of `levels` levels. */
+const listHeaderTexels = (levels: number): number => LIST_FIXED_HEADER + Math.ceil(levels / 4);
+/** A switch distance never reached (a slot past the model's levels). */
 const NEVER = 3.4e38;
 
 const floatTexture = (data: Float32Array, width: number, height: number): THREE.DataTexture => {
@@ -129,18 +130,17 @@ const uLocal: N = uniform(new THREE.Matrix4()).onObjectUpdate(({ object }: { obj
 
 /** This instance's copy: its texels, slot and whether it is drawn by this draw (vertex stage). */
 function copyNodes(): { kept: N; pos: N; quat: N; scale: N; paint: N; slot: N; bend: N } {
-  // The list's header (LIST_HEADER texels of its first row): see `writeHeader`.
+  // The list's header (its first row's first texels): see `writeHeader`.
   const head = (i: number): N => listTexture.load(ivec2(i, 0));
   const h0 = head(0);
   const uLevel = head(1);
-  const uD0 = head(2);
-  const uD1 = head(3);
-  const uDensity = head(4);
+  const uDensity = head(2);
+  const distanceTexels = uint(uLevel.y).add(3).div(4);
   const B = uint(h0.x);
   const idx = uint(instanceIndex);
   const b = idx.div(B);
   const k = idx.sub(b.mul(B));
-  const e = b.add(uint(LIST_HEADER));
+  const e = b.add(uint(LIST_FIXED_HEADER)).add(distanceTexels);
   const entry = listTexture.load(ivec2(int(e.mod(uint(LIST_ROW))), int(e.div(uint(LIST_ROW)))));
   const slot = uint(entry.x).add(k);
   const col = int(slot.mod(uint(COPY_ROW))).mul(COPY_TEXELS);
@@ -150,14 +150,17 @@ function copyNodes(): { kept: N; pos: N; quat: N; scale: N; paint: N; slot: N; b
   const t2 = copiesTexture.load(ivec2(col.add(2), row));
   const world = modelWorldMatrix.mul(vec4(t0.xyz, 1)).xyz;
   const metres = length(world.sub(uEye.xyz));
-  const d = metres.mul(uEye.w);
-  const s = max(max(abs(t2.x), abs(t2.y)), abs(t2.z)).mul(h0.z);
+  // Vars, so the copy's reads are made once before the level loop rather than in it.
+  const d = metres.mul(uEye.w).toVar();
+  const s = max(max(abs(t2.x), abs(t2.y)), abs(t2.z)).mul(h0.z).toVar();
   const isStatic = uStatic.greaterThan(0.5);
-  // The rule of `copyLevel`: the levels whose switch distance (times the scale) the copy reached.
-  const ds = [uD0.y, uD0.z, uD0.w, uD1.x, uD1.y, uD1.z, uD1.w];
-  let level: N = float(0);
-  for (const at of ds) level = level.add(select(d.greaterThanEqual(at.mul(s)), float(1), float(0)));
-  level = select(isStatic, float(0), level);
+  // The rule of `copyLevel`: the levels whose switch distance (times the scale) the copy reached, level 0's (at 0) among them.
+  const reached = float(0).toVar();
+  Loop({ start: uint(0), end: distanceTexels, type: 'uint', condition: '<' }, ({ i }: { i: N }) => {
+    const at = listTexture.load(ivec2(int(i).add(LIST_FIXED_HEADER), 0));
+    reached.addAssign(TSL.dot(TSL.step(at.mul(s), vec4(d)), vec4(1)));
+  });
+  const level = select(isStatic, float(0), reached.sub(1));
   const last = uLevel.y.sub(1);
   const culled = uLevel.z.greaterThan(0.5).and(level.greaterThanEqual(last));
   // Mode 0: the copy's own level is the draw's; 1: every listed copy not past its cull size (a mesh outside the levels, or
@@ -258,6 +261,8 @@ interface CopyList {
   readonly staticAll: boolean;
   /** How its vertex stage decides a copy's level: 0 its own is the list's, 1 every listed copy drawn unless past its cull size (the list holds its blocks). */
   readonly mode: number;
+  /** Texels before its entries (`listHeaderTexels`). */
+  readonly header: number;
   data: Float32Array;
   texture: THREE.DataTexture;
   /** Blocks the view sees, candidates (seen or not), and all listed (with the rest for a static map). */
@@ -391,9 +396,10 @@ export class GpuCopySet {
     const listOf = (group: number, level: number, reach: number, staticAll: boolean, mode: number): CopyList => {
       let l = this.lists.find((x) => x.group === group && x.level === level && x.reach === reach);
       if (l === undefined) {
-        const rows = Math.max(1, Math.ceil((LIST_HEADER + blocks) / LIST_ROW));
+        const header = listHeaderTexels(this.groupOf(group)?.distances.length ?? 1);
+        const rows = Math.max(1, Math.ceil((header + blocks) / LIST_ROW));
         const data = new Float32Array(rows * LIST_ROW * 4);
-        this.lists.push((l = { group, level, reach, staticAll, mode, data, texture: floatTexture(data, LIST_ROW, rows), nView: 0, nCand: 0, nAll: 0, copiesInView: 0 }));
+        this.lists.push((l = { group, level, reach, staticAll, mode, header, data, texture: floatTexture(data, LIST_ROW, rows), nView: 0, nCand: 0, nAll: 0, copiesInView: 0 }));
         this.writeHeader(l);
       }
       return l;
@@ -630,12 +636,18 @@ export class GpuCopySet {
     return this.scratch;
   }
 
-  /** Write a list's header (its draws' constants: `LIST_HEADER`). */
+  /** The LOD group a list's levels come from (a list outside every group: the first group's, for its cull size). */
+  private groupOf(group: number): InstanceSetPlan['groups'][number] | undefined {
+    return group >= 0 ? this.plan.groups[group] : this.plan.groups[0];
+  }
+
+  /** Write a list's header (its draws' constants: `LIST_FIXED_HEADER`, then its group's switch distances). */
   private writeHeader(list: CopyList): void {
-    const g = list.group >= 0 ? this.plan.groups[list.group] : this.plan.groups[0];
+    const g = this.groupOf(list.group);
     const distances = g?.distances ?? [0];
-    const dv = (k: number): number => (k < distances.length ? distances[k]! : NEVER);
-    list.data.set([this.block, Math.min(list.reach, NEVER), this.worldScale, this.options.bendAway ?? FOLIAGE_BEND_DEFAULTS.ruleBend, list.level, g !== undefined ? Math.min(distances.length, MAX_LEVELS) : 1, g?.culls === true ? 1 : 0, list.mode, dv(0), dv(1), dv(2), dv(3), dv(4), dv(5), dv(6), dv(7), this.density.x, this.density.y, this.density.z, this.density.w], 0);
+    const out = list.data;
+    out.set([this.block, Math.min(list.reach, NEVER), this.worldScale, this.options.bendAway ?? FOLIAGE_BEND_DEFAULTS.ruleBend, list.level, distances.length, g?.culls === true ? 1 : 0, list.mode, this.density.x, this.density.y, this.density.z, this.density.w], 0);
+    for (let k = 0; k < (list.header - LIST_FIXED_HEADER) * 4; k += 1) out[LIST_FIXED_HEADER * 4 + k] = k < distances.length ? distances[k]! : NEVER;
     list.texture.needsUpdate = true;
   }
 
@@ -664,7 +676,7 @@ export class GpuCopySet {
   /** Write block `b` as entry `n` of `list` (only when it differs: the texture is uploaded only then). */
   private writeEntry(list: CopyList, n: number, b: number): number {
     const o = b * BLOCK_FLOATS;
-    const at = (LIST_HEADER + n) * 4;
+    const at = (list.header + n) * 4;
     const out = list.data;
     const bl = this.prepared.blocks;
     if (out[at] !== bl[o + 6] || out[at + 1] !== bl[o + 7]) {
@@ -819,7 +831,7 @@ export class GpuCopySet {
     const seen = new Uint8Array(p.blocks.length / BLOCK_FLOATS);
     for (const list of this.lists) {
       if (list.reach !== Number.POSITIVE_INFINITY) continue;
-      for (let n = 0; n < list.nView; n += 1) seen[this.blockOf[list.data[(LIST_HEADER + n) * 4]!]!] = 1;
+      for (let n = 0; n < list.nView; n += 1) seen[this.blockOf[list.data[(list.header + n) * 4]!]!] = 1;
     }
     const bl = p.blocks;
     const count = (level: number, n: number, b: number): void => {
