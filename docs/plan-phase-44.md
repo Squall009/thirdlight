@@ -70,6 +70,7 @@ regression points at its cause.
 | 44.6c | done: G5 (1e1b2680: bypass reproduced, a `scale` on move read 1; move/jump only from the action evaluator, fresh activation and consumed-confirm rules moved into it; raw-snapshot mapping, step source and m2 input fixtures gone, −2491/+221; frame v2 unchanged), G14 (96544a26: title confirm plays the start scenes, no `newGame`; a screen with nothing to focus passes the confirm on). e2e s: starter-game 6.7 → 6.3 (Enter + no-deprecation check), shell 16.5 → 16.2, input/rebind/relay/replay/playtest/sim-worker/character-3d untouched; village at the cap unchanged. Fast gates green (D311 watch miss once, passed alone). |
 | 44.7 | done: G18 v1/v2 lights (53171674, −32/+13), editor test-only planners + 2D outline collider (417d32ea, −1179/+21, 1 module), G19 demo module (45a2e775, −365/+88), tools/dev + phase-9 icons + .pyc (3446265a, 5 files), `testTempBase()` for 23 tests (494d1877), m3-browser + by-hand/editor-look/perf-harness e2e (5349b08b, −1505), job-export to vitest (616f98a1), 3D starter pack reproduced (834b264c), renames (7f7bbf45, e2545add). e2e s: lights 27.0, character-3d 11.9, colliders 6.2, starter-capabilities 17.5, job-export-import 1.7 → 0 (vitest); village at the cap unchanged. Fast gates green (two vitest misses under load, passed alone: D418, D419). |
 | 44.8 | done: G7 (89816355: no count of modes, behaviour groups, input actions, maps, glyphs; input settings ≤ one request's 64 KiB, frames carry the derived 1,236 actions; count-caps test finds caps by shape, catches the four on a scratch revert, found D420), G8 (f314e909: move/paste counts gone, request bytes bound them). e2e s: count-caps 22.8 → 22.7, edit-copy 2.6 → 3.8 (270-object step), game-modes 8.4/4.9 → 8.5/4.7, input 5.1/2.9/3.6 → 5.2/2.7/3.6, hierarchy 6.9 → 7.2; village at the cap unchanged. Fast gates green (D417 watch miss once, passed alone). |
+| 44.8b | done: D420 (2c3db8df: no count of `shell.hud`, save settings fields, save migrations; one command's bytes bound them; runtime stored-settings key count dropped; cap test's not-yet-lifted list gone). e2e s: shell 7.9 → 7.6 (20 HUD docs in Play), project-saves 9.0 → 8.1 (81 settings fields, Play/reload/export; runs only with TL_E2E_ALL_VARIANTS=1 on a GPU host, run alone), ui-editor 7.8/2.7 → 7.9/2.7, count-caps 22.7 → 22.5. Fast gate green; village at the cap unchanged. |
 
 ### 44.0 baseline
 
@@ -211,3 +212,9 @@ What the end of 44 is measured against (44.13).
   paste (that would make several undo steps); the counts went and the request's bytes bound them (a move names
   about 3,000 ids; a paste of large objects, e.g. 300 meshes with many components, is still refused whole for its
   bytes, with the backend's message: an undo group for split commands is the fix if a game needs it).
+- 2026-10-30 (44.8b, default chosen, owner to confirm): D420: HUD documents, save settings fields and save
+  migrations have no count. Each list is written whole by one command (setShell, setSaveSchema), so the request's
+  64 KiB bounds it; HUD layers are made one per entry (drawn in list order), migrations are one per older version
+  and run one at a time, and the settings document is read through the schema's fields, so nothing at runtime is
+  sized from a fixed count. No byte check on load was added (unlike the input settings, no runtime bound derives
+  from these lists). The cap test now has no not-yet-lifted list.
