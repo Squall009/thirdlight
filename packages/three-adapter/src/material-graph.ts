@@ -46,7 +46,8 @@
  *   normal that reads them is refused (they are computed from it).
  *
  * The node semantics (ports, types, defaults) are the compiler's own copy of
- * the catalogue, kept equal by `tests/material-graph-compile-parity.test.ts`.
+ * the catalogue (`material-graph-ports.ts`), kept equal by
+ * `tests/material-graph-compile-parity.test.ts`.
  * Why a copy: every compile step reads ports in this compact form (`t`/`d`,
  * `dyn` widths), and the shipped compiler would have to be rebuilt on
  * project-model's port shape to drop it.
@@ -64,201 +65,56 @@ import { copyRoot, normalGreenSign } from './node-materials';
 import { LOCAL_LIGHTS_KEY } from './local-lights';
 import { STEADY_SHAPE_KEY } from './shadow-casters';
 import { needsPreviousPlace, OWN_PREVIOUS_POSITION_KEY } from './motion-vectors';
-import { decalDrawOf, decalSortOrder, installDecalDraw, removeDecalDraw, type DecalDraw } from './mesh-decals';
+import { decalDrawOf, decalSortOrder, installDecalDraw, removeDecalDraw } from './mesh-decals';
 import { buildPaintSource, paintNode, withPaint } from './vertex-paint-draw';
 import { TRIM_DATA_ATTRIBUTE } from './trim-data-attribute';
-import { LAYER_NOT_READ, localLightModeOf, TEXTURE_ABSENT_VALUES, trimMaxFootprint, UV_SOURCES, WORLD_UV_PERIOD_METRES, type LocalLightMode, type TextureAbsent, type TrimSheet } from '@thirdlight/project-model';
+import {
+  LAYER_NOT_READ,
+  localLightModeOf,
+  TEXTURE_ABSENT_VALUES,
+  trimMaxFootprint,
+  UV_SOURCES,
+  WORLD_UV_PERIOD_METRES,
+  type TextureAbsent,
+  type TrimSheet,
+} from '@thirdlight/project-model';
+import {
+  type ResolvedPort,
+  type ResolvedPorts,
+  field,
+  functionInterface,
+  isValueType,
+  numOf,
+  parameterPortType,
+  resolveMaterialGraphPorts,
+  str,
+} from './material-graph-ports';
+import type {
+  CompiledMaterialGraph,
+  GraphCompileEnv,
+  GraphGlobals,
+  GraphProblem,
+  MaterialFunctionLike,
+  MaterialGraphEdgeLike,
+  MaterialGraphLike,
+  MaterialGraphNodeLike,
+  MaterialParameterLike,
+  N,
+  PortType,
+  SamplerLike,
+  ValueType,
+} from './material-graph-types';
+export type {
+  CompiledMaterialGraph, GraphCompileEnv, GraphGlobals, GraphProblem, GraphSurface, MaterialFunctionLike,
+  MaterialGraphEdgeLike, MaterialGraphLike, MaterialGraphNodeLike, MaterialParameterLike, PortType, SamplerLike,
+  ValueType,
+} from './material-graph-types';
+export { COMPILER_FIELD_DEFAULTS, COMPILER_NODES, functionInterface, parameterPortType, resolveMaterialGraphPorts } from './material-graph-ports';
 
-// TSL's typings do not follow values whose width is known only at run time.
-type N = any;
 /** TSL, untyped here (see N). */
 const T: N = TSL;
 
-// ---- structural data (project-model shapes; three-adapter does not import it) ----------
-
-export interface MaterialGraphNodeLike {
-  readonly id: string;
-  readonly type: string;
-  readonly position?: readonly [number, number] | readonly number[];
-  readonly data?: Readonly<Record<string, unknown>>;
-}
-export interface MaterialGraphEdgeLike {
-  readonly id?: string;
-  readonly from: { readonly node: string; readonly port: string };
-  readonly to: { readonly node: string; readonly port: string };
-}
-export interface MaterialGraphLike {
-  readonly nodes: readonly MaterialGraphNodeLike[];
-  readonly edges: readonly MaterialGraphEdgeLike[];
-}
-export interface MaterialParameterLike {
-  readonly key: string;
-  readonly type: string;
-  readonly default: number | readonly number[] | string;
-  readonly visibility?: string;
-  /** Data parameters: the grid's cells [width, height]. */
-  readonly size?: readonly number[];
-  /** A vec4 per-layer setting's values for layers 4, 5, … (read through {@link GraphSurface.perLayer}). */
-  readonly extraLayers?: readonly number[];
-}
-/** A standalone graph document (only `material-function` ones are called). */
-export interface MaterialFunctionLike {
-  readonly graphId: string;
-  readonly kind: string;
-  readonly name?: string;
-  readonly graph: MaterialGraphLike;
-}
-
-export type ValueType = 'float' | 'vec2' | 'vec3' | 'vec4';
-/** `data` — a data parameter's cell grid (feeds only Sample data). */
-export type PortType = ValueType | 'texture' | 'data';
-const VALUE_TYPES: readonly ValueType[] = ['float', 'vec2', 'vec3', 'vec4'];
 const WIDTH: Readonly<Record<ValueType, number>> = { float: 1, vec2: 2, vec3: 3, vec4: 4 };
-
-export interface SamplerLike {
-  readonly colorSpace: 'srgb' | 'linear';
-  readonly wrap: 'repeat' | 'clamp' | 'mirror';
-  readonly filter: 'linear' | 'nearest';
-}
-
-/** The shared uniforms every graph material reads (the library's clock, wind and the scene's wetness). */
-export interface GraphGlobals {
-  readonly time: N;
-  /** The clock as the last frame drawn read it (absent: none kept): a vertex offset's previous place, for motion vectors. */
-  readonly timePrevious?: N;
-  readonly windDir: N;
-  readonly strength: N;
-  readonly gust: N;
-  readonly gustFreq: N;
-  readonly turb: N;
-  readonly wetness: N;
-  /** The wind field at a world ground point (vec2 x, z): vec4(direction x, z, strength with gusts, turbulence). Absent: the global uniforms above. */
-  readonly windAt?: (p: N) => N;
-}
-
-export interface GraphCompileEnv {
-  readonly globals: GraphGlobals;
-  /**
-   * A texture asset prepared for a sampler (colour space, wrapping, filter):
-   * the texture, `'loading'` while it is on its way, or null when the
-   * project has no such texture.
-   */
-  texture(assetId: string, sampler: SamplerLike): THREE.Texture | 'loading' | null;
-  /**
-   * While `assetId` is loading: a texture already drawn that it replaces (the
-   * same parameter's previous texture) and that texture's id, drawn meanwhile
-   * instead of nothing; null when there is none. The compile still waits for
-   * `assetId` (it is pending) and samples the stand-in's id too, so its
-   * holder keeps the stand-in until the compile that replaces it.
-   */
-  standIn?(assetId: string, sampler: SamplerLike): { readonly assetId: string; readonly texture: THREE.Texture } | null;
-  /** A material function by graph id, or null. */
-  fn(graphId: string): MaterialFunctionLike | null;
-  /**
-   * The key objects store their overrides under (`mesh.userData[OVERRIDES_KEY][paramKey]`);
-   * absent = parameters are plain uniforms.
-   */
-  readonly overrideKey?: string;
-  /** A surface that makes its own vertices (a terrain): its inputs stand in for the mesh's attributes. */
-  readonly surface?: GraphSurface;
-}
-
-/**
- * A drawn surface whose vertices are made in its own vertex shader (a
- * terrain's grid placed and raised from its height textures), not read from
- * vertex attributes: what a graph reads as mesh data comes from it instead.
- * The graph's own vertex offset is not applied (the surface places the
- * vertices).
- */
-export interface GraphSurface {
-  /** Tells compiles for different surfaces apart (part of the compile's key). */
-  readonly key: string;
-  /** UV set 0 and 1 (vec2). */
-  uv(set: 0 | 1): N;
-  /** A vertex colour set (`color`: COLOR_0, `color_1`: COLOR_1) as vec4, or null where the surface has none. */
-  vertexColor(name: 'color' | 'color_1'): N | null;
-  /** The local position the vertex shader places (the material's position node). */
-  readonly position: N;
-  /** False where a pixel is cut away (the material's mask node), or null. */
-  readonly mask: N | null;
-  /**
-   * The texture-array layer a graph's array layer (a layer slot, 0–3) reads
-   * at a pixel (a terrain's per-sample layer indices: any number of layers
-   * draws through four slots); absent: the graph's layer as it is.
-   */
-  readonly arrayLayer?: (slot: N) => N;
-  /**
-   * A per-layer setting (a vec4 parameter, one component per layer slot,
-   * with values for layers past the fourth) as the slots read it at a pixel:
-   * each slot takes the value of the layer it draws there. Absent: the
-   * vector as it is.
-   */
-  readonly perLayer?: (value: N, extra: readonly number[]) => N;
-}
-
-export interface GraphProblem {
-  /** The node of the material graph (a problem inside a function names the call node). */
-  readonly nodeId?: string;
-  readonly severity: 'error' | 'warning';
-  readonly message: string;
-}
-
-export interface CompiledMaterialGraph {
-  /** The surface output kind (null: none — the material draws as a plain white PBR surface). */
-  readonly surface: 'pbr' | 'unlit' | 'customLit' | null;
-  readonly slots: {
-    readonly color: N | null;
-    readonly metalness: N | null;
-    readonly roughness: N | null;
-    readonly normal: N | null;
-    readonly emissive: N | null;
-    readonly ao: N | null;
-    /** PBR specular intensity and colour, only when connected (then the material is a physical one). */
-    readonly specularIntensity: N | null;
-    readonly specularColor: N | null;
-    readonly opacity: N | null;
-    readonly alphaTest: N | null;
-    readonly position: N | null;
-    /** What a vertex offset that reads the clock had moved the vertex by on the last frame (object space; null: none, or a steady one). */
-    readonly positionPreviousOffset: N | null;
-    /** False where a pixel is cut away (a surface's holes), or null. */
-    readonly mask: N | null;
-    /** Custom-lit: the graph's colour and emissive (computed after the lights are gathered). */
-    readonly litColor: N | null;
-    readonly litEmissive: N | null;
-    /** Custom-lit alpha that reads lighting inputs (then `opacity`/`alphaTest` are null). */
-    readonly litOpacity: N | null;
-    readonly litAlphaTest: N | null;
-  };
-  /** `localLights`: the output's local-light mode when it sets one (local-lights.ts); `decal`: drawn as a mesh decal (mesh-decals.ts). */
-  readonly flags: { readonly doubleSided: boolean; readonly transparent: boolean; readonly castShadows: boolean; readonly localLights?: LocalLightMode; readonly decal?: DecalDraw };
-  /** Reads the clock or the wind (the host keeps rendering). */
-  readonly animated: boolean;
-  /** Reads the object's own frame (object-space position or normal, its origin, an object-space offset): never merged with others (static batching). */
-  readonly objectFrame: boolean;
-  /** Reads mesh UVs in block cells (see {@link readsCellUv}). */
-  readonly cellUv: boolean;
-  /**
-   * The row table its mesh-UV reads stay inside (a trim material's, a
-   * layered surface's trim layers'): such a material draws trim strips, so a
-   * block layer gives it strip UVs instead of its metres (`block-cell-uv.ts`).
-   * Known from the definition, before any texture arrives. Null: none.
-   */
-  readonly trimStrips: TrimSheet | null;
-  /** Compiled for a surface that places its own vertices from data it reports changing ({@link GraphSurface}). */
-  readonly steadyShape: boolean;
-  /** Reads a Lighting input under a Custom-lit output. */
-  readonly usesLight: boolean;
-  /** Texture assets it samples (loaded or not). */
-  readonly textures: readonly string[];
-  /** Textures still loading (a recompile after they arrive draws them). */
-  readonly pending: readonly string[];
-  readonly problems: readonly GraphProblem[];
-  /** The number of catalogue nodes compiled (function bodies once per call). */
-  readonly nodeCount: number;
-  /** Textures the compile made (data parameters' placeholders); released with the compile. */
-  readonly ownedTextures: readonly THREE.Texture[];
-}
 
 /**
  * Whether a graph is the height-blended layers template as it was made while
@@ -398,255 +254,6 @@ export function makeDataTexture(bytes: Uint8Array, width: number, height: number
   t.flipY = false;
   t.needsUpdate = true;
   return t;
-}
-
-// ---- the compiler's copy of the catalogue (ports, types, defaults) -------------------
-
-/** `dyn`: the node's `type` field (auto = the widest wire in). */
-type SpecType = PortType | 'dyn';
-interface PortSpec {
-  readonly id: string;
-  readonly t: SpecType;
-  readonly d?: number | readonly number[] | string;
-}
-interface NodeSpec {
-  readonly inputs: readonly PortSpec[];
-  readonly outputs: readonly PortSpec[];
-}
-const P = (id: string, t: SpecType, d?: PortSpec['d']): PortSpec => ({ id, t, ...(d !== undefined ? { d } : {}) });
-const unary = (d: number = 0): NodeSpec => ({ inputs: [P('in', 'dyn', d)], outputs: [P('out', 'dyn')] });
-const binary = (a = 0, b = 0): NodeSpec => ({ inputs: [P('a', 'dyn', a), P('b', 'dyn', b)], outputs: [P('out', 'dyn')] });
-const SAMPLE_OUT = [P('rgba', 'vec4'), P('rgb', 'vec3'), P('r', 'float'), P('g', 'float'), P('b', 'float'), P('a', 'float')];
-
-/**
- * Every node type the compiler knows, with its ports as the catalogue
- * declares them (ids, types, defaults). Data-dependent ports (Parameter,
- * Swizzle, Function call / input / output) are resolved in `portsOf`.
- */
-export const COMPILER_NODES: Readonly<Record<string, NodeSpec>> = {
-  float: { inputs: [], outputs: [P('value', 'float')] },
-  vec2: { inputs: [], outputs: [P('value', 'vec2')] },
-  vec3: { inputs: [], outputs: [P('value', 'vec3')] },
-  vec4: { inputs: [], outputs: [P('value', 'vec4')] },
-  color: { inputs: [], outputs: [P('rgb', 'vec3'), P('alpha', 'float'), P('rgba', 'vec4')] },
-  parameter: { inputs: [], outputs: [P('value', 'float')] },
-  time: { inputs: [], outputs: [P('time', 'float')] },
-  uv: { inputs: [], outputs: [P('uv', 'vec2')] },
-  vertexColor: { inputs: [], outputs: [P('rgba', 'vec4'), P('rgb', 'vec3'), P('alpha', 'float')] },
-  layerWeights: { inputs: [], outputs: [P('weights', 'vec4'), P('wetness', 'float'), P('occlusion', 'float')] },
-  position: { inputs: [], outputs: [P('position', 'vec3')] },
-  normal: { inputs: [], outputs: [P('normal', 'vec3')] },
-  viewDirection: { inputs: [], outputs: [P('direction', 'vec3')] },
-  objectPosition: { inputs: [], outputs: [P('position', 'vec3')] },
-  cameraDistance: { inputs: [], outputs: [P('distance', 'float')] },
-  screenUV: { inputs: [], outputs: [P('uv', 'vec2')] },
-  instanceIndex: { inputs: [], outputs: [P('index', 'float')] },
-  wind: { inputs: [], outputs: [P('direction', 'vec3'), P('strength', 'float'), P('turbulence', 'float')] },
-  sceneWetness: { inputs: [], outputs: [P('wetness', 'float')] },
-  sceneDepth: { inputs: [], outputs: [P('depth', 'float'), P('behind', 'float')] },
-  mainLight: { inputs: [], outputs: [P('direction', 'vec3'), P('color', 'vec3'), P('ndotl', 'float')] },
-  lightShadow: { inputs: [], outputs: [P('shadow', 'float')] },
-  diffuseLight: { inputs: [], outputs: [P('total', 'vec3'), P('luminance', 'float'), P('direct', 'vec3')] },
-  ambientLight: { inputs: [], outputs: [P('ambient', 'vec3'), P('environment', 'vec3'), P('lightmap', 'vec3')] },
-  add: binary(),
-  subtract: binary(),
-  multiply: binary(1, 1),
-  divide: binary(1, 1),
-  min: binary(),
-  max: binary(),
-  power: binary(1, 1),
-  dot: { inputs: [P('a', 'dyn', 0), P('b', 'dyn', 0)], outputs: [P('out', 'float')] },
-  cross: { inputs: [P('a', 'vec3', [1, 0, 0]), P('b', 'vec3', [0, 1, 0])], outputs: [P('out', 'vec3')] },
-  normalize: unary(),
-  length: { inputs: [P('in', 'dyn', 0)], outputs: [P('out', 'float')] },
-  lerp: { inputs: [P('a', 'dyn', 0), P('b', 'dyn', 1), P('t', 'dyn', 0.5)], outputs: [P('out', 'dyn')] },
-  clamp: { inputs: [P('in', 'dyn', 0), P('min', 'dyn', 0), P('max', 'dyn', 1)], outputs: [P('out', 'dyn')] },
-  saturate: unary(),
-  smoothstep: { inputs: [P('edge0', 'dyn', 0), P('edge1', 'dyn', 1), P('x', 'dyn', 0.5)], outputs: [P('out', 'dyn')] },
-  step: { inputs: [P('edge', 'dyn', 0.5), P('x', 'dyn', 0)], outputs: [P('out', 'dyn')] },
-  abs: unary(),
-  floor: unary(),
-  fract: unary(),
-  sin: unary(),
-  cos: unary(),
-  oneMinus: unary(),
-  weightedMix: { inputs: [P('a', 'dyn', 0), P('b', 'dyn', 0), P('c', 'dyn', 0), P('d', 'dyn', 0), P('weights', 'vec4', [1, 0, 0, 0])], outputs: [P('out', 'dyn')] },
-  remap: { inputs: [P('in', 'dyn', 0), P('inMin', 'dyn', 0), P('inMax', 'dyn', 1), P('outMin', 'dyn', 0), P('outMax', 'dyn', 1)], outputs: [P('out', 'dyn')] },
-  split: { inputs: [P('in', 'vec4', [0, 0, 0, 0])], outputs: [P('x', 'float'), P('y', 'float'), P('z', 'float'), P('w', 'float')] },
-  combine: { inputs: [P('x', 'float', 0), P('y', 'float', 0), P('z', 'float', 0), P('w', 'float', 1)], outputs: [P('xyzw', 'vec4'), P('xyz', 'vec3'), P('xy', 'vec2')] },
-  swizzle: { inputs: [P('in', 'vec4', [0, 0, 0, 0])], outputs: [P('out', 'vec3')] },
-  sampleTexture: { inputs: [P('tex', 'texture'), P('uv', 'vec2', 'uv0'), P('layer', 'float', 0)], outputs: SAMPLE_OUT },
-  sampleData: { inputs: [P('data', 'data'), P('uv', 'vec2', 'uv0'), P('cell', 'vec2', [0, 0])], outputs: SAMPLE_OUT },
-  normalMap: { inputs: [P('tex', 'texture'), P('uv', 'vec2', 'uv0'), P('strength', 'float', 1), P('layer', 'float', 0)], outputs: [P('normal', 'vec3')] },
-  triplanar: { inputs: [P('tex', 'texture'), P('position', 'vec3', 'positionWorld'), P('normal', 'vec3', 'normalWorld'), P('scale', 'float', 1), P('sharpness', 'float', 4), P('layer', 'float', 0)], outputs: [P('rgba', 'vec4'), P('rgb', 'vec3')] },
-  projectedSample: {
-    inputs: [P('tex', 'texture'), P('uv', 'vec2', 'uv0'), P('scale', 'float', 1), P('mode', 'float', 0), P('sharpness', 'float', 4), P('near', 'float', 60), P('strength', 'float', 1), P('position', 'vec3', 'positionWorld'), P('normal', 'vec3', 'normalWorld'), P('layer', 'float', 0)],
-    outputs: [...SAMPLE_OUT, P('normal', 'vec3')],
-  },
-  heightBlend: { inputs: [P('weights', 'vec4', [1, 0, 0, 0]), P('heights', 'vec4', [0, 0, 0, 0]), P('depth', 'float', 0.2), P('contrast', 'vec4', [1, 1, 1, 1]), P('offset', 'vec4', [0, 0, 0, 0])], outputs: [P('weights', 'vec4')] },
-  flipbook: { inputs: [P('uv', 'vec2', 'uv0'), P('frame', 'float', 0)], outputs: [P('uv', 'vec2')] },
-  noise: { inputs: [P('uv', 'vec2', 'uv0'), P('scale', 'float', 10)], outputs: [P('value', 'float'), P('cell', 'float')] },
-  gradient: { inputs: [P('uv', 'vec2', 'uv0')], outputs: [P('value', 'float')] },
-  colorRamp: { inputs: [P('t', 'float', 0.5)], outputs: [P('rgb', 'vec3')] },
-  fresnel: { inputs: [P('normal', 'vec3', 'normalWorld'), P('view', 'vec3', 'viewDirWorld'), P('power', 'float', 5)], outputs: [P('out', 'float')] },
-  rim: { inputs: [P('normal', 'vec3', 'normalWorld'), P('view', 'vec3', 'viewDirWorld'), P('width', 'float', 0.3), P('softness', 'float', 0.1)], outputs: [P('out', 'float')] },
-  posterize: { inputs: [P('in', 'dyn', 0), P('steps', 'dyn', 4)], outputs: [P('out', 'dyn')] },
-  dither: { inputs: [P('in', 'float', 0.5), P('screen', 'vec2', 'screenUV')], outputs: [P('out', 'float')] },
-  worldUV: { inputs: [P('position', 'vec3', 'positionWorld'), P('scale', 'float', 1)], outputs: [P('uv', 'vec2')] },
-  parallax: { inputs: [P('uv', 'vec2', 'uv0'), P('height', 'float', 0), P('scale', 'float', 0.05), P('view', 'vec3', 'viewDirTangent')], outputs: [P('uv', 'vec2')] },
-  displace: { inputs: [P('height', 'float', 0), P('scale', 'float', 1), P('direction', 'vec3', 'normalObject')], outputs: [P('offset', 'vec3')] },
-  alphaClip: { inputs: [P('alpha', 'float', 1), P('threshold', 'float', 0.5)], outputs: [P('alpha', 'float')] },
-  call: { inputs: [], outputs: [] },
-  pbr: {
-    inputs: [P('baseColor', 'vec3', [1, 1, 1]), P('metalness', 'float', 0), P('roughness', 'float', 0.8), P('normal', 'vec3', [0, 0, 1]), P('emissive', 'vec3', [0, 0, 0]), P('ao', 'float', 1), P('opacity', 'float', 1), P('alphaClip', 'float', 0), P('specularIntensity', 'float', 1), P('specularColor', 'vec3', [1, 1, 1])],
-    outputs: [],
-  },
-  unlit: { inputs: [P('color', 'vec3', [1, 1, 1]), P('opacity', 'float', 1), P('alphaClip', 'float', 0)], outputs: [] },
-  customLit: { inputs: [P('color', 'vec3', [1, 1, 1]), P('emissive', 'vec3', [0, 0, 0]), P('normal', 'vec3', [0, 0, 1]), P('opacity', 'float', 1), P('alphaClip', 'float', 0)], outputs: [] },
-  vertexOffset: { inputs: [P('offset', 'vec3', [0, 0, 0])], outputs: [] },
-  functionInput: { inputs: [], outputs: [P('value', 'float')] },
-  functionOutput: { inputs: [P('value', 'float', 0)], outputs: [] },
-};
-
-/** The field defaults the compiler reads (the catalogue's). */
-export const COMPILER_FIELD_DEFAULTS: Readonly<Record<string, Readonly<Record<string, unknown>>>> = {
-  float: { value: 0 },
-  vec2: { value: [0, 0] },
-  vec3: { value: [0, 0, 0] },
-  vec4: { value: [0, 0, 0, 0] },
-  color: { color: '#ffffff', alpha: 1 },
-  parameter: { key: '' },
-  uv: { set: 'uv0' },
-  vertexColor: { absent: 'white', set: 'COLOR_0' },
-  position: { space: 'world' },
-  normal: { space: 'world' },
-  viewDirection: { space: 'world' },
-  swizzle: { mask: 'xyz' },
-  sampleTexture: { texture: '', wrap: 'repeat', filter: 'linear', colorSpace: 'srgb', absent: 'white' },
-  sampleData: { address: 'uv' },
-  normalMap: { texture: '', wrap: 'repeat', filter: 'linear' },
-  triplanar: { texture: '', wrap: 'repeat', filter: 'linear', colorSpace: 'srgb', absent: 'white' },
-  projectedSample: { texture: '', wrap: 'repeat', filter: 'linear', colorSpace: 'srgb', decode: 'color', absent: 'white' },
-  flipbook: { columns: 4, rows: 4 },
-  noise: { noise: 'gradient' },
-  gradient: { shape: 'linear' },
-  colorRamp: { from: '#000000', to: '#ffffff', interpolation: 'linear' },
-  dither: { pattern: 'bayer4' },
-  worldUV: { plane: 'xz' },
-  call: { function: '' },
-  pbr: { doubleSided: false, transparent: false, castShadows: true, decal: 'off', decalSortOrder: 0, localLights: 'object' },
-  unlit: { doubleSided: false, transparent: false, castShadows: true, decal: 'off', decalSortOrder: 0 },
-  customLit: { doubleSided: false, transparent: false, castShadows: true, decal: 'off', decalSortOrder: 0, localLights: 'object' },
-  vertexOffset: { space: 'object' },
-  functionInput: { name: '', type: 'float', default: [0, 0, 0, 0] },
-  functionOutput: { name: '', type: 'float' },
-};
-
-const MATH_TYPED = new Set(Object.entries(COMPILER_NODES).filter(([, s]) => s.inputs.some((p) => p.t === 'dyn') || s.outputs.some((p) => p.t === 'dyn')).map(([k]) => k));
-
-function field(node: MaterialGraphNodeLike, key: string): unknown {
-  const v = node.data?.[key];
-  return v !== undefined ? v : COMPILER_FIELD_DEFAULTS[node.type]?.[key];
-}
-const str = (v: unknown, d: string): string => (typeof v === 'string' ? v : d);
-const numOf = (v: unknown, d: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : d);
-const isValueType = (t: unknown): t is ValueType => typeof t === 'string' && (VALUE_TYPES as readonly string[]).includes(t);
-
-/** A parameter's port type (a colour is a vec3). */
-export function parameterPortType(type: string): PortType | null {
-  if (type === 'color') return 'vec3';
-  return isValueType(type) || type === 'texture' || type === 'data' ? (type as PortType) : null;
-}
-
-const byPosition = (a: MaterialGraphNodeLike, b: MaterialGraphNodeLike): number => {
-  const pa = a.position ?? [0, 0];
-  const pb = b.position ?? [0, 0];
-  return (pa[1] ?? 0) - (pb[1] ?? 0) || (pa[0] ?? 0) - (pb[0] ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
-};
-
-interface ResolvedPort {
-  readonly id: string;
-  readonly t: PortType;
-  readonly d?: PortSpec['d'];
-}
-interface ResolvedPorts {
-  readonly inputs: readonly ResolvedPort[];
-  readonly outputs: readonly ResolvedPort[];
-}
-
-/**
- * Every node's ports with their types (project-model `resolveGraphPorts` for
- * the material catalogue): static ports, parameter types, swizzle widths,
- * a call's function interface, and `auto` widths from the wires.
- */
-export function resolveMaterialGraphPorts(graph: MaterialGraphLike, parameters: readonly MaterialParameterLike[], fn: (id: string) => MaterialFunctionLike | null): Map<string, ResolvedPorts> {
-  const out = new Map<string, ResolvedPorts>();
-  const incoming = new Map<string, MaterialGraphEdgeLike[]>();
-  for (const e of graph.edges) incoming.set(e.to.node, [...(incoming.get(e.to.node) ?? []), e]);
-  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
-  const visiting = new Set<string>();
-  const resolve = (id: string): ResolvedPorts | undefined => {
-    const have = out.get(id);
-    if (have !== undefined) return have;
-    const node = byId.get(id);
-    const spec = node !== undefined ? COMPILER_NODES[node.type] : undefined;
-    if (node === undefined || spec === undefined || visiting.has(id)) return undefined;
-    visiting.add(id);
-    const fixed = (p: PortSpec): ResolvedPort => ({ id: p.id, t: p.t as PortType, ...(p.d !== undefined ? { d: p.d } : {}) });
-    let r: ResolvedPorts;
-    if (node.type === 'parameter') {
-      const p = parameters.find((x) => x.key === field(node, 'key'));
-      r = { inputs: [], outputs: [{ id: 'value', t: (p !== undefined ? parameterPortType(p.type) : null) ?? 'float' }] };
-    } else if (node.type === 'swizzle') {
-      const mask = str(field(node, 'mask'), 'xyz');
-      r = { inputs: spec.inputs.map(fixed), outputs: [{ id: 'out', t: VALUE_TYPES[mask.length - 1] ?? 'vec3' }] };
-    } else if (node.type === 'functionInput') {
-      const t = str(field(node, 'type'), 'float');
-      r = { inputs: [], outputs: [{ id: 'value', t: isValueType(t) || t === 'texture' ? (t as PortType) : 'float' }] };
-    } else if (node.type === 'functionOutput') {
-      const t = str(field(node, 'type'), 'float');
-      r = { inputs: [{ id: 'value', t: isValueType(t) ? t : 'float', d: 0 }], outputs: [] };
-    } else if (node.type === 'call') {
-      const f = fn(str(field(node, 'function'), ''));
-      const itf = f !== null ? functionInterface(f.graph) : { inputs: [], outputs: [] };
-      r = itf;
-    } else if (MATH_TYPED.has(node.type)) {
-      const chosen = str(field(node, 'type'), 'auto');
-      let t: ValueType;
-      if (isValueType(chosen)) t = chosen;
-      else {
-        let widest = -1;
-        for (const e of incoming.get(id) ?? []) {
-          const port = spec.inputs.find((p) => p.id === e.to.port);
-          if (port === undefined || port.t !== 'dyn') continue;
-          const src = resolve(e.from.node)?.outputs.find((p) => p.id === e.from.port);
-          if (src === undefined || src.t === 'texture' || src.t === 'data') continue;
-          widest = Math.max(widest, VALUE_TYPES.indexOf(src.t));
-        }
-        t = widest >= 0 ? VALUE_TYPES[widest]! : 'float';
-      }
-      const typed = (p: PortSpec): ResolvedPort => ({ id: p.id, t: p.t === 'dyn' ? t : (p.t as PortType), ...(p.d !== undefined ? { d: p.d } : {}) });
-      r = { inputs: spec.inputs.map(typed), outputs: spec.outputs.map(typed) };
-    } else r = { inputs: spec.inputs.map(fixed), outputs: spec.outputs.map(fixed) };
-    visiting.delete(id);
-    out.set(id, r);
-    return r;
-  };
-  for (const n of graph.nodes) resolve(n.id);
-  return out;
-}
-
-/** A function's ports: its Function input / output nodes, top to bottom (port id = node id). */
-export function functionInterface(graph: MaterialGraphLike): ResolvedPorts {
-  const side = (type: string): ResolvedPort[] =>
-    graph.nodes
-      .filter((n) => n.type === type)
-      .sort(byPosition)
-      .map((n) => {
-        const t = str(field(n, 'type'), 'float');
-        return { id: n.id, t: isValueType(t) || (t === 'texture' && type === 'functionInput') ? (t as PortType) : 'float' };
-      });
-  return { inputs: side('functionInput'), outputs: side('functionOutput') };
 }
 
 // ---- values ---------------------------------------------------------------------------
