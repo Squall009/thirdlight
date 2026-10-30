@@ -426,6 +426,22 @@ export function checkQuaternion(v: unknown, path: string, errors: AnyError[]): v
   }
 }
 
+/**
+ * A transform's present fields against the scene's transform rules (position
+ * within the length bound, unit rotation, positive bounded scale): the scene
+ * validator and the editor's preflight of a placed copy run this one check.
+ */
+export function transformFieldErrors<E extends AnyError = ModelErrorV2>(
+  t: { position?: unknown; rotation?: unknown; scale?: unknown },
+  path: string,
+): E[] {
+  const errors: AnyError[] = [];
+  checkVector(t.position, `${path}/position`, 3, { absMax: MAX_LEN }, `each |v| <= ${MAX_LEN} meters`, errors);
+  checkQuaternion(t.rotation, `${path}/rotation`, errors);
+  checkVector(t.scale, `${path}/scale`, 3, { positive: true, absMax: MAX_LEN }, `each 0 < v <= ${MAX_LEN}`, errors);
+  return errors as E[];
+}
+
 // ---- cross-entity checks ----------------------------------
 
 /**

@@ -37,6 +37,13 @@ import {
   NAME_MAX as MAX_DISPLAY_NAME,
 } from '@thirdlight/project-model/limits';
 import {
+  entityRefKeysByBehavior,
+  firstExternalEntityRef,
+  isValidName,
+  subtreeOf,
+  transformFieldErrors,
+} from '@thirdlight/project-model/authoring-rules';
+import {
   ID_SYNTAX,
   parseControlInput,
   validatePropertyValue,
@@ -67,18 +74,6 @@ export interface CaptureEntityView {
   behavior: { behaviorId: string; values: StoredValues } | null;
 }
 
-function hasControlChars(s: string): boolean {
-  for (let i = 0; i < s.length; i += 1) {
-    const c = s.charCodeAt(i);
-    if (c <= 0x1f || c === 0x7f) return true;
-  }
-  return false;
-}
-
-function isFiniteNumber(v: unknown): v is number {
-  return typeof v === 'number' && Number.isFinite(v);
-}
-
 /** A caller-generated, contract-syntax prefab id (`prefab-` + 16 hex). */
 export function makePrefabId(rng: () => number = Math.random): string {
   let hex = '';
@@ -95,7 +90,7 @@ export function newPrefabDraft(
   rng: () => number = Math.random,
 ): { prefabId: string; displayName: string } {
   let displayName = (selection?.name ?? selection?.id ?? 'Prefab').trim().slice(0, MAX_DISPLAY_NAME);
-  if (displayName === '' || hasControlChars(displayName)) displayName = 'Prefab';
+  if (!isValidName(displayName)) displayName = 'Prefab';
   for (let attempt = 0; attempt < 8; attempt += 1) {
     const prefabId = makePrefabId(rng);
     if (!existingPrefabIds.includes(prefabId)) return { prefabId, displayName };
@@ -120,55 +115,6 @@ export interface CapturePreflight {
   depth: number;
 }
 
-interface Closure {
-  entities: CaptureEntityView[];
-  depth: number;
-}
-
-/** The subtree closure in scene document order (parent before child). */
-export function captureClosure(scene: readonly CaptureEntityView[], sourceEntityId: string): Closure | null {
-  const byId = new Map<string, CaptureEntityView>();
-  const children = new Map<string, CaptureEntityView[]>();
-  for (const e of scene) {
-    byId.set(e.id, e);
-    const arr = children.get(e.parentId ?? '') ?? [];
-    arr.push(e);
-    children.set(e.parentId ?? '', arr);
-  }
-  const root = byId.get(sourceEntityId);
-  if (root === undefined) return null;
-  const entities: CaptureEntityView[] = [];
-  let depth = 0;
-  const seen = new Set<string>();
-  const visit = (e: CaptureEntityView, d: number): void => {
-    if (seen.has(e.id)) return;
-    seen.add(e.id);
-    entities.push(e);
-    depth = Math.max(depth, d);
-    for (const c of children.get(e.id) ?? []) visit(c, d + 1);
-  };
-  visit(root, 1);
-  return { entities, depth };
-}
-
-/** Entity-reference links declared by a behavior component. */
-export function entityRefLinks(
-  entity: CaptureEntityView,
-  declarations: ReadonlyMap<string, PropertyDeclaration>,
-): { key: string; entityId: string }[] {
-  if (entity.behavior === null) return [];
-  const declaration = declarations.get(entity.behavior.behaviorId);
-  if (declaration === undefined) return [];
-  const out: { key: string; entityId: string }[] = [];
-  for (const prop of declaration.properties) {
-    // A private property's stored value is inert (never read).
-    if (prop.type !== 'entityRef' || prop.visibility === 'private') continue;
-    const value = entity.behavior.values[prop.key];
-    if (typeof value === 'string') out.push({ key: prop.key, entityId: value });
-  }
-  return out;
-}
-
 /**
  * Preflight a capture in the backend's validation order. The canonical
  * definition byte bound (`prefab_bytes`) is enforced by the backend:
@@ -188,36 +134,30 @@ export function preflightCreatePrefab(input: CaptureInput): PlanResult<CapturePr
       error: { code: 'prefab_id_duplicate', message: `a prefab definition "${input.prefabId}" already exists (M2 has no prefab deletion)`, prefabId: input.prefabId },
     };
   }
-  if (input.displayName.length < 1 || input.displayName.length > MAX_DISPLAY_NAME || hasControlChars(input.displayName)) {
+  if (!isValidName(input.displayName)) {
     return {
       ok: false,
       error: { code: 'field_value', message: 'displayName must be 1–128 characters without control characters', path: '/args/displayName', found: input.displayName },
     };
   }
-  const closure = captureClosure(input.scene, input.sourceEntityId);
+  const closure = subtreeOf(input.scene, input.sourceEntityId);
   if (closure === null) {
     return {
       ok: false,
       error: { code: 'entity_not_found', message: `the source entity ${input.sourceEntityId} does not exist in the current scene`, entityId: input.sourceEntityId },
     };
   }
-  const inside = new Set(closure.entities.map((e) => e.id));
-  for (const e of closure.entities) {
-    for (const link of entityRefLinks(e, input.declarations)) {
-      if (!inside.has(link.entityId)) {
-        return {
-          ok: false,
-          error: {
-            code: 'prefab_external_reference_forbidden',
-            message: `an entityRef value on ${e.id} names ${link.entityId}, which is outside the captured subtree`,
-            sourceEntityId: input.sourceEntityId,
-            localId: e.id,
-            key: link.key,
-            entityId: link.entityId,
-          },
-        };
-      }
-    }
+  const external = firstExternalEntityRef(closure.entities, entityRefKeysByBehavior([...input.declarations].map(([behaviorId, declaration]) => ({ behaviorId, declaration }))));
+  if (external !== null) {
+    return {
+      ok: false,
+      error: {
+        code: 'prefab_external_reference_forbidden',
+        message: `an entityRef value on ${external.localId} names ${external.entityId}, which is outside the captured subtree`,
+        sourceEntityId: input.sourceEntityId,
+        ...external,
+      },
+    };
   }
   if (closure.entities.length > MAX_PREFAB_ENTITIES) {
     return {
@@ -305,31 +245,10 @@ export interface InstantiateCommand {
   };
 }
 
+/** The root transform against the scene's transform rule (the first problem). */
 function checkPartialTransform(transform: PartialTransformInput): PlanError | null {
-  if (transform.position !== undefined) {
-    const p = transform.position;
-    if (!Array.isArray(p) || p.length !== 3 || !p.every((v) => isFiniteNumber(v) && Math.abs(v) <= 1e6)) {
-      return { code: 'field_value', message: 'transform.position must be three finite numbers with |v| <= 1e6', path: '/args/transform/position', found: p };
-    }
-  }
-  if (transform.rotation !== undefined) {
-    const q = transform.rotation;
-    if (!Array.isArray(q) || q.length !== 4 || !q.every(isFiniteNumber)) {
-      return { code: 'field_value', message: 'transform.rotation must be four finite numbers', path: '/args/transform/rotation', found: q };
-    }
-    const [x, y, z, w] = q as [number, number, number, number];
-    const norm = Math.sqrt(x * x + y * y + z * z + w * w);
-    if (!(Math.abs(norm - 1) <= 1e-4)) {
-      return { code: 'quaternion_invalid', message: 'transform.rotation must have unit length within 1e-4', path: '/args/transform/rotation', found: q, expected: 'finite [x,y,z,w] with |norm - 1| <= 1e-4' };
-    }
-  }
-  if (transform.scale !== undefined) {
-    const s = transform.scale;
-    if (!Array.isArray(s) || s.length !== 3 || !s.every((v) => isFiniteNumber(v) && v > 0 && v <= 1e6)) {
-      return { code: 'field_value', message: 'transform.scale must be three finite numbers with 0 < v <= 1e6', path: '/args/transform/scale', found: s };
-    }
-  }
-  return null;
+  const first = transformFieldErrors(transform, '/args/transform')[0];
+  return first === undefined ? null : { ...first };
 }
 
 /**

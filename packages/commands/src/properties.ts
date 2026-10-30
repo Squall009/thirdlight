@@ -27,6 +27,7 @@ import {
   propertyValue,
 } from './errors';
 import { declarationBytes, isPrivateProperty, MAX_DECLARATION_BYTES, MAX_ENUM_VALUES, withFound } from '@thirdlight/project-model';
+import { isControlFree, propertyValueRule, type PropertyConstraintFields, type PropertyRefs, type PropertyRuleFailure } from '@thirdlight/project-model/authoring-rules';
 import type { CommandError } from './types';
 import type {
   DeclaredProperty,
@@ -57,10 +58,7 @@ const PROPERTY_TEXTS: readonly (readonly ['group' | 'header' | 'tooltip', number
 export { isPrivateProperty };
 
 /** Reference-resolution context for value checks. */
-export interface ValueContext {
-  entityIds: ReadonlySet<string>;
-  assetIds: ReadonlySet<string>;
-}
+export type ValueContext = PropertyRefs;
 
 /** Plain deep equality (JSON values only). */
 export function deepEqual(a: unknown, b: unknown): boolean {
@@ -93,14 +91,6 @@ export function referenceMissingValue(found: unknown, expected: string): Command
     },
     found,
   );
-}
-
-function isControlFree(s: string): boolean {
-  for (let i = 0; i < s.length; i++) {
-    const c = s.charCodeAt(i);
-    if (c <= 0x1f || c === 0x7f) return false;
-  }
-  return true;
 }
 
 function finiteVector(v: unknown, n: number, max: number): boolean {
@@ -273,8 +263,7 @@ function checkDeclaredProperty(
     }
   }
   // The default must satisfy the property's own constraints.
-  const ctx: ValueContext = { entityIds: new Set(), assetIds: new Set() };
-  const checked = checkPropertyValue(pt, key, def, p, ctx, true);
+  const checked = checkPropertyValue(pt, key, def, p as PropertyConstraintFields, null);
   if (!checked.ok) return { ok: false, error: checked.error };
   // Public is the default: the stored record omits it (the canonical form).
   if (visibility === 'public') {
@@ -285,137 +274,11 @@ function checkDeclaredProperty(
   return { ok: true, prop: p as unknown as DeclaredProperty };
 }
 
-/**
- * How one value-rule failure is reported to a caller.
- *
- * `expected`/`message` carry the op-level (`field`) presentation the
- * content fixtures pin; a caller that wants a different presentation (the
- * prefab override path uses a constraint-rich `expected`) supplies an
- * override or maps the failure itself. The RULE below is the single place
- * the seven type vocabularies are decided.
- */
-interface ValueRuleFailure {
-  kind: 'type' | 'value' | 'reference';
-  type: PropertyType;
-  /** Field presentation (empty for a reference failure). */
-  expected: string;
-  message: string;
-}
-
-/**
- * Pure value rule for one property instance.
- * `allowUnresolved` is used for a declaration's own default: an `entityRef`
- * default of `null` is valid; a non-null reference default cannot be checked
- * against a scene and is validated by the model when it is actually stored.
- * Reference values are only *resolved* when `resolveRefs` is true.
- */
-function checkPropertyValueRule(
-  type: PropertyType,
-  value: unknown,
-  decl: Record<string, unknown>,
-  ctx: ValueContext,
-  allowUnresolved: boolean,
-): { ok: true } | { ok: false; failure: ValueRuleFailure } {
-  const bad = (
-    kind: ValueRuleFailure['kind'],
-    expected: string,
-    message: string,
-  ): { ok: false; failure: ValueRuleFailure } => ({
-    ok: false,
-    failure: { kind, type, expected, message },
-  });
-  switch (type) {
-    case 'number': {
-      if (typeof value !== 'number' || !Number.isFinite(value)) {
-        return bad('type', 'number', 'the declared property type is number');
-      }
-      const min = decl['min'] as number | undefined;
-      const max = decl['max'] as number | undefined;
-      if (min !== undefined && value < min) {
-        return bad('value', `number >= ${min}`, 'number value is below the declared minimum');
-      }
-      if (max !== undefined && value > max) {
-        return bad('value', `number <= ${max}`, 'number value is above the declared maximum');
-      }
-      return { ok: true };
-    }
-    case 'boolean':
-      if (typeof value !== 'boolean') {
-        return bad('type', 'boolean', 'the declared property type is boolean');
-      }
-      return { ok: true };
-    case 'string': {
-      if (typeof value !== 'string') {
-        return bad('type', 'string', 'the declared property type is string');
-      }
-      const maxLength = (decl['maxLength'] as number | undefined) ?? 256;
-      if ([...value].length > maxLength) {
-        return bad('value', `string of at most ${maxLength} characters`, 'string value exceeds its declared maxLength');
-      }
-      if (!isControlFree(value)) {
-        return bad('value', 'string without control characters', 'string value must not contain control characters');
-      }
-      return { ok: true };
-    }
-    case 'enum': {
-      if (typeof value !== 'string') {
-        return bad('type', 'enum member string', 'the declared property type is enum member string');
-      }
-      const values = (decl['values'] as string[] | undefined) ?? [];
-      if (!values.includes(value)) {
-        return bad('value', `one of: ${values.join(', ')}`, 'enum value is not a declared member');
-      }
-      return { ok: true };
-    }
-    case 'vec3': {
-      if (
-        !Array.isArray(value) ||
-        value.length !== 3 ||
-        !value.every((v) => typeof v === 'number' && Number.isFinite(v))
-      ) {
-        return bad('type', 'array of 3 finite numbers', 'the declared property type is array of 3 finite numbers');
-      }
-      const bounds = decl['bounds'] as { min: number[]; max: number[] } | undefined;
-      if (bounds !== undefined) {
-        for (let i = 0; i < 3; i++) {
-          const v = value[i] as number;
-          if (v < (bounds.min[i] as number) || v > (bounds.max[i] as number)) {
-            return bad('value', 'vec3 within the declared bounds', 'vec3 value is outside its declared bounds');
-          }
-        }
-      }
-      return { ok: true };
-    }
-    case 'entityRef': {
-      if (value === null) return { ok: true };
-      if (typeof value !== 'string') {
-        return bad('type', 'string (entity ID) or null', 'the declared property type is string (entity ID) or null');
-      }
-      if (allowUnresolved) return { ok: true };
-      if (!ctx.entityIds.has(value)) {
-        return bad('reference', '', 'entity reference does not resolve');
-      }
-      return { ok: true };
-    }
-    case 'assetRef': {
-      if (value === null) return { ok: true };
-      if (typeof value !== 'string') {
-        return bad('type', 'string (asset ID) or null', 'the declared property type is string (asset ID) or null');
-      }
-      if (allowUnresolved) return { ok: true };
-      if (!ctx.assetIds.has(value)) {
-        return bad('reference', '', 'asset reference does not resolve');
-      }
-      return { ok: true };
-    }
-  }
-}
-
 /** Field-presentation mapper for a rule failure (fixture-pinned shapes). */
 function fieldValueError(
   key: string,
   value: unknown,
-  failure: ValueRuleFailure,
+  failure: PropertyRuleFailure,
 ): CommandError {
   if (failure.kind === 'reference') {
     return failure.type === 'assetRef'
@@ -435,11 +298,10 @@ function checkPropertyValue(
   type: PropertyType,
   key: string,
   value: unknown,
-  decl: Record<string, unknown>,
-  ctx: ValueContext,
-  allowUnresolved: boolean,
+  decl: PropertyConstraintFields,
+  refs: ValueContext | null,
 ): { ok: true } | { ok: false; error: CommandError } {
-  const r = checkPropertyValueRule(type, value, decl, ctx, allowUnresolved);
+  const r = propertyValueRule(type, value, decl, refs);
   if (r.ok) return { ok: true };
   return { ok: false, error: fieldValueError(key, value, r.failure) };
 }
@@ -479,13 +341,7 @@ export function checkOverrideValue(
   ctx: ValueContext,
   prefabId: string,
 ): { ok: true } | { ok: false; error: CommandError } {
-  const r = checkPropertyValueRule(
-    prop.type,
-    value,
-    prop as unknown as Record<string, unknown>,
-    ctx,
-    false,
-  );
+  const r = propertyValueRule(prop.type, value, prop, ctx);
   if (r.ok) return { ok: true };
   const failure = r.failure;
   if (failure.kind === 'reference') {
@@ -597,14 +453,7 @@ export function fillDeclaredValues(
       : previousValue
         ? (previousValues as Record<string, PropertyValue>)[prop.key]
         : prop.default;
-    const checked = checkPropertyValue(
-      prop.type,
-      prop.key,
-      value,
-      prop as unknown as Record<string, unknown>,
-      ctx,
-      false,
-    );
+    const checked = checkPropertyValue(prop.type, prop.key, value, prop, ctx);
     if (!checked.ok) return { ok: false, error: checked.error };
     values[prop.key] = value as PropertyValue;
   }
@@ -677,14 +526,7 @@ export function checkDeclarationCompatibility(
     for (const [key, value] of Object.entries(use.values)) {
       const n = nextByKey.get(key);
       if (n === undefined) continue; // covered by removal above
-      const checked = checkPropertyValue(
-        n.type,
-        key,
-        value,
-        n as unknown as Record<string, unknown>,
-        ctx,
-        false,
-      );
+      const checked = checkPropertyValue(n.type, key, value, n, ctx);
       if (!checked.ok) {
         return {
           ok: false,

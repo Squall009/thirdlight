@@ -9,7 +9,7 @@ import { ID_RE } from './validate';
 
 import {
   checkFiniteNumber,
-  checkQuaternion,
+  transformFieldErrors,
   checkVector,
   canonicalTransform,
   fieldMissing,
@@ -860,9 +860,7 @@ export function validateTransformV2(t: unknown, path: string, errors: ModelError
     errors.push(fieldType(path, t, 'object'));
     return;
   }
-  checkVector(t['position'], `${path}/position`, 3, { absMax: MAX_LEN }, `each |v| <= ${MAX_LEN} meters`, errors);
-  checkQuaternion(t['rotation'], `${path}/rotation`, errors);
-  checkVector(t['scale'], `${path}/scale`, 3, { positive: true, absMax: MAX_LEN }, `each 0 < v <= ${MAX_LEN}`, errors);
+  errors.push(...transformFieldErrors<ModelErrorV2>(t, path));
   for (const k of Object.keys(t)) {
     if (!KNOWN_TRANSFORM_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'position, rotation, scale'));
   }

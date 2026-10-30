@@ -62,6 +62,7 @@ import {
   referenceMissing,
 } from './errors';
 import { contentOf, type OpInput } from './content-ops';
+import { entityRefKeysByBehavior, firstExternalEntityRef, subtreeOf, type CaptureEntity } from '@thirdlight/project-model/authoring-rules';
 import { checkOverrideValue, isPrivateProperty, type ValueContext } from './properties';
 import { deepClone, gateResultState, type OpOutcome } from './ops';
 import type { CommandError } from './errors';
@@ -138,49 +139,12 @@ export function sceneEntityDepth(scene: SceneDocument, id: string): number {
 
 /** Full descendant closure of `rootId` in scene DOCUMENT order (root first). */
 export function subtreeInDocumentOrder(scene: SceneDocument, rootId: string): string[] | null {
-  const byId = new Map(scene.entities.map((e) => [e.id, e]));
-  if (!byId.has(rootId)) return null;
-  const children = new Map<string, string[]>();
-  for (const e of scene.entities) {
-    if (e.parentId !== undefined) {
-      const list = children.get(e.parentId) ?? [];
-      list.push(e.id);
-      children.set(e.parentId, list);
-    }
-  }
-  const set = new Set<string>();
-  const stack = [rootId];
-  while (stack.length > 0) {
-    const id = stack.pop() as string;
-    if (set.has(id)) continue;
-    set.add(id);
-    const kids = children.get(id);
-    if (kids !== undefined) for (const k of kids) stack.push(k);
-  }
-  // Document order (== parent-before-child for a valid scene).
-  return scene.entities.filter((e) => set.has(e.id)).map((e) => e.id);
+  return subtreeOf(scene.entities, rootId)?.entities.map((e) => e.id) ?? null;
 }
 
-/** The first external `entityRef` value in the closure, or null. */
-function findExternalReference(
-  closure: readonly EntityV3[],
-  closureSet: ReadonlySet<string>,
-  catalog: ContentCatalog,
-): { localId: string; key: string; entityId: string } | null {
-  const refKeys = entityRefKeys(catalog);
-  for (const e of closure) {
-    const behavior = e.components.behavior;
-    if (behavior === undefined) continue;
-    const keys = refKeys.get(behavior.behaviorId);
-    if (keys === undefined) continue;
-    for (const key of keys) {
-      const v = behavior.values[key];
-      if (typeof v === 'string' && !closureSet.has(v)) {
-        return { localId: e.id, key, entityId: v };
-      }
-    }
-  }
-  return null;
+/** A scene object as the shared capture rules read it. */
+function captureView(e: EntityV3): CaptureEntity {
+  return { id: e.id, ...(e.parentId !== undefined ? { parentId: e.parentId } : {}), behavior: e.components.behavior ?? null };
 }
 
 function cloneTransform(t: EntityV3['components']['transform']): Record<string, number[]> {
@@ -192,15 +156,6 @@ function cloneTransform(t: EntityV3['components']['transform']): Record<string, 
 }
 
 // ---- the capture (createPrefab, updatePrefab) --------------------------------
-
-/** Declared `entityRef` keys per behavior (a private property's stored value is inert, never read). */
-function entityRefKeys(catalog: ContentCatalog): Map<string, string[]> {
-  const refKeys = new Map<string, string[]>();
-  for (const b of catalog.behaviors) {
-    refKeys.set(b.behaviorId, b.declaration.properties.filter((p) => p.type === 'entityRef' && !isPrivateProperty(p)).map((p) => p.key));
-  }
-  return refKeys;
-}
 
 /** The number of a `<prefix>-N` id, or undefined for an id without one. */
 function localNumber(id: string): number | undefined {
@@ -322,7 +277,7 @@ function capturePrefabEntities(
       .map((e) => e.id);
     if (otherCopies.length > 0) return { ok: false, error: prefabNestedForbidden(sourceEntityId, otherCopies, prefabId) };
   }
-  const external = findExternalReference(closure, closureSet, catalog);
+  const external = firstExternalEntityRef(closure.map(captureView), entityRefKeysByBehavior(catalog.behaviors));
   if (external !== null) {
     return {
       ok: false,
@@ -373,7 +328,7 @@ export function prefabEntitiesOf(
   localOf: ReadonlyMap<string, string>,
   rootParent?: string,
 ): PrefabEntity[] {
-  const refKeys = entityRefKeys(catalog);
+  const refKeys = entityRefKeysByBehavior(catalog.behaviors);
   // Each object keeps the tags it has in the scene (folder tags included: a copy has no folder to inherit them from).
   const flags = effectiveEntityFlags(scene.entities);
   const v4 = scene.schemaVersion === 4;

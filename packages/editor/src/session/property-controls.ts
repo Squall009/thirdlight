@@ -31,6 +31,7 @@ import type {
   PropertyValue,
 } from '@thirdlight/project-model';
 import { DECLARATION_STRING_LENGTH_DEFAULT, MAX_DECLARATION_STRING_LENGTH, MAX_ENUM_VALUES } from '@thirdlight/project-model/limits';
+import { isPrivateProperty, propertyValueRule, type PropertyRuleFailure } from '@thirdlight/project-model/authoring-rules';
 
 /** `^[a-z0-9][a-z0-9_-]{0,63}$` — the project model's ID syntax. */
 export const ID_SYNTAX = ID_RE;
@@ -83,10 +84,8 @@ export interface PropertyControl {
   tooltip?: string;
 }
 
-/** A private property is not shown or set per object (absent visibility = public). */
-export function isPrivateProperty(p: { visibility?: string }): boolean {
-  return p.visibility === 'private';
-}
+// A private property is not shown or set per object: the model's rule, which the commands apply too.
+export { isPrivateProperty };
 
 /** An entity's stored values as the projection carries them (never trusted). */
 export type StoredValues = Readonly<Record<string, unknown>>;
@@ -97,81 +96,29 @@ function own(values: StoredValues | null | undefined, key: string): { present: b
   return { present: true, value: values[key] };
 }
 
-function hasControlChars(s: string): boolean {
-  for (let i = 0; i < s.length; i += 1) {
-    const c = s.charCodeAt(i);
-    if (c <= 0x1f || c === 0x7f) return true;
+/** A rule failure in the editor's presentation; the codes are the commands'. */
+function controlErrorOf(label: string, failure: PropertyRuleFailure, found: unknown): ControlError {
+  if (failure.kind === 'reference') {
+    return failure.type === 'assetRef'
+      ? { code: 'asset_reference_missing', message: `${label} names an asset that is not in the catalog`, expected: 'an existing assetId', found }
+      : { code: 'reference_missing', message: `${label} names an entity that does not exist`, expected: 'an existing scene entity id', found };
   }
-  return false;
-}
-
-function isFiniteNumber(v: unknown): v is number {
-  return typeof v === 'number' && Number.isFinite(v);
+  return {
+    code: failure.kind === 'type' ? 'property_type' : 'property_value',
+    message: `${label} must be ${failure.expected}`,
+    expected: failure.expected,
+    found,
+  };
 }
 
 /**
- * Validate one value against one declaration. The
- * declaration is data: the value is checked structurally against the declared
- * type and range/length/enum/bounds — never executed or coerced.
+ * Check one stored value against its declaration with the commands' own
+ * rule (references are type-checked only: the scene is not at hand here).
+ * The declaration is data: nothing is executed or coerced.
  */
 export function validatePropertyValue(prop: DeclaredProperty, value: unknown): ControlError | null {
-  const label = prop.label || prop.key;
-  const typeError = (expected: string): ControlError => ({
-    code: 'property_type',
-    message: `${label} must match its declared type (${prop.type})`,
-    expected,
-    found: value,
-  });
-  const valueError = (expected: string): ControlError => ({
-    code: 'property_value',
-    message: `${label} violates its declared constraints`,
-    expected,
-    found: value,
-  });
-  switch (prop.type) {
-    case 'number': {
-      if (!isFiniteNumber(value)) return typeError('finite number');
-      if (prop.min !== undefined && value < prop.min) return valueError(`v >= ${prop.min}`);
-      if (prop.max !== undefined && value > prop.max) return valueError(`v <= ${prop.max}`);
-      return null;
-    }
-    case 'boolean':
-      return typeof value === 'boolean' ? null : typeError('boolean');
-    case 'string': {
-      if (typeof value !== 'string') return typeError('string');
-      const maxLength = prop.maxLength ?? DEFAULT_STRING_MAX_LENGTH;
-      if ([...value].length > maxLength) return valueError(`length <= ${maxLength} code points`);
-      if (hasControlChars(value)) return valueError('no control characters');
-      return null;
-    }
-    case 'enum': {
-      if (typeof value !== 'string') return typeError('one of the declared enum members');
-      const values = prop.values ?? [];
-      return values.includes(value) ? null : valueError('one of the declared enum members');
-    }
-    case 'vec3': {
-      if (!Array.isArray(value) || value.length !== 3 || !value.every(isFiniteNumber)) {
-        return typeError('[number, number, number]');
-      }
-      const bounds = prop.bounds;
-      if (bounds) {
-        for (let i = 0; i < 3; i += 1) {
-          const n = value[i] as number;
-          if (n < (bounds.min[i] as number) || n > (bounds.max[i] as number)) {
-            return valueError('component-wise within bounds');
-          }
-        }
-      }
-      return null;
-    }
-    case 'entityRef':
-    case 'assetRef':
-      if (value === null) return null;
-      if (typeof value !== 'string' || !ID_SYNTAX.test(value)) return typeError('an ID string or null');
-      return null;
-    default:
-      return typeError('a known property type');
-  }
+  const r = propertyValueRule(prop.type, value, prop, null);
+  return r.ok ? null : controlErrorOf(prop.label || prop.key, r.failure, value);
 }
 
 function constraintsOf(prop: DeclaredProperty): PropertyConstraints {
@@ -314,73 +261,47 @@ export function parseControlInput(
   const label = control.label || control.key;
   const path = `/args/values/${control.key}`;
   const fail = (error: ControlError): ParseControlResult => ({ ok: false, error: { path, ...error } });
-  switch (control.type) {
+  const parsed = parseText(control.type, raw);
+  if (!parsed.ok) return fail({ code: 'property_type', message: `${label} ${parsed.problem}`, expected: parsed.expected, found: raw });
+  // A reference resolves only against the list the caller has (the catalog comes in pages).
+  const known = control.type === 'entityRef' ? refs.entityIds : control.type === 'assetRef' ? refs.assetIds : undefined;
+  const resolve = known === undefined ? null : { entityIds: new Set(known), assetIds: new Set(known) };
+  const r = propertyValueRule(control.type, parsed.value, control.constraints, resolve);
+  return r.ok ? { ok: true, value: parsed.value } : fail(controlErrorOf(label, r.failure, parsed.value));
+}
+
+/** The control's text as a typed value; the declaration's limits are the rule's. */
+function parseText(
+  type: PropertyType,
+  raw: string,
+): { ok: true; value: PropertyValue } | { ok: false; problem: string; expected: string } {
+  switch (type) {
     case 'number': {
       const text = raw.trim();
-      if (text === '') return fail({ code: 'property_type', message: `${label} needs a number`, expected: 'finite number', found: raw });
+      if (text === '') return { ok: false, problem: 'needs a number', expected: 'finite number' };
       const n = Number(text);
-      if (!Number.isFinite(n)) return fail({ code: 'property_type', message: `${label} is not a finite number`, expected: 'finite number', found: raw });
-      const { min, max } = control.constraints;
-      if (min !== undefined && n < min) return fail({ code: 'property_value', message: `${label} must be >= ${numberText(min)}`, expected: `v >= ${min}`, found: n });
-      if (max !== undefined && n > max) return fail({ code: 'property_value', message: `${label} must be <= ${numberText(max)}`, expected: `v <= ${max}`, found: n });
-      return { ok: true, value: n };
+      return Number.isFinite(n) ? { ok: true, value: n } : { ok: false, problem: 'is not a finite number', expected: 'finite number' };
     }
     case 'boolean': {
       const text = raw.trim().toLowerCase();
-      if (text === 'true') return { ok: true, value: true };
-      if (text === 'false') return { ok: true, value: false };
-      return fail({ code: 'property_type', message: `${label} must be true or false`, expected: 'boolean', found: raw });
-    }
-    case 'string': {
-      const maxLength = control.constraints.maxLength ?? DEFAULT_STRING_MAX_LENGTH;
-      if ([...raw].length > maxLength) {
-        return fail({ code: 'property_value', message: `${label} exceeds ${maxLength} characters`, expected: `length <= ${maxLength} code points`, found: raw });
-      }
-      if (hasControlChars(raw)) return fail({ code: 'property_value', message: `${label} contains a control character`, expected: 'no control characters', found: raw });
-      return { ok: true, value: raw };
-    }
-    case 'enum': {
-      const values = control.constraints.values ?? [];
-      if (!values.includes(raw)) {
-        return fail({ code: 'property_value', message: `${label} must be one of: ${values.join(', ')}`, expected: 'one of the declared enum members', found: raw });
-      }
-      return { ok: true, value: raw };
+      if (text === 'true' || text === 'false') return { ok: true, value: text === 'true' };
+      return { ok: false, problem: 'must be true or false', expected: 'boolean' };
     }
     case 'vec3': {
       const parts = raw.split(/[\s,]+/).filter((p) => p !== '');
-      if (parts.length !== 3) return fail({ code: 'property_type', message: `${label} needs three numbers`, expected: '[number, number, number]', found: raw });
+      if (parts.length !== 3) return { ok: false, problem: 'needs three numbers', expected: '[number, number, number]' };
       const nums = parts.map((p) => Number(p));
-      if (!nums.every((n) => Number.isFinite(n))) {
-        return fail({ code: 'property_type', message: `${label} has a non-finite component`, expected: 'finite numbers', found: raw });
-      }
-      const bounds = control.constraints.bounds;
-      if (bounds) {
-        for (let i = 0; i < 3; i += 1) {
-          const n = nums[i] as number;
-          if (n < (bounds.min[i] as number) || n > (bounds.max[i] as number)) {
-            return fail({ code: 'property_value', message: `${label} is outside its bounds`, expected: 'component-wise within bounds', found: nums });
-          }
-        }
-      }
+      if (!nums.every((n) => Number.isFinite(n))) return { ok: false, problem: 'has a non-finite component', expected: 'finite numbers' };
       return { ok: true, value: [nums[0] as number, nums[1] as number, nums[2] as number] };
     }
     case 'entityRef':
     case 'assetRef': {
       const text = raw.trim();
       if (text === '') return { ok: true, value: null };
-      if (!ID_SYNTAX.test(text)) {
-        return fail({ code: 'property_type', message: `${label} is not an ID`, expected: 'an ID string or empty (null)', found: raw });
-      }
-      if (control.type === 'entityRef' && refs.entityIds && !refs.entityIds.includes(text)) {
-        return fail({ code: 'reference_missing', message: `${label} names an entity that does not exist`, expected: 'an existing scene entity id', found: text });
-      }
-      if (control.type === 'assetRef' && refs.assetIds && !refs.assetIds.includes(text)) {
-        return fail({ code: 'asset_reference_missing', message: `${label} names an asset that is not in the catalog`, expected: 'an existing assetId', found: text });
-      }
-      return { ok: true, value: text };
+      return ID_SYNTAX.test(text) ? { ok: true, value: text } : { ok: false, problem: 'is not an ID', expected: 'an ID string or empty (null)' };
     }
     default:
-      return fail({ code: 'property_type', message: `${label} has an unknown declared type`, expected: 'a known property type', found: control.type });
+      return { ok: true, value: raw };
   }
 }
 

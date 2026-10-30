@@ -78,7 +78,7 @@ describe('schema-driven property controls (defaults/types/ranges)', () => {
   });
 
   it('surfaces a bounded error when a stored value violates its declaration', () => {
-    const controls = derivePropertyControls(DECLARATION, { ...STORED, speed: 5000, visible: 'yes', offset: [0, 0], material: 'not an id!' });
+    const controls = derivePropertyControls(DECLARATION, { ...STORED, speed: 5000, visible: 'yes', offset: [0, 0], material: 7 });
     const byKey = new Map(controls.map((c) => [c.key, c]));
     expect(byKey.get('speed')?.error?.code).toBe('property_value');
     expect(byKey.get('visible')?.error?.code).toBe('property_type');
@@ -98,7 +98,7 @@ describe('schema-driven property controls (defaults/types/ranges)', () => {
     expect(validatePropertyValue(prop({ type: 'enum', values: ['a'] }), 'b')?.code).toBe('property_value');
     expect(validatePropertyValue(prop({ type: 'vec3', bounds: { min: [0, 0, 0], max: [1, 1, 1] } }), [0.5, 0.5, 2])?.code).toBe('property_value');
     expect(validatePropertyValue(prop({ type: 'entityRef' }), null)).toBeNull();
-    expect(validatePropertyValue(prop({ type: 'assetRef' }), 'Bad Id')?.code).toBe('property_type');
+    expect(validatePropertyValue(prop({ type: 'assetRef' }), 7)?.code).toBe('property_type');
   });
 });
 

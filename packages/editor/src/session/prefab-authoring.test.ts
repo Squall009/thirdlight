@@ -10,10 +10,8 @@
 import { describe, expect, it } from 'vitest';
 import type { PrefabDefinition, PropertyDeclaration } from '@thirdlight/project-model';
 import {
-  captureClosure,
   collectOverrides,
   MAX_PREFAB_ENTITIES,
-  entityRefLinks,
   makePrefabId,
   newPrefabDraft,
   overrideDraftKey,
@@ -99,19 +97,6 @@ const BASE_INSTANTIATE = {
 };
 
 describe('capture closure and preflight', () => {
-  it('computes the subtree closure in document order with its depth', () => {
-    const closure = captureClosure(SCENE, 'group-0001');
-    expect(closure?.entities.map((e) => e.id)).toEqual(['group-0001', 'box-0001', 'model-0001', 'model-0002']);
-    expect(closure?.depth).toBe(2);
-    expect(captureClosure(SCENE, 'nope')).toBeNull();
-  });
-
-  it('finds declared entityRef links through the published declaration', () => {
-    const model = SCENE.find((e) => e.id === 'model-0001')!;
-    expect(entityRefLinks(model, DECLARATIONS)).toEqual([{ key: 'target', entityId: 'group-0001' }]);
-    expect(entityRefLinks(view({ id: 'x' }), DECLARATIONS)).toEqual([]);
-  });
-
   it('plans exactly one createPrefab command for a legal capture', () => {
     const plan = planCreatePrefab({
       prefabId: 'prefab-0002',
@@ -222,7 +207,7 @@ describe('instantiation accepts only the three configurables', () => {
     });
     expect(planInstantiatePrefab({ ...BASE_INSTANTIATE, transform: { scale: [0, 1, 1] } })).toMatchObject({
       ok: false,
-      error: { code: 'field_value' },
+      error: { code: 'number_out_of_range' },
     });
     const many = Array.from({ length: 65 }, () => ({ localId: 'model-0001', key: 'speed', value: 1 }));
     expect(planInstantiatePrefab({ ...BASE_INSTANTIATE, overrides: many })).toMatchObject({

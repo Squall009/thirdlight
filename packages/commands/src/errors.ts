@@ -352,15 +352,8 @@ export function resultSceneError(
 
 // ---- small shared predicates -----------------------------------------------------
 
-/** The project-model name rule: 1–128 chars, no control characters. */
-export function isValidName(s: string): boolean {
-  if (s.length < 1 || s.length > 128) return false;
-  for (let k = 0; k < s.length; k++) {
-    const c = s.charCodeAt(k);
-    if (c <= 0x1f || c === 0x7f) return false;
-  }
-  return true;
-}
+// The project-model name rule (1–128 chars, no control characters), the one the editor checks too.
+export { isValidName } from '@thirdlight/project-model/authoring-rules';
 
 /** The JSON type descriptor used for `found` on non-object roots. */
 export function jsonType(v: unknown): string {

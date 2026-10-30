@@ -28,7 +28,8 @@
     "./plane-lock": "./src/plane-lock.ts",
     "./shape-2d-3d": "./src/shape-2d-3d.ts",
     "./content-helpers": "./src/content-helpers.ts",
-    "./request-id": "./src/request-id.ts"
+    "./request-id": "./src/request-id.ts",
+    "./authoring-rules": "./src/authoring-rules.ts"
   },
   "dependencies": {
     "@thirdlight/shared": "0.1.0"
