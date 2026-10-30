@@ -13,7 +13,7 @@
  * Derived caches are regenerable and never authoritative: a write to
  * `.thirdlight/derived/**` changes no revision, no envelope and no catalog.
  */
-import { DIGEST_RE, ID_RE, isDigest, withScenePlane } from '@thirdlight/project-model';
+import { DIGEST_RE, ID_RE, importKindOf, isDigest, withScenePlane } from '@thirdlight/project-model';
 
 import {
   closeSync,
@@ -1198,7 +1198,6 @@ export interface ProjectFileEntry {
 
 /** Entries one folder listing returns (a page of the game folder; the index pages the whole project). */
 export const MAX_PROJECT_FILE_ENTRIES = 500;
-export const IMPORTABLE: Readonly<Record<string, 'model' | 'audio' | 'texture' | 'font'>> = { '.glb': 'model', '.fbx': 'model', '.wav': 'audio', '.png': 'texture', '.jpg': 'texture', '.jpeg': 'texture', '.webp': 'texture', '.ktx2': 'texture', '.ogg': 'audio', '.opus': 'audio', '.oga': 'audio', '.mp3': 'audio', '.flac': 'audio', '.ttf': 'font', '.otf': 'font', '.woff2': 'font', '.woff': 'font' };
 
 export type ProjectFileListResult =
   | { ok: true; dir: string; entries: ProjectFileEntry[]; truncated: boolean }
@@ -1227,8 +1226,7 @@ export function listProjectFiles(ctx: ContentContext, dir: unknown): ProjectFile
     if (name.startsWith('.')) continue;
     const path = `${prefix}${name}`;
     if (!isValidSourcePath(path)) continue;
-    const dot = name.lastIndexOf('.');
-    const kind = dot > 0 ? IMPORTABLE[name.slice(dot).toLowerCase()] : undefined;
+    const kind = importKindOf(name) ?? undefined;
     let st;
     try {
       st = statSync(join(res.real, name));

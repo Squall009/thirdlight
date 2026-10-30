@@ -49,7 +49,7 @@ import { COMPONENT_ICONS, type ComponentDescriptor, type DescriptorRegistry, typ
 import { animator, audioSource, behavior, behaviorGroupC, box, cameraPath, cameraRegion, climbVolume, collectible, collider, controller, effectComponent, ENTITY, faceMovement, fogVolume, folder, gravityC, health, hitbox, instances, light, materialParams, materials, model, modelAnimation, mover, patrol, playerSpawn, prefab, probeVolume, socketAttach, surface, switchC, transform, trigger, virtualCamera } from './descriptor-components';
 import { CONTENT, SCENE_ENVIRONMENT } from './descriptor-content';
 import { deepFreeze } from '@thirdlight/shared';
-export { HANDLE_KINDS, HANDLE_ROLES, ASSET_KINDS, COMPONENT_ICONS } from './descriptor-types';
+export { HANDLE_KINDS, HANDLE_ROLES, ASSET_KINDS, IMPORT_EXTENSIONS, importKindOf, COMPONENT_ICONS } from './descriptor-types';
 export type { DescriptorJson, DescriptorScalar, DescriptorUnit, HandleKind, DescriptorAssetKind, DescriptorRefTarget, DescriptorStringFormat, FieldCondition, NumberFieldDescriptor, IntFieldDescriptor, BoolFieldDescriptor, EnumOption, EnumFieldDescriptor, VecFieldDescriptor, QuatFieldDescriptor, ColorFieldDescriptor, AssetRefFieldDescriptor, EntityRefFieldDescriptor, SceneRefFieldDescriptor, RefFieldDescriptor, SignalFieldDescriptor, StringFieldDescriptor, ObjectFieldDescriptor, ListFieldDescriptor, MapFieldDescriptor, ComponentsFieldDescriptor, JsonFieldDescriptor, FieldDescriptor, FieldType, HandleDescriptor, ComponentAdd, ComponentIcon, IconCondition, IconCount, IconVariant, CreateEntryDescriptor, ComponentRelation, ComponentDescriptor, ContentBlockDescriptor, DescriptorRegistry } from './descriptor-types';
 
 // ---- the registry -------------------------------------------------------------------

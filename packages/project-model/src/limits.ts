@@ -17,6 +17,8 @@ export * from './content-limits';
 export { DEFAULT_FIXED_STEP_HZ, FIXED_STEP_HZ_CHOICES } from './content-settings';
 // The asset kinds (the editor's asset lists and pickers name them).
 export { ASSET_KINDS } from './descriptor-types';
+// The file extensions an import takes, by kind (the editor's drop check and file picker).
+export { IMPORT_EXTENSIONS, importKindOf } from './descriptor-types';
 // The resource kinds (the project window's search and kind menu name them).
 export { RESOURCE_KIND_TABLE } from './loadable';
 export { GROUND_NORMAL_TOLERANCE, MAX_COLLISION_LAYERS } from './components';

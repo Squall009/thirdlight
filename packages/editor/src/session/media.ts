@@ -9,8 +9,8 @@
  */
 import type { ProjectedEntity } from './projection';
 import { CONTENT_STAGE_MAX } from '@thirdlight/protocol';
-import { ANIMATION_ROLE_KEYS, MAX_EMISSIVE_INTENSITY, MAX_INTENSITY, MIN_DIRECTION_NORM, SCENE_LIMITS_V3, SURFACE_PRESET_NAMES } from '@thirdlight/project-model/limits';
-import type { AnimationRoleKey, SurfacePresetName } from '@thirdlight/project-model';
+import { ANIMATION_ROLE_KEYS, ASSET_KINDS, IMPORT_EXTENSIONS, importKindOf, MAX_EMISSIVE_INTENSITY, MAX_INTENSITY, MIN_DIRECTION_NORM, SCENE_LIMITS_V3, SURFACE_PRESET_NAMES } from '@thirdlight/project-model/limits';
+import type { AnimationRoleKey, DescriptorAssetKind, SurfacePresetName } from '@thirdlight/project-model';
 
 export type { AnimationRoleKey, SurfacePresetName };
 export { SURFACE_PRESET_NAMES };
@@ -19,23 +19,16 @@ export { SURFACE_PRESET_NAMES };
 // Drop validation (the extension decides the kind; the bytes are checked at import)
 // ---------------------------------------------------------------------------
 
-export const MODEL_DROP_EXTENSION = '.glb';
-/** An FBX is converted to GLB by the backend (headless Blender) at import. */
-export const FBX_DROP_EXTENSION = '.fbx';
-/** Audio of any length: Ogg Vorbis/Opus, MP3, WAV and FLAC (the headers decide the format at import). */
-export const AUDIO_DROP_EXTENSIONS = ['.wav', '.ogg', '.oga', '.opus', '.mp3', '.flac'] as const;
-/** Standalone textures (the magic bytes are checked again at import). */
-export const TEXTURE_DROP_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.ktx2'] as const;
-/** Fonts for the project UI (TrueType, OpenType, WOFF2, WOFF; the magic bytes are checked again at import). */
-export const FONT_DROP_EXTENSIONS = ['.ttf', '.otf', '.woff2', '.woff'] as const;
-
-export type AssetKind = 'model' | 'audio' | 'texture' | 'font';
+export type AssetKind = DescriptorAssetKind;
 
 export interface MediaDropVerdict {
   ok: true;
   kind: AssetKind;
   displayName: string;
 }
+
+/** The extensions an import takes, by kind, for the refusal message. */
+const IMPORT_ACCEPTED = ASSET_KINDS.map((k) => `${Object.keys(IMPORT_EXTENSIONS).filter((e) => IMPORT_EXTENSIONS[e] === k).join('/')} (${k === 'model' ? 'a glTF binary, or FBX converted to glTF' : k})`).join(', ');
 
 /**
  * Validate a dropped/selected media file BEFORE any network call (the
@@ -44,36 +37,11 @@ export interface MediaDropVerdict {
  */
 export function validateMediaDrop(name: string, byteLength: number): MediaDropVerdict | { ok: false; error: { code: string; message: string } } {
   const trimmed = name.trim();
-  const lower = trimmed.toLowerCase();
-  let kind: AssetKind | null = null;
-  let ext = '';
-  if (lower.endsWith(MODEL_DROP_EXTENSION)) {
-    kind = 'model';
-    ext = MODEL_DROP_EXTENSION;
-  } else if (lower.endsWith(FBX_DROP_EXTENSION)) {
-    kind = 'model';
-    ext = FBX_DROP_EXTENSION;
-  } else {
-    const t = TEXTURE_DROP_EXTENSIONS.find((e) => lower.endsWith(e));
-    const m = AUDIO_DROP_EXTENSIONS.find((e) => lower.endsWith(e));
-    const f = FONT_DROP_EXTENSIONS.find((e) => lower.endsWith(e));
-    if (t !== undefined) {
-      kind = 'texture';
-      ext = t;
-    } else if (m !== undefined) {
-      kind = 'audio';
-      ext = m;
-    } else if (f !== undefined) {
-      kind = 'font';
-      ext = f;
-    }
-  }
+  const kind = importKindOf(trimmed);
   if (kind === null) {
-    return {
-      ok: false,
-      error: { code: 'import_rejected', message: `only ${MODEL_DROP_EXTENSION} (glTF binary), ${FBX_DROP_EXTENSION} (converted to glTF), ${AUDIO_DROP_EXTENSIONS.join('/')} (audio), .png/.jpg/.webp/.ktx2 (texture) and .ttf/.otf/.woff2/.woff (font) files can be imported` },
-    };
+    return { ok: false, error: { code: 'import_rejected', message: `only ${IMPORT_ACCEPTED} files can be imported` } };
   }
+  const ext = trimmed.slice(trimmed.lastIndexOf('.'));
   if (!Number.isInteger(byteLength) || byteLength < 1) {
     return { ok: false, error: { code: 'import_rejected', message: 'the dropped file is empty' } };
   }

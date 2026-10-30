@@ -969,6 +969,8 @@ export {
 // The component and content descriptor registry (pure data).
 export {
   ASSET_KINDS,
+  IMPORT_EXTENSIONS,
+  importKindOf,
   COMPONENT_ICONS,
   DESCRIPTORS,
   HANDLE_KINDS,

@@ -10,6 +10,7 @@
  * Browser-only (React).
  */
 import { useRef, useState, type JSX, type ReactNode } from 'react';
+import { IMPORT_EXTENSIONS } from '@thirdlight/project-model/limits';
 import type { ProjectItem } from '../session/project-items';
 import type { AssetImportState } from '../session/asset-browser';
 import type { TileThumbnails } from '../viewport/thumbnails';
@@ -71,6 +72,8 @@ interface Props {
 }
 
 const BUSY = new Set(['staging', 'uploading', 'inspecting', 'publishing']);
+/** The file picker's filter: the extensions an import takes, and their media types for pickers that filter by type. */
+const IMPORT_ACCEPT = [...Object.keys(IMPORT_EXTENSIONS), 'model/gltf-binary', 'audio/wav', 'image/png', 'image/jpeg', 'image/webp', 'audio/ogg', 'audio/mpeg', 'audio/flac', 'font/ttf', 'font/otf', 'font/woff2', 'font/woff'].join(',');
 
 export function AssetBrowser(p: Props): JSX.Element {
   const importInput = useRef<HTMLInputElement | null>(null);
@@ -119,7 +122,7 @@ export function AssetBrowser(p: Props): JSX.Element {
           ref={importInput}
           className="tl-assets__file"
           type="file"
-          accept=".glb,.fbx,.wav,.png,.jpg,.jpeg,.webp,.ktx2,.ogg,.oga,.opus,.mp3,.flac,.ttf,.otf,.woff2,.woff,model/gltf-binary,audio/wav,image/png,image/jpeg,image/webp,audio/ogg,audio/mpeg,audio/flac,font/ttf,font/otf,font/woff2,font/woff"
+          accept={IMPORT_ACCEPT}
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) p.onImport(f);
@@ -133,7 +136,7 @@ export function AssetBrowser(p: Props): JSX.Element {
           ref={reimportInput}
           className="tl-assets__file"
           type="file"
-          accept=".glb,.fbx,.wav,.png,.jpg,.jpeg,.webp,.ktx2,.ogg,.oga,.opus,.mp3,.flac,.ttf,.otf,.woff2,.woff,model/gltf-binary,audio/wav,image/png,image/jpeg,image/webp,audio/ogg,audio/mpeg,audio/flac,font/ttf,font/otf,font/woff2,font/woff"
+          accept={IMPORT_ACCEPT}
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) p.onReimport(f);

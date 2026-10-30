@@ -45,6 +45,41 @@ export const HANDLE_ROLES: Readonly<Record<HandleKind, readonly (readonly string
 export const ASSET_KINDS = ['model', 'audio', 'texture', 'font'] as const;
 export type DescriptorAssetKind = (typeof ASSET_KINDS)[number];
 
+/**
+ * The file extensions an import takes (lower case), by the asset kind each
+ * becomes: a glTF binary, or an FBX the backend converts with Blender; audio of
+ * any length (WAV, Ogg Vorbis/Opus, MP3, FLAC); textures; fonts. The bytes are
+ * checked again at import. The editor's drop check and the game-folder listing
+ * and import read this one table.
+ */
+export const IMPORT_EXTENSIONS: Readonly<Record<string, DescriptorAssetKind>> = Object.freeze({
+  '.glb': 'model',
+  '.fbx': 'model',
+  '.wav': 'audio',
+  '.ogg': 'audio',
+  '.oga': 'audio',
+  '.opus': 'audio',
+  '.mp3': 'audio',
+  '.flac': 'audio',
+  '.png': 'texture',
+  '.jpg': 'texture',
+  '.jpeg': 'texture',
+  '.webp': 'texture',
+  '.ktx2': 'texture',
+  '.ttf': 'font',
+  '.otf': 'font',
+  '.woff2': 'font',
+  '.woff': 'font',
+});
+
+/** The asset kind a file name imports as, by its extension (null: none; a name that starts with its only dot has none). */
+export function importKindOf(name: string): DescriptorAssetKind | null {
+  const dot = name.lastIndexOf('.');
+  if (dot <= 0) return null;
+  const ext = name.slice(dot).toLowerCase();
+  return Object.hasOwn(IMPORT_EXTENSIONS, ext) ? (IMPORT_EXTENSIONS[ext] ?? null) : null;
+}
+
 /** What an `ref` field names (besides assets, entities and scenes). */
 export type DescriptorRefTarget = 'material' | 'animator' | 'behavior' | 'prefab' | 'animatorParameter' | 'animatorState' | 'clip' | 'effect' | 'uiDocument' | 'uiTheme' | 'uiTween' | 'uiWidget' | 'behaviorGroup' | 'inputMap' | 'mode' | 'kit';
 

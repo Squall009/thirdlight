@@ -158,6 +158,7 @@ export const OWNED_FAMILIES = Object.freeze([
   { family: 'save-format', owner: 'packages/project-model/src/save-schema.ts', names: ['PROJECT_SAVE_FORMAT', 'PROJECT_SAVE_FORMAT_VERSION'] },
   { family: 'message-limit', owner: 'packages/project-model/src/errors.ts', names: ['MESSAGE_LIMIT', 'clipMessage'] },
   { family: 'move-quantum', owner: 'packages/project-model/src/input.ts', names: ['MOVE_QUANTUM', 'quantizeMove', 'quantizeIntentMove'] },
+  { family: 'import-extensions', owner: 'packages/project-model/src/descriptor-types.ts', names: ['IMPORT_EXTENSIONS', 'IMPORTABLE', 'importKindOf'] },
 ]);
 
 /**

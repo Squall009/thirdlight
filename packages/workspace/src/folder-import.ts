@@ -28,13 +28,15 @@ import { ID_RE, isAssetLabel, isValidSourcePath, MAX_FOLDER_DEPTH, type ContentC
 import type { CommandError, PreparedAssetImportItem } from '@thirdlight/commands';
 
 import { DEFAULT_ASSET_FOLDER, PROJECT_OWN_ENTRIES, SIDECAR_SUFFIX, assetRoot, checkAssetFolder, fileOfRecord, fileStem, gameFileExists, parseSidecar, readGameFile, sidecarPath, takenPaths, writeGameFile, type RecordLike } from './asset-files';
-import { IMPORTABLE, resolveProjectFile, type ContentConfig, type ContentContext } from './content-store';
+import { resolveProjectFile, type ContentConfig, type ContentContext } from './content-store';
+import { importKindOf, type DescriptorAssetKind } from '@thirdlight/project-model';
 import { sha256HexNative } from './digest';
 import { isSceneFileName, isSkippedFolderName, resourceKindOfName, SCENE_SUFFIX } from './resource-files';
 import { pathRejected } from './errors';
 import type { WriteOps } from './write';
 
-export type ImportKind = 'model' | 'audio' | 'texture' | 'font';
+/** The asset kind an imported file becomes (the model's). */
+export type ImportKind = DescriptorAssetKind;
 
 /** One importable file of a folder. */
 export interface FolderImportFile {
@@ -54,11 +56,8 @@ export interface FolderImportScan {
   known: { path: string; assetId: string }[];
 }
 
-/** The kind an importer takes a file as, by its extension (null: none). */
-export function importKindOf(name: string): ImportKind | null {
-  const dot = name.lastIndexOf('.');
-  return dot > 0 ? (IMPORTABLE[name.slice(dot).toLowerCase()] ?? null) : null;
-}
+// The kind an importer takes a file as, by its extension: the model's one table.
+export { importKindOf };
 
 /** Every file of a folder of the game folder, recursively (a folder's files by name, then its subfolders). */
 export function scanAssetFolder(ctx: ContentContext, folder: string): { ok: true; scan: FolderImportScan } | { ok: false; error: CommandError } {
