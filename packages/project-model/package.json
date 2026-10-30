@@ -26,7 +26,9 @@
     "./model-occluders": "./src/model-occluders.ts",
     "./repeated-rows": "./src/repeated-rows.ts",
     "./plane-lock": "./src/plane-lock.ts",
-    "./shape-2d-3d": "./src/shape-2d-3d.ts"
+    "./shape-2d-3d": "./src/shape-2d-3d.ts",
+    "./content-helpers": "./src/content-helpers.ts",
+    "./request-id": "./src/request-id.ts"
   },
   "dependencies": {
     "@thirdlight/shared": "0.1.0"

@@ -229,6 +229,8 @@ export const NODE_SIDE_ALLOWED = {
       'project-model': [
         'limits', // payload bounds are the model's limits, defined once there
         'repeated-rows', // the folded diagnostics row the runtime's error ring also builds
+        'content-helpers', // a content digest's format is defined once, where the model checks it
+        'request-id', // the request id format commands and the workspace check too
       ],
       commands: [
         'mutation-ops', // the op list the request parser accepts is the one commands applies
@@ -265,6 +267,7 @@ export const NODE_SIDE_ALLOWED = {
         'kits', // what a kit names that the project lacks
         'kit-checks', // a kit piece's file and its sheet's table and pixels
         'model-occluders', // a model's occluder stand-ins checked against its pieces
+        'content-helpers', // a content digest's format is defined once, where the model checks it
       ],
     },
   },
@@ -344,11 +347,12 @@ export const NODE_SIDE_ALLOWED = {
     external: ['@modelcontextprotocol/sdk'],
     node: [],
     // The backend's application services only, never its server internals.
-    subpaths: { backend: ['services'], 'project-model': ['limits'] },
+    subpaths: { backend: ['services'], 'project-model': ['limits', 'content-helpers'] },
     typesOnly: { 'project-model': true },
     valueSubpaths: {
       'project-model': [
         'limits', // the tool descriptions state the model's limits from their one definition
+        'content-helpers', // a digest argument is checked against the model's one format
       ],
     },
   },
@@ -404,6 +408,7 @@ export const NODE_SIDE_ALLOWED = {
         'effect-graph-kinds', // effect graph ports resolve as the backend resolves them
         'plane-lock', // the gizmo holds a body to the plane the game locks it to
         'shape-2d-3d', // a flat collider is drawn as the solid the game makes of it
+        'content-helpers', // a content digest's format is defined once, where the model checks it
       ],
     },
   },
