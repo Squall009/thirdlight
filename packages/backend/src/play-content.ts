@@ -15,8 +15,6 @@
  *   own expiry) and `PLAY_CONTENT_GRACE` after the play ended (never past
  *   that expiry), and the
  *   contentId is a redacted secret-equivalent.
- * - `captureRuntimeContentManifest` is a compatibility adapter over
- *   `project-model`'s pure `captureManifest` (one assembler, no second copy).
  *
  * No authoritative or project write ever happens here. What a Play build
  * generates (the manifest, scene files, compiled scripts, content files) is

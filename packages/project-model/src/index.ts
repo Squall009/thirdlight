@@ -257,34 +257,21 @@ export {
 
 export { captureContent, collectAssetRefsV3 } from './capture';
 
-// The pure runtime-content manifest capture
+// The runtime-content manifest's shared pieces
 // plus the canonical/digest helpers the export closure needs. Additive public
 // surface recorded as contract-change request C36-2 (docs/handoffs/36.md).
 export {
   BUILD_OPTIONS_RECORD,
-  MANIFEST_KEYS,
   M2_ENGINE_PINS,
-  M2_KNOWN_MODULE_IDS,
   M2_MODULE_PACKAGES,
   RUNTIME_CONTENT_MANIFEST_MAX_BYTES,
-  RUNTIME_CONTENT_MANIFEST_VERSION,
   RUNTIME_CONTENT_TYPE,
   buildOptionsRecordBytes,
-  captureManifest,
-  capturedViewDigest,
   digestBytes,
   digestEmittedClosure,
-  manifestBuildIdInput,
   recipeDigestOf,
-  requiredModuleIds,
-  versionFactsDigest,
-  type CaptureManifestInput,
-  type CaptureManifestResult,
   type EmittedArtifactDigest,
-  type ManifestAssetInput,
   type ManifestBehaviorInput,
-  type ManifestError,
-  type RuntimeContentManifest,
 } from './manifest';
 export { canonicalJsonText, sha256Hex, sha256HexOfText,
   sha256HexAsync, sha256Hex as sha256HexBytes } from './sha256';

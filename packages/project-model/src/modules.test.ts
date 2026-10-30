@@ -7,7 +7,6 @@
 import { describe, expect, it } from 'vitest';
 
 import { COMPONENT_MODULES, CONTENT_BLOCK_MODULES, ENGINE_MODULES, ENGINE_MODULE_IDS, resolveRequiredModules } from './modules';
-import { requiredModuleIds } from './manifest';
 
 const entity = (components: Record<string, unknown>): Record<string, unknown> => ({ id: 'e', components });
 const CONTROLLER_SET = ['thirdlight.character3d:controller', 'thirdlight.input:keyboard-gamepad', 'thirdlight.physics-rapier:3d'];
@@ -65,9 +64,5 @@ describe('resolveRequiredModules', () => {
   it('every registry id resolves to itself', () => {
     const r = resolveRequiredModules({ scene: { entities: [] }, declared: ENGINE_MODULE_IDS });
     expect(r).toEqual({ ok: true, moduleIds: [...ENGINE_MODULE_IDS] });
-  });
-
-  it('the M2 heuristic entry is the resolver over the scene', () => {
-    expect(requiredModuleIds({ entities: [entity({ controller: {} })] }, true, false)).toEqual([...CONTROLLER_SET.slice(0, 1), 'thirdlight.demo:box-motion', ...CONTROLLER_SET.slice(1)]);
   });
 });

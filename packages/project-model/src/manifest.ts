@@ -1,28 +1,17 @@
 /**
- * The immutable runtime-content manifest.
- *
- * `captureManifest` is the pure derivation of the delivery manifest from ONE
- * already-captured authoring state: the captured scene document, the resolved
- * asset versions, the reachable source-bearing behaviors
- * and the required engine module IDs. It has no I/O, no clock and no
- * randomness — the caller supplies `capturedAt` — so two captures of the same
- * state produce byte-identical documents.
- *
- * The document is the play/export structural input; `buildId` is its
- * self-identifying digest, never an engine-independent
- * binary hash.
+ * The runtime-content manifest's shared pieces: its discriminator, the content
+ * file size caps, the build-options record, the engine pins and module table
+ * the manifest rows name, a behavior row's input, the recipe digest and the
+ * export closure's digest. The manifest itself is captured by `manifest-v5.ts`
+ * (and read in its older version by `manifest-v2.ts`).
  *
  * This module is in the zero-dependency `project-model` leaf because the
  * canonical JSON text and the SHA-256 helpers (`./sha256`) already live here.
  */
-import { resolveRequiredModules } from './modules';
 import { canonicalJsonText, sha256Hex, sha256HexOfText } from './sha256';
 
 /** The manifest discriminator. */
 export const RUNTIME_CONTENT_TYPE = 'thirdlight-runtime-content' as const;
-
-/** The manifest shape version. */
-export const RUNTIME_CONTENT_MANIFEST_VERSION = 1 as const;
 
 /**
  * The most bytes one content file of a Play build or an export may hold; the
@@ -56,26 +45,6 @@ export function buildOptionsRecordBytes(): Uint8Array {
   return new TextEncoder().encode(`${JSON.stringify(BUILD_OPTIONS_RECORD, null, 2)}\n`);
 }
 
-/** The manifest keys in their exact canonical order (`buildId` last). */
-export const MANIFEST_KEYS = [
-  'manifestVersion',
-  'type',
-  'projectId',
-  'revision',
-  'snapshotId',
-  'capturedAt',
-  'sceneDigest',
-  'contentDigest',
-  'assets',
-  'behaviors',
-  'modules',
-  'enginePins',
-  'recipes',
-  'toolchain',
-  'buildOptionsDigest',
-  'buildId',
-] as const;
-
 /**
  * The pinned engine table recorded in `enginePins`, ascending by `id`. A
  * version change is an owner-approved decision change.
@@ -95,23 +64,6 @@ export const M2_MODULE_PACKAGES: Readonly<Record<string, string>> = Object.freez
   'thirdlight.three-adapter:gltf-loader': '@thirdlight/three-adapter',
 });
 
-/** The engine module IDs this model version knows (ascending). */
-export const M2_KNOWN_MODULE_IDS: readonly string[] = Object.freeze(Object.keys(M2_MODULE_PACKAGES).sort());
-
-/** One resolved asset version of the captured view. */
-export interface ManifestAssetInput {
-  assetId: string;
-  version: number;
-  sourceDigest: string;
-  sourceByteLength: number;
-  /** The import recipe the deprecated `recipeDigest` is derived from. */
-  importRecipe?: unknown;
-  /** A caller-supplied `recipeDigest` (play capture compatibility). */
-  recipeDigest?: string;
-  /** A caller-supplied `metricsDigest` (play capture compatibility). */
-  metricsDigest?: string;
-}
-
 /** One reachable source-bearing behavior. */
 export interface ManifestBehaviorInput {
   behaviorId: string;
@@ -126,249 +78,9 @@ export interface ManifestBehaviorInput {
   requiredModules: readonly string[];
 }
 
-export interface CaptureManifestInput {
-  projectId: string;
-  revision: number;
-  /** UTC second at capture, `YYYY-MM-DDThh:mm:ssZ`. */
-  capturedAt: string;
-  /** The canonical runtime scene document (`{schemaVersion, sceneId, revision, entities}`). */
-  scene?: unknown;
-  /** A caller-supplied scene digest (when the caller already captured it). */
-  sceneDigest?: string;
-  assets: readonly ManifestAssetInput[];
-  behaviors: readonly ManifestBehaviorInput[];
-  moduleIds: readonly string[];
-  recipeVersions?: { 'gltf-glb': number; 'behavior-source': number };
-  /** A caller-supplied captured-view digest (when the caller already captured it). */
-  contentDigest?: string;
-}
-
-/** The manifest document (field order = `MANIFEST_KEYS` order; `buildId` last). */
-export interface RuntimeContentManifest {
-  manifestVersion: number;
-  type: string;
-  projectId: string;
-  revision: number;
-  snapshotId: string;
-  capturedAt: string;
-  sceneDigest: string;
-  contentDigest: string;
-  assets: ReadonlyArray<Record<string, unknown>>;
-  behaviors: ReadonlyArray<Record<string, unknown>>;
-  modules: ReadonlyArray<Record<string, unknown>>;
-  enginePins: ReadonlyArray<Record<string, unknown>>;
-  recipes: Record<string, number>;
-  toolchain: Record<string, unknown>;
-  buildOptionsDigest: string;
-  buildId: string;
-}
-
-export interface ManifestError {
-  code: string;
-  cls: 'validation' | 'internal';
-  message: string;
-  reason?: string;
-  limit?: string;
-  current?: number;
-  max?: number;
-}
-
-export type CaptureManifestResult =
-  | { ok: true; manifest: RuntimeContentManifest; bytes: Uint8Array; buildId: string }
-  | { ok: false; error: ManifestError };
-
-const DIGEST_RE = /^[0-9a-f]{64}$/;
-
-function manifestError(code: string, message: string, reason?: string, limit?: string, current?: number, max?: number): ManifestError {
-  return {
-    code,
-    cls: code === 'internal' ? 'internal' : 'validation',
-    message: message.slice(0, 256),
-    ...(reason !== undefined ? { reason } : {}),
-    ...(limit !== undefined ? { limit } : {}),
-    ...(current !== undefined ? { current } : {}),
-    ...(max !== undefined ? { max } : {}),
-  };
-}
-
-/**
- * The `contentDigest` of a captured content view: the
- * canonical JSON of `{contentVersion, projectId, revision, assets}` with the
- * per-entry key order `assetId, version, sourceDigest, sourceByteLength,
- * importRecipe`. `canonicalJsonText` sorts keys, so the view's own key order is
- * irrelevant to the digest — byte-identical to the workspace's
- * `captureContentView` result for the same view.
- */
-export function capturedViewDigest(input: {
-  projectId: string;
-  revision: number;
-  assets: readonly ManifestAssetInput[];
-}): string {
-  const withoutDigest = {
-    contentVersion: 1 as const,
-    projectId: input.projectId,
-    revision: input.revision,
-    assets: input.assets.map((a) => ({
-      assetId: a.assetId,
-      version: a.version,
-      sourceDigest: a.sourceDigest,
-      sourceByteLength: a.sourceByteLength,
-      ...(a.importRecipe !== undefined ? { importRecipe: a.importRecipe } : {}),
-    })),
-  };
-  return sha256HexOfText(canonicalJsonText(withoutDigest));
-}
-
 /** `recipeDigest` for one import recipe. */
 export function recipeDigestOf(importRecipe: unknown): string {
   return sha256HexOfText(canonicalJsonText(importRecipe));
-}
-
-/** The digest of one version's bounded record facts (`metricsDigest`). */
-export function versionFactsDigest(v: {
-  assetId: string;
-  version: number;
-  sourceDigest: string;
-  sourceByteLength: number;
-}): string {
-  return sha256HexOfText(
-    canonicalJsonText({
-      assetId: v.assetId,
-      version: v.version,
-      sourceDigest: v.sourceDigest,
-      sourceByteLength: v.sourceByteLength,
-    }),
-  );
-}
-
-/**
- * The required engine module IDs for one captured scene (ascending) —
- * the declared-dependency resolver over the scene's referenced content
- * (see `modules.ts`); a plain scene resolves to no modules.
- */
-export function requiredModuleIds(
-  scene: { entities: ReadonlyArray<Record<string, unknown>> },
-  demo: boolean,
-  hasBehaviors: boolean,
-): string[] {
-  void hasBehaviors;
-  const r = resolveRequiredModules({ scene, demo });
-  return r.ok ? r.moduleIds : [];
-}
-
-/**
- * Capture the manifest from one captured state. Pure: every field is
- * derived from the arguments; `capturedAt` is caller-supplied.
- */
-export function captureManifest(input: CaptureManifestInput): CaptureManifestResult {
-  const assets = [...input.assets]
-    .map((a) => ({
-      assetId: a.assetId,
-      version: a.version,
-      sourceDigest: a.sourceDigest,
-      sourceByteLength: a.sourceByteLength,
-      recipeDigest: a.recipeDigest ?? recipeDigestOf(a.importRecipe),
-      metricsDigest: a.metricsDigest ?? versionFactsDigest(a),
-      path: `content/sha256/${a.sourceDigest}`,
-    }))
-    .sort((a, b) => (a.assetId < b.assetId ? -1 : a.assetId > b.assetId ? 1 : a.version - b.version));
-  const behaviors = [...input.behaviors]
-    .map((b) => ({
-      behaviorId: b.behaviorId,
-      sourceDigest: b.sourceDigest,
-      sourceByteLength: b.sourceByteLength,
-      manifestDigest: b.manifestDigest,
-      outputDigest: b.outputDigest,
-      outputByteLength: b.outputByteLength,
-      apiVersion: b.apiVersion,
-      declaration: b.declaration,
-      ownedTransforms: [...b.ownedTransforms],
-      requiredModules: [...b.requiredModules],
-      path: `behaviors/${b.outputDigest}.js`,
-    }))
-    .sort((a, b) => (a.behaviorId < b.behaviorId ? -1 : a.behaviorId > b.behaviorId ? 1 : 0));
-  const moduleIds = [...new Set(input.moduleIds)].sort();
-  const modules = moduleIds.map((id) => {
-    const pkg = M2_MODULE_PACKAGES[id];
-    const pin = pkg !== undefined ? M2_ENGINE_PINS.find((p) => p.id === pkg) : undefined;
-    return { id, apiVersion: pin?.apiVersion ?? 1, package: pkg ?? '@thirdlight/runtime', version: pin?.version ?? '0.1.0' };
-  });
-  const recipes = input.recipeVersions ?? { 'gltf-glb': 1, 'behavior-source': 1 };
-
-  for (const [name, value] of [
-    ['scene', input.scene],
-  ] as const) {
-    if (value === undefined && input.sceneDigest === undefined) {
-      return { ok: false, error: manifestError('internal', `${name} is required for a manifest capture`) };
-    }
-  }
-  const sceneDigest = input.sceneDigest ?? sha256HexOfText(canonicalJsonText(input.scene));
-  const contentDigest =
-    input.contentDigest ?? capturedViewDigest({ projectId: input.projectId, revision: input.revision, assets: input.assets });
-  for (const [name, value] of [
-    ['sceneDigest', sceneDigest],
-    ['contentDigest', contentDigest],
-  ] as const) {
-    if (!DIGEST_RE.test(value)) {
-      return { ok: false, error: manifestError('field_value', `${name} must be 64 lowercase hex`) };
-    }
-  }
-
-  const buildOptionsDigest = sha256Hex(buildOptionsRecordBytes());
-  const withoutBuildId: Record<string, unknown> = {
-    manifestVersion: RUNTIME_CONTENT_MANIFEST_VERSION,
-    type: RUNTIME_CONTENT_TYPE,
-    projectId: input.projectId,
-    revision: input.revision,
-    snapshotId: `${input.projectId}@r${input.revision}`,
-    capturedAt: input.capturedAt,
-    sceneDigest,
-    contentDigest,
-    assets,
-    behaviors,
-    modules,
-    enginePins: M2_ENGINE_PINS.map((p) => ({ id: p.id, version: p.version, apiVersion: p.apiVersion })),
-    recipes,
-    toolchain: { esbuild: '0.28.2', typescript: '5.9.3', optionsDigest: buildOptionsDigest },
-    buildOptionsDigest,
-  };
-  const preimage = manifestBuildIdInput(withoutBuildId);
-  if (preimage === null) {
-    return { ok: false, error: manifestError('internal', 'the manifest document could not be serialized') };
-  }
-  const buildId = sha256Hex(preimage);
-  const manifest = { ...withoutBuildId, buildId } as unknown as RuntimeContentManifest;
-  const bytes = new TextEncoder().encode(`${JSON.stringify(manifest, null, 2)}\n`);
-  if (bytes.length > RUNTIME_CONTENT_MANIFEST_MAX_BYTES) {
-    return {
-      ok: false,
-      error: manifestError(
-        'limits_exceeded',
-        `the manifest document exceeds ${RUNTIME_CONTENT_MANIFEST_MAX_BYTES} bytes`,
-        'limits_exceeded',
-        'manifest_bytes',
-        bytes.length,
-        RUNTIME_CONTENT_MANIFEST_MAX_BYTES,
-      ),
-    };
-  }
-  return { ok: true, manifest, bytes, buildId };
-}
-
-/**
- * The exact bytes `buildId` covers: the canonical
- * document serialization of the manifest without `buildId`, key order exactly
- * `MANIFEST_KEYS`. Identical to `protocol`'s `manifestBuildIdInput` for the
- * same document.
- */
-export function manifestBuildIdInput(manifest: Record<string, unknown>): Uint8Array | null {
-  const without: Record<string, unknown> = {};
-  for (const key of MANIFEST_KEYS) {
-    if (key === 'buildId') continue;
-    if (!(key in manifest)) return null;
-    without[key] = manifest[key];
-  }
-  return new TextEncoder().encode(`${JSON.stringify(without, null, 2)}\n`);
 }
 
 /** One emitted artifact of the export closure (path relative to the output root). */
