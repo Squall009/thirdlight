@@ -1485,11 +1485,13 @@ export function installSeeThroughStep(): void {
     if (view !== undefined && takesPart(this)) view.keep().not().discard();
     return diffuse.call(this, builder);
   };
-  const observe = proto.setupObserver;
+  const observe = proto.setupObserver as typeof proto.setupObserver | undefined;
+  // A three without the observer step keeps the mask, refreshed only when three refreshes the draw for its own reasons.
+  if (typeof observe !== 'function') return;
   proto.setupObserver = function setupObserverWithSeeThrough(builder) {
-    const observer = observe.call(this, builder);
+    const observer = observe.call(this, builder) as Observer | null;
     const view = builder.context[CONTEXT_KEY] as SeeThroughView | undefined;
-    if (view === undefined || !takesPart(this)) return observer;
+    if (view === undefined || !takesPart(this) || observer === null || typeof observer !== 'object' || typeof observer.needsRefresh !== 'function') return observer as Observer;
     // A draw's subject bits change while its object, material and lights stay as they are, and three refreshes such
     // an unchanged draw's own uniforms only when its material has nodes of its own (a classic material three
     // converts has none): such a draw is refreshed in the frames its bits change, not every frame.
