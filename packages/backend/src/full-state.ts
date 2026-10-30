@@ -24,8 +24,6 @@ export type FullState =
 
 /** The page the editor session's entities (all scenes) are read in; there is no bound on how many. */
 const SESSION_PAGE = 16_384;
-/** A legacy (v1–v3) session reads its entities in pages this size. */
-const LEGACY_SESSION_PAGE = 1024;
 
 export function makeFullState(deps: { service: WorkspaceService; checks: ProjectChecks }) {
   const { service } = deps;
@@ -56,10 +54,10 @@ export function makeFullState(deps: { service: WorkspaceService; checks: Project
       // guard so the code below narrows to `QueryProjectResult`.
       return { ok: false, status: 500, error: sessionError('invalid_request', 'internal', 'unexpected query shape') };
     }
-    // Paged, every entity of every scene (a project's size is not capped); a v4
-    // project also names each entity's scene and lists its scenes.
-    const v4 = (q as { scenes?: unknown }).scenes !== undefined;
-    const page = v4 ? SESSION_PAGE : LEGACY_SESSION_PAGE;
+    // Paged, every entity of every scene (a project's size is not capped), each
+    // named with its scene. An open project is always storage v4 (an older one
+    // is upgraded when it opens).
+    const page = SESSION_PAGE;
     const entities: unknown[] = [];
     const entitySceneIds: string[] = [];
     let total = 0;
@@ -78,13 +76,14 @@ export function makeFullState(deps: { service: WorkspaceService; checks: Project
       if (entities.length >= total || e.entities.length === 0) break;
     }
     const scene: Record<string, unknown> = {
-      // The SCENE document's `schemaVersion`
-      // (1/2/3/4) — never the manifest's.
+      // The scene document's `schemaVersion`, never the manifest's.
       schemaVersion: q.scene.schemaVersion,
       sceneId: q.scene.sceneId,
       revision: q.revision,
       entities,
-      ...(v4 ? { entitySceneIds, scenes: (q as { scenes?: unknown }).scenes, startScenes: (q as { startScenes?: unknown }).startScenes } : {}),
+      entitySceneIds,
+      scenes: (q as { scenes?: unknown }).scenes,
+      startScenes: (q as { startScenes?: unknown }).startScenes,
     };
     const content = contentProjection(projectId);
     return {

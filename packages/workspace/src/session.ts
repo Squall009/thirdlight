@@ -51,7 +51,6 @@ import {
   type UnavailableReason,
 } from './errors';
 import {
-  EMPTY_BYTES,
   cleanLeftoverTemps,
   errnoOf,
   type WriteOps,
@@ -184,8 +183,6 @@ export interface ProjectSession {
   /** Published retry records (ascending appliedRevision). */
   records: RetryRecord[];
   recordMap: Map<string, RetryRecord>;
-  /** Unused since storage v4 (the files are in `v4.files`); always empty. */
-  envelopeBytes: Uint8Array;
   history: HistoryState;
   /** The ownership record this backend holds (owned) — or null while blocked. */
   ownership: OwnershipRecord | null;
@@ -581,7 +578,6 @@ function blockSession(
     revision: 0,
     records: [],
     recordMap: new Map(),
-    envelopeBytes: EMPTY_BYTES,
     // A blocked session never runs a command: its history stays empty.
     history: { entries: [], cursor: 0, seq: 1 },
     ownership,

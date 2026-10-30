@@ -74,7 +74,6 @@ import {
 import { dropFlushes } from './journal-flush';
 import { defaultResourcePath, gamePathOf, gameRel, recordsOfKind, RESOURCE_KINDS, resourceFileBytes, scenePathIn } from './resource-files';
 import { fileOfRecord, sidecarPath, type RecordLike } from './asset-files';
-import { EMPTY_BYTES } from './write';
 import { commandContentOf } from './content-shapes';
 import { buildIndex, updateIndex } from './project-index';
 import { serveQueryIndex } from './query-index';
@@ -123,7 +122,6 @@ export function publishV4(s: ProjectSession, state: V4State): void {
   const records = mergedRecords(state);
   s.records = records;
   s.recordMap = new Map(records.map((r) => [r.requestId, r]));
-  s.envelopeBytes = EMPTY_BYTES;
 }
 
 /** The revision `content.json` states (it may be below the project's, which is the highest file revision). */
@@ -173,7 +171,6 @@ function makeSessionV4(
     revision: state.revision,
     records: [] as RetryRecord[],
     recordMap: new Map<string, RetryRecord>(),
-    envelopeBytes: EMPTY_BYTES,
     history: freshHistoryV4(state),
     ownership,
     mode: 'open',
