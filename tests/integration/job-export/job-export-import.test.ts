@@ -1,45 +1,63 @@
 /**
- * Importing an asset tool's job export (a folder or a zip with
- * a GLB and manifest.json) against the real backend and the real MCP stdio
- * adapter, on a project in a game folder. The export is generated here: a
- * GLB fixture, a stand-in preview file and a manifest with their SHA-256
- * digests (no asset tool is read or run).
+ * Importing an asset tool's job export (a folder or a zip with a GLB and
+ * manifest.json) against a real backend over HTTP and the MCP tools on it, on
+ * a project in a game folder. The export is generated here: a GLB fixture, a
+ * stand-in preview file and a manifest with their SHA-256 digests (no asset
+ * tool is read or run).
  *
  * Checked: a folder export is inspected over HTTP and its model referenced
  * in place (sourcePath), committed by the ordinary publishAsset; a zip in
  * the game folder (wrapped in one top folder) and an uploaded zip (MCP
  * dataBase64) land as an assets/<name>/ folder of the game folder and are
- * inspected through tl_content_upload {jobExport} and
- * committed by tl_command publishAsset; the manifest's triangle claim is
- * compared with the inspected model (a warning when they differ); a file
- * whose bytes do not match its digest, a manifest without a model and a
- * file that is not a zip are refused with content_invalid and write nothing.
+ * inspected through tl_content_upload {jobExport} and committed by
+ * tl_command publishAsset; the manifest's triangle claim is compared with the
+ * inspected model (a warning when they differ); a file whose bytes do not
+ * match its digest, a manifest without a model and a file that is not a zip
+ * are refused with content_invalid and write nothing.
  */
 import { createHash } from 'node:crypto';
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { crc32, deflateRawSync } from 'node:zlib';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { expect, test } from './pw';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import type { Backend } from '@thirdlight/backend/services';
+import { createTestBackend, testTempBase } from '@thirdlight/backend/testing';
+import { afterEach, beforeEach, expect, it } from 'vitest';
 
-import { startBackend, type E2EBackend } from './backend';
+import { BackendClient } from '../../../packages/mcp-adapter/src/backend-client';
+import { createMcpServer } from '../../../packages/mcp-adapter/src/server';
 
-const REPO = resolve(import.meta.dirname, '..', '..');
+const REPO = resolve(import.meta.dirname, '..', '..', '..');
 const GLB = join(REPO, 'fixtures', 'import-ext', 'base-png.glb');
+const TOKEN = 'job-export-authoring-token';
+const ADMIN = 'job-export-admin-token';
 
-let be: E2EBackend;
+let backend: Backend;
+let teardown: () => Promise<void>;
 let games: string;
-test.beforeEach(async () => {
-  be = await startBackend('home-0001');
-  games = mkdtempSync(join(tmpdir(), 'tl-e2e-jobexport-'));
-});
-test.afterEach(async () => {
-  await be.stop();
+const origin = (): string => `http://127.0.0.1:${backend.portAuthoring}`;
+beforeEach(async () => {
+  const tb = await createTestBackend({
+    authoringOrigin: 'http://127.0.0.1:8501',
+    previewOrigin: 'http://127.0.0.1:8502',
+    authoringOrigins: ['http://127.0.0.1:8501'],
+    tokens: [{ token: TOKEN, scope: 'authoring:game' }, { token: ADMIN, scope: 'admin' }],
+  });
+  backend = tb.backend;
+  teardown = tb.teardown;
+  games = mkdtempSync(join(testTempBase(), 'tl-jobexport-'));
+}, 60_000);
+afterEach(async () => {
+  await teardown();
   rmSync(games, { recursive: true, force: true });
-});
+}, 60_000);
+
+const post = async (path: string, token: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> => {
+  const r = await fetch(`${origin()}${path}`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  return { status: r.status, json: (await r.json()) as Record<string, unknown> };
+};
 
 const sha = (b: Uint8Array): string => createHash('sha256').update(b).digest('hex');
 
@@ -84,10 +102,9 @@ function makeZip(files: { name: string; data: Uint8Array }[]): Buffer {
   return Buffer.concat([...locals, cd, end]);
 }
 
-test('a job export (folder, zip in the game folder, uploaded zip) imports through the ordinary asset path; bad exports are refused', async () => {
-  test.setTimeout(120_000);
+it('a job export (folder, zip in the game folder, uploaded zip) imports through the ordinary asset path; bad exports are refused', async () => {
   const game = join(games, 'game');
-  const made = await be.admin('projects', { projectId: 'game', name: 'Job exports', folder: game });
+  const made = await post('/api/v1/admin/projects', ADMIN, { projectId: 'game', name: 'Job exports', folder: game });
   expect(made.status, JSON.stringify(made.json)).toBe(201);
 
   // The generated export: a model, a preview and the manifest.
@@ -107,21 +124,13 @@ test('a job export (folder, zip in the game folder, uploaded zip) imports throug
   writeFileSync(join(dir, 'preview.png'), preview);
   writeFileSync(join(dir, 'manifest.json'), JSON.stringify(manifest(), null, 2));
 
-  const api = async (path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> => {
-    const r = await fetch(`${be.origin}/api/v1/projects/game/${path}`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${be.token}`, 'content-type': 'application/json', origin: be.origin },
-      body: JSON.stringify(body),
-    });
-    return { status: r.status, json: (await r.json()) as Record<string, unknown> };
-  };
-  const mcp = new Client({ name: 'thirdlight-e2e', version: '0.0.0' });
-  await mcp.connect(new StdioClientTransport({
-    command: process.execPath,
-    args: [join(REPO, 'dist', 'mcp-adapter', 'mcp.mjs')],
-    env: { ...(process.env as Record<string, string>), THIRDLIGHT_AUTHORING_ORIGIN: be.origin, THIRDLIGHT_PROJECT_ID: 'game', THIRDLIGHT_MCP_TOKEN: be.token },
-    stderr: 'ignore',
-  }));
+  const api = (path: string, body: unknown) => post(`/api/v1/projects/game/${path}`, TOKEN, body);
+  // The MCP tools on the same backend, as an MCP client sees them.
+  const server = createMcpServer({ client: new BackendClient({ authoringOrigin: origin(), token: TOKEN }), projectId: 'game', clientId: 'job-export-test' });
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  const mcp = new Client({ name: 'thirdlight-job-export-test', version: '0.0.0' });
+  await mcp.connect(clientTransport);
   const call = async (name: string, args: Record<string, unknown>): Promise<{ isError: boolean; body: Record<string, unknown> }> => {
     const res = (await mcp.callTool({ name, arguments: args })) as { isError?: boolean; content: Array<{ text: string }> };
     return { isError: res.isError === true, body: JSON.parse(res.content[0]!.text) as Record<string, unknown> };
@@ -178,8 +187,8 @@ test('a job export (folder, zip in the game folder, uploaded zip) imports throug
     expect(zipped.isError, JSON.stringify(zipped.body)).toBe(false);
     // A zip lands as a folder of the game folder; its model is imported where it is.
     expect(zipped.body.sourcePath).toBe('assets/Crate/crate.glb');
-    expect(readFileSync(join(game, 'assets', 'Crate', 'crate.glb'))).toEqual(glb);
-    expect(readFileSync(join(game, 'assets', 'Crate', 'preview.png'))).toEqual(preview);
+    expect(new Uint8Array(readFileSync(join(game, 'assets', 'Crate', 'crate.glb')))).toEqual(glb);
+    expect(new Uint8Array(readFileSync(join(game, 'assets', 'Crate', 'preview.png')))).toEqual(preview);
     expect((zipped.body.jobExport as { warnings: string[] }).warnings).toEqual([]);
     const pub2 = await publish('crate-zip', zipped.body);
     expect(pub2.isError, JSON.stringify(pub2.body)).toBe(false);
@@ -226,8 +235,6 @@ test('a job export (folder, zip in the game folder, uploaded zip) imports throug
     expect((await assets()).length).toBe(all.length);
   } finally {
     await mcp.close();
+    await server.close();
   }
-  // Keep a copy of the generated export beside the test results (small) for inspection.
-  mkdirSync(join(REPO, 'test-results', 'job-export'), { recursive: true });
-  copyFileSync(join(game, 'exports', 'crate.zip'), join(REPO, 'test-results', 'job-export', 'crate.zip'));
-});
+}, 120_000);
