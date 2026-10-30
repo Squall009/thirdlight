@@ -1,6 +1,8 @@
 # Three.js Game Editor — Charter and Architecture
 
-Version: 0.1 · 2026-09-16 · Planning draft; no implementation started.
+Version: 0.1 · 2026-09-16 · Implemented. The milestones M0–M4 were built by 2026-09-22 and the engine has grown in
+phases since (`docs/STATUS.md`, `docs/roadmap.md`); where this text and a later decision differ, the decision and
+`AGENTS.md` hold. Next: the voxel world (`docs/plan-phase-45.md`).
 
 ## 1. Purpose
 
@@ -25,7 +27,7 @@ The long-term ambition includes scene authoring, prefabs, gameplay systems, UI, 
 | WebGPU enhancements with a supported WebGL 2 baseline | Recommended compatibility policy; prove feature coverage before promising parity |
 | One active authoring session per project initially | Proposed scope limit |
 
-Hosting is an implementation detail for the user: opening the editor should not require manually orchestrating services each session. Initial setup may require a documented container deployment.
+Hosting is an implementation detail for the user: opening the editor should not require manually orchestrating services each session. Deployment is process-level (`npm start`, a systemd unit; `docs/deployment.md`); no containers (owner, 2026-09-16).
 
 ## 3. Product boundaries
 
@@ -45,9 +47,11 @@ Hosting is an implementation detail for the user: opening the editor should not 
 
 ### Deferred features
 
-Full shader graph authoring, probe-volume baking, dynamic GI, advanced occlusion, automatic LOD generation, terrain, complex particles, cinematic tools, multiplayer, collaborative editing, embedded agents, mobile acceptance, and RPG systems.
+Built since the first release: material and shader graphs (phase 18), probe baking and a surface radiance cache with bounced light (29, 42), occlusion culling (33), generated model LODs, terrain (30), GPU particle effects (20), timelines (23), visual scripting (19).
 
-These are deferred, not prohibited. Their future requirements must not justify speculative frameworks in the first milestone.
+Still deferred: multiplayer, collaborative editing and embedded agents. Mobile is no longer a target (owner, 2026-10-28). RPG and other genre systems are game code in the game repos, never engine features (phase 24).
+
+Deferred is not prohibited, but a future requirement does not justify a speculative framework now.
 
 ### Project templates
 
@@ -69,9 +73,9 @@ flowchart TD
 
 The browser performs interactive rendering on the client GPU. The server owns files, authoring transactions, job coordination, and session routing. Inference can run on another machine without moving the working copy.
 
-Separate backend and harness containers mount the same host workspace. Paths inside containers need not match. APIs use project IDs and project-relative paths, never assume another container's absolute path.
+The backend and the coding harness run as processes on the same host and share its filesystem. APIs still use project IDs and project-relative paths, never another process's absolute path.
 
-The editor engine repository and game project repositories are conceptually separate. A sample project can live in the engine monorepo initially. Independent games pin an engine version and dependency lockfile.
+The editor engine repository and game project repositories are separate: games (Sprout, Skyforge Tactics, Temporal) live in their own repos, registered by folder, and pin an engine version and dependency lockfile.
 
 Source scenes, prefab definitions, scripts, project settings, asset metadata, and original assets are authoritative. Import caches, thumbnails, bundles, and other derived outputs are reproducible. Browser caches are disposable. Git tracks suitable project sources; a documented large-asset and backup policy remains necessary. Git history does not replace backups of untracked assets.
 
@@ -125,7 +129,7 @@ The harness edits code and tests directly. File watching triggers compilation an
 
 Play starts from an identified immutable authoring snapshot and creates separate runtime state. Runtime simulation never writes authoring data implicitly. Applying play-mode changes is a later explicit operation with a selected change set. Early code changes can restart play mode; state-preserving hot reload is not required.
 
-The simulation is 3D; 2.5D gameplay is a 3D scene with an explicitly defined movement plane, camera convention, and physics policy (phase 23). Choose the physics library and exact dimensional model during a bounded evaluation, before implementing the character controller.
+The simulation is 3D, on one physics backend, Rapier 3D (`docs/decisions/0007-one-physics-backend.md`, phase 41). 2D and 2.5D gameplay is a plane constraint: any body or character can be locked to an axis-aligned plane and freed again at a step boundary, and a scene has a default plane. One character controller and one query surface serve both.
 
 ## 7. AI integration and context limits
 
@@ -139,7 +143,7 @@ Minimum tool categories:
 - Discover connected browser sessions and select an explicit session.
 - Start/stop play, exercise bounded inputs, capture screenshots, and retrieve runtime observations when a browser session supports them.
 
-Server-only commands remain usable without an open browser. Visual/play tools return a clear session-unavailable error if no suitable browser is connected. Headless browser automation is a separate later capability; the server is not assumed to have a GPU or browser installed.
+Server-only commands remain usable without an open browser. With no editor connected, the backend opens its own headless Chromium session for play and screenshots (phase 11); a connected owner browser takes priority.
 
 Queries support limits, filters, stable IDs, and revisions. Large scenes and logs must not be returned in full by default. Screenshot requests include the relevant scene/session revision so agents can distinguish old observations.
 
@@ -174,6 +178,8 @@ M1 is an architectural proof, not a finished game. Prefer acceptance tests at me
 
 ## 10. Local-model implementation workflow
 
+The packet workflow below was retired on 2026-09-22 (`archive/packet-workflow/`); the work rules now in force are in `AGENTS.md`. The principles of small tasks, contracts in code and review at boundaries still hold.
+
 Every module receives one concise contract and one ownership/dependency manifest. Public types and schemas are authoritative; explanatory documents link to them instead of duplicating them.
 
 Every task packet contains:
@@ -188,20 +194,7 @@ A model must not silently edit adjacent contracts to make its task pass. Contrac
 
 Review each change against its task and module boundary. At milestones, also review integrated behavior, dependency direction, exported bundles, and representative gameplay. Passing isolated tests is not sufficient evidence of a working editor.
 
-## 11. Next planning deliverable
-
-Write the M0/M1 contract pack and bounded implementation packets, in this order:
-
-1. Project/entity/component schema and representative fixtures.
-2. Command envelope, revision/conflict behavior, transaction and undo semantics.
-3. Workspace durability/recovery and external-file-change rules.
-4. Minimal runtime lifecycle, transform ownership, and three.js mapping.
-5. Editor/backend session protocol and minimal UI/MCP adapters.
-6. Export contract and one integrated acceptance scenario.
-
-Before that pack is implementation-ready, settle the TypeScript default, server OS/CPU architecture, initial deployment method, and reference browser. UI framework, physics library, bundler, exact dependency versions, and licensing require focused selection when their tasks become concrete. Do not delay the architecture draft for those selections, and do not present them as already decided.
-
-## 12. Technical references
+## 11. Technical references
 
 These support earlier feasibility discussions; this document proposes an architecture rather than claiming current cross-platform feature parity.
 
