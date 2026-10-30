@@ -1,6 +1,6 @@
 /**
  * The benchmark scene classes and the written budgets (the same
- * numbers as the "Budgets" of docs/plan-phase-21.md). Classes are generic scene
+ * numbers as the "Budgets" of archive/plans/plan-phase-21.md). Classes are generic scene
  * sizes — a small level, a medium level, a large multi-scene world, a
  * script-heavy and an effect-heavy scene — never a particular game.
  * And an asset-heavy world (many distinct model files and

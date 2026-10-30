@@ -8,8 +8,7 @@ The engine is measured against written budgets with generated
 benchmark projects and an automated harness. The budgets (frame time,
 heap and GPU memory, load time, draw calls, simulation step cost and
 garbage, editor command latency, per scene class) are in
-`docs/plan-phase-21.md` §2 and `tools/perf/classes.ts`; they are for a
-mid-range desktop GPU at 1920×1080. Measured numbers are in §4 there.
+`tools/perf/classes.ts`; they are for a mid-range desktop GPU at 1920×1080.
 
 **Benchmark projects.** Five classes — small (100 entities), medium (2000
 entities, 50 materials, 20 effects), large (16 000 entities over 10 scenes,
@@ -193,7 +192,7 @@ on an export's URL they apply directly):
 
 `node tools/perf/run.mjs village --switches 'batching=off,merging=off,shadowcache=off,threads=off'`
 measures the export again with each switch in the same browser after its own
-run (each one's share; the numbers are in `docs/plan-phase-28c.md` §6).
+run (each one's share).
 `--vsync --busy 5000 --switches 'frameRateCap=60,frameRateCap=30'` measures what a
 frame-rate cap saves: busy time per second of the page's main thread, its
 workers and the GPU process (a Chrome trace; three's pass timestamps include
@@ -354,9 +353,8 @@ editor URL (like `?renderer=webgl2`) to run them all inline. The editor does so 
 `Worker` or `OffscreenCanvas`, when the worker script does not load (it is
 not tried again until the page reloads), when a worker stops during a job,
 and — for the bake — when the worker's canvas gets no renderer. The editor
-page needs no extra headers for this (no SharedArrayBuffer is used). Numbers
-(main-thread long tasks before and after) are in `docs/plan-phase-22.md` §5;
-`tests/e2e/editor-workers.e2e.ts` measures them.
+page needs no extra headers for this (no SharedArrayBuffer is used).
+`tests/e2e/editor-workers.e2e.ts` measures the main-thread long tasks before and after.
 
 **Rendering.**
 
@@ -493,5 +491,4 @@ Presets: `full`, `caps` (every kind at the count caps older engines had), `half-
 The generated project is kept under `~/.cache/thirdlight-perf/scale/<preset>/`
 and copied for each run. `tests/e2e/count-caps.e2e.ts` (in the fast gate)
 runs the files, open, commands, play, walk and export steps on a project over
-every old count cap. The measured numbers are in
-`docs/plan-phase-26.md` §6.
+every old count cap.

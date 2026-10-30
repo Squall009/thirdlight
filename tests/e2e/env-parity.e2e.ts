@@ -19,7 +19,7 @@
  *   volumes/post) matches them, with the archived stack's pass list.
  * - `webgpu` project: WebGPU matches them.
  *
- * Tolerances (logged in docs/plan-phase-17.md): the strict rule for
+ * Tolerances (logged in archive/plans/plan-phase-17.md): the strict rule for
  * everything three ports one to one; a looser, block-averaged rule for the
  * effects whose node pass is a different algorithm (see `TOLERANCE`). For
  * every post case the render must also differ from the plain picture by

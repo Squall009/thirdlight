@@ -27,7 +27,7 @@
  *
  * Renderer-specific tests run in both projects (`default`: WebGL 2,
  * `webgpu`: WebGPU); the rest only in `default`. Numbers go to the log
- * (`[memory] …` lines) and docs/plan-phase-21.md.
+ * (`[memory] …` lines) and archive/plans/plan-phase-21.md.
  */
 import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';

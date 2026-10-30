@@ -12,7 +12,7 @@
  * product's own default renderer (`auto` → WebGPU). Without a GPU (or with
  * TL_E2E_SOFTWARE=1) everything falls back to SwiftShader as before.
  *
- * Projects (phase 17.1, docs/plan-phase-17.md §6):
+ * Projects (phase 17.1, archive/plans/plan-phase-17.md §6):
  *  - `default` — every spec. On a GPU: `auto` takes WebGPU; the forced
  *    `webgl2` variants run only with TL_E2E_ALL_VARIANTS=1 (the gate's
  *    `--both-renderers`). On SwiftShader (no WebGPU adapter): `auto` takes

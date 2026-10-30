@@ -1,6 +1,6 @@
 # Audit — engine/game separation
 
-> **Resolved by phase 24** (2026-09-28, `docs/plan-phase-24.md`). The genre
+> **Resolved by phase 24** (2026-09-28, `archive/plans/plan-phase-24.md`). The genre
 > layer described below is deleted, not kept as a kit: enemies, pickups,
 > zones, the game session, the level flow, lives, score, the classic HUD and
 > Beacon Reach are gone; `packages/platformer` became `packages/character`,
@@ -327,7 +327,7 @@ These define the data formats and the simulation. Everything else mirrors them.
 | Where | What | Rec. | Effort |
 |---|---|---|---|
 | `tests/integration/sprout-meadows/sprout-meadows.test.ts:28, 268-271, 281-282` | Plays Sprout's 10 levels headlessly; asserts Sprout's level list and "every stomped boar dropped a coin". Runs in `npm test` whenever the Sprout repo exists, so an unfinished edit in the game repo turns the engine gate red. | (b) move to the Sprout repo's CI | S |
-| `TL_SKIP_SPROUT` (read only at `sprout-meadows.test.ts:282`; documented in `docs/plan-phase-23.md:292, 332`) | An opt-out needed because of the above. The final phase 23 gate was green only with it set. | (d) delete with the test | S |
+| `TL_SKIP_SPROUT` (read only at `sprout-meadows.test.ts:282`; documented in `archive/plans/plan-phase-23.md:292, 332`) | An opt-out needed because of the above. The final phase 23 gate was green only with it set. | (d) delete with the test | S |
 | `tests/e2e/sprout-live.e2e.ts:18-24, 52, 74, 121` | Drives the owner's live `projects/sprout` over the admin API with an optional Blender bake. This is a production script. | (b) move to the Sprout repo | S |
 | `tests/e2e/animator-sprout.e2e.ts:18, 50` | Reads `char_sprout.glb` (skips if missing) | (a) re-fixture with `tests/e2e/skinned-glb.ts` | M |
 | `tests/e2e/lightmaps-sprout.e2e.ts:18, 36` | Reads Sprout's meadow kit GLB | (a) re-fixture with `tests/e2e/multi-piece-glb.ts` | M |
@@ -367,7 +367,7 @@ These define the data formats and the simulation. Everything else mirrors them.
 
 ### T4. Docs
 - Plans for phases 9, 14, 15, 17, 19, 21 and 22, `roadmap.md`, and `decisions/0005` set engine acceptance in terms of Sprout's levels (e.g. 9.13 and 14.9, "a boar drops a coin").
-- `docs/plan-phase-23.md:9-14, 42` already frames Skyforge correctly, as a consumer whose rules stay in its own repo.
+- `archive/plans/plan-phase-23.md:9-14, 42` already frames Skyforge correctly, as a consumer whose rules stay in its own repo.
 - **Recommendation:** use that as the template, and rewrite future acceptance criteria as generic capabilities. **Effort:** S.
 
 ---

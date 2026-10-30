@@ -16,7 +16,7 @@
  *   despawn per step);
  * - memory: the heap the doors keep (after a full collection).
  *
- * The numbers go to ~/.cache/thirdlight-perf/live-blocks.jsonl and docs/plan-phase-30.md.
+ * The numbers go to ~/.cache/thirdlight-perf/live-blocks.jsonl and archive/plans/plan-phase-30.md.
  */
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';

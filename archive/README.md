@@ -36,3 +36,6 @@ straight from the simulation worker. It contains:
 - `results/`: the measured data.
 
 The numbers and the decision are in `docs/plan-phase-22.md` §5.
+
+`plans/` holds the plans of phases 9 and 14–38 (moved 2026-10-30, phase 44's docs reset): their items, numbers and
+decision logs. Their rows in `docs/STATUS.md` link here; plans from 39 on stay in `docs/`.

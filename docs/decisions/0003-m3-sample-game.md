@@ -1,7 +1,7 @@
 # Decision 0003 — M3 sample game (Beacon Reach)
 
 > **Superseded, historical record (2026-10-30).** Beacon Reach and the genre layer this decision describes were
-> removed in phase 24 (`docs/plan-phase-24.md`); the M3 run state machine and game blocks are gone, and v3
+> removed in phase 24 (`archive/plans/plan-phase-24.md`); the M3 run state machine and game blocks are gone, and v3
 > projects only upgrade on open (schema 8 is current). The `docs/handoffs/` and `docs/contracts/` it cites are archived in
 > `archive/packet-workflow/docs/`.
 

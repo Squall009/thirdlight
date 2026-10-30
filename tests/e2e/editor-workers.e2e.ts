@@ -10,7 +10,7 @@
  * longest, total) with the load average. The scatter asserts a bound on the
  * longest task (relative and generous: this host
  * renders on the CPU and is shared with other test runs — see
- * docs/plan-phase-22.md for the numbers and the bound).
+ * archive/plans/plan-phase-22.md for the numbers and the bound).
  *
  * `TL_EDITOR_DIR=<dir>` serves another editor build (e.g. one that runs
  * these jobs on the main thread, for "before" numbers); `TL_WORKERS_MEASURE_ONLY=1` logs without

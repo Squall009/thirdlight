@@ -20,7 +20,7 @@
  *   to graph", the built-in templates) and drawn by the graph compiler
  *   matches the same references with the same rule, on both backends.
  *
- * The tolerance rule is logged in docs/plan-phase-17.md.
+ * The tolerance rule is logged in archive/plans/plan-phase-17.md.
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';

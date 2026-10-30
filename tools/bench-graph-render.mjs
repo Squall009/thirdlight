@@ -16,7 +16,7 @@
  *
  * Each runs "all in view" (zoomed out, worst case) and "working zoom"
  * (about 100 nodes in view). The numbers are relative (this host has no
- * GPU); the decision is logged in docs/plan-phase-16.md.
+ * GPU); the decision is logged in archive/plans/plan-phase-16.md.
  *
  * Run: node tools/bench-graph-render.mjs
  */

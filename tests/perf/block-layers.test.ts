@@ -18,7 +18,7 @@
  * - A one-cell edit on a 512 × 512 layer (262,144 cells, 1,024 chunks): the
  *   heap an undo step keeps, the chunk bytes it holds (binary, and the same
  *   chunks as JSON text), and the edit, undo and redo times.
- * The numbers are printed (and recorded in docs/plan-phase-23.md); the
+ * The numbers are printed (and recorded in archive/plans/plan-phase-23.md); the
  * assertions are the budgets (interactive: an edit under 50 ms; a few draws
  * per chunk).
  */

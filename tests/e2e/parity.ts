@@ -2,7 +2,7 @@
  * Pixel parity helpers shared by the shader parity spec
  * (`shader-parity.e2e.ts`) and the environment/post parity spec
  * (`env-parity.e2e.ts`): the comparison, the tolerance rules (logged in
- * docs/plan-phase-17.md), a visual diff for failure reports, and a tiny
+ * archive/plans/plan-phase-17.md), a visual diff for failure reports, and a tiny
  * localhost server for a bundled browser harness.
  */
 import { createServer, type Server } from 'node:http';

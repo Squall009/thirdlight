@@ -41,7 +41,7 @@ are in `docs/STATUS.md`; known defects are in `docs/audit-2026-09-22.md`.
   review questions any growth that new coverage doesn't explain.
 - Comments say why the code is the way it is. No phase numbers, item ids,
   dates or `§` spec references in source comments; history lives in git and
-  `docs/plan-phase-*.md`.
+  the phase plans (`docs/plan-phase-*.md`, older ones in `archive/plans/`).
 - Define a limit or constant once, in the package that owns it, and import
   it everywhere else. No per-project count caps on assets or resources.
 - Generic helpers live once, in `@thirdlight/shared` (every package may
@@ -76,6 +76,28 @@ are in `docs/STATUS.md`; known defects are in `docs/audit-2026-09-22.md`.
   docs; the engine reads them only to plan.
 - Preserve unrelated user changes. Never expose credentials in code, logs,
   bundles, fixtures, or docs.
+
+## Traps
+
+- Order inside an item: schema and commands, then runtime/adapter/host, then
+  editor, exporter, tests, docs. Pixels in e2e are read with `tests/e2e/png.ts`;
+  an export is checked served statically with the backend stopped.
+- The shell exports `NODE_ENV=production`: installs need
+  `NODE_ENV=development npm ci --include=dev`. New dependencies get exact
+  versions and a pin in `tools/check-deps.mjs`.
+- `/tmp` is RAM on this host: never write there (`docs/environment.md`).
+  Vitest also collects `.claude/worktrees/*`: pass `--exclude '.claude/**'`.
+- A new `three/examples/jsm/...` module goes on the three-adapter allowlist
+  in `tools/check-boundaries.mjs`, with a reason.
+- The export bundle is scanned for forbidden text (`exporter/src/scan.ts`:
+  `fetch(`, `node:`, `process.`, URLs, …); minified keys count (`{ node: x }`
+  becomes `node:x`). Runtime code gets bytes through the content closure,
+  never a URL.
+- Project-model canonicalizers rebuild objects field by field: a new
+  optional field added only to the type is silently dropped.
+- An edit that changes nothing is refused with `no_change`; a script that
+  re-sends values treats it as done.
+- Archive with `git mv` into `archive/`, not `git rm`.
 
 `archive/` is historical record only. It is not authoritative; do not read it
 unless you need a specific past detail.

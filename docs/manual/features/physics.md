@@ -113,9 +113,8 @@ page's main-thread task time per frame (`mainThread`).
 **Rendering stays on the page.** A render worker (the canvas moved to an
 `OffscreenCanvas` in a worker) was built, measured and not
 adopted: on the CPU-rendered test host it freed the page's main thread but
-drew no more frames, and it showed unexplained stalls on WebGPU (numbers in
-`docs/plan-phase-22.md` §5; the spike is kept in
-`archive/spike-22-render-worker/`). Real-GPU measurements are pending.
+drew no more frames, and it showed unexplained stalls on WebGPU. Real-GPU
+measurements are pending.
 
 ## One 3D backend; planes
 

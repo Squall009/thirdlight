@@ -4,7 +4,7 @@
  * Animator preview, thumbnails) and the lighting bake (the surface cache
  * saved).
  *
- * Backends (the names are logged in docs/plan-phase-17.md), all three's
+ * Backends (the names are logged in archive/plans/plan-phase-17.md), all three's
  * `WebGPURenderer` with the shading written once in TSL:
  *  - `auto` — the DEFAULT: WebGPU when an adapter and a
  *    working device initialise, else the WebGL 2 backend (a plain-http LAN
@@ -160,7 +160,7 @@ function noWebGpuReason(secureContext: boolean): string {
 /**
  * Can WebGPU draw here? An adapter, a device, and one validated command (a
  * device that dies at first use — Dawn without a working Vulkan here — is
- * refused, see docs/plan-phase-17.md). Never rejects.
+ * refused, see archive/plans/plan-phase-17.md). Never rejects.
  */
 export async function probeWebGpu(gpu: GpuLike | undefined, secureContext: boolean, timeoutMs: number = WEBGPU_PROBE_TIMEOUT_MS): Promise<WebGpuProbe> {
   if (!hasWebGpuApi(gpu)) return { ok: false, reason: noWebGpuReason(secureContext) };

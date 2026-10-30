@@ -5,7 +5,7 @@ Status: **SUPERSEDED by decision 0007 (one physics backend; 2D is a plane),
 §1's pin is still the one in use.
 Formerly: **ACCEPTED — phase 23 owner approval (2026-09-26: "phase 23 approved
 from the Skyforge gap list"); the design was decided by the main session
-(`docs/plan-phase-23.md` 23.0 "Design"); final owner manual review
+(`archive/plans/plan-phase-23.md` 23.0 "Design"); final owner manual review
 pending.** Binding for the 3D simulation; decision 0002 §1 (the 2D pin and
 its controller pattern) stays binding for the 2D plane.
 

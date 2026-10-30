@@ -195,7 +195,7 @@ sheet a preset names) and never touches an outline.
   elements): expanding every outline 2.0 ms (16 m chunks) – 2.8 ms; one
   preset's slider moved over one room (expand, keys, its changed chunk made)
   7.3 ms median / 7.9 ms worst in 16 m chunks, 12.8 / 14.7 ms in 32 m chunks
-  (the soft target: 16 ms). Editor measurements: `docs/plan-phase-30.md`, §6.
+  (the soft target: 16 ms).
 
 ## Rooms and paths
 
@@ -268,7 +268,6 @@ its regions, its wall paint shows on their faces.
   a **Round** profile and the Sweep's **Wall** flag.
 - **Glass and emissive**: panes go on the `glass` material slot; a style
   element may name any slot (`emissive`…): each slot is one draw per chunk.
-- **Measured**: `docs/plan-phase-30.md`, §6.
 
 ## Rooms drive culling and lighting
 
@@ -324,8 +323,7 @@ the outlines at load, in the editor's Scene view, Play and the export alike.
   The canvas' `data-tl-rooms` = `<rooms seen>/<rooms> <draws hidden>
   <pairs lit>/<pairs without rooms>` (an export's only diagnostics surface).
 - **Measured**: the `interior` level class (`node tools/perf/run.mjs level
-  --classes interior --switches portals=off`); the numbers are in
-  `docs/plan-phase-30.md`, §6.
+  --classes interior --switches portals=off`).
 
 ### Interior lighting best practice (shadow rules)
 
@@ -414,7 +412,6 @@ made from the same definition, in place or in a scene of its own
   interior whole. Play's observation lists the scenes read ahead
   (`scenes.preloaded`); its scene timings give a load's time from the
   request to drawn.
-- **Measured**: `docs/plan-phase-30.md`, §6.
 
 ## Floor plans and furnishing
 
@@ -500,7 +497,7 @@ a light in every room). A project's graph of the same id replaces one.
   holds (local lights have no count; each pixel loops over the lights of
   its light cluster).
 - **Generated at load, not baked**: a building's split takes about 0.08 ms
-  and its furnishing under 1 ms (`docs/plan-phase-30.md`, §6), so
+  and its furnishing under 1 ms, so
   only the parameters ship; plans and furnished rooms are remembered while
   their inputs stay the same (the editor's edits make only the building
   they touch again).

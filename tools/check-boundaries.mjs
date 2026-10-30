@@ -1099,7 +1099,7 @@ export function checkWorkspace(root) {
 // --- Check 2: genre vocabulary ------------------------------------
 //
 // The engine holds capabilities only; game rules live in game repos
-// (docs/roadmap.md principle 1b, docs/plan-phase-24.md). Every text file under
+// (docs/roadmap.md principle 1b, archive/plans/plan-phase-24.md). Every text file under
 // `packages/*/src/**` (tests inside src included) is scanned for the words of
 // the deleted platformer layer. Matching is case-insensitive on whole words;
 // identifiers are split first (`bestScore` → `best Score`, `enemy_count` →
