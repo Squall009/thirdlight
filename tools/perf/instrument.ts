@@ -24,6 +24,12 @@ export interface PerfPageState {
   missedAt: number[];
   frameDraws: number[];
   frameTris: number[];
+  /**
+   * Indirect draws (WebGPU `drawIndirect` / `drawIndexedIndirect`): the GPU writes their counts, so their triangles are
+   * unknown here and not in `tris` / `frameTris`; these say how many draws the triangle counts leave out.
+   */
+  indirectDraws: number;
+  frameIndirectDraws: number[];
   firstDrawAt: number | null;
   firstDrawEpoch: number | null;
   /** `uniformBuffers`: live buffers used as uniform buffers (WebGPU UNIFORM usage; WebGL 2 bound to UNIFORM_BUFFER). */
@@ -100,6 +106,8 @@ export function installPerfInstrumentation(): void {
   const P: PerfPageState = {
     draws: 0,
     tris: 0,
+    indirectDraws: 0,
+    frameIndirectDraws: [],
     recording: false,
     gpuCalls: { renderPasses: 0, computePasses: 0, dispatches: 0, setPipeline: 0, setBindGroup: 0, createBindGroup: 0, writeBuffer: 0, writeBufferBytes: 0, textureUploads: 0, textureUploadBytes: 0, submits: 0 },
     shaders: new Map(),
@@ -209,9 +217,10 @@ export function installPerfInstrumentation(): void {
   const noteApi = (name: string): void => {
     if (!P.apis.includes(name)) P.apis.push(name);
   };
-  const draw = (tris: number): void => {
+  const draw = (tris: number | null): void => {
     P.draws += 1;
-    P.tris += tris;
+    if (tris === null) P.indirectDraws += 1;
+    else P.tris += tris;
     if (P.firstDrawAt === null) {
       P.firstDrawAt = performance.now();
       P.firstDrawEpoch = Date.now();
@@ -442,14 +451,15 @@ export function installPerfInstrumentation(): void {
     const proto = g[enc]?.prototype;
     wrap(proto, 'draw', (_e, a) => { noteApi('webgpu'); draw(Math.floor(Number(a[0]) / 3) * Number(a[1] ?? 1)); });
     wrap(proto, 'drawIndexed', (_e, a) => { noteApi('webgpu'); draw(Math.floor(Number(a[0]) / 3) * Number(a[1] ?? 1)); });
-    wrap(proto, 'drawIndirect', () => { noteApi('webgpu'); draw(0); });
-    wrap(proto, 'drawIndexedIndirect', () => { noteApi('webgpu'); draw(0); });
+    wrap(proto, 'drawIndirect', () => { noteApi('webgpu'); draw(null); });
+    wrap(proto, 'drawIndexedIndirect', () => { noteApi('webgpu'); draw(null); });
   }
 
   // ---- rendered frames --------------------------------------------------------------
   let lastT: number | null = null;
   let lastDraws = 0;
   let lastTris = 0;
+  let lastIndirect = 0;
   const tick = (t: number): void => {
     if (P.draws !== lastDraws) {
       if (P.recording) {
@@ -462,10 +472,12 @@ export function installPerfInstrumentation(): void {
         P.frameCalls = {};
         P.frameDraws.push(P.draws - lastDraws);
         P.frameTris.push(P.tris - lastTris);
+        P.frameIndirectDraws.push(P.indirectDraws - lastIndirect);
       }
       lastT = t;
       lastDraws = P.draws;
       lastTris = P.tris;
+      lastIndirect = P.indirectDraws;
     }
     requestAnimationFrame(tick);
   };
@@ -482,6 +494,7 @@ export function startRecording(): void {
   P.frameCalls = {};
   P.frameDraws = [];
   P.frameTris = [];
+  P.frameIndirectDraws = [];
   for (const k of Object.keys(P.gpuCalls) as (keyof GpuCalls)[]) P.gpuCalls[k] = 0;
   P.recording = true;
 }
@@ -492,6 +505,8 @@ export interface PageSample {
   frameEvents: FrameEvent[];
   frameDraws: number[];
   frameTris: number[];
+  /** Per frame: the indirect draws, whose triangles `frameTris` leaves out. */
+  frameIndirectDraws: number[];
   live: PerfPageState['live'];
   bytes: PerfPageState['bytes'];
   apis: string[];
@@ -575,6 +590,7 @@ export async function readSample(stop: boolean): Promise<PageSample> {
     frameEvents: P.frameEvents.slice(),
     frameDraws: P.frameDraws.slice(),
     frameTris: P.frameTris.slice(),
+    frameIndirectDraws: P.frameIndirectDraws.slice(),
     live: { ...P.live },
     bytes: { ...P.bytes },
     apis: P.apis.slice(),

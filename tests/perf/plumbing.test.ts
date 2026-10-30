@@ -3,19 +3,16 @@
  * harness's pure plumbing. Every class generates exactly its entity count
  * within the model's limits, deterministically; pastes stay under the command
  * size cap; percentiles, the metric extraction and the baseline comparison
- * behave; the checked-in baseline is well formed and matches the generator.
- * (tests/perf/regression.test.ts, opt-in with TL_PERF=1, drives the whole
- * harness and compares; every fast gate runs it on the village class.)
+ * behave. (Every fast gate runs the harness on the village class;
+ * tools/perf/run.test.mjs checks the runner's start.)
  */
 import { mulberry32 } from '@thirdlight/shared';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
 import { splitBySize } from '../../tools/perf/build';
 import { BENCH_CLASSES, BUDGETS, CLASS_SPECS } from '../../tools/perf/classes';
-import { GENERATOR_VERSION, generate } from '../../tools/perf/generate';
+import { generate } from '../../tools/perf/generate';
 import { metricsOf, parseArgs } from '../../tools/perf/harness';
 import { compare, summarize, type Metric } from '../../tools/perf/stats';
 
@@ -166,15 +163,7 @@ describe('harness plumbing', () => {
     expect(() => parseArgs(['--classes', 'huge'])).toThrow(/unknown huge/);
   });
 
-  it('every class has a budget; the checked-in baseline is well formed and matches the generator', () => {
+  it('every class has a budget', () => {
     for (const cls of BENCH_CLASSES) expect(BUDGETS[cls].playFrameP95Ms).toBe(16.6);
-    const baseline = JSON.parse(readFileSync(join(import.meta.dirname, 'baseline.json'), 'utf8')) as { generatorVersion: number; metrics: Record<string, Metric>; classes: string[] };
-    expect(baseline.generatorVersion).toBe(GENERATOR_VERSION);
-    expect(Object.keys(baseline.metrics).length).toBeGreaterThan(20);
-    for (const [key, m] of Object.entries(baseline.metrics)) {
-      expect(['count', 'memory', 'ratio'], key).toContain(m.kind);
-      expect(Number.isFinite(m.value), key).toBe(true);
-      expect(baseline.classes).toContain(key.split('.')[0]);
-    }
   });
 });

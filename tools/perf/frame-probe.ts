@@ -25,7 +25,12 @@ export interface SceneCounts {
   meshes: number;
   /** Meshes hidden by themselves or an ancestor (LOD levels not drawn, switched-off parts). */
   hiddenMeshes: number;
+  /**
+   * Meshes drawn instanced: three's `InstancedMesh`es and meshes on a geometry of instances (the engine draws its
+   * batches, instance sets, stored copies and ground cover that way, never as an `InstancedMesh`).
+   */
   instancedMeshes: number;
+  /** Meshes drawing several pieces in one call: three's `BatchedMesh`es and the engine's batches and merged cells (`userData.tlBatch`). */
   batchedMeshes: number;
   skinnedMeshes: number;
   bones: number;
@@ -33,7 +38,10 @@ export interface SceneCounts {
   pointLights: number;
   /** Distinct materials on the meshes drawn. */
   materials: number;
-  /** three's own counters (the last frame). */
+  /**
+   * three's own counters: the draw calls and triangles of the last frame (summed over its renders; an indirect draw
+   * counts the instance count three holds on the CPU, not what the GPU drew), and the geometries and textures alive now.
+   */
   info: { calls: number; triangles: number; geometries: number; textures: number } | null;
   /** Draw calls of the last frame by pass: the view's scene, shadow maps (a scene drawn from an orthographic light camera), post quads. */
   passDraws: { scene: number; shadow: number; post: number };
@@ -83,7 +91,7 @@ interface ProbeRenderer {
   resolveTimestampsAsync?(type?: string): Promise<number | undefined>;
   backend?: { trackTimestamp?: boolean; disjoint?: unknown; timestampQueryPool?: Record<string, { timestamps?: Map<string, number> } | null> };
   inspector?: { beginRender?: (uid: string, scene: unknown, camera: unknown, target: unknown) => void };
-  info?: { render?: { calls?: number; triangles?: number }; memory?: { geometries?: number; textures?: number } };
+  info?: { render?: { drawCalls?: number; triangles?: number }; memory?: { geometries?: number; textures?: number } };
 }
 
 interface ProbeState {
@@ -98,6 +106,13 @@ interface ProbeState {
   /** Draw calls by pass in the current and the last frame (three's `info.render.drawCalls`, nested renders apart). */
   framePasses: { scene: number; shadow: number; post: number };
   lastPasses: { scene: number; shadow: number; post: number };
+  /**
+   * three's draw calls and triangles in the current and the last frame. three resets its counters only in its own
+   * animation loop, which the engine does not use, so they grow from page start: the frame's are the outermost
+   * renders' differences.
+   */
+  frameInfo: { calls: number; triangles: number };
+  lastInfo: { calls: number; triangles: number };
   /** The last frames' shadow-map draws. */
   shadowFrames: number[];
 }
@@ -106,7 +121,7 @@ interface ProbeState {
 export function installFrameProbe(opts: { timestamps: boolean }): void {
   const w = window as unknown as { __tlProbe?: ProbeState; __THREE_DEVTOOLS__?: EventTarget };
   if (w.__tlProbe !== undefined) return;
-  const P: ProbeState = { renderers: [], frameScenes: new Map(), lastScenes: new Map(), timestamps: opts.timestamps, labels: new Map(), framePasses: { scene: 0, shadow: 0, post: 0 }, lastPasses: { scene: 0, shadow: 0, post: 0 }, shadowFrames: [] };
+  const P: ProbeState = { renderers: [], frameScenes: new Map(), lastScenes: new Map(), timestamps: opts.timestamps, labels: new Map(), framePasses: { scene: 0, shadow: 0, post: 0 }, lastPasses: { scene: 0, shadow: 0, post: 0 }, frameInfo: { calls: 0, triangles: 0 }, lastInfo: { calls: 0, triangles: 0 }, shadowFrames: [] };
   w.__tlProbe = P;
   const roll = (): void => {
     if (P.frameScenes.size > 0) {
@@ -114,6 +129,8 @@ export function installFrameProbe(opts: { timestamps: boolean }): void {
       P.frameScenes = new Map();
       P.lastPasses = P.framePasses;
       P.framePasses = { scene: 0, shadow: 0, post: 0 };
+      P.lastInfo = P.frameInfo;
+      P.frameInfo = { calls: 0, triangles: 0 };
       P.shadowFrames.push(P.lastPasses.shadow);
       // About the measured window at 100–150 fps.
       if (P.shadowFrames.length > 1500) P.shadowFrames.shift();
@@ -132,12 +149,14 @@ export function installFrameProbe(opts: { timestamps: boolean }): void {
     const render = r.render;
     /** Draws of the renders running now (outermost first): a nested render's draws are not its parent's. */
     const nested: number[] = [];
-    r.render = function (this: ProbeRenderer & { info?: { render?: { drawCalls?: number } } }, scene: unknown, camera: unknown) {
+    r.render = function (this: ProbeRenderer, scene: unknown, camera: unknown) {
       const ortho = (camera as { isOrthographicCamera?: boolean } | null)?.isOrthographicCamera === true;
       // The view camera, not a shadow map's (a scene is also rendered from its lights).
       if (!P.frameScenes.has(scene) || !ortho) P.frameScenes.set(scene, camera);
       const counter = (): number => this.info?.render?.drawCalls ?? 0;
+      const triangles = (): number => this.info?.render?.triangles ?? 0;
       const before = counter();
+      const trisBefore = triangles();
       nested.push(0);
       try {
         return render.call(this, scene, camera);
@@ -145,6 +164,10 @@ export function installFrameProbe(opts: { timestamps: boolean }): void {
         const inner = nested.pop()!;
         const total = Math.max(0, counter() - before);
         if (nested.length > 0) nested[nested.length - 1]! += total;
+        else {
+          P.frameInfo.calls += total;
+          P.frameInfo.triangles += Math.max(0, triangles() - trisBefore);
+        }
         const s = scene as { isScene?: boolean; isQuadMesh?: boolean } | null;
         const kind = s?.isScene === true ? (ortho ? 'shadow' : 'scene') : 'post';
         P.framePasses[kind] += Math.max(0, total - inner);
@@ -195,7 +218,7 @@ export function probeSceneCounts(): SceneCounts {
     const at = (q: number): number => s[Math.min(s.length - 1, Math.ceil(q * s.length) - 1)]!;
     out.shadowDraws = { frames: s.length, mean: Math.round((s.reduce((a, b) => a + b, 0) / s.length) * 10) / 10, p50: at(0.5), p95: at(0.95), max: s[s.length - 1]! };
   }
-  type O = { isScene?: boolean; isGroup?: boolean; isLOD?: boolean; isMesh?: boolean; isInstancedMesh?: boolean; isBatchedMesh?: boolean; isSkinnedMesh?: boolean; isBone?: boolean; isLight?: boolean; isPointLight?: boolean; visible: boolean; children: O[]; material?: unknown; name?: string; geometry?: { attributes: Record<string, { array: { byteLength: number } }>; index: { array: { byteLength: number } } | null } };
+  type O = { isScene?: boolean; userData?: Record<string, unknown>; isGroup?: boolean; isLOD?: boolean; isMesh?: boolean; isInstancedMesh?: boolean; isBatchedMesh?: boolean; isSkinnedMesh?: boolean; isBone?: boolean; isLight?: boolean; isPointLight?: boolean; visible: boolean; children: O[]; material?: unknown; name?: string; geometry?: { isInstancedBufferGeometry?: boolean; attributes: Record<string, { array: { byteLength: number } }>; index: { array: { byteLength: number } } | null } };
   const mats = new Set<unknown>();
   const walk = (o: O, shown: boolean): void => {
     out.objects += 1;
@@ -234,8 +257,8 @@ export function probeSceneCounts(): SceneCounts {
     if (fx?.ms !== undefined) out.effectsMs = Math.round(((out.effectsMs ?? 0) + fx.ms) * 1000) / 1000;
     if (fx?.gpuPlays !== undefined) out.effectsGpuPlays = (out.effectsGpuPlays ?? 0) + fx.gpuPlays;
     if ((o as { isReflections?: boolean }).isReflections === true) out.reflections = (o as { stats?: unknown }).stats;
-    if (o.isInstancedMesh === true) out.instancedMeshes += 1;
-    if (o.isBatchedMesh === true) out.batchedMeshes += 1;
+    if (o.isInstancedMesh === true || (o.isMesh === true && o.geometry?.isInstancedBufferGeometry === true)) out.instancedMeshes += 1;
+    if (o.isBatchedMesh === true || (o.isMesh === true && o.userData?.['tlBatch'] === true)) out.batchedMeshes += 1;
     if (o.isSkinnedMesh === true) out.skinnedMeshes += 1;
     if (o.isBone === true) out.bones += 1;
     if (o.isLight === true) out.lights += 1;
@@ -245,7 +268,7 @@ export function probeSceneCounts(): SceneCounts {
   for (const s of P.lastScenes.keys()) if ((s as O | null)?.isScene === true) walk(s as O, true);
   out.materials = mats.size;
   const r = P.renderers[P.renderers.length - 1];
-  if (r?.info !== undefined) out.info = { calls: r.info.render?.calls ?? 0, triangles: r.info.render?.triangles ?? 0, geometries: r.info.memory?.geometries ?? 0, textures: r.info.memory?.textures ?? 0 };
+  if (r?.info !== undefined) out.info = { calls: P.lastInfo.calls, triangles: P.lastInfo.triangles, geometries: r.info.memory?.geometries ?? 0, textures: r.info.memory?.textures ?? 0 };
   return out;
 }
 

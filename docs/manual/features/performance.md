@@ -27,7 +27,7 @@ npm run build
 node tools/perf/run.mjs                                  # every class, WebGPURenderer on WebGL 2
 node tools/perf/run.mjs --classes small,medium --quick   # a short smoke run
 node tools/perf/run.mjs --renderers webgpu               # WebGPURenderer on (headless) WebGPU
-node tools/perf/run.mjs --compare tests/perf/baseline.json   # exit 1 on a regression
+node tools/perf/run.mjs --compare REPORT.json            # exit 1 on a regression against an earlier report
 ```
 
 Options: `--classes`, `--renderers webgl2,webgpu,auto` (`legacy` is accepted and draws with WebGL 2, as `?renderer=legacy` does), `--surfaces
@@ -67,19 +67,16 @@ The JSON report goes to `~/.cache/thirdlight-perf/reports/<time>.json`
 (and `latest.json`) with the machine, its load average at start and end, the
 calibrations and every number above.
 
-**Regression check.** This server renders on the CPU (SwiftShader) and
-shares its cores, so absolute times say little. The checked-in baseline
-`tests/perf/baseline.json` stores only machine-independent metrics: counts,
-memory, and times divided by a calibration measured in the same run (a fixed
-raw-WebGL page for frame times, a fixed arithmetic workload for Node times).
-`TL_PERF=1 npx vitest run tests/perf/regression.test.ts` runs the harness
-and fails on a regression beyond the tolerance (`tools/perf/stats.ts`:
-counts +10 %, memory +25 %, calibrated times +75 %);
-`TL_PERF_REPORT=<report.json>` compares an existing report,
-`TL_PERF_CLASSES=small` limits it and `TL_PERF_KINDS=count,memory` leaves
-out the calibrated times (the noisiest here). The always-on check is
-`tests/perf/plumbing.test.ts` (generator and comparison), and every fast
-gate runs the harness end to end on the village class.
+**Regression check.** The village class at the display's 60 Hz cap,
+against `tests/perf/village-baseline.json`, at the end of every fast gate
+(below). `--compare FILE` checks a run against an earlier report's relative
+metrics (counts, memory, and times divided by a calibration measured in the
+same run; `tools/perf/stats.ts`: counts +10 %, memory +25 %, calibrated times
++75 %), and `--write-baseline FILE` writes them. No baseline of these is
+checked in: the one recorded on SwiftShader (WebGL 2, September 2026) said
+nothing about a GPU and was retired with its opt-in test. The always-on
+check of the harness itself is `tests/perf/plumbing.test.ts` (generator and
+comparison).
 Frame and load times on a real GPU: owner look pending.
 
 **The village class against plain three.js.** `node tools/perf/run.mjs

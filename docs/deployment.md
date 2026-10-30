@@ -256,7 +256,6 @@ npm run build && npm run test:e2e           # Playwright: real backend + Chromiu
 npx playwright test --project=default       # every spec, WebGL 2 (no WebGPU)
 npx playwright test --project=webgpu        # the renderer-sensitive specs with headless WebGPU
 node tools/perf/run.mjs                     # the performance harness (long; see manual/features/performance.md)
-TL_PERF=1 npx vitest run tests/perf/regression.test.ts   # harness run vs the stored baseline (opt-in)
 ```
 
 `npm run test:e2e` runs both Playwright projects: `default` (every spec,

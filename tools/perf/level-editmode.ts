@@ -101,12 +101,13 @@ async function orbit(page: Page, ms: number, record: boolean): Promise<void> {
   await page.mouse.down();
   await page.evaluate(
     async ({ cx, cy, rx, ry, ms, record }) => {
-      const w = window as unknown as { __tlPerf?: { frames: number[]; frameDraws: number[]; frameTris: number[]; recording: boolean } };
+      const w = window as unknown as { __tlPerf?: { frames: number[]; frameDraws: number[]; frameTris: number[]; frameIndirectDraws: number[]; recording: boolean } };
       const P = w.__tlPerf!;
       if (record) {
         P.frames = [];
         P.frameDraws = [];
         P.frameTris = [];
+        P.frameIndirectDraws = [];
         P.recording = true;
       }
       const target = document.elementFromPoint(cx, cy) ?? document.body;

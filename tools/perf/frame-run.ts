@@ -149,7 +149,10 @@ export interface FrameRunResult {
   settledMs: number;
   frames: { n: number; fps: number; p50: number; p95: number; p99: number; mean: number; max?: number; /** Share of frames per `FRAME_HISTOGRAM_EDGES_MS` bucket. */ histogram?: number[]; /** Frames longer than a 60 Hz frame ({@link LONG_FRAME_MS}), and those that missed a 60 Hz display's next refresh (half a frame longer: a vsync interval's jitter is not a miss). */ long?: number; missed?: number; /** When (page ms) the missed ones ended (at most 100). */ missedAt?: number[] };
   draws: Summary;
+  /** Triangles per frame, indirect draws left out (the GPU writes their counts). */
   tris: Summary;
+  /** Indirect draws per frame (present when any): the draws `tris` leaves out. */
+  indirectDraws?: Summary;
   /**
    * The page's main thread per drawn frame: its tasks' wall time (`taskMsPerFrame`) and the CPU time the thread
    * actually ran (`cpuMsPerFrame`, CDP `ThreadTime`). Under host load a task's wall time grows with the time the
@@ -360,6 +363,7 @@ export async function measurePage(browser: Browser, opts: FrameRunOptions): Prom
       frames: { n: s.n, fps: s.mean > 0 ? Math.round((1000 / s.mean) * 10) / 10 : 0, p50: s.p50, p95: s.p95, p99: s.p99, mean: s.mean, max: s.max, histogram: histogram(sample.frames), long: sample.frames.filter((f) => f > LONG_FRAME_MS).length, missed: sample.frames.filter((f) => f > LONG_FRAME_MS * 1.5).length, ...(sample.missedAt.length > 0 ? { missedAt: sample.missedAt.slice(0, 100) } : {}) },
       draws: summarize(sample.frameDraws),
       tris: summarize(sample.frameTris),
+      ...(sample.frameIndirectDraws.some((n) => n > 0) ? { indirectDraws: summarize(sample.frameIndirectDraws) } : {}),
       mainThread: { taskMsPerFrame: Math.round((taskMs / nFrames) * 100) / 100, ...(cpuMs !== undefined ? { cpuMsPerFrame: Math.round((cpuMs / nFrames) * 100) / 100 } : {}), busyShare: Math.round((taskMs / Math.max(1, wall)) * 1000) / 1000 },
       scene,
       live: sample.live,

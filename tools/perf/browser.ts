@@ -47,7 +47,10 @@ export interface SurfaceResult {
   load: Record<string, number>;
   frameMs: Summary;
   drawCalls: Summary;
+  /** Triangles per frame, indirect draws left out (the GPU writes their counts). */
   triangles: Summary;
+  /** Indirect draws per frame (present when any): the draws `triangles` leaves out. */
+  indirectDraws?: Summary;
   live: PageSample['live'];
   gpuMiBEstimate: number;
   heapMiB: number | null;
@@ -177,6 +180,7 @@ function result(surface: SurfaceResult['surface'], renderer: RendererName, s: Pa
     frameMs: summarize(s.frames),
     drawCalls: summarize(s.frameDraws),
     triangles: summarize(s.frameTris),
+    ...(s.frameIndirectDraws.some((n) => n > 0) ? { indirectDraws: summarize(s.frameIndirectDraws) } : {}),
     live: s.live,
     gpuMiBEstimate: MiB(s.bytes.buffers + s.bytes.textures),
     heapMiB: s.heap !== null ? Math.round(s.heap.usedMiB * 100) / 100 : null,
@@ -395,11 +399,12 @@ export async function measureEditor(
     await page.mouse.down();
     const sample = await page.evaluate(
       async ({ cx, cy, rx, ry, ms }) => {
-        const w = window as unknown as { __tlPointer?: number; __tlPerf?: { frames: number[]; frameDraws: number[]; frameTris: number[]; recording: boolean } };
+        const w = window as unknown as { __tlPointer?: number; __tlPerf?: { frames: number[]; frameDraws: number[]; frameTris: number[]; frameIndirectDraws: number[]; recording: boolean } };
         const P = w.__tlPerf!;
         P.frames = [];
         P.frameDraws = [];
         P.frameTris = [];
+        P.frameIndirectDraws = [];
         P.recording = true;
         const target = document.elementFromPoint(cx, cy) ?? document.body;
         const id = w.__tlPointer ?? 1;
