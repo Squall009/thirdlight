@@ -16,7 +16,7 @@ import type { ContentDocument, CreatePrefabChange, InstantiatePrefabChange, Upda
 export const prefabFamily = {
   ops: {
     createPrefab: { apply: (input, args) => applyPrefabOp(input, { op: 'createPrefab', args }), records: [['createPrefab', 'removePrefab']] },
-    updatePrefab: { apply: (input, args) => applyPrefabOp(input, { op: 'updatePrefab', args }), records: [['updatePrefab', 'updatePrefab']] },
+    updatePrefab: { apply: (input, args) => applyPrefabOp(input, { op: 'updatePrefab', args }), records: [['updatePrefab', 'updatePrefab'], ['prefabLinkEdit', 'prefabLinkEdit']] },
     instantiatePrefab: { apply: (input, args) => applyPrefabOp(input, { op: 'instantiatePrefab', args }), records: [['instantiatePrefab', 'delete']] },
     revertPrefabOverrides: { apply: (input, args) => applyPrefabOp(input, { op: 'revertPrefabOverrides', args }), records: [['prefabLinkEdit', 'prefabLinkEdit']] },
     applyPrefabOverrides: { apply: (input, args) => applyPrefabOp(input, { op: 'applyPrefabOverrides', args }), records: [['prefabLinkEdit', 'prefabLinkEdit']] },

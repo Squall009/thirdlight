@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { MUTATION_OPS } from './mutation-ops';
-import { OP_ENTRIES, REDO, UNDO } from './op-table';
+import { assertRecorded, OP_ENTRIES, REDO, UNDO } from './op-table';
 import type { ForwardOp } from './types';
 
 const forwardOps = MUTATION_OPS.filter((op): op is ForwardOp => op !== 'undo' && op !== 'redo');
@@ -20,6 +20,12 @@ describe('op table', () => {
       expect(typeof REDO[change], `${op}: no redo for a '${change}' change`).toBe('function');
       expect(typeof UNDO[inverse], `${op}: no undo for a '${inverse}' inverse`).toBe('function');
     }
+  });
+
+  it('holds every applied op to its declared records while the suites run (the check is on here)', () => {
+    const [change, inverse] = OP_ENTRIES.createEntity.records[0]!;
+    expect(() => assertRecorded('createEntity', { change: { type: change }, inverse: { kind: inverse } } as never)).not.toThrow();
+    expect(() => assertRecorded('createEntity', { change: { type: 'setTags' }, inverse: { kind: inverse } } as never)).toThrow(/createEntity recorded \[setTags, /);
   });
 
   it('holds only the ops the wire accepts, and no undo or redo that no op records', () => {

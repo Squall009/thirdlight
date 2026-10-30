@@ -31,7 +31,7 @@ import { createHistory, executeRedo, executeUndo, recordForwardEdit } from './hi
 import { withFootprintChunks, writeSceneFootprints } from './footprint-ops';
 import { withFollowChange } from './follow-ops';
 import type { OpSuccess } from './ops';
-import { OP_ENTRIES } from './op-table';
+import { assertRecorded, OP_ENTRIES } from './op-table';
 import type { ArgsOf, OpEntry } from './op-table-types';
 import type {
   ApplyOutcome,
@@ -265,6 +265,7 @@ export function applyMutation<S extends SceneDocument>(
     if (entry !== undefined) {
       const r = entry.apply(input, v.args as ArgsOf<ForwardOp>, state as CommandState<SceneDocument>);
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
+      assertRecorded(v.op, r.op);
       return completeForward(state, v.op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
   }

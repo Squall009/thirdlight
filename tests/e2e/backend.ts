@@ -56,6 +56,8 @@ export async function startBackend(projectId = 'e2e-0001', template?: string, ex
       THIRDLIGHT_PREVIEW_DIR: join(REPO, 'dist', 'preview'),
       THIRDLIGHT_OWNER_TOKEN: token,
       THIRDLIGHT_EXPORT_ROOT: exportRoot,
+      // Every command the e2e suites send is held to the op table's declared records.
+      THIRDLIGHT_CHECK_OP_RECORDS: '1',
       THIRDLIGHT_ENGINE_ROOT: REPO,
       // No headless editor unless a test asks for one.
       THIRDLIGHT_HEADLESS: 'off',
