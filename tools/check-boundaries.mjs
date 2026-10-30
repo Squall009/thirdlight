@@ -440,13 +440,13 @@ export const FORBIDDEN_WEB_FRAMEWORKS = new Set([
  * bundle's exact allowed graph.
  */
 const BUNDLE_ENTRY_EDGES = {
-  // The v3 export bundle: `export-bootstrap-m3.ts` starts the game with the
+  // The v3 export bundle: `export-bootstrap.ts` starts the game with the
   // shared game page (`game-host` and its `./game-page` subpath) and reads
   // the manifest's scene and catalog through project-model's hash. Its only
   // generated module is `thirdlight:export-modules` (the module specs the
   // manifest names; the esbuild metafile check allows exactly that key). The
   // bundle names no artifact path: files are read by the paths their rows give.
-  'packages/exporter/src/export-bootstrap-m3.ts': {
+  'packages/exporter/src/export-bootstrap.ts': {
     packages: ['runtime', 'project-model', 'game-host'],
     external: ['thirdlight:export-modules'],
     node: [],

@@ -29,7 +29,7 @@ import type { WorkspaceService } from '@thirdlight/workspace';
 import { fakeService, syntheticV3 } from '../m3-builds/helpers';
 
 const REPO_ROOT = dirname(dirname(dirname(dirname(fileURLToPath(import.meta.url)))));
-const M3_BOOTSTRAP = join(REPO_ROOT, 'packages/exporter', 'src', 'export-bootstrap-m3.ts');
+const M3_BOOTSTRAP = join(REPO_ROOT, 'packages/exporter', 'src', 'export-bootstrap.ts');
 
 function realFs(): ExportFs {
   return {

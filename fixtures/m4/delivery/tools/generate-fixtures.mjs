@@ -728,9 +728,9 @@ const SCAN_GRAPH_CASES = {
     },
     {
       name: 'M3 export',
-      entry: 'packages/exporter/src/export-bootstrap-m3.ts',
+      entry: 'packages/exporter/src/export-bootstrap.ts',
       graphIncludes: ['three-adapter (root)', 'three-adapter/gltf-loader', 'game-host', 'platformer-game', 'physics-rapier'],
-      graphExcludes: ['exporter internals beyond export-bootstrap-m3.ts', 'game-host importing exporter internals', 'editor', 'workspace', 'backend'],
+      graphExcludes: ['exporter internals beyond export-bootstrap.ts', 'game-host importing exporter internals', 'editor', 'workspace', 'backend'],
       fetchCount: '2 (manifest.json + scene.json) + |unique declared asset paths|',
       scanRows: { gltfLoader: { https: 12, gltfLoaderIdentifier: 37, additionalDfgij: 0 }, note: 'same GLTFLoader subpath row + the accepted C36-1 scene.json row (fetch +1)' },
     },

@@ -6,7 +6,7 @@
  * (`POST /api/v1/admin/projects/:projectId/export`, admin scope). It is not
  * a browser command.
  *
- * The browser export bundle entry (`src/export-bootstrap-m3.ts`) is NOT a
+ * The browser export bundle entry (`src/export-bootstrap.ts`) is NOT a
  * public export: it is reached by file path at build time (the bundle graph
  * allows "that file only"); the `exports` map does not expose it.
  *

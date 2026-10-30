@@ -19,7 +19,7 @@ import { ENGINE_MODULES } from '@thirdlight/project-model';
 export const EXPORT_ENGINE_DIR = 'dist/export-engine';
 
 /** The export bundle entry, relative to an engine (the live root or the frozen copy). */
-export const EXPORT_BOOTSTRAP = 'packages/exporter/src/export-bootstrap-m3.ts';
+export const EXPORT_BOOTSTRAP = 'packages/exporter/src/export-bootstrap.ts';
 
 /** The generic engine packages every export may link. */
 export const ENGINE_PACKAGES: readonly string[] = ['runtime', 'three-adapter', 'effects', 'project-model', 'input', 'physics-rapier', 'game-host', 'shared'];

@@ -13,7 +13,7 @@
  * production `buildM3Bundle`):
  *   1. re-verifies the reference full-core three counts against the
  *      current install;
- *   2. builds the M3 export bundle's entry (`export-bootstrap-m3.ts`, the
+ *   2. builds the M3 export bundle's entry (`export-bootstrap.ts`, the
  *      single shared `createGameHost` composition) readable — unminified and
  *      unshaken, so every occurrence is there to count — and asserts the exact
  *      counts = the recorded baseline + the applicable exception rows + the
@@ -46,7 +46,7 @@ import { fakeService, syntheticV3 } from '../m3-builds/helpers';
 import { renderSettingsOf } from '@thirdlight/project-model';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
-const BOOTSTRAP = join(REPO_ROOT, 'packages/exporter', 'src', 'export-bootstrap-m3.ts');
+const BOOTSTRAP = join(REPO_ROOT, 'packages/exporter', 'src', 'export-bootstrap.ts');
 const WORKER = join(REPO_ROOT, 'packages/exporter', 'src', 'export-sim-worker.ts');
 /** The other scripts an export may ship, by their path in the export. */
 const SHIPPED = [

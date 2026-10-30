@@ -223,7 +223,7 @@ export async function buildSimWorkerBundle(entry: string, moduleIds?: readonly s
 
 /**
  * The export bundle build: the entry is the bootstrap
- * (`export-bootstrap-m3.ts`) plus the module-spec module above. The
+ * (`export-bootstrap.ts`) plus the module-spec module above. The
  * composition is owned by `game-host`; compiled behaviors are separate
  * artifacts the game host links at run time, not part of this bundle.
  */

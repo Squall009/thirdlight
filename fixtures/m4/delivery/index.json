@@ -12,8 +12,8 @@
     "sha256": "a5360b5c3a53e4f13fd9463484aed0380c254f8d603ccb8408d2c9c0dad1a3e7"
   },
   "cases/scan-graph-cases.json": {
-    "byteLength": 4032,
-    "sha256": "be924e0239e4f11b2cedd5b99ffa92cb9d770bf658123cbc4943effc574566bf"
+    "byteLength": 4026,
+    "sha256": "40a84b9ae002871fa15803b48d8dcd872ad5e7299b70697bd3cf9225aee85b0b"
   },
   "glb/bad-root-motion-m4.glb": {
     "byteLength": 2368,

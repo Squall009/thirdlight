@@ -2,7 +2,7 @@
  * Export bundle import-graph check,
  * verified over the esbuild `--metafile` output.
  *
- * Allowed: the export bootstrap file (packages/exporter/src/export-bootstrap-m3.ts
+ * Allowed: the export bootstrap file (packages/exporter/src/export-bootstrap.ts
  * only), the shared production composition `game-host` and the generic engine
  * packages — `runtime`, `three-adapter` (with its `effects`),
  * `project-model`, `input`, `physics-rapier`, `shared` — plus `three`, the pinned

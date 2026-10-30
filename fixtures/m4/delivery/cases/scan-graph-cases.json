@@ -32,7 +32,7 @@
     },
     {
       "name": "M3 export",
-      "entry": "packages/exporter/src/export-bootstrap-m3.ts",
+      "entry": "packages/exporter/src/export-bootstrap.ts",
       "graphIncludes": [
         "three-adapter (root)",
         "three-adapter/gltf-loader",
@@ -41,7 +41,7 @@
         "physics-rapier"
       ],
       "graphExcludes": [
-        "exporter internals beyond export-bootstrap-m3.ts",
+        "exporter internals beyond export-bootstrap.ts",
         "game-host importing exporter internals",
         "editor",
         "workspace",

@@ -68,7 +68,7 @@ export interface ExportContext {
   lockfile: string;
   /**
    * The export bundle entry
-   * (`packages/exporter/src/export-bootstrap-m3.ts`).
+   * (`packages/exporter/src/export-bootstrap.ts`).
    */
   m3BootstrapEntry: string;
   /**

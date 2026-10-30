@@ -645,7 +645,7 @@
         "sha256": "ba63e19f2016ec6292b5f778f2c2158c2ee129f38e6971328b0bf552e11a7300"
       },
       {
-        "path": "packages/exporter/src/export-bootstrap-m3.ts",
+        "path": "packages/exporter/src/export-bootstrap.ts",
         "sha256": "0bbe9f90b155703a43500ee083b8ce6811c5e5fcf23251f346f49ca748408ee2"
       },
       {

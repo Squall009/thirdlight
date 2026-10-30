@@ -37,7 +37,7 @@ import { readRuntimeContentSync } from '@thirdlight/project-model';
 import { fakeService, sha256Hex, syntheticV3 } from './helpers';
 
 const REPO_ROOT = dirname(dirname(dirname(dirname(fileURLToPath(import.meta.url)))));
-const M3_BOOTSTRAP = join(REPO_ROOT, 'packages/exporter/src/export-bootstrap-m3.ts');
+const M3_BOOTSTRAP = join(REPO_ROOT, 'packages/exporter/src/export-bootstrap.ts');
 
 /** A real `node:fs`-backed `ExportFs`. */
 function realFs(): ExportFs {
