@@ -30,7 +30,7 @@
  *
  * Pure: no I/O.
  */
-import { utf8Encode } from '@thirdlight/shared';
+import { isPlainObject, utf8Encode } from '@thirdlight/shared';
 import type { ModelErrorV2 } from './errors';
 import { FRAME_RATE_CAP_CHOICES } from './frame-rate-cap';
 import { QUALITY_LEVEL_ID_RE } from './quality-levels';
@@ -154,7 +154,6 @@ const MIGRATION_NAME_RE = /^[A-Za-z_][A-Za-z0-9_.:-]{0,63}$/;
 const SCHEMA_KEYS = new Set(['version', 'slots', 'migrations', 'sections', 'legacyWorld', 'thumbnail', 'settings']);
 const FIELD_KEYS = new Set(['key', 'type', 'default', 'label', 'min', 'max', 'values', 'engine']);
 
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const intIn = (v: unknown, lo: number, hi: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= lo && v <= hi;
 const bad = (path: string, found: unknown, message: string, expected: string): ModelErrorV2 => withFound({ code: 'field_value', path, message, expected }, found);
 
@@ -173,7 +172,7 @@ export function settingsValueFits(field: SettingsField, v: unknown): v is Settin
 }
 
 function validateField(f: unknown, path: string, errors: ModelErrorV2[]): void {
-  if (!isObj(f)) {
+  if (!isPlainObject(f)) {
     errors.push(fieldType(path, f, 'object'));
     return;
   }
@@ -223,7 +222,7 @@ function validateField(f: unknown, path: string, errors: ModelErrorV2[]): void {
 
 /** Validate `content.saveSchema` (pushes one error per problem). */
 export function validateSaveSchema(v: unknown, path: string, errors: ModelErrorV2[]): void {
-  if (!isObj(v)) {
+  if (!isPlainObject(v)) {
     errors.push(fieldType(path, v, 'object'));
     return;
   }
@@ -238,7 +237,7 @@ export function validateSaveSchema(v: unknown, path: string, errors: ModelErrorV
       const seen = new Set<number>();
       m.forEach((x, i) => {
         const p = `${path}/migrations/${i}`;
-        if (!isObj(x)) return void errors.push(bad(p, x, 'a migration is { from, name }', '{ from, name }'));
+        if (!isPlainObject(x)) return void errors.push(bad(p, x, 'a migration is { from, name }', '{ from, name }'));
         for (const k of Object.keys(x)) if (k !== 'from' && k !== 'name') errors.push(unexpectedField(`${p}/${k}`, k, 'from, name'));
         if (!intIn(x['from'], 1, SAVE_LIMITS.version - 1) || (intIn(version, 1, SAVE_LIMITS.version) && (x['from'] as number) >= version)) errors.push(bad(`${p}/from`, x['from'], 'a migration upgrades from an older version (1 ≤ from < version) to from + 1', 'an integer below version'));
         else if (seen.has(x['from'] as number)) errors.push(bad(`${p}/from`, x['from'], 'one migration per version', 'a version not listed yet'));
@@ -258,7 +257,7 @@ export function validateSaveSchema(v: unknown, path: string, errors: ModelErrorV
   if (v['thumbnail'] !== undefined) {
     const t = v['thumbnail'];
     const p = `${path}/thumbnail`;
-    if (!isObj(t)) errors.push(bad(p, t, 'a thumbnail is { width, height, format, quality? }', '{ width, height, format }'));
+    if (!isPlainObject(t)) errors.push(bad(p, t, 'a thumbnail is { width, height, format, quality? }', '{ width, height, format }'));
     else {
       for (const k of Object.keys(t)) if (k !== 'width' && k !== 'height' && k !== 'format' && k !== 'quality') errors.push(unexpectedField(`${p}/${k}`, k, 'width, height, format, quality'));
       if (!intIn(t['width'], 16, SAVE_LIMITS.thumbnailSide)) errors.push(bad(`${p}/width`, t['width'], `16–${SAVE_LIMITS.thumbnailSide} pixels`, 'an integer'));
@@ -276,13 +275,13 @@ export function validateSaveSchema(v: unknown, path: string, errors: ModelErrorV
         const local: ModelErrorV2[] = [];
         validateField(f, `${path}/settings/${i}`, local);
         errors.push(...local);
-        const key = isObj(f) ? f['key'] : undefined;
+        const key = isPlainObject(f) ? f['key'] : undefined;
         if (typeof key === 'string') {
           if (keys.has(key)) errors.push(bad(`${path}/settings/${i}/key`, key, 'settings keys are unique', 'a new key'));
           keys.add(key);
         }
       });
-      const bound = s.map((f) => (isObj(f) ? f['engine'] : undefined)).filter((e) => e !== undefined);
+      const bound = s.map((f) => (isPlainObject(f) ? f['engine'] : undefined)).filter((e) => e !== undefined);
       if (new Set(bound).size !== bound.length) errors.push(bad(`${path}/settings`, bound, 'an engine setting is driven by one field at most', 'distinct engine bindings'));
     }
   }
@@ -318,7 +317,7 @@ export function canonicalSaveSchema(s: SaveSchema): SaveSchema {
 /** A settings document: the stored values that still fit their fields, the defaults for the rest. */
 export function settingsDocumentOf(fields: readonly SettingsField[], stored: unknown): Record<string, SettingsFieldValue> {
   const out: Record<string, SettingsFieldValue> = {};
-  const src = isObj(stored) ? stored : {};
+  const src = isPlainObject(stored) ? stored : {};
   for (const f of fields) {
     const v = Object.prototype.hasOwnProperty.call(src, f.key) ? src[f.key] : undefined;
     out[f.key] = settingsValueFits(effectiveField(f), v) ? v : f.default;
@@ -346,9 +345,9 @@ export function saveWorldMode(s: Pick<SaveSchema, 'sections' | 'legacyWorld'>): 
  * (`environment.qualityLevels`, else the engine's low, medium and high).
  */
 export function validateQualityBindings(saveSchema: unknown, levelIds: readonly string[], path: string, errors: ModelErrorV2[]): void {
-  const fields = isObj(saveSchema) && Array.isArray(saveSchema['settings']) ? (saveSchema['settings'] as unknown[]) : [];
+  const fields = isPlainObject(saveSchema) && Array.isArray(saveSchema['settings']) ? (saveSchema['settings'] as unknown[]) : [];
   fields.forEach((f, i) => {
-    if (!isObj(f) || f['engine'] !== 'quality' || !Array.isArray(f['values'])) return;
+    if (!isPlainObject(f) || f['engine'] !== 'quality' || !Array.isArray(f['values'])) return;
     for (const v of f['values']) {
       if (!levelIds.includes(v as string)) errors.push(bad(`${path}/settings/${i}/values`, v, `"${String(v)}" is not one of the project's quality levels (${levelIds.join(', ')})`, levelIds.join(' | ')));
     }

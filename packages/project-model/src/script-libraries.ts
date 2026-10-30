@@ -21,7 +21,7 @@
  *
  * Pure data rules; the compiler is in behavior-build.
  */
-import { sha256HexOfText } from '@thirdlight/shared';
+import { isPlainObject, sha256HexOfText, utf8Length } from '@thirdlight/shared';
 import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { MAX_BEHAVIOR_FILES, MAX_BEHAVIOR_FILE_BYTES, MAX_BEHAVIOR_SOURCE_BYTES } from './content-limits';
@@ -66,14 +66,10 @@ export const SCRIPT_LIBRARY_LIMITS = Object.freeze({
 });
 const PATH_RE = /^[a-z0-9][a-z0-9._-]*(\/[a-z0-9][a-z0-9._-]*)*$/;
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
 function err(errors: ModelErrorV2[], code: string, path: string, message: string, found?: unknown, expected?: string): void {
   errors.push({ code, path, message, ...(found !== undefined ? { found } : {}), ...(expected !== undefined ? { expected } : {}) } as ModelErrorV2);
 }
 const byPath = (a: ScriptLibraryFile, b: ScriptLibraryFile): number => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
-const utf8Length = (s: string): number => new TextEncoder().encode(s).length;
 
 /** Why a library file path is refused (`null` = acceptable). Shared with the editor. */
 export function scriptLibraryPathProblem(path: string): string | null {

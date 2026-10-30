@@ -29,6 +29,7 @@
  */
 
 import type { DeclaredProperty } from '@thirdlight/project-model';
+import { isPlainObject } from '@thirdlight/shared';
 
 /** The seven declared property types (`property.<type>`). */
 const TYPES = ['number', 'boolean', 'string', 'enum', 'vec3', 'entityRef', 'assetRef'] as const;
@@ -177,10 +178,6 @@ export function labelOfKey(key: string): string {
   return text.slice(0, 64);
 }
 
-function isPlain(v: unknown): v is Record<string, Literal> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
-
 /** One `property[.public|.private].<type>(default[, options])` call. */
 function readProperty(r: Reader, key: string): DeclaredProperty {
   r.ws();
@@ -207,7 +204,7 @@ function readProperty(r: Reader, key: string): DeclaredProperty {
     if (r.peek() !== ')') {
       const optAt = r.i;
       const o = r.literal();
-      if (!isPlain(o)) r.fail('the options must be an object literal', optAt);
+      if (!isPlainObject(o)) r.fail('the options must be an object literal', optAt);
       options = o;
       if (r.peek() === ',') r.i++;
     }

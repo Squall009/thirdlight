@@ -19,6 +19,7 @@
  */
 import { ID_RE, UI_LIMITS } from '@thirdlight/project-model';
 import type { RuntimeUiDocumentRow } from '@thirdlight/project-model';
+import { isPlainObject } from '@thirdlight/shared';
 
 /** What a UI event is. */
 // `mode` (a button's mode action: switch to the game mode named by `value`) and
@@ -61,10 +62,6 @@ const NAME_RE = /^[A-Za-z_][A-Za-z0-9_-]{0,31}$/;
 const DOC_RE = ID_RE;
 const SEGMENT_RE = /^[A-Za-z0-9_-]{1,32}$/;
 const hasOwn = Object.prototype.hasOwnProperty;
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
 
 /** The segments of a view-model path ("hud.hp" → ["hud", "hp"]), or null when it is not one. */
 export function uiPathSegments(path: unknown): string[] | null {

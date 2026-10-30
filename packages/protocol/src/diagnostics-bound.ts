@@ -10,6 +10,7 @@
  */
 import { isErrorRow, mergeRepeatedRows } from '@thirdlight/project-model/repeated-rows';
 import { GAME_OBSERVATION_MAX_BYTES } from './m3';
+import { isPlainObject } from '@thirdlight/shared';
 
 /** The largest Play diagnostics payload (its JSON text, UTF-8 bytes). */
 export const PLAY_DIAGNOSTICS_MAX_BYTES = 16_384;
@@ -32,7 +33,6 @@ const encoder = new TextEncoder();
 /** A value's JSON text in UTF-8 bytes: what the Play answer bounds measure (non-ASCII text is several bytes a character). */
 export const playDiagnosticsBytes = (v: unknown): number => encoder.encode(JSON.stringify(v)).length;
 const bytesOf = playDiagnosticsBytes;
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 /** Room kept for the `trimmed` note itself (more is taken when a long note needs it). */
 const NOTE_ROOM = 512;
 
@@ -50,7 +50,7 @@ function listsOf(v: Record<string, unknown>, path: string, depth: number, out: {
     const p = path === '' ? k : `${path}.${k}`;
     if (Array.isArray(x)) {
       if (!x.every((e) => typeof e === 'number')) out.push({ path: p, list: x });
-    } else if (isObj(x) && depth < 4) listsOf(x, p, depth + 1, out);
+    } else if (isPlainObject(x) && depth < 4) listsOf(x, p, depth + 1, out);
   }
 }
 
@@ -62,7 +62,7 @@ function fitWithin(source: Record<string, unknown>, budget: number, plan: FitPla
   const omitted: string[] = [];
   let logEntries = 0;
   let errorEntries = 0;
-  const logPart = plan.log !== undefined && isObj(d[plan.log.part]) ? (d[plan.log.part] as Record<string, unknown>) : null;
+  const logPart = plan.log !== undefined && isPlainObject(d[plan.log.part]) ? (d[plan.log.part] as Record<string, unknown>) : null;
   const log = logPart !== null && Array.isArray(logPart[plan.log!.list]) ? (logPart[plan.log!.list] as unknown[]) : null;
 
   // Copies of one row become one row with a count (nothing is lost but the copies).

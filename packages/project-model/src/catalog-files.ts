@@ -1,3 +1,4 @@
+export { deepFreeze } from '@thirdlight/shared';
 /**
  * The catalog's files as bytes, made once for as long as what they hold is
  * the same.
@@ -25,15 +26,6 @@ export const CATALOG_PART_BYTES = 1_048_576;
  * about this many entries.
  */
 export const CATALOG_SHARD_ENTRIES = 256;
-
-/** Freeze a value and everything in it (a remembered value must not change). */
-export function deepFreeze<T>(value: T): T {
-  if (typeof value === 'object' && value !== null && !Object.isFrozen(value)) {
-    for (const v of Object.values(value)) deepFreeze(v);
-    Object.freeze(value);
-  }
-  return value;
-}
 
 /** Texts of frozen values (they cannot change while they are remembered). */
 const texts = new WeakMap<object, string>();

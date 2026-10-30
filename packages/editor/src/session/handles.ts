@@ -25,6 +25,7 @@ import { applies, deepEqual, fieldAt, setAt, type FieldPath, type Level } from '
 import type { ProjectedEntity } from './projection';
 import { getSnapSettings } from './snapping';
 import { deleteSplineGrip, dragSplineGrip, insertSplinePoint, readSplineModel, splineGrips, splineLines, splinePointsValue, type SplineHandleModel } from './spline-handle';
+import { isPlainObject } from '@thirdlight/shared';
 
 /** The size snapping step (m): fine enough for a character's or a trigger's size in any genre, still round numbers. */
 export const SNAP_SIZE_M = 0.05;
@@ -98,7 +99,6 @@ export interface HandleShape {
 // ---- small helpers ------------------------------------------------------------
 
 type Obj = Record<string, unknown>;
-const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
 const N = (v: unknown, d = 0): number => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 const round3 = (v: number): number => {
   const r = Math.round(v * 1000) / 1000;
@@ -130,11 +130,11 @@ function effective(root: ObjectFieldDescriptor, value: Obj, ptr: string): { v: u
   let v: unknown = value;
   for (const seg of path) {
     if (desc.type !== 'object') return { v: undefined, f: null };
-    const here: Level = { desc, value: isObj(v) ? v : {}, ...(level !== undefined ? { parent: level } : {}) };
+    const here: Level = { desc, value: isPlainObject(v) ? v : {}, ...(level !== undefined ? { parent: level } : {}) };
     const variants: readonly FieldDescriptor[] = desc.fields.filter((x) => x.key === seg);
     const next: FieldDescriptor | undefined = variants.find((x) => applies(x, here)) ?? variants[0];
     if (next === undefined) return { v: undefined, f: null };
-    const stored = isObj(v) ? v[seg] : undefined;
+    const stored = isPlainObject(v) ? v[seg] : undefined;
     level = here;
     desc = next;
     v = stored !== undefined ? stored : next.default !== undefined ? clone(next.default) : next.type === 'object' ? {} : undefined;
@@ -172,7 +172,7 @@ export function handleShapesOf(e: ProjectedEntity, reg: DescriptorRegistry | nul
   for (const c of reg.components) {
     if (c.handles.length === 0 || c.value.type !== 'object') continue;
     const raw = e.components[c.name];
-    if (raw === undefined || !isObj(raw)) continue;
+    if (raw === undefined || !isPlainObject(raw)) continue;
     const root = c.value;
     c.handles.forEach((h, handleIndex) => {
       if (!conditionsHold(root, raw, h.when)) return;

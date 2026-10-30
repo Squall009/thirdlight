@@ -54,6 +54,7 @@
  */
 import { MAX_TEXTURE_EDGE } from './content-limits';
 import { ID_RE } from './validate';
+import { isPlainObject } from '@thirdlight/shared';
 
 /** A row's place on the sheet: pixel rows `top` (inclusive) to `bottom` (exclusive), counted from the image's top. */
 export interface TrimRow {
@@ -163,7 +164,6 @@ const ROW_FIELDS = ['slot', 'top', 'bottom', 'texelDensity', 'tileV'] as const;
 
 const isInt = (v: unknown, min: number, max: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;
 const isNum = (v: unknown, min: number, max: number): v is number => typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max;
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /**
  * The table's shape problems (empty: valid): sizes and bounds in range,
@@ -173,7 +173,7 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
  */
 export function trimSheetErrors(v: unknown): TrimSheetError[] {
   const out: TrimSheetError[] = [];
-  if (!isObject(v)) return [{ path: '', message: 'a trim sheet is an object {size, texelDensity, padding, rows}' }];
+  if (!isPlainObject(v)) return [{ path: '', message: 'a trim sheet is an object {size, texelDensity, padding, rows}' }];
   for (const k of Object.keys(v)) if (!(SHEET_FIELDS as readonly string[]).includes(k)) out.push({ path: `/${k}`, message: `unknown trim sheet field "${k}"`, allowed: SHEET_FIELDS });
   const size = v['size'];
   const sized = Array.isArray(size) && size.length === 2 && isInt(size[0], 1, TRIM_SHEET_SIZE_MAX) && isInt(size[1], 1, TRIM_SHEET_SIZE_MAX);
@@ -191,7 +191,7 @@ export function trimSheetErrors(v: unknown): TrimSheetError[] {
   const spans: [number, number, number][] = [];
   rows.forEach((r, i) => {
     const p = `/rows/${i}`;
-    if (!isObject(r)) {
+    if (!isPlainObject(r)) {
       out.push({ path: p, message: 'a row is an object {slot, top, bottom, texelDensity?, tileV?}' });
       return;
     }
@@ -230,7 +230,7 @@ function cellErrors(cells: unknown, width: number, height: number, out: TrimShee
   const names = new Set<string>();
   cells.forEach((c, i) => {
     const p = `/cells/${i}`;
-    if (!isObject(c)) {
+    if (!isPlainObject(c)) {
       out.push({ path: p, message: 'a cell is an object {name, rect: [x, y, width, height]}' });
       return;
     }
@@ -612,7 +612,7 @@ export type TrimLayoutImport = { ok: true; sheet: TrimSheet; skipped: string[] }
  * A layer that is neither is listed in `skipped`.
  */
 export function trimSheetFromLayout(json: unknown): TrimLayoutImport {
-  if (!isObject(json) || json['format'] !== 'trim/1') return { ok: false, message: 'not a trim sheet layout (layout.json, format "trim/1")' };
+  if (!isPlainObject(json) || json['format'] !== 'trim/1') return { ok: false, message: 'not a trim sheet layout (layout.json, format "trim/1")' };
   const size = json['size'];
   const density = json['texel_density_px_per_m'];
   const gutter = json['gutter_px'];
@@ -624,11 +624,11 @@ export function trimSheetFromLayout(json: unknown): TrimLayoutImport {
   const cells: TrimCell[] = [];
   const skipped: string[] = [];
   for (const l of layers) {
-    if (!isObject(l) || typeof l['name'] !== 'string') continue;
+    if (!isPlainObject(l) || typeof l['name'] !== 'string') continue;
     if (l['kind'] === 'decals') {
       for (const c of Array.isArray(l['cells']) ? (l['cells'] as unknown[]) : []) {
-        const r = isObject(c) ? c['px_rect'] : undefined;
-        if (isObject(c) && typeof c['name'] === 'string' && Array.isArray(r) && r.length === 4) cells.push({ name: c['name'], rect: [r[0], r[1], r[2], r[3]] });
+        const r = isPlainObject(c) ? c['px_rect'] : undefined;
+        if (isPlainObject(c) && typeof c['name'] === 'string' && Array.isArray(r) && r.length === 4) cells.push({ name: c['name'], rect: [r[0], r[1], r[2], r[3]] });
       }
       continue;
     }

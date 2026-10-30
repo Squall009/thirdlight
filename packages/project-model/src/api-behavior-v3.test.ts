@@ -30,6 +30,7 @@ import {
 } from '@thirdlight/project-model';
 import { bytesEqual } from './test-fixtures';
 import { sceneCamerasAsShots } from './upgrade-scene-model';
+import { deepFreezeAll } from '@thirdlight/shared';
 
 // ---- builders -----------------------------------------------------------------
 
@@ -77,14 +78,6 @@ const codes = (res: { ok: false; errors: readonly { code: string }[] }): string[
 const first = (res: { ok: false; errors: readonly ModelErrorV3[] }): ModelErrorV3 => res.errors[0]!;
 const decode = (b: Uint8Array): string => new TextDecoder('utf-8', { fatal: true }).decode(b);
 const utf8 = (s: string): Uint8Array => new TextEncoder().encode(s);
-
-function deepFreeze<T>(v: T): T {
-  if (v !== null && typeof v === 'object') {
-    for (const k of Object.keys(v as Record<string, unknown>)) deepFreeze((v as Record<string, unknown>)[k]);
-    Object.freeze(v);
-  }
-  return v;
-}
 
 // ---- constants ------------------------------------------------------------------
 
@@ -341,10 +334,10 @@ describe('canonical byte layout', () => {
 
 describe('normalization', () => {
   it('never mutates the input (deep-frozen input survives)', () => {
-    const frozen = deepFreeze(validScene([cameraEntity(), boxEntity('box-1')]));
+    const frozen = deepFreezeAll(validScene([cameraEntity(), boxEntity('box-1')]));
     expect(() => normalizeSceneV3(frozen)).not.toThrow();
     expect(normalizeSceneV3(frozen).ok).toBe(true);
-    expect(() => normalizeManifest(deepFreeze(validManifest()))).not.toThrow();
+    expect(() => normalizeManifest(deepFreezeAll(validManifest()))).not.toThrow();
   });
 
   it('returns a NEW object graph (no aliasing of the input)', () => {

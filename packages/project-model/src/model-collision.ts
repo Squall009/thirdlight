@@ -24,10 +24,9 @@ import { boxFromBounds, colliderFromTriangles, convexFromPoints, polygonFromPoin
 import { COLLIDER_3D_LIMITS, MAX_COLLIDER_EXTENT, colliderShapePoints } from './collider-shapes';
 import { decodeMeshopt, MeshoptError, type MeshoptFilter, type MeshoptMode } from './meshopt';
 import { COMPONENTS as GLTF_COMPONENTS, COMPONENT_TYPES as GLTF_COMPONENT_TYPES, sanitizeRigNodeName } from './model-rig';
-import { readGlb } from '@thirdlight/shared';
+import { isPlainObject, readGlb } from '@thirdlight/shared';
 
 type Json = Record<string, unknown>;
-const isObj = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** A render level's node name (`rock_LOD1`: the piece, the level). */
 export const MODEL_LOD_RE = /^(.*)_LOD(\d+)$/i;
@@ -142,10 +141,10 @@ function viewBytes(json: Json, bin: Uint8Array | null, index: unknown, cache: Ma
   const views = Array.isArray(json['bufferViews']) ? (json['bufferViews'] as unknown[]) : [];
   const view = views[index];
   let out: DataView | string;
-  if (!isObj(view) || bin === null) out = 'a bufferView is missing';
+  if (!isPlainObject(view) || bin === null) out = 'a bufferView is missing';
   else {
-    const ext = isObj(view['extensions']) ? (view['extensions'] as Json)['EXT_meshopt_compression'] : undefined;
-    if (isObj(ext)) {
+    const ext = isPlainObject(view['extensions']) ? (view['extensions'] as Json)['EXT_meshopt_compression'] : undefined;
+    if (isPlainObject(ext)) {
       const off = typeof ext['byteOffset'] === 'number' ? ext['byteOffset'] : 0;
       const len = ext['byteLength'];
       const count = ext['count'];
@@ -176,7 +175,7 @@ function readNumbers(json: Json, bin: Uint8Array | null, index: unknown, cache: 
   const accessors = Array.isArray(json['accessors']) ? (json['accessors'] as unknown[]) : [];
   if (typeof index !== 'number' || !Number.isInteger(index)) return 'no accessor';
   const a = accessors[index];
-  if (!isObj(a)) return 'an accessor is missing';
+  if (!isPlainObject(a)) return 'an accessor is missing';
   if (a['sparse'] !== undefined) return 'a sparse accessor is not read';
   const size = GLTF_COMPONENTS[String(a['type'])];
   const ct = GLTF_COMPONENT_TYPES[Number(a['componentType'])];
@@ -238,19 +237,19 @@ export function modelNodePaths(json: Readonly<Record<string, unknown>>): Map<num
   const visitAll = (list: readonly unknown[], depth: number, prefix: string): void => {
     const segments = modelNodeSegments(list.map((k) => {
       const def = typeof k === 'number' ? nodes[k] : undefined;
-      return { index: typeof k === 'number' ? k : -1, name: isObj(def) && typeof def['name'] === 'string' ? sanitizeRigNodeName(def['name']) : '' };
+      return { index: typeof k === 'number' ? k : -1, name: isPlainObject(def) && typeof def['name'] === 'string' ? sanitizeRigNodeName(def['name']) : '' };
     }));
     list.forEach((k, i) => {
       if (typeof k !== 'number' || depth > READ_LIMITS.depth || seen.has(k)) return;
       const def = nodes[k];
-      if (!isObj(def)) return;
+      if (!isPlainObject(def)) return;
       seen.add(k);
       const path = `${prefix}${segments[i]!}`;
       out.set(k, path);
       visitAll(Array.isArray(def['children']) ? (def['children'] as unknown[]) : [], depth + 1, `${path}/`);
     });
   };
-  if (isObj(scene)) visitAll(Array.isArray(scene['nodes']) ? (scene['nodes'] as unknown[]) : [], 0, '');
+  if (isPlainObject(scene)) visitAll(Array.isArray(scene['nodes']) ? (scene['nodes'] as unknown[]) : [], 0, '');
   return out;
 }
 
@@ -276,7 +275,7 @@ export function readModelGeometry(bytes: Uint8Array, options: { surface?: boolea
   const visit = (index: number, parent: readonly number[], depth: number, ctx: Ctx, seen: Set<number>, path: string): void => {
     if (depth > READ_LIMITS.depth || seen.has(index)) return;
     const def = nodes[index];
-    if (!isObj(def)) return;
+    if (!isPlainObject(def)) return;
     seen.add(index);
     const name = typeof def['name'] === 'string' ? sanitizeRigNodeName(def['name']) : '';
     const lod = LOD_RE.exec(name);
@@ -290,11 +289,11 @@ export function readModelGeometry(bytes: Uint8Array, options: { surface?: boolea
     };
     const world = mul(parent, modelNodeMatrix(def));
     const mesh = typeof def['mesh'] === 'number' ? meshes[def['mesh']] : undefined;
-    if (isObj(mesh) && Array.isArray(mesh['primitives'])) {
+    if (isPlainObject(mesh) && Array.isArray(mesh['primitives'])) {
       (mesh['primitives'] as unknown[]).forEach((prim, pi) => {
-        if (!isObj(prim) || !isObj(prim['attributes'])) return;
+        if (!isPlainObject(prim) || !isPlainObject(prim['attributes'])) return;
         const label = `${name || `node ${index}`} primitive ${pi}`;
-        if (isObj(prim['extensions']) && (prim['extensions'] as Json)['KHR_draco_mesh_compression'] !== undefined) {
+        if (isPlainObject(prim['extensions']) && (prim['extensions'] as Json)['KHR_draco_mesh_compression'] !== undefined) {
           if (here.collision) skipped.push(`${label}: Draco-compressed geometry is not read (export the _COL mesh without Draco)`);
           return;
         }
@@ -332,7 +331,7 @@ export function readModelGeometry(bytes: Uint8Array, options: { surface?: boolea
           const mat = typeof prim['material'] === 'number' ? materials[prim['material']] : undefined;
           const uv = attrs['TEXCOORD_0'] !== undefined ? readNumbers(json, bin, attrs['TEXCOORD_0'], cache) : null;
           surface.lod = level;
-          surface.material = isObj(mat) && typeof mat['name'] === 'string' ? mat['name'] : null;
+          surface.material = isPlainObject(mat) && typeof mat['name'] === 'string' ? mat['name'] : null;
           surface.uv = uv !== null && typeof uv !== 'string' && uv.size === 2 ? uv.data : null;
           surface.colour = attrs['COLOR_0'] !== undefined;
         }
@@ -349,13 +348,13 @@ export function readModelGeometry(bytes: Uint8Array, options: { surface?: boolea
   const visitAll = (list: readonly unknown[], parent: readonly number[], depth: number, ctx: Ctx, seen: Set<number>, prefix: string): void => {
     const segments = modelNodeSegments(list.map((k) => {
       const def = typeof k === 'number' ? nodes[k] : undefined;
-      return { index: typeof k === 'number' ? k : -1, name: isObj(def) && typeof def['name'] === 'string' ? sanitizeRigNodeName(def['name']) : '' };
+      return { index: typeof k === 'number' ? k : -1, name: isPlainObject(def) && typeof def['name'] === 'string' ? sanitizeRigNodeName(def['name']) : '' };
     }));
     list.forEach((k, i) => {
       if (typeof k === 'number') visit(k, parent, depth, ctx, seen, `${prefix}${segments[i]!}`);
     });
   };
-  if (isObj(scene)) visitAll(Array.isArray(scene['nodes']) ? (scene['nodes'] as unknown[]) : [], IDENTITY, 0, { piece: '', collision: false, higherLod: false, pieceCollision: false, occluder: null, lod: null }, new Set<number>(), '');
+  if (isPlainObject(scene)) visitAll(Array.isArray(scene['nodes']) ? (scene['nodes'] as unknown[]) : [], IDENTITY, 0, { piece: '', collision: false, higherLod: false, pieceCollision: false, occluder: null, lod: null }, new Set<number>(), '');
   if (positionsRead > READ_LIMITS.positions) return { ok: false, message: `the model holds over ${READ_LIMITS.positions} vertices; its collision geometry is not read` };
   return { ok: true, geometry: { primitives, skipped } };
 }
@@ -378,9 +377,9 @@ export type ModelColliderTable = Readonly<Record<string, Readonly<Record<string,
 
 /** Why a value is not a {@link ModelColliderTable} (null: it is one). Each part is 4–64 finite points within the collider extent. */
 export function validateModelColliderTable(value: unknown): string | null {
-  if (!isObj(value)) return 'the model collider table is an object of models';
+  if (!isPlainObject(value)) return 'the model collider table is an object of models';
   for (const [assetId, pieces] of Object.entries(value)) {
-    if (!isObj(pieces)) return `"${assetId}" is an object of pieces`;
+    if (!isPlainObject(pieces)) return `"${assetId}" is an object of pieces`;
     for (const [piece, parts] of Object.entries(pieces)) {
       if (!Array.isArray(parts)) return `"${assetId}"/"${piece}" is a list of parts`;
       for (let i = 0; i < parts.length; i += 1) {

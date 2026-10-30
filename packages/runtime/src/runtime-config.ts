@@ -12,6 +12,7 @@ import type { PhysicsPort3D } from './ports';
 import { isSimulationRegistry } from './registry';
 import { SAVE_KEY_RE, SAVE_MAX_KEYS, SAVE_MAX_VALUE_CHARS, saveValueText } from './save-sections';
 import type { SimulationRegistry } from './types';
+import { isPlainObject } from '@thirdlight/shared';
 
 const MIN_FIXED_STEP_HZ = 1;
 const MAX_FIXED_STEP_HZ = 1000;
@@ -19,10 +20,6 @@ const MAX_FIXED_STEP_HZ = 1000;
 const DEFAULT_MODULES = ['thirdlight.demo:box-motion'];
 /** The `config_invalid` reason for a physics-bearing set. */
 export const PHYSICS_PORT_REASON = 'physics_port';
-
-export function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
 
 export function fail(code: ErrorCode, message: string, extra?: Partial<RuntimeError>): RuntimeError {
   return { code, message: clipMessage(message), ...extra };

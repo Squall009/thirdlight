@@ -407,8 +407,8 @@ class Builder {
         continue;
       }
       // Only object types (not primitives' apparent members, not arrays) can be namespaces.
-      const isObject = ((mtype.flags & ts.TypeFlags.Object) !== 0 || mtype.isIntersection()) && !checker.isArrayType(mtype) && !checker.isTupleType(mtype);
-      const props = isObject ? checker.getPropertiesOfType(mtype) : [];
+      const isObjectType = ((mtype.flags & ts.TypeFlags.Object) !== 0 || mtype.isIntersection()) && !checker.isArrayType(mtype) && !checker.isTupleType(mtype);
+      const props = isObjectType ? checker.getPropertiesOfType(mtype) : [];
       const hasMethods = props.some((p) => checker.getNonNullableType(checker.getTypeOfSymbol(p)).getCallSignatures().length > 0);
       const d = describe(checker, checker.getTypeOfSymbolAtLocation(member, decl), tags);
       if (hasMethods) {

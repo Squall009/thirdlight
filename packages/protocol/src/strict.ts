@@ -16,6 +16,7 @@
  * Pure: no I/O.
  */
 import { sessionError, type SessionError } from './errors';
+export { isPlainObject } from '@thirdlight/shared';
 
 export type StrictParseResult =
   | { ok: true; value: unknown }
@@ -360,10 +361,6 @@ export function isStringNoControl(v: unknown): v is string {
     v.length <= 128 &&
     !/[\u0000-\u001f\u007f]/.test(v)
   );
-}
-
-export function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
 /**

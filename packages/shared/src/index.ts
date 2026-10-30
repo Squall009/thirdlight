@@ -9,7 +9,8 @@
  * helpers this package owns and fails the build when one is defined again
  * elsewhere.
  */
-export { utf8Decode, utf8Encode } from './utf8';
+export { utf8Decode, utf8Encode, utf8Length, utf8LengthPairingAnyHigh, utf8LengthPairingHigh } from './utf8';
+export { deepFreeze, deepFreezeAll, deepFreezeExceptViews, isPlainObject, isPlainObjectStrict } from './objects';
 export { sha256Hex, sha256HexAsync, sha256HexOfText } from './sha256';
 export {
   canonicalJsonKey,

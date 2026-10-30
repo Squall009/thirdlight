@@ -67,7 +67,9 @@ import { dropFlushes, whenFlushed } from './journal-flush';
 import { completeInterruptedCreation, createProjectFrom, createProjectImpl } from './project-create';
 import { canonicalIssue, echoOp, echoProjectId, envelopeProjectId, envelopeRequestId, failRequest, invalidRequestFor, validateQueryRequest } from './request-envelope';
 import { defaultOps, listLeftoverTemps } from './write';
-import { deepFreeze } from './isolate';
+// Results are deep-frozen at the public boundary rather than copied: a copy would re-allocate the
+// scene on every query, while a freeze touches each shared object once and later exports skip it.
+import { deepFreezeExceptViews } from '@thirdlight/shared';
 import { isV4Layout, listLeftoverTempsV4, loadV4 } from './store-v4';
 import { checkExternalV4, gameRootFor } from './session-v4';
 import {
@@ -183,7 +185,7 @@ function buildService(core: Core): WorkspaceService {
    * path a caller could take through a returned reference.
    */
   function runCommand(request: unknown): MutationResult {
-    return deepFreeze(runCommandImpl(request));
+    return deepFreezeExceptViews(runCommandImpl(request));
   }
 
   function runCommandImpl(request: unknown): MutationResult {
@@ -283,7 +285,7 @@ function buildService(core: Core): WorkspaceService {
    * the manifest, the pause state's error details and the error payload
    * by reference — deep-freeze at the boundary. */
   function query(request: unknown): QueryResult {
-    return deepFreeze(queryImpl(request));
+    return deepFreezeExceptViews(queryImpl(request));
   }
 
   function queryImpl(request: unknown): QueryResult {
@@ -304,12 +306,12 @@ function buildService(core: Core): WorkspaceService {
   /** Public `createProject`: operator results carry error payloads
    * (and `details`) that may alias loaded/validation data. */
   function createProject(projectId: string, name: string): CreateProjectResult {
-    return deepFreeze(createProjectImpl(core, projectId, name));
+    return deepFreezeExceptViews(createProjectImpl(core, projectId, name));
   }
 
   /** Public `releaseWorkspace` (deep-frozen at the boundary). */
   function releaseWorkspace(projectId: string): ReleaseResult {
-    return deepFreeze(releaseWorkspaceImpl(projectId));
+    return deepFreezeExceptViews(releaseWorkspaceImpl(projectId));
   }
 
   function releaseWorkspaceImpl(projectId: string): ReleaseResult {
@@ -326,12 +328,12 @@ function buildService(core: Core): WorkspaceService {
 
   /** Public `takeoverWorkspace` (deep-frozen at the boundary). */
   function takeoverWorkspace(projectId: string): TakeoverResult {
-    return deepFreeze(takeover(core, projectId));
+    return deepFreezeExceptViews(takeover(core, projectId));
   }
 
   /** Public `acceptExternalState` (deep-frozen at the boundary). */
   function acceptExternalState(projectId: string): AcceptResult {
-    return deepFreeze(acceptExternalStateImpl(projectId));
+    return deepFreezeExceptViews(acceptExternalStateImpl(projectId));
   }
 
   function acceptExternalStateImpl(projectId: string): AcceptResult {
@@ -359,7 +361,7 @@ function buildService(core: Core): WorkspaceService {
 
   /** Public `discardExternalState` (deep-frozen at the boundary). */
   function discardExternalState(projectId: string): DiscardResult {
-    return deepFreeze(discardExternalStateImpl(projectId));
+    return deepFreezeExceptViews(discardExternalStateImpl(projectId));
   }
 
   function discardExternalStateImpl(projectId: string): DiscardResult {
@@ -606,7 +608,7 @@ function buildService(core: Core): WorkspaceService {
       core.registry.delete(projectId);
       return { ok: false, error: writeFailed('previous', undefined) };
     }
-    return deepFreeze(created);
+    return deepFreezeExceptViews(created);
   }
 
   /** Forget a registered project (its files are never touched). */
@@ -728,7 +730,7 @@ function runScan(core: Core): ScanReport {
   }
   // The report is also published through the `lastScan` getter and
   // `scan()` — freeze it at construction (single site for both).
-  return deepFreeze({ entries, total, truncated: total > entries.length });
+  return deepFreezeExceptViews({ entries, total, truncated: total > entries.length });
 }
 
 /**

@@ -20,6 +20,7 @@
  */
 
 import { MAX_INPUT_ACTIONS, MAX_INPUT_BINDINGS } from '@thirdlight/project-model';
+import { deepFreeze, isPlainObject } from '@thirdlight/shared';
 
 /** The device the player used last: keyboard and mouse are one device. */
 export type InputDeviceKind = 'keyboardMouse' | 'gamepad';
@@ -167,7 +168,6 @@ const EVENT_TYPES: readonly string[] = ['started', 'rebound', 'cancelled', 'time
 
 type Fail = { ok: false; field: string; message: string };
 const hasOwn = Object.prototype.hasOwnProperty;
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const text = (v: unknown): v is string => typeof v === 'string' && v.length <= MAX_TEXT;
 const onlyKeys = (o: Record<string, unknown>, keys: readonly string[], at: string): Fail | null => {
   for (const k in o) if (hasOwn.call(o, k) && !keys.includes(k)) return { ok: false, field: `${at}/${k}`, message: `unknown field "${k}"` };
@@ -182,7 +182,7 @@ function glyphFields(o: Record<string, unknown>, at: string): Fail | null {
 }
 
 function checkDevice(d: unknown): Fail | null {
-  if (!isObj(d)) return { ok: false, field: 'input/device', message: 'device is { kind: keyboardMouse | gamepad, id?, family? }' };
+  if (!isPlainObject(d)) return { ok: false, field: 'input/device', message: 'device is { kind: keyboardMouse | gamepad, id?, family? }' };
   const k = onlyKeys(d, ['kind', 'id', 'family'], 'input/device');
   if (k !== null) return k;
   if (d['kind'] !== 'keyboardMouse' && d['kind'] !== 'gamepad') return { ok: false, field: 'input/device/kind', message: 'device kind is keyboardMouse or gamepad' };
@@ -192,7 +192,7 @@ function checkDevice(d: unknown): Fail | null {
 }
 
 function checkAction(a: unknown, at: string): Fail | null {
-  if (!isObj(a)) return { ok: false, field: at, message: 'an action is { name, type, map, bindings, changed? }' };
+  if (!isPlainObject(a)) return { ok: false, field: at, message: 'an action is { name, type, map, bindings, changed? }' };
   const k = onlyKeys(a, ['name', 'type', 'map', 'bindings', 'changed'], at);
   if (k !== null) return k;
   if (typeof a['name'] !== 'string' || !NAME_RE.test(a['name'])) return { ok: false, field: `${at}/name`, message: 'an action name' };
@@ -205,7 +205,7 @@ function checkAction(a: unknown, at: string): Fail | null {
   for (let j = 0; j < bs.length; j += 1) {
     const b = bs[j];
     const bp = `${at}/bindings/${j}`;
-    if (!isObj(b)) return { ok: false, field: bp, message: 'a binding is { device, kind, label, icon, image?, parts?, hold? }' };
+    if (!isPlainObject(b)) return { ok: false, field: bp, message: 'a binding is { device, kind, label, icon, image?, parts?, hold? }' };
     const bk = onlyKeys(b, ['device', 'kind', 'label', 'icon', 'image', 'parts', 'hold'], bp);
     if (bk !== null) return bk;
     if (b['device'] !== 'keyboard' && b['device'] !== 'mouse' && b['device'] !== 'gamepad') return { ok: false, field: `${bp}/device`, message: 'device is keyboard, mouse or gamepad' };
@@ -219,7 +219,7 @@ function checkAction(a: unknown, at: string): Fail | null {
       for (let p = 0; p < parts.length; p += 1) {
         const q = parts[p];
         const pp = `${bp}/parts/${p}`;
-        if (!isObj(q)) return { ok: false, field: pp, message: 'a part is { part, label, icon, image? }' };
+        if (!isPlainObject(q)) return { ok: false, field: pp, message: 'a part is { part, label, icon, image? }' };
         const pk = onlyKeys(q, ['part', 'label', 'icon', 'image'], pp);
         if (pk !== null) return pk;
         if (!PARTS.includes(q['part'] as string)) return { ok: false, field: `${pp}/part`, message: 'part is negative, positive, up, down, left or right' };
@@ -232,7 +232,7 @@ function checkAction(a: unknown, at: string): Fail | null {
 }
 
 function checkEvent(e: unknown, at: string): Fail | null {
-  if (!isObj(e)) return { ok: false, field: at, message: 'an event is { type, action?, index?, part?, label?, reason?, conflicts?, swapped?, profile? }' };
+  if (!isPlainObject(e)) return { ok: false, field: at, message: 'an event is { type, action?, index?, part?, label?, reason?, conflicts?, swapped?, profile? }' };
   const k = onlyKeys(e, ['type', 'action', 'index', 'part', 'label', 'reason', 'conflicts', 'swapped', 'profile'], at);
   if (k !== null) return k;
   if (!EVENT_TYPES.includes(e['type'] as string)) return { ok: false, field: `${at}/type`, message: 'type is started, rebound, cancelled, timeout, refused, reset or profile' };
@@ -246,7 +246,7 @@ function checkEvent(e: unknown, at: string): Fail | null {
     if (!Array.isArray(cs) || cs.length > 8) return { ok: false, field: `${at}/conflicts`, message: 'conflicts is a list of at most 8' };
     for (let i = 0; i < cs.length; i += 1) {
       const c = cs[i];
-      if (!isObj(c) || onlyKeys(c, ['action', 'index', 'part'], '') !== null || typeof c['action'] !== 'string' || !NAME_RE.test(c['action']) || !(Number.isInteger(c['index']) && (c['index'] as number) >= 0 && (c['index'] as number) < MAX_BINDINGS) || (c['part'] !== undefined && !PARTS.includes(c['part'] as string))) {
+      if (!isPlainObject(c) || onlyKeys(c, ['action', 'index', 'part'], '') !== null || typeof c['action'] !== 'string' || !NAME_RE.test(c['action']) || !(Number.isInteger(c['index']) && (c['index'] as number) >= 0 && (c['index'] as number) < MAX_BINDINGS) || (c['part'] !== undefined && !PARTS.includes(c['part'] as string))) {
         return { ok: false, field: `${at}/conflicts/${i}`, message: 'a conflict is { action, index, part? }' };
       }
     }
@@ -256,17 +256,9 @@ function checkEvent(e: unknown, at: string): Fail | null {
   return null;
 }
 
-const deepFreeze = <T>(v: T): T => {
-  if (typeof v === 'object' && v !== null && !Object.isFrozen(v)) {
-    for (const k of Object.keys(v)) deepFreeze((v as Record<string, unknown>)[k]);
-    Object.freeze(v);
-  }
-  return v;
-};
-
 /** Validate a frame's `input` entry strictly; returns a frozen copy. */
 export function validateInputStatus(raw: unknown): { ok: true; input: InputStatusEntry } | Fail {
-  if (!isObj(raw)) return { ok: false, field: 'input', message: 'input is { device?, actions?, events?, profile? }' };
+  if (!isPlainObject(raw)) return { ok: false, field: 'input', message: 'input is { device?, actions?, events?, profile? }' };
   const k = onlyKeys(raw, ['device', 'actions', 'events', 'profile'], 'input');
   if (k !== null) return k;
   if (raw['device'] !== undefined) {
@@ -397,7 +389,7 @@ export class RuntimeInputStatus {
 export function checkRebindOptions(action: unknown, options: unknown): InputRebindOptions {
   if (typeof action !== 'string' || !NAME_RE.test(action)) throw new Error(`rebind needs an action name (got ${JSON.stringify(String(action)).slice(0, 40)})`);
   if (options === undefined || options === null) return {};
-  if (!isObj(options)) throw new Error('rebind options are { index?, part?, device?, policy?, cancelKey?, timeout? }');
+  if (!isPlainObject(options)) throw new Error('rebind options are { index?, part?, device?, policy?, cancelKey?, timeout? }');
   for (const k of Object.keys(options)) if (!['index', 'part', 'device', 'policy', 'cancelKey', 'timeout'].includes(k)) throw new Error(`unknown rebind option "${k.slice(0, 32)}"`);
   const o = options;
   if (o['index'] !== undefined && !(Number.isInteger(o['index']) && (o['index'] as number) >= 0 && (o['index'] as number) < MAX_BINDINGS)) throw new Error(`rebind index is a binding index 0–${MAX_BINDINGS - 1}`);

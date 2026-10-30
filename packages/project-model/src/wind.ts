@@ -15,6 +15,7 @@
 import type { ModelErrorV2 } from './errors';
 import type { WindConfig, WindOctave } from './materials';
 import { ID_RE } from './validate';
+import { isPlainObject } from '@thirdlight/shared';
 
 /** The bounds of the wind's values (validation, the editor's sliders). */
 export const WIND_LIMITS = Object.freeze({
@@ -74,9 +75,6 @@ export interface WindZoneComponent {
 /** The component's fields in canonical order. */
 export const WIND_ZONE_FIELDS: readonly string[] = Object.freeze(['shape', 'size', 'radius', 'blend', 'priority', 'direction', 'strength', 'gust', 'turbulence', 'speed', 'scale']);
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
 function err(errors: ModelErrorV2[], code: string, path: string, message: string, found?: unknown): void {
   errors.push({ code, path, message, ...(found !== undefined ? { found } : {}) } as ModelErrorV2);
 }

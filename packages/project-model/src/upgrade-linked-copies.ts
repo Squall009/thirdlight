@@ -25,14 +25,13 @@
  *
  * Pure: works on the raw documents before they are validated.
  */
-import { canonicalJsonKey } from '@thirdlight/shared';
+import { canonicalJsonKey, isPlainObject } from '@thirdlight/shared';
 import { assembleSceneEntities, createPrefabAssembler, type AssemblyEntity, type AssemblyPrefab } from './prefab-assembly';
 import type { PrefabOverride } from './prefab-links';
 import { linkedRoot, partOverrides } from './prefab-relink';
 import type { DeclaredProperty } from './types-v2';
 
 type Obj = Record<string, unknown>;
-const isObject = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** Objects one line names before it says how many more (the upgrade's lines and the prefab Problems lines). */
 const NAMED_MAX = 5;
@@ -50,8 +49,8 @@ const canon = canonicalJsonKey;
 
 /** A part's provenance (`{prefabId, localId}`), or null. */
 function provenanceOf(e: Obj): { prefabId: string; localId: string } | null {
-  const p = isObject(e['components']) ? (e['components'] as Obj)['prefab'] : undefined;
-  return isObject(p) && typeof p['prefabId'] === 'string' && typeof p['localId'] === 'string' ? { prefabId: p['prefabId'], localId: p['localId'] } : null;
+  const p = isPlainObject(e['components']) ? (e['components'] as Obj)['prefab'] : undefined;
+  return isPlainObject(p) && typeof p['prefabId'] === 'string' && typeof p['localId'] === 'string' ? { prefabId: p['prefabId'], localId: p['localId'] } : null;
 }
 
 interface Linked {
@@ -133,14 +132,14 @@ export function namedList(list: readonly string[]): string {
  * holds a copy.
  */
 export function linkPrefabCopies(contentIn: unknown, scenesIn: readonly unknown[]): LinkPrefabCopiesResult {
-  const content = isObject(contentIn) ? contentIn : {};
+  const content = isPlainObject(contentIn) ? contentIn : {};
   const defs = new Map<string, AssemblyPrefab>();
   for (const p of Array.isArray(content['prefabs']) ? (content['prefabs'] as unknown[]) : []) {
-    if (isObject(p) && typeof p['prefabId'] === 'string' && Array.isArray(p['entities']) && p['entities'].length > 0) defs.set(p['prefabId'], p as unknown as AssemblyPrefab);
+    if (isPlainObject(p) && typeof p['prefabId'] === 'string' && Array.isArray(p['entities']) && p['entities'].length > 0) defs.set(p['prefabId'], p as unknown as AssemblyPrefab);
   }
   const declarations = new Map<string, readonly DeclaredProperty[]>();
   for (const b of Array.isArray(content['behaviors']) ? (content['behaviors'] as unknown[]) : []) {
-    if (isObject(b) && typeof b['behaviorId'] === 'string' && isObject(b['declaration']) && Array.isArray(b['declaration']['properties'])) declarations.set(b['behaviorId'], b['declaration']['properties'] as DeclaredProperty[]);
+    if (isPlainObject(b) && typeof b['behaviorId'] === 'string' && isPlainObject(b['declaration']) && Array.isArray(b['declaration']['properties'])) declarations.set(b['behaviorId'], b['declaration']['properties'] as DeclaredProperty[]);
   }
   const assembler = createPrefabAssembler([...defs.values()], { declarations });
   /** Per prefab: copies linked with overrides, copies kept plain, objects of a prefab that is gone. */
@@ -154,8 +153,8 @@ export function linkPrefabCopies(contentIn: unknown, scenesIn: readonly unknown[
   };
   let changed = false;
   const scenes = scenesIn.map((sceneIn) => {
-    if (!isObject(sceneIn) || !Array.isArray(sceneIn['entities'])) return sceneIn;
-    const raw = (sceneIn['entities'] as unknown[]).filter(isObject);
+    if (!isPlainObject(sceneIn) || !Array.isArray(sceneIn['entities'])) return sceneIn;
+    const raw = (sceneIn['entities'] as unknown[]).filter(isPlainObject);
     if (raw.length !== (sceneIn['entities'] as unknown[]).length || !raw.some((e) => provenanceOf(e) !== null)) return sceneIn;
     const sceneId = String(sceneIn['sceneId']);
     const where = (id: string): string => `"${id}" (scene "${sceneId}")`;

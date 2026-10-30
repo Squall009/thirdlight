@@ -20,12 +20,12 @@
  * documents with nothing to change come back as given.
  */
 import type { GraphEdge, GraphNode } from './graph';
+import { isPlainObject } from '@thirdlight/shared';
 
 /** The trim material params grime had. */
 const TRIM_GRIME_PARAMS = ['grime', 'grimeColor'] as const;
 
 type Obj = Record<string, unknown>;
-const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 interface GraphLike {
   nodes: GraphNode[];
@@ -40,9 +40,9 @@ const outKey = (node: string, port: string): string => `${node}\u0000${port}`;
  * keys whose last reader went.
  */
 export function graphWithoutGrime(graph: unknown): { graph: GraphLike; dropped: string[] } | null {
-  if (!isObj(graph) || !Array.isArray(graph['nodes']) || !Array.isArray(graph['edges'])) return null;
-  const nodes = (graph['nodes'] as unknown[]).filter(isObj) as unknown as GraphNode[];
-  let edges = (graph['edges'] as unknown[]).filter(isObj) as unknown as GraphEdge[];
+  if (!isPlainObject(graph) || !Array.isArray(graph['nodes']) || !Array.isArray(graph['edges'])) return null;
+  const nodes = (graph['nodes'] as unknown[]).filter(isPlainObject) as unknown as GraphNode[];
+  let edges = (graph['edges'] as unknown[]).filter(isPlainObject) as unknown as GraphEdge[];
   const fedBefore = new Set(edges.map((e) => e.from.node));
   const weights = new Set(nodes.filter((n) => n.type === 'layerWeights').map((n) => n.id));
   const zero = new Set<string>();
@@ -114,18 +114,18 @@ export function graphWithoutGrime(graph: unknown): { graph: GraphLike; dropped: 
  */
 export function upgradeBuiltInGrime(content: unknown, scenes: readonly unknown[]): { content: unknown; scenes: unknown[]; named: string[]; changed: boolean } {
   const unchanged = { content, scenes: [...scenes], named: [], changed: false };
-  if (!isObj(content) || !Array.isArray(content['materials'])) return unchanged;
+  if (!isPlainObject(content) || !Array.isArray(content['materials'])) return unchanged;
   const named: string[] = [];
   /** Parameter keys each material no longer has (by materialId). */
   const gone = new Map<string, Set<string>>();
   let changed = false;
   const label = (m: Obj): string => `"${String(m['name'] ?? m['materialId'])}" (${String(m['materialId'])})`;
   let materials = (content['materials'] as unknown[]).map((raw) => {
-    if (!isObj(raw)) return raw;
+    if (!isPlainObject(raw)) return raw;
     let m = raw;
     const id = String(m['materialId']);
     const params = m['params'];
-    if (isObj(params) && TRIM_GRIME_PARAMS.some((k) => k in params) && (m['shader'] === 'trim' || m['instanceOf'] !== undefined)) {
+    if (isPlainObject(params) && TRIM_GRIME_PARAMS.some((k) => k in params) && (m['shader'] === 'trim' || m['instanceOf'] !== undefined)) {
       const amount = params['grime'];
       if ((typeof amount === 'number' ? amount > 0 : 'grimeColor' in params) && m['instanceOf'] === undefined) named.push(label(m));
       const next = { ...params };
@@ -134,7 +134,7 @@ export function upgradeBuiltInGrime(content: unknown, scenes: readonly unknown[]
     }
     const g = graphWithoutGrime(m['graph']);
     if (g !== null) {
-      const declared = Array.isArray(m['parameters']) ? (m['parameters'] as unknown[]).filter(isObj) : [];
+      const declared = Array.isArray(m['parameters']) ? (m['parameters'] as unknown[]).filter(isPlainObject) : [];
       const amount = declared.find((p) => p['key'] === 'grime')?.['default'];
       if (typeof amount !== 'number' || amount > 0) named.push(label(m));
       gone.set(id, new Set(g.dropped));
@@ -144,7 +144,7 @@ export function upgradeBuiltInGrime(content: unknown, scenes: readonly unknown[]
     return m;
   });
   // An instance's values and objects' overrides name their root's parameters.
-  const byId = new Map(materials.filter(isObj).map((m) => [String(m['materialId']), m]));
+  const byId = new Map(materials.filter(isPlainObject).map((m) => [String(m['materialId']), m]));
   const goneFor = (id: string): Set<string> | undefined => {
     let cur = byId.get(id);
     for (let i = 0; cur !== undefined && cur['instanceOf'] !== undefined && i < 16; i++) cur = byId.get(String(cur['instanceOf']));
@@ -152,7 +152,7 @@ export function upgradeBuiltInGrime(content: unknown, scenes: readonly unknown[]
   };
   if (gone.size > 0) {
     materials = materials.map((m) => {
-      if (!isObj(m) || m['instanceOf'] === undefined || !isObj(m['values'])) return m;
+      if (!isPlainObject(m) || m['instanceOf'] === undefined || !isPlainObject(m['values'])) return m;
       const drop = goneFor(String(m['materialId']));
       if (drop === undefined || !Object.keys(m['values']).some((k) => drop.has(k))) return m;
       changed = true;
@@ -163,13 +163,13 @@ export function upgradeBuiltInGrime(content: unknown, scenes: readonly unknown[]
     if (gone.size === 0 || !Array.isArray(entities)) return entities;
     let any = false;
     const out = entities.map((e) => {
-      if (!isObj(e) || !isObj(e['components']) || !isObj(e['components']['materialParams'])) return e;
+      if (!isPlainObject(e) || !isPlainObject(e['components']) || !isPlainObject(e['components']['materialParams'])) return e;
       const mp = e['components']['materialParams'];
       let touched = false;
       const next: Obj = {};
       for (const [id, values] of Object.entries(mp)) {
         const drop = goneFor(id);
-        if (drop !== undefined && isObj(values) && Object.keys(values).some((k) => drop.has(k))) {
+        if (drop !== undefined && isPlainObject(values) && Object.keys(values).some((k) => drop.has(k))) {
           touched = true;
           const kept = Object.fromEntries(Object.entries(values).filter(([k]) => !drop.has(k)));
           if (Object.keys(kept).length > 0) next[id] = kept;
@@ -187,7 +187,7 @@ export function upgradeBuiltInGrime(content: unknown, scenes: readonly unknown[]
   let nextContent: Obj = { ...content, materials };
   if (Array.isArray(content['prefabs'])) {
     const prefabs = (content['prefabs'] as unknown[]).map((p) => {
-      if (!isObj(p)) return p;
+      if (!isPlainObject(p)) return p;
       const ents = overrides(p['entities']);
       return ents === p['entities'] ? p : { ...p, entities: ents };
     });
@@ -198,7 +198,7 @@ export function upgradeBuiltInGrime(content: unknown, scenes: readonly unknown[]
   }
   if (Array.isArray(content['graphs'])) {
     const graphs = (content['graphs'] as unknown[]).map((raw) => {
-      if (!isObj(raw)) return raw;
+      if (!isPlainObject(raw)) return raw;
       const g = graphWithoutGrime(raw['graph']);
       return g === null ? raw : { ...raw, graph: g.graph };
     });
@@ -208,7 +208,7 @@ export function upgradeBuiltInGrime(content: unknown, scenes: readonly unknown[]
     }
   }
   const nextScenes = scenes.map((sc) => {
-    if (!isObj(sc)) return sc;
+    if (!isPlainObject(sc)) return sc;
     const ents = overrides(sc['entities']);
     if (ents === sc['entities']) return sc;
     changed = true;

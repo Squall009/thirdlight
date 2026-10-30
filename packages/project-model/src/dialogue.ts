@@ -36,6 +36,7 @@ import { canonicalGraphData, GRAPH_ITEM_ID_RE, nodeFieldValue, validateGraphData
 import { parseRichText, richTextVisibleLength } from './rich-text';
 import type { UiDocument } from './ui-documents';
 import { fieldType, unexpectedField, withFound } from './validate';
+import { isPlainObject } from '@thirdlight/shared';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -566,7 +567,6 @@ function closeOpenTags(prefix: string): string {
 // Validation
 // ---------------------------------------------------------------------------
 
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const bad = (path: string, found: unknown, message: string, expected: string): ModelErrorV2 => withFound({ code: 'field_value', path, message, expected }, found);
 const isName = (v: unknown): v is string => typeof v === 'string' && v.trim().length >= 1 && v.length <= DIALOGUE_LIMITS.nameChars && !/[\u0000-\u001f\u007f]/.test(v);
 
@@ -591,7 +591,7 @@ export function dialogueNodeProblems(node: GraphNode): { field: string; message:
 }
 
 export function validateDialogue(v: unknown, path: string, errors: ModelErrorV2[]): void {
-  if (!isObj(v)) {
+  if (!isPlainObject(v)) {
     errors.push(fieldType(path, v, 'object'));
     return;
   }
@@ -600,7 +600,7 @@ export function validateDialogue(v: unknown, path: string, errors: ModelErrorV2[
   if (!isName(v['name'])) errors.push(bad(`${path}/name`, v['name'], `a name is 1–${DIALOGUE_LIMITS.nameChars} characters`, 'a name'));
   const before = errors.length;
   validateGraphData(DIALOGUE_GRAPH_KIND, v['graph'], `${path}/graph`, errors);
-  if (errors.length > before || !isObj(v['graph'])) return;
+  if (errors.length > before || !isPlainObject(v['graph'])) return;
   const graph = v['graph'] as unknown as GraphData;
   graph.nodes.forEach((n, i) => {
     for (const p of dialogueNodeProblems(n)) errors.push(bad(`${path}/graph/nodes/${i}/data/${p.field}`, n.data?.[p.field], `${p.field} of node ${n.id}: ${p.message}`, 'an expression'));
@@ -629,7 +629,7 @@ export function validateDialogues(v: unknown, path: string, errors: ModelErrorV2
   const ids = new Set<string>();
   v.forEach((d, i) => {
     if (!trusted?.has(d)) validateDialogue(d, `${path}/${i}`, errors);
-    if (isObj(d) && typeof d['dialogueId'] === 'string') {
+    if (isPlainObject(d) && typeof d['dialogueId'] === 'string') {
       if (ids.has(d['dialogueId'])) errors.push(withFound({ code: 'id_duplicate', path: `${path}/${i}/dialogueId`, message: 'dialogue ids are unique' }, d['dialogueId']));
       ids.add(d['dialogueId']);
     }
@@ -639,7 +639,7 @@ export function validateDialogues(v: unknown, path: string, errors: ModelErrorV2
 const SPEAKER_KEYS = ['speakerId', 'name', 'color', 'portraits', 'defaultExpression', 'voiceProfile', 'blip', 'blipEvery', 'blipVolume'];
 
 export function validateSpeaker(v: unknown, path: string, errors: ModelErrorV2[]): void {
-  if (!isObj(v)) {
+  if (!isPlainObject(v)) {
     errors.push(fieldType(path, v, 'object'));
     return;
   }
@@ -649,7 +649,7 @@ export function validateSpeaker(v: unknown, path: string, errors: ModelErrorV2[]
   if (v['color'] !== undefined && (typeof v['color'] !== 'string' || !COLOR_RE.test(v['color']))) errors.push(bad(`${path}/color`, v['color'], 'a colour is #rrggbb (lower case)', '#rrggbb'));
   const portraits = v['portraits'];
   if (portraits !== undefined) {
-    if (!isObj(portraits)) errors.push(fieldType(`${path}/portraits`, portraits, 'object'));
+    if (!isPlainObject(portraits)) errors.push(fieldType(`${path}/portraits`, portraits, 'object'));
     else {
       const keys = Object.keys(portraits);
       if (keys.length > DIALOGUE_LIMITS.portraits) errors.push(withFound({ code: 'limits_exceeded', path: `${path}/portraits`, message: `at most ${DIALOGUE_LIMITS.portraits} portraits`, expected: `<= ${DIALOGUE_LIMITS.portraits}` }, keys.length));
@@ -674,7 +674,7 @@ export function validateSpeakers(v: unknown, path: string, errors: ModelErrorV2[
   const ids = new Set<string>();
   v.forEach((s, i) => {
     validateSpeaker(s, `${path}/${i}`, errors);
-    if (isObj(s) && typeof s['speakerId'] === 'string') {
+    if (isPlainObject(s) && typeof s['speakerId'] === 'string') {
       if (ids.has(s['speakerId'])) errors.push(withFound({ code: 'id_duplicate', path: `${path}/${i}/speakerId`, message: 'speaker ids are unique' }, s['speakerId']));
       ids.add(s['speakerId']);
     }
@@ -684,7 +684,7 @@ export function validateSpeakers(v: unknown, path: string, errors: ModelErrorV2[
 const SETTINGS_KEYS = ['textSpeed', 'autoAdvance', 'autoDelay', 'duck', 'backlog', 'document', 'theme', 'voiceMaxLateMs'];
 
 export function validateDialogueSettings(v: unknown, path: string, errors: ModelErrorV2[]): void {
-  if (!isObj(v)) {
+  if (!isPlainObject(v)) {
     errors.push(fieldType(path, v, 'object'));
     return;
   }
@@ -744,7 +744,7 @@ export function validateDialogueReferences(
     }
     if (s.blip !== undefined && assetKind(s.blip) !== 'audio') errors.push(withFound({ code: 'asset_reference_missing', path: `/speakers/${i}/blip`, message: 'a text blip must name an audio asset of this project', expected: 'an audio assetId' }, s.blip));
   });
-  const settings = isObj(doc.dialogueSettings) ? (doc.dialogueSettings as DialogueSettings) : null;
+  const settings = isPlainObject(doc.dialogueSettings) ? (doc.dialogueSettings as DialogueSettings) : null;
   if (settings !== null) {
     const docs = Array.isArray(doc.uiDocuments) ? (doc.uiDocuments as { uiDocumentId: string }[]).map((d) => d.uiDocumentId) : [];
     if (settings.document !== undefined && settings.document !== DIALOGUE_DOCUMENT_ID && !docs.includes(settings.document)) errors.push(withFound({ code: 'reference_missing', path: '/dialogueSettings/document', message: `the dialogue document "${settings.document}" is not a UI document of this project`, expected: 'a uiDocumentId' }, settings.document));
@@ -925,17 +925,17 @@ export function dialogueForRuntime(content: { dialogues?: readonly DialogueDocum
 
 /** A runtime dialogue data value is well formed (the snapshot check; built by `dialogueForRuntime`). */
 export function runtimeDialogueDataProblem(v: unknown): string | null {
-  if (!isObj(v)) return 'dialogue is an object';
+  if (!isPlainObject(v)) return 'dialogue is an object';
   if (!Array.isArray(v['dialogues'])) return 'dialogue.dialogues is a list';
   for (const d of v['dialogues'] as unknown[]) {
-    if (!isObj(d) || typeof d['dialogueId'] !== 'string' || !isObj(d['nodes']) || !isObj(d['entries'])) return 'a dialogue is { dialogueId, name, start, entries, nodes }';
+    if (!isPlainObject(d) || typeof d['dialogueId'] !== 'string' || !isPlainObject(d['nodes']) || !isPlainObject(d['entries'])) return 'a dialogue is { dialogueId, name, start, entries, nodes }';
     if (Object.keys(d['nodes']).length > DIALOGUE_LIMITS.nodes) return `a dialogue has at most ${DIALOGUE_LIMITS.nodes} nodes`;
-    for (const [id, n] of Object.entries(d['nodes'])) if (!GRAPH_ITEM_ID_RE.test(id) || !isObj(n) || typeof n['t'] !== 'string') return `dialogue ${String(d['dialogueId'])} node ${id.slice(0, 64)} is malformed`;
+    for (const [id, n] of Object.entries(d['nodes'])) if (!GRAPH_ITEM_ID_RE.test(id) || !isPlainObject(n) || typeof n['t'] !== 'string') return `dialogue ${String(d['dialogueId'])} node ${id.slice(0, 64)} is malformed`;
   }
   if (!Array.isArray(v['speakers'])) return 'dialogue.speakers is a list';
   const errors: ModelErrorV2[] = [];
   validateSpeakers(v['speakers'], '/dialogue/speakers', errors);
-  if (!isObj(v['settings'])) return 'dialogue.settings is an object';
+  if (!isPlainObject(v['settings'])) return 'dialogue.settings is an object';
   validateDialogueSettings(v['settings'], '/dialogue/settings', errors);
   if (errors.length > 0) return errors[0]!.message;
   if (typeof v['document'] !== 'string' || !ID_RE.test(v['document'])) return 'dialogue.document is a UI document id';

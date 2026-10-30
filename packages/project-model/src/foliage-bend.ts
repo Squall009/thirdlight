@@ -14,6 +14,7 @@
  * Pure data.
  */
 import type { ModelErrorV2 } from './errors';
+import { isPlainObject } from '@thirdlight/shared';
 
 export interface FoliageBendComponent {
   /** Metres round the subject's body foliage gives way within (absent: its body's radius plus `FOLIAGE_BEND_DEFAULTS.margin`). */
@@ -43,14 +44,13 @@ export const FOLIAGE_BEND_LIMITS = Object.freeze({
   ruleBend: Object.freeze({ min: 0, max: 4 }),
 });
 
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const inRange = (v: unknown, r: { min: number; max: number }): boolean => typeof v === 'number' && Number.isFinite(v) && v >= r.min && v <= r.max;
 function err(errors: ModelErrorV2[], code: string, path: string, message: string, found?: unknown): void {
   errors.push({ code, path, message, ...(found !== undefined ? { found } : {}) } as ModelErrorV2);
 }
 
 export function validateFoliageBendComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
-  if (!isObj(value)) return err(errors, 'field_type', path, 'foliageBend is an object { radius?, strength?, recovery? }', value);
+  if (!isPlainObject(value)) return err(errors, 'field_type', path, 'foliageBend is an object { radius?, strength?, recovery? }', value);
   for (const k of Object.keys(value)) if (!FOLIAGE_BEND_FIELDS.includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown foliageBend field "${k}" (${FOLIAGE_BEND_FIELDS.join(', ')})`, k);
   const L = FOLIAGE_BEND_LIMITS;
   const units: Record<string, string> = { radius: 'metres', strength: 'a factor', recovery: 'seconds' };
@@ -69,7 +69,7 @@ export function canonicalFoliageBend(c: FoliageBendComponent): FoliageBendCompon
 
 /** A subject's values, every one given (`bodyRadius`: its body's, which an absent radius grows from). */
 export function foliageBendOf(c: unknown, bodyRadius: number): { radius: number; strength: number; recovery: number } {
-  const v = isObj(c) ? c : {};
+  const v = isPlainObject(c) ? c : {};
   const L = FOLIAGE_BEND_LIMITS;
   const D = FOLIAGE_BEND_DEFAULTS;
   const pick = (k: 'radius' | 'strength' | 'recovery', d: number): number => (inRange(v[k], L[k]) ? (v[k] as number) : d);

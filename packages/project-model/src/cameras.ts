@@ -46,6 +46,7 @@
  */
 import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
+import { isPlainObject } from '@thirdlight/shared';
 
 export const VIRTUAL_CAMERA_RIGS = ['follow', 'orbitPoint', 'topDown', 'fixed', 'rail', 'track'] as const;
 export type VirtualCameraRig = (typeof VIRTUAL_CAMERA_RIGS)[number];
@@ -314,9 +315,6 @@ export const CAMERA_PATH_LIMITS = Object.freeze({ minPoints: 2, maxPoints: 64, c
 const ENTITY_ID_RE = ID_RE;
 const ACTION_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
 function err(errors: ModelErrorV2[], code: string, path: string, message: string, found?: unknown, expected?: string): void {
   errors.push({ code, path, message, ...(found !== undefined ? { found } : {}), ...(expected !== undefined ? { expected } : {}) } as ModelErrorV2);
 }

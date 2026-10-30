@@ -67,6 +67,7 @@ import { writeAtomic, type WriteOps } from './write';
 import { FileStamps } from './file-stamps';
 import { assetRecordOf } from './catalog-lookup';
 import { assetRoot, hasImported, importKeyOfConverted, isProjectOwnTop, PROJECT_OWN_ENTRIES, readImported, type ConvertedLike } from './asset-files';
+import { isPlainObject } from '@thirdlight/shared';
 
 // ---- bounds --------------------------------------------
 
@@ -1732,16 +1733,12 @@ export function preparedRecordBytes(prepared: PreparedBehaviorSource): Uint8Arra
   return new TextEncoder().encode(`${JSON.stringify(prepared, null, 2)}\n`);
 }
 
-function isPlainRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
-
 /**
  * Shape-validate one persisted prepared record. Derived data: an invalid or
  * corrupt entry is skipped, never repaired and never authoritative.
  */
 export function parsePreparedRecord(value: unknown): PreparedBehaviorSource | null {
-  if (!isPlainRecord(value)) return null;
+  if (!isPlainObject(value)) return null;
   const isDigest = (v: unknown): v is string => typeof v === 'string' && PREPARED_DIGEST_RE.test(v);
   const isInt = (v: unknown, min: number, max: number): v is number =>
     typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;
@@ -1755,10 +1752,10 @@ export function parsePreparedRecord(value: unknown): PreparedBehaviorSource | nu
   if (!Array.isArray(value['requiredModules']) || value['requiredModules'].some((m) => typeof m !== 'string')) return null;
   if (!Array.isArray(value['ownedTransforms']) || value['ownedTransforms'].some((m) => typeof m !== 'string')) return null;
   const decl = value['declaration'];
-  if (!isPlainRecord(decl) || !Array.isArray(decl['properties'])) return null;
+  if (!isPlainObject(decl) || !Array.isArray(decl['properties'])) return null;
   if (!isDigest(value['declarationDigest']) || !isDigest(value['recipeDigest'])) return null;
   const compiler = value['compiler'];
-  if (!isPlainRecord(compiler) || typeof compiler['id'] !== 'string' || typeof compiler['esbuild'] !== 'string') return null;
+  if (!isPlainObject(compiler) || typeof compiler['id'] !== 'string' || typeof compiler['esbuild'] !== 'string') return null;
   return value as unknown as PreparedBehaviorSource;
 }
 

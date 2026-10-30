@@ -39,6 +39,7 @@ import type {
   SurfacePresetName,
   V3OwnedComponent,
 } from './types';
+import { isPlainObject } from '@thirdlight/shared';
 
 /** Registry field order for the components `setComponent` can edit. */
 export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[]> = {
@@ -437,10 +438,6 @@ export function entityHasComponent(
   component: string,
 ): boolean {
   return Object.prototype.hasOwnProperty.call(entity.components, component);
-}
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
 /** RFC 6901 escaping for one JSON Pointer segment. */

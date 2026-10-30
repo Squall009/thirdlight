@@ -19,7 +19,7 @@ import {
   fieldType,
   fieldUnexpected,
   fieldValue,
-  isPlainObject,
+  isPlainObjectStrict,
   limitsExceeded,
 } from './errors';
 import { MAX_PREFAB_OVERRIDES as MAX_OVERRIDES, isPartKey } from '@thirdlight/project-model';
@@ -46,7 +46,7 @@ function validateTransform(
   value: unknown,
   path: string,
 ): PartialTransformArgs | { error: CommandError } {
-  if (!isPlainObject(value)) {
+  if (!isPlainObjectStrict(value)) {
     return { error: fieldType(path, value, 'object with optional position, rotation, scale') };
   }
   for (const key of Object.keys(value)) {
@@ -197,7 +197,7 @@ export function validateInstantiatePrefabArgs(
     for (let i = 0; i < raw.length; i++) {
       const path = `/args/overrides/${i}`;
       const o = raw[i];
-      if (!isPlainObject(o)) {
+      if (!isPlainObjectStrict(o)) {
         return { ok: false, error: fieldType(path, o, 'object { localId, key, value }') };
       }
       for (const key of Object.keys(o)) {

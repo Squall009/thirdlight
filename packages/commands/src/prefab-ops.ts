@@ -76,19 +76,11 @@ import type {
   UpdatePrefabArgs,
   UpdatePrefabChange,
 } from './types';
+import { utf8Length } from '@thirdlight/shared';
 const ID_EXPECTED = 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}';
 
 
 const TRANSFORM_FIELDS = ['position', 'rotation', 'scale'] as const;
-
-function utf8Length(text: string): number {
-  let n = 0;
-  for (const ch of text) {
-    const c = ch.codePointAt(0) as number;
-    n += c <= 0x7f ? 1 : c <= 0x7ff ? 2 : c <= 0xffff ? 3 : 4;
-  }
-  return n;
-}
 
 export function canonicalBytes(value: unknown): number {
   return utf8Length(JSON.stringify(value, null, 2) + '\n');

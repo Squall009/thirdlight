@@ -28,6 +28,7 @@ import { PLAY_DIAGNOSTICS_MAX_BYTES, playDiagnosticsBytes } from './diagnostics-
 import { GAME_OBSERVATION_SECTIONS, PLAY_DIAGNOSTICS_SECTIONS, playSectionsProblem } from './play-sections';
 import { playProblemProblem } from './play-problems';
 import { debugCommandCallProblem, GAME_CONTROL_COMMANDS, GAME_OBSERVATION_MAX_BYTES, RELAY_ANSWER_WITHIN_MAX_MS } from './m3';
+import { isPlainObject } from '@thirdlight/shared';
 
 /** The exhaustive allowlists (v2). */
 export const BRIDGE_EDITOR_TO_PREVIEW_TYPES = [
@@ -99,10 +100,6 @@ function int(v: unknown, min: number, max: number): v is number {
 
 function isDigest(v: unknown): v is string {
   return typeof v === 'string' && /^[0-9a-f]{64}$/.test(v);
-}
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
 function rejectUnknown(m: Record<string, unknown>, allowed: readonly string[]): { reason: string; path: string } | null {

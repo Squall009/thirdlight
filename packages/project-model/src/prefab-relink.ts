@@ -7,12 +7,11 @@
  * again from the result. One diff, so a copy is only ever stored as overrides
  * that assemble back to exactly what was edited.
  */
-import { canonicalJsonKey } from '@thirdlight/shared';
+import { canonicalJsonKey, isPlainObject } from '@thirdlight/shared';
 import type { AssemblyEntity, PrefabAssembler } from './prefab-assembly';
 import type { PrefabLinkComponent, PrefabOverride } from './prefab-links';
 
 type Obj = Record<string, unknown>;
-const isObject = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** A field name a part path can hold (paths are `/`-separated). */
 const pathSafe = (k: string): boolean => k.length > 0 && !k.includes('/');
@@ -20,7 +19,7 @@ const pathSafe = (k: string): boolean => k.length > 0 && !k.includes('/');
 /** The overrides that turn `was` (the prefab's) into `now` (the copy's) at `path`. */
 function diffInto(out: PrefabOverride[], part: string, path: string, was: unknown, now: unknown): void {
   if (canonicalJsonKey(was) === canonicalJsonKey(now)) return;
-  if (isObject(was) && isObject(now) && Object.keys({ ...was, ...now }).every(pathSafe)) {
+  if (isPlainObject(was) && isPlainObject(now) && Object.keys({ ...was, ...now }).every(pathSafe)) {
     for (const k of Object.keys({ ...was, ...now })) {
       if (now[k] === undefined) out.push({ part, path: `${path}/${k}`, remove: true });
       else if (was[k] === undefined) out.push({ part, path: `${path}/${k}`, value: now[k] });
@@ -40,7 +39,7 @@ export function partOverrides(out: PrefabOverride[], key: string, pristine: Asse
     }
   }
   const was = pristine.components as Obj;
-  const comps = isObject(now['components']) ? (now['components'] as Obj) : {};
+  const comps = isPlainObject(now['components']) ? (now['components'] as Obj) : {};
   for (const c of Object.keys({ ...was, ...comps })) {
     if (isRoot && c === 'transform') continue;
     if (comps[c] === undefined) out.push({ part: key, path: `components/${c}`, remove: true });

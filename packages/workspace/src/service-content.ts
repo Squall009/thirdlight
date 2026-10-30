@@ -76,7 +76,7 @@ import {
 import { contentPublishFailed, pathRejected, projectNotFound, projectUnavailable } from './errors';
 import { locateMipParts, type MipPartFile } from './mip-parts';
 import { scanAssetFolder, writeImportFolder, writeUploadedFile, type FolderImportScan, type PreparedImportFile } from './folder-import';
-import { deepFreeze } from './isolate';
+import { deepFreezeExceptViews } from '@thirdlight/shared';
 import { sha256HexNative } from './digest';
 import { rememberPublishedStage } from './behavior';
 import { ensureSession, type Core, type ProjectSession } from './session';
@@ -231,7 +231,7 @@ export function contentOps(core: Core) {
     return fn(s);
   }
   const run = <T>(projectId: string, fn: (s: ProjectSession) => T): T | { ok: false; error: CommandError } =>
-    deepFreeze(withOpenSession<T | { ok: false; error: CommandError }>(projectId, fn, (error) => ({ ok: false, error })));
+    deepFreezeExceptViews(withOpenSession<T | { ok: false; error: CommandError }>(projectId, fn, (error) => ({ ok: false, error })));
 
   /**
    * The walk behind `assetFiles`: every asset's file against the catalog, one
@@ -420,7 +420,7 @@ export function contentOps(core: Core) {
       }
       walk.visit(r);
     }
-    return deepFreeze(walk.finish(reason));
+    return deepFreezeExceptViews(walk.finish(reason));
   }
 
   /** The game-folder file of each asset id found by its sidecar (only files that are there). */

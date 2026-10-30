@@ -118,6 +118,7 @@ import type {
   DebugCommandArgs,
   DebugCommandOptions,
 } from './types';
+import { isPlainObject } from '@thirdlight/shared';
 
 /**
  * `ctx.debug` over the runtime's per-phase control, made once per behavior
@@ -493,10 +494,6 @@ const PROPERTY_TYPES: readonly PropertyType[] = [
 ];
 /** Every behavior id the project model accepts (its ID syntax allows `_`) forms a module name. */
 const MODULE_BEHAVIOR_ID_RE = /^[a-z0-9_-]+$/;
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
 
 /** `ctx.log` message clipping (256 chars, ellipsis). */
 export function clipLogMessage(message: string): string {

@@ -36,6 +36,7 @@
 import type { ModelErrorV2 } from './errors';
 import { ID_RE } from './validate';
 import type { Vec3 } from './types';
+import { isPlainObject } from '@thirdlight/shared';
 
 /** How many decal layers there are: the width of every decal layer mask (one row of checkboxes, as light layers). */
 export const DECAL_LAYER_COUNT = 8;
@@ -176,9 +177,6 @@ export interface DecalCellRef {
   cell: string;
 }
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
 function err(errors: ModelErrorV2[], code: string, path: string, message: string, found?: unknown): void {
   errors.push({ code, path, message, ...(found !== undefined ? { found } : {}) } as ModelErrorV2);
 }

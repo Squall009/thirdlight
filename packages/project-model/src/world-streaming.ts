@@ -25,6 +25,7 @@
  * Pure.
  */
 import type { ModelErrorV2 } from './errors';
+import { isPlainObject } from '@thirdlight/shared';
 
 export interface StreamingRings {
   /** Metres within which tiles or chunks are drawn at full detail. */
@@ -94,13 +95,12 @@ export function resolveStreamingRings(s: StreamingRings | undefined): ResolvedSt
   });
 }
 
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
 /** Check a component's `streaming` (`live`: a block layer's may name a live ring). */
 export function validateStreamingRings(v: unknown, path: string, errors: ModelErrorV2[], live: boolean): void {
   if (v === undefined) return;
-  if (!isObj(v)) {
+  if (!isPlainObject(v)) {
     errors.push({ code: 'field_type', path, message: `streaming is {render, collision?, scatter?, ${live ? 'live?, ' : ''}hysteresis?} metres`, found: v } as ModelErrorV2);
     return;
   }

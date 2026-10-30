@@ -27,6 +27,7 @@ import { MIN_DIRECTION_NORM } from './scene-v3';
 import { LIGHT_TYPES } from './types-v3';
 import type { ModelErrorV2 } from './errors';
 import { canonicalSceneEnvironment, validateFog, validateHeightFog, validatePost, validateSky, validateWetness, type FogConfig, type HeightFogConfig, type PostConfig, type SkyConfig } from './materials';
+import { isPlainObject } from '@thirdlight/shared';
 
 /** Engine limits of environment presets (documented in docs/manual/features/environment.md). */
 export const ENVIRONMENT_PRESET_LIMITS = Object.freeze({
@@ -83,9 +84,6 @@ const COLOR_RE = /^#[0-9a-f]{6}$/;
 const TAG_RE = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
 const PART_KEYS = ['sky', 'fog', 'heightFog', 'post', 'lights', 'lightmap', 'wetness'] as const;
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
 function err(errors: ModelErrorV2[], code: string, path: string, message: string, found?: unknown, expected?: string): void {
   errors.push({ code, path, message, ...(found !== undefined ? { found } : {}), ...(expected !== undefined ? { expected } : {}) } as ModelErrorV2);
 }

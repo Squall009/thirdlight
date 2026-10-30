@@ -21,6 +21,8 @@
 import { ERROR_CODES as COMMAND_ERROR_CODES } from '@thirdlight/commands';
 import type { CommandError } from '@thirdlight/commands';
 import type { ErrorCode, LimitName, ModelError } from '@thirdlight/project-model';
+import { isPlainObjectStrict } from '@thirdlight/shared';
+export { isPlainObjectStrict } from '@thirdlight/shared';
 
 /** The workspace code table (stable). The content-storage codes follow in
  * contract table order. */
@@ -570,7 +572,7 @@ function diagnosticValue(
   const tag = Object.prototype.toString.call(v); // '[object X]'
   if (tag === '[object Date]') return 'Date';
   if (tag !== '[object Object]') return tag.slice(8, -1); // Map/Set/typed arrays/instances
-  if (!isPlainObject(v)) return 'Object';
+  if (!isPlainObjectStrict(v)) return 'Object';
   budget.nodes -= 1;
   seen.add(v);
   const out: Record<string, unknown> = {};
@@ -589,13 +591,6 @@ function diagnosticValue(
 /** The bounded, JSON-safe `found` payload (see the block above). */
 function diagnosticFound(v: unknown): unknown {
   return diagnosticValue(v, new Set<object>(), { nodes: DIAG_NODE_LIMIT }, 0);
-}
-
-/** Plain-object check (same convention as the commands layer). */
-export function isPlainObject(v: unknown): v is Record<string, unknown> {
-  if (typeof v !== 'object' || v === null || Array.isArray(v)) return false;
-  const proto = Object.getPrototypeOf(v);
-  return proto === Object.prototype || proto === null;
 }
 
 /** The safe-integer check used for revision/depth/limit values. */

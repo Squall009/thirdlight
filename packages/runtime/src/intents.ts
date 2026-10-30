@@ -18,6 +18,7 @@ import { MAX_LEN, MAX_OWNED_TRANSFORMS } from '@thirdlight/project-model';
 import { JUMP_PHASES, type JumpPhase } from './actions';
 import { clipMessage } from './errors';
 import type { SimulationPhase } from './types';
+import { isPlainObject } from '@thirdlight/shared';
 
 /**
  * The intent kinds. `respawn`: the player dies and respawns (a game's own fall/kill rules live in scripts).
@@ -352,10 +353,6 @@ const SCALE_MAX = 1000;
 
 const POSITION_KEYS = new Set(['x', 'y', 'z']);
 const MAX_POSITION = MAX_LEN;
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
 
 function invalid(detail: string, message: string): BehaviorIntentError {
   return new BehaviorIntentError('behavior_intent_invalid', detail, message);

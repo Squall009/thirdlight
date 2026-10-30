@@ -42,6 +42,7 @@ import {
   VARIABLE_PROPERTY_TYPE,
   type BehaviorVariableKind,
 } from './behavior-graph-nodes';
+import { isPlainObject } from '@thirdlight/shared';
 
 export * from './behavior-graph-nodes';
 
@@ -71,15 +72,12 @@ export interface BehaviorScriptEnv {
 
 // ---- small helpers ---------------------------------------------------------------------------
 
-function isObj(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
 const byPosition = (a: GraphNode, b: GraphNode): number => a.position[1] - b.position[1] || a.position[0] - b.position[0] || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
 /** Nodes of a graph as it is (malformed ones skipped; validation reports them). */
 function nodesOf(graph: unknown): GraphNode[] {
-  const nodes = isObj(graph) && Array.isArray(graph['nodes']) ? (graph['nodes'] as unknown[]) : [];
-  return nodes.filter((n): n is GraphNode => isObj(n) && typeof n['id'] === 'string' && typeof n['type'] === 'string' && Array.isArray(n['position']) && (n['data'] === undefined || isObj(n['data'])));
+  const nodes = isPlainObject(graph) && Array.isArray(graph['nodes']) ? (graph['nodes'] as unknown[]) : [];
+  return nodes.filter((n): n is GraphNode => isPlainObject(n) && typeof n['id'] === 'string' && typeof n['type'] === 'string' && Array.isArray(n['position']) && (n['data'] === undefined || isPlainObject(n['data'])));
 }
 
 function field(node: GraphNode, key: string, fallback: GraphValue): GraphValue {
@@ -132,17 +130,17 @@ export function enumOptions(n: GraphNode): string[] {
 /** The standalone graph of `kind`/`id` among `graphs` (as it is), or null. */
 function standalone(graphs: unknown, kind: string, id: string): GraphData | null {
   const docs = Array.isArray(graphs) ? graphs : [];
-  const d = docs.find((x) => isObj(x) && x['graphId'] === id && x['kind'] === kind) as Record<string, unknown> | undefined;
+  const d = docs.find((x) => isPlainObject(x) && x['graphId'] === id && x['kind'] === kind) as Record<string, unknown> | undefined;
   const g = d?.['graph'];
-  return isObj(g) && Array.isArray(g['nodes']) ? { nodes: nodesOf(g), edges: Array.isArray(g['edges']) ? (g['edges'] as GraphEdge[]) : [] } : null;
+  return isPlainObject(g) && Array.isArray(g['nodes']) ? { nodes: nodesOf(g), edges: Array.isArray(g['edges']) ? (g['edges'] as GraphEdge[]) : [] } : null;
 }
 
 /** A script function by id (as it is), or null. */
 function localFunction(functions: unknown, id: string): GraphData | null {
   const list = Array.isArray(functions) ? functions : [];
-  const f = list.find((x) => isObj(x) && x['functionId'] === id) as Record<string, unknown> | undefined;
+  const f = list.find((x) => isPlainObject(x) && x['functionId'] === id) as Record<string, unknown> | undefined;
   const g = f?.['graph'];
-  return isObj(g) && Array.isArray(g['nodes']) ? { nodes: nodesOf(g), edges: Array.isArray(g['edges']) ? (g['edges'] as GraphEdge[]) : [] } : null;
+  return isPlainObject(g) && Array.isArray(g['nodes']) ? { nodes: nodesOf(g), edges: Array.isArray(g['edges']) ? (g['edges'] as GraphEdge[]) : [] } : null;
 }
 
 /**
@@ -279,7 +277,7 @@ export function behaviorScriptGraphs(graph: GraphData, env: BehaviorScriptEnv = 
   const out: BehaviorScriptGraph[] = [{ scope: '', kind: BEHAVIOR_GRAPH_KIND, graph, ctx: behaviorGraphContext(graph, env) }];
   const list = Array.isArray(env.functions) ? env.functions : [];
   for (const f of list) {
-    if (!isObj(f) || typeof f['functionId'] !== 'string') continue;
+    if (!isPlainObject(f) || typeof f['functionId'] !== 'string') continue;
     const g = localFunction(list, f['functionId']);
     if (g !== null) out.push({ scope: `fn:${f['functionId']}`, kind: BEHAVIOR_FUNCTION_GRAPH_KIND, graph: g, ctx: behaviorGraphContext(g, { ...env, script: graph }) });
   }

@@ -27,6 +27,7 @@ import { KEY_CODE_RE, validateInputStatus, type InputStatusEntry } from './input
 import { validateUiEvents, type UiEventRecord } from './ui';
 import { validateDialogueInputs, type DialogueInputRecord } from './dialogue';
 import { validateAssetAnswers, type AssetHandleAnswer } from './asset-handles';
+import { isPlainObject } from '@thirdlight/shared';
 
 /** The four jump phases. */
 export type JumpPhase = 'none' | 'pressed' | 'held' | 'released';
@@ -312,10 +313,6 @@ export class InputFrameError extends Error {
     this.name = 'InputFrameError';
     this.field = field;
   }
-}
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
 /** `round(v·1e4)/1e4`, negative zero normalized to `0`. */

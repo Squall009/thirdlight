@@ -20,7 +20,7 @@
 import type { MeshSimplifier, SimplifiedMesh } from '@thirdlight/asset-pipeline';
 import { MESH_LOD_RATIOS_DEFAULT } from '@thirdlight/project-model/limits';
 
-import { glbBytes, readGlb } from '@thirdlight/shared';
+import { glbBytes, isPlainObject, readGlb } from '@thirdlight/shared';
 
 /** What a generation did. */
 export interface GlbLodReport {
@@ -39,7 +39,6 @@ export interface GlbLodReport {
 }
 
 type Json = Record<string, unknown>;
-const isObj = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
 const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 const LOD_RE = /_LOD\d+$/i;
 // Collision and occluder nodes are never drawn as render levels: they keep their one mesh.
@@ -50,21 +49,21 @@ const ELEMENT_ARRAY_BUFFER = 34963;
 
 /** One primitive's readable geometry, or why it cannot be simplified. */
 function primitiveGeometry(json: Json, bin: Uint8Array, prim: unknown): { positions: Float32Array; indices: Uint32Array | null } | string {
-  if (!isObj(prim)) return 'a primitive is not an object';
+  if (!isPlainObject(prim)) return 'a primitive is not an object';
   if (prim['mode'] !== undefined && prim['mode'] !== 4) return 'it draws lines or points';
   if (prim['targets'] !== undefined) return 'it has morph targets';
-  if (isObj(prim['extensions']) && Object.keys(prim['extensions']).some((k) => /draco|compression/i.test(k))) return 'its geometry is compressed';
-  const attrs = isObj(prim['attributes']) ? prim['attributes'] : {};
+  if (isPlainObject(prim['extensions']) && Object.keys(prim['extensions']).some((k) => /draco|compression/i.test(k))) return 'its geometry is compressed';
+  const attrs = isPlainObject(prim['attributes']) ? prim['attributes'] : {};
   const accessors = list(json['accessors']);
   const views = list(json['bufferViews']);
   const read = (index: unknown, components: number, componentTypes: readonly number[]): { data: number[]; count: number } | string => {
     const acc = typeof index === 'number' ? accessors[index] : undefined;
-    if (!isObj(acc)) return 'an accessor is missing';
+    if (!isPlainObject(acc)) return 'an accessor is missing';
     if (acc['sparse'] !== undefined) return 'an accessor is sparse';
     const type = acc['componentType'] as number;
     if (!componentTypes.includes(type)) return componentTypes.includes(FLOAT) ? 'its positions are not plain floats' : 'its indices are not integers';
     const bv = views[acc['bufferView'] as number];
-    if (!isObj(bv) || (bv['buffer'] ?? 0) !== 0 || bv['extensions'] !== undefined) return 'its data is not in the file\'s binary chunk';
+    if (!isPlainObject(bv) || (bv['buffer'] ?? 0) !== 0 || bv['extensions'] !== undefined) return 'its data is not in the file\'s binary chunk';
     const size = type === FLOAT ? 4 : (INDEX_TYPES[type] ?? 4);
     const stride = typeof bv['byteStride'] === 'number' ? bv['byteStride'] : size * components;
     const start = ((bv['byteOffset'] as number | undefined) ?? 0) + ((acc['byteOffset'] as number | undefined) ?? 0);
@@ -81,7 +80,7 @@ function primitiveGeometry(json: Json, bin: Uint8Array, prim: unknown): { positi
     return { data, count };
   };
   const acc = accessors[attrs['POSITION'] as number];
-  if (!isObj(acc) || acc['type'] !== 'VEC3') return 'it has no xyz positions';
+  if (!isPlainObject(acc) || acc['type'] !== 'VEC3') return 'it has no xyz positions';
   const pos = read(attrs['POSITION'], 3, [FLOAT]);
   if (typeof pos === 'string') return pos;
   if (prim['indices'] === undefined) return { positions: new Float32Array(pos.data), indices: null };
@@ -102,18 +101,18 @@ export function generateGlbLods(glb: Uint8Array, simplifier: MeshSimplifier, rat
   if (typeof parts === 'string') return { glb: null, report: { error: parts } };
   const json = structuredClone(parts.json);
   const firstBuffer = list(json['buffers'])[0];
-  if (isObj(firstBuffer) && firstBuffer['uri'] !== undefined) return { glb: null, report: { error: 'the geometry is in an external buffer, not the GLB' } };
+  if (isPlainObject(firstBuffer) && firstBuffer['uri'] !== undefined) return { glb: null, report: { error: 'the geometry is in an external buffer, not the GLB' } };
   const bin = parts.bin ?? new Uint8Array(0);
   const report: GlbLodReport = { ratios: [...ratios], nodes: 0, triangles: [], maxError: 0, skipped: [] };
   const nodes = list(json['nodes']);
-  if (nodes.some((n) => isObj(n) && typeof n['name'] === 'string' && LOD_RE.test(n['name']))) return { glb: null, report: { ...report, authored: true } };
+  if (nodes.some((n) => isPlainObject(n) && typeof n['name'] === 'string' && LOD_RE.test(n['name']))) return { glb: null, report: { ...report, authored: true } };
   const meshes = list(json['meshes']);
   // Nodes an animation moves: a level beside one would stand still.
   const animated = new Set<number>();
-  for (const a of list(json['animations'])) for (const c of isObj(a) ? list(a['channels']) : []) if (isObj(c) && isObj(c['target']) && typeof c['target']['node'] === 'number') animated.add(c['target']['node']);
+  for (const a of list(json['animations'])) for (const c of isPlainObject(a) ? list(a['channels']) : []) if (isPlainObject(c) && isPlainObject(c['target']) && typeof c['target']['node'] === 'number') animated.add(c['target']['node']);
   const parentOf = new Map<number, number>();
   nodes.forEach((n, i) => {
-    if (isObj(n)) for (const c of list(n['children'])) if (typeof c === 'number') parentOf.set(c, i);
+    if (isPlainObject(n)) for (const c of list(n['children'])) if (typeof c === 'number') parentOf.set(c, i);
   });
   // Per mesh: its levels (each a list of index arrays, one per primitive), made once however many nodes draw it.
   const made = new Map<number, { levels: Uint32Array[][]; base: number } | string>();
@@ -122,7 +121,7 @@ export function generateGlbLods(glb: Uint8Array, simplifier: MeshSimplifier, rat
     if (cached !== undefined) return cached;
     const mesh = meshes[meshIndex];
     let out: { levels: Uint32Array[][]; base: number } | string;
-    if (!isObj(mesh)) out = 'its mesh is missing';
+    if (!isPlainObject(mesh)) out = 'its mesh is missing';
     else {
       const prims = list(mesh['primitives']);
       const per: SimplifiedMesh[][] = [];
@@ -170,7 +169,7 @@ export function generateGlbLods(glb: Uint8Array, simplifier: MeshSimplifier, rat
   };
   const vertexCountOf = (prim: Json): number => {
     const acc = accessors[(prim['attributes'] as Json)['POSITION'] as number];
-    return isObj(acc) ? (acc['count'] as number) : 0;
+    return isPlainObject(acc) ? (acc['count'] as number) : 0;
   };
   // Generated meshes per (mesh, level), shared by every node that draws the mesh.
   const levelMeshes = new Map<string, number>();
@@ -179,10 +178,10 @@ export function generateGlbLods(glb: Uint8Array, simplifier: MeshSimplifier, rat
   const perNode: number[][] = [];
   // Level names are `<name>_LOD<n>`: a name two nodes share gets the node's index, so their levels do not mix.
   const named = new Map<string, number>();
-  for (const n of nodes) if (isObj(n) && typeof n['name'] === 'string') named.set(n['name'], (named.get(n['name']) ?? 0) + 1);
+  for (const n of nodes) if (isPlainObject(n) && typeof n['name'] === 'string') named.set(n['name'], (named.get(n['name']) ?? 0) + 1);
   for (let i = 0; i < nodeCount; i++) {
     const node = nodes[i];
-    if (!isObj(node) || typeof node['mesh'] !== 'number') continue;
+    if (!isPlainObject(node) || typeof node['mesh'] !== 'number') continue;
     const own = typeof node['name'] === 'string' && node['name'] !== '' ? node['name'] : `mesh${i}`;
     const name = (named.get(own) ?? 0) > 1 ? `${own}.${i}` : own;
     const skip = (reason: string): void => void report.skipped.push({ node: name, reason });
@@ -228,7 +227,7 @@ export function generateGlbLods(glb: Uint8Array, simplifier: MeshSimplifier, rat
       const copy: Json = { name: `${name}_LOD${l + 1}`, mesh: m };
       for (const k of ['matrix', 'translation', 'rotation', 'scale', 'extras']) if (node[k] !== undefined) copy[k] = structuredClone(node[k]);
       // Instancing goes with every level; a light on the node stays on LOD0 alone (one light, not one per level).
-      if (isObj(node['extensions'])) {
+      if (isPlainObject(node['extensions'])) {
         const { KHR_lights_punctual: _light, ...rest } = node['extensions'];
         if (Object.keys(rest).length > 0) copy['extensions'] = structuredClone(rest);
       }
@@ -242,7 +241,7 @@ export function generateGlbLods(glb: Uint8Array, simplifier: MeshSimplifier, rat
       p['children'] = [...list(p['children']), ...siblings];
     } else {
       for (const scene of list(json['scenes'])) {
-        if (isObj(scene) && list(scene['nodes']).includes(i)) scene['nodes'] = [...list(scene['nodes']), ...siblings];
+        if (isPlainObject(scene) && list(scene['nodes']).includes(i)) scene['nodes'] = [...list(scene['nodes']), ...siblings];
       }
     }
   }

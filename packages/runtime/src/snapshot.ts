@@ -24,25 +24,10 @@ import { canonicalTimelines, validateTimelines, type TimelineAsset } from '@thir
 import { canonicalEventCues, validateEventCues, type EventCue } from '@thirdlight/project-model';
 import { GRAPH_KINDS, validateArchitectureGraphs, validateGraphDocuments, type GraphDocument } from '@thirdlight/project-model';
 import { materialCatalogProblem, type RuntimeMaterialCatalog } from './material-params';
+export { deepFreeze } from '@thirdlight/shared';
 
 const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'tags', 'scenes', 'animators', 'prefabs', 'modelBounds', 'blockTypes', 'cellFields', 'rigs', 'modelColliders', 'architectureStyles', 'materialCatalog', 'materialIds', 'uiDocuments', 'modes', 'saveSchema', 'audioDurations', 'timelines', 'eventCues', 'sceneList', 'environmentPresets', 'dialogue']);
 const SCENE_ID_RE = ID_RE;
-
-/**
- * Recursively freeze (idempotent). On successful
- * `instantiateRuntime`, the runtime deep-freezes the snapshot and never
- * writes to it.
- */
-export function deepFreeze<T>(value: T): T {
-  if (value === null || typeof value !== 'object') return value;
-  if (Object.isFrozen(value)) return value;
-  Object.freeze(value);
-  const rec = value as Record<string, unknown>;
-  for (const key of Object.getOwnPropertyNames(rec)) {
-    deepFreeze(rec[key]);
-  }
-  return value;
-}
 
 /**
  * Validate the runtime snapshot. Returns the normalized

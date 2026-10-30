@@ -32,7 +32,7 @@ import { join } from 'node:path';
 import { parseDocumentBytes } from '@thirdlight/project-model';
 
 import { generateBackendId, sha256HexNative } from './digest';
-import { isPlainObject, isSafeInt, type Holder } from './errors';
+import { isPlainObjectStrict, isSafeInt, type Holder } from './errors';
 import { errnoOf, writeAtomic, type WriteOps } from './write';
 
 /** The ownership record storageVersion. */
@@ -88,7 +88,7 @@ export function parseOwnershipRecord(bytes: Uint8Array | null): OwnershipRecord 
   const p = parseDocumentBytes(bytes);
   if (!p.ok) return null;
   const root = p.value;
-  if (!isPlainObject(root)) return null;
+  if (!isPlainObjectStrict(root)) return null;
   for (const k of Object.keys(root)) {
     if (!['storageVersion', 'state', 'backendId', 'pid', 'openedAt', 'lockEpoch'].includes(k)) {
       return null;
@@ -342,7 +342,7 @@ export function parseClaimStamp(bytes: Uint8Array): ClaimStamp | null {
   const p = parseDocumentBytes(bytes);
   if (!p.ok) return null;
   const root = p.value;
-  if (!isPlainObject(root)) return null;
+  if (!isPlainObjectStrict(root)) return null;
   for (const k of Object.keys(root)) {
     if (!['backendId', 'pid', 'openedAt'].includes(k)) return null;
   }

@@ -118,6 +118,7 @@ import { effectiveEntityFlags, nearestObjectAncestor } from './hierarchy-v3';
 const planeField = canonicalPlaneField;
 import { canonicalBlockFootprint, validateBlockFootprintComponent, type BlockFootprintComponent } from './block-layers';
 import { canonicalBlockLayerComponent, canonicalSceneBlocks, validateBlockLayerComponent, validateSceneBlocks, type BlockLayerComponent, type BlockLayerData } from './block-layers';
+import { utf8LengthPairingAnyHigh } from '@thirdlight/shared';
 
 export { MAX_INSTANCE_CHUNK_SIZE };
 
@@ -562,7 +563,7 @@ export function validateModelAnimationComponent(c: unknown, path: string, errors
         errors.push(unexpectedField(`${path}/roles/${pointerSegment(k)}`, k, ROLE_KEYS.join(', ')));
       }
     }
-    const bytes = utf8Length(JSON.stringify(roles) ?? '');
+    const bytes = utf8LengthPairingAnyHigh(JSON.stringify(roles) ?? '');
     if (bytes > SCENE_LIMITS_V3.animationProfileBytes) {
       errors.push(
         limitsError(
@@ -578,20 +579,6 @@ export function validateModelAnimationComponent(c: unknown, path: string, errors
   for (const k of Object.keys(c)) {
     if (!KNOWN_MODEL_ANIMATION_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'assetId, version, roles'));
   }
-}
-
-function utf8Length(s: string): number {
-  let n = 0;
-  for (let i = 0; i < s.length; i++) {
-    const c = s.charCodeAt(i);
-    if (c < 0x80) n += 1;
-    else if (c < 0x800) n += 2;
-    else if (c >= 0xd800 && c <= 0xdbff) {
-      n += 4;
-      i += 1;
-    } else n += 3;
-  }
-  return n;
 }
 
 // ---- components, conflicts and transforms -----------------------------------

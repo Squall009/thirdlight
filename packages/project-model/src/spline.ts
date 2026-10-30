@@ -20,6 +20,7 @@ import type { ModelErrorV2 } from './errors';
 import { TERRAIN_LAYER_MAX } from './terrain-sizes';
 import { ID_RE } from './validate';
 import { validateDecalLayerMask } from './decals';
+import { isPlainObject } from '@thirdlight/shared';
 
 /** The bounds of one spline's values (per request: the 64 KiB command bounds a spline's points first). */
 export const SPLINE_LIMITS = Object.freeze({
@@ -162,7 +163,6 @@ const PIECE_FIELDS = ['asset', 'spacing', 'start', 'offset', 'yaw', 'upright', '
 const DIGEST_RE = /^[0-9a-f]{64}$/;
 const RULE_ID_RE = /^[A-Za-z0-9_-]{1,32}$/;
 
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const within = (v: unknown, lo: number, hi: number): boolean => finite(v) && v >= lo && v <= hi;
 const vec = (v: unknown, n: number, lo: number, hi: number): boolean => Array.isArray(v) && v.length === n && v.every((x) => within(x, lo, hi));
@@ -185,7 +185,7 @@ function bool(v: Record<string, unknown>, key: string, path: string, errors: Mod
 
 export function validateSplineComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
   const L = SPLINE_LIMITS;
-  if (!isObj(value)) return err(errors, 'field_type', path, 'a spline is an object { points, closed?, width?, terrain?, scatter?, mesh?, pieces? }', value);
+  if (!isPlainObject(value)) return err(errors, 'field_type', path, 'a spline is an object { points, closed?, width?, terrain?, scatter?, mesh?, pieces? }', value);
   only(value, SPLINE_FIELDS, path, errors, 'spline');
   const pts = value['points'];
   if (pts === undefined) err(errors, 'field_missing', `${path}/points`, 'points is required');
@@ -193,7 +193,7 @@ export function validateSplineComponent(value: unknown, path: string, errors: Mo
   else {
     pts.forEach((q, i) => {
       const p = `${path}/points/${i}`;
-      if (!isObj(q)) return err(errors, 'field_type', p, 'a point is {at: [x, y, z], tangent?, width?, roll?}', q);
+      if (!isPlainObject(q)) return err(errors, 'field_type', p, 'a point is {at: [x, y, z], tangent?, width?, roll?}', q);
       only(q, POINT_FIELDS, p, errors, 'point');
       if (!vec(q['at'], 3, -L.coordinate, L.coordinate)) err(errors, 'field_value', `${p}/at`, `at is [x, y, z] metres from the object, within ±${L.coordinate}`, q['at']);
       if (q['tangent'] !== undefined && !vec(q['tangent'], 3, -L.coordinate, L.coordinate)) err(errors, 'field_value', `${p}/tangent`, `tangent is [x, y, z] metres, within ±${L.coordinate}`, q['tangent']);
@@ -207,7 +207,7 @@ export function validateSplineComponent(value: unknown, path: string, errors: Mo
   const t = value['terrain'];
   if (t !== undefined) {
     const p = `${path}/terrain`;
-    if (!isObj(t)) err(errors, 'field_type', p, 'terrain is {shape?, falloff?, depth?, offset?, paint?, order?}', t);
+    if (!isPlainObject(t)) err(errors, 'field_type', p, 'terrain is {shape?, falloff?, depth?, offset?, paint?, order?}', t);
     else {
       only(t, TERRAIN_FIELDS_, p, errors, 'terrain');
       if (t['shape'] !== undefined && !(SPLINE_TERRAIN_SHAPES as readonly unknown[]).includes(t['shape'])) err(errors, 'field_value', `${p}/shape`, `shape is ${SPLINE_TERRAIN_SHAPES.join(', ')}`, t['shape']);
@@ -216,7 +216,7 @@ export function validateSplineComponent(value: unknown, path: string, errors: Mo
       const paint = t['paint'];
       if (paint !== undefined) {
         const pp = `${p}/paint`;
-        if (!isObj(paint)) err(errors, 'field_type', pp, 'paint is {layer, strength?, width?, falloff?}', paint);
+        if (!isPlainObject(paint)) err(errors, 'field_type', pp, 'paint is {layer, strength?, width?, falloff?}', paint);
         else {
           only(paint, PAINT_FIELDS, pp, errors, 'paint');
           if (!(Number.isInteger(paint['layer']) && (paint['layer'] as number) >= 0 && (paint['layer'] as number) <= TERRAIN_LAYER_MAX)) err(errors, 'field_value', `${pp}/layer`, `layer is the material layer painted, 0-${TERRAIN_LAYER_MAX}`, paint['layer']);
@@ -230,7 +230,7 @@ export function validateSplineComponent(value: unknown, path: string, errors: Mo
   const sc = value['scatter'];
   if (sc !== undefined) {
     const p = `${path}/scatter`;
-    if (!isObj(sc)) err(errors, 'field_type', p, 'scatter is {margin?, rules?}', sc);
+    if (!isPlainObject(sc)) err(errors, 'field_type', p, 'scatter is {margin?, rules?}', sc);
     else {
       only(sc, SCATTER_FIELDS, p, errors, 'scatter');
       metres(sc, 'margin', p, errors, 0, L.distanceMax, `0-${L.distanceMax} metres`);
@@ -241,7 +241,7 @@ export function validateSplineComponent(value: unknown, path: string, errors: Mo
   const m = value['mesh'];
   if (m !== undefined) {
     const p = `${path}/mesh`;
-    if (!isObj(m)) err(errors, 'field_type', p, 'mesh is {kind?, profile?, offset?, tiling?, step?, collision?, castShadow?, receiveShadow?, flow?, foam?}', m);
+    if (!isPlainObject(m)) err(errors, 'field_type', p, 'mesh is {kind?, profile?, offset?, tiling?, step?, collision?, castShadow?, receiveShadow?, flow?, foam?}', m);
     else {
       only(m, MESH_FIELDS, p, errors, 'mesh');
       if (m['kind'] !== undefined && !(SPLINE_MESH_KINDS as readonly unknown[]).includes(m['kind'])) err(errors, 'field_value', `${p}/kind`, `kind is ${SPLINE_MESH_KINDS.join(', ')}`, m['kind']);
@@ -263,10 +263,10 @@ export function validateSplineComponent(value: unknown, path: string, errors: Mo
     else {
       pieces.forEach((q, i) => {
         const p = `${path}/pieces/${i}`;
-        if (!isObj(q)) return err(errors, 'field_type', p, 'a piece is {asset: {assetId, piece?}, spacing, start?, offset?, yaw?, upright?, collide?, castShadow?}', q);
+        if (!isPlainObject(q)) return err(errors, 'field_type', p, 'a piece is {asset: {assetId, piece?}, spacing, start?, offset?, yaw?, upright?, collide?, castShadow?}', q);
         only(q, PIECE_FIELDS, p, errors, 'piece');
         const a = q['asset'];
-        if (!isObj(a)) err(errors, 'field_type', `${p}/asset`, 'asset is {assetId, piece?}: the model repeated', a);
+        if (!isPlainObject(a)) err(errors, 'field_type', `${p}/asset`, 'asset is {assetId, piece?}: the model repeated', a);
         else {
           only(a, ['assetId', 'piece'], `${p}/asset`, errors, 'asset');
           if (typeof a['assetId'] !== 'string' || !ID_RE.test(a['assetId'])) err(errors, 'field_value', `${p}/asset/assetId`, 'assetId names the model repeated', a['assetId']);

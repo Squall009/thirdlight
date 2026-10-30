@@ -27,6 +27,7 @@
 import { INPUT_RELAY_MAX_BODY_BYTES, INPUT_RELAY_MAX_FRAMES, INPUT_RELAY_MAX_STEPS, parseRelayGamepad, parseRelayUiEdges } from '@thirdlight/protocol';
 
 import type { BackendClient, BackendResponse } from './backend-client';
+import { isPlainObject } from '@thirdlight/shared';
 
 // The CLI (tools/playtest.mjs) loads this module's build (dist/mcp-adapter/playtest.mjs) and needs a client too.
 export { BackendClient } from './backend-client';
@@ -178,18 +179,17 @@ const FRAME_FIELDS = ['stepOffset', 'steps', 'actions', 'pointer', 'gamepad', 'u
 
 type Check<T> = { ok: true; value: T } | { ok: false; message: string };
 
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
 
 /** Check one frame's shape (the backend checks the values again). `where` names it in messages. */
 function checkFrame(raw: unknown, where: string): Check<PlaytestFrame> {
-  if (!isObj(raw)) return { ok: false, message: `${where} must be an object` };
+  if (!isPlainObject(raw)) return { ok: false, message: `${where} must be an object` };
   for (const k of Object.keys(raw)) if (!FRAME_FIELDS.includes(k)) return { ok: false, message: `${where}.${k} is not a frame field (${FRAME_FIELDS.join(', ')})` };
   if (!isInt(raw['stepOffset']) || raw['stepOffset'] < 0) return { ok: false, message: `${where}.stepOffset must be an integer >= 0` };
   const steps = raw['steps'];
   if (steps !== undefined && (!isInt(steps) || steps < 1 || steps > INPUT_RELAY_MAX_STEPS)) return { ok: false, message: `${where}.steps must be an integer 1-${INPUT_RELAY_MAX_STEPS}` };
-  if (raw['actions'] !== undefined && !isObj(raw['actions'])) return { ok: false, message: `${where}.actions must be an object` };
-  if (raw['pointer'] !== undefined && !isObj(raw['pointer'])) return { ok: false, message: `${where}.pointer must be an object { x, y, ... }` };
+  if (raw['actions'] !== undefined && !isPlainObject(raw['actions'])) return { ok: false, message: `${where}.actions must be an object` };
+  if (raw['pointer'] !== undefined && !isPlainObject(raw['pointer'])) return { ok: false, message: `${where}.pointer must be an object { x, y, ... }` };
   if (raw['gamepad'] !== undefined && parseRelayGamepad(raw['gamepad']) === null) return { ok: false, message: `${where}.gamepad must be { buttons?: up to 17 numbers 0-1, axes?: up to 4 numbers -1..1 }` };
   if (raw['ui'] !== undefined && parseRelayUiEdges(raw['ui']) === null) return { ok: false, message: `${where}.ui must be 1-8 of up, down, left, right, submit, cancel, pause` };
   return { ok: true, value: raw as unknown as PlaytestFrame };
@@ -279,7 +279,7 @@ export function splitScript(frames: readonly PlaytestFrame[], atSteps: readonly 
 export function pickPath(doc: unknown, path: string): unknown {
   let v: unknown = doc;
   for (const k of path.split('.')) {
-    if (!isObj(v) && !Array.isArray(v)) return null;
+    if (!isPlainObject(v) && !Array.isArray(v)) return null;
     v = (v as Record<string, unknown>)[k];
     if (v === undefined) return null;
   }
@@ -303,7 +303,7 @@ export function checkPlaytestSpec(spec: PlaytestSpec): Check<{ threads: Playtest
     frames = f.value.frames;
   }
   const o = spec.observe ?? {};
-  if (!isObj(o)) return { ok: false, message: 'observe must be an object { fields?, atSteps?, entityId? }' };
+  if (!isPlainObject(o)) return { ok: false, message: 'observe must be an object { fields?, atSteps?, entityId? }' };
   for (const k of Object.keys(o)) if (!['fields', 'atSteps', 'entityId'].includes(k)) return { ok: false, message: `observe.${k} is not an observe field (fields, atSteps, entityId)` };
   const fields = o.fields ?? DEFAULT_FIELDS;
   if (!Array.isArray(fields) || fields.length > MAX_FIELDS || fields.some((p) => typeof p !== 'string' || !/^[A-Za-z0-9_$-]+(\.[A-Za-z0-9_$-]+)*$/.test(p))) {
@@ -317,7 +317,7 @@ export function checkPlaytestSpec(spec: PlaytestSpec): Check<{ threads: Playtest
   if (o.entityId !== undefined && (typeof o.entityId !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(o.entityId))) return { ok: false, message: 'observe.entityId must be an entity id' };
   const timeoutMs = spec.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   if (!isInt(timeoutMs) || timeoutMs < 10_000 || timeoutMs > MAX_TIMEOUT_MS) return { ok: false, message: `timeoutMs must be 10000-${MAX_TIMEOUT_MS}` };
-  if (spec.variables !== undefined && !isObj(spec.variables)) return { ok: false, message: 'variables must be an object {key: JSON value}' };
+  if (spec.variables !== undefined && !isPlainObject(spec.variables)) return { ok: false, message: 'variables must be an object {key: JSON value}' };
   return { ok: true, value: { threads, runs, frames, atSteps: [...atSteps].sort((a, b) => a - b), fields: [...fields], timeoutMs } };
 }
 
@@ -350,8 +350,8 @@ class TextHash {
 }
 
 function backendError(what: string, res: BackendResponse): PlaytestError {
-  const body = isObj(res.body) ? res.body : {};
-  const e = isObj(body['error']) ? body['error'] : {};
+  const body = isPlainObject(res.body) ? res.body : {};
+  const e = isPlainObject(body['error']) ? body['error'] : {};
   const code = typeof e['code'] === 'string' ? e['code'] : `http_${res.status}`;
   const message = typeof e['message'] === 'string' ? e['message'] : `status ${res.status}`;
   return new PlaytestError(code, `${what}: ${message}`, body);
@@ -383,19 +383,19 @@ export async function runPlaytest(backend: PlaytestBackend, projectId: string, s
 
   const observe = async (playSessionId: string): Promise<Record<string, unknown>> => {
     const res = await backend.gameObserve(playSessionId, entity !== undefined ? { entityId: entity } : {});
-    if (!isObj(res.body) || res.body['ok'] !== true) throw backendError('observe', res);
+    if (!isPlainObject(res.body) || res.body['ok'] !== true) throw backendError('observe', res);
     return res.body;
   };
   const runOf = (o: Record<string, unknown>): RunBlock => {
     const r = o['run'];
-    if (!isObj(r) || typeof r['digest'] !== 'string') throw new PlaytestError('playtest_no_digest', 'the observation carries no run digest (an engine without run digests?)');
+    if (!isPlainObject(r) || typeof r['digest'] !== 'string') throw new PlaytestError('playtest_no_digest', 'the observation carries no run digest (an engine without run digests?)');
     return r as unknown as RunBlock;
   };
   const pick = (o: Record<string, unknown>): Record<string, unknown> => Object.fromEntries(fields.map((p) => [p, pickPath(o, p)]));
 
   /** A failed run's error (the observation's `error`; its source line is in the play's diagnostics). */
   const gameFailed = (o: Record<string, unknown>, when: string): PlaytestError => {
-    const e = isObj(o['error']) ? o['error'] : {};
+    const e = isPlainObject(o['error']) ? o['error'] : {};
     return new PlaytestError('playtest_game_failed', `the game failed ${when}: ${String(e['code'] ?? 'failed')}: ${String(e['message'] ?? '')}`.slice(0, 512), { error: e });
   };
 
@@ -406,10 +406,10 @@ export async function runPlaytest(backend: PlaytestBackend, projectId: string, s
     if (left() < wait) throw new PlaytestError('playtest_timeout', `the play-test ran out of time (timeoutMs ${timeoutMs})`);
     const body = { mode: 'exclusive-test', frames: fs, hold: true, ...(restart ? { restart: true } : {}) };
     const res = await backend.inputRelay(playSessionId, body, wait);
-    if (!isObj(res.body) || res.body['ok'] !== true) {
+    if (!isPlainObject(res.body) || res.body['ok'] !== true) {
       // An exercise whose run failed never completes (its relay times out): the error that stopped the run is the answer.
       const o = await backend.gameObserve(playSessionId, {});
-      if (isObj(o.body) && o.body['ok'] === true && o.body['state'] === 'failed') throw gameFailed(o.body, 'during the run');
+      if (isPlainObject(o.body) && o.body['ok'] === true && o.body['state'] === 'failed') throw gameFailed(o.body, 'during the run');
       throw backendError('input exercise', res);
     }
     const to = Number(res.body['appliedToStep']);
@@ -428,9 +428,9 @@ export async function runPlaytest(backend: PlaytestBackend, projectId: string, s
 
   const errorsOf = async (playSessionId: string): Promise<{ errors: unknown[]; errorCount: number }> => {
     const res = await backend.diagnostics(playSessionId);
-    const d = isObj(res.body) ? res.body['diagnostics'] : undefined;
-    const rt = isObj(d) ? d['runtime'] : undefined;
-    const list = isObj(rt) && Array.isArray(rt['errors']) ? (rt['errors'] as unknown[]) : [];
+    const d = isPlainObject(res.body) ? res.body['diagnostics'] : undefined;
+    const rt = isPlainObject(d) ? d['runtime'] : undefined;
+    const list = isPlainObject(rt) && Array.isArray(rt['errors']) ? (rt['errors'] as unknown[]) : [];
     return { errors: list.slice(0, 16), errorCount: list.length };
   };
 
@@ -441,7 +441,7 @@ export async function runPlaytest(backend: PlaytestBackend, projectId: string, s
     if (spec.variables !== undefined) options['variables'] = spec.variables;
     if (mode !== 'project') options['threads'] = mode;
     const started = await backend.startPlay({ options });
-    if (!isObj(started.body) || started.body['ok'] !== true) {
+    if (!isPlainObject(started.body) || started.body['ok'] !== true) {
       const e = backendError('play start', started);
       return { ok: false, error: { code: e.code, message: e.message, detail: e.detail }, runs: done };
     }
@@ -452,16 +452,16 @@ export async function runPlaytest(backend: PlaytestBackend, projectId: string, s
       while (first === null) {
         if (left() < 0) throw new PlaytestError('playtest_timeout', 'the play did not start running in time');
         const res = await backend.gameObserve(playSessionId, {});
-        if (isObj(res.body) && res.body['ok'] === true) {
+        if (isPlainObject(res.body) && res.body['ok'] === true) {
           if (res.body['state'] === 'running') first = res.body;
           else if (res.body['state'] === 'failed') throw gameFailed(res.body, 'before the play-test began');
           else if (res.body['state'] === 'paused') throw new PlaytestError('playtest_paused', 'the game starts paused (a title screen or a pause screen holds it): a run restarts the game and needs it running; start past it (sceneId) or give the shell no title screen for the test');
-        } else if (isObj(res.body) && isObj(res.body['error']) && res.body['error']['code'] === 'play_not_found') {
+        } else if (isPlainObject(res.body) && isPlainObject(res.body['error']) && res.body['error']['code'] === 'play_not_found') {
           throw backendError('the play ended before it ran', res);
         }
         if (first === null) await sleep(200);
       }
-      const simulation = isObj(first['simulation']) && typeof first['simulation']['mode'] === 'string' ? first['simulation']['mode'] : null;
+      const simulation = isPlainObject(first['simulation']) && typeof first['simulation']['mode'] === 'string' ? first['simulation']['mode'] : null;
       for (let run = 1; run <= runs; run += 1) {
         const observations: PlaytestObservation[] = [];
         let last: Record<string, unknown> | null = null;

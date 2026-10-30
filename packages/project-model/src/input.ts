@@ -10,6 +10,7 @@
  * `gameplay` (read by the game) or `ui` (menus).
  */
 import type { ModelErrorV2 } from './errors';
+import { isPlainObject } from '@thirdlight/shared';
 
 export type InputActionType = 'button' | 'axis1d' | 'axis2d';
 export const INPUT_ACTION_TYPES = ['button', 'axis1d', 'axis2d'] as const;
@@ -156,9 +157,6 @@ export function defaultInputFor(sideView: boolean): Readonly<InputConfig> {
   return sideView ? DEFAULT_INPUT : DEFAULT_INPUT_3D;
 }
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
 function err(errors: ModelErrorV2[], code: string, path: string, message: string, found?: unknown, expected?: string): void {
   errors.push({ code, path, message, ...(found !== undefined ? { found } : {}), ...(expected !== undefined ? { expected } : {}) } as ModelErrorV2);
 }

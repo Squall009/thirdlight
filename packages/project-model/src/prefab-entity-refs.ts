@@ -8,6 +8,9 @@
  * Paths are relative to an object's components. The descriptors' entity
  * fields are the source; a test keeps this list equal to them.
  */
+
+import { isPlainObject } from '@thirdlight/shared';
+
 export const COMPONENT_ENTITY_REFS: readonly string[] = Object.freeze([
   'virtualCamera/target',
   'virtualCamera/path',
@@ -18,13 +21,11 @@ export const COMPONENT_ENTITY_REFS: readonly string[] = Object.freeze([
   'blockFootprint/layer',
 ]);
 
-const isRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
-
 /** The value at a `/`-joined path under `root` (undefined when it is not there). */
 export function valueAtPath(root: Record<string, unknown>, path: string): unknown {
   let at: unknown = root;
   for (const seg of path.split('/')) {
-    if (!isRecord(at)) return undefined;
+    if (!isPlainObject(at)) return undefined;
     at = at[seg];
   }
   return at;
@@ -35,10 +36,10 @@ export function setValueAtPath(root: Record<string, unknown>, path: string, valu
   const segs = path.split('/');
   let at: unknown = root;
   for (const seg of segs.slice(0, -1)) {
-    if (!isRecord(at)) return;
+    if (!isPlainObject(at)) return;
     at = at[seg];
   }
-  if (isRecord(at)) at[segs[segs.length - 1] as string] = value;
+  if (isPlainObject(at)) at[segs[segs.length - 1] as string] = value;
 }
 
 /** The component reference paths whose value names an object `names` knows. */
@@ -73,7 +74,7 @@ export function mapRefsInValue(path: string, value: unknown, map: (id: string) =
       const to = typeof value === 'string' ? map(value) : undefined;
       return to ?? value;
     }
-    if (!ref.startsWith(`${path}/`) || !isRecord(out)) continue;
+    if (!ref.startsWith(`${path}/`) || !isPlainObject(out)) continue;
     const rest = ref.slice(path.length + 1);
     const v = valueAtPath(out, rest);
     const to = typeof v === 'string' ? map(v) : undefined;

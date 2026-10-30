@@ -24,6 +24,8 @@
  * No I/O, no three.js.
  */
 
+import { isPlainObject } from '@thirdlight/shared';
+
 /** A handle's state as a script reads it. */
 export type AssetHandleState = 'loading' | 'ready' | 'failed';
 
@@ -109,7 +111,6 @@ interface OpenHandle {
 
 const NO_IDS: readonly string[] = Object.freeze([]);
 
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const textIn = (v: unknown, max: number): v is string => typeof v === 'string' && v.length > 0 && v.length <= max;
 
 /** Validate a frame's `assets` entries (the host's answers). */
@@ -119,7 +120,7 @@ export function validateAssetAnswers(value: unknown): { ok: true; answers: reado
   for (let i = 0; i < value.length; i += 1) {
     const e: unknown = value[i];
     const field = `assets/${i}`;
-    if (!isObj(e) || typeof e['ok'] !== 'boolean' || typeof e['handle'] !== 'number' || !Number.isSafeInteger(e['handle']) || e['handle'] < 1) {
+    if (!isPlainObject(e) || typeof e['ok'] !== 'boolean' || typeof e['handle'] !== 'number' || !Number.isSafeInteger(e['handle']) || e['handle'] < 1) {
       return { ok: false, field, message: 'an assets answer is { handle (a positive integer), ok, assets? (ids), message? }' };
     }
     for (const k of Object.keys(e)) if (k !== 'handle' && k !== 'ok' && k !== 'assets' && k !== 'message') return { ok: false, field, message: `unknown assets answer field "${k.slice(0, 32)}"` };

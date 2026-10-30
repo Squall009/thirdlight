@@ -33,6 +33,7 @@ import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import type { Vec3 } from './types';
 import { SKY_ROTATION_MAX } from './materials';
+import { isPlainObject } from '@thirdlight/shared';
 
 /** Default horizontal distance between probes (meters). */
 export const DEFAULT_PROBE_SPACING = 2;
@@ -218,9 +219,6 @@ const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
 /** World coordinates a probe box may reach (meters): the block layers' reach and more. */
 const MAX_PROBE_COORD = 1_000_000;
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
 function err(errors: ModelErrorV2[], code: string, path: string, message: string, found?: unknown): void {
   errors.push({ code, path, message, ...(found !== undefined ? { found } : {}) } as ModelErrorV2);
 }

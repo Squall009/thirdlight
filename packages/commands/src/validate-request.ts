@@ -45,7 +45,7 @@ import {
   fieldUnexpected,
   fieldValue,
   invalidRequest,
-  isPlainObject,
+  isPlainObjectStrict,
   isValidName,
   jsonType,
   limitsExceeded,
@@ -110,6 +110,7 @@ import type {
   PasteEntitiesArgs,
   SceneIndexArgs,
 } from './types';
+import { utf8Length } from '@thirdlight/shared';
 
 const TOP_FIELDS = [
   'op',
@@ -196,7 +197,7 @@ export function canonicalRequestByteLength(request: unknown): number {
   while (stack.length > 0) {
     const frame = stack.pop() as { v: unknown } | { text: string };
     if ('text' in frame) {
-      bytes += utf8ByteLength(frame.text);
+      bytes += utf8Length(frame.text);
       continue;
     }
     const val = frame.v;
@@ -214,7 +215,7 @@ export function canonicalRequestByteLength(request: unknown): number {
       continue;
     }
     if (t === 'string') {
-      bytes += utf8ByteLength(JSON.stringify(val));
+      bytes += utf8Length(JSON.stringify(val));
       continue;
     }
     if (Array.isArray(val)) {
@@ -237,24 +238,6 @@ export function canonicalRequestByteLength(request: unknown): number {
     // undefined / function / symbol emit no token in the canonical form.
   }
   return bytes;
-}
-
-/** UTF-8 byte length of a string (no TextEncoder allocation). */
-function utf8ByteLength(s: string): number {
-  let n = 0;
-  for (let i = 0; i < s.length; i++) {
-    const c = s.charCodeAt(i);
-    if (c < 0x80) n += 1;
-    else if (c < 0x800) n += 2;
-    else if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length) {
-      const d = s.charCodeAt(i + 1);
-      if (d >= 0xdc00 && d <= 0xdfff) {
-        n += 4;
-        i += 1;
-      } else n += 3;
-    } else n += 3;
-  }
-  return n;
 }
 
 /**
@@ -393,7 +376,7 @@ function validateEnvelope(
   let origin: Origin | null = null;
   if (req['origin'] !== undefined) {
     const o = req['origin'];
-    if (!isPlainObject(o)) {
+    if (!isPlainObjectStrict(o)) {
       return {
         ok: false,
         error: invalidRequest('/origin', o, EXPECT.origin, 'origin must be an object { kind, clientId }'),
@@ -442,7 +425,7 @@ function validateEnvelope(
       error: invalidRequest('/args', undefined, EXPECT.args, 'required field \'args\' is missing'),
     };
   }
-  if (!isPlainObject(req['args'])) {
+  if (!isPlainObjectStrict(req['args'])) {
     return {
       ok: false,
       error: invalidRequest('/args', req['args'], EXPECT.args, 'args must be an object (op-specific, strict)'),
@@ -507,7 +490,7 @@ function validateBoxArgs(
   box: unknown,
   path: string,
 ): BoxArgs | { error: CommandError } {
-  if (!isPlainObject(box)) {
+  if (!isPlainObjectStrict(box)) {
     return {
       error: fieldType(path, box, 'object with optional size and material'),
     };
@@ -526,7 +509,7 @@ function validateBoxArgs(
   }
   if (box['material'] !== undefined) {
     const m = box['material'];
-    if (!isPlainObject(m)) {
+    if (!isPlainObjectStrict(m)) {
       return { error: fieldType(`${path}/material`, m, 'object with optional color') };
     }
     for (const key of Object.keys(m)) {
@@ -644,7 +627,7 @@ function validateCreateArgs(args: Record<string, unknown>):
   }
   if (args['transform'] !== undefined) {
     const t = args['transform'];
-    if (!isPlainObject(t)) {
+    if (!isPlainObjectStrict(t)) {
       return {
         ok: false,
         error: fieldType(
@@ -694,7 +677,7 @@ function validateCreateArgs(args: Record<string, unknown>):
       return { ok: false, error: fieldMissing('/args/model', 'model') };
     }
     const m = args['model'];
-    if (!isPlainObject(m)) {
+    if (!isPlainObjectStrict(m)) {
       return { ok: false, error: fieldType('/args/model', m, 'object { asset: { assetId } }') };
     }
     for (const key of Object.keys(m)) {
@@ -710,7 +693,7 @@ function validateCreateArgs(args: Record<string, unknown>):
       };
     }
     const asset = m['asset'];
-    if (!isPlainObject(asset)) {
+    if (!isPlainObjectStrict(asset)) {
       return { ok: false, error: fieldType('/args/model/asset', asset, 'object { assetId }') };
     }
     for (const key of Object.keys(asset)) {
@@ -733,7 +716,7 @@ function validateCreateArgs(args: Record<string, unknown>):
   // the op.
   if (args['components'] !== undefined) {
     const components = args['components'];
-    if (!isPlainObject(components)) {
+    if (!isPlainObjectStrict(components)) {
       return { ok: false, error: fieldType('/args/components', components, 'object of add-capable components') };
     }
     const keys = Object.keys(components);
@@ -820,7 +803,7 @@ function validateCreateArgs(args: Record<string, unknown>):
     for (let i = 0; i < children.length; i += 1) {
       const c = children[i];
       const path = `/args/children/${i}`;
-      if (!isPlainObject(c)) return { ok: false, error: fieldType(path, c, 'object (createEntity args)') };
+      if (!isPlainObjectStrict(c)) return { ok: false, error: fieldType(path, c, 'object (createEntity args)') };
       for (const key of ['parentId', 'children'] as const) {
         if (c[key] !== undefined) return { ok: false, error: fieldUnexpected(`${path}/${key}`, key, 'kind, name, transform, box, model, components, surfacePreset', 'a child is created inside the new folder') };
       }
@@ -892,7 +875,7 @@ function validateSetAssetOptionsArgs(args: Record<string, unknown>):
     };
   }
   const materials = args['materials'];
-  if (materials !== undefined && materials !== null && !isPlainObject(materials)) {
+  if (materials !== undefined && materials !== null && !isPlainObjectStrict(materials)) {
     return { ok: false, error: fieldType('/args/materials', materials, 'object { <material name or "*">: materialId } or null') };
   }
   return {
@@ -930,7 +913,7 @@ function validateSetTransformArgs(args: Record<string, unknown>):
     return { ok: false, error: fieldMissing('/args/transform', 'transform') };
   }
   const t = args['transform'];
-  if (!isPlainObject(t)) {
+  if (!isPlainObjectStrict(t)) {
     return {
       ok: false,
       error: fieldType(
@@ -1087,7 +1070,7 @@ function validateSetTagsArgs(args: Record<string, unknown>):
   for (let i = 0; i < tags.length; i++) {
     const t = tags[i];
     const p = `/args/tags/${i}`;
-    if (!isPlainObject(t)) return { ok: false, error: fieldType(p, t, 'object { bit?, name }') };
+    if (!isPlainObjectStrict(t)) return { ok: false, error: fieldType(p, t, 'object { bit?, name }') };
     for (const key of Object.keys(t)) {
       if (key !== 'bit' && key !== 'name') return { ok: false, error: fieldUnexpected(`${p}/${pointerSegment(key)}`, key, 'bit (optional), name') };
     }
@@ -1176,7 +1159,7 @@ function validateUndoRedoArgs(op: 'undo' | 'redo', args: Record<string, unknown>
 export function validateRequestEnvelope(
   request: unknown,
 ): { ok: false; error: CommandError } | EnvelopeOk {
-  if (!isPlainObject(request)) {
+  if (!isPlainObjectStrict(request)) {
     return {
       ok: false,
       error: invalidRequest(
@@ -1372,7 +1355,7 @@ function validateSceneFieldArgs(op: 'setLighting' | 'setScenePlane', args: Recor
   if (typeof args['sceneId'] !== 'string') return { ok: false, error: fieldType('/args/sceneId', args['sceneId'], 'string (sceneId)') };
   if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
   if (op === 'setLighting') {
-    if (args['lighting'] !== null && !isPlainObject(args['lighting'])) return { ok: false, error: fieldType('/args/lighting', args['lighting'], 'object (a bake) or null') };
+    if (args['lighting'] !== null && !isPlainObjectStrict(args['lighting'])) return { ok: false, error: fieldType('/args/lighting', args['lighting'], 'object (a bake) or null') };
   } else if (args['plane'] !== null) {
     const errors: ModelErrorV2[] = [];
     validatePlaneLock(args['plane'], '/args/plane', errors);
@@ -1412,7 +1395,7 @@ export function validateOpArgs(
       for (let i = 0; i < list.length; i += 1) {
         const item = list[i];
         const path = `/args/entities/${i}`;
-        if (!isPlainObject(item)) return { ok: false, error: fieldType(path, item, 'object (createEntity args)') };
+        if (!isPlainObjectStrict(item)) return { ok: false, error: fieldType(path, item, 'object (createEntity args)') };
         const { ref, ...rest } = item;
         if (ref !== undefined) {
           if (typeof ref !== 'string' || !isValidName(ref)) return { ok: false, error: fieldValue(`${path}/ref`, ref, 'string, 1-128 chars, no control characters', 'ref names this item for a later parentId') };
@@ -1528,7 +1511,7 @@ export function validateOpArgs(
       // setMaterial {material, assign: {entityId, slots?}}: the material also goes on that object (one undo step).
       if (op === 'setMaterial' && args['assign'] !== undefined) {
         const assign = args['assign'];
-        if (!isPlainObject(assign)) return { ok: false, error: fieldType('/args/assign', assign, 'object ({ entityId, slots? })') };
+        if (!isPlainObjectStrict(assign)) return { ok: false, error: fieldType('/args/assign', assign, 'object ({ entityId, slots? })') };
         for (const k of Object.keys(assign)) if (k !== 'entityId' && k !== 'slots') return { ok: false, error: fieldUnexpected(`/args/assign/${pointerSegment(k)}`, k, 'entityId, slots') };
         if (typeof assign['entityId'] !== 'string') return { ok: false, error: fieldType('/args/assign/entityId', assign['entityId'], 'string (an object id)') };
         const slots = assign['slots'];
@@ -1542,7 +1525,7 @@ export function validateOpArgs(
       }
       if (op === 'setEnvironment' && args['sceneId'] !== undefined && typeof args['sceneId'] !== 'string') return { ok: false, error: fieldType('/args/sceneId', args['sceneId'], 'string (scene id)') };
       if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
-      if (op === 'deleteMaterial' ? typeof args[key] !== 'string' : !isPlainObject(args[key])) {
+      if (op === 'deleteMaterial' ? typeof args[key] !== 'string' : !isPlainObjectStrict(args[key])) {
         return { ok: false, error: fieldType(`/args/${key}`, args[key], op === 'deleteMaterial' ? 'string (materialId)' : 'object') };
       }
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
@@ -1550,7 +1533,7 @@ export function validateOpArgs(
     case 'setInput': {
       for (const k of Object.keys(args)) if (k !== 'input') return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'input') };
       if (args['input'] === undefined) return { ok: false, error: fieldMissing('/args/input', 'input') };
-      if (args['input'] !== null && !isPlainObject(args['input'])) return { ok: false, error: fieldType('/args/input', args['input'], 'object ({ actions }) or null (the defaults)') };
+      if (args['input'] !== null && !isPlainObjectStrict(args['input'])) return { ok: false, error: fieldType('/args/input', args['input'], 'object ({ actions }) or null (the defaults)') };
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
     }
     case 'setModes':
@@ -1579,14 +1562,14 @@ export function validateOpArgs(
     case 'setSaveSchema': {
       for (const k of Object.keys(args)) if (k !== 'schema') return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'schema') };
       if (args['schema'] === undefined) return { ok: false, error: fieldMissing('/args/schema', 'schema') };
-      if (args['schema'] !== null && !isPlainObject(args['schema'])) return { ok: false, error: fieldType('/args/schema', args['schema'], 'object ({ version, slots, migrations?, sections?, thumbnail?, settings? }) or null (no project saves)') };
+      if (args['schema'] !== null && !isPlainObjectStrict(args['schema'])) return { ok: false, error: fieldType('/args/schema', args['schema'], 'object ({ version, slots, migrations?, sections?, thumbnail?, settings? }) or null (no project saves)') };
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
     }
     case 'setShell': {
       // setShell {shell} (the whole shell; null = none).
       for (const k of Object.keys(args)) if (k !== 'shell') return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'shell') };
       if (args['shell'] === undefined) return { ok: false, error: fieldMissing('/args/shell', 'shell') };
-      if (args['shell'] !== null && !isPlainObject(args['shell'])) return { ok: false, error: fieldType('/args/shell', args['shell'], 'object ({ screens?, hud?, scenes?, pause?, status? }) or null (no shell)') };
+      if (args['shell'] !== null && !isPlainObjectStrict(args['shell'])) return { ok: false, error: fieldType('/args/shell', args['shell'], 'object ({ screens?, hud?, scenes?, pause?, status? }) or null (no shell)') };
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
     }
     case 'setAnimator':
@@ -1594,7 +1577,7 @@ export function validateOpArgs(
       const key = op === 'setAnimator' ? 'controller' : 'controllerId';
       for (const k of Object.keys(args)) if (k !== key) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, key) };
       if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
-      if (op === 'deleteAnimator' ? typeof args[key] !== 'string' : !isPlainObject(args[key])) {
+      if (op === 'deleteAnimator' ? typeof args[key] !== 'string' : !isPlainObjectStrict(args[key])) {
         return { ok: false, error: fieldType(`/args/${key}`, args[key], op === 'deleteAnimator' ? 'string (controllerId)' : 'object (a controller)') };
       }
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
@@ -1604,7 +1587,7 @@ export function validateOpArgs(
       const key = op === 'setGraph' ? 'graph' : 'graphId';
       for (const k of Object.keys(args)) if (k !== key) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, key) };
       if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
-      if (op === 'deleteGraph' ? typeof args[key] !== 'string' : !isPlainObject(args[key])) {
+      if (op === 'deleteGraph' ? typeof args[key] !== 'string' : !isPlainObjectStrict(args[key])) {
         return { ok: false, error: fieldType(`/args/${key}`, args[key], op === 'deleteGraph' ? 'string (graphId)' : 'object ({ graphId, kind, name, graph })') };
       }
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
@@ -1616,7 +1599,7 @@ export function validateOpArgs(
       for (const k of Object.keys(args)) if (!keys.includes(k)) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, keys.join(', ')) };
       for (const k of keys) {
         if (args[k] === undefined) return { ok: false, error: fieldMissing(`/args/${k}`, k) };
-        if (k === 'effect' ? !isPlainObject(args[k]) : typeof args[k] !== 'string') {
+        if (k === 'effect' ? !isPlainObjectStrict(args[k]) : typeof args[k] !== 'string') {
           return { ok: false, error: fieldType(`/args/${k}`, args[k], k === 'effect' ? 'object ({ effectId, name, duration, loop, seed, bounds, parameters?, systems })' : `string (${k})`) };
         }
       }
@@ -1628,7 +1611,7 @@ export function validateOpArgs(
       const key = op === 'setKit' ? 'kit' : 'kitId';
       for (const k of Object.keys(args)) if (k !== key) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, key) };
       if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
-      if (op === 'setKit' ? !isPlainObject(args[key]) : typeof args[key] !== 'string') {
+      if (op === 'setKit' ? !isPlainObjectStrict(args[key]) : typeof args[key] !== 'string') {
         return { ok: false, error: fieldType(`/args/${key}`, args[key], op === 'setKit' ? 'object ({ kitId, name, trimMaterial?, presets?, blockTypes?, pieces? })' : 'string (kitId)') };
       }
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
@@ -1653,7 +1636,7 @@ export function validateOpArgs(
       for (const k of Object.keys(args)) if (k !== key) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, key) };
       if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
       const isObjectArg = op === 'setUiDocument' || op === 'setUiTheme';
-      if (isObjectArg ? !isPlainObject(args[key]) : typeof args[key] !== 'string') {
+      if (isObjectArg ? !isPlainObjectStrict(args[key]) : typeof args[key] !== 'string') {
         return { ok: false, error: fieldType(`/args/${key}`, args[key], op === 'setUiDocument' ? 'object ({ uiDocumentId, name, root, … })' : op === 'setUiTheme' ? 'object ({ uiThemeId, name, styles, icons? })' : `string (${key})`) };
       }
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
@@ -1668,7 +1651,7 @@ export function validateOpArgs(
       for (const k of Object.keys(args)) if (k !== key) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, key) };
       if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
       const isObjectArg = op === 'setDialogue' || op === 'setSpeaker' || op === 'setDialogueSettings';
-      const okShape = op === 'setDialogueSettings' ? args[key] === null || isPlainObject(args[key]) : isObjectArg ? isPlainObject(args[key]) : typeof args[key] === 'string';
+      const okShape = op === 'setDialogueSettings' ? args[key] === null || isPlainObjectStrict(args[key]) : isObjectArg ? isPlainObjectStrict(args[key]) : typeof args[key] === 'string';
       if (!okShape) {
         return { ok: false, error: fieldType(`/args/${key}`, args[key], op === 'setDialogue' ? 'object ({ dialogueId, name, graph? })' : op === 'setSpeaker' ? 'object ({ speakerId, name, color?, portraits?, … })' : op === 'setDialogueSettings' ? 'object or null' : `string (${key})`) };
       }
@@ -1680,7 +1663,7 @@ export function validateOpArgs(
       const key = op === 'setTimeline' ? 'timeline' : 'timelineId';
       for (const k of Object.keys(args)) if (k !== key) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, key) };
       if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
-      if (op === 'setTimeline' ? !isPlainObject(args[key]) : typeof args[key] !== 'string') {
+      if (op === 'setTimeline' ? !isPlainObjectStrict(args[key]) : typeof args[key] !== 'string') {
         return { ok: false, error: fieldType(`/args/${key}`, args[key], op === 'setTimeline' ? 'object ({ timelineId, name, duration, tracks, … })' : 'string (timelineId)') };
       }
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
@@ -1700,7 +1683,7 @@ export function validateOpArgs(
           if (!Array.isArray(files) || files.length > 32) return { ok: false, error: fieldType('/args/files', files, 'array of up to 32 { path, text: string | null }') };
           for (let i = 0; i < files.length; i++) {
             const f = files[i] as unknown;
-            if (!isPlainObject(f) || typeof f['path'] !== 'string' || !(typeof f['text'] === 'string' || f['text'] === null) || Object.keys(f).some((k) => k !== 'path' && k !== 'text')) {
+            if (!isPlainObjectStrict(f) || typeof f['path'] !== 'string' || !(typeof f['text'] === 'string' || f['text'] === null) || Object.keys(f).some((k) => k !== 'path' && k !== 'text')) {
               return { ok: false, error: fieldType(`/args/files/${i}`, f, '{ path, text: string | null } (null removes the file)') };
             }
           }
@@ -1719,7 +1702,7 @@ export function validateOpArgs(
       for (const k of Object.keys(args)) if (k !== 'owner' && k !== 'ops') return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'owner, ops') };
       const owner = args['owner'];
       if (owner === undefined) return { ok: false, error: fieldMissing('/args/owner', 'owner') };
-      if (!isPlainObject(owner) || typeof owner['kind'] !== 'string' || typeof owner['id'] !== 'string' || Object.keys(owner).length !== 2) {
+      if (!isPlainObjectStrict(owner) || typeof owner['kind'] !== 'string' || typeof owner['id'] !== 'string' || Object.keys(owner).length !== 2) {
         return { ok: false, error: fieldType('/args/owner', owner, 'object { kind, id } (the document that owns the graph)') };
       }
       if (args['ops'] === undefined) return { ok: false, error: fieldMissing('/args/ops', 'ops') };

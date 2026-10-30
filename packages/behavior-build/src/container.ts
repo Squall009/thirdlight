@@ -9,7 +9,7 @@
  * accepted beside `.ts`). Nothing here is executed: the
  * container is data and is parsed with the accepted strict byte parser.
  */
-import { compareCodePoints, utf8Decode } from '@thirdlight/shared';
+import { compareCodePoints, isPlainObject, utf8Decode } from '@thirdlight/shared';
 import { ID_RE } from '@thirdlight/project-model';
 
 import { parseDocumentBytes } from '@thirdlight/project-model';
@@ -35,10 +35,6 @@ export interface ContainerParseOk {
 }
 
 export type ContainerParseResult = ContainerParseOk | { ok: false; failure: BehaviorCompileFailure };
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
 
 function hasLoneSurrogate(s: string): boolean {
   for (let i = 0; i < s.length; i++) {

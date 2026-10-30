@@ -43,6 +43,7 @@ import {
 } from '@thirdlight/project-model';
 
 import type { AudioPlayOptions, BehaviorDialogue, BehaviorDialogueEvent, BehaviorDialogueHistoryEntry, BehaviorDialogueState, DialogueVariableValue } from './types';
+import { isPlainObject } from '@thirdlight/shared';
 
 // ---- input-frame entries -------------------------------------------------------
 
@@ -57,7 +58,6 @@ export interface DialogueInputRecord {
 }
 
 const hasOwn = Object.prototype.hasOwnProperty;
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** Validate a frame's `dialogue` entries (at most 8), returning frozen copies. */
 export function validateDialogueInputs(raw: unknown): { ok: true; inputs: readonly DialogueInputRecord[] } | { ok: false; field: string; message: string } {
@@ -72,7 +72,7 @@ export function validateDialogueInputs(raw: unknown): { ok: true; inputs: readon
 }
 
 export function validateDialogueInput(raw: unknown): { ok: true; input: DialogueInputRecord } | { ok: false; field: string; message: string } {
-  if (!isObj(raw)) return { ok: false, field: '', message: 'a dialogue input is { kind, index? }' };
+  if (!isPlainObject(raw)) return { ok: false, field: '', message: 'a dialogue input is { kind, index? }' };
   for (const k in raw) if (hasOwn.call(raw, k) && k !== 'kind' && k !== 'index') return { ok: false, field: k, message: `unknown dialogue input field "${k}"` };
   const kind = raw['kind'];
   if (typeof kind !== 'string' || !(DIALOGUE_INPUT_KINDS as readonly string[]).includes(kind)) return { ok: false, field: 'kind', message: `kind is one of ${DIALOGUE_INPUT_KINDS.join(', ')}` };
@@ -294,7 +294,7 @@ export class DialogueRunner {
     } else node = d.start;
     const bindings: Record<string, DialogueValue> = {};
     if (options?.bindings !== undefined) {
-      if (!isObj(options.bindings)) return 0;
+      if (!isPlainObject(options.bindings)) return 0;
       const keys = Object.keys(options.bindings);
       if (keys.length > DIALOGUE_LIMITS.bindings) return 0;
       for (const k of keys) {
@@ -438,7 +438,7 @@ export class DialogueRunner {
   /** Why a saved `dialogue` section does not fit (null: fine). */
   checkState(v: unknown): string | null {
     if (v === undefined) return null;
-    if (!isObj(v) || !isObj(v['variables']) || !Array.isArray(v['seen'])) return 'the dialogue section is { variables, seen }';
+    if (!isPlainObject(v) || !isPlainObject(v['variables']) || !Array.isArray(v['seen'])) return 'the dialogue section is { variables, seen }';
     const vars = Object.entries(v['variables']);
     if (vars.length > DIALOGUE_LIMITS.variables) return `at most ${DIALOGUE_LIMITS.variables} dialogue variables`;
     for (const [k, x] of vars) if (!VAR_RE.test(k) || !validValue(x)) return `dialogue variable "${k.slice(0, 32)}" is not a name with a number, text, true/false or null`;
@@ -451,7 +451,7 @@ export class DialogueRunner {
   restoreState(v: unknown): void {
     this.variables = new Map();
     this.seenSet = new Set();
-    if (isObj(v)) {
+    if (isPlainObject(v)) {
       for (const [k, x] of Object.entries(v['variables'] as Record<string, DialogueValue>)) this.variables.set(k, x);
       for (const k of v['seen'] as string[]) this.seenSet.add(k);
     }

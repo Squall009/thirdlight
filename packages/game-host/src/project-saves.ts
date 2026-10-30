@@ -22,7 +22,8 @@
  * other settings. Play and an export use different namespaces. No backend is
  * involved: an exported game keeps its saves in the player's browser.
  */
-import { SAVE_LIMITS, SAVE_THUMBNAIL_DEFAULT, saveSlotMetaProblem, settingsDocumentOf, type SaveSchema, type SettingsEngineBinding, type SettingsFieldValue, projectSaveFileProblem, utf8Length, type ProjectSaveFile, type SaveEvent, type SaveRequest, type SaveSlotInfo, type SaveStorageCode, type SaveStorageInfo } from '@thirdlight/runtime';
+import { utf8LengthPairingHigh } from '@thirdlight/shared';
+import { SAVE_LIMITS, SAVE_THUMBNAIL_DEFAULT, saveSlotMetaProblem, settingsDocumentOf, type SaveSchema, type SettingsEngineBinding, type SettingsFieldValue, projectSaveFileProblem, type ProjectSaveFile, type SaveEvent, type SaveRequest, type SaveSlotInfo, type SaveStorageCode, type SaveStorageInfo } from '@thirdlight/runtime';
 
 import { saveChecksum, storageErrorCode, StorageUnavailableError, writeStored, type SaveStorage } from './storage';
 
@@ -285,7 +286,7 @@ export function createProjectSaveService(cfg: ProjectSaveServiceConfig): Project
       void refreshStorage(true);
     }
     enqueue(async () => {
-      const bytes = utf8Length(r.text);
+      const bytes = utf8LengthPairingHigh(r.text);
       if (bytes > SAVE_LIMITS.documentBytes) {
         answerSaved({ kind: 'saved', slot: r.slot, ok: false, reason: `the save is larger than ${SAVE_LIMITS.documentBytes} bytes` });
         return;
@@ -349,7 +350,7 @@ export function createProjectSaveService(cfg: ProjectSaveServiceConfig): Project
         }
         if (metaProblem(meta, slot) !== null) return fail(`save slot ${slot} is damaged`);
         if (saveChecksum(body) !== meta.sum) return fail(`save slot ${slot} is damaged (checksum mismatch)`);
-        if (utf8Length(body) > SAVE_LIMITS.documentBytes) return fail(`save slot ${slot} is larger than ${SAVE_LIMITS.documentBytes} bytes`);
+        if (utf8LengthPairingHigh(body) > SAVE_LIMITS.documentBytes) return fail(`save slot ${slot} is larger than ${SAVE_LIMITS.documentBytes} bytes`);
         let file: unknown;
         try {
           file = JSON.parse(body) as unknown;
@@ -437,7 +438,7 @@ export function createProjectSaveService(cfg: ProjectSaveServiceConfig): Project
     loadDocument(file) {
       const p = projectSaveFileProblem(file, schema.version);
       const t = JSON.stringify(file);
-      if (p !== null || utf8Length(t) > SAVE_LIMITS.documentBytes) cfg.queue({ kind: 'loaded', slot: 0, ok: false, reason: p ?? `the save is larger than ${SAVE_LIMITS.documentBytes} bytes` });
+      if (p !== null || utf8LengthPairingHigh(t) > SAVE_LIMITS.documentBytes) cfg.queue({ kind: 'loaded', slot: 0, ok: false, reason: p ?? `the save is larger than ${SAVE_LIMITS.documentBytes} bytes` });
       else cfg.queue({ kind: 'loaded', slot: 0, ok: true, save: file });
     },
     slots() {

@@ -29,6 +29,7 @@
  * Later format changes of the same version add their step here.
  */
 import { GROUND_FORWARD_MIN, VIEW_LENS_DEFAULTS, VIRTUAL_CAMERA_LIMITS } from './cameras';
+import { isPlainObject } from '@thirdlight/shared';
 
 export interface UpgradeSceneModelResult {
   /** The upgraded documents (deep copies; the inputs are untouched). */
@@ -39,7 +40,6 @@ export interface UpgradeSceneModelResult {
 }
 
 type Obj = Record<string, unknown>;
-const isObject = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 
 /** A scene camera's lens, inside a virtual camera's lens limits (a value it lacks: the engine default). */
@@ -58,7 +58,7 @@ function lensOf(camera: Obj): { fovY: number; near: number; far: number } {
  * with the camera's lens where it differs from `projectLens` (absent: always).
  */
 export function sceneCameraAsShot(camera: unknown, projectLens?: { fovY: number; near: number; far: number }): { rig: 'fixed'; priority: number; fovY?: number; near?: number; far?: number } {
-  const lens = lensOf(isObject(camera) ? camera : {});
+  const lens = lensOf(isPlainObject(camera) ? camera : {});
   return {
     rig: 'fixed',
     priority: VIRTUAL_CAMERA_LIMITS.priority.min,
@@ -77,7 +77,7 @@ export function sceneCameraAsShot(camera: unknown, projectLens?: { fovY: number;
 export function sceneCamerasAsShots<T>(entities: readonly T[]): T[] {
   let changed = false;
   const out = entities.map((e) => {
-    if (!isObject(e) || !isObject(e['components']) || e['components']['camera'] === undefined || e['components']['virtualCamera'] !== undefined) return e;
+    if (!isPlainObject(e) || !isPlainObject(e['components']) || e['components']['camera'] === undefined || e['components']['virtualCamera'] !== undefined) return e;
     changed = true;
     const { camera, ...rest } = e['components'];
     return { ...e, keepLoaded: true, components: { ...rest, virtualCamera: sceneCameraAsShot(camera) } } as T;
@@ -91,7 +91,7 @@ function topObject(byId: ReadonlyMap<string, Obj>, e: Obj): Obj {
   for (let guard = 0; guard < byId.size; guard += 1) {
     const pid = top['parentId'];
     const parent = typeof pid === 'string' ? byId.get(pid) : undefined;
-    if (parent === undefined || (isObject(parent['components']) && parent['components']['folder'] !== undefined)) break;
+    if (parent === undefined || (isPlainObject(parent['components']) && parent['components']['folder'] !== undefined)) break;
     top = parent;
   }
   return top;
@@ -102,22 +102,22 @@ export function upgradeSceneModel(contentIn: unknown, scenesIn: readonly unknown
   const content = JSON.parse(JSON.stringify(contentIn ?? null)) as unknown;
   const scenes = scenesIn.map((s) => JSON.parse(JSON.stringify(s ?? null)) as unknown);
   const notes: string[] = [];
-  const start = new Set(isObject(content) && Array.isArray(content['startScenes']) ? (content['startScenes'] as unknown[]).filter((x): x is string => typeof x === 'string') : []);
+  const start = new Set(isPlainObject(content) && Array.isArray(content['startScenes']) ? (content['startScenes'] as unknown[]).filter((x): x is string => typeof x === 'string') : []);
   // The scene cameras, start scenes first (the one the game looked through decides the project's lens).
   const cameras: { scene: Obj; entity: Obj; inStart: boolean }[] = [];
   for (const s of scenes) {
-    if (!isObject(s) || !Array.isArray(s['entities'])) continue;
+    if (!isPlainObject(s) || !Array.isArray(s['entities'])) continue;
     for (const e of s['entities'] as unknown[]) {
-      if (isObject(e) && isObject(e['components']) && e['components']['camera'] !== undefined) cameras.push({ scene: s, entity: e, inStart: start.has(String(s['sceneId'])) });
+      if (isPlainObject(e) && isPlainObject(e['components']) && e['components']['camera'] !== undefined) cameras.push({ scene: s, entity: e, inStart: start.has(String(s['sceneId'])) });
     }
   }
   cameras.sort((a, b) => Number(b.inStart) - Number(a.inStart));
   // The project's lens: the first camera's, where it is not the engine default.
   let projectLens: { fovY: number; near: number; far: number } = { ...VIEW_LENS_DEFAULTS };
   const first = cameras[0];
-  if (first !== undefined && isObject(content)) {
+  if (first !== undefined && isPlainObject(content)) {
     const lens = lensOf((first.entity['components'] as Obj)['camera'] as Obj);
-    const settings: Obj = isObject(content['settings']) ? (content['settings'] as Obj) : {};
+    const settings: Obj = isPlainObject(content['settings']) ? (content['settings'] as Obj) : {};
     const set: string[] = [];
     if (lens.fovY !== VIEW_LENS_DEFAULTS.fovY) {
       settings['camera_fov_deg'] = lens.fovY;
@@ -138,8 +138,8 @@ export function upgradeSceneModel(contentIn: unknown, scenesIn: readonly unknown
     projectLens = lens;
   }
   // Whether any virtual camera existed before the scene cameras became shots (a prefab may bring one).
-  const hadVirtualCamera = scenes.some((sc) => isObject(sc) && Array.isArray(sc['entities']) && (sc['entities'] as unknown[]).some((e) => isObject(e) && isObject(e['components']) && e['components']['virtualCamera'] !== undefined))
-    || (isObject(content) && holdsComponent(content['prefabs'], 'virtualCamera'));
+  const hadVirtualCamera = scenes.some((sc) => isPlainObject(sc) && Array.isArray(sc['entities']) && (sc['entities'] as unknown[]).some((e) => isPlainObject(e) && isPlainObject(e['components']) && e['components']['virtualCamera'] !== undefined))
+    || (isPlainObject(content) && holdsComponent(content['prefabs'], 'virtualCamera'));
   const turned = cameras.filter((c) => headingTurned(c.entity)).map((c) => `"${String(c.entity['id'])}"`);
   const kept = new Set<Obj>();
   for (const { scene, entity, inStart } of cameras) {
@@ -151,9 +151,9 @@ export function upgradeSceneModel(contentIn: unknown, scenesIn: readonly unknown
   }
   // The player: each start scene's controller (the runtime never unloaded it).
   for (const s of scenes) {
-    if (!isObject(s) || !Array.isArray(s['entities']) || !start.has(String(s['sceneId']))) continue;
+    if (!isPlainObject(s) || !Array.isArray(s['entities']) || !start.has(String(s['sceneId']))) continue;
     for (const e of s['entities'] as unknown[]) {
-      if (isObject(e) && isObject(e['components']) && e['components']['controller'] !== undefined) kept.add(topObject(byIdOf(s), e));
+      if (isPlainObject(e) && isPlainObject(e['components']) && e['components']['controller'] !== undefined) kept.add(topObject(byIdOf(s), e));
     }
   }
   const keptIds: string[] = [];
@@ -163,13 +163,13 @@ export function upgradeSceneModel(contentIn: unknown, scenesIn: readonly unknown
     keptIds.push(String(e['id']));
   }
   // The move frame: a 3D project's characters read their input as they did.
-  if (isObject(content) && isObject(content['settings']) && content['settings']['physics_dimension'] === 3) {
+  if (isPlainObject(content) && isPlainObject(content['settings']) && content['settings']['physics_dimension'] === 3) {
     if (!hadVirtualCamera) {
       const world: string[] = [];
       for (const sc of scenes) {
-        if (!isObject(sc) || !Array.isArray(sc['entities'])) continue;
+        if (!isPlainObject(sc) || !Array.isArray(sc['entities'])) continue;
         for (const e of sc['entities'] as unknown[]) {
-          if (!isObject(e) || !isObject(e['components']) || !isObject(e['components']['controller'])) continue;
+          if (!isPlainObject(e) || !isPlainObject(e['components']) || !isPlainObject(e['components']['controller'])) continue;
           const c = e['components']['controller'] as Obj;
           if (c['moveFrame'] !== undefined) continue;
           c['moveFrame'] = 'world';
@@ -188,15 +188,15 @@ export function upgradeSceneModel(contentIn: unknown, scenesIn: readonly unknown
 /** Whether a document tree holds an entity with the named component (a prefab's entities, at any depth). */
 function holdsComponent(v: unknown, name: string): boolean {
   if (Array.isArray(v)) return v.some((x) => holdsComponent(x, name));
-  if (!isObject(v)) return false;
-  if (isObject(v['components']) && v['components'][name] !== undefined) return true;
+  if (!isPlainObject(v)) return false;
+  if (isPlainObject(v['components']) && v['components'][name] !== undefined) return true;
   return Object.values(v).some((x) => typeof x === 'object' && x !== null && holdsComponent(x, name));
 }
 
 /** Whether a scene camera looks along any heading but −Z (its view, flattened onto the ground, is turned about Y). */
 function headingTurned(entity: Obj): boolean {
-  const t = isObject(entity['components']) ? (entity['components'] as Obj)['transform'] : undefined;
-  const q = isObject(t) && Array.isArray(t['rotation']) ? (t['rotation'] as unknown[]) : [];
+  const t = isPlainObject(entity['components']) ? (entity['components'] as Obj)['transform'] : undefined;
+  const q = isPlainObject(t) && Array.isArray(t['rotation']) ? (t['rotation'] as unknown[]) : [];
   const [x, y, z, w] = [0, 1, 2, 3].map((i) => (typeof q[i] === 'number' && Number.isFinite(q[i]) ? (q[i] as number) : i === 3 ? 1 : 0)) as [number, number, number, number];
   let fx = -2 * (x * z + w * y);
   let fz = -(1 - 2 * (x * x + y * y));
@@ -213,7 +213,7 @@ function byIdOf(scene: Obj): Map<string, Obj> {
   let m = byIdCache.get(scene);
   if (m === undefined) {
     m = new Map();
-    for (const e of scene['entities'] as unknown[]) if (isObject(e) && typeof e['id'] === 'string') m.set(e['id'], e);
+    for (const e of scene['entities'] as unknown[]) if (isPlainObject(e) && typeof e['id'] === 'string') m.set(e['id'], e);
     byIdCache.set(scene, m);
   }
   return m;

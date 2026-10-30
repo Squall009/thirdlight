@@ -30,6 +30,7 @@
  */
 import type { PhysicsPort3D } from './ports';
 import type { HealthEventRecord, PrimitiveEventRecord, TransformState } from './types';
+import { isPlainObject } from '@thirdlight/shared';
 
 type Vec3 = [number, number, number];
 
@@ -875,20 +876,19 @@ export class Primitives {
   /** Why a saved `components` section cannot be restored (null: it can). */
   checkState(value: unknown): string | null {
     if (value === undefined) return null;
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) return 'the components section is an object';
-    const v = value as Record<string, unknown>;
-    const isMap = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
+    if (!isPlainObject(value)) return 'the components section is an object';
+    const v = value;
     for (const k of Object.keys(v)) if (!['health', 'collected', 'patrol', 'off', 'look', 'fall'].includes(k)) return `unknown key "${k.slice(0, 32)}"`;
-    if (v['look'] !== undefined && (!isMap(v['look']) || !Object.values(v['look']).every((l) => entityLookOf(l) !== null))) return 'look maps objects to a look override {emissive?, emissiveIntensity?, tint?}';
-    if (v['health'] !== undefined && (!isMap(v['health']) || !Object.values(v['health']).every((x) => typeof x === 'number' && Number.isFinite(x) && x >= 0))) return 'health maps objects to a health ≥ 0';
-    if (v['collected'] !== undefined && (!isMap(v['collected']) || !Object.values(v['collected']).every((x) => Number.isInteger(x) && (x as number) >= -1))) return 'collected maps objects to whole steps (-1: never back)';
-    if (v['fall'] !== undefined && (!isMap(v['fall']) || !Object.values(v['fall']).every((x) => Array.isArray(x) && x.length === 2 && x.every((n) => typeof n === 'number' && Number.isFinite(n))))) return 'fall maps objects to [height, fall speed]';
+    if (v['look'] !== undefined && (!isPlainObject(v['look']) || !Object.values(v['look']).every((l) => entityLookOf(l) !== null))) return 'look maps objects to a look override {emissive?, emissiveIntensity?, tint?}';
+    if (v['health'] !== undefined && (!isPlainObject(v['health']) || !Object.values(v['health']).every((x) => typeof x === 'number' && Number.isFinite(x) && x >= 0))) return 'health maps objects to a health ≥ 0';
+    if (v['collected'] !== undefined && (!isPlainObject(v['collected']) || !Object.values(v['collected']).every((x) => Number.isInteger(x) && (x as number) >= -1))) return 'collected maps objects to whole steps (-1: never back)';
+    if (v['fall'] !== undefined && (!isPlainObject(v['fall']) || !Object.values(v['fall']).every((x) => Array.isArray(x) && x.length === 2 && x.every((n) => typeof n === 'number' && Number.isFinite(n))))) return 'fall maps objects to [height, fall speed]';
     if (v['off'] !== undefined && !(Array.isArray(v['off']) && v['off'].every((x) => typeof x === 'string'))) return 'off lists object ids';
     if (v['patrol'] !== undefined) {
-      if (!isMap(v['patrol'])) return 'patrol maps objects to their state';
+      if (!isPlainObject(v['patrol'])) return 'patrol maps objects to their state';
       const vec = (x: unknown): boolean => Array.isArray(x) && x.length === 3 && x.every((n) => typeof n === 'number' && Number.isFinite(n));
       for (const s of Object.values(v['patrol'])) {
-        if (!isMap(s) || !vec(s['p']) || !vec(s['d']) || typeof s['w'] !== 'number' || !Number.isFinite(s['w']) || typeof s['a'] !== 'boolean') return 'a patrol state is {p, d, w, a}';
+        if (!isPlainObject(s) || !vec(s['p']) || !vec(s['d']) || typeof s['w'] !== 'number' || !Number.isFinite(s['w']) || typeof s['a'] !== 'boolean') return 'a patrol state is {p, d, w, a}';
         if ((s['s'] !== undefined && !Number.isInteger(s['s'])) || (s['u'] !== undefined && typeof s['u'] !== 'number') || (s['r'] !== undefined && s['r'] !== 1 && s['r'] !== -1)) return 'a waypoint patrol state has a segment, a distance and a direction';
       }
     }

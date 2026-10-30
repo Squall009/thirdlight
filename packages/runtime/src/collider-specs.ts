@@ -9,7 +9,7 @@
  * The one place the runtime, the Play preview, the export and the tests
  * derive collider specs. Pure: no I/O, no three.js.
  */
-import { quatMultiply } from '@thirdlight/shared';
+import { isPlainObject, quatMultiply } from '@thirdlight/shared';
 import { colliderDepthOf, planeLockOf, shape2DTo3D, type ModelColliderTable } from '@thirdlight/project-model';
 
 import type { ColliderPrimitive3D, ColliderShape3D, PhysicsPlane, PhysicsQuat, PhysicsVec3, StaticColliderSpec3D } from './ports';
@@ -31,14 +31,13 @@ export interface ColliderContext {
 }
 
 type Obj = Record<string, unknown>;
-const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
 const num = (v: unknown): number => (typeof v === 'number' ? v : Number.NaN);
 const IDENTITY: PhysicsQuat = { x: 0, y: 0, z: 0, w: 1 };
 const ORIGIN: PhysicsVec3 = { x: 0, y: 0, z: 0 };
 
 /** The table key of a model component (its asset, and its piece or '' for the whole file). */
 export function modelColliderKey(model: unknown): { assetId: string; piece: string } | null {
-  if (!isObj(model) || !isObj(model['asset']) || typeof model['asset']['assetId'] !== 'string') return null;
+  if (!isPlainObject(model) || !isPlainObject(model['asset']) || typeof model['asset']['assetId'] !== 'string') return null;
   return { assetId: model['asset']['assetId'], piece: typeof model['piece'] === 'string' ? model['piece'] : '' };
 }
 
@@ -154,12 +153,12 @@ function placedPart3D(s: Obj, scale: readonly number[]): { shape: ColliderPrimit
  * made). `components` is the object's (a `model` shape reads its model).
  */
 export function colliderShape3DOf(shape: unknown, scale: readonly number[] = [1, 1, 1], components: Readonly<Obj> = {}, ctx?: ColliderContext): ColliderShape3D | null {
-  if (!isObj(shape)) return null;
+  if (!isPlainObject(shape)) return null;
   if (shape['type'] === 'model') {
     const parts = modelParts(components, ctx).map((points) => placedPart3D({ type: 'convex', points }, scale)).filter((p): p is NonNullable<typeof p> => p !== null);
     return parts.length === 0 ? null : { type: 'compound', parts };
   }
-  const list = shape['type'] === 'compound' ? (Array.isArray(shape['shapes']) ? (shape['shapes'] as unknown[]).filter(isObj) : []) : [shape];
+  const list = shape['type'] === 'compound' ? (Array.isArray(shape['shapes']) ? (shape['shapes'] as unknown[]).filter(isPlainObject) : []) : [shape];
   if (shape['type'] !== 'compound' && poseOf(shape) === null) return primitive3D(shape, scale);
   const parts = list.map((p) => placedPart3D(p, scale)).filter((p): p is NonNullable<typeof p> => p !== null);
   return parts.length === 0 ? null : { type: 'compound', parts };
@@ -180,7 +179,7 @@ function ownTransform(components: Readonly<Obj>): WorldTransform {
  * moves the body, never reshapes it), its depth the collider's.
  */
 export function solidShapeOf(collider: unknown): unknown {
-  return shape2DTo3D(isObj(collider) ? collider['shape'] : undefined, { depth: colliderDepthOf(collider), plane: planeLockOf(collider)?.axis ?? null });
+  return shape2DTo3D(isPlainObject(collider) ? collider['shape'] : undefined, { depth: colliderDepthOf(collider), plane: planeLockOf(collider)?.axis ?? null });
 }
 
 /**
@@ -198,7 +197,7 @@ export function staticColliderOf3D(entityId: string, components: Readonly<Obj>, 
   const solid = solidShapeOf(collider);
   if (solid === null) return null;
   const resolved = colliderShape3DOf(solid, w.scale, components, ctx);
-  if (resolved === null && isObj(collider.shape) && collider.shape['type'] === 'model') return null;
+  if (resolved === null && isPlainObject(collider.shape) && collider.shape['type'] === 'model') return null;
   const [qx, qy, qz, qw] = w.rotation;
   return {
     entityId,

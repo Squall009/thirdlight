@@ -30,6 +30,7 @@ import { validateDecalCellRef, type DecalCellRef } from './decals';
 import { canonicalWind, validateWind } from './wind';
 
 import { MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, materialGraphContext, type MaterialParamType, type MaterialParamValue, type MaterialShader } from './material-schema';
+import { isPlainObject } from '@thirdlight/shared';
 export { DEFAULT_WIND, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, materialGraphContext, materialParameterPortType, type MaterialParamType, type MaterialParamValue, type MaterialShader } from './material-schema';
 
 /**
@@ -208,9 +209,6 @@ export const MAX_MATERIAL_SLOTS = 32;
 export const MATERIAL_SLOT_ALL = '*';
 const COLOR_RE = /^#[0-9a-f]{6}$/;
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
 function isName(v: unknown): v is string {
   return typeof v === 'string' && v.length >= 1 && v.length <= 128 && !/[\u0000-\u001f\u007f]/.test(v);
 }

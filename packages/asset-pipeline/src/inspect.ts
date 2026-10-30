@@ -20,7 +20,7 @@
  * wall-clock value is ever persisted in the proposal.
  */
 
-import { canonicalJsonText, sha256Hex, sha256HexOfText } from '@thirdlight/shared';
+import { canonicalJsonText, deepFreezeAll, sha256Hex, sha256HexOfText } from '@thirdlight/shared';
 import type { AssetMetrics, ImportRecipe } from '@thirdlight/project-model';
 import type { AudioImportProposal, AudioRecipe } from './inspect-audio';
 import {
@@ -45,14 +45,6 @@ import { checkMeshes, checkRigCaps } from './inspect-glb-meshes';
 import { checkMaterials, checkImages, checkTextures } from './inspect-glb-materials';
 import { checkAnimations, checkAnimationProfile } from './inspect-glb-animation';
 import { checkNodesAndScenes, computeMetrics, checkMetricCaps } from './inspect-glb-scene';
-
-function deepFreeze<T>(value: T): T {
-  if (value === null || typeof value !== 'object') return value;
-  for (const v of Object.values(value as Record<string, unknown>)) {
-    if (v !== null && typeof v === 'object') deepFreeze(v);
-  }
-  return Object.freeze(value) as T;
-}
 
 /** `suggestedDisplayName`: 1–128 chars, no control characters, never an id. */
 export function sanitizeDisplayName(input: unknown): string {
@@ -287,9 +279,9 @@ class Inspector extends GlbState {
       limits: this.limits(),
     };
     if (status === 'ok' && metrics !== null) {
-      return deepFreeze({ ...base, kind: 'model' as const, metrics });
+      return deepFreezeAll({ ...base, kind: 'model' as const, metrics });
     }
-    return deepFreeze(base);
+    return deepFreezeAll(base);
   }
 
   private reject(diagnostics: ImportDiagnostic[]): ImportProposal {

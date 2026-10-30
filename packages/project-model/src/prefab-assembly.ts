@@ -18,6 +18,7 @@ import {
 } from './prefab-links';
 import { derivedOf } from './content-helpers';
 import { componentRefsNaming, setValueAtPath, valueAtPath } from './prefab-entity-refs';
+import { isPlainObject } from '@thirdlight/shared';
 
 /** Whether a declared property is private (absent visibility = public): never stored on an object, never overridden. */
 export function isPrivateProperty(p: { visibility?: string }): boolean {
@@ -121,8 +122,6 @@ function clonePart(p: FlatPart): FlatPart {
   };
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
-
 /**
  * Apply one override to a part. Returns false when the field it names cannot
  * be reached (the prefab changed under it): the override is stale.
@@ -144,7 +143,7 @@ function applyFieldOverride(part: FlatPart, path: string, value: unknown, remove
       next = {};
       at[seg] = next;
     }
-    if (!isRecord(next)) return false;
+    if (!isPlainObject(next)) return false;
     at = next;
   }
   const leaf = segs[segs.length - 1] as string;
@@ -233,10 +232,10 @@ export function createPrefabAssembler(prefabs: readonly AssemblyPrefab[], option
 
   const behaviorOf = (components: Record<string, unknown>, localIds: ReadonlySet<string>): string[] | undefined => {
     const behavior = components['behavior'];
-    if (!isRecord(behavior) || declarations === undefined) return undefined;
+    if (!isPlainObject(behavior) || declarations === undefined) return undefined;
     const declared = declarations.get(behavior['behaviorId'] as string);
     if (declared === undefined) return undefined;
-    const stored = isRecord(behavior['values']) ? behavior['values'] : {};
+    const stored = isPlainObject(behavior['values']) ? behavior['values'] : {};
     const values: Record<string, PropertyValue> = {};
     const refs: string[] = [];
     for (const p of declared) {

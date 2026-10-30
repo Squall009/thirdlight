@@ -12,7 +12,7 @@
  */
 import { ASSET_QUERY_PAGE_DEFAULT, ASSET_QUERY_PAGE_MAX, audioSummaryOf, textureHasStreamableChain, textureStreamingOf } from '@thirdlight/project-model';
 
-import { ID_RE, fieldType, fieldUnexpected, fieldValue, invalidRequest, isPlainObject } from './errors';
+import { ID_RE, fieldType, fieldUnexpected, fieldValue, invalidRequest, isPlainObjectStrict } from './errors';
 import { assetKindOf } from './v3';
 import { contentOf } from './content-ops';
 import { prefabStage } from './prefab-stage-edit';
@@ -44,7 +44,7 @@ function parseQueryRequest(
   expectedOp: 'queryAssets' | 'queryBehaviors' | 'queryPrefabs' | 'queryGameConfig',
   request: unknown,
 ): { ok: true; base: QueryBase } | { ok: false; projectId?: string; error: CommandError } {
-  if (!isPlainObject(request)) {
+  if (!isPlainObjectStrict(request)) {
     return {
       ok: false,
       error: invalidRequest('', typeof request, `query request object { op: "${expectedOp}", projectId, args? }`, 'query must be a JSON object'),
@@ -72,7 +72,7 @@ function parseQueryRequest(
     };
   }
   const args = request['args'];
-  if (args !== undefined && !isPlainObject(args)) {
+  if (args !== undefined && !isPlainObjectStrict(args)) {
     return { ok: false, projectId, error: fieldType('/args', args, 'object (query args)') };
   }
   return { ok: true, base: { op, projectId, args: (args ?? {}) as Record<string, unknown> } };

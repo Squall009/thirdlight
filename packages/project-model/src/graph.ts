@@ -22,6 +22,7 @@
  */
 import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
+import { isPlainObject } from '@thirdlight/shared';
 
 // ---- data --------------------------------------------------------------------
 
@@ -347,9 +348,6 @@ function patternOf(src: string): RegExp {
 
 // ---- small helpers -----------------------------------------------------------------
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
 function err(errors: ModelErrorV2[], code: string, path: string, message: string, found?: unknown, expected?: string): void {
   errors.push({ code, path, message, ...(found !== undefined ? { found } : {}), ...(expected !== undefined ? { expected } : {}) } as ModelErrorV2);
 }

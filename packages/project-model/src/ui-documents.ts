@@ -21,7 +21,7 @@
  * edit them with plain commands (`setUiDocument` / `deleteUiDocument`,
  * `setUiTheme` / `deleteUiTheme`), one undo step each. Pure data rules.
  */
-import { canonicalJsonValue } from '@thirdlight/shared';
+import { canonicalJsonValue, isPlainObject } from '@thirdlight/shared';
 import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { projectInputMaps } from './input';
@@ -361,9 +361,6 @@ const SPECIAL_ROOTS = new Set(['$item', '$index', '$flow']);
 // Helpers
 // ---------------------------------------------------------------------------
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
 function err(errors: ModelErrorV2[], code: string, path: string, message: string, found?: unknown, expected?: string): void {
   errors.push({ code, path, message, ...(found !== undefined ? { found } : {}), ...(expected !== undefined ? { expected } : {}) } as ModelErrorV2);
 }

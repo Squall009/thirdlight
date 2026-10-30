@@ -17,7 +17,7 @@
  *
  * Pure byte work: no decoding of pixels, no file access.
  */
-import { glbBytes, readGlb } from '@thirdlight/shared';
+import { glbBytes, isPlainObject, readGlb } from '@thirdlight/shared';
 import { encodeRgbaPng } from './image-thumbnail';
 
 export type GlbImageMime = 'image/png' | 'image/jpeg' | 'image/webp' | 'image/ktx2';
@@ -34,16 +34,15 @@ export interface GlbImage {
   readonly roles: ReadonlySet<GlbImageRole>;
 }
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const listOf = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 
 /** The image a texture draws (its compressed source first: KTX2, WebP). */
 function textureSource(texture: unknown): number | null {
-  if (!isObject(texture)) return null;
-  const ext = isObject(texture['extensions']) ? texture['extensions'] : {};
+  if (!isPlainObject(texture)) return null;
+  const ext = isPlainObject(texture['extensions']) ? texture['extensions'] : {};
   for (const name of ['KHR_texture_basisu', 'EXT_texture_webp']) {
     const e = ext[name];
-    if (isObject(e) && Number.isInteger(e['source'])) return e['source'] as number;
+    if (isPlainObject(e) && Number.isInteger(e['source'])) return e['source'] as number;
   }
   return Number.isInteger(texture['source']) ? (texture['source'] as number) : null;
 }
@@ -57,10 +56,10 @@ function roleOfSlot(key: string): GlbImageRole {
 
 /** Every `{index}` texture slot of a material (its extensions included), as [slot name, texture index]. */
 function textureSlots(value: unknown, out: [string, number][], depth = 0): void {
-  if (!isObject(value) || depth > 8) return;
+  if (!isPlainObject(value) || depth > 8) return;
   for (const [k, v] of Object.entries(value)) {
-    if (k.endsWith('Texture') && isObject(v) && Number.isInteger(v['index'])) out.push([k, v['index'] as number]);
-    else if (isObject(v)) textureSlots(v, out, depth + 1);
+    if (k.endsWith('Texture') && isPlainObject(v) && Number.isInteger(v['index'])) out.push([k, v['index'] as number]);
+    else if (isPlainObject(v)) textureSlots(v, out, depth + 1);
   }
 }
 
@@ -92,9 +91,9 @@ export function readGlbImages(glb: Uint8Array): { ok: true; images: GlbImage[] }
   const out: GlbImage[] = [];
   for (let i = 0; i < images.length; i++) {
     const image = images[i];
-    if (!isObject(image)) return { ok: false, message: `image ${i} is not an object` };
+    if (!isPlainObject(image)) return { ok: false, message: `image ${i} is not an object` };
     const v = views[image['bufferView'] as number];
-    if (!Number.isInteger(image['bufferView']) || !isObject(v) || bin === null || (v['buffer'] ?? 0) !== 0) return { ok: false, message: `image ${i} is not in the file's binary chunk` };
+    if (!Number.isInteger(image['bufferView']) || !isPlainObject(v) || bin === null || (v['buffer'] ?? 0) !== 0) return { ok: false, message: `image ${i} is not in the file's binary chunk` };
     const offset = (v['byteOffset'] as number | undefined) ?? 0;
     const length = v['byteLength'] as number;
     if (!Number.isInteger(offset) || !Number.isInteger(length) || offset < 0 || offset + length > bin.length) return { ok: false, message: `image ${i} lies outside the binary chunk` };
@@ -140,7 +139,7 @@ export function stripGlbImages(glb: Uint8Array, images: readonly GlbImage[], ext
   }
   const regions: Region[] = [];
   views.forEach((v, vi) => {
-    if (!isObject(v)) return;
+    if (!isPlainObject(v)) return;
     if ((v['buffer'] ?? 0) === 0) {
       const start = (v['byteOffset'] as number | undefined) ?? 0;
       const image = imageView.get(vi);
@@ -157,8 +156,8 @@ export function stripGlbImages(glb: Uint8Array, images: readonly GlbImage[], ext
         ...(replace !== undefined ? { replace } : {}),
       });
     }
-    const ext = isObject(v['extensions']) ? v['extensions'] : null;
-    const mo = ext !== null && isObject(ext['EXT_meshopt_compression']) ? (ext['EXT_meshopt_compression'] as Record<string, unknown>) : null;
+    const ext = isPlainObject(v['extensions']) ? v['extensions'] : null;
+    const mo = ext !== null && isPlainObject(ext['EXT_meshopt_compression']) ? (ext['EXT_meshopt_compression'] as Record<string, unknown>) : null;
     if (mo !== null && (mo['buffer'] ?? 0) === 0) {
       const start = (mo['byteOffset'] as number | undefined) ?? 0;
       regions.push({ start, end: start + (mo['byteLength'] as number), set: (o) => void (mo['byteOffset'] = o) });
@@ -192,7 +191,7 @@ export function stripGlbImages(glb: Uint8Array, images: readonly GlbImage[], ext
   const newBin = new Uint8Array(align4(size));
   for (const c of chunks) newBin.set(c.bytes, c.at);
   const buffers = listOf(json['buffers']) as Record<string, unknown>[];
-  if (isObject(buffers[0])) buffers[0]['byteLength'] = newBin.length;
+  if (isPlainObject(buffers[0])) buffers[0]['byteLength'] = newBin.length;
   // The stand-ins are PNGs; the textures that drew an extracted image draw it plainly.
   for (const i of extracted) {
     const img = jsonImages[i]!;
@@ -202,14 +201,14 @@ export function stripGlbImages(glb: Uint8Array, images: readonly GlbImage[], ext
     const source = textureSource(t);
     if (source === null || !extracted.has(source)) continue;
     t['source'] = source;
-    if (isObject(t['extensions'])) {
+    if (isPlainObject(t['extensions'])) {
       delete (t['extensions'] as Record<string, unknown>)['KHR_texture_basisu'];
       delete (t['extensions'] as Record<string, unknown>)['EXT_texture_webp'];
       if (Object.keys(t['extensions'] as object).length === 0) delete t['extensions'];
     }
   }
   for (const name of ['KHR_texture_basisu', 'EXT_texture_webp']) {
-    const used = (listOf(json['textures']) as Record<string, unknown>[]).some((t) => isObject(t['extensions']) && (t['extensions'] as Record<string, unknown>)[name] !== undefined);
+    const used = (listOf(json['textures']) as Record<string, unknown>[]).some((t) => isPlainObject(t['extensions']) && (t['extensions'] as Record<string, unknown>)[name] !== undefined);
     if (used) continue;
     for (const key of ['extensionsUsed', 'extensionsRequired']) {
       const list = json[key];

@@ -20,7 +20,7 @@
 import { isValidSourcePath } from '@thirdlight/project-model';
 
 import { contentOf, type OpInput } from './content-ops';
-import { fieldMissing, fieldType, fieldUnexpected, fieldValue, isPlainObject, noChangeContent, type CommandError } from './errors';
+import { fieldMissing, fieldType, fieldUnexpected, fieldValue, isPlainObjectStrict, noChangeContent, type CommandError } from './errors';
 import { deepClone, gateResultState, type OpOutcome } from './ops';
 import type { CommandAssetRecord, ContentDocument, SceneDocument } from './types';
 
@@ -101,7 +101,7 @@ export function validateMoveResourcesArgs(args: Record<string, unknown>): { ok: 
     const items: MoveItemRef[] = [];
     for (let i = 0; i < args['items'].length; i++) {
       const v: unknown = args['items'][i];
-      if (!isPlainObject(v)) return { ok: false, error: fieldType(`/args/items/${i}`, v, 'object { kind, id }') };
+      if (!isPlainObjectStrict(v)) return { ok: false, error: fieldType(`/args/items/${i}`, v, 'object { kind, id }') };
       for (const k of Object.keys(v)) if (k !== 'kind' && k !== 'id') return { ok: false, error: fieldUnexpected(`/args/items/${i}/${k}`, k, 'kind, id') };
       if (typeof v['kind'] !== 'string' || v['kind'] === '') return { ok: false, error: fieldType(`/args/items/${i}/kind`, v['kind'], 'string (asset, an asset kind, a resource kind or scene)') };
       if (typeof v['id'] !== 'string' || v['id'] === '') return { ok: false, error: fieldType(`/args/items/${i}/id`, v['id'], 'string (an id)') };

@@ -27,6 +27,7 @@ import { BLOCK_LIMITS, CHUNK_SIZE } from './block-layers';
 import type { ModelErrorV2 } from './errors';
 import { canonicalProbeBake, validateProbeBake, type ProbeBake } from './probe-grids';
 import { SKY_ROTATION_MAX } from './materials';
+import { isPlainObject } from '@thirdlight/shared';
 
 export interface LightingEntry {
   entityId: string;
@@ -127,9 +128,6 @@ export const SURFACE_BAKE_LEVELS = 6;
 const HASH_RE = /^[0-9a-f]{16}$/;
 const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
 function err(errors: ModelErrorV2[], code: string, path: string, message: string, found?: unknown, expected?: string): void {
   errors.push({ code, path, message, ...(found !== undefined ? { found } : {}), ...(expected !== undefined ? { expected } : {}) } as ModelErrorV2);
 }

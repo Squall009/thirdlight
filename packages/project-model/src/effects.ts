@@ -23,6 +23,7 @@ import type { ModelErrorV2 } from './errors';
 import { canonicalGraphData, validateGraphData, type GraphContext, type GraphData } from './graph';
 import { EFFECT_GRAPH_KIND, EFFECT_MAX_PARTICLES } from './effect-graph-kinds';
 import { graphForRuntime, MATERIAL_PARAMETER_KEY_RE, materialParameterValueError } from './materials';
+import { isPlainObject } from '@thirdlight/shared';
 
 export const EFFECT_PARAMETER_TYPES = ['float', 'vec3', 'color'] as const;
 export type EffectParameterType = (typeof EFFECT_PARAMETER_TYPES)[number];
@@ -114,9 +115,6 @@ export const EFFECT_DEFAULTS = {
 const SIGNAL_RE = /^[A-Za-z_][A-Za-z0-9_:.-]{0,63}$/;
 const COLOR_RE = /^#[0-9a-f]{6}$/;
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
 const isName = (v: unknown): v is string => typeof v === 'string' && v.length >= 1 && v.length <= 128 && !/[\u0000-\u001f\u007f]/.test(v);
 const shortText = (v: unknown, max: number): boolean => typeof v === 'string' && v.length >= 1 && v.length <= max && !/[\u0000-\u001f\u007f]/.test(v);
 function err(errors: ModelErrorV2[], code: string, path: string, message: string, found?: unknown, expected?: string): void {

@@ -52,6 +52,7 @@ import {
 } from '@thirdlight/project-model/limits';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { toolDescription } from './tool-docs';
+import { isPlainObject } from '@thirdlight/shared';
 
 export interface McpContext {
   readonly client: BackendClient;
@@ -79,8 +80,6 @@ const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets'
 const TOOL_CONTROL_COMMANDS = [...GAME_CONTROL_COMMANDS, SIGNAL_DEBUG_COMMAND_NAME] as const;
 
 const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
-const isObj = (v: unknown): v is Record<string, unknown> =>
-  typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** The advertised tools (plain JSON Schema input schemas — no zod). */
 export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
@@ -495,7 +494,7 @@ function toolOk(body: unknown): CallToolResult {
 
 /** Surface the backend's structured error body as a tool error (keeping code + fields). */
 function surfaceBackendError(res: { status: number; body: unknown }): CallToolResult {
-  const body = isObj(res.body) ? res.body : { ok: false, error: { code: 'invalid_request', message: 'empty backend response' } };
+  const body = isPlainObject(res.body) ? res.body : { ok: false, error: { code: 'invalid_request', message: 'empty backend response' } };
   return { content: [{ type: 'text', text: JSON.stringify({ ...body, __httpStatus: res.status }) }], isError: true };
 }
 
@@ -509,7 +508,7 @@ export async function handleProjectFreeCall(
   name: string,
   args: unknown,
 ): Promise<CallToolResult | null> {
-  const a = isObj(args) ? args : {};
+  const a = isPlainObject(args) ? args : {};
   if (name !== 'tl_docs' && !(name === 'tl_inspect' && a.target === 'engine')) return null;
   return handleToolCall({ client, projectId: '', clientId: '' }, name, a);
 }
@@ -522,7 +521,7 @@ export async function handleToolCall(
   name: string,
   args: unknown,
 ): Promise<CallToolResult> {
-  const a = isObj(args) ? args : {};
+  const a = isPlainObject(args) ? args : {};
   try {
     switch (name) {
       case 'tl_inspect':
@@ -578,7 +577,7 @@ async function inspect(ctx: McpContext, a: Record<string, unknown>): Promise<Cal
   if (target === 'engine') {
     // The engine the backend runs.
     const res = await ctx.client.engineInfo();
-    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+    return isPlainObject(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
   if (target !== 'project' && target !== 'entity' && target !== 'entities') {
     return toolError('target must be "project", "entity", "entities", "selection" or "engine"');
@@ -621,16 +620,16 @@ async function inspect(ctx: McpContext, a: Record<string, unknown>): Promise<Cal
     }
   }
   const res = await ctx.client.command(ctx.projectId, { op, args: argsOut });
-  return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+  return isPlainObject(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
 }
 
 async function command(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
   const op = a.op;
   // A staged library patch goes to the library stage route (it changes no revision).
   if (op === 'stageScriptLibrary') {
-    if (!isObj(a.args)) return toolError('args is required for stageScriptLibrary ({stageId?, libraryId, name?, files?} or {stageId, discard: true})');
+    if (!isPlainObject(a.args)) return toolError('args is required for stageScriptLibrary ({stageId?, libraryId, name?, files?} or {stageId, discard: true})');
     const res = await ctx.client.stageScriptLibrary(ctx.projectId, a.args);
-    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+    return isPlainObject(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
   if (typeof op !== 'string' || !MUTATION_SET.has(op)) {
     return toolError(`op must be one of ${MUTATION_OPS.join(', ')}`);
@@ -647,14 +646,14 @@ async function command(ctx: McpContext, a: Record<string, unknown>): Promise<Cal
     origin: { kind: 'mcp', clientId: ctx.clientId },
   };
   if (a.args !== undefined) {
-    if (!isObj(a.args)) return toolError('args must be an object');
+    if (!isPlainObject(a.args)) return toolError('args must be an object');
     envelope.args = a.args;
   } else if (op !== 'undo' && op !== 'redo') {
     // createEntity/setTransform/deleteEntity require args; undo/redo take none.
     return toolError(`args is required for ${op}`);
   }
   const res = await ctx.client.command(ctx.projectId, envelope);
-  return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+  return isPlainObject(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
 }
 
 /** The manual of the running build (the backend answers within its own bound). */
@@ -667,7 +666,7 @@ async function docs(ctx: McpContext, a: Record<string, unknown>): Promise<CallTo
     ...(typeof a.query === 'string' ? { query: a.query } : {}),
     ...(isInt(a.part) ? { part: a.part } : {}),
   });
-  if (!isObj(res.body) || res.body.ok !== true) return surfaceBackendError(res);
+  if (!isPlainObject(res.body) || res.body.ok !== true) return surfaceBackendError(res);
   // A page's text reads as markdown: send it as its own content item, the rest as JSON beside it.
   const { text, ...meta } = res.body as Record<string, unknown>;
   if (typeof text !== 'string') return toolOk(res.body);
@@ -694,7 +693,7 @@ async function scriptPublish(ctx: McpContext, a: Record<string, unknown>): Promi
   if (a.check === true) {
     body.check = true;
     const res = await ctx.client.behaviorSource(ctx.projectId, body);
-    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+    return isPlainObject(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
   if (a.check !== undefined && a.check !== false) return toolError('check must be a boolean');
   if (typeof a.displayName !== 'string') return toolError('displayName is required to publish');
@@ -703,27 +702,27 @@ async function scriptPublish(ctx: McpContext, a: Record<string, unknown>): Promi
   body.expectedRevision = a.expectedRevision;
   body.requestId = typeof a.requestId === 'string' ? a.requestId : makeRequestId();
   const res = await ctx.client.behaviorSource(ctx.projectId, body);
-  return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+  return isPlainObject(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
 }
 
 /** The entities selected in the project's connected editor (≤ 64). */
 async function inspectSelection(ctx: McpContext): Promise<CallToolResult> {
   const list = await ctx.client.listSessions(ctx.projectId);
-  if (!isObj(list.body) || list.body.ok !== true) return surfaceBackendError(list);
+  if (!isPlainObject(list.body) || list.body.ok !== true) return surfaceBackendError(list);
   const all = (list.body.sessions as Array<{ sessionId: string; connected: boolean; selection?: string[] }>) ?? [];
   const session = all.find((s) => s.connected);
   if (session === undefined) return toolError('no editor browser is connected for this project (nothing is selected)');
   const entities: unknown[] = [];
   for (const entityId of session.selection ?? []) {
     const res = await ctx.client.command(ctx.projectId, { op: 'queryEntity', args: { entityId } });
-    if (isObj(res.body) && res.body.ok === true) entities.push(res.body.entity);
+    if (isPlainObject(res.body) && res.body.ok === true) entities.push(res.body.entity);
   }
   return toolOk({ ok: true, sessionId: session.sessionId, selection: session.selection ?? [], entities });
 }
 
 async function sessions(ctx: McpContext): Promise<CallToolResult> {
   const res = await ctx.client.listSessions(ctx.projectId);
-  return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+  return isPlainObject(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
 }
 
 async function playStart(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
@@ -743,29 +742,29 @@ async function playStart(ctx: McpContext, a: Record<string, unknown>): Promise<C
     body.sessionId = a.sessionId;
   }
   const res = await ctx.client.startPlay(ctx.projectId, body);
-  return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+  return isPlainObject(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
 }
 
 async function playStop(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
   if (typeof a.playSessionId !== 'string' || a.playSessionId.length === 0) return toolError('playSessionId is required');
   const res = await ctx.client.stopPlay(ctx.projectId, a.playSessionId);
-  return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+  return isPlainObject(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
 }
 
 async function diagnostics(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
   if (a.playSessionId === undefined) {
     if (a.sections !== undefined) return toolError('sections picks parts of a play\'s diagnostics: give playSessionId too');
     const problems = await ctx.client.problems(ctx.projectId);
-    if (!isObj(problems.body) || problems.body.ok !== true) return surfaceBackendError(problems);
+    if (!isPlainObject(problems.body) || problems.body.ok !== true) return surfaceBackendError(problems);
     const project = await ctx.client.command(ctx.projectId, { op: 'queryProject', args: {} });
-    const workspace = isObj(project.body) && project.body.ok === true ? project.body.workspace : null;
+    const workspace = isPlainObject(project.body) && project.body.ok === true ? project.body.workspace : null;
     // The graph materials that have problems.
     return toolOk({ ok: true, workspace, total: problems.body.total, problems: problems.body.problems, ...(problems.body.materialProblems !== undefined ? { materialProblems: problems.body.materialProblems } : {}), ...(problems.body.missingFiles !== undefined ? { missingFiles: problems.body.missingFiles } : {}) });
   }
   if (typeof a.playSessionId !== 'string' || a.playSessionId.length === 0) return toolError('playSessionId must be a non-empty string');
   // The backend checks the section names (an unknown one is refused with the valid ones).
   const res = await ctx.client.diagnostics(ctx.projectId, a.playSessionId, a.sections !== undefined ? { sections: a.sections } : {});
-  return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+  return isPlainObject(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
 }
 
 async function screenshot(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
@@ -777,7 +776,7 @@ async function screenshot(ctx: McpContext, a: Record<string, unknown>): Promise<
   }
   if (a.ui !== undefined && typeof a.ui !== 'boolean') return toolError('ui must be true or false');
   const res = await ctx.client.screenshot(ctx.projectId, a.playSessionId, maxWidth, a.ui === false ? false : undefined);
-  if (!isObj(res.body) || res.body.ok !== true) return surfaceBackendError(res);
+  if (!isPlainObject(res.body) || res.body.ok !== true) return surfaceBackendError(res);
   // The PNG goes out as an image block, the only form an agent can look at; as text it is
   // hundreds of KB of base64 that clients cut short and nobody can see.
   const { dataUrl, ...meta } = res.body;
@@ -797,7 +796,7 @@ async function inputExercise(ctx: McpContext, a: Record<string, unknown>): Promi
   let previousEnd = 0;
   for (let i = 0; i < a.frames.length; i += 1) {
     const raw = a.frames[i];
-    if (!isObj(raw)) return toolError(`frames[${i}] must be an object`);
+    if (!isPlainObject(raw)) return toolError(`frames[${i}] must be an object`);
     const { stepOffset, actions } = raw;
     // Frame version 2 has no fixed channels.
     for (const old of ['moveX', 'moveY', 'jump']) {
@@ -806,9 +805,9 @@ async function inputExercise(ctx: McpContext, a: Record<string, unknown>): Promi
     if (!isInt(stepOffset) || stepOffset < 0) return toolError(`frames[${i}].stepOffset must be an integer ≥ 0`);
     if (stepOffset <= previous) return toolError('frames must be strictly ascending by stepOffset');
     previous = stepOffset;
-    if (actions !== undefined && !isObj(actions)) return toolError(`frames[${i}].actions must be an object`);
+    if (actions !== undefined && !isPlainObject(actions)) return toolError(`frames[${i}].actions must be an object`);
     // The pointer too.
-    if (raw.pointer !== undefined && !isObj(raw.pointer)) return toolError(`frames[${i}].pointer must be an object { x, y, ... }`);
+    if (raw.pointer !== undefined && !isPlainObject(raw.pointer)) return toolError(`frames[${i}].pointer must be an object { x, y, ... }`);
     // Run length (no overlap), a virtual gamepad, UI edges.
     const span = relayFrameEnd(stepOffset, raw.steps, previousEnd);
     if (!span.ok) return toolError(`frames[${i}]: ${span.reason}`);
@@ -832,7 +831,7 @@ async function inputExercise(ctx: McpContext, a: Record<string, unknown>): Promi
   const body = JSON.stringify(request);
   if (body.length > INPUT_RELAY_MAX_BODY_BYTES) return toolError(`the relay body exceeds the ${INPUT_RELAY_MAX_BODY_BYTES}-byte bound`);
   const res = await ctx.client.inputRelay(ctx.projectId, a.playSessionId, request);
-  return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+  return isPlainObject(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
 }
 
 // ---- content tools ------------------------------------------------------------
@@ -844,7 +843,7 @@ async function contentQuery(ctx: McpContext, a: Record<string, unknown>): Promis
     const dir = a.dir ?? '';
     if (typeof dir !== 'string') return toolError('dir must be a string');
     const res = await ctx.client.listProjectFiles(ctx.projectId, dir);
-    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+    return isPlainObject(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
   if (target === 'materials') {
     // The materials and their graph problems (the backend checks them at load and after each change).
@@ -853,7 +852,7 @@ async function contentQuery(ctx: McpContext, a: Record<string, unknown>): Promis
     if (a.materialId !== undefined && typeof a.materialId !== 'string') return toolError('materialId must be a string');
     if (a.withProblems !== undefined && typeof a.withProblems !== 'boolean') return toolError('withProblems must be a boolean');
     const res = await ctx.client.contentMaterials(ctx.projectId, { ...(paged.args as { limit?: number; offset?: number }), ...(typeof a.materialId === 'string' ? { materialId: a.materialId } : {}), ...(a.withProblems === true ? { withProblems: true } : {}) });
-    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+    return isPlainObject(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
   if (target === 'integrity') {
     if (a.check !== undefined && typeof a.check !== 'boolean') return toolError('check must be a boolean');
@@ -862,20 +861,20 @@ async function contentQuery(ctx: McpContext, a: Record<string, unknown>): Promis
     if (!paged.ok) return paged.error;
     const page = { ...(paged.args as { limit?: number; offset?: number }), ...(a.problems === true ? { problems: true } : {}) };
     const res = a.check === true ? await ctx.client.checkFiles(ctx.projectId, page) : await ctx.client.contentIntegrity(ctx.projectId, page);
-    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+    return isPlainObject(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
   // The v3 game-config query (commands.md) over the same shared command
   // surface; no args.
   if (target === 'game') {
     if (a.includeDescriptors !== undefined && typeof a.includeDescriptors !== 'boolean') return toolError('includeDescriptors must be a boolean');
     const res = await ctx.client.command(ctx.projectId, { op: 'queryGameConfig', ...(a.includeDescriptors === true ? { args: { descriptors: true } } : {}) });
-    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+    return isPlainObject(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
   if (target === 'assets' || target === 'asset') {
     if (target === 'asset') {
       if (typeof a.assetId !== 'string' || a.assetId.length === 0) return toolError('assetId is required for target="asset"');
       const one = await ctx.client.contentAsset(ctx.projectId, a.assetId);
-      return isObj(one.body) && one.body.ok === true ? toolOk(one.body) : surfaceBackendError(one);
+      return isPlainObject(one.body) && one.body.ok === true ? toolOk(one.body) : surfaceBackendError(one);
     }
     const args: Record<string, unknown> = {};
     if (a.includeVersions !== undefined) {
@@ -885,7 +884,7 @@ async function contentQuery(ctx: McpContext, a: Record<string, unknown>): Promis
     const paged = pageArgs(a);
     if (!paged.ok) return paged.error;
     const res = await ctx.client.command(ctx.projectId, { op: 'queryAssets', args: { ...args, ...paged.args } });
-    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+    return isPlainObject(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
   if (target === 'prefabs') {
     const args: Record<string, unknown> = {};
@@ -904,7 +903,7 @@ async function contentQuery(ctx: McpContext, a: Record<string, unknown>): Promis
     const paged = pageArgs(a);
     if (!paged.ok) return paged.error;
     const res = await ctx.client.command(ctx.projectId, { op: 'queryPrefabs', args: { ...args, ...paged.args } });
-    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+    return isPlainObject(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
   if (target === 'behaviors') {
     const args: Record<string, unknown> = {};
@@ -923,28 +922,28 @@ async function contentQuery(ctx: McpContext, a: Record<string, unknown>): Promis
     const paged = pageArgs(a);
     if (!paged.ok) return paged.error;
     const res = await ctx.client.command(ctx.projectId, { op: 'queryBehaviors', args: { ...args, ...paged.args } });
-    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+    return isPlainObject(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
   // Block-layer cells and regions.
   if (target === 'blocks') {
     const args: Record<string, unknown> = {};
     for (const k of ['sceneId', 'entityId', 'chunks', 'box', 'region'] as const) if (a[k] !== undefined) args[k] = a[k];
     const res = await ctx.client.command(ctx.projectId, { op: 'queryBlocks', args });
-    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+    return isPlainObject(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
   // Terrains: tiles and their bytes, the surface at points.
   if (target === 'terrain') {
     const args: Record<string, unknown> = {};
     for (const k of ['sceneId', 'entityId', 'points', 'scatter'] as const) if (a[k] !== undefined) args[k] = a[k];
     const res = await ctx.client.command(ctx.projectId, { op: 'queryTerrain', args });
-    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+    return isPlainObject(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
   // The ground at points from whichever block layer or terrain is there.
   if (target === 'surface') {
     const args: Record<string, unknown> = {};
     for (const k of ['sceneId', 'points'] as const) if (a[k] !== undefined) args[k] = a[k];
     const res = await ctx.client.command(ctx.projectId, { op: 'querySurface', args });
-    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+    return isPlainObject(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
   // The project index: every asset, resource and scene (file, name, labels, what it references).
   if (target === 'index') {
@@ -966,7 +965,7 @@ async function contentQuery(ctx: McpContext, a: Record<string, unknown>): Promis
     const paged = pageArgs(a);
     if (!paged.ok) return paged.error;
     const res = await ctx.client.command(ctx.projectId, { op: 'queryIndex', args: { ...args, ...paged.args } });
-    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+    return isPlainObject(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
   return toolError('target must be "assets", "asset", "prefabs", "behaviors", "integrity", "game", "projectFiles", "blocks", "materials" or "index"');
 }
@@ -1006,20 +1005,20 @@ async function contentUpload(ctx: McpContext, a: Record<string, unknown>): Promi
     if (typeof a.addPack !== 'string' || a.addPack === '') return toolError('addPack names a pack, e.g. "basic-kit"');
     if (Object.keys(a).some((k) => k !== 'addPack')) return toolError('addPack goes alone');
     const res = await ctx.client.addPack(ctx.projectId, a.addPack, { origin: { kind: 'mcp', clientId: ctx.clientId } });
-    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+    return isPlainObject(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
   // Pack a texture (array) from texture assets.
   if (a.pack !== undefined) {
     if (a.dataBase64 !== undefined || a.projectPath !== undefined || a.ktx2 !== undefined) return toolError('pack goes alone (no dataBase64, projectPath or ktx2; its encoding is pack.encoding)');
-    if (!isObj(a.pack)) return toolError('pack must be an object {layers, encoding}');
+    if (!isPlainObject(a.pack)) return toolError('pack must be an object {layers, encoding}');
     const body: Record<string, unknown> = { layers: a.pack.layers, encoding: a.pack.encoding };
     if (a.displayName !== undefined) body.displayName = a.displayName;
     const res = await ctx.client.packTexture(ctx.projectId, body);
-    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+    return isPlainObject(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
   // An asset tool's job export (a folder or zip: a GLB and manifest.json).
   if (a.jobExport !== undefined) {
-    if (!isObj(a.jobExport)) return toolError('jobExport must be an object {path?}');
+    if (!isPlainObject(a.jobExport)) return toolError('jobExport must be an object {path?}');
     if (a.projectPath !== undefined || a.kind !== undefined || a.ktx2 !== undefined || a.animation !== undefined) return toolError('jobExport goes alone (with dataBase64 of a zip, or its own path; the model is kind "model")');
     const body: Record<string, unknown> = {};
     if (a.displayName !== undefined) body.displayName = a.displayName;
@@ -1032,15 +1031,15 @@ async function contentUpload(ctx: McpContext, a: Record<string, unknown>): Promi
       if (zip === null || zip.length === 0) return toolError('dataBase64 is not valid base64');
       if (zip.length > CONTENT_STAGE_MAX) return toolError(`dataBase64 exceeds the ${CONTENT_STAGE_MAX}-byte stage cap`);
       const created = await ctx.client.createStage(ctx.projectId, {});
-      if (!(isObj(created.body) && created.body.ok === true && typeof created.body.stageId === 'string')) return surfaceBackendError(created);
+      if (!(isPlainObject(created.body) && created.body.ok === true && typeof created.body.stageId === 'string')) return surfaceBackendError(created);
       for (let offset = 0; offset < zip.length; offset += CONTENT_UPLOAD_FRAME_MAX) {
         const put = await ctx.client.uploadFrame(ctx.projectId, created.body.stageId, offset, zip.length, zip.subarray(offset, Math.min(offset + CONTENT_UPLOAD_FRAME_MAX, zip.length)));
-        if (!(isObj(put.body) && put.body.ok === true)) return surfaceBackendError(put);
+        if (!(isPlainObject(put.body) && put.body.ok === true)) return surfaceBackendError(put);
       }
       body.stageId = created.body.stageId;
     }
     const res = await ctx.client.inspectJobExport(ctx.projectId, body);
-    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+    return isPlainObject(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
   if (a.projectPath !== undefined) {
     if (a.dataBase64 !== undefined) return toolError('give either dataBase64 or projectPath, not both');
@@ -1063,18 +1062,18 @@ async function contentUpload(ctx: McpContext, a: Record<string, unknown>): Promi
     body.displayName = a.displayName;
   }
   const created = await ctx.client.createStage(ctx.projectId, body);
-  if (!(isObj(created.body) && created.body.ok === true && typeof created.body.stageId === 'string')) {
+  if (!(isPlainObject(created.body) && created.body.ok === true && typeof created.body.stageId === 'string')) {
     return surfaceBackendError(created);
   }
   const stageId = created.body.stageId;
   for (let offset = 0; offset < bytes.length; offset += CONTENT_UPLOAD_FRAME_MAX) {
     const frame = bytes.subarray(offset, Math.min(offset + CONTENT_UPLOAD_FRAME_MAX, bytes.length));
     const put = await ctx.client.uploadFrame(ctx.projectId, stageId, offset, bytes.length, frame);
-    if (!(isObj(put.body) && put.body.ok === true)) return surfaceBackendError(put);
+    if (!(isPlainObject(put.body) && put.body.ok === true)) return surfaceBackendError(put);
   }
   if (typeof a.writeTo === 'string') {
     const filed = await ctx.client.fileStage(ctx.projectId, stageId, a.writeTo);
-    return isObj(filed.body) && filed.body.ok === true ? toolOk(filed.body) : surfaceBackendError(filed);
+    return isPlainObject(filed.body) && filed.body.ok === true ? toolOk(filed.body) : surfaceBackendError(filed);
   }
   // The additive inspect request selects the inspector of a kind
   // or the role-aware animated GLB profile.
@@ -1084,9 +1083,9 @@ async function contentUpload(ctx: McpContext, a: Record<string, unknown>): Promi
     inspectBody.kind = a.kind;
   }
   if (a.animation !== undefined) {
-    if (!isObj(a.animation)) return toolError('animation must be an object');
+    if (!isPlainObject(a.animation)) return toolError('animation must be an object');
     const roles = a.animation.roles;
-    if (!isObj(roles)) return toolError('animation.roles must be an object');
+    if (!isPlainObject(roles)) return toolError('animation.roles must be an object');
     inspectBody.animation = a.animation;
   }
   if (a.ktx2 !== undefined) {
@@ -1094,7 +1093,7 @@ async function contentUpload(ctx: McpContext, a: Record<string, unknown>): Promi
     inspectBody.ktx2 = a.ktx2;
   }
   const inspected = await ctx.client.inspectStage(ctx.projectId, stageId, inspectBody);
-  return isObj(inspected.body) && inspected.body.ok === true ? toolOk(inspected.body) : surfaceBackendError(inspected);
+  return isPlainObject(inspected.body) && inspected.body.ok === true ? toolOk(inspected.body) : surfaceBackendError(inspected);
 }
 
 /** Inspect a file already in the game folder, in place (no upload, no copy). */
@@ -1112,7 +1111,7 @@ async function projectFileInspect(ctx: McpContext, a: Record<string, unknown>): 
     body.kind = a.kind;
   }
   if (a.animation !== undefined) {
-    if (!isObj(a.animation) || !isObj(a.animation.roles)) return toolError('animation.roles must be an object');
+    if (!isPlainObject(a.animation) || !isPlainObject(a.animation.roles)) return toolError('animation.roles must be an object');
     body.animation = a.animation;
   }
   if (a.ktx2 !== undefined) {
@@ -1120,7 +1119,7 @@ async function projectFileInspect(ctx: McpContext, a: Record<string, unknown>): 
     body.ktx2 = a.ktx2;
   }
   const res = await ctx.client.inspectProjectFile(ctx.projectId, body);
-  return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+  return isPlainObject(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
 }
 
 // ---- game control/observation relay tools -------------------------------------
@@ -1142,7 +1141,7 @@ async function instanceBuffer(ctx: McpContext, a: Record<string, unknown>): Prom
     return toolError(`transforms must be a flat list of finite numbers, ${INSTANCE_FLOATS} per copy, 1-${INSTANCE_BUFFER_INLINE_MAX} copies`);
   }
   const res = await ctx.client.publishInstanceBuffer(ctx.projectId, { transforms: t });
-  return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+  return isPlainObject(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
 }
 
 /** Bounded game-control relay (never a simulation). */
@@ -1179,7 +1178,7 @@ async function gameControl(ctx: McpContext, a: Record<string, unknown>): Promise
     if (typeof a.name !== 'string' || a.name.length === 0) return toolError('name is required for debugCommand');
     body.name = a.name;
     if (a.args !== undefined) {
-      if (!isObj(a.args)) return toolError('args must be an object of argument values');
+      if (!isPlainObject(a.args)) return toolError('args must be an object of argument values');
       body.args = a.args;
     }
   } else if (a.name !== undefined || a.args !== undefined) {
@@ -1192,7 +1191,7 @@ async function gameControl(ctx: McpContext, a: Record<string, unknown>): Promise
     return toolError('level goes with setQuality only');
   }
   const res = await ctx.client.gameControl(ctx.projectId, playSessionId, body);
-  return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+  return isPlainObject(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
 }
 
 /** Bounded read-only observation relay (never a simulation). */
@@ -1209,13 +1208,13 @@ async function gameObserve(ctx: McpContext, a: Record<string, unknown>): Promise
   }
   if (a.sections !== undefined) body.sections = a.sections;
   const res = await ctx.client.gameObserve(ctx.projectId, a.playSessionId, body);
-  return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+  return isPlainObject(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
 }
 
 async function contentJob(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
   if (typeof a.jobId !== 'string' || !/^job-[0-9a-f]{32}$/.test(a.jobId)) return toolError('jobId must be job- + 32 hex');
   const res = await ctx.client.contentJob(ctx.projectId, a.jobId);
-  return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+  return isPlainObject(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
 }
 /** How long tl_bake_lighting waits for a bake by default, and how often it asks. */
 const BAKE_WAIT_MS = 20 * 60 * 1000;
@@ -1232,13 +1231,13 @@ async function bakeLighting(ctx: McpContext, a: Record<string, unknown>): Promis
   } else {
     if (typeof a.sceneId !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(a.sceneId)) return toolError('sceneId is required (a scene id)');
     const started = await ctx.client.bakeLighting(ctx.projectId, a.sceneId);
-    if (!(isObj(started.body) && started.body.ok === true && typeof started.body.jobId === 'string')) return surfaceBackendError(started);
+    if (!(isPlainObject(started.body) && started.body.ok === true && typeof started.body.jobId === 'string')) return surfaceBackendError(started);
     jobId = started.body.jobId;
   }
   const until = Date.now() + wait;
   for (;;) {
     const res = await ctx.client.bakeLightingJob(ctx.projectId, jobId);
-    if (!(isObj(res.body) && res.body.ok === true)) return surfaceBackendError(res);
+    if (!(isPlainObject(res.body) && res.body.ok === true)) return surfaceBackendError(res);
     const state = res.body.state;
     if (state === 'done') return toolOk(res.body);
     if (state === 'failed') return toolError(`${String(res.body.code ?? 'bake_failed')}: ${String(res.body.message ?? 'the bake failed')}`);

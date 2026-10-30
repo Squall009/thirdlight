@@ -15,6 +15,7 @@ import { ID_RE } from '@thirdlight/project-model';
 import { MAX_REQUEST_BYTES, MAX_REVISION, boundedFound, type LimitName, type ModelError, type ModelErrorV2, type ModelErrorV3 } from '@thirdlight/project-model';
 
 import type { CommandError, ErrorClass } from './types';
+export { isPlainObjectStrict } from '@thirdlight/shared';
 
 export type { CommandError };
 
@@ -381,13 +382,6 @@ export function isValidName(s: string): boolean {
     if (c <= 0x1f || c === 0x7f) return false;
   }
   return true;
-}
-
-/** Plain-object check (no null, no arrays, no class instances). */
-export function isPlainObject(v: unknown): v is Record<string, unknown> {
-  if (typeof v !== 'object' || v === null || Array.isArray(v)) return false;
-  const proto = Object.getPrototypeOf(v);
-  return proto === Object.prototype || proto === null;
 }
 
 /** The JSON type descriptor used for `found` on non-object roots. */

@@ -29,7 +29,7 @@
  *
  * Pure data rules: no three.js, no I/O.
  */
-import { sha256Hex } from '@thirdlight/shared';
+import { isPlainObject, sha256Hex } from '@thirdlight/shared';
 import type { ModelErrorV2 } from './errors';
 import { MODEL_READ_LIMITS, type ModelGeometry } from './model-collision';
 import { COMPONENT_TYPES as GLTF_COMPONENT_TYPES } from './model-rig';
@@ -121,9 +121,6 @@ const POSITIONS_RE = new RegExp(`^[0-9a-f]{${PAINT_POSITIONS_HASH_LENGTH}}$`);
 /** A path key: an outline, building or sweep element of the architecture on the object, or the object's spline. */
 const PATH_KEY_RE = /^(?:(?:outline|building|element):(.+)|spline)$/;
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
 function err(errors: ModelErrorV2[], code: string, path: string, message: string, found?: unknown): void {
   errors.push({ code, path, message, ...(found !== undefined ? { found } : {}) } as ModelErrorV2);
 }

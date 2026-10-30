@@ -8,7 +8,8 @@ import {
   instantiateRuntime,
   registerSimulationModule,
 } from './index';
-import { baseScene, cloneJson, deepFreezeForTest, snapshotOf } from './test-helpers';
+import { deepFreeze } from '@thirdlight/shared';
+import { baseScene, cloneJson, snapshotOf } from './test-helpers';
 
 function registryWithDemo() {
   const r = createSimulationRegistry();
@@ -25,7 +26,7 @@ function badSnapshot(snapshot: unknown) {
 describe('snapshot validation', () => {
   it('accepts a valid snapshot from a deep-frozen input and operates normally', () => {
     const scene = cloneJson(baseScene());
-    const snapshot = deepFreezeForTest(snapshotOf(scene));
+    const snapshot = deepFreeze(snapshotOf(scene));
     const res = instantiateRuntime({ snapshot, registry: registryWithDemo(), driver: { kind: 'manual' } });
     expect(res.ok).toBe(true);
     if (!res.ok) return;

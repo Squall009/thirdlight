@@ -42,6 +42,7 @@ import {
   type SaveSection,
   type SettingsFieldValue,
 } from '@thirdlight/project-model';
+import { deepFreeze, isPlainObject, utf8LengthPairingHigh } from '@thirdlight/shared';
 
 /** The save document's format marker (and its engine format version; 2, with `world` when the game keeps it). */
 export const PROJECT_SAVE_FORMAT = 'thirdlight.save';
@@ -76,7 +77,7 @@ const SCENE_ID_RE = ID_RE;
 
 /** A saved `world` block's shape (null: fine). */
 export function worldSaveProblem(v: unknown): string | null {
-  if (!isObj(v)) return 'world is an object { scenes, activeSpawn, listedScene, character, characters? }';
+  if (!isPlainObject(v)) return 'world is an object { scenes, activeSpawn, listedScene, character, characters? }';
   for (const k of Object.keys(v)) if (!['scenes', 'activeSpawn', 'listedScene', 'character', 'characters'].includes(k)) return `unknown world field "${k.slice(0, 32)}"`;
   const scenes = v['scenes'];
   if (!Array.isArray(scenes) || !scenes.every((x) => typeof x === 'string' && SCENE_ID_RE.test(x))) return 'world.scenes lists scene ids';
@@ -90,7 +91,7 @@ export function worldSaveProblem(v: unknown): string | null {
   }
   const more = v['characters'];
   if (more === undefined) return null;
-  if (!isObj(more)) return 'world.characters is an object of player controllers by their object id';
+  if (!isPlainObject(more)) return 'world.characters is an object of player controllers by their object id';
   for (const [id, x] of Object.entries(more)) {
     if (!SCENE_ID_RE.test(id)) return 'world.characters is keyed by object ids';
     const problem = savedCharacterProblem(x, `world.characters.${id}`);
@@ -102,7 +103,7 @@ export function worldSaveProblem(v: unknown): string | null {
 /** A saved player controller's shape (null: fine). */
 function savedCharacterProblem(c: unknown, label: string, orElse = ''): string | null {
   const vec = (x: unknown, lim: number): boolean => Array.isArray(x) && x.length === 3 && x.every((n) => typeof n === 'number' && Number.isFinite(n) && Math.abs(n) <= lim);
-  if (!isObj(c) || Object.keys(c).some((k) => k !== 'position' && k !== 'velocity' && k !== 'facing') || !vec(c['position'], 1e6) || !vec(c['velocity'], 1e4)) return `${label} is { position: [x, y, z], velocity: [x, y, z], facing? }${orElse}`;
+  if (!isPlainObject(c) || Object.keys(c).some((k) => k !== 'position' && k !== 'velocity' && k !== 'facing') || !vec(c['position'], 1e6) || !vec(c['velocity'], 1e4)) return `${label} is { position: [x, y, z], velocity: [x, y, z], facing? }${orElse}`;
   if (c['facing'] !== undefined && !(typeof c['facing'] === 'number' && Number.isFinite(c['facing']) && Math.abs(c['facing']) <= 360)) return `${label}.facing is degrees (-360 to 360)`;
   return null;
 }
@@ -350,26 +351,10 @@ export interface SaveSectionsPort {
 
 // ---- validation ------------------------------------------------------------------------
 
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const intIn = (v: unknown, lo: number, hi: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= lo && v <= hi;
 const text = (v: unknown, max: number): v is string => typeof v === 'string' && v.length <= max;
 const storageCode = (v: unknown): v is SaveStorageCode => (SAVE_STORAGE_CODES as readonly unknown[]).includes(v);
 const bytesOrNull = (v: unknown): v is number | null => v === null || (typeof v === 'number' && Number.isFinite(v) && v >= 0);
-
-/** Bytes of a string as UTF-8. */
-export function utf8Length(s: string): number {
-  let n = 0;
-  for (let i = 0; i < s.length; i += 1) {
-    const c = s.charCodeAt(i);
-    if (c < 0x80) n += 1;
-    else if (c < 0x800) n += 2;
-    else if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length) {
-      n += 4;
-      i += 1;
-    } else n += 3;
-  }
-  return n;
-}
 
 /** The JSON text of a value when it is JSON (no functions, cycles or non-finite numbers lost silently), else null. */
 function jsonText(v: unknown): string | null {
@@ -384,7 +369,7 @@ function jsonText(v: unknown): string | null {
 
 /** Check a stored save document's shape (not its migration): null when it can be loaded by a schema of `maxVersion`. */
 export function projectSaveFileProblem(v: unknown, maxVersion: number): string | null {
-  if (!isObj(v) || v['format'] !== PROJECT_SAVE_FORMAT) return 'not a project save document (format "thirdlight.save")';
+  if (!isPlainObject(v) || v['format'] !== PROJECT_SAVE_FORMAT) return 'not a project save document (format "thirdlight.save")';
   // Format version 2 carries `world`; a version 1 save (without it) still loads.
   const fv = v['formatVersion'] ?? 1;
   if (fv !== 1 && fv !== PROJECT_SAVE_FORMAT_VERSION) return `save format version ${String(v['formatVersion']).slice(0, 16)} is not supported`;
@@ -397,12 +382,12 @@ export function projectSaveFileProblem(v: unknown, maxVersion: number): string |
   if ((v['version'] as number) > maxVersion) return `the save is version ${v['version'] as number}; this game reads up to version ${maxVersion}`;
   if (v['playSeconds'] !== undefined && !(typeof v['playSeconds'] === 'number' && Number.isFinite(v['playSeconds']) && v['playSeconds'] >= 0)) return 'playSeconds is a number ≥ 0';
   if (!('doc' in v)) return 'the save document has no doc';
-  if (v['sections'] !== undefined && !isObj(v['sections'])) return 'sections is an object';
+  if (v['sections'] !== undefined && !isPlainObject(v['sections'])) return 'sections is an object';
   return null;
 }
 
 function slotInfoProblem(v: unknown): string | null {
-  if (!isObj(v)) return 'a slot is an object';
+  if (!isPlainObject(v)) return 'a slot is an object';
   if (!intIn(v['slot'], 1, SAVE_LIMITS.slots)) return 'slot is 1-99';
   for (const k of ['title', 'chapter', 'location'] as const) if (!text(v[k], SAVE_LIMITS.metaText)) return `${k} is text of at most ${SAVE_LIMITS.metaText} characters`;
   if (!(typeof v['playSeconds'] === 'number' && Number.isFinite(v['playSeconds']) && v['playSeconds'] >= 0)) return 'playSeconds is a number ≥ 0';
@@ -435,7 +420,7 @@ export function validateSaveEvents(value: unknown): { ok: true; events: readonly
     const e = value[i] as Record<string, unknown>;
     const field = `saves/${i}`;
     const fail = (message: string) => ({ ok: false as const, field, message });
-    if (!isObj(e)) return fail('a saves entry is an object');
+    if (!isPlainObject(e)) return fail('a saves entry is an object');
     const reason = e['reason'];
     if (reason !== undefined && !text(reason, 256)) return fail('reason is text of at most 256 characters');
     const code = e['code'];
@@ -473,7 +458,7 @@ export function validateSaveEvents(value: unknown): { ok: true; events: readonly
         let save: ProjectSaveFile | undefined;
         if (e['save'] !== undefined) {
           const t = jsonText(e['save']);
-          if (t === null || utf8Length(t) > SAVE_LIMITS.documentBytes) return fail(`a loaded save is JSON of at most ${SAVE_LIMITS.documentBytes} bytes`);
+          if (t === null || utf8LengthPairingHigh(t) > SAVE_LIMITS.documentBytes) return fail(`a loaded save is JSON of at most ${SAVE_LIMITS.documentBytes} bytes`);
           const p = projectSaveFileProblem(e['save'], SAVE_LIMITS.version);
           if (p !== null) return fail(p);
           save = deepFreeze(JSON.parse(t) as ProjectSaveFile);
@@ -487,14 +472,6 @@ export function validateSaveEvents(value: unknown): { ok: true; events: readonly
     for (const k of Object.keys(e)) if (!['kind', 'slots', 'slot', 'ok', 'reason', 'save', 'code', 'persisted', 'usage', 'quota'].includes(k)) return fail(`unknown saves entry field "${k}"`);
   }
   return { ok: true, events: Object.freeze(out) };
-}
-
-function deepFreeze<T>(v: T): T {
-  if (typeof v === 'object' && v !== null && !Object.isFrozen(v)) {
-    Object.freeze(v);
-    for (const x of Object.values(v as object)) deepFreeze(x);
-  }
-  return v;
 }
 
 const MIGRATION_NAME_RE = /^[A-Za-z_][A-Za-z0-9_.:-]{0,63}$/;
@@ -703,7 +680,7 @@ export class RuntimeSaves {
       ...(world !== undefined ? { world } : {}),
     };
     const t = JSON.stringify(file);
-    const bytes = utf8Length(t);
+    const bytes = utf8LengthPairingHigh(t);
     if (bytes > SAVE_LIMITS.documentBytes) return `the save is ${bytes} bytes; a slot holds at most ${SAVE_LIMITS.documentBytes}`;
     return { op: 'save', slot: p.slot, meta: { ...p.meta, playSeconds, version: schema.version }, text: t };
   }
@@ -727,7 +704,7 @@ export class RuntimeSaves {
       }
       const t = next === undefined ? null : jsonText(next);
       if (t === null) return `migration "${m.name}" returned no JSON document`;
-      if (utf8Length(t) > SAVE_LIMITS.documentBytes) return `migration "${m.name}" made the document larger than ${SAVE_LIMITS.documentBytes} bytes`;
+      if (utf8LengthPairingHigh(t) > SAVE_LIMITS.documentBytes) return `migration "${m.name}" made the document larger than ${SAVE_LIMITS.documentBytes} bytes`;
       doc = JSON.parse(t) as unknown;
     }
     // `world` travels outside `sections`; a game that does not keep it never applies a save's.
@@ -775,7 +752,7 @@ export class RuntimeSaves {
       write(doc: unknown): boolean {
         if (r.schema === null) return false;
         const t = jsonText(doc);
-        if (t === null || utf8Length(t) > SAVE_LIMITS.documentBytes) return false;
+        if (t === null || utf8LengthPairingHigh(t) > SAVE_LIMITS.documentBytes) return false;
         r.doc = JSON.parse(t) as unknown;
         r.docText = t;
         r.active = true;

@@ -36,6 +36,7 @@ import type {
   FieldDescriptor,
   ObjectFieldDescriptor,
 } from '@thirdlight/project-model';
+import { isPlainObject } from '@thirdlight/shared';
 
 export type WidgetKind =
   | 'number'
@@ -63,12 +64,10 @@ export type FieldPath = readonly (string | number)[];
 
 type Obj = Record<string, unknown>;
 
-const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
-
 export function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((x, i) => deepEqual(x, b[i]));
-  if (isObj(a) && isObj(b)) {
+  if (isPlainObject(a) && isPlainObject(b)) {
     const ka = Object.keys(a);
     const kb = Object.keys(b);
     return ka.length === kb.length && ka.every((k) => Object.prototype.hasOwnProperty.call(b, k) && deepEqual(a[k], b[k]));
@@ -317,10 +316,10 @@ export function normalize(desc: ObjectFieldDescriptor, value: Obj, parent?: Leve
   }
   for (const f of visibleFields(level)) {
     const v = out[f.key];
-    if (f.type === 'object' && isObj(v)) out[f.key] = normalize(f, v, level, fill, [...at, f.key]);
+    if (f.type === 'object' && isPlainObject(v)) out[f.key] = normalize(f, v, level, fill, [...at, f.key]);
     if (f.type === 'list' && f.item.type === 'object' && Array.isArray(v)) {
       const item = f.item;
-      out[f.key] = v.map((x) => (isObj(x) ? normalize(item, x, level) : x));
+      out[f.key] = v.map((x) => (isPlainObject(x) ? normalize(item, x, level) : x));
     }
   }
   return out;
@@ -337,7 +336,7 @@ function seeded(f: FieldDescriptor, level: Level, seeds: readonly unknown[], at:
   if (conds.some((c) => c.key.startsWith('../'))) return undefined;
   for (const seed of seeds) {
     const obj = getAt(seed, at);
-    if (!isObj(obj) || obj[f.key] === undefined) continue;
+    if (!isPlainObject(obj) || obj[f.key] === undefined) continue;
     if (conds.every((c) => c.in.some((x) => x === obj[c.key]))) return clone(obj[f.key]);
   }
   return undefined;
@@ -357,19 +356,19 @@ export function fieldAt(root: FieldDescriptor, value: unknown, path: FieldPath):
   let level: Level | undefined;
   for (const p of path) {
     if (f.type === 'object') {
-      const here: Level = { desc: f, value: isObj(v) ? v : {}, ...(level !== undefined ? { parent: level } : {}) };
+      const here: Level = { desc: f, value: isPlainObject(v) ? v : {}, ...(level !== undefined ? { parent: level } : {}) };
       const variants = f.fields.filter((x) => x.key === p);
       const next = variants.find((x) => applies(x, here)) ?? variants[0];
       if (next === undefined) return null;
       level = here;
       f = next;
-      v = isObj(v) ? v[String(p)] : undefined;
+      v = isPlainObject(v) ? v[String(p)] : undefined;
     } else if (f.type === 'list') {
       f = f.item;
       v = Array.isArray(v) ? v[Number(p)] : undefined;
     } else if (f.type === 'map') {
       f = f.value;
-      v = isObj(v) ? v[String(p)] : undefined;
+      v = isPlainObject(v) ? v[String(p)] : undefined;
     } else return null;
   }
   return f;
@@ -379,7 +378,7 @@ export function getAt(value: unknown, path: FieldPath): unknown {
   let v = value;
   for (const p of path) {
     if (Array.isArray(v)) v = v[Number(p)];
-    else if (isObj(v)) v = v[String(p)];
+    else if (isPlainObject(v)) v = v[String(p)];
     else return undefined;
   }
   return v;
@@ -399,7 +398,7 @@ export function setAt(value: unknown, path: FieldPath, next: unknown): unknown {
     else arr[head] = inner;
     return arr;
   }
-  const obj: Obj = isObj(value) ? { ...value } : {};
+  const obj: Obj = isPlainObject(value) ? { ...value } : {};
   const inner = setAt(obj[head!], rest, next);
   if (inner === undefined) delete obj[head!];
   else obj[head!] = inner;
@@ -650,9 +649,9 @@ function bagSignals(reg: DescriptorRegistry, bag: Obj): readonly string[] {
   const walk = (f: FieldDescriptor, v: unknown): void => {
     if (v === undefined || v === null) return;
     if (f.type === 'signal' && typeof v === 'string' && v !== '') found.push(v);
-    else if (f.type === 'object' && isObj(v)) for (const g of f.fields) walk(g, v[g.key]);
+    else if (f.type === 'object' && isPlainObject(v)) for (const g of f.fields) walk(g, v[g.key]);
     else if (f.type === 'list' && Array.isArray(v)) for (const x of v) walk(f.item, x);
-    else if (f.type === 'map' && isObj(v)) for (const x of Object.values(v)) walk(f.value, x);
+    else if (f.type === 'map' && isPlainObject(v)) for (const x of Object.values(v)) walk(f.value, x);
   };
   for (const c of reg.components) walk(c.value, bag[c.name]);
   signalCache.set(bag, { reg, signals: found });

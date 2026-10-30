@@ -7,10 +7,7 @@
 import type { ImportRecipe } from '@thirdlight/project-model';
 import { escapePointer } from './json';
 import type { ImportDiagnostic, ImportDiagnosticCode, ImportLimitName } from './types';
-
-export function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
+export { isPlainObject } from '@thirdlight/shared';
 
 export function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);

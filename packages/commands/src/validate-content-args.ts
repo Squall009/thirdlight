@@ -22,7 +22,7 @@ import {
   fieldUnexpected,
   fieldValue,
   idInvalid,
-  isPlainObject,
+  isPlainObjectStrict,
   isValidName,
   limitsExceeded,
   settingUnknown,
@@ -173,7 +173,7 @@ export function validatePublishAssetArgs(
   // The original of a converted model (FBX); its fields are the model's to
   // validate (the resulting-content gate), the workspace re-verifies the file.
   if (args['convertedFrom'] !== undefined) {
-    if (!isPlainObject(args['convertedFrom'])) {
+    if (!isPlainObjectStrict(args['convertedFrom'])) {
       return { ok: false, error: fieldType('/args/convertedFrom', args['convertedFrom'], 'object { format, sourceDigest, sourceByteLength, sourcePath?, converter }') };
     }
     if (out.sourcePath !== undefined) {
@@ -183,7 +183,7 @@ export function validatePublishAssetArgs(
   }
   // A packed texture's channel sources (the model validates them with the version).
   if (args['packedFrom'] !== undefined) {
-    if (!isPlainObject(args['packedFrom'])) {
+    if (!isPlainObjectStrict(args['packedFrom'])) {
       return { ok: false, error: fieldType('/args/packedFrom', args['packedFrom'], 'object { layers, converter, encoding }') };
     }
     if (out.convertedFrom !== undefined) {
@@ -194,7 +194,7 @@ export function validatePublishAssetArgs(
   if (args['importRecipe'] === undefined) {
     return { ok: false, error: fieldMissing('/args/importRecipe', 'importRecipe') };
   }
-  if (!isPlainObject(args['importRecipe'])) {
+  if (!isPlainObjectStrict(args['importRecipe'])) {
     return { ok: false, error: fieldType('/args/importRecipe', args['importRecipe'], 'object (ImportRecipe)') };
   }
   // Structural only; profile/recipeVersion/toolchain/extensions value rules are
@@ -203,7 +203,7 @@ export function validatePublishAssetArgs(
   if (args['metrics'] === undefined) {
     return { ok: false, error: fieldMissing('/args/metrics', 'metrics') };
   }
-  if (!isPlainObject(args['metrics'])) {
+  if (!isPlainObjectStrict(args['metrics'])) {
     return { ok: false, error: fieldType('/args/metrics', args['metrics'], 'object (AssetMetrics)') };
   }
   out.metrics = args['metrics'] as unknown as PublishAssetArgs['metrics'];
@@ -231,7 +231,7 @@ export function validatePublishAssetArgs(
   }
   if (args['textures'] !== undefined) {
     if (nonModel) return { ok: false, error: fieldUnexpected('/args/textures', 'textures', KNOWN, 'only a model has extracted textures') };
-    if (!isPlainObject(args['textures'])) return { ok: false, error: fieldType('/args/textures', args['textures'], 'object { <image index>: texture assetId }') };
+    if (!isPlainObjectStrict(args['textures'])) return { ok: false, error: fieldType('/args/textures', args['textures'], 'object { <image index>: texture assetId }') };
     if (args['extractTextures'] === false) return { ok: false, error: fieldUnexpected('/args/textures', 'textures', KNOWN, 'a model that keeps its images inside has no extracted textures') };
     out.textures = { ...(args['textures'] as Record<string, string>) };
   }
@@ -250,7 +250,7 @@ export function validatePublishAssetArgs(
       };
     }
     const animation = args['animation'];
-    if (!isPlainObject(animation)) {
+    if (!isPlainObjectStrict(animation)) {
       return { ok: false, error: fieldType('/args/animation', animation, 'object { entityId, roles }') };
     }
     for (const key of Object.keys(animation)) {
@@ -267,7 +267,7 @@ export function validatePublishAssetArgs(
     if (animation['roles'] === undefined) {
       return { ok: false, error: fieldMissing('/args/animation/roles', 'roles') };
     }
-    if (!isPlainObject(animation['roles'])) {
+    if (!isPlainObjectStrict(animation['roles'])) {
       return { ok: false, error: fieldType('/args/animation/roles', animation['roles'], 'object { idle, run, airborne }') };
     }
     out.animation = animation as unknown as PublishAssetArgs['animation'];
@@ -278,7 +278,7 @@ export function validatePublishAssetArgs(
       return { ok: false, error: fieldUnexpected('/args/bakeDecal', 'bakeDecal', KNOWN, 'bakeDecal is permitted only on a model create (kind "model")') };
     }
     const bake = args['bakeDecal'];
-    if (!isPlainObject(bake)) return { ok: false, error: fieldType('/args/bakeDecal', bake, 'object { entityId }') };
+    if (!isPlainObjectStrict(bake)) return { ok: false, error: fieldType('/args/bakeDecal', bake, 'object { entityId }') };
     for (const key of Object.keys(bake)) {
       if (key !== 'entityId') return { ok: false, error: fieldUnexpected(`/args/bakeDecal/${key}`, key, 'entityId') };
     }
@@ -372,14 +372,14 @@ export function validatePublishBehaviorArgs(
   if (args['graph'] !== undefined && mode !== 'declaration-create') {
     return { ok: false, error: fieldUnexpected('/args/graph', 'graph', KNOWN, 'graph is only permitted with mode "declaration-create" (edit a visual script with graphEdit)') };
   }
-  if (args['graph'] !== undefined && !isPlainObject(args['graph'])) {
+  if (args['graph'] !== undefined && !isPlainObjectStrict(args['graph'])) {
     return { ok: false, error: fieldType('/args/graph', args['graph'], 'object { nodes, edges }') };
   }
   if (args['declaration'] === undefined) {
     return { ok: false, error: fieldMissing('/args/declaration', 'declaration') };
   }
   const declaration = args['declaration'];
-  if (!isPlainObject(declaration)) {
+  if (!isPlainObjectStrict(declaration)) {
     return { ok: false, error: fieldType('/args/declaration', declaration, 'object { properties: [...] }') };
   }
   for (const key of Object.keys(declaration)) {
@@ -407,7 +407,7 @@ export function validatePublishBehaviorArgs(
     ...(args['graph'] !== undefined ? { graph: args['graph'] as unknown as NonNullable<PublishBehaviorArgs['graph']> } : {}),
   };
   if (args['source'] !== undefined) {
-    if (!isPlainObject(args['source'])) {
+    if (!isPlainObjectStrict(args['source'])) {
       return { ok: false, error: fieldType('/args/source', args['source'], 'object { sourceDigest, sourceByteLength }') };
     }
     const s = args['source'];
@@ -460,7 +460,7 @@ export function validateSetBehaviorPropertiesArgs(
   }
   const out: SetBehaviorPropertiesArgs = { entityId: args['entityId'], behaviorId };
   if (args['values'] !== undefined) {
-    if (!isPlainObject(args['values'])) {
+    if (!isPlainObjectStrict(args['values'])) {
       return { ok: false, error: fieldType('/args/values', args['values'], 'object (declared-property map)') };
     }
     if (behaviorId === null && Object.keys(args['values']).length > 0) {
@@ -678,7 +678,7 @@ function validateSetComponentOne(
     }
     return { ok: true, args: { entityId: args['entityId'], component: component as OwnedComponent, value: null } };
   }
-  if (!isPlainObject(value)) {
+  if (!isPlainObjectStrict(value)) {
     return { ok: false, error: fieldType('/args/value', value, 'object (non-empty partial component)') };
   }
   const fields = (COMPONENT_FIELD_ORDER as Record<string, readonly string[] | undefined>)[component] ?? [];
@@ -721,7 +721,7 @@ function validateSetComponentOne(
       return { ok: false, error: fieldType('/args/value/size', value['size'], 'array of 3 finite numbers') };
     }
     if (value['material'] !== undefined) {
-      if (!isPlainObject(value['material'])) {
+      if (!isPlainObjectStrict(value['material'])) {
         return { ok: false, error: fieldType('/args/value/material', value['material'], 'object { color }') };
       }
       for (const mk of Object.keys(value['material'])) {
@@ -735,7 +735,7 @@ function validateSetComponentOne(
     // `oneWay` alone edits the flag (the shape stays).
     // `layers` alone edits the collision layers, `plane` alone the plane lock, `depth` alone the 2D shapes' depth (the shape stays).
     if (shape === undefined && (value['oneWay'] !== undefined || value['layers'] !== undefined || value['plane'] !== undefined || value['depth'] !== undefined)) return { ok: true, args: { entityId: args['entityId'], component: component as OwnedComponent, value } };
-    if (!isPlainObject(shape)) {
+    if (!isPlainObjectStrict(shape)) {
       return { ok: false, error: fieldType('/args/value/shape', shape, 'object ({ type: "box"|"polygon"|"sphere"|"capsule"|"cylinder"|"convex"|"mesh"|"compound"|"model", ... })') };
     }
     // The 3D shapes (the project's physics dimension is the model's rule).
@@ -756,7 +756,7 @@ function validateSetComponentOne(
     // `capsule` (an object, or null to go back to the default);
     // its values are the model's (re-checked by the resulting-document validation).
     const capsule = value['capsule'];
-    if (capsule !== undefined && capsule !== null && !isPlainObject(capsule)) {
+    if (capsule !== undefined && capsule !== null && !isPlainObjectStrict(capsule)) {
       return { ok: false, error: fieldType('/args/value/capsule', capsule, 'object { radius, height, offset? } or null') };
     }
   } else if (component === 'playerSpawn') {
@@ -813,7 +813,7 @@ function validateSetComponentOne(
     }
     const asset = value['asset'];
     if (asset === undefined && piece !== undefined) return { ok: true, args: { entityId: args['entityId'], component: component as OwnedComponent, value } };
-    if (!isPlainObject(asset)) {
+    if (!isPlainObjectStrict(asset)) {
       return { ok: false, error: fieldType('/args/value/asset', asset, 'object { assetId }') };
     }
     for (const ak of Object.keys(asset)) {
@@ -841,7 +841,7 @@ export function validateSetSettingsArgs(
     return { ok: false, error: fieldMissing('/args/settings', 'settings') };
   }
   const settings = args['settings'];
-  if (!isPlainObject(settings)) {
+  if (!isPlainObjectStrict(settings)) {
     return { ok: false, error: fieldType('/args/settings', settings, 'object (SettingsMap)') };
   }
   if (Object.keys(settings).length === 0) {

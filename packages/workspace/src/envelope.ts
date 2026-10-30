@@ -26,7 +26,7 @@ import {
 } from '@thirdlight/project-model';
 import { MUTATION_OPS, type MutationSuccess } from '@thirdlight/commands';
 
-import { isPlainObject, isSafeInt, pointerSegment } from './errors';
+import { isPlainObjectStrict, isSafeInt, pointerSegment } from './errors';
 
 /** The constant recorded in every retry block. */
 export const RETRY_RETENTION = 128;
@@ -92,7 +92,7 @@ export function validateEnvelope(bytes: Uint8Array, dirName: string): EnvelopeLo
   }
   // 2. Root is an object.
   const root = parsed.value;
-  if (!isPlainObject(root)) {
+  if (!isPlainObjectStrict(root)) {
     return fail('envelope_invalid', [
       {
         code: 'field_type',
@@ -201,7 +201,7 @@ function validateV3Envelope(root: Record<string, unknown>, pid: string): Envelop
   // The version-combination check BEFORE any scene/content field
   // validation: a v3 envelope must carry a schemaVersion 3 scene.
   const sceneRaw = root['scene'];
-  const sceneSchema = isPlainObject(sceneRaw) ? sceneRaw['schemaVersion'] : undefined;
+  const sceneSchema = isPlainObjectStrict(sceneRaw) ? sceneRaw['schemaVersion'] : undefined;
   if (sceneSchema !== 3) {
     return fail('version_combination_unsupported', [
       {
@@ -217,7 +217,7 @@ function validateV3Envelope(root: Record<string, unknown>, pid: string): Envelop
   // key is `envelope_invalid` (the envelope's own key-set rule, matching the
   // model's v3 envelope branch).
   const contentRaw = root['content'];
-  if (!isPlainObject(contentRaw)) {
+  if (!isPlainObjectStrict(contentRaw)) {
     return fail('envelope_invalid', [
       {
         code: 'field_type',
@@ -327,7 +327,7 @@ export function validateRetryBlock(
   projectId: string,
   storageVersion: 3 | 4,
 ): { ok: true; records: RetryRecord[] } | { ok: false; error: LoadDetail } {
-  if (!isPlainObject(retry)) {
+  if (!isPlainObjectStrict(retry)) {
     return bad('retry block must be an object', undefined, 'object', '/retry');
   }
   // A v4 block names its record format (absent = version 1).
@@ -372,7 +372,7 @@ export function validateRetryBlock(
   for (let i = 0; i < records.length; i++) {
     const r = records[i];
     const at = `/retry/records/${i}`;
-    if (!isPlainObject(r)) {
+    if (!isPlainObjectStrict(r)) {
       return bad('retry record must be an object', undefined, 'object', at);
     }
     const keys = Object.keys(r);
@@ -458,7 +458,7 @@ function validateRecordResult(
   storageVersion: 3 | 4,
   recordVersion: number,
 ): LoadDetail | null {
-  if (!isPlainObject(result)) return rerr('record result must be an object', undefined, '/result');
+  if (!isPlainObjectStrict(result)) return rerr('record result must be an object', undefined, '/result');
   const keys = Object.keys(result);
   const base = ['ok', 'op', 'projectId', 'requestId', 'revision', 'duplicated', 'change', 'history'];
   // A v3 envelope and a v4 file accept the same ops (the scene-index ops were never refused in a v3 record).
@@ -533,7 +533,7 @@ function validateRecordResult(
   if (op === 'editTerrain' && 'terrain' in result) {
     const t = result['terrain'];
     const pairs = (v: unknown): boolean => Array.isArray(v) && v.every((p) => Array.isArray(p) && p.length === 2 && p.every((n) => isSafeInt(n)));
-    if (!isPlainObject(t) || !pairs(t['tiles']) || !pairs(t['added']) || !isSafeInt(t['changed']) || (t['clamped'] !== undefined && !isSafeInt(t['clamped'])) || (t['scatter'] !== undefined && !pairs(t['scatter'])) || Object.keys(t).some((k) => !['tiles', 'added', 'changed', 'clamped', 'scatter'].includes(k))) {
+    if (!isPlainObjectStrict(t) || !pairs(t['tiles']) || !pairs(t['added']) || !isSafeInt(t['changed']) || (t['clamped'] !== undefined && !isSafeInt(t['clamped'])) || (t['scatter'] !== undefined && !pairs(t['scatter'])) || Object.keys(t).some((k) => !['tiles', 'added', 'changed', 'clamped', 'scatter'].includes(k))) {
       return rerr('recorded result terrain must be {tiles, added, changed, clamped?, scatter?}', undefined, '/result/terrain');
     }
   }
@@ -548,7 +548,7 @@ function validateRecordResult(
     }
     const oo = result['originOfApplied'];
     if (oo !== null) {
-      if (!isPlainObject(oo)) {
+      if (!isPlainObjectStrict(oo)) {
         return rerr('originOfApplied must be an origin object or null', oo, '/result/originOfApplied');
       }
       const okeys = Object.keys(oo);
@@ -566,7 +566,7 @@ function validateRecordResult(
     }
   }
   const h = result['history'];
-  if (!isPlainObject(h)) return rerr('recorded result history must be an object', undefined, '/result/history');
+  if (!isPlainObjectStrict(h)) return rerr('recorded result history must be an object', undefined, '/result/history');
   const hkeys = Object.keys(h);
   for (const k of hkeys) {
     if (k !== 'undoDepth' && k !== 'redoDepth') return rerr('unknown field in recorded history', k, k, `/result/history/${pointerSegment(k)}`);
@@ -603,7 +603,7 @@ function rerr(
  * block is validated separately.
  */
 function validateChangeShape(change: unknown, op: string, storageVersion: 3 | 4): LoadDetail | null {
-  if (!isPlainObject(change)) return rerr('recorded change must be an object', undefined, '/result/change');
+  if (!isPlainObjectStrict(change)) return rerr('recorded change must be an object', undefined, '/result/change');
   const t = change['type'];
   if (typeof t !== 'string' || !V2_CHANGE_TYPES.includes(t)) {
     return rerr('recorded change type is not a known change type', t, '/result/change/type');
@@ -654,7 +654,7 @@ function validateChangeShape(change: unknown, op: string, storageVersion: 3 | 4)
   if (t === 'createEntity') {
     // The recorded entity must be the COMPLETE entity value.
     const ent = change['entity'];
-    if (!isPlainObject(ent)) {
+    if (!isPlainObjectStrict(ent)) {
       return rerr('createEntity change entity must be the full entity value', undefined, '/result/change/entity');
     }
     const children = change['children'];
@@ -669,7 +669,7 @@ function validateChangeShape(change: unknown, op: string, storageVersion: 3 | 4)
     // Both sides are stored objects at their places (linked copies' roots among them, which the scene rules check on replay).
     for (const side of ['previous', 'next'] as const) {
       const list = change[side];
-      if (!Array.isArray(list) || !list.every((x) => isPlainObject(x) && Number.isInteger(x['index']) && isPlainObject(x['entity']) && typeof (x['entity'] as Record<string, unknown>)['id'] === 'string')) {
+      if (!Array.isArray(list) || !list.every((x) => isPlainObjectStrict(x) && Number.isInteger(x['index']) && isPlainObjectStrict(x['entity']) && typeof (x['entity'] as Record<string, unknown>)['id'] === 'string')) {
         return rerr(`prefabLinkEdit change ${side} must be an array of {index, entity}`, undefined, `/result/change/${side}`);
       }
     }
@@ -929,7 +929,7 @@ const ZERO_TRANSFORM = {
 
 /** A historical entity holding a scene camera, read as the fixed shot the schemaVersion 7 upgrade makes of it. */
 function asShotIfSceneCamera(e: unknown): unknown {
-  if (!isPlainObject(e) || !isPlainObject(e['components']) || e['components']['camera'] === undefined) return e;
+  if (!isPlainObjectStrict(e) || !isPlainObjectStrict(e['components']) || e['components']['camera'] === undefined) return e;
   const { camera: _camera, ...rest } = e['components'];
   return { ...e, components: { ...rest, virtualCamera: { rig: 'fixed' } } };
 }
@@ -943,11 +943,11 @@ function validateHistoricalEntities(
   // is present; every other referenced parent id gets a placeholder.
   const present = new Set<string>();
   for (const e of ents) {
-    if (isPlainObject(e) && typeof e['id'] === 'string') present.add(e['id']);
+    if (isPlainObjectStrict(e) && typeof e['id'] === 'string') present.add(e['id']);
   }
   const placeholders: Record<string, unknown>[] = [];
   for (const e of ents) {
-    if (!isPlainObject(e)) continue; // the model check below reports the shape.
+    if (!isPlainObjectStrict(e)) continue; // the model check below reports the shape.
     const pid = e['parentId'];
     if (typeof pid === 'string' && !present.has(pid) && !placeholders.some((p) => p['id'] === pid)) {
       // A v3 placeholder is a folder: it can hold folders and objects alike,

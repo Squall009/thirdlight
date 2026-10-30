@@ -31,6 +31,8 @@ import type {
   Vec3,
   Quat,
 } from './types';
+import { isPlainObject } from '@thirdlight/shared';
+export { isPlainObject } from '@thirdlight/shared';
 
 // ---- constants -------------------------------------------------
 
@@ -58,10 +60,6 @@ export const KNOWN_MANIFEST_FIELDS = new Set([
 ]);
 
 // ---- helpers ----------------------------------------------------------------
-
-export function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
 
 /**
  * RFC 6901 escaping of one JSON Pointer reference token (G3 — Gate B

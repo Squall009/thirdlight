@@ -68,7 +68,11 @@ export const OWNED_FAMILIES = Object.freeze([
       'compareCodePoints',
     ],
   },
-  { family: 'utf8', owner: 'packages/shared/src/utf8.ts', names: ['utf8Encode', 'utf8Decode', 'utf8Length'] },
+  {
+    family: 'utf8',
+    owner: 'packages/shared/src/utf8.ts',
+    names: ['utf8Encode', 'utf8Decode', 'utf8Length', 'utf8ByteLength', 'utf8LengthPairingAnyHigh', 'utf8LengthPairingHigh'],
+  },
   {
     family: 'crc32',
     owner: 'packages/shared/src/crc32.ts',
@@ -109,7 +113,11 @@ export const OWNED_FAMILIES = Object.freeze([
     names: ['PNG_SIGNATURE', 'KTX2_IDENTIFIER', 'KTX2_ID', 'isPng', 'isKtx2', 'isKtx2Bytes', 'hasPngSignature', 'hasKtx2Signature'],
   },
   { family: 'png-writer', owner: 'packages/shared/src/png.ts', names: ['pngChunk', 'pngBytes'] },
-  { family: 'objects', owner: 'packages/shared/src/objects.ts', names: ['isPlainObject', 'deepFreeze'] },
+  {
+    family: 'objects',
+    owner: 'packages/shared/src/objects.ts',
+    names: ['isPlainObject', 'isPlainObjectStrict', 'isPlainRecord', 'isRecord', 'isObject', 'isObj', 'isPlain', 'isRow', 'isMap', 'deepFreeze', 'deepFreezeAll', 'deepFreezeExceptViews', 'deepFreezeForTest'],
+  },
   { family: 'strict-json', owner: 'packages/shared/src/strict-json.ts', names: ['parseStrictJson', 'strictJson'] },
   { family: 'digest-format', owner: 'packages/project-model/src/content-helpers.ts', names: ['DIGEST_RE'] },
   { family: 'request-id-format', owner: 'packages/project-model/src/request-id.ts', names: ['REQUEST_ID_RE'] },

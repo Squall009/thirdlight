@@ -15,6 +15,8 @@
  * in `entityIds`.
  */
 
+import { isPlainObject } from '@thirdlight/shared';
+
 /** The diagnostics entry code of a script's `ctx.log` line (every other code is an error). */
 export const BEHAVIOR_LOG_CODE = 'behavior_log';
 
@@ -34,18 +36,16 @@ export interface RepeatedRowFields {
 /** The fields that may differ between copies of one row. */
 const VARYING = new Set(['stepIndex', 'entityId', 'entityIds', 'count', 'firstStep']);
 
-const isRow = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-
 /** The identity of a row's copies (null: not a row, never folded). Key order does not matter. */
 export function repeatedRowKey(row: unknown): string | null {
-  if (!isRow(row)) return null;
+  if (!isPlainObject(row)) return null;
   const keys = Object.keys(row).filter((k) => !VARYING.has(k)).sort();
   return JSON.stringify(keys.map((k) => [k, row[k]]));
 }
 
 /** A play-log row that is an error (an engine or script error, or a script's `ctx.log` at error level) rather than a log line. */
 export function isErrorRow(row: unknown): boolean {
-  return !isRow(row) || row['code'] !== BEHAVIOR_LOG_CODE || row['reason'] === 'error';
+  return !isPlainObject(row) || row['code'] !== BEHAVIOR_LOG_CODE || row['reason'] === 'error';
 }
 
 function entityIdsOf(row: Record<string, unknown>): string[] {

@@ -30,7 +30,7 @@
  * Pure: bytes in, data out; no I/O, no three.js.
  */
 
-import { decomposeMat4, readGlb } from '@thirdlight/shared';
+import { decomposeMat4, isPlainObject, readGlb } from '@thirdlight/shared';
 
 export type RigPath = 'translation' | 'rotation' | 'scale';
 export type RigInterpolation = 'LINEAR' | 'STEP' | 'CUBICSPLINE';
@@ -83,7 +83,6 @@ export interface ModelRig {
 export const MODEL_RIG_LIMITS = Object.freeze({ nodes: 4096, clips: 64, keyNumbers: 262_144 });
 
 type Json = Record<string, unknown>;
-const isObj = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** three.js `PropertyBinding.sanitizeNodeName`. */
 export function sanitizeRigNodeName(name: string): string {
@@ -113,13 +112,13 @@ function readAccessor(json: Json, bin: DataView | null, index: unknown): { data:
   const views = Array.isArray(json['bufferViews']) ? (json['bufferViews'] as unknown[]) : [];
   if (typeof index !== 'number' || !Number.isInteger(index)) return null;
   const a = accessors[index];
-  if (!isObj(a) || a['sparse'] !== undefined || typeof a['bufferView'] !== 'number') return null;
+  if (!isPlainObject(a) || a['sparse'] !== undefined || typeof a['bufferView'] !== 'number') return null;
   const size = COMPONENTS[String(a['type'])];
   const ct = COMPONENT_TYPES[Number(a['componentType'])];
   const count = a['count'];
   if (size === undefined || ct === undefined || typeof count !== 'number' || !Number.isInteger(count) || count < 0) return null;
   const view = views[a['bufferView'] as number];
-  if (!isObj(view) || bin === null || (view['buffer'] ?? 0) !== 0) return null;
+  if (!isPlainObject(view) || bin === null || (view['buffer'] ?? 0) !== 0) return null;
   const base = (typeof view['byteOffset'] === 'number' ? view['byteOffset'] : 0) + (typeof a['byteOffset'] === 'number' ? a['byteOffset'] : 0);
   const elem = size * ct.bytes;
   const stride = typeof view['byteStride'] === 'number' && view['byteStride'] > 0 ? view['byteStride'] : elem;
@@ -153,8 +152,8 @@ export function readModelRig(bytes: Uint8Array, assetId: string, keyBudget: numb
   const nodesDef = Array.isArray(json['nodes']) ? (json['nodes'] as unknown[]) : [];
   const scenes = Array.isArray(json['scenes']) ? (json['scenes'] as unknown[]) : [];
   const cameras = Array.isArray(json['cameras']) ? (json['cameras'] as unknown[]) : [];
-  const lightsExt = isObj(json['extensions']) ? (json['extensions'] as Json)['KHR_lights_punctual'] : undefined;
-  const lights = isObj(lightsExt) && Array.isArray(lightsExt['lights']) ? (lightsExt['lights'] as unknown[]) : [];
+  const lightsExt = isPlainObject(json['extensions']) ? (json['extensions'] as Json)['KHR_lights_punctual'] : undefined;
+  const lights = isPlainObject(lightsExt) && Array.isArray(lightsExt['lights']) ? (lightsExt['lights'] as unknown[]) : [];
 
   // Names as three.js's GLTFLoader gives them (its createUniqueName, in its order).
   const used = new Map<string, number>();
@@ -174,26 +173,26 @@ export function readModelRig(bytes: Uint8Array, assetId: string, keyBudget: numb
   const reserve = (index: number, depth: number): void => {
     if (depth > 256 || nodeName.has(index)) return;
     const def = nodesDef[index];
-    if (!isObj(def)) return;
+    if (!isPlainObject(def)) return;
     nodeName.set(index, typeof def['name'] === 'string' && def['name'] !== '' ? unique(def['name']) : '');
     const cam = def['camera'];
     if (typeof cam === 'number' && !namedCameras.has(cam)) {
       namedCameras.add(cam);
       const c = cameras[cam];
-      if (isObj(c) && typeof c['name'] === 'string' && c['name'] !== '') unique(c['name']);
+      if (isPlainObject(c) && typeof c['name'] === 'string' && c['name'] !== '') unique(c['name']);
     }
-    const lx = isObj(def['extensions']) ? (def['extensions'] as Json)['KHR_lights_punctual'] : undefined;
-    if (isObj(lx) && typeof lx['light'] === 'number' && !namedLights.has(lx['light'])) {
+    const lx = isPlainObject(def['extensions']) ? (def['extensions'] as Json)['KHR_lights_punctual'] : undefined;
+    if (isPlainObject(lx) && typeof lx['light'] === 'number' && !namedLights.has(lx['light'])) {
       const li = lx['light'];
       namedLights.add(li);
       const l = lights[li];
-      unique(isObj(l) && typeof l['name'] === 'string' && l['name'] !== '' ? l['name'] : `light_${li}`);
+      unique(isPlainObject(l) && typeof l['name'] === 'string' && l['name'] !== '' ? l['name'] : `light_${li}`);
     }
     const kids = Array.isArray(def['children']) ? (def['children'] as unknown[]) : [];
     for (const k of kids) if (typeof k === 'number') reserve(k, depth + 1);
   };
   for (const sc of scenes) {
-    if (!isObj(sc)) continue;
+    if (!isPlainObject(sc)) continue;
     if (typeof sc['name'] === 'string' && sc['name'] !== '') unique(sc['name']);
     for (const n of Array.isArray(sc['nodes']) ? (sc['nodes'] as unknown[]) : []) if (typeof n === 'number') reserve(n, 0);
   }
@@ -206,7 +205,7 @@ export function readModelRig(bytes: Uint8Array, assetId: string, keyBudget: numb
   const visit = (index: number, parent: number, depth: number): void => {
     if (depth > 256 || rigIndex.has(index) || nodes.length >= MODEL_RIG_LIMITS.nodes) return;
     const def = nodesDef[index];
-    if (!isObj(def)) return;
+    if (!isPlainObject(def)) return;
     let t: [number, number, number] = [0, 0, 0];
     let r: [number, number, number, number] = [0, 0, 0, 1];
     let s: [number, number, number] = [1, 1, 1];
@@ -228,7 +227,7 @@ export function readModelRig(bytes: Uint8Array, assetId: string, keyBudget: numb
     const kids = Array.isArray(def['children']) ? (def['children'] as unknown[]) : [];
     for (const k of kids) if (typeof k === 'number') visit(k, at, depth + 1);
   };
-  if (isObj(scene)) for (const n of Array.isArray(scene['nodes']) ? (scene['nodes'] as unknown[]) : []) if (typeof n === 'number') visit(n, -1, 0);
+  if (isPlainObject(scene)) for (const n of Array.isArray(scene['nodes']) ? (scene['nodes'] as unknown[]) : []) if (typeof n === 'number') visit(n, -1, 0);
 
   // Clips (node channels only), within the key budget.
   const animations = Array.isArray(json['animations']) ? (json['animations'] as unknown[]) : [];
@@ -237,19 +236,19 @@ export function readModelRig(bytes: Uint8Array, assetId: string, keyBudget: numb
   let truncated = false;
   for (let ai = 0; ai < animations.length && clips.length < MODEL_RIG_LIMITS.clips; ai += 1) {
     const anim = animations[ai];
-    if (!isObj(anim)) continue;
+    if (!isPlainObject(anim)) continue;
     const samplers = Array.isArray(anim['samplers']) ? (anim['samplers'] as unknown[]) : [];
     const channels: ModelRigChannel[] = [];
     let duration = 0;
     let clipNumbers = 0;
     for (const ch of Array.isArray(anim['channels']) ? (anim['channels'] as unknown[]) : []) {
-      if (!isObj(ch) || !isObj(ch['target'])) continue;
+      if (!isPlainObject(ch) || !isPlainObject(ch['target'])) continue;
       const target = ch['target'] as Json;
       const p = PATHS[String(target['path'])];
       const nodeIndex = target['node'];
       if (p === undefined || typeof nodeIndex !== 'number' || !rigIndex.has(nodeIndex)) continue;
       const sampler = samplers[ch['sampler'] as number];
-      if (!isObj(sampler)) continue;
+      if (!isPlainObject(sampler)) continue;
       const interp = sampler['interpolation'] === 'STEP' || sampler['interpolation'] === 'CUBICSPLINE' ? (sampler['interpolation'] as RigInterpolation) : 'LINEAR';
       const input = readAccessor(json, bin, sampler['input']);
       const output = readAccessor(json, bin, sampler['output']);
@@ -278,25 +277,25 @@ export function rigNodeNames(rig: ModelRig): string[] {
 
 /** A shape check of rig data (a manifest or snapshot carries it); null when it is well-formed. */
 export function validateModelRig(v: unknown): string | null {
-  if (!isObj(v)) return 'a rig is { nodes, clips }';
+  if (!isPlainObject(v)) return 'a rig is { nodes, clips }';
   const nodes = v['nodes'];
   const clips = v['clips'];
   if (!Array.isArray(nodes) || nodes.length > MODEL_RIG_LIMITS.nodes) return `rig nodes must be a list of at most ${MODEL_RIG_LIMITS.nodes}`;
   const fin = (x: unknown, n: number): boolean => Array.isArray(x) && x.length === n && x.every((y) => typeof y === 'number' && Number.isFinite(y));
   for (let i = 0; i < nodes.length; i += 1) {
     const n = nodes[i];
-    if (!isObj(n) || typeof n['name'] !== 'string' || typeof n['parent'] !== 'number' || !Number.isInteger(n['parent']) || n['parent'] < -1 || n['parent'] >= i || !fin(n['t'], 3) || !fin(n['r'], 4) || !fin(n['s'], 3)) {
+    if (!isPlainObject(n) || typeof n['name'] !== 'string' || typeof n['parent'] !== 'number' || !Number.isInteger(n['parent']) || n['parent'] < -1 || n['parent'] >= i || !fin(n['t'], 3) || !fin(n['r'], 4) || !fin(n['s'], 3)) {
       return `rig node ${i} must be { name, parent (an earlier index or -1), t [3], r [4], s [3] }`;
     }
   }
   if (!Array.isArray(clips) || clips.length > MODEL_RIG_LIMITS.clips * 4) return 'rig clips must be a list';
   for (let i = 0; i < clips.length; i += 1) {
     const c = clips[i];
-    if (!isObj(c) || typeof c['assetId'] !== 'string' || typeof c['name'] !== 'string' || typeof c['duration'] !== 'number' || !Number.isFinite(c['duration']) || !Array.isArray(c['channels'])) {
+    if (!isPlainObject(c) || typeof c['assetId'] !== 'string' || typeof c['name'] !== 'string' || typeof c['duration'] !== 'number' || !Number.isFinite(c['duration']) || !Array.isArray(c['channels'])) {
       return `rig clip ${i} must be { assetId, name, duration, channels }`;
     }
     for (const ch of c['channels'] as unknown[]) {
-      if (!isObj(ch) || typeof ch['node'] !== 'string' || PATHS[String(ch['path'])] === undefined || !['LINEAR', 'STEP', 'CUBICSPLINE'].includes(String(ch['interpolation']))) {
+      if (!isPlainObject(ch) || typeof ch['node'] !== 'string' || PATHS[String(ch['path'])] === undefined || !['LINEAR', 'STEP', 'CUBICSPLINE'].includes(String(ch['interpolation']))) {
         return `rig clip ${i} has a channel that is not { node, path, interpolation, times, values }`;
       }
       const times = ch['times'];

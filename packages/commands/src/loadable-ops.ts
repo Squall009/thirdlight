@@ -13,7 +13,7 @@
 import { canonicalLabels, isAddress, isAssetLabel, isLoadable, liveLoadable, resourceKindDef, resourceRecordsOf, type LoadableEntry } from '@thirdlight/project-model';
 
 import { contentOf, type OpInput } from './content-ops';
-import { assetNotFound, fieldMissing, fieldType, fieldUnexpected, fieldValue, isPlainObject, noChangeContent, type CommandError } from './errors';
+import { assetNotFound, fieldMissing, fieldType, fieldUnexpected, fieldValue, isPlainObjectStrict, noChangeContent, type CommandError } from './errors';
 import { deepClone, gateResultState, type OpOutcome } from './ops';
 import type { CommandAssetRecord, ContentDocument, SceneDocument } from './types';
 
@@ -71,7 +71,7 @@ function storedKind(kind: string): string | null {
 const ITEM_KINDS = 'asset (or model, texture, audio, font) or a resource kind (prefab, behavior, material, animator, graph, effect, library, ui, uitheme, dialogue, timeline, envpreset)';
 
 function validateItem(v: unknown, path: string): { ok: true; item: LoadableItemRef } | { ok: false; error: CommandError } {
-  if (!isPlainObject(v)) return { ok: false, error: fieldType(path, v, 'object { kind, id }') };
+  if (!isPlainObjectStrict(v)) return { ok: false, error: fieldType(path, v, 'object { kind, id }') };
   for (const k of Object.keys(v)) if (k !== 'kind' && k !== 'id') return { ok: false, error: fieldUnexpected(`${path}/${k}`, k, 'kind, id') };
   if (typeof v['kind'] !== 'string' || storedKind(v['kind']) === null) return { ok: false, error: fieldValue(`${path}/kind`, v['kind'], ITEM_KINDS, 'kind says whether the item is an asset or which kind of resource') };
   if (typeof v['id'] !== 'string' || v['id'].length === 0) return { ok: false, error: fieldType(`${path}/id`, v['id'], 'string (an asset or resource id)') };

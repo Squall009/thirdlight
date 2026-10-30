@@ -72,6 +72,7 @@ import { canonicalPrefab, validatePrefabDefinition } from './content-prefabs';
 import { validatePrefabNesting } from './prefab-links';
 import { canonicalBehavior, canonicalTrust, validateBehaviorRecord, validateTrust } from './content-behaviors';
 import { canonicalSettings, M2_SETTINGS_KEYS, validateSettings } from './content-settings';
+import { deepFreezeAll } from '@thirdlight/shared';
 export { isValidSourcePath } from './content-helpers';
 export { KTX2_ENCODINGS, canonicalLabels, isAssetLabel, isStoredVertexColors } from './content-assets';
 export type { Ktx2Encoding } from './content-assets';
@@ -951,15 +952,7 @@ export function resolveGameplaySettings(content: unknown): ModelResultV2<Gamepla
       (resolved as unknown as Record<string, number>)[spec.key] = provided;
     }
   }
-  deepFreeze(resolved);
+  deepFreezeAll(resolved);
   return { ok: true, normalized: resolved };
-}
-
-function deepFreeze<T>(value: T): T {
-  if (value !== null && typeof value === 'object') {
-    for (const k of Object.keys(value as Record<string, unknown>)) deepFreeze((value as Record<string, unknown>)[k]);
-    Object.freeze(value);
-  }
-  return value;
 }
 

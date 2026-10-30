@@ -24,6 +24,7 @@ import type { KitCheck, KitCheckState } from './kit-checks';
 import { BLOCK_LIMITS } from './block-layers';
 import { resolveMaterial, type MaterialDef } from './materials';
 import { ID_RE, isValidName } from './validate';
+import { isPlainObject } from '@thirdlight/shared';
 
 /** One model piece a slot holds: a model asset, optionally one named node of it, with a weight among the slot's pieces. */
 export interface KitPiece {
@@ -110,7 +111,6 @@ export const KIT_SLOT_RE = ID_RE;
 const PIECE_RE = /^[^\u0000-\u001f]{1,128}$/;
 const KIT_FIELDS = ['kitId', 'name', 'description', 'thumbnail', 'trimMaterial', 'presets', 'blockTypes', 'pieces'];
 
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 function err(errors: ModelErrorV2[], code: string, path: string, message: string, found?: unknown, expected?: string): void {
@@ -130,7 +130,7 @@ function idList(v: unknown, path: string, what: string, errors: ModelErrorV2[]):
 
 /** Validate one kit's shape (references are problems, {@link kitProblems}). */
 export function validateKit(v: unknown, path: string, errors: ModelErrorV2[]): void {
-  if (!isObj(v)) return err(errors, 'field_type', path, 'a kit is {kitId, name, trimMaterial?, presets?, blockTypes?, pieces?, description?, thumbnail?}', v, 'object');
+  if (!isPlainObject(v)) return err(errors, 'field_type', path, 'a kit is {kitId, name, trimMaterial?, presets?, blockTypes?, pieces?, description?, thumbnail?}', v, 'object');
   for (const k of Object.keys(v)) if (!KIT_FIELDS.includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown kit field "${k}"`, k, KIT_FIELDS.join(', '));
   if (typeof v['kitId'] !== 'string' || !ID_RE.test(v['kitId'])) err(errors, 'id_invalid', `${path}/kitId`, 'kitId uses the id syntax', v['kitId']);
   if (typeof v['name'] !== 'string' || !isValidName(v['name'])) err(errors, 'field_value', `${path}/name`, 'name is 1-128 characters without control characters', v['name']);
@@ -141,7 +141,7 @@ export function validateKit(v: unknown, path: string, errors: ModelErrorV2[]): v
   idList(v['blockTypes'], `${path}/blockTypes`, 'blockTypes', errors);
   const pieces = v['pieces'];
   if (pieces === undefined) return;
-  if (!isObj(pieces)) return err(errors, 'field_type', `${path}/pieces`, 'pieces is {slot: [{assetId, piece?, weight?}, …]}', pieces, 'object');
+  if (!isPlainObject(pieces)) return err(errors, 'field_type', `${path}/pieces`, 'pieces is {slot: [{assetId, piece?, weight?}, …]}', pieces, 'object');
   for (const [slot, list] of Object.entries(pieces)) {
     const p = `${path}/pieces/${slot}`;
     if (!KIT_SLOT_RE.test(slot)) err(errors, 'field_value', p, 'a slot name uses the id syntax (lower case, digits, - and _)', slot);
@@ -151,7 +151,7 @@ export function validateKit(v: unknown, path: string, errors: ModelErrorV2[]): v
     }
     list.forEach((piece, i) => {
       const q = `${p}/${i}`;
-      if (!isObj(piece)) return err(errors, 'field_type', q, 'a piece is {assetId, piece?, weight?}', piece, 'object');
+      if (!isPlainObject(piece)) return err(errors, 'field_type', q, 'a piece is {assetId, piece?, weight?}', piece, 'object');
       for (const k of Object.keys(piece)) if (k !== 'assetId' && k !== 'piece' && k !== 'weight') err(errors, 'field_unexpected', `${q}/${k}`, `unknown piece field "${k}"`, k, 'assetId, piece, weight');
       if (typeof piece['assetId'] !== 'string' || !ID_RE.test(piece['assetId'])) err(errors, 'id_invalid', `${q}/assetId`, 'assetId uses the id syntax', piece['assetId']);
       if (piece['piece'] !== undefined && (typeof piece['piece'] !== 'string' || !PIECE_RE.test(piece['piece']))) err(errors, 'field_value', `${q}/piece`, 'piece is a node name (1-128 characters)', piece['piece']);
@@ -166,7 +166,7 @@ export function validateKits(value: unknown, path: string, errors: ModelErrorV2[
   const seen = new Set<string>();
   value.forEach((k, i) => {
     if (trusted?.has(k) !== true) validateKit(k, `${path}/${i}`, errors);
-    const id = isObj(k) ? k['kitId'] : undefined;
+    const id = isPlainObject(k) ? k['kitId'] : undefined;
     if (typeof id === 'string') {
       if (seen.has(id)) err(errors, 'id_duplicate', `${path}/${i}/kitId`, 'kitId is used twice', id);
       seen.add(id);

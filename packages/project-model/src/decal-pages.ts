@@ -54,6 +54,7 @@ import type { DecalCellRef } from './decals';
 import type { ModelErrorV2 } from './errors';
 import { bilinearReadsInside, trimCellOf, type TrimSheet } from './trim-sheet';
 import { ID_RE } from './validate';
+import { isPlainObject } from '@thirdlight/shared';
 
 /** The channel sets, one texture array each (see the module comment). */
 export const DECAL_PAGE_SETS = ['albedo', 'normal', 'orm'] as const;
@@ -505,8 +506,6 @@ export function canonicalDecalPageRef(r: DecalPageRef): DecalPageRef {
   }
   return out;
 }
-
-const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** A runtime material's `decalPage` (a build writes it; a project never stores one). */
 export function validateDecalPageRef(v: unknown, path: string, errors: ModelErrorV2[]): void {

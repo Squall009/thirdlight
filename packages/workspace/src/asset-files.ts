@@ -36,6 +36,7 @@ import { readBlobBytes, resolveProjectFile } from './content-store';
 import { layoutProjectJson } from './project-json';
 import { isSkippedFolderName, SIDECAR_SUFFIX } from './resource-files';
 import { assetRecordOf } from './catalog-lookup';
+import { isPlainObject } from '@thirdlight/shared';
 
 // ---- layout --------------------------------------------------------------
 
@@ -887,10 +888,6 @@ export interface Placement {
   rollback(): void;
 }
 
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
-
 /**
  * A `publishAsset` of bytes uploaded to the backend names no file: they are
  * held by digest (`holdBytes`) and filed into the game folder here, at
@@ -903,7 +900,7 @@ function isRecord(v: unknown): v is Record<string, unknown> {
  * folder, or args the command itself refuses).
  */
 export function planPlacement(core: Core, ctx: ContentContext, args: Record<string, unknown>, content: ContentCatalogV4 | null, readLegacyBlob: (digest: string) => Uint8Array | null, folder?: string): Placement | null {
-  const conv = isRecord(args['convertedFrom']) ? (args['convertedFrom'] as unknown as ConvertedLike) : undefined;
+  const conv = isPlainObject(args['convertedFrom']) ? (args['convertedFrom'] as unknown as ConvertedLike) : undefined;
   if (conv !== undefined ? conv.sourcePath !== undefined : args['sourcePath'] !== undefined) return null;
   const fileDigest = conv !== undefined ? conv.sourceDigest : args['sourceDigest'];
   if (typeof fileDigest !== 'string' || !DIGEST_RE.test(fileDigest) || typeof args['assetId'] !== 'string') return null;

@@ -59,16 +59,6 @@ export function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-/** Test-side recursive freeze (mirrors the contract's deep-freeze rule). */
-export function deepFreezeForTest<T>(value: T): T {
-  if (value === null || typeof value !== 'object') return value;
-  if (Object.isFrozen(value)) return value;
-  Object.freeze(value);
-  const rec = value as Record<string, unknown>;
-  for (const key of Object.getOwnPropertyNames(rec)) deepFreezeForTest(rec[key]);
-  return value;
-}
-
 /** The box entity's authored x (the demo's x0). */
 export const BOX_X0 = 0.5;
 export const BOX_ID = 'box-0001';

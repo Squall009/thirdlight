@@ -26,7 +26,7 @@
  * Pure and deterministic: the noise is a lattice hash with products and
  * `Math.floor` only, every other condition plain arithmetic.
  */
-import { latticeHash4 } from '@thirdlight/shared';
+import { isPlainObject, latticeHash4 } from '@thirdlight/shared';
 import type { ModelErrorV2 } from './errors';
 import type { CellMetaValue } from './block-layers';
 import { TERRAIN_LAYER_MAX } from './terrain-sizes';
@@ -73,7 +73,6 @@ export const SURFACE_RULE_LIMITS = Object.freeze({ value: 100_000, cavityRadiusM
 /** The rule fields in canonical order. */
 export const SURFACE_RULE_FIELDS: readonly string[] = Object.freeze(['name', 'layer', 'strength', 'face', 'height', 'slope', 'cavity', 'noise', 'weight', 'blocks', 'meta']);
 
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 function err(errors: ModelErrorV2[], code: string, path: string, message: string, found?: unknown): void {
   errors.push({ code, path, message, ...(found !== undefined ? { found } : {}) } as ModelErrorV2);
@@ -88,7 +87,7 @@ export function validateRuleRange(r: Record<string, unknown>, key: string, p: st
   const v = r[key];
   if (v === undefined) return;
   const q = `${p}/${key}`;
-  if (!isObj(v)) return err(errors, 'field_type', q, `${key} is {min?, max?, fade?${keys.map((k) => `, ${k}`).join('')}}`, v);
+  if (!isPlainObject(v)) return err(errors, 'field_type', q, `${key} is {min?, max?, fade?${keys.map((k) => `, ${k}`).join('')}}`, v);
   for (const k of Object.keys(v)) if (!['min', 'max', 'fade', ...keys].includes(k)) err(errors, 'field_unexpected', `${q}/${k}`, `unknown ${key} field "${k}"`, k);
   for (const k of ['min', 'max'] as const) if (v[k] !== undefined && !(finite(v[k]) && Math.abs(v[k] as number) <= L.value)) err(errors, 'field_value', `${q}/${k}`, `${k} is a number within ±${L.value}`, v[k]);
   if (finite(v['min']) && finite(v['max']) && (v['min'] as number) > (v['max'] as number)) err(errors, 'field_value', q, `${key}: min is at most max`, v);
@@ -134,7 +133,7 @@ export function validateRuleConditions(r: Record<string, unknown>, p: string, er
   }
   if (r['meta'] !== undefined) {
     if (!blocks) err(errors, 'field_unexpected', `${p}/meta`, 'meta is a block layer\'s condition (a terrain has no cells)', r['meta']);
-    else if (!(isObj(r['meta']) && Object.values(r['meta']).every((m) => typeof m === 'boolean' || typeof m === 'string' || finite(m)))) err(errors, 'field_value', `${p}/meta`, 'meta is {field key: value} (true/false, a number or a string)', r['meta']);
+    else if (!(isPlainObject(r['meta']) && Object.values(r['meta']).every((m) => typeof m === 'boolean' || typeof m === 'string' || finite(m)))) err(errors, 'field_value', `${p}/meta`, 'meta is {field key: value} (true/false, a number or a string)', r['meta']);
   }
 }
 
@@ -147,7 +146,7 @@ export function validateSurfaceRules(value: unknown, path: string, errors: Model
   const layerMax = blocks ? SURFACE_RULE_BLOCK_LAYERS - 1 : TERRAIN_LAYER_MAX;
   value.forEach((r, i) => {
     const p = `${path}/${i}`;
-    if (!isObj(r)) return err(errors, 'field_type', p, 'a rule is an object {layer, …conditions}', r);
+    if (!isPlainObject(r)) return err(errors, 'field_type', p, 'a rule is an object {layer, …conditions}', r);
     for (const k of Object.keys(r)) if (!SURFACE_RULE_FIELDS.includes(k)) err(errors, 'field_unexpected', `${p}/${k}`, `unknown rule field "${k}"`, k);
     const name = r['name'];
     if (name !== undefined && !(typeof name === 'string' && name.length >= 1 && name.length <= SURFACE_RULE_LIMITS.nameLength)) err(errors, 'field_value', `${p}/name`, `name is 1-${SURFACE_RULE_LIMITS.nameLength} characters`, name);

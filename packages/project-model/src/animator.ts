@@ -20,6 +20,7 @@
 import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import type { GraphComment, GraphGroup } from './graph';
+import { isPlainObject } from '@thirdlight/shared';
 
 /**
  * Editor-only layout of one graph of a controller (a layer's
@@ -245,9 +246,6 @@ export const MAX_LAYER_MASK = 128;
 export const MAX_ANIMATOR_MORPHS = 32;
 const PARAM_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
 function isName(v: unknown): v is string {
   return typeof v === 'string' && v.length >= 1 && v.length <= 128 && !/[\u0000-\u001f\u007f]/.test(v);
 }

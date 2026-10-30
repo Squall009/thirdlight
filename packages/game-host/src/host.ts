@@ -83,6 +83,7 @@ import { hitUiTargets, type UiHitTarget } from './ui-hit';
 import { createPausePanel, type PausePanel } from './pause-panel';
 import { createShellController, type ShellConfigLike, type ShellController, type ShellObservation } from './shell';
 import { createReadAhead } from './scene-read-ahead';
+import { isPlainObject } from '@thirdlight/shared';
 
 export const GAME_HOST_API_VERSION = 1;
 
@@ -566,10 +567,6 @@ export function mapSoundStatus(owner: GameAudioOwner): GameHostSound {
 }
 
 // --- config validation ------------------------------------------------------
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function validateConfig(config: GameHostConfig): string | null {
   if (!isPlainObject(config)) return 'config must be a plain object';

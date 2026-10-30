@@ -24,6 +24,7 @@
 import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { INPUT_MAPS } from './input';
+import { isPlainObject } from '@thirdlight/shared';
 
 export type ModeBlend = 'cut' | 'linear' | 'eased';
 export const MODE_BLENDS: readonly ModeBlend[] = ['cut', 'linear', 'eased'];
@@ -105,9 +106,6 @@ export const MODE_DEFAULTS = Object.freeze({
 /** A behavior group or an input map name: a letter or _, then up to 31 letters, digits or _. */
 export const MODE_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
 function err(errors: ModelErrorV2[], code: string, path: string, message: string, found?: unknown, expected?: string): void {
   errors.push({ code, path, message, ...(found !== undefined ? { found } : {}), ...(expected !== undefined ? { expected } : {}) } as ModelErrorV2);
 }

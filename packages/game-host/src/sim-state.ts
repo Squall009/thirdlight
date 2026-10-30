@@ -22,6 +22,7 @@
 import { AUDIO_MAX_QUEUED_COMMANDS, clampAlpha, DEFAULT_FIXED_STEP_HZ, EFFECT_MAX_QUEUED_REQUESTS, interpolateTransformInto, materialChangeKey, type TransformState } from '@thirdlight/runtime';
 import { applyUiOutputToModel, mergeUiOutput, type DebugCommandState, type AnimatorPose, type AudioCommand, type CameraViewInfo, type Runtime, type RuntimeDiagnostics, type SceneSetView, type PointerSample, type UiOutput, type UiShownDocument, type ModeView } from '@thirdlight/runtime';
 import { CAMERA_POSE_FLOATS, STEP_PAIR_STRIDE, TRANSFORM_STRIDE, type FrameState, type SceneEntities, type SceneSetWire } from './sim-protocol';
+import { deepFreeze } from '@thirdlight/shared';
 
 /** Send every transform when more than this share of the entities moved (the index list would cost more). */
 const FULL_SHARE = 0.25;
@@ -870,12 +871,4 @@ function readTransform(x: ArrayLike<number>, o: number, out: { position: number[
 function isShared(b: ArrayBufferLike): boolean {
   const Sab = (globalThis as SharedGlobal).SharedArrayBuffer;
   return typeof Sab === 'function' && b instanceof Sab;
-}
-
-function deepFreeze<T>(v: T): T {
-  if (typeof v === 'object' && v !== null && !Object.isFrozen(v)) {
-    Object.freeze(v);
-    for (const k of Object.keys(v as object)) deepFreeze((v as Record<string, unknown>)[k]);
-  }
-  return v;
 }

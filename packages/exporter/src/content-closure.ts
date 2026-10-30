@@ -21,7 +21,7 @@
  * bytes-in/bytes-out call on the injected compiler; the returned behavior
  * bytes are linked into the bundle by the caller.
  */
-import { sha256Hex } from '@thirdlight/shared';
+import { deepFreeze, sha256Hex } from '@thirdlight/shared';
 import type { BlockType, CellField, SaveSchema } from '@thirdlight/project-model';
 import { dialogueForRuntime, instancePaintBlobs, vertexPaintBlobs, type DialogueDocument, type DialogueSettings, type DialogueSpeaker, type InstancePaint, type VertexPaintComponent } from '@thirdlight/project-model';
 import type { GameMode } from '@thirdlight/project-model';
@@ -589,14 +589,6 @@ const entryInputs = new WeakMap<object, { readonly shipped: string; readonly nam
  * scenes that changed.
  */
 const sceneDependenciesOf = new WeakMap<object, Map<string, { readonly entities: unknown; readonly lighting: unknown; readonly dependencies: readonly string[] }>>();
-
-function deepFreeze<T>(value: T): T {
-  if (typeof value === 'object' && value !== null && !Object.isFrozen(value)) {
-    for (const v of Object.values(value)) deepFreeze(v);
-    Object.freeze(value);
-  }
-  return value;
-}
 
 /** Derivations reused / made, and catalogs re-stamped instead of made (tests). */
 export const closureCacheStats = { hits: 0, misses: 0, catalogHits: 0 };

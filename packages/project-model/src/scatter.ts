@@ -43,6 +43,7 @@ import { TERRAIN_LAYER_MAX } from './terrain-sizes';
 import { INSTANCE_FLOATS } from './types-v3';
 import { ID_RE } from './validate';
 import { decodeBase64, encodeBase64 } from './png-decode';
+import { isPlainObject } from '@thirdlight/shared';
 
 /** A layer-share condition: the share (0-1) the ground shows of material `layer`. */
 export interface ScatterLayerCondition extends RuleRange {
@@ -175,7 +176,6 @@ export const SCATTER_CHUNK_METERS_DEFAULT = 2048;
 export const SCATTER_BAKE_MAX_CANDIDATES = 33_554_432;
 
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,32}$/;
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 function err(errors: ModelErrorV2[], code: string, path: string, message: string, found?: unknown): void {
   errors.push({ code, path, message, ...(found !== undefined ? { found } : {}) } as ModelErrorV2);
@@ -192,14 +192,14 @@ export function validateScatterRules(value: unknown, path: string, errors: Model
   const ids = new Set<string>();
   value.forEach((r, i) => {
     const p = `${path}/${i}`;
-    if (!isObj(r)) return err(errors, 'field_type', p, 'a scatter rule is an object {id, asset, density, …}', r);
+    if (!isPlainObject(r)) return err(errors, 'field_type', p, 'a scatter rule is an object {id, asset, density, …}', r);
     for (const k of Object.keys(r)) if (!SCATTER_RULE_FIELDS.includes(k)) err(errors, 'field_unexpected', `${p}/${k}`, `unknown scatter rule field "${k}"`, k);
     const id = r['id'];
     if (typeof id !== 'string' || !ID_PATTERN.test(id)) err(errors, 'field_value', `${p}/id`, `id is 1-${L.idLength} of A-Z a-z 0-9 _ -`, id);
     else if (ids.has(id)) err(errors, 'field_value', `${p}/id`, `scatter rule "${id}" is listed twice`, id);
     else ids.add(id);
     const asset = r['asset'];
-    if (!isObj(asset) || typeof asset['assetId'] !== 'string' || !ID_RE.test(asset['assetId'])) err(errors, 'field_value', `${p}/asset`, 'asset is {assetId, piece?}: the model placed', asset);
+    if (!isPlainObject(asset) || typeof asset['assetId'] !== 'string' || !ID_RE.test(asset['assetId'])) err(errors, 'field_value', `${p}/asset`, 'asset is {assetId, piece?}: the model placed', asset);
     else {
       for (const k of Object.keys(asset)) if (k !== 'assetId' && k !== 'piece') err(errors, 'field_unexpected', `${p}/asset/${k}`, `unknown asset field "${k}"`, k);
       const piece = asset['piece'];
@@ -241,7 +241,7 @@ export function validateScatterRules(value: unknown, path: string, errors: Model
       else
         layers.forEach((c, k) => {
           const q = `${p}/layers/${k}`;
-          if (!isObj(c)) return err(errors, 'field_type', q, 'a layer condition is {layer, min?, max?, fade?}', c);
+          if (!isPlainObject(c)) return err(errors, 'field_type', q, 'a layer condition is {layer, min?, max?, fade?}', c);
           validateRuleRange(layers as unknown as Record<string, unknown>, String(k), `${p}/layers`, errors, (v, w) => {
             if (!(Number.isInteger(v['layer']) && (v['layer'] as number) >= 0 && (v['layer'] as number) <= layerMax)) err(errors, 'field_value', `${w}/layer`, `layer is 0-${layerMax}`, v['layer']);
           }, ['layer']);
