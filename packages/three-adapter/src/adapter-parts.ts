@@ -79,8 +79,6 @@ export interface AdapterParts {
   readonly gpuTiming: GpuTiming;
   /** The page clock's start (material and effect time). */
   readonly clockStart: number;
-  /** The key light's shadow square follows the camera (v3/v4 scenes). */
-  readonly followShadow: boolean;
   /** The loaded scenes' lights picked again (the most recent scene's, the local ones within the budget). */
   selectLights(): void;
   /** An entity's look, material or flags changed outside its realization: its meshes are grouped again. */

@@ -131,7 +131,7 @@ describe('the M3 shadow decision + diagnostics in createSceneAdapter', () => {
     adapter.dispose();
   });
 
-  it('v3 with no authored lights ⇒ off / cast_shadow_false (the M1 pair is v1/v2 only)', () => {
+  it('v3 with no authored lights ⇒ off / cast_shadow_false (no fixed default pair)', () => {
     const adapter = createSceneAdapter(stubCanvas(), {
       runtime: fakeRuntime(),
       snapshot: v3Snapshot({ withLights: false }),

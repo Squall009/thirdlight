@@ -19,7 +19,6 @@ function sceneLights(scene: THREE.Scene) {
   const placed = new Map<string, THREE.Object3D>();
   const lights = createSceneLights({
     scene,
-    v3: true,
     startView: [0, 2, 6],
     resources: {} as never,
     loadCookie: null,

@@ -20,7 +20,6 @@ describe('the key light', () => {
     const scene = new THREE.Scene();
     const lights = createSceneLights({
       scene,
-      v3: true,
       startView: [0, 2, 6],
       resources: {} as never,
       loadCookie: null,
@@ -57,7 +56,6 @@ describe('room-bound lights', () => {
     const placed = new Map<string, THREE.Light>();
     const lights = createSceneLights({
       scene: new THREE.Scene(),
-      v3: true,
       startView: [0, 2, 6],
       resources: {} as never,
       loadCookie: null,

@@ -137,8 +137,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   const gpuTiming = createGpuTiming();
   // AO kind, render scale and dynamic resolution, applied to the environment renderer.
   const renderControl = createRenderControl(opts.render);
-  // The snapshot is deep-frozen and runtime-validated; the adapter reads it structurally and never re-validates.
-  const isV3 = opts.snapshot.scene.schemaVersion === 3 || opts.snapshot.scene.schemaVersion === 4;
   // Where the view starts (the runtime's camera brain resolved it before the first frame; the shots move it from there).
   const startView: [number, number, number] = [0, 0, 0];
   (opts.runtime as { readCameraView?: (p: number[], r: number[]) => unknown }).readCameraView?.(startView, [0, 0, 0, 1]);
@@ -148,7 +146,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   graph.onStaticChange(staticChanged);
   /** The loaded scenes' lights and the key light's shadow (lights-shadows.ts): a point or spot light hangs on its entity's node; the others off the scene. */
   const lights = createSceneLights({
-    scene, v3: isV3, staticShadows, startView, resources,
+    scene, staticShadows, startView, resources,
     loadCookie: opts.lights?.loadTexture ?? opts.materials?.loadTexture ?? opts.environment?.loadTexture ?? null,
     bakedLight: (id) => state.lightmaps?.isBakedLight(id) === true,
     place: (id, light) => graph.nodeFor(id)?.add(light),
@@ -276,7 +274,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       followed = [...ids];
       probes.follow(followed);
       surfaceLightNow?.followScenes(followed);
-    }, v3: isV3, vertexPaint: opts.vertexPaint !== false,
+    }, vertexPaint: opts.vertexPaint !== false,
     ownScene: (opts.snapshot.scene as { sceneId?: string }).sceneId,
   });
   /** The loaded scenes' lights switched (the most recently loaded scene's directional, ambient and hemisphere light, local ones within the budget). */
@@ -350,7 +348,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   clusters.syncLight();
   const parts: AdapterParts = {
     opts, scene, state, graph, materials, effects, entities, scenes, models, renderer, environment, lights, clusters, probes, level, surfaceCache, surfaceLight, liveLighting, batcher, viewCull, isolation, occlusion, precompile, qualityControl, renderControl, gpuTiming,
-    clockStart, followShadow: isV3, selectLights, regroupEntity,
+    clockStart, selectLights, regroupEntity,
     environmentFrame: {
       needed: () => qualityControl.needsEnvironment() || renderControl.needsEnvironment() || occlusion.needsEnvironment(),
       scenePasses: () => occlusion.scenePasses(),

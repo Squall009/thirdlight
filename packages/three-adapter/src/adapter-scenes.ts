@@ -32,8 +32,6 @@ export interface AdapterScenesHost {
   selectLights(): void;
   /** The probe tiles follow these scenes. */
   followProbes(sceneIds: Iterable<string>): void;
-  /** v3/v4 scenes: an unload alone changes the lights' programs too. */
-  readonly v3: boolean;
   readonly vertexPaint: boolean;
   /** The snapshot's own scene (a host without a scene set draws it). */
   readonly ownScene: string | undefined;
@@ -99,7 +97,8 @@ export class AdapterScenes {
     // The lights follow the scene set (a light switched on or off changes the shading programs too).
     if (added || removed) this.host.selectLights();
     if (added || removed) this.followProbes();
-    if (scenesRemoved && !added && this.host.v3) this.host.requestPrecompile();
+    // An unload alone changes the lights' programs too.
+    if (scenesRemoved && !added) this.host.requestPrecompile();
     this.syncSpawned((set as { spawned?: readonly unknown[] }).spawned ?? []);
   }
 

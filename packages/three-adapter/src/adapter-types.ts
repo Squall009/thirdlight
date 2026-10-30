@@ -339,7 +339,7 @@ export interface SceneAdapterDiagnostics {
   pixelRatio: number;
   /** The shadow realization result for the
    *  current scene. `on` is the planned/realized state; the first-render
-   *  probe may flip it to `off` / `shadow_unsupported`. v1/v2 and scenes
+   *  probe may flip it to `off` / `shadow_unsupported`. Scenes
    *  without a shadow-casting light are `off` / `cast_shadow_false` (the
    *  author's own choice — not an error). */
   shadows: 'on' | 'off';
@@ -352,7 +352,7 @@ export interface SceneAdapterDiagnostics {
    */
   shadowMaps?: CachedShadowCounts;
   /**
-   * v3/v4 scenes: the lights that are on — the directional,
+   * The lights that are on — the directional,
    * ambient and hemisphere light's entity (the most recently loaded scene's
    * of each kind; null: none), the point and spot lights of the loaded
    * scenes and how many of them are on (the budget), and the spot cookies

@@ -268,7 +268,7 @@ describe('the light realization plans', () => {
     if (key.kind === 'directional') expect(key.castShadow).toBe(false);
   });
 
-  it('no authored lights ⇒ no light nodes (the M1 fixed pair is v1/v2 only)', () => {
+  it('no authored lights ⇒ no light nodes (no fixed default pair)', () => {
     const decision = decideShadows({ webgl2: true, castShadow: false, probeOk: true, region: REGION, direction: DIR });
     expect(planSceneLights([], REGION, decision)).toEqual([]);
   });

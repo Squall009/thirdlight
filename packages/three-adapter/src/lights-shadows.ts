@@ -82,8 +82,6 @@ export interface LightEntityLike {
 
 export interface SceneLightsOptions {
   readonly scene: THREE.Scene;
-  /** v3/v4 scenes: the light entities' own lights; v1/v2: the accepted fixed pair. */
-  readonly v3: boolean;
   /** Where the view starts (the key light's shadow square is planned around it). */
   readonly startView: readonly [number, number, number];
   /** Where cookies are decoded and held, and the decoder (null: cookies are not drawn). */
@@ -341,14 +339,6 @@ export function createSceneLights(o: SceneLightsOptions): SceneLights {
     else shadowState = out.shadows === 'on' ? { shadows: 'on' } : { shadows: 'off', reason: out.shadowReason ?? 'cast_shadow_false' };
   };
 
-  if (!o.v3) {
-    // Simple lighting for the Lambert material (no shadow pipeline for v1/v2 scenes): one directional + one ambient.
-    const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
-    dirLight.position.set(0.5, 1, 0.8);
-    scene.add(dirLight);
-    scene.add(new THREE.AmbientLight(0xffffff, 0.55));
-  }
-
   let selection: SceneLightSelection | null = null;
   const followDir = new THREE.Vector3();
   const followPoint = new THREE.Vector3();
@@ -425,7 +415,7 @@ function realizeLight(e: LightEntityLike): void {
       return;
     }
     // A directional or ambient light of any loaded scene: its entity's transform is irrelevant.
-    if (!o.v3 || (l.type !== 'directional' && l.type !== 'ambient') || bakedAway(e.id, l)) return;
+    if ((l.type !== 'directional' && l.type !== 'ambient') || bakedAway(e.id, l)) return;
     if (l.type === 'ambient') {
       // No shadow, no position dependence; the intensity is used exactly as authored.
       const ambient = new (needsLayeredLight(masks) ? LayeredAmbientLight : THREE.AmbientLight)(new THREE.Color(l.color), l.intensity);
@@ -481,7 +471,6 @@ function releaseLight(entityId: string): void {
 
     select(rankOf, hidden): void {
       lastSelect = { rankOf, hidden };
-      if (!o.v3) return;
       const entries: SceneLightEntry[] = [];
       let order = 0;
       // A light whose object is hidden or switched off is off and counts for nothing (the previous scene's
@@ -534,7 +523,7 @@ function releaseLight(entityId: string): void {
       // The first frame of a scene with shadows is the probe: shadows go on before it (and before a
       // precompile, so the programs are built with them). A scene with no shadow-casting light never
       // enables `shadowMap`.
-      if (shadowState.shadows !== 'on' || !o.v3 || shadowProbeDone) return false;
+      if (shadowState.shadows !== 'on' || shadowProbeDone) return false;
       shadowProbeDone = true;
       try {
         renderer.shadowMap.enabled = true;

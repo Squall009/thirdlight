@@ -310,7 +310,7 @@ export class AdapterFrame {
   private prepareView(renderer: AnyRenderer, camera: THREE.PerspectiveCamera): [number, number] {
     const p = this.p;
     const { graph, level, viewCull } = p;
-    if (p.followShadow) p.lights.followCamera(camera);
+    p.lights.followCamera(camera);
     // The follow shadow and the size first — the shadow probe is a real frame (it compiles the scene's
     // pipelines), drawn as the game will draw it.
     const [w, h] = p.renderer.canvasSize();
