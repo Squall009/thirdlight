@@ -44,6 +44,12 @@ are in `docs/STATUS.md`; known defects are in `docs/audit-2026-09-22.md`.
   `docs/plan-phase-*.md`.
 - Define a limit or constant once, in the package that owns it, and import
   it everywhere else. No per-project count caps on assets or resources.
+- Generic helpers live once, in `@thirdlight/shared` (every package may
+  import it); domain constants in project-model. `tools/check-redefinitions.mjs`
+  (in `npm run build`) fails on a second definition of an owned name;
+  `tools/redefinition-ratchet.json` lists today's copies and only shrinks.
+  If you can't import something, change the boundary rule in its own commit;
+  never copy.
 - Split before growing: a change that adds to a file over 2,000 lines first
   moves the area it touches into its own module.
 - Units stay small too: no function or closure over 400 lines, no class over
