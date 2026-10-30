@@ -23,7 +23,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { behaviorModule, startHarness, type Harness, type Mode } from '../m22-worker/harness';
-import { DT, MODULES_3D, SETTINGS, STAND_Y, T, sceneOf, type Any } from '../m23-3d/character-kit';
+import { DT, MODULES_3D, SETTINGS, STAND_Y, T, sceneOf, type Any } from '../3d/character-kit';
 
 const BROKEN = `export default {
   step(s, ctx) {

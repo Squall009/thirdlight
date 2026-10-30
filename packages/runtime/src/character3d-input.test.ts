@@ -3,7 +3,7 @@
  * second move axis of an action frame (older frames and replays unchanged),
  * `control_move`'s optional `y`, and the character intents' shapes and
  * values. The controller itself runs on the real Rapier 3D backend in
- * tests/integration/m23-3d.
+ * tests/integration/3d.
  */
 import { describe, expect, it } from 'vitest';
 

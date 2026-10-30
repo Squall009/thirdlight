@@ -23,7 +23,7 @@ import { RESULT_ASSEMBLED_MAX } from '@thirdlight/protocol';
 import { pasteValuesOf, type SelectionRead } from '../../../packages/editor/src/session/copy-values';
 import { Projection } from '../../../packages/editor/src/session/projection';
 import { api, connectWs, mkRequestId, mkSessionId, startBackend, type TestBackend, type TestWs } from '../../../packages/backend/src/test-helpers';
-import type { Any } from '../m23-3d/character-kit';
+import type { Any } from '../3d/character-kit';
 
 const REPO = resolve(import.meta.dirname, '..', '..', '..');
 const PID = 'demo-0001';

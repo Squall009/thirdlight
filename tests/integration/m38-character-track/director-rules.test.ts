@@ -21,7 +21,7 @@ import { physics3DConfigOf, sceneEntitiesFromDocument } from '@thirdlight/runtim
 
 import { modulesOf } from '../../game-modules';
 import { behaviorModule, startHarness, type Mode } from '../m22-worker/harness';
-import { SETTINGS, STAND_Y } from '../m23-3d/character-kit';
+import { SETTINGS, STAND_Y } from '../3d/character-kit';
 
 type Any = any;
 const DT = 1 / 120;

@@ -25,7 +25,7 @@ import { Projection } from '../../../packages/editor/src/session/projection';
 import { FakeEditor } from '../../../packages/backend/src/test-editor';
 import { api, connectWs, exportContentOf, mkRequestId, mkSessionId, startBackend, type TestBackend, type TestWs } from '../../../packages/backend/src/test-helpers';
 import { behaviorModule, startHarness } from '../m22-worker/harness';
-import { DT, SETTINGS, sceneOf, type Any } from '../m23-3d/character-kit';
+import { DT, SETTINGS, sceneOf, type Any } from '../3d/character-kit';
 
 const REPO = resolve(import.meta.dirname, '..', '..', '..');
 const PID = 'demo-0001';

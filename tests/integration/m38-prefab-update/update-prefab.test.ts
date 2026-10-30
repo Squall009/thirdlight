@@ -20,7 +20,7 @@ import { readRuntimeContentSync } from '@thirdlight/project-model';
 
 import { makeBuildEnv, requestId, ORIGIN, type BuildEnv } from '../m2-builds/helpers';
 import { behaviorModule, startHarness } from '../m22-worker/harness';
-import { DT, SETTINGS, sceneOf, type Any } from '../m23-3d/character-kit';
+import { DT, SETTINGS, sceneOf, type Any } from '../3d/character-kit';
 
 let n = 0x38600;
 const rid = (): string => requestId((n += 1));

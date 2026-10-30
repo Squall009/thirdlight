@@ -21,7 +21,7 @@ import { BlockGrid, applyBlockEdits, dialogueForRuntime, type DialogueDocument }
 import { physics3DConfigOf } from '@thirdlight/runtime';
 
 import { FakeNode, behaviorModule, startHarness, type Mode } from '../m22-worker/harness';
-import { MODULES_3D } from '../m23-3d/character-kit';
+import { MODULES_3D } from '../3d/character-kit';
 
 type Any = any;
 const DT = 1 / 120;

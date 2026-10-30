@@ -24,7 +24,7 @@ import { physics3DConfigOf } from '@thirdlight/runtime';
 import { FakeEditor } from '../../../packages/backend/src/test-editor';
 import { api, connectWs, mkRequestId, mkSessionId, startBackend, type TestBackend } from '../../../packages/backend/src/test-helpers';
 import { behaviorModule, startHarness } from '../m22-worker/harness';
-import { SETTINGS, type Any } from '../m23-3d/character-kit';
+import { SETTINGS, type Any } from '../3d/character-kit';
 
 const REPO = resolve(import.meta.dirname, '..', '..', '..');
 const PID = 'demo-0001';

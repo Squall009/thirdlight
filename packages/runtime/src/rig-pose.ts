@@ -26,7 +26,7 @@
  *
  * Why its own poser rather than three's mixer: the simulation runs without
  * three.js (worker, Node) and must be deterministic;
- * tests/integration/m23-sockets/rig-parity.test.ts holds the two together.
+ * tests/integration/sockets/rig-parity.test.ts holds the two together.
  */
 import { composeMat4, decomposeMat4, mat4, mulMat4, quatMultiply, type Mat4 } from '@thirdlight/shared';
 import type { ModelRig, ModelRigChannel } from '@thirdlight/project-model';

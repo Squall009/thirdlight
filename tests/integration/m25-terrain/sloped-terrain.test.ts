@@ -18,7 +18,7 @@ import { describe, expect, it } from 'vitest';
 import { BlockGrid, applyBlockEdits } from '@thirdlight/project-model';
 
 import { behaviorModule } from '../m22-worker/harness';
-import { holdMove, runScene, sceneOf, T, type Any } from '../m23-3d/character-kit';
+import { holdMove, runScene, sceneOf, T, type Any } from '../3d/character-kit';
 
 const TYPES = [{ blockId: 'soil', name: 'Soil', variants: [{ color: '#886644' }], shape: 'full' }];
 const types = new Map(TYPES.map((t) => [t.blockId, t as Any]));

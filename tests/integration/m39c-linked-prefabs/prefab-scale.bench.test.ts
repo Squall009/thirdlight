@@ -35,7 +35,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Projection } from '../../../packages/editor/src/session/projection';
 import { api, connectWs, establish, mkRequestId, mkSessionId, startBackend, upgrade, type TestBackend } from '../../../packages/backend/src/test-helpers';
 import { FakeEditor } from '../../../packages/backend/src/test-editor';
-import type { Any } from '../m23-3d/character-kit';
+import type { Any } from '../3d/character-kit';
 
 const PID = 'demo-0001';
 const REPO = resolve(import.meta.dirname, '..', '..', '..');
