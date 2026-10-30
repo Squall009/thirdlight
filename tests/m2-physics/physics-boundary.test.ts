@@ -85,6 +85,8 @@ describe('runtime core imports no physics implementation', () => {
           specifier === '@thirdlight/project-model/limits' ||
           // A locked body's twist, the model's one rule the runtime uses too (pure math).
           specifier === '@thirdlight/project-model/plane-lock' ||
+          // The shared leaf: generic math every package may import (no I/O, no three.js).
+          specifier === '@thirdlight/shared' ||
           specifier === 'vitest';
         expect(allowed, `${file} imports '${specifier}' (dependencies.md §4.1/§4.3)`).toBe(true);
       }

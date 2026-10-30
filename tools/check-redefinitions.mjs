@@ -90,7 +90,7 @@ export const OWNED_FAMILIES = Object.freeze([
     // The lattice hash's x lane multiplier, which the brushes', ground cover's, wind's and camera shake's hashes share.
     fingerprints: [0x27d4eb2d],
   },
-  { family: 'quaternion', owner: 'packages/shared/src/quat.ts', names: ['mulQuat', 'quatMul', 'quatMultiply', 'multiplyQuat'] },
+  { family: 'quaternion', owner: 'packages/shared/src/quat.ts', names: ['mulQuat', 'quatMul', 'quatMultiply', 'multiplyQuat', 'quatFromRotation'] },
   {
     family: 'mat4',
     owner: 'packages/shared/src/mat4.ts',

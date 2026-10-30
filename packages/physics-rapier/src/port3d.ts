@@ -20,6 +20,7 @@
  * the character's sweep; raycasts, overlap queries (box,
  * sphere, capsule, cylinder) and the character's clearance/placement.
  */
+import { quatMultiply } from '@thirdlight/shared';
 import { COLLIDER_3D_LIMITS } from '@thirdlight/project-model/limits';
 import * as RAPIER from '@dimforge/rapier3d-compat';
 import type { AddedCharacter3D, BodyPlaneChange, CharacterClearanceResult3D, CharacterMoveResult3D, KinematicPose3D, OverlapShape3D, PhysicsDiagnostics, PhysicsInitConfig3D, PhysicsPlane, PhysicsPort3D, PhysicsQuat, PhysicsQueryFilter3D, PhysicsVec3, RaycastHit3D, StaticColliderSpec3D } from '@thirdlight/runtime';
@@ -455,6 +456,12 @@ interface Collider3DInfo {
 /** Whether a collider counts as a solid static for the internal-edge rule (not one-way, of a known inside). */
 const solidStaticInfo = (info: Collider3DInfo | undefined): boolean => info?.oneWay === undefined && info?.unoriented !== true;
 
+/** `a · b` of quaternions as the physics port holds them. */
+function turned(a: PhysicsQuat, b: PhysicsQuat): PhysicsQuat {
+  const [x, y, z, w] = quatMultiply([a.x, a.y, a.z, a.w], [b.x, b.y, b.z, b.w]);
+  return { x, y, z, w };
+}
+
 /** Rotate `p` by the unit quaternion `q`. */
 function rotate(q: PhysicsQuat, p: readonly [number, number, number]): [number, number, number] {
   const [x, y, z] = p;
@@ -596,16 +603,6 @@ export function queryGroups(bits: LayerBits, layers: readonly string[]): number 
   return ((0xffff << 16) | layerMask(bits, layers, 0)) >>> 0;
 }
 
-/** `a · b` of unit quaternions. */
-function mulQuat(a: PhysicsQuat, b: PhysicsQuat): PhysicsQuat {
-  return {
-    x: a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
-    y: a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
-    z: a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
-    w: a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z,
-  };
-}
-
 /**
  * One fixed (or kinematic) body for a collider spec with a collider per
  * placed shape (a compound's parts, each at its position and rotation in the
@@ -627,7 +624,7 @@ function addStaticBody(world: RAPIER.World, spec: StaticColliderSpec3D, bits: La
   const groups = colliderGroups(bits, spec.layers);
   // The body's highest point over all its shapes (the kinematic-drag rule reads it).
   let top = -Infinity;
-  for (const p of parts) top = Math.max(top, rotate(rotation, [p.position.x, p.position.y, p.position.z])[1] + topOf(p.shape, mulQuat(rotation, p.rotation)));
+  for (const p of parts) top = Math.max(top, rotate(rotation, [p.position.x, p.position.y, p.position.z])[1] + topOf(p.shape, turned(rotation, p.rotation)));
   const oneWay = spec.oneWay === true ? oneWayShapeOf(parts) : undefined;
   const colliders = parts.map((p, i) => {
     const off = rotate(p.rotation, shapeOffset(p.shape));

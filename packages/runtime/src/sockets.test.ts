@@ -9,7 +9,8 @@ import { describe, expect, it } from 'vitest';
 import type { ModelRig } from '@thirdlight/project-model';
 
 import { AnimatorMachine, type AnimatorControllerLike, type AnimatorPose } from './animator';
-import { RigPoser, decomposeMat4, mat4, sampleChannel } from './rig-pose';
+import { decomposeMat4, mat4 } from '@thirdlight/shared';
+import { RigPoser, sampleChannel } from './rig-pose';
 import { SocketSystem, type SocketHost } from './sockets';
 import type { TransformState } from './types';
 

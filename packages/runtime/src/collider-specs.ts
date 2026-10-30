@@ -9,6 +9,7 @@
  * The one place the runtime, the Play preview, the export and the tests
  * derive collider specs. Pure: no I/O, no three.js.
  */
+import { quatMultiply } from '@thirdlight/shared';
 import { colliderDepthOf, planeLockOf, shape2DTo3D, type ModelColliderTable } from '@thirdlight/project-model';
 
 import type { ColliderPrimitive3D, ColliderShape3D, PhysicsPlane, PhysicsQuat, PhysicsVec3, StaticColliderSpec3D } from './ports';
@@ -249,13 +250,6 @@ export function colliderSpecs3D(entities: readonly { id: string; parentId?: stri
   return out;
 }
 
-/** `a · b` of [x, y, z, w] quaternions. */
-function mulQuat(a: readonly number[], b: readonly number[]): [number, number, number, number] {
-  const [ax, ay, az, aw] = [a[0] ?? 0, a[1] ?? 0, a[2] ?? 0, a[3] ?? 1];
-  const [bx, by, bz, bw] = [b[0] ?? 0, b[1] ?? 0, b[2] ?? 0, b[3] ?? 1];
-  return [aw * bx + ax * bw + ay * bz - az * by, aw * by - ax * bz + ay * bw + az * bx, aw * bz + ax * by - ay * bx + az * bw, aw * bw - ax * bx - ay * by - az * bz];
-}
-
 /**
  * The axis-aligned box around a 3D shape turned by `q`, relative to its
  * body's origin (a compound's parts at their places and turns) — what a
@@ -272,7 +266,7 @@ export function shapeAabb3(shape: ColliderShape3D, q: readonly number[]): { min:
   };
   if (shape.type === 'compound') {
     for (const part of shape.parts) {
-      const a = shapeAabb3(part.shape, mulQuat(q, [part.rotation.x, part.rotation.y, part.rotation.z, part.rotation.w]));
+      const a = shapeAabb3(part.shape, quatMultiply(q, [part.rotation.x, part.rotation.y, part.rotation.z, part.rotation.w]));
       take(a.min, a.max, rotate3(q, [part.position.x, part.position.y, part.position.z]));
     }
     return min[0] === Infinity ? { min: [0, 0, 0], max: [0, 0, 0] } : { min, max };

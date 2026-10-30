@@ -22,7 +22,8 @@
 import type { EntityV3, ModelRig } from '@thirdlight/project-model';
 
 import type { AnimatorPose } from './animator';
-import { RigPoser, composeMat4, decomposeMat4, invertMat4, mat4, mulMat4, type Mat4 } from './rig-pose';
+import { composeMat4, decomposeMat4, invertMat4, mat4, mulMat4, type Mat4 } from '@thirdlight/shared';
+import { RigPoser } from './rig-pose';
 import type { TransformState } from './types';
 
 /** Components an attached entity may not carry (physics bodies are posed by physics; the scene camera by its module). */

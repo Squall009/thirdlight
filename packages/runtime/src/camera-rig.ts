@@ -12,6 +12,8 @@
  * `pivot + distance · (sin ψ cos θ, sin θ, cos ψ cos θ)` looking at the pivot.
  */
 
+import { quatMultiply } from '@thirdlight/shared';
+
 export type V3 = [number, number, number];
 export type Q4 = [number, number, number, number];
 
@@ -86,16 +88,6 @@ export function lookAtQuat(from: readonly number[], to: readonly number[], fallb
     return out;
   }
   return quatFromYawPitch(yp.yaw, yp.pitch, out);
-}
-
-export function quatMul(a: readonly number[], b: readonly number[], out: Q4 = [0, 0, 0, 1]): Q4 {
-  const ax = a[0]!, ay = a[1]!, az = a[2]!, aw = a[3]!;
-  const bx = b[0]!, by = b[1]!, bz = b[2]!, bw = b[3]!;
-  out[0] = aw * bx + ax * bw + ay * bz - az * by;
-  out[1] = aw * by - ax * bz + ay * bw + az * bx;
-  out[2] = aw * bz + ax * by - ay * bx + az * bw;
-  out[3] = aw * bw - ax * bx - ay * by - az * bz;
-  return out;
 }
 
 /** `v` rotated by the unit quaternion `q`. */
@@ -315,7 +307,7 @@ export function applyShake(pose: CameraPose, seed: number, t: number, frequency:
     const yaw = shakeNoise(seed, 2, u) * rotationDeg;
     const pitch = shakeNoise(seed, 3, u) * rotationDeg;
     const q = quatFromYawPitch(yaw, pitch);
-    quatMul(pose.rotation, q, pose.rotation);
+    quatMultiply(pose.rotation, q, pose.rotation);
     normalizeQuat(pose.rotation);
   }
 }

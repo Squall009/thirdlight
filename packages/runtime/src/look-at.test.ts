@@ -9,7 +9,8 @@ import { describe, expect, it } from 'vitest';
 import type { AnimatorControllerLike } from './animator';
 import { AnimatorSystem } from './animator-system';
 import { LookAtState, anglesToward } from './look-at';
-import { RigPoser, composeMat4, mat4, type Mat4 } from './rig-pose';
+import { composeMat4, mat4, type Mat4 } from '@thirdlight/shared';
+import { RigPoser } from './rig-pose';
 import type { TransformState } from './types';
 
 const RIG: ModelRig = {

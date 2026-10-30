@@ -8,6 +8,7 @@
  * `decompose` are rounded to 1e-9 so float noise does not show up in a
  * scene file. Pure.
  */
+import { composeMat4, mulMat4 } from '@thirdlight/shared';
 import type { TransformComponent } from './types';
 
 export type Mat4 = number[];
@@ -15,31 +16,12 @@ export type Mat4 = number[];
 export const IDENTITY: Mat4 = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 
 export function compose(t: TransformComponent): Mat4 {
-  const [x, y, z, w] = t.rotation;
-  const [sx, sy, sz] = t.scale;
-  const x2 = x + x, y2 = y + y, z2 = z + z;
-  const xx = x * x2, xy = x * y2, xz = x * z2;
-  const yy = y * y2, yz = y * z2, zz = z * z2;
-  const wx = w * x2, wy = w * y2, wz = w * z2;
-  return [
-    (1 - (yy + zz)) * sx, (xy + wz) * sx, (xz - wy) * sx, 0,
-    (xy - wz) * sy, (1 - (xx + zz)) * sy, (yz + wx) * sy, 0,
-    (xz + wy) * sz, (yz - wx) * sz, (1 - (xx + yy)) * sz, 0,
-    t.position[0], t.position[1], t.position[2], 1,
-  ];
+  return composeMat4(new Array<number>(16), t.position, t.rotation, t.scale);
 }
 
 
 export function multiply(a: Mat4, b: Mat4): Mat4 {
-  const out = new Array<number>(16).fill(0);
-  for (let c = 0; c < 4; c++) {
-    for (let r = 0; r < 4; r++) {
-      let v = 0;
-      for (let k = 0; k < 4; k++) v += (a[k * 4 + r] as number) * (b[c * 4 + k] as number);
-      out[c * 4 + r] = v;
-    }
-  }
-  return out;
+  return mulMat4(new Array<number>(16), a, b);
 }
 
 

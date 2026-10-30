@@ -25,7 +25,8 @@ import type { EntityV3 } from '@thirdlight/project-model';
 import { AnimatorMachine, type AnimatorControllerLike, type AnimatorPose } from './animator';
 import { LookAtState, anglesToward, transformPoint, type LookAtLike } from './look-at';
 import { seededUnit } from './random';
-import { invertMat4, mat4, type Mat4, type RigPoser } from './rig-pose';
+import { invertMat4, mat4, type Mat4 } from '@thirdlight/shared';
+import type { RigPoser } from './rig-pose';
 import type { TransformState } from './types';
 import type { AnimatorEventRecord, BehaviorAnimatorControl, BehaviorAnimatorHandle } from './types-behavior-world';
 

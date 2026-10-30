@@ -704,7 +704,6 @@ export {
 export {
   MODEL_RIG_LIMITS,
   glbHasSkins,
-  quatFromRotation,
   readModelRig,
   rigNodeNames,
   sanitizeRigNodeName,

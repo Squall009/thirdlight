@@ -20,7 +20,7 @@
  * same way), carried in the pose (`look`) for the renderer and the socket
  * poser to apply after the clips. Pure (no three.js).
  */
-import type { Mat4 } from './rig-pose';
+import { quatMultiply, type Mat4 } from '@thirdlight/shared';
 
 export interface LookAtBoneLike {
   readonly bone: string;
@@ -65,13 +65,6 @@ export function yawPitchQuat(yawDeg: number, pitchDeg: number): [number, number,
   const cy = Math.cos(hy), sy = Math.sin(hy), cp = Math.cos(hp), sp = Math.sin(hp);
   // q = qy · qx, qy = (0, sy, 0, cy), qx = (sp, 0, 0, cp).
   return [cy * sp, sy * cp, -sy * sp, cy * cp];
-}
-
-/** a · b (quaternions [x, y, z, w]). */
-export function quatMul(a: readonly number[], b: readonly number[]): [number, number, number, number] {
-  const ax = a[0]!, ay = a[1]!, az = a[2]!, aw = a[3]!;
-  const bx = b[0]!, by = b[1]!, bz = b[2]!, bw = b[3]!;
-  return [ax * bw + aw * bx + ay * bz - az * by, ay * bw + aw * by + az * bx - ax * bz, az * bw + aw * bz + ax * by - ay * bx, aw * bw - ax * bx - ay * by - az * bz];
 }
 
 export const quatConj = (q: readonly number[]): [number, number, number, number] => [-q[0]!, -q[1]!, -q[2]!, q[3]!];
@@ -138,7 +131,7 @@ export class LookAtState {
       cy += lim.yaw > 0 ? (this.yaw * b.yaw) / lim.yaw : 0;
       cp += lim.pitch > 0 ? (this.pitch * b.pitch) / lim.pitch : 0;
       const q = yawPitchQuat(cy, cp);
-      bones.push({ node: b.bone, rotation: quatMul(q, quatConj(prev)) });
+      bones.push({ node: b.bone, rotation: quatMultiply(q, quatConj(prev)) });
       prev = q;
     }
     return { yaw: this.yaw, pitch: this.pitch, bones };

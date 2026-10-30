@@ -5,7 +5,7 @@
  * like Unity's `lossyScale` and Godot's `global_transform` basis, the scale
  * read back is the length of each world axis.
  */
-import { composeMat4, decomposeMat4, mat4, mulMat4 } from './rig-pose';
+import { composeMat4, decomposeMat4, mat4, mulMat4 } from '@thirdlight/shared';
 import type { TransformState } from './types';
 
 export interface WorldTransform {

@@ -15,7 +15,8 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { describe, expect, it } from 'vitest';
 
 import { readModelRig } from '@thirdlight/project-model';
-import { RigPoser, mat4, type AnimatorPose } from '@thirdlight/runtime';
+import { mat4 } from '@thirdlight/shared';
+import { RigPoser, type AnimatorPose } from '@thirdlight/runtime';
 import { createAnimatorPlayer } from '@thirdlight/three-adapter';
 
 import { socketGlb } from '../../e2e/socket-glb';

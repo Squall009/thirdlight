@@ -15,7 +15,7 @@
  * composed by the last `update` are listed for the presenter
  * ({@link changedCount}, {@link changedId}), so it places only their drawables.
  */
-import { composeMat4 } from './rig-pose';
+import { composeMat4 } from '@thirdlight/shared';
 
 const STRIDE = 16;
 /** Floats of a local transform as it was given (position, rotation, scale). */

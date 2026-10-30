@@ -6,6 +6,7 @@
  * profile order and stops at the first that reports.
  */
 
+import { mulMat4 } from '@thirdlight/shared';
 import type { AssetMetrics } from '@thirdlight/project-model';
 import { decodedImageBytes } from './images';
 import {
@@ -314,7 +315,7 @@ function computeBounds(glb: GlbState): { min: [number, number, number]; max: [nu
     const node = nodes[index];
     if (!isPlainObject(node) || depth > 64) return;
     if (typeof node['name'] === 'string' && /_(COL|OCC)$/.test(node['name'])) return;
-    const world = mat4Multiply(parent, nodeMatrix(node));
+    const world = mulMat4(new Array<number>(16), parent, nodeMatrix(node));
     const meshIndex = asIndex(node['mesh']);
     const mesh = meshIndex !== null ? meshes[meshIndex] : undefined;
     if (isPlainObject(mesh) && Array.isArray(mesh['primitives'])) {
@@ -377,17 +378,6 @@ function nodeMatrix(node: Record<string, unknown>): number[] {
     2 * (x * z + y * w) * sz, 2 * (y * z - x * w) * sz, (1 - 2 * (x * x + y * y)) * sz, 0,
     t[0] ?? 0, t[1] ?? 0, t[2] ?? 0, 1,
   ];
-}
-
-/** `a × b` for column-major 4x4 matrices. */
-function mat4Multiply(a: readonly number[], b: readonly number[]): number[] {
-  const out = new Array<number>(16).fill(0);
-  for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
-    let v = 0;
-    for (let k = 0; k < 4; k++) v += a[k * 4 + r]! * b[c * 4 + k]!;
-    out[c * 4 + r] = v;
-  }
-  return out;
 }
 
 /** Compare metrics with every cap, in table order. */

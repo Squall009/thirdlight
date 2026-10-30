@@ -30,7 +30,7 @@
  * Pure: bytes in, data out; no I/O, no three.js.
  */
 
-import { readGlb } from '@thirdlight/shared';
+import { decomposeMat4, readGlb } from '@thirdlight/shared';
 
 export type RigPath = 'translation' | 'rotation' | 'scale';
 export type RigInterpolation = 'LINEAR' | 'STEP' | 'CUBICSPLINE';
@@ -88,43 +88,6 @@ const isObj = (v: unknown): v is Json => typeof v === 'object' && v !== null && 
 /** three.js `PropertyBinding.sanitizeNodeName`. */
 export function sanitizeRigNodeName(name: string): string {
   return name.replace(/\s/g, '_').replace(/[[\].:/]/g, '');
-}
-
-/** three.js `Matrix4.decompose` of a column-major 4×4 into [t, r, s]. */
-function decompose(m: readonly number[]): { t: [number, number, number]; r: [number, number, number, number]; s: [number, number, number] } {
-  let sx = Math.hypot(m[0]!, m[1]!, m[2]!);
-  const sy = Math.hypot(m[4]!, m[5]!, m[6]!);
-  const sz = Math.hypot(m[8]!, m[9]!, m[10]!);
-  const det =
-    m[0]! * (m[5]! * m[10]! - m[9]! * m[6]!) - m[4]! * (m[1]! * m[10]! - m[9]! * m[2]!) + m[8]! * (m[1]! * m[6]! - m[5]! * m[2]!);
-  if (det < 0) sx = -sx;
-  const isx = sx === 0 ? 0 : 1 / sx;
-  const isy = sy === 0 ? 0 : 1 / sy;
-  const isz = sz === 0 ? 0 : 1 / sz;
-  return {
-    t: [m[12]!, m[13]!, m[14]!],
-    r: quatFromRotation(m[0]! * isx, m[4]! * isy, m[8]! * isz, m[1]! * isx, m[5]! * isy, m[9]! * isz, m[2]! * isx, m[6]! * isy, m[10]! * isz),
-    s: [sx, sy, sz],
-  };
-}
-
-/** three.js `Quaternion.setFromRotationMatrix` (row-major arguments m11…m33). */
-export function quatFromRotation(m11: number, m12: number, m13: number, m21: number, m22: number, m23: number, m31: number, m32: number, m33: number): [number, number, number, number] {
-  const trace = m11 + m22 + m33;
-  if (trace > 0) {
-    const s = 0.5 / Math.sqrt(trace + 1.0);
-    return [(m32 - m23) * s, (m13 - m31) * s, (m21 - m12) * s, 0.25 / s];
-  }
-  if (m11 > m22 && m11 > m33) {
-    const s = 2.0 * Math.sqrt(1.0 + m11 - m22 - m33);
-    return [0.25 * s, (m12 + m21) / s, (m13 + m31) / s, (m32 - m23) / s];
-  }
-  if (m22 > m33) {
-    const s = 2.0 * Math.sqrt(1.0 + m22 - m11 - m33);
-    return [(m12 + m21) / s, 0.25 * s, (m23 + m32) / s, (m13 - m31) / s];
-  }
-  const s = 2.0 * Math.sqrt(1.0 + m33 - m11 - m22);
-  return [(m13 + m31) / s, (m23 + m32) / s, 0.25 * s, (m21 - m12) / s];
 }
 
 export const COMPONENTS: Record<string, number> = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 };
@@ -250,10 +213,7 @@ export function readModelRig(bytes: Uint8Array, assetId: string, keyBudget: numb
     const nums = (v: unknown, n: number): number[] | null => (Array.isArray(v) && v.length === n && v.every((x) => typeof x === 'number' && Number.isFinite(x)) ? (v as number[]) : null);
     const m = nums(def['matrix'], 16);
     if (m !== null) {
-      const d = decompose(m);
-      t = d.t;
-      r = d.r;
-      s = d.s;
+      decomposeMat4(m, t, r, s);
     } else {
       const tt = nums(def['translation'], 3);
       const rr = nums(def['rotation'], 4);

@@ -24,3 +24,5 @@ export { crc32 } from './crc32';
 export { isKtx2, isPng, KTX2_IDENTIFIER, PNG_SIGNATURE, startsWith } from './image-signatures';
 export { pngBytes, pngChunk, type PngParts } from './png';
 export { GLB_CHUNK_BIN, GLB_CHUNK_JSON, GLB_MAGIC, glbBytes, readGlb, type GlbParts } from './glb';
+export { quatFromRotation, quatMultiply, type Quat } from './quat';
+export { composeMat4, decomposeMat4, invertMat4, mat4, mulMat4, type Mat4, type Mat4Out } from './mat4';
