@@ -6,5 +6,5 @@
     "allowJs": false,
     "allowImportingTsExtensions": false
   },
-  "include": ["*.ts", "../../packages/commands/src/vite-glob.d.ts", "../../tests/perf/*.ts", "../../tests/e2e/perf-harness.e2e.ts", "../../tests/e2e/scale-bench.e2e.ts"]
+  "include": ["*.ts", "../../packages/commands/src/vite-glob.d.ts", "../../tests/perf/*.ts"]
 }

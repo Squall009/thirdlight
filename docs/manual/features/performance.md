@@ -79,9 +79,8 @@ counts +10 %, memory +25 %, calibrated times +75 %);
 `TL_PERF_REPORT=<report.json>` compares an existing report,
 `TL_PERF_CLASSES=small` limits it and `TL_PERF_KINDS=count,memory` leaves
 out the calibrated times (the noisiest here). The always-on check is
-`tests/perf/plumbing.test.ts` (generator and comparison);
-`TL_PERF=1 npx playwright test tests/e2e/perf-harness.e2e.ts` runs the whole
-harness on the small benchmark (run it when `tools/perf` changes).
+`tests/perf/plumbing.test.ts` (generator and comparison), and every fast
+gate runs the harness end to end on the village class.
 Frame and load times on a real GPU: owner look pending.
 
 **The village class against plain three.js.** `node tools/perf/run.mjs

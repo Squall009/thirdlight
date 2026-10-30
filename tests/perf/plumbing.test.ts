@@ -4,9 +4,8 @@
  * within the model's limits, deterministically; pastes stay under the command
  * size cap; percentiles, the metric extraction and the baseline comparison
  * behave; the checked-in baseline is well formed and matches the generator.
- * (tests/e2e/perf-harness.e2e.ts, opt-in with TL_PERF=1, drives the whole
- * harness on the small benchmark; tests/perf/regression.test.ts is the opt-in
- * comparison.)
+ * (tests/perf/regression.test.ts, opt-in with TL_PERF=1, drives the whole
+ * harness and compares; every fast gate runs it on the village class.)
  */
 import { mulberry32 } from '@thirdlight/shared';
 import { readFileSync } from 'node:fs';
