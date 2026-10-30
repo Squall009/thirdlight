@@ -14,6 +14,8 @@
  * binding is exercised for real, not mocked.
  */
 
+import { glbBytes } from '@thirdlight/shared';
+
 /** A real 1x1 PNG (67 bytes) used as the embedded image payload. */
 const ONE_PIXEL_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
@@ -184,30 +186,7 @@ export function buildGlb(options: TestGlbOptions = {}): Uint8Array {
   if (options.extensionsUsed !== undefined) json.extensionsUsed = [...options.extensionsUsed];
   if (options.extensionsRequired !== undefined) json.extensionsRequired = [...options.extensionsRequired];
 
-  return packGlb(options.rawJson ?? JSON.stringify(json), bin.padded());
-}
-
-/** Frame a JSON chunk + BIN chunk into a GLB container (the caller owns content validity). */
-export function packGlb(jsonText: string, bin: Uint8Array): Uint8Array {
-  const encoder = new TextEncoder();
-  const jsonBytes = encoder.encode(jsonText);
-  const jsonPadded = new Uint8Array(Math.ceil(jsonBytes.length / 4) * 4);
-  jsonPadded.set(jsonBytes, 0);
-  jsonPadded.fill(0x20, jsonBytes.length); // JSON chunks pad with spaces
-  const total = 12 + 8 + jsonPadded.length + 8 + bin.length;
-  const out = new Uint8Array(total);
-  const view = new DataView(out.buffer);
-  view.setUint32(0, 0x46546c67, true); // 'glTF'
-  view.setUint32(4, 2, true);
-  view.setUint32(8, total, true);
-  view.setUint32(12, jsonPadded.length, true);
-  view.setUint32(16, 0x4e4f534a, true); // JSON
-  out.set(jsonPadded, 20);
-  const binHeader = 20 + jsonPadded.length;
-  view.setUint32(binHeader, bin.length, true);
-  view.setUint32(binHeader + 4, 0x004e4942, true); // BIN
-  out.set(bin, binHeader + 8);
-  return out;
+  return glbBytes(options.rawJson ?? JSON.stringify(json), bin.padded());
 }
 
 /** A descriptor for `bytes` (the adapter does not re-verify the digest: the workspace owns that). */

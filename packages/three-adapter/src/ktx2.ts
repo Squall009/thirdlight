@@ -18,15 +18,6 @@
 import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js';
 import { DataTexture, RGBAFormat, type CompressedTexture, type Texture } from 'three';
 
-/** `«KTX 20»\r\n\x1A\n`. */
-const KTX2_IDENTIFIER = [0xab, 0x4b, 0x54, 0x58, 0x20, 0x32, 0x30, 0xbb, 0x0d, 0x0a, 0x1a, 0x0a] as const;
-
-export function isKtx2(bytes: Uint8Array): boolean {
-  if (bytes.length < 12) return false;
-  for (let i = 0; i < 12; i++) if (bytes[i] !== KTX2_IDENTIFIER[i]) return false;
-  return true;
-}
-
 /**
  * KTX2Loader picks the GPU format to transcode to from the renderer's
  * compressed-texture extensions. The loader does not own the game's renderer,

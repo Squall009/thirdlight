@@ -8,6 +8,7 @@
  * source, a texture the project does not have, and a texture array where
  * one plain texture is read (a shader material's slot).
  */
+import { PNG_SIGNATURE, pngChunk } from '@thirdlight/shared';
 import { rmSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 
@@ -15,22 +16,6 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { ADMIN_TOKEN, AUTH_TOKEN, V3_PROJECT, cleanupBundles, createMcp, inspectViaHttp, makeRoot, mkRequestId, publishArgs, spawnBackend, stopBackend, type BackendProcess, type DisposableRoot, type McpHarness } from '../m3-content/harness';
 
-function crc32(bytes: Uint8Array): number {
-  let c = ~0;
-  for (const b of bytes) {
-    c ^= b;
-    for (let k = 0; k < 8; k++) c = c & 1 ? (c >>> 1) ^ 0xedb88320 : c >>> 1;
-  }
-  return ~c >>> 0;
-}
-function chunk(type: string, body: Uint8Array): Buffer {
-  const head = Buffer.alloc(8);
-  head.writeUInt32BE(body.length, 0);
-  head.write(type, 4, 'latin1');
-  const crc = Buffer.alloc(4);
-  crc.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), body])), 0);
-  return Buffer.concat([head, body, crc]);
-}
 /** A solid RGBA PNG. */
 function png(size: number, rgba: [number, number, number, number]): Uint8Array {
   const ihdr = Buffer.alloc(13);
@@ -40,7 +25,7 @@ function png(size: number, rgba: [number, number, number, number]): Uint8Array {
   ihdr[9] = 6;
   const row = Buffer.concat([Buffer.from([0]), Buffer.from(new Array(size).fill(rgba).flat())]);
   const raw = Buffer.concat(new Array(size).fill(row));
-  return new Uint8Array(Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(raw)), chunk('IEND', new Uint8Array(0))]));
+  return new Uint8Array(Buffer.concat([PNG_SIGNATURE, pngChunk('IHDR', ihdr), pngChunk('IDAT', deflateSync(raw)), pngChunk('IEND', new Uint8Array(0))]));
 }
 
 let root: DisposableRoot;

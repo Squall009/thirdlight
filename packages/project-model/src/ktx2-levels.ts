@@ -18,7 +18,8 @@
  * Pure: bytes in, bytes out, no I/O.
  */
 
-const IDENTIFIER = [0xab, 0x4b, 0x54, 0x58, 0x20, 0x32, 0x30, 0xbb, 0x0d, 0x0a, 0x1a, 0x0a] as const;
+import { isKtx2, KTX2_IDENTIFIER } from '@thirdlight/shared';
+
 const HEADER_BYTES = 80;
 const LEVEL_ENTRY_BYTES = 24;
 /** BasisLZ global data: its fixed header, then one 20-byte image descriptor per image. */
@@ -60,16 +61,11 @@ export type Ktx2LayoutResult = { ok: true; layout: Ktx2Layout } | { ok: false; m
 
 /** How many bytes `readKtx2Layout` needs before it can read the level index (the header's level count decides). */
 export function ktx2IndexBytes(header: Uint8Array): number | null {
-  if (header.length < HEADER_BYTES || !isKtx2Bytes(header)) return null;
+  if (header.length < HEADER_BYTES || !isKtx2(header)) return null;
   const levels = Math.max(1, new DataView(header.buffer, header.byteOffset, header.byteLength).getUint32(40, true));
   return levels > MAX_LEVELS ? null : HEADER_BYTES + levels * LEVEL_ENTRY_BYTES;
 }
 
-export function isKtx2Bytes(bytes: Uint8Array): boolean {
-  if (bytes.length < IDENTIFIER.length) return false;
-  for (let i = 0; i < IDENTIFIER.length; i++) if (bytes[i] !== IDENTIFIER[i]) return false;
-  return true;
-}
 
 const u64 = (v: DataView, at: number): number => {
   const lo = v.getUint32(at, true);
@@ -84,7 +80,7 @@ const u64 = (v: DataView, at: number): number => {
  * whole file's length when known, and every range is checked against it.
  */
 export function readKtx2Layout(bytes: Uint8Array, fileLength: number = bytes.length): Ktx2LayoutResult {
-  if (!isKtx2Bytes(bytes)) return { ok: false, message: 'not a KTX2 file' };
+  if (!isKtx2(bytes)) return { ok: false, message: 'not a KTX2 file' };
   if (bytes.length < HEADER_BYTES) return { ok: false, message: 'the KTX2 header is cut short' };
   const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const levelCount = Math.max(1, v.getUint32(40, true));
@@ -215,7 +211,7 @@ export function buildKtx2Subset(layout: Ktx2Layout, first: number, last: number,
   }
   const out = new Uint8Array(at);
   const v = new DataView(out.buffer);
-  out.set(IDENTIFIER, 0);
+  out.set(KTX2_IDENTIFIER, 0);
   const size = ktx2LevelSize(layout, first);
   v.setUint32(12, layout.vkFormat, true);
   v.setUint32(16, layout.typeSize, true);

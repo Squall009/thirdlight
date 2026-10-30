@@ -6,6 +6,7 @@
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { crc32 } from 'node:zlib';
 
 const EXPORT_DIR_RE = /^[a-z0-9][a-z0-9_-]{0,63}@r\d+$/;
 
@@ -54,22 +55,6 @@ function walk(dir: string, rel = ''): string[] {
     else if (st.isFile()) out.push(r);
   }
   return out;
-}
-
-const CRC_TABLE: Uint32Array = (() => {
-  const t = new Uint32Array(256);
-  for (let n = 0; n < 256; n += 1) {
-    let c = n;
-    for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    t[n] = c >>> 0;
-  }
-  return t;
-})();
-
-export function crc32(bytes: Uint8Array): number {
-  let c = 0xffffffff;
-  for (let i = 0; i < bytes.length; i += 1) c = CRC_TABLE[(c ^ bytes[i]!) & 0xff]! ^ (c >>> 8);
-  return (c ^ 0xffffffff) >>> 0;
 }
 
 /** A stored zip of every file under `dir` (paths relative to it, forward slashes). */

@@ -6,6 +6,7 @@
  * across the field, and the sweep's load and proposed budget read the rows
  * as the log says.
  */
+import { GLB_MAGIC } from '@thirdlight/shared';
 import { describe, expect, it } from 'vitest';
 
 import { validateScatterRules, type ModelErrorV2 } from '@thirdlight/project-model';
@@ -38,7 +39,7 @@ describe('the meadow class', () => {
     }
     // The kit is a GLB with its three levels.
     const glb = clumpKitGlb(1);
-    expect(glb.readUInt32LE(0)).toBe(0x46546c67);
+    expect(glb.readUInt32LE(0)).toBe(GLB_MAGIC);
     const json = JSON.parse(glb.subarray(20, 20 + glb.readUInt32LE(12)).toString('utf8')) as { nodes: { name: string }[] };
     expect(json.nodes.map((x) => x.name)).toEqual(['clump_LOD0', 'clump_LOD1', 'clump_LOD2']);
   });

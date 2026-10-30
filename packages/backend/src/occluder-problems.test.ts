@@ -4,6 +4,7 @@
  * (and again only when the line changes), a model whose stand-in lies inside
  * and a model without one get none, and a file is read once per digest.
  */
+import { glbBytes } from '@thirdlight/shared';
 import { describe, expect, it } from 'vitest';
 
 import { createOccluderProblemChecker, occluderProblemLines, occluderProblems } from './occluder-problems';
@@ -30,22 +31,7 @@ function cubes(nodes: readonly [string, [number, number, number], number][]): Ui
     bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: pos.length }, { buffer: 0, byteOffset: pos.length, byteLength: idx.length }],
     buffers: [{ byteLength: bin.length }],
   };
-  let text = new TextEncoder().encode(JSON.stringify(json));
-  const padded = new Uint8Array(text.length + ((4 - (text.length % 4)) % 4)).fill(0x20);
-  padded.set(text);
-  text = padded;
-  const out = new Uint8Array(28 + text.length + bin.length);
-  const dv = new DataView(out.buffer);
-  dv.setUint32(0, 0x46546c67, true);
-  dv.setUint32(4, 2, true);
-  dv.setUint32(8, out.length, true);
-  dv.setUint32(12, text.length, true);
-  dv.setUint32(16, 0x4e4f534a, true);
-  out.set(text, 20);
-  dv.setUint32(20 + text.length, bin.length, true);
-  dv.setUint32(24 + text.length, 0x004e4942, true);
-  out.set(bin, 28 + text.length);
-  return out;
+  return glbBytes(JSON.stringify(json), bin);
 }
 
 const INSIDE = cubes([['hedge_LOD0', [0, 0, 0], 1], ['hedge_OCC', [0, 0.25, 0], 0.5]]);

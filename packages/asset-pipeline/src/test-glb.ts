@@ -6,68 +6,24 @@
  * helper exists for adversarial cases that cannot be committed (a >32 MiB
  * source, a 2 000 001-vertex model, a bare chunk-framing mutation) and for
  * mutations of a valid fixture that must still be real GLB containers. It
- * builds (and splits) the container with the same framing rules the profile
+ * builds (and reads) the container with the same framing rules the profile
  * checks, so a "valid" synthetic input differs from a committed fixture only in
  * the field under test.
  */
 
+import { glbBytes, readGlb } from '@thirdlight/shared';
 import type { AssetMetrics } from './types';
 
-export interface SplitGlb {
-  readonly json: Record<string, unknown>;
-  readonly jsonText: string;
-  readonly bin: Uint8Array;
-}
-
-const CHUNK_JSON = 0x4e4f534a;
-const CHUNK_BIN = 0x004e4942;
-
-/** Parse a GLB container into its JSON text/value and its BIN chunk (with padding). */
-export function splitGlb(bytes: Uint8Array): SplitGlb {
-  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const jsonLength = dv.getUint32(12, true);
-  const jsonStart = 20;
-  const jsonBytes = bytes.subarray(jsonStart, jsonStart + jsonLength);
-  const binHeader = jsonStart + jsonLength;
-  const binLength = dv.getUint32(binHeader, true);
-  const binStart = binHeader + 8;
-  const jsonText = new TextDecoder('utf-8', { fatal: true }).decode(jsonBytes);
-  return {
-    json: JSON.parse(jsonText) as Record<string, unknown>,
-    jsonText,
-    bin: bytes.subarray(binStart, binStart + binLength),
-  };
-}
-
-function pad4(length: number): number {
-  return (4 - (length % 4)) % 4;
-}
-
-/** Build a GLB container from raw JSON chunk text and a BIN chunk. */
-export function buildGlbFromJsonText(jsonText: string, bin: Uint8Array): Uint8Array {
-  const jsonBytes = new TextEncoder().encode(jsonText);
-  const jsonLength = jsonBytes.length + pad4(jsonBytes.length);
-  const binLength = bin.length + pad4(bin.length);
-  const total = 12 + 8 + jsonLength + 8 + binLength;
-  const out = new Uint8Array(total);
-  const dv = new DataView(out.buffer);
-  dv.setUint32(0, 0x46546c67, true);
-  dv.setUint32(4, 2, true);
-  dv.setUint32(8, total, true);
-  dv.setUint32(12, jsonLength, true);
-  dv.setUint32(16, CHUNK_JSON, true);
-  out.set(jsonBytes, 20);
-  for (let i = 20 + jsonBytes.length; i < 20 + jsonLength; i++) out[i] = 0x20;
-  const binHeader = 20 + jsonLength;
-  dv.setUint32(binHeader, binLength, true);
-  dv.setUint32(binHeader + 4, CHUNK_BIN, true);
-  out.set(bin, binHeader + 8);
-  return out;
+/** A GLB's JSON and BIN chunk (empty when it has none); throws on a file that is not a GLB. */
+export function glbParts(bytes: Uint8Array): { json: Record<string, unknown>; bin: Uint8Array } {
+  const parts = readGlb(bytes);
+  if (typeof parts === 'string') throw new Error(parts);
+  return { json: parts.json, bin: parts.bin ?? new Uint8Array(0) };
 }
 
 /** Build a GLB container from a JSON value and a BIN chunk. */
 export function buildGlb(json: unknown, bin: Uint8Array): Uint8Array {
-  return buildGlbFromJsonText(JSON.stringify(json), bin);
+  return glbBytes(JSON.stringify(json), bin);
 }
 
 /** Deep JSON clone (the caller mutates the clone's plain data). */
@@ -84,7 +40,7 @@ export function mutateFixture(
   mutate: (json: Record<string, unknown>) => void,
   bin?: Uint8Array,
 ): Uint8Array {
-  const split = splitGlb(bytes);
+  const split = glbParts(bytes);
   const json = cloneJson(split.json);
   const nextBin = bin ?? split.bin;
   const buffers = json['buffers'];

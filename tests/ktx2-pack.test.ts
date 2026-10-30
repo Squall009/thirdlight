@@ -5,6 +5,7 @@
  * packing says; the "data" encoding keeps channels apart. In-process
  * encoder (the backend runs the same code in its worker thread).
  */
+import { KTX2_IDENTIFIER, PNG_SIGNATURE, pngChunk } from '@thirdlight/shared';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
@@ -15,24 +16,8 @@ import { describe, expect, it } from 'vitest';
 import { ktx2Info } from '../packages/asset-pipeline/src/index';
 import { encodeKtx2, packKtx2, type PackLayer } from '../packages/backend/src/texture-encode';
 
-function crc32(bytes: Uint8Array): number {
-  let c = ~0;
-  for (const b of bytes) {
-    c ^= b;
-    for (let k = 0; k < 8; k++) c = c & 1 ? (c >>> 1) ^ 0xedb88320 : c >>> 1;
-  }
-  return ~c >>> 0;
-}
-function chunk(type: string, body: Uint8Array): Buffer {
-  const head = Buffer.alloc(8);
-  head.writeUInt32BE(body.length, 0);
-  head.write(type, 4, 'latin1');
-  const crc = Buffer.alloc(4);
-  crc.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), body])), 0);
-  return Buffer.concat([head, body, crc]);
-}
 /** A PNG from raw scanlines (each row: filter byte 0 + the packed samples). */
-function png(width: number, height: number, depth: number, colorType: number, rows: Uint8Array[], extra: Buffer[] = [], interlace = 0): Uint8Array {
+function png(width: number, height: number, depth: number, colorType: number, rows: Uint8Array[], extra: Uint8Array[] = [], interlace = 0): Uint8Array {
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(width, 0);
   ihdr.writeUInt32BE(height, 4);
@@ -40,7 +25,7 @@ function png(width: number, height: number, depth: number, colorType: number, ro
   ihdr[9] = colorType;
   ihdr[12] = interlace;
   const raw = Buffer.concat(rows.map((r) => Buffer.concat([Buffer.from([0]), Buffer.from(r)])));
-  return new Uint8Array(Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), ...extra, chunk('IDAT', deflateSync(raw)), chunk('IEND', new Uint8Array(0))]));
+  return new Uint8Array(Buffer.concat([PNG_SIGNATURE, pngChunk('IHDR', ihdr), ...extra, pngChunk('IDAT', deflateSync(raw)), pngChunk('IEND', new Uint8Array(0))]));
 }
 function rgbaPng(width: number, height: number, px: (x: number, y: number) => [number, number, number, number]): Uint8Array {
   const rows: Uint8Array[] = [];
@@ -125,7 +110,7 @@ describe('packKtx2', () => {
   it('refuses sources of different sizes, a broken KTX2 source and too many pixels, with the reason', async () => {
     const small = rgbaPng(8, 8, () => [0, 0, 0, 255]);
     expect(await packKtx2([albedo, small], [[{ source: 0, channel: 0 }, { source: 1, channel: 0 }, { value: 0 }, { value: 255 }]], 'data')).toMatchObject({ ok: false, message: expect.stringMatching(/one size/) });
-    expect(await packKtx2([new Uint8Array([0xab, 0x4b, 0x54, 0x58, 0x20, 0x32, 0x30, 0xbb, 0x0d, 0x0a, 0x1a, 0x0a])], [[{ source: 0, channel: 0 }, { value: 0 }, { value: 0 }, { value: 0 }]], 'data')).toMatchObject({ ok: false, message: expect.stringMatching(/source 1 could not be decoded: not a readable Basis Universal KTX2/) });
+    expect(await packKtx2([KTX2_IDENTIFIER.slice()], [[{ source: 0, channel: 0 }, { value: 0 }, { value: 0 }, { value: 0 }]], 'data')).toMatchObject({ ok: false, message: expect.stringMatching(/source 1 could not be decoded: not a readable Basis Universal KTX2/) });
     expect(await packKtx2([], [[{ value: 1 }, { value: 2 }, { value: 3 }, { value: 4 }]], 'data')).toMatchObject({ ok: false, message: expect.stringMatching(/at least one source/) });
     // Constants only, with a source given: the source gives the size (an array's constant layer encoded on its own).
     const head = await packKtx2([albedo], [[{ value: 1 }, { value: 2 }, { value: 3 }, { value: 4 }]], 'data');

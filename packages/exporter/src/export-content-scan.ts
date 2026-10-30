@@ -22,6 +22,7 @@
  *
  * Pure byte/string processing: no I/O.
  */
+import { GLB_CHUNK_JSON, GLB_MAGIC, isKtx2, isPng } from '@thirdlight/shared';
 import { nodeSpecifierOffsets, type ScanHit } from './scan';
 
 export interface ScanPatterns {
@@ -147,7 +148,7 @@ export function scanGlbContainer(bytes: Uint8Array): ContainerResult {
   if (bytes.length < 20) return { ok: false, code: 'glb_truncated', message: 'a GLB shorter than the 12-byte header + 8-byte chunk header' };
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const magic = dv.getUint32(0, true);
-  if (magic !== 0x46546c67) return { ok: false, code: 'glb_magic', message: 'the file magic is not "glTF"', offset: 0 };
+  if (magic !== GLB_MAGIC) return { ok: false, code: 'glb_magic', message: 'the file magic is not "glTF"', offset: 0 };
   const version = dv.getUint32(4, true);
   if (version !== 2) return { ok: false, code: 'glb_version', message: `glTF container version ${version} is not 2`, offset: 4 };
   const declaredLength = dv.getUint32(8, true);
@@ -165,8 +166,8 @@ export function scanGlbContainer(bytes: Uint8Array): ContainerResult {
     if (dataStart + chunkLength > bytes.length) {
       return { ok: false, code: 'glb_chunk_bounds', message: 'a chunk runs past the file end', offset };
     }
-    if (first && chunkType !== 0x4e4f534a) return { ok: false, code: 'glb_first_chunk', message: 'the first chunk is not JSON', offset };
-    if (chunkType === 0x4e4f534a) {
+    if (first && chunkType !== GLB_CHUNK_JSON) return { ok: false, code: 'glb_first_chunk', message: 'the first chunk is not JSON', offset };
+    if (chunkType === GLB_CHUNK_JSON) {
       sawJson = true;
       const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(dataStart, dataStart + chunkLength));
       const parsed = strictJson(text.replace(/\u0000+$/g, '').replace(/\s+$/g, ''));
@@ -303,8 +304,7 @@ export function scanFontContainer(bytes: Uint8Array): ContainerResult {
  * WebP (RIFF/WEBP with the RIFF length matching the file). No decoding.
  */
 export function scanImageContainer(bytes: Uint8Array): ContainerResult {
-  const png = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
-  if (bytes.length >= 24 && png.every((b, i) => bytes[i] === b)) {
+  if (bytes.length >= 24 && isPng(bytes)) {
     const ihdr = String.fromCharCode(bytes[12]!, bytes[13]!, bytes[14]!, bytes[15]!);
     return ihdr === 'IHDR' ? { ok: true } : { ok: false, code: 'image_png_ihdr', message: 'the PNG has no IHDR chunk first', offset: 12 };
   }
@@ -314,8 +314,7 @@ export function scanImageContainer(bytes: Uint8Array): ContainerResult {
     return declared + 8 === bytes.length ? { ok: true } : { ok: false, code: 'image_webp_length', message: 'the WebP RIFF length does not match the file', offset: 4 };
   }
   // A Basis Universal KTX2 (the header's identifier; the game's transcoder reads the rest).
-  const ktx2 = [0xab, 0x4b, 0x54, 0x58, 0x20, 0x32, 0x30, 0xbb, 0x0d, 0x0a, 0x1a, 0x0a];
-  if (bytes.length >= 80 && ktx2.every((b, i) => bytes[i] === b)) return { ok: true };
+  if (bytes.length >= 80 && isKtx2(bytes)) return { ok: true };
   return { ok: false, code: 'image_format', message: 'not a PNG, JPEG, WebP or KTX2 image', offset: 0 };
 }
 

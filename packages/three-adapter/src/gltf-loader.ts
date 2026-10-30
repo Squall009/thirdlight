@@ -26,6 +26,7 @@
  *  - a parse that completes after the caller aborted is discarded and released
  *    by the port itself (no leak, no late hand-off).
  */
+import { GLB_CHUNK_JSON, GLB_MAGIC } from '@thirdlight/shared';
 import {
   BufferGeometry,
   ClampToEdgeWrapping,
@@ -164,10 +165,10 @@ function readContainerGuard(bytes: Uint8Array): ContainerGuard {
   const corrupt = (message: string): ContainerGuard => ({ ok: false, failure: visualLoadFailure('corrupt', message) });
   if (bytes.byteLength < 20) return corrupt('the GLB container is shorter than a header plus one chunk');
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  if (view.getUint32(0, true) !== 0x46546c67) return corrupt('the GLB magic is not "glTF"');
+  if (view.getUint32(0, true) !== GLB_MAGIC) return corrupt('the GLB magic is not "glTF"');
   if (view.getUint32(4, true) !== 2) return corrupt('the GLB container version is not 2');
   if (view.getUint32(8, true) !== bytes.byteLength) return corrupt('the declared GLB length does not match the supplied bytes');
-  if (view.getUint32(16, true) !== 0x4e4f534a) return corrupt('the first GLB chunk is not the JSON chunk');
+  if (view.getUint32(16, true) !== GLB_CHUNK_JSON) return corrupt('the first GLB chunk is not the JSON chunk');
   const jsonLength = view.getUint32(12, true);
   if (jsonLength === 0 || jsonLength % 4 !== 0 || 20 + jsonLength > bytes.byteLength) {
     return corrupt('the JSON chunk framing is invalid');

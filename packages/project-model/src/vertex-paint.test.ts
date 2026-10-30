@@ -6,6 +6,7 @@
  * brush; the copy table following copies taken out; and paint in path
  * space surviving a regeneration of generated architecture and a spline.
  */
+import { glbBytes } from '@thirdlight/shared';
 import { describe, expect, it } from 'vitest';
 
 import { generateArchitecture } from './arch-generate';
@@ -51,20 +52,7 @@ function paintGlb(nodes: { name: string; positions: number[]; translation?: numb
   }
   const gltf = { asset: { version: '2.0' }, scene: 0, scenes: [{ nodes: roots }], nodes: nodes.map((n, i) => ({ name: n.name, mesh: i, ...(n.translation !== undefined ? { translation: n.translation } : {}), ...(n.children !== undefined ? { children: n.children } : {}) })), meshes, accessors, bufferViews, buffers: [{ byteLength: floats.length * 4 }] };
   const bin = new Uint8Array(new Float32Array(floats).buffer);
-  let json = new TextEncoder().encode(JSON.stringify(gltf));
-  json = new Uint8Array([...json, ...new Array((4 - (json.length % 4)) % 4).fill(0x20)]);
-  const out = new Uint8Array(28 + json.length + bin.length);
-  const v = new DataView(out.buffer);
-  v.setUint32(0, 0x46546c67, true);
-  v.setUint32(4, 2, true);
-  v.setUint32(8, out.length, true);
-  v.setUint32(12, json.length, true);
-  v.setUint32(16, 0x4e4f534a, true);
-  out.set(json, 20);
-  v.setUint32(20 + json.length, bin.length, true);
-  v.setUint32(24 + json.length, 0x004e4942, true);
-  out.set(bin, 28 + json.length);
-  return out;
+  return glbBytes(JSON.stringify(gltf), bin);
 }
 
 const errorsOf = (f: (v: unknown, p: string, e: ModelErrorV2[]) => void, v: unknown): string[] => {

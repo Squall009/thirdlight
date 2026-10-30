@@ -12,6 +12,7 @@
  *   height a brightness height (`x-thirdlight-derived-height`); once a version
  *   with a height in A is imported in its place, it keeps its own.
  */
+import { PNG_SIGNATURE, pngChunk } from '@thirdlight/shared';
 import { rmSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 
@@ -20,22 +21,6 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { AUTH_TOKEN, AUTHORING_ORIGIN, V3_PROJECT, cleanupBundles, createMcp, http, inspectViaHttp, makeRoot, mkRequestId, publishArgs, sleep, spawnBackend, stopBackend, type BackendProcess, type DisposableRoot, type McpHarness } from '../m3-content/harness';
 
-function crc32(bytes: Uint8Array): number {
-  let c = ~0;
-  for (const b of bytes) {
-    c ^= b;
-    for (let k = 0; k < 8; k++) c = c & 1 ? (c >>> 1) ^ 0xedb88320 : c >>> 1;
-  }
-  return ~c >>> 0;
-}
-function chunk(type: string, body: Uint8Array): Buffer {
-  const head = Buffer.alloc(8);
-  head.writeUInt32BE(body.length, 0);
-  head.write(type, 4, 'latin1');
-  const crc = Buffer.alloc(4);
-  crc.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), body])), 0);
-  return Buffer.concat([head, body, crc]);
-}
 /** A PNG of `size`² from a per-pixel colour: RGBA, or RGB (no alpha channel) when `alpha` is false. */
 function png(size: number, px: (x: number, y: number) => [number, number, number, number], alpha: boolean): Uint8Array {
   const ihdr = Buffer.alloc(13);
@@ -49,7 +34,7 @@ function png(size: number, px: (x: number, y: number) => [number, number, number
     for (let x = 0; x < size; x++) row.push(...px(x, y).slice(0, alpha ? 4 : 3));
     rows.push(Buffer.from(row));
   }
-  return new Uint8Array(Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(Buffer.concat(rows))), chunk('IEND', new Uint8Array(0))]));
+  return new Uint8Array(Buffer.concat([PNG_SIGNATURE, pngChunk('IHDR', ihdr), pngChunk('IDAT', deflateSync(Buffer.concat(rows))), pngChunk('IEND', new Uint8Array(0))]));
 }
 /** Stones: bright faces, dark joints; the height (A) high on the faces. */
 const stones = (x: number, y: number): [number, number, number, number] => {

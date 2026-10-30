@@ -7,6 +7,7 @@
  * unchanged. ETC1S layers are transcoded and encoded again, and flagged;
  * a lossless PNG given for a source is read instead and the layer is not.
  */
+import { PNG_SIGNATURE, pngChunk } from '@thirdlight/shared';
 import { createHash } from 'node:crypto';
 import { deflateSync, zstdCompressSync } from 'node:zlib';
 
@@ -17,22 +18,6 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { joinUastcLayers, ktx2KeyValues, ktx2LevelData, ktx2LevelDigests, KTX2_TRANSFER_LINEAR, readKtx2, writeKtx2, type Ktx2Container } from './ktx2-container';
 import { createWorkerTextureEncoder, encodeKtx2, packKtx2, type Ktx2Mode, type PackLayer } from './texture-encode';
 
-function crc32(bytes: Uint8Array): number {
-  let c = ~0;
-  for (const b of bytes) {
-    c ^= b;
-    for (let k = 0; k < 8; k++) c = c & 1 ? (c >>> 1) ^ 0xedb88320 : c >>> 1;
-  }
-  return ~c >>> 0;
-}
-function chunk(type: string, body: Uint8Array): Buffer {
-  const head = Buffer.alloc(8);
-  head.writeUInt32BE(body.length, 0);
-  head.write(type, 4, 'latin1');
-  const crc = Buffer.alloc(4);
-  crc.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), body])), 0);
-  return Buffer.concat([head, body, crc]);
-}
 /** An RGBA PNG of `px`. */
 function png(width: number, height: number, px: (x: number, y: number) => [number, number, number, number]): Uint8Array {
   const ihdr = Buffer.alloc(13);
@@ -46,7 +31,7 @@ function png(width: number, height: number, px: (x: number, y: number) => [numbe
     for (let x = 0; x < width; x++) r.set(px(x, y), 1 + x * 4);
     rows.push(r);
   }
-  return new Uint8Array(Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(Buffer.concat(rows))), chunk('IEND', new Uint8Array(0))]));
+  return new Uint8Array(Buffer.concat([PNG_SIGNATURE, pngChunk('IHDR', ihdr), pngChunk('IDAT', deflateSync(Buffer.concat(rows))), pngChunk('IEND', new Uint8Array(0))]));
 }
 
 /** Three different images: a gradient, a checker, rings. */

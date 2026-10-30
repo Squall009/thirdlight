@@ -23,7 +23,8 @@
 import { boxFromBounds, colliderFromTriangles, convexFromPoints, polygonFromPoints, roundMm, type GeometryCollider, type Vec2Tuple, type Vec3Tuple } from './collider-geometry';
 import { COLLIDER_3D_LIMITS, MAX_COLLIDER_EXTENT, colliderShapePoints } from './collider-shapes';
 import { decodeMeshopt, MeshoptError, type MeshoptFilter, type MeshoptMode } from './meshopt';
-import { COMPONENTS as GLTF_COMPONENTS, COMPONENT_TYPES as GLTF_COMPONENT_TYPES, glbChunks, sanitizeRigNodeName } from './model-rig';
+import { COMPONENTS as GLTF_COMPONENTS, COMPONENT_TYPES as GLTF_COMPONENT_TYPES, sanitizeRigNodeName } from './model-rig';
+import { readGlb } from '@thirdlight/shared';
 
 type Json = Record<string, unknown>;
 const isObj = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -134,7 +135,7 @@ function mul(a: readonly number[], b: readonly number[]): number[] {
 const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 
 /** The bytes of a bufferView (decoded when meshopt-compressed), or why not. */
-function viewBytes(json: Json, bin: DataView | null, index: unknown, cache: Map<number, DataView | string>): DataView | string {
+function viewBytes(json: Json, bin: Uint8Array | null, index: unknown, cache: Map<number, DataView | string>): DataView | string {
   if (typeof index !== 'number' || !Number.isInteger(index)) return 'an accessor names no bufferView';
   const hit = cache.get(index);
   if (hit !== undefined) return hit;
@@ -171,7 +172,7 @@ function viewBytes(json: Json, bin: DataView | null, index: unknown, cache: Map<
 }
 
 /** An accessor's numbers (normalized integers scaled like three.js), or why not. */
-function readNumbers(json: Json, bin: DataView | null, index: unknown, cache: Map<number, DataView | string>): { data: number[]; size: number } | string {
+function readNumbers(json: Json, bin: Uint8Array | null, index: unknown, cache: Map<number, DataView | string>): { data: number[]; size: number } | string {
   const accessors = Array.isArray(json['accessors']) ? (json['accessors'] as unknown[]) : [];
   if (typeof index !== 'number' || !Number.isInteger(index)) return 'no accessor';
   const a = accessors[index];
@@ -259,7 +260,7 @@ export function modelNodePaths(json: Readonly<Record<string, unknown>>): Map<num
  * colours (what a kit piece's checks read). Never throws.
  */
 export function readModelGeometry(bytes: Uint8Array, options: { surface?: boolean; uv1?: boolean } = {}): { ok: true; geometry: ModelGeometry } | { ok: false; message: string } {
-  const chunks = glbChunks(bytes);
+  const chunks = readGlb(bytes);
   if (typeof chunks === 'string') return { ok: false, message: chunks };
   const { json, bin } = chunks;
   const nodes = Array.isArray(json['nodes']) ? (json['nodes'] as unknown[]) : [];

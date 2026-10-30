@@ -17,13 +17,13 @@ import {
   type ImportOptions,
   type ImportProposal,
 } from './index';
-import { buildGlb, cloneJson, splitGlb } from './test-glb';
+import { buildGlb, cloneJson, glbParts } from './test-glb';
 import { fixtureBytes } from './test-fixtures';
 
 const base = fixtureBytes('tiny-v1.glb');
 
 function baseJson(): Record<string, unknown> {
-  return cloneJson(splitGlb(base).json);
+  return cloneJson(glbParts(base).json);
 }
 
 function fullJob(overrides: Partial<ImportJobPort> = {}): ImportJobPort {
@@ -90,9 +90,9 @@ describe('decoded-resource caps (adversarial)', () => {
 
   it('reports every exceeded cap of one source, in table order', () => {
     const bytes = verticesModel(2_000_001);
-    const json = cloneJson(splitGlb(bytes).json);
+    const json = cloneJson(glbParts(bytes).json);
     json['materials'] = Array.from({ length: 513 }, (_, i) => ({ name: `m${i}` }));
-    const manyMaterials = buildGlb(json, splitGlb(bytes).bin);
+    const manyMaterials = buildGlb(json, glbParts(bytes).bin);
     const proposal = inspect(manyMaterials);
     expect(proposal.status).toBe('rejected');
     expect(proposal.diagnostics.map((d) => d.limit)).toEqual(['materials', 'vertices']);
@@ -103,7 +103,7 @@ describe('decoded-resource caps (adversarial)', () => {
       const json = baseJson();
       const clip = (json['animations'] as Record<string, unknown>[])[0]!;
       json['animations'] = Array.from({ length: n }, (_, i) => ({ ...cloneJson(clip), name: `clip-${i}` }));
-      return buildGlb(json, splitGlb(base).bin);
+      return buildGlb(json, glbParts(base).bin);
     };
     const ok = inspect(withClips(256));
     expect(ok.status, JSON.stringify(ok.diagnostics)).toBe('ok');

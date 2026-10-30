@@ -4,6 +4,7 @@
  * converted GLB keeps the texture and the animation. A missing Blender and a
  * non-FBX input fail with the documented codes.
  */
+import { readGlb } from '@thirdlight/shared';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -26,9 +27,10 @@ const job = {
   stageId: () => 'fbx-test',
   expiresAt: () => '2026-09-23T00:00:00Z',
 };
-function glbJson(glb: Uint8Array): Record<string, unknown> {
-  const n = new DataView(glb.buffer, glb.byteOffset).getUint32(12, true);
-  return JSON.parse(new TextDecoder().decode(glb.subarray(20, 20 + n))) as Record<string, unknown>;
+function jsonOf(glb: Uint8Array): Record<string, unknown> {
+  const parts = readGlb(glb);
+  if (typeof parts === 'string') throw new Error(parts);
+  return parts.json;
 }
 
 describe('FBX detection', () => {
@@ -47,7 +49,7 @@ describe.skipIf(!haveBlender)('FBX → GLB with headless Blender', () => {
     expect(r.ok, JSON.stringify(r)).toBe(true);
     if (!r.ok) return;
     expect(r.blenderVersion).toMatch(/^\d+\.\d+\.\d+$/);
-    const json = glbJson(r.glb);
+    const json = jsonOf(r.glb);
     expect((json['images'] as unknown[]).length).toBe(1);
     expect((json['animations'] as unknown[]).length).toBe(1);
     const p = createAssetInspector()(r.glb, job) as unknown as { status: string; metrics?: { vertices: number; animations: number; images: number } };
@@ -58,7 +60,7 @@ describe.skipIf(!haveBlender)('FBX → GLB with headless Blender', () => {
   it('converts uploaded bytes (embedded texture) and leaves no scratch files', async () => {
     const r = await converter.convert({ bytes: new Uint8Array(readFileSync(join(FBX, 'crate-embedded.fbx'))) });
     expect(r.ok, JSON.stringify(r)).toBe(true);
-    if (r.ok) expect((glbJson(r.glb)['images'] as unknown[]).length).toBe(1);
+    if (r.ok) expect((jsonOf(r.glb)['images'] as unknown[]).length).toBe(1);
     expect(spawnSync('ls', ['-A', join(work, 'convert')], { encoding: 'utf8' }).stdout.trim()).toBe('');
   }, 120_000);
 

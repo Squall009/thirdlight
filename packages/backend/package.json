@@ -16,6 +16,7 @@
     "@thirdlight/behavior-build": "0.1.0",
     "@thirdlight/project-model": "0.1.0",
     "@thirdlight/protocol": "0.1.0",
+    "@thirdlight/shared": "0.1.0",
     "@thirdlight/three-adapter": "0.1.0",
     "@thirdlight/workspace": "0.1.0",
     "jpeg-js": "0.4.4",

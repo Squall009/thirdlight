@@ -13,6 +13,7 @@
  *   lost it, and extracts again when the file changed;
  * - a folder import extracts its new models in the same command.
  */
+import { glbBytes } from '@thirdlight/shared';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -111,22 +112,7 @@ function quadGlb(images: { base?: Uint8Array; normal?: Uint8Array; orm?: Uint8Ar
     bufferViews: views,
     buffers: [{ byteLength: bin.length }],
   };
-  let text = new TextEncoder().encode(JSON.stringify(json));
-  const padded = new Uint8Array(text.length + ((4 - (text.length % 4)) % 4)).fill(0x20);
-  padded.set(text);
-  text = padded;
-  const out = new Uint8Array(12 + 8 + text.length + 8 + bin.length);
-  const dv = new DataView(out.buffer);
-  dv.setUint32(0, 0x46546c67, true);
-  dv.setUint32(4, 2, true);
-  dv.setUint32(8, out.length, true);
-  dv.setUint32(12, text.length, true);
-  dv.setUint32(16, 0x4e4f534a, true);
-  out.set(text, 20);
-  dv.setUint32(20 + text.length, bin.length, true);
-  dv.setUint32(24 + text.length, 0x004e4942, true);
-  out.set(bin, 28 + text.length);
-  return out;
+  return glbBytes(JSON.stringify(json), bin);
 }
 
 const ALBEDO = checker(64, [200, 120, 60], [40, 90, 160]);

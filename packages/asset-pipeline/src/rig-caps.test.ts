@@ -6,10 +6,10 @@
 import { describe, expect, it } from 'vitest';
 
 import { inspectGlb, type ImportProposal } from './index';
-import { buildGlb, cloneJson, splitGlb } from './test-glb';
+import { buildGlb, cloneJson, glbParts } from './test-glb';
 import { fixtureBytes } from './test-fixtures';
 
-const base = splitGlb(fixtureBytes('tiny-v1.glb'));
+const base = glbParts(fixtureBytes('tiny-v1.glb'));
 
 function inspect(edit: (json: Record<string, unknown>) => void): ImportProposal {
   const json = cloneJson(base.json) as Record<string, unknown>;

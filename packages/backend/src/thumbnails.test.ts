@@ -1,28 +1,13 @@
 /**
  * The asset thumbnail cache (a data-root cache, never project state).
  */
+import { PNG_SIGNATURE, pngChunk } from '@thirdlight/shared';
 import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { checkThumbnailPng, createThumbnailCache, thumbnailKey } from './thumbnails';
 
-function crc32(buf: Buffer): number {
-  let c = ~0;
-  for (const b of buf) {
-    c ^= b;
-    for (let k = 0; k < 8; k += 1) c = (c >>> 1) ^ (0xedb88320 & -(c & 1));
-  }
-  return ~c >>> 0;
-}
-function chunk(type: string, data: Buffer): Buffer {
-  const len = Buffer.alloc(4);
-  len.writeUInt32BE(data.length);
-  const td = Buffer.concat([Buffer.from(type, 'ascii'), data]);
-  const crc = Buffer.alloc(4);
-  crc.writeUInt32BE(crc32(td));
-  return Buffer.concat([len, td, crc]);
-}
 /** A zlib stream of stored (uncompressed) blocks — enough for a test PNG. */
 function stored(raw: Buffer): Buffer {
   const parts: Buffer[] = [Buffer.from([0x78, 0x01])];
@@ -54,7 +39,7 @@ function png(w: number, h: number): Uint8Array {
   ihdr[8] = 8;
   ihdr[9] = 6;
   const raw = Buffer.alloc(h * (w * 4 + 1));
-  return new Uint8Array(Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', stored(raw)), chunk('IEND', Buffer.alloc(0))]));
+  return new Uint8Array(Buffer.concat([PNG_SIGNATURE, pngChunk('IHDR', ihdr), pngChunk('IDAT', stored(raw)), pngChunk('IEND', Buffer.alloc(0))]));
 }
 
 const dirs: string[] = [];

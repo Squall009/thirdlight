@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { defaultTrimSheet, trimRowOf, trimRowV } from '@thirdlight/project-model/trim-sheet';
 import type { WorkspaceService } from '@thirdlight/workspace';
 
-import { writeGlb } from './glb-images';
+import { glbBytes } from '@thirdlight/shared';
 import { createKitChecker } from './kit-check';
 import { createKitProblemChecker } from './kit-problems';
 import type { TextureEncoder } from './texture-encode';
@@ -53,7 +53,7 @@ function slab(name: string, dx = 0): Uint8Array {
     bufferViews,
     buffers: [{ byteLength: bin.length }],
   };
-  return writeGlb(json, bin);
+  return glbBytes(JSON.stringify(json), bin);
 }
 
 interface World {

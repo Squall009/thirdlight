@@ -9,10 +9,10 @@
 import { describe, expect, it } from 'vitest';
 
 import { inspectGlb, type ImportProposal } from './index';
-import { buildGlb, cloneJson, splitGlb } from './test-glb';
+import { buildGlb, cloneJson, glbParts } from './test-glb';
 import { fixtureBytes } from './test-fixtures';
 
-const base = splitGlb(fixtureBytes('tiny-v1.glb'));
+const base = glbParts(fixtureBytes('tiny-v1.glb'));
 
 /** A 1×1 RGBA PNG (a real, decodable image). */
 const PNG_1X1 = Uint8Array.from(

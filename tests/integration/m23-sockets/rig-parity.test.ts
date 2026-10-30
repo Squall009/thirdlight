@@ -9,6 +9,7 @@
  * clashing with a scene name), rest transforms, linear/step/cubic-spline
  * sampling and three.js's mixing rules included.
  */
+import { glbBytes } from '@thirdlight/shared';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { describe, expect, it } from 'vitest';
@@ -76,24 +77,7 @@ function namingGlb(): Uint8Array {
       },
     ],
   };
-  let j = new TextEncoder().encode(JSON.stringify(json));
-  if (j.length % 4 !== 0) {
-    const p = new Uint8Array(j.length + (4 - (j.length % 4))).fill(0x20);
-    p.set(j);
-    j = p;
-  }
-  const out = new Uint8Array(20 + j.length + 8 + bin.length);
-  const dv = new DataView(out.buffer);
-  dv.setUint32(0, 0x46546c67, true);
-  dv.setUint32(4, 2, true);
-  dv.setUint32(8, out.length, true);
-  dv.setUint32(12, j.length, true);
-  dv.setUint32(16, 0x4e4f534a, true);
-  out.set(j, 20);
-  dv.setUint32(20 + j.length, bin.length, true);
-  dv.setUint32(24 + j.length, 0x004e4942, true);
-  out.set(bin, 28 + j.length);
-  return out;
+  return glbBytes(JSON.stringify(json), bin);
 }
 
 async function compare(bytes: Uint8Array, poses: readonly (AnimatorPose | null)[]): Promise<number> {

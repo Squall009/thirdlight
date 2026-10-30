@@ -188,7 +188,6 @@ export {
 } from './model-lod';
 export {
   buildKtx2Subset,
-  isKtx2Bytes,
   ktx2IndexBytes,
   ktx2LevelSize,
   planKtx2Parts,

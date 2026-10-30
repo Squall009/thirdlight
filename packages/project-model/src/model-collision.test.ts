@@ -4,6 +4,7 @@
  * shapes the conversion makes from them, Draco parts reported, meshopt
  * decoded.
  */
+import { glbBytes } from '@thirdlight/shared';
 import { describe, expect, it } from 'vitest';
 
 import { modelColliderShape, modelCollisionParts, readModelGeometry, sceneColliderPoints } from './model-collision';
@@ -12,25 +13,7 @@ const RAW = import.meta.glob('../../../fixtures/import-ext/bytes.base64.json', {
 
 /** A GLB from a JSON document and one binary buffer. */
 function glb(json: Record<string, unknown>, bin: Uint8Array): Uint8Array {
-  let j = new TextEncoder().encode(JSON.stringify({ asset: { version: '2.0' }, ...json, buffers: [{ byteLength: bin.length }] }));
-  if (j.length % 4 !== 0) {
-    const p = new Uint8Array(j.length + (4 - (j.length % 4))).fill(0x20);
-    p.set(j);
-    j = p;
-  }
-  const bpad = (4 - (bin.length % 4)) % 4;
-  const out = new Uint8Array(20 + j.length + 8 + bin.length + bpad);
-  const dv = new DataView(out.buffer);
-  dv.setUint32(0, 0x46546c67, true);
-  dv.setUint32(4, 2, true);
-  dv.setUint32(8, out.length, true);
-  dv.setUint32(12, j.length, true);
-  dv.setUint32(16, 0x4e4f534a, true);
-  out.set(j, 20);
-  dv.setUint32(20 + j.length, bin.length + bpad, true);
-  dv.setUint32(24 + j.length, 0x004e4942, true);
-  out.set(bin, 28 + j.length);
-  return out;
+  return glbBytes(JSON.stringify({ asset: { version: '2.0' }, ...json, buffers: [{ byteLength: bin.length }] }), bin);
 }
 
 /** A kit file: `crate_LOD0` (a 1 m cube from y 0 to 1), `crate_COL` holding two box parts (one moved and one turned by their nodes), and a Draco part. */

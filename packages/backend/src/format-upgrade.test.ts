@@ -9,7 +9,7 @@ import { join, resolve } from 'node:path';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { TRIM_DATA_GLTF_ATTRIBUTE } from '@thirdlight/project-model/trim-sheet';
 
-import { writeGlb } from './glb-images';
+import { glbBytes } from '@thirdlight/shared';
 import { api, AUTHORING_ORIGIN, exportContentOf, mkRequestId, mkSessionId, PREVIEW_ORIGIN, startBackend, type TestBackend } from './test-helpers';
 import { createTestBackend } from './testing';
 
@@ -426,7 +426,7 @@ describe('a project with trim data in COLOR_0 and old trim paint opened over HTT
     bin.set(new Uint8Array(index.buffer), positions.byteLength + colours.byteLength);
     bin.set(new Uint8Array(index.buffer), positions.byteLength + colours.byteLength + index.byteLength);
     const P = positions.byteLength, C = colours.byteLength, I = index.byteLength;
-    return writeGlb(
+    return glbBytes(JSON.stringify(
       {
         asset: { version: '2.0' },
         buffers: [{ byteLength: bin.byteLength }],
@@ -447,7 +447,7 @@ describe('a project with trim data in COLOR_0 and old trim paint opened over HTT
         nodes: [{ name: 'piece', mesh: 0 }],
         scenes: [{ nodes: [0] }],
         scene: 0,
-      },
+      }),
       bin,
     );
   };

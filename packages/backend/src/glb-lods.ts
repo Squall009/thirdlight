@@ -20,7 +20,7 @@
 import type { MeshSimplifier, SimplifiedMesh } from '@thirdlight/asset-pipeline';
 import { MESH_LOD_RATIOS_DEFAULT } from '@thirdlight/project-model/limits';
 
-import { readGlb, writeGlb } from './glb-images';
+import { glbBytes, readGlb } from '@thirdlight/shared';
 
 /** What a generation did. */
 export interface GlbLodReport {
@@ -262,5 +262,5 @@ export function generateGlbLods(glb: Uint8Array, simplifier: MeshSimplifier, rat
   const buffers = list(json['buffers']);
   if (buffers.length === 0) json['buffers'] = [{ byteLength: binLength }];
   else (buffers[0] as Json)['byteLength'] = binLength;
-  return { glb: writeGlb(json, out), report };
+  return { glb: glbBytes(JSON.stringify(json), out.length > 0 ? out : null), report };
 }

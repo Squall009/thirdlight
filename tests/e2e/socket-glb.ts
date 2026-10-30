@@ -15,6 +15,8 @@
  * plays at clip time t.
  */
 
+import { glbBytes } from '@thirdlight/shared';
+
 function box(sx: number, sy: number, sz: number): { positions: number[]; normals: number[]; indices: number[] } {
   const positions: number[] = [];
   const normals: number[] = [];
@@ -109,26 +111,7 @@ export function socketGlb(): Uint8Array {
     bufferViews,
     buffers: [{ byteLength: bin.length }],
   };
-  let jsonBytes = new TextEncoder().encode(JSON.stringify(json));
-  const jpad = (4 - (jsonBytes.length % 4)) % 4;
-  if (jpad > 0) {
-    const padded = new Uint8Array(jsonBytes.length + jpad).fill(0x20);
-    padded.set(jsonBytes);
-    jsonBytes = padded;
-  }
-  const out = new Uint8Array(12 + 8 + jsonBytes.length + 8 + bin.length);
-  const dv = new DataView(out.buffer);
-  dv.setUint32(0, 0x46546c67, true);
-  dv.setUint32(4, 2, true);
-  dv.setUint32(8, out.length, true);
-  dv.setUint32(12, jsonBytes.length, true);
-  dv.setUint32(16, 0x4e4f534a, true);
-  out.set(jsonBytes, 20);
-  const b = 20 + jsonBytes.length;
-  dv.setUint32(b, bin.length, true);
-  dv.setUint32(b + 4, 0x004e4942, true);
-  out.set(bin, b + 8);
-  return out;
+  return glbBytes(JSON.stringify(json), bin);
 }
 
 /** The clip durations the controller refers to. */

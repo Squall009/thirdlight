@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { crc32, listExports, zipDirectory } from './exports';
+import { crc32 } from 'node:zlib';
+import { listExports, zipDirectory } from './exports';
 
 describe('exports: listing + stored zip', () => {
   it('zips a tree with correct headers and CRCs; lists a project\'s export dirs', () => {

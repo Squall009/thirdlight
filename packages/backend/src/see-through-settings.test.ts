@@ -11,14 +11,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { SEE_THROUGH_LIMITS, SEE_THROUGH_SETTING_KEYS, seeThroughSettingsOfProject } from '@thirdlight/project-model/limits';
 
-import { writeGlb } from './glb-images';
+import { glbBytes } from '@thirdlight/shared';
 import { FakeEditor } from './test-editor';
 import { api, establish, mkRequestId, mkSessionId, playContentOf, startBackend, upgrade, type TestBackend } from './test-helpers';
 
 type Any = any;
 const PID = 'demo-0001';
 /** A small model file the import takes: one triangle. */
-const COURIER = writeGlb(
+const COURIER = glbBytes(JSON.stringify(
   {
     asset: { version: '2.0' },
     buffers: [{ byteLength: 36 }],
@@ -28,7 +28,7 @@ const COURIER = writeGlb(
     nodes: [{ name: 'courier', mesh: 0 }],
     scenes: [{ nodes: [0] }],
     scene: 0,
-  },
+  }),
   new Uint8Array(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]).buffer),
 );
 

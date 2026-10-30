@@ -8,6 +8,7 @@
  * cache is git-ignored; a missing file is simply rendered again by the next
  * editor that needs it.
  */
+import { isPng } from '@thirdlight/shared';
 import { ID_RE } from '@thirdlight/project-model/limits';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
@@ -20,7 +21,6 @@ export const THUMBNAIL_EDGE_MAX = 512;
 
 const PROJECT_RE = ID_RE;
 const DIGEST_RE = /^[0-9a-f]{64}$/;
-const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
 export interface ThumbnailCache {
   read(projectId: string, digest: string, piece: string | null): Uint8Array | null;
@@ -42,7 +42,7 @@ export function thumbnailKey(piece: string | null): string {
 /** Check a PNG's signature and IHDR size; returns an error message or null. */
 export function checkThumbnailPng(png: Uint8Array): string | null {
   if (png.byteLength > THUMBNAIL_BYTES_MAX) return `a thumbnail is at most ${THUMBNAIL_BYTES_MAX} bytes`;
-  if (png.byteLength < 33 || !PNG_SIGNATURE.every((b, i) => png[i] === b)) return 'a thumbnail must be a PNG image';
+  if (png.byteLength < 33 || !isPng(png)) return 'a thumbnail must be a PNG image';
   const view = new DataView(png.buffer, png.byteOffset, png.byteLength);
   const ihdr = String.fromCharCode(png[12]!, png[13]!, png[14]!, png[15]!);
   if (ihdr !== 'IHDR') return 'the PNG has no IHDR chunk';

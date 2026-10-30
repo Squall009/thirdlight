@@ -30,6 +30,8 @@
  * Pure: bytes in, data out; no I/O, no three.js.
  */
 
+import { readGlb } from '@thirdlight/shared';
+
 export type RigPath = 'translation' | 'rotation' | 'scale';
 export type RigInterpolation = 'LINEAR' | 'STEP' | 'CUBICSPLINE';
 
@@ -138,41 +140,8 @@ export const COMPONENT_TYPES: Record<number, { bytes: number; read: (v: DataView
 
 /** Whether a GLB has a skin (its meshes follow bones: a world-space projector would slide over them). */
 export function glbHasSkins(bytes: Uint8Array): boolean {
-  const c = glbChunks(bytes);
+  const c = readGlb(bytes);
   return typeof c !== 'string' && Array.isArray(c.json['skins']) && c.json['skins'].length > 0;
-}
-
-/** Split a GLB into its JSON and BIN chunks (a string: why it is not a GLB 2.0). */
-export function glbChunks(bytes: Uint8Array): { json: Json; bin: DataView | null } | string {
-  if (bytes.byteLength < 20) return 'the file is too short to be a GLB';
-  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  if (dv.getUint32(0, true) !== 0x46546c67) return 'the file is not a GLB (magic)';
-  if (dv.getUint32(4, true) !== 2) return 'only GLB version 2 is read';
-  const total = Math.min(dv.getUint32(8, true), bytes.byteLength);
-  let off = 12;
-  let json: Json | null = null;
-  let bin: DataView | null = null;
-  while (off + 8 <= total) {
-    const len = dv.getUint32(off, true);
-    const type = dv.getUint32(off + 4, true);
-    const start = off + 8;
-    if (start + len > total) return 'a GLB chunk runs past the file end';
-    if (type === 0x4e4f534a && json === null) {
-      try {
-        const text = new TextDecoder('utf-8').decode(bytes.subarray(start, start + len));
-        const parsed: unknown = JSON.parse(text);
-        if (!isObj(parsed)) return 'the GLB JSON is not an object';
-        json = parsed;
-      } catch {
-        return 'the GLB JSON does not parse';
-      }
-    } else if (type === 0x004e4942 && bin === null) {
-      bin = new DataView(bytes.buffer, bytes.byteOffset + start, len);
-    }
-    off = start + len + ((4 - (len % 4)) % 4);
-  }
-  if (json === null) return 'the GLB has no JSON chunk';
-  return { json, bin };
 }
 
 /** An accessor's numbers (normalized integers scaled; null when it cannot be read). */
@@ -214,9 +183,10 @@ const PATHS: Record<string, { path: RigPath; size: number }> = {
  * runtime looks a pose clip up by asset and name). Never throws.
  */
 export function readModelRig(bytes: Uint8Array, assetId: string, keyBudget: number = MODEL_RIG_LIMITS.keyNumbers): { ok: true; rig: ModelRig; keyNumbers: number } | { ok: false; message: string } {
-  const chunks = glbChunks(bytes);
+  const chunks = readGlb(bytes);
   if (typeof chunks === 'string') return { ok: false, message: chunks };
-  const { json, bin } = chunks;
+  const json = chunks.json;
+  const bin = chunks.bin === null ? null : new DataView(chunks.bin.buffer, chunks.bin.byteOffset, chunks.bin.byteLength);
   const nodesDef = Array.isArray(json['nodes']) ? (json['nodes'] as unknown[]) : [];
   const scenes = Array.isArray(json['scenes']) ? (json['scenes'] as unknown[]) : [];
   const cameras = Array.isArray(json['cameras']) ? (json['cameras'] as unknown[]) : [];

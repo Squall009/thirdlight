@@ -9,7 +9,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { inspectGlb, type ImportJobPort, type ImportProposal } from './index';
-import { buildGlbFromJsonText, cloneJson, mutateFixture, splitGlb } from './test-glb';
+import { glbBytes } from '@thirdlight/shared';
+import { cloneJson, mutateFixture, glbParts } from './test-glb';
 import { fixtureBytes } from './test-fixtures';
 
 const job: ImportJobPort = {
@@ -65,7 +66,7 @@ function withValidImage(mutateJson: (json: Record<string, unknown>) => void): Ui
 
 /** Rebuild the base fixture from its parsed JSON with a raw mutation. */
 function baseJson(): Record<string, unknown> {
-  return cloneJson(splitGlb(tinyV1).json);
+  return cloneJson(glbParts(tinyV1).json);
 }
 
 function rebuild(json: Record<string, unknown>, bin?: Uint8Array): Uint8Array {
@@ -116,7 +117,7 @@ describe('chunk framing', () => {
     expectRejected(bytes, 'asset_container_invalid', '');
   });
   it('rejects trailing bytes after the last chunk', () => {
-    const split = splitGlb(tinyV1);
+    const split = glbParts(tinyV1);
     const rebuilt = mutateFixture(tinyV1, () => {}, split.bin);
     const withTrailing = new Uint8Array(rebuilt.length + 4);
     withTrailing.set(rebuilt);
@@ -125,19 +126,7 @@ describe('chunk framing', () => {
   });
   it('rejects a JSON-only container', () => {
     const json = JSON.stringify(baseJson());
-    const jsonBytes = new TextEncoder().encode(json);
-    const pad = (4 - (jsonBytes.length % 4)) % 4;
-    const jsonLength = jsonBytes.length + pad;
-    const total = 12 + 8 + jsonLength;
-    const out = new Uint8Array(total);
-    const dv = new DataView(out.buffer);
-    dv.setUint32(0, 0x46546c67, true);
-    dv.setUint32(4, 2, true);
-    dv.setUint32(8, total, true);
-    dv.setUint32(12, jsonLength, true);
-    dv.setUint32(16, 0x4e4f534a, true);
-    out.set(jsonBytes, 20);
-    expectRejected(out, 'asset_container_invalid', '');
+    expectRejected(glbBytes(json), 'asset_container_invalid', '');
   });
 });
 
@@ -149,12 +138,12 @@ describe('JSON', () => {
   });
   it('rejects duplicated member names with the offending JSON Pointer', () => {
     const text = '{"asset":{"version":"2.0","version":"2.0"},"buffers":[{"byteLength":4}],"bufferViews":[]}';
-    expectRejected(buildGlbFromJsonText(text, new Uint8Array(4)), 'asset_json_invalid', '/asset/version');
+    expectRejected(glbBytes(text, new Uint8Array(4)), 'asset_json_invalid', '/asset/version');
   });
   it('rejects a non-object root and trailing garbage', () => {
-    expectRejected(buildGlbFromJsonText('[1,2]', new Uint8Array(0)), 'asset_json_invalid', '');
+    expectRejected(glbBytes('[1,2]', new Uint8Array(0)), 'asset_json_invalid', '');
     expectRejected(
-      buildGlbFromJsonText('{"asset":{"version":"2.0"}} trailing', new Uint8Array(0)),
+      glbBytes('{"asset":{"version":"2.0"}} trailing', new Uint8Array(0)),
       'asset_json_invalid',
       '',
     );
@@ -162,7 +151,7 @@ describe('JSON', () => {
   it('rejects a JSON chunk above the 8 MiB cap with the byte cap as the failed limit', () => {
     const filler = 'a'.repeat(8_388_608);
     const text = `{"asset":{"version":"2.0"},"filler":"${filler}","buffers":[{"byteLength":0}],"bufferViews":[]}`;
-    const proposal = expectRejected(buildGlbFromJsonText(text, new Uint8Array(0)), 'asset_json_invalid', '');
+    const proposal = expectRejected(glbBytes(text, new Uint8Array(0)), 'asset_json_invalid', '');
     expect(proposal.diagnostics[0]?.limit).toBe('json_chunk_bytes');
   });
 });
@@ -239,7 +228,7 @@ describe('buffers and bufferViews', () => {
       (json) => {
         (json['buffers'] as Record<string, unknown>[])[0]!['byteLength'] = 4;
       },
-      splitGlb(tinyV1).bin,
+      glbParts(tinyV1).bin,
     );
     expectRejected(padded, 'asset_buffer_invalid', '/buffers/0/byteLength');
   });

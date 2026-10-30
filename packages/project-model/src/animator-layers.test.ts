@@ -3,6 +3,7 @@
  * animation-only model assets (`clipsFor`), and the migration of the old
  * `modelAnimation` profile into an animator controller.
  */
+import { glbBytes } from '@thirdlight/shared';
 import { describe, expect, it } from 'vitest';
 
 import { canonicalAnimatorController, validateAnimatorController, type AnimatorController } from './animator';
@@ -159,21 +160,7 @@ function clipsGlb(clips: { name: string; times: number[]; withMax?: boolean }[])
     animations.push({ name: c.name, samplers: [{ input, output: accessors.length - 1 }], channels: [{ sampler: 0, target: { node: 0, path: 'translation' } }] });
   }
   const bin = new Uint8Array(new Float32Array(floats).buffer);
-  let json = new TextEncoder().encode(JSON.stringify({ asset: { version: '2.0' }, nodes: [{ name: 'root' }], scenes: [{ nodes: [0] }], scene: 0, animations, accessors, bufferViews, buffers: [{ byteLength: bin.length }] }));
-  const pad = (4 - (json.length % 4)) % 4;
-  json = new Uint8Array([...json, ...new Array(pad).fill(0x20)]);
-  const out = new Uint8Array(12 + 8 + json.length + 8 + bin.length);
-  const v = new DataView(out.buffer);
-  v.setUint32(0, 0x46546c67, true);
-  v.setUint32(4, 2, true);
-  v.setUint32(8, out.length, true);
-  v.setUint32(12, json.length, true);
-  v.setUint32(16, 0x4e4f534a, true);
-  out.set(json, 20);
-  v.setUint32(20 + json.length, bin.length, true);
-  v.setUint32(24 + json.length, 0x004e4942, true);
-  out.set(bin, 28 + json.length);
-  return out;
+  return glbBytes(JSON.stringify({ asset: { version: '2.0' }, nodes: [{ name: 'root' }], scenes: [{ nodes: [0] }], scene: 0, animations, accessors, bufferViews, buffers: [{ byteLength: bin.length }] }), bin);
 }
 
 describe('the old modelAnimation profile becomes an animator', () => {

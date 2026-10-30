@@ -13,7 +13,8 @@ import { describe, expect, it } from 'vitest';
 import { paintableMeshes } from '../packages/project-model/src/vertex-paint';
 import { readModelGeometry } from '../packages/project-model/src/model-collision';
 import { createGltfLoaderPort } from '../packages/three-adapter/src/gltf-loader';
-import { packGlb, descriptorFor } from '../packages/three-adapter/src/test-glb';
+import { glbBytes } from '@thirdlight/shared';
+import { descriptorFor } from '../packages/three-adapter/src/test-glb';
 import { geometryPaintHash } from '../packages/three-adapter/src/vertex-paint-models';
 import { PAINT_MESH_KEY } from '../packages/three-adapter/src/vertex-paint-draw';
 
@@ -68,7 +69,7 @@ function glb(): Uint8Array {
   };
   const padded = new Uint8Array(Math.ceil(bin.length / 4) * 4);
   padded.set(bin);
-  return packGlb(JSON.stringify(json), padded);
+  return glbBytes(JSON.stringify(json), padded);
 }
 
 describe('model meshes as vertex paint names and checks them', () => {

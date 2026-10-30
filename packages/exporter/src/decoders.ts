@@ -7,6 +7,8 @@
  * needs no files (its decoder is inside the bundle). Pure: bytes in, list out.
  */
 
+import { isKtx2, readGlb } from '@thirdlight/shared';
+
 /** Export path → path inside the pinned `three` package. */
 const DECODERS: Readonly<Record<'draco' | 'basis', readonly (readonly [string, string])[]>> = {
   draco: [
@@ -27,27 +29,18 @@ export const DECODER_LICENSES: Readonly<Record<'draco' | 'basis', { id: string; 
 
 /** `extensionsUsed` of one GLB, or [] when the header/JSON is unreadable. */
 function glbExtensionsUsed(bytes: Uint8Array): string[] {
-  if (bytes.length < 20) return [];
-  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  if (dv.getUint32(0, true) !== 0x46546c67 || dv.getUint32(16, true) !== 0x4e4f534a) return [];
-  const length = dv.getUint32(12, true);
-  if (20 + length > bytes.length) return [];
-  try {
-    const json = JSON.parse(new TextDecoder().decode(bytes.subarray(20, 20 + length))) as { extensionsUsed?: unknown };
-    return Array.isArray(json.extensionsUsed) ? json.extensionsUsed.filter((e): e is string => typeof e === 'string') : [];
-  } catch {
-    return [];
-  }
+  const glb = readGlb(bytes);
+  if (typeof glb === 'string') return [];
+  const used = glb.json['extensionsUsed'];
+  return Array.isArray(used) ? used.filter((e): e is string => typeof e === 'string') : [];
 }
-
-const KTX2_ID = [0xab, 0x4b, 0x54, 0x58, 0x20, 0x32, 0x30, 0xbb, 0x0d, 0x0a, 0x1a, 0x0a];
 
 /** Which decoders the shipped models (and KTX2 textures) need. */
 export function decodersNeeded(assets: readonly { bytes: Uint8Array; contentType: string }[]): ('draco' | 'basis')[] {
   const need = new Set<'draco' | 'basis'>();
   for (const a of assets) {
     // A KTX2 texture asset needs the Basis transcoder too.
-    if (a.contentType === 'image/x-texture' && a.bytes.length >= 12 && KTX2_ID.every((b, i) => a.bytes[i] === b)) need.add('basis');
+    if (a.contentType === 'image/x-texture' && isKtx2(a.bytes)) need.add('basis');
     if (a.contentType !== 'model/gltf-binary') continue;
     const used = glbExtensionsUsed(a.bytes);
     if (used.includes('KHR_draco_mesh_compression')) need.add('draco');

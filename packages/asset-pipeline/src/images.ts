@@ -10,17 +10,10 @@
  * that declares oversized dimensions is therefore rejected even when the
  * payload is small; this is deliberately *not* a full image validation.
  */
+import { isKtx2, isPng } from '@thirdlight/shared';
 import { MAX_TEXTURE_LAYERS } from '@thirdlight/project-model/limits';
 
 export type ImportImageMime = 'image/png' | 'image/jpeg' | 'image/webp' | 'image/ktx2';
-
-const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] as const;
-
-function hasPngSignature(bytes: Uint8Array): boolean {
-  if (bytes.length < 8) return false;
-  for (let i = 0; i < 8; i++) if (bytes[i] !== PNG_SIGNATURE[i]) return false;
-  return true;
-}
 
 function hasJpegSignature(bytes: Uint8Array): boolean {
   return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
@@ -35,21 +28,12 @@ function hasWebpSignature(bytes: Uint8Array): boolean {
   );
 }
 
-/** `«KTX 20»\r\n\x1A\n` (KHR_texture_basisu sources). */
-const KTX2_IDENTIFIER = [0xab, 0x4b, 0x54, 0x58, 0x20, 0x32, 0x30, 0xbb, 0x0d, 0x0a, 0x1a, 0x0a] as const;
-
-function hasKtx2Signature(bytes: Uint8Array): boolean {
-  if (bytes.length < 12) return false;
-  for (let i = 0; i < 12; i++) if (bytes[i] !== KTX2_IDENTIFIER[i]) return false;
-  return true;
-}
-
 /** Detect the container by its actual magic bytes (`null` = none of them). */
 export function detectImageMime(bytes: Uint8Array): ImportImageMime | null {
-  if (hasPngSignature(bytes)) return 'image/png';
+  if (isPng(bytes)) return 'image/png';
   if (hasJpegSignature(bytes)) return 'image/jpeg';
   if (hasWebpSignature(bytes)) return 'image/webp';
-  if (hasKtx2Signature(bytes)) return 'image/ktx2';
+  if (isKtx2(bytes)) return 'image/ktx2';
   return null;
 }
 
@@ -74,7 +58,7 @@ function u16be(bytes: Uint8Array, off: number): number {
 
 /** PNG `IHDR` dims; `null` when the header is absent or malformed. */
 export function pngDimensions(bytes: Uint8Array): ImageDimensions | null {
-  if (!hasPngSignature(bytes)) return null;
+  if (!isPng(bytes)) return null;
   // 8 signature + 4 length + 4 type + 13 data: IHDR must be the first chunk.
   if (bytes.length < 24) return null;
   if (
@@ -177,7 +161,7 @@ function u32le(bytes: Uint8Array, off: number): number {
  * 0/2) and at most 32 mip levels. `null` for anything else.
  */
 export function ktx2Dimensions(bytes: Uint8Array): ImageDimensions | null {
-  if (!hasKtx2Signature(bytes) || bytes.length < 80) return null;
+  if (!isKtx2(bytes) || bytes.length < 80) return null;
   const vkFormat = u32le(bytes, 12);
   const width = u32le(bytes, 20);
   const height = u32le(bytes, 24);
@@ -202,7 +186,7 @@ export function ktx2Dimensions(bytes: Uint8Array): ImageDimensions | null {
  */
 export function ktx2Info(bytes: Uint8Array): { width: number; height: number; levels: number; codec: 'etc1s' | 'uastc'; layers?: number } | null {
   // A 2D array (layerCount ≥ 2) is a texture array; the rest of the header as for a 2D texture.
-  const layerCount = hasKtx2Signature(bytes) && bytes.length >= 80 ? u32le(bytes, 32) : 0;
+  const layerCount = isKtx2(bytes) && bytes.length >= 80 ? u32le(bytes, 32) : 0;
   if (layerCount === 1 || layerCount > KTX2_LAYERS_MAX) return null;
   const dims = layerCount === 0 ? ktx2Dimensions(bytes) : ktx2Dimensions(withoutLayerCount(bytes));
   if (dims === null) return null;

@@ -6,7 +6,8 @@
  *
  * Runs in the texture worker thread (ktx2-worker.ts) in the deployment.
  */
-import { crc32, deflateSync } from 'node:zlib';
+import { deflateSync } from 'node:zlib';
+import { pngBytes } from '@thirdlight/shared';
 
 import { ASSET_THUMBNAIL_EDGE } from '@thirdlight/project-model/limits';
 
@@ -73,31 +74,5 @@ export function encodeRgbaPng(rgba: Uint8Array, width: number, height: number): 
     raw[y * (width * 4 + 1)] = 0;
     raw.set(rgba.subarray(y * width * 4, (y + 1) * width * 4), y * (width * 4 + 1) + 1);
   }
-  const ihdr = new Uint8Array(13);
-  const v = new DataView(ihdr.buffer);
-  v.setUint32(0, width);
-  v.setUint32(4, height);
-  ihdr[8] = 8; // bit depth
-  ihdr[9] = 6; // RGBA
-  const chunks = [chunk('IHDR', ihdr), chunk('IDAT', new Uint8Array(deflateSync(raw))), chunk('IEND', new Uint8Array(0))];
-  const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
-  const total = 8 + chunks.reduce((n, c) => n + c.length, 0);
-  const png = new Uint8Array(total);
-  png.set(signature, 0);
-  let at = 8;
-  for (const c of chunks) {
-    png.set(c, at);
-    at += c.length;
-  }
-  return png;
-}
-
-function chunk(type: string, data: Uint8Array): Uint8Array {
-  const out = new Uint8Array(12 + data.length);
-  const v = new DataView(out.buffer);
-  v.setUint32(0, data.length);
-  for (let i = 0; i < 4; i++) out[4 + i] = type.charCodeAt(i);
-  out.set(data, 8);
-  v.setUint32(8 + data.length, crc32(out.subarray(4, 8 + data.length)));
-  return out;
+  return pngBytes({ width, height, bitDepth: 8, colorType: 6, idat: new Uint8Array(deflateSync(raw)) });
 }

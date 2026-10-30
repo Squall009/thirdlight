@@ -3,6 +3,7 @@
  * types and depths, tRNS, Adam7, the inflate cap) and the encoder's output (ETC1S sRGB for
  * colour, UASTC linear for normal maps, a full mip chain), in-process.
  */
+import { KTX2_IDENTIFIER, PNG_SIGNATURE, pngChunk } from '@thirdlight/shared';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { deflateSync, inflateSync } from 'node:zlib';
@@ -14,24 +15,8 @@ import { decodePngRgba } from '@thirdlight/project-model/png';
 import { createWorkerTextureEncoder, encodeKtx2, KTX2_ENCODER, KTX2_ENCODER_THREADS_MAX, KTX2_WORKER_MEMORY_BYTES, ktx2EncoderThreads, packKtx2 } from './texture-encode';
 import { webp } from './test-helpers';
 
-function crc32(bytes: Uint8Array): number {
-  let c = ~0;
-  for (const b of bytes) {
-    c ^= b;
-    for (let k = 0; k < 8; k++) c = c & 1 ? (c >>> 1) ^ 0xedb88320 : c >>> 1;
-  }
-  return ~c >>> 0;
-}
-function chunk(type: string, body: Uint8Array): Buffer {
-  const head = Buffer.alloc(8);
-  head.writeUInt32BE(body.length, 0);
-  head.write(type, 4, 'latin1');
-  const crc = Buffer.alloc(4);
-  crc.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), body])), 0);
-  return Buffer.concat([head, body, crc]);
-}
 /** A PNG from raw scanlines (each row: filter byte 0 + the packed samples). */
-function png(width: number, height: number, depth: number, colorType: number, rows: Uint8Array[], extra: Buffer[] = [], interlace = 0): Uint8Array {
+function png(width: number, height: number, depth: number, colorType: number, rows: Uint8Array[], extra: Uint8Array[] = [], interlace = 0): Uint8Array {
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(width, 0);
   ihdr.writeUInt32BE(height, 4);
@@ -39,7 +24,7 @@ function png(width: number, height: number, depth: number, colorType: number, ro
   ihdr[9] = colorType;
   ihdr[12] = interlace;
   const raw = Buffer.concat(rows.map((r) => Buffer.concat([Buffer.from([0]), Buffer.from(r)])));
-  return new Uint8Array(Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), ...extra, chunk('IDAT', deflateSync(raw)), chunk('IEND', new Uint8Array(0))]));
+  return new Uint8Array(Buffer.concat([PNG_SIGNATURE, pngChunk('IHDR', ihdr), ...extra, pngChunk('IDAT', deflateSync(raw)), pngChunk('IEND', new Uint8Array(0))]));
 }
 function rgbaPng(width: number, height: number, px: (x: number, y: number) => [number, number, number, number]): Uint8Array {
   const rows: Uint8Array[] = [];
@@ -95,13 +80,13 @@ describe('the shared PNG decoder on texture sources', () => {
     it(`reads RGBA, palette + tRNS, 1-bit grey, 16-bit RGB and grey tRNS (${name} inflate)`, () => {
       const a = decode(rgbaPng(2, 1, (x) => (x === 0 ? [10, 20, 30, 40] : [250, 240, 230, 220])), inflate);
       expect([...a.data]).toEqual([10, 20, 30, 40, 250, 240, 230, 220]);
-      const pal = decode(png(2, 1, 8, 3, [new Uint8Array([0, 1])], [chunk('PLTE', new Uint8Array([255, 0, 0, 0, 0, 255])), chunk('tRNS', new Uint8Array([0]))]), inflate);
+      const pal = decode(png(2, 1, 8, 3, [new Uint8Array([0, 1])], [pngChunk('PLTE', new Uint8Array([255, 0, 0, 0, 0, 255])), pngChunk('tRNS', new Uint8Array([0]))]), inflate);
       expect([...pal.data]).toEqual([255, 0, 0, 0, 0, 0, 255, 255]);
       const bits = decode(png(8, 1, 1, 0, [new Uint8Array([0b10100000])]), inflate);
       expect([...bits.data].filter((_, i) => i % 4 === 0)).toEqual([255, 0, 255, 0, 0, 0, 0, 0]);
       const deep = decode(png(1, 1, 16, 2, [new Uint8Array([0xff, 0x00, 0x80, 0x00, 0x00, 0xff])]), inflate);
       expect([...deep.data]).toEqual([255, 128, 0, 255]);
-      const key = decode(png(2, 1, 8, 0, [new Uint8Array([7, 9])], [chunk('tRNS', new Uint8Array([0, 7]))]), inflate);
+      const key = decode(png(2, 1, 8, 0, [new Uint8Array([7, 9])], [pngChunk('tRNS', new Uint8Array([0, 7]))]), inflate);
       expect([...key.data]).toEqual([7, 7, 7, 0, 9, 9, 9, 255]);
     });
 
@@ -139,7 +124,7 @@ describe('the shared PNG decoder on texture sources', () => {
     ihdr.writeUInt32BE(16, 4);
     ihdr[8] = 8;
     ihdr[9] = 0;
-    return new Uint8Array(Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', zeroBomb(1_000_000)), chunk('IEND', new Uint8Array(0))]));
+    return new Uint8Array(Buffer.concat([PNG_SIGNATURE, pngChunk('IHDR', ihdr), pngChunk('IDAT', zeroBomb(1_000_000)), pngChunk('IEND', new Uint8Array(0))]));
   })();
 
   it('checks the crafted stream really expands (uncapped, in a bounded probe)', () => {
@@ -199,7 +184,7 @@ describe('encodeKtx2', () => {
   it('refuses a broken WebP, KTX2 and garbage with a reason; names the pinned encoder', async () => {
     const broken = new Uint8Array([0x52, 0x49, 0x46, 0x46, 4, 0, 0, 0, 0x57, 0x45, 0x42, 0x50]);
     expect(await encodeKtx2(broken, 'color')).toMatchObject({ ok: false, code: 'texture_encode_failed', message: expect.stringMatching(/WEBP could not be decoded/) });
-    expect(await encodeKtx2(new Uint8Array([0xab, 0x4b, 0x54, 0x58, 0x20, 0x32, 0x30, 0xbb, 0x0d, 0x0a, 0x1a, 0x0a]), 'color')).toMatchObject({ ok: false, message: expect.stringMatching(/already KTX2/) });
+    expect(await encodeKtx2(KTX2_IDENTIFIER.slice(), 'color')).toMatchObject({ ok: false, message: expect.stringMatching(/already KTX2/) });
     expect((await encodeKtx2(new Uint8Array([1, 2, 3]), 'color')).ok).toBe(false);
     // The recorded version is the installed pin's.
     const pkg = JSON.parse(readFileSync(join(process.cwd(), 'node_modules', 'ktx2-encoder', 'package.json'), 'utf8')) as { version: string };

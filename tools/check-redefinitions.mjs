@@ -96,8 +96,19 @@ export const OWNED_FAMILIES = Object.freeze([
     owner: 'packages/shared/src/mat4.ts',
     names: ['mulMat4', 'mat4Multiply', 'multiplyMat4', 'invertMat4', 'composeMat4', 'decomposeMat4'],
   },
-  { family: 'glb-container', owner: 'packages/shared/src/glb.ts', names: ['glbChunks', 'readGlb', 'parseGlb', 'splitGlb', 'glbJson'] },
-  { family: 'image-signatures', owner: 'packages/shared/src/image-signatures.ts', names: ['PNG_SIGNATURE', 'KTX2_IDENTIFIER'] },
+  {
+    family: 'glb-container',
+    owner: 'packages/shared/src/glb.ts',
+    names: ['glbChunks', 'readGlb', 'parseGlb', 'splitGlb', 'glbJson', 'writeGlb', 'glbBytes', 'GLB_MAGIC', 'GLB_CHUNK_JSON', 'GLB_CHUNK_BIN', 'CHUNK_JSON', 'CHUNK_BIN'],
+    // The JSON chunk type: every reader and writer of the container names it.
+    fingerprints: [0x4e4f534a],
+  },
+  {
+    family: 'image-signatures',
+    owner: 'packages/shared/src/image-signatures.ts',
+    names: ['PNG_SIGNATURE', 'KTX2_IDENTIFIER', 'KTX2_ID', 'isPng', 'isKtx2', 'isKtx2Bytes', 'hasPngSignature', 'hasKtx2Signature'],
+  },
+  { family: 'png-writer', owner: 'packages/shared/src/png.ts', names: ['pngChunk', 'pngBytes'] },
   { family: 'objects', owner: 'packages/shared/src/objects.ts', names: ['isPlainObject', 'deepFreeze'] },
   { family: 'strict-json', owner: 'packages/shared/src/strict-json.ts', names: ['parseStrictJson', 'strictJson'] },
   { family: 'digest-format', owner: 'packages/project-model/src/content-helpers.ts', names: ['DIGEST_RE'] },

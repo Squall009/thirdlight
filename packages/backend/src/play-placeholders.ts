@@ -14,6 +14,7 @@
  * A font has none (the build refuses; fonts are drawn by the project-wide
  * UI, so a missing one is always in the start's draw set anyway).
  */
+import { glbBytes } from '@thirdlight/shared';
 import { encodeRgbaPng } from './image-thumbnail';
 
 /** The placeholder texture's edge in pixels, and its checker cell. */
@@ -123,20 +124,5 @@ function boxGlb(b: { min: [number, number, number]; max: [number, number, number
       { bufferView: 2, componentType: 5123, count: 36, type: 'SCALAR' },
     ],
   };
-  const json = new TextEncoder().encode(JSON.stringify(gltf));
-  const jsonLength = Math.ceil(json.length / 4) * 4;
-  const binLength = Math.ceil(bin.length / 4) * 4;
-  const out = new Uint8Array(12 + 8 + jsonLength + 8 + binLength);
-  const v = new DataView(out.buffer);
-  v.setUint32(0, 0x46546c67, true); // 'glTF'
-  v.setUint32(4, 2, true);
-  v.setUint32(8, out.length, true);
-  v.setUint32(12, jsonLength, true);
-  v.setUint32(16, 0x4e4f534a, true); // 'JSON'
-  out.set(json, 20);
-  out.fill(0x20, 20 + json.length, 20 + jsonLength);
-  v.setUint32(20 + jsonLength, binLength, true);
-  v.setUint32(24 + jsonLength, 0x004e4942, true); // 'BIN\0'
-  out.set(bin, 28 + jsonLength);
-  return out;
+  return glbBytes(JSON.stringify(gltf), bin);
 }

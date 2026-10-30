@@ -7,7 +7,8 @@
  * profile order and stops at the first that reports.
  */
 
-import { GLB_MAGIC, GLB_VERSION, CHUNK_JSON, CHUNK_BIN, EXTENSION_PLACES, type ExtensionPlace } from './gltf-rules';
+import { GLB_CHUNK_BIN, GLB_CHUNK_JSON, GLB_MAGIC } from '@thirdlight/shared';
+import { GLB_VERSION, EXTENSION_PLACES, type ExtensionPlace } from './gltf-rules';
 import { escapePointer, strictJsonParse } from './json';
 import { M2_GLTF_EXTENSION_ALLOWLIST, M2_GLTF_JSON_CHUNK_BYTES } from './limits';
 import type { ImportDiagnostic } from './types';
@@ -114,7 +115,7 @@ export function checkChunks(glb: GlbState): ImportDiagnostic[] | null {
   }
   const json = chunks[0] as { type: number; dataStart: number; length: number };
   const bin = chunks[1] as { type: number; dataStart: number; length: number };
-  if (json.type !== CHUNK_JSON) {
+  if (json.type !== GLB_CHUNK_JSON) {
     out.push(
       diag('asset_container_invalid', ptr(), 'chunk 0 must be the JSON chunk', {
         found: `0x${json.type.toString(16).padStart(8, '0')}`,
@@ -122,7 +123,7 @@ export function checkChunks(glb: GlbState): ImportDiagnostic[] | null {
       }),
     );
   }
-  if (bin.type !== CHUNK_BIN) {
+  if (bin.type !== GLB_CHUNK_BIN) {
     out.push(
       diag('asset_container_invalid', ptr(), 'chunk 1 must be the BIN chunk', {
         found: `0x${bin.type.toString(16).padStart(8, '0')}`,

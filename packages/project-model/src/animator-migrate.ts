@@ -14,6 +14,7 @@
  *
  * Pure: the caller supplies the clip lengths (read from the model files).
  */
+import { readGlb } from '@thirdlight/shared';
 import type { AnimatorController } from './animator';
 import type { ContentCatalogV4, SceneV4 } from './types-v3';
 
@@ -154,32 +155,24 @@ export function migrateModelAnimations(scenes: readonly SceneV4[], content: Cont
  * bytes are not a readable GLB.
  */
 export function glbClipDurations(bytes: Uint8Array): { name: string; duration: number }[] | null {
-  if (bytes.byteLength < 20) return null;
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  if (view.getUint32(0, true) !== 0x46546c67 || view.getUint32(4, true) !== 2) return null;
-  const jsonLength = view.getUint32(12, true);
-  if (view.getUint32(16, true) !== 0x4e4f534a || 20 + jsonLength > bytes.byteLength) return null;
-  let json: {
+  const glb = readGlb(bytes);
+  if (typeof glb === 'string') return null;
+  const json = glb.json as {
     animations?: { name?: string; samplers?: { input?: number }[] }[];
     accessors?: { bufferView?: number; byteOffset?: number; count?: number; max?: number[]; componentType?: number }[];
     bufferViews?: { byteOffset?: number; byteLength?: number; byteStride?: number }[];
   };
-  try {
-    json = JSON.parse(new TextDecoder().decode(bytes.subarray(20, 20 + jsonLength))) as typeof json;
-  } catch {
-    return null;
-  }
-  const binStart = 20 + jsonLength + 8;
-  const hasBin = binStart <= bytes.byteLength && view.getUint32(20 + jsonLength + 4, true) === 0x004e4942;
+  const bin = glb.bin;
+  const view = bin === null ? null : new DataView(bin.buffer, bin.byteOffset, bin.byteLength);
   const lastKey = (accessorIndex: number | undefined): number => {
     const acc = accessorIndex === undefined ? undefined : json.accessors?.[accessorIndex];
     if (acc === undefined) return 0;
     const max = acc.max?.[0];
     if (typeof max === 'number' && Number.isFinite(max)) return max;
     const bv = acc.bufferView === undefined ? undefined : json.bufferViews?.[acc.bufferView];
-    if (!hasBin || bv === undefined || acc.componentType !== 5126 || !(Number(acc.count) > 0)) return 0;
-    const at = binStart + (bv.byteOffset ?? 0) + (acc.byteOffset ?? 0) + ((acc.count as number) - 1) * (bv.byteStride ?? 4);
-    return at + 4 <= bytes.byteLength ? view.getFloat32(at, true) : 0;
+    if (view === null || bv === undefined || acc.componentType !== 5126 || !(Number(acc.count) > 0)) return 0;
+    const at = (bv.byteOffset ?? 0) + (acc.byteOffset ?? 0) + ((acc.count as number) - 1) * (bv.byteStride ?? 4);
+    return at + 4 <= view.byteLength ? view.getFloat32(at, true) : 0;
   };
   return (json.animations ?? []).map((a, i) => ({
     name: typeof a.name === 'string' ? a.name : `animation_${i}`,

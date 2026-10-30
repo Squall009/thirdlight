@@ -7,6 +7,7 @@
  * files), and assert the resource-ownership ledger instead of pixels.
  */
 
+import { glbBytes } from '@thirdlight/shared';
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { createResourceManager } from '@thirdlight/runtime';
@@ -20,20 +21,7 @@ function tinyGlb(): Uint8Array {
     scenes: [{ nodes: [] }],
     nodes: [],
   });
-  const jsonBytes = new TextEncoder().encode(json);
-  const jsonPadded = new Uint8Array(Math.ceil(jsonBytes.length / 4) * 4);
-  jsonPadded.set(jsonBytes, 0);
-  jsonPadded.fill(0x20, jsonBytes.length);
-  const total = 12 + 8 + jsonPadded.length;
-  const out = new Uint8Array(total);
-  const view = new DataView(out.buffer);
-  view.setUint32(0, 0x46546c67, true);
-  view.setUint32(4, 2, true);
-  view.setUint32(8, total, true);
-  view.setUint32(12, jsonPadded.length, true);
-  view.setUint32(16, 0x4e4f534a, true);
-  out.set(jsonPadded, 20);
-  return out;
+  return glbBytes(json);
 }
 
 function descriptor(assetId: string, version: number, byteLength: number): VisualDescriptor {

@@ -8,10 +8,7 @@
 import { DECAL_FADE_GLTF_ATTRIBUTE } from '@thirdlight/project-model/decal-clip-glb';
 import { TRIM_DATA_GLTF_ATTRIBUTE } from '@thirdlight/project-model/limits';
 
-export const GLB_MAGIC = 0x46546c67; // 'glTF' little-endian
 export const GLB_VERSION = 2;
-export const CHUNK_JSON = 0x4e4f534a; // 'JSON'
-export const CHUNK_BIN = 0x004e4942; // 'BIN\0'
 
 export const COMPONENT_SIZES: Readonly<Record<number, number>> = {
   5120: 1, // BYTE

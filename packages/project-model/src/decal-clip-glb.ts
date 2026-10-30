@@ -14,6 +14,7 @@
  *
  * Pure: no three.js, no I/O.
  */
+import { glbBytes } from '@thirdlight/shared';
 import type { DecalClipMesh } from './decal-clip';
 
 /**
@@ -78,25 +79,11 @@ export function decalClipGlb(m: Pick<DecalClipMesh, 'positions' | 'normals' | 'u
     bufferViews: views,
     accessors,
   };
-  const text = new TextEncoder().encode(JSON.stringify(json));
-  const jsonLength = text.byteLength + ((4 - (text.byteLength % 4)) % 4);
-  const total = 12 + 8 + jsonLength + 8 + offset;
-  const out = new Uint8Array(total);
-  const dv = new DataView(out.buffer);
-  dv.setUint32(0, 0x46546c67, true);
-  dv.setUint32(4, 2, true);
-  dv.setUint32(8, total, true);
-  dv.setUint32(12, jsonLength, true);
-  dv.setUint32(16, 0x4e4f534a, true);
-  out.set(text, 20);
-  out.fill(0x20, 20 + text.byteLength, 20 + jsonLength);
-  const bin = 20 + jsonLength;
-  dv.setUint32(bin, offset, true);
-  dv.setUint32(bin + 4, 0x004e4942, true);
-  let at = bin + 8;
+  const bin = new Uint8Array(offset);
+  let at = 0;
   for (const p of parts) {
-    out.set(p.bytes, at);
+    bin.set(p.bytes, at);
     at += p.bytes.byteLength + ((4 - (p.bytes.byteLength % 4)) % 4);
   }
-  return out;
+  return glbBytes(JSON.stringify(json), bin);
 }

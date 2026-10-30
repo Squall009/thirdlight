@@ -12,6 +12,7 @@
   "dependencies": {
     "@thirdlight/effects": "0.1.0",
     "@thirdlight/runtime": "0.1.0",
+    "@thirdlight/shared": "0.1.0",
     "three": "0.186.1"
   },
   "devDependencies": {

@@ -21,7 +21,8 @@ import { BLOCK_LAYER_DEFAULT } from './block-layers';
 import { kitSlotPlacement } from './kits';
 export { kitCheckTally } from './kits';
 import { isModelHelperNode, MODEL_LOD_RE, modelNodeMatrix, modelPieceName, readModelGeometry, type ModelGeometryPrimitive } from './model-collision';
-import { glbChunks, sanitizeRigNodeName } from './model-rig';
+import { readGlb } from '@thirdlight/shared';
+import { sanitizeRigNodeName } from './model-rig';
 import { TRIM_PIECE_PLACE_TOLERANCE, TRIM_SHEET_DEFAULTS, TRIM_STARTER_ROWS, trimPaddingProblems, trimRowMetres, trimRowV, trimSheetProblems, trimSheetSafeMipLevel, type TrimRow, type TrimSheet } from './trim-sheet';
 
 /** ok: meets the spec; warn: draws, but not as the spec asks; err: draws wrong; info: not checked, and why. */
@@ -90,7 +91,7 @@ export interface PieceFacts {
 /** Read a model file's facts for one piece (`piece` absent: the whole file). Never throws. */
 export function pieceFacts(bytes: Uint8Array, piece?: string): PieceFacts {
   const empty: PieceFacts = { piece: piece ?? '', pieces: [], found: false, lods: [], triangles: [], collider: false, colliderTriangles: 0, bounds: null, moved: [], surfaces: [], unreadable: null, uvSkipped: false };
-  const chunks = glbChunks(bytes);
+  const chunks = readGlb(bytes);
   if (typeof chunks === 'string') return { ...empty, unreadable: chunks };
   const json = chunks.json;
   const nodes = Array.isArray(json['nodes']) ? (json['nodes'] as Record<string, unknown>[]) : [];

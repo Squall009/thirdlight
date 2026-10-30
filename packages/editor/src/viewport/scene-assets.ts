@@ -14,10 +14,11 @@
  * The authoring token never reaches the renderer: the bytes come through the
  * session client's authenticated reads.
  */
+import { isKtx2 } from '@thirdlight/shared';
 import * as THREE from 'three';
 import { parseFillLayer } from '@thirdlight/project-model/texture-slots';
 import { createResourceManager, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
-import { createMaterialLibrary, decodeTexture, isKtx2, type MaterialLibrary, type SceneAdapterModelAsset, type SceneAdapterModels } from '@thirdlight/three-adapter';
+import { createMaterialLibrary, decodeTexture, type MaterialLibrary, type SceneAdapterModelAsset, type SceneAdapterModels } from '@thirdlight/three-adapter';
 
 import type { SessionClient } from '../session/client';
 import { parseDecalPageTextureKey } from '../session/decal-atlas';

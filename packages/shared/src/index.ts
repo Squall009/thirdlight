@@ -20,3 +20,7 @@ export {
   compareCodePoints,
   indentedJsonText,
 } from './canonical-json';
+export { crc32 } from './crc32';
+export { isKtx2, isPng, KTX2_IDENTIFIER, PNG_SIGNATURE, startsWith } from './image-signatures';
+export { pngBytes, pngChunk, type PngParts } from './png';
+export { GLB_CHUNK_BIN, GLB_CHUNK_JSON, GLB_MAGIC, glbBytes, readGlb, type GlbParts } from './glb';

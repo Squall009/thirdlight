@@ -15,6 +15,8 @@
  * fence); its `occ` box is its `<name>_OCC` occluder stand-in.
  */
 
+import { glbBytes } from '@thirdlight/shared';
+
 export interface PieceSpec {
   name: string;
   /** Box size per LOD (LOD0 first); one entry = no LOD suffix. */
@@ -163,21 +165,7 @@ export function multiPieceGlb(pieces: readonly PieceSpec[], options: { lightmapU
     bufferViews,
     buffers: [{ byteLength: bin.length }],
   };
-  let jsonBuf = Buffer.from(JSON.stringify(json), 'utf8');
-  const jsonPad = (4 - (jsonBuf.length % 4)) % 4;
-  jsonBuf = Buffer.concat([jsonBuf, Buffer.alloc(jsonPad, 0x20)]);
-  const header = Buffer.alloc(12);
-  const total = 12 + 8 + jsonBuf.length + 8 + bin.length;
-  header.writeUInt32LE(0x46546c67, 0);
-  header.writeUInt32LE(2, 4);
-  header.writeUInt32LE(total, 8);
-  const jh = Buffer.alloc(8);
-  jh.writeUInt32LE(jsonBuf.length, 0);
-  jh.writeUInt32LE(0x4e4f534a, 4);
-  const bh = Buffer.alloc(8);
-  bh.writeUInt32LE(bin.length, 0);
-  bh.writeUInt32LE(0x004e4942, 4);
-  return Buffer.concat([header, jh, jsonBuf, bh, bin]);
+  return Buffer.from(glbBytes(JSON.stringify(json), bin));
 }
 
 /** The fixture the model-pieces test imports. */

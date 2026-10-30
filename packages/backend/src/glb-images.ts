@@ -17,6 +17,7 @@
  *
  * Pure byte work: no decoding of pixels, no file access.
  */
+import { glbBytes, readGlb } from '@thirdlight/shared';
 import { encodeRgbaPng } from './image-thumbnail';
 
 export type GlbImageMime = 'image/png' | 'image/jpeg' | 'image/webp' | 'image/ktx2';
@@ -31,43 +32,6 @@ export interface GlbImage {
   readonly bytes: Uint8Array;
   /** What the materials sample it as (empty: no material uses it). */
   readonly roles: ReadonlySet<GlbImageRole>;
-}
-
-export interface GlbParts {
-  readonly json: Record<string, unknown>;
-  readonly bin: Uint8Array | null;
-}
-
-const GLB_MAGIC = 0x46546c67;
-const CHUNK_JSON = 0x4e4f534a;
-const CHUNK_BIN = 0x004e4942;
-
-export function readGlb(glb: Uint8Array): GlbParts | string {
-  if (glb.byteLength < 20) return 'the file is shorter than a GLB header';
-  const view = new DataView(glb.buffer, glb.byteOffset, glb.byteLength);
-  if (view.getUint32(0, true) !== GLB_MAGIC || view.getUint32(4, true) !== 2) return 'not a GLB (version 2)';
-  const total = Math.min(view.getUint32(8, true), glb.byteLength);
-  let offset = 12;
-  let json: Record<string, unknown> | null = null;
-  let bin: Uint8Array | null = null;
-  while (offset + 8 <= total) {
-    const length = view.getUint32(offset, true);
-    const type = view.getUint32(offset + 4, true);
-    const start = offset + 8;
-    if (start + length > total) return 'a GLB chunk runs past the end of the file';
-    if (type === CHUNK_JSON && json === null) {
-      try {
-        const parsed: unknown = JSON.parse(new TextDecoder().decode(glb.subarray(start, start + length)));
-        if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return 'the GLB JSON is not an object';
-        json = parsed as Record<string, unknown>;
-      } catch {
-        return 'the GLB JSON cannot be read';
-      }
-    } else if (type === CHUNK_BIN && bin === null) bin = glb.subarray(start, start + length);
-    offset = start + length;
-  }
-  if (json === null) return 'the GLB has no JSON chunk';
-  return { json, bin };
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -255,27 +219,5 @@ export function stripGlbImages(glb: Uint8Array, images: readonly GlbImage[], ext
       else delete json[key];
     }
   }
-  return writeGlb(json, newBin);
-}
-
-export function writeGlb(json: Record<string, unknown>, bin: Uint8Array): Uint8Array {
-  const text = new TextEncoder().encode(JSON.stringify(json));
-  const jsonLength = align4(text.length);
-  const total = 12 + 8 + jsonLength + (bin.length > 0 ? 8 + bin.length : 0);
-  const out = new Uint8Array(total);
-  const view = new DataView(out.buffer);
-  view.setUint32(0, GLB_MAGIC, true);
-  view.setUint32(4, 2, true);
-  view.setUint32(8, total, true);
-  view.setUint32(12, jsonLength, true);
-  view.setUint32(16, CHUNK_JSON, true);
-  out.set(text, 20);
-  out.fill(0x20, 20 + text.length, 20 + jsonLength);
-  if (bin.length > 0) {
-    const at = 20 + jsonLength;
-    view.setUint32(at, bin.length, true);
-    view.setUint32(at + 4, CHUNK_BIN, true);
-    out.set(bin, at + 8);
-  }
-  return out;
+  return glbBytes(JSON.stringify(json), newBin.length > 0 ? newBin : null);
 }

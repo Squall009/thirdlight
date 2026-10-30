@@ -18,7 +18,7 @@ import { loadMeshSimplifier } from '@thirdlight/asset-pipeline';
 import { MESH_LOD_RATIOS_DEFAULT } from '@thirdlight/project-model/limits';
 
 import { createAssetInspector } from './content';
-import { readGlb, writeGlb } from './glb-images';
+import { glbBytes, readGlb } from '@thirdlight/shared';
 import { generateGlbLods, type GlbLodReport } from './glb-lods';
 import { api, mkRequestId, startBackend, type TestBackend } from './test-helpers';
 
@@ -75,22 +75,7 @@ function meshGlb(nodes: { name: string; mesh: { positions: number[]; indices: nu
   }
   const allNodes = [...nodes.map((n, i) => ({ name: n.name, mesh: i, translation: [i * 3, 0, 0] })), ...extraNodes.map((name) => ({ name }))];
   const json = { asset: { version: '2.0', extras: { tag } }, scene: 0, scenes: [{ nodes: allNodes.map((_, i) => i) }], nodes: allNodes, meshes, accessors, bufferViews: views, buffers: [{ byteLength: bin.length }] };
-  let text = new TextEncoder().encode(JSON.stringify(json));
-  const padded = new Uint8Array(text.length + ((4 - (text.length % 4)) % 4)).fill(0x20);
-  padded.set(text);
-  text = padded;
-  const out = new Uint8Array(28 + text.length + bin.length);
-  const dv = new DataView(out.buffer);
-  dv.setUint32(0, 0x46546c67, true);
-  dv.setUint32(4, 2, true);
-  dv.setUint32(8, out.length, true);
-  dv.setUint32(12, text.length, true);
-  dv.setUint32(16, 0x4e4f534a, true);
-  out.set(text, 20);
-  dv.setUint32(20 + text.length, bin.length, true);
-  dv.setUint32(24 + text.length, 0x004e4942, true);
-  out.set(bin, 28 + text.length);
-  return out;
+  return glbBytes(JSON.stringify(json), bin);
 }
 
 type Json = Record<string, any>;
@@ -137,7 +122,7 @@ describe('generated levels in a GLB', () => {
     // A node an animation moves keeps its single level (a level beside it would stand still).
     const parts = readGlb(meshGlb([{ name: 'fan', mesh: sphere(32, 16) }], 'c')) as { json: Json; bin: Uint8Array };
     const animatedJson = { ...parts.json, animations: [{ channels: [{ sampler: 0, target: { node: 0, path: 'translation' } }], samplers: [{ input: 0, output: 0 }] }] };
-    const animated = generateGlbLods(writeGlb(animatedJson, parts.bin), s);
+    const animated = generateGlbLods(glbBytes(JSON.stringify(animatedJson), parts.bin), s);
     expect(animated.glb).toBeNull();
     expect((animated.report as GlbLodReport).skipped).toEqual([{ node: 'fan', reason: 'an animation moves it' }]);
     const authored = generateGlbLods(meshGlb([{ name: 'tree_LOD0', mesh: sphere(16, 8) }, { name: 'tree_LOD1', mesh: QUAD }], 'b'), s);

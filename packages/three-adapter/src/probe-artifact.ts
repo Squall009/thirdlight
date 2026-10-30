@@ -19,6 +19,7 @@
  *
  * Pure apart from `CompressionStream` (encoding, in the editor's bake).
  */
+import { isPng, pngBytes } from '@thirdlight/shared';
 import * as THREE from 'three';
 import { decodePngRgba, MAX_TEXTURE_EDGE, PROBE_ARTIFACT_ROW_PROBES, PROBE_ATLAS_PADDING, PROBE_SH_TEXELS, PROBE_TEXELS, probeArtifactSize, probeCount, type ProbeGridBox } from '@thirdlight/project-model';
 
@@ -49,22 +50,6 @@ export function packProbeTexels(sh: Float32Array, validity: Float32Array, walls?
   return { width, height, samples };
 }
 
-const CRC_TABLE = (() => {
-  const t = new Uint32Array(256);
-  for (let n = 0; n < 256; n++) {
-    let c = n;
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    t[n] = c >>> 0;
-  }
-  return t;
-})();
-
-function crc32(bytes: Uint8Array): number {
-  let c = 0xffffffff;
-  for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]!) & 0xff]! ^ (c >>> 8);
-  return (c ^ 0xffffffff) >>> 0;
-}
-
 async function zlib(raw: Uint8Array): Promise<Uint8Array> {
   const stream = new Blob([raw as BlobPart]).stream().pipeThrough(new CompressionStream('deflate'));
   return new Uint8Array(await new Response(stream).arrayBuffer());
@@ -83,30 +68,7 @@ export async function encodePng16(width: number, height: number, samples: Uint16
     }
   }
   const idat = await zlib(raw);
-  const ihdr = new Uint8Array(13);
-  const hv = new DataView(ihdr.buffer);
-  hv.setUint32(0, width);
-  hv.setUint32(4, height);
-  ihdr.set([16, 6, 0, 0, 0], 8);
-  const chunks: [string, Uint8Array][] = [
-    ['IHDR', ihdr],
-    ['IDAT', idat],
-    ['IEND', new Uint8Array(0)],
-  ];
-  const out = new Uint8Array(8 + chunks.reduce((n, [, b]) => n + 12 + b.length, 0));
-  out.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
-  const view = new DataView(out.buffer);
-  let at = 8;
-  for (const [type, body] of chunks) {
-    view.setUint32(at, body.length);
-    const typed = new Uint8Array(4 + body.length);
-    for (let i = 0; i < 4; i++) typed[i] = type.charCodeAt(i);
-    typed.set(body, 4);
-    out.set(typed, at + 4);
-    view.setUint32(at + 8 + body.length, crc32(typed));
-    at += 12 + body.length;
-  }
-  return out;
+  return pngBytes({ width, height, bitDepth: 16, colorType: 6, idat });
 }
 
 /** A tile's 3D texture data (three's atlas layout, a sub-volume per probe texel) from the file's samples. */
@@ -164,7 +126,7 @@ export function decodeProbeArtifact(bytes: Uint8Array, grid: Pick<ProbeGridBox, 
 
 /** The 16-bit RGBA PNG's header and its compressed image data, or null for any other PNG (the general decoder reads those). */
 function probePngParts(bytes: Uint8Array): { width: number; height: number; idat: Uint8Array } | null {
-  if (bytes.length < 8 || bytes[0] !== 0x89 || bytes[1] !== 0x50) return null;
+  if (!isPng(bytes)) return null;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const parts: Uint8Array[] = [];
   let header: { width: number; height: number } | null = null;

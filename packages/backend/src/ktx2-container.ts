@@ -9,10 +9,10 @@
  * order and the result is compressed again. No texel is decoded or encoded,
  * so the array samples exactly as the separate textures did.
  */
+import { isKtx2, KTX2_IDENTIFIER } from '@thirdlight/shared';
 import { createHash } from 'node:crypto';
 import { constants as zlibConstants, zstdCompressSync, zstdDecompressSync } from 'node:zlib';
 
-const KTX2_ID = [0xab, 0x4b, 0x54, 0x58, 0x20, 0x32, 0x30, 0xbb, 0x0d, 0x0a, 0x1a, 0x0a];
 const HEADER_BYTES = 80;
 const LEVEL_ENTRY_BYTES = 24;
 /** `supercompressionScheme`: none, BasisLZ (ETC1S), Zstandard. */
@@ -70,7 +70,7 @@ export interface Ktx2Container {
 
 /** The container's parts; null when it is not a well-formed KTX2 (offsets inside the file). */
 export function readKtx2(bytes: Uint8Array): Ktx2Container | null {
-  if (bytes.length < HEADER_BYTES || KTX2_ID.some((b, i) => bytes[i] !== b)) return null;
+  if (bytes.length < HEADER_BYTES || !isKtx2(bytes)) return null;
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const u32 = (o: number): number => dv.getUint32(o, true);
   const u64 = (o: number): number => {
@@ -261,7 +261,7 @@ export function writeKtx2(c: Pick<Ktx2Container, 'width' | 'height' | 'depth' | 
   }
   const out = new Uint8Array(at);
   const dv = new DataView(out.buffer);
-  out.set(KTX2_ID, 0);
+  out.set(KTX2_IDENTIFIER, 0);
   // vkFormat 0 (a Basis Universal payload), typeSize 1.
   dv.setUint32(12, 0, true);
   dv.setUint32(16, 1, true);

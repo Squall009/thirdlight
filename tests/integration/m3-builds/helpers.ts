@@ -11,24 +11,7 @@
 /** Build one valid glTF 2.0 GLB (JSON chunk only — no external uris). */
 export function minimalGlb(): Uint8Array {
   const jsonText = JSON.stringify({ asset: { version: '2.0', generator: 'thirdlight-m3-test' }, scenes: [{}], scene: 0 });
-  const jsonUtf8 = new TextEncoder().encode(jsonText);
-  // Pad the JSON chunk to a 4-byte boundary with spaces (0x20).
-  let jsonPadded = jsonUtf8;
-  while (jsonPadded.length % 4 !== 0) {
-    const extra = new Uint8Array(4 - (jsonPadded.length % 4));
-    extra.fill(0x20);
-    jsonPadded = concatU8(jsonPadded, extra);
-  }
-  const totalLength = 12 + 8 + jsonPadded.length;
-  const out = new Uint8Array(totalLength);
-  const dv = new DataView(out.buffer);
-  dv.setUint32(0, 0x46546c67, true); // "glTF"
-  dv.setUint32(4, 2, true); // version 2
-  dv.setUint32(8, totalLength, true);
-  dv.setUint32(12, jsonPadded.length, true); // chunk length
-  dv.setUint32(16, 0x4e4f534a, true); // "JSON"
-  out.set(jsonPadded, 20);
-  return out;
+  return glbBytes(jsonText);
 }
 
 /** Build one valid RIFF/WAVE mono/48000/16-bit PCM WAV with `frames` samples. */
@@ -59,16 +42,8 @@ export function minimalWav(frames = 96): Uint8Array {
   return out;
 }
 
-/** Concatenate two Uint8Arrays. */
-function concatU8(a: Uint8Array, b: Uint8Array): Uint8Array {
-  const out = new Uint8Array(a.length + b.length);
-  out.set(a, 0);
-  out.set(b, a.length);
-  return out;
-}
-
 /** The SHA-256 (lowercase hex) of the bytes (independent `node:crypto`). */
-import { sha256Hex } from '@thirdlight/shared';
+import { glbBytes, sha256Hex } from '@thirdlight/shared';
 export { sha256Hex };
 
 /** A synthetic v3 authoring envelope (scene + content) with one model asset

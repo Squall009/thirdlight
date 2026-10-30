@@ -27,7 +27,8 @@
  */
 import type { ModelErrorV2 } from './errors';
 import { MODEL_OCC_RE, modelRenderPrimitives, readModelGeometry, type ModelGeometry } from './model-collision';
-import { glbChunks, sanitizeRigNodeName } from './model-rig';
+import { readGlb } from '@thirdlight/shared';
+import { sanitizeRigNodeName } from './model-rig';
 import { fieldValue, unexpectedField } from './validate';
 
 /** What of a model counts as an occluder (absent: `auto`). */
@@ -315,7 +316,7 @@ export function modelOccluderProblem(c: ModelOccluderCheck): string | null {
  * could not be read). Only a file that names an `_OCC` node is decoded.
  */
 export function modelOccluderReport(bytes: Uint8Array): ModelOccluderCheck[] | string {
-  const chunks = glbChunks(bytes);
+  const chunks = readGlb(bytes);
   if (typeof chunks === 'string') return chunks;
   const nodes = Array.isArray(chunks.json['nodes']) ? (chunks.json['nodes'] as unknown[]) : [];
   const named = nodes.some((n) => typeof n === 'object' && n !== null && typeof (n as { name?: unknown }).name === 'string' && MODEL_OCC_RE.test(sanitizeRigNodeName((n as { name: string }).name)));

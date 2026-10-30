@@ -23,6 +23,7 @@
  * UNVERIFIED here (no browser in this container): the real-browser static-URL
  * walkthrough (WebGL, the audio owner, the HUD).
  */
+import { GLB_MAGIC } from '@thirdlight/shared';
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -145,7 +146,7 @@ describe('B21 the M3 export is a complete declared==emitted relative closure', (
       if (a.path.endsWith) void 0;
       // Both are valid containers (the GLB magic + the RIFF/WAVE markers).
       const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
-      const isGlb = dv.getUint32(0, true) === 0x46546c67;
+      const isGlb = dv.getUint32(0, true) === GLB_MAGIC;
       const isWav = String.fromCharCode(b[0]!, b[1]!, b[2]!, b[3]!) === 'RIFF';
       expect(isGlb || isWav, `artifact ${a.path} is neither a GLB nor a WAV`).toBe(true);
     }

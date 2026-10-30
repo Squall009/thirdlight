@@ -44,6 +44,7 @@
  * Pure three.js: textures come from an injected loader (the host resolves
  * bytes; nothing here fetches).
  */
+import { isKtx2 } from '@thirdlight/shared';
 import { decalSheetCellSampling, heightAlphaTextures, layerSheetRows, localLightModeOf, resolveMaterialInstances, trimSurfaceMaterial, type TrimSheet } from '@thirdlight/project-model';
 import * as THREE from 'three';
 import * as TSL from 'three/tsl';
@@ -72,7 +73,7 @@ import {
 import { copyRoot, derivesTangentFrame, instanceOrigin, standardNodeMaterialFrom } from './node-materials';
 import { decalPageArray, installDecalNodes, type DecalImages, type DecalPlace } from './decal-material';
 import { decalDrawOf, decalOrderOffsetOf, decalRenderOrder, decalSortOrder, installDecalDraw, removeDecalDraw, setDecalOrder, type DecalBlendMode } from './mesh-decals';
-import { decodeKtx2, isKtx2 } from './ktx2';
+import { decodeKtx2 } from './ktx2';
 import { textureHolds, type TextureHolds } from './texture-holds';
 import { SAMPLED_TEXTURES_KEY } from './texture-streaming';
 import { OBJECT_FRAME_KEY } from './static-merge';
