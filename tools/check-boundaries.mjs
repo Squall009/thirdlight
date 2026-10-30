@@ -409,6 +409,7 @@ export const NODE_SIDE_ALLOWED = {
         'plane-lock', // the gizmo holds a body to the plane the game locks it to
         'shape-2d-3d', // a flat collider is drawn as the solid the game makes of it
         'content-helpers', // a content digest's format is defined once, where the model checks it
+        'authoring-rules', // property values and prefab captures are checked by the commands' own rules before sending
       ],
     },
   },
