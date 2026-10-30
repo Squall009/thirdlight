@@ -193,11 +193,12 @@ export const OWNED_FAMILIES = Object.freeze([
 ]);
 
 /**
- * The areas the voxel world retires or rebuilds on voxels (block layers,
- * terrain, the architecture generator's meshes and colliders, the scatter,
- * paint, room, trim and kit paths that write into them, and their specs):
- * their files keep their copies until they are deleted or rewritten, so their
- * entries are marked rather than moved.
+ * The areas the voxel world retires (block layers, terrain, the architecture
+ * generator's meshes and colliders with the room drawing that lays them out on
+ * a block layer, and their specs): their files keep their copies until they
+ * are deleted, so their entries are marked rather than moved. Scatter, paint,
+ * trim sheets, kits and room culling are kept by the voxel world, so they are
+ * not marked.
  */
 export const RETIRED_AREAS = Object.freeze([
   /(^|\/)blocks?[-.]/,
@@ -206,13 +207,8 @@ export const RETIRED_AREAS = Object.freeze([
   /(^|\/)architecture[-.]/,
   /(^|\/)arch-/,
   /(^|\/)spline-mesh\./,
-  /(^|\/)scatter[-.]/,
-  /(^|\/)stored-scatter\./,
-  /(^|\/)vertex-paint[-.]/,
-  /(^|\/)paint[-.]/,
-  /(^|\/)rooms?[-.]/,
-  /(^|\/)trim[-.]/,
-  /(^|\/)kits?[-.]/,
+  /(^|\/)room-(?:draw|tool|walls)\./,
+  /(^|\/)rooms-drawing\./,
 ]);
 
 /** Whether a path lies in an area the voxel world retires. */

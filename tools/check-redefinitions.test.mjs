@@ -75,12 +75,13 @@ describe('what counts as a copy', () => {
     expect(names(definitionsIn(text, 'packages/b/src/y.ts'))).toEqual(['crc32']);
   });
 
-  it('marks the areas the voxel world retires or rebuilds on voxels', () => {
+  it('marks the areas the voxel world retires, not the tools it keeps', () => {
     expect(isRetired('packages/project-model/src/block-kit.ts')).toBe(true);
     expect(isRetired('packages/project-model/src/terrain-erosion.ts')).toBe(true);
     expect(isRetired('packages/project-model/src/architecture.ts')).toBe(true);
     expect(isRetired('packages/project-model/src/arch-math.ts')).toBe(true);
-    for (const f of ['packages/commands/src/scatter-ops.ts', 'packages/three-adapter/src/stored-scatter.ts', 'packages/workspace/src/vertex-paint-host.ts', 'packages/project-model/src/paint-brush.ts', 'packages/commands/src/room-walls.ts', 'packages/project-model/src/trim-sheet.ts', 'packages/project-model/src/kits.ts', 'packages/backend/src/kit-check.ts']) expect(isRetired(f), f).toBe(true);
+    for (const f of ['packages/commands/src/room-walls.ts', 'packages/editor/src/session/room-draw.ts', 'packages/editor/src/viewport/room-tool.ts', 'tests/e2e/rooms-drawing.ts']) expect(isRetired(f), f).toBe(true);
+    for (const f of ['packages/commands/src/scatter-ops.ts', 'packages/three-adapter/src/stored-scatter.ts', 'packages/workspace/src/vertex-paint-host.ts', 'packages/project-model/src/paint-brush.ts', 'packages/three-adapter/src/room-culling.ts', 'packages/project-model/src/trim-sheet.ts', 'packages/project-model/src/kits.ts', 'packages/backend/src/kit-check.ts']) expect(isRetired(f), f).toBe(false);
     expect(isRetired('packages/runtime/src/scene-control.ts')).toBe(false);
     expect(isRetired('packages/project-model/src/sha256.ts')).toBe(false);
     expect(isRetired('packages/runtime/src/camera-rig.ts')).toBe(false);
