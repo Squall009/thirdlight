@@ -64,7 +64,7 @@ The owner reviews by building in the game folders; a problem comes back as a gam
 | 41 | One physics backend: Rapier 3D, 2D as a switchable plane — `docs/plan-phase-41.md` | done 2026-10-26; open D328; watch D331 |
 | 42 | Unified lighting: surface radiance cache, `area` lights, room probes, TAAU, one bake — `docs/plan-phase-42.md` | done 2026-10-28; open D339 |
 | 43 | Clustered forward lighting, shared shadow atlas, 16-light cap lifted — `docs/plan-phase-43.md` | done 2026-10-30; open D400, D405 |
-| 44 | Consolidation from the global audit (G1–G22) and a docs reset — `docs/plan-phase-44.md` | in progress: 44.0–44.8b done |
+| 44 | Consolidation from the global audit (G1–G22) and a docs reset — `docs/plan-phase-44.md` | in progress: 44.0–44.12 done |
 | 44b | Camera: occlusion modes per camera, adaptive exposure | planned 2026-10-28 (owner draft), after 44 |
 | 45–49 | Voxel world: formats (45), core (46a–d), structures and tools (47a–c), migration and merge (48a–c), water (49) — `docs/plan-phase-45.md` | planned 2026-10-28; on a branch, after 44b |
 | — | Engine verdict (owner request) — `docs/verdict-2026-10-04.md` | 2026-10-04: keep; the owner resumed feature phases with 28b; open D153, D156 |

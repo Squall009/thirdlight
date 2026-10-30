@@ -28,6 +28,16 @@ are in `docs/STATUS.md`; known defects are in `docs/audit-2026-09-22.md`
   "unverified" instead. Never invent results.
 - When an item is done, update its row in `docs/STATUS.md` in one or two
   lines. Do not write handoff files, gate reviews, or evidence dumps.
+  A STATUS row or plan progress row is at most 400 characters
+  (`tools/check-docs.mjs`, in `npm run build`; `tools/docs-ratchet.json`
+  lists today's longer rows and only shrinks). Details go in the plan's
+  decision log or results.
+- Defects: a new D-row takes the next free number in
+  `docs/audit-2026-09-22.md`; a branch first reserves a block there with a
+  line `Reserved: D<first>–D<last> for branch <name>` under the status key,
+  and main skips it. Closed rows (fixed, superseded, won't fix) move to
+  `docs/audit-closed.md` when a phase ends; the docs check fails an open or
+  watch row there, and a D-number listed twice.
 - Commit to `main` with a clear message when a coherent change is green,
   then push to `origin`. Green is tiered: `tools/gate.sh fast <e2e files of
   the area>` per commit, `tools/gate.sh rerun` (only what failed) while
@@ -75,6 +85,7 @@ are in `docs/STATUS.md`; known defects are in `docs/audit-2026-09-22.md`
 - Game projects (Sprout, Skyforge Tactics, …) live outside this repo and are
   never edited from here. Their requests reach the engine through their own
   docs; the engine reads them only to plan.
+  The engine's answers to a game go in `docs/requests/<game>-<date>.md`.
 - Preserve unrelated user changes. Never expose credentials in code, logs,
   bundles, fixtures, or docs.
 
