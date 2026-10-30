@@ -74,6 +74,10 @@ The cost of building one phase at a time shows in four places:
   - `post-upscale.ts:67-85` patches FSR and SMAA;
   - `block-ao-lighting.ts:24`, `mesh-decals.ts:161` and `terrain-view.ts:1306` use builder internals.
 
+  **Status:** fixed a4fa4136 (44.10): all of these (terrain-view's is gone) and the other 64 sites found are in checklist rows (196 sites);
+  `tools/three-hooks.mjs` finds hook sites by shape and its test fails on one no row names; see-through's
+  `setupObserver` wrap is guarded.
+
 **Parallel paths**
 - **G10: three dispatchers per op.** Every op has three hand-written dispatchers: `applyMutation` (`apply.ts:250`),
   `applyInverse` (`history.ts:288`) and `applyForward` (`history.ts:796`). Adding an op takes three matching edits,
@@ -143,8 +147,12 @@ The cost of building one phase at a time shows in four places:
     (`frame-probe.ts:226`);
   - indirect draws count 0 triangles (`instrument.ts:437`);
   - the vitest perf baseline is SwiftShader/WebGL 2 from 2026-09-28 (`tests/perf/baseline.json`).
+
+  **Status:** fixed 33bb7921 (44.10): `info` is per frame, the engine's instanced draws and batches are counted,
+  indirect draws are counted apart (their triangles unknown); the SwiftShader baseline and its opt-in test are retired.
 - **G22: `gate.sh rerun` re-runs only the build and the last failed e2e**, not lint or vitest
-  (`tools/gate.sh:203-212`).
+  (`tools/gate.sh:203-212`). **Status:** fixed 107dd94b (44.10): rerun runs the failed step (lint, the failed vitest
+  files, the failed e2e tests, perf) and every step after it.
 
 ## 4. Low (batch them)
 

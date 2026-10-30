@@ -72,6 +72,7 @@ regression points at its cause.
 | 44.8 | done: G7 (89816355: no count of modes, behaviour groups, input actions, maps, glyphs; input settings ≤ one request's 64 KiB, frames carry the derived 1,236 actions; count-caps test finds caps by shape, catches the four on a scratch revert, found D420), G8 (f314e909: move/paste counts gone, request bytes bound them). e2e s: count-caps 22.8 → 22.7, edit-copy 2.6 → 3.8 (270-object step), game-modes 8.4/4.9 → 8.5/4.7, input 5.1/2.9/3.6 → 5.2/2.7/3.6, hierarchy 6.9 → 7.2; village at the cap unchanged. Fast gates green (D417 watch miss once, passed alone). |
 | 44.8b | done: D420 (2c3db8df: no count of `shell.hud`, save settings fields, save migrations; one command's bytes bound them; runtime stored-settings key count dropped; cap test's not-yet-lifted list gone). e2e s: shell 7.9 → 7.6 (20 HUD docs in Play), project-saves 9.0 → 8.1 (81 settings fields, Play/reload/export; runs only with TL_E2E_ALL_VARIANTS=1 on a GPU host, run alone), ui-editor 7.8/2.7 → 7.9/2.7, count-caps 22.7 → 22.5. Fast gate green; village at the cap unchanged. |
 | 44.9 | done (167a4028–271d3c69, pure moves, one commit per file): lines types 1,983 → 906, validate-request 1,813 → 1,120, material-graph 1,914 → 1,521, host 1,913 → 1,469, content 1,866 → 1,526, content-store 1,824 → 1,310 (+8 modules). Ratchet 35 → 35. e2e s: material-graph-render 4.8 → 4.7, folder-import 3.3 → 3.2, play-export, assets, asset-files unchanged. Fast gates green; village at the cap unchanged. |
+| 44.10 | done: G9 (a4fa4136: 75 hook sites the checklist missed, 196 in all, now in rows; `tools/three-hooks.mjs` lists them with file:line, its test fails on a new one; see-through's `setupObserver` wrap guarded; terrain-view's builder use is gone), G21 (33bb7921: probe `info` per frame, village 208 calls/123k tris; instanced 0 → 237, batched 0 → 255; indirect draws counted apart; SwiftShader baseline + opt-in test retired), G22 (107dd94b: rerun from the failed step, tried lint → vitest → green), perf CLI (64247a97: `--help`, memory-cap refusal). No e2e touched; fast gate green, village at the cap unchanged (D419 again once). |
 | 44.11 | done (23838ca9 … fbac056b, then the defect split): STATUS 108.7 → 8.8 KB, two-line rows; roadmap, charter, environment, decisions 0002–0005 current; plans 9, 14–38 → `archive/plans/`, rules → AGENTS.md Traps; 143 defaults approved (`decisions/owner-defaults.md`); defects split: 136 open+watch / 284 closed (`audit-closed.md`). docs/ 219 files 6.33 MB → 193 / 4.24 MB. |
 
 ### 44.0 baseline
@@ -223,3 +224,10 @@ What the end of 44 is measured against (44.13).
 - 2026-10-30 (44.9): `TerrainView` (85 members) and `BlockLayerView` (84) were already on the size ratchet since 39b.1
   (G6 said not), so nothing was added; they stay unsplit as retired-area classes. A split module that needs a helper
   of its parent imports it (function-level cycles only) rather than copy it.
+- 2026-10-30 (44.10, default chosen, owner to confirm): the vitest perf baseline (`tests/perf/baseline.json`,
+  SwiftShader WebGL 2 relative metrics of 2026-09-28) and its opt-in `regression.test.ts` are retired rather than
+  re-recorded: they were never run since, a CPU renderer's times say nothing about the GPU host, and perf is measured
+  only at the 60 Hz cap, where the fast gate's village check against `village-baseline.json` is the regression gate.
+  The perf runner refuses to start unless a cgroup it is in caps memory at 7 GiB or less with that room plus 2 GiB
+  available (the host rule), `--no-memory-cap` to override. Node-builder members (`builder.geometry`, `.material`,
+  `.context`, …) are listed as hooks: TSL leaves them undocumented and a change there fails silently.

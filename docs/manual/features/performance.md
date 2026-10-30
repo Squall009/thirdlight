@@ -30,6 +30,14 @@ node tools/perf/run.mjs --renderers webgpu               # WebGPURenderer on (he
 node tools/perf/run.mjs --compare REPORT.json            # exit 1 on a regression against an earlier report
 ```
 
+`--help` (or `-h`; after a command, its own options) prints the usage. A run
+starts a backend and a browser, so it refuses to start outside a
+memory-capped cgroup (at most 7 GiB, with that room plus 2 GiB available;
+`tools/perf/memory-cap.mjs`): start it in
+`sudo -n systemd-run --scope -p MemoryMax=7G -p MemorySwapMax=0 -- sudo -n -u "$USER" -- env HOME="$HOME" PATH="$PATH" node tools/perf/run.mjs …`,
+or pass `--no-memory-cap` on a host where nothing else runs. The gate's
+unit is capped already.
+
 Options: `--classes`, `--renderers webgl2,webgpu,auto` (`legacy` is accepted and draws with WebGL 2, as `?renderer=legacy` does), `--surfaces
 play,export,editor,sim`, `--threads worker,off` (Play and the export with the simulation in the worker and/or with `?threads=off`), `--record-ms`, `--warmup-ms`, `--commands`,
 `--sim-steps`, `--viewport WxH` (default 1280x720), `--seed`, `--keep`,
