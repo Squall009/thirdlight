@@ -1,7 +1,9 @@
 /**
- * Project templates: directories under `<engineRoot>/templates/<id>` holding
- * `captured/project.json` (the v3 scene +
- * content) and the asset files the content references under `assets/`.
+ * Project templates: directories under `<engineRoot>/templates/<id>` laid
+ * out as a game folder: `thirdlight/` holds the project's own files
+ * (`project.json`, `content.json`, `scenes/`) in the current storage and
+ * schema versions, and `assets/` the game files they name (models, their
+ * `.tlasset` sidecars, resource files). A new project gets copies of both.
  * An optional `template.json` supplies `{ name, description, picture?,
  * packs?, requiredModules? }`: a picture file the project picker shows, and
  * the engine packs (`packs/<id>`) a new project gets. An optional
@@ -9,11 +11,11 @@
  * commands once the project exists (`packs.ts`).
  */
 import { ID_RE } from '@thirdlight/project-model/limits';
-import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { extname, join } from 'node:path';
+import { extname, join, relative, sep } from 'node:path';
 
 import { resolveRequiredModules } from '@thirdlight/exporter';
+import type { ProjectSource } from '@thirdlight/workspace';
 
 export interface TemplateInfo {
   id: string;
@@ -32,15 +34,16 @@ export const TEMPLATE_PICTURE_MAX_BYTES = 64 * 1024;
 
 const PICTURE_TYPES: Readonly<Record<string, string>> = { '.webp': 'image/webp', '.png': 'image/png', '.jpg': 'image/jpeg' };
 
-export interface TemplateSource {
-  scene: unknown;
-  content: unknown;
-  blobs: ReadonlyMap<string, Uint8Array>;
+export interface TemplateSource extends ProjectSource {
   requiredModules: string[];
   packs: string[];
   /** The template's own setup pack's folder (absent: none). */
   setupDir?: string;
 }
+/** A template's project folder and the game folder its files name (beside it). */
+const PROJECT_SUBDIR = 'thirdlight';
+const GAME_SUBDIR = 'assets';
+
 /** The engine ships templates only (no sample games). */
 const ROOTS = ['templates'];
 
@@ -48,7 +51,7 @@ function templateDir(engineRoot: string, id: string): string | null {
   if (!ID_RE.test(id)) return null;
   for (const root of ROOTS) {
     const dir = join(engineRoot, root, id);
-    if (existsSync(join(dir, 'captured', 'project.json'))) return dir;
+    if (existsSync(join(dir, PROJECT_SUBDIR, 'project.json'))) return dir;
   }
   return null;
 }
@@ -94,31 +97,30 @@ export function listTemplates(engineRoot: string): TemplateInfo[] {
   return out;
 }
 
+/** Every file under `root` by its path relative to `base` ('/'-separated). */
+function readTree(root: string, base: string, into: Map<string, Uint8Array>): void {
+  for (const name of readdirSync(root).sort()) {
+    const p = join(root, name);
+    const st = statSync(p);
+    if (st.isDirectory()) readTree(p, base, into);
+    else if (st.isFile()) into.set(relative(base, p).split(sep).join('/'), new Uint8Array(readFileSync(p)));
+  }
+}
+
 export function loadTemplate(engineRoot: string, id: string): { ok: true; source: TemplateSource } | { ok: false; message: string } {
   const dir = templateDir(engineRoot, id);
   if (dir === null) return { ok: false, message: `no template "${id}"` };
-  let captured: { scene?: unknown; content?: unknown };
+  const project = new Map<string, Uint8Array>();
+  const game = new Map<string, Uint8Array>();
   try {
-    captured = JSON.parse(readFileSync(join(dir, 'captured', 'project.json'), 'utf8')) as { scene?: unknown; content?: unknown };
+    readTree(join(dir, PROJECT_SUBDIR), join(dir, PROJECT_SUBDIR), project);
+    if (existsSync(join(dir, GAME_SUBDIR))) readTree(join(dir, GAME_SUBDIR), dir, game);
   } catch {
-    return { ok: false, message: `template "${id}" has an unreadable captured/project.json` };
+    return { ok: false, message: `template "${id}" has unreadable files` };
   }
-  const blobs = new Map<string, Uint8Array>();
-  const walk = (d: string): void => {
-    for (const name of readdirSync(d)) {
-      const p = join(d, name);
-      const st = statSync(p);
-      if (st.isDirectory()) walk(p);
-      else if (st.isFile()) {
-        const bytes = new Uint8Array(readFileSync(p));
-        blobs.set(createHash('sha256').update(bytes).digest('hex'), bytes);
-      }
-    }
-  };
-  if (existsSync(join(dir, 'assets'))) walk(join(dir, 'assets'));
   const info = readInfo(dir, id);
   const setupDir = join(dir, 'setup');
-  return { ok: true, source: { scene: captured.scene, content: captured.content, blobs, requiredModules: info.requiredModules, packs: info.packs, ...(existsSync(join(setupDir, 'pack.json')) ? { setupDir } : {}) } };
+  return { ok: true, source: { project, game, requiredModules: info.requiredModules, packs: info.packs, ...(existsSync(join(setupDir, 'pack.json')) ? { setupDir } : {}) } };
 }
 
 /**
@@ -126,16 +128,24 @@ export function loadTemplate(engineRoot: string, id: string): { ok: true; source
  * module set, or what nobody provides (creation refuses).
  */
 export function resolveTemplateModules(source: TemplateSource): ReturnType<typeof resolveRequiredModules> {
-  const content = (source.content ?? {}) as { behaviors?: Array<Record<string, unknown>>; settings?: unknown };
+  const json = (bytes: Uint8Array | undefined): Record<string, unknown> => {
+    try {
+      const v = bytes === undefined ? null : (JSON.parse(new TextDecoder().decode(bytes)) as unknown);
+      return v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+    } catch {
+      return {};
+    }
+  };
+  const content = (json(source.project.get('content.json'))['content'] ?? {}) as { behaviors?: Array<Record<string, unknown>> };
   const behaviors = (Array.isArray(content.behaviors) ? content.behaviors : [])
     .filter((b) => b['source'] !== null && b['source'] !== undefined)
     .map((b) => ({
       behaviorId: String(b['behaviorId']),
       requiredModules: ((b['source'] as Record<string, unknown>)['requiredModules'] as string[] | undefined) ?? [],
     }));
-  return resolveRequiredModules({
-    scene: source.scene as { entities?: Record<string, unknown>[] },
-    behaviors,
-    declared: source.requiredModules,
-  });
+  // Every scene's objects: a module any of them needs is the project's.
+  const entities = [...source.project]
+    .filter(([rel]) => rel.startsWith('scenes/'))
+    .flatMap(([, bytes]) => ((json(bytes)['scene'] as { entities?: Record<string, unknown>[] } | undefined)?.entities ?? []));
+  return resolveRequiredModules({ scene: { entities }, behaviors, declared: source.requiredModules });
 }

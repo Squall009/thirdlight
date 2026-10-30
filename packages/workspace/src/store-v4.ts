@@ -47,7 +47,6 @@ import { lstatSync, mkdirSync, realpathSync } from 'node:fs';
 import { dirname, join, sep } from 'node:path';
 
 import {
-  migrateModelAnimations,
   migrateProjectV3ToV4,
   PROJECT_SCHEMA_VERSION,
   PROJECT_SCHEMA_VERSION_SCENE_CAMERA,
@@ -79,7 +78,6 @@ import {
   type SceneV4,
   type BlockChunk,
   type BlockLayerData,
-  type ClipDurationOf,
   ID_RE,
   NEW_PROJECT_ENVIRONMENT,
   NEW_PROJECT_SETTINGS,
@@ -1271,33 +1269,22 @@ export interface ProjectFilesV4 {
  * The v4 files of a project given as v3 values (manifest v1, one v3 scene,
  * the v3 content block): converted by the model (`migrateProjectV3ToV4`),
  * validated and normalized by `validateProjectV4`. The automatic v3 → v4
- * upgrade and project creation both build a project this one way, so a new
- * project is byte for byte what the upgrade of the same v3 project gives.
+ * upgrade and a new empty project both build a project this one way, so a
+ * new project is byte for byte what the upgrade of the same v3 project gives.
  */
 export function projectFilesFromV3(
   projectId: string,
   manifest: Manifest,
   scene: SceneV3,
   content: ContentCatalogV3,
-  /**
-   * The clip lengths of the project's models: given for a project made from a
-   * template, whose old idle/run/airborne animations become animators here,
-   * so the new project needs no upgrade (and reports none) at its first open.
-   */
-  clipDurations?: ClipDurationOf,
   /** A new project's look, given to its first scene when that scene has none of its own. */
   environment?: Readonly<SceneEnvironment>,
   /** The schema 8 steps it takes (absent: all; an empty new project is 3D and needs no 2D conversion). */
   steps?: readonly Schema8Step[],
-  /** A new project (from a template): what the upgrade converted is its starting point, not something to check. */
-  fresh = false,
 ): { ok: true; files: ProjectFilesV4 } | { ok: false; message: string } {
   const { project, notes } = migrateProjectV3ToV4(manifest, scene, content, steps);
-  const animated = clipDurations === undefined ? null : migrateModelAnimations(project.scenes as SceneV4[], project.content as ContentCatalogV4, clipDurations);
-  const current = animated !== null && animated.migrated > 0 ? { content: animated.content, scenes: animated.scenes } : { content: project.content, scenes: project.scenes };
-  const marked = fresh ? current.scenes.map((sc) => (sc.migratedFrom2D === undefined ? sc : (({ migratedFrom2D: _m, ...rest }) => rest)(sc))) : current.scenes;
-  const scenes = environment === undefined ? marked : marked.map((sc, i) => (i === 0 && (sc as SceneV4).environment === undefined ? { ...sc, environment } : sc));
-  const v = validateProjectV4(project.manifest, current.content, scenes);
+  const scenes = environment === undefined ? project.scenes : project.scenes.map((sc, i) => (i === 0 && (sc as SceneV4).environment === undefined ? { ...sc, environment } : sc));
+  const v = validateProjectV4(project.manifest, project.content, scenes);
   if (!v.ok) return { ok: false, message: v.errors[0]?.message ?? 'unknown' };
   const sceneV4 = v.normalized.scenes[0] as SceneV4;
   return {
@@ -1381,7 +1368,7 @@ export function defaultProjectFilesV4(
     scenes: [{ id: DEFAULT_SCENE_ID, path: 'scenes/main.json' }],
   };
   // A new project is 3D (no scene plane): the 2D conversion is for projects that were 2D.
-  return projectFilesFromV3(projectId, manifest, scene.normalized, content.normalized, undefined, NEW_PROJECT_ENVIRONMENT, SCHEMA_8_STEPS.filter((st) => st.recorded !== true));
+  return projectFilesFromV3(projectId, manifest, scene.normalized, content.normalized, NEW_PROJECT_ENVIRONMENT, SCHEMA_8_STEPS.filter((st) => st.recorded !== true));
 }
 
 // ---- migration v3 → v4 on disk -----------------------------------------------------

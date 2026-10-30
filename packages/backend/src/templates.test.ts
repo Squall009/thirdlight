@@ -9,6 +9,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { CONTENT_STORAGE_VERSION, UPGRADE_REPORT_FILE } from '@thirdlight/workspace';
 import type { Backend } from './backend';
 import { createTestBackend } from './testing';
 import { AUTHORING_ORIGIN, PREVIEW_ORIGIN } from './test-helpers';
@@ -25,6 +26,38 @@ function copyTree(from: string, to: string): void {
   }
 }
 const ADMIN = 'admin-templates-test';
+
+/** A template's project and game files, copied into a test engine root under another id. */
+function copyTemplate(from: string, to: string): void {
+  for (const sub of ['thirdlight', 'assets']) copyTree(join(REPO_ROOT, 'templates', from, sub), join(to, sub));
+}
+
+const readJson = (path: string): Record<string, any> => JSON.parse(readFileSync(path, 'utf8')) as Record<string, any>;
+
+/**
+ * A template is stored as a new project starts, in the current storage and schema versions, so the project made from
+ * it opens with no upgrade step to run: the open writes back nothing it upgraded (the manifest keeps the template's
+ * schema version and upgrades list), reports nothing (the caller checks Problems) and leaves no upgrade report or v3
+ * copy. `bySetup` names what the template's setup records by its edits (adding a first trim material records
+ * `trim-data`). When this fails after an upgrade step was added, make a project from the template and copy its
+ * `project.json`, `content.json`, `scenes/` and `assets/` back into the template.
+ */
+function expectCurrent(template: string, projectDir: string, bySetup: string[] = []): void {
+  const dir = join(REPO_ROOT, 'templates', template, 'thirdlight');
+  const manifest = readJson(join(dir, 'project.json'));
+  const made = readJson(join(projectDir, 'project.json'));
+  const upgrades = [...(manifest['upgrades'] as string[]), ...bySetup].sort();
+  expect({ ...made, id: manifest['id'], name: manifest['name'], createdAt: manifest['createdAt'] }).toEqual({ ...manifest, upgrades });
+  for (const d of [dir, projectDir]) {
+    expect(readJson(join(d, 'content.json'))['storageVersion'], d).toBe(CONTENT_STORAGE_VERSION);
+    for (const name of readdirSync(join(d, 'scenes')).filter((n) => n.endsWith('.json'))) {
+      const scene = readJson(join(d, 'scenes', name));
+      expect([scene['storageVersion'], scene['scene']['schemaVersion']], `${d}/scenes/${name}`).toEqual([4, 4]);
+    }
+  }
+  expect(existsSync(join(projectDir, UPGRADE_REPORT_FILE))).toBe(false);
+  expect(existsSync(join(projectDir, '.thirdlight', 'migrated-v3'))).toBe(false);
+}
 
 let setupRoot = '';
 /** The broken template's setup: a material, then (unless mended) a graph whose id is not an id. */
@@ -43,6 +76,7 @@ describe('template dependencies at creation', () => {
   let backend: Backend;
   let teardown: () => Promise<void>;
   let base: string;
+  let dataRoot: string;
   beforeAll(async () => {
     engineRoot = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-templates-'));
     // Two templates from the neutral starter's capture: one declares a module
@@ -53,9 +87,7 @@ describe('template dependencies at creation', () => {
       ['plain', ['thirdlight.character3d:controller']],
     ] as const) {
       const dir = join(engineRoot, 'templates', id);
-      mkdirSync(join(dir, 'captured'), { recursive: true });
-      copyTree(join(REPO_ROOT, 'templates', 'starter', 'captured', 'project.json'), join(dir, 'captured', 'project.json'));
-      copyTree(join(REPO_ROOT, 'templates', 'starter', 'assets'), join(dir, 'assets'));
+      copyTemplate('starter', dir);
       writeFileSync(join(dir, 'template.json'), JSON.stringify({ name: id, description: 'test', requiredModules }));
     }
     copyTree(join(REPO_ROOT, 'templates', 'starter'), join(engineRoot, 'templates', 'starter'));
@@ -68,6 +100,7 @@ describe('template dependencies at creation', () => {
     });
     backend = t.backend;
     teardown = t.teardown;
+    dataRoot = join(t.root, 'data');
     base = `http://127.0.0.1:${backend.portAuthoring}`;
   }, 60000);
   afterAll(async () => {
@@ -137,6 +170,10 @@ describe('template dependencies at creation', () => {
     expect((read.read.content as unknown as { settings: Record<string, unknown> }).settings).not.toHaveProperty('physics_dimension');
     const problems = await fetch(`${base}/api/v1/projects/t3/problems`, { headers: { authorization: `Bearer ${ADMIN}`, origin: AUTHORING_ORIGIN } });
     expect(((await problems.json()) as { problems: unknown[] }).problems).toEqual([]);
+    expectCurrent('starter', join(dataRoot, 'projects', 't3'));
+    // Its game files are the template's, byte for byte, under the new project's own name.
+    expect(readFileSync(join(dataRoot, 'projects', 't3', 'assets', 'Pillar.glb')).equals(readFileSync(join(REPO_ROOT, 'templates', 'starter', 'assets', 'Pillar.glb')))).toBe(true);
+    expect(readJson(join(dataRoot, 'projects', 't3', 'project.json'))).toMatchObject({ id: 't3', name: 't3' });
   });
 
   it('every new project has the physical sky, its lighting low: the 2D starter and an empty project', async () => {
@@ -165,9 +202,7 @@ describe('a template whose setup stops', () => {
     engineRoot = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-templates-'));
     setupRoot = engineRoot;
     const broken = join(engineRoot, 'templates', 'broken-setup');
-    mkdirSync(join(broken, 'captured'), { recursive: true });
-    copyTree(join(REPO_ROOT, 'templates', 'starter', 'captured', 'project.json'), join(broken, 'captured', 'project.json'));
-    copyTree(join(REPO_ROOT, 'templates', 'starter', 'assets'), join(broken, 'assets'));
+    copyTemplate('starter', broken);
     writeFileSync(join(broken, 'template.json'), JSON.stringify({ name: 'broken setup', description: 'test', requiredModules: [] }));
     writeSetup(false);
     const t = await createTestBackend({ authoringOrigin: AUTHORING_ORIGIN, previewOrigin: PREVIEW_ORIGIN, authoringOrigins: [AUTHORING_ORIGIN], engineRoot, tokens: [{ token: ADMIN, scope: 'admin' }] });
@@ -240,11 +275,13 @@ describe('the 3D starter', () => {
   let backend: Backend;
   let teardown: () => Promise<void>;
   let base: string;
+  let dataRoot: string;
   beforeAll(async () => {
     // The engine's own folders: the template, its setup and the Basic Kit pack as they ship.
     const t = await createTestBackend({ authoringOrigin: AUTHORING_ORIGIN, previewOrigin: PREVIEW_ORIGIN, authoringOrigins: [AUTHORING_ORIGIN], engineRoot: REPO_ROOT, tokens: [{ token: ADMIN, scope: 'admin' }] });
     backend = t.backend;
     teardown = t.teardown;
+    dataRoot = join(t.root, 'data');
     base = `http://127.0.0.1:${backend.portAuthoring}`;
   }, 60000);
   afterAll(async () => {
@@ -296,6 +333,7 @@ describe('the 3D starter', () => {
     expect(blocks.find((b) => b.entityId === named('Ground blocks').id)?.chunks?.length ?? 0).toBeGreaterThan(0);
     const problems = await fetch(`${base}/api/v1/projects/w3/problems`, { headers: { authorization: `Bearer ${ADMIN}`, origin: AUTHORING_ORIGIN } });
     expect(((await problems.json()) as { problems: unknown[] }).problems).toEqual([]);
+    expectCurrent('starter-3d', join(dataRoot, 'projects', 'w3'), ['trim-data']);
     // The template is where the project starts: undo has nothing to take.
     const q = await call('queryProject');
     const undo = await call('undo', {}, { expectedRevision: q['revision'], requestId: `req-${'c'.repeat(32)}` });

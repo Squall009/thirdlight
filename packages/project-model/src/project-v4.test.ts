@@ -15,7 +15,7 @@ import type { Manifest } from './types';
 
 // Package sources may not import Node builtins: the sample is read through Vite's raw import.
 const SAMPLE_RAW = Object.values(
-  import.meta.glob('../../../templates/starter/captured/project.json', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>,
+  import.meta.glob('../../../fixtures/upgrade/starter-v3.json', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>,
 )[0] as string;
 const SAMPLE = JSON.parse(SAMPLE_RAW) as { content: { assets: { assetId: string; kind: string }[] } };
 /** A real model asset record (the catalog validates records in full). */

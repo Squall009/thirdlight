@@ -1,0 +1,25 @@
+{
+  "storageVersion": 5,
+  "type": "project-content",
+  "projectId": "starter-3d",
+  "revision": 0,
+  "content": {
+    "assets": [],
+    "settings": {
+      "ambient_occlusion": 1,
+      "block_chunk_storage": 1
+    },
+    "behaviorTrust": {
+      "entries": []
+    },
+    "scenes": [
+      {"sceneId":"scene-main","name":"Main"}
+    ],
+    "startScenes": ["scene-main"]
+  },
+  "retry": {
+    "recordVersion": 2,
+    "retention": 128,
+    "records": []
+  }
+}

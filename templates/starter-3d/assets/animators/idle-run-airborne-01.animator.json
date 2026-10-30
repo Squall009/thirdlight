@@ -1,0 +1,27 @@
+{
+  "tlresource": 1,
+  "kind": "animator",
+  "id": "idle-run-airborne-01",
+  "data": {
+    "controllerId": "idle-run-airborne-01",
+    "name": "Idle/run/airborne (Character)",
+    "parameters": [
+      {"name":"speed","type":"float","default":0},
+      {"name":"grounded","type":"bool","default":true}
+    ],
+    "states": [
+      {"id":"idle","name":"Idle","motion":{"kind":"clip","clip":{"assetId":"starter-character","clip":"Idle","duration":2}},"speed":1,"loop":true,"position":[180,40]},
+      {"id":"run","name":"Run","motion":{"kind":"clip","clip":{"assetId":"starter-character","clip":"Run","duration":0.6000000238418579}},"speed":1,"loop":true,"position":[400,40]},
+      {"id":"airborne","name":"Airborne","motion":{"kind":"clip","clip":{"assetId":"starter-character","clip":"Airborne","duration":0.800000011920929}},"speed":1,"loop":true,"position":[290,150]}
+    ],
+    "transitions": [
+      {"from":"*","to":"airborne","conditions":[{"parameter":"grounded","op":"false"}],"duration":0.2},
+      {"from":"airborne","to":"run","conditions":[{"parameter":"grounded","op":"true"},{"parameter":"speed","op":"greater","value":0.05}],"duration":0.2},
+      {"from":"airborne","to":"idle","conditions":[{"parameter":"grounded","op":"true"}],"duration":0.2},
+      {"from":"idle","to":"run","conditions":[{"parameter":"speed","op":"greater","value":0.05}],"duration":0.2},
+      {"from":"run","to":"idle","conditions":[{"parameter":"speed","op":"less","value":0.05}],"duration":0.2}
+    ],
+    "entry": "idle",
+    "events": []
+  }
+}

@@ -7,18 +7,16 @@
  * it plays in scene mode (the scene as authored, the character driven by the
  * controller).
  *
- * The script (1) writes the template's self-generated pillar (a small rigid
- * GLB, no downloaded content) and the provenance of both models — the
- * character is a game-ready file made in Blender by the art pipeline
- * (`assets/model/character.glb`, kept in the repository; read, never
- * written here) — and (2) authors
- * the scene through the real editing path (`@thirdlight/commands`
- * `applyMutation`, the same commands the browser and MCP use) and captures
- * the result as `captured/project.json`, with the command list in
- * `recipe/commands.json`, and (3) writes the setup a v3 capture cannot hold,
- * made by commands when a project is made from it (`setup/pack.json`): the
- * scene's default plane and the character's movement profile. Re-running it
- * gives the same bytes.
+ * The project itself is `thirdlight/` and `assets/`, stored as a project
+ * made from it starts (the current storage and schema versions); change it
+ * by opening a project made from the template and copying its files back.
+ * This script writes what is generated around it: (1) the self-made pillar
+ * (a small rigid GLB, no downloaded content) and the provenance of both
+ * models (the character is a game-ready file made in Blender by the art
+ * pipeline, `assets/Character.glb`, read, never written here), and (2) the
+ * setup run by commands when a project is made from it (`setup/pack.json`):
+ * the scene's default plane and the character's movement profile. Re-running
+ * it gives the same bytes.
  *
  * Run:
  *   npx esbuild templates/starter/tools/build-template.mts --bundle --platform=node \
@@ -30,13 +28,13 @@ import { join, resolve } from 'node:path';
 
 import { inspectGlb } from '@thirdlight/asset-pipeline';
 
-import { capture, newAuthor, run } from '../../tools/author.mts';
 
 // Bundled outside the repository, so the template folder comes from the working directory (the repo root).
 const ROOT = resolve('templates', 'starter');
 const ASSETS = join(ROOT, 'assets');
 const PROJECT_ID = 'starter';
-const IMPORTED_AT = '2026-09-28T00:00:00Z';
+/** The player's id in the template's scene (the setup names it). */
+const PLAYER_ID = 'model-0001';
 
 const sha256Hex = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
 
@@ -215,38 +213,25 @@ function glbMetrics(bytes: Uint8Array): Record<string, number> {
   };
 }
 
-/* ----------------------------------------------------------- authoring --- */
+/* --------------------------------------------------------------- main --- */
 
-const T = (x: number, y: number): Record<string, unknown> => ({ position: [x, y, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] });
-const solid = (name: string, x: number, y: number, w: number, h: number, color: string): Record<string, unknown> => ({
-  kind: 'box',
-  name,
-  transform: T(x, y),
-  box: { size: [w, h, 1], material: { color } },
-  // A 1 m deep box (the plane holds the bodies, the box's depth is what the view and the collider share).
-  components: { collider: { shape: { type: 'box', hx: w / 2, hy: h / 2, hz: 0.5 } } },
-});
-
-/** A file's import record as the engine's own GLB inspection proposes it (metrics, bounds, used extensions). */
-function inspected(bytes: Uint8Array, displayName: string): { importRecipe: Record<string, unknown>; metrics: Record<string, unknown> } {
-  const recipe = { profile: 'gltf-glb', recipeVersion: 1, toolchain: { three: '0.186.0' } } as const;
-  const p = inspectGlb(bytes, { ...recipe, displayName });
+/** A file's metrics as the engine's own GLB inspection reads them. */
+function inspectedMetrics(bytes: Uint8Array, displayName: string): Record<string, unknown> {
+  const p = inspectGlb(bytes, { profile: 'gltf-glb', recipeVersion: 1, toolchain: { three: '0.186.0' }, displayName });
   if (p.status !== 'ok' || !('metrics' in p)) throw new Error(`${displayName}: the import inspection refused it: ${JSON.stringify(p.diagnostics)}`);
-  return { importRecipe: { ...p.importRecipe }, metrics: { ...p.metrics } };
+  return { ...p.metrics };
 }
 
 function main(): void {
-  mkdirSync(join(ASSETS, 'model'), { recursive: true });
-  const character = new Uint8Array(readFileSync(join(ASSETS, 'model', 'character.glb')));
-  const pillar = { importRecipe: { profile: 'gltf-glb', recipeVersion: 1, toolchain: { three: '0.186.0' }, extensions: [] }, metrics: glbMetrics(PILLAR) };
+  const character = new Uint8Array(readFileSync(join(ASSETS, 'Character.glb')));
   const models = [
     // The controller's roles: Idle 0, Run 1, Airborne 2 (Walk 3, Jump 4 and Land 5 are there for a game's own animator).
-    { assetId: 'starter-character', displayName: 'Character', path: 'model/character.glb', bytes: character, clips: ['Idle', 'Run', 'Airborne', 'Walk', 'Jump', 'Land'], made: 'Blender (art pipeline): LOD0–2 and a capsule _COL, KTX2 textures, 22-bone skin', ...inspected(character, 'Character') },
-    { assetId: 'starter-pillar', displayName: 'Pillar', path: 'model/pillar.glb', bytes: PILLAR, clips: [] as string[], made: 'this script', ...pillar },
+    { assetId: 'starter-character', path: 'assets/Character.glb', bytes: character, clips: ['Idle', 'Run', 'Airborne', 'Walk', 'Jump', 'Land'], made: 'Blender (art pipeline): LOD0–2 and a capsule _COL, KTX2 textures, 22-bone skin', metrics: inspectedMetrics(character, 'Character') },
+    { assetId: 'starter-pillar', path: 'assets/Pillar.glb', bytes: PILLAR, clips: [] as string[], made: 'this script', metrics: glbMetrics(PILLAR) },
   ];
-  writeFileSync(join(ASSETS, 'model', 'pillar.glb'), PILLAR);
+  writeFileSync(join(ASSETS, 'Pillar.glb'), PILLAR);
   writeFileSync(
-    join(ASSETS, 'provenance.json'),
+    join(ROOT, 'provenance.json'),
     JSON.stringify(
       {
         template: PROJECT_ID,
@@ -258,57 +243,8 @@ function main(): void {
       2,
     ) + '\n',
   );
-
-  // The baseline is a new project's scene: its default camera 12 m in front of the z = 0 plane.
-  const author = newAuthor(PROJECT_ID, [4, 3, 12]);
-  for (const m of models) {
-    run(author, 'publishAsset', {
-      mode: 'create',
-      assetId: m.assetId,
-      kind: 'model',
-      displayName: m.displayName,
-      sourceDigest: sha256Hex(m.bytes),
-      sourceByteLength: m.bytes.byteLength,
-      importRecipe: m.importRecipe,
-      metrics: m.metrics,
-      importedAt: IMPORTED_AT,
-    });
-  }
-  run(author, 'createEntity', solid('Ground', 8, -0.2, 24, 0.4, '#6f6f6f'));
-  run(author, 'createEntity', solid('Step', 6.5, 0.1, 1, 0.4, '#7d7d7d'));
-  run(author, 'createEntity', solid('Platform', 12, 1.6, 3, 0.4, '#7d7d7d'));
-  run(author, 'createEntity', solid('Crate', -2, 0.5, 1, 1, '#8a7a62'));
-  run(author, 'createEntity', {
-    kind: 'model',
-    name: 'Player',
-    transform: T(3, 0.91),
-    model: { asset: { assetId: 'starter-character' } },
-    components: {
-      controller: {},
-      modelAnimation: {
-        assetId: 'starter-character',
-        version: 1,
-        roles: { idle: { clipIndex: 0, clipName: 'Idle' }, run: { clipIndex: 1, clipName: 'Run' }, airborne: { clipIndex: 2, clipName: 'Airborne' } },
-      },
-    },
-  });
-  run(author, 'createEntity', { kind: 'group', name: 'Spawn', transform: T(3, 0.91), components: { playerSpawn: {} } });
-  run(author, 'createEntity', { kind: 'group', name: 'Key light', transform: T(8, 10), components: { light: { type: 'directional', color: '#fff4e0', intensity: 1.6, direction: [0.4, -1, -0.6], castShadow: true } } });
-  run(author, 'createEntity', { kind: 'group', name: 'Ambient fill', transform: T(0, 0), components: { light: { type: 'ambient', color: '#8a94b0', intensity: 0.9 } } });
-  run(author, 'createEntity', { kind: 'model', name: 'Pillar', transform: T(17, 0), model: { asset: { assetId: 'starter-pillar' } } });
-
-  // The objects keep the ids the template first shipped with (`box-0001`, `model-0001`, …): games' notes, guides and
-  // tests name them, and the engine's id format since grew to six digits.
-  const shipped = (id: string): string => id.replace(/^([a-z]+)-00(\d{4})$/, '$1-$2');
-  const scene = author.state.scene as unknown as { entities: Array<{ id: string; parentId?: string | null }> };
-  for (const e of scene.entities) {
-    e.id = shipped(e.id);
-    if (typeof e.parentId === 'string') e.parentId = shipped(e.parentId);
-  }
-  capture(author, ROOT, 'templates/starter/tools/build-template.mts', IMPORTED_AT);
-  // What a v3 capture cannot hold, by the commands the editor sends: the scene's default plane (Scene settings) and
-  // the character's arcade profile (one run speed, autostep, a jump cut on release: a side-view platformer's feel).
-  const player = author.state.scene.entities.find((e) => e.name === 'Player')!.id;
+  // The scene's default plane (Scene settings) and the character's arcade profile (one run speed, autostep, a jump
+  // cut on release: a side-view platformer's feel), by the commands the editor sends.
   mkdirSync(join(ROOT, 'setup'), { recursive: true });
   const setup = {
     format: 1,
@@ -319,7 +255,7 @@ function main(): void {
     assets: [],
     commands: [
       { op: 'setScenePlane', args: { sceneId: 'scene-main', plane: { axis: 'z', origin: 0 } } },
-      { op: 'setComponent', args: { entityId: player, component: 'controller', value: { profile: 'arcade' } } },
+      { op: 'setComponent', args: { entityId: PLAYER_ID, component: 'controller', value: { profile: 'arcade' } } },
     ],
   };
   writeFileSync(join(ROOT, 'setup', 'pack.json'), JSON.stringify(setup, null, 1) + '\n');

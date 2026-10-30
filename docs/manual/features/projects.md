@@ -10,14 +10,19 @@ project can hold, and projects kept in a game's own folder. The idea:
 
 Open `http://127.0.0.1:8501/` for the picker: it lists every project under
 `~/thirdlight/projects/` and every registered folder project (see [Projects in a game's own folder](#projects-in-a-games-own-folder)), and creates new ones, empty or from a template.
-Templates are directories under the engine's `templates/`
-holding `captured/project.json` (+ `assets/`, optional `template.json` with
-`name`, `description`, `picture` — a small image the picker shows on the
+Templates are directories under the engine's `templates/` laid out as a
+game folder: `thirdlight/` holds the project's files (`project.json`,
+`content.json`, `scenes/`) in the current storage and schema versions, and
+`assets/` the files they name (models, their `.tlasset` sidecars, resource
+files); a new project gets copies of both with its own id and name, and opens
+with no upgrade to run. To change a template, make a project from it, edit
+that, and copy its files back. A template may also hold `template.json`
+(`name`, `description`, `picture` — a small image the picker shows on the
 template's card —, `packs` — engine packs a new project gets, such as
-`basic-kit` — and `requiredModules`), and an optional `setup/pack.json`: a
-pack of asset files and commands run once the project exists (what a
-captured v3 project cannot hold: materials, terrain, block layers, the
-scene's look). A project made from a template starts with nothing to undo.
+`basic-kit` — and `requiredModules`) and `setup/pack.json`: a pack of asset
+files and commands run once the project exists (materials, terrain, block
+layers, the scene's look). A project made from a template starts with
+nothing to undo.
 Two ship, neither with game rules:
 
 - `templates/starter` ("2D starter"): a side-on level — a ground, three
@@ -25,8 +30,8 @@ Two ship, neither with game rules:
   spawn point, a camera, two lights and a pillar model (it plays as a
   scene). Its scene's default plane is Z at 0, so its bodies stay on the
   plane on the one 3D backend; its setup sets the plane and the profile.
-  Rebuilt by `templates/starter/tools/build-template.mts`. Its character is a
-  game-ready skinned model made in Blender (`assets/model/character.glb`,
+  Its pillar and setup are written by `templates/starter/tools/build-template.mts`.
+  Its character is a game-ready skinned model made in Blender (`assets/Character.glb`,
   949 KB: three levels of detail of 4,796 / 2,398 / 958 triangles, a
   capsule `_COL`, a 22-bone skin, 1024² albedo and ORM and a 512² normal
   map in KTX2, clips Idle, Run, Airborne, Walk, Jump and Land in place);
@@ -41,7 +46,7 @@ Two ship, neither with game rules:
   short, each `_LOD0..2` of 55–70 / 21 / 6 triangles, wind weights in
   COLOR_0, no collider; 26 KB) and its `meadow-grass` foliage material
   with a 64×256 KTX2 colour texture (4 KB); [Grow a meadow](../guides/meadow.md)
-  uses it. Rebuilt by
+  uses it. Its setup is written by
   `templates/starter-3d/tools/build-template.mts` (the grass from
   `templates/starter-3d/tools/grass.py`, run in Blender with `bpipe`). The engine ships no sample
 games: games live in their own repositories.

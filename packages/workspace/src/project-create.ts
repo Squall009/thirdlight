@@ -7,18 +7,15 @@
 import { chmodSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-import type { ContentCatalogV3, ContentCatalogV4, Manifest, SceneV3 } from '@thirdlight/project-model';
-import { glbClipDurations, NEW_PROJECT_ENVIRONMENT, NEW_PROJECT_SETTINGS, RETIRED_DIMENSION_SETTING, SCHEMA_8_STEPS, normalizeManifest, parseDocumentBytes, validateProjectV3 } from '@thirdlight/project-model';
+import type { ContentCatalogV4, Manifest, SceneV4 } from '@thirdlight/project-model';
+import { PROJECT_SCHEMA_VERSION, parseDocumentBytes, validateManifestV2Project } from '@thirdlight/project-model';
 
 import { ID_RE } from './envelope';
-import { publishBlob, type ContentContext } from './content-store';
-import { upgradeAssetsToFiles } from './upgrade-assets';
-import { blobMissing, fieldTypeError, fieldValueType, invalidRequest, projectExistsInvalid, writeFailed, type LoadDetail } from './errors';
-import { sha256Hex } from './digest';
+import { fieldTypeError, fieldValueType, invalidRequest, projectExistsInvalid, writeFailed, type LoadDetail } from './errors';
 import { writeAtomic, type WriteOps } from './write';
-import { absOf, defaultProjectFilesV4, isV4Layout, loadV4, projectFilesFromV3, type ProjectFilesV4 } from './store-v4';
+import { absOf, CONTENT_REL, CONTENT_STORAGE_VERSION, contentFileBytes, defaultProjectFilesV4, isV4Layout, loadV4, MANIFEST_REL_V4, manifestV2Bytes, sceneFileBytes, sceneRel, type FileWrite, type ProjectFilesV4 } from './store-v4';
 import { gameRootFor } from './session-v4';
-import { gamePathOf } from './resource-files';
+import { gamePathOf, gameRel } from './resource-files';
 import { ENGINE_VERSION, ensureSession, loadEnvelopeV3, projectBaseDir, resolveContained, validateAnyManifest, type Core } from './session';
 import { validName } from './request-envelope';
 import type { CreateProjectResult, ProjectSource } from './types';
@@ -75,7 +72,7 @@ export function createProjectImpl(core: Core, projectId: string, name: string): 
     // creation the startup scan completes deterministically.
     const built = defaultProjectFilesV4(projectId, name, core.utcNow(), ENGINE_VERSION);
     if (!built.ok) return { ok: false, error: projectExistsInvalid([]) };
-    const w = writeNewProjectFiles(core, projectId, dir, built.files);
+    const w = writeNewProjectFiles(core, projectId, dir, { ...built.files, scenes: [built.files.scene] });
     if (w.kind === 'external') return convergeExisting(core, projectId);
     if (w.kind === 'failed') return { ok: false, error: writeFailed(w.onDiskState, w.errno) };
     // Claim ownership and load in memory.
@@ -103,12 +100,15 @@ export function createProjectImpl(core: Core, projectId: string, name: string): 
 }
 
 /**
- * Create a NEW project from a template/sample: the source scene and content
- * (validated as a v3 project, revision reset to 0, converted to v4 exactly
- * like the automatic upgrade) plus the bytes of every blob the content
- * references. Blobs are written first, then project.json, the scene file
- * and content.json, so a crash leaves at most an incomplete project the
- * startup scan completes or reports. An existing project id is refused.
+ * Create a NEW project from a template: the template's project files, stored
+ * in the current storage and schema versions, take the new project's id,
+ * name and creation time (and revision 0); its game-folder files (assets,
+ * their sidecars, resource files) are copied byte for byte. Nothing is
+ * upgraded or converted, so the new project opens exactly as the template
+ * was saved. The game files are written first, then project.json, the scene
+ * files and content.json, so a crash leaves at most an incomplete project the
+ * startup scan completes or reports. An existing project id is refused, and
+ * so is a game-folder file the template would overwrite with other bytes.
  */
 export function createProjectFrom(core: Core, projectId: string, name: string, source: ProjectSource): CreateProjectResult {
   if (typeof projectId !== 'string' || !ID_RE.test(projectId)) {
@@ -124,84 +124,49 @@ export function createProjectFrom(core: Core, projectId: string, name: string, s
   if (core.ops.dirExists(dir)) {
     return { ok: false, error: invalidRequest('/projectId', projectId, 'a new project id', `project "${projectId}" already exists`) };
   }
-  const manifestDoc = {
-    schemaVersion: 1 as const,
-    engineVersion: ENGINE_VERSION,
-    id: projectId,
-    name,
-    createdAt: core.utcNow(),
-    scenes: [{ id: 'scene-main', path: 'scenes/main.json' }],
-  };
-  const man = normalizeManifest(manifestDoc);
-  if (!man.ok) return { ok: false, error: invalidRequest('/name', name, 'a valid manifest', 'the project manifest is invalid') };
-  const scene = { ...(source.scene as Record<string, unknown>), sceneId: 'scene-main', revision: 0 };
-  // A new project starts at revision 0: publication revisions reset with it.
-  const sourceContent = JSON.parse(JSON.stringify(source.content ?? null)) as {
-    assets?: { versions?: { publishedRevision?: number }[] }[];
-    behaviors?: { publishedRevision?: number; source?: { publishedRevision?: number } | null }[];
-  } | null;
-  // A new project writes out the settings whose engine default changed (the template's own win).
-  if (sourceContent !== null && typeof sourceContent === 'object') {
-    const c = sourceContent as { settings?: Record<string, unknown> };
-    c.settings = { ...NEW_PROJECT_SETTINGS, ...(c.settings ?? {}) };
-    // Templates are made for the one 3D backend (a side-view template sets its scene's plane in its setup):
-    // nothing to convert, and the retired setting a template still names is dropped.
-    delete c.settings[RETIRED_DIMENSION_SETTING];
-  }
-  for (const a of sourceContent?.assets ?? []) for (const v of a.versions ?? []) v.publishedRevision = 0;
-  for (const b of sourceContent?.behaviors ?? []) {
-    b.publishedRevision = 0;
-    if (b.source) b.source.publishedRevision = 0;
-  }
-  const project = validateProjectV3(man.normalized, scene, sourceContent);
-  if (!project.ok) {
-    const first = project.errors[0];
-    return { ok: false, error: invalidRequest(first?.path ?? '', undefined, 'a valid v3 scene + content', `the template is not a valid project: ${first?.message ?? 'invalid'}`) };
-  }
-  const content = project.normalized.content;
-  const needed = new Set<string>();
-  for (const a of content.assets) for (const v of a.versions) needed.add(v.convertedFrom?.sourceDigest ?? v.sourceDigest);
-  for (const b of content.behaviors) if (b.source !== null) needed.add(b.source.sourceDigest);
-  for (const digest of needed) {
-    const bytes = source.blobs.get(digest);
-    if (bytes === undefined || sha256Hex(bytes) !== digest) return { ok: false, error: blobMissing(digest, `sources/sha256/${digest}`) };
-  }
+  const files = templateFiles(core, projectId, name, source);
+  if (!files.ok) return { ok: false, error: invalidRequest('', undefined, 'a template in the current storage and schema versions', `the template is not a valid project: ${files.message}`) };
   if (createDirectories(dir, core.ops) !== 'ok') return { ok: false, error: writeFailed('previous', undefined) };
-  const ctx: ContentContext = { projectId, dir, thirdlightDir: join(dir, '.thirdlight'), storageVersion: 4, revision: 0, scene: null, content: null, gameFolder: core.registry.get(projectId)?.folder ?? null };
-  // Behavior containers go to the blob store; the template's asset files into the game folder, each with its sidecar.
-  for (const b of content.behaviors) {
-    if (b.source === null) continue;
-    const bytes = source.blobs.get(b.source.sourceDigest)!;
-    const put = publishBlob(core, ctx, { digest: b.source.sourceDigest, byteLength: bytes.length, source: { kind: 'bytes', bytes } });
-    if (!put.ok) return { ok: false, error: put.error };
-  }
-  const filed = upgradeAssetsToFiles(core, ctx, project.normalized.content as unknown as ContentCatalogV4, [], (digest) => source.blobs.get(digest) ?? null);
-  if (filed.report.notMoved.length > 0) {
-    const first = filed.report.notMoved[0]!;
-    return { ok: false, error: invalidRequest('', undefined, 'template assets written into the project folder', `asset ${first.assetId}: ${first.reason}`) };
-  }
-  // The clip lengths come from the template's own model files.
-  const clips = new Map<string, { name: string; duration: number }[] | null>();
-  const durationOf = (assetId: string, version: number, clipIndex: number, clipName: string): number | null => {
-    const key = `${assetId}@${version}`;
-    if (!clips.has(key)) {
-      const v = content.assets.find((a) => a.assetId === assetId)?.versions.find((x) => x.version === version);
-      const bytes = v === undefined ? undefined : source.blobs.get(v.convertedFrom?.sourceDigest ?? v.sourceDigest);
-      clips.set(key, bytes === undefined ? null : glbClipDurations(bytes));
-    }
-    const list = clips.get(key);
-    const clip = list?.[clipIndex]?.name === clipName ? list[clipIndex] : list?.find((c) => c.name === clipName);
-    return clip?.duration ?? null;
-  };
-  const built = projectFilesFromV3(projectId, project.normalized.manifest, project.normalized.scene as SceneV3, filed.content as unknown as ContentCatalogV3, durationOf, NEW_PROJECT_ENVIRONMENT, SCHEMA_8_STEPS.filter((st) => st.recorded !== true), true);
-  if (!built.ok) {
-    return { ok: false, error: invalidRequest('', undefined, 'a valid v4 project', `the template is not a valid project: ${built.message}`) };
-  }
-  const w = writeNewProjectFiles(core, projectId, dir, built.files);
+  const w = writeNewProjectFiles(core, projectId, dir, files.files);
   if (w.kind !== 'ok') return { ok: false, error: writeFailed(w.kind === 'failed' ? w.onDiskState : 'previous', w.kind === 'failed' ? w.errno : undefined) };
   const o = ensureSession(core, projectId);
   if (o.kind !== 'open') return { ok: false, error: projectExistsInvalid([]) };
   return { ok: true, created: true, revision: 0 };
+}
+
+/** A template's files as the new project's: its identity in project.json and in each project file, revision 0. */
+function templateFiles(core: Core, projectId: string, name: string, source: ProjectSource): { ok: true; files: NewProjectFiles } | { ok: false; message: string } {
+  const doc = (rel: string): Record<string, unknown> | null => {
+    const bytes = source.project.get(rel);
+    if (bytes === undefined) return null;
+    const parsed = parseDocumentBytes(bytes);
+    return parsed.ok && parsed.value !== null && typeof parsed.value === 'object' && !Array.isArray(parsed.value) ? (parsed.value as Record<string, unknown>) : null;
+  };
+  const man = doc(MANIFEST_REL_V4);
+  if (man === null || man['schemaVersion'] !== PROJECT_SCHEMA_VERSION) return { ok: false, message: `${MANIFEST_REL_V4} is not a schema ${PROJECT_SCHEMA_VERSION} manifest` };
+  const manifest = validateManifestV2Project({ ...man, id: projectId, name, createdAt: core.utcNow(), engineVersion: ENGINE_VERSION });
+  if (!manifest.ok) return { ok: false, message: manifest.errors[0]?.message ?? `${MANIFEST_REL_V4} is invalid` };
+  const content = doc(CONTENT_REL);
+  if (content === null || content['storageVersion'] !== CONTENT_STORAGE_VERSION) return { ok: false, message: `${CONTENT_REL} is not storage version ${CONTENT_STORAGE_VERSION}` };
+  const scenes: FileWrite[] = [];
+  for (const rel of source.project.keys()) {
+    if (rel === MANIFEST_REL_V4 || rel === CONTENT_REL) continue;
+    // The scene's schema is checked by the load that opens the new project.
+    const sc = doc(rel);
+    const scene = sc?.['scene'] as SceneV4 | undefined;
+    if (sc === null || sc['type'] !== 'scene' || sc['blockChunks'] !== undefined || typeof scene?.sceneId !== 'string' || rel !== sceneRel(scene.sceneId)) return { ok: false, message: `${rel} is not a scene file without block chunks` };
+    scenes.push({ rel, bytes: sceneFileBytes(projectId, { ...scene, revision: 0 }, []) });
+  }
+  if (scenes.length === 0) return { ok: false, message: 'it has no scene file' };
+  return {
+    ok: true,
+    files: {
+      manifest: { rel: MANIFEST_REL_V4, bytes: manifestV2Bytes(manifest.normalized) },
+      resources: [...source.game].map(([path, bytes]) => ({ rel: gameRel(path), bytes })),
+      scenes,
+      content: { rel: CONTENT_REL, bytes: contentFileBytes(projectId, 0, content['content'] as ContentCatalogV4, []) },
+    },
+  };
 }
 
 /** The existing-directory outcome of createProject (idempotency).
@@ -329,6 +294,9 @@ export function completeInterruptedCreation(
   return loadV4(core.ops, dir, projectId, gameRootFor(core, projectId, dir)).kind === 'loaded';
 }
 
+/** A new project's files: one or more scenes, the game-folder files among the resources. */
+export type NewProjectFiles = Pick<ProjectFilesV4, 'manifest' | 'resources' | 'content'> & { scenes: readonly FileWrite[] };
+
 /**
  * Write a new project's files (creation sequence, v4): `project.json`,
  * its resource files (a template's prefabs, materials, …) in the game
@@ -341,10 +309,10 @@ export function writeNewProjectFiles(
   core: Core,
   projectId: string,
   dir: string,
-  files: ProjectFilesV4,
+  files: NewProjectFiles,
 ): { kind: 'ok' } | { kind: 'external' } | { kind: 'failed'; onDiskState: 'previous' | 'new-undurable'; errno: string | undefined } {
   const gameRoot = gameRootFor(core, projectId, dir);
-  for (const f of [files.manifest, ...files.resources, files.scene, files.content]) {
+  for (const f of [files.manifest, ...files.resources, ...files.scenes, files.content]) {
     const target = absOf(dir, gameRoot, f.rel);
     if (gamePathOf(f.rel) !== null) mkdirSync(dirname(target), { recursive: true, mode: 0o755 });
     const res = writeAtomic({
@@ -352,8 +320,9 @@ export function writeNewProjectFiles(
       target,
       bytes: f.bytes as Uint8Array,
       // The manifest takes no pre-write check (races are handled by the
-      // reload); the scene and content files must not exist yet.
-      allowedPreHashes: f === files.manifest || f.rel.endsWith('.tlasset') ? [] : null,
+      // reload); every other file must not exist yet, or already hold these
+      // bytes (a game folder's own file is never overwritten).
+      allowedPreHashes: f === files.manifest ? [] : null,
       previousHash: null,
       ops: core.ops,
     });

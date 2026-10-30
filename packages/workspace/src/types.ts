@@ -235,12 +235,12 @@ export type QueryResult =
 
 // ---- operator operations ------------------------------------
 
-/** A template/sample to create a project from (see `createProjectFrom`). */
+/** A template to create a project from (see `createProjectFrom`), in the current storage and schema versions. */
 export interface ProjectSource {
-  scene: unknown;
-  content: unknown;
-  /** sha256 hex → bytes for every blob the content references. */
-  blobs: ReadonlyMap<string, Uint8Array>;
+  /** The project's own files by path in the project folder: `project.json`, `content.json`, `scenes/<sceneId>.json`. */
+  project: ReadonlyMap<string, Uint8Array>;
+  /** The game-folder files they name (assets, their sidecars, resource files), by path in the game folder. */
+  game: ReadonlyMap<string, Uint8Array>;
 }
 
 /** `createProject(projectId, name)`. */

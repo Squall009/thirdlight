@@ -81,7 +81,6 @@ export type { AssetFileEntry, AssetFilesResult } from './service-content';
 export type { WatchedAssetsStats } from './watched-assets';
 export { BlobChangedError, type BlobFile, type LocateBlobResult, type OpenBlobResult, type OpenedBlob } from './blob-files';
 export { MIP_PARTS_IMPORTER, MIP_PARTS_VERSION, type MipPartFile } from './mip-parts';
-export { UPGRADE_REPORT_FILE, type AssetUpgradeReport } from './upgrade-assets';
 export { assetNameOfFile, importKindOf, type FolderImportFile, type FolderImportScan, type ImportKind, type PreparedImportFile } from './folder-import';
 // Project resources as files (prefabs, materials, … one file each in the game folder) and the content file's format.
 export { RESOURCE_FORMAT, RESOURCE_KINDS, defaultResourcePath, resourceFileBytes, resourceKindOfName, SCENE_SUFFIX, type ResourceKind } from './resource-files';
@@ -90,7 +89,7 @@ export type { IndexEntry } from './project-index';
 export type { ResourceCheckReport } from './resource-check';
 // The ids scripts name in string literals (the delete guard, the loadability Problem, the upgrade).
 export { literalsIn, scriptNamedAssets, scriptsNaming } from './script-names';
-export { SCRIPT_NAMED_LABEL } from './upgrade-loadable';
+export { SCRIPT_NAMED_LABEL, UPGRADE_REPORT_FILE } from './upgrade-loadable';
 // A block layer's level checks (the backend's Problems after block edits).
 export { layerLevelChecks, type BlockCheckContent, type BlockLayerCheck } from './block-checks';
 export { paintMismatches, type PaintMeshCache, type PaintMismatchRow } from './paint-checks';

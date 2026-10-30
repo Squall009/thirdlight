@@ -18,7 +18,9 @@ import { canonicalLabels, isLoadable, type ContentCatalogV4 } from '@thirdlight/
 
 import { scriptNamedAssets } from './script-names';
 import { writeAtomic, type WriteOps } from './write';
-import { UPGRADE_REPORT_FILE } from './upgrade-assets';
+
+/** The report of an open's upgrade, written next to `project.json`. */
+export const UPGRADE_REPORT_FILE = 'upgrade-report.json';
 
 /** The label the upgrade gives an asset a script names by its id. */
 export const SCRIPT_NAMED_LABEL = 'script-named';

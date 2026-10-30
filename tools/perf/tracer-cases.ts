@@ -109,7 +109,7 @@ function bricksOf(name: string, glb: Uint8Array): DistanceBricks {
 /** 400 placed models (four kinds, rotated and scaled) on a 100 m square; sources found on their surfaces by tracing in to them. */
 function modelField(): TracerCaseSource {
   const kinds = [
-    bricksOf('character.glb', new Uint8Array(readFileSync(join(REPO, 'templates', 'starter-3d', 'assets', 'model', 'character.glb')))),
+    bricksOf('character.glb', new Uint8Array(readFileSync(join(REPO, 'templates', 'starter', 'assets', 'Character.glb')))),
     bricksOf('prop (3 parts, 48 × 32)', new Uint8Array(propGlb(11, { parts: 3, rings: 48, sides: 32, textureSize: 0 }))),
     bricksOf('prop (1 part, 24 × 16)', new Uint8Array(propGlb(12, { parts: 1, rings: 24, sides: 16, textureSize: 0 }))),
     bricksOf('prop (2 parts, 32 × 24)', new Uint8Array(propGlb(13, { parts: 2, rings: 32, sides: 24, textureSize: 0 }))),

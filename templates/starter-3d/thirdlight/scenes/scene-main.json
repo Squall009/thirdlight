@@ -1,0 +1,28 @@
+{
+  "storageVersion": 4,
+  "type": "scene",
+  "projectId": "starter-3d",
+  "scene": {
+    "schemaVersion": 4,
+    "sceneId": "scene-main",
+    "revision": 0,
+    "environment": {
+      "sky": {
+        "environmentIntensity": 0.1,
+        "mode": "procedural"
+      }
+    },
+    "entities": [
+      {"id":"cam-main","name":"Main camera","keepLoaded":true,"components":{"transform":{"position":[0,6,12],"rotation":[0,0,0,1],"scale":[1,1,1]},"virtualCamera":{"rig":"fixed","priority":-1000}}},
+      {"id":"model-000001","name":"Player","keepLoaded":true,"components":{"transform":{"position":[0,0.91,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"model":{"asset":{"assetId":"starter-character"}},"controller":{},"animator":{"controller":"idle-run-airborne-01"}}},
+      {"id":"spawn-000001","name":"Spawn","components":{"transform":{"position":[0,0.91,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"playerSpawn":{}}},
+      {"id":"light-000001","name":"Sun","components":{"transform":{"position":[0,20,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"light":{"type":"directional","color":"#fff1dc","intensity":2.2,"direction":[-0.45,-0.75,-0.5],"castShadow":true}}},
+      {"id":"light-000002","name":"Sky fill","components":{"transform":{"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"light":{"type":"ambient","color":"#9fb4d8","intensity":0.35}}}
+    ]
+  },
+  "retry": {
+    "recordVersion": 2,
+    "retention": 128,
+    "records": []
+  }
+}

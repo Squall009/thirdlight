@@ -1,0 +1,17 @@
+{
+  "tlasset": 3,
+  "id": "starter-character",
+  "kind": "model",
+  "importSettings": {},
+  "labels": [],
+  "address": null,
+  "record": {
+    "assetId": "starter-character",
+    "kind": "model",
+    "displayName": "Character",
+    "currentVersion": 1,
+    "versions": [
+      {"version":1,"sourceDigest":"aa1fba3071f5ed35a7cacef3a2757600e76b38214017e338bc7bca22197cb875","sourceByteLength":948892,"sourcePath":"assets/Character.glb","importRecipe":{"profile":"gltf-glb","recipeVersion":1,"toolchain":{"three":"0.186.0"},"extensions":["KHR_texture_basisu"]},"metrics":{"nodes":27,"meshes":4,"primitives":4,"materials":1,"images":3,"textures":3,"vertices":6585,"triangles":8216,"animations":6,"animationChannels":396,"clipDurationMs":2000,"decodedGeometryBytes":387684,"decodedImageBytes":9437184,"bounds":{"min":[-0.689203,-0.899166,-0.118804],"max":[0.689203,0.883934,0.165751]}},"importedAt":"2026-09-28T00:00:00Z","publishedRevision":0}
+    ]
+  }
+}

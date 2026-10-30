@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 8,
+  "engineVersion": "0.1.0",
+  "id": "starter-3d",
+  "name": "3D starter",
+  "createdAt": "2026-10-29T00:00:00Z",
+  "upgrades": [
+    "light-counts",
+    "planes"
+  ]
+}

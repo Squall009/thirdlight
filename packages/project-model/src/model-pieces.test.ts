@@ -9,7 +9,7 @@ import { validateContentV4 } from './content';
 import { validateSceneV4 } from './scene-v3';
 
 const SAMPLE_RAW = Object.values(
-  import.meta.glob('../../../templates/starter/captured/project.json', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>,
+  import.meta.glob('../../../fixtures/upgrade/starter-v3.json', { eager: true, query: '?raw', import: 'default' }) as Record<string, string>,
 )[0] as string;
 const SAMPLE = JSON.parse(SAMPLE_RAW) as { content: { assets: { assetId: string; kind: string }[] } };
 const MODEL = SAMPLE.content.assets.find((a) => a.kind === 'model')!;

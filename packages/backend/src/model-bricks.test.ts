@@ -14,7 +14,7 @@ import { modelBricksBlob, modelBricksKey } from '@thirdlight/exporter';
 import { api, mkRequestId, startBackend, type TestBackend } from './test-helpers';
 
 const REPO = resolve(import.meta.dirname, '..', '..', '..');
-const GLB = readFileSync(join(REPO, 'templates', 'starter-3d', 'assets', 'model', 'character.glb'));
+const GLB = readFileSync(join(REPO, 'templates', 'starter', 'assets', 'Character.glb'));
 const PID = 'demo-0001';
 
 /** Every object with a `bricks` entry in the export's JSON files (the catalog's are content files, some gzipped). */

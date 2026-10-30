@@ -6,10 +6,11 @@
  * rules.
  *
  * What a new project gets comes from three places, so nothing is copied:
- * - `captured/project.json` (a v3 project, authored through the real
- *   editing path, `templates/tools/author.mts`): the 3D settings, the
- *   character (its file and publish command taken from the 2D starter), the
- *   player, its spawn and the lights;
+ * - `thirdlight/` and `assets/` (the project as a new one starts, in the
+ *   current storage and schema versions; change it by opening a project made
+ *   from the template and copying its files back): the 3D settings, the
+ *   character (the 2D starter's file, `assets/Character.glb` links to it),
+ *   the player, its spawn and the lights;
  * - `template.json` `packs: ["basic-kit"]`: the engine's Basic Kit, added
  *   from `packs/basic-kit/pack.json` when the project is made, so the
  *   template always has the kit as the engine ships it;
@@ -22,9 +23,8 @@
  * `starter3d_{grass,soil,rock}_{albedo_height,normal,orm}.png`; the KTX2
  * files are kept in the repository, the PNGs are not), (2) takes the grass
  * clumps from the Blender output of `grass.py` when its folder is given
- * (`--grass <dir>`: the model is copied, its colour texture encoded to KTX2),
- * (3) captures the base project and (4) writes the setup pack. Re-running it
- * gives the same bytes.
+ * (`--grass <dir>`: the model is copied, its colour texture encoded to KTX2)
+ * and (3) writes the setup pack. Re-running it gives the same bytes.
  *
  * The grass ships as content for ground cover (a model of three clump pieces
  * and a foliage material); the setup places none of it, so a new project
@@ -44,13 +44,12 @@ import * as ktx2 from 'ktx2-encoder';
 import { FOLIAGE_NEAR_METRES, LAYERED_TEXTURES, layeredMaterial, NEW_PROJECT_ENVIRONMENT, type MaterialDef } from '@thirdlight/project-model';
 import { decodePngRgba } from '@thirdlight/project-model/png';
 
-import { capture, newAuthor, run } from '../../tools/author.mts';
 
 // Bundled elsewhere, so the folders come from the working directory (the repo root).
 const ROOT = resolve('templates', 'starter-3d');
-const STARTER = resolve('templates', 'starter');
 const PROJECT_ID = 'starter-3d';
-const IMPORTED_AT = '2026-10-13T00:00:00Z';
+/** The player's id in the template's scene (the follow camera targets it). */
+const PLAYER_ID = 'model-000001';
 
 const sha256Hex = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
 
@@ -156,41 +155,6 @@ const LAYER = { size: 24, height: 6 } as const;
 /** The terrain: one tile of 65 samples a metre apart (64 m square), east of the block ground, flat at 0 where they meet. */
 const TERRAIN = { samples: 65, x: LAYER.size / 2, z: -32 } as const;
 
-function captureBase(): string {
-  // The character: the 2D starter's file and publish command (one character for both starters).
-  const recipe = JSON.parse(readFileSync(join(STARTER, 'recipe', 'commands.json'), 'utf8')) as { commands: { op: string; args: Record<string, unknown> }[] };
-  const publish = recipe.commands.find((c) => c.op === 'publishAsset' && c.args['assetId'] === 'starter-character');
-  if (publish === undefined) throw new Error('the starter recipe publishes no starter-character');
-  mkdirSync(join(ROOT, 'assets', 'model'), { recursive: true });
-  copyFileSync(join(STARTER, 'assets', 'model', 'character.glb'), join(ROOT, 'assets', 'model', 'character.glb'));
-
-  const author = newAuthor(PROJECT_ID, [0, 6, 12]);
-  run(author, 'publishAsset', publish.args);
-  // The controller's capsule centre stands 0.91 m up (the character's origin): its feet on the ground blocks' tops.
-  const player = run(author, 'createEntity', {
-    kind: 'model',
-    name: 'Player',
-    transform: T(0, 0.91, 0),
-    model: { asset: { assetId: 'starter-character' } },
-    components: {
-      controller: {},
-      modelAnimation: {
-        assetId: 'starter-character',
-        version: 1,
-        roles: { idle: { clipIndex: 0, clipName: 'Idle' }, run: { clipIndex: 1, clipName: 'Run' }, airborne: { clipIndex: 2, clipName: 'Airborne' } },
-      },
-    },
-  });
-  run(author, 'createEntity', { kind: 'group', name: 'Spawn', transform: T(0, 0.91, 0), components: { playerSpawn: {} } });
-  // The sun: the sky's light (the physical sky draws its sun opposite it), low enough for long shadows across the blocks.
-  run(author, 'createEntity', { kind: 'group', name: 'Sun', transform: T(0, 20, 0), components: { light: { type: 'directional', color: '#fff1dc', intensity: 2.2, direction: [-0.45, -0.75, -0.5], castShadow: true } } });
-  run(author, 'createEntity', { kind: 'group', name: 'Sky fill', transform: T(0, 0, 0), components: { light: { type: 'ambient', color: '#9fb4d8', intensity: 0.35 } } });
-  capture(author, ROOT, 'templates/starter-3d/tools/build-template.mts', IMPORTED_AT);
-  const id = (player as { createdId?: string }).createdId;
-  if (id === undefined) throw new Error('the player was not made');
-  return id;
-}
-
 /** The setup's commands (run after the Basic Kit is added; `$ref:<name>` is the object made under `ref`). */
 function setupCommands(playerId: string): { op: string; args: Record<string, unknown>; ref?: string }[] {
   const n = LAYER.size;
@@ -258,7 +222,6 @@ async function main(): Promise<void> {
   if (at >= 0) await encodeTextures(resolve(process.argv[at + 1] ?? '.'));
   const grassAt = process.argv.indexOf('--grass');
   if (grassAt >= 0) await takeGrass(resolve(process.argv[grassAt + 1] ?? '.'));
-  const playerId = captureBase();
   const entry = (file: string): { file: string; sha256: string; bytes: number } => {
     const bytes = new Uint8Array(readFileSync(join(ROOT, 'setup', 'assets', file)));
     return { file, sha256: sha256Hex(bytes), bytes: bytes.byteLength };
@@ -276,7 +239,7 @@ async function main(): Promise<void> {
     source: { designer: 'art-factory Texture Designer', graphs: LAYERS.map((l) => l.graph), size: 512, packing: 'albedo + height in A, normal, ORM (a shared packing of the designer)', note: 'Original content rendered from the shared library graphs (no downloaded or third-party textures).', grass: 'Original content modelled by templates/starter-3d/tools/grass.py in Blender (the art-factory pipeline, bpipe).' },
     folder: 'assets/ground',
     assets,
-    commands: setupCommands(playerId),
+    commands: setupCommands(PLAYER_ID),
   };
   writeFileSync(join(ROOT, 'setup', 'pack.json'), `${JSON.stringify(pack, null, 1)}\n`);
   console.log(`setup: ${assets.length} assets (${assets.reduce((s, a) => s + (a['bytes'] as number), 0)} B), ${pack.commands.length} commands`);

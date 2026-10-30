@@ -1,0 +1,17 @@
+{
+  "tlasset": 3,
+  "id": "starter-pillar",
+  "kind": "model",
+  "importSettings": {},
+  "labels": [],
+  "address": null,
+  "record": {
+    "assetId": "starter-pillar",
+    "kind": "model",
+    "displayName": "Pillar",
+    "currentVersion": 1,
+    "versions": [
+      {"version":1,"sourceDigest":"6491376c34f960c168ff674f2c579a2ad8d412f278c567e4e6cb71435e4bf81c","sourceByteLength":2980,"sourcePath":"assets/Pillar.glb","importRecipe":{"profile":"gltf-glb","recipeVersion":1,"toolchain":{"three":"0.186.0"},"extensions":[]},"metrics":{"nodes":3,"meshes":2,"primitives":2,"materials":2,"images":0,"textures":0,"vertices":48,"triangles":24,"animations":0,"animationChannels":0,"clipDurationMs":0,"decodedGeometryBytes":1296,"decodedImageBytes":0},"importedAt":"2026-09-28T00:00:00Z","publishedRevision":0}
+    ]
+  }
+}

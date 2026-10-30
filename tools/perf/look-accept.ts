@@ -51,7 +51,7 @@ const ACCEPT_SCENES = ['door', 'sunset', 'corridor', 'sign', 'shut-on'] as const
 type AcceptScene = (typeof ACCEPT_SCENES)[number];
 
 /** The starter template's character (the 3D starter's own file and animation roles). */
-const CHARACTER_FILE = join(REPO, 'templates', 'starter-3d', 'assets', 'model', 'character.glb');
+const CHARACTER_FILE = join(REPO, 'templates', 'starter', 'assets', 'Character.glb');
 const CHARACTER_ROLES = { idle: { clipIndex: 0, clipName: 'Idle' }, run: { clipIndex: 1, clipName: 'Run' }, airborne: { clipIndex: 2, clipName: 'Airborne' } };
 /** The character's pivot over its feet (its bounds reach 0.9 m below it). */
 const FEET = 0.91;

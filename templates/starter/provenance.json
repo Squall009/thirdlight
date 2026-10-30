@@ -6,7 +6,7 @@
     {
       "id": "starter-character",
       "kind": "model",
-      "path": "model/character.glb",
+      "path": "assets/Character.glb",
       "madeBy": "Blender (art pipeline): LOD0–2 and a capsule _COL, KTX2 textures, 22-bone skin",
       "sourceDigest": "aa1fba3071f5ed35a7cacef3a2757600e76b38214017e338bc7bca22197cb875",
       "sourceByteLength": 948892,
@@ -24,7 +24,7 @@
     {
       "id": "starter-pillar",
       "kind": "model",
-      "path": "model/pillar.glb",
+      "path": "assets/Pillar.glb",
       "madeBy": "this script",
       "sourceDigest": "6491376c34f960c168ff674f2c579a2ad8d412f278c567e4e6cb71435e4bf81c",
       "sourceByteLength": 2980,

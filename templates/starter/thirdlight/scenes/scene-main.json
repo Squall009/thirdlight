@@ -1,0 +1,33 @@
+{
+  "storageVersion": 4,
+  "type": "scene",
+  "projectId": "starter",
+  "scene": {
+    "schemaVersion": 4,
+    "sceneId": "scene-main",
+    "revision": 0,
+    "environment": {
+      "sky": {
+        "environmentIntensity": 0.1,
+        "mode": "procedural"
+      }
+    },
+    "entities": [
+      {"id":"cam-main","name":"Main camera","keepLoaded":true,"components":{"transform":{"position":[4,3,12],"rotation":[0,0,0,1],"scale":[1,1,1]},"virtualCamera":{"rig":"fixed","priority":-1000}}},
+      {"id":"box-0001","name":"Ground","components":{"transform":{"position":[8,-0.2,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"box":{"size":[24,0.4,1],"material":{"color":"#6f6f6f"}},"collider":{"shape":{"type":"box","hx":12,"hy":0.2,"hz":0.5}}}},
+      {"id":"box-0002","name":"Step","components":{"transform":{"position":[6.5,0.1,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"box":{"size":[1,0.4,1],"material":{"color":"#7d7d7d"}},"collider":{"shape":{"type":"box","hx":0.5,"hy":0.2,"hz":0.5}}}},
+      {"id":"box-0003","name":"Platform","components":{"transform":{"position":[12,1.6,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"box":{"size":[3,0.4,1],"material":{"color":"#7d7d7d"}},"collider":{"shape":{"type":"box","hx":1.5,"hy":0.2,"hz":0.5}}}},
+      {"id":"box-0004","name":"Crate","components":{"transform":{"position":[-2,0.5,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"box":{"size":[1,1,1],"material":{"color":"#8a7a62"}},"collider":{"shape":{"type":"box","hx":0.5,"hy":0.5,"hz":0.5}}}},
+      {"id":"model-0001","name":"Player","keepLoaded":true,"components":{"transform":{"position":[3,0.91,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"model":{"asset":{"assetId":"starter-character"}},"controller":{},"animator":{"controller":"idle-run-airborne-01"}}},
+      {"id":"spawn-0001","name":"Spawn","components":{"transform":{"position":[3,0.91,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"playerSpawn":{}}},
+      {"id":"light-0001","name":"Key light","components":{"transform":{"position":[8,10,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"light":{"type":"directional","color":"#fff4e0","intensity":1.6,"direction":[0.4,-1,-0.6],"castShadow":true}}},
+      {"id":"light-0002","name":"Ambient fill","components":{"transform":{"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"light":{"type":"ambient","color":"#8a94b0","intensity":0.9}}},
+      {"id":"model-0002","name":"Pillar","components":{"transform":{"position":[17,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"model":{"asset":{"assetId":"starter-pillar"}}}}
+    ]
+  },
+  "retry": {
+    "recordVersion": 2,
+    "retention": 128,
+    "records": []
+  }
+}

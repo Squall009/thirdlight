@@ -102,7 +102,7 @@ const ROOM = { x: [-11, -7.5], z: [-12, -9] } as const;
 const TINT = { materials: { '*': 'vp-tint' } };
 
 async function buildScene(): Promise<{ set: string; layer: string; platform: string; camera: string; room: string }> {
-  await publishBytes(be!, new Uint8Array(readFileSync(join(REPO, 'templates', 'starter', 'assets', 'model', 'pillar.glb'))), 'model', 'pillar', 'Pillar', {}, { extractTextures: false });
+  await publishBytes(be!, new Uint8Array(readFileSync(join(REPO, 'templates', 'starter', 'assets', 'Pillar.glb'))), 'model', 'pillar', 'Pillar', {}, { extractTextures: false });
   await cmd('setBlockType', { block: { blockId: 'turf', name: 'Turf', variants: [{ color: '#3f8f3a' }], shape: 'full' } });
   const layer = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Terrain', transform: { position: [...LAYER_AT] } }))['createdId']);
   await cmd('setComponent', { entityId: layer, component: 'blockLayer', value: { cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [12, 8, 8] }, castShadow: false, receiveShadow: false } });
