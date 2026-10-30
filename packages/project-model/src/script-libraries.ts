@@ -25,6 +25,7 @@ import { isPlainObject, sha256HexOfText, utf8Length } from '@thirdlight/shared';
 import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { MAX_BEHAVIOR_FILES, MAX_BEHAVIOR_FILE_BYTES, MAX_BEHAVIOR_SOURCE_BYTES } from './content-limits';
+import { isDigest } from './content-helpers';
 
 export interface ScriptLibraryFile {
   /** A container path, e.g. `src/index.ts` or `src/data/items.json`. */
@@ -188,7 +189,7 @@ export function validateLibraryPins(value: unknown, path: string, errors: ModelE
       err(errors, 'field_value', `${pp}/libraryId`, 'library pins are ascending and unique by libraryId', id, 'ascending unique ids');
     }
     const d = p['sourceDigest'];
-    if (typeof d !== 'string' || !/^[0-9a-f]{64}$/.test(d)) err(errors, 'digest_invalid', `${pp}/sourceDigest`, 'a pin digest is 64 lowercase hex', d, '64 lowercase hex');
+    if (!isDigest(d)) err(errors, 'digest_invalid', `${pp}/sourceDigest`, 'a pin digest is 64 lowercase hex', d, '64 lowercase hex');
   });
 }
 

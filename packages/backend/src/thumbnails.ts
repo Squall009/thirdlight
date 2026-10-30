@@ -13,6 +13,7 @@ import { ID_RE } from '@thirdlight/project-model/limits';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { DIGEST_RE } from '@thirdlight/project-model/content-helpers';
 
 /** Largest thumbnail accepted (bytes). */
 export const THUMBNAIL_BYTES_MAX = 262_144;
@@ -20,7 +21,6 @@ export const THUMBNAIL_BYTES_MAX = 262_144;
 export const THUMBNAIL_EDGE_MAX = 512;
 
 const PROJECT_RE = ID_RE;
-const DIGEST_RE = /^[0-9a-f]{64}$/;
 
 export interface ThumbnailCache {
   read(projectId: string, digest: string, piece: string | null): Uint8Array | null;

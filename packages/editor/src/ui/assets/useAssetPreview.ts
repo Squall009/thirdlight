@@ -15,6 +15,7 @@ import type { SessionClient } from '../../session/client';
 import type { AssetPreviewSession, ModelFiles } from '../../viewport/model-files';
 import { PreviewRenderer } from '../../viewport/preview-renderer';
 import { ModelSubject } from '../../viewport/preview-subjects';
+import { DIGEST_RE } from '@thirdlight/project-model/content-helpers';
 
 /** What the preview shows: the model, its clips, the clip playing and where. */
 export interface AssetPreviewView {
@@ -79,7 +80,7 @@ export function useAssetPreview(deps: {
       const m = modelFilesRef.current;
       if (!c || !m) return;
       const v = c.content.resolveVersion(assetId);
-      if (!v || !/^[0-9a-f]{64}$/.test(v.sourceDigest)) {
+      if (!v || !DIGEST_RE.test(v.sourceDigest)) {
         failRef.current({ code: 'asset_not_found', message: `no immutable version facts for ${assetId}` });
         return;
       }

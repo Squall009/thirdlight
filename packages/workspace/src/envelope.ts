@@ -13,7 +13,7 @@
  * - `validateRetryBlock` / the record-result shape check are shared
  *   with the v4 files (`store-v4.ts`).
  */
-import { ID_RE } from '@thirdlight/project-model';
+import { ID_RE, isDigest, REQUEST_ID_RE } from '@thirdlight/project-model';
 
 import type { ContentCatalogV3, SceneV3 } from '@thirdlight/project-model';
 import type { LoadDetail, UnavailableReason } from './errors';
@@ -45,10 +45,6 @@ export const ENVELOPE_TYPE = 'authoring-state';
 
 /** The project-model ID syntax (project/scene/entity IDs). */
 export { ID_RE };
-/** `req-` + 32 lowercase hex chars. */
-const REQUEST_ID_RE = /^req-[0-9a-f]{32}$/;
-/** 64 lowercase hex chars. */
-const DIGEST_RE = /^[0-9a-f]{64}$/;
 
 /** One durable retry record. */
 export interface RetryRecord {
@@ -390,7 +386,7 @@ export function validateRetryBlock(
     }
     seen.add(rid);
     const digest = r['digest'];
-    if (typeof digest !== 'string' || !DIGEST_RE.test(digest)) {
+    if (!isDigest(digest)) {
       return bad('record digest must be 64 lowercase hex chars (SHA-256)', undefined, '[0-9a-f]{64}', `${at}/digest`);
     }
     const applied = r['appliedRevision'];

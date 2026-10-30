@@ -7,6 +7,8 @@
  * the runtime snapshot validator).
  */
 import { ID_RE } from '@thirdlight/project-model/limits';
+import { REQUEST_ID_RE } from '@thirdlight/project-model/request-id';
+export { REQUEST_ID_RE } from '@thirdlight/project-model/request-id';
 
 /** All project/entity/scene IDs (the project-model ID syntax). */
 export const PROJECT_ID_RE = ID_RE;
@@ -20,8 +22,6 @@ export const PLAY_SESSION_ID_RE = /^play-[0-9a-f]{32}$/;
 export const WSTOKEN_RE = /^[0-9a-f]{64}$/;
 /** `relay-` + 32 lowercase hex (server-generated). */
 export const RELAY_ID_RE = /^relay-[0-9a-f]{32}$/;
-/** `req-` + 32 hex (client-generated, dedup lease). */
-export const REQUEST_ID_RE = /^req-[0-9a-f]{32}$/;
 
 export function isProjectId(v: unknown): v is string {
   return typeof v === 'string' && PROJECT_ID_RE.test(v);

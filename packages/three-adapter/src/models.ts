@@ -51,7 +51,7 @@
  */
 import * as THREE from 'three';
 import { assetVersionKey, createResourceManager, type LoadedResource, type ResourceManager } from '@thirdlight/runtime';
-import { instanceDensityOf, type InstanceDensity, type ModelLodSettings, type ModelOccluderMode } from '@thirdlight/project-model';
+import { instanceDensityOf, type InstanceDensity, type ModelLodSettings, type ModelOccluderMode, isDigest } from '@thirdlight/project-model';
 import {
   adapterError,
   type AdapterError,
@@ -425,7 +425,7 @@ export function validateModelsBlock(ctx: {
     if (!Number.isInteger(row.version) || row.version < 1 || row.version > 32) {
       return adapterError('models_config_invalid', `models assets row ${row.assetId} carries no valid version`);
     }
-    if (typeof row.sourceDigest !== 'string' || !/^[0-9a-f]{64}$/.test(row.sourceDigest)) {
+    if (!isDigest(row.sourceDigest)) {
       return adapterError('models_config_invalid', `models assets row ${row.assetId} carries no valid sourceDigest`);
     }
     const previous = seen.get(row.assetId);

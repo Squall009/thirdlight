@@ -119,6 +119,7 @@ const planeField = canonicalPlaneField;
 import { canonicalBlockFootprint, validateBlockFootprintComponent, type BlockFootprintComponent } from './block-layers';
 import { canonicalBlockLayerComponent, canonicalSceneBlocks, validateBlockLayerComponent, validateSceneBlocks, type BlockLayerComponent, type BlockLayerData } from './block-layers';
 import { utf8LengthPairingAnyHigh } from '@thirdlight/shared';
+import { isDigest } from './content-helpers';
 
 export { MAX_INSTANCE_CHUNK_SIZE };
 
@@ -296,7 +297,7 @@ export function validateInstancesComponent(c: unknown, path: string, errors: Mod
   }
   const buffer = c['buffer'];
   if (buffer === undefined) errors.push(fieldMissing(`${path}/buffer`, 'buffer'));
-  else if (typeof buffer !== 'string' || !/^[0-9a-f]{64}$/.test(buffer)) {
+  else if (!isDigest(buffer)) {
     errors.push(fieldValue(`${path}/buffer`, buffer, 'SHA-256 of the buffer (64 lowercase hex)', 'buffer is the digest of the instance transforms'));
   }
   const count = c['count'];

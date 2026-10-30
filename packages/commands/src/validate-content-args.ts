@@ -27,7 +27,7 @@ import {
   limitsExceeded,
   settingUnknown,
 } from './errors';
-import { COLLIDER_SHAPE_TYPES, MAX_BEHAVIOR_SOURCE_BYTES, SET_COMPONENT_ENTITIES_MAX, isValidSourcePath, type PropertyValue, type SettingsKeySpec } from '@thirdlight/project-model';
+import { COLLIDER_SHAPE_TYPES, MAX_BEHAVIOR_SOURCE_BYTES, SET_COMPONENT_ENTITIES_MAX, isValidSourcePath, type PropertyValue, type SettingsKeySpec, DIGEST_RE } from '@thirdlight/project-model';
 import { COMPONENT_FIELD_ORDER, SURFACE_PRESET_NAMES } from './v3';
 import type {
   AcknowledgeBehaviorTrustArgs,
@@ -40,9 +40,6 @@ import type {
   SetComponentArgs,
   SetSettingsArgs,
 } from './types';
-
-/** 64 lowercase hex characters (a SHA-256 digest). */
-const DIGEST_RE = /^[0-9a-f]{64}$/;
 
 /** `^[a-z][a-z0-9_]{0,63}$` — property/settings key syntax. */
 const KEY_RE = /^[a-z][a-z0-9_]{0,63}$/;
@@ -421,7 +418,7 @@ export function validatePublishBehaviorArgs(
     if (typeof digest !== 'string') {
       return { ok: false, error: fieldType('/args/source/sourceDigest', digest, '64 lowercase hex characters') };
     }
-    if (!/^[0-9a-f]{64}$/.test(digest)) return { ok: false, error: digestInvalid('/args/source/sourceDigest', digest) };
+    if (!DIGEST_RE.test(digest)) return { ok: false, error: digestInvalid('/args/source/sourceDigest', digest) };
     const byteLength = s['sourceByteLength'];
     if (byteLength === undefined) {
       return { ok: false, error: fieldMissing('/args/source/sourceByteLength', 'sourceByteLength') };

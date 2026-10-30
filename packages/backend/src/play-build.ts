@@ -22,6 +22,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { sha256HexBytes } from './play-content';
+import { DIGEST_RE } from '@thirdlight/project-model/content-helpers';
 
 /** The URL prefix of a play build's files (preview origin). */
 export const PLAY_BUILD_PREFIX = '/play-build/';
@@ -120,7 +121,7 @@ export function parsePlayBuildPath(path: string): { digest: string; name: string
   const rest = path.slice(PLAY_BUILD_PREFIX.length).split('/');
   if (rest.length !== 2) return null;
   const [digest, name] = rest as [string, string];
-  if (!/^[0-9a-f]{64}$/.test(digest) || !FILES.some((f) => f.name === name)) return null;
+  if (!DIGEST_RE.test(digest) || !FILES.some((f) => f.name === name)) return null;
   return { digest, name };
 }
 

@@ -45,6 +45,7 @@ import { answerScreenshotWhenDrawn, answerScreenshotWithOverlay } from './screen
 import { awaitRestart } from './replay-answer';
 import { resolveRelayFrames, type IncomingRelayFrame } from './relay-frames';
 import { fitGameObservation, fitPlayDiagnostics, GAME_OBSERVATION_HEADER, pickPlaySections, type GameControlCommand } from '@thirdlight/protocol';
+import { DIGEST_RE } from '@thirdlight/project-model/content-helpers';
 
 /** Three's Draco and Basis decoders on the preview origin. */
 const PREVIEW_DECODER_BASE = '/decoders/';
@@ -136,7 +137,7 @@ export function artifactUrls(manifest: { scenes?: readonly { path: string; diges
   return (path) => {
     if (/^content\/sha256\/[0-9a-f]{64}$/.test(path) || /^behaviors\/[0-9a-f]{64}\.js$/.test(path)) return `${cacheRoot}${path}`;
     const scene = scenes.get(path);
-    if (scene !== undefined && /^[0-9a-f]{64}$/.test(scene)) return `${cacheRoot}content/sha256/${scene}`;
+    if (scene !== undefined && DIGEST_RE.test(scene)) return `${cacheRoot}content/sha256/${scene}`;
     return `${contentRoot}${path}`;
   };
 }

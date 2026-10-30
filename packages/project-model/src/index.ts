@@ -99,6 +99,8 @@ export { parseDocumentBytes, type ByteParse } from './parse-bytes';
 export { parseEnvelopeV3, parseManifest, parseSceneV3 } from './parse-api';
 
 export { validateManifest, normalizeManifest, boundedFound } from './validate';
+export { DIGEST_RE, isDigest } from './content-helpers';
+export { REQUEST_ID_RE } from './request-id';
 export * from './limits';
 export { lightLayerMaskOf, validateLightLayerMask, validateLightLayerNames } from './light-layers';
 export { localLightModeOf, upgradeVertexLocalLights, validateLocalLightMode, type LocalLightMode, type MaterialLocalLightMode } from './local-lights';

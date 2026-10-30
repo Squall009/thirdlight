@@ -77,6 +77,7 @@ import { losslessOriginal, textureVersionsOf } from './texture-originals';
 import type { AssetFileCheck } from './asset-files';
 import { THUMBNAIL_BYTES_MAX, type ThumbnailCache } from './thumbnails';
 import { zipEntries, zipRead, type ZipEntry } from './zip-read';
+import { DIGEST_RE } from '@thirdlight/project-model/content-helpers';
 
 /** The largest file of a job export read (the FBX/KTX2 conversion source bound). */
 const MAX_JOB_EXPORT_FILE_BYTES = 134_217_728;
@@ -1627,7 +1628,7 @@ export class ContentRoutes {
   private bufferBytes(req: IncomingMessage, res: ServerResponse, projectId: string, rawDigest: string): void {
     const auth = this.deps.requireAuth(req, projectId, false);
     if (auth !== null) return this.deps.sendError(res, auth);
-    if (!/^[0-9a-f]{64}$/.test(rawDigest)) {
+    if (!DIGEST_RE.test(rawDigest)) {
       return this.deps.sendError(res, sessionError('field_value', 'validation', 'the buffer is named by its SHA-256 digest', { path: '/digest' }));
     }
     const read = this.deps.service.readSourceBlob(projectId, { digest: rawDigest });

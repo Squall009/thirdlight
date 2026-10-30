@@ -9,7 +9,14 @@ import { withFound } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { MAX_SOURCE_PATH_LENGTH } from './content-limits';
 
+/** A content digest: SHA-256 as 64 lowercase hex digits. */
 export const DIGEST_RE = /^[0-9a-f]{64}$/;
+
+/** Whether a value is a content digest (a string matching `DIGEST_RE`). */
+export function isDigest(v: unknown): v is string {
+  return typeof v === 'string' && DIGEST_RE.test(v);
+}
+
 export const SEMVER_RE = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
 
 // ---- small helpers ------------------------------------------------------------

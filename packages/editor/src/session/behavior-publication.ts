@@ -23,6 +23,7 @@
  */
 import type { DeclaredProperty, PropertyDeclaration } from '@thirdlight/project-model';
 import { MAX_BEHAVIOR_DIAGNOSTICS } from '@thirdlight/project-model/limits';
+import { DIGEST_RE } from '@thirdlight/project-model/content-helpers';
 
 /** The maximum bounded compile diagnostics the UI displays (the compiler's own cut). */
 export const COMPILE_DIAGNOSTIC_LIMIT = MAX_BEHAVIOR_DIAGNOSTICS;
@@ -43,9 +44,6 @@ export const BEHAVIOR_TRUST_NOTICE: readonly string[] = Object.freeze([
 
 /** The acknowledgment button label (a reader must accept the notice). */
 export const BEHAVIOR_TRUST_ACKNOWLEDGE_LABEL = 'I understand the limits and acknowledge this exact source digest';
-
-/** The source digest shape: 64 lowercase hex digits. */
-export const SOURCE_DIGEST_PATTERN = /^[0-9a-f]{64}$/;
 
 export interface BehaviorStageView {
   stageId: string;
@@ -199,7 +197,7 @@ export function stageSourceEdit(
 
 /** The exact `acknowledgeBehaviorTrust` args. */
 export function planAcknowledgeTrust(sourceDigest: string): { sourceDigest: string } {
-  if (!SOURCE_DIGEST_PATTERN.test(sourceDigest)) {
+  if (!DIGEST_RE.test(sourceDigest)) {
     throw new Error(`invalid source digest ${JSON.stringify(sourceDigest)}`);
   }
   return { sourceDigest };
@@ -223,7 +221,7 @@ export function planPublishSource(args: {
   declaration: PropertyDeclaration;
   source: { sourceDigest: string; sourceByteLength: number };
 } {
-  if (!SOURCE_DIGEST_PATTERN.test(args.sourceDigest)) {
+  if (!DIGEST_RE.test(args.sourceDigest)) {
     throw new Error(`invalid source digest ${JSON.stringify(args.sourceDigest)}`);
   }
   return {

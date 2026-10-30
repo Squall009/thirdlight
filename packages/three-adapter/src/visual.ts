@@ -31,7 +31,7 @@
  * project-model type. Every public call returns a result object and never
  * throws across the module edge.
  */
-import { ASSET_METRIC_CAPS, MAX_SOURCE_BYTES, type ModelLodSettings, type ModelOccluderMode } from '@thirdlight/project-model';
+import { ASSET_METRIC_CAPS, MAX_SOURCE_BYTES, type ModelLodSettings, type ModelOccluderMode, isDigest } from '@thirdlight/project-model';
 import * as THREE from 'three';
 import { adapterError, type AdapterError, type AdapterErrorCode } from './errors';
 import { mergeOwnership, OwnershipLedger, type ResourceOwnership } from './ownership';
@@ -419,7 +419,7 @@ function validateSource(source: AssetByteSource | null | undefined): AdapterErro
   if (!Number.isInteger(d.version) || d.version < 1 || d.version > 32) {
     return adapterError('asset_source_invalid', 'descriptor.version must be an integer in 1..32');
   }
-  if (typeof d.sourceDigest !== 'string' || !/^[0-9a-f]{64}$/.test(d.sourceDigest)) {
+  if (!isDigest(d.sourceDigest)) {
     return adapterError('asset_source_invalid', 'descriptor.sourceDigest must be 64 lowercase hex characters');
   }
   if (!Number.isInteger(d.sourceByteLength) || d.sourceByteLength < 1 || d.sourceByteLength > VISUAL_SOURCE_BYTES_MAX) {

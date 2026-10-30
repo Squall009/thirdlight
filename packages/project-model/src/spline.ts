@@ -21,6 +21,7 @@ import { TERRAIN_LAYER_MAX } from './terrain-sizes';
 import { ID_RE } from './validate';
 import { validateDecalLayerMask } from './decals';
 import { isPlainObject } from '@thirdlight/shared';
+import { isDigest } from './content-helpers';
 
 /** The bounds of one spline's values (per request: the 64 KiB command bounds a spline's points first). */
 export const SPLINE_LIMITS = Object.freeze({
@@ -160,7 +161,6 @@ const PAINT_FIELDS = ['layer', 'strength', 'width', 'falloff'];
 const SCATTER_FIELDS = ['margin', 'rules'];
 const MESH_FIELDS = ['kind', 'profile', 'offset', 'tiling', 'step', 'collision', 'castShadow', 'receiveShadow', 'flow', 'foam'];
 const PIECE_FIELDS = ['asset', 'spacing', 'start', 'offset', 'yaw', 'upright', 'collide', 'castShadow'];
-const DIGEST_RE = /^[0-9a-f]{64}$/;
 const RULE_ID_RE = /^[A-Za-z0-9_-]{1,32}$/;
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -280,7 +280,7 @@ export function validateSplineComponent(value: unknown, path: string, errors: Mo
       });
     }
   }
-  if (value['data'] !== undefined && (typeof value['data'] !== 'string' || !DIGEST_RE.test(value['data']))) err(errors, 'field_value', `${path}/data`, 'data is the SHA-256 of what the host made along the spline (64 lowercase hex)', value['data']);
+  if (value['data'] !== undefined && !isDigest(value['data'])) err(errors, 'field_value', `${path}/data`, 'data is the SHA-256 of what the host made along the spline (64 lowercase hex)', value['data']);
   validateDecalLayerMask(value['decalLayers'], `${path}/decalLayers`, errors, 0);
 }
 

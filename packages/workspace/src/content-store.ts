@@ -13,7 +13,7 @@
  * Derived caches are regenerable and never authoritative: a write to
  * `.thirdlight/derived/**` changes no revision, no envelope and no catalog.
  */
-import { ID_RE, withScenePlane } from '@thirdlight/project-model';
+import { DIGEST_RE, ID_RE, isDigest, withScenePlane } from '@thirdlight/project-model';
 
 import {
   closeSync,
@@ -81,9 +81,6 @@ export const DEFAULT_DEVICE_SPACE_RESERVE_BYTES = 67_108_864;
 export const ABANDONED_STAGE_RETENTION_SECONDS = 86_400;
 /** The bounded inspection job budget. */
 export const INSPECT_TIMEOUT_MS = 30_000;
-/** 64 lowercase hex. */
-const DIGEST_RE = /^[0-9a-f]{64}$/;
-/** The project-model ID syntax. */
 
 /** The content-storage configuration (a subspace of the service core). */
 export interface ContentConfig {
@@ -748,7 +745,7 @@ export function publishBlob(
     return { ok: false, error: pathRejected('', 'blob request must be an object') };
   }
   const { digest, byteLength, source } = request;
-  if (typeof digest !== 'string' || !DIGEST_RE.test(digest)) {
+  if (!isDigest(digest)) {
     return { ok: false, error: blobCorrupt(String(digest), 'sources/sha256/') };
   }
   let bytes: Uint8Array;
@@ -1024,7 +1021,7 @@ export function readSourceBlob(
 ): SourceBlobReadResult {
   void core;
   const digest = request?.digest;
-  if (typeof digest !== 'string' || !/^[0-9a-f]{64}$/.test(digest)) {
+  if (!isDigest(digest)) {
     return { ok: false, error: pathRejected(String(digest), 'a source-blob digest must be 64 lowercase hex') };
   }
   const dirRes = verifyArtifactDir(ctx.dir, ['sources', 'sha256'], false);
@@ -1723,7 +1720,6 @@ export function writeDerivedImport(
 
 // ---- prepared behavior sources (derived cache) ---------------------
 
-const PREPARED_DIGEST_RE = /^[0-9a-f]{64}$/;
 const PREPARED_ID_RE = ID_RE;
 /** A bounded in-memory prepared-index scan (derived caches are non-authoritative). */
 export const MAX_PREPARED_SCAN = 256;
@@ -1739,7 +1735,6 @@ export function preparedRecordBytes(prepared: PreparedBehaviorSource): Uint8Arra
  */
 export function parsePreparedRecord(value: unknown): PreparedBehaviorSource | null {
   if (!isPlainObject(value)) return null;
-  const isDigest = (v: unknown): v is string => typeof v === 'string' && PREPARED_DIGEST_RE.test(v);
   const isInt = (v: unknown, min: number, max: number): v is number =>
     typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;
   if (typeof value['behaviorId'] !== 'string' || !PREPARED_ID_RE.test(value['behaviorId'])) return null;
@@ -1761,7 +1756,7 @@ export function parsePreparedRecord(value: unknown): PreparedBehaviorSource | nu
 
 /** Read one prepared record for `sourceDigest` (first valid derived entry). */
 export function readPreparedSource(thirdlightDir: string, sourceDigest: string): PreparedBehaviorSource | null {
-  if (!PREPARED_DIGEST_RE.test(sourceDigest)) return null;
+  if (!DIGEST_RE.test(sourceDigest)) return null;
   const base = join(thirdlightDir, 'derived', sourceDigest);
   let recipes: string[];
   try {
@@ -1795,7 +1790,7 @@ export function loadPreparedSources(thirdlightDir: string): Map<string, Prepared
   }
   for (const digest of digests) {
     if (out.size >= MAX_PREPARED_SCAN) break;
-    if (!PREPARED_DIGEST_RE.test(digest)) continue;
+    if (!DIGEST_RE.test(digest)) continue;
     const rec = readPreparedSource(thirdlightDir, digest);
     if (rec !== null) out.set(digest, rec);
   }

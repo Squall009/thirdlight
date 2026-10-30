@@ -90,6 +90,7 @@ import {
   RUNTIME_CONTENT_TYPE,
   type ManifestBehaviorInput,
 } from './manifest';
+import { DIGEST_RE, isDigest } from './content-helpers';
 // ---------------------------------------------------------------------------
 // Constants (see v1-v2-rules.json)
 // ---------------------------------------------------------------------------
@@ -430,8 +431,6 @@ export type CaptureManifestV2Result =
 // ---------------------------------------------------------------------------
 // Digest primitives
 // ---------------------------------------------------------------------------
-
-const DIGEST_RE = /^[0-9a-f]{64}$/;
 
 /**
  * The block digest: `sha256(JSON.stringify(value,
@@ -1059,10 +1058,6 @@ export type ValidateManifestV2Result =
   | { ok: false; error: ManifestErrorV2 };
 
 const ASSET_KINDS = ['model', 'audio', 'texture', 'font'] as const;
-
-function isDigest(v: unknown): v is string {
-  return typeof v === 'string' && DIGEST_RE.test(v);
-}
 
 /**
  * `validateManifestV2(doc, opts?)` — the strict v2 reader.

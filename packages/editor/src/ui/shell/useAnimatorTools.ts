@@ -11,6 +11,7 @@ import type { AnimatorController } from '@thirdlight/project-model';
 import type { AnimatorControllersProps, AnimatorPreview } from '../animator/parts';
 import type { GraphOp } from '../../graph/model';
 import { refusal, type ClientRef, type ModelsRef, type ReportFailure } from './commands';
+import { DIGEST_RE } from '@thirdlight/project-model/content-helpers';
 
 export interface AnimatorToolsDeps {
   clientRef: ClientRef;
@@ -49,7 +50,7 @@ export function useAnimatorTools(deps: AnimatorToolsDeps) {
       if (r !== null) foreign.set(id, r.animationClips());
     }
     const v = c.content.resolveVersion(assetId);
-    if (!v || !/^[0-9a-f]{64}$/.test(v.sourceDigest)) return 'the model has no published version';
+    if (!v || !DIGEST_RE.test(v.sourceDigest)) return 'the model has no published version';
     const res = await m.previewAsset({ assetId, version: v.version, sourceDigest: v.sourceDigest, sourceByteLength: v.sourceByteLength }, parent);
     if (!res.ok) return res.message;
     const machine = new AnimatorMachine(controller as unknown as AnimatorControllerLike);

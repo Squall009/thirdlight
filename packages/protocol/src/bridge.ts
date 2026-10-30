@@ -29,6 +29,7 @@ import { GAME_OBSERVATION_SECTIONS, PLAY_DIAGNOSTICS_SECTIONS, playSectionsProbl
 import { playProblemProblem } from './play-problems';
 import { debugCommandCallProblem, GAME_CONTROL_COMMANDS, GAME_OBSERVATION_MAX_BYTES, RELAY_ANSWER_WITHIN_MAX_MS } from './m3';
 import { isPlainObject } from '@thirdlight/shared';
+import { isDigest } from '@thirdlight/project-model/content-helpers';
 
 /** The exhaustive allowlists (v2). */
 export const BRIDGE_EDITOR_TO_PREVIEW_TYPES = [
@@ -96,10 +97,6 @@ function answerWithinProblem(v: unknown): Verdict | null {
 
 function int(v: unknown, min: number, max: number): v is number {
   return typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;
-}
-
-function isDigest(v: unknown): v is string {
-  return typeof v === 'string' && /^[0-9a-f]{64}$/.test(v);
 }
 
 function rejectUnknown(m: Record<string, unknown>, allowed: readonly string[]): { reason: string; path: string } | null {

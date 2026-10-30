@@ -161,7 +161,6 @@ const MISSING_CODES: ReadonlySet<string> = new Set(['asset_source_missing', 'blo
 /** The bytes a placeholder stands in with for a missing asset (null: none for this kind). */
 export type ClosurePlaceholderMaker = (asset: { readonly assetId: string; readonly kind: string; readonly bounds?: unknown }) => Uint8Array | null;
 
-const DIGEST_RE = /^[0-9a-f]{64}$/;
 /**
  * A scene as a game reads it: a terrain's tiles name only what is drawn and
  * collides (`data`, `scatter`); the hand-made form beside a tile splines or

@@ -119,7 +119,11 @@ export const OWNED_FAMILIES = Object.freeze([
     names: ['isPlainObject', 'isPlainObjectStrict', 'isPlainRecord', 'isRecord', 'isObject', 'isObj', 'isPlain', 'isRow', 'isMap', 'deepFreeze', 'deepFreezeAll', 'deepFreezeExceptViews', 'deepFreezeForTest'],
   },
   { family: 'strict-json', owner: 'packages/shared/src/strict-json.ts', names: ['parseStrictJson', 'strictJson'] },
-  { family: 'digest-format', owner: 'packages/project-model/src/content-helpers.ts', names: ['DIGEST_RE'] },
+  {
+    family: 'digest-format',
+    owner: 'packages/project-model/src/content-helpers.ts',
+    names: ['DIGEST_RE', 'isDigest', 'PREPARED_DIGEST_RE', 'SOURCE_DIGEST_PATTERN'],
+  },
   { family: 'request-id-format', owner: 'packages/project-model/src/request-id.ts', names: ['REQUEST_ID_RE'] },
 ]);
 

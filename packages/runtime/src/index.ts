@@ -235,6 +235,8 @@ export {
 // load; the editor uses the same rules for its viewport and inspector).
 export { resolveSnapshotHierarchy } from './snapshot';
 export { effectiveEntityFlags, type EffectiveEntityFlags } from '@thirdlight/project-model';
+// The content digest format (the game host checks content paths against it).
+export { isDigest } from '@thirdlight/project-model';
 // The character capsule's default and ranges (the editor draws and edits it).
 export { CAPSULE_LIMITS, controllerCapsuleOf } from '@thirdlight/project-model';
 export { createTagQuery } from './behavior';

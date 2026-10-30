@@ -71,6 +71,7 @@ import { ID_RE, isPlainObject } from './validate';
 import { isAddress, loadableRowsProblem, type LoadableRow } from './loadable';
 import { isAssetLabel } from './content-assets';
 import type { GameplaySettings } from './types-v2';
+import { isDigest } from './content-helpers';
 
 export const RUNTIME_CONTENT_MANIFEST_VERSION_5 = 5 as const;
 
@@ -259,9 +260,6 @@ export type CaptureManifestV5Result =
 function v5Error(code: string, message: string, reason?: string, found?: unknown): ManifestErrorV2 {
   return { code, cls: code === 'internal' ? 'internal' : 'validation', message: message.slice(0, 256), ...(reason !== undefined ? { reason } : {}), ...(found !== undefined ? { found } : {}) };
 }
-
-const DIGEST_RE = /^[0-9a-f]{64}$/;
-const isDigest = (v: unknown): v is string => typeof v === 'string' && DIGEST_RE.test(v);
 
 /** The manifest's canonical bytes (`JSON.stringify(value, null, 2) + "\n"`, as every manifest before). */
 function fileBytes(value: unknown): Uint8Array {

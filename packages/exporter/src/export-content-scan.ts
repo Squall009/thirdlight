@@ -24,6 +24,7 @@
  */
 import { GLB_CHUNK_JSON, GLB_MAGIC, isKtx2, isPng } from '@thirdlight/shared';
 import { nodeSpecifierOffsets, type ScanHit } from './scan';
+import { DIGEST_RE } from '@thirdlight/project-model';
 
 export interface ScanPatterns {
   authoringOrigin: string;
@@ -196,7 +197,7 @@ export function scanWasmContainer(bytes: Uint8Array, declaredDigest: string): Co
   if (dv.getUint32(0, true) !== 0x6d736100) return { ok: false, code: 'wasm_magic', message: 'the file magic is not "\\0asm"', offset: 0 };
   const version = dv.getUint32(4, true);
   if (version !== 1) return { ok: false, code: 'wasm_version', message: `WASM version ${version} is not 1`, offset: 4 };
-  if (!/^[0-9a-f]{64}$/.test(declaredDigest)) return { ok: false, code: 'wasm_pin', message: 'the artifact has no declared 64-hex digest pin' };
+  if (!DIGEST_RE.test(declaredDigest)) return { ok: false, code: 'wasm_pin', message: 'the artifact has no declared 64-hex digest pin' };
   return { ok: true };
 }
 

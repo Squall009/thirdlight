@@ -18,7 +18,7 @@
  * length and digest before anyone gets them; a failed check is an
  * `asset_source_invalid` error naming the asset.
  */
-import { assetVersionKey, createResourceManager, type LoadedResource, type ResourceManager } from '@thirdlight/runtime';
+import { assetVersionKey, createResourceManager, type LoadedResource, type ResourceManager, isDigest } from '@thirdlight/runtime';
 
 /** One manifest asset row (the fields the reader uses). */
 export interface DeclaredAssetRow {
@@ -41,8 +41,6 @@ export interface MipPartRow {
   readonly levels: readonly number[];
 }
 
-const DIGEST_RE = /^[0-9a-f]{64}$/;
-
 /**
  * A texture row's streaming parts, checked (contiguous from 0, together the
  * whole file, each at its digest path); null when the row has none or they
@@ -56,7 +54,7 @@ export function mipPartsOf(row: DeclaredAssetRow): MipPartRow[] | null {
   for (const p of raw as Record<string, unknown>[]) {
     if (typeof p !== 'object' || p === null) return null;
     const { path, digest, byteLength, offset, levels } = p;
-    if (typeof digest !== 'string' || !DIGEST_RE.test(digest) || path !== `content/sha256/${digest}`) return null;
+    if (!isDigest(digest) || path !== `content/sha256/${digest}`) return null;
     if (typeof byteLength !== 'number' || !Number.isInteger(byteLength) || byteLength < 1 || offset !== at) return null;
     if (!Array.isArray(levels) || levels.length === 0 || !levels.every((l) => typeof l === 'number' && Number.isInteger(l) && l >= 0 && l < 32)) return null;
     out.push({ path, digest, byteLength, offset: at, levels: [...(levels as number[])] });
@@ -70,7 +68,7 @@ export function modelBricksOf(row: DeclaredAssetRow): { path: string; digest: st
   const b = (row as unknown as { bricks?: { path?: unknown; digest?: unknown; byteLength?: unknown } }).bricks;
   if (row.kind !== 'model' || typeof b !== 'object' || b === null) return null;
   const { path, digest, byteLength } = b;
-  if (typeof digest !== 'string' || !DIGEST_RE.test(digest) || path !== `content/sha256/${digest}`) return null;
+  if (!isDigest(digest) || path !== `content/sha256/${digest}`) return null;
   if (typeof byteLength !== 'number' || !Number.isInteger(byteLength) || byteLength < 1) return null;
   return { path, digest, byteLength };
 }

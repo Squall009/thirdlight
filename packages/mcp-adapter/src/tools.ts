@@ -53,6 +53,7 @@ import {
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { toolDescription } from './tool-docs';
 import { isPlainObject } from '@thirdlight/shared';
+import { isDigest } from '@thirdlight/project-model/content-helpers';
 
 export interface McpContext {
   readonly client: BackendClient;
@@ -1128,7 +1129,7 @@ async function projectFileInspect(ctx: McpContext, a: Record<string, unknown>): 
 async function instanceBuffer(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
   if (a.digest !== undefined) {
     if (a.transforms !== undefined) return toolError('give transforms (publish) or digest (read), not both');
-    if (typeof a.digest !== 'string' || !/^[0-9a-f]{64}$/.test(a.digest)) return toolError('digest must be 64 lowercase hex characters');
+    if (!isDigest(a.digest)) return toolError('digest must be 64 lowercase hex characters');
     const read = await ctx.client.readInstanceBuffer(ctx.projectId, a.digest);
     if (!read.ok) return surfaceBackendError(read.response);
     const count = Math.floor(read.floats.length / 10);

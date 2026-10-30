@@ -22,6 +22,7 @@ import { imageDimensions } from '@thirdlight/asset-pipeline';
 import type { WorkspaceService } from '@thirdlight/workspace';
 
 import { ktx2KeyValues, readKtx2 } from './ktx2-container';
+import { DIGEST_RE } from '@thirdlight/project-model/content-helpers';
 
 /**
  * The KTX2 key/value entry an asset tool writes to tie the file to the PNG
@@ -71,7 +72,7 @@ export function ktx2RecordedSourceDigest(ktx2: Uint8Array): string | null {
   const v = c === null ? undefined : ktx2KeyValues(c.kvd).get(KTX2_SOURCE_DIGEST_KEY);
   if (v === undefined) return null;
   const hex = Buffer.from(v).toString('latin1').replace(/\0+$/, '').toLowerCase();
-  return /^[0-9a-f]{64}$/.test(hex) ? hex : null;
+  return DIGEST_RE.test(hex) ? hex : null;
 }
 
 /**

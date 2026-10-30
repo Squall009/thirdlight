@@ -11,7 +11,7 @@ import { basename, join, sep } from 'node:path';
 import type { CommandError, SceneDocument } from '@thirdlight/commands';
 import type { ContentCatalogV4, MissingAssetFile } from '@thirdlight/project-model';
 
-import { assetUsers } from '@thirdlight/project-model';
+import { assetUsers, isDigest } from '@thirdlight/project-model';
 
 import {
   assetRoot,
@@ -510,7 +510,7 @@ export function contentOps(core: Core) {
     markStagePublished: (projectId: string, stageId: string, sourceDigest?: string): StageDiscardResult =>
       run(projectId, (s) => {
         const r = markStagePublished(core, contentCtx(s), stageId);
-        if (r.ok && typeof sourceDigest === 'string' && /^[0-9a-f]{64}$/.test(sourceDigest)) rememberPublishedStage(s, stageId, sourceDigest);
+        if (r.ok && isDigest(sourceDigest)) rememberPublishedStage(s, stageId, sourceDigest);
         return r;
       }),
     /** The injected bounded inspector over the staged bytes; never mutates authoring state. */

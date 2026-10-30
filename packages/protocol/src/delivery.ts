@@ -16,6 +16,7 @@ import { MANIFEST_CONTENT_FILE_MAX_BYTES, RUNTIME_CONTENT_MANIFEST_MAX_BYTES } f
 import { checkField, checkShape } from './strict';
 import { isContentId, isPlaySessionId, isRequestId } from './ids';
 import type { SessionError } from './errors';
+import { DIGEST_RE } from '@thirdlight/project-model/content-helpers';
 
 // ---- constants ---------------------------
 
@@ -155,7 +156,6 @@ export type LocatorPath =
   | { kind: 'scene'; contentId: string; sceneId: string }
   | { kind: 'invalid' };
 
-const DIGEST_RE = /^[0-9a-f]{64}$/;
 const ASSET_ID_RE = ID_RE;
 
 /**

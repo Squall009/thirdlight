@@ -17,6 +17,7 @@
 import { createHash } from 'node:crypto';
 import { closeSync, constants, fstatSync, mkdirSync, openSync, readFileSync, lstatSync, readSync, renameSync, writeFileSync, type Stats } from 'node:fs';
 import { dirname } from 'node:path';
+import { isDigest } from '@thirdlight/project-model';
 
 /** The file-system facts that change whenever a file's bytes can have changed. */
 export interface Stamp {
@@ -92,7 +93,7 @@ export class FileStamps {
       if (!Array.isArray(v) || v.length !== 6) continue;
       const [size, mtimeMs, ctimeMs, ino, digest, checkedAtMs] = v as unknown[];
       if (typeof size !== 'number' || typeof mtimeMs !== 'number' || typeof ctimeMs !== 'number' || typeof ino !== 'number' || typeof checkedAtMs !== 'number') continue;
-      if (typeof digest !== 'string' || !/^[0-9a-f]{64}$/.test(digest)) continue;
+      if (!isDigest(digest)) continue;
       this.entries.set(path, { size, mtimeMs, ctimeMs, ino, digest, checkedAtMs });
     }
   }

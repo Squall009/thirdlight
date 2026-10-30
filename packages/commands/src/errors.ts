@@ -10,7 +10,7 @@
  * `detailDocument`/`details`/`detailCount`/`detailsTruncated`
  * (result-scene failures), `message`, `hint`.
  */
-import { ID_RE } from '@thirdlight/project-model';
+import { ID_RE, REQUEST_ID_RE } from '@thirdlight/project-model';
 
 import { MAX_REQUEST_BYTES, MAX_REVISION, boundedFound, type LimitName, type ModelError, type ModelErrorV2, type ModelErrorV3 } from '@thirdlight/project-model';
 
@@ -100,11 +100,7 @@ export { MAX_REVISION };
 // The canonical request byte cap: the model's limit, so the editor's batching reads the same value.
 export { MAX_REQUEST_BYTES };
 
-/** The project-model ID syntax (reused for `projectId`). */
-
-/** `req-` + 32 hex chars (128 random bits, client CSPRNG). */
-const REQUEST_ID_RE = /^req-[0-9a-f]{32}$/;
-
+// The model's id syntax (reused for `projectId`) and request id format.
 export { ID_RE, REQUEST_ID_RE };
 
 // ---- bounded `found`: the model's convention, so a command error and a model

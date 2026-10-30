@@ -32,6 +32,7 @@ import type { BlobReadRequest, ContentContext } from './content-store';
 import { resolveProjectFile, verifyArtifactDir } from './content-store';
 import { assetSourceChanged, assetSourceMissing, blobCorrupt, blobMissing, importedMissing, pathRejected } from './errors';
 import { FileStamps, hashFd, sameStamp, stampOf, type Stamp } from './file-stamps';
+import { isDigest } from '@thirdlight/project-model';
 
 /** Where one verified blob is on disk. `real` is a host path: backend-internal, never sent to a client. */
 export interface BlobFile {
@@ -142,7 +143,7 @@ export function locateBlob(ctx: ContentContext, request: BlobReadRequest): Locat
 
 /** A stored blob by digest (instance buffers, behavior sources), checked by its stamp. */
 export function locateSourceBlob(ctx: ContentContext, digest: string): { ok: true; file: BlobFile } | { ok: false; error: CommandError } {
-  if (typeof digest !== 'string' || !/^[0-9a-f]{64}$/.test(digest)) return { ok: false, error: pathRejected(String(digest), 'a source-blob digest must be 64 lowercase hex') };
+  if (!isDigest(digest)) return { ok: false, error: pathRejected(String(digest), 'a source-blob digest must be 64 lowercase hex') };
   return locateStored(ctx, digest, null);
 }
 

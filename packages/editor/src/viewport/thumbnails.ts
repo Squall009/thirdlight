@@ -20,6 +20,7 @@ import type { RendererPreference, RendererPreferenceSource, VertexColorMode } fr
 
 import { editorWorkers } from '../workers/editor-workers';
 import { renderModelThumbnails } from '../workers/model-thumbnail';
+import { DIGEST_RE } from '@thirdlight/project-model/content-helpers';
 
 /** Thumbnail edge in pixels (tiles show it at half size on HiDPI screens). */
 export const THUMBNAIL_SIZE = ASSET_THUMBNAIL_EDGE;
@@ -141,7 +142,7 @@ export class TileThumbnails {
   }
 
   private async load(ref: TileRef): Promise<string | null> {
-    if (!/^[0-9a-f]{64}$/.test(ref.digest) || (ref.kind !== 'model' && ref.kind !== 'texture')) return null;
+    if (!DIGEST_RE.test(ref.digest) || (ref.kind !== 'model' && ref.kind !== 'texture')) return null;
     try {
       this.stats.cacheReads += 1;
       const cached = await this.source.read(ref.digest, ref.piece, ref.kind === 'texture' && ref.piece === null ? { asset: ref.assetId } : undefined);

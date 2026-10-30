@@ -24,6 +24,7 @@ import type { SessionClient } from '../session/client';
 import { parseDecalPageTextureKey } from '../session/decal-atlas';
 import { parseSlotTextureKey } from '../session/texture-slots';
 import { ModelFiles } from './model-files';
+import { DIGEST_RE } from '@thirdlight/project-model/content-helpers';
 
 export interface SceneViewAssets {
   readonly resources: ResourceManager;
@@ -164,7 +165,7 @@ export function createSceneViewAssets(o: {
   const rows = new Map<string, SceneAdapterModelAsset>();
   const rowOf = (assetId: string): SceneAdapterModelAsset | undefined => {
     const v = client.content.resolveVersion(assetId);
-    if (v === null || !/^[0-9a-f]{64}$/.test(v.sourceDigest)) return undefined;
+    if (v === null || !DIGEST_RE.test(v.sourceDigest)) return undefined;
     const a = client.content.getAsset(assetId);
     const key = `${assetId}@${v.version}`;
     const hit = rows.get(key);
@@ -212,7 +213,7 @@ export function createSceneViewAssets(o: {
     resources,
     descriptorFor: (assetId) => {
       const v = client.content.resolveVersion(assetId);
-      if (!v || !/^[0-9a-f]{64}$/.test(v.sourceDigest)) return null;
+      if (!v || !DIGEST_RE.test(v.sourceDigest)) return null;
       return { assetId, version: v.version, sourceDigest: v.sourceDigest, sourceByteLength: v.sourceByteLength };
     },
     ensureDescriptor: (assetId) => client.catalog.ensureAssets([assetId]),

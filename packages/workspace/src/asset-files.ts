@@ -24,7 +24,7 @@ import { createHash } from 'node:crypto';
 import { lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, utimesSync } from 'node:fs';
 import { dirname, join, sep } from 'node:path';
 
-import { audioLoadOf, DEFAULT_ASSET_FOLDER, isValidSourcePath, MAX_FOLDER_DEPTH, textureHasStreamableChain, textureStreamingOf } from '@thirdlight/project-model';
+import { audioLoadOf, DEFAULT_ASSET_FOLDER, isValidSourcePath, MAX_FOLDER_DEPTH, textureHasStreamableChain, textureStreamingOf, DIGEST_RE, isDigest } from '@thirdlight/project-model';
 import type { ContentCatalogV4 } from '@thirdlight/project-model';
 import type { ChangeData, CommandError } from '@thirdlight/commands';
 
@@ -434,8 +434,6 @@ export function moveGameFile(ctx: ContentContext, from: string, to: string): boo
 function heldDir(ctx: ContentContext): string {
   return join(ctx.thirdlightDir, 'held');
 }
-
-const DIGEST_RE = /^[0-9a-f]{64}$/;
 
 /** Keep bytes by their digest until a command files them (or an undo puts them back). */
 export function holdBytes(core: Core, ctx: ContentContext, bytes: Uint8Array): { ok: true; digest: string } | { ok: false; error: CommandError } {
@@ -903,7 +901,7 @@ export function planPlacement(core: Core, ctx: ContentContext, args: Record<stri
   const conv = isPlainObject(args['convertedFrom']) ? (args['convertedFrom'] as unknown as ConvertedLike) : undefined;
   if (conv !== undefined ? conv.sourcePath !== undefined : args['sourcePath'] !== undefined) return null;
   const fileDigest = conv !== undefined ? conv.sourceDigest : args['sourceDigest'];
-  if (typeof fileDigest !== 'string' || !DIGEST_RE.test(fileDigest) || typeof args['assetId'] !== 'string') return null;
+  if (!isDigest(fileDigest) || typeof args['assetId'] !== 'string') return null;
   const bytes = readHeld(ctx, fileDigest) ?? readLegacyBlob(fileDigest);
   if (bytes === null) return null;
   const assetId = args['assetId'];

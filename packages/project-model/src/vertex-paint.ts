@@ -36,6 +36,7 @@ import { COMPONENT_TYPES as GLTF_COMPONENT_TYPES } from './model-rig';
 import type { PaintLayout } from './paint-brush';
 import { MAX_INSTANCES } from './types-v3';
 import { ID_RE } from './validate';
+import { isDigest } from './content-helpers';
 
 /** Bytes one painted vertex (or one path grid point) holds: R, G, B, A. */
 export const VERTEX_PAINT_BYTES = 4;
@@ -116,7 +117,6 @@ const MESH_FIELDS = ['mesh', 'vertices', 'positions', 'paint'];
 const PATH_FIELDS = ['path', 'side', 'origin', 'size', 'paint'];
 const INSTANCE_PAINT_FIELDS = ['copies', 'painted', 'slots', 'meshes'];
 
-const DIGEST_RE = /^[0-9a-f]{64}$/;
 const POSITIONS_RE = new RegExp(`^[0-9a-f]{${PAINT_POSITIONS_HASH_LENGTH}}$`);
 /** A path key: an outline, building or sweep element of the architecture on the object, or the object's spline. */
 const PATH_KEY_RE = /^(?:(?:outline|building|element):(.+)|spline)$/;
@@ -145,7 +145,7 @@ function validateMeshes(value: unknown, path: string, errors: ModelErrorV2[]): v
     else seen.add(key);
     if (!int(m['vertices'], 1, VERTEX_PAINT_LIMITS.vertices)) err(errors, 'field_value', `${p}/vertices`, `vertices is the mesh's vertex count, 1-${VERTEX_PAINT_LIMITS.vertices}`, m['vertices']);
     if (typeof m['positions'] !== 'string' || !POSITIONS_RE.test(m['positions'])) err(errors, 'field_value', `${p}/positions`, `positions is the mesh's position hash (${PAINT_POSITIONS_HASH_LENGTH} lowercase hex)`, m['positions']);
-    if (typeof m['paint'] !== 'string' || !DIGEST_RE.test(m['paint'])) err(errors, 'field_value', `${p}/paint`, 'paint is the SHA-256 of the paint bytes (64 lowercase hex)', m['paint']);
+    if (!isDigest(m['paint'])) err(errors, 'field_value', `${p}/paint`, 'paint is the SHA-256 of the paint bytes (64 lowercase hex)', m['paint']);
   });
 }
 
@@ -170,7 +170,7 @@ function validatePaths(value: unknown, path: string, errors: ModelErrorV2[]): vo
     if (!okO) err(errors, 'field_value', `${p}/origin`, `origin is the first grid point in cells [along ${-L.along}..${L.along}, up/across ${-L.across}..${L.across}]`, o);
     if (!okS) err(errors, 'field_value', `${p}/size`, 'size is the grid points [along, up/across], each at least 1', s);
     if (okO && okS && ((o[0] as number) + (s[0] as number) - 1 > L.along || (o[1] as number) + (s[1] as number) - 1 > L.across)) err(errors, 'field_value', `${p}/size`, 'the grid reaches past the path paint bounds', s);
-    if (typeof g['paint'] !== 'string' || !DIGEST_RE.test(g['paint'])) err(errors, 'field_value', `${p}/paint`, 'paint is the SHA-256 of the grid bytes (64 lowercase hex)', g['paint']);
+    if (!isDigest(g['paint'])) err(errors, 'field_value', `${p}/paint`, 'paint is the SHA-256 of the grid bytes (64 lowercase hex)', g['paint']);
   });
 }
 
@@ -187,7 +187,7 @@ export function validateInstancePaint(value: unknown, path: string, errors: Mode
   if (value === undefined) return;
   if (!isPlainObject(value)) return err(errors, 'field_type', path, 'paint is {copies, painted, slots, meshes}', value);
   for (const k of Object.keys(value)) if (!INSTANCE_PAINT_FIELDS.includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown instance paint field "${k}" (${INSTANCE_PAINT_FIELDS.join(', ')})`, k);
-  if (typeof value['copies'] !== 'string' || !DIGEST_RE.test(value['copies'])) err(errors, 'field_value', `${path}/copies`, 'copies is the SHA-256 of the copy table (64 lowercase hex)', value['copies']);
+  if (!isDigest(value['copies'])) err(errors, 'field_value', `${path}/copies`, 'copies is the SHA-256 of the copy table (64 lowercase hex)', value['copies']);
   if (!int(value['painted'], 1, MAX_INSTANCES)) err(errors, 'field_value', `${path}/painted`, `painted is how many copies the table lists, 1-${MAX_INSTANCES}`, value['painted']);
   if (!int(value['slots'], 1, MAX_INSTANCES)) err(errors, 'field_value', `${path}/slots`, `slots is the pool's size, 1-${MAX_INSTANCES}`, value['slots']);
   else if (typeof value['painted'] === 'number' && value['painted'] > value['slots']) err(errors, 'field_value', `${path}/slots`, 'the pool holds at least one slot per painted copy', value['slots']);
