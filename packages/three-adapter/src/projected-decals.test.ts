@@ -145,8 +145,12 @@ describe('with projected decals', () => {
     expect(wgslOf(renderer, scene, copy)).toContain('tlDecalAlbedo');
     // Equal materials share the variant's program; a new generation of the decals' textures is a new variant.
     expect(decalVariant(lightmapped, decals)).toBe(copy.material);
+    // The replaced variant is disposed, so three lets go of its draws.
+    let replaced = 0;
+    (copy.material as THREE.Material).addEventListener('dispose', () => (replaced += 1));
     decals.generation += 1;
     expect(decalVariant(lightmapped, decals)).not.toBe(copy.material);
+    expect(replaced).toBe(1);
   });
 
   it('a decal is data: decals of other sizes, places and pages build the same program', async () => {

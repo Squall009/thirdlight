@@ -84,3 +84,49 @@ export function variantSource(material: THREE.Material): THREE.Material | null {
 export function renderCallOf(renderer: unknown): number {
   return (renderer as { info?: { calls?: number } }).info?.calls ?? -1;
 }
+
+/**
+ * Each material's variants of one kind, by a small number per variant
+ * (`code`: no string is built per draw), each made for a `stamp`: what it
+ * reads that can be made anew (a surface cache's textures, the decals'
+ * generation). A kept variant with another stamp is disposed, so three lets
+ * go of its draws, and made again; a material's dispose disposes its variants.
+ */
+export class MaterialVariants {
+  private readonly byMaterial = new WeakMap<THREE.Material, Map<number, { stamp: unknown; variant: THREE.Material }>>();
+  /** Variants made so far (diagnostics). */
+  made = 0;
+
+  /** The kept variant of `material` under `code` made for `stamp`, its values copied for render call `call` (null: none kept for it). */
+  find(material: THREE.Material, code: number, stamp: unknown, call: number): THREE.Material | null {
+    const byCode = this.byMaterial.get(material);
+    const kept = byCode?.get(code);
+    if (kept === undefined) return null;
+    if (kept.stamp === stamp) {
+      syncMaterialVariant(kept.variant, call);
+      return kept.variant;
+    }
+    byCode!.delete(code);
+    kept.variant.dispatchEvent({ type: 'dispose' });
+    return null;
+  }
+
+  /** Make and keep the variant of `material` under `code` for `stamp` (`makeMaterialVariant`'s marks and tag), copied for render call `call`. */
+  make(material: THREE.Material, code: number, stamp: unknown, marks: Readonly<Record<string, unknown>>, tag: string, call: number): THREE.Material {
+    const v = makeMaterialVariant(material, marks, tag);
+    if (call !== -1) syncMaterialVariant(v, call);
+    let byCode = this.byMaterial.get(material);
+    if (byCode === undefined) {
+      byCode = new Map();
+      this.byMaterial.set(material, byCode);
+      material.addEventListener('dispose', () => {
+        const made = this.byMaterial.get(material);
+        this.byMaterial.delete(material);
+        for (const m of made?.values() ?? []) m.variant.dispatchEvent({ type: 'dispose' });
+      });
+    }
+    byCode.set(code, { stamp, variant: v });
+    this.made += 1;
+    return v;
+  }
+}

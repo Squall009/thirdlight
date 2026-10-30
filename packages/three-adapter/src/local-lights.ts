@@ -28,7 +28,7 @@
 import * as THREE from 'three/webgpu';
 import { localLightModeOf, type LocalLightMode } from '@thirdlight/project-model';
 
-import { makeMaterialVariant, renderCallOf, syncMaterialVariant } from './material-variant';
+import { MaterialVariants, renderCallOf } from './material-variant';
 import { SURFACE_READ_CAPTURE, SURFACE_READ_KEY, SURFACE_READ_LIVE_KEY, SURFACE_READ_TEXTURES, SURFACE_READ_VARIANT, type SurfaceCacheTextures } from './surface-cache-read';
 
 /** `object.userData[LOCAL_LIGHTS_KEY]` / `material.userData[LOCAL_LIGHTS_KEY]`: a set local-light mode. */
@@ -81,11 +81,8 @@ export function isLit(material: THREE.Material): boolean {
   return m.isMeshStandardMaterial === true || m.isMeshLambertMaterial === true || m.isMeshPhongMaterial === true || m.isMeshToonMaterial === true;
 }
 
-/** Each material's variants by `variantCode` (a reading one also by the textures it reads). */
-const variants = new WeakMap<THREE.Material, Map<number, THREE.Material>>();
-
-/** Variants made so far (diagnostics). */
-let variantCount = 0;
+/** Each material's variants by `variantCode`, made for the surface-cache textures they read (null: none). */
+const variants = new MaterialVariants();
 
 /** A small number per local-light mode, for variant codes (no string is built per draw). */
 const modeIds = new Map<string, number>();
@@ -110,34 +107,16 @@ export function localLightVariant(material: THREE.Material, mode: LocalLightMode
 
 function variantFor(material: THREE.Material, mode: LocalLightMode, kind: number, textures: SurfaceCacheTextures | null, capture: boolean, call: number): THREE.Material {
   const code = variantCode(mode, kind, capture);
-  let byCode = variants.get(material);
-  const seen = byCode?.get(code);
-  if (seen !== undefined && (seen as unknown as Record<string, unknown>)[SURFACE_READ_TEXTURES] === textures) {
-    syncMaterialVariant(seen, call);
-    return seen;
-  }
-  // Another page's textures (the cache made again): the old variant goes, so three lets go of its draws.
-  seen?.dispatchEvent({ type: 'dispose' });
+  // Another page's textures (the cache made again) make the variant again.
+  const seen = variants.find(material, code, textures, call);
+  if (seen !== null) return seen;
   // Every mark always, in one order: a variant's shape is its class's.
-  const v = makeMaterialVariant(material, { [VARIANT_MODE]: mode, [SURFACE_READ_VARIANT]: kind, [SURFACE_READ_TEXTURES]: textures, [SURFACE_READ_CAPTURE]: capture }, `|tlLocalLights=${mode}${textures !== null ? `|tlSurfaceRead=${kind}/${textures.id}${capture ? '/capture' : ''}` : ''}`);
-  if (call !== -1) syncMaterialVariant(v, call);
-  if (byCode === undefined) {
-    byCode = new Map();
-    variants.set(material, byCode);
-    material.addEventListener('dispose', () => {
-      const made = variants.get(material);
-      variants.delete(material);
-      for (const m of made?.values() ?? []) m.dispatchEvent({ type: 'dispose' });
-    });
-  }
-  byCode.set(code, v);
-  variantCount += 1;
-  return v;
+  return variants.make(material, code, textures, { [VARIANT_MODE]: mode, [SURFACE_READ_VARIANT]: kind, [SURFACE_READ_TEXTURES]: textures, [SURFACE_READ_CAPTURE]: capture }, `|tlLocalLights=${mode}${textures !== null ? `|tlSurfaceRead=${kind}/${textures.id}${capture ? '/capture' : ''}` : ''}`, call);
 }
 
 /** Variants made since the page loaded (diagnostics). */
 export function localLightVariantCount(): number {
-  return variantCount;
+  return variants.made;
 }
 
 /** The mode a material build shades with (a variant's, else per pixel). */

@@ -54,7 +54,7 @@ import { DECAL_FADE, DECAL_LAYERS_ALL } from '@thirdlight/project-model';
 import { DECAL_HASH, DECAL_ROW_TEXELS, DECAL_TEXTURE_WIDTH } from './decal-index';
 import type { N } from './effects-tsl';
 import { isLit } from './local-lights';
-import { makeMaterialVariant, renderCallOf, syncMaterialVariant } from './material-variant';
+import { MaterialVariants, renderCallOf } from './material-variant';
 import { texelTexture, untransformedTexture } from './texel-texture-node';
 import { decalDrawOf } from './mesh-decals';
 
@@ -489,8 +489,8 @@ export function projectedDecalsOf(scene: THREE.Object3D): ProjectedDecals | null
 /** The own property of a decal variant holding the decals it blends. */
 const VARIANT_DECALS = 'tlProjectedDecals';
 
-/** Each material's decal variants by decals (one generation each). */
-const variants = new WeakMap<THREE.Material, Map<number, { generation: number; variant: THREE.Material }>>();
+/** Each material's decal variants by decals, made for one generation of their textures. */
+const variants = new MaterialVariants();
 
 /**
  * The variant of `material` that blends `decals` in (made once per
@@ -499,26 +499,7 @@ const variants = new WeakMap<THREE.Material, Map<number, { generation: number; v
  * copied from the material once per render call `call` (-1: now).
  */
 export function decalVariant(material: THREE.Material, decals: ProjectedDecals, call = -1): THREE.Material {
-  let byHost = variants.get(material);
-  const known = byHost?.get(decals.id);
-  if (known !== undefined && known.generation === decals.generation) {
-    syncMaterialVariant(known.variant, call);
-    return known.variant;
-  }
-  if (known !== undefined) known.variant.dispatchEvent({ type: 'dispose' });
-  const v = makeMaterialVariant(material, { [VARIANT_DECALS]: decals }, `|tlDecals=${decals.id}:${decals.generation}`);
-  if (call !== -1) syncMaterialVariant(v, call);
-  if (byHost === undefined) {
-    byHost = new Map();
-    variants.set(material, byHost);
-    material.addEventListener('dispose', () => {
-      const made = variants.get(material);
-      variants.delete(material);
-      for (const m of made?.values() ?? []) m.variant.dispatchEvent({ type: 'dispose' });
-    });
-  }
-  byHost.set(decals.id, { generation: decals.generation, variant: v });
-  return v;
+  return variants.find(material, decals.id, decals.generation, call) ?? variants.make(material, decals.id, decals.generation, { [VARIANT_DECALS]: decals }, `|tlDecals=${decals.id}:${decals.generation}`, call);
 }
 
 /**
