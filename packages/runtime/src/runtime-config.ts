@@ -3,7 +3,7 @@
  * field by field before anything is built (an unknown or ill-typed field is
  * a `config_invalid` error naming its path).
  */
-import { DEFAULT_FIXED_STEP_HZ, SAVE_LIMITS } from '@thirdlight/project-model';
+import { DEFAULT_FIXED_STEP_HZ } from '@thirdlight/project-model';
 
 import { NEUTRAL_ACTION_SOURCE, type ActionSource } from './actions';
 import { clipMessage, type ErrorCode, type RuntimeError } from './errors';
@@ -174,8 +174,9 @@ export function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: R
   // The stored project settings document (checked field by field against the save schema by the runtime).
   let projectSettings: Record<string, unknown> | undefined;
   if (config.projectSettings !== undefined) {
-    if (!isPlainObject(config.projectSettings) || Object.keys(config.projectSettings).length > SAVE_LIMITS.settingsFields) {
-      return { error: fail('config_invalid', `config field "projectSettings" must map at most ${SAVE_LIMITS.settingsFields} keys to values`, { reason: 'shape', path: '/projectSettings' }) };
+    // No count of keys: the runtime reads the document through the save schema's fields only (others are dropped).
+    if (!isPlainObject(config.projectSettings)) {
+      return { error: fail('config_invalid', 'config field "projectSettings" must map keys to values', { reason: 'shape', path: '/projectSettings' }) };
     }
     projectSettings = { ...(config.projectSettings as Record<string, unknown>) };
   }

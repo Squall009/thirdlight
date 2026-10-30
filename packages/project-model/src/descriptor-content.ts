@@ -6,7 +6,7 @@
 import { MODEL_OCCLUDER_MODES } from './model-occluders';
 import { EVENT_CUE_BUSES, EVENT_CUE_LIMITS, EVENT_CUE_SOURCES } from './event-cues';
 import { ASSET_METRIC_CAPS, AUDIO_MAX_LATE_MS_DEFAULT, AUDIO_MAX_LATE_MS_LIMIT, MAX_TEXTURE_LAYERS } from './content-limits';
-import { SHELL_LIMITS, SHELL_SCREENS, SHELL_SIMULATE } from './shell';
+import { SHELL_SCREENS, SHELL_SIMULATE } from './shell';
 import { SAVE_LIMITS, SAVE_SECTIONS } from './save-schema';
 import { MAX_ANIMATOR_MORPHS } from './animator';
 import { ANIMATOR_CONDITION_OPS, ANIMATOR_PARAMETER_TYPES, MAX_ANIMATOR_CONDITIONS, MAX_ANIMATOR_EVENTS, MAX_ANIMATOR_LAYERS, MAX_ANIMATOR_PARAMETERS, MAX_ANIMATOR_STATES, MAX_ANIMATOR_TRANSITIONS, MAX_BLEND_CHILDREN, MAX_BLEND_GROUND_SPEED, MAX_LAYER_MASK } from './animator';
@@ -619,7 +619,7 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
         ref('load', 'Load', 'Load slots (project saves).', 'uiDocument'),
       ]),
       obj('simulate', 'While shown', 'What runs under each screen: the engine pause (no steps), or the scripts outside behavior groups (physics and grouped scripts held) — a title or menu its scripts animate.', SHELL_SCREENS.map((k) => enm(k, k.charAt(0).toUpperCase() + k.slice(1), `What runs while the ${k} screen shows.`, SHELL_SIMULATE, { default: 'pause', labels: { pause: 'Pause', scripts: 'Scripts run' } }))),
-      list('hud', 'HUD', `UI documents shown while the game plays (hidden behind the menus); bind to $flow.counters, $flow.health, $flow.prompts or script values. Up to ${SHELL_LIMITS.hud}.`, ref('*', 'Document', 'A UI document.', 'uiDocument'), { maxItems: SHELL_LIMITS.hud, unique: true }),
+      list('hud', 'HUD', `UI documents shown while the game plays (hidden behind the menus); bind to $flow.counters, $flow.health, $flow.prompts or script values. As many as the game needs, drawn in list order (later ones on top).`, ref('*', 'Document', 'A UI document.', 'uiDocument'), { unique: true }),
       list('scenes', 'Scene list', `The game's scenes in order, each with the spawn a kept player arrives at when it loads. Next scene (deprecated) moves along it.`, obj('*', 'Listed scene', 'A scene and where the character starts in it.', [
         scene('scene', 'Scene', 'A scene of the project.', { required: true }),
         entity('spawn', 'Spawn', 'The player spawn the character starts at (in that scene; absent: it stays where it is).', { component: 'playerSpawn', anyScene: true }),
@@ -688,7 +688,7 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
       list('migrations', 'Migrations', 'For each older version, the script function (ctx.saves.migration) that upgrades a document by one version.', obj('*', 'Migration', 'One upgrade step.', [
         int('from', 'From version', 'The version it upgrades from (to from + 1; below the schema version).', { required: true, min: 1 }),
         str('name', 'Function', 'The name a script registers with ctx.saves.migration.', { required: true, minLength: 1, maxLength: 64 }),
-      ], { rules: ['one migration per version; from < version'] }), { maxItems: SAVE_LIMITS.migrations }),
+      ], { rules: ['one migration per version; from < version'] })),
       list('sections', 'Included state', 'Engine state every save includes: block cells, material values, spawned objects, script storage, the environment blend, dialogue variables and seen lines, objects\' health, collectibles, patrols and hitboxes, and where the play stands (world: the loaded scenes and the player\'s place, which a load moves the game to).', enm('*', 'Section', 'One kind of engine state.', [...SAVE_SECTIONS]), { maxItems: SAVE_SECTIONS.length }),
       bool('legacyWorld', 'Always save the world', 'Without world in the sections, false keeps no world in a save (the game restores scenes and its player itself); absent or true keeps the deprecated always-on world.', { default: true }),
       obj('thumbnail', 'Slot picture', 'The size and format of a slot\'s picture of the view (absent: 256 × 144 JPEG).', [
@@ -697,7 +697,7 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
         enm('format', 'Format', 'JPEG or WebP.', ['jpeg', 'webp'], { required: true }),
         num('quality', 'Quality', 'Encoder quality.', { min: 0.1, max: 1, step: 0.05 }),
       ]),
-      list('settings', 'Settings document', `Up to ${SAVE_LIMITS.settingsFields} fields the game's settings screen writes (ctx.saves.setSetting): { key, type: bool|number|string|enum, default, label?, min?, max?, values?, engine?: music|sfx|ui|quality|frameRateCap }.`, json('*', 'Setting', 'One settings field.', { shape: 'SettingsField' }), { maxItems: SAVE_LIMITS.settingsFields }),
+      list('settings', 'Settings document', `The fields the game's settings screen writes (ctx.saves.setSetting): { key, type: bool|number|string|enum, default, label?, min?, max?, values?, engine?: music|sfx|ui|quality|frameRateCap }.`, json('*', 'Setting', 'One settings field.', { shape: 'SettingsField' })),
     ], { rules: ['a default fits its field; a volume binding is a 0–1 number, a quality binding an enum of low/medium/high'] }),
     ops: ['setSaveSchema'],
   },

@@ -54,12 +54,8 @@ export const SAVE_LIMITS = Object.freeze({
   thumbnailBytes: 65_536,
   /** The longest thumbnail side in pixels. */
   thumbnailSide: 512,
-  /** Fields of the project settings document. */
-  settingsFields: 64,
   /** The longest text value of a settings field. */
   settingsText: 256,
-  /** Declared migrations. */
-  migrations: 256,
   /** The highest schema version. */
   version: 1_000_000,
   /** A slot's title / chapter / location text. */
@@ -236,7 +232,8 @@ export function validateSaveSchema(v: unknown, path: string, errors: ModelErrorV
   if (!intIn(v['slots'], 1, SAVE_LIMITS.slots)) errors.push(bad(`${path}/slots`, v['slots'], `a project offers 1–${SAVE_LIMITS.slots} save slots (engine limit)`, `an integer 1–${SAVE_LIMITS.slots}`));
   if (v['migrations'] !== undefined) {
     const m = v['migrations'];
-    if (!Array.isArray(m) || m.length > SAVE_LIMITS.migrations) errors.push(bad(`${path}/migrations`, m, `at most ${SAVE_LIMITS.migrations} migrations`, 'a list'));
+    // No count: one migration per older version (so the version bounds them), run one at a time on a load; the schema is one setSaveSchema, bounded by the request's bytes.
+    if (!Array.isArray(m)) errors.push(bad(`${path}/migrations`, m, 'migrations is a list of { from, name }', 'a list'));
     else {
       const seen = new Set<number>();
       m.forEach((x, i) => {
@@ -272,7 +269,8 @@ export function validateSaveSchema(v: unknown, path: string, errors: ModelErrorV
   }
   if (v['settings'] !== undefined) {
     const s = v['settings'];
-    if (!Array.isArray(s) || s.length > SAVE_LIMITS.settingsFields) errors.push(bad(`${path}/settings`, s, `at most ${SAVE_LIMITS.settingsFields} settings fields`, 'a list'));
+    // No count: a game's settings screen has as many fields as it needs; the schema is one setSaveSchema, bounded by the request's bytes, and the document is read through these fields only.
+    if (!Array.isArray(s)) errors.push(bad(`${path}/settings`, s, 'settings is a list of settings fields', 'a list'));
     else {
       const keys = new Set<string>();
       s.forEach((f, i) => {

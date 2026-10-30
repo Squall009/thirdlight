@@ -7,7 +7,8 @@
  *   ("hints", default on) — one `setSaveSchema` per Apply.
  * - Play (first session): with no slot 2 yet, the script changes a cell of
  *   the block layer, keeps a value (ctx.save), writes its document, turns the
- *   "hints" setting off and saves to slot 2 with a title, chapter, location
+ *   "hints" setting off (and the last of eighty more number fields, set by
+ *   command: no count of settings fields) and saves to slot 2 with a title, chapter, location
  *   and a thumbnail; a second later it changes the cell and the value again.
  *   tl_game_observe lists slot 2 with its metadata and picture facts; the
  *   picture is a real JPEG of the view.
@@ -98,6 +99,7 @@ const SAVER = [
   "        ctx.save.set('coins', 7);",
   "        s.write({ chapter: 2, flags: ['door'] });",
   "        s.setSetting('hints', false);",
+  "        s.setSetting('level_79', 5);",
   "        s.save(2, { title: 'Before the bridge', chapter: 'Two', location: 'Mill', thumbnail: true });",
   '      }',
   '      return;',
@@ -118,6 +120,10 @@ const SAVER = [
   '  },',
   '};',
 ].join('\n');
+
+/** Eighty number fields besides "hints"; the script sets the last one to 5, which the reload and the export keep. */
+const LEVELS = Array.from({ length: 80 }, (_, i) => ({ key: `level_${i}`, type: 'number', default: i, min: 0, max: 100 }));
+const SETTINGS_SAVED = { hints: false, ...Object.fromEntries(LEVELS.map((f) => [f.key, f.key === 'level_79' ? 5 : f.default])) };
 
 const EXPECTED_CHECK = 'check wood coins=7 hints=false doc={"chapter":2,"flags":["door"]}';
 
@@ -203,6 +209,10 @@ test('a script saves to slot 2 with metadata and a thumbnail; a reload lists it 
   await panel.getByLabel('setting 0 default').check();
   await panel.getByRole('button', { name: 'apply save schema' }).click();
   await expect.poll(schemaNow).toEqual({ version: 1, slots: 5, sections: ['grid', 'storage'], legacyWorld: false, settings: [{ key: 'hints', type: 'bool', default: true }] });
+  // A settings screen with many more fields than the 64 once allowed: one setSaveSchema, as the panel sends.
+  const hints = { key: 'hints', type: 'bool', default: true };
+  await cmd('setSaveSchema', { schema: { version: 1, slots: 5, sections: ['grid', 'storage'], legacyWorld: false, settings: [hints, ...LEVELS] } });
+  await expect.poll(async () => ((await schemaNow()) as { settings: unknown[] }).settings.length).toBe(LEVELS.length + 1);
 
   // Play, first session: the script saves to slot 2; tl_game_observe lists it with its metadata and picture.
   const startPlay = async (): Promise<{ psid: string; frame: Frame }> => {
@@ -218,7 +228,7 @@ test('a script saves to slot 2 with metadata and a thumbnail; a reload lists it 
   await expect.poll(async () => (await savesOf(first.psid))?.slots.some((s) => s.slot === 2) ?? false, { timeout: 60_000, message: 'slot 2 saved in Play' }).toBe(true);
   expectSlot2(await savesOf(first.psid));
   expect((await savesOf(first.psid))!.storage).toBe('indexeddb');
-  expect((await savesOf(first.psid))!.settings).toEqual({ hints: false });
+  expect((await savesOf(first.psid))!.settings).toEqual(SETTINGS_SAVED);
   expect(await thumbnailOf(first.frame, 2)).toMatchObject({ type: 'image/jpeg', width: 256, height: 144 });
   // Past the second change (120 steps later).
   await expect.poll(async () => ((await api(`play/${first.psid}/observe`, {})).json as { counters?: Record<string, number> }).counters?.['changed'], { timeout: 30_000 }).toBe(1);
@@ -228,7 +238,7 @@ test('a script saves to slot 2 with metadata and a thumbnail; a reload lists it 
   const second = await startPlay();
   await expect.poll(async () => (await savesOf(second.psid))?.slots.find((s) => s.slot === 3)?.title, { timeout: 60_000, message: 'slot 3 written after the load in Play' }).toBe(EXPECTED_CHECK);
   expectSlot2(await savesOf(second.psid));
-  expect((await savesOf(second.psid))!.settings).toEqual({ hints: false });
+  expect((await savesOf(second.psid))!.settings).toEqual(SETTINGS_SAVED);
   expect(await thumbnailOf(second.frame, 2)).toMatchObject({ type: 'image/jpeg', width: 256, height: 144 });
   await page.getByTitle('Stop the play preview').click();
 
@@ -252,7 +262,7 @@ test('a script saves to slot 2 with metadata and a thumbnail; a reload lists it 
     await game.reload();
     await expect.poll(async () => (await observe())?.slots.find((s) => s.slot === 3)?.title, { timeout: 60_000, message: 'slot 3 written after the load in the export' }).toBe(EXPECTED_CHECK);
     expectSlot2(await observe());
-    expect((await observe())!.settings).toEqual({ hints: false });
+    expect((await observe())!.settings).toEqual(SETTINGS_SAVED);
     expect(await thumbnailOf(game, 2)).toMatchObject({ type: 'image/jpeg', width: 256, height: 144 });
     expect(errors).toEqual([]);
   } finally {

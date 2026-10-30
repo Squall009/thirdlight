@@ -39,9 +39,6 @@ import { isPlainObject } from '@thirdlight/shared';
 export const SHELL_SCREENS = ['title', 'pause', 'settings', 'controls', 'save', 'load'] as const;
 export type ShellScreen = (typeof SHELL_SCREENS)[number];
 
-/** Engine limits: HUD documents shown together (drawn at once over the game). The scene list is as long as the game. */
-export const SHELL_LIMITS = Object.freeze({ hud: 8 });
-
 export interface ShellScene {
   /** A scene of the project. */
   scene: string;
@@ -100,7 +97,8 @@ export function validateShell(v: unknown, path: string, errors: ModelErrorV2[]):
   }
   const hud = v['hud'];
   if (hud !== undefined) {
-    if (!Array.isArray(hud) || hud.length > SHELL_LIMITS.hud) err(errors, 'field_value', `${path}/hud`, `hud is a list of at most ${SHELL_LIMITS.hud} UI documents`, hud, 'an array');
+    // No count: each entry names a distinct UI document of the project, the host makes one layer per entry, and the whole shell is one setShell, bounded by the request's bytes.
+    if (!Array.isArray(hud)) err(errors, 'field_value', `${path}/hud`, 'hud is a list of UI documents', hud, 'an array');
     else {
       hud.forEach((id, i) => {
         if (typeof id !== 'string' || !DOC_RE.test(id)) err(errors, 'field_value', `${path}/hud/${i}`, 'a HUD entry names a UI document', id, 'a uiDocumentId');

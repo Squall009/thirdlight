@@ -152,6 +152,16 @@ describe('runtime project saves', () => {
     expect(r.api.results()).toEqual([]);
   });
 
+  it('a save many versions old is migrated one version at a time, however many migrations the schema lists', () => {
+    const n = 300;
+    const schema: SaveSchema = { version: n + 1, slots: 1, migrations: Array.from({ length: n }, (_, i) => ({ from: i + 1, name: `v${i + 1}` })) };
+    const r = new RuntimeSaves(schema, 60, fakePort(), undefined, () => undefined);
+    step(r, [{ kind: 'loaded', slot: 1, ok: true, save: { format: 'thirdlight.save', version: 1, doc: { steps: [] } } }], () => {
+      for (let i = 1; i <= n; i += 1) r.api.migration(`v${i}`, (doc, from) => ({ steps: [...(doc as { steps: number[] }).steps, from] }));
+    });
+    expect((r.api.read() as { steps: number[] }).steps).toEqual(Array.from({ length: n }, (_, i) => i + 1));
+  });
+
   it('a load without the registered migration, or of a newer version, changes nothing', () => {
     const port = fakePort();
     const r = new RuntimeSaves(SCHEMA, 60, port, undefined, () => undefined);

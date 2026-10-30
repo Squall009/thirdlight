@@ -254,7 +254,7 @@ The menus around the game and its HUD, drawn with the project's UI documents: a 
 | `simulate.controls` | enum: `pause`, `scripts` | `"pause"` |  | **Controls.** What runs while the controls screen shows. (choices: `pause` = Pause, `scripts` = Scripts run) |
 | `simulate.save` | enum: `pause`, `scripts` | `"pause"` |  | **Save.** What runs while the save screen shows. (choices: `pause` = Pause, `scripts` = Scripts run) |
 | `simulate.load` | enum: `pause`, `scripts` | `"pause"` |  | **Load.** What runs while the load screen shows. (choices: `pause` = Pause, `scripts` = Scripts run) |
-| `hud` | list of uiDocument id, ≤ 8 items, distinct |  |  | **HUD.** UI documents shown while the game plays (hidden behind the menus); bind to $flow.counters, $flow.health, $flow.prompts or script values. Up to 8. |
+| `hud` | list of uiDocument id, distinct |  |  | **HUD.** UI documents shown while the game plays (hidden behind the menus); bind to $flow.counters, $flow.health, $flow.prompts or script values. As many as the game needs, drawn in list order (later ones on top). |
 | `scenes` | list of objects |  |  | **Scene list.** The game's scenes in order, each with the spawn a kept player arrives at when it loads. Next scene (deprecated) moves along it. |
 | `scenes[].scene` | scene id |  |  | **Scene.** A scene of the project. (required) |
 | `scenes[].spawn` | object id (with `playerSpawn`), any scene |  |  | **Spawn.** The player spawn the character starts at (in that scene; absent: it stays where it is). |
@@ -420,7 +420,7 @@ The project save document (its version and migrations), the slot count, the engi
 |---|---|---|---|---|
 | `version` | int |  | 1 – 1000000, step 1 | **Version.** The save document's schema version (older saves are migrated on load). (required) |
 | `slots` | int |  | 1 – 99, step 1 | **Slots.** Numbered save slots (engine limit 99). (required) |
-| `migrations` | list of objects, ≤ 256 items |  |  | **Migrations.** For each older version, the script function (ctx.saves.migration) that upgrades a document by one version. |
+| `migrations` | list of objects |  |  | **Migrations.** For each older version, the script function (ctx.saves.migration) that upgrades a document by one version. |
 | `migrations[]` | object |  |  | **Migration.** One upgrade step. (rules: one migration per version; from < version) |
 | `migrations[].from` | int |  | ≥ 1, step 1 | **From version.** The version it upgrades from (to from + 1; below the schema version). (required) |
 | `migrations[].name` | string, 1–64 chars |  |  | **Function.** The name a script registers with ctx.saves.migration. (required) |
@@ -431,4 +431,4 @@ The project save document (its version and migrations), the slot count, the engi
 | `thumbnail.height` | int |  | 16 – 512, step 1 | **Height.** Pixels. (required) |
 | `thumbnail.format` | enum: `jpeg`, `webp` |  |  | **Format.** JPEG or WebP. (required) |
 | `thumbnail.quality` | number |  | 0.1 – 1, step 0.05 | **Quality.** Encoder quality. |
-| `settings` | list of JSON: `SettingsField` ([SettingsField](types-o-t.md#type-settings-field)), ≤ 64 items |  |  | **Settings document.** Up to 64 fields the game's settings screen writes (ctx.saves.setSetting): { key, type: bool\|number\|string\|enum, default, label?, min?, max?, values?, engine?: music\|sfx\|ui\|quality\|frameRateCap }. |
+| `settings` | list of JSON: `SettingsField` ([SettingsField](types-o-t.md#type-settings-field)) |  |  | **Settings document.** The fields the game's settings screen writes (ctx.saves.setSetting): { key, type: bool\|number\|string\|enum, default, label?, min?, max?, values?, engine?: music\|sfx\|ui\|quality\|frameRateCap }. |

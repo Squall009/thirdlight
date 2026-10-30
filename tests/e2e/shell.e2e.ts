@@ -285,8 +285,9 @@ test('the game shell from the editor: title, HUD bound to a counter, pause, save
 /**
  * Saves outside the editor — the exported game (served statically, backend stopped) saves to a project save
  * slot and a new page load continues from it with the collectible still
- * collected; in Play, the editor's "Clear Play save" (Saves tab) forgets the
- * Play page's slots.
+ * collected; in Play, twenty HUD documents show together (no count of
+ * them) and the editor's "Clear Play save" (Saves tab) forgets the Play
+ * page's slots.
  */
 test('the export saves to a slot and a new page continues from it; Clear Play save forgets Play\'s slots', async ({ page }) => {
   test.setTimeout(300_000);
@@ -298,9 +299,12 @@ test('the export saves to a slot and a new page continues from it; Clear Play sa
       { type: 'button', id: 'continue', anchor: [0.5, 0.8], pivot: [0.5, 0.5], size: [220, 56], text: 'Continue', css: BUTTON, onClick: { do: 'engine', action: 'continue' } },
     ] },
   };
-  for (const d of [titleDoc, DOCS[1]!, DOCS[2]!]) await cmd('setUiDocument', { document: d });
+  // Twenty HUD documents (more than the eight once allowed): the green one and nineteen tags down the right edge.
+  const tags = Array.from({ length: 19 }, (_, i) => ({ uiDocumentId: `tag-${i}`, name: `Tag ${i}`, root: { type: 'text', id: 'tag', anchor: [1, 0], pivot: [1, 0], offset: [-8, 8 + i * 22], text: `Tag ${i}`, css: { color: '#ffffff', fontSize: 16 } } }));
+  for (const d of [titleDoc, DOCS[1]!, DOCS[2]!, ...tags]) await cmd('setUiDocument', { document: d });
   await cmd('setSaveSchema', { schema: { version: 1, slots: 3, sections: ['components'] } });
-  await cmd('setShell', { shell: { screens: { title: 'title', pause: 'paused' }, hud: ['hud'] } });
+  const hudIds = ['hud', ...tags.map((t) => t.uiDocumentId)];
+  await cmd('setShell', { shell: { screens: { title: 'title', pause: 'paused' }, hud: hudIds } });
   const tokenA = await create('Token A', [4.3, 0.91, 0], { collectible: { counter: 'items' } });
 
   // Play: save to slot 1, then Clear Play save; a new Play has no slot left.
@@ -320,6 +324,10 @@ test('the export saves to a slot and a new page continues from it; Clear Play sa
   let play = await startPlay();
   await play.frame.locator('[data-tl-ui-doc="title"] [data-widget="start"]').click();
   await expect.poll(async () => (await play.observe())?.shell?.screen ?? null, { timeout: 15_000 }).toBe('playing');
+  expect((await play.observe())?.shell?.hud).toEqual(hudIds);
+  await expect(play.frame.locator('[data-tl-ui-source="hud"]')).toHaveCount(20);
+  await expect(play.frame.locator('[data-tl-ui-doc="tag-18"][data-tl-ui-source="hud"]')).toBeVisible();
+  await expect(play.frame.locator('[data-tl-ui-doc="tag-18"]')).toHaveText('Tag 18');
   const iframe = page.locator('iframe.tl-app__preview-frame');
   const box = (await iframe.boundingBox())!;
   await page.mouse.click(box.x + box.width / 2, box.y + box.height * 0.8);

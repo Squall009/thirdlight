@@ -19,6 +19,8 @@ import { CONTENT } from '../packages/project-model/src/descriptor-content';
 import type { FieldDescriptor } from '../packages/project-model/src/descriptor-types';
 import { INPUT_ACTIONS_BOUND, INPUT_SETTINGS_MAX_BYTES, validateInput } from '../packages/project-model/src/input';
 import { validateBehaviorGroups, validateModes } from '../packages/project-model/src/modes';
+import { validateSaveSchema } from '../packages/project-model/src/save-schema';
+import { validateShell } from '../packages/project-model/src/shell';
 import { MAX_FRAME_ACTIONS, validateActionFrame } from '../packages/runtime/src/actions';
 import { validateInputStatus } from '../packages/runtime/src/input-status';
 
@@ -113,8 +115,6 @@ const BOUNDED_BY_A_REASON: Record<string, string> = {
   'saveSchema.sections': 'distinct names from the engine\'s fixed list of save sections',
   cellFields: 'block-layer internals, left for the voxel phases that retire them',
 };
-/** Count caps found by this check and not yet lifted (listed in the defect audit): this list only shrinks. */
-const NOT_YET_LIFTED = new Set(['shell.hud', 'saveSchema.migrations', 'saveSchema.settings']);
 
 /** `path: bound` of every list and map reached from `f` (at `path`) through objects only (a list's items are one record's, not the project's). */
 function projectWideBounds(f: FieldDescriptor, path: string, out: string[]): void {
@@ -127,13 +127,8 @@ describe('no per-project count cap by shape', () => {
   it('no project-wide list or map of the content has a most-items bound without a reason', () => {
     const found: string[] = [];
     for (const block of CONTENT) projectWideBounds(block.value, block.key, found);
-    const capped = found.filter((f) => {
-      const path = f.slice(0, f.indexOf(':'));
-      return BOUNDED_BY_A_REASON[path] === undefined && !NOT_YET_LIFTED.has(path);
-    });
+    const capped = found.filter((f) => BOUNDED_BY_A_REASON[f.slice(0, f.indexOf(':'))] === undefined);
     expect(capped).toEqual([]);
-    // The ratchet: an entry whose cap went must leave the list.
-    for (const path of NOT_YET_LIFTED) expect(found.some((f) => f.startsWith(`${path}:`)), path).toBe(true);
   });
 
   it('modes, behavior groups, input actions, maps and glyphs take far more than any old cap', () => {
@@ -157,6 +152,19 @@ describe('no per-project count cap by shape', () => {
     const huge = { actions: Array.from({ length: 2000 }, (_, i) => ({ name: `action_${i}`, type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'KeyA' }] })) };
     expect(JSON.stringify(huge).length).toBeGreaterThan(INPUT_SETTINGS_MAX_BYTES);
     expect(errs((e) => validateInput(huge, '/input', e as never)).map((x) => (x as { code: string }).code)).toEqual(['limits_exceeded']);
+  });
+
+  it('HUD documents, settings fields and save migrations take far more than any old cap', () => {
+    const n = 300;
+    const errs: unknown[] = [];
+    validateShell({ hud: Array.from({ length: n }, (_, i) => `hud-${i}`) }, '/shell', errs as never);
+    validateSaveSchema({
+      version: n + 1,
+      slots: 3,
+      migrations: Array.from({ length: n }, (_, i) => ({ from: i + 1, name: `v${i + 1}` })),
+      settings: Array.from({ length: n }, (_, i) => ({ key: `field_${i}`, type: 'number', default: i })),
+    }, '/saveSchema', errs as never);
+    expect(errs).toEqual([]);
   });
 
   it('a frame and an input status carry every action the input settings can name', () => {

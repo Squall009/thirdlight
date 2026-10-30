@@ -24,7 +24,9 @@ describe('the shell block', () => {
     expect(codes({ screens: { gameOver: 'x' } })).toEqual(['field_unexpected /shell/screens/gameOver']);
     expect(codes({ screens: { title: 'Not An Id' } })).toEqual(['field_value /shell/screens/title']);
     expect(codes({ hud: ['a', 'a'] })).toEqual(['field_value /shell/hud']);
-    expect(codes({ hud: Array.from({ length: 9 }, (_, i) => `d${i}`) })).toEqual(['field_value /shell/hud']);
+    // No count of HUD documents (each names a distinct document); only the shape is refused.
+    expect(codes({ hud: Array.from({ length: 40 }, (_, i) => `d${i}`) })).toEqual([]);
+    expect(codes({ hud: 'd0' })).toEqual(['field_value /shell/hud']);
     expect(codes({ scenes: [] })).toEqual(['field_value /shell/scenes']);
     expect(codes({ scenes: [{ scene: 'a', at: 1 }] })).toEqual(['field_unexpected /shell/scenes/0/at']);
     expect(codes({ pause: 1, status: 'on' })).toEqual(['field_type /shell/pause', 'field_type /shell/status']);
