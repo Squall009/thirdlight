@@ -62,6 +62,7 @@ regression points at its cause.
 | 44.1b | done: G1 exports bundle from `dist/export-engine/`, the engine sources `npm run build` freezes beside Play's bundles (b0bf56b0; D332's cause). Exports byte-identical bar capture time; export ms 1300/1229/1601 → 1362/1262/1566 (side view/3D/village, noise); code size unchanged; +13 MB in dist. New vitest over HTTP with a broken live tree; e2e play-export 5.9 → 5.7 s, shell-scenes 6.9 → 7.1 s, job-export-import 1.7 → 1.7 s. Fast gate green (D311 watch miss, passed alone). |
 | 44.2 | done: G4 templates stored current (cb646f8d: schema 8 / storage 5+4 as game folders, made once by the engine's own creation path; new project = copy, no upgrade; 3D character a link, not a 2nd copy), legacy session page + `envelopeBytes` field (bf1faada), v1 `captureManifest` (ef3f6d99). Code −866 / +220 lines (tests included), one module gone. New vitest over HTTP: each template's project opens with nothing upgraded. e2e projects 17.2 → 16.5 s, starter-game 6.4 → 6.7, starter-capabilities 17.9 → 17.5, folder-projects 9.8 → 10.1, instance-brush 38.8 → 38.5. Fast gates green (one D307 watch miss, passed alone). |
 | 44.3 | done: leaf `@thirdlight/shared` (20624218), every package may import it (40ade512), three-adapter value edge to project-model (4b1341ff: 412 of 657 runtime relays gone, runtime index −232 lines), stale export-bootstrap rule (51e6cf83); goldens before any move (895a351d); `check-redefinitions` in the build (a6887409): ratchet starts at **163** copies, 15 retired; AGENTS line (059b4bca). e2e play-export 5.7 → 5.3 s. Fast gates green. |
+| 44.4a | done: shared leaf owns SHA-256 + canonical JSON (51013afc: 34 copies, −1000/+626 lines, ratchet 163 → 129), GLB/PNG/KTX2/CRC-32 (94797c66: 18 named + ~35 inline writers/readers, −934/+413, → 111), quaternion/mat4 (f9936e96: 9, −270/+215, → 102), random/noise (67796e74: 20, −369/+272, → 82); goldens unchanged. e2e play-export 5.3 → 4.7 s; village at the cap unchanged. Fast gates green (v4-limits timed out once under load, passed alone). |
 
 ### 44.0 baseline
 
@@ -121,3 +122,12 @@ What the end of 44 is measured against (44.13).
   vs by UTF-16 unit (workspace, differs on astral keys) vs the exporter's indented, unsorted text; not golden-tested:
   the GPU mulberry32 (TslRng), the visual-script prelude's (source text), terrain erosion's (retired) and the
   size-only sorted copies in `timelines.ts`/`ui-documents.ts`.
+- 2026-10-30 (44.4a, default chosen, owner to confirm): the backend keeps node:crypto for whole-file digests as
+  `sha256HexNative` (ten times the pure hash on 64 MB, same digests, golden-tested beside it) and the zip writer uses
+  node:zlib's crc32: platform calls, not copies. The quaternion product sums in three.js's order (the look-at copy's);
+  camera shake, compound bounds and the physics compound top move to it (last-bit, nothing stored). One lenient GLB
+  reader (first JSON object + first BIN chunk); the importer, loader guard and export scan keep their diagnostics and
+  take the constants. Noise hashes stay named variants (`latticeHash`, `latticeHash4`, `seedCellHash`, `tileHash`);
+  the shader copies (TslRng, material-graph `valueNoise`) stay, ground cover's shader takes the lane constants. The
+  check now owns the GLB, image-signature, PNG-writer, mat4/quat and noise-hash names and the GLB JSON chunk type as
+  a fingerprint. Left: the visual-script prelude's mulberry32 (source text), 44.4b's families.
