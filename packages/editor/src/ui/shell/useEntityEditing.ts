@@ -9,9 +9,6 @@ import type { ProjectedEntity } from '../../session/projection';
 import { recoverPrefabCommandFailure } from '../../session/prefab-authoring';
 import { derivePropertyControls, parseControlInput, planSetBehaviorProperties } from '../../session/property-controls';
 import { fitCapsule } from '../../session/size-handles';
-import { maxPolygonCorners } from '../../session/handles';
-import { boxFromBounds3D, boxFromOutline, polygonFromOutline } from '../../session/outline';
-import type { DescriptorRegistry } from '@thirdlight/project-model';
 import type { PatchRebase } from '../Inspector';
 import type { ClientRef, ModelsRef, ReportFailure, SetNotice, UiError, ViewportRef } from './commands';
 
@@ -22,13 +19,12 @@ export interface EntityEditingDeps {
   refreshEntities: () => void;
   reportFailure: ReportFailure;
   setNotice: SetNotice;
-  registry: DescriptorRegistry | null;
   entities: ProjectedEntity[];
   selectedId: string | null;
 }
 
 export function useEntityEditing(deps: EntityEditingDeps) {
-  const { clientRef, viewportRef, modelFilesRef, refreshEntities, reportFailure, setNotice, registry, entities, selectedId } = deps;
+  const { clientRef, viewportRef, modelFilesRef, refreshEntities, reportFailure, setNotice, entities, selectedId } = deps;
   /** The material names of the selected object's model file (for the mapping editor). */
   const [selectedSourceMaterials, setSelectedSourceMaterials] = useState<string[]>([]);
   const [propertyError, setPropertyError] = useState<UiError | null>(null);
@@ -207,26 +203,6 @@ export function useEntityEditing(deps: EntityEditingDeps) {
     [runTypedCommand, setNotice],
   );
 
-  /** A collider from the model's outline on the play plane (a box, or a polygon of at most 8 corners). */
-  const colliderFromModel = useCallback(
-    async (entityId: string, kind: 'box' | 'polygon') => {
-      const points = viewportRef.current?.modelOutline(entityId) ?? null;
-      if (points === null) {
-        setComponentError({ code: 'no_model', message: 'A collider from the model needs a loaded model on this object or on its children.' });
-        return;
-      }
-      const made = kind === 'box' ? boxFromOutline(points) : polygonFromOutline(points, maxPolygonCorners(registry));
-      if (!made.ok) {
-        setComponentError({ code: 'no_outline', message: made.message });
-        return;
-      }
-      if (made.note !== undefined) setNotice(`Collider: ${made.note}`);
-      const has = clientRef.current?.projection.getEntity(entityId)?.components['collider'] !== undefined;
-      if (has) await editComponent(entityId, 'collider', { shape: made.shape });
-      else await addComponentTo(entityId, 'collider', { shape: made.shape });
-    },
-    [viewportRef, registry, setNotice, clientRef, editComponent, addComponentTo],
-  );
   // The material names of the selected object's model file / the selected asset.
   const selectedForMaterials = entities.find((e) => e.id === selectedId) ?? null;
   const selectedModelKey = selectedForMaterials !== null ? `${selectedForMaterials.assetId ?? selectedForMaterials.instances?.assetId ?? ''}|${selectedForMaterials.piece ?? selectedForMaterials.instances?.piece ?? ''}` : '';
@@ -248,7 +224,7 @@ export function useEntityEditing(deps: EntityEditingDeps) {
 
   return {
     selectedSourceMaterials, propertyError, componentError, applyPreset, runTypedCommand, setEntityMaterials, setEntityMaterialParams,
-    editProperty, editComponent, addComponentTo, fitCapsuleToModel, colliderFromModel3D, colliderFromModel,
+    editProperty, editComponent, addComponentTo, fitCapsuleToModel, colliderFromModel3D,
   };
 }
 

@@ -8,7 +8,6 @@
  *   handle stores is one `setComponent` the commands accept — and one undo
  *   restores the component exactly;
  * - polygon corners: drag, add on an edge, delete, a concave drag refused;
- * - a collider from a model outline (hull, corner limit) is a valid collider;
  * - instance copies: the buffer edits (move, delete, brush) keep the layout;
  * - `playerSpawn.yaw` is v4 data (validated, canonical, removable).
  */
@@ -18,8 +17,7 @@ import { describe, expect, it } from 'vitest';
 
 import { DESCRIPTORS, HANDLE_KINDS, validateContentV4, validateSceneV4, type FieldDescriptor } from '@thirdlight/project-model';
 import { applyMutation, createCommandState, type CommandState, type ContentDocument } from '@thirdlight/commands';
-import { commitValue, deletePoint, dragGrip, gripsOf, handleShapesOf, insertPoint, maxPolygonCorners, type HandleShape, type P3 } from '@thirdlight/editor/handles';
-import { boxFromOutline, convexHull, polygonFromOutline } from '@thirdlight/editor/outline';
+import { commitValue, deletePoint, dragGrip, gripsOf, handleShapesOf, insertPoint, type HandleShape, type P3 } from '@thirdlight/editor/handles';
 import { copyAt, copyCount, withCopy, withoutCopy } from '@thirdlight/editor/instance-copies';
 
 type Any = any;
@@ -297,32 +295,6 @@ describe('the Scene-view handles over the real registry and commands', () => {
     s = must(s, 'setComponent', { entityId: 'group-000001', component: 'collider', value: (commitValue((del as Any).shape) as Any).value }, 'delete corner');
     expect(entityOf(s, 'group-000001').components.collider.shape.vertices).toEqual([[-1, 0], [1, 0], [0, 1.5]]);
     expect(deletePoint(poly(), 'p0')).toEqual({ ok: false, message: 'Polygon keeps at least 3 points' });
-    // The corner limit comes from the registry.
-    expect(maxPolygonCorners(DESCRIPTORS)).toBe(8);
-  });
-
-  it('box and polygon colliders from a model outline are valid colliders', () => {
-    // A lumpy round outline, off the origin: the hull, at most 8 corners.
-    const pts = Array.from({ length: 400 }, (_, i) => {
-      const a = (i / 400) * Math.PI * 2;
-      const r = 1 + 0.1 * Math.sin(7 * a);
-      return { x: 0.5 + r * Math.cos(a), y: 1 + r * Math.sin(a) };
-    });
-    expect(convexHull(pts).length).toBeGreaterThan(8);
-    const poly = polygonFromOutline(pts, maxPolygonCorners(DESCRIPTORS));
-    expect(poly.ok).toBe(true);
-    const shape = (poly as Any).shape;
-    expect(shape.vertices.length).toBeLessThanOrEqual(8);
-    let s = fresh();
-    s = must(s, 'setComponent', { entityId: 'group-000001', component: 'collider', value: { shape } }, 'outline polygon');
-    // Off-centre: a box collider cannot be offset, so the rectangle is a 4-corner polygon (with a note).
-    const box = boxFromOutline(pts);
-    expect((box as Any).shape.type).toBe('polygon');
-    expect((box as Any).note).toMatch(/not centred/);
-    must(s, 'setComponent', { entityId: 'group-000001', component: 'collider', value: { shape: (box as Any).shape } }, 'outline box as polygon');
-    // Centred: a box.
-    expect(boxFromOutline([{ x: -0.4, y: -1 }, { x: 0.4, y: 1 }, { x: 0, y: 0 }])).toEqual({ ok: true, shape: { type: 'box', hx: 0.4, hy: 1 } });
-    expect(polygonFromOutline([{ x: 0, y: 0 }, { x: 1, y: 1 }, { x: 2, y: 2 }], 8).ok).toBe(false); // a line has no area
   });
 
   it('instance copies: move one, delete one — the rest stay as they were', () => {

@@ -708,11 +708,3 @@ export function linesOf(s: HandleShape): P3[][] {
       return splineLines(m);
   }
 }
-
-/** The most corners a polygon collider may have (the collider descriptor's vertex list; 8 before the descriptors arrive). */
-export function maxPolygonCorners(reg: DescriptorRegistry | null): number {
-  const collider = reg?.components.find((c) => c.name === 'collider')?.value;
-  const shape = collider?.type === 'object' ? collider.fields.find((f) => f.key === 'shape') : undefined;
-  const vertices = shape?.type === 'object' ? shape.fields.find((f) => f.key === 'vertices') : undefined;
-  return vertices?.type === 'list' ? (vertices.maxItems ?? 8) : 8;
-}

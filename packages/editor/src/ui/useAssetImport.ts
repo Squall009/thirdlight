@@ -10,7 +10,8 @@ import { useCallback, useRef, useState, type Dispatch, type MutableRefObject, ty
 import { makeAssetId, type SessionClient } from '../session/client';
 import { importFailed, initialImportState, publishArgsFromProposal, utcSecondTimestamp, type AssetImportState, type ImportTarget } from '../session/asset-browser';
 import { type SourceIssue } from '../session/asset-sources';
-import { validateMediaDrop, type AnimationRoleKey } from '../session/media';
+import { validateMediaDrop } from '../session/media';
+import type { AnimationRoleKey } from '@thirdlight/project-model';
 import { DEFAULT_UPLOAD_FOLDER } from '../session/folder-upload';
 
 type MediaKind = 'model' | 'audio' | 'texture' | 'font';

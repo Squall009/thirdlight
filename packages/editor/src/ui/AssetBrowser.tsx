@@ -15,7 +15,7 @@ import type { ProjectItem } from '../session/project-items';
 import type { AssetImportState } from '../session/asset-browser';
 import type { TileThumbnails } from '../viewport/thumbnails';
 import { useAssetSummaries, useCatalog } from './catalog/catalog-context';
-import type { AnimationRoleKey } from '../session/media';
+import type { AnimationRoleKey } from '@thirdlight/project-model';
 import { TexturePackForm, type PackOutcome, type PackRequest } from './TexturePackForm';
 import type { LoadingNameActions } from './useLoadingNames';
 import { ProjectWindow } from './project/ProjectWindow';

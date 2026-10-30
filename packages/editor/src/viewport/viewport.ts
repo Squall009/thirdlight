@@ -1031,11 +1031,6 @@ export class Viewport {
     return this.copies.selection;
   }
 
-  /** For "collider from model outline": the models' vertices on the play plane in the collider's frame (null: none loaded). */
-  modelOutline(entityId: string): { x: number; y: number }[] | null {
-    return this.queries.modelOutline(entityId);
-  }
-
   /** Frame every entity (the whole level) from the current view direction. */
   frameAll(entities: readonly ProjectedEntity[]): void {
     this.framing.frameAll(entities);

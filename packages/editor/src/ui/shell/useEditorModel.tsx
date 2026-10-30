@@ -314,7 +314,7 @@ export function useEditorModel() {
   }, [refreshEntities]);
 
   const cue = useCuePreview(clientRef);
-  const entityEditing = useEntityEditing({ clientRef, viewportRef, modelFilesRef, refreshEntities, reportFailure, setNotice, registry, entities, selectedId });
+  const entityEditing = useEntityEditing({ clientRef, viewportRef, modelFilesRef, refreshEntities, reportFailure, setNotice, entities, selectedId });
   const prefab = usePrefabAuthoring({ clientRef, selectedIdRef, declarations: content.declarations, runTypedCommand: entityEditing.runTypedCommand, setNotice });
   /** An item chosen in the project window since the last selection: the Inspector shows it. */
   const [inspectedItem, setInspectedItem] = useState<ProjectItem | null>(null);

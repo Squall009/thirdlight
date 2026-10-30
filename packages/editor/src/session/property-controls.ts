@@ -9,20 +9,17 @@
  * or discovers a schema by running anything — a declaration is data and is
  * consumed as data (no schema discovery by evaluating code).
  *
- * The module also derives the contract component controls for `collider` and
- * `controller` shapes and builds the exact
+ * The module also builds the exact
  * `setBehaviorProperties` args: the whole values map is
  * sent, because omitted keys take their declaration default — editing one
  * property must not reset the others.
  *
  * Pure: no DOM, no I/O, no Node builtins, no code evaluation.
  */
-import { MAX_POLYGON_VERTICES } from '@thirdlight/project-model/limits';
 import { ID_RE } from '@thirdlight/project-model/limits';
 
 import type {
   BehaviorComponent,
-  ColliderComponent,
   DeclaredProperty,
   PrefabDefinition,
   PrefabEntity,
@@ -363,222 +360,6 @@ export function planSetBehaviorProperties(
     values[p.key] = p.key === key ? (value as PropertyValue) : kept;
   }
   return { ok: true, args: { entityId, behaviorId, values } };
-}
-
-/** The one typed command that removes a behavior component. */
-export function planRemoveBehaviorProperties(entityId: string): SetBehaviorPropertiesArgsView {
-  return { entityId, behaviorId: null };
-}
-
-// ---- contract component controls (collider / controller) ----------------------
-
-export interface ComponentFieldView {
-  path: string;
-  label: string;
-  type: string;
-  value: string;
-}
-
-export interface ComponentControl {
-  component: 'collider' | 'controller';
-  label: string;
-  /** Whether the selected entity currently carries the component. */
-  present: boolean;
-  fields: ComponentFieldView[];
-  /** Whether a command can edit this component. */
-  editable: boolean;
-  /** Why editing is unavailable (bounded, actionable), else `null`. */
-  unavailableReason: string | null;
-  contractChangeRequest: string | null;
-}
-
-/**
- * `setComponent` owns `collider`/`controller`
- * too: `collider` supports add/edit/remove, `controller` supports add (the
- * field-less marker's value is exactly `{}`) and remove (`value: null`). The
- * controls below therefore build real typed commands; nothing is read-only.
- */
-export const COMPONENT_EDIT_AVAILABLE =
-  'setComponent supports collider/controller add, edit and remove.';
-
-export interface ComponentCarrier {
-  collider?: ColliderComponent;
-  controller?: unknown;
-}
-
-/** The bounded typed `setComponent` args this module plans (value `null` = remove). */
-export interface SetComponentArgsView {
-  entityId: string;
-  component: 'collider' | 'controller';
-  value: Record<string, unknown> | null;
-}
-
-/** Derive the physics-component controls; absent ones are add affordances. */
-export function deriveComponentControls(
-  components: ComponentCarrier | null | undefined,
-  options: { includeAbsent?: boolean } = {},
-): ComponentControl[] {
-  const out: ComponentControl[] = [];
-  const collider = components?.collider;
-  if (collider) {
-    out.push({
-      component: 'collider',
-      label: 'Collider',
-      present: true,
-      fields: colliderFields(collider),
-      editable: true,
-      unavailableReason: null,
-      contractChangeRequest: null,
-    });
-  } else if (options.includeAbsent) {
-    out.push({
-      component: 'collider',
-      label: 'Collider',
-      present: false,
-      fields: [],
-      editable: true,
-      unavailableReason: null,
-      contractChangeRequest: null,
-    });
-  }
-  const hasController = components !== null && components !== undefined && components.controller !== undefined;
-  if (hasController) {
-    out.push({
-      component: 'controller',
-      label: 'Controller',
-      present: true,
-      fields: [{ path: 'controller', label: 'marker', type: 'marker (no fields)', value: 'present' }],
-      editable: true,
-      unavailableReason: null,
-      contractChangeRequest: null,
-    });
-  } else if (options.includeAbsent) {
-    out.push({
-      component: 'controller',
-      label: 'Controller',
-      present: false,
-      fields: [],
-      editable: true,
-      unavailableReason: null,
-      contractChangeRequest: null,
-    });
-  }
-  return out;
-}
-
-/** Plan a collider add/edit from a parsed shape. */
-export function planSetCollider(
-  entityId: string,
-  shape: ColliderComponent['shape'],
-): SetComponentArgsView {
-  return { entityId, component: 'collider', value: { shape } };
-}
-
-/** Parse one box-collider draft (`hx`/`hy`), returning a bounded error otherwise. */
-export function parseColliderBox(
-  hx: unknown,
-  hy: unknown,
-): { ok: true; shape: { type: 'box'; hx: number; hy: number } } | { ok: false; error: ControlError } {
-  const parse = (v: unknown, path: string): number | ControlError => {
-    const n = typeof v === 'number' ? v : Number(v);
-    if (!Number.isFinite(n) || n <= 0 || n > 1e6) {
-      return { code: 'collider_shape_invalid', message: `${path} must be a finite number 0 < v <= 1e6`, path, found: v };
-    }
-    return n;
-  };
-  const a = parse(hx, 'collider.shape.hx');
-  if (typeof a !== 'number') return { ok: false, error: a };
-  const b = parse(hy, 'collider.shape.hy');
-  if (typeof b !== 'number') return { ok: false, error: b };
-  return { ok: true, shape: { type: 'box', hx: a, hy: b } };
-}
-
-/** Parse a polygon-collider draft (JSON text): 3–8 `[x, y]` pairs, finite. */
-export function parseColliderPolygon(
-  raw: string,
-): { ok: true; shape: { type: 'polygon'; vertices: [number, number][] } } | { ok: false; error: ControlError } {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return { ok: false, error: { code: 'collider_shape_invalid', message: 'vertices must be valid JSON', path: 'collider.shape.vertices', found: raw } };
-  }
-  if (!Array.isArray(parsed) || parsed.length < 3 || parsed.length > MAX_POLYGON_VERTICES) {
-    return { ok: false, error: { code: 'collider_shape_invalid', message: `vertices must be an array of 3-${MAX_POLYGON_VERTICES} [x, y] pairs`, path: 'collider.shape.vertices', found: parsed } };
-  }
-  const vertices: [number, number][] = [];
-  for (const v of parsed) {
-    if (
-      !Array.isArray(v) ||
-      v.length !== 2 ||
-      typeof v[0] !== 'number' ||
-      typeof v[1] !== 'number' ||
-      !Number.isFinite(v[0]) ||
-      !Number.isFinite(v[1])
-    ) {
-      return { ok: false, error: { code: 'collider_shape_invalid', message: 'each vertex must be a finite [x, y] pair', path: 'collider.shape.vertices', found: v } };
-    }
-    vertices.push([v[0], v[1]]);
-  }
-  return { ok: true, shape: { type: 'polygon', vertices } };
-}
-
-/** Plan adding the field-less controller marker (value is exactly `{}`). */
-export function planAddController(entityId: string): SetComponentArgsView {
-  return { entityId, component: 'controller', value: {} };
-}
-
-/** Plan removing a physics component (`value: null`). */
-export function planRemovePhysicsComponent(
-  entityId: string,
-  component: 'collider' | 'controller',
-): SetComponentArgsView {
-  return { entityId, component, value: null };
-}
-
-function colliderFields(collider: ColliderComponent): ComponentFieldView[] {
-  const shape = collider.shape;
-  if (shape.type === 'box') {
-    return [
-      { path: 'collider.shape.type', label: 'shape', type: '"box"', value: 'box' },
-      { path: 'collider.shape.hx', label: 'hx', type: 'number (0, 1e6]', value: numberText(shape.hx) },
-      { path: 'collider.shape.hy', label: 'hy', type: 'number (0, 1e6]', value: numberText(shape.hy) },
-    ];
-  }
-  // The 3D shapes (a 3D project).
-  if (shape.type === 'sphere') return [{ path: 'collider.shape.type', label: 'shape', type: '"sphere"', value: 'sphere' }, { path: 'collider.shape.radius', label: 'radius', type: 'number (0, 64]', value: numberText(shape.radius) }];
-  if (shape.type === 'capsule') {
-    return [
-      { path: 'collider.shape.type', label: 'shape', type: '"capsule"', value: 'capsule' },
-      { path: 'collider.shape.radius', label: 'radius', type: 'number (0, 64]', value: numberText(shape.radius) },
-      { path: 'collider.shape.height', label: 'height', type: 'number >= 2 radius', value: numberText(shape.height) },
-    ];
-  }
-  if (shape.type === 'cylinder') {
-    return [
-      { path: 'collider.shape.type', label: 'shape', type: '"cylinder"', value: 'cylinder' },
-      { path: 'collider.shape.radius', label: 'radius', type: 'number (0, 64]', value: numberText(shape.radius) },
-      { path: 'collider.shape.height', label: 'height', type: 'number (0, 128]', value: numberText(shape.height) },
-    ];
-  }
-  if (shape.type === 'convex') return [{ path: 'collider.shape.type', label: 'shape', type: '"convex"', value: 'convex' }, { path: 'collider.shape.points', label: 'points', type: '4–64 [x, y, z]', value: String(shape.points.length) }];
-  if (shape.type === 'mesh') {
-    return [
-      { path: 'collider.shape.type', label: 'shape', type: '"mesh"', value: 'mesh' },
-      { path: 'collider.shape.vertices', label: 'vertices', type: '3–1024 [x, y, z]', value: String(shape.vertices.length) },
-      { path: 'collider.shape.triangles', label: 'triangles', type: '1–2048 [a, b, c]', value: String(shape.triangles.length) },
-    ];
-  }
-  if (shape.type === 'compound') return [{ path: 'collider.shape.type', label: 'shape', type: '"compound"', value: 'compound' }, { path: 'collider.shape.shapes', label: 'shapes', type: 'shapes', value: String(shape.shapes.length) }];
-  if (shape.type === 'model') return [{ path: 'collider.shape.type', label: 'shape', type: '"model"', value: "the model's _COL parts" }];
-  const fields: ComponentFieldView[] = [
-    { path: 'collider.shape.type', label: 'shape', type: '"polygon"', value: 'polygon' },
-    { path: 'collider.shape.vertices', label: 'vertices', type: '3–8 strict-convex', value: String(shape.vertices.length) },
-  ];
-  shape.vertices.forEach((v, i) => {
-    fields.push({ path: `collider.shape.vertices/${i}`, label: `v${i}`, type: '[x, y]', value: `${numberText(v[0])}, ${numberText(v[1])}` });
-  });
-  return fields;
 }
 
 // ---- definition/entity → control derivation ----------------------------------

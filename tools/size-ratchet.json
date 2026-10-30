@@ -7,7 +7,7 @@
     {"file":"packages/editor/src/ui/script/VisualScriptDocument.tsx","kind":"function","unit":"VisualScriptDocument","size":579},
     {"file":"packages/editor/src/ui/timeline/TimelineDocument.tsx","kind":"function","unit":"TimelineDocument","size":648},
     {"file":"packages/editor/src/viewport/block-editor.ts","kind":"class","unit":"BlockEditor","size":109},
-    {"file":"packages/editor/src/viewport/viewport.ts","kind":"class","unit":"Viewport","size":114},
+    {"file":"packages/editor/src/viewport/viewport.ts","kind":"class","unit":"Viewport","size":113},
     {"file":"packages/exporter/src/content-closure.ts","kind":"function","unit":"buildContentClosureM3","size":593},
     {"file":"packages/game-host/src/audio.ts","kind":"function","unit":"createGameAudioOwner","size":1063},
     {"file":"packages/game-host/src/game-page.ts","kind":"function","unit":"startGamePage","size":529},

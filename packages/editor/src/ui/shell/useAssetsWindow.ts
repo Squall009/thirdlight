@@ -14,7 +14,7 @@ import { useLoadingNames } from '../useLoadingNames';
 import { useAssetFileCheck } from '../useAssetFileCheck';
 import { useAssetOptions } from '../useAssetOptions';
 import { useAssetImport } from '../useAssetImport';
-import type { AnimationRoleKey } from '../../session/media';
+import type { AnimationRoleKey } from '@thirdlight/project-model';
 import type { ClientRef, ModelsRef, ReportFailure } from './commands';
 
 /** What a double-click in the project window opens, besides an asset's preview. */

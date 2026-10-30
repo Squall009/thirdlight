@@ -133,40 +133,6 @@ export class SceneQueries {
     return { min: [box.min.x - at.x, box.min.y - at.y, box.min.z - at.z], max: [box.max.x - at.x, box.max.y - at.y, box.max.z - at.z] };
   }
 
-  /**
-   * The vertices of the models drawn for an entity (its own and its
-   * children's), on the play plane relative to its origin with its rotation
-   * about Z undone (the collider's frame), or null when no model is loaded.
-   */
-  modelOutline(entityId: string): { x: number; y: number }[] | null {
-    this.host.adapter().sync?.();
-    const world = this.worldOf(entityId);
-    if (world === null) return null;
-    const pos = new THREE.Vector3();
-    const quat = new THREE.Quaternion();
-    world.decompose(pos, quat, new THREE.Vector3());
-    const angle = new THREE.Euler().setFromQuaternion(quat, 'ZYX').z;
-    const toFrame = new THREE.Matrix4().makeRotationZ(angle).setPosition(pos).invert();
-    const out: { x: number; y: number }[] = [];
-    const v = new THREE.Vector3();
-    for (const id of this.subtreeIds(entityId)) {
-      if (this.host.synced.get(id)?.kind !== 'model') continue;
-      for (const mesh of this.drawnMeshes(id)) {
-        const attr = mesh.geometry.getAttribute('position');
-        if (attr === undefined) continue;
-        mesh.updateWorldMatrix(true, false);
-        const m = new THREE.Matrix4().multiplyMatrices(toFrame, mesh.matrixWorld);
-        // At most ~50k points per mesh (the hull only needs the extremes).
-        const stride = Math.max(1, Math.ceil(attr.count / 50_000));
-        for (let i = 0; i < attr.count; i += stride) {
-          v.fromBufferAttribute(attr, i).applyMatrix4(m);
-          out.push({ x: v.x, y: v.y });
-        }
-      }
-    }
-    return out.length === 0 ? null : out;
-  }
-
   /** The drawn objects that collide (shown and switched on; instance sets and `exceptId` left out): what the brush paints on besides block layers. */
   colliderObjects(exceptId: string): THREE.Object3D[] {
     const adapter = this.host.adapter();

@@ -9,18 +9,10 @@
 import { describe, expect, it } from 'vitest';
 import type { PropertyDeclaration } from '@thirdlight/project-model';
 import {
-  COMPONENT_EDIT_AVAILABLE,
   deriveBehaviorControls,
-  deriveComponentControls,
   derivePropertyControls,
-  parseColliderBox,
-  parseColliderPolygon,
   parseControlInput,
-  planAddController,
-  planRemoveBehaviorProperties,
-  planRemovePhysicsComponent,
   planSetBehaviorProperties,
-  planSetCollider,
   validatePropertyValue,
 } from './property-controls';
 
@@ -179,13 +171,9 @@ describe('one property edit is one typed setBehaviorProperties command', () => {
       error: { code: 'property_value' },
     });
   });
-
-  it('removal is the behaviorId: null form of the same command', () => {
-    expect(planRemoveBehaviorProperties('model-0003')).toEqual({ entityId: 'model-0003', behaviorId: null });
-  });
 });
 
-describe('declared-behavior + contract component derivation', () => {
+describe('declared-behavior derivation', () => {
   it('derives controls for one behavior-carrying entity', () => {
     const view = deriveBehaviorControls(
       { localId: 'model-0001', entityName: 'Lantern', behaviorId: 'behavior-0001', recordedValues: STORED },
@@ -204,58 +192,5 @@ describe('declared-behavior + contract component derivation', () => {
     expect(view.declaration).toBeNull();
     expect(view.controls).toEqual([]);
     expect(view.error?.code).toBe('behavior_reference_missing');
-  });
-
-  it('exposes editable collider/controller controls and real setComponent plans (C28-1 repair)', () => {
-    const box = deriveComponentControls({ collider: { shape: { type: 'box', hx: 1.5, hy: 0.25 } } });
-    expect(box).toHaveLength(1);
-    expect(box[0]!.component).toBe('collider');
-    expect(box[0]!.present).toBe(true);
-    expect(box[0]!.fields.map((f) => f.label)).toEqual(['shape', 'hx', 'hy']);
-    expect(box[0]!.fields[1]!.value).toBe('1.5');
-    expect(box[0]!.editable).toBe(true);
-    expect(box[0]!.contractChangeRequest).toBeNull();
-    expect(box[0]!.unavailableReason).toBeNull();
-    expect(COMPONENT_EDIT_AVAILABLE).toContain('collider');
-
-    const polygon = deriveComponentControls({ collider: { shape: { type: 'polygon', vertices: [[0, 0], [1, 0], [0, 1]] } } });
-    expect(polygon[0]!.fields[1]!.value).toBe('3');
-    expect(polygon[0]!.fields[2]!.value).toBe('0, 0');
-
-    const controller = deriveComponentControls({ controller: {} });
-    expect(controller[0]!.component).toBe('controller');
-    expect(controller[0]!.fields[0]!.value).toBe('present');
-
-    // Absent components become add affordances when the inspector asks.
-    const absent = deriveComponentControls({}, { includeAbsent: true });
-    expect(absent.map((c) => [c.component, c.present])).toEqual([
-      ['collider', false],
-      ['controller', false],
-    ]);
-
-    expect(deriveComponentControls({})).toEqual([]);
-    expect(deriveComponentControls(null)).toEqual([]);
-  });
-
-  it('plans the exact setComponent args for collider/controller add, edit and remove', () => {
-    expect(planSetCollider('box-0001', { type: 'box', hx: 2, hy: 0.5 })).toEqual({
-      entityId: 'box-0001',
-      component: 'collider',
-      value: { shape: { type: 'box', hx: 2, hy: 0.5 } },
-    });
-    expect(planAddController('box-0001')).toEqual({ entityId: 'box-0001', component: 'controller', value: {} });
-    expect(planRemovePhysicsComponent('box-0001', 'collider')).toEqual({
-      entityId: 'box-0001',
-      component: 'collider',
-      value: null,
-    });
-    const box = parseColliderBox('1.5', '0.25');
-    expect(box).toEqual({ ok: true, shape: { type: 'box', hx: 1.5, hy: 0.25 } });
-    expect(parseColliderBox('0', '1')).toMatchObject({ ok: false, error: { code: 'collider_shape_invalid' } });
-    expect(parseColliderBox('abc', '1')).toMatchObject({ ok: false, error: { code: 'collider_shape_invalid' } });
-    const poly = parseColliderPolygon('[[0,0],[1,0],[0,1]]');
-    expect(poly).toEqual({ ok: true, shape: { type: 'polygon', vertices: [[0, 0], [1, 0], [0, 1]] } });
-    expect(parseColliderPolygon('[[0,0],[1,0]]')).toMatchObject({ ok: false, error: { code: 'collider_shape_invalid' } });
-    expect(parseColliderPolygon('nope')).toMatchObject({ ok: false, error: { code: 'collider_shape_invalid' } });
   });
 });
