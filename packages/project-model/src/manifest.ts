@@ -10,6 +10,14 @@ import { canonicalJsonText, sha256Hex, sha256HexOfText } from '@thirdlight/share
  * canonical JSON text and the SHA-256 helpers (`./sha256`) already live here.
  */
 
+/**
+ * The toolchain the engine builds scripts and games with and records in their
+ * manifests: the bundler, the script type checker and the renderer. They are
+ * the repository's installed pins; tools/check-deps.mjs fails the build when
+ * they disagree.
+ */
+export const TOOLCHAIN_PINS = Object.freeze({ esbuild: '0.28.2', typescript: '5.9.3', three: '0.186.1' } as const);
+
 /** The engine version a new project's manifest and an export's record name. */
 export const ENGINE_VERSION = '0.1.0';
 
@@ -32,7 +40,7 @@ export const RUNTIME_CONTENT_MANIFEST_MAX_BYTES = MANIFEST_CONTENT_FILE_MAX_BYTE
 
 /** The exact canonical option-set record. */
 export const BUILD_OPTIONS_RECORD = Object.freeze({
-  bundler: 'esbuild@0.28.2',
+  bundler: `esbuild@${TOOLCHAIN_PINS.esbuild}`,
   bundle: true,
   platform: 'browser',
   format: 'iife',

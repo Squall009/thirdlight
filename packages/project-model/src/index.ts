@@ -268,6 +268,7 @@ export { captureContent, collectAssetRefsV3 } from './capture';
 export {
   BUILD_OPTIONS_RECORD,
   ENGINE_VERSION,
+  TOOLCHAIN_PINS,
   M2_ENGINE_PINS,
   M2_MODULE_PACKAGES,
   RUNTIME_CONTENT_MANIFEST_MAX_BYTES,

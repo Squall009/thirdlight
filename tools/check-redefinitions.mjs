@@ -159,6 +159,8 @@ export const OWNED_FAMILIES = Object.freeze([
   { family: 'message-limit', owner: 'packages/project-model/src/errors.ts', names: ['MESSAGE_LIMIT', 'clipMessage'] },
   { family: 'move-quantum', owner: 'packages/project-model/src/input.ts', names: ['MOVE_QUANTUM', 'quantizeMove', 'quantizeIntentMove'] },
   { family: 'import-extensions', owner: 'packages/project-model/src/descriptor-types.ts', names: ['IMPORT_EXTENSIONS', 'IMPORTABLE', 'importKindOf'] },
+  // The recorded toolchain; behavior-build names its two pins as aliases of these, and tools/check-deps.mjs checks them against the installed pins.
+  { family: 'toolchain-pins', owner: 'packages/project-model/src/manifest.ts', names: ['TOOLCHAIN_PINS', 'ESBUILD_PIN', 'TYPESCRIPT_PIN'] },
 ]);
 
 /**

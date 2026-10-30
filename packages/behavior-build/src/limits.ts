@@ -16,6 +16,7 @@ import {
   MAX_BEHAVIOR_SOURCE_BYTES,
   MAX_DECLARATION_BYTES,
   MAX_OWNED_TRANSFORMS,
+  TOOLCHAIN_PINS,
 } from '@thirdlight/project-model';
 import type { BehaviorCompilerLimits, PinnedModuleRef } from './types';
 
@@ -25,9 +26,9 @@ export const COMPILER_ID = 'thirdlight.behavior-compiler' as const;
 /** The compiler implementation version (the manifest's `compiler.version`). */
 export const COMPILER_VERSION = '1' as const;
 
-/** The pinned toolchain. */
-export const ESBUILD_PIN = '0.28.2' as const;
-export const TYPESCRIPT_PIN = '5.9.3' as const;
+/** The pinned toolchain (the model's, which manifests record). */
+export const ESBUILD_PIN = TOOLCHAIN_PINS.esbuild;
+export const TYPESCRIPT_PIN = TOOLCHAIN_PINS.typescript;
 
 /**
  * How long a script's type check may run (ms of checking, after the program

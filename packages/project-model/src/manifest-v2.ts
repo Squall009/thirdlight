@@ -88,6 +88,7 @@ import {
   MANIFEST_CONTENT_FILE_MAX_BYTES,
   RUNTIME_CONTENT_MANIFEST_MAX_BYTES,
   RUNTIME_CONTENT_TYPE,
+  TOOLCHAIN_PINS,
   type ManifestBehaviorInput,
 } from './manifest';
 import { DIGEST_RE, isDigest } from './content-helpers';
@@ -222,7 +223,7 @@ export const MANIFEST_KEYS_V2 = [
  */
 export const M3_ENGINE_PINS: ReadonlyArray<{ id: string; version: string; apiVersion: number }> = Object.freeze([
   Object.freeze({ id: '@thirdlight/runtime', version: '0.1.0', apiVersion: 2 }),
-  Object.freeze({ id: '@thirdlight/three', version: '0.186.1', apiVersion: 0 }),
+  Object.freeze({ id: '@thirdlight/three', version: TOOLCHAIN_PINS.three, apiVersion: 0 }),
 ]);
 
 /** The package a known module id belongs to (the manifest `modules` rows). */
@@ -886,7 +887,7 @@ export function manifestLibraryRows(libraries: readonly Omit<ManifestLibraryRow,
 /** The toolchain block every manifest carries (the compiler versions and the build options digest). */
 export function manifestToolchain(): { toolchain: Record<string, unknown>; buildOptionsDigest: string } {
   const buildOptionsDigest = sha256Hex(buildOptionsRecordBytes());
-  return { toolchain: { esbuild: '0.28.2', typescript: '5.9.3', optionsDigest: buildOptionsDigest }, buildOptionsDigest };
+  return { toolchain: { esbuild: TOOLCHAIN_PINS.esbuild, typescript: TOOLCHAIN_PINS.typescript, optionsDigest: buildOptionsDigest }, buildOptionsDigest };
 }
 
 /**

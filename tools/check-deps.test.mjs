@@ -11,7 +11,10 @@ import {
   collectTreeIssues,
   PINS,
   collectInstalled,
+  checkToolchainPins,
+  TOOLCHAIN_PINS_FILE,
 } from './check-deps.mjs';
+import { readFileSync } from 'node:fs';
 
 describe('check 6 — dependency pinning', () => {
   it('accepts the exact pins and reports the rest as pending', () => {
@@ -255,5 +258,19 @@ describe('R6 — npm execution/tree errors fail before pin comparison (04-review
     expect(r.violations).toEqual([]);
     expect(r.pending).toContain('three');
     expect(r.installed.map((e) => e.name)).toEqual(['typescript']);
+  });
+});
+describe("the engine's recorded toolchain", () => {
+  it('equals the pins in the real project-model source', () => {
+    expect(checkToolchainPins(readFileSync(TOOLCHAIN_PINS_FILE, 'utf8'))).toEqual([]);
+  });
+
+  it('reports a pin that moved in one place only, an unknown pin and a missing table', () => {
+    const text = "export const TOOLCHAIN_PINS = Object.freeze({ esbuild: '0.28.1', typescript: '5.9.3', 'left-pad': '1.0.0' } as const);";
+    expect(checkToolchainPins(text)).toEqual([
+      `${TOOLCHAIN_PINS_FILE}: TOOLCHAIN_PINS.esbuild is 0.28.1, the pin is ${PINS.esbuild}`,
+      `${TOOLCHAIN_PINS_FILE}: TOOLCHAIN_PINS.left-pad is not an approved pin`,
+    ]);
+    expect(checkToolchainPins('export const OTHER = 1;')).toHaveLength(1);
   });
 });

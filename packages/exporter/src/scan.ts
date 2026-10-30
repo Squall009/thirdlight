@@ -30,13 +30,14 @@
  *
  * Pure string/byte processing: no I/O (the bytes are passed in).
  */
+import { TOOLCHAIN_PINS } from '@thirdlight/project-model';
 
 /**
  * The recorded-exception table (pinned three, pinned flags; the WebGPU build —
  * three/webgpu (core re-exported) + three/tsl, `three` resolved to three/webgpu).
  */
 export const THREE_RECORD = {
-  version: '0.186.1',
+  version: TOOLCHAIN_PINS.three,
   /** Npm registry integrity of that version (the lockfile's). */
   integrity: 'sha512-blFeqb49wRCSGUGj7gtpfnSGHy2lwDk94RhUmS1c/hTby70kvChbWpkJ4Pm1390LqzzvTmzgXKHPEafJwCb8jA==',
   /** d — `fetch(` in the pinned three code (two loader fetches + one warn literal). */

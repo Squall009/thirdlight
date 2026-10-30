@@ -380,6 +380,29 @@ function readWorkspacePkgs(root) {
   return out;
 }
 
+/** The engine's own record of its toolchain (TypeScript: this tool reads its text, it cannot import it). */
+export const TOOLCHAIN_PINS_FILE = 'packages/project-model/src/manifest.ts';
+
+/**
+ * The toolchain the engine records in manifests (`TOOLCHAIN_PINS` in
+ * TOOLCHAIN_PINS_FILE) must be the installed pins: a pin moved here and not
+ * there would record a bundler or renderer the build does not use.
+ * `text`: that file's source. Returns violations.
+ */
+export function checkToolchainPins(text, pins = PINS) {
+  const m = /export const TOOLCHAIN_PINS = Object\.freeze\(\{([^}]*)\}/.exec(text);
+  if (m === null) return [`${TOOLCHAIN_PINS_FILE}: no TOOLCHAIN_PINS = Object.freeze({ … }) found`];
+  const violations = [];
+  const entries = [...m[1].matchAll(/([A-Za-z_$][\w$]*|'[^']+')\s*:\s*'([^']*)'/g)];
+  if (entries.length === 0) violations.push(`${TOOLCHAIN_PINS_FILE}: TOOLCHAIN_PINS names no pin`);
+  for (const [, rawName, version] of entries) {
+    const name = rawName.replace(/^'|'$/g, '');
+    if (!(name in pins)) violations.push(`${TOOLCHAIN_PINS_FILE}: TOOLCHAIN_PINS.${name} is not an approved pin`);
+    else if (pins[name] !== version) violations.push(`${TOOLCHAIN_PINS_FILE}: TOOLCHAIN_PINS.${name} is ${version}, the pin is ${pins[name]}`);
+  }
+  return violations;
+}
+
 function main() {
   const root = process.cwd();
 
@@ -392,6 +415,8 @@ function main() {
 
   // 3: declared exactness + pin agreement.
   violations.push(...checkDeclaredDeps(readWorkspacePkgs(root)));
+  // 4: the engine's recorded toolchain equals the pins.
+  violations.push(...checkToolchainPins(readFileSync(join(root, TOOLCHAIN_PINS_FILE), 'utf8')));
 
   if (violations.length > 0) {
     console.error(`check-deps: FAIL — ${violations.length} violation(s):`);
