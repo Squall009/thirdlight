@@ -64,6 +64,7 @@ regression points at its cause.
 | 44.3 | done: leaf `@thirdlight/shared` (20624218), every package may import it (40ade512), three-adapter value edge to project-model (4b1341ff: 412 of 657 runtime relays gone, runtime index −232 lines), stale export-bootstrap rule (51e6cf83); goldens before any move (895a351d); `check-redefinitions` in the build (a6887409): ratchet starts at **163** copies, 15 retired; AGENTS line (059b4bca). e2e play-export 5.7 → 5.3 s. Fast gates green. |
 | 44.4a | done: shared leaf owns SHA-256 + canonical JSON (51013afc: 34 copies, −1000/+626 lines, ratchet 163 → 129), GLB/PNG/KTX2/CRC-32 (94797c66: 18 named + ~35 inline writers/readers, −934/+413, → 111), quaternion/mat4 (f9936e96: 9, −270/+215, → 102), random/noise (67796e74: 20, −369/+272, → 82); goldens unchanged. e2e play-export 5.3 → 4.7 s; village at the cap unchanged. Fast gates green (v4-limits timed out once under load, passed alone). |
 | 44.4b | done: objects/utf8 (5cbcf50e: 85 copies, −870/+719, ratchet 82 → 40), digest + request id (2f9a728a rule, fae753d6: 41 copies incl. 20 inline literals, −102/+85, → 25), LruCache (4b7c8cb7: 5 LRUs, −42/+90), strict JSON (aa69ea2c: 4 parsers + 6 pointer escapes, −843/+370, → 23; 200k-text differential identical), errors (74d5dca2: 2 copies, 5 named variants). e2e play-export 4.7 → 4.9 s. Fast gates green (D307 watch miss, passed alone). |
+| 44.5 | done: one owner each in project-model, 12 families in `check-redefinitions`: shadow/surface/role lists (3f9764bd, 9 copies, +32/−117), manifest identity, engine version, save format, message clip, move quantum (4558f922, 17, +85/−152), import extensions (cf3d1c6b, 8, +63/−55), toolchain pins + check-deps agreement (d50ef8ac, 7, +64/−8), engine actions/shell screens/save slots (73429812, 4, +17/−11), typed module ids (844c2bb6, 25 literals, +76/−36). e2e s: play-export 4.9 → 5.1, input 11.6 → 11.6, project-saves 9.0 → 7.9 (alone, WebGL 2), import-extensions 19.8 → 19.2, folder-import 3.2 → 3.3, ui-editor 10.3 → 10.4, shell 17.0 → 16.5, character-3d 15.4 → 15.1; village at the cap unchanged. Fast gates green (start.e2e's stop exited 1 once, D307 once; both passed alone). |
 
 ### 44.0 baseline
 
@@ -146,3 +147,12 @@ What the end of 44 is measured against (44.13).
   `behaviorTrustUnacknowledgedToPrepare`; `terrain-query.ts` only follows the rename). Left: retired-area copies
   (20 ratchet entries), `tools/check-deps.mjs`'s `isObj` (tools cannot import the TS leaf), the scatter drawer's
   inline digest check.
+- 2026-10-30 (44.5, default chosen, owner to confirm): every G20 constant is owned by project-model, read by the packages
+  that may only take its subpaths through `limits` (as `ASSET_KINDS` already was), so no boundary rule changed. Where
+  copies differed: `quantizeMove` clamps to [-1, 1] (the input's and the intent commit's; the frame validator range-checks
+  first, so only a direct caller of the runtime export sees it); the audio owner's message clip ends in `…` at 256 like
+  every other (was `...` at 253); the UI editor offers the model's engine actions, so `cancelRebind`/`resetBindings`
+  appear and `rebind` (it names an input action the field cannot pick) only for an action that already is one;
+  `UI_ENGINE_ACTIONS` takes the editor's order. protocol's v1 manifest identity had no user and went. The pins stay a
+  TypeScript table; `check-deps` reads its text. Kept: the v4 reader's pin table (three 0.186.0, never read for three)
+  and the GLTF recipe's loader line (0.186.0: every model's recipe digest depends on it).

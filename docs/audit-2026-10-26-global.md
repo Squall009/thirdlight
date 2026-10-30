@@ -122,6 +122,7 @@ The cost of building one phase at a time shows in four places:
   - the toolchain pins (`behavior-build/limits.ts:29`, `manifest*.ts`, `check-deps.mjs:37`);
   - `SHELL_SCREENS` and `ENGINE_ACTIONS` (`UiFields.tsx:346`);
   - the module ids typed as strings (`game-host/host.ts:660-702`).
+  **Status:** fixed (44.5: 3f9764bd, 4558f922, cf3d1c6b, d50ef8ac, 73429812, 844c2bb6; `REQUEST_ID_RE` in 44.4b): each has one owner in project-model, and the redefinition check owns the names; tools/check-deps.mjs checks the recorded toolchain against the pins.
 
 **Tooling**
 - **G21: misleading perf metrics:**
