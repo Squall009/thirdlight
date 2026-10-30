@@ -12,7 +12,7 @@
  */
 import { ID_RE, REQUEST_ID_RE } from '@thirdlight/project-model';
 
-import { MAX_REQUEST_BYTES, MAX_REVISION, boundedFound, type LimitName, type ModelError, type ModelErrorV2, type ModelErrorV3 } from '@thirdlight/project-model';
+import { MAX_REQUEST_BYTES, MAX_REVISION, boundedFound, withFound, type LimitName, type ModelError, type ModelErrorV2, type ModelErrorV3 } from '@thirdlight/project-model';
 
 import type { CommandError, ErrorClass } from './types';
 export { isPlainObjectStrict } from '@thirdlight/shared';
@@ -103,24 +103,6 @@ export { MAX_REQUEST_BYTES };
 // The model's id syntax (reused for `projectId`) and request id format.
 export { ID_RE, REQUEST_ID_RE };
 
-// ---- bounded `found`: the model's convention, so a command error and a model
-// error carry the same bounded summary of the offending value.
-
-function withFound(e: CommandError, found: unknown): CommandError {
-  const b = boundedFound(found);
-  if (b === undefined) return e;
-  return { ...e, found: b };
-}
-
-/**
- * Attach a bounded `found` value to an error object (the same convention the
- * `field_*` constructors use). Exported for constructors that live in other
- * modules (property/reference checks) so the bounded traversal has one owner.
- */
-export function withBoundedFound(e: CommandError, found: unknown): CommandError {
-  return withFound(e, found);
-}
-
 // ---- constructors (canonical key order) ----------------------------------------
 
 /** Envelope-level schema failure (`invalid_request`). */
@@ -204,7 +186,7 @@ export function fieldValue(
   message: string,
   hint?: string,
 ): CommandError {
-  const e = withFound(
+  const e = withFound<CommandError>(
     {
       code: 'field_value',
       cls: 'validation',

@@ -428,8 +428,14 @@ export function staleOwnership(holder: Holder | null): CommandError {
   return e as unknown as CommandError;
 }
 
-/** Envelope-level `invalid_request` (request-level schema failure). */
-export function invalidRequest(
+/**
+ * Envelope-level `invalid_request` (request-level schema failure). The
+ * workspace's constructors below differ from the command constructors of the
+ * same code: `found` goes through `diagnosticFound` (any in-process value,
+ * cycles included) and the key order and wording are their own, so they keep
+ * their own names.
+ */
+export function envelopeInvalidRequest(
   path: string,
   found: unknown,
   expected: string,
@@ -449,17 +455,7 @@ export function invalidRequest(
 }
 
 /** `args`-level `field_*` failures for query/operator argument validation. */
-export function fieldMissing(path: string, field: string): CommandError {
-  return {
-    code: 'field_missing',
-    cls: 'validation',
-    path,
-    message: `required field '${field}' is missing`,
-    expected: 'present',
-  };
-}
-
-export function fieldUnexpected(path: string, key: string, known: string): CommandError {
+export function queryFieldUnexpected(path: string, key: string, known: string): CommandError {
   return {
     code: 'field_unexpected',
     cls: 'validation',
@@ -499,8 +495,8 @@ export function fieldValueType(
   return e as unknown as CommandError;
 }
 
-/** `entity_not_found` for queries (cls validation). */
-export function entityNotFound(entityId: string): CommandError {
+/** `entity_not_found` for queries (cls validation): a query has no request to re-issue, so the hint says only to query again. */
+export function queryEntityNotFound(entityId: string): CommandError {
   return {
     code: 'entity_not_found',
     cls: 'validation',
@@ -831,7 +827,7 @@ export function derivedCacheUnavailable(sourceDigest: string, path: string): Com
  * `preparer_unavailable` (no compiler registered) or `preparation_missing`
  * (no prepared artifact for the supplied digest).
  */
-export function behaviorPublicationUnavailable(
+export function behaviorPreparationUnavailable(
   behaviorId: string,
   mode: string,
   reason: 'preparer_unavailable' | 'preparation_missing',
@@ -850,8 +846,8 @@ export function behaviorPublicationUnavailable(
   };
 }
 
-/** `behavior_trust_unacknowledged`. */
-export function behaviorTrustUnacknowledged(sourceDigest: string): CommandError {
+/** `behavior_trust_unacknowledged` when preparing a source (the hint names preparing as well as publishing). */
+export function behaviorTrustUnacknowledgedToPrepare(sourceDigest: string): CommandError {
   return {
     code: 'behavior_trust_unacknowledged',
     cls: 'validation',

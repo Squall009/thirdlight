@@ -25,9 +25,8 @@ import {
   propertyTypeDetail,
   propertyUnknown,
   propertyValue,
-  withBoundedFound,
 } from './errors';
-import { declarationBytes, isPrivateProperty, MAX_DECLARATION_BYTES, MAX_ENUM_VALUES } from '@thirdlight/project-model';
+import { declarationBytes, isPrivateProperty, MAX_DECLARATION_BYTES, MAX_ENUM_VALUES, withFound } from '@thirdlight/project-model';
 import type { CommandError } from './types';
 import type {
   DeclaredProperty,
@@ -85,7 +84,7 @@ export function deepEqual(a: unknown, b: unknown): boolean {
 
 /** `reference_missing` carrying a property-value failure. */
 export function referenceMissingValue(found: unknown, expected: string): CommandError {
-  return withBoundedFound(
+  return withFound(
     {
       code: 'reference_missing',
       cls: 'validation',

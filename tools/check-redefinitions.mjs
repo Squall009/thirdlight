@@ -127,10 +127,24 @@ export const OWNED_FAMILIES = Object.freeze([
     names: ['parseStrictJsonText', 'findDuplicateKey', 'escapePointer', 'pointerSegment', 'hasUtf8Bom'],
   },
   {
+    // The command errors; fieldMissing/fieldType/fieldValue are left out because project-model's own
+    // (cls-less) model errors use those names too.
+    family: 'command-errors',
+    owner: 'packages/commands/src/errors.ts',
+    names: ['invalidRequest', 'fieldUnexpected', 'entityNotFound', 'behaviorPublicationUnavailable', 'behaviorTrustUnacknowledged', 'withBoundedFound'],
+  },
+  {
+    // The workspace's variants of the command errors (another found encoding, key order and wording).
+    family: 'workspace-errors',
+    owner: 'packages/workspace/src/errors.ts',
+    names: ['envelopeInvalidRequest', 'queryFieldUnexpected', 'queryEntityNotFound', 'fieldTypeError', 'fieldValueType', 'behaviorPreparationUnavailable', 'behaviorTrustUnacknowledgedToPrepare', 'diagnosticFound'],
+  },
+  {
     family: 'digest-format',
     owner: 'packages/project-model/src/content-helpers.ts',
     names: ['DIGEST_RE', 'isDigest', 'PREPARED_DIGEST_RE', 'SOURCE_DIGEST_PATTERN'],
   },
+  { family: 'bounded-found', owner: 'packages/project-model/src/validate.ts', names: ['withFound', 'boundedFound'] },
   { family: 'request-id-format', owner: 'packages/project-model/src/request-id.ts', names: ['REQUEST_ID_RE'] },
 ]);
 

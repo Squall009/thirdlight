@@ -36,8 +36,8 @@ import { publishBlob, readSourceBlob, resolveStage, writeDerivedPrepared, type B
 import { sha256HexNative } from './digest';
 import { RETRY_RETENTION } from './envelope';
 import {
-  behaviorPublicationUnavailable,
-  behaviorTrustUnacknowledged,
+  behaviorPreparationUnavailable,
+  behaviorTrustUnacknowledgedToPrepare,
   fieldValueType,
   pathRejected,
   projectNotFound,
@@ -136,14 +136,14 @@ export async function prepareBehaviorSource(
   const sourceDigest = sha256HexNative(bytes);
   // The trust acknowledgment must precede the first compile.
   if (!s.content.behaviorTrust.entries.some((e) => e.sourceDigest === sourceDigest)) {
-    return { ok: false, kind: 'error', error: behaviorTrustUnacknowledged(sourceDigest) };
+    return { ok: false, kind: 'error', error: behaviorTrustUnacknowledgedToPrepare(sourceDigest) };
   }
   const compiler: BehaviorCompiler | undefined = core.content.behaviorCompiler;
   if (compiler === undefined) {
     return {
       ok: false,
       kind: 'error',
-      error: behaviorPublicationUnavailable(request.behaviorId, 'source', 'preparer_unavailable'),
+      error: behaviorPreparationUnavailable(request.behaviorId, 'source', 'preparer_unavailable'),
     };
   }
   // The project's script libraries (an `@lib/<id>` import links the one it names).
@@ -181,7 +181,7 @@ export async function prepareBehaviorSource(
   // Every library version the output links is acknowledged too (trust per digest).
   for (const pin of prepared.libraries ?? []) {
     if (!s.content.behaviorTrust.entries.some((e) => e.sourceDigest === pin.sourceDigest)) {
-      return { ok: false, kind: 'error', error: behaviorTrustUnacknowledged(pin.sourceDigest) };
+      return { ok: false, kind: 'error', error: behaviorTrustUnacknowledgedToPrepare(pin.sourceDigest) };
     }
   }
   // Immutable container blob (write-once, verified) — no authoritative change.
@@ -306,10 +306,10 @@ export async function prepareScriptLibraryDependents(
   const dependents = scriptLibraryDependents(s.content.behaviors, patch.libraryId);
   if (dependents.length === 0 || (previous !== null && scriptLibraryDigest(previous) === libraryDigest)) return { ok: true, libraryDigest, dependents: [] };
   if (!s.content.behaviorTrust.entries.some((e) => e.sourceDigest === libraryDigest)) {
-    return { ok: false, kind: 'error', error: behaviorTrustUnacknowledged(libraryDigest) };
+    return { ok: false, kind: 'error', error: behaviorTrustUnacknowledgedToPrepare(libraryDigest) };
   }
   const compiler: BehaviorCompiler | undefined = core.content.behaviorCompiler;
-  if (compiler === undefined) return { ok: false, kind: 'error', error: behaviorPublicationUnavailable(dependents[0] as string, 'source', 'preparer_unavailable') };
+  if (compiler === undefined) return { ok: false, kind: 'error', error: behaviorPreparationUnavailable(dependents[0] as string, 'source', 'preparer_unavailable') };
   const next = [...current.filter((l) => l.libraryId !== patch.libraryId), patched.library];
   const setKey = scriptLibrarySetKey(next);
   const inputs = libraryInputs(next);
@@ -330,7 +330,7 @@ export async function prepareScriptLibraryDependents(
     const prepared = preparedSourceFromCompile(compiled);
     for (const pin of prepared.libraries ?? []) {
       if (pin.libraryId !== patch.libraryId && !s.content.behaviorTrust.entries.some((e) => e.sourceDigest === pin.sourceDigest)) {
-        return { ok: false, kind: 'error', error: behaviorTrustUnacknowledged(pin.sourceDigest) };
+        return { ok: false, kind: 'error', error: behaviorTrustUnacknowledgedToPrepare(pin.sourceDigest) };
       }
     }
     s.preparedSources.set(`${source.sourceDigest}|${setKey}`, prepared);
@@ -382,7 +382,7 @@ export async function checkScriptLibraryDraft(core: Core, projectId: string, dra
     return { ok: true, compiled: false, libraryId: draft.libraryId, code: errors[0]!.code, reason: 'library', dependents, diagnostics: errors.slice(0, MAX_BEHAVIOR_DIAGNOSTICS).map((e) => ({ code: e.code, reason: 'library', library: draft.libraryId, message: e.message.slice(0, 256) })) };
   }
   const compiler: BehaviorCompiler | undefined = core.content.behaviorCompiler;
-  if (compiler === undefined || compiler.checkLibrary === undefined) return { ok: false, error: behaviorPublicationUnavailable(draft.libraryId, 'source', 'preparer_unavailable') };
+  if (compiler === undefined || compiler.checkLibrary === undefined) return { ok: false, error: behaviorPreparationUnavailable(draft.libraryId, 'source', 'preparer_unavailable') };
   const set = [...stored.filter((l) => l.libraryId !== draft.libraryId), library];
   let r;
   try {
@@ -562,10 +562,10 @@ export async function prepareScriptLibraryStage(core: Core, projectId: string, s
   const trusted = (digest: string): boolean => content.behaviorTrust.entries.some((e) => e.sourceDigest === digest);
   for (const l of changed) {
     const digest = scriptLibraryDigest(l);
-    if (scriptLibraryDependents(content.behaviors, l.libraryId).length > 0 && !trusted(digest)) return { ok: false, kind: 'error', error: behaviorTrustUnacknowledged(digest) };
+    if (scriptLibraryDependents(content.behaviors, l.libraryId).length > 0 && !trusted(digest)) return { ok: false, kind: 'error', error: behaviorTrustUnacknowledgedToPrepare(digest) };
   }
   const compiler: BehaviorCompiler | undefined = core.content.behaviorCompiler;
-  if (compiler === undefined) return { ok: false, kind: 'error', error: behaviorPublicationUnavailable(dependents[0] as string, 'source', 'preparer_unavailable') };
+  if (compiler === undefined) return { ok: false, kind: 'error', error: behaviorPreparationUnavailable(dependents[0] as string, 'source', 'preparer_unavailable') };
   const setKey = scriptLibrarySetKey(next);
   const inputs = libraryInputs(next);
   const out: { behaviorId: string; outputDigest: string }[] = [];
@@ -586,7 +586,7 @@ export async function prepareScriptLibraryStage(core: Core, projectId: string, s
     if (!result.ok) return { ok: false, kind: 'compile', behaviorId, failure: result };
     const prepared = preparedSourceFromCompile(result);
     for (const pin of prepared.libraries ?? []) {
-      if (!trusted(pin.sourceDigest)) return { ok: false, kind: 'error', error: behaviorTrustUnacknowledged(pin.sourceDigest) };
+      if (!trusted(pin.sourceDigest)) return { ok: false, kind: 'error', error: behaviorTrustUnacknowledgedToPrepare(pin.sourceDigest) };
     }
     s.preparedSources.set(`${source.sourceDigest}|${setKey}`, prepared);
     out.push({ behaviorId, outputDigest: prepared.outputDigest });

@@ -54,7 +54,7 @@ import {
   externalChangeUnreadable,
   externalChangeUnresolved,
   fieldValueType,
-  invalidRequest,
+  envelopeInvalidRequest,
   projectNotFound,
   projectUnavailable,
   requestIdReused,
@@ -203,7 +203,7 @@ function buildService(core: Core): WorkspaceService {
     if (issue !== null) {
       return failRequest(
         request,
-        invalidRequest(
+        envelopeInvalidRequest(
           issue.path,
           issue.value,
           issue.expected,
@@ -235,7 +235,7 @@ function buildService(core: Core): WorkspaceService {
     if (D === null) {
       return failRequest(
         request,
-        invalidRequest(
+        envelopeInvalidRequest(
           '',
           undefined,
           'SHA-256 hex digest of the canonical request bytes',
@@ -499,7 +499,7 @@ function buildService(core: Core): WorkspaceService {
 
   /** A folder the registry may use: absolute, not overlapping the data root or another registered project. */
   function checkFolder(folder: unknown, mustExist: boolean, exceptId?: string): { ok: true; folder: string; real: string } | { ok: false; error: CommandError } {
-    const bad = (message: string): { ok: false; error: CommandError } => ({ ok: false, error: invalidRequest('/folder', folder, 'an absolute folder path on the server', message) });
+    const bad = (message: string): { ok: false; error: CommandError } => ({ ok: false, error: envelopeInvalidRequest('/folder', folder, 'an absolute folder path on the server', message) });
     if (typeof folder !== 'string' || folder.length === 0 || folder.length > 1024) return bad('folder must be an absolute path on the server');
     if (!isAbsolute(folder)) return bad('folder must be an absolute path on the server (it is resolved by the backend, not the browser)');
     const norm = normalize(folder).replace(/[/\\]+$/, '') || '/';
@@ -545,14 +545,14 @@ function buildService(core: Core): WorkspaceService {
       return f;
     }
     const mk = readMarker(f.folder);
-    if (!mk.ok) return { ok: false, error: invalidRequest('/folder', f.folder, `a folder holding ${MARKER_FILE}`, mk.message) };
+    if (!mk.ok) return { ok: false, error: envelopeInvalidRequest('/folder', f.folder, `a folder holding ${MARKER_FILE}`, mk.message) };
     const id = mk.marker.projectId;
-    if (idTaken(id)) return { ok: false, error: invalidRequest('/folder', id, 'an unused project id', `a project with id "${id}" already exists on this backend`) };
+    if (idTaken(id)) return { ok: false, error: envelopeInvalidRequest('/folder', id, 'an unused project id', `a project with id "${id}" already exists on this backend`) };
     const entry = resolveEntry(f.folder, id);
-    if (entry.unavailable !== undefined) return { ok: false, error: invalidRequest('/folder', f.folder, 'a readable project folder', entry.unavailable) };
+    if (entry.unavailable !== undefined) return { ok: false, error: envelopeInvalidRequest('/folder', f.folder, 'a readable project folder', entry.unavailable) };
     const man = loadManifest(core, entry.projectDir);
-    if (!man.ok) return { ok: false, error: invalidRequest('/folder', f.folder, 'a loadable project.json', `${join(entry.projectDir, 'project.json')} is missing or invalid`) };
-    if (man.manifest.id !== id) return { ok: false, error: invalidRequest('/folder', man.manifest.id, id, `project.json names project "${man.manifest.id}" but ${MARKER_FILE} names "${id}"`) };
+    if (!man.ok) return { ok: false, error: envelopeInvalidRequest('/folder', f.folder, 'a loadable project.json', `${join(entry.projectDir, 'project.json')} is missing or invalid`) };
+    if (man.manifest.id !== id) return { ok: false, error: envelopeInvalidRequest('/folder', man.manifest.id, id, `project.json names project "${man.manifest.id}" but ${MARKER_FILE} names "${id}"`) };
     core.registry.set(id, entry);
     try {
       saveRegistry(core.root, core.registry);
@@ -577,15 +577,15 @@ function buildService(core: Core): WorkspaceService {
     if (typeof projectId !== 'string' || !ID_RE.test(projectId)) {
       return { ok: false, error: fieldValueType('/projectId', projectId, 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}', 'projectId must use the project-model ID syntax') };
     }
-    if (idTaken(projectId)) return { ok: false, error: invalidRequest('/projectId', projectId, 'a new project id', `project "${projectId}" already exists`) };
+    if (idTaken(projectId)) return { ok: false, error: envelopeInvalidRequest('/projectId', projectId, 'a new project id', `project "${projectId}" already exists`) };
     const f = checkFolder(folder, false);
     if (!f.ok) return f;
     if (core.ops.fileExists(join(f.folder, MARKER_FILE))) {
-      return { ok: false, error: invalidRequest('/folder', f.folder, `a folder without ${MARKER_FILE}`, `${f.folder} already holds a Thirdlight project; open it instead`) };
+      return { ok: false, error: envelopeInvalidRequest('/folder', f.folder, `a folder without ${MARKER_FILE}`, `${f.folder} already holds a Thirdlight project; open it instead`) };
     }
     const projectDir = join(f.folder, DEFAULT_PROJECT_SUBDIR);
     if (core.ops.dirExists(projectDir)) {
-      return { ok: false, error: invalidRequest('/folder', projectDir, 'no existing thirdlight/ subfolder', `${projectDir} already exists`) };
+      return { ok: false, error: envelopeInvalidRequest('/folder', projectDir, 'no existing thirdlight/ subfolder', `${projectDir} already exists`) };
     }
     try {
       mkdirSync(f.folder, { recursive: true, mode: 0o755 });
@@ -615,7 +615,7 @@ function buildService(core: Core): WorkspaceService {
   function unregisterProject(projectId: string): { ok: true; folder: string } | { ok: false; error: CommandError } {
     const reg = core.registry.get(projectId);
     if (reg === undefined) {
-      return { ok: false, error: invalidRequest('/projectId', projectId, 'a registered (out-of-tree) project', `project "${projectId}" is not a registered folder project`) };
+      return { ok: false, error: envelopeInvalidRequest('/projectId', projectId, 'a registered (out-of-tree) project', `project "${projectId}" is not a registered folder project`) };
     }
     const s = core.sessions.get(projectId);
     if (s !== undefined) {

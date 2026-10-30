@@ -30,7 +30,7 @@ import {
 } from '@thirdlight/project-model';
 
 import { readSourceBlob } from './content-store';
-import { fieldUnexpected, fieldValueType, pointerSegment } from './errors';
+import { queryFieldUnexpected, fieldValueType, pointerSegment } from './errors';
 import { contentCtx } from './service-content';
 import type { Core, ProjectSession } from './session';
 import { terrainTileOfBlob } from './terrain-edits';
@@ -45,7 +45,7 @@ const positionOf = (e: { components: unknown }): number[] => (e.components as { 
 
 export function serveQuerySurface(core: Core, s: ProjectSession, projectId: string, a: Record<string, unknown>): QueryResult {
   const state = s.v4!;
-  for (const k of Object.keys(a)) if (!['sceneId', 'points'].includes(k)) return failure(projectId, fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'sceneId, points'));
+  for (const k of Object.keys(a)) if (!['sceneId', 'points'].includes(k)) return failure(projectId, queryFieldUnexpected(`/args/${pointerSegment(k)}`, k, 'sceneId, points'));
   const sceneId = a['sceneId'];
   if (sceneId !== undefined && (typeof sceneId !== 'string' || !state.scenes.has(sceneId))) return failure(projectId, fieldValueType('/args/sceneId', sceneId, 'a scene id of the project', 'no such scene'));
   const points = a['points'];

@@ -19,13 +19,13 @@ import { missingReferenceIds, rebuildFromFiles, restoreFromRecordCache, type Rec
 import { sha256HexNative } from './digest';
 import type { RetryRecord } from './envelope';
 import {
-  entityNotFound,
+  queryEntityNotFound,
   externalChangeEvidenceMissing,
   externalChangeInvalid,
   externalChangeUnreadable,
   externalChangeUnresolved,
   fieldTypeError,
-  fieldUnexpected,
+  queryFieldUnexpected,
   fieldValueType,
   isSafeInt,
   noPendingChange,
@@ -1163,7 +1163,7 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
   if (op === 'queryProject') {
     // `{environments: true}`: each scene row carries its look (sky, fog, post, wind) when it has one; `{memory: true}`
     // what its objects take against their budget (a scene is bounded by its memory, never a count of objects).
-    for (const k of Object.keys(a)) if (k !== 'environments' && k !== 'memory') return failure(op, projectId, fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'environments, memory'));
+    for (const k of Object.keys(a)) if (k !== 'environments' && k !== 'memory') return failure(op, projectId, queryFieldUnexpected(`/args/${pointerSegment(k)}`, k, 'environments, memory'));
     for (const k of ['environments', 'memory']) if (a[k] !== undefined && typeof a[k] !== 'boolean') return failure(op, projectId, fieldTypeError(`/args/${k}`, a[k], 'boolean'));
     const looks = a['environments'] === true;
     const memory = a['memory'] === true;
@@ -1193,11 +1193,11 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
   const viewed = prefabViewOf(s);
   const scenesViewed = viewed !== null && viewed.linked ? viewed.scenes : state.scenes;
   if (op === 'queryEntity') {
-    for (const k of Object.keys(a)) if (k !== 'entityId' && k !== 'includeSubtree') return failure(op, projectId, fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'entityId, includeSubtree'));
+    for (const k of Object.keys(a)) if (k !== 'entityId' && k !== 'includeSubtree') return failure(op, projectId, queryFieldUnexpected(`/args/${pointerSegment(k)}`, k, 'entityId, includeSubtree'));
     const entityId = a['entityId'];
     if (typeof entityId !== 'string' || entityId.length === 0) return failure(op, projectId, fieldTypeError('/args/entityId', entityId, 'string'));
     const scene = sceneOfEntity({ scenes: scenesViewed }, entityId);
-    if (scene === null) return failure(op, projectId, entityNotFound(entityId));
+    if (scene === null) return failure(op, projectId, queryEntityNotFound(entityId));
     const entity = scene.entities.find((e) => e.id === entityId)!;
     const byId = new Map(scene.entities.map((e) => [e.id, e]));
     const parentChain: string[] = [];
@@ -1229,7 +1229,7 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
   }
   // queryEntities
   for (const k of Object.keys(a)) {
-    if (!['limit', 'offset', 'component', 'sceneId'].includes(k)) return failure(op, projectId, fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'limit, offset, component, sceneId'));
+    if (!['limit', 'offset', 'component', 'sceneId'].includes(k)) return failure(op, projectId, queryFieldUnexpected(`/args/${pointerSegment(k)}`, k, 'limit, offset, component, sceneId'));
   }
   let limit = 100;
   if (a['limit'] !== undefined) {
@@ -1294,7 +1294,7 @@ function layerMemoryBytes(component: BlockLayerComponent, data: BlockLayerData |
 
 function serveQueryBlocks(state: V4State, projectId: string, a: Record<string, unknown>): QueryResult {
   const op = 'queryBlocks';
-  for (const k of Object.keys(a)) if (!['sceneId', 'entityId', 'chunks', 'box', 'region'].includes(k)) return failure(op, projectId, fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'sceneId, entityId, chunks, box, region'));
+  for (const k of Object.keys(a)) if (!['sceneId', 'entityId', 'chunks', 'box', 'region'].includes(k)) return failure(op, projectId, queryFieldUnexpected(`/args/${pointerSegment(k)}`, k, 'sceneId, entityId, chunks, box, region'));
   const layersOf = (sc: SceneV4): { entityId: string; sceneId: string; component: BlockLayerComponent; data: BlockLayerData | null }[] =>
     sc.entities
       .filter((e) => (e.components as { blockLayer?: unknown }).blockLayer !== undefined)
@@ -1321,7 +1321,7 @@ function serveQueryBlocks(state: V4State, projectId: string, a: Record<string, u
   if (typeof entityId !== 'string') return failure(op, projectId, fieldTypeError('/args/entityId', entityId, 'string'));
   const scene = sceneOfEntity(state, entityId);
   const layer = scene === null ? undefined : layersOf(scene).find((l) => l.entityId === entityId);
-  if (scene === null || layer === undefined) return failure(op, projectId, entityNotFound(entityId));
+  if (scene === null || layer === undefined) return failure(op, projectId, queryEntityNotFound(entityId));
   const out: Record<string, unknown> = { ok: true, projectId, revision: state.revision, sceneId: scene.sceneId, entityId, component: layer.component, cells: cellCount(layer.data), edges: edgeCount(layer.data), memoryBytes: layerMemoryBytes(layer.component, layer.data), regions: layer.data?.regions ?? [] };
   const chunks = a['chunks'];
   if (chunks !== undefined) {

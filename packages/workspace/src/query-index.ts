@@ -28,7 +28,7 @@ import type { QueryResult } from './types';
 import { assetRoot, PROJECT_OWN_ENTRIES } from './asset-files';
 import { contentCtx } from './service-content';
 
-import { fieldTypeError, fieldUnexpected, fieldValueType, isSafeInt, pointerSegment } from './errors';
+import { fieldTypeError, queryFieldUnexpected, fieldValueType, isSafeInt, pointerSegment } from './errors';
 import { buildIndex, indexGeneration, orderedBy, sortedKeys, type IndexEntry, type IndexOrder, type ProjectIndex } from './project-index';
 import { isSkippedFolderName, recordsOfKind, RESOURCE_KINDS } from './resource-files';
 import type { ProjectSession } from './session';
@@ -152,7 +152,7 @@ const ANSWERED_PAGES = 64;
 const isStringList = (v: unknown, max: number): v is string[] => Array.isArray(v) && v.length >= 1 && v.length <= max && v.every((x) => typeof x === 'string');
 
 export function serveQueryIndex(s: ProjectSession, state: V4State, projectId: string, a: Record<string, unknown>): QueryResult {
-  for (const k of Object.keys(a)) if (!ARGS.includes(k)) return failure(projectId, fieldUnexpected(`/args/${pointerSegment(k)}`, k, ARGS.join(', ')));
+  for (const k of Object.keys(a)) if (!ARGS.includes(k)) return failure(projectId, queryFieldUnexpected(`/args/${pointerSegment(k)}`, k, ARGS.join(', ')));
   for (const k of ['kind', 'id', 'label', 'address', 'referencing', 'text', 'folder'] as const) if (a[k] !== undefined && typeof a[k] !== 'string') return failure(projectId, fieldTypeError(`/args/${k}`, a[k], 'string'));
   for (const k of ['loadable', 'refs', 'records', 'recursive', 'folders', 'descending'] as const) if (a[k] !== undefined && typeof a[k] !== 'boolean') return failure(projectId, fieldTypeError(`/args/${k}`, a[k], 'boolean'));
   if (a['sort'] !== undefined && !ORDERS.includes(a['sort'] as IndexOrder)) return failure(projectId, fieldValueType('/args/sort', a['sort'], ORDERS.join(' | '), 'sort orders the entries'));

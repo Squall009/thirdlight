@@ -39,7 +39,7 @@ import { ID_RE, validateEnvelope, type RetryRecord } from './envelope';
 import { cleanBlobTemps, cleanupStages, type ContentConfig } from './content-store';
 import { cleanupHeld } from './asset-files';
 import {
-  invalidRequest,
+  envelopeInvalidRequest,
   projectNotFound,
   projectUnavailable,
   staleOwnership,
@@ -1348,7 +1348,7 @@ export function serveQuery(
   args: Record<string, unknown> | undefined,
 ): QueryResult {
   if (!ID_RE.test(projectId)) {
-    return queryFailure(op, projectId, invalidRequest('/projectId', projectId, 'project-model ID syntax', 'projectId must use the project-model ID syntax'));
+    return queryFailure(op, projectId, envelopeInvalidRequest('/projectId', projectId, 'project-model ID syntax', 'projectId must use the project-model ID syntax'));
   }
   // Project resolution precedes argument validation (the command pipeline's
   // step-1 order, applied to queries: a missing/unavailable project is

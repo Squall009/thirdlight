@@ -11,7 +11,7 @@ import type { ContentCatalogV4, Manifest, SceneV4 } from '@thirdlight/project-mo
 import { PROJECT_SCHEMA_VERSION, parseDocumentBytes, validateManifestV2Project } from '@thirdlight/project-model';
 
 import { ID_RE } from './envelope';
-import { fieldTypeError, fieldValueType, invalidRequest, projectExistsInvalid, writeFailed, type LoadDetail } from './errors';
+import { fieldTypeError, fieldValueType, envelopeInvalidRequest, projectExistsInvalid, writeFailed, type LoadDetail } from './errors';
 import { writeAtomic, type WriteOps } from './write';
 import { absOf, CONTENT_REL, CONTENT_STORAGE_VERSION, contentFileBytes, defaultProjectFilesV4, isV4Layout, loadV4, MANIFEST_REL_V4, manifestV2Bytes, sceneFileBytes, sceneRel, type FileWrite, type ProjectFilesV4 } from './store-v4';
 import { gameRootFor } from './session-v4';
@@ -122,10 +122,10 @@ export function createProjectFrom(core: Core, projectId: string, name: string, s
   }
   const dir = projectBaseDir(core, projectId);
   if (core.ops.dirExists(dir)) {
-    return { ok: false, error: invalidRequest('/projectId', projectId, 'a new project id', `project "${projectId}" already exists`) };
+    return { ok: false, error: envelopeInvalidRequest('/projectId', projectId, 'a new project id', `project "${projectId}" already exists`) };
   }
   const files = templateFiles(core, projectId, name, source);
-  if (!files.ok) return { ok: false, error: invalidRequest('', undefined, 'a template in the current storage and schema versions', `the template is not a valid project: ${files.message}`) };
+  if (!files.ok) return { ok: false, error: envelopeInvalidRequest('', undefined, 'a template in the current storage and schema versions', `the template is not a valid project: ${files.message}`) };
   if (createDirectories(dir, core.ops) !== 'ok') return { ok: false, error: writeFailed('previous', undefined) };
   const w = writeNewProjectFiles(core, projectId, dir, files.files);
   if (w.kind !== 'ok') return { ok: false, error: writeFailed(w.kind === 'failed' ? w.onDiskState : 'previous', w.kind === 'failed' ? w.errno : undefined) };

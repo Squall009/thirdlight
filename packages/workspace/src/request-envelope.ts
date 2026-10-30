@@ -6,7 +6,7 @@
 
 import type { CommandError, MutationResult } from '@thirdlight/commands';
 
-import { invalidRequest, pointerSegment } from './errors';
+import { envelopeInvalidRequest, pointerSegment } from './errors';
 
 export function envelopeProjectId(request: unknown): string | null {
   if (typeof request !== 'object' || request === null || Array.isArray(request)) return null;
@@ -17,13 +17,13 @@ export function envelopeProjectId(request: unknown): string | null {
 /** A missing/unparseable projectId cannot be resolved: `invalid_request`. */
 export function invalidRequestFor(request: unknown): CommandError {
   if (typeof request !== 'object' || request === null || Array.isArray(request)) {
-    return invalidRequest('', jsonTypeName(request), 'object (mutation request)', 'a mutation request must be an object');
+    return envelopeInvalidRequest('', jsonTypeName(request), 'object (mutation request)', 'a mutation request must be an object');
   }
   const v = (request as Record<string, unknown>)['projectId'];
   if (v === undefined) {
-    return invalidRequest('/projectId', undefined, 'project-model ID syntax', "required field 'projectId' is missing");
+    return envelopeInvalidRequest('/projectId', undefined, 'project-model ID syntax', "required field 'projectId' is missing");
   }
-  return invalidRequest('/projectId', v, 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}', 'projectId must use the project-model ID syntax');
+  return envelopeInvalidRequest('/projectId', v, 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}', 'projectId must use the project-model ID syntax');
 }
 
 /** Extract the request envelope's requestId (string or null). */
@@ -171,7 +171,7 @@ export function validateQueryRequest(request: unknown):
   if (typeof request !== 'object' || request === null || Array.isArray(request)) {
     return {
       ok: false,
-      error: invalidRequest('', jsonTypeName(request), 'object (query request)', 'a query request must be an object'),
+      error: envelopeInvalidRequest('', jsonTypeName(request), 'object (query request)', 'a query request must be an object'),
     };
   }
   const req = request as Record<string, unknown>;
@@ -179,7 +179,7 @@ export function validateQueryRequest(request: unknown):
     if (!['op', 'projectId', 'args'].includes(k)) {
       return {
         ok: false,
-        error: invalidRequest(`/${pointerSegment(k)}`, k, 'known fields: op, projectId, args (optional)', 'unknown field is not permitted (strict M1 request drops nothing)'),
+        error: envelopeInvalidRequest(`/${pointerSegment(k)}`, k, 'known fields: op, projectId, args (optional)', 'unknown field is not permitted (strict M1 request drops nothing)'),
       };
     }
   }
@@ -199,14 +199,14 @@ export function validateQueryRequest(request: unknown):
   ) {
     return {
       ok: false,
-      error: invalidRequest('/op', op, 'one of: queryProject, queryEntity, queryEntities, queryAssets, queryPrefabs, queryBehaviors, queryGameConfig, queryBlocks, queryIndex, queryTerrain, querySurface', typeof op !== 'string' ? 'op must be a string query op' : 'op is not one of the accepted query ops'),
+      error: envelopeInvalidRequest('/op', op, 'one of: queryProject, queryEntity, queryEntities, queryAssets, queryPrefabs, queryBehaviors, queryGameConfig, queryBlocks, queryIndex, queryTerrain, querySurface', typeof op !== 'string' ? 'op must be a string query op' : 'op is not one of the accepted query ops'),
     };
   }
   const projectId = req['projectId'];
   if (typeof projectId !== 'string' || projectId.length === 0) {
     return {
       ok: false,
-      error: invalidRequest('/projectId', projectId, 'project-model ID syntax', 'projectId must be a non-empty string'),
+      error: envelopeInvalidRequest('/projectId', projectId, 'project-model ID syntax', 'projectId must be a non-empty string'),
     };
   }
   let args: Record<string, unknown> | undefined;
@@ -214,7 +214,7 @@ export function validateQueryRequest(request: unknown):
     if (typeof req['args'] !== 'object' || req['args'] === null || Array.isArray(req['args'])) {
       return {
         ok: false,
-        error: invalidRequest('/args', jsonTypeName(req['args']), 'object', 'args must be an object'),
+        error: envelopeInvalidRequest('/args', jsonTypeName(req['args']), 'object', 'args must be an object'),
       };
     }
     args = req['args'] as Record<string, unknown>; // shape-checked above

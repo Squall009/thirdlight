@@ -16,7 +16,7 @@
 import { TerrainField, flatTerrainTile, scatterCellOfBlob, terrainFlatStep, terrainTileBlobBytes, terrainTileBytes, terrainTileKey, type SceneV4, type TerrainComponent, type TerrainTile } from '@thirdlight/project-model';
 
 import { readSourceBlob } from './content-store';
-import { entityNotFound, fieldTypeError, fieldUnexpected, fieldValueType, pointerSegment } from './errors';
+import { queryEntityNotFound, fieldTypeError, queryFieldUnexpected, fieldValueType, pointerSegment } from './errors';
 import { contentCtx } from './service-content';
 import type { Core, ProjectSession } from './session';
 import { terrainTileOfBlob } from './terrain-edits';
@@ -33,7 +33,7 @@ function failure(projectId: string, error: import('@thirdlight/commands').Comman
 
 export function serveQueryTerrain(core: Core, s: ProjectSession, projectId: string, a: Record<string, unknown>): QueryResult {
   const state = s.v4!;
-  for (const k of Object.keys(a)) if (!['sceneId', 'entityId', 'points', 'scatter'].includes(k)) return failure(projectId, fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'sceneId, entityId, points, scatter'));
+  for (const k of Object.keys(a)) if (!['sceneId', 'entityId', 'points', 'scatter'].includes(k)) return failure(projectId, queryFieldUnexpected(`/args/${pointerSegment(k)}`, k, 'sceneId, entityId, points, scatter'));
   const ctx = contentCtx(s);
   const terrainsOf = (sc: SceneV4): { entityId: string; sceneId: string; component: TerrainComponent; origin: number[] }[] =>
     sc.entities
@@ -81,7 +81,7 @@ export function serveQueryTerrain(core: Core, s: ProjectSession, projectId: stri
   const entityId = a['entityId'];
   if (typeof entityId !== 'string') return failure(projectId, fieldTypeError('/args/entityId', entityId, 'string'));
   const t = [...state.scenes.values()].flatMap(terrainsOf).find((x) => x.entityId === entityId);
-  if (t === undefined) return failure(projectId, entityNotFound(entityId));
+  if (t === undefined) return failure(projectId, queryEntityNotFound(entityId));
   const row = summary(t);
   if ('error' in row) return failure(projectId, row.error as import('@thirdlight/commands').CommandError);
   const tiles = sizes(t.component) as Exclude<ReturnType<typeof sizes>, { error: unknown }>;

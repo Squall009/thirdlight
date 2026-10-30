@@ -152,7 +152,11 @@ function mapFound(v: unknown, depth: number, budget: FoundBudget): unknown {
   return v;
 }
 
-export function withFound<E extends AnyError>(e: E, found: unknown): E {
+/**
+ * Attach a bounded `found` value to an error object: the model's errors and
+ * the command errors carry the same bounded summary of the offending value.
+ */
+export function withFound<E extends object>(e: E, found: unknown): E {
   const b = boundedFound(found);
   if (b === undefined) return e;
   return { ...e, found: b } as E;
