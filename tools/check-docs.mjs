@@ -27,6 +27,7 @@ import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } fr
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
+import { committedEntries, handEdits, handEditText } from './ratchet-base.mjs';
 
 /** The limit, defined here only: characters (code points) of one table row's markdown line. */
 export const ROW_CHARS_MAX = 400;
@@ -123,16 +124,22 @@ const keyOf = (e) => `${e.file}\u0000${e.row}`;
 
 /**
  * The long rows against the ratchet entries (`[{ file, row, size }]`): every violation as
- * `{ entry, problem: 'new' | 'grew' | 'shrank' | 'stale', size? }`, and the entries as they should read after
- * an update (shrunk ones lowered, stale ones dropped, nothing added).
+ * `{ entry, problem: 'new' | 'grew' | 'shrank' | 'stale' | 'added' | 'raised', size? }`, and the entries as
+ * they should read after an update (shrunk ones lowered, stale ones dropped, nothing added). `committed`:
+ * the list as HEAD has it (null: no comparison), so an entry added or raised by hand fails.
  */
-export function compareRatchet(found, entries) {
+export function compareRatchet(found, entries, committed = null) {
   const byKey = new Map(found.map((e) => [keyOf(e), e]));
+  const hand = new Map(handEdits(entries, committed, keyOf).map((h) => [keyOf(h.entry), h]));
   const listed = new Set();
   const problems = [];
   const updated = [];
-  for (const entry of entries) {
+  for (let entry of entries) {
     const key = keyOf(entry);
+    const edit = hand.get(key);
+    if (edit !== undefined) problems.push(edit);
+    if (edit?.problem === 'added') continue;
+    if (edit?.problem === 'raised') entry = { ...entry, size: edit.size };
     listed.add(key);
     const now = byKey.get(key);
     if (!now) {
@@ -202,6 +209,9 @@ export function defectProblems(root) {
 export function problemText({ entry, problem, size }) {
   const where = `${entry.file} row '${entry.row}'`;
   switch (problem) {
+    case 'added':
+    case 'raised':
+      return handEditText(where, { problem, size }, RATCHET_FILE);
     case 'new':
       return `${where}: ${size} characters, over the limit of ${ROW_CHARS_MAX}; shorten it (details go in the plan's decision log or results)`;
     case 'grew':
@@ -230,7 +240,7 @@ export function writeRatchet(root, entries) {
 export function checkDocs(root) {
   const rows = measuredRows(root).length;
   const found = longRows(root);
-  const { problems, updated } = compareRatchet(found, readRatchet(root));
+  const { problems, updated } = compareRatchet(found, readRatchet(root), committedEntries(root, RATCHET_FILE));
   return { rows, found, problems, updated, links: missingLinks(root), defects: defectProblems(root) };
 }
 

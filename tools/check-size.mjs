@@ -28,6 +28,7 @@ import { mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFile
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
+import { committedEntries, handEdits, handEditText } from './ratchet-base.mjs';
 
 /** The limits, defined here only. */
 export const FUNCTION_LINES_MAX = 400;
@@ -205,17 +206,24 @@ const unitOf = (kind) => (kind === 'class' ? 'members' : 'lines');
 
 /**
  * The found units against the ratchet entries (`[{ file, unit, kind, size }]`): every violation as
- * `{ entry, problem: 'new' | 'grew' | 'shrank' | 'stale', size? }` (size: what was found), and the
- * entries as they should read after an update (shrunk ones lowered, stale ones dropped, nothing added).
+ * `{ entry, problem: 'new' | 'grew' | 'shrank' | 'stale' | 'added' | 'raised', size? }` (size: what was
+ * found; for 'raised' the committed size), and the entries as they should read after an update (shrunk
+ * ones lowered, stale ones dropped, nothing added). `committed`: the list as HEAD has it (null: no
+ * comparison), so an entry added or raised by hand fails and an update drops or lowers it.
  */
-export function compareRatchet(found, entries) {
+export function compareRatchet(found, entries, committed = null) {
   const byKey = new Map(found.map((e) => [keyOf(e), e]));
+  const hand = new Map(handEdits(entries, committed, keyOf).map((h) => [keyOf(h.entry), h]));
   const listed = new Set();
   const problems = [];
   const updated = [];
-  for (const entry of entries) {
+  for (let entry of entries) {
     const key = keyOf(entry);
+    const edit = hand.get(key);
+    if (edit !== undefined) problems.push(edit);
+    if (edit?.problem === 'added') continue;
     listed.add(key);
+    if (edit?.problem === 'raised') entry = { ...entry, size: edit.size };
     const now = byKey.get(key);
     if (!now) {
       problems.push({ entry, problem: 'stale' });
@@ -236,6 +244,9 @@ export function problemText({ entry, problem, size }) {
   const limit = entry.kind === 'class' ? CLASS_MEMBERS_MAX : entry.kind === 'file' ? FILE_LINES_MAX : FUNCTION_LINES_MAX;
   const u = unitOf(entry.kind);
   switch (problem) {
+    case 'added':
+    case 'raised':
+      return handEditText(describe(entry), { problem, size }, RATCHET_FILE);
     case 'new':
       return `${describe(entry)}: ${size} ${u}, over the limit of ${limit}; split it`;
     case 'grew':
@@ -270,7 +281,7 @@ export function writeRatchet(root, entries) {
 /** The check over a workspace root: `{ files, found, problems, updated }`. */
 export function checkSize(root) {
   const found = oversized(root);
-  const { problems, updated } = compareRatchet(found, readRatchet(root));
+  const { problems, updated } = compareRatchet(found, readRatchet(root), committedEntries(root, RATCHET_FILE));
   return { files: checkedFiles(root).length, found, problems, updated };
 }
 

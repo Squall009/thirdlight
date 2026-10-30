@@ -31,6 +31,7 @@ import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
+import { committedEntries, handEdits, handEditText } from './ratchet-base.mjs';
 import { checkedFiles } from './check-size.mjs';
 
 /** The ratchet list, relative to the workspace root. */
@@ -142,7 +143,7 @@ export const OWNED_FAMILIES = Object.freeze([
   {
     family: 'digest-format',
     owner: 'packages/project-model/src/content-helpers.ts',
-    names: ['DIGEST_RE', 'isDigest', 'PREPARED_DIGEST_RE', 'SOURCE_DIGEST_PATTERN'],
+    names: ['DIGEST_RE', 'isDigest', 'PREPARED_DIGEST_RE', 'SOURCE_DIGEST_PATTERN', 'HEX64'],
   },
   { family: 'bounded-found', owner: 'packages/project-model/src/validate.ts', names: ['withFound', 'boundedFound'] },
   { family: 'request-id-format', owner: 'packages/project-model/src/request-id.ts', names: ['REQUEST_ID_RE'] },
@@ -192,9 +193,11 @@ export const OWNED_FAMILIES = Object.freeze([
 ]);
 
 /**
- * The areas the voxel world retires (block layers, terrain, the architecture
- * generator's meshes and colliders, and their specs): their files keep their
- * copies until they are deleted, so their entries are marked rather than moved.
+ * The areas the voxel world retires or rebuilds on voxels (block layers,
+ * terrain, the architecture generator's meshes and colliders, the scatter,
+ * paint, room, trim and kit paths that write into them, and their specs):
+ * their files keep their copies until they are deleted or rewritten, so their
+ * entries are marked rather than moved.
  */
 export const RETIRED_AREAS = Object.freeze([
   /(^|\/)blocks?[-.]/,
@@ -203,6 +206,13 @@ export const RETIRED_AREAS = Object.freeze([
   /(^|\/)architecture[-.]/,
   /(^|\/)arch-/,
   /(^|\/)spline-mesh\./,
+  /(^|\/)scatter[-.]/,
+  /(^|\/)stored-scatter\./,
+  /(^|\/)vertex-paint[-.]/,
+  /(^|\/)paint[-.]/,
+  /(^|\/)rooms?[-.]/,
+  /(^|\/)trim[-.]/,
+  /(^|\/)kits?[-.]/,
 ]);
 
 /** Whether a path lies in an area the voxel world retires. */
@@ -268,17 +278,23 @@ const keyOf = (e) => `${e.file}\u0000${e.name}`;
 
 /**
  * The copies found against the ratchet entries (`[{ file, name, retired? }]`):
- * `{ problems: [{ entry, problem: 'new' | 'stale' | 'marker', line? }], updated }`.
- * Two copies of one name in one file are one entry (the file is what moves).
+ * `{ problems: [{ entry, problem: 'new' | 'stale' | 'marker' | 'added', line? }], updated }`.
+ * Two copies of one name in one file are one entry (the file is what moves). `committed`: the list as
+ * HEAD has it (null: no comparison), so an entry added by hand fails and an update drops it.
  */
-export function compareRatchet(found, entries) {
+export function compareRatchet(found, entries, committed = null) {
   const foundKeys = new Map();
   for (const e of found) if (!foundKeys.has(keyOf(e))) foundKeys.set(keyOf(e), e);
+  const hand = new Set(handEdits(entries, committed, keyOf).map((h) => keyOf(h.entry)));
   const listed = new Set();
   const problems = [];
   const updated = [];
   for (const entry of entries) {
     const key = keyOf(entry);
+    if (hand.has(key)) {
+      problems.push({ entry, problem: 'added' });
+      continue;
+    }
     listed.add(key);
     if (!foundKeys.has(key)) {
       problems.push({ entry, problem: 'stale' });
@@ -301,6 +317,8 @@ export function problemText({ entry, problem, line, family }) {
       const owner = OWNED_FAMILIES.find((f) => f.family === family)?.owner;
       return `${entry.file}:${line}: '${entry.name}' is defined again; import it from its owner ${owner} (if the boundary rules forbid that, change the rule in its own commit; never copy)`;
     }
+    case 'added':
+      return handEditText(`${entry.file}: '${entry.name}'`, { problem }, RATCHET_FILE);
     case 'marker':
       return `${entry.file}: '${entry.name}' — its retired marker must say whether the file lies in a retired area; run node tools/check-redefinitions.mjs --update`;
     default:
@@ -330,7 +348,7 @@ export function writeRatchet(root, entries) {
 /** The check over a workspace root: `{ found, problems, updated }`. */
 export function checkRedefinitions(root) {
   const found = findCopies(root);
-  return { found, ...compareRatchet(found, readRatchet(root)) };
+  return { found, ...compareRatchet(found, readRatchet(root), committedEntries(root, RATCHET_FILE)) };
 }
 
 function main(argv) {
