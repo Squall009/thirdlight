@@ -61,6 +61,7 @@ regression points at its cause.
 | 44.1a | done: G2 job-export zips refuse names an upload may not have (6be64ef2; writeAssetFolder's body moved to folder-import, contentOps 443 → 421 lines); G3 project list and resolve scoped (2d85017a; MCP adapter's message for a refused project token). Vitest over HTTP; no e2e touched; fast gates green (one D311 watch miss, passed alone). |
 | 44.1b | done: G1 exports bundle from `dist/export-engine/`, the engine sources `npm run build` freezes beside Play's bundles (b0bf56b0; D332's cause). Exports byte-identical bar capture time; export ms 1300/1229/1601 → 1362/1262/1566 (side view/3D/village, noise); code size unchanged; +13 MB in dist. New vitest over HTTP with a broken live tree; e2e play-export 5.9 → 5.7 s, shell-scenes 6.9 → 7.1 s, job-export-import 1.7 → 1.7 s. Fast gate green (D311 watch miss, passed alone). |
 | 44.2 | done: G4 templates stored current (cb646f8d: schema 8 / storage 5+4 as game folders, made once by the engine's own creation path; new project = copy, no upgrade; 3D character a link, not a 2nd copy), legacy session page + `envelopeBytes` field (bf1faada), v1 `captureManifest` (ef3f6d99). Code −866 / +220 lines (tests included), one module gone. New vitest over HTTP: each template's project opens with nothing upgraded. e2e projects 17.2 → 16.5 s, starter-game 6.4 → 6.7, starter-capabilities 17.9 → 17.5, folder-projects 9.8 → 10.1, instance-brush 38.8 → 38.5. Fast gates green (one D307 watch miss, passed alone). |
+| 44.3 | done: leaf `@thirdlight/shared` (20624218), every package may import it (40ade512), three-adapter value edge to project-model (4b1341ff: 412 of 657 runtime relays gone, runtime index −232 lines), stale export-bootstrap rule (51e6cf83); goldens before any move (895a351d); `check-redefinitions` in the build (a6887409): ratchet starts at **163** copies, 15 retired; AGENTS line (059b4bca). e2e play-export 5.7 → 5.3 s. Fast gates green. |
 
 ### 44.0 baseline
 
@@ -106,3 +107,17 @@ What the end of 44 is measured against (44.13).
   because projects on disk may still be v3 (all four game repos are already v4); and `captureManifestV2`, the
   writer of the v4 manifests the still-live v4 reader (`readRuntimeContentSync` reads old exports) is tested with:
   retiring it means committed fixture documents for those tests, left for the version-naming cleanup.
+- 2026-10-30 (44.3, default chosen, owner to confirm): the leaf is `@thirdlight/shared` (`docs/plan-phase-45.md` names
+  none). Algorithms go there; domain constants stay in project-model (`DIGEST_RE` in `content-helpers.ts`,
+  `REQUEST_ID_RE` in a new project-model `request-id.ts`, since commands and workspace cannot import protocol).
+  three-adapter takes a value edge to all of project-model (pure, no I/O) rather than a subpath list; the 245 relays
+  the editor and game host still read through the runtime stay until those edges are looked at.
+- 2026-10-30 (44.3, default chosen, owner to confirm): the redefinition check matches owned names (declarations at
+  any depth, aliases excluded) plus a numeric fingerprint per algorithm for renamed copies; tests and tools count.
+  Copies with no shared name (the ~21 inline LRU caches, the error constructors, GLB parsing inside
+  `glbClipDurations`/`scanGlbContainer`/`readContainerGuard`/`gltf-rules`) are not caught by name: 44.4 names them
+  when it gives them a home. The retired marker comes from path patterns (block, terrain, architecture, arch-,
+  spline-mesh), checked on every build. Variants kept apart in the goldens: canonical JSON by code point (4 copies)
+  vs by UTF-16 unit (workspace, differs on astral keys) vs the exporter's indented, unsorted text; not golden-tested:
+  the GPU mulberry32 (TslRng), the visual-script prelude's (source text), terrain erosion's (retired) and the
+  size-only sorted copies in `timelines.ts`/`ui-documents.ts`.

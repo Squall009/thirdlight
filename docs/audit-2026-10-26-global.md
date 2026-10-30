@@ -135,7 +135,8 @@ The cost of building one phase at a time shows in four places:
 
 ## 4. Low (batch them)
 
-- **Duplicated algorithms.** One home each in project-model would delete about 100 copies:
+- **Duplicated algorithms.** One home each in project-model would delete about 100 copies (44.3: generic ones get the
+  `@thirdlight/shared` leaf, a build check stops new copies, today's 163 are on its ratchet list; moves in 44.4):
   - SHA-256 and canonical JSON (`asset-pipeline/sha256.ts`, `behavior-build/canonical.ts`);
   - the GLB container parser (5–7 sites);
   - KTX2 and PNG signatures, encoders, CRC-32;
@@ -150,7 +151,7 @@ The cost of building one phase at a time shows in four places:
 - **Public surfaces wider than their users.** About 250 three-adapter exports, about 273 runtime and 187 game-host
   exports, and about 45 commands exports are imported nowhere outside their package.
 - **Stale rules and tools:**
-  - `check-boundaries.mjs:415` names the removed `export-bootstrap.ts`;
+  - `check-boundaries.mjs:415` names the removed `export-bootstrap.ts` (fixed 51e6cf83, 44.3);
   - the unused `tools/dev/*`;
   - `generate-phase9-icons.sh`, which writes to `/tmp`;
   - a committed `tools/__pycache__/*.pyc`;
