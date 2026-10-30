@@ -39,7 +39,7 @@ export function scatterProblem(o: ScatterOptions): string | null {
 }
 
 /** mulberry32: a small deterministic PRNG in [0, 1). */
-function prng(seed: number): () => number {
+export function prng(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
     a = (a + 0x6d2b79f5) >>> 0;
