@@ -13,12 +13,9 @@ import { isSimulationRegistry } from './registry';
 import { SAVE_KEY_RE, SAVE_MAX_KEYS, SAVE_MAX_VALUE_CHARS, saveValueText } from './save-sections';
 import type { SimulationRegistry } from './types';
 import { isPlainObject } from '@thirdlight/shared';
-import { MODULE_IDS } from '@thirdlight/project-model';
 
 const MIN_FIXED_STEP_HZ = 1;
 const MAX_FIXED_STEP_HZ = 1000;
-/** The default module selection. */
-const DEFAULT_MODULES = [MODULE_IDS.boxMotionDemo];
 /** The `config_invalid` reason for a physics-bearing set. */
 export const PHYSICS_PORT_REASON = 'physics_port';
 
@@ -74,7 +71,7 @@ export function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: R
   }
   let modules: string[];
   if (config.modules === undefined) {
-    modules = [...DEFAULT_MODULES];
+    modules = [];
   } else if (
     !Array.isArray(config.modules) ||
     config.modules.some((m) => typeof m !== 'string')

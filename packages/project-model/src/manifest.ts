@@ -71,7 +71,6 @@ export const M2_ENGINE_PINS: ReadonlyArray<{ id: string; version: string; apiVer
 
 /** The package a known module id belongs to (the manifest `modules` rows). */
 export const M2_MODULE_PACKAGES: Readonly<Record<string, string>> = Object.freeze({
-  [MODULE_IDS.boxMotionDemo]: '@thirdlight/runtime',
   [MODULE_IDS.keyboardGamepad]: '@thirdlight/input',
   [MODULE_IDS.gltfLoader]: '@thirdlight/three-adapter',
 });

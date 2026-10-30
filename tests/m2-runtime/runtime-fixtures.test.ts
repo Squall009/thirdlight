@@ -6,7 +6,7 @@
  * (`fixtures/m2/contracts/runtime/catchup.json`) and the runtime
  * fixtures (`fixtures/m2/runtime/**`) from disk and replays every case
  * through the runtime: the fixed-step/sampling arithmetic, the ownership and
- * unsupported-combination table, the frozen demo points and the
+ * unsupported-combination table and the
  * fail-stop outcomes. The fixtures are the expectations; nothing here invents
  * a result.
  */
@@ -15,7 +15,6 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
-  BUILTIN_MODULES,
   createRecordedActionSource,
   createSimulationRegistry,
   instantiateRuntime,
@@ -341,42 +340,6 @@ describe('scheduler fixtures (fixtures/m2/runtime/scheduler-traces.json)', () =>
       }
     });
   }
-});
-
-describe('frozen M1 demo points (fixtures/m2/runtime/demo-traces.json)', () => {
-  const doc = readJson('fixtures/m2/runtime/demo-traces.json');
-  it('reproduces every exact point bit-for-bit', () => {
-    const registry = createSimulationRegistry();
-    for (const spec of BUILTIN_MODULES) registerSimulationModule(registry, spec.id, spec);
-    const res = instantiateRuntime({
-      snapshot: snapshot(v1Scene()),
-      registry,
-      driver: { kind: 'manual' },
-      clock: () => 0,
-    });
-    if (!res.ok) throw new Error('instantiate failed');
-    const rt = res.runtime;
-    rt.start();
-    rt.tick(0);
-    const maxStep = doc.samples[doc.samples.length - 1].completedSteps;
-    let next = 0;
-    for (let step = 0; step <= maxStep; step += 1) {
-      if (step > 0) {
-        const r = rt.tick(step * DT);
-        if (!r.ok) throw new Error('tick failed');
-      }
-      const sample = doc.samples[next];
-      if (sample && step === sample.completedSteps) {
-        const st = rt.getInterpolatedState();
-        if (!st.ok) throw new Error('state failed');
-        const x = st.state.transforms.find((t) => t.id === doc.entityId)!.position[0];
-        expect(x, `stepIndex ${step}`).toBe(sample.x);
-        next += 1;
-      }
-    }
-    expect(next).toBe(doc.samples.length);
-    rt.dispose();
-  });
 });
 
 describe('fail-stop fixture cases (fixtures/m2/runtime/failstop.json)', () => {

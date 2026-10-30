@@ -3,17 +3,16 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  BUILTIN_MODULES,
   createSimulationRegistry,
   instantiateRuntime,
   registerSimulationModule,
 } from './index';
 import { deepFreeze } from '@thirdlight/shared';
-import { baseScene, cloneJson, snapshotOf } from './test-helpers';
+import { baseScene, cloneJson, snapshotOf, boxMotionSpec } from './test-helpers';
 
 function registryWithDemo() {
   const r = createSimulationRegistry();
-  for (const spec of BUILTIN_MODULES) registerSimulationModule(r, spec.id, spec);
+  for (const spec of [boxMotionSpec]) registerSimulationModule(r, spec.id, spec);
   return r;
 }
 

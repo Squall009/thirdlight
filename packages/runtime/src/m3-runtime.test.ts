@@ -3,12 +3,12 @@
  * dispose.
  */
 import { describe, expect, it } from 'vitest';
-import { BUILTIN_MODULES, createSimulationRegistry, instantiateRuntime, registerSimulationModule, type RuntimeError } from './index';
-import { baseScene, cloneJson, snapshotOf } from './test-helpers';
+import { createSimulationRegistry, instantiateRuntime, registerSimulationModule, type RuntimeError } from './index';
+import { baseScene, cloneJson, snapshotOf, boxMotionSpec } from './test-helpers';
 
 function registry() {
   const r = createSimulationRegistry();
-  for (const spec of BUILTIN_MODULES) registerSimulationModule(r, spec.id, spec);
+  for (const spec of [boxMotionSpec]) registerSimulationModule(r, spec.id, spec);
   return r;
 }
 

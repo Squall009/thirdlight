@@ -202,8 +202,8 @@ export const NODE_SIDE_ALLOWED = {
     node: [],
   },
   // The local composition. runtime (the accepted instantiateRuntime/
-  // createSimulationRegistry/registerSimulationModule values + BUILTIN_MODULES
-  // for the simulation registry + types), input (types only — the injected
+  // createSimulationRegistry/registerSimulationModule values for the
+  // simulation registry + types), input (types only — the injected
   // owner's MenuSample seam; the attachBrowserInput VALUE edge is permission,
   // not obligation: the owner is injected). three-adapter is NOT imported
   // (the host defines the structural HostRenderAdapter surface; the adapter

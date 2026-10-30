@@ -104,6 +104,12 @@ export function instantiateRuntime(
   // M2 module-set validation — before any instance is
   // created and before any port method is called.
   if (isM2) {
+    // A module without phases owns no transform in a phased set (ownership is declared per phase), so
+    // every write it made would fail the run: the set is refused up front instead.
+    const unphased = selected.find((s) => s.phases === undefined);
+    if (unphased !== undefined) {
+      return { ok: false, error: fail('config_invalid', `module "${unphased.id}" declares no phases and cannot join modules that do`, { reason: 'module_phases' }) };
+    }
     const selectedIds = new Set(selected.map((s) => s.id));
     for (const spec of selected) {
       for (const excluded of spec.excludes ?? []) {
@@ -263,11 +269,7 @@ export function instantiateRuntime(
     for (let i = 0; i < entries.length; i += 1) {
       const entry = entries[i]!;
       const spec = selected[i]!;
-      const owners = entry.phased
-        ? (entry.instance as SimulationPhaseModule).transformOwners
-        : spec.legacyTransformOwners
-          ? spec.legacyTransformOwners(frozenSnapshot)
-          : [];
+      const owners = entry.phased ? (entry.instance as SimulationPhaseModule).transformOwners : [];
       entry.owners = owners;
       for (const entityId of owners) {
         // An owner in a scene that is not loaded is checked when it loads.

@@ -468,7 +468,6 @@ function createOne(found: { id: string; controller: unknown; rotation: readonly 
 export const character3DSpec: SimulationModuleSpec = {
   id: CHARACTER_3D_MODULE_ID,
   phases: ['controller', 'transform'],
-  excludes: [MODULE_IDS.boxMotionDemo],
   requiresPhysicsPort: true,
   create: createCharacter3DModule,
 };

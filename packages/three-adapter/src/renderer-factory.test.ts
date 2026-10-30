@@ -5,10 +5,8 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import {
-  BUILTIN_MODULES,
   createSimulationRegistry,
   instantiateRuntime,
-  registerSimulationModule,
   type Runtime,
   type RuntimeSnapshot,
 } from '@thirdlight/runtime';
@@ -422,7 +420,6 @@ describe('createRenderer', () => {
 describe('scene adapter on the factory (stubbed WebGPURenderer)', () => {
   function makeRuntime(): { runtime: Runtime; snapshot: RuntimeSnapshot } {
     const registry = createSimulationRegistry();
-    for (const spec of BUILTIN_MODULES) registerSimulationModule(registry, spec.id, spec);
     const snapshot = snapshotOf(cloneJson(baseScene())) as RuntimeSnapshot;
     const res = instantiateRuntime({ snapshot, registry, driver: { kind: 'manual' }, clock: () => 0 });
     if (!res.ok) throw new Error('instantiate failed');

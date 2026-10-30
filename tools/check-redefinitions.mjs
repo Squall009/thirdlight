@@ -167,7 +167,7 @@ export const OWNED_FAMILIES = Object.freeze([
   {
     family: 'module-ids',
     owner: 'packages/project-model/src/modules.ts',
-    names: ['MODULE_IDS', 'PORT_MODULE_IDS', 'PORT_MODULES', 'PHYSICS_3D_MODULE_ID', 'PHYSICS_3D_MODULE', 'DEMO_MODULE_ID', 'CHARACTER_3D_MODULE_ID'],
+    names: ['MODULE_IDS', 'PORT_MODULE_IDS', 'PORT_MODULES', 'PHYSICS_3D_MODULE_ID', 'PHYSICS_3D_MODULE', 'CHARACTER_3D_MODULE_ID'],
   },
 ]);
 

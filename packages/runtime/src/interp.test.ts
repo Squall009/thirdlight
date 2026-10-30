@@ -7,12 +7,12 @@
  * snapshot untouched).
  */
 import { describe, expect, it } from 'vitest';
-import { BUILTIN_MODULES, createSimulationRegistry, instantiateRuntime, registerSimulationModule } from './index';
+import { createSimulationRegistry, instantiateRuntime, registerSimulationModule } from './index';
 import { interpolateTransformInto, lerpVec3, quatEqual, slerpQuat, vec3Equal } from './interp';
 import { cameraBlendOf, interpolateCameraPose } from './camera-brain';
 import { clampAlpha } from './frame-clock';
 import type { Quat } from '@thirdlight/project-model';
-import { baseScene, BOX_ID, BOX_X0, cloneJson, snapshotOf } from './test-helpers';
+import { baseScene, BOX_ID, BOX_X0, cloneJson, snapshotOf, boxMotionSpec, BOX_MOTION_ID } from './test-helpers';
 
 const DT = 1 / 120;
 
@@ -76,10 +76,11 @@ describe('interpolation math (pure functions)', () => {
 
 function makeRuntime(modules?: string[]) {
   const r = createSimulationRegistry();
-  for (const spec of BUILTIN_MODULES) registerSimulationModule(r, spec.id, spec);
+  for (const spec of [boxMotionSpec]) registerSimulationModule(r, spec.id, spec);
   const res = instantiateRuntime({
     snapshot: snapshotOf(cloneJson(baseScene())),
     registry: r,
+    modules: [BOX_MOTION_ID],
     driver: { kind: 'manual' },
     clock: () => 0,
     ...(modules !== undefined ? { modules } : {}),

@@ -9,9 +9,9 @@
  * harness runs the same code with injected fakes).
  */
 import { describe, expect, it } from 'vitest';
-import { BUILTIN_MODULES, createSimulationRegistry, instantiateRuntime, registerSimulationModule } from './index';
+import { createSimulationRegistry, instantiateRuntime, registerSimulationModule } from './index';
 import type { Runtime } from './index';
-import { baseScene, cloneJson, snapshotOf } from './test-helpers';
+import { baseScene, cloneJson, snapshotOf, boxMotionSpec } from './test-helpers';
 
 interface Harness {
   rt: Runtime;
@@ -23,7 +23,7 @@ interface Harness {
 
 function makeManual(startClock = 0, fixedStepHz?: number): Harness {
   const r = createSimulationRegistry();
-  for (const spec of BUILTIN_MODULES) registerSimulationModule(r, spec.id, spec);
+  for (const spec of [boxMotionSpec]) registerSimulationModule(r, spec.id, spec);
   let now = startClock;
   const res = instantiateRuntime({
     snapshot: snapshotOf(cloneJson(baseScene())),

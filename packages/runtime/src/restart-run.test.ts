@@ -5,15 +5,15 @@
  * whose steps sample no input (no scripts) applies it too.
  */
 import { describe, expect, it } from 'vitest';
-import { BUILTIN_MODULES, createSimulationRegistry, instantiateRuntime, registerSimulationModule } from './index';
+import { createSimulationRegistry, instantiateRuntime, registerSimulationModule } from './index';
 import type { Runtime, RuntimeError } from './index';
-import { baseScene, cloneJson, snapshotOf } from './test-helpers';
+import { baseScene, cloneJson, snapshotOf, boxMotionSpec } from './test-helpers';
 
 const DT = 1 / 120;
 
 function plainGame(modules?: string[], actions?: { sample(stepIndex: number): unknown }): { rt: Runtime; step: (n: number) => void } {
   const r = createSimulationRegistry();
-  for (const spec of BUILTIN_MODULES) registerSimulationModule(r, spec.id, spec);
+  for (const spec of [boxMotionSpec]) registerSimulationModule(r, spec.id, spec);
   const res = instantiateRuntime({ snapshot: snapshotOf(cloneJson(baseScene())), registry: r, driver: { kind: 'manual' }, clock: () => 0, ...(modules !== undefined ? { modules } : {}), ...(actions !== undefined ? { actions } : {}) } as never);
   if (!res.ok) throw new Error(`instantiate failed: ${JSON.stringify((res as { error: RuntimeError }).error)}`);
   const rt = res.runtime;

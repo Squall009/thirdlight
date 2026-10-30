@@ -1,25 +1,24 @@
 /**
  * Registry and module-isolation tests: duplicate-registration refusal, name
- * syntax, unknown / duplicate module selection, the BUILTIN_MODULES contents, the
+ * syntax, unknown / duplicate module selection, the
  * module_error no-op rollback (no partial module application), the
  * bounded error ring (copies folded) with cumulative errorCount, and module
  * `dispose?` on runtime disposal.
  */
 import { describe, expect, it } from 'vitest';
 import {
-  BUILTIN_MODULES,
   createSimulationRegistry,
   instantiateRuntime,
   registerSimulationModule,
 } from './index';
 import type { RuntimeSnapshot, SimState, SimulationModuleSpec } from './index';
-import { baseScene, BOX_ID, BOX_X0, cloneJson, snapshotOf } from './test-helpers';
+import { baseScene, BOX_ID, BOX_X0, cloneJson, snapshotOf, boxMotionSpec } from './test-helpers';
 
 const DT = 1 / 120;
 
 function makeRegistryWithDemo() {
   const r = createSimulationRegistry();
-  for (const spec of BUILTIN_MODULES) registerSimulationModule(r, spec.id, spec);
+  for (const spec of [boxMotionSpec]) registerSimulationModule(r, spec.id, spec);
   return r;
 }
 
@@ -81,12 +80,6 @@ const disposeSpySpec: SimulationModuleSpec = {
 };
 
 describe('registry', () => {
-  it('BUILTIN_MODULES is exactly the M1 built-in module', () => {
-    expect(BUILTIN_MODULES.length).toBe(1);
-    expect(BUILTIN_MODULES[0]?.id).toBe('thirdlight.demo:box-motion');
-    expect(typeof BUILTIN_MODULES[0]?.create).toBe('function');
-  });
-
   it('duplicate registration ⇒ config_invalid (rejected at registration time)', () => {
     const r = createSimulationRegistry();
     expect(registerSimulationModule(r, 'thirdlight.test:a', { id: 'thirdlight.test:a', create: () => ({ step() {} }) }).ok).toBe(true);

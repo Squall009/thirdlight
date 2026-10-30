@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 
 import { DEFAULT_VIEW_ID, DEFAULT_VIEW_POSE, SEE_THROUGH_LIMITS, SEE_THROUGH_SETTING_KEYS } from '@thirdlight/project-model';
 
-import { BUILTIN_MODULES, createSimulationRegistry, instantiateRuntime, registerSimulationModule, type Runtime, type StepContext } from './index';
+import { createSimulationRegistry, instantiateRuntime, registerSimulationModule, type Runtime, type StepContext } from './index';
 import { probeSpec } from './m2-helpers';
 
 const DT = 1 / 120;
@@ -18,7 +18,6 @@ const box = { id: 'box-000001', components: { transform: T([0, 0.5, 0]), box: { 
 
 function runtimeOf(entities: unknown[], settings: Record<string, number> = {}, script?: (ctx: StepContext) => void): Runtime {
   const registry = createSimulationRegistry();
-  for (const spec of BUILTIN_MODULES) registerSimulationModule(registry, spec.id, spec);
   const probe = script === undefined ? null : probeSpec({ id: 'thirdlight.test:views', phases: ['intent'], step: (_p, ctx) => script(ctx) });
   if (probe !== null) registerSimulationModule(registry, probe.id, probe);
   const res = instantiateRuntime({

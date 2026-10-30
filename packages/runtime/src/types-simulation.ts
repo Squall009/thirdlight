@@ -16,7 +16,7 @@ import { type BehaviorAudio, type BehaviorDecals, type BehaviorEffects, type Beh
 export interface InstantiateConfig {
   snapshot: RuntimeSnapshot;
   registry: SimulationRegistry;
-  /** Module IDs present in `registry`. Default `["thirdlight.demo:box-motion"]`. */
+  /** Module IDs present in `registry`. Default: none. */
   modules?: readonly string[];
   /** The injected per-step input port. Default: neutral frames. */
   actions?: ActionSource;
@@ -146,8 +146,8 @@ export interface Character3DQueries {
 /**
  * Simulation module shape:
  * `step` mutates `curr` consistently or throws; `dispose?` is called by
- * `runtime.dispose()`. The shape of an M1 module (one that declares no
- * phases), such as the built-in demo.
+ * `runtime.dispose()`. The shape of a module that declares no
+ * phases (it runs in the implicit transform phase).
  */
 export interface SimulationModule {
   step(state: SimState, stepIndex: number): void;
@@ -419,11 +419,6 @@ export interface SimulationModuleSpec {
    * reason `physics_port`).
    */
   requiresPhysicsPort?: boolean;
-  /**
-   * Transform owners of an M1 module when it participates in an M2 set
-   * (the demo owns every `box` entity).
-   */
-  legacyTransformOwners?: (snapshot: RuntimeSnapshot) => readonly string[];
   /**
    * Components the module needs on at least one scene entity (a
    * composition refuses to start the module without one, naming the

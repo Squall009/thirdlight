@@ -5,9 +5,9 @@
  * every state including disposed.
  */
 import { describe, expect, it } from 'vitest';
-import { BUILTIN_MODULES, createSimulationRegistry, instantiateRuntime, registerSimulationModule } from './index';
+import { createSimulationRegistry, instantiateRuntime, registerSimulationModule } from './index';
 import type { RuntimeDiagnostics } from './index';
-import { baseScene, cloneJson, snapshotOf } from './test-helpers';
+import { baseScene, cloneJson, snapshotOf, boxMotionSpec, BOX_MOTION_ID } from './test-helpers';
 
 const DT = 1 / 120;
 
@@ -30,11 +30,12 @@ const EXPECTED_KEYS = [
 
 function makeDiagnostics(opts?: { withClock?: boolean }) {
   const r = createSimulationRegistry();
-  for (const spec of BUILTIN_MODULES) registerSimulationModule(r, spec.id, spec);
+  for (const spec of [boxMotionSpec]) registerSimulationModule(r, spec.id, spec);
   let now = 0;
   const res = instantiateRuntime({
     snapshot: snapshotOf(cloneJson(baseScene())),
     registry: r,
+    modules: [BOX_MOTION_ID],
     driver: { kind: 'manual' },
     ...(opts?.withClock ? { clock: () => now } : {}),
   });
@@ -120,10 +121,11 @@ describe('structured diagnostics', () => {
 
   it('a configured fixedStepHz is honored (dt = 1/hz; the demo period stays 4 s of sim time)', () => {
     const r = createSimulationRegistry();
-    for (const spec of BUILTIN_MODULES) registerSimulationModule(r, spec.id, spec);
+    for (const spec of [boxMotionSpec]) registerSimulationModule(r, spec.id, spec);
     const res = instantiateRuntime({
       snapshot: snapshotOf(cloneJson(baseScene())),
       registry: r,
+      modules: [BOX_MOTION_ID],
       driver: { kind: 'manual' },
       clock: () => 0,
       fixedStepHz: 60,

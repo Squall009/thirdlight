@@ -3,6 +3,7 @@
  * package's public surface — not exported from index.ts, imported only
  * by .test.ts files; same pattern as project-model's test-fixtures.ts).
  */
+import type { SimState, SimulationModule, SimulationModuleSpec, RuntimeSnapshot } from './types';
 
 /** A valid v4 scene: one camera shot, one group, one
  *  box under the group (parent before child). */
@@ -64,3 +65,31 @@ export const BOX_X0 = 0.5;
 export const BOX_ID = 'box-0001';
 export const GROUP_ID = 'group-0001';
 export const CAM_ID = 'cam-main';
+/** The moving-box test module's id. */
+export const BOX_MOTION_ID = 'thirdlight.demo:box-motion';
+/** Its half-amplitude on X (m) and period (s). */
+export const BOX_MOTION_AMPLITUDE = 0.5;
+export const BOX_MOTION_PERIOD_SECONDS = 4.0;
+
+/**
+ * A module that declares no phases (it runs in the implicit transform phase), for tests that need
+ * something to move: every `box` entity's x is x0 + A · sin(2π · (stepIndex + 1) / (hz · T)), a pure
+ * function of the step, so catch-up drops and interpolation have exact expected values.
+ */
+export const boxMotionSpec: SimulationModuleSpec = {
+  id: BOX_MOTION_ID,
+  create(snapshot: RuntimeSnapshot, cfg: { fixedStepHz: number }): SimulationModule {
+    const stepDenominator = cfg.fixedStepHz * BOX_MOTION_PERIOD_SECONDS;
+    const boxes: ReadonlyArray<readonly [string, number]> = snapshot.scene.entities
+      .filter((e) => e.components.box !== undefined)
+      .map((e) => [e.id, e.components.transform.position[0]] as const);
+    return {
+      step(state: SimState, stepIndex: number): void {
+        for (const [id, x0] of boxes) {
+          const t = state.curr.get(id);
+          if (t) t.position[0] = x0 + BOX_MOTION_AMPLITUDE * Math.sin((2 * Math.PI * (stepIndex + 1)) / stepDenominator);
+        }
+      },
+    };
+  },
+};

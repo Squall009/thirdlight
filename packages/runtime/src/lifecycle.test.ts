@@ -9,8 +9,8 @@
  * scheduled callbacks so single-loop ownership is observable.
  */
 import { afterEach, describe, expect, it } from 'vitest';
-import { BUILTIN_MODULES, createBehaviorModuleSpec, createSimulationRegistry, instantiateRuntime, neutralFrame, registerSimulationModule, type BehaviorLifecycle } from './index';
-import { baseScene, cloneJson, snapshotOf } from './test-helpers';
+import { createBehaviorModuleSpec, createSimulationRegistry, instantiateRuntime, neutralFrame, registerSimulationModule, type BehaviorLifecycle } from './index';
+import { baseScene, cloneJson, snapshotOf, boxMotionSpec, BOX_MOTION_ID } from './test-helpers';
 
 interface RafFake {
   /** Live (scheduled, not cancelled) rAF callback IDs. */
@@ -69,10 +69,11 @@ afterEach(() => {
 
 function makeRuntime(driver?: { kind: 'raf' } | { kind: 'manual' }, clock?: () => number, settings?: Record<string, number>) {
   const r = createSimulationRegistry();
-  for (const spec of BUILTIN_MODULES) registerSimulationModule(r, spec.id, spec);
+  for (const spec of [boxMotionSpec]) registerSimulationModule(r, spec.id, spec);
   const res = instantiateRuntime({
     snapshot: snapshotOf(cloneJson(baseScene())),
     registry: r,
+    modules: [BOX_MOTION_ID],
     driver,
     ...(clock ? { clock } : {}),
     ...(settings ? { settings } : {}),
@@ -208,7 +209,7 @@ describe('lifecycle', () => {
     const fake = installRafFake();
     let frames = 0;
     const r = createSimulationRegistry();
-    for (const spec of BUILTIN_MODULES) registerSimulationModule(r, spec.id, spec);
+    for (const spec of [boxMotionSpec]) registerSimulationModule(r, spec.id, spec);
     const res = instantiateRuntime({
       snapshot: snapshotOf(cloneJson(baseScene())),
       registry: r,
@@ -243,7 +244,7 @@ describe('lifecycle', () => {
       expect(noRaf.tick(0).ok).toBe(true); // manual driver runs
       noRaf.dispose();
       const r = createSimulationRegistry();
-      for (const spec of BUILTIN_MODULES) registerSimulationModule(r, spec.id, spec);
+      for (const spec of [boxMotionSpec]) registerSimulationModule(r, spec.id, spec);
       const res = instantiateRuntime({
         snapshot: snapshotOf(cloneJson(baseScene())),
         registry: r,

@@ -38,7 +38,6 @@
  *    surface exposes none).
  */
 import {
-  BUILTIN_MODULES,
   ENGINE_STATS_NONE,
   MODULE_IDS,
   PORT_MODULE_IDS,
@@ -680,7 +679,6 @@ function selectModules(
       picked.add(spec);
       continue;
     }
-    if (id === MODULE_IDS.boxMotionDemo) continue; // a runtime built-in (already registered)
     // The port modules the delivery wrapper injects (checked, not registered).
     if (PORT_MODULE_IDS.has(id)) {
       ports.push(id);
@@ -739,10 +737,8 @@ export function composeGameRuntime(args: GameRuntimeArgs): { ok: true; runtime: 
   }
 
   const registry = createSimulationRegistry();
-  // The registry carries the runtime built-ins (inert unless selected);
-  // the SELECTED modules are the ones the manifest names (resolved through
-  // the runtime's specs and the injected table), plus the project's compiled behaviors.
-  for (const spec of BUILTIN_MODULES) registerSimulationModule(registry, spec.id, spec);
+  // The modules are the ones the manifest names (resolved through the runtime's
+  // specs and the injected table), plus the project's compiled behaviors.
   // (the typed `EntityComponents` union is per-schema; component presence is read structurally.)
   const selected = selectModules(args.modules, [...RUNTIME_SIMULATION_SPECS, ...(args.moduleSpecs ?? [])], args.physics !== undefined, scene.entities as readonly { readonly components?: unknown }[]);
   if (!selected.ok) return selected;

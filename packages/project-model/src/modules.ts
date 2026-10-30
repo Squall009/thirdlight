@@ -22,8 +22,6 @@
  * module id is spelled once.
  */
 export const MODULE_IDS = Object.freeze({
-  /** The early demo simulation (a box oscillating on X). */
-  boxMotionDemo: 'thirdlight.demo:box-motion',
   /** The keyboard and gamepad input port. */
   keyboardGamepad: 'thirdlight.input:keyboard-gamepad',
   /** The physics backend port. */
@@ -62,10 +60,9 @@ export interface EngineModule {
 export const PHYSICS_3D_MODULE_ID = MODULE_IDS.physics3d;
 
 export const ENGINE_MODULES: readonly EngineModule[] = Object.freeze(([
-  { id: MODULE_IDS.boxMotionDemo, package: '@thirdlight/runtime', kind: 'simulation', requires: [] },
   { id: MODULE_IDS.keyboardGamepad, package: '@thirdlight/input', kind: 'port', requires: [] },
   { id: PHYSICS_3D_MODULE_ID, package: '@thirdlight/physics-rapier', kind: 'port', requires: [] },
-  // The kinematic character controller (a runtime built-in, like the demo module). Listed in
+  // The kinematic character controller (a runtime built-in). Listed in
   // dependency order (a module after the modules it needs): a composition registers the selected
   // specs in this order.
   { id: MODULE_IDS.character3d, package: '@thirdlight/runtime', kind: 'simulation', requires: [PHYSICS_3D_MODULE_ID, MODULE_IDS.keyboardGamepad] },
@@ -119,8 +116,6 @@ export interface ResolveModulesInput {
   behaviors?: ReadonlyArray<{ behaviorId: string; requiredModules: readonly string[] }>;
   /** Explicitly declared module ids (e.g. a template's `requiredModules`). */
   declared?: readonly string[];
-  /** The demo module (box motion) is selected. */
-  demo?: boolean;
 }
 
 export interface UnresolvedModule {
@@ -142,7 +137,6 @@ export function resolveRequiredModules(input: ResolveModulesInput): ResolveModul
     if (!wanted.has(id)) wanted.set(id, requiredBy);
   };
 
-  if (input.demo === true) want(MODULE_IDS.boxMotionDemo, 'declared');
   for (const e of input.scene?.entities ?? []) {
     const c = (e['components'] ?? {}) as Record<string, unknown>;
     for (const [component, id] of Object.entries(COMPONENT_MODULES)) if (c[component] !== undefined) want(id, 'scene');

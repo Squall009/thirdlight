@@ -12,10 +12,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  BUILTIN_MODULES,
   createSimulationRegistry,
   instantiateRuntime,
-  registerSimulationModule,
 } from '@thirdlight/runtime';
 import type { Runtime, RuntimeSnapshot } from '@thirdlight/runtime';
 import { baseScene, cloneJson, snapshotOf } from './test-scene';
@@ -34,7 +32,6 @@ function stubCanvas(): Record<string, unknown> {
 
 function makeRuntime(): { runtime: Runtime; snapshot: RuntimeSnapshot } {
   const r = createSimulationRegistry();
-  for (const spec of BUILTIN_MODULES) registerSimulationModule(r, spec.id, spec);
   const snapshot = snapshotOf(cloneJson(baseScene())) as RuntimeSnapshot;
   const res = instantiateRuntime({
     snapshot,

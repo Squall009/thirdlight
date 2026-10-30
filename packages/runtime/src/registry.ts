@@ -9,7 +9,6 @@
  * admits hyphens (package-style names).
  */
 import { clipMessage, type RuntimeError } from './errors';
-import { boxMotionSpec, DEMO_MODULE_ID } from './demo';
 import { SIMULATION_PHASE_ORDER } from './types';
 import {
   SIM_REGISTRY_BRAND,
@@ -17,22 +16,6 @@ import {
   type SimulationPhase,
   type SimulationRegistry,
 } from './types';
-
-/**
- * The built-in M1 demo spec. Its `legacyTransformOwners` metadata applies
- * when the demo participates in an M2 set (the demo owns every `box`
- * entity; the character controller excludes it). The demo's `create` and
- * step math are byte-identical in both set kinds.
- */
-const demoBuiltinSpec: SimulationModuleSpec = {
-  id: DEMO_MODULE_ID,
-  legacyTransformOwners: (snapshot) =>
-    snapshot.scene.entities.filter((e) => e.components.box !== undefined).map((e) => e.id),
-  create: (snapshot, cfg) => boxMotionSpec.create(snapshot, cfg),
-};
-
-/** M1 registry contents: exactly one built-in module. */
-export const BUILTIN_MODULES: readonly SimulationModuleSpec[] = [demoBuiltinSpec];
 
 // The name takes `_` because a script's module is named by its behavior id, which the project model's ID syntax allows `_` in.
 const MODULE_NAME_RE = /^thirdlight\.[a-z0-9-]+:[a-z0-9_-]+$/;

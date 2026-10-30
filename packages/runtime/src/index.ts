@@ -1,6 +1,6 @@
 /**
  * @thirdlight/runtime — public surface: `instantiateRuntime`,
- * `createSimulationRegistry`, `registerSimulationModule`, `BUILTIN_MODULES`,
+ * `createSimulationRegistry`, `registerSimulationModule`,
  * types (snapshot, diagnostics, module interfaces), `ERROR_CODES`,
  * `ActionFrame`, `JumpPhase`, `ActionSource`, `createRecordedActionSource`,
  * `SimulationPhase`, `StepContext`, `GameplaySettings`, `PhysicsPort3D`,
@@ -21,7 +21,6 @@
  *   module phase registration, transform-ownership validation, injected
  *   action/physics ports and one action sample per executed step;
  * - the read-only render interpolation policy;
- * - the built-in moving-box demonstration (`thirdlight.demo:box-motion`);
  * - structured diagnostics.
  *
  * Pure core: imports `@thirdlight/project-model`
@@ -169,7 +168,6 @@ export {
   SIMULATION_PHASE_ORDER,
 } from './types';
 export {
-  BUILTIN_MODULES,
   createSimulationRegistry,
   registerSimulationModule,
   validatePhaseList,

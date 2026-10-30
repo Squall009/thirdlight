@@ -6,7 +6,7 @@
  * unsupported-combination rejection at instantiate (no partial start).
  */
 import { describe, expect, it } from 'vitest';
-import { BUILTIN_MODULES, character3DSpec, instantiateRuntime, registerSimulationModule, type SimulationModuleSpec, type ActionFrame } from './index';
+import { character3DSpec, instantiateRuntime, registerSimulationModule, type SimulationModuleSpec, type ActionFrame } from './index';
 import {
   makeFakePort,
   makeM2Runtime,
@@ -16,7 +16,7 @@ import {
   v2Scene,
   v2Snapshot,
 } from './m2-helpers';
-import { baseScene, cloneJson, snapshotOf } from './test-helpers';
+import { baseScene, cloneJson, snapshotOf, boxMotionSpec } from './test-helpers';
 
 const DT = 1 / 120;
 
@@ -202,13 +202,9 @@ describe('M2 phase order', () => {
     }
   });
 
-  it('unsupported combination: demo + controller module is rejected (module_combination_unsupported)', () => {
-    const err = instantiateError(
-      ['thirdlight.demo:box-motion', character3DSpec.id],
-      [character3DSpec],
-      registryWith([...BUILTIN_MODULES, character3DSpec]),
-      makeFakePort(),
-    );
+  it('unsupported combination: a module that excludes the controller module is rejected (module_combination_unsupported)', () => {
+    const exclusive = probeSpec({ id: 'thirdlight.test:exclusive', phases: ['transform'], excludes: [character3DSpec.id] });
+    const err = instantiateError([exclusive.id, character3DSpec.id], [exclusive, character3DSpec], registryWith([exclusive, character3DSpec]), makeFakePort());
     expect(err).toMatchObject({ code: 'module_combination_unsupported' });
   });
 
@@ -243,19 +239,9 @@ describe('M2 phase order', () => {
     ).toMatchObject({ code: 'snapshot_invalid' });
   });
 
-  it('an M1 module participating in an M2 set runs in the implicit transform phase', () => {
+  it('a module without phases cannot join a phased set (it would own no transform)', () => {
     const intent = probeSpec({ id: 'thirdlight.test:intent-only', phases: ['intent'] });
-    const h = makeM2Runtime({
-      modules: ['thirdlight.demo:box-motion', intent.id],
-      specs: [intent],
-      registry: registryWith([...BUILTIN_MODULES, intent]),
-    });
-    h.boot();
-    h.tick(DT);
-    const st = h.rt.getInterpolatedState();
-    if (!st.ok) throw new Error('state failed');
-    // The demo moved the box during the pre-roll and the executed step.
-    expect(st.state.transforms.find((t) => t.id === 'box-0001')!.position[0]).not.toBe(0.5);
-    h.rt.dispose();
+    const err = instantiateError([boxMotionSpec.id, intent.id], [intent], registryWith([boxMotionSpec, intent]));
+    expect(err).toMatchObject({ code: 'config_invalid', reason: 'module_phases' });
   });
 });
