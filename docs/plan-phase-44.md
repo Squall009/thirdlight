@@ -65,6 +65,7 @@ regression points at its cause.
 | 44.4a | done: shared leaf owns SHA-256 + canonical JSON (51013afc: 34 copies, −1000/+626 lines, ratchet 163 → 129), GLB/PNG/KTX2/CRC-32 (94797c66: 18 named + ~35 inline writers/readers, −934/+413, → 111), quaternion/mat4 (f9936e96: 9, −270/+215, → 102), random/noise (67796e74: 20, −369/+272, → 82); goldens unchanged. e2e play-export 5.3 → 4.7 s; village at the cap unchanged. Fast gates green (v4-limits timed out once under load, passed alone). |
 | 44.4b | done: objects/utf8 (5cbcf50e: 85 copies, −870/+719, ratchet 82 → 40), digest + request id (2f9a728a rule, fae753d6: 41 copies incl. 20 inline literals, −102/+85, → 25), LruCache (4b7c8cb7: 5 LRUs, −42/+90), strict JSON (aa69ea2c: 4 parsers + 6 pointer escapes, −843/+370, → 23; 200k-text differential identical), errors (74d5dca2: 2 copies, 5 named variants). e2e play-export 4.7 → 4.9 s. Fast gates green (D307 watch miss, passed alone). |
 | 44.5 | done: one owner each in project-model, 12 families in `check-redefinitions`: shadow/surface/role lists (3f9764bd, 9 copies, +32/−117), manifest identity, engine version, save format, message clip, move quantum (4558f922, 17, +85/−152), import extensions (cf3d1c6b, 8, +63/−55), toolchain pins + check-deps agreement (d50ef8ac, 7, +64/−8), engine actions/shell screens/save slots (73429812, 4, +17/−11), typed module ids (844c2bb6, 25 literals, +76/−36). e2e s: play-export 4.9 → 5.1, input 11.6 → 11.6, project-saves 9.0 → 7.9 (alone, WebGL 2), import-extensions 19.8 → 19.2, folder-import 3.2 → 3.3, ui-editor 10.3 → 10.4, shell 17.0 → 16.5, character-3d 15.4 → 15.1; village at the cap unchanged. Fast gates green (start.e2e's stop exited 1 once, D307 once; both passed alone). |
+| 44.6a | done: G10 op table (9bcac089: 7 family modules hold each op's step, undo and redo; apply.ts + history.ts 2,174 → 484 lines, 2,232 with the families; 3 ratchet entries gone; 3,979 traced commands byte-identical), G11 admin accept/discard resync (fbbebece), G12 one publish step (f1eee815: packs and the file check extract as uploads do). e2e s: authoring-loop 1.9–4.0, hierarchy 7.2, delete-content 5.6, edit-copy 2.9, project-window 3.4–4.9, loadable 3.4, external-edit 4.3/1.9, editor-chrome 6.3, assets 16.9, asset-files 5.0, folder-assets 17.4, import-extensions 19.8 (19.2 at 44.5); village at the cap unchanged. Fast gates green (start.e2e watch miss once, passed alone). |
 
 ### 44.0 baseline
 
@@ -156,3 +157,10 @@ What the end of 44 is measured against (44.13).
   `UI_ENGINE_ACTIONS` takes the editor's order. protocol's v1 manifest identity had no user and went. The pins stay a
   TypeScript table; `check-deps` reads its text. Kept: the v4 reader's pin table (three 0.186.0, never read for three)
   and the GLTF recipe's loader line (0.186.0: every model's recipe digest depends on it).
+- 2026-10-30 (44.6a, default chosen, owner to confirm): a pack's models now take the publish step uploads take, so a new project's
+  pack models record `extractTextures: true` (Basic Kit and starter-3d models hold no images, so nothing else changes), and a
+  pack with an image inside brings its textures with one more command in its undo step; `packs.add`/`install` became async. The
+  file check decides extraction by the shared rule (record setting or the project's "every model"), so a converted GLB with
+  generated levels in an "every model" project is now extracted on re-import too. The folder import keeps its own batched
+  extraction (one `importAssets` for the folder). G10's records (op → change type, inverse kind) were checked once against
+  every command the suites run; the test checks each op has a step and every recorded kind an undo and a redo.

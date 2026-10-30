@@ -74,12 +74,12 @@ The cost of building one phase at a time shows in four places:
 **Parallel paths**
 - **G10: three dispatchers per op.** Every op has three hand-written dispatchers: `applyMutation` (`apply.ts:250`),
   `applyInverse` (`history.ts:288`) and `applyForward` (`history.ts:796`). Adding an op takes three matching edits,
-  and nothing catches a missing one.
+  and nothing catches a missing one. **Status:** fixed 9bcac089 (44.6a): one op table, a family module per area holds each op's step, undo and redo; `op-table.test.ts` checks every op.
 - **G11: two routes for accept/discard of external edits.** `/admin/.../(accept|discard)-external`
-  (`admin-routes.ts:282`) does not send the `workspace.resync` that the project route sends (`external-edits.ts:64`).
+  (`admin-routes.ts:282`) does not send the `workspace.resync` that the project route sends (`external-edits.ts:64`). **Status:** fixed fbbebece (44.6a): both routes take external-edits' one resolve step.
 - **G12: three copies of hold → inspect → publish.** The content routes, the file check (`asset-files.ts:167`) and
   packs (`packs.ts:246`) each do it, and texture extraction runs only in the HTTP command route
-  (`session-routes.ts:228-271`).
+  (`session-routes.ts:228-271`). **Status:** fixed f1eee815 (44.6a): one publish step (`extractForPublish`) for the command route, the file check and packs, and one bytes inspection (`inspectAssetBytes`) for the file check and packs; the content routes' stage inspection stays theirs (jobs, cancel), and their publish is the command route's.
 - **G13: the editor re-implements backend rules:**
   - property-value checks (`property-controls.ts:117` vs `commands/properties.ts:435`);
   - prefab rules (`prefab-authoring.ts:10-21`);
