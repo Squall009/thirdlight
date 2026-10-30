@@ -60,6 +60,7 @@ regression points at its cause.
 | 44.0 | done (ece9b2ab + this row): three.js 0.186.1 is still the newest (npm, 2026-10-29), no upgrade; plan and audit committed; baselines in **44.0 baseline**; D413 closed (WebGL 2 walkers' shadow cost +0.67 / +1.03 → +0.20 / +0.23 ms, low / medium). |
 | 44.1a | done: G2 job-export zips refuse names an upload may not have (6be64ef2; writeAssetFolder's body moved to folder-import, contentOps 443 → 421 lines); G3 project list and resolve scoped (2d85017a; MCP adapter's message for a refused project token). Vitest over HTTP; no e2e touched; fast gates green (one D311 watch miss, passed alone). |
 | 44.1b | done: G1 exports bundle from `dist/export-engine/`, the engine sources `npm run build` freezes beside Play's bundles (b0bf56b0; D332's cause). Exports byte-identical bar capture time; export ms 1300/1229/1601 → 1362/1262/1566 (side view/3D/village, noise); code size unchanged; +13 MB in dist. New vitest over HTTP with a broken live tree; e2e play-export 5.9 → 5.7 s, shell-scenes 6.9 → 7.1 s, job-export-import 1.7 → 1.7 s. Fast gate green (D311 watch miss, passed alone). |
+| 44.2 | done: G4 templates stored current (cb646f8d: schema 8 / storage 5+4 as game folders, made once by the engine's own creation path; new project = copy, no upgrade; 3D character a link, not a 2nd copy), legacy session page + `envelopeBytes` field (bf1faada), v1 `captureManifest` (ef3f6d99). Code −866 / +220 lines (tests included), one module gone. New vitest over HTTP: each template's project opens with nothing upgraded. e2e projects 17.2 → 16.5 s, starter-game 6.4 → 6.7, starter-capabilities 17.9 → 17.5, folder-projects 9.8 → 10.1, instance-brush 38.8 → 38.5. Fast gates green (one D307 watch miss, passed alone). |
 
 ### 44.0 baseline
 
@@ -97,3 +98,11 @@ What the end of 44 is measured against (44.13).
   already filters) and gets a resolve answer only for a path inside that project; any other path is a 401 with no
   reason or folder, so it cannot probe the server. The editor's picker and the MCP adapter use the owner token (or a
   project token from its own folder) and are unchanged.
+- 2026-10-30 (44.2, default chosen, owner to confirm): a template is a game folder in the current format (`thirdlight/`
+  + `assets/`); it is changed by making a project from it and copying its files back, so the v3 authoring scripts went
+  (the build scripts keep only the generated pillar, textures, grass and setup packs). A template file that would
+  overwrite a different file already in a game folder refuses the creation instead of picking a new name. Kept: the
+  v3 → v4 upgrade (its validation, the old plane rules for v2/v3 documents, the empty new project built through it),
+  because projects on disk may still be v3 (all four game repos are already v4); and `captureManifestV2`, the
+  writer of the v4 manifests the still-live v4 reader (`readRuntimeContentSync` reads old exports) is tested with:
+  retiring it means committed fixture documents for those tests, left for the version-naming cleanup.

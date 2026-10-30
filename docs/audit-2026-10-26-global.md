@@ -48,7 +48,7 @@ The cost of building one phase at a time shows in four places:
 | G1 | export | Exports are bundled from the live working tree. The deployed service runs in this checkout, so a user's export compiles whatever an agent has uncommitted at that moment and can differ from the `dist/` that Play uses. D332 is this failure seen in a gate. **Status:** fixed b0bf56b0 (44.1b): exports bundle from `dist/export-engine/`, frozen by `npm run build`. | `backend/src/admin-routes.ts:379`, `deploy/thirdlight.service:13` |
 | G2 | backend | A job-export zip written into the game folder checks only `isValidSourcePath`, not `uploadNameProblem`. A zip entry named `*.tlasset`, or named like a scene or resource file, lands in `assets/<stem>/`, and the next file check reads it as project data without any command. **Status:** fixed 6be64ef2 (44.1a). | `workspace/src/service-content.ts:464-482` vs `folder-import.ts:246` |
 | G3 | backend / security | Any valid token, including another project's `authoring:` token, can list every project with its server folder path, and can probe arbitrary absolute server paths with `GET /projects/resolve?path=`. **Status:** fixed 2d85017a (44.1a): a project token sees only its own project. | `backend/src/project-routes.ts:74-130` (`openGet`) |
-| G4 | model | Both starter templates are stored as storage v3 / scene schema 3. Every new project goes through the whole upgrade chain, gets checked against the old 2D-plane physics rules, and keeps project-v3, types-v2/v3 and the manifest-v1 validator alive. | `templates/starter*/captured/project.json:2,6`, `workspace/src/project-create.ts:153,196`, `scene-v3.ts:977` |
+| G4 | model | Both starter templates are stored as storage v3 / scene schema 3. Every new project goes through the whole upgrade chain, gets checked against the old 2D-plane physics rules, and keeps project-v3, types-v2/v3 and the manifest-v1 validator alive. **Status:** fixed cb646f8d (44.2): templates are stored current and copied; the v3 code left is the upgrade-on-open path. | `templates/starter*/captured/project.json:2,6`, `workspace/src/project-create.ts:153,196`, `scene-v3.ts:977` |
 | G5 | input | Two mappings for `move`/`jump`. The old side-scroller channels (`mapRawStep`) run on every sample, and `toActionFrame` overrides the generic evaluator's `jump` (and its `move` unless `move2d`), so bindings and processors on those two actions may be bypassed. Inferred from the code, not observed. | `input/src/browser.ts:476-509`, `mapping.ts:44-57` |
 | G6 | size | Several files are close to the 2,000-line limit and must be split before their next change: `commands/types.ts` 1,983, `game-host/host.ts` 1,919, `backend/content.ts` 1,917, `three-adapter/material-graph.ts` 1,873, `commands/validate-request.ts` 1,843, `workspace/content-store.ts` 1,834. `TerrainView` (85 members) and `BlockLayerView` (84) are over the 80-member class limit but not on the ratchet. | `tools/check-size.mjs --near` |
 
@@ -108,8 +108,8 @@ The cost of building one phase at a time shows in four places:
     of `scatter-shadows.ts` (lines 29, 71-107);
   - editor: `session/media.ts:86-418` and `property-controls.ts:452-662` are test-only, and the 2D outline collider
     (`useEntityEditing.ts:211`, `outline.ts`) is unreachable;
-  - project-model: `captureManifest` and `captureManifestV2` are test-only;
-  - workspace: the `LEGACY_SESSION_PAGE` branch (`full-state.ts:27`) and `envelopeBytes`.
+  - project-model: `captureManifest` and `captureManifestV2` are test-only (`captureManifest` retired ef3f6d99, 44.2; `captureManifestV2` kept as the v4 reader's test writer, see the 44.2 decision);
+  - workspace: the `LEGACY_SESSION_PAGE` branch (`full-state.ts:27`) and `envelopeBytes` (retired bf1faada, 44.2).
 - **G19: the early demo module is still the default module set** (`runtime/runtime-config.ts:19`), together with the
   old module shape and `legacyTransformOwners` it needs.
 
@@ -154,7 +154,7 @@ The cost of building one phase at a time shows in four places:
   - the unused `tools/dev/*`;
   - `generate-phase9-icons.sh`, which writes to `/tmp`;
   - a committed `tools/__pycache__/*.pyc`;
-  - `character.glb` committed twice in the templates;
+  - `character.glb` committed twice in the templates (fixed cb646f8d: the 3D starter links to the 2D starter's file);
   - `package.json` dependencies left out by exporter, game-host and physics-rapier.
 - **Tests:**
   - 24 package tests default to `/tmp` (`TMPDIR ?? '/tmp'`);
