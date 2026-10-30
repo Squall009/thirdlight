@@ -11,7 +11,7 @@ import { TRIM_DATA_GLTF_ATTRIBUTE } from '@thirdlight/project-model/trim-sheet';
 
 import { glbBytes } from '@thirdlight/shared';
 import { api, AUTHORING_ORIGIN, exportContentOf, mkRequestId, mkSessionId, PREVIEW_ORIGIN, startBackend, type TestBackend } from './test-helpers';
-import { createTestBackend } from './testing';
+import { createTestBackend, testTempBase } from './testing';
 
 /** The per-scene look project (stored as schemaVersion 7, opened as 8), under the id it was written with. */
 const SCENE_LOOKS = resolve(import.meta.dirname, '..', '..', '..', 'fixtures', 'phase27', 'scene-looks');
@@ -81,7 +81,7 @@ describe('a project whose scenes each have their own look opened over HTTP', () 
   };
 
   beforeAll(async () => {
-    exportRoot = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-scene-looks-export-'));
+    exportRoot = mkdtempSync(join(testTempBase(), 'tl-scene-looks-export-'));
     tb = await startBackend({ tokens: [], exportRoot, engineRoot: REPO });
     cpSync(FIXTURE, dir(), { recursive: true });
   });
@@ -209,7 +209,7 @@ describe('a schemaVersion 6 project with a scene camera opened over HTTP', () =>
   };
 
   beforeAll(async () => {
-    exportRoot = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-view-upgrade-export-'));
+    exportRoot = mkdtempSync(join(testTempBase(), 'tl-view-upgrade-export-'));
     tb = await startBackend({ tokens: [], exportRoot, engineRoot: REPO });
     for (const id of ['legacy-v6-start-camera', 'legacy-v6-title-player']) cpSync(join(REPO, 'fixtures', 'phase28', id), dir(id), { recursive: true });
   });

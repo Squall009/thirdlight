@@ -11,7 +11,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { join } from 'node:path';
 import { CONTENT_STORAGE_VERSION, UPGRADE_REPORT_FILE } from '@thirdlight/workspace';
 import type { Backend } from './backend';
-import { createTestBackend } from './testing';
+import { createTestBackend, testTempBase } from './testing';
 import { AUTHORING_ORIGIN, PREVIEW_ORIGIN } from './test-helpers';
 
 const REPO_ROOT = new URL('.', import.meta.url).pathname.slice(0, new URL('.', import.meta.url).pathname.lastIndexOf('/packages/'));
@@ -78,7 +78,7 @@ describe('template dependencies at creation', () => {
   let base: string;
   let dataRoot: string;
   beforeAll(async () => {
-    engineRoot = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-templates-'));
+    engineRoot = mkdtempSync(join(testTempBase(), 'tl-templates-'));
     // Two templates from the neutral starter's capture: one declares a module
     // nobody provides, one declares only what the engine has; plus the real
     // starter template as it ships.
@@ -199,7 +199,7 @@ describe('a template whose setup stops', () => {
   let base: string;
   let dataRoot: string;
   beforeAll(async () => {
-    engineRoot = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-templates-'));
+    engineRoot = mkdtempSync(join(testTempBase(), 'tl-templates-'));
     setupRoot = engineRoot;
     const broken = join(engineRoot, 'templates', 'broken-setup');
     copyTemplate('starter', broken);
@@ -242,7 +242,7 @@ describe('a template whose setup stops', () => {
 
   it('in a game folder: unregisters it, removes only what creation made, keeps the user\'s files; the retry gets the agent skill', async () => {
     writeSetup(false);
-    const game = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-game-'));
+    const game = mkdtempSync(join(testTempBase(), 'tl-game-'));
     try {
       writeFileSync(join(game, 'notes.txt'), 'mine');
       const res = await create('b2', game);
@@ -257,7 +257,7 @@ describe('a template whose setup stops', () => {
       expect(Object.keys((await again.json()) as object)).toContain('skill');
       // A folder that was not there before goes again as a whole.
       writeSetup(false);
-      const parent = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-games-'));
+      const parent = mkdtempSync(join(testTempBase(), 'tl-games-'));
       try {
         const made = await create('b3', join(parent, 'new-game'));
         expect(made.status, (await made.clone().text()).slice(0, 400)).toBe(500);

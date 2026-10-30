@@ -3,10 +3,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { crc32 } from 'node:zlib';
 import { listExports, zipDirectory } from './exports';
+import { testTempBase } from './testing';
 
 describe('exports: listing + stored zip', () => {
   it('zips a tree with correct headers and CRCs; lists a project\'s export dirs', () => {
-    const root = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-exports-'));
+    const root = mkdtempSync(join(testTempBase(), 'tl-exports-'));
     try {
       const dir = join(root, 'game-0001@r3');
       mkdirSync(join(dir, 'js'), { recursive: true });

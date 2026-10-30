@@ -5,6 +5,7 @@ import { PNG_SIGNATURE, pngChunk } from '@thirdlight/shared';
 import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { testTempBase } from './testing';
 
 import { checkThumbnailPng, createThumbnailCache, thumbnailKey } from './thumbnails';
 
@@ -50,7 +51,7 @@ const DIGEST = 'ab'.repeat(32);
 
 describe('thumbnail cache', () => {
   it('stores and reads a PNG per (project, digest, piece) in the project\'s import cache', () => {
-    const root = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-thumbs-'));
+    const root = mkdtempSync(join(testTempBase(), 'tl-thumbs-'));
     dirs.push(root);
     const cache = createThumbnailCache((id) => join(root, id, 'cache', 'imported'));
     expect(cache.read('demo', DIGEST, null)).toBeNull();
@@ -65,7 +66,7 @@ describe('thumbnail cache', () => {
   });
 
   it('refuses non-PNG bytes, oversize images, bad ids and path tricks', () => {
-    const root = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-thumbs-'));
+    const root = mkdtempSync(join(testTempBase(), 'tl-thumbs-'));
     dirs.push(root);
     const cache = createThumbnailCache((id) => join(root, id, 'cache', 'imported'));
     expect(cache.write('demo', DIGEST, null, new TextEncoder().encode('not a png at all, just some text.'))).toMatch(/PNG/);
@@ -77,7 +78,7 @@ describe('thumbnail cache', () => {
   });
 
   it('an ETag per cached thumbnail that changes when it is rewritten (null when none)', () => {
-    const root = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-thumbs-'));
+    const root = mkdtempSync(join(testTempBase(), 'tl-thumbs-'));
     dirs.push(root);
     const cache = createThumbnailCache((id) => join(root, id, 'cache', 'imported'));
     expect(cache.etag('demo', DIGEST, null)).toBeNull();
@@ -91,7 +92,7 @@ describe('thumbnail cache', () => {
   });
 
   it('the per-project count is kept (a rewrite does not count twice; new files do)', () => {
-    const root = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-thumbs-'));
+    const root = mkdtempSync(join(testTempBase(), 'tl-thumbs-'));
     dirs.push(root);
     const cache = createThumbnailCache((id) => join(root, id, 'cache', 'imported'));
     for (let i = 0; i < 3; i += 1) expect(cache.write('demo', DIGEST, `piece-${i}`, png(8, 8))).toBeNull();

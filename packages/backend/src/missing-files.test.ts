@@ -14,6 +14,7 @@ import { mkdtempSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSyn
 import { createHash } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import { testTempBase } from './testing';
 
 import { FakeEditor } from './test-editor';
 import { api, establish, mkRequestId, mkSessionId, playContentOf, startBackend, upgrade, type TestBackend } from './test-helpers';
@@ -45,7 +46,7 @@ interface PlayFile {
 
 describe('missing asset files', () => {
   it('are listed at open and after each check, stood in for in a Play outside the start, and named all at once in a refusal', async () => {
-    const exportRoot = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-missing-export-'));
+    const exportRoot = mkdtempSync(join(testTempBase(), 'tl-missing-export-'));
     const tb: TestBackend = await startBackend({ exportRoot, engineRoot: REPO, timeouts: { presentTimeoutSeconds: 60, inactivityTtlSeconds: 300 } });
     const dir = join(tb.root, 'data', 'projects', PID);
     const revision = (): number => {

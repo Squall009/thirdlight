@@ -16,13 +16,25 @@ function hex(n: number): string {
   return out;
 }
 
-/** Temp base dir without `node:os` (not in backend's allowed edges): TMPDIR or /tmp. */
-const tempBase = (): string => process.env.TMPDIR ?? '/tmp';
+/**
+ * Where tests make their scratch folders: TMPDIR when it is on disk, else ~/.cache/tmp. Never /tmp: on
+ * this host it is RAM (tmpfs), and test projects and exports there have OOM-killed the machine. (No
+ * `node:os`: it is not among the backend's allowed edges.)
+ */
+export function testTempBase(): string {
+  const env = process.env.TMPDIR;
+  if (env !== undefined && env !== '' && env !== '/tmp' && !env.startsWith('/tmp/')) return env;
+  const home = process.env.HOME;
+  if (home === undefined || home === '') throw new Error('testTempBase: TMPDIR is unset or /tmp and HOME is unset; set TMPDIR to a folder on disk');
+  const base = join(home, '.cache', 'tmp');
+  mkdirSync(base, { recursive: true });
+  return base;
+}
 
 export async function createTestBackend(
   config: Record<string, unknown> & { timeouts?: Record<string, number> },
 ): Promise<{ backend: Backend; root: string; teardown: () => Promise<void> }> {
-  const root = join(tempBase(), `tl-backend-${process.pid}-${hex(6)}`);
+  const root = join(testTempBase(), `tl-backend-${process.pid}-${hex(6)}`);
   const editorDir = join(root, 'editor');
   const previewDir = join(root, 'preview');
   // A test may open an existing data root (a second backend over the first one's projects).

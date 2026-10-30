@@ -10,6 +10,7 @@ import { join, resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { modelBricksBlob, modelBricksKey } from '@thirdlight/exporter';
+import { testTempBase } from './testing';
 
 import { api, mkRequestId, startBackend, type TestBackend } from './test-helpers';
 
@@ -67,7 +68,7 @@ describe('imported models get distance-field bricks', () => {
   let stored: Uint8Array = new Uint8Array(0);
 
   beforeAll(async () => {
-    exportRoot = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-model-bricks-'));
+    exportRoot = mkdtempSync(join(testTempBase(), 'tl-model-bricks-'));
     tb = await startBackend({ exportRoot, engineRoot: REPO });
     mkdirSync(game('assets', 'models'), { recursive: true });
     writeFileSync(game('assets', 'models', 'character.glb'), GLB);

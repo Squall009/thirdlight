@@ -14,6 +14,7 @@ import { createHash } from 'node:crypto';
 import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { testTempBase } from './testing';
 
 import { api, exportContentOf, mkRequestId, mkSessionId, startBackend, type TestBackend } from './test-helpers';
 
@@ -47,7 +48,7 @@ describe('addresses and labels over HTTP', () => {
   };
 
   beforeAll(async () => {
-    exportRoot = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-loadable-export-'));
+    exportRoot = mkdtempSync(join(testTempBase(), 'tl-loadable-export-'));
     tb = await startBackend({ exportRoot, engineRoot: REPO });
   });
   afterAll(async () => {

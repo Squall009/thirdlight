@@ -13,6 +13,7 @@
  */
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { testTempBase } from '@thirdlight/backend/testing';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -73,7 +74,7 @@ describe('linked-copy commands at the backend', () => {
   let handleRoot = '';
 
   beforeAll(async () => {
-    exportRoot = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-prefab-commands-'));
+    exportRoot = mkdtempSync(join(testTempBase(), 'tl-prefab-commands-'));
     tb = await startBackend({ exportRoot, engineRoot: REPO });
     const make = async (prefabId: string, name: string, child?: string): Promise<string[]> => {
       const root = (await post('createEntity', { kind: 'box', name, sceneId: 'scene-main' })).json.createdId as string;

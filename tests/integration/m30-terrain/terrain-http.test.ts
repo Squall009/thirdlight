@@ -16,6 +16,7 @@ import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { testTempBase } from '@thirdlight/backend/testing';
 
 import { loadTerrainField } from '../../../packages/game-host/src/terrain-tiles';
 import { terrainOverviewOf, terrainTileOf } from '../../../packages/runtime/src/terrain-blob';
@@ -48,7 +49,7 @@ describe('terrain over HTTP', () => {
   const terrainNow = async (): Promise<Terrain> => (await query({ entityId: ground }))['component'] as Terrain;
 
   beforeAll(async () => {
-    exportRoot = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-terrain-'));
+    exportRoot = mkdtempSync(join(testTempBase(), 'tl-terrain-'));
     tb = await startBackend({ exportRoot, engineRoot: REPO });
     const made = await command('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Ground' });
     expect(made.status, JSON.stringify(made.json)).toBe(200);

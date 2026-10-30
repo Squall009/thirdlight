@@ -17,7 +17,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdtempSync, existsSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { createTestBackend } from './testing';
+import { createTestBackend, testTempBase } from './testing';
 import { AUTHORING_ORIGIN, exportContentOf, PREVIEW_ORIGIN } from './test-helpers';
 
 const PROJECT = 'demo-0001';
@@ -73,7 +73,7 @@ function count(s: string, needle: string): number {
 
 describe('POST /api/v1/admin/projects/:projectId/export (real backend e2e)', () => {
   beforeAll(async () => {
-    const exportRoot = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-export-e2e-'));
+    const exportRoot = mkdtempSync(join(testTempBase(), 'tl-export-e2e-'));
     const t = await createTestBackend({
       authoringOrigin: AUTHORING_ORIGIN,
       previewOrigin: PREVIEW_ORIGIN,

@@ -8,6 +8,7 @@ import { readGlb } from '@thirdlight/shared';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { testTempBase } from './testing';
 
 import { afterAll, describe, expect, it } from 'vitest';
 
@@ -17,7 +18,7 @@ import { createFbxConverter, isFbx } from './fbx';
 const FBX = resolve(import.meta.dirname, '..', '..', '..', 'fixtures', 'import-ext', 'fbx');
 const blender = process.env.THIRDLIGHT_BLENDER ?? 'blender';
 const haveBlender = spawnSync(blender, ['--version'], { encoding: 'utf8' }).status === 0;
-const work = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-fbx-test-'));
+const work = mkdtempSync(join(testTempBase(), 'tl-fbx-test-'));
 afterAll(() => rmSync(work, { recursive: true, force: true }));
 
 const job = {

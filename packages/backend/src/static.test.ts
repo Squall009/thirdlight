@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { createBackend } from './backend';
 import { AUTHORING_ORIGIN, PREVIEW_ORIGIN, startBackend, type TestBackend } from './test-helpers';
+import { testTempBase } from './testing';
 
 function hex(n: number): string {
   let out = '';
@@ -17,7 +18,7 @@ function hex(n: number): string {
 }
 
 function tempStaticDirs(): { root: string; editorDir: string; previewDir: string } {
-  const root = join(process.env.TMPDIR ?? '/tmp', `tl-static-${process.pid}-${hex(6)}`);
+  const root = join(testTempBase(), `tl-static-${process.pid}-${hex(6)}`);
   const editorDir = join(root, 'editor');
   const previewDir = join(root, 'preview');
   mkdirSync(editorDir, { recursive: true });

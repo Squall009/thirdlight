@@ -18,7 +18,7 @@ import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { api, AUTHORING_ORIGIN, mkRequestId, mkSessionId, PREVIEW_ORIGIN, startBackend, type TestBackend } from './test-helpers';
-import { createTestBackend } from './testing';
+import { createTestBackend, testTempBase } from './testing';
 
 const REPO = resolve(import.meta.dirname, '..', '..', '..');
 /** A test that exports builds the game (minified and tree-shaken): seconds alone, more on a loaded host, as in the export tests. */
@@ -38,7 +38,7 @@ describe('the scene model over HTTP', () => {
   const sceneFile = (sceneId: string): Ent[] => (JSON.parse(readFileSync(join(tb.root, 'data', 'projects', ID, 'scenes', `${sceneId}.json`), 'utf8')) as { scene: { entities: Ent[] } }).scene.entities;
 
   beforeAll(async () => {
-    exportRoot = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-scene-model-export-'));
+    exportRoot = mkdtempSync(join(testTempBase(), 'tl-scene-model-export-'));
     tb = await startBackend({ tokens: [], exportRoot, engineRoot: REPO });
     const c = await api(`${tb.authUrl}/api/v1/admin/projects`, { body: { projectId: ID, name: 'Scene model' }, token: tb.adminToken, origin: null });
     expect(c.status).toBe(201);

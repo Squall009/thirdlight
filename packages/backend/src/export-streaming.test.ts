@@ -13,6 +13,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { testTempBase } from './testing';
 
 import { api, mkRequestId, startBackend, type TestBackend } from './test-helpers';
 
@@ -58,7 +59,7 @@ describe('the export streams its files to disk', () => {
   const litter = (): string[] => readdirSync(exportRoot).filter((e) => e.startsWith('.export-tmp-') || e.includes('.replacing'));
 
   beforeAll(async () => {
-    exportRoot = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-export-streaming-'));
+    exportRoot = mkdtempSync(join(testTempBase(), 'tl-export-streaming-'));
     tb = await startBackend({ exportRoot, engineRoot: REPO });
     mkdirSync(game('assets', 'sfx'), { recursive: true });
     for (let i = 0; i < SOUNDS; i += 1) writeFileSync(game('assets', 'sfx', `s${i}.wav`), variant(i));

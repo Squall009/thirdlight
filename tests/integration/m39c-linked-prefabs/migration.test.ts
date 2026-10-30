@@ -16,6 +16,7 @@
  */
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { testTempBase } from '@thirdlight/backend/testing';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -129,7 +130,7 @@ describe('a schemaVersion 7 project with plain prefab copies opened over HTTP', 
   const ids: Record<string, string> = {};
 
   beforeAll(async () => {
-    exportRoot = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-prefab-migration-export-'));
+    exportRoot = mkdtempSync(join(testTempBase(), 'tl-prefab-migration-export-'));
     tb = await startBackend({ exportRoot, engineRoot: REPO });
     await makePrefab('door', 'Door', { Panel: 0.4, Sensor: -0.4 });
     await makePrefab('enemy', 'Enemy', {});

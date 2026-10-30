@@ -17,6 +17,7 @@
  */
 import { readFileSync, readdirSync, rmSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { testTempBase } from '@thirdlight/backend/testing';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -91,7 +92,7 @@ describe('a 2D project opened over HTTP: one 3D backend, scenes with a default p
   const ids = new Map<string, Map<string, string>>();
 
   beforeAll(async () => {
-    exportRoot = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-planes-upgrade-export-'));
+    exportRoot = mkdtempSync(join(testTempBase(), 'tl-planes-upgrade-export-'));
     tb = await startBackend({ exportRoot, engineRoot: REPO });
     await command('setSettings', { settings: { ...SETTINGS, camera_fov_deg: 50 } });
     await command('setInput', { input: INPUT });

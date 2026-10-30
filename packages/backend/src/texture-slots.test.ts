@@ -18,6 +18,7 @@
  */
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { testTempBase } from './testing';
 
 import { readRuntimeContentSync } from '@thirdlight/exporter';
 import { LAYERED_TEXTURES, layeredMaterial, UV_SOURCES } from '@thirdlight/project-model/layered-surface';
@@ -74,7 +75,7 @@ describe('per-layer texture slots: Play and export arrays', () => {
   };
 
   beforeAll(async () => {
-    exportRoot = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-texture-slots-'));
+    exportRoot = mkdtempSync(join(testTempBase(), 'tl-texture-slots-'));
     tb = await startBackend({ exportRoot, engineRoot: REPO });
     mkdirSync(game('assets', 'slots'), { recursive: true });
     // Colour layers (ETC1S, sRGB) and data layers (UASTC, linear), single images.

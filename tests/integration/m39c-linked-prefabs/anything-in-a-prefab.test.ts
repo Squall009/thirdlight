@@ -14,6 +14,7 @@
  */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { testTempBase } from '@thirdlight/backend/testing';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -56,7 +57,7 @@ describe('anything in a prefab', () => {
   const place = async (prefabId: string, position: number[]): Promise<string> => (await command('instantiatePrefab', { sceneId: 'scene-main', prefabId, transform: { position } })).change.rootId as string;
 
   beforeAll(async () => {
-    exportRoot = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-anything-prefab-'));
+    exportRoot = mkdtempSync(join(testTempBase(), 'tl-anything-prefab-'));
     tb = await startBackend({ exportRoot, engineRoot: REPO });
   }, 120_000);
   afterAll(async () => {

@@ -15,6 +15,7 @@
  */
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { testTempBase } from '@thirdlight/backend/testing';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -77,7 +78,7 @@ describe('linked prefab copies at the backend', () => {
   });
 
   beforeAll(async () => {
-    exportRoot = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-linked-export-'));
+    exportRoot = mkdtempSync(join(testTempBase(), 'tl-linked-export-'));
     tb = await startBackend({ exportRoot, engineRoot: REPO });
     [handleRoot] = (await makePrefab('handle', 'Handle', {})) as [string];
     [doorRoot, panel] = (await makePrefab('door', 'Door', { Panel: 0.4 })) as [string, string];

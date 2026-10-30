@@ -17,6 +17,7 @@
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join, resolve } from 'node:path';
+import { testTempBase } from './testing';
 
 import type { DecalPageRef, DecalPageReport } from '@thirdlight/project-model';
 import { DECAL_PAGE_LIMITS } from '@thirdlight/project-model/limits';
@@ -115,7 +116,7 @@ describe('decal pages in a real export', () => {
   const sheetSide = 256;
 
   beforeAll(async () => {
-    exportRoot = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-decal-pages-'));
+    exportRoot = mkdtempSync(join(testTempBase(), 'tl-decal-pages-'));
     tb = await startBackend({ exportRoot, engineRoot: REPO });
     mkdirSync(game('assets', 'decals'), { recursive: true });
     // A trim sheet's three textures, UASTC at the page size; a loose decal's colour and emissive images (PNG, 64²).

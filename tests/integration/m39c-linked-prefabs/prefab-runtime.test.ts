@@ -14,6 +14,7 @@
  */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { testTempBase } from '@thirdlight/backend/testing';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -60,7 +61,7 @@ describe('nested prefabs and variants in the running game', () => {
   };
 
   beforeAll(async () => {
-    exportRoot = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-prefab-runtime-'));
+    exportRoot = mkdtempSync(join(testTempBase(), 'tl-prefab-runtime-'));
     tb = await startBackend({ exportRoot, engineRoot: REPO });
   }, 120_000);
   afterAll(async () => {

@@ -16,6 +16,7 @@ import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { testTempBase } from '@thirdlight/backend/testing';
 
 import { createBehaviorCompiler } from '@thirdlight/behavior-build';
 import { buildContentClosureM3 } from '@thirdlight/exporter';
@@ -169,7 +170,7 @@ describe('a v4 build opens on the page as the v5 build of the same project', () 
   let tb: TestBackend;
   let exportRoot: string;
   beforeAll(async () => {
-    exportRoot = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-catalog-export-'));
+    exportRoot = mkdtempSync(join(testTempBase(), 'tl-catalog-export-'));
     tb = await startBackend({ tokens: [], exportRoot, engineRoot: REPO });
     cpSync(join(FIXTURE, 'project'), join(tb.root, 'data', 'projects', ID), { recursive: true });
   });

@@ -15,6 +15,7 @@
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
+import { testTempBase } from './testing';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -29,7 +30,7 @@ let tb: TestBackend;
 let exportRoot: string;
 let ws: TestWs;
 beforeAll(async () => {
-  exportRoot = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-vs-debug-'));
+  exportRoot = mkdtempSync(join(testTempBase(), 'tl-vs-debug-'));
   tb = await startBackend({ exportRoot, engineRoot: REPO_ROOT });
   // Play needs a connected browser session (it presents the preview).
   const sid = mkSessionId();
