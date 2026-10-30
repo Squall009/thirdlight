@@ -18,6 +18,7 @@ import {
   vocabularyHits,
   UNITS,
   NODE_SIDE_ALLOWED,
+  LEAF_UNIT,
   VOCABULARY_ALLOWLIST,
 } from './check-boundaries.mjs';
 
@@ -413,6 +414,33 @@ describe('check 1 — static import graph', () => {
     for (const u of UNITS) {
       expect(NODE_SIDE_ALLOWED[u], `edge table row for '${u}'`).toBeDefined();
     }
+  });
+});
+
+describe('the leaf unit', () => {
+  it('may be value-imported by every unit and by a bundle entry', () => {
+    const root = makeRoot();
+    addPkg(root, LEAF_UNIT, { files: { 'src/index.ts': 'export const one = 1;\n' } });
+    for (const u of UNITS.filter((name) => name !== LEAF_UNIT)) {
+      addPkg(root, u, { files: { 'src/index.ts': `import { one } from '@thirdlight/${LEAF_UNIT}';\nexport const two = one + 1;\n` } });
+    }
+    // A bundle entry has its own exact edge row; the leaf is allowed there too.
+    const entry = join(root, 'packages/exporter/src/export-mesh-worker.ts');
+    writeFileSync(entry, `import { one } from '@thirdlight/${LEAF_UNIT}';\nexport const three = one + 2;\n`);
+    expect(checkWorkspace(root).violations).toEqual([]);
+  });
+
+  it('imports nothing: no workspace package, no third-party package, no Node built-in', () => {
+    const root = makeRoot();
+    addPkg(root, 'project-model');
+    addPkg(root, LEAF_UNIT, {
+      files: {
+        'src/index.ts': "import { ok } from '@thirdlight/project-model';\nimport * as THREE from 'three';\nimport { join } from 'node:path';\nexport const x = [ok, THREE, join];\n",
+      },
+    });
+    const rules = checkWorkspace(root).violations.map((v) => v.rule).sort();
+    expect(rules).toEqual(['forbidden-edge', 'forbidden-external', 'node-builtin-forbidden']);
+    expect(NODE_SIDE_ALLOWED[LEAF_UNIT]).toEqual({ packages: [], external: [], node: [] });
   });
 });
 

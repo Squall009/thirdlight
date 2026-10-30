@@ -76,6 +76,14 @@ import ts from 'typescript'; // already pinned tooling
 
 export const WORKSPACE_SCOPE = '@thirdlight/';
 
+/**
+ * The leaf unit every package and bundle entry may import. It imports nothing
+ * itself (its edge table row is empty), so an edge to it can never close a
+ * cycle or pull I/O or three.js into a bundle; a helper that more than one
+ * package needs moves there instead of being copied.
+ */
+export const LEAF_UNIT = 'shared';
+
 /** The unit list. */
 export const UNITS = [
   'project-model',
@@ -971,7 +979,7 @@ export function checkWorkspace(root) {
             continue;
           }
           if (unit === pkg.name) continue; // self-reference through own public subpath: internal
-          if (!fileAllowed.packages.includes(unit)) {
+          if (unit !== LEAF_UNIT && !fileAllowed.packages.includes(unit)) {
             addV(
               rel,
               line,
