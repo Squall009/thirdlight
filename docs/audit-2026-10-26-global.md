@@ -136,7 +136,7 @@ The cost of building one phase at a time shows in four places:
 ## 4. Low (batch them)
 
 - **Duplicated algorithms.** One home each in project-model would delete about 100 copies (44.3: generic ones get the
-  `@thirdlight/shared` leaf, a build check stops new copies, today's 163 are on its ratchet list; 44.4a moved SHA-256, canonical JSON, GLB/PNG/KTX2/CRC-32, quat/mat4, random and noise: 82 left):
+  `@thirdlight/shared` leaf, a build check stops new copies, today's 163 are on its ratchet list; 44.4a moved SHA-256, canonical JSON, GLB/PNG/KTX2/CRC-32, quat/mat4, random and noise: 82 left; 44.4b moved the rest below, 23 left, 20 of them in retired areas):
   - SHA-256 and canonical JSON (`asset-pipeline/sha256.ts`, `behavior-build/canonical.ts`);
   - the GLB container parser (5–7 sites);
   - KTX2 and PNG signatures, encoders, CRC-32;

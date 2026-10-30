@@ -63,6 +63,7 @@ regression points at its cause.
 | 44.2 | done: G4 templates stored current (cb646f8d: schema 8 / storage 5+4 as game folders, made once by the engine's own creation path; new project = copy, no upgrade; 3D character a link, not a 2nd copy), legacy session page + `envelopeBytes` field (bf1faada), v1 `captureManifest` (ef3f6d99). Code −866 / +220 lines (tests included), one module gone. New vitest over HTTP: each template's project opens with nothing upgraded. e2e projects 17.2 → 16.5 s, starter-game 6.4 → 6.7, starter-capabilities 17.9 → 17.5, folder-projects 9.8 → 10.1, instance-brush 38.8 → 38.5. Fast gates green (one D307 watch miss, passed alone). |
 | 44.3 | done: leaf `@thirdlight/shared` (20624218), every package may import it (40ade512), three-adapter value edge to project-model (4b1341ff: 412 of 657 runtime relays gone, runtime index −232 lines), stale export-bootstrap rule (51e6cf83); goldens before any move (895a351d); `check-redefinitions` in the build (a6887409): ratchet starts at **163** copies, 15 retired; AGENTS line (059b4bca). e2e play-export 5.7 → 5.3 s. Fast gates green. |
 | 44.4a | done: shared leaf owns SHA-256 + canonical JSON (51013afc: 34 copies, −1000/+626 lines, ratchet 163 → 129), GLB/PNG/KTX2/CRC-32 (94797c66: 18 named + ~35 inline writers/readers, −934/+413, → 111), quaternion/mat4 (f9936e96: 9, −270/+215, → 102), random/noise (67796e74: 20, −369/+272, → 82); goldens unchanged. e2e play-export 5.3 → 4.7 s; village at the cap unchanged. Fast gates green (v4-limits timed out once under load, passed alone). |
+| 44.4b | done: objects/utf8 (5cbcf50e: 85 copies, −870/+719, ratchet 82 → 40), digest + request id (2f9a728a rule, fae753d6: 41 copies incl. 20 inline literals, −102/+85, → 25), LruCache (4b7c8cb7: 5 LRUs, −42/+90), strict JSON (aa69ea2c: 4 parsers + 6 pointer escapes, −843/+370, → 23; 200k-text differential identical), errors (74d5dca2: 2 copies, 5 named variants). e2e play-export 4.7 → 5.3 s. Fast gates green (D307 watch miss, passed alone). |
 
 ### 44.0 baseline
 
@@ -131,3 +132,17 @@ What the end of 44 is measured against (44.13).
   the shader copies (TslRng, material-graph `valueNoise`) stay, ground cover's shader takes the lane constants. The
   check now owns the GLB, image-signature, PNG-writer, mat4/quat and noise-hash names and the GLB JSON chunk type as
   a fingerprint. Left: the visual-script prelude's mulberry32 (source text), 44.4b's families.
+- 2026-10-30 (44.4b, default chosen, owner to confirm): variants kept by name where copies differ: `isPlainObjectStrict`
+  (prototype check: commands, workspace), `deepFreezeAll` (walks into frozen parents), `deepFreezeExceptViews` (workspace
+  boundary), `utf8LengthPairingAnyHigh`/`utf8LengthPairingHigh` (scene and save sizes; differ only on lone high
+  surrogates). Merged as equal on the data they get: deepFreeze's pre/post-order and `getOwnPropertyNames` copies, and
+  the compile memo's re-set of a key two compiles finished at once. Only true LRUs moved; the 13 insertion-order (FIFO)
+  caches and the type checker's file cache keep their code. Strict JSON: one parser with options (duplicates,
+  after-syntax, null prototype, finite numbers, raw control characters, lone surrogates); the exporter's syntax
+  messages now come from it instead of `JSON.parse` (values still `JSON.parse`'s). Digest format: project-model
+  `content-helpers` and `request-id` are value subpaths for protocol, backend, MCP adapter and editor; the game host
+  reads `isDigest` through the runtime. Workspace error constructors that differ from the command ones were renamed
+  (`envelopeInvalidRequest`, `queryFieldUnexpected`, `queryEntityNotFound`, `behaviorPreparationUnavailable`,
+  `behaviorTrustUnacknowledgedToPrepare`; `terrain-query.ts` only follows the rename). Left: retired-area copies
+  (20 ratchet entries), `tools/check-deps.mjs`'s `isObj` (tools cannot import the TS leaf), the scatter drawer's
+  inline digest check.
