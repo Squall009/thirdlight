@@ -434,11 +434,6 @@ export const FORBIDDEN_WEB_FRAMEWORKS = new Set([
  * bundle's exact allowed graph.
  */
 const BUNDLE_ENTRY_EDGES = {
-  'packages/exporter/src/export-bootstrap.ts': {
-    packages: ['runtime', 'three-adapter', 'project-model'],
-    external: ['three'],
-    node: [],
-  },
   // The v3 export bundle: `export-bootstrap-m3.ts` starts the game with the
   // shared game page (`game-host` and its `./game-page` subpath) and reads
   // the manifest's scene and catalog through project-model's hash. Its only
@@ -525,31 +520,25 @@ const BUNDLE_ENTRY_EDGES = {
     external: [],
     node: [],
   },
-  // The play-preview bundle: the entry is
-  // `editor/src/preview/**` and its graph may include protocol, runtime,
-  // three-adapter (+ the GLTFLoader subpath), project-model, input and
-  // physics-rapier. The checker validates this file's DIRECT edges against
-  // that bundle graph instead of the narrower editor row (which names the
-  // editor UI's edges); the transitive graph stays enforced by the esbuild
-  // metafile check.
+  // The play-preview bundle (`preview-m3.ts`): its graph may include protocol,
+  // runtime, three-adapter (+ the GLTFLoader subpath), project-model, input,
+  // physics-rapier and game-host. It composes the SINGLE shared production
+  // host (`createGameHost`) and is the only editor file allowed to import
+  // `game-host` (the preview wrapper, not the editor UI). The checker
+  // validates this file's DIRECT edges against that bundle graph instead of
+  // the narrower editor row (which names the editor UI's edges); the
+  // transitive graph stays enforced by the esbuild metafile check.
   //
   // `computedDynamicImport: 'locator'` records the OTHER accepted exception:
   // the preview loads the pinned behavior outputs from the read-only locator at
-  // runtime (`./game.js`-relative behavior outputs are a
-  // permitted engine fetch), so its `import()` specifier is built from the
-  // artifact root and cannot be a string literal. The target is always a
-  // manifest-declared relative artifact path — never a package/remote specifier.
-
-  // The `preview-m3.ts` wrapper composes the
-  // SINGLE shared production host (`createGameHost`) — the only editor file
-  // allowed to import `game-host` (the preview wrapper, not the editor UI).
-  // Same play-preview graph as preview-bootstrap.ts plus game-host. The
-  // preview-bootstrap.ts row above stays byte-stable.
+  // runtime (behavior outputs are a permitted engine fetch), so its `import()`
+  // specifier is built from the artifact root and cannot be a string literal.
+  // The target is always a manifest-declared relative artifact path — never a
+  // package/remote specifier.
   'packages/editor/src/preview/preview-m3.ts': {
     packages: ['protocol', 'runtime', 'three-adapter', 'project-model', 'input', 'physics-rapier', 'game-host'],
     external: ['three'],
     node: [],
-    // Behavior outputs load from the locator, as in preview-bootstrap.ts.
     computedDynamicImport: 'locator',
   },
   // The input exercise's frames resolved on the play page (a virtual gamepad read through the
