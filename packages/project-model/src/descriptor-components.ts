@@ -840,10 +840,10 @@ const MODE_TRANSITION_FIELDS: readonly FieldDescriptor[] = [
 export const MODE_ITEM: FieldDescriptor = obj('*', 'Game mode', 'One game mode.', [
   str('modeId', 'Id', 'Scripts (ctx.modes.switch) and UI mode actions name it.', { required: true, format: 'id', minLength: 1, maxLength: 64 }),
   str('name', 'Name', 'Shown in the editor and the Play toolbar.', { required: true, minLength: 1, maxLength: MODE_LIMITS.nameLength }),
-  list('inputMaps', 'Input maps', 'The input maps active in the mode (absent: every map). Actions of other maps read as released.', ref('*', 'Map', 'gameplay, ui or one of the project\'s maps.', 'inputMap'), { maxItems: MODE_LIMITS.inputMaps, unique: true }),
+  list('inputMaps', 'Input maps', 'The input maps active in the mode (absent: every map). Actions of other maps read as released.', ref('*', 'Map', 'gameplay, ui or one of the project\'s maps.', 'inputMap'), { unique: true }),
   entity('camera', 'Camera', 'A virtual camera that is live while the mode is, over the priorities (absent: the priority rule).', { component: 'virtualCamera', anyScene: true }),
-  list('ui', 'UI documents', 'Shown while the mode is active, hidden when it ends.', ref('*', 'Document', 'A UI document.', 'uiDocument'), { maxItems: MODE_LIMITS.ui, unique: true }),
-  list('groups', 'Ticking groups', 'The behavior groups whose scripts run (absent: every group). The other groups pause.', ref('*', 'Group', 'A behavior group.', 'behaviorGroup'), { maxItems: MODE_LIMITS.groups, unique: true }),
+  list('ui', 'UI documents', 'Shown while the mode is active, hidden when it ends.', ref('*', 'Document', 'A UI document.', 'uiDocument'), { unique: true }),
+  list('groups', 'Ticking groups', 'The behavior groups whose scripts run (absent: every group). The other groups pause.', ref('*', 'Group', 'A behavior group.', 'behaviorGroup'), { unique: true }),
   enm('ungrouped', 'Ungrouped behaviors', 'Behaviors of objects without a behavior group.', MODE_UNGROUPED, { default: MODE_DEFAULTS.ungrouped }),
   bool('pause', 'Pause allowed', 'The engine pause (the pause key, a pause button) may be used in this mode.', { default: MODE_DEFAULTS.pause }),
   ref('pauseScreen', 'Pause screen', 'A UI document drawn while the game is paused in this mode (absent: the engine\'s pause panel).', 'uiDocument'),

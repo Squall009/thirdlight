@@ -67,7 +67,7 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 | Constant | Value | What it is |
 |---|---|---|
 | <a id="limit-mode-defaults"></a>`MODE_DEFAULTS` | `{"ungrouped":"tick","pause":true,"timeScale":1,"physics":"run","fadeTime":0.5}` | Defaults, with their genre-neutral reasons. |
-| <a id="limit-mode-limits"></a>`MODE_LIMITS` | `{"modes":16,"inputMaps":8,"ui":16,"groups":32,"behaviorGroups":32,"nameLength":64,"timeScaleMin":0.1,"timeScaleMax":4,"blendTimeMax":30,"fadeTimeMin":0.05,"fadeTimeMax":10}` | Engine limits (documented; they protect the runtime and keep a whole list inside one 64 KiB command). |
+| <a id="limit-mode-limits"></a>`MODE_LIMITS` | `{"nameLength":64,"timeScaleMin":0.1,"timeScaleMax":4,"blendTimeMax":30,"fadeTimeMin":0.05,"fadeTimeMax":10}` | Engine limits on one mode's values. The lists (modes, behavior groups, a mode's maps, documents and groups) have no count: a game has as many modes and groups as it needs, a mode's lists name distinct things the project has, and each whole list is one command, bounded by the request's bytes. |
 
 <a id="limits-project-model--paint-brush"></a>
 ## `paint-brush.ts`

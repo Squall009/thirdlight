@@ -16,7 +16,6 @@
  */
 import { useState, type JSX } from 'react';
 import type { DescriptorRegistry, GameMode, ObjectFieldDescriptor } from '@thirdlight/project-model';
-import { MODE_LIMITS } from '@thirdlight/project-model/limits';
 import { ObjectFields, type FieldContext } from './DescriptorFields';
 import { componentPatch } from '../session/descriptor-fields';
 
@@ -33,8 +32,6 @@ interface Props {
 }
 
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
-const MAX_MODES = MODE_LIMITS.modes;
-const MAX_GROUPS = MODE_LIMITS.groups;
 
 function itemDesc(registry: DescriptorRegistry | null, key: string): ObjectFieldDescriptor | null {
   const d = registry?.content.find((b) => b.key === key)?.value;
@@ -62,7 +59,7 @@ export function ModesPanel(p: Props): JSX.Element {
 
   const addMode = (): void => {
     const name = draft.trim();
-    if (name === '' || p.modes.length >= MAX_MODES) return;
+    if (name === '') return;
     const modeId = newModeId(name, ids);
     p.onSetModes([...p.modes, { modeId, name }]);
     setSelected(modeId);
@@ -82,7 +79,7 @@ export function ModesPanel(p: Props): JSX.Element {
   };
   const addGroup = (): void => {
     const name = groupDraft.trim();
-    if (groupProblem(name) !== null || p.groups.length >= MAX_GROUPS) return;
+    if (groupProblem(name) !== null) return;
     p.onSetGroups([...p.groups, name]);
     setGroupDraft('');
   };
@@ -90,7 +87,7 @@ export function ModesPanel(p: Props): JSX.Element {
 
   return (
     <div className="tl-panel tl-modes" aria-label="game modes">
-      <div className="tl-panel__title">Game modes — {p.modes.length} / {MAX_MODES}</div>
+      <div className="tl-panel__title">Game modes — {p.modes.length}</div>
       <p className="tl-tags__hint">
         Each mode sets the input maps, the live camera, the UI documents shown and the behavior groups that tick; a switch (<code>ctx.modes.switch</code>, a UI button&apos;s mode action) changes them together without loading a scene. The first mode is the start mode.
       </p>
@@ -125,7 +122,7 @@ export function ModesPanel(p: Props): JSX.Element {
                 if (e.key === 'Enter') addMode();
               }}
             />
-            <button className="tl-btn" onClick={addMode} disabled={draft.trim() === '' || p.modes.length >= MAX_MODES}>
+            <button className="tl-btn" onClick={addMode} disabled={draft.trim() === ''}>
               add mode
             </button>
           </div>
@@ -160,7 +157,7 @@ export function ModesPanel(p: Props): JSX.Element {
           )}
         </section>
         <section className="tl-modes__col" aria-label="behavior groups">
-          <div className="tl-panel__title">Behavior groups — {p.groups.length} / {MAX_GROUPS}</div>
+          <div className="tl-panel__title">Behavior groups — {p.groups.length}</div>
           <p className="tl-tags__hint">An object&apos;s Behavior group component puts its script in a group; a mode lists the groups that tick.</p>
           <ul className="tl-tags__list">
             {p.groups.map((name) => {
@@ -186,7 +183,7 @@ export function ModesPanel(p: Props): JSX.Element {
                 if (e.key === 'Enter') addGroup();
               }}
             />
-            <button className="tl-btn" onClick={addGroup} disabled={groupDraft.trim() === '' || groupDraftProblem !== null || p.groups.length >= MAX_GROUPS}>
+            <button className="tl-btn" onClick={addGroup} disabled={groupDraft.trim() === '' || groupDraftProblem !== null}>
               add group
             </button>
             {groupDraftProblem !== null && <span className="tl-prop__error">{groupDraftProblem}</span>}

@@ -28,7 +28,7 @@ import { validateUiEvents, type UiEventRecord } from './ui';
 import { validateDialogueInputs, type DialogueInputRecord } from './dialogue';
 import { validateAssetAnswers, type AssetHandleAnswer } from './asset-handles';
 import { isPlainObject } from '@thirdlight/shared';
-import { MOVE_QUANTUM, quantizeMove } from '@thirdlight/project-model';
+import { INPUT_ACTIONS_BOUND, MOVE_QUANTUM, quantizeMove } from '@thirdlight/project-model';
 
 /** The four jump phases. */
 export type JumpPhase = 'none' | 'pressed' | 'held' | 'released';
@@ -196,8 +196,8 @@ export function validateInputPress(value: unknown): { ok: true; press: InputPres
 export const POINTER_BUTTON_BITS = Object.freeze({ left: 1, right: 2, middle: 4 } as const);
 const POINTER_KEYS = new Set(['x', 'y', 'dx', 'dy', 'wheel', 'buttons', 'pressed', 'released', 'over', 'locked', 'overUi']);
 
-/** Most named actions in a frame (project-model MAX_INPUT_ACTIONS). */
-export const MAX_FRAME_ACTIONS = 64;
+/** Most named actions in a frame: as many as a project's input settings can name. */
+export const MAX_FRAME_ACTIONS = INPUT_ACTIONS_BOUND;
 const ACTION_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 
 // Movement quantization: the model's step and rounding.

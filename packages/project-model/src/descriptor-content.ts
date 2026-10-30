@@ -22,10 +22,7 @@ import {
   INPUT_HOLD_MAX,
   INPUT_HOLD_MIN,
   INPUT_PAD_SLOTS,
-  MAX_INPUT_ACTIONS,
   MAX_INPUT_BINDINGS,
-  MAX_INPUT_MAPS,
-  MAX_INPUT_GLYPHS,
   POINTER_AXES,
   POINTER_BUTTONS,
 } from './input';
@@ -40,7 +37,6 @@ import { KIT_LIMITS, KIT_STANDARD_SLOTS } from './kits';
 import { ANTIALIAS_KINDS, DEFAULT_WIND, HEIGHT_FOG_DEFAULTS, HEIGHT_FOG_LIMITS, SKY_CLOUD_DEFAULTS, SKY_CLOUD_TIME_MAX, SKY_ROTATION_MAX, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS, MATERIAL_LAYER_NAME_MAX, type MaterialParamType } from './materials';
 import { MATERIAL_DATA_MAX, MATERIAL_PARAMETER_TYPES } from './material-graph-kinds';
 import { TRIM_DENSITY_MAX, TRIM_DENSITY_MIN, TRIM_PADDING_MAX, TRIM_SHEET_DEFAULTS, TRIM_SHEET_SIZE_MAX, TRIM_STARTER_LAYOUT } from './trim-sheet';
-import { MODE_LIMITS } from './modes';
 import { LOD_BIAS_MAX, LOD_BIAS_MIN } from './model-lod';
 import { DEFAULT_LIGHTING_TIER, LIGHTING_TIERS, lightingTierValues, MEDIUM_RENDER_SCALE, MSAA_SAMPLE_COUNTS, PIXEL_RATIO_CAP_MAX, PIXEL_RATIO_CAP_MIN, QUALITY_POST_EFFECTS, REFLECTION_QUALITIES, SHADOW_ATLAS_SIZES, SHADOW_MAP_SIZES, SURFACE_CACHE_MIB_MAX, SURFACE_CACHE_MIB_MIN, SURFACE_LIGHT_MS_MAX, SURFACE_LIGHT_MS_MIN } from './quality-levels';
 import { AMBIENT_OCCLUSION_KINDS, OCCLUSION_CULLING_MODES, RENDER_SCALE_MAX, RENDER_SCALE_MIN } from './render-settings';
@@ -219,7 +215,7 @@ const QUALITY_LEVEL = obj('level', 'Quality level', 'Graphics settings players p
 const ENVIRONMENT: FieldDescriptor = obj('environment', 'Environment', 'The quality levels, the one a game starts at, and the presets; each scene has its own sky, fog, post-processing and wind.', [
   str('quality', 'Quality', 'The quality level a game starts at, one of the levels\' ids (players change it in Settings; absent: the highest level whose lighting tier the device fits, an untiered level counting as medium).', { minLength: 1 }),
   list('qualityLevels', 'Quality levels', `The project's quality levels, lowest first (absent: the engine's low, medium and high, one per lighting tier: low draws no bloom, AO, depth of field, anti-aliasing or MSAA; medium no AO or depth of field, at a ${MEDIUM_RENDER_SCALE} render scale with dynamic resolution).`, QUALITY_LEVEL, { minItems: 1 }),
-  list('presets', 'Presets', 'Named looks scripts switch or blend to at run time (ctx.environment), laid over the active scene\'s look.', PRESET, { maxItems: 64 }),
+  list('presets', 'Presets', 'Named looks scripts switch or blend to at run time (ctx.environment), laid over the active scene\'s look.', PRESET),
 ]);
 
 /** A scene's look (`SceneV4.environment`): with several scenes loaded the active scene's applies. */
@@ -228,7 +224,7 @@ export const SCENE_ENVIRONMENT: ObjectFieldDescriptor = obj('environment', 'Scen
 const KEY_CODE = { format: 'keyCode' as const, minLength: 1, maxLength: 32 };
 const BINDING_KINDS = ['key', 'gamepadButton', 'gamepadAxis', 'keys1d', 'keys2d', 'gamepadButtons1d', 'gamepadStick', 'pointerButton', 'pointerPosition', 'pointerDelta', 'pointerAxis'] as const;
 const INPUT: FieldDescriptor = obj('input', 'Input', 'The game\'s actions and their keys and gamepad bindings (absent: the default actions).', [
-  list('actions', 'Actions', `Up to ${MAX_INPUT_ACTIONS} named actions.`, obj('*', 'Action', 'A named action and its bindings.', [
+  list('actions', 'Actions', 'The named actions (as many as the game needs).', obj('*', 'Action', 'A named action and its bindings.', [
     str('name', 'Name', 'The action name scripts and blocks read (a letter or _, then letters, digits or _).', { required: true, format: 'identifier', minLength: 1, maxLength: 32 }),
     enm('type', 'Type', 'A button, a 1D axis (left/right) or a 2D axis.', INPUT_ACTION_TYPES, { required: true, default: 'button', labels: { axis1d: 'Axis (1D)', axis2d: 'Axis (2D)' } }),
     // Gameplay, ui or one of the project's own maps (game modes activate maps).
@@ -258,14 +254,14 @@ const INPUT: FieldDescriptor = obj('input', 'Input', 'The game\'s actions and th
     num('deadZone', 'Dead zone', 'Axis values within this count as 0 (then rescaled).', { min: 0, max: 1, maxExclusive: true, step: 0.05, default: 0.2 }),
     bool('invert', 'Invert', 'Flip the axis.', { default: false }),
     num('scale', 'Scale', 'Multiply the value.', { min: 0, minExclusive: true, max: 10, step: 0.1, unit: '×', default: 1 }),
-  ]), { required: true, maxItems: MAX_INPUT_ACTIONS }),
+  ]), { required: true }),
   // The project's own input maps (a game mode activates maps; gameplay and ui always exist).
-  list('maps', 'Project maps', `Up to ${MAX_INPUT_MAPS} input maps besides gameplay and ui (game modes activate maps).`, str('*', 'Map', 'A letter or _, then letters, digits or _.', { format: 'identifier', minLength: 1, maxLength: 32 }), { maxItems: MAX_INPUT_MAPS, unique: true }),
+  list('maps', 'Project maps', 'Input maps besides gameplay and ui (game modes activate maps).', str('*', 'Map', 'A letter or _, then letters, digits or _.', { format: 'identifier', minLength: 1, maxLength: 32 }), { unique: true }),
   // Free by default — a pointer-driven game needs a visible cursor; mouse-look opts in to locked.
   // Keyed by any map (gameplay, ui or the project's own).
-  map('cursor', 'Cursor', 'The cursor while each map is active (absent: free): free, or locked (hidden and held in the view; its movement still counts, its position is the view\'s centre). The ui map\'s applies while a menu is open; during play the first of the active maps that sets one (a game mode\'s maps in their order). It is hidden while a gamepad drives the game.', 'Map', enm('*', 'Cursor', 'Free or locked while this map is active.', CURSOR_MODES, { default: 'free' }), { keyRef: 'inputMap', maxEntries: MAX_INPUT_MAPS + 2 }),
+  map('cursor', 'Cursor', 'The cursor while each map is active (absent: free): free, or locked (hidden and held in the view; its movement still counts, its position is the view\'s centre). The ui map\'s applies while a menu is open; during play the first of the active maps that sets one (a game mode\'s maps in their order). It is hidden while a gamepad drives the game.', 'Map', enm('*', 'Cursor', 'Free or locked while this map is active.', CURSOR_MODES, { default: 'free' }), { keyRef: 'inputMap' }),
   // The project's own glyph images (absent: the engine's generic icons).
-  map('glyphs', 'Glyphs', 'Glyph key → an image shown instead of the engine\'s generic icon. A key is an icon id (pad-south, pad-shoulder-left, mouse-left, key, …), optionally for one gamepad family (xbox:pad-south) or one key (key:Space).', 'Glyph', asset('*', 'Image', 'The texture shown for this glyph.', ['texture']), { maxEntries: MAX_INPUT_GLYPHS }),
+  map('glyphs', 'Glyphs', 'Glyph key → an image shown instead of the engine\'s generic icon. A key is an icon id (pad-south, pad-shoulder-left, mouse-left, key, …), optionally for one gamepad family (xbox:pad-south) or one key (key:Space).', 'Glyph', asset('*', 'Image', 'The texture shown for this glyph.', ['texture'])),
 ], { default: JSON.parse(JSON.stringify(DEFAULT_INPUT)) as DescriptorJson, rules: ['Action names are unique.'] });
 
 /** One shader parameter, as a descriptor field (the schema is in `MATERIAL_PARAMS`). */
@@ -605,8 +601,8 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
   // Project UI documents and themes (JSON widget trees, also edited in the visual UI editor).
   { key: 'uiDocuments', label: 'UI documents', tooltip: 'HUDs, menus and screens drawn by the game over the view (widget trees bound to script values).', required: false, value: list('uiDocuments', 'UI documents', 'The project\'s documents (each its own file).', json('*', 'Document', 'A UI document: { uiDocumentId, name, root, styles?, tweens?, … }.', { readOnly: true, shape: 'UiDocument' }), { default: [] }), ops: ['setUiDocument', 'deleteUiDocument'] },
   // Game modes (the first is the start mode) and the behavior groups modes tick.
-  { key: 'modes', label: 'Game modes', tooltip: 'Named states of the running game: the input maps, camera, UI documents and ticking behavior groups of each, switched in one transition without a scene load (explore and tactical, on foot and driving, build and play…). The first mode is the one a run starts in.', required: false, value: list('modes', 'Game modes', `Up to ${MODE_LIMITS.modes} modes; the first is the start mode.`, MODE_ITEM, { maxItems: MODE_LIMITS.modes, default: [] }), ops: ['setModes'] },
-  { key: 'behaviorGroups', label: 'Behavior groups', tooltip: 'Names an object\'s behavior can belong to (its Behavior group component); a game mode lists the groups that tick while it is active.', required: false, value: list('behaviorGroups', 'Behavior groups', `Up to ${MODE_LIMITS.behaviorGroups} names.`, str('*', 'Group', 'A letter or _, then letters, digits or _.', { format: 'identifier', minLength: 1, maxLength: 32 }), { maxItems: MODE_LIMITS.behaviorGroups, unique: true, default: [] }), ops: ['setBehaviorGroups'] },
+  { key: 'modes', label: 'Game modes', tooltip: 'Named states of the running game: the input maps, camera, UI documents and ticking behavior groups of each, switched in one transition without a scene load (explore and tactical, on foot and driving, build and play…). The first mode is the one a run starts in.', required: false, value: list('modes', 'Game modes', 'The first is the start mode.', MODE_ITEM, { default: [] }), ops: ['setModes'] },
+  { key: 'behaviorGroups', label: 'Behavior groups', tooltip: 'Names an object\'s behavior can belong to (its Behavior group component); a game mode lists the groups that tick while it is active.', required: false, value: list('behaviorGroups', 'Behavior groups', 'The group names.', str('*', 'Group', 'A letter or _, then letters, digits or _.', { format: 'identifier', minLength: 1, maxLength: 32 }), { unique: true, default: [] }), ops: ['setBehaviorGroups'] },
   // The game shell — menus and HUD as UI documents, the ordered scene list (a game that plays as a scene).
   {
     key: 'shell',

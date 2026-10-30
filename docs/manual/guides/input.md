@@ -86,6 +86,7 @@ input. Use `setInput` to share one control set between projects. Test with
   other queries hit colliders only, in every scene, side views included.
 - **A rebind listens to the real device.** Test input cannot answer it;
   `inputBindings.listening` shows it is waiting.
-- **64 actions per project**, 8 rebind requests per step from scripts.
+- **No count of actions:** the input settings fit one 64 KiB command (over a
+  thousand actions); 8 rebind requests per step from scripts.
 
 Related: [local co-op players](co-op.md), [UI documents](ui-documents.md).

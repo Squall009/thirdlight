@@ -5,8 +5,9 @@
  * scripts 64, scenes 64 and 32 in the shell's list, materials 256, animators
  * 64, timelines 64, UI documents 64 and themes 16, dialogues 256, speakers
  * 128, effects 128, graphs 64, script libraries 32, environment presets 64,
- * event sounds 64, trust entries 64, block types 256, stamps 64; the Play
- * manifest was 256 KiB) opens in the real backend, takes one command of each
+ * event sounds 64, trust entries 64, block types 256, stamps 64, game modes
+ * 16, behavior groups 32, input actions 64, input maps 8; the Play manifest
+ * was 256 KiB) opens in the real backend, takes one command of each
  * kind that makes one more, and plays and exports in the browser. The static
  * half is tests/count-caps.test.ts.
  */
@@ -16,6 +17,7 @@ import { join } from 'node:path';
 import { expect, test } from './pw';
 
 import { AUDIO_TOOLCHAIN, FONT_TOOLCHAIN, inspectAudio, inspectFont } from '@thirdlight/asset-pipeline';
+import { DEFAULT_INPUT } from '@thirdlight/project-model';
 import { defaultResourcePath, RESOURCE_KINDS, resourceFileBytes } from '@thirdlight/workspace';
 
 import { gpuAvailable } from './browser-env.mjs';
@@ -28,7 +30,7 @@ const root = join(PERF_ROOT, 'e2e', `count-caps-${process.pid}-${Date.now()}`);
 test.afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 /** The old caps, and 1.5 times each: the size of this project. */
-const OLD = { models: 128, textures: 256, sounds: 64, music: 64, fonts: 16, versionRecords: 1024, prefabs: 128, behaviors: 64, scenes: 64, shellScenes: 32, materials: 256, animators: 64, timelines: 64, uiDocuments: 64, uiThemes: 16, dialogues: 256, speakers: 128, effects: 128, graphs: 64, libraries: 32, presets: 64, cues: 64, trust: 64, blockTypes: 256, stamps: 64 } as const;
+const OLD = { models: 128, textures: 256, sounds: 64, music: 64, fonts: 16, versionRecords: 1024, prefabs: 128, behaviors: 64, scenes: 64, shellScenes: 32, materials: 256, animators: 64, timelines: 64, uiDocuments: 64, uiThemes: 16, dialogues: 256, speakers: 128, effects: 128, graphs: 64, libraries: 32, presets: 64, cues: 64, trust: 64, blockTypes: 256, stamps: 64, modes: 16, behaviorGroups: 32, inputActions: 64, inputMaps: 8 } as const;
 const over = (n: number): number => Math.ceil(n * 1.5);
 
 /** Assets, prefabs, materials, scenes, dialogue from the bench generator; enough voices that the records pass 1.5 × 1,024. */
@@ -50,6 +52,16 @@ const SPEC: ScaleSpec = {
 
 const pad = (i: number): string => String(i).padStart(5, '0');
 const ids = (prefix: string, n: number): string[] => Array.from({ length: n }, (_, i) => `${prefix}-${pad(i)}`);
+
+/** `n` behavior groups, input maps (each with an action besides the defaults, as many as `actions` asks) and game modes over them (the first runs every map and group). */
+function modesAndInput(n: { groups: number; maps: number; actions: number; modes: number }): { behaviorGroups: string[]; input: Record<string, unknown>; modes: Record<string, unknown>[] } {
+  const behaviorGroups = Array.from({ length: n.groups }, (_, i) => `group_${i}`);
+  const maps = Array.from({ length: n.maps }, (_, i) => `map_${i}`);
+  const extra = Array.from({ length: n.actions - DEFAULT_INPUT.actions.length }, (_, i) => ({ name: `ability_${i}`, type: 'button', map: maps[i % maps.length], bindings: [{ kind: 'key', code: `Digit${i % 10}` }] }));
+  const modes = Array.from({ length: n.modes }, (_, i) => (i === 0 ? { modeId: 'mode-start', name: 'Start' } : { modeId: `mode-${pad(i)}`, name: `Mode ${i}`, inputMaps: ['gameplay', 'ui', ...maps], groups: behaviorGroups }));
+  return { behaviorGroups, input: { ...DEFAULT_INPUT, actions: [...DEFAULT_INPUT.actions, ...extra], maps }, modes };
+}
+const LISTS_OVER = { groups: over(OLD.behaviorGroups), maps: over(OLD.inputMaps), actions: over(OLD.inputActions), modes: over(OLD.modes) };
 
 /** The records of every other kind, as the files and `content.json` an editor would have written. */
 function addOtherKinds(dir: string, sceneIds: readonly string[], soundId: string): void {
@@ -95,6 +107,7 @@ function addOtherKinds(dir: string, sceneIds: readonly string[], soundId: string
     blockStamps: ids('stamp', over(OLD.stamps)).map((stampId) => ({ stampId, name: stampId, size: [1, 1, 1], palette: [{ block: blockTypes[0]!.blockId }], columns: [[0, 0, 0, 1, 0]] })),
     behaviorTrust: { entries: Array.from({ length: over(OLD.trust) }, (_, i) => ({ sourceDigest: pad(i).padStart(64, 'a'), acknowledgedRevision: 0 })) },
     shell: { scenes: sceneIds.slice(0, over(OLD.shellScenes)).map((scene) => ({ scene })) },
+    ...modesAndInput(LISTS_OVER),
   });
   writeFileSync(join(dir, 'content.json'), `${JSON.stringify(file, null, 2)}\n`);
 }
@@ -143,6 +156,11 @@ test('a project above every old count cap opens, takes one command of each kind,
     await p.command('setBlockType', { block: { blockId: `block-${one}`, name: 'One more', variants: [{ color: '#888888' }], shape: 'full' } });
     await p.command('setBlockStamp', { stamp: { stampId: `stamp-${one}`, name: 'One more', size: [1, 1, 1], palette: [{ block: `block-${one}` }], columns: [[0, 0, 0, 1, 0]] } });
     await p.command('setShell', { shell: { scenes: generated.sceneIds.slice(0, over(OLD.shellScenes) + 1).map((scene) => ({ scene })) } });
+    const more = modesAndInput({ groups: LISTS_OVER.groups + 1, maps: LISTS_OVER.maps + 1, actions: LISTS_OVER.actions + 1, modes: LISTS_OVER.modes + 1 });
+    for (const [op, args] of [['setBehaviorGroups', { groups: more.behaviorGroups }], ['setInput', { input: more.input }], ['setModes', { modes: more.modes }]] as const) {
+      const r = await p.command(op, args);
+      expect(r['ok'], `${op}: ${JSON.stringify(r['error'] ?? null).slice(0, 300)}`).toBe(true);
+    }
     // An import of one more voice and one more font (the asset kinds with the lowest old caps).
     const folder = join(generated.dir, 'assets', 'guard-import');
     mkdirSync(folder, { recursive: true });

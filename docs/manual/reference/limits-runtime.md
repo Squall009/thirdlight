@@ -11,7 +11,7 @@ The limits and defaults `@thirdlight/runtime` defines, by source file. Values ar
 |---|---|---|
 | <a id="limit-max-command-args"></a>`MAX_COMMAND_ARGS` | `8` |  |
 | <a id="limit-max-command-text"></a>`MAX_COMMAND_TEXT` | `256` |  |
-| <a id="limit-max-frame-actions"></a>`MAX_FRAME_ACTIONS` | `64` | Most named actions in a frame (project-model MAX_INPUT_ACTIONS). |
+| <a id="limit-max-frame-actions"></a>`MAX_FRAME_ACTIONS` | `1236` | Most named actions in a frame: as many as a project's input settings can name. |
 | <a id="limit-max-frame-commands"></a>`MAX_FRAME_COMMANDS` | `8` | Engine limits of debug commands (per frame; arguments per call). |
 
 <a id="limits-runtime--animator"></a>

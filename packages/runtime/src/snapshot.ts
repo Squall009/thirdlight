@@ -13,7 +13,7 @@ import { validateModelColliderTable, validateModelRig, type ModelColliderTable, 
 import { validateModes, type RuntimeModes } from '@thirdlight/project-model';
 import { validateBlockTypes, validateCellFields, type BlockType, type CellField } from '@thirdlight/project-model';
 import { resolveSceneHierarchy, sceneCamerasAsShots, validateMergedSceneV4, validateSceneV3, validateTagRegistry, validateAnimators, validatePrefabDefinitions, type AnimatorController, type PrefabDefinition, type TagDefinition, type ModelErrorV2, type ModelErrorV3, type SceneV3, type RuntimeUiDocumentRow } from '@thirdlight/project-model';
-import { MAX_INPUT_ACTIONS, MAX_REVISION } from '@thirdlight/project-model';
+import { INPUT_ACTIONS_BOUND, MAX_REVISION } from '@thirdlight/project-model';
 import type { RuntimeError } from './errors';
 import type { ModelBounds, RuntimeSceneRow, RuntimeScene, RuntimeSnapshot } from './types';
 
@@ -411,7 +411,7 @@ export function validateRuntimeSnapshot(
     if (errors.length > 0) return bad(`modes: ${errors[0]!.message}`);
     if (!Array.isArray(m['modes']) || m['modes'].length === 0) return bad('modes lists at least one game mode');
     const maps = m['actionMaps'];
-    if (typeof maps !== 'object' || maps === null || Array.isArray(maps) || Object.keys(maps).length > MAX_INPUT_ACTIONS || Object.values(maps).some((v) => typeof v !== 'string')) return bad(`actionMaps maps at most ${MAX_INPUT_ACTIONS} action names to their input map`);
+    if (typeof maps !== 'object' || maps === null || Array.isArray(maps) || Object.keys(maps).length > INPUT_ACTIONS_BOUND || Object.values(maps).some((v) => typeof v !== 'string')) return bad(`actionMaps maps at most ${INPUT_ACTIONS_BOUND} action names to their input map`);
     modes = snap.modes as unknown as RuntimeModes;
   }
   // The optional v4 scene catalog.

@@ -19,7 +19,7 @@
  * outcome comes back as frame events.
  */
 
-import { MAX_INPUT_ACTIONS, MAX_INPUT_BINDINGS } from '@thirdlight/project-model';
+import { INPUT_ACTIONS_BOUND, MAX_INPUT_BINDINGS } from '@thirdlight/project-model';
 import { deepFreeze, isPlainObject } from '@thirdlight/shared';
 
 /** The device the player used last: keyboard and mouse are one device. */
@@ -153,7 +153,7 @@ export type InputBindingRequest =
 /** Engine limits: binding requests a step (all scripts), events a frame. */
 export const MAX_BINDING_REQUESTS = 8;
 export const MAX_FRAME_INPUT_EVENTS = 8;
-const MAX_ACTIONS = MAX_INPUT_ACTIONS;
+const MAX_ACTIONS = INPUT_ACTIONS_BOUND;
 const MAX_BINDINGS = MAX_INPUT_BINDINGS;
 const MAX_TEXT = 64;
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;

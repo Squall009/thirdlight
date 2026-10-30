@@ -126,4 +126,6 @@ the browser granted it.
   action's glyph for the device in use, in a dialogue line too (one
   character of its typewriter reveal); `$flow.input.actions` lists every
   action's key and pad labels for a settings document.
-- Limits: 64 actions per project; 8 binding requests per step from scripts.
+- Limits: no count of actions, maps or glyphs; the input settings are one
+  command, at most 64 KiB (`INPUT_SETTINGS_MAX_BYTES`); 8 binding requests per
+  step from scripts.

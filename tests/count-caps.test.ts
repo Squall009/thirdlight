@@ -1,10 +1,13 @@
 /**
  * No per-project count cap on assets or resources (a project holds as many
- * as a game needs; only one file's size and the runtime's memory are
- * bounded). This is the static half of the guard: no limit the engine
- * defines names how many assets or resources a project may hold. The other
- * half (tests/e2e/count-caps.e2e.ts) opens, edits, plays and exports a
- * project above every cap the engine once had.
+ * as a game needs; only one file's size, one request's bytes and the
+ * runtime's memory are bounded). This is the static half of the guard: no
+ * limit the engine defines names how many assets or resources a project may
+ * hold, found by name and by shape (a project-wide list or map of the
+ * content descriptor with a most-items bound, and the validators taking far
+ * more than any old cap). The other half (tests/e2e/count-caps.e2e.ts)
+ * opens, edits, plays and exports a project above every cap the engine once
+ * had.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -12,6 +15,12 @@ import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import * as limits from '../packages/project-model/src/limits';
+import { CONTENT } from '../packages/project-model/src/descriptor-content';
+import type { FieldDescriptor } from '../packages/project-model/src/descriptor-types';
+import { INPUT_ACTIONS_BOUND, INPUT_SETTINGS_MAX_BYTES, validateInput } from '../packages/project-model/src/input';
+import { validateBehaviorGroups, validateModes } from '../packages/project-model/src/modes';
+import { MAX_FRAME_ACTIONS, validateActionFrame } from '../packages/runtime/src/actions';
+import { validateInputStatus } from '../packages/runtime/src/input-status';
 
 const REPO = resolve(import.meta.dirname, '..');
 
@@ -89,5 +98,74 @@ describe('no per-project count cap on assets or resources', () => {
       }
     }
     expect(found).toEqual([]);
+  });
+});
+
+/**
+ * The project-wide lists and maps of the content descriptor that may carry a
+ * most-items bound, each with the reason it is not a count cap. Anything
+ * else with one fails, whatever its limit is named.
+ */
+const BOUNDED_BY_A_REASON: Record<string, string> = {
+  tags: 'a tag is one bit of the 32-bit mask objects carry and queries filter by',
+  collisionLayers: 'a layer is one of the 16 bits of the physics engine\'s collision groups ("default" is the 16th)',
+  lightLayers: 'a light layer is one bit of the masks objects and lights carry',
+  'saveSchema.sections': 'distinct names from the engine\'s fixed list of save sections',
+  cellFields: 'block-layer internals, left for the voxel phases that retire them',
+};
+/** Count caps found by this check and not yet lifted (listed in the defect audit): this list only shrinks. */
+const NOT_YET_LIFTED = new Set(['shell.hud', 'saveSchema.migrations', 'saveSchema.settings']);
+
+/** `path: bound` of every list and map reached from `f` (at `path`) through objects only (a list's items are one record's, not the project's). */
+function projectWideBounds(f: FieldDescriptor, path: string, out: string[]): void {
+  if (f.type === 'object') for (const c of f.fields) projectWideBounds(c, `${path}.${c.key}`, out);
+  else if (f.type === 'list' && f.maxItems !== undefined) out.push(`${path}: ${f.maxItems}`);
+  else if (f.type === 'map' && f.maxEntries !== undefined) out.push(`${path}: ${f.maxEntries}`);
+}
+
+describe('no per-project count cap by shape', () => {
+  it('no project-wide list or map of the content has a most-items bound without a reason', () => {
+    const found: string[] = [];
+    for (const block of CONTENT) projectWideBounds(block.value, block.key, found);
+    const capped = found.filter((f) => {
+      const path = f.slice(0, f.indexOf(':'));
+      return BOUNDED_BY_A_REASON[path] === undefined && !NOT_YET_LIFTED.has(path);
+    });
+    expect(capped).toEqual([]);
+    // The ratchet: an entry whose cap went must leave the list.
+    for (const path of NOT_YET_LIFTED) expect(found.some((f) => f.startsWith(`${path}:`)), path).toBe(true);
+  });
+
+  it('modes, behavior groups, input actions, maps and glyphs take far more than any old cap', () => {
+    const errs = (fn: (e: unknown[]) => void): unknown[] => {
+      const e: unknown[] = [];
+      fn(e);
+      return e;
+    };
+    const n = 300;
+    const groups = Array.from({ length: n }, (_, i) => `g${i}`);
+    const maps = Array.from({ length: n }, (_, i) => `m${i}`);
+    const docs = Array.from({ length: n }, (_, i) => `hud-${i}`);
+    const modes = Array.from({ length: n }, (_, i) => ({ modeId: `mode-${i}`, name: `Mode ${i}`, inputMaps: maps, groups, ui: docs }));
+    expect(errs((e) => validateModes(modes, '/modes', e as never))).toEqual([]);
+    expect(errs((e) => validateBehaviorGroups(groups, '/behaviorGroups', e as never))).toEqual([]);
+    const actions = Array.from({ length: n }, (_, i) => ({ name: `a${i}`, type: 'button', map: maps[i % n], bindings: [{ kind: 'key', code: 'KeyA' }] }));
+    const glyphs = Object.fromEntries(Array.from({ length: n }, (_, i) => [`key:K${i}`, 'texture-glyph']));
+    const input = { actions, maps, glyphs, cursor: Object.fromEntries(maps.map((m) => [m, 'locked'])) };
+    expect(errs((e) => validateInput(input, '/input', e as never))).toEqual([]);
+    // What bounds them instead: the bytes of the one command that writes the settings.
+    const huge = { actions: Array.from({ length: 2000 }, (_, i) => ({ name: `action_${i}`, type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'KeyA' }] })) };
+    expect(JSON.stringify(huge).length).toBeGreaterThan(INPUT_SETTINGS_MAX_BYTES);
+    expect(errs((e) => validateInput(huge, '/input', e as never)).map((x) => (x as { code: string }).code)).toEqual(['limits_exceeded']);
+  });
+
+  it('a frame and an input status carry every action the input settings can name', () => {
+    expect(MAX_FRAME_ACTIONS).toBe(INPUT_ACTIONS_BOUND);
+    expect(INPUT_ACTIONS_BOUND).toBeGreaterThan(1000);
+    const actions = Object.fromEntries(Array.from({ length: 300 }, (_, i) => [`a${i}`, { v: 1, p: 'held' }]));
+    const frame = validateActionFrame({ stepIndex: 1, actions });
+    expect(frame.ok, JSON.stringify(frame).slice(0, 200)).toBe(true);
+    const status = validateInputStatus({ actions: Array.from({ length: 300 }, (_, i) => ({ name: `a${i}`, type: 'button', map: 'gameplay', bindings: [] })) });
+    expect(status.ok, JSON.stringify(status).slice(0, 200)).toBe(true);
   });
 });

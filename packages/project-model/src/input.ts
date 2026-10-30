@@ -9,8 +9,9 @@
  * optional processors (dead zone, invert, scale). Actions belong to a map:
  * `gameplay` (read by the game) or `ui` (menus).
  */
+import { MAX_REQUEST_BYTES } from './content-limits';
 import type { ModelErrorV2 } from './errors';
-import { isPlainObject } from '@thirdlight/shared';
+import { isPlainObject, utf8Length } from '@thirdlight/shared';
 
 export type InputActionType = 'button' | 'axis1d' | 'axis2d';
 export const INPUT_ACTION_TYPES = ['button', 'axis1d', 'axis2d'] as const;
@@ -72,9 +73,6 @@ export interface InputAction {
 /** An input map name — the engine's gameplay and ui, or one the project declares in `input.maps`. */
 export type InputMapName = 'gameplay' | 'ui' | (string & {});
 
-/** At most this many project maps besides gameplay and ui (an engine limit). */
-export const MAX_INPUT_MAPS = 8;
-
 export interface InputConfig {
   actions: InputAction[];
   /**
@@ -107,8 +105,21 @@ export function projectInputMaps(input: unknown): string[] {
   return [...INPUT_MAPS, ...own.filter((m) => !(INPUT_MAPS as readonly string[]).includes(m))];
 }
 
-/** 64: a game with many abilities or hotbar slots names more actions; the frame bound follows. */
-export const MAX_INPUT_ACTIONS = 64;
+/**
+ * The input settings' size: no count of actions, maps or glyphs, since a game
+ * with many abilities, hotbar slots or modes names as many as it needs. The
+ * settings are one value that one `setInput` writes whole, so they are bounded
+ * by the request's bytes, and a project file is held to the same bytes so
+ * every bound derived from them holds for what is on disk too.
+ */
+export const INPUT_SETTINGS_MAX_BYTES = MAX_REQUEST_BYTES;
+/**
+ * The most actions settings within {@link INPUT_SETTINGS_MAX_BYTES} can name
+ * (each takes at least the bytes of the smallest valid action and its comma):
+ * what a frame, a snapshot's action maps or an input status may carry. It
+ * follows from the bytes; a project meets the byte bound first.
+ */
+export const INPUT_ACTIONS_BOUND = Math.floor(INPUT_SETTINGS_MAX_BYTES / (utf8Length(JSON.stringify({ name: 'a', type: 'button', map: 'a', bindings: [] })) + 1));
 export const MAX_INPUT_BINDINGS = 8;
 
 /**
@@ -133,7 +144,6 @@ export const INPUT_PAD_SLOTS = 4;
 export const GAMEPAD_FAMILIES = ['xbox', 'playstation', 'switch', 'generic'] as const;
 /** A glyph key — `[family:]icon[:code]` (see `InputConfig.glyphs`). */
 export const GLYPH_KEY_RE = /^(?:(?:xbox|playstation|switch|generic):)?[a-z][a-z0-9-]{0,31}(?::[A-Za-z0-9]{1,32})?$/;
-export const MAX_INPUT_GLYPHS = 128;
 
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 const CODE_RE = /^[A-Za-z0-9]{1,32}$/;
@@ -202,11 +212,13 @@ const FITS: Record<InputActionType, readonly InputBinding['kind'][]> = {
 export function validateInput(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(value)) return err(errors, 'field_type', path, 'input is { actions }', value);
   for (const k of Object.keys(value)) if (k !== 'actions' && k !== 'cursor' && k !== 'glyphs' && k !== 'maps') err(errors, 'field_unexpected', `${path}/${k}`, `unknown field "${k}"`, k, 'actions, maps, cursor, glyphs');
+  const bytes = utf8Length(JSON.stringify(value));
+  if (bytes > INPUT_SETTINGS_MAX_BYTES) err(errors, 'limits_exceeded', path, `the input settings take ${bytes} bytes; they are written by one command, at most ${INPUT_SETTINGS_MAX_BYTES}`, bytes, `at most ${INPUT_SETTINGS_MAX_BYTES} bytes`);
   // The project's own maps (unique names, not gameplay/ui).
   const maps = value['maps'];
   const mapNames = new Set<string>(INPUT_MAPS);
   if (maps !== undefined) {
-    if (!Array.isArray(maps) || maps.length > MAX_INPUT_MAPS) err(errors, 'field_value', `${path}/maps`, `maps is a list of at most ${MAX_INPUT_MAPS} names`, maps);
+    if (!Array.isArray(maps)) err(errors, 'field_value', `${path}/maps`, 'maps is a list of names', maps);
     else
       maps.forEach((m, i) => {
         if (typeof m !== 'string' || !NAME_RE.test(m)) err(errors, 'field_value', `${path}/maps/${i}`, 'a map name is a letter or _ then up to 31 letters, digits or _', m);
@@ -216,7 +228,7 @@ export function validateInput(value: unknown, path: string, errors: ModelErrorV2
   }
   const glyphs = value['glyphs'];
   if (glyphs !== undefined) {
-    if (!isPlainObject(glyphs) || Object.keys(glyphs).length > MAX_INPUT_GLYPHS) err(errors, 'field_type', `${path}/glyphs`, `glyphs maps at most ${MAX_INPUT_GLYPHS} glyph keys to texture assets`, glyphs);
+    if (!isPlainObject(glyphs)) err(errors, 'field_type', `${path}/glyphs`, 'glyphs maps glyph keys to texture assets', glyphs);
     else
       for (const [k, v] of Object.entries(glyphs)) {
         if (!GLYPH_KEY_RE.test(k)) err(errors, 'field_value', `${path}/glyphs/${k}`, 'a glyph key is [family:]icon[:key code] (e.g. pad-south, xbox:pad-south, key:Space)', k);
@@ -234,7 +246,7 @@ export function validateInput(value: unknown, path: string, errors: ModelErrorV2
       }
   }
   const actions = value['actions'];
-  if (!Array.isArray(actions) || actions.length > MAX_INPUT_ACTIONS) return err(errors, 'field_value', `${path}/actions`, `actions is a list of at most ${MAX_INPUT_ACTIONS}`, actions);
+  if (!Array.isArray(actions)) return err(errors, 'field_value', `${path}/actions`, 'actions is a list', actions);
   const names = new Set<string>();
   actions.forEach((a, i) => {
     const p = `${path}/actions/${i}`;

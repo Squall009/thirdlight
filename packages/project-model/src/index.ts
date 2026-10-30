@@ -738,7 +738,8 @@ export {
   defaultInputFor,
   INPUT_ACTION_TYPES,
   INPUT_MAPS,
-  MAX_INPUT_ACTIONS,
+  INPUT_ACTIONS_BOUND,
+  INPUT_SETTINGS_MAX_BYTES,
   MOVE_QUANTUM,
   quantizeMove,
   validateInput,
@@ -754,7 +755,6 @@ export {
   type PointerAxisName,
   type PointerButtonName,
   // The project's own input maps.
-  MAX_INPUT_MAPS,
   projectInputMaps,
   type InputMapName,
   // The hold modifier and the project's glyph images.
@@ -765,7 +765,6 @@ export {
   INPUT_PAD_SLOTS,
   INPUT_HOLD_MAX,
   INPUT_HOLD_MIN,
-  MAX_INPUT_GLYPHS,
 } from './input';
 // Game modes (content.modes), behavior groups and the behaviorGroup component.
 export {

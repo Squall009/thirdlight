@@ -38,4 +38,5 @@ through MCP. The first mode is the one a run starts in.
 - Play from a mode: "Play from…" / MCP `tl_play_start` `mode`; the Play
   toolbar shows the mode the running game is in; `tl_game_observe` reports
   `mode` and `paused`.
-- Engine limits: 16 modes, 32 behavior groups, 8 project input maps.
+- No count of modes, behavior groups or project input maps: each whole list
+  is one command, so it is bounded by the request's 64 KiB.

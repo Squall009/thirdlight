@@ -200,13 +200,13 @@ Named states of the running game: the input maps, camera, UI documents and ticki
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `modes` | list of objects, ≤ 16 items | `[]` |  | **Game modes.** Up to 16 modes; the first is the start mode. |
+| `modes` | list of objects | `[]` |  | **Game modes.** The first is the start mode. |
 | `modes[].modeId` | string, id, 1–64 chars |  |  | **Id.** Scripts (ctx.modes.switch) and UI mode actions name it. (required; format id) |
 | `modes[].name` | string, 1–64 chars |  |  | **Name.** Shown in the editor and the Play toolbar. (required) |
-| `modes[].inputMaps` | list of inputMap id, ≤ 8 items, distinct |  |  | **Input maps.** The input maps active in the mode (absent: every map). Actions of other maps read as released. |
+| `modes[].inputMaps` | list of inputMap id, distinct |  |  | **Input maps.** The input maps active in the mode (absent: every map). Actions of other maps read as released. |
 | `modes[].camera` | object id (with `virtualCamera`), any scene |  |  | **Camera.** A virtual camera that is live while the mode is, over the priorities (absent: the priority rule). |
-| `modes[].ui` | list of uiDocument id, ≤ 16 items, distinct |  |  | **UI documents.** Shown while the mode is active, hidden when it ends. |
-| `modes[].groups` | list of behaviorGroup id, ≤ 32 items, distinct |  |  | **Ticking groups.** The behavior groups whose scripts run (absent: every group). The other groups pause. |
+| `modes[].ui` | list of uiDocument id, distinct |  |  | **UI documents.** Shown while the mode is active, hidden when it ends. |
+| `modes[].groups` | list of behaviorGroup id, distinct |  |  | **Ticking groups.** The behavior groups whose scripts run (absent: every group). The other groups pause. |
 | `modes[].ungrouped` | enum: `tick`, `pause` | `"tick"` |  | **Ungrouped behaviors.** Behaviors of objects without a behavior group. |
 | `modes[].pause` | bool | `true` |  | **Pause allowed.** The engine pause (the pause key, a pause button) may be used in this mode. |
 | `modes[].pauseScreen` | uiDocument id |  |  | **Pause screen.** A UI document drawn while the game is paused in this mode (absent: the engine's pause panel). |
@@ -228,7 +228,7 @@ Names an object's behavior can belong to (its Behavior group component); a game 
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `behaviorGroups` | list of string, identifier, 1–32 chars, ≤ 32 items, distinct | `[]` |  | **Behavior groups.** Up to 32 names. |
+| `behaviorGroups` | list of string, identifier, 1–32 chars, distinct | `[]` |  | **Behavior groups.** The group names. |
 
 <a id="content-shell"></a>
 ## shell — Game shell

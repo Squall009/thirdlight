@@ -76,13 +76,13 @@ export interface GameMode {
   enter?: ModeTransition;
 }
 
-/** Engine limits (documented; they protect the runtime and keep a whole list inside one 64 KiB command). */
+/**
+ * Engine limits on one mode's values. The lists (modes, behavior groups, a
+ * mode's maps, documents and groups) have no count: a game has as many modes
+ * and groups as it needs, a mode's lists name distinct things the project
+ * has, and each whole list is one command, bounded by the request's bytes.
+ */
 export const MODE_LIMITS = Object.freeze({
-  modes: 16,
-  inputMaps: 8,
-  ui: 16,
-  groups: 32,
-  behaviorGroups: 32,
   nameLength: 64,
   timeScaleMin: 0.1,
   timeScaleMax: 4,
@@ -115,9 +115,9 @@ const validName = (s: string): boolean => s.length >= 1 && s.length <= MODE_LIMI
 const MODE_KEYS = ['modeId', 'name', 'inputMaps', 'camera', 'ui', 'groups', 'ungrouped', 'pause', 'pauseScreen', 'timeScale', 'physics', 'enter'];
 const TRANSITION_KEYS = ['blend', 'blendTime', 'fade', 'fadeTime'];
 
-function idList(errors: ModelErrorV2[], v: unknown, path: string, max: number, re: RegExp, what: string): void {
+function idList(errors: ModelErrorV2[], v: unknown, path: string, re: RegExp, what: string): void {
   if (v === undefined) return;
-  if (!Array.isArray(v) || v.length > max) return err(errors, 'field_value', path, `${what}: a list of at most ${max}`, Array.isArray(v) ? v.length : v, `at most ${max}`);
+  if (!Array.isArray(v)) return err(errors, 'field_value', path, `${what}: a list of names`, v, 'a list');
   const seen = new Set<string>();
   v.forEach((x, i) => {
     if (typeof x !== 'string' || !re.test(x)) err(errors, 'field_value', `${path}/${i}`, `${what}: not a valid name`, x, re === ID_RE ? 'an id' : 'an identifier');
@@ -142,10 +142,10 @@ export function validateMode(v: unknown, path: string, errors: ModelErrorV2[]): 
   for (const k of Object.keys(v)) if (!MODE_KEYS.includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown field "${k}"`, k, MODE_KEYS.join(', '));
   if (typeof v['modeId'] !== 'string' || !ID_RE.test(v['modeId'])) err(errors, 'field_value', `${path}/modeId`, 'modeId is an id (lowercase letters, digits, _ or -)', v['modeId'], 'an id');
   if (typeof v['name'] !== 'string' || !validName(v['name'])) err(errors, 'field_value', `${path}/name`, `name is 1–${MODE_LIMITS.nameLength} characters without control characters`, v['name'], 'a name');
-  idList(errors, v['inputMaps'], `${path}/inputMaps`, MODE_LIMITS.inputMaps, MODE_NAME_RE, 'inputMaps');
+  idList(errors, v['inputMaps'], `${path}/inputMaps`, MODE_NAME_RE, 'inputMaps');
   if (v['camera'] !== undefined && (typeof v['camera'] !== 'string' || !ID_RE.test(v['camera']))) err(errors, 'field_value', `${path}/camera`, 'camera names a virtual camera object', v['camera'], 'an entity id');
-  idList(errors, v['ui'], `${path}/ui`, MODE_LIMITS.ui, ID_RE, 'ui');
-  idList(errors, v['groups'], `${path}/groups`, MODE_LIMITS.groups, MODE_NAME_RE, 'groups');
+  idList(errors, v['ui'], `${path}/ui`, ID_RE, 'ui');
+  idList(errors, v['groups'], `${path}/groups`, MODE_NAME_RE, 'groups');
   if (v['ungrouped'] !== undefined && !(MODE_UNGROUPED as readonly unknown[]).includes(v['ungrouped'])) err(errors, 'field_value', `${path}/ungrouped`, 'ungrouped is tick or pause', v['ungrouped'], 'tick | pause');
   if (v['pause'] !== undefined && typeof v['pause'] !== 'boolean') err(errors, 'field_type', `${path}/pause`, 'pause is true or false', v['pause'], 'boolean');
   if (v['pauseScreen'] !== undefined && (typeof v['pauseScreen'] !== 'string' || !ID_RE.test(v['pauseScreen']))) err(errors, 'field_value', `${path}/pauseScreen`, 'pauseScreen names a UI document', v['pauseScreen'], 'a uiDocumentId');
@@ -154,10 +154,9 @@ export function validateMode(v: unknown, path: string, errors: ModelErrorV2[]): 
   if (v['enter'] !== undefined) validateModeTransition(v['enter'], `${path}/enter`, errors);
 }
 
-/** The whole list (shape, unique ids, the limit). */
+/** The whole list (shape, unique ids). */
 export function validateModes(v: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!Array.isArray(v)) return err(errors, 'field_type', path, 'modes is a list', v, 'array');
-  if (v.length > MODE_LIMITS.modes) err(errors, 'limits_exceeded', path, `a project has at most ${MODE_LIMITS.modes} game modes`, v.length, `at most ${MODE_LIMITS.modes}`);
   const seen = new Set<string>();
   v.forEach((m, i) => {
     validateMode(m, `${path}/${i}`, errors);
@@ -171,7 +170,7 @@ export function validateModes(v: unknown, path: string, errors: ModelErrorV2[]):
 
 /** `content.behaviorGroups`: the group names behaviors may carry (unique identifiers). */
 export function validateBehaviorGroups(v: unknown, path: string, errors: ModelErrorV2[]): void {
-  idList(errors, v, path, MODE_LIMITS.behaviorGroups, MODE_NAME_RE, 'behaviorGroups');
+  idList(errors, v, path, MODE_NAME_RE, 'behaviorGroups');
 }
 
 /**

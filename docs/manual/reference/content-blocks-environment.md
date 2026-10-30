@@ -49,7 +49,7 @@ The quality levels, the default level and the environment presets (each scene ha
 | `qualityLevels[].contactShadows` | bool |  |  | **Contact shadows.** Screen-space contact shadows on the sun's light, with the look's post effects (absent: the tier's, low off, medium on, high on). |
 | `qualityLevels[].reflections` | enum: `off`, `medium`, `high` |  |  | **Reflections.** Glossy surfaces reflect what the screen shows, and where it misses the static world traced and lit from the surface cache; WebGPU, with the look's post effects (absent: the tier's, low off, medium medium, high high). |
 | `qualityLevels[].shadowAtlas` | int (one of 512, 1024, 2048, 4096, 8192) |  | step 1 | **Shadow atlas.** Side in texels of the depth texture every shadowed point and spot light shares: lights largest on screen get the larger tiles, a light without room draws unshadowed (absent: the tier's, low 2048, medium 4096, high 8192). |
-| `presets` | list of objects, ≤ 64 items |  |  | **Presets.** Named looks scripts switch or blend to at run time (ctx.environment), laid over the active scene's look. |
+| `presets` | list of objects |  |  | **Presets.** Named looks scripts switch or blend to at run time (ctx.environment), laid over the active scene's look. |
 | `presets[]` | object |  |  | **Preset.** A named look: sky, fog, post-processing, light values, a lightmap multiplier and the wetness. (rules: Preset ids are unique.) |
 | `presets[].presetId` | string, identifier, 1–64 chars |  |  | **Id.** A stable id scripts use: a-z, 0-9, _ or -. (required; format identifier) |
 | `presets[].name` | string, 1–128 chars |  |  | **Name.** Shown in the editor. (required) |
@@ -143,7 +143,7 @@ Actions and their bindings.
 
 | Field | Type | Default | Range | Description |
 |---|---|---|---|---|
-| `actions` | list of objects, ≤ 64 items |  |  | **Actions.** Up to 64 named actions. (required) |
+| `actions` | list of objects |  |  | **Actions.** The named actions (as many as the game needs). (required) |
 | `actions[].name` | string, identifier, 1–32 chars |  |  | **Name.** The action name scripts and blocks read (a letter or _, then letters, digits or _). (required; format identifier) |
 | `actions[].type` | enum: `button`, `axis1d`, `axis2d` | `"button"` |  | **Type.** A button, a 1D axis (left/right) or a 2D axis. (required; choices: `button` = Button, `axis1d` = Axis (1D), `axis2d` = Axis (2D)) |
 | `actions[].map` | inputMap id | `"gameplay"` |  | **Map.** Read by the game (gameplay), the menus (ui) or one of the project's maps. (required) |
@@ -170,6 +170,6 @@ Actions and their bindings.
 | `actions[].deadZone` | number | `0.2` | ≥ 0, < 1, step 0.05 | **Dead zone.** Axis values within this count as 0 (then rescaled). |
 | `actions[].invert` | bool | `false` |  | **Invert.** Flip the axis. |
 | `actions[].scale` | number | `1` | > 0, ≤ 10, step 0.1, × | **Scale.** Multiply the value. |
-| `maps` | list of string, identifier, 1–32 chars, ≤ 8 items, distinct |  |  | **Project maps.** Up to 8 input maps besides gameplay and ui (game modes activate maps). |
-| `cursor` | map inputMap id → enum: `free`, `locked`, ≤ 10 entries |  |  | **Cursor.** The cursor while each map is active (absent: free): free, or locked (hidden and held in the view; its movement still counts, its position is the view's centre). The ui map's applies while a menu is open; during play the first of the active maps that sets one (a game mode's maps in their order). It is hidden while a gamepad drives the game. |
-| `glyphs` | map key → asset id (texture), ≤ 128 entries |  |  | **Glyphs.** Glyph key → an image shown instead of the engine's generic icon. A key is an icon id (pad-south, pad-shoulder-left, mouse-left, key, …), optionally for one gamepad family (xbox:pad-south) or one key (key:Space). |
+| `maps` | list of string, identifier, 1–32 chars, distinct |  |  | **Project maps.** Input maps besides gameplay and ui (game modes activate maps). |
+| `cursor` | map inputMap id → enum: `free`, `locked` |  |  | **Cursor.** The cursor while each map is active (absent: free): free, or locked (hidden and held in the view; its movement still counts, its position is the view's centre). The ui map's applies while a menu is open; during play the first of the active maps that sets one (a game mode's maps in their order). It is hidden while a gamepad drives the game. |
+| `glyphs` | map key → asset id (texture) |  |  | **Glyphs.** Glyph key → an image shown instead of the engine's generic icon. A key is an icon id (pad-south, pad-shoulder-left, mouse-left, key, …), optionally for one gamepad family (xbox:pad-south) or one key (key:Space). |

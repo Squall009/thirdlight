@@ -7,7 +7,6 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  MODE_LIMITS,
   behaviorGroupErrors,
   canonicalInput,
   canonicalMode,
@@ -47,8 +46,10 @@ describe('game modes (data)', () => {
     );
     const paths = bad.map((x) => x.path);
     for (const p of ['/modes/0/modeId', '/modes/0/name', '/modes/1/inputMaps/0', '/modes/1/ui/1', '/modes/1/ungrouped', '/modes/1/pause', '/modes/1/timeScale', '/modes/1/physics', '/modes/1/enter/blend', '/modes/1/enter/fadeTime', '/modes/1/extra', '/modes/2/modeId']) expect(paths, p).toContain(p);
-    const many = Array.from({ length: MODE_LIMITS.modes + 1 }, (_, i) => ({ modeId: `m${i}`, name: `M${i}` }));
-    expect(errs((e) => validateModes(many, '/modes', e)).some((x) => x.code === 'limits_exceeded')).toBe(true);
+    // No count of modes or groups: a game has as many as it needs.
+    const many = Array.from({ length: 500 }, (_, i) => ({ modeId: `m${i}`, name: `M${i}`, groups: Array.from({ length: 100 }, (_, g) => `g${g}`) }));
+    expect(errs((e) => validateModes(many, '/modes', e))).toEqual([]);
+    expect(errs((e) => validateBehaviorGroups(Array.from({ length: 500 }, (_, g) => `g${g}`), '/behaviorGroups', e))).toEqual([]);
   });
 
   it('checks references against the project: documents, input maps (engine and input.maps), behavior groups', () => {
