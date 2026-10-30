@@ -34,7 +34,7 @@ type OcclusionCulling = (typeof OCCLUSION_CULLING_MODES)[number];
 <a id="type-owned-component"></a>
 ### OwnedComponent
 
-Declared in `packages/commands/src/types.ts`.
+Declared in `packages/commands/src/change-types.ts`.
 
 ```ts
 /** Every `setComponent`-owned component (the base five plus the six v3 ones). */
@@ -871,7 +871,7 @@ interface SceneEnvironment {
 <a id="type-scene-index-args"></a>
 ### SceneIndexArgs
 
-Declared in `packages/commands/src/types.ts`.
+Declared in `packages/commands/src/change-types.ts`.
 
 ```ts
 /** The args of the four scene-index ops, tagged with the op. */
@@ -1301,7 +1301,7 @@ interface SurfaceBake {
 <a id="type-surface-preset-name"></a>
 ### SurfacePresetName
 
-Declared in `packages/commands/src/types.ts`.
+Declared in `packages/commands/src/change-types.ts`.
 
 ```ts
 /** The three built-in surface-preset names. */

@@ -666,7 +666,7 @@ interface UpdatePrefabArgs {
 <a id="type-v3-owned-component"></a>
 ### V3OwnedComponent
 
-Declared in `packages/commands/src/types.ts`.
+Declared in `packages/commands/src/change-types.ts`.
 
 ```ts
 /**
