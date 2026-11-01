@@ -322,7 +322,7 @@ sky at the edge less) or Average (the whole frame alike). **Compensation**
 (1 /s) is how fast it opens up after stepping into the dark and **Darken
 speed** (3 /s) how fast it closes down in the light: per second, of the gap
 in stops, so it settles to 95 % in about 3 / speed seconds (1 s into the
-light, 3 s into the dark). **Min exposure** (0.125) and **Max exposure** (2)
+light, 3 s into the dark). **Min exposure** (0.0625) and **Max exposure** (2)
 bound it, as multipliers like the look's Exposure: a night or a cellar never
 opens past the max and stays dark, a sunlit plain never closes past the min.
 Off (the default), the environment look's fixed Exposure stands. The

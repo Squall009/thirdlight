@@ -63,6 +63,7 @@ picture. Games switch both by switching cameras, through priorities and camera r
 | 44b.0 | done: three 0.186.1 pinned, 0.187.0 (minor) out 2026-10-30 → item 44b.3a. Plan committed. D339 open → 44b.1. Before shots (look scenes, medium, both renderers, cap): sunset veiled on both at medium, corridor fine; bloom 0.88 / 0.84 ms GPU (sunset / corridor, ≈ 0.41 at full clock). See **44b.0 baseline**. No code, no e2e. |
 | 44b.1 | done: bloom off removes the veil (both renderers). Bloom now thresholds the exposed colour, soft knee, only the excess glows; default strength 0.2; `bloom-exposure` load step. Sunset still veiled at exposure 1 (≈ 2 stops over), clean at 0.3: D339 open for 44b.3. Bloom GPU ≈ 0.42 ms full (0.41); level GPU +0.5–0.9: host (A/B, log). env-parity 23.0 → 25.9 s. Shots: acceptance/44b.1. |
 | 44b.2 | done (4c5eb5cf): occlusion per camera; sphere pull-in (in/hold/out, cut past walls), see-through per camera, mode snaps mid-blend; defaults: log. Cap: interior WebGPU main 3.06, GPU 7.09 full, WebGL 2 1.84; village 6.16 / 4.36 CPU; p95 16.7, 0 missed: no cost. e2e cameras 18.7 → 31.5 s (+12.8: doorway + see-through, both renderers). Shots looked at (test-results). |
+| 44b.3 | done: per-camera auto-exposure (meter 128×64→16×8, async read-back, both renderers), blended with camera blends. Sunset settles at 0.09, no veil, renderers alike: D339 fixed. Meter GPU ≈ 0.09 ms full clock; on: main +0.1–0.2 (A/B); off: interior/landscape/village within 44's range, p95 16.7–16.8, 0 missed. cameras e2e 31.5 → 32.4 s. D421. |
 
 ### 44b.0 baseline
 
@@ -145,3 +146,32 @@ picture. Games switch both by switching cameras, through priorities and camera r
   else was cut to pay for it; the phase review should weigh it. Visual: the pulled-in shot (walker in view, no wall)
   and the interior pair (wall solid with none, the figure through the dither with see-through) looked at on WebGL 2
   and the default renderer's pulled-in shot; not kept.
+- 2026-11-01 (44b.3): auto-exposure is per camera (`autoExposure`, `exposureMin/Max`, `exposureBrightenSpeed`,
+  `exposureDarkenSpeed`, `exposureMetering`, `exposureCompensation`; additive on schema 8). The brain turns a camera
+  into a look and blends it with the camera blend; a camera without it is a look of weight 0 whose range is the
+  environment's fixed exposure, so a blend narrows or widens the range in stops and a cut to it shows the fixed
+  exposure at once. The renderer meters the scene colour (linear, before bloom and tone mapping) in two TSL passes —
+  128×64 of mean log2 luminance from 4×4 filtered taps, then 8×8 texel loads down to 16×8 — and reads the 16×8 grid
+  back asynchronously (three's `readRenderTargetPixelsAsync`); the passes are drawn only when a read-back starts (one
+  in flight), so they run every few frames. Weighting (centre Gaussian σ 0.5 or flat) is on the CPU, so a metering
+  blend changes no program. Adaptation in stops, `1 − e^(−speed·dt)`, frame-rate independent, target middle grey
+  0.18 × 2^comp. Exposure stays `toneMappingExposure`, so bloom (44b.1) follows it. While any loaded camera has it the
+  stack keeps the scene in a texture (built at load, so a camera switch builds nothing; a no-post frame then draws
+  through the stack with its MSAA).
+- 2026-11-01 (44b.3, default chosen, owner to confirm): min 0.0625 (first 0.125: the sunset clamped at 0.13), max 2,
+  brighten 1/s, darken 3/s (Unity's and Unreal's pair: into the light ~1 s, into the dark ~3 s), centre-weighted,
+  compensation 0. With 0 the sunset reads a little dark and flat (the bright sky in mid-frame pulls the meter);
+  +1 EV looks more natural (`acceptance/44b.3/auto-comp1-*`): a project's choice, the engine keeps middle grey.
+- 2026-11-01 (44b.3): D339 fixed: its cause was bloom before exposure (44b.1) on a sunset look ≈ 3.5 stops over at
+  fixed exposure 1; with auto-exposure it settles at 0.09 on both renderers, no veil. Default chosen, owner to
+  confirm: the look scene keeps fixed exposure 1 (the over-bright reference adaptation must handle).
+- 2026-11-01 (44b.3): the 44b.1 note is real and by design: without post a colour or sRGB image sky is shown
+  unexposed (parity with the archived WebGL renderer and its env-parity references), with post it is exposed. A loaded
+  auto-exposure camera exposes it too (an adapted view would leave the sky as it was). Changing it for every project
+  is the owner's call: D421.
+- 2026-11-01 (44b.3): cost. Meter 0.15–0.23 ms per drawn meter at 515–944 MHz = 0.09–0.14 ms at full clock (sunset,
+  corridor). Sunset, interleaved A/B, 2 rounds: main WebGPU 2.34/2.38 vs 2.23/2.15 ms, WebGL 2 1.36/1.49 vs 1.28/1.33.
+  Classes without it (one round, at the cap, 08:42–09:01): landscape WebGPU main 5.26 GPU 10.49 full, WebGL 2 3.52;
+  interior 3.34 / 7.11, 1.91; village 6.04 / 5.34, 3.97 — within phase 44's range (44b.0 table); p95 16.7–16.8, 0
+  missed. The fast gate's village check passed (6.2 / 4.25 ms CPU). e2e: the cameras test 31.5 → 32.4 s (the dark
+  room and the cut, both renderers in parallel in the export).

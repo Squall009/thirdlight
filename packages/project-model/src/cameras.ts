@@ -101,9 +101,9 @@ export type CameraExposureMetering = (typeof CAMERA_EXPOSURE_METERING)[number];
  * - pullOutTime 0.6 s: back out as a calm move, slower than the way in;
  * - autoExposure off: a camera shows the look's exposure as authored until
  *   a project asks for adaptation;
- * - exposureMin 0.125 / exposureMax 2 (multipliers, as the look's exposure):
- *   three stops down for sunlit ground and sky (a bright outdoor look sits
- *   about two stops over at exposure 1), one stop up for a dim room, so a
+ * - exposureMin 0.0625 / exposureMax 2 (multipliers, as the look's exposure):
+ *   four stops down for sunlit ground and sky (an evening outdoor look meters
+ *   about three stops over at exposure 1, noon more), one stop up for a dim room, so a
  *   night or a cellar stays dark instead of being lifted to grey;
  * - exposureBrightenSpeed 1 / exposureDarkenSpeed 3 (per second, of the
  *   remaining gap in stops): stepping into the light settles in about a
@@ -154,7 +154,7 @@ export const VIRTUAL_CAMERA_DEFAULTS = Object.freeze({
   pullHoldTime: 0.3,
   pullOutTime: 0.6,
   autoExposure: false,
-  exposureMin: 0.125,
+  exposureMin: 0.0625,
   exposureMax: 2,
   exposureBrightenSpeed: 1,
   exposureDarkenSpeed: 3,

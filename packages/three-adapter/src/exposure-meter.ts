@@ -14,9 +14,9 @@
  *
  * The small grid (128 texels) is read back asynchronously (three's
  * `readRenderTargetPixelsAsync`: a mapped buffer on WebGPU, a pixel-pack
- * buffer and a fence on WebGL 2); one read is in flight at a time and the
- * newest reading is kept, so the exposure follows the frame a frame or two
- * late and the main thread never waits. The weighting (centre or average) is
+ * buffer and a fence on WebGL 2); one read is in flight at a time, and the
+ * passes are drawn only when a read starts, so the exposure follows the
+ * frame a few frames late and the main thread never waits. The weighting (centre or average) is
  * applied on the CPU (runtime `meteredLogLuminance`), so a blend of metering
  * modes changes no program.
  */
@@ -80,9 +80,12 @@ export class ExposureMeter {
   private busy = false;
   private disposed = false;
 
-  /** Meter `scene` (the scene pass's colour, just drawn) and start a read-back unless one is in flight. */
+  /**
+   * Meter `scene` (the scene pass's colour, just drawn) and start its read-back — unless a read-back is in
+   * flight: a grid that would never be read is not drawn, so the meter runs once per read-back (every few frames).
+   */
   measure(renderer: unknown, scene: THREE.Texture): void {
-    if (this.disposed) return;
+    if (this.disposed || this.busy) return;
     const r = renderer as ReadingRenderer;
     this.source.value = scene;
     const was = r.getRenderTarget();
@@ -94,7 +97,6 @@ export class ExposureMeter {
     } finally {
       r.setRenderTarget(was);
     }
-    if (this.busy) return;
     this.busy = true;
     r.readRenderTargetPixelsAsync(this.coarse, 0, 0, METER_WIDTH, METER_HEIGHT).then(
       (px) => {
