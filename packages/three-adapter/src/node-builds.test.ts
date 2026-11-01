@@ -1,6 +1,9 @@
+import * as THREE from 'three';
+import { WebGPURenderer } from 'three/webgpu';
 import { describe, expect, it } from 'vitest';
 
-import { buildKeepFromUrl, installBuildReuse, RELEASED_BUILD_KEEP_MS } from './node-builds';
+import { buildKeepFromUrl, installBuildReuse, installPrecompileTargets, RELEASED_BUILD_KEEP_MS } from './node-builds';
+import { buildOnly } from './test-wgsl';
 
 /**
  * The parts of three 0.186's NodeManager and Pipelines the reuse patches,
@@ -149,5 +152,50 @@ describe('buildKeepFromUrl', () => {
     expect(buildKeepFromUrl('?buildKeep=-5')).toBe(RELEASED_BUILD_KEEP_MS);
     expect(buildKeepFromUrl('?buildKeep=soon')).toBe(RELEASED_BUILD_KEEP_MS);
     expect(buildKeepFromUrl('?buildKeep=')).toBe(RELEASED_BUILD_KEEP_MS);
+  });
+});
+
+describe('installPrecompileTargets', () => {
+  /** A renderer of three's own (never initialised: only its precompile state steps run) with the hook. */
+  function hooked(): WebGPURenderer & { _beginPreCompile(state: object): void; _finishPreCompile(): void; _precompilationState: unknown } {
+    const canvas = { style: {}, width: 1, height: 1, addEventListener() {}, removeEventListener() {}, getContext: () => null };
+    const r = buildOnly(new WebGPURenderer({ canvas: canvas as unknown as HTMLCanvasElement, forceWebGL: true }));
+    // Made by three's init (needs a device); the states here carry no render context, so it is never read.
+    (r as unknown as { _textures: unknown })._textures = { updateRenderTarget() {}, get: () => ({}) };
+    expect(installPrecompileTargets(r)).toBe(true);
+    return r as never;
+  }
+
+  it('a build ends with the target its caller bound since it began, not the one compileAsync was called with', () => {
+    const r = hooked();
+    const bake = new THREE.RenderTarget(64, 64);
+    const other = new THREE.RenderTarget(8, 8);
+    // compileAsync's own state: called with the bake's target bound (its snapshot keeps it as the target to go back to).
+    r.setRenderTarget(bake);
+    const snapshot = { useFrameBufferTarget: false, renderTarget: bake, outputRenderTarget: bake, activeCubeFace: 0, activeMipmapLevel: 0, item: null, materialSide: null, mrt: null, outputMRT: null };
+    r._beginPreCompile(snapshot);
+    r._finishPreCompile();
+    expect(r.getRenderTarget(), 'the call itself ends with its own target').toBe(bake);
+    // Its first collected draw begins building before compileAsync returns (the bake's target still bound); the caller
+    // then puts the renderer's target back, and the build ends later, between frames.
+    const item = { ...snapshot, useFrameBufferTarget: true, renderTarget: bake, item: null };
+    r._beginPreCompile(item);
+    expect(r.getRenderTarget(), 'the draw builds for its target').toBe(bake);
+    r.setRenderTarget(null);
+    r._finishPreCompile();
+    expect(r.getRenderTarget(), 'the frame after draws to the screen again').toBe(null);
+    expect(r._precompilationState).toBe(null);
+    // A later draw begun and ended between frames ends with the screen bound, as it began.
+    r._beginPreCompile({ ...item });
+    expect(r.getRenderTarget()).toBe(bake);
+    r._finishPreCompile();
+    expect(r.getRenderTarget()).toBe(null);
+    // One begun while a frame's pass has its own target bound ends with that one.
+    r.setRenderTarget(other, 0, 0);
+    r._beginPreCompile({ ...item });
+    r._finishPreCompile();
+    expect(r.getRenderTarget()).toBe(other);
+    bake.dispose();
+    other.dispose();
   });
 });

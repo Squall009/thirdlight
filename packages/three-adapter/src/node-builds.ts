@@ -236,6 +236,14 @@ export function installBuildReuse(renderer: unknown, keepMs: number = RELEASED_B
 /** The renderer internals `installPrecompileTargets` reads (three r187; guarded). */
 interface PrecompileInternals {
   _beginPreCompile?: (state: PrecompileState) => unknown;
+  _finishPreCompile?: () => unknown;
+  _precompilationState?: PrecompileState | null;
+  getRenderTarget?(): unknown;
+  getActiveCubeFace?(): number;
+  getActiveMipmapLevel?(): number;
+  getMRT?(): unknown;
+  setRenderTarget?(target: unknown, face?: number, level?: number): void;
+  setMRT?(mrt: unknown): void;
   _textures?: { updateRenderTarget(target: object, level?: number): void; get(target: object): { textures?: unknown; depthTexture?: unknown; width?: number; height?: number } } | null;
 }
 interface PrecompileState {
@@ -253,14 +261,53 @@ interface PrecompileState {
  * depth while the draw builds (a material reading the scene depth) copies the canvas's depth buffer instead, at
  * the target's size: an invalid copy, and the canvas's buffer remade under the frame being drawn (every later
  * frame fails). Before each draw is built its context is given the target and its textures as they are now.
+ *
+ * Each build ends by binding the target that was current when `compileAsync` was called, not the one current when
+ * the build began. A caller that compiles into its own target and puts the renderer's target back at once (the
+ * terrain's macro baker) then has its target bound again when the builds finish, between frames: every later frame
+ * draws into it and the canvas keeps its last picture. The first build even begins before `compileAsync` returns,
+ * with the caller's target still bound. So each build ends with the target last bound by anyone else since it began
+ * (else the one bound when it began), and the MRT it began with.
  * Returns whether it was installed.
  */
 export function installPrecompileTargets(renderer: unknown): boolean {
   const r = renderer as PrecompileInternals | null;
   const begin = r?._beginPreCompile;
+  const finish = r?._finishPreCompile;
   const textures = r?._textures;
-  if (r === null || typeof begin !== 'function' || textures === undefined || textures === null || typeof textures.updateRenderTarget !== 'function' || typeof textures.get !== 'function') return false;
-  r._beginPreCompile = function beginPreCompileWithTarget(this: unknown, state: PrecompileState): unknown {
+  if (r === null || typeof begin !== 'function' || typeof finish !== 'function' || textures === undefined || textures === null || typeof textures.updateRenderTarget !== 'function' || typeof textures.get !== 'function') return false;
+  if (typeof r.getRenderTarget !== 'function' || typeof r.getActiveCubeFace !== 'function' || typeof r.getActiveMipmapLevel !== 'function' || typeof r.getMRT !== 'function' || typeof r.setRenderTarget !== 'function' || typeof r.setMRT !== 'function') return false;
+  // What the renderer's target was when a build began, and the last target bound since by anyone but these steps.
+  const bound = new WeakMap<PrecompileState, { target: unknown; face: number; level: number; mrt: unknown; sets: number }>();
+  let steps = 0;
+  let sets = 0;
+  let last: { target: unknown; face: number; level: number } = { target: null, face: 0, level: 0 };
+  const setTarget = r.setRenderTarget;
+  r.setRenderTarget = function setRenderTargetSeen(this: PrecompileInternals, target: unknown, face = 0, level = 0): void {
+    if (steps === 0) {
+      sets += 1;
+      last = { target, face, level };
+    }
+    setTarget.call(this, target, face, level);
+  };
+  r._finishPreCompile = function finishPreCompileAsBegun(this: PrecompileInternals): unknown {
+    const state = this._precompilationState ?? null;
+    const was = state === null ? undefined : bound.get(state);
+    steps += 1;
+    try {
+      const result = finish.call(this);
+      if (was !== undefined) {
+        const now = sets !== was.sets ? last : was;
+        setTarget.call(this, now.target, now.face, now.level);
+        this.setMRT!(was.mrt);
+      }
+      return result;
+    } finally {
+      steps -= 1;
+    }
+  };
+  r._beginPreCompile = function beginPreCompileWithTarget(this: PrecompileInternals, state: PrecompileState): unknown {
+    bound.set(state, { target: this.getRenderTarget!(), face: this.getActiveCubeFace!(), level: this.getActiveMipmapLevel!(), mrt: this.getMRT!(), sets });
     const target = state.renderTarget ?? null;
     const context = state.item?.renderContext ?? state.renderContext ?? null;
     if (target !== null && context !== null) {
@@ -274,7 +321,12 @@ export function installPrecompileTargets(renderer: unknown): boolean {
       context.depth = target.depthBuffer;
       context.stencil = target.stencilBuffer;
     }
-    return begin.call(this, state);
+    steps += 1;
+    try {
+      return begin.call(this, state);
+    } finally {
+      steps -= 1;
+    }
   };
   return true;
 }

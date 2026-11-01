@@ -195,9 +195,13 @@ export class TerrainMacroBaker {
     const saved = r.getRenderTarget();
     this.mesh.material = mat;
     r.setRenderTarget(rt);
-    r.render(this.scene, this.camera);
-    r.copyTextureToTexture(rt.texture, dst, null, new THREE.Vector3(0, 0, layer));
-    r.setRenderTarget(saved);
+    // A draw that throws must not leave the bake's target bound: every later frame would draw into it.
+    try {
+      r.render(this.scene, this.camera);
+      r.copyTextureToTexture(rt.texture, dst, null, new THREE.Vector3(0, 0, layer));
+    } finally {
+      r.setRenderTarget(saved);
+    }
   }
 
   dispose(): void {
@@ -252,14 +256,17 @@ export class TerrainMacroBaker {
     const saved = r.getRenderTarget();
     r.setRenderTarget(this.target(size));
     const compiling: Promise<unknown>[] = [];
-    for (const mat of [albedo, normal]) {
-      this.mesh.material = mat;
+    try {
+      for (const mat of [albedo, normal]) {
+        this.mesh.material = mat;
+        compiling.push(r.compileAsync(this.scene, this.camera));
+      }
+      // The sunlight's too: its whole-tile node has the finest nodes' vertex layout, so the program is the same.
+      this.mesh.material = sun;
       compiling.push(r.compileAsync(this.scene, this.camera));
+    } finally {
+      r.setRenderTarget(saved);
     }
-    // The sunlight's too: its whole-tile node has the finest nodes' vertex layout, so the program is the same.
-    this.mesh.material = sun;
-    compiling.push(r.compileAsync(this.scene, this.camera));
-    r.setRenderTarget(saved);
     void Promise.all(compiling)
       .then(() => {
         made.ready = true;
