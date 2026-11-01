@@ -1,0 +1,14 @@
+{
+  "name": "@thirdlight/voxel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Thirdlight voxel world storage: world and chunk coordinates, the chunk store contract and its candidates. Pure TypeScript with no three.js and no Node built-ins, so it loads in module workers, exported games and the backend alike; Node-only tooling over it (benchmarks, file writers) lives outside the package.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "sideEffects": false
+}
