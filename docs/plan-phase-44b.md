@@ -64,6 +64,7 @@ picture. Games switch both by switching cameras, through priorities and camera r
 | 44b.1 | done: bloom off removes the veil (both renderers). Bloom now thresholds the exposed colour, soft knee, only the excess glows; default strength 0.2; `bloom-exposure` load step. Sunset still veiled at exposure 1 (≈ 2 stops over), clean at 0.3: D339 open for 44b.3. Bloom GPU ≈ 0.42 ms full (0.41); level GPU +0.5–0.9: host (A/B, log). env-parity 23.0 → 25.9 s. Shots: acceptance/44b.1. |
 | 44b.2 | done (4c5eb5cf): occlusion per camera; sphere pull-in (in/hold/out, cut past walls), see-through per camera, mode snaps mid-blend; defaults: log. Cap: interior WebGPU main 3.06, GPU 7.09 full, WebGL 2 1.84; village 6.16 / 4.36 CPU; p95 16.7, 0 missed: no cost. e2e cameras 18.7 → 31.5 s (+12.8: doorway + see-through, both renderers). Shots looked at (test-results). |
 | 44b.3 | done: per-camera auto-exposure (meter 128×64→16×8, async read-back, both renderers), blended with camera blends. Sunset settles at 0.09, no veil, renderers alike: D339 fixed. Meter GPU ≈ 0.09 ms full clock; on: main +0.1–0.2 (A/B); off: interior/landscape/village within 44's range, p95 16.7–16.8, 0 missed. cameras e2e 31.5 → 32.4 s. D421. |
+| 44b.3a | done (83037b97): three 0.187.0; every checklist row checked: 6 hooks removed (three does it), 9 changed, 1 added (precompile targets). Cap, WebGPU main/GPU full, WebGL 2 main: village 5.32/5.09, 3.95; landscape 4.75/10.49, 3.31; interior 3.06/7.08, 1.79; lights 64/256 2.17/2.59; p95 16.7–16.8, 0 missed: no cost. level-acceptance 1.9–2.1 min both; D422 (fails at base). |
 
 ### 44b.0 baseline
 
@@ -175,3 +176,23 @@ picture. Games switch both by switching cameras, through priorities and camera r
   interior 3.34 / 7.11, 1.91; village 6.04 / 5.34, 3.97 — within phase 44's range (44b.0 table); p95 16.7–16.8, 0
   missed. The fast gate's village check passed (6.2 / 4.25 ms CPU). e2e: the cameras test 31.5 → 32.4 s (the dark
   room and the cut, both renderers in parallel in the export).
+- 2026-11-01 (44b.3a): three r187 taken through the checklist (§5 there has the notes). Three now does what six hooks
+  did: the lighting cube (its PMREM is a mip-mapped cube read with one lookup), the WebGL 2 VAO sweep, program and
+  texture-listener release, the lose-context override and the editor's OrbitControls listener release; they are
+  gone. Real breakages found by the gate, not by the guards: a layered sun lit nothing (r187 zeroes the direct sums
+  again after a branch: the sums are named before it, vitest holds it), shadow maps were drawn in every precompile
+  (`_isPreCompiling` gone), a sharing geometry was never freed (`disposeSharingGeometry` read r186's records), an
+  instanced kit mesh could read another's matrices (`objectSpecific`), and `compileAsync` now builds its draws after
+  it returns: a resized scene target gave pipelines without a depth format, and a depth copy from the canvas in a
+  precompile broke every later WebGPU frame (`installPrecompileTargets`). The first present now also waits for start
+  content arriving during the start compile (a clipped decal). Digests re-recorded after a hook-free build gave the
+  same WGSL. Pixels: the sunset's ground greener, house a little firmer (the new PMREM); corridor unchanged
+  (`acceptance/44b.3a`, looked at).
+- 2026-11-01 (44b.3a, default chosen, owner to confirm): the glTF import recipe keeps its loader line `three 0.186.0`
+  (`M2_GLTF_TOOLCHAIN`): r187's GLTFLoader changes only touch extensions the import refuses, and the line is part of
+  every imported model's recipe digest (moving it would make every model re-import). It moves with a loader change
+  that reaches accepted models.
+- 2026-11-01 (44b.3a): `level-acceptance.e2e.ts:673` fails alone at the base 0f914de9 too (the WebGPU export's rule
+  and door colours, identical pixels on r186 and r187; once WebGL 2 cover): D422, to fix before the full gate. With
+  the judge made soft, base and r187 fail the same stages and pass all others.
+
