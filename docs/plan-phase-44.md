@@ -77,7 +77,7 @@ regression points at its cause.
 | 44.12 | done: `tools/check-docs.mjs` in the build: a STATUS or progress row ≤ 400 characters; ratchet `tools/docs-ratchet.json` 155 rows (39–42 all, 43 19, 44.1b–44.10 14); STATUS plan links and defect lists checked (all pass). AGENTS: D blocks, closed rows, game answers. No e2e. |
 | 44.13a | done (review M1, G17): `pageFlagOn` f4c7bde1, `TexelTextureNode` 47344568, `MaterialVariants` f879b540, one `setupObserver` hook baa109da, `pickLodLevel` 9e0c0934, copies' 8-level cap gone b4a3e190. At the cap vs cda7fe34: village main 5.60 → 5.60 \| 4.04 → 4.06 ms; lights 64/256 WebGPU 2.21/2.72 → 2.27/2.84 (noise), WebGL 2 equal. No e2e touched; gates green. |
 | 44.13b | done (review M2–M5, Lows): title confirm reloads start scenes under `simulate: scripts` (ced14d99), selection counts gone (95989e8c), input rule tests (07a7af98), no-GPU perf check + SKIPPED gate line (aee31068), ratchets vs HEAD, retired areas, op-record check. e2e s: ui-sounds-shell 4.9 → 5.1, edit-copy 3.8 → 5.6 (1,100-object delete). Fast gates green; village unchanged. |
-| 44.13c | in progress: perf at the cap, both renderers, every class p95 16.7–16.8, 0 missed, GPU ms lower; main ms above 44.0's rounds, but a same-hour A/B vs fb338eab reads the base as high (host state). Counts and ratchets in **44.13 results**. Acceptance shots next. |
+| 44.13c | done: at the cap, both renderers, village/landscape/interior p95 16.7–16.8, 0 missed, GPU ms lower; main ms above 44.0's rounds, but a same-hour A/B reads fb338eab as high (host state). Counts, ratchets and acceptance (22 shots, all looked at, no new defect) in **44.13 results**. No code, no e2e changed. |
 
 ### 44.0 baseline
 
@@ -139,6 +139,14 @@ What the end of 44 is measured against (44.13).
 - **Ratchets:** redefinitions 163 (15 retired) at a6887409 → 26 (23 retired; the 3 kept: the TSL seeded-random
   fingerprint, material-graph `valueNoise`, `check-deps.mjs`'s `isObj`); size 39 → 35 entries; docs 155 rows at
   cda7fe34 → 141 (none from plan 44).
+- **Acceptance** (2026-11-01, Iris Xe, 1920 × 1080, headless Chrome, both renderers where a scene draws; shots and
+  what was seen in ~/.cache/thirdlight-phase44/acceptance/README.md): editor layout; Project Settings → Scripts
+  without the raw-JSON panel (G15); the commit field (Enter commits, Escape restores with no revision, 1e12 refused
+  with the range, Live light 500 clamped to 8; G16); a button-less title played by Enter (G14); a `simulate: scripts`
+  title whose box walked 2.4 m starts over at x 0 on Enter (M2); 270 moved, 270 pasted, 1,100 deleted, each one
+  revision and one undo (G8/M3); the starter export with the backend stopped: title, Enter, play, no page errors
+  (G1); village, landscape, interior from the perf runs. WebGL 2's interior walls are near black (it draws only a
+  saved bake, the perf level has none; same in phase 43's shot). No new defect.
 
 ## 4. Decision log
 
