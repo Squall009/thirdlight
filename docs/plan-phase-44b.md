@@ -62,6 +62,7 @@ picture. Games switch both by switching cameras, through priorities and camera r
 |---|---|
 | 44b.0 | done: three 0.186.1 pinned, 0.187.0 (minor) out 2026-10-30 → item 44b.3a. Plan committed. D339 open → 44b.1. Before shots (look scenes, medium, both renderers, cap): sunset veiled on both at medium, corridor fine; bloom 0.88 / 0.84 ms GPU (sunset / corridor, ≈ 0.41 at full clock). See **44b.0 baseline**. No code, no e2e. |
 | 44b.1 | done: bloom off removes the veil (both renderers). Bloom now thresholds the exposed colour, soft knee, only the excess glows; default strength 0.2; `bloom-exposure` load step. Sunset still veiled at exposure 1 (≈ 2 stops over), clean at 0.3: D339 open for 44b.3. Bloom GPU ≈ 0.42 ms full (0.41); level GPU +0.5–0.9: host (A/B, log). env-parity 23.0 → 25.9 s. Shots: acceptance/44b.1. |
+| 44b.2 | done (4c5eb5cf): occlusion per camera; sphere pull-in (in/hold/out, cut past walls), see-through per camera, mode snaps mid-blend; defaults: log. Cap: interior WebGPU main 3.06, GPU 7.09 full, WebGL 2 1.84; village 6.16 / 4.36 CPU; p95 16.7, 0 missed: no cost. e2e cameras 18.7 → 31.5 s (+12.8: doorway + see-through, both renderers). Shots looked at (test-results). |
 
 ### 44b.0 baseline
 
@@ -139,3 +140,8 @@ picture. Games switch both by switching cameras, through priorities and camera r
   7f98343e → bb70d593, GPU ms at full clock: landscape 10.69 / 10.30 → 10.59 / 10.31 (scene pass 7.34 / 7.07 →
   7.28 / 7.04), interior 6.92 / 6.69 → 7.14 / 6.98 (its scene pass swings 1.3–2.6 ms raw on either side); main ms
   5.06 / 4.94 → 4.91 / 5.04 and 2.99 / 3.04 → 3.12 / 3.02; p95 16.7–16.8, 0 missed everywhere. No D-row.
+- 2026-11-01 (44b.2): the cameras e2e grew 18.7 → 31.5 s (one test, its backend shared): a doorway round trip (8 s of
+  walking, the camera read every 30 ms) and the see-through pair, run on both renderers at once in the export. Nothing
+  else was cut to pay for it; the phase review should weigh it. Visual: the pulled-in shot (walker in view, no wall)
+  and the interior pair (wall solid with none, the figure through the dither with see-through) looked at on WebGL 2
+  and the default renderer's pulled-in shot; not kept.
