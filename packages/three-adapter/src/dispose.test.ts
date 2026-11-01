@@ -8,9 +8,10 @@
  */
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
+import { Backend, Renderer } from 'three/webgpu';
 
 import { createAutoBatcher, markBatchable } from './batching';
-import { disposeObjectTree, liveRenderers, releaseMrtContexts, releaseNodeAttributes, trackRenderer } from './dispose';
+import { disposeObjectTree, installBindingRelease, liveRenderers, releaseMrtContexts, releaseNodeAttributes, trackRenderer } from './dispose';
 import { createMaterialLibrary, type MaterialDefLike } from './material-library';
 import { releaseEmissiveLooks, setEntityLook, SHARED_MATERIAL_KEY } from './node-materials';
 
@@ -259,4 +260,55 @@ describe('fixes built on the helpers', () => {
     batcher.dispose();
   });
 
+});
+
+describe('installBindingRelease, over three\'s own Bindings', () => {
+  type BindingsLike = { getForRender(ro: unknown): unknown; deleteForRender(ro: unknown): void };
+  /** A renderer of the pinned three (its own Bindings, made by its own init) on a backend that records the uniform buffers it destroys. */
+  const rendererOf = async (): Promise<{ renderer: { _bindings: BindingsLike }; destroyed: unknown[] }> => {
+    const destroyed: unknown[] = [];
+    class Recording extends (Backend as unknown as new () => object) {
+      getDomElement(): unknown {
+        return { style: {}, width: 1, height: 1, addEventListener: () => undefined, removeEventListener: () => undefined };
+      }
+      async init(renderer: unknown): Promise<void> {
+        (this as unknown as { renderer: unknown }).renderer = renderer;
+      }
+      createUniformBuffer(): void {}
+      destroyUniformBuffer(b: unknown): void {
+        destroyed.push(b);
+      }
+      createBindings(): void {}
+      deleteBindGroupData(): void {}
+    }
+    const renderer = new (Renderer as unknown as new (b: object) => { init(): Promise<unknown>; _bindings: BindingsLike })(new Recording());
+    await renderer.init();
+    return { renderer, destroyed };
+  };
+  // One group shared by two render objects of a render context (the camera's uniforms).
+  const shared = (): { buffer: unknown; drawn: unknown; compiling: unknown } => {
+    const buffer = { isUniformBuffer: true, release: () => undefined };
+    const group = { bindings: [buffer] };
+    return { buffer, drawn: { getBindings: () => [group] }, compiling: { getBindings: () => [group] } };
+  };
+
+  it('a render object disposed before its bindings were made leaves a shared group to the one still drawing', async () => {
+    const { renderer, destroyed } = await rendererOf();
+    const { buffer, drawn, compiling } = shared();
+    renderer._bindings.getForRender(drawn);
+    expect(installBindingRelease(renderer)).toBe(true);
+    renderer._bindings.deleteForRender(compiling);
+    expect(destroyed).toEqual([]);
+    // The one that made them releases them as before.
+    renderer._bindings.deleteForRender(drawn);
+    expect(destroyed).toEqual([buffer]);
+  });
+
+  it('without it three destroys the drawing object\'s buffer (the failure it fixes, in the pinned release)', async () => {
+    const { renderer, destroyed } = await rendererOf();
+    const { buffer, drawn, compiling } = shared();
+    renderer._bindings.getForRender(drawn);
+    renderer._bindings.deleteForRender(compiling);
+    expect(destroyed).toEqual([buffer]);
+  });
 });

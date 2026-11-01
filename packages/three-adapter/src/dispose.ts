@@ -257,3 +257,41 @@ export function releaseStorage(renderer: unknown, buffers: readonly unknown[]): 
   if (map === null || map === undefined || typeof map.delete !== 'function') return;
   for (const b of buffers) if (b !== null && b !== undefined) map.delete(b);
 }
+
+/** three's bindings component, as `installBindingRelease` reads it (r187; guarded). */
+interface BindingsInternals {
+  has(key: unknown): boolean;
+  get(key: unknown): { initialized?: boolean };
+  delete(key: unknown): unknown;
+  deleteForRender(renderObject: unknown): void;
+}
+
+/**
+ * A render object's bindings are released only if they were ever made.
+ *
+ * three counts the users of a bind group shared across a render context (the
+ * camera's uniforms) when a render object's bindings are first made, but
+ * `deleteForRender` releases a render object's groups whether or not they
+ * were. `compileAsync` makes its render objects and then yields before it
+ * makes their bindings; one disposed in that gap (the terrain's macro baker
+ * replaces a bake material whose textures arrived while it compiled) takes a
+ * use the count never had, the count reaches 0 while another render object
+ * still draws with the group, and its GPU buffers are destroyed: that draw
+ * then throws (`updateBinding`: no GPU buffer) in every later frame. Such a
+ * render object is only forgotten here, and its never-made bindings left
+ * alone. Returns whether it was installed.
+ */
+export function installBindingRelease(renderer: unknown): boolean {
+  const b = (renderer as { _bindings?: Partial<BindingsInternals> | null } | null)?._bindings;
+  if (b === undefined || b === null || typeof b.has !== 'function' || typeof b.get !== 'function' || typeof b.delete !== 'function' || typeof b.deleteForRender !== 'function') return false;
+  const bindings = b as BindingsInternals;
+  const release = bindings.deleteForRender;
+  bindings.deleteForRender = function deleteMadeForRender(this: BindingsInternals, renderObject: unknown): void {
+    if (this.has(renderObject) && this.get(renderObject).initialized === true) {
+      release.call(this, renderObject);
+      return;
+    }
+    this.delete(renderObject);
+  };
+  return true;
+}

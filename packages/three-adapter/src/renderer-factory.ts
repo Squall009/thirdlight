@@ -40,7 +40,7 @@ import { registerClusteredLights } from './cluster-lights';
 import { registerProjectedDecals } from './projected-decals';
 import { installLocalLightModes } from './local-lights';
 import { installTextureUnitGuard } from './texture-unit-guard';
-import { trackRenderer } from './dispose';
+import { installBindingRelease, trackRenderer } from './dispose';
 import { buildKeepFromUrl, installBuildMarks, installBuildReuse, installPrecompileTargets, type BuildReuse } from './node-builds';
 import { installTexelReads } from './texel-reads';
 import { setPaintStreamDevice } from './vertex-paint-draw';
@@ -526,6 +526,8 @@ export function createRenderer(o: CreateRendererOptions): RendererHandle {
         installBuildMarks(r);
         // A precompile's draws are built for their target as it is when they are built (see node-builds.ts).
         installPrecompileTargets(r);
+        // Bindings a render object never made are not released (see dispose.ts).
+        installBindingRelease(r);
         // A re-bake's new objects reuse the builds of the ones they replace.
         buildReuse = installBuildReuse(r, buildKeepFromUrl(pageSearch()));
         // Vertex paint streams are as tall as this device's textures can be (see vertex-paint-draw.ts).
