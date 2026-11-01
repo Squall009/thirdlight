@@ -194,9 +194,9 @@ const TERRAIN_COVER_FROM_Z = AREA_AT[2] + 24 + 0.5;
 const RESTYLE_KEY = 'KeyR';
 const ENTER_KEY = 'KeyB';
 
-// ---- Colours (lit, tone mapped: ratios, not values). WebGPU's live probes light with the colour sky's blue and the
-// bounce round each surface (WebGL 2 without a bake has neither): AgX pulls those brighter, bluer colours toward
-// white, so the purple, pink and blue tests leave room for it.
+// ---- Colours (lit, tone mapped: ratios, not values). WebGPU's live probes add the bounce round each surface (WebGL 2
+// without a bake has none): AgX pulls those brighter colours toward white, so the purple, pink and blue tests leave room
+// for it, and the yellows are a darker yellow (a bright one, bounced, crosses the yellow test's blue bound).
 const isYellow: Pred = (r, g, b) => r > 110 && g > 95 && b < 0.45 * Math.min(r, g) && Math.abs(r - g) < 0.35 * r;
 const isChartreuse: Pred = (r, g, b) => g > 90 && r > 0.45 * g && r < 0.88 * g && b < 0.35 * g;
 const isTeal: Pred = (r, g, b) => g > 35 && b > 35 && r < 0.4 * Math.min(g, b) && Math.abs(g - b) < 0.35 * Math.max(g, b);
@@ -354,8 +354,10 @@ async function buildLevel(): Promise<Built> {
   await publishBytes(be!, multiPieceGlb([{ name: 'tuft', lods: [[0.3, 0.45, 0.3]], colors: [[1, 1, 1]] }]), 'model', 'acc-tuft', 'Tuft');
   await publishBytes(be!, multiPieceGlb([{ name: 'sprig', lods: [[0.3, 0.45, 0.3]], colors: [[0.55, 0.25, 1]] }]), 'model', 'acc-sprig', 'Sprig');
 
-  // The look: a blue sky, the height fog thick at the horizon; the sun from behind the camera.
-  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: SKY }, fog: { mode: 'none', color: '#000000' }, heightFog: FOG } });
+  // The look: a blue sky, the height fog thick at the horizon; the sun from behind the camera. The sky lights nothing
+  // (its own colour and light are other tests'): the colour tests below hold for the sun and the bounce, and WebGPU's live
+  // probes, lit a second or two in, would tint every surface this saturated blue.
+  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: SKY, environmentIntensity: 0 }, fog: { mode: 'none', color: '#000000' }, heightFog: FOG } });
   await cmd('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 2, direction: [0.3, -1, -0.6], castShadow: true } });
   await cmd('setTransform', { entityId: 'cam-main', transform: { position: CAMERA.position, rotation: CAMERA.rotation } });
   const lens = ((await query('queryEntity', { entityId: 'cam-main' }))['entity'] as { components: { virtualCamera?: Record<string, unknown> } }).components.virtualCamera;
@@ -367,10 +369,10 @@ async function buildLevel(): Promise<Built> {
   await cmd('setBlockType', { block: { blockId: 'wall', name: 'Wall', variants: [{ color: '#505050' }], shape: 'full', placement: 'edge' } });
   await cmd('createScene', { sceneId: 'scene-kit', name: 'Kit' });
   const gate = String((await cmd('createEntity', { sceneId: 'scene-kit', parentId: null, kind: 'group', name: 'Door', transform: { position: [0, 0, 0] } }))['createdId']);
-  await cmd('createEntity', { sceneId: 'scene-kit', parentId: gate, kind: 'box', name: 'Door leaf', transform: { position: [0, 0.45, 0] }, box: { size: [0.9, 0.9, 0.12], material: { color: '#f0dc00' } } });
+  await cmd('createEntity', { sceneId: 'scene-kit', parentId: gate, kind: 'box', name: 'Door leaf', transform: { position: [0, 0.45, 0] }, box: { size: [0.9, 0.9, 0.12], material: { color: '#c0b000' } } });
   await cmd('createPrefab', { prefabId: 'acc-door', displayName: 'Door', sourceEntityId: gate });
   await cmd('setBlockType', { block: { blockId: 'door', name: 'Door', variants: [{ prefab: 'acc-door' }], shape: 'full', placement: 'edge', live: true } });
-  await cmd('setBlockType', { block: { blockId: 'rampart', name: 'Rampart', variants: [{ color: '#606060', weight: 1000 }, { color: '#f0e000', weight: 0.001 }, { color: '#f0f0f0', weight: 0.001 }], shape: 'full', connect: { pieces: { straight: { variant: 1 }, corner: { variant: 2 } } } } });
+  await cmd('setBlockType', { block: { blockId: 'rampart', name: 'Rampart', variants: [{ color: '#606060', weight: 1000 }, { color: '#c0b000', weight: 0.001 }, { color: '#f0f0f0', weight: 0.001 }], shape: 'full', connect: { pieces: { straight: { variant: 1 }, corner: { variant: 2 } } } } });
   const area = String((await cmd('createEntity', { sceneId: 'scene-main', parentId: null, kind: 'group', name: 'Area', transform: { position: AREA_AT } }))['createdId']);
   // Rules and scatter first: every edit after bakes the chunks it touches.
   await cmd('setComponent', {
