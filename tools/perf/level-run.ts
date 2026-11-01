@@ -1,7 +1,7 @@
 /**
  * The level-building measurement (`node tools/perf/run.mjs level …`): the
  * level classes (level.ts) built through a private backend, exported, and
- * each export measured like the village (frame-run.ts: 1920×1080 at DPR 1,
+ * each export measured like the village (frame-run.ts: 1920×1080 or --viewport at DPR 1,
  * uncapped, the host's GPU, frame p50/p95/p99, draws, main-thread time, GPU
  * time per render pass, a CPU profile split by package), on both renderers.
  * The log ends with each class against the soft frame target and what the
@@ -99,6 +99,8 @@
  *                                measured there too
  *   --oracle                     after each class's run, count what the view drew that no pixel showed (three-adapter
  *                                occlusion-oracle.ts): hidden draws, items (copies, merged members) and triangles
+ *   --viewport WxH               the export pages' size (default 1920x1080; 1280x720 is the low tier's goal; the editor
+ *                                edit windows stay 1920x1080)
  *   --record-ms N --warmup-ms N --gpu-ms N --profile-ms N --out FILE --keep
  *
  * The report goes to ~/.cache/thirdlight-perf/reports/level-<time>.json (latest-level.json too).
@@ -111,7 +113,7 @@ import { join } from 'node:path';
 
 import { PERF_ROOT, REPO, startPerfBackend } from './backend';
 import { moduleIndex } from './profile';
-import { launchGpuBrowser, LONG_FRAME_MS, measurePage, serveStatic, sourcesOf, uncappedUrl, type FrameRenderer, type FrameRunResult } from './frame-run';
+import { launchGpuBrowser, LONG_FRAME_MS, measurePage, parseViewport, serveStatic, sourcesOf, uncappedUrl, type FrameRenderer, type FrameRunResult } from './frame-run';
 import { installFrameProbe, probeSceneCounts } from './frame-probe';
 import { buildLevel, FLIGHT_SECONDS, LEVEL_HEIGHT_FOG, LEVEL_LOOK, levelPlan, levelViewCamera, LEVEL_ALL_KINDS, LEVEL_KINDS, LEVEL_SEED, LEVEL_VERSION, LEVEL_VIEWS, type LevelBuild, type LevelKind, type LevelPlan, type LevelRoofs, type LevelView } from './level';
 import { editModeRuns, maskedDabRuns, type DabRun, type EditModeRun } from './level-editmode';
@@ -346,6 +348,7 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
   const seeThroughFade = get('see-through-fade') === undefined ? undefined : Number(get('see-through-fade'));
   if (seeThroughFade !== undefined && !(seeThroughFade >= 0 && seeThroughFade <= 0.95)) throw new Error(`--see-through-fade: a max fade 0-0.95, not ${get('see-through-fade')}`);
   const busyMs = Number(get('busy') ?? 0);
+  const viewport = parseViewport(get('viewport'));
   if (walls.buildings > 0 && kinds.includes('interior')) throw new Error('--layered-walls builds on the outdoor classes\' area, not the interior');
 
   const startedAt = new Date().toISOString();
@@ -422,7 +425,7 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
       const site = await serveStatic(exportDirs[kind]!);
       try {
         for (const r of renderers) {
-          const res = await measurePage(browser, { url: `${site.url}?renderer=${r}${query}`, warmupMs, recordMs, gpuMs, profileMs, busyMs, sourceOf: sourcesOf(site), shot: join(runDir, `${kind}-${r}.png`), oracle, oracleCull: oracle, ...(flight ? { settleMs: FLIGHT_SETTLE_MS } : {}) });
+          const res = await measurePage(browser, { viewport, url: `${site.url}?renderer=${r}${query}`, warmupMs, recordMs, gpuMs, profileMs, busyMs, sourceOf: sourcesOf(site), shot: join(runDir, `${kind}-${r}.png`), oracle, oracleCull: oracle, ...(flight ? { settleMs: FLIGHT_SETTLE_MS } : {}) });
           (report.classes[kind] ??= {})[r] = res;
           log(frameLine(`level ${kind} ${r}`, res) + roomsNote(res));
           if (res.busy !== undefined) log(busyLine(`level ${kind} ${r} busy`, res));
@@ -454,7 +457,7 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
           }
           if (restyles.length > 0) log(`level ${kind} ${r} restyles: ${restyles.length}, ${restyles.map((d) => `${d.chunks} chunks ${d.ms} ms ${d.frames} frames (${d.longFrames} over 16.7 ms, longest ${d.longestFrameMs} ms at frame ${d.longestFrameAt}, view update ≤ ${d.longestUpdateMs} ms)`).join('; ')}`);
           for (const sw of switches) {
-            const off = await measurePage(browser, { url: `${site.url}?renderer=${r}${query}&${sw}`, warmupMs, recordMs, gpuMs, profileMs: 0, sourceOf: sourcesOf(site) });
+            const off = await measurePage(browser, { viewport, url: `${site.url}?renderer=${r}${query}&${sw}`, warmupMs, recordMs, gpuMs, profileMs: 0, sourceOf: sourcesOf(site) });
             (((report.switches ??= {})[kind] ??= {})[sw] ??= {})[r] = off;
             log(frameLine(`level ${kind} ${r} ${sw}`, off) + roomsNote(off));
           }
@@ -462,7 +465,7 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
           if (seen !== undefined && prebuiltDirs[kind] !== undefined) {
             const pre = await serveStatic(prebuiltDirs[kind]!);
             try {
-              const page = (url: string): Promise<FrameRunResult> => measurePage(browser, { url, warmupMs, recordMs, gpuMs, profileMs: 0, busyMs, sourceOf: sourcesOf(site) });
+              const page = (url: string): Promise<FrameRunResult> => measurePage(browser, { viewport, url, warmupMs, recordMs, gpuMs, profileMs: 0, busyMs, sourceOf: sourcesOf(site) });
               seen.byRenderer[r] = await seeThroughRuns(browser, `${site.url}?renderer=${r}${query}`, `${pre.url}?renderer=${r}${query}`, res, page, `level ${kind} see-through ${r}`, log);
             } finally {
               await pre.close();
@@ -479,13 +482,13 @@ export async function runLevelCli(argv: readonly string[]): Promise<void> {
           const seen: { camera: LevelPlan['camera']; byRenderer: typeof byRenderer; switches?: Record<string, Partial<Record<FrameRenderer, FrameRunResult>>> } = { camera: at.camera, byRenderer };
           ((report.views ??= {})[kind] ??= {})[v] = seen;
           for (const r of renderers) {
-            const res = await measurePage(browser, { url: `${viewSite.url}?renderer=${r}${query}`, warmupMs, recordMs, gpuMs, profileMs, sourceOf: sourcesOf(viewSite), shot: join(runDir, `${kind}-${v}-${r}.png`), oracle: true, oracleCull: true, ...(flight ? { settleMs: FLIGHT_SETTLE_MS } : {}) });
+            const res = await measurePage(browser, { viewport, url: `${viewSite.url}?renderer=${r}${query}`, warmupMs, recordMs, gpuMs, profileMs, sourceOf: sourcesOf(viewSite), shot: join(runDir, `${kind}-${v}-${r}.png`), oracle: true, oracleCull: true, ...(flight ? { settleMs: FLIGHT_SETTLE_MS } : {}) });
             byRenderer[r] = res;
             log(frameLine(`level ${kind} ${v} ${r}`, res) + roomsNote(res));
             log(oracleLine(`level ${kind} ${v} ${r}`, res));
             // The switches at the view too: what each saves where much is hidden, not only in the open view.
             for (const sw of switches) {
-              const off = await measurePage(browser, { url: `${viewSite.url}?renderer=${r}${query}&${sw}`, warmupMs, recordMs, gpuMs, profileMs: 0, sourceOf: sourcesOf(viewSite) });
+              const off = await measurePage(browser, { viewport, url: `${viewSite.url}?renderer=${r}${query}&${sw}`, warmupMs, recordMs, gpuMs, profileMs: 0, sourceOf: sourcesOf(viewSite) });
               ((seen.switches ??= {})[sw] ??= {})[r] = off;
               log(frameLine(`level ${kind} ${v} ${r} ${sw}`, off) + roomsNote(off));
             }

@@ -16,6 +16,7 @@ import { validateOpArgs } from '../../packages/commands/src/validate-request';
 import { MAX_REQUEST_BYTES } from '../../packages/project-model/src/limits';
 import { REPO, startPerfBackend } from './backend';
 import { buildBenchmark, splitBySize } from './build';
+import { FRAME_VIEWPORT, parseViewport } from './frame-run';
 import { BENCH_CLASSES } from './classes';
 import { generate, planKey } from './generate';
 import { parseArgs, SURFACES } from './harness';
@@ -81,6 +82,13 @@ describe('the perf command line', () => {
     expect([q.classes, q.surfaces, q.recordMs, q.simSteps, q.gpu, q.viewport]).toEqual([['small', 'medium'], ['sim'], 1500, 60, true, { width: 800, height: 600 }]);
     expect(() => parseArgs(['--classes', 'huge'])).toThrow(/--classes: unknown huge/);
     expect(() => parseArgs(['--surfaces', 'gpu'])).toThrow(/--surfaces: unknown gpu/);
+  });
+
+  it('reads --viewport as WxH, defaulting to the frame runs\' 1080p, and refuses anything else', () => {
+    expect(parseViewport(undefined)).toEqual({ ...FRAME_VIEWPORT });
+    expect(parseViewport('1280x720')).toEqual({ width: 1280, height: 720 });
+    for (const bad of ['720p', '1280', '1280x', 'x720', '1280X720', '1280x720x2', '0x0', '99999x720']) expect(() => parseViewport(bad)).toThrow(/--viewport: WxH/);
+    expect(() => parseArgs(['--viewport', '800'])).toThrow(/--viewport: WxH/);
   });
 });
 

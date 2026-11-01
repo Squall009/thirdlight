@@ -19,6 +19,7 @@ import { PERF_ROOT, REPO, startPerfBackend } from './backend';
 import { launch, measureCalibration, measureEditor, measureExport, measurePlay, splitLine, type RendererName, type SurfaceOptions, type SurfaceResult } from './browser';
 import { buildBenchmark, type BuildResult } from './build';
 import type { EditorOpsResult } from './editor-ops';
+import { parseViewport } from './frame-run';
 import { DEFAULT_SEED, GENERATOR_VERSION, generate } from './generate';
 import { runSimChild } from './sim-run';
 import type { SimResult } from './sim';
@@ -92,7 +93,6 @@ export function parseArgs(argv: readonly string[]): Omit<HarnessOptions, 'log'> 
     return items as T[];
   };
   const quick = argv.includes('--quick');
-  const [vw, vh] = (get('viewport') ?? '1280x720').split('x').map(Number);
   return {
     classes: list('classes', BENCH_CLASSES, BENCH_CLASSES),
     renderers: list<RendererName>('renderers', ['legacy', 'webgl2', 'webgpu', 'auto'], ['webgl2']), // `legacy` is WebGPURenderer on WebGL 2 (kept to re-run old reports)
@@ -103,7 +103,7 @@ export function parseArgs(argv: readonly string[]): Omit<HarnessOptions, 'log'> 
     recordMs: Number(get('record-ms') ?? (quick ? 1500 : 5000)),
     commands: Number(get('commands') ?? (quick ? 10 : 40)),
     simSteps: Number(get('sim-steps') ?? (quick ? 240 : 1200)),
-    viewport: { width: vw ?? 1280, height: vh ?? 720 },
+    viewport: parseViewport(get('viewport'), { width: 1280, height: 720 }),
     plays: Number(get('plays') ?? 1),
     gpu: argv.includes('--gpu'),
     keep: argv.includes('--keep'),

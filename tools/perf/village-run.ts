@@ -53,6 +53,8 @@
  *                                the export measured again with it on, then switched on mid-run (see-through-run.ts);
  *                                measure with --vsync
  *   --see-through-fade F         with --see-through: the subjects' max fade (0: the mask runs, nothing thinned: its own cost)
+ *   --viewport WxH               the export pages' size (default 1920x1080; 1280x720 is the low tier's goal); not with
+ *                                --gate, --check or --write-baseline (the gate's baseline is 1080p)
  *   --record-ms N --warmup-ms N --gpu-ms N --profile-ms N --out FILE --keep
  *
  * The report goes to ~/.cache/thirdlight-perf/reports/<village or the project folder's name>-<time>.json
@@ -68,7 +70,7 @@ import * as esbuild from 'esbuild';
 import { hiddenFractions, ORACLE_KINDS, type OracleShare } from '@thirdlight/three-adapter';
 
 import { PERF_ROOT, REPO, startPerfBackend } from './backend';
-import { launchGpuBrowser, measurePage, serveStatic, sourcesOf, type FrameRenderer, type FrameRunResult, type PageStep } from './frame-run';
+import { launchGpuBrowser, measurePage, parseViewport, serveStatic, sourcesOf, type FrameRenderer, type FrameRunResult, type PageStep } from './frame-run';
 import { bakeLightingInEditor } from './bake-run';
 import { addSyntheticProbes } from './probe-synthetic';
 import { measureSceneView, sceneViewLine, type SceneViewResult } from './scene-view-run';
@@ -311,6 +313,8 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
   const exporting = !has('no-export');
   // The gate measures at the display's cap; the plain page then draws every refresh like the class and says nothing.
   const capped = gate || has('vsync');
+  if (get('viewport') !== undefined && (gate || has('check') || has('write-baseline'))) throw new Error('--viewport: not with --gate, --check or --write-baseline (the baseline is measured at 1920x1080)');
+  const viewport = parseViewport(get('viewport'));
   const bare = exporting && !gate && !has('no-bare');
   const ablation = !gate && has('ablation');
   const query = get('query') !== undefined ? `&${get('query')}` : '';
@@ -424,14 +428,14 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
     const site = exportDir === null ? null : await serveStatic(exportDir, {}, dumpDir);
     try {
       for (const [i, r] of (site === null ? [] : renderers).entries()) {
-        const res = await measurePage(browser, { url: `${site!.url}?renderer=${r}${query}`, warmupMs, recordMs, gpuMs, profileMs, steps, sourceOf: sourcesOf(site!), dump: bare && i === 0, shot: join(runDir, `export-${r}.png`), busyMs, oracle, oracleCull: oracle });
+        const res = await measurePage(browser, { viewport, url: `${site!.url}?renderer=${r}${query}`, warmupMs, recordMs, gpuMs, profileMs, steps, sourceOf: sourcesOf(site!), dump: bare && i === 0, shot: join(runDir, `export-${r}.png`), busyMs, oracle, oracleCull: oracle });
         report.export[r] = res;
         log(frameLine(`export ${r}`, res));
         if (oracle) log(oracleLine(`export ${r}`, res));
         for (const m of res.marks ?? []) log(`mark ${r} ${m.name} at ${m.at} ms (first frame ${res.firstFrameMs ?? '-'} ms)${m.detail !== null ? ` ${JSON.stringify(m.detail)}` : ''}`);
         if (res.busy !== undefined) log(busyLine(`busy ${r}`, res));
         for (const sw of switches) {
-          const off = await measurePage(browser, { url: `${site!.url}?renderer=${r}${query}&${sw}`, warmupMs, recordMs, gpuMs, profileMs: 0, steps, sourceOf: sourcesOf(site!), shot: join(runDir, `export-${r}-${sw.replace(/[^a-z0-9]+/gi, '_')}.png`), busyMs });
+          const off = await measurePage(browser, { viewport, url: `${site!.url}?renderer=${r}${query}&${sw}`, warmupMs, recordMs, gpuMs, profileMs: 0, steps, sourceOf: sourcesOf(site!), shot: join(runDir, `export-${r}-${sw.replace(/[^a-z0-9]+/gi, '_')}.png`), busyMs });
           ((report.switches ??= {})[sw] ??= {})[r] = off;
           log(frameLine(`export ${r} ${sw}`, off));
           if (off.busy !== undefined) log(busyLine(`busy ${r} ${sw}`, off));
@@ -440,7 +444,7 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
         if (report.seeThrough !== undefined && prebuiltDir !== null) {
           const pre = await serveStatic(prebuiltDir);
           try {
-            const page = (url: string): Promise<FrameRunResult> => measurePage(browser, { url, warmupMs, recordMs, gpuMs, profileMs, steps, sourceOf: sourcesOf(site!), busyMs });
+            const page = (url: string): Promise<FrameRunResult> => measurePage(browser, { viewport, url, warmupMs, recordMs, gpuMs, profileMs, steps, sourceOf: sourcesOf(site!), busyMs });
             report.seeThrough.byRenderer[r] = await seeThroughRuns(browser, `${site!.url}?renderer=${r}${query}`, `${pre.url}?renderer=${r}${query}`, res, page, `see-through ${r}`, log);
           } finally {
             await pre.close();
@@ -457,13 +461,13 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
         const at: NonNullable<VillageReport['views']>[VillageView] = { camera: viewCamera!, export: seen };
         report.views = { [view]: at };
         for (const r of renderers) {
-          const res = await measurePage(browser, { url: `${viewSite.url}?renderer=${r}${query}`, warmupMs, recordMs, gpuMs, profileMs, steps, sourceOf: sourcesOf(viewSite), shot: join(runDir, `export-${view}-${r}.png`), oracle: true, oracleCull: true });
+          const res = await measurePage(browser, { viewport, url: `${viewSite.url}?renderer=${r}${query}`, warmupMs, recordMs, gpuMs, profileMs, steps, sourceOf: sourcesOf(viewSite), shot: join(runDir, `export-${view}-${r}.png`), oracle: true, oracleCull: true });
           seen[r] = res;
           log(frameLine(`export ${view} ${r}`, res));
           log(oracleLine(`export ${view} ${r}`, res));
           // The switches at the view too: what each saves where much is hidden, not only in the open view.
           for (const sw of switches) {
-            const off = await measurePage(browser, { url: `${viewSite.url}?renderer=${r}${query}&${sw}`, warmupMs, recordMs, gpuMs, profileMs: 0, steps, sourceOf: sourcesOf(viewSite) });
+            const off = await measurePage(browser, { viewport, url: `${viewSite.url}?renderer=${r}${query}&${sw}`, warmupMs, recordMs, gpuMs, profileMs: 0, steps, sourceOf: sourcesOf(viewSite) });
             ((at!.switches ??= {})[sw] ??= {})[r] = off;
             log(frameLine(`export ${view} ${r} ${sw}`, off));
           }
@@ -489,7 +493,7 @@ export async function runVillageCli(argv: readonly string[]): Promise<void> {
           for (const v of variants) {
             for (const r of renderers) {
               const q = [`renderer=${r}`, BARE_VARIANTS[v]].filter((x) => x !== '').join('&');
-              const res = await measurePage(browser, { url: `${page.url}?${q}`, warmupMs, recordMs, gpuMs, profileMs: v === 'bare' ? profileMs : 0, sourceOf: sourcesOf(page), shot: join(runDir, `bare-${v}-${r}.png`) });
+              const res = await measurePage(browser, { viewport, url: `${page.url}?${q}`, warmupMs, recordMs, gpuMs, profileMs: v === 'bare' ? profileMs : 0, sourceOf: sourcesOf(page), shot: join(runDir, `bare-${v}-${r}.png`) });
               (report.bare[v] ??= {})[r] = res;
               log(frameLine(`plain three.js ${v} ${r}`, res));
             }

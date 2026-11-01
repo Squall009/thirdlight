@@ -29,6 +29,19 @@ import { dumpScene, type DumpSummary } from './scene-dump';
 import { histogram, summarize, type Summary } from './stats';
 
 export const FRAME_VIEWPORT = { width: 1920, height: 1080 } as const;
+
+/**
+ * A `--viewport WxH` value (e.g. `1280x720`): the page size a run measures at. The low tier's goal is 720p, the
+ * records before it are 1080p, so a run names the size it measured rather than assuming one.
+ */
+export function parseViewport(value: string | undefined, dflt: { width: number; height: number } = FRAME_VIEWPORT): { width: number; height: number } {
+  if (value === undefined) return { width: dflt.width, height: dflt.height };
+  const m = /^(\d+)x(\d+)$/.exec(value);
+  const width = m === null ? NaN : Number(m[1]);
+  const height = m === null ? NaN : Number(m[2]);
+  if (!(width >= 64 && width <= 7680 && height >= 64 && height <= 4320)) throw new Error(`--viewport: WxH in pixels (e.g. 1280x720), not ${value}`);
+  return { width, height };
+}
 /** No vsync and no frame-rate cap: the frame costs what it costs. */
 export const UNCAPPED_ARGS = ['--disable-gpu-vsync', '--disable-frame-rate-limit'];
 
@@ -82,6 +95,8 @@ export interface FrameRunOptions {
    * again (frames, draws, main thread, GPU passes): what an ideal culling of whole draws would save here.
    */
   oracleCull?: boolean;
+  /** The page size (absent: {@link FRAME_VIEWPORT}), at device pixel ratio 1. */
+  viewport?: { width: number; height: number };
 }
 
 /** The frames measured again with the draws the oracle found wholly hidden left out of the view. */
@@ -143,6 +158,8 @@ export function gpuClockSampler(): { stop(): number } | null {
 
 export interface FrameRunResult {
   url: string;
+  /** The page size measured at (reports before it was recorded: {@link FRAME_VIEWPORT}). */
+  viewport?: { width: number; height: number };
   rendererChoice: PageSample['renderer'];
   apis: string[];
   firstFrameMs: number | null;
@@ -290,7 +307,7 @@ async function runSteps(page: Page, steps: readonly PageStep[]): Promise<void> {
 }
 
 export async function measurePage(browser: Browser, opts: FrameRunOptions): Promise<FrameRunResult> {
-  const context = await browser.newContext({ viewport: { ...FRAME_VIEWPORT }, deviceScaleFactor: 1 });
+  const context = await browser.newContext({ viewport: { ...(opts.viewport ?? FRAME_VIEWPORT) }, deviceScaleFactor: 1 });
   await context.addInitScript(installPerfInstrumentation);
   if (opts.frameCalls === true) await context.addInitScript(installFrameCallCounts);
   // TL_PERF_STACKS=1: the frame calls also name where a program link or a large allocation came from.
@@ -356,6 +373,7 @@ export async function measurePage(browser: Browser, opts: FrameRunOptions): Prom
       ...(missedCalls.length > 0 ? { missedCalls } : {}),
       ...(opts.frameCalls === true ? { heavyCalls: { frames: sample.frameEvents.filter((e) => Object.keys(e.calls).length > 0).length, calls: heavy, builds: sample.frameEvents.filter((e) => Object.keys(e.calls).some((k) => /^(linkProgram|texStorage|texImage|createRenderPipeline|createTexture)/.test(k))).slice(0, 60) } } : {}),
       url: opts.url,
+      viewport: { ...(opts.viewport ?? FRAME_VIEWPORT) },
       rendererChoice: sample.renderer,
       apis: sample.apis,
       firstFrameMs: first === null ? null : Math.round(first),
