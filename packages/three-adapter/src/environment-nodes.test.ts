@@ -51,6 +51,7 @@ vi.mock('./environment-nodes', async (importOriginal) => {
         internalSize: () => null,
         temporalHolding: () => (plan.aa === 'taau' ? false : null),
         setTemporalHold: () => undefined,
+        sceneTexture: () => null,
         setParams: (p: Pick<PostPlan, 'grading' | 'bloom'>) => rec.params.push(p),
         render: () => (rec.renders += 1),
         dispose: () => (rec.disposed = true),
@@ -410,6 +411,32 @@ describe('environment renderer on WebGPURenderer', () => {
     env.setRender({ scale: 0.5, dynamic: false });
     env.render(camera);
     expect(built.at(-1)!.plan).toMatchObject({ displayBackground: 'color' });
+    env.dispose();
+  });
+
+  it('a loaded auto-exposure camera keeps the scene in the stack (its sky exposed, MSAA kept); none: as before, at the look\'s exposure', () => {
+    const renderer = nodeRenderer();
+    const scene = new THREE.Scene();
+    const env = createEnvironmentRenderer(renderer, scene, { loadTexture: async () => null });
+    const camera = new THREE.PerspectiveCamera();
+    env.set({ sky: { mode: 'color', color: '#7ec8ff' }, post: { exposure: 0.7 } });
+    env.setExposure(null, false);
+    env.render(camera);
+    expect(built.at(-1)!.plan).toMatchObject({ displayBackground: 'color' });
+    expect(renderer.toneMappingExposure).toBe(0.7);
+    expect(env.diagnostics().exposure).toMatchObject({ value: 0.7, target: null, metering: false, readings: 0 });
+    // Loaded but not on screen: the stack is built for the meter (no display background), nothing metered, exposure fixed.
+    env.setExposure(null, true);
+    env.render(camera);
+    expect(built.at(-1)!.plan).toMatchObject({ displayBackground: null, samples: 4 });
+    expect(env.diagnostics()).toMatchObject({ post: false, exposure: { metering: true } });
+    expect(renderer.toneMappingExposure).toBe(0.7);
+    const count = built.length;
+    // Switching to the camera that adapts builds nothing; the range starts at the fixed exposure.
+    env.setExposure({ auto: 1, min: 0.125, max: 2, brighten: 1, darken: 3, center: 1, compensation: 0 }, true);
+    env.render(camera);
+    expect(built).toHaveLength(count);
+    expect(renderer.toneMappingExposure).toBe(0.7);
     env.dispose();
   });
 });

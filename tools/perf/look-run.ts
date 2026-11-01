@@ -16,6 +16,7 @@
  *   --shot-prefix P                      screenshot names `<P><scene>-<renderer>.jpg` (default none)
  *   --variants a:q1,b:q2                 page queries measured in turn per scene (e.g. on:,off:surfaceRead=0): an A/B, the shots named `<scene>-<renderer>-<variant>.jpg`
  *   --rounds N                           the variants measured N times in turn (default 1)
+ *   --auto-exposure [JSON]               the view's camera adapts its exposure (virtualCamera fields as JSON, e.g. '{"exposureMin":0.1}'; default the engine's)
  *   --record-ms N --warmup-ms N --gpu-ms N --out FILE --keep
  *
  * The report goes to ~/.cache/thirdlight-perf/reports/look-<time>.json.
@@ -58,6 +59,8 @@ export async function runLookCli(argv: readonly string[]): Promise<void> {
   const prefix = get('shot-prefix') ?? '';
   const variants = (get('variants') ?? '').split(',').filter((v) => v !== '').map((v) => ({ name: v.split(':')[0]!, query: v.slice(v.indexOf(':') + 1) }));
   const rounds = Number(get('rounds') ?? 1);
+  const autoArg = get('auto-exposure');
+  const autoExposure = !argv.includes('--auto-exposure') ? null : autoArg !== undefined && autoArg.startsWith('{') ? (JSON.parse(autoArg) as Record<string, unknown>) : {};
   mkdirSync(runDir, { recursive: true });
   mkdirSync(shots, { recursive: true });
   const log = (s: string): void => console.log(`look: ${s}`);
@@ -75,7 +78,7 @@ export async function runLookCli(argv: readonly string[]): Promise<void> {
   try {
     for (const scene of scenes) {
       const projectId = `look-${scene}`;
-      const build = await buildLook(be, projectId, scene, bake ? 'baked' : 'realtime');
+      const build = await buildLook(be, projectId, scene, bake ? 'baked' : 'realtime', autoExposure);
       log(`${scene}: built in ${build.ms} ms (${build.commands} commands); shows ${LOOK_PLANS[scene].shows}`);
       const baked = bake ? await bakeLightingInEditor(be, projectId, (s) => log(`${scene}: ${s}`)) : undefined;
       const t = performance.now();

@@ -8,7 +8,7 @@
  * Kept apart from the adapter so the frame's order is written in one place.
  */
 import * as THREE from 'three';
-import type { GridRenderChange } from '@thirdlight/runtime';
+import type { ExposureLook, GridRenderChange } from '@thirdlight/runtime';
 
 import type { AdapterParts } from './adapter-parts';
 import type { DecalRequestLike } from './decal-projectors';
@@ -49,6 +49,8 @@ type FrameRuntime = {
   materialSwaps?: () => ReadonlyMap<string, MaterialMappingLike>;
   blockMaterialSwaps?: () => ReadonlyMap<string, MaterialMappingLike>;
   isPaused?: boolean;
+  /** The view's auto-exposure on screen and whether a loaded camera has one (camera brain `CameraViewInfo`). */
+  cameraView?: () => { exposure?: ExposureLook; autoExposureLoaded?: true } | null;
 };
 
 export class AdapterFrame {
@@ -63,6 +65,8 @@ export class AdapterFrame {
   /** The MSAA samples last stamped on the canvas. */
   msaaMark = -1;
   private drawsMark = -1;
+  /** The exposure last stamped on the canvas (two decimals). */
+  private exposureMark = '';
   /** The last drawn frame's counts. */
   readonly counts = { drawCalls: 0, triangles: 0 };
   /** When the first render call began (for `onFrameDrawn`). */
@@ -434,6 +438,8 @@ export class AdapterFrame {
     const draw = (): void => {
       const render = (): void => {
         const e = env();
+        const view = this.rt.cameraView?.() ?? null;
+        e?.setExposure(view?.exposure ?? null, view?.autoExposureLoaded === true);
         if (e !== null) e.render(camera);
         else renderer.render(p.scene, camera);
       };
@@ -483,6 +489,13 @@ export class AdapterFrame {
     }
     this.counts.drawCalls = Math.max(0, draws);
     this.counts.triangles = Math.max(0, triangles);
+    // The exposure drawn (pages without another diagnostics surface: the export); written when it changes.
+    const exposure = (renderer as { toneMappingExposure?: number }).toneMappingExposure;
+    const mark = typeof exposure === 'number' ? exposure.toFixed(2) : '';
+    if (mark !== this.exposureMark && typeof canvas?.setAttribute === 'function') {
+      this.exposureMark = mark;
+      canvas.setAttribute('data-tl-exposure', mark);
+    }
     if (this.counts.drawCalls !== this.drawsMark && typeof canvas?.setAttribute === 'function') {
       this.drawsMark = this.counts.drawCalls;
       canvas.setAttribute('data-tl-draws', String(this.drawsMark));

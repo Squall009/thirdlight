@@ -1,8 +1,23 @@
-# Limits and defaults: project-model (part 2, from `material-schema.ts`)
+# Limits and defaults: project-model (part 2, from `manifest.ts`)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The limits and defaults `@thirdlight/project-model` defines, by source file. Values are the running build's.
+
+<a id="limits-project-model--manifest"></a>
+## `manifest.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-manifest-content-file-max-bytes"></a>`MANIFEST_CONTENT_FILE_MAX_BYTES` | `33554432` | The most bytes one content file of a Play build or an export may hold; the play content store takes it as its single-artifact cap. |
+| <a id="limit-runtime-content-manifest-max-bytes"></a>`RUNTIME_CONTENT_MANIFEST_MAX_BYTES` | `33554432` | The manifest document cap: the manifest is one file like the content files it lists, so it has their per-file cap. Asset rows, rigs and prefabs are still inline and grow with the game; a fixed cap below a file's would bound how many assets a game ships. |
+
+<a id="limits-project-model--material-graph-kinds"></a>
+## `material-graph-kinds.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-material-data-max"></a>`MATERIAL_DATA_MAX` | `64` | The largest data parameter, cells per side (engine limit): 64 × 64 RGBA8 is 16 KiB per object — enough for a per-cell overlay of a large board or map region, small enough to send whole on every change. |
 
 <a id="limits-project-model--material-schema"></a>
 ## `material-schema.ts`

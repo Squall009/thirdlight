@@ -83,6 +83,8 @@ export function stepDigest(rt: Runtime): string {
     if (cam.seeThrough !== undefined) h.text(JSON.stringify(cam.seeThrough));
     // A see-through camera on screen (the other modes move the pose, which is hashed; so every other digest is unchanged).
     if (cam.occlusion === 'seeThrough') h.text('occlusion:seeThrough');
+    // The auto-exposure settings on screen (only while a camera adapts, so every other digest is unchanged).
+    if (cam.exposure !== undefined) h.text(JSON.stringify(cam.exposure));
   }
   // The audio intent log (only once scripts used audio, so every other digest is unchanged).
   const audio = rt.audioState?.() ?? null;

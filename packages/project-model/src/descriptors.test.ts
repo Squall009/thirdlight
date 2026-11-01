@@ -542,6 +542,9 @@ const COMPONENT_BASES: Record<string, J[]> = {
   ],
   virtualCamera: [
     { rig: 'follow', occlusion: 'pullIn', pullInTime: 0.2, pullHoldTime: 0.5, pullOutTime: 1 },
+    // The bounds apart: a probe of one bound's range would cross the other's.
+    { rig: 'fixed', autoExposure: true, exposureMax: 4 },
+    { rig: 'fixed', autoExposure: true, exposureMin: 0.25, exposureBrightenSpeed: 2, exposureDarkenSpeed: 5, exposureMetering: 'average', exposureCompensation: -0.5 },
     { rig: 'follow', priority: 5, enabled: false, target: 'spawn-0001', targetOffset: [0, 1.5, 0], distance: 6, minDistance: 1, maxDistance: 20, yaw: 30, pitch: 25, pitchMin: -20, pitchMax: 60, yawAction: 'look', pitchAction: 'tilt', rotateSpeed: 90, zoomAction: 'zoom', zoomSpeed: 5, collision: false, collisionRadius: 0.3, damping: 0.2, fovY: 50, near: 0.2, far: 500, blend: 'linear', blendTime: 1, letterbox: 0.1, shakeAmplitude: 0.05, shakeFrequency: 6, shakeRotation: 1 },
     { rig: 'orbitPoint', distance: 15, minDistance: 5, maxDistance: 40, yaw: 45, pitch: 45, pitchMin: 20, pitchMax: 70, pitchAction: 'tilt', rotateSpeed: 60, zoomAction: 'zoom', zoomSpeed: 10, turnLeftAction: 'left', turnRightAction: 'right', yawStep: 90, turnTime: 0.3, point: [1, 0, 2], damping: 0.1, blend: 'cut' },
     { rig: 'topDown', target: 'spawn-0001', distance: 12, yaw: 90, damping: 0 },
@@ -1063,8 +1066,9 @@ describe('descriptor registry', () => {
     // profile, about 0.3 KB; area lights — their shape, size and sides fields, preset and icon — about 2 KB; a quality
     // level's reflections, about 0.4 KB; temporal upscaling as an anti-aliasing kind, about 0.1 KB; a quality level's
     // lighting tier and the lighting fields' values per tier, about 0.7 KB; a static glowing box's glow mode, about 0.4 KB;
-    // a quality level's shadow atlas side, about 0.3 KB; a virtual camera's occlusion mode and pull-in times, about 1.4 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(355_600);
+    // a quality level's shadow atlas side, about 0.3 KB; a virtual camera's occlusion mode and pull-in times, about 1.4 KB;
+    // a virtual camera's auto-exposure fields, about 2.1 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(357_700);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

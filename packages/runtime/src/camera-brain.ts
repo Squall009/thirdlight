@@ -23,6 +23,7 @@
 import { virtualCameraOcclusion, type CameraOcclusion } from '@thirdlight/project-model';
 
 import type { ActionFrame } from './actions';
+import { blendExposureLook, cameraExposureLook, type ExposureFields, type ExposureLook } from './auto-exposure';
 import { newPullIn, pullInDistance, resetPullIn, type PullInState } from './camera-pull-in';
 import {
   applyShake,
@@ -48,8 +49,8 @@ import {
   type V3,
 } from './camera-rig';
 
-/** The virtualCamera component as the brain reads it (project-model `VirtualCameraComponent`). */
-export interface VirtualCameraData {
+/** The virtualCamera component as the brain reads it (project-model `VirtualCameraComponent`; its auto-exposure fields: `ExposureFields`). */
+export interface VirtualCameraData extends ExposureFields {
   readonly rig: 'follow' | 'orbitPoint' | 'topDown' | 'fixed' | 'rail' | 'track';
   readonly priority?: number;
   readonly enabled?: boolean;
@@ -224,6 +225,13 @@ export interface CameraViewInfo {
   readonly occlusion?: CameraOcclusion;
   /** A loaded camera chooses see-through (absent: none does): the renderer builds its mask while the scene loads, not when the camera goes live. */
   readonly seeThroughLoaded?: true;
+  /**
+   * The auto-exposure on screen, blended with the camera blend (absent: none; the environment's fixed exposure
+   * stands). The renderer meters the frame and adapts toward it.
+   */
+  readonly exposure?: ExposureLook;
+  /** A loaded camera has auto-exposure (absent: none has): the renderer keeps its meter ready, so a camera switch builds nothing. */
+  readonly autoExposureLoaded?: true;
 }
 
 interface CamState {
@@ -265,6 +273,8 @@ interface CamState {
   /** What it does about occluders, and its pull-in. */
   readonly occlusion: CameraOcclusion;
   readonly pull: PullInState;
+  /** Its auto-exposure (null: off). */
+  readonly exposure: ExposureLook | null;
   readonly pose: CameraPose;
 }
 
@@ -352,9 +362,12 @@ export class CameraBrain {
   private liveId: string | null = null;
   /** The camera a timeline forces live (null: none); it wins over a game mode's camera. */
   private timelineOverrideId: string | null = null;
-  private blend: { from: CameraPose; fromId: string | null; fromLive: boolean; steps: number; total: number; style: CameraBlendStyle; fromOcclusion: CameraOcclusion | null } | null = null;
-  /** The occlusion mode on screen (null: no camera's), and whether a camera evaluated this step was pulled in past a collider (the step is a cut). */
-  private readonly occl: { view: CameraOcclusion | null; cut: boolean } = { view: null, cut: false };
+  private blend: { from: CameraPose; fromId: string | null; fromLive: boolean; steps: number; total: number; style: CameraBlendStyle; fromOcclusion: CameraOcclusion | null; fromExposure: ExposureLook | null } | null = null;
+  /**
+   * The occlusion mode on screen (null: no camera's), whether a camera evaluated this step was pulled in past a
+   * collider (the step is a cut), and the auto-exposure on screen (null: none).
+   */
+  private readonly occl: { view: CameraOcclusion | null; cut: boolean; exposure: ExposureLook | null } = { view: null, cut: false, exposure: null };
   /** A blend a script asked for with the change it made (used by the next switch). */
   private pendingBlend: { style: CameraBlendStyle; seconds: number } | null = null;
   private impulses: Impulse[] = [];
@@ -443,6 +456,7 @@ export class CameraBrain {
     this.time = 0;
     this.overrideId = null;
     this.occl.view = null;
+    this.occl.exposure = null;
   }
 
   /**
@@ -501,6 +515,7 @@ export class CameraBrain {
       lookVel: [0, 0, 0],
       occlusion: virtualCameraOcclusion(d, this.projectSeeThrough),
       pull: newPullIn(),
+      exposure: cameraExposureLook(d),
       pose: newPose(),
     };
   }
@@ -729,10 +744,10 @@ export class CameraBrain {
         cut = true;
       } else if (this.blend === null && (leaving !== undefined || this.liveId === null)) {
         // From the camera that was live, still moving (or the base pose).
-        this.blend = { from: newPose(), fromId: this.liveId, fromLive: true, steps: 0, total: Math.max(1, Math.round(seconds * this.hz)), style, fromOcclusion: this.occl.view };
+        this.blend = { from: newPose(), fromId: this.liveId, fromLive: true, steps: 0, total: Math.max(1, Math.round(seconds * this.hz)), style, fromOcclusion: this.occl.view, fromExposure: this.occl.exposure };
       } else {
         // Interrupted blend (or a camera that left): from the blended view, frozen.
-        this.blend = { from: copyPose(this.unshaken, newPose()), fromId: null, fromLive: false, steps: 0, total: Math.max(1, Math.round(seconds * this.hz)), style, fromOcclusion: this.occl.view };
+        this.blend = { from: copyPose(this.unshaken, newPose()), fromId: null, fromLive: false, steps: 0, total: Math.max(1, Math.round(seconds * this.hz)), style, fromOcclusion: this.occl.view, fromExposure: this.occl.exposure };
       }
       // A camera going live starts from where its rig is now (no damping lag from a previous pivot, no old pull-in).
       if (next !== null) {
@@ -778,10 +793,13 @@ export class CameraBrain {
       blendPoses(fromPose, target, w, this.unshaken);
       // A mode cannot be half one and half the other: the incoming camera's from the blend's midpoint.
       this.occl.view = t < 0.5 ? b.fromOcclusion : (next?.occlusion ?? null);
+      // The exposure settings blend as the pose does.
+      this.occl.exposure = blendExposureLook(b.fromExposure, next?.exposure ?? null, w);
       if (t >= 1) this.blend = null;
     } else {
       copyPose(target, this.unshaken);
       this.occl.view = next?.occlusion ?? null;
+      this.occl.exposure = next?.exposure ?? null;
     }
 
     // Shake: the live camera's constant shake (weighted by the blend) and the impulses.
@@ -1270,6 +1288,8 @@ export class CameraBrain {
       shake: this.lastShake,
       ...(this.occl.view !== null ? { occlusion: this.occl.view } : {}),
       ...([...this.cams.values()].some((s) => s.occlusion === 'seeThrough') ? { seeThroughLoaded: true as const } : {}),
+      ...(this.occl.exposure !== null ? { exposure: this.occl.exposure } : {}),
+      ...([...this.cams.values()].some((s) => s.exposure !== null) ? { autoExposureLoaded: true as const } : {}),
       // The live track camera's region, while regions are loaded.
       ...(this.regions.size > 0 && live?.data.rig === 'track' ? { region: live.region } : {}),
       // The live camera's target object, when it has one.

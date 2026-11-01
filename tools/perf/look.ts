@@ -199,7 +199,7 @@ const BUILDERS: Readonly<Record<LookScene, (be: PerfBackend, projectId: string, 
 };
 
 /** Build one look scene into a new project through the backend's commands. */
-export async function buildLook(be: PerfBackend, projectId: string, scene: LookScene, mode: LookLightMode): Promise<{ ms: number; commands: number }> {
+export async function buildLook(be: PerfBackend, projectId: string, scene: LookScene, mode: LookLightMode, autoExposure: Record<string, unknown> | null = null): Promise<{ ms: number; commands: number }> {
   const t0 = performance.now();
   const created = await be.post('/api/v1/admin/projects', { projectId, name: `Look ${scene}` });
   if (created.status !== 201 && created.status !== 200) throw new Error(`project create failed: ${created.status} ${JSON.stringify(created.json)}`);
@@ -213,5 +213,7 @@ export async function buildLook(be: PerfBackend, projectId: string, scene: LookS
   await BUILDERS[scene](be, projectId, cmd, mode);
   const plan = LOOK_PLANS[scene];
   await cmd('setTransform', { entityId: 'cam-main', transform: { position: plan.eye, rotation: lookRotation(plan.eye, plan.at) } });
+  // The view's camera adapts its exposure (`look --auto-exposure`): the camera fields given, autoExposure on.
+  if (autoExposure !== null) await cmd('setComponent', { entityId: 'cam-main', component: 'virtualCamera', value: { rig: 'fixed', priority: -1000, ...autoExposure, autoExposure: true } });
   return { ms: Math.round(performance.now() - t0), commands };
 }

@@ -690,6 +690,8 @@ export {
   canonicalVirtualCamera,
   CAMERA_OCCLUSION_MODES,
   virtualCameraOcclusion,
+  CAMERA_EXPOSURE_METERING,
+  type CameraExposureMetering,
   type CameraOcclusion,
   validateCameraPathComponent,
   validateVirtualCameraComponent,

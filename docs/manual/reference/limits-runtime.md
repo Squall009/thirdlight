@@ -43,6 +43,13 @@ The limits and defaults `@thirdlight/runtime` defines, by source file. Values ar
 | <a id="limit-audio-spatial-defaults"></a>`AUDIO_SPATIAL_DEFAULTS` | `{"distanceModel":"linear","refDistance":2,"maxDistance":30,"rolloff":1}` | Defaults of a script's positional sound: linear from full volume within 2 m (about arm's reach around a character) to silence at 30 m (well beyond a room, within a courtyard), rolloff 1. Genre-neutral: a sound heard from across a small space, silent across a large one. |
 | <a id="limit-stinger-defaults"></a>`STINGER_DEFAULTS` | `{"duck":0.3,"fade":0.25}` | A stinger's music duck (0.3: the track stays audible under it) and its duck/restore time (0.25 s). |
 
+<a id="limits-runtime--auto-exposure"></a>
+## `auto-exposure.ts`
+
+| Constant | Value | What it is |
+|---|---|---|
+| <a id="limit-meter-min-luminance"></a>`METER_MIN_LUMINANCE` | `0.0001` | Luminance below this meters as this (a black pixel would pull a log-average to −∞). |
+
 <a id="limits-runtime--blocks"></a>
 ## `blocks.ts`
 

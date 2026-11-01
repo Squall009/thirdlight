@@ -83,7 +83,7 @@ describe('script access marks', () => {
 });
 
 // The pinned digest of what scripts may read on schemaVersion 8 objects and components: a change to it is a change scripts can see.
-const PINNED_V8 = '53d46a14a6a76a5d';
+const PINNED_V8 = '59216f95071f0f99';
 
 /** 64-bit FNV-1a (two 32-bit lanes) of a text (project-model tests use no Node builtins). */
 function fnv(text: string): string {

@@ -311,6 +311,29 @@ look. The mode does not blend: a blend takes the incoming camera's at its
 midpoint (see-through then eases its own fade; pull-in has already moved
 each camera's pose, which blends as usual).
 
+**Exposure** (the camera's **Exposure** section). **Auto exposure** makes
+the camera expose the picture itself, as an eye adapts: each frame the
+renderer measures the scene's average brightness (a log-average of a small
+grid over the frame, before bloom and tone mapping) and moves the exposure
+toward the one that puts that average on middle grey. **Metering**
+Centre-weighted (the default: the middle of the frame counts most, a bright
+sky at the edge less) or Average (the whole frame alike). **Compensation**
+(EV, 0) shifts the result brighter or darker in stops. **Brighten speed**
+(1 /s) is how fast it opens up after stepping into the dark and **Darken
+speed** (3 /s) how fast it closes down in the light: per second, of the gap
+in stops, so it settles to 95 % in about 3 / speed seconds (1 s into the
+light, 3 s into the dark). **Min exposure** (0.125) and **Max exposure** (2)
+bound it, as multipliers like the look's Exposure: a night or a cellar never
+opens past the max and stays dark, a sunlit plain never closes past the min.
+Off (the default), the environment look's fixed Exposure stands. The
+settings blend with the camera blend: blending to a camera without auto
+exposure narrows its range to the look's exposure as the blend goes on, and
+a cut to one shows the look's exposure at once. Bloom compares its threshold
+with the exposed colour, so an adapted bright sky no longer blooms over the
+frame. The cost is two tiny passes and a read-back, only while a camera that
+adapts is on screen (see [Rendering](rendering.md)); the game canvas reports
+the exposure drawn in `data-tl-exposure`.
+
 **Blends.** When the live camera changes, the view moves from what is on
 screen to the new camera: **Blend in** cut, linear or eased over **Blend
 time** (back to the default pose: the camera being left sets it). A change
@@ -366,6 +389,11 @@ and camera path points are Scene handles (one undo step per drag).
 **Observing.** `tl_game_observe` (and `window.__thirdlightObserve()` in an
 export) reports `camera: { live, blend: {from, progress, style} | null,
 position, rotation, fovY, near, far, letterbox, shake, occlusion?,
-seeThroughLoaded?, seeThrough? }` while the game has virtual cameras
-(`occlusion`: the mode of the camera on screen; `seeThroughLoaded` while a
-loaded camera chooses see-through; `seeThrough` once a script set it).
+seeThroughLoaded?, seeThrough?, exposure?, autoExposureLoaded? }` while the
+game has virtual cameras (`occlusion`: the mode of the camera on screen;
+`seeThroughLoaded` while a loaded camera chooses see-through; `seeThrough`
+once a script set it; `exposure`: the auto-exposure on screen, blended —
+`{auto, min, max, brighten, darken, center, compensation}`;
+`autoExposureLoaded` while a loaded camera has auto exposure).
+`tl_diagnostics` reports `renderer.environment.exposure {value, target,
+metering, readings}`.

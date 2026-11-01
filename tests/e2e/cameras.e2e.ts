@@ -18,7 +18,11 @@
  *   out, never within its radius of a wall, the walker in view while it is
  *   pulled in; a fixed interior camera with Occlusion see-through shows a
  *   figure behind a wall through the dither, where the same camera with
- *   Occlusion none shows the wall.
+ *   Occlusion none shows the wall. Auto-exposure (both renderers): a camera in
+ *   a closed dark room opens up to its max exposure and holds there (the room
+ *   stays dark); a cut to a camera outside closes the exposure down at its
+ *   darken speed — not at once, settled within 3 / speed — from a blown-out
+ *   first picture to one with a blue sky (`data-tl-exposure`, pixels).
  * - Editor: "+ Add component" → Virtual camera; its target, distance and rig
  *   in the Inspector; the Scene view previews where the rig puts it; the
  *   orbit point's handle and a camera path's point handle drag, store and
@@ -103,14 +107,14 @@ const DIRECTOR = [
   '    const p = ctx.properties;',
   '    if (ctx.stepIndex === 300) cam.activate(p.orbit, { blend: "eased", time: 0.5 });',
   "    if (ctx.action.actions?.rail?.p === 'pressed') { cam.activate(p.rail); state.railing = true; }",
-  "    for (const [a, k] of [['door', 'door'], ['roomSolid', 'room_solid'], ['roomSee', 'room_see']]) if (ctx.action.actions?.[a]?.p === 'pressed') cam.activate(p[k], { blend: 'cut' });",
+  "    for (const [a, k] of [['door', 'door'], ['roomSolid', 'room_solid'], ['roomSee', 'room_see'], ['dark', 'dark'], ['bright', 'bright']]) if (ctx.action.actions?.[a]?.p === 'pressed') cam.activate(p[k], { blend: 'cut' });",
   '    const r = cam.get(p.rail);',
   '    if (state.railing && cam.live() === p.rail && !cam.blending() && r !== null && r.progress >= 1) { cam.deactivate(p.rail); state.railing = false; }',
   '  },',
   '};',
 ].join('\n');
 
-type Cam = { live: string | null; blend: { from: string | null; progress: number; style: string } | null; position: number[]; rotation: number[]; fovY: number; letterbox: number; occlusion?: string; seeThroughLoaded?: boolean };
+type Cam = { live: string | null; blend: { from: string | null; progress: number; style: string } | null; position: number[]; rotation: number[]; fovY: number; letterbox: number; occlusion?: string; seeThroughLoaded?: boolean; exposure?: { auto: number; max: number }; autoExposureLoaded?: boolean };
 
 /**
  * A cross wall (z 7.85…8.15 back from the floor's middle, x 5…11) with a doorway (x 7.4…8.6, 2.2 m high),
@@ -127,7 +131,29 @@ const boxDistance = (p: readonly number[], [lo, hi]: [number[], number[]]): numb
 type Observation = { state: string; stepIndex: number; camera?: Cam };
 
 /** The neutral 3D scene and its cameras. */
-async function buildScene(): Promise<{ follow: string; orbit: string; rail: string; player: string; door: string; roomSolid: string; roomSee: string }> {
+/**
+ * Auto-exposure, far from the rest (out of every other camera's view): a closed dark box (walls, floor and roof
+ * #262626) with a camera inside that adapts up to its max, and a camera outside over a pale floor looking at the
+ * sky that adapts down at the default darken speed.
+ */
+const ROOM_AT = [60, 0, 0];
+const DARK_MAX = 2;
+const BRIGHT_DARKEN = 3;
+async function buildExposure(): Promise<{ dark: string; bright: string }> {
+  const [x, , z] = ROOM_AT as [number, number, number];
+  await create('Pale floor', [x + 10, -0.5, z], { box: { size: [40, 1, 40], material: { color: '#e8e4dc' } } }, 'box');
+  const sides: [number[], number[]][] = [[[x, 1.5, z - 2], [4, 3, 0.2]], [[x, 1.5, z + 2], [4, 3, 0.2]], [[x - 2, 1.5, z], [0.2, 3, 4]], [[x + 2, 1.5, z], [0.2, 3, 4]], [[x, 3.1, z], [4.4, 0.2, 4.4]], [[x, 0.05, z], [4, 0.1, 4]]];
+  for (const [k, [at, size]] of sides.entries()) await create(`Dark ${k}`, at, { box: { size, material: { color: '#262626' } } }, 'box');
+  const dark = await create('Dark camera', [x, 1.5, z + 1.5]);
+  await cmd('setComponent', { entityId: dark, component: 'virtualCamera', value: { rig: 'fixed', enabled: false, autoExposure: true, exposureMax: DARK_MAX, exposureBrightenSpeed: 6 } });
+  // Looking along +X over the pale floor: sky and lit ground.
+  const bright = await create('Bright camera', [x + 4, 1.6, z]);
+  await cmd('setTransform', { entityId: bright, transform: { position: [x + 4, 1.6, z], rotation: [0, -Math.SQRT1_2, 0, Math.SQRT1_2] } });
+  await cmd('setComponent', { entityId: bright, component: 'virtualCamera', value: { rig: 'fixed', enabled: false, autoExposure: true, exposureDarkenSpeed: BRIGHT_DARKEN } });
+  return { dark, bright };
+}
+
+async function buildScene(): Promise<{ follow: string; orbit: string; rail: string; player: string; door: string; roomSolid: string; roomSee: string; dark: string; bright: string }> {
   await create('Floor', [0, -0.5, 0], { box: { size: [24, 1, 24], material: { color: '#8a8f98' } }, components: { collider: { shape: { type: 'box', hx: 12, hy: 0.5, hz: 12 } } } }, 'box');
   // Pillars (no colliders): each camera sees them from its own side.
   const pillars: [string, number[], string][] = [['Red', [-4, 1.5, 0], '#e23c3c'], ['Blue', [4, 1.5, 0], '#2f6fe0'], ['Green', [0, 1.5, -4], '#2fb04a'], ['Yellow', [0, 1.5, 4], '#f0c419']];
@@ -143,6 +169,8 @@ async function buildScene(): Promise<{ follow: string; orbit: string; rail: stri
         { name: 'door', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'KeyP' }] },
         { name: 'roomSolid', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'KeyI' }] },
         { name: 'roomSee', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'KeyO' }] },
+        { name: 'dark', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'KeyK' }] },
+        { name: 'bright', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'KeyL' }] },
       ],
     },
   });
@@ -172,9 +200,10 @@ async function buildScene(): Promise<{ follow: string; orbit: string; rail: stri
   };
   const roomSolid = await room('Room camera (solid)', 'none');
   const roomSee = await room('Room camera (see-through)', 'seeThrough');
+  const { dark, bright } = await buildExposure();
   const director = await create('Director', [0, -3, 0]);
-  await script('camera-director', DIRECTOR, director, ['orbit', 'rail', 'door', 'room_solid', 'room_see'], { orbit, rail, door, room_solid: roomSolid, room_see: roomSee });
-  return { follow, orbit, rail, player, door, roomSolid, roomSee };
+  await script('camera-director', DIRECTOR, director, ['orbit', 'rail', 'door', 'room_solid', 'room_see', 'dark', 'bright'], { orbit, rail, door, room_solid: roomSolid, room_see: roomSee, dark, bright });
+  return { follow, orbit, rail, player, door, roomSolid, roomSee, dark, bright };
 }
 
 async function relay(path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
@@ -234,6 +263,26 @@ function dark(img: Image, from: number, to: number): number {
   return n === 0 ? 0 : d / n;
 }
 
+/** The mean of r, g and b over the whole picture (0–255). */
+function mean(img: Image): number {
+  const [r, g, b] = average(img, 0, 1);
+  return (r + g + b) / 3;
+}
+
+/** The average colour of a horizontal band (fractions of the height). */
+function average(img: Image, from: number, to: number): [number, number, number] {
+  const sum = [0, 0, 0];
+  let n = 0;
+  for (let y = Math.floor(img.height * from); y < Math.floor(img.height * to); y += 4) {
+    for (let x = 0; x < img.width; x += 4) {
+      const p = img.pixel(x, y);
+      for (let k = 0; k < 3; k += 1) sum[k]! += p[k]!;
+      n += 1;
+    }
+  }
+  return [sum[0]! / n, sum[1]! / n, sum[2]! / n];
+}
+
 async function shot(target: Locator | Page, path?: string): Promise<Image> {
   return decodePng(await target.screenshot(path !== undefined ? { path } : {}));
 }
@@ -264,7 +313,7 @@ function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void
 test('virtual cameras in Play: follow → eased orbit (script), a 90° snap on input, a rail with letterbox that blends back; and in the export', async ({ page }) => {
   test.setTimeout(300_000);
   be = await startBackend('cameras-e2e');
-  const { follow, orbit, rail, door, roomSolid, roomSee } = await buildScene();
+  const { follow, orbit, rail, door, roomSolid, roomSee, dark: darkRoom, bright } = await buildScene();
 
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
@@ -384,6 +433,7 @@ test('virtual cameras in Play: follow → eased orbit (script), a 90° snap on i
     expect(c.seeThroughLoaded).toBe(true);
     expect(c.occlusion).toBe('pullIn');
     await Promise.all(pages.map(async ({ g, label }) => {
+      const tag = label === 'WebGL 2' ? 'webgl2' : 'default';
       await expect.poll(async () => (await read(g))?.live ?? null, { timeout: 120_000 }).toBe(orbit);
       const vp = g.viewportSize()!;
       await g.mouse.click(vp.width / 2, vp.height / 2);
@@ -422,6 +472,40 @@ test('virtual cameras in Play: follow → eased orbit (script), a 90° snap on i
       const seen = await shot(g, `test-results/cameras-room-see-${label === 'WebGL 2' ? 'webgl2' : 'default'}.png`);
       expect(magenta(solid, 0.6), `${label}: the wall hides the figure`).toBeLessThan(20);
       expect(magenta(seen, 0.6), `${label}: the figure through the dither`).toBeGreaterThan(200);
+      // Auto-exposure: the room camera above had none (the look's fixed exposure, 1). The dark room opens up to its max and holds
+      // there (the room meters far darker than middle grey); then a cut to the bright view closes down at its darken speed.
+      const exposure = async (): Promise<number> => Number(await g.locator('canvas').first().getAttribute('data-tl-exposure'));
+      expect(await exposure(), `${label}: the fixed exposure`).toBe(1);
+      await press(g, 'k');
+      await expect.poll(async () => (await read(g))?.live ?? null, { timeout: 30_000 }).toBe(darkRoom);
+      expect((await read(g))!.exposure).toMatchObject({ auto: 1, max: DARK_MAX });
+      await expect.poll(exposure, { timeout: 10_000, message: `${label}: the dark room opens up to its max` }).toBe(DARK_MAX);
+      await g.waitForTimeout(500);
+      expect(await exposure(), `${label}: and holds there`).toBe(DARK_MAX);
+      const night = await shot(g, `test-results/cameras-exposure-dark-${tag}.png`);
+      await press(g, 'l');
+      const t0 = Date.now();
+      const trace: [number, number][] = [];
+      let early: Image | null = null;
+      for (let t = 0; t < 3_000; t = Date.now() - t0) {
+        trace.push([t, await exposure()]);
+        if (early === null && (await read(g))?.live === bright) early = await shot(g, `test-results/cameras-exposure-cut-${tag}.png`);
+        await g.waitForTimeout(40);
+      }
+      const settled = await shot(g, `test-results/cameras-exposure-bright-${tag}.png`);
+      const end = trace[trace.length - 1]![1];
+      // The share of the way still to go (in stops) at a time after the cut.
+      const gapAt = (ms: number): number => Math.log2(trace.filter(([t]) => t <= ms).pop()![1] / end) / Math.log2(DARK_MAX / end);
+      console.log(`[cameras] ${label} exposure after the cut: ${trace.filter((_, i) => i % 5 === 0).map(([t, e]) => `${t}:${e}`).join(' ')}`);
+      expect(end, `${label}: the bright view closes down`).toBeLessThan(DARK_MAX / 2);
+      expect(gapAt(150), `${label}: it adapts, it does not snap`).toBeGreaterThan(0.5);
+      // At 3 / speed (1 s) 95 % of the way; a reading arrives a frame or two after a frame is drawn.
+      expect(gapAt(1_000 / BRIGHT_DARKEN * 3 + 300), `${label}: settled within 3 / darken speed`).toBeLessThan(0.1);
+      // Pixels: the dark room stays dark at its max; the bright view starts blown out and settles darker, its sky blue.
+      expect(mean(night), `${label}: the dark room stays dark`).toBeLessThan(60);
+      expect(mean(early!) - mean(settled), `${label}: the cut is brighter than the settled view`).toBeGreaterThan(25);
+      const [r, , b] = average(settled, 0, 0.3);
+      expect(b - r, `${label}: the settled sky is blue, not veiled`).toBeGreaterThan(30);
     }));
     for (const { errors, label } of pages) expect(errors, label).toEqual([]);
   } finally {

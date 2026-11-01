@@ -31,7 +31,7 @@ import { MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS } from './materials';
 import { DEFAULT_COLLIDER_DEPTH, MAX_COLLIDER_DEPTH } from './shape-2d-3d';
 import { SOCKET_ATTACH_CONFLICTS, SOCKET_ATTACH_LIMITS } from './sockets';
 import { MODE_BLENDS, MODE_DEFAULTS, MODE_LIMITS, MODE_PHYSICS, MODE_UNGROUPED } from './modes';
-import { CAMERA_BLENDS, CAMERA_OCCLUSION_MODES, CAMERA_PATH_LIMITS, CAMERA_RAIL_MODES, CAMERA_REGION_DEFAULTS, CAMERA_REGION_LIMITS, VIRTUAL_CAMERA_DEFAULTS as VCD, VIRTUAL_CAMERA_LIMITS as VCL, VIRTUAL_CAMERA_RIGS } from './cameras';
+import { CAMERA_BLENDS, CAMERA_EXPOSURE_METERING, CAMERA_OCCLUSION_MODES, CAMERA_PATH_LIMITS, CAMERA_RAIL_MODES, CAMERA_REGION_DEFAULTS, CAMERA_REGION_LIMITS, VIRTUAL_CAMERA_DEFAULTS as VCD, VIRTUAL_CAMERA_LIMITS as VCL, VIRTUAL_CAMERA_RIGS } from './cameras';
 import { MAX_LEN } from './validate';
 import { LOCAL_LIGHT_MODES } from './local-lights';
 
@@ -420,6 +420,14 @@ export const virtualCamera: ComponentDescriptor = {
     num('pullHoldTime', 'Hold time', 'How long it holds once clear, before it eases out.', { when: [when('rig', 'follow'), when('occlusion', 'pullIn')], min: VCL.pullTime.min, max: VCL.pullTime.max, step: 0.05, unit: 's', default: VCD.pullHoldTime, group: 'Occlusion' }),
     num('pullOutTime', 'Ease-out time', 'How long it eases back out.', { when: [when('rig', 'follow'), when('occlusion', 'pullIn')], min: VCL.pullTime.min, max: VCL.pullTime.max, step: 0.05, unit: 's', default: VCD.pullOutTime, group: 'Occlusion' }),
     bool('collision', 'Collision', 'The older pull-in switch: off reads as Occlusion none while Occlusion is not set.', { when: [when('rig', 'follow'), when('occlusion', 'pullIn')], default: VCD.collision, group: 'Occlusion' }),
+    // How it exposes the picture (eye adaptation).
+    bool('autoExposure', 'Auto exposure', 'Adapts the exposure to what it sees (eye adaptation), within the limits below; off: the look\'s fixed exposure.', { default: VCD.autoExposure, group: 'Exposure' }),
+    num('exposureMin', 'Min exposure', 'The lowest exposure it adapts to (a multiplier, as the look\'s exposure): how far a bright scene is turned down.', { when: when('autoExposure', true), min: VCL.exposure.min, max: VCL.exposure.max, step: 0.05, unit: '×', default: VCD.exposureMin, group: 'Exposure' }),
+    num('exposureMax', 'Max exposure', 'The highest exposure it adapts to: a night or a cellar stays this dark.', { when: when('autoExposure', true), min: VCL.exposure.min, max: VCL.exposure.max, step: 0.05, unit: '×', default: VCD.exposureMax, group: 'Exposure' }),
+    num('exposureBrightenSpeed', 'Brighten speed', 'How fast it opens up in the dark (per second, of the gap in stops; about 3 / speed seconds to settle; 0: never).', { when: when('autoExposure', true), min: VCL.exposureSpeed.min, max: VCL.exposureSpeed.max, step: 0.1, unit: '/s', default: VCD.exposureBrightenSpeed, group: 'Exposure' }),
+    num('exposureDarkenSpeed', 'Darken speed', 'How fast it closes down in the light (per second, of the gap in stops; 0: never).', { when: when('autoExposure', true), min: VCL.exposureSpeed.min, max: VCL.exposureSpeed.max, step: 0.1, unit: '/s', default: VCD.exposureDarkenSpeed, group: 'Exposure' }),
+    enm('exposureMetering', 'Metering', 'What it measures: the middle of the frame counted most, or the whole frame alike.', CAMERA_EXPOSURE_METERING, { when: when('autoExposure', true), default: VCD.exposureMetering, labels: { centerWeighted: 'Centre-weighted', average: 'Average' }, group: 'Exposure' }),
+    num('exposureCompensation', 'Compensation', 'Stops brighter (positive) or darker than middle grey.', { when: when('autoExposure', true), min: VCL.exposureCompensation.min, max: VCL.exposureCompensation.max, step: 0.1, unit: 'EV', default: VCD.exposureCompensation, group: 'Exposure' }),
     // The track rig — its offset from the framed point, the dead zone and the bounds (world axes).
     vec3('trackOffset', 'Offset', 'Where the camera sits relative to the point it frames (absent: where it is placed relative to the target at the start).', { when: TRACK, min: VCL.offset.min, max: VCL.offset.max, step: 0.5, unit: 'm' }),
     vec3('deadZone', 'Dead zone', 'The box (width, height, depth) around the framed point the target moves in before the camera follows (0: always follows).', { when: TRACK, min: VCL.deadZone.min, max: VCL.deadZone.max, step: 0.1, unit: 'm', default: [0, 0, 0], labels: ['w', 'h', 'd'], handle: 'box3' }),

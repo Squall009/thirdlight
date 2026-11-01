@@ -34,6 +34,14 @@
  *   `pullHoldTime` and `pullOutTime`); `seeThrough` leaves the camera where
  *   its rig puts it and thins what stands in front of the target (the
  *   project's see-through settings); `none` does neither.
+ *   A camera may expose the picture itself (`autoExposure`, eye adaptation):
+ *   the renderer meters the frame's average brightness (centre-weighted or
+ *   the whole frame, `exposureMetering`) and moves the exposure toward
+ *   middle grey, offset by `exposureCompensation` stops, at
+ *   `exposureBrightenSpeed` while it rises and `exposureDarkenSpeed` while it
+ *   falls, held between `exposureMin` and `exposureMax`. Off, the
+ *   environment look's fixed exposure stands. The settings blend with the
+ *   camera blend.
  *   Each camera also sets how the view blends to it (cut, linear, eased over
  *   `blendTime`), its lens (`fovY`, `near`, `far`: absent = the project's camera settings),
  *   a letterbox amount and a constant shake.
@@ -63,6 +71,8 @@ export const CAMERA_RAIL_MODES = ['once', 'loop', 'pingpong'] as const;
 export type CameraRailMode = (typeof CAMERA_RAIL_MODES)[number];
 export const CAMERA_OCCLUSION_MODES = ['pullIn', 'seeThrough', 'none'] as const;
 export type CameraOcclusion = (typeof CAMERA_OCCLUSION_MODES)[number];
+export const CAMERA_EXPOSURE_METERING = ['centerWeighted', 'average'] as const;
+export type CameraExposureMetering = (typeof CAMERA_EXPOSURE_METERING)[number];
 
 /**
  * The engine defaults (every one genre-neutral):
@@ -89,6 +99,19 @@ export type CameraOcclusion = (typeof CAMERA_OCCLUSION_MODES)[number];
  * - pullHoldTime 0.3 s: a doorway frame or a pillar passing by does not pump
  *   the camera in and out;
  * - pullOutTime 0.6 s: back out as a calm move, slower than the way in;
+ * - autoExposure off: a camera shows the look's exposure as authored until
+ *   a project asks for adaptation;
+ * - exposureMin 0.125 / exposureMax 2 (multipliers, as the look's exposure):
+ *   three stops down for sunlit ground and sky (a bright outdoor look sits
+ *   about two stops over at exposure 1), one stop up for a dim room, so a
+ *   night or a cellar stays dark instead of being lifted to grey;
+ * - exposureBrightenSpeed 1 / exposureDarkenSpeed 3 (per second, of the
+ *   remaining gap in stops): stepping into the light settles in about a
+ *   second, into the dark in about three, as the eye does (Unity's and
+ *   Unreal's defaults alike);
+ * - exposureMetering centerWeighted: the subject in the middle of the frame
+ *   counts most, a bright sky at the edge less;
+ * - exposureCompensation 0 stops: the frame's average lands on middle grey;
  * - damping 0 s: rigid (the camera sits exactly where its rig says);
  * - blend eased over 0.5 s: reads as a camera move without holding up play;
  * - shakeFrequency 8 Hz: a handheld/impact tremor, not a vibration;
@@ -130,6 +153,13 @@ export const VIRTUAL_CAMERA_DEFAULTS = Object.freeze({
   pullInTime: 0.1,
   pullHoldTime: 0.3,
   pullOutTime: 0.6,
+  autoExposure: false,
+  exposureMin: 0.125,
+  exposureMax: 2,
+  exposureBrightenSpeed: 1,
+  exposureDarkenSpeed: 3,
+  exposureMetering: 'centerWeighted' as CameraExposureMetering,
+  exposureCompensation: 0,
 });
 
 /**
@@ -222,6 +252,10 @@ export const VIRTUAL_CAMERA_LIMITS = Object.freeze({
   lookAheadSmoothing: { min: 0, max: 10 },
   /** Pull-in's in, hold and out times (s). */
   pullTime: { min: 0, max: 10 },
+  /** Auto-exposure's bounds (exposure multipliers, as the look's), its speeds (per second; 0: never that way) and compensation (stops). */
+  exposure: { min: 0.01, max: 64 },
+  exposureSpeed: { min: 0, max: 50 },
+  exposureCompensation: { min: -8, max: 8 },
 });
 
 export interface VirtualCameraComponent {
@@ -293,6 +327,18 @@ export interface VirtualCameraComponent {
   pullInTime?: number;
   pullHoldTime?: number;
   pullOutTime?: number;
+  /** The renderer adapts the exposure to the picture (absent: false: the look's fixed exposure). */
+  autoExposure?: boolean;
+  /** Auto-exposure: the lowest and highest exposure it reaches (multipliers). */
+  exposureMin?: number;
+  exposureMax?: number;
+  /** Auto-exposure: how fast it rises (into the dark) and falls (into the light), per second of the gap in stops. */
+  exposureBrightenSpeed?: number;
+  exposureDarkenSpeed?: number;
+  /** Auto-exposure: what it meters (absent: centre-weighted). */
+  exposureMetering?: CameraExposureMetering;
+  /** Auto-exposure: stops over (positive) or under middle grey. */
+  exposureCompensation?: number;
 }
 
 export interface CameraPathComponent {
@@ -357,6 +403,14 @@ export const VIRTUAL_CAMERA_FIELDS = [
   'pullInTime',
   'pullHoldTime',
   'pullOutTime',
+  // Last again.
+  'autoExposure',
+  'exposureMin',
+  'exposureMax',
+  'exposureBrightenSpeed',
+  'exposureDarkenSpeed',
+  'exposureMetering',
+  'exposureCompensation',
 ] as const;
 export const CAMERA_PATH_FIELDS = ['points', 'closed', 'smooth'] as const;
 export const CAMERA_PATH_LIMITS = Object.freeze({ minPoints: 2, maxPoints: 64, coordinate: 1e6 });
@@ -397,6 +451,11 @@ const NUMBER_FIELDS: readonly (readonly [keyof VirtualCameraComponent, { min: nu
   ['pullInTime', VIRTUAL_CAMERA_LIMITS.pullTime],
   ['pullHoldTime', VIRTUAL_CAMERA_LIMITS.pullTime],
   ['pullOutTime', VIRTUAL_CAMERA_LIMITS.pullTime],
+  ['exposureMin', VIRTUAL_CAMERA_LIMITS.exposure],
+  ['exposureMax', VIRTUAL_CAMERA_LIMITS.exposure],
+  ['exposureBrightenSpeed', VIRTUAL_CAMERA_LIMITS.exposureSpeed],
+  ['exposureDarkenSpeed', VIRTUAL_CAMERA_LIMITS.exposureSpeed],
+  ['exposureCompensation', VIRTUAL_CAMERA_LIMITS.exposureCompensation],
 ];
 const ACTION_FIELDS = ['yawAction', 'pitchAction', 'zoomAction', 'turnLeftAction', 'turnRightAction'] as const;
 
@@ -410,7 +469,7 @@ export function validateVirtualCameraComponent(value: unknown, path: string, err
   else if (!(VIRTUAL_CAMERA_RIGS as readonly unknown[]).includes(rig)) err(errors, 'field_value', `${path}/rig`, `rig is one of ${VIRTUAL_CAMERA_RIGS.join(', ')}`, rig);
   const p = value['priority'];
   if (p !== undefined && !(num(p, VIRTUAL_CAMERA_LIMITS.priority.min, VIRTUAL_CAMERA_LIMITS.priority.max) && Number.isInteger(p))) err(errors, 'field_value', `${path}/priority`, 'priority is a whole number −1000–1000', p);
-  for (const k of ['enabled', 'collision'] as const) {
+  for (const k of ['enabled', 'collision', 'autoExposure'] as const) {
     if (value[k] !== undefined && typeof value[k] !== 'boolean') err(errors, 'field_type', `${path}/${k}`, `${k} is true or false`, value[k]);
   }
   for (const k of ['target', 'path'] as const) {
@@ -450,9 +509,11 @@ export function validateVirtualCameraComponent(value: unknown, path: string, err
   }
   if (value['railMode'] !== undefined && !(CAMERA_RAIL_MODES as readonly unknown[]).includes(value['railMode'])) err(errors, 'field_value', `${path}/railMode`, `railMode is one of ${CAMERA_RAIL_MODES.join(', ')}`, value['railMode']);
   if (value['occlusion'] !== undefined && !(CAMERA_OCCLUSION_MODES as readonly unknown[]).includes(value['occlusion'])) err(errors, 'field_value', `${path}/occlusion`, `occlusion is one of ${CAMERA_OCCLUSION_MODES.join(', ')}`, value['occlusion']);
+  if (value['exposureMetering'] !== undefined && !(CAMERA_EXPOSURE_METERING as readonly unknown[]).includes(value['exposureMetering'])) err(errors, 'field_value', `${path}/exposureMetering`, `exposureMetering is one of ${CAMERA_EXPOSURE_METERING.join(', ')}`, value['exposureMetering']);
   if (value['blend'] !== undefined && !(CAMERA_BLENDS as readonly unknown[]).includes(value['blend'])) err(errors, 'field_value', `${path}/blend`, `blend is one of ${CAMERA_BLENDS.join(', ')}`, value['blend']);
   // Cross-field rules (both sides present).
-  const { pitchMin, pitchMax, minDistance, maxDistance, near, far } = value as Record<string, unknown>;
+  const { pitchMin, pitchMax, minDistance, maxDistance, near, far, exposureMin, exposureMax } = value as Record<string, unknown>;
+  if (typeof exposureMin === 'number' && typeof exposureMax === 'number' && exposureMin > exposureMax) err(errors, 'field_value', `${path}/exposureMax`, 'exposureMax is at least exposureMin', exposureMax);
   if (typeof pitchMin === 'number' && typeof pitchMax === 'number' && pitchMin > pitchMax) err(errors, 'field_value', `${path}/pitchMax`, 'pitchMax is at least pitchMin', pitchMax);
   if (typeof minDistance === 'number' && typeof maxDistance === 'number' && minDistance > maxDistance) err(errors, 'field_value', `${path}/maxDistance`, 'maxDistance is at least minDistance', maxDistance);
   if (typeof near === 'number' && typeof far === 'number' && !(far > near)) err(errors, 'field_value', `${path}/far`, 'far is beyond near', far);

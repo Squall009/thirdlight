@@ -72,6 +72,17 @@ bright sky no longer veils the frame, and a lower exposure calms the glow
 with the picture. Projects saved with an exposure other than 1 have their
 bloom threshold scaled by it on open (Problems says so). New bloom starts at
 strength 0.2.
+**Exposure** is the look's fixed multiplier, or — while a virtual camera
+with **Auto exposure** is on screen — adapted to the picture
+([Cameras](scenes-and-cameras.md#cameras-virtual-cameras)); either way it
+applies before bloom and tone mapping. Auto exposure meters the scene in two
+small passes after the frame (a 128 × 64 grid of log luminance, reduced to
+16 × 8 and read back without waiting for the GPU, a frame or two late), the
+same on WebGPU and WebGL 2: about 0.13 ms of GPU time on an integrated GPU,
+none while no camera on screen adapts. While a loaded camera has it, a
+colour or image sky is exposed with the picture even without post effects
+(without it such a sky is shown as it is, as the old WebGL renderer drew it;
+with any post effect it is exposed).
 A game view (Play, the export, the Scene view) renders one drawing-buffer
 pixel per CSS pixel on any display, so a HiDPI or scaled screen costs no more
 than a plain one. Under a post stack the scene is drawn without MSAA (the

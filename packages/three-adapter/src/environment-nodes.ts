@@ -245,6 +245,8 @@ export interface PostPipeline {
   temporalHolding(): boolean | null;
   /** Whether the temporal upscale may hold a still view's picture (not while something in view moves by itself). */
   setTemporalHold(allowed: boolean): void;
+  /** The scene pass's colour as last drawn (linear, before bloom, exposure and tone mapping): what the auto-exposure meters. */
+  sceneTexture(): THREE.Texture;
   /** New grading / vignette / bloom numbers for the built passes (uniforms: no rebuild, no new program). */
   setParams(params: Pick<PostPlan, 'grading' | 'bloom'>): void;
   render(): void;
@@ -637,6 +639,7 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
       const t = (scenePass as { renderTarget: THREE.RenderTarget }).renderTarget;
       return t.width > 1 || t.height > 1 ? [t.width, t.height] : null;
     },
+    sceneTexture: () => scenePass.getTexture('output') as THREE.Texture,
     temporalHolding: () => taau?.holding() ?? null,
     setTemporalHold: (allowed) => taau?.setHoldAllowed(allowed),
     compileAsync(cam) {

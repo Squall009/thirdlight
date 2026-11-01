@@ -50,6 +50,8 @@ import { applySkyRotation, skyRotationRadians } from './sky-rotation';
 import { createHeightFog, type HeightFogLike } from './height-fog';
 import { buildPostPipeline, cloudDriftUniform, compileIntoTarget, createSkyMesh, SETTLED_PRECOMPILE as settledPrecompile, type Precompile, gradientSkyMaterial, gradientSkyUniforms, imageSkyMaterial, MAX_FOG_VOLUMES, type FogVolumeBox, type PostPipeline, type PostPlan, type SkyParams } from './environment-nodes';
 import type { PhysicalSky } from './physical-sky';
+import { EnvironmentExposure, type ExposureDiagnostics } from './environment-exposure';
+import type { ExposureLook } from '@thirdlight/runtime';
 
 /** Structural copies of the project-model environment types. */
 export interface SkyLike {
@@ -263,13 +265,30 @@ export interface EnvironmentRenderer {
   driftClouds(seconds: number, wind: CloudWind): void;
   /** Something in view moves by itself this frame (animated materials): the temporal upscale keeps its jitter. */
   setAnimating(on: boolean): void;
+  /**
+   * The auto-exposure of the camera on screen (null: the look's fixed exposure) and whether any loaded camera
+   * has one (the stack then keeps the scene in a texture for the meter, so a camera switch builds nothing).
+   */
+  setExposure(look: ExposureLook | null, loaded: boolean): void;
   /** Canvas size in CSS pixels. */
   resize(width: number, height: number): void;
   /** `samples` = the MSAA samples the scene is drawn with (0: none — a level without MSAA, or a post stack with its own anti-aliasing). */
-  diagnostics(): { post: boolean; passes: string[]; fallback: string | null; quality: QualityLevel; samples: number; iblRebakes: number; render: { ao: RenderOptions['ao']; scale: number; dynamic: boolean; upscale: UpscaleFilter | 'taau' | null; internal: [number, number] | null; taauHolding: boolean | null }; reflections: ReflectionStats | null };
+  diagnostics(): { post: boolean; passes: string[]; fallback: string | null; quality: QualityLevel; samples: number; iblRebakes: number; render: { ao: RenderOptions['ao']; scale: number; dynamic: boolean; upscale: UpscaleFilter | 'taau' | null; internal: [number, number] | null; taauHolding: boolean | null }; reflections: ReflectionStats | null; exposure: ExposureDiagnostics };
   /** The MSAA samples of the last frame path (allocation-free, for a per-frame read). */
   samples(): number;
   dispose(): void;
+}
+
+/** The fog volumes as world-space boxes (min/max corners) for the post stack. */
+function fogVolumeBoxes(volumes: readonly FogVolumeLike[]): FogVolumeBox[] {
+  return volumes.map((v) => ({
+    min: [v.center[0] - v.size[0] / 2, v.center[1] - v.size[1] / 2, v.center[2] - v.size[2] / 2],
+    max: [v.center[0] + v.size[0] / 2, v.center[1] + v.size[1] / 2, v.center[2] + v.size[2] / 2],
+    color: v.color,
+    density: v.density,
+    falloff: v.falloff ?? 0.5,
+    heightFalloff: v.heightFalloff ?? 0,
+  }));
 }
 
 /** A sky's structure (its mode and images): skies with the same one blend field by field. */
@@ -552,6 +571,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
   /** The scene's own background, put back when a sky goes (a look without a sky after one with a colour sky). */
   const baseBackground = scene.background;
   const heightFog = createHeightFog(scene);
+  const exposure = new EnvironmentExposure();
 
   const texture = (id: string): Promise<THREE.Texture | null> => {
     let p = textures.get(id);
@@ -937,7 +957,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
   };
 
   // ---- post ----------------------------------------------------------------------
-  const wanted = (): { bloom: boolean; ssao: boolean; dof: boolean; fogVolumes: boolean; grading: boolean; aa: 'none' | 'fxaa' | 'smaa' | 'taau'; contact: boolean; reflections: 'medium' | 'high' | null; traced: boolean } => {
+  const wanted = (): { bloom: boolean; ssao: boolean; dof: boolean; fogVolumes: boolean; grading: boolean; aa: 'none' | 'fxaa' | 'smaa' | 'taau'; contact: boolean; reflections: 'medium' | 'high' | null; traced: boolean; meter: boolean } => {
     const p = postNow();
     const g = p?.grading;
     return {
@@ -952,6 +972,8 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       // As contact shadows: drawn with the look's post effects. WebGL 2 keeps the environment and probes.
       reflections: reflectionsWanted(renderer, level()),
       traced: reflectionsFromUrl() !== 'screen',
+      // Not a post effect: the scene drawn into the stack's texture for the auto-exposure meter (the picture as without).
+      meter: exposure.wanted(),
     };
   };
 
@@ -978,10 +1000,10 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     // background is laid under the picture: a colour as a uniform (at any render scale, so Play under a
     // render scale or dynamic resolution shows the sky the Scene view does), an image in its own pass.
     // Not yet an image under a render scale (no pixel test of it there): an upscaled frame draws an image
-    // background as a post stack does (tone mapped).
+    // background as a post stack does (tone mapped), and so does a metered frame (adapting, the sky is exposed too).
     const bg = scene.background as (THREE.Color | THREE.Texture | null) & { isColor?: boolean; isTexture?: boolean };
     const bgKind = bg === null ? null : bg.isColor === true ? 'color' : bg.isTexture === true && (bg as THREE.Texture).colorSpace === THREE.SRGBColorSpace ? 'image' : null;
-    const displayBackground = !isPost && renderer.toneMapping !== THREE.NoToneMapping && bgKind !== null && !(bgKind === 'image' && upscaling) ? bgKind : null;
+    const displayBackground = !isPost && !w.meter && renderer.toneMapping !== THREE.NoToneMapping && bgKind !== null && !(bgKind === 'image' && upscaling) ? bgKind : null;
     const post = postNow();
     // The numbers the passes take as uniforms (grading, vignette, bloom) are not part of
     // the key (nor the exposure, a renderer setting): a blend or an edit of them updates the built stack
@@ -1000,7 +1022,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     const contact = w.contact && perspective && isPost;
     const reflections = w.reflections !== null && perspective && isPost ? w.reflections : null;
     screenLights.keep(w.ssao && perspective, contact, reflections !== null, contact && w.ssao && render.ao !== 'off');
-    if (!isPost && !noMsaa && displayBackground === null && !upscaling && scenePasses === null) return;
+    if (!isPost && !noMsaa && displayBackground === null && !upscaling && scenePasses === null && !w.meter) return;
     const g = post?.grading;
     const plan: PostPlan = {
       ao: w.ssao && perspective && render.ao !== 'off' ? { kind: render.ao, radius: post?.ssao?.radius ?? 0.5, intensity: post?.ssao?.intensity ?? 1 } : null,
@@ -1040,15 +1062,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
   };
   /** The uniform numbers of the post stack from the drawn environment. */
   const postParams = (): Pick<PostPlan, 'grading' | 'bloom'> => postNumbers(postNow(), wanted());
-  const volumeBoxes = (): FogVolumeBox[] =>
-    volumes.map((v) => ({
-      min: [v.center[0] - v.size[0] / 2, v.center[1] - v.size[1] / 2, v.center[2] - v.size[2] / 2],
-      max: [v.center[0] + v.size[0] / 2, v.center[1] + v.size[1] / 2, v.center[2] + v.size[2] / 2],
-      color: v.color,
-      density: v.density,
-      falloff: v.falloff ?? 0.5,
-      heightFalloff: v.heightFalloff ?? 0,
-    }));
+  const volumeBoxes = (): FogVolumeBox[] => fogVolumeBoxes(volumes);
 
   const self: EnvironmentRenderer = {
     setBlend(next) {
@@ -1135,6 +1149,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       lighting.sync();
       buildPipeline(camera);
       pipeline?.setParams(postParams());
+      exposure.apply(renderer, postNow()?.exposure ?? 1, performance.now());
       if (pipeline === null) {
         renderer.render(scene, camera);
         return;
@@ -1142,6 +1157,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       pipeline.update(camera, volumeBoxes());
       pipeline.setTemporalHold(!animating);
       pipeline.render();
+      exposure.afterFrame(renderer, () => pipeline?.sceneTexture() ?? null);
     },
     compileAsync(camera) {
       if (disposed) return settledPrecompile;
@@ -1151,6 +1167,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       pipeline.update(camera, volumeBoxes());
       return pipeline.compileAsync(camera);
     },
+    setExposure: (look, loaded) => exposure.set(look, loaded),
     resize(w, h) {
       const nw = Math.max(1, Math.floor(w));
       const nh = Math.max(1, Math.floor(h));
@@ -1172,6 +1189,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
         iblRebakes,
         render: { ao: render.ao, scale: render.scale, dynamic: render.dynamic, upscale: upscaled ? (passNames.includes('taau') ? 'taau' : render.upscale) : null, internal: pipeline?.internalSize() ?? null, taauHolding: pipeline?.temporalHolding() ?? null },
         reflections: screenLights.reflections?.stats ?? null,
+        exposure: exposure.diagnostics(renderer.toneMappingExposure),
       };
     },
     dispose() {
@@ -1181,6 +1199,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       disposeLayers();
       clearSky();
       heightFog.dispose();
+      exposure.dispose();
       lighting.dispose();
     },
   };

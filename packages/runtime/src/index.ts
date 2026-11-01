@@ -361,6 +361,8 @@ export { character3DPhysicsOf } from './scene-set';
 // The camera framework — the script API, the brain and its pure rig maths (the editor's frustum previews use it).
 export type { BehaviorCamera, BehaviorCameraState, CameraBlendOptions } from './types';
 export { CameraBrain, MAX_SHAKE_IMPULSES, type CameraPathData, type CameraViewInfo, type CameraWorld, type VirtualCameraData, type VirtualCameraState } from './camera-brain';
+// Auto-exposure: the look a view carries (the brain blends it) and the adaptation the renderer runs.
+export { adaptExposure, blendExposureLook, cameraExposureLook, exposureRange, meteredLogLuminance, meterWeight, targetExposure, EXPOSURE_KEY, METER_MIN_LUMINANCE, type ExposureLook } from './auto-exposure';
 // Environment presets — the blend state (simulation) and the blended look (renderer, editor preview).
 export type { BehaviorEnvironment, EnvironmentChangeOptions } from './types';
 export { EnvironmentDirector, MAX_ENVIRONMENT_BLEND_SECONDS, type EnvironmentSaveState } from './environment-director';
