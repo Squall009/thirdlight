@@ -121,7 +121,7 @@ invalidation.
 | R67 | Every job has an id; dirty state tracked (prevents unload/save/worker-timeout races) | §2 (cuubz) | owner | job |
 | R68 | Priority queue: edits > near > far/LOD | §2, §3 45.5 | owner | job |
 | R69 | Neighbours sent as thin strips (aprons), not whole chunks; transferable buffers | §2, §3 45.5 | owner | job |
-| R70 | Runtime voxel code loads in module workers and exported games (no node:, no three.js in runtime parts) | AGENTS.md, brief | default (package home set in 45.1) | job, stream |
+| R70 | Runtime voxel code loads in module workers and exported games (no node:, no three.js in runtime parts) | AGENTS.md, brief | default (package home `packages/voxel` = `@thirdlight/voxel`, set in 45.1b; owner to confirm) | job, stream |
 
 ### 1.7 Derived data and job contracts
 
@@ -284,19 +284,19 @@ Evidence cells are filled by the item that decides them; empty means not yet dec
 |---|---|---|---|
 | R3, R5 | Chunk codec header: magic, version, checksum, world-scoped key; add-only upgrade steps | 45.2 | to be filled by 45.2 |
 | R4 | Damaged-chunk repair/regenerate path | 45.3/45.4 | to be filled by 45.3 |
-| R9, R22, O1 | Chunk edge length (cells), voxel size constant (defined once) | 45.2 | to be filled by 45.2 |
-| R11, Q-a, O6, O8 | Voxel planes: material, category, shape/density, orientation; widths | 45.2 | to be filled by 45.2 |
-| R15–R20, O5, O7 | Encoding: palette, bit width, uniform collapse, column runs, surface-only density, codec | 45.2 | to be filled by 45.2 |
-| R21 | `voxelAt` contract and special forms behind it | 45.2 | to be filled by 45.2 |
-| R24–R26, O15 | Liquid category + fill on density field; shoreline rule | 45.2 | to be filled by 45.2 |
+| R9, R22, O1 | Chunk edge length (cells), voxel size constant (defined once) | 45.2 | to be filled by 45.2; harness (45.1b, `tools/voxel-bench`; numbers in the plan's 45.1 harness baseline): `VOXEL_SIZE_M` and `chunkGrid(16 \| 32)` in `@thirdlight/voxel`, every world swept at both edges |
+| R11, Q-a, O6, O8 | Voxel planes: material, category, shape/density, orientation; widths | 45.2 | to be filled by 45.2; harness (45.1b, `tools/voxel-bench`; numbers in the plan's 45.1 harness baseline): zstd size per world with and without the category and orientation planes; `VoxelRecord` is a PROVISIONAL test shape, not the format |
+| R15–R20, O5, O7 | Encoding: palette, bit width, uniform collapse, column runs, surface-only density, codec | 45.2 | to be filled by 45.2; harness (45.1b, `tools/voxel-bench`; numbers in the plan's 45.1 harness baseline): raw / zstd / deflate per chunk, uniform-chunk share, materials-per-chunk histogram, material runs per chunk column, surface-cell share; lz4 not measured (needs a dependency) |
+| R21 | `voxelAt` contract and special forms behind it | 45.2 | to be filled by 45.2; harness (45.1b, `tools/voxel-bench`; numbers in the plan's 45.1 harness baseline): `VoxelStoreCandidate` is the one contract a candidate is driven through, checked cell by cell against the dense reference store |
+| R24–R26, O15 | Liquid category + fill on density field; shoreline rule | 45.2 | to be filled by 45.2; harness (45.1b, `tools/voxel-bench`; numbers in the plan's 45.1 harness baseline): test worlds hold liquid with a partly filled top cell (hilly lakes, town ponds, cave water); shoreline cells stay ground, O15 still open |
 | R27, R28, O12 | Material id space and reference to the material record | 45.2 | to be filled by 45.2 |
 | R30–R35, O10 | Structure records, override deltas, regenerate-all report | 45.4 | to be filled by 45.4 |
 | R36–R39, O9 | Structure grid object: transform, own chunk set, storage location | 45.3/45.5 | to be filled by 45.3 |
-| R46–R53, O2–O4, O17 | Region file: tile size, vertical layout, header, per-chunk offsets, deterministic bytes, LFS | 45.3 | to be filled by 45.3 |
+| R46–R53, O2–O4, O17 | Region file: tile size, vertical layout, header, per-chunk offsets, deterministic bytes, LFS | 45.3 | to be filled by 45.3; harness (45.1b, `tools/voxel-bench`; numbers in the plan's 45.1 harness baseline): region key math for 256 m and 512 m footprints; a 4,000-cell-tall test world (R49) |
 | R56, R57 | Stroke command payloads; per-chunk undo records and size | 45.4 | to be filled by 45.4 |
 | R59, R60, O13 | Save diff: changed chunks vs base, base-chunk hashes, save version | 45.4 | to be filled by 45.4 |
-| R62–R66, O14 | Coordinates, floating origin, memory budget per tier, export chunk delivery | 45.5 | to be filled by 45.5 |
-| R67–R70, Q-c | Job id, priority, dirty state, apron width R, transfer buffers | 45.5 | to be filled by 45.5 |
+| R62–R66, O14 | Coordinates, floating origin, memory budget per tier, export chunk delivery | 45.5 | to be filled by 45.5; harness (45.1b, `tools/voxel-bench`; numbers in the plan's 45.1 harness baseline): integer cell bounds ±32,768 (x, z) and ±8,192 (y) with chunk keys below 2^35, tested at the extremes (default, owner to confirm); floating origin not touched |
+| R67–R70, Q-c | Job id, priority, dirty state, apron width R, transfer buffers | 45.5 | to be filled by 45.5; harness (45.1b, `tools/voxel-bench`; numbers in the plan's 45.1 harness baseline): copy vs transfer round trip of raw and zstd chunk bytes in a real worker; `@thirdlight/voxel` is pure (no three.js, no Node built-ins, boundary rule) for R70 |
 | R54, R72–R105, Q-b | Derived formats: resolved assembly output, per-consumer occupancy, flags, mips, mesh buffers, collision/nav inputs | 45.6 | to be filled by 45.6 |
 | R93–R96, O11 | Light-occupancy channel (coverage), never saved, recompute at load | 45.6 | to be filled by 45.6 |
 | Q-a, Q-b, Q-c | Wall → beam/banister proof, round trips, runtime-equivalent input, cross-chunk invalidation | 45.7 | to be filled by 45.7 |

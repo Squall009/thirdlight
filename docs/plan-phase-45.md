@@ -676,6 +676,7 @@ sub-phase on staging; the merge to `main` happens once, at the end of 48.
 | Item | Status |
 |---|---|
 | 45.0 | done (8db90379 + this): `tools/staging.sh` (staging on 127.0.0.1:4180/4181, own data root, 6 GB cap; proven start, page 200, test project, stop clean). Floor record at the cap, Iris Xe, both renderers: village, landscape, interior at 720p and 1080p all p95 16.7–16.8 ms, 0 missed (720p60 met); see **45.0 floor record**. three 0.187.0 newest, no update. |
+| 45.1b | done (4f9c3340, 6bcbbd5e, 8bd00db7 + this): `@thirdlight/voxel` (cells ±32,768 xz / ±8,192 y, key math for 16³ and 32³, PROVISIONAL record, store contract, dense oracle) and `tools/voxel-bench` (5 test worlds, all swept whole). Dense baseline at 32³: 3.3 GB/km² in memory, plain 5.9 MB/km² zstd, voxelAt 110–123 ns random; see **45.1 harness baseline**. |
 
 ### 45.0 floor record
 
@@ -710,6 +711,65 @@ WebGPU GPU ms at full clock (timestamps × clock ÷ max clock; WebGL 2 has no pa
   spread most between rounds (village 3.26 vs 2.71), so read them as ± 0.5 ms.
 - Reports and logs: `~/.cache/thirdlight-phase45/work/45.0/` (scratch, not committed).
 
+### 45.1 harness baseline
+
+Dense reference store (plain typed arrays per chunk, 5 bytes a voxel: material 16 bits, category, shape, orientation
+8 bits each; PROVISIONAL record, not the format) over every test world, whole (nothing sampled or extrapolated),
+both chunk edges. `node tools/voxel-bench/run.mjs --edge 32,16` in a 6 GB scope, 2026-11-01 22:34–22:45, i5-12600H
+(10 threads), load 1.5–3.4, peak RSS 920 MB, 11 min. Report: `~/.cache/thirdlight-phase45/work/45.1b/results/`
+(latest.json / latest.md, kept for 45.2; no world files: the generators are deterministic and regenerate faster
+than reading back).
+
+Test worlds (`tools/voxel-bench/worlds.ts`, `town.ts`; engine-owned test data, a pure function of seed and cell):
+- **plain** 256 × 256 m: surface 2 m ± 1 m, grass on 2 m soil on rock, base −64 m.
+- **hilly** 2 × 2 km: hills to ~120 m, rock on steep slopes, lakes at 12.3 m (liquid, top cell partly full), base −64 m.
+- **town** 256 × 256 m: 144 lots of 20 m; houses of 1–3 storeys with 0.5 m walls, floors, stairs (orientation),
+  45° gable roofs with overhangs (category roof, slope direction), doors and windows, beams one cell out at the
+  storey lines, balconies with open banisters (posts every other cell under a rail), fences, ponds; 11 houses stand
+  in their own 30°/45° grids (own chunk sets with a yaw and origin, swept like the world grid).
+- **caves** 256 × 256 m: 3D-density ground to ~30 m with overhangs, tunnels, caverns, water below −40 m.
+- **vertical** 256 × 256 m × 2 km: base −1,000 m, mountain to ~+925 m, sparse deep caverns with water below
+  −850 m, a 300 m tower of 0.5 m walls (4,000 cells of height; 125 chunk layers at 32³).
+
+Per world at 32³ (16³ in brackets). Memory = dense arrays if the whole world were loaded; zstd/deflate = each chunk
+compressed alone (zstd 3, raw deflate 6, Node zlib); −cat / −orient = share of the zstd size the category / the
+orientation plane costs (zstd of the chunk without that plane).
+
+| World | Chunks (uniform) | Memory | zstd | deflate | zstd/km² | −cat / −orient | runs/col |
+|---|---|---|---|---|---|---|---|
+| plain | 1,280 (60 %) [9,216 (78 %)] | 210 MB [189] | 0.39 MB [0.67] | 0.80 MB | 5.9 MB [10.2] | 5.5 / 2.2 % [3.2 / 5.7] | 1.59 |
+| hilly 4 km² | 112,218 (77 %) [845,486 (88 %)] | 18.4 GB [17.3] | 49.4 MB [74.2] | 82.4 MB | 12.4 MB [18.6] | 11.7 / 1.5 % [7.7 / 4.5] | 1.41 |
+| town (+11 grids) | 1,297 (59 %) [9,730 (74 %)] | 213 MB [199] | 0.35 MB [0.69] | 0.57 MB | 5.4 MB [10.5] | 24.0 / 12.1 % [14.2 / 9.3] | 1.66 |
+| caves | 1,727 (0.2 %) [12,457 (14 %)] | 283 MB [255] | 8.4 MB [8.4] | 8.5 MB | 129 MB [128] | 17.4 / 0.1 % [15.6 / 0.7] | 2.45 |
+| vertical | 19,625 (37 %) [147,423 (65 %)] | 3.2 GB [3.0] | 27.7 MB [30.4] | 30.8 MB | 422 MB [464] | 17.3 / 0.5 % [14.5 / 2.0] | 1.24 |
+
+Speeds (32³ [16³]; window = 256 m square, 64 m for vertical, all heights): `voxelAt` random 110–123 ns
+[154–184], coherent column scan 9.5–10.9 ns [10–13]; single edit 0.08 µs [0.12–0.17]; spheres r = 1 / 2 / 4 m
+1.1–4.1 / 6.9–7.5 / 53–58 µs (~25 ns a cell); boxes 2 / 8 m 1.6–4.2 / 79–86 µs; dense encode / decode 3.1–3.7 /
+3.3–3.6 GB/s [2.6 / 2.0–2.5]; zstd compress / decompress 1.2–2.4 / 1.7–2.5 GB/s [0.45–0.62 / 1.1–1.6]; deflate
+170–440 MB/s / 1.3–2.1 GB/s [160–480 / 0.8–1.2]. Worker round trip per chunk (real `worker_threads` Worker, each
+chunk its own message): raw 32³ chunk (164 KB) copied 27–46 µs, transferred 5.5–6.2 µs; raw 16³ (20 KB) 5.6–11 /
+3.2–3.5 µs; a zstd-compressed chunk (a few KB) 3–6 µs either way.
+
+- Every chunk read back equal to what was generated (oracle check in the sweep, both edges, every world).
+- The general-purpose compressor on raw planes, per chunk, already lands near §1b's 8–15 MB/km² estimate for
+  plain ground at 32³ (5.9 MB/km², base 64 m deep; base depth sets how many uniform rock chunks there are). What the
+  candidates must win is memory (dense: 3.3 GB/km², 3.2 GB for the 2 km column) and access, not disk size.
+- 16³ costs 1.1–1.9× the zstd bytes of 32³ (frame overhead and less context per chunk; caves equal) and is slower
+  to compress (0.6 vs 2 GB/s); it raises the uniform share from 59–77 % to 74–88 % (caves 0.2 → 14 %).
+- The category plane is a visible share where construction is: 24 % of the town's zstd bytes (orientation 12 %),
+  12–17 % on terrain worlds, where it mostly repeats the air/ground boundary the material plane already holds.
+  Q-a's "with/without a category plane" therefore matters most in towns; 45.2 measures it under palette/RLE.
+- Random `voxelAt` is dominated by finding the chunk (a Map keyed by numbers up to 2^35): reads that hit the
+  last-chunk cache cost ~10 ns, random ones 110–184 ns, more at 16³ (8× the chunks). A candidate's chunk index is
+  part of its access cost.
+- Copying a raw 32³ chunk to a worker costs 5–8× moving it; compressed chunks are small enough that it doesn't matter.
+- Not measured here: lz4 (needs a dependency), browser/worker decode of zstd (WASM) vs DecompressionStream deflate
+  (needs a browser page), assembly-derived occupancy (Q-b) and apron/dependency radius (Q-c).
+- For 45.2: add a factory to `CANDIDATES` in `tools/voxel-bench/harness.ts` and run
+  `node tools/voxel-bench/run.mjs --candidate <name> --edge 32,16` (memory-capped scope; ~11 min for both edges,
+  hilly 3.5–4.7 min of it); `--worlds`, `--sample-tiles N`, `--no-bench`, `--quick` cut it down.
+
 ## 7. Decision log
 
 - 2026-10-27 (owner, planning session): §1 decided in conversation. The research behind it covers Enshrouded's
@@ -736,6 +796,21 @@ WebGPU GPU ms at full clock (timestamps × clock ÷ max clock; WebGL 2 has no pa
   before) so the low tier's 720p goal is measured, not inferred; the gate's baseline check stays at 1080p
   (`--viewport` is refused with `--gate`, `--check`, `--write-baseline`). Editor pages inside those runs (Scene view,
   edit windows, the see-through mid-run switch) stay 1080p.
+- 2026-11-01 (45.1b, default chosen, owner to confirm): voxel code lives in `packages/voxel` (`@thirdlight/voxel`),
+  pure like the runtime (no packages, no three.js, no Node built-ins; its own boundary row, own commit). Node-only
+  tooling over it lives outside the package (`tools/voxel-bench/`, typechecked with the packages); no separate
+  Node entry point is needed yet.
+- 2026-11-01 (45.1b, default chosen, owner to confirm): voxel coordinates are integer cells, x and z in ±32,768
+  (±16.4 km: a 10 km world centred or cornered on the origin) and y in ±8,192 (±4.1 km: 2 km of height anywhere
+  around y = 0, the same again as headroom). A chunk key is one integer below 2^35 (x, then z, then y: a column's
+  chunks are consecutive); cells in a chunk are stored y fastest. Every chunk function takes the edge (16 or 32), so
+  45.2 decides it without touching callers. Where a world sits inside these bounds (O2) is still 45.2/45.3's.
+- 2026-11-01 (45.1b, default chosen, owner to confirm): the harness's `VoxelRecord` is a PROVISIONAL test shape
+  (material 16 bits; category, shape, orientation 8 bits; categories air, terrain, construction, roof, liquid =
+  Q-a option 1). It exists so planes can be measured apart; it is not the format and decides nothing for Q-a.
+- 2026-11-01 (45.1b): test-world choices that move the numbers: shallow worlds' ground goes 64 m deep; a cell
+  partly ground and under liquid stays ground (one material per cell; O15 open); liquid surfaces sit inside a cell
+  so the top liquid cell is partly full; rotated houses are their own chunk sets (cheap, so the town includes them).
 
 ## 7a. Kit and surface planning session (2026-10-30)
 
