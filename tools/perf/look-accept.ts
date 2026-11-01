@@ -26,6 +26,7 @@
  *   --renderers webgpu,webgl2                    (default both)
  *   --no-bake                                    the lights realtime, nothing baked
  *   --query Q                                    more page query for every load (e.g. quality=medium: the same tier on both renderers)
+ *   --auto-exposure [JSON]                       the view's camera adapts its exposure (as `look --auto-exposure`)
  *   --shots DIR --shot-prefix P --out FILE --keep
  *
  * The report goes to ~/.cache/thirdlight-perf/reports/look-accept-<time>.json.
@@ -157,6 +158,8 @@ function probeLight(): { live: boolean; settled: boolean; stale: number; marks: 
 
 interface WindowResult {
   label: string;
+  /** The renderer's exposure when the shot was taken. */
+  exposure?: number | null;
   frames: { n: number; p50: number; p95: number; max: number; missed: number; missedAt: number[] };
   mainCpuMsPerFrame: number | null;
   gpuMhz: number | null;
@@ -206,6 +209,12 @@ async function frameWindow(page: Page, cdp: CDPSession, label: string, ms: numbe
   if (shot !== null) {
     await page.screenshot({ path: shot, type: 'jpeg', quality: 88 });
     out.shot = shot;
+    // The exposure the picture was drawn at (fixed, or where an adapting camera has got to).
+    out.exposure = await page.evaluate(() => {
+      const rs = (window as unknown as { __tlProbe?: { renderers: { toneMappingExposure?: number }[] } }).__tlProbe?.renderers ?? [];
+      const e = rs[rs.length - 1]?.toneMappingExposure;
+      return typeof e === 'number' ? Math.round(e * 1000) / 1000 : null;
+    });
   }
   return out;
 }
@@ -378,6 +387,8 @@ export async function runLookAcceptCli(argv: readonly string[]): Promise<void> {
   const shots = get('shots') ?? runDir;
   const prefix = get('shot-prefix') ?? '';
   const query = get('query') ?? '';
+  const autoArg = get('auto-exposure');
+  const autoExposure = !argv.includes('--auto-exposure') ? null : autoArg !== undefined && autoArg.startsWith('{') ? (JSON.parse(autoArg) as Record<string, unknown>) : {};
   mkdirSync(runDir, { recursive: true });
   mkdirSync(shots, { recursive: true });
   const log = (s: string): void => console.log(`look-accept: ${s}`);
@@ -393,7 +404,7 @@ export async function runLookAcceptCli(argv: readonly string[]): Promise<void> {
   try {
     for (const scene of scenes) {
       const projectId = `accept-${scene}`;
-      await buildLook(be, projectId, scene as LookScene, bake ? 'baked' : 'realtime');
+      await buildLook(be, projectId, scene as LookScene, bake ? 'baked' : 'realtime', autoExposure);
       await addExtras(be, projectId, scene);
       const baked = bake ? await bakeLightingInEditor(be, projectId, (s) => log(`${scene}: ${s}`)) : undefined;
       const res = await be.post(`/api/v1/admin/projects/${projectId}/export`, {});

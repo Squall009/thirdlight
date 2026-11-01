@@ -68,6 +68,7 @@ picture. Games switch both by switching cameras, through priorities and camera r
 | 44b.3a | done (83037b97): three 0.187.0; every checklist row checked: 6 hooks removed (three does it), 9 changed, 1 added (precompile targets). Cap, WebGPU main/GPU full, WebGL 2 main: village 5.32/5.09, 3.95; landscape 4.75/10.49, 3.31; interior 3.06/7.08, 1.79; lights 64/256 2.17/2.59; p95 16.7–16.8, 0 missed: no cost. level-acceptance 1.9–2.1 min both; D422 (fails at base). |
 | 44b.3b | done (8e3b2071): exposure applies to the whole picture, colour/image sky too without post, fixed or auto (sky exposed, not tone mapped: exposure 1 unchanged); meter sees the sky. D421 fixed. env-parity: tone-aces/neutral refs redrawn (sky only), exposure-0.5 check both renderers. cameras e2e 32.4 → 20.0 s. Village at cap: main 6.07 / 4.05 ms, p95 16.7–16.8, 0 missed. Gate: D422 only. |
 | 44b.3c | done (e4c0e040): D422 and D409 fixed. Cause: the test passed only before WebGPU's live probes were lit (traced: Play's frame 0 passed, then it settled at the export's failing pixels). The sky now lights nothing and the yellows are darker; bounds unchanged. Alone 5/5, 31–35 s (passing before 35.6 s, failing 2.0 min). Fast gate green. |
+| 44b.4a | partial (548afdaf): D424 fixed (r187 precompile re-bound the macro baker's 64² target: stale WebGPU Play; D426 bake throw); D423 watch. H1/M2 measured, not fixed: D427 (probes 1.3–2.4 stops over env light; noon auto 0.077). Cap: landscape 4.51/10.21, 3.21; interior 3.03/7.22, 1.80; village 5.86/4.10 ms; p95 16.7–16.8. |
 
 ### 44b.0 baseline
 
@@ -226,3 +227,18 @@ picture. Games switch both by switching cameras, through priorities and camera r
   scene-environment) and its rerun: everything passed but `level-acceptance.e2e.ts:673`, the WebGPU export's rule and
   door colours with D422's pixels (it fails at the base too; next item). Village at the cap run by hand (the gate
   stops before it on a red e2e), 12:02, load 1.5: main WebGPU 6.07, WebGL 2 4.05 ms, p95 16.7–16.8, 0 missed of 360.
+- 2026-11-01 (44b.4a): D424 bisected to 83037b97 (r187), not probes or exposure. three r187's `compileAsync` builds
+  its collected draws later and ends each by binding the target current when it was called; the terrain macro baker
+  compiles into its 64² target and puts the renderer's back at once, so the builds re-bound the bake target between
+  frames and every later frame's post quad drew into it (traced: render targets and binds logged in Play).
+  `installPrecompileTargets` now ends each build with the target last bound by anyone else since it began; the
+  baker's draws restore their target in `finally` (a draw threw a missing-GPU-buffer error in the streamed Play,
+  D426). D423 not reproduced (four runs); likely the same freeze in the editor's terrain mode: watch.
+- 2026-11-01 (44b.4a, review H1/M2, measured, not fixed): see D427. The sunset at exposure 1 is ≈3.5 stops over
+  because of the GI light (live probes and the bake), not the sky's or sun's units: without probes it settles at
+  1.17 (evening). Noon with auto-exposure settles at 0.077 (WebGPU) / 0.193 (WebGL 2), above the 1/16 floor.
+  Leaving the sun disc out of the IBL bake moves it 0.35 stop only. The level-acceptance change of 44b.3c stays:
+  a colour sky lights probe-lit surfaces and nothing else (`scene.environment` is null for it), a real divergence
+  that D427 holds; giving colour skies an environment would change 81 e2e scenes, an owner decision. The look
+  scene's settings are not changed until D427's cause is known (changing its exposure would hide it).
+
