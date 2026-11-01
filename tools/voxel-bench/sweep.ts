@@ -7,14 +7,20 @@
  * swept on evenly spaced sample tiles and extrapolated by footprint.
  */
 import {
+  copyDenseChunk,
   createDenseChunk,
   isUniformChunk,
+  maskDenseChunk,
+  planeMask,
   sameDenseChunk,
   VOXEL_CATEGORY,
   VOXEL_PLANES,
   type ChunkGrid,
   type DenseChunk,
+  voxel,
   type VoxelPlane,
+  type VoxelRecord,
+  type VoxelStoreCandidate,
   type VoxelStoreFactory,
 } from '@thirdlight/voxel';
 import { CODECS, ZSTD } from './codecs';
@@ -64,8 +70,10 @@ export interface SweepTimings {
   importMs: number;
   encodeMs: number;
   encodedBytes: number;
+  encodedChunks: number;
   decodeMs: number;
   decodedBytes: number;
+  decodedChunks: number;
   compressMs: Record<string, number>;
   decompressMs: Record<string, number>;
   decompressedBytes: Record<string, number>;
@@ -83,6 +91,24 @@ export interface SweepResult {
   /** Every chunk read back equal to what was generated. */
   verified: boolean;
   mismatches: number;
+  /** Cells read through `voxelAt` and compared with the generated chunk (a spread of every chunk's cells). */
+  voxelAtChecks: number;
+}
+
+/** Every chunk's `voxelAt` check reads one cell in this many, from an offset that moves chunk to chunk. */
+const VOXEL_AT_STRIDE = 37;
+
+/** Reads a spread of a chunk's cells through `voxelAt` and compares them with `expected`; returns how many it read. */
+function checkVoxelAt(store: VoxelStoreCandidate, grid: ChunkGrid, cx: number, cy: number, cz: number, expected: DenseChunk, offset: number, out: VoxelRecord, miss: () => void): number {
+  const s = grid.shift;
+  const m = grid.mask;
+  let read = 0;
+  for (let i = offset; i < grid.cellsPerChunk; i += VOXEL_AT_STRIDE) {
+    const v = store.voxelAt((cx << s) | (i >> (2 * s)), (cy << s) | (i & m), (cz << s) | ((i >> s) & m), out);
+    if (v.material !== expected.material[i] || v.category !== expected.category[i] || v.shape !== expected.shape[i] || v.orientation !== expected.orientation[i]) miss();
+    read++;
+  }
+  return read;
 }
 
 function emptyTotals(): SweepTotals {
@@ -195,15 +221,21 @@ export function sweepWorld(
     importMs: 0,
     encodeMs: 0,
     encodedBytes: 0,
+    encodedChunks: 0,
     decodeMs: 0,
     decodedBytes: 0,
+    decodedChunks: 0,
     compressMs: { zstd: 0, deflate: 0 },
     decompressMs: { zstd: 0, deflate: 0 },
     decompressedBytes: { zstd: 0, deflate: 0 },
   };
   const gen = createDenseChunk(grid);
   const back = createDenseChunk(grid);
+  // What a store that keeps fewer planes must read back: the generated cells with the other planes cleared.
+  const masked = createDenseChunk(grid);
   let mismatches = 0;
+  let voxelAtChecks = 0;
+  const cell = voxel();
   let tilesSwept = 0;
   let tilesTotal = 0;
   let factor = 1;
@@ -220,6 +252,8 @@ export function sweepWorld(
     }
     const part = emptyTotals();
     const store = factory(grid);
+    const keep = store.planes === undefined ? null : planeMask(store.planes);
+    const expected = keep === null || keep === planeMask(VOXEL_PLANES) ? gen : masked;
     const [cy0, cy1] = chunkRange(grid, g.bounds.min[1], g.bounds.max[1]);
     for (const [tx, tz] of plan.tiles) {
       const [cx0, cx1] = chunkRange(grid, Math.max(g.bounds.min[0], tx * tile), Math.min(g.bounds.max[0], (tx + 1) * tile));
@@ -232,6 +266,10 @@ export function sweepWorld(
           const any = g.fill(grid, cx, cy, cz, gen);
           timings.generateMs += performance.now() - t;
           if (!any) continue;
+          if (expected === masked) {
+            copyDenseChunk(gen, masked);
+            maskDenseChunk(masked, keep!);
+          }
           t = performance.now();
           store.importChunk(cx, cy, cz, gen);
           timings.importMs += performance.now() - t;
@@ -241,7 +279,8 @@ export function sweepWorld(
           if (isUniformChunk(gen)) part.chunksUniform++;
           const k = counter++;
           chunkStats(grid, gen, part, k % 8 === 0);
-          if (!store.exportChunk(cx, cy, cz, back) || !sameDenseChunk(back, gen)) mismatches++;
+          if (!store.exportChunk(cx, cy, cz, back) || !sameDenseChunk(back, expected)) mismatches++;
+          voxelAtChecks += checkVoxelAt(store, grid, cx, cy, cz, expected, k % VOXEL_AT_STRIDE, cell, () => mismatches++);
 
           t = performance.now();
           const bytes = store.encodeChunk(cx, cy, cz);
@@ -251,6 +290,7 @@ export function sweepWorld(
             continue;
           }
           timings.encodedBytes += bytes.length;
+          timings.encodedChunks++;
           part.rawBytes += bytes.length;
           for (const codec of CODECS) {
             t = performance.now();
@@ -273,7 +313,8 @@ export function sweepWorld(
             store.decodeChunk(cx, cy, cz, bytes);
             timings.decodeMs += performance.now() - t;
             timings.decodedBytes += bytes.length;
-            if (!store.exportChunk(cx, cy, cz, back) || !sameDenseChunk(back, gen)) mismatches++;
+            timings.decodedChunks++;
+            if (!store.exportChunk(cx, cy, cz, back) || !sameDenseChunk(back, expected)) mismatches++;
           }
         }
         part.memoryBytes += store.memoryBytes();
@@ -283,5 +324,5 @@ export function sweepWorld(
     }
     addTotals(totals, part, isWorld ? gridFactor : 1);
   }
-  return { grids: world.grids.length, tilesSwept, tilesTotal, factor, totals, timings, verified: mismatches === 0, mismatches };
+  return { grids: world.grids.length, tilesSwept, tilesTotal, factor, totals, timings, verified: mismatches === 0, mismatches, voxelAtChecks };
 }

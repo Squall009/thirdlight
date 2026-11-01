@@ -7,7 +7,7 @@
  * storage proposal.
  */
 import type { ChunkGrid } from './coords';
-import { MATERIAL_AIR, type VoxelRecord } from './record';
+import { MATERIAL_AIR, PLANE_BIT, SHAPE_EMPTY, SHAPE_FULL, type VoxelRecord } from './record';
 
 /** One chunk's planes (each `grid.cellsPerChunk` long). */
 export interface DenseChunk {
@@ -96,4 +96,15 @@ export function sameDenseChunk(a: DenseChunk, b: DenseChunk): boolean {
     return true;
   };
   return eq(a.material, b.material) && eq(a.category, b.category) && eq(a.shape, b.shape) && eq(a.orientation, b.orientation);
+}
+
+/**
+ * Clears the planes outside `mask` ({@link planeMask}) in place, as a store
+ * keeping only those planes reads them: category and orientation become 0,
+ * the shape becomes the one the material implies (air empty, else full).
+ */
+export function maskDenseChunk(chunk: DenseChunk, mask: number): void {
+  if (!(mask & PLANE_BIT.category)) chunk.category.fill(0);
+  if (!(mask & PLANE_BIT.orientation)) chunk.orientation.fill(0);
+  if (!(mask & PLANE_BIT.shape)) for (let i = 0; i < chunk.shape.length; i++) chunk.shape[i] = chunk.material[i] === MATERIAL_AIR ? SHAPE_EMPTY : SHAPE_FULL;
 }

@@ -9,6 +9,8 @@
 import { mulberry32 } from '@thirdlight/shared';
 import {
   createDenseChunk,
+  DenseReferenceStore,
+  sameVoxel,
   storeChunkCoords,
   voxel,
   VOXEL_CATEGORY,
@@ -41,6 +43,8 @@ export interface BenchResult {
   windowCells: [number, number];
   chunks: number;
   memoryBytes: number;
+  /** Heap the loaded window holds (JS heap + array buffers, after a full GC both sides); null without --expose-gc. */
+  heapBytes: number | null;
   loadMs: number;
   randomReadNs: number;
   coherentReadNs: number;
@@ -48,6 +52,18 @@ export interface BenchResult {
   editUs: number;
   strokes: StrokeResult[];
   transfer: { raw: TransferResult; zstd: TransferResult } | null;
+  /** Cells reading differently from the dense oracle after the same edits (null for the oracle itself). */
+  editMismatches: number | null;
+}
+
+/** JS heap plus array-buffer bytes after a full collection; null when the run has no `gc` (node --expose-gc). */
+function settledHeap(): number | null {
+  const gc = (globalThis as { gc?: () => void }).gc;
+  if (gc === undefined) return null;
+  gc();
+  gc();
+  const m = process.memoryUsage();
+  return m.heapUsed + m.arrayBuffers;
 }
 
 /** Best of three timings of `run` (ms). */
@@ -71,8 +87,9 @@ export async function benchWorld(world: TestWorld, factory: VoxelStoreFactory, g
   const x1 = Math.min(g.bounds.max[0], cxm + half);
   const z0 = Math.max(g.bounds.min[2], czm - half);
   const z1 = Math.min(g.bounds.max[2], czm + half);
-  const store = factory(grid);
   const gen = createDenseChunk(grid);
+  const heap0 = settledHeap();
+  const store = factory(grid);
   const [cy0, cy1] = chunkRange(grid, g.bounds.min[1], g.bounds.max[1]);
   const [cx0, cx1] = chunkRange(grid, x0, x1);
   const [cz0, cz1] = chunkRange(grid, z0, z1);
@@ -83,6 +100,8 @@ export async function benchWorld(world: TestWorld, factory: VoxelStoreFactory, g
   const loadMs = performance.now() - tLoad;
   // Memory as loaded: the edits below grow it (a dug cell in an absent chunk allocates nothing, a filled one does).
   const memoryBytes = store.memoryBytes();
+  const heap1 = settledHeap();
+  const heapBytes = heap0 !== null && heap1 !== null ? heap1 - heap0 : null;
   const coords = storeChunkCoords(store);
   let ylo = Infinity;
   let yhi = -Infinity;
@@ -167,10 +186,31 @@ export async function benchWorld(world: TestWorld, factory: VoxelStoreFactory, g
   }
   if (sink === -1) console.log('unreachable');
 
+  // The edits are idempotent (each run sets the same cells to the same voxels), so replaying them once on the dense
+  // oracle gives the state the candidate must now read: checked at every random cell and around every stroke.
+  let editMismatches: number | null = null;
+  if (store.name !== 'dense') {
+    const oracle = new DenseReferenceStore(grid);
+    for (let cx = cx0; cx < cx1; cx++) for (let cz = cz0; cz < cz1; cz++) for (let cy = cy0; cy < cy1; cy++) {
+      if (g.fill(grid, cx, cy, cz, gen)) oracle.importChunk(cx, cy, cz, gen);
+    }
+    for (let i = 0; i < m; i++) oracle.setVoxel(rx[i]!, ry[i]!, rz[i]!, (i & 1) === 0 ? rock : air);
+    for (const shape of shapes) surface.forEach((c, i) => oracle.applyStroke(shape.make(c, (i & 1) === 1)));
+    const want = voxel();
+    editMismatches = 0;
+    for (let i = 0; i < n; i++) if (!sameVoxel(store.voxelAt(rx[i]!, ry[i]!, rz[i]!, out), oracle.voxelAt(rx[i]!, ry[i]!, rz[i]!, want))) editMismatches++;
+    for (const [sx, sy, sz] of surface) {
+      for (let x = sx - 9; x <= sx + 9; x++) for (let z = sz - 9; z <= sz + 9; z++) for (let y = sy - 9; y <= sy + 9; y++) {
+        if (!sameVoxel(store.voxelAt(x, y, z, out), oracle.voxelAt(x, y, z, want))) editMismatches++;
+      }
+    }
+  }
+
   return {
     windowCells: [x1 - x0, z1 - z0],
     chunks: coords.length,
     memoryBytes,
+    heapBytes,
     loadMs,
     randomReadNs: (randomMs * 1e6) / n,
     coherentReadNs: (coherentMs * 1e6) / coherentReads,
@@ -178,5 +218,6 @@ export async function benchWorld(world: TestWorld, factory: VoxelStoreFactory, g
     editUs: (editMs * 1000) / m,
     strokes,
     transfer,
+    editMismatches,
   };
 }

@@ -59,6 +59,19 @@ export type VoxelPlane = 'material' | 'category' | 'shape' | 'orientation';
 /** Every plane, in encoding order. */
 export const VOXEL_PLANES: readonly VoxelPlane[] = Object.freeze(['material', 'category', 'shape', 'orientation']);
 
+/** Each plane's bit in a plane mask (one byte naming the planes an encoding holds). */
+export const PLANE_BIT: Readonly<Record<VoxelPlane, number>> = Object.freeze({ material: 1, category: 2, shape: 4, orientation: 8 });
+
+/** The mask of every plane. */
+export const ALL_PLANES = 15;
+
+/** The mask of a plane list. */
+export function planeMask(planes: readonly VoxelPlane[]): number {
+  let m = 0;
+  for (const p of planes) m |= PLANE_BIT[p];
+  return m;
+}
+
 /** Bytes per cell of each plane in the provisional widths. */
 export const PLANE_BYTES: Readonly<Record<VoxelPlane, number>> = Object.freeze({ material: 2, category: 1, shape: 1, orientation: 1 });
 

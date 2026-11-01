@@ -17,6 +17,12 @@ export interface VoxelStoreCandidate {
   readonly name: string;
   /** The chunk layout this store uses. */
   readonly grid: ChunkGrid;
+  /**
+   * The planes the store keeps (every plane when absent). A store that keeps
+   * fewer exists to measure what a plane costs; it reads the others as 0,
+   * and a dropped shape plane as the shape the material implies.
+   */
+  readonly planes?: readonly VoxelPlane[];
 
   /** The voxel at a cell, written into `out` (air where no chunk is stored). */
   voxelAt(x: number, y: number, z: number, out: VoxelRecord): VoxelRecord;
@@ -37,7 +43,9 @@ export interface VoxelStoreCandidate {
   /**
    * The chunk's bytes in this candidate's encoding, holding the given planes
    * (all by default); null when the chunk is absent. Leaving a plane out
-   * measures what that plane costs; such bytes decode with the plane zeroed.
+   * measures what that plane costs; such bytes decode with the plane zeroed
+   * (the shape plane, in encodings that store density only at the surface:
+   * as the shape the material implies).
    */
   encodeChunk(cx: number, cy: number, cz: number, planes?: readonly VoxelPlane[]): Uint8Array | null;
   /** Replaces a chunk with one decoded from {@link encodeChunk}'s bytes. */

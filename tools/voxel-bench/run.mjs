@@ -38,7 +38,8 @@ await esbuild.build({
   logLevel: 'warning',
 });
 const cap = memoryCap();
-const r = spawnSync(process.execPath, [out, ...args.filter((a) => a !== NO_MEMORY_CAP_FLAG)], {
+// --expose-gc: the access benchmark settles the heap before and after loading a window to measure what it holds.
+const r = spawnSync(process.execPath, ['--expose-gc', out, ...args.filter((a) => a !== NO_MEMORY_CAP_FLAG)], {
   stdio: 'inherit',
   env: { ...process.env, TL_VOXEL_BENCH_CAP: cap === null ? '' : String(cap.max) },
 });

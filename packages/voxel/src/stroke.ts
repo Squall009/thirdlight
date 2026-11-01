@@ -10,6 +10,11 @@
 import { cellInWorld } from './coords';
 import { checkVoxel, type VoxelRecord } from './record';
 
+/** What {@link applyStrokeCells} writes through: a store's single-cell write. */
+export interface CellWriter {
+  setVoxel(x: number, y: number, z: number, v: Readonly<VoxelRecord>): void;
+}
+
 /** An integer cell position. */
 export type Cell = readonly [number, number, number];
 
@@ -71,4 +76,26 @@ export function strokeCovers(stroke: VoxelStroke, x: number, y: number, z: numbe
   const dy = y - stroke.center[1];
   const dz = z - stroke.center[2];
   return dx * dx + dy * dy + dz * dz <= stroke.radius * stroke.radius;
+}
+
+/**
+ * Writes every cell a stroke covers through `store.setVoxel` (x, then z,
+ * then y innermost, so a column's cells are written in a row) and returns
+ * how many it wrote: the one stroke loop every store shares, so every
+ * store writes exactly the same cells.
+ */
+export function applyStrokeCells(store: CellWriter, stroke: VoxelStroke): number {
+  checkStroke(stroke);
+  const b = strokeBounds(stroke);
+  let written = 0;
+  for (let x = b.minX; x <= b.maxX; x++) {
+    for (let z = b.minZ; z <= b.maxZ; z++) {
+      for (let y = b.minY; y <= b.maxY; y++) {
+        if (!strokeCovers(stroke, x, y, z)) continue;
+        store.setVoxel(x, y, z, stroke.voxel);
+        written++;
+      }
+    }
+  }
+  return written;
 }

@@ -7,40 +7,43 @@
  * chunk that becomes all air through an edit stays allocated until it is
  * imported or dropped, as the simplest store would.
  */
-import { cellInWorld, chunkKey, chunkKeyOrNone, chunkOfKey, localIndex, type ChunkGrid } from './coords';
+import { ChunkIndex } from './chunk-index';
+import { cellInWorld, chunkInWorld, chunkOfKey, localIndex, type ChunkGrid } from './coords';
 import { copyDenseChunk, createDenseChunk, denseChunkBytes, isAirChunk, readCell, writeCell, type DenseChunk } from './dense-chunk';
-import { AIR, MATERIAL_AIR, PLANE_BYTES, VOXEL_PLANES, type VoxelPlane, type VoxelRecord } from './record';
+import { AIR, MATERIAL_AIR, PLANE_BIT, PLANE_BYTES, VOXEL_PLANES, type VoxelPlane, type VoxelRecord } from './record';
 import type { VoxelStoreCandidate } from './store';
-import { checkStroke, strokeBounds, strokeCovers, type VoxelStroke } from './stroke';
-
-/** Plane bits of the reference encoding's first byte, in {@link VOXEL_PLANES} order. */
-const PLANE_BIT: Readonly<Record<VoxelPlane, number>> = Object.freeze({ material: 1, category: 2, shape: 4, orientation: 8 });
+import { applyStrokeCells, type VoxelStroke } from './stroke';
 
 export class DenseReferenceStore implements VoxelStoreCandidate {
   readonly name = 'dense';
   readonly grid: ChunkGrid;
-  private readonly chunks = new Map<number, DenseChunk>();
-  // The last chunk read or written: neighbouring cells usually share a chunk.
-  private lastKey = -1;
+  private readonly chunks: ChunkIndex<DenseChunk>;
+  // The last chunk read or written (its split key): neighbouring cells usually share a chunk.
+  private lastCol = -2;
+  private lastY = -2;
   private lastChunk: DenseChunk | undefined;
 
   constructor(grid: ChunkGrid) {
     this.grid = grid;
+    this.chunks = new ChunkIndex<DenseChunk>(grid);
   }
 
   /** The chunk holding a cell; undefined when absent or outside the world. */
   private chunkAt(x: number, y: number, z: number): DenseChunk | undefined {
     const s = this.grid.shift;
-    const key = chunkKeyOrNone(this.grid, x >> s, y >> s, z >> s);
-    if (key === this.lastKey) return this.lastChunk;
-    const chunk = this.chunks.get(key);
-    this.lastKey = key;
+    const col = this.chunks.colKey(x >> s, z >> s);
+    const cy = this.chunks.yKey(y >> s);
+    if (col === this.lastCol && cy === this.lastY) return this.lastChunk;
+    const chunk = this.chunks.getKey(col, cy);
+    this.lastCol = col;
+    this.lastY = cy;
     this.lastChunk = chunk;
     return chunk;
   }
 
   private forget(): void {
-    this.lastKey = -1;
+    this.lastCol = -2;
+    this.lastY = -2;
     this.lastChunk = undefined;
   }
 
@@ -64,7 +67,7 @@ export class DenseReferenceStore implements VoxelStoreCandidate {
       if (v.material === MATERIAL_AIR) return;
       const s = this.grid.shift;
       chunk = createDenseChunk(this.grid);
-      this.chunks.set(chunkKey(this.grid, x >> s, y >> s, z >> s), chunk);
+      this.chunks.set(x >> s, y >> s, z >> s, chunk);
       this.forget();
     }
     const g = this.grid;
@@ -72,45 +75,35 @@ export class DenseReferenceStore implements VoxelStoreCandidate {
   }
 
   applyStroke(stroke: VoxelStroke): number {
-    checkStroke(stroke);
-    const b = strokeBounds(stroke);
-    let written = 0;
-    for (let x = b.minX; x <= b.maxX; x++) {
-      for (let z = b.minZ; z <= b.maxZ; z++) {
-        for (let y = b.minY; y <= b.maxY; y++) {
-          if (!strokeCovers(stroke, x, y, z)) continue;
-          this.setVoxel(x, y, z, stroke.voxel);
-          written++;
-        }
-      }
-    }
-    return written;
+    return applyStrokeCells(this, stroke);
   }
 
   importChunk(cx: number, cy: number, cz: number, cells: DenseChunk): void {
-    const key = chunkKey(this.grid, cx, cy, cz);
+    checkChunk(this.grid, cx, cy, cz);
     this.forget();
     if (isAirChunk(cells)) {
-      this.chunks.delete(key);
+      this.chunks.delete(cx, cy, cz);
       return;
     }
-    let chunk = this.chunks.get(key);
+    let chunk = this.chunks.get(cx, cy, cz);
     if (chunk === undefined) {
       chunk = createDenseChunk(this.grid);
-      this.chunks.set(key, chunk);
+      this.chunks.set(cx, cy, cz, chunk);
     }
     copyDenseChunk(cells, chunk);
   }
 
   exportChunk(cx: number, cy: number, cz: number, out: DenseChunk): boolean {
-    const chunk = this.chunks.get(chunkKey(this.grid, cx, cy, cz));
+    checkChunk(this.grid, cx, cy, cz);
+    const chunk = this.chunks.get(cx, cy, cz);
     if (chunk === undefined) return false;
     copyDenseChunk(chunk, out);
     return true;
   }
 
   dropChunk(cx: number, cy: number, cz: number): void {
-    this.chunks.delete(chunkKey(this.grid, cx, cy, cz));
+    checkChunk(this.grid, cx, cy, cz);
+    this.chunks.delete(cx, cy, cz);
     this.forget();
   }
 
@@ -124,7 +117,8 @@ export class DenseReferenceStore implements VoxelStoreCandidate {
    * every encoding is measured against.
    */
   encodeChunk(cx: number, cy: number, cz: number, planes: readonly VoxelPlane[] = VOXEL_PLANES): Uint8Array | null {
-    const chunk = this.chunks.get(chunkKey(this.grid, cx, cy, cz));
+    checkChunk(this.grid, cx, cy, cz);
+    const chunk = this.chunks.get(cx, cy, cz);
     if (chunk === undefined) return null;
     const n = this.grid.cellsPerChunk;
     const present = VOXEL_PLANES.filter((p) => planes.includes(p));
@@ -174,6 +168,11 @@ export class DenseReferenceStore implements VoxelStoreCandidate {
   memoryBytes(): number {
     return this.chunks.size * denseChunkBytes(this.grid);
   }
+}
+
+/** Throws unless a chunk index triple lies inside the world (the chunk-level calls refuse what `voxelAt` reads as air). */
+export function checkChunk(grid: ChunkGrid, cx: number, cy: number, cz: number): void {
+  if (!chunkInWorld(grid, cx, cy, cz)) throw new RangeError(`chunk (${cx}, ${cy}, ${cz}) is outside the world`);
 }
 
 /** Keys of a store's chunks as coordinates, sorted by key. */

@@ -51,6 +51,29 @@ describe('the storage harness', () => {
   });
 });
 
+describe('the palette candidates', () => {
+  const palettes = Object.keys(CANDIDATES).filter((n) => n.startsWith('palette'));
+
+  it('read back every swept chunk of the town and the caves as generated, through voxelAt too', () => {
+    expect(palettes.length).toBeGreaterThanOrEqual(4);
+    for (const name of palettes) {
+      for (const world of [townWorld({ footprint: 96 }), cavesWorld({ footprint: 48 })]) {
+        const r = sweepWorld(world, CANDIDATES[name]!, chunkGrid(16));
+        expect({ name, world: world.name, mismatches: r.mismatches }).toEqual({ name, world: world.name, mismatches: 0 });
+        expect(r.voxelAtChecks).toBeGreaterThan(0);
+        expect(r.totals.memoryBytes).toBeLessThan(r.totals.chunksPresent * 16 ** 3 * 5);
+      }
+    }
+  });
+
+  it('read what the dense oracle reads after the benchmark edits and strokes', async () => {
+    for (const name of ['palette', 'palette-runs', 'palette-planes']) {
+      const b = await benchWorld(townWorld({ footprint: 80 }), CANDIDATES[name]!, chunkGrid(32), { ...tiny, transferChunks: 0 });
+      expect({ name, editMismatches: b.editMismatches }).toEqual({ name, editMismatches: 0 });
+    }
+  });
+});
+
 describe('worker transfer', () => {
   it('copies or moves chunk bytes through a real worker and back unchanged', async () => {
     const worker = startEchoWorker();
