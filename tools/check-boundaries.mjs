@@ -106,6 +106,8 @@ export const UNITS = [
   'game-host',
   // The leaf of generic helpers (one definition each; imports nothing).
   'shared',
+  // The voxel world's storage: coordinates, chunk stores and their codecs.
+  'voxel',
 ];
 
 /**
@@ -126,6 +128,11 @@ export const NODE_SIDE_ALLOWED = {
   // backend), so it may import nothing at all.
   shared: { packages: [], external: [], node: [] },
   'project-model': { packages: [], external: [], node: [] },
+  // Voxel storage is read by module workers and exported games as well as the
+  // backend, so it is pure code like the runtime: no three.js, no Node
+  // built-ins. Node-only tooling over it (benchmarks, file writers) lives
+  // outside this package and imports it.
+  voxel: { packages: [], external: [], node: [] },
   commands: { packages: ['project-model'], external: [], node: [] },
   workspace: {
     packages: ['project-model', 'commands', 'asset-pipeline', 'behavior-build'],
