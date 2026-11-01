@@ -6,8 +6,10 @@ they do. Almost all are guarded by `typeof` checks: on a three whose
 internals moved they install nothing and throw nothing, so a broken hook
 shows up as a hitch, a leak or wrong shading, never as an error. Their unit
 tests run against hand-written fakes of three's behaviour, so they keep
-passing whatever three does. Every three upgrade (patch or minor) goes
-through this list before it lands.
+passing whatever three does. A newer three is first assessed against this
+list (release notes read, impact on every row written into the phase plan);
+it is taken only when the owner authorizes it, and then goes through this
+list before it lands.
 
 All paths are under `packages/three-adapter/src/` unless they say
 otherwise. Most hooks are installed in `renderer-factory.ts`

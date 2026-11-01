@@ -78,10 +78,13 @@ are in `docs/STATUS.md`; known defects are in `docs/audit-2026-09-22.md`
   still needs the owner's eyes or ears. Its findings (one page) go into the
   phase plan's decision log; defects go into the audit list, and the owner
   reads them before the next phase.
-- At the start of each phase, check for a newer three.js release: a patch
-  release is taken in the phase's first item after reading its release
-  notes; a minor release is planned as its own item. Either goes through
-  `docs/three-upgrade-checklist.md` (the private three APIs the engine hooks).
+- At the start of each phase, check for a newer three.js release, but never
+  update on your own. Read that version's release notes and assess its impact
+  against `docs/three-upgrade-checklist.md` (the private three APIs the engine
+  hooks): what changes, which hooks and pixels it touches, what it would fix.
+  Record the assessment in the phase plan and stop there. Only the owner
+  authorizes a three.js update (patch or minor), once the impact is known; an
+  authorized update is its own item and goes through the checklist.
 - Game projects (Sprout, Skyforge Tactics, …) live outside this repo and are
   never edited from here. Their requests reach the engine through their own
   docs; the engine reads them only to plan.
