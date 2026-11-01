@@ -67,6 +67,7 @@ picture. Games switch both by switching cameras, through priorities and camera r
 | 44b.3 | done: per-camera auto-exposure (meter 128×64→16×8, async read-back, both renderers), blended with camera blends. Sunset settles at 0.09, no veil, renderers alike: D339 fixed. Meter GPU ≈ 0.09 ms full clock; on: main +0.1–0.2 (A/B); off: interior/landscape/village within 44's range, p95 16.7–16.8, 0 missed. cameras e2e 31.5 → 32.4 s. D421. |
 | 44b.3a | done (83037b97): three 0.187.0; every checklist row checked: 6 hooks removed (three does it), 9 changed, 1 added (precompile targets). Cap, WebGPU main/GPU full, WebGL 2 main: village 5.32/5.09, 3.95; landscape 4.75/10.49, 3.31; interior 3.06/7.08, 1.79; lights 64/256 2.17/2.59; p95 16.7–16.8, 0 missed: no cost. level-acceptance 1.9–2.1 min both; D422 (fails at base). |
 | 44b.3b | done (8e3b2071): exposure applies to the whole picture, colour/image sky too without post, fixed or auto (sky exposed, not tone mapped: exposure 1 unchanged); meter sees the sky. D421 fixed. env-parity: tone-aces/neutral refs redrawn (sky only), exposure-0.5 check both renderers. cameras e2e 32.4 → 20.0 s. Village at cap: main 6.07 / 4.05 ms, p95 16.7–16.8, 0 missed. Gate: D422 only. |
+| 44b.3c | done (e4c0e040): D422 and D409 fixed. Cause: the test passed only before WebGPU's live probes were lit (traced: Play's frame 0 passed, then it settled at the export's failing pixels). The sky now lights nothing and the yellows are darker; bounds unchanged. Alone 5/5, 31–35 s (passing before 35.6 s, failing 2.0 min). Fast gate green. |
 
 ### 44b.0 baseline
 
@@ -213,6 +214,13 @@ picture. Games switch both by switching cameras, through priorities and camera r
   runtime's vitest, the doorway included), read until pulled in and back out instead of a fixed 9 s; the see-through
   shot polled instead of 2 × 600 ms waits; the dark-room hold 300 ms; the post-cut trace 1.5 s (settles within 1.3);
   the rail 4 → 8 m/s; the orbit activation at step 240 instead of 300 (the follow camera is shot by step ~110).
+- 2026-11-01 (44b.3c): D422 and D409 came from the test, not the product. Traced in Play WebGPU, the first frame
+  passed (ramp 165,89,168, door 155,142,57). 1–2 s later the live probes, holding the scene's saturated #3050d0 colour
+  sky at the field's full sky light (1) plus the bounce, settled at 169,108,199 and 167,149,67: the WebGPU export's
+  failing pixels exactly. The export failed whenever its first screenshot came after the probes. With the sky's light
+  at 0.1 the settled ramp still failed by 1. At 0 the bounce alone takes the bright #f0e000 yellows over the blue bound
+  under AgX (b 58 → 66). The test's sky now lights nothing, and the yellows are #c0b000. Settled: ramp 168,91,169, door
+  145,119,41. WebGL 2 is unchanged at the old first-frame values. No bound was changed.
   Measured at each step: doorway 4.8 → 2.2 s, rail 2.9 → 2.3, export start to orbit 3.6 → 3.2.
 - 2026-11-01 (44b.3b): fast gate (env-parity, cameras, level-acceptance, scene-view-parity, environment-blend-cost,
   scene-environment) and its rerun: everything passed but `level-acceptance.e2e.ts:673`, the WebGPU export's rule and
