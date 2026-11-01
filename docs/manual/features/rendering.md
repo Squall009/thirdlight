@@ -80,7 +80,8 @@ small passes after the frame (a 128 × 64 grid of log luminance, reduced to
 16 × 8 and read back without waiting for the GPU, a frame or two late), the
 same on WebGPU and WebGL 2: about 0.13 ms of GPU time on an integrated GPU,
 none while no camera on screen adapts. Exposure applies to the whole
-picture, sky included, with or without post effects, fixed or adapted. A
+picture, sky included, with or without post effects, fixed or adapted, and
+with tone mapping **None** too (the colour times the exposure, no curve). A
 colour or image sky without post effects is exposed but not tone mapped, so
 at exposure 1 it shows the colour picked (as the old WebGL renderer drew it);
 with any post effect it is tone mapped with the picture.

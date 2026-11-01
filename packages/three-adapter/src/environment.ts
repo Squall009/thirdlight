@@ -310,12 +310,22 @@ interface SkyLayer {
   image: THREE.Texture | null;
 }
 
+/**
+ * `none` is three's linear tone mapping (the colour times the exposure, clamped to the display), not its
+ * NoToneMapping: three skips the exposure without a tone mapping, and the exposure (fixed or adapted, which
+ * bloom's threshold reads too) applies to the whole picture whatever the curve. The display clamps anyway.
+ */
 const TONE: Record<string, THREE.ToneMapping> = {
-  none: THREE.NoToneMapping,
+  none: THREE.LinearToneMapping,
   aces: THREE.ACESFilmicToneMapping,
   agx: THREE.AgXToneMapping,
   neutral: THREE.NeutralToneMapping,
 };
+
+/** A tone curve (not `none`): the no-post background is then laid under the frame; under `none` (linear: exposed, no curve) the renderer's own output already draws it so. */
+function hasCurve(t: THREE.ToneMapping): boolean {
+  return t !== THREE.NoToneMapping && t !== THREE.LinearToneMapping;
+}
 
 /**
  * How far a blended sky's inputs must move from the ones the
@@ -1009,7 +1019,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     // an image background as a post stack does (tone mapped).
     const bg = scene.background as (THREE.Color | THREE.Texture | null) & { isColor?: boolean; isTexture?: boolean };
     const bgKind = bg === null ? null : bg.isColor === true ? 'color' : bg.isTexture === true && (bg as THREE.Texture).colorSpace === THREE.SRGBColorSpace ? 'image' : null;
-    const displayBackground = !isPost && renderer.toneMapping !== THREE.NoToneMapping && bgKind !== null && !(bgKind === 'image' && upscaling) ? bgKind : null;
+    const displayBackground = !isPost && hasCurve(renderer.toneMapping) && bgKind !== null && !(bgKind === 'image' && upscaling) ? bgKind : null;
     const post = postNow();
     // The numbers the passes take as uniforms (grading, vignette, bloom) are not part of
     // the key (nor the exposure, a renderer setting): a blend or an edit of them updates the built stack

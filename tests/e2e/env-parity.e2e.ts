@@ -371,7 +371,7 @@ test('bloom follows exposure: a bright sky over the threshold blooms, the same s
  * colour sky (`sky-color`, no post) and the lit ground both darken. The sky stays untone-mapped (the colour
  * picked at exposure 1), so at 0.5 it is that colour at half its linear value, to the sRGB step.
  */
-test('exposure without post effects darkens the sky and the ground alike', async ({ page }) => {
+test('exposure without post effects (and with tone mapping none) darkens the sky and the ground alike', async ({ page }) => {
   test.setTimeout(150_000);
   const backend = project() === 'webgpu' ? 'webgpu' : 'webgl2';
   const full = await render(page, backend, 'sky-color');
@@ -393,6 +393,15 @@ test('exposure without post effects darkens the sky and the ground alike', async
   const srgb = (v: number): number => (v <= 0.0031308 ? v * 12.92 : 1.055 * v ** (1 / 2.4) - 0.055);
   s.full.forEach((v, i) => expect(Math.abs(s.half[i]! - 255 * srgb(linear(v / 255) * 0.5)), `sky channel ${i}: half its linear value`).toBeLessThan(3));
   expect(g.half, 'the ground darkens').toBeLessThan(g.full * 0.85);
+  // Tone mapping none too: three skips its exposure without a curve, so `none` is drawn as the linear curve
+  // (colour × exposure): the sky and the lit ground at half their linear value, channel by channel.
+  const flat = { full: await render(page, backend, 'tone-none'), half: await render(page, backend, 'tone-none', '&exposure=0.5') };
+  expect(flat.half.passes).toEqual([]);
+  for (const [name, at] of [['sky', sky], ['ground', ground]] as const) {
+    const [a, b] = [patch(flat.full.img, at), patch(flat.half.img, at)];
+    console.log(`[env-parity] ${backend} tone mapping none, exposure 1 → 0.5: ${name} ${a.map((v) => v.toFixed(0)).join(',')} → ${b.map((v) => v.toFixed(0)).join(',')}`);
+    a.forEach((v, i) => expect(Math.abs(b[i]! - 255 * srgb(linear(v / 255) * 0.5)), `tone none, ${name} channel ${i}: half its linear value`).toBeLessThan(3));
+  }
 });
 
 /**
