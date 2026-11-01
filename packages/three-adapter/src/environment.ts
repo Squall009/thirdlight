@@ -1001,15 +1001,15 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     const upscaling = render.scale < 1 || render.dynamic;
     const scenePasses = options.scenePasses?.() ?? null;
     const pyramidView = scenePasses?.view() ?? null;
-    // Without a post stack a colour or sRGB image background is shown as it is (not tone mapped,
-    // as the archived WebGL renderer drew it); WebGPURenderer tone maps the whole frame, so the
-    // background is laid under the picture: a colour as a uniform (at any render scale, so Play under a
-    // render scale or dynamic resolution shows the sky the Scene view does), an image in its own pass.
-    // Not yet an image under a render scale (no pixel test of it there): an upscaled frame draws an image
-    // background as a post stack does (tone mapped), and so does a metered frame (adapting, the sky is exposed too).
+    // Without a post stack a colour or sRGB image background is exposed (fixed or adapted) but not tone mapped,
+    // as the archived WebGL renderer drew it at exposure 1; WebGPURenderer tone maps the whole frame, so the
+    // background is laid under the picture (and metered so, `meterSource`): a colour as a uniform (at any render
+    // scale, so Play under a render scale or dynamic resolution shows the sky the Scene view does), an image in
+    // its own pass. Not yet an image under a render scale (no pixel test of it there): an upscaled frame draws
+    // an image background as a post stack does (tone mapped).
     const bg = scene.background as (THREE.Color | THREE.Texture | null) & { isColor?: boolean; isTexture?: boolean };
     const bgKind = bg === null ? null : bg.isColor === true ? 'color' : bg.isTexture === true && (bg as THREE.Texture).colorSpace === THREE.SRGBColorSpace ? 'image' : null;
-    const displayBackground = !isPost && !w.meter && renderer.toneMapping !== THREE.NoToneMapping && bgKind !== null && !(bgKind === 'image' && upscaling) ? bgKind : null;
+    const displayBackground = !isPost && renderer.toneMapping !== THREE.NoToneMapping && bgKind !== null && !(bgKind === 'image' && upscaling) ? bgKind : null;
     const post = postNow();
     // The numbers the passes take as uniforms (grading, vignette, bloom) are not part of
     // the key (nor the exposure, a renderer setting): a blend or an edit of them updates the built stack
@@ -1162,7 +1162,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       pipeline.update(camera, volumeBoxes());
       pipeline.setTemporalHold(!animating);
       pipeline.render();
-      exposure.afterFrame(renderer, () => pipeline?.sceneTexture() ?? null);
+      exposure.afterFrame(renderer, () => pipeline?.meterSource() ?? null);
     },
     compileAsync(camera) {
       if (disposed) return settledPrecompile;

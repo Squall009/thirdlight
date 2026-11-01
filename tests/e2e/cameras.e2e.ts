@@ -4,7 +4,7 @@
  * pillars, a player capsule, a colour sky).
  *
  * - Play (the simulation worker): a follow camera on the player is live from
- *   the start; a script activates an orbit-a-point camera at step 300 with an
+ *   the start; a script activates an orbit-a-point camera at step 240 with an
  *   eased 0.5 s blend (observed mid-blend: its progress matches the steps since
  *   the activation); a press of Q turns the orbit camera one snapped 90° step;
  *   a press of R starts a rail camera (letterbox bars drawn over the view),
@@ -14,7 +14,7 @@
  * - The static export (backend stopped) resolves the same cameras
  *   (`window.__thirdlightObserve`), and on both renderers at once: a follow
  *   camera (Occlusion pull-in) on a walker that goes through a doorway and
- *   along the wall behind it is pulled in through the doorway and eased back
+ *   along the wall behind it is pulled in through the doorway and goes back
  *   out, never within its radius of a wall, the walker in view while it is
  *   pulled in; a fixed interior camera with Occlusion see-through shows a
  *   figure behind a wall through the dither, where the same camera with
@@ -94,9 +94,10 @@ async function script(behaviorId: string, source: string, entityId: string, prop
 }
 
 /**
- * The director: the orbit camera goes live at step 300 with an eased 0.5 s
- * blend; the rail action starts the rail camera; at the rail's end the
- * script lets it go (the view blends back to the orbit camera).
+ * The director: the orbit camera goes live at step 240 (2 s; the follow
+ * camera is read and shot by about step 110) with an eased 0.5 s blend; the
+ * rail action starts the rail camera; at the rail's end the script lets it
+ * go (the view blends back to the orbit camera).
  */
 const DIRECTOR = [
   'export default {',
@@ -105,7 +106,7 @@ const DIRECTOR = [
   "    if (ctx.phase !== 'intent' || ctx.camera === undefined) return;",
   '    const cam = ctx.camera;',
   '    const p = ctx.properties;',
-  '    if (ctx.stepIndex === 300) cam.activate(p.orbit, { blend: "eased", time: 0.5 });',
+  '    if (ctx.stepIndex === 240) cam.activate(p.orbit, { blend: "eased", time: 0.5 });',
   "    if (ctx.action.actions?.rail?.p === 'pressed') { cam.activate(p.rail); state.railing = true; }",
   "    for (const [a, k] of [['door', 'door'], ['roomSolid', 'room_solid'], ['roomSee', 'room_see'], ['dark', 'dark'], ['bright', 'bright']]) if (ctx.action.actions?.[a]?.p === 'pressed') cam.activate(p[k], { blend: 'cut' });",
   '    const r = cam.get(p.rail);',
@@ -181,16 +182,17 @@ async function buildScene(): Promise<{ follow: string; orbit: string; rail: stri
   const track = await create('Rail track', [-6, 3, 8]);
   await cmd('setComponent', { entityId: track, component: 'cameraPath', value: { points: [[0, 0, 0], [12, 2, 0]], smooth: false } });
   const rail = await create('Rail camera', [0, 0, 0]);
-  await cmd('setComponent', { entityId: rail, component: 'virtualCamera', value: { rig: 'rail', enabled: false, path: track, target: player, railSpeed: 4, letterbox: 0.12, blend: 'eased', blendTime: 0.5 } });
-  // The doorway: grey walls with colliders; a magenta walker (no collider) through it and along the wall behind it, and back.
+  await cmd('setComponent', { entityId: rail, component: 'virtualCamera', value: { rig: 'rail', enabled: false, path: track, target: player, railSpeed: 8, letterbox: 0.12, blend: 'eased', blendTime: 0.5 } });
+  // The doorway: grey walls with colliders; a magenta walker (no collider) through it and along the wall behind it, and back
+  // (2.7 s a round trip). The door camera's hold and out are short: the pull-in timing is the runtime's vitest, here the browser.
   for (const [k, [lo, hi]] of WALLS.entries()) {
     const size = [0, 1, 2].map((i) => hi[i]! - lo[i]!);
     await create(`Wall ${k}`, [0, 1, 2].map((i) => (lo[i]! + hi[i]!) / 2), { box: { size, material: { color: '#9a9a9a' } }, components: { collider: { shape: { type: 'box', hx: size[0]! / 2, hy: size[1]! / 2, hz: size[2]! / 2 } } } }, 'box');
   }
   const walker = await create('Walker', [8, 1, -5], { box: { size: [0.6, 1.6, 0.6], material: { color: '#e020e0' } } }, 'box');
-  await cmd('setComponent', { entityId: walker, component: 'mover', value: { waypoints: [[0, 0, -5.5], [2.5, 0, -5.5]], speed: 2, mode: 'pingpong' } });
+  await cmd('setComponent', { entityId: walker, component: 'mover', value: { waypoints: [[0, 0, -5.5], [2.5, 0, -5.5]], speed: 6, mode: 'pingpong' } });
   const door = await create('Door camera', [8, 2, -1]);
-  await cmd('setComponent', { entityId: door, component: 'virtualCamera', value: { rig: 'follow', enabled: false, target: walker, distance: 4, pitch: 20, occlusion: 'pullIn' } });
+  await cmd('setComponent', { entityId: door, component: 'virtualCamera', value: { rig: 'follow', enabled: false, target: walker, distance: 4, pitch: 20, occlusion: 'pullIn', pullHoldTime: 0.1, pullOutTime: 0.3 } });
   // A figure behind the wall and two fixed cameras in front of it, alike but for their occlusion.
   const figure = await create('Figure', [6.2, 1, -10], { box: { size: [0.8, 2, 0.8], material: { color: '#e020e0' } } }, 'box');
   const room = async (name: string, occlusion: string): Promise<string> => {
@@ -336,7 +338,7 @@ test('virtual cameras in Play: follow → eased orbit (script), a 90° snap on i
   await page.waitForTimeout(500);
   const followShot = await shot(frame, 'test-results/cameras-follow.png');
 
-  // The script's eased 0.5 s blend to the orbit camera (activated at step 300): caught under way.
+  // The script's eased 0.5 s blend to the orbit camera (activated at step 240): caught under way.
   const seen: Observation[] = [];
   await expect
     .poll(
@@ -352,8 +354,8 @@ test('virtual cameras in Play: follow → eased orbit (script), a 90° snap on i
   expect(mid.length, 'observed during the blend').toBeGreaterThan(0);
   for (const o of mid) {
     expect(o.camera!.blend).toMatchObject({ from: follow, style: 'eased' });
-    // 0.5 s at 120 Hz: the progress is the steps since the activation (step 300) over 60.
-    expect(Math.abs(o.camera!.blend!.progress - (o.stepIndex - 300) / 60)).toBeLessThan(3 / 60);
+    // 0.5 s at 120 Hz: the progress is the steps since the activation (step 240) over 60.
+    expect(Math.abs(o.camera!.blend!.progress - (o.stepIndex - 240) / 60)).toBeLessThan(3 / 60);
   }
   const d = 16 * Math.cos((45 * Math.PI) / 180);
   const o0 = (await observe())!.camera!;
@@ -437,41 +439,42 @@ test('virtual cameras in Play: follow → eased orbit (script), a 90° snap on i
       await expect.poll(async () => (await read(g))?.live ?? null, { timeout: 120_000 }).toBe(orbit);
       const vp = g.viewportSize()!;
       await g.mouse.click(vp.width / 2, vp.height / 2);
-      // Pull-in: the walker goes through the doorway (to z −10.5), along the wall behind it and back, 8 s a round trip.
+      // Pull-in: the walker goes through the doorway (to z −10.5), along the wall behind it and back, 2.7 s a round trip.
       // Unpulled the camera stays 3.76 m behind it (z ≥ −6.74), seeing it through the doorway; once the wall hides it,
-      // only a pull-in puts the camera on its side of the wall (z < −7.85).
+      // only a pull-in puts the camera on its side of the wall (z < −7.85). Read until it was pulled in and then back out.
       await press(g, 'p');
       await expect.poll(async () => (await read(g))?.live ?? null, { timeout: 30_000, message: `${label}: the door camera` }).toBe(door);
       let lo = Infinity;
       let hi = -Infinity;
       let closest = Infinity;
       let pulledShot: Image | null = null;
-      for (const t0 = Date.now(); Date.now() - t0 < 9_000; ) {
+      for (const t0 = Date.now(); Date.now() - t0 < 12_000 && !(hi > -2); ) {
         const cam = (await read(g))!;
         const p = cam.position;
         for (const w of WALLS) closest = Math.min(closest, boxDistance(p, w));
         lo = Math.min(lo, p[2]!);
-        hi = Math.max(hi, p[2]!);
+        // Back out counts only after the pull-in.
+        if (lo < -8.2) hi = Math.max(hi, p[2]!);
         if (pulledShot === null && p[2]! < -8.2) pulledShot = await shot(g, `test-results/cameras-pulled-${label === 'WebGL 2' ? 'webgl2' : 'default'}.png`);
         await g.waitForTimeout(30);
       }
       expect(lo, `${label}: pulled in to the walker's side of the wall`).toBeLessThan(-8.2);
-      expect(hi, `${label}: eased back out`).toBeGreaterThan(-2);
+      expect(hi, `${label}: back out once the walker is back`).toBeGreaterThan(-2);
       expect(closest, `${label}: never within its radius of a wall`).toBeGreaterThanOrEqual(CAMERA_RADIUS - 0.01);
       expect(magenta(pulledShot!), `${label}: the walker in view while pulled in`).toBeGreaterThan(200);
       // See-through on the interior camera only: the figure behind the wall shows through the dither.
       await press(g, 'i');
       await expect.poll(async () => (await read(g))?.live ?? null, { timeout: 30_000 }).toBe(roomSolid);
       expect((await read(g))!.occlusion).toBe('none');
-      await g.waitForTimeout(600);
+      await g.waitForTimeout(200);
       const solid = await shot(g, `test-results/cameras-room-solid-${label === 'WebGL 2' ? 'webgl2' : 'default'}.png`);
+      expect(magenta(solid, 0.6), `${label}: the wall hides the figure`).toBeLessThan(20);
       await press(g, 'o');
       await expect.poll(async () => (await read(g))?.occlusion ?? null, { timeout: 30_000 }).toBe('seeThrough');
       expect((await read(g))!.live).toBe(roomSee);
-      await g.waitForTimeout(600);
-      const seen = await shot(g, `test-results/cameras-room-see-${label === 'WebGL 2' ? 'webgl2' : 'default'}.png`);
-      expect(magenta(solid, 0.6), `${label}: the wall hides the figure`).toBeLessThan(20);
-      expect(magenta(seen, 0.6), `${label}: the figure through the dither`).toBeGreaterThan(200);
+      // As soon as see-through's fade has opened the wall.
+      await expect.poll(async () => magenta(await shot(g), 0.6), { timeout: 10_000, message: `${label}: the figure through the dither` }).toBeGreaterThan(200);
+      await shot(g, `test-results/cameras-room-see-${label === 'WebGL 2' ? 'webgl2' : 'default'}.png`);
       // Auto-exposure: the room camera above had none (the look's fixed exposure, 1). The dark room opens up to its max and holds
       // there (the room meters far darker than middle grey); then a cut to the bright view closes down at its darken speed.
       const exposure = async (): Promise<number> => Number(await g.locator('canvas').first().getAttribute('data-tl-exposure'));
@@ -480,14 +483,15 @@ test('virtual cameras in Play: follow → eased orbit (script), a 90° snap on i
       await expect.poll(async () => (await read(g))?.live ?? null, { timeout: 30_000 }).toBe(darkRoom);
       expect((await read(g))!.exposure).toMatchObject({ auto: 1, max: DARK_MAX });
       await expect.poll(exposure, { timeout: 10_000, message: `${label}: the dark room opens up to its max` }).toBe(DARK_MAX);
-      await g.waitForTimeout(500);
+      await g.waitForTimeout(300);
       expect(await exposure(), `${label}: and holds there`).toBe(DARK_MAX);
       const night = await shot(g, `test-results/cameras-exposure-dark-${tag}.png`);
       await press(g, 'l');
       const t0 = Date.now();
       const trace: [number, number][] = [];
       let early: Image | null = null;
-      for (let t = 0; t < 3_000; t = Date.now() - t0) {
+      // Long enough to settle (95 % at 3 / speed, 1 s) and to read where it settled.
+      for (let t = 0; t < 1_500; t = Date.now() - t0) {
         trace.push([t, await exposure()]);
         if (early === null && (await read(g))?.live === bright) early = await shot(g, `test-results/cameras-exposure-cut-${tag}.png`);
         await g.waitForTimeout(40);

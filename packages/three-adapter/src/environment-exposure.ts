@@ -10,10 +10,9 @@
  * the scene in a texture for it while any loaded camera has auto-exposure,
  * so a camera switch rebuilds nothing.
  */
-import type * as THREE from 'three';
 import { adaptExposure, exposureRange, meteredLogLuminance, targetExposure, type ExposureLook } from '@thirdlight/runtime';
 
-import { ExposureMeter, METER_HEIGHT, METER_WIDTH } from './exposure-meter';
+import { ExposureMeter, METER_HEIGHT, METER_WIDTH, type MeterSource } from './exposure-meter';
 
 /** The longest frame adaptation steps over (a stall or a hidden tab does not jump the exposure). */
 const MAX_STEP_S = 0.25;
@@ -78,12 +77,12 @@ export class EnvironmentExposure {
   }
 
   /** After a frame drawn through the stack: meter its scene colour while a look adapts. */
-  afterFrame(renderer: unknown, scene: () => THREE.Texture | null): void {
+  afterFrame(renderer: unknown, source: () => MeterSource | null): void {
     if (this.look === null || !(this.look.auto > 0)) return;
-    const texture = scene();
-    if (texture === null) return;
+    const s = source();
+    if (s === null) return;
     this.meter ??= new ExposureMeter();
-    this.meter.measure(renderer, texture);
+    this.meter.measure(renderer, s);
   }
 
   diagnostics(drawn: number): ExposureDiagnostics {

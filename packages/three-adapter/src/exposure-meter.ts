@@ -6,7 +6,8 @@
  * WebGPU and WebGL 2:
  *
  * 1. a 128 × 64 grid across the scene colour (linear, before exposure,
- *    bloom and tone mapping): each texel the mean log2 luminance of 4 × 4
+ *    bloom and tone mapping; with the background laid under it when the
+ *    stack draws that apart, `MeterSource`): each texel the mean log2 luminance of 4 × 4
  *    filtered taps spread over its share of the frame;
  * 2. that grid down to `METER_WIDTH × METER_HEIGHT`: each texel the mean of
  *    an 8 × 8 block (texel loads: both grids are full float, which need not
@@ -27,7 +28,17 @@ import { METER_MIN_LUMINANCE } from '@thirdlight/runtime';
 import type { N } from './effects-tsl';
 
 const TSL = TSLTyped as unknown as Record<string, N>;
-const { Fn, clamp, float, ivec2, log2, luminance, screenCoordinate, texture, uv, vec2, vec4 } = TSL;
+const { Fn, clamp, float, ivec2, log2, luminance, mix, screenCoordinate, texture, uniform, uv, vec2, vec4 } = TSL;
+
+/**
+ * What a frame meters: the scene pass's colour and, where the stack lays the background under the picture
+ * afterwards (a colour or an image sky without post effects), that background: the scene pass then draws on
+ * transparent black and its alpha says where the sky shows, so the sky is metered as it is shown.
+ */
+export interface MeterSource {
+  readonly scene: THREE.Texture;
+  readonly background: THREE.Texture | THREE.Color | null;
+}
 
 /** The metered grid read back (texels across and down). */
 export const METER_WIDTH = 16;
@@ -68,12 +79,20 @@ export class ExposureMeter {
   latest: Float32Array | null = null;
   readings = 0;
   private readonly source: N = texture(new THREE.Texture());
+  // The background under the scene's alpha: an image's texture or a colour, weighted 0 when the scene has none.
+  private readonly backTexture: N = texture(new THREE.Texture());
+  private readonly backColor: N = uniform(new THREE.Color());
+  private readonly backFromTexture: N = uniform(0);
+  private readonly backWeight: N = uniform(0);
   private readonly fine = target(METER_WIDTH * BLOCK, METER_HEIGHT * BLOCK);
   private readonly coarse = target(METER_WIDTH, METER_HEIGHT);
   // Taps spread over each texel's share of the frame (filtered: each a 2 × 2 pixel mean of the scene colour).
   private readonly finePass = meanPass('exposure-meter', TAPS, (i, j) => {
     const at = uv().add(vec2(((i + 0.5) / TAPS - 0.5) / (METER_WIDTH * BLOCK), ((j + 0.5) / TAPS - 0.5) / (METER_HEIGHT * BLOCK)));
-    return log2(clamp(luminance(this.source.sample(at).rgb), METER_MIN_LUMINANCE, MAX_LUMINANCE));
+    const front: N = this.source.sample(at);
+    const back: N = mix(this.backColor, this.backTexture.sample(at).rgb, this.backFromTexture);
+    const rgb: N = front.rgb.add(back.mul(float(1).sub(front.a)).mul(this.backWeight));
+    return log2(clamp(luminance(rgb), METER_MIN_LUMINANCE, MAX_LUMINANCE));
   });
   // The block of the fine grid under each texel (rows may come mirrored on one backend: a whole block either way).
   private readonly coarsePass = meanPass('exposure-reduce', BLOCK, (i, j) => texture(this.fine.texture).load(ivec2(screenCoordinate.xy).mul(BLOCK).add(ivec2(i, j))).r);
@@ -84,10 +103,16 @@ export class ExposureMeter {
    * Meter `scene` (the scene pass's colour, just drawn) and start its read-back — unless a read-back is in
    * flight: a grid that would never be read is not drawn, so the meter runs once per read-back (every few frames).
    */
-  measure(renderer: unknown, scene: THREE.Texture): void {
+  measure(renderer: unknown, { scene, background }: MeterSource): void {
     if (this.disposed || this.busy) return;
     const r = renderer as ReadingRenderer;
     this.source.value = scene;
+    const image = background !== null && (background as THREE.Texture).isTexture === true ? (background as THREE.Texture) : null;
+    // Without an image the texture slot still binds a live texture (the scene's), weighted out.
+    this.backTexture.value = image ?? scene;
+    this.backFromTexture.value = image !== null ? 1 : 0;
+    if (background !== null && image === null) (this.backColor.value as THREE.Color).copy(background as THREE.Color);
+    this.backWeight.value = background !== null ? 1 : 0;
     const was = r.getRenderTarget();
     try {
       r.setRenderTarget(this.fine);

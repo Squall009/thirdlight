@@ -51,7 +51,7 @@ vi.mock('./environment-nodes', async (importOriginal) => {
         internalSize: () => null,
         temporalHolding: () => (plan.aa === 'taau' ? false : null),
         setTemporalHold: () => undefined,
-        sceneTexture: () => null,
+        meterSource: () => null,
         setParams: (p: Pick<PostPlan, 'grading' | 'bloom'>) => rec.params.push(p),
         render: () => (rec.renders += 1),
         dispose: () => (rec.disposed = true),
@@ -398,7 +398,7 @@ describe('environment renderer on WebGPURenderer', () => {
     env.dispose();
   });
 
-  it('a loaded auto-exposure camera keeps the scene in the stack (its sky exposed, MSAA kept); none: as before, at the look\'s exposure', () => {
+  it('a loaded auto-exposure camera keeps the scene in the stack (its colour sky laid under it as without, MSAA kept); none: as before, at the look\'s exposure', () => {
     const renderer = nodeRenderer();
     const scene = new THREE.Scene();
     const env = createEnvironmentRenderer(renderer, scene, { loadTexture: async () => null });
@@ -409,10 +409,10 @@ describe('environment renderer on WebGPURenderer', () => {
     expect(built.at(-1)!.plan).toMatchObject({ displayBackground: 'color' });
     expect(renderer.toneMappingExposure).toBe(0.7);
     expect(env.diagnostics().exposure).toMatchObject({ value: 0.7, target: null, metering: false, readings: 0 });
-    // Loaded but not on screen: the stack is built for the meter (no display background), nothing metered, exposure fixed.
+    // Loaded but not on screen: the stack is built for the meter (the sky drawn as without it), nothing metered, exposure fixed.
     env.setExposure(null, true);
     env.render(camera);
-    expect(built.at(-1)!.plan).toMatchObject({ displayBackground: null, samples: 4 });
+    expect(built.at(-1)!.plan).toMatchObject({ displayBackground: 'color', samples: 4 });
     expect(env.diagnostics()).toMatchObject({ post: false, exposure: { metering: true } });
     expect(renderer.toneMappingExposure).toBe(0.7);
     const count = built.length;

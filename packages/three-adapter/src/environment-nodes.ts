@@ -67,6 +67,7 @@ import { bloom } from 'three/examples/jsm/tsl/display/BloomNode.js';
 import { smaa } from 'three/examples/jsm/tsl/display/SMAANode.js';
 import { fxaa } from 'three/examples/jsm/tsl/display/FXAANode.js';
 import { releaseMrtContexts } from './dispose';
+import type { MeterSource } from './exposure-meter';
 import { PhysicalSky } from './physical-sky';
 import { buildAmbientOcclusion, type AmbientOcclusionStage, type AoKind, type ScreenSpaceOcclusion } from './post-ao';
 import { buildContactShadows, type ContactShadowsLight, type ContactShadowsStage } from './post-contact-shadows';
@@ -245,8 +246,8 @@ export interface PostPipeline {
   temporalHolding(): boolean | null;
   /** Whether the temporal upscale may hold a still view's picture (not while something in view moves by itself). */
   setTemporalHold(allowed: boolean): void;
-  /** The scene pass's colour as last drawn (linear, before bloom, exposure and tone mapping): what the auto-exposure meters. */
-  sceneTexture(): THREE.Texture;
+  /** What the auto-exposure meters: the scene pass's colour as last drawn (linear, before bloom, exposure and tone mapping) and the background laid under it. */
+  meterSource(): MeterSource;
   /** New grading / vignette / bloom numbers for the built passes (uniforms: no rebuild, no new program). */
   setParams(params: Pick<PostPlan, 'grading' | 'bloom'>): void;
   render(): void;
@@ -461,7 +462,9 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
       disposables.push(bgPass);
       source = bgPass.getTextureNode('output');
     } else source = vec4(bgColor, 1);
-    const bg: N = renderOutput(source, THREE.NoToneMapping);
+    // Exposed with the picture (one exposure for the whole frame, fixed or adapted), but not tone mapped: at
+    // exposure 1 the sky is the colour the project picked, as the archived WebGL renderer showed it.
+    const bg: N = renderOutput(vec4(source.rgb.mul(toneMappingExposure), source.a), THREE.NoToneMapping);
     const fg = color;
     color = vec4(fg.rgb.add(bg.rgb.mul(float(1).sub(fg.a))), fg.a.add(bg.a.mul(float(1).sub(fg.a))));
   }
@@ -641,7 +644,10 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
       const t = (scenePass as { renderTarget: THREE.RenderTarget }).renderTarget;
       return t.width > 1 || t.height > 1 ? [t.width, t.height] : null;
     },
-    sceneTexture: () => scenePass.getTexture('output') as THREE.Texture,
+    meterSource: () => ({
+      scene: scenePass.getTexture('output') as THREE.Texture,
+      background: bgPass !== null ? (bgPass.getTexture('output') as THREE.Texture) : bgColor !== null ? (bgColor.value as THREE.Color) : null,
+    }),
     temporalHolding: () => taau?.holding() ?? null,
     setTemporalHold: (allowed) => taau?.setHoldAllowed(allowed),
     compileAsync(cam) {

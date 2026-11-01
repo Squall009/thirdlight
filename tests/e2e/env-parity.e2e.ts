@@ -16,7 +16,10 @@
  * above it (soft knee), where the archived UnrealBloomPass glowed with the
  * whole colour of anything over it, so its reference is the WebGL 2 backend's
  * picture of that bloom (the emissive block's halo and the bright horizon glow
- * less; it still differs from the plain picture by far more than the rule). The harness pins the level they are
+ * less; it still differs from the plain picture by far more than the rule), and `tone-aces.png` /
+ * `tone-neutral.png` (exposure 1.3 / 0.8, no post stack): exposure now applies to the colour sky too (not tone
+ * mapped, as before), where the archived renderer left that sky unexposed; their sky is the WebGL 2 backend's,
+ * the colour at 1.3 / 0.8 times its linear value, the scene unchanged. The harness pins the level they are
  * drawn at (the engine's highest without contact shadows and reflections,
  * which the archived stack never drew: `REFERENCE_LEVEL`).
  *
@@ -149,11 +152,11 @@ interface Rendered {
   passes: string[];
   fallback: string | null;
 }
-async function render(page: Page, backend: string, name: string): Promise<Rendered> {
+async function render(page: Page, backend: string, name: string, query = ''): Promise<Rendered> {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.setViewportSize({ width: WIDTH, height: HEIGHT });
-  await page.goto(`${harness!.base}?backend=${backend}&case=${name}`);
+  await page.goto(`${harness!.base}?backend=${backend}&case=${name}${query}`);
   await expect.poll(() => page.evaluate(() => (window as unknown as { __envCase?: unknown }).__envCase !== undefined), { timeout: 60_000 }).toBe(true);
   const result = await page.evaluate(() => (window as unknown as { __envCase: { ok: boolean; backend?: string; error?: string; passes?: string[]; fallback?: string | null } }).__envCase);
   expect(result.ok, result.error).toBe(true);
@@ -361,6 +364,35 @@ test('bloom follows exposure: a bright sky over the threshold blooms, the same s
   expect(glow.mean, 'at exposure 1 the sky blooms').toBeGreaterThan(20);
   expect(calm.mean, 'at exposure 0.3 the sky is under the threshold: no glow').toBeLessThan(1);
   expect(calm.worst).toBeLessThan(8);
+});
+
+/**
+ * Exposure applies to the whole picture, sky included, without a post stack too: at exposure 0.5 the
+ * colour sky (`sky-color`, no post) and the lit ground both darken. The sky stays untone-mapped (the colour
+ * picked at exposure 1), so at 0.5 it is that colour at half its linear value, to the sRGB step.
+ */
+test('exposure without post effects darkens the sky and the ground alike', async ({ page }) => {
+  test.setTimeout(150_000);
+  const backend = project() === 'webgpu' ? 'webgpu' : 'webgl2';
+  const full = await render(page, backend, 'sky-color');
+  const half = await render(page, backend, 'sky-color', '&exposure=0.5');
+  expect(half.passes).toEqual([]);
+  /** Mean r, g, b of a 5 × 5 patch. */
+  const patch = (img: Image, [x, y]: readonly [number, number]): number[] => {
+    const sum = [0, 0, 0];
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) img.pixel(x + dx, y + dy).slice(0, 3).forEach((v, i) => (sum[i]! += v));
+    return sum.map((v) => v / 25);
+  };
+  const lum = (c: number[]): number => (c[0]! + c[1]! + c[2]!) / 3;
+  const sky: [number, number] = [WIDTH - 12, 8];
+  const ground: [number, number] = [40, 200];
+  const s = { full: patch(full.img, sky), half: patch(half.img, sky) };
+  const g = { full: lum(patch(full.img, ground)), half: lum(patch(half.img, ground)) };
+  console.log(`[env-parity] ${backend} exposure 1 → 0.5, no post: sky ${s.full.map((v) => v.toFixed(0)).join(',')} → ${s.half.map((v) => v.toFixed(0)).join(',')}, ground ${g.full.toFixed(1)} → ${g.half.toFixed(1)}`);
+  const linear = (v: number): number => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+  const srgb = (v: number): number => (v <= 0.0031308 ? v * 12.92 : 1.055 * v ** (1 / 2.4) - 0.055);
+  s.full.forEach((v, i) => expect(Math.abs(s.half[i]! - 255 * srgb(linear(v / 255) * 0.5)), `sky channel ${i}: half its linear value`).toBeLessThan(3));
+  expect(g.half, 'the ground darkens').toBeLessThan(g.full * 0.85);
 });
 
 /**
