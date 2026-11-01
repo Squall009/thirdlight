@@ -69,6 +69,7 @@ picture. Games switch both by switching cameras, through priorities and camera r
 | 44b.3b | done (8e3b2071): exposure applies to the whole picture, colour/image sky too without post, fixed or auto (sky exposed, not tone mapped: exposure 1 unchanged); meter sees the sky. D421 fixed. env-parity: tone-aces/neutral refs redrawn (sky only), exposure-0.5 check both renderers. cameras e2e 32.4 → 20.0 s. Village at cap: main 6.07 / 4.05 ms, p95 16.7–16.8, 0 missed. Gate: D422 only. |
 | 44b.3c | done (e4c0e040): D422 and D409 fixed. Cause: the test passed only before WebGPU's live probes were lit (traced: Play's frame 0 passed, then it settled at the export's failing pixels). The sky now lights nothing and the yellows are darker; bounds unchanged. Alone 5/5, 31–35 s (passing before 35.6 s, failing 2.0 min). Fast gate green. |
 | 44b.4a | partial (548afdaf): D424 fixed (r187 precompile re-bound the macro baker's 64² target: stale WebGPU Play; D426 bake throw); D423 watch. H1/M2 measured, not fixed: D427 (probes 1.3–2.4 stops over env light; noon auto 0.077). Cap: landscape 4.51/10.21, 3.21; interior 3.03/7.22, 1.80; village 5.86/4.10 ms; p95 16.7–16.8. |
+| 44b.4b | done (8afa536f…4170f72a): M1 tone mapping none takes the exposure (linear curve, both renderers); M3 load step writes bloom strength 0.6, scales or notes levels' thresholds; D426 fixed (r187 freed never-made bind groups); L2/L6/L7/L8 fixed, L1/L3 left (log); L4 counts flat; D428 watch. env-parity exposure test 1.1 → 2.3 s. Village at cap 5.79 / 4.09 ms, p95 16.7, 0 missed. |
 
 ### 44b.0 baseline
 
@@ -242,3 +243,32 @@ picture. Games switch both by switching cameras, through priorities and camera r
   that D427 holds; giving colour skies an environment would change 81 e2e scenes, an owner decision. The look
   scene's settings are not changed until D427's cause is known (changing its exposure would hide it).
 
+- 2026-11-01 (44b.4b, review M1): tone mapping `none` is drawn with three's linear tone mapping (colour × exposure,
+  clamped to the display) instead of NoToneMapping, which skips the exposure: fixed and auto exposure now apply under
+  `none` too, as bloom's threshold already assumed, one path on both renderers. At exposure 1 the picture is as before
+  (the clamp is the display's). The no-post background pass is not needed under `none` (the renderer's own output
+  exposes the sky the same way). env-parity: `tone-none` at exposure 0.5 is half its linear value, sky and ground.
+- 2026-11-01 (44b.4b, review M3): the recorded `bloom-exposure` step also writes strength 0.6 (the old default) into
+  every look and preset with bloom on and no strength, with a Problems note; extended rather than a new step, as 44b
+  is not deployed (no project has recorded the step with the 0.2 default yet). Quality levels: a level's absent
+  strength is the look's (now written); a level's threshold override is scaled where every look with bloom shares one
+  exposure, else left with a note naming the levels and the exposures (one override serves looks of several).
+- 2026-11-01 (44b.4b, D426): cause found. three r187's `Bindings.deleteForRender` releases a render object's bind
+  groups whether or not they were ever made, and `compileAsync` yields between making a render object and its
+  bindings; the macro baker's bake materials disposed in that gap took a use from the render context's shared group
+  (camera uniforms) that it never had, the count hit 0 under the drawing bake, and its buffers were destroyed (probe
+  in streamed Play: "uninitialised render object deleted: shared group render usedTimes 1", then "updateBinding
+  without a GPU buffer: render"). `installBindingRelease` (dispose.ts) only forgets such a render object; vitest drives
+  three's own `Bindings` with and without it. A render object disposed in the gap and then built by the compile keeps
+  one use of its shared group (read in code: a camera uniform block kept per render context, not a growing leak).
+- 2026-11-01 (44b.4b, review L5): the redrawn `tone-aces.png` (44b.3b) also holds r187's ACES change, so that
+  reference is partly the engine's own picture now, not the archived renderer's.
+- 2026-11-01 (44b.4b, review lows): L2 one ray stand-in for the sphere cast (`rayStoppedShort`, clamped at 0) in
+  both places; L6 the pull-in's casts, rays and overlaps leave the follow target's own colliders out (a physics query
+  filter), so a target that is not the character no longer turns every pull-in into a cut; L7 `setSeeThrough({enabled:
+  null})` gives back the project's `enabled` in the settings too; L8 the MCP text says the meter reads every few
+  frames, STATUS row 44b updated. L4: the full gate's memory runs (033fb18c) hold flat after the three removed WebGL 2
+  hooks: backend swap ×10 prog 13 → 13, VAOs 22 → 22; Play start/stop ×10 and the additive scene ×50 equal or one
+  less. Left: L1 (the meter's two small programs still compile when the first adapting camera goes live; compiling
+  them ahead needs the scene texture bound, more than a fix-up) and L3 (the Inspector would need the project's
+  see-through setting and the `collision` field to show the resolved mode; the field's help says what absent means).
