@@ -70,6 +70,7 @@ picture. Games switch both by switching cameras, through priorities and camera r
 | 44b.3c | done (e4c0e040): D422 and D409 fixed. Cause: the test passed only before WebGPU's live probes were lit (traced: Play's frame 0 passed, then it settled at the export's failing pixels). The sky now lights nothing and the yellows are darker; bounds unchanged. Alone 5/5, 31–35 s (passing before 35.6 s, failing 2.0 min). Fast gate green. |
 | 44b.4a | partial (548afdaf): D424 fixed (r187 precompile re-bound the macro baker's 64² target: stale WebGPU Play; D426 bake throw); D423 watch. H1/M2 measured, not fixed: D427 (probes 1.3–2.4 stops over env light; noon auto 0.077). Cap: landscape 4.51/10.21, 3.21; interior 3.03/7.22, 1.80; village 5.86/4.10 ms; p95 16.7–16.8. |
 | 44b.4b | done (8afa536f…4170f72a): M1 tone mapping none takes the exposure (linear curve, both renderers); M3 load step writes bloom strength 0.6, scales or notes levels' thresholds; D426 fixed (r187 freed never-made bind groups); L2/L6/L7/L8 fixed, L1/L3 left (log); L4 counts flat; D428 watch. env-parity exposure test 1.1 → 2.3 s. Village at cap 5.79 / 4.09 ms, p95 16.7, 0 missed. |
+| 44b.4c | done: acceptance at the cap, both renderers (acceptance/44b.4c, README, all looked at): door room → sunset adapts 2 → 0.13, no veil settled; pull-in ≥ 0.200 m clear in 1,885 samples; see-through vs none; bloom follows exposure. D429 (WebGL 2 sunset morning/noon veiled). Perf vs 44b.0: main lower, p95 16.7–16.8, 0 missed; GPU +0.1–0.4 = host (same-hour A/B). See **44b results**. |
 
 ### 44b.0 baseline
 
@@ -98,6 +99,48 @@ picture. Games switch both by switching cameras, through priorities and camera r
 
   Main ms there read high against 44.0 by host state (its same-hour A/B against fb338eab); compare 44b's end in a
   same-hour A/B against 7f98343e.
+
+### 44b results
+
+- **Acceptance** (44b.4c, 2026-11-01 17:39–17:58, main at 5ae64dac, Iris Xe, headless Chrome 1920×1080, 60 Hz cap,
+  quality medium on both renderers; `~/.cache/thirdlight-phase44b/acceptance/44b.4c/README.md`, every kept shot looked
+  at). A scratch scene (the look door room under the sunset's sun, sky and post, baked) with the starter character:
+  - Door room → sunset, follow camera with auto-exposure: 2 (max) inside, 1.0 in the doorway, 0.18 within 1 s
+    outside, settled 0.13 (WebGPU) / 0.20 (WebGL 2); no veil once settled. The same walk at fixed exposure 1 is
+    veiled outside (the over-bright reference).
+  - Follow camera through the doorway and along the wall into a corner and out: pulled in and eased out as designed;
+    clearance from the nearest block never below the 0.200 m radius in 1,885 camera samples of six walks. In the
+    corner the character's body fills the view (nothing fades a subject; not a 44b item).
+  - Interior: see-through opens a dithered circle onto the character; none keeps the wall solid; both renderers.
+  - Bloom at fixed exposure 0.5 vs 2 on the night sign: a tight glow vs a wide one; bloom follows exposure.
+  - Sunset through the day, live sun, auto-exposure: WebGPU 0.086 / 0.077 / 0.22 (morning / noon / evening), WebGL 2
+    0.44 / 0.193 / 1.17 (as 44b.4a, D427); noon stays above the 1/16 floor but reads dark (sky-weighted meter).
+    WebGL 2 morning and noon are veiled: **D429**. Corridor 0.55 / 0.58, clean on both. Baked sunset 0.105, both alike.
+  - Frames on every walk and window: p95 16.7–16.8 ms, 0 missed.
+- **Perf, end of 44b** (dist of 5ae64dac): 60 Hz cap, Iris Xe, 1080p, 3 rounds 2026-11-01 16:40–17:39,
+  load 0.8–1.8, the default tier as 44.13. `run.mjs village --vsync --no-bare`, `run.mjs level --classes landscape,interior --vsync`. GPU ms at
+  full clock; in brackets the 44b.0 baseline (44.13).
+
+| Scene | Renderer | p95 ms | missed | main ms (44.13) | GPU ms full (44.13) |
+|---|---|---|---|---|---|
+| village | WebGPU | 16.7 | 0/600–601 ×3 | 5.43 / 5.37 / 5.37 (5.74–6.56) | 5.25 / 5.09 / 5.01 (4.74–4.95) |
+| village | WebGL 2 | 16.7–16.8 | 0/600 ×3 | 3.88 / 3.95 / 3.89 (4.11–4.43) | - |
+| landscape | WebGPU | 16.7–16.8 | 0/600–601 ×3 | 4.58 / 4.47 / 4.69 (5.09–5.75) | 10.03 / 10.18 / 10.19 (9.96–10.03) |
+| landscape | WebGL 2 | 16.7–16.8 | 0/600–601 ×3 | 3.13 / 3.09 / 3.16 (3.52–3.69) | - |
+| interior | WebGPU | 16.7–16.8 | 0/600–601 ×3 | 2.94 / 2.92 / 3.05 (3.35–3.73) | 6.53 / 6.50 / 6.29 (6.05–6.21) |
+| interior | WebGL 2 | 16.7–16.8 | 0/600 ×3 | 1.84 / 1.80 / 1.83 (1.93–2.23) | - |
+
+- Main-thread ms is lower than the baseline on every class and renderer; p95 and missed frames equal. GPU reads
+  0.1–0.4 ms higher on village and interior in all three rounds, so a **same-hour A/B against 7f98343e** (WebGPU,
+  base-head-head-base, 17:56–18:18, load 0.8–2.5; base worktree built with `node tools/build.mjs`), GPU ms full: village
+  5.48 / 5.33 → 5.12 / 5.09, interior 6.78 / 6.89 → 6.98 / 6.79; main 5.42 / 5.62 → 5.60 / 5.59 and 3.12 / 3.03 →
+  2.86 / 3.02; p95 16.7–16.8, 0 missed. The base reads as high the same hour: host state (D199, D290), not 44b. 44b is
+  not slower.
+- **Bloom and meter GPU, auto-exposure on** (`run.mjs look --scenes sunset --variants medium:quality=medium
+  --auto-exposure --rounds 2`, WebGPU timestamps): bloom (high-pass, five blurs, composite) 0.85 / 1.03 ms raw at
+  598 / 500 MHz = 0.36 / 0.36 ms at full clock (44b.0: 0.41); the meter 0.245 / 0.299 ms raw (128×64 pass 0.20 / 0.25,
+  16×8 reduce 0.04 / 0.05) = 0.10 / 0.11 ms full, drawn in 180 of 181 timed frames. Main 2.13 / 1.96 ms; p95 16.7–16.8,
+  0 missed, both renderers.
 
 ## 4. Decision log
 
