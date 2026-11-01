@@ -1,0 +1,10 @@
+{
+  "//": "Strict typecheck of the voxel storage harness and its tests (not a workspace package); tools/typecheck.mjs runs it with the packages",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "allowJs": false,
+    "allowImportingTsExtensions": false
+  },
+  "include": ["*.ts"]
+}

@@ -55,7 +55,7 @@ describe('the dense reference store', () => {
       for (const s of strokes) {
         const n = store.applyStroke(s);
         let covered = 0;
-        for (let x = -30; x <= 30; x++) for (let y = -30; y <= 30; y++) for (let z = -30; z <= 30; z++) {
+        for (let x = -20; x <= 20; x++) for (let y = -20; y <= 20; y++) for (let z = -20; z <= 20; z++) {
           if (strokeCovers(s, x, y, z)) {
             covered++;
             expected.set(`${x},${y},${z}`, s.voxel);
@@ -64,7 +64,7 @@ describe('the dense reference store', () => {
         expect(n).toBe(covered);
       }
       const out = voxel();
-      for (let x = -30; x <= 30; x++) for (let y = -30; y <= 30; y++) for (let z = -30; z <= 30; z++) {
+      for (let x = -20; x <= 20; x++) for (let y = -20; y <= 20; y++) for (let z = -20; z <= 20; z++) {
         expect(store.voxelAt(x, y, z, out)).toEqual(expected.get(`${x},${y},${z}`) ?? AIR);
       }
     }

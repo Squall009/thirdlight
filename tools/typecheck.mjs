@@ -192,7 +192,7 @@ async function main() {
 const TSC_PARALLEL = Math.max(1, Math.min(4, Math.floor(availableParallelism() / 2)));
 
 /** Typechecked like a package, though not one (each has a tsconfig that extends the base). */
-const EXTRA_PROJECTS = ['tools/perf'];
+const EXTRA_PROJECTS = ['tools/perf', 'tools/voxel-bench'];
 
 function tscRun(tscScript, root, project) {
   return new Promise((done) => {
