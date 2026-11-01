@@ -40,7 +40,7 @@ import * as TSLTyped from 'three/tsl';
 
 import type { N } from './effects-tsl';
 import { castsShadowFor, isLayeredLight } from './light-layers';
-import { DrawnCasters, isStaticCaster, type StaticShadowRevision } from './shadow-casters';
+import { DrawnCasters, isPreCompiling, isStaticCaster, type StaticShadowRevision } from './shadow-casters';
 import { withEmptyInstanceDraws } from './attribute-instancing';
 import { STATIC_SHADOW_CAMERA_KEY } from './view-cull';
 import { shadowSeesCutaways } from './block-cutaway-view';
@@ -428,7 +428,7 @@ export class CachedShadowNode extends ShadowBaseNodeBase {
 
   updateBefore(frame: N): void {
     const renderer = frame.renderer;
-    if (renderer._isPreCompiling === true) return;
+    if (isPreCompiling(renderer)) return;
     const s = this.staticNode;
     const d = this.dynamicNode;
     if (s === null || d === null || s.shadowMap === null || d.shadowMap === null) return;

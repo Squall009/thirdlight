@@ -2,7 +2,7 @@
  * The dither fade, on the WGSL three builds (no GPU: the WebGPU backend's
  * node builder runs in Node). The cut-away's fade variants keep the programs
  * they had before the dither became a module of its own (digests recorded
- * then, three r186: a change of three.js changes the text, re-record them
+ * then, re-recorded on three r187: a change of three.js changes the text, re-record them
  * from the failure); fades ANDed into one mask share one threshold, so they
  * thin a pixel as the largest of them; a fade's value is a uniform, never a
  * program; variants are made once per source and go with their last holder.
@@ -23,22 +23,22 @@ const LAYER: BlockLayerComponent = { cellSize: [1, 1, 1], bounds: { min: [0, 0, 
 
 /** The cut-away's fade variant programs, as the cut-away built them with its own dither. */
 const CUTAWAY_FADE_WGSL: Readonly<Record<string, string>> = {
-  standard: '261b04d33ab74140',
-  textured: '7a854a7b174b4545',
-  blended: 'd2d9c895ae425abb',
-  foliage: 'c3d6f7e7a286cb35',
-  kit: 'ebc9eeb5d658504a',
-  water: 'dcba6a50d68dd17f',
-  unlit: 'be8b2e98cadf7608',
-  trim: '960c54b12223f561',
-  'graph-plain': 'aff1f297436c8757',
-  'graph-tinted': 'bf26be093ff0e6de',
-  'graph-everySlot': 'b1c118d25813fedd',
-  'graph-unlit': '6b3bd6f0dc0ac90a',
-  'graph-customLit': '613e4cff933b4c93',
-  classicStandard: '261b04d33ab74140',
-  classicLambert: 'b4cfc67e2ca19184',
-  classicBasic: '8fa19ec0464a5d8b',
+  standard: '85049c98ebe1d477',
+  textured: '60f7b504142ef008',
+  blended: 'db133ececb250084',
+  foliage: '4e867bbd564a41a6',
+  kit: 'c3e3871509113919',
+  water: '89374c29fe539497',
+  unlit: '23e9db8a77754b60',
+  trim: '669e5f3c33425a2e',
+  'graph-plain': '87bc55dcaff0968c',
+  'graph-tinted': '2afac5ea80de690b',
+  'graph-everySlot': 'e9917a1939f096ff',
+  'graph-unlit': 'b7e4dde6adb833a2',
+  'graph-customLit': 'ae4b029f16a24714',
+  classicStandard: '85049c98ebe1d477',
+  classicLambert: 'd7df11b05b06114c',
+  classicBasic: 'ca48e854737ea7e3',
 };
 
 /** The cut-away's fade variant of each mesh's material (the one its precompile probe wears). */
@@ -93,7 +93,7 @@ describe('fades in one mask', () => {
     const frag = fragmentOf(wgslOf(wgslRenderer(), scene, mesh));
     // The noise is computed once, and both fades compare with that one value inside the one discard test.
     expect(frag.match(/52\.9829189/g)).toHaveLength(1);
-    const v = /(nodeVar\d+) = fract\( \( 52\.9829189/.exec(frag)![1]!;
+    const v = /(node(?:Var|Const)\d+) = fract\( \( 52\.9829189/.exec(frag)![1]!;
     const tests = [...frag.matchAll(new RegExp(`${v} >= object\\.(nodeUniform\\d+)`, 'g'))].map((x) => x[1]);
     expect(new Set(tests).size).toBe(2);
     expect(frag.match(/discard;/g)).toHaveLength(1);

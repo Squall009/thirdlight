@@ -1,12 +1,14 @@
 /**
- * The physical sky: three's `SkyMesh` (r186, `examples/jsm/objects/SkyMesh.js`,
+ * The physical sky: three's `SkyMesh` (r187, `examples/jsm/objects/SkyMesh.js`,
  * MIT) with one change: where its clouds move, they move by `cloudDrift`, the
  * clouds' travel in metres the renderer works out from the scene's global
  * wind and the presentation clock, instead of by three's render clock (`time`)
  * times a speed. Three's own drift is wall time in a fixed diagonal, so it
  * could neither follow the wind nor start a replay on the same sky. Everything
  * else (the Preetham atmosphere, the sun disc, the cloud field and its
- * lighting) is r186's unchanged; a three upgrade diffs this file against
+ * lighting) is r187's unchanged but for the layouts r187 gave its noise
+ * functions (a layout names the function per sky built, so every sky would
+ * build a program of its own); a three upgrade diffs this file against
  * the new `SkyMesh.js` (docs/three-upgrade-checklist.md).
  */
 import * as THREE from 'three';

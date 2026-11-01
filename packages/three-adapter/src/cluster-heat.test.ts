@@ -15,21 +15,21 @@ import { ClusterHeatLight, registerClusterHeat } from './cluster-heat';
 import { ClusterTextures } from './cluster-pack';
 import { localLightVariant } from './local-lights';
 import { registerProbeLighting } from './probe-lighting';
-import { litScene, wgslOf, wgslRenderer } from './test-wgsl';
+import { buildOnly, litScene, wgslOf, wgslRenderer } from './test-wgsl';
 
 function renderer(): WebGPURenderer {
   const r = wgslRenderer();
   registerProbeLighting(r as never);
-  registerClusterHeat(r as never);
+  registerClusterHeat();
   return r;
 }
 
 /** The GLSL three's WebGL 2 backend builds for a mesh (its builder runs without a context). */
 function glslOf(scene: THREE.Scene, mesh: THREE.Mesh): string {
   const canvas = { style: {}, width: 1, height: 1, addEventListener() {}, removeEventListener() {}, getContext: () => null };
-  const r = new WebGPURenderer({ canvas: canvas as unknown as HTMLCanvasElement, forceWebGL: true });
+  const r = buildOnly(new WebGPURenderer({ canvas: canvas as unknown as HTMLCanvasElement, forceWebGL: true }));
   registerProbeLighting(r as never);
-  registerClusterHeat(r as never);
+  registerClusterHeat();
   const lights: THREE.Light[] = [];
   scene.traverse((o) => void ((o as THREE.Light).isLight === true && lights.push(o as THREE.Light)));
   const backend = (r as unknown as { backend: { createNodeBuilder(o: THREE.Object3D, r: WebGPURenderer): { scene: THREE.Scene; camera: THREE.Camera; material: THREE.Material; lightsNode: unknown; build(): void; fragmentShader: string } } }).backend;

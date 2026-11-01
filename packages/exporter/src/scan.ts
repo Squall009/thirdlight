@@ -39,7 +39,7 @@ import { TOOLCHAIN_PINS } from '@thirdlight/project-model';
 export const THREE_RECORD = {
   version: TOOLCHAIN_PINS.three,
   /** Npm registry integrity of that version (the lockfile's). */
-  integrity: 'sha512-blFeqb49wRCSGUGj7gtpfnSGHy2lwDk94RhUmS1c/hTby70kvChbWpkJ4Pm1390LqzzvTmzgXKHPEafJwCb8jA==',
+  integrity: 'sha512-Qiu7R+Cmh8CstZsY1uJOSWnVlfo7ZtNLV7mF8Jltk3LB3AtDu9cRZlcnRKkAk8Y4z6KKw35z7Y7Urd7jWY8etA==',
   /** d — `fetch(` in the pinned three code (two loader fetches + one warn literal). */
   fetch: 3,
   /** f — `process.` (two warn literals + one doc comment in three core; 13 prose/doc uses such as "the build process." in the WebGPU renderer); `__dirname`: 0. */

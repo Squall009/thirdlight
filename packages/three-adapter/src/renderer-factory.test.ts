@@ -204,7 +204,7 @@ function eventCanvas(): { canvas: { addEventListener(t: string, l: (e: unknown) 
 }
 
 describe('createRenderer', () => {
-  it('webgl2: the canvas keeps its WebGL context after dispose unless the caller frees it (three would lose it on every dispose)', async () => {
+  it('webgl2: the canvas keeps its WebGL context after dispose unless the caller frees it', async () => {
     for (const loseContextOnDispose of [false, true]) {
       let lost = 0;
       const ext = { loseContext: () => (lost += 1) };
@@ -228,10 +228,10 @@ describe('createRenderer', () => {
               init: () => Promise.resolve(),
               setClearColor: () => undefined,
               onDeviceLost: () => undefined,
-              // What three's WebGLBackend.dispose() does: lose the context through its extension cache.
+              // What three's WebGLBackend.dispose() does: lose the context only of a canvas it made itself.
               dispose: async (): Promise<void> => {
                 await Promise.resolve();
-                (r.backend.extensions.get('WEBGL_lose_context') as { loseContext(): void } | null)?.loseContext();
+                if ((params as { canvas?: unknown }).canvas === undefined) (r.backend.extensions.get('WEBGL_lose_context') as { loseContext(): void } | null)?.loseContext();
               },
             };
             made = r;

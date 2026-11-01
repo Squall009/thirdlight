@@ -26,8 +26,11 @@ function drawOf(mrt: unknown): { mesh: THREE.Mesh; refresh(): number } {
   const Ctor = (THREE as unknown as { NodeMaterialObserver: new (builder: object) => Observer }).NodeMaterialObserver;
   const observer = new Ctor({ material, object: mesh, context: {} });
   const lightsNode = new THREE.LightsNode();
-  const renderObject = { object: mesh, material, geometry, lightsNode, bundle: null, scene: new THREE.Scene(), context: { width: 64, height: 64 } };
-  const renderer = { getMRT: () => mrt };
+  // The render object's buffers as three's geometry component keeps them (none disposed), drawn into the canvas.
+  const attributes = { disposeVersion: 0, has: () => true };
+  const canvas = {};
+  const renderer = { getMRT: () => mrt, getRenderTarget: () => null, getOutputRenderTarget: () => null, getCanvasTarget: () => canvas };
+  const renderObject = { object: mesh, material, geometry, lightsNode, bundle: null, scene: new THREE.Scene(), context: { width: 64, height: 64 }, renderer, _geometries: { attributes }, getVertexBuffers: () => [], getIndex: () => null };
   let renderId = 0;
   return {
     mesh,

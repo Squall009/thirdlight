@@ -7,7 +7,7 @@
  * The legacy digests are the WGSL of a graph shaped like the layered template
  * as projects stored it before the Layer weights node existed (weights from
  * COLOR_0 "first", wetness from COLOR_1 "zero"), recorded before vertex paint
- * fed those weights (three r186): an unpainted mesh must keep its program.
+ * fed those weights (re-recorded on three r187): an unpainted mesh must keep its program.
  */
 import * as THREE from 'three';
 import * as TSL from 'three/tsl';
@@ -28,7 +28,7 @@ const LEGACY: MaterialGraphLike = {
   edges: [e('a', 'w', 'rgba', 'hb', 'weights'), e('b', 'hb', 'weights', 'mix', 'weights'), e('c', 'c1', 'rgb', 'mix', 'a'), e('d', 'c2', 'rgb', 'mix', 'b'), e('f', 'mix', 'out', 'out', 'baseColor'), e('g', 'wet', 'rgba', 's', 'in'), e('h', 's', 'x', 'out', 'roughness')],
 };
 /** Its WGSL on a plain mesh, a painted block layer's (COLOR_0 and COLOR_1) and a mesh with its own vertex colours. */
-const LEGACY_WGSL = { plain: 'c2a9acfb2d7f07ff', stored: '1b5b46d655629062', colours: '4ab7c0b4c6999ea8' };
+const LEGACY_WGSL = { plain: '9d5b9c2cfe7e98c3', stored: '76f53111746e4b0e', colours: '49d0dcc3dfd2492c' };
 
 /** A sphere carrying these extra vec4 attributes (zeros). */
 function sphere(attrs: readonly string[]): THREE.BufferGeometry {

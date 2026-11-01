@@ -58,7 +58,6 @@ import type { BlockType, DecalComponent, InstanceBrush, InstanceStroke } from '@
 import * as THREE from 'three';
 import type { ArchitectureGraphLike, SeeThroughSettings, OcclusionCulling, ArchitecturePreview, EnvironmentBlendView } from '@thirdlight/runtime';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { disposeOrbitControls, releaseControlKeyListeners } from './controls';
 import type { ProjectedEntity } from '../session/projection';
 import { effectiveFlagsOf, type EffectiveEntityFlags } from '../session/hierarchy';
 import type { DescriptorRegistry, PlaneLock } from '@thirdlight/project-model';
@@ -817,8 +816,6 @@ export class Viewport {
     this.root = next;
     this.pointer.bindCanvas();
     this.orbit.disconnect();
-    // The old canvas already left the page: its document keeps OrbitControls' key listeners otherwise.
-    releaseControlKeyListeners(this.orbit);
     this.orbit.connect(next);
     this.gizmo.reconnect(next);
     this.helpers.setCanvas(next);
@@ -1075,7 +1072,7 @@ export class Viewport {
     this.helpers.dispose();
     this.pointer.unbind();
     this.gizmo.dispose();
-    disposeOrbitControls(this.orbit);
+    this.orbit.dispose();
     this.sceneLighting.dispose();
     this.adapter.dispose();
   }

@@ -34,7 +34,6 @@ import {
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
-import { disposeOrbitControls } from './controls';
 import { editorRendererChoice } from './renderer-choice';
 
 export type PreviewRendererLike = NonNullable<ReturnType<RendererHandle['current']>>;
@@ -302,7 +301,7 @@ export class PreviewRenderer implements PreviewStage {
     this.release();
     this.disposed = true;
     cancelAnimationFrame(this.raf);
-    disposeOrbitControls(this.orbit);
+    this.orbit.dispose();
     this.environmentRenderer?.dispose();
     this.environmentRenderer = null;
     this.clusters.dispose();

@@ -30,6 +30,15 @@ export function wgslRenderer(): WebGPURenderer {
   const canvas = { style: {}, width: 1, height: 1, addEventListener() {}, removeEventListener() {}, getContext: () => null };
   const renderer = new WebGPURenderer({ canvas: canvas as unknown as HTMLCanvasElement });
   (renderer as unknown as { hasFeature: () => boolean }).hasFeature = () => false;
+  return buildOnly(renderer);
+}
+
+/**
+ * A renderer never initialised builds programs only: it has no bindings component (null), and a build
+ * shares its bind groups only through one, so it is marked absent.
+ */
+export function buildOnly<T>(renderer: T): T {
+  (renderer as unknown as { _bindings?: unknown })._bindings = undefined;
   return renderer;
 }
 
@@ -95,22 +104,23 @@ export const SHADER_TYPE_MATERIALS: readonly MaterialDefLike[] = [
 ];
 
 /**
- * The WGSL digests of {@link SHADER_TYPE_MATERIALS}, recorded before decals
- * existed (three r186): a scene without decals keeps these programs. A
- * change of three.js changes the text: re-record them then (the failure
- * prints the new ones).
+ * The WGSL digests of {@link SHADER_TYPE_MATERIALS} without decals (three
+ * r187, the same text as a build with none of the engine's prototype hooks
+ * installed): a scene without decals keeps these programs. A change of
+ * three.js changes the text: check a hook-free build gives the same, then
+ * re-record them (the failure prints the new ones).
  */
 export const SHADER_TYPE_WGSL: Readonly<Record<string, string>> = {
-  standard: '2cc544a08f2da47b',
-  textured: '39c822174bd5badf',
-  blended: '4df9b83631a1f83c',
+  standard: 'd93abf7d66659998',
+  textured: 'ff58670e3f52d2da',
+  blended: '578668ab956f02bf',
   // The foliage's vertex stage reads the wind field (its map round the view and the gust pattern).
-  foliage: 'dc516d89805e448d',
-  kit: '83a0897a5b6be10d',
-  water: '588fd2ffeda77232',
-  unlit: '6c19ec5d6d3f2a86',
+  foliage: '9d0e23f4dc94b3bb',
+  kit: '839966bc7fe880c6',
+  water: '4a06ad782c037ae0',
+  unlit: '33bf9b28e65d15f5',
   // The trim material draws as a layered surface (a graph): its program is the graph's, its pixels the shader's.
-  trim: '63a2a74010221a5a',
+  trim: '266c2831bb7baca5',
 };
 
 const n = (id: string, type: string, data?: Record<string, unknown>) => ({ id, type, position: [0, 0] as [number, number], ...(data !== undefined ? { data } : {}) });
@@ -131,13 +141,13 @@ export const PLAIN_GRAPHS: Readonly<Record<string, MaterialGraphLike>> = {
   customLit: { nodes: [n('out', 'customLit'), n('d', 'diffuseLight')], edges: [e('a', 'd', 'total', 'out', 'color')] },
 };
 
-/** The WGSL digests of {@link PLAIN_GRAPHS}, recorded before the specular ports existed (three r186). */
+/** The WGSL digests of {@link PLAIN_GRAPHS} without the specular ports (three r187, as a build with no hook installed). */
 export const PLAIN_GRAPH_WGSL: Readonly<Record<string, string>> = {
-  plain: 'c4870c84c910e8e4',
-  tinted: '2a9c50218bd57d29',
-  everySlot: '8d625f13e5af0475',
-  unlit: 'c2f4be09abc549e7',
-  customLit: 'b565c0183be022b0',
+  plain: '4847d3aba5b74787',
+  tinted: '2ede681badf0df61',
+  everySlot: '154011bbe38cf8f6',
+  unlit: '0dfca82b0694032f',
+  customLit: '5c4d64b679777ca3',
 };
 
 /** What a test graph compiles with (no textures, no functions). */
@@ -151,9 +161,14 @@ const PARAMETERS: MaterialDefLike['parameters'] = [{ key: 'tint', type: 'color',
 /** A graph as a project material (with the tint parameter the fixtures read). */
 export const graphDef = (materialId: string, graph: MaterialGraphLike): MaterialDefLike => ({ materialId, name: materialId, shader: 'standard', params: {}, textures: {}, graph, parameters: PARAMETERS });
 
-/** A one-texel texture every fixture texture id loads as. */
+/**
+ * A one-texel texture every fixture texture id loads as. Filtered like an image texture: three reads a texture
+ * filtered nearest both ways with texel loads instead of samples, which no image material builds.
+ */
 export function testTexture(): THREE.Texture {
   const t = new THREE.DataTexture(new Uint8Array([200, 120, 60, 255]), 1, 1);
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearFilter;
   t.needsUpdate = true;
   return t;
 }

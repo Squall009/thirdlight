@@ -40,8 +40,8 @@ import { registerClusteredLights } from './cluster-lights';
 import { registerProjectedDecals } from './projected-decals';
 import { installLocalLightModes } from './local-lights';
 import { installTextureUnitGuard } from './texture-unit-guard';
-import { installProgramRelease, installVaoSweep, trackRenderer, trackTextureListeners } from './dispose';
-import { buildKeepFromUrl, installBuildMarks, installBuildReuse, type BuildReuse } from './node-builds';
+import { trackRenderer } from './dispose';
+import { buildKeepFromUrl, installBuildMarks, installBuildReuse, installPrecompileTargets, type BuildReuse } from './node-builds';
 import { installTexelReads } from './texel-reads';
 import { setPaintStreamDevice } from './vertex-paint-draw';
 
@@ -346,18 +346,18 @@ const BROWSER_DEPS: RendererFactoryDeps = {
     // Data textures read as given on WebGL 2 too (no flip uniform to set for every draw).
     installTexelReads();
     // Every renderer can draw lights whose layer masks leave some objects unlit or unshadowed.
-    registerLayeredLights(r);
+    registerLayeredLights();
     // And the probe lighting (its light, and the lights node that lets it replace the ambient light).
     registerProbeLighting(r as never);
     // And the clustered point and spot lights, and their heat map (a lighting debug view).
-    registerClusteredLights(r as never);
-    registerClusterHeat(r as never);
+    registerClusteredLights();
+    registerClusterHeat();
     // And projected decals (each draw a decal can reach wears its material's decal variant).
     registerProjectedDecals(r as never);
     // And the screen-space ambient occlusion, a light every lit material takes into its indirect light.
-    registerScreenSpaceOcclusion(r as never);
-    registerContactShadows(r as never);
-    registerReflections(r as never);
+    registerScreenSpaceOcclusion();
+    registerContactShadows();
+    registerReflections();
     // And objects that take no local light (their material's mode variant per draw).
     installLocalLightModes(r as never);
     // Last, so it sees each draw's material as the scene gave it: a program past the GPU's texture units draws a fallback.
@@ -426,7 +426,6 @@ export function createRenderer(o: CreateRendererOptions): RendererHandle {
   /** The released node builds the renderer keeps for a while (null: none installed). */
   let buildReuse: BuildReuse | null = null;
   /** Removes `node`'s listeners from the textures it set up (see dispose.ts). */
-  let releaseTextureListeners: (() => void) | null = null;
   let loseOnDispose = o.loseContextOnDispose === true;
 
   /** The WebGL 2 context's lose extension (taken while the context exists; the handle decides when to use it). */
@@ -457,17 +456,8 @@ export function createRenderer(o: CreateRendererOptions): RendererHandle {
     renderer = null;
     initialised = false;
     if (old === null) return;
-    // three's WebGLBackend.dispose() loses the context itself (via its extension cache):
-    // the canvas could never take another renderer. The handle keeps that decision.
-    const ext = old.backend.extensions;
-    if (ext !== undefined && typeof ext.get === 'function') {
-      const get = ext.get.bind(ext);
-      ext.get = (name: string): unknown => (name === 'WEBGL_lose_context' ? null : get(name));
-    }
+    // three's WebGLBackend.dispose() keeps the context of a canvas it was given: the handle decides.
     const lose = final && loseOnDispose ? loseExt : null;
-    // Before dispose(): it drops the map the listeners are found through.
-    releaseTextureListeners?.();
-    releaseTextureListeners = null;
     let done: unknown;
     try {
       done = old.dispose();
@@ -523,8 +513,6 @@ export function createRenderer(o: CreateRendererOptions): RendererHandle {
     node = r;
     nodeDevice = device;
     untrackNode = trackRenderer(r);
-    // The WebGL 2 backend never deletes a vertex array object (see dispose.ts).
-    if (device === null) installVaoSweep(r.backend);
     renderer = r as unknown as AnyRenderer;
     generation += 1;
     lost = false;
@@ -534,13 +522,11 @@ export function createRenderer(o: CreateRendererOptions): RendererHandle {
       () => {
         if (disposed || node !== r) return;
         initialised = true;
-        // Its texture component exists once initialised (before any frame is drawn).
-        releaseTextureListeners = trackTextureListeners(r);
-        // The WebGL 2 backend never deletes a released program or shader (see dispose.ts).
-        installProgramRelease(r);
         // Node programs and pipelines made from now on, as marks (what a changing scene still builds).
         installBuildMarks(r);
-        // A re-bake's new objects reuse the builds of the ones they replace (after the WebGL 2 release above).
+        // A precompile's draws are built for their target as it is when they are built (see node-builds.ts).
+        installPrecompileTargets(r);
+        // A re-bake's new objects reuse the builds of the ones they replace.
         buildReuse = installBuildReuse(r, buildKeepFromUrl(pageSearch()));
         // Vertex paint streams are as tall as this device's textures can be (see vertex-paint-draw.ts).
         setPaintStreamDevice(r.backend as Parameters<typeof setPaintStreamDevice>[0]);

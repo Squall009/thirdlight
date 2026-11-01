@@ -104,7 +104,6 @@ const Base = TAAUNode as unknown as new (beauty: N, depth: N, velocity: N, camer
   _jitterOffset: N;
   _jitterIndex: number;
   _textureNode: N;
-  _needsPostProcessingSync: boolean;
   setViewOffset(w: number, h: number): void;
   clearViewOffset(): void;
   updateBefore(frame: Frame): void;
@@ -225,10 +224,11 @@ class TemporalUpscaleNode extends Base {
   }
 
   setup(builder: Builder): N {
+    // Its inputs built first, as three's own setup does, so their per-frame updates run before the resolve's.
+    for (const input of [this.sceneDepth, this.velocityNode, this.beautyNode]) (input as { build(b: Builder): unknown }).build(builder);
     // Three's own setup but for the resolve: the jitter owned for the pipeline, the seed after a resize.
     if (builder.renderPipeline && !builder.context.renderPipelineState.viewOffsetOwner) {
       builder.context.renderPipelineState.viewOffsetOwner = this;
-      this._needsPostProcessingSync = true;
       const input = (): { width: number; height: number } => (this.beautyNode as { renderTarget: THREE.RenderTarget }).renderTarget.texture.image as { width: number; height: number };
       TSL.OnBeforeRenderPipeline(() => this.setViewOffset(input().width, input().height));
       TSL.OnAfterRenderPipeline(() => this.clearViewOffset());

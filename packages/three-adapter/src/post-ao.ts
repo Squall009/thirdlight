@@ -74,8 +74,8 @@ class ScreenSpaceOcclusionNode extends (THREE.LightingNode as unknown as new () 
 }
 
 /** Teach a renderer the occlusion light. */
-export function registerScreenSpaceOcclusion(renderer: { library: { addLight(node: unknown, light: unknown): void } }): void {
-  renderer.library.addLight(ScreenSpaceOcclusionNode, ScreenSpaceOcclusion);
+export function registerScreenSpaceOcclusion(): void {
+  ScreenSpaceOcclusion.registerNode(ScreenSpaceOcclusionNode as never);
 }
 
 export interface AmbientOcclusionStage {

@@ -54,6 +54,7 @@ import { shadowSeesCutaways } from './block-cutaway-view';
 import { objectLightLayers } from './light-layers';
 import { FaceRedraws, ShadowAtlasPlan, shadowRank, type AtlasRequest, type AtlasTile, type ShadowAtlasDiagnostics } from './shadow-atlas';
 import { AREA_BACK_FACE, CUBE_FACES, cubeDepthTerms, placeCubeFace } from './shadow-cube';
+import { isPreCompiling } from './shadow-casters';
 
 const TSL: N = TSLTyped;
 const { float, positionGeometry, vec4 } = TSL;
@@ -73,7 +74,6 @@ export const ATLAS_NORMAL_BIAS_TEXELS = 1;
 export interface AtlasRenderer {
   readonly coordinateSystem: number;
   readonly reversedDepthBuffer?: boolean;
-  readonly _isPreCompiling?: boolean;
   autoClear: boolean;
   render(scene: THREE.Object3D, camera: THREE.Camera): void;
   setRenderTarget(target: THREE.RenderTarget | null): void;
@@ -422,7 +422,7 @@ export class AdapterShadowAtlas {
 
   /** Draw the planned tiles (before the frame's own render). */
   draw(renderer: AtlasRenderer, scene: THREE.Scene, view: THREE.Camera): void {
-    if (this.gpu === null || (this.drawCount === 0 && !this.gpu.needsWipe) || renderer._isPreCompiling === true) return;
+    if (this.gpu === null || (this.drawCount === 0 && !this.gpu.needsWipe) || isPreCompiling(renderer)) return;
     this.gpu.draw(renderer, scene, view, this.draws, this.drawCount);
     this.drawCount = 0;
   }

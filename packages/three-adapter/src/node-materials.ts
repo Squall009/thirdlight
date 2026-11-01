@@ -171,6 +171,8 @@ export const instanceOrigin = Fn((builder: NodeBuilder) => {
   const o = (builder as unknown as { object: THREE.Object3D }).object as THREE.InstancedMesh;
   const im = o !== null && o !== undefined && o.isInstancedMesh === true ? o.instanceMatrix : null;
   if (im === null || im.isInstancedBufferAttribute !== true) return vec3(0, 0, 0);
+  // The program reads this mesh's own matrix buffer: three must not hand it to another instanced mesh of the material.
+  (builder as unknown as { objectSpecific: boolean }).objectSpecific = true;
   const count = Math.max(im.count, 1);
   const limit = (builder as unknown as { getUniformBufferLimit(): number }).getUniformBufferLimit();
   if (count * 16 * 4 <= limit) {

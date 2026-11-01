@@ -257,10 +257,15 @@ function layeredAnalytic(Base: AnalyticNodeClass, Shadow: ShadowNodeClass): Anal
      * three declares where they are first used. Used first inside this branch,
      * a draw the light leaves out never sets them, and every light after it
      * lit the draw with unset values (black). The condition names them, so
-     * they are set before the branch.
+     * they are set before the branch. The direct light's sums are named too:
+     * three sets a sum to zero where it is first used, and one first used in
+     * the branch is set to zero again where the lighting model reads it after
+     * the branch, which would drop this light.
      */
     override setup(builder: unknown): void {
-      If(this.factor.greaterThan(0.5).and(SURFACE_ANCHOR), () => {
+      const sums = (builder as { context: { reflectedLight?: { directDiffuse: N; directSpecular: N } } }).context.reflectedLight;
+      const named = sums === undefined ? SURFACE_ANCHOR : SURFACE_ANCHOR.and(sums.directDiffuse.x.add(sums.directSpecular.x).abs().lessThan(1e30));
+      If(this.factor.greaterThan(0.5).and(named), () => {
         super.setup(builder);
       });
     }
@@ -313,8 +318,8 @@ class LayeredHemisphereLightNode extends HemisphereBase {
  * Teach a renderer to shade layered lights (three finds a light's node class by its constructor). A layered point
  * or spot light has no node: the light clusters draw it (`cluster-lights.ts`), its masks read from it.
  */
-export function registerLayeredLights(renderer: { library: { addLight(node: unknown, light: unknown): void } }): void {
-  renderer.library.addLight(LayeredDirectionalLightNode, LayeredDirectionalLight);
-  renderer.library.addLight(LayeredAmbientLightNode, LayeredAmbientLight);
-  renderer.library.addLight(LayeredHemisphereLightNode, LayeredHemisphereLight);
+export function registerLayeredLights(): void {
+  LayeredDirectionalLight.registerNode(LayeredDirectionalLightNode as never);
+  LayeredAmbientLight.registerNode(LayeredAmbientLightNode as never);
+  LayeredHemisphereLight.registerNode(LayeredHemisphereLightNode as never);
 }

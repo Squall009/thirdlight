@@ -4,11 +4,12 @@ import { MeshBasicNodeMaterial, WebGPURenderer } from 'three/webgpu';
 import { describe, expect, it } from 'vitest';
 
 import { installTexelReads, neverFlipped } from './texel-reads';
+import { buildOnly } from './test-wgsl';
 
 /** The vertex GLSL WebGL 2 builds for a mesh whose position reads one texel of `tex`. */
 function glslReading(tex: THREE.Texture): string {
   const canvas = { style: {}, width: 1, height: 1, addEventListener() {}, removeEventListener() {}, getContext: () => null };
-  const renderer = new WebGPURenderer({ canvas: canvas as unknown as HTMLCanvasElement, forceWebGL: true });
+  const renderer = buildOnly(new WebGPURenderer({ canvas: canvas as unknown as HTMLCanvasElement, forceWebGL: true }));
   const material = new MeshBasicNodeMaterial();
   material.positionNode = TSL.positionLocal.add(TSL.textureLoad(tex, TSL.ivec2(1, 2)).xyz);
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(), material);

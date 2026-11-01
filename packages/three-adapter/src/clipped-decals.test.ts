@@ -370,17 +370,20 @@ describe('clipped decals', () => {
 
 describe('the decal material and the fade stream', () => {
   /**
-   * The WGSL digests of decal materials on a mesh without the fade stream (three r186): `own` as recorded before
+   * The WGSL digests of decal materials on a mesh without the fade stream (three r187): `own` as recorded before
    * clipped decals existed; the paged ones since the pages became one array, whose albedo layers the shader decodes
    * from sRGB (the program reads one texture and decodes, where it read three with the albedo's sRGB in its format).
    */
-  const MESH_DECAL_WGSL = { stain: 'e5546e3d5b686c27', soot: '17439ef42ca850d4', own: '3d31e6aaff07c784' };
+  const MESH_DECAL_WGSL = { stain: 'e20d1900778a8e95', soot: '156d04b5fb678814', own: '4eaf27b7b931c46c' };
 
   it('a mesh decal without fades builds the program it built before; with fades it reads them', async () => {
     // A build's pages: every set in one array, a page's sets side by side.
     const page = (layer: number) => ({ rect: [0.1, 0.1, 0.4, 0.4] as [number, number, number, number], mip: 2, albedo: { texture: 'decals-pages', layer: layer * 3 }, normal: { texture: 'decals-pages', layer: layer * 3 + 1 }, orm: { texture: 'decals-pages', layer: layer * 3 + 2 } });
     const array = (layers: number): THREE.DataArrayTexture => {
       const t = new THREE.DataArrayTexture(new Uint8Array(4 * 4 * 4 * layers).fill(128), 4, 4, layers);
+      // Filtered as the pages' KTX2 arrays are (a texture filtered nearest both ways is read with texel loads).
+      t.magFilter = THREE.LinearFilter;
+      t.minFilter = THREE.LinearMipmapLinearFilter;
       t.needsUpdate = true;
       return t;
     };

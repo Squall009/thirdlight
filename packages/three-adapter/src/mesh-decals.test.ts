@@ -32,6 +32,9 @@ describe('a scene without decals keeps its programs', () => {
 /** A page array of `layers` 4×4 layers (its texels do not matter here). */
 function pageArray(layers: number): THREE.DataArrayTexture {
   const t = new THREE.DataArrayTexture(new Uint8Array(4 * 4 * 4 * layers).fill(128), 4, 4, layers);
+  // Filtered as the pages' KTX2 arrays are (a texture filtered nearest both ways is read with texel loads).
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
   t.needsUpdate = true;
   return t;
 }

@@ -15,9 +15,8 @@ describe('three upgrade checklist', () => {
     // One of each kind the scan looks for, so a scan that finds nothing does not pass.
     expect(has('observer-refresh.ts', 'setupObserver')).toBe(true);
     expect(has('local-lights.ts', 'renderObject')).toBe(true);
-    expect(has('post-ao.ts', 'library.addLight')).toBe(true);
     expect(has('post-upscale.ts', 'updateBefore')).toBe(true);
-    expect(has('dispose.ts', '_releasePipeline')).toBe(true);
+    expect(has('dispose.ts', '_renderContexts')).toBe(true);
     expect(has('block-ao-lighting.ts', 'builder.geometry')).toBe(true);
     expect(has('mesh-decals.ts', 'builder.camera')).toBe(true);
     expect(sites.some((s) => s.member.startsWith('_tl'))).toBe(false);

@@ -435,12 +435,12 @@ time, stay at the memory they started with.
 - *The Scene view* releases what a closed editor scene or a removed object
   used (also lightmapped material copies) and the edit-mode effect preview's
   material holders.
-- Three.js (0.186) itself keeps some GPU objects until the garbage collector
-  finds them (WebGL programs, shaders and vertex arrays) or never frees them
-  (a texture shared between renderers kept every renderer that drew it); the
-  engine releases these explicitly through the renderer's internals of the
-  pinned three version (guarded: another version would only lose the early
-  release).
+- Three.js itself keeps a few GPU objects until something disposes their
+  geometry (buffers the node system made for instanced copies, the render
+  contexts of a rebuilt post stack) and would free buffers a disposed
+  geometry shares with others; the engine releases these explicitly through
+  the renderer's internals of the pinned three version (guarded: another
+  version would only lose the early release).
 
 `tests/e2e/memory.e2e.ts` checks it: each document tab kind opened and closed
 50×, the preview panes 50×, an editor scene closed and opened 50×, instancing

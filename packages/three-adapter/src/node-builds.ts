@@ -232,3 +232,49 @@ export function installBuildReuse(renderer: unknown, keepMs: number = RELEASED_B
   };
   return reuse;
 }
+
+/** The renderer internals `installPrecompileTargets` reads (three r187; guarded). */
+interface PrecompileInternals {
+  _beginPreCompile?: (state: PrecompileState) => unknown;
+  _textures?: { updateRenderTarget(target: object, level?: number): void; get(target: object): { textures?: unknown; depthTexture?: unknown; width?: number; height?: number } } | null;
+}
+interface PrecompileState {
+  renderTarget?: { depthBuffer?: boolean; stencilBuffer?: boolean } | null;
+  activeMipmapLevel?: number;
+  renderContext?: { textures?: unknown; depthTexture?: unknown; width?: number; height?: number; renderTarget?: unknown; depth?: boolean; stencil?: boolean } | null;
+  item?: { renderContext?: PrecompileState['renderContext'] } | null;
+}
+
+/**
+ * three's `compileAsync` collects a scene's draws at once but builds them one by one later, each for the render
+ * context it was collected in. A target resized meanwhile (the post stack's scene pass follows the canvas and the
+ * render scale) frees its textures, and a draw built after that gets a pipeline without a depth format, which
+ * fails: the object is never drawn. And the context does not name its target, so a node copying the frame's
+ * depth while the draw builds (a material reading the scene depth) copies the canvas's depth buffer instead, at
+ * the target's size: an invalid copy, and the canvas's buffer remade under the frame being drawn (every later
+ * frame fails). Before each draw is built its context is given the target and its textures as they are now.
+ * Returns whether it was installed.
+ */
+export function installPrecompileTargets(renderer: unknown): boolean {
+  const r = renderer as PrecompileInternals | null;
+  const begin = r?._beginPreCompile;
+  const textures = r?._textures;
+  if (r === null || typeof begin !== 'function' || textures === undefined || textures === null || typeof textures.updateRenderTarget !== 'function' || typeof textures.get !== 'function') return false;
+  r._beginPreCompile = function beginPreCompileWithTarget(this: unknown, state: PrecompileState): unknown {
+    const target = state.renderTarget ?? null;
+    const context = state.item?.renderContext ?? state.renderContext ?? null;
+    if (target !== null && context !== null) {
+      textures.updateRenderTarget(target, state.activeMipmapLevel ?? 0);
+      const now = textures.get(target);
+      context.textures = now.textures;
+      context.depthTexture = now.depthTexture;
+      context.width = now.width;
+      context.height = now.height;
+      context.renderTarget = target;
+      context.depth = target.depthBuffer;
+      context.stencil = target.stencilBuffer;
+    }
+    return begin.call(this, state);
+  };
+  return true;
+}

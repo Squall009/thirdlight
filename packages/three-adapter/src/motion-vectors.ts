@@ -75,7 +75,7 @@ const lastWorld = new WeakMap<THREE.Object3D, THREE.Matrix4>();
  * vertex now and as it was (its object's last matrix, its own last place),
  * each through its frame's view-projection, per vertex.
  */
-class ObjectMotionNode extends (THREE.TempNode as unknown as new (type: string) => { [k: string]: unknown; updateType: string }) {
+class ObjectMotionNode extends (THREE.Node as unknown as new (type: string) => { [k: string]: unknown; updateType: string }) {
   static get type(): string {
     return 'ObjectMotionNode';
   }

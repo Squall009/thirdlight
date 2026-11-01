@@ -24,7 +24,7 @@ import { localLightVariant } from './local-lights';
 import { registerProbeLighting } from './probe-lighting';
 import { SURFACE_READ } from './surface-cache-lookup';
 import { SurfaceCacheTextures } from './surface-cache-read';
-import { litScene, wgslOf, wgslRenderer } from './test-wgsl';
+import { buildOnly, litScene, wgslOf, wgslRenderer } from './test-wgsl';
 
 /**
  * A renderer that has built the clustered lights once: three emits the shared functions (`Fn` with a layout,
@@ -36,7 +36,7 @@ const box = (m: THREE.Material): THREE.Mesh => new THREE.Mesh(new THREE.BoxGeome
 function renderer(): WebGPURenderer {
   const r = wgslRenderer();
   registerProbeLighting(r as never);
-  registerClusteredLights(r as never);
+  registerClusteredLights();
   const warm = litScene();
   warm.add(new ClusteredLights(new ClusterGpu(new ClusterTextures())));
   wgslOf(r, warm, box(new THREE.MeshStandardMaterial()));
@@ -62,11 +62,11 @@ function glslOf(scene: THREE.Scene, mesh: THREE.Mesh): string {
 /** The WebGL 2 build of a mesh: its fragment shader and the nodes three updates for every draw of it. */
 function glslBuild(scene: THREE.Scene, mesh: THREE.Mesh): { fragmentShader: string; updateNodes: { updateType: string; value?: unknown }[] } {
   const canvas = { style: {}, width: 1, height: 1, addEventListener() {}, removeEventListener() {}, getContext: () => null };
-  const r = new WebGPURenderer({ canvas: canvas as unknown as HTMLCanvasElement, forceWebGL: true });
+  const r = buildOnly(new WebGPURenderer({ canvas: canvas as unknown as HTMLCanvasElement, forceWebGL: true }));
   // WebGL 2 compares depth in hardware (its backend's answer; it is not initialized here).
   (r as unknown as { hasCompatibility: () => boolean }).hasCompatibility = () => true;
   registerProbeLighting(r as never);
-  registerClusteredLights(r as never);
+  registerClusteredLights();
   const lights: THREE.Light[] = [];
   scene.traverse((o) => void ((o as THREE.Light).isLight === true && lights.push(o as THREE.Light)));
   const backend = (r as unknown as { backend: { createNodeBuilder(o: THREE.Object3D, r: WebGPURenderer): { scene: THREE.Scene; camera: THREE.Camera; material: THREE.Material; lightsNode: unknown; build(): void; fragmentShader: string; updateNodes: { updateType: string; value?: unknown }[] } } }).backend;
@@ -225,18 +225,25 @@ describe('the clustered lights', () => {
     clustered.areas = true;
     const physical = wgslOf(r, scene, box(new THREE.MeshStandardMaterial()));
     const units = (src: string): number => (src.match(/:\s*texture_/g) ?? []).length;
-    expect(without).not.toMatch(/LTC_Evaluate\(/);
     expect(units(physical)).toBe(units(without) + 1);
     const lambert = wgslOf(r, scene, box(new THREE.MeshLambertMaterial()));
     // The specular and diffuse forms (two LTC integrals) on the physical model, one on Lambert; both tables read at level 0 from one texture.
-    const calls = (src: string): number => (src.match(/LTC_Evaluate\(/g) ?? []).length;
+    // three names TSL functions by number in the code it builds: LTC_Evaluate is the one taking the corners and the matrix.
+    const ltc = (src: string): string | null => /(\w+) \([^)]*\bmInv\b[^)]*\bp3\b/.exec(src)?.[1] ?? null;
+    const calls = (src: string): number => {
+      const name = ltc(src);
+      return name === null ? 0 : src.split(`${name}(`).length - 1;
+    };
+    expect(ltc(without)).toBeNull();
     expect(calls(physical)).toBeGreaterThanOrEqual(2);
     expect(calls(lambert)).toBe(1);
     expect(physical).toMatch(/textureSampleLevel\(/);
-    expect(physical).not.toMatch(/LTC_Uv[^\n]*\n[^\n]*textureSample\(/);
+    const ltcUv = /fn (\w+) \( N : vec3<f32>, V : vec3<f32>, roughness : f32 \) -> vec2<f32>/.exec(physical)?.[1];
+    expect(ltcUv).toBeDefined();
+    expect(physical).not.toMatch(new RegExp(`${ltcUv}\\([^\\n]*\\n[^\\n]*textureSample\\(`));
     const glsl = glslOf(scene, box(new THREE.MeshStandardMaterial()));
     expect(glsl).toMatch(/textureLod\(/);
-    expect(glsl).toMatch(/LTC_Evaluate\(/);
+    expect(calls(glsl)).toBeGreaterThan(0);
   });
 
   it('on a surface reading the cache, sum the lights the cache does not hold apart only while some are in the scene', () => {
@@ -268,3 +275,4 @@ describe('the clustered lights', () => {
     expect(f).not.toMatch(/pointLight|spotLight/i);
   });
 });
+

@@ -11,7 +11,6 @@
  * - a patched prototype method (`proto.setupObserver = …`, `X.prototype.y = …`);
  * - an instance method replaced on a three object (`renderer.renderObject =`,
  *   `node.updateBefore =`, `node.setSize =`) or `setRenderObjectFunction`;
- * - `renderer.library.addLight` (three's light-node registry);
  * - an `_`-prefixed member (three's private fields; the engine's own markers
  *   start with `_tl`);
  * - a node builder's members (`builder.context`, `builder.geometry`, …),
@@ -32,7 +31,6 @@ const RULES = [
   [/(?:\bproto|\.prototype)\.(\w+)\s*=(?!=)/g, (m) => m[1]],
   [/\b(setupObserver|setRenderObjectFunction)\b/g, (m) => m[1]],
   [/\.(renderObject|updateBefore|setSize)\s*=(?!=)/g, (m) => m[1]],
-  [/\blibrary\.addLight\b/g, () => 'library.addLight'],
   [/\?*\.(_[a-zA-Z]\w*)/g, (m) => m[1]],
   [/['"](_[a-zA-Z]\w*)['"]|\b(_listeners)\s*:/g, (m) => m[1] ?? m[2]],
   [/(?<![.\w])builder\??\.(\w+)/g, (m) => `builder.${m[1]}`],

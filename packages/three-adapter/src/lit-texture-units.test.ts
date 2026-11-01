@@ -35,10 +35,10 @@ function renderer(): WebGPURenderer {
   const r = wgslRenderer();
   r.shadowMap.enabled = true;
   registerProbeLighting(r as never);
-  registerClusteredLights(r as never);
-  registerScreenSpaceOcclusion(r as never);
-  registerContactShadows(r as never);
-  registerReflections(r as never);
+  registerClusteredLights();
+  registerScreenSpaceOcclusion();
+  registerContactShadows();
+  registerReflections();
   installProjectedDecalSteps();
   // Skinning sizes its bone matrices by the device's uniform buffer limit (WebGPU's guaranteed one here).
   (r as unknown as { backend: { device: unknown } }).backend.device = { limits: { maxUniformBufferBindingSize: 65536 } };

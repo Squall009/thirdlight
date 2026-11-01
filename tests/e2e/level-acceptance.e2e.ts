@@ -709,7 +709,8 @@ test('level acceptance: blocks on a few km of terrain with rules, scatter, splin
     await expect
       .poll(async () => {
         clipped = ((await relay(`${psid}/diagnostics`, {})).json as { diagnostics?: { renderer?: { clippedDecals?: Clipped } } }).diagnostics?.renderer?.clippedDecals;
-        return clipped?.drawn ?? 0;
+        // Read once the first frame is presented too: before it, whether the decal was ready for it is not known yet.
+        return clipped?.readyAfterFirstFrameMs === null ? 0 : (clipped?.drawn ?? 0);
       }, { timeout: 60_000, message: `${renderer} Play: the corner's clipped decal drawn` })
       .toBe(1)
       .catch((e: unknown) => {

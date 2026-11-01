@@ -383,6 +383,6 @@ export function isClusterLightsNode(n: unknown): boolean {
 }
 
 /** Teach a renderer the clustered lights. */
-export function registerClusteredLights(renderer: { library: { addLight(node: unknown, light: unknown): void } }): void {
-  renderer.library.addLight(ClusterLightsNode, ClusteredLights);
+export function registerClusteredLights(): void {
+  ClusteredLights.registerNode(ClusterLightsNode as never);
 }

@@ -111,6 +111,6 @@ export function isClusterHeatNode(n: unknown): boolean {
 }
 
 /** Teach a renderer the heat map's light. */
-export function registerClusterHeat(renderer: { library: { addLight(node: unknown, light: unknown): void } }): void {
-  renderer.library.addLight(ClusterHeatNode, ClusterHeatLight);
+export function registerClusterHeat(): void {
+  ClusterHeatLight.registerNode(ClusterHeatNode as never);
 }

@@ -235,6 +235,6 @@ export function isReflectionsNode(node: unknown): boolean {
 }
 
 /** Teach a renderer the reflections light. */
-export function registerReflections(renderer: { library: { addLight(node: unknown, light: unknown): void } }): void {
-  renderer.library.addLight(ReflectionsNode, ReflectionsLight);
+export function registerReflections(): void {
+  ReflectionsLight.registerNode(ReflectionsNode as never);
 }

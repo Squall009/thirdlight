@@ -1,13 +1,13 @@
 /**
  * OrbitControls disposed after its canvas left the page must not
  * leave its Control-key listeners on the document (they would keep the
- * controls, the canvas and the closed pane's whole tree alive).
+ * controls, the canvas and the closed pane's whole tree alive). three adds
+ * and removes them on the canvas's own document, so `dispose()` is enough:
+ * this holds a three upgrade to that.
  */
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { describe, expect, it } from 'vitest';
-
-import { disposeOrbitControls } from './controls';
 
 type L = { type: string; fn: unknown };
 function target(): { listeners: L[]; addEventListener(t: string, fn: unknown): void; removeEventListener(t: string, fn: unknown): void } {
@@ -24,7 +24,7 @@ function target(): { listeners: L[]; addEventListener(t: string, fn: unknown): v
   };
 }
 
-describe('disposeOrbitControls', () => {
+describe('OrbitControls.dispose', () => {
   it('removes the document key listeners even when the canvas is already detached', () => {
     const doc = target();
     const canvas = { ...target(), style: {} as Record<string, string>, ownerDocument: doc, attached: true, getRootNode(): unknown {
@@ -34,7 +34,7 @@ describe('disposeOrbitControls', () => {
     expect(doc.listeners.filter((l) => l.type === 'keydown')).toHaveLength(1);
     // React removed the canvas before the cleanup ran: its root node is itself now.
     canvas.attached = false;
-    disposeOrbitControls(controls);
+    controls.dispose();
     expect(doc.listeners.filter((l) => l.type === 'keydown' || l.type === 'keyup')).toHaveLength(0);
   });
 });

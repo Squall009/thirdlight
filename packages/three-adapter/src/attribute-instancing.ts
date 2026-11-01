@@ -1,12 +1,13 @@
 /**
  * Instancing that shares node programs.
  *
- * three r186 builds a node program for every `InstancedMesh` on its own: the
- * render object's cache key holds the instanced object's `uuid` (its matrices
- * are bound into the program's nodes). A scene whose repeated objects form
- * hundreds of instanced groups (many materials × many meshes) then builds
- * hundreds of identical programs before its first frame — measured: 573
- * builds, ~4.5 s of the large benchmark's first frame on the GPU host.
+ * three r186 built a node program for every `InstancedMesh` on its own (the
+ * render object's cache key held the instanced object's `uuid`): a scene whose
+ * repeated objects form hundreds of instanced groups built hundreds of
+ * identical programs before its first frame (573 builds, ~4.5 s of the large
+ * benchmark's first frame on the GPU host). r187 shares them for meshes of at
+ * most eight vertex buffers, but the columns here stay: the GPU culling lists
+ * and the paint slots read the copies through them.
  *
  * Here the instance matrices are instead a vertex attribute of the drawn
  * geometry (an `InstancedBufferGeometry` that shares the source geometry's

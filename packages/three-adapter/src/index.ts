@@ -367,7 +367,7 @@ export { EFFECT_TIMELINE_STEP, EffectTimeline, type EffectSystemCounter, type Ef
 export { createStageClusters, type StageClusters } from './cluster-stage';
 
 // Releasing objects that leave the scene for good (render objects, node-made buffers, shadow maps).
-export { disposeObjectTree, disposeSharingGeometry, installProgramRelease, installVaoSweep, liveRenderers, releaseNodeAttributes, trackRenderer, trackTextureListeners, type DisposeTreeOptions } from './dispose';
+export { disposeObjectTree, disposeSharingGeometry, liveRenderers, releaseNodeAttributes, trackRenderer, type DisposeTreeOptions } from './dispose';
 // Block layers — merged chunk meshes (the Play/export adapter and the editor's Scene view share it).
 export { BlockLayerView, MESH_APPLY_BUDGET_MS, SYNC_MESH_BUDGET_MS, blockChunkKey, blockLookFromObject, type BlockChunkLightmapTarget, type BlockLayerViewDeps, type BlockLayerViewDiagnostics, type BlockModelLook } from './block-layers';
 export { MESH_WORKERS_MAX, createBrowserMeshWorker, meshWorkerCount, type MeshWorkerFactory, type MeshWorkerPort } from './block-mesh-pool';

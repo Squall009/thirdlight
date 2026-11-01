@@ -51,7 +51,7 @@ describe('reflections: the materials', () => {
   function lit(): { r: ReturnType<typeof wgslRenderer>; scene: THREE.Scene } {
     const r = wgslRenderer();
     registerProbeLighting(r as never);
-    registerReflections(r as never);
+    registerReflections();
     return { r, scene: litScene() };
   }
 
@@ -76,7 +76,7 @@ describe('reflections: the materials', () => {
     const last = writes[writes.length - 1]!;
     expect(last.startsWith('mix( radiance,') || new RegExp(`\\t${last} = mix\\( radiance,`).test(read)).toBe(true);
     // Its reads sit behind the roughness test (a rough pixel reads nothing) and take no texture transform.
-    expect(read).toMatch(/= \( Roughness < 0\.5 \);/);
+    expect(read).toMatch(/(= |if \( )\( Roughness < 0\.5 \)/);
     expect(read).not.toMatch(/nodeUniform\d+ \* vec3<f32>\( nodeVar\d+, 1\.0 \) \)\.xy \)/);
     // A Lambert material has no environment radiance: unchanged.
     expect(wgslOf(r, scene, new THREE.Mesh(new THREE.BoxGeometry(), lambert))).toBe(plainLambert);

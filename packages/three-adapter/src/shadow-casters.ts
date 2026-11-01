@@ -204,3 +204,7 @@ export class StaticShadowRevision {
 /** The page flag that draws every caster into one shadow map every frame (`?shadowcache=off`: a diagnostic comparison). */
 export const SHADOW_CACHE_URL_PARAM = 'shadowcache';
 
+/** Whether `renderer` is inside a precompile (`compileAsync` collecting or building its work): shadow maps are not drawn then. */
+export function isPreCompiling(renderer: unknown): boolean {
+  return ((renderer as { _precompilationState?: unknown } | null)?._precompilationState ?? null) !== null;
+}

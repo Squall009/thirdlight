@@ -10,7 +10,7 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 
 import { createAutoBatcher, markBatchable } from './batching';
-import { disposeObjectTree, installProgramRelease, installVaoSweep, liveRenderers, releaseMrtContexts, releaseNodeAttributes, trackRenderer, trackTextureListeners } from './dispose';
+import { disposeObjectTree, liveRenderers, releaseMrtContexts, releaseNodeAttributes, trackRenderer } from './dispose';
 import { createMaterialLibrary, type MaterialDefLike } from './material-library';
 import { releaseEmissiveLooks, setEntityLook, SHARED_MATERIAL_KEY } from './node-materials';
 
@@ -22,10 +22,10 @@ const disposals = (o: THREE.Object3D): { n: number } => {
   return c;
 };
 
-/** A stub renderer with the private fields dispose.ts reads (three 0.186). */
+/** A stub renderer with the private fields dispose.ts reads (three r187: its attribute map holds an interleaved attribute's buffer). */
 function stubRenderer(ros: { object: unknown; geometry: THREE.BufferGeometry; extra: unknown[] }[]): { renderer: unknown; deleted: unknown[] } {
   const deleted: unknown[] = [];
-  const live = new Set<unknown>(ros.flatMap((r) => r.extra));
+  const live = new Set<unknown>(ros.flatMap((r) => r.extra).map((a) => ((a as { isInterleavedBufferAttribute?: boolean }).isInterleavedBufferAttribute === true ? (a as THREE.InterleavedBufferAttribute).data : a)));
   const renderer = {
     _objects: {
       _renderObjects: new Set(
@@ -110,7 +110,8 @@ describe('disposeObjectTree', () => {
     const holder = new THREE.Group();
     holder.add(batch);
     disposeObjectTree(holder);
-    expect(a.deleted).toEqual(matrices);
+    // three keys an interleaved attribute's GPU buffer by the buffer it views.
+    expect(a.deleted).toEqual([(matrices[0] as THREE.InterleavedBufferAttribute).data, matrices[1]]);
     expect(b.deleted).toEqual([matrices[1]]);
     // The shared geometry's attributes and the other mesh's buffers stay.
     expect(a.deleted).not.toContain(geometry.attributes['position']);
@@ -123,103 +124,7 @@ describe('disposeObjectTree', () => {
   });
 });
 
-describe('three 0.186 renderer internals (stubbed)', () => {
-  it('installVaoSweep deletes the vertex arrays of destroyed attributes before the next one is made, and keeps live ones', () => {
-    const data = new WeakMap<object, { id: number }>();
-    let id = 0;
-    const deleted: unknown[] = [];
-    const backend = {
-      gl: { deleteVertexArray: (v: unknown) => void deleted.push(v) },
-      vaoCache: {} as Record<string, unknown>,
-      has: (o: object) => data.has(o),
-      get: (o: object) => {
-        let d = data.get(o);
-        if (d === undefined) data.set(o, (d = { id: id++ }));
-        return d;
-      },
-      _getVaoKey(attributes: readonly object[]) {
-        return attributes.map((a) => `:${this.get(a).id}`).join('');
-      },
-      _createVao: (attributes: readonly object[]) => ({ vao: attributes.length }),
-      destroyAttribute: (a: object) => void data.delete(a),
-    };
-    expect(installVaoSweep(backend)).toBe(true);
-    const make = (attrs: object[]): unknown => {
-      const key = backend._getVaoKey(attrs);
-      const vao = backend._createVao(attrs);
-      backend.vaoCache[key] = vao;
-      return vao;
-    };
-    const kept = [{}, {}];
-    const gone = [{}, {}];
-    const keptVao = make(kept);
-    const goneVao = make(gone);
-    backend.destroyAttribute(gone[0]!);
-    make([{}]);
-    expect(deleted).toEqual([goneVao]);
-    expect(Object.values(backend.vaoCache)).toContain(keptVao);
-    expect(Object.values(backend.vaoCache)).not.toContain(goneVao);
-    expect(installVaoSweep({})).toBe(false);
-  });
-
-  it('installVaoSweep also deletes a destroyed attribute set\'s vertex array without waiting for a new one', async () => {
-    const data = new WeakMap<object, { id: number }>();
-    let id = 0;
-    const deleted: unknown[] = [];
-    const backend = {
-      gl: { deleteVertexArray: (v: unknown) => void deleted.push(v) },
-      vaoCache: {} as Record<string, unknown>,
-      has: (o: object) => data.has(o),
-      get: (o: object) => {
-        let d = data.get(o);
-        if (d === undefined) data.set(o, (d = { id: id++ }));
-        return d;
-      },
-      _getVaoKey(attributes: readonly object[]) {
-        return attributes.map((a) => `:${this.get(a).id}`).join('');
-      },
-      _createVao: (attributes: readonly object[]) => ({ vao: attributes.length }),
-      destroyAttribute: (a: object) => void data.delete(a),
-    };
-    expect(installVaoSweep(backend)).toBe(true);
-    const attrs = [{}];
-    const key = backend._getVaoKey(attrs);
-    const vao = backend._createVao(attrs);
-    backend.vaoCache[key] = vao;
-    backend.destroyAttribute(attrs[0]!);
-    expect(deleted).toEqual([]);
-    await new Promise((r) => setTimeout(r, 0));
-    expect(deleted).toEqual([vao]);
-    expect(Object.values(backend.vaoCache)).not.toContain(vao);
-  });
-
-  it('trackTextureListeners removes the renderer\'s dispose listeners from textures that outlive it', () => {
-    const map = new WeakMap<object, { onDispose?: () => void }>();
-    const textures = {
-      get: (o: object) => {
-        let d = map.get(o);
-        if (d === undefined) map.set(o, (d = {}));
-        return d;
-      },
-      updateTexture(t: THREE.Texture) {
-        const d = this.get(t);
-        if (d.onDispose === undefined) {
-          d.onDispose = () => undefined;
-          t.addEventListener('dispose', d.onDispose);
-        }
-      },
-      updateRenderTarget: () => undefined,
-    };
-    const shared = new THREE.Texture();
-    const release = trackTextureListeners({ _textures: textures });
-    textures.updateTexture(shared);
-    expect(shared.hasEventListener('dispose', map.get(shared)!.onDispose!)).toBe(true);
-    release();
-    expect(shared.hasEventListener('dispose', map.get(shared)!.onDispose!)).toBe(false);
-  });
-});
-
-describe('three 0.186 renderer internals, continued (stubbed)', () => {
+describe('three renderer internals (stubbed)', () => {
   it('releaseMrtContexts disposes the render objects drawn with a gone MRT and forgets its contexts', () => {
     const mrt = { id: 7 };
     const other = { id: 8 };
@@ -233,26 +138,6 @@ describe('three 0.186 renderer internals, continued (stubbed)', () => {
     expect(disposed).toEqual(['a', 'c']);
     expect(Object.keys(renderer._renderContexts._renderContexts)).toEqual(['x-8-0', 'x-default-0']);
     expect(releaseMrtContexts(renderer, null)).toBe(0);
-  });
-
-  it('installProgramRelease deletes the GL program and shaders three only drops from its caches (WebGL 2 only)', () => {
-    const data = new Map<object, { programGPU?: unknown; shaderGPU?: unknown }>();
-    const deleted: string[] = [];
-    const pipeline = {};
-    const stage = {};
-    data.set(pipeline, { programGPU: 'program-1' });
-    data.set(stage, { shaderGPU: 'shader-1' });
-    const released: object[] = [];
-    const renderer = {
-      _pipelines: { _releasePipeline: (p: object) => void released.push(p), _releaseProgram: (p: object) => void released.push(p) },
-      backend: { isWebGLBackend: true, gl: { deleteProgram: (p: string) => void deleted.push(p), deleteShader: (s: string) => void deleted.push(s) }, has: (o: object) => data.has(o), get: (o: object) => data.get(o) },
-    };
-    expect(installProgramRelease(renderer)).toBe(true);
-    renderer._pipelines._releasePipeline(pipeline);
-    renderer._pipelines._releaseProgram(stage);
-    expect(deleted).toEqual(['program-1', 'shader-1']);
-    expect(released).toEqual([pipeline, stage]);
-    expect(installProgramRelease({ ...renderer, backend: { ...renderer.backend, isWebGLBackend: false } })).toBe(false);
   });
 });
 

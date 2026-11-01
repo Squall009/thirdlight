@@ -83,8 +83,8 @@ class ContactShadowsNode extends (THREE.LightingNode as unknown as new () => { [
 }
 
 /** Teach a renderer the contact-shadows light. */
-export function registerContactShadows(renderer: { library: { addLight(node: unknown, light: unknown): void } }): void {
-  renderer.library.addLight(ContactShadowsNode, ContactShadowsLight);
+export function registerContactShadows(): void {
+  ContactShadowsLight.registerNode(ContactShadowsNode as never);
 }
 
 /** The contact-shadows light among a build's lights (null: none). */

@@ -222,11 +222,10 @@ class ObjectTextureNode extends TextureNode {
   }
   override update(frame: Parameters<TextureNode['update']>[0]): ReturnType<TextureNode['update']> {
     this.value = this.pick((frame as { object?: THREE.Object3D } | undefined)?.object ?? null) ?? this.placeholder;
-    (TextureNode.prototype as unknown as { update: (f: unknown) => void }).update.call(this, frame);
     return undefined;
   }
 }
-// Always per object: three's own setup resets `updateType` (a texture without a UV transform needs no update).
+// Always per object: a texture node has no update of its own in three (`updateType` none), so this one would never run.
 Object.defineProperty(ObjectTextureNode.prototype, 'updateType', {
   get: () => T.NodeUpdateType.OBJECT,
   set: () => undefined,

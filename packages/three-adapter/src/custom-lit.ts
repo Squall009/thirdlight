@@ -3,7 +3,7 @@
  * whose colour the graph computes from the lights, drawn through three's
  * normal lighting pipeline so fog, tone mapping and the post stack apply.
  *
- * three.js (r186) lights a node material in `LightsNode.setup`: the material's
+ * three.js (r187) lights a node material in `LightsNode.setup`: the material's
  * lighting model gets `start` (every light node builds; an analytic light
  * calls `direct` with its direction, its colour already carrying its shadow
  * and falloff; ambient, hemisphere and probe lights add to the context's

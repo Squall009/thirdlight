@@ -17,7 +17,7 @@ import { MODULE_IDS } from './modules';
  * the repository's installed pins; tools/check-deps.mjs fails the build when
  * they disagree.
  */
-export const TOOLCHAIN_PINS = Object.freeze({ esbuild: '0.28.2', typescript: '5.9.3', three: '0.186.1' } as const);
+export const TOOLCHAIN_PINS = Object.freeze({ esbuild: '0.28.2', typescript: '5.9.3', three: '0.187.0' } as const);
 
 /** The engine version a new project's manifest and an export's record name. */
 export const ENGINE_VERSION = '0.1.0';

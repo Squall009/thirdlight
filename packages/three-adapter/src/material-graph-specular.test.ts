@@ -18,7 +18,7 @@ import * as TSL from 'three/tsl';
 
 import { buildGraphMaterial, compileMaterialGraph, digestOf, graphNeedsPhysical, type GraphCompileEnv, type MaterialGraphLike } from './material-graph';
 import { createMaterialLibrary, type MaterialDefLike } from './material-library';
-import { graphDef, GRAPH_ENV, litScene, PLAIN_GRAPH_WGSL, PLAIN_GRAPHS, settle, wgslOf, wgslRenderer } from './test-wgsl';
+import { graphDef, GRAPH_ENV, litScene, PLAIN_GRAPH_WGSL, PLAIN_GRAPHS, settle, testTexture, wgslOf, wgslRenderer } from './test-wgsl';
 
 const n = (id: string, type: string, data?: Record<string, unknown>) => ({ id, type, position: [0, 0] as [number, number], ...(data !== undefined ? { data } : {}) });
 const e = (id: string, from: string, fp: string, to: string, tp: string) => ({ id, from: { node: from, port: fp }, to: { node: to, port: tp } });
@@ -27,8 +27,7 @@ const BEFORE = PLAIN_GRAPH_WGSL;
 const ENV = GRAPH_ENV;
 
 async function compiledScene(graphs: Record<string, MaterialGraphLike>): Promise<{ renderer: WebGPURenderer; scene: THREE.Scene; meshes: Record<string, THREE.Mesh> }> {
-  const tex = new THREE.DataTexture(new Uint8Array([200, 120, 60, 255]), 1, 1);
-  tex.needsUpdate = true;
+  const tex = testTexture();
   const library = createMaterialLibrary({ loadTexture: async () => tex });
   library.setMaterials(Object.entries(graphs).map(([id, g]) => graphDef(id, g)));
   const scene = litScene();

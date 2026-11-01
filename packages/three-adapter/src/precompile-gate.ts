@@ -35,6 +35,8 @@ export class PrecompileGate {
   private settled: { readonly startedAt: number; readonly ms: number } | null = null;
   /** Since when the first present waits for the start scenes' content. */
   private startHeldSince: number | null = null;
+  /** The start's compile settled before the first present: that present still waits for content arriving meanwhile. */
+  private startCompiled = false;
   private readonly counts: PrecompileStats = { runs: 0, failed: 0, gaveUp: 0, lastMs: 0 };
 
   /** @param disposed whether the adapter is gone (a compile settling after that counts nothing). */
@@ -47,6 +49,7 @@ export class PrecompileGate {
 
   /** A new renderer (a lost device): what ran is let go and its first present waits as the first one did. */
   restart(): void {
+    this.startCompiled = false;
     this.run?.job.release();
     this.run = null;
     this.wanted = 'start';
@@ -85,6 +88,12 @@ export class PrecompileGate {
   holds(startHeld: () => boolean, compile: (() => Precompile) | null): boolean {
     const now = performance.now();
     if (this.running(now)) return true;
+    // Content can come after the start's compile began (a decal clipped on a worker): the first present waits for it
+    // all the same, within the start's wait.
+    if (this.startCompiled) {
+      if (startHeld() && now - (this.startHeldSince ??= now) < PRECOMPILE_WAIT_MS) return true;
+      this.startCompiled = false;
+    }
     if (this.wanted === null || compile === null) return false;
     if (this.wanted === 'start' && startHeld()) {
       this.startHeldSince ??= now;
@@ -110,6 +119,7 @@ export class PrecompileGate {
       if (failed) this.counts.failed += 1;
       this.counts.lastMs = Math.round(ms);
       this.settled = { startedAt: run.startedAt, ms };
+      if (run.reason === 'start') this.startCompiled = true;
     };
     job.done.then(
       () => settle(false),

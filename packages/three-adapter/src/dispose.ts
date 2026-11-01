@@ -1,7 +1,7 @@
 /**
  * Releasing three.js objects that leave the scene for good.
  *
- * In three 0.186's WebGPURenderer (both backends) removing an object from
+ * In three's WebGPURenderer (both backends) removing an object from
  * the scene is not enough:
  *
  * - A render object (the object × material × pass: its pipeline, bindings,
@@ -11,7 +11,7 @@
  *   outlives it (project materials, shared box materials, shared model
  *   clones) kept its render objects — and through them the object, its
  *   skeleton and its node uniforms — for the renderer's lifetime. The fix is
- *   the object's own `dispose()` (it exists on every `Object3D` in 0.186).
+ *   the object's own `dispose()` (it exists on every `Object3D`).
  * - Attributes the node system makes for an object (the interleaved instance
  *   matrices of an `InstancedMesh` with ≥ 1025 slots, per-instance vertex
  *   data built by materials) are freed only when the geometry of the render
@@ -32,17 +32,24 @@
  */
 import * as THREE from 'three';
 
-/** The renderer internals this module reads (three 0.186; every field optional: guarded). */
+/** The renderer internals this module reads (three r187; every field optional: guarded). */
 interface RendererInternals {
   _objects?: { _renderObjects?: Set<RenderObjectLike> } | null;
   _attributes?: { delete(attribute: unknown): unknown } | null;
   _geometries?: GeometriesInternals | null;
 }
+/** three's geometry component: a record per geometry it drew, with the dispose listener and the weak reference it tracks. */
 interface GeometriesInternals {
-  _geometryDisposeListeners?: Map<unknown, (event: unknown) => void>;
+  has?(geometry: unknown): boolean;
+  get?(geometry: unknown): { onDispose?: (event: unknown) => void; ref?: object } | undefined;
   delete?(geometry: unknown): unknown;
+  _tracked?: Set<object>;
+  _registry?: { unregister(token: object): unknown };
   info?: { memory?: { geometries?: number } } | null;
 }
+
+/** The GPU buffer three keys an attribute by: an interleaved attribute's shared buffer, else the attribute. */
+const bufferOf = (a: unknown): unknown => ((a as { isInterleavedBufferAttribute?: boolean } | null)?.isInterleavedBufferAttribute === true ? (a as { data: unknown }).data : a);
 interface RenderObjectLike {
   object?: unknown;
   geometry?: { attributes?: Record<string, unknown>; index?: unknown } | null;
@@ -82,7 +89,7 @@ export function releaseNodeAttributes(objects: ReadonlySet<unknown>, renderers: 
     const done = new Set<unknown>();
     for (const ro of set) {
       if (!objects.has(ro.object) || typeof ro.getAttributes !== 'function') continue;
-      const own = new Set<unknown>(Object.values(ro.geometry?.attributes ?? {}));
+      const own = new Set<unknown>(Object.values(ro.geometry?.attributes ?? {}).map(bufferOf));
       if (ro.geometry?.index !== undefined && ro.geometry.index !== null) own.add(ro.geometry.index);
       let list: readonly unknown[];
       try {
@@ -90,7 +97,7 @@ export function releaseNodeAttributes(objects: ReadonlySet<unknown>, renderers: 
       } catch {
         continue;
       }
-      for (const a of list) {
+      for (const a of list.map(bufferOf)) {
         if (own.has(a) || done.has(a)) continue;
         done.add(a);
         try {
@@ -108,13 +115,12 @@ export function releaseNodeAttributes(objects: ReadonlySet<unknown>, renderers: 
  * Dispose a geometry that shares attributes (or its index) with other
  * geometries, freeing only `own` on the GPU.
  *
- * three 0.186's renderer frees, when a geometry it drew is disposed, its
- * current attributes and index AND every attribute its first render object
- * drew that is no longer on it. Taking the shared attributes off first
- * therefore does not save them: their GPU buffers are destroyed while the
- * geometries still holding them draw, every later submit is refused and the
- * view stops updating for good. Here the renderer's dispose listener for this
- * geometry is detached and its record dropped (private API of the pinned
+ * three's renderer frees, when a geometry it drew is disposed, its current
+ * attributes and index: a plain `dispose` would destroy the shared buffers
+ * while the geometries still holding them draw (three then uploads them
+ * again, a stall per buffer, or on an older three refused every later
+ * submit). Here the renderer's record of this geometry (its dispose listener
+ * and the weak reference it tracks) is dropped (private API of the pinned
  * three version, guarded), then only `own` is freed.
  *
  * Returns false (and leaves the geometry undisposed) when a live renderer
@@ -122,24 +128,29 @@ export function releaseNodeAttributes(objects: ReadonlySet<unknown>, renderers: 
  * a destroyed shared buffer is not.
  */
 export function disposeSharingGeometry(geometry: THREE.BufferGeometry, own: readonly object[], renderers: readonly unknown[] = liveRenderers()): boolean {
-  const plan: { geometries: GeometriesInternals; listener: ((event: unknown) => void) | undefined; attributes: NonNullable<RendererInternals['_attributes']> }[] = [];
+  const plan: { geometries: GeometriesInternals; attributes: NonNullable<RendererInternals['_attributes']> }[] = [];
   for (const r of renderers) {
     const internals = r as RendererInternals | null;
     const geometries = internals?._geometries;
     if (geometries === undefined || geometries === null) continue;
-    const listeners = geometries._geometryDisposeListeners;
     const attributes = internals?._attributes;
-    if (!(listeners instanceof Map) || typeof geometries.delete !== 'function' || attributes === undefined || attributes === null || typeof attributes.delete !== 'function') return false;
-    plan.push({ geometries, listener: listeners.get(geometry), attributes });
+    if (typeof geometries.has !== 'function' || typeof geometries.get !== 'function' || typeof geometries.delete !== 'function' || !(geometries._tracked instanceof Set) || typeof geometries._registry?.unregister !== 'function') return false;
+    if (attributes === undefined || attributes === null || typeof attributes.delete !== 'function') return false;
+    plan.push({ geometries, attributes });
   }
-  for (const { geometries, listener, attributes } of plan) {
-    if (listener === undefined) continue;
-    geometry.removeEventListener('dispose', listener as never);
-    geometries._geometryDisposeListeners!.delete(geometry);
+  for (const { geometries, attributes } of plan) {
+    // `get` would make a record for a geometry this renderer never drew.
+    if (!geometries.has!(geometry)) continue;
+    const record = geometries.get!(geometry);
+    if (record?.onDispose !== undefined) geometry.removeEventListener('dispose', record.onDispose as never);
+    if (record?.ref !== undefined) {
+      geometries._tracked!.delete(record.ref);
+      geometries._registry!.unregister(record.ref);
+    }
     geometries.delete!(geometry);
     const memory = geometries.info?.memory;
     if (memory !== undefined && typeof memory.geometries === 'number') memory.geometries -= 1;
-    for (const a of own) {
+    for (const a of new Set(own.map(bufferOf))) {
       try {
         attributes.delete(a);
       } catch {
@@ -147,7 +158,7 @@ export function disposeSharingGeometry(geometry: THREE.BufferGeometry, own: read
       }
     }
   }
-  // Render objects still listening for it (already disposed with their object) let go of it here.
+  // Render objects still listening for it let go of it here (those of disposed objects already did).
   geometry.dispose();
   return true;
 }
@@ -197,222 +208,9 @@ export function disposeObjectTree(root: THREE.Object3D | null | undefined, optio
   return nodes.length;
 }
 
-/** The WebGL 2 backend internals `installVaoSweep` reads (three 0.186; guarded). */
-interface WebGlBackendInternals {
-  gl?: { deleteVertexArray?(vao: unknown): void } | null;
-  vaoCache?: Record<string, unknown>;
-  _createVao?: (attributes: readonly object[]) => unknown;
-  _getVaoKey?: (attributes: readonly object[]) => string;
-  has?: (object: object) => boolean;
-  destroyAttribute?: (attribute: object) => void;
-}
-
-/** Sweep for dead vertex arrays at least after this many new ones (collected attributes; amortised). */
-const VAO_SWEEP_EVERY = 32;
-
-/**
- * Three 0.186's WebGL 2 backend caches one vertex array object
- * per attribute set (`vaoCache`, keyed by the attributes' ids) and never
- * deletes one — every geometry that ever drew leaves its VAO behind (the
- * Scene view: ~9 per closed/opened scene; a preview shape switch: one each).
- * This wraps the backend's VAO creation (private API of the pinned version,
- * guarded: without it nothing changes) to remember each VAO's attributes
- * weakly, and before the next VAO is made after an attribute was destroyed
- * (a geometry disposed; else every 32 creations) deletes the VAOs one of
- * whose attributes is gone — a live attribute set keeps its VAO. A destroyed
- * or collected attribute also schedules a sweep in its own task, so the last
- * VAOs of a closed scene go without waiting for a new VAO. Returns whether it
- * was installed.
- */
-export function installVaoSweep(backend: unknown): boolean {
-  const b = backend as WebGlBackendInternals | null;
-  const WR = (globalThis as { WeakRef?: new <T extends object>(o: T) => { deref(): T | undefined } }).WeakRef;
-  if (b === null || typeof b !== 'object' || typeof b._createVao !== 'function' || typeof b._getVaoKey !== 'function' || typeof b.has !== 'function' || b.vaoCache === undefined || WR === undefined) return false;
-  const create = b._createVao.bind(b);
-  const keyOf = b._getVaoKey.bind(b);
-  const has = b.has.bind(b);
-  let records: { vao: unknown; key: string; attributes: { deref(): object | undefined }[] }[] = [];
-  let sinceSweep = 0;
-  let destroyed = false;
-  let scheduled = false;
-  const schedule = (): void => {
-    if (scheduled) return;
-    scheduled = true;
-    setTimeout(() => {
-      scheduled = false;
-      sweep();
-    }, 0);
-  };
-  if (typeof b.destroyAttribute === 'function') {
-    const destroy = b.destroyAttribute.bind(b);
-    b.destroyAttribute = (attribute: object): void => {
-      destroyed = true;
-      destroy(attribute);
-      schedule();
-    };
-  }
-  // An attribute three never destroyed (its geometry just became unreachable) is noticed when collected.
-  const FR = (globalThis as { FinalizationRegistry?: new (cb: () => void) => { register(o: object, v: unknown): void } }).FinalizationRegistry;
-  const collected = FR !== undefined ? new FR(schedule) : null;
-  const watched = new WeakSet<object>();
-  const sweep = (): void => {
-    const keep: typeof records = [];
-    for (const r of records) {
-      const dead = r.attributes.some((w) => {
-        const a = w.deref();
-        return a === undefined || !has(a);
-      });
-      if (!dead) {
-        keep.push(r);
-        continue;
-      }
-      if (b.vaoCache![r.key] === r.vao) delete b.vaoCache![r.key];
-      try {
-        b.gl?.deleteVertexArray?.(r.vao);
-      } catch {
-        /* best effort */
-      }
-    }
-    records = keep;
-  };
-  b._createVao = (attributes: readonly object[]): unknown => {
-    sinceSweep += 1;
-    if (destroyed || sinceSweep >= VAO_SWEEP_EVERY) {
-      destroyed = false;
-      sinceSweep = 0;
-      sweep();
-    }
-    const vao = create(attributes);
-    records.push({ vao, key: keyOf(attributes), attributes: attributes.map((a) => new WR(a)) });
-    if (collected !== null) {
-      for (const a of attributes) {
-        if (watched.has(a)) continue;
-        watched.add(a);
-        collected.register(a, null);
-      }
-    }
-    return vao;
-  };
-  return true;
-}
-
-/** The texture component internals `trackTextureListeners` reads (three 0.186; guarded). */
-interface TexturesInternals {
-  updateTexture?: (texture: object, options?: unknown) => unknown;
-  updateRenderTarget?: (renderTarget: object, level?: number) => unknown;
-  get?: (object: object) => { onDispose?: () => void } | undefined;
-}
-
-/**
- * Three 0.186's `Textures` component adds a `dispose` listener to
- * every texture and render target a renderer uploads, and its own `dispose()`
- * only drops its map — the listeners stay. A texture that outlives the
- * renderer (a module-level placeholder, the editor's shared texture cache, a
- * project texture a preview also drew) then keeps the whole disposed renderer
- * reachable (its textures component → renderer → canvas → the React tree the
- * canvas belonged to): every closed preview was retained. This records the
- * textures and render targets a renderer set up (weakly) and returns the
- * release to call before the renderer's `dispose()`, which removes the
- * renderer's listeners from the ones still alive. Private API of the pinned
- * version, guarded: without it the release does nothing.
- */
-export function trackTextureListeners(renderer: unknown): () => void {
-  const textures = (renderer as { _textures?: TexturesInternals | null } | null)?._textures;
-  const WR = (globalThis as { WeakRef?: new <T extends object>(o: T) => { deref(): T | undefined } }).WeakRef;
-  if (textures === undefined || textures === null || typeof textures.get !== 'function' || WR === undefined) return () => undefined;
-  const seen = new WeakSet<object>();
-  const refs: { deref(): object | undefined }[] = [];
-  const note = (o: unknown): void => {
-    if (o === null || typeof o !== 'object' || seen.has(o)) return;
-    seen.add(o);
-    refs.push(new WR(o));
-  };
-  const wrap = (name: 'updateTexture' | 'updateRenderTarget'): void => {
-    const orig = textures[name];
-    if (typeof orig !== 'function') return;
-    const bound = orig.bind(textures) as (o: object, x?: unknown) => unknown;
-    (textures as Record<string, unknown>)[name] = (o: object, x?: unknown): unknown => {
-      note(o);
-      return bound(o, x);
-    };
-  };
-  wrap('updateTexture');
-  wrap('updateRenderTarget');
-  return () => {
-    const get = textures.get!.bind(textures);
-    for (const r of refs) {
-      const o = r.deref() as { removeEventListener?: (type: string, l: () => void) => void } | undefined;
-      if (o === undefined) continue;
-      try {
-        const data = get(o);
-        if (data?.onDispose !== undefined) o.removeEventListener?.('dispose', data.onDispose);
-      } catch {
-        /* best effort */
-      }
-    }
-    refs.length = 0;
-  };
-}
-
-/** The internals `installProgramRelease` reads (three 0.186 WebGL 2 backend; guarded). */
-interface ProgramInternals {
-  _pipelines?: { _releasePipeline?: (pipeline: object) => unknown; _releaseProgram?: (stage: object) => unknown } | null;
-  backend?: {
-    isWebGLBackend?: boolean;
-    gl?: { deleteProgram?(p: unknown): void; deleteShader?(s: unknown): void } | null;
-    has?: (o: object) => boolean;
-    get?: (o: object) => { programGPU?: unknown; shaderGPU?: unknown } | undefined;
-  } | null;
-}
-
-/**
- * Three 0.186's WebGL 2 backend never deletes a linked program or
- * a compiled shader: releasing an unused pipeline or shader stage only drops
- * three's cache entry, and the GL objects wait for the collector to find
- * their wrappers (which it does late: it does not see GPU memory). This makes
- * the release delete them at once (private API of the pinned version,
- * guarded; WebGL 2 backend only — WebGPU pipelines are collected objects).
- * Returns whether it was installed.
- */
-export function installProgramRelease(renderer: unknown): boolean {
-  const r = renderer as ProgramInternals | null;
-  const pipelines = r?._pipelines;
-  const backend = r?.backend;
-  if (pipelines === undefined || pipelines === null || backend === undefined || backend === null || backend.isWebGLBackend !== true) return false;
-  if (typeof pipelines._releasePipeline !== 'function' || typeof pipelines._releaseProgram !== 'function' || typeof backend.has !== 'function' || typeof backend.get !== 'function') return false;
-  const gl = backend.gl;
-  const has = backend.has.bind(backend);
-  const get = backend.get.bind(backend);
-  const releasePipeline = pipelines._releasePipeline.bind(pipelines);
-  pipelines._releasePipeline = (pipeline: object): unknown => {
-    if (has(pipeline)) {
-      const program = get(pipeline)?.programGPU;
-      try {
-        if (program !== undefined && program !== null) gl?.deleteProgram?.(program);
-      } catch {
-        /* best effort */
-      }
-    }
-    return releasePipeline(pipeline);
-  };
-  const releaseProgram = pipelines._releaseProgram.bind(pipelines);
-  pipelines._releaseProgram = (stage: object): unknown => {
-    if (has(stage)) {
-      const shader = get(stage)?.shaderGPU;
-      try {
-        if (shader !== undefined && shader !== null) gl?.deleteShader?.(shader);
-      } catch {
-        /* best effort */
-      }
-    }
-    return releaseProgram(stage);
-  };
-  return true;
-}
-
 /**
  * Forget the render contexts drawn with an MRT setup that is gone
- * (a post pipeline rebuilt: its scene pass had its own MRT node). three 0.186
+ * (a post pipeline rebuilt: its scene pass had its own MRT node). three
  * keys render contexts by the attachment state and the MRT's id, so every
  * rebuilt pipeline made new contexts — for the scene pass and for every
  * pass drawn inside it (the shadow maps: they render while the pass's MRT is
@@ -446,11 +244,11 @@ export function releaseMrtContexts(renderer: unknown, mrt: unknown): number {
 
 /**
  * Free compute-only storage buffers on the renderer that created them.
- * three 0.186 frees a node's buffer only together with a geometry that drew
- * it (`BufferAttribute.dispose()` is a TODO in its `Geometries`), so buffers
- * only compute passes use (particle state, free list, sort keys, the noise
- * table, a depth pyramid) would stay allocated after their passes are
- * disposed (the leak check measured 5 per particle system). The renderer's
+ * three frees a node's buffer together with a geometry that drew it, so
+ * buffers only compute passes use (particle state, free list, sort keys, the
+ * noise table, a depth pyramid) would stay allocated after their passes are
+ * disposed (the leak check measured 5 per particle system); here they go on
+ * the renderer that made them, whoever else still holds the attribute. The renderer's
  * attribute map is private API of the pinned three version; deleting an
  * attribute it never saw (or already freed) does nothing.
  */

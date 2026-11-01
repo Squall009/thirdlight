@@ -478,8 +478,8 @@ export function isProbeLighting(light: unknown): light is ProbeLighting {
 }
 
 /** Teach a renderer the probe light and the lights node that orders it. */
-export function registerProbeLighting(renderer: { library: { addLight(node: unknown, light: unknown): void }; lighting: { createNode(lights?: THREE.Light[]): unknown } }): void {
-  renderer.library.addLight(ProbeLightingNode, ProbeLighting);
+export function registerProbeLighting(renderer: { lighting: { createNode(lights?: THREE.Light[]): unknown } }): void {
+  ProbeLighting.registerNode(ProbeLightingNode as never);
   renderer.lighting.createNode = (lights: THREE.Light[] = []) => new ProbeOrderedLightsNode().setLights(lights);
 }
 

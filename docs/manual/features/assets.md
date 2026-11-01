@@ -172,7 +172,7 @@ ever loads GLB:
 Animations survive the conversion, but a model's animations only play in the
 game through a role binding, as for any GLB.
 
-The Draco and Basis decoders are three's own (`three@0.186.1`,
+The Draco and Basis decoders are three's own (`three@0.187.0`,
 `examples/jsm/libs/{draco,basis}`, Apache-2.0). The editor and the Play
 preview serve them at `/decoders/`; an export gets a `decoders/` folder (and a
 license row in `meta.json`) only when one of its models needs it. Both run in

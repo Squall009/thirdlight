@@ -36,10 +36,16 @@ import { SKY_DEFAULTS } from '@thirdlight/runtime';
 import { AMBIENT_OCCLUSION_DEFAULT, BLOOM_DEFAULTS, levelLighting, levelPost, qualityLevelOf, qualityLevelsOf, type QualityLevelConfig } from '@thirdlight/project-model';
 
 import { CloudDrift, type CloudWind } from './cloud-drift';
-// Lit surfaces read the PMREM through a cube copy, made again after each bake.
-import { SceneLighting, type PmremLike } from './environment-cube';
 
 import { ScreenSpaceOcclusion } from './post-ao';
+
+/** The PMREM calls the environment renderer uses (`three/webgpu`'s generator). */
+interface PmremLike {
+  fromScene(scene: THREE.Scene, sigma?: number, near?: number, far?: number, options?: { renderTarget?: unknown }): { texture: THREE.Texture; dispose(): void };
+  fromEquirectangular(texture: THREE.Texture): { texture: THREE.Texture; dispose(): void };
+  fromCubemap(texture: THREE.CubeTexture): { texture: THREE.Texture; dispose(): void };
+  dispose(): void;
+}
 import { ContactShadowsLight } from './post-contact-shadows';
 import { ReflectionsLight, reflectionsFlag, type ReflectionStats } from './post-reflections';
 import { pageSearch } from './renderer-factory';
@@ -554,8 +560,8 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
   let passNames: string[] = [];
   /** The MSAA samples of the last built frame path. */
   let samplesNow = renderer.samples;
-  const lighting = new SceneLighting(renderer, scene, new NodePMREMGenerator(renderer) as unknown as PmremLike);
-  const pmrem = lighting.pmrem;
+  // three's PMREM is a cube with a mip chain per roughness: lit surfaces read it with one lookup per term.
+  const pmrem = new NodePMREMGenerator(renderer) as unknown as PmremLike;
   let skyMesh: THREE.Mesh | null = null;
   /** The clouds' travel every physical sky here reads (the live one, cross-fade layers, the lighting bake's copy). */
   const cloudDrift = cloudDriftUniform() as { value: THREE.Vector2 };
@@ -1146,7 +1152,6 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       // Only once the sky moved past SKY_REBAKE_THRESHOLD from the last bake.
       framesSinceBake += 1;
       if (iblDirty && framesSinceBake >= 30) rebakeIbl();
-      lighting.sync();
       buildPipeline(camera);
       pipeline?.setParams(postParams());
       exposure.apply(renderer, postNow()?.exposure ?? 1, performance.now());
@@ -1200,7 +1205,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       clearSky();
       heightFog.dispose();
       exposure.dispose();
-      lighting.dispose();
+      pmrem.dispose();
     },
   };
   return self;

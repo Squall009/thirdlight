@@ -411,7 +411,7 @@ export function buildReflections(renderer: THREE.WebGPURenderer, scenePass: N, s
   let share = REFLECTION_RESOLUTION_SCALE;
 
   /** The passes, run once a frame after the scene pass (its depth, normals and colour are this frame's). */
-  class ReflectionPassNode extends (THREE.TempNode as unknown as new (type: string) => { updateBeforeType: string; [k: string]: unknown }) {
+  class ReflectionPassNode extends (THREE.Node as unknown as new (type: string) => { updateBeforeType: string; [k: string]: unknown }) {
     static get type(): string {
       return 'ReflectionPassNode';
     }

@@ -318,6 +318,8 @@ const NO_SCREEN_LIGHTS: ScreenStageLights = { aoLight: null, contactLight: null,
 export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, camera: THREE.Camera, plan: PostPlan, lights: ScreenStageLights = NO_SCREEN_LIGHTS): PostPipeline {
   const { aoLight, contactLight, reflectionsLight } = lights;
   const disposables: { dispose(): void }[] = [];
+  /** Precompiles into this stack's scene target not yet settled (its disposal waits for them). */
+  const compiling = new Set<Precompile>();
   const passes: string[] = ['render'];
   const perspective = camera instanceof THREE.PerspectiveCamera;
   // Samples are always given: without them PassNode takes the renderer's MSAA, which multiplies the
@@ -643,7 +645,10 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
     temporalHolding: () => taau?.holding() ?? null,
     setTemporalHold: (allowed) => taau?.setHoldAllowed(allowed),
     compileAsync(cam) {
-      return compileIntoTarget(renderer, scene, cam, (scenePass as { renderTarget: THREE.RenderTarget }).renderTarget, (scenePass as { getMRT(): unknown }).getMRT());
+      const pc = compileIntoTarget(renderer, scene, cam, (scenePass as { renderTarget: THREE.RenderTarget }).renderTarget, (scenePass as { getMRT(): unknown }).getMRT());
+      compiling.add(pc);
+      void pc.done.catch(() => undefined).finally(() => compiling.delete(pc));
+      return pc;
     },
     render() {
       screen.beforeFrame(camera);
@@ -654,10 +659,17 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
       }
     },
     dispose() {
-      pipeline.dispose();
-      (lutNode.value as THREE.Texture).dispose();
-      for (const d of disposables) d.dispose();
-      releaseMrtContexts(renderer, sceneMrt);
+      const free = (): void => {
+        pipeline.dispose();
+        (lutNode.value as THREE.Texture).dispose();
+        for (const d of disposables) d.dispose();
+        releaseMrtContexts(renderer, sceneMrt);
+      };
+      // three builds a precompile's draws one at a time after compileAsync returns, each for the target it was
+      // collected into: a target freed meanwhile gives its draws a pipeline without a depth format, which fails.
+      if (compiling.size === 0) return free();
+      const pending = [...compiling].map((c) => (c.release(), c.done.catch(() => undefined)));
+      void Promise.all(pending).then(free);
     },
   };
 

@@ -12,6 +12,7 @@ import { batchKey, batchKeyParts, BATCH_KEY } from './batching';
 import { applyObjectLightLayers, castsShadowFor, isLayeredLight, LayeredDirectionalLight, LayeredPointLight, LayeredSpotLight, lightLayersOfComponents, lightsObject, LIGHT_LAYERS_KEY, objectLightLayers, registerLayeredLights } from './light-layers';
 import { createSceneLights } from './lights-shadows';
 import { StaticShadowRevision } from './shadow-casters';
+import { fragmentWgslOf, wgslRenderer } from './test-wgsl';
 
 const ALL = 255;
 
@@ -70,15 +71,18 @@ describe('light layers', () => {
   });
 
   it("a layered key light's own shadow pass draws only the casters in its shadow caster mask", () => {
-    const nodes = new Map<unknown, new (light: THREE.Light) => { setupShadowNode(): { getShadowRenderObjectFunction(r: unknown, s: unknown): (o: THREE.Object3D, ...rest: unknown[]) => void } }>();
-    registerLayeredLights({ library: { addLight: (node, light) => void nodes.set(light, node as never) } });
+    type ShadowingNode = new (light: THREE.Light) => { setupShadowNode(): { getShadowRenderObjectFunction(r: unknown, s: unknown): (o: THREE.Object3D, ...rest: unknown[]) => void } };
+    registerLayeredLights();
+    // three keeps a light's node class on its class (`Light.registerNode`), so a subclass not registered inherits its parent's.
+    const nodeOf = (light: THREE.Light): ShadowingNode => (light as unknown as { _lightNode: ShadowingNode })._lightNode;
     // A layered point or spot light has no node of its own: the light clusters draw it, its shadow from the atlas.
-    expect(nodes.has(LayeredPointLight) || nodes.has(LayeredSpotLight)).toBe(false);
+    expect(nodeOf(new LayeredPointLight())).toBe(nodeOf(new THREE.PointLight()));
+    expect(nodeOf(new LayeredSpotLight())).toBe(nodeOf(new THREE.SpotLight()));
     for (const light of [new LayeredDirectionalLight()]) {
       light.shadowCasterMask = 1;
       const drawn: string[] = [];
       const renderer = { shadowMap: { type: THREE.PCFShadowMap }, getMRT: () => null, renderObject: (o: THREE.Object3D) => void drawn.push(o.name) };
-      const draw = new (nodes.get(light.constructor)!)(light).setupShadowNode().getShadowRenderObjectFunction(renderer, light.shadow);
+      const draw = new (nodeOf(light))(light).setupShadowNode().getShadowRenderObjectFunction(renderer, light.shadow);
       const caster = (name: string, layers: number | null): THREE.Mesh => {
         const m = new THREE.Mesh();
         m.name = name;
@@ -132,5 +136,21 @@ describe('light layers', () => {
     // Every light is still one light on its entity.
     expect(lights.has('plain') && lights.has('masked')).toBe(true);
     lights.dispose();
+  });
+});
+
+describe('a layered light in the program', () => {
+  it('sets the direct sums to zero once, before its branch, so the lighting model reads what the light added', () => {
+    registerLayeredLights();
+    const scene = new THREE.Scene();
+    scene.add(new LayeredDirectionalLight('#ffffff', 1), new THREE.AmbientLight('#ffffff', 0.2));
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardNodeMaterial());
+    scene.add(mesh);
+    const frag = fragmentWgslOf(wgslRenderer(), scene, mesh);
+    for (const sum of ['directDiffuse', 'directSpecular']) {
+      const zeroed = [...frag.matchAll(new RegExp(`\\t${sum} = vec3<f32>\\( 0\\.0, 0\\.0, 0\\.0 \\);`, 'g'))].map((m) => m.index!);
+      expect(zeroed, sum).toHaveLength(1);
+      expect(zeroed[0]!, sum).toBeLessThan(frag.indexOf('if ('));
+    }
   });
 });
