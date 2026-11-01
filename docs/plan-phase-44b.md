@@ -54,6 +54,7 @@ picture. Games switch both by switching cameras, through priorities and camera r
 | 44b.2 | **Occlusion modes per camera.** `pullIn`, `seeThrough`, `none` on the virtual camera, in the model, Inspector, MCP and manual. Pull-in with a sphere cast, fast in, hold, eased out, and per-camera timings. The see-through project setting becomes the default for new cameras; the script override keeps working. |
 | 44b.3 | **Adaptive exposure per camera.** Luminance pass on both renderers, adaptation with min/max, speeds, metering and compensation, blended with camera blends. Model, Inspector, MCP and manual. |
 | 44b.3a | **three r187.** The minor release (0.187.0, 2026-10-30) through `docs/three-upgrade-checklist.md`: its PMREM now draws cube targets instead of the CubeUV atlas (`environment-cube.ts` hook), r177 deprecations removed, a reversed-depth fix. Before and after shots of the look scenes, perf at the cap. |
+| 44b.3b | **Exposure everywhere, cameras e2e back.** D421: exposure applies to the sky too without post, one path on both renderers; the cameras e2e back to about its 44b.1 time. |
 | 44b.4 | **Look and close.** In a real browser on both renderers at the 60 Hz cap: walking from the door room out into the sunset (exposure adapting, no veil); a follow camera along a wall and through a doorway (pull-in in and out, no clipping); an interior camera in see-through mode. Shots and captures for the owner. Fast gate per item, the full gate at the end, the phase review. |
 
 ## 3. Progress
@@ -65,6 +66,7 @@ picture. Games switch both by switching cameras, through priorities and camera r
 | 44b.2 | done (4c5eb5cf): occlusion per camera; sphere pull-in (in/hold/out, cut past walls), see-through per camera, mode snaps mid-blend; defaults: log. Cap: interior WebGPU main 3.06, GPU 7.09 full, WebGL 2 1.84; village 6.16 / 4.36 CPU; p95 16.7, 0 missed: no cost. e2e cameras 18.7 → 31.5 s (+12.8: doorway + see-through, both renderers). Shots looked at (test-results). |
 | 44b.3 | done: per-camera auto-exposure (meter 128×64→16×8, async read-back, both renderers), blended with camera blends. Sunset settles at 0.09, no veil, renderers alike: D339 fixed. Meter GPU ≈ 0.09 ms full clock; on: main +0.1–0.2 (A/B); off: interior/landscape/village within 44's range, p95 16.7–16.8, 0 missed. cameras e2e 31.5 → 32.4 s. D421. |
 | 44b.3a | done (83037b97): three 0.187.0; every checklist row checked: 6 hooks removed (three does it), 9 changed, 1 added (precompile targets). Cap, WebGPU main/GPU full, WebGL 2 main: village 5.32/5.09, 3.95; landscape 4.75/10.49, 3.31; interior 3.06/7.08, 1.79; lights 64/256 2.17/2.59; p95 16.7–16.8, 0 missed: no cost. level-acceptance 1.9–2.1 min both; D422 (fails at base). |
+| 44b.3b | done (8e3b2071): exposure applies to the whole picture, colour/image sky too without post, fixed or auto (sky exposed, not tone mapped: exposure 1 unchanged); meter sees the sky. D421 fixed. env-parity: tone-aces/neutral refs redrawn (sky only), exposure-0.5 check both renderers. cameras e2e 32.4 → 20.0 s. Village at cap: main 6.07 / 4.05 ms, p95 16.7–16.8, 0 missed. Gate: D422 only. |
 
 ### 44b.0 baseline
 
@@ -195,4 +197,24 @@ picture. Games switch both by switching cameras, through priorities and camera r
 - 2026-11-01 (44b.3a): `level-acceptance.e2e.ts:673` fails alone at the base 0f914de9 too (the WebGPU export's rule
   and door colours, identical pixels on r186 and r187; once WebGL 2 cover): D422, to fix before the full gate. With
   the judge made soft, base and r187 fail the same stages and pass all others.
-
+- 2026-11-01 (44b.3b, default chosen, owner to confirm): exposure applies to the whole picture, sky included, with or
+  without a post stack, fixed or adapted (as Unity and Godot do). Without post a colour or sRGB image sky stays
+  untone-mapped (the colour picked, as the archived WebGL renderer drew it) but is multiplied by the exposure in the
+  same background pass, so exposure 1 looks as before and most projects see no change; with post it is tone mapped
+  as before. A loaded auto-exposure camera no longer switches that sky to the post path: the meter reads the scene
+  pass with the background laid under its alpha (`MeterSource`), so a fixed and an adapting camera at the same
+  exposure show the same sky. D421 fixed. env-parity `tone-aces.png` (exposure 1.3) and `tone-neutral.png` (0.8)
+  were the only references with exposure ≠ 1 and no post; redrawn from WebGL 2: 32.5k of 76.8k pixels changed, all
+  the sky (≈ 55 silhouette-edge pixels) and every sky pixel at the expected sRGB of 1.3 / 0.8 × its linear value;
+  WebGPU matches strictly; looked at. New check (env-parity, both renderers): exposure 0.5, no post, sky
+  126,200,255 → 91,146,188 (half its linear value), ground 110.7 → 79.3.
+- 2026-11-01 (44b.3b): cameras e2e (the Play/export test) 32.4 → 20.0 s (18.7 before 44b.2), nothing dropped: the
+  walker 2 → 6 m/s (a 2.7 s round trip) and the door camera's hold/out 0.1 / 0.3 s (the defaults' timing is the
+  runtime's vitest, the doorway included), read until pulled in and back out instead of a fixed 9 s; the see-through
+  shot polled instead of 2 × 600 ms waits; the dark-room hold 300 ms; the post-cut trace 1.5 s (settles within 1.3);
+  the rail 4 → 8 m/s; the orbit activation at step 240 instead of 300 (the follow camera is shot by step ~110).
+  Measured at each step: doorway 4.8 → 2.2 s, rail 2.9 → 2.3, export start to orbit 3.6 → 3.2.
+- 2026-11-01 (44b.3b): fast gate (env-parity, cameras, level-acceptance, scene-view-parity, environment-blend-cost,
+  scene-environment) and its rerun: everything passed but `level-acceptance.e2e.ts:673`, the WebGPU export's rule and
+  door colours with D422's pixels (it fails at the base too; next item). Village at the cap run by hand (the gate
+  stops before it on a red e2e), 12:02, load 1.5: main WebGPU 6.07, WebGL 2 4.05 ms, p95 16.7–16.8, 0 missed of 360.
