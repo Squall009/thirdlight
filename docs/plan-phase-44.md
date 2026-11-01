@@ -77,6 +77,7 @@ regression points at its cause.
 | 44.12 | done: `tools/check-docs.mjs` in the build: a STATUS or progress row ≤ 400 characters; ratchet `tools/docs-ratchet.json` 155 rows (39–42 all, 43 19, 44.1b–44.10 14); STATUS plan links and defect lists checked (all pass). AGENTS: D blocks, closed rows, game answers. No e2e. |
 | 44.13a | done (review M1, G17): `pageFlagOn` f4c7bde1, `TexelTextureNode` 47344568, `MaterialVariants` f879b540, one `setupObserver` hook baa109da, `pickLodLevel` 9e0c0934, copies' 8-level cap gone b4a3e190. At the cap vs cda7fe34: village main 5.60 → 5.60 \| 4.04 → 4.06 ms; lights 64/256 WebGPU 2.21/2.72 → 2.27/2.84 (noise), WebGL 2 equal. No e2e touched; gates green. |
 | 44.13b | done (review M2–M5, Lows): title confirm reloads start scenes under `simulate: scripts` (ced14d99), selection counts gone (95989e8c), input rule tests (07a7af98), no-GPU perf check + SKIPPED gate line (aee31068), ratchets vs HEAD, retired areas, op-record check. e2e s: ui-sounds-shell 4.9 → 5.1, edit-copy 3.8 → 5.6 (1,100-object delete). Fast gates green; village unchanged. |
+| 44.13c | in progress: perf at the cap, both renderers, every class p95 16.7–16.8, 0 missed, GPU ms lower; main ms above 44.0's rounds, but a same-hour A/B vs fb338eab reads the base as high (host state). Counts and ratchets in **44.13 results**. Acceptance shots next. |
 
 ### 44.0 baseline
 
@@ -102,6 +103,40 @@ What the end of 44 is measured against (44.13).
   `--shadowed 0`, same rounds as above): WebGL 2 main ms, control → walkers, low 1.41 → 1.58 / 1.39 → 1.62
   (+0.17 / +0.23), medium 1.86 → 2.00 / 1.82 → 2.13 (+0.14 / +0.31); p95 16.7–16.8, 0 missed. 43.6c read +0.67 /
   +1.03, so 5bc436c4's atlas fix took this case too.
+
+### 44.13 results
+
+- **Full gate** at cda7fe34 (2026-10-30 10:34, before 44.13a/b, which were fast-gated): GREEN, 30 min, memory peak
+  8.0 GB, 382 e2e (24.4 min), lint clean; vitest `see-through.test.ts` failed once and passed alone (D311, watch).
+  Against 44.0: 32 min, 7.7 GB, 381 e2e, red. Logs ~/.cache/thirdlight-logs/gate-full-20261030-103421.
+- **Perf, end of 44** (dist of baf8f5bb; ed9cf114 changed only tools): 60 Hz cap, Iris Xe, 1080p, medium tier,
+  3 rounds interleaved 2026-10-30 13:24–14:23, load 1.4–2.9. GPU ms at full clock.
+
+| Scene | Renderer | p95 ms | missed | main ms (44.0; 43.5) | GPU ms full (44.0) |
+|---|---|---|---|---|---|
+| village | WebGPU | 16.7–16.8 | 0/600 ×3 | 5.74 / 6.25 / 6.56 (5.48–5.51; 5.85) | 4.74 / 4.76 / 4.95 (5.66–5.68) |
+| village | WebGL 2 | 16.7–16.8 | 0/600 ×3 | 4.11 / 4.43 / 4.37 (3.96–3.97; 4.19) | - |
+| landscape | WebGPU | 16.7–16.8 | 0/600–601 ×3 | 5.09 / 5.28 / 5.75 (4.88–4.94; 5.11) | 10.03 / 9.98 / 9.96 (10.42–10.44) |
+| landscape | WebGL 2 | 16.7–16.8 | 0/600 ×3 | 3.52 / 3.64 / 3.69 (3.37–3.43; 3.45) | - |
+| interior | WebGPU | 16.7–16.8 | 0/600–601 ×3 | 3.38 / 3.35 / 3.73 (2.99–3.14; 3.36) | 6.12 / 6.05 / 6.21 (6.87–6.92) |
+| interior | WebGL 2 | 16.7–16.8 | 0/600–601 ×3 | 2.01 / 1.93 / 2.23 (1.86; 2.51) | - |
+
+- Every class meets the target (p95 ≤ 16.7–16.8, no missed frame) and GPU ms is lower everywhere, but main-thread
+  ms read 0.1–1.0 ms above the 44.0 rounds on every class, rising round by round. **Same-hour A/B against fb338eab**
+  (2026-11-01, interleaved, at the cap; base worktree built with `node tools/build.mjs`), main ms base → end of 44:
+  village (3 rounds each, 03:59–04:06, load 1.7–5.7) WebGPU 7.02 / 6.58 / 6.86 → 6.59 / 6.23 / 5.70, WebGL 2
+  4.66 / 4.14 / 4.20 → 4.18 / 4.40 / 4.06, GPU 5.61–5.93 → 5.42–5.59; landscape and interior (04:06–, load
+  0.9–1.8) WebGPU 5.15 → 5.20 / 5.17 and 3.25 → 3.17 / 3.28, WebGL 2 3.40 → 3.53 / 3.47 and 1.88 → 1.90 / 2.04,
+  GPU 10.76 → 10.72 / 10.72 and 7.09 → 7.15 / 6.99. The base reads as high the same hour: the rise against the
+  44.0 rounds is host state (D199, D290), not phase 44; landscape WebGL 2 +0.1 ms is inside its round spread.
+- **Counts** (`git ls-files <dir>`, all files, `wc -l`), fb338eab → ed9cf114: packages 2,111 → 2,145 files,
+  518,342 → 514,069 lines (−0.8 %; `.ts`/`.tsx` 1,981 → 2,013 files, 511,165 → 506,867); tools 125 → 134 files,
+  29,598 → 31,275 lines (the docs, redefinition and hook checks); tests 474 → 465 files, 99,289 → 98,237 lines;
+  docs 217 → 193 files, 76,900 → 60,687 lines, 6.27 → 4.27 MB. So code shrank by about 4.3 k lines but grew by 34
+  files (44.9's splits, the shared leaf): "fewer lines and files" only half happened.
+- **Ratchets:** redefinitions 163 (15 retired) at a6887409 → 26 (23 retired; the 3 kept: the TSL seeded-random
+  fingerprint, material-graph `valueNoise`, `check-deps.mjs`'s `isObj`); size 39 → 35 entries; docs 155 rows at
+  cda7fe34 → 141 (none from plan 44).
 
 ## 4. Decision log
 
