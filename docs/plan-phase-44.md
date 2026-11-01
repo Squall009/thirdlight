@@ -1,7 +1,7 @@
 # Phase 44 — Consolidation after the lighting phases
 
-Status: **in progress** (planned in the owner session of 2026-10-28; started 2026-10-29 at fb338eab, the end of
-phase 43). 44.0 committed this plan and the global audit.
+Status: **done 2026-11-01, owner look pending** (e73f0f5a). Planned in the owner session of 2026-10-28; started
+2026-10-29 at fb338eab, the end of phase 43. 44.0 committed this plan and the global audit.
 
 Goal: pay down the debt found by the global audit (`docs/audit-2026-10-26-global.md`, findings G1–G22) and reset the
 docs, without adding features. The result is a smaller, stricter codebase for the voxel phases (45–49,
@@ -327,3 +327,12 @@ What the end of 44 is measured against (44.13).
   refused with `history_invalid` (the old dispatchers fell through to the last case, a trust undo). The editor's
   drop check takes the extension after the last dot, so a file named only `.glb` is refused, as the folder import
   already did.
+- 2026-11-01 (lead, phase close): full gate `--both-renderers` at cda7fe34
+  GREEN, 30 min (phase 43: 32), 382 e2e, memory peak 8.0 GB (at the 8G cap:
+  no headroom left; watch in 44b). Independent review
+  (~/.cache/thirdlight-phase44/review.md): 0 High, 5 Medium (G17 dropped;
+  scripts-title confirm not fresh; delete/edit/create selection caps; G5
+  rule untested; no perf-harness check), 7 Low — all fixed in 44.13a/b
+  (fast gates), kit marker corrected in 44.13c. Acceptance and counts in
+  "44.13 results". 44.13c's first agent stopped on the weekly API limit
+  (2026-10-30); a fresh agent finished it from its data on 2026-11-01.
