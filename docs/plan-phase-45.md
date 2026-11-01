@@ -3,6 +3,11 @@
 Status: **planned, approved by the owner 2026-10-28** (planning sessions 2026-10-27/28). It starts only after phases
 43, 44 and 44b are done and merged.
 
+**Planning revision 2026-10-30:** read §7a before implementing the earlier kit, role, trim and meshing requirements.
+It records the owner's revised direction: voxel-derived base surfaces and inferred architectural detail meshes,
+plus deferred scatter and rendering prototypes. Where they conflict, §7a takes precedence; unresolved proposals
+are not approved specifications. No implementation or visual/performance validation is claimed by these notes.
+
 Goal: one voxel world replaces block layers and heightfield terrain as the backend of every level. Authors build with
 the tools they use today: brushes, room drawing, interiors, rule placement, materials, paint and scatter. The
 voxelization, the mesher and the materials do the hard work, so large amounts of content are fast to author and easy
@@ -216,6 +221,14 @@ earlier decision to keep terrain separate, which this phase revisits) and its de
   tools, physics or lighting.
 
 **Tiles and region files.**
+- **Vertical extent (owner clarification, 2026-10-31):** the 10 × 10 km world needs roughly 1–2 km from
+  the world base to its highest peak. A 256 m region dimension is a horizontal footprint, never a world-height
+  limit. Benchmark 2 km of vertical extent, including deep caves and tall terrain/structures; allow headroom above
+  the highest terrain when defining bounds. Exact vertical bounds and their placement remain to be settled in 45.
+  At 0.5 m resolution, 2 km is 4,000 cells or 125 chunks at the candidate 16 m chunk size. Store this sparsely:
+  absent air allocates no cell arrays and uniform solid chunks collapse compactly. Full-height region columns
+  remain the current default; vertically stacked region containers are a candidate to compare for file size and
+  write amplification, not a restriction on elevation.
 - **Chunk:** 32³ voxels = 16 m (16³ vs 32³ decided in 45.2).
 - **Tile (region file):** 16 × 16 chunks = 256 m × 256 m, matching today's default terrain tile, with the full world
   height above it. Empty air chunks in it cost almost nothing.
@@ -488,13 +501,46 @@ ends with a thin working slice, so the formats are judged in use, not only in be
 | Item | What |
 |---|---|
 | 45.0 | **Branch, staging and baseline.** Branch and worktree from `main` after 44b is merged; main frozen from here. Staging backend (own port and data root, engine-owned test worlds, memory-capped; no game copies yet). Re-measure village, landscape and interior at the cap on the Iris Xe (the floor record). |
-| 45.1 | **Requirements, harness and test worlds.** First the requirements list: every decision in §1–§1e, §5b–§5c, §8 and §9 that the formats must serve, each with the field or rule that serves it (the format spec cites this list). Then synthetic worlds of plain terrain, a hilly 2 × 2 km area, a dense town of structures and a cave system, written as voxels; one harness that runs every candidate format over them (memory, `voxelAt` speed, random and stroke edits, encode/decode, compressed size, worker transfer cost). |
+| 45.1 | **Requirements, harness and test worlds.** Trace the owner decisions, including §7a, to format fields/rules. Establish stored intent, derived occupancy and edit-dependency requirements below. Compare storage candidates on synthetic terrain, town and cave worlds for size, access, edits, codec and worker-transfer cost. |
 | 45.2 | **Chunk store candidates.** At least: palette + bit packing per chunk; that plus vertical run-length per column; sparse bricks under a per-chunk mask (SVO-like). Chunk size 16³ vs 32³. Uniform-chunk collapse, density only at the surface, planes + zstd vs lz4. Measure each on the test worlds; pick one, with the numbers. |
 | 45.3 | **Region files and git.** Tile = region file (256 m default vs 512 m); deterministic bytes; header, version, checksum; per-chunk offsets for partial reads and HTTP range streaming; repo growth per hour of scripted editing; LFS only if the numbers call for it. |
 | 45.4 | **Editing, undo and saves.** Stroke commands (brush, fill, stamp) as the one mutation path; per-chunk undo records and their size; save diffs against the shipped world with base-chunk hashes; save upgrade steps (add-only, unknown version refused). |
 | 45.5 | **Streaming.** Worker pool with job ids and a priority queue (edits > near > far), transferable buffers, apron strips for neighbours, one memory budget per tier, load/unload churn; world coordinates for 10 km with a floating origin (precision test far out). Measured in a browser page flying a 2 × 2 km world. |
 | 45.6 | **Derived-data formats.** The occupancy bitmask and solid/empty/mixed flags, voxel mips for the chunk tree, mesh output buffers (projected and kit-instance lists), collision and walk-graph inputs — shaped so meshing, lighting, culling, physics and navigation all read them; never committed, always rebuilt. |
-| 45.7 | **Thin slice and format spec v1.** One browser page on staging: stream a world in, dig and build with a stroke, re-mesh with a plain surface-nets mesher, collide, save and reload the diff, at the cap on both renderers. Write the format spec v1 draft (storage, region files, edits, saves, derived data) in the engine docs, with the measured numbers and the requirements it serves; any decision that didn't pan out comes with its proposed replacements. **Hard stop: the owner reviews; 46 starts only after the owner approves the spec.** |
+| 45.7 | **Thin slice and format spec v1.** On staging, stream, edit, mesh, collide and save/reload on both renderers. Include the 45.1 assembly-data proof below. Present the format draft, requirement traceability, measurements and replacements for decisions that failed. **Hard stop: owner approval before 46.** |
+
+### 45.1 required assembly-data questions (owner, 2026-10-30)
+
+The requirements list traces every decision in §1–§1e, §5b–§5c, §7a, §8 and §9 to the field or rule that
+serves it. §7a takes precedence where it revises earlier requirements. Include these three questions explicitly:
+
+1. **Stored intent versus inferred architecture.** Establish the minimum stored metadata distinguishing terrain,
+   construction and roofs. Beams, banisters, soffits and mouldings are derived cases, not mandatory per-cell labels.
+   The data must support runtime building without structure-authoring metadata. Settle the minimum contract during
+   45; the complete case catalogue belongs to 46b.
+2. **Authoritative versus derived occupancy.** Treat the earlier claim that one solid bitmask serves every system
+   as provisional. An arrangement resolved as an open banister must not automatically become a full opaque wall
+   for collision, navigation or lighting. The proposed contract stores construction intent and derives appropriate
+   representations through shared assembly rules. Establish how the derived-data formats accommodate these
+   distinctions; measure and resolve the representation rather than freezing a full-cell assumption.
+3. **Edit dependency and invalidation.** Represent the neighbourhood dependency radius of assembly rules in job
+   inputs, neighbour-data requests and invalidation. Do not assume only the edited chunk and its immediate border
+   can be affected. The full rule catalogue determines the eventual radius; the format/job contract must express
+   that dependency and rebuild all affected results, including across chunk boundaries.
+
+The storage harness retains synthetic plain terrain, a hilly 2 × 2 km area, a dense town of structures and caves.
+Include a world with 2 km of vertical extent to exercise mountains, deep caves, tall structures and vertical
+streaming; a shallow landscape alone does not satisfy the vertical-extent requirement in §1b.
+Measure memory, `voxelAt` access, random/stroke edits, encoding/decoding, compressed size and worker-transfer cost.
+These assembly questions are work for 45.1, not additional owner decisions required before phase 45 starts.
+
+**45.7 acceptance requirement:** before presenting the format for owner approval, demonstrate a small
+wall-to-beam/banister example as neighbouring voxels change, using minimal placeholder geometry. Show that stored
+intent survives codec/save round trips, surface/detail and occupancy outputs can express the different cases, and
+an edit crossing a chunk boundary invalidates all dependent results. Exercise equivalent runtime voxel input without
+structure-authoring metadata. This proves the data contract, not the finished rule catalogue or art pipeline; record
+what was observed and any limitations. Finished kit art, displacement, exact LOD levels, 2×2 variation sections,
+Kit Designer and deferred scatter are not prerequisites for this proof.
 
 Throughout 45, nothing on `main` relies on branch code, and every existing system stays in place.
 
@@ -642,6 +688,168 @@ sub-phase on staging; the merge to `main` happens once, at the end of 48.
     editor streaming and streamed exports were added to §2 (storage later settled as uniform, §1b).
   - Estimates (about 95 MB per km² sparse at 0.5 m; about 5–10k kit pieces for a 50-house village; 15–20 texture reads
     per pixel) are unverified until 45.6 measures them.
+
+## 7a. Kit and surface planning session (2026-10-30)
+
+This records the conversation about the reference material kits, art-factory and runtime construction. It revises
+the initial full-mesh-kit direction; it does not start the voxel phases or freeze a format. The existing owner
+approval stops remain. The role/assembly and material-layout drafts must reflect these revisions before approval.
+
+### Agreed direction: voxel surfaces with inferred architecture
+
+- **Generate the base geometry from the voxel world.** Do not require artists to model every wall/floor surface
+  case as a complete replacement kit. The owner has no large art team; minimise bespoke asset work while retaining
+  the reference's visual quality. Follow the documented Enshrouded workflow where practical, within our renderer
+  constraints, rather than assuming its internals from screenshots.
+- **Project tileable material textures onto the base surfaces, using texture arrays.** The owner's initial
+  direction is triplanar mapping with full-resolution tileable wall and floor textures, rather than forcing broad
+  surfaces into trim bands. A construction material set can provide different surfaces for walls, floors, roofs,
+  undersides and other contexts. Surface selection and texture projection are separate decisions. Architectural
+  coordinates following a rotated structure's grid are the recommended default, still to prototype.
+- **Infer beams, banisters, soffits, ceiling mouldings and running boards.** They must not require manual semantic
+  labels or placement as props. Material/construction style and the surrounding voxel arrangement determine the
+  architectural expression. A low exposed run may become an open banister; extending its neighbours can change
+  it into a wall. Specific predicates and precedence remain to be designed, not inferred as facts about Keen.
+- **Runtime building must work too.** A game can offer broad building/roof/terrain categories, materials and shape
+  brushes in sizes such as 2 m and 4 m, as in the supplied build-menu reference. Brush dimensions are not render
+  mesh dimensions. Broad category metadata may be written automatically; detailed architectural cases must be
+  derived from the arrangement. The stored category/role schema is unresolved. Structure authoring metadata must
+  not be necessary for equivalent runtime voxel edits to produce the right result.
+- **One shared assembly evaluation is the proposed contract.** Before emitting geometry, resolve which base
+  surfaces remain, which are suppressed or reshaped, and which detail pieces appear. Replacement is essential
+  for open railings or thin beams; a solid base hidden under every detail mesh is insufficient. This revises the
+  assistant's withdrawn suggestion that railings should generally be props and replacement merely exceptional.
+- **Collision, navigation and light occupancy must agree with the resolved architecture.** An open rail cannot
+  automatically retain the behaviour of an opaque full voxel wall. Decide representations and acceptable visual
+  approximation explicitly; this revisits §2's blanket modular-box collision and §9's shared solid occupancy.
+  Original voxel data remains authoritative; resolved meshes and other representations are derived.
+- **Author merge-compatible sections, not separate hand-modelled run lengths.** Repeating bodies, junctions,
+  corners and exposed terminations combine into longer features. This supersedes the requirement to author
+  separate 0.5/1/2/4 m models. Whether the renderer instances sections or caches merged geometry is a measured
+  implementation choice, not an artist obligation.
+- **Authored high and low detail meshes, then voxel fallback.** High carries detail; low preserves the important
+  silhouette, openings and construction character. Automatic simplification is not a dependable production
+  requirement. Beyond detail-mesh visibility, voxel-derived geometry must still look sensible. Distances and
+  transitions require observation and measurement; do not freeze the earlier approximate rings as art guarantees.
+
+### Surface subdivision and displacement: investigate before committing
+
+The owner proposed near/middle/base surface levels: densely subdivided voxel surfaces displaced by material height
+near the camera, coarser subdivided/displaced surfaces farther out, then undisplaced voxel geometry. This is viable
+in principle without a hardware tessellation stage: generate vertices during meshing and displace existing vertices
+in the shader. It is **not implemented or measured**, and is not a promise of Enshrouded-equivalent performance.
+The earlier blanket rejection of displacement must not be used to rule out this prototype.
+
+- Generate topology on chunk load/edit/LOD changes, not every frame; prototype worker meshing and shader displacement.
+- Separate **surface subdivision LOD** from **voxel shape LOD**: reducing relief detail must not immediately erase
+  doors or other occupied/empty-cell features.
+- Existing terrain CDLOD provides relevant selection/transition ideas, but its heightfield representation cannot
+  directly describe caves, walls, undersides and overhangs. Inspect existing code before claiming reuse. A few
+  discrete subdivision levels are the suggested first prototype, not a decided adaptive algorithm.
+- Prove matching boundaries between chunks and subdivision levels, shared corner displacement, filtered height
+  sampling, stable transitions and hysteresis. Shared texture coordinates alone do not prevent geometric cracks.
+- Account for normals, shadow-pass displacement, conservative culling bounds, texture residency and vertex cost.
+  Shader displacement does not update collision or voxel occupancy. Establish the decorative displacement envelope;
+  substantial blocking/walkable features need agreement with the resolved shape. No numerical budget is chosen yet.
+
+### Art-factory workflow: useful proposals and superseded alternatives
+
+The owner wants a dedicated **Kit Designer** alongside Texture Designer/Painter. This is a proposed art-factory
+capability, not work performed or authorised in that repository by this session. Thirdlight owns the versioned
+assembly contract, case catalogue and validation; art-factory consumes them. Preview should exercise the same rules
+as the runtime where practical. Blender or other modelling tools can remain part of the production pipeline.
+
+The discussion explored these approaches in order; they must not be mistaken for simultaneous requirements:
+
+1. **Construction-specific painted atlas.** Assign material IDs in art-factory to select paint-library materials,
+   then bake one final texture set per appearance variant into the kit's shared UV layout. IDs are authoring
+   assignments, not separate runtime materials/textures. Swap assignments and rebake to make another variant.
+   Unique mapping helps ornaments and caps but restarting the same UV patch on each cell exposes repetition.
+2. **Sculpt plus construction bakes and a second material mapping.** Sculpt, retopologise the high runtime mesh,
+   author low, and bake mesh-specific normals/local AO/IDs into one UV layout. Another mapping samples tileable
+   surface materials or trims. The sculpt is an authoring source, not the high runtime mesh itself. This separates
+   permanent construction relief from swappable surface character, but adds work and shader/map cost.
+3. **Current initial direction:** voxel-derived base surfaces with projected tileables and authored detail pieces.
+   Sculpted detail-mesh bakes can supplement the shared material textures where useful; a complete sculpted surface
+   kit is not a prerequisite. Surface subdivision/displacement is the pending experiment above.
+
+**Trim sheets are no longer a universal requirement.** The latest discussion asks whether detail meshes can instead
+combine their own sculpt bakes with the existing material-array surfaces. Recommended answer: permit this and keep
+trim sheets optional for features that benefit from them. Final mapping/channel contracts remain open. A material
+array does not replace mesh-specific construction bakes; those are separate shader inputs. Keep Painter IDs in
+authoring unless a runtime mask has a defined purpose. Do not invent one runtime draw material per Painter ID.
+
+If two mappings are used, resolve normal blending across their tangent frames, local-only baked occlusion, material
+alignment at joins, and high/low bake correspondence. Automatic reuse of a high mesh's normal bake on low is not
+guaranteed. Continuous run mapping requires placement-aware coordinates, not just a second static unwrap.
+
+**Larger variation sections:** the owner proposed 2×2 sections for broad walls, floors and roofs to reduce monotony.
+The unit was not settled: the assistant interpreted two cells per surface axis (1×1 m), but the owner did not confirm
+that rather than 2×2 m. This is not a proposal to change storage chunk size. Prototype larger authored compositions
+with compatible subdivisions and stable surviving details after a cell is removed. Do not make nearby stones or
+carvings rearrange merely because an intact patch falls back to smaller pieces. Larger patches still repeat; variants
+and boundary compatibility need testing. This remains optional research, not mandatory kit scope.
+
+### Deferred material-driven terrain dressing
+
+- Terrain material recipes should eventually generate nearby dressing automatically: grass/flowers for grassy
+  ground, small pebbles/stones for volcanic basalt. Do not require painting individual scatter placements.
+- **All rule scatter is disposable.** Persistent interactions belong to placed props. No harvesting identities,
+  persistent per-instance exceptions or saved millions of scatter positions are required for this system.
+- Store rules, stable seed and necessary inputs; derive placements deterministically, independent of chunk loading
+  order and floating-origin shifts. The scatter radius stays inside already loaded chunks, including the required
+  sampling neighbourhood; cross-boundary sampling need not trigger a separate streaming scheme.
+- Terrain edits, building grids and large props contributing to their host grid's occupancy all influence scatter.
+  Regenerate the edited chunk and any affected neighbouring region within the rule's influence. Preserve unaffected
+  placements. Resolve coverage/occupancy semantics for exclusions rather than assuming every proxy is a solid wall.
+- Material-blend boundaries and their scatter behaviour must be configurable. Slope and other recipe conditions can
+  refine placement. This is procedural dressing of hand-authored worlds, not procedural world generation.
+- **Deferred:** preserve this direction for later planning; do not make it a prerequisite for initial voxel kits.
+
+### Research and reference limits
+
+The strongest technical source found was [Game Dev Podcast #84](https://gamedevpodcast.de/84/), 2024-11-05,
+with Julien Koenen and Philipp Krause. Relevant transcript passages and chapter images were inspected; no claim
+is made to have watched the entire recording. The transcript contains transcription errors; paraphrase carefully.
+
+- 2:51:30: building relief includes hardware tessellation/displacement.
+- 3:01–3:04: runtime neighbourhood rules select authored detail meshes, with stable seeded variants; some inspect
+  two voxels away. Long wooden members combine matching authored sections and terminations.
+- 3:06:23: GPU culling and instancing for detail objects.
+- 3:23:29: triplanar terrain mapping, principal-axis mapping for building faces.
+- 3:24:49: MagicaVoxel building authoring with palette-to-engine-material assignment.
+
+See the [layer comparison](https://media.gamedevpodcast.de/gdp084/enshrouded_details.jpg),
+[wall/opening comparison](https://media.gamedevpodcast.de/gdp084/enshrouded_wall.jpg) and
+[recording near the detail discussion](https://www.youtube.com/watch?v=LJWqNAUff2o&t=10845s).
+These document the 2024 implementation. They do not establish today's complete implementation, sculpt/retopology
+pipeline, UV/bake contracts, authored high/low pairs, 2×2 patches or thin-feature collision/occupancy behaviour.
+The earlier §7 description of kit mechanisms as entirely unpublished, and attribution of biplanar mapping to Keen,
+are corrected by this source; our biplanar proposals are not proof of Keen using that technique.
+
+[Keen's world-creation demo](https://www.youtube.com/watch?v=G6wXwZQISVY) and its
+[published transcript](https://www.linkedin.com/posts/keen-games_creating-the-world-of-enshrouded-activity-7140369674289995777-SJ2t)
+show mesh brushes, subtractive stamps, voxel objects and spline authoring. The
+[world-design AMA](https://enshrouded.com/zh-Hant/news/enshrouded-world-design-team-reddit-ama-recap)
+describes authored asset pools. Neither supplies a complete detail-mesh production specification.
+[GPC 2024](https://graphicsprogrammingconference.com/archive/2024/) covers GI, fog and Vulkan;
+[GPC 2025](https://graphicsprogrammingconference.com/archive/2025/) covers water, volumetrics and particles.
+No verified kit sculpt-to-bake production talk was found. Existing-vertex displacement is documented by
+[three.js](https://threejs.org/docs/pages/MeshStandardMaterial.html); this does not validate our integration.
+
+Visual references reviewed: the fourteen owner-supplied `all-blocks-as-of-now-examples-acquisition-5-for-enshrouded-v0-*.webp`
+images at the repository root, plus build-menu image `sbpuwkoh6s0h1.png`. These are reference images, not licensed
+production assets or evidence of hidden algorithms. They remain untouched and untracked by this documentation edit.
+
+### What to prove before freezing the revised specification
+
+First prove a shared assembly resolver on a wall, beam and banister as neighbours are added/removed, with openings,
+corners and material changes. Observe base-surface suppression, detail selection and collision/light agreement.
+Then test a textured wall/floor and roof, chunk boundaries and rotated grids; compare near/middle/base displacement
+and detail-mesh transitions. Include a long uninterrupted surface to expose repetition and a local dig/rebuild to
+expose unstable variation. Evaluate high and low silhouettes in motion and under moving light on both renderers.
+Measure costs before promising parity with the reference. Kit Designer templates, required/fallback cases, join
+profiles, mapping conventions and validation should grow from this proof, not from an untested asset-count target.
 
 ## 8. Next: water (a later phase; owner decisions 2026-10-28)
 
