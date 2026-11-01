@@ -1,6 +1,6 @@
 # Phase 44b — Camera: occlusion modes and adaptive exposure
 
-Status: **in progress** (started 2026-11-01 at 7f98343e). Planned in the owner session of 2026-10-28. It runs after
+Status: **done 2026-11-01, owner look pending** (started 2026-11-01 at 7f98343e). Planned in the owner session of 2026-10-28. It runs after
 phase 44 and before the voxel phases (45–49). It doesn't depend on voxels.
 
 Goal: each virtual camera decides how it handles what stands between it and its subject, and how it exposes the
@@ -315,3 +315,17 @@ picture. Games switch both by switching cameras, through priorities and camera r
   less. Left: L1 (the meter's two small programs still compile when the first adapting camera goes live; compiling
   them ahead needs the scene texture bound, more than a fix-up) and L3 (the Inspector would need the project's
   see-through setting and the `collision` field to show the resolved mode; the field's help says what absent means).
+- 2026-11-01 (lead, phase close): full gate `--both-renderers` at 033fb18c
+  RED, 32 min (phase 44: 30), 386 e2e, memory peak 7.4 GB: two real
+  failures — D424 (three r187: a deferred precompile re-bound the terrain
+  macro baker's target, WebGPU Play froze; fixed 548afdaf) and D423 (never
+  reproduced after, watch) — verified by fast gates of those files, not a
+  second full gate; D425 watch. Independent review
+  (~/.cache/thirdlight-phase44b/review.md): 1 High (D422's test-scene change
+  hid a probe sky-light renderer difference), 3 Medium (exposure no-op with
+  tone mapping none; outdoor default ~3.5 stops over; bloom strength silently
+  0.6→0.2), 8 Low. Fixed: M1, M3, 6 Lows (44b.4b); H1 and M2 measured and
+  recorded with cause as D427 (live probes 1.3–2.4 stops brighter than the
+  environment light), left open for the voxel lighting work (no probe tuning
+  in this run, owner); D429 (WebGL 2 sunset veiled at morning/noon) is the
+  same gap. Acceptance and perf in "44b results".
