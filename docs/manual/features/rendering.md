@@ -70,8 +70,11 @@ knee below it and glows with only the part above it (the old renderer glowed
 with the whole colour of anything over the threshold, before exposure), so a
 bright sky no longer veils the frame, and a lower exposure calms the glow
 with the picture. Projects saved with an exposure other than 1 have their
-bloom threshold scaled by it on open (Problems says so). New bloom starts at
-strength 0.2.
+bloom threshold scaled by it on open, and a quality level's threshold
+override too where every look with bloom has the same exposure (Problems
+says so, and names the levels it left). New bloom starts at strength 0.2; a
+saved look with bloom on and no strength of its own gets 0.6, the old
+default, written on open, so it glows as before.
 **Exposure** is the look's fixed multiplier, or — while a virtual camera
 with **Auto exposure** is on screen — adapted to the picture
 ([Cameras](scenes-and-cameras.md#cameras-virtual-cameras)); either way it

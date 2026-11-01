@@ -603,8 +603,9 @@ describe('a project with the retired light counts opened over HTTP', () => {
       const set = (graphId: string): Record<string, unknown> => ({ graph: { graphId, kind: 'furnishing-set', name: graphId, graph: { nodes: [{ id: 'furnishing', type: 'furnishing', position: [0, 0], data: { doorClearance: 1 } }, { id: 'lamp', type: 'light', position: [0, 0], data: { height: 2 } }], edges: [] } } });
       await cmd('setGraph', set('lit-set'));
       await cmd('setGraph', set('dark-set'));
-      // Bloom in looks exposed other than 1 (a scene's own, a preset without a threshold) and at 1 (left alone).
-      await cmd('setEnvironment', { environment: { qualityLevels: [{ id: 'low', shadowMapSize: 512 }, { id: 'high' }], presets: [{ presetId: 'dusk', name: 'Dusk', post: { exposure: 0.5, bloom: { enabled: true } } }, { presetId: 'noon', name: 'Noon', post: { exposure: 1, bloom: { enabled: true, threshold: 0.7 } } }] } });
+      // Bloom in looks exposed other than 1 (a scene's own, a preset without a threshold or strength) and at 1 (only
+      // its strength written), and a level's threshold override over looks of different exposures (left, with a note).
+      await cmd('setEnvironment', { environment: { qualityLevels: [{ id: 'low', shadowMapSize: 512 }, { id: 'high', post: { bloom: { threshold: 0.9 } } }], presets: [{ presetId: 'dusk', name: 'Dusk', post: { exposure: 0.5, bloom: { enabled: true } } }, { presetId: 'noon', name: 'Noon', post: { exposure: 1, bloom: { enabled: true, threshold: 0.7 } } }] } });
       await cmd('setEnvironment', { sceneId: 'scene-main', environment: { post: { exposure: 2, bloom: { enabled: true, strength: 0.4, threshold: 0.6 } } } });
       await tb.backend.close();
       closed = true;
@@ -649,7 +650,7 @@ describe('a project with the retired light counts opened over HTTP', () => {
         const r = first.backend._test.service.readCapturedV3(PID);
         if (!r.ok) throw new Error(r.error.code);
         const content = r.read.content as { environment: { qualityLevels: Record<string, unknown>[] }; graphs: { graphId: string; graph: { nodes: { type: string; data?: Record<string, unknown> }[] } }[] };
-        expect(content.environment.qualityLevels).toEqual([{ id: 'low', shadowMapSize: 512 }, { id: 'high' }]);
+        expect(content.environment.qualityLevels).toEqual([{ id: 'low', shadowMapSize: 512 }, { id: 'high', post: { bloom: { threshold: 0.9 } } }]);
         const nodesOf = (id: string): { type: string; data?: Record<string, unknown> }[] => content.graphs.find((g) => g.graphId === id)!.graph.nodes;
         expect(nodesOf('lit-set').map((n) => n.type)).toEqual(['furnishing', 'light']);
         expect(nodesOf('lit-set')[0]!.data).toEqual({ doorClearance: 1 });
@@ -660,14 +661,18 @@ describe('a project with the retired light counts opened over HTTP', () => {
         expect(nodesOf('dark-set')[0]!.data).toEqual({ doorClearance: 1 });
         expect(nodesOf('dark-set')[1]!.data).toEqual({ height: 2, on: false });
         expect(manifest()['upgrades']).toEqual(['bloom-exposure', 'light-counts', 'planes']);
-        // Bloom's threshold is compared after exposure now: scaled by the look's exposure, the same brightness glows.
+        // Bloom's threshold is compared after exposure now: scaled by the look's exposure, the same brightness glows;
+        // the default strength fell, so a look that left it out keeps the old one.
         const looks = r.read.content as { environment: { presets: { presetId: string; post: Record<string, unknown> }[] } };
-        expect(looks.environment.presets.map((p) => p.post)).toEqual([{ exposure: 0.5, bloom: { enabled: true, threshold: 0.425 } }, { exposure: 1, bloom: { enabled: true, threshold: 0.7 } }]);
+        expect(looks.environment.presets.map((p) => p.post)).toEqual([{ exposure: 0.5, bloom: { enabled: true, threshold: 0.425, strength: 0.6 } }, { exposure: 1, bloom: { enabled: true, threshold: 0.7, strength: 0.6 } }]);
         const sceneFile = JSON.parse(readFileSync(join(root, 'scenes', 'scene-main.json'), 'utf8')) as { scene: { environment?: { post?: unknown } } };
         expect(sceneFile.scene.environment?.post).toEqual({ exposure: 2, bloom: { enabled: true, strength: 0.4, threshold: 1.2 } });
         expect(await upgradeLines(first.url)).toEqual(expect.arrayContaining([
           expect.stringMatching(/^scene scene-main: the bloom threshold is now compared after exposure/),
           expect.stringMatching(/^environment preset dusk: the bloom threshold/),
+          expect.stringMatching(/^environment preset dusk: bloom's default strength is now 0\.2; the look's strength was written as 0\.6/),
+          expect.stringMatching(/^environment preset noon: bloom's default strength/),
+          expect.stringMatching(/^quality levels high: the bloom threshold override .* left as it was, as the looks with bloom have different exposures \(0\.5, 1, 2\)/),
           expect.stringContaining('quality levels: localLights and shadowedLights were removed'),
           expect.stringMatching(/^furnishing sets: the Lights count was removed.*\(lit-set\)/),
           expect.stringMatching(/^furnishing sets whose Lights count was 0: .*switched off.*\(dark-set\)/),

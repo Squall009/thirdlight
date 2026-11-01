@@ -25,7 +25,8 @@
  *   (`upgrade-light-counts.ts`).
  * - `bloom-exposure` (recorded): bloom's threshold is compared after
  *   exposure; a look with an exposure other than 1 gets its threshold scaled
- *   by it, so the same brightness glows (`upgrade-bloom-exposure.ts`).
+ *   by it, so the same brightness glows, and a look with bloom on keeps the
+ *   old default strength (`upgrade-bloom-exposure.ts`).
  */
 import { upgradeBloomExposure } from './upgrade-bloom-exposure';
 import { linkPrefabCopies } from './upgrade-linked-copies';
