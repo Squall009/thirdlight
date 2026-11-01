@@ -399,8 +399,8 @@ export const BEHAVIOR_API_TYPES: Readonly<Record<string, readonly BehaviorApiMem
     {
       "name": "setSeeThrough",
       "kind": "method",
-      "detail": "(params: { enabled?: boolean | undefined; subjects?: readonly string[] | null | undefined; radius?: number | undefined; softness?: number | undefined; maxFade?: number | undefined; depthMargin?: number | undefined; fadeTime?: number | undefined; padding?: number | undefined; }): boolean",
-      "doc": "Change see-through (each field optional; the rest stay as the project or an earlier call set them): what stands between the camera and a subject thins to a dither in a soft circle round it. `subjects` are entity ids (as many as you like; th"
+      "detail": "(params: { enabled?: boolean | null | undefined; subjects?: readonly string[] | null | undefined; radius?: number | undefined; softness?: number | undefined; maxFade?: number | undefined; depthMargin?: number | undefined; fadeTime?: number | undefined; padding?: number | undefined; }): boolean",
+      "doc": "Change see-through (each field optional; the rest stay as the project or an earlier call set them): what stands between the camera and a subject thins to a dither in a soft circle round it. Whether it is on is the live camera's choice (its "
     },
     {
       "name": "live",

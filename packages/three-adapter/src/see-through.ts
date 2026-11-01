@@ -631,13 +631,15 @@ export interface SeeThroughPatch extends Partial<SeeThroughSettings> {
 export interface SeeThroughScripted {
   readonly settings: Readonly<SeeThroughSettings>;
   readonly subjects: readonly string[] | null;
+  /** On or off as a script said, over the camera's choice (absent: the camera's). */
+  readonly enabled?: boolean;
 }
 
 /** Whether two scripted states say the same (the worker's view arrives as a new object every step). */
 function sameScripted(a: SeeThroughScripted | null, b: SeeThroughScripted | null): boolean {
   if (a === b) return true;
   if (a === null || b === null) return false;
-  if (SEE_THROUGH_FIELDS.some((k) => a.settings[k] !== b.settings[k])) return false;
+  if (a.enabled !== b.enabled || SEE_THROUGH_FIELDS.some((k) => a.settings[k] !== b.settings[k])) return false;
   const x = a.subjects;
   const y = b.subjects;
   return x === y || (x !== null && y !== null && x.length === y.length && x.every((id, i) => id === y[i]));
@@ -671,6 +673,10 @@ export interface SeeThroughDeps extends SeeThroughEntities {
   cameraTarget(): string | null;
   /** What the game's scripts set (null: nothing yet; the host's settings stand). */
   scripted?(): SeeThroughScripted | null;
+  /** The occlusion mode of the camera on screen (null or absent: no camera's; the host's or a script's setting stands). */
+  cameraOcclusion?(): string | null;
+  /** A loaded camera chooses see-through: arm as `prebuild` does, from the scene load that brought it rather than when it goes live. */
+  cameraLoaded?(): boolean;
   /** On or off whatever the host or a script says (absent: as they say). */
   readonly pinned?: boolean;
   /**
@@ -757,6 +763,8 @@ export class SeeThroughView implements SeeThroughControl {
   private base: SeeThroughSettings;
   private baseNamed: readonly string[] | null = null;
   private script: SeeThroughScripted | null = null;
+  /** The occlusion mode of the camera on screen, as last followed. */
+  private cameraMode: string | null = null;
   private readonly slots: (Slot | null)[] = new Array<Slot | null>(SEE_THROUGH_SUBJECTS).fill(null);
   private readonly packs: SubjectPack[] = Array.from({ length: SEE_THROUGH_SUBJECTS }, emptyPack);
   /** Each slot's boxes as packed for the shader (min xyz + nudge, max xyz + fade), and how many each holds. */
@@ -824,15 +832,20 @@ export class SeeThroughView implements SeeThroughControl {
     const sc = this.script;
     this.named = sc !== null ? sc.subjects : this.baseNamed;
     const s = sc !== null ? seeThroughSettingsOf(sc.settings) : { ...this.base };
+    // On where the camera on screen chose see-through, unless a script said otherwise; without a camera, as set.
+    if (sc?.enabled !== undefined) s.enabled = sc.enabled;
+    else if (this.cameraMode !== null) s.enabled = this.cameraMode === 'seeThrough';
     if (this.d.pinned !== undefined) s.enabled = this.d.pinned;
     return s;
   }
 
-  /** Follow what the game's scripts set (each change once). */
+  /** Follow what the game's scripts set and the camera on screen (each change once). */
   private followScript(): void {
     const sc = this.d.scripted?.() ?? null;
-    if (sameScripted(sc, this.script)) return;
+    const mode = this.d.cameraOcclusion?.() ?? null;
+    if (sameScripted(sc, this.script) && mode === this.cameraMode) return;
     this.script = sc;
+    this.cameraMode = mode;
     this.s = this.resolved();
   }
 
@@ -901,7 +914,7 @@ export class SeeThroughView implements SeeThroughControl {
     const followed = this.followed;
     this.followed = false;
     this.followScript();
-    const ahead = this.ahead && this.d.pinned !== false;
+    const ahead = (this.ahead || this.d.cameraLoaded?.() === true) && this.d.pinned !== false;
     if (!this.s.enabled && this.armed === null && !ahead) {
       this.forgetMemberDraws();
       return;
@@ -909,7 +922,7 @@ export class SeeThroughView implements SeeThroughControl {
     if ((this.s.enabled || ahead) && this.armed !== r && r.contextNode !== undefined) {
       // A script turned it on in a page that did not build the mask ahead: every program is built again now.
       if (!ahead && this.armed === null && this.script?.settings.enabled === true && this.d.pinned === undefined) {
-        this.d.onProblem?.('see_through_rebuild', 'A script turned see-through on while the project\'s Rendering → See-through setting is off, so every shader was built again in the middle of the game (the picture holds until they are ready). Turn on Rendering → See-through so the mask is built at load, and turn it off from a script at the start if the game wants it only in places.');
+        this.d.onProblem?.('see_through_rebuild', 'A script turned see-through on while the project\'s Rendering → See-through setting is off, so every shader was built again in the middle of the game (the picture holds until they are ready). Give the cameras that want it Occlusion: See through (the mask is then built when their scene loads), or turn on Rendering → See-through so it is built at load.');
       }
       this.arm(r as ArmedRenderer);
     }

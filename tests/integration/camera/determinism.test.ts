@@ -130,10 +130,11 @@ describe('the camera is resolved in the simulation (two runs, page and worker)',
         for (let s = step; s < step + 4; s += 1) if (a.views.has(s)) return a.views.get(s);
         throw new Error(`no view near step ${step}`);
       };
-      // Follow: live from the start, turned by the look input, pulled in front of the wall (z 2.8).
+      // Follow: live from the start, turned by the look input, pulled in front of the wall (z 2.8) by the sphere's radius.
       const early = at(14);
       expect(early.live).toBe('cam-follow');
-      expect(early.position[2]).toBeLessThan(2.81);
+      expect(early.occlusion).toBe('pullIn');
+      expect(early.position[2]).toBeLessThan(2.8 - 0.2 + 1e-6);
       // The eased blend to the orbit camera: under way at about half time, done after 1 s.
       const mid = at(121);
       expect(mid.live).toBe('cam-orbit');

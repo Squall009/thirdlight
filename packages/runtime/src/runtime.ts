@@ -466,6 +466,21 @@ export class RuntimeInstance implements Runtime {
         const hit = port.raycast({ x: origin[0], y: origin[1], z: origin[2] }, { x: direction[0], y: direction[1], z: direction[2] }, maxDistance);
         return hit === null ? null : { distance: hit.distance };
       },
+      castSphere: (origin, direction, radius, maxDistance) => {
+        const port = this.sim.physics3d;
+        if (port === undefined) return null;
+        if (typeof port.castSphere !== 'function') {
+          // A port without sphere casts: the ray, stopped the radius short.
+          const ray = typeof port.raycast === 'function' ? port.raycast({ x: origin[0], y: origin[1], z: origin[2] }, { x: direction[0], y: direction[1], z: direction[2] }, maxDistance + radius) : null;
+          return ray === null ? null : { distance: Math.max(0, ray.distance - radius) };
+        }
+        const hit = port.castSphere({ x: origin[0], y: origin[1], z: origin[2] }, { x: direction[0], y: direction[1], z: direction[2] }, radius, maxDistance);
+        return hit === null ? null : { distance: hit.distance };
+      },
+      sphereOverlaps: (center, radius) => {
+        const port = this.sim.physics3d;
+        return port !== undefined && typeof port.overlap === 'function' && port.overlap({ type: 'sphere', radius }, { x: center[0], y: center[1], z: center[2] }).length > 0;
+      },
       warn: (message) => this.faults.log('thirdlight.runtime:camera', 'warn', message),
     }, seeThroughSettingsOfProject(args.settings));
     this.views.add(args.initialEntities);

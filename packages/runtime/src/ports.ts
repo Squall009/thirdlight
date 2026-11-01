@@ -447,6 +447,8 @@ export interface PhysicsPort3D {
   removeStaticColliders?(entityIds: readonly string[]): void;
   /** The nearest collider hit by a ray (the characters excluded; only those the filter lets through). */
   raycast?(origin: PhysicsVec3, direction: PhysicsVec3, maxDistance: number, filter?: PhysicsQueryFilter3D): RaycastHit3D | null;
+  /** How far a sphere moves from `origin` along `direction` before it meets a collider (the characters excluded; what it starts in does not stop it). */
+  castSphere?(origin: PhysicsVec3, direction: PhysicsVec3, radius: number, maxDistance: number, filter?: PhysicsQueryFilter3D): { entityId: string; distance: number } | null;
   /** Where the kinematic (mover) colliders go with this step's world update (after the character's sweep). */
   setKinematicPoses?(poses: readonly KinematicPose3D[]): void;
   /** The entities whose colliders overlap `shape` at `center` turned by `rotation` (the character excluded), sorted, at most 64. */

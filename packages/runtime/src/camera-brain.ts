@@ -20,7 +20,10 @@
  * blend. A blend interrupted by another change continues from the blended
  * view.
  */
+import { virtualCameraOcclusion, type CameraOcclusion } from '@thirdlight/project-model';
+
 import type { ActionFrame } from './actions';
+import { newPullIn, pullInDistance, resetPullIn, type PullInState } from './camera-pull-in';
 import {
   applyShake,
   blendPoses,
@@ -94,6 +97,11 @@ export interface VirtualCameraData {
   readonly lookAhead?: readonly number[];
   readonly lookAheadMax?: readonly number[];
   readonly lookAheadSmoothing?: number;
+  /** What it does about occluders (project-model `virtualCameraOcclusion` resolves an absent one) and pull-in's times. */
+  readonly occlusion?: CameraOcclusion;
+  readonly pullInTime?: number;
+  readonly pullHoldTime?: number;
+  readonly pullOutTime?: number;
 }
 
 /** The cameraRegion component as the brain reads it (project-model `CameraRegionComponent`). */
@@ -161,8 +169,12 @@ export type CameraBlendStyle = 'cut' | 'linear' | 'eased';
 export interface CameraWorld {
   /** An entity's world position and rotation (false: not loaded). */
   worldOf(id: string, position: number[], rotation: number[]): boolean;
-  /** The nearest collider along a ray (absent: no collision pull-in). */
+  /** The nearest collider along a ray (pull-in's fallback where no sphere is cast). */
   raycast?(origin: V3, direction: V3, maxDistance: number): { distance: number } | null;
+  /** How far a sphere moves along a ray before it meets a collider (absent: the ray, less the radius). */
+  castSphere?(origin: V3, direction: V3, radius: number, maxDistance: number): { distance: number } | null;
+  /** Whether a sphere overlaps any collider. */
+  sphereOverlaps?(center: V3, radius: number): boolean;
 }
 
 /** A virtual camera's live state as scripts read it (`ctx.camera.get`). */
@@ -204,6 +216,14 @@ export interface CameraViewInfo {
   readonly target?: string;
   /** See-through as the game's scripts set it (absent: no call yet; the project's settings stand). */
   readonly seeThrough?: import('./see-through-control').SeeThroughScriptState;
+  /**
+   * What the camera on screen does about occluders (absent: no camera is live; the project's see-through setting
+   * stands). A blend takes the incoming camera's at its midpoint: a mode does not blend, and see-through eases
+   * its own fade.
+   */
+  readonly occlusion?: CameraOcclusion;
+  /** A loaded camera chooses see-through (absent: none does): the renderer builds its mask while the scene loads, not when the camera goes live. */
+  readonly seeThroughLoaded?: true;
 }
 
 interface CamState {
@@ -242,6 +262,9 @@ interface CamState {
   /** Track: the target's last point and its eased velocity (look-ahead). */
   lookLast: V3 | null;
   readonly lookVel: V3;
+  /** What it does about occluders, and its pull-in. */
+  readonly occlusion: CameraOcclusion;
+  readonly pull: PullInState;
   readonly pose: CameraPose;
 }
 
@@ -329,7 +352,9 @@ export class CameraBrain {
   private liveId: string | null = null;
   /** The camera a timeline forces live (null: none); it wins over a game mode's camera. */
   private timelineOverrideId: string | null = null;
-  private blend: { from: CameraPose; fromId: string | null; fromLive: boolean; steps: number; total: number; style: CameraBlendStyle } | null = null;
+  private blend: { from: CameraPose; fromId: string | null; fromLive: boolean; steps: number; total: number; style: CameraBlendStyle; fromOcclusion: CameraOcclusion | null } | null = null;
+  /** The occlusion mode on screen (null: no camera's), and whether a camera evaluated this step was pulled in past a collider (the step is a cut). */
+  private readonly occl: { view: CameraOcclusion | null; cut: boolean } = { view: null, cut: false };
   /** A blend a script asked for with the change it made (used by the next switch). */
   private pendingBlend: { style: CameraBlendStyle; seconds: number } | null = null;
   private impulses: Impulse[] = [];
@@ -369,6 +394,8 @@ export class CameraBrain {
     hz: number,
     private readonly baseLens: BaseLens,
     private readonly warn: (message: string) => void = () => undefined,
+    /** The project's see-through setting: the occlusion of cameras that chose none. */
+    private readonly projectSeeThrough: boolean = false,
   ) {
     this.dt = 1 / hz;
     this.hz = hz;
@@ -415,6 +442,7 @@ export class CameraBrain {
     this.stepCount = 0;
     this.time = 0;
     this.overrideId = null;
+    this.occl.view = null;
   }
 
   /**
@@ -471,6 +499,8 @@ export class CameraBrain {
       regionBlend: null,
       lookLast: null,
       lookVel: [0, 0, 0],
+      occlusion: virtualCameraOcclusion(d, this.projectSeeThrough),
+      pull: newPullIn(),
       pose: newPose(),
     };
   }
@@ -699,13 +729,16 @@ export class CameraBrain {
         cut = true;
       } else if (this.blend === null && (leaving !== undefined || this.liveId === null)) {
         // From the camera that was live, still moving (or the base pose).
-        this.blend = { from: newPose(), fromId: this.liveId, fromLive: true, steps: 0, total: Math.max(1, Math.round(seconds * this.hz)), style };
+        this.blend = { from: newPose(), fromId: this.liveId, fromLive: true, steps: 0, total: Math.max(1, Math.round(seconds * this.hz)), style, fromOcclusion: this.occl.view };
       } else {
         // Interrupted blend (or a camera that left): from the blended view, frozen.
-        this.blend = { from: copyPose(this.unshaken, newPose()), fromId: null, fromLive: false, steps: 0, total: Math.max(1, Math.round(seconds * this.hz)), style };
+        this.blend = { from: copyPose(this.unshaken, newPose()), fromId: null, fromLive: false, steps: 0, total: Math.max(1, Math.round(seconds * this.hz)), style, fromOcclusion: this.occl.view };
       }
-      // A camera going live starts from where its rig is now (no damping lag from a previous pivot).
-      if (next !== null) next.pivot = null;
+      // A camera going live starts from where its rig is now (no damping lag from a previous pivot, no old pull-in).
+      if (next !== null) {
+        next.pivot = null;
+        resetPullIn(next.pull);
+      }
     }
     this.pendingBlend = null;
     // Nothing live: the view holds the base pose (said once each time it starts to).
@@ -714,6 +747,7 @@ export class CameraBrain {
     this.started = true;
 
     // Advance and evaluate the live camera (it alone reads input and rides its rail).
+    this.occl.cut = false;
     if (next !== null) {
       this.advance(next, action, dt);
       this.evaluate(next, world, dt);
@@ -742,8 +776,13 @@ export class CameraBrain {
       const t = clampNum(b.steps / b.total, 0, 1);
       const w = b.style === 'eased' ? easeInOut(t) : t;
       blendPoses(fromPose, target, w, this.unshaken);
+      // A mode cannot be half one and half the other: the incoming camera's from the blend's midpoint.
+      this.occl.view = t < 0.5 ? b.fromOcclusion : (next?.occlusion ?? null);
       if (t >= 1) this.blend = null;
-    } else copyPose(target, this.unshaken);
+    } else {
+      copyPose(target, this.unshaken);
+      this.occl.view = next?.occlusion ?? null;
+    }
 
     // Shake: the live camera's constant shake (weighted by the blend) and the impulses.
     copyPose(this.unshaken, this.out);
@@ -778,8 +817,8 @@ export class CameraBrain {
     }
     this.lastShake = shakeTotal;
 
-    // Commit: prev := curr (a cut: the new pose on both, so nothing streaks).
-    if (cut) copyPose(this.out, this.prev);
+    // Commit: prev := curr (a cut: the new pose on both, so nothing streaks; a pull-in past a wall too, so no drawn frame is inside it).
+    if (cut || this.occl.cut) copyPose(this.out, this.prev);
     else copyPose(this.curr, this.prev);
     copyPose(this.out, this.curr);
   }
@@ -957,10 +996,9 @@ export class CameraBrain {
     const pitch = d.rig === 'topDown' ? 90 : s.pitch;
     let dist = s.distance;
     const off = orbitOffset(s.yaw, pitch, 1, this.offAt);
-    if (d.rig === 'follow' && d.collision !== false && world.raycast !== undefined && dist > 0) {
-      const radius = num(d.collisionRadius, D.collisionRadius);
-      const hit = world.raycast([pv[0], pv[1], pv[2]], [off[0], off[1], off[2]], dist + radius);
-      if (hit !== null && Number.isFinite(hit.distance)) dist = Math.max(Math.min(num(d.minDistance, D.minDistance), dist), Math.min(dist, hit.distance - radius));
+    if (d.rig === 'follow' && s.occlusion === 'pullIn' && dist > 0) {
+      dist = pullInDistance(s.pull, d, world, pv, off, dist, this.hz);
+      if (s.pull.cut) this.occl.cut = true;
     }
     pose.position[0] = pv[0] + off[0] * dist;
     pose.position[1] = pv[1] + off[1] * dist;
@@ -1200,6 +1238,7 @@ export class CameraBrain {
     const s = this.cams.get(String(id));
     if (s === undefined) return null;
     s.pivot = null;
+    resetPullIn(s.pull);
     this.evaluate(s, world, this.dt);
     return copyPose(s.pose, newPose());
   }
@@ -1218,6 +1257,7 @@ export class CameraBrain {
   view(): CameraViewInfo {
     const c = this.curr;
     const b = this.blend;
+    const live = this.liveId === null ? undefined : this.cams.get(this.liveId);
     return {
       live: this.liveId,
       blend: b === null ? null : { from: b.fromLive ? b.fromId : null, progress: clampNum(b.steps / b.total, 0, 1), style: b.style },
@@ -1228,22 +1268,13 @@ export class CameraBrain {
       far: c.far,
       letterbox: c.letterbox,
       shake: this.lastShake,
-      ...this.regionView(),
-      ...this.targetView(),
+      ...(this.occl.view !== null ? { occlusion: this.occl.view } : {}),
+      ...([...this.cams.values()].some((s) => s.occlusion === 'seeThrough') ? { seeThroughLoaded: true as const } : {}),
+      // The live track camera's region, while regions are loaded.
+      ...(this.regions.size > 0 && live?.data.rig === 'track' ? { region: live.region } : {}),
+      // The live camera's target object, when it has one.
+      ...(live !== undefined && live.target !== null ? { target: live.target } : {}),
     };
-  }
-
-  /** The live camera's target object, when it has one. */
-  private targetView(): { target?: string } {
-    const t = this.liveId === null ? null : (this.cams.get(this.liveId)?.target ?? null);
-    return t !== null ? { target: t } : {};
-  }
-
-  /** The live track camera's region, while regions are loaded. */
-  private regionView(): { region?: string | null } {
-    if (this.regions.size === 0 || this.liveId === null) return {};
-    const s = this.cams.get(this.liveId);
-    return s !== undefined && s.data.rig === 'track' ? { region: s.region } : {};
   }
 
   /** The viewport the host reported (0 × 0 until it does). */

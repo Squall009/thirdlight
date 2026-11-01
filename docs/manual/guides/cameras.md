@@ -88,9 +88,10 @@ play-test.
   (`property.entityRef(null)`), not `""`.
 - **Rig fields apply per rig.** Distance means nothing to a fixed camera;
   the Inspector shows only the fields the chosen rig uses.
-- **Collision pulls a follow camera in front of walls**, side views
-  included: turn it off on a side camera that foreground colliders would
-  pull in.
+- **Occlusion Pull in moves a follow camera in front of walls**, side views
+  included: set **Occlusion** to None on a side camera that foreground
+  colliders would pull in, or See through on an interior camera that should
+  stay put and thin the walls instead.
 - **Camera changes apply at the end of the step**, the same in a replay and
   in the export.
 

@@ -203,7 +203,7 @@ describe('camera brain', () => {
     expect(b.get('vc-f')!.distance).toBe(7); // clamped at maxDistance
   });
 
-  it('follow: pulled in front of a collider between it and the target (never closer than minDistance)', () => {
+  it('follow: pulled in front of a collider between it and the target (a ray where no sphere is cast), held, then eased back out', () => {
     const hits: number[] = [];
     const b = new CameraBrain(HZ, LENS);
     b.add([cam('vc-f', { rig: 'follow', target: 'hero', distance: 8, pitch: 0, collisionRadius: 0.5, minDistance: 1 })]);
@@ -215,11 +215,15 @@ describe('camera brain', () => {
     run(b, 1, w);
     expect(hits[0]).toBeCloseTo(8.5, 12);
     expect(b.view().position[2]).toBeCloseTo(2.5, 12);
+    // A wall closer than the radius: in front of it, closer than minDistance if it must be (never inside it).
     wall = 0.2;
     run(b, 1, w);
-    expect(b.view().position[2]).toBeCloseTo(1, 12);
+    expect(b.view().position[2]).toBeCloseTo(0, 12);
     wall = 100;
     run(b, 1, w);
+    expect(b.view().position[2]).toBeCloseTo(0, 12);
+    // Held 0.3 s, then out over 0.6 s (the defaults).
+    run(b, Math.round(0.3 * HZ) + Math.round(0.6 * HZ), w);
     expect(b.view().position[2]).toBeCloseTo(8, 12);
   });
 

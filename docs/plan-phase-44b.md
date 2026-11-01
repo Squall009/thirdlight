@@ -61,7 +61,7 @@ picture. Games switch both by switching cameras, through priorities and camera r
 | Item | Status |
 |---|---|
 | 44b.0 | done: three 0.186.1 pinned, 0.187.0 (minor) out 2026-10-30 → item 44b.3a. Plan committed. D339 open → 44b.1. Before shots (look scenes, medium, both renderers, cap): sunset veiled on both at medium, corridor fine; bloom 0.88 / 0.84 ms GPU (sunset / corridor, ≈ 0.41 at full clock). See **44b.0 baseline**. No code, no e2e. |
-| 44b.1 | done: bloom off removes the veil (both renderers). Bloom now thresholds the exposed colour, soft knee, only the excess glows; default strength 0.2; `bloom-exposure` load step. Sunset still veiled at exposure 1 (≈ 2 stops over), clean at 0.3: D339 open for 44b.3. Bloom GPU ≈ 0.42 ms full (0.41); landscape/interior main ms below 44.13. env-parity 23.0 → 25.9 s. Shots: acceptance/44b.1. |
+| 44b.1 | done: bloom off removes the veil (both renderers). Bloom now thresholds the exposed colour, soft knee, only the excess glows; default strength 0.2; `bloom-exposure` load step. Sunset still veiled at exposure 1 (≈ 2 stops over), clean at 0.3: D339 open for 44b.3. Bloom GPU ≈ 0.42 ms full (0.41); level GPU +0.5–0.9: host (A/B, log). env-parity 23.0 → 25.9 s. Shots: acceptance/44b.1. |
 
 ### 44b.0 baseline
 
@@ -117,3 +117,25 @@ picture. Games switch both by switching cameras, through priorities and camera r
   same strength because only the excess glows: the fix, not a silent change (manual, rendering page). The env-parity
   `bloom.png` reference is redrawn from WebGL 2 for the same reason (strict match on both backends; it still differs
   from the plain picture by mean 24.8).
+- 2026-11-01 (44b.2, default chosen, owner to confirm): what existing projects get. A camera without an `occlusion`
+  resolves at load: the project's `see_through` on → `seeThrough`, else an older `collision: false` → `none`, else
+  `pullIn`. No upgrade step and no file rewritten: a project that had see-through keeps it on every camera (it loses
+  the ray pull-in that ran beside it), every other follow camera pulls in with the new sphere, hold and ease. The
+  setting is thereby "the default for new cameras" (a new camera has no field) and stays the look's home (radius,
+  fade …). `collision` stays readable (shown under Occlusion, Pull in only) rather than retired by a format step.
+- 2026-11-01 (44b.2, default chosen, owner to confirm): pull-in defaults radius 0.2 m (as before), in 0.1 s (time to
+  cross the whole distance), hold 0.3 s, out 0.6 s (eased in-out). The in time only applies while the sphere grazes
+  an edge and the target is still in sight; a collider that hides the target (a ray from the target), or a move
+  that would start in or pass into one, puts the camera at the clear distance at once and the step is a cut (prev =
+  curr), so no drawn frame is behind, inside or sliding through a wall. The floor at Min distance is gone (it put
+  the camera inside a wall closer than that). Pull-in acts on the follow rig only, as the ray did.
+- 2026-11-01 (44b.2): mode in blends: pull-in is part of each camera's pose, which blends as before; the mode itself
+  (what the renderer reads: see-through on or off) snaps to the incoming camera's at the blend's midpoint and
+  see-through's own fade eases it. A script's `setSeeThrough({enabled})` holds over every camera until `enabled:
+  null` gives it back. The mask is built when a see-through camera loads (the view's `seeThroughLoaded`), during its
+  scene's load, not when it goes live, so a camera switch never rebuilds programs.
+- 2026-11-01 (44b.2, first task): 44b.1's landscape/interior GPU +0.5–0.9 ms against the 44.13 numbers is host state,
+  not bb70d593: a same-hour interleaved A/B (WebGPU, 60 Hz cap, base-head-head-base, 06:50–07:29, load 1.0–2.6),
+  7f98343e → bb70d593, GPU ms at full clock: landscape 10.69 / 10.30 → 10.59 / 10.31 (scene pass 7.34 / 7.07 →
+  7.28 / 7.04), interior 6.92 / 6.69 → 7.14 / 6.98 (its scene pass swings 1.3–2.6 ms raw on either side); main ms
+  5.06 / 4.94 → 4.91 / 5.04 and 2.99 / 3.04 → 3.12 / 3.02; p95 16.7–16.8, 0 missed everywhere. No D-row.

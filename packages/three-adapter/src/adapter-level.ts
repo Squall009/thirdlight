@@ -164,9 +164,10 @@ export function createAdapterLevel(d: AdapterLevelDeps): AdapterLevel {
     horizon: opts.terrainHorizon !== false,
   });
   // See-through round the subjects (the camera's target unless a host names others); off: nothing armed, nothing built.
-  const viewOf = (): { target?: string; seeThrough?: SeeThroughScripted } | null | undefined => (opts.runtime as { cameraView?: () => { target?: string; seeThrough?: SeeThroughScripted } | null }).cameraView?.();
+  type ViewLike = { target?: string; seeThrough?: SeeThroughScripted; occlusion?: string; seeThroughLoaded?: true };
+  const viewOf = (): ViewLike | null | undefined => (opts.runtime as { cameraView?: () => ViewLike | null }).cameraView?.();
   const st = opts.seeThrough;
-  const seeThrough = new SeeThroughView({ ...seeThroughEntitiesOf(graph), components: (id) => d.components(id), cameraTarget: () => viewOf()?.target ?? null, scripted: () => viewOf()?.seeThrough ?? null, ...(st?.pinned !== undefined ? { pinned: st.pinned } : {}), ...(st?.prebuild === true ? { prebuild: true } : {}), requestPrecompile: () => d.precompile().want(), onChange: changed, regroup: (o) => batcher?.touch(o), occluderLayers: () => blockView.drawnLayers().filter((l) => l.seeThrough), ...(st?.onProblem !== undefined ? { onProblem: st.onProblem } : {}) }, st?.settings);
+  const seeThrough = new SeeThroughView({ ...seeThroughEntitiesOf(graph), components: (id) => d.components(id), cameraTarget: () => viewOf()?.target ?? null, scripted: () => viewOf()?.seeThrough ?? null, cameraOcclusion: () => viewOf()?.occlusion ?? null, cameraLoaded: () => viewOf()?.seeThroughLoaded === true, ...(st?.pinned !== undefined ? { pinned: st.pinned } : {}), ...(st?.prebuild === true ? { prebuild: true } : {}), requestPrecompile: () => d.precompile().want(), onChange: changed, regroup: (o) => batcher?.touch(o), occluderLayers: () => blockView.drawnLayers().filter((l) => l.seeThrough), ...(st?.onProblem !== undefined ? { onProblem: st.onProblem } : {}) }, st?.settings);
   // Foliage gives way to the same subjects, see-through on or off.
   const foliageBend = new FoliageBendView({ ...seeThroughEntitiesOf(graph), components: (id) => d.components(id), cameraTarget: () => viewOf()?.target ?? null, named: () => seeThrough.subjects(), onChange: changed }, materialLibrary?.foliageBend ?? null);
   const blockTypes = ((opts.snapshot as { blockTypes?: readonly BlockType[] }).blockTypes ?? []) as BlockType[];

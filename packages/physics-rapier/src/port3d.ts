@@ -992,6 +992,29 @@ function suspension3D(bodyOf: (characterId: string | undefined, op: string) => C
   };
 }
 
+/** The nearest collider along a ray (a script's filter as Rapier's groups and predicate; a ray reaches 10 km). */
+function rayHit(world: RAPIER.World, infoByHandle: Map<number, Collider3DInfo>, origin: PhysicsVec3, direction: PhysicsVec3, maxDistance: number, groups: number | undefined, exclude: RAPIER.Collider, predicate: ((c: RAPIER.Collider) => boolean) | undefined): RaycastHit3D | null {
+  const len = Math.hypot(direction.x, direction.y, direction.z);
+  if (!(len > 0) || !finite(maxDistance) || maxDistance <= 0 || !isVec3(origin)) return null;
+  const u = { x: direction.x / len, y: direction.y / len, z: direction.z / len };
+  const hit = world.castRayAndGetNormal(new RAPIER.Ray({ x: origin.x, y: origin.y, z: origin.z }, u), Math.min(maxDistance, 10000), true, undefined, groups, exclude, undefined, predicate);
+  if (hit === null) return null;
+  const entityId = infoByHandle.get(hit.collider.handle)?.entityId;
+  const t = hit.timeOfImpact;
+  return entityId === undefined ? null : { entityId, distance: t, normal: { x: hit.normal.x, y: hit.normal.y, z: hit.normal.z }, point: { x: origin.x + u.x * t, y: origin.y + u.y * t, z: origin.z + u.z * t } };
+}
+
+/** How far a sphere moves along a ray before it meets a collider; what it starts in does not stop it (a target standing against a wall), only what it moves into. */
+function sphereHit(world: RAPIER.World, infoByHandle: Map<number, Collider3DInfo>, origin: PhysicsVec3, direction: PhysicsVec3, radius: number, maxDistance: number, groups: number | undefined, exclude: RAPIER.Collider, predicate: ((c: RAPIER.Collider) => boolean) | undefined): { entityId: string; distance: number } | null {
+  const len = Math.hypot(direction.x, direction.y, direction.z);
+  if (!(len > 0) || !finite(maxDistance) || maxDistance <= 0 || !finite(radius) || radius <= 0 || !isVec3(origin)) return null;
+  const u = { x: direction.x / len, y: direction.y / len, z: direction.z / len };
+  const hit = world.castShape({ x: origin.x, y: origin.y, z: origin.z }, IDENTITY_Q, u, new RAPIER.Ball(Math.min(radius, 500)), 0, Math.min(maxDistance, 10000), false, undefined, groups, exclude, undefined, predicate);
+  if (hit === null) return null;
+  const entityId = infoByHandle.get(hit.collider.handle)?.entityId;
+  return entityId === undefined ? null : { entityId, distance: hit.time_of_impact };
+}
+
 function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, further: Map<string, CharacterBody3D>, config: PhysicsInitConfig3D, staticSpecs: Map<string, StaticColliderSpec3D>, bodies: Map<string, RAPIER.RigidBody>, infoByHandle: Map<number, Collider3DInfo>, bits: LayerBits, collidersOf: Map<string, RAPIER.Collider[]>): RapierPhysicsPort3D {
   /** The world (`restartWorld` replaces it). */
   let world = initialWorld;
@@ -1484,16 +1507,13 @@ function createAdapter(initialWorld: RAPIER.World, primary: CharacterBody3D, fur
     raycast(origin: PhysicsVec3, direction: PhysicsVec3, maxDistance: number, filter?: PhysicsQueryFilter3D): RaycastHit3D | null {
       assertLive('raycast');
       ensureBuilt();
-      const len = Math.hypot(direction.x, direction.y, direction.z);
-      if (!(len > 0) || !finite(maxDistance) || maxDistance <= 0 || !isVec3(origin)) return null;
-      const u = { x: direction.x / len, y: direction.y / len, z: direction.z / len };
-      // A script's filter (collision layers as groups; tags and exclusions as the predicate); a ray reaches 10 km.
-      const reach = Math.min(maxDistance, 10000);
-      const hit = world.castRayAndGetNormal(new RAPIER.Ray({ x: origin.x, y: origin.y, z: origin.z }, u), reach, true, undefined, groupsOf(filter), primary.collider, undefined, predicateOf(filter));
-      if (hit === null) return null;
-      const entityId = infoByHandle.get(hit.collider.handle)?.entityId;
-      const t = hit.timeOfImpact;
-      return entityId === undefined ? null : { entityId, distance: t, normal: { x: hit.normal.x, y: hit.normal.y, z: hit.normal.z }, point: { x: origin.x + u.x * t, y: origin.y + u.y * t, z: origin.z + u.z * t } };
+      return rayHit(world, infoByHandle, origin, direction, maxDistance, groupsOf(filter), primary.collider, predicateOf(filter));
+    },
+
+    castSphere(origin: PhysicsVec3, direction: PhysicsVec3, radius: number, maxDistance: number, filter?: PhysicsQueryFilter3D): { entityId: string; distance: number } | null {
+      assertLive('castSphere');
+      ensureBuilt();
+      return sphereHit(world, infoByHandle, origin, direction, radius, maxDistance, groupsOf(filter), primary.collider, predicateOf(filter));
     },
 
     overlap(shape: OverlapShape3D, center: PhysicsVec3, rotation?: PhysicsQuat, filter?: PhysicsQueryFilter3D): string[] {

@@ -30,9 +30,9 @@ player, so doorways and rooms stay readable. Three features work together:
    [Generate rooms and buildings](generated-architecture.md); a room's
    upper storey is the region `<room>-s1`.)
 2. **The camera.** Select the starter's follow camera and set **Pitch** 50,
-   **Distance** 12 and **Target offset** 0, 1, 0. Turn **Collision** off:
-   with it on, the camera is pulled in under the roof (the roof still
-   collides) and you look at the walls from inside.
+   **Distance** 12 and **Target offset** 0, 1, 0. Set **Occlusion** to
+   **See through**: with Pull in, the camera is pulled in under the roof
+   (the roof still collides) and you look at the walls from inside.
 3. **The roof cut-away.** In the block editor **Select** (S) the roof's
    cells, make a region `roof` in **Regions** and tick **Cut away**: the
    roof is hidden while the player stands under it. **Preview** shows it in
@@ -43,8 +43,9 @@ player, so doorways and rooms stay readable. Three features work together:
    only through the circle; a plane at the upper floor's own row opens the
    whole ground storey instead, and on the stairs that floor is then cut
    rather than faded.
-4. **See-through.** Project Settings → Quality → Rendering → **See-through**
-   On. The defaults fit a follow camera (a circle a fifth of the view's
+4. **See-through.** The camera's Occlusion See through turns it on; its look
+   is in Project Settings → Quality → Rendering (**See-through** On there
+   makes it every camera's choice that makes none). The defaults fit a follow camera (a circle a fifth of the view's
    height, thinning to a 75 % dither); raise **See-through radius** for
    larger rooms. Only what really stands between the camera and the player
    fades: a wall behind or beside the player stays solid even inside the
@@ -65,9 +66,12 @@ player, so doorways and rooms stay readable. Three features work together:
    above you fades; once you are up, the slab under your feet stays solid
    and the roof above is the one that is cut.
 
-**Only indoors.** A game that wants see-through only inside keeps the
-setting on (so nothing is built in the middle of the game) and switches it
-from a script. On the player (see [scripts](scripts.md)):
+**Only indoors.** The simplest way is a camera per place: the interior's
+camera with Occlusion See through, the outdoor one with Pull in, switched
+by priorities or camera regions (the mask is built when the scene with the
+see-through camera loads). A game with one camera switches it from a script
+instead, keeping a see-through camera loaded or the setting on (so nothing
+is built in the middle of the game). On the player (see [scripts](scripts.md)):
 
 ```ts
 import type { BehaviorContext } from '@thirdlight/runtime';
@@ -108,18 +112,18 @@ off outside; the fade time eases each switch.
    layer's `bounds` first if the building is taller than it, and raise the
    player's `controller` `stepHeight` (0.55 for the Basic Kit's stairs).
 2. The camera ([`setComponent`](../reference/ops-detail.md#op-setComponent)):
-   `{"entityId": "<follow camera>", "component": "virtualCamera", "value": {"pitch": 50, "distance": 12, "targetOffset": [0, 1, 0], "collision": false}}`.
+   `{"entityId": "<follow camera>", "component": "virtualCamera", "value": {"pitch": 50, "distance": 12, "targetOffset": [0, 1, 0], "occlusion": "seeThrough"}}`.
 3. The cut-aways: `{"entityId": "<layer>", "component": "blockLayer", "value": {"cutaway": {"regions": [{"region": "roof"}], "planes": [<upper floor's wall row>]}}}`.
-4. See-through ([`setSettings`](../reference/ops-detail.md#op-setSettings)):
-   `{"settings": {"see_through": 1, "see_through_radius": 0.25}}`
+4. See-through's look ([`setSettings`](../reference/ops-detail.md#op-setSettings)):
+   `{"settings": {"see_through_radius": 0.25}}`
    ([the settings](../reference/content-blocks-settings.md#content-settings)).
 5. An object that stays solid: `{"entityId": "<sign>", "component": "model", "value": {"seeThrough": false}}`
    (`box`, `instances`, `blockLayer`, `terrain` and `architecture` take the
    same field; a scatter rule takes it in the rule).
 6. Play and check: send movement as test input to walk the player through
    the doorway and up the stairs, and take a screenshot at each stage.
-   `tl_game_observe` shows `camera.seeThrough` once a script has called
-   `setSeeThrough`.
+   `tl_game_observe` shows `camera.occlusion` (the mode on screen) and
+   `camera.seeThrough` once a script has called `setSeeThrough`.
 
 ## Which to use
 
@@ -144,10 +148,11 @@ levels the same way.
   space from the camera to the player's body, widened by the padding; a
   wall behind or beside the player never fades. A piece just off the line
   of sight that should fade needs a larger padding, not a larger margin.
-- **Turning see-through on from a script with the setting off** rebuilds
-  every shader in the middle of the game (a held picture of about half a
-  second, and a `see_through_rebuild` Problems line). Keep the setting on
-  and switch it off from a script instead.
+- **Turning see-through on from a script** with no see-through camera
+  loaded and the setting off rebuilds every shader in the middle of the
+  game (a held picture of about half a second, and a `see_through_rebuild`
+  Problems line). Give the camera Occlusion See through instead (or keep
+  the setting on and switch it off from a script).
 - **A dither, never gone.** Two faded walls in a row still hide what is
   behind them as much as one: the fades share one pattern. Cut the farther
   one away if the room behind must show.

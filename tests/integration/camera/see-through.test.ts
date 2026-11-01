@@ -39,6 +39,7 @@ export default {
     if (s === 124) answer('e3', cam.setSeeThrough({ radious: 0.5 }));
     if (s === 160) answer('f', cam.setSeeThrough({ subjects: null, enabled: false }));
     if (s === 200) answer('g', cam.setSeeThrough({ subjects: [] , enabled: true }));
+    if (s === 230) answer('h', cam.setSeeThrough({ enabled: null }));
   },
 };
 `;
@@ -59,26 +60,30 @@ function scene(): { snapshot: Any; physics: Any } {
 
 const PATTERN = [1, 2, 1, 0, 3, 1];
 
-async function run(mode: Mode, steps: number): Promise<{ h: Harness; digests: string[]; views: Map<number, Any> }> {
+async function run(mode: Mode, steps: number): Promise<{ h: Harness; digests: string[]; views: Map<number, Any>; modes: Set<unknown> }> {
   const { snapshot, physics } = scene();
   const h = await startHarness(mode, { snapshot, settings: SETTINGS, physics, behaviors: [behaviorModule('director', DIRECTOR)], digestSteps: true, host: { buildId: 'b', container: new FakeNode() } });
   let now = 10;
   await h.tick(now);
   const views = new Map<number, Any>();
+  const modes = new Set<unknown>();
   let i = 0;
   while (h.digests.length < steps) {
     now += PATTERN[i++ % PATTERN.length]! * DT;
     await h.tick(now);
     const obs = h.host.observe();
-    if (obs.ok && obs.observation.camera !== undefined) views.set(obs.observation.stepIndex, obs.observation.camera.seeThrough ?? null);
+    if (obs.ok && obs.observation.camera !== undefined) {
+      views.set(obs.observation.stepIndex, obs.observation.camera.seeThrough ?? null);
+      modes.add(`${String(obs.observation.camera.occlusion)}|${String(obs.observation.camera.seeThroughLoaded)}`);
+    }
   }
-  return { h, digests: [...h.digests], views };
+  return { h, digests: [...h.digests], views, modes };
 }
 
 describe('ctx.camera.setSeeThrough (page and worker)', () => {
   it('carries the same see-through with the view, step for step, over the project settings', async () => {
-    const a = await run('single', 240);
-    const w = await run('worker', 240);
+    const a = await run('single', 250);
+    const w = await run('worker', 250);
     try {
       const n = Math.min(a.digests.length, w.digests.length);
       expect(a.digests.slice(0, n).findIndex((d, k) => d !== w.digests[k]), 'first differing step (page vs worker)').toBe(-1);
@@ -110,9 +115,15 @@ describe('ctx.camera.setSeeThrough (page and worker)', () => {
       const back = near(162, 199);
       expect(back.subjects).toBeNull();
       expect(back.settings.enabled).toBe(false);
-      // An empty list is the camera's target too.
-      expect(near(202, 240).subjects).toBeNull();
-      expect((a.h.rt as Any).uiView().model.st).toEqual({ a: true, b: true, c: false, d: false, e: false, e2: false, e3: false, f: true, g: true });
+      // An empty list is the camera's target too; `enabled` holds over the camera's choice until null gives it back.
+      expect(near(202, 229).subjects).toBeNull();
+      expect(near(202, 229).enabled).toBe(true);
+      expect(back.enabled).toBe(false);
+      expect(near(232, 240).enabled).toBeUndefined();
+      // The follow camera chose nothing in a project whose see-through is on: it sees through (and is loaded as such).
+      expect([...a.modes]).toEqual(['seeThrough|true']);
+      expect([...w.modes]).toEqual(['seeThrough|true']);
+      expect((a.h.rt as Any).uiView().model.st).toEqual({ a: true, b: true, c: false, d: false, e: false, e2: false, e3: false, f: true, g: true, h: true });
     } finally {
       await a.h.dispose();
       await w.h.dispose();

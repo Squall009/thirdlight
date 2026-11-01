@@ -267,9 +267,9 @@ enabled virtual camera the view holds the default pose (see
   **Pitch** (limits **Pitch min/max**), plus a **Target offset** (e.g. head
   height). The player turns it with the **Turn action** (an axis; a 2D axis
   turns with x and tilts with y), tilts it with the **Tilt action** and zooms
-  with the **Zoom action** (between **Min/Max distance**). It is pulled in front of colliders between it and the target (**Collision**,
-  **Collision radius**; never closer than Min distance). **Damping** lets it
-  lag behind a moving target.
+  with the **Zoom action** (between **Min/Max distance**). With **Occlusion**
+  Pull in (below) it is pulled in front of colliders between it and the
+  target. **Damping** lets it lag behind a moving target.
 - **Orbit a point** — circles the **Point** (a world point with a Scene
   handle; absent: the target, else where it is placed). Each press of the
   **Turn left/right action** turns one **Turn step** (90° by default), eased
@@ -282,6 +282,34 @@ enabled virtual camera the view holds the default pose (see
   **Smooth**). **Progress** (0–1) is where it starts, **Rail speed** (m/s)
   how fast it rides, **At the end** stop, loop or back and forth. It looks at
   its target, or along the path.
+
+**Occlusion** (the camera's **Occlusion** section). Each camera chooses
+what it does about what stands between it and its target:
+
+- **Pull in** (`pullIn`, the default) — a follow camera casts a sphere of
+  **Collision radius** (0.2 m) from its target out to its distance, against
+  every collider (props with colliders count, characters do not), and sits
+  where the sphere first meets one, so its near plane never cuts into a
+  wall. It moves in fast: **Pull-in time** (0.1 s) is how long it takes to
+  cross its whole distance while only the sphere grazes an edge; a collider
+  that hides the target, or a move that would pass into one, puts it in
+  front at once, as a cut (no drawn frame slides through the wall). Once
+  the way back is clear it holds for **Hold time** (0.3 s), so a doorway or
+  a pillar passing by does not pump it, then eases back out over
+  **Ease-out time** (0.6 s). A zoom while nothing is in the way is followed
+  at once. It may come closer than Min distance (never inside a wall).
+- **See through** (`seeThrough`) — the camera stays where its rig puts it
+  and what stands in front of its target thins to a dither (below; the
+  project's see-through settings). For interiors and fixed or isometric
+  views.
+- **None** (`none`) — neither.
+
+A camera without a choice takes **See through** when the project's
+Rendering → See-through is on, else Pull in (and None if its older
+**Collision** switch is off), so a project made before the choice keeps its
+look. The mode does not blend: a blend takes the incoming camera's at its
+midpoint (see-through then eases its own fade; pull-in has already moved
+each camera's pose, which blends as usual).
 
 **Blends.** When the live camera changes, the view moves from what is on
 screen to the new camera: **Blend in** cut, linear or eased over **Blend
@@ -310,7 +338,9 @@ seconds, frequency?, rotation?, seed?)`, `live()`, `blending()`, `get(id)`,
 from the top left, with the aspect of the view the game is drawn in).
 `setSeeThrough({enabled?, subjects?, radius?, softness?, maxFade?,
 depthMargin?, fadeTime?, padding?})` changes see-through over the project's Rendering
-settings (`subjects`: entity ids; `null` goes back to the camera's target).
+settings (`subjects`: entity ids; `null` goes back to the camera's target;
+`enabled` true or false holds over every camera's Occlusion until
+`enabled: null` gives it back to the cameras).
 Changes take effect at the end of the step; the camera is resolved in the
 simulation step, so replays, the simulation worker and the export give the
 same camera (and the same screen rays) bit for bit.
@@ -320,8 +350,10 @@ subjects a script names) thins to a dither in a soft circle round it. Only
 true occluders fade: what stands in the space from the camera to the
 subject's body (widened by the padding), nearer the camera than the body
 along each pixel's own ray, and higher than half the subject's height above
-its feet. Walls behind or beside the subject and floors never do. It is turned on in Project Settings →
-Quality → Rendering, previewed with the Scene view's **see-through** switch
+its feet. Walls behind or beside the subject and floors never do. It is on
+while a camera whose **Occlusion** is See through is on screen (the project
+setting in Project Settings → Quality → Rendering is the choice of cameras
+that make none), previewed with the Scene view's **see-through** switch
 and changed by scripts with `setSeeThrough`. What fades, the subject list,
 opting out, the setting's effect on loading and the cost are in
 [Rendering → See-through](rendering.md#see-through); building an interior
@@ -333,5 +365,7 @@ and camera path points are Scene handles (one undo step per drag).
 
 **Observing.** `tl_game_observe` (and `window.__thirdlightObserve()` in an
 export) reports `camera: { live, blend: {from, progress, style} | null,
-position, rotation, fovY, near, far, letterbox, shake, seeThrough? }` while
-the game has virtual cameras (`seeThrough` once a script set it).
+position, rotation, fovY, near, far, letterbox, shake, occlusion?,
+seeThroughLoaded?, seeThrough? }` while the game has virtual cameras
+(`occlusion`: the mode of the camera on screen; `seeThroughLoaded` while a
+loaded camera chooses see-through; `seeThrough` once a script set it).

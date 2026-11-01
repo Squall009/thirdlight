@@ -42,7 +42,7 @@ export class RuntimeViews {
     private readonly host: ViewHost,
     seeThrough: Readonly<SeeThroughSettings> = SEE_THROUGH_DEFAULTS,
   ) {
-    this.brains.set(DEFAULT_VIEW_ID, new CameraBrain(hz, lens, (message) => host.warn(message)));
+    this.brains.set(DEFAULT_VIEW_ID, new CameraBrain(hz, lens, (message) => host.warn(message), seeThrough.enabled));
     this.seeThrough.set(DEFAULT_VIEW_ID, new SeeThroughScript(seeThrough));
     this.control = this.buildControl();
   }

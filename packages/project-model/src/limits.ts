@@ -28,6 +28,8 @@ export { MAX_INSTANCES, SCENE_LIMITS_V3 } from './types-v3';
 // The animation role keys and the built-in surface rows (the importer, the protocol and the editor name them).
 export { ANIMATION_ROLE_KEYS, SURFACE_PRESET_NAMES, SURFACE_PRESETS } from './types-v3';
 export { EVENT_CUE_LIMITS } from './event-cues';
+// The virtual cameras' occlusion modes and defaults (the MCP docs name them).
+export { CAMERA_OCCLUSION_MODES, VIRTUAL_CAMERA_DEFAULTS } from './cameras';
 export { MODE_LIMITS } from './modes';
 export { MAX_ANIMATOR_LAYERS } from './animator';
 export { MATERIAL_DATA_MAX } from './material-graph-kinds';

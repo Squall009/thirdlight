@@ -116,12 +116,17 @@ and graph materials. It does not hide whole zones; that is what a block
 layer's [cut-aways](blocks.md#block-layers) do, and the two combine
 (see [the interiors guide](../guides/interiors.md)).
 
-**Turning it on.** Project Settings → Quality → Rendering (MCP:
-[`setSettings`](../reference/ops-detail.md#op-setSettings)):
+**Turning it on.** Each virtual camera chooses it: **Occlusion** See
+through (`occlusion: "seeThrough"`; the others pull the camera in or do
+nothing, see [Scenes and cameras](scenes-and-cameras.md#cameras-virtual-cameras)).
+It is on while such a camera is on screen; a blend switches at its midpoint
+and the fade eases. The look is set in Project Settings → Quality →
+Rendering (MCP: [`setSettings`](../reference/ops-detail.md#op-setSettings)),
+where **See-through** also makes it the choice of cameras that make none:
 
 | Setting | Key | Default | |
 |---|---|---|---|
-| **See-through** | `see_through` | 0 (off) | 1: on in Play and the export |
+| **See-through** | `see_through` | 0 (off) | 1: the Occlusion of every virtual camera that chooses none is See through |
 | **See-through radius** | `see_through_radius` | 0.2 | the circle's radius as a share of the view's height at the subject; never less than 0.75 × the subject's height, so it covers the body when zoomed in |
 | **See-through softness** | `see_through_softness` | 0.4 | the share of the radius the edge softens over (0: a hard edge) |
 | **See-through max fade** | `see_through_max_fade` | 0.75 | how far what is in front thins at most (up to 0.95) |
@@ -190,7 +195,9 @@ the shadow maps never take the mask.
 **Scripts.** `ctx.camera.setSeeThrough({enabled?, subjects?, radius?,
 softness?, maxFade?, depthMargin?, fadeTime?, padding?})` (the visual-script node
 **Set see-through**) changes it while the game runs. Each field is optional;
-the rest stay as the project or an earlier call set them, numbers are
+the rest stay as the project or an earlier call set them; `enabled` true or
+false holds over every camera's Occlusion until `enabled: null` gives it
+back to the cameras; numbers are
 clamped to their ranges, and a wrong argument changes nothing and returns
 `false`. `subjects: null` or an empty list goes back to the camera's
 target. The change lasts until a new run (loading a scene keeps it) and is
@@ -199,16 +206,18 @@ worker give the same view; `tl_game_observe` shows it as
 `camera.seeThrough` once a script set it. See
 [Scenes and cameras](scenes-and-cameras.md#cameras-virtual-cameras).
 
-**The setting decides what is built.** With Rendering → See-through on,
-Play and the export build every shader with the mask at load (a draw no
-subject can reach skips it), so a script can turn see-through off and on at
-any time without a hitch. A game that wants it only in some places keeps
-the setting on and turns it off from a script at the start; the fade's
-easing hides the first frame. With the setting off nothing is built and
-nothing is paid, and a script that turns it on anyway makes every shader be
+**What is built, and when.** With Rendering → See-through on, Play and the
+export build every shader with the mask at load (a draw no subject can
+reach skips it), so a script can turn see-through off and on at any time
+without a hitch. With it off, the shaders take the mask when a scene brings
+a camera whose Occlusion is See through (during that scene's load, not when
+the camera goes live), so switching to it is smooth too; a game with no
+such camera builds nothing and pays nothing. A game that wants it only in
+some places gives those places' cameras See through. A script that turns it
+on with no such camera loaded and the setting off makes every shader be
 built again in the middle of the game: the picture holds meanwhile (about
 half a second on a large interior, a frame or two missed) and Problems says
-once `see_through_rebuild`, with the fix (turn the setting on).
+once `see_through_rebuild`, with the fix.
 
 **In the editor.** The Scene view's **see-through** toolbar switch (beside
 the light switch, so it stays in reach in the full-screen edit modes)

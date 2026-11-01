@@ -31,7 +31,7 @@ import { MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS } from './materials';
 import { DEFAULT_COLLIDER_DEPTH, MAX_COLLIDER_DEPTH } from './shape-2d-3d';
 import { SOCKET_ATTACH_CONFLICTS, SOCKET_ATTACH_LIMITS } from './sockets';
 import { MODE_BLENDS, MODE_DEFAULTS, MODE_LIMITS, MODE_PHYSICS, MODE_UNGROUPED } from './modes';
-import { CAMERA_BLENDS, CAMERA_PATH_LIMITS, CAMERA_RAIL_MODES, CAMERA_REGION_DEFAULTS, CAMERA_REGION_LIMITS, VIRTUAL_CAMERA_DEFAULTS as VCD, VIRTUAL_CAMERA_LIMITS as VCL, VIRTUAL_CAMERA_RIGS } from './cameras';
+import { CAMERA_BLENDS, CAMERA_OCCLUSION_MODES, CAMERA_PATH_LIMITS, CAMERA_RAIL_MODES, CAMERA_REGION_DEFAULTS, CAMERA_REGION_LIMITS, VIRTUAL_CAMERA_DEFAULTS as VCD, VIRTUAL_CAMERA_LIMITS as VCL, VIRTUAL_CAMERA_RIGS } from './cameras';
 import { MAX_LEN } from './validate';
 import { LOCAL_LIGHT_MODES } from './local-lights';
 
@@ -397,7 +397,7 @@ export const virtualCamera: ComponentDescriptor = {
     entity('target', 'Target', 'The object it follows, circles or looks at (none: the rig centres on where the camera is placed; fixed and rail cameras look ahead).', { anyScene: true }),
     vec3('targetOffset', 'Target offset', 'Added to the target\'s position (e.g. a character\'s head height).', { min: VCL.offset.min, max: VCL.offset.max, step: 0.1, unit: 'm', default: [...VCD.targetOffset] }),
     num('distance', 'Distance', 'How far from the target (or point) it sits; top-down: the height above it.', { when: TRACKING, min: VCL.distance.min, max: VCL.distance.max, step: 0.5, unit: 'm', default: VCD.distance }),
-    num('minDistance', 'Min distance', 'The closest it zooms, and the closest a wall pulls it in.', { when: ORBITING, min: VCL.minDistance.min, max: VCL.minDistance.max, step: 0.1, unit: 'm', default: VCD.minDistance }),
+    num('minDistance', 'Min distance', 'The closest it zooms (a wall pulls it in closer when it must: it never sits inside one).', { when: ORBITING, min: VCL.minDistance.min, max: VCL.minDistance.max, step: 0.1, unit: 'm', default: VCD.minDistance }),
     num('maxDistance', 'Max distance', 'The farthest it zooms out.', { when: ORBITING, min: VCL.maxDistance.min, max: VCL.maxDistance.max, step: 1, unit: 'm', default: VCD.maxDistance }),
     num('yaw', 'Yaw', 'The heading around the target (0: on its +Z side looking toward −Z).', { when: TRACKING, min: VCL.yaw.min, max: VCL.yaw.max, step: 5, unit: 'deg', default: VCD.yaw }),
     num('pitch', 'Pitch', 'How far above the target it looks down (negative: from below).', { when: ORBITING, min: VCL.pitch.min, max: VCL.pitch.max, step: 1, unit: 'deg', default: VCD.pitch }),
@@ -413,8 +413,13 @@ export const virtualCamera: ComponentDescriptor = {
     num('yawStep', 'Turn step', 'How far one press turns (the yaw snaps to whole steps).', { when: when('rig', 'orbitPoint'), min: VCL.yawStep.min, max: VCL.yawStep.max, step: 5, unit: 'deg', default: VCD.yawStep }),
     num('turnTime', 'Turn time', 'How long a snapped turn takes (0: at once).', { when: when('rig', 'orbitPoint'), min: VCL.turnTime.min, max: VCL.turnTime.max, step: 0.05, unit: 's', default: VCD.turnTime }),
     vec3('point', 'Point', 'The world point it circles (absent: the target, else where the camera is placed).', { when: when('rig', 'orbitPoint'), min: VCL.point.min, max: VCL.point.max, step: 0.5, unit: 'm', handle: 'point' }),
-    bool('collision', 'Collision', 'Pulled in front of colliders between it and the target (side views too).', { when: when('rig', 'follow'), default: VCD.collision }),
-    num('collisionRadius', 'Collision radius', 'The clearance it keeps from what it is pulled in by.', { when: when('rig', 'follow'), min: VCL.collisionRadius.min, max: VCL.collisionRadius.max, step: 0.05, unit: 'm', default: VCD.collisionRadius }),
+    // What stands between the camera and its target.
+    enm('occlusion', 'Occlusion', 'What it does about what stands between it and its target: pull in front of colliders (follow rig), see through it (the project\'s see-through look), or nothing. Absent: see through when Rendering → See-through is on, else pull in.', CAMERA_OCCLUSION_MODES, { default: VCD.occlusion, labels: { pullIn: 'Pull in', seeThrough: 'See through', none: 'None' }, group: 'Occlusion' }),
+    num('collisionRadius', 'Collision radius', 'The radius of the sphere pulled in: its clearance from walls.', { when: [when('rig', 'follow'), when('occlusion', 'pullIn')], min: VCL.collisionRadius.min, max: VCL.collisionRadius.max, step: 0.05, unit: 'm', default: VCD.collisionRadius, group: 'Occlusion' }),
+    num('pullInTime', 'Pull-in time', 'The time to move in across its whole distance (0: at once); never behind or inside a collider.', { when: [when('rig', 'follow'), when('occlusion', 'pullIn')], min: VCL.pullTime.min, max: VCL.pullTime.max, step: 0.05, unit: 's', default: VCD.pullInTime, group: 'Occlusion' }),
+    num('pullHoldTime', 'Hold time', 'How long it holds once clear, before it eases out.', { when: [when('rig', 'follow'), when('occlusion', 'pullIn')], min: VCL.pullTime.min, max: VCL.pullTime.max, step: 0.05, unit: 's', default: VCD.pullHoldTime, group: 'Occlusion' }),
+    num('pullOutTime', 'Ease-out time', 'How long it eases back out.', { when: [when('rig', 'follow'), when('occlusion', 'pullIn')], min: VCL.pullTime.min, max: VCL.pullTime.max, step: 0.05, unit: 's', default: VCD.pullOutTime, group: 'Occlusion' }),
+    bool('collision', 'Collision', 'The older pull-in switch: off reads as Occlusion none while Occlusion is not set.', { when: [when('rig', 'follow'), when('occlusion', 'pullIn')], default: VCD.collision, group: 'Occlusion' }),
     // The track rig — its offset from the framed point, the dead zone and the bounds (world axes).
     vec3('trackOffset', 'Offset', 'Where the camera sits relative to the point it frames (absent: where it is placed relative to the target at the start).', { when: TRACK, min: VCL.offset.min, max: VCL.offset.max, step: 0.5, unit: 'm' }),
     vec3('deadZone', 'Dead zone', 'The box (width, height, depth) around the framed point the target moves in before the camera follows (0: always follows).', { when: TRACK, min: VCL.deadZone.min, max: VCL.deadZone.max, step: 0.1, unit: 'm', default: [0, 0, 0], labels: ['w', 'h', 'd'], handle: 'box3' }),

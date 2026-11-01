@@ -27,6 +27,13 @@
  *   capped at `lookAheadMax`, its velocity eased over `lookAheadSmoothing`),
  *   and camera regions change its dead zone, bounds and distance while the
  *   target is inside one.
+ *   Each camera chooses what it does about what stands between it and its
+ *   target (`occlusion`): `pullIn` moves a follow camera in front of the
+ *   colliders a sphere of `collisionRadius` meets on the way from the target
+ *   (fast in, held once clear, eased back out over `pullInTime`,
+ *   `pullHoldTime` and `pullOutTime`); `seeThrough` leaves the camera where
+ *   its rig puts it and thins what stands in front of the target (the
+ *   project's see-through settings); `none` does neither.
  *   Each camera also sets how the view blends to it (cut, linear, eased over
  *   `blendTime`), its lens (`fovY`, `near`, `far`: absent = the project's camera settings),
  *   a letterbox amount and a constant shake.
@@ -54,6 +61,8 @@ export const CAMERA_BLENDS = ['cut', 'linear', 'eased'] as const;
 export type CameraBlendStyle = (typeof CAMERA_BLENDS)[number];
 export const CAMERA_RAIL_MODES = ['once', 'loop', 'pingpong'] as const;
 export type CameraRailMode = (typeof CAMERA_RAIL_MODES)[number];
+export const CAMERA_OCCLUSION_MODES = ['pullIn', 'seeThrough', 'none'] as const;
+export type CameraOcclusion = (typeof CAMERA_OCCLUSION_MODES)[number];
 
 /**
  * The engine defaults (every one genre-neutral):
@@ -71,7 +80,15 @@ export type CameraRailMode = (typeof CAMERA_RAIL_MODES)[number];
  * - yawStep 90°: a quarter turn — the four sides of anything built on a grid;
  * - turnTime 0.25 s: a snapped turn reads as a move, not a cut, and is done
  *   before the next press;
- * - collisionRadius 0.2 m: a head's width of clearance from walls;
+ * - collisionRadius 0.2 m: a head's width of clearance from walls (the
+ *   sphere pull-in casts, so the near plane stays out of a wall);
+ * - occlusion pullIn: a camera that never sits behind a wall and needs no
+ *   material support (the third-person default of Unity's and Unreal's rigs);
+ * - pullInTime 0.1 s: in within a few frames, so a wall swinging in is never
+ *   seen through (the camera is never left inside a collider whatever the time);
+ * - pullHoldTime 0.3 s: a doorway frame or a pillar passing by does not pump
+ *   the camera in and out;
+ * - pullOutTime 0.6 s: back out as a calm move, slower than the way in;
  * - damping 0 s: rigid (the camera sits exactly where its rig says);
  * - blend eased over 0.5 s: reads as a camera move without holding up play;
  * - shakeFrequency 8 Hz: a handheld/impact tremor, not a vibration;
@@ -109,7 +126,24 @@ export const VIRTUAL_CAMERA_DEFAULTS = Object.freeze({
   shakeRotation: 0,
   lookAheadMax: Object.freeze([3, 3, 3]) as readonly [number, number, number],
   lookAheadSmoothing: 0.2,
+  occlusion: 'pullIn' as CameraOcclusion,
+  pullInTime: 0.1,
+  pullHoldTime: 0.3,
+  pullOutTime: 0.6,
 });
+
+/**
+ * What a camera does about occluders: its own choice; else, for a camera that
+ * never chose, the project's see-through setting when it is on (the setting
+ * is the default of cameras without one, so a project that had see-through
+ * keeps it), then `none` for a camera whose older `collision` is off, else
+ * `pullIn`.
+ */
+export function virtualCameraOcclusion(c: { readonly occlusion?: unknown; readonly collision?: unknown }, projectSeeThrough: boolean): CameraOcclusion {
+  if ((CAMERA_OCCLUSION_MODES as readonly unknown[]).includes(c.occlusion)) return c.occlusion as CameraOcclusion;
+  if (projectSeeThrough) return 'seeThrough';
+  return c.collision === false ? 'none' : VIRTUAL_CAMERA_DEFAULTS.occlusion;
+}
 
 /**
  * The project's default lens (the `camera_fov_deg`, `camera_near_m` and
@@ -186,6 +220,8 @@ export const VIRTUAL_CAMERA_LIMITS = Object.freeze({
   lookAhead: { min: 0, max: 10 },
   lookAheadMax: { min: 0, max: 1000 },
   lookAheadSmoothing: { min: 0, max: 10 },
+  /** Pull-in's in, hold and out times (s). */
+  pullTime: { min: 0, max: 10 },
 });
 
 export interface VirtualCameraComponent {
@@ -218,7 +254,9 @@ export interface VirtualCameraComponent {
   turnTime?: number;
   /** orbitPoint: the world point it circles (absent: the target, else where it is placed). */
   point?: [number, number, number];
+  /** Older switch of the follow rig's pull-in (false: none); `occlusion` supersedes it. */
   collision?: boolean;
+  /** The radius of the sphere pull-in casts (the clearance from walls). */
   collisionRadius?: number;
   damping?: number;
   /** rail: the entity carrying the `cameraPath`. */
@@ -249,6 +287,12 @@ export interface VirtualCameraComponent {
   lookAheadMax?: [number, number, number];
   /** Track: how long the target's velocity takes to ease in (s; absent: 0.2; 0: at once). */
   lookAheadSmoothing?: number;
+  /** What it does about what stands in front of its target (absent: `virtualCameraOcclusion`). */
+  occlusion?: CameraOcclusion;
+  /** Pull-in: seconds to move in across its whole distance (0: at once), to hold once clear, and to ease back out. */
+  pullInTime?: number;
+  pullHoldTime?: number;
+  pullOutTime?: number;
 }
 
 export interface CameraPathComponent {
@@ -308,6 +352,11 @@ export const VIRTUAL_CAMERA_FIELDS = [
   'lookAhead',
   'lookAheadMax',
   'lookAheadSmoothing',
+  // Last again.
+  'occlusion',
+  'pullInTime',
+  'pullHoldTime',
+  'pullOutTime',
 ] as const;
 export const CAMERA_PATH_FIELDS = ['points', 'closed', 'smooth'] as const;
 export const CAMERA_PATH_LIMITS = Object.freeze({ minPoints: 2, maxPoints: 64, coordinate: 1e6 });
@@ -345,6 +394,9 @@ const NUMBER_FIELDS: readonly (readonly [keyof VirtualCameraComponent, { min: nu
   ['shakeAmplitude', VIRTUAL_CAMERA_LIMITS.shakeAmplitude],
   ['shakeFrequency', VIRTUAL_CAMERA_LIMITS.shakeFrequency],
   ['shakeRotation', VIRTUAL_CAMERA_LIMITS.shakeRotation],
+  ['pullInTime', VIRTUAL_CAMERA_LIMITS.pullTime],
+  ['pullHoldTime', VIRTUAL_CAMERA_LIMITS.pullTime],
+  ['pullOutTime', VIRTUAL_CAMERA_LIMITS.pullTime],
 ];
 const ACTION_FIELDS = ['yawAction', 'pitchAction', 'zoomAction', 'turnLeftAction', 'turnRightAction'] as const;
 
@@ -397,6 +449,7 @@ export function validateVirtualCameraComponent(value: unknown, path: string, err
     if (v !== undefined && (typeof v !== 'string' || !ACTION_RE.test(v))) err(errors, 'field_value', `${path}/${k}`, `${k} names an input action (a letter or _, then letters, digits or _; at most 32)`, v);
   }
   if (value['railMode'] !== undefined && !(CAMERA_RAIL_MODES as readonly unknown[]).includes(value['railMode'])) err(errors, 'field_value', `${path}/railMode`, `railMode is one of ${CAMERA_RAIL_MODES.join(', ')}`, value['railMode']);
+  if (value['occlusion'] !== undefined && !(CAMERA_OCCLUSION_MODES as readonly unknown[]).includes(value['occlusion'])) err(errors, 'field_value', `${path}/occlusion`, `occlusion is one of ${CAMERA_OCCLUSION_MODES.join(', ')}`, value['occlusion']);
   if (value['blend'] !== undefined && !(CAMERA_BLENDS as readonly unknown[]).includes(value['blend'])) err(errors, 'field_value', `${path}/blend`, `blend is one of ${CAMERA_BLENDS.join(', ')}`, value['blend']);
   // Cross-field rules (both sides present).
   const { pitchMin, pitchMax, minDistance, maxDistance, near, far } = value as Record<string, unknown>;

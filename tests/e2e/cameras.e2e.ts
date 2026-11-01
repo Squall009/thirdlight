@@ -12,7 +12,13 @@
  *   back to the orbit camera. The camera pose is read through
  *   tl_game_observe; each change moves pixels in the preview.
  * - The static export (backend stopped) resolves the same cameras
- *   (`window.__thirdlightObserve`).
+ *   (`window.__thirdlightObserve`), and on both renderers at once: a follow
+ *   camera (Occlusion pull-in) on a walker that goes through a doorway and
+ *   along the wall behind it is pulled in through the doorway and eased back
+ *   out, never within its radius of a wall, the walker in view while it is
+ *   pulled in; a fixed interior camera with Occlusion see-through shows a
+ *   figure behind a wall through the dither, where the same camera with
+ *   Occlusion none shows the wall.
  * - Editor: "+ Add component" → Virtual camera; its target, distance and rig
  *   in the Inspector; the Scene view previews where the rig puts it; the
  *   orbit point's handle and a camera path's point handle drag, store and
@@ -26,6 +32,7 @@ import { extname, join, normalize } from 'node:path';
 import { expect, test, type Locator, type Page } from './pw';
 
 import { startBackend, type E2EBackend } from './backend';
+import { gpuAvailable } from './browser-env.mjs';
 import { decodePng, type Image } from './png';
 
 let be: E2EBackend | null = null;
@@ -96,17 +103,31 @@ const DIRECTOR = [
   '    const p = ctx.properties;',
   '    if (ctx.stepIndex === 300) cam.activate(p.orbit, { blend: "eased", time: 0.5 });',
   "    if (ctx.action.actions?.rail?.p === 'pressed') { cam.activate(p.rail); state.railing = true; }",
+  "    for (const [a, k] of [['door', 'door'], ['roomSolid', 'room_solid'], ['roomSee', 'room_see']]) if (ctx.action.actions?.[a]?.p === 'pressed') cam.activate(p[k], { blend: 'cut' });",
   '    const r = cam.get(p.rail);',
   '    if (state.railing && cam.live() === p.rail && !cam.blending() && r !== null && r.progress >= 1) { cam.deactivate(p.rail); state.railing = false; }',
   '  },',
   '};',
 ].join('\n');
 
-type Cam = { live: string | null; blend: { from: string | null; progress: number; style: string } | null; position: number[]; rotation: number[]; fovY: number; letterbox: number };
+type Cam = { live: string | null; blend: { from: string | null; progress: number; style: string } | null; position: number[]; rotation: number[]; fovY: number; letterbox: number; occlusion?: string; seeThroughLoaded?: boolean };
+
+/**
+ * A cross wall (z 7.85…8.15 back from the floor's middle, x 5…11) with a doorway (x 7.4…8.6, 2.2 m high),
+ * colliders on every piece: min and max corners.
+ */
+const WALLS: [number[], number[]][] = [
+  [[5, 0, -8.15], [7.4, 3, -7.85]],
+  [[8.6, 0, -8.15], [11, 3, -7.85]],
+  [[7.4, 2.2, -8.15], [8.6, 3, -7.85]],
+];
+/** The camera pulled in keeps this far from a wall (its sphere's radius, the default). */
+const CAMERA_RADIUS = 0.2;
+const boxDistance = (p: readonly number[], [lo, hi]: [number[], number[]]): number => Math.hypot(...[0, 1, 2].map((k) => Math.max(lo[k]! - p[k]!, 0, p[k]! - hi[k]!)));
 type Observation = { state: string; stepIndex: number; camera?: Cam };
 
 /** The neutral 3D scene and its cameras. */
-async function buildScene(): Promise<{ follow: string; orbit: string; rail: string; player: string }> {
+async function buildScene(): Promise<{ follow: string; orbit: string; rail: string; player: string; door: string; roomSolid: string; roomSee: string }> {
   await create('Floor', [0, -0.5, 0], { box: { size: [24, 1, 24], material: { color: '#8a8f98' } }, components: { collider: { shape: { type: 'box', hx: 12, hy: 0.5, hz: 12 } } } }, 'box');
   // Pillars (no colliders): each camera sees them from its own side.
   const pillars: [string, number[], string][] = [['Red', [-4, 1.5, 0], '#e23c3c'], ['Blue', [4, 1.5, 0], '#2f6fe0'], ['Green', [0, 1.5, -4], '#2fb04a'], ['Yellow', [0, 1.5, 4], '#f0c419']];
@@ -119,6 +140,9 @@ async function buildScene(): Promise<{ follow: string; orbit: string; rail: stri
       actions: [
         { name: 'turnLeft', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'KeyQ' }] },
         { name: 'rail', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'KeyR' }] },
+        { name: 'door', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'KeyP' }] },
+        { name: 'roomSolid', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'KeyI' }] },
+        { name: 'roomSee', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'KeyO' }] },
       ],
     },
   });
@@ -130,9 +154,27 @@ async function buildScene(): Promise<{ follow: string; orbit: string; rail: stri
   await cmd('setComponent', { entityId: track, component: 'cameraPath', value: { points: [[0, 0, 0], [12, 2, 0]], smooth: false } });
   const rail = await create('Rail camera', [0, 0, 0]);
   await cmd('setComponent', { entityId: rail, component: 'virtualCamera', value: { rig: 'rail', enabled: false, path: track, target: player, railSpeed: 4, letterbox: 0.12, blend: 'eased', blendTime: 0.5 } });
+  // The doorway: grey walls with colliders; a magenta walker (no collider) through it and along the wall behind it, and back.
+  for (const [k, [lo, hi]] of WALLS.entries()) {
+    const size = [0, 1, 2].map((i) => hi[i]! - lo[i]!);
+    await create(`Wall ${k}`, [0, 1, 2].map((i) => (lo[i]! + hi[i]!) / 2), { box: { size, material: { color: '#9a9a9a' } }, components: { collider: { shape: { type: 'box', hx: size[0]! / 2, hy: size[1]! / 2, hz: size[2]! / 2 } } } }, 'box');
+  }
+  const walker = await create('Walker', [8, 1, -5], { box: { size: [0.6, 1.6, 0.6], material: { color: '#e020e0' } } }, 'box');
+  await cmd('setComponent', { entityId: walker, component: 'mover', value: { waypoints: [[0, 0, -5.5], [2.5, 0, -5.5]], speed: 2, mode: 'pingpong' } });
+  const door = await create('Door camera', [8, 2, -1]);
+  await cmd('setComponent', { entityId: door, component: 'virtualCamera', value: { rig: 'follow', enabled: false, target: walker, distance: 4, pitch: 20, occlusion: 'pullIn' } });
+  // A figure behind the wall and two fixed cameras in front of it, alike but for their occlusion.
+  const figure = await create('Figure', [6.2, 1, -10], { box: { size: [0.8, 2, 0.8], material: { color: '#e020e0' } } }, 'box');
+  const room = async (name: string, occlusion: string): Promise<string> => {
+    const id = await create(name, [6.2, 2.4, -4.5]);
+    await cmd('setComponent', { entityId: id, component: 'virtualCamera', value: { rig: 'fixed', enabled: false, target: figure, occlusion } });
+    return id;
+  };
+  const roomSolid = await room('Room camera (solid)', 'none');
+  const roomSee = await room('Room camera (see-through)', 'seeThrough');
   const director = await create('Director', [0, -3, 0]);
-  await script('camera-director', DIRECTOR, director, ['orbit', 'rail'], { orbit, rail });
-  return { follow, orbit, rail, player };
+  await script('camera-director', DIRECTOR, director, ['orbit', 'rail', 'door', 'room_solid', 'room_see'], { orbit, rail, door, room_solid: roomSolid, room_see: roomSee });
+  return { follow, orbit, rail, player, door, roomSolid, roomSee };
 }
 
 async function relay(path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> {
@@ -161,6 +203,18 @@ function colour(img: Image, which: 'blue' | 'yellow'): number {
     for (let x = Math.floor(img.width * 0.35); x < Math.floor(img.width * 0.65); x += 2) {
       const [r, g, b] = img.pixel(x, y);
       if (which === 'blue' ? b > 70 && b > r * 2 && b > g * 1.4 : r > 50 && g > 40 && b < r * 0.5) n += 1;
+    }
+  }
+  return n;
+}
+
+/** Magenta pixels (the walker, the figure) in the middle third of the view (up to `right` of its width: the room cameras keep the walker in the doorway out). */
+function magenta(img: Image, right = 2 / 3): number {
+  let n = 0;
+  for (let y = Math.floor(img.height / 3); y < Math.floor((img.height * 2) / 3); y += 2) {
+    for (let x = Math.floor(img.width / 3); x < Math.floor(img.width * right); x += 2) {
+      const [r, g, b] = img.pixel(x, y);
+      if (r > 90 && b > 90 && g < Math.min(r, b) * 0.55) n += 1;
     }
   }
   return n;
@@ -210,7 +264,7 @@ function serveDir(dir: string): Promise<{ url: string; close: () => Promise<void
 test('virtual cameras in Play: follow → eased orbit (script), a 90° snap on input, a rail with letterbox that blends back; and in the export', async ({ page }) => {
   test.setTimeout(300_000);
   be = await startBackend('cameras-e2e');
-  const { follow, orbit, rail } = await buildScene();
+  const { follow, orbit, rail, door, roomSolid, roomSee } = await buildScene();
 
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
@@ -306,19 +360,72 @@ test('virtual cameras in Play: follow → eased orbit (script), a 90° snap on i
   expect(res.status, JSON.stringify(res.json)).toBe(200);
   await be.halt();
   const site = await serveDir(join(be.exportRoot, String(res.json.outputDir)));
-  const game = await page.context().newPage();
-  const errors: string[] = [];
-  game.on('pageerror', (e) => errors.push(e.message));
+  // On the default renderer (WebGPU on a GPU host) and on WebGL 2 at once.
+  const pages = await Promise.all((gpuAvailable() ? ['', '?renderer=webgl2'] : ['']).map(async (q) => {
+    const g = await page.context().newPage();
+    const errors: string[] = [];
+    g.on('pageerror', (e) => errors.push(e.message));
+    await g.goto(`${site.url}${q}`);
+    return { g, errors, label: q === '' ? 'default renderer' : 'WebGL 2' };
+  }));
+  const read = (g: Page): Promise<Cam | null> => g.evaluate(() => ((window as unknown as { __thirdlightObserve?: () => { camera?: unknown } | null }).__thirdlightObserve?.()?.camera ?? null) as Cam | null);
+  const press = async (g: Page, key: string): Promise<void> => {
+    await g.keyboard.down(key);
+    await g.waitForTimeout(150);
+    await g.keyboard.up(key);
+  };
   try {
-    await game.goto(site.url);
-    const read = (): Promise<Cam | null> => game.evaluate(() => ((window as unknown as { __thirdlightObserve?: () => { camera?: unknown } | null }).__thirdlightObserve?.()?.camera ?? null) as Cam | null);
-    await expect.poll(async () => (await read())?.live ?? null, { timeout: 60_000 }).toBe(follow);
-    await expect.poll(async () => { const c = await read(); return c?.live === orbit && c.blend === null; }, { timeout: 120_000 }).toBe(true);
-    const c = (await read())!;
+    const game = pages[0]!.g;
+    await expect.poll(async () => (await read(game))?.live ?? null, { timeout: 60_000 }).toBe(follow);
+    await expect.poll(async () => { const c = await read(game); return c?.live === orbit && c.blend === null; }, { timeout: 120_000 }).toBe(true);
+    const c = (await read(game))!;
     expect(near(c.position[1], d) && near(c.position[2], d), JSON.stringify(c.position)).toBe(true);
-    expect(errors).toEqual([]);
+    // A see-through camera is loaded from the start: the mask is built at load, not when it goes live.
+    expect(c.seeThroughLoaded).toBe(true);
+    expect(c.occlusion).toBe('pullIn');
+    await Promise.all(pages.map(async ({ g, label }) => {
+      await expect.poll(async () => (await read(g))?.live ?? null, { timeout: 120_000 }).toBe(orbit);
+      const vp = g.viewportSize()!;
+      await g.mouse.click(vp.width / 2, vp.height / 2);
+      // Pull-in: the walker goes through the doorway (to z −10.5), along the wall behind it and back, 8 s a round trip.
+      // Unpulled the camera stays 3.76 m behind it (z ≥ −6.74), seeing it through the doorway; once the wall hides it,
+      // only a pull-in puts the camera on its side of the wall (z < −7.85).
+      await press(g, 'p');
+      await expect.poll(async () => (await read(g))?.live ?? null, { timeout: 30_000, message: `${label}: the door camera` }).toBe(door);
+      let lo = Infinity;
+      let hi = -Infinity;
+      let closest = Infinity;
+      let pulledShot: Image | null = null;
+      for (const t0 = Date.now(); Date.now() - t0 < 9_000; ) {
+        const cam = (await read(g))!;
+        const p = cam.position;
+        for (const w of WALLS) closest = Math.min(closest, boxDistance(p, w));
+        lo = Math.min(lo, p[2]!);
+        hi = Math.max(hi, p[2]!);
+        if (pulledShot === null && p[2]! < -8.2) pulledShot = await shot(g, `test-results/cameras-pulled-${label === 'WebGL 2' ? 'webgl2' : 'default'}.png`);
+        await g.waitForTimeout(30);
+      }
+      expect(lo, `${label}: pulled in to the walker's side of the wall`).toBeLessThan(-8.2);
+      expect(hi, `${label}: eased back out`).toBeGreaterThan(-2);
+      expect(closest, `${label}: never within its radius of a wall`).toBeGreaterThanOrEqual(CAMERA_RADIUS - 0.01);
+      expect(magenta(pulledShot!), `${label}: the walker in view while pulled in`).toBeGreaterThan(200);
+      // See-through on the interior camera only: the figure behind the wall shows through the dither.
+      await press(g, 'i');
+      await expect.poll(async () => (await read(g))?.live ?? null, { timeout: 30_000 }).toBe(roomSolid);
+      expect((await read(g))!.occlusion).toBe('none');
+      await g.waitForTimeout(600);
+      const solid = await shot(g, `test-results/cameras-room-solid-${label === 'WebGL 2' ? 'webgl2' : 'default'}.png`);
+      await press(g, 'o');
+      await expect.poll(async () => (await read(g))?.occlusion ?? null, { timeout: 30_000 }).toBe('seeThrough');
+      expect((await read(g))!.live).toBe(roomSee);
+      await g.waitForTimeout(600);
+      const seen = await shot(g, `test-results/cameras-room-see-${label === 'WebGL 2' ? 'webgl2' : 'default'}.png`);
+      expect(magenta(solid, 0.6), `${label}: the wall hides the figure`).toBeLessThan(20);
+      expect(magenta(seen, 0.6), `${label}: the figure through the dither`).toBeGreaterThan(200);
+    }));
+    for (const { errors, label } of pages) expect(errors, label).toEqual([]);
   } finally {
-    await game.close();
+    for (const { g } of pages) await g.close();
     await site.close();
   }
 });
@@ -381,6 +488,13 @@ test('editor: a virtual camera from "+ Add component", its Inspector fields, its
   await distance.fill('10');
   await distance.press('Enter');
   await expect.poll(async () => (await comp(shotId, 'virtualCamera'))?.['distance']).toBe(10);
+
+  // Occlusion, chosen per camera: Pull in shows its times; See through hides them.
+  const pullInTime = inspector.getByLabel('virtualCamera pullInTime', { exact: true });
+  await expect(pullInTime).toBeVisible();
+  await inspector.getByLabel('virtualCamera occlusion', { exact: true }).selectOption({ label: 'See through' });
+  await expect.poll(async () => (await comp(shotId, 'virtualCamera'))?.['occlusion']).toBe('seeThrough');
+  await expect(pullInTime).toHaveCount(0);
 
   // The Scene view previews the pose the rig gives (the runtime's own maths): 10 m from the target, 20° above.
   const preview = async (): Promise<{ id: string; position: number[] } | null> => {
