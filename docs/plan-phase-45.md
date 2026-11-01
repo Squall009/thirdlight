@@ -675,7 +675,40 @@ sub-phase on staging; the merge to `main` happens once, at the end of 48.
 
 | Item | Status |
 |---|---|
-| — | Not started (draft). |
+| 45.0 | done (8db90379 + this): `tools/staging.sh` (staging on 127.0.0.1:4180/4181, own data root, 6 GB cap; proven start, page 200, test project, stop clean). Floor record at the cap, Iris Xe, both renderers: village, landscape, interior at 720p and 1080p all p95 16.7–16.8 ms, 0 missed (720p60 met); see **45.0 floor record**. three 0.187.0 newest, no update. |
+
+### 45.0 floor record
+
+Main's code (d4053cab, the branch's dist; only the perf harness gained `--viewport`), Iris Xe, headless Chrome at the
+display's 60 Hz cap, device pixel ratio 1, the default tier as 44b. `run.mjs village --vsync --no-bare --viewport WxH`
+and `run.mjs level --classes landscape,interior --vsync --viewport WxH`; 3 rounds 2026-11-01 19:51–21:49, each round
+720p then 1080p, load 0.7–2.7 (uptime 9 days). Per round: p95 frame ms, missed frames of ~600, main-thread ms a frame,
+WebGPU GPU ms at full clock (timestamps × clock ÷ max clock; WebGL 2 has no pass timestamps).
+
+| Scene | Renderer | Size | p95 ms | missed | main ms | GPU ms full |
+|---|---|---|---|---|---|---|
+| village | WebGPU | 720p | 16.7 ×3 | 0 ×3 | 5.41 / 5.30 / 5.23 | 3.26 / 2.71 / 2.79 |
+| village | WebGL 2 | 720p | 16.7–16.8 | 0 ×3 | 3.89 / 3.95 / 3.86 | - |
+| landscape | WebGPU | 720p | 16.7 ×3 | 0 ×3 | 4.23 / 4.39 / 4.35 | 7.68 / 7.62 / 7.48 |
+| landscape | WebGL 2 | 720p | 16.7–16.8 | 0 ×3 | 3.32 / 3.14 / 3.07 | - |
+| interior | WebGPU | 720p | 16.7–16.8 | 0 ×3 | 3.47 / 2.92 / 2.78 | 3.27 / 2.97 / 3.05 |
+| interior | WebGL 2 | 720p | 16.7–16.8 | 0 ×3 | 1.74 / 1.81 / 1.77 | - |
+| village | WebGPU | 1080p | 16.7 ×3 | 0 ×3 | 5.54 / 5.45 / 5.33 | 5.11 / 5.27 / 5.40 |
+| village | WebGL 2 | 1080p | 16.7–16.8 | 0 ×3 | 4.01 / 3.94 / 3.96 | - |
+| landscape | WebGPU | 1080p | 16.7–16.8 | 0 ×3 | 4.59 / 4.55 / 4.68 | 10.09 / 10.22 / 10.27 |
+| landscape | WebGL 2 | 1080p | 16.7–16.8 | 0 ×3 | 3.71 / 3.18 / 3.19 | - |
+| interior | WebGPU | 1080p | 16.7 ×3 | 0 ×3 | 2.93 / 2.84 / 2.93 | 6.76 / 6.77 / 6.95 |
+| interior | WebGL 2 | 1080p | 16.7–16.8 | 0 ×3 | 1.87 / 1.77 / 1.82 | - |
+
+- **720p60 is met** on every class and renderer: no missed frame in 7,200 frames at 720p. No miss, so no cause to
+  record. 1080p matches the end of 44b (village 5.25–5.01, landscape 10.03–10.19, interior 6.29–6.53 GPU ms full;
+  main ms within 0.3 ms) on the same code.
+- 720p saves GPU, not main thread: GPU ms full falls 25–55 % (landscape 10.2 → 7.6, interior 6.8 → 3.1, village
+  5.3 → 2.9); main-thread ms is the same at both sizes (it does not scale with pixels). The landscape is the class
+  with least headroom on the GPU (7.6 of 16.7 ms at full clock at 720p).
+- At the cap the GPU clock drops (raw timestamps 4.3–9.1 ms at 720p); 720p GPU numbers below ~3.5 ms full clock
+  spread most between rounds (village 3.26 vs 2.71), so read them as ± 0.5 ms.
+- Reports and logs: `~/.cache/thirdlight-phase45/work/45.0/` (scratch, not committed).
 
 ## 7. Decision log
 
@@ -688,6 +721,21 @@ sub-phase on staging; the merge to `main` happens once, at the end of 48.
     editor streaming and streamed exports were added to §2 (storage later settled as uniform, §1b).
   - Estimates (about 95 MB per km² sparse at 0.5 m; about 5–10k kit pieces for a 50-house village; 15–20 texture reads
     per pixel) are unverified until 45.6 measures them.
+- 2026-11-01 (45.0): three.js check at the phase start: `npm view three version` gives 0.187.0 (published
+  2026-10-30), the version in use. No newer release than the one in use, nothing to assess; no update.
+- 2026-11-01 (45.0, default chosen, owner to confirm): the staging backend is `tools/staging.sh` running the
+  checkout's `dist/` as the transient systemd unit `thirdlight-staging` (a unit, not a scope, so it is detached and
+  stops by name), 6 GB cap and no swap, on 127.0.0.1:4180/4181 (`TL_STAGING_HOST` for the LAN when the workstation
+  needs it), data root `~/thirdlight-staging-p45` with its own owner token. It refuses production's ports and data
+  root (read from the `thirdlight` unit), a taken port, and less than 8 GB available. Its only test world so far is
+  the empty project `staging-empty`, made by `smoke` through the admin API and read back with `queryProject`. Proven
+  2026-11-01: start, editor page 200, project created then found again, stop with the unit gone and both ports free.
+  `tools/staging.test.mjs` runs the script's refusals (vitest); the start itself needs sudo and 8 GB, so it is not
+  in the gate.
+- 2026-11-01 (45.0): the village and level perf runs take `--viewport WxH` (default 1920x1080, as every record
+  before) so the low tier's 720p goal is measured, not inferred; the gate's baseline check stays at 1080p
+  (`--viewport` is refused with `--gate`, `--check`, `--write-baseline`). Editor pages inside those runs (Scene view,
+  edit windows, the see-through mid-run switch) stay 1080p.
 
 ## 7a. Kit and surface planning session (2026-10-30)
 
