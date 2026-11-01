@@ -125,10 +125,12 @@ What the end of 44 is measured against (44.13).
   ms read 0.1–1.0 ms above the 44.0 rounds on every class, rising round by round. **Same-hour A/B against fb338eab**
   (2026-11-01, interleaved, at the cap; base worktree built with `node tools/build.mjs`), main ms base → end of 44:
   village (3 rounds each, 03:59–04:06, load 1.7–5.7) WebGPU 7.02 / 6.58 / 6.86 → 6.59 / 6.23 / 5.70, WebGL 2
-  4.66 / 4.14 / 4.20 → 4.18 / 4.40 / 4.06, GPU 5.61–5.93 → 5.42–5.59; landscape and interior (04:06–, load
-  0.9–1.8) WebGPU 5.15 → 5.20 / 5.17 and 3.25 → 3.17 / 3.28, WebGL 2 3.40 → 3.53 / 3.47 and 1.88 → 1.90 / 2.04,
-  GPU 10.76 → 10.72 / 10.72 and 7.09 → 7.15 / 6.99. The base reads as high the same hour: the rise against the
-  44.0 rounds is host state (D199, D290), not phase 44; landscape WebGL 2 +0.1 ms is inside its round spread.
+  4.66 / 4.14 / 4.20 → 4.18 / 4.40 / 4.06, GPU 5.61–5.93 → 5.42–5.59; landscape and interior (2 rounds each,
+  base-head-head-base, 04:06–05:21, load 0.9–1.8) WebGPU 5.15 / 5.25 → 5.20 / 5.17 and 3.25 / 3.35 → 3.17 / 3.28,
+  WebGL 2 3.40 / 3.40 → 3.53 / 3.47 and 1.88 / 1.97 → 1.90 / 2.04, GPU 10.76 / 10.76 → 10.72 / 10.72 and
+  7.09 / 7.22 → 7.15 / 6.99. The base reads as high the same hour: the rise against the 44.0 rounds is host state
+  (D199, D290), not phase 44. Landscape WebGL 2 reads +0.07 / +0.13 ms (3 %) in both pairs, at the noise floor
+  (its GPU clock 883 vs 1,033 MHz); not chased, worth a look in the next A/B.
 - **Counts** (`git ls-files <dir>`, all files, `wc -l`), fb338eab → ed9cf114: packages 2,111 → 2,145 files,
   518,342 → 514,069 lines (−0.8 %; `.ts`/`.tsx` 1,981 → 2,013 files, 511,165 → 506,867); tools 125 → 134 files,
   29,598 → 31,275 lines (the docs, redefinition and hook checks); tests 474 → 465 files, 99,289 → 98,237 lines;
