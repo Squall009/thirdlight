@@ -27,7 +27,7 @@
  *
  * Pure: no three.js, no I/O.
  */
-import { HEIGHT_FOG_DEFAULTS, SKY_CLOUD_DEFAULTS, type EnvironmentLookParts, type EnvironmentPreset, type EnvironmentPresetLight, type FogConfig, type HeightFogConfig, type PostConfig, type SkyConfig } from '@thirdlight/project-model';
+import { BLOOM_DEFAULTS, HEIGHT_FOG_DEFAULTS, SKY_CLOUD_DEFAULTS, type EnvironmentLookParts, type EnvironmentPreset, type EnvironmentPresetLight, type FogConfig, type HeightFogConfig, type PostConfig, type SkyConfig } from '@thirdlight/project-model';
 
 /** What the renderer reads each frame while a game has used `ctx.environment`. */
 export interface EnvironmentBlendView {
@@ -337,9 +337,9 @@ function blendPost(parts: readonly (readonly [PostConfig | undefined, number])[]
   if (all.some(([p]) => p.bloom?.enabled === true)) {
     out['bloom'] = {
       enabled: true,
-      strength: mixNumbers(all.map(([p, w]) => [p.bloom?.enabled === true ? (p.bloom.strength ?? 0.6) : 0, w])),
-      radius: mixNumbers(all.map(([p, w]) => [p.bloom?.radius ?? 0.4, w])),
-      threshold: mixNumbers(all.map(([p, w]) => [p.bloom?.threshold ?? 0.85, w])),
+      strength: mixNumbers(all.map(([p, w]) => [p.bloom?.enabled === true ? (p.bloom.strength ?? BLOOM_DEFAULTS.strength) : 0, w])),
+      radius: mixNumbers(all.map(([p, w]) => [p.bloom?.radius ?? BLOOM_DEFAULTS.radius, w])),
+      threshold: mixNumbers(all.map(([p, w]) => [p.bloom?.threshold ?? BLOOM_DEFAULTS.threshold, w])),
     };
   } else if (heavy.bloom !== undefined) out['bloom'] = heavy.bloom;
   if (all.some(([p]) => p.grading !== undefined)) {

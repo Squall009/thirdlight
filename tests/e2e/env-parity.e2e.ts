@@ -11,7 +11,12 @@
  * (`env-parity/harness.ts`) and are compared with the WebGL reference images
  * captured from the WebGLRenderer path before the port (`env-parity/refs/*.png`).
  * That path is archived (`archive/webgl-renderer-17/`); the
- * references are frozen as the contract. The harness pins the level they are
+ * references are frozen as the contract, but for `bloom.png`: bloom now
+ * compares its threshold with the exposed colour and glows with only the part
+ * above it (soft knee), where the archived UnrealBloomPass glowed with the
+ * whole colour of anything over it, so its reference is the WebGL 2 backend's
+ * picture of that bloom (the emissive block's halo and the bright horizon glow
+ * less; it still differs from the plain picture by far more than the rule). The harness pins the level they are
  * drawn at (the engine's highest without contact shadows and reflections,
  * which the archived stack never drew: `REFERENCE_LEVEL`).
  *
@@ -308,6 +313,55 @@ for (const name of CASES) {
     expect(within(compare(name, backend, got), tolerance(name)), `${backend} ${name}`).toBe(true);
   });
 }
+
+/**
+ * Bloom follows exposure: its threshold is compared with the exposed colour. A sky about 1.6 times the
+ * threshold blooms at exposure 1 (the sky band above the pillars differs from the same passes at strength 0);
+ * the same look at exposure 0.3 puts the sky under the threshold's soft knee, so the band draws as at strength
+ * 0 (the mirror sphere's sun highlight, far brighter, still blooms below it, as it should). Bloom compared
+ * before exposure would glow over the sky at both exposures alike.
+ */
+test('bloom follows exposure: a bright sky over the threshold blooms, the same sky exposed lower does not', async ({ page }) => {
+  test.setTimeout(150_000);
+  const backend = project() === 'webgpu' ? 'webgpu' : 'webgl2';
+  const shot = async (query: string): Promise<Rendered> => {
+    await page.setViewportSize({ width: WIDTH, height: HEIGHT });
+    await page.goto(`${harness!.base}?backend=${backend}&case=bloom-sky&${query}`);
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __envCase?: unknown }).__envCase !== undefined), { timeout: 60_000 }).toBe(true);
+    const result = await page.evaluate(() => (window as unknown as { __envCase: { ok: boolean; backend?: string; error?: string; passes?: string[] } }).__envCase);
+    expect(result.ok, result.error).toBe(true);
+    expect(result.backend).toBe(backend);
+    const png = await page.locator('canvas').screenshot();
+    return { img: decodePng(png), png, backend: result.backend ?? '', passes: result.passes ?? [], fallback: null };
+  };
+  const bright = { on: await shot('exposure=1'), off: await shot('exposure=1&bloom=none') };
+  const dim = { on: await shot('exposure=0.3'), off: await shot('exposure=0.3&bloom=none') };
+  expect(bright.on.passes).toContain('bloom');
+  expect(dim.on.passes).toContain('bloom');
+  /** Mean |difference| (0–255, over r, g, b) in the sky band above the pillars, and the largest. */
+  const skyDiff = (a: Image, b: Image): { mean: number; worst: number } => {
+    let sum = 0;
+    let worst = 0;
+    let n = 0;
+    for (let y = 2; y < 56; y++) {
+      for (let x = 2; x < WIDTH - 2; x++) {
+        const p = a.pixel(x, y);
+        const r = b.pixel(x, y);
+        const d = (Math.abs(p[0]! - r[0]!) + Math.abs(p[1]! - r[1]!) + Math.abs(p[2]! - r[2]!)) / 3;
+        sum += d;
+        worst = Math.max(worst, d);
+        n += 1;
+      }
+    }
+    return { mean: sum / n, worst };
+  };
+  const glow = skyDiff(bright.on.img, bright.off.img);
+  const calm = skyDiff(dim.on.img, dim.off.img);
+  console.log(`[env-parity] ${backend} bloom-sky, the sky against strength 0: exposure 1 mean ${glow.mean.toFixed(2)} worst ${glow.worst.toFixed(0)}; exposure 0.3 mean ${calm.mean.toFixed(2)} worst ${calm.worst.toFixed(0)}`);
+  expect(glow.mean, 'at exposure 1 the sky blooms').toBeGreaterThan(20);
+  expect(calm.mean, 'at exposure 0.3 the sky is under the threshold: no glow').toBeLessThan(1);
+  expect(calm.worst).toBeLessThan(8);
+});
 
 /**
  * Exponential height fog (no archived reference: the WebGL path had none). Against the plain picture

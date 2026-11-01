@@ -77,7 +77,8 @@ describe('a project whose scenes each have their own look opened over HTTP', () 
     wind: { direction: [0, 1], strength: 1.5, gust: 0.5, gustFrequency: 0.4, turbulence: 0.2 },
     sky: { bottomColor: '#404040', environmentIntensity: 0.8, horizonColor: '#c0d8f0', mode: 'gradient', topColor: '#204080' },
     fog: { color: '#b0c4de', far: 140, mode: 'linear', near: 20 },
-    post: { bloom: { enabled: true, strength: 0.4 }, exposure: 1.2, toneMapping: 'aces' },
+    // Bloom's threshold is compared after exposure now: the default threshold (0.85) times the look's exposure, written on open.
+    post: { bloom: { enabled: true, strength: 0.4, threshold: 1.02 }, exposure: 1.2, toneMapping: 'aces' },
   };
 
   beforeAll(async () => {
@@ -100,8 +101,14 @@ describe('a project whose scenes each have their own look opened over HTTP', () 
     expect((readJson('content.json')['content'] as { environment: unknown }).environment).toEqual({ quality: 'medium', presets: ['dusk'] });
     for (const sceneId of ['scene-main', 'scene-two']) expect((readJson(`scenes/${sceneId}.json`)['scene'] as { environment?: unknown }).environment, sceneId).toEqual(LOOK);
     const problems = await api(`${tb.authUrl}/api/v1/projects/${ID}/problems`, { method: 'GET', token: tb.adminToken, origin: null });
-    // The upgrade notes: the version, and the 2D project's move to the one 3D backend.
-    expect((problems.json as { problems: { code: string; message: string }[] }).problems.filter((p) => p.code === 'project_upgraded').map((p) => p.message)).toEqual(['project schemaVersion 7 → 8', expect.stringMatching(/^a 2D project \(physics_dimension retired\) moved to the one 3D physics backend: 2 scenes/)]);
+    // The upgrade notes: the version, the 2D project's move to the one 3D backend, and each look's bloom threshold.
+    expect((problems.json as { problems: { code: string; message: string }[] }).problems.filter((p) => p.code === 'project_upgraded').map((p) => p.message)).toEqual([
+      'project schemaVersion 7 → 8',
+      expect.stringMatching(/^a 2D project \(physics_dimension retired\) moved to the one 3D physics backend: 2 scenes/),
+      expect.stringMatching(/^scene scene-main: the bloom threshold is now compared after exposure/),
+      expect.stringMatching(/^scene scene-two: the bloom threshold/),
+      expect.stringMatching(/^a preset that sets only the exposure/),
+    ]);
 
     // The queries: the project part, and each scene's look on request.
     const q = async (op: string, args?: Record<string, unknown>): Promise<Record<string, unknown>> => (await api(`${tb.authUrl}/api/v1/projects/${ID}/commands`, { body: { op, projectId: ID, ...(args !== undefined ? { args } : {}) }, token: tb.adminToken, origin: null })).json as Record<string, unknown>;
@@ -503,8 +510,8 @@ describe('a project with trim data in COLOR_0 and old trim paint opened over HTT
       closed = true;
       const manifestFile = join(tb.root, 'data', 'projects', PID, 'project.json');
       const manifest = (): Record<string, unknown> => JSON.parse(readFileSync(manifestFile, 'utf8')) as Record<string, unknown>;
-      expect(manifest()['upgrades']).toEqual(['light-counts', 'planes', 'trim-data']);
-      writeFileSync(manifestFile, `${JSON.stringify({ ...manifest(), upgrades: ['light-counts', 'planes'] }, null, 2)}\n`);
+      expect(manifest()['upgrades']).toEqual(['bloom-exposure', 'light-counts', 'planes', 'trim-data']);
+      writeFileSync(manifestFile, `${JSON.stringify({ ...manifest(), upgrades: ['bloom-exposure', 'light-counts', 'planes'] }, null, 2)}\n`);
       // The same data root, a new backend: its first read of the project opens (and upgrades) it.
       const reopen = async (): Promise<{ backend: Backend; url: string; teardown: () => Promise<void> }> => {
         const b = await createTestBackend({ authoringOrigin: AUTHORING_ORIGIN, previewOrigin: PREVIEW_ORIGIN, authoringOrigins: [AUTHORING_ORIGIN], tokens: [{ token: tb.adminToken, scope: 'admin' }], dataRoot: join(tb.root, 'data') });
@@ -538,7 +545,7 @@ describe('a project with trim data in COLOR_0 and old trim paint opened over HTT
           expect.stringContaining('1 painted trim surface had its wetness moved from B to A'),
         ]));
         // Recorded with the moved data.
-        expect(manifest()['upgrades']).toEqual(['light-counts', 'planes', 'trim-data']);
+        expect(manifest()['upgrades']).toEqual(['bloom-exposure', 'light-counts', 'planes', 'trim-data']);
 
         // Paint made after the upgrade, layers 3 and 4 (G and B) on both surfaces, the trim one included (a mapping can change).
         const paint = commands(second.backend, url);
@@ -596,7 +603,9 @@ describe('a project with the retired light counts opened over HTTP', () => {
       const set = (graphId: string): Record<string, unknown> => ({ graph: { graphId, kind: 'furnishing-set', name: graphId, graph: { nodes: [{ id: 'furnishing', type: 'furnishing', position: [0, 0], data: { doorClearance: 1 } }, { id: 'lamp', type: 'light', position: [0, 0], data: { height: 2 } }], edges: [] } } });
       await cmd('setGraph', set('lit-set'));
       await cmd('setGraph', set('dark-set'));
-      await cmd('setEnvironment', { environment: { qualityLevels: [{ id: 'low', shadowMapSize: 512 }, { id: 'high' }] } });
+      // Bloom in looks exposed other than 1 (a scene's own, a preset without a threshold) and at 1 (left alone).
+      await cmd('setEnvironment', { environment: { qualityLevels: [{ id: 'low', shadowMapSize: 512 }, { id: 'high' }], presets: [{ presetId: 'dusk', name: 'Dusk', post: { exposure: 0.5, bloom: { enabled: true } } }, { presetId: 'noon', name: 'Noon', post: { exposure: 1, bloom: { enabled: true, threshold: 0.7 } } }] } });
+      await cmd('setEnvironment', { sceneId: 'scene-main', environment: { post: { exposure: 2, bloom: { enabled: true, strength: 0.4, threshold: 0.6 } } } });
       await tb.backend.close();
       closed = true;
 
@@ -621,7 +630,7 @@ describe('a project with the retired light counts opened over HTTP', () => {
       });
       const manifestFile = join(root, 'project.json');
       const manifest = (): Record<string, unknown> => JSON.parse(readFileSync(manifestFile, 'utf8')) as Record<string, unknown>;
-      expect(manifest()['upgrades']).toEqual(['light-counts', 'planes']);
+      expect(manifest()['upgrades']).toEqual(['bloom-exposure', 'light-counts', 'planes']);
       writeFileSync(manifestFile, `${JSON.stringify({ ...manifest(), upgrades: ['planes'] }, null, 2)}\n`);
 
       const reopen = async (): Promise<{ backend: typeof tb.backend; url: string; teardown: () => Promise<void> }> => {
@@ -650,8 +659,15 @@ describe('a project with the retired light counts opened over HTTP', () => {
         expect(nodesOf('dark-set').map((n) => n.type)).toEqual(['furnishing', 'light']);
         expect(nodesOf('dark-set')[0]!.data).toEqual({ doorClearance: 1 });
         expect(nodesOf('dark-set')[1]!.data).toEqual({ height: 2, on: false });
-        expect(manifest()['upgrades']).toEqual(['light-counts', 'planes']);
+        expect(manifest()['upgrades']).toEqual(['bloom-exposure', 'light-counts', 'planes']);
+        // Bloom's threshold is compared after exposure now: scaled by the look's exposure, the same brightness glows.
+        const looks = r.read.content as { environment: { presets: { presetId: string; post: Record<string, unknown> }[] } };
+        expect(looks.environment.presets.map((p) => p.post)).toEqual([{ exposure: 0.5, bloom: { enabled: true, threshold: 0.425 } }, { exposure: 1, bloom: { enabled: true, threshold: 0.7 } }]);
+        const sceneFile = JSON.parse(readFileSync(join(root, 'scenes', 'scene-main.json'), 'utf8')) as { scene: { environment?: { post?: unknown } } };
+        expect(sceneFile.scene.environment?.post).toEqual({ exposure: 2, bloom: { enabled: true, strength: 0.4, threshold: 1.2 } });
         expect(await upgradeLines(first.url)).toEqual(expect.arrayContaining([
+          expect.stringMatching(/^scene scene-main: the bloom threshold is now compared after exposure/),
+          expect.stringMatching(/^environment preset dusk: the bloom threshold/),
           expect.stringContaining('quality levels: localLights and shadowedLights were removed'),
           expect.stringMatching(/^furnishing sets: the Lights count was removed.*\(lit-set\)/),
           expect.stringMatching(/^furnishing sets whose Lights count was 0: .*switched off.*\(dark-set\)/),
@@ -664,7 +680,7 @@ describe('a project with the retired light counts opened over HTTP', () => {
       const before = readFileSync(join(root, 'content.json'), 'utf8');
       const next = await reopen();
       try {
-        expect((await upgradeLines(next.url)).filter((l) => /light/i.test(l))).toEqual([]);
+        expect((await upgradeLines(next.url)).filter((l) => /light|bloom/i.test(l))).toEqual([]);
         expect(readFileSync(join(root, 'content.json'), 'utf8')).toBe(before);
       } finally {
         await next.teardown();

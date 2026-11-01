@@ -487,6 +487,8 @@
 "limit.BLOCK_MAX_SLOPE_RANGE": {"page":"limits-project-model-1.md","section":"limits-project-model--block-layers"},
 "limit.BLOCK_PLANE_Z_MAX": {"page":"limits-project-model-1.md","section":"limits-project-model--block-layers"},
 "limit.BLOCK_TUNING_LIMITS": {"page":"limits-project-model-1.md","section":"limits-project-model--blocks"},
+"limit.BLOOM_DEFAULTS": {"page":"limits-project-model-2.md","section":"limits-project-model--materials"},
+"limit.BLOOM_LIMITS": {"page":"limits-project-model-2.md","section":"limits-project-model--materials"},
 "limit.BRIDGE_DEBUG_MAX_BREAKPOINTS": {"page":"limits-protocol.md","section":"limits-protocol--bridge"},
 "limit.BRIDGE_DEBUG_RESULT_MAX_BYTES": {"page":"limits-protocol.md","section":"limits-protocol--bridge"},
 "limit.BRIDGE_INPUT_MAX_BYTES": {"page":"limits-protocol.md","section":"limits-protocol--bridge"},

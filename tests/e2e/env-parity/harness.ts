@@ -2,7 +2,7 @@
  * The neutral environment/post test scene (browser code, bundled
  * by `env-parity.e2e.ts` with esbuild). One case per page load:
  *
- *   index.html?backend=webgl2|webgpu|auto&case=<name>[&ao=off|ssao|gtao][&light=ambient][&skyRotation=<deg>]
+ *   index.html?backend=webgl2|webgpu|auto&case=<name>[&ao=off|ssao|gtao][&light=ambient][&skyRotation=<deg>][&exposure=<n>][&bloom=none]
  *
  * (`ao`: the kind of ambient occlusion; `light=ambient`: no sun, only
  * ambient light — the ambient-occlusion check in env-parity.e2e.ts;
@@ -171,6 +171,8 @@ const CASES: Record<string, Case> = {
   dof: { env: { sky: colour, post: { dof: { enabled: true, focus: 6, aperture: 0.004, maxBlur: 0.02 } } } },
   smaa: { env: { sky: colour, post: { antialias: 'smaa' } } },
   fxaa: { env: { sky: colour, post: { antialias: 'fxaa' } } },
+  // A sky brighter than the bloom threshold (no reference: bloom on against off, at two exposures).
+  'bloom-sky': { env: { sky: { mode: 'texture', texture: 'equirect', intensity: 4, environmentIntensity: 0.8 }, post: { bloom: { enabled: true, strength: 1.2, radius: 0.5, threshold: 1 } } } },
   // Low quality leaves bloom, AO and depth of field out (and anti-aliasing): the plain picture.
   'quality-low': { env: { sky: colour, quality: 'low', post: { bloom: { enabled: true, threshold: 0 }, ssao: { enabled: true }, dof: { enabled: true, focus: 2 }, antialias: 'smaa' } } },
 };
@@ -185,9 +187,20 @@ const CASES: Record<string, Case> = {
 const REFERENCE_LEVEL = { id: 'reference', lighting: 'high', contactShadows: false, reflections: 'off', post: { antialias: 'taau' } } as const;
 const pinned = (env: EnvironmentLike): EnvironmentLike => (env.quality !== undefined ? env : { ...env, qualityLevels: [REFERENCE_LEVEL], quality: REFERENCE_LEVEL.id });
 
+/**
+ * ?exposure=<n> sets the look's exposure; ?bloom=none draws its bloom at strength 0 (the same passes, no glow:
+ * bloom turned off would take the post stack, and with it how the picture is drawn, away).
+ */
+function withQuery(env: EnvironmentLike): EnvironmentLike {
+  const exposure = q.get('exposure');
+  if (exposure === null && q.get('bloom') !== 'none') return env;
+  const bloom = env.post?.bloom !== undefined && q.get('bloom') === 'none' ? { ...env.post.bloom, strength: 0 } : env.post?.bloom;
+  return { ...env, post: { ...env.post, ...(exposure !== null ? { exposure: Number(exposure) } : {}), ...(bloom !== undefined ? { bloom } : {}) } };
+}
+
 async function main(): Promise<void> {
   const raw = CASES[which];
-  const c = raw === undefined ? undefined : { ...raw, env: pinned(raw.env) };
+  const c = raw === undefined ? undefined : { ...raw, env: pinned(withQuery(raw.env)) };
   if (c === undefined) throw new Error(`unknown case ${which}`);
   const handle = createRenderer({ canvas, preference: backend, source: 'url', antialias: false, clearColor: 0x000000, clearAlpha: 1 });
   const ok = await handle.whenReady();

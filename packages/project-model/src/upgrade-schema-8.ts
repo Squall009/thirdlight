@@ -23,7 +23,11 @@
  * - `light-counts` (recorded): the counts of local lights are retired: quality
  *   levels' `localLights`/`shadowedLights` and furnishing sets' `lights`
  *   (`upgrade-light-counts.ts`).
+ * - `bloom-exposure` (recorded): bloom's threshold is compared after
+ *   exposure; a look with an exposure other than 1 gets its threshold scaled
+ *   by it, so the same brightness glows (`upgrade-bloom-exposure.ts`).
  */
+import { upgradeBloomExposure } from './upgrade-bloom-exposure';
 import { linkPrefabCopies } from './upgrade-linked-copies';
 import { retireLightCounts } from './upgrade-light-counts';
 import { upgradeToPlanes } from './upgrade-planes';
@@ -42,6 +46,7 @@ export const SCHEMA_8_STEPS: readonly Schema8Step[] = [
   { name: 'linkPrefabCopies', run: linkPrefabCopies },
   { name: 'planes', run: upgradeToPlanes, recorded: true },
   { name: 'light-counts', run: retireLightCounts, recorded: true },
+  { name: 'bloom-exposure', run: upgradeBloomExposure, recorded: true },
 ];
 
 /** The recorded steps' names: what a project made or upgraded by this build has had (a new project needs none of them). */

@@ -61,6 +61,7 @@ picture. Games switch both by switching cameras, through priorities and camera r
 | Item | Status |
 |---|---|
 | 44b.0 | done: three 0.186.1 pinned, 0.187.0 (minor) out 2026-10-30 → item 44b.3a. Plan committed. D339 open → 44b.1. Before shots (look scenes, medium, both renderers, cap): sunset veiled on both at medium, corridor fine; bloom 0.88 / 0.84 ms GPU (sunset / corridor, ≈ 0.41 at full clock). See **44b.0 baseline**. No code, no e2e. |
+| 44b.1 | done: bloom off removes the veil (both renderers). Bloom now thresholds the exposed colour, soft knee, only the excess glows; default strength 0.2; `bloom-exposure` load step. Sunset still veiled at exposure 1 (≈ 2 stops over), clean at 0.3: D339 open for 44b.3. Bloom GPU ≈ 0.42 ms full (0.41); landscape/interior main ms below 44.13. env-parity 23.0 → 25.9 s. Shots: acceptance/44b.1. |
 
 ### 44b.0 baseline
 
@@ -99,3 +100,20 @@ picture. Games switch both by switching cameras, through priorities and camera r
   44b.3a, after the camera items and before the look-and-close, so 44b.1's before/after compares on one three and
   44b.4's shots and the full gate run on r187. Its PMREM change (cube targets for the CubeUV atlas) touches the
   lighting cube hook and may shift the environment light, so it gets its own look-scene before/after.
+- 2026-11-01 (44b.1): D339's veil is bloom (gone with bloom off, both renderers), on a sunset look that is ≈ 2 stops
+  overexposed at its exposure 1. Bloom's bright-pass now compares the exposed luminance (`toneMappingExposure`, so
+  44b.3's adaptation calms it too) with a quadratic soft knee (half the threshold, Unity's default) and passes only the
+  part above the threshold; three's own high-pass passed the whole colour. One TSL function on both renderers
+  (`environment-nodes.ts`). At exposure 1 the sunset stays veiled (its surfaces sit several times over the threshold);
+  at 0.3 it is clean with a local glow. D339 stays open for 44b.3. Leaving the sky's sun disc out of the environment
+  bake was tried (no visible change) and dropped.
+- 2026-11-01 (44b.1, default chosen, owner to confirm): new bloom starts at strength **0.2** (was 0.6): the composite
+  adds ≈ 9 × strength of the excess (5 mips summing to 3, times the kept ×3), so 0.6 added 5.4 ×; 0.2 adds 1.8 ×.
+  Threshold 0.85 and radius 0.4 stay; the threshold's range grows to 0–8 (exposed values). Defaults are defined once
+  (`BLOOM_DEFAULTS`, `BLOOM_LIMITS` in project-model) instead of three copies.
+- 2026-11-01 (44b.1): existing bloom keeps its start point: a recorded schema-8 step `bloom-exposure` scales a look's
+  threshold (the default where absent) by that look's exposure when it is not 1 (each scene look and preset on its
+  own; Problems says so). Strength and radius keep their meaning (a multiplier, a spread); the glow is weaker for the
+  same strength because only the excess glows: the fix, not a silent change (manual, rendering page). The env-parity
+  `bloom.png` reference is redrawn from WebGL 2 for the same reason (strict match on both backends; it still differs
+  from the plain picture by mean 24.8).

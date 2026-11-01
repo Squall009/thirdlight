@@ -9,6 +9,8 @@ The limits and defaults `@thirdlight/project-model` defines, by source file. Val
 
 | Constant | Value | What it is |
 |---|---|---|
+| <a id="limit-bloom-defaults"></a>`BLOOM_DEFAULTS` | `{"strength":0.2,"radius":0.4,"threshold":0.85}` | What an absent bloom field means (the descriptor, the look blend and the renderer read these). The threshold is compared with the exposed colour's luminance, with a soft knee below it; strength scales the glow. |
+| <a id="limit-bloom-limits"></a>`BLOOM_LIMITS` | `{"strength":3,"radius":1,"threshold":8}` | The bloom fields' upper bounds (the validator and the descriptor share them); every field starts at 0. |
 | <a id="limit-height-fog-defaults"></a>`HEIGHT_FOG_DEFAULTS` | `{"density":0.02,"color":"#c8d2dc","height":0,"falloff":0.05,"start":0,"inscatterExponent":8}` | What an absent height fog field means (the renderer and the preset blend read these); a new height fog starts at `density` and `color`. |
 | <a id="limit-height-fog-limits"></a>`HEIGHT_FOG_LIMITS` | `{"density":1,"height":10000,"falloff":10,"start":10000,"inscatterExponentMin":1,"inscatterExponentMax":64}` | The height fog's ranges (the validator and the descriptor share them). |
 | <a id="limit-material-extra-layers-max"></a>`MATERIAL_EXTRA_LAYERS_MAX` | `252` | Layers past a vec4's four a per-layer setting holds values for: every layer a terrain sample can name. |

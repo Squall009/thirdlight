@@ -25,6 +25,7 @@
  *   --scenes door,sunset,corridor,sign,shut-on   (default all five)
  *   --renderers webgpu,webgl2                    (default both)
  *   --no-bake                                    the lights realtime, nothing baked
+ *   --query Q                                    more page query for every load (e.g. quality=medium: the same tier on both renderers)
  *   --shots DIR --shot-prefix P --out FILE --keep
  *
  * The report goes to ~/.cache/thirdlight-perf/reports/look-accept-<time>.json.
@@ -376,6 +377,7 @@ export async function runLookAcceptCli(argv: readonly string[]): Promise<void> {
   const runDir = join(PERF_ROOT, 'runs', `look-accept-${stamp}`);
   const shots = get('shots') ?? runDir;
   const prefix = get('shot-prefix') ?? '';
+  const query = get('query') ?? '';
   mkdirSync(runDir, { recursive: true });
   mkdirSync(shots, { recursive: true });
   const log = (s: string): void => console.log(`look-accept: ${s}`);
@@ -409,7 +411,7 @@ export async function runLookAcceptCli(argv: readonly string[]): Promise<void> {
       try {
         for (const r of renderers) {
           const name = `${prefix}${scene}-${r}`;
-          const url = `${site.url}?renderer=${r}`;
+          const url = `${site.url}?renderer=${r}${query !== '' ? `&${query}` : ''}`;
           log(`${name}: up ${(uptime() / 86400).toFixed(1)} d, load ${readFileSync('/proc/loadavg', 'utf8').split(' ').slice(0, 3).join(' ')}`);
           const m = await measured(browser, url, scene, (label) => join(shots, `${name}-${label}.jpg`), (s) => log(`${name} ${s}`));
           const files = await captured(browser, url, scene, shots, `${prefix}walk-${scene}-${r}`, (s) => log(`${name} capture ${s}`));

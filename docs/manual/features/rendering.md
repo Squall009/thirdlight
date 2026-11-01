@@ -64,7 +64,14 @@ test compares 21 environments with the old WebGL renderer's reference images
 see: scene fog is mixed before tone mapping (the WebGL renderer mixed it
 after when there was no post stack), so its tint is a little different;
 ambient occlusion has a different noise pattern and depth of field a
-slightly different blur shape; the low quality level also turns MSAA off.
+slightly different blur shape; the low quality level also turns MSAA off;
+bloom compares its threshold with the exposed colour, fades in over a soft
+knee below it and glows with only the part above it (the old renderer glowed
+with the whole colour of anything over the threshold, before exposure), so a
+bright sky no longer veils the frame, and a lower exposure calms the glow
+with the picture. Projects saved with an exposure other than 1 have their
+bloom threshold scaled by it on open (Problems says so). New bloom starts at
+strength 0.2.
 A game view (Play, the export, the Scene view) renders one drawing-buffer
 pixel per CSS pixel on any display, so a HiDPI or scaled screen costs no more
 than a plain one. Under a post stack the scene is drawn without MSAA (the

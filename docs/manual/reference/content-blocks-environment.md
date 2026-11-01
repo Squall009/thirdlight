@@ -23,9 +23,9 @@ The quality levels, the default level and the environment presets (each scene ha
 | `qualityLevels[].post.antialias` | enum: `none`, `fxaa`, `smaa`, `taau` | `"none"` |  | **Anti-aliasing.** Smooths jagged edges. Temporal upscaling also draws a render scale below 1 at the full resolution. (choices: `none` = None, `fxaa` = FXAA, `smaa` = SMAA, `taau` = Temporal upscaling (TAAU)) |
 | `qualityLevels[].post.bloom` | object |  |  | **Bloom.** Bright parts glow. |
 | `qualityLevels[].post.bloom.enabled` | bool | `true` |  | **On.** Off: off at this level. |
-| `qualityLevels[].post.bloom.strength` | number | `0.6` | 0 – 3, step 0.05 | **Strength.** Glow strength. |
+| `qualityLevels[].post.bloom.strength` | number | `0.2` | 0 – 3, step 0.05 | **Strength.** Glow strength. |
 | `qualityLevels[].post.bloom.radius` | number | `0.4` | 0 – 1, step 0.05 | **Radius.** Glow spread. |
-| `qualityLevels[].post.bloom.threshold` | number | `0.85` | 0 – 2, step 0.05 | **Threshold.** Only brighter than this glows. |
+| `qualityLevels[].post.bloom.threshold` | number | `0.85` | 0 – 8, step 0.05 | **Threshold.** The brightness after exposure where glow starts (fading in just below it); only the part above it glows. |
 | `qualityLevels[].post.ssao` | object |  |  | **Ambient occlusion.** Contact shadows in creases. |
 | `qualityLevels[].post.ssao.enabled` | bool | `true` |  | **On.** Off: off at this level. |
 | `qualityLevels[].post.ssao.radius` | number | `0.5` | 0.01 – 4, step 0.01, m | **Radius.** How far it looks. |
@@ -94,9 +94,9 @@ The quality levels, the default level and the environment presets (each scene ha
 | `presets[].post.antialias` | enum: `none`, `fxaa`, `smaa`, `taau` | `"none"` |  | **Anti-aliasing.** Smooths jagged edges. Temporal upscaling also draws a render scale below 1 at the full resolution. (choices: `none` = None, `fxaa` = FXAA, `smaa` = SMAA, `taau` = Temporal upscaling (TAAU)) |
 | `presets[].post.bloom` | object |  |  | **Bloom.** Bright parts glow. |
 | `presets[].post.bloom.enabled` | bool | `true` |  | **On.** Turns bloom on. (required) |
-| `presets[].post.bloom.strength` | number | `0.6` | 0 – 3, step 0.05 | **Strength.** Glow strength. |
+| `presets[].post.bloom.strength` | number | `0.2` | 0 – 3, step 0.05 | **Strength.** Glow strength. |
 | `presets[].post.bloom.radius` | number | `0.4` | 0 – 1, step 0.05 | **Radius.** Glow spread. |
-| `presets[].post.bloom.threshold` | number | `0.85` | 0 – 2, step 0.05 | **Threshold.** Only brighter than this glows. |
+| `presets[].post.bloom.threshold` | number | `0.85` | 0 – 8, step 0.05 | **Threshold.** The brightness after exposure where glow starts (fading in just below it); only the part above it glows. |
 | `presets[].post.grading` | object |  |  | **Colour grading.** Contrast, saturation, tint, lift/gamma/gain and a LUT. |
 | `presets[].post.grading.contrast` | number | `0` | -1 – 1, step 0.05 | **Contrast.** −1 to 1 (0: unchanged). |
 | `presets[].post.grading.saturation` | number | `0` | -1 – 1, step 0.05 | **Saturation.** −1 to 1 (0: unchanged). |

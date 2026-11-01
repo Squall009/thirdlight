@@ -35,6 +35,7 @@ import {
   int,
   length,
   Loop,
+  luminance,
   max,
   min,
   mix,
@@ -51,6 +52,7 @@ import {
   select,
   smoothstep,
   texture,
+  toneMappingExposure,
   uniform,
   uniformArray,
   uv,
@@ -395,6 +397,7 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
     // UnrealBloomPass scales its composite by 3 ("backwards compatibility with previous
     // alpha-based intensity"); BloomNode does not: the project's strength keeps its meaning.
     bloomNode = bloom(color, plan.bloom.strength * 3, plan.bloom.radius, plan.bloom.threshold);
+    bloomNode.highPassFn = exposedBrightPass;
     disposables.push(bloomNode);
     if (upscaling) bloomNode.setResolutionScale(BLOOM_RESOLUTION_SCALE * scale);
     // UnrealBloom adds its glow onto the picture (alpha unchanged).
@@ -768,6 +771,31 @@ export const MOTION_VIEW_GAIN = 50;
 
 /** Bloom's own share of the picture's resolution (three's default; under a render scale, of the scaled picture). */
 const BLOOM_RESOLUTION_SCALE = 0.5;
+
+/** The soft knee's width as a share of the threshold: glow fades in from threshold × (1 − knee) (Unity's default). */
+const BLOOM_SOFT_KNEE = 0.5;
+
+/**
+ * Bloom's bright-pass on the exposed colour. Bloom runs before tone mapping,
+ * on the scene's HDR colour, so its luminance is scaled by the renderer's
+ * exposure first: the threshold then means the same brightness whatever the
+ * exposure, and lowering the exposure (by hand or by adaptation) calms the
+ * glow with the picture. Only the part above the threshold passes (with a
+ * quadratic soft knee below it, so the edge does not band); three's own
+ * high-pass passes the whole colour of anything over the threshold, which
+ * made a bright sky glow at its full brightness over the whole frame.
+ * The colour that passes stays unexposed: the output step exposes it with
+ * the picture.
+ */
+const exposedBrightPass = Fn(({ input, threshold }: { input: N; threshold: N }) => {
+  const exposure: N = toneMappingExposure;
+  const brightness: N = luminance(input.rgb).mul(exposure);
+  const knee: N = threshold.mul(BLOOM_SOFT_KNEE).max(1e-4);
+  const soft: N = clamp(brightness.sub(threshold).add(knee), 0, knee.mul(2));
+  const curve: N = soft.mul(soft).div(knee.mul(4));
+  const share = max(curve, brightness.sub(threshold)).div(brightness.max(1e-4));
+  return vec4(input.rgb.mul(share), input.a);
+});
 
 /**
  * A precompile running: `done` settles once every collected object's

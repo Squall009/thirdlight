@@ -817,6 +817,14 @@ export const HEIGHT_FOG_DEFAULTS = Object.freeze({ density: 0.02, color: '#c8d2d
 /** The height fog's ranges (the validator and the descriptor share them). */
 export const HEIGHT_FOG_LIMITS = Object.freeze({ density: 1, height: 10000, falloff: 10, start: 10000, inscatterExponentMin: 1, inscatterExponentMax: 64 });
 
+/**
+ * What an absent bloom field means (the descriptor, the look blend and the renderer read these). The threshold is
+ * compared with the exposed colour's luminance, with a soft knee below it; strength scales the glow.
+ */
+export const BLOOM_DEFAULTS = Object.freeze({ strength: 0.2, radius: 0.4, threshold: 0.85 });
+/** The bloom fields' upper bounds (the validator and the descriptor share them); every field starts at 0. */
+export const BLOOM_LIMITS = Object.freeze({ strength: 3, radius: 1, threshold: 8 });
+
 export interface PostConfig {
   toneMapping?: 'none' | 'aces' | 'agx' | 'neutral';
   exposure?: number;
@@ -1167,7 +1175,7 @@ export function validatePost(value: unknown, path: string, errors: ModelErrorV2[
   );
   if (v === null) return;
   const sub: Record<string, Record<string, FieldRule>> = {
-    bloom: { enabled: { kind: 'bool' }, strength: { kind: 'num', min: 0, max: 3 }, radius: { kind: 'num', min: 0, max: 1 }, threshold: { kind: 'num', min: 0, max: 2 } },
+    bloom: { enabled: { kind: 'bool' }, strength: { kind: 'num', min: 0, max: BLOOM_LIMITS.strength }, radius: { kind: 'num', min: 0, max: BLOOM_LIMITS.radius }, threshold: { kind: 'num', min: 0, max: BLOOM_LIMITS.threshold } },
     grading: {
       contrast: { kind: 'num', min: -1, max: 1 },
       saturation: { kind: 'num', min: -1, max: 1 },

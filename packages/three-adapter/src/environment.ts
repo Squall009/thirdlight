@@ -33,7 +33,7 @@
 import * as THREE from 'three';
 import { PMREMGenerator as NodePMREMGenerator, type WebGPURenderer } from 'three/webgpu';
 import { SKY_DEFAULTS } from '@thirdlight/runtime';
-import { AMBIENT_OCCLUSION_DEFAULT, levelLighting, levelPost, qualityLevelOf, qualityLevelsOf, type QualityLevelConfig } from '@thirdlight/project-model';
+import { AMBIENT_OCCLUSION_DEFAULT, BLOOM_DEFAULTS, levelLighting, levelPost, qualityLevelOf, qualityLevelsOf, type QualityLevelConfig } from '@thirdlight/project-model';
 
 import { CloudDrift, type CloudWind } from './cloud-drift';
 // Lit surfaces read the PMREM through a cube copy, made again after each bake.
@@ -477,7 +477,7 @@ function postNumbers(post: PostLike | undefined, w: { bloom: boolean; grading: b
           vignetteOffset: post?.vignette?.offset ?? 1,
         }
       : null,
-    bloom: w.bloom ? { strength: post?.bloom?.strength ?? 0.6, radius: post?.bloom?.radius ?? 0.4, threshold: post?.bloom?.threshold ?? 0.85 } : null,
+    bloom: w.bloom ? { strength: post?.bloom?.strength ?? BLOOM_DEFAULTS.strength, radius: post?.bloom?.radius ?? BLOOM_DEFAULTS.radius, threshold: post?.bloom?.threshold ?? BLOOM_DEFAULTS.threshold } : null,
   };
 }
 

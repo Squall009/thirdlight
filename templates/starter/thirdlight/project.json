@@ -5,6 +5,7 @@
   "name": "2D starter",
   "createdAt": "2026-10-29T00:00:00Z",
   "upgrades": [
+    "bloom-exposure",
     "light-counts",
     "planes"
   ]

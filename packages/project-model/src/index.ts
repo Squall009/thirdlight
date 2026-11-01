@@ -923,6 +923,8 @@ export {
   type EnvironmentConfig,
   type FogConfig,
   type HeightFogConfig,
+  BLOOM_DEFAULTS,
+  BLOOM_LIMITS,
   HEIGHT_FOG_DEFAULTS,
   HEIGHT_FOG_LIMITS,
   validateHeightFog,

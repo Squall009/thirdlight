@@ -76,9 +76,9 @@ Tone mapping, exposure and screen effects.
 | `post.antialias` | enum: `none`, `fxaa`, `smaa`, `taau` | `"none"` |  | **Anti-aliasing.** Smooths jagged edges. Temporal upscaling also draws a render scale below 1 at the full resolution. (choices: `none` = None, `fxaa` = FXAA, `smaa` = SMAA, `taau` = Temporal upscaling (TAAU)) |
 | `post.bloom` | object |  |  | **Bloom.** Bright parts glow. |
 | `post.bloom.enabled` | bool | `true` |  | **On.** Turns bloom on. (required) |
-| `post.bloom.strength` | number | `0.6` | 0 – 3, step 0.05 | **Strength.** Glow strength. |
+| `post.bloom.strength` | number | `0.2` | 0 – 3, step 0.05 | **Strength.** Glow strength. |
 | `post.bloom.radius` | number | `0.4` | 0 – 1, step 0.05 | **Radius.** Glow spread. |
-| `post.bloom.threshold` | number | `0.85` | 0 – 2, step 0.05 | **Threshold.** Only brighter than this glows. |
+| `post.bloom.threshold` | number | `0.85` | 0 – 8, step 0.05 | **Threshold.** The brightness after exposure where glow starts (fading in just below it); only the part above it glows. |
 | `post.grading` | object |  |  | **Colour grading.** Contrast, saturation, tint, lift/gamma/gain and a LUT. |
 | `post.grading.contrast` | number | `0` | -1 – 1, step 0.05 | **Contrast.** −1 to 1 (0: unchanged). |
 | `post.grading.saturation` | number | `0` | -1 – 1, step 0.05 | **Saturation.** −1 to 1 (0: unchanged). |
