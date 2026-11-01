@@ -60,7 +60,8 @@ export class SeeThroughScript {
     const enabled = p['enabled'] === null ? undefined : typeof p['enabled'] === 'boolean' ? p['enabled'] : base.enabled;
     this.state = Object.freeze({
       ...(enabled !== undefined ? { enabled } : {}),
-      settings: Object.freeze(seeThroughSettingsOf(p, base.settings)),
+      // Null gives the choice back: the settings' own `enabled` (read where no camera is live) is the project's again.
+      settings: Object.freeze({ ...seeThroughSettingsOf(p, base.settings), ...(p['enabled'] === null ? { enabled: this.project.enabled } : {}) }),
       // No names (null, or an empty list, what an unwired graph input gives) is the camera's target.
       subjects: subjects === undefined ? base.subjects : subjects === null || (subjects as string[]).length === 0 ? null : Object.freeze([...new Set(subjects as string[])]),
     });

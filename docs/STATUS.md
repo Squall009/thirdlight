@@ -65,7 +65,7 @@ The owner reviews by building in the game folders; a problem comes back as a gam
 | 42 | Unified lighting: surface radiance cache, `area` lights, room probes, TAAU, one bake — `docs/plan-phase-42.md` | done 2026-10-28; open D339 |
 | 43 | Clustered forward lighting, shared shadow atlas, 16-light cap lifted — `docs/plan-phase-43.md` | done 2026-10-30; open D400, D405 |
 | 44 | Consolidation from the global audit (G1–G22) and a docs reset — `docs/plan-phase-44.md` | done 2026-11-01, owner look pending (e73f0f5a): G1–G22 fixed; @thirdlight/shared + redefinition ratchet 163→26; docs 6.3→4.3 MB; full gate green 30 min |
-| 44b | Camera: occlusion modes per camera, adaptive exposure — `docs/plan-phase-44b.md` | in progress (started 2026-11-01 at 7f98343e); 44b.0 done: D339 open (sunset veiled at medium on both renderers), three r187 planned as 44b.3a |
+| 44b | Camera: occlusion modes per camera, adaptive exposure — `docs/plan-phase-44b.md` | in progress (started 2026-11-01 at 7f98343e); 44b.0–44b.3c done (D339 fixed in 44b.3, three r187 in 44b.3a); 44b.4 look and close: review fixes in 44b.4a/4b, D427 open |
 | 45–49 | Voxel world: formats (45), core (46a–d), structures and tools (47a–c), migration and merge (48a–c), water (49) — `docs/plan-phase-45.md` | planned 2026-10-28; on a branch, after 44b |
 | — | Engine verdict (owner request) — `docs/verdict-2026-10-04.md` | 2026-10-04: keep; the owner resumed feature phases with 28b; open D153, D156 |
 

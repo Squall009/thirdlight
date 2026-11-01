@@ -131,6 +131,14 @@ describe('the engine-owned view', () => {
     steps(rt, 2);
     expect(calls).toEqual([true, true, false]);
     expect(rt.cameraView!()!.seeThrough?.settings.padding).toBe(SEE_THROUGH_LIMITS.padding.max);
+    // A script's off holds; null gives back the project's own setting (on here), not the script's last.
+    call = { enabled: false };
+    steps(rt, 2);
+    expect(rt.cameraView!()!.seeThrough).toMatchObject({ enabled: false, settings: { enabled: false } });
+    call = { enabled: null };
+    steps(rt, 2);
+    expect(rt.cameraView!()!.seeThrough?.enabled).toBeUndefined();
+    expect(rt.cameraView!()!.seeThrough?.settings.enabled).toBe(true);
     rt.dispose();
   });
 });

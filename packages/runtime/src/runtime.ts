@@ -73,6 +73,7 @@ import { AudioMixer, type AudioCommand } from './audio-mixer';
 import { createScriptAudio } from './script-audio';
 import { DialogueRunner, type DialogueInputRecord } from './dialogue';
 import { cameraBlendOf, type CameraViewInfo } from './camera-brain';
+import { ignoring, rayStoppedShort } from './camera-pull-in';
 import { RuntimeViews } from './views';
 import { KeptObjects } from './kept';
 import { EnvironmentDirector } from './environment-director';
@@ -460,26 +461,26 @@ export class RuntimeInstance implements Runtime {
     // The views and the start set's shots.
     this.views = new RuntimeViews(this.sim.hz, args.viewLens, {
       worldOf: (id, position, rotation) => this.sim.worldTransformOf(id, position, rotation),
-      raycast: (origin, direction, maxDistance) => {
+      raycast: (origin, direction, maxDistance, ignore) => {
         const port = this.sim.physics3d;
         if (port === undefined || typeof port.raycast !== 'function') return null;
-        const hit = port.raycast({ x: origin[0], y: origin[1], z: origin[2] }, { x: direction[0], y: direction[1], z: direction[2] }, maxDistance);
+        const hit = port.raycast({ x: origin[0], y: origin[1], z: origin[2] }, { x: direction[0], y: direction[1], z: direction[2] }, maxDistance, ignoring(ignore));
         return hit === null ? null : { distance: hit.distance };
       },
-      castSphere: (origin, direction, radius, maxDistance) => {
+      castSphere: (origin, direction, radius, maxDistance, ignore) => {
         const port = this.sim.physics3d;
         if (port === undefined) return null;
         if (typeof port.castSphere !== 'function') {
           // A port without sphere casts: the ray, stopped the radius short.
-          const ray = typeof port.raycast === 'function' ? port.raycast({ x: origin[0], y: origin[1], z: origin[2] }, { x: direction[0], y: direction[1], z: direction[2] }, maxDistance + radius) : null;
-          return ray === null ? null : { distance: Math.max(0, ray.distance - radius) };
+          const ray = typeof port.raycast === 'function' ? port.raycast({ x: origin[0], y: origin[1], z: origin[2] }, { x: direction[0], y: direction[1], z: direction[2] }, maxDistance + radius, ignoring(ignore)) : null;
+          return ray === null ? null : { distance: rayStoppedShort(ray.distance, radius) };
         }
-        const hit = port.castSphere({ x: origin[0], y: origin[1], z: origin[2] }, { x: direction[0], y: direction[1], z: direction[2] }, radius, maxDistance);
+        const hit = port.castSphere({ x: origin[0], y: origin[1], z: origin[2] }, { x: direction[0], y: direction[1], z: direction[2] }, radius, maxDistance, ignoring(ignore));
         return hit === null ? null : { distance: hit.distance };
       },
-      sphereOverlaps: (center, radius) => {
+      sphereOverlaps: (center, radius, ignore) => {
         const port = this.sim.physics3d;
-        return port !== undefined && typeof port.overlap === 'function' && port.overlap({ type: 'sphere', radius }, { x: center[0], y: center[1], z: center[2] }).length > 0;
+        return port !== undefined && typeof port.overlap === 'function' && port.overlap({ type: 'sphere', radius }, { x: center[0], y: center[1], z: center[2] }, undefined, ignoring(ignore)).length > 0;
       },
       warn: (message) => this.faults.log('thirdlight.runtime:camera', 'warn', message),
     }, seeThroughSettingsOfProject(args.settings));

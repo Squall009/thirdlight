@@ -170,12 +170,12 @@ export type CameraBlendStyle = 'cut' | 'linear' | 'eased';
 export interface CameraWorld {
   /** An entity's world position and rotation (false: not loaded). */
   worldOf(id: string, position: number[], rotation: number[]): boolean;
-  /** The nearest collider along a ray (pull-in's fallback where no sphere is cast). */
-  raycast?(origin: V3, direction: V3, maxDistance: number): { distance: number } | null;
+  /** The nearest collider along a ray (pull-in's fallback where no sphere is cast); `ignore`: an entity whose colliders do not count. */
+  raycast?(origin: V3, direction: V3, maxDistance: number, ignore?: string | null): { distance: number } | null;
   /** How far a sphere moves along a ray before it meets a collider (absent: the ray, less the radius). */
-  castSphere?(origin: V3, direction: V3, radius: number, maxDistance: number): { distance: number } | null;
+  castSphere?(origin: V3, direction: V3, radius: number, maxDistance: number, ignore?: string | null): { distance: number } | null;
   /** Whether a sphere overlaps any collider. */
-  sphereOverlaps?(center: V3, radius: number): boolean;
+  sphereOverlaps?(center: V3, radius: number, ignore?: string | null): boolean;
 }
 
 /** A virtual camera's live state as scripts read it (`ctx.camera.get`). */
@@ -1015,7 +1015,8 @@ export class CameraBrain {
     let dist = s.distance;
     const off = orbitOffset(s.yaw, pitch, 1, this.offAt);
     if (d.rig === 'follow' && s.occlusion === 'pullIn' && dist > 0) {
-      dist = pullInDistance(s.pull, d, world, pv, off, dist, this.hz);
+      // The target's own colliders do not count: the casts start inside them (a target that is not the character).
+      dist = pullInDistance(s.pull, d, world, pv, off, dist, this.hz, haveTarget ? s.target : null);
       if (s.pull.cut) this.occl.cut = true;
     }
     pose.position[0] = pv[0] + off[0] * dist;

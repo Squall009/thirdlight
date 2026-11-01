@@ -24,6 +24,7 @@ import { VIRTUAL_CAMERA_DEFAULTS as VCD } from '@thirdlight/project-model';
 
 import type { CameraWorld } from './camera-brain';
 import { clampNum, easeInOut, type V3 } from './camera-rig';
+import type { PhysicsQueryFilter3D } from './ports';
 
 export type PullInPhase = 'rest' | 'in' | 'hold' | 'out';
 
@@ -130,6 +131,16 @@ const PULL_TOUCH = 1e-3;
 
 const num = (v: unknown, fallback: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
 
+/** A physics query filter that leaves `ignore`'s colliders out (undefined: every collider counts). */
+export function ignoring(ignore: string | null | undefined): PhysicsQueryFilter3D | undefined {
+  return ignore === null || ignore === undefined ? undefined : { accept: (id) => id !== ignore };
+}
+
+/** A ray standing in for a sphere cast (a physics port without them): stopped the radius short, never behind its origin. */
+export function rayStoppedShort(distance: number, radius: number): number {
+  return Math.max(0, distance - radius);
+}
+
 /**
  * A follow camera's distance this step with colliders in the way: the sphere
  * of its radius cast out from the pivot `pv` along the unit `off` (a ray, less
@@ -145,6 +156,7 @@ export function pullInDistance(
   off: readonly number[],
   dist: number,
   hz: number,
+  ignore: string | null = null,
 ): number {
   const radius = num(d.collisionRadius, VCD.collisionRadius);
   const origin: V3 = [pv[0]!, pv[1]!, pv[2]!];
@@ -153,22 +165,22 @@ export function pullInDistance(
   const sphere = world.castSphere !== undefined && radius > 0;
   let clear = Infinity;
   if (sphere) {
-    const hit = world.castSphere!(origin, dir, radius, dist);
+    const hit = world.castSphere!(origin, dir, radius, dist, ignore);
     if (hit !== null && Number.isFinite(hit.distance)) clear = hit.distance;
   } else if (world.raycast !== undefined) {
-    const hit = world.raycast(origin, dir, dist + radius);
-    if (hit !== null && Number.isFinite(hit.distance)) clear = hit.distance - radius;
+    const hit = world.raycast(origin, dir, dist + radius, ignore);
+    if (hit !== null && Number.isFinite(hit.distance)) clear = rayStoppedShort(hit.distance, radius);
   } else return dist;
   const at = (k: number): V3 => [origin[0] + dir[0] * k, origin[1] + dir[1] * k, origin[2] + dir[2] * k];
   // Its target hidden behind a collider, starting in one, or meeting one on the way in (a touch at the very end
   // is where the cast stopped): straight to the clear distance. Only a sphere grazing past an edge eases in.
   const blocked = (from: number, to: number): boolean => {
-    if (world.raycast?.(origin, dir, from) != null) return true;
-    if (radius > 0 && world.sphereOverlaps?.(at(from), radius) === true) return true;
+    if (world.raycast?.(origin, dir, from, ignore) != null) return true;
+    if (radius > 0 && world.sphereOverlaps?.(at(from), radius, ignore) === true) return true;
     const span = from - to - PULL_TOUCH;
     if (!(span > 0)) return false;
-    if (sphere) return world.castSphere!(at(from), back, radius, span) !== null;
-    return world.raycast?.(at(from), back, span) != null;
+    if (sphere) return world.castSphere!(at(from), back, radius, span, ignore) !== null;
+    return world.raycast?.(at(from), back, span, ignore) != null;
   };
   return stepPullIn(st, dist, clear, blocked, { inTime: num(d.pullInTime, VCD.pullInTime), holdTime: num(d.pullHoldTime, VCD.pullHoldTime), outTime: num(d.pullOutTime, VCD.pullOutTime) }, hz);
 }
