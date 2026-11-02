@@ -471,11 +471,14 @@ describe('streamer (workers, region files on disk)', () => {
       const changed = (): number => want.filter((k) => shown.get(k) !== before.get(k)).length;
       let partial = 0;
       let samples = 0;
+      // Each turn is a frame: the streamer's update sends what the edit's jobs could not send at once (a full pool),
+      // so the swap never depends on the pool room left by whatever ran before.
       while (swaps.length === 0) {
         const n = changed();
         if (n !== 0) partial++;
         samples++;
         await new Promise((r) => setImmediate(r));
+        s.update();
       }
       expect(samples).toBeGreaterThan(1);
       expect(partial).toBe(0);
