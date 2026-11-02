@@ -167,8 +167,8 @@ interface OpenWorld {
   manifestHash: string;
   readonly world: RegionWorld;
   readonly undo: UndoStore;
-  /** Undo record ids, newest last. */
-  readonly history: number[];
+  /** Undo record ids and the cells their edit changed, newest last. */
+  readonly history: Array<{ readonly id: number; readonly cells: number }>;
   readonly answers: Map<string, VoxelCommandApplied>;
   queue: Promise<unknown>;
 }
@@ -280,7 +280,7 @@ export class VoxelWorlds {
     const t0 = performance.now();
     let record: readonly ChunkUndo[];
     let cells: number;
-    let undoId: number | null = null;
+    let undone: { readonly id: number; readonly cells: number } | null = null;
     if (op === 'editVoxels') {
       try {
         const cmd = canonicalEditCommand(a.command);
@@ -294,11 +294,11 @@ export class VoxelWorlds {
         throw e;
       }
     } else {
-      undoId = w.history.pop() ?? null;
-      if (undoId === null) return refuse('nothing_to_undo', 'validation', `voxel world ${w.name} has no edit to undo`);
-      record = await w.undo.take(undoId);
+      undone = w.history.pop() ?? null;
+      if (undone === null) return refuse('nothing_to_undo', 'validation', `voxel world ${w.name} has no edit to undo`);
+      record = await w.undo.take(undone.id);
       w.world.undo(record);
-      cells = record.length;
+      cells = undone.cells;
     }
     const t1 = performance.now();
     let written: Map<string, string | null>;
@@ -307,10 +307,10 @@ export class VoxelWorlds {
     } catch (e) {
       // Memory goes back to what the files hold; the chunks stay dirty and the next save writes them again.
       if (op === 'editVoxels') w.world.undo(record);
-      else if (undoId !== null) w.history.push(await w.undo.put(record));
+      else if (undone !== null) w.history.push({ id: await w.undo.put(record), cells });
       return refuse('write_failed', 'internal', `voxel world ${w.name}: ${e instanceof Error ? e.message : String(e)}`);
     }
-    if (op === 'editVoxels') w.history.push(await w.undo.put(record));
+    if (op === 'editVoxels') w.history.push({ id: await w.undo.put(record), cells });
     const chunks = record.map((u) => [u.cx, u.cy, u.cz] as const);
     const files = [...new Set(record.map((u) => this.fileName(w, u)))].sort().map((name) => ({ name, etag: written.get(name) ?? w.world.files.get(name)?.hash ?? null }));
     const answer: VoxelCommandApplied = { ok: true, op, requestId, world: w.name, revision: w.manifest.revision, cells, chunks, files, undoable: w.history.length, duplicated: false, ms: { apply: t1 - t0, save: performance.now() - t1 } };

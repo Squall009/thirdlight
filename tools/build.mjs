@@ -62,6 +62,13 @@ function emitEditorPage() {
   };
   if (existsSync(pub)) copyTree(pub, dirname(out));
   console.log(`build: editor page: -> ${join('dist/editor/index.html')}`);
+  // The voxel world page: no stylesheet of the editor's, it draws its own canvas and status line.
+  writeFileSync(
+    join(dirname(out), 'voxel-world.html'),
+    '<!doctype html>\n<html>\n  <head>\n    <meta charset="utf-8" />\n    <meta name="viewport" content="width=device-width, initial-scale=1" />\n' +
+      '    <title>Thirdlight voxel world</title>\n    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />\n  </head>\n  <body>\n    <script src="./voxel-world.js"></script>\n  </body>\n</html>\n',
+  );
+  console.log('build: voxel world page: -> dist/editor/voxel-world.html');
 }
 
 /** The pinned option set (normative — the same set for all three bundles). */
@@ -122,6 +129,17 @@ const BUNDLES = [
     name: 'mesh-worker',
     entry: 'packages/editor/src/workers/mesh-worker.ts',
     out: 'dist/editor/mesh-worker.js',
+  },
+  // The voxel world page (a project's voxel world streamed by range, edited by commands) and its worker.
+  {
+    name: 'voxel-world',
+    entry: 'packages/editor/src/voxel-world/page.ts',
+    out: 'dist/editor/voxel-world.js',
+  },
+  {
+    name: 'voxel-worker',
+    entry: 'packages/editor/src/voxel-world/voxel-worker.ts',
+    out: 'dist/editor/voxel-worker.js',
   },
   {
     name: 'mesh-worker (preview)',

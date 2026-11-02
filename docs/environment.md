@@ -26,6 +26,10 @@ The server the engine is built, tested and served on (checked 2026-10-30). The 2
   worlds only, never a game copy). It refuses production's ports and data root, a taken port, and less than
   8 GB available. `smoke` creates the empty test project `staging-empty` through the admin API and reads it
   back with a command. Settings: `TL_STAGING_PORT`, `TL_STAGING_ROOT`, `TL_STAGING_HOST`, `TL_STAGING_MEM`.
+  The voxel slice's test world is the project `voxel-slice` (made through the admin API), its world written by
+  `node tools/voxel-bench/run.mjs slice-world --project-dir ~/thirdlight-staging-p45/projects/voxel-slice` (in a
+  capped scope, before the backend opens it); the page is
+  `http://127.0.0.1:4180/voxel-world.html?project=voxel-slice&world=slice&at=0,103,-32` (token from the editor).
 - `thirdlight-gate`: the detached, memory-capped unit `tools/gate.sh start` runs a gate in (7 GB cap by default).
   Gates and e2e tests run Chromium on the Iris Xe.
 

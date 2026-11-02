@@ -187,6 +187,8 @@ export class VoxelStreamer {
   readonly decodeUs = new SampleRing();
   /** Apron bytes per derive job. */
   readonly apronBytes = new SampleRing();
+  /** Worker µs per finished derive job (the assembly evaluation, meshes and consumer outputs). */
+  readonly deriveUs = new SampleRing();
 
   private readonly opts: VoxelStreamerOptions;
   private readonly chunks = new Map<number, Chunk>();
@@ -709,6 +711,7 @@ export class VoxelStreamer {
           if (this.chunks.get(key) === c && o.status !== 'refused' && o.status !== 'failed') this.wantDerive(c, c.derive === 'edit' ? 'edit' : 'yes');
           return;
         }
+        this.deriveUs.add(o.workerUs);
         if (!this.tracker.acceptResult(job.id).ok || this.chunks.get(key) !== c) {
           this.counters.staleRefused++;
           return;

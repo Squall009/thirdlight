@@ -69,6 +69,20 @@ export function forgetToken(): void {
   }
 }
 
+/**
+ * The token a page of the editor's origin sends: a `#token=` fragment
+ * (consumed once, remembered and removed from the address bar), else the
+ * one this browser remembers; null when there is none.
+ */
+export function pageToken(): string | null {
+  const fromHash = new URLSearchParams(window.location.hash.replace(/^#/, '')).get('token');
+  if (fromHash) {
+    rememberToken(fromHash);
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+  }
+  return fromHash ?? storedToken();
+}
+
 /** Read + validate the editor page config (browser-only: uses `location`). */
 export function readEditorConfig(): ConfigResult {
   const page = window.__thirdlightEditor;
@@ -77,13 +91,7 @@ export function readEditorConfig(): ConfigResult {
   }
   const previewOrigin = page.previewOrigin.replace(/\/$/, '');
 
-  // A `#token=` fragment is consumed once and removed from the address bar.
-  const fromHash = new URLSearchParams(window.location.hash.replace(/^#/, '')).get('token');
-  if (fromHash) {
-    rememberToken(fromHash);
-    history.replaceState(null, '', window.location.pathname + window.location.search);
-  }
-  const token = fromHash ?? storedToken() ?? (page.trusted === true ? TRUSTED_NETWORK_TOKEN : null);
+  const token = pageToken() ?? (page.trusted === true ? TRUSTED_NETWORK_TOKEN : null);
   if (!token) return { ok: false, needs: 'token', previewOrigin };
 
   const projectId = new URLSearchParams(window.location.search).get('project') ?? '';

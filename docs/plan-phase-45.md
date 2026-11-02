@@ -685,6 +685,7 @@ sub-phase on staging; the merge to `main` happens once, at the end of 48.
 | 45.4 | done (0f7bdd89, 99b3274e, gate green): edits, undo, saves v1 DRAFT (stroke commands, one deterministic apply, per-chunk undo under a 64 MiB budget spilling to disk, edits-only saves with 16-byte base hashes, structure overrides, repair, dirty jobs). Dab 4 m 68–102 µs, undo 1.5 KB; 16 m fill 4.9–5.7 ms, 45–60 KB; 1,000 strokes: save 255–460 KB; see **45.4 edits, undo, saves**. |
 | 45.5b | done (5e94406e, gate green): browser page (`run.mjs stream-page`), Iris Xe, 720p at the 60 Hz cap, HTTP Range, 4 workers, both renderers: frame p95 16.67 ms, ≤ 1 missed of 3,600 (first draw), 0 long tasks, 0 near holes at 40/80 m/s; update p95 2.3–2.4, max 6.5 ms (no GC; 12.5 not seen). Derive re-check bug fixed. +40 ms latency empties the ring (D432); see **45.5b browser streaming**. |
 | 45.6 | done (a7b8c68c, fast gate green): derived data v1 DRAFT: one versioned assembly evaluation (placeholder rules, R 2, apron 3) feeds occupancy, collision boxes, nav, light coverage (+ prop channel), meshes, instances; mips. Node: derive p50 0.5–3.4 ms a chunk, 11–69 KB mean; light 0.5–4.3 KB vs 3.5–19 KB dense; see **45.6 derived data**. |
+| 45.7a | done (this): thin slice on staging: region files served by range, `editVoxels`/`undoVoxels` on the command route, page `/voxel-world.html` streams, derives, draws on both renderers; reload after restart same. 720p cap: p95 16.7 ms, 0 missed of 1,799 per renderer; edit→answer 14–15 ms, →visible p50 65 / 81 ms; 50 MB of 256 MiB; see **45.7a thin slice**. |
 
 ### 45.0 floor record
 
@@ -1339,6 +1340,66 @@ in `stream.test.ts` (real module workers, region files on disk).
   structure record derive to the same bytes; its beams and banister are inferred. Derived bytes are also unchanged
   by a codec round trip of the chunks and equal between the worker job and the main-thread path.
 
+### 45.7a thin slice
+
+The formats in use end to end on the staging backend (the branch's `dist/`), beside every existing system: no
+project-schema change, no existing op touched.
+- **World on disk** (`packages/workspace/src/voxel-worlds.ts`, `voxel-world-files.ts`): a project's voxel world is a
+  folder `voxels/<name>/` with `world.json` (format 1, world id, chunk edge, layout, footprint, revision) and the
+  world grid's region files in `grid-0/` (stacked 256 m, zstd 3; the region world of 45.4 moved from the bench into
+  the workspace, the bench imports it). `tools/voxel-bench/run.mjs slice-world --project-dir DIR` writes the test
+  world: the hilly generator's 512 m square around the origin with the wall-beam-banister scene on a levelled pad
+  at the flattest chunk corner above the lakes (cell 0, 103, −32): 8 files, 1.5 MB, 6,900 chunks, 5.2 s.
+- **Backend** (`packages/backend/src/voxel-routes.ts`): `GET /api/v1/projects/:id/voxels/:world` (manifest, files
+  with tags) and `…/regions/:file` (one byte range: 206, 200 whole, 416, suffix ranges; `ETag` = SHA-256 of the
+  bytes the workspace wrote, `If-Match` → 412), behind the project token and the origin allowlist. `editVoxels`
+  (`args: { world, command }`, a 45.4 stroke command) and `undoVoxels` (`{ world }`) ride the command route, its
+  envelope and its caller binding; the workspace applies them one at a time per world (request ids answered once),
+  replaces the dirty region files atomically, then writes the revision, and answers the changed chunks and files.
+- **Page** (`packages/editor/src/voxel-world/`, built to `dist/editor/voxel-world.html`; on staging
+  `http://127.0.0.1:4180/voxel-world.html?project=voxel-slice&world=slice&at=0,103,-32`, `&renderer=webgl2`):
+  VoxelStreamer + `RegionChunkSource` reading the range route, 4 module workers (fzstd), derive with
+  `PLACEHOLDER_RULES` at `jobRadius` 3, meshes from the derived ground and base surface buffers (unpacked to float
+  attributes), stand-in boxes for beam/rail/post instances, the engine's renderer factory, floating origin. Click
+  digs a 1 m sphere, shift-click adds soil, Z undoes. The page never applies an edit: on the answer it calls
+  `VoxelStreamer.refresh(chunks)`, which re-reads those chunks (the source drops their tables; a read that fails its
+  checksum re-reads the table once), keeps the old content drawn until the new lands, swaps it and rebuilds
+  everything within R in the edit lane.
+- **Tests:** `tests/integration/voxel-world/voxel-world.test.ts` (5, real backend over HTTP, real files: range
+  semantics, auth/origin, edit/undo/replay/refusals, chunks read back through the route equal the same commands
+  applied in-process, a second backend over the same data root); `stream.test.ts` + 1 (refresh against a real
+  writer's saved files, stale tables retried); e2e `tests/e2e/voxel-world.e2e.ts` (the phase's one new e2e file;
+  both renderers: draw, dab through the command, pixels change, reload and a backend restart show the edit; 13 s).
+
+Measured 2026-11-02 07:55–08:05 on staging, Iris Xe, headless Chrome at the display's 60 Hz cap, 1280×720, DPR 1,
+load 1.4–1.6, uptime 9 d 15 h (`node tools/voxel-bench/run.mjs slice --phase measure`, then the staging restart and
+`--phase reload`). One round (the slice's own run, not a perf phase). Report and screenshots (viewed):
+`~/.cache/thirdlight-phase45/acceptance/45.7a/`.
+
+| Renderer | cold fill ms | frames 30 s orbit p50 / p95 / max, missed | after edits 10 s p95, missed | render() CPU p50 / p95 ms | edit → answer p50 / max ms | → meshes swapped p50 / max | → visible p50 / max | derive job µs p50 / p95 |
+|---|---|---|---|---|---|---|---|---|
+| WebGPU | 1,711 | 16.7 / 16.7 / 16.8, 0 of 1,799 | 16.8, 0 of 599 | 1.1 / 1.5 | 14 / 25 | 42 / 117 | 65 / 149 | 900 / 6,400 |
+| WebGL 2 | 1,807 | 16.7 / 16.7 / 16.8, 0 of 1,799 | 16.8, 0 of 599 | 1.0 / 1.4 | 15 / 17 | 50 / 151 | 81 / 177 | 900 / 6,400 |
+
+- 10 commands a renderer (6 digs: 3 through the wall across the chunk corner, 3 in the ground; 2 soil adds; a dig and
+  its undo), 1–4 chunks each. The answer is mostly the save: apply 0.1–2.2 ms, region file rewrite + manifest
+  6.7–18.3 ms (a ~350 KB file re-written with fsync per edit). Swapped = re-read (range p50 6.6–7.3 ms) + worker
+  decode + derive of the changed chunks and their dependents; visible adds the next frame (up to two refreshes,
+  ~17–33 ms). The slowest edits are the first ones (worker and pipeline warm-up). No miss, so no cause to record.
+- Memory at the end: streaming 50.5 MB of the low tier's 256 MiB (voxels 5.0 MB, derived parts 45.4 MB: the
+  derived chunk plus its meshes, tables 0.14 MB); 5,376 resident chunks, 683 stored, 448 drawn; 897 k triangles
+  (the reference surface nets, unmerged; 46b's mesher); JS heap 86–89 MB; 452 geometries on the GPU.
+- **Save/reload:** after `tools/staging.sh stop/start`, a fresh page on each renderer reads revision 20 from the
+  files; the voxels under all 17 dabs and the derived hashes of the 27 chunks around the scene equal what the page
+  had before the restart; the screenshots match.
+- **Observed** (screenshots): the beam behind the wall and the banister's rail and posts draw as pieces; digging
+  two rows out of the wall leaves thin stone columns that the placeholder rules resolve as posts (drawn as post
+  pieces, not stone): the assembly follows the arrangement, and shows why the catalogue (46b) must tell a broken
+  wall from a banister. The edit at the chunk corner rebuilt the chunks around it.
+- **Not done (45.7b):** collision (Rapier) and the assembly proof (wall-to-beam/banister as neighbours change,
+  across a chunk boundary, with codec/save round trips); the voxel commands on MCP (D433); edits seen by other open
+  pages (the WS feed); undo inside the project's history.
+
 ## 7. Decision log
 
 - 2026-10-27 (owner, planning session): §1 decided in conversation. The research behind it covers Enshrouded's
@@ -1565,6 +1626,29 @@ in `stream.test.ts` (real module workers, region files on disk).
 - 2026-11-02 (45.6, default chosen, owner to confirm; R93–R95, O11): the **prop lighting channel** is per chunk one
   coverage byte a cell (null when untouched), rebuilt from the prop list on load and move (4³ samples a host cell),
   overlaps 1 − (1 − a)(1 − b), joined with the construction's coverage the same way; never saved, never world voxels.
+
+- 2026-11-02 (45.7a, default chosen, owner to confirm): **a project's voxel world** is a folder `voxels/<name>/` in
+  the project (`world.json` + `grid-<id>/` region files; structure grids later in their own `grid-<id>/`, 45.3). The
+  manifest's revision moves with every applied command and is written after the region files (a crash between
+  leaves files ahead of the revision, never behind). Not in `project.json`: no project-schema change in 45.
+- 2026-11-02 (45.7a, default chosen, owner to confirm; R6): **voxel commands ride the command route**
+  (`POST …/commands`, the same envelope, token, origin allowlist and browser-session binding) but are applied by the
+  workspace's voxel worlds, not the document pipeline: they move the world's revision, not the project's, and their
+  undo (`undoVoxels`, LIFO, a new revision, records under the 64 MiB budget spilling to `cache/voxel-undo/`) lives as
+  long as the backend process. 46a/47c decide whether voxel edits join the project's history (one undo stack) and
+  the protocol's op list (then MCP's `tl_command` takes them: D433).
+- 2026-11-02 (45.7a, default chosen, owner to confirm): **clients never apply an edit themselves**: the answer
+  names the changed chunks and the client re-reads them from the files (`VoxelStreamer.refresh`). Applying the same
+  command locally would be faster (the apply is deterministic) but trusts cross-engine determinism (45.4: only
+  Node's measured) and still needs a re-read for anything missed; re-reading is one path for edits, undo and other
+  writers. Other open pages are not told yet (no WS event): 46a puts voxel changes on the editor's feed.
+- 2026-11-02 (45.7a, default chosen, owner to confirm; R66): region files are served with an `ETag` (SHA-256 of
+  the bytes the workspace wrote) and `If-Match` support; the browser's chunk source does not send `If-Match` but
+  re-reads a region's table once when a chunk fails its checksum (a file replaced under it), so a stale table costs
+  one extra request, never a wrong chunk.
+- 2026-11-02 (45.7a, default chosen, owner to confirm): the backend opens a world whole (the region world of 45.4;
+  the slice's 512 m world is a few MB) and re-writes a whole region file per edit (6.7–18 ms with fsync for ~350 KB);
+  streaming the backend's side and batching saves are 46a's, measured on larger worlds.
 
 ## 7a. Kit and surface planning session (2026-10-30)
 

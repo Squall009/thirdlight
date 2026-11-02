@@ -210,7 +210,9 @@ describe('voxel world routes', () => {
   it('undoes the newest edit as a new revision; nothing left to undo is refused', async () => {
     const r = await command({ op: 'undoVoxels', projectId: PROJECT, requestId: rid(4), args: { world: WORLD } });
     expect(r.status, JSON.stringify(r.json)).toBe(200);
-    expect(r.json).toMatchObject({ ok: true, op: 'undoVoxels', revision: 2, undoable: 0 });
+    // It names the cells and chunks the edit changed: the same ones go back.
+    expect(r.json).toMatchObject({ ok: true, op: 'undoVoxels', revision: 2, undoable: 0, cells: applyEdit({ store: () => sceneStore() }, canonicalEditCommand(DIG)).cells });
+    expect((r.json.chunks as unknown[]).length).toBe(4);
     expectSame(await readChunks(SCENE_CHUNKS), original, SCENE_CHUNKS);
     const none = await command({ op: 'undoVoxels', projectId: PROJECT, args: { world: WORLD } });
     expect(none.status).toBe(400);
