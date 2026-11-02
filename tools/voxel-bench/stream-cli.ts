@@ -31,6 +31,7 @@ import {
   type SampleRing,
   type StreamRing,
 } from '@thirdlight/voxel';
+import { ALTITUDE_CELLS, loopAt } from './flight-path';
 import { bundleWorker, DiskRegions, nodePoolWorker, REPO, writeWorldRegions } from './stream-node';
 import { hillyWorld } from './worlds';
 
@@ -74,18 +75,6 @@ function ensureWorld(): Manifest {
   writeFileSync(path, JSON.stringify(m, null, 2));
   return m;
 }
-
-/** A point on the square loop at ±750 m (metres → cells), `d` metres along it. */
-function loopAt(d: number): [number, number] {
-  const side = 1500;
-  const s = ((d % (4 * side)) + 4 * side) % (4 * side);
-  const k = Math.floor(s / side);
-  const t = s - k * side;
-  const m: [number, number] = k === 0 ? [-750 + t, -750] : k === 1 ? [750, -750 + t] : k === 2 ? [750 - t, 750] : [-750, 750 - t];
-  return [m[0] * 2, m[1] * 2];
-}
-
-const ALTITUDE_CELLS = 120;
 
 function q(r: SampleRing, p: number, scale = 1): number {
   return Number((r.quantile(p) * scale).toFixed(3));

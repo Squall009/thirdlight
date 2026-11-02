@@ -683,6 +683,7 @@ sub-phase on staging; the merge to `main` happens once, at the end of 48.
 | 45.2c | done (382cfcd2 + this): hidden regressions. D423 fixed: the on-demand Scene view stopped drawing while a probe placement (or an early sky change, or a tile upload) waited, so the ground kept the old sky's light; it now draws on. D428 to watch: 0 failures in 10 runs (6 alone, base and fix; under load; fast gate). Both also on main (frozen): carry over at the merge. |
 | 45.3 | done (7611d71e): region file v1 DRAFT (header, CRCs, sorted chunk table, uniform inline, canonical bytes, range reads). 256 m tiles kept; stacked cubes proposed over columns (2 km tile: 12.3 MB file, 1.47 MB stacked); 10 km ≈ 430–580 MB, 1,600 tiles; HTTP chunk 0.41 ms, 3×3×3 0.54 ms coalesced; git +0.13–0.22 MB/h after gc (7–22 loose): no LFS; see **45.3 region files**. |
 | 45.4 | done (0f7bdd89, 99b3274e, gate green): edits, undo, saves v1 DRAFT (stroke commands, one deterministic apply, per-chunk undo under a 64 MiB budget spilling to disk, edits-only saves with 16-byte base hashes, structure overrides, repair, dirty jobs). Dab 4 m 68–102 µs, undo 1.5 KB; 16 m fill 4.9–5.7 ms, 45–60 KB; 1,000 strokes: save 255–460 KB; see **45.4 edits, undo, saves**. |
+| 45.5b | done (this): browser streaming page (`run.mjs stream-page`), Iris Xe, 720p at 60 Hz cap, HTTP Range, 4 workers, both renderers, 3 rounds: frame p95 16.67 ms, ≤ 1 missed of 3,600 (first draw), 0 long tasks, 0 near holes at 40/80 m/s; update p95 2.3–2.4, max 6.5 ms (no GC; 12.5 not seen). Derive re-check bug fixed. +40 ms latency empties the ring (D432); see **45.5b browser streaming**. |
 
 ### 45.0 floor record
 
@@ -1179,6 +1180,61 @@ Default ring (load 192 m / 96 m up and down, unload 224 / 128 m, near 96 m), foc
   per-structure grids streaming (O9: a streamer per grid id is the shape, untested); export delivery (R66) beyond
   the range-read source.
 
+### 45.5b browser streaming
+
+`node tools/voxel-bench/run.mjs stream-page` (`tools/voxel-bench/stream-page.ts`, driven by `stream-page-cli.ts`):
+the 45.5a streaming core in headless Chrome 151 on the Iris Xe, 1280×720 at the display's 60 Hz cap, device pixel
+ratio 1. The page flies the Node bench's loop (`flight-path.ts`: ±750 m square, focus 60 m up, 60 s) over the hilly
+2 × 2 km world (128 stacked 256 m region files, 23 MB, from 45.5a), fetching chunks with HTTP Range requests and
+decoding them in 4 real module workers (fzstd), derive on, R = 2, low-tier budget, floating origin re-based at 250 m
+(so the 2 km path exercises it). It draws one instanced box per resident chunk with stored cells (~800; no mesher)
+with three's WebGPURenderer on WebGPU and on its WebGL 2 backend. The region files come from the bench's own small
+Node server with Range support (206/416), cross-origin isolated; the staging backend has no route that serves
+arbitrary files by range. 3 rounds 2026-11-02 06:18–06:30, load 1.5–2.4 (uptime 9 days 14 h), one 6 GB scope.
+Report, screenshots, trace: `~/.cache/thirdlight-phase45/work/45.5b/` (scratch).
+
+| Run (3 rounds) | Frame ms p50 / p95 | Missed of 3,600 | Long tasks | Main ms a frame | update ms p50 / p95 / max | Range requests / p50 / p95 ms / MB | Near holes (of 1,344) | Stream MB / JS heap MB max |
+|---|---|---|---|---|---|---|---|---|
+| WebGPU 40 m/s | 16.67 / 16.67 | 0, 0, 0 | 0 | 1.71–1.76 | 0.09–0.10 / 2.30 / 4.7–6.2 | 3,650 / 11.5–11.9 / 21–22 / 5.9 | 0 | 9.1 / 53 |
+| WebGL 2 40 m/s | 16.67 / 16.67 | 1, 0, 0 | 0 | 1.64–1.69 | 0.095 / 2.29–2.31 / 5.3–6.1 | 3,650 / 10.8–11.4 / 20–21 / 5.9 | 0 | 9.1 / 52 |
+| WebGPU 80 m/s | 16.67 / 16.67 | 1, 0, 0 | 0 | 2.83–2.89 | 1.68–1.75 / 2.40–2.42 / 5.9–6.5 | 7,290 / 11.1–11.4 / 21 / 11.8 | 0 | 10.3 / 63–64 |
+| WebGL 2 80 m/s | 16.67 / 16.67 | 1, 1, 0 | 0 | 2.77–2.78 | 1.58–1.66 / 2.39–2.40 / 5.5–5.8 | 7,290 / 10.8–11.5 / 21 / 11.8 | 0 | 10.3 / 55–68 |
+| WebGPU 80, +40 ms a response | 16.67 / 16.67 | 0 | 0 | 1.55 | 0.04 / 2.29 / 5.9 | 3,179 / 280 / 737 / 6.6 | p50 761, p95 1,148 | 7.7 / 54 |
+| same, 64 KB gap, 8 reads | 16.67 / 16.67 | 1 | 0 | 2.59 | 0.68 / 2.51 / 5.8 | 3,446 / 127 / 317 / 106 | p95 54, max 125 | 8.7 / 60 |
+
+- **It keeps up at the cap on both renderers.** No frame over the refresh but one per run at most, always 33 ms into
+  the flight: the box mesh's first draw after the cold fill (pipeline and buffer upload), not streaming; no long
+  task (> 50 ms) in any run. 0 missing chunks within 96 m at 40 and 80 m/s on localhost. Cold fill 0.93–1.07 s
+  (5,436 chunks, 679 stored; Node 2.3 s). 72 / 216 reloads at the loop's corners, no evictions, no damage.
+- **Main thread:** 1.6–1.8 ms a frame at 40 m/s, 2.8–2.9 at 80 (CDP task time, rendering included). `update()` p50
+  0.09 ms at 40 m/s and 1.6–1.75 ms at 80 (aprons for the derive backlog every frame, capped at 2 ms), p95
+  2.3–2.4 ms; updates crossing a chunk p50 1.9, p95 2.9–3.0 ms. Adopting a chunk p95 ≤ 0.01 ms, an apron p95
+  0.34–0.39 ms. The near-ring check (0.4 ms each 15 frames) is the bench's, outside `update()`.
+- **Worst updates and the 12.5 ms of 45.5a:** not reproduced: the worst of ~45,000 browser updates was 6.5 ms. A
+  traced 30 s flight had 2 updates over 4 ms and no GC in either; the main thread's 27 GCs (19 minor ≤ 1.7 ms, 8
+  major ≤ 3.9 ms) all fell outside updates. The two causes: re-listing and re-scoring the ring (~5,900 chunks) when
+  the focus crosses a chunk, and a derive burst (2 ms of aprons, then each job posted with its two timers). Node's
+  12.5 ms stays unexplained (a Node GC, likely; unverified).
+- **Core bug found and fixed:** the derive planner looked at every chunk still waiting for neighbours (the ring's
+  edge, which never gets them) on every update: `update()` p50 2.1 ms at 40 m/s before, 0.09 after (smoke runs). A
+  waiting chunk now leaves the set and is wanted again when a neighbour lands; vitest proves both (no re-looks while
+  settled, every chunk with all neighbours derived and equal to the oracle after the ring moves).
+- **Workers in Chrome:** zstd 75 µs + decode 290–315 µs a stored chunk p50 (Node 73 + 388), a job p95 2.2–2.5 ms,
+  queue p50 1.5–2.1 / p95 6.1–7.2 ms; pool 4 of `hardwareConcurrency` 10; 8–28 derive submits a run answered
+  `queue_full` (re-wanted, harmless).
+- **Range requests:** ~61 / 122 a second at 40 / 80 m/s, ~1.6 KB each (about 1.4 stored chunks a request); 11 ms
+  p50 and 21 ms p95 on localhost are mostly waiting for one of Chrome's six connections to the host. **With 40 ms
+  added to each response the near ring empties (D432)**: p95 1,148 of 1,344 near chunks missing, requests p50 280 ms;
+  a 64 KB gap and 8 reads in flight bring it to p95 54 but fetch 106 MB instead of 11.8 (9× over-fetch). Frame pacing
+  was unaffected either way.
+- **Memory:** the ring is 9.1 MB at 40 m/s, 10.3 at 80 (5.8 chunks + 2.3 derive masks + 0.9–1.6 region tables) of
+  256 MiB; the page's JS heap saws 21 → 52–68 MB between GCs. `performance.measureUserAgentSpecificMemory` is not
+  available in headless Chrome 151 even cross-origin isolated (SecurityError), so worker heaps are not measured.
+- **Floating origin:** 8 / 16 re-bases per flight at 250 m; moving ~800 box positions took ≤ 0.21 ms. A 10 km
+  straight flight was not run (the world is 2 km; precision far out is 45.5a's vitest).
+- Verified by eye: the round-1 screenshots show the boxes of the streamed ground on both renderers. Not done: the
+  slice's real meshes, export delivery beyond a static server, structure grids streaming.
+
 ## 7. Decision log
 
 - 2026-10-27 (owner, planning session): §1 decided in conversation. The research behind it covers Enshrouded's
@@ -1348,6 +1404,21 @@ Default ring (load 192 m / 96 m up and down, unload 224 / 128 m, near 96 m), foc
   apron or bytes and leaves a scratch store empty), so pool size, worker replacement and editor/runtime/export
   reuse need nothing else; the pool's size, queue bound and timeouts are settings (the bench: 4 workers, 256
   queued, 5 s timeout, 4 × timeout to replace a hung worker).
+
+- 2026-11-02 (45.5b, default chosen, owner to confirm): the browser streaming page reads region files from the bench's
+  own small static server with HTTP Range (206/416), not the staging backend, which has no route serving files by
+  range. 45.7's slice either uses the same server for its page or adds a ranged read-only route to staging.
+- 2026-11-02 (45.5b, default chosen, owner to confirm): pool size 4 module workers on a 10-thread host: it keeps the
+  near ring full at 80 m/s with queue p95 7 ms. Proposed default for the engine: min(4, hardwareConcurrency − 2), at
+  least 1; other sizes unmeasured.
+- 2026-11-02 (45.5b): the derive planner drops a chunk still waiting for neighbours until one of them lands (the
+  landing already invalidates every chunk within R), instead of re-checking it every update; `deriveChecks` counts
+  what it looks at. Same results, `update()` p50 2.1 → 0.09 ms at 40 m/s.
+- 2026-11-02 (45.5b, for the owner; R66): streaming from HTTP with real latency needs fewer, wider requests: at 40 ms a
+  response the defaults (4 reads, 4 KB gap) leave the near ring empty (D432); a 64 KB gap fixes the holes at 9× the
+  bytes. Proposed for 45.7/46a: batch reads per region column with a gap between the two, more reads in flight
+  where HTTP/2 serves the files, and prefetch along the motion; measured again in the slice. Not a format change:
+  the region table already allows any range.
 
 ## 7a. Kit and surface planning session (2026-10-30)
 

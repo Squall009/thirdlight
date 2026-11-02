@@ -118,6 +118,8 @@ export interface StreamCounters {
   retried: number;
   damaged: number;
   derives: number;
+  /** Chunks the derive planner looked at (a blocked chunk is looked at again only after a neighbour lands). */
+  deriveChecks: number;
   /** Ticks that ended over budget with nothing evictable (dirty or unknown neighbourhood). */
   overBudgetTicks: number;
   /** Ticks a dirty chunk past the unload bounds was kept. */
@@ -155,7 +157,7 @@ export class VoxelStreamer {
   readonly ring: StreamRing;
   readonly radius: number;
   budgetBytes: number;
-  readonly counters: StreamCounters = { loads: 0, loadsStored: 0, loadsUniform: 0, loadsAir: 0, unloads: 0, evictions: 0, reloads: 0, cancelledLoads: 0, staleRefused: 0, retried: 0, damaged: 0, derives: 0, overBudgetTicks: 0, heldDirty: 0, mismatches: 0 };
+  readonly counters: StreamCounters = { loads: 0, loadsStored: 0, loadsUniform: 0, loadsAir: 0, unloads: 0, evictions: 0, reloads: 0, cancelledLoads: 0, staleRefused: 0, retried: 0, damaged: 0, derives: 0, deriveChecks: 0, overBudgetTicks: 0, heldDirty: 0, mismatches: 0 };
   /** Main-thread milliseconds: planning per update, adopting a chunk, building an apron. */
   readonly planMs = new SampleRing();
   readonly adoptMs = new SampleRing();
@@ -646,8 +648,11 @@ export class VoxelStreamer {
         this.deriveWanted.delete(key);
         continue;
       }
-      if (!this.canDerive(c)) continue;
+      this.counters.deriveChecks++;
       this.deriveWanted.delete(key);
+      // A chunk with a neighbour still unknown waits outside the set: the neighbour's landing wants it again
+      // (land → invalidateAround), so chunks at the ring's edge are not looked at again every update.
+      if (!this.canDerive(c)) continue;
       this.cancelDerive(c);
       const form = this.store.chunkForm(c.cx, c.cy, c.cz);
       if (form === 'absent') {

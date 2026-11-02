@@ -233,6 +233,32 @@ describe('streamer (workers, region files on disk)', () => {
     expect(events.filter((e) => e === 'loaded').length).toBe(m.counters.loads);
   });
 
+  it('looks at a chunk waiting for neighbours again only when one lands, and derives it then', async () => {
+    const s = streamer(pool(2), { derive: true });
+    s.setFocus(0, 40, 0);
+    await s.settle();
+    // Settled: chunks at the ring's edge wait for neighbours that are never loaded; updates do not look at them again.
+    const checks = s.counters.deriveChecks;
+    for (let i = 0; i < 20; i++) s.update();
+    expect(s.counters.deriveChecks).toBe(checks);
+    // One chunk east: the new edge loads, and every chunk whose neighbours are now all known is derived, as the oracle derives it.
+    s.setFocus(32, 40, 0);
+    await s.settle();
+    expect(s.counters.deriveChecks).toBeGreaterThan(checks);
+    const resident = (cx: number, cy: number, cz: number): boolean => s.isResident(cx, cy, cz);
+    let complete = 0;
+    for (const key of s.store.chunkKeys()) {
+      const c = chunkOfKey(grid, key);
+      let known = true;
+      for (let dx = -1; dx <= 1 && known; dx++) for (let dy = -1; dy <= 1 && known; dy++) for (let dz = -1; dz <= 1 && known; dz++) known = resident(c.cx + dx, c.cy + dy, c.cz + dz);
+      if (!known) continue;
+      expect(s.derivedOf(c.cx, c.cy, c.cz), `chunk (${c.cx}, ${c.cy}, ${c.cz})`).not.toBeNull();
+      complete++;
+    }
+    expect(complete).toBeGreaterThan(30);
+    expect(expectDerivedEqual(s, oracle)).toBeGreaterThanOrEqual(complete);
+  });
+
   it('rebuilds every derived result within R of an edit at a chunk corner, across chunk and region boundaries; refuses stale results', async () => {
     // No time cap on aprons: every rebuild is sent in the one update, so the second edit finds them all in flight.
     const s = streamer(pool(2), { derive: true, deriveMs: 10_000 });
