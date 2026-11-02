@@ -320,8 +320,13 @@ wetness into the world. At runtime the base is never written:
   `voxel-overlay.test.ts`).
 - **The editor's authoring path** writes base files as before (`editVoxels` on the command route rewrites region
   files); it does not use the overlay.
-- Not built yet: the game runtime's streamer reading through an overlay (46a), an overlay kept in shared memory for
-  workers.
+- **The streamer reads through it** (`VoxelStreamer.overlay`; plan 46a.3): base chunks land in the store, which no
+  runtime edit writes; `edit`/`editInWorker` write the overlay; `voxelAt`, derive payloads (`stream-overlay.ts`: the
+  base's arrays copied, the overridden cells written) and aprons read overlay-then-base. Overrides outlive their
+  chunk's unload (an edited chunk is not dirty and unloads like any other), count in the stream budget (`bytes.overlay`,
+  never evicted), and `VoxelStreamer.saveChunks(saved)` writes the entries above, reading the base of a chunk that
+  left from the world's files again; `clearOverlay` drops them (quit). Tested in real workers on region files
+  (`stream.test.ts`). Not built yet: an overlay kept in shared memory for workers.
 
 ### 2.4 Climate field (owner 2026-11-02; specified, not built)
 
@@ -833,8 +838,9 @@ refused, and `OVERRIDE_UPGRADES` holds append-only steps on decoded overrides fr
 | `derive` | the chunk payload, radius R, an apron R deep, optional assembly rules {id, version, radius}, optional `parts` (default all), optional `sections` {edge 8 / 16 / 32, ids} → derived data (§3.7), or the exposure placeholder when no rules are named; `parts` = shader alone: the chunk's shader data from the chunk and an apron of the shader border (R = `SHADER_BORDER_CELLS`, 1), no assembly evaluation; with `sections`, one result a named section (`SectionResult`: id, hash, derived data or shader data, evaluate / mesh / consumer µs) |
 
 **Sections (owner 2026-11-02, R107; 45.10c).** 32³ stays the storage chunk; what a derive job builds is a
-**section** of 8, 16 or 32 cells inside it (`sectionGrid`, `VoxelStreamerOptions.sectionEdge`; default the chunk
-edge, the slice page **16**, chosen by the blast measurements, plan **45.10c**).
+**section** of 8, 16 or 32 cells inside it (`sectionGrid`, `VoxelStreamerOptions.sectionEdge`; default
+`DEFAULT_SECTION_EDGE` **16** with assembly rules whose radius fits a section, else the chunk edge; chosen by the
+blast measurements, plan **45.10c**).
 - *Ids.* Section id = (sx · n + sz) · n + sy with n = 32 / S (the cells' x, z, y order); section keys and bounds use
   the chunk key math on the section grid (`CellGrid`).
 - *Job input.* A job names some sections of one chunk and carries the chunk's payload and the chunk's apron (R
@@ -858,7 +864,7 @@ worker µs, main-thread ms, mesher µs per section, ms from the edit) closes the
 world replace them between the same two frames: no frame shows part of an edit. An edit meeting a group still
 open merges into it (both swap together). A section that cannot be derived now (a neighbour chunk unknown) or
 whose job is refused leaves the group; a chunk unloaded takes its sections out. **Reads see an edit at once:**
-`voxelAt` reads the store, which the edit wrote before anything is rebuilt (the local path); on the editor's
+`voxelAt` reads the overlay, which the edit wrote before anything is rebuilt (the local path, §2.3); on the editor's
 command path the store changes when the refreshed chunk lands, before the swap. An edit's jobs are sent in the
 same call (an edit lane budget of 8 ms main thread, `editDeriveMsPerUpdate`), not at the next update.
 
@@ -895,6 +901,7 @@ inside), in x, z, y order.
   - the near lane within 192 (96 m).
 - **One byte budget per tier** (`VOXEL_STREAM_BUDGET_BYTES`): low 256 MiB, medium 512 MiB, high 1 GiB. It counts:
   - the store's arrays;
+  - the runtime overlay's arrays (§2.3; counted, never evicted);
   - 96 B of bookkeeping per resident chunk, air included;
   - every derived part registered per chunk;
   - the open region tables.

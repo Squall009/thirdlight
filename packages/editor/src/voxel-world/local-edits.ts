@@ -5,7 +5,7 @@
  * whether its rebuilt sections swapped in one frame, the files read again
  * for what local edits changed, and the spot finders a measuring run uses.
  */
-import { canonicalEditCommand, chunkKey, editBounds, voxel, VOXEL_ROLE, VOXEL_SIZE_M, type CellBox, type ChunkGrid, type VoxelStreamer } from '@thirdlight/voxel';
+import { canonicalEditCommand, voxel, VOXEL_ROLE, VOXEL_SIZE_M, type ChunkGrid, type VoxelStreamer } from '@thirdlight/voxel';
 import type { PendingEdits, SwapSeen } from './pending-edits';
 import type { EditTiming } from './page';
 
@@ -33,14 +33,13 @@ export interface LocalEditContext {
 }
 
 export function localEditHooks(ctx: LocalEditContext): Record<string, (...args: never[]) => unknown> {
-  const { streamer, grid, pending } = ctx;
+  const { streamer, pending } = ctx;
   const v = voxel();
-  /** Chunks local edits changed since the files were last read for them, and the cells those edits could change. */
-  const localChanged = new Map<number, { cx: number; cy: number; cz: number }>();
-  let localBox: CellBox | null = null;
+  /** Whether local edits were made since the page last went back to the files. */
+  let localEdited = false;
 
   /**
-   * A game's runtime edit: applied to the page's own store at once (no
+   * A game's runtime edit: applied to the streamer's overlay at once (no
    * backend, nothing saved) at the start of the next frame, the rebuilt
    * sections swapped in together. Returns the timing and, read right after
    * the apply in the same task, whether `probe` (a cell the edit changes)
@@ -57,13 +56,11 @@ export function localEditHooks(ctx: LocalEditContext): Record<string, (...args: 
       const startFrame = ctx.frameStats().frames;
       const canonical = canonicalEditCommand(command);
       const outcome = streamer.edit(canonical);
-      for (const c of outcome.chunks) localChanged.set(chunkKey(grid, c.cx, c.cy, c.cz), { cx: c.cx, cy: c.cy, cz: c.cz });
-      const box = editBounds(grid, canonical);
-      localBox = localBox === null ? box : { minX: Math.min(localBox.minX, box.minX), minY: Math.min(localBox.minY, box.minY), minZ: Math.min(localBox.minZ, box.minZ), maxX: Math.max(localBox.maxX, box.maxX), maxY: Math.max(localBox.maxY, box.maxY), maxZ: Math.max(localBox.maxZ, box.maxZ) };
+      localEdited = true;
       const applyMs = performance.now() - t0;
       let readAtOnce: { material: number } | undefined;
       if (probe !== undefined) {
-        streamer.store.voxelAt(probe[0], probe[1], probe[2], v);
+        streamer.voxelAt(probe[0], probe[1], probe[2], v);
         readAtOnce = { material: v.material };
       }
       const seen = await pending.wait(outcome.group, EDIT_VISIBLE_TIMEOUT_MS);
@@ -96,18 +93,21 @@ export function localEditHooks(ctx: LocalEditContext): Record<string, (...args: 
       const now = ctx.frameStats();
       return { ...timing, replacedSections: replaced.length, replacedFrames: [...new Set(replaced.map((a) => a.frame))], replacedSwaps: [...new Set(replaced.map((a) => a.swap))], missedDuring: now.missed - missed0, longestFrameMs: Number(now.longestMs.toFixed(2)) };
     },
-    /** Reads the chunks local edits changed from the files again (none: every resident chunk) and waits until it is all derived again. */
+    /**
+     * Back to the files: drops the local edits (they live in the streamer's
+     * overlay, the files never had them) and, with none, reads every
+     * resident chunk from the files again; waits until it is all derived again.
+     */
     async reread(): Promise<void> {
-      const group = localBox === null ? streamer.refresh([...ctx.resident.values()]) : streamer.refresh([...localChanged.values()], localBox);
-      localChanged.clear();
-      localBox = null;
+      const group = localEdited ? streamer.clearOverlay() : streamer.refresh([...ctx.resident.values()]);
+      localEdited = false;
       await pending.wait(group, 60_000);
       await streamer.settle();
     },
     /** The cell above the highest non-air cell of a column, searched down from `top` (null: none above `bottom`). */
     surfaceAt(x: number, z: number, top: number, bottom: number): number | null {
       for (let y = top; y >= bottom; y--) {
-        streamer.store.voxelAt(x, y, z, v);
+        streamer.voxelAt(x, y, z, v);
         if (v.material !== 0) return y + 1;
       }
       return null;
@@ -116,7 +116,7 @@ export function localEditHooks(ctx: LocalEditContext): Record<string, (...args: 
     roleCounts(min: Cell, max: Cell): Record<string, number> {
       const out: Record<string, number> = { air: 0, terrain: 0, built: 0 };
       for (let x = min[0]; x <= max[0]; x++) for (let y = min[1]; y <= max[1]; y++) for (let z = min[2]; z <= max[2]; z++) {
-        streamer.store.voxelAt(x, y, z, v);
+        streamer.voxelAt(x, y, z, v);
         const k = v.material === 0 ? 'air' : v.role === VOXEL_ROLE.terrain ? 'terrain' : 'built';
         out[k]! += 1;
       }

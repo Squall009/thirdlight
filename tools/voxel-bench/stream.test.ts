@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   applyEdit,
+  applySaveChunk,
   buildApron,
   canonicalEditCommand,
   chunkGrid,
@@ -16,6 +17,7 @@ import {
   chunkOfKey,
   createDenseChunk,
   createWorldStore,
+  DEFAULT_SECTION_EDGE,
   dependentChunks,
   deriveFromStore,
   deriveSectionFromStore,
@@ -36,16 +38,19 @@ import {
   sectionsOfChunk,
   shaderEntryAt,
   voxel,
+  VOXEL_ROLE,
   VoxelStreamer,
   WorkerPool,
   type ChunkCoord,
   type JobOutcome,
   type LoadOutput,
   type PaletteStore,
+  type SaveChunk,
   type StreamEvent,
   type StreamRing,
   type SwapReport,
   type VoxelEditCommand,
+  type VoxelStoreCandidate,
 } from '@thirdlight/voxel';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { scanExportFiles } from '../../packages/exporter/src/scan';
@@ -95,15 +100,20 @@ function streamer(p: WorkerPool, opts: { derive?: boolean; budget?: number; radi
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-/** Every chunk the streamer holds equals the oracle's. */
+/** Every resident chunk as the streamer reads it (its overlay over its base) equals the oracle's. */
 function expectChunksEqual(s: VoxelStreamer, truth: PaletteStore): number {
+  return expectStoreEqual(s, s.overlay, truth);
+}
+
+/** Every resident chunk of `store` (the streamer's base, or its overlay over it) equals the oracle's. */
+function expectStoreEqual(s: VoxelStreamer, store: VoxelStoreCandidate, truth: PaletteStore): number {
   const a = createDenseChunk(grid);
   const b = createDenseChunk(grid);
   const c: ChunkCoord = { cx: 0, cy: 0, cz: 0 };
   let n = 0;
   for (const key of s.store.chunkKeys()) {
     chunkOfKey(grid, key, c);
-    exportOrAir(s.store, c.cx, c.cy, c.cz, a);
+    exportOrAir(store, c.cx, c.cy, c.cz, a);
     exportOrAir(truth, c.cx, c.cy, c.cz, b);
     if (!sameDenseChunk(a, b)) throw new Error(`chunk (${c.cx}, ${c.cy}, ${c.cz}) differs from the oracle`);
     n++;
@@ -307,13 +317,15 @@ describe('streamer (workers, region files on disk)', () => {
     // Chunks far from the edits kept their results.
     const after = new Map([...s.derivedChunks()].map((d) => [chunkKey(grid, d.cx, d.cy, d.cz), d.result.hash]));
     expect(after.get(chunkKey(grid, 2, 1, 2))).toBe(before.get(chunkKey(grid, 2, 1, 2)));
-    expect(s.tracker.isDirty({ grid: 0, key: chunkKey(grid, -1, -1, -1) })).toBe(true);
+    // The edits are in the overlay: the base still holds the files' content, so no chunk is dirty.
+    expect(expectStoreEqual(s, s.store, oracle)).toBeGreaterThan(30);
+    expect(s.tracker.isDirty({ grid: 0, key: chunkKey(grid, -1, -1, -1) })).toBe(false);
   });
 
   it('derives with assembly rules in real workers, equal to the in-thread derive; an edit at a chunk corner rebuilds what depends on it', async () => {
     const disk = new DiskRegions(join(dir, 'world'));
     disks.push(disk);
-    const s = new VoxelStreamer({ store: createWorldStore(grid), source: disk.source(grid, 'stacked', 512), pool: pool(2), ring: RING, budgetBytes: 256 * 1024 * 1024, dependencyRadius: jobRadius(PLACEHOLDER_RULES), derive: true, rules: PLACEHOLDER_RULES, deriveMsPerUpdate: 10_000 });
+    const s = new VoxelStreamer({ store: createWorldStore(grid), source: disk.source(grid, 'stacked', 512), pool: pool(2), ring: RING, budgetBytes: 256 * 1024 * 1024, dependencyRadius: jobRadius(PLACEHOLDER_RULES), derive: true, rules: PLACEHOLDER_RULES, deriveMsPerUpdate: 10_000, sectionEdge: 32 });
     const truth = copyOracle();
     const expectAssemblyEqual = (): number => {
       let n = 0;
@@ -397,7 +409,7 @@ describe('streamer (workers, region files on disk)', () => {
       const out = s.edit(blast);
       applyEdit({ store: () => truth }, blast);
       // Reads see the blast at once, before anything is rebuilt.
-      expect(s.store.voxelAt(0, 40, 0, voxel()).material).toBe(40);
+      expect(s.voxelAt(0, 40, 0, voxel()).material).toBe(40);
       expect(swaps).toHaveLength(0);
       // Sampled at every task boundary until the swap: either none of the sections shows its new result, or all do.
       const changed = (): number => want.filter((k) => shown.get(k) !== before.get(k)).length;
@@ -437,6 +449,157 @@ describe('streamer (workers, region files on disk)', () => {
     }
   });
 
+  it('reads through the runtime overlay: the base never written, every derive a fresh derive of the merged view, digs kept over unload and reload, paints rebuild shader data only, saves keep the saved fields', async () => {
+    const disk = new DiskRegions(join(dir, 'world'));
+    disks.push(disk);
+    // The engine default: 16-cell sections with assembly rules.
+    const s = new VoxelStreamer({ store: createWorldStore(grid), source: disk.source(grid, 'stacked', 512), pool: pool(4), ring: RING, budgetBytes: 256 * 1024 * 1024, dependencyRadius: jobRadius(PLACEHOLDER_RULES), derive: true, rules: PLACEHOLDER_RULES });
+    const sections = s.sections;
+    expect(sections.edge).toBe(DEFAULT_SECTION_EDGE);
+    const truth = copyOracle();
+    const swaps: SwapReport[] = [];
+    s.on((e) => {
+      if (e.type === 'swap') swaps.push(e.report);
+    });
+    const surface = (x: number, z: number): number => {
+      const v = voxel();
+      for (let y = 160; y > -160; y--) if (s.voxelAt(x, y, z, v).material !== 0) return y;
+      throw new Error(`no ground at ${x}, ${z}`);
+    };
+    // Centred on the ground at the origin, so every section near the edits has its neighbours resident.
+    s.setFocus(0, 40, 0);
+    await s.settle();
+    const y0 = surface(0, 0);
+    s.setFocus(0, y0, 0);
+    await s.settle();
+    /** Sections near the edits: each equals a fresh in-thread derive of `store` (the streamer's own merged view, or the oracle). */
+    const sameAsFresh = (store: VoxelStoreCandidate): number => {
+      let n = 0;
+      for (const d of s.derivedChunks()) {
+        if (d.result.assembly === null || Math.abs(d.cx * 16) > 64 || Math.abs(d.cz * 16) > 64 || Math.abs(d.cy * 16 - y0) > 64) continue;
+        const want = encodeDerived(deriveSectionFromStore(store, sections, d.cx, d.cy, d.cz, PLACEHOLDER_RULES));
+        if (Buffer.compare(Buffer.from(encodeDerived(d.result.assembly)), Buffer.from(want)) !== 0) throw new Error(`section (${d.cx}, ${d.cy}, ${d.cz}) differs from a fresh derive`);
+        n++;
+      }
+      return n;
+    };
+    const kinds: Record<string, unknown> = {};
+    /** Applies an edit to the streamer and the oracle; waits for its swap; what it derived. */
+    const run = async (what: string, cmd: VoxelEditCommand): Promise<{ derives: number; shaderDerives: number; fields: number }> => {
+      const d0 = s.counters.derives;
+      const sh0 = s.counters.shaderDerives;
+      swaps.length = 0;
+      const out = s.edit(cmd);
+      applyEdit({ store: () => truth }, cmd);
+      await s.settle();
+      const r = { derives: s.counters.derives - d0, shaderDerives: s.counters.shaderDerives - sh0, fields: out.fields };
+      kinds[what] = { cells: out.cells, chunks: out.chunks.length, ...r, swaps: swaps.length, swapMs: swaps[0]?.ms ?? null, sections: swaps[0]?.sections ?? 0, overlayCells: s.overlay.changedCells, overlayChunks: s.overlay.changedChunks().length, overlayBytes: s.overlay.memoryBytes() };
+      return r;
+    };
+
+    // A 1.5 m dig where four chunks meet: every section within R of it derived again, nothing else.
+    const dig = canonicalEditCommand({ v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [3, 3, 3], points: [0, y0, 0], mode: 'dig', smooth: false });
+    const digged = await run('dig 1.5 m', dig);
+    expect(digged.derives).toBe(dependentChunks(sections, editBounds(grid, dig), s.radius).length);
+    expect(s.voxelAt(0, y0, 0, voxel()).material).toBe(0);
+    // A 4 m dig beside it.
+    const big = canonicalEditCommand({ v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [8, 8, 8], points: [24, surface(24, 8), 8], mode: 'dig', smooth: false });
+    await run('dig 4 m', big);
+    // The base still holds the files' content; reads and derives see the edits.
+    expect(expectStoreEqual(s, s.store, oracle)).toBeGreaterThan(30);
+    expect(expectChunksEqual(s, truth)).toBeGreaterThan(30);
+    expect(sameAsFresh(s.overlay)).toBeGreaterThan(40);
+    expect(sameAsFresh(truth)).toBeGreaterThan(40);
+
+    // A material paint, then a wetness paint of the same cells: shader data only, no mesh, collision, nav or light.
+    // Kept well inside the ring: a section derives only once every chunk around its chunk is resident.
+    const px = 12;
+    const pz = -20;
+    const py = surface(px, pz);
+    const paintBox = { min: [px - 3, py - 2, pz - 3] as [number, number, number], max: [px + 3, py, pz + 3] as [number, number, number] };
+    const material = await run('material paint', canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', ...paintBox, mode: 'paint', voxel: { material: 77, role: VOXEL_ROLE.terrain, wetness: 0 } }));
+    expect(material.fields & PLANE_BIT.material).not.toBe(0);
+    expect(fieldsFeed(material.fields)).toBe(DERIVED_PART.shader);
+    expect(material.derives).toBe(0);
+    expect(material.shaderDerives).toBeGreaterThan(0);
+    const wetCmd = canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', ...paintBox, mode: 'paint', voxel: { material: 77, role: VOXEL_ROLE.terrain, wetness: 6 } });
+    const wet = await run('wetness paint', wetCmd);
+    expect(wet.fields).toBe(PLANE_BIT.wetness);
+    expect(wet.derives).toBe(0);
+    expect(wet.shaderDerives).toBe(dependentChunks(sections, editBounds(grid, wetCmd), SHADER_BORDER_CELLS).length);
+    // Rain alone, on a chunk nothing else changed: one cell wetted with its own material and role.
+    const rx = -20;
+    const rz = 40;
+    const ry = surface(rx, rz);
+    const rv = s.voxelAt(rx, ry, rz, voxel());
+    const rain = canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [rx, ry, rz], max: [rx, ry, rz], mode: 'paint', voxel: { material: rv.material, role: rv.role, wetness: 7 } });
+    const rained = await run('rain (one cell)', rain);
+    expect(rained.fields).toBe(PLANE_BIT.wetness);
+    expect(rained.derives).toBe(0);
+    expect(sameAsFresh(s.overlay)).toBeGreaterThan(40);
+    expect(sameAsFresh(truth)).toBeGreaterThan(40);
+    expect(expectStoreEqual(s, s.store, oracle)).toBeGreaterThan(30);
+    const m = s.metrics();
+    expect(m.bytes.overlay).toBe(s.overlay.memoryBytes());
+    expect(m.bytes.total).toBe(m.bytes.chunks + m.bytes.derived + m.bytes.overlay + m.bytes.tables);
+
+    /** What a save of the edits restores onto the shipped world: the saved fields of the edits, the base's wetness. */
+    const expectSaved = (entries: readonly SaveChunk[]): void => {
+      const restored = copyOracle();
+      for (const e of entries) applySaveChunk(restored, e, true);
+      const a = createDenseChunk(grid);
+      const b = createDenseChunk(grid);
+      const w = createDenseChunk(grid);
+      for (const c of s.overlay.changedChunks()) {
+        exportOrAir(restored, c.cx, c.cy, c.cz, a);
+        exportOrAir(truth, c.cx, c.cy, c.cz, b);
+        exportOrAir(oracle, c.cx, c.cy, c.cz, w);
+        for (let i = 0; i < grid.cellsPerChunk; i++) {
+          if (a.material[i] !== b.material[i] || a.role[i] !== b.role[i] || a.shape[i] !== b.shape[i]) throw new Error(`saved chunk (${c.cx}, ${c.cy}, ${c.cz}) lost an edit at cell ${i}`);
+          // Air is whole (a dug cell keeps no wetness); every other cell keeps the base's wetness.
+          if (a.wetness[i] !== (a.material[i] === 0 ? 0 : w.material[i] === 0 ? b.wetness[i] : w.wetness[i])) throw new Error(`saved chunk (${c.cx}, ${c.cy}, ${c.cz}) kept wetness at cell ${i}`);
+        }
+      }
+    };
+    const rainChunk = chunkKey(grid, rx >> 5, ry >> 5, rz >> 5);
+    const saved = await s.saveChunks();
+    expectSaved(saved);
+    // The chunk only rain touched gives no entry; a save keeping wetness too has it.
+    expect(saved.some((e) => chunkKey(grid, e.cx, e.cy, e.cz) === rainChunk)).toBe(false);
+    expect((await s.saveChunks(PLANE_BIT.material | PLANE_BIT.role | PLANE_BIT.shape | PLANE_BIT.wetness)).some((e) => chunkKey(grid, e.cx, e.cy, e.cz) === rainChunk)).toBe(true);
+
+    // Away: every edited chunk unloads, the overlay stays (counted), and a save reads their bases from the files again.
+    const overlayBytes = s.overlay.memoryBytes();
+    const changedCells = s.overlay.changedCells;
+    s.setFocus(0, y0, 600);
+    await s.settle();
+    for (const c of s.overlay.changedChunks()) expect(s.isResident(c.cx, c.cy, c.cz)).toBe(false);
+    expect(s.overlay.changedCells).toBe(changedCells);
+    expect(s.metrics().bytes.overlay).toBe(overlayBytes);
+    const away = await s.saveChunks();
+    expect(away).toEqual(saved);
+    // Back: the dig is still there, and every section derives as the edited world does.
+    s.setFocus(0, y0, 0);
+    await s.settle();
+    expect(s.voxelAt(0, y0, 0, voxel()).material).toBe(0);
+    expect(expectChunksEqual(s, truth)).toBeGreaterThan(30);
+    expect(expectStoreEqual(s, s.store, oracle)).toBeGreaterThan(30);
+    expect(sameAsFresh(truth)).toBeGreaterThan(40);
+    expect(await s.saveChunks()).toEqual(saved);
+
+    // Quit: the overlay goes, the edited sections derive as the shipped world again, in one swap.
+    swaps.length = 0;
+    const group = s.clearOverlay();
+    expect(s.voxelAt(0, y0, 0, voxel()).material).not.toBe(0);
+    await s.settle();
+    expect(swaps.map((w) => w.groups)).toEqual([[group]]);
+    expect(s.metrics().bytes.overlay).toBe(0);
+    expect(sameAsFresh(oracle)).toBeGreaterThan(40);
+    expect(await s.saveChunks()).toEqual([]);
+    console.log(`overlay measure ${JSON.stringify({ perCell: Number((overlayBytes / changedCells).toFixed(2)), cells: changedCells, kinds })}`);
+    // One scenario in order (edits, a trip away and back, a quit): about 4 s alone, more under a gate's load.
+  }, 30_000);
+
   it('refreshes chunks another writer changed and saved: tables read again, content swapped, everything within R rebuilt', async () => {
     // The writer is the backend's world folder; the reader opens each file per read, as an HTTP range request does.
     const wdir = join(dir, 'written');
@@ -466,7 +629,7 @@ describe('streamer (workers, region files on disk)', () => {
               },
       });
     const source = reader();
-    const s = new VoxelStreamer({ store: createWorldStore(grid), source, pool: pool(2), ring: RING, budgetBytes: 256 * 1024 * 1024, dependencyRadius: jobRadius(PLACEHOLDER_RULES), derive: true, rules: PLACEHOLDER_RULES, deriveMsPerUpdate: 10_000 });
+    const s = new VoxelStreamer({ store: createWorldStore(grid), source, pool: pool(2), ring: RING, budgetBytes: 256 * 1024 * 1024, dependencyRadius: jobRadius(PLACEHOLDER_RULES), derive: true, rules: PLACEHOLDER_RULES, deriveMsPerUpdate: 10_000, sectionEdge: 32 });
     s.setFocus(0, 40, 0);
     await s.settle();
     // A stale reader (tables opened before the write) of every stored chunk of the files the edit rewrites.
@@ -623,17 +786,28 @@ describe('streamer (workers, region files on disk)', () => {
     expect(retry.cells).toBeGreaterThan(1000);
     expect(retry.undo.length).toBeGreaterThan(0);
     expectChunksEqual(s, truth);
+    // A worker edit lands in the overlay too: the base is the files'.
+    expectStoreEqual(s, s.store, oracle);
+    // The dab's cell lies in the fill and was filled over: every changed cell is one override.
+    expect(s.overlay.changedCells).toBe(retry.cells);
   });
 
-  it('evicts the farthest clean chunks to stay in budget, and never a dirty one before it is saved', async () => {
+  it('evicts the farthest clean chunks to stay in budget, never a dirty one before it is saved, and never the overlay', async () => {
     const s = streamer(pool(2));
     s.setFocus(0, 40, 0);
     await s.settle();
     const full = s.metrics().bytes.total;
     const dab = fill([5, 30, 5], [6, 31, 6], 60);
     s.edit(dab);
-    const dirty = { grid: 0, key: chunkKey(grid, 0, 0, 0) };
-    expect(s.tracker.isDirty(dirty)).toBe(true);
+    const edited = { grid: 0, key: chunkKey(grid, 0, 0, 0) };
+    // A runtime edit is in the overlay, not the chunk: the chunk stays clean.
+    expect(s.tracker.isDirty(edited)).toBe(false);
+    const overlay = s.metrics().bytes.overlay;
+    expect(overlay).toBe(s.overlay.memoryBytes());
+    expect(overlay).toBeGreaterThan(0);
+    // A writer sharing the tracker (a save of the base in progress) holds another chunk dirty.
+    const dirty = { grid: 0, key: chunkKey(grid, 1, 0, 1) };
+    s.tracker.edited(dirty);
     // A third of the bytes: evictions start with the farthest chunks.
     s.budgetBytes = Math.floor(full / 3);
     s.update();
@@ -641,19 +815,22 @@ describe('streamer (workers, region files on disk)', () => {
     const m = s.metrics();
     expect(m.counters.evictions).toBeGreaterThan(0);
     expect(m.bytes.total).toBeLessThanOrEqual(s.budgetBytes);
-    // Move away: the dirty chunk is past the unload bounds but stays, with its edit.
+    expect(m.bytes.overlay).toBe(overlay);
+    // Move away: the dirty chunk is past the unload bounds but stays; the edited one unloads, its edit kept.
     s.budgetBytes = 1024 * 1024 * 1024;
     s.setFocus(200, 40, 200);
     await s.settle();
-    expect(s.isResident(0, 0, 0)).toBe(true);
+    expect(s.isResident(1, 0, 1)).toBe(true);
+    expect(s.isResident(0, 0, 0)).toBe(false);
     expect(s.counters.heldDirty).toBeGreaterThan(0);
+    expect(s.metrics().bytes.overlay).toBe(overlay);
     const v = { material: 0, role: 0, shape: 0, wetness: 0 };
-    expect(s.store.voxelAt(5, 30, 5, v).material).toBe(60);
-    // Saved (the game's save job commits), it unloads on the next update.
+    expect(s.voxelAt(5, 30, 5, v).material).toBe(60);
+    // Saved (the writer's save job commits), it unloads on the next update.
     const job = s.tracker.beginSave('save', [dirty])!;
     expect(s.tracker.commitSave(job.id, () => true)).toEqual({ ok: true });
     s.update();
-    expect(s.isResident(0, 0, 0)).toBe(false);
+    expect(s.isResident(1, 0, 1)).toBe(false);
   });
 
   it('applies save entries as chunks load, and reports a base mismatch when asked', async () => {

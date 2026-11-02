@@ -67,7 +67,7 @@ export function assemblyProbes(ctx: ProbeContext): Record<string, (...args: neve
    * shows whether that result is stale.
    */
   function freshHash(sx: number, sy: number, sz: number): number {
-    const store = streamer.store;
+    const store = streamer.overlay;
     const [cx, cy, cz] = [Math.floor(sx / per), Math.floor(sy / per), Math.floor(sz / per)];
     if (store.chunkForm(cx, cy, cz) === 'absent') {
       const apron = buildApron(store, cx, cy, cz, jobRadius(PLACEHOLDER_RULES));
@@ -98,11 +98,11 @@ export function assemblyProbes(ctx: ProbeContext): Record<string, (...args: neve
   return {
     /** What a cell is: its stored voxel, the class the assembly resolves for it, and what every consumer received (null: chunk not derived). */
     cellAt(x: number, y: number, z: number): Record<string, unknown> {
-      streamer.store.voxelAt(x, y, z, v);
+      streamer.voxelAt(x, y, z, v);
       const d = streamer.derivedOf(chunkOf(sections, x), chunkOf(sections, y), chunkOf(sections, z))?.assembly ?? null;
       return {
         voxel: { material: v.material, role: v.role, shape: v.shape, wetness: v.wetness },
-        resolved: className(resolvedClassAt(streamer.store, PLACEHOLDER_RULES, x, y, z)),
+        resolved: className(resolvedClassAt(streamer.overlay, PLACEHOLDER_RULES, x, y, z)),
         outputs: d === null ? null : cellOutputs(d, localOf(sections, x), localOf(sections, y), localOf(sections, z)),
       };
     },

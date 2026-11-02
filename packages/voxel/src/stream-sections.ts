@@ -28,14 +28,14 @@
  */
 import { apronBytes, apronTransfer, buildApron, dependentChunks, type Apron } from './apron';
 import { rulesRef, type AssemblyRuleSet } from './assembly';
-import { payloadTransfer } from './chunk-wire';
+import { payloadTransfer, type ChunkPayload } from './chunk-wire';
 import { chunkInWorld, chunkKey, sectionGrid, type CellGrid, type ChunkGrid, type SectionEdge } from './coords';
 import type { SectionResult } from './derive-assembly';
 import { derivedBytes, encodeDerived } from './derived-data';
 import { SHADER_BORDER_CELLS } from './derived-shader';
 import type { DirtyTracker } from './dirty-tracker';
-import type { PaletteStore } from './palette-store';
 import { ALL_DERIVED_PARTS, DERIVED_PART } from './record';
+import type { VoxelStoreCandidate } from './store';
 import type { CellBox } from './stroke';
 import type { DeriveInput, DeriveOutput, JobLane } from './stream-job';
 import type { SampleRing, WorkerPool } from './worker-pool';
@@ -65,9 +65,19 @@ export type SectionEvent =
   | { readonly type: 'derived' | 'shader'; readonly cx: number; readonly cy: number; readonly cz: number }
   | { readonly type: 'swap'; readonly report: SwapReport };
 
+/**
+ * The voxels a derive reads: the resident world as the game sees it (the
+ * base chunks with the runtime overlay laid over them).
+ */
+export interface DeriveView extends Pick<VoxelStoreCandidate, 'grid' | 'voxelAt'> {
+  chunkForm(cx: number, cy: number, cz: number): 'absent' | 'uniform' | 'stored';
+  /** A chunk's content for a job (its own arrays: they move to the worker). */
+  chunkPayload(cx: number, cy: number, cz: number): ChunkPayload;
+}
+
 /** What the section derives need from the streamer that owns the chunks. */
 export interface SectionHost {
-  readonly store: PaletteStore;
+  readonly store: DeriveView;
   readonly grid: ChunkGrid;
   readonly gridId: number;
   readonly pool: WorkerPool;
@@ -553,7 +563,7 @@ export class SectionDerives {
     for (let j = 0; j < k; j++) {
       const part = list.filter((_, i) => i % k === j);
       const t1 = performance.now();
-      const payload = store.chunkPayload(cx, cy, cz, true);
+      const payload = store.chunkPayload(cx, cy, cz);
       // The apron's buffers move with the last job; the others take copies.
       const a = j === k - 1 ? apron : cloneApron(apron);
       const buildMs = performance.now() - t1 + (j === 0 ? apronMs : 0);

@@ -79,7 +79,7 @@ export function checkRadius(edge: number, radius: number): void {
  * or known to be air); an apron over an unknown neighbour would be wrong,
  * so it throws instead. Neighbours outside the world are air.
  */
-export function buildApron(store: VoxelStoreCandidate, cx: number, cy: number, cz: number, radius: number, known?: (cx: number, cy: number, cz: number) => boolean): Apron {
+export function buildApron(store: Pick<VoxelStoreCandidate, 'grid' | 'voxelAt' | 'chunkForm'>, cx: number, cy: number, cz: number, radius: number, known?: (cx: number, cy: number, cz: number) => boolean): Apron {
   const grid = store.grid;
   const edge = grid.edge;
   checkRadius(edge, radius);

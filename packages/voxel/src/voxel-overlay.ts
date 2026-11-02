@@ -120,6 +120,8 @@ export class VoxelOverlay implements VoxelStoreCandidate {
   }
 
   voxelAt(x: number, y: number, z: number, out: VoxelRecord): VoxelRecord {
+    // Most of a world has no runtime change: reads then cost what the base's do.
+    if (this.chunks.size === 0) return this.base.voxelAt(x, y, z, out);
     const s = this.grid.shift;
     const o = this.chunks.get(chunkKey(this.grid, x >> s, y >> s, z >> s));
     if (o !== undefined) {
@@ -163,11 +165,39 @@ export class VoxelOverlay implements VoxelStoreCandidate {
     for (let i = 0; i < g.cellsPerChunk; i++) this.put((cx << s) | (i >>> (s << 1)), (cy << s) | (i & g.mask), (cz << s) | ((i >>> s) & g.mask), denseValue(cells, i));
   }
 
+  /** Whether a chunk holds any override. */
+  hasChunk(cx: number, cy: number, cz: number): boolean {
+    return this.chunks.has(chunkKey(this.grid, cx, cy, cz));
+  }
+
+  /**
+   * A chunk's overrides (local cell indices ascending, a value each; null:
+   * none). The arrays are the overlay's own: read them before the next write.
+   */
+  chunkOverrides(cx: number, cy: number, cz: number): { readonly cells: Uint16Array; readonly values: Uint32Array; readonly count: number } | null {
+    const o = this.chunks.get(chunkKey(this.grid, cx, cy, cz));
+    return o === undefined ? null : { cells: o.cells, values: o.values, count: o.count };
+  }
+
+  /**
+   * A chunk with overrides may differ from the base's form anywhere, so it
+   * reads as stored cells (readers then ask each cell); without, the base's.
+   */
+  chunkForm(cx: number, cy: number, cz: number): 'absent' | 'uniform' | 'stored' {
+    if (this.chunks.has(chunkKey(this.grid, cx, cy, cz))) return 'stored';
+    return this.base.chunkForm?.(cx, cy, cz) ?? 'stored';
+  }
+
   exportChunk(cx: number, cy: number, cz: number, out: DenseChunk): boolean {
-    const had = this.base.exportChunk(cx, cy, cz, out);
+    return this.exportOver(this.base, cx, cy, cz, out);
+  }
+
+  /** {@link exportChunk} with the overrides laid over another base (the same chunk read again from the world's files). */
+  private exportOver(base: VoxelStoreCandidate, cx: number, cy: number, cz: number, out: DenseChunk): boolean {
+    const had = base.exportChunk(cx, cy, cz, out);
     const o = this.chunks.get(chunkKey(this.grid, cx, cy, cz));
     if (o === undefined) return had;
-    if (!had) exportOrAir(this.base, cx, cy, cz, out);
+    if (!had) exportOrAir(base, cx, cy, cz, out);
     const v: VoxelRecord = { material: 0, role: 0, shape: 0, wetness: 0 };
     for (let k = 0; k < o.count; k++) {
       const i = o.cells[k]!;
@@ -223,11 +253,21 @@ export class VoxelOverlay implements VoxelStoreCandidate {
     const out: SaveChunk[] = [];
     const now = createDenseChunk(this.grid);
     for (const c of this.changedChunks()) {
-      // A chunk with overrides always writes its cells (air included).
-      this.exportChunk(c.cx, c.cy, c.cz, now);
-      const entry = saveChunkOf(this.grid, gridId, c.cx, c.cy, c.cz, this.base.encodeChunk(c.cx, c.cy, c.cz), now, saved);
+      const entry = this.saveChunk(gridId, c.cx, c.cy, c.cz, this.base, saved, now);
       if (entry !== null) out.push(entry);
     }
     return out;
+  }
+
+  /**
+   * One chunk's save entry against `base` (this overlay's base, or the same
+   * chunk read again from the world's files when the base has unloaded it);
+   * null when the kept fields equal the base.
+   */
+  saveChunk(gridId: number, cx: number, cy: number, cz: number, base: VoxelStoreCandidate, saved: number = DEFAULT_SAVED_FIELDS, scratch: DenseChunk = createDenseChunk(this.grid)): SaveChunk | null {
+    if (base.grid.edge !== this.grid.edge) throw new RangeError(`a base of edge ${base.grid.edge} for an overlay of edge ${this.grid.edge}`);
+    // A chunk with overrides always writes its cells (air included).
+    this.exportOver(base, cx, cy, cz, scratch);
+    return saveChunkOf(this.grid, gridId, cx, cy, cz, base.encodeChunk(cx, cy, cz), scratch, saved);
   }
 }

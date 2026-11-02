@@ -28,29 +28,45 @@
  * and saved it), {@link VoxelStreamer.refresh} reads the chunks it names
  * again: a resident chunk keeps its content until the new one lands, then
  * swaps it and everything within R is rebuilt in the `edit` lane.
+ *
+ * The store holds the chunks as the world's files hold them (the base) and
+ * is never written by an edit: runtime edits go to the streamer's
+ * {@link VoxelOverlay}, and everything read from the world (`voxelAt`, the
+ * payloads and aprons of derive jobs, edits run in workers) is the overlay
+ * laid over the base. Overrides are not chunk content: they stay when their
+ * chunk unloads, apply again when it loads, count against the budget and are
+ * never evicted; a save keeps the fields the game marks saved
+ * ({@link VoxelStreamer.saveChunks}). An edited chunk is therefore never
+ * dirty (nothing of it is to be written back) and unloads like any other.
  */
 import { checkRadius } from './apron';
 import { jobRadius, type AssemblyRuleSet } from './assembly';
-import { ALL_DERIVED_PARTS, fieldsFeed } from './record';
+import { ALL_DERIVED_PARTS, DEFAULT_SAVED_FIELDS, fieldsFeed, type VoxelRecord } from './record';
 import { payloadBytes, payloadTransfer, type ChunkPayload } from './chunk-wire';
-import { chunkInWorld, chunkKey, type CellGrid, type ChunkCoord, type ChunkGrid, type SectionEdge } from './coords';
+import { chunkInWorld, chunkKey, DEFAULT_SECTION_EDGE, type CellGrid, type ChunkCoord, type ChunkGrid, type SectionEdge } from './coords';
+import { createDenseChunk } from './dense-chunk';
 import { DirtyTracker } from './dirty-tracker';
 import { applyEdit, editBounds, editChunks, EditRefused, type ChunkUndo, type EditOutcome } from './edit-apply';
 import type { VoxelEditCommand } from './edit-command';
-import type { PaletteStore } from './palette-store';
+import { createWorldStore, type PaletteStore } from './palette-store';
 import type { RegionChunkRead } from './region-file';
 import type { ChunkSource } from './region-source';
 import { savePayloadOf, type MismatchChoice, type SaveChunk } from './save-file';
 import { stampShapeHash, type StampShape } from './stamp-shape';
 import type { CellBox } from './stroke';
 import type { ApplySaveInput, ApplySaveOutput, DeriveOutput, EditInput, EditOutput, JobLane, LoadInput, LoadOutput, SaveContentWire, StoredChunk } from './stream-job';
-import { SectionDerives, type SectionEvent } from './stream-sections';
+import { SectionDerives, type DeriveView, type SectionEvent } from './stream-sections';
 import { checkRing, chunkDistance2, DEFAULT_STREAM_RING, inNearRing, pastUnloadRing, RESIDENT_CHUNK_OVERHEAD_BYTES, ringChunks, type Focus, type StreamRing } from './stream-ring';
 import { decodeUndoRecord } from './undo-store';
+import { OverlayMerge, readBaseChunks } from './stream-overlay';
+import { VoxelOverlay } from './voxel-overlay';
 import { SampleRing, type JobOutcome, type WorkerPool } from './worker-pool';
 
 export interface VoxelStreamerOptions {
-  /** The world store chunks stream into (createWorldStore). */
+  /**
+   * The world store chunks stream into (createWorldStore): the base, as the
+   * world's files hold it; runtime edits never write it.
+   */
   readonly store: PaletteStore;
   /** Which grid this streamer serves (0: the world grid). */
   readonly gridId?: number;
@@ -89,9 +105,10 @@ export interface VoxelStreamerOptions {
    */
   readonly editDeriveMsPerUpdate?: number;
   /**
-   * Edge of the derive sections (8, 16 or 32 cells; default the chunk
-   * edge): what is derived, swapped and reported as one unit. Smaller
-   * sections need assembly rules.
+   * Edge of the derive sections (8, 16 or 32 cells): what is derived,
+   * swapped and reported as one unit. Smaller sections need assembly rules;
+   * the default is {@link DEFAULT_SECTION_EDGE} with rules whose radius
+   * fits one, else the chunk edge.
    */
   readonly sectionEdge?: SectionEdge;
 }
@@ -179,8 +196,8 @@ export interface StreamMetrics {
   readonly decoding: number;
   readonly damaged: number;
   readonly deriving: number;
-  /** Bytes counted against the budget: chunks (store + bookkeeping), derived parts, open tables. */
-  readonly bytes: { readonly total: number; readonly chunks: number; readonly derived: number; readonly tables: number; readonly budget: number };
+  /** Bytes counted against the budget: chunks (store + bookkeeping), derived parts, the runtime overlay, open tables. */
+  readonly bytes: { readonly total: number; readonly chunks: number; readonly derived: number; readonly overlay: number; readonly tables: number; readonly budget: number };
   /** The store's own count of its arrays (to check the streamer's sum). */
   readonly storeBytes: number;
   readonly counters: Readonly<StreamCounters>;
@@ -198,6 +215,8 @@ export class VoxelStreamer {
   readonly grid: ChunkGrid;
   readonly gridId: number;
   readonly store: PaletteStore;
+  /** The runtime edits over the base store: what every read of the world sees first. */
+  readonly overlay: VoxelOverlay;
   readonly tracker: DirtyTracker;
   readonly ring: StreamRing;
   readonly radius: number;
@@ -233,6 +252,9 @@ export class VoxelStreamer {
   private refreshSeq = 0;
   private bytesChunks = 0;
   private bytesDerived = 0;
+  private bytesOverlay = 0;
+  /** Payloads, worker results and save bases with the overlay laid over the base. */
+  private readonly merged: OverlayMerge;
   private readonly heldOutside = new Set<number>();
   /** The derive sections (null when the streamer derives nothing). */
   private readonly derives: SectionDerives | null;
@@ -251,11 +273,19 @@ export class VoxelStreamer {
     this.radius = opts.dependencyRadius;
     if (!(opts.budgetBytes > 0)) throw new RangeError('the streaming budget must be positive');
     this.budgetBytes = opts.budgetBytes;
+    this.overlay = new VoxelOverlay(this.store, 'runtime');
+    this.merged = new OverlayMerge(this.store, this.overlay);
+    const view: DeriveView = {
+      grid: this.grid,
+      voxelAt: (x, y, z, out) => this.overlay.voxelAt(x, y, z, out),
+      chunkForm: (cx, cy, cz) => this.overlay.chunkForm(cx, cy, cz),
+      chunkPayload: (cx, cy, cz) => this.merged.payload(cx, cy, cz),
+    };
     this.derives =
       opts.derive === true
         ? new SectionDerives(
             {
-              store: this.store,
+              store: view,
               grid: this.grid,
               gridId: this.gridId,
               pool: opts.pool,
@@ -271,10 +301,19 @@ export class VoxelStreamer {
               emit: (e) => this.emit(e),
               poke: () => this.poke(),
             },
-            opts.sectionEdge ?? this.grid.edge,
+            opts.sectionEdge ?? defaultSectionEdge(this.grid, opts.rules, this.radius),
             opts.editDeriveMsPerUpdate ?? 8,
           )
         : null;
+  }
+
+  /**
+   * The voxel at a cell as the game sees it: the overlay's value, else the
+   * base's. A cell of a chunk that is not resident reads its override or air
+   * (ask {@link isResident} first).
+   */
+  voxelAt(x: number, y: number, z: number, out: VoxelRecord): VoxelRecord {
+    return this.overlay.voxelAt(x, y, z, out);
   }
 
   /** The grid of derive sections (the chunk grid when sections are whole chunks). */
@@ -381,7 +420,7 @@ export class VoxelStreamer {
       decoding,
       damaged,
       deriving,
-      bytes: { total: this.bytesChunks + this.bytesDerived + tables, chunks: this.bytesChunks, derived: this.bytesDerived, tables, budget: this.budgetBytes },
+      bytes: { total: this.bytesChunks + this.bytesDerived + this.bytesOverlay + tables, chunks: this.bytesChunks, derived: this.bytesDerived, overlay: this.bytesOverlay, tables, budget: this.budgetBytes },
       storeBytes: this.store.memoryBytes(),
       counters: { ...this.counters },
     };
@@ -502,7 +541,8 @@ export class VoxelStreamer {
 
   private enforceBudget(): void {
     const tables = this.opts.source.memoryBytes();
-    let total = this.bytesChunks + this.bytesDerived + tables;
+    // The overlay counts but is never evicted: it is the game's changes, not a copy of the files.
+    let total = this.bytesChunks + this.bytesDerived + this.bytesOverlay + tables;
     if (total <= this.budgetBytes) {
       if (total < this.budgetBytes * RESUME_BELOW && this.horizon !== Infinity) {
         this.horizon = Infinity;
@@ -670,21 +710,17 @@ export class VoxelStreamer {
   }
 
   /**
-   * After an edit changed `changed`: bump them, recount them, and rebuild
-   * what the changed fields feed in the edit's group: the shader data alone
-   * of the sections within the shader border of `box` when only material
-   * or wetness changed, else every section within R of `box`. The jobs go
-   * out at once (an edit is waited on), and the group swaps when all are back.
+   * After an edit changed `changed` in the overlay: move their input stamps
+   * (jobs reading them are stale; they do not become dirty, the base is
+   * unchanged), recount the overlay, and rebuild what the changed fields
+   * feed in the edit's group: the shader data alone of the sections within
+   * the shader border of `box` when only material or wetness changed, else
+   * every section within R of `box`. The jobs go out at once (an edit is
+   * waited on), and the group swaps when all are back.
    */
   private afterEdit(changed: readonly ChunkCoord[], box: CellBox, parts: number): number {
-    for (const ch of changed) {
-      const key = chunkKey(this.grid, ch.cx, ch.cy, ch.cz);
-      const c = this.chunks.get(key)!;
-      this.tracker.edited(this.ref(c));
-      const bytes = this.store.chunkBytes(c.cx, c.cy, c.cz) + RESIDENT_CHUNK_OVERHEAD_BYTES + this.partBytes(c);
-      this.bytesChunks += bytes - c.bytes;
-      c.bytes = bytes;
-    }
+    for (const ch of changed) this.tracker.invalidated(this.ref(ch));
+    this.bytesOverlay = this.overlay.memoryBytes();
     const d = this.derives;
     if (d === null) return 0;
     const group = d.newGroup();
@@ -697,15 +733,16 @@ export class VoxelStreamer {
   private loadedCheck = (g: number, cx: number, cy: number, cz: number): boolean => g === this.gridId && this.isResident(cx, cy, cz);
 
   /**
-   * Applies an edit command on the main thread (small strokes: tens of µs).
-   * Every chunk it can touch must be resident, else it is refused before
-   * any write; edited chunks become dirty and every section within R of
-   * the edit is rebuilt in the edit lane. Reads see the edit at once; the
-   * rebuilt sections swap in together (the `swap` event naming `group`).
+   * Applies an edit command to the overlay on the main thread (small
+   * strokes: tens of µs). Every chunk it can touch must be resident, else
+   * it is refused before any write; every section within R of the edit (or
+   * within the shader border, for a material or wetness change) is rebuilt
+   * in the edit lane. Reads see the edit at once; the rebuilt sections swap
+   * in together (the `swap` event naming `group`).
    */
   edit(cmd: VoxelEditCommand, stamps?: readonly { readonly id: string; readonly shape: StampShape }[]): EditOutcome & { readonly group: number } {
     const resolve = resolver(stamps);
-    const outcome = applyEdit({ store: (g) => (g === this.gridId ? this.store : undefined) }, cmd, { stamps: resolve, loaded: this.loadedCheck });
+    const outcome = applyEdit({ store: (g) => (g === this.gridId ? this.overlay : undefined) }, cmd, { stamps: resolve, loaded: this.loadedCheck });
     const group = this.afterEdit(outcome.chunks, editBounds(this.grid, cmd, resolve), fieldsFeed(outcome.fields));
     return { ...outcome, group };
   }
@@ -721,7 +758,7 @@ export class VoxelStreamer {
     const touched = editChunks(this.grid, cmd, resolve);
     for (const t of touched) if (!this.loadedCheck(cmd.grid, t.cx, t.cy, t.cz)) throw new EditRefused('chunk_not_loaded', `chunk (${t.cx}, ${t.cy}, ${t.cz}) of grid ${cmd.grid} is not loaded`);
     const job = this.tracker.beginJob(touched.map((t) => this.ref(t)));
-    const chunks = touched.map((t) => ({ chunk: { grid: this.gridId, cx: t.cx, cy: t.cy, cz: t.cz }, payload: this.store.chunkPayload(t.cx, t.cy, t.cz, true) }));
+    const chunks = touched.map((t) => ({ chunk: { grid: this.gridId, cx: t.cx, cy: t.cy, cz: t.cz }, payload: this.merged.payload(t.cx, t.cy, t.cz) }));
     const transfer: ArrayBuffer[] = [];
     for (const ch of chunks) payloadTransfer(ch.payload, transfer);
     const input: EditInput = { edge: this.grid.edge, command: cmd, chunks, ...(stamps === undefined ? {} : { stamps: stamps.map((s) => ({ id: s.id, shape: s.shape })) }) };
@@ -736,8 +773,9 @@ export class VoxelStreamer {
     }
     const changed: ChunkCoord[] = [];
     for (const ch of o.output.chunks) {
-      this.store.adoptPayload(ch.chunk.cx, ch.chunk.cy, ch.chunk.cz, ch.payload);
-      changed.push({ cx: ch.chunk.cx, cy: ch.chunk.cy, cz: ch.chunk.cz });
+      const { cx, cy, cz } = ch.chunk;
+      this.merged.adoptEdited(cx, cy, cz, ch.payload);
+      changed.push({ cx, cy, cz });
     }
     const group = this.afterEdit(changed, editBounds(this.grid, cmd, resolve), fieldsFeed(o.output.fields));
     return { status: 'done', cells: o.output.cells, undo: decodeUndoRecord(this.grid, o.output.undo), group };
@@ -865,6 +903,75 @@ export class VoxelStreamer {
     this.emit({ type: 'loaded', cx: c.cx, cy: c.cy, cz: c.cz });
   }
 
+  /**
+   * Drops every runtime edit (the game quit, or loads another save) and
+   * rebuilds what they changed around the resident chunks in one group,
+   * which it returns (0: nothing to rebuild, or the streamer derives
+   * nothing). Reads see the base at once.
+   */
+  clearOverlay(): number {
+    const d = this.derives;
+    const group = d?.newGroup() ?? 0;
+    const g = this.grid;
+    const s = g.shift;
+    for (const c of this.overlay.changedChunks()) {
+      if (!this.isResident(c.cx, c.cy, c.cz)) continue;
+      this.tracker.invalidated(this.ref(c));
+      // What is rebuilt is bounded by the cells that change back, as for an edit.
+      const o = this.overlay.chunkOverrides(c.cx, c.cy, c.cz)!;
+      const box = { minX: Infinity, minY: Infinity, minZ: Infinity, maxX: -Infinity, maxY: -Infinity, maxZ: -Infinity };
+      for (let k = 0; k < o.count; k++) {
+        const i = o.cells[k]!;
+        const x = (c.cx << s) | (i >>> (s << 1));
+        const y = (c.cy << s) | (i & g.mask);
+        const z = (c.cz << s) | ((i >>> s) & g.mask);
+        box.minX = Math.min(box.minX, x);
+        box.minY = Math.min(box.minY, y);
+        box.minZ = Math.min(box.minZ, z);
+        box.maxX = Math.max(box.maxX, x);
+        box.maxY = Math.max(box.maxY, y);
+        box.maxZ = Math.max(box.maxZ, z);
+      }
+      d?.invalidate(box, 'edit', ALL_DERIVED_PARTS, group);
+    }
+    this.overlay.clear();
+    this.bytesOverlay = 0;
+    if (d !== null) {
+      d.request(this.opts.deriveMsPerUpdate ?? 2, true);
+      d.settleGroup(group);
+    }
+    return group;
+  }
+
+  /**
+   * The save entries of the runtime edits (save-file.ts): each chunk with
+   * overrides against its base as the world's files hold it, keeping the
+   * fields in `saved` (a PLANE_BIT mask; default material, role and shape:
+   * wetness is not saved). A chunk whose kept fields equal the base gives
+   * no entry. Chunks unloaded since they were edited are read from the
+   * source again for their base; the entries are then taken in one task, so
+   * no edit lands half in a save. Refused (rejects) when such a base cannot
+   * be read.
+   */
+  async saveChunks(saved: number = DEFAULT_SAVED_FIELDS): Promise<SaveChunk[]> {
+    const bases = createWorldStore(this.grid, 'save-base');
+    const have = new Set<number>();
+    // Chunks can unload while bases are read: read until every chunk away has its base here.
+    for (;;) {
+      const away = this.overlay.changedChunks().filter((c) => !this.isResident(c.cx, c.cy, c.cz) && !have.has(chunkKey(this.grid, c.cx, c.cy, c.cz)));
+      if (away.length === 0) break;
+      await readBaseChunks(away, bases, { gridId: this.gridId, source: this.opts.source, pool: this.opts.pool, tracker: this.tracker });
+      for (const c of away) have.add(chunkKey(this.grid, c.cx, c.cy, c.cz));
+    }
+    const out: SaveChunk[] = [];
+    const scratch = createDenseChunk(this.grid);
+    for (const c of this.overlay.changedChunks()) {
+      const e = this.overlay.saveChunk(this.gridId, c.cx, c.cy, c.cz, this.isResident(c.cx, c.cy, c.cz) ? this.store : bases, saved, scratch);
+      if (e !== null) out.push(e);
+    }
+    return out;
+  }
+
   /** Bytes a payload would move to a worker (for reports). */
   static payloadBytes(p: ChunkPayload): number {
     return payloadBytes(p);
@@ -875,6 +982,16 @@ function resolver(stamps?: readonly { readonly id: string; readonly shape: Stamp
   if (stamps === undefined) return undefined;
   const m = new Map(stamps.map((s) => [s.id, { shape: s.shape, hash: stampShapeHash(s.shape) }]));
   return (id) => m.get(id);
+}
+
+/**
+ * Sections of the engine default edge when assembly rules can derive them
+ * (their radius fits a section, the chunk splits into them), else whole
+ * chunks.
+ */
+function defaultSectionEdge(grid: ChunkGrid, rules: AssemblyRuleSet | undefined, radius: number): SectionEdge {
+  if (rules === undefined || grid.edge <= DEFAULT_SECTION_EDGE || grid.edge % DEFAULT_SECTION_EDGE !== 0 || radius > DEFAULT_SECTION_EDGE) return grid.edge as SectionEdge;
+  return DEFAULT_SECTION_EDGE;
 }
 
 function unionBox(a: CellBox, b: CellBox): CellBox {

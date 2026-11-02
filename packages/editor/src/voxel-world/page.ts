@@ -24,14 +24,14 @@
  * reports, per cell, what every consumer of the derived data received.
  *
  * Everything derived (meshes, colliders, shader data) is per section of
- * `?section=` cells (8, 16 or 32, the whole chunk; default
- * {@link DEFAULT_SECTION}): an edit re-derives only the sections within
+ * `?section=` cells (8, 16 or 32, the whole chunk; default the engine's
+ * {@link DEFAULT_SECTION_EDGE}): an edit re-derives only the sections within
  * the rules' reach of what it changed, and they swap in together, meshes
  * and colliders in the same frame (the streamer's atomic swap). The hook's
  * `blast` digs a sphere either through the backend (a command) or locally
- * in the page's own store (a game's runtime edit, no round trip, nothing
- * saved) and reports the frames from the edit to the swap; `reread` reads
- * every resident chunk from the files again after local edits.
+ * in the streamer's runtime overlay (a game's runtime edit, no round trip,
+ * nothing saved) and reports the frames from the edit to the swap; `reread`
+ * drops local edits and goes back to the files.
  *
  * Surfaces are shaded by the engine's voxel surface shader from each
  * chunk's shader data: `?blend=` sets the blend distance in metres (default
@@ -56,6 +56,7 @@ import {
   PLACEHOLDER_RULES,
   RegionChunkSource,
   SampleRing,
+  DEFAULT_SECTION_EDGE,
   SECTION_EDGES,
   sectionsOfChunk,
   type SectionEdge,
@@ -92,14 +93,8 @@ const blendM = Number(params.get('blend') ?? VOXEL_SIZE_M / 2);
 const shading = params.get('shading') === 'flat' ? 'flat' : 'blend';
 const gpuTime = params.get('gpuTime') === '1';
 const grid = chunkGrid(32);
-/**
- * Default derive section edge, picked by the blast measurements (owner
- * decision: remesh within a frame): a smaller section re-derives less per
- * edit, a larger one costs fewer draws, bodies and jobs.
- */
-const DEFAULT_SECTION: SectionEdge = 16;
-const sectionParam = Number(params.get('section') ?? DEFAULT_SECTION) as SectionEdge;
-const sectionEdge: SectionEdge = SECTION_EDGES.includes(sectionParam) ? sectionParam : DEFAULT_SECTION;
+const sectionParam = Number(params.get('section') ?? DEFAULT_SECTION_EDGE) as SectionEdge;
+const sectionEdge: SectionEdge = SECTION_EDGES.includes(sectionParam) ? sectionParam : DEFAULT_SECTION_EDGE;
 /** A brush dab's half size in cells (a 1 m sphere). */
 const BRUSH_CELLS = 2;
 /** A frame that missed a 60 Hz display's next refresh: half a refresh longer than one. */
@@ -549,7 +544,7 @@ async function main(): Promise<void> {
       await streamer.settle();
     },
     voxelAt(x: number, y: number, z: number): { material: number; role: number; shape: number; wetness: number } {
-      streamer.store.voxelAt(x, y, z, v);
+      streamer.voxelAt(x, y, z, v);
       return { material: v.material, role: v.role, shape: v.shape, wetness: v.wetness };
     },
     derivedHash(cx: number, cy: number, cz: number): number | null {
