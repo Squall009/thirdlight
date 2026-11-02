@@ -29,7 +29,7 @@ const SKY_SAMPLES = 512;
 /** The roughness three's materials look the environment up at for their diffuse light. */
 const SKY_ROUGHNESS = 1;
 /** How often (ms) what the sky is made of is looked at again. */
-const SKY_CHECK_MS = 500;
+export const SKY_CHECK_MS = 500;
 /** How far above the map's typical irradiance (the mean of its darker nine tenths) a direction's is held. */
 const SKY_SPIKE = 3;
 
@@ -86,10 +86,35 @@ export class SkyProbe {
   private readonly intensity: N = uniform(1);
   private readonly turn: N = uniform(0);
 
-  /** Look at the scene's sky (cheap unless it changed). */
+  /** The environment and background as last looked at. */
+  private seen = '';
+  /** They changed since, within `SKY_CHECK_MS` of that look: a change waits for its turn. */
+  private waiting = false;
+
+  /**
+   * A sky change not in the coefficients yet: one waiting for its turn or
+   * being projected. A view drawn on demand draws on while it is, or the
+   * frame drawn with the change keeps the old sky's light until something
+   * else asks for a frame. (The held lights are looked at only on the turn:
+   * finding them walks every object in the scene.)
+   */
+  get behind(): boolean {
+    return this.busy || this.waiting;
+  }
+
+  /** Look at the scene's sky (cheap unless it changed), at most every `SKY_CHECK_MS`. */
   update(renderer: unknown, scene: THREE.Scene, now = performance.now()): void {
-    if (this.busy || now - this.checkedAt < SKY_CHECK_MS) return;
+    if (this.busy) return;
+    const env = scene.environment;
+    const bg = (scene.background as THREE.Color | null)?.isColor === true ? (scene.background as THREE.Color) : null;
+    const sky = `${env?.uuid ?? ''}|${env?.version ?? 0}|${scene.environmentIntensity}|${scene.environmentRotation.y}|${bg?.getHex() ?? ''}`;
+    if (now - this.checkedAt < SKY_CHECK_MS) {
+      this.waiting = sky !== this.seen;
+      return;
+    }
     this.checkedAt = now;
+    this.seen = sky;
+    this.waiting = false;
     const held: { kind: 'ambient' | 'hemisphere'; sky: THREE.Color; ground: THREE.Color }[] = [];
     for (const o of scene.children) {
       const l = o as THREE.Light & { isAmbientLight?: boolean; isHemisphereLight?: boolean; groundColor?: THREE.Color };
@@ -97,9 +122,7 @@ export class SkyProbe {
       if (l.isAmbientLight === true) held.push({ kind: 'ambient', sky: l.color.clone().multiplyScalar(l.intensity), ground: new THREE.Color(0) });
       else if (l.isHemisphereLight === true) held.push({ kind: 'hemisphere', sky: l.color.clone().multiplyScalar(l.intensity), ground: (l.groundColor ?? new THREE.Color(0)).clone().multiplyScalar(l.intensity) });
     }
-    const env = scene.environment;
-    const bg = (scene.background as THREE.Color | null)?.isColor === true ? (scene.background as THREE.Color) : null;
-    const key = JSON.stringify([env?.uuid ?? null, env?.version ?? 0, scene.environmentIntensity, scene.environmentRotation.y, bg?.getHex() ?? null, held.map((h) => [h.kind, h.sky.toArray(), h.ground.toArray()])]);
+    const key = JSON.stringify([sky, held.map((h) => [h.kind, h.sky.toArray(), h.ground.toArray()])]);
     if (key === this.key) return;
     this.key = key;
     const c = new Float32Array(12);

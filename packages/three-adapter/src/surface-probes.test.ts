@@ -22,7 +22,8 @@
  *   slab are dropped (their rays would start in the solid and read the
  *   yard's probes beyond the wall).
  * - a colour sky lights the probes as much as the scene's sky lighting says
- *   (none at 0), as an environment map does.
+ *   (none at 0), as an environment map does; a change made before its
+ *   turn waits, and says so until it is taken.
  */
 import * as THREE from 'three/webgpu';
 import { describe, expect, it } from 'vitest';
@@ -40,7 +41,7 @@ import { ProbeMarks, type ProbeSolid } from './probe-bricks';
 import { probeSolid } from './probe-geometry';
 import { BOUNCE_ALBEDO, LiveProbes, PROBE_FLOATS, PROBE_MIN_COUNT, selectSmallest, shIrradiance, type ProbePlacement } from './surface-probes';
 import { SurfaceRooms } from './surface-rooms';
-import { SkyProbe } from './surface-probe-sky';
+import { SKY_CHECK_MS, SkyProbe } from './surface-probe-sky';
 import { packTraceScene } from './tracer-scene';
 import { opaqueByBlockTypes, traceBlockLayerOf } from './tracer-sources';
 import type { TraceHit } from './tracer-cpu-math';
@@ -432,5 +433,28 @@ describe('surface cache: the sky the probes see', () => {
     expect(full[1]).toBeGreaterThan(0);
     expect(band0(0.5)[1]).toBeCloseTo(full[1]! / 2, 6);
     expect(band0(0)).toEqual([0, 0, 0]);
+  });
+
+  it('a change soon after the last one waits its turn and says so (a view drawn on demand draws on until it is taken)', () => {
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0, 1, 1);
+    const sky = new SkyProbe();
+    const t0 = 1e9;
+    sky.update(null, scene, t0);
+    const taken = sky.version;
+    expect(sky.behind).toBe(false);
+    // Nothing changed: nothing waits, however soon.
+    sky.update(null, scene, t0 + SKY_CHECK_MS / 5);
+    expect(sky.behind).toBe(false);
+    // The scene's sky lighting turned off before its turn: not taken yet, but seen as waiting.
+    scene.environmentIntensity = 0;
+    sky.update(null, scene, t0 + SKY_CHECK_MS / 2);
+    expect(sky.version).toBe(taken);
+    expect(sky.behind).toBe(true);
+    // Its turn: taken (no light from the sky), nothing waits.
+    sky.update(null, scene, t0 + SKY_CHECK_MS);
+    expect(sky.version).toBe(taken + 1);
+    expect(Array.from(sky.coefficients.slice(0, 3))).toEqual([0, 0, 0]);
+    expect(sky.behind).toBe(false);
   });
 });

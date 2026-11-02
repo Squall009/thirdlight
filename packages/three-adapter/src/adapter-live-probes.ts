@@ -99,6 +99,16 @@ export class AdapterLiveProbes {
     this.tiles = [];
   }
 
+  /**
+   * Light the probes hold that the picture does not show yet: a sky change
+   * not taken or not handed to the runtime, or a tile written but not
+   * uploaded (tiles go up a few a frame, each at most every `LIVE_TILE_MS`).
+   * The probes alone settled is not enough for a view drawn on demand.
+   */
+  get behind(): boolean {
+    return this.on && (this.sky.behind || this.sky.version !== this.skyVersion || this.fresh.length > 0 || this.tiles.some((t) => t.dirty));
+  }
+
   /** After the light runtime's frame (null: not running yet). */
   frame(renderer: unknown, runtime: SurfaceLightRuntime | null, now = performance.now()): void {
     const probes = this.host.probes;

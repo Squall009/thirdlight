@@ -942,20 +942,22 @@ export async function pointerOffView(page: Page): Promise<void> {
 export const BACKENDS: readonly ('webgpu' | 'webgl2')[] = gpuAvailable() ? ['webgpu', 'webgl2'] : ['webgl2'];
 
 export async function expectHorizonLight(game: Page, url: string, renderer: string, cam: CameraView): Promise<void> {
-  const settled = async (p: Page): Promise<Image> => {
+  // Both frames are kept with the test's output: when the far-ground check fails they show which page's picture is off.
+  const settled = async (p: Page, label: string): Promise<Image> => {
     const c = p.locator('canvas').first();
     await expect.poll(async () => frameOk(decodePng(await c.screenshot())), { timeout: 60_000, message: `${renderer} export: the frame drawn` }).toBe(true);
     // Every far tile baked (a tile or more a frame).
     await p.waitForTimeout(2500);
-    return decodePng(await c.screenshot());
+    const png = await c.screenshot({ path: test.info().outputPath(`${renderer}-horizon-${label}.png`) });
+    return decodePng(png);
   };
-  const on = await settled(game);
+  const on = await settled(game, 'on');
   const other = await game.context().newPage();
   let off: Image;
   try {
     await other.goto(`${url}?renderer=${renderer}&terrainHorizon=off`);
     await expectRendererBackend(other.locator('canvas').first(), renderer);
-    off = await settled(other);
+    off = await settled(other, 'off');
   } finally {
     await other.close();
   }

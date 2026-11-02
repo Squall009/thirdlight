@@ -816,7 +816,12 @@ export class SurfaceCacheHost {
       this.probesWaiting = null;
       return;
     }
-    if (key === this.probesPlacedKey || this.probeJob !== null) return;
+    if (this.probeJob !== null) return;
+    if (key === this.probesPlacedKey) {
+      // Back to what is placed (a tile made again as it was): nothing waits.
+      this.probesWaiting = null;
+      return;
+    }
     this.probesWaiting ??= now;
     // A changed tile leaves the ready set until it is made again (a frame or so): placed without it, its probes would
     // be dropped and placed again fresh a moment later. A scene that keeps streaming is placed at least every throttle.
@@ -949,14 +954,17 @@ export class SurfaceCacheHost {
   diagnostics(): SurfaceCacheHostDiagnostics {
     let reading = 0;
     for (const f of this.files.values()) if (f === 'reading') reading += 1;
-    return { ...this.cache.diagnostics(), preparing: this.pending.size, reading, prepareMs: this.prepareMs, relight: this.relight.diagnostics(), probes: this.probesDiagnostics(), seeded: { tiles: this.seeding.seededTiles, probes: this.seeding.seededProbes } };
+    return { ...this.cache.diagnostics(), preparing: this.pending.size, reading, prepareMs: this.prepareMs, relight: this.relight.diagnostics(), probes: { ...this.probes.diagnostics(), placeFrameMs: this.placeFrameMs, settled: this.probesSettled }, seeded: { tiles: this.seeding.seededTiles, probes: this.seeding.seededProbes } };
   }
 
-  /** The probes' diagnostics; not settled while a placement waits (its new probes are yet to be lit). */
-  private probesDiagnostics(): LiveProbeDiagnostics {
-    const d = this.probes.diagnostics();
-    const out = { ...d, placeFrameMs: this.placeFrameMs };
-    return this.probesWaiting === null && this.probeJob === null ? out : { ...out, settled: false };
+  /**
+   * The probes settled: none stale and no placement waiting or being made
+   * (its new probes are yet to be lit). A placement waits up to
+   * `PROBE_PLACE_MS` and is made over frames: a view drawn on demand draws
+   * on until it is done, or it keeps the old probes' light.
+   */
+  get probesSettled(): boolean {
+    return this.probes.isSettled && this.probesWaiting === null && this.probeJob === null;
   }
 }
 

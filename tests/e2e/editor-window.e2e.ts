@@ -537,6 +537,10 @@ async function editModeChecks(page: Page): Promise<void> {
   // checks below see the scene's own light).
   await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#4a90d9', intensity: 1, environmentIntensity: 0 } } });
   await expect.poll(() => skyShare(page, [0x4a, 0x90, 0xd9]), { timeout: 30_000, message: 'isolated: the sky drawn above the horizon' }).toBeGreaterThan(0.9);
+  // Where the view lights live (WebGPU) the sky is drawn at once but its light reaches the ground over frames (the
+  // probes placed and lit again): the view draws on until it has, and the crops below are taken after.
+  const lightSettled = async (): Promise<boolean> => (JSON.parse((await canvas.getAttribute('data-lighting-view')) ?? 'null') as { settled?: boolean } | null)?.settled ?? true;
+  await expect.poll(lightSettled, { timeout: 30_000, message: 'isolated: the new sky\'s light settled' }).toBe(true);
   // The edited object's own icon is not drawn over it: the picture where it stands (the terrain's origin, a corner of
   // its tile) is the same with the Gizmos menu's icons on and off.
   const iconAt = await screenOf(page, [-16, 0, -16]);

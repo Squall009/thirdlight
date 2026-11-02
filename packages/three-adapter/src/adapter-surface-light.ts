@@ -378,7 +378,7 @@ export class AdapterSurfaceLight {
 
   /** Whether the light drawn has caught up: live, nothing stale in the cache or the probes; else the followed scenes' saved light read (never while the live light is still starting). */
   get settled(): boolean {
-    if (this.runtime !== null) return this.host.relight.isSettled && this.host.probes.isSettled;
+    if (this.runtime !== null) return this.host.relight.isSettled && this.host.probesSettled && !(this.liveProbes?.behind ?? false);
     return this.off !== 'starting' && !this.saved.loading();
   }
 
@@ -409,6 +409,11 @@ export class AdapterSurfaceLight {
   get viewBehind(): boolean {
     const rt = this.runtime;
     return this.viewOn && rt !== null && (rt.viewReading > 0 || this.viewVersionOf(rt) !== this.viewVersion);
+  }
+
+  /** The live probes hold light the picture does not show yet (a view drawn on demand asks for frames until it does). */
+  get probesBehind(): boolean {
+    return this.liveProbes?.behind === true;
   }
 
   private viewVersionOf(rt: SurfaceLightRuntime): number {
