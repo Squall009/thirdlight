@@ -57,7 +57,10 @@ import {
   type PaletteStore,
   type RegionFootprint,
   type RegionLayout,
+  type VoxelEditCommand,
 } from '@thirdlight/voxel';
+import { isVoxelWorldOp, type VoxelWorldOp } from '@thirdlight/commands/mutation-ops';
+import { parseOrigin } from '@thirdlight/commands';
 import { hexToBytes } from '@thirdlight/shared';
 import { sha256HexNative } from './digest';
 import { DiskUndoSpill, listRegionFiles, REGION_FILE_NAME_RE, RegionWorld, ShippedWorld, addressName, addressOf, type StagedOutcome, type WorldDirOptions } from './voxel-world-files';
@@ -71,9 +74,22 @@ export const VOXEL_WORLD_MANIFEST = 'world.json';
 export const VOXEL_WORLD_FORMAT = 2;
 /** A world's folder name. */
 export const VOXEL_WORLD_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
-/** The commands a voxel world takes. */
-export const VOXEL_WORLD_OPS = ['editVoxels', 'undoVoxels'] as const;
-export type VoxelWorldOp = (typeof VOXEL_WORLD_OPS)[number];
+/**
+ * The voxel world ops' arguments, as {@link VoxelWorlds.command} reads them
+ * (unknown fields refused). `world` names the folder `voxels/<world>/`.
+ */
+export type VoxelWorldOpArgs =
+  | {
+      op: 'editVoxels';
+      /** One stroke; `command` is the voxel edit command format (`v`, `grid`, `kind`, …), rebuilt field by field. */
+      args: { world: string; command: VoxelEditCommand };
+    }
+  | {
+      op: 'undoVoxels';
+      /** Takes back the world's newest edit still in this backend's undo history. */
+      args: { world: string };
+    };
+
 /** Answers kept per world for request ids sent again. */
 const ANSWERS_KEPT = 256;
 
@@ -93,10 +109,6 @@ export interface VoxelWorldManifest {
   readonly regions: readonly string[];
   /** Moves by one with every applied change. */
   readonly revision: number;
-}
-
-export function isVoxelWorldOp(op: unknown): op is VoxelWorldOp {
-  return typeof op === 'string' && (VOXEL_WORLD_OPS as readonly string[]).includes(op);
 }
 
 /**
@@ -429,7 +441,7 @@ export class VoxelWorlds {
 
   /**
    * Applies a voxel command envelope (`op`, `projectId`, optional
-   * `requestId`, `args`: `{ world, command }` for an edit, `{ world }` for
+   * `requestId` and `origin`, `args`: `{ world, command }` for an edit, `{ world }` for
    * an undo). A command that changes nothing is refused with `no_change`.
    */
   async command(projectId: string, envelope: Record<string, unknown>): Promise<VoxelCommandResult> {
@@ -438,6 +450,10 @@ export class VoxelWorlds {
     if (envelope.projectId !== projectId) return refuse('invalid_request', 'validation', 'projectId must name the project of the route', '/projectId');
     const rid = envelope.requestId;
     if (rid !== undefined && (typeof rid !== 'string' || !REQUEST_ID_RE.test(rid))) return refuse('invalid_request', 'validation', 'requestId must be req- + 32 hex', '/requestId');
+    if (envelope.origin !== undefined) {
+      const origin = parseOrigin(envelope.origin);
+      if (!origin.ok) return refuse('invalid_request', 'validation', origin.error.message, origin.error.path ?? '/origin');
+    }
     const args = envelope.args;
     if (typeof args !== 'object' || args === null || Array.isArray(args)) return refuse('invalid_request', 'validation', 'args must be an object', '/args');
     const a = args as Record<string, unknown>;

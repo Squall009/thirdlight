@@ -1,4 +1,4 @@
-# Types (AcknowledgeBehaviorTrustArgs to CreatePrefabArgs)
+# Types (AcknowledgeBehaviorTrustArgs to ConvertedFrom)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
@@ -1210,6 +1210,27 @@ interface BoxArgs {
 }
 ```
 
+<a id="type-brush-edit"></a>
+### BrushEdit
+
+Declared in `packages/voxel/src/edit-command.ts`.
+
+```ts
+/** A brush stroke: one shape dragged through dab centres; a cell's coverage is the most any dab gives it. */
+interface BrushEdit extends EditBase {
+  readonly kind: 'brush';
+  readonly shape: BrushShape;
+  readonly size: readonly [number, number, number];
+  /** Dab centres, x y z flat, in cells (at least one dab). */
+  readonly points: readonly number[];
+  readonly mode: EditMode;
+  /** Absent for `dig`. */
+  readonly voxel?: EditVoxel;
+  /** Partial density at the rim (add and dig only; projected materials). */
+  readonly smooth: boolean;
+}
+```
+
 <a id="type-brush-falloff"></a>
 ### BrushFalloff
 
@@ -1243,6 +1264,20 @@ interface BrushMask {
   /** Another seed, another pattern (a whole number). */
   seed: number;
 }
+```
+
+<a id="type-brush-shape"></a>
+### BrushShape
+
+Declared in `packages/voxel/src/edit-command.ts`.
+
+```ts
+/**
+ * Brush shapes; `size` is half extents in cells on x, y, z. A sphere's are
+ * all its radius and a cylinder's x and z its radius: the canonical form
+ * fills them in from size[0] (and size[1]), so one stroke has one payload.
+ */
+type BrushShape = 'sphere' | 'box' | 'cylinder';
 ```
 
 <a id="type-brush-vec3"></a>
@@ -1351,74 +1386,4 @@ type ConvertedFrom =
       /** color: ETC1S, sRGB; normal: UASTC, linear, normal-map mips; data: UASTC, linear. */
       encoding: 'color' | 'normal' | 'data';
     };
-```
-
-<a id="type-create-entity-args"></a>
-### CreateEntityArgs
-
-Declared in `packages/commands/src/entity-types.ts`.
-
-```ts
-interface CreateEntityArgs {
-  /** `folder`: organisation only — no transform, box, model or components. */
-  kind: 'group' | 'box' | 'model' | 'folder';
-  parentId?: string | null;
-  name?: string;
-  /** The entity flags and tags, as `updateEntity` sets them (absent: active, visible, unlocked, not static, not kept loaded, no tags). */
-  active?: boolean;
-  visible?: boolean;
-  locked?: boolean;
-  static?: boolean;
-  keepLoaded?: boolean;
-  /** Tag names of the project's registry. */
-  tags?: string[];
-  transform?: PartialTransformArgs;
-  /** Only when `kind` is `"box"`. */
-  box?: BoxArgs;
-  /** Only when `kind` is `"model"` (required then). */
-  model?: ModelArgs;
-  /**
-   * The add-capable components created in the same transaction:
-   * `collider`, `controller`, `playerSpawn`, `light`, `surface`,
-   * `modelAnimation`; never `null`.
-   */
-  components?: Record<string, unknown>;
-  /** Copies a built-in preset row onto `components.surface`. */
-  surfacePreset?: SurfacePresetName;
-  /**
-   * `folder` only: objects created inside the new folder in the same
-   * transaction (one undo), e.g. every piece of a multi-piece model. Each is
-   * a `box`/`model`/`group` create without `parentId` or `children`.
-   */
-  children?: CreateEntityArgs[];
-}
-```
-
-<a id="type-create-folder-args"></a>
-### CreateFolderArgs
-
-Declared in `packages/commands/src/move-ops.ts`.
-
-```ts
-/** `createFolder` args: the folder to make (its parents are made too). */
-interface CreateFolderArgs {
-  folder: string;
-}
-```
-
-<a id="type-create-prefab-args"></a>
-### CreatePrefabArgs
-
-Declared in `packages/commands/src/types.ts`.
-
-```ts
-/** `createPrefab` args. */
-interface CreatePrefabArgs {
-  /** ID syntax; not already in `content.prefabs`. */
-  prefabId: string;
-  /** 1–128 chars, no control characters. */
-  displayName: string;
-  /** Existing entity ID in the current scene. */
-  sourceEntityId: string;
-}
 ```

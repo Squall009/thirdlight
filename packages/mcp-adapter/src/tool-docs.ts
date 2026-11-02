@@ -476,6 +476,13 @@ export const TOOL_DETAILS = {
     'character {mode: place|walk with position, facing (degrees about +Y), run (walk), enabled} (a player character: placed, walked to the mark by its own controller, turned, switched off/on; the player\'s input is held while the track plays unless track playerInput; skip lands walks on their marks; scripts: ctx.character.place/walkTo/walkState/stop/turn/setEnabled). ' +
     'Easing (linear|step|easeIn|easeOut|easeInOut) shapes the move from the previous key. Scripts: ctx.timeline.play(id, {slot: entityId}) → handle, pause/resume/stop/skip (every track\'s end state)/seek, state/time/isPlaying, events() (started, ended, marker; next step), ended(h), marker(name). ' +
     'They are in tl_content_query target="game" (timelines); tl_game_observe reports timeline {screen {fade, opacity, letterbox}, playing, events}. ' +
+    'Voxel worlds (a project\'s folders voxels/<world>/): editVoxels {world, command} applies one stroke (the voxel edit command format: ' +
+    'brush, fill, stamp, set or dig; tl_docs "op.editVoxels" and type.VoxelEditCommand) and undoVoxels {world} takes back the world\'s newest edit. ' +
+    'They change the world\'s files, not the project: no expectedRevision (a world keeps its own revision), and the project\'s undo does not take them back. ' +
+    'The answer names the world\'s revision, cells changed, the chunks [cx, cy, cz] to read again, the cell box the edit can have touched, the derived parts made stale, ' +
+    'the region files rewritten with their tags and how many edits can still be undone; a request id sent again answers the first answer (duplicated true). ' +
+    'The connected editor gets the same as a voxelsChanged event. A stroke over the undo budget of one edit is refused (over_budget: split it), ' +
+    'one that changes nothing with no_change, and files changed outside the backend with world_changed (the world is read again; send the edit again). ' +
     'Returns the new revision on success, ' +
     'or a structured error (e.g. revision_conflict with currentRevision). Read-only queries use ' +
     'tl_inspect/tl_content_query, not this tool.',
@@ -692,7 +699,7 @@ export const TOOL_SUMMARIES: Readonly<Record<ToolName, string>> = {
     'revision and the change, or a structured error (e.g. revision_conflict with currentRevision; refusals name the field). Read-only questions ' +
     'go to tl_inspect / tl_content_query. Each op\'s argument shape: tl_docs topic "op.<op>" (e.g. op.editBlocks, op.setComponent); a ' +
     'component\'s fields: "component.<name>"; how ops behave by area (scenes, terrain, blocks, materials, UI, timelines …): "tool.tl_command" and its sections. ' +
-    'Script source is published with tl_script_publish, not here.',
+    'Script source is published with tl_script_publish, not here. Voxel worlds: editVoxels / undoVoxels {world, …} (no expectedRevision).',
   tl_content_query:
     'Bounded, read-only content queries: target="assets" | "asset" | "prefabs" | "behaviors" | "integrity" (check=true syncs the catalog with the game folder) | ' +
     '"game" (the content.game block; includeDescriptors adds every field\'s type, range and default, ~120 KB — tl_docs "component.<name>" is smaller) | ' +
@@ -782,6 +789,7 @@ const COMMAND_AREAS: readonly { id: string; title: string; from: string }[] = [
   { id: 'dialogue', title: 'Dialogue', from: 'Text widgets may also take content' },
   { id: 'game-modes', title: 'Game modes and behavior groups', from: 'Game modes: setModes' },
   { id: 'timelines', title: 'Timelines', from: 'Timelines (sequencer' },
+  { id: 'voxel-worlds', title: 'Voxel worlds: editVoxels, undoVoxels', from: 'Voxel worlds (a project' },
   { id: 'result', title: 'What it returns', from: 'Returns the new revision on success' },
 ];
 

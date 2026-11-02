@@ -13,7 +13,7 @@ import { ID_RE } from '@thirdlight/project-model/limits';
 import { PROJECT_SAVE_FORMAT, SCRIPT_SAVE_LIMITS } from '@thirdlight/project-model/limits';
 
 export { PROJECT_SAVE_FORMAT };
-import { MUTATION_OPS } from '@thirdlight/commands/mutation-ops';
+import { MUTATION_OPS, VOXEL_WORLD_OPS } from '@thirdlight/commands/mutation-ops';
 import {
   isProjectId,
   isSessionId,
@@ -327,7 +327,8 @@ export const QUERY_OPS = [
   // v3 queries
   ...V3_QUERY_OPS,
 ] as const;
-const ALL_OPS: readonly string[] = [...MUTATION_OPS, ...QUERY_OPS];
+// The voxel world ops ride the same route and envelope; the backend hands them to the workspace's voxel worlds.
+const ALL_OPS: readonly string[] = [...MUTATION_OPS, ...VOXEL_WORLD_OPS, ...QUERY_OPS];
 
 export function parseCommandEnvelope(value: unknown):
   | { ok: true; op: string }

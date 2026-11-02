@@ -100,6 +100,7 @@ interface MutationFailure {
 | [`deleteUiTheme`](ops-detail.md#op-deleteUiTheme) | { uiThemeId: string } | `uiThemes` |
 | [`editBlocks`](ops-detail.md#op-editBlocks) | { entityId: string; edits: BlockEdit[] } |  |
 | [`editTerrain`](ops-detail.md#op-editTerrain) | EditTerrainArgs |  |
+| [`editVoxels`](ops-detail.md#op-editVoxels) | { world: string; command: VoxelEditCommand } |  |
 | [`graphEdit`](ops-detail.md#op-graphEdit) | { owner: { kind: string; id: string }; ops: GraphOp[] } | `effects`, `dialogues`, `graphs` |
 | [`importAssets`](ops-detail.md#op-importAssets) | ImportAssetsArgs | `assets` |
 | [`importResources`](ops-detail.md#op-importResources) | ImportResourcesArgs |  |
@@ -153,6 +154,7 @@ interface MutationFailure {
 | [`setUiDocument`](ops-detail.md#op-setUiDocument) | { document: UiDocument } | `uiDocuments` |
 | [`setUiTheme`](ops-detail.md#op-setUiTheme) | { theme: UiTheme } | `uiThemes` |
 | [`undo`](ops-detail.md#op-undo) | EmptyArgs |  |
+| [`undoVoxels`](ops-detail.md#op-undoVoxels) | { world: string } |  |
 | [`unpackPrefab`](ops-detail.md#op-unpackPrefab) | UnpackPrefabArgs |  |
 | [`updateEntity`](ops-detail.md#op-updateEntity) | UpdateEntityArgs |  |
 | [`updatePrefab`](ops-detail.md#op-updatePrefab) | UpdatePrefabArgs | `prefabs` |

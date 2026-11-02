@@ -26,11 +26,11 @@ What the engine offers, generated from its source: the objects, components and c
 | [Scene environment](scene-environment.md) | sky — Sky, fog — Fog, heightFog — Height fog, post — Post-processing, wind — Wind, wetness — Wetness |
 | [UI documents](ui.md) | UI document, Widget, Style, Tween |
 | [Command ops](ops.md) | The request, Every op |
-| [Command op arguments](ops-detail.md) | 87 sections |
-| [Types (AcknowledgeBehaviorTrustArgs to CreatePrefabArgs)](types-a-c.md) | 74 sections |
-| [Types (CreatePrefabVariantArgs to MsaaSamples)](types-c-m.md) | 94 sections |
-| [Types (OCCLUSION_CULLING_MODES to TimelineEasing)](types-o-t.md) | 97 sections |
-| [Types (TimelineKey to WindOctave)](types-t-w.md) | 39 sections |
+| [Command op arguments](ops-detail.md) | 89 sections |
+| [Types (AcknowledgeBehaviorTrustArgs to ConvertedFrom)](types-a-c.md) | 73 sections |
+| [Types (CreateEntityArgs to ModelColliderKind)](types-c-m.md) | 92 sections |
+| [Types (ModelLodSettings to TerrainSplinesLayer)](types-m-t.md) | 101 sections |
+| [Types (TerrainStamp to WindOctave)](types-t-w.md) | 49 sections |
 | [Script API](script-api.md) | What a script exports, The context (`ctx`), Context members in full, `BehaviorPrepareConfig`, `BehaviorInstanceInfo` |
 | [Script API types (from `BehaviorContext`)](script-types-behavior-context.md) | 21 sections |
 | [Script API types (from `BehaviorMessages`)](script-types-behavior-messages.md) | 21 sections |
@@ -73,7 +73,7 @@ What the engine offers, generated from its source: the objects, components and c
 | [Limits and defaults: runtime](limits-runtime.md) | 27 sections |
 | [MCP tools (part 1, from tl_bake_lighting)](mcp-tools-1.md) | `tl_bake_lighting`, `tl_command` |
 | [MCP tools (part 2, from tl_command: Models, bulk creation, deleting, asset options, imports, labels, addresses, files)](mcp-tools-2.md) | 17 sections |
-| [MCP tools (part 3, from tl_command: Block layers: block types, the layer component, editBlocks, stamps)](mcp-tools-3.md) | `tl_content_job`, `tl_content_query`, `tl_content_upload`, `tl_diagnostics`, `tl_docs`, `tl_game_control`, `tl_game_observe` |
-| [MCP tools (part 4, from tl_input_exercise)](mcp-tools-4.md) | `tl_input_exercise`, `tl_inspect`, `tl_instance_buffer`, `tl_play_start`, `tl_play_stop`, `tl_playtest`, `tl_screenshot`, `tl_script_publish`, `tl_sessions` |
+| [MCP tools (part 3, from tl_command: Block layers: block types, the layer component, editBlocks, stamps)](mcp-tools-3.md) | `tl_content_job`, `tl_content_query`, `tl_content_upload`, `tl_diagnostics`, `tl_docs`, `tl_game_control` |
+| [MCP tools (part 4, from tl_game_observe)](mcp-tools-4.md) | `tl_game_observe`, `tl_input_exercise`, `tl_inspect`, `tl_instance_buffer`, `tl_play_start`, `tl_play_stop`, `tl_playtest`, `tl_screenshot`, `tl_script_publish`, `tl_sessions` |
 
 The topic kinds: `component`, `components`, `content`, `ctx`, `entity`, `graph`, `graphs`, `handles`, `limit`, `limits`, `node`, `op`, `ops`, `scene-environment`, `script-type`, `script`, `tool`, `type`, `ui`.

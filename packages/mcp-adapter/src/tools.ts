@@ -45,6 +45,8 @@ import {
   parseRelayUiEdges,
   relayFrameEnd,
   MUTATION_OPS as PROTOCOL_MUTATION_OPS,
+  VOXEL_WORLD_OPS,
+  isVoxelWorldOp,
 } from '@thirdlight/protocol';
 import {
   INSTANCE_FLOATS,
@@ -70,8 +72,8 @@ export interface ToolDefinition {
   readonly inputSchema: Record<string, unknown>;
 }
 
-// The protocol's op list (one list; a new op reaches MCP with it).
-const MUTATION_OPS = PROTOCOL_MUTATION_OPS;
+// The protocol's op lists (one list each; a new op reaches MCP with it). Voxel world ops ride the same route.
+const MUTATION_OPS = [...PROTOCOL_MUTATION_OPS, ...VOXEL_WORLD_OPS];
 const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets', 'queryPrefabs', 'queryBehaviors'] as const;
 /**
  * The tool's commands: the relay's closed set plus `signal`, which the tool
@@ -124,7 +126,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       properties: {
         op: { type: 'string', enum: [...MUTATION_OPS, 'stageScriptLibrary'] },
         args: { type: 'object' },
-        expectedRevision: { type: 'integer', minimum: 0, description: 'required for every op but stageScriptLibrary (which changes no revision)' },
+        expectedRevision: { type: 'integer', minimum: 0, description: 'required for every op but stageScriptLibrary (which changes no revision) and the voxel world ops editVoxels/undoVoxels (a world keeps its own revision)' },
         requestId: { type: 'string', pattern: '^req-[0-9a-f]{32}$' },
       },
       required: ['op'],
@@ -635,14 +637,16 @@ async function command(ctx: McpContext, a: Record<string, unknown>): Promise<Cal
   if (typeof op !== 'string' || !MUTATION_SET.has(op)) {
     return toolError(`op must be one of ${MUTATION_OPS.join(', ')}`);
   }
-  if (!isInt(a.expectedRevision) || a.expectedRevision < 0) {
+  // A voxel world keeps its own revision (the answer names it): the project's is neither needed nor sent.
+  const voxel = isVoxelWorldOp(op);
+  if (!voxel && (!isInt(a.expectedRevision) || a.expectedRevision < 0)) {
     return toolError('expectedRevision is required (an integer ≥ 0) for command submission');
   }
   const requestId = typeof a.requestId === 'string' ? a.requestId : makeRequestId();
   const envelope: Record<string, unknown> = {
     op,
     projectId: ctx.projectId,
-    expectedRevision: a.expectedRevision,
+    ...(voxel ? {} : { expectedRevision: a.expectedRevision }),
     requestId,
     origin: { kind: 'mcp', clientId: ctx.clientId },
   };

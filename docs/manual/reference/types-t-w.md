@@ -1,8 +1,149 @@
-# Types (TimelineKey to WindOctave)
+# Types (TerrainStamp to WindOctave)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-terrain-stamp"></a>
+### TerrainStamp
+
+Declared in `packages/project-model/src/terrain-layers.ts`.
+
+```ts
+/** One heightmap brush placed on the terrain. */
+interface TerrainStamp {
+  /** The texture asset whose first channel (16- or 8-bit PNG) is the shape. */
+  asset: string;
+  /** World centre (x, z). */
+  at: [number, number];
+  /** Metres along a side (the image is square on the ground whatever its pixels). */
+  size: number;
+  /** Degrees about +y (as an object's yaw; absent: 0). */
+  rotation?: number;
+  /** Metres the image's white stands for (negative digs); black is 0. */
+  height: number;
+  /** add (absent): raised by the shape; max: raised up to it; min: cut down to it. */
+  mode?: TerrainStampMode;
+  /** max/min: the world height of the shape's 0 (absent: the terrain object's y). */
+  y?: number;
+  /** The share of the side (0–0.5) over which the stamp fades in from its edges (absent: 0.15). */
+  falloff?: number;
+}
+```
+
+<a id="type-terrain-stamp-mode"></a>
+### TerrainStampMode
+
+Declared in `packages/project-model/src/terrain-layers.ts`.
+
+```ts
+type TerrainStampMode = 'add' | 'max' | 'min';
+```
+
+<a id="type-terrain-stamps-layer"></a>
+### TerrainStampsLayer
+
+Declared in `packages/project-model/src/terrain-layers.ts`.
+
+```ts
+interface TerrainStampsLayer extends LayerCommon {
+  kind: 'stamps';
+  /** Applied in order. */
+  stamps: TerrainStamp[];
+}
+```
+
+<a id="type-terrain-tile-ref"></a>
+### TerrainTileRef
+
+Declared in `packages/project-model/src/terrain.ts`.
+
+```ts
+/** One tile of the grid: its coordinates and, when it is not flat and bare, its data blob's digest. */
+interface TerrainTileRef {
+  x: number;
+  z: number;
+  /** SHA-256 of the tile's blob (absent: flat at 0 m, unpainted, no holes). */
+  data?: string;
+  /** SHA-256 of the tile's scatter blob: the scatter rules' copies on it and their hand edits (`terrain-scatter.ts`; absent: none). */
+  scatter?: string;
+  /**
+   * SHA-256 of the tile as sculpted and painted by hand, before the splines
+   * that reach it carved, flattened and painted it (`terrain-splines.ts`;
+   * absent: no spline or edit layer reaches it, `data` is the hand-made
+   * tile). Kept so a spline moved or a layer changed gives the ground back;
+   * never drawn or shipped.
+   */
+  base?: string;
+}
+```
+
+<a id="type-thermal-erosion"></a>
+### ThermalErosion
+
+Declared in `packages/project-model/src/terrain-erosion.ts`.
+
+```ts
+/** Thermal erosion's settings (absent fields take {@link THERMAL_DEFAULTS}). */
+interface ThermalErosion {
+  /** Passes over the rectangle. */
+  iterations?: number;
+  /** The angle of repose (degrees): steeper slopes shed ground. */
+  talus?: number;
+  /** The share of the excess a pass moves (0–1]. */
+  amount?: number;
+}
+```
+
+<a id="type-timeline-easings"></a>
+### TIMELINE_EASINGS
+
+Declared in `packages/project-model/src/timelines.ts`.
+
+```ts
+/** How a value moves from the previous key to this one (`step`: holds the previous value, then jumps). */
+const TIMELINE_EASINGS: readonly ["linear", "step", "easeIn", "easeOut", "easeInOut"];
+```
+
+<a id="type-timeline-track-types"></a>
+### TIMELINE_TRACK_TYPES
+
+Declared in `packages/project-model/src/timelines.ts`.
+
+```ts
+const TIMELINE_TRACK_TYPES: readonly ["camera", "transform", "animator", "audio", "dialogue", "effect", "activation", "signal", "fade", "letterbox", "wait", "material", "materialSwap", "environment", "mode", "character"];
+```
+
+<a id="type-timeline-asset"></a>
+### TimelineAsset
+
+Declared in `packages/project-model/src/timelines.ts`.
+
+```ts
+interface TimelineAsset {
+  timelineId: string;
+  name: string;
+  duration: number;
+  slots?: TimelineSlot[];
+  markers?: TimelineMarker[];
+  tracks: TimelineTrack[];
+  /** An input action that skips the timeline while it plays. */
+  skipAction?: string;
+  /** Plays when a run starts (default bindings). */
+  playOnStart?: boolean;
+  /** Plays when this signal fires (default bindings). */
+  playOnSignal?: string;
+}
+```
+
+<a id="type-timeline-easing"></a>
+### TimelineEasing
+
+Declared in `packages/project-model/src/timelines.ts`.
+
+```ts
+type TimelineEasing = (typeof TIMELINE_EASINGS)[number];
+```
 
 <a id="type-timeline-key"></a>
 ### TimelineKey
@@ -812,6 +953,15 @@ interface VertexPaintStroke {
   /** With `path`: the faces painted (left or right of travel, or the faces looking up or down). */
   side?: PathPaintSide;
 }
+```
+
+<a id="type-voxel-edit-command"></a>
+### VoxelEditCommand
+
+Declared in `packages/voxel/src/edit-command.ts`.
+
+```ts
+type VoxelEditCommand = BrushEdit | FillEdit | StampEdit | SetEdit | DigEdit;
 ```
 
 <a id="type-wind-config"></a>

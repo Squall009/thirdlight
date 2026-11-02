@@ -7,15 +7,17 @@
  * memory budget of one edit refused at once), files changed behind the
  * running backend's back (a git checkout) read again without a restart,
  * a released project's worlds read again, the backend restarted over the
- * same data root finding the edit in the files, and a region file the
+ * same data root finding the edit in the files, a region file the
  * manifest lists but that is gone reported as damaged (never air) while an
- * unlisted region reads as air.
+ * unlisted region reads as air, and MCP's tl_command sending the same voxel
+ * ops as the editor page (the same answer, the same files) while the
+ * project's editor learns of every change over its WebSocket feed.
  *
  * Chunks are read back the way a browser does: a region chunk source whose
  * byte source sends Range requests to the route, decoded into a store, and
  * compared with the same commands applied to a copy in this process.
  */
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createTestBackend, testTempBase } from '@thirdlight/backend/testing';
@@ -38,7 +40,12 @@ import {
   type PaletteStore,
 } from '@thirdlight/voxel';
 import { importRead, writeVoxelWorld } from '@thirdlight/workspace';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { WebSocket } from 'ws';
+import { BackendClient } from '../../../packages/mcp-adapter/src/backend-client';
+import { createMcpServer } from '../../../packages/mcp-adapter/src/server';
 import { flatGround, placeWallBeamBanister } from '../../../tools/voxel-bench/scenes';
 
 const ORIGIN = 'http://127.0.0.1:8501';
@@ -46,6 +53,8 @@ const TOKEN = 'voxel-authoring-token';
 const ADMIN = 'voxel-admin-token';
 const PROJECT = 'vox';
 const WORLD = 'w';
+/** A second world, edited only by the editor-feed test (the tests above count the first one's revisions). */
+const FEED_WORLD = 'feed';
 const grid = chunkGrid(32);
 const WORLD_ID = '00112233445566778899aabbccddeeff';
 
@@ -84,6 +93,7 @@ beforeAll(async () => {
   original = sceneStore();
   expected = sceneStore();
   writeVoxelWorld(join(dir, 'voxels', WORLD), { worldId: WORLD_ID, edge: 32, layout: 'stacked', footprint: 512 }, original);
+  writeVoxelWorld(join(dir, 'voxels', FEED_WORLD), { worldId: WORLD_ID, edge: 32, layout: 'stacked', footprint: 512 }, sceneStore());
 }, 60_000);
 
 afterAll(async () => {
@@ -97,8 +107,8 @@ const command = async (body: Record<string, unknown>, headers: Record<string, st
 };
 
 /** What the range route gives for these chunks, as the browser's chunk source reads them (only the files the world lists). */
-async function readRaw(chunks: readonly ChunkCoord[]): Promise<RegionChunkRead[]> {
-  const info = (await (await fetch(`${base()}/api/v1/projects/${PROJECT}/voxels/${WORLD}`, { headers: auth })).json()) as { manifest: { worldId: string }; files: Array<{ name: string }> };
+async function readRaw(chunks: readonly ChunkCoord[], world = WORLD): Promise<RegionChunkRead[]> {
+  const info = (await (await fetch(`${base()}/api/v1/projects/${PROJECT}/voxels/${world}`, { headers: auth })).json()) as { manifest: { worldId: string }; files: Array<{ name: string }> };
   const names = new Set(info.files.map((f) => f.name));
   const source = new RegionChunkSource({
     worldId: Uint8Array.from(info.manifest.worldId.match(/../g)!, (h) => parseInt(h, 16)),
@@ -111,7 +121,7 @@ async function readRaw(chunks: readonly ChunkCoord[]): Promise<RegionChunkRead[]
       names.has(name)
         ? {
             read: async (offset, length) => {
-              const r = await fetch(`${base()}/api/v1/projects/${PROJECT}/voxels/${WORLD}/regions/${name}`, { headers: { ...auth, range: `bytes=${offset}-${offset + length - 1}` } });
+              const r = await fetch(`${base()}/api/v1/projects/${PROJECT}/voxels/${world}/regions/${name}`, { headers: { ...auth, range: `bytes=${offset}-${offset + length - 1}` } });
               if (r.status === 416) return new Uint8Array(0);
               if (r.status !== 206) throw new Error(`HTTP ${r.status}`);
               return new Uint8Array(await r.arrayBuffer());
@@ -123,9 +133,9 @@ async function readRaw(chunks: readonly ChunkCoord[]): Promise<RegionChunkRead[]
 }
 
 /** Chunks read through the range route into a store. */
-async function readChunks(chunks: readonly ChunkCoord[]): Promise<PaletteStore> {
+async function readChunks(chunks: readonly ChunkCoord[], world = WORLD): Promise<PaletteStore> {
   const store = createWorldStore(grid);
-  for (const r of await readRaw(chunks)) {
+  for (const r of await readRaw(chunks, world)) {
     if (r.kind === 'damaged') throw new Error(r.reason);
     importRead(store, r);
   }
@@ -356,4 +366,91 @@ describe('voxel world routes', () => {
     expect(elsewhere.status, JSON.stringify(elsewhere.json)).toBe(200);
     expect((JSON.parse(readFileSync(join(worldDir, 'world.json'), 'utf8')) as { regions: string[] }).regions).toEqual(manifest.regions);
   }, 60_000);
+
+  it('MCP sends the voxel ops through tl_command as the editor page does (the same answer, the same files); the editor\'s feed tells of every change', async () => {
+    // The project's editor: a registered authoring session and its WebSocket.
+    const sessionId = `sess-${randomBytes(16).toString('hex')}`;
+    const est = await fetch(`${base()}/api/v1/sessions`, { method: 'POST', headers: { ...auth, origin: ORIGIN, 'content-type': 'application/json' }, body: JSON.stringify({ projectId: PROJECT, sessionId, clientInfo: { kind: 'browser', label: 'voxel-feed' } }) });
+    expect(est.status, await est.clone().text()).toBe(200);
+    const { wsToken } = (await est.json()) as { wsToken: string };
+    const ws = new WebSocket(`${base().replace('http', 'ws')}/api/v1/ws?sessionId=${sessionId}&wsToken=${wsToken}`, { headers: { Origin: ORIGIN } });
+    const feed: Array<Record<string, unknown>> = [];
+    ws.on('message', (data: Uint8Array) => feed.push(JSON.parse(new TextDecoder().decode(data)) as Record<string, unknown>));
+    await new Promise<void>((resolve, reject) => {
+      ws.on('open', () => resolve());
+      ws.on('error', reject);
+    });
+    const changes = (): Array<Record<string, unknown>> => feed.filter((e) => e.type === 'voxelsChanged');
+    const nthChange = async (n: number): Promise<Record<string, unknown>> => {
+      for (let t0 = performance.now(); changes().length < n && performance.now() - t0 < 5000; ) await new Promise((r) => setTimeout(r, 10));
+      expect(changes().length, JSON.stringify(feed)).toBeGreaterThanOrEqual(n);
+      return changes()[n - 1]!;
+    };
+    /** What the feed must carry of an answer: everything a view reads again by. */
+    const asFeed = (a: Record<string, unknown>, origin: unknown): Record<string, unknown> => ({ type: 'voxelsChanged', op: a.op, world: FEED_WORLD, revision: a.revision, chunks: a.chunks, box: a.box, parts: a.parts, files: a.files, requestId: a.requestId, origin });
+
+    // MCP: the real adapter (tool schema, envelope, origin) over an in-memory transport, against this backend.
+    const server = createMcpServer({ client: new BackendClient({ authoringOrigin: base(), token: TOKEN }), projectId: PROJECT, clientId: 'voxel-mcp' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    const mcp = new Client({ name: 'voxel-mcp-test', version: '0.1.0' });
+    await mcp.connect(clientTransport);
+    const tool = async (args: Record<string, unknown>): Promise<{ isError: boolean; body: Record<string, unknown> }> => {
+      const res = (await mcp.callTool({ name: 'tl_command', arguments: args })) as { isError?: boolean; content: Array<{ text: string }> };
+      const text = res.content[0]!.text;
+      return { isError: res.isError === true, body: (text.startsWith('{') ? JSON.parse(text) : { text }) as Record<string, unknown> };
+    };
+    try {
+      const { tools } = await mcp.listTools();
+      const opEnum = ((tools.find((t) => t.name === 'tl_command')!.inputSchema as { properties: { op: { enum: string[] } } }).properties.op.enum);
+      expect(opEnum).toEqual(expect.arrayContaining(['editVoxels', 'undoVoxels', 'createEntity']));
+
+      // The page's edit, sent as the page sends it, then taken back: the world as written again.
+      const page = await command({ op: 'editVoxels', projectId: PROJECT, requestId: rid(100), args: { world: FEED_WORLD, command: DIG } });
+      expect(page.status, JSON.stringify(page.json)).toBe(200);
+      expect(page.json).toMatchObject({ ok: true, revision: 1 });
+      expect(await nthChange(1)).toEqual(asFeed(page.json, null));
+      const pageUndo = await command({ op: 'undoVoxels', projectId: PROJECT, requestId: rid(101), args: { world: FEED_WORLD } });
+      expect(pageUndo.json).toMatchObject({ ok: true, revision: 2, undoable: 0 });
+      expect(await nthChange(2)).toEqual(asFeed(pageUndo.json, null));
+      expectSame(await readChunks(SCENE_CHUNKS, FEED_WORLD), sceneStore(), SCENE_CHUNKS);
+
+      // The same stroke through tl_command (no expectedRevision: a world keeps its own): the page's answer, the same file bytes.
+      const viaMcp = await tool({ op: 'editVoxels', args: { world: FEED_WORLD, command: DIG } });
+      expect(viaMcp.isError, JSON.stringify(viaMcp.body)).toBe(false);
+      expect(viaMcp.body).toMatchObject({ ok: true, op: 'editVoxels', revision: 3, undoable: 1, duplicated: false });
+      for (const k of ['cells', 'chunks', 'box', 'parts', 'files']) expect(viaMcp.body[k], k).toEqual(page.json[k]);
+      const oracle = sceneStore();
+      applyEdit({ store: () => oracle }, canonicalEditCommand(DIG));
+      expectSame(await readChunks(SCENE_CHUNKS, FEED_WORLD), oracle, SCENE_CHUNKS);
+      // The editor learns of it, named as MCP's.
+      expect(await nthChange(3)).toEqual(asFeed(viaMcp.body, { kind: 'mcp', clientId: 'voxel-mcp' }));
+
+      // A request id sent again answers the first answer and tells nobody twice; undo through MCP takes the stroke back.
+      const again = await tool({ op: 'editVoxels', requestId: viaMcp.body.requestId, args: { world: FEED_WORLD, command: DIG } });
+      expect(again.body).toMatchObject({ ok: true, revision: 3, duplicated: true });
+      const undo = await tool({ op: 'undoVoxels', args: { world: FEED_WORLD } });
+      expect(undo.body).toMatchObject({ ok: true, op: 'undoVoxels', revision: 4, undoable: 0, cells: page.json.cells });
+      expect(await nthChange(4)).toEqual(asFeed(undo.body, { kind: 'mcp', clientId: 'voxel-mcp' }));
+      expect(changes().map((e) => e.revision)).toEqual([1, 2, 3, 4]);
+      expectSame(await readChunks(SCENE_CHUNKS, FEED_WORLD), sceneStore(), SCENE_CHUNKS);
+
+      // Refusals come back as the backend's, and send nothing to the feed.
+      const none = await tool({ op: 'undoVoxels', args: { world: FEED_WORLD } });
+      expect(none.isError).toBe(true);
+      expect(JSON.stringify(none.body)).toContain('nothing_to_undo');
+      const badOrigin = await command({ op: 'editVoxels', projectId: PROJECT, origin: { kind: 'robot', clientId: 'x' }, args: { world: FEED_WORLD, command: DIG } });
+      expect(badOrigin.status).toBe(400);
+      expect(badOrigin.json.error).toMatchObject({ code: 'invalid_request', path: '/origin/kind' });
+      // The page's own session sends as a browser now that it is registered: the feed names it.
+      const browser = await command({ op: 'editVoxels', projectId: PROJECT, requestId: rid(102), origin: { kind: 'browser', clientId: sessionId }, args: { world: FEED_WORLD, command: DIG } });
+      expect(browser.json).toMatchObject({ ok: true, revision: 5 });
+      expect(await nthChange(5)).toEqual(asFeed(browser.json, { kind: 'browser', clientId: sessionId }));
+      expect(changes().length).toBe(5);
+    } finally {
+      await mcp.close();
+      await server.close();
+      ws.close();
+    }
+  });
 });

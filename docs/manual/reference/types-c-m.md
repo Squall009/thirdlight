@@ -1,8 +1,78 @@
-# Types (CreatePrefabVariantArgs to MsaaSamples)
+# Types (CreateEntityArgs to ModelColliderKind)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-create-entity-args"></a>
+### CreateEntityArgs
+
+Declared in `packages/commands/src/entity-types.ts`.
+
+```ts
+interface CreateEntityArgs {
+  /** `folder`: organisation only — no transform, box, model or components. */
+  kind: 'group' | 'box' | 'model' | 'folder';
+  parentId?: string | null;
+  name?: string;
+  /** The entity flags and tags, as `updateEntity` sets them (absent: active, visible, unlocked, not static, not kept loaded, no tags). */
+  active?: boolean;
+  visible?: boolean;
+  locked?: boolean;
+  static?: boolean;
+  keepLoaded?: boolean;
+  /** Tag names of the project's registry. */
+  tags?: string[];
+  transform?: PartialTransformArgs;
+  /** Only when `kind` is `"box"`. */
+  box?: BoxArgs;
+  /** Only when `kind` is `"model"` (required then). */
+  model?: ModelArgs;
+  /**
+   * The add-capable components created in the same transaction:
+   * `collider`, `controller`, `playerSpawn`, `light`, `surface`,
+   * `modelAnimation`; never `null`.
+   */
+  components?: Record<string, unknown>;
+  /** Copies a built-in preset row onto `components.surface`. */
+  surfacePreset?: SurfacePresetName;
+  /**
+   * `folder` only: objects created inside the new folder in the same
+   * transaction (one undo), e.g. every piece of a multi-piece model. Each is
+   * a `box`/`model`/`group` create without `parentId` or `children`.
+   */
+  children?: CreateEntityArgs[];
+}
+```
+
+<a id="type-create-folder-args"></a>
+### CreateFolderArgs
+
+Declared in `packages/commands/src/move-ops.ts`.
+
+```ts
+/** `createFolder` args: the folder to make (its parents are made too). */
+interface CreateFolderArgs {
+  folder: string;
+}
+```
+
+<a id="type-create-prefab-args"></a>
+### CreatePrefabArgs
+
+Declared in `packages/commands/src/types.ts`.
+
+```ts
+/** `createPrefab` args. */
+interface CreatePrefabArgs {
+  /** ID syntax; not already in `content.prefabs`. */
+  prefabId: string;
+  /** 1–128 chars, no control characters. */
+  displayName: string;
+  /** Existing entity ID in the current scene. */
+  sourceEntityId: string;
+}
+```
 
 <a id="type-create-prefab-variant-args"></a>
 ### CreatePrefabVariantArgs
@@ -188,6 +258,19 @@ interface DialogueSpeaker {
 }
 ```
 
+<a id="type-dig-edit"></a>
+### DigEdit
+
+Declared in `packages/voxel/src/edit-command.ts`.
+
+```ts
+/** Cells emptied (the runtime's dig). */
+interface DigEdit extends EditBase {
+  readonly kind: 'dig';
+  readonly cells: readonly number[];
+}
+```
+
 <a id="type-edges-edit"></a>
 ### EdgesEdit
 
@@ -202,6 +285,37 @@ interface EdgesEdit {
   edge: BlockEdge | null;
   mode?: 'set' | 'keep';
 }
+```
+
+<a id="type-edit-base"></a>
+### EditBase
+
+Declared in `packages/voxel/src/edit-command.ts`.
+
+```ts
+interface EditBase {
+  readonly v: 2;
+  /** The grid edited: 0 the world grid, else a structure's own grid. */
+  readonly grid: number;
+}
+```
+
+<a id="type-edit-mode"></a>
+### EditMode
+
+Declared in `packages/voxel/src/edit-command.ts`.
+
+```ts
+/**
+ * What a stroke does to the cells it covers:
+ * - `place` writes its voxel whatever was there;
+ * - `add` writes only into air or liquid (and, when smooth, grows a cell of
+ *   its own material), never replacing other solid voxels;
+ * - `dig` removes (when smooth, lowers the density, emptying a cell to air);
+ * - `paint` changes material, role and wetness of non-air cells and keeps
+ *   their shape.
+ */
+type EditMode = 'place' | 'add' | 'dig' | 'paint';
 ```
 
 <a id="type-edit-terrain-args"></a>
@@ -271,6 +385,20 @@ Declared in `packages/commands/src/terrain-ops.ts`.
 
 ```ts
 type EditTerrainKind = TerrainSculptKind | 'ramp' | 'paint' | 'holes' | 'import' | 'fromBlocks' | 'bake' | 'scatter' | 'erode' | 'addTiles';
+```
+
+<a id="type-edit-voxel"></a>
+### EditVoxel
+
+Declared in `packages/voxel/src/edit-command.ts`.
+
+```ts
+/** The voxel a stroke writes: its shape comes from the stroke (full, or its coverage when smooth). */
+interface EditVoxel {
+  readonly material: number;
+  readonly role: number;
+  readonly wetness: number;
+}
 ```
 
 <a id="type-effect-parameter-types"></a>
@@ -543,6 +671,22 @@ interface EventCue {
   bus?: (typeof EVENT_CUE_BUSES)[number];
   /** How late (ms) it may still start when its file is not ready yet; later it is dropped (absent: the engine's default). */
   maxLateMs?: number;
+}
+```
+
+<a id="type-fill-edit"></a>
+### FillEdit
+
+Declared in `packages/voxel/src/edit-command.ts`.
+
+```ts
+/** A box of whole cells, both corners inclusive. */
+interface FillEdit extends EditBase {
+  readonly kind: 'fill';
+  readonly min: readonly [number, number, number];
+  readonly max: readonly [number, number, number];
+  readonly mode: EditMode;
+  readonly voxel?: EditVoxel;
 }
 ```
 
@@ -1485,139 +1629,4 @@ Declared in `packages/project-model/src/model-collision.ts`.
  * polygon prism; or a compound of the collision node's convex parts.
  */
 type ModelColliderKind = 'box' | 'convex' | 'mesh' | 'polygon' | 'compound';
-```
-
-<a id="type-model-lod-settings"></a>
-### ModelLodSettings
-
-Declared in `packages/project-model/src/model-lod.ts`.
-
-```ts
-/** A model's LOD group settings (its import settings). */
-interface ModelLodSettings {
-  /** Below `screenSizes[i]` level i+1 takes over (decreasing, each in (0, 1]). */
-  screenSizes?: number[];
-  /** Below this screen size the model is not drawn (0: always drawn). */
-  cullSize?: number;
-}
-```
-
-<a id="type-model-occluder-mode"></a>
-### ModelOccluderMode
-
-Declared in `packages/project-model/src/model-occluders.ts`.
-
-```ts
-type ModelOccluderMode = (typeof MODEL_OCCLUDER_MODES)[number];
-```
-
-<a id="type-mode-physics"></a>
-### ModePhysics
-
-Declared in `packages/project-model/src/modes.ts`.
-
-```ts
-type ModePhysics = 'run' | 'hold';
-```
-
-<a id="type-mode-transition"></a>
-### ModeTransition
-
-Declared in `packages/project-model/src/modes.ts`.
-
-```ts
-/**
- * How a switch looks: the camera blend into the mode's camera and an
- * optional overlay document (a fade panel: its own show/hide tweens are the
- * fade) shown for `fadeTime` seconds from the switch.
- */
-interface ModeTransition {
-  /** The camera blend (absent: the incoming camera's own blend). */
-  blend?: ModeBlend;
-  /** Seconds of the camera blend (0–30; absent: the camera's own). */
-  blendTime?: number;
-  /** A UI document shown for `fadeTime` seconds from the switch (its show/hide tweens make the fade). */
-  fade?: string;
-  /** Seconds the fade document stays (0.05–10; default 0.5). */
-  fadeTime?: number;
-}
-```
-
-<a id="type-mode-ungrouped"></a>
-### ModeUngrouped
-
-Declared in `packages/project-model/src/modes.ts`.
-
-```ts
-type ModeUngrouped = 'tick' | 'pause';
-```
-
-<a id="type-move-entities-args"></a>
-### MoveEntitiesArgs
-
-Declared in `packages/commands/src/types.ts`.
-
-```ts
-/**
- * `moveEntities`: any number of entities (one request's bytes), moved with their subtrees
- * under `parentId` (null = root), just before the sibling `beforeId` or
- * (absent/null) after the parent's last child. World transforms are kept.
- */
-interface MoveEntitiesArgs {
-  entityIds: string[];
-  parentId: string | null;
-  beforeId?: string | null;
-  /** Another scene to move them into (the host gives the command that scene as `otherScene`). */
-  sceneId?: string;
-}
-```
-
-<a id="type-move-item-ref"></a>
-### MoveItemRef
-
-Declared in `packages/commands/src/move-ops.ts`.
-
-```ts
-/** An item a move names: an asset (`asset` or its own kind), a resource kind, or `scene`. */
-interface MoveItemRef {
-  kind: string;
-  id: string;
-}
-```
-
-<a id="type-move-resources-args"></a>
-### MoveResourcesArgs
-
-Declared in `packages/commands/src/move-ops.ts`.
-
-```ts
-/** `moveResources` args: the items and folders moved into `to` (a folder of the game folder; `""`: its top). */
-interface MoveResourcesArgs {
-  items?: MoveItemRef[];
-  folders?: string[];
-  to: string;
-}
-```
-
-<a id="type-msaa-sample-counts"></a>
-### MSAA_SAMPLE_COUNTS
-
-Declared in `packages/project-model/src/quality-levels.ts`.
-
-```ts
-/**
- * MSAA sample counts a level may ask for. WebGPU multisamples only at 1 or 4
- * samples (its render targets take no other count), so 4 is the one count
- * both renderers draw; 0 draws without MSAA.
- */
-const MSAA_SAMPLE_COUNTS: readonly [0, 4];
-```
-
-<a id="type-msaa-samples"></a>
-### MsaaSamples
-
-Declared in `packages/project-model/src/quality-levels.ts`.
-
-```ts
-type MsaaSamples = (typeof MSAA_SAMPLE_COUNTS)[number];
 ```

@@ -15,7 +15,7 @@ function isWorkspaceSource(fileName) {
   return fileName.includes('/packages/') && !fileName.includes('/node_modules/') && !fileName.endsWith('.d.ts');
 }
 
-export function createModelProgram(root, packages) {
+export function createModelProgram(root, packages, files = []) {
   const options = {
     target: ts.ScriptTarget.ES2022,
     module: ts.ModuleKind.ESNext,
@@ -26,7 +26,7 @@ export function createModelProgram(root, packages) {
     types: [],
   };
   return ts.createProgram(
-    packages.map((p) => join(root, 'packages', p, 'src', 'index.ts')),
+    [...packages.map((p) => join(root, 'packages', p, 'src', 'index.ts')), ...files.map((f) => join(root, f))],
     options,
   );
 }
@@ -153,24 +153,25 @@ export function typeCollector(program, root) {
 /**
  * Every op's request arguments: `{ op → { argsText, argsName?, types } }`;
  * the types the shapes name go to the collector. An op in `ops` without a
- * member in the union throws.
+ * member in the union throws. The union is the validator's unless another
+ * (an op family applied outside the project pipeline) is named.
  */
-export function opShapes(program, root, ops, collector) {
+export function opShapes(program, root, ops, collector, { file: unionFile, union: unionName } = { file: OP_UNION_FILE, union: OP_UNION }) {
   const checker = collector.checker;
-  const file = program.getSourceFile(join(root, OP_UNION_FILE));
-  if (file === undefined) throw new Error(`gen-reference: ${OP_UNION_FILE} is not in the program`);
+  const file = program.getSourceFile(join(root, unionFile));
+  if (file === undefined) throw new Error(`gen-reference: ${unionFile} is not in the program`);
   let union;
   ts.forEachChild(file, (n) => {
-    if (ts.isTypeAliasDeclaration(n) && n.name.text === OP_UNION) union = n;
+    if (ts.isTypeAliasDeclaration(n) && n.name.text === unionName) union = n;
   });
-  if (union === undefined || !ts.isUnionTypeNode(union.type)) throw new Error(`gen-reference: ${OP_UNION} (a union) not found in ${OP_UNION_FILE}`);
+  if (union === undefined || !ts.isUnionTypeNode(union.type)) throw new Error(`gen-reference: ${unionName} (a union) not found in ${unionFile}`);
   const byOp = new Map();
   for (const member of union.type.types) {
-    if (!ts.isTypeLiteralNode(member)) throw new Error(`gen-reference: a ${OP_UNION} member is not an object type: ${member.getText()}`);
+    if (!ts.isTypeLiteralNode(member)) throw new Error(`gen-reference: a ${unionName} member is not an object type: ${member.getText()}`);
     const prop = (name) => member.members.find((m) => ts.isPropertySignature(m) && m.name.getText() === name);
     const opNode = prop('op')?.type;
     const argsNode = prop('args')?.type;
-    if (opNode === undefined || argsNode === undefined) throw new Error(`gen-reference: a ${OP_UNION} member lacks op or args: ${member.getText()}`);
+    if (opNode === undefined || argsNode === undefined) throw new Error(`gen-reference: a ${unionName} member lacks op or args: ${member.getText()}`);
     const literals = ts.isUnionTypeNode(opNode) ? opNode.types : [opNode];
     for (const lit of literals) {
       if (!ts.isLiteralTypeNode(lit) || !ts.isStringLiteral(lit.literal)) throw new Error(`gen-reference: op is not a string literal: ${lit.getText()}`);
@@ -179,7 +180,7 @@ export function opShapes(program, root, ops, collector) {
     }
   }
   const missing = ops.filter((op) => !byOp.has(op));
-  if (missing.length > 0) throw new Error(`gen-reference: ops without a ${OP_UNION} member (their request shape is unknown): ${missing.join(', ')}`);
+  if (missing.length > 0) throw new Error(`gen-reference: ops without a ${unionName} member (their request shape is unknown): ${missing.join(', ')}`);
   const out = {};
   for (const op of ops) {
     const node = byOp.get(op);

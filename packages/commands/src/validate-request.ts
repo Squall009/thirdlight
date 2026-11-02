@@ -371,49 +371,9 @@ function validateEnvelope(
   }
   let origin: Origin | null = null;
   if (req['origin'] !== undefined) {
-    const o = req['origin'];
-    if (!isPlainObjectStrict(o)) {
-      return {
-        ok: false,
-        error: invalidRequest('/origin', o, EXPECT.origin, 'origin must be an object { kind, clientId }'),
-      };
-    }
-    for (const key of Object.keys(o)) {
-      if (key !== 'kind' && key !== 'clientId') {
-        return {
-          ok: false,
-          error: invalidRequest(
-            `/origin/${pointerSegment(key)}`,
-            key,
-            'known fields: kind, clientId',
-            'unknown field is not permitted (strict M1 origin)',
-          ),
-        };
-      }
-    }
-    if (typeof o['kind'] !== 'string' || !(ORIGIN_KINDS as readonly string[]).includes(o['kind'])) {
-      return {
-        ok: false,
-        error: invalidRequest(
-          '/origin/kind',
-          o['kind'],
-          'one of: browser, mcp, admin',
-          'origin.kind must be one of browser, mcp, admin',
-        ),
-      };
-    }
-    if (typeof o['clientId'] !== 'string' || !isValidName(o['clientId'])) {
-      return {
-        ok: false,
-        error: invalidRequest(
-          '/origin/clientId',
-          o['clientId'],
-          'string, 1-128 chars, no control characters',
-          'origin.clientId must be 1-128 characters without control characters',
-        ),
-      };
-    }
-    origin = { kind: o['kind'] as Origin['kind'], clientId: o['clientId'] };
+    const parsed = parseOrigin(req['origin']);
+    if (!parsed.ok) return parsed;
+    origin = parsed.origin;
   }
   if (req['args'] === undefined) {
     return {
@@ -1116,4 +1076,53 @@ export function echoField(
 ): { present: true; value: string } | { present: false } {
   if (typeof raw !== 'string') return { present: false };
   return { present: true, value: raw.length > cap ? raw.slice(0, cap) : raw };
+}
+
+/**
+ * A command envelope's `origin` (who sent it), strict: every command that
+ * names one, whichever part of the backend applies it, takes it through here.
+ */
+export function parseOrigin(o: unknown): { ok: true; origin: Origin } | { ok: false; error: CommandError } {
+  if (!isPlainObjectStrict(o)) {
+    return {
+      ok: false,
+      error: invalidRequest('/origin', o, EXPECT.origin, 'origin must be an object { kind, clientId }'),
+    };
+  }
+  for (const key of Object.keys(o)) {
+    if (key !== 'kind' && key !== 'clientId') {
+      return {
+        ok: false,
+        error: invalidRequest(
+          `/origin/${pointerSegment(key)}`,
+          key,
+          'known fields: kind, clientId',
+          'unknown field is not permitted (strict M1 origin)',
+        ),
+      };
+    }
+  }
+  if (typeof o['kind'] !== 'string' || !(ORIGIN_KINDS as readonly string[]).includes(o['kind'])) {
+    return {
+      ok: false,
+      error: invalidRequest(
+        '/origin/kind',
+        o['kind'],
+        'one of: browser, mcp, admin',
+        'origin.kind must be one of browser, mcp, admin',
+      ),
+    };
+  }
+  if (typeof o['clientId'] !== 'string' || !isValidName(o['clientId'])) {
+    return {
+      ok: false,
+      error: invalidRequest(
+        '/origin/clientId',
+        o['clientId'],
+        'string, 1-128 chars, no control characters',
+        'origin.clientId must be 1-128 characters without control characters',
+      ),
+    };
+  }
+  return { ok: true, origin: { kind: o['kind'] as Origin['kind'], clientId: o['clientId'] } };
 }

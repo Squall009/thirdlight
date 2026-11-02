@@ -1,20 +1,29 @@
 /**
  * Reference pages for the command ops: every op the validator accepts
- * (`MUTATION_OPS`), its request arguments as the validator's per-op union
+ * (`MUTATION_OPS`) and the voxel world ops (`VOXEL_WORLD_OPS`), its request arguments as the validator's per-op union
  * types them (plus the scene a creating op names, which the workspace reads
  * before the validator) and the content block it writes; and the type pages: the
  * declarations those argument shapes and the descriptors' JSON shapes name.
  */
 import { code, fence, page, ref, section, splitPages, table, typeId } from './markdown.mjs';
 
-export function opPages(ops, types, mutationOps, descriptors, envelope, routing) {
+/** What every voxel world op's section says first: where it applies and what differs from a project op. */
+const VOXEL_OP_NOTE =
+  'A voxel world op: it rides the same command route and envelope (the editor and MCP send it alike) but changes the voxel world `args.world` ' +
+  '(its files under `voxels/<world>/`), not the project, so it takes no `expectedRevision` and the project\'s `undo` does not take it back (`undoVoxels` does). ' +
+  'It answers the world\'s new revision, the changed chunks, the box of cells it can have touched and the derived parts made stale; ' +
+  'the connected editor gets the same as a `voxelsChanged` event. A stroke that changes no voxel is refused with `no_change`.';
+
+export function opPages(ops, types, opLists, descriptors, envelope, routing) {
   const writes = new Map();
   for (const b of descriptors.content) for (const op of b.ops) writes.set(op, [...(writes.get(op) ?? []), b.key]);
-  const sorted = [...mutationOps].sort((a, b) => a.localeCompare(b));
+  const voxelOps = new Set(opLists.voxel);
+  const sorted = [...opLists.project, ...opLists.voxel].sort((a, b) => a.localeCompare(b));
 
   const opSection = (op) => {
     const o = ops[op];
     const lines = [];
+    if (voxelOps.has(op)) lines.push(VOXEL_OP_NOTE, '');
     const w = writes.get(op);
     if (w !== undefined) lines.push(`Writes: ${w.map((k) => ref(`content-${k}`, code(`content.${k}`))).join(', ')}.`, '');
     lines.push('Arguments (`args`):', '');

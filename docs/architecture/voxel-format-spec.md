@@ -184,7 +184,7 @@ lighting chosen performance first (46e).
 **Open, and not part of v1 yet:**
 - dependencies across grids (M7): the job contract's keys, aprons and invalidation are per grid (§3.6 open contract
   gap, with the planned design, before 47a);
-- voxel commands on MCP (D433) and Rapier memory in the budget (D434): later work;
+- Rapier memory in the budget (D434): later work (voxel commands on MCP, D433, are built: 46a.1, no format change);
 - shoreline cells that are both ground and water (O15): the first candidate for the reserved bits;
 - a sparse GPU form of the shader data (§3.7: 3–6× smaller than the dense grids, one more read per corner),
   measured but not built.

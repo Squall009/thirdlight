@@ -1,8 +1,143 @@
-# Types (OCCLUSION_CULLING_MODES to TimelineEasing)
+# Types (ModelLodSettings to TerrainSplinesLayer)
 
 _Generated from the engine source by `node tools/gen-reference.mjs`; do not edit by hand._
 
 The declarations the ops' arguments and the JSON-valued fields name, as the source declares them (doc comments included).
+
+<a id="type-model-lod-settings"></a>
+### ModelLodSettings
+
+Declared in `packages/project-model/src/model-lod.ts`.
+
+```ts
+/** A model's LOD group settings (its import settings). */
+interface ModelLodSettings {
+  /** Below `screenSizes[i]` level i+1 takes over (decreasing, each in (0, 1]). */
+  screenSizes?: number[];
+  /** Below this screen size the model is not drawn (0: always drawn). */
+  cullSize?: number;
+}
+```
+
+<a id="type-model-occluder-mode"></a>
+### ModelOccluderMode
+
+Declared in `packages/project-model/src/model-occluders.ts`.
+
+```ts
+type ModelOccluderMode = (typeof MODEL_OCCLUDER_MODES)[number];
+```
+
+<a id="type-mode-physics"></a>
+### ModePhysics
+
+Declared in `packages/project-model/src/modes.ts`.
+
+```ts
+type ModePhysics = 'run' | 'hold';
+```
+
+<a id="type-mode-transition"></a>
+### ModeTransition
+
+Declared in `packages/project-model/src/modes.ts`.
+
+```ts
+/**
+ * How a switch looks: the camera blend into the mode's camera and an
+ * optional overlay document (a fade panel: its own show/hide tweens are the
+ * fade) shown for `fadeTime` seconds from the switch.
+ */
+interface ModeTransition {
+  /** The camera blend (absent: the incoming camera's own blend). */
+  blend?: ModeBlend;
+  /** Seconds of the camera blend (0–30; absent: the camera's own). */
+  blendTime?: number;
+  /** A UI document shown for `fadeTime` seconds from the switch (its show/hide tweens make the fade). */
+  fade?: string;
+  /** Seconds the fade document stays (0.05–10; default 0.5). */
+  fadeTime?: number;
+}
+```
+
+<a id="type-mode-ungrouped"></a>
+### ModeUngrouped
+
+Declared in `packages/project-model/src/modes.ts`.
+
+```ts
+type ModeUngrouped = 'tick' | 'pause';
+```
+
+<a id="type-move-entities-args"></a>
+### MoveEntitiesArgs
+
+Declared in `packages/commands/src/types.ts`.
+
+```ts
+/**
+ * `moveEntities`: any number of entities (one request's bytes), moved with their subtrees
+ * under `parentId` (null = root), just before the sibling `beforeId` or
+ * (absent/null) after the parent's last child. World transforms are kept.
+ */
+interface MoveEntitiesArgs {
+  entityIds: string[];
+  parentId: string | null;
+  beforeId?: string | null;
+  /** Another scene to move them into (the host gives the command that scene as `otherScene`). */
+  sceneId?: string;
+}
+```
+
+<a id="type-move-item-ref"></a>
+### MoveItemRef
+
+Declared in `packages/commands/src/move-ops.ts`.
+
+```ts
+/** An item a move names: an asset (`asset` or its own kind), a resource kind, or `scene`. */
+interface MoveItemRef {
+  kind: string;
+  id: string;
+}
+```
+
+<a id="type-move-resources-args"></a>
+### MoveResourcesArgs
+
+Declared in `packages/commands/src/move-ops.ts`.
+
+```ts
+/** `moveResources` args: the items and folders moved into `to` (a folder of the game folder; `""`: its top). */
+interface MoveResourcesArgs {
+  items?: MoveItemRef[];
+  folders?: string[];
+  to: string;
+}
+```
+
+<a id="type-msaa-sample-counts"></a>
+### MSAA_SAMPLE_COUNTS
+
+Declared in `packages/project-model/src/quality-levels.ts`.
+
+```ts
+/**
+ * MSAA sample counts a level may ask for. WebGPU multisamples only at 1 or 4
+ * samples (its render targets take no other count), so 4 is the one count
+ * both renderers draw; 0 draws without MSAA.
+ */
+const MSAA_SAMPLE_COUNTS: readonly [0, 4];
+```
+
+<a id="type-msaa-samples"></a>
+### MsaaSamples
+
+Declared in `packages/project-model/src/quality-levels.ts`.
+
+```ts
+type MsaaSamples = (typeof MSAA_SAMPLE_COUNTS)[number];
+```
 
 <a id="type-occlusion-culling-modes"></a>
 ### OCCLUSION_CULLING_MODES
@@ -1023,6 +1158,21 @@ interface SetComponentArgs {
 }
 ```
 
+<a id="type-set-edit"></a>
+### SetEdit
+
+Declared in `packages/voxel/src/edit-command.ts`.
+
+```ts
+/** Cells set exactly (the runtime's set: one command per gameplay action). */
+interface SetEdit extends EditBase {
+  readonly kind: 'set';
+  /** Cells, x y z flat, integers. */
+  readonly cells: readonly number[];
+  readonly voxel: SetVoxel;
+}
+```
+
 <a id="type-set-labels-args"></a>
 ### SetLabelsArgs
 
@@ -1147,6 +1297,18 @@ interface SetTransformArgs {
 }
 ```
 
+<a id="type-set-voxel"></a>
+### SetVoxel
+
+Declared in `packages/voxel/src/edit-command.ts`.
+
+```ts
+/** A voxel written exactly, shape included (runtime set). */
+interface SetVoxel extends EditVoxel {
+  readonly shape: number;
+}
+```
+
 <a id="type-shell-screens"></a>
 ### SHELL_SCREENS
 
@@ -1235,6 +1397,30 @@ interface SkyConfig {
   intensity?: number;
   /** Image-based lighting strength from the sky (0 = none). */
   environmentIntensity?: number;
+}
+```
+
+<a id="type-stamp-edit"></a>
+### StampEdit
+
+Declared in `packages/voxel/src/edit-command.ts`.
+
+```ts
+/**
+ * A voxelized mesh placed with a transform: world = origin + scale × yaw(local),
+ * yaw about the vertical axis given as [cos, sin] (resolved by the tool).
+ * `stamp.hash` names the exact shape (stampShapeHash), so a changed stamp
+ * asset is refused rather than silently giving different voxels.
+ */
+interface StampEdit extends EditBase {
+  readonly kind: 'stamp';
+  readonly stamp: { readonly id: string; readonly hash: string };
+  readonly origin: readonly [number, number, number];
+  readonly yaw: readonly [number, number];
+  readonly scale: number;
+  readonly mode: EditMode;
+  readonly voxel?: EditVoxel;
+  readonly smooth: boolean;
 }
 ```
 
@@ -1425,145 +1611,4 @@ Declared in `packages/project-model/src/terrain-layers.ts`.
 interface TerrainSplinesLayer extends LayerCommon {
   kind: 'splines';
 }
-```
-
-<a id="type-terrain-stamp"></a>
-### TerrainStamp
-
-Declared in `packages/project-model/src/terrain-layers.ts`.
-
-```ts
-/** One heightmap brush placed on the terrain. */
-interface TerrainStamp {
-  /** The texture asset whose first channel (16- or 8-bit PNG) is the shape. */
-  asset: string;
-  /** World centre (x, z). */
-  at: [number, number];
-  /** Metres along a side (the image is square on the ground whatever its pixels). */
-  size: number;
-  /** Degrees about +y (as an object's yaw; absent: 0). */
-  rotation?: number;
-  /** Metres the image's white stands for (negative digs); black is 0. */
-  height: number;
-  /** add (absent): raised by the shape; max: raised up to it; min: cut down to it. */
-  mode?: TerrainStampMode;
-  /** max/min: the world height of the shape's 0 (absent: the terrain object's y). */
-  y?: number;
-  /** The share of the side (0–0.5) over which the stamp fades in from its edges (absent: 0.15). */
-  falloff?: number;
-}
-```
-
-<a id="type-terrain-stamp-mode"></a>
-### TerrainStampMode
-
-Declared in `packages/project-model/src/terrain-layers.ts`.
-
-```ts
-type TerrainStampMode = 'add' | 'max' | 'min';
-```
-
-<a id="type-terrain-stamps-layer"></a>
-### TerrainStampsLayer
-
-Declared in `packages/project-model/src/terrain-layers.ts`.
-
-```ts
-interface TerrainStampsLayer extends LayerCommon {
-  kind: 'stamps';
-  /** Applied in order. */
-  stamps: TerrainStamp[];
-}
-```
-
-<a id="type-terrain-tile-ref"></a>
-### TerrainTileRef
-
-Declared in `packages/project-model/src/terrain.ts`.
-
-```ts
-/** One tile of the grid: its coordinates and, when it is not flat and bare, its data blob's digest. */
-interface TerrainTileRef {
-  x: number;
-  z: number;
-  /** SHA-256 of the tile's blob (absent: flat at 0 m, unpainted, no holes). */
-  data?: string;
-  /** SHA-256 of the tile's scatter blob: the scatter rules' copies on it and their hand edits (`terrain-scatter.ts`; absent: none). */
-  scatter?: string;
-  /**
-   * SHA-256 of the tile as sculpted and painted by hand, before the splines
-   * that reach it carved, flattened and painted it (`terrain-splines.ts`;
-   * absent: no spline or edit layer reaches it, `data` is the hand-made
-   * tile). Kept so a spline moved or a layer changed gives the ground back;
-   * never drawn or shipped.
-   */
-  base?: string;
-}
-```
-
-<a id="type-thermal-erosion"></a>
-### ThermalErosion
-
-Declared in `packages/project-model/src/terrain-erosion.ts`.
-
-```ts
-/** Thermal erosion's settings (absent fields take {@link THERMAL_DEFAULTS}). */
-interface ThermalErosion {
-  /** Passes over the rectangle. */
-  iterations?: number;
-  /** The angle of repose (degrees): steeper slopes shed ground. */
-  talus?: number;
-  /** The share of the excess a pass moves (0–1]. */
-  amount?: number;
-}
-```
-
-<a id="type-timeline-easings"></a>
-### TIMELINE_EASINGS
-
-Declared in `packages/project-model/src/timelines.ts`.
-
-```ts
-/** How a value moves from the previous key to this one (`step`: holds the previous value, then jumps). */
-const TIMELINE_EASINGS: readonly ["linear", "step", "easeIn", "easeOut", "easeInOut"];
-```
-
-<a id="type-timeline-track-types"></a>
-### TIMELINE_TRACK_TYPES
-
-Declared in `packages/project-model/src/timelines.ts`.
-
-```ts
-const TIMELINE_TRACK_TYPES: readonly ["camera", "transform", "animator", "audio", "dialogue", "effect", "activation", "signal", "fade", "letterbox", "wait", "material", "materialSwap", "environment", "mode", "character"];
-```
-
-<a id="type-timeline-asset"></a>
-### TimelineAsset
-
-Declared in `packages/project-model/src/timelines.ts`.
-
-```ts
-interface TimelineAsset {
-  timelineId: string;
-  name: string;
-  duration: number;
-  slots?: TimelineSlot[];
-  markers?: TimelineMarker[];
-  tracks: TimelineTrack[];
-  /** An input action that skips the timeline while it plays. */
-  skipAction?: string;
-  /** Plays when a run starts (default bindings). */
-  playOnStart?: boolean;
-  /** Plays when this signal fires (default bindings). */
-  playOnSignal?: string;
-}
-```
-
-<a id="type-timeline-easing"></a>
-### TimelineEasing
-
-Declared in `packages/project-model/src/timelines.ts`.
-
-```ts
-type TimelineEasing = (typeof TIMELINE_EASINGS)[number];
 ```

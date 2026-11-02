@@ -4,8 +4,8 @@ import type { HeadlessEditors } from './headless';
 import type { ErosionRunner } from './erosion-runner';
 import { randomBytes } from 'node:crypto';
 import { type IncomingMessage, type ServerResponse } from 'node:http';
-import { parseCommandEnvelope, parseEstablishRequest, parseStrictJsonBytes, sessionError, statusFor, isMutationOp, withBoundedAssembled, type SessionError } from '@thirdlight/protocol';
-import { isVoxelWorldOp, type CommandError, type QueryResult, type WorkspaceService } from '@thirdlight/workspace';
+import { parseCommandEnvelope, parseEstablishRequest, parseStrictJsonBytes, sessionError, statusFor, isMutationOp, isVoxelWorldOp, withBoundedAssembled, type SessionError } from '@thirdlight/protocol';
+import { type CommandError, type QueryResult, type WorkspaceService } from '@thirdlight/workspace';
 import { SessionRegistry, type SessionRecord } from './sessions';
 
 import { SESSION_LIST_MAX, newConnId, newWsToken, type OriginDoc } from './util';

@@ -44,6 +44,8 @@ export const SERVER_EVENT_TYPES = [
   'game.observe.request',
   // "Bake lighting" of a scene, asked of the project's editor (an agent's tl_bake_lighting).
   'lighting.bake.request',
+  // A voxel world edit or undo applied (from any client): what the other open clients read again.
+  'voxelsChanged',
   'error',
 ] as const;
 export type ServerEventType = (typeof SERVER_EVENT_TYPES)[number];
@@ -152,6 +154,29 @@ export function makeMutationApplied(payload: {
     origin: payload.origin,
     change: payload.change,
   });
+}
+
+/** A voxel world change as `voxelsChanged` carries it: the applied command's answer, without its timings and counters. */
+export interface VoxelsChangedPayload {
+  op: string;
+  world: string;
+  /** The world's revision after the change (a client holding an older one missed nothing else when it is one less). */
+  revision: number;
+  /** The chunks whose content changed ([cx, cy, cz]): what a client re-reads. */
+  chunks: ReadonlyArray<readonly [number, number, number]>;
+  /** The cells the change can have touched (inclusive): what a client derives again around. */
+  box: { minX: number; minY: number; minZ: number; maxX: number; maxY: number; maxZ: number };
+  /** The derived parts made stale (the voxel package's DERIVED_PART bits). */
+  parts: number;
+  /** The region files rewritten, with their new entity tags (null: the file is gone). */
+  files: ReadonlyArray<{ name: string; etag: string | null }>;
+  /** The command's request id, so the client that sent it can tell its own change. */
+  requestId: string | null;
+  origin: Origin | null;
+}
+
+export function makeVoxelsChanged(p: VoxelsChangedPayload): string {
+  return emit({ type: 'voxelsChanged', op: p.op, world: p.world, revision: p.revision, chunks: p.chunks, box: p.box, parts: p.parts, files: p.files, requestId: p.requestId, origin: p.origin });
 }
 
 /**

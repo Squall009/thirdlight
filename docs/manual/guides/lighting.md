@@ -72,7 +72,7 @@ Everything the editor does, the bake included:
   `lightLayers` mask (bit n = layer n + 1).
 - Quality levels: [`setEnvironment`](../reference/ops-detail.md#op-setEnvironment)
   without `sceneId`, `environment.qualityLevels`
-  ([`QualityLevelConfig`](../reference/types-o-t.md#type-quality-level-config))
+  ([`QualityLevelConfig`](../reference/types-m-t.md#type-quality-level-config))
   and `environment.quality` (the starting level). A level's `lighting` names
   its tier; its own `surfaceCacheMiB`, `surfaceLightMs`, `contactShadows`
   and `reflections` lay over the tier's, e.g. `{"id": "medium", "name":

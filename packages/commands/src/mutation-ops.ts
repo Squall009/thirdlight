@@ -140,6 +140,20 @@ export type MutationOp = M1MutationOp | ContentMutationOp | PrefabMutationOp | V
 export const MUTATION_OPS: readonly MutationOp[] = [...M1_MUTATION_OPS, ...CONTENT_MUTATION_OPS, ...PREFAB_MUTATION_OPS, ...V3_MUTATION_OPS];
 
 /**
+ * The voxel world ops: one stroke edit, or the world's newest edit taken
+ * back. They ride the command route and envelope like every op (so the
+ * editor and MCP send them the same way), but a voxel world keeps its own
+ * revision and undo history in its files, so the workspace's voxel worlds
+ * apply them, not the project pipeline: they are not in MUTATION_OPS.
+ */
+export const VOXEL_WORLD_OPS = ['editVoxels', 'undoVoxels'] as const;
+export type VoxelWorldOp = (typeof VOXEL_WORLD_OPS)[number];
+
+export function isVoxelWorldOp(op: unknown): op is VoxelWorldOp {
+  return typeof op === 'string' && (VOXEL_WORLD_OPS as readonly string[]).includes(op);
+}
+
+/**
  * The forward ops that create history entries (undo/redo never do).
  * Every content/prefab mutation op is forward; its inverse is recorded in the
  * entry.

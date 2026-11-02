@@ -147,6 +147,8 @@ export const OWNED_FAMILIES = Object.freeze([
   },
   { family: 'bounded-found', owner: 'packages/project-model/src/validate.ts', names: ['withFound', 'boundedFound'] },
   { family: 'request-id-format', owner: 'packages/project-model/src/request-id.ts', names: ['REQUEST_ID_RE'] },
+  // The voxel world ops: the route, the protocol, the workspace and MCP read the one list.
+  { family: 'voxel-world-ops', owner: 'packages/commands/src/mutation-ops.ts', names: ['VOXEL_WORLD_OPS', 'isVoxelWorldOp'] },
   {
     // The page's on-unless-off diagnostic switches; the names are the per-switch parsers each view once kept.
     family: 'page-flags',

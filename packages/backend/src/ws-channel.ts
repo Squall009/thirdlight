@@ -13,6 +13,7 @@ import {
   makeAttached,
   makeErrorEvent,
   makePong,
+  makeVoxelsChanged,
   parseInboundEvent,
   parseStrictJsonBytes,
   PLAY_PROBLEM_KINDS_MAX,
@@ -22,6 +23,7 @@ import {
   validateGameObservation,
   WS_OUT_FRAME_MAX,
   WS_SCREENSHOT_ACK_MAX,
+  type VoxelsChangedPayload,
 } from '@thirdlight/protocol';
 
 import type { BackendTimeouts } from './config';
@@ -294,11 +296,11 @@ export function createWsChannel(deps: WsChannelDeps) {
   };
 
   /** A frame to the project's connected editor (best effort: the next full state carries the same facts). */
-  const sendToProject = (projectId: string, frame: Record<string, unknown>): void => {
+  const sendToProject = (projectId: string, frame: Record<string, unknown> | string): void => {
     const s = sessions.sessionForProject(projectId);
     if (!s || !s.connected || !s.socket) return;
     try {
-      s.socket.send(JSON.stringify(frame));
+      s.socket.send(typeof frame === 'string' ? frame : JSON.stringify(frame));
     } catch {
       // best effort
     }
@@ -353,6 +355,21 @@ export function createWsChannel(deps: WsChannelDeps) {
     }
   };
 
+  /**
+   * Deliver `voxelsChanged` to the project's registered session: a voxel world command applied, from any client
+   * (the editor, MCP, a script tool), so an open view reads the changed chunks again. Best effort: a view that
+   * misses one sees a revision gap at the next and reads the world again.
+   */
+  const sendVoxelsChanged = (projectId: string, payload: VoxelsChangedPayload): void => {
+    const frame = makeVoxelsChanged(payload);
+    if (utf8Len(frame) > WS_OUT_FRAME_MAX) {
+      // A stroke's chunks are bounded by the undo budget of one edit, far below a frame; never dropped silently all the same.
+      recordProblem(projectId, 'workspace', 'ws_frame_too_large', `The voxel world change at revision ${payload.revision} of ${payload.world} is larger than one WebSocket message (1 MiB); open views read the world again on the next change.`);
+      return;
+    }
+    sendToProject(projectId, frame);
+  };
+
   // The silent-drop sweeper (60 s ⇒ close 1000 `heartbeat_timeout`).
   const sweepIntervalMs = Math.max(250, (timeouts.silentDropSeconds * 1000) / 4);
   const sweepTimer = setInterval(() => {
@@ -373,6 +390,7 @@ export function createWsChannel(deps: WsChannelDeps) {
     sendToProject,
     sendToOwner,
     sendMutationApplied,
+    sendVoxelsChanged,
     /** Stop the sweep. */
     stopSweep(): void {
       clearInterval(sweepTimer);

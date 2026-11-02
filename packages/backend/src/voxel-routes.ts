@@ -13,7 +13,7 @@
  */
 import { closeSync, createReadStream, fstatSync, openSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { sessionError, statusFor, type SessionError } from '@thirdlight/protocol';
+import { sessionError, statusFor, type SessionError, type VoxelsChangedPayload } from '@thirdlight/protocol';
 import type { VoxelWorlds } from '@thirdlight/workspace';
 
 import type { Problem } from './backend';
@@ -24,6 +24,8 @@ export interface VoxelRoutesContext {
   readonly sendJson: (res: ServerResponse, status: number, body: unknown) => void;
   readonly sendError: (res: ServerResponse, error: SessionError, statusOverride?: number) => void;
   readonly recordProblem: (projectId: string, source: Problem['source'], code: string, message: string) => void;
+  /** A command applied (not an answer repeated for a request id seen before): the editor's feed tells open views. */
+  readonly onApplied?: (projectId: string, change: VoxelsChangedPayload) => void;
 }
 
 /** The single byte range a `Range` header asks for, against a file of `size` bytes. */
@@ -44,8 +46,13 @@ export function parseByteRange(header: string | undefined, size: number): { kind
   return { kind: 'range', start, end };
 }
 
+/** The envelope's origin as the feed names it (the workspace refused a malformed one; the route bound a browser origin to its session). */
+function originOf(v: unknown): VoxelsChangedPayload['origin'] {
+  return typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as VoxelsChangedPayload['origin']) : null;
+}
+
 export function makeVoxelRoutes(ctx: VoxelRoutesContext) {
-  const { worlds, requireAuth, sendJson, sendError, recordProblem } = ctx;
+  const { worlds, requireAuth, sendJson, sendError, recordProblem, onApplied } = ctx;
 
   /** GET …/voxels/:world — the manifest and the region files with their tags. */
   const info = async (req: IncomingMessage, res: ServerResponse, projectId: string, world: string): Promise<void> => {
@@ -109,6 +116,7 @@ export function makeVoxelRoutes(ctx: VoxelRoutesContext) {
     const r = await worlds.command(projectId, envelope);
     if (r.ok) {
       sendJson(res, 200, r);
+      if (!r.duplicated) onApplied?.(projectId, { op: r.op, world: r.world, revision: r.revision, chunks: r.chunks, box: r.box, parts: r.parts, files: r.files, requestId: r.requestId, origin: originOf(envelope.origin) });
       return;
     }
     if (r.error.code !== 'no_change') recordProblem(projectId, 'command', r.error.code, `${String(envelope.op)}: ${r.error.message}`);

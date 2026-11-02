@@ -28,9 +28,9 @@ const relay = `relay-${hex32}`;
 
 // The game control/observation relay has two server events and two client acks.
 describe('catalog constants', () => {
-  it('server → client: exactly the set + input.request + the relay rows + the lighting bake', () => {
+  it('server → client: exactly the set + input.request + the relay rows + the lighting bake + voxel world changes', () => {
     expect([...SERVER_EVENT_TYPES].sort()).toEqual(
-      ['attached', 'error', 'game.control.request', 'game.observe.request', 'input.request', 'lighting.bake.request', 'mutation.applied', 'play.diagnostics.request', 'play.started', 'play.stop.request', 'play.stopped', 'pong', 'screenshot.request'].sort(),
+      ['attached', 'error', 'game.control.request', 'game.observe.request', 'input.request', 'lighting.bake.request', 'mutation.applied', 'play.diagnostics.request', 'play.started', 'play.stop.request', 'play.stopped', 'pong', 'screenshot.request', 'voxelsChanged'].sort(),
     );
   });
   it('client → server: exactly the set + input.result + the relay acks + selection.changed + the lighting bake\'s answer', () => {

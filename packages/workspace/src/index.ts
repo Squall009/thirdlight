@@ -120,7 +120,6 @@ export {
 } from './voxel-world-files';
 export {
   gridFolder,
-  isVoxelWorldOp,
   liftManifest,
   openShippedWorld,
   parseVoxelWorldManifest,
@@ -128,7 +127,6 @@ export {
   VOXEL_WORLD_FORMAT,
   VOXEL_WORLD_MANIFEST,
   VOXEL_WORLD_NAME_RE,
-  VOXEL_WORLD_OPS,
   VOXEL_WORLDS_FOLDER,
   VoxelWorlds,
   writeVoxelWorld,
@@ -138,6 +136,6 @@ export {
   type VoxelWorldError,
   type VoxelWorldInfo,
   type VoxelWorldManifest,
-  type VoxelWorldOp,
+  type VoxelWorldOpArgs,
   type VoxelWorldsOptions,
 } from './voxel-worlds';

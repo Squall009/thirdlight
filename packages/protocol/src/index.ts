@@ -165,6 +165,7 @@ export {
   makePlayStopRequest,
   makePlayStopped,
   makeScreenshotRequest,
+  makeVoxelsChanged,
   parseInboundEvent,
   type InboundEvent,
   type PlayStopReason,
@@ -173,6 +174,7 @@ export {
   type RuntimeSnapshotDoc,
   type PlayStartResolved,
   type ServerEventType,
+  type VoxelsChangedPayload,
   type ClientEventType,
 } from './ws-events';
 
@@ -322,4 +324,4 @@ export { RESOURCE_CREATING_OPS } from '@thirdlight/project-model/limits';
 export { REPEATED_ROW_ENTITY_IDS_MAX } from '@thirdlight/project-model/repeated-rows';
 
 // Every mutation op the wire accepts (defined once, in commands).
-export { MUTATION_OPS } from '@thirdlight/commands/mutation-ops';
+export { MUTATION_OPS, VOXEL_WORLD_OPS, isVoxelWorldOp, type VoxelWorldOp } from '@thirdlight/commands/mutation-ops';

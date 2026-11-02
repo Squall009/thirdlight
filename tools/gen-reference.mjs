@@ -7,7 +7,8 @@
  * - objects, components and content documents: project-model's descriptor
  *   registry (type, unit, range, default, tooltip, Scene handle);
  * - command ops: the validator's op list (`MUTATION_OPS`) and its per-op
- *   argument union, with the declarations the shapes name;
+ *   argument union, and the voxel world ops (`VOXEL_WORLD_OPS`) with the
+ *   workspace's argument union, with the declarations the shapes name;
  * - the script API: the runtime's `BehaviorContext` and what it reaches
  *   (the model tools/gen-behavior-api.mjs builds the editor's typings from);
  * - node graphs: every registered graph kind's catalogue (`GRAPH_KINDS`);
@@ -44,6 +45,8 @@ import { VALUE_PACKAGES, loadValues } from './reference/values.mjs';
 const ROOT = resolve(fileURLToPath(import.meta.url), '..', '..');
 export const OUTPUT_DIR = join(ROOT, 'docs', 'manual', 'reference');
 export const REGENERATE = 'node tools/gen-reference.mjs';
+/** The voxel world ops' arguments: the workspace's voxel worlds read them, not the project validator. */
+const VOXEL_OP_UNION = { file: 'packages/workspace/src/voxel-worlds.ts', union: 'VoxelWorldOpArgs' };
 
 /** Replace every `@@anchor@@` link target with its page (and fail on an unknown anchor). */
 function resolveLinks(pages) {
@@ -99,16 +102,16 @@ export async function generateReference() {
   const values = await loadValues(ROOT);
   const pm = values['project-model'];
   const commands = values['commands'];
-  const program = createModelProgram(ROOT, VALUE_PACKAGES);
+  const program = createModelProgram(ROOT, VALUE_PACKAGES, [VOXEL_OP_UNION.file]);
   const collector = typeCollector(program, ROOT);
-  const shapes = opShapes(program, ROOT, commands.MUTATION_OPS, collector);
+  const shapes = { ...opShapes(program, ROOT, commands.MUTATION_OPS, collector), ...opShapes(program, ROOT, commands.VOXEL_WORLD_OPS, collector, VOXEL_OP_UNION) };
   collector.addExported('project-model', descriptorShapeNames(pm.DESCRIPTORS), 'a descriptor shape');
   const types = collector.done();
   const [request, success, failure] = declarationsNamed(program, ROOT, 'packages/commands/src/types.ts', ['MutationRequest', 'MutationSuccess', 'MutationFailure']);
   const owners = constantOwners(program, ROOT, VALUE_PACKAGES);
   const pages = [
     ...descriptorPages(pm.DESCRIPTORS),
-    ...opPages(shapes, types, commands.MUTATION_OPS, pm.DESCRIPTORS, { request, results: `${success}\n\n${failure}` }, values['workspace/scene-routing']),
+    ...opPages(shapes, types, { project: commands.MUTATION_OPS, voxel: commands.VOXEL_WORLD_OPS }, pm.DESCRIPTORS, { request, results: `${success}\n\n${failure}` }, values['workspace/scene-routing']),
     ...typePages(types),
     ...scriptPages(behaviorApiModel()),
     ...graphPages(pm.GRAPH_KINDS),

@@ -89,7 +89,7 @@ Arguments (`args`):
 
 Also `sceneId?: string` (read before validation): The scene every new object goes into. Required unless the items' `parentId`s name objects (all of one scene, which must match a named scene). Missing both: refused with `field_missing` at `/args/sceneId`.
 
-Types: [`CreateEntityArgs`](types-a-c.md#type-create-entity-args).
+Types: [`CreateEntityArgs`](types-c-m.md#type-create-entity-args).
 
 <a id="op-createEntity"></a>
 ## createEntity
@@ -478,6 +478,19 @@ interface EditTerrainArgs {
   tiles?: [number, number][];
 }
 ```
+
+<a id="op-editVoxels"></a>
+## editVoxels
+
+A voxel world op: it rides the same command route and envelope (the editor and MCP send it alike) but changes the voxel world `args.world` (its files under `voxels/<world>/`), not the project, so it takes no `expectedRevision` and the project's `undo` does not take it back (`undoVoxels` does). It answers the world's new revision, the changed chunks, the box of cells it can have touched and the derived parts made stale; the connected editor gets the same as a `voxelsChanged` event. A stroke that changes no voxel is refused with `no_change`.
+
+Arguments (`args`):
+
+```ts
+{ world: string; command: VoxelEditCommand }
+```
+
+Types: [`VoxelEditCommand`](types-t-w.md#type-voxel-edit-command).
 
 <a id="op-graphEdit"></a>
 ## graphEdit
@@ -1000,7 +1013,7 @@ Arguments (`args`):
 { environment: EnvironmentConfig | SceneEnvironment; sceneId?: string }
 ```
 
-Types: [`EnvironmentConfig`](types-c-m.md#type-environment-config), [`SceneEnvironment`](types-o-t.md#type-scene-environment).
+Types: [`EnvironmentConfig`](types-c-m.md#type-environment-config), [`SceneEnvironment`](types-m-t.md#type-scene-environment).
 
 <a id="op-setEventCues"></a>
 ## setEventCues
@@ -1131,7 +1144,7 @@ Arguments (`args`):
 { schema: SaveSchema | null }
 ```
 
-Types: [`SaveSchema`](types-o-t.md#type-save-schema).
+Types: [`SaveSchema`](types-m-t.md#type-save-schema).
 
 <a id="op-setScenePlane"></a>
 ## setScenePlane
@@ -1142,7 +1155,7 @@ Arguments (`args`):
 { sceneId: string; plane: PlaneLock | null }
 ```
 
-Types: [`PlaneLock`](types-o-t.md#type-plane-lock).
+Types: [`PlaneLock`](types-m-t.md#type-plane-lock).
 
 <a id="op-setScriptLibrary"></a>
 ## setScriptLibrary
@@ -1155,7 +1168,7 @@ Arguments (`args`):
 ScriptLibraryPatch
 ```
 
-Types: [`ScriptLibraryPatch`](types-o-t.md#type-script-library-patch).
+Types: [`ScriptLibraryPatch`](types-m-t.md#type-script-library-patch).
 
 <a id="op-setSettings"></a>
 ## setSettings
@@ -1244,7 +1257,7 @@ Arguments (`args`):
 { timeline: TimelineAsset }
 ```
 
-Types: [`TimelineAsset`](types-o-t.md#type-timeline-asset).
+Types: [`TimelineAsset`](types-t-w.md#type-timeline-asset).
 
 <a id="op-setTransform"></a>
 ## setTransform
@@ -1294,6 +1307,17 @@ Arguments (`args`):
 interface EmptyArgs {
   // intentionally empty — any field is rejected (field_unexpected)
 }
+```
+
+<a id="op-undoVoxels"></a>
+## undoVoxels
+
+A voxel world op: it rides the same command route and envelope (the editor and MCP send it alike) but changes the voxel world `args.world` (its files under `voxels/<world>/`), not the project, so it takes no `expectedRevision` and the project's `undo` does not take it back (`undoVoxels` does). It answers the world's new revision, the changed chunks, the box of cells it can have touched and the derived parts made stale; the connected editor gets the same as a `voxelsChanged` event. A stroke that changes no voxel is refused with `no_change`.
+
+Arguments (`args`):
+
+```ts
+{ world: string }
 ```
 
 <a id="op-unpackPrefab"></a>
