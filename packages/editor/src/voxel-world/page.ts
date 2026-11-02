@@ -10,6 +10,9 @@
  * command changed, it reads those chunks again (the region files now hold
  * the edit) and the streamer swaps them in and rebuilds everything within
  * the rules' dependency radius. Reloading the page reads the same files.
+ * When the backend refuses a command because someone else changed the
+ * files (`world_changed`), the page reads every chunk it holds again and
+ * says so in its status line; the edit is not resent for the user.
  *
  * Drag to orbit, wheel to zoom, W A S D to move; click digs a 1 m sphere,
  * shift-click adds one, Z undoes the newest edit. `window.__tlVoxelWorld`
@@ -126,6 +129,8 @@ async function main(): Promise<void> {
   if (!info.ok) fail(`voxel world ${worldName}: ${info.error?.message ?? infoRes.status}`);
   for (const f of info.files) files.set(f.name, f.etag);
   let revision = info.manifest.revision;
+  /** A line for the status: the last refusal, or that the world was read again. */
+  let notice = '';
 
   const choice = resolveRendererPreference({ url: location.search });
   const handle = createRenderer({ canvas, preference: choice.preference, source: choice.source, antialias: false, clearColor: 0x9fc4e8, clearAlpha: 1 });
@@ -168,6 +173,8 @@ async function main(): Promise<void> {
     collidersAt: number;
   }
   const pending = new Set<PendingEdit>();
+  /** Every resident chunk, so a world changed on disk can be read again whole. */
+  const resident = new Map<number, { cx: number; cy: number; cz: number }>();
   /** Open logs of the chunks derived while an edit settles ("cx,cy,cz"). */
   const derivedLogs = new Set<Set<string>>();
   const meshMs = new SampleRing();
@@ -176,8 +183,10 @@ async function main(): Promise<void> {
   streamer.on((e) => {
     const key = chunkKey(grid, e.cx, e.cy, e.cz);
     if (e.type === 'loaded') {
+      resident.set(key, { cx: e.cx, cy: e.cy, cz: e.cz });
       for (const p of pending) if (p.waiting.has(key)) p.waiting.set(key, true);
     } else if (e.type === 'unloaded') {
+      resident.delete(key);
       meshes.remove(key);
       collision?.remove(key);
     } else if (e.type === 'derived') {
@@ -309,7 +318,14 @@ async function main(): Promise<void> {
     const r = await fetch(`${api}/commands`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ op, projectId, requestId: requestId(), args: { world: worldName, ...args } }) });
     const body = (await r.json()) as { ok: boolean; error?: { code: string }; revision: number; cells: number; chunks: Array<[number, number, number]>; box: CellBox; files: Array<{ name: string; etag: string | null }>; ms: { apply: number; save: number } };
     const answerMs = performance.now() - t0;
-    if (!body.ok) return { ok: false, code: body.error?.code ?? String(r.status), answerMs };
+    if (!body.ok) {
+      const code = body.error?.code ?? String(r.status);
+      notice = `${op === 'undoVoxels' ? 'undo' : 'edit'} refused: ${code}`;
+      // Someone else changed the files (a checkout, a restore): what this page holds is not the world any more.
+      if (code === 'world_changed') await readWorldAgain();
+      return { ok: false, code, answerMs };
+    }
+    notice = '';
     revision = body.revision;
     for (const f of body.files) {
       if (f.etag === null) files.delete(f.name);
@@ -349,6 +365,30 @@ async function main(): Promise<void> {
     const timing: EditTiming = { ok: true, revision: body.revision, cells: body.cells, chunks: chunks.length, answerMs, server: body.ms, swappedMs, collidersMs: collidersAt - t0, visibleMs, rederived: [...log].sort() };
     lastEdits.push(timing);
     return timing;
+  }
+
+  /**
+   * Reads the world's manifest and every resident chunk again, after the
+   * backend reported that its files changed on disk: the chunks keep their
+   * old content until the new lands, then everything is derived again. A
+   * different world in the folder (another world id) needs a fresh page.
+   */
+  async function readWorldAgain(): Promise<void> {
+    const res = await fetch(`${api}/voxels/${encodeURIComponent(worldName)}`, { headers });
+    const now = (await res.json()) as VoxelInfo;
+    if (!now.ok) {
+      notice = `world changed on disk and could not be read again: ${now.error?.message ?? res.status}`;
+      return;
+    }
+    if (now.manifest.worldId !== info.manifest.worldId || now.manifest.edge !== info.manifest.edge || now.manifest.layout !== info.manifest.layout || now.manifest.footprint !== info.manifest.footprint) {
+      notice = 'another world is in this folder now: reload the page';
+      return;
+    }
+    files.clear();
+    for (const f of now.files) files.set(f.name, f.etag);
+    revision = now.manifest.revision;
+    streamer.refresh([...resident.values()]);
+    notice = `world changed on disk: read again at r${revision}; send the edit again`;
   }
 
   /** Any stroke command (a game's runtime set/dig, a fill, a brush), sent as it is. */
@@ -402,7 +442,7 @@ async function main(): Promise<void> {
     frames++;
     if (frames % 15 === 0) {
       const m = streamer.metrics();
-      hud.textContent = `${backendName} · ${worldName} r${revision} · ${frameMs.quantile(0.5).toFixed(1)} ms p50 · ${missed} missed\n${m.resident} chunks (${meshes.count} drawn), ${(m.bytes.total / 1e6).toFixed(1)} MB · ${meshes.triangles} tris, ${meshes.instances} pieces\nclick dig · shift-click add · Z undo · drag orbit · wheel zoom · WASD move`;
+      hud.textContent = `${backendName} · ${worldName} r${revision} · ${frameMs.quantile(0.5).toFixed(1)} ms p50 · ${missed} missed\n${notice === '' ? '' : `${notice}\n`}${m.resident} chunks (${meshes.count} drawn), ${(m.bytes.total / 1e6).toFixed(1)} MB · ${meshes.triangles} tris, ${meshes.instances} pieces\nclick dig · shift-click add · Z undo · drag orbit · wheel zoom · WASD move`;
     }
     requestAnimationFrame(frame);
   }

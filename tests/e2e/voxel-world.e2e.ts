@@ -21,7 +21,11 @@
  * banister rebuilt cell by cell derives (and saves) as the generator wrote
  * it. Bodies dropped and swept against the page's physics rest on the
  * ground, the wall, the rail, pass between the posts, and fall into a pit.
+ * Files changed behind the backend are read again by the open page when
+ * the backend refuses the next command for it.
  */
+import { cpSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { decodePng, changedPixels } from './png';
 import { expect, test, type Page } from './pw';
 import { startBackend, type E2EBackend } from './backend';
@@ -206,7 +210,27 @@ test('assembly proof: runtime set/dig turn a banister into a wall and a beam int
   expect(undone.rederived).toEqual(dependents(pitCommand));
   await noneStale();
   expect((await hook<Drop>(page, 'drop', [ox + 9.5, oy + 4, oz + 10.5], 0.15, 0.15)).feet[1]).toBeCloseTo(before.feet[1], 1);
-  expect(errors).toEqual([]);
+
+  // Files changed behind the backend (the generator's world written over an edited one, as a checkout would): the next
+  // command is refused world_changed and the page reads the world again without a reload, so the edit the checkout took
+  // away is gone from the page too; sent again, the command applies on the checked-out world.
+  const dug: Cell = [ox + 6, oy - 1, oz + 4];
+  expect((await hook<EditAnswer>(page, 'dab', dug, 'dig')).ok).toBe(true);
+  expect((await hook<{ material: number }>(page, 'voxelAt', ...dug)).material).toBe(0);
+  // The generator's world is written beside it and copied over its files (the writer refuses a folder that holds a world).
+  const checkedOut = writeSliceWorld(be.projectDir, 'checkout', 256).dir;
+  cpSync(checkedOut, join(dirname(checkedOut), 'slice'), { recursive: true });
+  const other: Cell = [ox - 9, oy - 1, oz + 4];
+  expect(await hook<EditAnswer>(page, 'dab', other, 'dig')).toMatchObject({ ok: false, code: 'world_changed' });
+  await hook(page, 'settle');
+  expect((await hook<{ material: number }>(page, 'voxelAt', ...dug)).material).not.toBe(0);
+  expect(await hook<Record<string, string>>(page, 'files')).toEqual(files0);
+  expect(await hashes()).toEqual(h0);
+  await noneStale();
+  expect((await hook<EditAnswer>(page, 'dab', other, 'dig')).ok).toBe(true);
+  // The refused command's HTTP 409 is the one console error.
+  expect(errors.filter((e) => !/status of 409/.test(e))).toEqual([]);
+  expect(errors).toHaveLength(1);
 });
 
 for (const renderer of ['webgpu', 'webgl2'] as const) {

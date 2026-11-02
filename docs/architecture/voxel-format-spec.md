@@ -4,7 +4,7 @@ Status: **DRAFT v1 — awaiting owner approval (hard stop). Nothing builds on it
 
 Phase 45 drafted this spec ([plan](../plan-phase-45.md) §3). It describes the code on branch `phase-45`
 (`packages/voxel/src`, `@thirdlight/voxel`) as it stands, byte for byte where something is a byte format. The
-numbers come from the plan's results subsections (45.1 to 45.6). Anything the plan calls unverified is unverified
+numbers come from the plan's results subsections (45.1 to 45.9). Anything the plan calls unverified is unverified
 here too. Where this file and the code disagree, the code is what runs, and the disagreement is listed in §7.
 The requirement list lives in [voxel-format-requirements.md](voxel-format-requirements.md); R-, O- and Q-ids
 refer to it.
@@ -1132,40 +1132,77 @@ There are 44 such entries in the plan's decision log (§7). One line each, group
 
 ---
 
-## 6. Slice and assembly proof (45.7a/b)
+## 6. Slice and assembly proof (45.7a/b, 45.9)
 
-**Placeholder: the lead fills this in from 45.7a (the thin slice) and 45.7b (the assembly proof). Nothing in this
-section is claimed yet.**
+What the formats did end to end on the staging backend (the branch's `dist/`, own port and data root, engine-owned
+test worlds), in headless Chrome on the Iris Xe (the low tier) at 1280×720 and the display's 60 Hz cap, on WebGPU and
+on WebGL 2. Sources: plan **45.7a thin slice**, **45.7b collision and assembly proof**, **45.9 acceptance**; the
+acceptance pictures and reports are in `~/.cache/thirdlight-phase45/acceptance/` (README for the owner). Everything
+below is measured or seen in screenshots that were looked at; what was not is listed under limits.
 
-To be recorded here, from plan §3 and the 45.7 acceptance requirement:
-- **The slice:** on staging, stream, edit, mesh, collide, and save and reload, on both renderers. Record the numbers,
-  what was seen, and what is unverified.
-- **Wall to beam/banister as neighbouring voxels change**, with minimal placeholder geometry:
-  - stored intent survives the codec and save round trips;
-  - the surface, detail and occupancy outputs express the different cases;
-  - an edit crossing a chunk boundary invalidates every dependent result (mesh, collision, nav, light, mip);
-  - equivalent runtime voxel input, without structure metadata, gives the same result.
-- **Observed limits** and any new D-rows.
+**The slice.** The test world is the hilly generator's 512 m square with a wall, a beam one cell out behind it and a
+banister (rail on posts) on a levelled pad, written as 8 stacked region files (1.5 MB, 6,900 stored chunks). The page
+`/voxel-world.html` reads the world's manifest, then chunk bytes by HTTP range from the region route; 4 module
+workers decode (fzstd) and derive (placeholder rules, R 2, apron 3); the main thread meshes, draws through the
+engine's renderer factory and builds one static Rapier body per derived chunk. Edits are stroke commands
+(`editVoxels`, `undoVoxels`) on the command route; the page never applies an edit itself, it re-reads the chunks the
+answer names and re-derives the chunks within R + 1 of the answer's cell box.
 
-**Measured facts from 45.7b** (plan **45.7b collision and assembly proof**; staging, Iris Xe, both renderers, 60 Hz
-cap, 1280×720; the lead writes the section around them):
-- Edits were plain `set`/`dig` stroke commands (runtime input, no structure data). Growing the banister upward
-  turned its rail cells into wall for every consumer: piece rail, partial slab, light 51, not standable on top,
-  0 base faces → no piece, full box, light 255, standable on top, 2 base faces. Digging the growth gave back every
-  derived hash of the start.
-- Digging two wall cells behind the beam (wall chunk, both sides of a chunk face in x) turned the beam cells in front
-  (the next chunk in z, with no edited cell) into wall stubs; restoring them gave the beam back.
-- Every command re-derived exactly the chunks within R + 1 (3 cells) of its cell box: 1–4 chunks. After every stage,
-  0 of ~125 derived chunks differed from a fresh derive. An undo, which names no cell box, re-derived 27.
-- A reloaded page (a fresh streamer from the files the backend wrote) derived the same hashes. Digging the
-  generator's banister and setting the same cells again gave the generator's derived hashes and byte-identical
-  region files.
-- Collision through physics-rapier, a static body per derived chunk: capsules rest on the ground, wall top, beam and
-  rail; a swept ball passes between the posts under the rail and stops at the wall; after the banister grows it
-  stops at its face; a capsule dropped over a pit dug afterwards falls in. Identical on both renderers.
-- Frames at the cap with collision on: p95 16.7–16.8 ms, 0 missed of 1,800 per renderer; edit → bodies replaced
-  p50 38–42 ms, → visible p50 65 ms; 448 bodies, 16.6 MB to physics, body add p50 2.2 ms, remove 0.2 ms; Rapier's
-  WASM heap 126–172 MB, outside the streaming budget (D434).
+| Measured (45.9, 3 rounds a renderer; 45.7a/b agree) | WebGPU | WebGL 2 |
+|---|---|---|
+| 30 s orbit, frame p50 / p95 / max, missed | 16.7 / 16.7 / 16.8 ms, 0 of 1,799 ×3 | 16.7 / 16.7–16.8 / 16.8 ms, 0 of 1,799 ×3 |
+| 160 m flight out and back (12 m/s, 27 s) | 16.7 / 16.7–16.8 / 16.8 ms, 0 of 1,619–1,620 ×3 | 16.7 / 16.7–16.8 / 16.8 ms, 0 of 1,619 ×3 |
+| render() CPU p50 / p95 | 1.2 / 1.5 ms | 1.0 / 1.4 ms |
+| Cold fill (ring read, decoded, derived, meshed, collided) | 2.35–2.48 s | 2.38–2.46 s |
+| Edit → answer / → collider replaced / → visible, p50 (max), 18 edits | 13 (25) / 40 (54) / 65 (73) ms | 11 (21) / 39 (49) / 64 (71) ms |
+| Derive job per chunk p50 / p95 | 0.8 / 4.7–4.9 ms | 0.8 / 4.7–5.0 ms |
+| Streaming memory (low tier budget 256 MiB) | 67 MB cold, 84 MB after flight and edits | same |
+| JS heap | 133 MB cold, 166–186 MB at the end | 125 MB cold, 168–191 MB at the end |
+| Rapier WASM heap (outside the budget, D434) | 126 MB cold, 172 MB after one flight | same |
+
+- The answer is mostly the save: apply 0.2–0.4 ms p50, region file rewrite with the manifest 8.7–9.3 ms p50.
+  Collision: 448 bodies (791 colliders, 16.6 MB of geometry, counted in the budget) cold; body add p50 2.0–2.2,
+  p95 3.5–4.0 ms; the flight added 372 and removed 282 bodies. Physics results equal on both renderers (0.01 cell).
+- **Save and reload:** a fresh page, and a fresh page after a staging stop/start, read revision 20 from the files;
+  the voxels under every edit and the derived hashes of the 27 chunks around the scene equal what the edited page had.
+- **Files changed behind the backend** (the world folder replaced by an older copy while a page is open): the next
+  command is refused `world_changed`; the page reads every resident chunk again and says so in its status line, and
+  the edit sent again applies on the checked-out world (both renderers; before the fix the page kept the old world
+  and then showed a mix: D438, fixed).
+
+**Wall to beam/banister as neighbouring voxels change** (runtime `set`/`dig` commands, no structure data):
+- *Stored intent survives the codec and save round trips:* after the banister is grown, a fresh page from the files
+  derives the 5×5×5-chunk window to the same hashes and reads the cells as timber/construction (e2e).
+- *Outputs express the cases, per consumer* (`cellOutputs` of the derived chunk): a rail cell is piece rail,
+  partial collision box, light 51, nav blocking and not standable on top, 0 base faces; after `set` of the 12 cells in
+  the gaps and over the rail (across the x chunk face) it is no piece, full box, light 255, standable on top, 2 base
+  faces, and a swept ball stops at its face (z 8.30) instead of passing between the posts to the wall (1.30). `dig` of
+  the two wall cells behind the beam (wall chunk, both sides of x 0) turns the beam cells in front (the next chunk in
+  z, with no edited cell) into wall stubs (full box, 255); `set` of the stone gives the beam back.
+- *Invalidation across chunk faces:* every command re-derived exactly the chunks within R + 1 of its cell box (2 for
+  the banister, 4 for the beam cut, 1 for a pit; an undo the same chunks as its edit); after every stage 0 of 125
+  derived chunks differed from a fresh derive. Proven in the slice for mesh, collision, nav and light; voxel mips and
+  chunk-tree flags in vitest only (`derived.test.ts`), since the page builds neither.
+- *Equivalent runtime input gives the same result:* digging the generator's banister and setting the same cells again
+  gives every derived hash of the generator's world and byte-identical region files (SHA-256 tags); the same
+  arrangement reached by other commands in another order gives the same files and results (45.8b, vitest).
+- *Collision follows the edits:* capsules rest on the ground (0.02 cells), wall top (8.02), beam and rail (3.02); a
+  capsule dropped over a pit dug after the bodies were built falls in (−2.67), and rests at 0.02 after the undo.
+
+**Limits observed** (placeholder rules and meshes; 46b's catalogue and mesher replace them):
+- Thin stone columns left between dig holes resolve as posts and draw as timber post pieces; a beam that loses its
+  wall becomes a floating wall stub (no orphan case); a cut banister end resolves as a timber block; banister and
+  fence corners resolve as wall.
+- Base surfaces are a quad per exposed cube face; beam, rail and post pieces are stand-in boxes; the ground is the
+  reference surface nets, unmerged (0.90 M triangles for the ring cold, 1.13 M after a flight). No materials,
+  textures or lighting work.
+- Collision bodies cover every derived chunk in the ring (no collision ring); ground is always a trimesh; dropped
+  bodies are capsule characters and swept spheres, not free rigid bodies. Rapier's heap is outside the budget and
+  never shrinks (D434).
+- The proof runs on the world grid only (no rotated structure grid; cross-grid dependencies are the open gap in
+  §3.6). Measured on the Iris Xe only (high tier unmeasured), on localhost only (network latency: D432). Voxel
+  commands are not on MCP (D433); other open pages do not see an edit (no live feed); undo is per open world, outside
+  the project's history.
 
 ---
 

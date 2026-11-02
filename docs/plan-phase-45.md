@@ -692,6 +692,7 @@ sub-phase on staging; the merge to `main` happens once, at the end of 48.
 | 45.7d | done (e53c4e45, 69586083, fast gate green): spec gaps G1–G10 closed in code: readers check world/grid/tile, codec+region upgrade registries, canonical-only decode, measurement bodies bench-only, set/dig sorted, 23-bit material ids (u24 at rest: zstd +0.1–1.8 %), 24 orientations, manifest lists regions (listed+missing = damaged), tree flags, undo box; see **45.7d format gaps**. |
 | 45.8a | done (this commit; fast gate green): review H1–H3, M2, L3–L5. Saves keep the player's cells (mask on whole-chunk entries; 1,000 strokes 452/256/461 → 497/303/493 KB; all-delta 801/682/773); base hash = frozen codec-v1 form (61–69 µs); record value form byte in region/undo/save/override (save +4 B); readers need `expect` + manifest list; see **45.8a review fixes**. |
 | 45.8b | done (5f44f43d, fast gate green): review M3–M7, L1/L2/L6/L8, D436. One stroke ≤ 64 MiB worst-case undo (292 chunks at 32³, `over_budget`); stale worlds reread by file stamps (`world_changed`), closed on release; staged multi-file writes, rollback; rule radius check; Q-a by other commands; M7 open gap; lz4js gone; voxel e2e 14.2 → 13.9 s; see **45.8b review fixes**. |
+| 45.9 | done (this commit): acceptance on staging, Iris Xe, 720p at the cap, both renderers, 3 rounds: orbit and 160 m flight p95 16.7–16.8 ms, 0 missed; edit → collider / visible p50 39–40 / 64–65 ms; cold fill 2.4 s; stream 67–84 MB of 256 MiB; Rapier 126–172 MB (D434). D438 (page ignored `world_changed`) fixed. Spec §6 written; see **45.9 acceptance**. |
 
 ### 45.0 floor record
 
@@ -1422,7 +1423,7 @@ derived chunk, i.e. what render, collision, nav and light received; `staleAgains
 main-thread derive of the store now; `windowHashes`, `files`, `drop`, `sweep`). Every edit is a plain `set`/`dig`
 stroke on the command route (runtime input, no structure data); `VoxelStreamer.refresh(chunks, box)` now rebuilds
 only the chunks within R + 1 of the command's cell box (`editBounds`).
-- **Banister → wall → banister:** `set` of the gaps between the posts and a row over the rail (16 cells, across the
+- **Banister → wall → banister:** `set` of the gaps between the posts and a row over the rail (12 cells, across the
   x chunk face): rail cells resolve as wall; outputs go from piece rail / collision partial (slab 4/16) / light 51 /
   nav blocks, not standable on top / 0 base faces to no piece / full box / 255 / standable on top / 2 base faces;
   the swept ball stops at the face (z 8.3) instead of passing between the posts to the wall (z 1.3) or stopping at
@@ -1636,6 +1637,41 @@ conformance, "Changed after the independent review (45.8b)".
 
 Fast gate 2026-11-02 11:11 (10 min, green): `voxel-world.e2e.ts` 14.2 → 13.9 s (5.9 + 3.7 + 4.3 s), `folder-projects.e2e.ts`
 (unregister) green; village perf at the cap 16.7 / 16.7 ms p50 / p95, 0 missed on both renderers.
+
+### 45.9 acceptance
+
+The phase's acceptance on staging (the branch's `dist/` at 1b4ab229 plus the D438 fix), headless Chrome on the
+Iris Xe, 1280×720, DPR 1, the display's 60 Hz cap, WebGPU and WebGL 2; 2026-11-02 11:27–11:52, uptime 9 d 19 h,
+load 1.1–2.7. Three test worlds from `run.mjs slice-world` (`slice`, `asm`, `col`) in the staging project
+`voxel-slice`. Driven by a scratch Playwright script through the page's hooks (not committed: the committed
+`run.mjs slice` phases measure the same); pictures with a text panel of what each shows and its numbers, all looked
+at; README for the owner, reports and pictures in `~/.cache/thirdlight-phase45/acceptance/` (`45.9-slice`,
+`45.9-collision`, `45.9-assembly`). Spec §6 summarises the slice and the assembly proof from 45.7a/b and this run.
+
+| Renderer | orbit 30 s p95, missed (3 rounds) | flight 160 m p95, missed | cold fill s | edit → answer / collider / visible p50 (max) ms, 18 edits | derive p50 / p95 ms | stream MB (cold → end) | JS heap MB | Rapier heap MB |
+|---|---|---|---|---|---|---|---|---|
+| WebGPU | 16.7, 0 of 1,799 ×3 | 16.7–16.8, 0 of 1,619–1,620 ×3 | 2.35–2.48 | 13 (25) / 40 (54) / 65 (73) | 0.8 / 4.7–4.9 | 67 → 84 | 133 → 166–186 | 126 → 172 |
+| WebGL 2 | 16.7–16.8, 0 of 1,799 ×3 | 16.7–16.8, 0 of 1,619 ×3 | 2.38–2.46 | 11 (21) / 39 (49) / 64 (71) | 0.8 / 4.7–5.0 | 67 → 84 | 125 → 168–191 | 126 → 172 |
+
+- Seen on both renderers: cold fill, orbit, 160 m out and back (nothing missing or doubled), 8 dabs (wall digs across
+  the chunk corner, ground digs, soil adds), a dig through the banister's end post and its undo, reload and staging
+  restart (voxels under every edit and the 27 derived hashes around the scene equal), collision (capsules on the
+  ground, hillside, wall top, rail; balls between the posts to the wall and at the posts; a pit dug after the bodies
+  were built and its undo), and the assembly stages of 45.7b with every consumer's readout in the picture (12 cells
+  grown, not the 16 45.7b said; 0 of 125 stale at every stage; rebuilt banister: equal hashes, byte-identical files).
+- **D438, fixed:** files changed behind the backend (the world folder replaced by an older copy while a page was
+  open): the next edit was refused `world_changed`, but the page said nothing and kept the old world, and after the
+  resent edit showed a mix of both. The page now reads every resident chunk and the manifest again on that answer and
+  says so in its status line (a different world id: "reload the page"); the resend is left to the user. Seen fixed on
+  both renderers; e2e `voxel-world.e2e.ts` (assembly test: dab, the generator's world written over it, refused, the
+  page's files, hashes and voxels equal the checked-out world without a reload, 0 stale, the resend applies). Voxel
+  e2e 13.9 → 15.2 s (7.4 + 3.7 + 4.1 s; the assembly test reads its ring again once). Fast gate green (10 min); D435
+  failed once in it and passed alone.
+- No miss in any measured window. The page's own "missed" counter rises during the assembly stages: the probes run
+  synchronous physics drops and a main-thread derive of 125 chunks (the staleness check), not the product's frame.
+  After the flight 6,168 chunks stay resident (5,376 before): the unload ring is wider than the load ring.
+- Not verified: the high tier (5090), latency over a real network (D432), voxel commands on MCP (D433), Rapier memory
+  in the budget (D434); the two `.webm` walkthroughs were recorded but not watched (no video tool on the host).
 
 ## 7. Decision log
 
