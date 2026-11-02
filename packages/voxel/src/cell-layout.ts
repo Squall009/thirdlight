@@ -25,6 +25,13 @@ export interface CellLayout {
 
 export type LayoutKind = 'packed' | 'runs' | 'bricks';
 
+/** A packed layout's words, as they cross to or from a worker (see chunk-wire.ts). */
+export interface PackedWire {
+  readonly kind: 'packed';
+  readonly width: number;
+  readonly words: Uint32Array;
+}
+
 /**
  * Entry ids bit-packed into 32-bit words, cell `i` at bit `i × width`
  * (little-endian word order, so the words' bytes are the packed bit
@@ -35,7 +42,7 @@ export class PackedIndices implements CellLayout {
   readonly kind = 'packed';
   readonly width: number;
   readonly capacity: number;
-  private readonly words: Uint32Array;
+  private words: Uint32Array;
   /** log2(cells per word); 31 for width 0, so every cell reads word 0. */
   private readonly perWordShift: number;
   private readonly perWordMask: number;
@@ -70,6 +77,19 @@ export class PackedIndices implements CellLayout {
       for (let j = 0; j < per; j++, i++) word |= ids[i]! << (j * w);
       words[k] = word >>> 0;
     }
+    return p;
+  }
+
+  /** The words for a worker message (copied when `copy`, else handed over). */
+  toWire(copy: boolean): PackedWire {
+    return { kind: 'packed', width: this.width, words: copy ? this.words.slice() : this.words };
+  }
+
+  /** A layout over a wire's words (adopted); throws unless they fit `cells`. */
+  static fromWire(cells: number, w: PackedWire): PackedIndices {
+    const p = new PackedIndices(cells, w.width);
+    if (w.words.length !== p.words.length) throw new RangeError('packed wire: words do not fit the chunk');
+    p.words = w.words;
     return p;
   }
 

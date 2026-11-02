@@ -122,7 +122,7 @@ export {
 export { canonicalEditCommand, BRUSH_SHAPES, EDIT_MODES, EditCommandError, VOXEL_EDIT_VERSION, type BrushEdit, type BrushShape, type DigEdit, type EditMode, type EditVoxel, type FillEdit, type SetEdit, type SetVoxel, type StampEdit, type VoxelEditCommand } from './edit-command';
 export { CellDelta, chunkScratch, decodeDenseChunk, deltaValue, DELTA_CELL_BYTES, diffDense, encodeDenseChunk, exportOrAir } from './cell-delta';
 export { checkStampShape, STAMP_SIDE_MAX, stampShapeHash, type StampResolver, type StampShape } from './stamp-shape';
-export { applyEdit, applyUndo, EditRefused, UNDO_CHUNK_HEADER_BYTES, UNDO_IMAGE_CHECK_BYTES, undoRecordBytes, type ChunkBefore, type ChunkUndo, type EditGrids, type EditOptions, type EditOutcome, type EditRefusal } from './edit-apply';
+export { applyEdit, applyUndo, editBounds, editChunks, EditRefused, UNDO_CHUNK_HEADER_BYTES, UNDO_IMAGE_CHECK_BYTES, undoRecordBytes, type ChunkBefore, type ChunkUndo, type EditGrids, type EditOptions, type EditOutcome, type EditRefusal } from './edit-apply';
 export { decodeUndoRecord, encodeUndoRecord, UNDO_MEMORY_BUDGET_BYTES, UNDO_RECORD_VERSION, UndoStore, type UndoSpill } from './undo-store';
 export {
   applySave,
@@ -151,3 +151,40 @@ export {
 export { chunkOverridesOf, decodeOverrides, encodeOverrides, OVERRIDE_CELL_BYTES, OVERRIDE_FORMAT_VERSION, overridesOf, reapplyOverrides, type ChunkOverrides, type OverrideMisfit, type OverrideReport, type StructureOverrides } from './structure-overrides';
 export { repairChunks, type RepairOutcome, type RepairSource } from './chunk-repair';
 export { DirtyTracker, type ChunkJob, type DirtyChunk, type JobRefusal, type SaveJob } from './dirty-tracker';
+export { checkPayloadEdge, payloadBytes, payloadTransfer, type ChunkPayload } from './chunk-wire';
+export type { RecordChunkWire } from './palette-chunk';
+export type { PlaneWire } from './palette-plane';
+export type { BrickWire } from './brick-layout';
+export type { PackedWire } from './cell-layout';
+export { createWorldStore, WORLD_STORE_OPTIONS } from './palette-store';
+export { apronBytes, apronCellCount, apronTransfer, apronVoxelAt, APRON_STRIPS, buildApron, checkApron, checkRadius, dependentChunks, type Apron } from './apron';
+export {
+  JOB_LANES,
+  STREAM_JOB_VERSION,
+  type ApplySaveInput,
+  type ApplySaveOutput,
+  type ChunkRef,
+  type DeriveInput,
+  type DeriveOutput,
+  type EditInput,
+  type EditOutput,
+  type JobErrorCode,
+  type JobLane,
+  type JobReply,
+  type JobRequest,
+  type LoadInput,
+  type LoadOutput,
+  type SaveContentWire,
+  type StoredChunk,
+  type StreamJobInputs,
+  type StreamJobKind,
+  type StreamJobOutputs,
+} from './stream-job';
+export { serveJobs, type JobEndpoint, type JobHandler, type JobHandlers, type JobResult } from './job-worker';
+export { deriveNow, streamJobHandlers, type StreamHandlerOptions } from './stream-handlers';
+export { JobQueue } from './job-queue';
+export { eventTargetWorker, SampleRing, WorkerPool, type JobOutcome, type PoolJob, type PoolStats, type PoolWorker, type WorkerPoolOptions } from './worker-pool';
+export { RegionChunkSource, type ChunkSource, type RegionChunkSourceOptions } from './region-source';
+export { checkRing, chunkDistance2, DEFAULT_STREAM_RING, inLoadRing, inNearRing, pastUnloadRing, RESIDENT_CHUNK_OVERHEAD_BYTES, ringChunks, VOXEL_STREAM_BUDGET_BYTES, type Focus, type StreamRing, type StreamTier } from './stream-ring';
+export { VoxelStreamer, type DerivedChunk, type StreamCounters, type StreamEvent, type StreamMetrics, type VoxelStreamerOptions } from './voxel-streamer';
+export { DEFAULT_REBASE_DISTANCE_M, FloatingOrigin, ORIGIN_SNAP_CELLS, type FloatingOriginOptions, type RebaseEvent } from './floating-origin';

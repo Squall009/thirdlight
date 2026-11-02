@@ -15,6 +15,7 @@ import {
   chunkOfKey,
   chunksPerRegionSide,
   createDenseChunk,
+  createWorldStore,
   packRegionChunk,
   PaletteStore,
   regionChunkCodecBytes,
@@ -39,7 +40,7 @@ import { chunkRange, type TestGrid } from './world-kit';
 
 /** The 45.2 pick: a record palette per chunk, sparse 4³ bricks in memory, the bit-packed body at rest. */
 export function pickStore(grid: ChunkGrid): PaletteStore {
-  return new PaletteStore(grid, { name: 'pick', palette: 'record', layout: 'bricks', atRest: 'packed' });
+  return createWorldStore(grid, 'pick');
 }
 
 export const zstdCompress = (b: Uint8Array): Uint8Array => ZSTD.compress(b);

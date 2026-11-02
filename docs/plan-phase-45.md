@@ -505,6 +505,7 @@ ends with a thin working slice, so the formats are judged in use, not only in be
 | 45.2 | **Chunk store candidates.** At least: palette + bit packing per chunk; that plus vertical run-length per column; sparse bricks under a per-chunk mask (SVO-like). Chunk size 16³ vs 32³. Uniform-chunk collapse, density only at the surface, planes + zstd vs lz4. Measure each on the test worlds; pick one, with the numbers. |
 | 45.3 | **Region files and git.** Tile = region file (256 m default vs 512 m); deterministic bytes; header, version, checksum; per-chunk offsets for partial reads and HTTP range streaming; repo growth per hour of scripted editing; LFS only if the numbers call for it. |
 | 45.4 | **Editing, undo and saves.** Stroke commands (brush, fill, stamp) as the one mutation path; per-chunk undo records and their size; save diffs against the shipped world with base-chunk hashes; save upgrade steps (add-only, unknown version refused). |
+| 45.5a | done (this commit): streaming core v1 DRAFT in `@thirdlight/voxel`: job contract (ids, 4 kinds, lanes, R + aprons, stale refusal), worker pool, ring + one byte budget, floating origin (1 km; 0.06 mm at 9.9 km vs 0.49 mm). Node flight, 2×2 km, 4 workers: 87–173 stored chunks/s, decode p50 0.46 ms, update p95 2.4 ms, 0 near holes, 9 MB of 256; see **45.5a streaming core**. |
 | 45.5 | **Streaming.** Worker pool with job ids and a priority queue (edits > near > far), transferable buffers, apron strips for neighbours, one memory budget per tier, load/unload churn; world coordinates for 10 km with a floating origin (precision test far out). Measured in a browser page flying a 2 × 2 km world. |
 | 45.6 | **Derived-data formats.** The occupancy bitmask and solid/empty/mixed flags, voxel mips for the chunk tree, mesh output buffers (projected and kit-instance lists), collision and walk-graph inputs — shaped so meshing, lighting, culling, physics and navigation all read them; never committed, always rebuilt. |
 | 45.7 | **Thin slice and format spec v1.** On staging, stream, edit, mesh, collide and save/reload on both renderers. Include the 45.1 assembly-data proof below. Present the format draft, requirement traceability, measurements and replacements for decisions that failed. **Hard stop: owner approval before 46.** |
@@ -1101,6 +1102,83 @@ region files on disk, saved every 10 strokes; game save against the shipped file
 - Not covered: structure-grid edits inside a rotated grid (the apply takes any grid id; the town's rotated houses are
   not edited here), a browser `UndoSpill`, workers.
 
+### 45.5a streaming core
+
+All DRAFT, in `@thirdlight/voxel` (pure, no Node built-ins; the decoder is passed in), with the Node plumbing in
+`tools/voxel-bench/stream-node.ts` and two worker entries (`stream-worker-node.ts` on `parentPort`,
+`stream-worker-browser.ts` on `self`; both serve the same `streamJobHandlers` with fzstd).
+- **Job contract v1** (`stream-job.ts`): message `{v, id, kind, input}` → `{v, id, ok, output | code+message,
+  workerUs}`; kinds `load` (stored bytes → the store's memory form), `apply-save` (a save entry over its base,
+  base-hash check, `save`/`base`/`report` on mismatch), `edit` (a canonical command over copies of the chunks it
+  touches; returns the changed chunks and the undo record) and `derive` (placeholder for 45.6: solid cells with air
+  within R, a 4 KB mask, from the chunk plus its apron). Lanes `edit` > `near` > `far`, then distance², then arrival.
+- **Memory form on the wire** (`chunk-wire.ts`): a chunk crosses threads as its own brick/palette/density arrays
+  (transferred); the main thread adopts them with no per-cell pass (`PaletteStore.chunkPayload`/`adoptPayload`,
+  checked on adoption: damaged payloads refused, store unchanged). Adopt p95 0.007–0.011 ms a chunk.
+- **Aprons** (`apron.ts`): 26 strips R deep (R a parameter, 0 ≤ R ≤ 32), a strip over an absent or uniform
+  neighbour is one value; `dependentChunks(box, R)` names every chunk within R of an edit (a corner: 8, a box over a
+  chunk: 27). Measured at R = 2: 13 KB median, 57 KB p95 per job vs 69 KB for a dense apron; building one costs
+  0.3–0.4 ms of main thread (p95).
+- **Staleness** (`DirtyTracker`, extended): every chunk has an input stamp from one never-repeating counter, moved by
+  edits, loads and `invalidated` (a neighbour within R changed); jobs (one chunk or several: a worker edit) snapshot
+  stamps and results are accepted only while all match; expired/cancelled ids answer `unknown_job`.
+- **Worker pool** (`worker-pool.ts`, `job-queue.ts`): indexed heap, back-pressure (`maxQueued`, `room()`,
+  `queue_full`), cancellation (queued: never sent; sent: answered at once, reply ignored), timeouts (reply ignored by
+  id, the worker stays busy until it answers), hung (`hangMs`) or crashed workers replaced (`worker_lost`).
+- **Residency** (`stream-ring.ts`, `voxel-streamer.ts`): ring by horizontal radius and vertical half-height with
+  separate unload bounds (hysteresis), one byte budget covering store arrays, 96 B bookkeeping a resident chunk (air
+  ones too), derived parts registered with `setPart(chunk, part, bytes)` (45.6's meshes etc.) and open region tables;
+  over budget the farthest clean chunks go first (ties: least recently wanted), loading stops short of them until
+  below 85 %; dirty or save-held chunks are never evicted or unloaded (retried each update until saved). Apron
+  building is capped at 2 ms an update (`deriveMsPerUpdate`).
+- **Floating origin** (`floating-origin.ts`): integer cells and 64-bit metres stay authoritative; `FloatingOrigin`
+  re-bases when the focus is > 1,000 m from the origin on any axis, snapped to 16 m, and calls `onRebase` listeners
+  (shift in metres; subtract it from every 32-bit position) inside `update` before the frame uses them.
+
+Vitest (real boundaries): `packages/voxel/src/stream-core.test.ts` (11: queue order and heap under random
+updates, payload round trip and refusals, apron = store cell for cell at R 1/2/4/32, dependent chunks, derive =
+brute-force oracle, input stamps across unload/reload, ring hysteresis, floating-origin precision) and
+`tools/voxel-bench/stream.test.ts` (11: real `worker_threads` workers running the bundled worker module, region files
+on disk, a 256 m hilly area centred where four region columns and two stacks meet): transferred buffers (detached
+on send), lane order, cancel/back-pressure, timeout + late reply + hung and crashed workers, the streamed ring and
+every derive result equal to the oracle, an edit at the 8-chunk corner rebuilding all 8 with in-flight results
+refused stale, loads cancelled when the focus leaves, a worker edit superseded by a main edit then retried,
+eviction to budget with a dirty chunk kept past the unload bounds until its save commits, save entries applied on
+load and a mismatch reported, and the browser worker bundle (minified, no Node built-ins) passing the export scan.
+
+**Floating-origin precision:** points 9.9–10.05 km out at y = ±2 km: absolute 32-bit positions are off by up to
+0.488 mm (float32 steps 0.98 mm there; 100 steps of 0.1 mm move them only ~10 times, the jitter), relative to the
+re-based origin < 0.1 mm (bound 0.061 mm within 1,024 m). 9 re-bases flying from the origin to the corner.
+
+**Node flight benchmark** (`node tools/voxel-bench/run.mjs stream`, 6 GB scope, 2026-11-02 05:44–05:47, load
+0.9–3.6, i5-12600H, 4 workers, real time at 60 Hz, no rendering). Hilly 2 × 2 km as 128 stacked 256 m region
+files (23.1 MB, 112,218 chunks; written in 73 s; kept for 45.5b at `~/.cache/thirdlight-phase45/work/45.5a/world-hilly/`).
+Default ring (load 192 m / 96 m up and down, unload 224 / 128 m, near 96 m), focus 60 m up, square loop at
+±750 m, R = 2. Report: `~/.cache/thirdlight-phase45/work/45.5a/results/stream.{md,json}`.
+
+| Run | Cold fill ms (chunks / stored) | loads/s all / stored | worker zstd + decode µs p50 / p95 | queue ms p50 / p95 | update ms p50 / p95 / max | near holes p95 (of 1,344) | peak MB / budget | unloads / reloads / evictions |
+|---|---|---|---|---|---|---|---|---|
+| fly 40 m/s, derive | 2,343 (5,436 / 679) | 713 / 86 | 73 + 388 / 139 + 664 | 2.4 / 6.2 | 0.45 / 2.4 / 12.5 | 0 | 9.1 / 268 | 42,024 / 72 / 0 |
+| fast 80 m/s | 253 | 1,426 / 173 | 73 + 383 / 139 + 641 | 2.7 / 5.6 | 0.10 / 2.0 / 3.4 | 0 | 6.8 / 268 | 42,024 / 72 / 0 |
+| tight 40 m/s, 4 MiB | 1,363 (2,504 / 402) | 478 / 65 | 75 + 391 / 335 + 679 | 1.6 / 5.2 | 0.24 / 2.4 / 3.5 | 4 | 4.2 / 4.2 | 14,115 / 583 / 14,115 |
+| jitter ±12 m over a chunk edge | 2,427 | 10 / 1 | 73 + 401 / 143 + 763 | 1.5 / 3.6 | 0.45 / 0.67 / 2.3 | 0 | 7.6 / 268 | 0 / 0 / 0 |
+
+- **It keeps up:** 0 missing chunks within 96 m at 40 and 80 m/s; 87–173 stored chunks/s decoded (88 % of the ring
+  is air or uniform and lands with no worker). Derive (placeholder) runs 544/s; worker jobs (loads and derives) take 0.66 ms median, 2.2 ms p95.
+- **Memory is small on hilly ground:** the whole ring is 5.8 MB of voxels + 2.3 MB of derive masks + 0.9 MB of
+  tables (9 MB of the low tier's 256 MiB); the budget holds a 4 MiB cap exactly (peak 4.2 MB = 4 MiB), at the
+  cost of a shrunken ring (2,504 chunks) and 583 reloads in 30 s.
+- **Churn:** hysteresis works (jitter: 0 unloads); the 72 reloads in the loop are its corners, where the ring
+  turns back over ground it left < 10 s before.
+- **Main thread:** an update is 0.1–0.45 ms median, 2.0–2.4 ms p95 (focus crossing a chunk: re-listing ~5,900 ring
+  chunks and re-ordering the queue, plus up to 2 ms of aprons); the worst update was 12.5 ms (fly, once; a GC or
+  the first apron burst, not isolated). A first version without the apron cap had a 18.6 ms update.
+- Worker decode here (~0.46 ms a chunk, zstd 73 µs + palette decode into bricks + wire) is Node's; 45.2b measured
+  Chrome's fzstd at 4–53 µs a chunk, and the browser page measures the whole job there.
+- Not done here (45.5b): a browser page, HTTP range reads with real latency, frame time at the cap, browser memory;
+  per-structure grids streaming (O9: a streamer per grid id is the shape, untested); export delivery (R66) beyond
+  the range-read source.
+
 ## 7. Decision log
 
 - 2026-10-27 (owner, planning session): §1 decided in conversation. The research behind it covers Enshrouded's
@@ -1245,6 +1323,31 @@ region files on disk, saved every 10 strokes; game save against the shipped file
 - 2026-11-02 (45.4, default chosen, owner to confirm; R67): **dirty tracking**: per-chunk versions, save jobs commit
   only the versions they snapshot, one live save job per file, a timed-out job's late commit is refused, no unload
   of a dirty or held chunk, chunk jobs accepted only at their start version. 45.5 puts real workers behind it.
+
+- 2026-11-02 (45.5a, default chosen, owner to confirm; R67–R69, Q-c): **streaming job contract v1 DRAFT** as in
+  **45.5a streaming core**: one id space (the `DirtyTracker`), four kinds (`load`, `apply-save`, `edit`, `derive`),
+  lanes edit > near > far then distance, results accepted only while every input stamp they read is unchanged
+  (edits, reloads and neighbour changes within R all move a stamp), R carried per job (never a constant; the
+  working floor 2 is the streamer's setting) with 26 apron strips, uniform strips one value. Chunks cross threads in
+  their memory form (bricks, palette, density arrays transferred), so the main thread adopts with no per-cell work.
+- 2026-11-02 (45.5a, default chosen, owner to confirm; R64, R7): **one streaming budget per tier**,
+  `VOXEL_STREAM_BUDGET_BYTES` low 256 MiB, medium 512 MiB, high 1 GiB, covering voxel chunks (+ 96 B bookkeeping
+  each), every derived part registered per chunk and open region tables; no chunk count. Default ring 192 m
+  around and 96 m above/below the focus, unloaded past 224 / 128 m, near lane within 96 m (`DEFAULT_STREAM_RING`).
+  On hilly ground the ring is ~9 MB, so the budget is headroom for meshes, colliders and light (45.6/46).
+- 2026-11-02 (45.5a, default chosen, owner to confirm): **eviction** is farthest-first among clean chunks (ties:
+  least recently wanted) down to 95 % of the budget, and loading stops at the nearest evicted distance until the
+  total is below 85 %. Dirty or save-held chunks are never evicted or unloaded; they stay past the ring until the
+  game's save commits them (a game that never saves keeps them; `heldDirty` counts it).
+- 2026-11-02 (45.5a, default chosen, owner to confirm; R62, R63, O14): **floating origin** re-bases when the focus is
+  more than 1,000 m from the origin on any axis (§5's "about 1 km"; 1,000 rather than 1,024 so local coordinates
+  stay inside float32's 0.12 mm step), snapped to 16 m (a chunk) so chunk-local data keeps integer offsets;
+  listeners run synchronously inside `update` and subtract the shift. Measured < 0.1 mm at 9.9 km and ±2 km vs
+  0.49 mm absolute. Authoritative positions stay integer cells and 64-bit metres.
+- 2026-11-02 (45.5a, default chosen, owner to confirm): a worker keeps no world state (each job brings its chunks,
+  apron or bytes and leaves a scratch store empty), so pool size, worker replacement and editor/runtime/export
+  reuse need nothing else; the pool's size, queue bound and timeouts are settings (the bench: 4 workers, 256
+  queued, 5 s timeout, 4 × timeout to replace a hung worker).
 
 ## 7a. Kit and surface planning session (2026-10-30)
 

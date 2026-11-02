@@ -10,9 +10,20 @@
  * once few entries are left, with hysteresis so an edit that toggles one
  * value does not repack the chunk each time.
  */
-import { buildLayout, type CellLayout, type LayoutKind } from './cell-layout';
+import { BrickLayout, type BrickWire } from './brick-layout';
+import { buildLayout, PackedIndices, type CellLayout, type LayoutKind, type PackedWire } from './cell-layout';
 import { MAX_PALETTE, packedWidth } from './packed-width';
 import type { ChunkGrid } from './coords';
+
+/** A plane's arrays, as they cross to or from a worker (see chunk-wire.ts). */
+export interface PlaneWire {
+  readonly values: Uint32Array;
+  /** Per entry: cell count and flag bit, as the plane keeps them. */
+  readonly meta: Uint32Array;
+  readonly size: number;
+  readonly live: number;
+  readonly layout: BrickWire | PackedWire;
+}
 
 /** Flag bit in an entry's meta word; the low bits are its cell count. */
 const FLAG = 1 << 24;
@@ -81,6 +92,39 @@ export class PalettePlane {
     return new PalettePlane(grid, values, meta, n, live, buildLayout(kind, grid, img.ids, n));
   }
 
+  /**
+   * The plane's arrays for a worker message (copied when `copy`, else handed
+   * over). Bricks and packed layouts only: run layouts are a measured
+   * candidate that the streaming path does not carry.
+   */
+  toWire(copy: boolean): PlaneWire {
+    const l = this.layout;
+    if (!(l instanceof BrickLayout) && !(l instanceof PackedIndices)) throw new RangeError(`a ${l.kind} layout has no wire form`);
+    return {
+      values: copy ? this.values.slice(0, this.size) : this.values,
+      meta: copy ? this.meta.slice(0, this.size) : this.meta,
+      size: this.size,
+      live: this.live,
+      layout: l.toWire(copy),
+    };
+  }
+
+  /** A plane over a wire's arrays (adopted); throws unless they are consistent with `grid`. */
+  static fromWire(grid: ChunkGrid, w: PlaneWire): PalettePlane {
+    if (!Number.isInteger(w.size) || w.size < 1 || w.size > MAX_PALETTE || w.values.length < w.size || w.meta.length < w.size) throw new RangeError('plane wire: palette arrays shorter than its size');
+    let cells = 0;
+    let live = 0;
+    for (let e = 0; e < w.size; e++) {
+      const n = w.meta[e]! & COUNT;
+      cells += n;
+      if (n > 0) live++;
+    }
+    if (cells !== grid.cellsPerChunk || live !== w.live) throw new RangeError('plane wire: entry counts do not add up to the chunk');
+    const layout = w.layout.kind === 'bricks' ? BrickLayout.fromWire(grid, w.layout, w.size) : PackedIndices.fromWire(grid.cellsPerChunk, w.layout);
+    if (layout.capacity < w.size) throw new RangeError('plane wire: layout narrower than the palette');
+    return new PalettePlane(grid, w.values, w.meta, w.size, w.live, layout);
+  }
+
   /** A plane whose every cell holds one value. */
   static single(grid: ChunkGrid, kind: LayoutKind, value: number, flag: boolean): PalettePlane {
     const ids = scratchIds(grid.cellsPerChunk);
@@ -91,6 +135,11 @@ export class PalettePlane {
 
   value(e: number): number {
     return this.values[e]!;
+  }
+
+  /** Cells pointing at entry `e`. */
+  cellCount(e: number): number {
+    return this.meta[e]! & COUNT;
   }
 
   flag(e: number): boolean {

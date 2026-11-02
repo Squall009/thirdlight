@@ -339,6 +339,29 @@ function trimmed(d: CellDelta): CellDelta {
 }
 
 /**
+ * The chunks a command (canonical) can touch, in key order: what an edit
+ * run off the main thread is sent, and what must be loaded for it. Refuses
+ * like {@link applyEdit} (outside the world, unknown or changed stamp).
+ */
+export function editChunks(grid: ChunkGrid, cmd: VoxelEditCommand, stamps?: StampResolver): ChunkCoord[] {
+  return planChunks(grid, planOf(grid, cmd, stamps));
+}
+
+/**
+ * The cell box a command (canonical) can change: what dependents are
+ * invalidated from (every result within the dependency radius of it).
+ */
+export function editBounds(grid: ChunkGrid, cmd: VoxelEditCommand, stamps?: StampResolver): CellBox {
+  return { ...planOf(grid, cmd, stamps).box };
+}
+
+function planChunks(grid: ChunkGrid, plan: Plan): ChunkCoord[] {
+  const b = plan.box;
+  if (!cellInWorld(b.minX, b.minY, b.minZ) || !cellInWorld(b.maxX, b.maxY, b.maxZ)) throw new EditRefused('outside_world', 'the edit reaches outside the world');
+  return plan.cells !== undefined ? [...plan.cells.keys()].sort((p, q) => p - q).map((k) => chunkOfKey(grid, k)) : chunksOf(grid, b);
+}
+
+/**
  * Applies a command (already canonical: {@link canonicalEditCommand}) and
  * returns the changed cells and the undo record. Refuses with
  * {@link EditRefused} before writing anything.
@@ -349,8 +372,7 @@ export function applyEdit(grids: EditGrids, cmd: VoxelEditCommand, opts: EditOpt
   const grid = store.grid;
   const plan = planOf(grid, cmd, opts.stamps);
   const b = plan.box;
-  if (!cellInWorld(b.minX, b.minY, b.minZ) || !cellInWorld(b.maxX, b.maxY, b.maxZ)) throw new EditRefused('outside_world', 'the edit reaches outside the world');
-  const chunks: ChunkCoord[] = plan.cells !== undefined ? [...plan.cells.keys()].sort((p, q) => p - q).map((k) => chunkOfKey(grid, k)) : chunksOf(grid, b);
+  const chunks = planChunks(grid, plan);
   if (opts.loaded !== undefined) {
     for (const c of chunks) if (!opts.loaded(cmd.grid, c.cx, c.cy, c.cz)) throw new EditRefused('chunk_not_loaded', `chunk (${c.cx}, ${c.cy}, ${c.cz}) of grid ${cmd.grid} is not loaded`);
   }

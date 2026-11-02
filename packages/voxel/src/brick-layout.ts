@@ -18,6 +18,19 @@ import type { CellLayout } from './cell-layout';
 import type { ChunkGrid } from './coords';
 import { packedWidth } from './packed-width';
 
+/** A brick layout's arrays, as they cross to or from a worker (see chunk-wire.ts). */
+export interface BrickWire {
+  readonly kind: 'bricks';
+  readonly width: number;
+  readonly brick: Uint16Array;
+  readonly mixed: Uint32Array;
+  /** The used slots' words (slots × brick words). */
+  readonly pool: Uint32Array;
+  readonly slots: number;
+  /** Freed slots waiting for reuse. */
+  readonly free: Uint16Array;
+}
+
 /** Cells along a brick's edge. */
 export const BRICK_EDGE = 4;
 const BRICK_SHIFT = 2;
@@ -75,9 +88,9 @@ export class BrickLayout implements CellLayout {
   /** 32-bit words a mixed brick takes (64 cells × width bits). */
   private readonly brickWords: number;
   /** Per brick: its entry id when uniform, else its slot in the pool. */
-  private readonly brick: Uint16Array;
+  private brick: Uint16Array;
   /** One bit per brick, set when the brick is mixed. */
-  private readonly mixed: Uint32Array;
+  private mixed: Uint32Array;
   private pool: Uint32Array;
   /** Slots handed out so far; freed ones wait in `free`. */
   private slots = 0;
@@ -123,6 +136,47 @@ export class BrickLayout implements CellLayout {
         l.pool[base + (bit >>> 5)]! |= ids[order[k + j]!]! << (bit & 31);
       }
     }
+    return l;
+  }
+
+  /**
+   * The layout's arrays for a worker message. `copy` keeps this layout
+   * usable (the arrays are copied); otherwise they are handed over as they
+   * are and this layout must not be used again once they are transferred.
+   */
+  toWire(copy: boolean): BrickWire {
+    const used = this.slots * this.brickWords;
+    return {
+      kind: 'bricks',
+      width: this.width,
+      brick: copy ? this.brick.slice() : this.brick,
+      mixed: copy ? this.mixed.slice() : this.mixed,
+      pool: copy || this.pool.length !== used ? this.pool.slice(0, used) : this.pool,
+      slots: this.slots,
+      free: Uint16Array.from(this.free),
+    };
+  }
+
+  /**
+   * A layout over a wire's arrays (adopted, not copied). Throws unless they
+   * fit `grid` and every brick names an entry below `entries` or a slot in
+   * the pool, so a damaged message is refused instead of read out of range.
+   */
+  static fromWire(grid: ChunkGrid, w: BrickWire, entries: number): BrickLayout {
+    const l = new BrickLayout(grid, w.width, 0);
+    const nb = bricksPerChunk(grid);
+    if (w.brick.length !== nb || w.mixed.length !== nb >>> 5) throw new RangeError('brick wire: arrays do not fit the chunk');
+    if (!Number.isInteger(w.slots) || w.slots < 0 || w.pool.length < w.slots * l.brickWords) throw new RangeError('brick wire: pool shorter than its slots');
+    for (let b = 0; b < nb; b++) {
+      const mixed = ((w.mixed[b >>> 5]! >>> (b & 31)) & 1) !== 0;
+      if (mixed ? w.brick[b]! >= w.slots : w.brick[b]! >= Math.max(1, entries)) throw new RangeError(`brick wire: brick ${b} out of range`);
+    }
+    for (const f of w.free) if (f >= w.slots) throw new RangeError('brick wire: free slot out of range');
+    l.brick = w.brick;
+    l.mixed = w.mixed;
+    l.pool = w.pool;
+    l.slots = w.slots;
+    l.free.push(...w.free);
     return l;
   }
 

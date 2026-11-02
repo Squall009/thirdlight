@@ -13,9 +13,15 @@
  *   overwrite newer content.
  * - A chunk cannot be unloaded while dirty or while a live save job holds
  *   it (the job's bytes may still be needed if the write fails).
- * - Any other job on a chunk (meshing, collision, lighting) carries the
- *   version it was started from; its result is accepted only while that is
- *   still the chunk's version and the job has not expired.
+ * - Any other job (loading, meshing, collision, lighting, an edit run in
+ *   a worker) carries the input stamp of every chunk it reads, taken when
+ *   it starts; its result is accepted only while all of them are unchanged
+ *   and the job has not expired. A chunk's input stamp moves on when it is
+ *   edited, when it is (re)loaded, and when a neighbour within the rules'
+ *   dependency radius changes ({@link DirtyTracker.invalidated}), so a
+ *   result built from a stale neighbourhood is refused too. Stamps come
+ *   from one counter that never repeats, so a chunk unloaded and loaded
+ *   again can never match a job started before.
  */
 
 /** A chunk of a grid: (grid id, chunk key). */
@@ -33,8 +39,12 @@ export interface SaveJob {
 
 export interface ChunkJob {
   readonly id: number;
+  /** The first chunk the job reads (the only one for single-chunk jobs). */
   readonly chunk: DirtyChunk;
-  readonly version: number;
+  /** Every chunk the job reads. */
+  readonly chunks: readonly DirtyChunk[];
+  /** The input stamp of each, when the job started. */
+  readonly inputs: readonly number[];
 }
 
 /** Why a commit or a result was refused. */
@@ -43,6 +53,8 @@ export type JobRefusal = 'expired' | 'superseded' | 'unknown_job';
 interface ChunkState {
   version: number;
   saved: number;
+  /** Input stamp: moves on with every edit, reload and neighbour change. */
+  input: number;
   /** Live save jobs holding the chunk. */
   holds: number;
 }
@@ -53,12 +65,13 @@ export class DirtyTracker {
   private readonly fileJob = new Map<string, number>();
   private readonly jobs = new Map<number, ChunkJob>();
   private nextId = 1;
+  private clock = 0;
 
   private state(c: DirtyChunk): ChunkState {
     let g = this.chunks.get(c.grid);
     if (g === undefined) this.chunks.set(c.grid, (g = new Map()));
     let s = g.get(c.key);
-    if (s === undefined) g.set(c.key, (s = { version: 0, saved: 0, holds: 0 }));
+    if (s === undefined) g.set(c.key, (s = { version: 0, saved: 0, input: 0, holds: 0 }));
     return s;
   }
 
@@ -68,7 +81,28 @@ export class DirtyTracker {
 
   /** Records an edit of a chunk; returns its new version. */
   edited(c: DirtyChunk): number {
-    return ++this.state(c).version;
+    const s = this.state(c);
+    s.input = ++this.clock;
+    return ++s.version;
+  }
+
+  /** Records that a chunk's content was (re)loaded: jobs started before it are stale. */
+  loaded(c: DirtyChunk): void {
+    this.state(c).input = ++this.clock;
+  }
+
+  /**
+   * Records that something a chunk's results depend on changed without the
+   * chunk itself being edited (a neighbour within the dependency radius was
+   * edited or loaded): its running jobs become stale, it does not become dirty.
+   */
+  invalidated(c: DirtyChunk): void {
+    this.state(c).input = ++this.clock;
+  }
+
+  /** A chunk's input stamp (0 for a chunk never loaded, edited or invalidated). */
+  inputOf(c: DirtyChunk): number {
+    return this.peek(c)?.input ?? 0;
   }
 
   version(c: DirtyChunk): number {
@@ -152,11 +186,19 @@ export class DirtyTracker {
     return true;
   }
 
-  /** Starts a job on a chunk's current version (meshing, collision, lighting). */
-  beginJob(c: DirtyChunk): ChunkJob {
-    const job: ChunkJob = { id: this.nextId++, chunk: { grid: c.grid, key: c.key }, version: this.version(c) };
+  /** Starts a job reading one chunk, or several (an edit over the chunks it touches), at their current input stamps. */
+  beginJob(c: DirtyChunk | readonly DirtyChunk[]): ChunkJob {
+    const list = (Array.isArray(c) ? c : [c]) as readonly DirtyChunk[];
+    if (list.length === 0) throw new RangeError('a job reads at least one chunk');
+    const chunks = list.map((x) => ({ grid: x.grid, key: x.key }));
+    const job: ChunkJob = { id: this.nextId++, chunk: chunks[0]!, chunks, inputs: chunks.map((x) => this.inputOf(x)) };
     this.jobs.set(job.id, job);
     return job;
+  }
+
+  /** Whether a job is still live (started, not finished or expired). */
+  isJobLive(jobId: number): boolean {
+    return this.jobs.has(jobId);
   }
 
   /** Whether a job's result may be used; the job is finished either way. */
@@ -164,7 +206,7 @@ export class DirtyTracker {
     const job = this.jobs.get(jobId);
     if (job === undefined) return { ok: false, reason: 'unknown_job' };
     this.jobs.delete(jobId);
-    return job.version === this.version(job.chunk) ? { ok: true } : { ok: false, reason: 'superseded' };
+    return job.chunks.every((c, i) => job.inputs[i] === this.inputOf(c)) ? { ok: true } : { ok: false, reason: 'superseded' };
   }
 
   /** Gives up on a chunk job (timeout): a late result is refused as unknown. */

@@ -8,7 +8,7 @@ import type { LayoutKind } from './cell-layout';
 import type { ChunkGrid } from './coords';
 import type { DenseChunk } from './dense-chunk';
 import { createChunkImage, recordValue, valueCategory, valueMaterial, valueOrientation, type ChunkImage, type PaletteKind } from './palette-image';
-import { PalettePlane, type PlaneImage } from './palette-plane';
+import { PalettePlane, type PlaneImage, type PlaneWire } from './palette-plane';
 import type { VoxelRecord } from './record';
 import { impliedShape, SurfaceDensity } from './surface-density';
 
@@ -108,6 +108,13 @@ function updateDensity(density: SurfaceDensity | null, i: number, oldFlag: numbe
   return density;
 }
 
+/** A record chunk's arrays, as they cross to or from a worker (see chunk-wire.ts). */
+export interface RecordChunkWire {
+  readonly plane: PlaneWire;
+  /** Surface voxels (`cell << 8 | density`, ascending), or null when it has none. */
+  readonly density: Uint32Array | null;
+}
+
 export class RecordChunk implements PaletteChunk {
   readonly kind = 'record';
   private readonly grid: ChunkGrid;
@@ -122,6 +129,25 @@ export class RecordChunk implements PaletteChunk {
 
   static fromImage(img: ChunkImage, layout: LayoutKind): RecordChunk {
     return new RecordChunk(img.grid, PalettePlane.fromImage(img.grid, layout, img.planes[0]), densityOf(img));
+  }
+
+  /** The chunk's arrays for a worker message (copied when `copy`, else handed over and this chunk is dropped). */
+  toWire(copy: boolean): RecordChunkWire {
+    return { plane: this.plane.toWire(copy), density: this.density === null ? null : this.density.toWire(copy) };
+  }
+
+  /**
+   * A chunk over a wire's arrays (adopted, no per-cell work). Throws unless
+   * they are consistent, and unless the flagged entries and the surface
+   * list agree in count, so a damaged message never becomes a chunk.
+   */
+  static fromWire(grid: ChunkGrid, w: RecordChunkWire): RecordChunk {
+    const plane = PalettePlane.fromWire(grid, w.plane);
+    const density = w.density === null || w.density.length === 0 ? null : SurfaceDensity.fromWire(w.density, grid.cellsPerChunk);
+    let flaggedCells = 0;
+    for (let e = 0; e < plane.size; e++) if (plane.flag(e)) flaggedCells += plane.cellCount(e);
+    if (flaggedCells !== (density?.count ?? 0)) throw new RangeError('chunk wire: flagged cells and surface voxels differ');
+    return new RecordChunk(grid, plane, density);
   }
 
   /** A chunk holding one voxel (a record value, implied shape) everywhere, ready to be edited. */

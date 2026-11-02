@@ -16,6 +16,7 @@
  */
 import type { LayoutKind } from './cell-layout';
 import { ChunkIndex } from './chunk-index';
+import { checkPayloadEdge, type ChunkPayload } from './chunk-wire';
 import { cellInWorld, localIndex, type ChunkGrid } from './coords';
 import { createDenseChunk, type DenseChunk } from './dense-chunk';
 import { checkChunk } from './dense-store';
@@ -38,6 +39,18 @@ export interface PaletteStoreOptions {
   atRest: LayoutKind;
   /** Planes kept (default all). */
   planes?: readonly VoxelPlane[];
+}
+
+/**
+ * The store the world streams into (the measured pick, DRAFT until the
+ * format is approved): one record palette per chunk, sparse 4³ bricks in
+ * memory, the bit-packed body at rest.
+ */
+export const WORLD_STORE_OPTIONS: Readonly<PaletteStoreOptions> = Object.freeze({ name: 'world', palette: 'record', layout: 'bricks', atRest: 'packed' });
+
+/** An empty world store ({@link WORLD_STORE_OPTIONS}) for a chunk layout. */
+export function createWorldStore(grid: ChunkGrid, name = WORLD_STORE_OPTIONS.name): PaletteStore {
+  return new PaletteStore(grid, { ...WORLD_STORE_OPTIONS, name });
 }
 
 /** Bytes a collapsed chunk costs: one number in the index. */
@@ -234,6 +247,54 @@ export class PaletteStore implements VoxelStoreCandidate {
       return;
     }
     this.storeImage(cx, cy, cz, img);
+  }
+
+  /** Bytes one chunk costs in memory (0 when absent; {@link memoryBytes} is the sum over chunks). */
+  chunkBytes(cx: number, cy: number, cz: number): number {
+    const slot = this.chunks.get(cx, cy, cz);
+    return slot === undefined ? 0 : typeof slot === 'number' ? UNIFORM_BYTES : slot.bytes();
+  }
+
+  /**
+   * A chunk's content as a payload for another thread. `copy` keeps the
+   * chunk here (its arrays are copied); otherwise the arrays are handed
+   * over and the chunk is dropped from this store. Record palettes only.
+   */
+  chunkPayload(cx: number, cy: number, cz: number, copy = true): ChunkPayload {
+    checkChunk(this.grid, cx, cy, cz);
+    const slot = this.chunks.get(cx, cy, cz);
+    if (slot === undefined) return { form: 'air' };
+    if (typeof slot === 'number') {
+      if (!copy) this.dropChunk(cx, cy, cz);
+      return { form: 'uniform', value: slot };
+    }
+    if (!(slot instanceof RecordChunk)) throw new RangeError('only record palette chunks have a payload form');
+    const wire = slot.toWire(copy);
+    if (!copy) this.dropChunk(cx, cy, cz);
+    return { form: 'stored', edge: this.grid.edge, wire };
+  }
+
+  /**
+   * Replaces a chunk with a payload's content, adopting its arrays (no
+   * per-cell work). Throws (and leaves the chunk as it was) when the
+   * payload is inconsistent or this store does not hold record palettes in
+   * the payload's layout.
+   */
+  adoptPayload(cx: number, cy: number, cz: number, p: ChunkPayload): void {
+    checkChunk(this.grid, cx, cy, cz);
+    checkPayloadEdge(this.grid, p);
+    if (p.form === 'stored') {
+      if (this.opts.palette !== 'record' || p.wire.plane.layout.kind !== this.opts.layout) throw new RangeError(`a ${p.wire.plane.layout.kind} record payload does not fit store ${this.name}`);
+      const chunk = RecordChunk.fromWire(this.grid, p.wire);
+      // Keep the store's invariant: a chunk of one voxel is a number, an all-air one absent.
+      const u = chunk.uniformValue();
+      if (u === 0) this.chunks.delete(cx, cy, cz);
+      else this.chunks.set(cx, cy, cz, u > 0 ? u : chunk);
+    } else if (p.form === 'uniform' && p.value !== 0) {
+      if (!Number.isInteger(p.value) || p.value < 0 || p.value > 0xffffffff) throw new RangeError(`uniform payload value ${p.value}`);
+      this.chunks.set(cx, cy, cz, p.value);
+    } else this.chunks.delete(cx, cy, cz);
+    this.forget();
   }
 
   memoryBytes(): number {

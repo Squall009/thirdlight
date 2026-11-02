@@ -362,6 +362,11 @@ export class RegionIndex {
     return new RegionIndex(h, table);
   }
 
+  /** Bytes the parsed table holds in memory. */
+  bytes(): number {
+    return this.cols.byteLength + this.cys.byteLength + this.flags.byteLength + this.a.byteLength + this.b.byteLength + this.offsets.byteLength;
+  }
+
   /** The whole file's length in bytes (a file of any other length is refused). */
   get fileBytes(): number {
     return this.offsets[this.header.entryCount]!;

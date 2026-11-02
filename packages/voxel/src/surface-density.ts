@@ -46,6 +46,20 @@ export class SurfaceDensity {
     return new SurfaceDensity(a, count);
   }
 
+  /** The sorted `cell << 8 | density` words for a worker message (copied when `copy`, else handed over). */
+  toWire(copy: boolean): Uint32Array {
+    return copy || this.cells.length !== this.n ? this.cells.slice(0, this.n) : this.cells;
+  }
+
+  /** A list over a wire's words (adopted); throws unless they ascend by cell and lie inside a chunk of `cells` cells. */
+  static fromWire(words: Uint32Array, cells: number): SurfaceDensity {
+    for (let k = 0; k < words.length; k++) {
+      const c = words[k]! >>> 8;
+      if (c >= cells || (k > 0 && c <= words[k - 1]! >>> 8)) throw new RangeError('density wire: cells out of order or outside the chunk');
+    }
+    return new SurfaceDensity(words.length > 0 ? words : new Uint32Array(4), words.length);
+  }
+
   /** Surface voxels held. */
   get count(): number {
     return this.n;
