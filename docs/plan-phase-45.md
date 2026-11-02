@@ -684,6 +684,7 @@ sub-phase on staging; the merge to `main` happens once, at the end of 48.
 | 45.3 | done (7611d71e): region file v1 DRAFT (header, CRCs, sorted chunk table, uniform inline, canonical bytes, range reads). 256 m tiles kept; stacked cubes proposed over columns (2 km tile: 12.3 MB file, 1.47 MB stacked); 10 km ≈ 430–580 MB, 1,600 tiles; HTTP chunk 0.41 ms, 3×3×3 0.54 ms coalesced; git +0.13–0.22 MB/h after gc (7–22 loose): no LFS; see **45.3 region files**. |
 | 45.4 | done (0f7bdd89, 99b3274e, gate green): edits, undo, saves v1 DRAFT (stroke commands, one deterministic apply, per-chunk undo under a 64 MiB budget spilling to disk, edits-only saves with 16-byte base hashes, structure overrides, repair, dirty jobs). Dab 4 m 68–102 µs, undo 1.5 KB; 16 m fill 4.9–5.7 ms, 45–60 KB; 1,000 strokes: save 255–460 KB; see **45.4 edits, undo, saves**. |
 | 45.5b | done (5e94406e, gate green): browser page (`run.mjs stream-page`), Iris Xe, 720p at the 60 Hz cap, HTTP Range, 4 workers, both renderers: frame p95 16.67 ms, ≤ 1 missed of 3,600 (first draw), 0 long tasks, 0 near holes at 40/80 m/s; update p95 2.3–2.4, max 6.5 ms (no GC; 12.5 not seen). Derive re-check bug fixed. +40 ms latency empties the ring (D432); see **45.5b browser streaming**. |
+| 45.6 | done (fast gate green): derived data v1 DRAFT: one versioned assembly evaluation (placeholder rules, R 2, apron 3) feeds occupancy, collision boxes, nav, light coverage (+ prop channel), meshes, instances; mips. Node: derive p50 0.5–3.4 ms a chunk, 11–69 KB mean; light 0.5–4.3 KB vs 3.5–19 KB dense; see **45.6 derived data**. |
 
 ### 45.0 floor record
 
@@ -1235,6 +1236,109 @@ Report, screenshots, trace: `~/.cache/thirdlight-phase45/work/45.5b/` (scratch).
 - Verified by eye: the round-1 screenshots show the boxes of the streamed ground on both renderers. Not done: the
   slice's real meshes, export delivery beyond a static server, structure grids streaming.
 
+### 45.6 derived data
+
+All DRAFT, in `@thirdlight/voxel` (pure; it runs in the `derive` job of 45.5a): `assembly.ts` (the evaluation and
+rule sets), `derived-data.ts` (consumer outputs), `derived-mesh.ts` (mesh buffers), `derive-assembly.ts`,
+`voxel-mips.ts`, `prop-coverage.ts`. Never committed, never saved, never in a region file. Bench:
+`node tools/voxel-bench/run.mjs derive`; vitest `tools/voxel-bench/derived.test.ts` (11 tests) and one streamer test
+in `stream.test.ts` (real module workers, region files on disk).
+
+- **One assembly evaluation (Q-b).** A derive job gathers the chunk and its apron into one padded block, and a
+  pluggable rule set (`AssemblyRuleSet`: id, version, radius R, `resolve`) resolves every cell of the chunk plus a
+  one-cell margin into a class byte: empty, wall, ground, beam, rail (a post is a rail thin both ways), liquid, with
+  run-axis bits. Classes live only inside the job. Every consumer reads them through its own table:
+
+| Class | render solid | collision | nav blocks / stands on | light coverage |
+|---|---|---|---|---|
+| wall (construction, roof) | yes | full box | yes / yes | 255 |
+| ground (terrain) | density ≥ 128 | the ground surface (trimesh) | density ≥ 128 | its density |
+| beam | no (detail piece) | partial bar | yes / no | 128 |
+| rail, post | no (detail piece) | thin slab / bar | yes / no | 51 |
+| liquid | no | none (49) | no / no | 0 |
+
+- **Placeholder rules v1 (R = 2), not the catalogue.** Beam: construction, open above and below, a wall body (three
+  stacked) on one side, open on the other. Rail: a thin construction cell (open on both sides along x or z), open
+  above, standing on a support (solid and not thin), on a post on a support, or across one open cell from a support
+  (the rail between posts). Post: thin both ways, on a support, under a rail's top cell. Anything else built is a
+  wall; terrain is ground. Known limits: banister and fence corners resolve as wall; stairs, slopes, openings,
+  soffits and mouldings are 46b's.
+- **Representation chosen** (bytes a chunk, mean over every derived chunk; the alternatives measured on the same
+  chunks):
+
+| World | light: bits + partial list / dense byte / per 4³ brick | collision: boxes / byte plane | nav: bits + standable list / byte plane | occupancy: flags + bits / bits only |
+|---|---|---|---|---|
+| town | 458 / 3,495 / 661 | 183 / 3,169 | 848 / 4,075 | 565 / 1,882 |
+| plain | 808 / 3,700 / 545 | 0 / 0 | 809 / 3,700 | 590 / 2,312 |
+| hilly | 875 / 4,374 / 599 | 0 / 0 | 873 / 4,337 | 657 / 3,104 |
+| caves | 4,343 / 19,473 / 5,574 | 0 / 0 | 3,701 / 19,473 | 2,556 / 2,438 |
+| vertical | 3,168 / 18,773 / 2,509 | 0 / 0 | 2,610 / 18,531 | 2,444 / 3,642 |
+
+  Light keeps one bit per fully covering cell plus the partial cells (index, coverage): 4–6× smaller than a byte a
+  cell everywhere; a byte per 4³ brick plus 64 bytes per mixed brick is 0.6–0.8× of it on plain, hilly and vertical
+  ground but 1.3–1.4× in the town and caves, with O(1) random access instead of a binary search over partial cells
+  (46d's tracer decides if the access matters). Collision boxes merge full cells into columns, slabs and blocks (town:
+  17,280 full boxes for 327,260 wall cells, 19 cells a box). Partial cells are rare: beams and rails are 5.7 % of the
+  town's construction cells, partly full ground cells 0.5–5.4 % of solid cells on the terrain worlds.
+- **Dependency radius and invalidation (Q-c).** A job's apron is the rules' R plus the consumers' reach (one cell:
+  a neighbour's face, the support under a standable cell, a run neighbour), 3 for the placeholder. A result records
+  the derived format version and the rules' id, version and radius; a worker refuses a job naming a rule set, version
+  or radius it does not have. `VoxelStreamer` takes `rules` (its dependency radius must equal the job radius) and then
+  also derives absent chunks next to non-air (a cell above a neighbour's ground is standable). Tested: an edit at a
+  chunk corner rebuilds exactly the 8 chunks around it and a banister cell in the neighbouring chunk becomes a wall;
+  an edit 3 cells below a chunk boundary changes the chunk above (R 3 reaches it, R 2 would not); 16 random edits near
+  boundaries leave every result in a 32-chunk window equal to a fresh derive while only `dependentChunks(box, 3)` are
+  rebuilt; through the streamer in real workers every derived chunk equals the in-thread derive before and after a
+  corner edit, which rebuilds exactly 8 chunks.
+- **Mesh buffers (formats; reference producers).** A surface buffer is interleaved 20-byte vertices (position
+  `uint16x4` in 1/1024 cell from one cell below the chunk corner, normal `snorm8x4`, four material slots `uint8x4`
+  (`uint16x4` past 256 materials in a chunk), weights `unorm8x4` summing to 255) and `uint16`/`uint32` indices, CCW
+  from outside. Two per chunk: the projected ground (naive surface nets on ground density, iso 128) and the modular
+  base (one quad per exposed face of a wall cell; none for beams and rails). One material table a chunk serves
+  surfaces, instances and boxes. No cracks: a boundary vertex is a function of its 8 samples, quantised as integer
+  steps in world cells, so both chunks compute the same bits; a sample edge belongs to the chunk of its lower sample
+  (tested: every interior edge of a 2 × 2-chunk hilly patch has exactly two triangles, 1,000+ edges, 50+ on seams).
+  Detail instances are 8 bytes (cell x, y, z; quarter turns + flags; piece = family << 2 | run section
+  single/start/body/end; material slot), flag `replacesBase` (the base surface is not emitted under the piece).
+- **Collision and walk-graph inputs (for 46a/46d).** Boxes as 6 × `uint16` in 1/16 cell plus a material slot each
+  (full merges first, then partial shapes), and the ground surface buffer as the trimesh; nav: a blocking bit a cell
+  (or a whole-chunk flag) and the standable cells (free, on a supporting cell) with clearance up to 4 cells (2 m) and a
+  bit when the free run continues into the chunk above (the walk graph joins chunks vertically).
+- **Speed** (Node, this thread; 2026-11-02 07:12–07:14, 6 GB scope, load 1.2–1.9, peak RSS 381 MB; every chunk of
+  the window whose neighbourhood holds anything but air, the window's outer ring left out):
+
+| World (window) | chunks (stored) | derive µs p50 / p95 / max | evaluate / mesh / consumers µs mean | apron µs p50 / p95 | KB mean / p95 | ground / base / instances B mean |
+|---|---|---|---|---|---|---|
+| town 256 m, 11 house grids | 2,823 (529) | 1,559 / 5,743 / 26,578 | 208 / 946 / 493 | 12 / 403 | 36.5 / 258 | 9,289 / 25,095 / 56 |
+| plain 256 m | 2,268 (511) | 1,719 / 2,918 / 10,632 | 203 / 682 / 536 | 88 / 426 | 13.9 / 54 | 11,728 / 0 / 0 |
+| hilly 512 m | 8,040 (1,298) | 517 / 3,423 / 9,146 | 217 / 480 / 334 | 5 / 442 | 10.8 / 59 | 8,414 / 0 / 0 |
+| caves 256 m | 2,891 (1,724) | 3,400 / 7,064 / 24,470 | 211 / 2,392 / 728 | 426 / 608 | 68.8 / 168 | 58,201 / 0 / 0 |
+| vertical 128 m × 2 km | 4,205 (2,415) | 2,135 / 4,133 / 9,412 | 204 / 1,009 / 499 | 317 / 512 | 30.3 / 87 | 22,103 / 0 / 0 |
+
+  The evaluation costs ~0.2 ms a chunk; the reference mesher is most of the rest (JS arrays, a Map per vertex) and
+  the town's base surface is naive (a quad per face, 25 KB a chunk mean, 258 KB p95): merging coplanar faces is 46b's
+  (the buffer layout holds any quads). A chunk whose evaluated region is one voxel and one class takes a shortcut with
+  the same output. Apron building on the main thread at R 3 is 0.4–0.6 ms p95 (45.5b: 0.34–0.39 at R 2). A 192 m ring
+  covers ~0.44 of the 512 m hilly window: roughly 3,500 derived chunks and 38 MB (an estimate from the window, not
+  measured in the streamer), inside the low tier's 256 MiB.
+- **Voxel mips (§2).** A tree node at level L has the chunk's form (32³ cells of 0.5 m × 2^L): density the mean of
+  its 8 children's cells, material the one with the largest summed density (ties: lower id), category and orientation
+  from that material's first cell; air when the mean rounds to 0. Nodes go through the same palette store and codec.
+  `MipStaleSet` marks every ancestor of a changed chunk up to a level, rebuilt lowest first (tested: rebuilding the
+  stale nodes after a pit dug through two chunks equals rebuilding the whole tree). zstd bytes and downsample cost
+  per level on the hilly 512 m window: L1 951 nodes (599 uniform), 417 KB; L2 128, 111 KB; L3 32, 29 KB; L4 8, 7 KB
+  (each level ~¼ of the one below on surface worlds; caves 1.23 MB → 337 → 72 → 13 KB); 0.4–1.3 ms a node (per-cell
+  JS, no word-level path yet).
+- **Prop lighting channel (§1b).** Per chunk one coverage byte a cell (null when no prop covers it), rebuilt from the
+  prop list (4³ samples a host cell, inside test in the prop's frame after inverse yaw and scale), overlaps combined
+  1 − (1 − a)(1 − b), joined with the construction's light the same way (`lightCoverage`). A 3 m-radius canopy sphere
+  takes 675 µs over 1,186 cells, a turned crate 100 µs over 18 cells; a turned 2 × 1 × 1 m box's coverage sums to its
+  volume within 3 %. Never saved, never in world voxels.
+- **Runtime building without structure metadata (Q-a, §7a).** A 2-storey house with a balcony written by its
+  generator and the same voxels written as hundreds of runtime `fill` commands (one-cell-wide column runs) with no
+  structure record derive to the same bytes; its beams and banister are inferred. Derived bytes are also unchanged
+  by a codec round trip of the chunks and equal between the worker job and the main-thread path.
+
 ## 7. Decision log
 
 - 2026-10-27 (owner, planning session): §1 decided in conversation. The research behind it covers Enshrouded's
@@ -1419,6 +1523,48 @@ Report, screenshots, trace: `~/.cache/thirdlight-phase45/work/45.5b/` (scratch).
   bytes. Proposed for 45.7/46a: batch reads per region column with a gap between the two, more reads in flight
   where HTTP/2 serves the files, and prefetch along the motion; measured again in the slice. Not a format change:
   the region table already allows any range.
+
+- 2026-11-02 (45.6, default chosen, owner to confirm; Q-b, R75–R77): **derived data v1 DRAFT** as in **45.6 derived
+  data**: one assembly evaluation per derive job resolves a class per cell (kept only inside the job), and every
+  consumer (render occupancy, collision, navigation, light, meshes, detail instances) reads the same classes through
+  its own table, so an open rail is open for collision, navigation and light while the wall beside it is solid for
+  all of them. Rule sets are pluggable and versioned (id, version, radius); the placeholder set (beam, rail, post,
+  wall) proves the contract; the case catalogue is 46b's.
+- 2026-11-02 (45.6, for the owner, R1; R79): **one occupancy bitmask for every system does not pan out**: a beam or
+  rail must block movement but not light or sight, and must not be stood on. Replacement keeping its goal (cheap,
+  exact grid queries per chunk): per-consumer representations from the one evaluation: render occupancy (chunk
+  flag, 2-bit brick flags, a bit a cell when mixed), light (a bit per fully covering cell + a partial list), nav
+  (a blocking bit a cell + standable cells), collision boxes. Cost: 0.5–4.3 KB light + 0.8–3.7 KB nav + 0.6–2.6 KB
+  occupancy a chunk instead of one 4 KB mask, ~0.5 ms of consumer passes per chunk. Not dropped until the owner
+  chooses.
+- 2026-11-02 (45.6, default chosen, owner to confirm; Q-c, R67–R69): a derive job's apron depth is the **rules'
+  radius + the consumers' reach (1)**, 3 for the placeholder (R 2, the working floor); `dependentChunks` with that
+  radius names every result an edit can change (tested at 3 cells, 2 would miss the chunk above). A derived result
+  records its format version and its rules (id, version, radius); a worker refuses other versions. A streamer derives
+  with one rule set; a rules upgrade means a new streamer (every result rebuilt), never mixed results.
+- 2026-11-02 (45.6, default chosen, owner to confirm): **light coverage** as bits + partial list rather than a byte a
+  cell (4–6× larger) or per 4³ brick (0.6–0.8× on plain, hilly and vertical ground, 1.3–1.4× in the town and caves,
+  O(1) access); 46d may switch to bricks if the tracer's access cost calls for it (a derived-format version step,
+  nothing stored changes). Placeholder coverages: beam 128, rail and post 51 (≈ 20 %, the plan's fence example), wall
+  255, ground its density.
+- 2026-11-02 (45.6, default chosen, owner to confirm; R105, R100): **collision input** = boxes (6 × `uint16` in
+  1/16 cell + material slot; full cells merged into columns, slabs and blocks; beams and rails a partial box a cell)
+  plus the ground surface buffer as the trimesh; **walk-graph input** = blocking bits + standable cells with
+  clearance up to 4 cells (2 m) and a continues-above bit; headroom across chunk tops and the graph itself are 46d's.
+- 2026-11-02 (45.6, default chosen, owner to confirm; R72, R91): **mesh buffers**: 20-byte vertices (`uint16x4`
+  position in 1/1024 cell from one cell below the chunk corner, `snorm8x4` normal, `uint8x4` material slots or
+  `uint16x4` past 256 materials, `unorm8x4` weights), `uint16`/`uint32` indices, one material table a chunk; the ground
+  and the modular base as two buffers; crack-free by quantising boundary vertices in world steps from their samples
+  only and by giving each sample edge to the chunk of its lower sample. Detail instances 8 bytes with a
+  `replacesBase` flag (replacement for open rails, not a solid base under every detail, §7a). The producers are
+  references (naive surface nets, a quad per face); 46b replaces them writing the same layouts or bumps the version.
+- 2026-11-02 (45.6, default chosen, owner to confirm; R84, R85): **voxel mips**: a node has a chunk's form (same
+  store, codec, mesher input), density the mean of 8 children, material the largest summed density (ties: lower
+  id), category/orientation from its first cell; `MipStaleSet` marks ancestors per level, rebuilt lowest first. Paint
+  colour waits for paint storage (O16).
+- 2026-11-02 (45.6, default chosen, owner to confirm; R93–R95, O11): the **prop lighting channel** is per chunk one
+  coverage byte a cell (null when untouched), rebuilt from the prop list on load and move (4³ samples a host cell),
+  overlaps 1 − (1 − a)(1 − b), joined with the construction's coverage the same way; never saved, never world voxels.
 
 ## 7a. Kit and surface planning session (2026-10-30)
 

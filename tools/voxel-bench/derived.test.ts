@@ -1,0 +1,554 @@
+/**
+ * Derived data against the real store, codec and job handler: the one
+ * assembly evaluation and every consumer's output (occupancy, collision,
+ * navigation, light, meshes, instances), their invalidation radius, the
+ * voxel mips and the prop light channel.
+ */
+import {
+  applyEdit,
+  ASSEMBLY_CLASS,
+  buildApron,
+  canonicalEditCommand,
+  cellBit,
+  chunkGrid,
+  CLASS_MASK,
+  COLLISION_STEPS_PER_CELL,
+  combineCoverage,
+  createDenseChunk,
+  createNeighbourhood,
+  createWorldStore,
+  dependentChunks,
+  deriveFromStore,
+  downsampleMip,
+  encodeDerived,
+  evaluateAssembly,
+  fillNeighbourhood,
+  INSTANCE_BYTES,
+  INSTANCE_FLAG,
+  jobRadius,
+  LIGHT_COVERAGE,
+  lightCoverage,
+  mipChildren,
+  mipNodeKey,
+  mipNodeOf,
+  MipStaleSet,
+  NAV_CLEARANCE_CONTINUES,
+  OCCUPANCY,
+  PIECE_FAMILY,
+  PLACEHOLDER_RULES,
+  POSITION_STEPS_PER_CELL,
+  propCoverageChunk,
+  RUN_X,
+  RUN_Z,
+  sameDenseChunk,
+  streamJobHandlers,
+  surfaceStride,
+  VOXEL_CATEGORY,
+  type DenseChunk,
+  type DeriveOutput,
+  type DerivedData,
+  type MipNode,
+  type PaletteStore,
+  type VoxelEditCommand,
+} from '@thirdlight/voxel';
+import { crc32 } from '@thirdlight/shared';
+import { describe, expect, it } from 'vitest';
+import { loadArea, zstdDecompress } from './regions';
+import { houseVoxel, type House } from './town';
+import { MAT } from './world-kit';
+import { hillyWorld } from './worlds';
+
+const grid = chunkGrid(32);
+const E = grid.edge;
+const R = jobRadius(PLACEHOLDER_RULES);
+const C = VOXEL_CATEGORY;
+
+function put(store: PaletteStore, x: number, y: number, z: number, material: number, category: number, shape = 255, orientation = 0): void {
+  store.setVoxel(x, y, z, { material, category, shape: material === 0 ? 0 : shape, orientation });
+}
+
+/** Flat full ground below y = top over [x0, x1) × [z0, z1). */
+function ground(store: PaletteStore, x0: number, x1: number, z0: number, z1: number, depth = 3, top = 0): void {
+  for (let x = x0; x < x1; x++) for (let z = z0; z < z1; z++) for (let y = top - depth; y < top; y++) put(store, x, y, z, MAT.grass, C.terrain);
+}
+
+const local = (v: number): number => v & grid.mask;
+const chunkOf = (v: number): number => v >> grid.shift;
+const li = (x: number, y: number, z: number): number => (local(x) * E + local(z)) * E + local(y);
+
+function derivedAt(store: PaletteStore, x: number, y: number, z: number): DerivedData {
+  return deriveFromStore(store, chunkOf(x), chunkOf(y), chunkOf(z), PLACEHOLDER_RULES);
+}
+
+/** The resolved class byte of one cell (the evaluation the derive runs). */
+function classAt(store: PaletteStore, x: number, y: number, z: number): number {
+  const cx = chunkOf(x);
+  const cy = chunkOf(y);
+  const cz = chunkOf(z);
+  const n = createNeighbourhood(E, R);
+  const dense = createDenseChunk(grid);
+  const has = store.exportChunk(cx, cy, cz, dense);
+  fillNeighbourhood(n, grid, has ? dense : null, buildApron(store, cx, cy, cz, R));
+  const out = new Uint8Array(n.values.length);
+  evaluateAssembly(n, PLACEHOLDER_RULES, out);
+  return out[((local(x) + R) * n.side + (local(z) + R)) * n.side + (local(y) + R)]!;
+}
+
+/** What each consumer says about one cell. */
+function consumersAt(store: PaletteStore, x: number, y: number, z: number): { light: number; navBlocks: boolean; standable: boolean; collision: 'none' | 'full' | 'partial'; instance: number | null; renderSolid: boolean } {
+  const d = derivedAt(store, x, y, z);
+  const i = li(x, y, z);
+  const light = lightCoverage(grid, d.light, null)[i]!;
+  const navBlocks = d.nav.blocking === OCCUPANCY.solid || cellBit(d.nav.blocks, i);
+  const standable = d.nav.standable.includes(i);
+  const S = COLLISION_STEPS_PER_CELL;
+  let collision: 'none' | 'full' | 'partial' = 'none';
+  const b = d.collision.boxes;
+  const [lx, ly, lz] = [local(x), local(y), local(z)];
+  for (let k = 0; k < b.length; k += 6) {
+    const inside = (lo: number, hi: number, c: number): boolean => lo < (c + 1) * S && hi > c * S;
+    if (!inside(b[k]!, b[k + 3]!, lx) || !inside(b[k + 1]!, b[k + 4]!, ly) || !inside(b[k + 2]!, b[k + 5]!, lz)) continue;
+    const covers = b[k]! <= lx * S && b[k + 3]! >= (lx + 1) * S && b[k + 1]! <= ly * S && b[k + 4]! >= (ly + 1) * S && b[k + 2]! <= lz * S && b[k + 5]! >= (lz + 1) * S;
+    collision = covers ? 'full' : 'partial';
+  }
+  let instance: number | null = null;
+  const data = d.instances.data;
+  for (let k = 0; k < d.instances.count; k++) {
+    const o = k * INSTANCE_BYTES;
+    if (data[o] === lx && data[o + 1] === ly && data[o + 2] === lz) instance = data[o + 4]! | (data[o + 5]! << 8);
+  }
+  const renderSolid = d.occupancy.flag === OCCUPANCY.solid || cellBit(d.occupancy.mask, i);
+  return { light, navBlocks, standable, collision, instance, renderSolid };
+}
+
+/**
+ * A wall along x at z = 0 (8 tall) with a beam one cell out at z = −1, y = 5,
+ * and a floor slab on the ground at z 4…7 with a banister along its z = 7
+ * edge: posts at y = 1 on even x, a rail at y = 2.
+ */
+function wallBeamBanister(): PaletteStore {
+  const s = createWorldStore(grid);
+  ground(s, -12, 12, -12, 12);
+  for (let x = -6; x < 6; x++) for (let y = 0; y < 8; y++) put(s, x, y, 0, MAT.stone, C.construction);
+  for (let x = -6; x < 6; x++) put(s, x, 5, -1, MAT.timber, C.construction);
+  for (let x = -4; x < 4; x++) for (let z = 4; z < 8; z++) put(s, x, 0, z, MAT.plank, C.construction);
+  for (let x = -4; x < 4; x++) {
+    if ((x & 1) === 0) put(s, x, 1, 7, MAT.timber, C.construction);
+    put(s, x, 2, 7, MAT.timber, C.construction);
+  }
+  return s;
+}
+
+describe('assembly evaluation and per-consumer outputs', () => {
+  it('resolves the same construction cells as wall, beam or rail by their neighbours, and every consumer follows', () => {
+    const s = wallBeamBanister();
+    expect(classAt(s, 0, 4, 0)).toBe(ASSEMBLY_CLASS.wall);
+    expect(classAt(s, 0, 5, -1)).toBe(ASSEMBLY_CLASS.beam | RUN_X);
+    expect(classAt(s, 1, 2, 7)).toBe(ASSEMBLY_CLASS.rail | RUN_X);
+    expect(classAt(s, 0, 1, 7)).toBe(ASSEMBLY_CLASS.rail | RUN_X | RUN_Z);
+    expect(classAt(s, 0, 0, 5)).toBe(ASSEMBLY_CLASS.wall);
+
+    const wall = consumersAt(s, 0, 4, 0);
+    const beam = consumersAt(s, 0, 5, -1);
+    const rail = consumersAt(s, 1, 2, 7);
+    expect(wall).toMatchObject({ light: 255, navBlocks: true, collision: 'full', instance: null, renderSolid: true });
+    expect(beam).toMatchObject({ light: LIGHT_COVERAGE.beam, navBlocks: true, collision: 'partial', renderSolid: false });
+    expect(beam.instance! >> 2).toBe(PIECE_FAMILY.beam);
+    expect(rail).toMatchObject({ light: LIGHT_COVERAGE.rail, navBlocks: true, collision: 'partial', renderSolid: false });
+    expect(rail.instance! >> 2).toBe(PIECE_FAMILY.rail);
+    // Standing: on top of the wall yes, on top of the rail no; the slab under the banister holds standable cells.
+    expect(consumersAt(s, 0, 8, 0).standable).toBe(true);
+    expect(consumersAt(s, 1, 3, 7).standable).toBe(false);
+    expect(consumersAt(s, 1, 1, 6).standable).toBe(true);
+    // The rail replaces its base: its instance says so, and no base face sits in its cell.
+    const d = derivedAt(s, 1, 2, 7);
+    const flags = d.instances.data.filter((_, k) => k % INSTANCE_BYTES === 3);
+    expect([...flags].every((f) => (f & INSTANCE_FLAG.replacesBase) !== 0)).toBe(true);
+    expect(baseFaceTouches(d, 1, 2, 7)).toBe(false);
+
+    // Grow the banister upward: a third thin cell over the post makes the run a wall for every consumer.
+    for (let x = -4; x < 4; x++) put(s, x, 3, 7, MAT.timber, C.construction);
+    expect(classAt(s, 1, 2, 7)).toBe(ASSEMBLY_CLASS.wall);
+    expect(classAt(s, 0, 2, 7)).toBe(ASSEMBLY_CLASS.wall);
+    expect(consumersAt(s, 0, 2, 7)).toMatchObject({ light: 255, collision: 'full', instance: null, renderSolid: true });
+    expect(consumersAt(s, 0, 4, 7).standable).toBe(true);
+    // Fill under the beam down to the ground: it is now a second wall layer.
+    for (let x = -6; x < 6; x++) for (let y = 0; y < 5; y++) put(s, x, y, -1, MAT.timber, C.construction);
+    expect(classAt(s, 0, 5, -1)).toBe(ASSEMBLY_CLASS.wall);
+    expect(consumersAt(s, 0, 5, -1)).toMatchObject({ light: 255, collision: 'full', instance: null });
+  });
+
+  it('is deterministic: the same voxels give the same bytes, after a codec round trip and in the worker job', async () => {
+    const s = wallBeamBanister();
+    const keys: Array<[number, number, number]> = [[-1, -1, -1], [-1, 0, -1], [0, 0, 0], [-1, 0, 0], [0, -1, 0]];
+    const t = createWorldStore(grid);
+    for (const [cx, cy, cz] of [-1, 0].flatMap((x) => [-1, 0].flatMap((y) => [-1, 0].map((z) => [x, y, z] as const)))) {
+      const bytes = s.encodeChunk(cx, cy, cz);
+      if (bytes !== null) t.decodeChunk(cx, cy, cz, bytes);
+    }
+    const handlers = streamJobHandlers({ decompress: zstdDecompress });
+    for (const [cx, cy, cz] of keys) {
+      const a = encodeDerived(deriveFromStore(s, cx, cy, cz, PLACEHOLDER_RULES));
+      expect(encodeDerived(deriveFromStore(s, cx, cy, cz, PLACEHOLDER_RULES))).toEqual(a);
+      expect(encodeDerived(deriveFromStore(t, cx, cy, cz, PLACEHOLDER_RULES))).toEqual(a);
+      const r = await handlers.derive!({ edge: 32, chunk: { grid: 0, cx, cy, cz }, payload: s.chunkPayload(cx, cy, cz, true), radius: R, apron: buildApron(s, cx, cy, cz, R), rules: { id: 'placeholder', version: 1, radius: 2 } });
+      const out = r.output as DeriveOutput;
+      expect(encodeDerived(out.assembly!)).toEqual(a);
+      expect(out.hash).toBe(crc32(a));
+    }
+    // The result names its rules; a job naming another version or the wrong radius is refused.
+    expect(deriveFromStore(s, 0, 0, 0, PLACEHOLDER_RULES).rules).toEqual({ id: 'placeholder', version: 1, radius: 2 });
+    const job = (rules: { id: string; version: number; radius: number }, radius: number): unknown => handlers.derive!({ edge: 32, chunk: { grid: 0, cx: 0, cy: 0, cz: 0 }, payload: s.chunkPayload(0, 0, 0, true), radius, apron: buildApron(s, 0, 0, 0, radius), rules });
+    expect(() => job({ id: 'placeholder', version: 2, radius: 2 }, R)).toThrow(RangeError);
+    expect(() => job({ id: 'placeholder', version: 1, radius: 2 }, 2)).toThrow(RangeError);
+  });
+
+  it('derives the same from runtime set/fill edits as from a structure written by its generator', () => {
+    const house: House = { w: 20, d: 16, storeys: 2, wall: MAT.stone, balcony: true };
+    const ox = -10;
+    const oz = -6;
+    const structure = createWorldStore(grid);
+    const runtime = createWorldStore(grid);
+    ground(structure, -24, 24, -24, 24, 2);
+    ground(runtime, -24, 24, -24, 24, 2);
+    const v = { material: 0, category: 0, shape: 0, orientation: 0 };
+    let commands = 0;
+    for (let x = -2; x < house.w + 2; x++) for (let z = -4; z < house.d + 2; z++) {
+      // The runtime side writes each column's runs of equal voxels as one-cell-wide fill boxes: no house record anywhere.
+      let run: { y0: number; m: number; c: number; o: number } | null = null;
+      const flush = (y1: number): void => {
+        if (run === null) return;
+        const cmd: VoxelEditCommand = canonicalEditCommand({ v: 1, grid: 0, kind: 'fill', min: [ox + x, run.y0, oz + z], max: [ox + x, y1, oz + z], mode: 'place', voxel: { material: run.m, category: run.c, orientation: run.o } });
+        applyEdit({ store: () => runtime }, cmd);
+        commands++;
+        run = null;
+      };
+      for (let y = 0; y < 24; y++) {
+        const hit = houseVoxel(house, x, y, z, v);
+        if (hit) put(structure, ox + x, y, oz + z, v.material, v.category, v.shape, v.orientation);
+        if (run !== null && (!hit || run.m !== v.material || run.c !== v.category || run.o !== v.orientation)) flush(y - 1);
+        if (hit && run === null) run = { y0: y, m: v.material, c: v.category, o: v.orientation };
+      }
+      flush(23);
+    }
+    expect(commands).toBeGreaterThan(300);
+    const a = createDenseChunk(grid);
+    const b = createDenseChunk(grid);
+    let beams = 0;
+    let rails = 0;
+    for (const cx of [-1, 0]) for (const cy of [-1, 0]) for (const cz of [-1, 0]) {
+      expect(structure.exportChunk(cx, cy, cz, a)).toBe(runtime.exportChunk(cx, cy, cz, b));
+      expect(sameDenseChunk(a, b)).toBe(true);
+      const ds = deriveFromStore(structure, cx, cy, cz, PLACEHOLDER_RULES);
+      expect(encodeDerived(deriveFromStore(runtime, cx, cy, cz, PLACEHOLDER_RULES))).toEqual(encodeDerived(ds));
+      beams += ds.counts.beam;
+      rails += ds.counts.rail;
+    }
+    // The house has beams at its storey line and a banister on its balcony, all inferred.
+    expect(beams).toBeGreaterThan(10);
+    expect(rails).toBeGreaterThan(5);
+  });
+});
+
+/** Whether any base-surface vertex lies inside cell (x, y, z) (not on its boundary). */
+function baseFaceTouches(d: DerivedData, x: number, y: number, z: number): boolean {
+  const stride = surfaceStride(d.base.slotBytes);
+  const view = new DataView(d.base.vertices.buffer, d.base.vertices.byteOffset, d.base.vertices.byteLength);
+  const st = POSITION_STEPS_PER_CELL;
+  // A face of a neighbouring cell lies on this cell's boundary; only a face of this cell's own cube has all 4 corners on it.
+  const cell = [local(x), local(y), local(z)];
+  for (let v = 0; v + 3 < d.base.vertexCount; v += 4) {
+    let all = true;
+    for (let k = 0; k < 4 && all; k++) for (let a = 0; a < 3 && all; a++) {
+      const p = view.getUint16((v + k) * stride + 2 * a, true) / st - 1;
+      all = p >= cell[a]! && p <= cell[a]! + 1;
+    }
+    if (all) {
+      // All four corners on the cell's cube: the face is on the cell, from inside or out; the normal says which side.
+      const n = [view.getInt8(v * stride + 8), view.getInt8(v * stride + 9), view.getInt8(v * stride + 10)];
+      const axis = n.findIndex((c) => c !== 0);
+      const p = view.getUint16(v * stride + 2 * axis, true) / st - 1;
+      const owner = n[axis]! > 0 ? p - 1 : p;
+      if (owner === cell[axis]) return true;
+    }
+  }
+  return false;
+}
+
+describe('dependency radius and invalidation', () => {
+  /** Derived bytes of every chunk in a window. */
+  function deriveWindow(s: PaletteStore, win: Array<[number, number, number]>): Map<string, Uint8Array> {
+    return new Map(win.map(([x, y, z]) => [`${x},${y},${z}`, encodeDerived(deriveFromStore(s, x, y, z, PLACEHOLDER_RULES))]));
+  }
+
+  function windowOf(x0: number, x1: number, y0: number, y1: number, z0: number, z1: number): Array<[number, number, number]> {
+    const out: Array<[number, number, number]> = [];
+    for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) out.push([x, y, z]);
+    return out;
+  }
+
+  /** Applies an edit, re-derives only the chunks within the job radius of it, and checks the whole window equals a fresh derive. */
+  function editAndCheck(s: PaletteStore, cache: Map<string, Uint8Array>, win: Array<[number, number, number]>, cmd: VoxelEditCommand, box: { minX: number; minY: number; minZ: number; maxX: number; maxY: number; maxZ: number }): Set<string> {
+    applyEdit({ store: () => s }, cmd);
+    const deps = new Set(dependentChunks(grid, box, R).map((c) => `${c.cx},${c.cy},${c.cz}`));
+    const changed = new Set<string>();
+    for (const key of deps) {
+      if (!cache.has(key)) continue;
+      const [x, y, z] = key.split(',').map(Number) as [number, number, number];
+      const now = encodeDerived(deriveFromStore(s, x, y, z, PLACEHOLDER_RULES));
+      if (crc32(now) !== crc32(cache.get(key)!)) changed.add(key);
+      cache.set(key, now);
+    }
+    const fresh = deriveWindow(s, win);
+    for (const [key, bytes] of fresh) expect(crc32(cache.get(key)!), `chunk ${key} after ${JSON.stringify(cmd)}`).toBe(crc32(bytes));
+    return changed;
+  }
+
+  it('rebuilds exactly the 8 chunks around an edit at a chunk corner; a banister in the neighbouring chunk becomes a wall', () => {
+    const s = createWorldStore(grid);
+    // Ground below y = −3, a slab on it at z −6 … −1, a banister along its z = −1 edge (posts at y = −2, rail at
+    // y = −1) across the chunk boundary x = 0, just under the boundary y = 0.
+    ground(s, -40, 40, -40, 40, 3, -3);
+    for (let x = -6; x < 6; x++) for (let z = -6; z < 0; z++) put(s, x, -3, z, MAT.plank, C.construction);
+    for (let x = -6; x < 6; x++) {
+      if ((x & 1) === 0) put(s, x, -2, -1, MAT.timber, C.construction);
+      put(s, x, -1, -1, MAT.timber, C.construction);
+    }
+    expect(classAt(s, -1, -1, -1) & CLASS_MASK).toBe(ASSEMBLY_CLASS.rail);
+    expect(classAt(s, 0, -1, -1) & CLASS_MASK).toBe(ASSEMBLY_CLASS.rail);
+    const win = windowOf(-2, 1, -2, 1, -2, 1);
+    const cache = deriveWindow(s, win);
+    // Two cells on the rail at the corner where 8 chunks meet.
+    const box = { minX: -1, minY: 0, minZ: -1, maxX: 0, maxY: 0, maxZ: -1 };
+    const cmd = canonicalEditCommand({ v: 1, grid: 0, kind: 'fill', min: [-1, 0, -1], max: [0, 0, -1], mode: 'place', voxel: { material: MAT.timber, category: C.construction, orientation: 0 } });
+    expect(dependentChunks(grid, box, R).length).toBe(8);
+    const changed = editAndCheck(s, cache, win, cmd, box);
+    // The rail cells under the edit, in the chunks below and below-west of it, are walls now.
+    expect(classAt(s, -1, -1, -1)).toBe(ASSEMBLY_CLASS.wall);
+    expect(classAt(s, 0, -1, -1)).toBe(ASSEMBLY_CLASS.wall);
+    expect(changed.has('0,-1,-1')).toBe(true);
+    expect(changed.has('-1,-1,-1')).toBe(true);
+    expect(changed.has('0,0,-1')).toBe(true);
+  }, 60_000);
+
+  it('reaches the rule radius plus the consumers\' reach: an edit 3 cells below a chunk boundary changes the chunk above', () => {
+    const s = createWorldStore(grid);
+    ground(s, -40, 40, -40, 40, 3, -4);
+    for (let x = -6; x < 6; x++) for (let z = -6; z < 0; z++) put(s, x, -3, z, MAT.plank, C.construction);
+    for (let x = -6; x < 6; x++) {
+      if ((x & 1) === 0) put(s, x, -2, -1, MAT.timber, C.construction);
+      put(s, x, -1, -1, MAT.timber, C.construction);
+    }
+    expect(classAt(s, 1, -1, -1)).toBe(ASSEMBLY_CLASS.rail | RUN_X);
+    expect(consumersAt(s, 1, 0, -1).standable).toBe(false);
+    const win = windowOf(-1, 0, -1, 0, -1, 0);
+    const cache = deriveWindow(s, win);
+    // Digging the slab under the rail's gap (y = −3) leaves the rail without support: it is a wall now, so the
+    // cell on top of it, in the chunk above y = 0, becomes standable. The edit is 2 cells from the rail (the rules'
+    // radius) and the rail 1 cell from that cell (the consumers' reach).
+    const box = { minX: 0, minY: -3, minZ: -1, maxX: 2, maxY: -3, maxZ: -1 };
+    const cmd = canonicalEditCommand({ v: 1, grid: 0, kind: 'fill', min: [0, -3, -1], max: [2, -3, -1], mode: 'dig' });
+    expect(dependentChunks(grid, box, R).some((c) => c.cy === 0)).toBe(true);
+    expect(dependentChunks(grid, box, R - 1).some((c) => c.cy === 0)).toBe(false);
+    const changed = editAndCheck(s, cache, win, cmd, box);
+    expect(classAt(s, 1, -1, -1)).toBe(ASSEMBLY_CLASS.wall);
+    expect(consumersAt(s, 1, 0, -1).standable).toBe(true);
+    expect(changed.has('0,0,-1')).toBe(true);
+  });
+
+  it('keeps every derived result in a window current under random edits near chunk boundaries, re-deriving only the dependents', () => {
+    const s = createWorldStore(grid);
+    ground(s, -40, 40, -40, 40);
+    const win = windowOf(-2, 1, -1, 0, -2, 1);
+    const cache = deriveWindow(s, win);
+    let seed = 12345;
+    const rnd = (n: number): number => {
+      seed = (Math.imul(seed, 1103515245) + 12345) >>> 0;
+      return (seed >>> 8) % n;
+    };
+    const kinds = [
+      { material: MAT.timber, category: C.construction },
+      { material: MAT.stone, category: C.construction },
+      { material: MAT.grass, category: C.terrain },
+      { material: MAT.roofTile, category: C.roof },
+    ];
+    for (let k = 0; k < 16; k++) {
+      // Near the corner at the origin, within ±4 cells of a boundary on each axis.
+      const x = rnd(9) - 4;
+      const y = rnd(7) - 2;
+      const z = rnd(9) - 4;
+      const w = rnd(2);
+      const h = rnd(3);
+      const dig = rnd(5) === 0;
+      const voxel = kinds[rnd(kinds.length)]!;
+      const cmd = canonicalEditCommand({ v: 1, grid: 0, kind: 'fill', min: [x, y, z], max: [x + w, y + h, z], mode: dig ? 'dig' : 'place', ...(dig ? {} : { voxel: { ...voxel, orientation: 0 } }) });
+      editAndCheck(s, cache, win, cmd, { minX: x, minY: y, minZ: z, maxX: x + w, maxY: y + h, maxZ: z });
+    }
+  }, 120_000);
+});
+
+describe('meshes', () => {
+  it('ground surfaces of neighbouring chunks meet without cracks or doubled triangles', () => {
+    const s = createWorldStore(grid);
+    const world = hillyWorld({ footprint: 96 });
+    loadArea(world.grids[0]!, s, -48, -48, 48, 48);
+    const edges = new Map<string, number>();
+    let tris = 0;
+    let surface = 0;
+    const b = world.grids[0]!.bounds;
+    for (let cx = -1; cx <= 0; cx++) for (let cz = -1; cz <= 0; cz++) for (let cy = chunkOf(b.min[1]); cy <= chunkOf(b.max[1]); cy++) {
+      const d = deriveFromStore(s, cx, cy, cz, PLACEHOLDER_RULES);
+      const g = d.ground;
+      if (g.vertexCount === 0) continue;
+      surface++;
+      const stride = surfaceStride(g.slotBytes);
+      const view = new DataView(g.vertices.buffer, g.vertices.byteOffset, g.vertices.byteLength);
+      const st = POSITION_STEPS_PER_CELL;
+      const pos = (v: number): string => [0, 1, 2].map((a) => view.getUint16(v * stride + 2 * a, true) - st + [cx, cy, cz][a]! * E * st).join(',');
+      for (let t = 0; t < g.indices.length; t += 3) {
+        tris++;
+        for (let k = 0; k < 3; k++) {
+          const a = pos(g.indices[t + k]!);
+          const b = pos(g.indices[t + ((k + 1) % 3)]!);
+          const key2 = a < b ? `${a}|${b}` : `${b}|${a}`;
+          edges.set(key2, (edges.get(key2) ?? 0) + 1);
+        }
+      }
+    }
+    expect(surface).toBeGreaterThanOrEqual(4);
+    expect(tris).toBeGreaterThan(1000);
+    // Inside the 2 × 2 chunk window (away from its outer border) every edge has exactly two triangles.
+    const lo = -E * POSITION_STEPS_PER_CELL + 2 * POSITION_STEPS_PER_CELL;
+    const hi = E * POSITION_STEPS_PER_CELL - 2 * POSITION_STEPS_PER_CELL;
+    let inner = 0;
+    let seam = 0;
+    for (const [key, n] of edges) {
+      const pts = key.split('|').map((p) => p.split(',').map(Number));
+      if (!pts.every((p) => p[0]! > lo && p[0]! < hi && p[2]! > lo && p[2]! < hi)) continue;
+      inner++;
+      if (pts.some((p) => Math.abs(p[0]!) < POSITION_STEPS_PER_CELL || Math.abs(p[2]!) < POSITION_STEPS_PER_CELL)) seam++;
+      expect(n, `edge ${key}`).toBe(2);
+    }
+    expect(inner).toBeGreaterThan(1000);
+    expect(seam).toBeGreaterThan(50);
+  });
+
+  it('marks clearance that continues into the chunk above', () => {
+    const s = createWorldStore(grid);
+    // A floor two cells below the chunk top: its standable cells see 2 free cells, then the chunk ends.
+    for (let x = 0; x < 4; x++) for (let z = 0; z < 4; z++) put(s, x, E - 3, z, MAT.stone, C.construction);
+    const d = deriveFromStore(s, 0, 0, 0, PLACEHOLDER_RULES);
+    const k = d.nav.standable.indexOf(li(1, E - 2, 1));
+    expect(k).toBeGreaterThanOrEqual(0);
+    expect(d.nav.clearance[k]).toBe(2 | NAV_CLEARANCE_CONTINUES);
+  });
+});
+
+describe('voxel mips', () => {
+  it('downsamples 8 children: mean density, dominant material, its category', () => {
+    const kids: Array<DenseChunk | null> = [];
+    for (let o = 0; o < 8; o++) kids.push(o === 7 ? null : createDenseChunk(grid));
+    const c0 = kids[0]!;
+    const set = (c: DenseChunk, x: number, y: number, z: number, m: number, cat: number, shape: number): void => {
+      const i = (x * E + z) * E + y;
+      c.material[i] = m;
+      c.category[i] = cat;
+      c.shape[i] = shape;
+    };
+    // Parent cell (0, 0, 0): 3 stone cells (full), 2 grass cells (half full), 3 air.
+    set(c0, 0, 0, 0, MAT.stone, C.construction, 255);
+    set(c0, 1, 0, 0, MAT.stone, C.construction, 255);
+    set(c0, 0, 1, 0, MAT.stone, C.construction, 255);
+    set(c0, 1, 1, 0, MAT.grass, C.terrain, 128);
+    set(c0, 0, 0, 1, MAT.grass, C.terrain, 128);
+    // Parent cell (1, 0, 0): one grass cell nearly empty: the mean rounds to 0, air.
+    set(c0, 2, 0, 0, MAT.grass, C.terrain, 3);
+    const out = createDenseChunk(grid);
+    expect(downsampleMip(grid, kids, out)).toBe(true);
+    expect(out.material[0]).toBe(MAT.stone);
+    expect(out.category[0]).toBe(C.construction);
+    expect(out.shape[0]).toBe(Math.round((3 * 255 + 2 * 128) / 8));
+    expect(out.material[(1 * E + 0) * E + 0]).toBe(0);
+    expect(downsampleMip(grid, Array<DenseChunk | null>(8).fill(null), out)).toBe(false);
+  });
+
+  it('marks every ancestor of an edited chunk stale, and rebuilding those equals rebuilding the whole tree', () => {
+    const s = createWorldStore(grid);
+    loadArea(hillyWorld({ footprint: 256 }).grids[0]!, s, -64, -64, 64, 64);
+    const maxLevel = 2;
+    const nodeData = (store: PaletteStore, n: MipNode, tree: Map<string, DenseChunk | null>): DenseChunk | null => {
+      if (n.level === 0) {
+        const c = createDenseChunk(grid);
+        return store.exportChunk(n.nx, n.ny, n.nz, c) ? c : null;
+      }
+      return tree.get(mipNodeKey(n)) ?? null;
+    };
+    const build = (store: PaletteStore, n: MipNode, tree: Map<string, DenseChunk | null>): void => {
+      const out = createDenseChunk(grid);
+      tree.set(mipNodeKey(n), downsampleMip(grid, mipChildren(n).map((c) => nodeData(store, c, tree)), out) ? out : null);
+    };
+    const nodes = (level: number): MipNode[] => {
+      const out: MipNode[] = [];
+      const span = 1 << level;
+      for (let x = -4 / span; x < 4 / span; x++) for (let z = -4 / span; z < 4 / span; z++) for (let y = -8 / span; y < 8 / span; y++) out.push({ level, nx: x, ny: y, nz: z });
+      return out;
+    };
+    const tree = new Map<string, DenseChunk | null>();
+    for (let l = 1; l <= maxLevel; l++) for (const n of nodes(l)) build(s, n, tree);
+    // Dig a pit through the corner chunk (−1, 0, −1) … and the chunk below it.
+    applyEdit({ store: () => s }, canonicalEditCommand({ v: 1, grid: 0, kind: 'fill', min: [-12, -20, -12], max: [-2, 30, -2], mode: 'dig' }));
+    const stale = new MipStaleSet(maxLevel);
+    const changed: Array<{ cx: number; cy: number; cz: number }> = [];
+    for (let cy = -1; cy <= 0; cy++) changed.push({ cx: -1, cy, cz: -1 });
+    stale.markChanged(changed);
+    expect(stale.nodes().map(mipNodeKey)).toEqual(['1:-1,-1,-1', '1:-1,0,-1', '2:-1,-1,-1', '2:-1,0,-1']);
+    expect(mipNodeOf(-1, 0, -1, 2)).toEqual({ level: 2, nx: -1, ny: 0, nz: -1 });
+    for (const n of stale.nodes()) {
+      build(s, n, tree);
+      stale.rebuilt(n);
+    }
+    expect(stale.size).toBe(0);
+    const fresh = new Map<string, DenseChunk | null>();
+    for (let l = 1; l <= maxLevel; l++) for (const n of nodes(l)) build(s, n, fresh);
+    let differ = 0;
+    for (const [key, f] of fresh) {
+      const t = tree.get(key) ?? null;
+      expect(t === null, key).toBe(f === null);
+      if (t !== null && f !== null) expect(sameDenseChunk(t, f), key).toBe(true);
+      if (key.startsWith('1:-1,0,-1')) differ++;
+    }
+    expect(differ).toBe(1);
+  });
+});
+
+describe('prop lighting-occupancy channel', () => {
+  it('voxelizes a turned prop by coverage, combines overlaps as 1 − (1 − a)(1 − b), and joins the construction light', () => {
+    expect(combineCoverage(0, 200)).toBe(200);
+    expect(combineCoverage(128, 128)).toBe(255 - Math.round((127 * 127) / 255));
+    expect(combineCoverage(255, 10)).toBe(255);
+    // A 2 × 1 × 1 m box (half extents 1, 0.5, 0.5) turned 30° at (3.1, 1, 3.3) m in chunk (0, 0, 0).
+    const box = { inside: (x: number, y: number, z: number): boolean => Math.abs(x) <= 1 && Math.abs(y) <= 0.5 && Math.abs(z) <= 0.5, min: [-1, -0.5, -0.5] as const, max: [1, 0.5, 0.5] as const, position: [3.1, 1, 3.3] as const, yaw: [Math.cos(Math.PI / 6), Math.sin(Math.PI / 6)] as const, scale: 1 };
+    const one = propCoverageChunk(grid, 0, 0, 0, [box], 0.5)!;
+    let volume = 0;
+    let full = 0;
+    let partial = 0;
+    for (const c of one) {
+      volume += (c / 255) * 0.125;
+      if (c === 255) full++;
+      else if (c > 0) partial++;
+    }
+    expect(volume).toBeGreaterThan(2 * 0.97);
+    expect(volume).toBeLessThan(2 * 1.03);
+    expect(full).toBeGreaterThan(0);
+    expect(partial).toBeGreaterThan(full);
+    expect(propCoverageChunk(grid, 1, 0, 0, [box], 0.5)).toBeNull();
+    const two = propCoverageChunk(grid, 0, 0, 0, [box, box], 0.5)!;
+    for (let i = 0; i < one.length; i++) expect(two[i]).toBe(combineCoverage(one[i]!, one[i]!));
+    // Joined with a rail's coverage in the same chunk.
+    const s = wallBeamBanister();
+    const d = derivedAt(s, 1, 2, 7);
+    const props = new Uint8Array(grid.cellsPerChunk);
+    props[li(1, 2, 7)] = 128;
+    expect(lightCoverage(grid, d.light, props)[li(1, 2, 7)]).toBe(combineCoverage(LIGHT_COVERAGE.rail, 128));
+  });
+});

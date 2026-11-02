@@ -10,6 +10,10 @@
  * decoder in Node), keeping this module free of codecs and Node built-ins.
  */
 import { apronVoxelAt, checkApron, checkRadius } from './apron';
+import { assemblyRules, jobRadius } from './assembly';
+import { deriveWithApron } from './derive-assembly';
+import { derivedTransfer, encodeDerived } from './derived-data';
+import { crc32 } from '@thirdlight/shared';
 import { CellDelta } from './cell-delta';
 import { payloadTransfer } from './chunk-wire';
 import { CHUNK_EDGES, chunkGrid, chunkOfKey, type ChunkEdge, type ChunkGrid } from './coords';
@@ -199,6 +203,13 @@ function derive(raw: unknown): JobResult {
   const c = input.chunk;
   try {
     store.adoptPayload(c.cx, c.cy, c.cz, input.payload);
+    if (input.rules !== undefined) {
+      const rules = assemblyRules(input.rules);
+      if (jobRadius(rules) !== r) throw new RangeError(`derive job: radius ${r} for rules ${rules.id} v${rules.version} (needs ${jobRadius(rules)})`);
+      const assembly = deriveWithApron(g, rules, input.apron, (out) => store.exportChunk(c.cx, c.cy, c.cz, out));
+      const output: DeriveOutput = { solid: 0, exposed: 0, mask: null, hash: crc32(encodeDerived(assembly)), assembly };
+      return { output, transfer: derivedTransfer(assembly) };
+    }
     const output = exposure(store, c, input);
     return { output, transfer: output.mask === null ? [] : [output.mask.buffer as ArrayBuffer] };
   } finally {
@@ -206,7 +217,7 @@ function derive(raw: unknown): JobResult {
   }
 }
 
-const EMPTY: DeriveOutput = Object.freeze({ solid: 0, exposed: 0, mask: null, hash: 0 });
+const EMPTY: DeriveOutput = Object.freeze({ solid: 0, exposed: 0, mask: null, hash: 0, assembly: null });
 
 /** The derive placeholder: solid cells with an air cell within R (Chebyshev), from the chunk and its apron. */
 function exposure(store: PaletteStore, c: ChunkRef, input: DeriveInput): DeriveOutput {
@@ -218,7 +229,7 @@ function exposure(store: PaletteStore, c: ChunkRef, input: DeriveInput): DeriveO
   const a = input.apron;
   // One solid voxel everywhere and solid all around within R: nothing is exposed.
   if (p.form === 'uniform' && (r === 0 || a.dense.every((d, k) => d === 0 && valueMaterial(a.uniform[k]!) !== MATERIAL_AIR))) {
-    return { solid: g.cellsPerChunk, exposed: 0, mask: null, hash: 0 };
+    return { solid: g.cellsPerChunk, exposed: 0, mask: null, hash: 0, assembly: null };
   }
   const s = e + 2 * r;
   const air = new Uint8Array(s * s * s);
@@ -252,8 +263,8 @@ function exposure(store: PaletteStore, c: ChunkRef, input: DeriveInput): DeriveO
     const i = (((lx << g.shift) | lz) << g.shift) | ly;
     mask[i >>> 5]! |= 1 << (i & 31);
   }
-  if (exposed === 0) return { solid, exposed, mask: null, hash: 0 };
-  return { solid, exposed, mask, hash: fnv(mask) };
+  if (exposed === 0) return { solid, exposed, mask: null, hash: 0, assembly: null };
+  return { solid, exposed, mask, hash: fnv(mask), assembly: null };
 }
 
 /** The stream job handlers ({@link serveJobs} serves them). */

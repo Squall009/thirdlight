@@ -15,8 +15,12 @@ import {
   chunkOfKey,
   createDenseChunk,
   createWorldStore,
+  deriveFromStore,
   deriveNow,
+  encodeDerived,
   exportOrAir,
+  jobRadius,
+  PLACEHOLDER_RULES,
   RESIDENT_CHUNK_OVERHEAD_BYTES,
   sameDenseChunk,
   saveChunkOf,
@@ -290,6 +294,42 @@ describe('streamer (workers, region files on disk)', () => {
     const after = new Map([...s.derivedChunks()].map((d) => [chunkKey(grid, d.cx, d.cy, d.cz), d.result.hash]));
     expect(after.get(chunkKey(grid, 2, 1, 2))).toBe(before.get(chunkKey(grid, 2, 1, 2)));
     expect(s.tracker.isDirty({ grid: 0, key: chunkKey(grid, -1, -1, -1) })).toBe(true);
+  });
+
+  it('derives with assembly rules in real workers, equal to the in-thread derive; an edit at a chunk corner rebuilds what depends on it', async () => {
+    const disk = new DiskRegions(join(dir, 'world'));
+    disks.push(disk);
+    const s = new VoxelStreamer({ store: createWorldStore(grid), source: disk.source(grid, 'stacked', 512), pool: pool(2), ring: RING, budgetBytes: 256 * 1024 * 1024, dependencyRadius: jobRadius(PLACEHOLDER_RULES), derive: true, rules: PLACEHOLDER_RULES, deriveMsPerUpdate: 10_000 });
+    const truth = copyOracle();
+    const expectAssemblyEqual = (): number => {
+      let n = 0;
+      for (const d of s.derivedChunks()) {
+        if (d.result.assembly === null) continue;
+        const want = encodeDerived(deriveFromStore(truth, d.cx, d.cy, d.cz, PLACEHOLDER_RULES));
+        if (Buffer.compare(Buffer.from(encodeDerived(d.result.assembly)), Buffer.from(want)) !== 0) throw new Error(`derived (${d.cx}, ${d.cy}, ${d.cz}) differs from the in-thread derive`);
+        n++;
+      }
+      return n;
+    };
+    s.setFocus(0, 40, 0);
+    await s.settle();
+    expect(expectAssemblyEqual()).toBeGreaterThan(30);
+    const m = s.metrics();
+    expect(m.bytes.derived).toBeGreaterThan(0);
+    const before = new Map([...s.derivedChunks()].map((d) => [chunkKey(grid, d.cx, d.cy, d.cz), d.result.hash]));
+    const rebuilt = new Set<string>();
+    s.on((e) => {
+      if (e.type === 'derived') rebuilt.add(`${e.cx},${e.cy},${e.cz}`);
+    });
+    const corner = fill([-1, -1, -1], [0, 0, 0], 40);
+    s.edit(corner);
+    applyEdit({ store: () => truth }, corner);
+    await s.settle();
+    for (const dx of [-1, 0]) for (const dy of [-1, 0]) for (const dz of [-1, 0]) expect(rebuilt.has(`${dx},${dy},${dz}`)).toBe(true);
+    expect(rebuilt.size).toBe(8);
+    expect(expectAssemblyEqual()).toBeGreaterThan(30);
+    const after = new Map([...s.derivedChunks()].map((d) => [chunkKey(grid, d.cx, d.cy, d.cz), d.result.hash]));
+    expect(after.get(chunkKey(grid, 2, 1, 2))).toBe(before.get(chunkKey(grid, 2, 1, 2)));
   });
 
   it('cancels loads the focus left before they landed, and adopts nothing from them', async () => {

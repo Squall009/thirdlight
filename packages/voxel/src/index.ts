@@ -188,3 +188,46 @@ export { RegionChunkSource, type ChunkSource, type RegionChunkSourceOptions } fr
 export { checkRing, chunkDistance2, DEFAULT_STREAM_RING, inLoadRing, inNearRing, pastUnloadRing, RESIDENT_CHUNK_OVERHEAD_BYTES, ringChunks, VOXEL_STREAM_BUDGET_BYTES, type Focus, type StreamRing, type StreamTier } from './stream-ring';
 export { VoxelStreamer, type DerivedChunk, type StreamCounters, type StreamEvent, type StreamMetrics, type VoxelStreamerOptions } from './voxel-streamer';
 export { DEFAULT_REBASE_DISTANCE_M, FloatingOrigin, ORIGIN_SNAP_CELLS, type FloatingOriginOptions, type RebaseEvent } from './floating-origin';
+export {
+  ASSEMBLY_CLASS,
+  assemblyRules,
+  CLASS_MASK,
+  CONSUMER_REACH,
+  createNeighbourhood,
+  evaluateAssembly,
+  fillNeighbourhood,
+  jobRadius,
+  PLACEHOLDER_RULES,
+  registerAssemblyRules,
+  rulesRef,
+  RUN_X,
+  RUN_Z,
+  type AssemblyRuleSet,
+  type AssemblyRulesRef,
+  type Neighbourhood,
+} from './assembly';
+export {
+  cellBit,
+  COLLISION_STEPS_PER_CELL,
+  DERIVED_FORMAT_VERSION,
+  deriveChunk,
+  derivedBytes,
+  derivedPartBytes,
+  derivedTransfer,
+  encodeDerived,
+  LIGHT_COVERAGE,
+  NAV_CLEARANCE_CELLS,
+  NAV_CLEARANCE_CONTINUES,
+  OCCUPANCY,
+  type CollisionOut,
+  type DerivedData,
+  type DerivedCounts,
+  type DeriveTimes,
+  type LightOut,
+  type NavOut,
+  type OccupancyOut,
+} from './derived-data';
+export { INSTANCE_BYTES, INSTANCE_FLAG, MaterialSlots, PIECE_FAMILY, PIECE_SECTION, POSITION_STEPS_PER_CELL, SURFACE_ISO, surfaceStride, type InstanceList, type SurfaceBuffer } from './derived-mesh';
+export { deriveFromStore, deriveWithApron } from './derive-assembly';
+export { downsampleMip, mipChildren, mipNodeKey, mipNodeOf, MipStaleSet, type MipNode } from './voxel-mips';
+export { combineCoverage, lightCoverage, PROP_SAMPLES_PER_AXIS, propCoverageChunk, type PropShape } from './prop-coverage';

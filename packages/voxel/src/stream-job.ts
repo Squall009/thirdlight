@@ -22,8 +22,10 @@
  *   aprons, stored bytes and undo records move, they are not copied.
  */
 import type { Apron } from './apron';
+import type { AssemblyRulesRef } from './assembly';
 import type { ChunkPayload } from './chunk-wire';
 import type { ChunkEdge } from './coords';
+import type { DerivedData } from './derived-data';
 import type { VoxelEditCommand } from './edit-command';
 import type { MismatchChoice } from './save-file';
 import type { StampShape } from './stamp-shape';
@@ -113,9 +115,14 @@ export interface DeriveInput {
   readonly edge: ChunkEdge;
   readonly chunk: ChunkRef;
   readonly payload: ChunkPayload;
-  /** The rules' dependency radius R (cells); the apron is R deep. */
+  /** The job's dependency radius R (cells); the apron is R deep. */
   readonly radius: number;
   readonly apron: Apron;
+  /**
+   * The assembly rule set to derive with (derive-assembly.ts); R must then be
+   * its radius + the consumers' reach. Absent: the exposure placeholder.
+   */
+  readonly rules?: AssemblyRulesRef;
 }
 
 /**
@@ -129,8 +136,10 @@ export interface DeriveOutput {
   readonly solid: number;
   readonly exposed: number;
   readonly mask: Uint32Array | null;
-  /** FNV-1a of the mask words (0 when null), for comparing results. */
+  /** FNV-1a of the mask words (0 when null), or CRC-32 of the derived chunk's canonical bytes, for comparing results. */
   readonly hash: number;
+  /** The derived chunk when the job named assembly rules (the exposure fields are then 0 and null). */
+  readonly assembly: DerivedData | null;
 }
 
 export interface StreamJobInputs {

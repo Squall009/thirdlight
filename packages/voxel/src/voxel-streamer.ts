@@ -25,6 +25,8 @@
  * results are then rebuilt in the `edit` lane.
  */
 import { apronBytes, apronTransfer, buildApron, checkRadius, dependentChunks } from './apron';
+import { jobRadius, rulesRef, type AssemblyRuleSet } from './assembly';
+import { derivedBytes } from './derived-data';
 import { payloadBytes, payloadTransfer, type ChunkPayload } from './chunk-wire';
 import { chunkInWorld, chunkKey, type ChunkCoord, type ChunkGrid } from './coords';
 import { DirtyTracker } from './dirty-tracker';
@@ -54,8 +56,15 @@ export interface VoxelStreamerOptions {
   readonly budgetBytes: number;
   /** The rules' dependency radius R in cells (aprons and invalidation). */
   readonly dependencyRadius: number;
-  /** Run the derive placeholder on loaded chunks. */
+  /** Run the derive placeholder on loaded chunks (or, with `rules`, the assembly derive). */
   readonly derive?: boolean;
+  /**
+   * Derive with these assembly rules (derive-assembly.ts) instead of the
+   * placeholder; the dependency radius must then be their job radius
+   * (rule radius + consumer reach), and absent chunks next to non-air ones
+   * are derived too (their cells can stand on a neighbour's ground).
+   */
+  readonly rules?: AssemblyRuleSet;
   /** Chunks per source read (default 64). */
   readonly readBatch?: number;
   /** Source reads in flight at once (default 4). */
@@ -196,6 +205,7 @@ export class VoxelStreamer {
     this.ring = opts.ring ?? DEFAULT_STREAM_RING;
     checkRing(this.ring);
     checkRadius(this.grid.edge, opts.dependencyRadius);
+    if (opts.rules !== undefined && jobRadius(opts.rules) !== opts.dependencyRadius) throw new RangeError(`dependency radius ${opts.dependencyRadius} for rules ${opts.rules.id} (needs ${jobRadius(opts.rules)})`);
     this.radius = opts.dependencyRadius;
     if (!(opts.budgetBytes > 0)) throw new RangeError('the streaming budget must be positive');
     this.budgetBytes = opts.budgetBytes;
@@ -655,20 +665,26 @@ export class VoxelStreamer {
       if (!this.canDerive(c)) continue;
       this.cancelDerive(c);
       const form = this.store.chunkForm(c.cx, c.cy, c.cz);
-      if (form === 'absent') {
+      const rules = this.opts.rules;
+      if (form === 'absent' && rules === undefined) {
         // An air chunk has nothing to derive.
-        this.setDerived(c, { solid: 0, exposed: 0, mask: null, hash: 0 });
+        this.setDerived(c, { solid: 0, exposed: 0, mask: null, hash: 0, assembly: null });
         continue;
       }
       const t0 = performance.now();
       const apron = buildApron(this.store, c.cx, c.cy, c.cz, this.radius);
       this.apronMs.add(performance.now() - t0);
+      if (form === 'absent' && apron.dense.every((d, k) => d === 0 && apron.uniform[k] === 0)) {
+        // Air with air all around: nothing stands, nothing is drawn.
+        this.setDerived(c, { solid: 0, exposed: 0, mask: null, hash: 0, assembly: null });
+        continue;
+      }
       this.apronBytes.add(apronBytes(apron));
       const payload = this.store.chunkPayload(c.cx, c.cy, c.cz, true);
       const job = this.tracker.beginJob(this.ref(c));
       const lane: JobLane = c.derive === 'edit' ? 'edit' : this.laneOf(c);
       c.deriveJob = job.id;
-      const input: DeriveInput = { edge: this.grid.edge, chunk: { grid: this.gridId, cx: c.cx, cy: c.cy, cz: c.cz }, payload, radius: this.radius, apron };
+      const input: DeriveInput = { edge: this.grid.edge, chunk: { grid: this.gridId, cx: c.cx, cy: c.cy, cz: c.cz }, payload, radius: this.radius, apron, ...(rules === undefined ? {} : { rules: rulesRef(rules) }) };
       room--;
       void this.opts.pool.submit<DeriveOutput>({ id: job.id, kind: 'derive', lane, distance: c.d2, input, transfer: payloadTransfer(payload, apronTransfer(apron)) }).then((o) => {
         this.poke();
@@ -693,7 +709,7 @@ export class VoxelStreamer {
     c.derived = out;
     c.derive = 'no';
     this.counters.derives++;
-    this.setPart(c.cx, c.cy, c.cz, 'derive', out.mask?.byteLength ?? 0);
+    this.setPart(c.cx, c.cy, c.cz, 'derive', out.assembly !== null ? derivedBytes(out.assembly) : (out.mask?.byteLength ?? 0));
     this.emit({ type: 'derived', cx: c.cx, cy: c.cy, cz: c.cz });
   }
 

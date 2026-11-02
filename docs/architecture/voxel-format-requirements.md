@@ -193,7 +193,9 @@ lives outside the chunk planes so that exported voxels alone are complete (R35).
 orientation plane (target ~4 bytes, R11); whether the category plane collapses in uniform chunks and runs.
 45.7 must show: the wall → beam/banister example built from category + material + shape alone, with an
 identical result from a runtime-style edit with no structure metadata, and the category surviving codec and
-save round trips.
+save round trips. *45.6:* the placeholder rules read only the category (air included); the consumers add material
+and ground density; nothing reads orientation or structure data; a house written by its generator and by runtime `fill` commands derives to the same
+bytes (plan **45.6 derived data**). That supports option 1 as the minimum contract; the owner decides it at 45.7.
 
 ### Q-b. Authoritative versus derived occupancy
 
@@ -216,7 +218,9 @@ voxels or from the resolved representation (inferred: from the resolved one, or 
 connectivity); how prop coverage (R94) and construction coverage combine in one light channel.
 
 45.2–45.6 must measure: bytes per chunk and build time of each option on the town world; how often cells are
-"partial" in practice. 45.7 must show: the same banister cell giving an open collision/nav/light result while
+"partial" in practice. *45.6:* option 1 built (per-consumer outputs from one evaluation; light as bits plus a
+partial list, which is option 2's shape for light only); measured in the plan's **45.6 derived data**; beams and
+rails are 5.7 % of the town's construction cells. 45.7 must show: the same banister cell giving an open collision/nav/light result while
 an adjacent wall cell gives a full one, both from one assembly evaluation.
 
 ### Q-c. Edit dependency radius and invalidation
@@ -239,7 +243,9 @@ ancestor marking (R85) and lighting/occupancy invalidation (R96) use the same di
 rule catalogue is part of a derived result's key (inferred, R34).
 
 45.2–45.6 must measure: apron bytes and transfer time for R = 1, 2, 4 at 16³ and 32³; number of chunks
-re-built per stroke at chunk corners. 45.7 must show: an edit at a chunk boundary (and corner) changes a
+re-built per stroke at chunk corners. *45.6:* option 1 with the consumers' reach added (apron = R + 1); results
+record the rules' id, version and radius; corner and reach tests in the plan's **45.6 derived data**. The final R
+stays 46b's (its catalogue). 45.7 must show: an edit at a chunk boundary (and corner) changes a
 beam/banister in the neighbouring chunk and every dependent result (mesh, collision, nav, light, mip) is
 rebuilt, none stale.
 
@@ -297,7 +303,7 @@ Evidence cells are filled by the item that decides them; empty means not yet dec
 | R59, R60, O13 | Save diff: changed chunks vs base, base-chunk hashes, save version | 45.4 | 45.4 (DRAFT): `TLVS` v1: changed chunks only, each a cell delta or image (smaller), 16-byte SHA-256 of the base chunk's canonical codec bytes, one zstd stream, CRCs, canonical bytes; newer version refused, older lifted by append-only steps (R3); base mismatch reported, the game picks save or base per chunk. Measured: 255–460 KB after 1,000 heavy strokes, write 6–14 ms, read 11–15 ms, hash 60–82 µs a chunk |
 | R62–R66, O14 | Coordinates, floating origin, memory budget per tier, export chunk delivery | 45.5 | 45.5a (plan **45.5a streaming core**, DRAFT): `FloatingOrigin` re-bases past 1,000 m per axis, snapped to 16 m, listeners shift 32-bit positions; < 0.1 mm at 9.9 km and ±2 km vs 0.49 mm absolute (vitest); one byte budget per tier (`VOXEL_STREAM_BUDGET_BYTES`, chunks + derived parts + tables, no count), farthest clean first, dirty never evicted; `RegionChunkSource` reads chunks by coalesced ranges from any byte source (R66's export delivery path; browser/HTTP measured in 45.5b); Node flight 2 × 2 km: 0 near holes at 80 m/s, 9 MB ring; harness (45.1b, `tools/voxel-bench`; numbers in the plan's 45.1 harness baseline): integer cell bounds ±32,768 (x, z) and ±8,192 (y) with chunk keys below 2^35, tested at the extremes (default, owner to confirm); floating origin not touched |
 | R67–R70, Q-c | Job id, priority, dirty state, apron width R, transfer buffers | 45.5 | 45.5a (DRAFT): job contract v1 (tracker ids, load/apply-save/edit/derive, lanes edit > near > far by distance, input stamps refuse results after an edit, reload or neighbour change within R), R per job with 26 apron strips (13 KB median at R = 2 vs 69 KB dense), `dependentChunks` (corner 8, spanning box 27), chunks moved as their memory arrays (transferred, adopted with no per-cell pass), real worker_threads workers running the browser's worker module, which passes the export scan; 45.2b (edge costs, `run.mjs costs`): apron at R = 1/2/4 is 20/42/95 % of a 32³ chunk, 42/95/238 % of 16³; a stroke with R = 2 rebuilds 1.7–4.3 chunks at 32³, 2.6–11.4 at 16³; 45.4 (DRAFT): `DirtyTracker` per-chunk versions, save jobs with ids committing only their snapshot, one job per file, late commits of expired jobs refused, unload guard, version-checked chunk-job results; atomic replace via the workspace's durable write; races tested on real files with simulated workers; rest to be filled by 45.5; harness (45.1b, `tools/voxel-bench`; numbers in the plan's 45.1 harness baseline): copy vs transfer round trip of raw and zstd chunk bytes in a real worker; `@thirdlight/voxel` is pure (no three.js, no Node built-ins, boundary rule) for R70 |
-| R54, R72–R105, Q-b | Derived formats: resolved assembly output, per-consumer occupancy, flags, mips, mesh buffers, collision/nav inputs | 45.6 | to be filled by 45.6 |
-| R93–R96, O11 | Light-occupancy channel (coverage), never saved, recompute at load | 45.6 | to be filled by 45.6 |
+| R54, R72–R105, Q-b | Derived formats: resolved assembly output, per-consumer occupancy, flags, mips, mesh buffers, collision/nav inputs | 45.6 | 45.6 (plan **45.6 derived data**, DRAFT): one versioned assembly evaluation (`AssemblyRuleSet` id/version/radius; placeholder rules R 2: beam, rail, post, wall) per derive job, classes never stored; per-consumer outputs from it: render occupancy (chunk flag, 2-bit brick flags, bits when mixed; R82), light (bits + partial list, 0.5–4.3 KB a chunk vs 3.5–19 KB dense), collision boxes in 1/16 cell + ground trimesh (R105; town 183 B a chunk), nav blocking bits + standable cells with clearance (R100), ground and base surface buffers (20-byte vertices, crack-free boundary rule; R72, R91), detail instances with `replacesBase` (R75, §7a); voxel mips with the chunk's form and stale ancestors (R84, R85); derive p50 0.5–3.4 ms a chunk (Node); R79 replaced (for the owner); never committed or saved (R54); connectivity (R97), sky column (R98) and 6-connected rays (R99) not built (46d) |
+| R93–R96, O11 | Light-occupancy channel (coverage), never saved, recompute at load | 45.6 | 45.6 (DRAFT): `propCoverageChunk` rebuilds a chunk's channel from the prop list (4³ samples a host cell, inverse yaw and scale; a 3 m canopy 675 µs, a crate 100 µs), overlaps 1 − (1 − a)(1 − b), joined with the construction's derived light coverage (`lightCoverage`); memory only, in no codec or file (O11: recompute at load); re-stamping a mover is a rebuild of the chunks it overlaps, which the dirty set (R96) names |
 | Q-a, Q-b, Q-c | Wall → beam/banister proof, round trips, runtime-equivalent input, cross-chunk invalidation | 45.7 | to be filled by 45.7 |
 | R1, R2 | Failed decisions with replacements; owner approval of format spec v1 | 45.7 → owner | to be filled by 45.7 |
