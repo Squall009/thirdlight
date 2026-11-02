@@ -110,6 +110,13 @@ export function sha256Hex(bytes: Uint8Array): string {
   return out;
 }
 
+/** Bytes as lowercase hex, two digits a byte (ids and digests in messages and manifests). */
+export function bytesToHex(bytes: Uint8Array): string {
+  let out = '';
+  for (const b of bytes) out += HEX[b >>> 4]! + HEX[b & 0xf]!;
+  return out;
+}
+
 /** {@link sha256Hex} over the UTF-8 bytes of `text`. */
 export function sha256HexOfText(text: string): string {
   return sha256Hex(utf8Encode(text));
