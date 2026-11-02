@@ -137,7 +137,11 @@ fail_at() { # fail_at <step> [vitest files]
   mkdir -p "$STATE" && echo "$1" > "$STATE/step" && echo "${2:-}" > "$STATE/vitest"
 }
 begin_state() { # begin_state <mode> [args…]: a new fast or full gate replaces the last one's state
-  rm -rf "$STATE" && mkdir -p "$STATE" && echo "$1" > "$STATE/mode" && shift && printf '%s\0' "$@" > "$STATE/args"
+  rm -rf "$STATE" && mkdir -p "$STATE" && echo "$1" > "$STATE/mode" && shift
+  # No arguments must leave the file empty: printf with none still writes one empty string, which a rerun would
+  # hand Playwright as a filter that matches every e2e file.
+  : > "$STATE/args"
+  if [ $# -gt 0 ]; then printf '%s\0' "$@" > "$STATE/args"; fi
 }
 
 build() {
