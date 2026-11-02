@@ -13,6 +13,7 @@
     "@thirdlight/effects": "0.1.0",
     "@thirdlight/runtime": "0.1.0",
     "@thirdlight/shared": "0.1.0",
+    "@thirdlight/voxel": "0.1.0",
     "three": "0.187.0"
   },
   "devDependencies": {

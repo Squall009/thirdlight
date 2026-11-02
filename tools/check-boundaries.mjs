@@ -163,7 +163,11 @@ export const NODE_SIDE_ALLOWED = {
     // + project-model — the renderer draws the model's own constants, limits
     // and pure data helpers (pure code, no I/O), imported from their one
     // definition rather than relayed through the runtime or copied.
-    packages: ['runtime', 'effects', 'project-model'],
+    // + voxel — the voxel chunk view draws the streamer's joined chunks
+    // (Play, exports and the editor share it) with the voxel format's own
+    // vertex, instance and shader-grid layouts; voxel is pure and imports
+    // only the leaf, so no cycle.
+    packages: ['runtime', 'effects', 'project-model', 'voxel'],
     external: ['three', '@types/three'],
     // Only the pinned three package's own GLTFLoader subpath is approved;
     // the empty subpath '' is the bare `three` specifier. For compressed
