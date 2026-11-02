@@ -17,8 +17,9 @@ import {
   REGION_ENTRY_BYTES,
   REGION_HEADER_BYTES,
   sameDenseChunk,
+  valueMaterial,
   voxel,
-  VOXEL_CATEGORY,
+  VOXEL_ROLE,
   writeRegion,
   type ChunkCoord,
   type PaletteStore,
@@ -110,20 +111,20 @@ describe('region files', () => {
     for (const r of reads) importRead(back, r);
     expectSameStores(store, back);
     const deep = reads.find((r) => r.kind === 'uniform');
-    expect(deep !== undefined && deep.kind === 'uniform' && (deep.value & 0xffff) === MAT.rock).toBe(true);
+    expect(deep !== undefined && deep.kind === 'uniform' && valueMaterial(deep.value) === MAT.rock).toBe(true);
   });
 
   it('writes byte-identical files for equal content, whatever the edit order or entry order', () => {
     const a = townStore();
     const b = townStore();
     const dig = (x: number, z: number) => ({ kind: 'sphere' as const, center: [x, 0, z] as const, radius: 6, voxel: voxel() });
-    const wall = (x: number) => ({ kind: 'box' as const, min: [x, 1, 30] as const, max: [x + 1, 8, 60] as const, voxel: voxel(MAT.stone, VOXEL_CATEGORY.construction) });
+    const wall = (x: number) => ({ kind: 'box' as const, min: [x, 1, 30] as const, max: [x + 1, 8, 60] as const, voxel: voxel(MAT.stone, VOXEL_ROLE.wall) });
     const base = onlyFile(new RegionSet(townStore(), 'column', 512, WORLD));
     const sa = new RegionSet(a, 'column', 512, WORLD);
     const sb = new RegionSet(b, 'column', 512, WORLD);
     // The same edits in another order; a and b also take a detour (paint a cell, then put it back).
     for (const s of [dig(20, 20), wall(100), dig(150, 90), wall(160)]) sa.apply(s);
-    sb.apply({ kind: 'box', min: [3, 3, 3], max: [3, 3, 3], voxel: voxel(MAT.brick, VOXEL_CATEGORY.construction) });
+    sb.apply({ kind: 'box', min: [3, 3, 3], max: [3, 3, 3], voxel: voxel(MAT.brick, VOXEL_ROLE.wall) });
     for (const s of [wall(160), dig(150, 90), wall(100), dig(20, 20)]) sb.apply(s);
     sb.apply({ kind: 'box', min: [3, 3, 3], max: [3, 3, 3], voxel: voxel() });
     const fa = onlyFile(sa);
@@ -193,11 +194,11 @@ describe('region files', () => {
     expect(() => RegionIndex.parse(flip(33), COLUMN0)).toThrow(/header checksum/);
     expect(() => RegionIndex.parse(flip(REGION_HEADER_BYTES + 5), COLUMN0)).toThrow(/table checksum/);
     expect(() => RegionIndex.parse(flip(1), COLUMN0)).toThrow(/magic/);
-    const v2 = bytes.slice();
-    v2[4] = 2;
-    resealHeader(v2);
-    expect(() => readRegionHeader(v2)).toThrow(RegionFileError);
-    expect(() => readRegionHeader(v2)).toThrow(/version 2 is newer than this build reads/);
+    const v3 = bytes.slice();
+    v3[4] = 3;
+    resealHeader(v3);
+    expect(() => readRegionHeader(v3)).toThrow(RegionFileError);
+    expect(() => readRegionHeader(v3)).toThrow(/version 3 is newer than this build reads/);
     const reserved = bytes.slice();
     reserved[57] = 1;
     resealHeader(reserved);

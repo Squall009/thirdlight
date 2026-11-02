@@ -1,137 +1,200 @@
 /**
- * The voxel record: what one cell of a voxel world stores.
+ * The voxel record: what one cell of a voxel world stores, as one 32-bit
+ * value.
  *
- * Four fields: material, coarse category, shape/density and orientation.
- * Material, category and orientation travel packed in one 32-bit record
- * value (palette-image.ts); shape travels beside it. The widths below are
- * the format's (draft v1, owner to approve). What is still provisional is
- * meaning, not width: which categories exist (the stored intent set), and
- * what each orientation means to the role and case catalogue. Every form
- * that stores raw record values outside the chunk codec names the value
- * form it holds ({@link RECORD_VALUE_FORM}), so a wider record can be
- * added later without breaking any file written now.
+ *   bits  0–11  material   (4,096 ids a world; 0 is air)
+ *   bits 12–15  role       (what the voxel is for: terrain, wall, roof, …)
+ *   bits 16–19  shape      (16 fill levels: 0 empty … 15 full)
+ *   bits 20–22  wetness    (0 dry … 7 soaked)
+ *   bits 23–31  reserved   (0; the next per-voxel field takes them)
+ *
+ * The value is the unit everywhere: palettes, aprons, cell deltas, region
+ * uniform entries, saves and the runtime overlay all hold whole values, so
+ * a read or write of one voxel is one 32-bit load or store. Orientation is
+ * not stored: a structure's grid carries its rotation, stamps are rotated
+ * before they are voxelized and details come from the arrangement.
+ * Beams, banisters and soffits are not roles either: they are inferred from
+ * the arrangement, never stored.
+ *
+ * Every form that stores raw values outside the chunk codec names the value
+ * form it holds ({@link RECORD_VALUE_FORM}).
  */
 
-/** One voxel's fields (material 23 bits, category 4, orientation 5, shape 8). */
+/** One voxel's fields (material 12 bits, role 4, shape 4, wetness 3). */
 export interface VoxelRecord {
   /** Material id; 0 is air. */
   material: number;
-  /** Coarse category ({@link VOXEL_CATEGORY}); architectural detail is inferred, never stored. */
-  category: number;
-  /** Shape/density: 0 empty … 255 full; between is a surface (or a liquid's fill). */
+  /** Role ({@link VOXEL_ROLE}); architectural detail is inferred, never stored. */
+  role: number;
+  /** Fill level: 0 empty … {@link SHAPE_FULL} full; between is a surface (or a liquid's fill). */
   shape: number;
-  /** One of the 24 axis-aligned rotations ({@link ORIENTATION_COUNT}; 0 = identity; PROVISIONAL). */
-  orientation: number;
+  /** Wetness: 0 dry … {@link WETNESS_MAX}. Feeds shading only. */
+  wetness: number;
 }
 
 /**
- * Coarse categories: what a stored voxel says about itself. The set is
- * provisional (the owner settles it); values past it are refused.
- * Beams, banisters, soffits and mouldings are not categories: they are read
- * from the arrangement of construction voxels around them.
+ * Roles: what a stored voxel is for. Values past {@link VOXEL_ROLE_COUNT}
+ * are unassigned and refused (room for 16). Beams, banisters, soffits and
+ * mouldings are not roles: the assembly rules read them from the
+ * arrangement of the voxels around them.
  */
-export const VOXEL_CATEGORY = Object.freeze({
+export const VOXEL_ROLE = Object.freeze({
   air: 0,
   terrain: 1,
-  construction: 2,
-  roof: 3,
-  liquid: 4,
+  liquid: 2,
+  wall: 3,
+  floor: 4,
+  roof: 5,
+  foundation: 6,
+  stair: 7,
+  pillar: 8,
+  opening: 9,
 });
 
-/** Categories assigned so far; a stored category of this value or above is refused. */
-export const VOXEL_CATEGORY_COUNT = 5;
-
-/**
- * Orientations: the 24 rotations of the cube onto itself, so a voxel's
- * local axes always land on world axes. Orientation k is
- * `face(k >> 2) · spin(k & 3)`: first `k & 3` quarter turns about the
- * voxel's own +y (counter-clockwise seen from above, +x towards −z), then
- * the tip that carries +y to its face: 0 +y (none), 1 −y (half turn about
- * +x), 2 +x, 3 −x, 4 +z, 5 −z (quarter turns about z or x). 0 is the
- * identity. PROVISIONAL: the role and case catalogue may give the cases
- * their own meaning for these numbers; values from 24 up are refused.
- */
-export const ORIENTATION_COUNT = 24;
+/** Roles assigned so far; a stored role of this value or above is refused. */
+export const VOXEL_ROLE_COUNT = 10;
 
 /** Material id of air. */
 export const MATERIAL_AIR = 0;
 
-/** Shape of an empty cell. */
-export const SHAPE_EMPTY = 0;
+/** Bits of a material id: 4,096 ids a world (a format width, not a count cap on anything else). */
+export const MATERIAL_BITS = 12;
+/** Bits of a role (room for 16; {@link VOXEL_ROLE_COUNT} are assigned). */
+export const ROLE_BITS = 4;
+/** Bits of a shape: 16 fill levels. */
+export const SHAPE_BITS = 4;
+/** Bits of wetness: 8 levels. */
+export const WETNESS_BITS = 3;
+/** Bits no field uses yet; they must be 0 and are refused otherwise. */
+export const RESERVED_BITS = 32 - MATERIAL_BITS - ROLE_BITS - SHAPE_BITS - WETNESS_BITS;
 
-/** Shape of a full cell. */
-export const SHAPE_FULL = 255;
-
-/**
- * Bits of a material id. The record value packs material, category and
- * orientation into 32 bits (palette-image.ts), so the ids a world can name
- * are 2²³ − 1 (8,388,607): a format width far past any world's needs, not a
- * count sized to a sample, at no cost per cell (at rest, 3 bytes a palette
- * entry). A full 32-bit material field measured costs per changed cell
- * (cell deltas 7 → 9 bytes, aprons 4 → 8 bytes a cell); see the format spec.
- */
-export const MATERIAL_BITS = 23;
-/** Bits of a category (room for 16; {@link VOXEL_CATEGORY_COUNT} are assigned). */
-export const CATEGORY_BITS = 4;
-/** Bits of an orientation (room for 32; {@link ORIENTATION_COUNT} are assigned). */
-export const ORIENTATION_BITS = 5;
-
-/**
- * The record value form: how a raw record value is laid out where a format
- * stores it outside the chunk codec (region uniform entries, cell deltas in
- * undo records and saves, save uniform payloads, structure overrides). Form
- * 1 is a u32: material bits 0–22, category 23–26, orientation 27–31, no
- * spare bit. Each of those formats records the form it was written with; a
- * later, wider form is added beside it (readers of form 1 kept, a newer
- * form than the build knows refused), so widening the record never needs a
- * new version of every format at once.
- */
-export const RECORD_VALUE_FORM = 1;
-
-/** Throws unless `form` is a record value form this build reads (`what` names the format). */
-export function checkValueForm(what: string, form: number): void {
-  if (!Number.isInteger(form) || form < 1 || form > RECORD_VALUE_FORM) throw new RangeError(`${what}: record value form ${form} (this build reads 1 to ${RECORD_VALUE_FORM})`);
-}
+export const ROLE_SHIFT = MATERIAL_BITS;
+export const SHAPE_SHIFT = ROLE_SHIFT + ROLE_BITS;
+export const WETNESS_SHIFT = SHAPE_SHIFT + SHAPE_BITS;
+export const RESERVED_SHIFT = WETNESS_SHIFT + WETNESS_BITS;
 
 /** The largest material id. */
 export const MATERIAL_ID_MAX = 2 ** MATERIAL_BITS - 1;
+/** Shape of an empty cell. */
+export const SHAPE_EMPTY = 0;
+/** Shape of a full cell. */
+export const SHAPE_FULL = 2 ** SHAPE_BITS - 1;
+/** The largest wetness. */
+export const WETNESS_MAX = 2 ** WETNESS_BITS - 1;
 
-/** The largest value of an 8-bit plane. */
-export const BYTE_PLANE_MAX = 0xff;
+const ROLE_MASK = 2 ** ROLE_BITS - 1;
+const SHAPE_MASK = 2 ** SHAPE_BITS - 1;
+const WETNESS_MASK = 2 ** WETNESS_BITS - 1;
+
+/** A voxel value from its fields (each must fit its width; callers check with {@link checkVoxel}). */
+export function recordValue(material: number, role: number, shape: number, wetness: number): number {
+  return (material | (role << ROLE_SHIFT) | (shape << SHAPE_SHIFT) | (wetness << WETNESS_SHIFT)) >>> 0;
+}
+
+export function valueMaterial(v: number): number {
+  return v & MATERIAL_ID_MAX;
+}
+
+export function valueRole(v: number): number {
+  return (v >>> ROLE_SHIFT) & ROLE_MASK;
+}
+
+export function valueShape(v: number): number {
+  return (v >>> SHAPE_SHIFT) & SHAPE_MASK;
+}
+
+export function valueWetness(v: number): number {
+  return (v >>> WETNESS_SHIFT) & WETNESS_MASK;
+}
+
+/** The reserved bits of a value (0 in every value this format holds). */
+export function valueReserved(v: number): number {
+  return v >>> RESERVED_SHIFT;
+}
+
+/** A record's value; air is always 0, whatever its other fields say. */
+export function valueOf(v: Readonly<VoxelRecord>): number {
+  return v.material === MATERIAL_AIR ? 0 : recordValue(v.material, v.role, v.shape, v.wetness);
+}
+
+/** Writes a value's fields into `out`. */
+export function readValue(value: number, out: VoxelRecord): VoxelRecord {
+  out.material = valueMaterial(value);
+  out.role = valueRole(value);
+  out.shape = valueShape(value);
+  out.wetness = valueWetness(value);
+  return out;
+}
+
+/** Density 0 … 255 of a shape (the scale the derived consumers' thresholds use). */
+export const DENSITY_FULL = 255;
+const DENSITY_STEP = DENSITY_FULL / SHAPE_FULL;
+
+/** A shape's density on the 0 … {@link DENSITY_FULL} scale. */
+export function shapeDensity(shape: number): number {
+  return shape * DENSITY_STEP;
+}
+
+/**
+ * The record value form: how a raw value is laid out where a format stores
+ * it outside the chunk codec (region uniform entries, cell deltas in undo
+ * records and saves, save uniform payloads, structure overrides). Form 2 is
+ * the u32 above. Form 1 (the draft 23/4/5 layout: material, category,
+ * orientation, with shape beside it) was never approved and is not read.
+ * A later field takes reserved bits inside form 2's u32; a form changes only
+ * if the value has to grow past 32 bits.
+ */
+export const RECORD_VALUE_FORM = 2;
+
+/** Throws unless `form` is a record value form this build reads (`what` names the format). */
+export function checkValueForm(what: string, form: number): void {
+  if (form !== RECORD_VALUE_FORM) throw new RangeError(`${what}: record value form ${form} (this build reads ${RECORD_VALUE_FORM})`);
+}
 
 /** Air: every field zero. */
-export const AIR: Readonly<VoxelRecord> = Object.freeze({ material: MATERIAL_AIR, category: VOXEL_CATEGORY.air, shape: SHAPE_EMPTY, orientation: 0 });
+export const AIR: Readonly<VoxelRecord> = Object.freeze({ material: MATERIAL_AIR, role: VOXEL_ROLE.air, shape: SHAPE_EMPTY, wetness: 0 });
 
-/** The record's planes, in the order a plane-wise encoding writes them. */
-export type VoxelPlane = 'material' | 'category' | 'shape' | 'orientation';
+/** The record's fields, in the order a field-wise encoding writes them. */
+export type VoxelPlane = 'material' | 'role' | 'shape' | 'wetness';
 
-/** Every plane, in encoding order. */
-export const VOXEL_PLANES: readonly VoxelPlane[] = Object.freeze(['material', 'category', 'shape', 'orientation']);
+/** Every field, in encoding order. */
+export const VOXEL_PLANES: readonly VoxelPlane[] = Object.freeze(['material', 'role', 'shape', 'wetness']);
 
-/** Each plane's bit in a plane mask (one byte naming the planes an encoding holds). */
-export const PLANE_BIT: Readonly<Record<VoxelPlane, number>> = Object.freeze({ material: 1, category: 2, shape: 4, orientation: 8 });
+/** Each field's bit in a field mask (plane masks, the feeds table and the saved-fields mask). */
+export const PLANE_BIT: Readonly<Record<VoxelPlane, number>> = Object.freeze({ material: 1, role: 2, shape: 4, wetness: 8 });
 
-/** The mask of every plane. */
+/** The mask of every field. */
 export const ALL_PLANES = 15;
 
-/** The mask of a plane list. */
+/** The mask of a field list. */
 export function planeMask(planes: readonly VoxelPlane[]): number {
   let m = 0;
   for (const p of planes) m |= PLANE_BIT[p];
   return m;
 }
 
-/** Bytes per cell of each plane in a dense chunk and the measurement encodings. */
-export const PLANE_BYTES: Readonly<Record<VoxelPlane, number>> = Object.freeze({ material: 3, category: 1, shape: 1, orientation: 1 });
+/** The fields (as a {@link PLANE_BIT} mask) in which two values differ. */
+export function changedFields(a: number, b: number): number {
+  if (a === b) return 0;
+  let m = 0;
+  if (valueMaterial(a) !== valueMaterial(b)) m |= PLANE_BIT.material;
+  if (valueRole(a) !== valueRole(b)) m |= PLANE_BIT.role;
+  if (valueShape(a) !== valueShape(b)) m |= PLANE_BIT.shape;
+  if (valueWetness(a) !== valueWetness(b)) m |= PLANE_BIT.wetness;
+  return m;
+}
+
+/** Bytes per cell of each field in a dense chunk and the measurement encodings. */
+export const PLANE_BYTES: Readonly<Record<VoxelPlane, number>> = Object.freeze({ material: 2, role: 1, shape: 1, wetness: 1 });
 
 /** A fresh record (air unless fields are given). */
-export function voxel(material = MATERIAL_AIR, category: number = VOXEL_CATEGORY.air, shape = SHAPE_EMPTY, orientation = 0): VoxelRecord {
-  return { material, category, shape, orientation };
+export function voxel(material = MATERIAL_AIR, role: number = VOXEL_ROLE.air, shape = SHAPE_EMPTY, wetness = 0): VoxelRecord {
+  return { material, role, shape, wetness };
 }
 
 /** Whether two records are equal in every field. */
 export function sameVoxel(a: Readonly<VoxelRecord>, b: Readonly<VoxelRecord>): boolean {
-  return a.material === b.material && a.category === b.category && a.shape === b.shape && a.orientation === b.orientation;
+  return a.material === b.material && a.role === b.role && a.shape === b.shape && a.wetness === b.wetness;
 }
 
 /** Whether a record is air (material 0; the other fields are then ignored). */
@@ -142,30 +205,76 @@ export function isAir(v: Readonly<VoxelRecord>): boolean {
 /** Throws unless every field fits its width and holds an assigned value. */
 export function checkVoxel(v: Readonly<VoxelRecord>): void {
   const ok = (n: number, max: number): boolean => Number.isInteger(n) && n >= 0 && n <= max;
-  if (!ok(v.material, MATERIAL_ID_MAX) || !ok(v.category, VOXEL_CATEGORY_COUNT - 1) || !ok(v.shape, BYTE_PLANE_MAX) || !ok(v.orientation, ORIENTATION_COUNT - 1)) {
+  if (!ok(v.material, MATERIAL_ID_MAX) || !ok(v.role, VOXEL_ROLE_COUNT - 1) || !ok(v.shape, SHAPE_FULL) || !ok(v.wetness, WETNESS_MAX)) {
     throw new RangeError(`voxel field out of range: ${JSON.stringify(v)}`);
   }
 }
 
-/** Row-major 3 × 3 integer matrix (entries −1, 0, 1). */
-export type AxisRotation = readonly [number, number, number, number, number, number, number, number, number];
-
-function mul(a: AxisRotation, b: AxisRotation): AxisRotation {
-  const o: number[] = [];
-  for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) o.push(a[r * 3]! * b[c]! + a[r * 3 + 1]! * b[3 + c]! + a[r * 3 + 2]! * b[6 + c]!);
-  return o as unknown as AxisRotation;
+/**
+ * Throws unless a value is one the format holds: a u32, air as the one
+ * value 0, an assigned role, reserved bits 0. `what` names the bytes it was
+ * read from.
+ */
+export function checkRecordValue(v: number, what = 'voxel value'): void {
+  if (!Number.isInteger(v) || v < 0 || v > 0xffffffff) throw new RangeError(`${what}: value ${v} is not a u32`);
+  if (valueReserved(v) !== 0) throw new RangeError(`${what}: value ${v} sets reserved bits`);
+  if (valueMaterial(v) === MATERIAL_AIR) {
+    if (v !== 0) throw new RangeError(`${what}: air with a role, shape or wetness`);
+    return;
+  }
+  if (valueRole(v) >= VOXEL_ROLE_COUNT) throw new RangeError(`${what}: unassigned role ${valueRole(v)}`);
 }
 
-const IDENTITY: AxisRotation = [1, 0, 0, 0, 1, 0, 0, 0, 1];
-/** A quarter turn about +y, counter-clockwise seen from above: +x goes to −z. */
-const SPIN: AxisRotation = [0, 0, 1, 0, 1, 0, -1, 0, 0];
-/** The tips carrying +y to +y, −y, +x, −x, +z, −z. */
-const FACES: readonly AxisRotation[] = [IDENTITY, [1, 0, 0, 0, -1, 0, 0, 0, -1], [0, 1, 0, -1, 0, 0, 0, 0, 1], [0, -1, 0, 1, 0, 0, 0, 0, 1], [1, 0, 0, 0, 0, -1, 0, 1, 0], [1, 0, 0, 0, 0, 1, 0, -1, 0]];
+/**
+ * Derived outputs, as bits of a parts mask: what a change to the voxels can
+ * make stale. `shader` is the per-chunk material and wetness grid the
+ * surface shader blends from; the others are built by the assembly
+ * evaluation.
+ */
+export const DERIVED_PART = Object.freeze({ mesh: 1, collision: 2, nav: 4, light: 8, shader: 16 });
 
-/** The rotation an orientation names ({@link ORIENTATION_COUNT}); throws on a value that names none. */
-export function orientationMatrix(k: number): AxisRotation {
-  if (!Number.isInteger(k) || k < 0 || k >= ORIENTATION_COUNT) throw new RangeError(`orientation ${k} is not one of the ${ORIENTATION_COUNT} rotations`);
-  let m = FACES[k >> 2]!;
-  for (let q = 0; q < (k & 3); q++) m = mul(m, SPIN);
-  return m;
+/** Every derived part. */
+export const ALL_DERIVED_PARTS = 31;
+
+/**
+ * Which derived outputs each field drives (the feeds mask). Shape and role
+ * decide geometry, so they drive the mesh, collision, navigation and light
+ * occupancy; material and wetness only change how a surface is shaded, so a
+ * change of only those re-derives the shader data and nothing else.
+ */
+export const FIELD_FEEDS: Readonly<Record<VoxelPlane, number>> = Object.freeze({
+  material: DERIVED_PART.shader,
+  role: DERIVED_PART.mesh | DERIVED_PART.collision | DERIVED_PART.nav | DERIVED_PART.light,
+  shape: DERIVED_PART.mesh | DERIVED_PART.collision | DERIVED_PART.nav | DERIVED_PART.light,
+  wetness: DERIVED_PART.shader,
+});
+
+/** The derived parts a change of `fields` (a {@link PLANE_BIT} mask) feeds, by {@link FIELD_FEEDS}. */
+export function fieldsFeed(fields: number): number {
+  let parts = 0;
+  for (const p of VOXEL_PLANES) if (fields & PLANE_BIT[p]) parts |= FIELD_FEEDS[p];
+  return parts;
+}
+
+/**
+ * The fields a runtime change keeps in a save unless the game chooses
+ * otherwise: everything but wetness, which weather sets again on its own.
+ */
+export const DEFAULT_SAVED_FIELDS = PLANE_BIT.material | PLANE_BIT.role | PLANE_BIT.shape;
+
+/**
+ * The value a save keeps for a cell: `now`'s fields where `saved` has
+ * their bit, `base`'s elsewhere. Air is whole: a dug cell stays air only
+ * when material is saved, and a saved field on a cell whose base is air
+ * keeps `now`'s whole value (there is no base voxel to merge onto).
+ */
+export function savedValue(base: number, now: number, saved: number): number {
+  if (base === now || (saved & ALL_PLANES) === ALL_PLANES) return now;
+  if (base === 0 || now === 0) return saved & PLANE_BIT.material ? now : base;
+  return recordValue(
+    saved & PLANE_BIT.material ? valueMaterial(now) : valueMaterial(base),
+    saved & PLANE_BIT.role ? valueRole(now) : valueRole(base),
+    saved & PLANE_BIT.shape ? valueShape(now) : valueShape(base),
+    saved & PLANE_BIT.wetness ? valueWetness(now) : valueWetness(base),
+  );
 }

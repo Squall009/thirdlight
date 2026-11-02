@@ -1,5 +1,5 @@
 import { sha256Hex } from '@thirdlight/shared';
-import { chunkGrid, createDenseChunk, VOXEL_CATEGORY, type ChunkEdge, type DenseChunk } from '@thirdlight/voxel';
+import { type ChunkEdge, chunkGrid, createDenseChunk, type DenseChunk, SHAPE_FULL, VOXEL_ROLE } from '@thirdlight/voxel';
 import { describe, expect, it } from 'vitest';
 import { chunkRange, type TestGrid, type TestWorld } from './world-kit';
 import { cavesWorld, hillyWorld, plainWorld, townWorld, verticalWorld } from './worlds';
@@ -24,7 +24,7 @@ function chunksOf(g: TestGrid, edge: ChunkEdge): Array<[number, number, number]>
 }
 
 function chunkBytes(c: DenseChunk): Uint8Array {
-  const parts = [new Uint8Array(c.material.buffer, c.material.byteOffset, c.material.byteLength), c.category, c.shape, c.orientation];
+  const parts = [new Uint8Array(c.material.buffer, c.material.byteOffset, c.material.byteLength), c.role, c.shape, c.wetness];
   const out = new Uint8Array(parts.reduce((s, p) => s + p.length, 0));
   let at = 0;
   for (const p of parts) {
@@ -69,7 +69,7 @@ describe('the test worlds', () => {
           for (let k = 0; k < edge; k++) {
             const i = ((k * edge + k) * edge) + k;
             const key = `${(cx << grid.shift) + k},${(cy << grid.shift) + k},${(cz << grid.shift) + k}`;
-            if (c.material[i] !== 0) cells.set(key, c.material[i]! * 1e6 + c.category[i]! * 1e3 + c.shape[i]!);
+            if (c.material[i] !== 0) cells.set(key, c.material[i]! * 1e6 + c.role[i]! * 1e3 + c.shape[i]!);
           }
         }
         return cells;
@@ -93,7 +93,7 @@ describe('the test worlds', () => {
       }
       return false;
     };
-    const partialLiquid = (d: DenseChunk): boolean => d.category.some((cat, i) => cat === VOXEL_CATEGORY.liquid && d.shape[i]! > 0 && d.shape[i]! < 255);
+    const partialLiquid = (d: DenseChunk): boolean => d.role.some((cat, i) => cat === VOXEL_ROLE.liquid && d.shape[i]! > 0 && d.shape[i]! < SHAPE_FULL);
     // The hilly world's lowest valleys lie near its +z edge (found by sampling its height function).
     expect(seen(hillyWorld(), 0, partialLiquid, [16, 32], [96, 192, 1504, 1600])).toBe(true);
     expect(seen(cavesWorld(), 0, partialLiquid, [-96, -64])).toBe(true);
@@ -102,7 +102,7 @@ describe('the test worlds', () => {
     const town = townWorld();
     expect(town.grids.length).toBeGreaterThan(1);
     expect(town.grids.slice(1).every((g) => g.yawDeg === 30 || g.yawDeg === 45)).toBe(true);
-    expect(seen(town, 1, (d) => d.category.includes(VOXEL_CATEGORY.roof))).toBe(true);
+    expect(seen(town, 1, (d) => d.role.includes(VOXEL_ROLE.roof))).toBe(true);
 
     const tall = verticalWorld();
     const height = tall.grids[0]!.bounds.max[1] - tall.grids[0]!.bounds.min[1];

@@ -1,9 +1,8 @@
 /**
  * One palette and the cells that point into it: the unit both palette
- * chunk kinds are built from. A palette entry is a 32-bit value plus one
- * flag bit (a record palette packs material, category and orientation into
- * the value and flags the entries whose cells carry a density byte; a
- * per-plane palette holds one field per value).
+ * chunk kinds are built from. A palette entry is a 32-bit value (a record
+ * palette holds whole voxel values, record.ts; a per-plane palette one
+ * field per value).
  *
  * Entries are reference-counted, so an edit that empties an entry frees it
  * for the next new value, and the palette shrinks (and the layout narrows)
@@ -18,24 +17,19 @@ import type { ChunkGrid } from './coords';
 /** A plane's arrays, as they cross to or from a worker (see chunk-wire.ts). */
 export interface PlaneWire {
   readonly values: Uint32Array;
-  /** Per entry: cell count and flag bit, as the plane keeps them. */
+  /** Per entry: its cell count. */
   readonly meta: Uint32Array;
   readonly size: number;
   readonly live: number;
   readonly layout: BrickWire | PackedWire;
 }
 
-/** Flag bit in an entry's meta word; the low bits are its cell count. */
-const FLAG = 1 << 24;
-const COUNT = FLAG - 1;
 
 /** A palette with its cells' entry ids, as plain arrays (built by import and decode; read by encode). */
 export interface PlaneImage {
   /** Entries used (the arrays may be longer). */
   count: number;
   values: Uint32Array;
-  /** 1 where an entry is flagged. */
-  flags: Uint8Array;
   /** Cells per entry. */
   counts: Uint32Array;
   /** Entry id per cell ({@link localIndex} order). */
@@ -45,7 +39,7 @@ export interface PlaneImage {
 /** A plane image with room for every cell of `grid` to have its own entry. */
 export function createPlaneImage(grid: ChunkGrid): PlaneImage {
   const n = grid.cellsPerChunk;
-  return { count: 0, values: new Uint32Array(n), flags: new Uint8Array(n), counts: new Uint32Array(n), ids: new Uint16Array(n) };
+  return { count: 0, values: new Uint32Array(n), counts: new Uint32Array(n), ids: new Uint16Array(n) };
 }
 
 /** Per chunk-edge scratch ids for compaction (single-threaded use only). */
@@ -86,7 +80,7 @@ export class PalettePlane {
     const meta = new Uint32Array(n);
     let live = 0;
     for (let e = 0; e < n; e++) {
-      meta[e] = (img.counts[e]! & COUNT) | (img.flags[e] ? FLAG : 0);
+      meta[e] = img.counts[e]!;
       if (img.counts[e]! > 0) live++;
     }
     return new PalettePlane(grid, values, meta, n, live, buildLayout(kind, grid, img.ids, n));
@@ -115,7 +109,7 @@ export class PalettePlane {
     let cells = 0;
     let live = 0;
     for (let e = 0; e < w.size; e++) {
-      const n = w.meta[e]! & COUNT;
+      const n = w.meta[e]!;
       cells += n;
       if (n > 0) live++;
     }
@@ -126,10 +120,10 @@ export class PalettePlane {
   }
 
   /** A plane whose every cell holds one value. */
-  static single(grid: ChunkGrid, kind: LayoutKind, value: number, flag: boolean): PalettePlane {
+  static single(grid: ChunkGrid, kind: LayoutKind, value: number): PalettePlane {
     const ids = scratchIds(grid.cellsPerChunk);
     ids.fill(0);
-    const meta = new Uint32Array([grid.cellsPerChunk | (flag ? FLAG : 0)]);
+    const meta = new Uint32Array([grid.cellsPerChunk]);
     return new PalettePlane(grid, new Uint32Array([value]), meta, 1, 1, buildLayout(kind, grid, ids, 1));
   }
 
@@ -139,49 +133,40 @@ export class PalettePlane {
 
   /** Cells pointing at entry `e`. */
   cellCount(e: number): number {
-    return this.meta[e]! & COUNT;
+    return this.meta[e]!;
   }
 
-  flag(e: number): boolean {
-    return (this.meta[e]! & FLAG) !== 0;
-  }
-
-  /** The live entry holding (value, flag), or −1. */
-  find(value: number, flag: boolean): number {
-    const want = flag ? FLAG : 0;
+  /** The live entry holding `value`, or −1. */
+  find(value: number): number {
     const { values, meta } = this;
     // Palettes are small (a few entries in nearly every chunk), so a scan beats hashing.
-    for (let e = 0; e < this.size; e++) if (values[e] === value && (meta[e]! & FLAG) === want && (meta[e]! & COUNT) !== 0) return e;
+    for (let e = 0; e < this.size; e++) if (values[e] === value && meta[e] !== 0) return e;
     return -1;
   }
 
-  /**
-   * Points cell `i` at (value, flag). Returns −1 when the cell already held
-   * that entry, else 1 or 0: whether the entry it held before was flagged.
-   */
-  set(i: number, value: number, flag: boolean): number {
+  /** Points cell `i` at `value`; false when it already held it. */
+  set(i: number, value: number): boolean {
     const old = this.layout.get(i);
-    if (this.values[old] === value && this.flag(old) === flag) return -1;
-    let e = this.find(value, flag);
-    if (e < 0) e = this.add(value, flag);
+    if (this.values[old] === value) return false;
+    let e = this.find(value);
+    if (e < 0) e = this.add(value);
     // add may have rebuilt the layout; the cell's old entry id is unchanged by that.
     this.layout.set(i, e);
     this.meta[e]!++;
-    const oldFlag = (this.meta[old]! & FLAG) !== 0 ? 1 : 0;
     this.meta[old]!--;
-    if ((this.meta[old]! & COUNT) === 0) {
+    if (this.meta[old] === 0) {
       this.live--;
       this.maybeShrink();
     }
-    return oldFlag;
+    return true;
   }
 
   /** A new entry (count 0): a freed slot, else the next one, widening the layout when it is full. */
-  private add(value: number, flag: boolean): number {
+  private add(value: number): number {
     let e = -1;
     if (this.live < this.size) {
       for (let k = 0; k < this.size; k++) {
-        if ((this.meta[k]! & COUNT) === 0) {
+        if (this.meta[k] === 0) {
           e = k;
           break;
         }
@@ -202,7 +187,7 @@ export class PalettePlane {
       if (this.size > this.layout.capacity) this.relayout(this.size);
     }
     this.values[e] = value;
-    this.meta[e] = flag ? FLAG : 0;
+    this.meta[e] = 0;
     this.live++;
     return e;
   }
@@ -233,7 +218,7 @@ export class PalettePlane {
     const meta = new Uint32Array(Math.max(1, this.live));
     let n = 0;
     for (let e = 0; e < this.size; e++) {
-      if ((this.meta[e]! & COUNT) === 0) continue;
+      if (this.meta[e] === 0) continue;
       remap[e] = n;
       values[n] = this.values[e]!;
       meta[n] = this.meta[e]!;
@@ -253,8 +238,7 @@ export class PalettePlane {
     img.count = this.size;
     for (let e = 0; e < this.size; e++) {
       img.values[e] = this.values[e]!;
-      img.flags[e] = (this.meta[e]! & FLAG) !== 0 ? 1 : 0;
-      img.counts[e] = this.meta[e]! & COUNT;
+      img.counts[e] = this.meta[e]!;
     }
     this.layout.unpack(img.ids);
   }

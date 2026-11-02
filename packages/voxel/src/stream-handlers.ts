@@ -14,15 +14,16 @@ import { assemblyRules, jobRadius } from './assembly';
 import { deriveWithApron } from './derive-assembly';
 import { derivedTransfer, encodeDerived } from './derived-data';
 import { crc32 } from '@thirdlight/shared';
-import { CellDelta } from './cell-delta';
+import { CellDelta, exportOrAir } from './cell-delta';
+import { createDenseChunk, type DenseChunk } from './dense-chunk';
 import { payloadTransfer } from './chunk-wire';
 import { CHUNK_EDGES, chunkGrid, chunkOfKey, type ChunkEdge, type ChunkGrid } from './coords';
 import { applyEdit } from './edit-apply';
 import { canonicalEditCommand } from './edit-command';
 import type { JobHandlers, JobResult } from './job-worker';
-import { valueMaterial } from './palette-image';
 import { createWorldStore, type PaletteStore } from './palette-store';
-import { MATERIAL_AIR, type VoxelRecord } from './record';
+import { ALL_DERIVED_PARTS, DERIVED_PART, MATERIAL_AIR, valueMaterial, type VoxelRecord } from './record';
+import { encodeShader, shaderDataOf } from './derived-shader';
 import { regionChunkCodecBytes, type RegionChunkRead } from './region-file';
 import { applySaveChunk, baseChunkHash, sameHash, saveContentFromPayload } from './save-file';
 import { stampShapeHash, type StampResolver } from './stamp-shape';
@@ -129,7 +130,7 @@ function edit(raw: unknown): JobResult {
     const outcome = applyEdit({ store: (g) => (g === cmd.grid ? store : undefined) }, cmd, { stamps, loaded: (_g, cx, cy, cz) => held.has(`${cx},${cy},${cz}`) });
     const undo = encodeUndoRecord(store.grid, outcome.chunks);
     const chunks = outcome.chunks.map((u) => ({ chunk: { grid: u.grid, cx: u.cx, cy: u.cy, cz: u.cz }, payload: store.chunkPayload(u.cx, u.cy, u.cz, false) }));
-    const output: EditOutput = { cells: outcome.cells, chunks, undo };
+    const output: EditOutput = { cells: outcome.cells, chunks, undo, fields: outcome.fields };
     const transfer: ArrayBuffer[] = [undo.buffer as ArrayBuffer];
     for (const ch of chunks) payloadTransfer(ch.payload, transfer);
     return { output, transfer };
@@ -188,11 +189,19 @@ function derive(raw: unknown): JobResult {
   const c = input.chunk;
   try {
     store.adoptPayload(c.cx, c.cy, c.cz, input.payload);
+    const parts = input.parts ?? ALL_DERIVED_PARTS;
+    if ((parts & ALL_DERIVED_PARTS) !== parts || parts === 0) throw new RangeError(`derive job: parts ${parts}`);
+    if (parts === DERIVED_PART.shader) {
+      // Material and wetness feed only the shader data, which reads the chunk's own cells.
+      const shader = shaderDataOf(g, exportOrAir(store, c.cx, c.cy, c.cz, scratchCells(g)));
+      const output: DeriveOutput = { solid: 0, exposed: 0, mask: null, hash: crc32(encodeShader(shader)), assembly: null, shader };
+      return { output, transfer: [shader.palette.buffer as ArrayBuffer, shader.ids.buffer as ArrayBuffer] };
+    }
     if (input.rules !== undefined) {
       const rules = assemblyRules(input.rules);
       if (jobRadius(rules) !== r) throw new RangeError(`derive job: radius ${r} for rules ${rules.id} v${rules.version} (needs ${jobRadius(rules)})`);
       const assembly = deriveWithApron(g, rules, input.apron, (out) => store.exportChunk(c.cx, c.cy, c.cz, out));
-      const output: DeriveOutput = { solid: 0, exposed: 0, mask: null, hash: crc32(encodeDerived(assembly)), assembly };
+      const output: DeriveOutput = { solid: 0, exposed: 0, mask: null, hash: crc32(encodeDerived(assembly)), assembly, shader: null };
       return { output, transfer: derivedTransfer(assembly) };
     }
     const output = exposure(store, c, input);
@@ -202,7 +211,15 @@ function derive(raw: unknown): JobResult {
   }
 }
 
-const EMPTY: DeriveOutput = Object.freeze({ solid: 0, exposed: 0, mask: null, hash: 0, assembly: null });
+const EMPTY: DeriveOutput = Object.freeze({ solid: 0, exposed: 0, mask: null, hash: 0, assembly: null, shader: null });
+
+const cellScratch = new Map<number, DenseChunk>();
+
+function scratchCells(g: ChunkGrid): DenseChunk {
+  let c = cellScratch.get(g.edge);
+  if (c === undefined) cellScratch.set(g.edge, (c = createDenseChunk(g)));
+  return c;
+}
 
 /** The derive placeholder: solid cells with an air cell within R (Chebyshev), from the chunk and its apron. */
 function exposure(store: PaletteStore, c: ChunkRef, input: DeriveInput): DeriveOutput {
@@ -214,11 +231,11 @@ function exposure(store: PaletteStore, c: ChunkRef, input: DeriveInput): DeriveO
   const a = input.apron;
   // One solid voxel everywhere and solid all around within R: nothing is exposed.
   if (p.form === 'uniform' && (r === 0 || a.dense.every((d, k) => d === 0 && valueMaterial(a.uniform[k]!) !== MATERIAL_AIR))) {
-    return { solid: g.cellsPerChunk, exposed: 0, mask: null, hash: 0, assembly: null };
+    return { solid: g.cellsPerChunk, exposed: 0, mask: null, hash: 0, assembly: null, shader: null };
   }
   const s = e + 2 * r;
   const air = new Uint8Array(s * s * s);
-  const v: VoxelRecord = { material: 0, category: 0, shape: 0, orientation: 0 };
+  const v: VoxelRecord = { material: 0, role: 0, shape: 0, wetness: 0 };
   const ox = c.cx << g.shift;
   const oy = c.cy << g.shift;
   const oz = c.cz << g.shift;
@@ -248,8 +265,8 @@ function exposure(store: PaletteStore, c: ChunkRef, input: DeriveInput): DeriveO
     const i = (((lx << g.shift) | lz) << g.shift) | ly;
     mask[i >>> 5]! |= 1 << (i & 31);
   }
-  if (exposed === 0) return { solid, exposed, mask: null, hash: 0, assembly: null };
-  return { solid, exposed, mask, hash: fnv(mask), assembly: null };
+  if (exposed === 0) return { solid, exposed, mask: null, hash: 0, assembly: null, shader: null };
+  return { solid, exposed, mask, hash: fnv(mask), assembly: null, shader: null };
 }
 
 /** The stream job handlers ({@link serveJobs} serves them). */

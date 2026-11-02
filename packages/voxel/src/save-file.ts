@@ -1,12 +1,18 @@
 /**
- * Game saves, format v1 DRAFT: only the chunks a player changed, each
+ * Game saves, format v2 DRAFT: only the chunks a player changed, each
  * relative to the shipped world, with a content hash of the shipped chunk it
  * was made against and the set of cells the player changed.
+ *
+ * - **Saved fields.** A runtime change is held in memory as whole voxel
+ *   values (the overlay, voxel-overlay.ts); a save keeps only the fields
+ *   the game marks saved ({@link DEFAULT_SAVED_FIELDS}: all but wetness),
+ *   merged onto the base value (`savedValue`). A change of only unsaved
+ *   fields leaves no entry.
  *
  * - **Edits only.** A chunk the player never changed (or changed back) has
  *   no entry; generated or shipped chunks are never copied into a save.
  * - **The changed cells, always.** Every entry says which cells the player
- *   changed: a cell delta lists them (7 bytes a cell), and the whole-chunk
+ *   changed: a cell delta lists them (6 bytes a cell), and the whole-chunk
  *   forms (an image, one voxel, all air) carry a changed-cell mask (a bit a
  *   cell) beside the chunk as it is now. The writer keeps the smaller of
  *   the delta and the whole form; either way a save made against an older
@@ -14,22 +20,23 @@
  *   every other cell is the new base. The choice of form never changes
  *   what loading does.
  * - **Base hash.** Each entry carries the first 16 bytes of the SHA-256 of
- *   the base chunk's content in the base form: the chunk codec version 1
+ *   the base chunk's content in the base form: the chunk codec version 2
  *   canonical bytes of that content (all air: no bytes), whatever codec
  *   version the chunk is stored in. The base form is frozen: a later codec
- *   keeps a version 1 writer for hashing, so neither recompressing a world
+ *   keeps a version 2 writer for hashing, so neither recompressing a world
  *   (another zstd build or level) nor a codec upgrade looks like a changed
  *   world. When a re-export changes a chunk the save also changed, loading
  *   reports the mismatch and the game chooses per chunk: keep the player's
  *   cells on the new base, or take the new base.
- * - **Values.** Record values are stored in the record value form the
- *   header names (record.ts): 1 is the u32 of material, category and
- *   orientation.
+ * - **Values.** Voxel values are stored in the record value form the
+ *   header names (record.ts): 2 is the u32 of material, role, shape and
+ *   wetness.
  * - **Versions.** An unknown (newer) version is refused. Upgrades only add
  *   steps: each later version adds a step that lifts a decoded save of the
  *   version before it; old readers are kept.
  *
- * Bytes, version 1 (little-endian): a 44-byte header ('T' 'L' 'V' 'S', u8
+ * Bytes, version 2 (little-endian; version 1, the draft with 7-byte delta
+ * cells and the 23/4/5 record, is not read): a 44-byte header ('T' 'L' 'V' 'S', u8
  * version, u8 chunk edge, u8 chunk codec version, u8 compressor (0 none,
  * 1 zstd), u8 record value form, 3 reserved zero bytes, 16-byte world id,
  * u32 entry count, u32 body length, u32 CRC-32 of the body as stored, u32
@@ -43,19 +50,18 @@
  * (air). Equal saves give equal bytes.
  */
 import { bytesToHex, crc32, hexToBytes, sha256Hex } from '@thirdlight/shared';
-import { CellDelta, chunkScratch, decodeDenseChunk, diffDense, encodeDenseChunk } from './cell-delta';
+import { CellDelta, chunkScratch, decodeDenseChunk, denseValue, diffDense, encodeDenseChunk, writeDenseValue } from './cell-delta';
 import { chunkKey, type ChunkGrid } from './coords';
-import type { DenseChunk } from './dense-chunk';
+import { createDenseChunk, type DenseChunk } from './dense-chunk';
 import type { UpgradeStep } from './format-upgrade';
-import { CHUNK_CODEC_UPGRADES, checkRecordValue, decodePaletteImage, encodePaletteImage, PALETTE_CODEC_VERSION, readPaletteHeader } from './palette-codec';
-import { recordValue, valueMaterial, type ChunkImage } from './palette-image';
-import { checkValueForm, RECORD_VALUE_FORM } from './record';
+import { CHUNK_CODEC_UPGRADES, decodePaletteImage, encodePaletteImage, PALETTE_CODEC_VERSION, readPaletteHeader } from './palette-codec';
+import type { ChunkImage } from './palette-image';
+import { ALL_PLANES, checkRecordValue, checkValueForm, DEFAULT_SAVED_FIELDS, RECORD_VALUE_FORM, savedValue } from './record';
 import { packRegionChunk, regionChunkCodecBytes, WORLD_ID_BYTES, type RegionCompressor } from './region-file';
 import type { VoxelStoreCandidate } from './store';
-import { impliedShape } from './surface-density';
 
 /** The save format this build writes; reads it and every older version its steps lift. */
-export const SAVE_FORMAT_VERSION = 1;
+export const SAVE_FORMAT_VERSION = 2;
 
 /** Bytes of a base chunk hash. */
 export const BASE_HASH_BYTES = 16;
@@ -64,7 +70,7 @@ export const BASE_HASH_BYTES = 16;
  * The chunk codec version whose canonical bytes are the base form a base
  * hash covers. Frozen: it never moves with the codec.
  */
-export const BASE_FORM_CODEC_VERSION = 1;
+export const BASE_FORM_CODEC_VERSION = 2;
 
 export const SAVE_HEADER_BYTES = 44;
 
@@ -110,18 +116,21 @@ export class SaveFileError extends Error {
   override readonly name = 'SaveFileError';
 }
 
-/** Lifts a decoded save of version n to n + 1 (`SAVE_UPGRADES[n - 1]`). */
+/** The oldest save version this build reads (version 1 was a draft that was never approved). */
+export const SAVE_FIRST_VERSION = 2;
+
+/** Lifts a decoded save of version n to n + 1 (`SAVE_UPGRADES[n - SAVE_FIRST_VERSION]`). */
 export type SaveUpgradeStep = (save: SaveFile) => SaveFile;
 
-/** The upgrade steps, oldest first; only ever appended to. Version 1 has none. */
+/** The upgrade steps, oldest first; only ever appended to. Version 2 has none. */
 export const SAVE_UPGRADES: readonly SaveUpgradeStep[] = Object.freeze([]);
 
 const hashOf = (bytes: Uint8Array): Uint8Array => hexToBytes(sha256Hex(bytes)).slice(0, BASE_HASH_BYTES);
 
 /**
- * A chunk's bytes in the base form: the codec version 1 canonical bytes of
- * its content. While the codec is version 1 its writer is that form; a
- * later codec keeps a copy of the version 1 writer here.
+ * A chunk's bytes in the base form: the codec version 2 canonical bytes of
+ * its content. While the codec is version 2 its writer is that form; a
+ * later codec keeps a copy of the version 2 writer here.
  */
 function encodeBaseForm(img: ChunkImage): Uint8Array {
   return encodePaletteImage(img);
@@ -171,7 +180,6 @@ function trimmed(d: CellDelta): CellDelta {
   const t = new CellDelta(d.count);
   t.cells.set(d.cells.subarray(0, d.count));
   t.values.set(d.values.subarray(0, d.count));
-  t.shapes.set(d.shapes.subarray(0, d.count));
   t.count = d.count;
   return t;
 }
@@ -253,7 +261,7 @@ export function saveContentFromPayload(grid: ChunkGrid, kind: SaveContentKind | 
   if (kind === 'uniform' && rest.length === 4) {
     const value = new DataView(rest.buffer, rest.byteOffset, 4).getUint32(0, true);
     if (value === 0) throw new RangeError('an air chunk saved as uniform');
-    checkRecordValue(value, false, 'save uniform entry');
+    checkRecordValue(value, 'save uniform entry');
     return { kind, value, mask };
   }
   if (kind === 'air' && rest.length === 0) return { kind, mask };
@@ -359,8 +367,8 @@ function checkWorld(save: Pick<SaveFile, 'worldId'>, worldId: Uint8Array): void 
  */
 export function readSave(bytes: Uint8Array, grid: ChunkGrid, worldId: Uint8Array, decompress: (b: Uint8Array) => Uint8Array, steps: readonly SaveUpgradeStep[] = SAVE_UPGRADES): SaveFile {
   const version = readSaveVersion(bytes);
-  const current = 1 + steps.length;
-  if (version < 1 || version > current) throw new SaveFileError(`save: unknown version ${version} (this build reads 1 to ${current})`);
+  const current = SAVE_FIRST_VERSION + steps.length;
+  if (version < SAVE_FIRST_VERSION || version > current) throw new SaveFileError(`save: unknown version ${version} (this build reads ${SAVE_FIRST_VERSION} to ${current})`);
   checkWorld({ worldId: bytes.subarray(12, 28) }, worldId);
   if (bytes[5] !== grid.edge) throw new SaveFileError(`save: chunk edge ${bytes[5]}, expected ${grid.edge}`);
   // Chunk images of an older codec version are lifted when they are decoded; a newer one is refused.
@@ -385,7 +393,7 @@ export function readSave(bytes: Uint8Array, grid: ChunkGrid, worldId: Uint8Array
     throw new SaveFileError(`save: body does not decompress: ${e instanceof Error ? e.message : String(e)}`);
   }
   let save: SaveFile = { worldId: bytes.slice(12, 28), grid, chunks: readBodyV1(grid, body, count) };
-  for (let v = version; v < current; v++) save = steps[v - 1]!(save);
+  for (let v = version; v < current; v++) save = steps[v - SAVE_FIRST_VERSION]!(save);
   return save;
 }
 
@@ -454,18 +462,13 @@ export function playerCells(grid: ChunkGrid, s: Exclude<SaveContent, { kind: 'de
   const d = new CellDelta();
   const cells = s.kind === 'image' ? decodeDenseChunk(grid, s.bytes, chunkScratch(grid).cells) : null;
   const uniformValue = s.kind === 'uniform' ? s.value : 0;
-  const uniformShape = s.kind === 'uniform' ? impliedShape(valueMaterial(s.value)) : 0;
   for (let b = 0; b < s.mask.length; b++) {
     const bits = s.mask[b]!;
     if (bits === 0) continue;
     for (let j = 0; j < 8; j++) {
       if ((bits & (1 << j)) === 0) continue;
       const i = (b << 3) | j;
-      if (cells === null) d.push(i, uniformValue, uniformShape);
-      else {
-        const m = cells.material[i]!;
-        d.push(i, m === 0 ? 0 : recordValue(m, cells.category[i]!, cells.orientation[i]!), m === 0 ? 0 : cells.shape[i]!);
-      }
+      d.push(i, cells === null ? uniformValue : denseValue(cells, i));
     }
   }
   return d;
@@ -500,13 +503,30 @@ export function applySaveChunk(store: VoxelStoreCandidate, c: SaveChunk, sameBas
   }
 }
 
+const persistedScratch = new Map<number, DenseChunk>();
+
+/**
+ * The cells a save keeps of `now` over `base`: each cell's value with the
+ * fields in `saved` from `now` and the rest from `base` (`savedValue`).
+ * `now` itself when every field is saved.
+ */
+export function persistedCells(grid: ChunkGrid, base: DenseChunk, now: DenseChunk, saved: number): DenseChunk {
+  if ((saved & ALL_PLANES) === ALL_PLANES) return now;
+  let out = persistedScratch.get(grid.edge);
+  if (out === undefined) persistedScratch.set(grid.edge, (out = createDenseChunk(grid)));
+  for (let i = 0; i < grid.cellsPerChunk; i++) writeDenseValue(out, i, savedValue(denseValue(base, i), denseValue(now, i), saved));
+  return out;
+}
+
 /**
  * A save entry for one chunk from its base codec bytes (null: air) and its
- * cells now; null when they are equal (the save then holds nothing for it).
+ * cells now, keeping the fields in `saved` (a PLANE_BIT mask; default all
+ * but wetness); null when what it keeps equals the base (the save then
+ * holds nothing for it).
  */
-export function saveChunkOf(grid: ChunkGrid, gridId: number, cx: number, cy: number, cz: number, baseBytes: Uint8Array | null, now: DenseChunk): SaveChunk | null {
+export function saveChunkOf(grid: ChunkGrid, gridId: number, cx: number, cy: number, cz: number, baseBytes: Uint8Array | null, now: DenseChunk, saved: number = DEFAULT_SAVED_FIELDS): SaveChunk | null {
   const hash = baseChunkHash(grid, baseBytes);
   const base = decodeDenseChunk(grid, baseBytes, chunkScratch(grid).cells);
-  const content = saveContentOf(grid, base, now);
+  const content = saveContentOf(grid, base, persistedCells(grid, base, now, saved));
   return content === null ? null : { grid: gridId, cx, cy, cz, base: hash, content };
 }

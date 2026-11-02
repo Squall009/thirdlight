@@ -41,6 +41,7 @@ import {
   chunkGrid,
   CHUNK_EDGES,
   editBounds,
+  stalePartsOf,
   EditCommandError,
   EditRefused,
   isRegionFootprint,
@@ -199,6 +200,13 @@ export interface VoxelCommandApplied {
    * results within the rules' radius of it.
    */
   readonly box: Readonly<CellBox>;
+  /**
+   * The derived parts the change makes stale (DERIVED_PART bits of
+   * @thirdlight/voxel, from the fields that changed): a client rebuilds
+   * only these (only `shader` when only material or wetness changed: the
+   * changed chunks' shader data, nothing around them).
+   */
+  readonly parts: number;
   /** The region files rewritten, with their new entity tags. */
   readonly files: ReadonlyArray<{ readonly name: string; readonly etag: string | null }>;
   /** Edits that can still be undone. */
@@ -211,11 +219,12 @@ export interface VoxelCommandApplied {
 
 export type VoxelCommandResult = VoxelCommandApplied | { ok: false; error: VoxelWorldError };
 
-/** One edit in a world's history: its undo record's id, the cells it changed and the box it could change. */
+/** One edit in a world's history: its undo record's id, the cells it changed, the box it could change and the derived parts it made stale. */
 interface HistoryEntry {
   readonly id: number;
   readonly cells: number;
   readonly box: Readonly<CellBox>;
+  readonly parts: number;
 }
 
 /** What a world folder holds as this process last read or wrote it. */
@@ -459,6 +468,7 @@ export class VoxelWorlds {
     let record: readonly ChunkUndo[];
     let cells: number;
     let box: Readonly<CellBox>;
+    let parts: number;
     let undone: HistoryEntry | null = null;
     /** The undone chunks as the undo found them: written back if the undo cannot be saved. */
     let redo: ChunkUndo[] = [];
@@ -470,6 +480,7 @@ export class VoxelWorlds {
         record = out.chunks;
         cells = out.cells;
         box = editBounds(w.world.opts.grid, cmd);
+        parts = stalePartsOf(out.fields);
       } catch (e) {
         if (e instanceof EditCommandError) return refuse('invalid_args', 'validation', e.message, `/args/command${e.path}`);
         if (e instanceof EditRefused) return refuse(e.code, e.code === 'chunk_not_loaded' ? 'conflict' : 'validation', e.message);
@@ -484,6 +495,7 @@ export class VoxelWorlds {
       w.world.undo(record);
       cells = undone.cells;
       box = undone.box;
+      parts = undone.parts;
     }
     const t1 = performance.now();
     const saved = this.save(w);
@@ -503,13 +515,13 @@ export class VoxelWorlds {
       return refuse('write_failed', 'internal', `voxel world ${w.name}: ${saved.why}`);
     }
     // Written in full, or in part: memory keeps the change, which the files written hold.
-    if (op === 'editVoxels') w.history.push({ id: await w.undo.put(record), cells, box });
+    if (op === 'editVoxels') w.history.push({ id: await w.undo.put(record), cells, box, parts });
     if (!saved.ok) {
       return refuse('write_partial', 'internal', `voxel world ${w.name}: ${saved.why}. The ${op === 'editVoxels' ? 'edit' : 'undo'} is applied in this backend and in ${saved.written.join(', ') || 'no file'}; ${saved.notWritten.join(', ') || 'no file'} still hold${saved.notWritten.length === 1 ? 's' : ''} the state before it, rewritten by the next save that succeeds`);
     }
     const chunks = record.map((u) => [u.cx, u.cy, u.cz] as const);
     const files = [...new Set(record.map((u) => this.fileName(w, u)))].sort().map((name) => ({ name, etag: saved.tags.get(name) ?? w.world.files.get(name)?.hash ?? null }));
-    const answer: VoxelCommandApplied = { ok: true, op, requestId, world: w.name, revision: w.manifest.revision, cells, chunks, box, files, undoable: w.history.length, duplicated: false, ms: { apply: t1 - t0, save: performance.now() - t1 } };
+    const answer: VoxelCommandApplied = { ok: true, op, requestId, world: w.name, revision: w.manifest.revision, cells, chunks, box, parts, files, undoable: w.history.length, duplicated: false, ms: { apply: t1 - t0, save: performance.now() - t1 } };
     if (requestId !== null) {
       w.answers.set(requestId, answer);
       if (w.answers.size > ANSWERS_KEPT) w.answers.delete(w.answers.keys().next().value!);

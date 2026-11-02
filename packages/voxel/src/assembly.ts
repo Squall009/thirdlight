@@ -7,8 +7,8 @@
  * an open rail is a rail for all of them at once and none of them has to
  * repeat the rules.
  *
- * Stored voxels carry only coarse intent (material, category, shape,
- * orientation); beams and rails are not stored anywhere. They are read
+ * Stored voxels carry only coarse intent (material, role, shape,
+ * wetness); beams and rails are not stored anywhere. They are read
  * from the arrangement by a rule set, which is pluggable and versioned and
  * declares how far it looks (its radius R, Chebyshev, in cells). A derived
  * result names the rule set and version it came from, and a job that
@@ -23,9 +23,8 @@
 import { APRON_STRIPS, checkApron, type Apron } from './apron';
 import type { ChunkGrid } from './coords';
 import type { DenseChunk } from './dense-chunk';
-import { recordValue, valueCategory, valueMaterial } from './palette-image';
-import { MATERIAL_AIR, VOXEL_CATEGORY } from './record';
-import { impliedShape } from './surface-density';
+import { denseValue } from './cell-delta';
+import { shapeDensity, valueRole, valueShape, VOXEL_ROLE } from './record';
 
 /** Resolved classes (the low 4 bits of a resolved cell byte). */
 export const ASSEMBLY_CLASS = Object.freeze({
@@ -62,9 +61,9 @@ export interface Neighbourhood {
   readonly edge: number;
   readonly pad: number;
   readonly side: number;
-  /** Record values (material, category, orientation; recordValue). */
+  /** Voxel values (record.ts). */
   readonly values: Uint32Array;
-  /** Shape/density per cell. */
+  /** Density per cell, 0 … 255 (the value's shape on the consumers' scale, {@link shapeDensity}). */
   readonly shapes: Uint8Array;
 }
 
@@ -127,10 +126,9 @@ export function fillNeighbourhood(n: Neighbourhood, grid: ChunkGrid, chunk: Dens
     }
     const src = ((x << grid.shift) | z) << grid.shift;
     for (let y = 0; y < e; y++) {
-      const i = src + y;
-      const m = chunk.material[i]!;
-      vals[row + y] = m === MATERIAL_AIR ? 0 : recordValue(m, chunk.category[i]!, chunk.orientation[i]!);
-      shapes[row + y] = m === MATERIAL_AIR ? 0 : chunk.shape[i]!;
+      const v = denseValue(chunk, src + y);
+      vals[row + y] = v;
+      shapes[row + y] = shapeDensity(valueShape(v));
     }
   }
   const start = (b: number): number => (b === 0 ? 0 : b === 1 ? p : p + e);
@@ -145,10 +143,8 @@ export function fillNeighbourhood(n: Neighbourhood, grid: ChunkGrid, chunk: Dens
     const sy = size(by);
     if (sx === 0 || sy === 0 || sz === 0) continue;
     if (apron.dense[k] === 0) {
-      const v = apron.uniform[k]!;
-      const m = valueMaterial(v);
-      const value = m === MATERIAL_AIR ? 0 : v;
-      const shape = impliedShape(m);
+      const value = apron.uniform[k]!;
+      const shape = shapeDensity(valueShape(value));
       for (let x = 0; x < sx; x++) for (let z = 0; z < sz; z++) {
         const row = ((x0 + x) * s + (z0 + z)) * s + y0;
         vals.fill(value, row, row + sy);
@@ -161,9 +157,8 @@ export function fillNeighbourhood(n: Neighbourhood, grid: ChunkGrid, chunk: Dens
       const row = ((x0 + x) * s + (z0 + z)) * s + y0;
       for (let y = 0; y < sy; y++, i++) {
         const v = apron.values[i]!;
-        const air = valueMaterial(v) === MATERIAL_AIR;
-        vals[row + y] = air ? 0 : v;
-        shapes[row + y] = air ? 0 : apron.shapes[i]!;
+        vals[row + y] = v;
+        shapes[row + y] = shapeDensity(valueShape(v));
       }
     }
   }
@@ -174,37 +169,38 @@ export function fillNeighbourhood(n: Neighbourhood, grid: ChunkGrid, chunk: Dens
  * wall, a beam, a banister and its posts, a fence), not the case
  * catalogue, which belongs to the role spec.
  *
- * - **beam**: a construction cell with open cells above and below, a wall
- *   body (three construction cells stacked) on one horizontal side and an
+ * Roles group as: *built* (wall, floor, foundation, stair, pillar), the
+ * cells the rules read beams and rails from; roof; terrain; liquid; and
+ * *open* (air, liquid, opening: an opening is a gap whose door or window
+ * is a kit piece, not a body).
+ *
+ * - **beam**: a built cell with open cells above and below, a wall
+ *   body (three built cells stacked) on one horizontal side and an
  *   open cell on the opposite side. It runs across that side's axis.
- * - **rail**: a *thin* construction cell (open on both sides along x or
+ * - **rail**: a *thin* built cell (open on both sides along x or
  *   along z) with an open cell above, standing on a support (a solid cell
  *   that is not itself thin: a floor, ground), on a post that stands on a
  *   support, or across one open cell from a support (a rail between
  *   posts). A **post** (rail class, thin both ways) stands on a support
  *   under such a rail cell. Anything stacked on the rail makes the run a
  *   wall: extending a banister upward turns it into one.
- * - any other construction or roof cell is a **wall**; terrain is
- *   **ground**; liquid is **liquid**.
+ * - any other built or roof cell is a **wall**; terrain is **ground**;
+ *   liquid is **liquid**; an opening is **empty**.
  *
- * "Open" is air or liquid. Reads stay within 2 cells (Chebyshev) of the
- * cell resolved.
+ * Reads stay within 2 cells (Chebyshev) of the cell resolved.
  */
 export const PLACEHOLDER_RULES: AssemblyRuleSet = Object.freeze({
   id: 'placeholder',
-  version: 1,
+  version: 2,
   radius: 2,
   resolve(n: Neighbourhood, lo: number, hi: number, out: Uint8Array): void {
     const s = n.side;
     const SX = s * s;
     const SZ = s;
     const vals = n.values;
-    const cat = (i: number): number => (vals[i] === 0 ? VOXEL_CATEGORY.air : valueCategory(vals[i]!));
-    const open = (i: number): boolean => {
-      const c = cat(i);
-      return c === VOXEL_CATEGORY.air || c === VOXEL_CATEGORY.liquid;
-    };
-    const construction = (i: number): boolean => cat(i) === VOXEL_CATEGORY.construction;
+    const role = (i: number): number => valueRole(vals[i]!);
+    const open = (i: number): boolean => OPEN_ROLE[role(i)] === 1;
+    const construction = (i: number): boolean => BUILT_ROLE[role(i)] === 1;
     const thinX = (i: number): boolean => open(i - SX) && open(i + SX);
     const thinZ = (i: number): boolean => open(i - SZ) && open(i + SZ);
     const thin = (i: number): boolean => construction(i) && (thinX(i) || thinZ(i));
@@ -213,20 +209,20 @@ export const PLACEHOLDER_RULES: AssemblyRuleSet = Object.freeze({
     const post = (i: number): boolean => construction(i) && thinX(i) && thinZ(i) && support(i - 1);
     for (let x = lo; x < hi; x++) for (let z = lo; z < hi; z++) for (let y = lo; y < hi; y++) {
       const i = (x * s + z) * s + y;
-      const c = cat(i);
-      if (c === VOXEL_CATEGORY.air) {
+      const c = role(i);
+      if (c === VOXEL_ROLE.air || c === VOXEL_ROLE.opening) {
         out[i] = ASSEMBLY_CLASS.empty;
         continue;
       }
-      if (c === VOXEL_CATEGORY.terrain) {
+      if (c === VOXEL_ROLE.terrain) {
         out[i] = ASSEMBLY_CLASS.ground;
         continue;
       }
-      if (c === VOXEL_CATEGORY.liquid) {
+      if (c === VOXEL_ROLE.liquid) {
         out[i] = ASSEMBLY_CLASS.liquid;
         continue;
       }
-      if (c !== VOXEL_CATEGORY.construction) {
+      if (BUILT_ROLE[c] !== 1) {
         out[i] = ASSEMBLY_CLASS.wall;
         continue;
       }
@@ -259,6 +255,17 @@ export const PLACEHOLDER_RULES: AssemblyRuleSet = Object.freeze({
     }
   },
 });
+
+/** Per role: 1 when the placeholder rules read beams and rails from it. */
+const BUILT_ROLE = roleTable([VOXEL_ROLE.wall, VOXEL_ROLE.floor, VOXEL_ROLE.foundation, VOXEL_ROLE.stair, VOXEL_ROLE.pillar]);
+/** Per role: 1 when the placeholder rules treat the cell as open. */
+const OPEN_ROLE = roleTable([VOXEL_ROLE.air, VOXEL_ROLE.liquid, VOXEL_ROLE.opening]);
+
+function roleTable(roles: readonly number[]): Uint8Array {
+  const t = new Uint8Array(16);
+  for (const r of roles) t[r] = 1;
+  return t;
+}
 
 /** The rule sets a worker knows, by id. */
 const RULE_SETS = new Map<string, AssemblyRuleSet>([[PLACEHOLDER_RULES.id, PLACEHOLDER_RULES]]);

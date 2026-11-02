@@ -1,6 +1,6 @@
 /**
  * Hand edits on a structure, kept as overrides over its generated voxels,
- * format v1 DRAFT.
+ * format v2 DRAFT.
  *
  * A structure's voxels are a pure function of its definition. Hand edits on
  * top are stored apart from them, per chunk of the structure's own grid:
@@ -15,7 +15,7 @@
  * - **absorbed** when the generator now makes the overridden voxel itself
  *   (the override is no longer needed and is dropped);
  * - **kept** when the cell's new generated voxel is the same kind as the
- *   base it was made over (both air, or both solid of the same category):
+ *   base it was made over (both air, or both solid of the same role):
  *   the override's voxel is written and its base becomes the new generated
  *   voxel, so a painted wall cell stays painted after a material swap and a
  *   hole cut in a wall stays cut while the wall stays;
@@ -24,37 +24,39 @@
  *   silently. The report holds the misfits, so the caller can show them and
  *   the one undoable regenerate step can restore them.
  *
- * Bytes, version 1 (little-endian): 'T' 'L' 'V' 'O', u8 version, u8 chunk
+ * Bytes, version 2 (little-endian; version 1, the draft with shapes beside
+ * the 23/4/5 values, is not read): 'T' 'L' 'V' 'O', u8 version, u8 chunk
  * edge, u8 record value form of its values (record.ts), u8 reserved (0),
- * u32 grid id, u32 chunk count, then per chunk in
- * key order: i16 cx, i16 cy, i16 cz, u32 cell count, then planes: cells
- * (u16 local index, ascending), base values (u32), base shapes (u8), values
- * (u32), shapes (u8); then the CRC-32 of everything before it.
+ * u32 grid id, u32 chunk count, then per chunk in key order: i16 cx,
+ * i16 cy, i16 cz, u32 cell count, then planes: cells (u16 local index,
+ * ascending), base values (u32), values (u32); then the CRC-32 of
+ * everything before it.
  *
  * Overrides live as long as the project, so they upgrade like saves: an
  * unknown (newer) version is refused, and each later version appends a
  * step that lifts decoded overrides of the version before it.
  */
 import { crc32 } from '@thirdlight/shared';
-import { CellDelta, chunkScratch, exportOrAir } from './cell-delta';
+import { CellDelta, chunkScratch, denseValue, exportOrAir } from './cell-delta';
 import { chunkKey, chunkOfKey, type ChunkGrid } from './coords';
 import { createDenseChunk, type DenseChunk } from './dense-chunk';
-import { checkRecordValue } from './palette-codec';
-import { recordValue, valueCategory, valueMaterial } from './palette-image';
-import { checkValueForm, RECORD_VALUE_FORM } from './record';
+import { checkRecordValue, checkValueForm, RECORD_VALUE_FORM, valueMaterial, valueRole } from './record';
 import type { VoxelStoreCandidate } from './store';
 
 /** The override format this build writes and reads. */
-export const OVERRIDE_FORMAT_VERSION = 1;
+export const OVERRIDE_FORMAT_VERSION = 2;
 
-/** Lifts decoded overrides of version n to n + 1 (`OVERRIDE_UPGRADES[n - 1]`). */
+/** The oldest override version this build reads (version 1 was a draft that was never approved). */
+export const OVERRIDE_FIRST_VERSION = 2;
+
+/** Lifts decoded overrides of version n to n + 1 (`OVERRIDE_UPGRADES[n - OVERRIDE_FIRST_VERSION]`). */
 export type OverrideUpgradeStep = (o: StructureOverrides) => StructureOverrides;
 
-/** The upgrade steps, oldest first; only ever appended to. Version 1 has none. */
+/** The upgrade steps, oldest first; only ever appended to. Version 2 has none. */
 export const OVERRIDE_UPGRADES: readonly OverrideUpgradeStep[] = Object.freeze([]);
 
 /** Bytes one overridden cell takes at rest. */
-export const OVERRIDE_CELL_BYTES = 12;
+export const OVERRIDE_CELL_BYTES = 10;
 
 const MAGIC = [0x54, 0x4c, 0x56, 0x4f] as const;
 const HEADER = 16;
@@ -65,7 +67,7 @@ export interface ChunkOverrides {
   readonly cx: number;
   readonly cy: number;
   readonly cz: number;
-  /** Generated voxels under the overrides (cells, values, shapes). */
+  /** Generated voxels under the overrides (cells, values). */
   readonly base: CellDelta;
   /** The overriding voxels, same cells in the same order. */
   readonly value: CellDelta;
@@ -86,10 +88,10 @@ export interface OverrideMisfit {
   readonly cz: number;
   /** Local cell index. */
   readonly cell: number;
-  /** The generated voxel it was made over (value, shape), what it holds, and what is generated there now. */
-  readonly base: readonly [number, number];
-  readonly value: readonly [number, number];
-  readonly generated: readonly [number, number];
+  /** The generated voxel value it was made over, the value it holds, and what is generated there now. */
+  readonly base: number;
+  readonly value: number;
+  readonly generated: number;
 }
 
 export interface OverrideReport {
@@ -100,10 +102,6 @@ export interface OverrideReport {
   readonly overrides: StructureOverrides;
 }
 
-function valueAt(c: DenseChunk, i: number): number {
-  const m = c.material[i]!;
-  return m === 0 ? 0 : recordValue(m, c.category[i]!, c.orientation[i]!);
-}
 
 /**
  * The overrides of one chunk: the cells where `edited` differs from
@@ -113,13 +111,11 @@ export function chunkOverridesOf(grid: ChunkGrid, cx: number, cy: number, cz: nu
   const base = new CellDelta();
   const value = new CellDelta();
   for (let i = 0; i < grid.cellsPerChunk; i++) {
-    const g = valueAt(generated, i);
-    const e = valueAt(edited, i);
-    const gs = g === 0 ? 0 : generated.shape[i]!;
-    const es = e === 0 ? 0 : edited.shape[i]!;
-    if (g === e && gs === es) continue;
-    base.push(i, g, gs);
-    value.push(i, e, es);
+    const g = denseValue(generated, i);
+    const e = denseValue(edited, i);
+    if (g === e) continue;
+    base.push(i, g);
+    value.push(i, e);
   }
   return base.count === 0 ? null : { cx, cy, cz, base, value };
 }
@@ -128,7 +124,7 @@ export function chunkOverridesOf(grid: ChunkGrid, cx: number, cy: number, cz: nu
 function fits(baseValue: number, nowValue: number): boolean {
   const baseAir = valueMaterial(baseValue) === 0;
   const nowAir = valueMaterial(nowValue) === 0;
-  return baseAir === nowAir && (baseAir || valueCategory(baseValue) === valueCategory(nowValue));
+  return baseAir === nowAir && (baseAir || valueRole(baseValue) === valueRole(nowValue));
 }
 
 /**
@@ -150,20 +146,18 @@ export function reapplyOverrides(store: VoxelStoreCandidate, overrides: Structur
     const value = new CellDelta();
     for (let k = 0; k < o.value.count; k++) {
       const i = o.value.cells[k]!;
-      const g = valueAt(now, i);
-      const gs = g === 0 ? 0 : now.shape[i]!;
+      const g = denseValue(now, i);
       const want = o.value.values[k]!;
-      const wantShape = o.value.shapes[k]!;
-      if (g === want && gs === wantShape) {
+      if (g === want) {
         absorbed++;
         continue;
       }
       if (!fits(o.base.values[k]!, g)) {
-        misfits.push({ cx: o.cx, cy: o.cy, cz: o.cz, cell: i, base: [o.base.values[k]!, o.base.shapes[k]!], value: [want, wantShape], generated: [g, gs] });
+        misfits.push({ cx: o.cx, cy: o.cy, cz: o.cz, cell: i, base: o.base.values[k]!, value: want, generated: g });
         continue;
       }
-      base.push(i, g, gs);
-      value.push(i, want, wantShape);
+      base.push(i, g);
+      value.push(i, want);
       keptCells++;
     }
     if (value.count === 0) continue;
@@ -200,9 +194,7 @@ export function encodeOverrides(o: StructureOverrides): Uint8Array {
       if (c.base.cells[i] !== c.value.cells[i]) throw new RangeError('override base and value cells differ');
       view.setUint16(at + i * 2, c.value.cells[i]!, true);
       view.setUint32(at + count * 2 + i * 4, c.base.values[i]!, true);
-      out[at + count * 6 + i] = c.base.shapes[i]!;
-      view.setUint32(at + count * 7 + i * 4, c.value.values[i]!, true);
-      out[at + count * 11 + i] = c.value.shapes[i]!;
+      view.setUint32(at + count * 6 + i * 4, c.value.values[i]!, true);
     }
     at += count * OVERRIDE_CELL_BYTES;
   }
@@ -218,8 +210,8 @@ export function encodeOverrides(o: StructureOverrides): Uint8Array {
 export function decodeOverrides(grid: ChunkGrid, bytes: Uint8Array, steps: readonly OverrideUpgradeStep[] = OVERRIDE_UPGRADES): StructureOverrides {
   if (bytes.length < HEADER + 4 || !MAGIC.every((b, i) => bytes[i] === b)) throw new RangeError('structure overrides: bad magic');
   const version = bytes[4]!;
-  const current = 1 + steps.length;
-  if (version < 1 || version > current) throw new RangeError(`structure overrides: unknown version ${version} (this build reads 1 to ${current})`);
+  const current = OVERRIDE_FIRST_VERSION + steps.length;
+  if (version < OVERRIDE_FIRST_VERSION || version > current) throw new RangeError(`structure overrides: unknown version ${version} (this build reads ${OVERRIDE_FIRST_VERSION} to ${current})`);
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (bytes[5] !== grid.edge || bytes[7] !== 0) throw new RangeError('structure overrides: another chunk edge, or reserved bytes set');
   checkValueForm('structure overrides', bytes[6]!);
@@ -249,21 +241,18 @@ export function decodeOverrides(grid: ChunkGrid, bytes: Uint8Array, steps: reado
       if (cell <= prev || cell >= grid.cellsPerChunk) throw new RangeError('structure overrides: cells out of order or outside the chunk');
       prev = cell;
       const bv = view.getUint32(at + count * 2 + i * 4, true);
-      const bs = bytes[at + count * 6 + i]!;
-      const vv = view.getUint32(at + count * 7 + i * 4, true);
-      const vs = bytes[at + count * 11 + i]!;
-      checkRecordValue(bv, false, 'structure overrides');
-      checkRecordValue(vv, false, 'structure overrides');
-      if ((bv === 0 && bs !== 0) || (vv === 0 && vs !== 0)) throw new RangeError('structure overrides: air with a shape');
-      base.push(cell, bv, bs);
-      value.push(cell, vv, vs);
+      const vv = view.getUint32(at + count * 6 + i * 4, true);
+      checkRecordValue(bv, 'structure overrides');
+      checkRecordValue(vv, 'structure overrides');
+      base.push(cell, bv);
+      value.push(cell, vv);
     }
     at += count * OVERRIDE_CELL_BYTES;
     chunks.set(key, { cx, cy, cz, base, value });
   }
   if (at !== end) throw new RangeError('structure overrides: trailing bytes');
   let o: StructureOverrides = { grid, gridId, chunks };
-  for (let v = version; v < current; v++) o = steps[v - 1]!(o);
+  for (let v = version; v < current; v++) o = steps[v - OVERRIDE_FIRST_VERSION]!(o);
   return o;
 }
 

@@ -32,7 +32,7 @@ import { startBackend, type E2EBackend } from './backend';
 import { consoleErrors } from './console-errors';
 import { writeSliceWorld } from '../../tools/voxel-bench/slice-world';
 import { MAT } from '../../tools/voxel-bench/world-kit';
-import { canonicalEditCommand, chunkGrid, dependentChunks, editBounds, jobRadius, PLACEHOLDER_RULES, VOXEL_CATEGORY } from '@thirdlight/voxel';
+import { canonicalEditCommand, chunkGrid, dependentChunks, editBounds, jobRadius, PLACEHOLDER_RULES, VOXEL_ROLE } from '@thirdlight/voxel';
 
 type Cell = [number, number, number];
 let be: E2EBackend;
@@ -63,7 +63,7 @@ async function open(page: Page, renderer: 'webgpu' | 'webgl2'): Promise<void> {
 }
 
 interface CellReport {
-  voxel: { material: number; category: number };
+  voxel: { material: number; role: number };
   resolved: string;
   outputs: { renderSolid: boolean; baseFaces: number; piece: { family: number; section: number } | null; collision: string; navBlocks: boolean; standable: boolean; light: number } | null;
 }
@@ -120,7 +120,7 @@ test('assembly proof: runtime set/dig turn a banister into a wall and a beam int
   const gap: Cell = [ox - 3, oy + 1, oz + 7];
   const beam: Cell = [ox - 4, oy + 5, oz - 1];
   const behindBeam: Cell[] = [[ox - 4, oy + 5, oz], [ox + 3, oy + 5, oz]];
-  const timber = { material: MAT.timber, category: VOXEL_CATEGORY.construction, orientation: 0, shape: 255 };
+  const timber = { material: MAT.timber, role: VOXEL_ROLE.wall, wetness: 0, shape: 15 };
   const sweepGap = (): Promise<{ centre: Cell } | null> => hook(page, 'sweep', [ox - 2.5, oy + 1.5, oz + 12], [0, 0, -1], 0.15, 20);
   const dropOnRail = (): Promise<Drop> => hook(page, 'drop', [ox - 2.5, oy + 7, oz + 7.5], 0.1, 0.1);
 
@@ -148,7 +148,7 @@ test('assembly proof: runtime set/dig turn a banister into a wall and a beam int
     if ((x & 1) !== 0) grownCells.push(ox + x, oy + 1, oz + 7);
     grownCells.push(ox + x, oy + 3, oz + 7);
   }
-  const grow = { v: 1, grid: 0, kind: 'set', cells: grownCells, voxel: timber };
+  const grow = { v: 2, grid: 0, kind: 'set', cells: grownCells, voxel: timber };
   await send(grow);
   expect(await cellAt(page, rail)).toMatchObject({ resolved: 'wall', outputs: { renderSolid: true, piece: null, baseFaces: 2, collision: 'full', navBlocks: true, light: 255 } });
   expect((await cellAt(page, gap)).resolved).toBe('wall');
@@ -162,22 +162,22 @@ test('assembly proof: runtime set/dig turn a banister into a wall and a beam int
   await page.reload();
   await open(page, 'webgpu');
   expect(await hashes()).toEqual(h1);
-  expect((await cellAt(page, gap)).voxel).toMatchObject({ material: MAT.timber, category: VOXEL_CATEGORY.construction });
+  expect((await cellAt(page, gap)).voxel).toMatchObject({ material: MAT.timber, role: VOXEL_ROLE.wall });
 
   // Take the wall cells behind the beam (chunk z of the wall) on both sides of the x chunk face: the beam cells in front
   // (the next chunk in z, where nothing was edited) become wall stubs, their neighbours end the beam's run.
-  const cut = { v: 1, grid: 0, kind: 'dig', cells: behindBeam.flat() };
+  const cut = { v: 2, grid: 0, kind: 'dig', cells: behindBeam.flat() };
   const cutAnswer = await send(cut);
   expect(cutAnswer.rederived).toContain(chunkName(beam));
   expect(chunkName(beam)).not.toBe(chunkName(behindBeam[0]!));
   expect(await cellAt(page, beam)).toMatchObject({ resolved: 'wall', outputs: { collision: 'full', light: 255, piece: null } });
   expect((await cellAt(page, [ox - 5, oy + 5, oz - 1])).outputs?.piece?.section).not.toBe(2);
-  await send({ v: 1, grid: 0, kind: 'set', cells: behindBeam.flat(), voxel: { material: MAT.stone, category: VOXEL_CATEGORY.construction, orientation: 0, shape: 255 } });
+  await send({ v: 2, grid: 0, kind: 'set', cells: behindBeam.flat(), voxel: { material: MAT.stone, role: VOXEL_ROLE.wall, wetness: 0, shape: 15 } });
   expect((await cellAt(page, beam)).resolved).toBe('beam');
   expect(await hashes()).toEqual(h1);
 
   // Take the growth away again: the banister is back, every derived result as the generator's voxels gave.
-  await send({ v: 1, grid: 0, kind: 'dig', cells: grownCells });
+  await send({ v: 2, grid: 0, kind: 'dig', cells: grownCells });
   expect((await cellAt(page, rail)).resolved).toBe('rail');
   expect(await hashes()).toEqual(h0);
 
@@ -187,9 +187,9 @@ test('assembly proof: runtime set/dig turn a banister into a wall and a beam int
     if ((x & 1) === 0) banister.push(ox + x, oy + 1, oz + 7);
     banister.push(ox + x, oy + 2, oz + 7);
   }
-  await send({ v: 1, grid: 0, kind: 'dig', cells: banister });
+  await send({ v: 2, grid: 0, kind: 'dig', cells: banister });
   expect((await cellAt(page, rail)).resolved).toBe('empty');
-  await send({ v: 1, grid: 0, kind: 'set', cells: banister, voxel: timber });
+  await send({ v: 2, grid: 0, kind: 'set', cells: banister, voxel: timber });
   expect(await hashes()).toEqual(h0);
   // The same voxels give the same region file bytes too (canonical files).
   expect(await hook<Record<string, string>>(page, 'files')).toEqual(files0);
@@ -199,7 +199,7 @@ test('assembly proof: runtime set/dig turn a banister into a wall and a beam int
   const before = await hook<Drop>(page, 'drop', [ox + 9.5, oy + 4, oz + 10.5], 0.15, 0.15);
   const pitDig = await hook<EditAnswer>(page, 'dab', pit, 'dig');
   expect(pitDig.ok).toBe(true);
-  const pitCommand = { v: 1, grid: 0, kind: 'brush', shape: 'sphere', size: [2, 2, 2], points: pit, mode: 'dig', smooth: false };
+  const pitCommand = { v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [2, 2, 2], points: pit, mode: 'dig', smooth: false };
   expect(pitDig.rederived).toEqual(dependents(pitCommand));
   const after = await hook<Drop>(page, 'drop', [ox + 9.5, oy + 4, oz + 10.5], 0.15, 0.15);
   expect(after.grounded).toBe(true);

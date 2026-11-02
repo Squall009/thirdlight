@@ -22,15 +22,14 @@
  * command layer refuses it as `no_change`.
  */
 import { chunkKey, chunkOfKey, cellInWorld, type ChunkCoord, type ChunkGrid } from './coords';
-import { CellDelta, chunkScratch, deltaValue, DELTA_CELL_BYTES, encodeDenseChunk, exportOrAir } from './cell-delta';
+import { CellDelta, chunkScratch, DELTA_CELL_BYTES, encodeDenseChunk, exportOrAir } from './cell-delta';
 import { type BrushEdit, type EditMode, type EditVoxel, type StampEdit, type VoxelEditCommand } from './edit-command';
 import { scratchImage, uniformImage } from './palette-chunk';
 import { encodePaletteImage } from './palette-codec';
-import { ALL_PLANES, MATERIAL_AIR, SHAPE_FULL, VOXEL_CATEGORY, type VoxelRecord } from './record';
+import { ALL_PLANES, changedFields, DENSITY_FULL, MATERIAL_AIR, SHAPE_FULL, valueOf, VOXEL_ROLE, type VoxelRecord } from './record';
 import type { StampResolver, StampShape } from './stamp-shape';
 import type { VoxelStoreCandidate } from './store';
 import type { CellBox } from './stroke';
-import { impliedShape } from './surface-density';
 
 /** The stores an edit writes, by grid id (0 the world grid, else a structure's grid). */
 export interface EditGrids {
@@ -63,6 +62,11 @@ export interface EditOutcome {
   readonly cells: number;
   /** Changed chunks in key order: the undo record and the chunks to rebuild and save. */
   readonly chunks: readonly ChunkUndo[];
+  /**
+   * The fields (a PLANE_BIT mask, record.ts) that changed in any cell: what
+   * decides which derived outputs go stale (`fieldsFeed`).
+   */
+  readonly fields: number;
 }
 
 /** Why an edit could not be applied (nothing was written). */
@@ -204,7 +208,7 @@ function stampPlan(c: StampEdit, shape: StampShape): Plan {
     const iy = Math.floor(dy);
     const iz = Math.floor(co * dz - si * dx);
     if (ix < 0 || iy < 0 || iz < 0 || ix >= sx || iy >= sy || iz >= sz) return 0;
-    return cov[(ix * sz + iz) * sy + iy]! / SHAPE_FULL;
+    return cov[(ix * sz + iz) * sy + iy]! / DENSITY_FULL;
   };
   return { box, mode: c.mode, smooth: c.smooth, ...(c.voxel !== undefined ? { voxel: c.voxel } : {}), cover: () => sample };
 }
@@ -259,26 +263,26 @@ function nextVoxel(plan: Plan, cov: number, old: Readonly<VoxelRecord>, out: Vox
   if (!smooth && cov < 0.5) return false;
   const v = plan.voxel;
   const oldAir = old.material === MATERIAL_AIR;
-  // Exact shape (set) or full, or the coverage as a density byte at a smooth rim.
+  // Exact shape (set) or full, or the coverage as a fill level at a smooth rim.
   const t = plan.shape ?? (smooth ? (cov >= 1 ? SHAPE_FULL : Math.max(1, Math.round(cov * SHAPE_FULL))) : SHAPE_FULL);
   switch (plan.mode) {
     case 'place':
       out.material = v!.material;
-      out.category = v!.category;
-      out.orientation = v!.orientation;
+      out.role = v!.role;
+      out.wetness = v!.wetness;
       out.shape = t;
       break;
     case 'add': {
-      const open = oldAir || old.category === VOXEL_CATEGORY.liquid;
+      const open = oldAir || old.role === VOXEL_ROLE.liquid;
       if (open) {
         out.material = v!.material;
-        out.category = v!.category;
-        out.orientation = v!.orientation;
+        out.role = v!.role;
+        out.wetness = v!.wetness;
         out.shape = t;
       } else if (smooth && old.material === v!.material && old.shape < t) {
         out.material = old.material;
-        out.category = old.category;
-        out.orientation = old.orientation;
+        out.role = old.role;
+        out.wetness = old.wetness;
         out.shape = t;
       } else return false;
       break;
@@ -288,13 +292,13 @@ function nextVoxel(plan: Plan, cov: number, old: Readonly<VoxelRecord>, out: Vox
       const left = smooth ? Math.min(old.shape, SHAPE_FULL - t) : 0;
       if (left <= 0) {
         out.material = MATERIAL_AIR;
-        out.category = 0;
-        out.orientation = 0;
+        out.role = 0;
+        out.wetness = 0;
         out.shape = 0;
       } else {
         out.material = old.material;
-        out.category = old.category;
-        out.orientation = old.orientation;
+        out.role = old.role;
+        out.wetness = old.wetness;
         out.shape = left;
       }
       break;
@@ -302,12 +306,12 @@ function nextVoxel(plan: Plan, cov: number, old: Readonly<VoxelRecord>, out: Vox
     case 'paint':
       if (oldAir) return false;
       out.material = v!.material;
-      out.category = v!.category;
-      out.orientation = v!.orientation;
-      out.shape = old.shape === impliedShape(old.material) ? impliedShape(v!.material) : old.shape;
+      out.role = v!.role;
+      out.wetness = v!.wetness;
+      out.shape = old.shape;
       break;
   }
-  return out.material !== old.material || out.category !== old.category || out.orientation !== old.orientation || out.shape !== old.shape;
+  return out.material !== old.material || out.role !== old.role || out.wetness !== old.wetness || out.shape !== old.shape;
 }
 
 /** Chunk keys of a cell box, in key order (x, then z, then y). */
@@ -352,7 +356,6 @@ function trimmed(d: CellDelta): CellDelta {
   const t = new CellDelta(d.count);
   t.cells.set(d.cells.subarray(0, d.count));
   t.values.set(d.values.subarray(0, d.count));
-  t.shapes.set(d.shapes.subarray(0, d.count));
   t.count = d.count;
   return t;
 }
@@ -443,10 +446,11 @@ export function applyEdit(grids: EditGrids, cmd: VoxelEditCommand, opts: EditOpt
   if (opts.loaded !== undefined) {
     for (const c of chunks) if (!opts.loaded(cmd.grid, c.cx, c.cy, c.cz)) throw new EditRefused('chunk_not_loaded', `chunk (${c.cx}, ${c.cy}, ${c.cz}) of grid ${cmd.grid} is not loaded`);
   }
-  const old: VoxelRecord = { material: 0, category: 0, shape: 0, orientation: 0 };
-  const next: VoxelRecord = { material: 0, category: 0, shape: 0, orientation: 0 };
+  const old: VoxelRecord = { material: 0, role: 0, shape: 0, wetness: 0 };
+  const next: VoxelRecord = { material: 0, role: 0, shape: 0, wetness: 0 };
   const undo: ChunkUndo[] = [];
   let changed = 0;
+  let fields = 0;
   const s = grid.shift;
   const m = grid.mask;
   for (const c of chunks) {
@@ -461,7 +465,9 @@ export function applyEdit(grids: EditGrids, cmd: VoxelEditCommand, opts: EditOpt
       const z = oz + lz;
       store.voxelAt(x, y, z, old);
       if (!nextVoxel(plan, cov, old, next)) return;
-      delta.push((((lx << s) | lz) << s) | ly, deltaValue(old), old.material === MATERIAL_AIR ? 0 : old.shape);
+      const before = valueOf(old);
+      fields |= changedFields(before, valueOf(next));
+      delta.push((((lx << s) | lz) << s) | ly, before);
       store.setVoxel(x, y, z, next);
     };
     const listed = plan.cells?.get(chunkKey(grid, c.cx, c.cy, c.cz));
@@ -485,7 +491,7 @@ export function applyEdit(grids: EditGrids, cmd: VoxelEditCommand, opts: EditOpt
     changed += delta.count;
     undo.push({ grid: cmd.grid, cx: c.cx, cy: c.cy, cz: c.cz, before: beforeOf(store, c, delta, form) });
   }
-  return { cells: changed, chunks: undo };
+  return { cells: changed, chunks: undo, fields };
 }
 
 /**

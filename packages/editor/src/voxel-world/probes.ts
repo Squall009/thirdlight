@@ -97,7 +97,7 @@ export function assemblyProbes(ctx: ProbeContext): Record<string, (...args: neve
       streamer.store.voxelAt(x, y, z, v);
       const d = streamer.derivedOf(chunkOf(grid, x), chunkOf(grid, y), chunkOf(grid, z))?.assembly ?? null;
       return {
-        voxel: { material: v.material, category: v.category, shape: v.shape, orientation: v.orientation },
+        voxel: { material: v.material, role: v.role, shape: v.shape, wetness: v.wetness },
         resolved: className(resolvedClassAt(streamer.store, PLACEHOLDER_RULES, x, y, z)),
         outputs: d === null ? null : cellOutputs(d, localOf(grid, x), localOf(grid, y), localOf(grid, z)),
       };

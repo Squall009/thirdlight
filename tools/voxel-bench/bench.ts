@@ -13,7 +13,7 @@ import {
   sameVoxel,
   storeChunkCoords,
   voxel,
-  VOXEL_CATEGORY,
+  VOXEL_ROLE,
   type ChunkGrid,
   type VoxelStoreFactory,
   type VoxelStroke,
@@ -161,7 +161,7 @@ export async function benchWorld(world: TestWorld, factory: VoxelStoreFactory, g
   }
 
   // Single edits: random cells of the box, alternately set to rock and dug to air.
-  const rock = voxel(MAT.rock, VOXEL_CATEGORY.terrain, 255, 0);
+  const rock = voxel(MAT.rock, VOXEL_ROLE.terrain, 15, 0);
   const air = voxel();
   const m = Math.min(opts.edits, n);
   const editMs = best(() => {

@@ -4,7 +4,7 @@ import {
   BRICK_CELLS,
   BrickLayout,
   PaletteStore,
-  VOXEL_CATEGORY,
+  VOXEL_ROLE,
   brickOrder,
   bricksPerChunk,
   chunkGrid,
@@ -16,6 +16,7 @@ import {
   voxel,
   type ChunkEdge,
   type PaletteStoreOptions,
+  SHAPE_FULL,
 } from './index';
 
 const BRICKS: PaletteStoreOptions = { name: 'bricks', palette: 'record', layout: 'bricks', atRest: 'bricks' };
@@ -92,15 +93,15 @@ describe('the brick layout', () => {
 describe('the brick body of the palette codec', () => {
   const grid = chunkGrid(16);
   const cells = createDenseChunk(grid);
-  const rock = voxel(1, VOXEL_CATEGORY.terrain, 255, 0);
+  const rock = voxel(1, VOXEL_ROLE.terrain, SHAPE_FULL, 0);
   // Rock below y = 6 with one soil cell and a partly full top layer: some uniform and some mixed bricks.
   for (let x = 0; x < 16; x++) for (let z = 0; z < 16; z++) for (let y = 0; y < 16; y++) {
     const i = localIndex(grid, x, y, z);
-    const v = y < 6 ? (x === 3 && y === 2 && z === 9 ? voxel(2, VOXEL_CATEGORY.terrain, 255, 0) : rock) : y === 6 ? voxel(1, VOXEL_CATEGORY.terrain, 100, 0) : voxel();
+    const v = y < 6 ? (x === 3 && y === 2 && z === 9 ? voxel(2, VOXEL_ROLE.terrain, SHAPE_FULL, 0) : rock) : y === 6 ? voxel(1, VOXEL_ROLE.terrain, 6, 0) : voxel();
     cells.material[i] = v.material;
-    cells.category[i] = v.category;
+    cells.role[i] = v.role;
     cells.shape[i] = v.shape;
-    cells.orientation[i] = v.orientation;
+    cells.wetness[i] = v.wetness;
   }
   const store = new PaletteStore(grid, BRICKS);
   store.importChunk(0, 0, 0, cells);
@@ -129,10 +130,10 @@ describe('the brick body of the palette codec', () => {
     const flipped = good.slice();
     flipped[good.length - 5]! ^= 1;
     expect(() => decode(flipped)).toThrow(/checksum/);
-    // Palette: count − 1 (u16), per entry material u24, category u8, orientation u8, then the flag bits; the mask follows.
+    // Palette: count − 1 (u16), per entry material u16, role u8, shape u8, wetness u8; the mask follows.
     const count = good[8]! + (good[9]! << 8) + 1;
     expect(count).toBe(4);
-    const maskAt = 8 + 2 + count * 5 + Math.ceil(count / 8);
+    const maskAt = 8 + 2 + count * 5;
     // Marking a uniform brick as mixed shifts every following id: whatever is read is then not canonical or not the length.
     const mixedMore = good.slice();
     const b = [...Array(8).keys()].find((k) => mixedMore[maskAt + k] !== 0xff)!;

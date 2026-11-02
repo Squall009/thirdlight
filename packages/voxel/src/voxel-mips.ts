@@ -4,11 +4,11 @@
  * block of edge³ voxels. A parent node is made from its 8 children (the
  * nodes one level down; at level 1, chunks) by a 2 × 2 × 2 downsample:
  *
- * - **density** is the mean of the 8 cells' shapes (air 0, full 255, a
- *   surface cell its density byte), rounded;
+ * - **shape** is the mean of the 8 cells' fill levels (air 0, full 15),
+ *   rounded;
  * - **material** is the dominant one: the material with the largest summed
  *   density among the 8 (ties: the lower id); air when the mean rounds to 0;
- * - **category** and orientation come from the first cell (in local-index
+ * - **role** and wetness come from the first cell (in local-index
  *   order) of the dominant material.
  *
  * A node therefore has the same form as a chunk (the same planes, the same
@@ -72,9 +72,9 @@ export function downsampleMip(grid: ChunkGrid, children: ReadonlyArray<DenseChun
       const pi = localIndex(grid, ox + x, oy + y, oz + z);
       if (child === null) {
         out.material[pi] = MATERIAL_AIR;
-        out.category[pi] = 0;
+        out.role[pi] = 0;
         out.shape[pi] = SHAPE_EMPTY;
-        out.orientation[pi] = 0;
+        out.wetness[pi] = 0;
         continue;
       }
       let sum = 0;
@@ -99,9 +99,9 @@ export function downsampleMip(grid: ChunkGrid, children: ReadonlyArray<DenseChun
       const mean = Math.round(sum / 8);
       if (k === 0 || mean === 0) {
         out.material[pi] = MATERIAL_AIR;
-        out.category[pi] = 0;
+        out.role[pi] = 0;
         out.shape[pi] = SHAPE_EMPTY;
-        out.orientation[pi] = 0;
+        out.wetness[pi] = 0;
         continue;
       }
       let best = 0;
@@ -109,8 +109,8 @@ export function downsampleMip(grid: ChunkGrid, children: ReadonlyArray<DenseChun
       const m = mats[best]!;
       const first = firsts[best]!;
       out.material[pi] = m;
-      out.category[pi] = child.category[first]!;
-      out.orientation[pi] = child.orientation[first]!;
+      out.role[pi] = child.role[first]!;
+      out.wetness[pi] = child.wetness[first]!;
       out.shape[pi] = mean;
       any = true;
     }

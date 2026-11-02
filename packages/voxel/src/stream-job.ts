@@ -25,6 +25,7 @@ import type { Apron } from './apron';
 import type { AssemblyRulesRef } from './assembly';
 import type { ChunkPayload } from './chunk-wire';
 import type { ChunkEdge } from './coords';
+import type { ShaderOut } from './derived-shader';
 import type { DerivedData } from './derived-data';
 import type { VoxelEditCommand } from './edit-command';
 import type { MismatchChoice, SaveContentKind } from './save-file';
@@ -108,6 +109,8 @@ export interface EditOutput {
   readonly chunks: readonly { readonly chunk: ChunkRef; readonly payload: ChunkPayload }[];
   /** The undo record (encodeUndoRecord bytes). */
   readonly undo: Uint8Array;
+  /** The fields that changed in any cell (PLANE_BIT mask): what decides which derived parts go stale. */
+  readonly fields: number;
 }
 
 export interface DeriveInput {
@@ -122,6 +125,12 @@ export interface DeriveInput {
    * its radius + the consumers' reach. Absent: the exposure placeholder.
    */
   readonly rules?: AssemblyRulesRef;
+  /**
+   * The derived parts wanted (DERIVED_PART bits, record.ts; default all).
+   * Only `shader`: the shader data of the chunk's own cells, no assembly
+   * evaluation and no apron read (a change of material or wetness only).
+   */
+  readonly parts?: number;
 }
 
 /**
@@ -139,6 +148,8 @@ export interface DeriveOutput {
   readonly hash: number;
   /** The derived chunk when the job named assembly rules (the exposure fields are then 0 and null). */
   readonly assembly: DerivedData | null;
+  /** The shader data alone, for a job that asked for only that part (else null; a full derive holds it in `assembly`). */
+  readonly shader: ShaderOut | null;
 }
 
 export interface StreamJobInputs {

@@ -7,7 +7,7 @@
  * its seed and size, generated chunk by chunk (see world-kit.ts).
  */
 import { fractalNoise01, valueNoise01 } from '@thirdlight/shared';
-import { localIndex, VOXEL_CATEGORY, type ChunkGrid, type DenseChunk } from '@thirdlight/voxel';
+import { type ChunkGrid, type DenseChunk, localIndex, SHAPE_FULL, VOXEL_ROLE } from '@thirdlight/voxel';
 import { townWorld } from './town';
 import { CoarseField, ColumnCache, MAT, clamp01, fillGroundColumn, shapeByte, type GroundColumn, type TestGrid, type TestWorld } from './world-kit';
 
@@ -50,9 +50,9 @@ function groundGrid(name: string, footprint: number, x0: number, top: number, ba
       const y0 = cy << grid.shift;
       if (y0 >= maxTop || y0 + e <= base) {
         out.material.fill(0);
-        out.category.fill(0);
+        out.role.fill(0);
         out.shape.fill(0);
-        out.orientation.fill(0);
+        out.wetness.fill(0);
         return false;
       }
       let any = false;
@@ -125,22 +125,22 @@ function writeDensityCell(out: DenseChunk, i: number, density: number, depth: nu
   const fill = clamp01(density + 0.5);
   if (fill > 0) {
     out.material[i] = depth < 2 ? MAT.grass : depth < 8 ? MAT.soil : MAT.rock;
-    out.category[i] = VOXEL_CATEGORY.terrain;
+    out.role[i] = VOXEL_ROLE.terrain;
     out.shape[i] = shapeByte(fill);
-    out.orientation[i] = 0;
+    out.wetness[i] = 0;
     return true;
   }
   if (liquid) {
     out.material[i] = MAT.water;
-    out.category[i] = VOXEL_CATEGORY.liquid;
+    out.role[i] = VOXEL_ROLE.liquid;
     out.shape[i] = shapeByte(liquidFill);
-    out.orientation[i] = 0;
+    out.wetness[i] = 0;
     return true;
   }
   out.material[i] = 0;
-  out.category[i] = 0;
+  out.role[i] = 0;
   out.shape[i] = 0;
-  out.orientation[i] = 0;
+  out.wetness[i] = 0;
   return false;
 }
 
@@ -256,9 +256,9 @@ export function verticalWorld(opts: WorldOptions = {}): TestWorld {
       const towerHere = x0 < tower.x0 + tower.size && x0 + e > tower.x0 && z0 < tower.z0 + tower.size && z0 + e > tower.z0;
       if (y0 >= maxSurf && !(towerHere && y0 < tower.top)) {
         out.material.fill(0);
-        out.category.fill(0);
+        out.role.fill(0);
         out.shape.fill(0);
-        out.orientation.fill(0);
+        out.wetness.fill(0);
         return false;
       }
       const deep = y0 < maxSurf - 20;
@@ -290,9 +290,9 @@ export function verticalWorld(opts: WorldOptions = {}): TestWorld {
             const window = towerWall && (level === 4 || level === 5) && (tx + tz) % 6 === 3;
             if ((towerWall && !window) || floor) {
               out.material[i] = towerWall ? MAT.stone : MAT.plank;
-              out.category[i] = VOXEL_CATEGORY.construction;
-              out.shape[i] = 255;
-              out.orientation[i] = 0;
+              out.role[i] = VOXEL_ROLE.wall;
+              out.shape[i] = SHAPE_FULL;
+              out.wetness[i] = 0;
               any = true;
               continue;
             }

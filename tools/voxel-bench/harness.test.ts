@@ -18,9 +18,9 @@ describe('the storage harness', () => {
     expect(r.verified).toBe(true);
     const t = r.totals;
     expect(t.chunksPresent).toBeGreaterThan(0);
-    // Dense cells: material 4 bytes in memory (u32), 3 at rest (u24), category, shape and orientation 1 each.
-    expect(t.memoryBytes).toBe(t.chunksPresent * 16 ** 3 * 7);
-    expect(t.rawBytes).toBe(t.chunksPresent * (16 ** 3 * 6 + 1));
+    // Dense cells: material 2 bytes (u16) in memory and at rest, role, shape and wetness 1 each.
+    expect(t.memoryBytes).toBe(t.chunksPresent * 16 ** 3 * 5);
+    expect(t.rawBytes).toBe(t.chunksPresent * (16 ** 3 * 5 + 1));
     expect(t.zstdBytes).toBeGreaterThan(0);
     expect(t.zstdBytes).toBeLessThan(t.rawBytes);
     expect(t.zstdNeither).toBeLessThanOrEqual(t.zstdBytes);

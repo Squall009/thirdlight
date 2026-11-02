@@ -12,7 +12,7 @@
 import type { ChunkGrid } from './coords';
 import type { RecordChunkWire } from './palette-chunk';
 
-/** One chunk's content: all air (absent), one record value everywhere, or stored cells. */
+/** One chunk's content: all air (absent), one voxel value everywhere, or stored cells. */
 export type ChunkPayload =
   | { readonly form: 'air' }
   | { readonly form: 'uniform'; readonly value: number }
@@ -22,8 +22,7 @@ export type ChunkPayload =
 export function payloadTransfer(p: ChunkPayload, out: ArrayBuffer[] = []): ArrayBuffer[] {
   if (p.form !== 'stored') return out;
   const w = p.wire;
-  const add = (a: { buffer: ArrayBufferLike } | null): void => {
-    if (a === null) return;
+  const add = (a: { buffer: ArrayBufferLike }): void => {
     const b = a.buffer;
     if (b instanceof ArrayBuffer && !out.includes(b)) out.push(b);
   };
@@ -35,7 +34,6 @@ export function payloadTransfer(p: ChunkPayload, out: ArrayBuffer[] = []): Array
     add(w.plane.layout.pool);
     add(w.plane.layout.free);
   } else add(w.plane.layout.words);
-  add(w.density);
   return out;
 }
 
@@ -45,7 +43,7 @@ export function payloadBytes(p: ChunkPayload): number {
   const w = p.wire;
   const l = w.plane.layout;
   const layout = l.kind === 'bricks' ? l.brick.byteLength + l.mixed.byteLength + l.pool.byteLength + l.free.byteLength : l.words.byteLength;
-  return w.plane.values.byteLength + w.plane.meta.byteLength + layout + (w.density?.byteLength ?? 0);
+  return w.plane.values.byteLength + w.plane.meta.byteLength + layout;
 }
 
 /** Throws unless a payload names a chunk of `grid`'s edge (the arrays are checked when adopted). */

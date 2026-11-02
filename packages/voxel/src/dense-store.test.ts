@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AIR,
   DenseReferenceStore,
-  VOXEL_CATEGORY,
+  VOXEL_ROLE,
   WORLD_CELL_MAX_XZ,
   WORLD_CELL_MAX_Y,
   WORLD_CELL_MIN_XZ,
@@ -17,11 +17,12 @@ import {
   voxel,
   type VoxelRecord,
   type VoxelStroke,
+  SHAPE_FULL,
 } from './index';
 
-const rock = voxel(7, VOXEL_CATEGORY.terrain, 255, 0);
-const beam = voxel(300, VOXEL_CATEGORY.construction, 255, 3);
-const water = voxel(5, VOXEL_CATEGORY.liquid, 120, 0);
+const rock = voxel(7, VOXEL_ROLE.terrain, SHAPE_FULL, 0);
+const beam = voxel(300, VOXEL_ROLE.wall, SHAPE_FULL, 3);
+const water = voxel(5, VOXEL_ROLE.liquid, 120, 0);
 
 describe('the dense reference store', () => {
   it('reads what it wrote at the world extremes and across chunk borders, air elsewhere', () => {
@@ -75,26 +76,26 @@ describe('the dense reference store', () => {
     const store = new DenseReferenceStore(grid);
     const cells = createDenseChunk(grid);
     for (let i = 0; i < grid.cellsPerChunk; i++) {
-      cells.material[i] = (i * 2654435761) % 65536;
-      cells.category[i] = i % 5;
-      cells.shape[i] = (i * 7) % 256;
-      cells.orientation[i] = i % 24;
+      cells.material[i] = (i * 2654435761) % 4096;
+      cells.role[i] = i % 10;
+      cells.shape[i] = (i * 7) % 16;
+      cells.wetness[i] = i % 8;
     }
     store.importChunk(-3, 250, 7, cells);
     const bytes = store.encodeChunk(-3, 250, 7);
     expect(bytes).not.toBeNull();
-    expect(bytes!.length).toBe(1 + grid.cellsPerChunk * 6);
+    expect(bytes!.length).toBe(1 + grid.cellsPerChunk * 5);
     const other = new DenseReferenceStore(grid);
     other.decodeChunk(-3, 250, 7, bytes!);
     const back = createDenseChunk(grid);
     expect(other.exportChunk(-3, 250, 7, back)).toBe(true);
     expect(sameDenseChunk(back, cells)).toBe(true);
 
-    const noOrientation = store.encodeChunk(-3, 250, 7, ['material', 'category', 'shape'])!;
-    expect(noOrientation.length).toBe(1 + grid.cellsPerChunk * 5);
-    other.decodeChunk(-3, 250, 7, noOrientation);
+    const noWetness = store.encodeChunk(-3, 250, 7, ['material', 'role', 'shape'])!;
+    expect(noWetness.length).toBe(1 + grid.cellsPerChunk * 4);
+    other.decodeChunk(-3, 250, 7, noWetness);
     other.exportChunk(-3, 250, 7, back);
-    expect(back.orientation.every((o) => o === 0)).toBe(true);
+    expect(back.wetness.every((o) => o === 0)).toBe(true);
     expect(back.material[localIndex(grid, 1, 2, 3)]).toBe(cells.material[localIndex(grid, 1, 2, 3)]);
     expect(() => other.decodeChunk(0, 0, 0, bytes!.subarray(0, 100))).toThrow(RangeError);
   });

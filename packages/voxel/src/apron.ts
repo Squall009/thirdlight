@@ -12,14 +12,12 @@
  *
  * A strip whose neighbour is absent (air) or one voxel everywhere is a
  * single value, so the common case (sky above, rock below) costs a few
- * bytes; any other strip is its cells as record values and shapes, in the
+ * bytes; any other strip is its cells as voxel values (record.ts), in the
  * same x, z, y order (y fastest) as a chunk.
  */
 import { chunkInWorld, type ChunkGrid } from './coords';
-import { recordValue, valueCategory, valueMaterial, valueOrientation } from './palette-image';
-import { MATERIAL_AIR, type VoxelRecord } from './record';
+import { readValue, valueOf, type VoxelRecord } from './record';
 import type { VoxelStoreCandidate } from './store';
-import { impliedShape } from './surface-density';
 
 /** Strips around a chunk: one per touching neighbour. */
 export const APRON_STRIPS = 26;
@@ -30,12 +28,11 @@ export interface Apron {
   readonly radius: number;
   /** Per strip: 1 when its cells are stored, 0 when it is one value. */
   readonly dense: Uint8Array;
-  /** Per strip: its one record value (uniform strips), else unused. */
+  /** Per strip: its one voxel value (uniform strips), else unused. */
   readonly uniform: Uint32Array;
-  /** Per strip: where its cells start in `values`/`shapes` (27 entries; uniform strips take none). */
+  /** Per strip: where its cells start in `values` (27 entries; uniform strips take none). */
   readonly offsets: Uint32Array;
   readonly values: Uint32Array;
-  readonly shapes: Uint8Array;
 }
 
 /** The axis band of a cell: 0 below the chunk, 1 inside, 2 above. */
@@ -90,7 +87,7 @@ export function buildApron(store: VoxelStoreCandidate, cx: number, cy: number, c
   const uniform = new Uint32Array(APRON_STRIPS);
   const offsets = new Uint32Array(APRON_STRIPS + 1);
   let cells = 0;
-  const v: VoxelRecord = { material: 0, category: 0, shape: 0, orientation: 0 };
+  const v: VoxelRecord = { material: 0, role: 0, shape: 0, wetness: 0 };
   for (let k = 0; k < APRON_STRIPS; k++) {
     const [bx, bz, by] = BANDS[k]!;
     const nx = cx + bx - 1;
@@ -103,7 +100,7 @@ export function buildApron(store: VoxelStoreCandidate, cx: number, cy: number, c
     if (form === 'absent') continue;
     if (form === 'uniform') {
       store.voxelAt(nx << grid.shift, ny << grid.shift, nz << grid.shift, v);
-      uniform[k] = recordValue(v.material, v.category, v.orientation);
+      uniform[k] = valueOf(v);
       continue;
     }
     dense[k] = 1;
@@ -111,7 +108,6 @@ export function buildApron(store: VoxelStoreCandidate, cx: number, cy: number, c
   }
   offsets[APRON_STRIPS] = cells;
   const values = new Uint32Array(cells);
-  const shapes = new Uint8Array(cells);
   const ox = cx << grid.shift;
   const oy = cy << grid.shift;
   const oz = cz << grid.shift;
@@ -127,22 +123,21 @@ export function buildApron(store: VoxelStoreCandidate, cx: number, cy: number, c
     let i = offsets[k]!;
     for (let x = 0; x < sx; x++) for (let z = 0; z < sz; z++) for (let y = 0; y < sy; y++, i++) {
       store.voxelAt(ox + x0 + x, oy + y0 + y, oz + z0 + z, v);
-      values[i] = recordValue(v.material, v.category, v.orientation);
-      shapes[i] = v.shape;
+      values[i] = valueOf(v);
     }
   }
-  return { edge, radius, dense, uniform, offsets, values, shapes };
+  return { edge, radius, dense, uniform, offsets, values };
 }
 
 /** The apron's buffers, for a postMessage transfer list. */
 export function apronTransfer(a: Apron, out: ArrayBuffer[] = []): ArrayBuffer[] {
-  for (const arr of [a.dense, a.uniform, a.offsets, a.values, a.shapes]) if (arr.buffer instanceof ArrayBuffer && !out.includes(arr.buffer)) out.push(arr.buffer);
+  for (const arr of [a.dense, a.uniform, a.offsets, a.values]) if (arr.buffer instanceof ArrayBuffer && !out.includes(arr.buffer)) out.push(arr.buffer);
   return out;
 }
 
 /** Bytes an apron's arrays hold. */
 export function apronBytes(a: Apron): number {
-  return a.dense.byteLength + a.uniform.byteLength + a.offsets.byteLength + a.values.byteLength + a.shapes.byteLength;
+  return a.dense.byteLength + a.uniform.byteLength + a.offsets.byteLength + a.values.byteLength;
 }
 
 /** Throws unless an apron's arrays are consistent (a damaged message is refused, not read out of range). */
@@ -157,7 +152,7 @@ export function checkApron(a: Apron): void {
       cells += bandSize(a.edge, a.radius, bx) * bandSize(a.edge, a.radius, bz) * bandSize(a.edge, a.radius, by);
     } else if (a.dense[k] !== 0) throw new RangeError(`apron: strip ${k} flag`);
   }
-  if (a.offsets[APRON_STRIPS] !== cells || a.values.length !== cells || a.shapes.length !== cells) throw new RangeError('apron: cell arrays do not match the strips');
+  if (a.offsets[APRON_STRIPS] !== cells || a.values.length !== cells) throw new RangeError('apron: cell arrays do not match the strips');
 }
 
 /**
@@ -172,24 +167,10 @@ export function apronVoxelAt(a: Apron, lx: number, ly: number, lz: number, out: 
   const bz = band(e, lz);
   const k = STRIP_OF[bx * 9 + bz * 3 + by]!;
   if (k < 0 || lx < -r || ly < -r || lz < -r || lx >= e + r || ly >= e + r || lz >= e + r) throw new RangeError(`apron cell (${lx}, ${ly}, ${lz}) is outside the apron`);
-  let value: number;
-  let shape: number;
-  if (a.dense[k] === 0) {
-    value = a.uniform[k]!;
-    shape = impliedShape(valueMaterial(value));
-  } else {
-    const sz = bandSize(e, r, bz);
-    const sy = bandSize(e, r, by);
-    const i = a.offsets[k]! + ((lx - bandStart(e, r, bx)) * sz + (lz - bandStart(e, r, bz))) * sy + (ly - bandStart(e, r, by));
-    value = a.values[i]!;
-    shape = a.shapes[i]!;
-  }
-  const m = valueMaterial(value);
-  out.material = m;
-  out.category = m === MATERIAL_AIR ? 0 : valueCategory(value);
-  out.orientation = m === MATERIAL_AIR ? 0 : valueOrientation(value);
-  out.shape = m === MATERIAL_AIR ? 0 : shape;
-  return out;
+  if (a.dense[k] === 0) return readValue(a.uniform[k]!, out);
+  const sz = bandSize(e, r, bz);
+  const sy = bandSize(e, r, by);
+  return readValue(a.values[a.offsets[k]! + ((lx - bandStart(e, r, bx)) * sz + (lz - bandStart(e, r, bz))) * sy + (ly - bandStart(e, r, by))]!, out);
 }
 
 /**

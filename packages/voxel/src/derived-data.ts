@@ -39,11 +39,12 @@
 import { evaluateAssembly, rulesRef, ASSEMBLY_CLASS, CLASS_MASK, RUN_X, RUN_Z, type AssemblyRulesRef, type AssemblyRuleSet, type Neighbourhood } from './assembly';
 import { BRICK_EDGE } from './brick-layout';
 import { baseSurface, detailInstances, groundSurface, MaterialSlots, SURFACE_ISO, type InstanceList, type SurfaceBuffer } from './derived-mesh';
-import { valueMaterial } from './palette-image';
+import { DERIVED_PART, fieldsFeed, PLANE_BIT, valueMaterial, valueWetness } from './record';
+import { shaderBytes, shaderDataOfValues, shaderEntry, type ShaderOut } from './derived-shader';
 import { utf8Encode } from '@thirdlight/shared';
 
 /** Version of the derived-data layout. */
-export const DERIVED_FORMAT_VERSION = 1;
+export const DERIVED_FORMAT_VERSION = 2;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });
@@ -142,7 +143,23 @@ export interface DerivedData {
   /** The modular base surface. */
   readonly base: SurfaceBuffer;
   readonly instances: InstanceList;
+  /** Material and wetness per cell for the surface shader (derived-shader.ts). */
+  readonly shader: ShaderOut;
   readonly counts: DerivedCounts;
+}
+
+/**
+ * The parts whose bytes today also carry material ids (the surface
+ * vertices' material slots and weights, the instances' and collision
+ * boxes' slots). The feeds table sends material to the shader data only;
+ * until the mesh format leaves material blending to the shader, a material
+ * change makes these stale too.
+ */
+export const MATERIAL_SLOT_PARTS = DERIVED_PART.mesh | DERIVED_PART.collision;
+
+/** The derived parts a change of `fields` (PLANE_BIT mask) makes stale, as this build derives them. */
+export function stalePartsOf(fields: number): number {
+  return fieldsFeed(fields) | (fields & PLANE_BIT.material ? MATERIAL_SLOT_PARTS : 0);
 }
 
 /** Whether a resolved cell is solid for rendering and culling. */
@@ -423,6 +440,7 @@ function uniformDerived(n: Neighbourhood, rules: AssemblyRuleSet, classes: Uint8
     ground: empty,
     base: { ...empty, vertices: new Uint8Array(0), indices: new Uint16Array(0) },
     instances: { count: 0, data: new Uint8Array(0) },
+    shader: { palette: Uint16Array.of(shaderEntry(valueMaterial(v0), valueWetness(v0))), width: 0, ids: new Uint32Array(0) },
     counts: { wall: count(ASSEMBLY_CLASS.wall), ground: count(ASSEMBLY_CLASS.ground), groundPartial: k === ASSEMBLY_CLASS.ground && s0 < 255 ? cells : 0, beam: 0, rail: 0, liquid: count(ASSEMBLY_CLASS.liquid) },
   };
 }
@@ -467,6 +485,7 @@ export function deriveChunk(n: Neighbourhood, rules: AssemblyRuleSet, scratch?: 
     ground,
     base,
     instances,
+    shader: shaderOfNeighbourhood(n),
     counts: countsOf(n, classes),
   };
   if (times !== undefined) {
@@ -484,8 +503,18 @@ function arraysOf(d: DerivedData): ArrayBufferView[] {
   if (d.light.full !== null) out.push(d.light.full);
   out.push(d.light.partialCells, d.light.partialCover, d.collision.boxes, d.collision.boxSlots);
   if (d.nav.blocks !== null) out.push(d.nav.blocks);
-  out.push(d.nav.standable, d.nav.clearance, d.ground.vertices, d.ground.indices, d.base.vertices, d.base.indices, d.instances.data);
+  out.push(d.nav.standable, d.nav.clearance, d.ground.vertices, d.ground.indices, d.base.vertices, d.base.indices, d.instances.data, d.shader.palette, d.shader.ids);
   return out;
+}
+
+/** The shader data of a neighbourhood's chunk cells. */
+export function shaderOfNeighbourhood(n: Neighbourhood): ShaderOut {
+  const e = n.edge;
+  const p = n.pad;
+  const s = n.side;
+  const sh = Math.log2(e);
+  const m = e - 1;
+  return shaderDataOfValues(e * e * e, (i) => n.values[(((i >>> (sh << 1)) + p) * s + (((i >>> sh) & m) + p)) * s + ((i & m) + p)]!);
 }
 
 /** Bytes a derived chunk holds in memory (its arrays; what the streaming budget counts). */
@@ -496,7 +525,7 @@ export function derivedBytes(d: DerivedData): number {
 }
 
 /** Bytes per consumer (for reports). */
-export function derivedPartBytes(d: DerivedData): { occupancy: number; light: number; collision: number; nav: number; ground: number; base: number; instances: number; materials: number } {
+export function derivedPartBytes(d: DerivedData): { occupancy: number; light: number; collision: number; nav: number; ground: number; base: number; instances: number; materials: number; shader: number } {
   const b = (a: ArrayBufferView | null): number => a?.byteLength ?? 0;
   return {
     occupancy: b(d.occupancy.bricks) + b(d.occupancy.mask),
@@ -507,6 +536,7 @@ export function derivedPartBytes(d: DerivedData): { occupancy: number; light: nu
     base: b(d.base.vertices) + b(d.base.indices),
     instances: b(d.instances.data),
     materials: b(d.materials),
+    shader: shaderBytes(d.shader),
   };
 }
 
@@ -525,7 +555,7 @@ export function derivedTransfer(d: DerivedData, out: ArrayBuffer[] = []): ArrayB
 export function encodeDerived(d: DerivedData): Uint8Array {
   const id = utf8Encode(d.rules.id);
   const arrays = arraysOf(d);
-  const flags = [d.v, d.edge, d.rules.version, d.rules.radius, d.occupancy.flag, d.light.uniform + 1, d.collision.fullBoxes, d.nav.blocking, d.ground.vertexCount, d.base.vertexCount, d.instances.count, d.ground.slotBytes, d.base.slotBytes, d.occupancy.mask === null ? 0 : 1, d.light.full === null ? 0 : 1, d.nav.blocks === null ? 0 : 1];
+  const flags = [d.v, d.edge, d.rules.version, d.rules.radius, d.occupancy.flag, d.light.uniform + 1, d.collision.fullBoxes, d.nav.blocking, d.ground.vertexCount, d.base.vertexCount, d.instances.count, d.ground.slotBytes, d.base.slotBytes, d.occupancy.mask === null ? 0 : 1, d.light.full === null ? 0 : 1, d.nav.blocks === null ? 0 : 1, d.shader.width];
   let size = 4 + id.length + 4 * flags.length;
   for (const a of arrays) size += 4 + a.byteLength;
   const out = new Uint8Array(size);

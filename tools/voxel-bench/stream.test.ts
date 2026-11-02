@@ -18,16 +18,20 @@ import {
   createWorldStore,
   dependentChunks,
   deriveFromStore,
+  DERIVED_PART,
   deriveNow,
   editBounds,
   encodeDerived,
   exportOrAir,
   jobRadius,
+  MATERIAL_SLOT_PARTS,
   PLACEHOLDER_RULES,
+  PLANE_BIT,
   RegionChunkSource,
   RESIDENT_CHUNK_OVERHEAD_BYTES,
   sameDenseChunk,
   saveChunkOf,
+  stalePartsOf,
   VoxelStreamer,
   WorkerPool,
   type ChunkCoord,
@@ -124,7 +128,7 @@ function copyOracle(): PaletteStore {
 }
 
 function fill(min: [number, number, number], max: [number, number, number], material: number): VoxelEditCommand {
-  return canonicalEditCommand({ v: 1, grid: 0, kind: 'fill', min, max, mode: 'place', voxel: { material, category: 3, orientation: 0 } });
+  return canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min, max, mode: 'place', voxel: { material, role: 5, wetness: 0 } });
 }
 
 describe('worker pool (real module workers)', () => {
@@ -411,7 +415,7 @@ describe('streamer (workers, region files on disk)', () => {
 
     // Given the edit's cell box, a refresh rebuilds only the chunks within R of the cells it can change (a cell on
     // the x and z chunk faces: 4 chunks, not the 27 around the changed chunk), and none is left stale.
-    const one = canonicalEditCommand({ v: 1, grid: 0, kind: 'set', cells: [0, 40, 0], voxel: { material: 41, category: 2, orientation: 0, shape: 255 } });
+    const one = canonicalEditCommand({ v: 2, grid: 0, kind: 'set', cells: [0, 40, 0], voxel: { material: 41, role: 3, wetness: 0, shape: 15 } });
     const out2 = writer.edit(one);
     writer.save();
     rebuilt.clear();
@@ -426,6 +430,42 @@ describe('streamer (workers, region files on disk)', () => {
       const fresh = encodeDerived(deriveFromStore(writer.store, d.cx, d.cy, d.cz, PLACEHOLDER_RULES));
       expect(Buffer.compare(Buffer.from(encodeDerived(d.result.assembly)), Buffer.from(fresh))).toBe(0);
     }
+
+    // A wetness-only change (rain on the wall cell and its neighbours, across the x and z chunk faces) feeds only the
+    // shader data: the changed chunks' shader data is derived again and nothing else, no neighbour is touched, and
+    // every result still equals a fresh full derive.
+    const wet = canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [-1, 38, -1], max: [0, 40, 0], mode: 'paint', voxel: { material: 41, role: 3, wetness: 5 } });
+    const out3 = writer.edit(canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [-1, 38, -1], max: [0, 40, 0], mode: 'place', voxel: { material: 41, role: 3, wetness: 0 } }));
+    writer.save();
+    s.refresh(out3.chunks.map((u) => ({ cx: u.cx, cy: u.cy, cz: u.cz })), editBounds(grid, wet), stalePartsOf(out3.fields));
+    await s.settle();
+    const wetOut = writer.edit(wet);
+    expect(wetOut.fields).toBe(PLANE_BIT.wetness);
+    expect(stalePartsOf(wetOut.fields)).toBe(DERIVED_PART.shader);
+    writer.save();
+    rebuilt.clear();
+    const derivesBefore = s.counters.derives;
+    const shaderBefore = s.counters.shaderDerives;
+    const shaderOnly = new Set<string>();
+    s.on((e) => {
+      if (e.type === 'shader') shaderOnly.add(`${e.cx},${e.cy},${e.cz}`);
+    });
+    const wetChunks = wetOut.chunks.map((u) => ({ cx: u.cx, cy: u.cy, cz: u.cz }));
+    expect(wetChunks.length).toBe(4);
+    s.refresh(wetChunks, editBounds(grid, wet), stalePartsOf(wetOut.fields));
+    await s.settle();
+    expect([...rebuilt]).toEqual([]);
+    expect(s.counters.derives).toBe(derivesBefore);
+    expect(s.counters.shaderDerives - shaderBefore).toBe(4);
+    expect([...shaderOnly].sort()).toEqual(wetChunks.map((c) => `${c.cx},${c.cy},${c.cz}`).sort());
+    for (const d of s.derivedChunks()) {
+      if (d.result.assembly === null) continue;
+      const fresh = encodeDerived(deriveFromStore(writer.store, d.cx, d.cy, d.cz, PLACEHOLDER_RULES));
+      expect(Buffer.compare(Buffer.from(encodeDerived(d.result.assembly)), Buffer.from(fresh))).toBe(0);
+    }
+    expect(s.derivedOf(-1, 1, -1)?.assembly?.shader.palette).toContain(41 | (5 << 12));
+    // A material change still rebuilds the geometry parts as long as the mesh carries material slots.
+    expect(stalePartsOf(PLANE_BIT.material)).toBe(DERIVED_PART.shader | MATERIAL_SLOT_PARTS);
   });
 
   it('cancels loads the focus left before they landed, and adopts nothing from them', async () => {
@@ -486,7 +526,7 @@ describe('streamer (workers, region files on disk)', () => {
     await s.settle();
     expect(s.isResident(0, 0, 0)).toBe(true);
     expect(s.counters.heldDirty).toBeGreaterThan(0);
-    const v = { material: 0, category: 0, shape: 0, orientation: 0 };
+    const v = { material: 0, role: 0, shape: 0, wetness: 0 };
     expect(s.store.voxelAt(5, 30, 5, v).material).toBe(60);
     // Saved (the game's save job commits), it unloads on the next update.
     const job = s.tracker.beginSave('save', [dirty])!;
@@ -504,8 +544,8 @@ describe('streamer (workers, region files on disk)', () => {
     const now = createDenseChunk(grid);
     exportOrAir(oracle, c.cx, c.cy, c.cz, now);
     now.material[100] = 77;
-    now.category[100] = 3;
-    now.shape[100] = 255;
+    now.role[100] = 5;
+    now.shape[100] = 15;
     const entry = saveChunkOf(grid, 0, c.cx, c.cy, c.cz, base, now)!;
     s.setSave([entry]);
     s.setFocus(0, 40, 0);

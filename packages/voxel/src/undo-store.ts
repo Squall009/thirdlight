@@ -8,7 +8,8 @@
  * read back when undone. There is no count of steps: a thousand dabs and
  * three huge fills cost what their chunks cost.
  *
- * Record bytes, version 1 (little-endian):
+ * Record bytes, version 2 (little-endian; cell deltas of 6-byte cells and
+ * voxel values of record value form 2):
  *   'T' 'L' 'V' 'U', u8 version, u8 chunk edge, u8 chunk codec version,
  *   u8 record value form of its deltas (record.ts), u32 chunk count, then per chunk: u32 grid, i16 cx,
  *   i16 cy, i16 cz, u8 kind (0 cell delta, 1 image, 2 absent), u32 length,
@@ -22,7 +23,7 @@ import { PALETTE_CODEC_VERSION, readPaletteHeader } from './palette-codec';
 import { checkValueForm, RECORD_VALUE_FORM } from './record';
 
 /** The undo record format this build writes and reads. */
-export const UNDO_RECORD_VERSION = 1;
+export const UNDO_RECORD_VERSION = 2;
 
 const MAGIC = [0x54, 0x4c, 0x56, 0x55] as const;
 const HEADER = 12;

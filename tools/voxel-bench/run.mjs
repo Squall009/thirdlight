@@ -12,7 +12,6 @@
  *   node tools/voxel-bench/run.mjs derive [options]   # derived-data bytes and µs per chunk, mips, prop channel (derive-cli.ts)
  *   node tools/voxel-bench/run.mjs slice-world --project-dir DIR   # the thin slice's test world into a project folder (slice-world-cli.ts)
  *   node tools/voxel-bench/run.mjs slice [options]    # the voxel world page on a running backend: frames, edits, reload (slice-cli.ts)
- *   node tools/voxel-bench/run.mjs material           # what a 32-bit material id would cost at rest and in memory (material-cli.ts)
  *
  * Refuses to start outside a memory-capped cgroup (tools/perf/memory-cap.mjs):
  * the test worlds are generated chunk by chunk, but a dense window of a
@@ -36,7 +35,7 @@ if (why !== null) {
   console.error(`voxel-bench: not started: ${why}. Start it in a capped scope:\n  ${CAPPED_COMMAND.replace('tools/perf/run.mjs', 'tools/voxel-bench/run.mjs')}\nor pass ${NO_MEMORY_CAP_FLAG} on a host where nothing else runs.`);
   process.exit(2);
 }
-const mode = ['decode', 'costs', 'region', 'edits', 'stream', 'stream-page', 'derive', 'slice-world', 'slice', 'material'].includes(args[0]) ? args[0] : null;
+const mode = ['decode', 'costs', 'region', 'edits', 'stream', 'stream-page', 'derive', 'slice-world', 'slice'].includes(args[0]) ? args[0] : null;
 const entry = mode === null ? 'cli' : `${mode}-cli`;
 const rest = (mode === null ? args : args.slice(1)).filter((a) => a !== NO_MEMORY_CAP_FLAG);
 const out = join(REPO, 'dist', 'voxel-bench', `${entry}.mjs`);

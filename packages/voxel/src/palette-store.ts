@@ -5,14 +5,14 @@
  * - A chunk that is one voxel everywhere (deep ground, a filled room)
  *   collapses to a single number in the chunk index; an all-air chunk is
  *   not stored at all. Edits collapse and expand chunks as they go.
- * - Any other chunk is a palette (one record palette of whole voxels, or
- *   one palette per plane) with its cells bit-packed or as vertical runs.
- * - Density is stored only for surface voxels (see surface-density.ts).
+ * - Any other chunk is a palette (one record palette of whole voxel
+ *   values, or one palette per field) with its cells in bricks, bit-packed
+ *   or as vertical runs.
  * - At rest a chunk is the palette codec's canonical bytes
  *   (palette-codec.ts), bit-packed or as runs whatever the memory layout.
  *
  * A store may keep fewer planes than the record has (to measure what a
- * plane costs in memory); it then reads the others as 0 (shape: implied).
+ * field costs in memory); it then reads the others as 0.
  */
 import type { LayoutKind } from './cell-layout';
 import { ChunkIndex } from './chunk-index';
@@ -23,11 +23,10 @@ import { checkChunk } from './dense-store';
 import { PlanesChunk, RecordChunk, scratchImage, uniformImage, type PaletteChunk } from './palette-chunk';
 import { decodePaletteImage, encodePaletteImage } from './palette-codec';
 import { decodeMeasuredImage, encodeMeasuredImage } from './palette-codec-measure';
-import { imageToCells, planesImageFromCells, recordImageFromCells, recordValue, valueCategory, valueMaterial, valueOrientation, type ChunkImage, type PaletteKind } from './palette-image';
-import { ALL_PLANES, MATERIAL_AIR, PLANE_BIT, planeMask, VOXEL_PLANES, type VoxelPlane, type VoxelRecord } from './record';
+import { imageIsUniform, imageToCells, planesImageFromCells, recordImageFromCells, uniformImageValue, type ChunkImage, type PaletteKind } from './palette-image';
+import { ALL_PLANES, AIR, checkRecordValue, PLANE_BIT, planeMask, readValue, recordValue, valueMaterial, valueRole, valueShape, valueWetness, VOXEL_PLANES, type VoxelPlane, type VoxelRecord } from './record';
 import type { VoxelStoreCandidate } from './store';
 import { applyStrokeCells, type VoxelStroke } from './stroke';
-import { impliedShape } from './surface-density';
 
 export interface PaletteStoreOptions {
   /** Report name. */
@@ -57,7 +56,7 @@ export function createWorldStore(grid: ChunkGrid, name = WORLD_STORE_OPTIONS.nam
 /** Bytes a collapsed chunk costs: one number in the index. */
 const UNIFORM_BYTES = 8;
 
-/** A chunk in the index: a record value (one voxel everywhere, implied shape) or a palette chunk. */
+/** A chunk in the index: a voxel value (one voxel everywhere) or a palette chunk. */
 type Slot = number | PaletteChunk;
 
 export class PaletteStore implements VoxelStoreCandidate {
@@ -102,21 +101,8 @@ export class PaletteStore implements VoxelStoreCandidate {
 
   voxelAt(x: number, y: number, z: number, out: VoxelRecord): VoxelRecord {
     const slot = this.slotAt(x, y, z);
-    if (slot === undefined) {
-      out.material = MATERIAL_AIR;
-      out.category = 0;
-      out.shape = 0;
-      out.orientation = 0;
-      return out;
-    }
-    if (typeof slot === 'number') {
-      const m = valueMaterial(slot);
-      out.material = m;
-      out.category = valueCategory(slot);
-      out.orientation = valueOrientation(slot);
-      out.shape = impliedShape(m);
-      return out;
-    }
+    if (slot === undefined) return readValue(0, out);
+    if (typeof slot === 'number') return readValue(slot, out);
     const g = this.grid;
     return slot.read(localIndex(g, x & g.mask, y & g.mask, z & g.mask), out);
   }
@@ -128,11 +114,9 @@ export class PaletteStore implements VoxelStoreCandidate {
 
   setVoxel(x: number, y: number, z: number, v: Readonly<VoxelRecord>): void {
     if (!cellInWorld(x, y, z)) throw new RangeError(`cell (${x}, ${y}, ${z}) is outside the world`);
-    const air = v.material === MATERIAL_AIR;
-    const m = v.material;
-    const c = air || !(this.mask & PLANE_BIT.category) ? 0 : v.category;
-    const o = air || !(this.mask & PLANE_BIT.orientation) ? 0 : v.orientation;
-    const s = air ? 0 : this.mask & PLANE_BIT.shape ? v.shape : impliedShape(m);
+    const k = this.mask;
+    const value = v.material === AIR.material ? 0 : recordValue(v.material, k & PLANE_BIT.role ? v.role : 0, k & PLANE_BIT.shape ? v.shape : 0, k & PLANE_BIT.wetness ? v.wetness : 0);
+    const air = value === 0;
     let slot = this.slotAt(x, y, z);
     const sh = this.grid.shift;
     if (slot === undefined) {
@@ -144,7 +128,7 @@ export class PaletteStore implements VoxelStoreCandidate {
     const cy = y >> sh;
     const cz = z >> sh;
     if (typeof slot === 'number') {
-      if (slot === recordValue(m, c, o) && s === impliedShape(m)) return;
+      if (slot === value) return;
       chunk = this.expand(slot);
       this.chunks.set(cx, cy, cz, chunk);
       this.lastSlot = chunk;
@@ -152,7 +136,7 @@ export class PaletteStore implements VoxelStoreCandidate {
       chunk = slot;
     }
     const g = this.grid;
-    chunk.write(localIndex(g, x & g.mask, y & g.mask, z & g.mask), m, c, s, o);
+    chunk.write(localIndex(g, x & g.mask, y & g.mask, z & g.mask), value);
     const u = chunk.uniformValue();
     if (u < 0) return;
     if (u === 0) this.chunks.delete(cx, cy, cz);
@@ -167,9 +151,8 @@ export class PaletteStore implements VoxelStoreCandidate {
   /** Stores the chunk an image describes (absent when all air, a number when one voxel). */
   private storeImage(cx: number, cy: number, cz: number, img: ChunkImage): void {
     this.forget();
-    const uniform = img.densCount === 0 && (img.kind === 'record' ? img.planes[0].count === 1 : img.planes.every((p) => p.count === 1));
-    if (uniform) {
-      const value = img.kind === 'record' ? img.planes[0].values[0]! : recordValue(img.planes[0].values[0]!, img.planes[1].values[0]!, img.planes[2].values[0]!);
+    if (imageIsUniform(img)) {
+      const value = uniformImageValue(img);
       if (value === 0) this.chunks.delete(cx, cy, cz);
       else this.chunks.set(cx, cy, cz, value);
       return;
@@ -195,11 +178,10 @@ export class PaletteStore implements VoxelStoreCandidate {
     const slot = this.chunks.get(cx, cy, cz);
     if (slot === undefined) return false;
     if (typeof slot === 'number') {
-      const m = valueMaterial(slot);
-      out.material.fill(m);
-      out.category.fill(valueCategory(slot));
-      out.shape.fill(impliedShape(m));
-      out.orientation.fill(valueOrientation(slot));
+      out.material.fill(valueMaterial(slot));
+      out.role.fill(valueRole(slot));
+      out.shape.fill(valueShape(slot));
+      out.wetness.fill(valueWetness(slot));
       return true;
     }
     slot.toCells(out);
@@ -298,7 +280,7 @@ export class PaletteStore implements VoxelStoreCandidate {
       if (u === 0) this.chunks.delete(cx, cy, cz);
       else this.chunks.set(cx, cy, cz, u > 0 ? u : chunk);
     } else if (p.form === 'uniform' && p.value !== 0) {
-      if (!Number.isInteger(p.value) || p.value < 0 || p.value > 0xffffffff) throw new RangeError(`uniform payload value ${p.value}`);
+      checkRecordValue(p.value, 'uniform payload');
       this.chunks.set(cx, cy, cz, p.value);
     } else this.chunks.delete(cx, cy, cz);
     this.forget();

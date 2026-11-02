@@ -51,9 +51,9 @@ export class DenseReferenceStore implements VoxelStoreCandidate {
     const chunk = this.chunkAt(x, y, z);
     if (chunk === undefined) {
       out.material = AIR.material;
-      out.category = AIR.category;
+      out.role = AIR.role;
       out.shape = AIR.shape;
-      out.orientation = AIR.orientation;
+      out.wetness = AIR.wetness;
       return out;
     }
     const g = this.grid;
@@ -113,7 +113,7 @@ export class DenseReferenceStore implements VoxelStoreCandidate {
 
   /**
    * One byte naming the planes present, then each present plane's raw cells
-   * (material little-endian 24-bit). Uncompressed by design: the baseline
+   * (material little-endian 16-bit). Uncompressed by design: the baseline
    * every encoding is measured against.
    */
   encodeChunk(cx: number, cy: number, cz: number, planes: readonly VoxelPlane[] = VOXEL_PLANES): Uint8Array | null {
@@ -131,11 +131,10 @@ export class DenseReferenceStore implements VoxelStoreCandidate {
       mask |= PLANE_BIT[p];
       if (p === 'material') {
         const m = chunk.material;
-        for (let i = 0; i < n; i++, at += 3) {
+        for (let i = 0; i < n; i++, at += 2) {
           const v = m[i] ?? 0;
           bytes[at] = v & 0xff;
-          bytes[at + 1] = (v >>> 8) & 0xff;
-          bytes[at + 2] = v >>> 16;
+          bytes[at + 1] = v >>> 8;
         }
       } else {
         bytes.set(chunk[p], at);
@@ -157,7 +156,7 @@ export class DenseReferenceStore implements VoxelStoreCandidate {
     for (const p of VOXEL_PLANES) {
       if (!(mask & PLANE_BIT[p])) continue;
       if (p === 'material') {
-        for (let i = 0; i < n; i++, at += 3) chunk.material[i] = bytes[at]! | (bytes[at + 1]! << 8) | (bytes[at + 2]! << 16);
+        for (let i = 0; i < n; i++, at += 2) chunk.material[i] = bytes[at]! | (bytes[at + 1]! << 8);
       } else {
         chunk[p].set(bytes.subarray(at, at + n));
         at += n;

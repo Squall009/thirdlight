@@ -39,7 +39,7 @@ import {
   SampleRing,
   STREAM_POOL_SETTINGS,
   voxel,
-  VOXEL_CATEGORY,
+  VOXEL_ROLE,
   VOXEL_SIZE_M,
   VOXEL_STREAM_BUDGET_BYTES,
   VoxelStreamer,
@@ -52,6 +52,7 @@ import { pageToken } from '../config';
 import { ChunkMeshes } from './chunk-meshes';
 import { VoxelCollision } from './collision';
 import { assemblyProbes } from './probes';
+import { PendingEdits, type PendingEdit } from './pending-edits';
 
 const params = new URLSearchParams(location.search);
 const projectId = params.get('project') ?? '';
@@ -165,14 +166,7 @@ async function main(): Promise<void> {
   const source = new RegionChunkSource({ worldId, gridId: WORLD_GRID_ID, grid, layout: info.manifest.layout, footprint: info.manifest.footprint, open: byteSource, maxOpen: 64 });
   const streamer = new VoxelStreamer({ store: createWorldStore(grid), source, pool, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.low, dependencyRadius: jobRadius(PLACEHOLDER_RULES), derive: true, rules: PLACEHOLDER_RULES });
 
-  /** Chunks an edit is waiting on (key → landed with the new content yet), and when each edit's meshes were all swapped. */
-  interface PendingEdit {
-    readonly waiting: Map<number, boolean>;
-    readonly done: (atMs: number, collidersAtMs: number) => void;
-    /** When the newest of its chunks' bodies was replaced. */
-    collidersAt: number;
-  }
-  const pending = new Set<PendingEdit>();
+  const pending = new PendingEdits();
   /** Every resident chunk, so a world changed on disk can be read again whole. */
   const resident = new Map<number, { cx: number; cy: number; cz: number }>();
   /** Open logs of the chunks derived while an edit settles ("cx,cy,cz"). */
@@ -184,11 +178,15 @@ async function main(): Promise<void> {
     const key = chunkKey(grid, e.cx, e.cy, e.cz);
     if (e.type === 'loaded') {
       resident.set(key, { cx: e.cx, cy: e.cy, cz: e.cz });
-      for (const p of pending) if (p.waiting.has(key)) p.waiting.set(key, true);
+      pending.loaded(key);
     } else if (e.type === 'unloaded') {
       resident.delete(key);
       meshes.remove(key);
       collision?.remove(key);
+    } else if (e.type === 'shader') {
+      // Only the shader data changed (material or wetness): meshes and colliders stand as they are.
+      for (const log of derivedLogs) log.add(`${e.cx},${e.cy},${e.cz}:shader`);
+      pending.settle(key, NaN);
     } else if (e.type === 'derived') {
       const d = streamer.derivedOf(e.cx, e.cy, e.cz)?.assembly ?? null;
       for (const log of derivedLogs) log.add(`${e.cx},${e.cy},${e.cz}`);
@@ -198,15 +196,7 @@ async function main(): Promise<void> {
       meshMs.add(performance.now() - collidersAt);
       meshSwaps++;
       streamer.setPart(e.cx, e.cy, e.cz, 'mesh', bytes);
-      for (const p of [...pending]) {
-        if (p.waiting.get(key) !== true) continue;
-        p.waiting.delete(key);
-        p.collidersAt = collidersAt;
-        if (p.waiting.size === 0) {
-          pending.delete(p);
-          p.done(performance.now(), p.collidersAt);
-        }
-      }
+      pending.settle(key, collidersAt);
     }
   });
 
@@ -316,7 +306,7 @@ async function main(): Promise<void> {
   async function sendLogged(op: 'editVoxels' | 'undoVoxels', args: Record<string, unknown>, log: Set<string>): Promise<EditTiming> {
     const t0 = performance.now();
     const r = await fetch(`${api}/commands`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ op, projectId, requestId: requestId(), args: { world: worldName, ...args } }) });
-    const body = (await r.json()) as { ok: boolean; error?: { code: string }; revision: number; cells: number; chunks: Array<[number, number, number]>; box: CellBox; files: Array<{ name: string; etag: string | null }>; ms: { apply: number; save: number } };
+    const body = (await r.json()) as { ok: boolean; error?: { code: string }; revision: number; cells: number; chunks: Array<[number, number, number]>; box: CellBox; parts: number; files: Array<{ name: string; etag: string | null }>; ms: { apply: number; save: number } };
     const answerMs = performance.now() - t0;
     if (!body.ok) {
       const code = body.error?.code ?? String(r.status);
@@ -354,7 +344,7 @@ async function main(): Promise<void> {
         if (pending.delete(p)) done(false);
       }, EDIT_VISIBLE_TIMEOUT_MS);
     });
-    streamer.refresh(chunks, body.box);
+    streamer.refresh(chunks, body.box, body.parts);
     if (!(await swapped)) return { ok: false, code: 'not_visible', answerMs };
     const swappedMs = performance.now() - t0;
     // Visible once the frame after the swap is drawn: the next animation frame renders it, the one after starts once it is shown.
@@ -398,7 +388,7 @@ async function main(): Promise<void> {
 
   /** A brush dab (dig, or add soil) centred on a cell. */
   function dab(cell: readonly [number, number, number], mode: 'dig' | 'add'): Promise<EditTiming> {
-    return edit({ v: 1, grid: 0, kind: 'brush', shape: 'sphere', size: [BRUSH_CELLS, BRUSH_CELLS, BRUSH_CELLS], points: [...cell], mode, ...(mode === 'add' ? { voxel: { material: 2, category: VOXEL_CATEGORY.terrain, orientation: 0 } } : {}), smooth: false });
+    return edit({ v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [BRUSH_CELLS, BRUSH_CELLS, BRUSH_CELLS], points: [...cell], mode, ...(mode === 'add' ? { voxel: { material: 2, role: VOXEL_ROLE.terrain, wetness: 0 } } : {}), smooth: false });
   }
 
   async function pickAndEdit(px: number, py: number, mode: 'dig' | 'add'): Promise<EditTiming | null> {
@@ -486,9 +476,9 @@ async function main(): Promise<void> {
     async settle(): Promise<void> {
       await streamer.settle();
     },
-    voxelAt(x: number, y: number, z: number): { material: number; category: number; shape: number } {
+    voxelAt(x: number, y: number, z: number): { material: number; role: number; shape: number } {
       streamer.store.voxelAt(x, y, z, v);
-      return { material: v.material, category: v.category, shape: v.shape };
+      return { material: v.material, role: v.role, shape: v.shape };
     },
     derivedHash(cx: number, cy: number, cz: number): number | null {
       return streamer.derivedOf(cx, cy, cz)?.hash ?? null;

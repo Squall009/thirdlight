@@ -10,7 +10,7 @@
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { applyEdit, canonicalEditCommand, chunkGrid, chunkOfKey, createDenseChunk, createWorldStore, exportOrAir, sameDenseChunk, VOXEL_CATEGORY, type PaletteStore } from '@thirdlight/voxel';
+import { applyEdit, canonicalEditCommand, chunkGrid, chunkOfKey, createDenseChunk, createWorldStore, exportOrAir, sameDenseChunk, VOXEL_ROLE, type PaletteStore } from '@thirdlight/voxel';
 import { afterAll, describe, expect, it } from 'vitest';
 import { sha256HexNative } from './digest';
 import { openShippedWorld, VoxelWorlds, writeVoxelWorld, type VoxelCommandResult } from './voxel-worlds';
@@ -25,16 +25,16 @@ afterAll(() => rmSync(root, { recursive: true, force: true }));
 /** Stone ground across the x = 0 and z = 0 region borders (four regions at a 512-cell footprint). */
 function groundStore(): PaletteStore {
   const s = createWorldStore(grid);
-  const v = { material: 2, category: VOXEL_CATEGORY.terrain, shape: 255, orientation: 0 };
+  const v = { material: 2, role: VOXEL_ROLE.terrain, shape: 15, wetness: 0 };
   for (let x = -40; x < 40; x++) for (let z = -8; z < 8; z++) for (let y = 0; y < 4; y++) s.setVoxel(x, y, z, v);
   return s;
 }
 
 /** A dig across the x = 0 region border: one command, two region files (r.-1.0.0 and r.0.0.0). */
-const ACROSS = { v: 1, grid: 0, kind: 'fill', min: [-3, 2, 0], max: [2, 3, 1], mode: 'dig' };
+const ACROSS = { v: 2, grid: 0, kind: 'fill', min: [-3, 2, 0], max: [2, 3, 1], mode: 'dig' };
 const ACROSS_FILES = ['r.-1.0.0.vxr', 'r.0.0.0.vxr'];
 /** A dab inside one region. */
-const AWAY = { v: 1, grid: 0, kind: 'set', cells: [20, 3, 0], voxel: { material: 0, category: 0, orientation: 0, shape: 0 } };
+const AWAY = { v: 2, grid: 0, kind: 'set', cells: [20, 3, 0], voxel: { material: 0, role: 0, wetness: 0, shape: 0 } };
 
 let worldCount = 0;
 
@@ -169,7 +169,7 @@ describe('voxel world writes that fail', () => {
     const regions = listRegionFiles(gridDir);
     // What the other writer puts there: the same tile with a hole of its own (a checkout of other work).
     const theirs = groundStore();
-    applyEdit({ store: () => theirs }, canonicalEditCommand({ v: 1, grid: 0, kind: 'set', cells: [-20, 3, 0], voxel: { material: 0, category: 0, orientation: 0, shape: 0 } }));
+    applyEdit({ store: () => theirs }, canonicalEditCommand({ v: 2, grid: 0, kind: 'set', cells: [-20, 3, 0], voxel: { material: 0, role: 0, wetness: 0, shape: 0 } }));
     const otherDir = join(root, `theirs-${worldCount}`);
     mkdirSync(otherDir, { recursive: true });
     writeVoxelWorld(otherDir, { worldId: WORLD_ID, edge: 32, layout: 'stacked', footprint: 512 }, theirs);

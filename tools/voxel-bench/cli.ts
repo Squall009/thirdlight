@@ -12,6 +12,8 @@
  *   --quick              fewer benchmark operations (a smoke run)
  *   --codecs a,b,…       compressors to size and time: zstd1, zstd (level 3), zstd9, zstd19, deflate,
  *                        zstd-dict, or all (default zstd,deflate)
+ *   --shape-bits 3|4     quantize the worlds' fill levels to 8 levels (3) or keep the format's 16 (4, default)
+ *   --wetness P          none (default), patches (authored wet patches) or rain (a rain pattern on exposed cells)
  *   --corpus DIR         also write 2,000 randomly sampled chunks' encoded bytes per world to DIR (browser decode bench)
  *   --out DIR            report folder (default ~/.cache/thirdlight-voxel-bench)
  *
@@ -25,6 +27,7 @@ import { DEFAULT_BENCH, type BenchOptions } from './bench';
 import { markdownReport, runHarness, type HarnessReport, type WorldReport } from './harness';
 import { allWorlds } from './worlds';
 import { corpusSampleOf, type CorpusSample } from './corpus';
+import { DEFAULT_VARIANT, variantLabel, variantWorld, WETNESS_PATTERNS, type ValueVariant, type WetnessPattern } from './value-variants';
 
 function arg(name: string): string[] {
   const out: string[] = [];
@@ -46,7 +49,14 @@ async function main(): Promise<void> {
   const edges = (arg('--edge').length > 0 ? arg('--edge').map(Number) : [32]) as ChunkEdge[];
   for (const e of edges) if (!CHUNK_EDGES.includes(e)) throw new Error(`--edge must be one of ${CHUNK_EDGES.join(', ')}`);
   const names = arg('--worlds');
-  const worlds = allWorlds().filter((w) => names.length === 0 || names.includes(w.name));
+  const shapeBits = Number(arg('--shape-bits')[0] ?? DEFAULT_VARIANT.shapeBits);
+  const wetness = (arg('--wetness')[0] ?? DEFAULT_VARIANT.wetness) as WetnessPattern;
+  if (shapeBits !== 3 && shapeBits !== 4) throw new Error('--shape-bits must be 3 or 4');
+  if (!WETNESS_PATTERNS.includes(wetness)) throw new Error(`--wetness must be one of ${WETNESS_PATTERNS.join(', ')}`);
+  const variant: ValueVariant = { shapeBits, wetness };
+  const worlds = allWorlds()
+    .filter((w) => names.length === 0 || names.includes(w.name))
+    .map((w) => variantWorld(w, variant));
   if (worlds.length === 0) throw new Error(`no world matches ${names.join(', ')}`);
   const sample = arg('--sample-tiles')[0];
   const sampleTiles = sample === undefined ? undefined : Number(sample);
@@ -77,7 +87,7 @@ async function main(): Promise<void> {
     worlds: reports,
     peakRssBytes: process.resourceUsage().maxRSS * 1024,
   };
-  const md = `# Voxel storage harness ${started}\n\nnode ${process.version}, ${report.host?.cpus}, load ${loadavg().map((l) => l.toFixed(2)).join(' ')}, peak RSS ${(report.peakRssBytes / 1e6).toFixed(0)} MB\n\n${markdownReport(reports)}`;
+  const md = `# Voxel storage harness ${started} (${variantLabel(variant)})\n\nnode ${process.version}, ${report.host?.cpus}, load ${loadavg().map((l) => l.toFixed(2)).join(' ')}, peak RSS ${(report.peakRssBytes / 1e6).toFixed(0)} MB\n\n${markdownReport(reports)}`;
   const stamp = started.replace(/[:.]/g, '-');
   for (const [name, body] of [[`voxel-bench-${stamp}.json`, JSON.stringify(report, null, 1)], [`voxel-bench-${stamp}.md`, md], ['latest.json', JSON.stringify(report, null, 1)], ['latest.md', md]] as const) {
     writeFileSync(join(out, name), body);

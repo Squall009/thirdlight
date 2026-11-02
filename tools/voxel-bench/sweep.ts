@@ -7,17 +7,18 @@
  * swept on evenly spaced sample tiles and extrapolated by footprint.
  */
 import {
+  type ChunkGrid,
   copyDenseChunk,
   createDenseChunk,
+  type DenseChunk,
   isUniformChunk,
   maskDenseChunk,
   planeMask,
   sameDenseChunk,
-  VOXEL_CATEGORY,
-  VOXEL_PLANES,
-  type ChunkGrid,
-  type DenseChunk,
+  SHAPE_FULL,
   voxel,
+  VOXEL_PLANES,
+  VOXEL_ROLE,
   type VoxelPlane,
   type VoxelRecord,
   type VoxelStoreCandidate,
@@ -29,11 +30,11 @@ import { chunkRange, type TestGrid, type TestWorld } from './world-kit';
 /** Cells per side of a sweep tile (256 m, the default region footprint). */
 export const SWEEP_TILE = 512;
 
-/** Plane subsets whose zstd size shows what the category and orientation planes cost. */
+/** Plane subsets whose zstd size shows what the role and wetness planes cost. */
 const PLANE_SUBSETS: Record<'noCategory' | 'noOrientation' | 'neither', readonly VoxelPlane[]> = {
-  noCategory: VOXEL_PLANES.filter((p) => p !== 'category'),
-  noOrientation: VOXEL_PLANES.filter((p) => p !== 'orientation'),
-  neither: VOXEL_PLANES.filter((p) => p !== 'category' && p !== 'orientation'),
+  noCategory: VOXEL_PLANES.filter((p) => p !== 'role'),
+  noOrientation: VOXEL_PLANES.filter((p) => p !== 'wetness'),
+  neither: VOXEL_PLANES.filter((p) => p !== 'role' && p !== 'wetness'),
 };
 
 /** Sizes and counts summed over the swept chunks. */
@@ -64,6 +65,17 @@ export interface SweepTotals {
   /** Distinct whole records (all four fields) per chunk, summed over the chunks it was counted on, and that count. */
   recordPaletteSum: number;
   recordPaletteChunks: number;
+  /**
+   * Over every chunk that is not one value everywhere: palette entries of
+   * the voxel value (shape and wetness inside it), of the value without its
+   * shape (as the draft record held it: a flag per entry for cells with a
+   * density byte, the byte beside it), and the count of such chunks.
+   */
+  valuePaletteSum: number;
+  noShapePaletteSum: number;
+  mixedChunks: number;
+  /** Non-air cells with wetness above 0. */
+  wetCells: number;
 }
 
 /** Timings over the swept chunks (ms; decode and decompress on every fourth chunk). */
@@ -107,7 +119,7 @@ function checkVoxelAt(store: VoxelStoreCandidate, grid: ChunkGrid, cx: number, c
   let read = 0;
   for (let i = offset; i < grid.cellsPerChunk; i += VOXEL_AT_STRIDE) {
     const v = store.voxelAt((cx << s) | (i >> (2 * s)), (cy << s) | (i & m), (cz << s) | ((i >> s) & m), out);
-    if (v.material !== expected.material[i] || v.category !== expected.category[i] || v.shape !== expected.shape[i] || v.orientation !== expected.orientation[i]) miss();
+    if (v.material !== expected.material[i] || v.role !== expected.role[i] || v.shape !== expected.shape[i] || v.wetness !== expected.wetness[i]) miss();
     read++;
   }
   return read;
@@ -136,6 +148,10 @@ function emptyTotals(): SweepTotals {
     paletteHistogram: [0, 0, 0, 0, 0, 0],
     recordPaletteSum: 0,
     recordPaletteChunks: 0,
+    valuePaletteSum: 0,
+    noShapePaletteSum: 0,
+    mixedChunks: 0,
+    wetCells: 0,
   };
 }
 
@@ -153,7 +169,7 @@ const seenMaterial = new Uint8Array(65536);
 function chunkStats(grid: ChunkGrid, c: DenseChunk, t: SweepTotals, countRecords: boolean): void {
   const n = grid.cellsPerChunk;
   const e = grid.edge;
-  const { material: m, category: cat, shape: s } = c;
+  const { material: m, role: cat, shape: s, wetness: w } = c;
   const used: number[] = [];
   for (let i = 0; i < n; i++) {
     const mi = m[i]!;
@@ -162,13 +178,32 @@ function chunkStats(grid: ChunkGrid, c: DenseChunk, t: SweepTotals, countRecords
       used.push(mi);
     }
     const si = s[i]!;
-    if (si > 0 && si < 255) t.surfaceCells++;
+    if (si > 0 && si < SHAPE_FULL) t.surfaceCells++;
     const ci = cat[i]!;
-    if (ci === VOXEL_CATEGORY.liquid) t.liquidCells++;
-    else if (ci === VOXEL_CATEGORY.construction) t.constructionCells++;
-    else if (ci === VOXEL_CATEGORY.roof) t.roofCells++;
+    if (ci === VOXEL_ROLE.liquid) t.liquidCells++;
+    else if (ci === VOXEL_ROLE.wall) t.constructionCells++;
+    else if (ci === VOXEL_ROLE.roof) t.roofCells++;
   }
   for (const u of used) seenMaterial[u] = 0;
+  const values = new Set<number>();
+  const noShape = new Set<number>();
+  for (let i = 0; i < n; i++) {
+    const mi = m[i]!;
+    if (mi === 0) {
+      values.add(0);
+      noShape.add(0);
+      continue;
+    }
+    if (w[i]! > 0) t.wetCells++;
+    const base = mi + cat[i]! * 4096 + w[i]! * 65536;
+    values.add(base + s[i]! * 524288);
+    noShape.add(base + (s[i]! === SHAPE_FULL ? 0 : 524288));
+  }
+  if (values.size > 1) {
+    t.valuePaletteSum += values.size;
+    t.noShapePaletteSum += noShape.size;
+    t.mixedChunks++;
+  }
   const p = used.length;
   t.paletteHistogram[p <= 1 ? 0 : p === 2 ? 1 : p <= 4 ? 2 : p <= 8 ? 3 : p <= 16 ? 4 : 5]!++;
   // y runs fastest in a chunk's arrays, so each run of `e` cells is one column.
@@ -180,7 +215,7 @@ function chunkStats(grid: ChunkGrid, c: DenseChunk, t: SweepTotals, countRecords
   t.runColumns += e * e;
   if (countRecords) {
     const records = new Set<number>();
-    for (let i = 0; i < n; i++) records.add(m[i]! * 16777216 + cat[i]! * 65536 + s[i]! * 256 + c.orientation[i]!);
+    for (let i = 0; i < n; i++) records.add(m[i]! * 16777216 + cat[i]! * 65536 + s[i]! * 256 + c.wetness[i]!);
     t.recordPaletteSum += records.size;
     t.recordPaletteChunks++;
   }

@@ -2,7 +2,7 @@
  * The storage harness: runs store candidates over the test worlds and
  * reports, per world and candidate, memory, `voxelAt` cost, edit and stroke
  * cost, encode/decode and compression speed and size (raw, zstd, deflate;
- * with and without the category and orientation planes), bytes per km², and
+ * with and without the role and wetness planes), bytes per km², and
  * worker-transfer cost. Output is one JSON document plus a markdown table.
  */
 import { chunkGrid, DenseReferenceStore, PaletteStore, VOXEL_PLANES, type ChunkEdge, type PaletteStoreOptions, type VoxelStoreFactory } from '@thirdlight/voxel';
@@ -26,13 +26,13 @@ export const CANDIDATES: Readonly<Record<string, VoxelStoreFactory>> = Object.fr
   'palette-runs': palette({ palette: 'record', layout: 'runs', atRest: 'runs' }, 'palette-runs'),
   // Bit-packed in memory, runs only at rest.
   'palette-rest-runs': palette({ palette: 'record', layout: 'packed', atRest: 'runs' }, 'palette-rest-runs'),
-  // One palette per plane (material with the density flag, category, orientation), bit-packed.
+  // One palette per plane (material with the density flag, role, wetness), bit-packed.
   'palette-planes': palette({ palette: 'planes', layout: 'packed', atRest: 'packed' }, 'palette-planes'),
-  // The record palette without a category or an orientation plane (what each plane costs in memory).
-  'palette-nocat': palette({ palette: 'record', layout: 'packed', atRest: 'packed', planes: VOXEL_PLANES.filter((p) => p !== 'category') }, 'palette-nocat'),
+  // The record palette without a role or an wetness plane (what each plane costs in memory).
+  'palette-nocat': palette({ palette: 'record', layout: 'packed', atRest: 'packed', planes: VOXEL_PLANES.filter((p) => p !== 'role') }, 'palette-nocat'),
   // Sparse 4³ bricks under a per-chunk mask (one record palette per chunk), in memory and at rest.
   bricks: palette({ palette: 'record', layout: 'bricks', atRest: 'bricks' }, 'bricks'),
-  'palette-noorient': palette({ palette: 'record', layout: 'packed', atRest: 'packed', planes: VOXEL_PLANES.filter((p) => p !== 'orientation') }, 'palette-noorient'),
+  'palette-noorient': palette({ palette: 'record', layout: 'packed', atRest: 'packed', planes: VOXEL_PLANES.filter((p) => p !== 'wetness') }, 'palette-noorient'),
 });
 
 export interface HarnessOptions {
@@ -123,7 +123,7 @@ function rate(bytes: number, ms: number): number {
 /** The markdown tables of a run: sizes per world, then speeds. */
 export function markdownReport(worlds: readonly WorldReport[]): string {
   const lines: string[] = [];
-  lines.push('| World | Cand. | Edge | Swept | Verified | Chunks (uniform) | Memory MB | Raw MB | zstd MB | deflate MB | zstd −cat / −orient / −both | zstd MB/km² | B/voxel zstd | surface % | runs/col | palette ≤2 / ≤4 / >16 |');
+  lines.push('| World | Cand. | Edge | Swept | Verified | Chunks (uniform) | Memory MB | Raw MB | zstd MB | deflate MB | zstd −role / −wet / −both | zstd MB/km² | B/voxel zstd | surface % | runs/col | palette ≤2 / ≤4 / >16 |');
   lines.push('|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|');
   for (const w of worlds) {
     const t = w.sweep.totals;
@@ -144,6 +144,17 @@ export function markdownReport(worlds: readonly WorldReport[]): string {
     const tr = b?.transfer;
     lines.push(
       `| ${w.world} | ${w.candidate} | ${w.edge} | ${f1((b?.memoryBytes ?? NaN) / MB)} / ${f1((b?.heapBytes ?? NaN) / MB)} | ${f1(b?.randomReadNs ?? NaN)} | ${f1(b?.coherentReadNs ?? NaN)} | ${f2(b?.editUs ?? NaN)} | ${s('sphere r=1 m')} / ${s('sphere r=2 m')} / ${s('sphere r=4 m')} | ${s('box 2 m')} / ${s('box 8 m')} | ${b?.editMismatches === null || b === null ? '-' : b.editMismatches === 0 ? 'equal' : `${b.editMismatches} differ`} | ${f1((tm.encodeMs * 1000) / Math.max(1, tm.encodedChunks ?? 0))} / ${f1((tm.decodeMs * 1000) / Math.max(1, tm.decodedChunks ?? 0))} | ${f0(rate(tm.encodedBytes, tm.encodeMs))} / ${f0(rate(tm.decodedBytes, tm.decodeMs))} | ${f0(rate(tm.encodedBytes, tm.compressMs.zstd ?? 0))} / ${f0(rate(tm.decompressedBytes.zstd ?? 0, tm.decompressMs.zstd ?? 0))} | ${f0(rate(tm.encodedBytes, tm.compressMs.deflate ?? 0))} / ${f0(rate(tm.decompressedBytes.deflate ?? 0, tm.decompressMs.deflate ?? 0))} | ${tr ? `${f1(tr.raw.copyUsPerChunk)} / ${f1(tr.raw.transferUsPerChunk)}` : '-'} | ${tr ? `${f1(tr.zstd.copyUsPerChunk)} / ${f1(tr.zstd.transferUsPerChunk)}` : '-'} |`,
+    );
+  }
+  lines.push('');
+  lines.push('| World | Cand. | Edge | mixed chunks | value palette (mean entries) | without shape (mean) | growth | wet cells % | memory B/voxel | zstd B/voxel |');
+  lines.push('|---|---|---|---|---|---|---|---|---|---|');
+  for (const w of worlds) {
+    const t = w.sweep.totals;
+    const mean = (x: number): number => x / Math.max(1, t.mixedChunks);
+    const allCells = Math.max(1, t.cells);
+    lines.push(
+      `| ${w.world} | ${w.candidate} | ${w.edge} | ${f0(t.mixedChunks)} | ${f2(mean(t.valuePaletteSum))} | ${f2(mean(t.noShapePaletteSum))} | ${f2(t.valuePaletteSum / Math.max(1, t.noShapePaletteSum))}× | ${((100 * t.wetCells) / allCells).toFixed(2)} % | ${(t.memoryBytes / Math.max(1, t.cells)).toFixed(4)} | ${(t.zstdBytes / Math.max(1, t.cells)).toFixed(4)} |`,
     );
   }
   const names = [...new Set(worlds.flatMap((w) => Object.keys(w.sweep.totals.codecBytes)))];

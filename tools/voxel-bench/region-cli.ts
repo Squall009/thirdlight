@@ -31,7 +31,7 @@ import {
   REGION_ENTRY_BYTES,
   REGION_HEADER_BYTES,
   voxel,
-  VOXEL_CATEGORY,
+  VOXEL_ROLE,
   type ChunkCoord,
   type PaletteStore,
   type RegionFootprint,
@@ -143,8 +143,8 @@ function hillyArea(): { store: PaletteStore; g: TestGrid } {
   return { store, g };
 }
 
-const stone = voxel(MAT.stone, VOXEL_CATEGORY.construction, 255);
-const soil = voxel(MAT.soil, VOXEL_CATEGORY.terrain, 255);
+const stone = voxel(MAT.stone, VOXEL_ROLE.wall, 15);
+const soil = voxel(MAT.soil, VOXEL_ROLE.terrain, 15);
 
 interface AmpRow {
   world: string;

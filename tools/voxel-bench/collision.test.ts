@@ -22,7 +22,7 @@ import {
   resolvedClassAt,
   RUN_X,
   RUN_Z,
-  VOXEL_CATEGORY,
+  VOXEL_ROLE,
   type DerivedData,
   type PaletteStore,
 } from '@thirdlight/voxel';
@@ -32,7 +32,7 @@ import { placeWallBeamBanister, putVoxel } from './scenes';
 import { MAT } from './world-kit';
 
 const grid = chunkGrid(32);
-const C = VOXEL_CATEGORY;
+const C = VOXEL_ROLE;
 const SCENE_CHUNKS = [-1, 0].flatMap((x) => [-1, 0].flatMap((y) => [-1, 0].map((z) => [x, y, z] as const)));
 
 function scene(): PaletteStore {
@@ -49,8 +49,8 @@ function outputsAt(s: PaletteStore, x: number, y: number, z: number): ReturnType
 /** The banister grown upward: the gaps between its posts and a row over its rail filled, as a runtime build would. */
 function growBanister(s: PaletteStore): void {
   for (let x = -4; x < 4; x++) {
-    if ((x & 1) !== 0) putVoxel(s, x, 1, 7, MAT.timber, C.construction);
-    putVoxel(s, x, 3, 7, MAT.timber, C.construction);
+    if ((x & 1) !== 0) putVoxel(s, x, 1, 7, MAT.timber, C.wall);
+    putVoxel(s, x, 3, 7, MAT.timber, C.wall);
   }
 }
 

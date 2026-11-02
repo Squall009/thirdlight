@@ -41,7 +41,7 @@ import {
   stampShapeHash,
   UNDO_MEMORY_BUDGET_BYTES,
   undoRecordBytes,
-  VOXEL_CATEGORY,
+  VOXEL_ROLE,
   writeSave,
   type ChunkCoord,
   type EditGrids,
@@ -58,8 +58,8 @@ import { cavesWorld, hillyWorld, townWorld } from './worlds';
 const grid = chunkGrid(32);
 const WORLD = Uint8Array.from({ length: 16 }, (_, i) => (i * 29 + 3) & 0xff);
 const OPTS: WorldDirOptions = { grid, worldId: WORLD, layout: 'stacked', footprint: DEFAULT_REGION_FOOTPRINT };
-const stone = { material: MAT.stone, category: VOXEL_CATEGORY.construction, orientation: 0 };
-const soil = { material: MAT.soil, category: VOXEL_CATEGORY.terrain, orientation: 0 };
+const stone = { material: MAT.stone, role: VOXEL_ROLE.wall, wetness: 0 };
+const soil = { material: MAT.soil, role: VOXEL_ROLE.terrain, wetness: 0 };
 const MB = 1024 * 1024;
 const f1 = (n: number): string => n.toFixed(1);
 const f2 = (n: number): string => n.toFixed(2);
@@ -95,10 +95,10 @@ const KINDS: readonly Kind[] = ['single voxel', '1 m dab', '2 m dab', '4 m dab',
 /** One command of a kind at a surface cell (x, y, z); `k` alternates dig/add. */
 function commandOf(kind: Kind, x: number, y: number, z: number, k: number): VoxelEditCommand {
   const dab = (r: number): VoxelEditCommand =>
-    canonicalEditCommand(k % 2 === 0 ? { v: 1, grid: 0, kind: 'brush', shape: 'sphere', size: [r, r, r], points: [x + 0.5, y + 0.5, z + 0.5], mode: 'dig', smooth: true } : { v: 1, grid: 0, kind: 'brush', shape: 'sphere', size: [r, r, r], points: [x + 0.5, y + 1.5, z + 0.5], mode: 'add', voxel: soil, smooth: true });
+    canonicalEditCommand(k % 2 === 0 ? { v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [r, r, r], points: [x + 0.5, y + 0.5, z + 0.5], mode: 'dig', smooth: true } : { v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [r, r, r], points: [x + 0.5, y + 1.5, z + 0.5], mode: 'add', voxel: soil, smooth: true });
   switch (kind) {
     case 'single voxel':
-      return canonicalEditCommand(k % 2 === 0 ? { v: 1, grid: 0, kind: 'dig', cells: [x, y, z] } : { v: 1, grid: 0, kind: 'set', cells: [x, y + 1, z], voxel: { ...stone, shape: 255 } });
+      return canonicalEditCommand(k % 2 === 0 ? { v: 2, grid: 0, kind: 'dig', cells: [x, y, z] } : { v: 2, grid: 0, kind: 'set', cells: [x, y + 1, z], voxel: { ...stone, shape: 15 } });
     case '1 m dab':
       return dab(1);
     case '2 m dab':
@@ -108,12 +108,12 @@ function commandOf(kind: Kind, x: number, y: number, z: number, k: number): Voxe
     case '4 m drag (10 dabs, 5 m)': {
       const points: number[] = [];
       for (let i = 0; i < 10; i++) points.push(x + 0.5 + i, y + 0.5, z + 0.5 + i * 0.3);
-      return canonicalEditCommand({ v: 1, grid: 0, kind: 'brush', shape: 'sphere', size: [4, 4, 4], points, mode: k % 2 === 0 ? 'dig' : 'add', ...(k % 2 === 0 ? {} : { voxel: soil }), smooth: true });
+      return canonicalEditCommand({ v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [4, 4, 4], points, mode: k % 2 === 0 ? 'dig' : 'add', ...(k % 2 === 0 ? {} : { voxel: soil }), smooth: true });
     }
     case '16 m box fill':
-      return canonicalEditCommand({ v: 1, grid: 0, kind: 'fill', min: [x - 16, y - 8, z - 16], max: [x + 15, y + 23, z + 15], mode: k % 2 === 0 ? 'dig' : 'place', ...(k % 2 === 0 ? {} : { voxel: stone }) });
+      return canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [x - 16, y - 8, z - 16], max: [x + 15, y + 23, z + 15], mode: k % 2 === 0 ? 'dig' : 'place', ...(k % 2 === 0 ? {} : { voxel: stone }) });
     case '20 m stamp at 30°':
-      return canonicalEditCommand({ v: 1, grid: 0, kind: 'stamp', stamp: { id: 'bridge', hash: STAMP_HASH }, origin: [x - 17.25, y - 3, z - 17.25], yaw: [Math.cos(Math.PI / 6), Math.sin(Math.PI / 6)], scale: 1, mode: 'add', voxel: stone, smooth: true });
+      return canonicalEditCommand({ v: 2, grid: 0, kind: 'stamp', stamp: { id: 'bridge', hash: STAMP_HASH }, origin: [x - 17.25, y - 3, z - 17.25], yaw: [Math.cos(Math.PI / 6), Math.sin(Math.PI / 6)], scale: 1, mode: 'add', voxel: stone, smooth: true });
   }
 }
 

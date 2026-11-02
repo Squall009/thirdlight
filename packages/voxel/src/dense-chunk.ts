@@ -7,49 +7,49 @@
  * storage proposal.
  */
 import type { ChunkGrid } from './coords';
-import { MATERIAL_AIR, PLANE_BIT, SHAPE_EMPTY, SHAPE_FULL, type VoxelRecord } from './record';
+import { MATERIAL_AIR, PLANE_BIT, type VoxelRecord } from './record';
 
 /** One chunk's planes (each `grid.cellsPerChunk` long). */
 export interface DenseChunk {
-  readonly material: Uint32Array;
-  readonly category: Uint8Array;
+  readonly material: Uint16Array;
+  readonly role: Uint8Array;
   readonly shape: Uint8Array;
-  readonly orientation: Uint8Array;
+  readonly wetness: Uint8Array;
 }
 
 /** A chunk of air for `grid`. */
 export function createDenseChunk(grid: ChunkGrid): DenseChunk {
   const n = grid.cellsPerChunk;
-  return { material: new Uint32Array(n), category: new Uint8Array(n), shape: new Uint8Array(n), orientation: new Uint8Array(n) };
+  return { material: new Uint16Array(n), role: new Uint8Array(n), shape: new Uint8Array(n), wetness: new Uint8Array(n) };
 }
 
-/** Typed-array bytes one dense chunk holds (material 4, category, shape and orientation 1 each). */
+/** Typed-array bytes one dense chunk holds (material 2, role, shape and wetness 1 each). */
 export function denseChunkBytes(grid: ChunkGrid): number {
-  return grid.cellsPerChunk * 7;
+  return grid.cellsPerChunk * 5;
 }
 
 /** Resets every cell to air. */
 export function clearDenseChunk(chunk: DenseChunk): void {
   chunk.material.fill(0);
-  chunk.category.fill(0);
+  chunk.role.fill(0);
   chunk.shape.fill(0);
-  chunk.orientation.fill(0);
+  chunk.wetness.fill(0);
 }
 
 /** Copies every plane of `from` into `to`. */
 export function copyDenseChunk(from: DenseChunk, to: DenseChunk): void {
   to.material.set(from.material);
-  to.category.set(from.category);
+  to.role.set(from.role);
   to.shape.set(from.shape);
-  to.orientation.set(from.orientation);
+  to.wetness.set(from.wetness);
 }
 
 /** Reads cell `i` into `out`. */
 export function readCell(chunk: DenseChunk, i: number, out: VoxelRecord): VoxelRecord {
   out.material = chunk.material[i] ?? 0;
-  out.category = chunk.category[i] ?? 0;
+  out.role = chunk.role[i] ?? 0;
   out.shape = chunk.shape[i] ?? 0;
-  out.orientation = chunk.orientation[i] ?? 0;
+  out.wetness = chunk.wetness[i] ?? 0;
   return out;
 }
 
@@ -57,15 +57,15 @@ export function readCell(chunk: DenseChunk, i: number, out: VoxelRecord): VoxelR
 export function writeCell(chunk: DenseChunk, i: number, v: Readonly<VoxelRecord>): void {
   if (v.material === MATERIAL_AIR) {
     chunk.material[i] = 0;
-    chunk.category[i] = 0;
+    chunk.role[i] = 0;
     chunk.shape[i] = 0;
-    chunk.orientation[i] = 0;
+    chunk.wetness[i] = 0;
     return;
   }
   chunk.material[i] = v.material;
-  chunk.category[i] = v.category;
+  chunk.role[i] = v.role;
   chunk.shape[i] = v.shape;
-  chunk.orientation[i] = v.orientation;
+  chunk.wetness[i] = v.wetness;
 }
 
 /** Whether every cell is air. */
@@ -77,7 +77,7 @@ export function isAirChunk(chunk: DenseChunk): boolean {
 
 /** Whether every cell holds the same record (all air, or all one solid voxel). */
 export function isUniformChunk(chunk: DenseChunk): boolean {
-  const { material: m, category: c, shape: s, orientation: o } = chunk;
+  const { material: m, role: c, shape: s, wetness: o } = chunk;
   const m0 = m[0];
   const c0 = c[0];
   const s0 = s[0];
@@ -95,16 +95,16 @@ export function sameDenseChunk(a: DenseChunk, b: DenseChunk): boolean {
     for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return false;
     return true;
   };
-  return eq(a.material, b.material) && eq(a.category, b.category) && eq(a.shape, b.shape) && eq(a.orientation, b.orientation);
+  return eq(a.material, b.material) && eq(a.role, b.role) && eq(a.shape, b.shape) && eq(a.wetness, b.wetness);
 }
 
 /**
- * Clears the planes outside `mask` ({@link planeMask}) in place, as a store
- * keeping only those planes reads them: category and orientation become 0,
- * the shape becomes the one the material implies (air empty, else full).
+ * Clears the fields outside `mask` ({@link planeMask}) in place, as a store
+ * keeping only those fields reads them: each reads 0 (material is always
+ * kept).
  */
 export function maskDenseChunk(chunk: DenseChunk, mask: number): void {
-  if (!(mask & PLANE_BIT.category)) chunk.category.fill(0);
-  if (!(mask & PLANE_BIT.orientation)) chunk.orientation.fill(0);
-  if (!(mask & PLANE_BIT.shape)) for (let i = 0; i < chunk.shape.length; i++) chunk.shape[i] = chunk.material[i] === MATERIAL_AIR ? SHAPE_EMPTY : SHAPE_FULL;
+  if (!(mask & PLANE_BIT.role)) chunk.role.fill(0);
+  if (!(mask & PLANE_BIT.wetness)) chunk.wetness.fill(0);
+  if (!(mask & PLANE_BIT.shape)) chunk.shape.fill(0);
 }

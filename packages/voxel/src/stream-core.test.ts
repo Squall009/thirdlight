@@ -7,7 +7,7 @@ import { DirtyTracker } from './dirty-tracker';
 import { DEFAULT_REBASE_DISTANCE_M, FloatingOrigin } from './floating-origin';
 import { JobQueue } from './job-queue';
 import { createWorldStore, type PaletteStore } from './palette-store';
-import { MATERIAL_AIR, VOXEL_CATEGORY, voxel, type VoxelRecord } from './record';
+import { MATERIAL_AIR, SHAPE_FULL, VOXEL_ROLE, voxel, type VoxelRecord } from './record';
 import { deriveNow } from './stream-handlers';
 import { chunkDistance2, DEFAULT_STREAM_RING, inLoadRing, pastUnloadRing, ringChunks } from './stream-ring';
 
@@ -40,22 +40,22 @@ function makeWorld(g: ChunkGrid, c0: number, c1: number, y0: number, y1: number)
         let o = 0;
         if (y < surface && !(y > 20 && h(x >> 2, y >> 2, z >> 2) < 0.08)) {
           m = y < surface - 4 ? 3 : 2;
-          cat = VOXEL_CATEGORY.terrain;
-          shape = y === surface - 1 ? 128 + ((x * 7 + z) & 63) : 255;
+          cat = VOXEL_ROLE.terrain;
+          shape = y === surface - 1 ? 1 + ((x * 7 + z) % 14) : SHAPE_FULL;
         } else if (y < 38 && x % 50 < 10) {
           m = 9;
-          cat = VOXEL_CATEGORY.liquid;
-          shape = y === 37 ? 140 : 255;
+          cat = VOXEL_ROLE.liquid;
+          shape = y === 37 ? 9 : SHAPE_FULL;
         } else if (y >= surface && y < surface + 3 && h(x, y, z, 2) < 0.02) {
           m = 5;
-          cat = VOXEL_CATEGORY.construction;
-          shape = 255;
+          cat = VOXEL_ROLE.wall;
+          shape = SHAPE_FULL;
           o = (x + z) & 3;
         }
         cells.material[i] = m;
-        cells.category[i] = cat;
+        cells.role[i] = cat;
         cells.shape[i] = shape;
-        cells.orientation[i] = o;
+        cells.wetness[i] = o;
         if (m !== 0) any = true;
       }
     }
@@ -129,7 +129,7 @@ describe('chunk payloads', () => {
     for (let x0 = 0; x0 < 64; x0++) for (let z0 = 0; z0 < 64; z0++) for (let y0 = 0; y0 < 64; y0++) {
       a.voxelAt(x0, y0, z0, x);
       b.voxelAt(x0, y0, z0, y);
-      if (x.material !== y.material || x.shape !== y.shape || x.category !== y.category || x.orientation !== y.orientation) throw new Error(`cell ${x0},${y0},${z0} differs`);
+      if (x.material !== y.material || x.shape !== y.shape || x.role !== y.role || x.wetness !== y.wetness) throw new Error(`cell ${x0},${y0},${z0} differs`);
     }
     // Handing the arrays over drops the chunk here.
     const moved = a.chunkPayload(0, 1, 0, false);
@@ -147,7 +147,6 @@ describe('chunk payloads', () => {
     const meta = good.wire.plane.meta.slice();
     meta[0] = meta[0]! + 1;
     expect(() => b.adoptPayload(1, 1, 1, { ...good, wire: { ...good.wire, plane: { ...good.wire.plane, meta } } })).toThrow(RangeError);
-    expect(() => b.adoptPayload(1, 1, 1, { ...good, wire: { ...good.wire, density: null } })).toThrow(RangeError);
     expect(() => b.adoptPayload(1, 1, 1, { ...good, edge: 16 })).toThrow(RangeError);
     expect(b.chunkPayload(1, 1, 1, true)).toEqual(before);
   });
@@ -170,7 +169,7 @@ describe('aprons', () => {
         if (lx >= 0 && lx < 32 && ly >= 0 && ly < 32 && lz >= 0 && lz < 32) continue;
         apronVoxelAt(a, lx, ly, lz, x);
         world.voxelAt(lx, 32 + ly, lz, y);
-        if (x.material !== y.material || x.shape !== y.shape || x.category !== y.category || x.orientation !== y.orientation) throw new Error(`R ${r}: apron cell ${lx},${ly},${lz} differs`);
+        if (x.material !== y.material || x.shape !== y.shape || x.role !== y.role || x.wetness !== y.wetness) throw new Error(`R ${r}: apron cell ${lx},${ly},${lz} differs`);
       }
     }
   });

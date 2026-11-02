@@ -21,11 +21,13 @@ import { join } from 'node:path';
 import { createTestBackend, testTempBase } from '@thirdlight/backend/testing';
 import type { Backend } from '@thirdlight/backend/services';
 import {
+  ALL_DERIVED_PARTS,
   applyEdit,
   canonicalEditCommand,
   chunkGrid,
   createDenseChunk,
   createWorldStore,
+  DERIVED_PART,
   editBounds,
   exportOrAir,
   parseRegionFileName,
@@ -138,7 +140,7 @@ function expectSame(a: PaletteStore, b: PaletteStore, chunks: readonly ChunkCoor
 
 const SCENE_CHUNKS: ChunkCoord[] = [-1, 0].flatMap((cx) => [-1, 0].flatMap((cy) => [-1, 0].map((cz) => ({ cx, cy, cz }))));
 /** A 2-cell dig in the wall at a chunk corner (x 0, z 0): four chunk columns. */
-const DIG = { v: 1, grid: 0, kind: 'brush', shape: 'sphere', size: [2, 2, 2], points: [0, 4, 0], mode: 'dig', smooth: false };
+const DIG = { v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [2, 2, 2], points: [0, 4, 0], mode: 'dig', smooth: false };
 
 describe('voxel world routes', () => {
   it('serves the manifest and region files to a token for the project, by range, with tags', async () => {
@@ -223,7 +225,7 @@ describe('voxel world routes', () => {
     // A stroke whose worst-case undo would pass the budget of one edit is refused before a cell is visited:
     // the whole world filled, a sphere 2 km across. Each would otherwise hold the backend for minutes and run it out of memory.
     for (const huge of [
-      { v: 1, grid: 0, kind: 'fill', min: [-32768, -8192, -32768], max: [32767, 8191, 32767], mode: 'place', voxel: { material: 3, category: 2, orientation: 0 } },
+      { v: 2, grid: 0, kind: 'fill', min: [-32768, -8192, -32768], max: [32767, 8191, 32767], mode: 'place', voxel: { material: 3, role: 3, wetness: 0 } },
       { ...DIG, size: [2000, 2000, 2000] },
     ]) {
       const t0 = performance.now();
@@ -231,7 +233,7 @@ describe('voxel world routes', () => {
       const ms = performance.now() - t0;
       expect(r.status).toBe(400);
       expect(r.json.error).toMatchObject({ code: 'over_budget' });
-      expect((r.json.error as { message: string }).message).toMatch(/more than 292 chunks of 32³ cells .* over the 64\.0 MiB undo budget of one edit/);
+      expect((r.json.error as { message: string }).message).toMatch(/more than 341 chunks of 32³ cells .* over the 64\.0 MiB undo budget of one edit/);
       // A refusal answers like any other; 2 s leaves room for a loaded gate host.
       expect(ms).toBeLessThan(2000);
     }
@@ -265,7 +267,7 @@ describe('voxel world routes', () => {
     const snapshot = (): Map<string, Buffer> => new Map([['world.json', readFileSync(join(worldDir, 'world.json'))], ...(JSON.parse(readFileSync(join(worldDir, 'world.json'), 'utf8')) as { regions: string[] }).regions.map((n): [string, Buffer] => [`grid-0/${n}`, readFileSync(join(worldDir, 'grid-0', n))])]);
     // The world now (revision 3, one dig) is the commit checked out again below; then one more edit moves it on.
     const committed = snapshot();
-    const SET = { v: 1, grid: 0, kind: 'set', cells: [0, 12, 0, 1, 12, 0], voxel: { material: 3, category: 2, orientation: 0, shape: 255 } };
+    const SET = { v: 2, grid: 0, kind: 'set', cells: [0, 12, 0, 1, 12, 0], voxel: { material: 3, role: 3, wetness: 0, shape: 15 } };
     expect((await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: SET } })).json).toMatchObject({ ok: true, revision: 4, undoable: 2 });
     // A region file alone changed back (the manifest the same bytes): the info serves the file's new tag.
     const [name, bytes] = [...committed].find(([n, b]) => n.startsWith('grid-0/') && !b.equals(readFileSync(join(worldDir, n))))!;
@@ -285,6 +287,14 @@ describe('voxel world routes', () => {
     // The edit sent again applies on it.
     expect((await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: SET } })).json).toMatchObject({ ok: true, revision: 4, undoable: 1 });
     applyEdit({ store: () => expected }, canonicalEditCommand(SET));
+    expectSame(await readChunks(SCENE_CHUNKS), expected, SCENE_CHUNKS);
+    // Every answer names the derived parts its change makes stale: a geometry change all of them, a change of only
+    // wetness the shader data alone (and its undo the same).
+    expect((await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: { ...SET, cells: [0, 13, 0] } } })).json).toMatchObject({ ok: true, parts: ALL_DERIVED_PARTS });
+    const WET = { v: 2, grid: 0, kind: 'fill', min: [0, 12, 0], max: [1, 12, 0], mode: 'paint', voxel: { material: 3, role: 3, wetness: 6 } };
+    expect((await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: WET } })).json).toMatchObject({ ok: true, cells: 2, parts: DERIVED_PART.shader });
+    expect((await command({ op: 'undoVoxels', projectId: PROJECT, args: { world: WORLD } })).json).toMatchObject({ ok: true, parts: DERIVED_PART.shader });
+    expect((await command({ op: 'undoVoxels', projectId: PROJECT, args: { world: WORLD } })).json).toMatchObject({ ok: true, parts: ALL_DERIVED_PARTS });
     expectSame(await readChunks(SCENE_CHUNKS), expected, SCENE_CHUNKS);
   });
 
@@ -336,10 +346,10 @@ describe('voxel world routes', () => {
     expect(unlistedRead!.kind).toBe('air');
     expect(strayRead!.kind).toBe('air');
     // Edits into the lost region are refused before any write; the rest of the world still edits and still lists it.
-    const into = await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: { v: 1, grid: 0, kind: 'set', cells: [inLost.cx * 32, inLost.cy * 32, inLost.cz * 32], voxel: { material: 3, category: 2, orientation: 0, shape: 255 } } } });
+    const into = await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: { v: 2, grid: 0, kind: 'set', cells: [inLost.cx * 32, inLost.cy * 32, inLost.cz * 32], voxel: { material: 3, role: 3, wetness: 0, shape: 15 } } } });
     expect(into.status).toBe(409);
     expect((into.json.error as { code: string }).code).toBe('chunk_not_loaded');
-    const elsewhere = await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: { v: 1, grid: 0, kind: 'set', cells: [2, 12, 0], voxel: { material: 3, category: 2, orientation: 0, shape: 255 } } } });
+    const elsewhere = await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: { v: 2, grid: 0, kind: 'set', cells: [2, 12, 0], voxel: { material: 3, role: 3, wetness: 0, shape: 15 } } } });
     expect(elsewhere.status, JSON.stringify(elsewhere.json)).toBe(200);
     expect((JSON.parse(readFileSync(join(worldDir, 'world.json'), 'utf8')) as { regions: string[] }).regions).toEqual(manifest.regions);
   }, 60_000);

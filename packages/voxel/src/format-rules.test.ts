@@ -39,8 +39,11 @@ import {
   encodePaletteImage,
   localIndex,
   openRegion,
-  ORIENTATION_COUNT,
-  orientationMatrix,
+  checkRecordValue,
+  PALETTE_CODEC_VERSION,
+  RESERVED_BITS,
+  SHAPE_FULL,
+  WETNESS_MAX,
   PaletteStore,
   planesImageFromCells,
   readPaletteHeader,
@@ -55,10 +58,11 @@ import {
   RegionIndex,
   REGION_ENTRY_BYTES,
   REGION_HEADER_BYTES,
+  REGION_FORMAT_VERSION,
   REGION_UPGRADES,
   regionFileName,
-  VOXEL_CATEGORY,
-  VOXEL_CATEGORY_COUNT,
+  VOXEL_ROLE,
+  VOXEL_ROLE_COUNT,
   voxel,
   writeRegion,
   type DenseChunk,
@@ -72,7 +76,7 @@ import {
 const grid = chunkGrid(32);
 const n = grid.cellsPerChunk;
 /** The base hash of {@link sampleCells}: frozen with the base form (the save format's base hash definition). */
-const GOLDEN_BASE_HASH = '6c69b56ed64ea563b3efdd11bc3720df';
+const GOLDEN_BASE_HASH = 'b8152bab2da220808048bd1e1ef458f8';
 
 function withCrc(b: Uint8Array): Uint8Array {
   const c = crc32(b.subarray(8));
@@ -80,24 +84,24 @@ function withCrc(b: Uint8Array): Uint8Array {
   return b;
 }
 
-/** A small chunk: rock below y 8, a partly full soil cell on top of column (0, 0), a stair voxel turned 5. */
+/** A small chunk: rock below y 8, a partly full soil cell on top of column (0, 0), a wet wall voxel. */
 function sampleCells(): DenseChunk {
   const c = createDenseChunk(grid);
   for (let x = 0; x < 32; x++) for (let z = 0; z < 32; z++) for (let y = 0; y < 8; y++) {
     const i = localIndex(grid, x, y, z);
     c.material[i] = 1;
-    c.category[i] = VOXEL_CATEGORY.terrain;
-    c.shape[i] = 255;
+    c.role[i] = VOXEL_ROLE.terrain;
+    c.shape[i] = SHAPE_FULL;
   }
   const top = localIndex(grid, 0, 8, 0);
   c.material[top] = 2;
-  c.category[top] = VOXEL_CATEGORY.terrain;
-  c.shape[top] = 90;
-  const stair = localIndex(grid, 4, 9, 4);
-  c.material[stair] = 3;
-  c.category[stair] = VOXEL_CATEGORY.construction;
-  c.shape[stair] = 255;
-  c.orientation[stair] = 5;
+  c.role[top] = VOXEL_ROLE.terrain;
+  c.shape[top] = 6;
+  const wall = localIndex(grid, 4, 9, 4);
+  c.material[wall] = 3;
+  c.role[wall] = VOXEL_ROLE.wall;
+  c.shape[wall] = SHAPE_FULL;
+  c.wetness[wall] = 5;
   return c;
 }
 
@@ -109,19 +113,22 @@ function worldBytes(cells: DenseChunk): Uint8Array {
 
 const decode = (b: Uint8Array): void => void decodePaletteImage(b, createChunkImage(grid));
 
-/** Bytes of a packed record body: header, count − 1, materials (u24), categories, orientations, flag bits, then ids. */
-function packedBytes(entries: ReadonlyArray<{ m: number; c: number; o: number; flag?: boolean }>, ids: (i: number) => number, densities: readonly number[] = []): Uint8Array {
+interface Entry {
+  m: number;
+  r: number;
+  s: number;
+  w?: number;
+}
+
+/** Bytes of a packed record body: header, count − 1, materials (u16), roles, shapes, wetness, then ids. */
+function packedBytes(entries: readonly Entry[], ids: (i: number) => number): Uint8Array {
   const count = entries.length;
   const width = count <= 1 ? 0 : count <= 2 ? 1 : count <= 4 ? 2 : 4;
   const body: number[] = [(count - 1) & 0xff, (count - 1) >> 8];
-  for (const e of entries) body.push(e.m & 0xff, (e.m >> 8) & 0xff, e.m >> 16);
-  for (const e of entries) body.push(e.c);
-  for (const e of entries) body.push(e.o);
-  for (let k = 0; k < count; k += 8) {
-    let b = 0;
-    for (let j = 0; j < 8 && k + j < count; j++) if (entries[k + j]!.flag) b |= 1 << j;
-    body.push(b);
-  }
+  for (const e of entries) body.push(e.m & 0xff, e.m >> 8);
+  for (const e of entries) body.push(e.r);
+  for (const e of entries) body.push(e.s);
+  for (const e of entries) body.push(e.w ?? 0);
   if (width > 0) {
     const per = 8 / width;
     for (let i = 0; i < n; i += per) {
@@ -130,12 +137,20 @@ function packedBytes(entries: ReadonlyArray<{ m: number; c: number; o: number; f
       body.push(b);
     }
   }
-  body.push(...densities);
   const out = new Uint8Array(8 + body.length);
-  out.set([0x56, 0x43, 1, 0x3f]);
+  out.set([0x56, 0x43, PALETTE_CODEC_VERSION, 0x3f]);
   out.set(body, 8);
   return withCrc(out);
 }
+
+/** Bytes of a uniform body: material u16, role, shape, wetness. */
+function uniformBytes(m: number, r: number, sh: number, w: number): Uint8Array {
+  return withCrc(Uint8Array.from([0x56, 0x43, PALETTE_CODEC_VERSION, 0x1f, 0, 0, 0, 0, m & 0xff, m >> 8, r, sh, w]));
+}
+
+const AIR_E: Entry = { m: 0, r: 0, s: 0 };
+const ROCK: Entry = { m: 1, r: 1, s: 15 };
+const rockBelow = (i: number): number => (i % 32 < 8 ? 0 : 1);
 
 describe('chunk codec: canonical input only', () => {
   it('decodes what it writes, and the crafted equivalent of it', () => {
@@ -143,47 +158,64 @@ describe('chunk codec: canonical input only', () => {
     expect(() => decode(good)).not.toThrow();
     // Two entries, rock in the lower 8 cells of every column: the hand-built bytes equal the encoder's.
     const cells = createDenseChunk(grid);
-    for (let i = 0; i < n; i++) if (i % 32 < 8) [cells.material[i], cells.category[i], cells.shape[i]] = [1, 1, 255];
-    const crafted = packedBytes([{ m: 0, c: 0, o: 0 }, { m: 1, c: 1, o: 0 }], (i) => (i % 32 < 8 ? 1 : 0));
+    for (let i = 0; i < n; i++) if (i % 32 < 8) [cells.material[i], cells.role[i], cells.shape[i]] = [1, 1, SHAPE_FULL];
+    const crafted = packedBytes([AIR_E, ROCK], (i) => (i % 32 < 8 ? 1 : 0));
     // Ids are numbered by first appearance: cell 0 is rock, so rock is entry 0.
-    const swapped = packedBytes([{ m: 1, c: 1, o: 0 }, { m: 0, c: 0, o: 0 }], (i) => (i % 32 < 8 ? 0 : 1));
+    const swapped = packedBytes([ROCK, AIR_E], rockBelow);
     expect(worldBytes(cells)).toEqual(swapped);
     expect(() => decode(swapped)).not.toThrow();
     expect(() => decode(crafted)).toThrow(/first appearance/);
   });
 
-  it('refuses a packed body of one voxel without densities (that content is a uniform body)', () => {
-    expect(() => decode(packedBytes([{ m: 7, c: 1, o: 0 }], () => 0))).toThrow(/a packed body of one voxel/);
-    // One entry whose every cell carries a density is a real chunk (a whole chunk of partly full cells).
-    expect(() => decode(packedBytes([{ m: 7, c: 1, o: 0, flag: true }], () => 0, new Array<number>(n).fill(100)))).not.toThrow();
+  it('refuses a packed body of one voxel (that content is a uniform body, whatever its fill level)', () => {
+    expect(() => decode(packedBytes([{ m: 7, r: 1, s: 15 }], () => 0))).toThrow(/a packed body of one voxel/);
+    expect(() => decode(packedBytes([{ m: 7, r: 1, s: 6 }], () => 0))).toThrow(/a packed body of one voxel/);
+    // A whole chunk of partly full cells is one value: a uniform body.
+    const half = createDenseChunk(grid);
+    half.material.fill(7);
+    half.role.fill(VOXEL_ROLE.liquid);
+    half.shape.fill(6);
+    expect(worldBytes(half)).toEqual(uniformBytes(7, VOXEL_ROLE.liquid, 6, 0));
+    expect(() => decode(uniformBytes(7, VOXEL_ROLE.liquid, 6, 0))).not.toThrow();
   });
 
   it('refuses air that is not the one air value', () => {
-    const rockBelow = (i: number): number => (i % 32 < 8 ? 0 : 1);
-    expect(() => decode(packedBytes([{ m: 1, c: 1, o: 0 }, { m: 0, c: 2, o: 0 }], rockBelow))).toThrow(/air with a category, orientation or density/);
-    expect(() => decode(packedBytes([{ m: 1, c: 1, o: 0 }, { m: 0, c: 0, o: 3 }], rockBelow))).toThrow(/air with/);
-    const flaggedAir = packedBytes([{ m: 1, c: 1, o: 0 }, { m: 0, c: 0, o: 0, flag: true }], rockBelow, new Array<number>(n - n / 4).fill(9));
-    expect(() => decode(flaggedAir)).toThrow(/air with/);
-    // Uniform body: material 0 with a category.
-    const uniformAir = withCrc(Uint8Array.from([0x56, 0x43, 1, 0x1f, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0]));
-    expect(() => decode(uniformAir)).toThrow(/air with/);
-    expect(() => decode(withCrc(Uint8Array.from([0x56, 0x43, 1, 0x1f, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])))).not.toThrow();
+    expect(() => decode(packedBytes([ROCK, { m: 0, r: 2, s: 0 }], rockBelow))).toThrow(/air with a role, shape or wetness/);
+    expect(() => decode(packedBytes([ROCK, { m: 0, r: 0, s: 0, w: 3 }], rockBelow))).toThrow(/air with/);
+    expect(() => decode(packedBytes([ROCK, { m: 0, r: 0, s: 4 }], rockBelow))).toThrow(/air with/);
+    expect(() => decode(uniformBytes(0, 2, 0, 0))).toThrow(/air with/);
+    expect(() => decode(uniformBytes(0, 0, 0, 0))).not.toThrow();
   });
 
-  it('refuses unassigned categories and orientations, in bytes and at every writer', () => {
-    const rockBelow = (i: number): number => (i % 32 < 8 ? 0 : 1);
-    expect(() => decode(packedBytes([{ m: 1, c: VOXEL_CATEGORY_COUNT, o: 0 }, { m: 0, c: 0, o: 0 }], rockBelow))).toThrow(/unassigned category 5/);
-    expect(() => decode(packedBytes([{ m: 1, c: 1, o: ORIENTATION_COUNT }, { m: 0, c: 0, o: 0 }], rockBelow))).toThrow(/orientation 24 is not one of the 24 rotations/);
-    expect(() => decode(packedBytes([{ m: 1, c: 4, o: 23 }, { m: 0, c: 0, o: 0 }], rockBelow))).not.toThrow();
-    expect(() => checkVoxel(voxel(1, 5, 255, 0))).toThrow(RangeError);
-    expect(() => checkVoxel(voxel(1, 1, 255, 24))).toThrow(RangeError);
-    expect(() => checkVoxel(voxel(1, 4, 255, 23))).not.toThrow();
+  it('refuses unassigned roles and fields past their width, in bytes and at every writer', () => {
+    expect(() => decode(packedBytes([{ m: 1, r: VOXEL_ROLE_COUNT, s: 15 }, AIR_E], rockBelow))).toThrow(/unassigned role 10/);
+    expect(() => decode(packedBytes([{ m: 1, r: 1, s: 16 }, AIR_E], rockBelow))).toThrow(/shape 16 past its largest value 15/);
+    expect(() => decode(packedBytes([{ m: 1, r: 1, s: 15, w: 8 }, AIR_E], rockBelow))).toThrow(/wetness 8 past its largest value 7/);
+    expect(() => decode(packedBytes([{ m: 1, r: VOXEL_ROLE.opening, s: 9, w: 7 }, AIR_E], rockBelow))).not.toThrow();
+    expect(() => checkVoxel(voxel(1, VOXEL_ROLE_COUNT, 15, 0))).toThrow(RangeError);
+    expect(() => checkVoxel(voxel(1, 1, 16, 0))).toThrow(RangeError);
+    expect(() => checkVoxel(voxel(1, 1, 15, 8))).toThrow(RangeError);
+    expect(() => checkVoxel(voxel(1, VOXEL_ROLE.opening, 15, 7))).not.toThrow();
   });
 
-  it('holds material ids past 16 bits up to 2²³ − 1 in every form, and refuses wider ones', () => {
-    expect(MATERIAL_ID_MAX).toBe(8_388_607);
+  it('refuses a value with reserved bits set wherever raw values are read', () => {
+    expect(RESERVED_BITS).toBe(9);
+    expect(() => checkRecordValue(recordValue(1, 1, 15, 0) | (1 << 23))).toThrow(/reserved bits/);
+    expect(() => checkRecordValue((recordValue(1, 1, 15, 0) | (1 << 31)) >>> 0)).toThrow(/reserved bits/);
+    const tile: RegionTile = { worldId: Uint8Array.from({ length: 16 }), gridId: 0, layout: 'stacked', grid, footprint: 512, rx: 0, ry: 0, rz: 0, compressor: 'none' };
+    const ok = writeRegion(tile, [{ cx: 1, cy: 0, cz: 0, uniform: recordValue(1, 1, 15, 0) }]);
+    // Set bit 23 of the uniform entry's value (table entry 0 at 64: column u16, y i16, value u32) and fix the table CRC.
+    const bad = ok.slice();
+    bad[64 + 4 + 2] = bad[64 + 4 + 2]! | 0x80;
+    new DataView(bad.buffer).setUint32(52, crc32(bad.subarray(64, 64 + 12)), true);
+    new DataView(bad.buffer).setUint32(60, crc32(bad.subarray(0, 60)), true);
+    expect(() => RegionIndex.parse(bad, { expect: tile })).toThrow(/reserved bits/);
+  });
+
+  it('holds material ids up to 2¹² − 1 in every form, and refuses wider ones', () => {
+    expect(MATERIAL_ID_MAX).toBe(4095);
     const cells = sampleCells();
-    const big = [70_000, MATERIAL_ID_MAX, 65_536];
+    const big = [3000, MATERIAL_ID_MAX, 2048];
     cells.material[localIndex(grid, 4, 9, 4)] = big[0]!;
     for (let x = 0; x < 32; x++) cells.material[localIndex(grid, x, 0, 5)] = big[1]!;
     cells.material[localIndex(grid, 0, 8, 0)] = big[2]!;
@@ -195,40 +227,28 @@ describe('chunk codec: canonical input only', () => {
     expect(store.encodeChunk(0, 0, 0)).toEqual(bytes);
     const solid = createDenseChunk(grid);
     solid.material.fill(MATERIAL_ID_MAX);
-    solid.category.fill(VOXEL_CATEGORY.roof);
-    solid.shape.fill(255);
-    solid.orientation.fill(23);
+    solid.role.fill(VOXEL_ROLE.roof);
+    solid.shape.fill(SHAPE_FULL);
+    solid.wetness.fill(WETNESS_MAX);
     const u = worldBytes(solid);
-    expect(u).toHaveLength(14);
+    expect(u).toHaveLength(13);
     store.decodeChunk(1, 0, 0, u);
-    expect(store.voxelAt(40, 3, 3, voxel())).toEqual(voxel(MATERIAL_ID_MAX, VOXEL_CATEGORY.roof, 255, 23));
+    expect(store.voxelAt(40, 3, 3, voxel())).toEqual(voxel(MATERIAL_ID_MAX, VOXEL_ROLE.roof, SHAPE_FULL, WETNESS_MAX));
     const wide: RegionTile = { worldId: Uint8Array.from({ length: 16 }), gridId: 0, layout: 'stacked', grid, footprint: 512, rx: 0, ry: 0, rz: 0, compressor: 'none' };
-    const region = writeRegion(wide, [{ cx: 1, cy: 0, cz: 0, uniform: recordValue(MATERIAL_ID_MAX, VOXEL_CATEGORY.roof, 23) }]);
+    const region = writeRegion(wide, [{ cx: 1, cy: 0, cz: 0, uniform: recordValue(MATERIAL_ID_MAX, VOXEL_ROLE.roof, SHAPE_FULL, WETNESS_MAX) }]);
     const read = RegionIndex.parse(region, { expect: wide }).read(0, region);
-    expect(read.kind === 'uniform' && read.value).toBe(recordValue(MATERIAL_ID_MAX, VOXEL_CATEGORY.roof, 23));
+    expect(read.kind === 'uniform' && read.value).toBe(recordValue(MATERIAL_ID_MAX, VOXEL_ROLE.roof, SHAPE_FULL, WETNESS_MAX));
     // One past the width: refused by the writers and in bytes.
-    expect(() => checkVoxel(voxel(MATERIAL_ID_MAX + 1, 1, 255, 0))).toThrow(RangeError);
-    expect(() => canonicalEditCommand({ v: 1, grid: 0, kind: 'set', cells: [0, 0, 0], voxel: { material: MATERIAL_ID_MAX + 1, category: 1, orientation: 0, shape: 255 } })).toThrow(EditCommandError);
-    const rockBelow = (i: number): number => (i % 32 < 8 ? 0 : 1);
-    expect(() => decode(packedBytes([{ m: MATERIAL_ID_MAX + 1, c: 1, o: 0 }, { m: 0, c: 0, o: 0 }], rockBelow))).toThrow(/material 8388608 past its largest value 8388607/);
-    expect(() => decode(withCrc(Uint8Array.from([0x56, 0x43, 1, 0x1f, 0, 0, 0, 0, 0, 0, 0x80, 1, 255, 0])))).toThrow(/material 8388608 past/);
+    expect(() => checkVoxel(voxel(MATERIAL_ID_MAX + 1, 1, 15, 0))).toThrow(RangeError);
+    expect(() => canonicalEditCommand({ v: 2, grid: 0, kind: 'set', cells: [0, 0, 0], voxel: { material: MATERIAL_ID_MAX + 1, role: 1, wetness: 0, shape: 15 } })).toThrow(EditCommandError);
+    expect(() => decode(packedBytes([{ m: MATERIAL_ID_MAX + 1, r: 1, s: 15 }, AIR_E], rockBelow))).toThrow(/material 4096 past its largest value 4095/);
+    expect(() => decode(uniformBytes(MATERIAL_ID_MAX + 1, 1, 15, 0))).toThrow(/material 4096 past/);
   });
 
-  it('names 24 distinct axis rotations, 0 the identity', () => {
-    const seen = new Set<string>();
-    for (let k = 0; k < ORIENTATION_COUNT; k++) {
-      const m = orientationMatrix(k);
-      const det = m[0] * (m[4] * m[8] - m[5] * m[7]) - m[1] * (m[3] * m[8] - m[5] * m[6]) + m[2] * (m[3] * m[7] - m[4] * m[6]);
-      expect(det).toBe(1);
-      for (let r = 0; r < 3; r++) expect(Math.abs(m[r * 3]!) + Math.abs(m[r * 3 + 1]!) + Math.abs(m[r * 3 + 2]!)).toBe(1);
-      seen.add(m.join());
-    }
-    expect(seen.size).toBe(24);
-    expect(orientationMatrix(0)).toEqual([1, 0, 0, 0, 1, 0, 0, 0, 1]);
-    // 4..7 carry +y to −y; 8..11 to +x (the second column is where +y lands).
-    expect([orientationMatrix(5)[1], orientationMatrix(5)[4], orientationMatrix(5)[7]]).toEqual([0, -1, 0]);
-    expect([orientationMatrix(9)[1], orientationMatrix(9)[4], orientationMatrix(9)[7]]).toEqual([1, 0, 0]);
-    expect(() => orientationMatrix(24)).toThrow(RangeError);
+  it('refuses codec bytes of the draft version 1 (no upgrade step lifts them)', () => {
+    const v1 = worldBytes(sampleCells());
+    v1[2] = 1;
+    expect(() => decode(withCrc(v1))).toThrow(/version 1 has no upgrade step/);
   });
 });
 
@@ -249,8 +269,8 @@ describe('chunk codec: world data has one encoding', () => {
     ['column runs', () => measured(15, 'runs')],
     ['bricks at rest', () => measured(15, 'bricks')],
     ['per-plane palettes', () => measured(15, 'packed', 'planes')],
-    ['a dropped orientation plane', () => measured(7, 'packed')],
-    ['a dropped category plane', () => measured(13, 'packed')],
+    ['a dropped wetness plane', () => measured(7, 'packed')],
+    ['a dropped role plane', () => measured(13, 'packed')],
   ])('refuses %s in world readers; only the bench entry decodes them', (_name, make) => {
     const b = make();
     expect(() => decode(b)).toThrow(/a measurement encoding/);
@@ -263,33 +283,27 @@ describe('chunk codec: world data has one encoding', () => {
 
 describe('chunk codec: versions move forward through registered steps only', () => {
   /**
-   * A test-only "version 0" of the codec (never a real format): version 1's
-   * bytes with the category and orientation planes of a packed body swapped.
-   * The step lifts it to version 1, as a real step would lift version 1 to 2.
+   * A test-only "version 1" of the codec (not the retired draft, never a
+   * real format): this version's bytes with the role and wetness planes of
+   * a packed body swapped. The step lifts it to this version, as a real
+   * step would lift this version to the next.
    */
-  const toV0 = (v1: Uint8Array): Uint8Array => {
-    const b = v1.slice();
+  const OLD = PALETTE_CODEC_VERSION - 1;
+  const swapPlanes = (from: Uint8Array, version: number): Uint8Array => {
+    const b = from.slice();
     const count = (b[8]! | (b[9]! << 8)) + 1;
-    const cat = 10 + 3 * count;
-    b.set(v1.subarray(cat + count, cat + 2 * count), cat);
-    b.set(v1.subarray(cat, cat + count), cat + count);
-    b[2] = 0;
+    const roles = 10 + 2 * count;
+    const wet = roles + 2 * count;
+    b.set(from.subarray(wet, wet + count), roles);
+    b.set(from.subarray(roles, roles + count), wet);
+    b[2] = version;
     return withCrc(b);
   };
-  const step: UpgradeStep<Uint8Array> = {
-    from: 0,
-    lift: (v0) => {
-      const b = v0.slice();
-      const count = (b[8]! | (b[9]! << 8)) + 1;
-      const cat = 10 + 3 * count;
-      b.set(v0.subarray(cat + count, cat + 2 * count), cat);
-      b.set(v0.subarray(cat, cat + count), cat + count);
-      b[2] = 1;
-      return withCrc(b);
-    },
-  };
+  const toOld = (current: Uint8Array): Uint8Array => swapPlanes(current, OLD);
+  const step: UpgradeStep<Uint8Array> = { from: OLD, lift: (old) => swapPlanes(old, PALETTE_CODEC_VERSION) };
 
-  it('has no steps at version 1, and the registry is frozen', () => {
+  it('has no steps at this version, and the registry is frozen', () => {
+    expect(PALETTE_CODEC_VERSION).toBe(2);
     expect(CHUNK_CODEC_UPGRADES).toEqual([]);
     expect(Object.isFrozen(CHUNK_CODEC_UPGRADES)).toBe(true);
     expect(REGION_UPGRADES).toEqual([]);
@@ -297,48 +311,42 @@ describe('chunk codec: versions move forward through registered steps only', () 
   });
 
   it('reads an older version through its step, refuses it without one, and refuses a newer one', () => {
-    const v1 = worldBytes(sampleCells());
-    const v0 = toV0(v1);
-    expect(v0).not.toEqual(v1);
+    const cur = worldBytes(sampleCells());
+    const old = toOld(cur);
+    expect(old).not.toEqual(cur);
     const a = createChunkImage(grid);
     const b = createChunkImage(grid);
-    decodePaletteImage(v1, a);
-    decodePaletteImage(v0, b, [step]);
+    decodePaletteImage(cur, a);
+    decodePaletteImage(old, b, [step]);
     expect(b.planes[0].values.subarray(0, b.planes[0].count)).toEqual(a.planes[0].values.subarray(0, a.planes[0].count));
     expect(b.planes[0].ids).toEqual(a.planes[0].ids);
-    expect(b.densValues.subarray(0, b.densCount)).toEqual(a.densValues.subarray(0, a.densCount));
-    expect(() => decode(v0)).toThrow(/version 0 has no upgrade step/);
-    const v2 = v1.slice();
-    v2[2] = 2;
-    expect(() => decodePaletteImage(withCrc(v2), createChunkImage(grid), [step])).toThrow(/version 2 is newer than this build reads/);
-    const wrong: UpgradeStep<Uint8Array> = { from: 0, lift: (x) => x };
-    expect(() => decodePaletteImage(v0, createChunkImage(grid), [wrong])).toThrow(/the upgrade step from version 0 gave version 0/);
+    expect(() => decode(old)).toThrow(new RegExp(`version ${OLD} has no upgrade step`));
+    const newer = cur.slice();
+    newer[2] = PALETTE_CODEC_VERSION + 1;
+    expect(() => decodePaletteImage(withCrc(newer), createChunkImage(grid), [step])).toThrow(/version 3 is newer than this build reads/);
+    const wrong: UpgradeStep<Uint8Array> = { from: OLD, lift: (x) => x };
+    expect(() => decodePaletteImage(old, createChunkImage(grid), [wrong])).toThrow(/the upgrade step from version 1 gave version 1/);
   });
 
   it('gives one base hash per content, whatever codec version holds it, and the base form is frozen', () => {
-    const v1 = worldBytes(sampleCells());
-    const h1 = baseChunkHash(grid, v1);
+    const cur = worldBytes(sampleCells());
+    const h = baseChunkHash(grid, cur);
     // Frozen: this content's base hash, written down when the base form was defined. A codec change that
-    // moves it changes every save's base hashes: keep a version 1 writer for the base form instead.
-    expect(bytesToHex(h1)).toBe(GOLDEN_BASE_HASH);
+    // moves it changes every save's base hashes: keep a writer of the base form's version instead.
+    expect(bytesToHex(h)).toBe(GOLDEN_BASE_HASH);
     expect(bytesToHex(baseChunkHash(grid, null))).toBe('e3b0c44298fc1c149afbf4c8996fb924');
-    // The same content in another codec version's bytes (the test-only version 0) hashes the same.
-    const v0 = toV0(v1);
-    expect(v0).not.toEqual(v1);
-    expect(baseChunkHash(grid, v0, [step])).toEqual(h1);
-    // A test-only newer layout (version 2: the category and orientation planes swapped, never a real format):
-    // decoded by its own reader into the content, it hashes as its version 1 bytes do.
-    const v2 = toV0(v1);
-    v2[2] = 2;
-    withCrc(v2);
-    const readV2 = (b: Uint8Array): ReturnType<typeof createChunkImage> => {
-      const back = b.slice();
-      back[2] = 0;
+    // The same content in another codec version's bytes (the test-only older version) hashes the same.
+    const old = toOld(cur);
+    expect(baseChunkHash(grid, old, [step])).toEqual(h);
+    // A test-only newer layout (the planes swapped, never a real format): decoded by its own reader into
+    // the content, it hashes as this version's bytes do.
+    const newer = swapPlanes(cur, PALETTE_CODEC_VERSION + 1);
+    const readNewer = (bytes: Uint8Array): ReturnType<typeof createChunkImage> => {
       const img = createChunkImage(grid);
-      decodePaletteImage(withCrc(back), img, [step]);
+      decodePaletteImage(swapPlanes(bytes, PALETTE_CODEC_VERSION), img);
       return img;
     };
-    expect(baseContentHash(readV2(v2))).toEqual(h1);
+    expect(baseContentHash(readNewer(newer))).toEqual(h);
     expect(baseContentHash(null)).toEqual(baseChunkHash(grid, null));
   });
 });
@@ -361,7 +369,7 @@ function sampleRegion(over: Partial<RegionTile> = {}): { tile: RegionTile; bytes
   const tile: RegionTile = { worldId: WORLD, gridId: 0, layout: 'stacked', grid, footprint: 512, rx: 1, ry: 0, rz: -1, compressor: 'none', ...over };
   const stored = worldBytes(sampleCells());
   const bytes = writeRegion(tile, [
-    { cx: 16, cy: 0, cz: -16, uniform: recordValue(1, VOXEL_CATEGORY.terrain, 0) },
+    { cx: 16, cy: 0, cz: -16, uniform: recordValue(1, VOXEL_ROLE.terrain, SHAPE_FULL, 0) },
     { cx: 17, cy: 2, cz: -15, stored, raw: true },
     { cx: 20, cy: 3, cz: -9, stored, raw: true },
   ]);
@@ -406,10 +414,11 @@ describe('region file: a reader checks the tile it expects', () => {
 
 describe('region file: versions move forward through registered steps only', () => {
   /**
-   * A test-only "version 0" of the region file (never a real format): its
-   * table entries are 16 bytes, four zero bytes after each 12-byte entry.
-   * The step lifts header and table to version 1; the stored chunks stay
-   * where they are, and range reads still find them.
+   * A test-only "version 1" of the region file (not the retired draft,
+   * never a real format): its table entries are 16 bytes, four zero bytes
+   * after each 12-byte entry. The step lifts header and table to this
+   * version; the stored chunks stay where they are, and range reads still
+   * find them.
    */
   const V0_ENTRY = 16;
   const toV0 = (v1: Uint8Array): Uint8Array => {
@@ -419,21 +428,21 @@ describe('region file: versions move forward through registered steps only', () 
     out.set(v1.subarray(0, REGION_HEADER_BYTES));
     for (let i = 0; i < count; i++) out.set(v1.subarray(REGION_HEADER_BYTES + i * REGION_ENTRY_BYTES, REGION_HEADER_BYTES + (i + 1) * REGION_ENTRY_BYTES), REGION_HEADER_BYTES + i * V0_ENTRY);
     out.set(v1.subarray(tableEnd), REGION_HEADER_BYTES + count * V0_ENTRY);
-    out[4] = 0;
+    out[4] = 1;
     const view = new DataView(out.buffer);
     view.setUint32(52, crc32(out.subarray(REGION_HEADER_BYTES, REGION_HEADER_BYTES + count * V0_ENTRY)), true);
     view.setUint32(60, crc32(out.subarray(0, 60)), true);
     return out;
   };
   const step: RegionUpgradeStep = {
-    from: 0,
+    from: 1,
     indexEnd: (head) => REGION_HEADER_BYTES + new DataView(head.buffer, head.byteOffset).getUint32(44, true) * V0_ENTRY,
     lift: (v0) => {
       const count = new DataView(v0.buffer, v0.byteOffset).getUint32(44, true);
       const out = new Uint8Array(REGION_HEADER_BYTES + count * REGION_ENTRY_BYTES);
       out.set(v0.subarray(0, REGION_HEADER_BYTES));
       for (let i = 0; i < count; i++) out.set(v0.subarray(REGION_HEADER_BYTES + i * V0_ENTRY, REGION_HEADER_BYTES + i * V0_ENTRY + REGION_ENTRY_BYTES), REGION_HEADER_BYTES + i * REGION_ENTRY_BYTES);
-      out[4] = 1;
+      out[4] = REGION_FORMAT_VERSION;
       const view = new DataView(out.buffer);
       view.setUint32(52, crc32(out.subarray(REGION_HEADER_BYTES)), true);
       view.setUint32(60, crc32(out.subarray(0, 60)), true);
@@ -457,47 +466,50 @@ describe('region file: versions move forward through registered steps only', () 
 
   it('refuses an older file without a step and a newer file', async () => {
     const { tile, bytes } = sampleRegion();
-    await expect(openRegion(memorySource(toV0(bytes)), { expect: tile })).rejects.toThrow(/version 0 has no upgrade step/);
-    const v2 = bytes.slice();
-    v2[4] = 2;
-    new DataView(v2.buffer).setUint32(60, crc32(v2.subarray(0, 60)), true);
-    await expect(openRegion(memorySource(v2), { expect: tile, upgrades: [step] })).rejects.toThrow(/version 2 is newer than this build reads/);
-    const codec2 = bytes.slice();
-    codec2[7] = 2;
-    new DataView(codec2.buffer).setUint32(60, crc32(codec2.subarray(0, 60)), true);
-    expect(() => RegionIndex.parse(codec2, { expect: tile })).toThrow(/chunk codec version 2/);
+    await expect(openRegion(memorySource(toV0(bytes)), { expect: tile })).rejects.toThrow(/version 1 has no upgrade step/);
+    const v3 = bytes.slice();
+    v3[4] = 3;
+    new DataView(v3.buffer).setUint32(60, crc32(v3.subarray(0, 60)), true);
+    await expect(openRegion(memorySource(v3), { expect: tile, upgrades: [step] })).rejects.toThrow(/version 3 is newer than this build reads/);
+    const codec3 = bytes.slice();
+    codec3[7] = 3;
+    new DataView(codec3.buffer).setUint32(60, crc32(codec3.subarray(0, 60)), true);
+    expect(() => RegionIndex.parse(codec3, { expect: tile })).toThrow(/chunk codec version 3/);
   });
 });
 
 describe('edit commands: one stroke, one payload', () => {
-  const v = { material: 3, category: VOXEL_CATEGORY.construction, orientation: 0, shape: 255 };
+  const v = { material: 3, role: VOXEL_ROLE.wall, wetness: 0, shape: SHAPE_FULL };
   const cells = [5, 1, 2, 4, 9, 9, 5, 1, 2, 4, 2, 9, -3, 0, 0, 4, 9, 9, 4, 2, 3];
   const sorted = [-3, 0, 0, 4, 2, 3, 4, 2, 9, 4, 9, 9, 5, 1, 2];
 
   it('sorts set and dig cells by x, then z, then y, each once', () => {
-    const set = canonicalEditCommand({ v: 1, grid: 0, kind: 'set', cells, voxel: v });
+    const set = canonicalEditCommand({ v: 2, grid: 0, kind: 'set', cells, voxel: v });
     expect(set.kind === 'set' && set.cells).toEqual(sorted);
-    const dig = canonicalEditCommand({ v: 1, grid: 0, kind: 'dig', cells });
+    const dig = canonicalEditCommand({ v: 2, grid: 0, kind: 'dig', cells });
     expect(dig.kind === 'dig' && dig.cells).toEqual(sorted);
     // Any order or repeats of the same cells give the same payload, byte for byte.
     const shuffled = [4, 2, 3, 5, 1, 2, -3, 0, 0, 4, 9, 9, 4, 2, 9, 4, 2, 9];
-    expect(JSON.stringify(canonicalEditCommand({ v: 1, grid: 0, kind: 'set', cells: shuffled, voxel: v }))).toBe(JSON.stringify(set));
+    expect(JSON.stringify(canonicalEditCommand({ v: 2, grid: 0, kind: 'set', cells: shuffled, voxel: v }))).toBe(JSON.stringify(set));
     // And the same cells change: applied to two fresh stores, equal content and equal undo records.
     const a = createWorldStore(grid);
     const b = createWorldStore(grid);
     const ra = applyEdit({ store: () => a }, set);
-    const rb = applyEdit({ store: () => b }, canonicalEditCommand({ v: 1, grid: 0, kind: 'set', cells, voxel: v }));
+    const rb = applyEdit({ store: () => b }, canonicalEditCommand({ v: 2, grid: 0, kind: 'set', cells, voxel: v }));
     expect(ra.cells).toBe(5);
     expect(rb.cells).toBe(5);
     expect(a.encodeChunk(0, 0, 0)).toEqual(b.encodeChunk(0, 0, 0));
     expect(a.encodeChunk(-1, 0, 0)).toEqual(b.encodeChunk(-1, 0, 0));
   });
 
-  it('refuses an unassigned category or orientation in the voxel a stroke writes', () => {
-    expect(() => canonicalEditCommand({ v: 1, grid: 0, kind: 'set', cells: [0, 0, 0], voxel: { ...v, category: VOXEL_CATEGORY_COUNT } })).toThrow(EditCommandError);
-    expect(() => canonicalEditCommand({ v: 1, grid: 0, kind: 'set', cells: [0, 0, 0], voxel: { ...v, orientation: ORIENTATION_COUNT } })).toThrow(EditCommandError);
-    expect(() => canonicalEditCommand({ v: 1, grid: 0, kind: 'fill', min: [0, 0, 0], max: [1, 1, 1], mode: 'place', voxel: { material: 3, category: 9, orientation: 0 } })).toThrow(/category/);
-    expect(() => canonicalEditCommand({ v: 1, grid: 0, kind: 'set', cells: [0, 0, 0], voxel: { ...v, category: 4, orientation: 23 } })).not.toThrow();
+  it('refuses an unassigned role or wetness in the voxel a stroke writes', () => {
+    expect(() => canonicalEditCommand({ v: 2, grid: 0, kind: 'set', cells: [0, 0, 0], voxel: { ...v, role: VOXEL_ROLE_COUNT } })).toThrow(EditCommandError);
+    expect(() => canonicalEditCommand({ v: 2, grid: 0, kind: 'set', cells: [0, 0, 0], voxel: { ...v, wetness: WETNESS_MAX + 1 } })).toThrow(EditCommandError);
+    expect(() => canonicalEditCommand({ v: 2, grid: 0, kind: 'set', cells: [0, 0, 0], voxel: { ...v, shape: SHAPE_FULL + 1 } })).toThrow(EditCommandError);
+    expect(() => canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [0, 0, 0], max: [1, 1, 1], mode: 'place', voxel: { material: 3, role: VOXEL_ROLE_COUNT, wetness: 0 } })).toThrow(/role/);
+    expect(() => canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [0, 0, 0], max: [1, 1, 1], mode: 'place', voxel: { material: 3, role: 1, orientation: 0 } })).toThrow(/orientation/);
+    expect(() => canonicalEditCommand({ v: 1, grid: 0, kind: 'dig', cells: [0, 0, 0] })).toThrow(/unknown edit command version 1/);
+    expect(() => canonicalEditCommand({ v: 2, grid: 0, kind: 'set', cells: [0, 0, 0], voxel: { ...v, role: VOXEL_ROLE.opening, wetness: WETNESS_MAX } })).not.toThrow();
   });
 });
 
@@ -514,7 +526,7 @@ describe('saves: the cells the player changed land on a changed base', () => {
     const c = createDenseChunk(grid);
     for (let x = 0; x < 32; x++) for (let z = 0; z < 32; z++) for (let y = 0; y < top; y++) {
       const i = localIndex(grid, x, y, z);
-      [c.material[i], c.category[i], c.shape[i]] = [1, VOXEL_CATEGORY.terrain, 255];
+      [c.material[i], c.role[i], c.shape[i]] = [1, VOXEL_ROLE.terrain, SHAPE_FULL];
     }
     return c;
   };
@@ -528,7 +540,7 @@ describe('saves: the cells the player changed land on a changed base', () => {
     expect(entry.content.kind !== 'delta' && entry.content.mask.length).toBe(changedMaskBytes(grid));
     // The re-export puts a wall above the old ground, in cells the player never changed.
     const reexport = rockTo(16);
-    for (let y = 16; y < 24; y++) [reexport.material[localIndex(grid, 5, y, 5)], reexport.category[localIndex(grid, 5, y, 5)], reexport.shape[localIndex(grid, 5, y, 5)]] = [2, VOXEL_CATEGORY.construction, 255];
+    for (let y = 16; y < 24; y++) [reexport.material[localIndex(grid, 5, y, 5)], reexport.role[localIndex(grid, 5, y, 5)], reexport.shape[localIndex(grid, 5, y, 5)]] = [2, VOXEL_ROLE.wall, SHAPE_FULL];
     const onSame = createWorldStore(grid);
     onSame.importChunk(0, 0, 0, base);
     applySaveChunk(onSame, entry, true);
@@ -542,10 +554,10 @@ describe('saves: the cells the player changed land on a changed base', () => {
     expect(onNew.voxelAt(9, 15, 9, v).material).toBe(0);
   });
 
-  it('refuses a whole-chunk entry without changed cells, a uniform value the format does not hold, and air with a shape in a delta', () => {
+  it('refuses a whole-chunk entry without changed cells, and a value the format does not hold in a uniform entry or a delta', () => {
     const base = rockTo(16);
     const now = rockTo(16);
-    for (let i = 0; i < n; i++) [now.material[i], now.category[i], now.shape[i]] = [3, VOXEL_CATEGORY.construction, 255];
+    for (let i = 0; i < n; i++) [now.material[i], now.role[i], now.shape[i]] = [3, VOXEL_ROLE.wall, SHAPE_FULL];
     const content = saveContentOf(grid, base, now)!;
     expect(content.kind).toBe('uniform');
     const worldId = Uint8Array.from({ length: 16 }, (_, i) => i);
@@ -554,85 +566,89 @@ describe('saves: the cells the player changed land on a changed base', () => {
     expect(() => read(write(content))).not.toThrow();
     if (content.kind !== 'uniform') throw new Error('unreachable');
     expect(() => read(write({ ...content, mask: new Uint8Array(changedMaskBytes(grid)) }))).toThrow(/names no changed cell/);
-    expect(() => read(write({ ...content, value: recordValue(3, VOXEL_CATEGORY_COUNT, 0) }))).toThrow(/save uniform entry: unassigned category 5/);
-    expect(() => read(write({ ...content, value: recordValue(3, 1, ORIENTATION_COUNT) }))).toThrow(/orientation 24/);
+    expect(() => read(write({ ...content, value: recordValue(3, VOXEL_ROLE_COUNT, SHAPE_FULL, 0) }))).toThrow(/save uniform entry: unassigned role 10/);
+    expect(() => read(write({ ...content, value: (recordValue(3, 1, SHAPE_FULL, 0) | (1 << 23)) >>> 0 }))).toThrow(/reserved bits/);
     const airShape = new CellDelta();
-    airShape.push(7, 0, 9);
-    expect(() => CellDelta.decode(grid, airShape.encode())).toThrow(/cell 7 is air with shape 9/);
-    const airCategory = new CellDelta();
-    airCategory.push(7, recordValue(0, 1, 0), 0);
-    expect(() => CellDelta.decode(grid, airCategory.encode())).toThrow(/cell delta: air with a category/);
+    airShape.push(7, recordValue(0, 0, 9, 0));
+    expect(() => CellDelta.decode(grid, airShape.encode())).toThrow(/cell delta: air with a role, shape or wetness/);
+    const airRole = new CellDelta();
+    airRole.push(7, recordValue(0, 1, 0, 0));
+    expect(() => CellDelta.decode(grid, airRole.encode())).toThrow(/cell delta: air with a role/);
   });
 });
 
 describe('record value form: every form holding raw values names it', () => {
   const worldId = Uint8Array.from({ length: 16 }, (_, i) => i);
 
-  it('is 1 today, written by region files, saves, undo records and overrides; a newer one is refused', () => {
-    expect(RECORD_VALUE_FORM).toBe(1);
+  it('is 2 today, written by region files, saves, undo records and overrides; another is refused', () => {
+    expect(RECORD_VALUE_FORM).toBe(2);
     const { tile, bytes } = sampleRegion();
     expect(bytes[10]).toBe(RECORD_VALUE_FORM);
     const region2 = bytes.slice();
-    region2[10] = 2;
+    region2[10] = 3;
     new DataView(region2.buffer).setUint32(60, crc32(region2.subarray(0, 60)), true);
-    expect(() => RegionIndex.parse(region2, { expect: tile })).toThrow(/region file: record value form 2 \(this build reads 1 to 1\)/);
+    expect(() => RegionIndex.parse(region2, { expect: tile })).toThrow(/region file: record value form 3 \(this build reads 2\)/);
 
     const save = writeSave({ worldId, grid, chunks: [] }, 'none', (b) => b);
     expect(save[8]).toBe(RECORD_VALUE_FORM);
     const save2 = save.slice();
-    save2[8] = 2;
+    save2[8] = 1;
     new DataView(save2.buffer).setUint32(40, crc32(save2.subarray(0, 40)), true);
-    expect(() => readSave(save2, grid, worldId, (b) => b)).toThrow(/save: record value form 2/);
+    expect(() => readSave(save2, grid, worldId, (b) => b)).toThrow(/save: record value form 1/);
 
     const delta = new CellDelta();
-    delta.push(3, recordValue(1, 1, 0), 255);
+    delta.push(3, recordValue(1, 1, SHAPE_FULL, 0));
     const undo = encodeUndoRecord(grid, [{ grid: 0, cx: 0, cy: 0, cz: 0, before: { kind: 'delta', delta } }]);
     expect(undo[7]).toBe(RECORD_VALUE_FORM);
     const undo2 = undo.slice();
-    undo2[7] = 2;
+    undo2[7] = 3;
     new DataView(undo2.buffer).setUint32(undo2.length - 4, crc32(undo2.subarray(0, undo2.length - 4)), true);
-    expect(() => decodeUndoRecord(grid, undo2)).toThrow(/undo record: record value form 2/);
+    expect(() => decodeUndoRecord(grid, undo2)).toThrow(/undo record: record value form 3/);
 
     const o: StructureOverrides = { grid, gridId: 4, chunks: new Map([[0, { cx: 0, cy: 0, cz: 0, base: delta, value: delta }]]) };
     const ob = encodeOverrides(o);
     expect(ob[6]).toBe(RECORD_VALUE_FORM);
     const ob2 = ob.slice();
-    ob2[6] = 2;
+    ob2[6] = 3;
     new DataView(ob2.buffer).setUint32(ob2.length - 4, crc32(ob2.subarray(0, ob2.length - 4)), true);
-    expect(() => decodeOverrides(grid, ob2)).toThrow(/structure overrides: record value form 2/);
+    expect(() => decodeOverrides(grid, ob2)).toThrow(/structure overrides: record value form 3/);
   });
 
   it('region tables and overrides refuse values the format does not hold', () => {
     const { tile } = sampleRegion();
-    const bad = writeRegion(tile, [{ cx: 16, cy: 0, cz: -16, uniform: recordValue(1, VOXEL_CATEGORY_COUNT, 0) }]);
+    const bad = writeRegion(tile, [{ cx: 16, cy: 0, cz: -16, uniform: recordValue(1, VOXEL_ROLE_COUNT, SHAPE_FULL, 0) }]);
     expect(() => RegionIndex.parse(bad, { expect: tile })).toThrow(RegionFileError);
-    expect(() => RegionIndex.parse(bad, { expect: tile })).toThrow(/region file: entry 0: unassigned category 5/);
+    expect(() => RegionIndex.parse(bad, { expect: tile })).toThrow(/region file: entry 0: unassigned role 10/);
     const delta = new CellDelta();
-    delta.push(3, recordValue(1, 1, ORIENTATION_COUNT), 255);
+    delta.push(3, (recordValue(1, 1, SHAPE_FULL, 0) | (1 << 30)) >>> 0);
     const ok = new CellDelta();
-    ok.push(3, recordValue(1, 1, 0), 255);
-    expect(() => decodeOverrides(grid, encodeOverrides({ grid, gridId: 4, chunks: new Map([[0, { cx: 0, cy: 0, cz: 0, base: ok, value: delta }]]) }))).toThrow(/structure overrides: orientation 24/);
+    ok.push(3, recordValue(1, 1, SHAPE_FULL, 0));
+    expect(() => decodeOverrides(grid, encodeOverrides({ grid, gridId: 4, chunks: new Map([[0, { cx: 0, cy: 0, cz: 0, base: ok, value: delta }]]) }))).toThrow(/structure overrides: value .* sets reserved bits/);
   });
 });
 
 describe('structure overrides: versions move forward through registered steps only', () => {
-  it('has no steps at version 1, lifts an older version through appended steps and refuses a newer one', () => {
+  it('has no steps at version 2, lifts an older version through appended steps and refuses a newer one or the draft version 1', () => {
     expect(OVERRIDE_UPGRADES).toEqual([]);
     expect(Object.isFrozen(OVERRIDE_UPGRADES)).toBe(true);
     expect(SAVE_UPGRADES).toEqual([]);
     const a = new CellDelta();
-    a.push(3, recordValue(1, 1, 0), 255);
+    a.push(3, recordValue(1, 1, SHAPE_FULL, 0));
     const b = new CellDelta();
-    b.push(3, 0, 0);
+    b.push(3, 0);
     const bytes = encodeOverrides({ grid, gridId: 4, chunks: new Map([[0, { cx: 0, cy: 0, cz: 0, base: a, value: b }]]) });
-    // A test-only step to a version 2 (never a real format): it renumbers the structure's grid.
+    // A test-only step to a version 3 (never a real format): it renumbers the structure's grid.
     const step = (o: StructureOverrides): StructureOverrides => ({ ...o, gridId: o.gridId + 100 });
     expect(decodeOverrides(grid, bytes).gridId).toBe(4);
     expect(decodeOverrides(grid, bytes, [step]).gridId).toBe(104);
-    const v2 = bytes.slice();
-    v2[4] = 2;
-    new DataView(v2.buffer).setUint32(v2.length - 4, crc32(v2.subarray(0, v2.length - 4)), true);
-    expect(() => decodeOverrides(grid, v2)).toThrow(/unknown version 2 \(this build reads 1 to 1\)/);
-    expect(decodeOverrides(grid, v2, [step]).gridId).toBe(4);
+    const at = (version: number): Uint8Array => {
+      const x = bytes.slice();
+      x[4] = version;
+      new DataView(x.buffer).setUint32(x.length - 4, crc32(x.subarray(0, x.length - 4)), true);
+      return x;
+    };
+    expect(() => decodeOverrides(grid, at(3))).toThrow(/unknown version 3 \(this build reads 2 to 2\)/);
+    expect(decodeOverrides(grid, at(3), [step]).gridId).toBe(4);
+    expect(() => decodeOverrides(grid, at(1))).toThrow(/unknown version 1/);
   });
 });

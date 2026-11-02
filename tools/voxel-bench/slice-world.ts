@@ -6,7 +6,7 @@
  * the same options always give the same files.
  */
 import { join } from 'node:path';
-import { chunkGrid, createWorldStore, VOXEL_CATEGORY, voxel, type PaletteStore } from '@thirdlight/voxel';
+import { chunkGrid, createWorldStore, VOXEL_ROLE, voxel, type PaletteStore } from '@thirdlight/voxel';
 import { VOXEL_WORLDS_FOLDER, writeVoxelWorld } from '@thirdlight/workspace';
 import { loadArea } from './regions';
 import { placeWallBeamBanister, putVoxel, WALL_BEAM_BANISTER_HALF } from './scenes';
@@ -35,7 +35,7 @@ function surfaceAt(store: PaletteStore, x: number, z: number): number {
   const v = voxel();
   for (let y = 300; y > -128; y--) {
     store.voxelAt(x, y, z, v);
-    if (v.material !== 0 && v.category === VOXEL_CATEGORY.terrain) return y + 1;
+    if (v.material !== 0 && v.role === VOXEL_ROLE.terrain) return y + 1;
   }
   return -128;
 }
@@ -61,7 +61,7 @@ export function buildSliceWorld(footprint = SLICE_FOOTPRINT): SliceWorld {
   for (let x = best.x - h; x < best.x + h; x++) {
     for (let z = best.z - h; z < best.z + h; z++) {
       for (let y = best.y; y < best.y + PAD_CLEAR; y++) putVoxel(store, x, y, z, 0, 0);
-      for (let y = surfaceAt(store, x, z); y < best.y; y++) putVoxel(store, x, y, z, MAT.soil, VOXEL_CATEGORY.terrain);
+      for (let y = surfaceAt(store, x, z); y < best.y; y++) putVoxel(store, x, y, z, MAT.soil, VOXEL_ROLE.terrain);
     }
   }
   placeWallBeamBanister(store, best.x, best.y, best.z);

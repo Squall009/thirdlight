@@ -8,7 +8,7 @@
  * so a chunk is the same whichever order or process generates it, and a
  * world is generated chunk by chunk without ever being held whole.
  */
-import { localIndex, SHAPE_FULL, VOXEL_CATEGORY, type ChunkGrid, type DenseChunk } from '@thirdlight/voxel';
+import { localIndex, SHAPE_FULL, VOXEL_ROLE, type ChunkGrid, type DenseChunk } from '@thirdlight/voxel';
 
 /** Material ids of the test worlds (0 is air). */
 export const MAT = Object.freeze({
@@ -106,21 +106,21 @@ export function fillGroundColumn(grid: ChunkGrid, out: DenseChunk, lx: number, l
     if (solid > 0) {
       const depth = surface - (y + 1);
       out.material[i] = depth < 1 ? col.top : depth < 1 + col.soilDepth ? MAT.soil : MAT.rock;
-      out.category[i] = VOXEL_CATEGORY.terrain;
+      out.role[i] = VOXEL_ROLE.terrain;
       out.shape[i] = shapeByte(solid);
-      out.orientation[i] = 0;
+      out.wetness[i] = 0;
       any = true;
     } else if (y >= col.base && y < liquidLevel) {
       out.material[i] = MAT.water;
-      out.category[i] = VOXEL_CATEGORY.liquid;
+      out.role[i] = VOXEL_ROLE.liquid;
       out.shape[i] = shapeByte(liquidLevel - y);
-      out.orientation[i] = 0;
+      out.wetness[i] = 0;
       any = true;
     } else {
       out.material[i] = 0;
-      out.category[i] = 0;
+      out.role[i] = 0;
       out.shape[i] = 0;
-      out.orientation[i] = 0;
+      out.wetness[i] = 0;
     }
   }
   return any;

@@ -13,7 +13,7 @@
  * the arrangement, which is exactly what the storage must carry cheaply.
  */
 import { latticeHash } from '@thirdlight/shared';
-import { localIndex, VOXEL_CATEGORY, type ChunkGrid, type DenseChunk, type VoxelRecord } from '@thirdlight/voxel';
+import { type ChunkGrid, type DenseChunk, localIndex, SHAPE_FULL, VOXEL_ROLE, type VoxelRecord } from '@thirdlight/voxel';
 import { MAT, fillGroundColumn, shapeByte, type GroundColumn, type TestGrid, type TestWorld } from './world-kit';
 
 /** Lot pitch in cells (20 m). */
@@ -57,11 +57,11 @@ function lotOf(i: number, j: number, seed: number): Lot {
   return { house, yaw, fence: pick(19, 3) === 0, pond };
 }
 
-function set(out: VoxelRecord, material: number, category: number, orientation = 0, shape = 255): true {
+function set(out: VoxelRecord, material: number, role: number, wetness = 0, shape = SHAPE_FULL): true {
   out.material = material;
-  out.category = category;
+  out.role = role;
   out.shape = shape;
-  out.orientation = orientation;
+  out.wetness = wetness;
   return true;
 }
 
@@ -80,7 +80,7 @@ export function houseVoxel(h: House, x: number, y: number, z: number, out: Voxel
   const inFoot = x >= 0 && x < w && z >= 0 && z < d;
   const perimeter = inFoot && (x === 0 || x === w - 1 || z === 0 || z === d - 1);
   const mid = w >> 1;
-  if (y === 0 && inFoot) return set(out, MAT.stone, VOXEL_CATEGORY.construction);
+  if (y === 0 && inFoot) return set(out, MAT.stone, VOXEL_ROLE.foundation);
   if (y >= 1 && y < top) {
     const s = Math.floor(y / STOREY);
     const lev = y % STOREY;
@@ -90,26 +90,26 @@ export function houseVoxel(h: House, x: number, y: number, z: number, out: Voxel
       const door = z === 0 && (x === mid - 1 || x === mid) && lev >= 1 && lev <= 4 && (s === 0 || (s === 1 && h.balcony));
       const window = !nearCorner && (lev === 2 || lev === 3) && along % 6 >= 3 && along % 6 <= 4 && !(z === 0 && Math.abs(x - mid) < 3);
       if (door || window) return false;
-      return set(out, h.wall, VOXEL_CATEGORY.construction);
+      return set(out, h.wall, VOXEL_ROLE.wall);
     }
     // Stairs up the x = 1, 2 strip: one cell up per cell along z, facing +z; the floor above has a hole over them.
     const stairStorey = s < h.storeys - 1;
-    if (inFoot && (x === 1 || x === 2) && stairStorey && z === 2 + (lev - 1) && lev >= 1 && lev <= 5) return set(out, MAT.plank, VOXEL_CATEGORY.construction, 1);
-    if (inFoot && lev === 0 && !((x === 1 || x === 2) && z >= 2 && z <= 7)) return set(out, MAT.plank, VOXEL_CATEGORY.construction);
-    if (lev === 0 && x >= 0 && x < w && (z === -1 || z === d) && !(h.balcony && s === 1 && z === -1)) return set(out, MAT.timber, VOXEL_CATEGORY.construction, 0);
+    if (inFoot && (x === 1 || x === 2) && stairStorey && z === 2 + (lev - 1) && lev >= 1 && lev <= 5) return set(out, MAT.plank, VOXEL_ROLE.stair);
+    if (inFoot && lev === 0 && !((x === 1 || x === 2) && z >= 2 && z <= 7)) return set(out, MAT.plank, VOXEL_ROLE.floor);
+    if (lev === 0 && x >= 0 && x < w && (z === -1 || z === d) && !(h.balcony && s === 1 && z === -1)) return set(out, MAT.timber, VOXEL_ROLE.wall);
     if (h.balcony && s === 1 && lev <= 2) {
       const onSlab = x >= mid - 3 && x < mid + 3 && (z === -1 || z === -2);
-      if (onSlab && lev === 0) return set(out, MAT.plank, VOXEL_CATEGORY.construction);
+      if (onSlab && lev === 0) return set(out, MAT.plank, VOXEL_ROLE.floor);
       const edge = onSlab && (z === -2 || x === mid - 3 || x === mid + 2);
-      if (edge && lev === 2) return set(out, MAT.timber, VOXEL_CATEGORY.construction);
-      if (edge && lev === 1 && ((x + z) & 1) === 0) return set(out, MAT.timber, VOXEL_CATEGORY.construction);
+      if (edge && lev === 2) return set(out, MAT.timber, VOXEL_ROLE.wall);
+      if (edge && lev === 1 && ((x + z) & 1) === 0) return set(out, MAT.timber, VOXEL_ROLE.wall);
     }
     return false;
   }
   if (y >= top && z >= -1 && z <= d && x >= -1 && x <= w) {
     const r = roofRow(h, z);
-    if (y === r) return set(out, MAT.roofTile, VOXEL_CATEGORY.roof, z < d / 2 ? 0 : 2);
-    if ((x === 0 || x === w - 1) && z >= 0 && z < d && y < r) return set(out, h.wall, VOXEL_CATEGORY.construction);
+    if (y === r) return set(out, MAT.roofTile, VOXEL_ROLE.roof);
+    if ((x === 0 || x === w - 1) && z >= 0 && z < d && y < r) return set(out, h.wall, VOXEL_ROLE.wall);
   }
   return false;
 }
@@ -125,15 +125,15 @@ function fenceVoxel(x: number, y: number, z: number, out: VoxelRecord): boolean 
   if (!onEdge || y < 0 || y > 1) return false;
   if (z === 1 && x >= LOT / 2 - 3 && x <= LOT / 2 + 2) return false;
   const along = z === 1 || z === LOT - 2 ? x : z;
-  if (y === 1 || along % 4 === 1) return set(out, MAT.timber, VOXEL_CATEGORY.construction, z === 1 || z === LOT - 2 ? 0 : 1);
+  if (y === 1 || along % 4 === 1) return set(out, MAT.timber, VOXEL_ROLE.wall);
   return false;
 }
 
 /** A round pond 8 cells across its radius, 3 cells deep with a partly filled top cell, behind a stone rim. */
 function pondVoxel(x: number, y: number, z: number, out: VoxelRecord): boolean {
   const r = Math.hypot(x - LOT / 2 + 0.5, z - LOT / 2 + 0.5);
-  if (r <= 8 && y >= -3 && y <= -1) return set(out, MAT.water, VOXEL_CATEGORY.liquid, 0, y === -1 ? shapeByte(0.78) : 255);
-  if (r > 8 && r <= 9.2 && y === 0) return set(out, MAT.stone, VOXEL_CATEGORY.construction);
+  if (r <= 8 && y >= -3 && y <= -1) return set(out, MAT.water, VOXEL_ROLE.liquid, 0, y === -1 ? shapeByte(0.78) : SHAPE_FULL);
+  if (r > 8 && r <= 9.2 && y === 0) return set(out, MAT.stone, VOXEL_ROLE.wall);
   return false;
 }
 
@@ -147,7 +147,7 @@ export function townWorld(opts: { seed?: number; footprint?: number } = {}): Tes
   const lotAt = (i: number, j: number): Lot | undefined => (i >= 0 && j >= 0 && i < lots && j < lots ? lotTable[i * lots + j] : undefined);
   const ground: GroundColumn = { surface: 0, base: -128, top: MAT.grass, soilDepth: 4, liquidLevel: -Infinity };
   const tallest = Math.max(...lotTable.map((l) => (l.house === null ? 0 : houseBounds(l.house).max[1])));
-  const v: VoxelRecord = { material: 0, category: 0, shape: 0, orientation: 0 };
+  const v: VoxelRecord = { material: 0, role: 0, shape: 0, wetness: 0 };
 
   const world: TestGrid = {
     name: 'world',
@@ -168,9 +168,9 @@ export function townWorld(opts: { seed?: number; footprint?: number } = {}): Tes
         else for (let ly = 0; ly < e; ly++) {
           const i = localIndex(grid, lx, ly, lz);
           out.material[i] = 0;
-          out.category[i] = 0;
+          out.role[i] = 0;
           out.shape[i] = 0;
-          out.orientation[i] = 0;
+          out.wetness[i] = 0;
         }
         if (!inside) continue;
         const i = Math.floor(x / LOT);
@@ -189,9 +189,9 @@ export function townWorld(opts: { seed?: number; footprint?: number } = {}): Tes
           if (!hit) continue;
           const idx = localIndex(grid, lx, ly, lz);
           out.material[idx] = v.material;
-          out.category[idx] = v.category;
+          out.role[idx] = v.role;
           out.shape[idx] = v.shape;
-          out.orientation[idx] = v.orientation;
+          out.wetness[idx] = v.wetness;
           any = true;
         }
       }
@@ -205,7 +205,7 @@ export function townWorld(opts: { seed?: number; footprint?: number } = {}): Tes
     if (lot.house === null || lot.yaw === 0) continue;
     const house = lot.house;
     const b = houseBounds(house);
-    const hv: VoxelRecord = { material: 0, category: 0, shape: 0, orientation: 0 };
+    const hv: VoxelRecord = { material: 0, role: 0, shape: 0, wetness: 0 };
     grids.push({
       name: `house-${i}-${j}-yaw${lot.yaw}`,
       yawDeg: lot.yaw,
@@ -218,9 +218,9 @@ export function townWorld(opts: { seed?: number; footprint?: number } = {}): Tes
           const idx = localIndex(grid, lx, ly, lz);
           const hit = houseVoxel(house, (cx << grid.shift) + lx, (cy << grid.shift) + ly, (cz << grid.shift) + lz, hv);
           out.material[idx] = hit ? hv.material : 0;
-          out.category[idx] = hit ? hv.category : 0;
+          out.role[idx] = hit ? hv.role : 0;
           out.shape[idx] = hit ? hv.shape : 0;
-          out.orientation[idx] = hit ? hv.orientation : 0;
+          out.wetness[idx] = hit ? hv.wetness : 0;
           any = hit || any;
         }
         return any;

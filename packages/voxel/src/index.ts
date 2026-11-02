@@ -39,27 +39,46 @@ export {
 } from './coords';
 export {
   AIR,
+  ALL_DERIVED_PARTS,
   ALL_PLANES,
-  BYTE_PLANE_MAX,
-  MATERIAL_AIR,
-  MATERIAL_ID_MAX,
-  ORIENTATION_COUNT,
-  orientationMatrix,
-  PLANE_BIT,
-  PLANE_BYTES,
-  SHAPE_EMPTY,
-  SHAPE_FULL,
-  VOXEL_CATEGORY,
-  VOXEL_CATEGORY_COUNT,
-  VOXEL_PLANES,
+  changedFields,
+  checkRecordValue,
   checkValueForm,
   checkVoxel,
-  RECORD_VALUE_FORM,
+  DEFAULT_SAVED_FIELDS,
+  DENSITY_FULL,
+  DERIVED_PART,
+  FIELD_FEEDS,
+  fieldsFeed,
   isAir,
+  MATERIAL_AIR,
+  MATERIAL_BITS,
+  MATERIAL_ID_MAX,
+  PLANE_BIT,
+  PLANE_BYTES,
   planeMask,
+  readValue,
+  RECORD_VALUE_FORM,
+  recordValue,
+  RESERVED_BITS,
+  ROLE_BITS,
   sameVoxel,
+  savedValue,
+  SHAPE_BITS,
+  SHAPE_EMPTY,
+  SHAPE_FULL,
+  shapeDensity,
+  valueMaterial,
+  valueOf,
+  valueRole,
+  valueShape,
+  valueWetness,
   voxel,
-  type AxisRotation,
+  VOXEL_PLANES,
+  VOXEL_ROLE,
+  VOXEL_ROLE_COUNT,
+  WETNESS_BITS,
+  WETNESS_MAX,
   type VoxelPlane,
   type VoxelRecord,
 } from './record';
@@ -83,20 +102,8 @@ export { DenseReferenceStore, checkChunk, storeChunkCoords } from './dense-store
 export { ColumnRuns, PackedIndices, type CellLayout, type LayoutKind } from './cell-layout';
 export { MAX_PALETTE, packedWidth } from './packed-width';
 export { BRICK_CELLS, BRICK_EDGE, BrickLayout, brickOrder, bricksPerChunk, brickUniform } from './brick-layout';
-export { impliedShape, isSurfaceVoxel, SurfaceDensity } from './surface-density';
 export { createPlaneImage, PalettePlane, type PlaneImage } from './palette-plane';
-export {
-  createChunkImage,
-  imageToCells,
-  planesImageFromCells,
-  recordImageFromCells,
-  recordValue,
-  valueCategory,
-  valueMaterial,
-  valueOrientation,
-  type ChunkImage,
-  type PaletteKind,
-} from './palette-image';
+export { createChunkImage, imageIsUniform, imageToCells, planesImageFromCells, recordImageFromCells, uniformImageValue, type ChunkImage, type PaletteKind } from './palette-image';
 export { CHUNK_CODEC_UPGRADES, decodePaletteImage, encodePaletteImage, liftChunkBytes, PALETTE_CODEC_VERSION, readPaletteHeader, type PaletteCodecHeader } from './palette-codec';
 export { decodeMeasuredImage, encodeMeasuredImage, readMeasuredHeader } from './palette-codec-measure';
 export { liftVersion, type UpgradeStep } from './format-upgrade';
@@ -138,7 +145,7 @@ export {
   type RegionTile,
 } from './region-file';
 export { canonicalEditCommand, BRUSH_SHAPES, EDIT_MODES, EditCommandError, VOXEL_EDIT_VERSION, type BrushEdit, type BrushShape, type DigEdit, type EditMode, type EditVoxel, type FillEdit, type SetEdit, type SetVoxel, type StampEdit, type VoxelEditCommand } from './edit-command';
-export { CellDelta, chunkScratch, decodeDenseChunk, deltaValue, DELTA_CELL_BYTES, diffDense, encodeDenseChunk, exportOrAir } from './cell-delta';
+export { CellDelta, chunkScratch, decodeDenseChunk, DELTA_CELL_BYTES, denseValue, diffDense, encodeDenseChunk, exportOrAir, writeDenseValue } from './cell-delta';
 export { checkStampShape, STAMP_SIDE_MAX, stampShapeHash, type StampResolver, type StampShape } from './stamp-shape';
 export { applyEdit, applyUndo, chunkWorstUndoBytes, editBounds, editChunks, EditRefused, UNDO_CHUNK_HEADER_BYTES, UNDO_IMAGE_CHECK_BYTES, UNDO_MEMORY_BUDGET_BYTES, undoRecordBytes, type ChunkBefore, type ChunkUndo, type EditGrids, type EditOptions, type EditOutcome, type EditRefusal } from './edit-apply';
 export { decodeUndoRecord, encodeUndoRecord, UNDO_RECORD_VERSION, UndoStore, type UndoSpill } from './undo-store';
@@ -150,10 +157,12 @@ export {
   baseChunkHash,
   baseContentHash,
   changedMaskBytes,
+  persistedCells,
   playerCells,
   readSave,
   readSaveVersion,
   SAVE_ENTRY_HEADER_BYTES,
+  SAVE_FIRST_VERSION,
   SAVE_FORMAT_VERSION,
   SAVE_HEADER_BYTES,
   SAVE_UPGRADES,
@@ -173,7 +182,7 @@ export {
   type SaveFile,
   type SaveUpgradeStep,
 } from './save-file';
-export { chunkOverridesOf, decodeOverrides, encodeOverrides, OVERRIDE_CELL_BYTES, OVERRIDE_FORMAT_VERSION, OVERRIDE_UPGRADES, overridesOf, reapplyOverrides, type ChunkOverrides, type OverrideUpgradeStep, type OverrideMisfit, type OverrideReport, type StructureOverrides } from './structure-overrides';
+export { chunkOverridesOf, decodeOverrides, encodeOverrides, OVERRIDE_CELL_BYTES, OVERRIDE_FIRST_VERSION, OVERRIDE_FORMAT_VERSION, OVERRIDE_UPGRADES, overridesOf, reapplyOverrides, type ChunkOverrides, type OverrideUpgradeStep, type OverrideMisfit, type OverrideReport, type StructureOverrides } from './structure-overrides';
 export { repairChunks, type RepairOutcome, type RepairSource } from './chunk-repair';
 export { DirtyTracker, type ChunkJob, type DirtyChunk, type JobRefusal, type SaveJob } from './dirty-tracker';
 export { checkPayloadEdge, payloadBytes, payloadTransfer, type ChunkPayload } from './chunk-wire';
@@ -242,9 +251,12 @@ export {
   derivedTransfer,
   encodeDerived,
   LIGHT_COVERAGE,
+  MATERIAL_SLOT_PARTS,
   NAV_CLEARANCE_CELLS,
   NAV_CLEARANCE_CONTINUES,
   OCCUPANCY,
+  shaderOfNeighbourhood,
+  stalePartsOf,
   type CollisionOut,
   type DerivedData,
   type DerivedCounts,
@@ -255,8 +267,10 @@ export {
 } from './derived-data';
 export { INSTANCE_BYTES, INSTANCE_FLAG, MaterialSlots, PIECE_FAMILY, PIECE_SECTION, POSITION_STEPS_PER_CELL, SURFACE_ISO, surfaceStride, type InstanceList, type SurfaceBuffer } from './derived-mesh';
 export { deriveFromStore, deriveWithApron } from './derive-assembly';
+export { encodeShader, shaderBytes, shaderDataOf, shaderDataOfValues, shaderEntry, shaderEntryAt, type ShaderOut } from './derived-shader';
 export { RULE_CONFORMANCE_EXTRA_PAD, ruleRadiusMismatches, type RuleRadiusMismatch } from './rule-conformance';
 export { cellOutputs, resolvedClassAt, type CellOutputs } from './derived-cell';
 export { collisionGeometry, type CollisionGeometry, type CollisionMesh, type CollisionMeshLimits } from './derived-collision';
 export { ChunkTreeFlags, downsampleMip, mipChildren, mipNodeKey, mipNodeOf, MipStaleSet, type MipNode } from './voxel-mips';
 export { combineCoverage, lightCoverage, PROP_SAMPLES_PER_AXIS, propCoverageChunk, type PropShape } from './prop-coverage';
+export { VoxelOverlay } from './voxel-overlay';

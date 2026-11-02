@@ -6,12 +6,14 @@ import {
   DenseReferenceStore,
   PackedIndices,
   PaletteStore,
-  VOXEL_CATEGORY,
+  VOXEL_ROLE,
   VOXEL_PLANES,
   chunkGrid,
   chunkKey,
   createDenseChunk,
-  isSurfaceVoxel,
+  recordValue,
+  valueOf,
+  valueShape,
   localIndex,
   readPaletteHeader,
   sameDenseChunk,
@@ -24,6 +26,8 @@ import {
   type PaletteStoreOptions,
   type VoxelRecord,
   type VoxelStoreCandidate,
+  SHAPE_FULL,
+  WETNESS_MAX,
 } from './index';
 
 const VARIANTS: readonly PaletteStoreOptions[] = [
@@ -35,9 +39,9 @@ const VARIANTS: readonly PaletteStoreOptions[] = [
   { name: 'bricks-rest-packed', palette: 'record', layout: 'bricks', atRest: 'packed' },
 ];
 
-const rock = voxel(1, VOXEL_CATEGORY.terrain, 255, 0);
-const soil = voxel(2, VOXEL_CATEGORY.terrain, 255, 0);
-const water = voxel(5, VOXEL_CATEGORY.liquid, 255, 0);
+const rock = voxel(1, VOXEL_ROLE.terrain, SHAPE_FULL, 0);
+const soil = voxel(2, VOXEL_ROLE.terrain, SHAPE_FULL, 0);
+const water = voxel(5, VOXEL_ROLE.liquid, SHAPE_FULL, 0);
 
 /**
  * A chunk with what the format must keep: layered ground whose top cell is
@@ -55,25 +59,25 @@ function fillMixed(grid: ChunkGrid, out: DenseChunk, seed: number): void {
       const i = localIndex(grid, x, y, z);
       let v: VoxelRecord = voxel();
       if (y + 1 <= surface) v = y < surface - 3 ? rock : soil;
-      else if (y < surface) v = voxel(3, VOXEL_CATEGORY.terrain, Math.max(1, Math.round((surface - y) * 255)), 0);
+      else if (y < surface) v = voxel(3, VOXEL_ROLE.terrain, Math.max(1, Math.round((surface - y) * SHAPE_FULL)), 0);
       else if (y + 1 <= liquid && (x + z) % 5 === 0) v = water;
-      else if (y < liquid && (x + z) % 5 === 0) v = voxel(5, VOXEL_CATEGORY.liquid, Math.max(1, Math.round((liquid - y) * 255)), 0);
-      else if (x === 2 && z % 2 === 0 && y < e - 2) v = voxel(11, VOXEL_CATEGORY.construction, 255, 0);
-      else if (x === 2 && y === e - 2) v = voxel(11, VOXEL_CATEGORY.construction, 255, 1);
-      else if (x === e - 3 && y === x - z && z > 0) v = voxel(14, VOXEL_CATEGORY.construction, 255, (z & 3) + 4);
+      else if (y < liquid && (x + z) % 5 === 0) v = voxel(5, VOXEL_ROLE.liquid, Math.max(1, Math.round((liquid - y) * SHAPE_FULL)), 0);
+      else if (x === 2 && z % 2 === 0 && y < e - 2) v = voxel(11, VOXEL_ROLE.wall, SHAPE_FULL, 0);
+      else if (x === 2 && y === e - 2) v = voxel(11, VOXEL_ROLE.wall, SHAPE_FULL, 1);
+      else if (x === e - 3 && y === x - z && z > 0) v = voxel(14, VOXEL_ROLE.wall, SHAPE_FULL, (z & 3) + 4);
       out.material[i] = v.material;
-      out.category[i] = v.category;
+      out.role[i] = v.role;
       out.shape[i] = v.shape;
-      out.orientation[i] = v.orientation;
+      out.wetness[i] = v.wetness;
     }
   }
 }
 
 function fillWith(out: DenseChunk, v: VoxelRecord): void {
   out.material.fill(v.material);
-  out.category.fill(v.category);
+  out.role.fill(v.role);
   out.shape.fill(v.shape);
-  out.orientation.fill(v.orientation);
+  out.wetness.fill(v.wetness);
 }
 
 /** Every cell of the chunk box [c0, c1) of both stores reads the same. */
@@ -99,7 +103,7 @@ describe.each(VARIANTS)('the palette store ($name)', (opts) => {
       [-1, 0, 0, (c) => fillMixed(grid, c, 2)],
       [0, -1, 0, (c) => fillWith(c, rock)],
       [0, 1, 0, (c) => fillWith(c, voxel())],
-      [0, 0, -1, (c) => fillWith(c, voxel(9, VOXEL_CATEGORY.roof, 255, 23))],
+      [0, 0, -1, (c) => fillWith(c, voxel(9, VOXEL_ROLE.roof, SHAPE_FULL, WETNESS_MAX))],
     ];
     for (const [cx, cy, cz, fill] of chunks) {
       fill(cells);
@@ -123,7 +127,7 @@ describe.each(VARIANTS)('the palette store ($name)', (opts) => {
     // The all-air chunk is absent; the uniform ones cost a few bytes.
     expect([...store.chunkKeys()].sort()).toEqual([...oracle.chunkKeys()].sort());
     expect(store.encodeChunk(0, 1, 0)).toBeNull();
-    expect(store.encodeChunk(0, -1, 0)).toHaveLength(14);
+    expect(store.encodeChunk(0, -1, 0)).toHaveLength(13);
     expect(store.memoryBytes()).toBeLessThan(oracle.memoryBytes() / 2);
   });
 
@@ -139,7 +143,7 @@ describe.each(VARIANTS)('the palette store ($name)', (opts) => {
     oracle.importChunk(0, -1, 0, cells);
     store.importChunk(0, -1, 0, cells);
     const rand = mulberry32(11);
-    const records = [rock, soil, water, voxel(), voxel(3, VOXEL_CATEGORY.terrain, 77, 0), voxel(5, VOXEL_CATEGORY.liquid, 30, 0), voxel(14, VOXEL_CATEGORY.construction, 255, 6)];
+    const records = [rock, soil, water, voxel(), voxel(3, VOXEL_ROLE.terrain, 5, 0), voxel(5, VOXEL_ROLE.liquid, 2, 0), voxel(14, VOXEL_ROLE.wall, SHAPE_FULL, 6)];
     for (let k = 0; k < 3000; k++) {
       const x = Math.floor(rand() * 40) - 12;
       const y = Math.floor(rand() * 40) - 20;
@@ -164,7 +168,7 @@ describe.each(VARIANTS)('the palette store ($name)', (opts) => {
     }
     // The filled box below y = 0 collapsed back to single numbers.
     for (const cy of [-1]) for (const cx of [-1, 0, 1]) {
-      expect(store.encodeChunk(cx, cy, 0)).toHaveLength(14);
+      expect(store.encodeChunk(cx, cy, 0)).toHaveLength(13);
     }
   });
 });
@@ -177,7 +181,7 @@ describe('palette growth, shrink and collapse', () => {
     const one = store.memoryBytes();
     const sizes: number[] = [];
     for (let m = 2; m <= 40; m++) {
-      store.setVoxel(m, 0, 0, voxel(m, VOXEL_CATEGORY.construction, 255, 0));
+      store.setVoxel(m, 0, 0, voxel(m, VOXEL_ROLE.wall, SHAPE_FULL, 0));
       sizes.push(store.memoryBytes());
     }
     // 2 bits per cell for up to 4 entries (air, rock, 2 more), 4 for up to 16, 8 past that.
@@ -197,28 +201,26 @@ describe('palette growth, shrink and collapse', () => {
     expect([...store.chunkKeys()]).toEqual([chunkKey(grid, 0, 0, 0)]);
   });
 
-  it('keeps density only on surface voxels', () => {
-    expect(isSurfaceVoxel(0, 0)).toBe(false);
-    expect(isSurfaceVoxel(3, 255)).toBe(false);
-    expect(isSurfaceVoxel(3, 254)).toBe(true);
-    expect(isSurfaceVoxel(5, 1)).toBe(true);
-    expect(isSurfaceVoxel(3, 0)).toBe(true);
+  it('keeps the fill level inside the voxel value: partly full cells are palette entries of their own', () => {
+    expect(valueShape(recordValue(5, VOXEL_ROLE.liquid, 8, 0))).toBe(8);
+    expect(valueOf(voxel(5, VOXEL_ROLE.liquid, 8, 0))).not.toBe(valueOf(voxel(5, VOXEL_ROLE.liquid, 15, 0)));
+    expect(valueOf(voxel(0, VOXEL_ROLE.terrain, 3, 1))).toBe(0);
     const grid = chunkGrid(16);
     for (const opts of VARIANTS) {
       const store = new PaletteStore(grid, opts);
       store.applyStroke({ kind: 'box', min: [0, 0, 0], max: [15, 7, 15], voxel: rock });
       const solid = store.encodeChunk(0, 0, 0);
-      store.setVoxel(4, 8, 4, voxel(5, VOXEL_CATEGORY.liquid, 128, 0));
-      store.setVoxel(5, 8, 4, voxel(5, VOXEL_CATEGORY.liquid, 64, 0));
+      store.setVoxel(4, 8, 4, voxel(5, VOXEL_ROLE.liquid, 8, 0));
+      store.setVoxel(5, 8, 4, voxel(5, VOXEL_ROLE.liquid, 4, 0));
       store.setVoxel(6, 8, 4, water);
       const out = voxel();
-      expect(store.voxelAt(4, 8, 4, out).shape).toBe(128);
-      expect(store.voxelAt(5, 8, 4, out).shape).toBe(64);
-      expect(store.voxelAt(6, 8, 4, out).shape).toBe(255);
-      // Liquid's own palette entries, one flagged (two surface voxels share it) and one not.
+      expect(store.voxelAt(4, 8, 4, out).shape).toBe(8);
+      expect(store.voxelAt(5, 8, 4, out).shape).toBe(4);
+      expect(store.voxelAt(6, 8, 4, out).shape).toBe(15);
+      // Each fill level is its own palette entry; filling the cells merges them back into the full liquid's.
       store.setVoxel(4, 8, 4, water);
       store.setVoxel(5, 8, 4, water);
-      expect(store.voxelAt(5, 8, 4, out).shape).toBe(255);
+      expect(store.voxelAt(5, 8, 4, out).shape).toBe(15);
       store.setVoxel(6, 8, 4, voxel());
       store.setVoxel(4, 8, 4, voxel());
       store.setVoxel(5, 8, 4, voxel());
@@ -228,12 +230,12 @@ describe('palette growth, shrink and collapse', () => {
     }
   });
 
-  it('measures a dropped plane: a store without the category plane reads it as 0', () => {
+  it('measures a dropped plane: a store without the role plane reads it as 0', () => {
     const grid = chunkGrid(16);
-    const store = new PaletteStore(grid, { ...VARIANTS[0]!, name: 'no-cat', planes: VOXEL_PLANES.filter((p) => p !== 'category') });
-    store.setVoxel(1, 2, 3, voxel(14, VOXEL_CATEGORY.construction, 200, 3));
-    expect(store.voxelAt(1, 2, 3, voxel())).toEqual(voxel(14, 0, 200, 3));
-    expect(store.planes).not.toContain('category');
+    const store = new PaletteStore(grid, { ...VARIANTS[0]!, name: 'no-cat', planes: VOXEL_PLANES.filter((p) => p !== 'role') });
+    store.setVoxel(1, 2, 3, voxel(14, VOXEL_ROLE.wall, 12, 3));
+    expect(store.voxelAt(1, 2, 3, voxel())).toEqual(voxel(14, 0, 12, 3));
+    expect(store.planes).not.toContain('role');
   });
 });
 
@@ -267,8 +269,8 @@ describe('the palette codec refuses what it did not write', () => {
     longer.set(good);
     expect(() => decode(withCrc(longer))).toThrow(/past the end/);
     const version = good.slice();
-    version[2] = 2;
-    expect(() => decode(version)).toThrow(/version 2 is newer than this build reads/);
+    version[2] = 3;
+    expect(() => decode(version)).toThrow(/version 3 is newer than this build reads/);
     const magic = good.slice();
     magic[0] = 0;
     expect(() => decode(magic)).toThrow(/magic/);
@@ -282,10 +284,10 @@ describe('the palette codec refuses what it did not write', () => {
     cells.material[0] = 2;
     twoEntry.importChunk(0, 0, 0, cells);
     const bytes = twoEntry.encodeChunk(0, 0, 0)!;
-    // Header 8, count 2, materials 6 (u24 each), categories 2, orientations 2, flags 1, then 512 bytes of 1-bit ids.
-    expect(bytes.length).toBe(8 + 2 + 6 + 2 + 2 + 1 + 512);
+    // Header 8, count 2, materials 4 (u16 each), roles 2, shapes 2, wetness 2, then 512 bytes of 1-bit ids.
+    expect(bytes.length).toBe(8 + 2 + 4 + 2 + 2 + 2 + 512);
     const swapped = bytes.slice();
-    for (let k = 21; k < swapped.length; k++) swapped[k]! ^= 0xff;
+    for (let k = 20; k < swapped.length; k++) swapped[k]! ^= 0xff;
     expect(() => decode(withCrc(swapped))).toThrow(/first appearance/);
   });
 });

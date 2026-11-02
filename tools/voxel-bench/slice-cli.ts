@@ -168,8 +168,8 @@ async function assembly(renderer: 'webgpu' | 'webgl2'): Promise<Record<string, u
   const centre = AT.map((v) => v >> 5) as Cell;
   const stages: Array<Record<string, unknown>> = [];
   const probeCells: Record<string, Cell> = { rail: [ox - 3, oy + 2, oz + 7], post: [ox - 4, oy + 1, oz + 7], gap: [ox - 3, oy + 1, oz + 7], beam: [ox - 4, oy + 5, oz - 1], beamNext: [ox - 5, oy + 5, oz - 1], wall: [ox - 4, oy + 5, oz] };
-  const timber = { material: 11, category: 2, orientation: 0, shape: 255 };
-  const stone = { material: 10, category: 2, orientation: 0, shape: 255 };
+  const timber = { material: 11, role: 3, wetness: 0, shape: 15 };
+  const stone = { material: 10, role: 3, wetness: 0, shape: 15 };
   const grown: number[] = [];
   const banister: number[] = [];
   for (let x = -4; x < 4; x++) {
@@ -208,12 +208,12 @@ async function assembly(renderer: 'webgpu' | 'webgl2'): Promise<Record<string, u
   try {
     const files0 = await hook<Record<string, string>>(page, 'files');
     await stage('start', null, front);
-    await stage('banister-grown', { v: 1, grid: 0, kind: 'set', cells: grown, voxel: timber }, front);
-    await stage('beam-cut', { v: 1, grid: 0, kind: 'dig', cells: behindBeam }, back);
-    await stage('beam-restored', { v: 1, grid: 0, kind: 'set', cells: behindBeam, voxel: stone }, back);
-    await stage('banister-shrunk', { v: 1, grid: 0, kind: 'dig', cells: grown }, front);
-    await stage('banister-dug', { v: 1, grid: 0, kind: 'dig', cells: banister }, front);
-    await stage('banister-rebuilt', { v: 1, grid: 0, kind: 'set', cells: banister, voxel: timber }, front);
+    await stage('banister-grown', { v: 2, grid: 0, kind: 'set', cells: grown, voxel: timber }, front);
+    await stage('beam-cut', { v: 2, grid: 0, kind: 'dig', cells: behindBeam }, back);
+    await stage('beam-restored', { v: 2, grid: 0, kind: 'set', cells: behindBeam, voxel: stone }, back);
+    await stage('banister-shrunk', { v: 2, grid: 0, kind: 'dig', cells: grown }, front);
+    await stage('banister-dug', { v: 2, grid: 0, kind: 'dig', cells: banister }, front);
+    await stage('banister-rebuilt', { v: 2, grid: 0, kind: 'set', cells: banister, voxel: timber }, front);
     const filesRebuilt = await hook<Record<string, string>>(page, 'files');
     await stage('pit', [[ox + 9, oy - 1, oz + 10], 'dig'], () => hook(page, 'look', ox + 9, oy, oz + 10, 0.5, 0.7, 8), 'dab');
     await stage('pit-undone', null, () => hook(page, 'look', ox + 9, oy, oz + 10, 0.5, 0.7, 8), 'undo');

@@ -1,9 +1,10 @@
 /**
  * Region files: one tile of one voxel grid on disk. DRAFT layout under
- * measurement, version 1 (all numbers little-endian):
+ * measurement, version 2 (all numbers little-endian; version 1, the draft
+ * with uniform entries of the 23/4/5 record, is not read):
  *
  *   0  'T' 'L' 'V' 'R'  magic
- *   4  u8   version (1; an older one is lifted through REGION_UPGRADES,
+ *   4  u8   version (2; an older one is lifted through REGION_UPGRADES,
  *           a newer one refused)
  *   5  u8   layout: 0 a full-height column, 1 a stacked cube of `side` chunks
  *   6  u8   chunk edge in cells
@@ -27,7 +28,7 @@
  *
  * Entry: u16 column (bits 0–13: lx × side + lz; bit 14 stored without the
  * compressor; bit 15 uniform), i16 chunk y (the grid's chunk index), then
- * two u32: a uniform chunk's record value and 0, or a stored chunk's byte
+ * two u32: a uniform chunk's voxel value and 0, or a stored chunk's byte
  * length and the CRC-32 of its stored bytes. A chunk's offset is the sum of
  * the lengths before it, so it is never stored twice.
  *
@@ -57,12 +58,12 @@ import { bytesToHex, crc32 } from '@thirdlight/shared';
 import { chunkGrid, chunkInWorld, chunksPerRegionSide, isRegionFootprint, type ChunkCoord, type ChunkGrid, type RegionFootprint } from './coords';
 import { scratchImage, uniformImage } from './palette-chunk';
 import { liftVersion, type UpgradeStep } from './format-upgrade';
-import { checkRecordValue, encodePaletteImage, liftChunkBytes, PALETTE_CODEC_VERSION, readPaletteHeader } from './palette-codec';
-import { recordValue } from './palette-image';
+import { encodePaletteImage, liftChunkBytes, PALETTE_CODEC_VERSION, readPaletteHeader } from './palette-codec';
+import { checkRecordValue, recordValue } from './record';
 import { ALL_PLANES, checkValueForm, RECORD_VALUE_FORM } from './record';
 
 /** The region file version this build writes and reads. */
-export const REGION_FORMAT_VERSION = 1;
+export const REGION_FORMAT_VERSION = 2;
 
 /**
  * An upgrade step of the region file: lifts a file's header and table of
@@ -76,7 +77,7 @@ export interface RegionUpgradeStep extends UpgradeStep<Uint8Array> {
   indexEnd(head: Uint8Array): number;
 }
 
-/** Region file upgrade steps, keyed by the version they lift from; only ever added to. Version 1 is the first. */
+/** Region file upgrade steps, keyed by the version they lift from; only ever added to. Version 2 has none. */
 export const REGION_UPGRADES: readonly RegionUpgradeStep[] = Object.freeze([]);
 
 /** What a reader expects a region file to hold: the tile its name and its world say it is. */
@@ -298,8 +299,8 @@ export function packRegionChunk(grid: ChunkGrid, cx: number, cy: number, cz: num
   const h = readPaletteHeader(grid, codecBytes);
   if (h.body === 'uniform') {
     if (h.planes !== ALL_PLANES) throw new RangeError('a region chunk holds every plane');
-    // Uniform body: material u24 at 8, category at 11, shape at 12, orientation at 13.
-    const value = recordValue(codecBytes[8]! | (codecBytes[9]! << 8) | (codecBytes[10]! << 16), codecBytes[11]!, codecBytes[13]!);
+    // Uniform body: material u16 at 8, role at 10, shape at 11, wetness at 12.
+    const value = recordValue(codecBytes[8]! | (codecBytes[9]! << 8), codecBytes[10]!, codecBytes[11]!, codecBytes[12]!);
     if (value === 0) throw new RangeError(`chunk (${cx}, ${cy}, ${cz}) is air: leave it out`);
     return { cx, cy, cz, uniform: value };
   }
@@ -441,7 +442,7 @@ export class RegionIndex {
       if (uniform && (raw || a === 0 || b !== 0)) throw new RegionFileError(`region file: entry ${i} is not a valid uniform chunk`);
       if (uniform) {
         try {
-          checkRecordValue(a, false, `region file: entry ${i}`);
+          checkRecordValue(a, `region file: entry ${i}`);
         } catch (e) {
           throw new RegionFileError((e as Error).message);
         }

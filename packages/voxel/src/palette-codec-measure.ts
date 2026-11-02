@@ -11,10 +11,10 @@
  *   mixed bricks, the uniform bricks' ids bit-packed in brick order (padding
  *   bits zero), then each mixed brick's 64 cells bit-packed in brick order
  *   (a mixed brick of one id is refused).
- * - Per-plane palettes (flag bit 7): material (with the density flags),
- *   category and orientation each their own palette, in that order.
- * - Dropped planes: a plane left out of the mask is not written; it reads
- *   0 (shape: the implied shape, so no density is kept).
+ * - Per-plane palettes (flag bit 7): material, role, shape and wetness
+ *   each their own palette, in that order.
+ * - Dropped fields: a field left out of the mask is not written; it reads
+ *   0.
  *
  * World bytes (every plane, record palette, uniform or packed) are read
  * and written here too, byte for byte as the world codec does.
@@ -23,44 +23,36 @@ import { BRICK_CELLS, brickOrder, bricksPerChunk, brickUniform } from './brick-l
 import type { LayoutKind } from './cell-layout';
 import type { ChunkGrid } from './coords';
 import {
-  CATEGORY_FIELD,
   checkCanonical,
+  checkField,
   chunkFlags,
   finishChunkBytes,
   HEADER,
-  imageIsUniform,
   MATERIAL,
-  ORIENTATION_FIELD,
   readAnyPaletteHeader,
-  readDensities,
   readPackedIds,
   readPaletteHead,
   Reader,
   RECORD_FIELDS,
+  ROLE_FIELD,
   scratchOut,
+  SHAPE_FIELD,
   singleEntry,
   writePackedIds,
   writePaletteHead,
+  WETNESS_FIELD,
   Writer,
   type Field,
   type PaletteCodecHeader,
 } from './palette-codec';
-import { recordValue, valueCategory, valueMaterial, valueOrientation, type ChunkImage } from './palette-image';
+import { imageIsUniform, uniformImageValue, type ChunkImage } from './palette-image';
 import type { PlaneImage } from './palette-plane';
 import { packedWidth } from './packed-width';
-import { PLANE_BIT } from './record';
-import { impliedShape } from './surface-density';
+import { PLANE_BIT, recordValue } from './record';
 
-const PLANE_FIELDS: readonly (readonly Field[])[] = [[MATERIAL], [{ ...CATEGORY_FIELD, shift: 0 }], [{ ...ORIENTATION_FIELD, shift: 0 }]];
-
-/** The single voxel of a uniform image as (material, category, orientation). */
-function uniformVoxel(img: ChunkImage): [number, number, number] {
-  if (img.kind === 'record') {
-    const v = img.planes[0].values[0]!;
-    return [valueMaterial(v), valueCategory(v), valueOrientation(v)];
-  }
-  return [img.planes[0].values[0]!, img.planes[1].values[0]!, img.planes[2].values[0]!];
-}
+/** A per-plane palette's one field: the value is the field itself. */
+const planeField = (f: Field): Field => ({ ...f, shift: 0, of: (v) => v });
+const PLANE_FIELDS: readonly Field[] = [MATERIAL, planeField(ROLE_FIELD), planeField(SHAPE_FIELD), planeField(WETNESS_FIELD)];
 
 /**
  * The bytes of a canonical image (as {@link recordImageFromCells} or
@@ -75,25 +67,21 @@ export function encodeMeasuredImage(img: ChunkImage, planes: number, layout: Lay
   w.at = HEADER;
   const uniform = imageIsUniform(img);
   if (uniform) {
-    const [m, c, o] = uniformVoxel(img);
-    w.u24(m);
-    if (planes & PLANE_BIT.category) w.u8(c);
-    if (planes & PLANE_BIT.shape) w.u8(impliedShape(m));
-    if (planes & PLANE_BIT.orientation) w.u8(o);
+    const v = uniformImageValue(img);
+    for (const f of RECORD_FIELDS) if (planes & f.bit) (f.bytes === 2 ? w.u16(f.of(v)) : w.u8(f.of(v)));
   } else if (img.kind === 'record') {
-    writePalette(w, grid, img.planes[0], RECORD_FIELDS.filter((f) => planes & f.bit), (planes & PLANE_BIT.shape) !== 0, layout);
+    writePalette(w, grid, img.planes[0], RECORD_FIELDS.filter((f) => planes & f.bit), layout);
   } else {
     img.planes.forEach((p, k) => {
-      const fields = PLANE_FIELDS[k]!.filter((f) => planes & f.bit);
-      if (fields.length > 0) writePalette(w, grid, p, fields, k === 0 && (planes & PLANE_BIT.shape) !== 0, layout);
+      const f = PLANE_FIELDS[k]!;
+      if (planes & f.bit) writePalette(w, grid, p, [f], layout);
     });
   }
-  if (!uniform && planes & PLANE_BIT.shape) for (let k = 0; k < img.densCount; k++) w.u8(img.densValues[k]!);
   return finishChunkBytes(w, chunkFlags(grid, planes, uniform ? 'uniform' : layout, img.kind === 'planes' && !uniform));
 }
 
-function writePalette(w: Writer, grid: ChunkGrid, p: PlaneImage, fields: readonly Field[], withFlags: boolean, layout: LayoutKind): void {
-  writePaletteHead(w, p, fields, withFlags);
+function writePalette(w: Writer, grid: ChunkGrid, p: PlaneImage, fields: readonly Field[], layout: LayoutKind): void {
+  writePaletteHead(w, p, fields);
   if (layout === 'bricks') writeBricks(w, grid, p.ids, packedWidth(p.count));
   else if (layout === 'packed') writePackedIds(w, grid, p.ids, p.count);
   else writeRuns(w, grid, p.ids, p.count);
@@ -252,8 +240,8 @@ function readRuns(r: Reader, grid: ChunkGrid, ids: Uint16Array, count: number): 
   }
 }
 
-function readPalette(r: Reader, grid: ChunkGrid, p: PlaneImage, fields: readonly Field[], planes: number, withFlags: boolean, body: LayoutKind): void {
-  readPaletteHead(r, grid, p, fields, planes, withFlags);
+function readPalette(r: Reader, grid: ChunkGrid, p: PlaneImage, fields: readonly Field[], planes: number, body: LayoutKind): void {
+  readPaletteHead(r, grid, p, fields, planes);
   if (body === 'bricks') readBricks(r, grid, p.ids, packedWidth(p.count));
   else if (body === 'packed') readPackedIds(r, grid, p.ids, p.count);
   else readRuns(r, grid, p.ids, p.count);
@@ -267,7 +255,7 @@ export function readMeasuredHeader(grid: ChunkGrid, bytes: Uint8Array): PaletteC
 
 /**
  * Decodes the bytes of any encoding into `img` (of the bytes' palette
- * kind; a dropped plane reads 0, a dropped shape plane reads as implied).
+ * kind; a dropped field reads 0).
  * Refuses bytes that are short, long, damaged, of another version or chunk
  * edge, or not canonical.
  */
@@ -276,29 +264,27 @@ export function decodeMeasuredImage(bytes: Uint8Array, img: ChunkImage): Palette
   const h = readAnyPaletteHeader(grid, bytes);
   const r = new Reader(bytes, HEADER);
   const n = grid.cellsPerChunk;
-  const withShape = (h.planes & PLANE_BIT.shape) !== 0;
-  img.densCount = 0;
   if (h.body === 'uniform') {
-    const m = r.u24();
-    const c = h.planes & PLANE_BIT.category ? r.u8() : 0;
-    const s = withShape ? r.u8() : impliedShape(m);
-    const o = h.planes & PLANE_BIT.orientation ? r.u8() : 0;
-    if (s !== impliedShape(m)) throw new RangeError('palette chunk bytes: uniform voxel with a stored density');
+    const f = RECORD_FIELDS.map((field) => {
+      if (!(h.planes & field.bit)) return 0;
+      const v = field.bytes === 2 ? r.u16() : r.u8();
+      checkField(field, v);
+      return v;
+    });
     img.kind = 'record';
-    singleEntry(img.planes[0], recordValue(m, c, o), n);
+    singleEntry(img.planes[0], f[0] === 0 ? 0 : recordValue(f[0]!, f[1]!, f[2]!, f[3]!), n);
   } else if (h.kind === 'record') {
     img.kind = 'record';
-    readPalette(r, grid, img.planes[0], RECORD_FIELDS, h.planes, withShape, h.body);
+    readPalette(r, grid, img.planes[0], RECORD_FIELDS, h.planes, h.body);
   } else {
     img.kind = 'planes';
     const body = h.body;
     img.planes.forEach((p, k) => {
-      const fields = PLANE_FIELDS[k]!;
-      if (fields.some((f) => h.planes & f.bit)) readPalette(r, grid, p, fields, h.planes, k === 0 && withShape, body);
+      const f = PLANE_FIELDS[k]!;
+      if (h.planes & f.bit) readPalette(r, grid, p, [f], h.planes, body);
       else singleEntry(p, 0, n);
     });
   }
-  if (h.body !== 'uniform' && withShape) readDensities(r, img, img.planes[0], img.kind === 'record' ? valueMaterial : (v) => v);
   if (r.at !== bytes.length) throw new RangeError(`palette chunk bytes: ${bytes.length - r.at} bytes past the end of the body`);
   return h;
 }

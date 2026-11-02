@@ -26,6 +26,7 @@ import {
   EditRefused,
   encodeOverrides,
   encodeUndoRecord,
+  OVERRIDE_CELL_BYTES,
   overridesOf,
   parseRegionFileName,
   readSave,
@@ -36,7 +37,7 @@ import {
   UNDO_MEMORY_BUDGET_BYTES,
   UndoStore,
   voxel,
-  VOXEL_CATEGORY,
+  VOXEL_ROLE,
   writeSave,
   type ChunkCoord,
   type ChunkUndo,
@@ -58,8 +59,8 @@ const grid = chunkGrid(32);
 const WORLD = Uint8Array.from({ length: 16 }, (_, i) => (i * 53 + 7) & 0xff);
 const OPTS: WorldDirOptions = { grid, worldId: WORLD, layout: 'stacked', footprint: DEFAULT_REGION_FOOTPRINT };
 const town = townWorld({ footprint: 200 });
-const stone = { material: MAT.stone, category: VOXEL_CATEGORY.construction, orientation: 0 };
-const soil = { material: MAT.soil, category: VOXEL_CATEGORY.terrain, orientation: 0 };
+const stone = { material: MAT.stone, role: VOXEL_ROLE.wall, wetness: 0 };
+const soil = { material: MAT.soil, role: VOXEL_ROLE.terrain, wetness: 0 };
 /** What a reader expects of one of this world's region files, by its name. */
 const expectIn = (name: string): RegionReadOptions => ({ expect: { worldId: WORLD, gridId: 0, layout: OPTS.layout, grid, footprint: OPTS.footprint, ...parseRegionFileName(OPTS.layout, name)! } });
 
@@ -86,8 +87,8 @@ function expectSame(a: VoxelStoreCandidate, b: VoxelStoreCandidate): void {
   let diff = 0;
   for (const k of keys) {
     chunkOfKey(grid, k, c);
-    if (!a.exportChunk(c.cx, c.cy, c.cz, x)) x.material.fill(0), x.category.fill(0), x.shape.fill(0), x.orientation.fill(0);
-    if (!b.exportChunk(c.cx, c.cy, c.cz, y)) y.material.fill(0), y.category.fill(0), y.shape.fill(0), y.orientation.fill(0);
+    if (!a.exportChunk(c.cx, c.cy, c.cz, x)) x.material.fill(0), x.role.fill(0), x.shape.fill(0), x.wetness.fill(0);
+    if (!b.exportChunk(c.cx, c.cy, c.cz, y)) y.material.fill(0), y.role.fill(0), y.shape.fill(0), y.wetness.fill(0);
     if (!sameDenseChunk(x, y)) diff++;
   }
   expect(diff).toBe(0);
@@ -108,29 +109,30 @@ function strokesAt(s: VoxelStoreCandidate, x: number, z: number): VoxelEditComma
   const y = surfaceY(s, x, z, 200, -200)!;
   const yaw = Math.PI / 6;
   return [
-    canonicalEditCommand({ v: 1, grid: 0, kind: 'set', cells: [x, y + 1, z, x + 1, y + 1, z], voxel: { ...stone, shape: 255 } }),
-    canonicalEditCommand({ v: 1, grid: 0, kind: 'brush', shape: 'sphere', size: [4, 0, 0], points: [x + 0.5, y, z + 0.5, x + 3.2, y + 0.4, z + 1.1], mode: 'dig', smooth: true }),
-    canonicalEditCommand({ v: 1, grid: 0, kind: 'brush', shape: 'cylinder', size: [2.5, 1.5, 0], points: [x + 8, y + 1, z - 3], mode: 'add', voxel: soil, smooth: true }),
-    canonicalEditCommand({ v: 1, grid: 0, kind: 'fill', min: [x - 10, y - 16, z + 6], max: [x + 21, y + 15, z + 37], mode: 'place', voxel: stone }),
-    canonicalEditCommand({ v: 1, grid: 0, kind: 'brush', shape: 'box', size: [3, 2, 1], points: [x, y, z + 10], mode: 'paint', voxel: soil, smooth: false }),
-    canonicalEditCommand({ v: 1, grid: 0, kind: 'stamp', stamp: { id: 'arch', hash: ARCH_HASH }, origin: [x + 30.25, y + 1, z + 30.75], yaw: [Math.cos(yaw), Math.sin(yaw)], scale: 1.5, mode: 'add', voxel: stone, smooth: true }),
-    canonicalEditCommand({ v: 1, grid: 0, kind: 'dig', cells: [x + 31, y - 1, z] }),
+    canonicalEditCommand({ v: 2, grid: 0, kind: 'set', cells: [x, y + 1, z, x + 1, y + 1, z], voxel: { ...stone, shape: 15 } }),
+    canonicalEditCommand({ v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [4, 0, 0], points: [x + 0.5, y, z + 0.5, x + 3.2, y + 0.4, z + 1.1], mode: 'dig', smooth: true }),
+    canonicalEditCommand({ v: 2, grid: 0, kind: 'brush', shape: 'cylinder', size: [2.5, 1.5, 0], points: [x + 8, y + 1, z - 3], mode: 'add', voxel: soil, smooth: true }),
+    canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [x - 10, y - 16, z + 6], max: [x + 21, y + 15, z + 37], mode: 'place', voxel: stone }),
+    canonicalEditCommand({ v: 2, grid: 0, kind: 'brush', shape: 'box', size: [3, 2, 1], points: [x, y, z + 10], mode: 'paint', voxel: soil, smooth: false }),
+    canonicalEditCommand({ v: 2, grid: 0, kind: 'stamp', stamp: { id: 'arch', hash: ARCH_HASH }, origin: [x + 30.25, y + 1, z + 30.75], yaw: [Math.cos(yaw), Math.sin(yaw)], scale: 1.5, mode: 'add', voxel: stone, smooth: true }),
+    canonicalEditCommand({ v: 2, grid: 0, kind: 'dig', cells: [x + 31, y - 1, z] }),
   ];
 }
 
 describe('edit commands', () => {
   it('are canonical: one payload per stroke, unknown versions, fields and mixes refused', () => {
-    const c = canonicalEditCommand({ v: 1, grid: 0, kind: 'brush', shape: 'sphere', size: [2, 9, 9], points: [-0, 1, 2], mode: 'dig', smooth: false });
-    expect(c).toEqual({ v: 1, grid: 0, kind: 'brush', shape: 'sphere', size: [2, 2, 2], points: [0, 1, 2], mode: 'dig', smooth: false });
+    const c = canonicalEditCommand({ v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [2, 9, 9], points: [-0, 1, 2], mode: 'dig', smooth: false });
+    expect(c).toEqual({ v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [2, 2, 2], points: [0, 1, 2], mode: 'dig', smooth: false });
     expect(c.kind === 'brush' && Object.is(c.points[0], 0)).toBe(true);
     const bad: [unknown, string][] = [
-      [{ v: 2, grid: 0, kind: 'dig', cells: [0, 0, 0] }, '/v'],
-      [{ v: 1, grid: 0, kind: 'dig', cells: [0, 0, 0], extra: 1 }, '/extra'],
-      [{ v: 1, grid: 0, kind: 'brush', shape: 'sphere', size: [1, 1, 1], points: [0, 0, 0], mode: 'place', voxel: stone, smooth: true }, '/smooth'],
-      [{ v: 1, grid: 0, kind: 'brush', shape: 'sphere', size: [1, 1, 1], points: [0, 0, 0], mode: 'dig', voxel: stone, smooth: false }, '/voxel'],
-      [{ v: 1, grid: 0, kind: 'stamp', stamp: { id: 'arch', hash: ARCH_HASH }, origin: [0, 0, 0], yaw: [1, 1], scale: 1, mode: 'add', voxel: stone, smooth: false }, '/yaw'],
-      [{ v: 1, grid: 0, kind: 'set', cells: [0, 9000, 0], voxel: { ...stone, shape: 255 } }, '/cells/1'],
-      [{ v: 1, grid: 0, kind: 'fill', min: [2, 0, 0], max: [1, 0, 0], mode: 'dig' }, '/max'],
+      [{ v: 3, grid: 0, kind: 'dig', cells: [0, 0, 0] }, '/v'],
+      [{ v: 1, grid: 0, kind: 'dig', cells: [0, 0, 0] }, '/v'],
+      [{ v: 2, grid: 0, kind: 'dig', cells: [0, 0, 0], extra: 1 }, '/extra'],
+      [{ v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [1, 1, 1], points: [0, 0, 0], mode: 'place', voxel: stone, smooth: true }, '/smooth'],
+      [{ v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [1, 1, 1], points: [0, 0, 0], mode: 'dig', voxel: stone, smooth: false }, '/voxel'],
+      [{ v: 2, grid: 0, kind: 'stamp', stamp: { id: 'arch', hash: ARCH_HASH }, origin: [0, 0, 0], yaw: [1, 1], scale: 1, mode: 'add', voxel: stone, smooth: false }, '/yaw'],
+      [{ v: 2, grid: 0, kind: 'set', cells: [0, 9000, 0], voxel: { ...stone, shape: 15 } }, '/cells/1'],
+      [{ v: 2, grid: 0, kind: 'fill', min: [2, 0, 0], max: [1, 0, 0], mode: 'dig' }, '/max'],
     ];
     for (const [cmd, path] of bad) {
       let err: unknown;
@@ -215,10 +217,10 @@ describe('edit commands', () => {
       return 'applied';
     };
     const per = chunkWorstUndoBytes(grid);
-    // 32³: 15 + 32,768 × 7 bytes a chunk at worst, so the 64 MiB default fits 292 chunks of any stroke.
-    expect(per).toBe(229_391);
-    expect(Math.floor(UNDO_MEMORY_BUDGET_BYTES / per)).toBe(292);
-    const fill = (x1: number): VoxelEditCommand => canonicalEditCommand({ v: 1, grid: 0, kind: 'fill', min: [0, 0, 0], max: [x1, 31, 31], mode: 'place', voxel: stone });
+    // 32³: 15 + 32,768 × 6 bytes a chunk at worst, so the 64 MiB default fits 341 chunks of any stroke.
+    expect(per).toBe(196_623);
+    expect(Math.floor(UNDO_MEMORY_BUDGET_BYTES / per)).toBe(341);
+    const fill = (x1: number): VoxelEditCommand => canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [0, 0, 0], max: [x1, 31, 31], mode: 'place', voxel: stone });
     // A budget of 4 chunks: a fill over 4 chunks applies, over 5 is refused and writes nothing.
     const budgetBytes = 4 * per;
     expect(code(() => applyEdit(grids(s), fill(4 * 32 + 31), { budgetBytes }))).toBe('over_budget');
@@ -228,14 +230,14 @@ describe('edit commands', () => {
     // along a diagonal across 8 chunks on x and z (64 in its box) fit a budget of 9 chunks.
     const points: number[] = [];
     for (let k = 0; k < 16; k++) points.push(40 + k * 16 + 5, 20, 40 + k * 16 + 5);
-    const thin = canonicalEditCommand({ v: 1, grid: 0, kind: 'brush', shape: 'sphere', size: [1, 1, 1], points, mode: 'dig', smooth: false });
+    const thin = canonicalEditCommand({ v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [1, 1, 1], points, mode: 'dig', smooth: false });
     expect(code(() => applyEdit(grids(townStore()), thin, { budgetBytes: 9 * per }))).toBe('applied');
     expect(code(() => applyEdit(grids(townStore()), thin, { budgetBytes: 7 * per }))).toBe('over_budget');
     // The default budget: the world filled, or a sphere 2 km across, refused at once (no cell visited).
     const t0 = performance.now();
-    expect(code(() => applyEdit(grids(s), canonicalEditCommand({ v: 1, grid: 0, kind: 'fill', min: [-32768, -8192, -32768], max: [32767, 8191, 32767], mode: 'place', voxel: stone })))).toBe('over_budget');
-    expect(code(() => applyEdit(grids(s), canonicalEditCommand({ v: 1, grid: 0, kind: 'brush', shape: 'sphere', size: [2000, 0, 0], points: [0, 0, 0], mode: 'dig', smooth: false })))).toBe('over_budget');
-    expect(code(() => editChunks(grid, canonicalEditCommand({ v: 1, grid: 0, kind: 'fill', min: [-32768, -8192, -32768], max: [32767, 8191, 32767], mode: 'dig' })))).toBe('over_budget');
+    expect(code(() => applyEdit(grids(s), canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [-32768, -8192, -32768], max: [32767, 8191, 32767], mode: 'place', voxel: stone })))).toBe('over_budget');
+    expect(code(() => applyEdit(grids(s), canonicalEditCommand({ v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [2000, 0, 0], points: [0, 0, 0], mode: 'dig', smooth: false })))).toBe('over_budget');
+    expect(code(() => editChunks(grid, canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [-32768, -8192, -32768], max: [32767, 8191, 32767], mode: 'dig' })))).toBe('over_budget');
     expect(performance.now() - t0).toBeLessThan(500);
   });
 });
@@ -288,13 +290,19 @@ describe('saves', () => {
     expect(save.chunks).toEqual([]);
 
     // Unknown (newer) version refused; an older one lifted by its steps; damage refused.
-    const v2 = Uint8Array.from(bytes);
-    v2[4] = 2;
-    new DataView(v2.buffer).setUint32(40, crc32(v2.subarray(0, 40)), true);
-    expect(() => readSave(v2, grid, WORLD, zstdDecompress)).toThrow(/unknown version 2/);
+    const at = (version: number): Uint8Array => {
+      const x = Uint8Array.from(bytes);
+      x[4] = version;
+      new DataView(x.buffer).setUint32(40, crc32(x.subarray(0, 40)), true);
+      return x;
+    };
+    const v3 = at(3);
+    expect(() => readSave(v3, grid, WORLD, zstdDecompress)).toThrow(/unknown version 3/);
+    // The draft version 1 is not read.
+    expect(() => readSave(at(1), grid, WORLD, zstdDecompress)).toThrow(/unknown version 1/);
     const lifted = readSave(bytes, grid, WORLD, zstdDecompress, [(s) => ({ ...s, chunks: s.chunks.filter((c) => c.content.kind !== 'air') })]);
     expect(lifted.chunks.length).toBeLessThanOrEqual(back.chunks.length);
-    expect(() => readSave(v2, grid, WORLD, zstdDecompress, [(s) => s])).not.toThrow();
+    expect(() => readSave(v3, grid, WORLD, zstdDecompress, [(s) => s])).not.toThrow();
     const bad = Uint8Array.from(bytes);
     bad[bad.length - 3]! ^= 0x40;
     expect(() => readSave(bad, grid, WORLD, zstdDecompress)).toThrow(SaveFileError);
@@ -321,14 +329,14 @@ describe('saves', () => {
     const shipped = new ShippedWorld(dir, OPTS, listRegionFiles(dir));
     const { world: play } = await RegionWorld.open(dir, OPTS, listRegionFiles(dir));
     const y = surfaceY(play.store, 100, 100, 200, -200)!;
-    const playerEdit = canonicalEditCommand({ v: 1, grid: 0, kind: 'set', cells: [100, y + 1, 100], voxel: { ...stone, shape: 255 } });
+    const playerEdit = canonicalEditCommand({ v: 2, grid: 0, kind: 'set', cells: [100, y + 1, 100], voxel: { ...stone, shape: 15 } });
     const touched = applyEdit(grids(play.store), playerEdit).chunks;
     const save = updateSave({ worldId: WORLD, grid, chunks: [] }, shipped, play.store, 0, touched);
     expect(save.chunks.length).toBe(1);
 
     // The author re-exports with another change in the same chunk.
     const { world: author } = await RegionWorld.open(dir, OPTS, listRegionFiles(dir));
-    author.edit(canonicalEditCommand({ v: 1, grid: 0, kind: 'set', cells: [101, y + 1, 101], voxel: { ...soil, shape: 255 } }));
+    author.edit(canonicalEditCommand({ v: 2, grid: 0, kind: 'set', cells: [101, y + 1, 101], voxel: { ...soil, shape: 15 } }));
     author.save();
     const reshipped = new ShippedWorld(dir, OPTS, listRegionFiles(dir));
     const back = readSave(writeSave(save, 'zstd', zstdCompress), grid, WORLD, zstdDecompress);
@@ -353,7 +361,7 @@ describe('saves', () => {
     const cy = Math.floor((top - 20) / 32);
     const y0 = cy * 32 + 2;
     const hole = (x: number, y: number, z: number): boolean => x >= 96 && x <= 111 && z >= 96 && z <= 111 && y >= y0 && y <= y0 + 15;
-    const dug = play.edit(canonicalEditCommand({ v: 1, grid: 0, kind: 'fill', min: [96, y0, 96], max: [111, y0 + 15, 111], mode: 'dig' }));
+    const dug = play.edit(canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [96, y0, 96], max: [111, y0 + 15, 111], mode: 'dig' }));
     expect(dug.cells).toBeGreaterThan(2000);
     const save = updateSave({ worldId: WORLD, grid, chunks: [] }, shipped, play.store, 0, dug.chunks);
     expect(save.chunks.length).toBe(1);
@@ -361,7 +369,7 @@ describe('saves', () => {
 
     // The author re-exports with a wall moved into that chunk, beside the hole and through one of its cells.
     const { world: author } = await RegionWorld.open(dir, OPTS, listRegionFiles(dir));
-    author.edit(canonicalEditCommand({ v: 1, grid: 0, kind: 'fill', min: [110, y0, 100], max: [120, y0 + 12, 101], mode: 'place', voxel: stone }));
+    author.edit(canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [110, y0, 100], max: [120, y0 + 12, 101], mode: 'place', voxel: stone }));
     author.save();
     const reshipped = new ShippedWorld(dir, OPTS, listRegionFiles(dir));
     const back = readSave(writeSave(save, 'zstd', zstdCompress), grid, WORLD, zstdDecompress);
@@ -376,7 +384,7 @@ describe('saves', () => {
       for (let x = 96; x < 128; x++) for (let z = 96; z < 128; z++) for (let y = cy * 32; y < cy * 32 + 32; y++) {
         world.store.voxelAt(x, y, z, v);
         const want = choice === 'save' && hole(x, y, z) ? voxel() : author.store.voxelAt(x, y, z, w);
-        if (v.material !== want.material || v.shape !== want.shape || v.category !== want.category) differ++;
+        if (v.material !== want.material || v.shape !== want.shape || v.role !== want.role) differ++;
       }
       expect(differ).toBe(0);
       expect(world.store.voxelAt(115, y0 + 5, 100, v).material).toBe(MAT.stone);
@@ -396,7 +404,7 @@ describe('saves', () => {
     expect(openShippedWorld(wdir).chunkBytes({ cx: 900, cy: 0, cz: 900 })).toBeNull();
     const gdir = join(wdir, 'grid-0');
     const kept = readFileSync(join(gdir, name));
-    play.setVoxel(c.cx * 32 + 1, c.cy * 32 + 1, c.cz * 32 + 1, voxel(MAT.stone, VOXEL_CATEGORY.construction, 255));
+    play.setVoxel(c.cx * 32 + 1, c.cy * 32 + 1, c.cz * 32 + 1, voxel(MAT.stone, VOXEL_ROLE.wall, 15));
     const empty = { worldId: WORLD, grid, chunks: [] };
     expect(updateSave(empty, openShippedWorld(wdir), play, 0, [c]).chunks.length).toBe(1);
 
@@ -420,8 +428,8 @@ describe('structure overrides', () => {
   /** A test structure (not a generator): a room of `w` × 8 cells, walls 1 cell, 6 high, floor at y 0. */
   function room(w: number): PaletteStore {
     const s = pickStore(grid);
-    const wall = voxel(MAT.timber, VOXEL_CATEGORY.construction, 255);
-    const floor = voxel(MAT.plank, VOXEL_CATEGORY.construction, 255);
+    const wall = voxel(MAT.timber, VOXEL_ROLE.wall, 15);
+    const floor = voxel(MAT.plank, VOXEL_ROLE.wall, 15);
     for (let x = 0; x < w; x++) for (let z = 0; z < 8; z++) {
       s.setVoxel(x, 0, z, floor);
       if (x === 0 || x === w - 1 || z === 0 || z === 7) for (let y = 1; y <= 6; y++) s.setVoxel(x, y, z, wall);
@@ -432,16 +440,16 @@ describe('structure overrides', () => {
   it('keep overrides that still fit after regenerating, absorb those the generator now makes, report misfits', () => {
     const generated = room(12);
     const edited = room(12);
-    const put = (cells: number[], v: { material: number; category: number; orientation: number; shape: number }) => applyEdit(grids(edited), canonicalEditCommand({ v: 1, grid: 0, kind: 'set', cells, voxel: v }));
-    put([11, 3, 4], { ...stone, shape: 255 }); // paint a cell of the east wall
-    put([5, 2, 0, 5, 3, 0, 6, 2, 0, 6, 3, 0], { material: 0, category: 0, orientation: 0, shape: 0 }); // a window in the north wall
-    put([3, 1, 3], { material: MAT.plank, category: VOXEL_CATEGORY.construction, orientation: 0, shape: 255 }); // a crate inside
-    put([15, 1, 3], { material: MAT.timber, category: VOXEL_CATEGORY.construction, orientation: 0, shape: 255 }); // a post where the wider room will put its wall
+    const put = (cells: number[], v: { material: number; role: number; wetness: number; shape: number }) => applyEdit(grids(edited), canonicalEditCommand({ v: 2, grid: 0, kind: 'set', cells, voxel: v }));
+    put([11, 3, 4], { ...stone, shape: 15 }); // paint a cell of the east wall
+    put([5, 2, 0, 5, 3, 0, 6, 2, 0, 6, 3, 0], { material: 0, role: 0, wetness: 0, shape: 0 }); // a window in the north wall
+    put([3, 1, 3], { material: MAT.plank, role: VOXEL_ROLE.wall, wetness: 0, shape: 15 }); // a crate inside
+    put([15, 1, 3], { material: MAT.timber, role: VOXEL_ROLE.wall, wetness: 0, shape: 15 }); // a post where the wider room will put its wall
     const o = overridesOf(generated, edited, 7);
     const bytes = encodeOverrides(o);
     const back = decodeOverrides(grid, bytes);
     expect(encodeOverrides(back)).toEqual(bytes);
-    expect(bytes.length).toBe(16 + 4 + 10 + 7 * 12);
+    expect(bytes.length).toBe(16 + 4 + 10 + 7 * OVERRIDE_CELL_BYTES);
 
     // The room grows to 16 cells: the painted east-wall cell is now inside (air): misfit; the window stays; the crate stays; the post is now generated: absorbed.
     const regenerated = room(16);
@@ -453,7 +461,7 @@ describe('structure overrides', () => {
     expect(regenerated.voxelAt(5, 2, 0, v).material).toBe(0);
     expect(regenerated.voxelAt(3, 1, 3, v).material).toBe(MAT.plank);
     expect(regenerated.voxelAt(11, 3, 4, v).material).toBe(0);
-    expect(encodeOverrides(r.overrides).length).toBe(16 + 4 + 10 + 5 * 12);
+    expect(encodeOverrides(r.overrides).length).toBe(16 + 4 + 10 + 5 * OVERRIDE_CELL_BYTES);
   });
 
   function chunkLocal(x: number, y: number, z: number): number {
@@ -493,10 +501,10 @@ describe('repair, atomic replace and dirty races', () => {
     expect([...kept.world.store.chunkKeys()]).not.toContain(key);
     const x = bad.cx * 32 + 3;
     const z = bad.cz * 32 + 3;
-    expect(() => kept.world.edit(canonicalEditCommand({ v: 1, grid: 0, kind: 'dig', cells: [x, bad.cy * 32 + 3, z] }))).toThrow(EditRefused);
+    expect(() => kept.world.edit(canonicalEditCommand({ v: 2, grid: 0, kind: 'dig', cells: [x, bad.cy * 32 + 3, z] }))).toThrow(EditRefused);
     const fileOf = (c: ChunkCoord): string => addressName(addressOf(grid, OPTS.layout, OPTS.footprint, c));
     const neighbour = [...kept.world.store.chunkKeys()].map((k) => chunkOfKey(grid, k)).find((c) => fileOf(c) === fileOf(bad))!;
-    kept.world.edit(canonicalEditCommand({ v: 1, grid: 0, kind: 'set', cells: [neighbour.cx * 32 + 1, neighbour.cy * 32 + 1, neighbour.cz * 32 + 1], voxel: { ...stone, shape: 200 } }));
+    kept.world.edit(canonicalEditCommand({ v: 2, grid: 0, kind: 'set', cells: [neighbour.cx * 32 + 1, neighbour.cy * 32 + 1, neighbour.cz * 32 + 1], voxel: { ...stone, shape: 12 } }));
     expect(kept.world.save().files).toBe(1);
     const after = readdirSync(dir).filter((n) => n.endsWith('.vxr')).map((n) => damagedRegionChunks(new Uint8Array(readFileSync(join(dir, n))), expectIn(n))).flat();
     expect(after.map((e) => [e.cx, e.cy, e.cz])).toEqual([[bad.cx, bad.cy, bad.cz]]);
@@ -514,7 +522,7 @@ describe('repair, atomic replace and dirty races', () => {
     RegionWorld.create(dir, OPTS, townStore());
     const { world } = await RegionWorld.open(dir, OPTS, listRegionFiles(dir));
     const y = surfaceY(world.store, 77, 77, 200, -200)!;
-    world.edit(canonicalEditCommand({ v: 1, grid: 0, kind: 'set', cells: [77, y + 1, 77], voxel: { ...stone, shape: 255 } }));
+    world.edit(canonicalEditCommand({ v: 2, grid: 0, kind: 'set', cells: [77, y + 1, 77], voxel: { ...stone, shape: 15 } }));
     const [p] = world.prepareSaves();
     const before = readFileSync(join(dir, p!.name));
     const failing = { ...defaultWriteOps, renameFile: () => { throw Object.assign(new Error('EIO'), { code: 'EIO' }); } };
@@ -532,7 +540,7 @@ describe('repair, atomic replace and dirty races', () => {
     RegionWorld.create(dir, OPTS, townStore());
     const { world } = await RegionWorld.open(dir, OPTS, listRegionFiles(dir));
     const y = surfaceY(world.store, 90, 90, 200, -200)!;
-    const set = (m: number) => world.edit(canonicalEditCommand({ v: 1, grid: 0, kind: 'set', cells: [90, y + 1, 90], voxel: { material: m, category: VOXEL_CATEGORY.construction, orientation: 0, shape: 255 } }));
+    const set = (m: number) => world.edit(canonicalEditCommand({ v: 2, grid: 0, kind: 'set', cells: [90, y + 1, 90], voxel: { material: m, role: VOXEL_ROLE.wall, wetness: 0, shape: 15 } }));
     const key = chunkKey(grid, 90 >> 5, (y + 1) >> 5, 90 >> 5);
     const chunk = { grid: 0, key };
     const fileVoxel = async (): Promise<number> => (await RegionWorld.open(dir, OPTS, listRegionFiles(dir))).world.store.voxelAt(90, y + 1, 90, voxel()).material;

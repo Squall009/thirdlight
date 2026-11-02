@@ -18,10 +18,10 @@
  * axis, so its centre is x + 0.5.
  */
 import { cellInWorld } from './coords';
-import { BYTE_PLANE_MAX, MATERIAL_ID_MAX, ORIENTATION_COUNT, VOXEL_CATEGORY_COUNT } from './record';
+import { MATERIAL_ID_MAX, SHAPE_FULL, VOXEL_ROLE_COUNT, WETNESS_MAX } from './record';
 
 /** The edit command format this build writes and reads. */
-export const VOXEL_EDIT_VERSION = 1;
+export const VOXEL_EDIT_VERSION = 2;
 
 /**
  * What a stroke does to the cells it covers:
@@ -29,8 +29,8 @@ export const VOXEL_EDIT_VERSION = 1;
  * - `add` writes only into air or liquid (and, when smooth, grows a cell of
  *   its own material), never replacing other solid voxels;
  * - `dig` removes (when smooth, lowers the density, emptying a cell to air);
- * - `paint` changes material, category and orientation of non-air cells and
- *   keeps their shape.
+ * - `paint` changes material, role and wetness of non-air cells and keeps
+ *   their shape.
  */
 export type EditMode = 'place' | 'add' | 'dig' | 'paint';
 export const EDIT_MODES: readonly EditMode[] = Object.freeze(['place', 'add', 'dig', 'paint']);
@@ -38,8 +38,8 @@ export const EDIT_MODES: readonly EditMode[] = Object.freeze(['place', 'add', 'd
 /** The voxel a stroke writes: its shape comes from the stroke (full, or its coverage when smooth). */
 export interface EditVoxel {
   readonly material: number;
-  readonly category: number;
-  readonly orientation: number;
+  readonly role: number;
+  readonly wetness: number;
 }
 
 /** A voxel written exactly, shape included (runtime set). */
@@ -56,7 +56,7 @@ export type BrushShape = 'sphere' | 'box' | 'cylinder';
 export const BRUSH_SHAPES: readonly BrushShape[] = Object.freeze(['sphere', 'box', 'cylinder']);
 
 interface EditBase {
-  readonly v: 1;
+  readonly v: 2;
   /** The grid edited: 0 the world grid, else a structure's own grid. */
   readonly grid: number;
 }
@@ -167,22 +167,22 @@ function bool(v: unknown, path: string): boolean {
 
 function editVoxel(v: unknown, path: string): EditVoxel {
   const o = obj(v, path);
-  only(o, path, ['material', 'category', 'orientation']);
+  only(o, path, ['material', 'role', 'wetness']);
   const material = int(o.material, `${path}/material`, 1, MATERIAL_ID_MAX);
-  return { material, category: int(o.category, `${path}/category`, 0, VOXEL_CATEGORY_COUNT - 1), orientation: int(o.orientation, `${path}/orientation`, 0, ORIENTATION_COUNT - 1) };
+  return { material, role: int(o.role, `${path}/role`, 0, VOXEL_ROLE_COUNT - 1), wetness: int(o.wetness, `${path}/wetness`, 0, WETNESS_MAX) };
 }
 
 function setVoxel(v: unknown, path: string): SetVoxel {
   const o = obj(v, path);
-  only(o, path, ['material', 'category', 'orientation', 'shape']);
+  only(o, path, ['material', 'role', 'shape', 'wetness']);
   const material = int(o.material, `${path}/material`, 0, MATERIAL_ID_MAX);
   // Air is one value, so two payloads never mean the same cells.
-  if (material === 0) return { material: 0, category: 0, orientation: 0, shape: int(o.shape, `${path}/shape`, 0, 0) };
+  if (material === 0) return { material: 0, role: int(o.role, `${path}/role`, 0, 0), shape: int(o.shape, `${path}/shape`, 0, 0), wetness: int(o.wetness, `${path}/wetness`, 0, 0) };
   return {
     material,
-    category: int(o.category, `${path}/category`, 0, VOXEL_CATEGORY_COUNT - 1),
-    orientation: int(o.orientation, `${path}/orientation`, 0, ORIENTATION_COUNT - 1),
-    shape: int(o.shape, `${path}/shape`, 1, BYTE_PLANE_MAX),
+    role: int(o.role, `${path}/role`, 0, VOXEL_ROLE_COUNT - 1),
+    shape: int(o.shape, `${path}/shape`, 1, SHAPE_FULL),
+    wetness: int(o.wetness, `${path}/wetness`, 0, WETNESS_MAX),
   };
 }
 
@@ -249,7 +249,7 @@ export function canonicalEditCommand(input: unknown): VoxelEditCommand {
       if (!Array.isArray(o.points) || o.points.length === 0 || o.points.length % 3 !== 0) throw new EditCommandError('/points', 'expected x y z triples, at least one');
       const points = o.points.map((p, i) => num(p, `/points/${i}`));
       const mv = modeVoxel(o, '');
-      cmd = { v: 1, grid, kind, shape, size, points, ...mv, smooth: bool(o.smooth, '/smooth') };
+      cmd = { v: 2, grid, kind, shape, size, points, ...mv, smooth: bool(o.smooth, '/smooth') };
       break;
     }
     case 'fill': {
@@ -258,7 +258,7 @@ export function canonicalEditCommand(input: unknown): VoxelEditCommand {
       const max = triple(o.max, '/max', (x, p) => int(x, p, -0x8000, 0x7fff));
       if (min[0] > max[0] || min[1] > max[1] || min[2] > max[2]) throw new EditCommandError('/max', 'max below min');
       if (!cellInWorld(...min) || !cellInWorld(...max)) throw new EditCommandError('/min', 'box outside the world');
-      cmd = { v: 1, grid, kind, min, max, ...modeVoxel(o, '') };
+      cmd = { v: 2, grid, kind, min, max, ...modeVoxel(o, '') };
       break;
     }
     case 'stamp': {
@@ -272,16 +272,16 @@ export function canonicalEditCommand(input: unknown): VoxelEditCommand {
       if (Math.abs(yaw[0] * yaw[0] + yaw[1] * yaw[1] - 1) > YAW_TOLERANCE) throw new EditCommandError('/yaw', 'cos² + sin² must be 1');
       const scale = num(o.scale, '/scale');
       if (scale <= 0) throw new EditCommandError('/scale', 'a scale is > 0');
-      cmd = { v: 1, grid, kind, stamp: { id: s.id, hash: s.hash }, origin: triple(o.origin, '/origin', num), yaw, scale, ...modeVoxel(o, ''), smooth: bool(o.smooth, '/smooth') };
+      cmd = { v: 2, grid, kind, stamp: { id: s.id, hash: s.hash }, origin: triple(o.origin, '/origin', num), yaw, scale, ...modeVoxel(o, ''), smooth: bool(o.smooth, '/smooth') };
       break;
     }
     case 'set':
       only(o, '', ['v', 'grid', 'kind', 'cells', 'voxel']);
-      cmd = { v: 1, grid, kind, cells: cellList(o.cells, '/cells'), voxel: setVoxel(o.voxel, '/voxel') };
+      cmd = { v: 2, grid, kind, cells: cellList(o.cells, '/cells'), voxel: setVoxel(o.voxel, '/voxel') };
       break;
     case 'dig':
       only(o, '', ['v', 'grid', 'kind', 'cells']);
-      cmd = { v: 1, grid, kind, cells: cellList(o.cells, '/cells') };
+      cmd = { v: 2, grid, kind, cells: cellList(o.cells, '/cells') };
       break;
   }
   if ((cmd.kind === 'brush' || cmd.kind === 'stamp') && cmd.smooth && cmd.mode !== 'add' && cmd.mode !== 'dig') throw new EditCommandError('/smooth', 'only add and dig strokes are smooth');

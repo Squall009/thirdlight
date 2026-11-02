@@ -32,7 +32,7 @@
  * there, so an open rail is open, not a rail drawn over a solid block.
  */
 import { ASSEMBLY_CLASS, CLASS_MASK, RUN_X, RUN_Z, type Neighbourhood } from './assembly';
-import { valueMaterial } from './palette-image';
+import { valueMaterial } from './record';
 
 /** Position steps per cell (1/1024 cell ≈ 0.5 mm). */
 export const POSITION_STEPS_PER_CELL = 1024;
