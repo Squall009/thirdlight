@@ -21,7 +21,7 @@ export { ERROR_CODES } from './errors';
 // workspace's own `QueryResult` owns that name on this surface.)
 export type { CommandError, MutationResult, MutationSuccess } from '@thirdlight/commands';
 export type { WriteOps } from './write';
-export { defaultOps as defaultWriteOps } from './write';
+export { defaultOps as defaultWriteOps, writeAtomic, type WriteAtomicOptions, type WriteOutcome } from './write';
 export type { EntityV3, SceneV4, Manifest, ModelError } from '@thirdlight/project-model';
 // Content storage: the public result/request
 // types of the stage/blob/integrity/capture operations. The operations

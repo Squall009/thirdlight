@@ -119,3 +119,35 @@ export {
   type RegionRange,
   type RegionTile,
 } from './region-file';
+export { canonicalEditCommand, BRUSH_SHAPES, EDIT_MODES, EditCommandError, VOXEL_EDIT_VERSION, type BrushEdit, type BrushShape, type DigEdit, type EditMode, type EditVoxel, type FillEdit, type SetEdit, type SetVoxel, type StampEdit, type VoxelEditCommand } from './edit-command';
+export { CellDelta, chunkScratch, decodeDenseChunk, deltaValue, DELTA_CELL_BYTES, diffDense, encodeDenseChunk, exportOrAir } from './cell-delta';
+export { checkStampShape, STAMP_SIDE_MAX, stampShapeHash, type StampResolver, type StampShape } from './stamp-shape';
+export { applyEdit, applyUndo, EditRefused, UNDO_CHUNK_HEADER_BYTES, UNDO_IMAGE_CHECK_BYTES, undoRecordBytes, type ChunkBefore, type ChunkUndo, type EditGrids, type EditOptions, type EditOutcome, type EditRefusal } from './edit-apply';
+export { decodeUndoRecord, encodeUndoRecord, UNDO_MEMORY_BUDGET_BYTES, UNDO_RECORD_VERSION, UndoStore, type UndoSpill } from './undo-store';
+export {
+  applySave,
+  applySaveChunk,
+  BASE_HASH_BYTES,
+  baseChunkHash,
+  readSave,
+  readSaveVersion,
+  SAVE_ENTRY_HEADER_BYTES,
+  SAVE_FORMAT_VERSION,
+  SAVE_HEADER_BYTES,
+  SAVE_UPGRADES,
+  saveChunkOf,
+  saveContentOf,
+  SaveFileError,
+  sameHash,
+  writeSave,
+  type BaseMismatch,
+  type MismatchChoice,
+  type SaveApplied,
+  type SaveChunk,
+  type SaveContent,
+  type SaveFile,
+  type SaveUpgradeStep,
+} from './save-file';
+export { chunkOverridesOf, decodeOverrides, encodeOverrides, OVERRIDE_CELL_BYTES, OVERRIDE_FORMAT_VERSION, overridesOf, reapplyOverrides, type ChunkOverrides, type OverrideMisfit, type OverrideReport, type StructureOverrides } from './structure-overrides';
+export { repairChunks, type RepairOutcome, type RepairSource } from './chunk-repair';
+export { DirtyTracker, type ChunkJob, type DirtyChunk, type JobRefusal, type SaveJob } from './dirty-tracker';

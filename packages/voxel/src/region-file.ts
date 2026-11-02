@@ -101,7 +101,19 @@ export interface RegionHeader extends RegionTile {
 /** A chunk to write: one voxel everywhere (its record value), or its stored bytes. */
 export type RegionEntry =
   | { readonly cx: number; readonly cy: number; readonly cz: number; readonly uniform: number }
-  | { readonly cx: number; readonly cy: number; readonly cz: number; readonly stored: Uint8Array; readonly raw: boolean };
+  | {
+      readonly cx: number;
+      readonly cy: number;
+      readonly cz: number;
+      readonly stored: Uint8Array;
+      readonly raw: boolean;
+      /**
+       * The CRC-32 to record instead of the stored bytes' own: set only when a
+       * damaged chunk is carried over verbatim, so a rewrite keeps it damaged
+       * and reported rather than dropping it or blessing bad bytes.
+       */
+      readonly crc?: number;
+    };
 
 /** A file the reader refuses as a whole (bad magic, unknown version, damaged header or table, wrong length). */
 export class RegionFileError extends Error {
@@ -191,7 +203,7 @@ export function writeRegion(tile: RegionTile, entries: Iterable<RegionEntry>): U
       view.setUint16(t, col | (e.raw ? RAW_BIT : 0), true);
       view.setInt16(t + 2, e.cy, true);
       view.setUint32(t + 4, e.stored.length, true);
-      view.setUint32(t + 8, crc32(e.stored), true);
+      view.setUint32(t + 8, e.crc ?? crc32(e.stored), true);
       out.set(e.stored, d);
       d += e.stored.length;
     }
@@ -420,6 +432,21 @@ export class RegionIndex {
       } else out.push({ start, end, entries: [i] });
     }
     return out;
+  }
+
+  /**
+   * Entry `i` exactly as the file holds it (stored bytes with their recorded
+   * CRC-32, checked or not), from `bytes` holding the file from offset `at`:
+   * what a rewrite carries over for a chunk it cannot read, so the chunk is
+   * neither lost nor silently repaired. Null when its bytes are not in `bytes`.
+   */
+  entry(i: number, bytes: Uint8Array, at = 0): RegionEntry | null {
+    const { cx, cy, cz } = this.coordOf(i);
+    if (this.isUniform(i)) return { cx, cy, cz, uniform: this.a[i]! };
+    const start = this.offsets[i]! - at;
+    const end = start + this.a[i]!;
+    if (start < 0 || end > bytes.length) return null;
+    return { cx, cy, cz, stored: bytes.slice(start, end), raw: (this.flags[i]! & 2) !== 0, crc: this.b[i]! };
   }
 
   /**

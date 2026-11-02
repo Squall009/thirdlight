@@ -21,6 +21,7 @@ import {
   regionFileName,
   REGION_ENTRY_BYTES,
   strokeBounds,
+  voxel,
   writeRegion,
   type ChunkCoord,
   type ChunkGrid,
@@ -30,6 +31,7 @@ import {
   type RegionFootprint,
   type RegionLayout,
   type RegionTile,
+  type VoxelStoreCandidate,
   type VoxelStroke,
 } from '@thirdlight/voxel';
 import { ZSTD } from './codecs';
@@ -57,6 +59,13 @@ export function loadArea(g: TestGrid, store: PaletteStore, x0: number, z0: numbe
     n++;
   }
   return n;
+}
+
+/** The highest non-air cell of a column at or below `top`, or null. */
+export function surfaceY(store: VoxelStoreCandidate, x: number, z: number, top: number, bottom: number): number | null {
+  const v = voxel();
+  for (let y = top; y >= bottom; y--) if (store.voxelAt(x, y, z, v).material !== 0) return y;
+  return null;
 }
 
 /** Region index of a chunk on one axis. */

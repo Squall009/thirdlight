@@ -38,7 +38,7 @@ import {
   type RegionLayout,
   type VoxelStroke,
 } from '@thirdlight/voxel';
-import { FileSource, HttpSource, importRead, loadArea, pickStore, RegionSet, startRangeServer } from './regions';
+import { FileSource, HttpSource, importRead, loadArea, pickStore, RegionSet, startRangeServer, surfaceY } from './regions';
 import { MAT, type TestGrid, type TestWorld } from './world-kit';
 import { allWorlds, hillyWorld, verticalWorld } from './worlds';
 
@@ -132,13 +132,6 @@ function measureSizes(world: TestWorld): SizeRow[] {
   out[0]!.perRegionDeflate = regionDeflate;
   if (structures.files > 0) out.push(structures);
   return out;
-}
-
-/** The highest non-air cell of a column at or below `top`, or null. */
-function surfaceY(store: PaletteStore, x: number, z: number, top: number, bottom: number): number | null {
-  const v = voxel();
-  for (let y = top; y >= bottom; y--) if (store.voxelAt(x, y, z, v).material !== 0) return y;
-  return null;
 }
 
 /** A 1 km² hilly area (cells −1024 … 1024) in one store, its surface reachable for strokes. */
