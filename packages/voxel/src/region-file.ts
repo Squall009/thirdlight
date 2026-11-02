@@ -652,12 +652,20 @@ export async function openRegion(source: RegionByteSource, opts: RegionReadOptio
 }
 
 /**
+ * Bytes between two stored ranges read in one request rather than two: a
+ * request behind real latency costs far more than a few KB read and
+ * discarded, and 16 KB joins the neighbouring columns of a region row
+ * (a column of hilly ground is a few KB) without reading whole rows.
+ */
+export const REGION_READ_GAP_BYTES = 16 * 1024;
+
+/**
  * Reads the given chunks: absent ones as air, uniform ones from the table,
  * stored ones through coalesced range requests (gaps up to `maxGap` bytes
  * are read and discarded). Every requested chunk gets one result in the
  * order asked; a damaged chunk is reported, never skipped.
  */
-export async function readRegionChunks(source: RegionByteSource, index: RegionIndex, chunks: readonly ChunkCoord[], maxGap = 4096): Promise<RegionChunkRead[]> {
+export async function readRegionChunks(source: RegionByteSource, index: RegionIndex, chunks: readonly ChunkCoord[], maxGap = REGION_READ_GAP_BYTES): Promise<RegionChunkRead[]> {
   const found = chunks.map((c) => index.find(c.cx, c.cy, c.cz));
   const ranges = index.ranges(
     found.filter((i) => i >= 0),

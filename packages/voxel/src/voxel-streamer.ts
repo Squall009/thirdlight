@@ -10,8 +10,10 @@
  * - over budget, the farthest clean chunks are evicted (least recently
  *   wanted first among equals) and loading stops short of them until there
  *   is room again;
- * - missing chunks inside the load bounds are read from the source in
- *   batches, nearest first, as far as the pool has room (back-pressure);
+ * - missing chunks inside the load bounds (of the focus, and of a point a
+ *   second ahead along its motion) are read from the source in batches of
+ *   whole columns, nearest that lead point first (stream-reads.ts); stored
+ *   ones wait for room in the pool (back-pressure) before they are decoded;
  *   absent and uniform chunks land at once, stored ones go to a worker
  *   (`load`, or `apply-save` when the save holds the chunk);
  * - with derive on, a chunk whose neighbours within R are all known gets a
@@ -56,7 +58,8 @@ import { stampShapeHash, type StampShape } from './stamp-shape';
 import type { CellBox } from './stroke';
 import type { ApplySaveInput, ApplySaveOutput, DeriveOutput, EditInput, EditOutput, JobLane, LoadInput, LoadOutput, SaveContentWire, StoredChunk } from './stream-job';
 import { SectionDerives, type DeriveView, type SectionEvent } from './stream-sections';
-import { checkRing, chunkDistance2, DEFAULT_STREAM_RING, inNearRing, pastUnloadRing, RESIDENT_CHUNK_OVERHEAD_BYTES, ringChunks, type Focus, type StreamRing } from './stream-ring';
+import { DEFAULT_STREAM_READS, readOrder, STREAM_PREFETCH_SECONDS, StreamReadPlan, type WantedChunk } from './stream-reads';
+import { checkRing, chunkDistance2, DEFAULT_STREAM_RING, inNearRing, RESIDENT_CHUNK_OVERHEAD_BYTES, type Focus, type StreamRing } from './stream-ring';
 import { decodeUndoRecord } from './undo-store';
 import { OverlayMerge, readBaseChunks } from './stream-overlay';
 import { VoxelOverlay } from './voxel-overlay';
@@ -88,10 +91,16 @@ export interface VoxelStreamerOptions {
    * are derived too (their cells can stand on a neighbour's ground).
    */
   readonly rules?: AssemblyRuleSet;
-  /** Chunks per source read (default 64). */
+  /** Chunks per source read (default 64; a batch ends with a whole column, see stream-reads.ts). */
   readonly readBatch?: number;
-  /** Source reads in flight at once (default 4). */
+  /** Source reads in flight at once (default {@link DEFAULT_STREAM_READS}). */
   readonly maxReads?: number;
+  /**
+   * Seconds of the focus's motion read ahead (default
+   * {@link STREAM_PREFETCH_SECONDS}; 0: the ring around the focus only).
+   * The lead is capped at the near radius.
+   */
+  readonly prefetchSeconds?: number;
   /**
    * Main-thread milliseconds an update may spend building aprons for derive
    * jobs (default 2): the rest wait for the next update, so a burst of
@@ -150,6 +159,11 @@ interface Chunk {
   refreshBox: CellBox | null;
   /** The derived parts the live refresh's change makes stale (DERIVED_PART bits). */
   refreshParts: number;
+}
+
+/** A chunk about to be read. */
+function newChunk(cx: number, cy: number, cz: number, key: number, d2: number, tick: number): Chunk {
+  return { cx, cy, cz, key, phase: 'reading', job: 0, bytes: 0, parts: null, d2, wantedTick: tick, hash: null, refresh: 0, refreshBox: null, refreshParts: 0 };
 }
 
 /** Window in which a chunk loaded again after being unloaded counts as churn. */
@@ -241,8 +255,9 @@ export class VoxelStreamer {
   private onMismatch: MismatchChoice | 'report' = 'save';
   private readonly listeners: Array<(e: StreamEvent) => void> = [];
   private focus: Focus = { x: 0, y: 0, z: 0 };
-  private focusChunk = Number.NaN;
-  private wanted: Array<{ cx: number; cy: number; cz: number; d2: number }> = [];
+  /** Motion, lead point and held reads (stream-reads.ts). */
+  private readonly plan: StreamReadPlan<{ c: Chunk; stored: StoredChunk }>;
+  private wanted: WantedChunk[] = [];
   private cursor = 0;
   private horizon = Infinity;
   private tick = 0;
@@ -268,6 +283,7 @@ export class VoxelStreamer {
     this.tracker = opts.tracker ?? new DirtyTracker();
     this.ring = opts.ring ?? DEFAULT_STREAM_RING;
     checkRing(this.ring);
+    this.plan = new StreamReadPlan(this.grid, this.ring, opts.prefetchSeconds ?? STREAM_PREFETCH_SECONDS);
     checkRadius(this.grid.edge, opts.dependencyRadius);
     if (opts.rules !== undefined && jobRadius(opts.rules) !== opts.dependencyRadius) throw new RangeError(`dependency radius ${opts.dependencyRadius} for rules ${opts.rules.id} (needs ${jobRadius(opts.rules)})`);
     this.radius = opts.dependencyRadius;
@@ -351,6 +367,7 @@ export class VoxelStreamer {
   /** Moves the focus (cells; fractions allowed). Planning happens in the next {@link update}. */
   setFocus(x: number, y: number, z: number): void {
     this.focus = { x, y, z };
+    this.plan.moved(this.focus, performance.now());
   }
 
   /** Whether a chunk's content is in the store (loaded, uniform or known air). */
@@ -439,10 +456,8 @@ export class VoxelStreamer {
     const t0 = performance.now();
     this.tick++;
     const g = this.grid;
-    const fk = chunkKey(g, Math.floor(this.focus.x) >> g.shift, Math.floor(this.focus.y) >> g.shift, Math.floor(this.focus.z) >> g.shift);
-    if (fk !== this.focusChunk) {
-      this.focusChunk = fk;
-      this.wanted = ringChunks(g, this.ring, this.focus);
+    if (this.plan.update(this.focus, t0)) {
+      this.wanted = readOrder(g, this.ring, this.focus, this.plan.lead);
       this.cursor = 0;
       for (const w of this.wanted) {
         const c = this.chunks.get(chunkKey(g, w.cx, w.cy, w.cz));
@@ -450,17 +465,25 @@ export class VoxelStreamer {
       }
       for (const c of [...this.chunks.values()]) {
         c.d2 = chunkDistance2(g, this.focus, c.cx, c.cy, c.cz);
-        if (pastUnloadRing(g, this.ring, this.focus, c.cx, c.cy, c.cz)) this.drop(c, false);
+        if (this.plan.pastUnload(this.focus, c.cx, c.cy, c.cz)) this.drop(c, false);
         else if (c.phase === 'decoding') this.opts.pool.reprioritize(c.job, this.laneOf(c), c.d2);
       }
     } else if (this.heldOutside.size > 0) {
       for (const key of [...this.heldOutside]) {
         const c = this.chunks.get(key);
-        if (c !== undefined && pastUnloadRing(g, this.ring, this.focus, c.cx, c.cy, c.cz)) this.drop(c, false);
+        if (c !== undefined && this.plan.pastUnload(this.focus, c.cx, c.cy, c.cz)) this.drop(c, false);
         else this.heldOutside.delete(key);
       }
     }
     this.enforceBudget();
+    // Held stored chunks go to the pool as it has room (a dropped chunk's bytes are let go).
+    const held = this.plan.held;
+    let n = 0;
+    while (n < held.length && this.opts.pool.room() > 0) {
+      const { c, stored } = held[n++]!;
+      if (this.chunks.get(c.key) === c && c.phase === 'reading') this.decode(c, stored);
+    }
+    if (n > 0) held.splice(0, n);
     this.requestLoads();
     this.derives?.request(this.opts.deriveMsPerUpdate ?? 2);
     for (const [key, at] of this.unloadedAt) {
@@ -488,7 +511,7 @@ export class VoxelStreamer {
     if (this.derives?.pending() === true) return false;
     for (let i = this.cursor; i < this.wanted.length; i++) {
       const w = this.wanted[i]!;
-      if (w.d2 >= this.horizon) break;
+      if (w.d2 >= this.horizon) continue;
       if (!this.chunks.has(chunkKey(this.grid, w.cx, w.cy, w.cz))) return false;
     }
     return true;
@@ -564,24 +587,36 @@ export class VoxelStreamer {
 
   private requestLoads(): void {
     const batch = this.opts.readBatch ?? 64;
-    const maxReads = this.opts.maxReads ?? 4;
-    let reading = 0;
-    for (const c of this.chunks.values()) if (c.phase === 'reading') reading++;
-    let room = this.opts.pool.room() - reading;
-    while (this.reads < maxReads && room > 0 && this.cursor < this.wanted.length) {
+    const maxReads = this.opts.maxReads ?? DEFAULT_STREAM_READS;
+    // Most chunks read are air or uniform and need no worker: reads go on while the pool has room for what waits.
+    while (this.reads < maxReads && this.opts.pool.room() > this.plan.held.length && this.cursor < this.wanted.length) {
       const list: Chunk[] = [];
-      while (list.length < batch && list.length < room && this.cursor < this.wanted.length) {
+      let column = -1;
+      while (this.cursor < this.wanted.length) {
         const w = this.wanted[this.cursor]!;
-        if (w.d2 >= this.horizon) break;
+        // A batch ends between columns: a column is one byte range in its region file.
+        if (list.length >= batch && w.column !== column) break;
         this.cursor++;
+        if (w.d2 >= this.horizon) continue;
+        column = w.column;
         const key = chunkKey(this.grid, w.cx, w.cy, w.cz);
         if (this.chunks.has(key)) continue;
-        const c: Chunk = { cx: w.cx, cy: w.cy, cz: w.cz, key, phase: 'reading', job: 0, bytes: 0, parts: null, d2: w.d2, wantedTick: this.tick, hash: null, refresh: 0, refreshBox: null, refreshParts: 0 };
+        const c = newChunk(w.cx, w.cy, w.cz, key, w.d2, this.tick);
         this.chunks.set(key, c);
         list.push(c);
       }
       if (list.length === 0) break;
-      room -= list.length;
+      const axis = this.opts.source.rowAxis;
+      if (axis !== undefined) {
+        for (const n of this.plan.rowNeighbours(this.focus, axis, list)) {
+          const key = chunkKey(this.grid, n.cx, n.cy, n.cz);
+          const d2 = chunkDistance2(this.grid, this.focus, n.cx, n.cy, n.cz);
+          if (this.chunks.has(key) || d2 >= this.horizon) continue;
+          const c = newChunk(n.cx, n.cy, n.cz, key, d2, this.tick);
+          this.chunks.set(key, c);
+          list.push(c);
+        }
+      }
       this.reads++;
       this.opts.source
         .read(list)
@@ -618,12 +653,21 @@ export class VoxelStreamer {
         return;
       }
       const stored: StoredChunk | null = r.kind === 'air' ? null : r.kind === 'uniform' ? { uniform: r.value } : { stored: r.bytes.slice(), raw: r.raw };
-      const job = this.tracker.beginJob(this.ref(c));
-      c.phase = 'decoding';
-      c.job = job.id;
-      if (save !== undefined) this.submitApplySave(c, job.id, stored, save);
-      else this.submitLoad(c, job.id, stored!);
+      if (save === undefined && (this.plan.held.length > 0 || this.opts.pool.room() === 0)) {
+        this.plan.held.push({ c, stored: stored! });
+        return;
+      }
+      this.decode(c, stored, save);
     });
+  }
+
+  /** Sends a read chunk to a worker: a load, or the save's entry applied over it. */
+  private decode(c: Chunk, stored: StoredChunk | null, save = this.saves.get(c.key)): void {
+    const job = this.tracker.beginJob(this.ref(c));
+    c.phase = 'decoding';
+    c.job = job.id;
+    if (save !== undefined) this.submitApplySave(c, job.id, stored, save);
+    else this.submitLoad(c, job.id, stored!);
   }
 
   private submitLoad(c: Chunk, id: number, stored: StoredChunk): void {

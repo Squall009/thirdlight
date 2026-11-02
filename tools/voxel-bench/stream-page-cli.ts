@@ -10,10 +10,10 @@
  *
  * Per round, for each renderer (WebGPU, WebGL 2) and speed: a fresh page,
  * the cold fill at the loop's start, then the flight; the renderer
- * process's main-thread task time over the flight comes from CDP. After the
- * rounds, once each: the fastest flight with network latency added to every
- * range response, and a traced flight (Chrome trace: GC and the long
- * updates side by side).
+ * process's main-thread task time over the flight comes from CDP; then, per
+ * renderer, the fastest flight with network latency added to every range
+ * response. After the rounds, once: a traced flight (Chrome trace: GC and
+ * the long updates side by side).
  *
  *   --rounds N        rounds (default 3)
  *   --seconds S       flight seconds (default 60)
@@ -21,9 +21,10 @@
  *   --renderers list  webgpu,webgl2 (default both)
  *   --workers N       pool size (default 4, the Node bench's)
  *   --rebase M        floating-origin re-base distance in metres (default 250: the loop crosses it)
- *   --latency MS      added latency for the latency run (default 40; 0 skips the run)
- *   --gap KB          the latency runs' second setting: coalescing gap (default 64; the source's default is 4)
- *   --reads N         and source reads in flight (default 8; the streamer's default is 4)
+ *   --latency MS      added latency for the latency runs, one a renderer at the top speed (default 40; 0 skips them)
+ *   --gap KB          source coalescing gap for every run (default: the source's, REGION_READ_GAP_BYTES)
+ *   --reads N         source reads in flight for every run (default: the streamer's, DEFAULT_STREAM_READS)
+ *   --prefetch S      seconds of motion read ahead for every run (default: the streamer's, STREAM_PREFETCH_SECONDS)
  *   --no-trace        skip the traced run
  *   --only NAMES      run only the specs whose names contain one of these (comma-separated)
  *   --viewport WxH    page size (default 1280x720)
@@ -56,8 +57,10 @@ const RENDERERS = arg('renderers', 'webgpu,webgl2').split(',') as Array<'webgpu'
 const WORKERS = Number(arg('workers', '4'));
 const REBASE_M = Number(arg('rebase', '250'));
 const LATENCY_MS = Number(arg('latency', '40'));
-const GAP_KB = Number(arg('gap', '64'));
-const READS = Number(arg('reads', '8'));
+const optional = (name: string): number | undefined => (arg(name, '') === '' ? undefined : Number(arg(name, '')));
+const GAP_KB = optional('gap');
+const READS = optional('reads');
+const PREFETCH_S = optional('prefetch');
 const ONLY = arg('only', '').split(',').filter((x) => x !== '');
 const TRACE = !process.argv.includes('--no-trace');
 const VIEWPORT = parseViewport(arg('viewport', '1280x720'));
@@ -157,6 +160,7 @@ interface RunSpec {
   /** Source settings (absent: the streamer's and the source's defaults). */
   maxReads?: number;
   maxGap?: number;
+  prefetchSeconds?: number;
 }
 
 /** Main-thread GC and the long updates (user timing) from a Chrome trace: which GC overlapped which update. */
@@ -205,7 +209,7 @@ async function runOne(browser: Browser, server: RangeServer, files: string[], sp
   try {
     await page.goto(`${server.url}index.html?renderer=${spec.renderer}`);
     await page.waitForFunction(() => (window as unknown as { __tlStream?: { ready: boolean } }).__tlStream?.ready === true, null, { timeout: 60_000 });
-    const pageSpec: StreamPageSpec = { files, workers: WORKERS, speed: spec.speed, seconds: spec.seconds, rebaseM: REBASE_M, derive: true, nearEvery: 15, maxReads: spec.maxReads ?? 4, maxGap: spec.maxGap ?? null };
+    const pageSpec: StreamPageSpec = { files, workers: WORKERS, speed: spec.speed, seconds: spec.seconds, rebaseM: REBASE_M, derive: true, nearEvery: 15, maxReads: spec.maxReads ?? null, maxGap: spec.maxGap ?? null, prefetchSeconds: spec.prefetchSeconds ?? null };
     server.latencyMs = spec.latencyMs;
     const s0 = { ...server.stats };
     const cold = await page.evaluate((p) => (window as unknown as { __tlStream: { prepare(p: StreamPageSpec): Promise<Record<string, unknown>> } }).__tlStream.prepare(p), pageSpec);
@@ -297,7 +301,7 @@ function line(r: Record<string, any>): string {
   const u = r.update as Summary;
   const w = r.workerUs;
   const rebaseMs = (r.rebases as Array<{ ms: number }>).map((x) => x.ms);
-  return `| ${r.spec.round} | ${r.spec.renderer} | ${r.spec.speed}${r.spec.latencyMs > 0 ? ` +${r.spec.latencyMs} ms` : ''}${r.spec.maxGap !== undefined ? ` gap ${r.spec.maxGap / 1024} KB, ${r.spec.maxReads} reads` : ''}${r.spec.trace ? ' (traced)' : ''} | ${r.cold.coldMs} (${r.cold.resident}/${r.cold.stored}) | ${f.p50} / ${f.p95} / ${f.max} | ${f.missed} of ${f.n} | ${(r.longTasks as unknown[]).length} | ${r.mainThreadMsPerFrame} | ${u.p50} / ${u.p95} / ${u.max} | ${w.decompress.p50}+${w.decode.p50} / ${w.job.p95} | ${r.poolMs.queue.p50} / ${r.poolMs.queue.p95} | ${r.range.requests} / ${r.range.ms.p50} / ${r.range.ms.p95} / ${r.range.kb} | ${r.nearHoles.p95} / ${r.nearHoles.max} of ${r.nearHoles.nearChunks} | ${r.streamMB.peak} / ${r.heapMB?.max ?? '-'}${r.memory?.totalMB !== undefined ? ` / ${r.memory.totalMB}` : ''} | ${rebaseMs.length} (${rebaseMs.length === 0 ? '-' : Math.max(...rebaseMs)}) |`;
+  return `| ${r.spec.round} | ${r.spec.renderer} | ${r.spec.speed}${r.spec.latencyMs > 0 ? ` +${r.spec.latencyMs} ms` : ''}${r.spec.maxGap !== undefined ? ` gap ${r.spec.maxGap / 1024} KB` : ''}${r.spec.maxReads !== undefined ? ` ${r.spec.maxReads} reads` : ''}${r.spec.prefetchSeconds !== undefined ? ` prefetch ${r.spec.prefetchSeconds} s` : ''}${r.spec.trace ? ' (traced)' : ''} | ${r.cold.coldMs} (${r.cold.resident}/${r.cold.stored}) | ${f.p50} / ${f.p95} / ${f.max} | ${f.missed} of ${f.n} | ${(r.longTasks as unknown[]).length} | ${r.mainThreadMsPerFrame} | ${u.p50} / ${u.p95} / ${u.max} | ${w.decompress.p50}+${w.decode.p50} / ${w.job.p95} | ${r.poolMs.queue.p50} / ${r.poolMs.queue.p95} | ${r.range.requests} / ${r.range.ms.p50} / ${r.range.ms.p95} / ${r.range.kb} | ${r.nearHoles.p95} / ${r.nearHoles.max} of ${r.nearHoles.nearChunks} | ${r.streamMB.peak} / ${r.heapMB?.max ?? '-'}${r.memory?.totalMB !== undefined ? ` / ${r.memory.totalMB}` : ''} | ${rebaseMs.length} (${rebaseMs.length === 0 ? '-' : Math.max(...rebaseMs)}) |`;
 }
 
 async function main(): Promise<void> {
@@ -314,13 +318,14 @@ async function main(): Promise<void> {
   const chrome = browser.version();
   try {
     const specs: RunSpec[] = [];
-    for (let round = 1; round <= ROUNDS; round++) for (const renderer of RENDERERS) for (const speed of SPEEDS) specs.push({ name: `r${round}-${renderer}-${speed}`, renderer, speed, seconds: SECONDS, latencyMs: 0, trace: false, round });
+    const settings = { ...(GAP_KB === undefined ? {} : { maxGap: GAP_KB * 1024 }), ...(READS === undefined ? {} : { maxReads: READS }), ...(PREFETCH_S === undefined ? {} : { prefetchSeconds: PREFETCH_S }) };
     const top = Math.max(...SPEEDS);
-    if (LATENCY_MS > 0) {
-      specs.push({ name: `latency-${LATENCY_MS}-webgpu-${top}`, renderer: 'webgpu', speed: top, seconds: SECONDS, latencyMs: LATENCY_MS, trace: false, round: 0 });
-      specs.push({ name: `latency-${LATENCY_MS}-gap${GAP_KB}k-reads${READS}-webgpu-${top}`, renderer: 'webgpu', speed: top, seconds: SECONDS, latencyMs: LATENCY_MS, trace: false, round: 0, maxReads: READS, maxGap: GAP_KB * 1024 });
+    for (let round = 1; round <= ROUNDS; round++) {
+      for (const renderer of RENDERERS) for (const speed of SPEEDS) specs.push({ name: `r${round}-${renderer}-${speed}`, renderer, speed, seconds: SECONDS, latencyMs: 0, trace: false, round, ...settings });
+      // Latency runs in every round, so a latency figure has as many rounds as the localhost ones.
+      if (LATENCY_MS > 0) for (const renderer of RENDERERS) specs.push({ name: `latency-${LATENCY_MS}-r${round}-${renderer}-${top}`, renderer, speed: top, seconds: SECONDS, latencyMs: LATENCY_MS, trace: false, round, ...settings });
     }
-    if (TRACE) specs.push({ name: `traced-webgpu-${SPEEDS[0]}`, renderer: 'webgpu', speed: SPEEDS[0]!, seconds: Math.min(30, SECONDS), latencyMs: 0, trace: true, round: 0 });
+    if (TRACE) specs.push({ name: `traced-webgpu-${SPEEDS[0]}`, renderer: 'webgpu', speed: SPEEDS[0]!, seconds: Math.min(30, SECONDS), latencyMs: 0, trace: true, round: 0, ...settings });
     let lastRound = -1;
     for (const spec of specs.filter((x) => ONLY.length === 0 || ONLY.some((o) => x.name.includes(o)))) {
       if (spec.round !== lastRound) {

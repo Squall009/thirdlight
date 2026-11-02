@@ -9,6 +9,7 @@ import { JobQueue } from './job-queue';
 import { createWorldStore, type PaletteStore } from './palette-store';
 import { MATERIAL_AIR, SHAPE_FULL, VOXEL_ROLE, voxel, type VoxelRecord } from './record';
 import { deriveNow } from './stream-handlers';
+import { FocusMotion, readOrder } from './stream-reads';
 import { chunkDistance2, DEFAULT_STREAM_RING, inLoadRing, pastUnloadRing, ringChunks } from './stream-ring';
 
 const grid = chunkGrid(32);
@@ -270,6 +271,69 @@ describe('streaming ring', () => {
     expect(list.some((c) => pastUnloadRing(grid, r, far, c.cx, c.cy, c.cz))).toBe(true);
     expect(inLoadRing(grid, r, f, list[0]!.cx, list[0]!.cy, list[0]!.cz)).toBe(true);
     expect(chunkDistance2(grid, f, list[0]!.cx, list[0]!.cy, list[0]!.cz)).toBe(list[0]!.d2);
+  });
+});
+
+describe('read order and prefetch', () => {
+  const g = chunkGrid(32);
+  const ring = DEFAULT_STREAM_RING;
+
+  it('keeps a column together, nearest column first, the focus height first inside it; the same chunks as the ring', () => {
+    const f = { x: 40, y: 120, z: -70 };
+    const list = readOrder(g, ring, f, f);
+    const ringSet = new Set(ringChunks(g, ring, f).map((w) => chunkKey(g, w.cx, w.cy, w.cz)));
+    expect(list.length).toBe(ringSet.size);
+    expect(list.every((w) => ringSet.has(chunkKey(g, w.cx, w.cy, w.cz)))).toBe(true);
+    const h2 = (cx: number, cz: number): number => ((cx << 5) + 16 - f.x) ** 2 + ((cz << 5) + 16 - f.z) ** 2;
+    const seenColumns = new Set<number>();
+    for (let i = 0; i < list.length; i++) {
+      const w = list[i]!;
+      expect(w.d2).toBe(chunkDistance2(g, f, w.cx, w.cy, w.cz));
+      if (i === 0 || list[i - 1]!.column !== w.column) {
+        // A column starts once, at or past the previous column's distance.
+        expect(seenColumns.has(w.column)).toBe(false);
+        seenColumns.add(w.column);
+        if (i > 0) expect(h2(w.cx, w.cz)).toBeGreaterThanOrEqual(h2(list[i - 1]!.cx, list[i - 1]!.cz));
+      } else {
+        const p = list[i - 1]!;
+        expect([p.cx, p.cz]).toEqual([w.cx, w.cz]);
+        expect(Math.abs((w.cy << 5) + 16 - f.y)).toBeGreaterThanOrEqual(Math.abs((p.cy << 5) + 16 - f.y));
+      }
+    }
+  });
+
+  it('wants the ring around the focus and around the lead point, the lead side first', () => {
+    const f = { x: 0, y: 120, z: 0 };
+    const lead = { x: 160, y: 120, z: 0 };
+    const list = readOrder(g, ring, f, lead);
+    const keys = new Set(list.map((w) => chunkKey(g, w.cx, w.cy, w.cz)));
+    expect(keys.size).toBe(list.length);
+    for (const p of [f, lead]) for (const w of ringChunks(g, ring, p)) expect(keys.has(chunkKey(g, w.cx, w.cy, w.cz))).toBe(true);
+    // Ahead of the focus past its ring (x 384..544 cells) is wanted; the first columns are around the lead point.
+    expect(list.some((w) => (w.cx << 5) > f.x + ring.loadRadius)).toBe(true);
+    expect(Math.abs((list[0]!.cx << 5) + 16 - lead.x)).toBeLessThanOrEqual(32);
+  });
+
+  it('puts the lead a second ahead of steady motion, capped; a jump or a pause is not motion', () => {
+    const m = new FocusMotion(ring.nearRadius, ring.nearRadius * 60);
+    // 80 m/s along +x is 160 cells a second, at 60 frames a second.
+    let t = 1000;
+    for (let i = 0; i <= 60; i++, t += 1000 / 60) m.move({ x: (160 * i) / 60, y: 50, z: 0 }, t);
+    t -= 1000 / 60;
+    const f = { x: 160, y: 50, z: 0 };
+    const lead = m.lead(f, t, 1, 1e9);
+    // Smoothed over a quarter second: after a second of steady motion within 2 % of the speed.
+    expect(lead.x).toBeGreaterThan(160 + 0.98 * 160);
+    expect(lead.x).toBeLessThanOrEqual(320);
+    expect(lead.y).toBe(50);
+    expect(lead.z).toBe(0);
+    expect(m.lead(f, t, 1, 100).x).toBeCloseTo(260, 6);
+    expect(m.lead(f, t, 0, 100)).toBe(f);
+    // Still for longer than half a second: no lead.
+    expect(m.lead(f, t + 600, 1, 1e9)).toBe(f);
+    // A jump resets the velocity.
+    m.move({ x: 5000, y: 50, z: 0 }, t + 16);
+    expect(m.lead({ x: 5000, y: 50, z: 0 }, t + 16, 1, 1e9)).toEqual({ x: 5000, y: 50, z: 0 });
   });
 });
 

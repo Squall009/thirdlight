@@ -261,6 +261,37 @@ describe('streamer (workers, region files on disk)', () => {
     expect(events.filter((e) => e === 'loaded').length).toBe(m.counters.loads);
   });
 
+  it('reads the ring in whole columns: fewer requests than stored columns, bytes within 2x of the stored bytes, every chunk equal to the oracle', async () => {
+    // A pool queue far smaller than the ring's stored chunks: read chunks wait for room instead of being read again.
+    const s = streamer(pool(2, { maxQueued: 4 }));
+    const disk = disks.at(-1)!;
+    s.setFocus(0, 40, 0);
+    await s.settle();
+    const m = s.metrics();
+    expect(expectChunksEqual(s, oracle)).toBeGreaterThan(m.residentStored);
+    expect(m.counters.retried).toBe(0);
+    expect(m.counters.damaged).toBe(0);
+    // The oracle: the same chunks read one request a stored chunk (no joining) from the same files.
+    const exact = new DiskRegions(join(dir, 'world'));
+    disks.push(exact);
+    const one = new RegionChunkSource({ worldId: TEST_WORLD_ID, gridId: 0, grid, layout: 'stacked', footprint: 512, open: (n) => exact.open(n), maxOpen: 64, maxGap: -1 });
+    const ring: ChunkCoord[] = [];
+    const c: ChunkCoord = { cx: 0, cy: 0, cz: 0 };
+    for (const key of s.store.chunkKeys()) ring.push({ ...chunkOfKey(grid, key, c) });
+    const reads = await one.read(ring);
+    const stored = reads.filter((r) => r.kind === 'stored');
+    // Columns per region file (a stacked region splits a column at its floor).
+    const columns = new Set(stored.map((r) => `${r.cx},${Math.floor(r.cy / 16)},${r.cz}`));
+    const tableRequests = exact.requests - stored.length;
+    const storedBytes = exact.bytes;
+    expect(stored.length).toBe(m.residentStored);
+    expect(columns.size).toBeLessThan(stored.length);
+    expect(disk.requests - tableRequests).toBeLessThanOrEqual(columns.size);
+    expect(disk.bytes).toBeGreaterThanOrEqual(storedBytes);
+    expect(disk.bytes).toBeLessThanOrEqual(2 * storedBytes);
+    console.log(`ring reads: ${stored.length} stored chunks in ${columns.size} columns; ${disk.requests - tableRequests} chunk requests (one a chunk: ${stored.length}); ${disk.bytes} bytes fetched of ${storedBytes} (tables ${tableRequests} requests)`);
+  });
+
   it('looks at a chunk waiting for neighbours again only when one lands, and derives it then', async () => {
     const s = streamer(pool(2), { derive: true });
     s.setFocus(0, 40, 0);

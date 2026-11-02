@@ -124,6 +124,7 @@ export {
   regionIndexEnd,
   packRegionChunk,
   readRegionChunks,
+  REGION_READ_GAP_BYTES,
   readRegionHeader,
   regionChunkCodecBytes,
   regionFileName,
@@ -225,6 +226,7 @@ export { deriveNow, streamJobHandlers, type StreamHandlerOptions } from './strea
 export { JobQueue } from './job-queue';
 export { eventTargetWorker, SampleRing, STREAM_POOL_SETTINGS, WorkerPool, type JobOutcome, type PoolJob, type PoolStats, type PoolWorker, type WorkerPoolOptions } from './worker-pool';
 export { RegionChunkSource, type ChunkSource, type RegionChunkSourceOptions } from './region-source';
+export { DEFAULT_STREAM_READS, FocusMotion, readOrder, STREAM_PREFETCH_SECONDS, type WantedChunk } from './stream-reads';
 export { checkRing, chunkDistance2, DEFAULT_COLLISION_RING, DEFAULT_STREAM_RING, inLoadRing, inNearRing, pastUnloadRing, RESIDENT_CHUNK_OVERHEAD_BYTES, ringChunks, VOXEL_STREAM_BUDGET_BYTES, type Focus, type StreamRing, type StreamTier } from './stream-ring';
 export { sectionsOfChunk, type SwapReport } from './stream-sections';
 export { VoxelStreamer, type DerivedChunk, type StreamCounters, type StreamEvent, type StreamMetrics, type VoxelStreamerOptions } from './voxel-streamer';

@@ -46,10 +46,12 @@ export interface StreamPageSpec {
   /** Floating-origin re-base distance (metres). */
   rebaseM: number;
   derive: boolean;
-  /** Source reads in flight and the largest gap (bytes) one range request spans (the source's coalescing). */
-  maxReads: number;
-  /** null: the source's default gap. */
+  /** Source reads in flight (null: the streamer's default). */
+  maxReads: number | null;
+  /** The largest gap (bytes) one range request spans, the source's coalescing (null: the source's default). */
   maxGap: number | null;
+  /** Seconds of motion read ahead (null: the streamer's default). */
+  prefetchSeconds: number | null;
   /** Frames between near-ring checks (each lists the near ring, a little main-thread work of its own). */
   nearEvery: number;
 }
@@ -261,7 +263,7 @@ async function prepare(spec: StreamPageSpec): Promise<Record<string, unknown>> {
   const pool = new WorkerPool({ size: spec.workers, create: () => eventTargetWorker(new Worker('./stream-worker.js', { type: 'module' })), ...STREAM_POOL_SETTINGS });
   const regions = new FetchRegions(spec.files);
   const source = new RegionChunkSource({ worldId: TEST_WORLD_ID, gridId: WORLD_GRID_ID, grid, layout: 'stacked', footprint: 512, open: (n) => regions.open(n), maxOpen: 128, ...(spec.maxGap === null ? {} : { maxGap: spec.maxGap }) });
-  const streamer = new VoxelStreamer({ store: createWorldStore(grid), source, pool, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.low, dependencyRadius: 2, derive: spec.derive, readBatch: 64, maxReads: spec.maxReads });
+  const streamer = new VoxelStreamer({ store: createWorldStore(grid), source, pool, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.low, dependencyRadius: 2, derive: spec.derive, readBatch: 64, ...(spec.maxReads === null ? {} : { maxReads: spec.maxReads }), ...(spec.prefetchSeconds === null ? {} : { prefetchSeconds: spec.prefetchSeconds }) });
   const origin = new FloatingOrigin({ grid, rebaseDistanceM: spec.rebaseM });
   const boxes = new ChunkBoxes(origin);
   scene.add(boxes.mesh);

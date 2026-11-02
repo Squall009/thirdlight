@@ -17,7 +17,7 @@
  * damaged.
  */
 import { chunksPerRegionSide, type ChunkCoord, type ChunkGrid, type RegionFootprint } from './coords';
-import { openRegion, readRegionChunks, regionFileName, type RegionByteSource, type RegionChunkRead, type RegionIndex, type RegionLayout, type RegionUpgradeStep } from './region-file';
+import { openRegion, readRegionChunks, REGION_READ_GAP_BYTES, regionFileName, type RegionByteSource, type RegionChunkRead, type RegionIndex, type RegionLayout, type RegionUpgradeStep } from './region-file';
 
 /** Anything that reads chunks by coordinate. */
 export interface ChunkSource {
@@ -27,6 +27,12 @@ export interface ChunkSource {
   memoryBytes(): number;
   /** Forgets what it holds about these chunks' files (they were replaced): the next read sees the new files. */
   invalidate?(chunks: readonly ChunkCoord[]): void;
+  /**
+   * The axis along which neighbouring chunk columns lie next to each other
+   * in the source, so one request reads a run of them (absent: no such
+   * order; a reader gains nothing by asking for neighbours together).
+   */
+  readonly rowAxis?: 'x' | 'z';
 }
 
 export interface RegionChunkSourceOptions {
@@ -45,7 +51,7 @@ export interface RegionChunkSourceOptions {
   open(name: string): RegionByteSource | null;
   /** Region tables kept open (least recently used dropped first). */
   readonly maxOpen: number;
-  /** Gap between stored chunks read in one request (bytes). */
+  /** Gap between stored chunks read in one request (bytes; default {@link REGION_READ_GAP_BYTES}). */
   readonly maxGap?: number;
   /** Region file upgrade steps (default: the format's own). */
   readonly upgrades?: readonly RegionUpgradeStep[];
@@ -61,6 +67,8 @@ interface OpenRegion {
 }
 
 export class RegionChunkSource implements ChunkSource {
+  /** A region file orders its columns x-major (`lx * side + lz`): neighbours along z are neighbours in the file. */
+  readonly rowAxis = 'z';
   private readonly regions = new Map<string, OpenRegion>();
   private readonly side: number;
   /** Requests and bytes fetched, opening tables included. */
