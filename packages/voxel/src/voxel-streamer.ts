@@ -29,14 +29,11 @@
  * again: a resident chunk keeps its content until the new one lands, then
  * swaps it and everything within R is rebuilt in the `edit` lane.
  */
-import { apronBytes, apronTransfer, buildApron, checkRadius, dependentChunks } from './apron';
-import { jobRadius, rulesRef, type AssemblyRuleSet } from './assembly';
-import { derivedBytes, encodeDerived } from './derived-data';
-import { SHADER_BORDER_CELLS } from './derived-shader';
-import { crc32 } from '@thirdlight/shared';
-import { ALL_DERIVED_PARTS, DERIVED_PART, fieldsFeed } from './record';
+import { checkRadius } from './apron';
+import { jobRadius, type AssemblyRuleSet } from './assembly';
+import { ALL_DERIVED_PARTS, fieldsFeed } from './record';
 import { payloadBytes, payloadTransfer, type ChunkPayload } from './chunk-wire';
-import { chunkInWorld, chunkKey, type ChunkCoord, type ChunkGrid } from './coords';
+import { chunkInWorld, chunkKey, type CellGrid, type ChunkCoord, type ChunkGrid, type SectionEdge } from './coords';
 import { DirtyTracker } from './dirty-tracker';
 import { applyEdit, editBounds, editChunks, EditRefused, type ChunkUndo, type EditOutcome } from './edit-apply';
 import type { VoxelEditCommand } from './edit-command';
@@ -46,7 +43,8 @@ import type { ChunkSource } from './region-source';
 import { savePayloadOf, type MismatchChoice, type SaveChunk } from './save-file';
 import { stampShapeHash, type StampShape } from './stamp-shape';
 import type { CellBox } from './stroke';
-import type { ApplySaveInput, ApplySaveOutput, DeriveInput, DeriveOutput, EditInput, EditOutput, JobLane, LoadInput, LoadOutput, SaveContentWire, StoredChunk } from './stream-job';
+import type { ApplySaveInput, ApplySaveOutput, DeriveOutput, EditInput, EditOutput, JobLane, LoadInput, LoadOutput, SaveContentWire, StoredChunk } from './stream-job';
+import { SectionDerives, type SectionEvent } from './stream-sections';
 import { checkRing, chunkDistance2, DEFAULT_STREAM_RING, inNearRing, pastUnloadRing, RESIDENT_CHUNK_OVERHEAD_BYTES, ringChunks, type Focus, type StreamRing } from './stream-ring';
 import { decodeUndoRecord } from './undo-store';
 import { SampleRing, type JobOutcome, type WorkerPool } from './worker-pool';
@@ -84,13 +82,30 @@ export interface VoxelStreamerOptions {
    * landed chunks never stalls a frame.
    */
   readonly deriveMsPerUpdate?: number;
+  /**
+   * Main-thread milliseconds an update (or an edit) may spend building the
+   * jobs of an edit's rebuilds (default 8): an edit is waited on, so its
+   * jobs go out first and get more room than streaming's.
+   */
+  readonly editDeriveMsPerUpdate?: number;
+  /**
+   * Edge of the derive sections (8, 16 or 32 cells; default the chunk
+   * edge): what is derived, swapped and reported as one unit. Smaller
+   * sections need assembly rules.
+   */
+  readonly sectionEdge?: SectionEdge;
 }
 
-/** What happened to a chunk, for the systems built on the streamer (render, physics, navigation). */
+/**
+ * What happened to a chunk, for the systems built on the streamer (render,
+ * physics, navigation). `derived` and `shader` (only the shader data was
+ * derived again: material or wetness changed, the other outputs stand)
+ * name a derive section in section coordinates (chunks when the section
+ * edge is the chunk edge); `swap` closes an edit's atomic swap.
+ */
 export type StreamEvent =
-  | { readonly type: 'loaded' | 'unloaded' | 'derived'; readonly cx: number; readonly cy: number; readonly cz: number }
-  /** Only the chunk's shader data was derived again (material or wetness changed); its other outputs stand. */
-  | { readonly type: 'shader'; readonly cx: number; readonly cy: number; readonly cz: number }
+  | { readonly type: 'loaded' | 'unloaded'; readonly cx: number; readonly cy: number; readonly cz: number }
+  | SectionEvent
   | { readonly type: 'damaged'; readonly cx: number; readonly cy: number; readonly cz: number; readonly reason: string }
   | { readonly type: 'mismatch'; readonly cx: number; readonly cy: number; readonly cz: number; readonly applied: boolean };
 
@@ -110,12 +125,6 @@ interface Chunk {
   parts: Map<string, number> | null;
   d2: number;
   wantedTick: number;
-  /** Its derived result must be (re)built: 'edit' after an edit nearby (the edit lane). */
-  derive: 'no' | 'yes' | 'edit';
-  /** The derived parts the pending derive must rebuild (DERIVED_PART bits). */
-  deriveParts: number;
-  deriveJob: number;
-  derived: DeriveOutput | null;
   /** Base hash from the load (when asked for). */
   hash: Uint8Array | null;
   /** The live refresh of a resident chunk (0: none): only the newest refresh swaps its content in. */
@@ -159,6 +168,8 @@ export interface StreamCounters {
   refreshed: number;
   /** Refreshes not swapped in: damaged, superseded by a later refresh, or the chunk was edited here meanwhile. */
   refreshDropped: number;
+  /** Edits whose rebuilt sections were swapped in together. */
+  swaps: number;
 }
 
 export interface StreamMetrics {
@@ -175,7 +186,7 @@ export interface StreamMetrics {
   readonly counters: Readonly<StreamCounters>;
 }
 
-/** One chunk's derive placeholder result and its key. */
+/** One derive section's result and its section coordinates. */
 export interface DerivedChunk {
   readonly cx: number;
   readonly cy: number;
@@ -191,7 +202,7 @@ export class VoxelStreamer {
   readonly ring: StreamRing;
   readonly radius: number;
   budgetBytes: number;
-  readonly counters: StreamCounters = { loads: 0, loadsStored: 0, loadsUniform: 0, loadsAir: 0, unloads: 0, evictions: 0, reloads: 0, cancelledLoads: 0, staleRefused: 0, retried: 0, damaged: 0, derives: 0, shaderDerives: 0, deriveChecks: 0, overBudgetTicks: 0, heldDirty: 0, mismatches: 0, refreshed: 0, refreshDropped: 0 };
+  readonly counters: StreamCounters = { loads: 0, loadsStored: 0, loadsUniform: 0, loadsAir: 0, unloads: 0, evictions: 0, reloads: 0, cancelledLoads: 0, staleRefused: 0, retried: 0, damaged: 0, derives: 0, shaderDerives: 0, deriveChecks: 0, overBudgetTicks: 0, heldDirty: 0, mismatches: 0, refreshed: 0, refreshDropped: 0, swaps: 0 };
   /** Main-thread milliseconds: planning per update, adopting a chunk, building an apron. */
   readonly planMs = new SampleRing();
   readonly adoptMs = new SampleRing();
@@ -223,7 +234,8 @@ export class VoxelStreamer {
   private bytesChunks = 0;
   private bytesDerived = 0;
   private readonly heldOutside = new Set<number>();
-  private readonly deriveWanted = new Set<number>();
+  /** The derive sections (null when the streamer derives nothing). */
+  private readonly derives: SectionDerives | null;
   private wake: (() => void) | null = null;
 
   constructor(opts: VoxelStreamerOptions) {
@@ -239,6 +251,35 @@ export class VoxelStreamer {
     this.radius = opts.dependencyRadius;
     if (!(opts.budgetBytes > 0)) throw new RangeError('the streaming budget must be positive');
     this.budgetBytes = opts.budgetBytes;
+    this.derives =
+      opts.derive === true
+        ? new SectionDerives(
+            {
+              store: this.store,
+              grid: this.grid,
+              gridId: this.gridId,
+              pool: opts.pool,
+              tracker: this.tracker,
+              radius: this.radius,
+              rules: opts.rules,
+              counters: this.counters,
+              rings: { apronMs: this.apronMs, apronBytes: this.apronBytes, deriveUs: this.deriveUs },
+              isResident: (cx, cy, cz) => this.isResident(cx, cy, cz),
+              lane: (cx, cy, cz) => (inNearRing(this.grid, this.ring, this.focus, cx, cz) ? 'near' : 'far'),
+              distance2: (cx, cy, cz) => chunkDistance2(this.grid, this.focus, cx, cy, cz),
+              setPart: (cx, cy, cz, part, bytes) => this.setPart(cx, cy, cz, part, bytes),
+              emit: (e) => this.emit(e),
+              poke: () => this.poke(),
+            },
+            opts.sectionEdge ?? this.grid.edge,
+            opts.editDeriveMsPerUpdate ?? 8,
+          )
+        : null;
+  }
+
+  /** The grid of derive sections (the chunk grid when sections are whole chunks). */
+  get sections(): CellGrid {
+    return this.derives?.sections ?? this.grid;
   }
 
   /** Listens to chunk events (loaded, unloaded, derived, damaged, mismatch). */
@@ -279,15 +320,19 @@ export class VoxelStreamer {
     return this.chunks.get(chunkKey(this.grid, cx, cy, cz))?.phase === 'resident';
   }
 
-  /** A resident chunk's derive placeholder result (null: none yet or stale). */
-  derivedOf(cx: number, cy: number, cz: number): DeriveOutput | null {
-    const c = this.chunks.get(chunkKey(this.grid, cx, cy, cz));
-    return c === undefined || c.phase !== 'resident' || c.derive !== 'no' ? null : c.derived;
+  /** A derive section's current result, in section coordinates (null: none yet, or a rebuild pending). */
+  derivedOf(sx: number, sy: number, sz: number): DeriveOutput | null {
+    return this.derives?.derivedOf(sx, sy, sz) ?? null;
   }
 
-  /** Every resident chunk with a current derive result. */
+  /** Every derive section with a current result. */
   *derivedChunks(): IterableIterator<DerivedChunk> {
-    for (const c of this.chunks.values()) if (c.phase === 'resident' && c.derive === 'no' && c.derived !== null) yield { cx: c.cx, cy: c.cy, cz: c.cz, result: c.derived };
+    if (this.derives !== null) yield* this.derives.derived();
+  }
+
+  /** {@link setPart} for a derive section (section coordinates): counted against its chunk. */
+  setSectionPart(sx: number, sy: number, sz: number, part: string, bytes: number): boolean {
+    return this.derives?.setPart(sx, sy, sz, part, bytes) ?? false;
   }
 
   /** Base hash of a chunk as loaded (null unless the streamer loaded it with a save entry or hashing on). */
@@ -319,7 +364,6 @@ export class VoxelStreamer {
     let reading = 0;
     let decoding = 0;
     let damaged = 0;
-    let deriving = 0;
     for (const c of this.chunks.values()) {
       if (c.phase === 'resident') {
         resident++;
@@ -327,8 +371,8 @@ export class VoxelStreamer {
       } else if (c.phase === 'reading') reading++;
       else if (c.phase === 'decoding') decoding++;
       else damaged++;
-      if (c.deriveJob !== 0) deriving++;
     }
+    const deriving = this.derives?.deriving ?? 0;
     const tables = this.opts.source.memoryBytes();
     return {
       resident,
@@ -369,7 +413,6 @@ export class VoxelStreamer {
         c.d2 = chunkDistance2(g, this.focus, c.cx, c.cy, c.cz);
         if (pastUnloadRing(g, this.ring, this.focus, c.cx, c.cy, c.cz)) this.drop(c, false);
         else if (c.phase === 'decoding') this.opts.pool.reprioritize(c.job, this.laneOf(c), c.d2);
-        else if (c.deriveJob !== 0) this.opts.pool.reprioritize(c.deriveJob, c.derive === 'edit' ? 'edit' : this.laneOf(c), c.d2);
       }
     } else if (this.heldOutside.size > 0) {
       for (const key of [...this.heldOutside]) {
@@ -380,7 +423,7 @@ export class VoxelStreamer {
     }
     this.enforceBudget();
     this.requestLoads();
-    if (this.opts.derive === true) this.requestDerives();
+    this.derives?.request(this.opts.deriveMsPerUpdate ?? 2);
     for (const [key, at] of this.unloadedAt) {
       if (t0 - at <= CHURN_WINDOW_MS) break;
       this.unloadedAt.delete(key);
@@ -402,13 +445,8 @@ export class VoxelStreamer {
 
   private idle(): boolean {
     if (this.reads > 0 || this.refreshing > 0) return false;
-    for (const c of this.chunks.values()) if (c.phase === 'reading' || c.phase === 'decoding' || c.deriveJob !== 0) return false;
-    if (this.opts.derive === true) {
-      for (const key of this.deriveWanted) {
-        const c = this.chunks.get(key);
-        if (c !== undefined && this.canDerive(c)) return false;
-      }
-    }
+    for (const c of this.chunks.values()) if (c.phase === 'reading' || c.phase === 'decoding') return false;
+    if (this.derives?.pending() === true) return false;
     for (let i = this.cursor; i < this.wanted.length; i++) {
       const w = this.wanted[i]!;
       if (w.d2 >= this.horizon) break;
@@ -436,7 +474,7 @@ export class VoxelStreamer {
         this.heldOutside.add(c.key);
         return false;
       }
-      this.cancelDerive(c);
+      this.derives?.chunkDropped(c.cx, c.cy, c.cz);
       this.store.dropChunk(c.cx, c.cy, c.cz);
       this.tracker.unload(ref);
       this.bytesChunks -= c.bytes - this.partBytes(c);
@@ -452,7 +490,6 @@ export class VoxelStreamer {
       this.counters.cancelledLoads++;
     } else if (c.phase === 'reading') this.counters.cancelledLoads++;
     this.heldOutside.delete(c.key);
-    this.deriveWanted.delete(c.key);
     this.chunks.delete(c.key);
     return true;
   }
@@ -461,13 +498,6 @@ export class VoxelStreamer {
     let n = 0;
     if (c.parts !== null) for (const b of c.parts.values()) n += b;
     return n;
-  }
-
-  private cancelDerive(c: Chunk): void {
-    if (c.deriveJob === 0) return;
-    this.opts.pool.cancel(c.deriveJob);
-    this.tracker.expireJob(c.deriveJob);
-    c.deriveJob = 0;
   }
 
   private enforceBudget(): void {
@@ -506,7 +536,7 @@ export class VoxelStreamer {
         this.cursor++;
         const key = chunkKey(this.grid, w.cx, w.cy, w.cz);
         if (this.chunks.has(key)) continue;
-        const c: Chunk = { cx: w.cx, cy: w.cy, cz: w.cz, key, phase: 'reading', job: 0, bytes: 0, parts: null, d2: w.d2, wantedTick: this.tick, derive: 'no', deriveParts: 0, deriveJob: 0, derived: null, hash: null, refresh: 0, refreshBox: null, refreshParts: 0 };
+        const c: Chunk = { cx: w.cx, cy: w.cy, cz: w.cz, key, phase: 'reading', job: 0, bytes: 0, parts: null, d2: w.d2, wantedTick: this.tick, hash: null, refresh: 0, refreshBox: null, refreshParts: 0 };
         this.chunks.set(key, c);
         list.push(c);
       }
@@ -635,145 +665,18 @@ export class VoxelStreamer {
     const at = this.unloadedAt.get(c.key);
     if (at !== undefined && performance.now() - at <= CHURN_WINDOW_MS) this.counters.reloads++;
     this.tracker.loaded(this.ref(c));
-    if (this.opts.derive === true) {
-      this.wantDerive(c, 'yes');
-      this.invalidateAround({ minX: c.cx << this.grid.shift, minY: c.cy << this.grid.shift, minZ: c.cz << this.grid.shift, maxX: ((c.cx + 1) << this.grid.shift) - 1, maxY: ((c.cy + 1) << this.grid.shift) - 1, maxZ: ((c.cz + 1) << this.grid.shift) - 1 }, 'yes', c.key);
-    }
+    this.derives?.chunkLanded(c.cx, c.cy, c.cz);
     this.emit({ type: 'loaded', cx: c.cx, cy: c.cy, cz: c.cz });
-  }
-
-  private wantDerive(c: Chunk, why: 'yes' | 'edit', parts: number = ALL_DERIVED_PARTS): void {
-    if (this.opts.derive !== true) return;
-    c.deriveParts = (c.derive === 'no' ? 0 : c.deriveParts) | parts;
-    if (c.derive !== 'edit') c.derive = why;
-    this.deriveWanted.add(c.key);
-  }
-
-  /** Whether a chunk's pending derive rebuilds only its shader data (it has a full result to keep). */
-  private shaderOnly(c: Chunk): boolean {
-    return c.deriveParts === DERIVED_PART.shader && c.derived?.assembly != null;
-  }
-
-  /**
-   * Invalidates every resident chunk within R of a cell box (except `skip`):
-   * their running jobs become stale and their derived results are rebuilt.
-   * A change that feeds only the shader data (`parts`) reaches no further
-   * than the shader border, and only that part is rebuilt there.
-   */
-  private invalidateAround(box: { minX: number; minY: number; minZ: number; maxX: number; maxY: number; maxZ: number }, why: 'yes' | 'edit', skip = -1, parts: number = ALL_DERIVED_PARTS): void {
-    const radius = geometryParts(parts) ? this.radius : SHADER_BORDER_CELLS;
-    for (const d of dependentChunks(this.grid, box, radius)) {
-      const key = chunkKey(this.grid, d.cx, d.cy, d.cz);
-      if (key === skip) continue;
-      const n = this.chunks.get(key);
-      if (n === undefined || n.phase !== 'resident') continue;
-      this.tracker.invalidated(this.ref(n));
-      this.wantDerive(n, why, geometryParts(parts) ? ALL_DERIVED_PARTS : parts);
-    }
-  }
-
-  /** Whether all of a chunk's neighbours within R are known (resident, or outside the world). */
-  private canDerive(c: Chunk): boolean {
-    if (c.phase !== 'resident') return false;
-    if (this.radius === 0) return true;
-    for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) for (let dy = -1; dy <= 1; dy++) {
-      if (dx === 0 && dy === 0 && dz === 0) continue;
-      const nx = c.cx + dx;
-      const ny = c.cy + dy;
-      const nz = c.cz + dz;
-      if (!chunkInWorld(this.grid, nx, ny, nz)) continue;
-      if (this.chunks.get(chunkKey(this.grid, nx, ny, nz))?.phase !== 'resident') return false;
-    }
-    return true;
-  }
-
-  private requestDerives(): void {
-    let room = this.opts.pool.room();
-    const until = performance.now() + (this.opts.deriveMsPerUpdate ?? 2);
-    for (const key of [...this.deriveWanted]) {
-      if (room <= 0 || performance.now() > until) return;
-      const c = this.chunks.get(key);
-      if (c === undefined) {
-        this.deriveWanted.delete(key);
-        continue;
-      }
-      this.counters.deriveChecks++;
-      this.deriveWanted.delete(key);
-      // A chunk with a neighbour still unknown waits outside the set: the neighbour's landing wants it again
-      // (land → invalidateAround), so chunks at the ring's edge are not looked at again every update.
-      const shaderOnly = this.shaderOnly(c);
-      if (!shaderOnly && !this.canDerive(c)) continue;
-      this.cancelDerive(c);
-      const form = this.store.chunkForm(c.cx, c.cy, c.cz);
-      const rules = this.opts.rules;
-      if (form === 'absent' && rules === undefined) {
-        // An air chunk has nothing to derive.
-        this.setDerived(c, { solid: 0, exposed: 0, mask: null, hash: 0, assembly: null, shader: null });
-        continue;
-      }
-      const radius = shaderOnly ? SHADER_BORDER_CELLS : this.radius;
-      const t0 = performance.now();
-      const apron = buildApron(this.store, c.cx, c.cy, c.cz, radius);
-      this.apronMs.add(performance.now() - t0);
-      if (!shaderOnly && form === 'absent' && apron.dense.every((d, k) => d === 0 && apron.uniform[k] === 0)) {
-        // Air with air all around: nothing stands, nothing is drawn.
-        this.setDerived(c, { solid: 0, exposed: 0, mask: null, hash: 0, assembly: null, shader: null });
-        continue;
-      }
-      this.apronBytes.add(apronBytes(apron));
-      const payload = this.store.chunkPayload(c.cx, c.cy, c.cz, true);
-      const job = this.tracker.beginJob(this.ref(c));
-      const lane: JobLane = c.derive === 'edit' ? 'edit' : this.laneOf(c);
-      c.deriveJob = job.id;
-      const input: DeriveInput = shaderOnly
-        ? { edge: this.grid.edge, chunk: { grid: this.gridId, cx: c.cx, cy: c.cy, cz: c.cz }, payload, radius, apron, parts: DERIVED_PART.shader }
-        : { edge: this.grid.edge, chunk: { grid: this.gridId, cx: c.cx, cy: c.cy, cz: c.cz }, payload, radius, apron, ...(rules === undefined ? {} : { rules: rulesRef(rules) }) };
-      room--;
-      void this.opts.pool.submit<DeriveOutput>({ id: job.id, kind: 'derive', lane, distance: c.d2, input, transfer: payloadTransfer(payload, apronTransfer(apron)) }).then((o) => {
-        this.poke();
-        if (o.status === 'cancelled') return;
-        if (c.deriveJob === job.id) c.deriveJob = 0;
-        if (o.status !== 'done') {
-          this.tracker.expireJob(job.id);
-          if (this.chunks.get(key) === c && o.status !== 'refused' && o.status !== 'failed') this.wantDerive(c, c.derive === 'edit' ? 'edit' : 'yes');
-          return;
-        }
-        this.deriveUs.add(o.workerUs);
-        if (!this.tracker.acceptResult(job.id).ok || this.chunks.get(key) !== c) {
-          this.counters.staleRefused++;
-          return;
-        }
-        if (this.deriveWanted.has(key)) return;
-        this.setDerived(c, o.output);
-      });
-    }
-  }
-
-  private setDerived(c: Chunk, out: DeriveOutput): void {
-    c.derive = 'no';
-    c.deriveParts = 0;
-    if (out.shader !== null && c.derived?.assembly != null) {
-      // Only the shader data was rebuilt: it replaces that part of the full result.
-      const assembly = { ...c.derived.assembly, shader: out.shader };
-      c.derived = { ...c.derived, assembly, hash: crc32(encodeDerived(assembly)) };
-      this.counters.shaderDerives++;
-      this.setPart(c.cx, c.cy, c.cz, 'derive', derivedBytes(assembly));
-      this.emit({ type: 'shader', cx: c.cx, cy: c.cy, cz: c.cz });
-      return;
-    }
-    c.derived = out;
-    this.counters.derives++;
-    this.setPart(c.cx, c.cy, c.cz, 'derive', out.assembly !== null ? derivedBytes(out.assembly) : (out.mask?.byteLength ?? 0));
-    this.emit({ type: 'derived', cx: c.cx, cy: c.cy, cz: c.cz });
   }
 
   /**
    * After an edit changed `changed`: bump them, recount them, and rebuild
-   * what the changed fields feed: the shader data alone of the chunks
-   * within the shader border of `box` when only material or wetness
-   * changed, else everything within R of `box`.
+   * what the changed fields feed in the edit's group: the shader data alone
+   * of the sections within the shader border of `box` when only material
+   * or wetness changed, else every section within R of `box`. The jobs go
+   * out at once (an edit is waited on), and the group swaps when all are back.
    */
-  private afterEdit(changed: readonly ChunkCoord[], box: { minX: number; minY: number; minZ: number; maxX: number; maxY: number; maxZ: number }, parts: number): void {
+  private afterEdit(changed: readonly ChunkCoord[], box: CellBox, parts: number): number {
     for (const ch of changed) {
       const key = chunkKey(this.grid, ch.cx, ch.cy, ch.cz);
       const c = this.chunks.get(key)!;
@@ -781,9 +684,14 @@ export class VoxelStreamer {
       const bytes = this.store.chunkBytes(c.cx, c.cy, c.cz) + RESIDENT_CHUNK_OVERHEAD_BYTES + this.partBytes(c);
       this.bytesChunks += bytes - c.bytes;
       c.bytes = bytes;
-      this.wantDerive(c, 'edit', parts);
     }
-    this.invalidateAround(box, 'edit', -1, parts);
+    const d = this.derives;
+    if (d === null) return 0;
+    const group = d.newGroup();
+    if (changed.length > 0) d.invalidate(box, 'edit', parts, group);
+    d.request(this.opts.deriveMsPerUpdate ?? 2, true);
+    d.settleGroup(group);
+    return group;
   }
 
   private loadedCheck = (g: number, cx: number, cy: number, cz: number): boolean => g === this.gridId && this.isResident(cx, cy, cz);
@@ -791,14 +699,15 @@ export class VoxelStreamer {
   /**
    * Applies an edit command on the main thread (small strokes: tens of µs).
    * Every chunk it can touch must be resident, else it is refused before
-   * any write; edited chunks become dirty and everything within R of the
-   * edit is rebuilt in the edit lane.
+   * any write; edited chunks become dirty and every section within R of
+   * the edit is rebuilt in the edit lane. Reads see the edit at once; the
+   * rebuilt sections swap in together (the `swap` event naming `group`).
    */
-  edit(cmd: VoxelEditCommand, stamps?: readonly { readonly id: string; readonly shape: StampShape }[]): EditOutcome {
+  edit(cmd: VoxelEditCommand, stamps?: readonly { readonly id: string; readonly shape: StampShape }[]): EditOutcome & { readonly group: number } {
     const resolve = resolver(stamps);
     const outcome = applyEdit({ store: (g) => (g === this.gridId ? this.store : undefined) }, cmd, { stamps: resolve, loaded: this.loadedCheck });
-    this.afterEdit(outcome.chunks, editBounds(this.grid, cmd, resolve), fieldsFeed(outcome.fields));
-    return outcome;
+    const group = this.afterEdit(outcome.chunks, editBounds(this.grid, cmd, resolve), fieldsFeed(outcome.fields));
+    return { ...outcome, group };
   }
 
   /**
@@ -807,7 +716,7 @@ export class VoxelStreamer {
    * none of them changed meanwhile (else `superseded`: send it again, the
    * apply is deterministic).
    */
-  async editInWorker(cmd: VoxelEditCommand, stamps?: readonly { readonly id: string; readonly shape: StampShape }[]): Promise<{ status: 'done'; cells: number; undo: ChunkUndo[] } | { status: 'superseded' | 'refused' | 'failed'; message: string }> {
+  async editInWorker(cmd: VoxelEditCommand, stamps?: readonly { readonly id: string; readonly shape: StampShape }[]): Promise<{ status: 'done'; cells: number; undo: ChunkUndo[]; group: number } | { status: 'superseded' | 'refused' | 'failed'; message: string }> {
     const resolve = resolver(stamps);
     const touched = editChunks(this.grid, cmd, resolve);
     for (const t of touched) if (!this.loadedCheck(cmd.grid, t.cx, t.cy, t.cz)) throw new EditRefused('chunk_not_loaded', `chunk (${t.cx}, ${t.cy}, ${t.cz}) of grid ${cmd.grid} is not loaded`);
@@ -830,8 +739,8 @@ export class VoxelStreamer {
       this.store.adoptPayload(ch.chunk.cx, ch.chunk.cy, ch.chunk.cz, ch.payload);
       changed.push({ cx: ch.chunk.cx, cy: ch.chunk.cy, cz: ch.chunk.cz });
     }
-    this.afterEdit(changed, editBounds(this.grid, cmd, resolve), fieldsFeed(o.output.fields));
-    return { status: 'done', cells: o.output.cells, undo: decodeUndoRecord(this.grid, o.output.undo) };
+    const group = this.afterEdit(changed, editBounds(this.grid, cmd, resolve), fieldsFeed(o.output.fields));
+    return { status: 'done', cells: o.output.cells, undo: decodeUndoRecord(this.grid, o.output.undo), group };
   }
 
   /**
@@ -848,11 +757,16 @@ export class VoxelStreamer {
    * default all) says what the change makes stale: only the shader data
    * rebuilds the shader data of the chunks within the shader border of the
    * box (or of the refreshed chunks) and nothing else.
+   *
+   * Returns the refresh's edit group: what it rebuilds swaps in together,
+   * once every resident chunk named has landed again (the `swap` event
+   * naming it; 0 when the streamer derives nothing).
    */
-  refresh(chunks: readonly ChunkCoord[], box?: CellBox, parts: number = ALL_DERIVED_PARTS): void {
+  refresh(chunks: readonly ChunkCoord[], box?: CellBox, parts: number = ALL_DERIVED_PARTS): number {
     this.opts.source.invalidate?.(chunks);
     const list: Chunk[] = [];
     const token = ++this.refreshSeq;
+    const group = this.derives?.newGroup() ?? 0;
     for (const ch of chunks) {
       if (!chunkInWorld(this.grid, ch.cx, ch.cy, ch.cz)) continue;
       const c = this.chunks.get(chunkKey(this.grid, ch.cx, ch.cy, ch.cz));
@@ -863,13 +777,17 @@ export class VoxelStreamer {
         c.refreshParts = (c.refresh !== 0 ? c.refreshParts : 0) | parts;
         c.refresh = token;
         list.push(c);
+        this.derives?.awaitChunk(group, c.cx, c.cy, c.cz);
       } else {
         // Bytes read before the change must not land: forget the chunk, the next update reads it again.
         this.drop(c, false);
         this.cursor = 0;
       }
     }
-    if (list.length === 0) return;
+    if (list.length === 0) {
+      this.derives?.settleGroup(group);
+      return group;
+    }
     const versions = list.map((c) => this.tracker.version(this.ref(c)));
     this.reads++;
     this.opts.source
@@ -884,11 +802,13 @@ export class VoxelStreamer {
         this.reads--;
         this.poke();
       });
+    return group;
   }
 
   private refreshDropped(c: Chunk): void {
     c.refresh = 0;
     this.counters.refreshDropped++;
+    this.derives?.contentDropped(c.cx, c.cy, c.cz);
   }
 
   private onRefreshRead(c: Chunk, token: number, version: number, r: RegionChunkRead): void {
@@ -927,7 +847,6 @@ export class VoxelStreamer {
       return;
     }
     c.refresh = 0;
-    this.cancelDerive(c);
     const t0 = performance.now();
     this.store.adoptPayload(c.cx, c.cy, c.cz, payload);
     this.adoptMs.add(performance.now() - t0);
@@ -939,11 +858,10 @@ export class VoxelStreamer {
     const s = this.grid.shift;
     const parts = c.refreshParts;
     c.refreshParts = 0;
-    this.wantDerive(c, 'edit', parts);
     const given = c.refreshBox;
     c.refreshBox = null;
     const box = given ?? { minX: c.cx << s, minY: c.cy << s, minZ: c.cz << s, maxX: ((c.cx + 1) << s) - 1, maxY: ((c.cy + 1) << s) - 1, maxZ: ((c.cz + 1) << s) - 1 };
-    this.invalidateAround(box, 'edit', c.key, parts);
+    this.derives?.contentLanded(c.cx, c.cy, c.cz, box, parts);
     this.emit({ type: 'loaded', cx: c.cx, cy: c.cy, cz: c.cz });
   }
 
@@ -961,9 +879,4 @@ function resolver(stamps?: readonly { readonly id: string; readonly shape: Stamp
 
 function unionBox(a: CellBox, b: CellBox): CellBox {
   return { minX: Math.min(a.minX, b.minX), minY: Math.min(a.minY, b.minY), minZ: Math.min(a.minZ, b.minZ), maxX: Math.max(a.maxX, b.maxX), maxY: Math.max(a.maxY, b.maxY), maxZ: Math.max(a.maxZ, b.maxZ) };
-}
-
-/** Whether parts (DERIVED_PART bits) include any output the assembly evaluation builds (anything but the shader data). */
-function geometryParts(parts: number): boolean {
-  return (parts & ~DERIVED_PART.shader) !== 0;
 }

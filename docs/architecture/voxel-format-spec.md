@@ -1,6 +1,6 @@
 # Voxel world formats — spec v1
 
-Status: **DRAFT v1, revised after the owner's review of 2026-11-02 (45.10a: value v2, masks, overlay, climate; 45.10b: mesh format v2, shader data, blending in the shader) — awaiting the owner's approval of the revision. Nothing builds on it as final until approved.**
+Status: **DRAFT v1, revised after the owner's review of 2026-11-02 (45.10a: value v2, masks, overlay, climate; 45.10b: mesh format v2, shader data, blending in the shader; 45.10c: derive sections and atomic swaps, R107–R110) — awaiting the owner's approval of the revision. Nothing builds on it as final until approved.**
 
 Phase 45 drafted this spec ([plan](../plan-phase-45.md) §3). It describes the code on branch `phase-45`
 (`packages/voxel/src`, `@thirdlight/voxel`) as it stands, byte for byte where something is a byte format. The
@@ -103,6 +103,11 @@ localhost)
 **Rebuilding derived data**
 - 0.5–3.4 ms a chunk (median, Node, reference mesher).
 - The shared assembly step is about 0.2 ms of that.
+- **Per section (45.10c, owner 2026-11-02):** the derive unit is a 16³ section of a 32³ chunk (§3.6); one edit's
+  sections swap in together, meshes and colliders in the same frame. In the slice page (Iris Xe, 720p at the cap):
+  a local 1–4 m blast on terrain shows the next frame, 8 m the frame after; the reference mesher takes 0.1–0.2 ms a
+  section (p50; p95 0.6–0.8). Big blasts in the town take 3–5 frames, the page's per-section objects and bodies
+  (D440).
 
 ### What was rejected, and why
 
@@ -162,7 +167,7 @@ accepted all four on 2026-11-02 (D432 stays open for 46a's tuning).
 - R83 (an edit rebuilds only its own chunk) became a dependency radius;
 - R86, R87 and R88 are kit and mesh topics for 46b/46c.
 
-The brick ray-marched far field was moved to 46c by the owner (2026-10-28); it was not tried in 45.
+The brick ray-marched far field was moved to 46c by the owner (2026-10-28; 46d since the renumbering of 2026-11-02); it was not tried in 45.
 
 ### What the owner decided (2026-11-02), and what is still open
 
@@ -171,6 +176,10 @@ materials; one value everywhere with an authored base and a runtime overlay, the
 saved-fields mask (§2.3); material blending in the shader (45.10b), fed by the derived shader data (§3.7); climate as
 a coarse per-region field (§2.4); the game decides how a re-exported base affects saves (H1/H2 as built); the world
 layout and scale, the editing rules (including `world_changed` refuse-after-reload) and the remaining §5 defaults.
+
+**Decided 2026-11-02 for the phases after 45 (R107–R110):** remesh within a frame (derive sections, atomic swap,
+reads at once; built in 45.10c), a terrain mesher sub-phase before kits (46b), dynamic LOD over voxel mips (46b),
+lighting chosen performance first (46e).
 
 **Open, and not part of v1 yet:**
 - dependencies across grids (M7): the job contract's keys, aprons and invalidation are per grid (§3.6 open contract
@@ -216,7 +225,7 @@ runtime overlay all hold whole values, so reading or writing a voxel is one 32-b
 
 | Bits | Field | Values | Notes |
 |---|---|---|---|
-| 0–11 | material | 0 = air, 1–4,095 (`MATERIAL_ID_MAX`) | 4,096 ids a world: a format width, not a count cap on anything else (O12, owner). The id refers to the material record (46c) |
+| 0–11 | material | 0 = air, 1–4,095 (`MATERIAL_ID_MAX`) | 4,096 ids a world: a format width, not a count cap on anything else (O12, owner). The id refers to the material record (46d) |
 | 12–15 | role | see the role table; 10 assigned, 16 at most | Unassigned values are refused by every writer and reader (`VOXEL_ROLE_COUNT`) |
 | 16–19 | shape | 0 empty … 15 full (`SHAPE_FULL`) | 16 fill levels, stored for every voxel inside the value. Derived consumers read it on a 0–255 scale (`shapeDensity` = shape × 17) |
 | 20–22 | wetness | 0 dry … 7 (`WETNESS_MAX`) | Feeds the shader data only. Authored in base files, set at runtime in the overlay |
@@ -239,7 +248,7 @@ runtime overlay all hold whole values, so reading or writing a voxel is one 32-b
 
 Beams, banisters, posts, soffits and mouldings are **not roles**: the assembly rules infer them from the
 arrangement, every time (§3.7). The role set is what the stored value says about intent (Q-a, owner); what each role
-means to a case is 46b's catalogue.
+means to a case is 46c's catalogue.
 
 **Orientation is not stored** (O8 closed). A structure's grid carries its rotation (§1e, 47a); a stamp is rotated
 before it is voxelized (its command carries yaw and scale, §3.3); everything finer comes from the arrangement.
@@ -821,15 +830,45 @@ refused, and `OVERRIDE_UPGRADES` holds append-only steps on decoded overrides fr
 | `load` | stored chunk bytes (`{stored, raw}` or `{uniform}`), optional hash → the chunk payload, its base hash, decompress and decode µs |
 | `apply-save` | the base chunk (stored or null), expected hash, save content as its kind and payload bytes (§3.5), `onMismatch` (`save` / `base` / `report`) → the payload now, mismatch, applied, the base hash now |
 | `edit` | a canonical command, copies of every chunk it can touch, its stamps (hash recomputed in the worker) → the changed chunks, cell count, the undo record (`TLVU` bytes), the fields that changed (§2.2) |
-| `derive` | the chunk payload, radius R, an apron R deep, optional assembly rules {id, version, radius}, optional `parts` (default all) → derived data (§3.7), or the exposure placeholder when no rules are named; `parts` = shader alone: the chunk's shader data from the chunk and an apron of the shader border (R = `SHADER_BORDER_CELLS`, 1), no assembly evaluation |
+| `derive` | the chunk payload, radius R, an apron R deep, optional assembly rules {id, version, radius}, optional `parts` (default all), optional `sections` {edge 8 / 16 / 32, ids} → derived data (§3.7), or the exposure placeholder when no rules are named; `parts` = shader alone: the chunk's shader data from the chunk and an apron of the shader border (R = `SHADER_BORDER_CELLS`, 1), no assembly evaluation; with `sections`, one result a named section (`SectionResult`: id, hash, derived data or shader data, evaluate / mesh / consumer µs) |
+
+**Sections (owner 2026-11-02, R107; 45.10c).** 32³ stays the storage chunk; what a derive job builds is a
+**section** of 8, 16 or 32 cells inside it (`sectionGrid`, `VoxelStreamerOptions.sectionEdge`; default the chunk
+edge, the slice page **16**, chosen by the blast measurements, plan **45.10c**).
+- *Ids.* Section id = (sx · n + sz) · n + sy with n = 32 / S (the cells' x, z, y order); section keys and bounds use
+  the chunk key math on the section grid (`CellGrid`).
+- *Job input.* A job names some sections of one chunk and carries the chunk's payload and the chunk's apron (R
+  deep, exactly as for a whole-chunk derive). The worker fills the chunk's neighbourhood once, cuts each section's
+  own neighbourhood (its cells and the same pad) out of it and derives that as a cube of edge S. A 32³ section is
+  the chunk's derive, byte for byte. An edit touching fewer chunks than there are workers splits each chunk's
+  sections over the pool; otherwise, and for loads, one job a chunk.
+- *Results* are per section: positions, boxes, instances and nav cells are relative to the section's corner, the
+  shader data covers the section plus its 1-cell border (side S + 2). `deriveSectionFromStore` derives a section
+  in-thread from `voxelAt` reads alone, the oracle the workers' results are tested against (`stream.test.ts`).
+- *Staleness* is per section: each section has an input stamp that moves with any change within R of it (an edit,
+  a neighbour landing, a refreshed chunk), and a result is kept only while its section's stamp is the one the job
+  was sent with; a change elsewhere in the same chunk no longer throws a result away. Chunk stamps still guard
+  loads, edits in workers and saves.
+
+**Atomic swap (R107).** Every section one edit makes stale joins the edit's **group** (`edit()` and `refresh()`
+return its id). New results of a group are held; the old results — and so the meshes and colliders built from
+them — stay until every section of the group has its new result and every chunk a refresh is reading again has
+landed. Then all of them are committed in one task and one `swap` event (`SwapReport`: groups, sections, jobs,
+worker µs, main-thread ms, mesher µs per section, ms from the edit) closes the group, so a renderer and a physics
+world replace them between the same two frames: no frame shows part of an edit. An edit meeting a group still
+open merges into it (both swap together). A section that cannot be derived now (a neighbour chunk unknown) or
+whose job is refused leaves the group; a chunk unloaded takes its sections out. **Reads see an edit at once:**
+`voxelAt` reads the store, which the edit wrote before anything is rebuilt (the local path); on the editor's
+command path the store changes when the refreshed chunk lands, before the swap. An edit's jobs are sent in the
+same call (an edit lane budget of 8 ms main thread, `editDeriveMsPerUpdate`), not at the next update.
 
 **Lanes.** `edit` before `near` before `far`; within a lane by distance², then by arrival. The queue is an indexed
 heap with back-pressure: `maxQueued`, `room()`, and `queue_full` when full.
 
 **Staleness (R67).** Ids and input stamps come from the `DirtyTracker`, from one counter that never repeats.
-- A chunk's input stamp moves when it is edited, (re)loaded, or `invalidated` (a neighbour within R changed and
-  the change feeds geometry; a material or wetness change invalidates only the shader data of neighbours within
-  the shader border, §2.2).
+- A chunk's input stamp moves when it is edited or (re)loaded; a derive section's own stamp moves when anything
+  within R of it changes and the change feeds geometry (a material or wetness change: within the shader border,
+  and only the shader data is rebuilt, §2.2).
 - A job snapshots the stamps of every chunk it reads. Its result is accepted only while all of them still match and
   the job has not expired.
 - **Saves are jobs too:**
@@ -926,12 +965,12 @@ hash results; they are never stored.
 - **Placeholder rules v2** (`placeholder`, version 2, R = 2) read only the role (§2.2): beams, rails and posts are
   read from the built roles (wall, floor, foundation, stair, pillar), roof is a wall, an opening is open and empty,
   everything else built is a wall. Version 1 read the draft category (construction, roof). The case catalogue is
-  46b's; corners, stairs, openings, soffits and mouldings are not covered.
+  46c's; corners, stairs, openings, soffits and mouldings are not covered.
 - **Radius conformance (every rule set).** A rule set's `radius` is its own claim, and a rule reading further would
   read past the job's apron (air, or another row's cells) with no error. `ruleRadiusMismatches(store, rules,
   chunks)` evaluates each chunk with the job's pad (R + 1) and with 3 cells more and lists every cell the
   consumers read that differs. A test runs it for every registered rule set (`registeredAssemblyRules`) on random
-  worlds at both chunk edges; 46b's catalogue passes it once registered. A rule reading 2 cells while declaring 1
+  worlds at both chunk edges; 46c's catalogue passes it once registered. A rule reading 2 cells while declaring 1
   is caught (tested).
 
 **Consumer tables.** One evaluation feeds every consumer:
@@ -993,7 +1032,7 @@ chunk):
   cells, so both chunks compute the same bits. A sample edge belongs to the chunk of its lower sample, so no
   triangle is drawn twice.
 - The producers are references only: naive surface nets for the ground, and one quad per exposed face for the base.
-  46b replaces them, writing the same layout or bumping the version.
+  46b (the terrain mesher) and 46c (kits and cases) replace them, writing the same layout or bumping the version.
 
 **Detail instance (8 bytes):**
 - u8 x, y, z: the cell inside the chunk;
@@ -1030,7 +1069,7 @@ backend only.
 - **Alternatives measured (derive bench, Node, five worlds):** the packed palette form the result keeps is 2.6–6.1
   KB a chunk (7–12 KB a drawn chunk); a dense region is 78.6 KB; a sparse form (a 9³ table of u16 brick entries plus
   128 B for every 4³ brick of two or more entries) would be 12.6–26.8 KB a region (3–6× smaller) for one more
-  table read per corner (8 more a pixel). Not built: proposed for when grid memory matters (46a/46c).
+  table read per corner (8 more a pixel). Not built: proposed for when grid memory matters (46a/46d).
 
 **Measured (45.10b).** Derive bench before → after (same hour, `run.mjs derive`, five worlds): vertex 20 → 12 B;
 surface buffers (vertices + indices) per chunk −26 % (plain, hilly, caves, vertical) and −33 % (town); derived
@@ -1140,7 +1179,7 @@ Every R-id from [voxel-format-requirements.md](voxel-format-requirements.md), ma
 | R10 | all | — | later: 48 retires the old systems |
 | R11 | §2.2 | 45.1, 45.2a (plane costs), 45.10a (value v2 before → after) | served: the value v2 (owner 2026-11-02) |
 | R12, R13 | §3.7 (classes are derived, not stored) | 45.6; `derived.test.ts` | superseded (§7a) |
-| R14 | §2.2 role + shape | — | later: slope cases in 46b (the stored role tells roof, stair and terrain apart; no orientation) |
+| R14 | §2.2 role + shape | — | later: terrain slope cases in 46b, roof and stair cases in 46c (the stored role tells roof, stair and terrain apart; no orientation) |
 | R15–R17 | §3.1 | 45.2a, 45.2b; `palette-store.test.ts`, `brick-layout.test.ts` | served |
 | R18 | §1 replacement 1 | 45.2a, 45.2b | replaced (owner accepted 2026-11-02) |
 | R19 | §2.2, §3.1 | 45.2a | served |
@@ -1150,17 +1189,17 @@ Every R-id from [voxel-format-requirements.md](voxel-format-requirements.md), ma
 | R23 | — | — | superseded by R15–R20 |
 | R24, R25 | §2.2 liquid role + fill level | 45.1 worlds (lakes, ponds, cave water) | served |
 | R26 | §2.2 reserved bits | — | later: shoreline O15 in 49 (first candidate for the reserved bits) |
-| R27, R28 | §2.2 material (12 bits) | 45.10a | partly: id width set by the owner (4,096 a world); the material model is 46c's |
+| R27, R28 | §2.2 material (12 bits) | 45.10a | partly: id width set by the owner (4,096 a world); the material model is 46d's |
 | R29 | §3.3 stamp | 45.4; `edits.test.ts` | served (voxelizing at import is 47b) |
 | R30–R32 | §2.1 grid ids | — | later: 47a structure records |
 | R33, R34 | §3.5 TLVO, fit rule | 45.4; `edits.test.ts` | served; the regenerate-all step is 47a |
 | R35 | §3.5 (overrides not in region files) | 45.4 | served |
 | R36–R39 | §2.1, §3.2 grid id, own folder | 45.3; `region.test.ts` | partly: streaming per grid untested (46a); transform 47a |
-| R40 | §3.7 per grid | — | later: 46a/46d |
+| R40 | §3.7 per grid | — | later: 46a/46e |
 | R41, R42 | — | — | later: 49 (sea level is world metadata) |
 | R43 | §3.3 commands | — | later: 47a |
 | R44 | §3.7 prop channel only | 45.6 | served |
-| R45 | — | — | later: openings in 46b/47a, portals in 46d |
+| R45 | — | — | later: openings in 46c/47a, portals in 46e |
 | R46–R48 | §3.2 | 45.3 | served |
 | R49 | §2.1 bounds | 45.1 vertical world, 45.3 | served |
 | R50 | §1 replacement 2 | 45.3 | replaced (owner accepted 2026-11-02) |
@@ -1170,7 +1209,7 @@ Every R-id from [voxel-format-requirements.md](voxel-format-requirements.md), ma
 | R54 | §3.7 | 45.6 | served |
 | R55 | §1 sizes | 45.3 projection | served (projection; no 10 km world built) |
 | R56, R57 | §3.3, §3.4 | 45.4 | served; room op 47a, copy/paste 47c |
-| R58 | §3.3, §3.6, §3.7 | 45.4–45.6; slice 45.7a (§6) | partly: physics, nav graph and light in 46a/46d |
+| R58 | §3.3, §3.6, §3.7 | 45.4–45.6; slice 45.7a (§6) | partly: physics, nav graph and light in 46a/46e |
 | R59, R60 | §3.5 TLVS | 45.4; `edits.test.ts`, `stream.test.ts` (apply on load, mismatch) | served |
 | R61 | — | — | later: 49 (O18) |
 | R62, R63 | §2.1, §3.6 floating origin | 45.5a; `stream-core.test.ts` (precision) | served |
@@ -1181,7 +1220,7 @@ Every R-id from [voxel-format-requirements.md](voxel-format-requirements.md), ma
 | R70 | package rule | 45.1b; `stream.test.ts` (worker bundle passes the export scan) | served (default, owner to confirm) |
 | R71 | — | — | later: deferred scatter |
 | R72 | §3.7 | 45.6 (worker = main thread, deterministic) | served |
-| R73, R74 | §3.7 reference producers | 45.6 | partly: 46b mesher and case pass |
+| R73, R74 | §3.7 reference producers | 45.6 | partly: 46b mesher, 46c case pass |
 | R75–R77 | §3.7 | 45.6; `derived.test.ts`; slice proof 45.7 (§6) | served (placeholder rules) |
 | R78, R80 | — | — | superseded by R77 |
 | R79 | §1 replacement 3 | 45.6 | replaced (owner accepted 2026-11-02) |
@@ -1190,24 +1229,29 @@ Every R-id from [voxel-format-requirements.md](voxel-format-requirements.md), ma
 | R83 | §3.7 dependency | 45.6 | superseded by Q-c |
 | R84, R85 | §3.7 mips | 45.6; `derived.test.ts` | served (no paint layer, O16 closed) |
 | R86 | §3.7 instance sections | 45.6 | served at format level (§7a sections) |
-| R87–R90 | — | — | later: 46b/46c (not storage formats) |
+| R87–R90 | — | — | later: 46b–46d (not storage formats) |
 | R91 | §3.7 surface vertex v2, shader data on the GPU | 45.6, 45.10b; `voxel-surface.test.ts`, `voxel-world.e2e.ts` | replaced (owner 2026-11-02): vertices carry no material; the shader blends from the shader data |
 | R92 | §3.7 shader data, surface shader | 45.10a, 45.10b; `derived.test.ts`, `stream.test.ts` | served: blending in the shader, triplanar in world space for terrain and construction; no paint layer (O16 closed) |
 | R93–R96 | §3.7 prop channel | 45.6; `derived.test.ts` | served |
-| R97–R99 | — | — | later: 46d |
-| R100 | §3.7 nav | 45.6 | partly: the walk graph is 46d |
-| R101, R102 | §2.2 role | — | later: 46d/47b/47c (roles stored, owner 2026-11-02) |
-| R103 | §3.7 light coverage | — | later: 46d / camera |
-| R104 | — | — | later: 46d (O19) |
+| R97–R99 | — | — | later: 46e |
+| R100 | §3.7 nav | 45.6 | partly: the walk graph is 46e |
+| R101, R102 | §2.2 role | — | later: 46e/47b/47c (roles stored, owner 2026-11-02) |
+| R103 | §3.7 light coverage | — | later: 46e / camera |
+| R104 | — | — | later: 46e (O19) |
 | R105 | §3.7 collision | 45.6 | partly: Rapier churn in 46a |
 | R106 | — | — | later: 48a |
+| R107 | §3.6 sections, atomic swap | 45.10c; `stream.test.ts`, `voxel-world.e2e.ts`, plan **45.10c** (blast benchmark) | partly: built and measured (local 1–4 m on terrain the next frame); big blasts in the town 3–5 frames (D440, 46a) |
+| R108 | §3.7 assembly contract (radius, conformance) | — | later: 46b (the mesher's budget: 45.10c, 0.1–0.2 ms a 16³ section p50 for the reference) |
+| R109 | §3.7 voxel mips, shader data | 45.9 baseline (0.90 M triangles) | later: 46b |
+| R110 | — | — | later: 46e |
 
 **Not served yet, and where each goes:**
 - **46a:** R10 (with 48), R30–R32, R40, R43, R45 and R65, together with 47a/47c.
-- **46a / 46c:** R66 browser cache, R105 Rapier churn.
-- **46b:** R14, R73, R74, R87–R90.
-- **46c:** R27 and R28 (the material model; the id width is set).
-- **46d:** R97–R101, R103 and R104.
+- **46a / 46d:** R66 browser cache, R105 Rapier churn.
+- **46b / 46c:** R14, R73, R74, R87–R90 (the terrain mesher and LOD, then kits and cases).
+- **46d:** R27 and R28 (the material model; the id width is set).
+- **46e:** R97–R101, R103, R104 and R110.
+- **46a / 46b:** R107's remaining frames (D440), R108, R109.
 - **48a:** R106.
 - **49:** R26, R41, R42 and R61.
 
@@ -1261,7 +1305,7 @@ every remaining default below is accepted** (the world layout and scale, the edi
 **Derived data**
 27. Derived data v1: one versioned assembly evaluation, consumer tables, pluggable rule sets (45.6).
 28. Apron depth = the rules' radius + 1; results record their rules; one rule set per streamer (45.6).
-29. Light coverage as bits + a partial list (bricks if 46d's tracer needs O(1) access); placeholder coverages (45.6).
+29. Light coverage as bits + a partial list (bricks if 46e's tracer needs O(1) access); placeholder coverages (45.6).
 30. Collision input as boxes in 1/16 cell + the ground trimesh; nav input as blocking bits + standable cells (45.6).
 31. ~~Mesh buffers: 20-byte vertices with material slots~~ → owner 2026-11-02 (45.10b): 12-byte vertices (position, normal), no material; u16/u32 indices, two surfaces, 8-byte instances with `replacesBase` and a reserved u16.
 32. Voxel mips: a node has the chunk's form; mean density, dominant material; stale ancestors rebuilt lowest first (45.6).
@@ -1286,6 +1330,13 @@ every remaining default below is accepted** (the world layout and scale, the edi
     version stores it (45.8a).
 44. Raw values carry a record value form in region, undo, save and override bytes (45.8a); owner 2026-11-02: form
     2 is the value v2, O16 needs no bits (no paint layer), O15 is the first candidate for the reserved bits.
+
+**Sections and swaps (45.10c, after the owner's review; owner to confirm)**
+45. Derive sections of 16³ in the slice page (the streamer's default stays the chunk edge until 46a sets it); 8³ rejected.
+46. A section job carries its chunk's payload and apron; an edit's sections split over the workers only while it
+    touches fewer chunks than workers; an edit's jobs go out at once within 8 ms of main thread.
+47. One group per edit or refresh; held results swap in one task; an edit meeting an open group merges into it; a
+    section that cannot be derived now leaves the group.
 
 ---
 
@@ -1346,7 +1397,7 @@ answer names and re-derives the chunks within R + 1 of the answer's cell box.
 - *Collision follows the edits:* capsules rest on the ground (0.02 cells), wall top (8.02), beam and rail (3.02); a
   capsule dropped over a pit dug after the bodies were built falls in (−2.67), and rests at 0.02 after the undo.
 
-**Limits observed** (placeholder rules and meshes; 46b's catalogue and mesher replace them):
+**Limits observed** (placeholder rules and meshes; 46c's catalogue and 46b's mesher replace them):
 - Thin stone columns left between dig holes resolve as posts and draw as timber post pieces; a beam that loses its
   wall becomes a floating wall stub (no orphan case); a cut banister end resolves as a timber block; banister and
   fence corners resolve as wall.
@@ -1398,7 +1449,7 @@ code as it runs. Each entry says what changed.
     measured too: the 48-bit record value it needs makes a cell delta 9 bytes instead of 7 and an apron or
     assembly-block cell 8 bytes instead of 4. Numbers in the plan (**45.7d format gaps**).
   - *Orientation.* One of the 24 axis-aligned rotations (0–23, 0 the identity, `orientationMatrix`), others
-    refused; PROVISIONAL until 46b's role and case catalogue.
+    refused; PROVISIONAL until 46c's role and case catalogue.
   - *Category.* Values 5 and up are refused by every writer and reader.
 - **G8 — a missing region file read as sky. Closed in 45.7d.** The world manifest (format 2) lists its region
   files: an unlisted region is air, a listed one that is missing or unreadable is damaged (409 `region_damaged`
@@ -1484,3 +1535,13 @@ staging slice world was written again.
   re-exported base affects saves (H1/H2 as built); the world layout and scale, the editing rules and the remaining
   §5 defaults. M7, D433 and D434 stay later work.
 
+### Changed after the owner's review (45.10c, owner 2026-11-02: remesh within a frame)
+
+- **Derive sections (§3.6).** The derive job may name sections (8, 16 or 32 cells) of its chunk and returns one
+  result each, positions relative to the section's corner, shader data over the section and its border (side
+  S + 2). Staleness is per section. No stored byte changed: sections are derived data, never saved.
+- **Atomic swap (§3.6).** One group per edit or refresh; results held until the whole group has them, then one
+  `swap`; an edit meeting an open group merges into it; reads see the edit at once.
+- **Requirements R107–R110** (remesh within a frame, terrain mesher, dynamic LOD, lighting performance first) and
+  the renumbered sub-phases: 46b terrain mesher and LOD, 46c kits and cases, 46d rendering and materials, 46e
+  lighting, culling and navigation.

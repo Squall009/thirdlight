@@ -28,6 +28,17 @@
  * (timestamps where the device has them) at the cap with the blend and
  * with one flat colour; then every paint undone.
  *
+ * `--phase blast` (per renderer and section edge, `--sections 32,16,8`):
+ * spheres of 1, 2, 4 and 8 m dug at a chunk corner and in a chunk middle
+ * (`--spots terrain`: the hilly ground around the scene; `--spots town`:
+ * among the town's houses), locally in the page (a game's runtime edit,
+ * no round trip; `--repeats` times, the world read again after each) and
+ * as a command (undone after each): sections derived again, jobs, worker
+ * and main-thread ms, mesher µs per section, frames from the edit to the
+ * frame showing the atomic swap (meshes and colliders), the frames each
+ * section's meshes were replaced in, missed frames; plus an orbit's frames,
+ * draws, triangles and bodies per section edge.
+ *
  *   --origin URL        the backend (default http://127.0.0.1:4180, staging)
  *   --token-file FILE   its owner token (default ~/thirdlight-staging-p45/owner-token)
  *   --project ID        (default voxel-slice)   --world NAME (default slice)
@@ -57,6 +68,10 @@ const RENDERERS = arg('renderers', 'webgpu,webgl2').split(',') as Array<'webgpu'
 const VIEWPORT = parseViewport(arg('viewport', '1280x720'));
 const OUT = arg('out', join(homedir(), '.cache', 'thirdlight-phase45', 'acceptance', PHASE === 'assembly' || PHASE === 'fly' ? '45.7b' : '45.7a'));
 const MISSED_MS = 25;
+const SECTIONS = arg('sections', '32,16,8').split(',').map(Number);
+const SPOTS = arg('spots', 'terrain') as 'terrain' | 'town';
+const REPEATS = Number(arg('repeats', '2'));
+const RADII_M = [1, 2, 4, 8];
 
 type Cell = [number, number, number];
 interface Hook {
@@ -336,10 +351,81 @@ async function shader(renderer: 'webgpu' | 'webgl2'): Promise<Record<string, unk
   return out;
 }
 
+/** The chunk corner and chunk middle a blast run digs at, near the scene. */
+async function blastSpots(page: Page): Promise<{ corner: Cell; middle: Cell }> {
+  const [ax, ay, az] = AT;
+  if (SPOTS === 'town') {
+    // Ground is at y 0 (a chunk face): a corner where 8 chunks meet among walls, floors and roofs, and a middle inside a house.
+    let corner: { at: Cell; built: number } | null = null;
+    let middle: { at: Cell; built: number } | null = null;
+    for (let x = ax - 96; x <= ax + 96; x += 32) for (let z = az - 96; z <= az + 96; z += 32) {
+      const c = await hook<{ built: number }>(page, 'roleCounts', [x - 4, 0, z - 4], [x + 4, 8, z + 4]);
+      if (corner === null || c.built > corner.built) corner = { at: [x, 0, z], built: c.built };
+      const m = await hook<{ built: number }>(page, 'roleCounts', [x + 12, 2, z + 12], [x + 20, 10, z + 20]);
+      if (middle === null || m.built > middle.built) middle = { at: [x + 16, 6, z + 16], built: m.built };
+    }
+    return { corner: corner!.at, middle: middle!.at };
+  }
+  // Hilly ground: the chunk corner (off the scene's own) whose surface lies closest to a chunk face in y, dug there.
+  let best: { at: Cell; off: number } | null = null;
+  for (let x = ax - 96; x <= ax + 96; x += 32) for (let z = az - 96; z <= az + 96; z += 32) {
+    if (x === ax && z === az) continue;
+    const y = await hook<number | null>(page, 'surfaceAt', x, z, ay + 96, ay - 96);
+    if (y === null) continue;
+    const face = Math.round(y / 32) * 32;
+    if (best === null || Math.abs(y - face) < best.off) best = { at: [x, face, z], off: Math.abs(y - face) };
+  }
+  const [cx, , cz] = best!.at;
+  const my = await hook<number | null>(page, 'surfaceAt', cx + 16, cz + 16, ay + 96, ay - 96);
+  return { corner: best!.at, middle: [cx + 16, (my ?? ay) - 1, cz + 16] };
+}
+
+async function blasts(renderer: 'webgpu' | 'webgl2', section: number): Promise<Record<string, unknown>> {
+  const { page, errors, close } = await openPage(renderer, `&section=${section}&hud=0`);
+  try {
+    const cold = await page.evaluate(() => (window as unknown as { __tlVoxelWorld: { coldMs: number } }).__tlVoxelWorld.coldMs);
+    await lookAtScene(page);
+    const orbit = summary(await hook(page, 'frames', SECONDS, 0.15));
+    const state = await hook<Record<string, unknown>>(page, 'state');
+    const spots = await blastSpots(page);
+    // A first blast warms what a page does once (code paths, physics shapes); it is not recorded.
+    await hook(page, 'blast', spots.corner, 1, 'local');
+    await hook(page, 'reread');
+    const runs: Array<Record<string, unknown>> = [];
+    for (const [where, at] of Object.entries(spots)) {
+      for (const radiusM of RADII_M) {
+        for (const how of ['local', 'command'] as const) {
+          for (let k = 0; k < (how === 'local' ? REPEATS : 1); k++) {
+            await hook(page, 'look', at[0], at[1], at[2], -0.75, 0.6, 14 + radiusM * 3);
+            await hook(page, 'settle');
+            await page.evaluate(() => new Promise((ok) => setTimeout(ok, 500)));
+            const r = await hook<Record<string, unknown>>(page, 'blast', at, radiusM, how);
+            const swap = r['swap'] as Record<string, unknown> | undefined;
+            runs.push({ where, at, radiusM, how, ok: r['ok'], code: r['code'], cells: r['cells'], chunks: r['chunks'], frames: r['frames'], swap, buildMs: r['buildMs'], applyMs: r['applyMs'], answerMs: r['answerMs'], swappedMs: r['swappedMs'], visibleMs: r['visibleMs'], replacedSections: r['replacedSections'], replacedFrames: r['replacedFrames'], replacedSwaps: r['replacedSwaps'], readAtOnce: r['readAtOnce'], missedDuring: r['missedDuring'], longestFrameMs: r['longestFrameMs'] });
+            console.log(JSON.stringify({ renderer, section, where, radiusM, how, frames: r['frames'], sections: swap?.['sections'], jobs: swap?.['jobs'], workerUs: swap?.['workerUs'], mainMs: swap?.['mainMs'], buildMs: r['buildMs'], ms: swap?.['ms'], replacedFrames: r['replacedFrames'] }));
+            if (how === 'local') await hook(page, 'reread');
+            else await hook(page, 'undo');
+            await hook(page, 'settle');
+          }
+        }
+      }
+    }
+    return { renderer, section, cold, orbit, state: { drawn: state['drawn'], triangles: state['triangles'], pieces: state['pieces'], collision: state['collision'], streamBytes: state['streamBytes'], deriveUs: state['deriveUs'], heapMB: state['heapMB'] }, spots, runs, errors };
+  } finally {
+    await close();
+  }
+}
+
 mkdirSync(OUT, { recursive: true });
 const host = { uptimeH: Number((uptime() / 3600).toFixed(1)), load: loadavg().map((l) => Number(l.toFixed(2))), at: new Date().toISOString() };
 const probeCells = (['webgpu', 'webgl2'] as const).flatMap((r) => dabsFor(r).map((d) => d.cell)).concat([[AT[0] + 3, AT[1] + 1, AT[2] + 7]]);
-if (PHASE === 'assembly' || PHASE === 'fly' || PHASE === 'shader') {
+if (PHASE === 'blast') {
+  const runs = [];
+  for (const r of RENDERERS) for (const section of SECTIONS) runs.push(await blasts(r, section));
+  const file = join(OUT, `blast-${SPOTS}.json`);
+  writeFileSync(file, JSON.stringify({ host, at: AT, world: WORLD, runs }, null, 2));
+  console.log(`blast: ${file}`);
+} else if (PHASE === 'assembly' || PHASE === 'fly' || PHASE === 'shader') {
   const runs = [];
   for (const r of RENDERERS) runs.push(PHASE === 'assembly' ? await assembly(r) : PHASE === 'fly' ? await fly(r) : await shader(r));
   writeFileSync(join(OUT, `${PHASE}.json`), JSON.stringify({ host, at: AT, runs }, null, 2));

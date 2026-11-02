@@ -14,7 +14,7 @@ import {
   cellOutputs,
   chunkOf,
   CLASS_MASK,
-  deriveFromStore,
+  deriveSectionFromStore,
   encodeDerived,
   jobRadius,
   localOf,
@@ -53,26 +53,30 @@ export interface ProbeContext {
 
 export function assemblyProbes(ctx: ProbeContext): Record<string, (...args: never[]) => unknown> {
   const { streamer, grid, origin, collision } = ctx;
+  /** Derived results are per section: windows, hashes and cells are read in section coordinates. */
+  const sections = streamer.sections;
+  const per = grid.edge / sections.edge;
   const v = voxel();
   const markers = new THREE.Group();
   ctx.scene.add(markers);
 
   /**
-   * A chunk derived afresh in this thread from the store as it is now, as
-   * the streamer's hash would be (0: air with only air around, which a
-   * derive skips). Compared with the streamer's result, it shows whether
-   * that result is stale.
+   * A section derived afresh in this thread from the store as it is now,
+   * as the streamer's hash would be (0: in an air chunk with only air
+   * around, which a derive skips). Compared with the streamer's result, it
+   * shows whether that result is stale.
    */
-  function freshHash(cx: number, cy: number, cz: number): number {
+  function freshHash(sx: number, sy: number, sz: number): number {
     const store = streamer.store;
+    const [cx, cy, cz] = [Math.floor(sx / per), Math.floor(sy / per), Math.floor(sz / per)];
     if (store.chunkForm(cx, cy, cz) === 'absent') {
       const apron = buildApron(store, cx, cy, cz, jobRadius(PLACEHOLDER_RULES));
       if (apron.dense.every((d, k) => d === 0 && apron.uniform[k] === 0)) return 0;
     }
-    return crc32(encodeDerived(deriveFromStore(store, cx, cy, cz, PLACEHOLDER_RULES)));
+    return crc32(encodeDerived(deriveSectionFromStore(store, sections, sx, sy, sz, PLACEHOLDER_RULES)));
   }
 
-  /** The derived chunks within `r` chunks of (cx, cy, cz): their hashes by "cx,cy,cz" (null: not derived). */
+  /** The derived sections within `r` sections of (cx, cy, cz) (section coordinates): their hashes by "x,y,z" (null: not derived). */
   function windowHashes(cx: number, cy: number, cz: number, r: number): Record<string, number | null> {
     const out: Record<string, number | null> = {};
     for (let dx = -r; dx <= r; dx++) for (let dy = -r; dy <= r; dy++) for (let dz = -r; dz <= r; dz++) out[`${cx + dx},${cy + dy},${cz + dz}`] = streamer.derivedOf(cx + dx, cy + dy, cz + dz)?.hash ?? null;
@@ -95,15 +99,15 @@ export function assemblyProbes(ctx: ProbeContext): Record<string, (...args: neve
     /** What a cell is: its stored voxel, the class the assembly resolves for it, and what every consumer received (null: chunk not derived). */
     cellAt(x: number, y: number, z: number): Record<string, unknown> {
       streamer.store.voxelAt(x, y, z, v);
-      const d = streamer.derivedOf(chunkOf(grid, x), chunkOf(grid, y), chunkOf(grid, z))?.assembly ?? null;
+      const d = streamer.derivedOf(chunkOf(sections, x), chunkOf(sections, y), chunkOf(sections, z))?.assembly ?? null;
       return {
         voxel: { material: v.material, role: v.role, shape: v.shape, wetness: v.wetness },
         resolved: className(resolvedClassAt(streamer.store, PLACEHOLDER_RULES, x, y, z)),
-        outputs: d === null ? null : cellOutputs(d, localOf(grid, x), localOf(grid, y), localOf(grid, z)),
+        outputs: d === null ? null : cellOutputs(d, localOf(sections, x), localOf(sections, y), localOf(sections, z)),
       };
     },
     windowHashes,
-    /** Chunks within `r` of (cx, cy, cz) whose derived result differs from a fresh derive of the store now (stale ones). */
+    /** Sections within `r` of (cx, cy, cz) (section coordinates) whose derived result differs from a fresh derive of the store now (stale ones). */
     staleAgainstFresh(cx: number, cy: number, cz: number, r: number): { checked: number; stale: string[] } {
       const stale: string[] = [];
       let checked = 0;

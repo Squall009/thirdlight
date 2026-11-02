@@ -32,10 +32,14 @@ export {
   regionOfCell,
   regionOfChunk,
   regionOfKey,
+  SECTION_EDGES,
+  sectionGrid,
+  type CellGrid,
   type ChunkCoord,
   type ChunkEdge,
   type ChunkGrid,
   type RegionFootprint,
+  type SectionEdge,
 } from './coords';
 export {
   AIR,
@@ -220,6 +224,7 @@ export { JobQueue } from './job-queue';
 export { eventTargetWorker, SampleRing, STREAM_POOL_SETTINGS, WorkerPool, type JobOutcome, type PoolJob, type PoolStats, type PoolWorker, type WorkerPoolOptions } from './worker-pool';
 export { RegionChunkSource, type ChunkSource, type RegionChunkSourceOptions } from './region-source';
 export { checkRing, chunkDistance2, DEFAULT_STREAM_RING, inLoadRing, inNearRing, pastUnloadRing, RESIDENT_CHUNK_OVERHEAD_BYTES, ringChunks, VOXEL_STREAM_BUDGET_BYTES, type Focus, type StreamRing, type StreamTier } from './stream-ring';
+export { sectionsOfChunk, type SwapReport } from './stream-sections';
 export { VoxelStreamer, type DerivedChunk, type StreamCounters, type StreamEvent, type StreamMetrics, type VoxelStreamerOptions } from './voxel-streamer';
 export { DEFAULT_REBASE_DISTANCE_M, FloatingOrigin, type FloatingOriginOptions, type RebaseEvent } from './floating-origin';
 export {
@@ -263,7 +268,7 @@ export {
   type OccupancyOut,
 } from './derived-data';
 export { INSTANCE_BYTES, INSTANCE_FLAG, PIECE_FAMILY, PIECE_SECTION, POSITION_STEPS_PER_CELL, SURFACE_ISO, SURFACE_VERTEX_BYTES, type InstanceList, type SurfaceBuffer } from './derived-mesh';
-export { deriveFromStore, deriveWithApron } from './derive-assembly';
+export { deriveFromStore, deriveSectionFromStore, deriveSectionsWithApron, deriveWithApron, sectionIdOf, sectionLocalOrigin, type SectionResult } from './derive-assembly';
 export { encodeShader, SHADER_BORDER_CELLS, shaderBytes, shaderEntry, shaderEntryAt, shaderGridEntries, shaderGridSide, shaderOfNeighbourhood, shaderSolidEntry, type ShaderOut } from './derived-shader';
 export { RULE_CONFORMANCE_EXTRA_PAD, ruleRadiusMismatches, type RuleRadiusMismatch } from './rule-conformance';
 export { cellOutputs, resolvedClassAt, type CellOutputs } from './derived-cell';

@@ -27,6 +27,12 @@
  * Surfaces are shaded from the chunks' shader data: a material paint and a
  * wetness paint of the wall (across a chunk face) change the picture with
  * no mesh rebuilt and no chunk derived again but for its shader data.
+ *
+ * Everything derived is per section (the page's default section edge): a
+ * blast dug at a chunk corner, locally (a game's runtime edit) and as a
+ * command, swaps every section it rebuilt, meshes and colliders, in one
+ * frame (no frame shows part of it), and reads see the dug cells in the
+ * same task as the edit.
  */
 import { cpSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -36,7 +42,7 @@ import { startBackend, type E2EBackend } from './backend';
 import { consoleErrors } from './console-errors';
 import { writeSliceWorld } from '../../tools/voxel-bench/slice-world';
 import { MAT } from '../../tools/voxel-bench/world-kit';
-import { canonicalEditCommand, chunkGrid, dependentChunks, editBounds, jobRadius, PLACEHOLDER_RULES, VOXEL_ROLE } from '@thirdlight/voxel';
+import { canonicalEditCommand, chunkGrid, dependentChunks, editBounds, jobRadius, PLACEHOLDER_RULES, sectionGrid, VOXEL_ROLE, type SectionEdge } from '@thirdlight/voxel';
 
 type Cell = [number, number, number];
 let be: E2EBackend;
@@ -64,6 +70,7 @@ async function open(page: Page, renderer: 'webgpu' | 'webgl2'): Promise<void> {
   expect(await page.evaluate(() => (window as unknown as { __tlVoxelWorld: { backend: string } }).__tlVoxelWorld.backend)).toBe(renderer);
   await hook(page, 'look', scene[0], scene[1] + 3, scene[2] + 2, -0.75, 0.42, 16);
   await hook(page, 'settle');
+  section = (await hook<{ section: SectionEdge }>(page, 'state')).section;
 }
 
 interface CellReport {
@@ -82,11 +89,13 @@ interface Drop {
 }
 
 const grid = chunkGrid(32);
-const chunkName = (c: Cell): string => c.map((v) => v >> 5).join(',');
+/** The page's derive section edge (what it reports): derived results, windows and rebuild lists are per section. */
+let section: SectionEdge = 32;
+const sectionName = (c: Cell): string => c.map((v) => Math.floor(v / section)).join(',');
 
-/** The chunks a command can change results in: within the rules' radius + reach of the cells it can change. */
+/** The sections a command can change results in: within the rules' radius + reach of the cells it can change. */
 function dependents(command: unknown): string[] {
-  return dependentChunks(grid, editBounds(grid, canonicalEditCommand(command)), jobRadius(PLACEHOLDER_RULES))
+  return dependentChunks(sectionGrid(section), editBounds(grid, canonicalEditCommand(command)), jobRadius(PLACEHOLDER_RULES))
     .map((c) => `${c.cx},${c.cy},${c.cz}`)
     .sort();
 }
@@ -104,7 +113,7 @@ test('assembly proof: runtime set/dig turn a banister into a wall and a beam int
   const errors = consoleErrors(page);
   await open(page, 'webgpu');
   const [ox, oy, oz] = scene;
-  const centre = scene.map((v) => v >> 5) as Cell;
+  const centre = scene.map((v) => Math.floor(v / section)) as Cell;
   const hashes = (): Promise<Record<string, number | null>> => hook(page, 'windowHashes', ...centre, 2);
   const noneStale = async (): Promise<void> => {
     const r = await hook<{ checked: number; stale: string[] }>(page, 'staleAgainstFresh', ...centre, 2);
@@ -172,8 +181,8 @@ test('assembly proof: runtime set/dig turn a banister into a wall and a beam int
   // (the next chunk in z, where nothing was edited) become wall stubs, their neighbours end the beam's run.
   const cut = { v: 2, grid: 0, kind: 'dig', cells: behindBeam.flat() };
   const cutAnswer = await send(cut);
-  expect(cutAnswer.rederived).toContain(chunkName(beam));
-  expect(chunkName(beam)).not.toBe(chunkName(behindBeam[0]!));
+  expect(cutAnswer.rederived).toContain(sectionName(beam));
+  expect(sectionName(beam)).not.toBe(sectionName(behindBeam[0]!));
   expect(await cellAt(page, beam)).toMatchObject({ resolved: 'wall', outputs: { collision: 'full', light: 255, piece: null } });
   expect((await cellAt(page, [ox - 5, oy + 5, oz - 1])).outputs?.piece?.section).not.toBe(2);
   await send({ v: 2, grid: 0, kind: 'set', cells: behindBeam.flat(), voxel: { material: MAT.stone, role: VOXEL_ROLE.wall, wetness: 0, shape: 15 } });
@@ -255,6 +264,32 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     expect((await hook<{ centre: Cell } | null>(page, 'sweep', [ox - 2.5, oy + 1.5, oz + 12], [0, 0, -1], 0.15, 20))!.centre[2]).toBeCloseTo(oz + 1.3, 1);
     // The probes' markers out of the pictures compared below.
     await hook(page, 'clearMarkers');
+
+    // A 2 m blast at the scene's chunk corner in x and z (the pad's ground under the wall's foot), first as a game's
+    // runtime edit in the page: the dug cells read as air in the same task as the edit, before anything is rebuilt;
+    // every section it rebuilt has its meshes and its body replaced in one frame (one swap).
+    interface Blast { ok: boolean; code?: string; frames: number; readAtOnce?: { material: number }; swap: { sections: number }; replacedSections: number; replacedFrames: number[]; replacedSwaps: number[] }
+    const spot: Cell = [ox, oy - 1, oz];
+    const atomic = (b: Blast, what: string): void => {
+      expect(b.ok, `${what}: ${b.code}`).toBe(true);
+      expect(b.swap.sections, what).toBeGreaterThan(1);
+      expect(b.replacedSections, what).toBe(b.swap.sections);
+      expect(b.replacedFrames, what).toHaveLength(1);
+      expect(b.replacedSwaps, what).toHaveLength(1);
+      expect(b.frames, what).toBeGreaterThanOrEqual(1);
+    };
+    const local = await hook<Blast>(page, 'blast', spot, 2, 'local');
+    atomic(local, 'local');
+    expect(local.readAtOnce).toEqual({ material: 0 });
+    expect(local.swap.sections).toBe(dependents({ v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [4, 4, 4], points: spot, mode: 'dig', smooth: false }).length);
+    // The local edit is not saved: the page reads the files again and the ground is back.
+    await hook(page, 'reread');
+    expect((await hook<{ material: number }>(page, 'voxelAt', ...spot)).material).not.toBe(0);
+    // The same blast as a command: written by the backend, swapped in one frame too, then undone.
+    atomic(await hook<Blast>(page, 'blast', spot, 2, 'command'), 'command');
+    expect((await hook<{ material: number }>(page, 'voxelAt', ...spot)).material).toBe(0);
+    expect((await hook<EditAnswer>(page, 'undo')).ok).toBe(true);
+    expect((await hook<{ material: number }>(page, 'voxelAt', ...spot)).material).not.toBe(0);
 
     // Each renderer digs its own row of the wall (the other test's dig may already be in the files).
     const cell: Cell = [scene[0], scene[1] + (renderer === 'webgpu' ? 4 : 1), scene[2]];

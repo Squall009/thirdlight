@@ -24,7 +24,7 @@ import {
   shaderSolidEntry,
   SURFACE_VERTEX_BYTES,
   VOXEL_SIZE_M,
-  type ChunkGrid,
+  type CellGrid,
   type DerivedData,
   type FloatingOrigin,
   type ShaderOut,
@@ -113,7 +113,7 @@ export class ChunkMeshes {
   readonly uploadMs = new SampleRing();
 
   constructor(
-    private readonly grid: ChunkGrid,
+    private readonly grid: CellGrid,
     private readonly origin: FloatingOrigin,
     private readonly shading: VoxelSurface,
     private readonly renderer: VoxelGridRenderer,

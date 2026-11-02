@@ -18,6 +18,7 @@ import {
   createWorldStore,
   dependentChunks,
   deriveFromStore,
+  deriveSectionFromStore,
   DERIVED_PART,
   deriveNow,
   editBounds,
@@ -32,7 +33,9 @@ import {
   saveChunkOf,
   fieldsFeed,
   SHADER_BORDER_CELLS,
+  sectionsOfChunk,
   shaderEntryAt,
+  voxel,
   VoxelStreamer,
   WorkerPool,
   type ChunkCoord,
@@ -41,6 +44,7 @@ import {
   type PaletteStore,
   type StreamEvent,
   type StreamRing,
+  type SwapReport,
   type VoxelEditCommand,
 } from '@thirdlight/voxel';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -340,6 +344,97 @@ describe('streamer (workers, region files on disk)', () => {
     expect(expectAssemblyEqual()).toBeGreaterThan(30);
     const after = new Map([...s.derivedChunks()].map((d) => [chunkKey(grid, d.cx, d.cy, d.cz), d.result.hash]));
     expect(after.get(chunkKey(grid, 2, 1, 2))).toBe(before.get(chunkKey(grid, 2, 1, 2)));
+  });
+
+  it('derives 16³ and 8³ sections in real workers equal to the in-thread section derive; a blast re-derives only the sections within R and swaps them in one go', async () => {
+    for (const edge of [16, 8] as const) {
+      const disk = new DiskRegions(join(dir, 'world'));
+      disks.push(disk);
+      const s = new VoxelStreamer({ store: createWorldStore(grid), source: disk.source(grid, 'stacked', 512), pool: pool(4), ring: RING, budgetBytes: 256 * 1024 * 1024, dependencyRadius: jobRadius(PLACEHOLDER_RULES), derive: true, rules: PLACEHOLDER_RULES, sectionEdge: edge });
+      const sections = s.sections;
+      expect(sections.edge).toBe(edge);
+      const truth = copyOracle();
+      // What a renderer shows: the newest result each section's events delivered.
+      const shown = new Map<number, number>();
+      const swaps: SwapReport[] = [];
+      s.on((e) => {
+        if (e.type === 'swap') swaps.push(e.report);
+        else if (e.type === 'derived') shown.set(chunkKey(sections, e.cx, e.cy, e.cz), s.derivedOf(e.cx, e.cy, e.cz)!.hash);
+      });
+      s.setFocus(0, 40, 0);
+      await s.settle();
+      // Every section near the region corner equals the section derived in this thread cell by cell from the oracle.
+      const sameAsFresh = (store: PaletteStore): number => {
+        let n = 0;
+        for (const d of s.derivedChunks()) {
+          if (d.result.assembly === null || Math.abs(d.cx * edge) > 64 || Math.abs(d.cz * edge) > 64 || Math.abs(d.cy * edge - 40) > 64) continue;
+          const want = encodeDerived(deriveSectionFromStore(store, sections, d.cx, d.cy, d.cz, PLACEHOLDER_RULES));
+          if (Buffer.compare(Buffer.from(encodeDerived(d.result.assembly)), Buffer.from(want)) !== 0) throw new Error(`section ${edge}³ (${d.cx}, ${d.cy}, ${d.cz}) differs from the in-thread derive`);
+          n++;
+        }
+        return n;
+      };
+      expect(sameAsFresh(truth)).toBeGreaterThan(40);
+      // Every section of a chunk whose neighbours are all resident has its result (none left waiting).
+      let complete = 0;
+      for (const key of s.store.chunkKeys()) {
+        const c = chunkOfKey(grid, key);
+        let known = true;
+        for (let dx = -1; dx <= 1 && known; dx++) for (let dy = -1; dy <= 1 && known; dy++) for (let dz = -1; dz <= 1 && known; dz++) known = s.isResident(c.cx + dx, c.cy + dy, c.cz + dz);
+        if (!known) continue;
+        for (const sec of sectionsOfChunk(grid, sections, c.cx, c.cy, c.cz)) expect(s.derivedOf(sec.sx, sec.sy, sec.sz), `section (${sec.sx}, ${sec.sy}, ${sec.sz})`).not.toBeNull();
+        complete++;
+      }
+      expect(complete).toBeGreaterThan(30);
+      expect([...s.derivedChunks()].every((d) => d.result.assembly === null || d.result.assembly.edge === edge)).toBe(true);
+
+      // A 2 m blast where 4 chunks meet (x and z faces): only the sections within R of the cells it can change are derived again.
+      const blast = canonicalEditCommand({ v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [4, 4, 4], points: [0, 40, 0], mode: 'place', voxel: { material: 40, role: 5, wetness: 0 }, smooth: false });
+      const box = editBounds(grid, blast);
+      const want = dependentChunks(sections, box, s.radius).map((c) => chunkKey(sections, c.cx, c.cy, c.cz));
+      const before = new Map(want.map((k) => [k, shown.get(k)]));
+      const derived0 = s.counters.derives;
+      const out = s.edit(blast);
+      applyEdit({ store: () => truth }, blast);
+      // Reads see the blast at once, before anything is rebuilt.
+      expect(s.store.voxelAt(0, 40, 0, voxel()).material).toBe(40);
+      expect(swaps).toHaveLength(0);
+      // Sampled at every task boundary until the swap: either none of the sections shows its new result, or all do.
+      const changed = (): number => want.filter((k) => shown.get(k) !== before.get(k)).length;
+      let partial = 0;
+      let samples = 0;
+      while (swaps.length === 0) {
+        const n = changed();
+        if (n !== 0) partial++;
+        samples++;
+        await new Promise((r) => setImmediate(r));
+      }
+      expect(samples).toBeGreaterThan(1);
+      expect(partial).toBe(0);
+      expect(swaps[0]!.groups).toEqual([out.group]);
+      expect(swaps[0]!.sections).toBe(want.length);
+      expect(s.counters.derives - derived0).toBe(want.length);
+      expect(swaps[0]!.meshUs).toHaveLength(want.length);
+      // The blast's jobs went out per chunk (at least one each of the 4), spread over the workers.
+      expect(swaps[0]!.jobs).toBeGreaterThanOrEqual(4);
+      await s.settle();
+      expect(sameAsFresh(truth)).toBeGreaterThan(40);
+      // Fewer cells than the 4 whole chunks a whole-chunk derive rebuilds (4 · (32 / edge)³ sections).
+      expect(want.length).toBeLessThan(4 * (32 / edge) ** 3);
+
+      // Two blasts in a row, the second before the first is shown: they merge and swap as one.
+      const b1 = canonicalEditCommand({ v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [2, 2, 2], points: [20, 40, 20], mode: 'place', voxel: { material: 41, role: 5, wetness: 0 }, smooth: false });
+      const b2 = canonicalEditCommand({ v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [2, 2, 2], points: [22, 40, 20], mode: 'place', voxel: { material: 42, role: 5, wetness: 0 }, smooth: false });
+      swaps.length = 0;
+      const g1 = s.edit(b1).group;
+      const g2 = s.edit(b2).group;
+      applyEdit({ store: () => truth }, b1);
+      applyEdit({ store: () => truth }, b2);
+      await s.settle();
+      expect(swaps).toHaveLength(1);
+      expect([...swaps[0]!.groups].sort()).toEqual([g1, g2].sort());
+      expect(sameAsFresh(truth)).toBeGreaterThan(40);
+    }
   });
 
   it('refreshes chunks another writer changed and saved: tables read again, content swapped, everything within R rebuilt', async () => {

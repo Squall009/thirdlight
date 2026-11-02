@@ -12,6 +12,7 @@ import { loadArea } from './regions';
 import { placeWallBeamBanister, putVoxel, WALL_BEAM_BANISTER_HALF } from './scenes';
 import { TEST_WORLD_ID } from './stream-node';
 import { MAT } from './world-kit';
+import { townWorld } from './town';
 import { hillyWorld } from './worlds';
 
 /** The world's folder name in the project. */
@@ -75,4 +76,23 @@ export function writeSliceWorld(projectDir: string, name = SLICE_WORLD_NAME, foo
   const hex = [...TEST_WORLD_ID].map((b) => b.toString(16).padStart(2, '0')).join('');
   const { files } = writeVoxelWorld(dir, { worldId: hex, edge: 32, layout: 'stacked', footprint: 512 }, w.store);
   return { ...w, dir, files };
+}
+
+/** The town test world's footprint here (cells a side: 256 m, the bench's town). */
+export const TOWN_FOOTPRINT = 512;
+
+/**
+ * Writes the bench's dense town (houses with walls, floors, roofs, beams,
+ * banisters and fences on flat ground at y 0, 0 … 512 cells on x and z)
+ * as a project's voxel world, for measuring edits among buildings in the
+ * page; the scene is the town's middle.
+ */
+export function writeTownWorld(projectDir: string, name = 'town'): SliceWorld & { dir: string; files: number } {
+  const store = createWorldStore(grid);
+  const world = townWorld({ footprint: TOWN_FOOTPRINT });
+  loadArea(world.grids[0]!, store, 0, 0, TOWN_FOOTPRINT, TOWN_FOOTPRINT);
+  const dir = join(projectDir, VOXEL_WORLDS_FOLDER, name);
+  const hex = [...TEST_WORLD_ID].map((b) => b.toString(16).padStart(2, '0')).join('');
+  const { files } = writeVoxelWorld(dir, { worldId: hex, edge: 32, layout: 'stacked', footprint: 512 }, store);
+  return { store, scene: [TOWN_FOOTPRINT / 2, 0, TOWN_FOOTPRINT / 2], dir, files };
 }

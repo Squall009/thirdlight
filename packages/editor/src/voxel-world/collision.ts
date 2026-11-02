@@ -17,7 +17,7 @@
  * way of moving one) or a swept sphere (`castSphere`).
  */
 import { createPhysicsPort3D, MAX_MESH_TRIANGLES_3D, MAX_MESH_VERTICES_3D, physicsMemoryBytes3D, type ColliderShape3D, type RapierPhysicsPort3D } from '@thirdlight/physics-rapier';
-import { chunkOrigin, collisionGeometry, SampleRing, VOXEL_SIZE_M, type ChunkGrid, type DerivedData, type FloatingOrigin } from '@thirdlight/voxel';
+import { chunkOrigin, collisionGeometry, SampleRing, VOXEL_SIZE_M, type CellGrid, type DerivedData, type FloatingOrigin } from '@thirdlight/voxel';
 
 const IDENTITY = Object.freeze({ x: 0, y: 0, z: 0, w: 1 });
 /** The physics step rate a drop is simulated at. */
@@ -60,12 +60,12 @@ export class VoxelCollision {
 
   private constructor(
     private readonly port: RapierPhysicsPort3D,
-    private readonly grid: ChunkGrid,
+    private readonly grid: CellGrid,
     private readonly origin: FloatingOrigin,
   ) {}
 
   /** A physics world with no character of its own (probes add theirs). */
-  static async create(grid: ChunkGrid, origin: FloatingOrigin): Promise<VoxelCollision> {
+  static async create(grid: CellGrid, origin: FloatingOrigin): Promise<VoxelCollision> {
     const r = await createPhysicsPort3D({
       character: { position: { x: 0, y: 0, z: 0 }, radius: 0.3, halfHeight: 0.5, offset: { x: 0, y: 0.8, z: 0 } },
       noCharacter: true,

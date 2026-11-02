@@ -188,6 +188,11 @@ export class WorkerPool {
     return slot;
   }
 
+  /** Workers in the pool. */
+  get size(): number {
+    return this.slots.length;
+  }
+
   /** Jobs waiting. */
   get queued(): number {
     return this.queue.size;

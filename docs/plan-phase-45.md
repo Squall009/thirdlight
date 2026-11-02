@@ -46,8 +46,8 @@ earlier decision to keep terrain separate, which this phase revisits) and its de
 - **Owner hard stops** (owner, 2026-10-28). These three specs are drafted, prototyped and shown to the owner, but are
   **not frozen as v1, and nothing builds on them as final, until the owner approves each one**:
   - the **format spec** (storage, region files, edits, saves, derived data; end of 45);
-  - the **role spec** (every role's canonical cases, required/optional pieces and fallbacks; 46b);
-  - the **standard trim layout** (texel density, field, strips, caps; 46b).
+  - the **role spec** (every role's canonical cases, required/optional pieces and fallbacks; 46c);
+  - the **standard trim layout** (texel density, field, strips, caps; 46c).
   The run stops at each and waits for the owner; work that doesn't depend on the spec may continue meanwhile.
 - **The decisions in §1–§1e, §5b–§5c, §8 and §9 were worked out with care to remove roadblocks ahead of time** and to
   unify workflows so fewer systems have more than one path. They are requirements, not suggestions:
@@ -300,7 +300,7 @@ It doesn't have to: **the voxel size sets the geometry, not the texture repeat.*
     all read the same world coordinate.
   - Only the trim band across the run (V) is fixed by the layout.
   - Repetition therefore happens at the texture's authored size (2–4 m), never at 0.5 m.
-- **Layout proposal (prototyped in 46b, versioned; v1 only after the owner approves it, §1):**
+- **Layout proposal (prototyped in 46c, versioned; v1 only after the owner approves it, §1):**
   - **One texel density for everything,** for example 256–512 px per metre. At 720p, 256 px/m is likely enough up
     close, which halves memory on the iGPU.
   - **A field region** that tiles in both directions, world-mapped: big wall and floor faces.
@@ -343,7 +343,7 @@ It doesn't have to: **the voxel size sets the geometry, not the texture repeat.*
     straight into the layout. Oak, maple and pine are parameter sets of the wood graph, so one graph gives every
     variant.
   - Add a kit test scene with a labelled debug texture that shows every piece's UVs, so layout errors are visible.
-  - Prototype with 46b's two placeholder kits (stone, wood), iterate during 46, and present layout v1 to the owner;
+  - Prototype with 46c's two placeholder kits (stone, wood), iterate during 46, and present layout v1 to the owner;
     real kits are made only after the owner approves it.
 
 ## 1e. Rotation: one grid per structure, anchored on its foundation (owner decision 2026-10-28)
@@ -362,7 +362,7 @@ they are voxelized. Props are meshes and rotate freely.
 
 **Where a structure meets the ground,** foundation pieces skirt into the terrain and hide the seam.
 
-**What separate grids cost** (46d and 47a measure it):
+**What separate grids cost** (46e and 47a measure it):
 - The lighting tracer steps each structure's grid in its own space, as phase 42 already does for model bricks.
 - Chunk connectivity culling works inside each structure; structures cull against each other by bounds.
 - The walk graph is per grid, stitched at doors and foundations.
@@ -436,7 +436,7 @@ That fits why it looks so good, and why Enshrouded needs a dedicated GPU: the co
 work. On the Iris Xe the horizon band covers many pixels, and each ray costs several steps.
 
 We already own the pieces: phase 42 builds distance-field bricks and a GPU tracer, and both renderers support 3D
-textures, so it stays on the one-renderer path. Sub-phase 46c renders the same far field both ways (voxel-mip meshes
+textures, so it stays on the one-renderer path. Sub-phase 46d renders the same far field both ways (voxel-mip meshes
 vs ray-marched bricks) and compares GPU ms, crispness and memory on the Iris Xe. A hybrid is possible: bricks for the
 mid band, meshes for the horizon.
 
@@ -524,7 +524,7 @@ serves it. §7a takes precedence where it revises earlier requirements. Include 
 1. **Stored intent versus inferred architecture.** Establish the minimum stored metadata distinguishing terrain,
    construction and roofs. Beams, banisters, soffits and mouldings are derived cases, not mandatory per-cell labels.
    The data must support runtime building without structure-authoring metadata. Settle the minimum contract during
-   45; the complete case catalogue belongs to 46b.
+   45; the complete case catalogue belongs to 46c.
 2. **Authoritative versus derived occupancy.** Treat the earlier claim that one solid bitmask serves every system
    as provisional. An arrangement resolved as an open banister must not automatically become a full opaque wall
    for collision, navigation or lighting. The proposed contract stores construction intent and derives appropriate
@@ -557,21 +557,39 @@ Each sub-phase is a phase of its own size (about one phase-42-sized run or less)
 start from the numbers before it, its own full gate (on the branch), review and fixes. Acceptance by eye is per
 sub-phase on staging; the merge to `main` happens once, at the end of 48.
 
-- **46 — Voxel core.**
+- **46 — Voxel core.** Sub-phases renumbered on 2026-11-02 (owner, item 45.10c): a terrain mesher sub-phase goes
+  before kits. Text written before then (§6 results, §7 decision log) uses the old names: old 46b (meshing and kits)
+  = new 46b (terrain mesher and LOD) + 46c (kits and cases); old 46c (rendering and materials) = 46d; old 46d
+  (lighting, culling and navigation) = 46e.
   - **46a Core runtime:** the store from 45, `voxelAt`, `ctx.voxels` (get/set/dig, change events, the guaranteed
     update path), streaming in runtime, editor and export, floating origin, per-chunk collision (Rapier churn
-    measured), the occupancy channel.
-  - **46b Meshing and kits:** surface nets for projected roles; the case pass with rules, wildcards, priorities and
-    fallbacks; run pieces; the role spec and the standard trim layout drafted and prototyped on two placeholder kits
-    (log, stone), then **presented to the owner: hard stop, v1 only after approval**; the kit pipeline, kit check, kit
-    test scene and a default fallback kit; the game-facing authoring package (§1: spec sheets, Blender templates,
-    art-factory graphs per material type, the manual's kit and material guide), finished against the approved specs.
-  - **46c Rendering and materials:** the material model (§1c: shader families, physical block, profiles, game data,
-    variants, badges); texture arrays and slot residency; kit-piece instancing and GPU culling; LOD tiers and the
-    chunk-tree HLOD from voxel mips; the far-field choice (voxel-mip meshes vs brick ray-marching, measured here);
-    every feature behind a quality-tier switch and budget.
-  - **46d Lighting, culling and navigation:** the tracer over occupancy; lighting storage chosen by measurement
-    (phase 42's cache addressed by voxel face vs the voxel light volume, §5c); rooms and portals from roles; the prop
+    measured), the occupancy channel. The runtime streamer reads through the overlay (§2.3 of the spec); derive
+    sections and the atomic swap (45.10c) carry over; edits remesh within a frame as the goal (R107, owner
+    2026-11-02): record the frames on the Iris Xe floor, misses go to the performance phase.
+  - **46b Terrain mesher and LOD (first; the primary driver of visuals and performance):** terrain mesh generation
+    rules on voxel-neighbourhood thresholds — what makes a cliff, a gentle slope, a terrace, an overhang, a cave
+    roof — as rule sets on the existing assembly/derive contract (each declares its radius and passes the
+    conformance check), replacing the reference surface nets. Never assume flat terrain: bumps, hills, caves,
+    overhangs and cliffs are the test cases (R108). The mesher's budget per section is 45.10c's measured cost.
+    **Dynamic LOD** (R109) in the same sub-phase: coarser voxel mips meshed by the same mesher in distance rings,
+    crack-free seams between levels, the shader's material blend identical at every level (shader data per level),
+    architecture detail pieces high → low → none, the base surface following the mips. Baseline to beat: the slice's
+    ring is 0.90 M triangles cold (1.13 M after a flight) from the naive mesher (45.9). Remesh within a frame (R107)
+    is a goal of the mesher's cost per section.
+  - **46c Kits and cases:** the case pass with rules, wildcards, priorities and fallbacks; run pieces; the role spec
+    and the standard trim layout drafted and prototyped on two placeholder kits (log, stone), then **presented to
+    the owner: hard stop, v1 only after approval**; the kit pipeline, kit check, kit test scene and a default
+    fallback kit; the game-facing authoring package (§1: spec sheets, Blender templates, art-factory graphs per
+    material type, the manual's kit and material guide), finished against the approved specs. Trim sheets are
+    optional (§7a): a kit may use them, none has to.
+  - **46d Rendering and materials:** the material model (§1c: shader families, physical block, profiles, game data,
+    variants, badges); texture arrays and slot residency; kit-piece instancing and GPU culling; the chunk-tree HLOD
+    beyond 46b's rings; the far-field choice (voxel-mip meshes vs brick ray-marching, measured here); every feature
+    behind a quality-tier switch and budget.
+  - **46e Lighting, culling and navigation:** the tracer over occupancy; lighting storage chosen by measurement on
+    the same village, performance first (R110): phase 42's surface cache vs the voxel light volume (§5c), GPU ms,
+    update time after an edit, memory, look. The owner leans to removing lightmaps, surfel caches and their texture
+    reads even at a quality cost; the measurement decides. Rooms and portals from roles; the prop
     lighting-occupancy channel; chunk connectivity culling; the hierarchical walk graph.
 - **47 — Structures and tools.**
   - **47a Structures:** structure objects (§1b) with footprint, storeys, roof, material swap, copy/paste, scale,
@@ -615,7 +633,7 @@ sub-phase on staging; the merge to `main` happens once, at the end of 48.
   - 45.3 measures repo growth per hour of editing; Git LFS for region files only if that number calls for it.
 - **Commands work in strokes, not single voxels.** Brush strokes, stamps, room and fill operations are each one
   command, so undo, MCP and game sessions edit worlds at a useful granularity, and history stays small.
-- **Kit art for 46b is a placeholder.** Two simple kits (log, stone) are made through the Blender pipeline, just
+- **Kit art for 46c is a placeholder.** Two simple kits (log, stone) are made through the Blender pipeline, just
   good enough to measure. The owner's real kits come in 46–47; 46 must not wait on final art.
 - **Phase 44 (consolidation) leaves block, terrain and architecture internals alone** wherever 48 will retire them.
   Fixes there only if a game needs them now.
@@ -665,8 +683,8 @@ sub-phase on staging; the merge to `main` happens once, at the end of 48.
     - The saved bake for the low tier and WebGL 2 is the settled volume per tile.
     - Phase 42's work carries over: the tracer, change tracking, rooms and portals, budgets and tiers. Only where the
       light is stored changes.
-    - If 46d shows the phase-42 cache winning instead, its probes stay.
-  - **Decided by measurement:** sub-phase 46d runs the voxel light volume against phase 42's surface cache on the
+    - If 46e shows the phase-42 cache winning instead, its probes stay.
+  - **Decided by measurement:** sub-phase 46e runs the voxel light volume against phase 42's surface cache on the
     same village (GPU ms, update time after an edit, memory, look). If it wins, the voxel world uses it and the texel
     cache is retired with the old systems.
 - **The script API transition.** Games call `ctx.grid` (block layers) and terrain queries today.
@@ -702,6 +720,7 @@ sub-phase on staging; the merge to `main` happens once, at the end of 48.
 | 45.9 | done (b6ab2319, fast gate green): acceptance on staging, Iris Xe, 720p at the cap, both renderers, 3 rounds: orbit and 160 m flight p95 16.7–16.8 ms, 0 missed; edit → collider / visible p50 39–40 / 64–65 ms; cold fill 2.4 s; stream 67–84 MB of 256 MiB; Rapier 126–172 MB (D434). D438 (page ignored `world_changed`) fixed. Spec §6 written; see **45.9 acceptance**. |
 | 45.10a | done (97609f78 + this; fast gate green): owner review 2026-11-02. Value v2 (u32: material 12, role 4, shape 4, wetness 3, 9 reserved; no orientation), feeds + saved-field masks, runtime overlay, shader data, climate spec. v1 → v2: zstd −2…−48 %, memory −2…−24 % (hilly +6 %), decode −11…−21 %; 3-bit shape: slope error 6–8 vs 5.5 cm; see **45.10a value v2**. |
 | 45.10b | done (this commit; fast gate green): owner 2026-11-02, blending in the shader. Mesh v2: 12-B vertices, no material (surface buffers −26…−32 %); shader data 34³ with a 1-cell border, material/wetness re-derive only it (real workers: 0 mesh/coll/nav/light). Dense rg8 3D regions, 16 reads/px, 3 units; 720p cap 0 missed; GPU blend/flat 7.1/3.1 ms WebGPU, 3.8/1.9 WebGL 2. |
+| 45.10c | done (this commit; fast gate green): owner 2026-11-02. Derive sections in 32³ chunks + atomic swap per edit (288 blasts atomic, reads at once). Pick 16³: local 1–4 m blasts the next frame, 8 m 2 (town 3–5, D440: per-section draws/bodies); mesher p50/p95 0.1–0.2/0.6–0.8 ms a section (32³: 0.8–1.4/2.3–3.5). §4: 46b terrain mesher+LOD, 46c kits; R107–R110; D439. |
 | 45 | **awaiting owner approval (hard stop)**: full gate GREEN at 78f67fe8 (29 min, 389 e2e, peak 8.0 GB); review 3H 7M 8L, every H and M fixed (45.8a/b; M7 recorded as an open contract gap); acceptance on staging both renderers (45.9). Spec v1 DRAFT (docs/architecture/voxel-format-spec.md) revised after the owner's review (45.10a/b), awaiting approval of the revision. Not merged. |
 
 ### 45.0 floor record
@@ -1824,6 +1843,81 @@ world at scene 0,103,-32; 18:06–18:08, uptime 10 d 2 h, load 0.8–2.5; `run.m
   failed once creating its project (`write_failed`, the durable write; nothing in this item touches it) and passed
   on the rerun.
 
+### 45.10c sections and atomic swaps
+
+Owner decisions of 2026-11-02 (decision log): remesh within a frame (R107), a terrain mesher sub-phase before kits
+(R108), dynamic LOD (R109), lighting decided performance first (R110). Spec §3.6 (sections, atomic swap), §7
+(45.10c); requirements R107–R110.
+
+**Built.** 32³ stays the storage chunk; derive jobs build **sections** of 8, 16 or 32 cells (`sectionGrid`,
+`VoxelStreamerOptions.sectionEdge`): a job names sections of one chunk and carries the chunk's payload and apron as
+before; the worker fills the chunk's neighbourhood once and derives each section's cut-out (`stream-sections.ts`,
+`derive-assembly.ts`). Staleness is a stamp per section. Every section one edit (or one refresh) makes stale joins
+the edit's group; results are held until the whole group has them (and every refreshed chunk has landed), then
+committed in one task and closed by a `swap` event (`SwapReport`), so meshes and colliders change between the same
+two frames; an edit meeting an open group merges into it. Reads see a local edit at once (the store is written
+before anything is rebuilt). The slice page draws and collides per section (`?section=`, default 16), digs
+`blast`s locally (a game's runtime edit, applied at the start of a frame, nothing saved) or as commands, and
+reports the swap; `run.mjs slice --phase blast`; the town test world can be written as a project world
+(`slice-world --kind town`).
+
+**Blast benchmark** (staging, branch dist, headless Chrome, Iris Xe, 1280×720 at the 60 Hz cap, 4 workers, both
+renderers; 19:06–19:15, uptime 10 d 2.7 h, load 0.9–2.2; spheres of 1, 2, 4, 8 m dug at a chunk corner (terrain:
+(−64, 96, −64), the hilly surface at a y chunk face, 8 chunks; town: (288, 0, 256), walls on ground at y 0, 8
+chunks) and in a chunk middle; local twice, command once then undone; `~/.cache/thirdlight-phase45/work/45.10c/blast/`,
+scratch). Frames = frames drawn from the edit to the first frame showing the swap (1 = the next frame). Sections /
+worker ms (sum) / main-thread ms (aprons and payloads + the page replacing meshes and bodies) / ms edit → swap,
+local, WebGPU (WebGL 2 within the same ranges; a page's first measured blast paid 91–455 ms of main thread once, first use, in
+the ranges below):
+
+| World, spot | 32³ (whole chunk, before) | 16³ | 8³ |
+|---|---|---|---|
+| terrain corner 1 / 2 / 4 m | 8 sec, 19–24 ms work, 12 ms main, 18–20 ms, **1 frame** | 8, 9–10, 6, 8–10 ms, **1** | 8–64, 6–14, 9–22, 28–58 ms, 2–3 |
+| terrain corner 8 m | 8, 21, 15, 21 ms, 2 (1–2) | 64, 31, 23, 36 ms, 2 | 216, 54, 47, 94 ms, 3 |
+| terrain middle 1 / 2 / 4 m | 2, 5–9, 3–6, 7–12 ms, **1** | 8, 5–6, 5–6, 7–8 ms, **1** | 8–64, 3–34, 6–21, 23–41 ms, 2 |
+| terrain middle 8 m | 18, 57, 29, 47 ms, 2 | 64, 21, 21, 31 ms, 2 | 216, 51, 52, 138 ms, 5 |
+| town corner 1 / 2 / 4 m | 8, 31–33, 42–44, 52–56 ms, 1–2 | 8, 10–12, 42–120, 42–57 ms, 1–2 | 8–64, 6–31, 58–365, 97–353 ms, 2–3 |
+| town corner 8 m | 8, 31, 43, 55 ms, 2 | 64, 35, 220, 249 ms, 3 | 216, 35, 719, 823 ms, 3 |
+| town middle 1 / 2 / 4 m | 1–2, 5–11, 7–11, 11–18 ms, **1** | 4–12, 6–10, 25–53, 23–69 ms, 1–2 | 8–64, 3–17, 87–274, 94–321 ms, 2 |
+| town middle 8 m | 18, 85, 92, 117 ms, 3 | 48, 36, 201, 244 ms, 4–5 | 216, 31, 541, 749 ms, 5 |
+
+- **Atomic in every blast** (288 blasts): every section's meshes and body replaced in one frame and one swap, the
+  count equal to the swap's; the dug centre read as air in the same task as the local edit in every one.
+- **Command path** (the editor's: backend apply + save, re-read, derive): 3–4 frames at 32³, 3–5 at 16³ (3–7 in the town; answer 8–33 ms),
+  12–20 at 8³ (the backend answer grows to 50–237 ms with the page's main thread busy).
+- **Mesher µs a section** (reference surface nets + base faces; the browser's timer has 0.1 ms steps), p50 / p95 /
+  max: 32³ terrain 800 / 2,300 / 9,200, town 1,400 / 3,500 / 9,700; **16³ terrain 100 / 600 / 3,600, town 200 / 800 /
+  4,600**; 8³ 0–100 / 400–500 / 4,500. Whole derive a section at 16³: 300–400 / 800–1,100 µs. Local apply of the
+  sphere: up to 13–20 ms for 8 m (the stroke itself, main thread).
+- **What sections cost to draw** (the page draws and collides one object and one Rapier body a section), ring cold,
+  WebGPU: slice 448 / 1,759 / 6,934 objects and bodies at 32 / 16 / 8, render() CPU p50 1.4 / 4.2 / 16.2 ms, orbit
+  missed 0 / 0 / 10; town 912 / 4,182 / 17,438, render 3.6 / 13.8 / 51.6 ms, missed 0 / 0 / 194 (p95 66.7 ms at 8³);
+  cold fill slice 2.4 / 2.9 / 6.9 s, town 3.5 / 4.9 / 15.0 s. Triangles equal at every edge (slice 0.90 M, town
+  2.87 M: the naive mesher's baseline R109 must beat). Stream memory slice 98 / 80 / 74 MB.
+- **Pick: 16³ sections** (default chosen, owner to confirm). Against whole chunks it cuts the worker work of an edit
+  2–3× and the edit → swap time of small blasts on terrain from 18–24 to 7–10 ms, the mesher's cost a unit 5–8×
+  (its budget for the terrain mesher, R108). 8³ loses: the job count and the per-section objects and bodies cost
+  more than its smaller units save (2–5 frames even for 1 m, 194 missed frames in the town orbit). **The miss:** the
+  page's one object and one body a section; at 16³ the town's render CPU is 13.8 ms (3.6 at 32³) and a big blast's
+  main-thread replace 200–220 ms (3–5 frames), against 2–3 frames at 32³ (D440, for 46a: derive per 16³ section,
+  draw and collide per chunk or batched).
+- **Within a frame** (R107) on the Iris Xe at 16³: met (the next frame) for local blasts of 1–4 m on terrain and of 1–2 m
+  in a town chunk's middle (1–2 frames at a corner); 2 frames for 8 m on terrain; 3–5 frames for big blasts in the town (main thread, D440; the reference
+  mesher). Recorded for the performance phase, not blocking.
+- **Bug found by the measurement:** at first a section of a chunk blocked on an unknown neighbour was looked at again
+  only when a neighbour within R landed, so sections deeper than R from the ring's edge were never derived (the
+  first run showed a quarter of the triangles at 16³); fixed before the numbers above, now tested (every section
+  of a chunk whose neighbours are resident has a result, `stream.test.ts`).
+- **Tests.** `stream.test.ts`: 16³ and 8³ sections in real workers equal the in-thread section derive read cell by
+  cell (`deriveSectionFromStore`), all derived; a 2 m blast where 4 chunks meet re-derives exactly the sections
+  within R of its cells, sampled at every task boundary none shows before the swap and all after, reads see it at
+  once; two blasts in a row merge into one swap. `voxel-world.e2e.ts` (section-aware): a 2 m blast at the scene's
+  chunk corner, local then as a command, both renderers: one frame, one swap, all its sections; the dug cell reads
+  as air in the edit's task.
+- **Fast gate** green (10 min, peak 4.8 GB; village at the cap p95 16.7–16.8 ms both renderers);
+  `scan-bounded-log.test.ts` timed out once and passed alone (D418, watch). Voxel e2e 16.9 → 22.5 s (9.9 + 5.3 +
+  7.3 s; the two blasts and a section-sized window), no new e2e file.
+
 ## 7. Decision log
 
 - 2026-10-27 (owner, planning session): §1 decided in conversation. The research behind it covers Enshrouded's
@@ -2221,6 +2315,42 @@ world at scene 0,103,-32; 18:06–18:08, uptime 10 d 2 h, load 0.8–2.5; `run.m
 - 2026-11-02 (45.10b, default chosen, owner to confirm): **collision boxes merge wall runs across materials** and
   carry no material (a physics material, where a game needs one, comes from the cell's shader data entry); the
   detail instance keeps 8 bytes with a reserved u16 (a GPU instance stride must be a multiple of four).
+- 2026-11-02 (owner, 45.10c): **(1) remesh within a frame** is a requirement for interactive worlds: a bomb breaking
+  hundreds of voxels shows its new mesh and collision within one frame as the goal (on the Iris Xe floor the frames
+  are recorded, never blocking; misses go to the performance phase). 32³ stays the storage chunk; the mesh/derive
+  unit is a smaller section inside it (16³ or 8³, by measurement); an edit re-derives only the touched sections and
+  their rule neighbourhood; all sections of one edit swap atomically in the same frame (old meshes and colliders
+  stay until every new one is ready); voxel reads see the edit at once. **(2) A terrain mesher sub-phase goes before
+  kits:** terrain mesh rules on voxel-neighbourhood thresholds (cliff, gentle slope, terrace …) as rule sets on the
+  assembly/derive contract (declared radius, conformance check), the primary driver of visuals and performance;
+  never assume flat terrain. **(3) Dynamic LOD** for uneven terrain and architecture, not flat-quad merging: coarser
+  voxel mips meshed by the same mesher in distance rings, crack-free seams, the shader blend identical across
+  levels, architecture detail pieces high → low → none, the base surface following the mips; the naive mesher's
+  ~0.9 M triangles in the slice is the baseline to beat. **(4) Lighting:** keep the A/B (phase-42 surface cache vs
+  voxel light volume) with great emphasis on performance; the owner leans to removing lightmaps, surfel caches and
+  their texture reads even at a quality cost; the measurement decides. Recorded as R107–R110; §4 renumbered (46b
+  terrain mesher and LOD, 46c kits and cases with the role-spec and trim-layout hard stops, 46d rendering and
+  materials, 46e lighting, culling and navigation).
+- 2026-11-02 (45.10c, measured; plan **45.10c sections and atomic swaps**): every one of 288 blasts swapped atomically
+  (one frame, one swap) and read at once; local blasts of 1–4 m on terrain show the next frame at 16³ and 32³; 16³
+  cuts an edit's worker work 2–3× and the mesher's cost a unit 5–8×; 8³ loses on objects, bodies and jobs.
+- 2026-11-02 (45.10c, default chosen, owner to confirm): **derive sections of 16³** (the slice page's default; the
+  streamer's default stays the chunk edge so other users keep whole chunks until 46a sets it), with a D440 follow-up:
+  the page's one draw object and one Rapier body a section multiply render CPU (town 13.8 vs 3.6 ms) and a big
+  blast's main-thread replace (200 ms); 46a draws and collides per chunk (or batched) over 16³ derives.
+- 2026-11-02 (45.10c, default chosen, owner to confirm): **how sections run**: a job names sections of one chunk and
+  carries the chunk's payload and apron (no section-sized apron: one apron build a chunk on the main thread); an edit
+  touching fewer chunks than workers splits each chunk's sections over the pool, else one job a chunk (splitting
+  per chunk regardless measured slower at 16³: more jobs than workers each refilling a chunk's neighbourhood); an
+  edit's jobs go out in the edit call with an 8 ms main-thread budget (`editDeriveMsPerUpdate`), streaming keeps
+  2 ms; per-section input stamps replace chunk invalidation for derive jobs.
+- 2026-11-02 (45.10c, default chosen, owner to confirm): **atomic swap semantics**: a group per edit or refresh; a
+  refresh's group also waits for its chunks' new content; an edit meeting an open group merges into it (a second
+  blast before the first is shown waits for both); a section that cannot be derived now or whose job is refused
+  leaves the group rather than holding it; a swap is one task, so the page replaces meshes and colliders between
+  the same two frames. Frames are counted from an edit applied at the start of a frame (a game's update), so 1 is
+  the best possible; rAF timestamps do not show a frame presented late by a long swap task, so the main-thread ms
+  are reported beside them.
 
 ## 7a. Kit and surface planning session (2026-10-30)
 

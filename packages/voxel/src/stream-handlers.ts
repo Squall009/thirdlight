@@ -11,10 +11,11 @@
  */
 import { apronVoxelAt, checkApron, checkRadius } from './apron';
 import { assemblyRules, jobRadius } from './assembly';
-import { deriveShaderWithApron, deriveWithApron } from './derive-assembly';
+import { deriveSectionShadersWithApron, deriveSectionsWithApron, deriveShaderWithApron, deriveWithApron, type SectionResult } from './derive-assembly';
 import { derivedTransfer, encodeDerived } from './derived-data';
 import { crc32 } from '@thirdlight/shared';
 import { CellDelta } from './cell-delta';
+import type { DenseChunk } from './dense-chunk';
 import { payloadTransfer } from './chunk-wire';
 import { CHUNK_EDGES, chunkGrid, chunkOfKey, type ChunkEdge } from './coords';
 import { applyEdit } from './edit-apply';
@@ -190,6 +191,7 @@ function derive(raw: unknown): JobResult {
     store.adoptPayload(c.cx, c.cy, c.cz, input.payload);
     const parts = input.parts ?? ALL_DERIVED_PARTS;
     if ((parts & ALL_DERIVED_PARTS) !== parts || parts === 0) throw new RangeError(`derive job: parts ${parts}`);
+    if (input.sections !== undefined) return deriveSections(store, input, parts);
     if (parts === DERIVED_PART.shader) {
       // Material and wetness feed only the shader data, which reads the chunk and its border.
       if (r !== SHADER_BORDER_CELLS) throw new RangeError(`derive job: shader data needs an apron ${SHADER_BORDER_CELLS} deep, not ${r}`);
@@ -209,6 +211,31 @@ function derive(raw: unknown): JobResult {
   } finally {
     clear(store);
   }
+}
+
+/** A derive job naming sections: each section's derived data (or its shader data alone), one result a section. */
+function deriveSections(store: PaletteStore, input: DeriveInput, parts: number): JobResult {
+  const g = store.grid;
+  const c = input.chunk;
+  const { edge, ids } = input.sections!;
+  const exportChunk = (out: DenseChunk): boolean => store.exportChunk(c.cx, c.cy, c.cz, out);
+  let results: SectionResult[];
+  if (parts === DERIVED_PART.shader) {
+    if (input.radius !== SHADER_BORDER_CELLS) throw new RangeError(`derive job: shader data needs an apron ${SHADER_BORDER_CELLS} deep, not ${input.radius}`);
+    results = deriveSectionShadersWithApron(g, input.apron, exportChunk, edge, ids);
+  } else {
+    if (input.rules === undefined) throw new RangeError('derive job: sections need assembly rules');
+    const rules = assemblyRules(input.rules);
+    if (jobRadius(rules) !== input.radius) throw new RangeError(`derive job: radius ${input.radius} for rules ${rules.id} v${rules.version} (needs ${jobRadius(rules)})`);
+    results = deriveSectionsWithApron(g, rules, input.apron, exportChunk, edge, ids);
+  }
+  const transfer: ArrayBuffer[] = [];
+  for (const r of results) {
+    if (r.assembly !== null) derivedTransfer(r.assembly, transfer);
+    if (r.shader !== null) transfer.push(r.shader.palette.buffer as ArrayBuffer, r.shader.ids.buffer as ArrayBuffer);
+  }
+  const output: DeriveOutput = { solid: 0, exposed: 0, mask: null, hash: 0, assembly: null, shader: null, sections: results };
+  return { output, transfer };
 }
 
 const EMPTY: DeriveOutput = Object.freeze({ solid: 0, exposed: 0, mask: null, hash: 0, assembly: null, shader: null });

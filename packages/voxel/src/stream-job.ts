@@ -18,13 +18,17 @@
  *   is accepted only while those are unchanged.
  * - **Neighbourhood.** A derive job carries its dependency radius R and the
  *   apron strips R deep (apron.ts), never whole neighbours.
+ * - **Sections.** A derive job may name sections of its chunk (8³, 16³ or
+ *   the whole 32³): each is derived as a unit of its own, so an edit
+ *   re-derives only the sections within R of the cells it changed.
  * - **Buffers** travel as transfer lists: chunk payloads (chunk-wire.ts),
  *   aprons, stored bytes and undo records move, they are not copied.
  */
 import type { Apron } from './apron';
 import type { AssemblyRulesRef } from './assembly';
 import type { ChunkPayload } from './chunk-wire';
-import type { ChunkEdge } from './coords';
+import type { ChunkEdge, SectionEdge } from './coords';
+import type { SectionResult } from './derive-assembly';
 import type { ShaderOut } from './derived-shader';
 import type { DerivedData } from './derived-data';
 import type { VoxelEditCommand } from './edit-command';
@@ -132,6 +136,14 @@ export interface DeriveInput {
    * apron that deep (a change of material or wetness only).
    */
   readonly parts?: number;
+  /**
+   * Derive these sections of the chunk instead of the chunk as one unit
+   * (the rules or the shader data alone; the exposure placeholder has no
+   * sections). `edge` divides the chunk edge; `ids` are section ids
+   * (derive-assembly.ts `sectionIdOf`). The apron is the chunk's: a section
+   * reads its neighbours inside the chunk from the chunk's own cells.
+   */
+  readonly sections?: { readonly edge: SectionEdge; readonly ids: readonly number[] };
 }
 
 /**
@@ -151,6 +163,8 @@ export interface DeriveOutput {
   readonly assembly: DerivedData | null;
   /** The shader data alone, for a job that asked for only that part (else null; a full derive holds it in `assembly`). */
   readonly shader: ShaderOut | null;
+  /** One result a section, in the order the input named them, when the job named sections. */
+  readonly sections?: readonly SectionResult[];
 }
 
 export interface StreamJobInputs {

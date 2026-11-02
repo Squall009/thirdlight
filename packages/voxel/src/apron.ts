@@ -15,7 +15,7 @@
  * bytes; any other strip is its cells as voxel values (record.ts), in the
  * same x, z, y order (y fastest) as a chunk.
  */
-import { chunkInWorld, type ChunkGrid } from './coords';
+import { chunkInWorld, type CellGrid } from './coords';
 import { readValue, valueOf, type VoxelRecord } from './record';
 import type { VoxelStoreCandidate } from './store';
 
@@ -179,7 +179,7 @@ export function apronVoxelAt(a: Apron, lx: number, ly: number, lz: number, out: 
  * world). An edit near a chunk corner reaches the 7 chunks around that
  * corner; a box spanning a chunk reaches all 26 neighbours.
  */
-export function dependentChunks(grid: ChunkGrid, box: { minX: number; minY: number; minZ: number; maxX: number; maxY: number; maxZ: number }, radius: number): Array<{ cx: number; cy: number; cz: number }> {
+export function dependentChunks(grid: CellGrid, box: { minX: number; minY: number; minZ: number; maxX: number; maxY: number; maxZ: number }, radius: number): Array<{ cx: number; cy: number; cz: number }> {
   checkRadius(grid.edge, radius);
   const out: Array<{ cx: number; cy: number; cz: number }> = [];
   const s = grid.shift;

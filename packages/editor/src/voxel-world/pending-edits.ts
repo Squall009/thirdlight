@@ -1,45 +1,43 @@
 /**
- * The edits the voxel world page waits on: each names the chunks its
- * answer changed, and is done once every one of them has landed with its
- * new content and has its new derived results (full results, or the
- * shader data alone when only material or wetness changed).
+ * The edits the voxel world page waits on: each is an edit group of the
+ * streamer (a local edit, or a refresh after the backend applied a
+ * command), done once the group's rebuilt sections were swapped in, all
+ * in one go (the streamer's `swap` event names every group it closes).
  */
+import type { SwapReport } from '@thirdlight/voxel';
 
-/** Chunks an edit is waiting on (key → landed with the new content yet), and when each edit's meshes were all swapped. */
-export interface PendingEdit {
-  readonly waiting: Map<number, boolean>;
-  readonly done: (atMs: number, collidersAtMs: number) => void;
-  /** When the newest of its chunks' bodies was replaced. */
-  collidersAt: number;
+/** When a swap happened: performance.now(), the frames drawn before it, and its report. */
+export interface SwapSeen {
+  readonly at: number;
+  readonly frame: number;
+  readonly report: SwapReport;
+  /** Main-thread ms the page spent replacing the swapped sections' meshes and colliders. */
+  readonly buildMs: number;
 }
 
 export class PendingEdits {
-  private readonly edits = new Set<PendingEdit>();
+  private readonly waiting = new Map<number, (s: SwapSeen) => void>();
 
-  add(p: PendingEdit): void {
-    this.edits.add(p);
+  /** Resolves with the swap that closes `group`, or null after `timeoutMs` (a chunk whose new content never lands). */
+  wait(group: number, timeoutMs: number): Promise<SwapSeen | null> {
+    return new Promise((done) => {
+      const timer = setTimeout(() => {
+        if (this.waiting.delete(group)) done(null);
+      }, timeoutMs);
+      this.waiting.set(group, (s) => {
+        clearTimeout(timer);
+        done(s);
+      });
+    });
   }
 
-  /** Forgets an edit; false when it was already done. */
-  delete(p: PendingEdit): boolean {
-    return this.edits.delete(p);
-  }
-
-  /** A chunk's new content landed. */
-  loaded(key: number): void {
-    for (const p of this.edits) if (p.waiting.has(key)) p.waiting.set(key, true);
-  }
-
-  /** A landed chunk has its new results (`collidersAt`: when its bodies were replaced, NaN when they were not touched). */
-  settle(key: number, collidersAt: number): void {
-    for (const p of [...this.edits]) {
-      if (p.waiting.get(key) !== true) continue;
-      p.waiting.delete(key);
-      if (!Number.isNaN(collidersAt)) p.collidersAt = collidersAt;
-      if (p.waiting.size === 0) {
-        this.edits.delete(p);
-        p.done(performance.now(), p.collidersAt);
-      }
+  /** A swap closed these groups. */
+  swapped(s: SwapSeen): void {
+    for (const g of s.report.groups) {
+      const done = this.waiting.get(g);
+      if (done === undefined) continue;
+      this.waiting.delete(g);
+      done(s);
     }
   }
 }
