@@ -10,6 +10,7 @@ import {
   buildApron,
   canonicalEditCommand,
   cellBit,
+  ChunkTreeFlags,
   chunkGrid,
   CLASS_MASK,
   COLLISION_STEPS_PER_CELL,
@@ -20,6 +21,7 @@ import {
   dependentChunks,
   deriveFromStore,
   downsampleMip,
+  editBounds,
   encodeDerived,
   evaluateAssembly,
   fillNeighbourhood,
@@ -503,6 +505,65 @@ describe('voxel mips', () => {
     }
     expect(differ).toBe(1);
   });
+
+  it('keeps solid/empty/mixed flags of every chunk-tree node from the derived chunks, stale ancestors refreshed after an edit', () => {
+    const s = createWorldStore(grid);
+    loadArea(hillyWorld({ footprint: 256 }).grids[0]!, s, -64, -64, 64, 64);
+    const maxLevel = 2;
+    const chunks: Array<{ cx: number; cy: number; cz: number }> = [];
+    // Two level-1 nodes across, seven high: their chunks are all here (level 2 also sees chunks never loaded: empty).
+    for (let cx = 0; cx < 2; cx++) for (let cz = 0; cz < 2; cz++) for (let cy = -6; cy < 8; cy++) chunks.push({ cx, cy, cz });
+    const flags = new ChunkTreeFlags(maxLevel);
+    const derive = (c: { cx: number; cy: number; cz: number }): void => flags.setChunk(c.cx, c.cy, c.cz, deriveFromStore(s, c.cx, c.cy, c.cz, PLACEHOLDER_RULES).occupancy.flag);
+    for (const c of chunks) derive(c);
+    /** Every node's flag recomputed from scratch from fresh derives (what the tree must agree with). */
+    const fresh = (): Map<string, number> => {
+      const out = new Map<string, number>();
+      for (const c of chunks) out.set(mipNodeKey(mipNodeOf(c.cx, c.cy, c.cz, 0)), deriveFromStore(s, c.cx, c.cy, c.cz, PLACEHOLDER_RULES).occupancy.flag);
+      for (let l = 1; l <= maxLevel; l++) {
+        const level = new Map(chunks.map((c) => mipNodeOf(c.cx, c.cy, c.cz, l)).map((n) => [mipNodeKey(n), n]));
+        for (const [key, n] of level) {
+          const kids = mipChildren(n).map((k) => out.get(mipNodeKey(k)) ?? OCCUPANCY.empty);
+          out.set(key, kids.every((f) => f === OCCUPANCY.empty) ? OCCUPANCY.empty : kids.every((f) => f === OCCUPANCY.solid) ? OCCUPANCY.solid : OCCUPANCY.mixed);
+        }
+      }
+      return out;
+    };
+    const agree = (): void => {
+      for (const [key, f] of fresh()) {
+        const [l, xyz] = key.split(':') as [string, string];
+        const [nx, ny, nz] = xyz.split(',').map(Number) as [number, number, number];
+        expect(flags.flagOf({ level: Number(l), nx, ny, nz }), key).toBe(f);
+      }
+    };
+    agree();
+    // The hilly ground gives all three: sky above, rock deep down, the surface between.
+    const level0 = new Set(chunks.map((c) => flags.flagOf(mipNodeOf(c.cx, c.cy, c.cz, 0))));
+    expect(level0).toEqual(new Set([OCCUPANCY.empty, OCCUPANCY.solid, OCCUPANCY.mixed]));
+    const deep = chunks.find((c) => c.cy < 0 && flags.flagOf(mipNodeOf(c.cx, c.cy, c.cz, 1)) === OCCUPANCY.solid)!;
+    expect(deep).toBeDefined();
+    // Dig a cave into the solid node: its chunks and every ancestor go mixed; only the edit's dependents are derived again.
+    const x = deep.cx * E + 8;
+    const y = deep.cy * E + 8;
+    const z = deep.cz * E + 8;
+    const cmd = canonicalEditCommand({ v: 1, grid: 0, kind: 'fill', min: [x, y, z], max: [x + 3, y + 3, z + 3], mode: 'dig' });
+    applyEdit({ store: () => s }, cmd);
+    for (const c of dependentChunks(grid, editBounds(grid, cmd), R)) derive(c);
+    expect(flags.staleNodes().map(mipNodeKey)).toEqual([mipNodeKey(mipNodeOf(deep.cx, deep.cy, deep.cz, 1)), mipNodeKey(mipNodeOf(deep.cx, deep.cy, deep.cz, 2))]);
+    const changed = flags.refresh().map(mipNodeKey);
+    expect(changed).toContain(mipNodeKey(mipNodeOf(deep.cx, deep.cy, deep.cz, 1)));
+    expect(flags.staleNodes()).toEqual([]);
+    expect(flags.flagOf(mipNodeOf(deep.cx, deep.cy, deep.cz, 1))).toBe(OCCUPANCY.mixed);
+    agree();
+    // Filling it back gives the solid node again; an unchanged flag marks nothing stale.
+    applyEdit({ store: () => s }, canonicalEditCommand({ v: 1, grid: 0, kind: 'fill', min: [x, y, z], max: [x + 3, y + 3, z + 3], mode: 'place', voxel: { material: s.voxelAt(x - 1, y, z, { material: 0, category: 0, shape: 0, orientation: 0 }).material, category: VOXEL_CATEGORY.terrain, orientation: 0 } }));
+    for (const c of dependentChunks(grid, editBounds(grid, cmd), R)) derive(c);
+    expect(flags.flagOf(mipNodeOf(deep.cx, deep.cy, deep.cz, 1))).toBe(OCCUPANCY.solid);
+    agree();
+    flags.setChunk(deep.cx, deep.cy, deep.cz, OCCUPANCY.solid);
+    expect(flags.staleNodes()).toEqual([]);
+    expect(() => flags.setChunk(0, 0, 0, 3)).toThrow(RangeError);
+  }, 60_000);
 });
 
 describe('prop lighting-occupancy channel', () => {

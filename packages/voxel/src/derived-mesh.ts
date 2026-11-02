@@ -93,8 +93,8 @@ export class MaterialSlots {
     return this.order.length;
   }
 
-  table(): Uint16Array {
-    return Uint16Array.from(this.order);
+  table(): Uint32Array {
+    return Uint32Array.from(this.order);
   }
 }
 

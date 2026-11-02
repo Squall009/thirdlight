@@ -48,7 +48,7 @@ export interface ProbeContext {
   readonly collision: VoxelCollision | null;
   readonly scene: THREE.Scene;
   /** Region files by name → tag, as the page knows them now. */
-  readonly files: ReadonlyMap<string, string>;
+  readonly files: ReadonlyMap<string, string | null>;
 }
 
 export function assemblyProbes(ctx: ProbeContext): Record<string, (...args: never[]) => unknown> {
@@ -116,7 +116,7 @@ export function assemblyProbes(ctx: ProbeContext): Record<string, (...args: neve
       return { checked, stale };
     },
     /** The region files and their tags now. */
-    files(): Record<string, string> {
+    files(): Record<string, string | null> {
       return Object.fromEntries(ctx.files);
     },
     /** Drops a capsule (metres) with its lowest point at `feet` (cells); where it rests is marked. */

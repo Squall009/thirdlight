@@ -142,7 +142,7 @@ export function encodeDenseChunk(grid: ChunkGrid, cells: DenseChunk): Uint8Array
   if (isAirChunk(cells)) return null;
   const img = chunkScratch(grid).image;
   recordImageFromCells(cells, ALL_PLANES, img);
-  return encodePaletteImage(img, ALL_PLANES, 'packed');
+  return encodePaletteImage(img);
 }
 
 /** A chunk's cells from its codec bytes (null: all air) into `out`. */

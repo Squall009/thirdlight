@@ -7,7 +7,7 @@
  * The corpus arrives from the bench's own static server, so the worker
  * fetches it (shipped runtime code gets bytes through the content closure).
  */
-import { chunkGrid, createChunkImage, decodePaletteImage, type ChunkEdge } from '@thirdlight/voxel';
+import { chunkGrid, createChunkImage, decodeMeasuredImage, type ChunkEdge } from '@thirdlight/voxel';
 import { decompress as zstdDecompress } from 'fzstd';
 import { lz4Block } from './lz4-block';
 
@@ -70,9 +70,9 @@ async function run(job: DecodeJob): Promise<DecodeResult> {
     const raw = await decompressAll(job.codec, chunks);
     const t1 = performance.now();
     let bytes = 0;
-    // The palette decoder checks every chunk's CRC, so a codec that returned wrong bytes fails here.
+    // The bench decoder reads every candidate's bytes (world and measurement bodies) and checks every chunk's CRC, so a codec that returned wrong bytes fails here.
     for (const b of raw) {
-      decodePaletteImage(b, img);
+      decodeMeasuredImage(b, img);
       bytes += b.length;
     }
     const t2 = performance.now();

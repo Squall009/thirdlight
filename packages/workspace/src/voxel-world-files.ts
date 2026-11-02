@@ -24,6 +24,7 @@ import {
   DirtyTracker,
   exportOrAir,
   packRegionChunk,
+  parseRegionFileName,
   regionChunkCodecBytes,
   regionFileName,
   RegionIndex,
@@ -37,6 +38,7 @@ import {
   type PaletteStore,
   type RegionChunkRead,
   type RegionEntry,
+  type RegionExpect,
   type RegionFootprint,
   type RegionLayout,
   type RegionTile,
@@ -177,6 +179,14 @@ export class RegionWorld {
   readonly gridId: number;
   readonly files = new Map<string, RegionFileState>();
   readonly damaged = new Map<number, DamagedChunk>();
+  /**
+   * Region files the world lists that are missing, unreadable or of another
+   * tile: why, by name. Their chunks are not loaded and cannot be edited, and
+   * the files stay listed, so a reader reports them damaged instead of air.
+   */
+  readonly damagedRegions = new Map<string, string>();
+  /** Files of regions that became all air: removed once the world no longer lists them ({@link flushRemovals}). */
+  private readonly removals = new Set<string>();
 
   private constructor(
     readonly dir: string,
@@ -211,13 +221,26 @@ export class RegionWorld {
    * damaged chunk is repaired from the first source that has it (and is
    * then dirty, so the next save writes it sound) or kept damaged.
    */
-  static async open(dir: string, opts: WorldDirOptions, sources: readonly RepairSource[] = []): Promise<{ world: RegionWorld; repairs: RepairOutcome[] }> {
+  static async open(dir: string, opts: WorldDirOptions, sources: readonly RepairSource[] = [], listed?: readonly string[]): Promise<{ world: RegionWorld; repairs: RepairOutcome[] }> {
     const w = new RegionWorld(dir, opts);
     const grid = opts.grid;
     const broken: { c: ChunkCoord; file: string; entry: RegionEntry | null }[] = [];
-    for (const name of readdirSync(dir).filter((n) => n.endsWith('.vxr')).sort()) {
-      const bytes = new Uint8Array(readFileSync(join(dir, name)));
-      const index = RegionIndex.parse(bytes);
+    const names = listed !== undefined ? [...listed].sort() : readdirSync(dir).filter((n) => n.endsWith('.vxr')).sort();
+    for (const name of names) {
+      let bytes: Uint8Array;
+      let index: RegionIndex;
+      try {
+        const at = parseRegionFileName(opts.layout, name);
+        if (at === null) throw new Error(`not a ${opts.layout} region file name`);
+        const expect: RegionExpect = { worldId: opts.worldId, gridId: w.gridId, layout: opts.layout, grid, footprint: opts.footprint, ...at };
+        bytes = new Uint8Array(readFileSync(join(dir, name)));
+        index = RegionIndex.parse(bytes, { expect });
+      } catch (e) {
+        // Without a list every file found must open; a listed one that cannot is reported, never read as air.
+        if (listed === undefined) throw e;
+        w.damagedRegions.set(name, e instanceof Error ? e.message : String(e));
+        continue;
+      }
       const h = index.header;
       const f: RegionFileState = { address: { layout: h.layout, footprint: opts.footprint, rx: h.rx, ry: h.ry, rz: h.rz }, entries: new Map(), hash: sha256HexNative(bytes) };
       w.files.set(name, f);
@@ -270,8 +293,16 @@ export class RegionWorld {
     return writeRegion(tile, entries.values());
   }
 
+  /** The region files the world lists: every file written, and every listed file that could not be read. */
+  listedRegions(): string[] {
+    const names = [...this.files].filter(([, f]) => f.hash !== null).map(([n]) => n);
+    for (const n of this.damagedRegions.keys()) names.push(n);
+    return [...new Set(names)].sort();
+  }
+
   /** Whether a chunk can be edited (its data is sound and loaded). */
-  readonly loaded = (gridId: number, cx: number, cy: number, cz: number): boolean => gridId === this.gridId && !this.damaged.has(chunkKey(this.opts.grid, cx, cy, cz));
+  readonly loaded = (gridId: number, cx: number, cy: number, cz: number): boolean =>
+    gridId === this.gridId && !this.damaged.has(chunkKey(this.opts.grid, cx, cy, cz)) && !this.damagedRegions.has(addressName(addressOf(this.opts.grid, this.opts.layout, this.opts.footprint, { cx, cy, cz })));
 
   /** Applies an edit command (refused before any write when it reaches a damaged chunk). */
   edit(cmd: VoxelEditCommand, stamps?: StampResolver): EditOutcome {
@@ -325,6 +356,14 @@ export class RegionWorld {
     const f = this.files.get(p.name) ?? this.fileOf(chunkOfKey(this.opts.grid, p.job.chunks[0]!.key));
     let why: string | undefined;
     const r = this.tracker.commitSave(p.job.id, () => {
+      if (p.bytes === null) {
+        // Removed only once the world stops listing it: a file listed but gone would read as damaged.
+        f.hash = null;
+        f.entries = p.entries;
+        this.removals.add(p.name);
+        return true;
+      }
+      this.removals.delete(p.name);
       const w = replaceFile(this.dir, p.name, p.bytes, f.hash, ops);
       if (!w.ok) {
         why = w.why;
@@ -335,6 +374,12 @@ export class RegionWorld {
       return true;
     });
     return r.ok ? { ok: true } : { ok: false, why: why ?? r.reason };
+  }
+
+  /** Deletes the files of regions that became all air (call once the world's list no longer names them). */
+  flushRemovals(): void {
+    for (const name of this.removals) if (this.files.get(name)?.hash === null) replaceFile(this.dir, name, null, null);
+    this.removals.clear();
   }
 
   /** Saves every dirty file now; returns files and bytes written and chunks re-packed. */
@@ -348,6 +393,7 @@ export class RegionWorld {
       bytes += p.bytes?.length ?? 0;
       repacked += p.repacked;
     }
+    this.flushRemovals();
     return { files: prepared.length, bytes, repacked };
   }
 }

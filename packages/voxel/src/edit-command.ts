@@ -18,7 +18,7 @@
  * axis, so its centre is x + 0.5.
  */
 import { cellInWorld } from './coords';
-import { BYTE_PLANE_MAX, MATERIAL_ID_MAX } from './record';
+import { BYTE_PLANE_MAX, MATERIAL_ID_MAX, ORIENTATION_COUNT, VOXEL_CATEGORY_COUNT } from './record';
 
 /** The edit command format this build writes and reads. */
 export const VOXEL_EDIT_VERSION = 1;
@@ -169,7 +169,7 @@ function editVoxel(v: unknown, path: string): EditVoxel {
   const o = obj(v, path);
   only(o, path, ['material', 'category', 'orientation']);
   const material = int(o.material, `${path}/material`, 1, MATERIAL_ID_MAX);
-  return { material, category: int(o.category, `${path}/category`, 0, BYTE_PLANE_MAX), orientation: int(o.orientation, `${path}/orientation`, 0, BYTE_PLANE_MAX) };
+  return { material, category: int(o.category, `${path}/category`, 0, VOXEL_CATEGORY_COUNT - 1), orientation: int(o.orientation, `${path}/orientation`, 0, ORIENTATION_COUNT - 1) };
 }
 
 function setVoxel(v: unknown, path: string): SetVoxel {
@@ -180,8 +180,8 @@ function setVoxel(v: unknown, path: string): SetVoxel {
   if (material === 0) return { material: 0, category: 0, orientation: 0, shape: int(o.shape, `${path}/shape`, 0, 0) };
   return {
     material,
-    category: int(o.category, `${path}/category`, 0, BYTE_PLANE_MAX),
-    orientation: int(o.orientation, `${path}/orientation`, 0, BYTE_PLANE_MAX),
+    category: int(o.category, `${path}/category`, 0, VOXEL_CATEGORY_COUNT - 1),
+    orientation: int(o.orientation, `${path}/orientation`, 0, ORIENTATION_COUNT - 1),
     shape: int(o.shape, `${path}/shape`, 1, BYTE_PLANE_MAX),
   };
 }
@@ -195,17 +195,29 @@ function modeVoxel(o: Json, path: string): { mode: EditMode; voxel?: EditVoxel }
   return { mode, voxel: editVoxel(o.voxel, `${path}/voxel`) };
 }
 
+/**
+ * A cell list in its canonical order: sorted by x, then z, then y (the
+ * order chunk keys and cells inside a chunk use), each cell once. A set or
+ * dig changes the same cells whatever order or repeats it was sent with,
+ * so one stroke has one payload.
+ */
 function cellList(v: unknown, path: string): number[] {
   if (!Array.isArray(v) || v.length === 0 || v.length % 3 !== 0) throw new EditCommandError(path, 'expected x y z triples, at least one');
-  const out = new Array<number>(v.length);
+  const cells: [number, number, number][] = [];
   for (let i = 0; i < v.length; i += 3) {
     const x = int(v[i], `${path}/${i}`, -0x8000, 0x7fff);
     const y = int(v[i + 1], `${path}/${i + 1}`, -0x2000, 0x1fff);
     const z = int(v[i + 2], `${path}/${i + 2}`, -0x8000, 0x7fff);
     if (!cellInWorld(x, y, z)) throw new EditCommandError(`${path}/${i}`, 'cell outside the world');
-    out[i] = x;
-    out[i + 1] = y;
-    out[i + 2] = z;
+    cells.push([x, y, z]);
+  }
+  cells.sort((a, b) => a[0] - b[0] || a[2] - b[2] || a[1] - b[1]);
+  const out: number[] = [];
+  for (let k = 0; k < cells.length; k++) {
+    const c = cells[k]!;
+    const p = cells[k - 1];
+    if (p !== undefined && p[0] === c[0] && p[1] === c[1] && p[2] === c[2]) continue;
+    out.push(c[0], c[1], c[2]);
   }
   return out;
 }

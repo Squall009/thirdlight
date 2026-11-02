@@ -83,7 +83,7 @@ describe('the dense reference store', () => {
     store.importChunk(-3, 250, 7, cells);
     const bytes = store.encodeChunk(-3, 250, 7);
     expect(bytes).not.toBeNull();
-    expect(bytes!.length).toBe(1 + grid.cellsPerChunk * 5);
+    expect(bytes!.length).toBe(1 + grid.cellsPerChunk * 6);
     const other = new DenseReferenceStore(grid);
     other.decodeChunk(-3, 250, 7, bytes!);
     const back = createDenseChunk(grid);
@@ -91,7 +91,7 @@ describe('the dense reference store', () => {
     expect(sameDenseChunk(back, cells)).toBe(true);
 
     const noOrientation = store.encodeChunk(-3, 250, 7, ['material', 'category', 'shape'])!;
-    expect(noOrientation.length).toBe(1 + grid.cellsPerChunk * 4);
+    expect(noOrientation.length).toBe(1 + grid.cellsPerChunk * 5);
     other.decodeChunk(-3, 250, 7, noOrientation);
     other.exportChunk(-3, 250, 7, back);
     expect(back.orientation.every((o) => o === 0)).toBe(true);

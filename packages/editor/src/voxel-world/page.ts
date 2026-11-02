@@ -22,10 +22,8 @@
  */
 import * as THREE from 'three';
 import {
-  canonicalEditCommand,
   chunkGrid,
   chunkKey,
-  editBounds,
   type CellBox,
   createWorldStore,
   DEFAULT_REBASE_DISTANCE_M,
@@ -40,6 +38,7 @@ import {
   VOXEL_SIZE_M,
   VOXEL_STREAM_BUDGET_BYTES,
   VoxelStreamer,
+  WORLD_GRID_ID,
   WorkerPool,
   type RegionByteSource,
 } from '@thirdlight/voxel';
@@ -84,13 +83,13 @@ if (!/^[A-Za-z0-9_-]{1,64}$/.test(projectId)) fail('?project= names the project'
 const headers = { authorization: `Bearer ${token}` };
 const api = `/api/v1/projects/${encodeURIComponent(projectId)}`;
 
-/** Region files by name and their current tags (a file not listed holds only air). */
-const files = new Map<string, string>();
+/** The region files the world lists, by name, and their current tags (null: listed but unreadable, so its chunks are damaged; a file not listed holds only air). */
+const files = new Map<string, string | null>();
 
 interface VoxelInfo {
   ok: boolean;
-  manifest: { revision: number; edge: number; layout: 'stacked' | 'column'; footprint: 512 | 1024 };
-  files: Array<{ name: string; etag: string }>;
+  manifest: { revision: number; worldId: string; edge: number; layout: 'stacked' | 'column'; footprint: 512 | 1024 };
+  files: Array<{ name: string; etag: string | null }>;
   error?: { message: string };
 }
 
@@ -145,7 +144,7 @@ async function main(): Promise<void> {
   // The camera orbits a target point (cells, 64-bit); everything drawn is relative to the floating origin.
   const target = { x: at[0], y: at[1] + 4, z: at[2] };
   const view = { yaw: -0.6, pitch: 0.45, distM: 22 };
-  const origin = new FloatingOrigin({ rebaseDistanceM: rebaseM, origin: { x: target.x, y: target.y, z: target.z } });
+  const origin = new FloatingOrigin({ grid, rebaseDistanceM: rebaseM, origin: { x: target.x, y: target.y, z: target.z } });
   const meshes = new ChunkMeshes(grid, origin);
   scene.add(meshes.root);
   const collision = params.get('collision') === '0' ? null : await VoxelCollision.create(grid, origin);
@@ -155,7 +154,8 @@ async function main(): Promise<void> {
   });
 
   const pool = new WorkerPool({ size: workers, create: () => eventTargetWorker(new Worker('./voxel-worker.js', { type: 'module' })), timeoutMs: 5000, maxQueued: 256 });
-  const source = new RegionChunkSource({ grid, layout: info.manifest.layout, footprint: info.manifest.footprint, open: byteSource, maxOpen: 64 });
+  const worldId = Uint8Array.from(info.manifest.worldId.match(/../g)!, (h) => parseInt(h, 16));
+  const source = new RegionChunkSource({ worldId, gridId: WORLD_GRID_ID, grid, layout: info.manifest.layout, footprint: info.manifest.footprint, open: byteSource, maxOpen: 64 });
   const streamer = new VoxelStreamer({ store: createWorldStore(grid), source, pool, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.low, dependencyRadius: jobRadius(PLACEHOLDER_RULES), derive: true, rules: PLACEHOLDER_RULES });
 
   /** Chunks an edit is waiting on (key → landed with the new content yet), and when each edit's meshes were all swapped. */
@@ -288,24 +288,24 @@ async function main(): Promise<void> {
   }
 
   /**
-   * Sends a voxel command and waits until what it changed is drawn. `box`
-   * (the cells an edit can change) bounds what is derived again; an undo
-   * names none, so every chunk within the radius of a changed chunk is.
+   * Sends a voxel command and waits until what it changed is drawn. The
+   * answer's box (the cells the edit, or the edit an undo takes back, can
+   * change) bounds what is derived again.
    */
-  async function send(op: 'editVoxels' | 'undoVoxels', args: Record<string, unknown>, box?: CellBox): Promise<EditTiming> {
+  async function send(op: 'editVoxels' | 'undoVoxels', args: Record<string, unknown>): Promise<EditTiming> {
     const log = new Set<string>();
     derivedLogs.add(log);
     try {
-      return await sendLogged(op, args, log, box);
+      return await sendLogged(op, args, log);
     } finally {
       derivedLogs.delete(log);
     }
   }
 
-  async function sendLogged(op: 'editVoxels' | 'undoVoxels', args: Record<string, unknown>, log: Set<string>, box: CellBox | undefined): Promise<EditTiming> {
+  async function sendLogged(op: 'editVoxels' | 'undoVoxels', args: Record<string, unknown>, log: Set<string>): Promise<EditTiming> {
     const t0 = performance.now();
     const r = await fetch(`${api}/commands`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ op, projectId, requestId: requestId(), args: { world: worldName, ...args } }) });
-    const body = (await r.json()) as { ok: boolean; error?: { code: string }; revision: number; cells: number; chunks: Array<[number, number, number]>; files: Array<{ name: string; etag: string | null }>; ms: { apply: number; save: number } };
+    const body = (await r.json()) as { ok: boolean; error?: { code: string }; revision: number; cells: number; chunks: Array<[number, number, number]>; box: CellBox; files: Array<{ name: string; etag: string | null }>; ms: { apply: number; save: number } };
     const answerMs = performance.now() - t0;
     if (!body.ok) return { ok: false, code: body.error?.code ?? String(r.status), answerMs };
     revision = body.revision;
@@ -336,7 +336,7 @@ async function main(): Promise<void> {
         if (pending.delete(p)) done(false);
       }, EDIT_VISIBLE_TIMEOUT_MS);
     });
-    streamer.refresh(chunks, box);
+    streamer.refresh(chunks, body.box);
     if (!(await swapped)) return { ok: false, code: 'not_visible', answerMs };
     const swappedMs = performance.now() - t0;
     // Visible once the frame after the swap is drawn: the next animation frame renders it, the one after starts once it is shown.
@@ -351,7 +351,7 @@ async function main(): Promise<void> {
 
   /** Any stroke command (a game's runtime set/dig, a fill, a brush), sent as it is. */
   function edit(command: unknown): Promise<EditTiming> {
-    return send('editVoxels', { command }, editBounds(grid, canonicalEditCommand(command)));
+    return send('editVoxels', { command });
   }
 
   /** A brush dab (dig, or add soil) centred on a cell. */

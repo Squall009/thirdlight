@@ -26,12 +26,14 @@ import {
   VOXEL_SIZE_M,
   VOXEL_STREAM_BUDGET_BYTES,
   VoxelStreamer,
+  WORLD_GRID_ID,
   WorkerPool,
   type RegionByteSource,
   type SampleRing,
   type StreamRing,
 } from '@thirdlight/voxel';
 import { ALTITUDE_CELLS, loopAt, loopHeading } from './flight-path';
+import { TEST_WORLD_ID } from './test-world-id';
 
 /** What the driver asks for (plain data). */
 export interface StreamPageSpec {
@@ -257,9 +259,9 @@ async function prepare(spec: StreamPageSpec): Promise<Record<string, unknown>> {
   await renderer.init();
   const pool = new WorkerPool({ size: spec.workers, create: () => eventTargetWorker(new Worker('./stream-worker.js', { type: 'module' })), timeoutMs: 5000, maxQueued: 256 });
   const regions = new FetchRegions(spec.files);
-  const source = new RegionChunkSource({ grid, layout: 'stacked', footprint: 512, open: (n) => regions.open(n), maxOpen: 128, ...(spec.maxGap === null ? {} : { maxGap: spec.maxGap }) });
+  const source = new RegionChunkSource({ worldId: TEST_WORLD_ID, gridId: WORLD_GRID_ID, grid, layout: 'stacked', footprint: 512, open: (n) => regions.open(n), maxOpen: 128, ...(spec.maxGap === null ? {} : { maxGap: spec.maxGap }) });
   const streamer = new VoxelStreamer({ store: createWorldStore(grid), source, pool, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.low, dependencyRadius: 2, derive: spec.derive, readBatch: 64, maxReads: spec.maxReads });
-  const origin = new FloatingOrigin({ rebaseDistanceM: spec.rebaseM });
+  const origin = new FloatingOrigin({ grid, rebaseDistanceM: spec.rebaseM });
   const boxes = new ChunkBoxes(origin);
   scene.add(boxes.mesh);
   const s: Session = { spec, pool, regions, source, streamer, origin, boxes, coldMs: 0, events: { loaded: 0, unloaded: 0, derived: 0, damaged: 0 }, rebaseMs: [] };

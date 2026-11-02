@@ -99,7 +99,7 @@ describe.each(VARIANTS)('the palette store ($name)', (opts) => {
       [-1, 0, 0, (c) => fillMixed(grid, c, 2)],
       [0, -1, 0, (c) => fillWith(c, rock)],
       [0, 1, 0, (c) => fillWith(c, voxel())],
-      [0, 0, -1, (c) => fillWith(c, voxel(9, VOXEL_CATEGORY.roof, 255, 200))],
+      [0, 0, -1, (c) => fillWith(c, voxel(9, VOXEL_CATEGORY.roof, 255, 23))],
     ];
     for (const [cx, cy, cz, fill] of chunks) {
       fill(cells);
@@ -123,7 +123,7 @@ describe.each(VARIANTS)('the palette store ($name)', (opts) => {
     // The all-air chunk is absent; the uniform ones cost a few bytes.
     expect([...store.chunkKeys()].sort()).toEqual([...oracle.chunkKeys()].sort());
     expect(store.encodeChunk(0, 1, 0)).toBeNull();
-    expect(store.encodeChunk(0, -1, 0)).toHaveLength(13);
+    expect(store.encodeChunk(0, -1, 0)).toHaveLength(14);
     expect(store.memoryBytes()).toBeLessThan(oracle.memoryBytes() / 2);
   });
 
@@ -164,7 +164,7 @@ describe.each(VARIANTS)('the palette store ($name)', (opts) => {
     }
     // The filled box below y = 0 collapsed back to single numbers.
     for (const cy of [-1]) for (const cx of [-1, 0, 1]) {
-      expect(store.encodeChunk(cx, cy, 0)).toHaveLength(13);
+      expect(store.encodeChunk(cx, cy, 0)).toHaveLength(14);
     }
   });
 });
@@ -268,7 +268,7 @@ describe('the palette codec refuses what it did not write', () => {
     expect(() => decode(withCrc(longer))).toThrow(/past the end/);
     const version = good.slice();
     version[2] = 2;
-    expect(() => decode(version)).toThrow(/unknown version 2/);
+    expect(() => decode(version)).toThrow(/version 2 is newer than this build reads/);
     const magic = good.slice();
     magic[0] = 0;
     expect(() => decode(magic)).toThrow(/magic/);
@@ -282,10 +282,10 @@ describe('the palette codec refuses what it did not write', () => {
     cells.material[0] = 2;
     twoEntry.importChunk(0, 0, 0, cells);
     const bytes = twoEntry.encodeChunk(0, 0, 0)!;
-    // Header 8, count 2, materials 4, categories 2, orientations 2, flags 1, then 512 bytes of 1-bit ids.
-    expect(bytes.length).toBe(8 + 2 + 4 + 2 + 2 + 1 + 512);
+    // Header 8, count 2, materials 6 (u24 each), categories 2, orientations 2, flags 1, then 512 bytes of 1-bit ids.
+    expect(bytes.length).toBe(8 + 2 + 6 + 2 + 2 + 1 + 512);
     const swapped = bytes.slice();
-    for (let k = 19; k < swapped.length; k++) swapped[k]! ^= 0xff;
+    for (let k = 21; k < swapped.length; k++) swapped[k]! ^= 0xff;
     expect(() => decode(withCrc(swapped))).toThrow(/first appearance/);
   });
 });

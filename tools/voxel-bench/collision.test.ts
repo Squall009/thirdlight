@@ -116,7 +116,7 @@ describe('per-cell outputs of one assembly evaluation', () => {
 
 describe('collision through the engine physics backend', () => {
   async function world(s: PaletteStore): Promise<{ physics: VoxelCollision; rebuild: () => void }> {
-    const physics = await VoxelCollision.create(grid, new FloatingOrigin({ origin: { x: 0, y: 0, z: 0 } }));
+    const physics = await VoxelCollision.create(grid, new FloatingOrigin({ grid, origin: { x: 0, y: 0, z: 0 } }));
     const rebuild = (): void => {
       for (const [cx, cy, cz] of SCENE_CHUNKS) {
         const d: DerivedData = deriveFromStore(s, cx, cy, cz, PLACEHOLDER_RULES);

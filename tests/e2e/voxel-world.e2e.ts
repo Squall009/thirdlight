@@ -193,11 +193,18 @@ test('assembly proof: runtime set/dig turn a banister into a wall and a beam int
   // Dig a pit after the bodies were built: a capsule dropped there falls into it; undo fills it again.
   const pit: Cell = [ox + 9, oy - 1, oz + 10];
   const before = await hook<Drop>(page, 'drop', [ox + 9.5, oy + 4, oz + 10.5], 0.15, 0.15);
-  expect((await hook<{ ok: boolean }>(page, 'dab', pit, 'dig')).ok).toBe(true);
+  const pitDig = await hook<EditAnswer>(page, 'dab', pit, 'dig');
+  expect(pitDig.ok).toBe(true);
+  const pitCommand = { v: 1, grid: 0, kind: 'brush', shape: 'sphere', size: [2, 2, 2], points: pit, mode: 'dig', smooth: false };
+  expect(pitDig.rederived).toEqual(dependents(pitCommand));
   const after = await hook<Drop>(page, 'drop', [ox + 9.5, oy + 4, oz + 10.5], 0.15, 0.15);
   expect(after.grounded).toBe(true);
   expect(after.feet[1]).toBeLessThan(before.feet[1] - 1);
-  expect((await hook<{ ok: boolean }>(page, 'undo')).ok).toBe(true);
+  // The undo answer names the box of the edit it takes back: the same chunks are derived again, not every neighbour.
+  const undone = await hook<EditAnswer>(page, 'undo');
+  expect(undone.ok).toBe(true);
+  expect(undone.rederived).toEqual(dependents(pitCommand));
+  await noneStale();
   expect((await hook<Drop>(page, 'drop', [ox + 9.5, oy + 4, oz + 10.5], 0.15, 0.15)).feet[1]).toBeCloseTo(before.feet[1], 1);
   expect(errors).toEqual([]);
 });

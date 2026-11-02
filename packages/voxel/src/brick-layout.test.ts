@@ -10,6 +10,7 @@ import {
   chunkGrid,
   createDenseChunk,
   localIndex,
+  readMeasuredHeader,
   readPaletteHeader,
   sameDenseChunk,
   voxel,
@@ -112,7 +113,8 @@ describe('the brick body of the palette codec', () => {
   };
 
   it('round-trips, smaller than the bit-packed body for ground', () => {
-    expect(readPaletteHeader(grid, good).body).toBe('bricks');
+    expect(readMeasuredHeader(grid, good).body).toBe('bricks');
+    expect(() => readPaletteHeader(grid, good)).toThrow(/a measurement encoding/);
     const back = createDenseChunk(grid);
     const fresh = new PaletteStore(grid, BRICKS);
     fresh.decodeChunk(0, 0, 0, good);
@@ -127,10 +129,10 @@ describe('the brick body of the palette codec', () => {
     const flipped = good.slice();
     flipped[good.length - 5]! ^= 1;
     expect(() => decode(flipped)).toThrow(/checksum/);
-    // Palette: count − 1 (u16), per entry material u16, category u8, orientation u8, then the flag bits; the mask follows.
+    // Palette: count − 1 (u16), per entry material u24, category u8, orientation u8, then the flag bits; the mask follows.
     const count = good[8]! + (good[9]! << 8) + 1;
     expect(count).toBe(4);
-    const maskAt = 8 + 2 + count * 4 + Math.ceil(count / 8);
+    const maskAt = 8 + 2 + count * 5 + Math.ceil(count / 8);
     // Marking a uniform brick as mixed shifts every following id: whatever is read is then not canonical or not the length.
     const mixedMore = good.slice();
     const b = [...Array(8).keys()].find((k) => mixedMore[maskAt + k] !== 0xff)!;

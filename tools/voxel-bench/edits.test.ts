@@ -233,9 +233,9 @@ describe('saves', () => {
     expect(new Set(save.chunks.map((c) => c.content.kind)).has('delta')).toBe(true);
     const bytes = writeSave(save, 'zstd', zstdCompress);
     expect(writeSave({ ...save, chunks: [...save.chunks].reverse() }, 'zstd', zstdCompress)).toEqual(bytes);
-    const back = readSave(bytes, grid, zstdDecompress);
+    const back = readSave(bytes, grid, WORLD, zstdDecompress);
     const { world: loaded } = await RegionWorld.open(dir, OPTS);
-    const r = applySave(back, (g) => (g === 0 ? loaded.store : undefined), (c) => shipped.hash(c), () => 'save');
+    const r = applySave(back, WORLD, (g) => (g === 0 ? loaded.store : undefined), (c) => shipped.hash(c), () => 'save');
     expect(r.mismatches).toEqual([]);
     expect(r.applied).toBe(save.chunks.length);
     expectSame(loaded.store, world.store);
@@ -249,13 +249,28 @@ describe('saves', () => {
     const v2 = Uint8Array.from(bytes);
     v2[4] = 2;
     new DataView(v2.buffer).setUint32(36, crc32(v2.subarray(0, 36)), true);
-    expect(() => readSave(v2, grid, zstdDecompress)).toThrow(/unknown version 2/);
-    const lifted = readSave(bytes, grid, zstdDecompress, [(s) => ({ ...s, chunks: s.chunks.filter((c) => c.content.kind !== 'air') })]);
+    expect(() => readSave(v2, grid, WORLD, zstdDecompress)).toThrow(/unknown version 2/);
+    const lifted = readSave(bytes, grid, WORLD, zstdDecompress, [(s) => ({ ...s, chunks: s.chunks.filter((c) => c.content.kind !== 'air') })]);
     expect(lifted.chunks.length).toBeLessThanOrEqual(back.chunks.length);
-    expect(() => readSave(v2, grid, zstdDecompress, [(s) => s])).not.toThrow();
+    expect(() => readSave(v2, grid, WORLD, zstdDecompress, [(s) => s])).not.toThrow();
     const bad = Uint8Array.from(bytes);
     bad[bad.length - 3]! ^= 0x40;
-    expect(() => readSave(bad, grid, zstdDecompress)).toThrow(SaveFileError);
+    expect(() => readSave(bad, grid, WORLD, zstdDecompress)).toThrow(SaveFileError);
+
+    // Another world's save is refused by the reader and by the apply, before anything is written.
+    const other = Uint8Array.from(WORLD, (b) => b ^ 1);
+    expect(() => readSave(bytes, grid, other, zstdDecompress)).toThrow(/save: made for world [0-9a-f]{32}, this world is/);
+    const { world: untouched } = await RegionWorld.open(dir, OPTS);
+    const content = (): string =>
+      [...untouched.store.chunkKeys()]
+        .map((k) => {
+          const c = chunkOfKey(grid, k);
+          return Buffer.from(untouched.store.encodeChunk(c.cx, c.cy, c.cz)!).toString('hex');
+        })
+        .join();
+    const before = content();
+    expect(() => applySave(back, other, () => untouched.store, (c) => shipped.hash(c), () => 'save')).toThrow(SaveFileError);
+    expect(content()).toBe(before);
   });
 
   it('report a re-exported base chunk the save also changed; the game keeps its save or takes the new base', async () => {
@@ -274,11 +289,11 @@ describe('saves', () => {
     author.edit(canonicalEditCommand({ v: 1, grid: 0, kind: 'set', cells: [101, y + 1, 101], voxel: { ...soil, shape: 255 } }));
     author.save();
     const reshipped = new ShippedWorld(dir, OPTS);
-    const back = readSave(writeSave(save, 'zstd', zstdCompress), grid, zstdDecompress);
+    const back = readSave(writeSave(save, 'zstd', zstdCompress), grid, WORLD, zstdDecompress);
     const v = voxel();
     for (const choice of ['save', 'base'] as const) {
       const { world } = await RegionWorld.open(dir, OPTS);
-      const r = applySave(back, () => world.store, (c) => reshipped.hash(c), () => choice);
+      const r = applySave(back, WORLD, () => world.store, (c) => reshipped.hash(c), () => choice);
       expect(r.mismatches.length).toBe(1);
       expect(world.store.voxelAt(101, y + 1, 101, v).material).toBe(MAT.soil);
       expect(world.store.voxelAt(100, y + 1, 100, v).material).toBe(choice === 'save' ? MAT.stone : author.store.voxelAt(100, y + 1, 100, voxel()).material);

@@ -4,13 +4,15 @@
  * range (auth, origin, tags, 206/200/412/416), voxel edit and undo commands
  * on the command route (applied by the workspace, region files replaced,
  * revision moved, request ids answered once, refusals), and a second
- * backend over the same data root finding the edit in the files.
+ * backend over the same data root finding the edit in the files, and a
+ * region file the manifest lists but that is gone reported as damaged
+ * (never air) while an unlisted region reads as air.
  *
  * Chunks are read back the way a browser does: a region chunk source whose
  * byte source sends Range requests to the route, decoded into a store, and
  * compared with the same commands applied to a copy in this process.
  */
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createTestBackend, testTempBase } from '@thirdlight/backend/testing';
 import type { Backend } from '@thirdlight/backend/services';
@@ -20,10 +22,13 @@ import {
   chunkGrid,
   createDenseChunk,
   createWorldStore,
+  editBounds,
   exportOrAir,
+  parseRegionFileName,
   RegionChunkSource,
   sameDenseChunk,
   type ChunkCoord,
+  type RegionChunkRead,
   type PaletteStore,
 } from '@thirdlight/voxel';
 import { importRead, writeVoxelWorld } from '@thirdlight/workspace';
@@ -85,11 +90,13 @@ const command = async (body: Record<string, unknown>, headers: Record<string, st
   return { status: r.status, json: (await r.json()) as Record<string, unknown> };
 };
 
-/** Chunks read through the range route, as the browser's chunk source reads them. */
-async function readChunks(chunks: readonly ChunkCoord[]): Promise<PaletteStore> {
-  const info = (await (await fetch(`${base()}/api/v1/projects/${PROJECT}/voxels/${WORLD}`, { headers: auth })).json()) as { files: Array<{ name: string }> };
+/** What the range route gives for these chunks, as the browser's chunk source reads them (only the files the world lists). */
+async function readRaw(chunks: readonly ChunkCoord[]): Promise<RegionChunkRead[]> {
+  const info = (await (await fetch(`${base()}/api/v1/projects/${PROJECT}/voxels/${WORLD}`, { headers: auth })).json()) as { manifest: { worldId: string }; files: Array<{ name: string }> };
   const names = new Set(info.files.map((f) => f.name));
   const source = new RegionChunkSource({
+    worldId: Uint8Array.from(info.manifest.worldId.match(/../g)!, (h) => parseInt(h, 16)),
+    gridId: 0,
     grid,
     layout: 'stacked',
     footprint: 512,
@@ -106,8 +113,13 @@ async function readChunks(chunks: readonly ChunkCoord[]): Promise<PaletteStore> 
           }
         : null,
   });
+  return source.read(chunks);
+}
+
+/** Chunks read through the range route into a store. */
+async function readChunks(chunks: readonly ChunkCoord[]): Promise<PaletteStore> {
   const store = createWorldStore(grid);
-  for (const r of await source.read(chunks)) {
+  for (const r of await readRaw(chunks)) {
     if (r.kind === 'damaged') throw new Error(r.reason);
     importRead(store, r);
   }
@@ -130,9 +142,11 @@ describe('voxel world routes', () => {
     expect((await fetch(`${base()}/api/v1/projects/${PROJECT}/voxels/${WORLD}`, { headers: { ...auth, origin: 'http://elsewhere.example' } })).status).toBe(403);
     const r = await fetch(`${base()}/api/v1/projects/${PROJECT}/voxels/${WORLD}`, { headers: auth });
     expect(r.status).toBe(200);
-    const info = (await r.json()) as { manifest: { revision: number; layout: string }; files: Array<{ name: string; etag: string }> };
-    expect(info.manifest).toMatchObject({ revision: 0, layout: 'stacked', edge: 32, footprint: 512, worldId: WORLD_ID });
+    const info = (await r.json()) as { manifest: { revision: number; layout: string; regions: string[] }; files: Array<{ name: string; etag: string }> };
+    expect(info.manifest).toMatchObject({ format: 2, revision: 0, layout: 'stacked', edge: 32, footprint: 512, worldId: WORLD_ID });
     expect(info.files.length).toBeGreaterThan(0);
+    // The manifest lists exactly the region files the world has.
+    expect(info.manifest.regions).toEqual(info.files.map((f) => f.name));
     expect((await fetch(`${base()}/api/v1/projects/${PROJECT}/voxels/nope`, { headers: auth })).status).toBe(404);
     expect((await fetch(`${base()}/api/v1/projects/${PROJECT}/voxels/Bad%20Name`, { headers: auth })).status).toBe(400);
 
@@ -172,6 +186,8 @@ describe('voxel world routes', () => {
     const chunks = (r.json.chunks as Array<[number, number, number]>).map(([cx, cy, cz]) => ({ cx, cy, cz }));
     expect(chunks).toEqual(out.chunks.map((u) => ({ cx: u.cx, cy: u.cy, cz: u.cz })));
     expect(chunks.length).toBe(4);
+    // The cells the stroke could change: what a client derives again from.
+    expect(r.json.box).toEqual(editBounds(grid, canonicalEditCommand(DIG)));
     // Every rewritten file has a new tag; the info lists it.
     const after = (await (await fetch(`${base()}/api/v1/projects/${PROJECT}/voxels/${WORLD}`, { headers: auth })).json()) as { manifest: { revision: number }; files: Array<{ name: string; etag: string }> };
     expect(after.manifest.revision).toBe(1);
@@ -213,6 +229,8 @@ describe('voxel world routes', () => {
     // It names the cells and chunks the edit changed: the same ones go back.
     expect(r.json).toMatchObject({ ok: true, op: 'undoVoxels', revision: 2, undoable: 0, cells: applyEdit({ store: () => sceneStore() }, canonicalEditCommand(DIG)).cells });
     expect((r.json.chunks as unknown[]).length).toBe(4);
+    // And the box of the edit it takes back, so a client re-derives only what that edit could change.
+    expect(r.json.box).toEqual(editBounds(grid, canonicalEditCommand(DIG)));
     expectSame(await readChunks(SCENE_CHUNKS), original, SCENE_CHUNKS);
     const none = await command({ op: 'undoVoxels', projectId: PROJECT, args: { world: WORLD } });
     expect(none.status).toBe(400);
@@ -231,5 +249,41 @@ describe('voxel world routes', () => {
     expectSame(await readChunks(SCENE_CHUNKS), expected, SCENE_CHUNKS);
     // Undo history is the process's: none after a restart.
     expect(((await command({ op: 'undoVoxels', projectId: PROJECT, args: { world: WORLD } })).json.error as { code: string }).code).toBe('nothing_to_undo');
+  }, 60_000);
+
+  it('a region the manifest lists but that is gone is damaged, never air; a region it does not list is air', async () => {
+    const worldDir = join(backend._test.service.projectDir(PROJECT)!, 'voxels', WORLD);
+    const manifest = JSON.parse(readFileSync(join(worldDir, 'world.json'), 'utf8')) as { regions: string[] };
+    // A listed region other than the one edited below: its loss must not pass as empty ground.
+    const lost = manifest.regions.find((n) => n !== 'r.0.0.0.vxr')!;
+    expect(lost).toBeDefined();
+    const at = parseRegionFileName('stacked', lost)!;
+    const inLost: ChunkCoord = { cx: at.rx * 16 + 3, cy: at.ry * 16, cz: at.rz * 16 + 3 };
+    const unlisted: ChunkCoord = { cx: 400, cy: 0, cz: 400 };
+    expect((await readRaw([inLost]))[0]!.kind).not.toBe('damaged');
+    await close();
+    rmSync(join(worldDir, 'grid-0', lost));
+    // A stray file the manifest does not list is not part of the world: never read.
+    writeFileSync(join(worldDir, 'grid-0', 'r.25.0.25.vxr'), readFileSync(join(worldDir, 'grid-0', manifest.regions.find((n) => n !== lost)!)));
+    await start();
+    const info = (await (await fetch(`${base()}/api/v1/projects/${PROJECT}/voxels/${WORLD}`, { headers: auth })).json()) as { manifest: { regions: string[] }; files: Array<{ name: string; etag: string | null }> };
+    expect(info.manifest.regions).toEqual(manifest.regions);
+    expect(info.files.find((f) => f.name === lost)?.etag).toBeNull();
+    const route = await fetch(`${base()}/api/v1/projects/${PROJECT}/voxels/${WORLD}/regions/${lost}`, { headers: { ...auth, range: 'bytes=0-63' } });
+    expect(route.status).toBe(409);
+    expect(((await route.json()) as { error: { code: string } }).error.code).toBe('region_damaged');
+    expect((await fetch(`${base()}/api/v1/projects/${PROJECT}/voxels/${WORLD}/regions/r.25.0.25.vxr`, { headers: auth })).status).toBe(404);
+    const [lostRead, unlistedRead, strayRead] = await readRaw([inLost, unlisted, { cx: 25 * 16, cy: 0, cz: 25 * 16 }]);
+    expect(lostRead!.kind).toBe('damaged');
+    expect(lostRead!.kind === 'damaged' && lostRead!.reason).toMatch(/HTTP 409/);
+    expect(unlistedRead!.kind).toBe('air');
+    expect(strayRead!.kind).toBe('air');
+    // Edits into the lost region are refused before any write; the rest of the world still edits and still lists it.
+    const into = await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: { v: 1, grid: 0, kind: 'set', cells: [inLost.cx * 32, inLost.cy * 32, inLost.cz * 32], voxel: { material: 3, category: 2, orientation: 0, shape: 255 } } } });
+    expect(into.status).toBe(409);
+    expect((into.json.error as { code: string }).code).toBe('chunk_not_loaded');
+    const elsewhere = await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: { v: 1, grid: 0, kind: 'set', cells: [0, 12, 0], voxel: { material: 3, category: 2, orientation: 0, shape: 255 } } } });
+    expect(elsewhere.status, JSON.stringify(elsewhere.json)).toBe(200);
+    expect((JSON.parse(readFileSync(join(worldDir, 'world.json'), 'utf8')) as { regions: string[] }).regions).toEqual(manifest.regions);
   }, 60_000);
 });

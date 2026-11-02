@@ -8,9 +8,16 @@
  * uniform ones come from the table, both without reading chunk bytes. The
  * byte source is passed in (a file on disk, `fetch` with Range headers, an
  * exported game's content closure), so this module does no I/O of its own.
+ *
+ * Every file opened must hold the tile its name and the world say it is
+ * (world id, grid id, layout, chunk edge, footprint, region index): a file
+ * of another world or grid is refused and its chunks are reported damaged,
+ * never read. Which files exist is the world's to say: a region its
+ * manifest does not list is air, one it lists that cannot be read is
+ * damaged.
  */
 import { chunksPerRegionSide, type ChunkCoord, type ChunkGrid, type RegionFootprint } from './coords';
-import { openRegion, readRegionChunks, regionFileName, type RegionByteSource, type RegionChunkRead, type RegionIndex, type RegionLayout } from './region-file';
+import { openRegion, readRegionChunks, regionFileName, type RegionByteSource, type RegionChunkRead, type RegionIndex, type RegionLayout, type RegionUpgradeStep } from './region-file';
 
 /** Anything that reads chunks by coordinate. */
 export interface ChunkSource {
@@ -23,15 +30,25 @@ export interface ChunkSource {
 }
 
 export interface RegionChunkSourceOptions {
+  /** The world every file must belong to (its 16-byte id) and the grid it holds. */
+  readonly worldId: Uint8Array;
+  readonly gridId: number;
   readonly grid: ChunkGrid;
   readonly layout: RegionLayout;
   readonly footprint: RegionFootprint;
-  /** The byte source of a region file by its name ({@link regionFileName}), or null when the file does not exist (all air). */
+  /**
+   * The byte source of a region file by its name ({@link regionFileName}),
+   * or null when the world does not list the file (all air). A listed file
+   * that is gone must give a source whose reads fail: its chunks are then
+   * reported damaged.
+   */
   open(name: string): RegionByteSource | null;
   /** Region tables kept open (least recently used dropped first). */
   readonly maxOpen: number;
   /** Gap between stored chunks read in one request (bytes). */
   readonly maxGap?: number;
+  /** Region file upgrade steps (default: the format's own). */
+  readonly upgrades?: readonly RegionUpgradeStep[];
 }
 
 interface OpenRegion {
@@ -56,14 +73,16 @@ export class RegionChunkSource implements ChunkSource {
     this.side = chunksPerRegionSide(opts.grid, opts.footprint);
   }
 
-  private nameOf(c: ChunkCoord): string {
-    const rx = Math.floor(c.cx / this.side);
-    const rz = Math.floor(c.cz / this.side);
-    const ry = this.opts.layout === 'stacked' ? Math.floor(c.cy / this.side) : 0;
-    return regionFileName(this.opts.layout, rx, ry, rz);
+  private addressOf(c: ChunkCoord): { rx: number; ry: number; rz: number } {
+    return { rx: Math.floor(c.cx / this.side), ry: this.opts.layout === 'stacked' ? Math.floor(c.cy / this.side) : 0, rz: Math.floor(c.cz / this.side) };
   }
 
-  private region(name: string): OpenRegion {
+  private nameOf(c: ChunkCoord): string {
+    const a = this.addressOf(c);
+    return regionFileName(this.opts.layout, a.rx, a.ry, a.rz);
+  }
+
+  private region(name: string, at: ChunkCoord): OpenRegion {
     const known = this.regions.get(name);
     if (known !== undefined) {
       // Most recently used last: the map's order is the eviction order.
@@ -85,7 +104,9 @@ export class RegionChunkSource implements ChunkSource {
           };
     const r: OpenRegion = { source, index: Promise.resolve(null), bytes: 0, error: null };
     if (source !== null) {
-      r.index = openRegion(source).then(
+      const o = this.opts;
+      const expect = { worldId: o.worldId, gridId: o.gridId, layout: o.layout, grid: o.grid, footprint: o.footprint, ...this.addressOf(at) };
+      r.index = openRegion(source, { expect, ...(o.upgrades !== undefined ? { upgrades: o.upgrades } : {}) }).then(
         (index) => {
           r.bytes = index.bytes();
           return index;
@@ -128,7 +149,7 @@ export class RegionChunkSource implements ChunkSource {
   }
 
   private async readGroup(name: string, asked: readonly ChunkCoord[]): Promise<RegionChunkRead[]> {
-    const r = this.region(name);
+    const r = this.region(name, asked[0]!);
     const index = await r.index;
     if (r.error !== null) return asked.map((c) => ({ cx: c.cx, cy: c.cy, cz: c.cz, kind: 'damaged', reason: r.error! }));
     if (index === null || r.source === null) return asked.map((c) => ({ cx: c.cx, cy: c.cy, cz: c.cz, kind: 'air' }));

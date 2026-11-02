@@ -9,28 +9,38 @@
  * material, category and orientation packed in a 32-bit value, flagged when
  * its cells carry a density byte) and per-plane palettes (one palette per
  * field: material with the density flag, category, orientation).
+ *
+ * A record value is material in bits 0–22, category in 23–26 and
+ * orientation in 27–31: one unsigned 32-bit number, so palettes, aprons,
+ * deltas and region table entries hold a voxel in 4 bytes.
  */
 import type { ChunkGrid } from './coords';
 import type { DenseChunk } from './dense-chunk';
 import { createPlaneImage, type PlaneImage } from './palette-plane';
-import { PLANE_BIT } from './record';
+import { CATEGORY_BITS, MATERIAL_BITS, PLANE_BIT } from './record';
+
+/** Where category and orientation start in a record value. */
+export const CATEGORY_SHIFT = MATERIAL_BITS;
+export const ORIENTATION_SHIFT = MATERIAL_BITS + CATEGORY_BITS;
+const MATERIAL_MASK = 2 ** MATERIAL_BITS - 1;
+const CATEGORY_MASK = 2 ** CATEGORY_BITS - 1;
 import { impliedShape } from './surface-density';
 
-/** A record palette value: material (16 bits), category (8), orientation (8). */
+/** A record palette value: material (23 bits), category (4), orientation (5); fields must fit their widths. */
 export function recordValue(material: number, category: number, orientation: number): number {
-  return (material | (category << 16) | (orientation << 24)) >>> 0;
+  return (material | (category << CATEGORY_SHIFT) | (orientation << ORIENTATION_SHIFT)) >>> 0;
 }
 
 export function valueMaterial(v: number): number {
-  return v & 0xffff;
+  return v & MATERIAL_MASK;
 }
 
 export function valueCategory(v: number): number {
-  return (v >>> 16) & 0xff;
+  return (v >>> CATEGORY_SHIFT) & CATEGORY_MASK;
 }
 
 export function valueOrientation(v: number): number {
-  return v >>> 24;
+  return v >>> ORIENTATION_SHIFT;
 }
 
 export type PaletteKind = 'record' | 'planes';
@@ -129,8 +139,9 @@ export function planesImageFromCells(cells: DenseChunk, mask: number, img: Chunk
   const n = img.grid.cellsPerChunk;
   const keepS = (mask & PLANE_BIT.shape) !== 0;
   const [pm, pc, po] = img.planes;
-  // Material plane: key = material + flag × 65536.
+  // Material plane: key = material × 2 + flag (a table for small ids, a map past it).
   resetSmall();
+  recordIds.clear();
   let count = 0;
   let dc = 0;
   for (let i = 0; i < n; i++) {
@@ -138,12 +149,14 @@ export function planesImageFromCells(cells: DenseChunk, mask: number, img: Chunk
     const implied = impliedShape(m);
     const s = keepS ? cells.shape[i]! : implied;
     const flagged = s !== implied;
-    const key = m + (flagged ? 65536 : 0);
-    let e = smallIds[key]!;
+    const key = m * 2 + (flagged ? 1 : 0);
+    let e = key < smallIds.length ? smallIds[key]! : (recordIds.get(key) ?? -1);
     if (e < 0) {
       e = count++;
-      smallIds[key] = e;
-      smallTouched.push(key);
+      if (key < smallIds.length) {
+        smallIds[key] = e;
+        smallTouched.push(key);
+      } else recordIds.set(key, e);
       pm.values[e] = m;
       pm.flags[e] = flagged ? 1 : 0;
       pm.counts[e] = 0;

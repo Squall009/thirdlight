@@ -159,10 +159,10 @@ export class RecordChunk implements PaletteChunk {
     const p = this.plane;
     const e = p.layout.get(i);
     const v = p.values[e]!;
-    const m = v & 0xffff;
+    const m = valueMaterial(v);
     out.material = m;
-    out.category = (v >>> 16) & 0xff;
-    out.orientation = v >>> 24;
+    out.category = valueCategory(v);
+    out.orientation = valueOrientation(v);
     out.shape = p.flag(e) ? this.density!.get(i) : impliedShape(m);
     return out;
   }

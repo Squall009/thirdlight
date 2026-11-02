@@ -3,10 +3,13 @@
  * measurement, version 1 (all numbers little-endian):
  *
  *   0  'T' 'L' 'V' 'R'  magic
- *   4  u8   version (1; any other version is refused)
+ *   4  u8   version (1; an older one is lifted through REGION_UPGRADES,
+ *           a newer one refused)
  *   5  u8   layout: 0 a full-height column, 1 a stacked cube of `side` chunks
  *   6  u8   chunk edge in cells
- *   7  u8   chunk codec version (palette-codec.ts)
+ *   7  u8   chunk codec version this file was written with
+ *           (palette-codec.ts; a newer one is refused, chunks of an older
+ *           one are lifted by the codec's own upgrade steps on read)
  *   8  u8   compressor of stored chunks: 0 none, 1 zstd
  *   9  u8   side: chunks along each side of the region
  *  10  u16  reserved, zero
@@ -44,16 +47,67 @@
  *   its entry, so one damaged chunk is reported as damaged, never read as air.
  * - The transform of a structure's grid is not here: moving a structure
  *   changes its record, not its voxels, so its region files stay unchanged.
+ * - A reader names the tile it expects (world id, grid id, layout, chunk
+ *   edge, footprint, region index) and a file holding another is refused,
+ *   so a file copied into the wrong world or folder is never read as this
+ *   one's voxels.
  */
-import { crc32 } from '@thirdlight/shared';
+import { bytesToHex, crc32 } from '@thirdlight/shared';
 import { chunkGrid, chunkInWorld, chunksPerRegionSide, type ChunkCoord, type ChunkGrid, type RegionFootprint } from './coords';
 import { scratchImage, uniformImage } from './palette-chunk';
-import { encodePaletteImage, PALETTE_CODEC_VERSION, readPaletteHeader } from './palette-codec';
+import { liftVersion, type UpgradeStep } from './format-upgrade';
+import { encodePaletteImage, liftChunkBytes, PALETTE_CODEC_VERSION, readPaletteHeader } from './palette-codec';
 import { recordValue } from './palette-image';
 import { ALL_PLANES } from './record';
 
 /** The region file version this build writes and reads. */
 export const REGION_FORMAT_VERSION = 1;
+
+/**
+ * An upgrade step of the region file: lifts a file's header and table of
+ * version `from` to the next version. The stored chunks are not touched
+ * (they keep their own codec version), so a step also says where its
+ * version's table ends, and reads still fetch chunks by range from the
+ * file as it is.
+ */
+export interface RegionUpgradeStep extends UpgradeStep<Uint8Array> {
+  /** Bytes from the start of a file of version `from` holding its header and table, from its first 64 bytes. */
+  indexEnd(head: Uint8Array): number;
+}
+
+/** Region file upgrade steps, keyed by the version they lift from; only ever added to. Version 1 is the first. */
+export const REGION_UPGRADES: readonly RegionUpgradeStep[] = Object.freeze([]);
+
+/** What a reader expects a region file to hold: the tile its name and its world say it is. */
+export interface RegionExpect {
+  readonly worldId: Uint8Array;
+  readonly gridId: number;
+  readonly layout: RegionLayout;
+  readonly grid: ChunkGrid;
+  readonly footprint: RegionFootprint;
+  readonly rx: number;
+  readonly ry: number;
+  readonly rz: number;
+}
+
+/** Options of the readers: what the file must be, and the upgrade steps to lift an older one by. */
+export interface RegionReadOptions {
+  readonly expect?: RegionExpect;
+  readonly upgrades?: readonly RegionUpgradeStep[];
+}
+
+/** Throws {@link RegionFileError} unless a header holds the tile a reader expects. */
+export function checkRegionTile(h: RegionHeader, e: RegionExpect): void {
+  const want = (what: string, got: string | number, exp: string | number): void => {
+    if (got !== exp) throw new RegionFileError(`region file: ${what} ${got}, expected ${exp}`);
+  };
+  want('world id', bytesToHex(h.worldId), bytesToHex(e.worldId));
+  want('grid id', h.gridId, e.gridId);
+  want('layout', h.layout, e.layout);
+  want('chunk edge', h.grid.edge, e.grid.edge);
+  want('footprint', h.footprint, e.footprint);
+  want('region', `${h.rx},${h.ry},${h.rz}`, `${e.rx},${e.layout === 'stacked' ? e.ry : 0},${e.rz}`);
+}
 /** Bytes of the fixed header. */
 export const REGION_HEADER_BYTES = 64;
 /** Bytes of one chunk table entry. */
@@ -234,11 +288,12 @@ export function writeRegion(tile: RegionTile, entries: Iterable<RegionEntry>): U
  * not make it smaller (a pure function of the bytes, so files stay canonical).
  */
 export function packRegionChunk(grid: ChunkGrid, cx: number, cy: number, cz: number, codecBytes: Uint8Array, compressor: RegionCompressor, compress: (b: Uint8Array) => Uint8Array): RegionEntry {
+  codecBytes = liftChunkBytes(codecBytes);
   const h = readPaletteHeader(grid, codecBytes);
   if (h.body === 'uniform') {
     if (h.planes !== ALL_PLANES) throw new RangeError('a region chunk holds every plane');
-    const view = new DataView(codecBytes.buffer, codecBytes.byteOffset, codecBytes.byteLength);
-    const value = recordValue(view.getUint16(8, true), codecBytes[10]!, codecBytes[12]!);
+    // Uniform body: material u24 at 8, category at 11, shape at 12, orientation at 13.
+    const value = recordValue(codecBytes[8]! | (codecBytes[9]! << 8) | (codecBytes[10]! << 16), codecBytes[11]!, codecBytes[13]!);
     if (value === 0) throw new RangeError(`chunk (${cx}, ${cy}, ${cz}) is air: leave it out`);
     return { cx, cy, cz, uniform: value };
   }
@@ -247,18 +302,54 @@ export function packRegionChunk(grid: ChunkGrid, cx: number, cy: number, cz: num
   return packed.length < codecBytes.length ? { cx, cy, cz, stored: packed, raw: false } : { cx, cy, cz, stored: codecBytes, raw: true };
 }
 
-/** Reads and checks a region file's 64-byte header. */
-export function readRegionHeader(bytes: Uint8Array): RegionHeader & { readonly tableCrc: number } {
+function checkMagic(bytes: Uint8Array): void {
   if (bytes.length < REGION_HEADER_BYTES) throw new RegionFileError('region file: shorter than its header');
   if (!MAGIC.every((b, i) => bytes[i] === b)) throw new RegionFileError('region file: bad magic');
-  if (bytes[4] !== REGION_FORMAT_VERSION) throw new RegionFileError(`region file: unknown version ${bytes[4]}`);
+}
+
+/**
+ * Where a file's header and table end, from its first 64 bytes: this
+ * version's from its entry count, an older version's from its upgrade
+ * step. Refuses a newer version or one no step lifts.
+ */
+export function regionIndexEnd(head: Uint8Array, upgrades: readonly RegionUpgradeStep[] = REGION_UPGRADES): number {
+  checkMagic(head);
+  const v = head[4]!;
+  if (v === REGION_FORMAT_VERSION) return REGION_HEADER_BYTES + new DataView(head.buffer, head.byteOffset, REGION_HEADER_BYTES).getUint32(44, true) * REGION_ENTRY_BYTES;
+  if (v > REGION_FORMAT_VERSION) throw new RegionFileError(`region file: version ${v} is newer than this build reads (${REGION_FORMAT_VERSION})`);
+  const step = upgrades.find((s) => s.from === v);
+  if (step === undefined) throw new RegionFileError(`region file: version ${v} has no upgrade step (this build reads ${REGION_FORMAT_VERSION})`);
+  return step.indexEnd(head);
+}
+
+/**
+ * A file's header and table lifted to this version (`index` holds at least
+ * the file's header and table as stored), and where its stored chunks
+ * start in the file.
+ */
+export function liftRegionIndex(index: Uint8Array, upgrades: readonly RegionUpgradeStep[] = REGION_UPGRADES): { bytes: Uint8Array; dataStart: number } {
+  const dataStart = regionIndexEnd(index, upgrades);
+  if (index.length < dataStart) throw new RegionFileError('region file: table truncated');
+  if (index[4] === REGION_FORMAT_VERSION) return { bytes: index, dataStart };
+  try {
+    return { bytes: liftVersion('region file', index[4]!, REGION_FORMAT_VERSION, upgrades, index.subarray(0, dataStart), (b) => b[4]!), dataStart };
+  } catch (e) {
+    throw e instanceof RegionFileError ? e : new RegionFileError(e instanceof Error ? e.message : String(e));
+  }
+}
+
+/** Reads and checks a region file's 64-byte header (of this version: older files are lifted first, {@link liftRegionIndex}). */
+export function readRegionHeader(bytes: Uint8Array): RegionHeader & { readonly tableCrc: number } {
+  checkMagic(bytes);
+  if (bytes[4]! > REGION_FORMAT_VERSION) throw new RegionFileError(`region file: version ${bytes[4]} is newer than this build reads (${REGION_FORMAT_VERSION})`);
+  if (bytes[4] !== REGION_FORMAT_VERSION) throw new RegionFileError(`region file: version ${bytes[4]}, lift it first`);
   const view = new DataView(bytes.buffer, bytes.byteOffset, REGION_HEADER_BYTES);
   if (crc32(bytes.subarray(0, 60)) !== view.getUint32(60, true)) throw new RegionFileError('region file: header checksum mismatch');
   const layout = LAYOUTS[bytes[5]!];
   const compressor = COMPRESSORS[bytes[8]!];
   if (layout === undefined) throw new RegionFileError(`region file: unknown layout ${bytes[5]}`);
   if (compressor === undefined) throw new RegionFileError(`region file: unknown compressor ${bytes[8]}`);
-  if (bytes[7] !== PALETTE_CODEC_VERSION) throw new RegionFileError(`region file: unknown chunk codec version ${bytes[7]}`);
+  if (bytes[7]! < 1 || bytes[7]! > PALETTE_CODEC_VERSION) throw new RegionFileError(`region file: chunk codec version ${bytes[7]} (this build reads 1 to ${PALETTE_CODEC_VERSION})`);
   if (view.getUint16(10, true) !== 0 || view.getUint32(56, true) !== 0) throw new RegionFileError('region file: reserved bytes set');
   const edge = bytes[6];
   if (edge !== 16 && edge !== 32) throw new RegionFileError(`region file: chunk edge ${edge}`);
@@ -307,8 +398,12 @@ export class RegionIndex {
   /** Byte offset in the file of each entry's stored bytes (uniform entries: the next one's). */
   private readonly offsets: Float64Array;
 
-  private constructor(header: RegionHeader, table: Uint8Array) {
+  /** Where the stored chunks start in the file (after the table as the file stores it). */
+  readonly dataStart: number;
+
+  private constructor(header: RegionHeader, table: Uint8Array, dataStart: number) {
     this.header = header;
+    this.dataStart = dataStart;
     const n = header.entryCount;
     this.cols = new Uint16Array(n);
     this.cys = new Int16Array(n);
@@ -318,7 +413,7 @@ export class RegionIndex {
     this.offsets = new Float64Array(n + 1);
     const view = new DataView(table.buffer, table.byteOffset, table.byteLength);
     const side = header.side;
-    let at = REGION_HEADER_BYTES + n * REGION_ENTRY_BYTES;
+    let at = dataStart;
     for (let i = 0; i < n; i++) {
       const o = i * REGION_ENTRY_BYTES;
       const word = view.getUint16(o, true);
@@ -344,7 +439,7 @@ export class RegionIndex {
       if (!uniform) at += a;
     }
     this.offsets[n] = at;
-    if (at - REGION_HEADER_BYTES - n * REGION_ENTRY_BYTES !== header.dataBytes) throw new RegionFileError('region file: chunk lengths do not add up to the data bytes');
+    if (at - dataStart !== header.dataBytes) throw new RegionFileError('region file: chunk lengths do not add up to the data bytes');
   }
 
   /** Bytes from the start of the file that hold the header and the table. */
@@ -352,14 +447,20 @@ export class RegionIndex {
     return REGION_HEADER_BYTES + header.entryCount * REGION_ENTRY_BYTES;
   }
 
-  /** Parses the header and table from the start of a file (`bytes` holds at least both). */
-  static parse(bytes: Uint8Array): RegionIndex {
-    const h = readRegionHeader(bytes);
+  /**
+   * Parses the header and table from the start of a file (`bytes` holds at
+   * least both), lifting an older version first. With `expect`, a file of
+   * another world, grid, layout, edge, footprint or region is refused.
+   */
+  static parse(bytes: Uint8Array, opts: RegionReadOptions = {}): RegionIndex {
+    const lifted = liftRegionIndex(bytes, opts.upgrades);
+    const h = readRegionHeader(lifted.bytes);
+    if (opts.expect !== undefined) checkRegionTile(h, opts.expect);
     const end = RegionIndex.tableEnd(h);
-    if (bytes.length < end) throw new RegionFileError('region file: table truncated');
-    const table = bytes.subarray(REGION_HEADER_BYTES, end);
+    if (lifted.bytes.length < end) throw new RegionFileError('region file: table truncated');
+    const table = lifted.bytes.subarray(REGION_HEADER_BYTES, end);
     if (crc32(table) !== h.tableCrc) throw new RegionFileError('region file: table checksum mismatch');
-    return new RegionIndex(h, table);
+    return new RegionIndex(h, table, lifted.dataStart);
   }
 
   /** Bytes the parsed table holds in memory. */
@@ -487,12 +588,12 @@ export function regionChunkCodecBytes(grid: ChunkGrid, read: RegionChunkRead, de
     case 'uniform': {
       const img = scratchImage(grid);
       uniformImage(img, read.value);
-      return encodePaletteImage(img, ALL_PLANES, 'packed');
+      return encodePaletteImage(img);
     }
     case 'stored': {
       let bytes: Uint8Array;
       try {
-        bytes = read.raw ? read.bytes : decompress(read.bytes);
+        bytes = liftChunkBytes(read.raw ? read.bytes : decompress(read.bytes));
         readPaletteHeader(grid, bytes);
       } catch (e) {
         throw new RegionChunkError(cx, cy, cz, e instanceof Error ? e.message : String(e));
@@ -511,17 +612,20 @@ export interface RegionByteSource {
 /** Bytes the opening read asks for: the header and, for most files, the whole table in one request. */
 export const REGION_OPEN_PREFETCH = 32 * 1024;
 
-/** Reads a region file's header and table: one request when they fit `prefetch` bytes, else two. */
-export async function openRegion(source: RegionByteSource, prefetch = REGION_OPEN_PREFETCH): Promise<RegionIndex> {
+/**
+ * Reads a region file's header and table: one request when they fit
+ * `prefetch` bytes, else two. With `opts.expect`, a file holding another
+ * tile is refused ({@link RegionFileError}); an older version is lifted.
+ */
+export async function openRegion(source: RegionByteSource, opts: RegionReadOptions = {}, prefetch = REGION_OPEN_PREFETCH): Promise<RegionIndex> {
   const first = await source.read(0, Math.max(REGION_HEADER_BYTES, prefetch));
-  const h = readRegionHeader(first);
-  const end = RegionIndex.tableEnd(h);
-  if (first.length >= end) return RegionIndex.parse(first);
+  const end = regionIndexEnd(first, opts.upgrades);
+  if (first.length >= end) return RegionIndex.parse(first, opts);
   const rest = await source.read(first.length, end - first.length);
   const all = new Uint8Array(end);
   all.set(first);
   all.set(rest, first.length);
-  return RegionIndex.parse(all);
+  return RegionIndex.parse(all, opts);
 }
 
 /**
@@ -550,8 +654,8 @@ export async function readRegionChunks(source: RegionByteSource, index: RegionIn
 }
 
 /** Every damaged chunk of a whole file (the header and table must be sound: else it throws {@link RegionFileError}). */
-export function damagedRegionChunks(bytes: Uint8Array): RegionChunkError[] {
-  const index = RegionIndex.parse(bytes);
+export function damagedRegionChunks(bytes: Uint8Array, opts: RegionReadOptions = {}): RegionChunkError[] {
+  const index = RegionIndex.parse(bytes, opts);
   if (bytes.length !== index.fileBytes) throw new RegionFileError(`region file: ${bytes.length} bytes, its table says ${index.fileBytes}`);
   const out: RegionChunkError[] = [];
   for (let i = 0; i < index.size; i++) {
@@ -568,4 +672,14 @@ export function damagedRegionChunks(bytes: Uint8Array): RegionChunkError[] {
  */
 export function regionFileName(layout: RegionLayout, rx: number, ry: number, rz: number): string {
   return layout === 'column' ? `r.${rx}.${rz}.vxr` : `r.${rx}.${ry}.${rz}.vxr`;
+}
+
+/** The region index a file name gives ({@link regionFileName}), or null when it is not one of `layout`'s names. */
+export function parseRegionFileName(layout: RegionLayout, name: string): { rx: number; ry: number; rz: number } | null {
+  const m = (layout === 'column' ? /^r\.(-?\d+)\.(-?\d+)\.vxr$/ : /^r\.(-?\d+)\.(-?\d+)\.(-?\d+)\.vxr$/).exec(name);
+  if (m === null) return null;
+  const n = m.slice(1).map(Number);
+  if (n.some((v) => !Number.isSafeInteger(v))) return null;
+  const a = layout === 'column' ? { rx: n[0]!, ry: 0, rz: n[1]! } : { rx: n[0]!, ry: n[1]!, rz: n[2]! };
+  return regionFileName(layout, a.rx, a.ry, a.rz) === name ? a : null;
 }

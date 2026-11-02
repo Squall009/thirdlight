@@ -21,6 +21,7 @@
  */
 import { localIndex, type ChunkGrid } from './coords';
 import type { DenseChunk } from './dense-chunk';
+import { OCCUPANCY } from './derived-data';
 import { MATERIAL_AIR, SHAPE_EMPTY } from './record';
 
 /** A node of the chunk tree: level (0 = a chunk) and its coordinates at that level. */
@@ -148,5 +149,68 @@ export class MipStaleSet {
 
   get size(): number {
     return this.stale.size;
+  }
+}
+
+/**
+ * Solid/empty/mixed flags ({@link OCCUPANCY}) of every chunk-tree node, so
+ * culling, rays and the far field skip whole empty or whole solid subtrees
+ * without reading voxels. A chunk's flag is its derived occupancy flag (a
+ * chunk never given one, all air, is empty); a node above is empty when all
+ * 8 children are, solid when all 8 are, and mixed otherwise.
+ *
+ * A chunk whose flag changes marks its ancestors stale (the same
+ * {@link MipStaleSet} the mips use); a read refreshes stale nodes first,
+ * lowest level first, so a flag read is never stale.
+ */
+export class ChunkTreeFlags {
+  private readonly flags = new Map<string, number>();
+  private readonly stale: MipStaleSet;
+
+  constructor(readonly maxLevel: number) {
+    this.stale = new MipStaleSet(maxLevel);
+  }
+
+  /** Sets a chunk's flag (its derived occupancy flag); marks its ancestors stale when it changed. */
+  setChunk(cx: number, cy: number, cz: number, flag: number): void {
+    if (flag !== OCCUPANCY.empty && flag !== OCCUPANCY.solid && flag !== OCCUPANCY.mixed) throw new RangeError(`occupancy flag ${flag}`);
+    const key = mipNodeKey(mipNodeOf(cx, cy, cz, 0));
+    if ((this.flags.get(key) ?? OCCUPANCY.empty) === flag) return;
+    if (flag === OCCUPANCY.empty) this.flags.delete(key);
+    else this.flags.set(key, flag);
+    this.stale.markChanged([{ cx, cy, cz }]);
+  }
+
+  /** Nodes waiting to be refreshed (lowest level first). */
+  staleNodes(): MipNode[] {
+    return this.stale.nodes();
+  }
+
+  /** Recomputes every stale node from its children, lowest level first; returns the nodes whose flag changed. */
+  refresh(): MipNode[] {
+    const changed: MipNode[] = [];
+    for (const n of this.stale.nodes()) {
+      let empty = 0;
+      let solid = 0;
+      for (const c of mipChildren(n)) {
+        const f = this.flags.get(mipNodeKey(c)) ?? OCCUPANCY.empty;
+        if (f === OCCUPANCY.empty) empty++;
+        else if (f === OCCUPANCY.solid) solid++;
+      }
+      const flag = empty === 8 ? OCCUPANCY.empty : solid === 8 ? OCCUPANCY.solid : OCCUPANCY.mixed;
+      const key = mipNodeKey(n);
+      if ((this.flags.get(key) ?? OCCUPANCY.empty) !== flag) changed.push(n);
+      if (flag === OCCUPANCY.empty) this.flags.delete(key);
+      else this.flags.set(key, flag);
+      this.stale.rebuilt(n);
+    }
+    return changed;
+  }
+
+  /** A node's flag (level 0: a chunk), refreshed first when anything below it changed. */
+  flagOf(n: MipNode): number {
+    if (n.level > this.maxLevel) throw new RangeError(`level ${n.level} is above the highest level ${this.maxLevel}`);
+    if (this.stale.size > 0) this.refresh();
+    return this.flags.get(mipNodeKey(n)) ?? OCCUPANCY.empty;
   }
 }

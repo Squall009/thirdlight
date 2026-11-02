@@ -191,7 +191,7 @@ describe('region files', () => {
     v2[4] = 2;
     resealHeader(v2);
     expect(() => readRegionHeader(v2)).toThrow(RegionFileError);
-    expect(() => readRegionHeader(v2)).toThrow(/unknown version 2/);
+    expect(() => readRegionHeader(v2)).toThrow(/version 2 is newer than this build reads/);
     const reserved = bytes.slice();
     reserved[57] = 1;
     resealHeader(reserved);

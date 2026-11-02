@@ -41,17 +41,21 @@ export {
   BYTE_PLANE_MAX,
   MATERIAL_AIR,
   MATERIAL_ID_MAX,
+  ORIENTATION_COUNT,
+  orientationMatrix,
   PLANE_BIT,
   PLANE_BYTES,
   SHAPE_EMPTY,
   SHAPE_FULL,
   VOXEL_CATEGORY,
+  VOXEL_CATEGORY_COUNT,
   VOXEL_PLANES,
   checkVoxel,
   isAir,
   planeMask,
   sameVoxel,
   voxel,
+  type AxisRotation,
   type VoxelPlane,
   type VoxelRecord,
 } from './record';
@@ -89,12 +93,19 @@ export {
   type ChunkImage,
   type PaletteKind,
 } from './palette-image';
-export { decodePaletteImage, encodePaletteImage, PALETTE_CODEC_VERSION, readPaletteHeader, type PaletteCodecHeader } from './palette-codec';
+export { CHUNK_CODEC_UPGRADES, decodePaletteImage, encodePaletteImage, liftChunkBytes, PALETTE_CODEC_VERSION, readPaletteHeader, type PaletteCodecHeader } from './palette-codec';
+export { decodeMeasuredImage, encodeMeasuredImage, readMeasuredHeader } from './palette-codec-measure';
+export { liftVersion, type UpgradeStep } from './format-upgrade';
 export { PlanesChunk, RecordChunk, type PaletteChunk } from './palette-chunk';
 export { PaletteStore, type PaletteStoreOptions } from './palette-store';
 export {
+  checkRegionTile,
   damagedRegionChunks,
+  liftRegionIndex,
   openRegion,
+  parseRegionFileName,
+  REGION_UPGRADES,
+  regionIndexEnd,
   packRegionChunk,
   readRegionChunks,
   readRegionHeader,
@@ -114,7 +125,10 @@ export {
   type RegionChunkRead,
   type RegionCompressor,
   type RegionEntry,
+  type RegionExpect,
   type RegionHeader,
+  type RegionReadOptions,
+  type RegionUpgradeStep,
   type RegionLayout,
   type RegionRange,
   type RegionTile,
@@ -187,7 +201,7 @@ export { eventTargetWorker, SampleRing, WorkerPool, type JobOutcome, type PoolJo
 export { RegionChunkSource, type ChunkSource, type RegionChunkSourceOptions } from './region-source';
 export { checkRing, chunkDistance2, DEFAULT_STREAM_RING, inLoadRing, inNearRing, pastUnloadRing, RESIDENT_CHUNK_OVERHEAD_BYTES, ringChunks, VOXEL_STREAM_BUDGET_BYTES, type Focus, type StreamRing, type StreamTier } from './stream-ring';
 export { VoxelStreamer, type DerivedChunk, type StreamCounters, type StreamEvent, type StreamMetrics, type VoxelStreamerOptions } from './voxel-streamer';
-export { DEFAULT_REBASE_DISTANCE_M, FloatingOrigin, ORIGIN_SNAP_CELLS, type FloatingOriginOptions, type RebaseEvent } from './floating-origin';
+export { DEFAULT_REBASE_DISTANCE_M, FloatingOrigin, type FloatingOriginOptions, type RebaseEvent } from './floating-origin';
 export {
   ASSEMBLY_CLASS,
   assemblyRules,
@@ -231,5 +245,5 @@ export { INSTANCE_BYTES, INSTANCE_FLAG, MaterialSlots, PIECE_FAMILY, PIECE_SECTI
 export { deriveFromStore, deriveWithApron } from './derive-assembly';
 export { cellOutputs, resolvedClassAt, type CellOutputs } from './derived-cell';
 export { collisionGeometry, type CollisionGeometry, type CollisionMesh, type CollisionMeshLimits } from './derived-collision';
-export { downsampleMip, mipChildren, mipNodeKey, mipNodeOf, MipStaleSet, type MipNode } from './voxel-mips';
+export { ChunkTreeFlags, downsampleMip, mipChildren, mipNodeKey, mipNodeOf, MipStaleSet, type MipNode } from './voxel-mips';
 export { combineCoverage, lightCoverage, PROP_SAMPLES_PER_AXIS, propCoverageChunk, type PropShape } from './prop-coverage';

@@ -38,7 +38,7 @@ const PIECE_COLOUR: Record<number, number> = { [PIECE_FAMILY.beam]: 0x6b4423, [P
 const swatch = new THREE.Color();
 
 /** A surface buffer as a float geometry (null when it holds no triangle). */
-export function surfaceGeometry(buf: SurfaceBuffer, materials: Uint16Array): THREE.BufferGeometry | null {
+export function surfaceGeometry(buf: SurfaceBuffer, materials: Uint32Array): THREE.BufferGeometry | null {
   if (buf.vertexCount === 0 || buf.indices.length === 0) return null;
   const stride = surfaceStride(buf.slotBytes);
   const view = new DataView(buf.vertices.buffer, buf.vertices.byteOffset, buf.vertices.byteLength);

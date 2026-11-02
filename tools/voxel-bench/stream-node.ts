@@ -10,8 +10,9 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import * as esbuild from 'esbuild';
-import { chunkOfKey, RegionChunkSource, type ChunkGrid, type PaletteStore, type PoolWorker, type RegionByteSource, type RegionFootprint, type RegionLayout } from '@thirdlight/voxel';
+import { chunkOfKey, RegionChunkSource, WORLD_GRID_ID, type ChunkGrid, type PaletteStore, type PoolWorker, type RegionByteSource, type RegionFootprint, type RegionLayout } from '@thirdlight/voxel';
 import { loadArea, pickStore, RegionSet } from './regions';
+import { TEST_WORLD_ID } from './test-world-id';
 import type { TestGrid } from './world-kit';
 
 // Two levels up from tools/voxel-bench, and from dist/voxel-bench when the benchmark runs bundled.
@@ -73,7 +74,7 @@ export class DiskRegions {
   }
 
   source(grid: ChunkGrid, layout: RegionLayout, footprint: RegionFootprint, maxOpen = 64): RegionChunkSource {
-    return new RegionChunkSource({ grid, layout, footprint, open: (n) => this.open(n), maxOpen });
+    return new RegionChunkSource({ worldId: TEST_WORLD_ID, gridId: WORLD_GRID_ID, grid, layout, footprint, open: (n) => this.open(n), maxOpen });
   }
 
   async close(): Promise<void> {
@@ -82,8 +83,7 @@ export class DiskRegions {
   }
 }
 
-/** A world id for test worlds (fixed bytes: the files are test data). */
-export const TEST_WORLD_ID = Uint8Array.from({ length: 16 }, (_, i) => (i * 29 + 7) & 0xff);
+export { TEST_WORLD_ID };
 
 /**
  * Writes a test grid's cells [x0, x1) × [z0, z1) (all heights) as region

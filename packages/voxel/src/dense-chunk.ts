@@ -11,7 +11,7 @@ import { MATERIAL_AIR, PLANE_BIT, SHAPE_EMPTY, SHAPE_FULL, type VoxelRecord } fr
 
 /** One chunk's planes (each `grid.cellsPerChunk` long). */
 export interface DenseChunk {
-  readonly material: Uint16Array;
+  readonly material: Uint32Array;
   readonly category: Uint8Array;
   readonly shape: Uint8Array;
   readonly orientation: Uint8Array;
@@ -20,12 +20,12 @@ export interface DenseChunk {
 /** A chunk of air for `grid`. */
 export function createDenseChunk(grid: ChunkGrid): DenseChunk {
   const n = grid.cellsPerChunk;
-  return { material: new Uint16Array(n), category: new Uint8Array(n), shape: new Uint8Array(n), orientation: new Uint8Array(n) };
+  return { material: new Uint32Array(n), category: new Uint8Array(n), shape: new Uint8Array(n), orientation: new Uint8Array(n) };
 }
 
-/** Typed-array bytes one dense chunk holds. */
+/** Typed-array bytes one dense chunk holds (material 4, category, shape and orientation 1 each). */
 export function denseChunkBytes(grid: ChunkGrid): number {
-  return grid.cellsPerChunk * 5;
+  return grid.cellsPerChunk * 7;
 }
 
 /** Resets every cell to air. */

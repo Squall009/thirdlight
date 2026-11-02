@@ -132,7 +132,7 @@ export interface DerivedData {
   readonly rules: AssemblyRulesRef;
   readonly edge: number;
   /** Material table: slot → material id (shared by meshes, instances and boxes). */
-  readonly materials: Uint16Array;
+  readonly materials: Uint32Array;
   readonly occupancy: OccupancyOut;
   readonly light: LightOut;
   readonly collision: CollisionOut;

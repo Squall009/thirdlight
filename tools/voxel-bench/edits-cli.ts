@@ -257,12 +257,12 @@ async function measureSession(a: Area, strokes: number, work: string): Promise<S
       const t1 = performance.now();
       const bytes = writeSave(save, 'zstd', zstdCompress);
       const t2 = performance.now();
-      const back = readSave(bytes, grid, zstdDecompress);
+      const back = readSave(bytes, grid, WORLD, zstdDecompress);
       const t3 = performance.now();
       const fresh = await RegionWorld.open(shippedDir, OPTS);
       const t4 = performance.now();
       const fresher = new ShippedWorld(shippedDir, OPTS);
-      applySave(back, () => fresh.world.store, (c) => fresher.hash(c), () => 'save');
+      applySave(back, WORLD, () => fresh.world.store, (c) => fresher.hash(c), () => 'save');
       const t5 = performance.now();
       const count = (k: string): number => save.chunks.filter((c) => c.content.kind === k).length;
       gameSave.push({ strokes: i, chunks: save.chunks.length, bytes: bytes.length, delta: count('delta'), image: count('image'), uniform: count('uniform'), air: count('air'), buildMs: t1 - t0, writeMs: t2 - t1, readMs: t3 - t2, applyMs: t5 - t4, openMs: t4 - t3, bytesPerStroke: bytes.length / i });

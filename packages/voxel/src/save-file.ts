@@ -29,7 +29,7 @@
  * 2 uniform, 3 air), u32 payload length, the payload (delta bytes, codec
  * bytes, a u32 record value, nothing). Equal saves give equal bytes.
  */
-import { crc32, sha256Hex } from '@thirdlight/shared';
+import { bytesToHex, crc32, sha256Hex } from '@thirdlight/shared';
 import { CellDelta, chunkScratch, decodeDenseChunk, diffDense, encodeDenseChunk } from './cell-delta';
 import { chunkKey, type ChunkGrid } from './coords';
 import type { DenseChunk } from './dense-chunk';
@@ -237,17 +237,25 @@ function readBodyV1(grid: ChunkGrid, body: Uint8Array, count: number): SaveChunk
   return out;
 }
 
+/** Throws unless a save was made for the world `worldId` names: another world's save is never applied. */
+function checkWorld(save: Pick<SaveFile, 'worldId'>, worldId: Uint8Array): void {
+  if (!sameHash(save.worldId, worldId)) throw new SaveFileError(`save: made for world ${bytesToHex(save.worldId)}, this world is ${bytesToHex(worldId)}`);
+}
+
 /**
- * Reads a save of `grid`'s chunk edge: checks it, refuses a version newer
- * than this build (or `steps`) knows, and lifts an older one through the
- * upgrade steps. Throws {@link SaveFileError}; nothing partial comes back.
+ * Reads a save of the world `worldId` at `grid`'s chunk edge: checks it,
+ * refuses another world's save, a version newer than this build (or
+ * `steps`) knows, and lifts an older one through the upgrade steps. Throws
+ * {@link SaveFileError}; nothing partial comes back.
  */
-export function readSave(bytes: Uint8Array, grid: ChunkGrid, decompress: (b: Uint8Array) => Uint8Array, steps: readonly SaveUpgradeStep[] = SAVE_UPGRADES): SaveFile {
+export function readSave(bytes: Uint8Array, grid: ChunkGrid, worldId: Uint8Array, decompress: (b: Uint8Array) => Uint8Array, steps: readonly SaveUpgradeStep[] = SAVE_UPGRADES): SaveFile {
   const version = readSaveVersion(bytes);
   const current = 1 + steps.length;
   if (version < 1 || version > current) throw new SaveFileError(`save: unknown version ${version} (this build reads 1 to ${current})`);
+  checkWorld({ worldId: bytes.subarray(8, 24) }, worldId);
   if (bytes[5] !== grid.edge) throw new SaveFileError(`save: chunk edge ${bytes[5]}, expected ${grid.edge}`);
-  if (bytes[6] !== PALETTE_CODEC_VERSION) throw new SaveFileError(`save: chunk codec version ${bytes[6]}`);
+  // Chunk images of an older codec version are lifted when they are decoded; a newer one is refused.
+  if (bytes[6]! < 1 || bytes[6]! > PALETTE_CODEC_VERSION) throw new SaveFileError(`save: chunk codec version ${bytes[6]} (this build reads 1 to ${PALETTE_CODEC_VERSION})`);
   const compressor = COMPRESSORS[bytes[7]!];
   if (compressor === undefined) throw new SaveFileError(`save: unknown compressor ${bytes[7]}`);
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -289,17 +297,20 @@ export interface SaveApplied {
 
 /**
  * Writes a save's chunks into the stores, which must hold the base world
- * for those chunks. `baseHash` gives the current base chunk's hash; an
+ * `worldId` names for those chunks (another world's save is refused before
+ * anything is written). `baseHash` gives the current base chunk's hash; an
  * entry whose hash differs is a mismatch, and `decide` (the game's choice)
  * says whether its save content is applied (a delta then lands on the new
  * base: the player's cells win, the rest is the new base) or dropped.
  */
 export function applySave(
   save: SaveFile,
+  worldId: Uint8Array,
   store: (gridId: number) => VoxelStoreCandidate | undefined,
   baseHash: (c: SaveChunk) => Uint8Array,
   decide: (m: BaseMismatch) => MismatchChoice,
 ): SaveApplied {
+  checkWorld(save, worldId);
   const mismatches: BaseMismatch[] = [];
   const tookBase: SaveChunk[] = [];
   let applied = 0;

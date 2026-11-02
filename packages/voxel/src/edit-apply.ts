@@ -324,7 +324,7 @@ function beforeOf(store: VoxelStoreCandidate, c: ChunkCoord, delta: CellDelta, f
 function encodeUniform(grid: ChunkGrid, value: number): Uint8Array {
   const img = scratchImage(grid);
   uniformImage(img, value);
-  return encodePaletteImage(img, ALL_PLANES, 'packed');
+  return encodePaletteImage(img);
 }
 
 /** A delta whose arrays are exactly as long as its cells (so memory equals its counted bytes). */

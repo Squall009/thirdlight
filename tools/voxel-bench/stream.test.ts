@@ -343,6 +343,8 @@ describe('streamer (workers, region files on disk)', () => {
     const writer = RegionWorld.create(wdir, { grid, worldId: TEST_WORLD_ID, layout: 'stacked', footprint: 512 }, copyOracle());
     const reader = (): RegionChunkSource =>
       new RegionChunkSource({
+        worldId: TEST_WORLD_ID,
+        gridId: 0,
         grid,
         layout: 'stacked',
         footprint: 512,

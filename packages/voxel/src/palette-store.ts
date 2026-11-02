@@ -22,8 +22,9 @@ import { createDenseChunk, type DenseChunk } from './dense-chunk';
 import { checkChunk } from './dense-store';
 import { PlanesChunk, RecordChunk, scratchImage, uniformImage, type PaletteChunk } from './palette-chunk';
 import { decodePaletteImage, encodePaletteImage } from './palette-codec';
+import { decodeMeasuredImage, encodeMeasuredImage } from './palette-codec-measure';
 import { imageToCells, planesImageFromCells, recordImageFromCells, recordValue, valueCategory, valueMaterial, valueOrientation, type ChunkImage, type PaletteKind } from './palette-image';
-import { MATERIAL_AIR, PLANE_BIT, planeMask, VOXEL_PLANES, type VoxelPlane, type VoxelRecord } from './record';
+import { ALL_PLANES, MATERIAL_AIR, PLANE_BIT, planeMask, VOXEL_PLANES, type VoxelPlane, type VoxelRecord } from './record';
 import type { VoxelStoreCandidate } from './store';
 import { applyStrokeCells, type VoxelStroke } from './stroke';
 import { impliedShape } from './surface-density';
@@ -109,10 +110,10 @@ export class PaletteStore implements VoxelStoreCandidate {
       return out;
     }
     if (typeof slot === 'number') {
-      const m = slot & 0xffff;
+      const m = valueMaterial(slot);
       out.material = m;
-      out.category = (slot >>> 16) & 0xff;
-      out.orientation = slot >>> 24;
+      out.category = valueCategory(slot);
+      out.orientation = valueOrientation(slot);
       out.shape = impliedShape(m);
       return out;
     }
@@ -233,13 +234,14 @@ export class PaletteStore implements VoxelStoreCandidate {
       slot.toCells(this.cells);
       this.imageOf(this.cells, mask);
     }
-    return encodePaletteImage(img, mask, this.opts.atRest);
+    // World data has one encoding; anything else is a measurement encoding the world readers refuse.
+    return img.kind === 'record' && mask === ALL_PLANES && this.opts.atRest === 'packed' ? encodePaletteImage(img) : encodeMeasuredImage(img, mask, this.opts.atRest);
   }
 
   decodeChunk(cx: number, cy: number, cz: number, bytes: Uint8Array): void {
     checkChunk(this.grid, cx, cy, cz);
     const img = scratchImage(this.grid);
-    const h = decodePaletteImage(bytes, img);
+    const h = this.isWorldForm() ? decodePaletteImage(bytes, img) : decodeMeasuredImage(bytes, img);
     // Bytes of the other palette kind, or holding planes this store drops, go through cells.
     if ((img.kind !== this.opts.palette && h.body !== 'uniform') || (h.planes & ~this.mask) !== 0) {
       imageToCells(img, this.cells);
@@ -247,6 +249,11 @@ export class PaletteStore implements VoxelStoreCandidate {
       return;
     }
     this.storeImage(cx, cy, cz, img);
+  }
+
+  /** Whether this store holds world data's form (every plane, record palette, packed at rest): it then reads world bytes only. */
+  private isWorldForm(): boolean {
+    return this.opts.palette === 'record' && this.mask === ALL_PLANES && this.opts.atRest === 'packed';
   }
 
   /** Bytes one chunk costs in memory (0 when absent; {@link memoryBytes} is the sum over chunks). */

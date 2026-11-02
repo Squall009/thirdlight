@@ -304,7 +304,7 @@ describe('floating origin', () => {
   }
 
   it('keeps 32-bit positions within 0.1 mm at 9.9 km and ±2 km, where absolute ones are off by up to ~0.5 mm', () => {
-    const o = new FloatingOrigin();
+    const o = new FloatingOrigin({ grid: chunkGrid(32) });
     const events: number[] = [];
     o.onRebase((e) => events.push(e.shiftM.x));
     // Fly from the origin out to the corner: the origin follows every ~1 km.
@@ -322,8 +322,20 @@ describe('floating origin', () => {
     expect(without).toBeLessThanOrEqual(0.000489);
   });
 
+  it("snaps the origin to the grid's chunk edge, so chunk-local offsets stay whole at any edge", () => {
+    for (const edge of [16, 32] as const) {
+      const o = new FloatingOrigin({ grid: chunkGrid(edge), origin: { x: 100, y: -9, z: 7 } });
+      expect(o.snapCells).toBe(edge);
+      expect(o.origin).toEqual({ x: Math.round(100 / edge) * edge, y: Math.round(-9 / edge) * edge, z: Math.round(7 / edge) * edge });
+      const e = o.update(1240, 0, -987.6)!;
+      for (const v of [e.to.x, e.to.y, e.to.z]) expect(Number.isInteger(v / edge)).toBe(true);
+      // A 16-cell grid lands on 16-cell multiples a 32-cell snap would not reach.
+      if (edge === 16) expect(e.to.x % 32).toBe(16);
+    }
+  });
+
   it('shows the jitter it prevents: 0.1 mm steps far out move a 32-bit position in ~1 mm jumps', () => {
-    const o = new FloatingOrigin({ origin: { x: 19808, y: 4000, z: 19808 } });
+    const o = new FloatingOrigin({ grid: chunkGrid(32), origin: { x: 19808, y: 4000, z: 19808 } });
     const out = new Float32Array(3);
     let absoluteMoves = 0;
     let localMoves = 0;

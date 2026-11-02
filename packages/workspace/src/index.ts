@@ -119,6 +119,7 @@ export {
 export {
   gridFolder,
   isVoxelWorldOp,
+  liftManifest,
   parseVoxelWorldManifest,
   REGION_FILE_NAME_RE,
   VOXEL_WORLD_FORMAT,
