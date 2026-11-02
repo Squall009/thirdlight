@@ -687,6 +687,7 @@ sub-phase on staging; the merge to `main` happens once, at the end of 48.
 | 45.6 | done (a7b8c68c, fast gate green): derived data v1 DRAFT: one versioned assembly evaluation (placeholder rules, R 2, apron 3) feeds occupancy, collision boxes, nav, light coverage (+ prop channel), meshes, instances; mips. Node: derive p50 0.5–3.4 ms a chunk, 11–69 KB mean; light 0.5–4.3 KB vs 3.5–19 KB dense; see **45.6 derived data**. |
 | 45.7a | done (c6e2316f, 990d70cc, 275f2e8a, fast gate green): staging: region files served by range, `editVoxels`/`undoVoxels` on the command route, page `/voxel-world.html` streams, derives, draws on both renderers; reload after restart same. 720p cap: p95 16.7 ms, 0 missed of 1,799 per renderer; edit→answer 14–15 ms, →visible p50 65 / 81 ms; 50 MB of 256 MiB; see **45.7a thin slice**. |
 | 45.7b | done (d3f2ebe8, 97cd10f2, fast gate green): slice collision through physics-rapier (a body a derived chunk, replaced on derive) and the assembly proof by runtime set/dig, both renderers: wall↔banister↔beam for every consumer, 0 stale, 1–4 chunks re-derived, hashes, file bytes equal after reload/rebuild. 720p cap: p95 16.7–16.8, 0 missed; edit→bodies p50 38–42 ms; D434; see **45.7b**. |
+| 45.7d | done (e53c4e45, 69586083, fast gate green): spec gaps G1–G10 closed in code: readers check world/grid/tile, codec+region upgrade registries, canonical-only decode, measurement bodies bench-only, set/dig sorted, 23-bit material ids (u24 at rest: zstd +0.1–1.8 %), 24 orientations, manifest lists regions (listed+missing = damaged), tree flags, undo box; see **45.7d format gaps**. |
 
 ### 45.0 floor record
 
@@ -1466,6 +1467,69 @@ uptime 9 d 16 h (`run.mjs slice --phase assembly|measure|fly`; one round). Repor
   always a trimesh (no heightfield); dropped bodies are capsule characters and swept spheres, not free rigid bodies;
   the assembly proof runs on the world grid only (no rotated structure grid).
 
+### 45.7d format gaps
+
+The ten gaps the format spec listed between the code and the plan (spec §7, G1–G10), closed in code with tests;
+the spec body now describes the code byte for byte (spec §7 says what changed per gap).
+- **Readers check what they are handed (G2, R5).** `RegionIndex.parse` / `openRegion` / `damagedRegionChunks`
+  take `{expect}` (world id, grid id, layout, edge, footprint, region index from the file name) and refuse a mismatch
+  naming the field; `RegionChunkSource` takes the world and grid id (a wrong file's chunks report damaged); the
+  backend's world checks each listed file; `readSave`/`applySave` take the world id and refuse another's save first.
+- **Upgrade registries (G3, R3).** `CHUNK_CODEC_UPGRADES` and `REGION_UPGRADES` (`format-upgrade.ts`,
+  `liftVersion`): add-only, keyed by the version lifted from, empty and frozen at v1. Readers lift older chunk bytes
+  and older region indexes (chunks then read by range from the file as stored: `RegionIndex.dataStart`); newer or
+  stepless versions refused. Proved with test-only version-0 formats (a swapped-plane codec, 16-byte region entries)
+  read through the real readers, by range for the region.
+- **Canonical-only decode (G4) and one world encoding (G5).** Crafted bytes refused: a one-entry packed body
+  without densities, air with a category, orientation or density flag. Runs, bricks at rest, per-plane palettes and
+  dropped planes moved to `palette-codec-measure.ts` (`encodeMeasuredImage`/`decodeMeasuredImage`); world readers
+  refuse them ("a measurement encoding"); the bench entry writes world bytes identically (tested), the browser decode
+  bench uses it, so re-measurement works. World bytes unchanged by G4/G5: no harness number moves from them.
+- **Commands (G6).** `set`/`dig` cells sorted x, z, y, each once.
+- **Values (G7).** Category 5+ and orientation 24+ refused by `checkVoxel`, commands and the decoder. Orientation =
+  `face(k >> 2) · spin(k & 3)` (`orientationMatrix`, 24 distinct proper rotations tested; PROVISIONAL until 46b).
+  Material: the 32-bit record value is now material 23 bits, category 4, orientation 5 (`MATERIAL_ID_MAX`
+  8,388,607); at rest the material plane is u24 and a uniform body 14 bytes (was 13); dense chunks hold material as
+  u32 (the oracle's memory 5 → 7 B a cell; its raw encoding 5 → 6). Byte changes: every stored chunk with a palette
+  (+1 B an entry) and every uniform codec body (+1 B); region tables, cell deltas, saves' uniform entries, aprons and
+  overrides unchanged.
+- **Regions the world lists (G8, R4).** `world.json` format 2 adds `regions` (sorted file names; format 1 lifts by
+  listing the folder). Unlisted = air; listed but missing/unreadable/another tile = damaged: route 409
+  `region_damaged`, `etag: null` in the world's file list, chunks reported damaged, edits `chunk_not_loaded`. A
+  region that became all air is deleted after the manifest stops listing it.
+- **Origin (G9), tree flags (G10), undo box.** `FloatingOrigin({grid})` snaps to the chunk edge. `ChunkTreeFlags`:
+  per-node solid/empty/mixed from derived occupancy, ancestors stale on change, refreshed lowest first before a read.
+  Edit and undo answers carry `box` (an undo the box of its edit); the page refreshes with it: an undo re-derives
+  `dependentChunks(box, 3)` (e2e: equal to the dab's own set) instead of 27 a changed chunk.
+
+Measured 2026-11-02 09:20–09:23, Node, this host (load 1.6–2.5; `run.mjs material`, `run.mjs edits`; reports in
+`~/.cache/thirdlight-phase45/work/45.7d/results/`). Material width at rest, every test world swept whole, zstd 3 per
+stored chunk (uniform chunks are table entries either way):
+
+| World | zstd MB u16 (before) | u24 (now) | u32 field | palette entries; a u32 field's +4 B each / store memory |
+|---|---|---|---|---|
+| plain | 0.265 | 0.266 (+0.44 %) | 0.266 (+0.53 %) | 1,534; 0.29 % |
+| hilly 2 × 2 km | 21.712 | 21.765 (+0.24 %) | 21.804 (+0.42 %) | 105,098; 0.26 % |
+| town | 0.086 | 0.088 (+1.82 %) | 0.089 (+3.45 %) | 2,424; 0.51 % |
+| caves | 3.630 | 3.633 (+0.10 %) | 3.632 (+0.07 %) | 6,708; 0.17 % |
+| vertical | 12.065 | 12.089 (+0.19 %) | 12.064 (−0.01 %) | 41,295; 0.30 % |
+
+- A full u32 material field costs about the same at rest, but makes the record value 48 bits: a cell delta (undo,
+  saves) 7 → 9 B a cell (+29 %), apron and assembly-block cells 4 → 8 B, and Float64 storage for every value array.
+  The 23-bit id costs nothing per cell or in memory. Variants were made from the same frames (CRC not recomputed).
+- Edits bench before (45.4) → after: undo bytes unchanged (22 B one voxel, 1,546 B a 4 m dab; a 16 m fill
+  49,012 → 49,023 B); region rewrite per 10 strokes 1,331 → 1,335 KB (hilly); game save after 1,000 strokes 452.0 /
+  254.7 / 460.4 → 451.6 / 256.2 / 460.6 KB (hilly / town / caves); apply times within run-to-run noise. The harness
+  and region benches were not re-run: their at-rest bytes are the frames measured above (+0.1–1.8 %), and region
+  files add only the unchanged tables.
+
+Tests: `packages/voxel/src/format-rules.test.ts` (new: crafted bytes, measurement encodings, upgrade steps, tile
+checks, wide material ids, orientations, cell lists), `derived.test.ts` (tree flags against fresh derives through an
+edit), `stream-core.test.ts` (snap at 16 and 32), `edits.test.ts` (another world's save), integration
+`voxel-world.test.ts` (+1: a listed region gone is damaged, an unlisted one air, through the real route; answers'
+boxes), e2e `voxel-world.e2e.ts` (an undo re-derives the dab's dependents only; 14.2 → 13.1 s, 3 tests). Fast gate
+green (10 min; village at the cap p95 16.7 ms, 0 missed, both renderers).
+
 ## 7. Decision log
 
 - 2026-10-27 (owner, planning session): §1 decided in conversation. The research behind it covers Enshrouded's
@@ -1732,6 +1796,34 @@ uptime 9 d 16 h (`run.mjs slice --phase assembly|measure|fly`; one round). Repor
   stub across a chunk face, every consumer follows from one evaluation, and rebuilding the generator's cells by
   commands gives the same derived hashes and byte-identical region files. Details in **45.7b collision and assembly
   proof**.
+- 2026-11-02 (45.7d, default chosen, owner to confirm; R5): **every reader names what it expects** (world id,
+  grid id, layout, edge, footprint, region index from the file name; a save its world id) and refuses anything else
+  with an error naming the field; a refused region file reports its chunks damaged, never air.
+- 2026-11-02 (45.7d, default chosen, owner to confirm; R3): **codec and region upgrade steps** are add-only
+  registries keyed by the version they lift from (`CHUNK_CODEC_UPGRADES`, `REGION_UPGRADES`, empty at v1). A region
+  step lifts only the header and table and says where its table ends, so range reads keep working on old files and
+  stored chunks are lifted by the codec's own steps. The world manifest has one step (1 → 2).
+- 2026-11-02 (45.7d, default chosen, owner to confirm; R15, R51): **world data has one encoding** (uniform or packed
+  record palette, all planes); 45.2's measurement encodings are read and written only by the bench entry, and world
+  readers refuse them. The decoder refuses non-canonical input (a one-entry packed body without densities, air with
+  other fields set).
+- 2026-11-02 (45.7d, default chosen, owner to confirm; R51): **`set`/`dig` cell lists are canonical**: sorted x,
+  then z, then y, each cell once.
+- 2026-11-02 (45.7d, default chosen, owner to confirm; R7, R27, O12): **material ids are 23 bits** of the 32-bit
+  record value (category 4 bits, orientation 5), 1–8,388,607 a world, u24 at rest: a format width, not a count cap,
+  at +0.1–1.8 % zstd at rest and nothing per cell. A full u32 field (what the lead first asked for) was measured:
+  the same rest cost, but a 48-bit record value (+29 % a delta cell, 2× apron and assembly cells); the owner can
+  still choose it (**45.7d format gaps**).
+- 2026-11-02 (45.7d, default chosen, owner to confirm; O8, R14): **orientation = one of the 24 axis rotations**
+  (`face(k >> 2) · spin(k & 3)`, 0 the identity), 24+ refused; PROVISIONAL until 46b's role and case catalogue gives
+  the cases their meaning. Categories 5+ refused until the owner's category set (Q-a) adds any.
+- 2026-11-02 (45.7d, default chosen, owner to confirm; R4, R46): **the world manifest lists its region files**
+  (format 2): unlisted = air, listed but missing or unreadable = damaged (409 `region_damaged`, edits refused, still
+  listed), and a file becoming all air is deleted only after the manifest stops listing it.
+- 2026-11-02 (45.7d, default chosen, owner to confirm; R82, Q-c): **chunk-tree flags** (solid/empty/mixed) come from
+  the chunks' derived occupancy, an empty never-loaded chunk counting as empty, ancestors stale on change and
+  refreshed before a read; **voxel command answers carry the edit's cell box**, an undo its edit's box, so clients
+  re-derive only the edit's dependents. The origin snaps to the grid's chunk edge.
 
 ## 7a. Kit and surface planning session (2026-10-30)
 
