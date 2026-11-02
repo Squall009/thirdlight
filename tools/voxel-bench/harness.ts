@@ -28,6 +28,8 @@ export const CANDIDATES: Readonly<Record<string, VoxelStoreFactory>> = Object.fr
   'palette-planes': palette({ palette: 'planes', layout: 'packed', atRest: 'packed' }, 'palette-planes'),
   // The record palette without a category or an orientation plane (what each plane costs in memory).
   'palette-nocat': palette({ palette: 'record', layout: 'packed', atRest: 'packed', planes: VOXEL_PLANES.filter((p) => p !== 'category') }, 'palette-nocat'),
+  // Sparse 4³ bricks under a per-chunk mask (one record palette per chunk), in memory and at rest.
+  bricks: palette({ palette: 'record', layout: 'bricks', atRest: 'bricks' }, 'bricks'),
   'palette-noorient': palette({ palette: 'record', layout: 'packed', atRest: 'packed', planes: VOXEL_PLANES.filter((p) => p !== 'orientation') }, 'palette-noorient'),
 });
 

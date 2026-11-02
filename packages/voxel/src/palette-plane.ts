@@ -10,7 +10,8 @@
  * once few entries are left, with hysteresis so an edit that toggles one
  * value does not repack the chunk each time.
  */
-import { buildLayout, MAX_PALETTE, packedWidth, type CellLayout, type LayoutKind } from './cell-layout';
+import { buildLayout, type CellLayout, type LayoutKind } from './cell-layout';
+import { MAX_PALETTE, packedWidth } from './packed-width';
 import type { ChunkGrid } from './coords';
 
 /** Flag bit in an entry's meta word; the low bits are its cell count. */
@@ -170,7 +171,7 @@ export class PalettePlane {
    * Run layouts are never wider than they need, so they only compact at one.
    */
   private maybeShrink(): void {
-    const width = this.layout.kind === 'packed' ? packedWidth(this.layout.capacity) : -1;
+    const width = this.layout.kind !== 'runs' ? packedWidth(this.layout.capacity) : -1;
     const fits = width >= 0 && packedWidth(this.live) <= width / 2 && this.live * 4 <= this.layout.capacity;
     if (this.live === 1 || fits) this.compact();
   }

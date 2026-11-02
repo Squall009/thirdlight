@@ -72,7 +72,9 @@ export { applyStrokeCells, checkStroke, strokeBounds, strokeCovers, type BoxStro
 export type { VoxelStoreCandidate, VoxelStoreFactory } from './store';
 export { ChunkIndex } from './chunk-index';
 export { DenseReferenceStore, checkChunk, storeChunkCoords } from './dense-store';
-export { ColumnRuns, MAX_PALETTE, PackedIndices, packedWidth, type CellLayout, type LayoutKind } from './cell-layout';
+export { ColumnRuns, PackedIndices, type CellLayout, type LayoutKind } from './cell-layout';
+export { MAX_PALETTE, packedWidth } from './packed-width';
+export { BRICK_CELLS, BRICK_EDGE, BrickLayout, brickOrder, bricksPerChunk, brickUniform } from './brick-layout';
 export { impliedShape, isSurfaceVoxel, SurfaceDensity } from './surface-density';
 export { createPlaneImage, PalettePlane, type PlaneImage } from './palette-plane';
 export {

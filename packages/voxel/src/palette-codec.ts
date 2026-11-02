@@ -6,7 +6,8 @@
  *   2  version        1; any other version is refused
  *   3  flags          bits 0–3 planes held (material, category, shape,
  *                     orientation); bit 4 chunk edge 32 (else 16); bits 5–6
- *                     body: 0 uniform, 1 bit-packed ids, 2 column runs;
+ *                     body: 0 uniform, 1 bit-packed ids, 2 column runs,
+ *                     3 sparse 4³ bricks;
  *                     bit 7 per-plane palettes (else one record palette)
  *   4  CRC-32         of every byte after the header (little-endian)
  *   8  body
@@ -18,9 +19,12 @@
  * its entry count − 1 (u16), each held field of every entry as its own
  * plane (u16 or u8 per entry), the density flags as a bitset (when the
  * shape plane is held), then the cells' entry ids: bit-packed at the
- * palette's width (cell i at bit i × width, least significant first), or
+ * palette's width (cell i at bit i × width, least significant first),
  * column runs as three planes (runs per column − 1, run lengths − 1, entry
- * ids: u8 when the palette has at most 256 entries, else u16).
+ * ids: u8 when the palette has at most 256 entries, else u16), or bricks
+ * (brick-layout.ts): a bitset of the mixed bricks, the uniform bricks' ids
+ * bit-packed in brick order (padding bits zero), then each mixed brick's 64
+ * cells bit-packed in brick order (a mixed brick of one id is refused).
  *
  * Every field is written as its own plane so the general compressor sees runs of
  * like values. Bytes are canonical: entries are numbered in order of first
@@ -29,10 +33,12 @@
  * decoder refuses any other) and region files can be deterministic.
  */
 import { crc32 } from '@thirdlight/shared';
-import { MAX_PALETTE, packedWidth, type LayoutKind } from './cell-layout';
+import { BRICK_CELLS, brickOrder, bricksPerChunk, brickUniform } from './brick-layout';
+import type { LayoutKind } from './cell-layout';
 import type { ChunkGrid } from './coords';
 import { recordValue, valueCategory, valueMaterial, valueOrientation, type ChunkImage, type PaletteKind } from './palette-image';
 import type { PlaneImage } from './palette-plane';
+import { MAX_PALETTE, packedWidth } from './packed-width';
 import { PLANE_BIT } from './record';
 import { impliedShape } from './surface-density';
 
@@ -45,7 +51,8 @@ const EDGE32 = 1 << 4;
 const BODY_SHIFT = 5;
 const PER_PLANE = 1 << 7;
 
-const BODY: Readonly<Record<'uniform' | LayoutKind, number>> = Object.freeze({ uniform: 0, packed: 1, runs: 2 });
+const BODY: Readonly<Record<'uniform' | LayoutKind, number>> = Object.freeze({ uniform: 0, packed: 1, runs: 2, bricks: 3 });
+const BODY_NAMES: readonly ('uniform' | LayoutKind)[] = ['uniform', 'packed', 'runs', 'bricks'];
 
 /** What a chunk's bytes hold, as read from its header. */
 export interface PaletteCodecHeader {
@@ -193,6 +200,10 @@ function writePalette(w: Writer, grid: ChunkGrid, p: PlaneImage, fields: readonl
   }
   const n = grid.cellsPerChunk;
   const ids = p.ids;
+  if (layout === 'bricks') {
+    writeBricks(w, grid, ids, packedWidth(count));
+    return;
+  }
   if (layout === 'packed') {
     const width = packedWidth(count);
     if (width === 0) return;
@@ -232,6 +243,103 @@ function writePalette(w: Writer, grid: ChunkGrid, p: PlaneImage, fields: readonl
   }
 }
 
+/** Ids at `width` bits (1–16) into the writer, least significant first; a last partial byte is padded with zeros. */
+class BitWriter {
+  private acc = 0;
+  private bits = 0;
+  constructor(
+    private readonly w: Writer,
+    private readonly width: number,
+  ) {}
+  put(v: number): void {
+    if (this.width >= 8) {
+      if (this.width === 8) this.w.u8(v);
+      else this.w.u16(v);
+      return;
+    }
+    this.acc |= v << this.bits;
+    this.bits += this.width;
+    if (this.bits === 8) this.flush();
+  }
+  flush(): void {
+    if (this.bits === 0) return;
+    this.w.u8(this.acc);
+    this.acc = 0;
+    this.bits = 0;
+  }
+}
+
+function writeBricks(w: Writer, grid: ChunkGrid, ids: Uint16Array, width: number): void {
+  if (width === 0) return;
+  const order = brickOrder(grid);
+  const nb = bricksPerChunk(grid);
+  const mixedAt = w.at;
+  for (let b = 0; b < nb; b += 8) w.u8(0);
+  const uniformIds = new BitWriter(w, width);
+  for (let b = 0, k = 0; b < nb; b++, k += BRICK_CELLS) {
+    if (brickUniform(ids, order, k)) uniformIds.put(ids[order[k]!]!);
+    else w.buf[mixedAt + (b >>> 3)]! |= 1 << (b & 7);
+  }
+  uniformIds.flush();
+  const cells = new BitWriter(w, width);
+  for (let b = 0, k = 0; b < nb; b++, k += BRICK_CELLS) {
+    if (!((w.buf[mixedAt + (b >>> 3)]! >>> (b & 7)) & 1)) continue;
+    for (let j = 0; j < BRICK_CELLS; j++) cells.put(ids[order[k + j]!]!);
+  }
+}
+
+/** Ids at `width` bits from the reader (the {@link BitWriter} layout); refuses non-zero padding. */
+class BitReader {
+  private acc = 0;
+  private bits = 0;
+  constructor(
+    private readonly r: Reader,
+    private readonly width: number,
+  ) {}
+  get(): number {
+    if (this.width >= 8) return this.width === 8 ? this.r.u8() : this.r.u16();
+    if (this.bits === 0) {
+      this.acc = this.r.u8();
+      this.bits = 8;
+    }
+    const v = this.acc & ((1 << this.width) - 1);
+    this.acc >>>= this.width;
+    this.bits -= this.width;
+    return v;
+  }
+  end(): void {
+    if (this.acc !== 0) throw new RangeError('palette chunk bytes: padding bits set');
+    this.bits = 0;
+  }
+}
+
+function readBricks(r: Reader, grid: ChunkGrid, ids: Uint16Array, width: number): void {
+  const n = grid.cellsPerChunk;
+  if (width === 0) {
+    ids.fill(0, 0, n);
+    return;
+  }
+  const order = brickOrder(grid);
+  const nb = bricksPerChunk(grid);
+  const maskAt = r.at;
+  r.need(nb >>> 3);
+  r.at += nb >>> 3;
+  const mixed = (b: number): boolean => ((r.buf[maskAt + (b >>> 3)]! >>> (b & 7)) & 1) === 1;
+  const uniformIds = new BitReader(r, width);
+  for (let b = 0, k = 0; b < nb; b++, k += BRICK_CELLS) {
+    if (mixed(b)) continue;
+    const v = uniformIds.get();
+    for (let j = 0; j < BRICK_CELLS; j++) ids[order[k + j]!] = v;
+  }
+  uniformIds.end();
+  const cells = new BitReader(r, width);
+  for (let b = 0, k = 0; b < nb; b++, k += BRICK_CELLS) {
+    if (!mixed(b)) continue;
+    for (let j = 0; j < BRICK_CELLS; j++) ids[order[k + j]!] = cells.get();
+    if (brickUniform(ids, order, k)) throw new RangeError('palette chunk bytes: a mixed brick of one entry');
+  }
+}
+
 /** Reads and checks a chunk's header (magic, version, flags, checksum) against the grid it is decoded into. */
 export function readPaletteHeader(grid: ChunkGrid, bytes: Uint8Array): PaletteCodecHeader {
   if (bytes.length < HEADER) throw new RangeError('palette chunk bytes: shorter than the header');
@@ -242,9 +350,8 @@ export function readPaletteHeader(grid: ChunkGrid, bytes: Uint8Array): PaletteCo
   const edge = flags & EDGE32 ? 32 : 16;
   const bodyCode = (flags >>> BODY_SHIFT) & 3;
   if ((planes & PLANE_BIT.material) === 0) throw new RangeError('palette chunk bytes: no material plane');
-  if (bodyCode === 3) throw new RangeError('palette chunk bytes: unknown body');
   if (edge !== grid.edge) throw new RangeError(`palette chunk bytes: a ${edge}³ chunk, decoding into ${grid.edge}³`);
-  const body = bodyCode === 0 ? 'uniform' : bodyCode === 1 ? 'packed' : 'runs';
+  const body = BODY_NAMES[bodyCode]!;
   if (body === 'uniform' && flags & PER_PLANE) throw new RangeError('palette chunk bytes: uniform body with per-plane flag');
   const crc = (bytes[4]! | (bytes[5]! << 8) | (bytes[6]! << 16) | (bytes[7]! << 24)) >>> 0;
   if (crc32(bytes.subarray(HEADER)) !== crc) throw new RangeError('palette chunk bytes: checksum mismatch');
@@ -330,7 +437,8 @@ function readPalette(r: Reader, grid: ChunkGrid, p: PlaneImage, fields: readonly
     }
   }
   const ids = p.ids;
-  if (body === 'packed') {
+  if (body === 'bricks') readBricks(r, grid, ids, packedWidth(count));
+  else if (body === 'packed') {
     const width = packedWidth(count);
     if (width === 0) ids.fill(0, 0, n);
     else if (width >= 8) for (let i = 0; i < n; i++) ids[i] = width === 8 ? r.u8() : r.u16();

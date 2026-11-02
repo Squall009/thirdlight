@@ -31,6 +31,8 @@ const VARIANTS: readonly PaletteStoreOptions[] = [
   { name: 'palette-runs', palette: 'record', layout: 'runs', atRest: 'runs' },
   { name: 'palette-rest-runs', palette: 'record', layout: 'packed', atRest: 'runs' },
   { name: 'palette-planes', palette: 'planes', layout: 'packed', atRest: 'packed' },
+  { name: 'bricks', palette: 'record', layout: 'bricks', atRest: 'bricks' },
+  { name: 'bricks-rest-packed', palette: 'record', layout: 'bricks', atRest: 'packed' },
 ];
 
 const rock = voxel(1, VOXEL_CATEGORY.terrain, 255, 0);
