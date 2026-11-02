@@ -93,7 +93,7 @@ number: Iris Xe, 1280×720, 60 Hz cap, both renderers, ≤ 3 rounds, `uptime` re
 
 | Item | Status |
 |---|---|
-| 46a.1 | not started |
+| 46a.1 | done 59173236: `VOXEL_WORLD_OPS` once in commands; route op list + `tl_command` enum take editVoxels/undoVoxels (no expectedRevision); `voxelsChanged` on the editor feed; reference op pages. Integration: MCP stroke = page's answer and file tags, feed once per change. Fast gate green 11 min; voxel-world.e2e 22.5 → 21.0 s. D433 fixed. |
 | 46a.2 | not started |
 | 46a.3 | not started |
 | 46a.4 | not started |
@@ -114,6 +114,14 @@ number: Iris Xe, 1280×720, 60 Hz cap, both renderers, ≤ 3 rounds, `uptime` re
 ## 7. Results
 
 (Filled per item: numbers, rounds, uptime, report paths.)
+
+**46a.1** (59173236). No perf item. `tests/integration/voxel-world/voxel-world.test.ts` gained one test on a second
+world (`feed`), so the first world's revision counts stay: the real MCP adapter (in-memory transport) and a registered
+editor WebSocket against a real backend; MCP's dig answers the page's cells, chunks, box, parts and file tags exactly
+(same bytes written), its undo restores the world, a resent request id answers once and sends no event, every applied
+change arrives once as `voxelsChanged` with its origin (null for the page's origin-less sends, mcp, browser). Fast gate
+(gate-fast-20261102-202435): GREEN, 11 min, 4.8 GB peak; `voxel-world.e2e.ts` 22.5 → 21.0 s (10.0 + 5.3 + 5.7 s; no e2e
+change); vitest `scan-bounded-log.test.ts` timed out once and passed alone (D418 watch, noted).
 
 ## 8. Decision log
 
@@ -143,5 +151,11 @@ number: Iris Xe, 1280×720, 60 Hz cap, both renderers, ≤ 3 rounds, `uptime` re
 - 2026-11-02 (plan, default chosen, owner to confirm): **draw and collide per chunk over 16³ derives** (one object and
   one body a 32³ chunk, joined at swap); batching beyond that (e.g. one draw for many chunks) only if 46a.5b's numbers
   ask for it. D432 defaults: 16 KB coalescing gap, column batches, prefetch 1 s ahead of the focus's motion.
+- 2026-11-02 (46a.1, default chosen, owner to confirm): **voxel world ops take no `expectedRevision`** (a world keeps
+  its own revision; MCP neither requires nor sends the project's); they are listed beside `MUTATION_OPS`
+  (`VOXEL_WORLD_OPS`), not in it, since the project pipeline never applies them. `voxelsChanged` goes to the project's
+  registered editor session (the one the WS feed serves), for every origin including the sender's own (it can tell by
+  `requestId`); a repeated request id sends nothing. The voxel command now refuses a malformed `origin` with the
+  project pipeline's own parser. Reference: op pages from the workspace's `VoxelWorldOpArgs` union.
 - 2026-11-02 (plan): M7 (cross-grid dependencies) stays the open contract gap recorded in spec §3.6, to be settled
   before 47a; nothing in 46a builds on structure grids.
