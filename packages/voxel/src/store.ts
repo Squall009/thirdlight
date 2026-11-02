@@ -35,6 +35,12 @@ export interface VoxelStoreCandidate {
   importChunk(cx: number, cy: number, cz: number, cells: DenseChunk): void;
   /** Writes a chunk's cells into `out`; false (and `out` untouched) when the chunk is absent. */
   exportChunk(cx: number, cy: number, cz: number, out: DenseChunk): boolean;
+  /**
+   * What a chunk is held as, when the store can tell cheaply: absent (air),
+   * one voxel everywhere, or stored cells. Optional: callers that use it to
+   * skip work (an undo record's before-image) fall back without it.
+   */
+  chunkForm?(cx: number, cy: number, cz: number): 'absent' | 'uniform' | 'stored';
   /** Forgets a chunk (it reads as air afterwards). */
   dropChunk(cx: number, cy: number, cz: number): void;
   /** Keys ({@link chunkKey}) of the chunks the store holds. */

@@ -23,7 +23,9 @@
 import { chunkKey, chunkOfKey, cellInWorld, type ChunkCoord, type ChunkGrid } from './coords';
 import { CellDelta, chunkScratch, deltaValue, DELTA_CELL_BYTES, encodeDenseChunk, exportOrAir } from './cell-delta';
 import { type BrushEdit, type EditMode, type EditVoxel, type StampEdit, type VoxelEditCommand } from './edit-command';
-import { MATERIAL_AIR, SHAPE_FULL, VOXEL_CATEGORY, type VoxelRecord } from './record';
+import { scratchImage, uniformImage } from './palette-chunk';
+import { encodePaletteImage } from './palette-codec';
+import { ALL_PLANES, MATERIAL_AIR, SHAPE_FULL, VOXEL_CATEGORY, type VoxelRecord } from './record';
 import type { StampResolver, StampShape } from './stamp-shape';
 import type { VoxelStoreCandidate } from './store';
 import type { CellBox } from './stroke';
@@ -74,9 +76,13 @@ export class EditRefused extends Error {
 }
 
 /**
- * A delta of more than this many bytes is compared with the chunk's whole
- * before-image and the smaller is kept: below it the image (one to a few KB
- * for most chunks) cannot win, and building it costs a chunk encode.
+ * A chunk that was absent (air) or one voxel everywhere before an edit has
+ * a before-image of 0 or 13 bytes, known without encoding (when the store
+ * tells its chunk form). A chunk with stored cells is compared with its
+ * encoded before-image only once the delta outgrows the smallest image such
+ * a chunk can have (its cells at one bit each), and at least this many
+ * bytes: the encode costs ~0.5 ms at 32³, which a small stroke must not pay
+ * for nothing.
  */
 export const UNDO_IMAGE_CHECK_BYTES = 1024;
 
@@ -293,14 +299,32 @@ function chunksOf(grid: ChunkGrid, b: CellBox): ChunkCoord[] {
   return out;
 }
 
-/** The before-record of one chunk from its delta: the delta, or the whole before-image when that is smaller. */
-function beforeOf(store: VoxelStoreCandidate, c: ChunkCoord, delta: CellDelta): ChunkBefore {
-  if (delta.byteLength <= UNDO_IMAGE_CHECK_BYTES) return { kind: 'delta', delta: trimmed(delta) };
+/**
+ * The before-record of one chunk from its delta: the delta, or the whole
+ * before-image when that is smaller. `form`: the chunk's form before the
+ * edit, when the store tells it.
+ */
+function beforeOf(store: VoxelStoreCandidate, c: ChunkCoord, delta: CellDelta, form: 'absent' | 'uniform' | 'stored' | undefined): ChunkBefore {
+  if (form === 'absent') return { kind: 'image', bytes: null };
+  if (form === 'uniform') {
+    // Every cell held the voxel the first changed cell held.
+    const image = encodeUniform(store.grid, delta.values[0]!);
+    return image.length < delta.byteLength ? { kind: 'image', bytes: image } : { kind: 'delta', delta: trimmed(delta) };
+  }
+  const check = Math.max(UNDO_IMAGE_CHECK_BYTES, form === 'stored' ? store.grid.cellsPerChunk / 8 : 0);
+  if (delta.byteLength <= check) return { kind: 'delta', delta: trimmed(delta) };
   const cells = exportOrAir(store, c.cx, c.cy, c.cz, chunkScratch(store.grid).cells);
   delta.applyToDense(cells);
   const image = encodeDenseChunk(store.grid, cells);
   if (image === null || image.length < delta.byteLength) return { kind: 'image', bytes: image };
   return { kind: 'delta', delta: trimmed(delta) };
+}
+
+/** The codec bytes of a chunk that is one record value everywhere. */
+function encodeUniform(grid: ChunkGrid, value: number): Uint8Array {
+  const img = scratchImage(grid);
+  uniformImage(img, value);
+  return encodePaletteImage(img, ALL_PLANES, 'packed');
 }
 
 /** A delta whose arrays are exactly as long as its cells (so memory equals its counted bytes). */
@@ -341,6 +365,7 @@ export function applyEdit(grids: EditGrids, cmd: VoxelEditCommand, opts: EditOpt
     const oy = c.cy << s;
     const oz = c.cz << s;
     const delta = new CellDelta();
+    const form = store.chunkForm?.(c.cx, c.cy, c.cz);
     const visit = (lx: number, ly: number, lz: number, cov: number): void => {
       const x = ox + lx;
       const y = oy + ly;
@@ -369,7 +394,7 @@ export function applyEdit(grids: EditGrids, cmd: VoxelEditCommand, opts: EditOpt
     }
     if (delta.count === 0) continue;
     changed += delta.count;
-    undo.push({ grid: cmd.grid, cx: c.cx, cy: c.cy, cz: c.cz, before: beforeOf(store, c, delta) });
+    undo.push({ grid: cmd.grid, cx: c.cx, cy: c.cy, cz: c.cz, before: beforeOf(store, c, delta, form) });
   }
   return { cells: changed, chunks: undo };
 }

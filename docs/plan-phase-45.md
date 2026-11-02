@@ -681,6 +681,7 @@ sub-phase on staging; the merge to `main` happens once, at the end of 48.
 | 45.2b | done (38742e3a, a7cd1177 + this): sparse 4³ bricks, codec matrix, browser-worker decode, edge costs. PICK (draft): bricks in memory, packed body + zstd 3 at rest, 32³. Hilly 4 km²: 163 MB loaded (P 371), 5.9 MB/km² zstd, voxelAt 36–111 ns; fzstd 4–53 µs/chunk in a worker; see **45.2b bricks, codecs and the 45.2 pick**. |
 | 45.2c | done (382cfcd2 + this): hidden regressions. D423 fixed: the on-demand Scene view stopped drawing while a probe placement (or an early sky change, or a tile upload) waited, so the ground kept the old sky's light; it now draws on. D428 to watch: 0 failures in 10 runs (6 alone, base and fix; under load; fast gate). Both also on main (frozen): carry over at the merge. |
 | 45.3 | done (7611d71e): region file v1 DRAFT (header, CRCs, sorted chunk table, uniform inline, canonical bytes, range reads). 256 m tiles kept; stacked cubes proposed over columns (2 km tile: 12.3 MB file, 1.47 MB stacked); 10 km ≈ 430–580 MB, 1,600 tiles; HTTP chunk 0.41 ms, 3×3×3 0.54 ms coalesced; git +0.13–0.22 MB/h after gc (7–22 loose): no LFS; see **45.3 region files**. |
+| 45.4 | done (0f7bdd89 + this): edits, undo, saves v1 DRAFT (stroke commands, one deterministic apply, per-chunk undo under a 64 MiB budget spilling to disk, edits-only saves with 16-byte base hashes, structure overrides, repair, dirty jobs). Dab 4 m 68–102 µs, undo 1.5 KB; 16 m fill 4.9–5.7 ms, 45–60 KB; 1,000 strokes: save 255–460 KB; see **45.4 edits, undo, saves**. |
 
 ### 45.0 floor record
 
@@ -1009,6 +1010,97 @@ Run 2026-11-02 03:39–03:52 (repo part rerun 03:53–04:01), 6 GB scope, load 0
   Mountains, caves and dense towns move it: caves are 56 MB/km², a 2 km column 188 MB/km² (both whole-world test
   cases, not typical ground).
 
+### 45.4 edits, undo, saves
+
+All DRAFT, in `@thirdlight/voxel` (pure; the compressor is passed in) with the Node side in
+`tools/voxel-bench/world-files.ts`; vitest `tools/voxel-bench/edits.test.ts` (10 tests, real region files in a scratch
+folder, real zstd, ~13 s).
+- **Stroke command v1** (`edit-command.ts`): one command is one stroke, plain JSON rebuilt field by field
+  (`canonicalEditCommand`: unknown version or field refused, one payload per stroke: a sphere's sizes, −0). Kinds:
+  `brush` (sphere/box/cylinder, half extents in cells, a list of dab centres, mode place/add/dig/paint, `smooth` =
+  partial density at the rim for add/dig), `fill` (a cell box), `stamp` (a voxelized shape by id and SHA-256 of its
+  coverage grid, origin, yaw as [cos, sin], scale), `set` and `dig` (listed cells: the runtime's set/dig). Every
+  command names its grid (0 the world, else a structure grid).
+- **One apply** (`edit-apply.ts` `applyEdit`), the same for editor, MCP and game runtime: a cell's new voxel is a
+  function of its old voxel and the command only, using +, −, ×, ÷, √, floor and round (exact in IEEE-754), so
+  results do not depend on cell or chunk order or the JS engine (tested across the palette store and the dense
+  oracle in Node; another engine is unverified). Refusals (grid unknown, chunk not loaded, stamp unknown or
+  changed, outside the world) come before the first write. A command that changes nothing reports 0 cells (the
+  command layer's `no_change`).
+- **Undo** = per changed chunk the old voxels of its changed cells (a cell delta, 7 B a cell) or its whole before-image
+  when smaller (absent chunk: 0 B; uniform: 13 B; a stored chunk is encoded only once the delta outgrows its
+  smallest image, 4 KB at 32³). Redo re-applies the command (deterministic, LIFO), matching the command model's
+  inverse/redo entries. `UndoStore` holds records under a byte budget (`UNDO_MEMORY_BUDGET_BYTES` 64 MiB) and spills
+  the oldest to an `UndoSpill` (files here; IndexedDB in a browser) as `TLVU` v1 bytes with a CRC; its calls run in
+  order (a put during a spill write cannot spill a record twice).
+- **Save v1** (`save-file.ts`, `TLVS`): only chunks that differ from the shipped world, each with the first 16 bytes
+  of SHA-256 of the base chunk's canonical codec bytes and the smaller of a cell delta or a whole image (uniform and
+  air in a few bytes); the body is one zstd stream; header and body CRC-32; canonical bytes. A newer version is
+  refused; older ones go through `SAVE_UPGRADES` (append-only steps on the decoded save; v1 has none; the mechanism
+  is tested with a test step). Loading compares each entry's base hash with the shipped chunk's: a mismatch is
+  reported and the game chooses per chunk `save` (a delta then lands on the new base: the player's cells win) or
+  `base` (the entry is dropped).
+- **Structure overrides v1** (`structure-overrides.ts`, `TLVO`): per chunk of the structure grid, each overridden
+  cell's generated voxel (base) and its voxel now, 12 B a cell; stored with the structure record, never in region
+  files. After regenerating, an override is absorbed (the generator now makes it), kept (the new generated voxel is
+  the same kind as its base: both air, or the same category; its base is updated) or a misfit (reported, not
+  written). Tested on a test room (not a generator) grown from 6 to 8 m: a painted east-wall cell, now inside, is
+  the misfit; a window cut in the north wall and a crate stay; a post where the new wall stands is absorbed.
+- **Repair** (`chunk-repair.ts`): a damaged chunk (checksum, or bytes that do not decode) is taken from the first
+  source with a sound copy that decodes (and, given one, matches a hash), then marked dirty so the next save writes
+  it sound. Unrepaired, it stays unloaded, edits into it are refused, and rewrites of its file carry its bytes and
+  recorded CRC over verbatim (`RegionIndex.entry`, `RegionEntry.crc`), so it is still reported, never air. A source
+  missing the whole file "does not have" the chunk (it never claims air).
+- **Atomic replace and races**: files are replaced through the workspace's durable write (temp file in the same
+  folder, fsync, rename, folder fsync, read back, refused if the file is not what this process last saw).
+  `DirtyTracker`: per-chunk versions; a save job snapshots versions and commits only those (an edit during the job
+  stays dirty); one job per file; an expired (timed-out) job's late commit is refused and cannot overwrite the newer
+  file; no unload while dirty or held by a live save; chunk jobs (meshing etc.) carry their start version and a
+  superseded or expired result is refused. Tested: rename failure leaves the old file, no temp file, chunk dirty;
+  edit during save; unload during save; timeout then newer save then late commit; superseded and late mesh results.
+  Workers are simulated by call order here; real workers are 45.5's.
+
+Measured 2026-11-02 04:56 (`node tools/voxel-bench/run.mjs edits`, 2 GB scope, peak RSS 467 MB, load 3.3–4.5 with
+another project's Java test running, i5-12600H; ~40 s). Pick store, 32³, stacked 256 m files, zstd 3. 60 surface spots
+per kind, medians (means in brackets); dab sizes are diameters; dig and add alternate, smooth.
+Report: `~/.cache/thirdlight-phase45/work/45.4/results/edits.md` (scratch).
+
+| Edit (hilly 512 m / town 256 m / caves 256 m) | apply µs | cells | chunks | undo B | undo apply µs | per 64 MiB |
+|---|---|---|---|---|---|---|
+| single voxel | 5.6 / 4.3 / 2.7 | 1 | 1 | 22 | 0.6–0.7 | 3.0 M |
+| 1 m dab | 19.9 / 9.7 / 7.6 | 11–12 | 1.1–1.2 | 95–103 | 2.4–4.0 | 650–700 k |
+| 2 m dab | 46 / 22 / 20 | 46–49 | 1.3–1.4 | 340–362 | 6–12 | 185–197 k |
+| 4 m dab | 102 / 78 / 68 (238 / 151 / 108) | 212–221 | 1.8–1.9 | 1.5–1.6 KB | 24–28 | 42–44 k |
+| 4 m drag, 10 dabs over 5 m | 291 / 371 / 256 | 461–494 | 1.9–2.3 | 3.3–3.5 KB | 53–58 | 19–21 k |
+| 16 m box fill (32³ cells) | 5,711 / 4,944 / 5,692 | 20–21 k | 6.3–7.1 | 45–60 KB (42–57 % images) | 890–1,017 | 1.1–1.5 k |
+| 20 m stamp at 30°, scale 1 | 5,006 / 4,620 / 4,874 | 11.7–12.1 k | 6.6–7.5 | 30–47 KB (40–52 % images) | 773–989 | 1.4–2.3 k |
+
+Session of 1,000 mixed strokes (a quarter each 1 m and 2 m dabs and 4 m drags, 17 % single voxels, 8 % 16 m fills) on
+region files on disk, saved every 10 strokes; game save against the shipped files at 10 / 100 / 1,000 strokes:
+
+| World | region files MB | per save: files, KB written, chunks re-packed, ms | game save KB at 10 / 100 / 1,000 (chunks at 1,000: delta / image) | B a stroke at 1,000 | save build / write / read ms at 1,000 | hash + apply on load ms (chunks) | base hash µs a chunk (KB) |
+|---|---|---|---|---|---|---|---|
+| hilly 512 m | 1.41 | 3.7, 1,331, 18.5, 22.6 | 11.4 / 87.5 / 452 (498 / 255) | 463 | 767 / 13.5 / 15.4 | 218 (754) | 82 (12.9) |
+| town 256 m | 0.10 | 2.0, 159, 19.4, 12.3 | 5.0 / 60.3 / 255 (210 / 215) | 261 | 427 / 6.3 / 10.7 | 127 (425) | 60 (11.8) |
+| caves 256 m | 3.48 | 1.2, 1,867, 18.3, 52.6 | 14.3 / 103 / 460 (202 / 199) | 471 | 433 / 10.0 / 11.2 | 132 (403) | 61 (11.7) |
+
+- **Edits are cheap until whole chunks change.** Dabs up to 4 m cost 3–102 µs (a first version spent ~0.6 ms a 4 m dab
+  encoding before-images it then threw away; the store's chunk form now says when an image can win). Fills and stamps
+  cost ~0.25 µs a changed cell, about half of it encoding the before-images of whole chunks.
+- **Undo memory**: 22 B for a voxel, 1.5 KB for a 4 m dab, 45–60 KB for a 16 m fill. 64 MiB holds ~43 k 4 m dabs or
+  ~1,100–1,500 16 m fills before anything spills; a spilled record is its TLVU bytes (+16 B).
+- **Saves stay edits-sized**: 255–460 KB after 1,000 heavy strokes (overlapping strokes share chunks: B a stroke falls
+  from 0.5–1.5 KB to 260–470 B); writing is 6–14 ms, reading 11–15 ms. Building a save costs ~1 ms a touched chunk
+  (shipped chunk decoded, diffed, encoded), so it should run per touched chunk as edits happen or in a worker, not
+  all at once at save time (45.5/45.7).
+- **Base hash**: SHA-256 in plain JS, 60–82 µs a 12 KB chunk (~150–200 MB/s); load checks one per save entry
+  (~0.3 ms a chunk with reading and applying). Cheap enough not to store hashes in region files; an export-time
+  per-chunk hash table is the fallback if 45.5 finds load time tight (proposal, unmeasured).
+- **Region rewrites per save** (stacked 256 m files): 1.2–3.7 files and 0.16–1.9 MB a save of 10 strokes (~18 chunks
+  re-packed), 12–53 ms. Only dirty chunks are re-packed; others' frames are copied.
+- Not covered: structure-grid edits inside a rotated grid (the apply takes any grid id; the town's rotated houses are
+  not edited here), a browser `UndoSpill`, workers.
+
 ## 7. Decision log
 
 - 2026-10-27 (owner, planning session): §1 decided in conversation. The research behind it covers Enshrouded's
@@ -1126,6 +1218,33 @@ Run 2026-11-02 03:39–03:52 (repo part rerun 03:53–04:01), 6 GB scope, load 0
   per region saves 1.8–2.3 % on hilly ground but loses random access). A damaged chunk is reported with its
   coordinates and never read as air (R4); repairing it (from the shipped base, a structure regeneration or the save)
   is 45.4's path.
+- 2026-11-02 (45.4, default chosen, owner to confirm): **stroke command v1 DRAFT** as in **45.4 edits, undo, saves**:
+  one command per stroke (brush with dab list, fill, stamp by shape hash, set, dig), plain JSON so it rides the
+  existing command envelope as an op's args; one deterministic apply serves editor, MCP and runtime set/dig. A long
+  drag must fit the command pipeline's 64 KB request bound (about 2,000 dabs as JSON numbers); the tool thins dabs
+  to a spacing (proposal for 47b) rather than the format splitting strokes.
+- 2026-11-02 (45.4, default chosen, owner to confirm): **undo = before-state per changed chunk** (cell delta, or the
+  whole image when smaller), history entries hold an id; records live in memory up to a byte budget,
+  `UNDO_MEMORY_BUDGET_BYTES` = 64 MiB per editor session, and spill oldest-first to disk (no step count). Redo
+  re-applies the command. The undo transaction is a new revision (the command model's inverse), never a rewind.
+- 2026-11-02 (45.4, default chosen, owner to confirm; R59, R60, O13): **save v1 DRAFT**: changed chunks only, each as
+  a cell delta or a whole image (the smaller), with a 16-byte base hash = SHA-256 of the base chunk's canonical codec
+  bytes (content, not the compressed frame, so recompressing a world is not a change); one zstd stream per save;
+  newer versions refused, older lifted by append-only steps on the decoded save. On a base mismatch the engine
+  reports and the game chooses per chunk: keep its save (a delta lands on the new base) or take the new base.
+- 2026-11-02 (45.4, default chosen, owner to confirm; R33, R34, O10): **structure overrides** are a per-cell delta
+  (generated voxel + voxel now) per chunk of the structure grid, stored with the structure record in the project,
+  never in region files or exports. Fit rule after regenerating: absorbed when the generator makes the voxel itself,
+  kept when the new generated voxel is the same kind as the base (both air, or the same category), else a reported
+  misfit, not written. The rule is the simplest that keeps holes in walls and paint on walls; 47a may refine it.
+- 2026-11-02 (45.4, default chosen, owner to confirm; R4): **repair order is the caller's** (game: the shipped
+  world; editor: the last committed region file, then a structure's regeneration); a repaired chunk is dirty until
+  saved; an unrepaired one stays unloaded, edits into it are refused, and rewrites carry its damaged bytes and CRC
+  verbatim, so it is reported again and never becomes air. Region files are replaced through the workspace's
+  durable write (`writeAtomic`, now exported by `@thirdlight/workspace`).
+- 2026-11-02 (45.4, default chosen, owner to confirm; R67): **dirty tracking**: per-chunk versions, save jobs commit
+  only the versions they snapshot, one live save job per file, a timed-out job's late commit is refused, no unload
+  of a dirty or held chunk, chunk jobs accepted only at their start version. 45.5 puts real workers behind it.
 
 ## 7a. Kit and surface planning session (2026-10-30)
 

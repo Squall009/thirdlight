@@ -192,6 +192,11 @@ export class PaletteStore implements VoxelStoreCandidate {
     return true;
   }
 
+  chunkForm(cx: number, cy: number, cz: number): 'absent' | 'uniform' | 'stored' {
+    const slot = this.chunks.get(cx, cy, cz);
+    return slot === undefined ? 'absent' : typeof slot === 'number' ? 'uniform' : 'stored';
+  }
+
   dropChunk(cx: number, cy: number, cz: number): void {
     checkChunk(this.grid, cx, cy, cz);
     this.chunks.delete(cx, cy, cz);
