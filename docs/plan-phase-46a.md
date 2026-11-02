@@ -94,7 +94,7 @@ number: Iris Xe, 1280×720, 60 Hz cap, both renderers, ≤ 3 rounds, `uptime` re
 | Item | Status |
 |---|---|
 | 46a.1 | done 59173236: `VOXEL_WORLD_OPS` once in commands; route op list + `tl_command` enum take editVoxels/undoVoxels (no expectedRevision); `voxelsChanged` on the editor feed; reference op pages. Integration: MCP stroke = page's answer and file tags, feed once per change. Fast gate green 11 min; voxel-world.e2e 22.5 → 21.0 s. D433 fixed. |
-| 46a.2 | not started |
+| 46a.2 | done e48969c5 (+ boundary 1bf03832): `voxelWorld` {world, ring, collision, sectionEdge, savedFields}, metres, unset = voxel defaults (192/224, 96/128, 48/24 m, 16, material/role/shape); model `affectsLighting`; additive on schema 8. Vitest + backend setComponent/restart test. Fast gate green 11 min, 4.9 GB; voxel-world.e2e 21.0 s, inspector.e2e 15.4 s. |
 | 46a.3 | not started |
 | 46a.4 | not started |
 | 46a.5a | not started |
@@ -122,6 +122,18 @@ editor WebSocket against a real backend; MCP's dig answers the page's cells, chu
 change arrives once as `voxelsChanged` with its origin (null for the page's origin-less sends, mcp, browser). Fast gate
 (gate-fast-20261102-202435): GREEN, 11 min, 4.8 GB peak; `voxel-world.e2e.ts` 22.5 → 21.0 s (10.0 + 5.3 + 5.7 s; no e2e
 change); vitest `scan-bounded-log.test.ts` timed out once and passed alone (D418 watch, noted).
+
+**46a.2** (1bf03832 boundary, e48969c5 schema). No perf item. `voxelWorld {world, ring?, collision?, sectionEdge?,
+savedFields?}` (metres; unset = the voxel defaults, resolved by `resolveVoxelWorld`: load 192/224 m across, 96/128 m
+up/down, collision 48/24 m, 16-cell sections, saved material/role/shape) and the model flag `affectsLighting`; additive
+on schema 8, no bump. New owners in `@thirdlight/voxel`: `DEFAULT_SECTION_EDGE`, `DEFAULT_COLLISION_RING` (cells),
+`VOXEL_WORLD_NAME_RE` (moved from the workspace). Tests: `project-model/src/voxel-world.test.ts` (refusals, scene
+validator + canonical bytes keep every field in order, a second pass the same bytes, defaults from the voxel
+constants, prefab refused, affectsLighting kept/absent/refused), the descriptor registry probes, and one
+`voxel-world.test.ts` integration test (real backend: createEntity + setComponent over HTTP, five refusals change
+nothing, null resets a field, scene file on disk, same after a restart). Descriptor JSON +3.4 KB (budget 361,200).
+Fast gate (gate-fast-20261102-205602): GREEN, 11 min, 4.9 GB peak; `voxel-world.e2e.ts` 21.0 s (9.9 + 5.4 + 5.7 s, no
+e2e change), `inspector.e2e.ts` 15.4 s (8.2 + 4.6 + 2.6 s); village perf at the cap 0 missed on both renderers.
 
 ## 8. Decision log
 
@@ -157,5 +169,14 @@ change); vitest `scan-bounded-log.test.ts` timed out once and passed alone (D418
   registered editor session (the one the WS feed serves), for every origin including the sender's own (it can tell by
   `requestId`); a repeated request id sends nothing. The voxel command now refuses a malformed `origin` with the
   project pipeline's own parser. Reference: op pages from the workspace's `VoxelWorldOpArgs` union.
+- 2026-11-02 (46a.2, default chosen, owner to confirm): **`voxelWorld` stores metres and only what the author set**;
+  absent settings follow the voxel package's defaults (so a later default change reaches every world). Saved fields are
+  a list of field names (`['material','role','shape']` by default), not a bit mask, in the file and the Inspector.
+  An unload distance below its load distance resolves to the load distance (no refusal: the descriptor checks are per
+  field). Not allowed in prefabs (a world streams per scene). One world per object; two objects naming the same world
+  in a scene are not refused yet (the host in 46a.7a decides). **`affectsLighting` is on models only, absent = off**
+  (spec: on for large static props, off for small ones and scatter; no size-based automatic default).
+- 2026-11-02 (46a.2): project-model may import `@thirdlight/voxel` (own boundary commit 1bf03832; voxel joins the export
+  engine packages), so the component's defaults are the voxel constants, never copies.
 - 2026-11-02 (plan): M7 (cross-grid dependencies) stays the open contract gap recorded in spec §3.6, to be settled
   before 47a; nothing in 46a builds on structure grids.
