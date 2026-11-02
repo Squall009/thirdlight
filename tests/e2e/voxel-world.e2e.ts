@@ -276,9 +276,10 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
       expect(b.ok, `${what}: ${b.code}`).toBe(true);
       expect(b.swap.sections, what).toBeGreaterThan(1);
       expect(b.replacedSections, what).toBe(b.swap.sections);
-      // At a chunk corner in x and z: at least four chunks' draws, fewer than the sections.
+      // At a chunk corner in x and z: at least four chunks' draws, never more than the sections (a corner's sections
+      // may each lie in a chunk of their own).
       expect(b.swap.chunks.length, what).toBeGreaterThanOrEqual(4);
-      expect(b.swap.chunks.length, what).toBeLessThan(b.swap.sections);
+      expect(b.swap.chunks.length, what).toBeLessThanOrEqual(b.swap.sections);
       expect(b.replacedChunks, what).toBe(b.swap.chunks.length);
       expect(b.replacedFrames, what).toHaveLength(1);
       expect(b.replacedSwaps, what).toHaveLength(1);
