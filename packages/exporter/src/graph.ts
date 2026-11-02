@@ -5,7 +5,8 @@
  * Allowed: the export bootstrap file (packages/exporter/src/export-bootstrap.ts
  * only), the shared production composition `game-host` and the generic engine
  * packages — `runtime`, `three-adapter` (with its `effects`),
- * `project-model`, `input`, `physics-rapier`, `shared` — plus `three`, the pinned
+ * `project-model` (with the pure `voxel` formats it names), `input`,
+ * `physics-rapier`, `shared` — plus `three`, the pinned
  * `@dimforge/rapier3d-compat` (the backend's `js/physics-3d.js` of a game
  * with physics), and the per-snapshot
  * virtual module the export build generates in memory

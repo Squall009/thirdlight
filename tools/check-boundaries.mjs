@@ -127,7 +127,10 @@ export const NODE_SIDE_ALLOWED = {
   // The leaf: generic helpers that run anywhere (exported games, workers, the
   // backend), so it may import nothing at all.
   shared: { packages: [], external: [], node: [] },
-  'project-model': { packages: [], external: [], node: [] },
+  // + voxel — a scene's voxel world component and its defaults (ring, section
+  // edge, saved-fields mask, world names) are the voxel format's own
+  // constants; voxel is pure and imports only the leaf, so no cycle.
+  'project-model': { packages: ['voxel'], external: [], node: [] },
   // Voxel storage is read by module workers and exported games as well as the
   // backend, so it is pure code like the runtime: no three.js, no Node
   // built-ins. Node-only tooling over it (benchmarks, file writers) lives

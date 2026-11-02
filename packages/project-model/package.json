@@ -32,7 +32,8 @@
     "./authoring-rules": "./src/authoring-rules.ts"
   },
   "dependencies": {
-    "@thirdlight/shared": "0.1.0"
+    "@thirdlight/shared": "0.1.0",
+    "@thirdlight/voxel": "0.1.0"
   },
   "sideEffects": false
 }

@@ -22,7 +22,7 @@ export const EXPORT_ENGINE_DIR = 'dist/export-engine';
 export const EXPORT_BOOTSTRAP = 'packages/exporter/src/export-bootstrap.ts';
 
 /** The generic engine packages every export may link. */
-export const ENGINE_PACKAGES: readonly string[] = ['runtime', 'three-adapter', 'effects', 'project-model', 'input', 'physics-rapier', 'game-host', 'shared'];
+export const ENGINE_PACKAGES: readonly string[] = ['runtime', 'three-adapter', 'effects', 'project-model', 'input', 'physics-rapier', 'game-host', 'shared', 'voxel'];
 
 /** The packages of the modules a manifest names (`@thirdlight/<name>` → `<name>`). */
 export function modulePackagesOf(moduleIds: readonly string[]): string[] {
