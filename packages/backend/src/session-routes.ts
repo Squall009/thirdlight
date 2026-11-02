@@ -5,7 +5,7 @@ import type { ErosionRunner } from './erosion-runner';
 import { randomBytes } from 'node:crypto';
 import { type IncomingMessage, type ServerResponse } from 'node:http';
 import { parseCommandEnvelope, parseEstablishRequest, parseStrictJsonBytes, sessionError, statusFor, isMutationOp, withBoundedAssembled, type SessionError } from '@thirdlight/protocol';
-import { type CommandError, type QueryResult, type WorkspaceService } from '@thirdlight/workspace';
+import { isVoxelWorldOp, type CommandError, type QueryResult, type WorkspaceService } from '@thirdlight/workspace';
 import { SessionRegistry, type SessionRecord } from './sessions';
 
 import { SESSION_LIST_MAX, newConnId, newWsToken, type OriginDoc } from './util';
@@ -34,6 +34,8 @@ export interface SessionRoutesContext {
   /** Erodes an `editTerrain` erode's grid on a worker before the command (absent: the command erodes in process). */
   readonly erosion?: ErosionRunner;
   readonly notifyMutationApplied: (projectId: string, requestId: string, revision: number, origin: OriginDoc | null, change: unknown, sceneId?: string) => void;
+  /** Applies a voxel world command (they ride the command route; the workspace applies them to the world's region files). */
+  readonly voxelCommand?: (res: ServerResponse, projectId: string, envelope: Record<string, unknown>) => Promise<void>;
   /** The backend's headless editors (the owner's browser evicts them). */
   readonly headless: HeadlessEditors;
   /** The owner of a play went away (its play is stopped after the grace period). */
@@ -41,7 +43,7 @@ export interface SessionRoutesContext {
 }
 
 export function makeSessionRoutes(ctx: SessionRoutesContext) {
-  const { timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, fullState, workspaceError, sessionView, recordProblem, notifyMutationApplied, headless, onOwnerLost, folderImport, textures, erosion } = ctx;
+  const { timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, fullState, workspaceError, sessionView, recordProblem, notifyMutationApplied, headless, onOwnerLost, folderImport, textures, erosion, voxelCommand } = ctx;
 
   const establishSession = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const scope = tokenScope(bearerToken(req), req);
@@ -170,22 +172,32 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
       sendError(res, strict.error);
       return;
     }
+    const originOf = (env: Record<string, unknown>): OriginDoc | null => (typeof env.origin === 'object' && env.origin !== null && !Array.isArray(env.origin) ? (env.origin as OriginDoc) : null);
+    // Caller binding: a browser-origin command must come from the
+    // project's registered authoring session.
+    const unbound = (origin: OriginDoc | null): boolean => {
+      if (origin?.kind !== 'browser' || sessions.sessionForProject(projectId) !== undefined) return false;
+      sendError(res, sessionError('session_required', 'validation', 'a browser-origin command requires a registered authoring session for the project'), 403);
+      return true;
+    };
+    // A voxel world command: the same route, envelope and caller binding; the workspace applies it to the world's files.
+    const raw = strict.value;
+    if (voxelCommand !== undefined && typeof raw === 'object' && raw !== null && !Array.isArray(raw) && isVoxelWorldOp((raw as Record<string, unknown>).op)) {
+      const venv = raw as Record<string, unknown>;
+      if (unbound(originOf(venv))) return;
+      const vsession = sessions.sessionForProject(projectId);
+      if (vsession) sessions.touch(vsession, nowMs());
+      await voxelCommand(res, projectId, venv);
+      return;
+    }
     const envelope = parseCommandEnvelope(strict.value);
     if (!envelope.ok) {
       sendError(res, envelope.error);
       return;
     }
     const env = strict.value as Record<string, unknown>;
-    const envOrigin =
-      typeof env.origin === 'object' && env.origin !== null && !Array.isArray(env.origin)
-        ? (env.origin as OriginDoc)
-        : null;
-    // Caller binding: a browser-origin command must come from the
-    // project's registered authoring session.
-    if (envOrigin?.kind === 'browser' && sessions.sessionForProject(projectId) === undefined) {
-      sendError(res, sessionError('session_required', 'validation', 'a browser-origin command requires a registered authoring session for the project'), 403);
-      return;
-    }
+    const envOrigin = originOf(env);
+    if (unbound(envOrigin)) return;
     const session = sessions.sessionForProject(projectId);
     if (session) sessions.touch(session, nowMs());
     // Mutation envelopes go through the commands.md pipeline; query

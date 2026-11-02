@@ -51,6 +51,10 @@ export interface ApiRoutes {
     readonly missingFiles: Route<[projectId: string, query: Query]>;
     readonly externalResolve: Route<[projectId: string, action: string]>;
   };
+  readonly voxels: {
+    readonly info: Route<[projectId: string, world: string]>;
+    readonly region: Route<[projectId: string, world: string, file: string]>;
+  };
   readonly lighting: {
     readonly bake: Route<[projectId: string]>;
     readonly bakeJob: Route<[projectId: string, jobId: string]>;
@@ -78,7 +82,7 @@ export interface ApiRoutes {
 export function makeApiRouter(r: ApiRoutes) {
   /** The `/api/v1/…` table; false when no route matched (the caller answers unknown route). */
   const route = async (req: IncomingMessage, res: ServerResponse, method: string, parts: string[], query: Query): Promise<boolean> => {
-    const { content, sessions, catalog, project, play, admin, lighting } = r;
+    const { content, sessions, catalog, project, play, admin, lighting, voxels } = r;
     const projectContent = parts[2] === 'projects' && parts[4] === 'content';
     /** A route of one method: the handler, or a 405 naming the method. */
     const only = async (expected: string, run: () => void | Promise<void>): Promise<true> => {
@@ -201,6 +205,14 @@ export function makeApiRouter(r: ApiRoutes) {
     // POST /api/v1/projects/:projectId/commands
     if (parts.length === 5 && parts[2] === 'projects' && parts[4] === 'commands') {
       return only('POST', () => sessions.command(req, res, parts[3]!));
+    }
+    // GET /api/v1/projects/:projectId/voxels/:world — a voxel world's manifest and region files (with their tags)
+    if (parts.length === 6 && parts[2] === 'projects' && parts[4] === 'voxels') {
+      return only('GET', () => voxels.info(req, res, parts[3]!, decodeURIComponent(parts[5]!)));
+    }
+    // GET /api/v1/projects/:projectId/voxels/:world/regions/:file — a region file, whole or one byte range
+    if (parts.length === 8 && parts[2] === 'projects' && parts[4] === 'voxels' && parts[6] === 'regions') {
+      return only('GET', () => voxels.region(req, res, parts[3]!, decodeURIComponent(parts[5]!), decodeURIComponent(parts[7]!)));
     }
     // POST /api/v1/projects/:projectId/lighting/bake {sceneId} — "Bake lighting" in the project's editor; GET …/bake/:jobId its state
     if (parts.length === 6 && parts[2] === 'projects' && parts[4] === 'lighting' && parts[5] === 'bake') {

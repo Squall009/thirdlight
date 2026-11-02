@@ -20,7 +20,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { parseStrictJsonBytes, sessionError, statusFor, type SessionError } from '@thirdlight/protocol';
-import { openWorkspaceService, readMarker, type CommandError, type WorkspaceService } from '@thirdlight/workspace';
+import { openWorkspaceService, readMarker, VoxelWorlds, type CommandError, type WorkspaceService } from '@thirdlight/workspace';
 import { mergeTimeouts, parseBackendConfig, type BackendConfig } from './config';
 import { createAssetInspector, createBehaviorCompilerPort, type ContentRoutes } from './content';
 import type { TextureSlotAssembler } from './texture-slots';
@@ -53,6 +53,7 @@ import { PlayContentStore } from './play-content';
 import { SessionRegistry, type SessionRecord } from './sessions';
 import { PlayManager, type PlayRecord } from './play';
 import { makeSessionRoutes } from './session-routes';
+import { makeVoxelRoutes } from './voxel-routes';
 import { createHeadlessEditors } from './headless';
 import { makePreviewRoutes } from './preview-routes';
 import { createPlayBuildCache } from './play-build';
@@ -344,7 +345,10 @@ export function createBackend(
   };
   const { serveEditorPage, dispatchPreview } = makePreviewRoutes({ config, logStartup, playContent, sendJson, parseQuery, serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml, isolationHeaders, playBuild, openFile: (projectId, file) => service.openBlobFile(projectId, file), onFileChanged });
 
-  const { establishSession, listSessions, sessionLog, commandRoute } = makeSessionRoutes({ timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, fullState, workspaceError, sessionView, recordProblem, notifyMutationApplied, headless, folderImport, textures, erosion: createErosionRunner(EROSION_WORKER), onOwnerLost: (sessionId: string, detail?: string) => plays.onOwnerDisconnected(sessionId, detail) });
+  // A project's voxel worlds: region files served by range, edited by the voxel world commands.
+  const voxelWorlds = new VoxelWorlds({ projectDir: (projectId) => service.projectDir(projectId) });
+  const voxels = makeVoxelRoutes({ worlds: voxelWorlds, requireAuth, sendJson, sendError, recordProblem });
+  const { establishSession, listSessions, sessionLog, commandRoute } = makeSessionRoutes({ timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, fullState, workspaceError, sessionView, recordProblem, notifyMutationApplied, headless, folderImport, textures, erosion: createErosionRunner(EROSION_WORKER), voxelCommand: voxels.command, onOwnerLost: (sessionId: string, detail?: string) => plays.onOwnerDisconnected(sessionId, detail) });
   const library = makeLibraryRoutes({ service, requireAuth });
   const project = makeProjectRoutes({ config, service, sessions, problems: problemLog, checks, packs, requireAuth, authorized: auth.authorized, engine: async () => ({ ...engineInfo(), manual: await manualSummary(manual) }) });
 
@@ -372,6 +376,7 @@ export function createBackend(
       missingFiles: missingFilesRoute,
       externalResolve: external.resolveRoute,
     },
+    voxels: { info: voxels.info, region: voxels.region },
     lighting: { bake: lightingBake.start, bakeJob: async (req, res, projectId, jobId) => lightingBake.read(req, res, projectId, jobId) },
     play: { start: playStartRoute, stop: playStopRoute, snapshot: playSnapshotRoute, relay: relayRoute, input: inputRelayRoute, control: gameControlRoute, observe: gameObserveRoute },
     admin: { createProject: adminCreateProject, registerProject: adminRegisterProject, unregisterProject: adminUnregisterProject, projectOp: adminProjectOp, exportProject: adminExportRoute },
@@ -432,6 +437,7 @@ export function createBackend(
         lightingBake.dispose();
         contentRoutes.dispose();
         playContent.dispose();
+        voxelWorlds.close();
         channel.close(() => {
           authoringServer.close(() => {
             previewServer.close(() => {

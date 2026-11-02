@@ -55,6 +55,7 @@ import { crc32 } from '@thirdlight/shared';
 import { describe, expect, it } from 'vitest';
 import { loadArea, zstdDecompress } from './regions';
 import { houseVoxel, type House } from './town';
+import { flatGround, placeWallBeamBanister, putVoxel } from './scenes';
 import { MAT } from './world-kit';
 import { hillyWorld } from './worlds';
 
@@ -63,14 +64,8 @@ const E = grid.edge;
 const R = jobRadius(PLACEHOLDER_RULES);
 const C = VOXEL_CATEGORY;
 
-function put(store: PaletteStore, x: number, y: number, z: number, material: number, category: number, shape = 255, orientation = 0): void {
-  store.setVoxel(x, y, z, { material, category, shape: material === 0 ? 0 : shape, orientation });
-}
-
-/** Flat full ground below y = top over [x0, x1) × [z0, z1). */
-function ground(store: PaletteStore, x0: number, x1: number, z0: number, z1: number, depth = 3, top = 0): void {
-  for (let x = x0; x < x1; x++) for (let z = z0; z < z1; z++) for (let y = top - depth; y < top; y++) put(store, x, y, z, MAT.grass, C.terrain);
-}
+const put = putVoxel;
+const ground = flatGround;
 
 const local = (v: number): number => v & grid.mask;
 const chunkOf = (v: number): number => v >> grid.shift;
@@ -121,21 +116,10 @@ function consumersAt(store: PaletteStore, x: number, y: number, z: number): { li
   return { light, navBlocks, standable, collision, instance, renderSolid };
 }
 
-/**
- * A wall along x at z = 0 (8 tall) with a beam one cell out at z = −1, y = 5,
- * and a floor slab on the ground at z 4…7 with a banister along its z = 7
- * edge: posts at y = 1 on even x, a rail at y = 2.
- */
+/** The wall, beam and banister scene around the origin (scenes.ts). */
 function wallBeamBanister(): PaletteStore {
   const s = createWorldStore(grid);
-  ground(s, -12, 12, -12, 12);
-  for (let x = -6; x < 6; x++) for (let y = 0; y < 8; y++) put(s, x, y, 0, MAT.stone, C.construction);
-  for (let x = -6; x < 6; x++) put(s, x, 5, -1, MAT.timber, C.construction);
-  for (let x = -4; x < 4; x++) for (let z = 4; z < 8; z++) put(s, x, 0, z, MAT.plank, C.construction);
-  for (let x = -4; x < 4; x++) {
-    if ((x & 1) === 0) put(s, x, 1, 7, MAT.timber, C.construction);
-    put(s, x, 2, 7, MAT.timber, C.construction);
-  }
+  placeWallBeamBanister(s);
   return s;
 }
 
