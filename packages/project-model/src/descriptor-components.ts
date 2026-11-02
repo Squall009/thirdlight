@@ -85,6 +85,7 @@ export const model: ComponentDescriptor = {
     bool('occluder', 'Occluder', 'Hides what is behind it from the view for occlusion culling. Off for what should never hide anything (it is drawn after the occluders are tested).', { default: true, omitDefault: true }),
     seeThroughField(),
     json('scatter', 'Ground cover', 'Cover rules ({cover: true, …}, the scatter rule format) on its faces that look up, made near the camera (the Ground cover panel).', { readOnly: true, shape: 'ScatterRule[]' }),
+    bool('affectsLighting', 'Affects lighting', "Blocks light in a voxel world: its shape is stamped into the world's lighting occupancy (never its voxels). On for large static props (boulders, trees); off for small ones, which only receive light.", { default: false, omitDefault: true }),
   ]),
   add: { kind: 'pick', value: { asset: {} }, pick: ['asset/assetId'] },
   handles: [],

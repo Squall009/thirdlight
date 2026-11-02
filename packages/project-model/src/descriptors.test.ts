@@ -486,7 +486,7 @@ const COMPONENT_BASES_PLACED: Record<string, J> = {
 /** Every component's variant bases (each fills every field that applies). */
 const COMPONENT_BASES: Record<string, J[]> = {
   transform: [{ position: [1, 2, 3], rotation: [0, 0, 0, 1], scale: [1, 2, 1] }],
-  model: [{ asset: { assetId: 'model-a' }, piece: 'Tree', castShadow: false, receiveShadow: true, lightLayers: 2, localLights: 'pixel', decalLayers: 5, occluder: false, seeThrough: false }],
+  model: [{ asset: { assetId: 'model-a' }, piece: 'Tree', castShadow: false, receiveShadow: true, lightLayers: 2, localLights: 'pixel', decalLayers: 5, occluder: false, seeThrough: false, affectsLighting: true }],
   box: [{ size: [1, 2, 3], material: { color: '#aabbcc' }, castShadow: true, receiveShadow: false, lightLayers: 3, localLights: 'none', decalLayers: 0, occluder: true, seeThrough: true }],
   materials: [{ '*': 'mat-a', Bark: 'mat-b' }],
   materialParams: [{ 'mat-a': { tint: '#aabbcc', speed: 2, offset: [1, 2] } }],
@@ -497,6 +497,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
   probeVolume: [{ size: [16, 6, 16], spacing: 1.5 }],
   windZone: [{ shape: 'box', size: [20, 10, 20], blend: 2, priority: 3, direction: [0, 1], strength: 2, gust: 1, turbulence: 0.5, speed: 8, scale: 30 }, { shape: 'sphere', radius: 10 }],
   foliageBend: [{ radius: 0.8, strength: 1.5, recovery: 2 }, {}],
+  voxelWorld: [{ world: 'town_1', ring: { loadRadius: 120, unloadRadius: 150, loadHeight: 60, unloadHeight: 80 }, collision: { radius: 40, height: 20 }, sectionEdge: 32, savedFields: ['wetness'] }, { world: 'w' }],
   vertexPaint: [{ meshes: [{ mesh: 'Body/Hull#0', vertices: 120, positions: 'a'.repeat(16), paint: 'b'.repeat(64) }], paths: [{ path: 'spline', side: 'top', origin: [-4, -8], size: [40, 16], paint: 'c'.repeat(64) }] }],
   decal: [{ size: [2, 1, 0.5], mode: 'clipped', material: 'mat-a', opacity: { albedo: 0.5, normal: 1, roughness: 0, metalness: 0.2, occlusion: 0.7, emission: 0.1 }, normalFade: 60, edgeFade: [0.1, 0.4], fadeDistance: 40, sortOrder: -3, layers: 6 }],
   architecture: [{ elements: [{ id: 'wall', kind: 'sweep', path: { points: [[0, 0, 0], [6, 0, 0]] }, profile: 'wall' }], profiles: { wall: { points: [[0, 0], [0, 3]], slots: ['lower_wall'] } }, overrides: [{ element: 'wall', segment: 0, model: { assetId: 'model-a' } }], chunkSize: 16, seed: 7, ao: { strength: 0.5, radius: 0.4 }, lodDistance: 30, castShadow: false, receiveShadow: false, baked: 'd'.repeat(64), layer: 'floor' , decalLayers: 1, kitId: 'town', seeThrough: false, furnishing: 'starter-furnishing' }],
@@ -1067,8 +1068,9 @@ describe('descriptor registry', () => {
     // level's reflections, about 0.4 KB; temporal upscaling as an anti-aliasing kind, about 0.1 KB; a quality level's
     // lighting tier and the lighting fields' values per tier, about 0.7 KB; a static glowing box's glow mode, about 0.4 KB;
     // a quality level's shadow atlas side, about 0.3 KB; a virtual camera's occlusion mode and pull-in times, about 1.4 KB;
-    // a virtual camera's auto-exposure fields, about 2.1 KB)
-    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(357_700);
+    // a virtual camera's auto-exposure fields, about 2.1 KB; a scene's voxel world — its world, load and collision rings,
+    // section edge and saved fields — and a model's lighting occupancy flag, about 3.4 KB)
+    expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(361_200);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
 

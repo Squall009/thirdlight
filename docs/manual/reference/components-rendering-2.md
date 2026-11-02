@@ -109,3 +109,27 @@ Walls, mouldings, floors, vaults, roofs and repeated pieces generated at load fr
 | `kitId` | kit id |  |  | **Kit.** The kit its rooms and buildings are styled from: the editor offers its presets and pieces. Editor-side: outlines name their presets and openings their models themselves. (scripts read) |
 | `scatter` | JSON: `ScatterRule[]` ([ScatterRule](types-m-t.md#type-scatter-rule)) |  |  | **Ground cover.** Cover rules ({cover: true, …}, the scatter rule format) on its floors (flat fills facing up), made near the camera (the Ground cover panel). (written by a tool; scripts read) |
 | `baked` | string, sha256, 64 chars |  |  | **Shipped meshes.** SHA-256 of the generated meshes an export shipped (written by the export). (written by a tool; scripts read; format sha256) |
+
+<a id="component-voxelWorld"></a>
+## voxelWorld — Voxel world
+
+Streams one of the project's voxel worlds (voxels/<world>/) round the camera while this scene is loaded.
+
+- Category: Rendering
+- Added: from "+ Add component", starting as `{"world":"world"}`
+- On prefab objects: no
+- Rule: The world is the project's folder voxels/<world>/; it streams while the scene holding this object is loaded.
+
+| Field | Type | Default | Range | Description |
+|---|---|---|---|---|
+| `world` | string, id, 1–64 chars | `"world"` |  | **World.** The world's name: its folder voxels/<world>/ in the project (lower-case letters, digits, - and _). (required; scripts read; format id) |
+| `ring` | object |  |  | **Load ring.** Where chunks load round the focus and how far past it they stay (the hysteresis). (scripts read) |
+| `ring.loadRadius` | number | `192` | 1 – 100000, step 1, m | **Load radius.** Metres across the ground within which chunks load. |
+| `ring.unloadRadius` | number |  | 1 – 100000, step 1, m | **Unload radius.** Metres across the ground past which loaded chunks go (below the load radius: taken as it; empty: the load radius + 32 m). |
+| `ring.loadHeight` | number | `96` | 1 – 100000, step 1, m | **Load height.** Metres above and below within which chunks load. |
+| `ring.unloadHeight` | number |  | 1 – 100000, step 1, m | **Unload height.** Metres above and below past which loaded chunks go (below the load height: taken as it; empty: the load height + 32 m). |
+| `collision` | object |  |  | **Collision ring.** Where loaded chunks have colliders round a focus (never past the load ring). (scripts read) |
+| `collision.radius` | number | `48` | 1 – 100000, step 1, m | **Radius.** Metres across the ground. |
+| `collision.height` | number | `24` | 1 – 100000, step 1, m | **Height.** Metres above and below. |
+| `sectionEdge` | int (one of 8, 16, 32) | `16` | step 1 | **Section edge.** Voxels along the edge of the sections a chunk is rebuilt in after an edit: smaller rebuilds less per edit, larger draws fewer pieces. (scripts read) |
+| `savedFields` | list of enum: `material`, `role`, `shape`, `wetness`, distinct | `["material","role","shape"]` |  | **Saved fields.** The fields of the game's changes to the world that a game save keeps; the rest are dropped on quit (wetness, by default, which weather sets again). (scripts read) |

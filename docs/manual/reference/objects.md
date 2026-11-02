@@ -21,7 +21,7 @@ An object in a scene.
 | `static` | bool | `false` |  | **Static.** Never moves (baked lighting, cheaper rendering). (stored only when not the default; scripts read) |
 | `keepLoaded` | bool | `false` |  | **Keep loaded.** Survives scene changes (with its children and scripts): loading, unloading or reloading its scene, or loading a save, never destroys it. On a root object (or one in folders). (stored only when not the default; scripts read and write) |
 | `tags` | int | `0` | 0 – 4294967295, step 1 | **Tags.** The tag bits (a 32-bit mask of the project's tags). (stored only when not the default; scripts read) |
-| `components` | components (44 kinds) |  |  | **Components.** What the object is and does. (required; allowed: `transform`, `model`, `box`, `materials`, `materialParams`, `effect`, `surface`, `instances`, `fogVolume`, `probeVolume`, `decal`, `vertexPaint`, `windZone`, `foliageBend`, `collider`, `controller`, `virtualCamera`, `cameraPath`, `cameraRegion`, `socketAttach`, `light`, `playerSpawn`, `mover`, `trigger`, `switch`, `health`, `collectible`, `patrol`, `hitbox`, `climbVolume`, `gravity`, `audioSource`, `animator`, `faceMovement`, `modelAnimation`, `behavior`, `prefab`, `folder`, `blockLayer`, `blockFootprint`, `behaviorGroup`, `terrain`, `spline`, `architecture`) |
+| `components` | components (45 kinds) |  |  | **Components.** What the object is and does. (required; allowed: `transform`, `model`, `box`, `materials`, `materialParams`, `effect`, `surface`, `instances`, `fogVolume`, `probeVolume`, `decal`, `vertexPaint`, `windZone`, `foliageBend`, `collider`, `controller`, `virtualCamera`, `cameraPath`, `cameraRegion`, `socketAttach`, `light`, `playerSpawn`, `mover`, `trigger`, `switch`, `health`, `collectible`, `patrol`, `hitbox`, `climbVolume`, `gravity`, `audioSource`, `animator`, `faceMovement`, `modelAnimation`, `behavior`, `prefab`, `folder`, `blockLayer`, `blockFootprint`, `behaviorGroup`, `terrain`, `spline`, `architecture`, `voxelWorld`) |
 
 <a id="component-index"></a>
 ## Components
@@ -74,6 +74,7 @@ Every component, in "+ Add component" order within its category.
 | [`terrain`](components-rendering-1.md#component-terrain) | Terrain | Rendering | A heightfield of square tiles for landscape reaching the horizon, sculpted, painted and cut in the terrain editor (the editTerrain commands). |
 | [`spline`](components-rendering-2.md#component-spline) | Spline | Rendering | A curve through points, each with its own width and roll: roads, paths and rivers carved and painted into terrain, meshes and models along it, and a path scripts read (ctx.splines). |
 | [`architecture`](components-rendering-2.md#component-architecture) | Architecture | Rendering | Walls, mouldings, floors, vaults, roofs and repeated pieces generated at load from parameters: profiles swept along paths, things repeated along paths, and fills, on one trim sheet (Materials slot "architecture"). |
+| [`voxelWorld`](components-rendering-2.md#component-voxelWorld) | Voxel world | Rendering | Streams one of the project's voxel worlds (voxels/<world>/) round the camera while this scene is loaded. |
 
 <a id="handle-kinds"></a>
 ## Scene-view handle kinds

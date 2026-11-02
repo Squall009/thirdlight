@@ -126,7 +126,6 @@ export {
   readVoxelWorldManifest,
   VOXEL_WORLD_FORMAT,
   VOXEL_WORLD_MANIFEST,
-  VOXEL_WORLD_NAME_RE,
   VOXEL_WORLDS_FOLDER,
   VoxelWorlds,
   writeVoxelWorld,

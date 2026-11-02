@@ -77,6 +77,12 @@ export interface ChunkGrid extends CellGrid {
  */
 export type SectionEdge = 8 | 16 | 32;
 export const SECTION_EDGES: readonly SectionEdge[] = Object.freeze([8, 16, 32]);
+/**
+ * The section edge a world derives with unless it chooses another: 16³
+ * sections keep a blast's re-derive small enough to swap in the next frame,
+ * where whole 32³ chunks took several.
+ */
+export const DEFAULT_SECTION_EDGE: SectionEdge = 16;
 
 function cubeGrid(edge: number): CellGrid {
   const shift = Math.log2(edge);

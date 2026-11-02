@@ -31,6 +31,7 @@ Shows an imported 3D model (a whole file or one named piece of it).
 | `occluder` | bool | `true` |  | **Occluder.** Hides what is behind it from the view for occlusion culling. Off for what should never hide anything (it is drawn after the occluders are tested). (stored only when not the default; scripts read) |
 | `seeThrough` | bool | `true` |  | **See-through.** Thins to a dither between the camera and a subject (Rendering → See-through). Off: always solid. (stored only when not the default; scripts read) |
 | `scatter` | JSON: `ScatterRule[]` ([ScatterRule](types-m-t.md#type-scatter-rule)) |  |  | **Ground cover.** Cover rules ({cover: true, …}, the scatter rule format) on its faces that look up, made near the camera (the Ground cover panel). (written by a tool; scripts read) |
+| `affectsLighting` | bool | `false` |  | **Affects lighting.** Blocks light in a voxel world: its shape is stamped into the world's lighting occupancy (never its voxels). On for large static props (boulders, trees); off for small ones, which only receive light. (stored only when not the default; scripts read) |
 
 <a id="component-box"></a>
 ## box — Box

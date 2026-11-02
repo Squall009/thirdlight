@@ -48,6 +48,7 @@ import {
   REGION_FOOTPRINTS,
   liftVersion,
   UndoStore,
+  VOXEL_WORLD_NAME_RE,
   WORLD_GRID_ID,
   WORLD_ID_BYTES,
   type CellBox,
@@ -72,8 +73,6 @@ export const VOXEL_WORLDS_FOLDER = 'voxels';
 export const VOXEL_WORLD_MANIFEST = 'world.json';
 /** The world manifest's format; a newer one is refused, an older one lifted ({@link liftManifest}). */
 export const VOXEL_WORLD_FORMAT = 2;
-/** A world's folder name. */
-export const VOXEL_WORLD_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 /**
  * The voxel world ops' arguments, as {@link VoxelWorlds.command} reads them
  * (unknown fields refused). `world` names the folder `voxels/<world>/`.

@@ -9,9 +9,11 @@
  * a released project's worlds read again, the backend restarted over the
  * same data root finding the edit in the files, a region file the
  * manifest lists but that is gone reported as damaged (never air) while an
- * unlisted region reads as air, and MCP's tl_command sending the same voxel
- * ops as the editor page (the same answer, the same files) while the
- * project's editor learns of every change over its WebSocket feed.
+ * unlisted region reads as air, a scene object's voxelWorld component set,
+ * patched and refused through setComponent and kept across a restart, and
+ * MCP's tl_command sending the same voxel ops as the editor page (the same
+ * answer, the same files) while the project's editor learns of every change
+ * over its WebSocket feed.
  *
  * Chunks are read back the way a browser does: a region chunk source whose
  * byte source sends Range requests to the route, decoded into a store, and
@@ -329,6 +331,38 @@ describe('voxel world routes', () => {
     expectSame(await readChunks(SCENE_CHUNKS), expected, SCENE_CHUNKS);
     // Undo history is the process's: none after a restart.
     expect(((await command({ op: 'undoVoxels', projectId: PROJECT, args: { world: WORLD } })).json.error as { code: string }).code).toBe('nothing_to_undo');
+  }, 60_000);
+
+  it('a scene object names the world with a voxelWorld component: set, patched and refused through setComponent, kept on disk and read again', async () => {
+    type Read = { status: number; json: Record<string, unknown> };
+    const query = async (op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => (await command({ op, projectId: PROJECT, args })).json;
+    const revision = async (): Promise<number> => (await query('queryProject', {}))['revision'] as number;
+    const send = async (op: string, args: Record<string, unknown>): Promise<Read> => command({ op, projectId: PROJECT, expectedRevision: await revision(), requestId: `req-${randomBytes(16).toString('hex')}`, args });
+    const made = await send('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'World' });
+    expect(made.status, JSON.stringify(made.json)).toBe(200);
+    const entityId = made.json['createdId'] as string;
+    const read = async (): Promise<unknown> => ((await query('queryEntity', { entityId }))['entity'] as { components: Record<string, unknown> }).components['voxelWorld'];
+    // Fields in any order; the canonical value holds every one, in order, and nothing the sender did not set.
+    const set = await send('setComponent', { entityId, component: 'voxelWorld', value: { savedFields: ['wetness', 'material'], sectionEdge: 32, collision: { height: 20, radius: 40 }, ring: { unloadRadius: 150, loadRadius: 120 }, world: WORLD } });
+    expect(set.status, JSON.stringify(set.json)).toBe(200);
+    const full = { world: WORLD, ring: { loadRadius: 120, unloadRadius: 150 }, collision: { radius: 40, height: 20 }, sectionEdge: 32, savedFields: ['material', 'wetness'] };
+    expect(JSON.stringify(await read())).toBe(JSON.stringify(full));
+    // Bad values are refused and change nothing.
+    for (const value of [{ sectionEdge: 12 }, { world: 'Bad Name' }, { savedFields: ['colour'] }, { ring: { loadRadius: 0 } }, { climate: 1 }]) {
+      const r = await send('setComponent', { entityId, component: 'voxelWorld', value });
+      expect(r.status, JSON.stringify(value)).toBe(400);
+    }
+    expect(JSON.stringify(await read())).toBe(JSON.stringify(full));
+    // A field set to null goes back to the engine default (absent), the rest stay.
+    expect((await send('setComponent', { entityId, component: 'voxelWorld', value: { sectionEdge: null, collision: null } })).status).toBe(200);
+    const patched = { world: WORLD, ring: { loadRadius: 120, unloadRadius: 150 }, savedFields: ['material', 'wetness'] };
+    expect(JSON.stringify(await read())).toBe(JSON.stringify(patched));
+    // On disk in the scene file, and the same after a restart reads the project again from its files.
+    const sceneFile = JSON.parse(readFileSync(join(backend._test.service.projectDir(PROJECT)!, 'scenes', 'scene-main.json'), 'utf8')) as { scene: { entities: Array<{ id: string; components: Record<string, unknown> }> } };
+    expect(sceneFile.scene.entities.find((e) => e.id === entityId)!.components['voxelWorld']).toEqual(patched);
+    await close();
+    await start();
+    expect(JSON.stringify(await read())).toBe(JSON.stringify(patched));
   }, 60_000);
 
   it('a region the manifest lists but that is gone is damaged, never air; a region it does not list is air', async () => {

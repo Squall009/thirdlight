@@ -118,6 +118,9 @@ export function checkRegionTile(h: RegionHeader, e: RegionExpect): void {
 export const REGION_HEADER_BYTES = 64;
 /** Bytes of one chunk table entry. */
 export const REGION_ENTRY_BYTES = 12;
+/** A world's name: its folder in a project and what a scene's voxel world component names. */
+export const VOXEL_WORLD_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+
 /** Bytes of a world id. */
 export const WORLD_ID_BYTES = 16;
 /** The grid id of the world grid (structures' own grids are 1 and up). */

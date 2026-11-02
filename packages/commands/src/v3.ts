@@ -13,7 +13,7 @@
  * No I/O, no transport, no renderer: values in, values out.
  */
 
-import { CONTROLLER_FIELDS, DECAL_FIELDS, VERTEX_PAINT_FIELDS, WIND_ZONE_FIELDS, FOLIAGE_BEND_FIELDS, validateFoliageBendComponent, validateDecalComponent, validateVertexPaintComponent, validateWindZoneComponent } from '@thirdlight/project-model';
+import { CONTROLLER_FIELDS, DECAL_FIELDS, VERTEX_PAINT_FIELDS, WIND_ZONE_FIELDS, FOLIAGE_BEND_FIELDS, validateFoliageBendComponent, VOXEL_WORLD_FIELDS, validateVoxelWorldComponent, validateDecalComponent, validateVertexPaintComponent, validateWindZoneComponent } from '@thirdlight/project-model';
 import { CAMERA_PATH_FIELDS, CAMERA_REGION_FIELDS, VIRTUAL_CAMERA_FIELDS, validateCameraPathComponent, validateCameraRegionComponent, validateVirtualCameraComponent, validateProbeVolumeComponent } from '@thirdlight/project-model';
 import { BLOCK_LAYER_FIELDS, validateBlockLayerComponent, validateBlockFootprintComponent } from '@thirdlight/project-model';
 import { ANIMATION_ROLE_KEYS, validateBehaviorGroupComponent } from '@thirdlight/project-model';
@@ -90,6 +90,7 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   vertexPaint: VERTEX_PAINT_FIELDS,
   windZone: WIND_ZONE_FIELDS,
   foliageBend: FOLIAGE_BEND_FIELDS,
+  voxelWorld: VOXEL_WORLD_FIELDS,
 };
 
 /**
@@ -101,7 +102,7 @@ export const COMPONENT_FIELD_ORDER: Record<OwnedComponent, readonly string[]> = 
   box: ['size', 'material', 'castShadow', 'receiveShadow', 'lightLayers', 'localLights', 'decalLayers', 'occluder', 'seeThrough'],
   camera: ['type', 'fovY', 'near', 'far'],
   // The piece of a multi-piece file is an Inspector field too.
-  model: ['asset', 'piece', 'castShadow', 'receiveShadow', 'lightLayers', 'localLights', 'decalLayers', 'occluder', 'seeThrough', 'scatter'],
+  model: ['asset', 'piece', 'castShadow', 'receiveShadow', 'lightLayers', 'localLights', 'decalLayers', 'occluder', 'seeThrough', 'scatter', 'affectsLighting'],
   // The shape, the one-way flag, the collision layers, the plane lock and the 2D shapes' depth (all optional).
   collider: ['shape', 'oneWay', 'layers', 'plane', 'depth'],
   // The capsule, then the movement tuning (all optional; `null` goes back to the default).
@@ -169,6 +170,7 @@ export const V3_COMPONENTS: readonly V3OwnedComponent[] = [
   // v4 scenes only.
   'windZone',
   'foliageBend',
+  'voxelWorld',
 ];
 
 /** Every component `setComponent` may address. */
@@ -271,6 +273,9 @@ export function validateV3ComponentValue(
       break;
     case 'foliageBend':
       validateFoliageBendComponent(value, path, errors as unknown as Parameters<typeof validateFoliageBendComponent>[2]);
+      break;
+    case 'voxelWorld':
+      validateVoxelWorldComponent(value, path, errors as unknown as Parameters<typeof validateVoxelWorldComponent>[2]);
       break;
     case 'socketAttach':
       validateSocketAttachComponent(value, path, errors as unknown as Parameters<typeof validateSocketAttachComponent>[2]);

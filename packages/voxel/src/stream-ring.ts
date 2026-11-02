@@ -38,6 +38,14 @@ export interface StreamRing {
  */
 export const DEFAULT_STREAM_RING: StreamRing = Object.freeze({ loadRadius: 384, unloadRadius: 448, loadHeight: 192, unloadHeight: 256, nearRadius: 192 });
 
+/**
+ * The default collision ring (cells): loaded chunks get physics bodies only
+ * within 48 m horizontally and 24 m vertically of a focus, since characters
+ * and scripts touch the ground near them while the far ring is only drawn;
+ * physics memory then follows the ring, not the whole loaded area.
+ */
+export const DEFAULT_COLLISION_RING: Readonly<{ radius: number; height: number }> = Object.freeze({ radius: 96, height: 48 });
+
 /** Quality tiers with a streaming budget of their own. */
 export type StreamTier = 'low' | 'medium' | 'high';
 

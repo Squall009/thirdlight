@@ -52,6 +52,8 @@ export interface ModelComponent {
   seeThrough?: boolean;
   /** Ground cover on its upward faces (cover rules, `scatter.ts`; made near the camera, never stored; absent: none). */
   scatter?: ScatterRule[];
+  /** Blocks light in a voxel world's lighting occupancy (its shape stamped round it, never into the world's voxels; absent: false). */
+  affectsLighting?: boolean;
 }
 
 /** Seven-type property value vocabulary. */

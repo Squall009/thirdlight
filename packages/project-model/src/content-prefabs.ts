@@ -77,10 +77,11 @@ function prefabDepth(entities: Record<string, unknown>[]): number {
  * (one camera live per view and a player character per controller are the
  * running game's, not the prefab's). Left out: what the scene itself holds
  * (a block layer's cells; the blobs of an instance set, a terrain and vertex
- * paint, which are kept and collected with the scene) and a folder (it has no
- * place in the game).
+ * paint, which are kept and collected with the scene), a folder (it has no
+ * place in the game) and a voxel world (one streams per scene that names it;
+ * copies of it would name the same world many times).
  */
-export const PREFAB_EXCLUDED_COMPONENTS: readonly string[] = ['blockLayer', 'instances', 'terrain', 'vertexPaint', 'folder'];
+export const PREFAB_EXCLUDED_COMPONENTS: readonly string[] = ['blockLayer', 'instances', 'terrain', 'vertexPaint', 'folder', 'voxelWorld'];
 /** The components a v4 prefab part may carry besides transform, model, box and behavior. */
 export const PREFAB_V4_COMPONENTS: readonly string[] = V4_REGISTRY.filter((c) => !['transform', 'model', 'box', 'behavior', 'prefab'].includes(c) && !PREFAB_EXCLUDED_COMPONENTS.includes(c));
 const PREFAB_BLOCKS = ['mover', 'trigger', 'switch', 'audioSource', 'faceMovement', 'health', 'collectible', 'patrol', 'hitbox', 'climbVolume', 'gravity'] as const;
@@ -89,7 +90,7 @@ const PREFAB_BLOCKS = ['mover', 'trigger', 'switch', 'audioSource', 'faceMovemen
 function validatePrefabPartComponents(comps: Record<string, unknown>, parentLocalId: unknown, path: string, errors: ModelErrorV2[]): void {
   for (const k of Object.keys(comps)) {
     if (k !== 'prefab' && !PREFAB_EXCLUDED_COMPONENTS.includes(k)) continue;
-    const why = k === 'prefab' ? 'a part names its prefab through a nested copy' : k === 'folder' ? 'a folder only organises a scene' : 'its data is held by the scene';
+    const why = k === 'prefab' ? 'a part names its prefab through a nested copy' : k === 'folder' ? 'a folder only organises a scene' : k === 'voxelWorld' ? 'a voxel world streams with the scene that names it' : 'its data is held by the scene';
     errors.push(withFound({ code: 'prefab_component_forbidden', path: `${path}/components/${pointerSegment(k)}`, message: `a prefab part must not carry ${k}: ${why}`, expected: `a scene object's components except prefab, ${PREFAB_EXCLUDED_COMPONENTS.join(', ')}` }, k));
   }
   const own = Object.fromEntries(Object.entries(comps).filter(([k]) => k !== 'prefab' && !PREFAB_EXCLUDED_COMPONENTS.includes(k)));

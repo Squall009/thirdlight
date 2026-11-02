@@ -32,6 +32,7 @@ export {
   regionOfCell,
   regionOfChunk,
   regionOfKey,
+  DEFAULT_SECTION_EDGE,
   SECTION_EDGES,
   sectionGrid,
   type CellGrid,
@@ -134,6 +135,7 @@ export {
   REGION_HEADER_BYTES,
   REGION_OPEN_PREFETCH,
   WORLD_GRID_ID,
+  VOXEL_WORLD_NAME_RE,
   WORLD_ID_BYTES,
   writeRegion,
   type RegionByteSource,
@@ -223,7 +225,7 @@ export { deriveNow, streamJobHandlers, type StreamHandlerOptions } from './strea
 export { JobQueue } from './job-queue';
 export { eventTargetWorker, SampleRing, STREAM_POOL_SETTINGS, WorkerPool, type JobOutcome, type PoolJob, type PoolStats, type PoolWorker, type WorkerPoolOptions } from './worker-pool';
 export { RegionChunkSource, type ChunkSource, type RegionChunkSourceOptions } from './region-source';
-export { checkRing, chunkDistance2, DEFAULT_STREAM_RING, inLoadRing, inNearRing, pastUnloadRing, RESIDENT_CHUNK_OVERHEAD_BYTES, ringChunks, VOXEL_STREAM_BUDGET_BYTES, type Focus, type StreamRing, type StreamTier } from './stream-ring';
+export { checkRing, chunkDistance2, DEFAULT_COLLISION_RING, DEFAULT_STREAM_RING, inLoadRing, inNearRing, pastUnloadRing, RESIDENT_CHUNK_OVERHEAD_BYTES, ringChunks, VOXEL_STREAM_BUDGET_BYTES, type Focus, type StreamRing, type StreamTier } from './stream-ring';
 export { sectionsOfChunk, type SwapReport } from './stream-sections';
 export { VoxelStreamer, type DerivedChunk, type StreamCounters, type StreamEvent, type StreamMetrics, type VoxelStreamerOptions } from './voxel-streamer';
 export { DEFAULT_REBASE_DISTANCE_M, FloatingOrigin, type FloatingOriginOptions, type RebaseEvent } from './floating-origin';
