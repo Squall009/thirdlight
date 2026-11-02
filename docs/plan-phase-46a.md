@@ -97,7 +97,7 @@ number: Iris Xe, 1280×720, 60 Hz cap, both renderers, ≤ 3 rounds, `uptime` re
 | 46a.2 | done e48969c5 (+ boundary 1bf03832): `voxelWorld` {world, ring, collision, sectionEdge, savedFields}, metres, unset = voxel defaults (192/224, 96/128, 48/24 m, 16, material/role/shape); model `affectsLighting`; additive on schema 8. Vitest + backend setComponent/restart test. Fast gate green 11 min, 4.9 GB; voxel-world.e2e 21.0 s, inspector.e2e 15.4 s. |
 | 46a.3 | done 6ab7d6cb: streamer reads through `VoxelOverlay` (base never written; payloads, aprons, `voxelAt`, worker edits); overrides outlive unload, counted in the budget; `saveChunks(saved)`, `clearOverlay`; default sections 16. stream.test: dig 8 / 4 m 27 section derives, paints 0 mesh derives; ~9.7 B a changed cell. fast gate green 12 min; voxel-world.e2e 21.0 → 21.1 s. |
 | 46a.4 | done c93ae33b: reads in whole columns + row neighbours to the hysteresis, 16 KB gap, 8 reads, held decodes, ring kept 1 s ahead of motion. stream-page +40 ms, 80 m/s, both renderers ×3: near holes 0 (was p50 761 / p95 1,148), ~39 req/s, 16.1–16.5 MB (1.4× of 11.8). D432 fixed. Fast gate green 11 min; voxel-world.e2e 21.1 → 26.7 s (load 7–8). |
-| 46a.5a | not started |
+| 46a.5a | done 23e5e1ee: `joinSections` (chunk-join.ts) joins a chunk's 16³ results into one ground + base surface, instances and a 34³ grid equal to the whole-chunk derive; swaps name their chunks, `chunk` events, `joinedChunk` on demand. Join p50/p95 slice 285/587 µs, town 312/686 µs (grid ~90 %). Fast gate green 12 min; voxel-world.e2e 26.7 → 19.8 s (load 9 → 2). |
 | 46a.5b | not started |
 | 46a.6a | not started |
 | 46a.6b | not started |
@@ -200,6 +200,37 @@ Browser (`run.mjs stream-page --rounds 3 --speeds 80 --no-trace`, hilly 2 × 2 k
   8 reads keep busy); other speeds; the slice page on staging (it streams from the backend's range route on
   localhost with the same defaults).
 
+**46a.5a** (23e5e1ee). `chunk-join.ts` (`joinSections`, `joinSurfaces`, `joinInstances`, `joinShader`): a chunk's
+section results joined into one ground and one base surface buffer (concatenated in section id order, positions moved
+to the chunk's corner by whole cell steps, indices offset), one instance list and one 34³ shader grid (each grid
+cell from the section holding it, palette rebuilt in grid order). The streamer: `joinedChunk(cx, cy, cz)` joins each
+section's newest committed result (a section waiting in an open group gives the result drawn before it), timed into
+`streamer.joinUs`; `SwapReport.chunks` names the storage chunks a swap replaces, and a `chunk` event (`shaderOnly`
+when only shader data changed) goes out for every chunk whose sections took new results in one task, just before
+the `swap` (or after one job's answer while streaming). The slice page still draws per section and ignores `chunk`.
+Tests: `derived.test.ts` (16³ and 8³, hilly, town and the wall-beam-banister scene: triangles with positions and
+normals, instances and `encodeShader` bytes equal to the whole-chunk derive; the 45.6 seam test on joined chunks,
+every inner edge two triangles across section and chunk faces; a broken grid copy fails it, checked once by hand);
+`stream.test.ts` (4 real workers, region files: joins after the cold fill and of every chunk a 16³ and 8³ blast's
+swap names equal whole-chunk derives of the oracle; the swap's `chunks` = the chunks of its sections, each announced
+once before it; a dig announces geometry, a paint shader only).
+Join cost (`node tools/voxel-bench/run.mjs join`, Node 22, i5-12600H, in-thread derives, 16³, 3 joins a chunk, the
+first reported as cold; 2026-11-02 22:50, load 9.9 / 7.2 / 6.4, uptime 10 d 6.4 h; report
+`~/.cache/thirdlight-phase46/work/46a.5a/join.md`, scratch):
+
+| World | Chunks joined (all with a grid) | Join µs p50 / p95 / max | Cold p50 / p95 | Cold surfaces / grid µs p50 | Extra vertices | Mismatches |
+|---|---|---|---|---|---|---|
+| slice (±192 cells of the scene) | 324 | 285 / 587 / 3,171 | 300 / 575 | 23 / 277 | +6.1 % | 0 |
+| town (256 m) | 834 | 312 / 686 / 2,983 | 328 / 704 | 26 / 292 | +1.2 % | 0 |
+
+- About nine tenths of a join is the shader grid (expand 8 section grids, copy, palette pass, pack); the surfaces
+  are 23–26 µs. The renderer expands the packed grid again to upload it, so 46a.5b can take the joined u16 cells
+  directly and skip a pack and an expand. A big town blast replacing 8–18 chunks costs ~3–6 ms of joins on the
+  main thread against the 200–220 ms of replacing 48–64 per-section objects measured in 45.10c.
+- Fast gate (gate-fast-20261102-225350): GREEN, 12 min, 4.3 GB peak, village perf at the cap 0 missed on both
+  renderers. `voxel-world.e2e.ts` 26.7 → 19.8 s (9.0 + 5.2 + 5.6 s; no e2e change; load 9.1 at the start, 2.4 at
+  the end, uptime 10 d 6.5 h): 46a.4's 26.7 s was host load, not the larger ring.
+
 **46a.2** (1bf03832 boundary, e48969c5 schema). No perf item. `voxelWorld {world, ring?, collision?, sectionEdge?,
 savedFields?}` (metres; unset = the voxel defaults, resolved by `resolveVoxelWorld`: load 192/224 m across, 96/128 m
 up/down, collision 48/24 m, 16-cell sections, saved material/role/shape) and the model flag `affectsLighting`; additive
@@ -282,5 +313,15 @@ e2e change), `inspector.e2e.ts` 15.4 s (8.2 + 4.6 + 2.6 s); village perf at the 
   point), the focus height first inside a column: the near lane and the near-ring measure are horizontal, and a
   column is one byte range. Chunks far above or below a near column now come before nearer-in-3D chunks of the next
   column; most of them are air or uniform (no bytes, no worker).
+- 2026-11-02 (46a.5a, default chosen, owner to confirm): **joined chunks are built on demand and not kept**: a
+  `chunk` event names the chunk, the drawing side asks `joinedChunk` and uploads; the streamer keeps only the section
+  results (an edit re-derives some sections and the join needs the rest), so a joined copy in memory would double
+  the derived bytes for nothing the GPU does not already hold. Vertices on faces between sections are **not welded**
+  (+1.2 % town, +6.1 % slice vertices; triangles and positions equal the whole-chunk derive bit for bit): welding
+  would cost a hash lookup a vertex on the main thread and the 46b mesher replaces these buffers anyway.
+- 2026-11-02 (46a.5a): `stream.test.ts`'s 16³/8³ sections test hangs when run alone (`-t sections`, also at
+  4036a3c2): its wait for the blast's swap only yields tasks and never calls `update()`, so it relies on the edit's
+  own job sends finding pool room, which depends on the tests before it; in the file it passes (7.1 s, now with its
+  own 30 s timeout: two cold fills plus whole-chunk oracle derives went past vitest's 5 s at load 9–11). Not fixed here.
 - 2026-11-02 (plan): M7 (cross-grid dependencies) stays the open contract gap recorded in spec §3.6, to be settled
   before 47a; nothing in 46a builds on structure grids.
