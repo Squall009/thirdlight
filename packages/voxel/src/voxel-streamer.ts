@@ -23,6 +23,11 @@
  * ignored. Edits (on the main thread, or as `edit` jobs) bump the edited
  * chunks and invalidate every chunk within R of the edit, whose derived
  * results are then rebuilt in the `edit` lane.
+ *
+ * When another writer changed the source (a backend applied an edit command
+ * and saved it), {@link VoxelStreamer.refresh} reads the chunks it names
+ * again: a resident chunk keeps its content until the new one lands, then
+ * swaps it and everything within R is rebuilt in the `edit` lane.
  */
 import { apronBytes, apronTransfer, buildApron, checkRadius, dependentChunks } from './apron';
 import { jobRadius, rulesRef, type AssemblyRuleSet } from './assembly';
@@ -105,6 +110,8 @@ interface Chunk {
   derived: DeriveOutput | null;
   /** Base hash from the load (when asked for). */
   hash: Uint8Array | null;
+  /** The live refresh of a resident chunk (0: none): only the newest refresh swaps its content in. */
+  refresh: number;
 }
 
 /** Window in which a chunk loaded again after being unloaded counts as churn. */
@@ -134,6 +141,10 @@ export interface StreamCounters {
   /** Ticks a dirty chunk past the unload bounds was kept. */
   heldDirty: number;
   mismatches: number;
+  /** Resident chunks read again after their source changed, and swapped in. */
+  refreshed: number;
+  /** Refreshes not swapped in: damaged, superseded by a later refresh, or the chunk was edited here meanwhile. */
+  refreshDropped: number;
 }
 
 export interface StreamMetrics {
@@ -166,7 +177,7 @@ export class VoxelStreamer {
   readonly ring: StreamRing;
   readonly radius: number;
   budgetBytes: number;
-  readonly counters: StreamCounters = { loads: 0, loadsStored: 0, loadsUniform: 0, loadsAir: 0, unloads: 0, evictions: 0, reloads: 0, cancelledLoads: 0, staleRefused: 0, retried: 0, damaged: 0, derives: 0, deriveChecks: 0, overBudgetTicks: 0, heldDirty: 0, mismatches: 0 };
+  readonly counters: StreamCounters = { loads: 0, loadsStored: 0, loadsUniform: 0, loadsAir: 0, unloads: 0, evictions: 0, reloads: 0, cancelledLoads: 0, staleRefused: 0, retried: 0, damaged: 0, derives: 0, deriveChecks: 0, overBudgetTicks: 0, heldDirty: 0, mismatches: 0, refreshed: 0, refreshDropped: 0 };
   /** Main-thread milliseconds: planning per update, adopting a chunk, building an apron. */
   readonly planMs = new SampleRing();
   readonly adoptMs = new SampleRing();
@@ -190,6 +201,9 @@ export class VoxelStreamer {
   private horizon = Infinity;
   private tick = 0;
   private reads = 0;
+  /** Refresh load jobs in flight. */
+  private refreshing = 0;
+  private refreshSeq = 0;
   private bytesChunks = 0;
   private bytesDerived = 0;
   private readonly heldOutside = new Set<number>();
@@ -371,7 +385,7 @@ export class VoxelStreamer {
   }
 
   private idle(): boolean {
-    if (this.reads > 0) return false;
+    if (this.reads > 0 || this.refreshing > 0) return false;
     for (const c of this.chunks.values()) if (c.phase === 'reading' || c.phase === 'decoding' || c.deriveJob !== 0) return false;
     if (this.opts.derive === true) {
       for (const key of this.deriveWanted) {
@@ -476,7 +490,7 @@ export class VoxelStreamer {
         this.cursor++;
         const key = chunkKey(this.grid, w.cx, w.cy, w.cz);
         if (this.chunks.has(key)) continue;
-        const c: Chunk = { cx: w.cx, cy: w.cy, cz: w.cz, key, phase: 'reading', job: 0, bytes: 0, parts: null, d2: w.d2, wantedTick: this.tick, derive: 'no', deriveJob: 0, derived: null, hash: null };
+        const c: Chunk = { cx: w.cx, cy: w.cy, cz: w.cz, key, phase: 'reading', job: 0, bytes: 0, parts: null, d2: w.d2, wantedTick: this.tick, derive: 'no', deriveJob: 0, derived: null, hash: null, refresh: 0 };
         this.chunks.set(key, c);
         list.push(c);
       }
@@ -773,6 +787,102 @@ export class VoxelStreamer {
     }
     this.afterEdit(changed, editBounds(this.grid, cmd, resolve));
     return { status: 'done', cells: o.output.cells, undo: decodeUndoRecord(this.grid, o.output.undo) };
+  }
+
+  /**
+   * Reads chunks again because the source changed them (another writer
+   * applied and saved an edit). Resident chunks keep their content until the
+   * new content lands, then swap it in; chunks still being read or decoded
+   * are read again; others load as usual when they are wanted.
+   */
+  refresh(chunks: readonly ChunkCoord[]): void {
+    this.opts.source.invalidate?.(chunks);
+    const list: Chunk[] = [];
+    const token = ++this.refreshSeq;
+    for (const ch of chunks) {
+      if (!chunkInWorld(this.grid, ch.cx, ch.cy, ch.cz)) continue;
+      const c = this.chunks.get(chunkKey(this.grid, ch.cx, ch.cy, ch.cz));
+      if (c === undefined) continue;
+      if (c.phase === 'resident') {
+        c.refresh = token;
+        list.push(c);
+      } else {
+        // Bytes read before the change must not land: forget the chunk, the next update reads it again.
+        this.drop(c, false);
+        this.cursor = 0;
+      }
+    }
+    if (list.length === 0) return;
+    const versions = list.map((c) => this.tracker.version(this.ref(c)));
+    this.reads++;
+    this.opts.source
+      .read(list)
+      .then(
+        (reads) => list.forEach((c, i) => this.onRefreshRead(c, token, versions[i]!, reads[i]!)),
+        () => {
+          for (const c of list) if (c.refresh === token) this.refreshDropped(c);
+        },
+      )
+      .finally(() => {
+        this.reads--;
+        this.poke();
+      });
+  }
+
+  private refreshDropped(c: Chunk): void {
+    c.refresh = 0;
+    this.counters.refreshDropped++;
+  }
+
+  private onRefreshRead(c: Chunk, token: number, version: number, r: RegionChunkRead): void {
+    if (this.chunks.get(c.key) !== c || c.phase !== 'resident' || c.refresh !== token) return;
+    if (r.kind === 'damaged') {
+      this.refreshDropped(c);
+      return;
+    }
+    if (r.kind !== 'stored') {
+      this.swapIn(c, token, version, r.kind === 'air' ? { form: 'air' } : { form: 'uniform', value: r.value });
+      return;
+    }
+    const job = this.tracker.beginJob(this.ref(c));
+    // The load does not read neighbours, and staleness is the refresh token's and the edit version's: the job id only routes the reply.
+    this.tracker.expireJob(job.id);
+    const stored = r.bytes.slice();
+    const input: LoadInput = { edge: this.grid.edge, chunk: { grid: this.gridId, cx: c.cx, cy: c.cy, cz: c.cz }, bytes: { stored, raw: r.raw }, hash: false };
+    this.refreshing++;
+    void this.opts.pool.submit<LoadOutput>({ id: job.id, kind: 'load', lane: 'edit', distance: c.d2, input, transfer: [stored.buffer as ArrayBuffer] }).then((o) => {
+      this.refreshing--;
+      this.poke();
+      if (o.status !== 'done') {
+        if (c.refresh === token) this.refreshDropped(c);
+        return;
+      }
+      this.swapIn(c, token, version, o.output.payload);
+    });
+  }
+
+  /** A refreshed chunk's new content replaces its old one (unless it was refreshed again or edited here meanwhile). */
+  private swapIn(c: Chunk, token: number, version: number, payload: ChunkPayload): void {
+    if (this.chunks.get(c.key) !== c || c.phase !== 'resident' || c.refresh !== token) return;
+    const ref = this.ref(c);
+    if (this.tracker.version(ref) !== version) {
+      this.refreshDropped(c);
+      return;
+    }
+    c.refresh = 0;
+    this.cancelDerive(c);
+    const t0 = performance.now();
+    this.store.adoptPayload(c.cx, c.cy, c.cz, payload);
+    this.adoptMs.add(performance.now() - t0);
+    const bytes = this.store.chunkBytes(c.cx, c.cy, c.cz) + RESIDENT_CHUNK_OVERHEAD_BYTES + this.partBytes(c);
+    this.bytesChunks += bytes - c.bytes;
+    c.bytes = bytes;
+    this.tracker.loaded(ref);
+    this.counters.refreshed++;
+    const s = this.grid.shift;
+    this.wantDerive(c, 'edit');
+    this.invalidateAround({ minX: c.cx << s, minY: c.cy << s, minZ: c.cz << s, maxX: ((c.cx + 1) << s) - 1, maxY: ((c.cy + 1) << s) - 1, maxZ: ((c.cz + 1) << s) - 1 }, 'edit', c.key);
+    this.emit({ type: 'loaded', cx: c.cx, cy: c.cy, cz: c.cz });
   }
 
   /** Bytes a payload would move to a worker (for reports). */

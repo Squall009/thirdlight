@@ -473,6 +473,8 @@ export interface WorkspaceService {
   writeImportHeader(projectId: string, header: ImportHeader, toolchain: string): void;
   /** The project's import cache folder (null when the project cannot be opened). */
   importCacheDir(projectId: string): string | null;
+  /** The project's folder (its voxel worlds' region files live there; null when the project cannot be opened). */
+  projectDir(projectId: string): string | null;
   /** Every file of a folder of the game folder, recursively: what a folder import would bring in, skip or report. */
   scanAssetFolder(projectId: string, folder: string): { ok: true; scan: FolderImportScan } | { ok: false; error: CommandError };
   /**

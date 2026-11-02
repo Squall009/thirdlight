@@ -1,24 +1,31 @@
 /**
- * The voxel formats on disk, Node side: a world's region files kept under
- * edit commands (dirty chunks only, atomic replace, damaged chunks repaired
- * or carried), undo records spilled to files, and game saves made against
- * the shipped world's region files. What the backend (editor) and an
- * exported game's save code will do, as a reference the tests and the edit
- * bench drive with real files and real zstd.
+ * A project's voxel worlds on disk: region files kept current under edit
+ * commands (dirty chunks only, re-packing only those chunks, atomic
+ * replace through the workspace's durable write, damaged chunks repaired
+ * or carried over verbatim), undo records spilled to files, and game saves
+ * made against the shipped world's region files.
+ *
+ * Region files are zstd-compressed per chunk at level 3 (the at-rest pick;
+ * exports may recompress harder); the voxel package is pure and takes the
+ * compressor as a function, so Node's own zstd is plugged in here.
  */
-import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { constants, zstdCompressSync, zstdDecompressSync } from 'node:zlib';
 import {
   applyEdit,
   applyUndo,
   baseChunkHash,
   chunkKey,
   chunkOfKey,
+  chunksPerRegionSide,
   createDenseChunk,
+  createWorldStore,
   DirtyTracker,
   exportOrAir,
+  packRegionChunk,
   regionChunkCodecBytes,
+  regionFileName,
   RegionIndex,
   repairChunks,
   saveChunkOf,
@@ -28,6 +35,7 @@ import {
   type ChunkUndo,
   type EditOutcome,
   type PaletteStore,
+  type RegionChunkRead,
   type RegionEntry,
   type RegionFootprint,
   type RegionLayout,
@@ -41,10 +49,54 @@ import {
   type UndoSpill,
   type VoxelEditCommand,
 } from '@thirdlight/voxel';
-import { writeAtomic, type WriteOps } from '@thirdlight/workspace';
-import { addressName, addressOf, importRead, pickStore, storeEntry, zstdDecompress, type RegionAddress } from './regions';
+import { sha256HexNative } from './digest';
+import { writeAtomic, type WriteOps } from './write';
 
-export const sha256 = (b: Uint8Array): string => createHash('sha256').update(b).digest('hex');
+/** zstd level of chunk frames at rest (the storage pick: level 3; level 19 only pays at export). */
+export const REGION_ZSTD_LEVEL = 3;
+
+export const zstdCompress = (b: Uint8Array): Uint8Array => zstdCompressSync(b, { params: { [constants.ZSTD_c_compressionLevel]: REGION_ZSTD_LEVEL } });
+export const zstdDecompress = (b: Uint8Array): Uint8Array => zstdDecompressSync(b);
+
+/** The world store of the storage pick: a record palette per chunk, sparse 4³ bricks in memory, the bit-packed body at rest. */
+export function pickStore(grid: ChunkGrid): PaletteStore {
+  return createWorldStore(grid, 'pick');
+}
+
+/** Region index of a chunk on one axis. */
+export function regionOf(grid: ChunkGrid, footprint: RegionFootprint, chunk: number): number {
+  return Math.floor(chunk / chunksPerRegionSide(grid, footprint));
+}
+
+/** A region file's address: layout, footprint and indices (ry 0 in a column). */
+export interface RegionAddress {
+  layout: RegionLayout;
+  footprint: RegionFootprint;
+  rx: number;
+  ry: number;
+  rz: number;
+}
+
+export function addressOf(grid: ChunkGrid, layout: RegionLayout, footprint: RegionFootprint, c: ChunkCoord): RegionAddress {
+  return { layout, footprint, rx: regionOf(grid, footprint, c.cx), ry: layout === 'stacked' ? regionOf(grid, footprint, c.cy) : 0, rz: regionOf(grid, footprint, c.cz) };
+}
+
+export function addressName(a: RegionAddress): string {
+  return regionFileName(a.layout, a.rx, a.ry, a.rz);
+}
+
+/** A chunk's region entry from the store (null when it is air). */
+export function storeEntry(store: PaletteStore, c: ChunkCoord): RegionEntry | null {
+  const bytes = store.encodeChunk(c.cx, c.cy, c.cz);
+  return bytes === null ? null : packRegionChunk(store.grid, c.cx, c.cy, c.cz, bytes, 'zstd', zstdCompress);
+}
+
+/** Imports what a region read returned into a store (air reads drop the chunk). */
+export function importRead(store: PaletteStore, r: RegionChunkRead): void {
+  const bytes = regionChunkCodecBytes(store.grid, r, zstdDecompress);
+  if (bytes === null) store.dropChunk(r.cx, r.cy, r.cz);
+  else store.decodeChunk(r.cx, r.cy, r.cz, bytes);
+}
 
 /**
  * Replaces `dir/name` with `bytes` through the workspace's durable write
@@ -59,7 +111,7 @@ export function replaceFile(dir: string, name: string, bytes: Uint8Array | null,
     return { ok: true, hash: null };
   }
   const out = writeAtomic({ dir, target: name, bytes, allowedPreHashes: expect === null ? null : [expect], previousHash: expect, ...(ops !== undefined ? { ops } : {}) });
-  if (out.ok) return { ok: true, hash: sha256(bytes) };
+  if (out.ok) return { ok: true, hash: sha256HexNative(bytes) };
   return { ok: false, why: out.external !== undefined ? 'changed on disk by someone else' : out.unreadable !== undefined ? 'unreadable' : `write failed (${out.failed?.onDiskState ?? '?'}${out.failed?.errno !== undefined ? `, ${out.failed.errno}` : ''})` };
 }
 
@@ -114,7 +166,8 @@ export interface DamagedChunk {
 
 /**
  * One grid's region files in a folder, loaded whole into the picked store
- * (tests and the bench load small worlds; the streaming version is 45.5's),
+ * (a project's worlds are small so far; the browser streams by range, the
+ * backend does not yet),
  * edited through edit commands and saved by rewriting only files with dirty
  * chunks, re-packing only those chunks.
  */
@@ -166,7 +219,7 @@ export class RegionWorld {
       const bytes = new Uint8Array(readFileSync(join(dir, name)));
       const index = RegionIndex.parse(bytes);
       const h = index.header;
-      const f: RegionFileState = { address: { layout: h.layout, footprint: opts.footprint, rx: h.rx, ry: h.ry, rz: h.rz }, entries: new Map(), hash: sha256(bytes) };
+      const f: RegionFileState = { address: { layout: h.layout, footprint: opts.footprint, rx: h.rx, ry: h.ry, rz: h.rz }, entries: new Map(), hash: sha256HexNative(bytes) };
       w.files.set(name, f);
       for (let i = 0; i < index.size; i++) {
         const read = index.read(i, bytes);

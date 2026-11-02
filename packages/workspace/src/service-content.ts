@@ -499,10 +499,9 @@ export function contentOps(core: Core) {
     );
   }
 
-  /** The project's import cache folder (thumbnails are kept there too); null when the project cannot be opened. */
-  function importCacheDir(projectId: string): string | null {
-    return withOpenSession(projectId, (s) => join(s.dir, 'cache', 'imported'), () => null);
-  }
+  /** The project's folder (its voxel worlds live there) and import cache folder (thumbnails too); null when the project cannot be opened. */
+  const projectDir = (projectId: string): string | null => withOpenSession(projectId, (s) => s.dir, () => null);
+  const importCacheDir = (projectId: string): string | null => withOpenSession(projectId, (s) => join(s.dir, 'cache', 'imported'), () => null);
 
   return {
     stageContent: (projectId: string, request: StageRequest): StageResult => run(projectId, (s) => stageContent(core, contentCtx(s), request)),
@@ -579,6 +578,7 @@ export function contentOps(core: Core) {
     readImportHeader,
     writeImportHeader,
     importCacheDir,
+    projectDir,
     writeAssetFolder,
     scanAssetFolder: scanFolder,
     prepareAssetImport,

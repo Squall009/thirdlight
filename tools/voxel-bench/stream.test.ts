@@ -4,6 +4,7 @@
  * files on disk, a test world, and the world store as the oracle.
  */
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { open as openFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -21,6 +22,7 @@ import {
   exportOrAir,
   jobRadius,
   PLACEHOLDER_RULES,
+  RegionChunkSource,
   RESIDENT_CHUNK_OVERHEAD_BYTES,
   sameDenseChunk,
   saveChunkOf,
@@ -36,8 +38,9 @@ import {
 } from '@thirdlight/voxel';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { scanExportFiles } from '../../packages/exporter/src/scan';
+import { RegionWorld } from '@thirdlight/workspace';
 import { pickStore } from './regions';
-import { bundleWorker, DiskRegions, nodePoolWorker, REPO, writeWorldRegions } from './stream-node';
+import { bundleWorker, DiskRegions, nodePoolWorker, REPO, TEST_WORLD_ID, writeWorldRegions } from './stream-node';
 import { hillyWorld } from './worlds';
 
 const grid = chunkGrid(32);
@@ -330,6 +333,77 @@ describe('streamer (workers, region files on disk)', () => {
     expect(expectAssemblyEqual()).toBeGreaterThan(30);
     const after = new Map([...s.derivedChunks()].map((d) => [chunkKey(grid, d.cx, d.cy, d.cz), d.result.hash]));
     expect(after.get(chunkKey(grid, 2, 1, 2))).toBe(before.get(chunkKey(grid, 2, 1, 2)));
+  });
+
+  it('refreshes chunks another writer changed and saved: tables read again, content swapped, everything within R rebuilt', async () => {
+    // The writer is the backend's world folder; the reader opens each file per read, as an HTTP range request does.
+    const wdir = join(dir, 'written');
+    const writer = RegionWorld.create(wdir, { grid, worldId: TEST_WORLD_ID, layout: 'stacked', footprint: 512 }, copyOracle());
+    const reader = (): RegionChunkSource =>
+      new RegionChunkSource({
+        grid,
+        layout: 'stacked',
+        footprint: 512,
+        maxOpen: 64,
+        open: (name) =>
+          writer.files.get(name)?.hash == null
+            ? null
+            : {
+                read: async (offset, length) => {
+                  const h = await openFile(join(wdir, name), 'r');
+                  try {
+                    const buf = Buffer.alloc(length);
+                    const { bytesRead } = await h.read(buf, 0, length, offset);
+                    return new Uint8Array(buf.buffer, buf.byteOffset, bytesRead);
+                  } finally {
+                    await h.close();
+                  }
+                },
+              },
+      });
+    const source = reader();
+    const s = new VoxelStreamer({ store: createWorldStore(grid), source, pool: pool(2), ring: RING, budgetBytes: 256 * 1024 * 1024, dependencyRadius: jobRadius(PLACEHOLDER_RULES), derive: true, rules: PLACEHOLDER_RULES, deriveMsPerUpdate: 10_000 });
+    s.setFocus(0, 40, 0);
+    await s.settle();
+    // A stale reader (tables opened before the write) of every stored chunk of the files the edit rewrites.
+    const stale = reader();
+    const storedNear: ChunkCoord[] = [];
+    for (const key of writer.store.chunkKeys()) {
+      const c = chunkOfKey(grid, key);
+      if (Math.abs(c.cx) <= 2 && Math.abs(c.cz) <= 2 && writer.store.chunkForm(c.cx, c.cy, c.cz) === 'stored') storedNear.push(c);
+    }
+    await stale.read(storedNear);
+
+    const out = writer.edit(fill([-1, -1, -1], [0, 0, 0], 40));
+    expect(writer.save().files).toBeGreaterThan(0);
+    const changed = out.chunks.map((u) => ({ cx: u.cx, cy: u.cy, cz: u.cz }));
+    expect(changed.length).toBe(8);
+
+    // Read through the stale tables: the replaced files' chunks fail their checks, the tables are read again once, and the bytes are the new ones.
+    const reads = await stale.read(storedNear);
+    expect(stale.retries).toBeGreaterThan(0);
+    expect(reads.every((r) => r.kind !== 'damaged')).toBe(true);
+
+    const rebuilt = new Set<string>();
+    s.on((e) => {
+      if (e.type === 'derived') rebuilt.add(`${e.cx},${e.cy},${e.cz}`);
+    });
+    s.refresh(changed);
+    await s.settle();
+    expect(s.counters.refreshed).toBe(8);
+    expect(s.counters.refreshDropped).toBe(0);
+    for (const c of changed) expect(rebuilt.has(`${c.cx},${c.cy},${c.cz}`)).toBe(true);
+    expect(expectChunksEqual(s, writer.store)).toBeGreaterThan(30);
+    let n = 0;
+    for (const d of s.derivedChunks()) {
+      if (d.result.assembly === null) continue;
+      const want = encodeDerived(deriveFromStore(writer.store, d.cx, d.cy, d.cz, PLACEHOLDER_RULES));
+      expect(Buffer.compare(Buffer.from(encodeDerived(d.result.assembly)), Buffer.from(want))).toBe(0);
+      n++;
+    }
+    expect(n).toBeGreaterThan(30);
+    // Refreshed chunks are not dirty here: the writer saved them, nothing holds them past the ring.
+    expect(s.tracker.dirty().length).toBe(0);
   });
 
   it('cancels loads the focus left before they landed, and adopts nothing from them', async () => {

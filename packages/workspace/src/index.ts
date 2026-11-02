@@ -95,3 +95,45 @@ export { layerLevelChecks, type BlockCheckContent, type BlockLayerCheck } from '
 export { paintMismatches, type PaintMeshCache, type PaintMismatchRow } from './paint-checks';
 // Linked prefab copies as Play, export and the editor see them (assembled; what assembly could not do).
 export { assembledChange, PrefabViews, type AssembledChange, type PrefabView, type ScenePrefabProblem } from './prefab-view';
+// A project's voxel worlds: region files on disk, edited by commands, served by range.
+export {
+  addressName,
+  addressOf,
+  DiskUndoSpill,
+  importRead,
+  pickStore,
+  REGION_ZSTD_LEVEL,
+  RegionWorld,
+  regionOf,
+  replaceFile,
+  ShippedWorld,
+  storeEntry,
+  updateSave,
+  zstdCompress,
+  zstdDecompress,
+  type DamagedChunk,
+  type PreparedSave,
+  type RegionAddress,
+  type WorldDirOptions,
+} from './voxel-world-files';
+export {
+  gridFolder,
+  isVoxelWorldOp,
+  parseVoxelWorldManifest,
+  REGION_FILE_NAME_RE,
+  VOXEL_WORLD_FORMAT,
+  VOXEL_WORLD_MANIFEST,
+  VOXEL_WORLD_NAME_RE,
+  VOXEL_WORLD_OPS,
+  VOXEL_WORLDS_FOLDER,
+  VoxelWorlds,
+  writeVoxelWorld,
+  type RegionFileAnswer,
+  type VoxelCommandApplied,
+  type VoxelCommandResult,
+  type VoxelWorldError,
+  type VoxelWorldInfo,
+  type VoxelWorldManifest,
+  type VoxelWorldOp,
+  type VoxelWorldsOptions,
+} from './voxel-worlds';

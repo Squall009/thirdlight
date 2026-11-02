@@ -35,16 +35,11 @@ import {
   type VoxelStoreCandidate,
   type VoxelStroke,
 } from '@thirdlight/voxel';
-import { ZSTD } from './codecs';
+import { addressName, addressOf, importRead, pickStore, regionOf, storeEntry, zstdCompress, zstdDecompress, type RegionAddress } from '@thirdlight/workspace';
 import { chunkRange, type TestGrid } from './world-kit';
 
-/** The 45.2 pick: a record palette per chunk, sparse 4³ bricks in memory, the bit-packed body at rest. */
-export function pickStore(grid: ChunkGrid): PaletteStore {
-  return createWorldStore(grid, 'pick');
-}
-
-export const zstdCompress = (b: Uint8Array): Uint8Array => ZSTD.compress(b);
-export const zstdDecompress = (b: Uint8Array): Uint8Array => ZSTD.decompress(b);
+// The region helpers live with the project's voxel worlds in the workspace; the bench uses them from there.
+export { addressName, addressOf, importRead, pickStore, regionOf, storeEntry, zstdCompress, zstdDecompress, type RegionAddress };
 
 /** Generates the chunks of a test grid inside cells [x0, x1) × [z0, z1) into `store`; returns how many were present. */
 export function loadArea(g: TestGrid, store: PaletteStore, x0: number, z0: number, x1: number, z1: number): number {
@@ -67,34 +62,6 @@ export function surfaceY(store: VoxelStoreCandidate, x: number, z: number, top: 
   const v = voxel();
   for (let y = top; y >= bottom; y--) if (store.voxelAt(x, y, z, v).material !== 0) return y;
   return null;
-}
-
-/** Region index of a chunk on one axis. */
-export function regionOf(grid: ChunkGrid, footprint: RegionFootprint, chunk: number): number {
-  return Math.floor(chunk / chunksPerRegionSide(grid, footprint));
-}
-
-/** A region file's address: layout, footprint and indices (ry 0 in a column). */
-export interface RegionAddress {
-  layout: RegionLayout;
-  footprint: RegionFootprint;
-  rx: number;
-  ry: number;
-  rz: number;
-}
-
-export function addressOf(grid: ChunkGrid, layout: RegionLayout, footprint: RegionFootprint, c: ChunkCoord): RegionAddress {
-  return { layout, footprint, rx: regionOf(grid, footprint, c.cx), ry: layout === 'stacked' ? regionOf(grid, footprint, c.cy) : 0, rz: regionOf(grid, footprint, c.cz) };
-}
-
-export function addressName(a: RegionAddress): string {
-  return regionFileName(a.layout, a.rx, a.ry, a.rz);
-}
-
-/** A chunk's region entry from the store (null when it is air). */
-export function storeEntry(store: PaletteStore, c: ChunkCoord): RegionEntry | null {
-  const bytes = store.encodeChunk(c.cx, c.cy, c.cz);
-  return bytes === null ? null : packRegionChunk(store.grid, c.cx, c.cy, c.cz, bytes, 'zstd', zstdCompress);
 }
 
 /**
@@ -208,13 +175,6 @@ function sameEntry(a: RegionEntry | undefined | null, b: RegionEntry | null): bo
   if (a === undefined || a === null || b === null) return (a ?? null) === b;
   if ('uniform' in a || 'uniform' in b) return 'uniform' in a && 'uniform' in b && a.uniform === b.uniform;
   return a.raw === b.raw && Buffer.compare(a.stored, b.stored) === 0;
-}
-
-/** Imports what a region read returned into a store (air reads drop the chunk). */
-export function importRead(store: PaletteStore, r: RegionChunkRead): void {
-  const bytes = regionChunkCodecBytes(store.grid, r, zstdDecompress);
-  if (bytes === null) store.dropChunk(r.cx, r.cy, r.cz);
-  else store.decodeChunk(r.cx, r.cy, r.cz, bytes);
 }
 
 /** A region file on disk read by offset (one open handle; reads are counted). */

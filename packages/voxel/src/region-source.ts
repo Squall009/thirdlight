@@ -18,6 +18,8 @@ export interface ChunkSource {
   read(chunks: readonly ChunkCoord[]): Promise<RegionChunkRead[]>;
   /** Bytes the source holds in memory (open tables), counted in the streaming budget. */
   memoryBytes(): number;
+  /** Forgets what it holds about these chunks' files (they were replaced): the next read sees the new files. */
+  invalidate?(chunks: readonly ChunkCoord[]): void;
 }
 
 export interface RegionChunkSourceOptions {
@@ -47,6 +49,8 @@ export class RegionChunkSource implements ChunkSource {
   /** Requests and bytes fetched, opening tables included. */
   requests = 0;
   fetchedBytes = 0;
+  /** Reads done again with the region's table read again, after damage. */
+  retries = 0;
 
   constructor(private readonly opts: RegionChunkSourceOptions) {
     this.side = chunksPerRegionSide(opts.grid, opts.footprint);
@@ -108,25 +112,38 @@ export class RegionChunkSource implements ChunkSource {
     const out: RegionChunkRead[] = new Array<RegionChunkRead>(chunks.length);
     await Promise.all(
       [...groups].map(async ([name, idx]) => {
-        const r = this.region(name);
-        const index = await r.index;
         const asked = idx.map((i) => chunks[i]!);
-        let reads: RegionChunkRead[];
-        if (r.error !== null) reads = asked.map((c) => ({ cx: c.cx, cy: c.cy, cz: c.cz, kind: 'damaged', reason: r.error! }));
-        else if (index === null || r.source === null) reads = asked.map((c) => ({ cx: c.cx, cy: c.cy, cz: c.cz, kind: 'air' }));
-        else {
-          try {
-            reads = await readRegionChunks(r.source, index, asked, this.opts.maxGap);
-          } catch (e) {
-            // A failed range read is not air: report the chunks so they are retried or repaired.
-            const reason = `region ${name}: ${e instanceof Error ? e.message : String(e)}`;
-            reads = asked.map((c) => ({ cx: c.cx, cy: c.cy, cz: c.cz, kind: 'damaged', reason }));
-          }
+        let reads = await this.readGroup(name, asked);
+        // A file replaced since its table was read (an edit saved by its writer) gives bytes that fail their
+        // checksum or a refused range: the table is read again once, and only damage that stays is reported.
+        if (reads.some((r) => r.kind === 'damaged')) {
+          this.retries++;
+          this.regions.delete(name);
+          reads = await this.readGroup(name, asked);
         }
         idx.forEach((i, k) => (out[i] = reads[k]!));
       }),
     );
     return out;
+  }
+
+  private async readGroup(name: string, asked: readonly ChunkCoord[]): Promise<RegionChunkRead[]> {
+    const r = this.region(name);
+    const index = await r.index;
+    if (r.error !== null) return asked.map((c) => ({ cx: c.cx, cy: c.cy, cz: c.cz, kind: 'damaged', reason: r.error! }));
+    if (index === null || r.source === null) return asked.map((c) => ({ cx: c.cx, cy: c.cy, cz: c.cz, kind: 'air' }));
+    try {
+      return await readRegionChunks(r.source, index, asked, this.opts.maxGap);
+    } catch (e) {
+      // A failed range read is not air: report the chunks so they are retried or repaired.
+      const reason = `region ${name}: ${e instanceof Error ? e.message : String(e)}`;
+      return asked.map((c) => ({ cx: c.cx, cy: c.cy, cz: c.cz, kind: 'damaged', reason }));
+    }
+  }
+
+  /** Forgets the tables of the regions holding these chunks: their files were replaced, so they are opened again. */
+  invalidate(chunks: readonly ChunkCoord[]): void {
+    for (const c of chunks) this.regions.delete(this.nameOf(c));
   }
 
   memoryBytes(): number {

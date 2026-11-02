@@ -44,7 +44,7 @@ import {
   type VoxelEditCommand,
 } from '@thirdlight/voxel';
 import { loadArea, pickStore, surfaceY, zstdCompress, zstdDecompress } from './regions';
-import { RegionWorld, ShippedWorld, updateSave, type WorldDirOptions } from './world-files';
+import { RegionWorld, ShippedWorld, updateSave, type WorldDirOptions } from '@thirdlight/workspace';
 import { MAT, type TestGrid } from './world-kit';
 import { cavesWorld, hillyWorld, townWorld } from './worlds';
 

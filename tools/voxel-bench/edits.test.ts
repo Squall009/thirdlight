@@ -45,7 +45,7 @@ import {
 import { defaultWriteOps } from '@thirdlight/workspace';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { addressName, addressOf, loadArea, pickStore, surfaceY, zstdCompress, zstdDecompress } from './regions';
-import { DiskUndoSpill, RegionWorld, ShippedWorld, updateSave, type WorldDirOptions } from './world-files';
+import { DiskUndoSpill, RegionWorld, ShippedWorld, updateSave, type WorldDirOptions } from '@thirdlight/workspace';
 import { MAT } from './world-kit';
 import { townWorld } from './worlds';
 
