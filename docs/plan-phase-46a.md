@@ -96,7 +96,7 @@ number: Iris Xe, 1280×720, 60 Hz cap, both renderers, ≤ 3 rounds, `uptime` re
 | 46a.1 | done 59173236: `VOXEL_WORLD_OPS` once in commands; route op list + `tl_command` enum take editVoxels/undoVoxels (no expectedRevision); `voxelsChanged` on the editor feed; reference op pages. Integration: MCP stroke = page's answer and file tags, feed once per change. Fast gate green 11 min; voxel-world.e2e 22.5 → 21.0 s. D433 fixed. |
 | 46a.2 | done e48969c5 (+ boundary 1bf03832): `voxelWorld` {world, ring, collision, sectionEdge, savedFields}, metres, unset = voxel defaults (192/224, 96/128, 48/24 m, 16, material/role/shape); model `affectsLighting`; additive on schema 8. Vitest + backend setComponent/restart test. Fast gate green 11 min, 4.9 GB; voxel-world.e2e 21.0 s, inspector.e2e 15.4 s. |
 | 46a.3 | done 6ab7d6cb: streamer reads through `VoxelOverlay` (base never written; payloads, aprons, `voxelAt`, worker edits); overrides outlive unload, counted in the budget; `saveChunks(saved)`, `clearOverlay`; default sections 16. stream.test: dig 8 / 4 m 27 section derives, paints 0 mesh derives; ~9.7 B a changed cell. fast gate green 12 min; voxel-world.e2e 21.0 → 21.1 s. |
-| 46a.4 | not started |
+| 46a.4 | done c93ae33b: reads in whole columns + row neighbours to the hysteresis, 16 KB gap, 8 reads, held decodes, ring kept 1 s ahead of motion. stream-page +40 ms, 80 m/s, both renderers ×3: near holes 0 (was p50 761 / p95 1,148), ~39 req/s, 16.1–16.5 MB (1.4× of 11.8). D432 fixed. Fast gate green 11 min; voxel-world.e2e 21.1 → 26.7 s (load 7–8). |
 | 46a.5a | not started |
 | 46a.5b | not started |
 | 46a.6a | not started |
@@ -156,6 +156,49 @@ renderers). Final fast gate after bounding `clearOverlay`'s rebuild to the overr
 `voxel-world.e2e.ts` 21.0 → 21.1 s in the final gate (10.2 + 5.2 + 5.7 s; 26.1 s in the first rerun before
 `clearOverlay` was bounded, 22.1 s alone at load average 7.5): the commands path is unchanged; local edits now go
 to the overlay and `reread` clears it. No stored format changed (staging slice world not regenerated).
+
+**46a.4** (c93ae33b). Reads (`stream-reads.ts`, `voxel-streamer.ts`, `region-source.ts`): the read list is built
+column by column around the focus and a lead point (velocity smoothed over 0.25 s, 1 s ahead, capped at the near
+radius; a jump resets it), a column's chunks together, columns nearest the lead point first; a batch (64 chunks) ends
+between columns and adds the neighbouring columns along the source's `rowAxis` (z for region files: `lx * side + lz`)
+as far as the ring's hysteresis (2 columns), so ground about to be reached comes in the same range; chunks stay while
+inside the unload bounds of the focus or the lead point; `REGION_READ_GAP_BYTES` 16 KB (was 4 KB);
+`DEFAULT_STREAM_READS` 8 (was 4); a read stored chunk waits for pool room (`held`) instead of reads stopping at the
+pool's room counted over air and uniform chunks too. Vitest: `stream.test.ts` ring at a region corner with a 4-job
+pool queue: 69 stored chunks in 38 columns read in 8 chunk requests (one a chunk: 69), 238 KB fetched of 188 KB,
+equal to the oracle, no re-reads; `stream-core.test.ts` read order = the ring, columns whole and in order, lead side
+first, lead 98–100 % of 1 s of steady motion, jump and pause reset.
+Browser (`run.mjs stream-page --rounds 3 --speeds 80 --no-trace`, hilly 2 × 2 km world regenerated into
+`~/.cache/thirdlight-phase46/work/46a.4/`, Chrome 151, Iris Xe, 1280×720 at the 60 Hz cap, 4 workers; 2026-11-02
+22:08–22:20, load 2.8 / 5.6 / 9.7 at the rounds' starts, uptime 10 days 5 h). Report
+`~/.cache/thirdlight-phase46/work/46a.4/stream-page/stream-page.md` (scratch).
+
+| Run (3 rounds) | Frame p95 / missed | Main ms a frame | update ms p50 / p95 | Range requests (/s) / p50 / p95 ms / MB | Near holes p50 / p95 / max (of 1,344) | Stream MB |
+|---|---|---|---|---|---|---|
+| 45.5b WebGPU 80, localhost | 16.67 / ≤ 1 | 2.83–2.89 | 1.68–1.75 / 2.40 | 7,290 (122) / 11 / 21 / 11.8 | 0 | 10.3 |
+| 45.5b WebGPU 80, +40 ms | 16.67 / 0 | 1.55 | 0.04 / 2.29 | 3,179 (53) / 280 / 737 / 6.6 | 761 / 1,148 / – | 7.7 |
+| WebGPU 80, localhost | 16.67 / 0, 1, 0 | 3.09–3.26 | 2.07–2.11 / 2.43–2.49 | 2,345–2,362 (39) / 5.4–5.6 / 11–12 / 16.1–16.4 | 0 / 0 / 0 | 13.1–13.2 |
+| WebGL 2 80, localhost | 16.67 / 1, 1, 0 | 3.04–4.35 | 2.08–2.22 / 2.46–3.08 | 2,338–2,363 (39) / 5.2–7.4 / 10–19 / 16.1–16.5 | 0 / 0 / 0 | 13.1–13.2 |
+| WebGPU 80, +40 ms | 16.67 / 1, 1, 0 | 2.65–4.34 | 1.33–2.17 / 2.98–4.41 | 2,337–2,351 (39) / 85–87 / 214–220 / 16.3–16.5 | 0 / 0 / 0 | 13.0 |
+| WebGL 2 80, +40 ms | 16.67 / 0, 1, 0 | 2.51–3.66 | 1.18–2.11 / 2.70–4.12 | 2,346–2,363 (39) / 85–86 / 212–220 / 16.1–16.4 | 0 / 0 / 0 | 13.0 |
+
+- **D432 fixed:** 0 chunks missing within 96 m at +40 ms on both renderers in all 3 rounds, at 1.4× the bytes of the
+  45.5b localhost figure (16.1–16.5 vs 11.8 MB; the 64 KB gap's 106 MB was 9×). Requests per second fell 3× even on
+  localhost (122 → 39 a second), so about 4 stored chunks a request instead of 1.4.
+- **Costs:** the ring holds the lead point's crescent and the row neighbours: 5,964 resident chunks (was 5,436),
+  stream 13.0–13.2 MB (was 10.3) of 256 MiB; more bytes because the row neighbours and the crescent are read before
+  the ring needs them, and at the loop's corners some are dropped before the ring reaches them. `update()` p50 1.7 → 2.1 ms, p95
+  2.4 → 2.4–4.4 ms (derive aprons for the larger ring, capped at 2 ms, and rebuilding the read list when the lead
+  point crosses a chunk); main thread 2.8 → 2.5–4.4 ms a frame. Missed frames: ≤ 1 a run as in 45.5b (the first draw
+  after the cold fill; one 50 ms frame in round 2 WebGL 2 +40 ms at load 5.6). Cold fill 1.3–2.1 s localhost,
+  1.9 s at +40 ms.
+- Fast gate (gate-fast-20261102-222621): GREEN, 11 min, 4.3 GB peak, village perf at the cap 0 missed on both
+  renderers; vitest `scan-bounded-log.test.ts` timed out once and passed alone (D418 watch). `voxel-world.e2e.ts`
+  21.1 → 26.7 s (12.3 + 6.8 + 7.6 s; the assembly-proof test 10.2 → 12.3 s) with the host at load 7–8 from other
+  users; not isolated whether the load or the larger ring (crescent + row neighbours) costs it (unverified).
+- Not measured: HTTP/2 (the bench server speaks HTTP/1.1; Chrome then holds six connections a host, which the
+  8 reads keep busy); other speeds; the slice page on staging (it streams from the backend's range route on
+  localhost with the same defaults).
 
 **46a.2** (1bf03832 boundary, e48969c5 schema). No perf item. `voxelWorld {world, ring?, collision?, sectionEdge?,
 savedFields?}` (metres; unset = the voxel defaults, resolved by `resolveVoxelWorld`: load 192/224 m across, 96/128 m
@@ -229,5 +272,15 @@ e2e change), `inspector.e2e.ts` 15.4 s (8.2 + 4.6 + 2.6 s); village perf at the 
   `DEFAULT_SECTION_EDGE`.
 - 2026-11-02 (46a.2): project-model may import `@thirdlight/voxel` (own boundary commit 1bf03832; voxel joins the export
   engine packages), so the component's defaults are the voxel constants, never copies.
+- 2026-11-02 (46a.4, default chosen, owner to confirm): **read defaults**: 16 KB coalescing gap
+  (`REGION_READ_GAP_BYTES`, region-file.ts), 8 reads in flight (`DEFAULT_STREAM_READS`) for every server (HTTP/2 not
+  detected or measured; 8 batches keep HTTP/1.1's six connections busy), prefetch 1 s (`STREAM_PREFETCH_SECONDS`,
+  capped at the near radius; a step past the near radius or faster than one a frame is a jump, not motion), batches
+  of whole columns plus the neighbours along the source's row axis as far as the ring's hysteresis. The ring is kept
+  around the focus and the lead point (load and unload), so a moving focus holds ~10 % more chunks.
+- 2026-11-02 (46a.4): read order changed from 3D distance shells to columns by horizontal distance (to the lead
+  point), the focus height first inside a column: the near lane and the near-ring measure are horizontal, and a
+  column is one byte range. Chunks far above or below a near column now come before nearer-in-3D chunks of the next
+  column; most of them are air or uniform (no bytes, no worker).
 - 2026-11-02 (plan): M7 (cross-grid dependencies) stays the open contract gap recorded in spec §3.6, to be settled
   before 47a; nothing in 46a builds on structure grids.

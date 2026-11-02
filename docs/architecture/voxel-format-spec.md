@@ -97,8 +97,9 @@ localhost)
 - At most one missed frame in 3,600: the first draw.
 - No chunk was missing within 96 m at 40 and 80 m/s.
 - The loaded ring used 9–10 MB of the 256 MiB low-tier budget.
-- **Unsolved (D432):** with 40 ms of added network latency the near ring empties. The proposed fix (fewer, wider
-  reads and prefetching) is not built yet.
+- **D432 (fixed in 46a):** with 40 ms of added network latency the near ring emptied. Fewer, wider reads (whole
+  columns and their row neighbours, a 16 KB gap, 8 reads) and prefetching 1 s along the motion keep it full at
+  80 m/s on both renderers, at 1.4× the localhost bytes.
 
 **Rebuilding derived data**
 - 0.5–3.4 ms a chunk (median, Node, reference mesher).
@@ -158,7 +159,8 @@ accepted all four on 2026-11-02 (D432 stays open for 46a's tuning).
    - *Goal kept:* exports stream on demand.
    - *Why the change:* 4 reads in flight with a 4 KB gap empty the near ring at 40 ms latency. A 64 KB gap fills it,
      but fetches 9× the bytes.
-   - *The replacement:* not a format change; the region table already allows any range. Not built yet.
+   - *The replacement:* not a format change; the region table already allows any range. Built in 46a (D432 fixed:
+     0 near-ring holes at +40 ms, 1.4× the bytes).
    - **Accepted (owner 2026-11-02).**
 
 **Not failures, for completeness.** §7a revised these by direction, not because a measurement failed:
