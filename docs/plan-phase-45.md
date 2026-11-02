@@ -677,6 +677,7 @@ sub-phase on staging; the merge to `main` happens once, at the end of 48.
 |---|---|
 | 45.0 | done (8db90379 + this): `tools/staging.sh` (staging on 127.0.0.1:4180/4181, own data root, 6 GB cap; proven start, page 200, test project, stop clean). Floor record at the cap, Iris Xe, both renderers: village, landscape, interior at 720p and 1080p all p95 16.7–16.8 ms, 0 missed (720p60 met); see **45.0 floor record**. three 0.187.0 newest, no update. |
 | 45.1b | done (4f9c3340, 6bcbbd5e, 8bd00db7 + this): `@thirdlight/voxel` (cells ±32,768 xz / ±8,192 y, key math for 16³ and 32³, PROVISIONAL record, store contract, dense oracle) and `tools/voxel-bench` (5 test worlds, all swept whole). Dense baseline at 32³: 3.3 GB/km² in memory, plain 5.9 MB/km² zstd, voxelAt 110–123 ns random; see **45.1 harness baseline**. |
+| 45.2a | done (ebfd57b9 + this): palette family (record/per-plane palettes, packed/runs, uniform collapse, surface-only density, codec v1 DRAFT), oracle-checked on all worlds. Record palette, packed, 32³: 10–50× less memory than dense, zstd 1.7–5.9 MB/km² (terrain, town), voxelAt 35–80 ns; runs and per-plane lose; see **45.2a palette candidates**. |
 
 ### 45.0 floor record
 
@@ -770,6 +771,92 @@ chunk its own message): raw 32³ chunk (164 KB) copied 27–46 µs, transferred 
   `node tools/voxel-bench/run.mjs --candidate <name> --edge 32,16` (memory-capped scope; ~11 min for both edges,
   hilly 3.5–4.7 min of it); `--worlds`, `--sample-tiles N`, `--no-bench`, `--quick` cut it down.
 
+### 45.2a palette candidates
+
+The palette family in `@thirdlight/voxel` (`PaletteStore`, `palette-*.ts`, `cell-layout.ts`, `surface-density.ts`,
+`chunk-index.ts`), each run over every test world whole, both edges, 6 GB scope, 2026-11-01 23:26 – 11-02 00:23,
+same host as 45.1b, load 1.3–2.2, peak RSS 0.7–0.9 GB. Reports: `~/.cache/thirdlight-phase45/work/45.2a/results/<candidate>/`
+(scratch; no world files). Candidates (all share the chunk index, the surface-only density and uniform collapse):
+- **P** `palette`: one record palette per chunk (material, category, orientation packed per entry, a flag for
+  surface voxels), ids bit-packed at 0/1/2/4/8/16 bits; at rest the palette codec v1 (decision log), packed.
+- **PR** `palette-runs`: P with vertical runs per column in memory (offsets per column, start + entry per run) and
+  runs at rest. `palette-rest-runs`: P in memory, runs only at rest.
+- `palette-planes`: one palette per plane (material + flag, category, orientation), packed.
+- `palette-nocat` / `palette-noorient`: P keeping no category / no orientation plane (what the plane costs in memory).
+
+Checks: every chunk of every world exported equal to the generated one, `voxelAt` compared on 1 cell in 37 of every
+chunk (1.1 M cells on a 256 m world, 100 M on the hilly one), every fourth chunk decoded and compared, and the
+benchmark's 200 k edits and 1,500 strokes replayed on the dense oracle and compared at 2 M random cells plus a 19³ box
+around every stroke: all equal, every candidate, both edges. Liquids with a partly full top cell (lakes, ponds, cave
+water) and the town's thin features (banister posts, rails, beams, oriented stairs and roofs) are in that data.
+
+Memory (MB if the whole world were loaded; counted arrays, uniform chunks 8 B), zstd (each chunk's codec bytes, zstd 3,
+MB) and speed at **32³** [16³]; dense re-run on the new chunk index. Window heap = measured JS heap + array buffers
+of the 256 m benchmark window (64 m for vertical) after GC; it includes per-object overhead the count leaves out.
+
+| World | Store | Memory MB | zstd MB | zstd MB/km² | window heap MB | voxelAt rand / coh ns | sphere 4 m / box 8 m µs | enc / dec µs a chunk |
+|---|---|---|---|---|---|---|---|---|
+| plain | dense | 210 [189] | 0.39 [0.67] | 5.9 [10.2] | 211 | 113 / 9.5 | 49 / 86 | 44 / 45 |
+| plain | P | 4.2 [2.7] | 0.28 [0.50] | 4.3 [7.6] | 5.0 [5.1] | 35 / 14 | 77 / 133 | 70 / 117 |
+| plain | PR | 6.8 [6.9] | 0.29 [0.52] | 4.4 [7.9] | 7.7 | 42 / 15 | 144 / 295 | 113 / 131 |
+| plain | planes | 5.3 [3.3] | 0.30 [0.51] | 4.5 [7.8] | 6.8 | 44 / 15 | 101 / 180 | 139 / 185 |
+| hilly 4 km² | dense | 18,386 [17,316] | 49.4 [74.2] | 12.4 [18.6] | 301 | 129 / 10 | 56 / 86 | 53 / 50 |
+| hilly | P | 371 [207] | 23.7 [43.3] | 5.9 [10.8] | 6.5 [5.5] | 42 / 14 | 93 / 144 | 55 / 70 |
+| hilly | PR | 387 [388] | 25.5 [48.3] | 6.4 [12.1] | 7.0 | 36 / 12 | 145 / 272 | 78 / 69 |
+| hilly | planes | 463 [247] | 26.4 [46.4] | 6.6 [11.6] | 8.4 | 34 / 13 | 107 / 178 | 108 / 110 |
+| town | dense | 213 [199] | 0.35 [0.69] | 5.4 [10.5] | 206 | 118 / 11 | 58 / 88 | 54 / 56 |
+| town | P | 6.2 [3.1] | 0.11 [0.35] | 1.7 [5.4] | 6.5 [5.4] | 57 / 14 | 90 / 132 | 116 / 168 |
+| town | PR | 5.4 [6.0] | 0.16 [0.43] | 2.4 [6.6] | 5.9 | 39 / 14 | 144 / 265 | 131 / 125 |
+| town | planes | 9.8 [4.8] | 0.19 [0.42] | 2.9 [6.4] | 10.5 | 47 / 17 | 105 / 179 | 202 / 224 |
+| caves | dense | 283 [255] | 8.4 [8.4] | 129 [128] | 284 | 136 / 12 | 61 / 84 | 53 / 50 |
+| caves | P | 26.6 [19.9] | 3.6 [4.2] | 55 [64] | 28.6 [31.4] | 173 / 20 | 114 / 143 | 239 / 322 |
+| caves | PR | 28.3 [33.0] | 4.7 [5.6] | 72 [85] | 31.0 | 312 / 21 | 157 / 304 | 393 / 348 |
+| caves | planes | 34.6 [25.6] | 4.6 [5.1] | 70 [78] | 39.3 | 248 / 25 | 114 / 195 | 483 / 501 |
+| vertical | dense | 3,215 [3,019] | 27.7 [30.4] | 422 [464] | 294 | 136 / 11 | 55 / 81 | 52 / 48 |
+| vertical | P | 141 [86] | 12.2 [16.6] | 187 [253] | 15.3 [13.8] | 80 / 16 | 87 / 141 | 144 / 183 |
+| vertical | PR | 115 [117] | 14.3 [20.3] | 218 [310] | 12.6 | 82 / 16 | 266 / 515 | 216 / 186 |
+| vertical | planes | 191 [113] | 15.1 [19.6] | 230 [299] | 22.0 | 125 / 19 | 110 / 189 | 325 / 323 |
+
+Single edits: P 0.07–0.20 µs [0.19–0.29], PR 0.13–0.30 [0.38–0.49], dense 0.08 [0.10–0.15]. Worker round trip of a
+zstd chunk 3–17 µs, transferred or copied alike (chunks are a few KB). Encode/decode µs are means over every chunk,
+uniform ones included (a uniform chunk is 13 bytes); 16³ chunks encode/decode in 5–23 / 5–35 µs.
+
+What each choice costs and saves, and the requirement it serves:
+- **Palette + bit packing, uniform collapse (R15–R17):** memory 10–84× below dense (P at 32³: 0.10 B a voxel on plain
+  ground up to 0.47 B in caves; ~4 bytes was the target, O6). Uniform chunks (59–77 % of terrain and town chunks) cost
+  8 B each. The general compressor then lands at 1.7–5.9 MB/km² on terrain and town (dense raw planes: 5.4–12.4),
+  caves 55 MB/km² (dense 129). Random `voxelAt` gets 1.7–3.2× faster than dense (35–80 ns; less memory, fewer cache
+  misses) except caves (173 ns: 4–8-bit palettes); coherent column scans cost 14–20 ns (dense 9.5–12). Strokes cost
+  1.5–1.9× dense (palette lookup and reference counts per cell).
+- **Surface-only density (R19):** 0–3.8 % of cells carry a byte; P stores 4 B a surface voxel in memory (sorted
+  cell/density) and 1 B at rest. Without it the shape plane's 1–254 values would multiply palette entries per column.
+- **Record palette vs per-plane palettes (R16, R20):** the record palette wins on memory and size on every world: per-plane needs 1.2–1.6×
+  the memory and 1.1–1.7× the zstd bytes; random reads 0.8–1.6× P's. The reason is the category plane: as its own
+  plane it costs 6–31 % of the zstd bytes (town 31 %), inside a record palette 0.2–2.9 %, because category follows
+  material in these worlds. R20's "planes, then zstd" is kept at rest: the codec writes each field of the palette
+  as its own plane.
+- **Category plane (Q-a, R11, R14, R101):** P without it saves 0 % memory and 0.2–2.9 % zstd at 32³ (1.1–4.7 % at
+  16³). Cheap enough to keep as stored intent; caveat: in these worlds no material is used in two categories (a
+  material used as wall and roof would add palette entries, still small).
+- **Orientation plane (O8):** P without it saves 5 % memory and 3.2 % zstd in the town, ≤ 0.8 % elsewhere. Stored per
+  voxel it costs little; deriving it needs a rule set 45.2a does not have, so storing stays the cheaper option for now.
+- **Vertical runs (R18), in memory (PR):** not a win. Memory at 32³ is +4–6 % on hilly and caves, +62 % on plain,
+  −13–19 % only in town and vertical; at 16³ it is 1.4–2.6× P (offsets per column); strokes cost 1.4–3.7× P and
+  caves' random reads 1.8×. **At rest only** (`palette-rest-runs`): codec bytes shrink 27–49 % before zstd (hilly
+  322 → 223 MB; plain +15 %) but zstd of them is 2–47 % larger than zstd of packed ids (zstd finds the column runs itself). Runs
+  serve R18's goal (plain ground near height-map cost) no better than packing + zstd: plain is 4.3 MB/km² either way,
+  below the §1b estimate of 8–15. Proposal for the owner (R1): keep R18's goal, met by packing + zstd; drop column
+  runs unless 45.2b's codec comparison (lz4 has no entropy stage) shows runs pay off without zstd.
+- **16³ vs 32³ (R22, O1):** 16³ needs 0.5–0.75× the memory of 32³ (palette widths fit smaller regions), similar
+  read speed, slower single edits (0.19–0.29 µs) and 1.2–3.2× the zstd bytes (frame and header overhead per chunk,
+  less context); measured window heap shows per-chunk object overhead eating part of the gain (caves 16³: 19.9 MB
+  counted, 31.4 MB heap). Memory favours 16³, disk 32³; 45.2b weighs it with region files (45.3) and the apron
+  radius (Q-c).
+- **Chunk index (R21 access):** dense random reads did not get faster on the shared index (113–136 ns vs 110–123):
+  they are cache misses into 164 KB chunks, not lookups (decision log).
+- **Codec cost:** encode/decode run per-cell JS loops (~3 ns a cell, 100–200 µs a non-uniform 32³ chunk); word-level
+  paths (copying packed words when the ids are already canonical) are untried headroom.
+
 ## 7. Decision log
 
 - 2026-10-27 (owner, planning session): §1 decided in conversation. The research behind it covers Enshrouded's
@@ -811,6 +898,31 @@ chunk its own message): raw 32³ chunk (164 KB) copied 27–46 µs, transferred 
 - 2026-11-01 (45.1b): test-world choices that move the numbers: shallow worlds' ground goes 64 m deep; a cell
   partly ground and under liquid stays ground (one material per cell; O15 open); liquid surfaces sit inside a cell
   so the top liquid cell is partly full; rotated houses are their own chunk sets (cheap, so the town includes them).
+- 2026-11-01 (45.2a, default chosen, owner to confirm): a **surface voxel** (the only kind that stores a density
+  byte, R19) is one whose shape differs from the shape its material implies: air empty, any other material full. So
+  partly filled ground and a liquid's partly full top cell carry a byte; full ground, full liquid and air carry none.
+  It is a rule on the stored value, not on neighbours, so it is exact and lossless (a non-air cell with shape 0 is
+  kept too) and an edit never touches a neighbour's bytes.
+- 2026-11-01 (45.2a, default chosen, owner to confirm): palette ids are bit-packed only at 0, 1, 2, 4, 8 or 16 bits
+  (no cell straddles two words; a read is one load, shift and mask); a one-entry palette is width 0 (no per-cell
+  storage). A chunk that is one voxel everywhere is a single number in the chunk index, an all-air chunk is absent
+  (R17). Palettes are reference-counted; a palette narrows only when its live entries fit half the width and fill a
+  quarter of it, or one entry is left (hysteresis, so an edit toggling one value does not repack the chunk).
+- 2026-11-01 (45.2a, DRAFT, not the format): the palette chunk codec v1 measured here: 8-byte header (magic `VC`,
+  version, flags: planes held, edge, body uniform/packed/runs, record or per-plane palette; CRC-32 of the body),
+  each field written as its own plane, canonical bytes (entries by first appearance, no unused or repeated entry, no
+  stored density equal to the implied one; the decoder refuses anything else, an unknown version included), so the
+  same content always gives the same bytes (R3, R5 except the world-scoped key, which 45.3's region table holds; R51).
+- 2026-11-01 (45.2a): one chunk index for every store (`ChunkIndex`, open addressing on the split key column/y);
+  the dense baseline was re-run on it. Correction to 45.1b's note: a `Map` lookup on the 2^35 key costs 20–42 ns
+  (microbenchmark, 6k–25k chunks), the index 15–20 ns; the rest of dense's 110–184 ns random read is cache misses
+  into 164 KB chunks.
+- 2026-11-02 (45.2a, for the owner, R1): vertical run-length encoding (R18) did not pan out against palette packing:
+  in memory it costs as much or more and slows strokes 1.4–3.7×; at rest zstd of packed ids is 2–47 % smaller than
+  zstd of runs. Its goal (plain ground at about height-map cost) is met without it: 4.3 MB/km² for plain ground at
+  32³. Proposed replacement: packing + a general compressor; runs kept only if 45.2b's lz4/browser-decode comparison
+  shows they pay where no entropy stage runs. Not dropped until the owner chooses. Per-plane palettes likewise lose
+  to one record palette (R20 kept by writing each field as its own plane at rest).
 
 ## 7a. Kit and surface planning session (2026-10-30)
 
