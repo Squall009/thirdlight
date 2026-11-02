@@ -3,7 +3,7 @@
 Status: **planned, approved by the owner 2026-10-28** (planning sessions 2026-10-27/28). It starts only after phases
 43, 44 and 44b are done and merged.
 
-**Phase 45: awaiting owner approval (hard stop), 2026-11-02.** Items 45.0–45.9 are done on branch `phase-45`. The
+**Phase 45: DONE 2026-11-02 — format spec v1 APPROVED by the owner** (the hard stop is passed). Items 45.0–45.9 are done on branch `phase-45`. The
 format spec v1 DRAFT is [docs/architecture/voxel-format-spec.md](architecture/voxel-format-spec.md) (summary,
 measurements, byte formats, requirement traceability, replaced decisions, defaults to confirm); the requirements are
 in [voxel-format-requirements.md](architecture/voxel-format-requirements.md). Nothing in 46 starts until the owner
@@ -726,7 +726,7 @@ sub-phase on staging; the merge to `main` happens once, at the end of 48.
 | 45.10a | done (97609f78 + this; fast gate green): owner review 2026-11-02. Value v2 (u32: material 12, role 4, shape 4, wetness 3, 9 reserved; no orientation), feeds + saved-field masks, runtime overlay, shader data, climate spec. v1 → v2: zstd −2…−48 %, memory −2…−24 % (hilly +6 %), decode −11…−21 %; 3-bit shape: slope error 6–8 vs 5.5 cm; see **45.10a value v2**. |
 | 45.10b | done (this commit; fast gate green): owner 2026-11-02, blending in the shader. Mesh v2: 12-B vertices, no material (surface buffers −26…−32 %); shader data 34³ with a 1-cell border, material/wetness re-derive only it (real workers: 0 mesh/coll/nav/light). Dense rg8 3D regions, 16 reads/px, 3 units; 720p cap 0 missed; GPU blend/flat 7.1/3.1 ms WebGPU, 3.8/1.9 WebGL 2. |
 | 45.10c | done (this commit; fast gate green): owner 2026-11-02. Derive sections in 32³ chunks + atomic swap per edit (288 blasts atomic, reads at once). Pick 16³: local 1–4 m blasts the next frame, 8 m 2 (town 3–5, D440: per-section draws/bodies); mesher p50/p95 0.1–0.2/0.6–0.8 ms a section (32³: 0.8–1.4/2.3–3.5). §4: 46b terrain mesher+LOD, 46c kits; R107–R110; D439. |
-| 45 | **awaiting owner approval (hard stop)**: full gate GREEN at 78f67fe8 (29 min, 389 e2e, peak 8.0 GB); review 3H 7M 8L, every H and M fixed (45.8a/b; M7 recorded as an open contract gap); acceptance on staging both renderers (45.9). Spec v1 DRAFT (docs/architecture/voxel-format-spec.md) revised after the owner's review (45.10a/b), awaiting approval of the revision. Not merged. |
+| 45 | **done 2026-11-02: format spec v1 approved by the owner** after the review revisions (45.10a–c, R111/R112). Full gate GREEN at 78f67fe8 (29 min, 8.0 GB); review H/M fixed; acceptance both renderers. Branch phase-45, unmerged until 48c. 46 waits for the owner. |
 
 ### 45.0 floor record
 
@@ -2366,6 +2366,8 @@ the ranges below):
   arrays with separate wall, floor and ceiling surfaces (chosen by role and face direction), mapped triplanar. The
   standard trim layout spec stays, for the detail pieces the construction rules add, so a piece can use a different
   material or a blend instead of the tileable arrays (R112). The trim-layout hard stop in 46c now covers only that.
+- 2026-11-02 (owner): **format spec v1 approved** (docs/architecture/voxel-format-spec.md, as revised by 45.10a–c and
+  R111/R112). Phase 45 is done; the branch stays unmerged until 48c. Phase 46 starts only on the owner's word.
 ## 7a. Kit and surface planning session (2026-10-30)
 
 This records the conversation about the reference material kits, art-factory and runtime construction. It revises

@@ -1,6 +1,6 @@
 # Voxel world formats — spec v1
 
-Status: **DRAFT v1, revised after the owner's review of 2026-11-02 (45.10a: value v2, masks, overlay, climate; 45.10b: mesh format v2, shader data, blending in the shader; 45.10c: derive sections and atomic swaps, R107–R110) — awaiting the owner's approval of the revision. Nothing builds on it as final until approved.**
+Status: **v1 — APPROVED by the owner on 2026-11-02**, as revised after the owner's review (45.10a: value v2, masks, overlay, climate; 45.10b: mesh format v2, shader data, blending in the shader; 45.10c: derive sections and atomic swaps, R107–R110; R111–R112). Later changes are add-only versions through the upgrade registries.
 
 Phase 45 drafted this spec ([plan](../plan-phase-45.md) §3). It describes the code on branch `phase-45`
 (`packages/voxel/src`, `@thirdlight/voxel`) as it stands, byte for byte where something is a byte format. The
