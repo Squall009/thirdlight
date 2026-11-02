@@ -7,7 +7,8 @@ Status: **planned, approved by the owner 2026-10-28** (planning sessions 2026-10
 format spec v1 DRAFT is [docs/architecture/voxel-format-spec.md](architecture/voxel-format-spec.md) (summary,
 measurements, byte formats, requirement traceability, replaced decisions, defaults to confirm); the requirements are
 in [voxel-format-requirements.md](architecture/voxel-format-requirements.md). Nothing in 46 starts until the owner
-approves it.
+approves it. Revised after the owner's review on 2026-11-02 (45.10a–c: voxel value v2, shader-side
+material blending, 16³ mesh sections with atomic swap, terrain-mesher and LOD sub-phase) and re-presented.
 
 **Planning revision 2026-10-30:** read §7a before implementing the earlier kit, role, trim and meshing requirements.
 It records the owner's revised direction: voxel-derived base surfaces and inferred architectural detail meshes,
