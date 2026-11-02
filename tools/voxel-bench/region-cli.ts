@@ -90,8 +90,9 @@ function measureSizes(world: TestWorld): SizeRow[] {
       else loadArea(g, store, g.bounds.min[0], g.bounds.min[2], g.bounds.max[0], g.bounds.max[2]);
       for (const c of gi === 0 ? CONFIGS : CONFIGS.slice(0, 1)) {
         const row = gi === 0 ? rows.get(cfgName(c))! : structures;
-        for (const bytes of new RegionSet(store, c.layout, c.footprint, WORLD_ID, gi).allFiles().values()) {
-          const idx = RegionIndex.parse(bytes);
+        const set = new RegionSet(store, c.layout, c.footprint, WORLD_ID, gi);
+        for (const [name, bytes] of set.allFiles()) {
+          const idx = RegionIndex.parse(bytes, set.expectOf(name));
           row.files++;
           row.bytes += bytes.length;
           row.headerTable += REGION_HEADER_BYTES + idx.size * REGION_ENTRY_BYTES;
@@ -266,11 +267,12 @@ async function measureReads(store: PaletteStore, g: TestGrid, dir: string, sampl
         let fetched = 0;
         for (const c of spots) {
           const src = await make(c);
-          let index = cold ? null : await openRegion(src);
+          const expect = set.expectOf(`r.${Math.floor(c.cx / 16)}.${Math.floor(c.cz / 16)}.vxr`);
+          let index = cold ? null : await openRegion(src, expect);
           const before = src.requests;
           const fetchedBefore = src.fetched;
           const t0 = performance.now();
-          if (index === null) index = await openRegion(src);
+          if (index === null) index = await openRegion(src, expect);
           const reads = await readRegionChunks(src, index, list(c), gap);
           ms.push(performance.now() - t0);
           requests += src.requests - before;

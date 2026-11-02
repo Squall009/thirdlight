@@ -10,7 +10,7 @@
  *
  * Record bytes, version 1 (little-endian):
  *   'T' 'L' 'V' 'U', u8 version, u8 chunk edge, u8 chunk codec version,
- *   u8 reserved (0), u32 chunk count, then per chunk: u32 grid, i16 cx,
+ *   u8 record value form of its deltas (record.ts), u32 chunk count, then per chunk: u32 grid, i16 cx,
  *   i16 cy, i16 cz, u8 kind (0 cell delta, 1 image, 2 absent), u32 length,
  *   the payload; then the CRC-32 of everything before it.
  */
@@ -19,6 +19,7 @@ import { CellDelta } from './cell-delta';
 import type { ChunkGrid } from './coords';
 import { UNDO_CHUNK_HEADER_BYTES, undoRecordBytes, type ChunkUndo } from './edit-apply';
 import { PALETTE_CODEC_VERSION, readPaletteHeader } from './palette-codec';
+import { checkValueForm, RECORD_VALUE_FORM } from './record';
 
 /** The undo record format this build writes and reads. */
 export const UNDO_RECORD_VERSION = 1;
@@ -43,6 +44,7 @@ export function encodeUndoRecord(grid: ChunkGrid, record: readonly ChunkUndo[]):
   out[4] = UNDO_RECORD_VERSION;
   out[5] = grid.edge;
   out[6] = PALETTE_CODEC_VERSION;
+  out[7] = RECORD_VALUE_FORM;
   view.setUint32(8, record.length, true);
   let at = HEADER;
   record.forEach((u, k) => {
@@ -67,7 +69,8 @@ export function encodeUndoRecord(grid: ChunkGrid, record: readonly ChunkUndo[]):
 export function decodeUndoRecord(grid: ChunkGrid, bytes: Uint8Array): ChunkUndo[] {
   if (bytes.length < HEADER + 4 || !MAGIC.every((b, i) => bytes[i] === b)) throw new RangeError('undo record: bad magic');
   if (bytes[4] !== UNDO_RECORD_VERSION) throw new RangeError(`undo record: unknown version ${bytes[4]}`);
-  if (bytes[5] !== grid.edge || bytes[6] !== PALETTE_CODEC_VERSION || bytes[7] !== 0) throw new RangeError('undo record: another chunk edge or codec');
+  if (bytes[5] !== grid.edge || bytes[6] !== PALETTE_CODEC_VERSION) throw new RangeError('undo record: another chunk edge or codec');
+  checkValueForm('undo record', bytes[7]!);
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const end = bytes.length - 4;
   if (crc32(bytes.subarray(0, end)) !== view.getUint32(end, true)) throw new RangeError('undo record: checksum mismatch');

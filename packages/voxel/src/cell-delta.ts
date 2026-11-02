@@ -6,15 +6,16 @@
  * value before an edit in an undo record, the value now in a save. It costs
  * 7 bytes a cell, so a dab of a few cells costs tens of bytes where a chunk
  * image costs one to a few KB; past a few hundred cells the image (the
- * chunk's canonical palette codec bytes) is smaller, and writers keep
- * whichever is smaller. At rest the fields are written as planes (all
+ * chunk's canonical palette codec bytes; in a save, with a mask of the
+ * changed cells) is smaller, and writers keep whichever is smaller. At rest
+ * the fields are written as planes (all
  * cells, then all values, then all shapes), which a compressor packs better
  * than interleaved records.
  */
 import type { ChunkGrid } from './coords';
 import { clearDenseChunk, createDenseChunk, isAirChunk, type DenseChunk } from './dense-chunk';
 import { createChunkImage, imageToCells, recordImageFromCells, recordValue, valueCategory, valueMaterial, valueOrientation, type ChunkImage } from './palette-image';
-import { decodePaletteImage, encodePaletteImage } from './palette-codec';
+import { checkRecordValue, decodePaletteImage, encodePaletteImage } from './palette-codec';
 import { ALL_PLANES, type VoxelRecord } from './record';
 import type { VoxelStoreCandidate } from './store';
 
@@ -103,7 +104,11 @@ export class CellDelta {
     return out;
   }
 
-  /** Reads {@link CellDelta.encode}'s bytes; throws unless every cell lies in `grid`'s chunk, ascending, once. */
+  /**
+   * Reads {@link CellDelta.encode}'s bytes (record values of form 1, see
+   * record.ts); throws unless every cell lies in `grid`'s chunk, ascending,
+   * once, every value is one the format holds, and air has shape 0.
+   */
   static decode(grid: ChunkGrid, bytes: Uint8Array): CellDelta {
     if (bytes.length === 0 || bytes.length % DELTA_CELL_BYTES !== 0) throw new RangeError(`a cell delta of ${bytes.length} bytes`);
     const n = bytes.length / DELTA_CELL_BYTES;
@@ -114,7 +119,11 @@ export class CellDelta {
       const cell = view.getUint16(k * 2, true);
       if (cell <= prev || cell >= grid.cellsPerChunk) throw new RangeError(`cell delta: cell ${cell} out of order or outside the chunk`);
       prev = cell;
-      d.push(cell, view.getUint32(n * 2 + k * 4, true), bytes[n * 6 + k]!);
+      const value = view.getUint32(n * 2 + k * 4, true);
+      const shape = bytes[n * 6 + k]!;
+      checkRecordValue(value, false, 'cell delta');
+      if (value === 0 && shape !== 0) throw new RangeError(`cell delta: cell ${cell} is air with shape ${shape}`);
+      d.push(cell, value, shape);
     }
     return d;
   }

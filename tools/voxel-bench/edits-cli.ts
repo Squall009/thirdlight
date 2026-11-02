@@ -10,7 +10,10 @@
  * surface spots. Then a session of N mixed strokes on region files on disk,
  * saved every 10 strokes (dirty files only): bytes rewritten per save and
  * save ms; the game save after N strokes against the shipped files: bytes,
- * entries, write and load ms; base-chunk hash µs per chunk. Writes
+ * entries, write and load ms, and the same save with every entry a cell
+ * delta (the other encoding that keeps the changed cells); base-chunk hash
+ * µs per chunk (bytes already in the base form, and through a decode).
+ * Writes
  * edits.md/edits.json to --out (default ~/.cache/thirdlight-phase45/work/
  * 45.4/results); scratch region files go next to it and are deleted after.
  */
@@ -24,7 +27,11 @@ import {
   applySave,
   applyUndo,
   baseChunkHash,
+  baseContentHash,
   canonicalEditCommand,
+  createChunkImage,
+  decodePaletteImage,
+  playerCells,
   chunkGrid,
   chunkKey,
   chunkOfKey,
@@ -44,7 +51,7 @@ import {
   type VoxelEditCommand,
 } from '@thirdlight/voxel';
 import { loadArea, pickStore, surfaceY, zstdCompress, zstdDecompress } from './regions';
-import { RegionWorld, ShippedWorld, updateSave, type WorldDirOptions } from '@thirdlight/workspace';
+import { listRegionFiles, RegionWorld, ShippedWorld, updateSave, type WorldDirOptions } from '@thirdlight/workspace';
 import { MAT, type TestGrid } from './world-kit';
 import { cavesWorld, hillyWorld, townWorld } from './worlds';
 
@@ -219,8 +226,9 @@ interface SessionRow {
   chunksPerSave: number;
   saveMs: number;
   worldBytes: number;
-  gameSave: { strokes: number; chunks: number; bytes: number; delta: number; image: number; uniform: number; air: number; buildMs: number; writeMs: number; readMs: number; applyMs: number; openMs: number; bytesPerStroke: number }[];
+  gameSave: { strokes: number; chunks: number; bytes: number; allDeltaBytes: number; delta: number; image: number; uniform: number; air: number; buildMs: number; writeMs: number; readMs: number; applyMs: number; openMs: number; bytesPerStroke: number }[];
   hashUs: number;
+  hashDecodeUs: number;
   hashKBPerChunk: number;
 }
 
@@ -231,8 +239,8 @@ async function measureSession(a: Area, strokes: number, work: string): Promise<S
   RegionWorld.create(shippedDir, OPTS, load(a));
   cpSync(shippedDir, editDir, { recursive: true });
   const worldBytes = readdirSync(shippedDir).reduce((n, f) => n + statSync(join(shippedDir, f)).size, 0);
-  const { world } = await RegionWorld.open(editDir, OPTS);
-  const shipped = new ShippedWorld(shippedDir, OPTS);
+  const { world } = await RegionWorld.open(editDir, OPTS, listRegionFiles(editDir));
+  const shipped = new ShippedWorld(shippedDir, OPTS, listRegionFiles(shippedDir));
   const rand = mulberry32(1234);
   const pool = spots(a, world.store, 400, 4321);
   const touched = new Map<number, ChunkCoord>();
@@ -259,19 +267,24 @@ async function measureSession(a: Area, strokes: number, work: string): Promise<S
       const t2 = performance.now();
       const back = readSave(bytes, grid, WORLD, zstdDecompress);
       const t3 = performance.now();
-      const fresh = await RegionWorld.open(shippedDir, OPTS);
+      const fresh = await RegionWorld.open(shippedDir, OPTS, listRegionFiles(shippedDir));
       const t4 = performance.now();
-      const fresher = new ShippedWorld(shippedDir, OPTS);
+      const fresher = new ShippedWorld(shippedDir, OPTS, listRegionFiles(shippedDir));
       applySave(back, WORLD, () => fresh.world.store, (c) => fresher.hash(c), () => 'save');
       const t5 = performance.now();
       const count = (k: string): number => save.chunks.filter((c) => c.content.kind === k).length;
-      gameSave.push({ strokes: i, chunks: save.chunks.length, bytes: bytes.length, delta: count('delta'), image: count('image'), uniform: count('uniform'), air: count('air'), buildMs: t1 - t0, writeMs: t2 - t1, readMs: t3 - t2, applyMs: t5 - t4, openMs: t4 - t3, bytesPerStroke: bytes.length / i });
+      // The same changed cells with every entry a delta: the other encoding that keeps them.
+      const allDelta = { ...save, chunks: save.chunks.map((c) => (c.content.kind === 'delta' ? c : { ...c, content: { kind: 'delta' as const, delta: playerCells(grid, c.content) } })) };
+      const allDeltaBytes = writeSave(allDelta, 'zstd', zstdCompress).length;
+      gameSave.push({ strokes: i, chunks: save.chunks.length, bytes: bytes.length, allDeltaBytes, delta: count('delta'), image: count('image'), uniform: count('uniform'), air: count('air'), buildMs: t1 - t0, writeMs: t2 - t1, readMs: t3 - t2, applyMs: t5 - t4, openMs: t4 - t3, bytesPerStroke: bytes.length / i });
       log(`${a.name}: game save after ${i} strokes: ${save.chunks.length} chunks, ${kb(bytes.length)} KB`);
     }
   }
   // Hash cost: every chunk the session touched, from its shipped bytes.
   const keys = [...world.store.chunkKeys()].slice(0, 2000);
   let hashUs = 0;
+  let hashDecodeUs = 0;
+  const img = createChunkImage(grid);
   let hashBytes = 0;
   let hashed = 0;
   for (const key of keys) {
@@ -279,8 +292,14 @@ async function measureSession(a: Area, strokes: number, work: string): Promise<S
     const b = shipped.chunkBytes(c);
     if (b === null || b.length < 64) continue;
     const t0 = performance.now();
-    baseChunkHash(b);
-    hashUs += (performance.now() - t0) * 1000;
+    const h = baseChunkHash(grid, b);
+    const t1 = performance.now();
+    // What a codec newer than the base form pays: decode, write the base form, hash.
+    decodePaletteImage(b, img);
+    const h2 = baseContentHash(img);
+    hashUs += (t1 - t0) * 1000;
+    hashDecodeUs += (performance.now() - t1) * 1000;
+    if (h.some((x, k) => x !== h2[k])) throw new Error('base hash differs between the two paths');
     hashBytes += b.length;
     hashed++;
   }
@@ -295,6 +314,7 @@ async function measureSession(a: Area, strokes: number, work: string): Promise<S
     worldBytes,
     gameSave,
     hashUs: hashed === 0 ? 0 : hashUs / hashed,
+    hashDecodeUs: hashed === 0 ? 0 : hashDecodeUs / hashed,
     hashKBPerChunk: hashed === 0 ? 0 : hashBytes / hashed / 1024,
   };
 }
@@ -325,10 +345,10 @@ async function main(): Promise<void> {
   md.push('| World | Edit | apply µs (mean) | cells | chunks | undo B (encoded) | image share | undo apply µs | strokes per 64 MiB |', '|---|---|---|---|---|---|---|---|---|');
   for (const r of kinds) md.push(`| ${r.world} | ${r.kind} | ${f1(r.applyUsMedian)} (${f1(r.applyUsMean)}) | ${f1(r.cells)} | ${f2(r.chunks)} | ${f1(r.undoBytes)} (${f1(r.undoEncodedBytes)}) | ${Math.round(100 * r.imageShare)} % | ${f1(r.undoApplyUs)} | ${Math.floor(UNDO_MEMORY_BUDGET_BYTES / Math.max(1, r.undoBytes))} |`);
   md.push('', `Session: ${strokes} mixed strokes (a quarter 1 m dabs, a quarter 2 m dabs, a quarter 4 m drags, 17 % single voxels, 8 % 16 m fills), region files saved every 10 strokes (dirty files only), game save at 10 / 100 / ${strokes} strokes.`, '');
-  md.push('| World | region MB | saves | files / save | KB written / save | chunks re-packed / save | save ms (median) | hash µs a chunk (KB) |', '|---|---|---|---|---|---|---|---|');
-  for (const s of sessions) md.push(`| ${s.world} | ${f2(s.worldBytes / MB)} | ${s.saves} | ${f2(s.filesPerSave)} | ${kb(s.bytesPerSave)} | ${f1(s.chunksPerSave)} | ${f1(s.saveMs)} | ${f1(s.hashUs)} (${f2(s.hashKBPerChunk)}) |`);
-  md.push('', '| World | strokes | save chunks (delta / image / uniform / air) | save KB | B / stroke | build ms | write ms | read ms | open shipped files ms | hash + apply ms |', '|---|---|---|---|---|---|---|---|---|---|');
-  for (const s of sessions) for (const g of s.gameSave) md.push(`| ${s.world} | ${g.strokes} | ${g.chunks} (${g.delta} / ${g.image} / ${g.uniform} / ${g.air}) | ${kb(g.bytes)} | ${f1(g.bytesPerStroke)} | ${f1(g.buildMs)} | ${f1(g.writeMs)} | ${f1(g.readMs)} | ${f1(g.openMs)} | ${f1(g.applyMs)} |`);
+  md.push('| World | region MB | saves | files / save | KB written / save | chunks re-packed / save | save ms (median) | hash µs a chunk (KB) | hash through a decode µs |', '|---|---|---|---|---|---|---|---|---|');
+  for (const s of sessions) md.push(`| ${s.world} | ${f2(s.worldBytes / MB)} | ${s.saves} | ${f2(s.filesPerSave)} | ${kb(s.bytesPerSave)} | ${f1(s.chunksPerSave)} | ${f1(s.saveMs)} | ${f1(s.hashUs)} (${f2(s.hashKBPerChunk)}) | ${f1(s.hashDecodeUs)} |`);
+  md.push('', '| World | strokes | save chunks (delta / image / uniform / air) | save KB | all-delta KB | B / stroke | build ms | write ms | read ms | open shipped files ms | hash + apply ms |', '|---|---|---|---|---|---|---|---|---|---|---|');
+  for (const s of sessions) for (const g of s.gameSave) md.push(`| ${s.world} | ${g.strokes} | ${g.chunks} (${g.delta} / ${g.image} / ${g.uniform} / ${g.air}) | ${kb(g.bytes)} | ${kb(g.allDeltaBytes)} | ${f1(g.bytesPerStroke)} | ${f1(g.buildMs)} | ${f1(g.writeMs)} | ${f1(g.readMs)} | ${f1(g.openMs)} | ${f1(g.applyMs)} |`);
   writeFileSync(join(out, 'edits.json'), JSON.stringify(report, null, 1));
   writeFileSync(join(out, 'edits.md'), md.join('\n') + '\n');
   console.log(md.join('\n'));

@@ -117,6 +117,14 @@ export function bytesToHex(bytes: Uint8Array): string {
   return out;
 }
 
+/** Hex (two digits a byte, either case) as bytes; throws on an odd length or a non-hex digit. */
+export function hexToBytes(hex: string): Uint8Array {
+  if (hex.length % 2 !== 0 || !/^[0-9a-fA-F]*$/.test(hex)) throw new RangeError('hex is pairs of hex digits');
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
+
 /** {@link sha256Hex} over the UTF-8 bytes of `text`. */
 export function sha256HexOfText(text: string): string {
   return sha256Hex(utf8Encode(text));

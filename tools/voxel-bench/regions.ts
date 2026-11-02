@@ -18,6 +18,7 @@ import {
   createWorldStore,
   packRegionChunk,
   PaletteStore,
+  parseRegionFileName,
   regionChunkCodecBytes,
   regionFileName,
   REGION_ENTRY_BYTES,
@@ -31,6 +32,7 @@ import {
   type RegionEntry,
   type RegionFootprint,
   type RegionLayout,
+  type RegionReadOptions,
   type RegionTile,
   type VoxelStoreCandidate,
   type VoxelStroke,
@@ -88,6 +90,13 @@ export class RegionSet {
       const e = storeEntry(store, c);
       if (e !== null) this.fileOf(c).entries.set(key, e);
     }
+  }
+
+  /** What a reader expects of one of this set's files, by its name. */
+  expectOf(name: string): RegionReadOptions {
+    const at = parseRegionFileName(this.layout, name);
+    if (at === null) throw new Error(`${name} is not a ${this.layout} region file name`);
+    return { expect: { worldId: this.worldId, gridId: this.gridId, layout: this.layout, grid: this.store.grid, footprint: this.footprint, ...at } };
   }
 
   private fileOf(c: ChunkCoord): { address: RegionAddress; entries: Map<number, RegionEntry> } {

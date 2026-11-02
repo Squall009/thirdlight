@@ -27,7 +27,7 @@ import type { ChunkPayload } from './chunk-wire';
 import type { ChunkEdge } from './coords';
 import type { DerivedData } from './derived-data';
 import type { VoxelEditCommand } from './edit-command';
-import type { MismatchChoice } from './save-file';
+import type { MismatchChoice, SaveContentKind } from './save-file';
 import type { StampShape } from './stamp-shape';
 
 /** Version of the job messages; a worker refuses any other. */
@@ -66,12 +66,11 @@ export interface LoadOutput {
   readonly decodeUs: number;
 }
 
-/** A save entry's content as it crosses threads (a delta as its bytes at rest). */
-export type SaveContentWire =
-  | { readonly kind: 'delta'; readonly bytes: Uint8Array }
-  | { readonly kind: 'image'; readonly bytes: Uint8Array }
-  | { readonly kind: 'uniform'; readonly value: number }
-  | { readonly kind: 'air' };
+/** A save entry's content as it crosses threads: its kind and its payload bytes as the save holds them. */
+export interface SaveContentWire {
+  readonly kind: SaveContentKind;
+  readonly payload: Uint8Array;
+}
 
 export interface ApplySaveInput {
   readonly edge: ChunkEdge;

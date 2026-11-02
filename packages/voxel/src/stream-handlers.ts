@@ -24,7 +24,7 @@ import { valueMaterial } from './palette-image';
 import { createWorldStore, type PaletteStore } from './palette-store';
 import { MATERIAL_AIR, type VoxelRecord } from './record';
 import { regionChunkCodecBytes, type RegionChunkRead } from './region-file';
-import { applySaveChunk, baseChunkHash, sameHash, type SaveContent } from './save-file';
+import { applySaveChunk, baseChunkHash, sameHash, saveContentFromPayload } from './save-file';
 import { stampShapeHash, type StampResolver } from './stamp-shape';
 import { encodeUndoRecord } from './undo-store';
 import type { ApplySaveInput, ApplySaveOutput, ChunkRef, DeriveInput, DeriveOutput, EditInput, EditOutput, LoadInput, LoadOutput, StoredChunk } from './stream-job';
@@ -85,25 +85,10 @@ function load(opts: StreamHandlerOptions, raw: unknown): JobResult {
     put(store, c, codec);
     const payload = store.chunkPayload(c.cx, c.cy, c.cz, false);
     const t2 = performance.now();
-    const output: LoadOutput = { payload, hash: input.hash ? baseChunkHash(codec) : null, decompressUs: (t1 - t0) * 1000, decodeUs: (t2 - t1) * 1000 };
+    const output: LoadOutput = { payload, hash: input.hash ? baseChunkHash(store.grid, codec) : null, decompressUs: (t1 - t0) * 1000, decodeUs: (t2 - t1) * 1000 };
     return { output, transfer: payloadTransfer(payload, output.hash === null ? [] : [output.hash.buffer as ArrayBuffer]) };
   } finally {
     clear(store);
-  }
-}
-
-function contentOf(grid: ChunkGrid, w: ApplySaveInput['content']): SaveContent {
-  switch (w.kind) {
-    case 'delta':
-      return { kind: 'delta', delta: CellDelta.decode(grid, w.bytes) };
-    case 'image':
-      return { kind: 'image', bytes: w.bytes };
-    case 'uniform':
-      return { kind: 'uniform', value: w.value };
-    case 'air':
-      return { kind: 'air' };
-    default:
-      throw new RangeError('save content of an unknown kind');
   }
 }
 
@@ -114,11 +99,11 @@ function applySave(opts: StreamHandlerOptions, raw: unknown): JobResult {
   const c = input.chunk;
   try {
     const codec = input.base === null ? null : regionChunkCodecBytes(store.grid, readOf(c, input.base), opts.decompress);
-    const baseNow = baseChunkHash(codec);
+    const baseNow = baseChunkHash(store.grid, codec);
     const mismatch = !sameHash(baseNow, input.expect);
     const applied = !mismatch || input.onMismatch === 'save';
     put(store, c, codec);
-    if (applied) applySaveChunk(store, { grid: c.grid, cx: c.cx, cy: c.cy, cz: c.cz, base: input.expect, content: contentOf(store.grid, input.content) });
+    if (applied) applySaveChunk(store, { grid: c.grid, cx: c.cx, cy: c.cy, cz: c.cz, base: input.expect, content: saveContentFromPayload(store.grid, input.content.kind, input.content.payload) }, !mismatch);
     const payload = store.chunkPayload(c.cx, c.cy, c.cz, false);
     const output: ApplySaveOutput = { payload, mismatch, applied, baseNow };
     return { output, transfer: payloadTransfer(payload, [baseNow.buffer as ArrayBuffer]) };

@@ -6,11 +6,26 @@
  * through registered upgrade steps. Bytes are crafted by hand here, with
  * their checksums fixed, so the refusal is the rule's and not the CRC's.
  */
-import { crc32 } from '@thirdlight/shared';
+import { bytesToHex, crc32 } from '@thirdlight/shared';
 import { describe, expect, it } from 'vitest';
 import {
   applyEdit,
+  applySaveChunk,
+  baseChunkHash,
+  baseContentHash,
   canonicalEditCommand,
+  CellDelta,
+  changedMaskBytes,
+  decodeOverrides,
+  decodeUndoRecord,
+  encodeOverrides,
+  encodeUndoRecord,
+  OVERRIDE_UPGRADES,
+  readSave,
+  RECORD_VALUE_FORM,
+  saveContentOf,
+  SAVE_UPGRADES,
+  writeSave,
   CHUNK_CODEC_UPGRADES,
   createWorldStore,
   EditCommandError,
@@ -50,11 +65,14 @@ import {
   type RegionByteSource,
   type RegionTile,
   type RegionUpgradeStep,
+  type StructureOverrides,
   type UpgradeStep,
 } from './index';
 
 const grid = chunkGrid(32);
 const n = grid.cellsPerChunk;
+/** The base hash of {@link sampleCells}: frozen with the base form (the save format's base hash definition). */
+const GOLDEN_BASE_HASH = '6c69b56ed64ea563b3efdd11bc3720df';
 
 function withCrc(b: Uint8Array): Uint8Array {
   const c = crc32(b.subarray(8));
@@ -184,8 +202,9 @@ describe('chunk codec: canonical input only', () => {
     expect(u).toHaveLength(14);
     store.decodeChunk(1, 0, 0, u);
     expect(store.voxelAt(40, 3, 3, voxel())).toEqual(voxel(MATERIAL_ID_MAX, VOXEL_CATEGORY.roof, 255, 23));
-    const region = writeRegion({ worldId: Uint8Array.from({ length: 16 }), gridId: 0, layout: 'stacked', grid, footprint: 512, rx: 0, ry: 0, rz: 0, compressor: 'none' }, [{ cx: 1, cy: 0, cz: 0, uniform: recordValue(MATERIAL_ID_MAX, VOXEL_CATEGORY.roof, 23) }]);
-    const read = RegionIndex.parse(region).read(0, region);
+    const wide: RegionTile = { worldId: Uint8Array.from({ length: 16 }), gridId: 0, layout: 'stacked', grid, footprint: 512, rx: 0, ry: 0, rz: 0, compressor: 'none' };
+    const region = writeRegion(wide, [{ cx: 1, cy: 0, cz: 0, uniform: recordValue(MATERIAL_ID_MAX, VOXEL_CATEGORY.roof, 23) }]);
+    const read = RegionIndex.parse(region, { expect: wide }).read(0, region);
     expect(read.kind === 'uniform' && read.value).toBe(recordValue(MATERIAL_ID_MAX, VOXEL_CATEGORY.roof, 23));
     // One past the width: refused by the writers and in bytes.
     expect(() => checkVoxel(voxel(MATERIAL_ID_MAX + 1, 1, 255, 0))).toThrow(RangeError);
@@ -295,6 +314,33 @@ describe('chunk codec: versions move forward through registered steps only', () 
     const wrong: UpgradeStep<Uint8Array> = { from: 0, lift: (x) => x };
     expect(() => decodePaletteImage(v0, createChunkImage(grid), [wrong])).toThrow(/the upgrade step from version 0 gave version 0/);
   });
+
+  it('gives one base hash per content, whatever codec version holds it, and the base form is frozen', () => {
+    const v1 = worldBytes(sampleCells());
+    const h1 = baseChunkHash(grid, v1);
+    // Frozen: this content's base hash, written down when the base form was defined. A codec change that
+    // moves it changes every save's base hashes: keep a version 1 writer for the base form instead.
+    expect(bytesToHex(h1)).toBe(GOLDEN_BASE_HASH);
+    expect(bytesToHex(baseChunkHash(grid, null))).toBe('e3b0c44298fc1c149afbf4c8996fb924');
+    // The same content in another codec version's bytes (the test-only version 0) hashes the same.
+    const v0 = toV0(v1);
+    expect(v0).not.toEqual(v1);
+    expect(baseChunkHash(grid, v0, [step])).toEqual(h1);
+    // A test-only newer layout (version 2: the category and orientation planes swapped, never a real format):
+    // decoded by its own reader into the content, it hashes as its version 1 bytes do.
+    const v2 = toV0(v1);
+    v2[2] = 2;
+    withCrc(v2);
+    const readV2 = (b: Uint8Array): ReturnType<typeof createChunkImage> => {
+      const back = b.slice();
+      back[2] = 0;
+      const img = createChunkImage(grid);
+      decodePaletteImage(withCrc(back), img, [step]);
+      return img;
+    };
+    expect(baseContentHash(readV2(v2))).toEqual(h1);
+    expect(baseContentHash(null)).toEqual(baseChunkHash(grid, null));
+  });
 });
 
 /** A region file in memory as a byte source that counts its reads. */
@@ -397,29 +443,29 @@ describe('region file: versions move forward through registered steps only', () 
   const chunks = [{ cx: 17, cy: 2, cz: -15 }, { cx: 16, cy: 0, cz: -16 }, { cx: 20, cy: 3, cz: -9 }, { cx: 18, cy: 1, cz: -10 }];
 
   it('reads an older file by range through its step, the same chunks as the current file', async () => {
-    const { bytes } = sampleRegion();
+    const { tile, bytes } = sampleRegion();
     const v0 = toV0(bytes);
-    const now = await readRegionChunks(memorySource(bytes), await openRegion(memorySource(bytes)), chunks);
+    const now = await readRegionChunks(memorySource(bytes), await openRegion(memorySource(bytes), { expect: tile }), chunks);
     const src = memorySource(v0);
-    const index = await openRegion(src, { upgrades: [step] });
+    const index = await openRegion(src, { expect: tile, upgrades: [step] });
     expect(index.dataStart).toBe(REGION_HEADER_BYTES + 3 * V0_ENTRY);
     expect(index.fileBytes).toBe(v0.length);
     const old = await readRegionChunks(src, index, chunks);
     expect(old).toEqual(now);
-    expect(RegionIndex.parse(v0, { upgrades: [step] }).size).toBe(3);
+    expect(RegionIndex.parse(v0, { expect: tile, upgrades: [step] }).size).toBe(3);
   });
 
   it('refuses an older file without a step and a newer file', async () => {
-    const { bytes } = sampleRegion();
-    await expect(openRegion(memorySource(toV0(bytes)))).rejects.toThrow(/version 0 has no upgrade step/);
+    const { tile, bytes } = sampleRegion();
+    await expect(openRegion(memorySource(toV0(bytes)), { expect: tile })).rejects.toThrow(/version 0 has no upgrade step/);
     const v2 = bytes.slice();
     v2[4] = 2;
     new DataView(v2.buffer).setUint32(60, crc32(v2.subarray(0, 60)), true);
-    await expect(openRegion(memorySource(v2), { upgrades: [step] })).rejects.toThrow(/version 2 is newer than this build reads/);
+    await expect(openRegion(memorySource(v2), { expect: tile, upgrades: [step] })).rejects.toThrow(/version 2 is newer than this build reads/);
     const codec2 = bytes.slice();
     codec2[7] = 2;
     new DataView(codec2.buffer).setUint32(60, crc32(codec2.subarray(0, 60)), true);
-    expect(() => RegionIndex.parse(codec2)).toThrow(/chunk codec version 2/);
+    expect(() => RegionIndex.parse(codec2, { expect: tile })).toThrow(/chunk codec version 2/);
   });
 });
 
@@ -452,5 +498,141 @@ describe('edit commands: one stroke, one payload', () => {
     expect(() => canonicalEditCommand({ v: 1, grid: 0, kind: 'set', cells: [0, 0, 0], voxel: { ...v, orientation: ORIENTATION_COUNT } })).toThrow(EditCommandError);
     expect(() => canonicalEditCommand({ v: 1, grid: 0, kind: 'fill', min: [0, 0, 0], max: [1, 1, 1], mode: 'place', voxel: { material: 3, category: 9, orientation: 0 } })).toThrow(/category/);
     expect(() => canonicalEditCommand({ v: 1, grid: 0, kind: 'set', cells: [0, 0, 0], voxel: { ...v, category: 4, orientation: 23 } })).not.toThrow();
+  });
+});
+
+/** A save of one chunk in memory, written and read back (no compressor). */
+function saveRoundTrip(base: DenseChunk, now: DenseChunk): ReturnType<typeof readSave> {
+  const content = saveContentOf(grid, base, now)!;
+  const worldId = Uint8Array.from({ length: 16 }, (_, i) => i);
+  const bytes = writeSave({ worldId, grid, chunks: [{ grid: 0, cx: 0, cy: 0, cz: 0, base: baseChunkHash(grid, worldBytes(base)), content }] }, 'none', (b) => b);
+  return readSave(bytes, grid, worldId, (b) => b);
+}
+
+describe('saves: the cells the player changed land on a changed base', () => {
+  const rockTo = (top: number): DenseChunk => {
+    const c = createDenseChunk(grid);
+    for (let x = 0; x < 32; x++) for (let z = 0; z < 32; z++) for (let y = 0; y < top; y++) {
+      const i = localIndex(grid, x, y, z);
+      [c.material[i], c.category[i], c.shape[i]] = [1, VOXEL_CATEGORY.terrain, 255];
+    }
+    return c;
+  };
+
+  it('a whole-chunk entry carries the changed cells: on a new base only those are the player\'s', () => {
+    // The base is rock up to y 16; the player digs all of it (the chunk is air now, a whole-chunk entry).
+    const base = rockTo(16);
+    const save = saveRoundTrip(base, createDenseChunk(grid));
+    const entry = save.chunks[0]!;
+    expect(entry.content.kind).toBe('air');
+    expect(entry.content.kind !== 'delta' && entry.content.mask.length).toBe(changedMaskBytes(grid));
+    // The re-export puts a wall above the old ground, in cells the player never changed.
+    const reexport = rockTo(16);
+    for (let y = 16; y < 24; y++) [reexport.material[localIndex(grid, 5, y, 5)], reexport.category[localIndex(grid, 5, y, 5)], reexport.shape[localIndex(grid, 5, y, 5)]] = [2, VOXEL_CATEGORY.construction, 255];
+    const onSame = createWorldStore(grid);
+    onSame.importChunk(0, 0, 0, base);
+    applySaveChunk(onSame, entry, true);
+    expect([...onSame.chunkKeys()]).toEqual([]);
+    const onNew = createWorldStore(grid);
+    onNew.importChunk(0, 0, 0, reexport);
+    applySaveChunk(onNew, entry, false);
+    const v = voxel();
+    expect(onNew.voxelAt(5, 20, 5, v).material).toBe(2);
+    expect(onNew.voxelAt(5, 3, 5, v).material).toBe(0);
+    expect(onNew.voxelAt(9, 15, 9, v).material).toBe(0);
+  });
+
+  it('refuses a whole-chunk entry without changed cells, a uniform value the format does not hold, and air with a shape in a delta', () => {
+    const base = rockTo(16);
+    const now = rockTo(16);
+    for (let i = 0; i < n; i++) [now.material[i], now.category[i], now.shape[i]] = [3, VOXEL_CATEGORY.construction, 255];
+    const content = saveContentOf(grid, base, now)!;
+    expect(content.kind).toBe('uniform');
+    const worldId = Uint8Array.from({ length: 16 }, (_, i) => i);
+    const write = (c: typeof content): Uint8Array => writeSave({ worldId, grid, chunks: [{ grid: 0, cx: 0, cy: 0, cz: 0, base: new Uint8Array(16), content: c }] }, 'none', (b) => b);
+    const read = (b: Uint8Array): unknown => readSave(b, grid, worldId, (x) => x);
+    expect(() => read(write(content))).not.toThrow();
+    if (content.kind !== 'uniform') throw new Error('unreachable');
+    expect(() => read(write({ ...content, mask: new Uint8Array(changedMaskBytes(grid)) }))).toThrow(/names no changed cell/);
+    expect(() => read(write({ ...content, value: recordValue(3, VOXEL_CATEGORY_COUNT, 0) }))).toThrow(/save uniform entry: unassigned category 5/);
+    expect(() => read(write({ ...content, value: recordValue(3, 1, ORIENTATION_COUNT) }))).toThrow(/orientation 24/);
+    const airShape = new CellDelta();
+    airShape.push(7, 0, 9);
+    expect(() => CellDelta.decode(grid, airShape.encode())).toThrow(/cell 7 is air with shape 9/);
+    const airCategory = new CellDelta();
+    airCategory.push(7, recordValue(0, 1, 0), 0);
+    expect(() => CellDelta.decode(grid, airCategory.encode())).toThrow(/cell delta: air with a category/);
+  });
+});
+
+describe('record value form: every form holding raw values names it', () => {
+  const worldId = Uint8Array.from({ length: 16 }, (_, i) => i);
+
+  it('is 1 today, written by region files, saves, undo records and overrides; a newer one is refused', () => {
+    expect(RECORD_VALUE_FORM).toBe(1);
+    const { tile, bytes } = sampleRegion();
+    expect(bytes[10]).toBe(RECORD_VALUE_FORM);
+    const region2 = bytes.slice();
+    region2[10] = 2;
+    new DataView(region2.buffer).setUint32(60, crc32(region2.subarray(0, 60)), true);
+    expect(() => RegionIndex.parse(region2, { expect: tile })).toThrow(/region file: record value form 2 \(this build reads 1 to 1\)/);
+
+    const save = writeSave({ worldId, grid, chunks: [] }, 'none', (b) => b);
+    expect(save[8]).toBe(RECORD_VALUE_FORM);
+    const save2 = save.slice();
+    save2[8] = 2;
+    new DataView(save2.buffer).setUint32(40, crc32(save2.subarray(0, 40)), true);
+    expect(() => readSave(save2, grid, worldId, (b) => b)).toThrow(/save: record value form 2/);
+
+    const delta = new CellDelta();
+    delta.push(3, recordValue(1, 1, 0), 255);
+    const undo = encodeUndoRecord(grid, [{ grid: 0, cx: 0, cy: 0, cz: 0, before: { kind: 'delta', delta } }]);
+    expect(undo[7]).toBe(RECORD_VALUE_FORM);
+    const undo2 = undo.slice();
+    undo2[7] = 2;
+    new DataView(undo2.buffer).setUint32(undo2.length - 4, crc32(undo2.subarray(0, undo2.length - 4)), true);
+    expect(() => decodeUndoRecord(grid, undo2)).toThrow(/undo record: record value form 2/);
+
+    const o: StructureOverrides = { grid, gridId: 4, chunks: new Map([[0, { cx: 0, cy: 0, cz: 0, base: delta, value: delta }]]) };
+    const ob = encodeOverrides(o);
+    expect(ob[6]).toBe(RECORD_VALUE_FORM);
+    const ob2 = ob.slice();
+    ob2[6] = 2;
+    new DataView(ob2.buffer).setUint32(ob2.length - 4, crc32(ob2.subarray(0, ob2.length - 4)), true);
+    expect(() => decodeOverrides(grid, ob2)).toThrow(/structure overrides: record value form 2/);
+  });
+
+  it('region tables and overrides refuse values the format does not hold', () => {
+    const { tile } = sampleRegion();
+    const bad = writeRegion(tile, [{ cx: 16, cy: 0, cz: -16, uniform: recordValue(1, VOXEL_CATEGORY_COUNT, 0) }]);
+    expect(() => RegionIndex.parse(bad, { expect: tile })).toThrow(RegionFileError);
+    expect(() => RegionIndex.parse(bad, { expect: tile })).toThrow(/region file: entry 0: unassigned category 5/);
+    const delta = new CellDelta();
+    delta.push(3, recordValue(1, 1, ORIENTATION_COUNT), 255);
+    const ok = new CellDelta();
+    ok.push(3, recordValue(1, 1, 0), 255);
+    expect(() => decodeOverrides(grid, encodeOverrides({ grid, gridId: 4, chunks: new Map([[0, { cx: 0, cy: 0, cz: 0, base: ok, value: delta }]]) }))).toThrow(/structure overrides: orientation 24/);
+  });
+});
+
+describe('structure overrides: versions move forward through registered steps only', () => {
+  it('has no steps at version 1, lifts an older version through appended steps and refuses a newer one', () => {
+    expect(OVERRIDE_UPGRADES).toEqual([]);
+    expect(Object.isFrozen(OVERRIDE_UPGRADES)).toBe(true);
+    expect(SAVE_UPGRADES).toEqual([]);
+    const a = new CellDelta();
+    a.push(3, recordValue(1, 1, 0), 255);
+    const b = new CellDelta();
+    b.push(3, 0, 0);
+    const bytes = encodeOverrides({ grid, gridId: 4, chunks: new Map([[0, { cx: 0, cy: 0, cz: 0, base: a, value: b }]]) });
+    // A test-only step to a version 2 (never a real format): it renumbers the structure's grid.
+    const step = (o: StructureOverrides): StructureOverrides => ({ ...o, gridId: o.gridId + 100 });
+    expect(decodeOverrides(grid, bytes).gridId).toBe(4);
+    expect(decodeOverrides(grid, bytes, [step]).gridId).toBe(104);
+    const v2 = bytes.slice();
+    v2[4] = 2;
+    new DataView(v2.buffer).setUint32(v2.length - 4, crc32(v2.subarray(0, v2.length - 4)), true);
+    expect(() => decodeOverrides(grid, v2)).toThrow(/unknown version 2 \(this build reads 1 to 1\)/);
+    expect(decodeOverrides(grid, v2, [step]).gridId).toBe(4);
   });
 });

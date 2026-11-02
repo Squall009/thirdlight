@@ -7,6 +7,7 @@ import {
   createDenseChunk,
   damagedRegionChunks,
   openRegion,
+  parseRegionFileName,
   readRegionChunks,
   readRegionHeader,
   regionChunkCodecBytes,
@@ -23,6 +24,7 @@ import {
   type PaletteStore,
   type RegionEntry,
   type RegionTile,
+  type RegionExpect,
 } from '@thirdlight/voxel';
 import { crc32 } from '@thirdlight/shared';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -32,6 +34,10 @@ import { MAT } from './world-kit';
 
 const grid = chunkGrid(32);
 const WORLD = Uint8Array.from({ length: 16 }, (_, i) => (i * 37 + 11) & 0xff);
+/** What a reader of the town's one column file expects it to hold. */
+const COLUMN0 = { expect: { worldId: WORLD, gridId: 0, layout: 'column' as const, grid, footprint: 512 as const, rx: 0, ry: 0, rz: 0 } };
+/** What a reader expects of a file of grid `gridId` and `layout`, from its name. */
+const expectOf = (name: string, layout: 'column' | 'stacked', gridId = 0): { expect: RegionExpect } => ({ expect: { worldId: WORLD, gridId, layout, grid, footprint: 512, ...parseRegionFileName(layout, name)! } });
 const town = townWorld({ footprint: 200 });
 
 /** The town's world grid in one store, and a set of 256 m column region files over it. */
@@ -79,7 +85,7 @@ describe('region files', () => {
   it('round-trips a world tile through a file on disk, uniform chunks inline in the table', async () => {
     const store = townStore();
     const bytes = onlyFile(new RegionSet(store, 'column', 512, WORLD));
-    const index = RegionIndex.parse(bytes);
+    const index = RegionIndex.parse(bytes, COLUMN0);
     const h = index.header;
     expect([h.rx, h.ry, h.rz, h.gridId, h.side, h.layout, h.compressor]).toEqual([0, 0, 0, 0, 16, 'column', 'zstd']);
     expect([...h.worldId]).toEqual([...WORLD]);
@@ -97,7 +103,7 @@ describe('region files', () => {
     for (let i = 0; i < index.size; i++) all.push(index.coordOf(i));
     // Ask for absent chunks too: they read as air.
     all.push({ cx: 0, cy: 40, cz: 0 });
-    const opened = await openRegion(src);
+    const opened = await openRegion(src, COLUMN0);
     const reads = await readRegionChunks(src, opened, all);
     await src.close();
     expect(reads.at(-1)!.kind).toBe('air');
@@ -126,7 +132,7 @@ describe('region files', () => {
     expect(Buffer.compare(fa, base)).not.toBe(0);
     // Rewriting unchanged content gives the same bytes; so do entries handed over in any order.
     expect(Buffer.compare(onlyFile(sa), fa)).toBe(0);
-    const index = RegionIndex.parse(fa);
+    const index = RegionIndex.parse(fa, COLUMN0);
     const entries: RegionEntry[] = [];
     for (let i = 0; i < index.size; i++) entries.push(storeEntry(a, index.coordOf(i))!);
     const tile: RegionTile = { worldId: WORLD, gridId: 0, layout: 'column', grid, footprint: 512, rx: 0, ry: 0, rz: 0, compressor: 'zstd' };
@@ -140,7 +146,7 @@ describe('region files', () => {
     const store = townStore();
     const bytes = onlyFile(new RegionSet(store, 'column', 512, WORLD));
     writeFileSync(join(dir, 'r.0.0.vxr'), bytes);
-    const index = RegionIndex.parse(bytes);
+    const index = RegionIndex.parse(bytes, COLUMN0);
     const near: ChunkCoord[] = [];
     for (let cx = 1; cx <= 3; cx++) for (let cz = 1; cz <= 3; cz++) for (let cy = -1; cy <= 0; cy++) near.push({ cx, cy, cz });
     const whole = near.map((c) => {
@@ -161,7 +167,7 @@ describe('region files', () => {
       const file = await FileSource.open(join(dir, 'r.0.0.vxr'));
       const http = new HttpSource(`http://127.0.0.1:${port}/r.0.0.vxr`);
       for (const src of [file, http]) {
-        const opened = await openRegion(src);
+        const opened = await openRegion(src, COLUMN0);
         expect(src.requests).toBe(1);
         const reads = await readRegionChunks(src, opened, near, 64 * 1024);
         expect(src.requests).toBeLessThanOrEqual(4);
@@ -184,9 +190,9 @@ describe('region files', () => {
       b[at]! ^= 0x10;
       return b;
     };
-    expect(() => RegionIndex.parse(flip(33))).toThrow(/header checksum/);
-    expect(() => RegionIndex.parse(flip(REGION_HEADER_BYTES + 5))).toThrow(/table checksum/);
-    expect(() => RegionIndex.parse(flip(1))).toThrow(/magic/);
+    expect(() => RegionIndex.parse(flip(33), COLUMN0)).toThrow(/header checksum/);
+    expect(() => RegionIndex.parse(flip(REGION_HEADER_BYTES + 5), COLUMN0)).toThrow(/table checksum/);
+    expect(() => RegionIndex.parse(flip(1), COLUMN0)).toThrow(/magic/);
     const v2 = bytes.slice();
     v2[4] = 2;
     resealHeader(v2);
@@ -196,16 +202,16 @@ describe('region files', () => {
     reserved[57] = 1;
     resealHeader(reserved);
     expect(() => readRegionHeader(reserved)).toThrow(/reserved/);
-    expect(() => damagedRegionChunks(bytes.subarray(0, bytes.length - 1))).toThrow(/bytes, its table says/);
+    expect(() => damagedRegionChunks(bytes.subarray(0, bytes.length - 1), COLUMN0)).toThrow(/bytes, its table says/);
     const longer = new Uint8Array(bytes.length + 1);
     longer.set(bytes);
-    expect(() => damagedRegionChunks(longer)).toThrow(/bytes, its table says/);
-    expect(damagedRegionChunks(bytes)).toEqual([]);
+    expect(() => damagedRegionChunks(longer, COLUMN0)).toThrow(/bytes, its table says/);
+    expect(damagedRegionChunks(bytes, COLUMN0)).toEqual([]);
 
-    const index = RegionIndex.parse(bytes);
+    const index = RegionIndex.parse(bytes, COLUMN0);
     const victim = Array.from({ length: index.size }, (_, i) => i).find((i) => !index.isUniform(i))!;
     const hurt = flip(index.offsetOf(victim) + 3);
-    const damaged = damagedRegionChunks(hurt);
+    const damaged = damagedRegionChunks(hurt, COLUMN0);
     expect(damaged).toHaveLength(1);
     const c = index.coordOf(victim);
     expect([damaged[0]!.cx, damaged[0]!.cy, damaged[0]!.cz]).toEqual([c.cx, c.cy, c.cz]);
@@ -227,10 +233,10 @@ describe('region files', () => {
     const stacks = new RegionSet(store, 'stacked', 512, WORLD).allFiles();
     // 4,000 cells of height in 256 m cubes: 8 stacks; air above the peak and below the base allocates nothing.
     expect(stacks.size).toBe(8);
-    const ci = RegionIndex.parse(column);
+    const ci = RegionIndex.parse(column, COLUMN0);
     let entries = 0;
     for (const [name, b] of stacks) {
-      const s = RegionIndex.parse(b);
+      const s = RegionIndex.parse(b, expectOf(name, 'stacked'));
       expect(name).toBe(`r.0.${s.header.ry}.0.vxr`);
       expect(s.header.layout).toBe('stacked');
       entries += s.size;
@@ -261,7 +267,7 @@ describe('region files', () => {
       const path = join(dir, `grid7-${name}`);
       writeFileSync(path, bytes);
       const src = await FileSource.open(path);
-      const index = await openRegion(src);
+      const index = await openRegion(src, expectOf(name, 'column', 7));
       expect(index.header.gridId).toBe(7);
       const all: ChunkCoord[] = [];
       for (let i = 0; i < index.size; i++) all.push(index.coordOf(i));

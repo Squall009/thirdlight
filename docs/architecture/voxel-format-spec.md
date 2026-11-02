@@ -75,7 +75,8 @@ budget the streaming core uses for the Iris Xe floor.
 - A 16 m box fill: about 5–5.7 ms.
 - Undo memory: 22 bytes for one voxel, 1.5 KB for a 4 m dab, 45–60 KB for a 16 m fill. Undo history is limited
   by a 64 MiB memory budget, not by a step count, and spills to disk beyond it.
-- Saves stay small: **255–460 KB** after 1,000 heavy strokes. Writing one takes 6–14 ms, reading one 11–15 ms.
+- Saves stay small: **303–497 KB** after 1,000 heavy strokes, the cells each entry changed included. Writing one
+  takes 8–11 ms, reading one 14–19 ms.
 
 **Decoding a stored chunk in a browser worker**
 - zstd: 4–53 µs (fzstd).
@@ -169,6 +170,17 @@ The brick ray-marched far field was moved to 46c by the owner (2026-10-28); it w
 - where paint is stored (O16);
 - shoreline cells that are both ground and water (O15).
 
+**The record value has no spare bit (decide together with O15 and O16).** Material 23 + category 4 +
+orientation 5 = 32 bits. If O15 (a cell holding ground plus a liquid fill) or O16 (paint per voxel) needs bits in
+every voxel, the record must widen. Each form that stores raw record values outside the chunk codec (region
+uniform entries, cell deltas in undo records and saves, save uniform payloads, structure overrides) therefore
+names its **record value form** (§2.2): form 1 is today's u32. A wider form is added beside it, so files written
+now stay readable and no format needs a new version for it. The owner picks one (default chosen, owner to
+confirm: value forms now, the 23/4/5 split unchanged):
+- settle O15 and O16 first, and widen the record before v1 freezes if either needs per-voxel bits;
+- keep spare bits now (a 21- or 22-bit material id, still 2–4 M ids);
+- or rely on the value forms and widen add-only later (what the code does).
+
 ---
 
 ## 2. Coordinates, bounds and the voxel record
@@ -198,7 +210,7 @@ The brick ray-marched far field was moved to 46c by the owner (2026-10-28); it w
 - **Floating origin (§3.6).** Authoritative positions stay integer cells and 64-bit metres. Only 32-bit consumers
   (the GPU, physics) work relative to a moving origin.
 
-### 2.2 Voxel record — PROVISIONAL (Q-a; `record.ts`)
+### 2.2 Voxel record — category set and orientation meaning PROVISIONAL (Q-a; `record.ts`)
 
 | Field | Width | Values | Notes |
 |---|---|---|---|
@@ -216,7 +228,19 @@ The brick ray-marched far field was moved to 46c by the owner (2026-10-28); it w
 - **Record value.** The packed form used in palettes, deltas, aprons and region entries is
   `material | category << 23 | orientation << 27`, a u32: material in bits 0–22, category in 23–26 (room for 16),
   orientation in 27–31 (room for 32). Shape travels beside it. Every field must fit its width; readers refuse a
-  wider value before packing it.
+  wider value before packing it. No bit is spare (§1).
+- **Record value form** (`RECORD_VALUE_FORM` = 1, `checkValueForm`). Every format that stores raw record values
+  outside the chunk codec records the form they are in: the region file (header byte 10, its uniform entries), the
+  undo record (byte 7, its deltas), the save (byte 8, its deltas and uniform payloads) and the structure overrides
+  (byte 6). Form 1 is the u32 above. A reader refuses a form newer than it knows. A later, wider form is added
+  beside form 1: readers of form 1 are kept, and lifting a form-1 value is a pure widening (each field keeps its
+  value). The chunk codec stores the fields in planes of their own and is versioned by its own byte. Forms that
+  only cross threads inside one build (the chunk wire, aprons, job messages) are never persisted and carry no form:
+  both ends run the same build.
+- **Every stored value is checked** (`checkRecordValue`): region uniform entries, save uniform payloads, cell
+  deltas and overrides refuse an unassigned category or orientation, and air that is not the one air value; a cell
+  delta or override also refuses air with a non-zero shape. A refused region table refuses the file, so its chunks
+  are reported damaged.
 - **Implied shape.** Air is 0 and any other material is 255. A voxel is a **surface voxel** when its shape differs
   from its implied shape. That covers partly full ground, a liquid's partly full top cell, and any non-air cell
   with shape 0. The rule depends on the voxel's own value only, never on its neighbours.
@@ -370,7 +394,8 @@ bytes; the compressor is passed in. Little-endian.
 | 7 | 1 | chunk codec version the file was written with (1 to this build's; chunks of an older version are lifted on read) |
 | 8 | 1 | compressor of stored chunks: 0 none, 1 zstd |
 | 9 | 1 | side: chunks along each side of the region (16 for 256 m at 32³) |
-| 10 | 2 | reserved, 0 |
+| 10 | 1 | record value form of the uniform entries (§2.2; 1) |
+| 11 | 1 | reserved, 0 |
 | 12 | 16 | world id |
 | 28 | 4 | grid id (u32; 0 = world grid) |
 | 32 | 4 × 3 | rx, ry, rz (i32; ry = 0 in a column) |
@@ -412,9 +437,12 @@ bytes; the compressor is passed in. Little-endian.
   - bad magic, a newer or unliftable version, an unknown layout or compressor, a chunk codec version newer than
     this build's;
   - a file of another tile than the reader expects (R5): every reader passes what it expects (`RegionExpect`:
-    world id, grid id, layout, chunk edge, footprint and the region index its file name gives), and a mismatch
-    names the field, what the file holds and what was expected. `RegionChunkSource` and the backend's world both
-    check every file they open; a file copied into the wrong world or folder is never read as this one's voxels;
+    world id, grid id, layout, chunk edge, footprint and the region index its file name gives; `expect` is a
+    required argument of `RegionIndex.parse`, `openRegion` and `damagedRegionChunks`), and a mismatch names the
+    field, what the file holds and what was expected. `RegionChunkSource`, the backend's world and the shipped
+    world a save is made against all check every file they open; a file copied into the wrong world or folder is
+    never read as this one's voxels;
+  - a record value form newer than this build's, or a uniform entry whose value the format does not hold (§2.2);
   - an edge other than 16 or 32, or a footprint other than 512 or 1,024 cells;
   - a stack index in a column file;
   - set reserved bytes, or a damaged header or table CRC;
@@ -449,9 +477,11 @@ file names, sorted, each once) and `revision` (moves by one with every applied c
 
 - **Which regions exist (R4).** A region the manifest does not list is all air. A listed region that is missing,
   unreadable or of another tile is damaged: the backend reports it (`region_damaged`, 409, on the range route;
-  `etag: null` in the world's file list), the chunk source reports its chunks damaged, and edits into it are
-  refused (`chunk_not_loaded`). It stays listed until it is repaired, so a lost tile never passes as empty sky. A
-  stray file the manifest does not list is never read.
+  `etag: null` in the world's file list), the chunk source reports its chunks damaged, edits into it are refused
+  (`chunk_not_loaded`), and the shipped world a game save is made against (`openShippedWorld`, which reads the
+  manifest) throws for its chunks, so no save entry is made or checked against air standing in for it. It stays
+  listed until it is repaired, so a lost tile never passes as empty sky. A stray file the manifest does not list is
+  never read: every world reader takes the manifest's list (`RegionWorld.open`, `ShippedWorld`).
 - **Write order.** Region files are written first, then the manifest. A region that became all air is deleted
   only after the manifest no longer lists it. A crash between the two leaves either an unlisted new file (read as
   air, the revision not advanced) or nothing listed that is missing.
@@ -529,8 +559,9 @@ An image is encoded only once the delta outgrows the smallest image, which is 4 
 - **Redo** re-applies the command. It is deterministic and works last-in, first-out.
 - **The undo step is a new revision** (the command model's inverse), never a rewind.
 
-**Cell delta bytes** (`cell-delta.ts`): n × u16 local cells (ascending), then n × u32 record values (0 for air),
-then n × u8 shapes. Writing all cells, then all values, then all shapes lets the compressor find runs.
+**Cell delta bytes** (`cell-delta.ts`): n × u16 local cells (ascending), then n × u32 record values (0 for air;
+value form 1), then n × u8 shapes (0 for air). Writing all cells, then all values, then all shapes lets the
+compressor find runs. The reader refuses a value the format does not hold and air with a shape.
 
 | Offset | Bytes | Field |
 |---|---|---|
@@ -538,7 +569,7 @@ then n × u8 shapes. Writing all cells, then all values, then all shapes lets th
 | 4 | 1 | version = 1 |
 | 5 | 1 | chunk edge |
 | 6 | 1 | chunk codec version |
-| 7 | 1 | reserved, 0 |
+| 7 | 1 | record value form of its deltas (§2.2; 1) |
 | 8 | 4 | chunk count |
 | 12 | … | per chunk: u32 grid, i16 cx, i16 cy, i16 cz, u8 kind (0 delta, 1 image, 2 absent), u32 length, payload |
 | end − 4 | 4 | CRC-32 of everything before it |
@@ -556,12 +587,23 @@ fill. 64 MiB holds about 43 k 4 m dabs, or 1.1–1.5 k 16 m fills.
 **Save:**
 - **Edits only (R59).** A save holds only the chunks that differ from the shipped world. A chunk changed and then
   changed back has no entry.
+- **The player's cells, always.** Every entry records which cells the player changed: a cell delta lists them; a
+  whole-chunk entry (the chunk as it is now: an image, one voxel, or all air) carries a **changed-cell mask** beside
+  it. The writer keeps whichever payload is smaller (the delta on a tie); the choice never changes what loading
+  does.
 - **Base hash (R60).** Each entry carries a **base hash**: the first 16 bytes of the SHA-256 of the shipped chunk's
-  canonical codec bytes. An all-air base hashes as no bytes.
-- **Content, not frames.** The hash covers the chunk's content, not its compressed frame, so recompressing a world
-  is not a change.
+  content in the **base form**. An all-air base hashes as no bytes.
+- **The base form is frozen: the chunk codec version 1 canonical bytes of the content** (§3.1, header included),
+  whatever codec version the chunk is stored in (`BASE_FORM_CODEC_VERSION` = 1). Bytes already of version 1 are
+  hashed as they are (the world decoder accepts only canonical bytes, so they are the one byte string of their
+  content); bytes of any other version are decoded and written in the base form first (`baseContentHash`). A later
+  codec keeps a version 1 writer for this. So neither recompressing a world nor a codec upgrade looks like a changed
+  world. If a later record holds content version 1 cannot write (a wider value form, §2.2), the base form gains an
+  extension then; such content was never the base of an older save, so no older hash can match it wrongly. Tested
+  with a frozen hash of a fixed chunk, the same content through a test-only older codec version, and through a
+  test-only newer layout read back to its content.
 
-**Header (40 bytes):**
+**Header (44 bytes):**
 
 | Offset | Bytes | Field |
 |---|---|---|
@@ -570,11 +612,13 @@ fill. 64 MiB holds about 43 k 4 m dabs, or 1.1–1.5 k 16 m fills.
 | 5 | 1 | chunk edge |
 | 6 | 1 | chunk codec version (1 to this build's; older images are lifted when decoded) |
 | 7 | 1 | compressor: 0 none, 1 zstd (the whole body is one stream) |
-| 8 | 16 | world id |
-| 24 | 4 | entry count |
-| 28 | 4 | body length as stored |
-| 32 | 4 | CRC-32 of the body as stored |
-| 36 | 4 | CRC-32 of bytes 0–35 |
+| 8 | 1 | record value form of its deltas and uniform payloads (§2.2; 1) |
+| 9 | 3 | reserved, 0 |
+| 12 | 16 | world id |
+| 28 | 4 | entry count |
+| 32 | 4 | body length as stored |
+| 36 | 4 | CRC-32 of the body as stored |
+| 40 | 4 | CRC-32 of bytes 0–39 |
 
 **Body entries** (after decompression), sorted by grid id, then chunk key. Each has a 31-byte header:
 - u32 grid;
@@ -584,12 +628,14 @@ fill. 64 MiB holds about 43 k 4 m dabs, or 1.1–1.5 k 16 m fills.
 - u32 payload length;
 
 then the payload:
-- delta: the cell delta bytes, holding the cells' values *now*;
-- image: canonical codec bytes. A uniform body is refused here;
-- uniform: a u32 record value, never 0;
-- air: nothing.
+- delta: the cell delta bytes (§3.4), holding the changed cells' values *now*;
+- image, uniform, air: first the changed-cell mask, cells per chunk ÷ 8 bytes (4,096 at 32³; cell i is bit i mod 8
+  of byte ⌊i / 8⌋; at least one bit set), then:
+  - image: canonical codec bytes (a uniform body is refused here);
+  - uniform: a u32 record value, never 0;
+  - air: nothing.
 
-Each entry uses the smaller of delta and image. The bytes are canonical: equal saves give equal bytes.
+The bytes are canonical: equal saves give equal bytes.
 
 **Save rules:**
 - **World (R5).** A save belongs to one world: `readSave` and `applySave` take the world's id and refuse a save made
@@ -598,14 +644,21 @@ Each entry uses the smaller of delta and image. The bytes are canonical: equal s
   append-only steps on the decoded save. v1 has no steps; the mechanism is tested with a test step.
 - **Base mismatch (R60).** When the base hash differs from the shipped chunk's, the mismatch is reported, and the
   game chooses per chunk:
-  - `save`: the entry is applied. A delta lands on the new base, so the player's cells win and the rest is the new
-    base.
+  - `save`: the player's cells land on the new base, cell by cell (a delta's cells, or the masked cells of a
+    whole-chunk entry); every cell the player did not change is the new base's. Tested: a player digs a 16-cell
+    cube (a whole-chunk entry), the re-export moves a wall into that chunk through the hole's edge; with `save` the
+    wall stands where the player did not dig, the hole stays, every other cell is the new base.
   - `base`: the entry is dropped.
 
-  The worker job's `apply-save` can also `report` without applying anything.
+  On a matching base a whole-chunk entry is written whole (the same result). The worker job's `apply-save` can also
+  `report` without applying anything.
 
-**Measured (45.4):** after 1,000 mixed strokes, saves are 452 KB (hilly), 255 KB (town) and 460 KB (caves). The
-base hash costs 60–82 µs a chunk, in plain JavaScript.
+**Measured (45.4, then 45.8a):** after 1,000 mixed strokes, saves are 497 KB (hilly), 303 KB (town) and
+493 KB (caves): +7–18 % over the 452 / 256 / 461 KB of saves without the changed cells (45.7d). With every entry a
+delta instead (the other encoding that keeps the changed cells) the same saves are 801 / 682 / 773 KB, so the
+smaller of the two stays. Writing takes 8–11 ms, reading 14–19 ms. The base hash costs 61–69 µs a chunk when the
+bytes are already in the base form (as every chunk is today; 60–82 µs before) and 309–343 µs through a decode
+(what a later codec pays), in plain JavaScript (plan **45.8a review fixes**).
 
 **Structure overrides.** These are a structure's hand edits over the voxels it generates. They are stored with the
 structure record in the project, never in region files or exports (R33, R35).
@@ -615,7 +668,8 @@ structure record in the project, never in region files or exports (R33, R35).
 | 0 | 4 | magic `TLVO` |
 | 4 | 1 | version = 1 |
 | 5 | 1 | chunk edge |
-| 6 | 2 | reserved, 0 |
+| 6 | 1 | record value form of its values (§2.2; 1) |
+| 7 | 1 | reserved, 0 |
 | 8 | 4 | grid id |
 | 12 | 4 | chunk count |
 | 16 | … | per chunk, in key order: i16 cx, i16 cy, i16 cz, u32 n, then n × u16 cells (ascending), n × u32 base values, n × u8 base shapes, n × u32 values, n × u8 shapes (12 B a cell) |
@@ -628,6 +682,10 @@ structure record in the project, never in region files or exports (R33, R35).
 - **misfit:** anything else. It is reported and not written.
 
 This was tested on a test room grown from 6 to 8 m, not on a generator. A rule for every structure kind is 47a's.
+
+**Overrides versions.** Overrides live as long as the project, so they upgrade like saves: a newer version is
+refused, and `OVERRIDE_UPGRADES` holds append-only steps on decoded overrides (empty and frozen at v1; tested with a
+test-only step). The reader refuses values the format does not hold and air with a shape.
 
 ### 3.6 Streaming and job contract v1 (`stream-job.ts`, `apron.ts`, `dirty-tracker.ts`, `job-queue.ts`, `worker-pool.ts`, `stream-ring.ts`, `voxel-streamer.ts`, `floating-origin.ts`)
 
@@ -644,7 +702,7 @@ This was tested on a test room grown from 6 to 8 m, not on a generator. A rule f
 | Kind | Input → output |
 |---|---|
 | `load` | stored chunk bytes (`{stored, raw}` or `{uniform}`), optional hash → the chunk payload, its base hash, decompress and decode µs |
-| `apply-save` | the base chunk (stored or null), expected hash, save content, `onMismatch` (`save` / `base` / `report`) → the payload now, mismatch, applied, the base hash now |
+| `apply-save` | the base chunk (stored or null), expected hash, save content as its kind and payload bytes (§3.5), `onMismatch` (`save` / `base` / `report`) → the payload now, mismatch, applied, the base hash now |
 | `edit` | a canonical command, copies of every chunk it can touch, its stamps (hash recomputed in the worker) → the changed chunks, cell count, the undo record (`TLVU` bytes) |
 | `derive` | the chunk payload, radius R, an apron R deep, optional assembly rules {id, version, radius} → derived data (§3.7), or the exposure placeholder when no rules are named |
 
@@ -844,7 +902,8 @@ culling, rays and the far field skip whole empty or solid subtrees without readi
 | Edit command | `v` | 1 | refused | none yet |
 | Undo record | `TLVU` | 1 | refused | not needed (session data) |
 | Save | `TLVS` | 1 | a newer one refused | `SAVE_UPGRADES`, append-only (v1 has none) |
-| Structure overrides | `TLVO` | 1 | refused | none yet |
+| Structure overrides | `TLVO` | 1 | a newer one refused | `OVERRIDE_UPGRADES`, append-only (v1 has none) |
+| Record value form | byte in `TLVR`, `TLVU`, `TLVS`, `TLVO` | 1 | a newer one refused | a wider form added beside form 1 (§2.2) |
 | Job message | `v` | 1 | refused | not needed (same build both ends) |
 | Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 1 | refused | rebuilt, never upgraded |
 
@@ -955,7 +1014,7 @@ Every R-id from [voxel-format-requirements.md](voxel-format-requirements.md), ma
 
 ## 5. Defaults chosen, owner to confirm
 
-There are 41 such entries in the plan's decision log (§7). One line each, grouped by area.
+There are 44 such entries in the plan's decision log (§7). One line each, grouped by area.
 
 **Process and tooling**
 1. Staging backend: `tools/staging.sh`, a transient unit on 127.0.0.1:4180/4181, its own data root, a 6 GB cap (45.0).
@@ -965,7 +1024,7 @@ There are 41 such entries in the plan's decision log (§7). One line each, group
 
 **Coordinates and record**
 5. Integer cells: x, z ±32,768 and y ±8,192; chunk key below 2^35, y fastest inside a chunk (45.1b).
-6. `VoxelRecord` is a PROVISIONAL test shape; the category set is Q-a option 1 (45.1b).
+6. `VoxelRecord` fields and widths are the format; the category set (Q-a option 1) and orientation meaning stay provisional (45.1b, 45.8a).
 7. Vertical bounds are the coordinate bounds; the format stores no world base or height; stacks are aligned at y = 0 (45.3).
 
 **Chunk store and codec**
@@ -982,7 +1041,7 @@ There are 41 such entries in the plan's decision log (§7). One line each, group
 **Edits, undo and saves**
 15. Stroke command v1: one command per stroke, plain JSON, one deterministic apply (45.4).
 16. Undo is the before-state per changed chunk; a 64 MiB memory budget spills to disk; redo re-applies (45.4).
-17. Save v1: changed chunks only, 16-byte base hash, one zstd stream, append-only upgrades, the game picks on a mismatch (45.4).
+17. Save v1: changed chunks only, 16-byte base hash, one zstd stream, append-only upgrades, the game picks on a mismatch (45.4); every entry keeps the player's changed cells (45.8a, item 42).
 18. Structure overrides: a per-cell delta stored with the structure record; absorbed / kept / misfit (45.4).
 19. The caller orders repair sources; an unrepaired chunk stays unloaded and is carried over verbatim (45.4).
 20. Dirty tracking: per-chunk versions, snapshot commits, one save job per file, late commits refused (45.4).
@@ -1016,6 +1075,14 @@ There are 41 such entries in the plan's decision log (§7). One line each, group
 40. The world manifest lists its region files; a listed one that cannot be read is damaged, an unlisted one air
     (45.7d).
 41. Chunk-tree flags from the chunks' derived occupancy; undo answers carry their edit's box (45.7d).
+
+**Review fixes (45.8a)**
+42. Every save entry records the player's changed cells (a delta, or a whole-chunk form plus a changed-cell mask,
+    the smaller); `save` on a changed base writes only those cells (45.8a).
+43. The base hash covers the base form, frozen as the chunk codec v1 canonical bytes of the content, whatever codec
+    version stores it (45.8a).
+44. Raw record values carry a record value form (1 = the u32 23/4/5) in region, undo, save and override bytes; the
+    split stays 23/4/5; O15/O16 may need per-voxel bits, owner decides (45.8a).
 
 ---
 
@@ -1105,3 +1172,23 @@ code as it runs. Each entry says what changed.
 
 Also closed in 45.7d: an undo answer names the box of the edit it takes back, so a client derives again only the
 chunks within the rules' radius of it (1–4 in the slice) instead of 27 around each changed chunk (§3.3).
+
+### Changed after the independent review (45.8a)
+
+The review (H1–H3, M2, L3–L5) found these; the bytes of version 1 changed in place, since v1 is an unapproved
+draft (no version number moved).
+- **H1 — saves keep the player's cells.** Before, an entry was a cell delta or the whole chunk now, whichever was
+  smaller, and a whole-chunk entry kept on a re-exported base overwrote cells the player never touched. Now every
+  whole-chunk payload starts with a changed-cell mask, and `save` on a changed base writes only the player's cells
+  (§3.5). Bytes: image, uniform and air payloads grow by the mask (4,096 B at 32³ before compression).
+- **H2 — the base hash does not depend on the codec version.** It covers the base form, frozen as codec v1's
+  canonical bytes of the content (§3.5). Today's hashes are unchanged (they already were of v1 bytes).
+- **H3 — record value forms.** The region file's byte 10, the undo record's byte 7 and the overrides' byte 6
+  (reserved before) and the save's byte 8 name the record value form (§2.2). The save header grew from 40 to 44
+  bytes (the world id moved to offset 12); the others cost nothing. Every region file's bytes changed (byte 10).
+- **M2 — every world reader names the tile and takes the manifest's list.** `expect` is required by the region
+  readers; `RegionWorld.open` and `ShippedWorld` take the manifest's region list; the shipped world a save is made
+  against throws for a listed region that is missing or of another world instead of reading air (§3.2).
+- **L3** stored values are checked in region tables, saves, cell deltas and overrides (§2.2). **L5** overrides
+  have an upgrade registry (§3.5). **L4** `record.ts` says what is still provisional: category set and orientation
+  meaning, not the widths.

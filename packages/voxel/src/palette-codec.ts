@@ -302,15 +302,16 @@ export function checkFields(m: number, c: number, o: number): void {
 /**
  * Throws unless a record value is one the format can hold: air is one value
  * (every field 0, no density), and category and orientation hold assigned
- * values only.
+ * values only. `what` names the bytes it was read from.
  */
-export function checkRecordValue(v: number, flagged: boolean): void {
+export function checkRecordValue(v: number, flagged: boolean, what = 'palette chunk bytes'): void {
+  if (!Number.isInteger(v) || v < 0 || v > 0xffffffff) throw new RangeError(`${what}: record value ${v} is not a u32`);
   if (valueMaterial(v) === MATERIAL_AIR) {
-    if (v !== 0 || flagged) throw new RangeError('palette chunk bytes: air with a category, orientation or density');
+    if (v !== 0 || flagged) throw new RangeError(`${what}: air with a category, orientation or density`);
     return;
   }
-  if (valueCategory(v) >= VOXEL_CATEGORY_COUNT) throw new RangeError(`palette chunk bytes: unassigned category ${valueCategory(v)}`);
-  if (valueOrientation(v) >= ORIENTATION_COUNT) throw new RangeError(`palette chunk bytes: orientation ${valueOrientation(v)} is not one of the ${ORIENTATION_COUNT} rotations`);
+  if (valueCategory(v) >= VOXEL_CATEGORY_COUNT) throw new RangeError(`${what}: unassigned category ${valueCategory(v)}`);
+  if (valueOrientation(v) >= ORIENTATION_COUNT) throw new RangeError(`${what}: orientation ${valueOrientation(v)} is not one of the ${ORIENTATION_COUNT} rotations`);
 }
 
 /**

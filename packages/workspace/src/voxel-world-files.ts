@@ -65,6 +65,17 @@ export function pickStore(grid: ChunkGrid): PaletteStore {
   return createWorldStore(grid, 'pick');
 }
 
+/** A region file's name as the region writer makes it. */
+export const REGION_FILE_NAME_RE = /^[a-z0-9_.-]{1,64}\.vxr$/;
+
+/**
+ * The region file names found in a folder, sorted: what a world without a
+ * list of its own (an old manifest being lifted, a bench folder) says it has.
+ */
+export function listRegionFiles(dir: string): string[] {
+  return existsSync(dir) ? readdirSync(dir).filter((n) => REGION_FILE_NAME_RE.test(n)).sort() : [];
+}
+
 /** Region index of a chunk on one axis. */
 export function regionOf(grid: ChunkGrid, footprint: RegionFootprint, chunk: number): number {
   return Math.floor(chunk / chunksPerRegionSide(grid, footprint));
@@ -217,15 +228,18 @@ export class RegionWorld {
   }
 
   /**
-   * Opens a world folder: every region file's chunks into the store. A
-   * damaged chunk is repaired from the first source that has it (and is
-   * then dirty, so the next save writes it sound) or kept damaged.
+   * Opens a world folder: the chunks of every region file the world lists
+   * (`listed`, its manifest's list; a file it does not list is never read)
+   * into the store. A listed file that is missing, unreadable or of another
+   * tile is a damaged region, never air. A damaged chunk is repaired from
+   * the first source that has it (and is then dirty, so the next save
+   * writes it sound) or kept damaged.
    */
-  static async open(dir: string, opts: WorldDirOptions, sources: readonly RepairSource[] = [], listed?: readonly string[]): Promise<{ world: RegionWorld; repairs: RepairOutcome[] }> {
+  static async open(dir: string, opts: WorldDirOptions, listed: readonly string[], sources: readonly RepairSource[] = []): Promise<{ world: RegionWorld; repairs: RepairOutcome[] }> {
     const w = new RegionWorld(dir, opts);
     const grid = opts.grid;
     const broken: { c: ChunkCoord; file: string; entry: RegionEntry | null }[] = [];
-    const names = listed !== undefined ? [...listed].sort() : readdirSync(dir).filter((n) => n.endsWith('.vxr')).sort();
+    const names = [...listed].sort();
     for (const name of names) {
       let bytes: Uint8Array;
       let index: RegionIndex;
@@ -236,8 +250,7 @@ export class RegionWorld {
         bytes = new Uint8Array(readFileSync(join(dir, name)));
         index = RegionIndex.parse(bytes, { expect });
       } catch (e) {
-        // Without a list every file found must open; a listed one that cannot is reported, never read as air.
-        if (listed === undefined) throw e;
+        // A listed file that cannot be read is reported, never read as air.
         w.damagedRegions.set(name, e instanceof Error ? e.message : String(e));
         continue;
       }
@@ -401,49 +414,74 @@ export class RegionWorld {
 /**
  * The shipped world, read only: a folder of region files, each read whole
  * once (an exported game reads ranges; the save logic only needs a chunk's
- * canonical codec bytes and their hash).
+ * canonical codec bytes and their hash). Only the files the world lists
+ * are read, each checked against the world id and the tile its name gives:
+ * a region it does not list is air, and a listed file that is missing,
+ * unreadable or of another tile is damaged (its chunks throw), so a save is
+ * never made or checked against air standing in for a lost tile.
  */
 export class ShippedWorld {
-  private readonly cache = new Map<string, { index: RegionIndex; bytes: Uint8Array } | null>();
+  private readonly cache = new Map<string, { index: RegionIndex; bytes: Uint8Array } | { error: string }>();
+  private readonly listed: ReadonlySet<string>;
   constructor(
     readonly dir: string,
     readonly opts: WorldDirOptions,
-  ) {}
-
-  /** A chunk's canonical codec bytes (null: air). Throws on a damaged chunk. */
-  chunkBytes(c: Readonly<ChunkCoord>): Uint8Array | null {
-    return this.find(c) ?? null;
+    regions: readonly string[],
+  ) {
+    this.listed = new Set(regions);
   }
 
-  /** As {@link chunkBytes}, but undefined when the chunk's region file is missing. */
-  private find(c: Readonly<ChunkCoord>): Uint8Array | null | undefined {
-    const name = addressName(addressOf(this.opts.grid, this.opts.layout, this.opts.footprint, c));
+  /** A chunk's canonical codec bytes (null: air). Throws on a damaged chunk or a listed region that cannot be read. */
+  chunkBytes(c: Readonly<ChunkCoord>): Uint8Array | null {
+    const f = this.file(c);
+    if (f === null) return null;
+    if ('error' in f) throw new Error(f.error);
+    return this.read(f, c);
+  }
+
+  /** The region file holding a chunk (null: the world does not list it, so the chunk is air). */
+  private file(c: Readonly<ChunkCoord>): { index: RegionIndex; bytes: Uint8Array } | { error: string } | null {
+    const at = addressOf(this.opts.grid, this.opts.layout, this.opts.footprint, c);
+    const name = addressName(at);
+    if (!this.listed.has(name)) return null;
     let f = this.cache.get(name);
     if (f === undefined) {
-      const path = join(this.dir, name);
-      if (existsSync(path)) {
-        const bytes = new Uint8Array(readFileSync(path));
-        f = { index: RegionIndex.parse(bytes), bytes };
-      } else f = null;
+      try {
+        const bytes = new Uint8Array(readFileSync(join(this.dir, name)));
+        const expect: RegionExpect = { worldId: this.opts.worldId, gridId: this.opts.gridId ?? 0, layout: at.layout, grid: this.opts.grid, footprint: at.footprint, rx: at.rx, ry: at.ry, rz: at.rz };
+        f = { index: RegionIndex.parse(bytes, { expect }), bytes };
+      } catch (e) {
+        f = { error: `shipped region ${name} is listed but damaged: ${e instanceof Error ? e.message : String(e)}` };
+      }
       this.cache.set(name, f);
     }
-    if (f === null) return undefined;
+    return f;
+  }
+
+  private read(f: { index: RegionIndex; bytes: Uint8Array }, c: Readonly<ChunkCoord>): Uint8Array | null {
     const i = f.index.find(c.cx, c.cy, c.cz);
     if (i < 0) return null;
     return regionChunkCodecBytes(this.opts.grid, f.index.read(i, f.bytes), zstdDecompress);
   }
 
   hash(c: Readonly<ChunkCoord>): Uint8Array {
-    return baseChunkHash(this.chunkBytes(c));
+    return baseChunkHash(this.opts.grid, this.chunkBytes(c));
   }
 
   /**
-   * A repair source: the shipped chunk. A missing region file means the
-   * source does not have the chunk, never that it is air: claiming air for a
-   * chunk the damaged file stored would drop it silently.
+   * A repair source: the shipped chunk. A region the shipped world does not
+   * list, or cannot read, means the source does not have the chunk, never
+   * that it is air: claiming air for a chunk the damaged file stored would
+   * drop it silently.
    */
   source(name = 'shipped world'): RepairSource {
-    return { name, chunk: async (_g, c) => this.find(c) };
+    return {
+      name,
+      chunk: async (_g, c) => {
+        const f = this.file(c);
+        return f === null || 'error' in f ? undefined : this.read(f, c);
+      },
+    };
   }
 }
 

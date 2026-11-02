@@ -688,6 +688,7 @@ sub-phase on staging; the merge to `main` happens once, at the end of 48.
 | 45.7a | done (c6e2316f, 990d70cc, 275f2e8a, fast gate green): staging: region files served by range, `editVoxels`/`undoVoxels` on the command route, page `/voxel-world.html` streams, derives, draws on both renderers; reload after restart same. 720p cap: p95 16.7 ms, 0 missed of 1,799 per renderer; edit→answer 14–15 ms, →visible p50 65 / 81 ms; 50 MB of 256 MiB; see **45.7a thin slice**. |
 | 45.7b | done (d3f2ebe8, 97cd10f2, fast gate green): slice collision through physics-rapier (a body a derived chunk, replaced on derive) and the assembly proof by runtime set/dig, both renderers: wall↔banister↔beam for every consumer, 0 stale, 1–4 chunks re-derived, hashes, file bytes equal after reload/rebuild. 720p cap: p95 16.7–16.8, 0 missed; edit→bodies p50 38–42 ms; D434; see **45.7b**. |
 | 45.7d | done (e53c4e45, 69586083, fast gate green): spec gaps G1–G10 closed in code: readers check world/grid/tile, codec+region upgrade registries, canonical-only decode, measurement bodies bench-only, set/dig sorted, 23-bit material ids (u24 at rest: zstd +0.1–1.8 %), 24 orientations, manifest lists regions (listed+missing = damaged), tree flags, undo box; see **45.7d format gaps**. |
+| 45.8a | done (this commit; fast gate green): review H1–H3, M2, L3–L5. Saves keep the player's cells (mask on whole-chunk entries; 1,000 strokes 452/256/461 → 497/303/493 KB; all-delta 801/682/773); base hash = frozen codec-v1 form (61–69 µs); record value form byte in region/undo/save/override (save +4 B); readers need `expect` + manifest list; see **45.8a review fixes**. |
 
 ### 45.0 floor record
 
@@ -1530,6 +1531,54 @@ edit), `stream-core.test.ts` (snap at 16 and 32), `edits.test.ts` (another world
 boxes), e2e `voxel-world.e2e.ts` (an undo re-derives the dab's dependents only; 14.2 → 13.1 s, 3 tests). Fast gate
 green (10 min; village at the cap p95 16.7 ms, 0 missed, both renderers).
 
+### 45.8a review fixes
+
+Fixes of the independent review's H1–H3, M2, L3–L5 (M1, M3–M7, L1, L2, L6–L8 are not in this item). Code, tests at
+the real boundaries (real region files, real zstd, the workspace's world folders) and the spec (§2.2, §3.2, §3.4,
+§3.5, §3.8, "Changed after the independent review") now agree.
+- **H1, saves keep the player's cells.** Every whole-chunk entry (image, uniform, air) now starts with a mask of
+  the cells the player changed (cells ÷ 8 bytes, 4,096 at 32³); a delta lists them already. `applySaveChunk` writes
+  a whole-chunk entry whole on its own base and only the masked cells on a changed one, so `save` after a
+  re-export never overwrites a cell the player did not touch. Test (`edits.test.ts`): a 16³-cell dig (a whole-chunk
+  entry), the author moves a wall into that chunk through the hole's edge; with `save` every one of the chunk's
+  32,768 cells is the player's where dug and the new base's elsewhere (the wall stands, its cell inside the hole is
+  air); a pure test does the same on an all-air entry. Both fail with the old whole-chunk apply (checked by
+  breaking it on purpose).
+- **H2, the base hash is codec-version independent.** It covers the base form: the codec v1 canonical bytes of the
+  content, frozen (`BASE_FORM_CODEC_VERSION`). Bytes of another version are decoded and written in the base form
+  first (`baseContentHash`). Tests: a golden hash of a fixed chunk (unchanged from before: today's hashes stay
+  valid), the same content through the test-only codec version 0 and through a test-only newer layout read back
+  to its content give the same hash.
+- **H3, record value forms.** `RECORD_VALUE_FORM` = 1 (record.ts) is written in the region header (byte 10), undo
+  records (7), overrides (6; all three reserved bytes before) and saves (8: the header grew 40 → 44 B); a newer
+  form is refused (tested per format). Byte cost: 0 B for region, undo and override files, +4 B a save.
+  Transfer-only forms (chunk wire, aprons, job messages) are never persisted and carry none (spec §2.2). The
+  23/4/5 split did not change. Every region file's byte 10 changed, so the staging slice world was rewritten
+  (`run.mjs slice-world`; the old folder moved to `~/.cache/thirdlight-phase45/work/45.8a/old-slice`).
+- **M2.** `expect` is required by `RegionIndex.parse`, `openRegion` and `damagedRegionChunks`; `RegionWorld.open`
+  and `ShippedWorld` take the manifest's region list (`listRegionFiles` for folders without one), and
+  `openShippedWorld(dir)` reads the manifest. Test through the workspace's `writeVoxelWorld`: a listed region gone
+  or replaced by another world's file of the same tile throws (`updateSave` too) and the repair source does not
+  claim it; an unlisted region is air.
+- **L3, L4, L5.** Region uniform entries, save uniform payloads, cell deltas and overrides go through
+  `checkRecordValue` (a refused region table refuses the file: damaged); a delta or override refuses air with a
+  shape. `OVERRIDE_UPGRADES` (empty, frozen, tested with a test step). record.ts says what stays provisional.
+  `hexToBytes` moved to `@thirdlight/shared` (the save file's and the backend world's copies removed; the editor
+  page's copy is review L2's).
+
+Measured 2026-11-02 10:34–10:35, Node, this host (load 4.4 → 3.6; `run.mjs edits`, report in
+`~/.cache/thirdlight-phase45/work/45.8a/results/`), game save after 1,000 mixed strokes, zstd:
+
+| World | 45.7d KB | now KB (delta / whole-chunk entries) | every entry a delta KB | write / read ms | hash µs: base-form bytes / through a decode |
+|---|---|---|---|---|---|
+| hilly 512 m | 451.6 | 497.2 (541 / 213) | 800.5 | 11.3 / 18.6 | 68.9 / 343.4 |
+| town 256 m | 256.2 | 303.2 (234 / 191) | 682.4 | 8.2 / 13.5 | 60.8 / 308.5 |
+| caves 256 m | 460.6 | 493.1 (237 / 166) | 773.1 | 11.1 / 18.0 | 64.7 / 338.1 |
+
+The smaller-of form (delta, or whole chunk plus mask) stays: an all-delta save is 1.6–2.3× larger. The changed
+cells cost +7–18 % a save. The hash before was 60–82 µs (45.4); through a decode is what a codec newer than the
+base form will pay per chunk it checks.
+
 ## 7. Decision log
 
 - 2026-10-27 (owner, planning session): §1 decided in conversation. The research behind it covers Enshrouded's
@@ -1824,6 +1873,23 @@ green (10 min; village at the cap p95 16.7 ms, 0 missed, both renderers).
   the chunks' derived occupancy, an empty never-loaded chunk counting as empty, ancestors stale on change and
   refreshed before a read; **voxel command answers carry the edit's cell box**, an undo its edit's box, so clients
   re-derive only the edit's dependents. The origin snaps to the grid's chunk edge.
+
+- 2026-11-02 (45.8a, default chosen, owner to confirm; R59, R60, review H1): **every save entry records the cells
+  the player changed** (a delta, or the whole chunk plus a changed-cell mask, the smaller), so `save` on a
+  re-exported base writes only those cells. Before → after, 1,000 strokes: 452 / 256 / 461 → 497 / 303 / 493 KB
+  (hilly / town / caves); every entry a delta: 801 / 682 / 773 KB, so the mixed form stays.
+- 2026-11-02 (45.8a, default chosen, owner to confirm; R60, R3, review H2): **the base hash covers the base form,
+  frozen as the chunk codec v1 canonical bytes of the content**, whatever codec version stores it; a later codec
+  keeps a v1 writer for it. Today's hashes are unchanged; 61–69 µs a chunk (60–82 before), 309–343 µs through a
+  decode.
+- 2026-11-02 (45.8a, default chosen, owner to confirm; R7, R26, R92, O15, O16, review H3): **the 32-bit record
+  value has no spare bit; each format storing raw values outside the chunk codec names a record value form** (1 =
+  u32 23/4/5) so a wider record is added beside it, the split unchanged now. Cost: 0 B in region, undo and override
+  files, +4 B a save. **For the owner:** O15 (shoreline ground + liquid) and O16 (paint storage) may need per-voxel
+  bits; settle them, keep spare bits now (a 21–22-bit material id), or widen add-only later (spec §1).
+- 2026-11-02 (45.8a, R4, R5, review M2): every world reader names the tile it expects (`expect` required) and takes
+  the manifest's region list; the shipped world a save is made against throws for a listed region that is gone or
+  another world's, never reads it as air.
 
 ## 7a. Kit and surface planning session (2026-10-30)
 

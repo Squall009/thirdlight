@@ -9,7 +9,7 @@
  * and in `tests/helper-goldens.test.ts`, since this package has no Node
  * built-ins).
  */
-import { sha256Hex, sha256HexOfText } from './sha256';
+import { bytesToHex, hexToBytes, sha256Hex, sha256HexOfText } from './sha256';
 import { describe, expect, it } from 'vitest';
 
 /** The regression input: `bytes[i] = (i * 7 + 3) & 0xff`. */
@@ -49,5 +49,16 @@ describe('sha256Hex padding (FIPS 180-4)', () => {
 
   it('hashes an all-x text of length 55 correctly (the same class via text)', () => {
     expect(sha256HexOfText('x'.repeat(55))).toBe('d5e285683cd4efc02d021a5c62014694958901005d6f71e89e0989fac77e4072');
+  });
+});
+
+describe('hex', () => {
+  it('turns bytes into hex and back, and refuses what is not pairs of hex digits', () => {
+    const b = Uint8Array.from([0, 1, 0x7f, 0x80, 0xab, 0xff]);
+    expect(bytesToHex(b)).toBe('00017f80abff');
+    expect(hexToBytes('00017f80abff')).toEqual(b);
+    expect(hexToBytes('00017F80ABFF')).toEqual(b);
+    expect(() => hexToBytes('abc')).toThrow(RangeError);
+    expect(() => hexToBytes('zz')).toThrow(RangeError);
   });
 });

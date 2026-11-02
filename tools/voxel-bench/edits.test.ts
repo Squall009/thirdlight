@@ -5,7 +5,7 @@
 import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { crc32 } from '@thirdlight/shared';
+import { bytesToHex, crc32 } from '@thirdlight/shared';
 import {
   applyEdit,
   applySave,
@@ -25,6 +25,7 @@ import {
   encodeOverrides,
   encodeUndoRecord,
   overridesOf,
+  parseRegionFileName,
   readSave,
   reapplyOverrides,
   sameDenseChunk,
@@ -38,6 +39,7 @@ import {
   type ChunkUndo,
   type EditGrids,
   type PaletteStore,
+  type RegionReadOptions,
   type StampShape,
   type VoxelEditCommand,
   type VoxelStoreCandidate,
@@ -45,7 +47,7 @@ import {
 import { defaultWriteOps } from '@thirdlight/workspace';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { addressName, addressOf, loadArea, pickStore, surfaceY, zstdCompress, zstdDecompress } from './regions';
-import { DiskUndoSpill, RegionWorld, ShippedWorld, updateSave, type WorldDirOptions } from '@thirdlight/workspace';
+import { DiskUndoSpill, listRegionFiles, openShippedWorld, readVoxelWorldManifest, RegionWorld, ShippedWorld, updateSave, writeVoxelWorld, type WorldDirOptions } from '@thirdlight/workspace';
 import { MAT } from './world-kit';
 import { townWorld } from './worlds';
 
@@ -55,6 +57,8 @@ const OPTS: WorldDirOptions = { grid, worldId: WORLD, layout: 'stacked', footpri
 const town = townWorld({ footprint: 200 });
 const stone = { material: MAT.stone, category: VOXEL_CATEGORY.construction, orientation: 0 };
 const soil = { material: MAT.soil, category: VOXEL_CATEGORY.terrain, orientation: 0 };
+/** What a reader expects of one of this world's region files, by its name. */
+const expectIn = (name: string): RegionReadOptions => ({ expect: { worldId: WORLD, gridId: 0, layout: OPTS.layout, grid, footprint: OPTS.footprint, ...parseRegionFileName(OPTS.layout, name)! } });
 
 let root: string;
 beforeAll(() => {
@@ -222,8 +226,8 @@ describe('saves', () => {
   it('hold only changed chunks against the shipped world, round trip through zstd, and refuse unknown versions', async () => {
     const dir = join(root, 'shipped-a');
     RegionWorld.create(dir, OPTS, townStore());
-    const shipped = new ShippedWorld(dir, OPTS);
-    const { world } = await RegionWorld.open(dir, OPTS);
+    const shipped = new ShippedWorld(dir, OPTS, listRegionFiles(dir));
+    const { world } = await RegionWorld.open(dir, OPTS, listRegionFiles(dir));
     const touched = new Map<number, ChunkCoord>();
     for (const cmd of [...strokesAt(world.store, 60, 60), ...strokesAt(world.store, 130, 90)]) {
       for (const u of applyEdit(grids(world.store), cmd, { stamps }).chunks) touched.set(chunkKey(grid, u.cx, u.cy, u.cz), u);
@@ -234,21 +238,21 @@ describe('saves', () => {
     const bytes = writeSave(save, 'zstd', zstdCompress);
     expect(writeSave({ ...save, chunks: [...save.chunks].reverse() }, 'zstd', zstdCompress)).toEqual(bytes);
     const back = readSave(bytes, grid, WORLD, zstdDecompress);
-    const { world: loaded } = await RegionWorld.open(dir, OPTS);
+    const { world: loaded } = await RegionWorld.open(dir, OPTS, listRegionFiles(dir));
     const r = applySave(back, WORLD, (g) => (g === 0 ? loaded.store : undefined), (c) => shipped.hash(c), () => 'save');
     expect(r.mismatches).toEqual([]);
     expect(r.applied).toBe(save.chunks.length);
     expectSame(loaded.store, world.store);
 
     // Undoing every edit leaves nothing to save.
-    const fresh = await RegionWorld.open(dir, OPTS);
+    const fresh = await RegionWorld.open(dir, OPTS, listRegionFiles(dir));
     save = updateSave(save, shipped, fresh.world.store, 0, touched.values());
     expect(save.chunks).toEqual([]);
 
     // Unknown (newer) version refused; an older one lifted by its steps; damage refused.
     const v2 = Uint8Array.from(bytes);
     v2[4] = 2;
-    new DataView(v2.buffer).setUint32(36, crc32(v2.subarray(0, 36)), true);
+    new DataView(v2.buffer).setUint32(40, crc32(v2.subarray(0, 40)), true);
     expect(() => readSave(v2, grid, WORLD, zstdDecompress)).toThrow(/unknown version 2/);
     const lifted = readSave(bytes, grid, WORLD, zstdDecompress, [(s) => ({ ...s, chunks: s.chunks.filter((c) => c.content.kind !== 'air') })]);
     expect(lifted.chunks.length).toBeLessThanOrEqual(back.chunks.length);
@@ -260,7 +264,7 @@ describe('saves', () => {
     // Another world's save is refused by the reader and by the apply, before anything is written.
     const other = Uint8Array.from(WORLD, (b) => b ^ 1);
     expect(() => readSave(bytes, grid, other, zstdDecompress)).toThrow(/save: made for world [0-9a-f]{32}, this world is/);
-    const { world: untouched } = await RegionWorld.open(dir, OPTS);
+    const { world: untouched } = await RegionWorld.open(dir, OPTS, listRegionFiles(dir));
     const content = (): string =>
       [...untouched.store.chunkKeys()]
         .map((k) => {
@@ -276,8 +280,8 @@ describe('saves', () => {
   it('report a re-exported base chunk the save also changed; the game keeps its save or takes the new base', async () => {
     const dir = join(root, 'shipped-b');
     RegionWorld.create(dir, OPTS, townStore());
-    const shipped = new ShippedWorld(dir, OPTS);
-    const { world: play } = await RegionWorld.open(dir, OPTS);
+    const shipped = new ShippedWorld(dir, OPTS, listRegionFiles(dir));
+    const { world: play } = await RegionWorld.open(dir, OPTS, listRegionFiles(dir));
     const y = surfaceY(play.store, 100, 100, 200, -200)!;
     const playerEdit = canonicalEditCommand({ v: 1, grid: 0, kind: 'set', cells: [100, y + 1, 100], voxel: { ...stone, shape: 255 } });
     const touched = applyEdit(grids(play.store), playerEdit).chunks;
@@ -285,20 +289,92 @@ describe('saves', () => {
     expect(save.chunks.length).toBe(1);
 
     // The author re-exports with another change in the same chunk.
-    const { world: author } = await RegionWorld.open(dir, OPTS);
+    const { world: author } = await RegionWorld.open(dir, OPTS, listRegionFiles(dir));
     author.edit(canonicalEditCommand({ v: 1, grid: 0, kind: 'set', cells: [101, y + 1, 101], voxel: { ...soil, shape: 255 } }));
     author.save();
-    const reshipped = new ShippedWorld(dir, OPTS);
+    const reshipped = new ShippedWorld(dir, OPTS, listRegionFiles(dir));
     const back = readSave(writeSave(save, 'zstd', zstdCompress), grid, WORLD, zstdDecompress);
     const v = voxel();
     for (const choice of ['save', 'base'] as const) {
-      const { world } = await RegionWorld.open(dir, OPTS);
+      const { world } = await RegionWorld.open(dir, OPTS, listRegionFiles(dir));
       const r = applySave(back, WORLD, () => world.store, (c) => reshipped.hash(c), () => choice);
       expect(r.mismatches.length).toBe(1);
       expect(world.store.voxelAt(101, y + 1, 101, v).material).toBe(MAT.soil);
       expect(world.store.voxelAt(100, y + 1, 100, v).material).toBe(choice === 'save' ? MAT.stone : author.store.voxelAt(100, y + 1, 100, voxel()).material);
       expect(r.tookBase.length).toBe(choice === 'base' ? 1 : 0);
     }
+  });
+
+  it('keep only the player\'s cells on a re-export, whole-chunk entries too: the dug hole stays, the moved wall stays', async () => {
+    const dir = join(root, 'shipped-c');
+    RegionWorld.create(dir, OPTS, townStore());
+    const shipped = new ShippedWorld(dir, OPTS, listRegionFiles(dir));
+    const { world: play } = await RegionWorld.open(dir, OPTS, listRegionFiles(dir));
+    // A big hole in the ground under (100, 100): 16 × 16 × 16 cells of one chunk, enough that the save keeps the whole chunk.
+    const top = surfaceY(play.store, 100, 100, 200, -200)!;
+    const cy = Math.floor((top - 20) / 32);
+    const y0 = cy * 32 + 2;
+    const hole = (x: number, y: number, z: number): boolean => x >= 96 && x <= 111 && z >= 96 && z <= 111 && y >= y0 && y <= y0 + 15;
+    const dug = play.edit(canonicalEditCommand({ v: 1, grid: 0, kind: 'fill', min: [96, y0, 96], max: [111, y0 + 15, 111], mode: 'dig' }));
+    expect(dug.cells).toBeGreaterThan(2000);
+    const save = updateSave({ worldId: WORLD, grid, chunks: [] }, shipped, play.store, 0, dug.chunks);
+    expect(save.chunks.length).toBe(1);
+    expect(save.chunks[0]!.content.kind).not.toBe('delta');
+
+    // The author re-exports with a wall moved into that chunk, beside the hole and through one of its cells.
+    const { world: author } = await RegionWorld.open(dir, OPTS, listRegionFiles(dir));
+    author.edit(canonicalEditCommand({ v: 1, grid: 0, kind: 'fill', min: [110, y0, 100], max: [120, y0 + 12, 101], mode: 'place', voxel: stone }));
+    author.save();
+    const reshipped = new ShippedWorld(dir, OPTS, listRegionFiles(dir));
+    const back = readSave(writeSave(save, 'zstd', zstdCompress), grid, WORLD, zstdDecompress);
+    const v = voxel();
+    const w = voxel();
+    for (const choice of ['save', 'base'] as const) {
+      const { world } = await RegionWorld.open(dir, OPTS, listRegionFiles(dir));
+      const r = applySave(back, WORLD, () => world.store, (c) => reshipped.hash(c), () => choice);
+      expect(r.mismatches.length).toBe(1);
+      // Every cell of the chunk: the player's cells are the player's, every other cell the new base's.
+      let differ = 0;
+      for (let x = 96; x < 128; x++) for (let z = 96; z < 128; z++) for (let y = cy * 32; y < cy * 32 + 32; y++) {
+        world.store.voxelAt(x, y, z, v);
+        const want = choice === 'save' && hole(x, y, z) ? voxel() : author.store.voxelAt(x, y, z, w);
+        if (v.material !== want.material || v.shape !== want.shape || v.category !== want.category) differ++;
+      }
+      expect(differ).toBe(0);
+      expect(world.store.voxelAt(115, y0 + 5, 100, v).material).toBe(MAT.stone);
+      expect(world.store.voxelAt(110, y0 + 5, 100, v).material).toBe(choice === 'save' ? 0 : MAT.stone);
+    }
+  });
+
+  it('are made against the regions the world lists: one gone or of another world is damaged, never air', async () => {
+    const wdir = join(root, 'world-listed');
+    writeVoxelWorld(wdir, { worldId: bytesToHex(WORLD), edge: 32, layout: 'stacked', footprint: DEFAULT_REGION_FOOTPRINT }, townStore());
+    const m = readVoxelWorldManifest(wdir);
+    const play = townStore();
+    const name = m.regions[0]!;
+    const c = [...play.chunkKeys()].map((k) => chunkOfKey(grid, k)).find((k) => addressName(addressOf(grid, OPTS.layout, OPTS.footprint, k)) === name)!;
+    expect(openShippedWorld(wdir).chunkBytes(c)).not.toBeNull();
+    // A region the world does not list is air.
+    expect(openShippedWorld(wdir).chunkBytes({ cx: 900, cy: 0, cz: 900 })).toBeNull();
+    const gdir = join(wdir, 'grid-0');
+    const kept = readFileSync(join(gdir, name));
+    play.setVoxel(c.cx * 32 + 1, c.cy * 32 + 1, c.cz * 32 + 1, voxel(MAT.stone, VOXEL_CATEGORY.construction, 255));
+    const empty = { worldId: WORLD, grid, chunks: [] };
+    expect(updateSave(empty, openShippedWorld(wdir), play, 0, [c]).chunks.length).toBe(1);
+
+    // The listed file is gone: no save is made against air standing in for it, and the repair source does not claim it.
+    rmSync(join(gdir, name));
+    expect(() => openShippedWorld(wdir).chunkBytes(c)).toThrow(/shipped region .* is listed but damaged/);
+    expect(() => updateSave(empty, openShippedWorld(wdir), play, 0, [c])).toThrow(/listed but damaged/);
+    expect(await openShippedWorld(wdir).source().chunk(0, c)).toBeUndefined();
+
+    // Another world's file of the same tile in its place: refused by the world id it holds.
+    const otherDir = join(root, 'world-listed-other');
+    RegionWorld.create(otherDir, { ...OPTS, worldId: Uint8Array.from(WORLD, (b) => b ^ 1) }, townStore());
+    writeFileSync(join(gdir, name), readFileSync(join(otherDir, name)));
+    expect(() => openShippedWorld(wdir).chunkBytes(c)).toThrow(/world id .*, expected/);
+    writeFileSync(join(gdir, name), kept);
+    expect(openShippedWorld(wdir).chunkBytes(c)).not.toBeNull();
   });
 });
 
@@ -352,13 +428,13 @@ describe('repair, atomic replace and dirty races', () => {
   function damage(dir: string): ChunkCoord {
     const name = readdirSync(dir).filter((n) => n.endsWith('.vxr')).sort()[0]!;
     const bytes = new Uint8Array(readFileSync(join(dir, name)));
-    expect(damagedRegionChunks(bytes)).toEqual([]);
+    expect(damagedRegionChunks(bytes, expectIn(name))).toEqual([]);
     const h = new DataView(bytes.buffer);
     const entries = h.getUint32(44, true);
     // Flip a byte in the last stored chunk.
     bytes[bytes.length - 5]! ^= 0x5a;
     writeFileSync(join(dir, name), bytes);
-    const d = damagedRegionChunks(bytes);
+    const d = damagedRegionChunks(bytes, expectIn(name));
     expect(d.length).toBe(1);
     expect(entries).toBeGreaterThan(1);
     return { cx: d[0]!.cx, cy: d[0]!.cy, cz: d[0]!.cz };
@@ -373,7 +449,7 @@ describe('repair, atomic replace and dirty races', () => {
     const key = chunkKey(grid, bad.cx, bad.cy, bad.cz);
 
     // No source: reported, not loaded, edits into it refused, other edits saved with the damaged bytes carried.
-    const kept = await RegionWorld.open(dir, OPTS);
+    const kept = await RegionWorld.open(dir, OPTS, listRegionFiles(dir));
     expect(kept.repairs.map((r) => r.repaired)).toEqual([false]);
     expect(kept.world.damaged.has(key)).toBe(true);
     expect([...kept.world.store.chunkKeys()]).not.toContain(key);
@@ -384,21 +460,21 @@ describe('repair, atomic replace and dirty races', () => {
     const neighbour = [...kept.world.store.chunkKeys()].map((k) => chunkOfKey(grid, k)).find((c) => fileOf(c) === fileOf(bad))!;
     kept.world.edit(canonicalEditCommand({ v: 1, grid: 0, kind: 'set', cells: [neighbour.cx * 32 + 1, neighbour.cy * 32 + 1, neighbour.cz * 32 + 1], voxel: { ...stone, shape: 200 } }));
     expect(kept.world.save().files).toBe(1);
-    const after = readdirSync(dir).filter((n) => n.endsWith('.vxr')).map((n) => damagedRegionChunks(new Uint8Array(readFileSync(join(dir, n))))).flat();
+    const after = readdirSync(dir).filter((n) => n.endsWith('.vxr')).map((n) => damagedRegionChunks(new Uint8Array(readFileSync(join(dir, n))), expectIn(n))).flat();
     expect(after.map((e) => [e.cx, e.cy, e.cz])).toEqual([[bad.cx, bad.cy, bad.cz]]);
 
     // With the shipped world as a source: repaired, dirty, and the next save writes it sound.
-    const fixed = await RegionWorld.open(dir, OPTS, [new ShippedWorld(join(root, 'nowhere'), OPTS).source('empty backup'), new ShippedWorld(shippedDir, OPTS).source()]);
+    const fixed = await RegionWorld.open(dir, OPTS, listRegionFiles(dir), [new ShippedWorld(join(root, 'nowhere'), OPTS, []).source('empty backup'), new ShippedWorld(shippedDir, OPTS, listRegionFiles(shippedDir)).source()]);
     expect(fixed.repairs[0]).toMatchObject({ repaired: true, source: 'shipped world' });
     expect(fixed.world.tracker.isDirty({ grid: 0, key })).toBe(true);
     fixed.world.save();
-    for (const n of readdirSync(dir).filter((f) => f.endsWith('.vxr'))) expect(damagedRegionChunks(new Uint8Array(readFileSync(join(dir, n))))).toEqual([]);
+    for (const n of readdirSync(dir).filter((f) => f.endsWith('.vxr'))) expect(damagedRegionChunks(new Uint8Array(readFileSync(join(dir, n))), expectIn(n))).toEqual([]);
   });
 
   it('replaces files atomically: a failed rename leaves the old file and the chunk dirty', async () => {
     const dir = join(root, 'atomic');
     RegionWorld.create(dir, OPTS, townStore());
-    const { world } = await RegionWorld.open(dir, OPTS);
+    const { world } = await RegionWorld.open(dir, OPTS, listRegionFiles(dir));
     const y = surfaceY(world.store, 77, 77, 200, -200)!;
     world.edit(canonicalEditCommand({ v: 1, grid: 0, kind: 'set', cells: [77, y + 1, 77], voxel: { ...stone, shape: 255 } }));
     const [p] = world.prepareSaves();
@@ -416,12 +492,12 @@ describe('repair, atomic replace and dirty races', () => {
   it('survives unload, save and worker-timeout races', async () => {
     const dir = join(root, 'races');
     RegionWorld.create(dir, OPTS, townStore());
-    const { world } = await RegionWorld.open(dir, OPTS);
+    const { world } = await RegionWorld.open(dir, OPTS, listRegionFiles(dir));
     const y = surfaceY(world.store, 90, 90, 200, -200)!;
     const set = (m: number) => world.edit(canonicalEditCommand({ v: 1, grid: 0, kind: 'set', cells: [90, y + 1, 90], voxel: { material: m, category: VOXEL_CATEGORY.construction, orientation: 0, shape: 255 } }));
     const key = chunkKey(grid, 90 >> 5, (y + 1) >> 5, 90 >> 5);
     const chunk = { grid: 0, key };
-    const fileVoxel = async (): Promise<number> => (await RegionWorld.open(dir, OPTS)).world.store.voxelAt(90, y + 1, 90, voxel()).material;
+    const fileVoxel = async (): Promise<number> => (await RegionWorld.open(dir, OPTS, listRegionFiles(dir))).world.store.voxelAt(90, y + 1, 90, voxel()).material;
 
     // An edit while a save runs: the save writes its snapshot, the chunk stays dirty, the next save writes the edit.
     set(MAT.stone);

@@ -1,16 +1,18 @@
 /**
- * The voxel record the storage candidates are measured with.
+ * The voxel record: what one cell of a voxel world stores.
  *
- * PROVISIONAL: this is a test shape, not the voxel format. It keeps every
- * field the plan's voxel may need apart (material, coarse category,
- * shape/density, orientation) so a candidate can be measured with and
- * without each plane; which planes the format keeps, their widths and the
- * category set are open questions the measurements and the owner settle.
- * Nothing outside the storage benchmarks may treat these widths or values as
- * the format.
+ * Four fields: material, coarse category, shape/density and orientation.
+ * Material, category and orientation travel packed in one 32-bit record
+ * value (palette-image.ts); shape travels beside it. The widths below are
+ * the format's (draft v1, owner to approve). What is still provisional is
+ * meaning, not width: which categories exist (the stored intent set), and
+ * what each orientation means to the role and case catalogue. Every form
+ * that stores raw record values outside the chunk codec names the value
+ * form it holds ({@link RECORD_VALUE_FORM}), so a wider record can be
+ * added later without breaking any file written now.
  */
 
-/** One voxel's fields (PROVISIONAL widths: material 23 bits, category 4, orientation 5, shape 8). */
+/** One voxel's fields (material 23 bits, category 4, orientation 5, shape 8). */
 export interface VoxelRecord {
   /** Material id; 0 is air. */
   material: number;
@@ -23,7 +25,8 @@ export interface VoxelRecord {
 }
 
 /**
- * PROVISIONAL coarse categories: what a stored voxel says about itself.
+ * Coarse categories: what a stored voxel says about itself. The set is
+ * provisional (the owner settles it); values past it are refused.
  * Beams, banisters, soffits and mouldings are not categories: they are read
  * from the arrangement of construction voxels around them.
  */
@@ -73,6 +76,23 @@ export const CATEGORY_BITS = 4;
 /** Bits of an orientation (room for 32; {@link ORIENTATION_COUNT} are assigned). */
 export const ORIENTATION_BITS = 5;
 
+/**
+ * The record value form: how a raw record value is laid out where a format
+ * stores it outside the chunk codec (region uniform entries, cell deltas in
+ * undo records and saves, save uniform payloads, structure overrides). Form
+ * 1 is a u32: material bits 0–22, category 23–26, orientation 27–31, no
+ * spare bit. Each of those formats records the form it was written with; a
+ * later, wider form is added beside it (readers of form 1 kept, a newer
+ * form than the build knows refused), so widening the record never needs a
+ * new version of every format at once.
+ */
+export const RECORD_VALUE_FORM = 1;
+
+/** Throws unless `form` is a record value form this build reads (`what` names the format). */
+export function checkValueForm(what: string, form: number): void {
+  if (!Number.isInteger(form) || form < 1 || form > RECORD_VALUE_FORM) throw new RangeError(`${what}: record value form ${form} (this build reads 1 to ${RECORD_VALUE_FORM})`);
+}
+
 /** The largest material id. */
 export const MATERIAL_ID_MAX = 2 ** MATERIAL_BITS - 1;
 
@@ -101,7 +121,7 @@ export function planeMask(planes: readonly VoxelPlane[]): number {
   return m;
 }
 
-/** Bytes per cell of each plane in the provisional widths. */
+/** Bytes per cell of each plane in a dense chunk and the measurement encodings. */
 export const PLANE_BYTES: Readonly<Record<VoxelPlane, number>> = Object.freeze({ material: 3, category: 1, shape: 1, orientation: 1 });
 
 /** A fresh record (air unless fields are given). */
@@ -119,7 +139,7 @@ export function isAir(v: Readonly<VoxelRecord>): boolean {
   return v.material === MATERIAL_AIR;
 }
 
-/** Throws unless every field fits its provisional plane and its assigned values. */
+/** Throws unless every field fits its width and holds an assigned value. */
 export function checkVoxel(v: Readonly<VoxelRecord>): void {
   const ok = (n: number, max: number): boolean => Number.isInteger(n) && n >= 0 && n <= max;
   if (!ok(v.material, MATERIAL_ID_MAX) || !ok(v.category, VOXEL_CATEGORY_COUNT - 1) || !ok(v.shape, BYTE_PLANE_MAX) || !ok(v.orientation, ORIENTATION_COUNT - 1)) {

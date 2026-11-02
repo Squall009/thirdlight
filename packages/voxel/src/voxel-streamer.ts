@@ -40,7 +40,7 @@ import type { VoxelEditCommand } from './edit-command';
 import type { PaletteStore } from './palette-store';
 import type { RegionChunkRead } from './region-file';
 import type { ChunkSource } from './region-source';
-import type { MismatchChoice, SaveChunk } from './save-file';
+import { savePayloadOf, type MismatchChoice, type SaveChunk } from './save-file';
 import { stampShapeHash, type StampShape } from './stamp-shape';
 import type { CellBox } from './stroke';
 import type { ApplySaveInput, ApplySaveOutput, DeriveInput, DeriveOutput, EditInput, EditOutput, JobLane, LoadInput, LoadOutput, SaveContentWire, StoredChunk } from './stream-job';
@@ -559,11 +559,11 @@ export class VoxelStreamer {
 
   private submitApplySave(c: Chunk, id: number, base: StoredChunk | null, save: SaveChunk): void {
     const s = save.content;
-    const content: SaveContentWire = s.kind === 'delta' ? { kind: 'delta', bytes: s.delta.encode() } : s.kind === 'image' ? { kind: 'image', bytes: s.bytes.slice() } : s.kind === 'uniform' ? { kind: 'uniform', value: s.value } : { kind: 'air' };
+    const content: SaveContentWire = { kind: s.kind, payload: savePayloadOf(s) };
     const input: ApplySaveInput = { edge: this.grid.edge, chunk: { grid: this.gridId, cx: c.cx, cy: c.cy, cz: c.cz }, base, expect: save.base.slice(), content, onMismatch: this.onMismatch };
     const transfer: ArrayBuffer[] = [input.expect.buffer as ArrayBuffer];
     if (base !== null && 'stored' in base) transfer.push(base.stored.buffer as ArrayBuffer);
-    if (content.kind === 'delta' || content.kind === 'image') transfer.push(content.bytes.buffer as ArrayBuffer);
+    transfer.push(content.payload.buffer as ArrayBuffer);
     void this.opts.pool.submit<ApplySaveOutput>({ id, kind: 'apply-save', lane: this.laneOf(c), distance: c.d2, input, transfer }).then((o) =>
       this.onLoaded(c, id, o, (out) => {
         if (out.mismatch) {

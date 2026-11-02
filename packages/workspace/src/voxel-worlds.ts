@@ -24,7 +24,7 @@
  * spill to the project's cache folder; they last as long as the world is
  * open in this process.
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { REQUEST_ID_RE } from '@thirdlight/project-model/request-id';
 import {
@@ -46,8 +46,9 @@ import {
   type RegionFootprint,
   type RegionLayout,
 } from '@thirdlight/voxel';
+import { hexToBytes } from '@thirdlight/shared';
 import { sha256HexNative } from './digest';
-import { DiskUndoSpill, RegionWorld, addressName, addressOf, type WorldDirOptions } from './voxel-world-files';
+import { DiskUndoSpill, listRegionFiles, REGION_FILE_NAME_RE, RegionWorld, ShippedWorld, addressName, addressOf, type WorldDirOptions } from './voxel-world-files';
 import { writeAtomic } from './write';
 
 /** The project folder holding its voxel worlds, one folder each. */
@@ -58,8 +59,6 @@ export const VOXEL_WORLD_MANIFEST = 'world.json';
 export const VOXEL_WORLD_FORMAT = 2;
 /** A world's folder name. */
 export const VOXEL_WORLD_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
-/** A region file's name as the region writer makes it. */
-export const REGION_FILE_NAME_RE = /^[a-z0-9_.-]{1,64}\.vxr$/;
 /** The commands a voxel world takes. */
 export const VOXEL_WORLD_OPS = ['editVoxels', 'undoVoxels'] as const;
 export type VoxelWorldOp = (typeof VOXEL_WORLD_OPS)[number];
@@ -100,10 +99,6 @@ export function liftManifest(value: Record<string, unknown>, worldDir: string): 
   return liftVersion('world manifest', format, VOXEL_WORLD_FORMAT, steps, value, (o) => o.format as number);
 }
 
-function listRegionFiles(dir: string): string[] {
-  return existsSync(dir) ? readdirSync(dir).filter((n) => REGION_FILE_NAME_RE.test(n)).sort() : [];
-}
-
 /** Reads a manifest of this format, refusing anything but its exact fields. */
 export function parseVoxelWorldManifest(value: unknown): VoxelWorldManifest {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('a world manifest is an object');
@@ -126,12 +121,6 @@ function manifestBytes(m: VoxelWorldManifest): Uint8Array {
   return new TextEncoder().encode(`${JSON.stringify(ordered, null, 2)}\n`);
 }
 
-function hexBytes(hex: string): Uint8Array {
-  const out = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  return out;
-}
-
 /**
  * Writes a new world folder from a store's chunks: the world grid's region
  * files, then the manifest at revision 0. Refuses a folder that already
@@ -149,7 +138,23 @@ export function writeVoxelWorld(dir: string, m: Omit<VoxelWorldManifest, 'format
 }
 
 function worldOptions(m: VoxelWorldManifest): WorldDirOptions {
-  return { grid: chunkGrid(m.edge), worldId: hexBytes(m.worldId), layout: m.layout, footprint: m.footprint, gridId: WORLD_GRID_ID };
+  return { grid: chunkGrid(m.edge), worldId: hexToBytes(m.worldId), layout: m.layout, footprint: m.footprint, gridId: WORLD_GRID_ID };
+}
+
+/** A world folder's manifest, lifted to this format and checked; throws when it is missing or refused. */
+export function readVoxelWorldManifest(dir: string): VoxelWorldManifest {
+  const bytes = readFileSync(join(dir, VOXEL_WORLD_MANIFEST));
+  return parseVoxelWorldManifest(liftManifest(JSON.parse(bytes.toString('utf8')) as Record<string, unknown>, dir));
+}
+
+/**
+ * The shipped world a game save is made against, from a world folder: its
+ * world grid's region files as its manifest lists them, each checked
+ * against the world id and tile it must hold.
+ */
+export function openShippedWorld(dir: string): ShippedWorld {
+  const m = readVoxelWorldManifest(dir);
+  return new ShippedWorld(join(dir, gridFolder(WORLD_GRID_ID)), worldOptions(m), m.regions);
 }
 
 /** Why a world, a file or a command was refused. */
@@ -252,7 +257,7 @@ export class VoxelWorlds {
       return refuse('world_unreadable', 'internal', `voxel world ${name}: ${e instanceof Error ? e.message : String(e)}`);
     }
     const opts = worldOptions(manifest);
-    const { world } = await RegionWorld.open(join(dir, gridFolder(WORLD_GRID_ID)), opts, [], manifest.regions);
+    const { world } = await RegionWorld.open(join(dir, gridFolder(WORLD_GRID_ID)), opts, manifest.regions);
     // Undo records of an earlier run are gone with it: the folder starts empty.
     const spillDir = join(projectDir, 'cache', 'voxel-undo', name);
     rmSync(spillDir, { recursive: true, force: true });

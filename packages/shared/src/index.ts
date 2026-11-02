@@ -11,7 +11,7 @@
  */
 export { utf8Decode, utf8Encode, utf8Length, utf8LengthPairingAnyHigh, utf8LengthPairingHigh } from './utf8';
 export { deepFreeze, deepFreezeAll, deepFreezeExceptViews, isPlainObject, isPlainObjectStrict } from './objects';
-export { bytesToHex, sha256Hex, sha256HexAsync, sha256HexOfText } from './sha256';
+export { bytesToHex, hexToBytes, sha256Hex, sha256HexAsync, sha256HexOfText } from './sha256';
 export {
   canonicalJsonKey,
   canonicalJsonText,

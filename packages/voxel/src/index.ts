@@ -50,7 +50,9 @@ export {
   VOXEL_CATEGORY,
   VOXEL_CATEGORY_COUNT,
   VOXEL_PLANES,
+  checkValueForm,
   checkVoxel,
+  RECORD_VALUE_FORM,
   isAir,
   planeMask,
   sameVoxel,
@@ -141,8 +143,12 @@ export { decodeUndoRecord, encodeUndoRecord, UNDO_MEMORY_BUDGET_BYTES, UNDO_RECO
 export {
   applySave,
   applySaveChunk,
+  BASE_FORM_CODEC_VERSION,
   BASE_HASH_BYTES,
   baseChunkHash,
+  baseContentHash,
+  changedMaskBytes,
+  playerCells,
   readSave,
   readSaveVersion,
   SAVE_ENTRY_HEADER_BYTES,
@@ -150,7 +156,9 @@ export {
   SAVE_HEADER_BYTES,
   SAVE_UPGRADES,
   saveChunkOf,
+  saveContentFromPayload,
   saveContentOf,
+  savePayloadOf,
   SaveFileError,
   sameHash,
   writeSave,
@@ -159,10 +167,11 @@ export {
   type SaveApplied,
   type SaveChunk,
   type SaveContent,
+  type SaveContentKind,
   type SaveFile,
   type SaveUpgradeStep,
 } from './save-file';
-export { chunkOverridesOf, decodeOverrides, encodeOverrides, OVERRIDE_CELL_BYTES, OVERRIDE_FORMAT_VERSION, overridesOf, reapplyOverrides, type ChunkOverrides, type OverrideMisfit, type OverrideReport, type StructureOverrides } from './structure-overrides';
+export { chunkOverridesOf, decodeOverrides, encodeOverrides, OVERRIDE_CELL_BYTES, OVERRIDE_FORMAT_VERSION, OVERRIDE_UPGRADES, overridesOf, reapplyOverrides, type ChunkOverrides, type OverrideUpgradeStep, type OverrideMisfit, type OverrideReport, type StructureOverrides } from './structure-overrides';
 export { repairChunks, type RepairOutcome, type RepairSource } from './chunk-repair';
 export { DirtyTracker, type ChunkJob, type DirtyChunk, type JobRefusal, type SaveJob } from './dirty-tracker';
 export { checkPayloadEdge, payloadBytes, payloadTransfer, type ChunkPayload } from './chunk-wire';
