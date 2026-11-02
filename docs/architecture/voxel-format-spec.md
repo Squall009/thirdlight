@@ -1,6 +1,6 @@
 # Voxel world formats — spec v1
 
-Status: **DRAFT v1 — awaiting owner approval (hard stop). Nothing builds on it as final until approved.**
+Status: **DRAFT v1, revised after the owner's review of 2026-11-02 (45.10a: value v2, masks, overlay, climate; 45.10b: mesh format) — awaiting the owner's approval of the revision. Nothing builds on it as final until approved.**
 
 Phase 45 drafted this spec ([plan](../plan-phase-45.md) §3). It describes the code on branch `phase-45`
 (`packages/voxel/src`, `@thirdlight/voxel`) as it stands, byte for byte where something is a byte format. The
@@ -15,54 +15,61 @@ refer to it.
 
 ### What is stored
 
-The world is a grid of 0.5 m voxels. Each voxel stores four things:
+The world is a grid of 0.5 m voxels. Each voxel is **one 32-bit value** (owner 2026-11-02, §2.2):
 
-- a **material** (a number; 0 means air);
-- a coarse **category**: air, terrain, construction, roof or liquid;
-- a **shape**: how full the cell is, from 0 to 255;
-- an **orientation** byte.
+- a **material** (12 bits, 4,096 a world; 0 means air);
+- a **role** (4 bits): air, terrain, liquid, wall, floor, roof, foundation, stair, pillar or opening;
+- a **shape**: 16 fill levels (4 bits), inside the value for every voxel;
+- a **wetness** (3 bits), which only changes shading;
+- 9 **reserved** bits (0; the shoreline liquid level, O15, is the first candidate).
 
-Beams, banisters, posts and the other architectural details are **not stored**. They are worked out from how the
-voxels sit next to each other, every time the world is rebuilt (§3.7). Water is ordinary voxels with the liquid
-category.
+There is no orientation. Beams, banisters, posts and the other architectural details are **not stored**. They are
+worked out from how the voxels sit next to each other, every time the world is rebuilt (§3.7). Water is ordinary
+voxels with the liquid role. Temperature and humidity are a coarse climate field per region, not in the voxel (§2.4).
 
 - **Chunks.** Voxels are grouped into cubes of 32 × 32 × 32 (16 m), called chunks.
-- **Only surfaces store a shape.** A chunk stores one shape byte for each *surface* voxel: a partly full cell, or
-  the top cell of a lake. Full ground and empty air store nothing extra.
-- **Simple chunks cost almost nothing.** A chunk that is all air is not stored at all. A chunk that is one voxel
+- **One value per voxel, one palette per chunk.** A chunk keeps a palette of the values it uses; a partly full
+  cell is an entry of its own.
+- **Simple chunks cost almost nothing.** A chunk that is all air is not stored at all. A chunk that is one value
   everywhere (deep rock, a solid wall) costs 12 bytes on disk.
-- **Region files.** On disk, chunks are grouped into region files. A file covers a 256 m × 256 m tile of ground and
-  256 m of height ("stacked cubes", proposed below). A world grows tile by tile.
-- **Saves hold only player changes.** A save keeps only the chunks the player changed, each compared against the
-  shipped world. A building's hand edits are kept apart from the voxels it generates, as overrides.
-- **Never stored.** Meshes, collision, the walk-graph input, light occupancy, the low-detail far-field levels
-  (mips) and prop light coverage are always rebuilt and never stored.
+- **Region files.** On disk, chunks are grouped into region files of 256 m stacked cubes (owner). A world grows
+  tile by tile.
+- **Authored base, runtime overlay.** Shipped files hold the full value; a running game keeps its changes in an
+  overlay of the same values (§2.3). **Saves hold only player changes**, of the fields the game marks saved (default:
+  all but wetness), each chunk compared against the shipped world. A building's hand edits are kept apart from the
+  voxels it generates, as overrides.
+- **Which outputs a change touches.** Shape and role drive meshes, collision, navigation and light; material and
+  wetness only the shader data (§2.2), so rain re-derives nothing but that.
+- **Never stored.** Meshes, collision, the walk-graph input, light occupancy, shader data, the low-detail far-field
+  levels (mips) and prop light coverage are always rebuilt and never stored.
 
 ### How big
 
-All test worlds are synthetic, engine-owned and swept whole. The "on disk" column includes the region file
-tables.
+All test worlds are synthetic, engine-owned and swept whole (value v2, 45.10a; the v1 draft's numbers in brackets).
+The "on disk" column is the zstd chunk bodies.
 
-| Test world | On disk | In memory, if all loaded (dense arrays) | Notes |
+| Test world | On disk | In memory, if all loaded | Notes |
 |---|---|---|---|
-| plain ground, 256 m | 4.3 MB/km² | 2.1 MB (210 MB) | ground 64 m deep |
-| hilly, 2 × 2 km | 5.8 MB/km² | 163 MB = 41 MB/km² (18.4 GB) | 77 % of chunks uniform |
-| town, 256 m (+11 rotated houses) | 1.6 MB/km² | 2.0 MB (213 MB) | walls, floors, roofs, banisters, beams |
-| caves, 256 m | 56 MB/km² | 15.4 MB (283 MB) | 3D overhangs, tunnels and caverns |
-| vertical, 256 m × 2 km tall | 188 MB/km² | 55 MB (3.2 GB) | a mountain, deep caverns and a 300 m tower |
+| plain ground, 256 m | 2.3 MB/km² (4.5) | 1.6 MB (2.1) | ground 64 m deep |
+| hilly, 2 × 2 km | 6.0 MB/km² (6.9) | 172 MB = 43 MB/km² (163) | 77 % of chunks uniform |
+| town, 256 m (+11 rotated houses) | 2.2 MB/km² (2.3) | 2.0 MB (2.0) | walls, floors, roofs, banisters, beams |
+| caves, 256 m | 50 MB/km² (58) | 13.5 MB (15.4) | 3D overhangs, tunnels and caverns |
+| vertical, 256 m × 2 km tall | 157 MB/km² (192) | 45.5 MB (55.1) | a mountain, deep caverns and a 300 m tower |
 
-- **Memory.** 0.04–0.27 bytes a voxel. The plan's target was about 4 bytes.
-- **Material ids** are 23 bits (8,388,607 a world). Storing them at rest as 3 bytes instead of 2 added 0.1–1.8 %
-  to the sizes above, which were measured before (45.7d).
-- **A whole 10 × 10 km world** of plain to hilly ground projects to **430–580 MB** in 1,600 tiles, about 0.3 MB
-  per tile. Mountains, caves and dense towns raise that. This is a projection from the 2 km world; no 10 km world
-  was built.
-- **Git.** A scripted hour of heavy editing (1,200 strokes) grows the packed history by 0.13–0.22 MB, because git
-  stores each new file version as a small delta. **No Git LFS is needed.**
+- **Memory.** 0.04–0.24 bytes a voxel. The plan's target was about 4 bytes.
+- **Folding the shape into the value** grows the palettes (plain 3.0 → 7.5 entries a mixed chunk, hilly 4.1 →
+  13.6, caves 3.9 → 20.4) and drops the density bytes: zstd bytes fall 2–48 %; memory falls 2–24 % except on hilly
+  ground (+6 %: wider brick ids where the slope meets air). Wetness and 3-bit shapes: plan **45.10a value v2**.
+- **A whole 10 × 10 km world** of plain to hilly ground projected (v1) to **430–580 MB** in 1,600 tiles; v2 bodies
+  are 13 % smaller on hilly ground. Mountains, caves and dense towns raise that. No 10 km world was built.
+- **Git.** A scripted hour of heavy editing (1,200 strokes) grows the packed history by 0.13–0.22 MB (v1), because
+  git stores each new file version as a small delta. **No Git LFS is needed.**
 
 ### How fast
 
-The measurements ran on this host (i5-12600H, Iris Xe), in Node or headless Chrome. The low-tier budget is the
+The measurements ran on this host (i5-12600H, Iris Xe), in Node or headless Chrome. Most were taken on the v1 draft; the value v2 re-run of
+the storage harness (plan **45.10a value v2**) decodes a chunk 11–21 % faster in Node (74–330 µs), encodes 3–6 %
+faster, and keeps random `voxelAt` at 33–121 ns and stroke costs within ±12 %. The low-tier budget is the
 budget the streaming core uses for the Iris Xe floor.
 
 **Reading a voxel**
@@ -112,17 +119,17 @@ localhost)
 | 512 m tiles | A save rewrites 4× as much (1.45 MB instead of 363 KB for one voxel); loose git growth is 3× |
 | Git LFS | Stores every version whole, with no deltas: 7–22 MB an hour, kept forever |
 
-### Plan decisions that did not pan out (owner chooses)
+### Plan decisions that did not pan out (replacements accepted by the owner, 2026-11-02)
 
-Under the plan's rule, these are **not dropped** until the owner chooses. Each keeps its goal through a proposed
-replacement, and the code already follows that proposal as a DRAFT.
+Under the plan's rule, these were **not dropped**: each kept its goal through a replacement, and the owner
+accepted all four on 2026-11-02 (D432 stays open for 46a's tuning).
 
 1. **R18, vertical run-length per column → bit-packing plus a general compressor (zstd).**
    - *Goal kept:* plain ground costs about what a height map costs. It is 4.3 MB/km² either way.
    - *Why the change:* runs cost as much memory or more and make strokes slower (table above).
    - *Cost of the replacement:* none measured. Runs stay possible only where no compressor runs, and they lose
      there too.
-   - **Owner chooses.**
+   - **Accepted (owner 2026-11-02).**
 2. **R50, full-height region columns → stacked 256 m cubes.**
    - *Goal kept:* no height limit, and small commits.
    - *Why the change:* on the 2 km tall world a column file is 12.3 MB, and a one-voxel save rewrites all of it.
@@ -130,7 +137,7 @@ replacement, and the code already follows that proposal as a DRAFT.
    - *Cost of the replacement:* twice the files where ground crosses a stack boundary (hilly world: 64 → 128
      files), and +0.1 % bytes.
    - Both layouts are in the format; the code uses stacked.
-   - **Owner chooses.**
+   - **Accepted (owner 2026-11-02).**
 3. **R79, one shared occupancy bitmask for every system → one assembly evaluation, then a separate output per
    consumer.**
    - *Goal kept:* cheap, exact grid queries per chunk.
@@ -139,49 +146,38 @@ replacement, and the code already follows that proposal as a DRAFT.
    - *The replacement:* separate outputs for rendering, light, navigation and collision.
    - *Cost:* 0.5–4.3 KB of light, 0.8–3.7 KB of navigation and 0.6–2.6 KB of occupancy a chunk, instead of one 4 KB
      mask, plus about 0.5 ms a chunk.
-   - **Owner chooses.**
+   - **Accepted (owner 2026-11-02).**
 4. **R66, streaming exports by HTTP range with the default read settings → batched, wider reads with prefetching
    along the motion** (D432).
    - *Goal kept:* exports stream on demand.
    - *Why the change:* 4 reads in flight with a 4 KB gap empty the near ring at 40 ms latency. A 64 KB gap fills it,
      but fetches 9× the bytes.
    - *The replacement:* not a format change; the region table already allows any range. Not built yet.
-   - **Owner chooses.**
+   - **Accepted (owner 2026-11-02).**
 
 **Not failures, for completeness.** §7a revised these by direction, not because a measurement failed:
 - R12 and R13 (per-cell roles, rules only in the tools) became inferred architecture;
-- R11's "role" became a stored coarse category;
+- R11's "role" became a stored coarse category, and in v2 (owner 2026-11-02) a stored role again (§2.2);
 - R83 (an edit rebuilds only its own chunk) became a dependency radius;
 - R86, R87 and R88 are kit and mesh topics for 46b/46c.
 
 The brick ray-marched far field was moved to 46c by the owner (2026-10-28); it was not tried in 45.
 
-### What the owner decides at this stop
+### What the owner decided (2026-11-02), and what is still open
 
-**Before v1 freezes:**
-- the three replacements above, and the D432 approach;
-- **the stored category set (Q-a):** air, terrain, construction, roof, liquid. The 45.6 placeholder rules need
-  nothing more; the role spec (46b) may want more categories;
-- the defaults listed in §5, among them 45.7d's: the material id width (23 bits, §2.2) and the orientation
-  numbering (24 rotations, provisional).
+**Decided:** the four replacements above; the value v2 (§2.2) with the role set, no orientation and 12-bit
+materials; one value everywhere with an authored base and a runtime overlay, the feeds mask and the game's
+saved-fields mask (§2.3); material blending in the shader (45.10b), fed by the derived shader data (§3.7); climate as
+a coarse per-region field (§2.4); the game decides how a re-exported base affects saves (H1/H2 as built); the world
+layout and scale, the editing rules (including `world_changed` refuse-after-reload) and the remaining §5 defaults.
 
 **Open, and not part of v1 yet:**
-- dependencies across grids: the job contract's keys, aprons and invalidation are per grid (§3.6 open contract
+- dependencies across grids (M7): the job contract's keys, aprons and invalidation are per grid (§3.6 open contract
   gap, with the planned design, before 47a);
-- what each orientation means to a case (O8; the numbering is set, 46b gives the cases their meaning);
-- where paint is stored (O16);
-- shoreline cells that are both ground and water (O15).
-
-**The record value has no spare bit (decide together with O15 and O16).** Material 23 + category 4 +
-orientation 5 = 32 bits. If O15 (a cell holding ground plus a liquid fill) or O16 (paint per voxel) needs bits in
-every voxel, the record must widen. Each form that stores raw record values outside the chunk codec (region
-uniform entries, cell deltas in undo records and saves, save uniform payloads, structure overrides) therefore
-names its **record value form** (§2.2): form 1 is today's u32. A wider form is added beside it, so files written
-now stay readable and no format needs a new version for it. The owner picks one (default chosen, owner to
-confirm: value forms now, the 23/4/5 split unchanged):
-- settle O15 and O16 first, and widen the record before v1 freezes if either needs per-voxel bits;
-- keep spare bits now (a 21- or 22-bit material id, still 2–4 M ids);
-- or rely on the value forms and widen add-only later (what the code does).
+- voxel commands on MCP (D433) and Rapier memory in the budget (D434): later work;
+- shoreline cells that are both ground and water (O15): the first candidate for the reserved bits;
+- the mesh format with material blending in the shader (45.10b), which also removes the material-slot caveat of
+  the feeds table (§2.2).
 
 ---
 
@@ -212,49 +208,134 @@ confirm: value forms now, the 23/4/5 split unchanged):
 - **Floating origin (§3.6).** Authoritative positions stay integer cells and 64-bit metres. Only 32-bit consumers
   (the GPU, physics) work relative to a moving origin.
 
-### 2.2 Voxel record — category set and orientation meaning PROVISIONAL (Q-a; `record.ts`)
+### 2.2 The voxel value, v2 (owner 2026-11-02; `record.ts`)
 
-| Field | Width | Values | Notes |
+Every voxel is **one 32-bit value**. Palettes, aprons, cell deltas, region uniform entries, saves, overrides and the
+runtime overlay all hold whole values, so reading or writing a voxel is one 32-bit load or store.
+
+| Bits | Field | Values | Notes |
 |---|---|---|---|
-| material | 23 bits (u24 at rest) | 0 = air, 1–8,388,607 (`MATERIAL_ID_MAX`) | Refers to the material record (plan §1c, 46c). A format width, not a count cap (R7, O12; default chosen, owner to confirm: see §7 G7) |
-| category | u8 | 0 air, 1 terrain, 2 construction, 3 roof, 4 liquid | Stored intent (Q-a option 1). 5–255 are unassigned and refused (`VOXEL_CATEGORY_COUNT`) |
-| shape | u8 | 0 empty … 255 full | Stored only on surface voxels (§3.1) |
-| orientation | u8 | 0–23: one of the 24 axis-aligned rotations, 0 the identity | PROVISIONAL until the role and case catalogue (46b) gives the cases their meaning. 24–255 are refused (`ORIENTATION_COUNT`). Nothing derived reads it yet (O8) |
+| 0–11 | material | 0 = air, 1–4,095 (`MATERIAL_ID_MAX`) | 4,096 ids a world: a format width, not a count cap on anything else (O12, owner). The id refers to the material record (46c) |
+| 12–15 | role | see the role table; 10 assigned, 16 at most | Unassigned values are refused by every writer and reader (`VOXEL_ROLE_COUNT`) |
+| 16–19 | shape | 0 empty … 15 full (`SHAPE_FULL`) | 16 fill levels, stored for every voxel inside the value. Derived consumers read it on a 0–255 scale (`shapeDensity` = shape × 17) |
+| 20–22 | wetness | 0 dry … 7 (`WETNESS_MAX`) | Feeds the shader data only. Authored in base files, set at runtime in the overlay |
+| 23–31 | reserved | must be 0 | 9 bits. A value with any set is refused everywhere raw values are read. O15 (shoreline / liquid level in a ground cell) is the first candidate |
 
-- **Air is one value.** Material 0 means air, and every other field is then 0. Writers clear them (the store's
-  `setVoxel`, the cell delta, the commands), and the codec refuses air with any other field set.
-- **Orientation numbering** (`orientationMatrix`). Orientation k is `face(k >> 2) · spin(k & 3)`: first `k & 3`
-  quarter turns about the voxel's own +y (counter-clockwise seen from above: +x goes to −z), then the tip that
-  carries +y to its face: 0 +y (none), 1 −y (a half turn about +x), 2 +x, 3 −x, 4 +z, 5 −z (quarter turns about z
-  or x). The 24 are distinct proper rotations (tested).
-- **Record value.** The packed form used in palettes, deltas, aprons and region entries is
-  `material | category << 23 | orientation << 27`, a u32: material in bits 0–22, category in 23–26 (room for 16),
-  orientation in 27–31 (room for 32). Shape travels beside it. Every field must fit its width; readers refuse a
-  wider value before packing it. No bit is spare (§1).
-- **Record value form** (`RECORD_VALUE_FORM` = 1, `checkValueForm`). Every format that stores raw record values
-  outside the chunk codec records the form they are in: the region file (header byte 10, its uniform entries), the
-  undo record (byte 7, its deltas), the save (byte 8, its deltas and uniform payloads) and the structure overrides
-  (byte 6). Form 1 is the u32 above. A reader refuses a form newer than it knows. A later, wider form is added
-  beside form 1: readers of form 1 are kept, and lifting a form-1 value is a pure widening (each field keeps its
-  value). The chunk codec stores the fields in planes of their own and is versioned by its own byte. Forms that
-  only cross threads inside one build (the chunk wire, aprons, job messages) are never persisted and carry no form:
-  both ends run the same build.
-- **Every stored value is checked** (`checkRecordValue`): region uniform entries, save uniform payloads, cell
-  deltas and overrides refuse an unassigned category or orientation, and air that is not the one air value; a cell
-  delta or override also refuses air with a non-zero shape. A refused region table refuses the file, so its chunks
-  are reported damaged.
-- **Implied shape.** Air is 0 and any other material is 255. A voxel is a **surface voxel** when its shape differs
-  from its implied shape. That covers partly full ground, a liquid's partly full top cell, and any non-air cell
-  with shape 0. The rule depends on the voxel's own value only, never on its neighbours.
-- **Q-a minimum contract (draft).** The stored intent that the derived-data pipeline needs is category plus
-  material plus shape, with category telling terrain, construction, roof and liquid apart.
-  - The 45.6 placeholder rules read only the category. The consumers add material and ground density.
-  - Nothing reads orientation or structure data.
-  - A house written by its generator and the same voxels written as runtime `fill` commands derive to identical
-    bytes (plan **45.6 derived data**).
-- **What the category costs.** In a record palette it costs 0 % memory and 0.2–2.9 % of the zstd bytes. The
-  orientation field costs ≤ 5 % of memory and 3.2 % of zstd bytes in the town, and ≤ 0.8 % elsewhere (45.2a).
-  - *Caveat:* in the test worlds no material is used in two categories.
+**Roles** (`VOXEL_ROLE`; what a stored voxel is for):
+
+| Value | Role | Placeholder rules (§3.7) |
+|---|---|---|
+| 0 | air | open, empty |
+| 1 | terrain | ground |
+| 2 | liquid | open, liquid |
+| 3 | wall | built |
+| 4 | floor | built |
+| 5 | roof | wall class |
+| 6 | foundation | built |
+| 7 | stair | built |
+| 8 | pillar | built |
+| 9 | opening | open, empty (the door or window is a kit piece) |
+
+Beams, banisters, posts, soffits and mouldings are **not roles**: the assembly rules infer them from the
+arrangement, every time (§3.7). The role set is what the stored value says about intent (Q-a, owner); what each role
+means to a case is 46b's catalogue.
+
+**Orientation is not stored** (O8 closed). A structure's grid carries its rotation (§1e, 47a); a stamp is rotated
+before it is voxelized (its command carries yaw and scale, §3.3); everything finer comes from the arrangement.
+
+- **Air is one value.** Material 0 means air, and the whole value is then 0. Writers clear the other fields (the
+  store's `setVoxel`, the cell delta, the commands, `valueOf`), and every reader refuses a material-0 value with any
+  other bit set.
+- **Every field is checked** before it is packed (`checkVoxel`, the codec's `checkField`) and every raw value after
+  it is read (`checkRecordValue`): a role past the assigned set, a reserved bit, or air that is not 0 is refused. A
+  refused region table refuses the file, so its chunks are reported damaged.
+- **Record value form 2** (`RECORD_VALUE_FORM`, `checkValueForm`). Every format that stores raw values outside the
+  chunk codec names the form it holds: the region file (header byte 10), the undo record (byte 7), the save (byte 8)
+  and the structure overrides (byte 6). Form 2 is the u32 above. Form 1 (the draft 23/4/5 value with the shape beside
+  it) was never approved and is refused. A later per-voxel field takes reserved bits inside form 2's u32 and is read
+  through the format versions that write it; a new form is needed only if the value outgrows 32 bits. Forms that only
+  cross threads inside one build (the chunk wire, aprons, job messages) are never persisted and carry no form.
+- **What it costs.** Before → after on all five test worlds: plan **45.10a value v2** (memory, bytes per voxel,
+  palette sizes, zstd size, encode/decode and edit costs; 3 vs 4 shape bits; wetness none / authored patches / a
+  rain pattern) and §1.
+- **Q-a contract (owner).** The stored intent the derived-data pipeline needs is role plus material plus shape. The
+  placeholder rules read only the role; the consumers add material (until 45.10b's mesh format moves blending to the
+  shader) and the shape. A house written by its generator and the same voxels written as runtime `fill` or `set`
+  commands derive to identical bytes (`derived.test.ts`, `voxel-world.e2e.ts`).
+
+#### The feeds mask: which derived outputs a field drives (`FIELD_FEEDS`, `DERIVED_PART`)
+
+| Field | Feeds | So a change of only this field … |
+|---|---|---|
+| shape | mesh, collision, nav, light occupancy | rebuilds every result within the rules' radius (§3.7 dependency) |
+| role | mesh, collision, nav, light occupancy | the same |
+| material | shader data | rebuilds the changed chunks' shader data and nothing else (see the caveat) |
+| wetness | shader data | rebuilds the changed chunks' shader data and nothing else |
+
+- Every applied edit reports the fields that changed in any cell (`EditOutcome.fields`, a `PLANE_BIT` mask; the
+  worker's `edit` job too). `stalePartsOf(fields)` turns it into the derived parts that are stale; the command
+  route answers them (`parts`, an undo the parts of the edit it takes back), and `VoxelStreamer.refresh(chunks,
+  box, parts)` / its own edits derive only those: for a shader-only change the changed chunks' shader data alone,
+  no apron, no neighbour (`derive` job with `parts: shader`, radius 0). Tested in real workers on region files on
+  disk (a wetness-only paint over 4 chunks: 0 full derives, 4 shader derives, every result equal to a fresh full
+  derive; `stream.test.ts`) and on the command route (`voxel-world.test.ts`).
+- **Caveat until 45.10b:** today's surface vertices, detail instances and collision boxes still carry material
+  slots, so `stalePartsOf` adds mesh and collision for a material change (`MATERIAL_SLOT_PARTS`). The feeds table is
+  the format's contract; the extra parts go when the mesh format leaves material blending to the shader.
+
+### 2.3 Base plus runtime overlay, and the saved-fields mask (owner 2026-11-02; `voxel-overlay.ts`, `save-file.ts`)
+
+**One value everywhere.** Authored base files (region files, §3.2) hold the full value: an author can paint
+wetness into the world. At runtime the base is never written:
+
+- **The overlay** (`VoxelOverlay`) holds every runtime change as the cell's new value over the base store, per chunk
+  as two sorted arrays (u16 cells, u32 values: 6 bytes a changed cell). Reads look in the overlay, then the base;
+  writing a cell back to its base value removes its override. It takes stroke commands like any store
+  (`applyEdit`), so the one mutation path is unchanged. Reads and writes are one value each.
+- **On quit** the overlay is dropped (`clear`). What survives is what the game saves.
+- **The saved-fields mask** (`DEFAULT_SAVED_FIELDS`, chosen by the game): which fields of a runtime change a save
+  keeps. Default: material, role and shape; **wetness is not saved** (weather sets it again). A save keeps, per cell,
+  the saved fields of the overlay's value merged onto the base value (`savedValue`; air is whole: a dug cell stays air
+  when material is saved). A chunk whose kept values equal the base gives no entry: rain alone saves nothing.
+- **Through the save format** (`VoxelOverlay.saveChunks`, `saveChunkOf(…, saved)`, §3.5): the merged chunk becomes an
+  ordinary save entry, so the changed-cell masks (H1) and the base hashes (H2) work as before: on a re-exported base
+  only the player's cells land, every other cell is the new base's (tested: a dig over rain keeps the 27 dug cells
+  and no rain; on a re-export two cells higher the hole stays and the new ground stands around it;
+  `voxel-overlay.test.ts`).
+- **The editor's authoring path** writes base files as before (`editVoxels` on the command route rewrites region
+  files); it does not use the overlay.
+- Not built yet: the game runtime's streamer reading through an overlay (46a), an overlay kept in shared memory for
+  workers.
+
+### 2.4 Climate field (owner 2026-11-02; specified, not built)
+
+Temperature and humidity are **not in the voxel value**. They are a coarse field per region, interpolated, authored,
+and overridable at runtime by the same base plus overlay rules as the voxels.
+
+- **Grid.** One sample every 8 m (16 cells) on x, y and z, aligned at cell 0, so a 256 m stacked region cube (§3.2)
+  holds 32 × 32 × 32 samples. A sample stands at the corner of its 16-cell block; values between are trilinear.
+  The sample spacing is a format constant (16 cells; defined once in `record.ts` when built) so no per-voxel memory is spent and a whole
+  region's field is 32 KB per channel at a byte a sample.
+- **Channels.** Two u8 channels per sample: temperature (0–255 mapped linearly to −40 … +60 °C, 0.39 °C a step) and
+  humidity (0–255 = 0–100 %). A world names the mapping in its manifest (`climate: { temperature: [min, max] }`) so
+  another range needs no format change.
+- **Storage.** A region's field is an optional section of its stacked region file, after the chunk data, named in the
+  header's reserved u32 at offset 56 (its byte offset; 0 = no climate section, the region uses the world's default
+  values from the manifest). Section: u8 version (1), u8 channels (2), u16 reserved (0), u32 CRC-32 of the samples,
+  then the samples channel by channel, x, z, y order (y fastest), zstd-compressed as one frame. A uniform channel is
+  stored as one sample with a flag (bit 0 of the reserved u16 per channel). Column region files have no climate
+  section (stacked cubes are the owner's layout).
+- **Association.** A sample belongs to the region cube containing its cell; samples on a region's upper faces are
+  read from the neighbouring region (as voxel aprons are), so interpolation across a region face needs the
+  neighbour's first slab, which the streamer already has resident.
+- **Runtime override.** The overlay model of §2.3 applies per sample: a runtime change is held as the sample's new
+  value over the base; a game's saved-fields choice applies per channel (default: climate overrides are not saved;
+  a game that runs seasons saves them). Saves store changed samples as (sample index u16, value u8) per region and
+  channel, with the base region's climate CRC as the base hash.
+- **Derived use.** The shader and weather systems read the interpolated field; nothing in the voxel derive chain
+  reads it, so a climate change re-derives nothing of the voxels (its own feeds entry: shader data only).
+- Not built: writer, reader, interpolation, overrides and saves. Its numbers are estimates (32 KB a region per
+  channel raw, far less after zstd for smooth fields), not measured.
 
 ---
 
@@ -262,17 +343,17 @@ confirm: value forms now, the 23/4/5 split unchanged):
 
 ### 3.1 Chunk store
 
-**Memory form** (`palette-store.ts`, `palette-chunk.ts`, `brick-layout.ts`, `surface-density.ts`,
-`chunk-index.ts`). This is not a file format; it is the measured pick, a DRAFT.
+**Memory form** (`palette-store.ts`, `palette-chunk.ts`, `brick-layout.ts`, `chunk-index.ts`). This is not a file format; it is the measured pick, a DRAFT.
 
 **Chunk index.** An open-addressing table keyed by (column, y): `ChunkIndex`, about 15–20 ns a lookup. A chunk in
 the index is one of three things:
 - **absent:** all air;
-- **one record value:** the chunk is that voxel everywhere, with its implied shape. It costs 8 B;
-- **a palette chunk:** a record palette, sparse bricks and the surface densities, as described below.
+- **one value:** the chunk is that voxel everywhere (any fill level: a chunk of half-full cells is one value too).
+  It costs 8 B;
+- **a palette chunk:** a value palette and sparse bricks, as described below.
 
-**Record palette.** Each palette entry is one record value, plus a flag saying whether that entry's cells carry a
-density byte.
+**Value palette.** Each palette entry is one whole voxel value (§2.2), shape and wetness included: a partly full
+cell is an entry of its own, so there is no separate density list.
 - Entries are reference-counted.
 - Entry ids are packed at 0, 1, 2, 4, 8 or 16 bits (`packedWidth`), so no id ever straddles two 32-bit words.
 - The palette is narrowed only when its live entries fit half the width and fill a quarter of it, or when one entry
@@ -286,30 +367,27 @@ density byte.
 - Brick b holds the cells of `brickOrder`: bricks numbered x, z, y, and cells inside a brick x, z, y, with y
   fastest.
 
-**Surface densities.** A sorted `Uint32Array` of `cell << 8 | density`, found by binary search.
-
 **Reading.** `voxelAt(x, y, z)` is the one read path (R21):
 - an absent chunk reads as air;
 - a uniform chunk is answered from its index entry;
-- otherwise one packed read, plus a density search for flagged entries.
+- otherwise one packed read and one palette lookup.
 
 **On the wire** (`chunk-wire.ts`). A chunk crosses threads as its own arrays, transferred, never copied:
-- the palette values and metadata;
-- the brick, mask, pool and free-slot arrays;
-- the density words.
+- the palette values and their cell counts;
+- the brick, mask, pool and free-slot arrays.
 
 The payload form is `air`, `uniform` (a value) or `stored` (edge plus arrays). It has no version of its own, since
 both ends run the same build; the job message is versioned instead. It is checked on adoption: a damaged payload is
 refused and the store is left unchanged.
 
-#### Chunk codec v1 — bytes at rest (`palette-codec.ts`)
+#### Chunk codec v2 — bytes at rest (`palette-codec.ts`)
 
-Little-endian. "Planes held" is a bit mask: 1 material, 2 category, 4 shape, 8 orientation.
+Little-endian. "Planes held" is a bit mask: 1 material, 2 role, 4 shape, 8 wetness.
 
 | Offset | Bytes | Field |
 |---|---|---|
 | 0 | 2 | magic `VC` (0x56 0x43) |
-| 2 | 1 | codec version = 1 (an older one is lifted through `CHUNK_CODEC_UPGRADES`, a newer one refused) |
+| 2 | 1 | codec version = 2 (an older one is lifted through `CHUNK_CODEC_UPGRADES`, a newer one refused; the draft version 1 has no step and is refused) |
 | 3 | 1 | flags: bits 0–3 planes held · bit 4 edge 32 (else 16) · bits 5–6 body (0 uniform, 1 bit-packed; 2 column runs and 3 bricks are measurement bodies) · bit 7 one palette per field (measurement only; else one record palette) |
 | 4 | 4 | CRC-32 of every byte from offset 8 to the end |
 | 8 | … | body |
@@ -325,29 +403,26 @@ bricks at rest, one palette per field, dropped planes) share the header and are 
 entry (`palette-codec-measure.ts`: `encodeMeasuredImage`, `decodeMeasuredImage`), which writes world bytes byte for
 byte as the world codec does (tested), so the harness can measure them again.
 
-**Uniform body (6 bytes; 14 bytes with the header).** u24 material, u8 category, u8 shape, u8 orientation. The
-shape must equal the implied shape, so a uniform chunk never holds a surface voxel.
+**Uniform body (5 bytes; 13 bytes with the header).** u16 material, u8 role, u8 shape, u8 wetness. Any fill
+level: a chunk of one partly full value is a uniform body.
 
-**Packed body, record palette:**
+**Packed body, value palette:**
 1. u16 entry count − 1.
-2. The material of every entry (u24 each), then the category of every entry (u8 each), then the orientation of
-   every entry (u8 each). Each field is its own plane, so the compressor sees runs of like values (R20).
-3. The density flags as a bitset: ⌈count / 8⌉ bytes. Entry e is bit (e mod 8) of byte ⌊e / 8⌋. Bits past the
-   palette must be 0.
-4. The cells' entry ids in local-index order, at width w = `packedWidth(count)`:
+2. The material of every entry (u16 each), then the role of every entry (u8 each), then the shape (u8 each), then
+   the wetness (u8 each). Each field is its own plane, so the compressor sees runs of like values (R20). Reserved
+   bits are not stored; they are 0 in every value.
+3. The cells' entry ids in local-index order, at width w = `packedWidth(count)`:
    - w = 0: nothing;
    - w = 1, 2 or 4: 8 / w cells a byte, least significant first;
    - w = 8: u8 per cell;
    - w = 16: u16 per cell.
-5. One u8 density for each cell whose entry is flagged, in cell order.
 
 **Canonical bytes (R51).** The encoder always produces these, and the decoder refuses anything else:
 - entries are numbered by first appearance in cell order;
-- no entry is unused or repeated (a value together with its flag);
-- no stored density equals the implied shape;
-- a chunk of one entry without densities is a uniform body, never a packed one;
-- air is one value: an entry or a uniform voxel of material 0 has category 0, orientation 0 and no density flag;
-- category and orientation hold assigned values only (0–4, 0–23);
+- no entry is unused or repeated;
+- a chunk of one entry is a uniform body, never a packed one;
+- air is one value: an entry or a uniform voxel of material 0 has every other field 0;
+- every field holds a value within its width, and the role an assigned one (0–9);
 - no bytes follow the body;
 - no padding or flag bits are set past the end.
 
@@ -356,33 +431,34 @@ decoder accepts is the one its content encodes to (crafted bytes tested, `format
 also refuses a mixed brick holding a single id (body 3).
 
 **Versions (R3).** `CHUNK_CODEC_UPGRADES` holds the codec's upgrade steps, keyed by the version each lifts from and
-only ever added to; v1 has none (the registry is frozen and empty). A step takes a whole chunk's bytes of its version
+only ever added to; v2 has none (the registry is frozen and empty; the draft v1 is not lifted: the owner replaced
+its record, nothing was ever shipped in it, and the one v1 world, the staging slice, was written again). A step takes a whole chunk's bytes of its version
 and returns the same content's bytes of the next version, header and CRC included. Every world reader lifts older
 bytes through the steps before reading them (`liftChunkBytes`), so a codec v2 keeps reading every v1 file without a
 rewrite; a version with no step, or newer than this build's, is refused, and a step that does not land on the next
-version is refused. The mechanism is tested with a test-only "version 0" and its step.
+version is refused. The mechanism is tested with a test-only older version and its step.
 
 **General compressor.** **zstd level 3 per chunk** when a stored chunk goes into a region file (zstd 19 is proposed
 for exports, which are derived). Browser workers decode it with **fzstd 0.1.1**, a pinned dev dependency that
 passes the export scan.
 
-#### Measured (45.2a/45.2b, 32³)
+#### Measured (value v2, 45.10a; 32³, bricks in memory, packed + zstd 3 at rest)
 
-| World | Memory, bricks | zstd body MB/km² | voxelAt random / coherent ns | Single edit µs | Node decode µs a chunk |
+| World | Memory | zstd body MB/km² | voxelAt random / coherent ns | Single edit µs | Node encode / decode µs a chunk |
 |---|---|---|---|---|---|
-| plain | 2.1 MB | 4.30 | 35 / 14 | 0.10 | 132 |
-| hilly | 163 MB | 5.91 | 36 / 13 | 0.24 | 91 |
-| town | 2.0 MB | 1.66 | 38 / 15 | 0.10 | 205 |
-| caves | 15.4 MB | 55.4 | 111 / 22 | 0.14 | 436 |
-| vertical | 55 MB | 187 | 67 / 17 | 0.13 | 246 |
+| plain | 1.6 MB (2.1) | 2.33 (4.48) | 35 (39) | 0.09 (0.09) | 84 / 147 (89 / 167) |
+| hilly | 172 MB (163) | 5.98 (6.91) | 33 (31) | 0.11 (0.11) | 60 / 74 (64 / 92) |
+| town | 2.0 MB (2.0) | 2.24 (2.28) | 36 (36) | 0.11 (0.10) | 106 / 147 (111 / 181) |
+| caves | 13.5 MB (15.4) | 50.2 (57.6) | 121 (144) | 0.18 (0.14) | 265 / 330 (275 / 417) |
+| vertical | 45.5 MB (55.1) | 157 (192) | 61 (80) | 0.13 (0.17) | 155 / 193 (162 / 239) |
 
-These were measured with a u16 material plane. The u24 plane (45.7d) adds 0.1–1.8 % to the zstd bytes (plan
-**45.7d format gaps**); memory, access and edit times do not change.
+In brackets: the v1 draft (u24 material, density bytes beside the palette) measured the same hour by the same
+harness (plan **45.10a value v2**, which also has 3-bit shapes and wetness patterns).
 
 Every sweep compared every chunk, a 1-in-37 sample of `voxelAt` reads, every fourth decode, and 200 k edits plus
 1,500 strokes against the dense oracle, at both chunk edges on every world. All were equal.
 
-### 3.2 Region file v1 (`region-file.ts`; magic `TLVR`)
+### 3.2 Region file v2 (`region-file.ts`; magic `TLVR`)
 
 One region file holds one tile of one grid of one world: a 256 m column or a 256 m stacked cube. The file is pure
 bytes; the compressor is passed in. Little-endian.
@@ -390,13 +466,13 @@ bytes; the compressor is passed in. Little-endian.
 | Offset | Bytes | Field |
 |---|---|---|
 | 0 | 4 | magic `TLVR` |
-| 4 | 1 | region format version = 1 (an older one is lifted through `REGION_UPGRADES`, a newer one refused) |
+| 4 | 1 | region format version = 2 (an older one is lifted through `REGION_UPGRADES`, a newer one refused; the draft version 1 is refused) |
 | 5 | 1 | layout: 0 full-height column, 1 stacked cube |
 | 6 | 1 | chunk edge in cells (16 or 32) |
-| 7 | 1 | chunk codec version the file was written with (1 to this build's; chunks of an older version are lifted on read) |
+| 7 | 1 | chunk codec version the file was written with (up to this build's; chunks of an older version are lifted on read) |
 | 8 | 1 | compressor of stored chunks: 0 none, 1 zstd |
 | 9 | 1 | side: chunks along each side of the region (16 for 256 m at 32³) |
-| 10 | 1 | record value form of the uniform entries (§2.2; 1) |
+| 10 | 1 | record value form of the uniform entries (§2.2; 2) |
 | 11 | 1 | reserved, 0 |
 | 12 | 16 | world id |
 | 28 | 4 | grid id (u32; 0 = world grid) |
@@ -416,7 +492,7 @@ bytes; the compressor is passed in. Little-endian.
   - bit 15: uniform.
 - i16 chunk y (the grid's chunk index).
 - Two u32:
-  - a uniform chunk: its record value, then 0;
+  - a uniform chunk: its voxel value (§2.2), then 0;
   - a stored chunk: its byte length, then the CRC-32 of the stored bytes.
 
 **Rules:**
@@ -454,10 +530,10 @@ bytes; the compressor is passed in. Little-endian.
   `{kind: 'damaged', cx, cy, cz, reason}`, never as air. `damagedRegionChunks` scans a whole file. A file the reader
   refuses (another tile, a damaged header) reports every chunk asked of it as damaged with the reason.
 - **Versions (R3).** `REGION_UPGRADES` holds the region file's upgrade steps, keyed by the version each lifts from
-  and only ever added to; v1 has none. A step lifts a file's header and table to the next version and says where its
+  and only ever added to; v2 has none. A step lifts a file's header and table to the next version and says where its
   version's table ends (`indexEnd`, from the first 64 bytes); the stored chunks are not touched and keep their own
   codec version. Readers lift the index (`liftRegionIndex`) and read chunks by range from the file as it is, from
-  where its table ends (`RegionIndex.dataStart`). Tested with a test-only "version 0" of 16-byte entries.
+  where its table ends (`RegionIndex.dataStart`). Tested with a test-only older version of 16-byte entries.
 - **World-scoped key (R5).** World id plus grid id plus chunk coordinates, held once per file.
 - **Partial reads (R52).** `openRegion` reads the header and the table in one 32 KB request when they fit (tables
   up to about 2,700 entries), otherwise in two. `readRegionChunks` then reads:
@@ -512,24 +588,24 @@ file names, sorted, each once) and `revision` (moves by one with every applied c
 - **One-voxel save:** rewrites 363 KB (256 m column) or 351 KB (stacked). On the 2 km tall world: 12.3 MB as a
   column, 1.47 MB stacked.
 
-### 3.3 Edits: stroke command v1 (`edit-command.ts`, `edit-apply.ts`)
+### 3.3 Edits: stroke command v2 (`edit-command.ts`, `edit-apply.ts`)
 
 **One command is one stroke**, in plain JSON. It rides the existing command envelope as an op's arguments (R6, R56).
 
 **Canonical form.** `canonicalEditCommand` rebuilds the command field by field and refuses:
 - an unknown field;
-- an unknown version (`v` must be 1);
+- an unknown version (`v` must be 2; the draft v1 with category and orientation is refused);
 - an out-of-range value;
 - −0 (normalised to 0).
 
-Common fields: `v: 1`, `grid` (u32; 0 is the world grid), `kind`.
+Common fields: `v: 2`, `grid` (u32; 0 is the world grid), `kind`.
 
 | kind | Fields |
 |---|---|
 | `brush` | `shape` (sphere / box / cylinder) · `size` [x, y, z] half extents in cells (a sphere's are all filled in from x; a cylinder's x and z from x) · `points` (flat x y z dab centres in cells, at least one) · `mode` · `voxel` (absent for dig) · `smooth` |
 | `fill` | `min`, `max` (integer cells, both inclusive) · `mode` · `voxel` |
 | `stamp` | `stamp` {`id`, `hash` (64 hex digits)} · `origin` [x, y, z] · `yaw` [cos, sin] (cos² + sin² = 1 within 1e−9) · `scale` > 0 · `mode` · `voxel` · `smooth` |
-| `set` | `cells` (flat integer x y z; canonical order below) · `voxel` {material, category, orientation, shape} (material 0 means air, all other fields 0) |
+| `set` | `cells` (flat integer x y z; canonical order below) · `voxel` {material, role, shape, wetness} (material 0 means air, all other fields 0; otherwise shape 1–15) |
 | `dig` | `cells` (canonical order below) |
 
 - **Cell lists.** `canonicalEditCommand` sorts a `set` or `dig` cell list by x, then z, then y (the order chunk keys
@@ -540,59 +616,63 @@ Common fields: `v: 1`, `grid` (u32; 0 is the world grid), `kind`.
   - `place`: write the voxel whatever was there.
   - `add`: write only into air or liquid; a smooth add also grows the shape of a cell of the same material.
   - `dig`: remove; a smooth dig lowers the shape, and an empty cell becomes air.
-  - `paint`: change material, category and orientation of non-air cells and keep their shape.
+  - `paint`: change material, role and wetness of non-air cells and keep their shape (a paint of only a new wetness
+    changes the wetness field alone: its answer's parts are the shader data, §2.2).
 - **Smooth.** Only `add` and `dig` may be smooth.
-- **Edit voxel.** Material 1–8,388,607; category 0–4; orientation 0–23 (§2.2).
+- **Edit voxel** (`brush`, `fill`, `stamp`): {material 1–4,095, role 0–9, wetness 0–7} (§2.2); the shape comes
+  from the stroke.
 - **Coverage.**
   - A brush cell is covered by the depth of its centre inside the dab shape, plus half a cell, clamped to 0–1.
     With several dabs, the largest coverage wins.
   - A hard stroke takes a cell at coverage ≥ 0.5.
-  - A smooth stroke writes shape = `max(1, round(cov · 255))` at the rim.
-  - A stamp samples its shape's nearest cell under the cell centre, mapped back through scale and yaw.
+  - A smooth stroke writes shape = `max(1, round(cov · 15))` at the rim.
+  - A stamp samples its shape's nearest cell under the cell centre, mapped back through scale and yaw; its coverage
+    bytes stay 0–255 (the stamp's own resolution) and become a fill level on write.
 - **Determinism.** A cell's new voxel depends only on its old voxel and the command. The arithmetic uses only +, −,
   ×, ÷, √, floor and round, which IEEE-754 defines exactly. Tested in Node across the store and the dense oracle;
   another JavaScript engine is unverified.
 - **All or nothing.** These refusals happen before the first write: `grid_unknown`, `chunk_not_loaded`,
   `stamp_unknown`, `stamp_changed`, `outside_world`, `over_budget`.
 - **Work bound (`over_budget`).** One command's worst-case undo record must fit the undo budget (§3.4): the chunks
-  it can touch × the worst case of one chunk (`chunkWorstUndoBytes`: 15 + cells × 7 bytes, 229,391 B at 32³)
-  ≤ `UNDO_MEMORY_BUDGET_BYTES`, so at most 292 chunks of 32³ (2,339 of 16³) at 64 MiB. The chunks are counted from
+  it can touch × the worst case of one chunk (`chunkWorstUndoBytes`: 15 + cells × 6 bytes, 196,623 B at 32³)
+  ≤ `UNDO_MEMORY_BUDGET_BYTES`, so at most 341 chunks of 32³ (2,729 of 16³) at 64 MiB. The chunks are counted from
   the command alone before any cell is visited: a box's chunks for a fill or stamp, listed cells' chunks for set
   and dig, and for a brush the union of its dabs' chunks (a long thin drag counts the chunks it reaches, not its
   bounding box). A world-sized fill or a 2 km sphere is refused at once; the memory and time of one command are
   bounded with it. A budget, not a count: the same bytes fit more chunks of a smaller edge.
 - **No change.** A command that changes nothing reports 0 cells; the command layer refuses it as `no_change`.
-- **Answers.** The backend answers an applied command with the changed chunks and its cell box (`box`: the cells
-  the command can change, from `editBounds`). An undo answers the box of the edit it takes back. A client derives
-  again only the results within the rules' radius of that box (Q-c).
+- **Answers.** The backend answers an applied command with the changed chunks, its cell box (`box`: the cells
+  the command can change, from `editBounds`) and the derived parts it makes stale (`parts`, from the fields that
+  changed, §2.2). An undo answers the box and parts of the edit it takes back. A client derives again only those
+  parts: the results within the rules' radius of the box, or only the changed chunks' shader data (Q-c).
 - **Stamp shape.** A stamp is a box of 0.5 m cells with one coverage byte each, indexed `(x · sz + z) · sy + y`.
   Its hash is the SHA-256 (hex) of the three sizes (u16 LE each) followed by the coverage bytes.
 - **Size bound.** A long drag must fit the command pipeline's 64 KB request bound, about 2,000 dabs. Thinning the
   dabs to a spacing is the tool's job (proposal for 47b).
 
-### 3.4 Undo record v1 (`undo-store.ts`; magic `TLVU`) and budget
+### 3.4 Undo record v2 (`undo-store.ts`; magic `TLVU`) and budget
 
 An undo record holds, for every chunk the command changed, what that chunk was before. It holds whichever of two
 forms is smaller:
-- a **cell delta**: the changed cells' old voxels, at 7 bytes a cell;
-- the chunk's whole **before-image**: its canonical codec bytes. An absent chunk costs 0 bytes and a uniform one 14.
+- a **cell delta**: the changed cells' old voxels, at 6 bytes a cell;
+- the chunk's whole **before-image**: its canonical codec bytes. An absent chunk costs 0 bytes and a uniform one 13.
 
 An image is encoded only once the delta outgrows the smallest image, which is 4 KB at 32³.
 
 - **Redo** re-applies the command. It is deterministic and works last-in, first-out.
 - **The undo step is a new revision** (the command model's inverse), never a rewind.
 
-**Cell delta bytes** (`cell-delta.ts`): n × u16 local cells (ascending), then n × u32 record values (0 for air;
-value form 1), then n × u8 shapes (0 for air). Writing all cells, then all values, then all shapes lets the
-compressor find runs. The reader refuses a value the format does not hold and air with a shape.
+**Cell delta bytes** (`cell-delta.ts`): n × u16 local cells (ascending), then n × u32 voxel values (0 for air;
+value form 2, shape inside). Writing all cells, then all values lets the compressor find runs. The reader refuses a
+value the format does not hold (§2.2).
 
 | Offset | Bytes | Field |
 |---|---|---|
 | 0 | 4 | magic `TLVU` |
-| 4 | 1 | version = 1 |
+| 4 | 1 | version = 2 |
 | 5 | 1 | chunk edge |
 | 6 | 1 | chunk codec version |
-| 7 | 1 | record value form of its deltas (§2.2; 1) |
+| 7 | 1 | record value form of its deltas (§2.2; 2) |
 | 8 | 4 | chunk count |
 | 12 | … | per chunk: u32 grid, i16 cx, i16 cy, i16 cz, u8 kind (0 delta, 1 image, 2 absent), u32 length, payload |
 | end − 4 | 4 | CRC-32 of everything before it |
@@ -603,27 +683,32 @@ compressor find runs. The reader refuses a value the format does not hold and ai
   browser. The IndexedDB spill is not built yet. One command's worst-case record must fit it too (§3.3, work bound).
 - **Ordering.** Calls run in order, so a put during a spill write cannot spill a record twice.
 
-**Measured (45.4):** 22 B for one voxel, 95–103 B for a 1 m dab, 1.5–1.6 KB for a 4 m dab, 45–60 KB for a 16 m
-fill. 64 MiB holds about 43 k 4 m dabs, or 1.1–1.5 k 16 m fills.
+**Measured (45.4, draft v1 bytes):** 22 B for one voxel, 95–103 B for a 1 m dab, 1.5–1.6 KB for a 4 m dab, 45–60 KB
+for a 16 m fill. 64 MiB holds about 43 k 4 m dabs, or 1.1–1.5 k 16 m fills. v2 deltas are 6 bytes a cell instead of
+7, so delta records shrink by a seventh; image records by the codec v2 change (plan **45.10a value v2**).
 
-### 3.5 Save file v1 (`save-file.ts`; magic `TLVS`) and structure overrides v1 (`structure-overrides.ts`; magic `TLVO`)
+### 3.5 Save file v2 (`save-file.ts`; magic `TLVS`) and structure overrides v2 (`structure-overrides.ts`; magic `TLVO`)
 
 **Save:**
 - **Edits only (R59).** A save holds only the chunks that differ from the shipped world. A chunk changed and then
   changed back has no entry.
+- **Saved fields (§2.3).** An entry holds the chunk as the game keeps it: the fields the game marks saved (default
+  all but wetness) from the runtime value, the rest from the base (`saveChunkOf(…, saved)`, `persistedCells`). A
+  change of unsaved fields alone (rain) makes no entry.
 - **The player's cells, always.** Every entry records which cells the player changed: a cell delta lists them; a
   whole-chunk entry (the chunk as it is now: an image, one voxel, or all air) carries a **changed-cell mask** beside
   it. The writer keeps whichever payload is smaller (the delta on a tie); the choice never changes what loading
   does.
 - **Base hash (R60).** Each entry carries a **base hash**: the first 16 bytes of the SHA-256 of the shipped chunk's
   content in the **base form**. An all-air base hashes as no bytes.
-- **The base form is frozen: the chunk codec version 1 canonical bytes of the content** (§3.1, header included),
-  whatever codec version the chunk is stored in (`BASE_FORM_CODEC_VERSION` = 1). Bytes already of version 1 are
+- **The base form is frozen: the chunk codec version 2 canonical bytes of the content** (§3.1, header included),
+  whatever codec version the chunk is stored in (`BASE_FORM_CODEC_VERSION` = 2; it moved from 1 with the value v2,
+  before any save existed). Bytes already of version 2 are
   hashed as they are (the world decoder accepts only canonical bytes, so they are the one byte string of their
   content); bytes of any other version are decoded and written in the base form first (`baseContentHash`). A later
-  codec keeps a version 1 writer for this. So neither recompressing a world nor a codec upgrade looks like a changed
-  world. If a later record holds content version 1 cannot write (a wider value form, §2.2), the base form gains an
-  extension then; such content was never the base of an older save, so no older hash can match it wrongly. Tested
+  codec keeps a version 2 writer for this. So neither recompressing a world nor a codec upgrade looks like a changed
+  world. If a later value holds content version 2 cannot write (a field in the reserved bits, §2.2), the base form
+  gains an extension then; such content was never the base of an older save, so no older hash can match it wrongly. Tested
   with a frozen hash of a fixed chunk, the same content through a test-only older codec version, and through a
   test-only newer layout read back to its content.
 
@@ -632,11 +717,11 @@ fill. 64 MiB holds about 43 k 4 m dabs, or 1.1–1.5 k 16 m fills.
 | Offset | Bytes | Field |
 |---|---|---|
 | 0 | 4 | magic `TLVS` |
-| 4 | 1 | save version = 1 |
+| 4 | 1 | save version = 2 (the draft version 1 is refused) |
 | 5 | 1 | chunk edge |
-| 6 | 1 | chunk codec version (1 to this build's; older images are lifted when decoded) |
+| 6 | 1 | chunk codec version (up to this build's; older images are lifted when decoded) |
 | 7 | 1 | compressor: 0 none, 1 zstd (the whole body is one stream) |
-| 8 | 1 | record value form of its deltas and uniform payloads (§2.2; 1) |
+| 8 | 1 | record value form of its deltas and uniform payloads (§2.2; 2) |
 | 9 | 3 | reserved, 0 |
 | 12 | 16 | world id |
 | 28 | 4 | entry count |
@@ -656,7 +741,7 @@ then the payload:
 - image, uniform, air: first the changed-cell mask, cells per chunk ÷ 8 bytes (4,096 at 32³; cell i is bit i mod 8
   of byte ⌊i / 8⌋; at least one bit set), then:
   - image: canonical codec bytes (a uniform body is refused here);
-  - uniform: a u32 record value, never 0;
+  - uniform: a u32 voxel value, never 0;
   - air: nothing.
 
 The bytes are canonical: equal saves give equal bytes.
@@ -665,7 +750,8 @@ The bytes are canonical: equal saves give equal bytes.
 - **World (R5).** A save belongs to one world: `readSave` and `applySave` take the world's id and refuse a save made
   for another before anything is written.
 - **Versions (R3).** A version newer than this build is refused. An older version is lifted through `SAVE_UPGRADES`:
-  append-only steps on the decoded save. v1 has no steps; the mechanism is tested with a test step.
+  append-only steps on the decoded save, from `SAVE_FIRST_VERSION` = 2 (the draft v1 is refused). v2 has no steps;
+  the mechanism is tested with a test step.
 - **Base mismatch (R60).** When the base hash differs from the shipped chunk's, the mismatch is reported, and the
   game chooses per chunk:
   - `save`: the player's cells land on the new base, cell by cell (a delta's cells, or the masked cells of a
@@ -677,7 +763,7 @@ The bytes are canonical: equal saves give equal bytes.
   On a matching base a whole-chunk entry is written whole (the same result). The worker job's `apply-save` can also
   `report` without applying anything.
 
-**Measured (45.4, then 45.8a):** after 1,000 mixed strokes, saves are 497 KB (hilly), 303 KB (town) and
+**Measured (45.4, then 45.8a; draft v1 bytes, v2 in plan **45.10a value v2**):** after 1,000 mixed strokes, saves are 497 KB (hilly), 303 KB (town) and
 493 KB (caves): +7–18 % over the 452 / 256 / 461 KB of saves without the changed cells (45.7d). With every entry a
 delta instead (the other encoding that keeps the changed cells) the same saves are 801 / 682 / 773 KB, so the
 smaller of the two stays. Writing takes 8–11 ms, reading 14–19 ms. The base hash costs 61–69 µs a chunk when the
@@ -690,26 +776,26 @@ structure record in the project, never in region files or exports (R33, R35).
 | Offset | Bytes | Field |
 |---|---|---|
 | 0 | 4 | magic `TLVO` |
-| 4 | 1 | version = 1 |
+| 4 | 1 | version = 2 (the draft version 1 is refused) |
 | 5 | 1 | chunk edge |
-| 6 | 1 | record value form of its values (§2.2; 1) |
+| 6 | 1 | record value form of its values (§2.2; 2) |
 | 7 | 1 | reserved, 0 |
 | 8 | 4 | grid id |
 | 12 | 4 | chunk count |
-| 16 | … | per chunk, in key order: i16 cx, i16 cy, i16 cz, u32 n, then n × u16 cells (ascending), n × u32 base values, n × u8 base shapes, n × u32 values, n × u8 shapes (12 B a cell) |
+| 16 | … | per chunk, in key order: i16 cx, i16 cy, i16 cz, u32 n, then n × u16 cells (ascending), n × u32 base values, n × u32 values (10 B a cell) |
 | end − 4 | 4 | CRC-32 |
 
 **Fit rule after regenerating (R33, R34).** For each override, compare it with what the generator now makes:
 - **absorbed:** the generator now makes the override's voxel itself. The override is dropped.
 - **kept:** the newly generated voxel is the same kind as the override's base (both air, or both solid with the same
-  category). The override is written, and its base becomes the newly generated voxel.
+  role). The override is written, and its base becomes the newly generated voxel.
 - **misfit:** anything else. It is reported and not written.
 
 This was tested on a test room grown from 6 to 8 m, not on a generator. A rule for every structure kind is 47a's.
 
 **Overrides versions.** Overrides live as long as the project, so they upgrade like saves: a newer version is
-refused, and `OVERRIDE_UPGRADES` holds append-only steps on decoded overrides (empty and frozen at v1; tested with a
-test-only step). The reader refuses values the format does not hold and air with a shape.
+refused, and `OVERRIDE_UPGRADES` holds append-only steps on decoded overrides from `OVERRIDE_FIRST_VERSION` = 2
+(empty and frozen at v2; tested with a test-only step). The reader refuses values the format does not hold.
 
 ### 3.6 Streaming and job contract v1 (`stream-job.ts`, `apron.ts`, `dirty-tracker.ts`, `job-queue.ts`, `worker-pool.ts`, `stream-ring.ts`, `voxel-streamer.ts`, `floating-origin.ts`)
 
@@ -727,14 +813,15 @@ test-only step). The reader refuses values the format does not hold and air with
 |---|---|
 | `load` | stored chunk bytes (`{stored, raw}` or `{uniform}`), optional hash → the chunk payload, its base hash, decompress and decode µs |
 | `apply-save` | the base chunk (stored or null), expected hash, save content as its kind and payload bytes (§3.5), `onMismatch` (`save` / `base` / `report`) → the payload now, mismatch, applied, the base hash now |
-| `edit` | a canonical command, copies of every chunk it can touch, its stamps (hash recomputed in the worker) → the changed chunks, cell count, the undo record (`TLVU` bytes) |
-| `derive` | the chunk payload, radius R, an apron R deep, optional assembly rules {id, version, radius} → derived data (§3.7), or the exposure placeholder when no rules are named |
+| `edit` | a canonical command, copies of every chunk it can touch, its stamps (hash recomputed in the worker) → the changed chunks, cell count, the undo record (`TLVU` bytes), the fields that changed (§2.2) |
+| `derive` | the chunk payload, radius R, an apron R deep, optional assembly rules {id, version, radius}, optional `parts` (default all) → derived data (§3.7), or the exposure placeholder when no rules are named; `parts` = shader alone: the chunk's shader data, no apron read (R may be 0) |
 
 **Lanes.** `edit` before `near` before `far`; within a lane by distance², then by arrival. The queue is an indexed
 heap with back-pressure: `maxQueued`, `room()`, and `queue_full` when full.
 
 **Staleness (R67).** Ids and input stamps come from the `DirtyTracker`, from one counter that never repeats.
-- A chunk's input stamp moves when it is edited, (re)loaded, or `invalidated` (a neighbour within R changed).
+- A chunk's input stamp moves when it is edited, (re)loaded, or `invalidated` (a neighbour within R changed and
+  the change feeds geometry; a material or wetness change invalidates no neighbour, §2.2).
 - A job snapshots the stamps of every chunk it reads. Its result is accepted only while all of them still match and
   the job has not expired.
 - **Saves are jobs too:**
@@ -747,11 +834,12 @@ heap with back-pressure: `maxQueued`, `room()`, and `queue_full` when full.
 - 6 face slabs, 12 edge bars and 8 corner cubes;
 - strips ordered by their bands (x, z, y), each band 0 below the chunk, 1 inside, 2 above, skipping the centre.
 
-Each strip is either one record value (its neighbour is absent or uniform), or its cells as u32 values plus u8
-shapes, in x, z, y order.
+Each strip is either one voxel value (its neighbour is absent or uniform), or its cells as u32 values (shape
+inside), in x, z, y order.
 - **R is a parameter of every job,** 0 ≤ R ≤ 32. It is never a constant.
 - `dependentChunks(box, R)` names every chunk within R of an edit: 8 at a corner, 27 for a box over a chunk.
-- Measured at R = 2: 13 KB median, 57 KB p95 a job, against 69 KB for a dense apron.
+- Measured at R = 2 (45.5a, draft v1 with a shape byte beside each value): 13 KB median, 57 KB p95 a job, against
+  69 KB for a dense apron. v2 strips are 4 bytes a stored cell instead of 5.
 
 **Residency (R64, R7).**
 - **The ring** (`DEFAULT_STREAM_RING`, in cells):
@@ -800,7 +888,7 @@ it needs the rotated structure grids (47a) to be tested honestly. Planned design
   keys are grid 0's);
 - **cross-grid apron:** a derive names, besides its own apron, read-only *occupancy strips* of other grids: for
   each grid whose bounds come within R of the chunk, the cells of that grid within R, resampled into this grid's
-  frame by the grids' transform (occupancy and category only, not the full record);
+  frame by the grids' transform (occupancy and role only, not the full value);
 - **invalidation:** an edit's cell box, moved into every other grid's frame (its world-space box, rounded out),
   marks that grid's results within R of it stale (`dependentChunks` per grid);
 - **staleness:** a result accepted only while the stamps of every chunk it read, in every grid, still match.
@@ -811,7 +899,7 @@ Cost to measure in 47a: the resampling per job and the extra strips' bytes.
 - **Chrome, 45.5b:** frame p95 16.67 ms at 40 and 80 m/s on both renderers; `update()` p95 2.3–2.4 ms; ring 9–10 MB.
 - **The miss:** D432, at +40 ms latency.
 
-### 3.7 Derived data v1 — never committed, never saved (`assembly.ts`, `derived-data.ts`, `derived-mesh.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `prop-coverage.ts`)
+### 3.7 Derived data v2 — never committed, never saved (`assembly.ts`, `derived-data.ts`, `derived-mesh.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `prop-coverage.ts`)
 
 Everything in this section is rebuilt from the voxels, in workers, by the `derive` job. **None of it goes into a
 region file, a save, git or an export (R54, R95).** `encodeDerived` gives canonical bytes, but only to compare and
@@ -827,9 +915,10 @@ hash results; they are never stored.
   - bit 5: the feature runs along z;
   - both bits set: a post.
 - Classes live only inside the job.
-- **Placeholder rules v1** (`placeholder`, version 1, R = 2) read only the category: beam, rail, post, and
-  everything else built is a wall. The case catalogue is 46b's; corners, stairs, openings, soffits and mouldings
-  are not covered.
+- **Placeholder rules v2** (`placeholder`, version 2, R = 2) read only the role (§2.2): beams, rails and posts are
+  read from the built roles (wall, floor, foundation, stair, pillar), roof is a wall, an opening is open and empty,
+  everything else built is a wall. Version 1 read the draft category (construction, roof). The case catalogue is
+  46b's; corners, stairs, openings, soffits and mouldings are not covered.
 - **Radius conformance (every rule set).** A rule set's `radius` is its own claim, and a rule reading further would
   read past the job's apron (air, or another row's cells) with no error. `ruleRadiusMismatches(store, rules,
   chunks)` evaluates each chunk with the job's pad (R + 1) and with 3 cells more and lists every cell the
@@ -841,13 +930,13 @@ hash results; they are never stored.
 
 | Class | Render solid | Collision | Nav blocks / stands on | Light coverage |
 |---|---|---|---|---|
-| wall (construction, roof) | yes | full box | yes / yes | 255 |
+| wall (built roles, roof) | yes | full box | yes / yes | 255 |
 | ground (terrain) | density ≥ 128 | the ground surface (trimesh) | density ≥ 128 | its density |
 | beam | no (detail piece) | bar, 10/16 cell square | yes / no | 128 (placeholder) |
 | rail / post | no (detail piece) | slab or bar, 4/16 cell thick | yes / no | 51 (placeholder) |
 | liquid | no | none (49) | no / no | 0 |
 
-**Outputs per chunk.** A result records `v` (derived format version 1), its rules {id, version, radius} and its
+**Outputs per chunk.** A result records `v` (derived format version 2), its rules {id, version, radius} and its
 edge.
 - **materials:** a u32 table, slot → material id, with slots in first-use order. Meshes, instances and boxes share
   it.
@@ -870,6 +959,11 @@ edge.
 - **surface buffers:** two per chunk, the projected ground and the modular base. The base surface is not emitted
   under a detail piece that replaces it.
 - **detail instances:** see below.
+- **shader data** (`derived-shader.ts`, new in v2): the per-chunk material and wetness grid the surface shader
+  blends from (material blending moves to the shader, owner 2026-11-02; 45.10b's mesh format reads it). A palette of
+  u16 entries `material | wetness << 12` (air 0) and every cell's entry id packed at the palette's width (0, 1, 2,
+  4, 8 or 16 bits, 32 / width ids a u32 word, local-index order). A chunk of one entry stores no ids. It reads only
+  the chunk's own cells (no apron), so a material or wetness change re-derives it alone (§2.2 feeds).
 
 **Surface vertex** (stride 20 bytes, or 24 when the chunk's material table has more than 256 slots):
 
@@ -909,9 +1003,10 @@ edge.
 - Its density is the rounded mean of its 8 children.
 - Its material is the one with the largest summed density (ties: the lower id). It becomes air when the mean rounds
   to 0.
-- Category and orientation come from the first cell of that material.
+- Its shape is the rounded mean of the 8 children's fill levels (0–15); role and wetness come from the first cell
+  of that material.
 - `MipStaleSet` marks the ancestors of every changed chunk; they are rebuilt lowest first.
-- Paint colour waits for paint storage (O16).
+- There is no paint layer (O16 closed by the owner): colour comes from the material and the shader.
 
 **Chunk-tree flags (R82, `ChunkTreeFlags`).** Every tree node has a solid / empty / mixed flag (`OCCUPANCY`), so
 culling, rays and the far field skip whole empty or solid subtrees without reading voxels.
@@ -942,16 +1037,21 @@ culling, rays and the far field skip whole empty or solid subtrees without readi
 
 | Format | Magic / field | Version | An unknown version | Upgrade path |
 |---|---|---|---|---|
-| Chunk codec | `VC` | 1 | a newer one refused | `CHUNK_CODEC_UPGRADES`, add-only, keyed by the version lifted from (v1 has none) |
-| Region file | `TLVR` | 1 (+ codec version byte) | a newer one refused | `REGION_UPGRADES` (header and table; chunks by the codec's steps), add-only (v1 has none) |
+| Chunk codec | `VC` | 2 | a newer one refused | `CHUNK_CODEC_UPGRADES`, add-only, keyed by the version lifted from (v2 has none) |
+| Region file | `TLVR` | 2 (+ codec version byte) | a newer one refused | `REGION_UPGRADES` (header and table; chunks by the codec's steps), add-only (v2 has none) |
 | World manifest | `world.json` `format` | 2 | a newer one refused | step 1 → 2 lists the region files found (§3.2) |
-| Edit command | `v` | 1 | refused | none yet |
-| Undo record | `TLVU` | 1 | refused | not needed (session data) |
-| Save | `TLVS` | 1 | a newer one refused | `SAVE_UPGRADES`, append-only (v1 has none) |
-| Structure overrides | `TLVO` | 1 | a newer one refused | `OVERRIDE_UPGRADES`, append-only (v1 has none) |
-| Record value form | byte in `TLVR`, `TLVU`, `TLVS`, `TLVO` | 1 | a newer one refused | a wider form added beside form 1 (§2.2) |
+| Edit command | `v` | 2 | refused | none yet |
+| Undo record | `TLVU` | 2 | refused | not needed (session data) |
+| Save | `TLVS` | 2 | a newer one refused | `SAVE_UPGRADES`, append-only (v2 has none) |
+| Structure overrides | `TLVO` | 2 | a newer one refused | `OVERRIDE_UPGRADES`, append-only (v2 has none) |
+| Record value form | byte in `TLVR`, `TLVU`, `TLVS`, `TLVO` | 2 | any other refused | new fields take reserved bits (§2.2) |
 | Job message | `v` | 1 | refused | not needed (same build both ends) |
-| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 1 | refused | rebuilt, never upgraded |
+| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 2 | refused | rebuilt, never upgraded |
+
+**Value v2 (owner 2026-11-02) moved these versions:** chunk codec 1 → 2, region file 1 → 2, edit command 1 → 2,
+undo record 1 → 2, save 1 → 2, overrides 1 → 2, record value form 1 → 2, derived data 1 → 2, placeholder rules
+1 → 2. Every v1 was an unapproved draft with nothing shipped in it; v1 bytes are refused, with no upgrade step (§7,
+45.10a).
 
 ---
 
@@ -972,8 +1072,8 @@ Every R-id from [voxel-format-requirements.md](voxel-format-requirements.md), ma
 
 | R-id | Spec | Evidence | Status |
 |---|---|---|---|
-| R1 | §1 replacements, §5, §7 | decision log, "for the owner" entries (45.2a, 45.2b, 45.3, 45.5b, 45.6) | served; owner chooses |
-| R2 | status line | — | waiting for the owner |
+| R1 | §1 replacements, §5, §7 | decision log, "for the owner" entries (45.2a, 45.2b, 45.3, 45.5b, 45.6); owner 2026-11-02 | served; replacements accepted by the owner |
+| R2 | status line | owner review 2026-11-02 (45.10a) | revised as the owner asked; approval of the revised draft pending |
 | R3 | §3.1, §3.2, §3.8 | `format-rules.test.ts` (codec and region steps, newer refused), `region.test.ts`, `edits.test.ts` (save upgrade step) | served (45.7d: codec, region and manifest steps) |
 | R4 | §3.2 damage and manifest, §3.4 | 45.3, 45.4, 45.7d; `region.test.ts`, `edits.test.ts` (repair, carry-over), `voxel-world.test.ts` (a listed region gone is damaged) | served |
 | R5 | §3.1 header, §3.2 world id / grid id, §3.5 save world | 45.2a, 45.3, 45.7d; `format-rules.test.ts`, `edits.test.ts` | served (45.7d: every reader checks the tile it expects) |
@@ -982,19 +1082,19 @@ Every R-id from [voxel-format-requirements.md](voxel-format-requirements.md), ma
 | R8 | — (the format has no generator) | test worlds are bench-only | served |
 | R9 | §2.1 | `coords.test.ts` | served |
 | R10 | all | — | later: 48 retires the old systems |
-| R11 | §2.2 | 45.1, 45.2a (plane costs) | partly: provisional record; Q-a for the owner |
+| R11 | §2.2 | 45.1, 45.2a (plane costs), 45.10a (value v2 before → after) | served: the value v2 (owner 2026-11-02) |
 | R12, R13 | §3.7 (classes are derived, not stored) | 45.6; `derived.test.ts` | superseded (§7a) |
-| R14 | §2.2 category + orientation | — | later: slope cases in 46b (placeholder rules read no orientation) |
+| R14 | §2.2 role + shape | — | later: slope cases in 46b (the stored role tells roof, stair and terrain apart; no orientation) |
 | R15–R17 | §3.1 | 45.2a, 45.2b; `palette-store.test.ts`, `brick-layout.test.ts` | served |
-| R18 | §1 replacement 1 | 45.2a, 45.2b | replaced (owner chooses) |
+| R18 | §1 replacement 1 | 45.2a, 45.2b | replaced (owner accepted 2026-11-02) |
 | R19 | §2.2, §3.1 | 45.2a | served |
 | R20 | §3.1 planes, zstd 3 | 45.2a, 45.2b codecs | served (record palette, planes at rest) |
 | R21 | §3.1 `voxelAt` | 45.1, 45.2a; `harness.test.ts` (dense oracle) | served |
 | R22 | §2.1 (32³) | 45.2b | served |
 | R23 | — | — | superseded by R15–R20 |
-| R24, R25 | §2.2 liquid category + surface density | 45.1 worlds (lakes, ponds, cave water) | served |
-| R26 | — | — | later: shoreline O15 in 49 |
-| R27, R28 | §2.2 material (23 bits) | 45.7d (**45.7d format gaps**) | partly: id width set (owner to confirm); the material model is 46c's |
+| R24, R25 | §2.2 liquid role + fill level | 45.1 worlds (lakes, ponds, cave water) | served |
+| R26 | §2.2 reserved bits | — | later: shoreline O15 in 49 (first candidate for the reserved bits) |
+| R27, R28 | §2.2 material (12 bits) | 45.10a | partly: id width set by the owner (4,096 a world); the material model is 46c's |
 | R29 | §3.3 stamp | 45.4; `edits.test.ts` | served (voxelizing at import is 47b) |
 | R30–R32 | §2.1 grid ids | — | later: 47a structure records |
 | R33, R34 | §3.5 TLVO, fit rule | 45.4; `edits.test.ts` | served; the regenerate-all step is 47a |
@@ -1007,7 +1107,7 @@ Every R-id from [voxel-format-requirements.md](voxel-format-requirements.md), ma
 | R45 | — | — | later: openings in 46b/47a, portals in 46d |
 | R46–R48 | §3.2 | 45.3 | served |
 | R49 | §2.1 bounds | 45.1 vertical world, 45.3 | served |
-| R50 | §1 replacement 2 | 45.3 | replaced (owner chooses) |
+| R50 | §1 replacement 2 | 45.3 | replaced (owner accepted 2026-11-02) |
 | R51 | §3.1, §3.2 canonical bytes, §3.3 cell lists | 45.3, 45.7d; `region.test.ts` (equal bytes by edit order), `format-rules.test.ts` (crafted bytes refused) | served (caveat: zstd build, §3.2) |
 | R52 | §3.2 ranges | 45.3; `region.test.ts` (HTTP range) | served |
 | R53 | §1 git | 45.3 repo growth | served (no LFS) |
@@ -1020,7 +1120,7 @@ Every R-id from [voxel-format-requirements.md](voxel-format-requirements.md), ma
 | R62, R63 | §2.1, §3.6 floating origin | 45.5a; `stream-core.test.ts` (precision) | served |
 | R64 | §3.6 budget | 45.5a, 45.5b | served for voxels + derived; colliders, light, textures in 46 |
 | R65 | — | — | later: 47c |
-| R66 | §3.6 export delivery | 45.5b | partly: D432, browser cache not built (46a) |
+| R66 | §3.6 export delivery | 45.5b | partly: wider reads + prefetch accepted by the owner, D432 tuning and the browser cache in 46a |
 | R67–R69 | §3.6 | 45.5a, 45.5b; `stream-core.test.ts`, `stream.test.ts` | served |
 | R70 | package rule | 45.1b; `stream.test.ts` (worker bundle passes the export scan) | served (default, owner to confirm) |
 | R71 | — | — | later: deferred scatter |
@@ -1028,19 +1128,19 @@ Every R-id from [voxel-format-requirements.md](voxel-format-requirements.md), ma
 | R73, R74 | §3.7 reference producers | 45.6 | partly: 46b mesher and case pass |
 | R75–R77 | §3.7 | 45.6; `derived.test.ts`; slice proof 45.7 (§6) | served (placeholder rules) |
 | R78, R80 | — | — | superseded by R77 |
-| R79 | §1 replacement 3 | 45.6 | replaced (owner chooses) |
+| R79 | §1 replacement 3 | 45.6 | replaced (owner accepted 2026-11-02) |
 | R81 | §3.7 render solid (density ≥ 128) | 45.6 | served |
 | R82 | §3.7 occupancy, chunk-tree flags | 45.6, 45.7d; `derived.test.ts` | served (chunk, brick and tree-node flags) |
 | R83 | §3.7 dependency | 45.6 | superseded by Q-c |
-| R84, R85 | §3.7 mips | 45.6; `derived.test.ts` | served (paint colour waits for O16) |
+| R84, R85 | §3.7 mips | 45.6; `derived.test.ts` | served (no paint layer, O16 closed) |
 | R86 | §3.7 instance sections | 45.6 | served at format level (§7a sections) |
 | R87–R90 | — | — | later: 46b/46c (not storage formats) |
 | R91 | §3.7 vertex slots + weights | 45.6 | served |
-| R92 | — | — | later: paint storage O16 (47b) |
+| R92 | §3.7 shader data | 45.10a | O16 closed (owner): no paint layer; blending in the shader (45.10b) |
 | R93–R96 | §3.7 prop channel | 45.6; `derived.test.ts` | served |
 | R97–R99 | — | — | later: 46d |
 | R100 | §3.7 nav | 45.6 | partly: the walk graph is 46d |
-| R101, R102 | §2.2 category | — | later: 46d/47b/47c |
+| R101, R102 | §2.2 role | — | later: 46d/47b/47c (roles stored, owner 2026-11-02) |
 | R103 | §3.7 light coverage | — | later: 46d / camera |
 | R104 | — | — | later: 46d (O19) |
 | R105 | §3.7 collision | 45.6 | partly: Rapier churn in 46a |
@@ -1052,7 +1152,6 @@ Every R-id from [voxel-format-requirements.md](voxel-format-requirements.md), ma
 - **46b:** R14, R73, R74, R87–R90.
 - **46c:** R27 and R28 (the material model; the id width is set).
 - **46d:** R97–R101, R103 and R104.
-- **47b:** R92.
 - **48a:** R106.
 - **49:** R26, R41, R42 and R61.
 
@@ -1060,7 +1159,10 @@ Every R-id from [voxel-format-requirements.md](voxel-format-requirements.md), ma
 
 ## 5. Defaults chosen, owner to confirm
 
-There are 44 such entries in the plan's decision log (§7). One line each, grouped by area.
+There are 44 such entries in the plan's decision log (§7). One line each, grouped by area. **Owner 2026-11-02:
+every remaining default below is accepted** (the world layout and scale, the editing rules including
+`world_changed` refuse-after-reload, and the rest); entries 6, 8, 38, 39 and 44 are replaced by the value v2
+(§2.2), entry 3's decoder stands. M7, D433 and D434 stay later work.
 
 **Process and tooling**
 1. Staging backend: `tools/staging.sh`, a transient unit on 127.0.0.1:4180/4181, its own data root, a 6 GB cap (45.0).
@@ -1070,11 +1172,11 @@ There are 44 such entries in the plan's decision log (§7). One line each, group
 
 **Coordinates and record**
 5. Integer cells: x, z ±32,768 and y ±8,192; chunk key below 2^35, y fastest inside a chunk (45.1b).
-6. `VoxelRecord` fields and widths are the format; the category set (Q-a option 1) and orientation meaning stay provisional (45.1b, 45.8a).
+6. ~~`VoxelRecord` fields and widths, category set, orientation~~ → owner 2026-11-02: the value v2 (material 12, role 4, shape 4, wetness 3, 9 reserved; no orientation; §2.2).
 7. Vertical bounds are the coordinate bounds; the format stores no world base or height; stacks are aligned at y = 0 (45.3).
 
 **Chunk store and codec**
-8. A surface voxel is one whose shape differs from its implied shape; only surface voxels store a density byte (45.2a).
+8. ~~Only surface voxels store a density byte~~ → owner 2026-11-02: the shape (16 fill levels) is inside every value (§2.2).
 9. Palette ids at 0/1/2/4/8/16 bits; a uniform chunk is one number in the index; palettes narrow with hysteresis (45.2a).
 10. The 45.2 pick: record palette, 4³ bricks in memory, packed body + zstd 3 at rest (zstd 19 for exports), 32³ (45.2b).
 
@@ -1115,9 +1217,8 @@ There are 44 such entries in the plan's decision log (§7). One line each, group
     index only (45.7d).
 36. World data has one encoding; the measurement encodings are read only by the bench entry (45.7d).
 37. Set/dig cell lists in x, z, y order, each cell once (45.7d).
-38. Material ids are 23 bits in the 32-bit record (8,388,607 a world), u24 at rest; category 4 bits, orientation
-    5 bits (45.7d).
-39. Orientation = one of 24 axis rotations, `face(k >> 2) · spin(k & 3)`, PROVISIONAL until 46b (45.7d).
+38. ~~Material ids 23 bits~~ → owner 2026-11-02: 12 bits, 4,096 a world, u16 at rest (§2.2).
+39. ~~Orientation, one of 24 rotations~~ → owner 2026-11-02: not stored (§2.2).
 40. The world manifest lists its region files; a listed one that cannot be read is damaged, an unlisted one air
     (45.7d).
 41. Chunk-tree flags from the chunks' derived occupancy; undo answers carry their edit's box (45.7d).
@@ -1127,8 +1228,8 @@ There are 44 such entries in the plan's decision log (§7). One line each, group
     the smaller); `save` on a changed base writes only those cells (45.8a).
 43. The base hash covers the base form, frozen as the chunk codec v1 canonical bytes of the content, whatever codec
     version stores it (45.8a).
-44. Raw record values carry a record value form (1 = the u32 23/4/5) in region, undo, save and override bytes; the
-    split stays 23/4/5; O15/O16 may need per-voxel bits, owner decides (45.8a).
+44. Raw values carry a record value form in region, undo, save and override bytes (45.8a); owner 2026-11-02: form
+    2 is the value v2, O16 needs no bits (no paint layer), O15 is the first candidate for the reserved bits.
 
 ---
 
@@ -1234,7 +1335,7 @@ code as it runs. Each entry says what changed.
   not change (the bench entry writes them byte for byte, tested), so no measured number moved.
 - **G6 — `set`/`dig` cell lists not canonical. Closed in 45.7d.** `canonicalEditCommand` sorts them by x, z, y and
   keeps each cell once (§3.3).
-- **G7 — material, orientation and category values. Closed in 45.7d (defaults chosen, owner to confirm).**
+- **G7 — material, orientation and category values. Closed in 45.7d (defaults chosen, owner to confirm); superseded by the value v2 (owner 2026-11-02, §2.2).**
   - *Material id space (O12, R27).* The record keeps one 32-bit value: material 23 bits, category 4, orientation
     5 (§2.2), so a world names up to 8,388,607 materials, a format width rather than a small count, at no cost per
     cell or in memory. At rest the material plane is u24: +1 byte a palette entry. A full 32-bit material field was
@@ -1295,3 +1396,24 @@ The review's M3–M7, L1, L2, L6 and L8 (no byte of any format changed; the stag
 - **M7 — dependencies across grids** are recorded as an open contract gap with the planned design (§3.6), not
   built (default chosen, owner to confirm).
 - **L8** the undo budget is per open world (§3.4).
+
+### Changed after the owner's review (45.10a, owner 2026-11-02)
+
+The owner approved the replacements and the defaults and changed the voxel record. The bytes of every format holding
+voxel values changed, and their versions moved (§3.8); v1 was an unapproved draft, its bytes are refused and the
+staging slice world was written again.
+- **Value v2 (§2.2).** One u32: material 12, role 4, shape 4 (16 fill levels), wetness 3, 9 reserved. The shape
+  inside the value replaces the density byte of surface voxels: no density flags, density lists, density bytes in
+  the codec, shape bytes beside aprons, cell deltas (7 → 6 B a cell) or overrides (12 → 10 B a cell). Orientation is
+  dropped. The role (air, terrain, liquid, wall, floor, roof, foundation, stair, pillar, opening) replaces the
+  category; the placeholder rules v2 read it and the 45.7/45.9 proof holds.
+- **Feeds and saved-fields masks (§2.2, §2.3).** Shape and role feed mesh, collision, nav and light occupancy;
+  material and wetness the shader data only (with the material-slot caveat until 45.10b). Saves keep the fields the
+  game marks saved (default all but wetness) merged onto the base; the runtime overlay holds changes as whole values.
+- **Shader data (§3.7)** is a derived output: the per-chunk material and wetness grid.
+- **Climate (§2.4)** is specified as a coarse per-region field outside the voxel value; not built.
+- **Accepted:** R18 → packing + zstd, R50 → stacked 256 m cubes, R79 → per-consumer outputs from one assembly
+  evaluation, R66 → fewer, wider range reads + prefetch (D432 stays open for 46a's tuning); the game decides how a
+  re-exported base affects saves (H1/H2 as built); the world layout and scale, the editing rules and the remaining
+  §5 defaults. M7, D433 and D434 stay later work.
+

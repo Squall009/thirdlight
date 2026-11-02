@@ -514,6 +514,7 @@ ends with a thin working slice, so the formats are judged in use, not only in be
 | 45.5 | **Streaming.** Worker pool with job ids and a priority queue (edits > near > far), transferable buffers, apron strips for neighbours, one memory budget per tier, load/unload churn; world coordinates for 10 km with a floating origin (precision test far out). Measured in a browser page flying a 2 × 2 km world. |
 | 45.6 | **Derived-data formats.** The occupancy bitmask and solid/empty/mixed flags, voxel mips for the chunk tree, mesh output buffers (projected and kit-instance lists), collision and walk-graph inputs — shaped so meshing, lighting, culling, physics and navigation all read them; never committed, always rebuilt. |
 | 45.7 | **Thin slice and format spec v1.** On staging, stream, edit, mesh, collide and save/reload on both renderers. Include the 45.1 assembly-data proof below. Present the format draft, requirement traceability, measurements and replacements for decisions that failed. **Hard stop: owner approval before 46.** |
+| 45.10 | **Owner-review revision (owner, 2026-11-02).** 45.10a: the voxel value v2 (one 32-bit value: material 12, role 4, shape 4, wetness 3, 9 reserved; no orientation), the feeds and saved-fields masks, base + runtime overlay, a derived shader-data output, the climate field specified; measured before → after. 45.10b: the mesh format with material blending in the shader. |
 
 ### 45.1 required assembly-data questions (owner, 2026-10-30)
 
@@ -699,7 +700,8 @@ sub-phase on staging; the merge to `main` happens once, at the end of 48.
 | 45.8a | done (this commit; fast gate green): review H1–H3, M2, L3–L5. Saves keep the player's cells (mask on whole-chunk entries; 1,000 strokes 452/256/461 → 497/303/493 KB; all-delta 801/682/773); base hash = frozen codec-v1 form (61–69 µs); record value form byte in region/undo/save/override (save +4 B); readers need `expect` + manifest list; see **45.8a review fixes**. |
 | 45.8b | done (5f44f43d, fast gate green): review M3–M7, L1/L2/L6/L8, D436. One stroke ≤ 64 MiB worst-case undo (292 chunks at 32³, `over_budget`); stale worlds reread by file stamps (`world_changed`), closed on release; staged multi-file writes, rollback; rule radius check; Q-a by other commands; M7 open gap; lz4js gone; voxel e2e 14.2 → 13.9 s; see **45.8b review fixes**. |
 | 45.9 | done (b6ab2319, fast gate green): acceptance on staging, Iris Xe, 720p at the cap, both renderers, 3 rounds: orbit and 160 m flight p95 16.7–16.8 ms, 0 missed; edit → collider / visible p50 39–40 / 64–65 ms; cold fill 2.4 s; stream 67–84 MB of 256 MiB; Rapier 126–172 MB (D434). D438 (page ignored `world_changed`) fixed. Spec §6 written; see **45.9 acceptance**. |
-| 45 | **awaiting owner approval (hard stop)**: full gate GREEN at 78f67fe8 (29 min, 389 e2e, peak 8.0 GB); review 3H 7M 8L, every H and M fixed (45.8a/b; M7 recorded as an open contract gap); acceptance on staging both renderers (45.9). Format spec v1 DRAFT: docs/architecture/voxel-format-spec.md. Not merged, not deployed. |
+| 45.10a | done (97609f78 + this; fast gate green): owner review 2026-11-02. Value v2 (u32: material 12, role 4, shape 4, wetness 3, 9 reserved; no orientation), feeds + saved-field masks, runtime overlay, shader data, climate spec. v1 → v2: zstd −2…−48 %, memory −2…−24 % (hilly +6 %), decode −11…−21 %; 3-bit shape: slope error 6–8 vs 5.5 cm; see **45.10a value v2**. |
+| 45 | **awaiting owner approval (hard stop)**: full gate GREEN at 78f67fe8 (29 min, 389 e2e, peak 8.0 GB); review 3H 7M 8L, every H and M fixed (45.8a/b; M7 recorded as an open contract gap); acceptance on staging both renderers (45.9). Spec v1 DRAFT (docs/architecture/voxel-format-spec.md) under revision after the owner's review (45.10a/b). Not merged. |
 
 ### 45.0 floor record
 
@@ -1680,6 +1682,67 @@ at; README for the owner, reports and pictures in `~/.cache/thirdlight-phase45/a
 - Not verified: the high tier (5090), latency over a real network (D432), voxel commands on MCP (D433), Rapier memory
   in the budget (D434); the two `.webm` walkthroughs were recorded but not watched (no video tool on the host).
 
+### 45.10a value v2
+
+The owner's review of format spec v1 (2026-11-02) replaced the voxel record (decision log, owner 2026-11-02). Measured
+first with the storage harness (`node tools/voxel-bench/run.mjs --candidate bricks --edge 32`, every world swept
+whole, oracle-checked, 6 GB scope), the v1 draft at 34c1e9a4 (16:12) and value v2 at 97609f78 (16:44–17:25), this
+host, load 1.1–2.7, uptime 10 d; the v2 variants by `--shape-bits 3` (8 levels stored in the 4-bit field) and
+`--wetness patches|rain` (`tools/voxel-bench/value-variants.ts`: authored wet balls of 6–12 m in a third of the 32 m
+lattice cells; rain 3–7 on every cell with air above, varying per 2 m). Reports in
+`~/.cache/thirdlight-phase45/work/45.10a/{before,after}/` (scratch).
+
+| World | Run | Memory MB | B/voxel | zstd MB/km² | Palette entries a mixed chunk (without shape) | Decode µs a chunk | voxelAt ns | 4 m dab µs |
+|---|---|---|---|---|---|---|---|---|
+| plain | v1 draft | 2.1 | 0.051 | 4.48 | 32.3 if the 8-bit shape were in the value | 167 | 39 | 86 |
+| plain | v2 | 1.6 | 0.039 | 2.33 | 7.5 (3.0) | 147 | 35 | 74 |
+| plain | v2, 3-bit shape | 1.5 | 0.035 | 1.78 | 4.8 (3.0) | 142 | 36 | 77 |
+| plain | v2, wet patches / rain | 1.9 / 2.3 | 0.046 / 0.056 | 3.14 / 3.34 | 9.0 / 25.3 | 147 / 134 | 34 / 37 | 86 / 84 |
+| hilly | v1 draft | 163 | 0.044 | 6.91 | 39.5 (8-bit in value) | 92 | 31 | 92 |
+| hilly | v2 | 172 | 0.047 | 5.98 | 13.6 (4.1) | 74 | 33 | 96 |
+| hilly | v2, 3-bit shape | 103 | 0.028 | 4.21 | 7.7 (4.1) | 73 | 31 | 82 |
+| hilly | v2, wet patches / rain | 204 / 182 | 0.056 / 0.050 | 7.49 / 7.73 | 12.0 / 54.8 | 98 / 74 | 38 / 32 | 82 / 83 |
+| town | v1 draft | 2.0 | 0.048 | 2.28 | 2.7 (8-bit in value) | 181 | 36 | 88 |
+| town | v2 | 2.0 | 0.047 | 2.24 | 4.3 (4.3) | 147 | 36 | 81 |
+| town | v2, 3-bit shape | 2.0 | 0.047 | 2.24 | 4.3 (4.3) | 145 | 36 | 80 |
+| town | v2, wet patches / rain | 2.5 / 3.4 | 0.059 / 0.079 | 3.53 / 4.62 | 5.8 / 15.4 | 165 / 155 | 41 / 37 | 85 / 79 |
+| caves | v1 draft | 15.4 | 0.272 | 57.6 | 266 (8-bit in value) | 417 | 144 | 89 |
+| caves | v2 | 13.5 | 0.238 | 50.2 | 20.4 (3.9) | 330 | 121 | 98 |
+| caves | v2, 3-bit shape | 11.3 | 0.200 | 40.8 | 10.3 (3.9) | 333 | 101 | 89 |
+| caves | v2, wet patches / rain | 14.9 / 18.5 | 0.263 / 0.327 | 53.0 / 62.5 | 23.7 / 83.3 | 349 / 343 | 108 / 118 | 82 / 86 |
+| vertical | v1 draft | 55.1 | 0.086 | 192 | 114 (8-bit in value) | 239 | 80 | 110 |
+| vertical | v2 | 45.5 | 0.071 | 157 | 16.2 (3.3) | 193 | 61 | 88 |
+| vertical | v2, 3-bit shape | 39.0 | 0.061 | 128 | 8.4 (3.3) | 191 | 60 | 91 |
+| vertical | v2, wet patches / rain | 45.8 / 60.8 | 0.071 / 0.095 | 158 / 190 | 16.3 / 41.4 | 198 / 195 | 60 / 62 | 93 / 89 |
+
+- **Palette growth from packing the shape:** a mixed chunk's palette grows 1.0–5.2× (town 1.0: almost no partial
+  cells; caves 5.2×), but the packing drops the density flags and bytes, so zstd bytes fall 2–48 % and memory 2–24 %;
+  only hilly ground grows in memory (+6 %: the slope's partial cells widen the brick ids from 2–4 to 4–8 bits). Had
+  the draft's 8-bit shape gone into the value, palettes would be 2.7–266 entries (the v1 run's whole-record count).
+  Encode 3–6 % and decode 11–21 % faster (no density pass). Bits per voxel: 0.31–1.90 in memory, 0.03–0.46 at rest (zstd).
+- **3 vs 4 shape bits:** 3 bits (8 levels) halves the palettes again and saves 0–40 % memory and 0–30 % zstd
+  (most on hilly: −40 % / −30 %), at the cost of slope accuracy below. Not adopted; the owner chose 4.
+- **Wetness:** authored patches (0.04–0.96 % of cells wet) cost +1–25 % memory and +1–58 % zstd; a rain pattern on
+  every exposed cell (0.31–1.65 %) +6–70 % memory and +21–106 % zstd if it were written into the base. At runtime
+  rain goes into the overlay (6 B a changed cell) and is not saved by default; the ring's share, not the world's, is
+  resident.
+- **Edits:** single edit 0.09–0.18 µs, 4 m dab 74–98 µs, 8 m box 126–151 µs (v1: 0.09–0.17, 86–110, 140–180);
+  delta cells 6 B (7); worst-case undo 196,623 B a chunk, 341 chunks a stroke at 64 MiB (292).
+- **Slope terracing** (surface nets as `derived-mesh.ts` places ground vertices, a plane slope sampled by the test
+  worlds' cover fraction, 200 phases × 60 columns, scratch script): largest vertex height error against the true
+  plane on 1:20 / 1:5: 8-bit draft 4.3 / 3.7 cm, **4-bit 5.5 / 5.1 cm**, 3-bit 6.5–7.9 / 5.7–7.1 cm (own field / 8
+  levels in the 4-bit field). Quantization alone (the vertex against the 8-bit vertex of the same cube): 4-bit ≤ 1.8
+  / 2.2 cm vertical, 3-bit ≤ 4.0–6.0 / 3.5–4.9 cm; no vertex appears or disappears. Mostly surface nets' own error;
+  terraces are under a twentieth of a cell at 4 bits. Unverified on screen (45.10b meshes them).
+- **Slice world:** `run.mjs slice-world` wrote the staging `slice` world again in v2 (8 stacked files, 6,900 chunks,
+  1.3 MB; v1 1.5 MB, moved to `~/.cache/thirdlight-phase45/work/45.10a/old-slice`).
+- **Tests:** codec, region, save, undo, override and edit-command rules for v2 (`format-rules.test.ts`); the
+  overlay and saved fields (`voxel-overlay.test.ts`); a wetness-only paint over 4 chunks in real workers: 0 full
+  derives, 4 shader-only derives, every result equal to a fresh derive (`stream.test.ts`); the route answers `parts`
+  (`voxel-world.test.ts`); the assembly proof with roles (`derived.test.ts`, `voxel-world.e2e.ts`).
+- **Fast gate** green (10 min, peak 4.7 GB; village at the cap p95 16.7 ms both renderers). Voxel e2e 15.2 → 15.7 s
+  (7.7 + 3.7 + 4.3 s), no new e2e file.
+
 ## 7. Decision log
 
 - 2026-10-27 (owner, planning session): §1 decided in conversation. The research behind it covers Enshrouded's
@@ -2021,6 +2084,42 @@ at; README for the owner, reports and pictures in `~/.cache/thirdlight-phase45/a
   missed frames; D438 found and fixed. For the owner to decide: the replaced decisions in spec §1 (R18, R50, R79,
   R66), the record-value width with O15/O16 (H3), 23-bit material ids vs u32, save-merge semantics (H1/H2), the
   category set (Q-a), M7, and the defaults in spec §5. The branch is pushed; main is untouched since d4053cab.
+- 2026-11-02 (owner, review of format spec v1): **the four replacements are accepted**: R18 → bit-packing + zstd,
+  R50 → stacked 256 m region cubes, R79 → per-consumer derived outputs from one assembly evaluation, R66 → fewer,
+  wider range reads + prefetch (D432 stays open for 46a's tuning). The game decides how a re-exported base affects
+  saves (H1/H2 as built). The world layout and scale, the editing rules (incl. `world_changed` refuse-after-reload)
+  and the remaining spec §5 defaults are accepted. M7, D433 and D434 stay later work.
+- 2026-11-02 (owner): **voxel value v2** replaces the 23/4/5 record: one 32-bit value = material 12 bits (4,096 a
+  world; O12 settled) + role 4 + shape 4 (16 fill levels, replacing the separate density byte of surface voxels) +
+  wetness 3 + 9 reserved (O15 the first candidate). **Orientation is dropped** (structure grids carry their
+  rotation, stamps are rotated before voxelizing, details come from the arrangement; O8 closed). **Role replaces the
+  category:** air, terrain, liquid, wall, floor, roof, foundation, stair, pillar, opening (16 at most, unassigned
+  refused); beams, banisters, soffits stay inferred (O20 settled). The placeholder rules read roles (v2).
+- 2026-11-02 (owner): **one value everywhere, base + runtime overlay**: base files hold the full value (wetness
+  authorable); runtime changes go to an in-memory overlay of the same value, dropped on quit except the fields the
+  game marks saved. **Feeds mask:** shape and role → mesh, collision, nav, light occupancy; material and wetness →
+  shader data only. **Saved-at-runtime mask** chosen by the game, wetness not saved by default; saves keep only the
+  saved fields merged onto the base (H1 masks, H2 base hashes kept). The editor writes base files as before.
+- 2026-11-02 (owner): **material blending moves to the shader** (45.10b: the mesh format); 45.10a exposes a derived
+  per-chunk material + wetness grid ("shader data"). **No paint layer** (O16 closed). **Climate** (temperature,
+  humidity) is not in the value: a coarse per-region field, interpolated, authored and runtime-overridable by the
+  same base + overlay rules; specified in spec §2.4, not built.
+- 2026-11-02 (45.10a, measured; plan **45.10a value v2**): v1 draft → v2 on the five worlds: zstd −2 to −48 %,
+  memory −2 to −24 % (hilly +6 %), palettes 1.0–5.2× entries, decode 11–21 % faster; 3-bit shapes would save a further
+  0–40 % memory but move slope vertices up to 6 cm (4-bit: ≤ 2.2 cm against the 8-bit draft).
+- 2026-11-02 (45.10a, default chosen, owner to confirm): **every format holding voxel values moved a version and v1
+  bytes are refused, with no upgrade step** (codec, region, edit command, undo, save, overrides, value form 1 → 2;
+  derived data and placeholder rules 1 → 2): v1 was an unapproved draft with nothing shipped; the staging slice
+  world was written again. The save base form is now codec v2 (`BASE_FORM_CODEC_VERSION` = 2).
+- 2026-11-02 (45.10a, default chosen, owner to confirm): **roles in the test worlds and placeholder rules:** built
+  roles (wall, floor, foundation, stair, pillar) are what beams and rails are read from, roof is a wall, an opening
+  is open and empty; the town writes foundation, floor and stair roles. **Until 45.10b, a material change still
+  re-derives mesh and collision** (`MATERIAL_SLOT_PARTS`: vertices and boxes carry material slots); wetness re-derives
+  only shader data. The shader data is a palette of `material | wetness << 12` and packed per-cell ids, no apron.
+  The command route answers the stale `parts`; `VoxelOverlay` is built and tested, not yet wired into a runtime
+  streamer (46a). Climate: 8 m samples, two u8 channels, a section of the stacked region file (spec §2.4).
+- 2026-11-02 (45.10a): the material id width report (`run.mjs material`) is archived
+  (`archive/removed-phase-45/`): the owner settled the width.
 
 ## 7a. Kit and surface planning session (2026-10-30)
 
