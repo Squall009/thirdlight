@@ -172,8 +172,9 @@ export function chunkOfKey(grid: ChunkGrid, key: number, out: ChunkCoord = { cx:
 
 /**
  * Region footprints under comparison, in cells per side: 512 (256 m, the
- * default tile) and 1024 (512 m). A region spans the world's full height;
- * its footprint is never a height limit.
+ * default tile) and 1024 (512 m). A region is a full-height column or one
+ * cube of a stack (region-file.ts); either way its footprint is never a
+ * height limit.
  */
 export type RegionFootprint = 512 | 1024;
 

@@ -5,6 +5,7 @@
  *   node tools/voxel-bench/run.mjs [options]          # the storage harness; options: tools/voxel-bench/cli.ts
  *   node tools/voxel-bench/run.mjs decode [options]   # the browser decode bench; options: tools/voxel-bench/decode-cli.ts
  *   node tools/voxel-bench/run.mjs costs              # apron and rebuild costs per chunk edge (costs-cli.ts)
+ *   node tools/voxel-bench/run.mjs region [options]   # region file sizes, write amplification, range reads, repo growth (region-cli.ts)
  *
  * Refuses to start outside a memory-capped cgroup (tools/perf/memory-cap.mjs):
  * the test worlds are generated chunk by chunk, but a dense window of a
@@ -28,7 +29,7 @@ if (why !== null) {
   console.error(`voxel-bench: not started: ${why}. Start it in a capped scope:\n  ${CAPPED_COMMAND.replace('tools/perf/run.mjs', 'tools/voxel-bench/run.mjs')}\nor pass ${NO_MEMORY_CAP_FLAG} on a host where nothing else runs.`);
   process.exit(2);
 }
-const mode = args[0] === 'decode' || args[0] === 'costs' ? args[0] : null;
+const mode = args[0] === 'decode' || args[0] === 'costs' || args[0] === 'region' ? args[0] : null;
 const entry = mode === null ? 'cli' : `${mode}-cli`;
 const rest = (mode === null ? args : args.slice(1)).filter((a) => a !== NO_MEMORY_CAP_FLAG);
 const out = join(REPO, 'dist', 'voxel-bench', `${entry}.mjs`);

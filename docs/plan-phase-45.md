@@ -680,6 +680,7 @@ sub-phase on staging; the merge to `main` happens once, at the end of 48.
 | 45.2a | done (ebfd57b9 + this): palette family (record/per-plane palettes, packed/runs, uniform collapse, surface-only density, codec v1 DRAFT), oracle-checked on all worlds. Record palette, packed, 32³: 10–50× less memory than dense, zstd 1.7–5.9 MB/km² (terrain, town), voxelAt 35–80 ns; runs and per-plane lose; see **45.2a palette candidates**. |
 | 45.2b | done (38742e3a, a7cd1177 + this): sparse 4³ bricks, codec matrix, browser-worker decode, edge costs. PICK (draft): bricks in memory, packed body + zstd 3 at rest, 32³. Hilly 4 km²: 163 MB loaded (P 371), 5.9 MB/km² zstd, voxelAt 36–111 ns; fzstd 4–53 µs/chunk in a worker; see **45.2b bricks, codecs and the 45.2 pick**. |
 | 45.2c | done (382cfcd2 + this): hidden regressions. D423 fixed: the on-demand Scene view stopped drawing while a probe placement (or an early sky change, or a tile upload) waited, so the ground kept the old sky's light; it now draws on. D428 to watch: 0 failures in 10 runs (6 alone, base and fix; under load; fast gate). Both also on main (frozen): carry over at the merge. |
+| 45.3 | done (this): region file v1 DRAFT (header, CRCs, sorted chunk table, uniform inline, canonical bytes, range reads). 256 m tiles kept; stacked cubes proposed over columns (2 km tile: 12.3 MB file, 1.47 MB stacked); 10 km ≈ 430–580 MB, 1,600 tiles; HTTP chunk 0.41 ms, 3×3×3 0.54 ms coalesced; git +0.13–0.22 MB/h after gc (7–22 loose): no LFS; see **45.3 region files**. |
 
 ### 45.0 floor record
 
@@ -937,6 +938,77 @@ requests), 1.2–3.2× smaller zstd and, with bricks, 1.1–1.3× the memory of 
   (45.2a; under lz4 too: +2–28 % over packed); per-plane palettes (45.2a); 16³ (above); lz4 (1.2–1.8× bytes for
   3–31 µs a chunk); per-chunk deflate (160–190 µs a chunk in a worker); zstd dictionary (≤ 2.4 %, fzstd can't).
 
+### 45.3 region files
+
+**Region file v1 DRAFT** (`packages/voxel/src/region-file.ts`; pure, so workers and exports read it; the compressor
+is passed in): a 64-byte header (magic `TLVR`, version, layout column/stacked, chunk edge, chunk codec version,
+compressor id, chunks a side, 16-byte world id, grid id (0 = world grid, else a structure grid), region x/y/z,
+entry count, data bytes, CRC-32 of the table, CRC-32 of the header), then one 12-byte table entry per present
+chunk (column and flags, chunk y, then a uniform chunk's record value, or a stored chunk's length and CRC-32), then
+the stored chunks back to back in table order (offset = sum of the lengths before it). All-air chunks are absent;
+uniform chunks live in the table only; a chunk is stored raw only when zstd does not shrink it. Canonical bytes
+(sorted entries, no duplicate or air entry, zero reserved fields, exact length; no time anywhere). Reader:
+`openRegion` (header + table in one 32 KB request for tables up to ~2,700 entries), `readRegionChunks` (absent =
+air, coalesced ranges, a damaged chunk comes back `damaged` with its coordinates, never as air),
+`damagedRegionChunks` (whole-file scan). Header/table damage, an unknown version, layout, compressor or chunk codec
+version, set reserved bytes and a wrong length refuse the file. Vitest (`tools/voxel-bench/region.test.ts`, real
+zstd, real files, a real HTTP range server): round trip, byte-identical files for equal content reached by different
+edit orders and entry orders, 3×3 range reads from disk and HTTP, corrupt header/table/chunk, unknown version,
+inline uniform chunks, 2 km column vs stacked cubes, a structure grid in its own container.
+
+Run 2026-11-02 03:39–03:52 (repo part rerun 03:53–04:01), 6 GB scope, load 0.4–1.6, i5-12600H;
+`node tools/voxel-bench/run.mjs region` (the pick: record palette, bricks in memory, packed body + zstd 3 at rest,
+32³). Results: `~/.cache/thirdlight-phase45/work/45.3/results*/` (region.md/json; scratch repos deleted).
+
+| World (whole) | 256 m column: files, MB, MB/km² | header + table (share) | uniform entries | 512 m column | 256 m stacked | max file 256 m column / stacked |
+|---|---|---|---|---|---|---|
+| plain 256 m | 1, 0.280, 4.28 | 15 KB (5.5 %) | 769 of 1,280 | same | 2 files, +0.1 % | 281 / 245 KB |
+| hilly 4 km² | 64, 23.10, 5.78 | 1.35 MB (5.8 %) | 86,418 of 112,218 | 16 files, 23.10 | 128 files, 23.11 | 402 / 390 KB (512 m: 1.49 MB) |
+| town 256 m | 1, 0.102, 1.55 | 15 KB (14.9 %) | 768 of 1,253 | same | 2 files | 102 / 76 KB |
+| caves 256 m | 1, 3.65, 55.7 | 21 KB (0.6 %) | 3 of 1,727 | same | 2 files | 3.65 / 2.18 MB |
+| vertical 256 m × 2 km | 1, 12.30, 188 | 236 KB (1.9 %) | 7,206 of 19,625 | same | 8 files, 12.30 | 12.30 / 2.69 MB |
+
+- **Tile size and layout cost nothing in bytes** (±0.1 %); they decide file size, file count and what a save
+  rewrites. Header + table are 5.5–5.8 % on terrain, mostly uniform deep-ground entries (77 % of hilly entries);
+  the town's 15 % is its small body. The 11 rotated houses in their own containers: 44 files, 9 KB (39 % header and
+  table): their local grids straddle cell 0, so each house splits over four regions.
+- **One stream per region instead of a frame per chunk** (45.2b's open question): zstd 3 of a 256 m region's
+  concatenated chunk bytes saves 1.8 % on hilly ground (21.35 vs 21.75 MB body), deflate 2.3 %; plain 15 %, town
+  22 %, caves +3 % worse. It would cost random access: one chunk then needs the whole tile (~360 KB) fetched and
+  inflated. Per-chunk frames stay.
+- **Range reads** (1 km² hilly area, 60 surface spots, page cache warm; the HTTP server is a separate Node process
+  on loopback): one chunk with the table cached 0.018 ms disk / 0.41 ms HTTP (median); cold (header + table + chunk,
+  2 requests, 34 KB) 0.20 / 1.38 ms (p95 1.06 / 5.4). A 3×3×3 neighbourhood (12.5 stored chunks, 12 KB): apart 12.5
+  requests, 0.12 / 1.67 ms; coalesced over gaps ≤ 4 KB 3 requests, 0.08 / 0.54 ms, no extra bytes; ≤ 64 KB 1 request,
+  0.06 / 0.35 ms but 47 KB fetched. Default gap 4 KB. Decode (zstd + palette into the brick store, Node) 239 µs a
+  chunk. Real network latency is per request, so coalescing matters more off loopback (45.5 measures it there).
+- **Write amplification** (a save rewrites the whole file; mean of 60 random surface edits): one voxel changes
+  1 chunk (1.2 KB entry) and rewrites 363 KB at 256 m column, 351 KB stacked, 1.45 MB at 512 m; a 4 m brush changes
+  1.9 chunks, same files. On the 2 km tall world a column file is 12.3 MB: one voxel rewrites 12.3 MB (12,900×),
+  stacked 256 m cubes 1.47 MB, 512 m cubes 2.70 MB.
+- **Repo growth** (scripted hour on the 1 km² hilly area, 5.8 MB of region files: a stroke every 3 s, 1,200
+  strokes, a cursor wandering ~5 m a stroke and jumping every 5 min; half 1–2 m dabs, a quarter 4 m dabs, a quarter
+  walls; one scratch repo per layout):
+
+| Layout | Commit every | Files / commit | MB written / commit | .git growth / hour, loose | after `git gc` | blobs in pack (deltas) |
+|---|---|---|---|---|---|---|
+| 256 m column | 10 min | 3.7 | 1.33 | 7.0 MB | 0.13 MB | 38 (22) |
+| 256 m column | 2 min | 1.6 | 0.59 | 15.6 MB | 0.22 MB | 65 (49) |
+| 256 m stacked | 10 min | 3.7 | 1.28 | 6.9 MB | 0.14 MB | 54 (34) |
+| 512 m column | 10 min | 2.8 | 4.11 | 21.8 MB | 0.13 MB | 21 (17) |
+| 512 m stacked | 10 min | 2.8 | 3.97 | 21.6 MB | 0.14 MB | 25 (19) |
+
+- Git's delta compression works on these binary files: unchanged chunks keep byte-identical frames (the writer
+  re-packs only edited chunks), so `git gc` stores a new version as a delta of a few KB. Loose objects (whole files,
+  zlib) grow 7–22 MB an hour until gc; git's own `gc --auto` packs them at 6,700 loose objects, long after that.
+  **LFS is not called for:** it stores every version whole, with no delta, so it would keep the 7–22 MB an hour
+  forever; the packed history grows 0.13–0.22 MB an hour.
+- **10 × 10 km:** 1,600 tiles at 256 m (400 at 512 m); plain to hilly ground at 4.3–5.8 MB/km² (tables included)
+  projects to **430–580 MB** of region files, ~270–360 KB a tile; 256 m stacked: about twice the files where ground
+  straddles a stack boundary. zstd 19 at export is 8–14 % smaller per 45.2b (not re-measured on region files).
+  Mountains, caves and dense towns move it: caves are 56 MB/km², a 2 km column 188 MB/km² (both whole-world test
+  cases, not typical ground).
+
 ## 7. Decision log
 
 - 2026-10-27 (owner, planning session): §1 decided in conversation. The research behind it covers Enshrouded's
@@ -1017,6 +1089,43 @@ requests), 1.2–3.2× smaller zstd and, with bricks, 1.1–1.3× the memory of 
 - 2026-11-02 (45.2b): the codec v1 DRAFT gains body 3 (sparse bricks) so bricks could be stored as they are; the pick
   does not use it at rest. A chunk of 13 bytes costs 22 in its own zstd frame and 13 in deflate: 45.3 should keep
   uniform chunks out of frames (in the region table) rather than change the codec.
+- 2026-11-02 (45.3, default chosen, owner to confirm): region file v1 DRAFT as in **45.3 region files**: 64-byte
+  header (magic, version, layout, edge, chunk codec version, compressor, world id, grid id, region x/y/z, counts,
+  table and header CRC-32), a sorted 12-byte entry per present chunk with uniform chunks inline and per-chunk length
+  and CRC-32, stored chunks after it in table order. The world-scoped key of a chunk (R5) is world id + grid id +
+  chunk coordinates, held once per file. Files are canonical, so equal content gives equal bytes whatever the edit
+  order (tested). Caveat: a chunk's zstd frame depends on the zstd build; the writer re-packs only edited chunks and
+  copies the others' frames, so a Node/zstd upgrade changes only what is edited afterwards.
+- 2026-11-02 (45.3, default chosen, owner to confirm): **tile 256 m stays.** 512 m costs the same bytes but a save
+  rewrites 4× as much (1.45 MB vs 363 KB for one voxel) and loose git growth is 3× (21.8 vs 7.0 MB an hour); its one
+  win is 4× fewer files (400 vs 1,600 for 10 km).
+- 2026-11-02 (45.3, for the owner, R1): **full-height columns (R50 default) do not pan out on tall ground.** Same
+  bytes as stacked cubes, but a 256 m tile of the 2 km test world is one 12.3 MB file: every save of a one-voxel edit
+  rewrites 12.3 MB, and each commit adds 12 MB of loose objects. Proposed replacement keeping R49/R50's goals (no
+  height limit, small commits): **stacked 256 m cubes** (region x, y, z; a stack is absent when its air allocates
+  nothing): one-voxel saves rewrite 1.47 MB there, files stay under 2.7 MB. Cost: twice the files on terrain that
+  straddles a stack boundary (hilly 64 → 128 files), +0.1 % bytes. Both layouts are in the format (the layout byte);
+  45.4/45.5 use stacked unless the owner keeps columns. Not dropped until the owner chooses.
+- 2026-11-02 (45.3, default chosen, owner to confirm; O2): **vertical bounds** stay the coordinate bounds (±8,192
+  cells, ±4.1 km; 45.1b); the format stores no world base or height: a world's extent is the chunks it has, so a 2 km
+  world sits anywhere in it with headroom both ways and empty sky or depth costs nothing. Stacks are aligned at y = 0
+  (boundaries every 256 m); a per-world stack offset to keep typical ground in one stack is possible later, unmeasured.
+- 2026-11-02 (45.3, default chosen, owner to confirm; O9): **structure grids** use the same container: one set of
+  region files per structure grid, grid id in the header, its own local region coordinates, in a folder per grid id.
+  The transform is not in the voxel file (moving a structure changes its record, not its voxels; 47a owns the
+  record). Measured: 11 test houses = 44 files of ~200 B, because their local grids straddle cell 0; proposal for
+  47a: anchor a structure's local grid at its foundation's minimum corner so a structure under 256 m is one file.
+  Packing many small grids into one file per tile is the fallback if file counts hurt (unmeasured).
+- 2026-11-02 (45.3, default chosen, owner to confirm; R53): **no Git LFS.** Packed history grows 0.13–0.22 MB an hour
+  of heavy editing (1,200 strokes) because git deltas the files (unchanged chunk frames are byte-identical); loose
+  objects grow 7–22 MB an hour until gc. LFS keeps every version whole without deltas, i.e. the loose number forever.
+  Recommended instead: run `git gc` (or `git gc --auto` with a lower `gc.auto`) after saves/commits; derived data
+  stays out of the repo (R54).
+- 2026-11-02 (45.3): range reads coalesce stored chunks across gaps up to 4 KB (3 requests and no extra bytes for a
+  3×3×3 neighbourhood; 64 KB merges to 1 request but fetches 4× the bytes); per-chunk zstd frames stay (one stream
+  per region saves 1.8–2.3 % on hilly ground but loses random access). A damaged chunk is reported with its
+  coordinates and never read as air (R4); repairing it (from the shipped base, a structure regeneration or the save)
+  is 45.4's path.
 
 ## 7a. Kit and surface planning session (2026-10-30)
 

@@ -92,3 +92,30 @@ export {
 export { decodePaletteImage, encodePaletteImage, PALETTE_CODEC_VERSION, readPaletteHeader, type PaletteCodecHeader } from './palette-codec';
 export { PlanesChunk, RecordChunk, type PaletteChunk } from './palette-chunk';
 export { PaletteStore, type PaletteStoreOptions } from './palette-store';
+export {
+  damagedRegionChunks,
+  openRegion,
+  packRegionChunk,
+  readRegionChunks,
+  readRegionHeader,
+  regionChunkCodecBytes,
+  regionFileName,
+  RegionChunkError,
+  RegionFileError,
+  RegionIndex,
+  REGION_ENTRY_BYTES,
+  REGION_FORMAT_VERSION,
+  REGION_HEADER_BYTES,
+  REGION_OPEN_PREFETCH,
+  WORLD_GRID_ID,
+  WORLD_ID_BYTES,
+  writeRegion,
+  type RegionByteSource,
+  type RegionChunkRead,
+  type RegionCompressor,
+  type RegionEntry,
+  type RegionHeader,
+  type RegionLayout,
+  type RegionRange,
+  type RegionTile,
+} from './region-file';
