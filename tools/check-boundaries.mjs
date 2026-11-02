@@ -541,6 +541,14 @@ const BUNDLE_ENTRY_EDGES = {
     external: [],
     node: [],
   },
+  // The voxel world page's collision: every derived chunk a static body in
+  // the engine's one physics backend (physics-rapier's port), so the slice
+  // collides through the same physics a game steps, not a second path.
+  'packages/editor/src/voxel-world/collision.ts': {
+    packages: ['physics-rapier', 'voxel'],
+    external: [],
+    node: [],
+  },
   // The play-preview bundle (`preview-m3.ts`): its graph may include protocol,
   // runtime, three-adapter (+ the GLTFLoader subpath), project-model, input,
   // physics-rapier and game-host. It composes the SINGLE shared production
