@@ -135,7 +135,10 @@ export const NODE_SIDE_ALLOWED = {
   voxel: { packages: [], external: [], node: [] },
   commands: { packages: ['project-model'], external: [], node: [] },
   workspace: {
-    packages: ['project-model', 'commands', 'asset-pipeline', 'behavior-build'],
+    // + voxel — a project's voxel worlds are region files in its folder: the
+    // workspace keeps them under edit commands (the voxel apply, codec and
+    // region writer, pure code) and replaces them through its durable write.
+    packages: ['project-model', 'commands', 'asset-pipeline', 'behavior-build', 'voxel'],
     external: [],
     // zlib: binary block chunk files are zstd-compressed project files.
     node: ['fs', 'path', 'crypto', 'os', 'zlib'],
@@ -369,7 +372,10 @@ export const NODE_SIDE_ALLOWED = {
     // document preview draws with the very layer Play and exports use.
     // + behavior-build, its `./api-typings` subpath only (a generated string
     // constant): the script editor shows the typings the compiler checks against.
-    packages: ['protocol', 'runtime', 'three-adapter', 'project-model', 'commands', 'game-host', 'behavior-build'],
+    // + voxel — the voxel world page streams region files, decodes and
+    // derives them in its workers with the very code the backend and an
+    // export use, and sends its edits as commands.
+    packages: ['protocol', 'runtime', 'three-adapter', 'project-model', 'commands', 'game-host', 'behavior-build', 'voxel'],
     // + its `./dialogue-preview` subpath — the dialogue tab's
     // previewer plays a conversation with the runtime's runner, the host's UI
     // layer and audio owner (the same code as Play), outside Play.
@@ -395,6 +401,8 @@ export const NODE_SIDE_ALLOWED = {
       '@lezer/highlight',
       '@lezer/lr',
       '@lezer/javascript',
+      // The voxel page's workers decode zstd chunk frames (the region files' compressor).
+      'fzstd',
     ],
     node: [],
     typesOnly: { 'project-model': true, commands: true },

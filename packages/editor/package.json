@@ -40,6 +40,8 @@
     "@thirdlight/runtime": "0.1.0",
     "@thirdlight/shared": "0.1.0",
     "@thirdlight/three-adapter": "0.1.0",
+    "@thirdlight/voxel": "0.1.0",
+    "fzstd": "0.1.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "three": "0.187.0"

@@ -120,7 +120,7 @@ const PIN_CONSUMERS = {
   eslint: 'workspace lint (root dev; never in a bundle)',
   'typescript-eslint': 'workspace lint (root dev; never in a bundle)',
   'eslint-plugin-react-hooks': 'workspace lint (root dev; never in a bundle)',
-  fzstd: 'tools/voxel-bench (root dev): browser-worker zstd decode measured for the voxel chunk codec; not in any shipped bundle yet',
+  fzstd: 'tools/voxel-bench (root dev) and editor: the voxel world page\'s workers decode zstd chunk frames (editor bundle only; not in the play or export bundles yet)',
   lz4js: 'tools/voxel-bench (root dev): lz4 size and browser-worker decode measured for the voxel chunk codec; not in any shipped bundle',
   '@dimforge/rapier3d-compat':
     'physics-rapier — the exact 0.20.0 pin (decisions 0005, 0007); only in the separate physics-3d.js bundle a game with physics loads',
