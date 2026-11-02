@@ -678,6 +678,7 @@ sub-phase on staging; the merge to `main` happens once, at the end of 48.
 | 45.0 | done (8db90379 + this): `tools/staging.sh` (staging on 127.0.0.1:4180/4181, own data root, 6 GB cap; proven start, page 200, test project, stop clean). Floor record at the cap, Iris Xe, both renderers: village, landscape, interior at 720p and 1080p all p95 16.7–16.8 ms, 0 missed (720p60 met); see **45.0 floor record**. three 0.187.0 newest, no update. |
 | 45.1b | done (4f9c3340, 6bcbbd5e, 8bd00db7 + this): `@thirdlight/voxel` (cells ±32,768 xz / ±8,192 y, key math for 16³ and 32³, PROVISIONAL record, store contract, dense oracle) and `tools/voxel-bench` (5 test worlds, all swept whole). Dense baseline at 32³: 3.3 GB/km² in memory, plain 5.9 MB/km² zstd, voxelAt 110–123 ns random; see **45.1 harness baseline**. |
 | 45.2a | done (ebfd57b9 + this): palette family (record/per-plane palettes, packed/runs, uniform collapse, surface-only density, codec v1 DRAFT), oracle-checked on all worlds. Record palette, packed, 32³: 10–50× less memory than dense, zstd 1.7–5.9 MB/km² (terrain, town), voxelAt 35–80 ns; runs and per-plane lose; see **45.2a palette candidates**. |
+| 45.2b | done (38742e3a, a7cd1177 + this): sparse 4³ bricks, codec matrix, browser-worker decode, edge costs. PICK (draft): bricks in memory, packed body + zstd 3 at rest, 32³. Hilly 4 km²: 163 MB loaded (P 371), 5.9 MB/km² zstd, voxelAt 36–111 ns; fzstd 4–53 µs/chunk in a worker; see **45.2b bricks, codecs and the 45.2 pick**. |
 
 ### 45.0 floor record
 
@@ -857,6 +858,84 @@ What each choice costs and saves, and the requirement it serves:
 - **Codec cost:** encode/decode run per-cell JS loops (~3 ns a cell, 100–200 µs a non-uniform 32³ chunk); word-level
   paths (copying packed words when the ids are already canonical) are untried headroom.
 
+### 45.2b bricks, codecs and the 45.2 pick
+
+**Candidate B, sparse bricks** (`BrickLayout`, `brick-layout.ts`; harness candidate `bricks`): the record palette of P
+with each chunk split into 4³-cell bricks (8³ in a 32³ chunk, 4³ in 16³). A brick of one entry is just that id (u16);
+a mixed brick keeps its 64 ids bit-packed at the palette width in a slot pool; one mask bit per brick says which.
+Edits split a brick into a free slot and fold it back when its words equal the id's repeated pattern. At rest the
+codec v1 gains body 3 (bricks: mask, uniform ids, mixed bricks; a mixed brick of one id is refused). Same checks as
+45.2a on every world and both edges (export, `voxelAt` 1 in 37, decode, 200 k edits + 1,500 strokes vs the dense
+oracle): all equal. Run 2026-11-02 00:52–01:13, 6 GB scope, load 1.6–2.0, peak RSS 788 MB. Reports:
+`~/.cache/thirdlight-phase45/work/45.2b/results/` (scratch; corpus files kept there for 45.5's streaming page).
+
+| World (32³) | Memory MB B / P | zstd MB B-body / P-body | voxelAt rand ns B / P | coherent ns B / P | edit µs B / P | sphere 4 m / box 8 m µs B (P) | decode µs/chunk B / P (Node) |
+|---|---|---|---|---|---|---|---|
+| plain | 2.1 / 4.2 | 0.29 / 0.28 | 35 / 35 | 14 / 14 | 0.10 / 0.07 | 87 / 155 (77 / 133) | 132 / 117 |
+| hilly 4 km² | 163 / 371 | 27.5 / 23.7 | 36 / 42 | 13 / 14 | 0.24 / 0.17 | 108 / 165 (93 / 144) | 91 / 71 |
+| town | 2.0 / 6.2 | 0.15 / 0.11 | 38 / 57 | 15 / 14 | 0.10 / 0.14 | 91 / 146 (90 / 132) | 205 / 168 |
+| caves | 15.4 / 26.6 | 3.77 / 3.63 | 111 / 173 | 22 / 20 | 0.14 / 0.20 | 92 / 148 (114 / 143) | 436 / 322 |
+| vertical | 55 / 141 | 12.6 / 12.2 | 67 / 80 | 17 / 16 | 0.13 / 0.14 | 97 / 163 (87 / 141) | 246 / 183 |
+
+At 16³ bricks need 1.9 / 145 / 1.6 / 14.2 / 50 MB (0.8–0.92× of 32³; P at 16³ was 0.5–0.75×), the measured window
+heap is 2.2–3.4× the counted bytes there (5.2–30.8 MB vs 2.8–18.2 at 32³), and random reads are 41–248 ns.
+
+- Bricks hold a world in 0.3–0.6× P's memory (0.04–0.27 B a voxel; ~4 B was the target, O6) and read randomly as
+  fast or faster (caves 1.6×, town 1.5×); coherent scans cost 1.0–1.1× P, single edits 0.7–1.4×, strokes 0.8–1.2×. They lose at
+  rest: the brick body is 2.6–4× smaller raw but zstd of it is 3–36 % larger than zstd of the packed body (zstd
+  finds the uniform runs itself, and the mask/id split breaks its context).
+- The brick mask is a free coarse occupancy level: a uniform air or solid brick is 64 cells a ray, mesher or
+  culling pass skips at once (input for 45.6, not yet measured as such). A two-level 64-bit mask tree was not tried.
+
+**Codecs** on P's packed body (B's body in brackets), whole worlds, MB/km² at 32³:
+
+| World | zstd 1 | zstd 3 | zstd 9 | zstd 19 | zstd 3 + dict | deflate 6 | lz4 | runs body: zstd / lz4 |
+|---|---|---|---|---|---|---|---|---|
+| plain | 5.48 | 4.30 [4.45] | 4.09 | 3.86 | 4.31 | 3.98 [3.82] | 5.15 [5.20] | 4.40 / 5.30 |
+| hilly | 6.27 | 5.91 [6.87] | 5.62 | 5.46 | 5.86 | 5.92 [6.52] | 8.46 [9.92] | 6.38 / 8.64 |
+| town | 1.75 | 1.66 [2.25] | 1.48 | 1.42 | 1.62 | 1.69 [1.75] | 3.01 [3.72] | 2.44 / 3.86 |
+| caves | 56.7 | 55.4 [57.6] | 51.8 | 48.8 | 55.8 | 55.9 [56.0] | 86.5 [76.1] | 72.0 / 107.5 |
+| vertical | 194 | 187 [192] | 172 | 165 | 187 | 186 [185] | 275 [242] | 218 / 294 |
+
+At 16³ deflate beats zstd 3 (hilly 9.0 vs 10.8 MB/km²): a zstd frame costs 9 bytes, a 13-byte uniform chunk becomes
+22, and 88 % of 16³ chunks are uniform. The dictionary (110 KB of other-seed chunks, raw content) saves at most 2.4 % and
+fzstd cannot decode with one (caves and vertical grow 0.4–0.7 %). zstd 19 saves 8–14 % over level 3 and compresses at 3–20 MB/s (export-time only).
+
+**Decode in a browser module worker** (`node tools/voxel-bench/run.mjs decode`; Chrome 151 headless, this host, best
+of 3; 2,000 sampled chunks a world, uniform ones included; 2026-11-02 01:35, load 1.6). µs a chunk at 32³, P body:
+
+| World | fzstd (zstd 3) | lz4js | DecompressionStream deflate | palette decode after it | fzstd MB/s |
+|---|---|---|---|---|---|
+| plain / hilly / town | 7.1 / 6.6 / 9.6 | 3.3 / 3.6 / 5.5 | 171 / 165 / 161 | 70 / 46 / 77 | 376 / 442 / 498 |
+| caves / vertical | 53 / 17 | 22 / 9.4 | 193 / 166 | 190 / 115 | 226 / 359 |
+
+- zstd costs 4–53 µs a chunk in plain JS (fzstd, 3.4 KB gzip), 9–22 % of the chunk's total decode; the palette
+  decode (per-cell JS loops) is 46–190 µs and is where the time is. lz4js saves 3–31 µs a chunk for 1.4–1.8× the
+  bytes (1.2–1.8× after zstd 3; 2.5 KB gzip). DecompressionStream costs ~160–190 µs a chunk however small (stream setup; starting all
+  chunks at once does not help), so per-chunk deflate is out; whether it pays when a region's range is inflated in
+  one stream is 45.3/45.5's to measure. Both decoders pass the export scan as strict non-bundle files. WebAssembly
+  zstd was not tried: fzstd's 4–53 µs leaves little to win next to the palette decode.
+
+**Chunk edge** (`node tools/voxel-bench/run.mjs costs`; aprons as dense 5-byte records, worker round trip measured):
+at R = 2 a job reads 42 % more cells than its chunk at 32³, 95 % at 16³ (R = 4: 95 % / 238 %); moving an apron to a
+worker costs 3.2–7.1 µs transferred at either edge. A stroke at a random place with R = 2 rebuilds 1.7–4.3 chunks at 32³
+(55–141 k cells) and 2.6–11.4 at 16³ (11–47 k cells): 16³ re-meshes 3–5× fewer cells per edit, in 1.6–2.7× more
+jobs. 32³ has 7.5× fewer present chunks (hilly 112 k vs 845 k: index entries, region-table rows, frames, range
+requests), 1.2–3.2× smaller zstd and, with bricks, 1.1–1.3× the memory of 16³.
+
+**The 45.2 pick (DRAFT; owner approves at the 45.7 hard stop):**
+- **Store family:** one record palette per chunk (45.2a), uniform chunks collapsed, density only on surface voxels;
+  **in memory: sparse 4³ bricks** under a per-chunk mask (B).
+- **Chunk edge: 32³** (16 m). Edit latency is 16³'s one win; meshing jobs can split a 32³ chunk into sub-chunk
+  regions if 46 measures that it matters (proposal, unmeasured).
+- **At rest: codec v1 with the bit-packed body, then zstd level 3 per chunk** (zstd 19 for exports, which are
+  derived); decoded in workers with fzstd. Uniform chunks: 13 bytes, best kept out of zstd frames (45.3).
+- **Size:** 1.7–5.9 MB/km² on terrain and town, 55 MB/km² caves, 187 MB/km² for a 2 km column; memory 0.04–0.27 B a
+  voxel, 41 MB/km² loaded on hilly ground (bricks) vs 3.3 GB dense.
+- **Rejected:** P packed in memory (1.7–3.1× bricks' memory); bricks body at rest (+3–36 % zstd); column runs
+  (45.2a; under lz4 too: +2–28 % over packed); per-plane palettes (45.2a); 16³ (above); lz4 (1.2–1.8× bytes for
+  3–31 µs a chunk); per-chunk deflate (160–190 µs a chunk in a worker); zstd dictionary (≤ 2.4 %, fzstd can't).
+
 ## 7. Decision log
 
 - 2026-10-27 (owner, planning session): §1 decided in conversation. The research behind it covers Enshrouded's
@@ -923,6 +1002,20 @@ What each choice costs and saves, and the requirement it serves:
   32³. Proposed replacement: packing + a general compressor; runs kept only if 45.2b's lz4/browser-decode comparison
   shows they pay where no entropy stage runs. Not dropped until the owner chooses. Per-plane palettes likewise lose
   to one record palette (R20 kept by writing each field as its own plane at rest).
+
+- 2026-11-02 (45.2b, default chosen, owner to confirm): the 45.2 pick (DRAFT, see **45.2b bricks, codecs and the
+  45.2 pick**): record palette per chunk, sparse 4³ bricks in memory, codec v1 bit-packed body + zstd 3 per chunk at
+  rest (zstd 19 for exports), 32³ chunks, fzstd in workers. The memory form and the bytes at rest differ on purpose:
+  bricks win memory and random reads, the packed body wins after zstd.
+- 2026-11-02 (45.2b, default chosen, owner to confirm): fzstd 0.1.1 and lz4js 0.2.0 are root dev dependencies of the
+  voxel bench (pinned in `tools/check-deps.mjs`), shipped in no bundle yet. fzstd is the proposed worker decoder for
+  46a (3.4 KB gzip, passes the export scan); lz4js is a measurement only (it also allocates 5 MB on load).
+- 2026-11-02 (45.2b, for the owner, R1): R18's replacement stands: column runs do not pay without an entropy stage
+  either (lz4 of the runs body is 2–28 % larger than lz4 of the packed body). R20 ("planes, then zstd") holds with
+  zstd; lz4 and per-chunk deflate lose (numbers in 45.2b).
+- 2026-11-02 (45.2b): the codec v1 DRAFT gains body 3 (sparse bricks) so bricks could be stored as they are; the pick
+  does not use it at rest. A chunk of 13 bytes costs 22 in its own zstd frame and 13 in deflate: 45.3 should keep
+  uniform chunks out of frames (in the region table) rather than change the codec.
 
 ## 7a. Kit and surface planning session (2026-10-30)
 
