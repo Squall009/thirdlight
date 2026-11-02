@@ -167,8 +167,10 @@ invalidation.
 | R108 | A terrain mesher from voxel-neighbourhood threshold rules (cliff, gentle slope, terrace, overhang, cave) as rule sets on the assembly/derive contract (declared radius, conformance check); never assumes flat terrain | §4 46b, §7 2026-11-02 | owner | derived, job |
 | R109 | Dynamic LOD for uneven terrain and architecture: coarser voxel mips meshed by the same mesher in distance rings, crack-free seams between levels, the shader's blend identical at every level, architecture detail pieces high → low → none, the base surface following the mips (not flat-quad merging) | §4 46b, §7 2026-11-02 | owner | derived, stream |
 | R110 | Lighting storage decided by the 46e A/B (phase-42 surface cache vs voxel light volume) with performance first; the owner leans to removing lightmaps, surfel caches and their texture reads even at a quality cost | §4 46e, §5c, §7 2026-11-02 | owner (direction; the measurement decides) | derived |
+| R111 | Wetness drives the surface shader beyond darkening: lower roughness and filled-in normals (crevices fill first by height) as wetness rises | owner 2026-11-02 | owner | derived (shader data) |
+| R112 | No trim sheet for terrain and construction voxels: tileable texture arrays with wall, floor and ceiling surfaces, triplanar; the trim layout spec covers detail pieces only | owner 2026-11-02 | owner | derived (mesh/instances) |
 
-Count: 110 rows (R107–R110 owner 2026-11-02, item 45.10c), of which 10 are superseded (R12, R13, R23, R78, R79, R80, R83, R86, R87, R88) and 2 revised
+Count: 112 rows (R107–R110 owner 2026-11-02, item 45.10c; R111–R112 owner 2026-11-02), of which 10 are superseded (R12, R13, R23, R78, R79, R80, R83, R86, R87, R88) and 2 revised
 (R11, R74); R18, R50 and R79 were replaced by the owner on 2026-11-02 (R66's read settings too). The superseded goals stay: R12/R13 → inferred
 architecture keeps "authors build with today's tools, the voxels decide the look"; R79 → "cheap exact grid
 queries" kept by per-consumer derived occupancy; R83 → "edits rebuild locally" kept by a bounded radius R.

@@ -228,7 +228,7 @@ runtime overlay all hold whole values, so reading or writing a voxel is one 32-b
 | 0–11 | material | 0 = air, 1–4,095 (`MATERIAL_ID_MAX`) | 4,096 ids a world: a format width, not a count cap on anything else (O12, owner). The id refers to the material record (46d) |
 | 12–15 | role | see the role table; 10 assigned, 16 at most | Unassigned values are refused by every writer and reader (`VOXEL_ROLE_COUNT`) |
 | 16–19 | shape | 0 empty … 15 full (`SHAPE_FULL`) | 16 fill levels, stored for every voxel inside the value. Derived consumers read it on a 0–255 scale (`shapeDensity` = shape × 17) |
-| 20–22 | wetness | 0 dry … 7 (`WETNESS_MAX`) | Feeds the shader data only. Authored in base files, set at runtime in the overlay |
+| 20–22 | wetness | 0 dry … 7 (`WETNESS_MAX`) | Feeds the shader data only. Authored in base files, set at runtime in the overlay. The shader darkens albedo, lowers roughness and fills in normals as it rises (R111; the 45.10b slice shader only darkens) |
 | 23–31 | reserved | must be 0 | 9 bits. A value with any set is refused everywhere raw values are read. O15 (shoreline / liquid level in a ground cell) is the first candidate |
 
 **Roles** (`VOXEL_ROLE`; what a stored voxel is for):

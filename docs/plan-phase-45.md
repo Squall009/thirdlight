@@ -48,7 +48,9 @@ earlier decision to keep terrain separate, which this phase revisits) and its de
   **not frozen as v1, and nothing builds on them as final, until the owner approves each one**:
   - the **format spec** (storage, region files, edits, saves, derived data; end of 45);
   - the **role spec** (every role's canonical cases, required/optional pieces and fallbacks; 46c);
-  - the **standard trim layout** (texel density, field, strips, caps; 46c).
+  - the **standard trim layout** (texel density, field, strips, caps; 46c). Owner 2026-11-02: it covers only the
+    detail pieces the construction rules add (beams, rails, posts, mouldings…); terrain and construction voxels use
+    tileable texture arrays (separate wall, floor and ceiling surfaces) with triplanar mapping, no trim sheet.
   The run stops at each and waits for the owner; work that doesn't depend on the spec may continue meanwhile.
 - **The decisions in §1–§1e, §5b–§5c, §8 and §9 were worked out with care to remove roadblocks ahead of time** and to
   unify workflows so fewer systems have more than one path. They are requirements, not suggestions:
@@ -582,7 +584,9 @@ sub-phase on staging; the merge to `main` happens once, at the end of 48.
     the owner: hard stop, v1 only after approval**; the kit pipeline, kit check, kit test scene and a default
     fallback kit; the game-facing authoring package (§1: spec sheets, Blender templates, art-factory graphs per
     material type, the manual's kit and material guide), finished against the approved specs. Trim sheets are
-    optional (§7a): a kit may use them, none has to.
+    optional (§7a): a kit may use them, none has to. Owner 2026-11-02: the trim layout spec is kept for detail pieces
+    only, so a piece can use a different material, or a blend, instead of the tileable arrays the triplanar base uses;
+    base construction and terrain surfaces never use trim.
   - **46d Rendering and materials:** the material model (§1c: shader families, physical block, profiles, game data,
     variants, badges); texture arrays and slot residency; kit-piece instancing and GPU culling; the chunk-tree HLOD
     beyond 46b's rings; the far-field choice (voxel-mip meshes vs brick ray-marching, measured here); every feature
@@ -2353,6 +2357,15 @@ the ranges below):
   the best possible; rAF timestamps do not show a frame presented late by a long swap task, so the main-thread ms
   are reported beside them.
 
+- 2026-11-02 (owner, after reviewing 45.10b): **wetness is more than darkening.** Rising wetness darkens the
+  albedo, lowers roughness and fills in the normals (flattens the material's normal detail and fills crevices
+  first, using the height in the normal map's alpha), so a level-7 surface reads as standing water in the low parts.
+  The format already carries 3 wetness bits (45.10a); this is the surface shader's contract, built in 46d with the
+  material model (R111). 45.10b's slice shader only darkens; it is a placeholder.
+- 2026-11-02 (owner): **no trim sheet for terrain and construction voxels.** Their materials are tileable texture
+  arrays with separate wall, floor and ceiling surfaces (chosen by role and face direction), mapped triplanar. The
+  standard trim layout spec stays, for the detail pieces the construction rules add, so a piece can use a different
+  material or a blend instead of the tileable arrays (R112). The trim-layout hard stop in 46c now covers only that.
 ## 7a. Kit and surface planning session (2026-10-30)
 
 This records the conversation about the reference material kits, art-factory and runtime construction. It revises
