@@ -11,7 +11,8 @@
  *   cells are visited in local-index order and its changes recorded on their
  *   own, so an undo record, dirty marks and rebuilds are per chunk.
  * - **All or nothing.** Everything that can refuse (grid, stamp, loaded
- *   chunks, world bounds) is checked before the first write.
+ *   chunks, world bounds, the memory budget of one edit) is checked before
+ *   the first write.
  * - **Undo is its before-image.** Each changed chunk keeps the cells it had
  *   (or, when that is smaller, its whole canonical image). Undoing writes
  *   them back; redoing applies the command again, which gives the same
@@ -39,6 +40,8 @@ export interface EditGrids {
 export interface EditOptions {
   /** Stamp shapes by id (needed by stamp commands). */
   readonly stamps?: StampResolver;
+  /** The undo bytes one command may need at worst (default {@link UNDO_MEMORY_BUDGET_BYTES}): chunks it can touch × {@link chunkWorstUndoBytes}. */
+  readonly budgetBytes?: number;
   /** When given, every chunk the edit can touch must be loaded; otherwise the edit is refused before any write. */
   readonly loaded?: (gridId: number, cx: number, cy: number, cz: number) => boolean;
 }
@@ -63,7 +66,23 @@ export interface EditOutcome {
 }
 
 /** Why an edit could not be applied (nothing was written). */
-export type EditRefusal = 'grid_unknown' | 'chunk_not_loaded' | 'stamp_unknown' | 'stamp_changed' | 'outside_world';
+export type EditRefusal = 'grid_unknown' | 'chunk_not_loaded' | 'stamp_unknown' | 'stamp_changed' | 'outside_world' | 'over_budget';
+
+/**
+ * Bytes of undo records an editor keeps in memory before spilling the
+ * oldest to disk (a memory budget, not a step count), per open world. One
+ * command's worst-case undo record must fit it too (see
+ * {@link chunkWorstUndoBytes}): what bounds the work of a single stroke.
+ */
+export const UNDO_MEMORY_BUDGET_BYTES = 64 * 1024 * 1024;
+
+/**
+ * The most undo bytes a command can need for one chunk it touches: every
+ * cell in a delta (a whole image is kept only when it is smaller).
+ */
+export function chunkWorstUndoBytes(grid: ChunkGrid): number {
+  return UNDO_CHUNK_HEADER_BYTES + grid.cellsPerChunk * DELTA_CELL_BYTES;
+}
 
 export class EditRefused extends Error {
   override readonly name = 'EditRefused';
@@ -343,8 +362,10 @@ function trimmed(d: CellDelta): CellDelta {
  * run off the main thread is sent, and what must be loaded for it. Refuses
  * like {@link applyEdit} (outside the world, unknown or changed stamp).
  */
-export function editChunks(grid: ChunkGrid, cmd: VoxelEditCommand, stamps?: StampResolver): ChunkCoord[] {
-  return planChunks(grid, planOf(grid, cmd, stamps));
+export function editChunks(grid: ChunkGrid, cmd: VoxelEditCommand, stamps?: StampResolver, budgetBytes: number = UNDO_MEMORY_BUDGET_BYTES): ChunkCoord[] {
+  const plan = planOf(grid, cmd, stamps);
+  checkBudget(grid, cmd, plan, budgetBytes);
+  return planChunks(grid, plan);
 }
 
 /**
@@ -353,6 +374,51 @@ export function editChunks(grid: ChunkGrid, cmd: VoxelEditCommand, stamps?: Stam
  */
 export function editBounds(grid: ChunkGrid, cmd: VoxelEditCommand, stamps?: StampResolver): CellBox {
   return { ...planOf(grid, cmd, stamps).box };
+}
+
+/** Chunks a cell box spans (a count, without listing them). */
+function boxChunkCount(grid: ChunkGrid, b: CellBox): number {
+  const s = grid.shift;
+  return ((b.maxX >> s) - (b.minX >> s) + 1) * ((b.maxY >> s) - (b.minY >> s) + 1) * ((b.maxZ >> s) - (b.minZ >> s) + 1);
+}
+
+/**
+ * The chunks a plan can touch, counted up to `limit + 1` (past that the
+ * exact number does not matter): listed cells' chunks, a box's chunks, or
+ * for a brush the union of each dab's chunks (a long thin stroke touches
+ * far fewer chunks than its bounding box).
+ */
+function touchedChunks(grid: ChunkGrid, cmd: VoxelEditCommand, plan: Plan, limit: number): number {
+  if (plan.cells !== undefined) return plan.cells.size;
+  if (cmd.kind !== 'brush') return boxChunkCount(grid, plan.box);
+  const [ex, ey, ez] = cmd.size;
+  const p = cmd.points;
+  const s = grid.shift;
+  const seen = new Set<string>();
+  for (let i = 0; i < p.length; i += 3) {
+    const b: CellBox = { minX: Math.ceil(p[i]! - ex - 1), minY: Math.ceil(p[i + 1]! - ey - 1), minZ: Math.ceil(p[i + 2]! - ez - 1), maxX: Math.floor(p[i]! + ex), maxY: Math.floor(p[i + 1]! + ey), maxZ: Math.floor(p[i + 2]! + ez) };
+    if (boxChunkCount(grid, b) > limit) return limit + 1;
+    for (let cx = b.minX >> s; cx <= b.maxX >> s; cx++) for (let cz = b.minZ >> s; cz <= b.maxZ >> s; cz++) for (let cy = b.minY >> s; cy <= b.maxY >> s; cy++) {
+      seen.add(`${cx},${cy},${cz}`);
+      if (seen.size > limit) return limit + 1;
+    }
+  }
+  return seen.size;
+}
+
+/**
+ * Refuses (`over_budget`) a command whose worst-case undo record would not
+ * fit the budget: the memory, and with it the time, one command may take.
+ * A budget, not a count: a stroke over fewer, smaller chunks fits more.
+ */
+function checkBudget(grid: ChunkGrid, cmd: VoxelEditCommand, plan: Plan, budgetBytes: number): void {
+  const per = chunkWorstUndoBytes(grid);
+  const limit = Math.floor(budgetBytes / per);
+  const n = touchedChunks(grid, cmd, plan, limit);
+  if (n > limit) {
+    const mib = (v: number): string => (v / (1024 * 1024)).toFixed(1);
+    throw new EditRefused('over_budget', `the stroke can touch more than ${limit} chunks of ${grid.edge}³ cells (up to ${mib(per)} MiB of undo each), over the ${mib(budgetBytes)} MiB undo budget of one edit: split it into smaller strokes`);
+  }
 }
 
 function planChunks(grid: ChunkGrid, plan: Plan): ChunkCoord[] {
@@ -372,6 +438,7 @@ export function applyEdit(grids: EditGrids, cmd: VoxelEditCommand, opts: EditOpt
   const grid = store.grid;
   const plan = planOf(grid, cmd, opts.stamps);
   const b = plan.box;
+  checkBudget(grid, cmd, plan, opts.budgetBytes ?? UNDO_MEMORY_BUDGET_BYTES);
   const chunks = planChunks(grid, plan);
   if (opts.loaded !== undefined) {
     for (const c of chunks) if (!opts.loaded(cmd.grid, c.cx, c.cy, c.cz)) throw new EditRefused('chunk_not_loaded', `chunk (${c.cx}, ${c.cy}, ${c.cz}) of grid ${cmd.grid} is not loaded`);

@@ -52,7 +52,7 @@ import {
   type VoxelEditCommand,
 } from '@thirdlight/voxel';
 import { sha256HexNative } from './digest';
-import { writeAtomic, type WriteOps } from './write';
+import { defaultOps, errnoOf, writeAtomic, type WriteOps } from './write';
 
 /** zstd level of chunk frames at rest (the storage pick: level 3; level 19 only pays at export). */
 export const REGION_ZSTD_LEVEL = 3;
@@ -126,6 +126,109 @@ export function replaceFile(dir: string, name: string, bytes: Uint8Array | null,
   const out = writeAtomic({ dir, target: name, bytes, allowedPreHashes: expect === null ? null : [expect], previousHash: expect, ...(ops !== undefined ? { ops } : {}) });
   if (out.ok) return { ok: true, hash: sha256HexNative(bytes) };
   return { ok: false, why: out.external !== undefined ? 'changed on disk by someone else' : out.unreadable !== undefined ? 'unreadable' : `write failed (${out.failed?.onDiskState ?? '?'}${out.failed?.errno !== undefined ? `, ${out.failed.errno}` : ''})` };
+}
+
+/** One file of a staged write: replaced only if it still holds `expect` (its hash; null: it must be absent). */
+export interface StagedFile {
+  readonly dir: string;
+  readonly name: string;
+  readonly bytes: Uint8Array;
+  readonly expect: string | null;
+}
+
+/**
+ * What a staged write did. `external` and `failed`: nothing was replaced.
+ * `partial`: the files in `written` hold their new bytes, those in
+ * `notWritten` their old ones (a rename or the folder flush failed after
+ * the first rename).
+ */
+export type StagedOutcome =
+  | { readonly ok: true; readonly hashes: ReadonlyMap<string, string> }
+  | { readonly ok: false; readonly kind: 'external'; readonly changed: readonly string[] }
+  | { readonly ok: false; readonly kind: 'failed'; readonly why: string }
+  | { readonly ok: false; readonly kind: 'partial'; readonly why: string; readonly written: readonly string[]; readonly notWritten: readonly string[]; readonly hashes: ReadonlyMap<string, string> };
+
+let stagedNonce = 0;
+
+/**
+ * Replaces several files as one change, as far as a file system allows:
+ * every file's new bytes are written and flushed to a temp file beside it
+ * first (same folder, so same disk), then every target is checked to still
+ * hold what this process last saw there, and only then are the temp files
+ * renamed over their targets, in the given order (put the file that says
+ * which others are current, a manifest, last). A failed write or a changed
+ * target replaces nothing; a rename failing midway is reported with exactly
+ * which files hold the new bytes. Keys of `hashes`: `dir/name`.
+ */
+export function writeFilesStaged(files: readonly StagedFile[], ops: WriteOps = defaultOps): StagedOutcome {
+  const path = (f: StagedFile): string => join(f.dir, f.name);
+  const temps: string[] = [];
+  const dropTemps = (from = 0): void => {
+    for (let k = from; k < temps.length; k++) ops.removeFile(temps[k]!);
+  };
+  for (const f of files) {
+    const tmp = join(f.dir, `.${f.name}.tmp-${process.pid}-s${++stagedNonce}`);
+    let fd: number | null = null;
+    try {
+      fd = ops.openTempFile(tmp);
+      temps.push(tmp);
+      ops.writeAll(fd, f.bytes);
+      ops.fsyncFile(fd);
+      const closing = fd;
+      fd = null;
+      ops.closeFile(closing);
+    } catch (e) {
+      if (fd !== null) {
+        try {
+          ops.closeFile(fd);
+        } catch {
+          // the write already failed; that error is the one reported
+        }
+      }
+      dropTemps();
+      return { ok: false, kind: 'failed', why: `${f.name}: staging failed (${errnoOf(e) ?? (e instanceof Error ? e.message : String(e))}); no file was replaced` };
+    }
+  }
+  const changed: string[] = [];
+  for (const f of files) {
+    let now: string | null;
+    try {
+      now = sha256HexNative(ops.readFile(path(f)));
+    } catch (e) {
+      const en = errnoOf(e);
+      if (en !== 'ENOENT') {
+        dropTemps();
+        return { ok: false, kind: 'failed', why: `${f.name}: unreadable (${en ?? '?'}); no file was replaced` };
+      }
+      now = null;
+    }
+    if (now !== f.expect) changed.push(f.name);
+  }
+  if (changed.length > 0) {
+    dropTemps();
+    return { ok: false, kind: 'external', changed };
+  }
+  const hashes = new Map<string, string>();
+  for (let k = 0; k < files.length; k++) {
+    const f = files[k]!;
+    try {
+      ops.renameFile(temps[k]!, path(f));
+      hashes.set(path(f), sha256HexNative(f.bytes));
+    } catch (e) {
+      dropTemps(k);
+      if (k === 0) return { ok: false, kind: 'failed', why: `${f.name}: rename failed (${errnoOf(e) ?? '?'}); no file was replaced` };
+      return { ok: false, kind: 'partial', why: `${f.name}: rename failed (${errnoOf(e) ?? '?'})`, written: files.slice(0, k).map((g) => g.name), notWritten: files.slice(k).map((g) => g.name), hashes };
+    }
+  }
+  for (const dir of new Set(files.map((f) => f.dir))) {
+    try {
+      ops.fsyncDir(dir);
+    } catch (e) {
+      // Every file holds its new bytes, but whether they survive a crash is not known.
+      return { ok: false, kind: 'partial', why: `${dir}: folder flush failed (${errnoOf(e) ?? '?'})`, written: files.map((g) => g.name), notWritten: [], hashes };
+    }
+  }
+  return { ok: true, hashes };
 }
 
 /** Undo records past the memory budget, one file each in a scratch folder. */
@@ -389,6 +492,40 @@ export class RegionWorld {
     return r.ok ? { ok: true } : { ok: false, why: why ?? r.reason };
   }
 
+  /**
+   * Commits prepared saves as one staged write ({@link writeFilesStaged}),
+   * with `after` (e.g. the world's manifest) renamed last. A save whose job
+   * expired is left out. Files written take their new state; the chunks of
+   * any file not written stay dirty, so a later save writes them. A region
+   * that became all air counts as saved only when everything was written
+   * (its file goes once the manifest no longer lists it).
+   */
+  commitAll(prepared: readonly PreparedSave[], after: readonly StagedFile[] = [], ops?: WriteOps): StagedOutcome {
+    const live = prepared.filter((p) => this.tracker.isLive(p.job.id));
+    const writes = live.filter((p) => p.bytes !== null);
+    const files: StagedFile[] = [...writes.map((p) => ({ dir: this.dir, name: p.name, bytes: p.bytes!, expect: this.files.get(p.name)?.hash ?? null })), ...after];
+    const out = writeFilesStaged(files, ops);
+    const written = new Set(out.ok ? files.map((f) => join(f.dir, f.name)) : out.kind === 'partial' ? [...out.hashes.keys()] : []);
+    for (const p of live) {
+      const f = this.files.get(p.name) ?? this.fileOf(chunkOfKey(this.opts.grid, p.job.chunks[0]!.key));
+      this.tracker.commitSave(p.job.id, () => {
+        if (p.bytes === null) {
+          if (!out.ok) return false;
+          f.hash = null;
+          f.entries = p.entries;
+          this.removals.add(p.name);
+          return true;
+        }
+        if (!written.has(join(this.dir, p.name))) return false;
+        this.removals.delete(p.name);
+        f.hash = sha256HexNative(p.bytes);
+        f.entries = p.entries;
+        return true;
+      });
+    }
+    return out;
+  }
+
   /** Deletes the files of regions that became all air (call once the world's list no longer names them). */
   flushRemovals(): void {
     for (const name of this.removals) if (this.files.get(name)?.hash === null) replaceFile(this.dir, name, null, null);
@@ -400,9 +537,9 @@ export class RegionWorld {
     let bytes = 0;
     let repacked = 0;
     const prepared = this.prepareSaves();
+    const out = this.commitAll(prepared);
+    if (!out.ok) throw new Error(`save: ${out.kind === 'external' ? `changed on disk by someone else: ${out.changed.join(', ')}` : out.why}`);
     for (const p of prepared) {
-      const r = this.commit(p);
-      if (!r.ok) throw new Error(`save ${p.name}: ${r.why}`);
       bytes += p.bytes?.length ?? 0;
       repacked += p.repacked;
     }

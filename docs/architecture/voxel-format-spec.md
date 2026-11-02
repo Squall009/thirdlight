@@ -166,6 +166,8 @@ The brick ray-marched far field was moved to 46c by the owner (2026-10-28); it w
   numbering (24 rotations, provisional).
 
 **Open, and not part of v1 yet:**
+- dependencies across grids: the job contract's keys, aprons and invalidation are per grid (§3.6 open contract
+  gap, with the planned design, before 47a);
 - what each orientation means to a case (O8; the numbering is set, 46b gives the cases their meaning);
 - where paint is stored (O16);
 - shoreline cells that are both ground and water (O15).
@@ -482,9 +484,23 @@ file names, sorted, each once) and `revision` (moves by one with every applied c
   manifest) throws for its chunks, so no save entry is made or checked against air standing in for it. It stays
   listed until it is repaired, so a lost tile never passes as empty sky. A stray file the manifest does not list is
   never read: every world reader takes the manifest's list (`RegionWorld.open`, `ShippedWorld`).
-- **Write order.** Region files are written first, then the manifest. A region that became all air is deleted
-  only after the manifest no longer lists it. A crash between the two leaves either an unlisted new file (read as
-  air, the revision not advanced) or nothing listed that is missing.
+- **Write order.** A command's dirty region files and the next manifest are one staged write: each file's new
+  bytes are written and flushed to a temp file beside it (same folder, same disk), then every target is checked
+  to hold what the backend last saw there, and only then are the temp files renamed over them, the manifest last.
+  A failed write replaces nothing, and the backend puts memory and undo history back (an edit is taken back, a
+  failed undo is re-applied as an edit and stays undoable): `write_failed`. A rename failing midway is reported
+  as `write_partial`, naming the files that hold the change and those that do not; memory keeps the change and the
+  next save that succeeds writes the rest. A region that became all air is deleted only after the manifest no
+  longer lists it. A crash between the renames leaves either an unlisted new file (read as air, the revision not
+  advanced) or nothing listed that is missing.
+- **Files changed by someone else (R53; a git checkout or pull, a restore).** The backend keeps the stamp (inode,
+  size, change times) of the manifest and of every listed region file as it last read or wrote them, checks them
+  before every command and before serving the manifest or a region file, and reads the world again when one's
+  bytes changed (a moved stamp with the same bytes is no change). Its undo history, which describes the old files,
+  is dropped. A command meeting the change, found by the stamps or by the staged write's check, is refused
+  (`world_changed`, 409, "changed on disk, reloaded") after the reload, never applied blind: the client reads what
+  changed, then sends the edit again (default chosen, owner to confirm). A released, taken-over or unregistered
+  project's worlds are closed and read again on next use.
 - **Versions.** A newer format is refused. Format 1 (45.7a) had no `regions`; its upgrade step lists the world
   grid's region files found in the folder when it is lifted, the most an old world can say.
 
@@ -537,7 +553,14 @@ Common fields: `v: 1`, `grid` (u32; 0 is the world grid), `kind`.
   ×, ÷, √, floor and round, which IEEE-754 defines exactly. Tested in Node across the store and the dense oracle;
   another JavaScript engine is unverified.
 - **All or nothing.** These refusals happen before the first write: `grid_unknown`, `chunk_not_loaded`,
-  `stamp_unknown`, `stamp_changed`, `outside_world`.
+  `stamp_unknown`, `stamp_changed`, `outside_world`, `over_budget`.
+- **Work bound (`over_budget`).** One command's worst-case undo record must fit the undo budget (§3.4): the chunks
+  it can touch × the worst case of one chunk (`chunkWorstUndoBytes`: 15 + cells × 7 bytes, 229,391 B at 32³)
+  ≤ `UNDO_MEMORY_BUDGET_BYTES`, so at most 292 chunks of 32³ (2,339 of 16³) at 64 MiB. The chunks are counted from
+  the command alone before any cell is visited: a box's chunks for a fill or stamp, listed cells' chunks for set
+  and dig, and for a brush the union of its dabs' chunks (a long thin drag counts the chunks it reaches, not its
+  bounding box). A world-sized fill or a 2 km sphere is refused at once; the memory and time of one command are
+  bounded with it. A budget, not a count: the same bytes fit more chunks of a smaller edge.
 - **No change.** A command that changes nothing reports 0 cells; the command layer refuses it as `no_change`.
 - **Answers.** The backend answers an applied command with the changed chunks and its cell box (`box`: the cells
   the command can change, from `editBounds`). An undo answers the box of the edit it takes back. A client derives
@@ -574,9 +597,10 @@ compressor find runs. The reader refuses a value the format does not hold and ai
 | 12 | … | per chunk: u32 grid, i16 cx, i16 cy, i16 cz, u8 kind (0 delta, 1 image, 2 absent), u32 length, payload |
 | end − 4 | 4 | CRC-32 of everything before it |
 
-- **Budget.** `UNDO_MEMORY_BUDGET_BYTES` = 64 MiB per editor session, a memory budget with no step count (R7).
-  Beyond it, the oldest records spill to an `UndoSpill`: files in the backend, IndexedDB in a browser. The
-  IndexedDB spill is not built yet.
+- **Budget.** `UNDO_MEMORY_BUDGET_BYTES` = 64 MiB **per open world** (the backend keeps one undo store for each
+  world it has open, so a process with several open worlds holds up to 64 MiB for each), a memory budget with no
+  step count (R7). Beyond it, the oldest records spill to an `UndoSpill`: files in the backend, IndexedDB in a
+  browser. The IndexedDB spill is not built yet. One command's worst-case record must fit it too (§3.3, work bound).
 - **Ordering.** Calls run in order, so a put during a spill write cannot spill a record twice.
 
 **Measured (45.4):** 22 B for one voxel, 95–103 B for a 1 m dab, 1.5–1.6 KB for a 4 m dab, 45–60 KB for a 16 m
@@ -766,6 +790,22 @@ shapes, in x, z, y order.
 - Which files exist is the world's to say (§3.2 manifest): a region the world does not list reads as all air; a
   listed file that is gone or fails to open reports its chunks as damaged.
 
+**Open contract gap: dependencies across grids (review M7; for the owner before 47a).** Aprons, dependency and
+invalidation keys (`dependentChunks`, tracker stamps) and derived results are all per grid: a job names one grid's
+chunk and sees only that grid's cells. §1e needs a structure grid's pieces to end in caps where it meets another
+grid or the terrain, and a rail can stand on world-grid ground, so a derive will read another grid's occupancy and
+an edit in one grid must invalidate results in another. v1 cannot express that; it was not added in 45 because
+it needs the rotated structure grids (47a) to be tested honestly. Planned design (proposed):
+- **keys:** every chunk key, input stamp and dependency in the job contract becomes (grid id, chunk) (today's
+  keys are grid 0's);
+- **cross-grid apron:** a derive names, besides its own apron, read-only *occupancy strips* of other grids: for
+  each grid whose bounds come within R of the chunk, the cells of that grid within R, resampled into this grid's
+  frame by the grids' transform (occupancy and category only, not the full record);
+- **invalidation:** an edit's cell box, moved into every other grid's frame (its world-space box, rounded out),
+  marks that grid's results within R of it stale (`dependentChunks` per grid);
+- **staleness:** a result accepted only while the stamps of every chunk it read, in every grid, still match.
+Cost to measure in 47a: the resampling per job and the extra strips' bytes.
+
 **Measured:**
 - **Node, 45.5a:** 87–173 stored chunks/s decoded; worker jobs 0.66 ms median.
 - **Chrome, 45.5b:** frame p95 16.67 ms at 40 and 80 m/s on both renderers; `update()` p95 2.3–2.4 ms; ring 9–10 MB.
@@ -790,6 +830,12 @@ hash results; they are never stored.
 - **Placeholder rules v1** (`placeholder`, version 1, R = 2) read only the category: beam, rail, post, and
   everything else built is a wall. The case catalogue is 46b's; corners, stairs, openings, soffits and mouldings
   are not covered.
+- **Radius conformance (every rule set).** A rule set's `radius` is its own claim, and a rule reading further would
+  read past the job's apron (air, or another row's cells) with no error. `ruleRadiusMismatches(store, rules,
+  chunks)` evaluates each chunk with the job's pad (R + 1) and with 3 cells more and lists every cell the
+  consumers read that differs. A test runs it for every registered rule set (`registeredAssemblyRules`) on random
+  worlds at both chunk edges; 46b's catalogue passes it once registered. A rule reading 2 cells while declaring 1
+  is caught (tested).
 
 **Consumer tables.** One evaluation feeds every consumer:
 
@@ -1192,3 +1238,23 @@ draft (no version number moved).
 - **L3** stored values are checked in region tables, saves, cell deltas and overrides (§2.2). **L5** overrides
   have an upgrade registry (§3.5). **L4** `record.ts` says what is still provisional: category set and orientation
   meaning, not the widths.
+
+### Changed after the independent review (45.8b)
+
+The review's M3–M7, L1, L2, L6 and L8 (no byte of any format changed; the staging slice world stands):
+- **M3 — one command's work is bounded by a memory budget.** Refused as `over_budget` before any cell is visited
+  when its worst-case undo record could pass `UNDO_MEMORY_BUDGET_BYTES` (§3.3 work bound). Tested on the real
+  command route: a world-sized fill and a 2 km sphere are refused at once; normal strokes are unaffected.
+- **M4 — open worlds do not go stale.** File stamps are checked before every command and read; files changed by
+  someone else make the backend read the world again, and the command meeting the change is refused with
+  `world_changed`; released, taken-over and unregistered projects' worlds are closed (§3.2 manifest). Tested by
+  writing region files and the manifest behind a running backend (a checkout): no restart needed.
+- **M5 — a failed write leaves files, memory and history consistent.** Region files and the manifest are one staged
+  write; a failed undo is re-applied as an edit; a rename failing midway is reported precisely (§3.2). Tested with
+  write, rename and foreign-change failures injected at one step.
+- **M6 — rule radius conformance** for every rule set (§3.7), and a stronger Q-a check: one arrangement reached by
+  different commands in another order (fills, brush, set, dig and paint across both chunk faces) gives equal
+  derived results and byte-identical region files.
+- **M7 — dependencies across grids** are recorded as an open contract gap with the planned design (§3.6), not
+  built (default chosen, owner to confirm).
+- **L8** the undo budget is per open world (§3.4).

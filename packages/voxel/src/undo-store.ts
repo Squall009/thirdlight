@@ -17,18 +17,12 @@
 import { crc32 } from '@thirdlight/shared';
 import { CellDelta } from './cell-delta';
 import type { ChunkGrid } from './coords';
-import { UNDO_CHUNK_HEADER_BYTES, undoRecordBytes, type ChunkUndo } from './edit-apply';
+import { UNDO_CHUNK_HEADER_BYTES, UNDO_MEMORY_BUDGET_BYTES, undoRecordBytes, type ChunkUndo } from './edit-apply';
 import { PALETTE_CODEC_VERSION, readPaletteHeader } from './palette-codec';
 import { checkValueForm, RECORD_VALUE_FORM } from './record';
 
 /** The undo record format this build writes and reads. */
 export const UNDO_RECORD_VERSION = 1;
-
-/**
- * Default bytes of undo records an editor keeps in memory before spilling
- * the oldest to disk (a memory budget, not a step count).
- */
-export const UNDO_MEMORY_BUDGET_BYTES = 64 * 1024 * 1024;
 
 const MAGIC = [0x54, 0x4c, 0x56, 0x55] as const;
 const HEADER = 12;

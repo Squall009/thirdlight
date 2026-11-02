@@ -21,6 +21,7 @@
  * reports, per cell, what every consumer of the derived data received.
  */
 import * as THREE from 'three';
+import { hexToBytes } from '@thirdlight/shared';
 import {
   chunkGrid,
   chunkKey,
@@ -33,6 +34,7 @@ import {
   PLACEHOLDER_RULES,
   RegionChunkSource,
   SampleRing,
+  STREAM_POOL_SETTINGS,
   voxel,
   VOXEL_CATEGORY,
   VOXEL_SIZE_M,
@@ -153,8 +155,8 @@ async function main(): Promise<void> {
     collision?.rebase();
   });
 
-  const pool = new WorkerPool({ size: workers, create: () => eventTargetWorker(new Worker('./voxel-worker.js', { type: 'module' })), timeoutMs: 5000, maxQueued: 256 });
-  const worldId = Uint8Array.from(info.manifest.worldId.match(/../g)!, (h) => parseInt(h, 16));
+  const pool = new WorkerPool({ size: workers, create: () => eventTargetWorker(new Worker('./voxel-worker.js', { type: 'module' })), ...STREAM_POOL_SETTINGS });
+  const worldId = hexToBytes(info.manifest.worldId);
   const source = new RegionChunkSource({ worldId, gridId: WORLD_GRID_ID, grid, layout: info.manifest.layout, footprint: info.manifest.footprint, open: byteSource, maxOpen: 64 });
   const streamer = new VoxelStreamer({ store: createWorldStore(grid), source, pool, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.low, dependencyRadius: jobRadius(PLACEHOLDER_RULES), derive: true, rules: PLACEHOLDER_RULES });
 

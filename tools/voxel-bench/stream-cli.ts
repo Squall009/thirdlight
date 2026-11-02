@@ -25,6 +25,7 @@ import {
   createWorldStore,
   DEFAULT_STREAM_RING,
   ringChunks,
+  STREAM_POOL_SETTINGS,
   VOXEL_STREAM_BUDGET_BYTES,
   VoxelStreamer,
   WorkerPool,
@@ -100,7 +101,7 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 
 async function run(spec: RunSpec, workerFile: string): Promise<Record<string, unknown>> {
   const ring = spec.ring ?? DEFAULT_STREAM_RING;
-  const pool = new WorkerPool({ size: WORKERS, create: () => nodePoolWorker(workerFile), timeoutMs: 5000, maxQueued: 256 });
+  const pool = new WorkerPool({ size: WORKERS, create: () => nodePoolWorker(workerFile), ...STREAM_POOL_SETTINGS });
   const disk = new DiskRegions(WORLD_DIR);
   const s = new VoxelStreamer({ store: createWorldStore(grid), source: disk.source(grid, 'stacked', 512, 128), pool, ring, budgetBytes: spec.budget, dependencyRadius: 2, derive: spec.derive, readBatch: 64, maxReads: 4 });
   const start = loopAt(0);

@@ -14,6 +14,7 @@ import {
   chunkGrid,
   chunkKey,
   chunkOfKey,
+  chunkWorstUndoBytes,
   createDenseChunk,
   damagedRegionChunks,
   decodeOverrides,
@@ -21,6 +22,7 @@ import {
   decodeUndoRecord,
   DenseReferenceStore,
   EditCommandError,
+  editChunks,
   EditRefused,
   encodeOverrides,
   encodeUndoRecord,
@@ -31,6 +33,7 @@ import {
   sameDenseChunk,
   SaveFileError,
   stampShapeHash,
+  UNDO_MEMORY_BUDGET_BYTES,
   UndoStore,
   voxel,
   VOXEL_CATEGORY,
@@ -199,6 +202,41 @@ describe('edit commands', () => {
     let calls = 0;
     expect(code(() => applyEdit(grids(s), fill, { loaded: () => ++calls < 2 }))).toBe('chunk_not_loaded');
     expectSame(s, townStore());
+  });
+
+  it('refuse a stroke whose worst-case undo passes the memory budget of one edit, before visiting a cell', () => {
+    const s = townStore();
+    const code = (f: () => unknown): string => {
+      try {
+        f();
+      } catch (e) {
+        return e instanceof EditRefused ? e.code : String(e);
+      }
+      return 'applied';
+    };
+    const per = chunkWorstUndoBytes(grid);
+    // 32³: 15 + 32,768 × 7 bytes a chunk at worst, so the 64 MiB default fits 292 chunks of any stroke.
+    expect(per).toBe(229_391);
+    expect(Math.floor(UNDO_MEMORY_BUDGET_BYTES / per)).toBe(292);
+    const fill = (x1: number): VoxelEditCommand => canonicalEditCommand({ v: 1, grid: 0, kind: 'fill', min: [0, 0, 0], max: [x1, 31, 31], mode: 'place', voxel: stone });
+    // A budget of 4 chunks: a fill over 4 chunks applies, over 5 is refused and writes nothing.
+    const budgetBytes = 4 * per;
+    expect(code(() => applyEdit(grids(s), fill(4 * 32 + 31), { budgetBytes }))).toBe('over_budget');
+    expectSame(s, townStore());
+    expect(applyEdit(grids(s), fill(3 * 32 + 31), { budgetBytes }).chunks.length).toBe(4);
+    // A long thin brush stroke counts the chunks its dabs reach, not its bounding box: 16 dabs of a 1-cell sphere
+    // along a diagonal across 8 chunks on x and z (64 in its box) fit a budget of 9 chunks.
+    const points: number[] = [];
+    for (let k = 0; k < 16; k++) points.push(40 + k * 16 + 5, 20, 40 + k * 16 + 5);
+    const thin = canonicalEditCommand({ v: 1, grid: 0, kind: 'brush', shape: 'sphere', size: [1, 1, 1], points, mode: 'dig', smooth: false });
+    expect(code(() => applyEdit(grids(townStore()), thin, { budgetBytes: 9 * per }))).toBe('applied');
+    expect(code(() => applyEdit(grids(townStore()), thin, { budgetBytes: 7 * per }))).toBe('over_budget');
+    // The default budget: the world filled, or a sphere 2 km across, refused at once (no cell visited).
+    const t0 = performance.now();
+    expect(code(() => applyEdit(grids(s), canonicalEditCommand({ v: 1, grid: 0, kind: 'fill', min: [-32768, -8192, -32768], max: [32767, 8191, 32767], mode: 'place', voxel: stone })))).toBe('over_budget');
+    expect(code(() => applyEdit(grids(s), canonicalEditCommand({ v: 1, grid: 0, kind: 'brush', shape: 'sphere', size: [2000, 0, 0], points: [0, 0, 0], mode: 'dig', smooth: false })))).toBe('over_budget');
+    expect(code(() => editChunks(grid, canonicalEditCommand({ v: 1, grid: 0, kind: 'fill', min: [-32768, -8192, -32768], max: [32767, 8191, 32767], mode: 'dig' })))).toBe('over_budget');
+    expect(performance.now() - t0).toBeLessThan(500);
   });
 });
 

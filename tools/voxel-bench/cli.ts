@@ -10,7 +10,7 @@
  *   --sample-tiles N     sweep only N evenly spaced 256 m tiles of larger worlds, extrapolated by footprint
  *   --no-bench           sizes only (skip access, edit and transfer timings)
  *   --quick              fewer benchmark operations (a smoke run)
- *   --codecs a,b,…       compressors to size and time: zstd1, zstd (level 3), zstd9, zstd19, deflate, lz4,
+ *   --codecs a,b,…       compressors to size and time: zstd1, zstd (level 3), zstd9, zstd19, deflate,
  *                        zstd-dict, or all (default zstd,deflate)
  *   --corpus DIR         also write 2,000 randomly sampled chunks' encoded bytes per world to DIR (browser decode bench)
  *   --out DIR            report folder (default ~/.cache/thirdlight-voxel-bench)

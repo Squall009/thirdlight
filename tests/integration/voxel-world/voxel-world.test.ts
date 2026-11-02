@@ -3,15 +3,19 @@
  * region files on disk: the world's manifest and region files read by byte
  * range (auth, origin, tags, 206/200/412/416), voxel edit and undo commands
  * on the command route (applied by the workspace, region files replaced,
- * revision moved, request ids answered once, refusals), and a second
- * backend over the same data root finding the edit in the files, and a
- * region file the manifest lists but that is gone reported as damaged
- * (never air) while an unlisted region reads as air.
+ * revision moved, request ids answered once, refusals, a stroke over the
+ * memory budget of one edit refused at once), files changed behind the
+ * running backend's back (a git checkout) read again without a restart,
+ * a released project's worlds read again, the backend restarted over the
+ * same data root finding the edit in the files, and a region file the
+ * manifest lists but that is gone reported as damaged (never air) while an
+ * unlisted region reads as air.
  *
  * Chunks are read back the way a browser does: a region chunk source whose
  * byte source sends Range requests to the route, decoded into a store, and
  * compared with the same commands applied to a copy in this process.
  */
+import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createTestBackend, testTempBase } from '@thirdlight/backend/testing';
@@ -216,6 +220,21 @@ describe('voxel world routes', () => {
     const far = await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: { ...DIG, points: [0, 9000, 0] } } });
     expect(far.status).toBe(400);
     expect((far.json.error as { code: string }).code).toBe('outside_world');
+    // A stroke whose worst-case undo would pass the budget of one edit is refused before a cell is visited:
+    // the whole world filled, a sphere 2 km across. Each would otherwise hold the backend for minutes and run it out of memory.
+    for (const huge of [
+      { v: 1, grid: 0, kind: 'fill', min: [-32768, -8192, -32768], max: [32767, 8191, 32767], mode: 'place', voxel: { material: 3, category: 2, orientation: 0 } },
+      { ...DIG, size: [2000, 2000, 2000] },
+    ]) {
+      const t0 = performance.now();
+      const r = await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: huge } });
+      const ms = performance.now() - t0;
+      expect(r.status).toBe(400);
+      expect(r.json.error).toMatchObject({ code: 'over_budget' });
+      expect((r.json.error as { message: string }).message).toMatch(/more than 292 chunks of 32³ cells .* over the 64\.0 MiB undo budget of one edit/);
+      // A refusal answers like any other; 2 s leaves room for a loaded gate host.
+      expect(ms).toBeLessThan(2000);
+    }
     const browser = await command({ op: 'editVoxels', projectId: PROJECT, origin: { kind: 'browser' }, args: { world: WORLD, command: DIG } });
     expect(browser.status).toBe(403);
     expect((browser.json.error as { code: string }).code).toBe('session_required');
@@ -241,11 +260,49 @@ describe('voxel world routes', () => {
     expect((await command({ op: 'editVoxels', projectId: PROJECT, requestId: rid(5), args: { world: WORLD, command: DIG } })).json).toMatchObject({ ok: true, revision: 3 });
   });
 
-  it('a second backend over the same data root finds the edit in the region files and the revision in the manifest', async () => {
+  it('reads the world again when its files change behind the running backend (a git checkout): one edit refused, then edits work, no restart', async () => {
+    const worldDir = join(backend._test.service.projectDir(PROJECT)!, 'voxels', WORLD);
+    const snapshot = (): Map<string, Buffer> => new Map([['world.json', readFileSync(join(worldDir, 'world.json'))], ...(JSON.parse(readFileSync(join(worldDir, 'world.json'), 'utf8')) as { regions: string[] }).regions.map((n): [string, Buffer] => [`grid-0/${n}`, readFileSync(join(worldDir, 'grid-0', n))])]);
+    // The world now (revision 3, one dig) is the commit checked out again below; then one more edit moves it on.
+    const committed = snapshot();
+    const SET = { v: 1, grid: 0, kind: 'set', cells: [0, 12, 0, 1, 12, 0], voxel: { material: 3, category: 2, orientation: 0, shape: 255 } };
+    expect((await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: SET } })).json).toMatchObject({ ok: true, revision: 4, undoable: 2 });
+    // A region file alone changed back (the manifest the same bytes): the info serves the file's new tag.
+    const [name, bytes] = [...committed].find(([n, b]) => n.startsWith('grid-0/') && !b.equals(readFileSync(join(worldDir, n))))!;
+    writeFileSync(join(worldDir, name), bytes);
+    const info = (await (await fetch(`${base()}/api/v1/projects/${PROJECT}/voxels/${WORLD}`, { headers: auth })).json()) as { manifest: { revision: number }; files: Array<{ name: string; etag: string }> };
+    expect(info.manifest.revision).toBe(4);
+    expect(info.files.find((f) => `grid-0/${f.name}` === name)?.etag).toBe(createHash('sha256').update(bytes).digest('hex'));
+    // The whole commit checked out (manifest included); the next edit meets it: refused once, the world read again.
+    for (const [n, b] of committed) writeFileSync(join(worldDir, n), b);
+    const met = await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: SET } });
+    expect(met.status).toBe(409);
+    expect(met.json.error).toMatchObject({ code: 'world_changed' });
+    expect((met.json.error as { message: string }).message).toMatch(/changed on disk outside this backend .*reloaded at revision 3, undo history cleared/);
+    // What the routes serve now is the checked-out commit: the original world with the one dig.
+    expectSame(await readChunks(SCENE_CHUNKS), expected, SCENE_CHUNKS);
+    expect(((await command({ op: 'undoVoxels', projectId: PROJECT, args: { world: WORLD } })).json.error as { code: string }).code).toBe('nothing_to_undo');
+    // The edit sent again applies on it.
+    expect((await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: SET } })).json).toMatchObject({ ok: true, revision: 4, undoable: 1 });
+    applyEdit({ store: () => expected }, canonicalEditCommand(SET));
+    expectSame(await readChunks(SCENE_CHUNKS), expected, SCENE_CHUNKS);
+  });
+
+  it('forgets a released project\'s open worlds: their undo history goes and the folder is read again on next use', async () => {
+    // The edit above can be undone until the project is released.
+    expect(((await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: DIG } })).json.error as { code: string }).code).toBe('no_change');
+    const released = await fetch(`${base()}/api/v1/admin/projects/${PROJECT}/release`, { method: 'POST', headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' }, body: '{}' });
+    expect(released.status, await released.clone().text()).toBe(200);
+    expect(((await command({ op: 'undoVoxels', projectId: PROJECT, args: { world: WORLD } })).json.error as { code: string }).code).toBe('nothing_to_undo');
+    expectSame(await readChunks(SCENE_CHUNKS), expected, SCENE_CHUNKS);
+  });
+
+  it('a restarted backend (the same data root) finds the edit in the region files and the revision in the manifest', async () => {
+    const revision = ((await (await fetch(`${base()}/api/v1/projects/${PROJECT}/voxels/${WORLD}`, { headers: auth })).json()) as { manifest: { revision: number } }).manifest.revision;
     await close();
     await start();
     const info = (await (await fetch(`${base()}/api/v1/projects/${PROJECT}/voxels/${WORLD}`, { headers: auth })).json()) as { manifest: { revision: number } };
-    expect(info.manifest.revision).toBe(3);
+    expect(info.manifest.revision).toBe(revision);
     expectSame(await readChunks(SCENE_CHUNKS), expected, SCENE_CHUNKS);
     // Undo history is the process's: none after a restart.
     expect(((await command({ op: 'undoVoxels', projectId: PROJECT, args: { world: WORLD } })).json.error as { code: string }).code).toBe('nothing_to_undo');
@@ -282,7 +339,7 @@ describe('voxel world routes', () => {
     const into = await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: { v: 1, grid: 0, kind: 'set', cells: [inLost.cx * 32, inLost.cy * 32, inLost.cz * 32], voxel: { material: 3, category: 2, orientation: 0, shape: 255 } } } });
     expect(into.status).toBe(409);
     expect((into.json.error as { code: string }).code).toBe('chunk_not_loaded');
-    const elsewhere = await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: { v: 1, grid: 0, kind: 'set', cells: [0, 12, 0], voxel: { material: 3, category: 2, orientation: 0, shape: 255 } } } });
+    const elsewhere = await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: { v: 1, grid: 0, kind: 'set', cells: [2, 12, 0], voxel: { material: 3, category: 2, orientation: 0, shape: 255 } } } });
     expect(elsewhere.status, JSON.stringify(elsewhere.json)).toBe(200);
     expect((JSON.parse(readFileSync(join(worldDir, 'world.json'), 'utf8')) as { regions: string[] }).regions).toEqual(manifest.regions);
   }, 60_000);

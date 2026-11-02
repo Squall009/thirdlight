@@ -13,18 +13,27 @@
  * Edits arrive as commands (`editVoxels`: one stroke command, the same
  * format and the same deterministic apply as everywhere else;
  * `undoVoxels`: the newest edit's undo record written back as a new
- * change). Each command is applied to the world in memory, its dirty
- * region files are replaced atomically, then the revision is written. A
- * client never writes files: it reads region files by range and re-reads
- * the chunks a command reports changed.
+ * change). Each command is applied to the world in memory, then its dirty
+ * region files and the next revision of the manifest are written as one
+ * staged change: every file is written beside its target first, and only
+ * when all are on disk are they renamed into place, the manifest last. A
+ * failed write leaves files, memory and undo history as before the command;
+ * a rename failing midway is reported with the files it reached. A client
+ * never writes files: it reads region files by range and re-reads the
+ * chunks a command reports changed.
+ *
+ * Files someone else changes (a git checkout or pull, a restore) are found
+ * by their stamps before the next command or read: the world is read again
+ * and the command meeting the change is refused (`world_changed`), so no
+ * edit is written over files this process has not seen.
  *
  * Commands of one world run one at a time in arrival order. A request id
  * seen again answers the first answer (a resent stroke is not applied
- * twice). Undo records live in memory up to the voxel package's budget and
- * spill to the project's cache folder; they last as long as the world is
- * open in this process.
+ * twice). Undo records live in memory up to the voxel package's budget (per
+ * open world) and spill to the project's cache folder; they last as long as
+ * the world is open in this process.
  */
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { REQUEST_ID_RE } from '@thirdlight/project-model/request-id';
 import {
@@ -34,6 +43,8 @@ import {
   editBounds,
   EditCommandError,
   EditRefused,
+  isRegionFootprint,
+  REGION_FOOTPRINTS,
   liftVersion,
   UndoStore,
   WORLD_GRID_ID,
@@ -48,8 +59,8 @@ import {
 } from '@thirdlight/voxel';
 import { hexToBytes } from '@thirdlight/shared';
 import { sha256HexNative } from './digest';
-import { DiskUndoSpill, listRegionFiles, REGION_FILE_NAME_RE, RegionWorld, ShippedWorld, addressName, addressOf, type WorldDirOptions } from './voxel-world-files';
-import { writeAtomic } from './write';
+import { DiskUndoSpill, listRegionFiles, REGION_FILE_NAME_RE, RegionWorld, ShippedWorld, addressName, addressOf, type StagedOutcome, type WorldDirOptions } from './voxel-world-files';
+import { writeAtomic, type WriteOps } from './write';
 
 /** The project folder holding its voxel worlds, one folder each. */
 export const VOXEL_WORLDS_FOLDER = 'voxels';
@@ -111,9 +122,9 @@ export function parseVoxelWorldManifest(value: unknown): VoxelWorldManifest {
   if (typeof o.worldId !== 'string' || !new RegExp(`^[0-9a-f]{${WORLD_ID_BYTES * 2}}$`).test(o.worldId)) throw new Error('worldId is 32 hex digits');
   if (!(CHUNK_EDGES as readonly unknown[]).includes(o.edge)) throw new Error(`chunk edge ${String(o.edge)}`);
   if (o.layout !== 'stacked' && o.layout !== 'column') throw new Error(`layout ${String(o.layout)}`);
-  if (o.footprint !== 512 && o.footprint !== 1024) throw new Error(`footprint ${String(o.footprint)} (cells a region side)`);
+  if (!isRegionFootprint(o.footprint)) throw new Error(`footprint ${String(o.footprint)} (cells a region side, one of ${REGION_FOOTPRINTS.join(', ')})`);
   if (typeof o.revision !== 'number' || !Number.isSafeInteger(o.revision) || o.revision < 0) throw new Error('revision is a whole number ≥ 0');
-  return { format: VOXEL_WORLD_FORMAT, worldId: o.worldId, edge: o.edge as ChunkEdge, layout: o.layout, footprint: o.footprint, regions: regions as string[], revision: o.revision };
+  return { format: VOXEL_WORLD_FORMAT, worldId: o.worldId, edge: o.edge as ChunkEdge, layout: o.layout, footprint: o.footprint as RegionFootprint, regions: regions as string[], revision: o.revision };
 }
 
 function manifestBytes(m: VoxelWorldManifest): Uint8Array {
@@ -200,16 +211,34 @@ export interface VoxelCommandApplied {
 
 export type VoxelCommandResult = VoxelCommandApplied | { ok: false; error: VoxelWorldError };
 
-interface OpenWorld {
+/** One edit in a world's history: its undo record's id, the cells it changed and the box it could change. */
+interface HistoryEntry {
+  readonly id: number;
+  readonly cells: number;
+  readonly box: Readonly<CellBox>;
+}
+
+/** What a world folder holds as this process last read or wrote it. */
+interface WorldState {
+  manifest: VoxelWorldManifest;
+  /** Hash of the manifest's bytes. */
+  manifestHash: string;
+  world: RegionWorld;
+  undo: UndoStore;
+  history: HistoryEntry[];
+  /**
+   * File stamps (inode, size, change times) of the manifest and every listed
+   * region file, by path ('absent' for a missing one): a file whose stamp
+   * moved is checked by hash, and one whose bytes differ was changed by
+   * someone else (a git checkout, a restore, another program).
+   */
+  stamps: Map<string, string>;
+}
+
+interface OpenWorld extends WorldState {
+  readonly projectId: string;
   readonly name: string;
   readonly dir: string;
-  manifest: VoxelWorldManifest;
-  /** Hash of the manifest's bytes as this process last read or wrote them. */
-  manifestHash: string;
-  readonly world: RegionWorld;
-  readonly undo: UndoStore;
-  /** Undo record ids, the cells their edit changed and the box it could change, newest last. */
-  readonly history: Array<{ readonly id: number; readonly cells: number; readonly box: Readonly<CellBox> }>;
   readonly answers: Map<string, VoxelCommandApplied>;
   queue: Promise<unknown>;
 }
@@ -219,9 +248,28 @@ const refuse = (code: string, cls: VoxelWorldError['cls'], message: string, path
 export interface VoxelWorldsOptions {
   /** The project's folder (null: the project cannot be opened). */
   projectDir(projectId: string): string | null;
+  /** The file operations of region and manifest writes (tests inject failures here). */
+  readonly writeOps?: WriteOps;
 }
 
-/** The voxel worlds of every project this process serves, opened on first use. */
+function fileStamp(path: string): string {
+  try {
+    const s = statSync(path, { bigint: true });
+    return `${s.ino}:${s.size}:${s.mtimeNs}:${s.ctimeNs}`;
+  } catch {
+    return 'absent';
+  }
+}
+
+/**
+ * The voxel worlds of every project this process serves, opened on first
+ * use and kept current with their folders: before a command, and before
+ * the manifest or a region file is served, the files' stamps are checked,
+ * and a world whose files someone else changed is read again (its undo
+ * history, which describes the old files, is dropped). A command that
+ * meets such a change is refused (`world_changed`) once the world is read
+ * again, so a client re-reads what changed before it edits.
+ */
 export class VoxelWorlds {
   private readonly open = new Map<string, Promise<OpenWorld | { ok: false; error: VoxelWorldError }>>();
 
@@ -236,7 +284,7 @@ export class VoxelWorlds {
       this.open.set(key, p);
       // A world that could not be opened is tried again next time (it may be written meanwhile).
       void p.then((w) => {
-        if ('ok' in w) this.open.delete(key);
+        if ('ok' in w && this.open.get(key) === p) this.open.delete(key);
       });
     }
     return p;
@@ -246,31 +294,106 @@ export class VoxelWorlds {
     const projectDir = this.opts.projectDir(projectId);
     if (projectDir === null) return refuse('project_not_found', 'not_found', `project ${projectId} cannot be opened`);
     const dir = join(projectDir, VOXEL_WORLDS_FOLDER, name);
+    const state = await this.readState(projectDir, dir, name);
+    if ('ok' in state) return state;
+    return { projectId, name, dir, ...state, answers: new Map(), queue: Promise.resolve() };
+  }
+
+  /** Reads a world folder: manifest, region files, a fresh undo store and the files' stamps. */
+  private async readState(projectDir: string, dir: string, name: string): Promise<WorldState | { ok: false; error: VoxelWorldError }> {
     let manifest: VoxelWorldManifest;
     let manifestHash: string;
+    const manifestPath = join(dir, VOXEL_WORLD_MANIFEST);
+    const manifestStamp = fileStamp(manifestPath);
     try {
-      const bytes = readFileSync(join(dir, VOXEL_WORLD_MANIFEST));
+      const bytes = readFileSync(manifestPath);
       manifestHash = sha256HexNative(bytes);
       manifest = parseVoxelWorldManifest(liftManifest(JSON.parse(bytes.toString('utf8')) as Record<string, unknown>, dir));
     } catch (e) {
-      if (!existsSync(join(dir, VOXEL_WORLD_MANIFEST))) return refuse('world_not_found', 'not_found', `project ${projectId} has no voxel world ${name}`);
+      if (!existsSync(manifestPath)) return refuse('world_not_found', 'not_found', `this project has no voxel world ${name}`);
       return refuse('world_unreadable', 'internal', `voxel world ${name}: ${e instanceof Error ? e.message : String(e)}`);
     }
     const opts = worldOptions(manifest);
-    const { world } = await RegionWorld.open(join(dir, gridFolder(WORLD_GRID_ID)), opts, manifest.regions);
-    // Undo records of an earlier run are gone with it: the folder starts empty.
+    const gridDir = join(dir, gridFolder(WORLD_GRID_ID));
+    const stamps = new Map<string, string>([[manifestPath, manifestStamp]]);
+    // Stamped before the read: a change while reading moves the stamp, and the next check reads the world again.
+    for (const file of manifest.regions) stamps.set(join(gridDir, file), fileStamp(join(gridDir, file)));
+    const { world } = await RegionWorld.open(gridDir, opts, manifest.regions);
+    // Undo records of an earlier run (or of the files before someone else changed them) are gone: the folder starts empty.
     const spillDir = join(projectDir, 'cache', 'voxel-undo', name);
     rmSync(spillDir, { recursive: true, force: true });
     mkdirSync(spillDir, { recursive: true });
-    return { name, dir, manifest, manifestHash, world, undo: new UndoStore(opts.grid, new DiskUndoSpill(spillDir)), history: [], answers: new Map(), queue: Promise.resolve() };
+    return { manifest, manifestHash, world, undo: new UndoStore(opts.grid, new DiskUndoSpill(spillDir)), history: [], stamps };
+  }
+
+  /**
+   * The files of a world (the manifest and `files`, by default every listed
+   * region) someone else changed since this process last read or wrote
+   * them: a moved stamp whose bytes still hash to what this process knows
+   * is not a change (the stamp is renewed).
+   */
+  private changedOnDisk(w: OpenWorld, files?: readonly string[]): string[] {
+    const gridDir = w.world.dir;
+    const checks: Array<{ name: string; path: string; known: string | null | undefined }> = [{ name: VOXEL_WORLD_MANIFEST, path: join(w.dir, VOXEL_WORLD_MANIFEST), known: w.manifestHash }];
+    for (const file of files ?? w.manifest.regions) checks.push({ name: file, path: join(gridDir, file), known: w.world.files.get(file)?.hash });
+    const changed: string[] = [];
+    for (const c of checks) {
+      const stamp = fileStamp(c.path);
+      const was = w.stamps.get(c.path);
+      if (was === stamp) continue;
+      if (was === undefined && stamp === 'absent') continue;
+      let now: string | null = null;
+      try {
+        now = stamp === 'absent' ? null : sha256HexNative(readFileSync(c.path));
+      } catch {
+        now = null;
+      }
+      if (c.known !== undefined && now !== null && now === c.known) w.stamps.set(c.path, stamp);
+      else changed.push(c.name);
+    }
+    return changed;
+  }
+
+  /**
+   * Reads a world again when someone else changed its files; returns the
+   * files that changed (empty: none), or why the world cannot be read now
+   * (then it is closed, and opened again on next use).
+   */
+  private async refresh(w: OpenWorld, files?: readonly string[]): Promise<string[] | { ok: false; error: VoxelWorldError }> {
+    const changed = this.changedOnDisk(w, files);
+    if (changed.length === 0) return changed;
+    const projectDir = this.opts.projectDir(w.projectId);
+    const state = projectDir === null ? refuse('project_not_found', 'not_found', `project ${w.projectId} cannot be opened`) : await this.readState(projectDir, w.dir, w.name);
+    if ('ok' in state) {
+      this.forget(w);
+      return state;
+    }
+    Object.assign(w, state);
+    return changed;
+  }
+
+  private forget(w: OpenWorld): void {
+    const key = `${w.projectId}\u0000${w.name}`;
+    if (this.open.has(key)) this.open.delete(key);
+  }
+
+  /** Runs `fn` after the world's queued commands (reads see no half-applied command). */
+  private queued<T>(w: OpenWorld, fn: () => Promise<T>): Promise<T> {
+    const run = w.queue.then(fn);
+    w.queue = run.catch(() => undefined);
+    return run;
   }
 
   /** The world's manifest and its region files with their entity tags. */
   async info(projectId: string, name: string): Promise<VoxelWorldInfo> {
     const w = await this.load(projectId, name);
     if ('ok' in w) return w;
-    const files = w.world.listedRegions().map((file) => ({ name: file, etag: w.world.files.get(file)?.hash ?? null }));
-    return { ok: true, world: name, manifest: w.manifest, files };
+    return this.queued(w, async (): Promise<VoxelWorldInfo> => {
+      const fresh = await this.refresh(w);
+      if (!Array.isArray(fresh)) return fresh;
+      const files = w.world.listedRegions().map((file) => ({ name: file, etag: w.world.files.get(file)?.hash ?? null }));
+      return { ok: true, world: name, manifest: w.manifest, files };
+    });
   }
 
   /**
@@ -283,11 +406,16 @@ export class VoxelWorlds {
     if (!REGION_FILE_NAME_RE.test(file)) return refuse('invalid_request', 'validation', 'not a region file name', '/file');
     const w = await this.load(projectId, name);
     if ('ok' in w) return w;
-    const broken = w.world.damagedRegions.get(file);
-    if (broken !== undefined) return refuse('region_damaged', 'conflict', `voxel world ${name} lists region ${file}, which cannot be read: ${broken}`);
-    const f = w.world.files.get(file);
-    if (f === undefined || f.hash === null) return refuse('region_not_found', 'not_found', `voxel world ${name} has no region ${file}`);
-    return { ok: true, path: join(w.world.dir, file), etag: f.hash };
+    return this.queued(w, async (): Promise<RegionFileAnswer> => {
+      // Only a listed file can be stale here; a file the manifest does not list is no part of the world (a new one comes with a changed manifest).
+      const fresh = await this.refresh(w, w.manifest.regions.includes(file) ? [file] : []);
+      if (!Array.isArray(fresh)) return fresh;
+      const broken = w.world.damagedRegions.get(file);
+      if (broken !== undefined) return refuse('region_damaged', 'conflict', `voxel world ${name} lists region ${file}, which cannot be read: ${broken}`);
+      const f = w.world.files.get(file);
+      if (f === undefined || f.hash === null) return refuse('region_not_found', 'not_found', `voxel world ${name} has no region ${file}`);
+      return { ok: true, path: join(w.world.dir, file), etag: f.hash };
+    });
   }
 
   /**
@@ -310,9 +438,13 @@ export class VoxelWorlds {
     if (typeof a.world !== 'string') return refuse('invalid_request', 'validation', 'args.world names the voxel world', '/args/world');
     const w = await this.load(projectId, a.world);
     if ('ok' in w) return w;
-    const run = w.queue.then(() => this.apply(w, op, a, rid ?? null));
-    w.queue = run.catch(() => undefined);
-    return run;
+    return this.queued(w, () => this.apply(w, op, a, rid ?? null));
+  }
+
+  /** The refusal of a command that met files someone else changed: the world is read again first. */
+  private changedRefusal(w: OpenWorld, changed: readonly string[]): { ok: false; error: VoxelWorldError } {
+    const shown = changed.slice(0, 4).join(', ') + (changed.length > 4 ? `, … (${changed.length})` : '');
+    return refuse('world_changed', 'conflict', `voxel world ${w.name} changed on disk outside this backend (${shown}); reloaded at revision ${w.manifest.revision}, undo history cleared: read the world again, then send the edit again`);
   }
 
   private async apply(w: OpenWorld, op: VoxelWorldOp, a: Record<string, unknown>, requestId: string | null): Promise<VoxelCommandResult> {
@@ -320,11 +452,16 @@ export class VoxelWorlds {
       const seen = w.answers.get(requestId);
       if (seen !== undefined) return { ...seen, duplicated: true };
     }
+    const fresh = await this.refresh(w);
+    if (!Array.isArray(fresh)) return fresh;
+    if (fresh.length > 0) return this.changedRefusal(w, fresh);
     const t0 = performance.now();
     let record: readonly ChunkUndo[];
     let cells: number;
     let box: Readonly<CellBox>;
-    let undone: { readonly id: number; readonly cells: number; readonly box: Readonly<CellBox> } | null = null;
+    let undone: HistoryEntry | null = null;
+    /** The undone chunks as the undo found them: written back if the undo cannot be saved. */
+    let redo: ChunkUndo[] = [];
     if (op === 'editVoxels') {
       try {
         const cmd = canonicalEditCommand(a.command);
@@ -342,23 +479,36 @@ export class VoxelWorlds {
       undone = w.history.pop() ?? null;
       if (undone === null) return refuse('nothing_to_undo', 'validation', `voxel world ${w.name} has no edit to undo`);
       record = await w.undo.take(undone.id);
+      const store = w.world.store;
+      redo = record.map((u) => ({ grid: u.grid, cx: u.cx, cy: u.cy, cz: u.cz, before: { kind: 'image', bytes: store.encodeChunk(u.cx, u.cy, u.cz) } }));
       w.world.undo(record);
       cells = undone.cells;
       box = undone.box;
     }
     const t1 = performance.now();
-    let written: Map<string, string | null>;
-    try {
-      written = this.save(w);
-    } catch (e) {
-      // Memory goes back to what the files hold; the chunks stay dirty and the next save writes them again.
-      if (op === 'editVoxels') w.world.undo(record);
-      else if (undone !== null) w.history.push({ id: await w.undo.put(record), cells, box });
-      return refuse('write_failed', 'internal', `voxel world ${w.name}: ${e instanceof Error ? e.message : String(e)}`);
+    const saved = this.save(w);
+    if (!saved.ok && saved.kind === 'external') {
+      // Someone else's files: read the world again (memory and history describe the old ones).
+      const again = await this.refresh(w);
+      if (!Array.isArray(again)) return again;
+      return this.changedRefusal(w, saved.changed);
     }
+    if (!saved.ok && saved.kind === 'failed') {
+      // Nothing was written: memory and history go back to what the files hold (the chunks stay dirty; the next save rewrites them as they are).
+      if (op === 'editVoxels') w.world.undo(record);
+      else {
+        w.world.undo(redo);
+        w.history.push({ ...undone!, id: await w.undo.put(record) });
+      }
+      return refuse('write_failed', 'internal', `voxel world ${w.name}: ${saved.why}`);
+    }
+    // Written in full, or in part: memory keeps the change, which the files written hold.
     if (op === 'editVoxels') w.history.push({ id: await w.undo.put(record), cells, box });
+    if (!saved.ok) {
+      return refuse('write_partial', 'internal', `voxel world ${w.name}: ${saved.why}. The ${op === 'editVoxels' ? 'edit' : 'undo'} is applied in this backend and in ${saved.written.join(', ') || 'no file'}; ${saved.notWritten.join(', ') || 'no file'} still hold${saved.notWritten.length === 1 ? 's' : ''} the state before it, rewritten by the next save that succeeds`);
+    }
     const chunks = record.map((u) => [u.cx, u.cy, u.cz] as const);
-    const files = [...new Set(record.map((u) => this.fileName(w, u)))].sort().map((name) => ({ name, etag: written.get(name) ?? w.world.files.get(name)?.hash ?? null }));
+    const files = [...new Set(record.map((u) => this.fileName(w, u)))].sort().map((name) => ({ name, etag: saved.tags.get(name) ?? w.world.files.get(name)?.hash ?? null }));
     const answer: VoxelCommandApplied = { ok: true, op, requestId, world: w.name, revision: w.manifest.revision, cells, chunks, box, files, undoable: w.history.length, duplicated: false, ms: { apply: t1 - t0, save: performance.now() - t1 } };
     if (requestId !== null) {
       w.answers.set(requestId, answer);
@@ -371,25 +521,40 @@ export class VoxelWorlds {
     return addressName(addressOf(w.world.opts.grid, w.manifest.layout, w.manifest.footprint, c));
   }
 
-  /** Replaces the dirty region files, then writes the next revision; returns the new tags by file. */
-  private save(w: OpenWorld): Map<string, string | null> {
-    const tags = new Map<string, string | null>();
-    for (const p of w.world.prepareSaves()) {
-      const r = w.world.commit(p);
-      if (!r.ok) throw new Error(`region ${p.name}: ${r.why ?? 'not written'}`);
-      tags.set(p.name, w.world.files.get(p.name)?.hash ?? null);
+  /**
+   * Writes the dirty region files and the next revision of the manifest as
+   * one staged write (every file staged on disk first, the manifest renamed
+   * last), then renews the files' stamps; the new tags by region file.
+   */
+  private save(w: OpenWorld): { ok: true; tags: Map<string, string | null> } | Exclude<StagedOutcome, { ok: true }> {
+    const prepared = w.world.prepareSaves();
+    const listed = new Set(w.world.listedRegions());
+    for (const p of prepared) {
+      if (p.bytes === null) listed.delete(p.name);
+      else listed.add(p.name);
     }
-    const next: VoxelWorldManifest = { ...w.manifest, regions: w.world.listedRegions(), revision: w.manifest.revision + 1 };
+    const next: VoxelWorldManifest = { ...w.manifest, regions: [...listed].sort(), revision: w.manifest.revision + 1 };
     const bytes = manifestBytes(next);
-    const out = writeAtomic({ dir: w.dir, target: VOXEL_WORLD_MANIFEST, bytes, allowedPreHashes: [w.manifestHash], previousHash: w.manifestHash });
-    if (!out.ok) throw new Error(`${VOXEL_WORLD_MANIFEST}: ${out.external !== undefined ? 'changed on disk by someone else' : 'not written'}`);
-    w.manifest = next;
-    w.manifestHash = sha256HexNative(bytes);
-    w.world.flushRemovals();
-    return tags;
+    const manifestPath = join(w.dir, VOXEL_WORLD_MANIFEST);
+    const out = w.world.commitAll(prepared, [{ dir: w.dir, name: VOXEL_WORLD_MANIFEST, bytes, expect: w.manifestHash }], this.opts.writeOps);
+    const written = out.ok || out.kind === 'partial' ? out.hashes : new Map<string, string>();
+    for (const path of written.keys()) w.stamps.set(path, fileStamp(path));
+    if (written.has(manifestPath)) {
+      w.manifest = next;
+      w.manifestHash = sha256HexNative(bytes);
+      if (out.ok) w.world.flushRemovals();
+    }
+    if (!out.ok) return out;
+    const tags = new Map<string, string | null>();
+    for (const p of prepared) tags.set(p.name, w.world.files.get(p.name)?.hash ?? null);
+    return { ok: true, tags };
   }
 
-  /** Forgets a project's open worlds (closed, released or unregistered). */
+  /**
+   * Forgets a project's open worlds (or every world): called when a project
+   * is closed, released or unregistered, so its next use reads the folder
+   * again. A command already running finishes on the world it started on.
+   */
   close(projectId?: string): void {
     for (const key of [...this.open.keys()]) if (projectId === undefined || key.startsWith(`${projectId}\u0000`)) this.open.delete(key);
   }

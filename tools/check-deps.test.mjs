@@ -166,7 +166,6 @@ describe('check 6 — dependency pinning', () => {
       'typescript-eslint': '8.71.0',
       'eslint-plugin-react-hooks': '7.1.1',
       fzstd: '0.1.1',
-      lz4js: '0.2.0',
     });
   });
 });

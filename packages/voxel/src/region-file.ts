@@ -54,7 +54,7 @@
  *   one's voxels.
  */
 import { bytesToHex, crc32 } from '@thirdlight/shared';
-import { chunkGrid, chunkInWorld, chunksPerRegionSide, type ChunkCoord, type ChunkGrid, type RegionFootprint } from './coords';
+import { chunkGrid, chunkInWorld, chunksPerRegionSide, isRegionFootprint, type ChunkCoord, type ChunkGrid, type RegionFootprint } from './coords';
 import { scratchImage, uniformImage } from './palette-chunk';
 import { liftVersion, type UpgradeStep } from './format-upgrade';
 import { checkRecordValue, encodePaletteImage, liftChunkBytes, PALETTE_CODEC_VERSION, readPaletteHeader } from './palette-codec';
@@ -366,7 +366,7 @@ export function readRegionHeader(bytes: Uint8Array): RegionHeader & { readonly t
   if (edge !== 16 && edge !== 32) throw new RegionFileError(`region file: chunk edge ${edge}`);
   const side = bytes[9]!;
   const footprint = side * edge;
-  if (footprint !== 512 && footprint !== 1024) throw new RegionFileError(`region file: footprint of ${footprint} cells`);
+  if (!isRegionFootprint(footprint)) throw new RegionFileError(`region file: footprint of ${footprint} cells`);
   const ry = view.getInt32(36, true);
   if (layout === 'column' && ry !== 0) throw new RegionFileError('region file: a column with a stack index');
   return {

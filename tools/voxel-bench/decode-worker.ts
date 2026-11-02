@@ -9,13 +9,12 @@
  */
 import { chunkGrid, createChunkImage, decodeMeasuredImage, type ChunkEdge } from '@thirdlight/voxel';
 import { decompress as zstdDecompress } from 'fzstd';
-import { lz4Block } from './lz4-block';
 
 /** One measurement: a corpus file compressed with one codec. */
 export interface DecodeJob {
   /** Corpus file (compressed chunks back to back) and its index (JSON: compressed offsets, raw bytes). */
   file: string;
-  codec: 'none' | 'zstd' | 'zstd19' | 'deflate' | 'deflate-parallel' | 'lz4';
+  codec: 'none' | 'zstd' | 'zstd19' | 'deflate' | 'deflate-parallel';
   edge: ChunkEdge;
   rounds: number;
 }
@@ -50,7 +49,6 @@ async function decompressAll(codec: DecodeJob['codec'], chunks: readonly Uint8Ar
   for (const c of chunks) {
     if (codec === 'none') out.push(c);
     else if (codec === 'zstd' || codec === 'zstd19') out.push(zstdDecompress(c));
-    else if (codec === 'lz4') out.push(lz4Block(c));
     else out.push(await inflate(c));
   }
   return out;

@@ -505,7 +505,6 @@ ends with a thin working slice, so the formats are judged in use, not only in be
 | 45.2 | **Chunk store candidates.** At least: palette + bit packing per chunk; that plus vertical run-length per column; sparse bricks under a per-chunk mask (SVO-like). Chunk size 16³ vs 32³. Uniform-chunk collapse, density only at the surface, planes + zstd vs lz4. Measure each on the test worlds; pick one, with the numbers. |
 | 45.3 | **Region files and git.** Tile = region file (256 m default vs 512 m); deterministic bytes; header, version, checksum; per-chunk offsets for partial reads and HTTP range streaming; repo growth per hour of scripted editing; LFS only if the numbers call for it. |
 | 45.4 | **Editing, undo and saves.** Stroke commands (brush, fill, stamp) as the one mutation path; per-chunk undo records and their size; save diffs against the shipped world with base-chunk hashes; save upgrade steps (add-only, unknown version refused). |
-| 45.5a | done (eefde613, fast gate green): streaming core v1 DRAFT in `@thirdlight/voxel`: job contract (ids, 4 kinds, lanes, R + aprons, stale refusal), worker pool, ring + one byte budget, floating origin (1 km; 0.06 mm at 9.9 km vs 0.49 mm). Node flight, 2×2 km, 4 workers: 87–173 stored chunks/s, decode p50 0.46 ms, update p95 2.4 ms, 0 near holes, 9 MB of 256; see **45.5a streaming core**. |
 | 45.5 | **Streaming.** Worker pool with job ids and a priority queue (edits > near > far), transferable buffers, apron strips for neighbours, one memory budget per tier, load/unload churn; world coordinates for 10 km with a floating origin (precision test far out). Measured in a browser page flying a 2 × 2 km world. |
 | 45.6 | **Derived-data formats.** The occupancy bitmask and solid/empty/mixed flags, voxel mips for the chunk tree, mesh output buffers (projected and kit-instance lists), collision and walk-graph inputs — shaped so meshing, lighting, culling, physics and navigation all read them; never committed, always rebuilt. |
 | 45.7 | **Thin slice and format spec v1.** On staging, stream, edit, mesh, collide and save/reload on both renderers. Include the 45.1 assembly-data proof below. Present the format draft, requirement traceability, measurements and replacements for decisions that failed. **Hard stop: owner approval before 46.** |
@@ -677,18 +676,22 @@ sub-phase on staging; the merge to `main` happens once, at the end of 48.
 | Item | Status |
 |---|---|
 | 45.0 | done (8db90379 + this): `tools/staging.sh` (staging on 127.0.0.1:4180/4181, own data root, 6 GB cap; proven start, page 200, test project, stop clean). Floor record at the cap, Iris Xe, both renderers: village, landscape, interior at 720p and 1080p all p95 16.7–16.8 ms, 0 missed (720p60 met); see **45.0 floor record**. three 0.187.0 newest, no update. |
+| 45.1a | done (c411c5e4): requirements trace v1 DRAFT (`docs/architecture/voxel-format-requirements.md`): 106 requirements traced from the plan's decisions and §7a, the three assembly-data questions (Q-a–Q-c), the open format questions and a traceability skeleton the later items fill with evidence. |
 | 45.1b | done (4f9c3340, 6bcbbd5e, 8bd00db7 + this): `@thirdlight/voxel` (cells ±32,768 xz / ±8,192 y, key math for 16³ and 32³, PROVISIONAL record, store contract, dense oracle) and `tools/voxel-bench` (5 test worlds, all swept whole). Dense baseline at 32³: 3.3 GB/km² in memory, plain 5.9 MB/km² zstd, voxelAt 110–123 ns random; see **45.1 harness baseline**. |
 | 45.2a | done (ebfd57b9 + this): palette family (record/per-plane palettes, packed/runs, uniform collapse, surface-only density, codec v1 DRAFT), oracle-checked on all worlds. Record palette, packed, 32³: 10–50× less memory than dense, zstd 1.7–5.9 MB/km² (terrain, town), voxelAt 35–80 ns; runs and per-plane lose; see **45.2a palette candidates**. |
 | 45.2b | done (38742e3a, a7cd1177 + this): sparse 4³ bricks, codec matrix, browser-worker decode, edge costs. PICK (draft): bricks in memory, packed body + zstd 3 at rest, 32³. Hilly 4 km²: 163 MB loaded (P 371), 5.9 MB/km² zstd, voxelAt 36–111 ns; fzstd 4–53 µs/chunk in a worker; see **45.2b bricks, codecs and the 45.2 pick**. |
 | 45.2c | done (382cfcd2 + this): hidden regressions. D423 fixed: the on-demand Scene view stopped drawing while a probe placement (or an early sky change, or a tile upload) waited, so the ground kept the old sky's light; it now draws on. D428 to watch: 0 failures in 10 runs (6 alone, base and fix; under load; fast gate). Both also on main (frozen): carry over at the merge. |
 | 45.3 | done (7611d71e): region file v1 DRAFT (header, CRCs, sorted chunk table, uniform inline, canonical bytes, range reads). 256 m tiles kept; stacked cubes proposed over columns (2 km tile: 12.3 MB file, 1.47 MB stacked); 10 km ≈ 430–580 MB, 1,600 tiles; HTTP chunk 0.41 ms, 3×3×3 0.54 ms coalesced; git +0.13–0.22 MB/h after gc (7–22 loose): no LFS; see **45.3 region files**. |
 | 45.4 | done (0f7bdd89, 99b3274e, gate green): edits, undo, saves v1 DRAFT (stroke commands, one deterministic apply, per-chunk undo under a 64 MiB budget spilling to disk, edits-only saves with 16-byte base hashes, structure overrides, repair, dirty jobs). Dab 4 m 68–102 µs, undo 1.5 KB; 16 m fill 4.9–5.7 ms, 45–60 KB; 1,000 strokes: save 255–460 KB; see **45.4 edits, undo, saves**. |
+| 45.5a | done (eefde613, fast gate green): streaming core v1 DRAFT in `@thirdlight/voxel`: job contract (ids, 4 kinds, lanes, R + aprons, stale refusal), worker pool, ring + one byte budget, floating origin (1 km; 0.06 mm at 9.9 km vs 0.49 mm). Node flight, 2×2 km, 4 workers: 87–173 stored chunks/s, decode p50 0.46 ms, update p95 2.4 ms, 0 near holes, 9 MB of 256; see **45.5a streaming core**. |
 | 45.5b | done (5e94406e, gate green): browser page (`run.mjs stream-page`), Iris Xe, 720p at the 60 Hz cap, HTTP Range, 4 workers, both renderers: frame p95 16.67 ms, ≤ 1 missed of 3,600 (first draw), 0 long tasks, 0 near holes at 40/80 m/s; update p95 2.3–2.4, max 6.5 ms (no GC; 12.5 not seen). Derive re-check bug fixed. +40 ms latency empties the ring (D432); see **45.5b browser streaming**. |
 | 45.6 | done (a7b8c68c, fast gate green): derived data v1 DRAFT: one versioned assembly evaluation (placeholder rules, R 2, apron 3) feeds occupancy, collision boxes, nav, light coverage (+ prop channel), meshes, instances; mips. Node: derive p50 0.5–3.4 ms a chunk, 11–69 KB mean; light 0.5–4.3 KB vs 3.5–19 KB dense; see **45.6 derived data**. |
 | 45.7a | done (c6e2316f, 990d70cc, 275f2e8a, fast gate green): staging: region files served by range, `editVoxels`/`undoVoxels` on the command route, page `/voxel-world.html` streams, derives, draws on both renderers; reload after restart same. 720p cap: p95 16.7 ms, 0 missed of 1,799 per renderer; edit→answer 14–15 ms, →visible p50 65 / 81 ms; 50 MB of 256 MiB; see **45.7a thin slice**. |
 | 45.7b | done (d3f2ebe8, 97cd10f2, fast gate green): slice collision through physics-rapier (a body a derived chunk, replaced on derive) and the assembly proof by runtime set/dig, both renderers: wall↔banister↔beam for every consumer, 0 stale, 1–4 chunks re-derived, hashes, file bytes equal after reload/rebuild. 720p cap: p95 16.7–16.8, 0 missed; edit→bodies p50 38–42 ms; D434; see **45.7b**. |
+| 45.7c | done (5ce92e74, 1c9357c3): format spec v1 DRAFT for the owner (`docs/architecture/voxel-format-spec.md`): owner summary, byte-level spec of every format as implemented, requirement traceability, the defaults to confirm, the gaps between code and plan text (G1–G10, closed in 45.7d). 1c9357c3 restored a bench file the spec commit removed by mistake. |
 | 45.7d | done (e53c4e45, 69586083, fast gate green): spec gaps G1–G10 closed in code: readers check world/grid/tile, codec+region upgrade registries, canonical-only decode, measurement bodies bench-only, set/dig sorted, 23-bit material ids (u24 at rest: zstd +0.1–1.8 %), 24 orientations, manifest lists regions (listed+missing = damaged), tree flags, undo box; see **45.7d format gaps**. |
 | 45.8a | done (this commit; fast gate green): review H1–H3, M2, L3–L5. Saves keep the player's cells (mask on whole-chunk entries; 1,000 strokes 452/256/461 → 497/303/493 KB; all-delta 801/682/773); base hash = frozen codec-v1 form (61–69 µs); record value form byte in region/undo/save/override (save +4 B); readers need `expect` + manifest list; see **45.8a review fixes**. |
+| 45.8b | done (this commit; fast gate green): review M3–M7, L1/L2/L6/L8, D436. One stroke ≤ 64 MiB worst-case undo (292 chunks at 32³, `over_budget`); stale worlds reread by file stamps (`world_changed`), closed on release; staged multi-file writes, rollback; rule radius check; Q-a by other commands; M7 open gap; lz4js gone; voxel e2e 14.2 → 13.9 s; see **45.8b review fixes**. |
 
 ### 45.0 floor record
 
@@ -1020,7 +1023,7 @@ Run 2026-11-02 03:39–03:52 (repo part rerun 03:53–04:01), 6 GB scope, load 0
 ### 45.4 edits, undo, saves
 
 All DRAFT, in `@thirdlight/voxel` (pure; the compressor is passed in) with the Node side in
-`tools/voxel-bench/world-files.ts`; vitest `tools/voxel-bench/edits.test.ts` (10 tests, real region files in a scratch
+`tools/voxel-bench/world-files.ts` (since 45.7a `packages/workspace/src/voxel-world-files.ts`); vitest `tools/voxel-bench/edits.test.ts` (10 tests, real region files in a scratch
 folder, real zstd, ~13 s).
 - **Stroke command v1** (`edit-command.ts`): one command is one stroke, plain JSON rebuilt field by field
   (`canonicalEditCommand`: unknown version or field refused, one payload per stroke: a sphere's sizes, −0). Kinds:
@@ -1434,7 +1437,9 @@ only the chunks within R + 1 of the command's cell box (`editBounds`).
 - **(c) invalidation:** each command re-derived exactly `dependentChunks(editBounds(cmd), 3)`: 2 (banister), 4 (beam
   cut, across x and z, including the beam's chunk that held no edited cell), 1 (pit); 0 of ~125 derived chunks stale
   against a fresh derive after every stage. Undo answers name no box, so an undo rebuilds the 27 chunks around each
-  changed chunk (also 0 stale).
+  changed chunk (also 0 stale). The consumers proved here are mesh, collision, nav and light; the voxel mips and
+  the chunk-tree flags (45.6, 45.7d) were proved in vitest only (`derived.test.ts`), not in the slice, which builds
+  neither.
 - **(d) runtime input:** `dig` of the generator's banister, then `set` of the same cells: every derived hash equals
   the generator's world, and the region files' tags (SHA-256 of their bytes) equal the generator's files.
 - Physics probes after an edit: a 1 m dab in the pad, the capsule dropped there falls into the pit (feet −2.67 cells
@@ -1578,6 +1583,59 @@ Measured 2026-11-02 10:34–10:35, Node, this host (load 4.4 → 3.6; `run.mjs e
 The smaller-of form (delta, or whole chunk plus mask) stays: an all-delta save is 1.6–2.3× larger. The changed
 cells cost +7–18 % a save. The hash before was 60–82 µs (45.4); through a decode is what a codec newer than the
 base form will pay per chunk it checks.
+
+### 45.8b review fixes
+
+Fixes of the independent review's M3–M7, L1, L2, L6, L8 and D436 (M1 and L7 are not in this item). No byte of any
+format changed, so the staging slice world stands as 45.8a wrote it. Spec: §3.2 manifest (write order, files
+changed by someone else), §3.3 work bound, §3.4 budget per open world, §3.6 open contract gap, §3.7 radius
+conformance, "Changed after the independent review (45.8b)".
+- **M3, one command's work is bounded by a memory budget.** `applyEdit` and `editChunks` refuse a command
+  (`over_budget`, nothing written, no cell visited) whose chunks it can touch × `chunkWorstUndoBytes` (15 + cells ×
+  7 B: 229,391 B at 32³) pass `UNDO_MEMORY_BUDGET_BYTES` (moved to `edit-apply.ts`, still 64 MiB): 292 chunks of
+  32³, 2,339 of 16³. Counted from the command alone: a box's chunks, listed cells' chunks, a brush's union of its
+  dabs' chunks (a long thin drag is not charged its bounding box). Tests: `edits.test.ts` (4-chunk budget: 4
+  applies, 5 refused, store untouched; a 16-dab diagonal over 8 chunks fits 9, not 7; world fill and a 2 km sphere
+  refused in < 500 ms together) and the real command route (`voxel-world.test.ts`: both refused 400 in < 2 s
+  each; the slice's dabs and 45.4's 16 m fills are far below).
+- **M4, open worlds do not go stale.** The backend keeps each world's file stamps (inode, size, mtime, ctime of the
+  manifest and every listed region) and checks them before every command, info and region read (only that file
+  and the manifest); a changed stamp is hashed, and changed bytes make it read the world again (undo history
+  dropped). A command that meets the change, by stamp or by the staged write's own check, is refused
+  `world_changed` (409) after the reload. Released, taken-over and unregistered projects' worlds are closed
+  (`onProjectClosed` in the admin routes). Tests on the real route: a region file changed back alone (same
+  manifest) → the info serves its new tag; the whole commit checked out → one edit refused, the routes serve the
+  checked-out world, no undo left, the edit sent again applies (no restart); a release → no undo left, the files
+  read again. Each test fails with the checks taken out (checked).
+- **M5, failed writes.** Region files and the manifest are one staged write (`writeFilesStaged`: temp files beside
+  their targets, flushed, every target checked, then renamed, the manifest last). Nothing written: an edit is taken
+  back in memory, a failed undo is re-applied (the chunks' images from before it) and its record goes back on the
+  history (`write_failed`). A rename failing midway: `write_partial` naming the files written and not; memory keeps
+  the change, the next successful save writes the rest. Tests (`voxel-worlds.test.ts`, the workspace's file
+  operations with one step failed): a staging failure on the second of two files (no byte changed, no temp left,
+  then undo and resend work); a failed undo, then another edit's save keeps the undone edit on disk and the undo
+  still works (fails without the re-apply, checked); a second rename failing (first file new, second and manifest
+  old, the next edit writes the rest, both edits undo to the first world); a region file replaced by another
+  writer while the command stages (their file stands, `world_changed`, the resend applies on their world).
+- **M6.** (a) `ruleRadiusMismatches` (voxel package): the same chunks evaluated with the job's pad (R + 1) and 3
+  cells more, every consumer-read cell compared; a test runs every registered rule set (`registeredAssemblyRules`,
+  46b's catalogue once registered) on 4 random worlds (`randomAssemblyWorld`) at 16³ and 32³: placeholder 0
+  mismatches; a rule reading 2 cells while declaring 1 is caught, only at the reach cells past the chunk face.
+  (b) 45.7b now says mips and tree flags were proved in vitest only. (c) One arrangement reached by A (fill, brush
+  dig, rail set, band paint) and B (rail set, two `add` fills in the other order, band set, the hole as a shuffled
+  listed dig), across both chunk faces, through two region worlds: region files byte-identical, derived results
+  equal for all 8 chunks.
+- **M7** recorded as an open contract gap with its planned design (spec §3.6), not built (decision log).
+- **D436** (`harness.test.ts` sweep, 5 s default passed under full-gate load): 3.7 s alone (8 whole sweeps, the
+  work is the check); timeout 20 s with the reason in a comment, no retry; closed.
+- **L1** lz4js dropped (package.json, lockfile, PINS and its test, bench codec, decode bench); fzstd's PINS comment
+  says it ships in the editor bundle. **L2** the page uses shared `hexToBytes`. **L6** this plan tidied (45.5a row
+  moved to §6, 45.1a and 45.7c rows, 45.4 path); `REGION_FOOTPRINTS`/`isRegionFootprint` (coords.ts) and
+  `STREAM_POOL_SETTINGS` (worker-pool.ts) defined once and imported. **L8** the integration test says restart; the
+  spec says the undo budget is per open world.
+
+Fast gate 2026-11-02 11:11 (10 min, green): `voxel-world.e2e.ts` 14.2 → 13.9 s (5.9 + 3.7 + 4.3 s), `folder-projects.e2e.ts`
+(unregister) green; village perf at the cap 16.7 / 16.7 ms p50 / p95, 0 missed on both renderers.
 
 ## 7. Decision log
 
@@ -1890,6 +1948,27 @@ base form will pay per chunk it checks.
 - 2026-11-02 (45.8a, R4, R5, review M2): every world reader names the tile it expects (`expect` required) and takes
   the manifest's region list; the shipped world a save is made against throws for a listed region that is gone or
   another world's, never reads it as air.
+
+- 2026-11-02 (45.8b, R7, review M3): **one command's work is bounded by the undo budget**: its chunks × the
+  worst-case undo bytes of one chunk (every cell a delta) ≤ `UNDO_MEMORY_BUDGET_BYTES` (64 MiB: 292 chunks of 32³),
+  counted from the command before any cell is visited, refused `over_budget`. A budget, not a count cap.
+- 2026-11-02 (45.8b, default chosen, owner to confirm; R53, review M4): **files changed outside the backend are
+  found by their stamps and the world is read again; the command meeting the change is refused** (`world_changed`,
+  409, after the reload), not re-applied: the client reads what changed before it edits, so no stroke lands on
+  ground its author has not seen. Undo history of the old files is dropped. Released, taken-over and unregistered
+  projects' worlds are closed.
+- 2026-11-02 (45.8b, R4, review M5): **a command's region files and manifest are one staged write** (temp files
+  beside their targets, all checked, then renamed, the manifest last); a failed write puts memory and history
+  back (a failed undo is re-applied); a rename failing midway is reported per file (`write_partial`) and the next
+  save writes the rest.
+- 2026-11-02 (45.8b, Q-b, R75, review M6): **every rule set must pass the radius conformance check**
+  (`ruleRadiusMismatches`: equal classes with the job's pad and 3 cells more, on random worlds); the test runs every
+  registered rule set, so 46b's catalogue is checked once it registers.
+- 2026-11-02 (45.8b, default chosen, owner to confirm; §1e, review M7): **dependencies across grids are an open
+  contract gap, not built in 45**: grid ids in every key, read-only occupancy strips of other grids resampled into
+  the job's frame, edit boxes moved into each grid's frame for invalidation (spec §3.6). Building it now would be
+  tested only on axis-aligned grids; 47a's rotated structure grids are where it can be proved, before 47a starts.
+- 2026-11-02 (45.8b, review L1): lz4js dropped (lost every measure; the measurement is in git history).
 
 ## 7a. Kit and surface planning session (2026-10-30)
 

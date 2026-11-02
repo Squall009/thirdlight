@@ -23,6 +23,7 @@ import {
   FloatingOrigin,
   RegionChunkSource,
   ringChunks,
+  STREAM_POOL_SETTINGS,
   VOXEL_SIZE_M,
   VOXEL_STREAM_BUDGET_BYTES,
   VoxelStreamer,
@@ -257,7 +258,7 @@ let session: Session | null = null;
 /** Builds the pool, source and streamer, and settles the ring at the loop's start (the cold fill). */
 async function prepare(spec: StreamPageSpec): Promise<Record<string, unknown>> {
   await renderer.init();
-  const pool = new WorkerPool({ size: spec.workers, create: () => eventTargetWorker(new Worker('./stream-worker.js', { type: 'module' })), timeoutMs: 5000, maxQueued: 256 });
+  const pool = new WorkerPool({ size: spec.workers, create: () => eventTargetWorker(new Worker('./stream-worker.js', { type: 'module' })), ...STREAM_POOL_SETTINGS });
   const regions = new FetchRegions(spec.files);
   const source = new RegionChunkSource({ worldId: TEST_WORLD_ID, gridId: WORLD_GRID_ID, grid, layout: 'stacked', footprint: 512, open: (n) => regions.open(n), maxOpen: 128, ...(spec.maxGap === null ? {} : { maxGap: spec.maxGap }) });
   const streamer = new VoxelStreamer({ store: createWorldStore(grid), source, pool, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.low, dependencyRadius: 2, derive: spec.derive, readBatch: 64, maxReads: spec.maxReads });

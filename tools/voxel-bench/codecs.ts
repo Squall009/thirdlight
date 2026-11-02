@@ -9,17 +9,18 @@
  *   it compresses. Decoders without dictionary support (fzstd) cannot read it.
  * - deflate (level 6, raw): what a browser decodes natively
  *   (DecompressionStream 'deflate-raw'), the no-dependency fallback.
- * - lz4 (lz4js, block format): no entropy stage, so runs the encoding
- *   leaves in the bytes still pay. A block carries no length, so 4 bytes of
- *   raw length are prepended (a region table would hold it instead).
+ *
+ * lz4 (lz4js) was measured too and lost on every world (size and browser
+ * decode); it is in the repository's history, not here.
  */
 import { constants, deflateRawSync, inflateRawSync, zstdCompressSync, zstdDecompressSync } from 'node:zlib';
-import { LZ4, type BlockCodec } from './lz4-block';
-
-export { LZ4 };
 
 /** A compressor of whole chunk byte strings. */
-export type Codec = BlockCodec;
+export interface Codec {
+  readonly name: string;
+  compress(bytes: Uint8Array): Uint8Array;
+  decompress(bytes: Uint8Array): Uint8Array;
+}
 
 const zstdAt = (name: string, level: number, dictionary?: Uint8Array): Codec => {
   const dict = dictionary === undefined ? {} : { dictionary: Buffer.from(dictionary.buffer, dictionary.byteOffset, dictionary.byteLength) };
@@ -45,7 +46,6 @@ export const NAMED_CODECS: Readonly<Record<string, Codec>> = Object.freeze({
   zstd9: zstdAt('zstd9', 9),
   zstd19: zstdAt('zstd19', 19),
   deflate: DEFLATE,
-  lz4: LZ4,
 });
 
 /** The default set (what every earlier run measured). */

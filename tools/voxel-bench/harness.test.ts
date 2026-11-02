@@ -9,7 +9,6 @@ import { mulberry32 } from '@thirdlight/shared';
 import { NAMED_CODECS, zstdDict } from './codecs';
 import { corpusSampleOf, readCorpus, type CorpusSample } from './corpus';
 import { apronCells, meanChunksRebuilt } from './edge-costs';
-import { LZ4 } from './lz4-block';
 
 const tiny = { randomReads: 5_000, coherentColumns: 16, edits: 2_000, strokes: 6, transferChunks: 4, seed: 3 };
 
@@ -60,7 +59,11 @@ describe('the storage harness', () => {
 describe('the palette candidates', () => {
   const palettes = Object.keys(CANDIDATES).filter((n) => n.startsWith('palette') || n === 'bricks');
 
-  it('read back every swept chunk of the town and the caves as generated, through voxelAt too', () => {
+  // Eight whole sweeps (every palette candidate over a 96-cell town and 48-cell caves, every chunk and a voxelAt
+  // sample checked against the generator) take 3.7 s alone on this host; under a full gate's load that passed
+  // vitest's 5 s default. The work is the check (both worlds' chunk varieties for every candidate), so the limit
+  // is sized to it: about 5 times the time alone.
+  it('read back every swept chunk of the town and the caves as generated, through voxelAt too', { timeout: 20_000 }, () => {
     expect(palettes.length).toBeGreaterThanOrEqual(4);
     for (const name of palettes) {
       for (const world of [townWorld({ footprint: 96 }), cavesWorld({ footprint: 48 })]) {
@@ -125,18 +128,6 @@ describe('the codecs the harness sizes with', () => {
     const packed = c.compress(samples[1]!);
     expect(new Uint8Array(c.decompress(packed))).toEqual(samples[1]);
     expect(packed.length).toBeLessThan(NAMED_CODECS.zstd!.compress(samples[1]!).length);
-  });
-
-  // lz4js reads past a cut block without noticing (the chunk codec's CRC catches the wrong bytes); a wrong length it refuses.
-  it('lz4 stores bytes without matches as they are, and refuses a block that does not fill its stated length', () => {
-    const noise = LZ4.compress(samples[2]!);
-    expect(noise.length).toBe(4 + samples[2]!.length);
-    const packed = LZ4.compress(samples[1]!);
-    expect(packed.length).toBeLessThan(samples[1]!.length / 4);
-    const longer = packed.slice();
-    longer[0]! += 1;
-    expect(() => LZ4.decompress(longer)).toThrow(/lz4 block: 5000 bytes for a stated 5001/);
-    expect(() => LZ4.decompress(noise.subarray(0, noise.length - 1))).toThrow(/stored bytes/);
   });
 
   it('resolves codec names and refuses unknown ones', async () => {

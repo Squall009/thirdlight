@@ -46,6 +46,13 @@ export function eventTargetWorker(w: {
   };
 }
 
+/**
+ * The pool settings the streaming pages and runs use: a job unanswered in
+ * 5 s is answered `timeout` (a derive takes milliseconds; 5 s means a stuck
+ * worker), and up to 256 jobs wait (a full ring's refill at the low tier).
+ */
+export const STREAM_POOL_SETTINGS = Object.freeze({ timeoutMs: 5000, maxQueued: 256 });
+
 export interface WorkerPoolOptions {
   /** Workers (at least 1). */
   readonly size: number;

@@ -33,13 +33,15 @@ export interface AdminRoutesContext {
   readonly packs?: PackInstaller;
   /** Accept or discard a pending external edit (the one path, shared with the project route). */
   readonly resolveExternal: ReturnType<typeof createExternalEdits>['resolve'];
+  /** A project was released, taken over or unregistered: what this process holds open of it must be read again on next use. */
+  readonly onProjectClosed?: (projectId: string) => void;
 }
 
 /** A game folder's entries before a project was made in it ('absent': there was no folder; 'unknown': it could not be read). */
 type FolderBefore = ReadonlySet<string> | 'absent' | 'unknown';
 
 export function makeAdminRoutes(ctx: AdminRoutesContext) {
-  const { config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem, ensureImported, textureSlots, packs, resolveExternal } = ctx;
+  const { config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem, ensureImported, textureSlots, packs, resolveExternal, onProjectClosed } = ctx;
 
   /**
    * A project just made from a template gets the template's packs, then its
@@ -80,6 +82,7 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
     if (folder === null) {
       const released = service.releaseWorkspace(projectId);
       if (!released.ok) return released.error.message ?? released.error.code;
+      onProjectClosed?.(projectId);
       try {
         rmSync(join(config.dataRoot, 'projects', projectId), { recursive: true, force: true });
       } catch (e) {
@@ -89,6 +92,7 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
     }
     const gone = service.unregisterProject(projectId);
     if (!gone.ok) return gone.error.message ?? gone.error.code;
+    onProjectClosed?.(projectId);
     try {
       if (folder === 'absent') rmSync(gone.folder, { recursive: true, force: true });
       else {
@@ -245,6 +249,7 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
       sendError(res, workspaceError(result.error), statusFor(result.error.cls));
       return;
     }
+    onProjectClosed?.(projectId);
     sendJson(res, 200, { ok: true, projectId, folder: result.folder });
   };
 
@@ -290,6 +295,8 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
         break;
     }
     if (result.ok) {
+      // Another owner may change the project's files after a release, and may have before a takeover.
+      if (op === 'release' || op === 'takeover') onProjectClosed?.(projectId);
       sendJson(res, 200, result);
       return;
     }

@@ -178,6 +178,14 @@ export function chunkOfKey(grid: ChunkGrid, key: number, out: ChunkCoord = { cx:
  */
 export type RegionFootprint = 512 | 1024;
 
+/** Every region footprint a world may use. */
+export const REGION_FOOTPRINTS: readonly RegionFootprint[] = Object.freeze([512, 1024]);
+
+/** Whether a value is a region footprint (a world manifest's or a region header's). */
+export function isRegionFootprint(v: unknown): v is RegionFootprint {
+  return (REGION_FOOTPRINTS as readonly unknown[]).includes(v);
+}
+
 /** The default region footprint in cells (256 m). */
 export const DEFAULT_REGION_FOOTPRINT: RegionFootprint = 512;
 

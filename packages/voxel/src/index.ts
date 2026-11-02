@@ -24,7 +24,9 @@ export {
   chunkOfKey,
   chunkOrigin,
   chunksPerRegionSide,
+  isRegionFootprint,
   localIndex,
+  REGION_FOOTPRINTS,
   localOf,
   regionKey,
   regionOfCell,
@@ -138,8 +140,8 @@ export {
 export { canonicalEditCommand, BRUSH_SHAPES, EDIT_MODES, EditCommandError, VOXEL_EDIT_VERSION, type BrushEdit, type BrushShape, type DigEdit, type EditMode, type EditVoxel, type FillEdit, type SetEdit, type SetVoxel, type StampEdit, type VoxelEditCommand } from './edit-command';
 export { CellDelta, chunkScratch, decodeDenseChunk, deltaValue, DELTA_CELL_BYTES, diffDense, encodeDenseChunk, exportOrAir } from './cell-delta';
 export { checkStampShape, STAMP_SIDE_MAX, stampShapeHash, type StampResolver, type StampShape } from './stamp-shape';
-export { applyEdit, applyUndo, editBounds, editChunks, EditRefused, UNDO_CHUNK_HEADER_BYTES, UNDO_IMAGE_CHECK_BYTES, undoRecordBytes, type ChunkBefore, type ChunkUndo, type EditGrids, type EditOptions, type EditOutcome, type EditRefusal } from './edit-apply';
-export { decodeUndoRecord, encodeUndoRecord, UNDO_MEMORY_BUDGET_BYTES, UNDO_RECORD_VERSION, UndoStore, type UndoSpill } from './undo-store';
+export { applyEdit, applyUndo, chunkWorstUndoBytes, editBounds, editChunks, EditRefused, UNDO_CHUNK_HEADER_BYTES, UNDO_IMAGE_CHECK_BYTES, UNDO_MEMORY_BUDGET_BYTES, undoRecordBytes, type ChunkBefore, type ChunkUndo, type EditGrids, type EditOptions, type EditOutcome, type EditRefusal } from './edit-apply';
+export { decodeUndoRecord, encodeUndoRecord, UNDO_RECORD_VERSION, UndoStore, type UndoSpill } from './undo-store';
 export {
   applySave,
   applySaveChunk,
@@ -206,7 +208,7 @@ export {
 export { serveJobs, type JobEndpoint, type JobHandler, type JobHandlers, type JobResult } from './job-worker';
 export { deriveNow, streamJobHandlers, type StreamHandlerOptions } from './stream-handlers';
 export { JobQueue } from './job-queue';
-export { eventTargetWorker, SampleRing, WorkerPool, type JobOutcome, type PoolJob, type PoolStats, type PoolWorker, type WorkerPoolOptions } from './worker-pool';
+export { eventTargetWorker, SampleRing, STREAM_POOL_SETTINGS, WorkerPool, type JobOutcome, type PoolJob, type PoolStats, type PoolWorker, type WorkerPoolOptions } from './worker-pool';
 export { RegionChunkSource, type ChunkSource, type RegionChunkSourceOptions } from './region-source';
 export { checkRing, chunkDistance2, DEFAULT_STREAM_RING, inLoadRing, inNearRing, pastUnloadRing, RESIDENT_CHUNK_OVERHEAD_BYTES, ringChunks, VOXEL_STREAM_BUDGET_BYTES, type Focus, type StreamRing, type StreamTier } from './stream-ring';
 export { VoxelStreamer, type DerivedChunk, type StreamCounters, type StreamEvent, type StreamMetrics, type VoxelStreamerOptions } from './voxel-streamer';
@@ -222,6 +224,7 @@ export {
   jobRadius,
   PLACEHOLDER_RULES,
   registerAssemblyRules,
+  registeredAssemblyRules,
   rulesRef,
   RUN_X,
   RUN_Z,
@@ -252,6 +255,7 @@ export {
 } from './derived-data';
 export { INSTANCE_BYTES, INSTANCE_FLAG, MaterialSlots, PIECE_FAMILY, PIECE_SECTION, POSITION_STEPS_PER_CELL, SURFACE_ISO, surfaceStride, type InstanceList, type SurfaceBuffer } from './derived-mesh';
 export { deriveFromStore, deriveWithApron } from './derive-assembly';
+export { RULE_CONFORMANCE_EXTRA_PAD, ruleRadiusMismatches, type RuleRadiusMismatch } from './rule-conformance';
 export { cellOutputs, resolvedClassAt, type CellOutputs } from './derived-cell';
 export { collisionGeometry, type CollisionGeometry, type CollisionMesh, type CollisionMeshLimits } from './derived-collision';
 export { ChunkTreeFlags, downsampleMip, mipChildren, mipNodeKey, mipNodeOf, MipStaleSet, type MipNode } from './voxel-mips';

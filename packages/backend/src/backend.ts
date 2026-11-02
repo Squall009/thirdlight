@@ -332,7 +332,9 @@ export function createBackend(
   });
 
   const { behaviorSourceRoute } = makeBehaviorSourceRoutes({ service, sessions, behaviorCompiler, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem, notifyMutationApplied });
-  const { adminCreateProject, adminRegisterProject, adminUnregisterProject, adminProjectOp, adminExportRoute } = makeAdminRoutes({ config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem, ensureImported: assetFiles.ensureImported, textureSlots, packs, resolveExternal: external.resolve });
+  // A project's voxel worlds: region files served by range, edited by the voxel world commands; read again once their project is released or unregistered.
+  const voxelWorlds = new VoxelWorlds({ projectDir: (projectId) => service.projectDir(projectId) });
+  const { adminCreateProject, adminRegisterProject, adminUnregisterProject, adminProjectOp, adminExportRoute } = makeAdminRoutes({ config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem, ensureImported: assetFiles.ensureImported, textureSlots, packs, resolveExternal: external.resolve, onProjectClosed: (projectId) => voxelWorlds.close(projectId) });
 
   const { serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml, isolationHeaders } = makeStaticRoutes({ config, sendJson });
 
@@ -345,8 +347,6 @@ export function createBackend(
   };
   const { serveEditorPage, dispatchPreview } = makePreviewRoutes({ config, logStartup, playContent, sendJson, parseQuery, serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml, isolationHeaders, playBuild, openFile: (projectId, file) => service.openBlobFile(projectId, file), onFileChanged });
 
-  // A project's voxel worlds: region files served by range, edited by the voxel world commands.
-  const voxelWorlds = new VoxelWorlds({ projectDir: (projectId) => service.projectDir(projectId) });
   const voxels = makeVoxelRoutes({ worlds: voxelWorlds, requireAuth, sendJson, sendError, recordProblem });
   const { establishSession, listSessions, sessionLog, commandRoute } = makeSessionRoutes({ timeouts, nowMs, service, sessions, sendJson, sendError, bearerToken, tokenScope, requireAuth, readBody, fullState, workspaceError, sessionView, recordProblem, notifyMutationApplied, headless, folderImport, textures, erosion: createErosionRunner(EROSION_WORKER), voxelCommand: voxels.command, onOwnerLost: (sessionId: string, detail?: string) => plays.onOwnerDisconnected(sessionId, detail) });
   const library = makeLibraryRoutes({ service, requireAuth });

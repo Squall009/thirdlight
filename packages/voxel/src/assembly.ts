@@ -279,6 +279,11 @@ export function assemblyRules(ref: { readonly id: string; readonly version: numb
   return rules;
 }
 
+/** Every rule set a worker knows (the placeholder set and each one registered): what the radius conformance check runs over. */
+export function registeredAssemblyRules(): AssemblyRuleSet[] {
+  return [...RULE_SETS.values()];
+}
+
 /** A rule set's reference (what a derived result records). */
 export function rulesRef(rules: AssemblyRuleSet): AssemblyRulesRef {
   return { id: rules.id, version: rules.version, radius: rules.radius };

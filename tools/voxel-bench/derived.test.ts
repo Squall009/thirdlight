@@ -18,6 +18,7 @@ import {
   createDenseChunk,
   createNeighbourhood,
   createWorldStore,
+  DEFAULT_REGION_FOOTPRINT,
   dependentChunks,
   deriveFromStore,
   downsampleMip,
@@ -39,6 +40,8 @@ import {
   PIECE_FAMILY,
   PLACEHOLDER_RULES,
   POSITION_STEPS_PER_CELL,
+  registeredAssemblyRules,
+  ruleRadiusMismatches,
   propCoverageChunk,
   RUN_X,
   RUN_Z,
@@ -46,6 +49,8 @@ import {
   streamJobHandlers,
   surfaceStride,
   VOXEL_CATEGORY,
+  valueCategory,
+  type AssemblyRuleSet,
   type DenseChunk,
   type DeriveOutput,
   type DerivedData,
@@ -53,11 +58,15 @@ import {
   type PaletteStore,
   type VoxelEditCommand,
 } from '@thirdlight/voxel';
+import { cpSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { crc32 } from '@thirdlight/shared';
+import { listRegionFiles, RegionWorld } from '@thirdlight/workspace';
 import { describe, expect, it } from 'vitest';
 import { loadArea, zstdDecompress } from './regions';
 import { houseVoxel, type House } from './town';
-import { flatGround, placeWallBeamBanister, putVoxel } from './scenes';
+import { flatGround, placeWallBeamBanister, putVoxel, randomAssemblyWorld } from './scenes';
 import { MAT } from './world-kit';
 import { hillyWorld } from './worlds';
 
@@ -234,6 +243,70 @@ describe('assembly evaluation and per-consumer outputs', () => {
     expect(beams).toBeGreaterThan(10);
     expect(rails).toBeGreaterThan(5);
   });
+
+  it('reaches the same derived results and region bytes from one arrangement made by different commands in another order', async () => {
+    // Two copies of one world folder (ground, the wall-beam-banister scene) edited to the same arrangement:
+    // A fills a wall across both chunk faces, digs a hole through it with a brush, sets a rail on it and paints a
+    // band; B sets the rail first, adds the wall as two fills in the other order, paints cell by cell before the
+    // dig, and digs the hole's cells as a listed dig, in shuffled order.
+    const root = mkdtempSync(join(tmpdir(), 'voxel-qa-'));
+    try {
+      const start = wallBeamBanister();
+      ground(start, -24, 24, -24, 24, 3);
+      const opts = { grid, worldId: Uint8Array.from({ length: 16 }, (_, i) => i + 1), layout: 'stacked' as const, footprint: DEFAULT_REGION_FOOTPRINT };
+      RegionWorld.create(join(root, 'a'), opts, start);
+      cpSync(join(root, 'a'), join(root, 'b'), { recursive: true });
+      const [a, b] = [(await RegionWorld.open(join(root, 'a'), opts, listRegionFiles(join(root, 'a')))).world, (await RegionWorld.open(join(root, 'b'), opts, listRegionFiles(join(root, 'b')))).world];
+      const cmd = (o: Record<string, unknown>): VoxelEditCommand => canonicalEditCommand({ v: 1, grid: 0, ...o });
+      const stone = { material: MAT.stone, category: C.construction, orientation: 0 };
+      const plaster = { material: MAT.plaster, category: C.construction, orientation: 0 };
+      const rail: number[] = [];
+      for (let x = -6; x <= 5; x++) rail.push(x, 7, 14);
+      const railVoxel = { material: MAT.plank, category: C.construction, orientation: 0, shape: 255 };
+      const sphere = cmd({ kind: 'brush', shape: 'sphere', size: [2, 2, 2], points: [0, 3, 14.5], mode: 'dig', smooth: false });
+      a.edit(cmd({ kind: 'fill', min: [-6, 0, 14], max: [5, 6, 15], mode: 'place', voxel: stone }));
+      const hole = a.edit(sphere);
+      a.edit(cmd({ kind: 'set', cells: rail, voxel: railVoxel }));
+      a.edit(cmd({ kind: 'fill', min: [-6, 5, 14], max: [5, 5, 15], mode: 'paint', voxel: plaster }));
+      // The hole's cells, from the brush's undo record: what B digs as a list.
+      const holeCells: number[] = [];
+      for (const u of hole.chunks) {
+        if (u.before.kind !== 'delta') throw new Error('a 2-cell hole is a delta per chunk');
+        const d = u.before.delta;
+        for (let k = 0; k < d.count; k++) {
+          const i = d.cells[k]!;
+          holeCells.push((u.cx << grid.shift) + (i >>> (2 * grid.shift)), (u.cy << grid.shift) + (i & grid.mask), (u.cz << grid.shift) + ((i >>> grid.shift) & grid.mask));
+        }
+      }
+      expect(holeCells.length / 3).toBeGreaterThan(20);
+      expect(new Set(hole.chunks.map((u) => u.cx)).size).toBe(2);
+      const shuffled: number[] = [];
+      for (let k = holeCells.length - 3; k >= 0; k -= 6) shuffled.push(...holeCells.slice(k, k + 3));
+      for (let k = holeCells.length - 6; k >= 0; k -= 6) shuffled.push(...holeCells.slice(k, k + 3));
+      b.edit(cmd({ kind: 'set', cells: rail, voxel: railVoxel }));
+      b.edit(cmd({ kind: 'fill', min: [0, 0, 14], max: [5, 6, 15], mode: 'add', voxel: stone }));
+      b.edit(cmd({ kind: 'fill', min: [-6, 0, 14], max: [-1, 6, 15], mode: 'add', voxel: stone }));
+      const band: number[] = [];
+      for (let x = 5; x >= -6; x--) band.push(x, 5, 15, x, 5, 14);
+      b.edit(cmd({ kind: 'set', cells: band, voxel: { ...plaster, shape: 255 } }));
+      b.edit(cmd({ kind: 'dig', cells: shuffled }));
+      a.save();
+      b.save();
+      // Equal region files, byte for byte, and equal derived results for every chunk around the edits.
+      const names = listRegionFiles(join(root, 'a'));
+      expect(listRegionFiles(join(root, 'b'))).toEqual(names);
+      for (const n of names) expect(readFileSync(join(root, 'b', n)).equals(readFileSync(join(root, 'a', n))), n).toBe(true);
+      let beams = 0;
+      for (const cx of [-1, 0]) for (const cy of [-1, 0]) for (const cz of [-1, 0]) {
+        const da = encodeDerived(deriveFromStore(a.store, cx, cy, cz, PLACEHOLDER_RULES));
+        expect(crc32(encodeDerived(deriveFromStore(b.store, cx, cy, cz, PLACEHOLDER_RULES))), `chunk ${cx},${cy},${cz}`).toBe(crc32(da));
+        beams += deriveFromStore(a.store, cx, cy, cz, PLACEHOLDER_RULES).counts.beam;
+      }
+      expect(beams).toBeGreaterThan(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 /** Whether any base-surface vertex lies inside cell (x, y, z) (not on its boundary). */
@@ -260,6 +333,48 @@ function baseFaceTouches(d: DerivedData, x: number, y: number, z: number): boole
   }
   return false;
 }
+
+describe('the radius conformance check every rule set must pass', () => {
+  const g16 = chunkGrid(16);
+  /** Every chunk of the random worlds' cube (half 24 cells: 3 × 3 chunks of 16 on each axis, and their faces). */
+  const cube: Array<{ cx: number; cy: number; cz: number }> = [];
+  for (let cx = -2; cx <= 1; cx++) for (let cy = -2; cy <= 1; cy++) for (let cz = -2; cz <= 1; cz++) cube.push({ cx, cy, cz });
+
+  // Each registered rule set (46b's catalogue too, once registered) resolves every cell the consumers read the same
+  // with the job's apron (radius + reach) as with 3 cells more, on random worlds at both chunk edges.
+  it.each(registeredAssemblyRules().map((r) => [r.id, r] as const))('%s reads no further than its declared radius', (_id, rules) => {
+    for (const [g, seeds] of [[g16, [1, 2, 3]], [grid, [4]]] as const) {
+      for (const seed of seeds) {
+        const s = createWorldStore(g);
+        randomAssemblyWorld(s, seed, 24);
+        const chunks = g.edge === 16 ? cube : [-1, 0].flatMap((cx) => [-1, 0].flatMap((cy) => [-1, 0].map((cz) => ({ cx, cy, cz }))));
+        expect(ruleRadiusMismatches(s, rules, chunks), `edge ${g.edge}, seed ${seed}`).toEqual([]);
+      }
+    }
+  });
+
+  it('catches a rule set that reads past the radius it declares', () => {
+    // A rule that looks 2 cells along x (a construction cell is a beam when another stands 2 cells on), declared as
+    // reading 1: the job's apron is a cell short, and near a chunk face it reads past it.
+    const resolve = (n: Parameters<AssemblyRuleSet['resolve']>[0], lo: number, hi: number, out: Uint8Array): void => {
+      const s = n.side;
+      const construction = (i: number): boolean => n.values[i] !== 0 && valueCategory(n.values[i]!) === C.construction;
+      for (let x = lo; x < hi; x++) for (let z = lo; z < hi; z++) for (let y = lo; y < hi; y++) {
+        const i = (x * s + z) * s + y;
+        out[i] = n.values[i] === 0 ? ASSEMBLY_CLASS.empty : construction(i) && construction(i + 2 * s * s) ? ASSEMBLY_CLASS.beam : ASSEMBLY_CLASS.wall;
+      }
+    };
+    const short: AssemblyRuleSet = { id: 'short', version: 1, radius: 1, resolve };
+    const s = createWorldStore(g16);
+    randomAssemblyWorld(s, 1, 24);
+    const found = ruleRadiusMismatches(s, short, cube);
+    expect(found.length).toBeGreaterThan(0);
+    // Wrong classes only where the job's apron ends: the reach cells just past the chunk's high x face.
+    for (const m of found) expect(m.lx).toBe(16);
+    // The same rule declared honestly passes.
+    expect(ruleRadiusMismatches(s, { ...short, radius: 2 }, cube)).toEqual([]);
+  });
+});
 
 describe('dependency radius and invalidation', () => {
   /** Derived bytes of every chunk in a window. */

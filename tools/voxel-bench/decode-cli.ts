@@ -8,10 +8,10 @@
  *   --rounds N      rounds per measurement, the best counts (default 3)
  *
  * Each corpus file (chunks of one candidate, edge and world, sampled by the
- * harness) is compressed here with zstd 3, zstd 19, deflate and lz4 (Node,
+ * harness) is compressed here with zstd 3, zstd 19 and deflate (Node,
  * as a writer would), then the worker decompresses every chunk with fzstd,
  * DecompressionStream('deflate-raw') (one chunk at a time, and all chunks at
- * once), or lz4js, and decodes every chunk's palette codec bytes (which
+ * once), and decodes every chunk's palette codec bytes (which
  * checks each chunk's CRC). One browser, one page, one worker.
  */
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -63,7 +63,7 @@ window.__runJob = (job) => new Promise((ok) => { pending = ok; worker.postMessag
 window.__ready = true;
 </script>`;
 
-const CODECS: readonly DecodeJob['codec'][] = ['none', 'zstd', 'zstd19', 'deflate', 'deflate-parallel', 'lz4'];
+const CODECS: readonly DecodeJob['codec'][] = ['none', 'zstd', 'zstd19', 'deflate', 'deflate-parallel'];
 
 async function main(): Promise<void> {
   const base = join(homedir(), '.cache', 'thirdlight-voxel-bench');
@@ -79,7 +79,7 @@ async function main(): Promise<void> {
     const name = f.replace(/\.bin$/, '');
     const edge = Number(/-(16|32)-/.exec(f)![1]) as 16 | 32;
     const chunks = readCorpus(readFileSync(join(corpusDir, f)));
-    for (const codec of ['none', 'zstd', 'zstd19', 'deflate', 'lz4']) writeCompressed(site, name, chunks, codec);
+    for (const codec of ['none', 'zstd', 'zstd19', 'deflate']) writeCompressed(site, name, chunks, codec);
     for (const codec of CODECS) jobs.push({ file: `${name}.${codec === 'deflate-parallel' ? 'deflate' : codec}.bin`, codec, edge, rounds });
   }
   await esbuild.build({ entryPoints: [join(HERE, 'decode-worker.ts')], bundle: true, minify: true, format: 'esm', platform: 'browser', outfile: join(site, 'decode-worker.js'), logLevel: 'error' });
@@ -87,7 +87,6 @@ async function main(): Promise<void> {
 
   const costs = [
     await decoderCost('fzstd (zstd decoder)', `export { decompress } from 'fzstd';`),
-    await decoderCost('lz4js (block decoder)', `export { lz4Block } from './lz4-block';`),
     await decoderCost('palette codec decoder', `export { decodePaletteImage } from '@thirdlight/voxel';`),
   ];
 
