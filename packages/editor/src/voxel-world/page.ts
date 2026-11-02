@@ -14,11 +14,19 @@
  * Drag to orbit, wheel to zoom, W A S D to move; click digs a 1 m sphere,
  * shift-click adds one, Z undoes the newest edit. `window.__tlVoxelWorld`
  * is the hook a test or a measuring run drives.
+ *
+ * Every derived chunk also becomes a static body in the engine's physics
+ * backend (`?collision=0` leaves physics out), replaced when the chunk is
+ * derived again; the hook drops capsules and sweeps spheres against it and
+ * reports, per cell, what every consumer of the derived data received.
  */
 import * as THREE from 'three';
 import {
+  canonicalEditCommand,
   chunkGrid,
   chunkKey,
+  editBounds,
+  type CellBox,
   createWorldStore,
   DEFAULT_REBASE_DISTANCE_M,
   eventTargetWorker,
@@ -38,6 +46,8 @@ import {
 import { createRenderer, rendererMemory, resolveRendererPreference } from '@thirdlight/three-adapter';
 import { pageToken } from '../config';
 import { ChunkMeshes } from './chunk-meshes';
+import { VoxelCollision } from './collision';
+import { assemblyProbes } from './probes';
 
 const params = new URLSearchParams(location.search);
 const projectId = params.get('project') ?? '';
@@ -138,7 +148,11 @@ async function main(): Promise<void> {
   const origin = new FloatingOrigin({ rebaseDistanceM: rebaseM, origin: { x: target.x, y: target.y, z: target.z } });
   const meshes = new ChunkMeshes(grid, origin);
   scene.add(meshes.root);
-  origin.onRebase(() => meshes.rebase());
+  const collision = params.get('collision') === '0' ? null : await VoxelCollision.create(grid, origin);
+  origin.onRebase(() => {
+    meshes.rebase();
+    collision?.rebase();
+  });
 
   const pool = new WorkerPool({ size: workers, create: () => eventTargetWorker(new Worker('./voxel-worker.js', { type: 'module' })), timeoutMs: 5000, maxQueued: 256 });
   const source = new RegionChunkSource({ grid, layout: info.manifest.layout, footprint: info.manifest.footprint, open: byteSource, maxOpen: 64 });
@@ -147,9 +161,13 @@ async function main(): Promise<void> {
   /** Chunks an edit is waiting on (key → landed with the new content yet), and when each edit's meshes were all swapped. */
   interface PendingEdit {
     readonly waiting: Map<number, boolean>;
-    readonly done: (atMs: number) => void;
+    readonly done: (atMs: number, collidersAtMs: number) => void;
+    /** When the newest of its chunks' bodies was replaced. */
+    collidersAt: number;
   }
   const pending = new Set<PendingEdit>();
+  /** Open logs of the chunks derived while an edit settles ("cx,cy,cz"). */
+  const derivedLogs = new Set<Set<string>>();
   const meshMs = new SampleRing();
   let meshSwaps = 0;
 
@@ -159,18 +177,23 @@ async function main(): Promise<void> {
       for (const p of pending) if (p.waiting.has(key)) p.waiting.set(key, true);
     } else if (e.type === 'unloaded') {
       meshes.remove(key);
+      collision?.remove(key);
     } else if (e.type === 'derived') {
-      const t0 = performance.now();
-      const bytes = meshes.set(key, e.cx, e.cy, e.cz, streamer.derivedOf(e.cx, e.cy, e.cz)?.assembly ?? null);
-      meshMs.add(performance.now() - t0);
+      const d = streamer.derivedOf(e.cx, e.cy, e.cz)?.assembly ?? null;
+      for (const log of derivedLogs) log.add(`${e.cx},${e.cy},${e.cz}`);
+      if (collision !== null) streamer.setPart(e.cx, e.cy, e.cz, 'collision', collision.set(key, e.cx, e.cy, e.cz, d));
+      const collidersAt = performance.now();
+      const bytes = meshes.set(key, e.cx, e.cy, e.cz, d);
+      meshMs.add(performance.now() - collidersAt);
       meshSwaps++;
       streamer.setPart(e.cx, e.cy, e.cz, 'mesh', bytes);
       for (const p of [...pending]) {
         if (p.waiting.get(key) !== true) continue;
         p.waiting.delete(key);
+        p.collidersAt = collidersAt;
         if (p.waiting.size === 0) {
           pending.delete(p);
-          p.done(performance.now());
+          p.done(performance.now(), p.collidersAt);
         }
       }
     }
@@ -249,6 +272,10 @@ async function main(): Promise<void> {
     server?: { apply: number; save: number };
     /** Command sent → every changed chunk re-read, re-derived and its meshes swapped. */
     swappedMs?: number;
+    /** Command sent → the last changed chunk's physics body replaced. */
+    collidersMs?: number;
+    /** Chunks derived again from the command until everything settled ("cx,cy,cz"). */
+    rederived?: string[];
     /** Command sent → the frame after the swap drawn. */
     visibleMs?: number;
   }
@@ -260,8 +287,22 @@ async function main(): Promise<void> {
     return `req-${(++requestCounter).toString(16).padStart(8, '0')}${[...r].map((b) => b.toString(16).padStart(2, '0')).join('')}`;
   }
 
-  /** Sends a voxel command and waits until what it changed is drawn. */
-  async function send(op: 'editVoxels' | 'undoVoxels', args: Record<string, unknown>): Promise<EditTiming> {
+  /**
+   * Sends a voxel command and waits until what it changed is drawn. `box`
+   * (the cells an edit can change) bounds what is derived again; an undo
+   * names none, so every chunk within the radius of a changed chunk is.
+   */
+  async function send(op: 'editVoxels' | 'undoVoxels', args: Record<string, unknown>, box?: CellBox): Promise<EditTiming> {
+    const log = new Set<string>();
+    derivedLogs.add(log);
+    try {
+      return await sendLogged(op, args, log, box);
+    } finally {
+      derivedLogs.delete(log);
+    }
+  }
+
+  async function sendLogged(op: 'editVoxels' | 'undoVoxels', args: Record<string, unknown>, log: Set<string>, box: CellBox | undefined): Promise<EditTiming> {
     const t0 = performance.now();
     const r = await fetch(`${api}/commands`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ op, projectId, requestId: requestId(), args: { world: worldName, ...args } }) });
     const body = (await r.json()) as { ok: boolean; error?: { code: string }; revision: number; cells: number; chunks: Array<[number, number, number]>; files: Array<{ name: string; etag: string | null }>; ms: { apply: number; save: number } };
@@ -275,32 +316,47 @@ async function main(): Promise<void> {
     const chunks = body.chunks.map(([cx, cy, cz]) => ({ cx, cy, cz }));
     const waiting = new Map<number, boolean>();
     for (const c of chunks) if (streamer.isResident(c.cx, c.cy, c.cz)) waiting.set(chunkKey(grid, c.cx, c.cy, c.cz), false);
+    let collidersAt = NaN;
     const swapped = new Promise<boolean>((done) => {
       if (waiting.size === 0) {
         done(true);
         return;
       }
-      const p: PendingEdit = { waiting, done: () => done(true) };
+      const p: PendingEdit = {
+        waiting,
+        collidersAt: NaN,
+        done: (_at, colliders) => {
+          collidersAt = colliders;
+          done(true);
+        },
+      };
       pending.add(p);
       // A chunk whose new content never lands (a failed read) must not hold the edit forever.
       setTimeout(() => {
         if (pending.delete(p)) done(false);
       }, EDIT_VISIBLE_TIMEOUT_MS);
     });
-    streamer.refresh(chunks);
+    streamer.refresh(chunks, box);
     if (!(await swapped)) return { ok: false, code: 'not_visible', answerMs };
     const swappedMs = performance.now() - t0;
     // Visible once the frame after the swap is drawn: the next animation frame renders it, the one after starts once it is shown.
     await new Promise<void>((ok) => requestAnimationFrame(() => requestAnimationFrame(() => ok())));
-    const timing: EditTiming = { ok: true, revision: body.revision, cells: body.cells, chunks: chunks.length, answerMs, server: body.ms, swappedMs, visibleMs: performance.now() - t0 };
+    const visibleMs = performance.now() - t0;
+    // Everything the edit invalidated (its dependents within the radius too) derived again.
+    await streamer.settle();
+    const timing: EditTiming = { ok: true, revision: body.revision, cells: body.cells, chunks: chunks.length, answerMs, server: body.ms, swappedMs, collidersMs: collidersAt - t0, visibleMs, rederived: [...log].sort() };
     lastEdits.push(timing);
     return timing;
   }
 
+  /** Any stroke command (a game's runtime set/dig, a fill, a brush), sent as it is. */
+  function edit(command: unknown): Promise<EditTiming> {
+    return send('editVoxels', { command }, editBounds(grid, canonicalEditCommand(command)));
+  }
+
   /** A brush dab (dig, or add soil) centred on a cell. */
   function dab(cell: readonly [number, number, number], mode: 'dig' | 'add'): Promise<EditTiming> {
-    const command = { v: 1, grid: 0, kind: 'brush', shape: 'sphere', size: [BRUSH_CELLS, BRUSH_CELLS, BRUSH_CELLS], points: [...cell], mode, ...(mode === 'add' ? { voxel: { material: 2, category: VOXEL_CATEGORY.terrain, orientation: 0 } } : {}), smooth: false };
-    return send('editVoxels', { command });
+    return edit({ v: 1, grid: 0, kind: 'brush', shape: 'sphere', size: [BRUSH_CELLS, BRUSH_CELLS, BRUSH_CELLS], points: [...cell], mode, ...(mode === 'add' ? { voxel: { material: 2, category: VOXEL_CATEGORY.terrain, orientation: 0 } } : {}), smooth: false });
   }
 
   async function pickAndEdit(px: number, py: number, mode: 'dig' | 'add'): Promise<EditTiming | null> {
@@ -358,6 +414,7 @@ async function main(): Promise<void> {
 
   const q = (r: SampleRing, p: number): number => Number(r.quantile(p).toFixed(3));
 
+
   (window as unknown as Record<string, unknown>)['__tlVoxelWorld'] = {
     ready: true,
     backend: backendName,
@@ -379,7 +436,9 @@ async function main(): Promise<void> {
       Object.assign(view, { yaw, pitch, distM });
     },
     dab,
+    edit,
     undo,
+    ...assemblyProbes({ streamer, grid, origin, collision, scene, files }),
     /** A dab at the cell under a screen point. */
     pickAndEdit,
     async settle(): Promise<void> {
@@ -415,6 +474,7 @@ async function main(): Promise<void> {
         missed,
         rebases: origin.rebases,
         edits: lastEdits.slice(),
+        collision: collision?.stats() ?? null,
       };
     },
   };

@@ -942,6 +942,26 @@ To be recorded here, from plan §3 and the 45.7 acceptance requirement:
   - equivalent runtime voxel input, without structure metadata, gives the same result.
 - **Observed limits** and any new D-rows.
 
+**Measured facts from 45.7b** (plan **45.7b collision and assembly proof**; staging, Iris Xe, both renderers, 60 Hz
+cap, 1280×720; the lead writes the section around them):
+- Edits were plain `set`/`dig` stroke commands (runtime input, no structure data). Growing the banister upward
+  turned its rail cells into wall for every consumer: piece rail, partial slab, light 51, not standable on top,
+  0 base faces → no piece, full box, light 255, standable on top, 2 base faces. Digging the growth gave back every
+  derived hash of the start.
+- Digging two wall cells behind the beam (wall chunk, both sides of a chunk face in x) turned the beam cells in front
+  (the next chunk in z, with no edited cell) into wall stubs; restoring them gave the beam back.
+- Every command re-derived exactly the chunks within R + 1 (3 cells) of its cell box: 1–4 chunks. After every stage,
+  0 of ~125 derived chunks differed from a fresh derive. An undo, which names no cell box, re-derived 27.
+- A reloaded page (a fresh streamer from the files the backend wrote) derived the same hashes. Digging the
+  generator's banister and setting the same cells again gave the generator's derived hashes and byte-identical
+  region files.
+- Collision through physics-rapier, a static body per derived chunk: capsules rest on the ground, wall top, beam and
+  rail; a swept ball passes between the posts under the rail and stops at the wall; after the banister grows it
+  stops at its face; a capsule dropped over a pit dug afterwards falls in. Identical on both renderers.
+- Frames at the cap with collision on: p95 16.7–16.8 ms, 0 missed of 1,800 per renderer; edit → bodies replaced
+  p50 38–42 ms, → visible p50 65 ms; 448 bodies, 16.6 MB to physics, body add p50 2.2 ms, remove 0.2 ms; Rapier's
+  WASM heap 126–172 MB, outside the streaming budget (D434).
+
 ---
 
 ## 7. Gaps found between the code and the plan text

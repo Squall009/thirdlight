@@ -42,6 +42,7 @@ import type { RegionChunkRead } from './region-file';
 import type { ChunkSource } from './region-source';
 import type { MismatchChoice, SaveChunk } from './save-file';
 import { stampShapeHash, type StampShape } from './stamp-shape';
+import type { CellBox } from './stroke';
 import type { ApplySaveInput, ApplySaveOutput, DeriveInput, DeriveOutput, EditInput, EditOutput, JobLane, LoadInput, LoadOutput, SaveContentWire, StoredChunk } from './stream-job';
 import { checkRing, chunkDistance2, DEFAULT_STREAM_RING, inNearRing, pastUnloadRing, RESIDENT_CHUNK_OVERHEAD_BYTES, ringChunks, type Focus, type StreamRing } from './stream-ring';
 import { decodeUndoRecord } from './undo-store';
@@ -112,6 +113,8 @@ interface Chunk {
   hash: Uint8Array | null;
   /** The live refresh of a resident chunk (0: none): only the newest refresh swaps its content in. */
   refresh: number;
+  /** The changed-cell box the live refresh named (null: the chunk's whole extent), which bounds what its swap rebuilds. */
+  refreshBox: CellBox | null;
 }
 
 /** Window in which a chunk loaded again after being unloaded counts as churn. */
@@ -492,7 +495,7 @@ export class VoxelStreamer {
         this.cursor++;
         const key = chunkKey(this.grid, w.cx, w.cy, w.cz);
         if (this.chunks.has(key)) continue;
-        const c: Chunk = { cx: w.cx, cy: w.cy, cz: w.cz, key, phase: 'reading', job: 0, bytes: 0, parts: null, d2: w.d2, wantedTick: this.tick, derive: 'no', deriveJob: 0, derived: null, hash: null, refresh: 0 };
+        const c: Chunk = { cx: w.cx, cy: w.cy, cz: w.cz, key, phase: 'reading', job: 0, bytes: 0, parts: null, d2: w.d2, wantedTick: this.tick, derive: 'no', deriveJob: 0, derived: null, hash: null, refresh: 0, refreshBox: null };
         this.chunks.set(key, c);
         list.push(c);
       }
@@ -797,8 +800,13 @@ export class VoxelStreamer {
    * applied and saved an edit). Resident chunks keep their content until the
    * new content lands, then swap it in; chunks still being read or decoded
    * are read again; others load as usual when they are wanted.
+   *
+   * `box`, when the caller knows it (the cells the edit could change,
+   * `editBounds`), bounds what is rebuilt: the refreshed chunks and every
+   * chunk within the dependency radius of the box. Without it every chunk
+   * within the radius of a refreshed chunk's whole extent is rebuilt.
    */
-  refresh(chunks: readonly ChunkCoord[]): void {
+  refresh(chunks: readonly ChunkCoord[], box?: CellBox): void {
     this.opts.source.invalidate?.(chunks);
     const list: Chunk[] = [];
     const token = ++this.refreshSeq;
@@ -807,6 +815,8 @@ export class VoxelStreamer {
       const c = this.chunks.get(chunkKey(this.grid, ch.cx, ch.cy, ch.cz));
       if (c === undefined) continue;
       if (c.phase === 'resident') {
+        // A refresh still in flight was superseded: its new content lands with this one, so its cells count too.
+        c.refreshBox = box === undefined || (c.refresh !== 0 && c.refreshBox === null) ? null : c.refresh !== 0 ? unionBox(c.refreshBox!, box) : { ...box };
         c.refresh = token;
         list.push(c);
       } else {
@@ -884,7 +894,10 @@ export class VoxelStreamer {
     this.counters.refreshed++;
     const s = this.grid.shift;
     this.wantDerive(c, 'edit');
-    this.invalidateAround({ minX: c.cx << s, minY: c.cy << s, minZ: c.cz << s, maxX: ((c.cx + 1) << s) - 1, maxY: ((c.cy + 1) << s) - 1, maxZ: ((c.cz + 1) << s) - 1 }, 'edit', c.key);
+    const given = c.refreshBox;
+    c.refreshBox = null;
+    const box = given ?? { minX: c.cx << s, minY: c.cy << s, minZ: c.cz << s, maxX: ((c.cx + 1) << s) - 1, maxY: ((c.cy + 1) << s) - 1, maxZ: ((c.cz + 1) << s) - 1 };
+    this.invalidateAround(box, 'edit', c.key);
     this.emit({ type: 'loaded', cx: c.cx, cy: c.cy, cz: c.cz });
   }
 
@@ -898,4 +911,8 @@ function resolver(stamps?: readonly { readonly id: string; readonly shape: Stamp
   if (stamps === undefined) return undefined;
   const m = new Map(stamps.map((s) => [s.id, { shape: s.shape, hash: stampShapeHash(s.shape) }]));
   return (id) => m.get(id);
+}
+
+function unionBox(a: CellBox, b: CellBox): CellBox {
+  return { minX: Math.min(a.minX, b.minX), minY: Math.min(a.minY, b.minY), minZ: Math.min(a.minZ, b.minZ), maxX: Math.max(a.maxX, b.maxX), maxY: Math.max(a.maxY, b.maxY), maxZ: Math.max(a.maxZ, b.maxZ) };
 }

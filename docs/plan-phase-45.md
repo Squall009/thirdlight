@@ -686,6 +686,7 @@ sub-phase on staging; the merge to `main` happens once, at the end of 48.
 | 45.5b | done (5e94406e, gate green): browser page (`run.mjs stream-page`), Iris Xe, 720p at the 60 Hz cap, HTTP Range, 4 workers, both renderers: frame p95 16.67 ms, ≤ 1 missed of 3,600 (first draw), 0 long tasks, 0 near holes at 40/80 m/s; update p95 2.3–2.4, max 6.5 ms (no GC; 12.5 not seen). Derive re-check bug fixed. +40 ms latency empties the ring (D432); see **45.5b browser streaming**. |
 | 45.6 | done (a7b8c68c, fast gate green): derived data v1 DRAFT: one versioned assembly evaluation (placeholder rules, R 2, apron 3) feeds occupancy, collision boxes, nav, light coverage (+ prop channel), meshes, instances; mips. Node: derive p50 0.5–3.4 ms a chunk, 11–69 KB mean; light 0.5–4.3 KB vs 3.5–19 KB dense; see **45.6 derived data**. |
 | 45.7a | done (c6e2316f, 990d70cc, 275f2e8a, fast gate green): staging: region files served by range, `editVoxels`/`undoVoxels` on the command route, page `/voxel-world.html` streams, derives, draws on both renderers; reload after restart same. 720p cap: p95 16.7 ms, 0 missed of 1,799 per renderer; edit→answer 14–15 ms, →visible p50 65 / 81 ms; 50 MB of 256 MiB; see **45.7a thin slice**. |
+| 45.7b | done (d3f2ebe8 + this, fast gate green): slice collision through physics-rapier (a body per derived chunk, replaced on derive) and the assembly proof by runtime set/dig, both renderers: wall↔banister↔beam for every consumer, 0 stale, 1–4 chunks re-derived, hashes and file bytes equal after reload/rebuild. 720p cap: p95 16.7–16.8, 0 missed; edit→bodies p50 38–42 ms; D434; see **45.7b**. |
 
 ### 45.0 floor record
 
@@ -1400,6 +1401,71 @@ load 1.4–1.6, uptime 9 d 15 h (`node tools/voxel-bench/run.mjs slice --phase m
   across a chunk boundary, with codec/save round trips); the voxel commands on MCP (D433); edits seen by other open
   pages (the WS feed); undo inside the project's history.
 
+### 45.7b collision and assembly proof
+
+**Collision** (`packages/editor/src/voxel-world/collision.ts`, own boundary row; `collisionGeometry` in
+`@thirdlight/voxel` `derived-collision.ts`): every derived chunk is one static body in the engine's physics backend
+(physics-rapier's port, the one a game steps): its collision boxes (full-cell merges, the beams', rails' and posts'
+partial shapes) as box parts and its ground surface buffer as one-sided triangle meshes (cut at the port's
+1,024-vertex / 2,048-triangle mesh limits), placed relative to the floating origin, replaced on every `derived`
+event, removed on `unloaded`, counted with `setPart(…, 'collision', bytes)`. `?collision=0` leaves it out. The port
+has no free rigid bodies: a dropped body is a capsule character falling under gravity a 60 Hz step at a time (the
+runtime's way of moving one), a rolled ball a swept sphere (`castSphere`).
+
+**Assembly proof** on the page (`probes.ts` hooks: `cellAt` = stored voxel + resolved class + `cellOutputs` of the
+derived chunk, i.e. what render, collision, nav and light received; `staleAgainstFresh` = the workers' results vs a
+main-thread derive of the store now; `windowHashes`, `files`, `drop`, `sweep`). Every edit is a plain `set`/`dig`
+stroke on the command route (runtime input, no structure data); `VoxelStreamer.refresh(chunks, box)` now rebuilds
+only the chunks within R + 1 of the command's cell box (`editBounds`).
+- **Banister → wall → banister:** `set` of the gaps between the posts and a row over the rail (16 cells, across the
+  x chunk face): rail cells resolve as wall; outputs go from piece rail / collision partial (slab 4/16) / light 51 /
+  nav blocks, not standable on top / 0 base faces to no piece / full box / 255 / standable on top / 2 base faces;
+  the swept ball stops at the face (z 8.3) instead of passing between the posts to the wall (z 1.3) or stopping at
+  a post (7.92); the capsule rests on top (y 4.02 instead of 3.02). `dig` of the same cells: every derived hash
+  equal to the start's.
+- **Beam across a chunk face:** `dig` of the two wall cells behind the beam at x −4 and +3 (wall chunk z −1, both
+  sides of x 0): the beam cells in front (chunk z −2, where nothing was edited) resolve as wall stubs (full box, 255),
+  their neighbours' run sections become ends; `set` of the stone: beam again, hashes equal the stage before.
+- **(a) round trips:** after the growth, a reloaded page (fresh streamer from the region files the backend wrote)
+  derives the 5×5×5-chunk window to the same hashes and reads the cells as timber/construction (e2e).
+- **(b) outputs:** as above, from `cellOutputs` per cell; one evaluation, every consumer different per case.
+- **(c) invalidation:** each command re-derived exactly `dependentChunks(editBounds(cmd), 3)`: 2 (banister), 4 (beam
+  cut, across x and z, including the beam's chunk that held no edited cell), 1 (pit); 0 of ~125 derived chunks stale
+  against a fresh derive after every stage. Undo answers name no box, so an undo rebuilds the 27 chunks around each
+  changed chunk (also 0 stale).
+- **(d) runtime input:** `dig` of the generator's banister, then `set` of the same cells: every derived hash equals
+  the generator's world, and the region files' tags (SHA-256 of their bytes) equal the generator's files.
+- Physics probes after an edit: a 1 m dab in the pad, the capsule dropped there falls into the pit (feet −2.67 cells
+  instead of 0.02); undo fills it, 0.02 again.
+
+Tests: `tools/voxel-bench/collision.test.ts` (3, real derive + real Rapier in Node: per-cell outputs of wall, beam,
+rail, post and gap, growth; ground cut into meshes without losing a triangle; drops on ground, wall top, beam, rail,
+sweeps between posts and at a post, growth, a pit dug after the bodies were built), `stream.test.ts` refresh + a
+boxed refresh (4 chunks instead of 27, none stale); e2e `voxel-world.e2e.ts` + the assembly test (stages above
+through the real page and backend, WebGPU) and a drop + sweep on each renderer's page: 13 s → 14.2 s (3 tests).
+
+Measured 2026-11-02 08:33–08:38 on staging, Iris Xe, headless Chrome at the 60 Hz cap, 1280×720, DPR 1, load 1.5–1.9,
+uptime 9 d 16 h (`run.mjs slice --phase assembly|measure|fly`; one round). Report and screenshots (viewed):
+`~/.cache/thirdlight-phase45/acceptance/45.7b/` (README.md lists each picture).
+
+| Renderer | 30 s orbit p50 / p95 / max, missed | after edits 10 s, missed | cold fill ms (45.7a) | edit → answer / bodies replaced / visible p50 (max) ms | bodies (colliders), MB to physics, WASM heap MB | body add p50 / p95 / max, remove p50 / p95 ms | fly 12 m/s 27 s: missed, adds / removes |
+|---|---|---|---|---|---|---|---|
+| WebGPU | 16.7 / 16.7 / 16.8, 0 of 1,800 | 0 of 599 | 2,457 (1,711) | 10 / 38 (78) / 65 (93) | 448 (794), 16.6, 126 | 2.2 / 4.0 / 16.4, 0.2 / 0.9 | 0 of 1,620, 372 / 282 |
+| WebGL 2 | 16.7 / 16.8 / 16.8, 0 of 1,799 | 0 of 599 | 2,366 (1,807) | 11 / 42 (70) / 65 (87) | 448 (795), 16.6, 126 | 2.2 / 3.9 / 17.3, 0.2 / 0.7 | 0 of 1,619, 372 / 282 |
+
+- No miss in any measured window, so no cause to record. Collision costs the cold fill ~0.6 s (448 bodies at
+  ~2 ms of main thread each, as chunks derive) and nothing visible in the frame at the cap; edit → visible fell from
+  65 / 81 ms (45.7a) to 65 / 65, likely because a dab now re-derives 1–4 chunks instead of up to 36 (not
+  isolated).
+- Streaming total 67 MB of the low tier's 256 MiB (45.7a 50.5): +16.6 MB collision geometry, 37 KB a body, mostly
+  ground trimeshes in float32/u32 (the derived ground buffer is 8–12 KB a chunk packed). Rapier's WASM heap (126 MB,
+  172 MB after the flight, never shrinking) is outside that budget: D434.
+- **Limitations** (placeholder rules, as 45.6): banister and fence corners resolve as wall; a beam that loses its
+  wall becomes a floating wall stub (no "orphan" case); the base surface is a naive quad per exposed face and detail
+  pieces are stand-in boxes; collision bodies cover every derived chunk in the ring (no collision ring), ground is
+  always a trimesh (no heightfield); dropped bodies are capsule characters and swept spheres, not free rigid bodies;
+  the assembly proof runs on the world grid only (no rotated structure grid).
+
 ## 7. Decision log
 
 - 2026-10-27 (owner, planning session): §1 decided in conversation. The research behind it covers Enshrouded's
@@ -1649,6 +1715,23 @@ load 1.4–1.6, uptime 9 d 15 h (`node tools/voxel-bench/run.mjs slice --phase m
 - 2026-11-02 (45.7a, default chosen, owner to confirm): the backend opens a world whole (the region world of 45.4;
   the slice's 512 m world is a few MB) and re-writes a whole region file per edit (6.7–18 ms with fsync for ~350 KB);
   streaming the backend's side and batching saves are 46a's, measured on larger worlds.
+
+- 2026-11-02 (45.7b, default chosen, owner to confirm; R105, §5c): **voxel collision = one static body per derived
+  chunk** in physics-rapier (the engine's one backend): collision boxes as box parts, the ground surface buffer as
+  one-sided triangle meshes cut at the port's mesh limits, replaced whole on every derive of the chunk and removed
+  on unload. Every derived chunk in the ring gets a body for now; a collision ring and heightfields where a chunk's
+  ground is a height function are 46a's (D434). No per-voxel or per-box colliders: one body a chunk keeps add/remove
+  at 2.2 / 0.2 ms p50.
+- 2026-11-02 (45.7b, default chosen, owner to confirm; Q-c): **a refresh carries the edit's cell box**
+  (`VoxelStreamer.refresh(chunks, box)`, the box from `editBounds`): only chunks within R + 1 of it are derived
+  again (1–4 per slice edit instead of the 27 around each changed chunk); a refresh superseded before it landed
+  merges its box into the next. Undo answers name no box yet, so an undo rebuilds the whole neighbourhood; proposal
+  for 46a: the backend answers the changed cells' box with every voxel command, undo included.
+- 2026-11-02 (45.7b, for the owner; Q-a, Q-b): the 45.7 acceptance proof holds with the minimum stored contract
+  (category + material + shape): runtime `set`/`dig` alone turn a banister into a wall and back and a beam into a
+  stub across a chunk face, every consumer follows from one evaluation, and rebuilding the generator's cells by
+  commands gives the same derived hashes and byte-identical region files. Details in **45.7b collision and assembly
+  proof**.
 
 ## 7a. Kit and surface planning session (2026-10-30)
 

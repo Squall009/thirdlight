@@ -12,6 +12,14 @@
  * `--phase reload` (after restarting the backend): a fresh page per
  * renderer reads the world again, a screenshot, and every probe from the
  * measure phase is compared with what the region files now give.
+ * `--phase assembly` (per renderer): the assembly proof in stages through
+ * runtime set/dig commands — the banister grown into a wall, the wall
+ * behind the beam cut across a chunk face, both undone, the banister dug
+ * and rebuilt cell by cell, a pit dug under a dropped capsule — with a
+ * screenshot, the cells' classes and outputs, the chunks derived again,
+ * a staleness check against a fresh derive and physics probes per stage.
+ * `--phase fly` (per renderer): frames at the cap while the focus travels
+ * 160 m and back, with the chunk bodies' add/remove churn it causes.
  *
  *   --origin URL        the backend (default http://127.0.0.1:4180, staging)
  *   --token-file FILE   its owner token (default ~/thirdlight-staging-p45/owner-token)
@@ -40,7 +48,7 @@ const PHASE = arg('phase', 'measure');
 const SECONDS = Number(arg('seconds', '30'));
 const RENDERERS = arg('renderers', 'webgpu,webgl2').split(',') as Array<'webgpu' | 'webgl2'>;
 const VIEWPORT = parseViewport(arg('viewport', '1280x720'));
-const OUT = arg('out', join(homedir(), '.cache', 'thirdlight-phase45', 'acceptance', '45.7a'));
+const OUT = arg('out', join(homedir(), '.cache', 'thirdlight-phase45', 'acceptance', PHASE === 'assembly' || PHASE === 'fly' ? '45.7b' : '45.7a'));
 const MISSED_MS = 25;
 
 type Cell = [number, number, number];
@@ -153,10 +161,108 @@ async function probes(renderer: 'webgpu' | 'webgl2', cells: Cell[]): Promise<{ v
   }
 }
 
+/** The assembly proof's stages on one renderer (see the header). */
+async function assembly(renderer: 'webgpu' | 'webgl2'): Promise<Record<string, unknown>> {
+  const { page, errors, close } = await openPage(renderer);
+  const [ox, oy, oz] = AT;
+  const centre = AT.map((v) => v >> 5) as Cell;
+  const stages: Array<Record<string, unknown>> = [];
+  const probeCells: Record<string, Cell> = { rail: [ox - 3, oy + 2, oz + 7], post: [ox - 4, oy + 1, oz + 7], gap: [ox - 3, oy + 1, oz + 7], beam: [ox - 4, oy + 5, oz - 1], beamNext: [ox - 5, oy + 5, oz - 1], wall: [ox - 4, oy + 5, oz] };
+  const timber = { material: 11, category: 2, orientation: 0, shape: 255 };
+  const stone = { material: 10, category: 2, orientation: 0, shape: 255 };
+  const grown: number[] = [];
+  const banister: number[] = [];
+  for (let x = -4; x < 4; x++) {
+    if ((x & 1) !== 0) grown.push(ox + x, oy + 1, oz + 7);
+    else banister.push(ox + x, oy + 1, oz + 7);
+    grown.push(ox + x, oy + 3, oz + 7);
+    banister.push(ox + x, oy + 2, oz + 7);
+  }
+  const behindBeam = [ox - 4, oy + 5, oz, ox + 3, oy + 5, oz];
+  const front = (): Promise<unknown> => hook(page, 'look', ox, oy + 2, oz + 5, 0.55, 0.32, 9);
+  const back = (): Promise<unknown> => hook(page, 'look', ox, oy + 5, oz - 1, 2.6, 0.3, 9);
+  /** Physics probes of a stage: capsules dropped on the rail, the wall top, the beam and the pad; balls rolled at post height between two posts and at a post. */
+  const probes = async (): Promise<Record<string, unknown>> => ({
+    dropRail: await hook(page, 'drop', [ox - 2.5, oy + 7, oz + 7.5], 0.1, 0.1),
+    dropWallTop: await hook(page, 'drop', [ox - 4.5, oy + 12, oz + 0.5], 0.2, 0.2),
+    dropBeam: await hook(page, 'drop', [ox - 4.5, oy + 10, oz - 0.5], 0.1, 0.1),
+    dropPad: await hook(page, 'drop', [ox + 9.5, oy + 4, oz + 10.5], 0.15, 0.15),
+    sweepGap: await hook(page, 'sweep', [ox - 2.5, oy + 1.5, oz + 12], [0, 0, -1], 0.15, 20),
+    sweepPost: await hook(page, 'sweep', [ox - 3.5, oy + 1.5, oz + 12], [0, 0, -1], 0.15, 20),
+  });
+  const stage = async (name: string, command: unknown, view: () => Promise<unknown>, op: 'edit' | 'dab' | 'undo' = 'edit'): Promise<void> => {
+    await hook(page, 'clearMarkers');
+    const answer = op === 'undo' ? await hook<Record<string, unknown>>(page, 'undo') : command === null ? null : op === 'edit' ? await hook<Record<string, unknown>>(page, 'edit', command) : await hook<Record<string, unknown>>(page, 'dab', ...(command as [Cell, 'dig']));
+    await hook(page, 'settle');
+    const cells: Record<string, unknown> = {};
+    for (const [k, c] of Object.entries(probeCells)) cells[k] = await hook(page, 'cellAt', ...c);
+    const stale = await hook(page, 'staleAgainstFresh', ...centre, 2);
+    const hashes = await hook<Record<string, number | null>>(page, 'windowHashes', ...centre, 2);
+    const physics = await probes();
+    await view();
+    await hook(page, 'settle');
+    const file = await shot(page, `${String(stages.length).padStart(2, '0')}-${name}-${renderer}.png`);
+    stages.push({ name, answer, cells, stale, hashes, physics, shot: file });
+    console.log(JSON.stringify({ renderer, stage: name, ok: answer === null ? true : answer['ok'], rederived: (answer?.['rederived'] as unknown[] | undefined)?.length, stale: (stale as { stale: unknown[] }).stale.length }));
+  };
+  try {
+    const files0 = await hook<Record<string, string>>(page, 'files');
+    await stage('start', null, front);
+    await stage('banister-grown', { v: 1, grid: 0, kind: 'set', cells: grown, voxel: timber }, front);
+    await stage('beam-cut', { v: 1, grid: 0, kind: 'dig', cells: behindBeam }, back);
+    await stage('beam-restored', { v: 1, grid: 0, kind: 'set', cells: behindBeam, voxel: stone }, back);
+    await stage('banister-shrunk', { v: 1, grid: 0, kind: 'dig', cells: grown }, front);
+    await stage('banister-dug', { v: 1, grid: 0, kind: 'dig', cells: banister }, front);
+    await stage('banister-rebuilt', { v: 1, grid: 0, kind: 'set', cells: banister, voxel: timber }, front);
+    const filesRebuilt = await hook<Record<string, string>>(page, 'files');
+    await stage('pit', [[ox + 9, oy - 1, oz + 10], 'dig'], () => hook(page, 'look', ox + 9, oy, oz + 10, 0.5, 0.7, 8), 'dab');
+    await stage('pit-undone', null, () => hook(page, 'look', ox + 9, oy, oz + 10, 0.5, 0.7, 8), 'undo');
+    const h = (i: number): unknown => JSON.stringify(stages[i]!['hashes']);
+    const same = { restoredEqualsGrown: h(3) === h(1), shrunkEqualsStart: h(4) === h(0), rebuiltEqualsStart: h(6) === h(0), filesRebuiltEqualsStart: JSON.stringify(filesRebuilt) === JSON.stringify(files0) };
+    console.log(JSON.stringify({ renderer, same }));
+    const state = await hook<Record<string, unknown>>(page, 'state');
+    return { renderer, stages, same, collision: state['collision'], errors };
+  } finally {
+    await close();
+  }
+}
+
+/** Frames at the cap while the focus travels 160 m along x and back (12 m/s), and the chunk-body churn of it. */
+async function fly(renderer: 'webgpu' | 'webgl2'): Promise<Record<string, unknown>> {
+  const { page, errors, close } = await openPage(renderer);
+  try {
+    await lookAtScene(page);
+    const before = await hook<{ collision: { adds: number; removes: number } }>(page, 'state');
+    await page.evaluate(() => {
+      const w = window as unknown as { __tlVoxelWorld: { frames: (s: number, y: number) => Promise<unknown> }; __fly?: Promise<unknown> };
+      w.__fly = w.__tlVoxelWorld.frames(27, 0);
+    });
+    const t0 = Date.now();
+    const total = 320 / 12;
+    for (;;) {
+      const t = (Date.now() - t0) / 1000;
+      if (t > total) break;
+      const along = t < total / 2 ? t * 12 : 320 - t * 12;
+      await hook(page, 'look', AT[0] + along * 2, AT[1] + 3, AT[2] + 2, -0.75, 0.42, 16);
+      await new Promise((ok) => setTimeout(ok, 50));
+    }
+    const fr = (await page.evaluate(() => (window as unknown as { __fly: Promise<unknown> }).__fly)) as { intervals: number[]; renderMs: { p50: number; p95: number } };
+    const state = await hook<{ collision: { adds: number; removes: number } }>(page, 'state');
+    return { renderer, frames: summary(fr), collisionBefore: before.collision, collision: state.collision, state, errors };
+  } finally {
+    await close();
+  }
+}
+
 mkdirSync(OUT, { recursive: true });
 const host = { uptimeH: Number((uptime() / 3600).toFixed(1)), load: loadavg().map((l) => Number(l.toFixed(2))), at: new Date().toISOString() };
 const probeCells = (['webgpu', 'webgl2'] as const).flatMap((r) => dabsFor(r).map((d) => d.cell)).concat([[AT[0] + 3, AT[1] + 1, AT[2] + 7]]);
-if (PHASE === 'measure') {
+if (PHASE === 'assembly' || PHASE === 'fly') {
+  const runs = [];
+  for (const r of RENDERERS) runs.push(PHASE === 'assembly' ? await assembly(r) : await fly(r));
+  writeFileSync(join(OUT, `${PHASE}.json`), JSON.stringify({ host, at: AT, runs }, null, 2));
+  console.log(`${PHASE}: ${join(OUT, `${PHASE}.json`)}`);
+} else if (PHASE === 'measure') {
   const runs = [];
   for (const r of RENDERERS) {
     const run = await measure(r);

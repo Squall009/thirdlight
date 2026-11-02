@@ -229,5 +229,7 @@ export {
 } from './derived-data';
 export { INSTANCE_BYTES, INSTANCE_FLAG, MaterialSlots, PIECE_FAMILY, PIECE_SECTION, POSITION_STEPS_PER_CELL, SURFACE_ISO, surfaceStride, type InstanceList, type SurfaceBuffer } from './derived-mesh';
 export { deriveFromStore, deriveWithApron } from './derive-assembly';
+export { cellOutputs, resolvedClassAt, type CellOutputs } from './derived-cell';
+export { collisionGeometry, type CollisionGeometry, type CollisionMesh, type CollisionMeshLimits } from './derived-collision';
 export { downsampleMip, mipChildren, mipNodeKey, mipNodeOf, MipStaleSet, type MipNode } from './voxel-mips';
 export { combineCoverage, lightCoverage, PROP_SAMPLES_PER_AXIS, propCoverageChunk, type PropShape } from './prop-coverage';

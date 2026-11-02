@@ -16,8 +16,10 @@ import {
   chunkOfKey,
   createDenseChunk,
   createWorldStore,
+  dependentChunks,
   deriveFromStore,
   deriveNow,
+  editBounds,
   encodeDerived,
   exportOrAir,
   jobRadius,
@@ -404,6 +406,24 @@ describe('streamer (workers, region files on disk)', () => {
     expect(n).toBeGreaterThan(30);
     // Refreshed chunks are not dirty here: the writer saved them, nothing holds them past the ring.
     expect(s.tracker.dirty().length).toBe(0);
+
+    // Given the edit's cell box, a refresh rebuilds only the chunks within R of the cells it can change (a cell on
+    // the x and z chunk faces: 4 chunks, not the 27 around the changed chunk), and none is left stale.
+    const one = canonicalEditCommand({ v: 1, grid: 0, kind: 'set', cells: [0, 40, 0], voxel: { material: 41, category: 2, orientation: 0, shape: 255 } });
+    const out2 = writer.edit(one);
+    writer.save();
+    rebuilt.clear();
+    const box = editBounds(grid, one);
+    s.refresh(out2.chunks.map((u) => ({ cx: u.cx, cy: u.cy, cz: u.cz })), box);
+    await s.settle();
+    const want = dependentChunks(grid, box, jobRadius(PLACEHOLDER_RULES)).map((c) => `${c.cx},${c.cy},${c.cz}`);
+    expect(want).toHaveLength(4);
+    expect([...rebuilt].sort()).toEqual(want.sort());
+    for (const d of s.derivedChunks()) {
+      if (d.result.assembly === null) continue;
+      const fresh = encodeDerived(deriveFromStore(writer.store, d.cx, d.cy, d.cz, PLACEHOLDER_RULES));
+      expect(Buffer.compare(Buffer.from(encodeDerived(d.result.assembly)), Buffer.from(fresh))).toBe(0);
+    }
   });
 
   it('cancels loads the focus left before they landed, and adopts nothing from them', async () => {
