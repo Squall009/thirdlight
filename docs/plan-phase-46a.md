@@ -95,7 +95,7 @@ number: Iris Xe, 1280×720, 60 Hz cap, both renderers, ≤ 3 rounds, `uptime` re
 |---|---|
 | 46a.1 | done 59173236: `VOXEL_WORLD_OPS` once in commands; route op list + `tl_command` enum take editVoxels/undoVoxels (no expectedRevision); `voxelsChanged` on the editor feed; reference op pages. Integration: MCP stroke = page's answer and file tags, feed once per change. Fast gate green 11 min; voxel-world.e2e 22.5 → 21.0 s. D433 fixed. |
 | 46a.2 | done e48969c5 (+ boundary 1bf03832): `voxelWorld` {world, ring, collision, sectionEdge, savedFields}, metres, unset = voxel defaults (192/224, 96/128, 48/24 m, 16, material/role/shape); model `affectsLighting`; additive on schema 8. Vitest + backend setComponent/restart test. Fast gate green 11 min, 4.9 GB; voxel-world.e2e 21.0 s, inspector.e2e 15.4 s. |
-| 46a.3 | not started |
+| 46a.3 | done 6ab7d6cb: streamer reads through `VoxelOverlay` (base never written; payloads, aprons, `voxelAt`, worker edits); overrides outlive unload, counted in the budget; `saveChunks(saved)`, `clearOverlay`; default sections 16. stream.test: dig 8 / 4 m 27 section derives, paints 0 mesh derives; ~9.7 B a changed cell. fast gate green 12 min; voxel-world.e2e 21.0 → 21.1 s. |
 | 46a.4 | not started |
 | 46a.5a | not started |
 | 46a.5b | not started |
@@ -122,6 +122,40 @@ editor WebSocket against a real backend; MCP's dig answers the page's cells, chu
 change arrives once as `voxelsChanged` with its origin (null for the page's origin-less sends, mcp, browser). Fast gate
 (gate-fast-20261102-202435): GREEN, 11 min, 4.8 GB peak; `voxel-world.e2e.ts` 22.5 → 21.0 s (10.0 + 5.3 + 5.7 s; no e2e
 change); vitest `scan-bounded-log.test.ts` timed out once and passed alone (D418 watch, noted).
+
+**46a.3** (6ab7d6cb). `VoxelStreamer` keeps the base in its store (written only by loads and refreshes) and runtime
+edits in `streamer.overlay`; derive jobs read a view of the overlay over the base (`stream-sections.ts` `DeriveView`;
+`stream-overlay.ts`: a chunk with overrides is sent as the base's arrays copied with only its overridden cells
+written; `chunkForm` says `stored` for such a chunk so aprons read it cell by cell). `editInWorker` sends merged
+chunks and keeps the cells that differ from the base. Overrides are not chunk content: an edited chunk is not dirty,
+unloads like any other and gets its overrides back on reload; `bytes.overlay` is in the budget total and never
+evicted. `saveChunks(saved = DEFAULT_SAVED_FIELDS)` (async) gives save entries against the files' base, reading the
+base of a chunk that left from the source again (worker `load`), entries taken in one task; `clearOverlay()` drops all
+and rebuilds the cells that change back in one swap group. Engine default `sectionEdge` = `DEFAULT_SECTION_EDGE` (16)
+with assembly rules whose radius fits, else the chunk edge; the slice page imports the constant.
+Test (`stream.test.ts`, 4 real workers, region files on disk, 16³ sections, focus at the ground): base equal to the
+files after every edit; every section near the edits equal to a fresh in-thread derive of the streamer's own merged
+view and of an independently edited oracle, before and after a trip away (every edited chunk unloaded) and back;
+saves equal away and back; the only-rained chunk gives no entry with the default mask and one with wetness saved.
+Numbers (Node, in-test; load average ~7–8 from other users of the host):
+
+| Edit | Cells | Chunks | Section derives (mesh) | Shader-only derives | Edit → swap ms | Overlay after (cells / chunks / bytes) |
+|---|---|---|---|---|---|---|
+| dig 1.5 m at a 4-chunk corner | 100 | 4 | 8 | 0 | 28–36 | 100 / 4 / 768 |
+| dig 4 m | 1,296 | 2 | 27 | 0 | 25–33 | 1,396 / 5 / 13,632 |
+| material paint 7×3×7 | 147 | 1 | 0 | 4 | 3.7–6.3 | 1,543 / 5 / 14,976 |
+| wetness paint, same cells | 147 | 1 | 0 | 4 | 2.2–2.3 | 1,543 / 5 / 14,976 |
+| rain, one cell | 1 | 1 | 0 | 1 | 1.6–2.0 | 1,544 / 6 / 15,024 |
+
+Overlay arrays: 6 B a changed cell at full capacity, 9.7 B measured (capacity doubles), about 2.5 KB a changed chunk
+here. The first dig's swap includes worker warm-up. Fast gate (gate-fast-20261102-212251): RED on load timeouts
+(`stream.test.ts` 16³ test and the new test at vitest's 5 s, D418, D311) → the new scenario test gets its own 30 s
+timeout (4 s alone); rerun RED on D417 (`start.e2e.ts` stop exit 1), rerun GREEN (perf at the cap 0 missed both
+renderers). Final fast gate after bounding `clearOverlay`'s rebuild to the overridden cells (gate-fast-20261102-214254): GREEN,
+12 min, 4.8 GB peak, perf at the cap 0 missed on both renderers.
+`voxel-world.e2e.ts` 21.0 → 21.1 s in the final gate (10.2 + 5.2 + 5.7 s; 26.1 s in the first rerun before
+`clearOverlay` was bounded, 22.1 s alone at load average 7.5): the commands path is unchanged; local edits now go
+to the overlay and `reread` clears it. No stored format changed (staging slice world not regenerated).
 
 **46a.2** (1bf03832 boundary, e48969c5 schema). No perf item. `voxelWorld {world, ring?, collision?, sectionEdge?,
 savedFields?}` (metres; unset = the voxel defaults, resolved by `resolveVoxelWorld`: load 192/224 m across, 96/128 m
@@ -176,6 +210,23 @@ e2e change), `inspector.e2e.ts` 15.4 s (8.2 + 4.6 + 2.6 s); village perf at the 
   field). Not allowed in prefabs (a world streams per scene). One world per object; two objects naming the same world
   in a scene are not refused yet (the host in 46a.7a decides). **`affectsLighting` is on models only, absent = off**
   (spec: on for large static props, off for small ones and scatter; no size-based automatic default).
+- 2026-11-02 (46a.3, default chosen, owner to confirm): **runtime edits never make a chunk dirty**: the streamer's
+  `edit`/`editInWorker` write only the overlay, so the tracker's dirty/hold rules now guard only writers of base
+  files that share the tracker; an edited chunk unloads like any other and its overrides wait in the overlay
+  (counted in the budget, never evicted). The overlay has no per-project cap; a game that changes a great deal fills
+  the budget and streaming then keeps a smaller ring (eviction stops short), as for any part.
+- 2026-11-02 (46a.3, default chosen, owner to confirm): **`saveChunks` reads a departed chunk's base from the
+  world's files again** (one worker `load` per stored chunk) rather than keeping its base bytes in memory after
+  unload: a save costs reads, play costs nothing. A base that cannot be read rejects the save (never saved against a
+  wrong base). Entries are taken in one task after the reads, so no edit lands half in a save.
+- 2026-11-02 (46a.3): an overridden chunk is sent to workers as the base's arrays with only its overridden cells
+  written (main thread: one copy plus one write a changed cell), and reads as `stored` for aprons (cell-by-cell reads
+  of its strips) even when the merge is uniform: correct, slightly more apron bytes. `setSave` still applies a save's
+  entries into the base store as chunks load (as built in 45); 46a.8 moves restore onto the overlay so the base stays
+  the files' content and save hashes stay against the shipped base.
+- 2026-11-02 (46a.3): the slice page's local edits (a game's runtime edits) are in the overlay; its `reread` hook
+  clears the overlay (a quit) instead of reading files again; the page's section default is the engine's
+  `DEFAULT_SECTION_EDGE`.
 - 2026-11-02 (46a.2): project-model may import `@thirdlight/voxel` (own boundary commit 1bf03832; voxel joins the export
   engine packages), so the component's defaults are the voxel constants, never copies.
 - 2026-11-02 (plan): M7 (cross-grid dependencies) stays the open contract gap recorded in spec §3.6, to be settled
