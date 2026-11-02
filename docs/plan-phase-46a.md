@@ -98,7 +98,7 @@ number: Iris Xe, 1280×720, 60 Hz cap, both renderers, ≤ 3 rounds, `uptime` re
 | 46a.3 | done 6ab7d6cb: streamer reads through `VoxelOverlay` (base never written; payloads, aprons, `voxelAt`, worker edits); overrides outlive unload, counted in the budget; `saveChunks(saved)`, `clearOverlay`; default sections 16. stream.test: dig 8 / 4 m 27 section derives, paints 0 mesh derives; ~9.7 B a changed cell. fast gate green 12 min; voxel-world.e2e 21.0 → 21.1 s. |
 | 46a.4 | done c93ae33b: reads in whole columns + row neighbours to the hysteresis, 16 KB gap, 8 reads, held decodes, ring kept 1 s ahead of motion. stream-page +40 ms, 80 m/s, both renderers ×3: near holes 0 (was p50 761 / p95 1,148), ~39 req/s, 16.1–16.5 MB (1.4× of 11.8). D432 fixed. Fast gate green 11 min; voxel-world.e2e 21.1 → 26.7 s (load 7–8). |
 | 46a.5a | done 23e5e1ee: `joinSections` (chunk-join.ts) joins a chunk's 16³ results into one ground + base surface, instances and a 34³ grid equal to the whole-chunk derive; swaps name their chunks, `chunk` events, `joinedChunk` on demand. Join p50/p95 slice 285/587 µs, town 312/686 µs (grid ~90 %). Fast gate green 12 min; voxel-world.e2e 26.7 → 19.8 s (load 9 → 2). |
-| 46a.5b | not started |
+| 46a.5b | done e317f7b0 (+ 9d22034d boundary, 87c50d84): adapter `VoxelChunkView`, one draw a chunk from joined sections, grid entries straight to upload; page uses it. render() CPU 16³ slice 1.4–1.6 / town 4.0 ms (was 4.2 / 13.8; same-hour 32³ 1.6 / 3.9–4.0): D440 draw half fixed. Town 8 m blast main ~180–220 ms (bodies a section, 46a.6a). D441 fixed, D442 open. voxel-world.e2e 19.8 → 21.3 s. |
 | 46a.6a | not started |
 | 46a.6b | not started |
 | 46a.7a | not started |
@@ -231,6 +231,48 @@ first reported as cold; 2026-11-02 22:50, load 9.9 / 7.2 / 6.4, uptime 10 d 6.4 
   renderers. `voxel-world.e2e.ts` 26.7 → 19.8 s (9.0 + 5.2 + 5.6 s; no e2e change; load 9.1 at the start, 2.4 at
   the end, uptime 10 d 6.5 h): 46a.4's 26.7 s was host load, not the larger ring.
 
+**46a.5b** (9d22034d boundary: three-adapter → voxel; e317f7b0 view; 87c50d84 e2e/bench; 564a0625 D441). The slice
+page's per-section meshes moved into `three-adapter/src/voxel-chunk-view.ts`: `VoxelChunkView` draws one group a 32³
+storage chunk (ground and base in one mesh, so one surface draw; one instanced mesh a piece family), matrices made
+when placed and after a re-base (`matrixAutoUpdate` off); `feedVoxelChunkView` joins a chunk on each `chunk` event
+(`streamer.joinedChunk(cx, cy, cz, times, cells)`: the shader grid's entries written straight into the view's upload
+array, `joinShaderCells`, no palette pack and expand; the solid test reads the sections' palettes), replaces its draw
+(only the grid on `shaderOnly`), removes it on `unloaded` and counts its bytes as the chunk's `mesh` part. Colliders
+stay per section (46a.6a). The blast hook reports `replacedChunks`; the e2e checks they are the swap's chunks, in
+the same frame and swap as the sections' bodies (my first check, chunks < sections, was wrong: a corner of eight
+chunks has one section in each). Tests: `voxel-chunk-view.test.ts` (16³ joins of a sloped ground + wall + beam +
+banister scene: one surface mesh with the whole-chunk derive's triangles, its pieces, the grid uploaded with the
+whole-chunk entries or the solid entry passed; a paint uploads only the grid; a 600 m re-base re-places every chunk;
+the feed replaces chunks in the announcing task). A grid copy broken on purpose failed it (checked once by hand).
+Blast benchmark (`run.mjs slice --phase blast --sections 16,32 --repeats 2 --seconds 10`, staging, headless Chrome,
+Iris Xe, 1280×720 at the 60 Hz cap, 4 workers, one round; 23:33–23:37, load 1.6–2.0, uptime 10 d 7.1 h; report
+`~/.cache/thirdlight-phase46/work/46a.5b/blast/`, scratch). Orbit render() CPU p50 / p95, ms:
+
+| World | 45.10c 32³ (a section an object) | 45.10c 16³ | 16³ chunk view | 32³ chunk view, same hour | Drawn (was 32³) |
+|---|---|---|---|---|---|
+| slice WebGPU / WebGL 2 | 1.4 / 1.3 | 4.2 / 4.2 | 1.6 / 1.4 (p95 2.4 / 2.2) | 1.6 / 1.6 | 493 (448) |
+| town WebGPU / WebGL 2 | 3.6 / 3.5 | 13.8 / 13.3 | 4.0 / 4.0 (p95 4.5 / 4.7) | 3.9 / 4.0 | 950 (912) |
+
+- **D440 draw half fixed**: at 16³ the render CPU equals the same-hour 32³ run (both one object a chunk); against
+  the 45.10c figures +0–14 %, with 4–10 % more chunks drawn (46a.4's ring keeps the lead point's crescent) and the
+  browser's 0.1 ms timer. Orbit 0 missed frames on both renderers and worlds.
+- **Blasts, 16³ local** (frames edit → shown; main = apron/payload ms + page build ms): terrain 1–4 m 1 frame, 8 m 2
+  (main 22–40 ms); town 1–4 m 1 frame (was 1–2) with build ~40 ms, town corner 8 m 2–3 frames (was 3), main
+  ~205–230 ms (was 220), middle 8 m 3 (was 4–5), ~195 ms. Every blast's own swap atomic (bodies and draws,
+  one frame); in 3 of 4 terrain runs the first recorded blast's window also caught the whole world re-derived after
+  the warm-up's `reread` (D442, open, cause not isolated). The town 8 m main thread is the 48–64 per-section Rapier bodies: at 32³ (8–18 bodies) the same blast
+  builds in 45–98 ms through the same view, so it goes with D440's collision half (46a.6a). First blast of a page
+  pays 90–310 ms once (first use).
+- Edit → visible (measure phase, commands, 10 dabs): 47–65 ms WebGPU, 48–65 ms WebGL 2 (was 65 / 64).
+- Pictures looked at: `measure/before-webgpu.png` (ground, wall, beam, banister rail and posts) and
+  `measure/after-webgl2.png` (dabs and pits in the ground and wall, pieces) draw as before; WebGPU after and WebGL 2
+  before not opened.
+- Fast gate (gate-fast-20261102-232008): RED on the wrong e2e check above, fixed; rerun (gate-rerun-20261102-233055)
+  GREEN, village perf at the cap 0 missed on both renderers. `voxel-world.e2e.ts` 19.8 → 21.3 s (8.9 + 6.1 + 6.3 s;
+  load 4.3 at the start, uptime 10 d 6.9 h).
+- D441 fixed (564a0625): the 16³/8³ sections test's swap wait calls `update()` each turn; passes alone (3.7 s) and in
+  the file.
+
 **46a.2** (1bf03832 boundary, e48969c5 schema). No perf item. `voxelWorld {world, ring?, collision?, sectionEdge?,
 savedFields?}` (metres; unset = the voxel defaults, resolved by `resolveVoxelWorld`: load 192/224 m across, 96/128 m
 up/down, collision 48/24 m, 16-cell sections, saved material/role/shape) and the model flag `affectsLighting`; additive
@@ -323,5 +365,11 @@ e2e change), `inspector.e2e.ts` 15.4 s (8.2 + 4.6 + 2.6 s); village perf at the 
   4036a3c2): its wait for the blast's swap only yields tasks and never calls `update()`, so it relies on the edit's
   own job sends finding pool room, which depends on the tests before it; in the file it passes (7.1 s, now with its
   own 30 s timeout: two cold fills plus whole-chunk oracle derives went past vitest's 5 s at load 9–11). Not fixed here.
+- 2026-11-02 (46a.5b, default chosen, owner to confirm): **three-adapter may import `@thirdlight/voxel`** (own
+  boundary commit 9d22034d), so the chunk view reads the format's vertex, instance and grid layouts from their one
+  definition. The view draws a chunk's ground and base as one mesh (one material) and keeps piece stand-ins per
+  chunk and family; `streamer.joinedChunk` takes an optional cell array (an overload, not a new member: the
+  streamer class is at the 80-member limit). A chunk is re-joined on every `chunk` event, including while streaming
+  (one per job answer).
 - 2026-11-02 (plan): M7 (cross-grid dependencies) stays the open contract gap recorded in spec §3.6, to be settled
   before 47a; nothing in 46a builds on structure grids.
