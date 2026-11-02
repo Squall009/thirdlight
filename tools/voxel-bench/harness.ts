@@ -7,6 +7,8 @@
  */
 import { chunkGrid, DenseReferenceStore, PaletteStore, VOXEL_PLANES, type ChunkEdge, type PaletteStoreOptions, type VoxelStoreFactory } from '@thirdlight/voxel';
 import { benchWorld, DEFAULT_BENCH, type BenchOptions, type BenchResult } from './bench';
+import { CODECS, NAMED_CODECS, zstdDict, type Codec } from './codecs';
+import { buildDictionary } from './dictionary';
 import { sweepWorld, type SweepResult } from './sweep';
 import type { TestWorld } from './world-kit';
 
@@ -40,7 +42,27 @@ export interface HarnessOptions {
   /** Run the access/edit/transfer benchmarks (the sweep always runs). */
   bench: boolean;
   benchOptions?: BenchOptions;
+  /** Compressors by name ({@link NAMED_CODECS} and `zstd-dict`); default zstd and deflate. */
+  codecs?: readonly string[];
+  /** Receives every swept chunk's encoded bytes, per world. */
+  corpus?: (world: string, bytes: Uint8Array) => void;
   log?: (line: string) => void;
+}
+
+/** The codecs a run names; `zstd-dict` builds the candidate's dictionary first. */
+export function resolveCodecs(names: readonly string[] | undefined, factory: VoxelStoreFactory, edge: ChunkEdge, log?: (line: string) => void): Codec[] {
+  if (names === undefined || names.length === 0) return [...CODECS];
+  const all = names.includes('all') ? [...Object.keys(NAMED_CODECS), 'zstd-dict'] : names;
+  return all.map((n) => {
+    if (n === 'zstd-dict') {
+      const dict = buildDictionary(factory, chunkGrid(edge));
+      log?.(`zstd-dict: ${dict.length} bytes of other-seed chunks`);
+      return zstdDict(dict);
+    }
+    const c = NAMED_CODECS[n];
+    if (c === undefined) throw new Error(`unknown codec '${n}' (known: ${[...Object.keys(NAMED_CODECS), 'zstd-dict', 'all'].join(', ')})`);
+    return c;
+  });
 }
 
 export interface WorldReport {
@@ -71,11 +93,16 @@ export async function runHarness(worlds: readonly TestWorld[], candidate: string
   const factory = CANDIDATES[candidate];
   if (factory === undefined) throw new Error(`unknown candidate '${candidate}' (known: ${Object.keys(CANDIDATES).join(', ')})`);
   const grid = chunkGrid(opts.edge);
+  const codecs = resolveCodecs(opts.codecs, factory, opts.edge, opts.log);
   const reports: WorldReport[] = [];
   for (const world of worlds) {
     const t0 = performance.now();
     opts.log?.(`${world.name} (${candidate}, ${opts.edge}³): sweep`);
-    const sweep = sweepWorld(world, factory, grid, opts.sampleTiles, opts.log);
+    const corpus = opts.corpus;
+    const sweep = sweepWorld(world, factory, grid, opts.sampleTiles, opts.log, undefined, {
+      codecs,
+      corpus: corpus === undefined ? undefined : (b) => corpus(world.name, b),
+    });
     opts.log?.(`${world.name}: sweep done, ${sweep.totals.chunksPresent.toFixed(0)} chunks, verified ${String(sweep.verified)}`);
     const bench = opts.bench ? await benchWorld(world, factory, grid, opts.benchOptions ?? DEFAULT_BENCH) : null;
     reports.push({ world: world.name, description: world.description, seed: world.seed, areaM2: world.areaM2, candidate, edge: opts.edge, sweep, bench, seconds: (performance.now() - t0) / 1000 });
@@ -118,6 +145,20 @@ export function markdownReport(worlds: readonly WorldReport[]): string {
     lines.push(
       `| ${w.world} | ${w.candidate} | ${w.edge} | ${f1((b?.memoryBytes ?? NaN) / MB)} / ${f1((b?.heapBytes ?? NaN) / MB)} | ${f1(b?.randomReadNs ?? NaN)} | ${f1(b?.coherentReadNs ?? NaN)} | ${f2(b?.editUs ?? NaN)} | ${s('sphere r=1 m')} / ${s('sphere r=2 m')} / ${s('sphere r=4 m')} | ${s('box 2 m')} / ${s('box 8 m')} | ${b?.editMismatches === null || b === null ? '-' : b.editMismatches === 0 ? 'equal' : `${b.editMismatches} differ`} | ${f1((tm.encodeMs * 1000) / Math.max(1, tm.encodedChunks ?? 0))} / ${f1((tm.decodeMs * 1000) / Math.max(1, tm.decodedChunks ?? 0))} | ${f0(rate(tm.encodedBytes, tm.encodeMs))} / ${f0(rate(tm.decodedBytes, tm.decodeMs))} | ${f0(rate(tm.encodedBytes, tm.compressMs.zstd ?? 0))} / ${f0(rate(tm.decompressedBytes.zstd ?? 0, tm.decompressMs.zstd ?? 0))} | ${f0(rate(tm.encodedBytes, tm.compressMs.deflate ?? 0))} / ${f0(rate(tm.decompressedBytes.deflate ?? 0, tm.decompressMs.deflate ?? 0))} | ${tr ? `${f1(tr.raw.copyUsPerChunk)} / ${f1(tr.raw.transferUsPerChunk)}` : '-'} | ${tr ? `${f1(tr.zstd.copyUsPerChunk)} / ${f1(tr.zstd.transferUsPerChunk)}` : '-'} |`,
     );
+  }
+  const names = [...new Set(worlds.flatMap((w) => Object.keys(w.sweep.totals.codecBytes)))];
+  if (names.some((n) => n !== 'zstd' && n !== 'deflate')) {
+    lines.push('');
+    lines.push(`| World | Cand. | Edge | raw MB | ${names.map((n) => `${n} MB (MB/km²)`).join(' | ')} | ${names.map((n) => `${n} c / d MB/s`).join(' | ')} |`);
+    lines.push(`|---|---|---|---|${names.map(() => '---|').join('')}${names.map(() => '---|').join('')}`);
+    for (const w of worlds) {
+      const t = w.sweep.totals;
+      const tm = w.sweep.timings;
+      const km2 = w.areaM2 / 1e6;
+      const sizes = names.map((n) => (t.codecBytes[n] === undefined ? '-' : `${f2(t.codecBytes[n] / MB)} (${f2(t.codecBytes[n] / MB / km2)})`));
+      const speeds = names.map((n) => `${f0(rate(tm.encodedBytes, tm.compressMs[n] ?? 0))} / ${f0(rate(tm.decompressedBytes[n] ?? 0, tm.decompressMs[n] ?? 0))}`);
+      lines.push(`| ${w.world} | ${w.candidate} | ${w.edge} | ${f2(t.rawBytes / MB)} | ${sizes.join(' | ')} | ${speeds.join(' | ')} |`);
+    }
   }
   return lines.join('\n') + '\n';
 }

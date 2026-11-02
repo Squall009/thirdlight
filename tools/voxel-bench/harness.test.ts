@@ -5,6 +5,11 @@ import { CANDIDATES, markdownReport, runHarness } from './harness';
 import { sweepWorld } from './sweep';
 import { measureTransfer, startEchoWorker } from './transfer';
 import { cavesWorld, plainWorld, townWorld } from './worlds';
+import { mulberry32 } from '@thirdlight/shared';
+import { NAMED_CODECS, zstdDict } from './codecs';
+import { corpusSampleOf, readCorpus, type CorpusSample } from './corpus';
+import { apronCells, meanChunksRebuilt } from './edge-costs';
+import { LZ4 } from './lz4-block';
 
 const tiny = { randomReads: 5_000, coherentColumns: 16, edits: 2_000, strokes: 6, transferChunks: 4, seed: 3 };
 
@@ -52,7 +57,7 @@ describe('the storage harness', () => {
 });
 
 describe('the palette candidates', () => {
-  const palettes = Object.keys(CANDIDATES).filter((n) => n.startsWith('palette'));
+  const palettes = Object.keys(CANDIDATES).filter((n) => n.startsWith('palette') || n === 'bricks');
 
   it('read back every swept chunk of the town and the caves as generated, through voxelAt too', () => {
     expect(palettes.length).toBeGreaterThanOrEqual(4);
@@ -67,7 +72,7 @@ describe('the palette candidates', () => {
   });
 
   it('read what the dense oracle reads after the benchmark edits and strokes', async () => {
-    for (const name of ['palette', 'palette-runs', 'palette-planes']) {
+    for (const name of ['palette', 'palette-runs', 'palette-planes', 'bricks']) {
       const b = await benchWorld(townWorld({ footprint: 80 }), CANDIDATES[name]!, chunkGrid(32), { ...tiny, transferChunks: 0 });
       expect({ name, editMismatches: b.editMismatches }).toEqual({ name, editMismatches: 0 });
     }
@@ -99,5 +104,60 @@ describe('worker transfer', () => {
     expect(r.meanBytes).toBe(90_000);
     expect(r.copyUsPerChunk).toBeGreaterThan(0);
     expect(r.transferUsPerChunk).toBeGreaterThan(0);
+  });
+});
+
+describe('the codecs the harness sizes with', () => {
+  const rand = mulberry32(12);
+  const samples = [
+    new Uint8Array(13).fill(7),
+    Uint8Array.from({ length: 5000 }, (_, i) => (i >> 6) & 3),
+    Uint8Array.from({ length: 3000 }, () => Math.floor(rand() * 256)),
+  ];
+
+  it.each(Object.keys(NAMED_CODECS))('%s gives back every byte', (name) => {
+    for (const b of samples) expect(new Uint8Array(NAMED_CODECS[name]!.decompress(NAMED_CODECS[name]!.compress(b)))).toEqual(b);
+  });
+
+  it('zstd with a dictionary round-trips, smaller where the dictionary holds the content', () => {
+    const c = zstdDict(Uint8Array.from({ length: 6000 }, (_, i) => (i >> 6) & 3));
+    const packed = c.compress(samples[1]!);
+    expect(new Uint8Array(c.decompress(packed))).toEqual(samples[1]);
+    expect(packed.length).toBeLessThan(NAMED_CODECS.zstd!.compress(samples[1]!).length);
+  });
+
+  // lz4js reads past a cut block without noticing (the chunk codec's CRC catches the wrong bytes); a wrong length it refuses.
+  it('lz4 stores bytes without matches as they are, and refuses a block that does not fill its stated length', () => {
+    const noise = LZ4.compress(samples[2]!);
+    expect(noise.length).toBe(4 + samples[2]!.length);
+    const packed = LZ4.compress(samples[1]!);
+    expect(packed.length).toBeLessThan(samples[1]!.length / 4);
+    const longer = packed.slice();
+    longer[0]! += 1;
+    expect(() => LZ4.decompress(longer)).toThrow(/lz4 block: 5000 bytes for a stated 5001/);
+    expect(() => LZ4.decompress(noise.subarray(0, noise.length - 1))).toThrow(/stored bytes/);
+  });
+
+  it('resolves codec names and refuses unknown ones', async () => {
+    await expect(runHarness([plainWorld({ footprint: 32 })], 'dense', { edge: 16, bench: false, codecs: ['zstd', 'nope'] })).rejects.toThrow(/unknown codec 'nope'/);
+  });
+});
+
+describe('corpus files and edge costs', () => {
+  it('keeps a bounded, seeded sample of chunk bytes and reads it back', () => {
+    const map = new Map<string, CorpusSample>();
+    for (let k = 0; k < 2500; k++) corpusSampleOf(map, 'w').add(Uint8Array.of(k & 255, k >> 8, 9));
+    const back = readCorpus(map.get('w')!.bytes());
+    expect(back.length).toBe(2000);
+    expect(back.every((b) => b.length === 3 && b[2] === 9)).toBe(true);
+  });
+
+  it('counts apron cells and the chunks an edit rebuilds', () => {
+    expect(apronCells(32, 2)).toBe(36 ** 3 - 32 ** 3);
+    expect(apronCells(16, 1)).toBe(18 ** 3 - 16 ** 3);
+    // A single cell with no dependency radius never leaves its chunk.
+    expect(meanChunksRebuilt(16, 0, 0, 2000)).toBe(1);
+    // Reach r on each side: per axis the chance to cross a border is 2r / edge, so the mean is (1 + 2r / edge)³.
+    expect(meanChunksRebuilt(32, 0, 4, 100_000)).toBeCloseTo((1 + 8 / 32) ** 3, 1);
   });
 });

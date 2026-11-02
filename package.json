@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "license": "UNLICENSED",
-  "description": "Thirdlight \u2014 self-hosted browser game editor built on three.js. See docs/STATUS.md.",
+  "description": "Thirdlight — self-hosted browser game editor built on three.js. See docs/STATUS.md.",
   "engines": {
     "node": "^22.15.0"
   },
@@ -27,6 +27,8 @@
     "esbuild": "0.28.2",
     "eslint": "10.11.0",
     "eslint-plugin-react-hooks": "7.1.1",
+    "fzstd": "0.1.1",
+    "lz4js": "0.2.0",
     "typescript": "5.9.3",
     "typescript-eslint": "8.71.0",
     "vitest": "5.0.1"

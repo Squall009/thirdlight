@@ -79,6 +79,10 @@ export const PINS = {
   eslint: '10.11.0',
   'typescript-eslint': '8.71.0',
   'eslint-plugin-react-hooks': '7.1.1',
+  // Voxel chunk codec measurement (root dev only): a pure-JS zstd decoder and
+  // a pure-JS lz4, decoded in a browser worker by tools/voxel-bench.
+  fzstd: '0.1.1',
+  lz4js: '0.2.0',
 };
 
 /** Scope/consumer notes for the pending-pin report. */
@@ -116,6 +120,8 @@ const PIN_CONSUMERS = {
   eslint: 'workspace lint (root dev; never in a bundle)',
   'typescript-eslint': 'workspace lint (root dev; never in a bundle)',
   'eslint-plugin-react-hooks': 'workspace lint (root dev; never in a bundle)',
+  fzstd: 'tools/voxel-bench (root dev): browser-worker zstd decode measured for the voxel chunk codec; not in any shipped bundle yet',
+  lz4js: 'tools/voxel-bench (root dev): lz4 size and browser-worker decode measured for the voxel chunk codec; not in any shipped bundle',
   '@dimforge/rapier3d-compat':
     'physics-rapier — the exact 0.20.0 pin (decisions 0005, 0007); only in the separate physics-3d.js bundle a game with physics loads',
 };

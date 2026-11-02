@@ -10,6 +10,9 @@
  *   --sample-tiles N     sweep only N evenly spaced 256 m tiles of larger worlds, extrapolated by footprint
  *   --no-bench           sizes only (skip access, edit and transfer timings)
  *   --quick              fewer benchmark operations (a smoke run)
+ *   --codecs a,b,…       compressors to size and time: zstd1, zstd (level 3), zstd9, zstd19, deflate, lz4,
+ *                        zstd-dict, or all (default zstd,deflate)
+ *   --corpus DIR         also write 2,000 randomly sampled chunks' encoded bytes per world to DIR (browser decode bench)
  *   --out DIR            report folder (default ~/.cache/thirdlight-voxel-bench)
  *
  * Writes <out>/voxel-bench-<time>.json and .md (and latest.json / latest.md).
@@ -21,6 +24,7 @@ import { CHUNK_EDGES, type ChunkEdge } from '@thirdlight/voxel';
 import { DEFAULT_BENCH, type BenchOptions } from './bench';
 import { markdownReport, runHarness, type HarnessReport, type WorldReport } from './harness';
 import { allWorlds } from './worlds';
+import { corpusSampleOf, type CorpusSample } from './corpus';
 
 function arg(name: string): string[] {
   const out: string[] = [];
@@ -51,10 +55,19 @@ async function main(): Promise<void> {
   const out = arg('--out')[0] ?? join(homedir(), '.cache', 'thirdlight-voxel-bench');
   mkdirSync(out, { recursive: true });
 
+  const codecs = arg('--codecs');
+  const corpusDir = arg('--corpus')[0];
+  if (corpusDir !== undefined) mkdirSync(corpusDir, { recursive: true });
+
   const started = new Date().toISOString();
   const log = (line: string): void => console.log(`[${((performance.now()) / 1000).toFixed(0)} s] ${line}`);
   const reports: WorldReport[] = [];
-  for (const edge of edges) reports.push(...(await runHarness(worlds, candidate, { edge, sampleTiles, bench, benchOptions, log })));
+  for (const edge of edges) {
+    const samples = new Map<string, CorpusSample>();
+    const corpus = corpusDir === undefined ? undefined : (world: string, b: Uint8Array): void => corpusSampleOf(samples, world).add(b);
+    reports.push(...(await runHarness(worlds, candidate, { edge, sampleTiles, bench, benchOptions, codecs, corpus, log })));
+    for (const [world, s] of samples) writeFileSync(join(corpusDir!, `${candidate}-${edge}-${world}.bin`), s.bytes());
+  }
   const report: HarnessReport = {
     started,
     node: process.version,

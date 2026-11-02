@@ -1,29 +1,36 @@
 /**
- * The general-purpose compressors the harness measures chunk bytes with,
- * all from Node's own zlib (no new dependency):
+ * The general-purpose compressors the harness measures chunk bytes with.
  *
- * - zstd (level 3, its default): the plan's codec. Browsers have no native
- *   zstd, so in a worker it needs a JS/WASM decoder whose cost the candidates
- *   measure separately.
+ * - zstd at levels 1, 3 (its default, named plain `zstd`), 9 and 19, from
+ *   Node's own zlib. Browsers have no native zstd, so a worker needs a
+ *   JS/WASM decoder (tools/voxel-bench/browser measures fzstd).
+ * - zstd level 3 with a raw-content dictionary (`zstd-dict`): chunk bytes of
+ *   the test worlds at other seeds, so the dictionary never saw the chunks
+ *   it compresses. Decoders without dictionary support (fzstd) cannot read it.
  * - deflate (level 6, raw): what a browser decodes natively
  *   (DecompressionStream 'deflate-raw'), the no-dependency fallback.
- *
- * lz4 is not in Node or the browser; measuring it needs a new dependency,
- * which the candidates decide on.
+ * - lz4 (lz4js, block format): no entropy stage, so runs the encoding
+ *   leaves in the bytes still pay. A block carries no length, so 4 bytes of
+ *   raw length are prepended (a region table would hold it instead).
  */
 import { constants, deflateRawSync, inflateRawSync, zstdCompressSync, zstdDecompressSync } from 'node:zlib';
+import { LZ4, type BlockCodec } from './lz4-block';
 
-export interface Codec {
-  readonly name: 'zstd' | 'deflate';
-  compress(bytes: Uint8Array): Uint8Array;
-  decompress(bytes: Uint8Array): Uint8Array;
-}
+export { LZ4 };
 
-export const ZSTD: Codec = {
-  name: 'zstd',
-  compress: (b) => zstdCompressSync(b, { params: { [constants.ZSTD_c_compressionLevel]: 3 } }),
-  decompress: (b) => zstdDecompressSync(b),
+/** A compressor of whole chunk byte strings. */
+export type Codec = BlockCodec;
+
+const zstdAt = (name: string, level: number, dictionary?: Uint8Array): Codec => {
+  const dict = dictionary === undefined ? {} : { dictionary: Buffer.from(dictionary.buffer, dictionary.byteOffset, dictionary.byteLength) };
+  return {
+    name,
+    compress: (b) => zstdCompressSync(b, { params: { [constants.ZSTD_c_compressionLevel]: level }, ...dict }),
+    decompress: (b) => zstdDecompressSync(b, dict),
+  };
 };
+
+export const ZSTD: Codec = zstdAt('zstd', 3);
 
 export const DEFLATE: Codec = {
   name: 'deflate',
@@ -31,4 +38,20 @@ export const DEFLATE: Codec = {
   decompress: (b) => inflateRawSync(b),
 };
 
+/** Every codec a run can name with --codecs (the dictionary codec is made per run, see {@link zstdDict}). */
+export const NAMED_CODECS: Readonly<Record<string, Codec>> = Object.freeze({
+  zstd1: zstdAt('zstd1', 1),
+  zstd: ZSTD,
+  zstd9: zstdAt('zstd9', 9),
+  zstd19: zstdAt('zstd19', 19),
+  deflate: DEFLATE,
+  lz4: LZ4,
+});
+
+/** The default set (what every earlier run measured). */
 export const CODECS: readonly Codec[] = Object.freeze([ZSTD, DEFLATE]);
+
+/** zstd level 3 with a raw-content dictionary. */
+export function zstdDict(dictionary: Uint8Array): Codec {
+  return zstdAt('zstd-dict', 3, dictionary);
+}

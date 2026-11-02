@@ -23,7 +23,7 @@ import {
   type VoxelStoreCandidate,
   type VoxelStoreFactory,
 } from '@thirdlight/voxel';
-import { CODECS, ZSTD } from './codecs';
+import { CODECS, ZSTD, type Codec } from './codecs';
 import { chunkRange, type TestGrid, type TestWorld } from './world-kit';
 
 /** Cells per side of a sweep tile (256 m, the default region footprint). */
@@ -53,6 +53,8 @@ export interface SweepTotals {
   zstdNoCategory: number;
   zstdNoOrientation: number;
   zstdNeither: number;
+  /** Compressed bytes per codec the run measured (by codec name). */
+  codecBytes: Record<string, number>;
   /** Material runs along y inside each chunk column (a run-length encoding's entry count). */
   materialRuns: number;
   /** Chunk columns (edge × edge per chunk) the runs were counted over. */
@@ -128,6 +130,7 @@ function emptyTotals(): SweepTotals {
     zstdNoCategory: 0,
     zstdNoOrientation: 0,
     zstdNeither: 0,
+    codecBytes: {},
     materialRuns: 0,
     runColumns: 0,
     paletteHistogram: [0, 0, 0, 0, 0, 0],
@@ -139,6 +142,7 @@ function emptyTotals(): SweepTotals {
 function addTotals(into: SweepTotals, from: SweepTotals, factor: number): void {
   for (const k of Object.keys(into) as Array<keyof SweepTotals>) {
     if (k === 'paletteHistogram') from.paletteHistogram.forEach((n, i) => (into.paletteHistogram[i]! += n * factor));
+    else if (k === 'codecBytes') for (const [name, n] of Object.entries(from.codecBytes)) into.codecBytes[name] = (into.codecBytes[name] ?? 0) + n * factor;
     else (into[k] as number) += (from[k] as number) * factor;
   }
 }
@@ -206,6 +210,14 @@ export function sweepTiles(
   return { tiles, total: all.length, sweptCells: tiles.reduce((s, t) => s + area(t), 0), totalCells };
 }
 
+/** What a sweep compresses chunks with, and where it hands sample chunk bytes. */
+export interface SweepExtras {
+  /** Compressors to measure (default {@link CODECS}: zstd 3 and deflate). */
+  codecs?: readonly Codec[];
+  /** Receives the encoded bytes of every present chunk (uniform ones included). */
+  corpus?: (bytes: Uint8Array) => void;
+}
+
 /** Sweeps every grid of a world through a fresh store of the candidate. */
 export function sweepWorld(
   world: TestWorld,
@@ -214,7 +226,9 @@ export function sweepWorld(
   sampleTiles?: number,
   log?: (line: string) => void,
   tile = SWEEP_TILE,
+  extras: SweepExtras = {},
 ): SweepResult {
+  const codecs = extras.codecs ?? CODECS;
   const totals = emptyTotals();
   const timings: SweepTimings = {
     generateMs: 0,
@@ -225,9 +239,9 @@ export function sweepWorld(
     decodeMs: 0,
     decodedBytes: 0,
     decodedChunks: 0,
-    compressMs: { zstd: 0, deflate: 0 },
-    decompressMs: { zstd: 0, deflate: 0 },
-    decompressedBytes: { zstd: 0, deflate: 0 },
+    compressMs: Object.fromEntries(codecs.map((c) => [c.name, 0])),
+    decompressMs: Object.fromEntries(codecs.map((c) => [c.name, 0])),
+    decompressedBytes: Object.fromEntries(codecs.map((c) => [c.name, 0])),
   };
   const gen = createDenseChunk(grid);
   const back = createDenseChunk(grid);
@@ -292,17 +306,20 @@ export function sweepWorld(
           timings.encodedBytes += bytes.length;
           timings.encodedChunks++;
           part.rawBytes += bytes.length;
-          for (const codec of CODECS) {
+          extras.corpus?.(bytes);
+          for (const codec of codecs) {
             t = performance.now();
             const packed = codec.compress(bytes);
             timings.compressMs[codec.name]! += performance.now() - t;
+            part.codecBytes[codec.name] = (part.codecBytes[codec.name] ?? 0) + packed.length;
             if (codec.name === 'zstd') part.zstdBytes += packed.length;
-            else part.deflateBytes += packed.length;
+            else if (codec.name === 'deflate') part.deflateBytes += packed.length;
             if (k % 4 === 0) {
               t = performance.now();
               const unpacked = codec.decompress(packed);
               timings.decompressMs[codec.name]! += performance.now() - t;
               timings.decompressedBytes[codec.name]! += unpacked.length;
+              if (Buffer.compare(unpacked, bytes) !== 0) mismatches++;
             }
           }
           part.zstdNoCategory += ZSTD.compress(store.encodeChunk(cx, cy, cz, PLANE_SUBSETS.noCategory)!).length;
