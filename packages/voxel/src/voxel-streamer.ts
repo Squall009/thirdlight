@@ -31,9 +31,10 @@
  */
 import { apronBytes, apronTransfer, buildApron, checkRadius, dependentChunks } from './apron';
 import { jobRadius, rulesRef, type AssemblyRuleSet } from './assembly';
-import { derivedBytes, encodeDerived, stalePartsOf } from './derived-data';
+import { derivedBytes, encodeDerived } from './derived-data';
+import { SHADER_BORDER_CELLS } from './derived-shader';
 import { crc32 } from '@thirdlight/shared';
-import { ALL_DERIVED_PARTS, DERIVED_PART } from './record';
+import { ALL_DERIVED_PARTS, DERIVED_PART, fieldsFeed } from './record';
 import { payloadBytes, payloadTransfer, type ChunkPayload } from './chunk-wire';
 import { chunkInWorld, chunkKey, type ChunkCoord, type ChunkGrid } from './coords';
 import { DirtyTracker } from './dirty-tracker';
@@ -656,15 +657,18 @@ export class VoxelStreamer {
   /**
    * Invalidates every resident chunk within R of a cell box (except `skip`):
    * their running jobs become stale and their derived results are rebuilt.
+   * A change that feeds only the shader data (`parts`) reaches no further
+   * than the shader border, and only that part is rebuilt there.
    */
-  private invalidateAround(box: { minX: number; minY: number; minZ: number; maxX: number; maxY: number; maxZ: number }, why: 'yes' | 'edit', skip = -1): void {
-    for (const d of dependentChunks(this.grid, box, this.radius)) {
+  private invalidateAround(box: { minX: number; minY: number; minZ: number; maxX: number; maxY: number; maxZ: number }, why: 'yes' | 'edit', skip = -1, parts: number = ALL_DERIVED_PARTS): void {
+    const radius = geometryParts(parts) ? this.radius : SHADER_BORDER_CELLS;
+    for (const d of dependentChunks(this.grid, box, radius)) {
       const key = chunkKey(this.grid, d.cx, d.cy, d.cz);
       if (key === skip) continue;
       const n = this.chunks.get(key);
       if (n === undefined || n.phase !== 'resident') continue;
       this.tracker.invalidated(this.ref(n));
-      this.wantDerive(n, why);
+      this.wantDerive(n, why, geometryParts(parts) ? ALL_DERIVED_PARTS : parts);
     }
   }
 
@@ -707,7 +711,7 @@ export class VoxelStreamer {
         this.setDerived(c, { solid: 0, exposed: 0, mask: null, hash: 0, assembly: null, shader: null });
         continue;
       }
-      const radius = shaderOnly ? 0 : this.radius;
+      const radius = shaderOnly ? SHADER_BORDER_CELLS : this.radius;
       const t0 = performance.now();
       const apron = buildApron(this.store, c.cx, c.cy, c.cz, radius);
       this.apronMs.add(performance.now() - t0);
@@ -765,9 +769,9 @@ export class VoxelStreamer {
 
   /**
    * After an edit changed `changed`: bump them, recount them, and rebuild
-   * what the changed fields feed: the changed chunks' shader data alone
-   * when only material or wetness changed, else everything within R of
-   * `box`.
+   * what the changed fields feed: the shader data alone of the chunks
+   * within the shader border of `box` when only material or wetness
+   * changed, else everything within R of `box`.
    */
   private afterEdit(changed: readonly ChunkCoord[], box: { minX: number; minY: number; minZ: number; maxX: number; maxY: number; maxZ: number }, parts: number): void {
     for (const ch of changed) {
@@ -779,7 +783,7 @@ export class VoxelStreamer {
       c.bytes = bytes;
       this.wantDerive(c, 'edit', parts);
     }
-    if (geometryParts(parts)) this.invalidateAround(box, 'edit');
+    this.invalidateAround(box, 'edit', -1, parts);
   }
 
   private loadedCheck = (g: number, cx: number, cy: number, cz: number): boolean => g === this.gridId && this.isResident(cx, cy, cz);
@@ -793,7 +797,7 @@ export class VoxelStreamer {
   edit(cmd: VoxelEditCommand, stamps?: readonly { readonly id: string; readonly shape: StampShape }[]): EditOutcome {
     const resolve = resolver(stamps);
     const outcome = applyEdit({ store: (g) => (g === this.gridId ? this.store : undefined) }, cmd, { stamps: resolve, loaded: this.loadedCheck });
-    this.afterEdit(outcome.chunks, editBounds(this.grid, cmd, resolve), stalePartsOf(outcome.fields));
+    this.afterEdit(outcome.chunks, editBounds(this.grid, cmd, resolve), fieldsFeed(outcome.fields));
     return outcome;
   }
 
@@ -826,7 +830,7 @@ export class VoxelStreamer {
       this.store.adoptPayload(ch.chunk.cx, ch.chunk.cy, ch.chunk.cz, ch.payload);
       changed.push({ cx: ch.chunk.cx, cy: ch.chunk.cy, cz: ch.chunk.cz });
     }
-    this.afterEdit(changed, editBounds(this.grid, cmd, resolve), stalePartsOf(o.output.fields));
+    this.afterEdit(changed, editBounds(this.grid, cmd, resolve), fieldsFeed(o.output.fields));
     return { status: 'done', cells: o.output.cells, undo: decodeUndoRecord(this.grid, o.output.undo) };
   }
 
@@ -840,9 +844,10 @@ export class VoxelStreamer {
    * `editBounds`), bounds what is rebuilt: the refreshed chunks and every
    * chunk within the dependency radius of the box. Without it every chunk
    * within the radius of a refreshed chunk's whole extent is rebuilt.
-   * `parts` (DERIVED_PART bits, `stalePartsOf` of the changed fields;
+   * `parts` (DERIVED_PART bits, `fieldsFeed` of the changed fields;
    * default all) says what the change makes stale: only the shader data
-   * rebuilds the refreshed chunks' shader data and nothing around them.
+   * rebuilds the shader data of the chunks within the shader border of the
+   * box (or of the refreshed chunks) and nothing else.
    */
   refresh(chunks: readonly ChunkCoord[], box?: CellBox, parts: number = ALL_DERIVED_PARTS): void {
     this.opts.source.invalidate?.(chunks);
@@ -937,12 +942,8 @@ export class VoxelStreamer {
     this.wantDerive(c, 'edit', parts);
     const given = c.refreshBox;
     c.refreshBox = null;
-    if (!geometryParts(parts)) {
-      this.emit({ type: 'loaded', cx: c.cx, cy: c.cy, cz: c.cz });
-      return;
-    }
     const box = given ?? { minX: c.cx << s, minY: c.cy << s, minZ: c.cz << s, maxX: ((c.cx + 1) << s) - 1, maxY: ((c.cy + 1) << s) - 1, maxZ: ((c.cz + 1) << s) - 1 };
-    this.invalidateAround(box, 'edit', c.key);
+    this.invalidateAround(box, 'edit', c.key, parts);
     this.emit({ type: 'loaded', cx: c.cx, cy: c.cy, cz: c.cz });
   }
 

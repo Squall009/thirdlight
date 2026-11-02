@@ -28,6 +28,7 @@ import {
   fillNeighbourhood,
   INSTANCE_BYTES,
   INSTANCE_FLAG,
+  PLANE_BIT,
   jobRadius,
   LIGHT_COVERAGE,
   lightCoverage,
@@ -47,7 +48,10 @@ import {
   RUN_Z,
   sameDenseChunk,
   streamJobHandlers,
-  surfaceStride,
+  shaderEntry,
+  shaderEntryAt,
+  SHADER_BORDER_CELLS,
+  SURFACE_VERTEX_BYTES,
   VOXEL_ROLE,
   valueRole,
   type AssemblyRuleSet,
@@ -311,7 +315,7 @@ describe('assembly evaluation and per-consumer outputs', () => {
 
 /** Whether any base-surface vertex lies inside cell (x, y, z) (not on its boundary). */
 function baseFaceTouches(d: DerivedData, x: number, y: number, z: number): boolean {
-  const stride = surfaceStride(d.base.slotBytes);
+  const stride = SURFACE_VERTEX_BYTES;
   const view = new DataView(d.base.vertices.buffer, d.base.vertices.byteOffset, d.base.vertices.byteLength);
   const st = POSITION_STEPS_PER_CELL;
   // A face of a neighbouring cell lies on this cell's boundary; only a face of this cell's own cube has all 4 corners on it.
@@ -502,7 +506,7 @@ describe('meshes', () => {
       const g = d.ground;
       if (g.vertexCount === 0) continue;
       surface++;
-      const stride = surfaceStride(g.slotBytes);
+      const stride = SURFACE_VERTEX_BYTES;
       const view = new DataView(g.vertices.buffer, g.vertices.byteOffset, g.vertices.byteLength);
       const st = POSITION_STEPS_PER_CELL;
       const pos = (v: number): string => [0, 1, 2].map((a) => view.getUint16(v * stride + 2 * a, true) - st + [cx, cy, cz][a]! * E * st).join(',');
@@ -710,5 +714,73 @@ describe('prop lighting-occupancy channel', () => {
     const props = new Uint8Array(grid.cellsPerChunk);
     props[li(1, 2, 7)] = 128;
     expect(lightCoverage(grid, d.light, props)[li(1, 2, 7)]).toBe(combineCoverage(LIGHT_COVERAGE.rail, 128));
+  });
+});
+
+describe('mesh format v2 and shader data', () => {
+  /** A derived chunk's bytes without its shader data: what every consumer but the surface shader receives. */
+  const withoutShader = (d: DerivedData): number => crc32(encodeDerived({ ...d, shader: { side: 0, palette: new Uint16Array(1), width: 0, ids: new Uint32Array(0) } }));
+
+  it('meshes, instances and collision carry no material: a material and wetness paint changes only the shader data, within its border', () => {
+    const s = createWorldStore(grid);
+    const world = hillyWorld({ footprint: 96 });
+    loadArea(world.grids[0]!, s, -48, -48, 48, 48);
+    applyEdit({ store: () => s }, canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [-3, 0, -6], max: [2, 60, -5], mode: 'place', voxel: { material: MAT.stone, role: C.wall, wetness: 0 } }));
+    const b = world.grids[0]!.bounds;
+    const chunks: Array<[number, number, number]> = [];
+    for (let cx = -1; cx <= 0; cx++) for (let cz = -1; cz <= 0; cz++) for (let cy = chunkOf(b.min[1]); cy <= chunkOf(60); cy++) chunks.push([cx, cy, cz]);
+    const before = chunks.map(([cx, cy, cz]) => deriveFromStore(s, cx, cy, cz, PLACEHOLDER_RULES));
+    let vertices = 0;
+    let boxes = 0;
+    for (const d of before) {
+      for (const surf of [d.ground, d.base]) {
+        expect(surf.vertices.byteLength).toBe(surf.vertexCount * SURFACE_VERTEX_BYTES);
+        vertices += surf.vertexCount;
+      }
+      boxes += d.collision.boxes.length / 6;
+    }
+    expect(SURFACE_VERTEX_BYTES).toBe(12);
+    expect(vertices).toBeGreaterThan(1000);
+    expect(boxes).toBeGreaterThan(0);
+    // The wall and the ground under one corner, painted: new materials and wetness, roles and shapes kept.
+    const wall = canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [-3, 0, -6], max: [2, 60, -5], mode: 'paint', voxel: { material: MAT.brick, role: C.wall, wetness: 6 } });
+    const soil = canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [-4, b.min[1], 2], max: [3, -1, 9], mode: 'paint', voxel: { material: MAT.sand, role: C.terrain, wetness: 3 } });
+    for (const cmd of [wall, soil]) {
+      const out = applyEdit({ store: () => s }, cmd);
+      expect(out.cells).toBeGreaterThan(0);
+      expect(out.fields & ~(PLANE_BIT.material | PLANE_BIT.wetness)).toBe(0);
+    }
+    const near = new Set<string>();
+    for (const box of [editBounds(grid, wall), editBounds(grid, soil)]) for (const c of dependentChunks(grid, box, SHADER_BORDER_CELLS)) near.add(`${c.cx},${c.cy},${c.cz}`);
+    let shaderChanged = 0;
+    chunks.forEach(([cx, cy, cz], k) => {
+      const after = deriveFromStore(s, cx, cy, cz, PLACEHOLDER_RULES);
+      const key = `${cx},${cy},${cz}`;
+      expect(withoutShader(after), key).toBe(withoutShader(before[k]!));
+      if (crc32(encodeDerived(after)) !== crc32(encodeDerived(before[k]!))) {
+        shaderChanged++;
+        expect(near.has(key), `shader data of ${key} changed outside the border`).toBe(true);
+      }
+    });
+    expect(shaderChanged).toBeGreaterThanOrEqual(4);
+  });
+
+  it("a chunk's shader grid holds its cells and a border of its neighbours' cells, so blends cross chunk faces", () => {
+    const s = createWorldStore(grid);
+    const world = hillyWorld({ footprint: 96 });
+    loadArea(world.grids[0]!, s, -48, -48, 48, 48);
+    applyEdit({ store: () => s }, canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [-2, 0, -2], max: [1, 40, 1], mode: 'paint', voxel: { material: MAT.gravel, role: C.terrain, wetness: 7 } }));
+    const v = { material: 0, role: 0, shape: 0, wetness: 0 };
+    let checked = 0;
+    for (const [cx, cy, cz] of [[-1, 0, -1], [0, 0, 0], [-1, 0, 0]] as const) {
+      const sh = deriveFromStore(s, cx, cy, cz, PLACEHOLDER_RULES).shader;
+      expect(sh.side).toBe(E + 2 * SHADER_BORDER_CELLS);
+      for (let gx = 0; gx < sh.side; gx++) for (let gz = 0; gz < sh.side; gz++) for (let gy = 0; gy < sh.side; gy++) {
+        s.voxelAt(cx * E + gx - SHADER_BORDER_CELLS, cy * E + gy - SHADER_BORDER_CELLS, cz * E + gz - SHADER_BORDER_CELLS, v);
+        if (shaderEntryAt(sh, (gx * sh.side + gz) * sh.side + gy) !== shaderEntry(v.material, v.wetness)) throw new Error(`chunk ${cx},${cy},${cz} grid cell ${gx},${gy},${gz}`);
+        checked++;
+      }
+    }
+    expect(checked).toBe(3 * (E + 2) ** 3);
   });
 });

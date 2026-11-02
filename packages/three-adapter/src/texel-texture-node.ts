@@ -53,9 +53,18 @@ export class TargetTextureNode extends UntransformedTextureNode {
   }
 }
 
+/** A 3D data texture read texel by texel, as uploaded (`load` with integer coordinates): no flip. */
+export class TexelTexture3DNode extends (THREE.Texture3DNode as unknown as new (value: THREE.Texture) => object) {
+  setupUV(_builder: unknown, uvNode: N): N {
+    return uvNode;
+  }
+}
+
 /** `t` as a node read as stored, sampled (`sample`) or loaded (`load`). */
 export const untransformedTexture = (t: THREE.Texture): N => TSL.nodeObject(new UntransformedTextureNode(t));
 /** `t` as a node of texels read as uploaded (`load`). */
 export const texelTexture = (t: THREE.Texture): N => TSL.nodeObject(new TexelTextureNode(t));
+/** A 3D data texture `t` as a node of texels read as uploaded (`load` with integer coordinates). */
+export const texelTexture3D = (t: THREE.Data3DTexture): N => TSL.nodeObject(new TexelTexture3DNode(t));
 /** A render target's `t` as a node read as stored, flipped without a per-draw uniform where the backend needs it. */
 export const targetTexture = (t: THREE.Texture): N => TSL.nodeObject(new TargetTextureNode(t));

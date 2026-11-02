@@ -289,10 +289,13 @@ describe('voxel world routes', () => {
     applyEdit({ store: () => expected }, canonicalEditCommand(SET));
     expectSame(await readChunks(SCENE_CHUNKS), expected, SCENE_CHUNKS);
     // Every answer names the derived parts its change makes stale: a geometry change all of them, a change of only
-    // wetness the shader data alone (and its undo the same).
+    // wetness or only material the shader data alone (and their undos the same).
     expect((await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: { ...SET, cells: [0, 13, 0] } } })).json).toMatchObject({ ok: true, parts: ALL_DERIVED_PARTS });
     const WET = { v: 2, grid: 0, kind: 'fill', min: [0, 12, 0], max: [1, 12, 0], mode: 'paint', voxel: { material: 3, role: 3, wetness: 6 } };
     expect((await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: WET } })).json).toMatchObject({ ok: true, cells: 2, parts: DERIVED_PART.shader });
+    const MATERIAL = { ...WET, voxel: { ...WET.voxel, material: 4 } };
+    expect((await command({ op: 'editVoxels', projectId: PROJECT, args: { world: WORLD, command: MATERIAL } })).json).toMatchObject({ ok: true, cells: 2, parts: DERIVED_PART.shader });
+    expect((await command({ op: 'undoVoxels', projectId: PROJECT, args: { world: WORLD } })).json).toMatchObject({ ok: true, parts: DERIVED_PART.shader });
     expect((await command({ op: 'undoVoxels', projectId: PROJECT, args: { world: WORLD } })).json).toMatchObject({ ok: true, parts: DERIVED_PART.shader });
     expect((await command({ op: 'undoVoxels', projectId: PROJECT, args: { world: WORLD } })).json).toMatchObject({ ok: true, parts: ALL_DERIVED_PARTS });
     expectSame(await readChunks(SCENE_CHUNKS), expected, SCENE_CHUNKS);

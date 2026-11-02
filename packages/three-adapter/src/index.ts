@@ -401,3 +401,7 @@ export type { PyramidReadback } from './occlusion-pyramid';
 // Occluders: `_OCC` stand-ins (depth only, the view only) and the marks of what does not count.
 export { applyModelOccluders, isOccluderStandin, OCCLUDER_EARLY_RENDER_ORDER, OCCLUDER_STANDIN_RENDER_ORDER, occluderRoleOfDraw, type ModelOccluders } from './occluders';
 export { markHostDrawing, markOccludee, OCCLUDEE_KIND_KEY, occludeeFactsOf, occludeeKindOf, OccludeeRegistry, occludeeWorldBounds, type Occludee } from './occludees';
+// Voxel surfaces: the shader that blends materials from the shader data, and the grids' GPU home.
+export { createVoxelSurface, PHASE_CELLS, VOXEL_GRID_MAX_EDGE, VOXEL_PATTERNS, VOXEL_SURFACE_KEY, VoxelShaderGrids, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceLayout, type VoxelSurfaceObject, type VoxelSurfaceOptions } from './voxel-surface';
+// GPU time per frame from timestamp queries (where the renderer records them).
+export { createGpuTiming, measuresGpuTime, type GpuTiming } from './gpu-timing';

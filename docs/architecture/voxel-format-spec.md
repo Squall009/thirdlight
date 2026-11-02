@@ -1,6 +1,6 @@
 # Voxel world formats — spec v1
 
-Status: **DRAFT v1, revised after the owner's review of 2026-11-02 (45.10a: value v2, masks, overlay, climate; 45.10b: mesh format) — awaiting the owner's approval of the revision. Nothing builds on it as final until approved.**
+Status: **DRAFT v1, revised after the owner's review of 2026-11-02 (45.10a: value v2, masks, overlay, climate; 45.10b: mesh format v2, shader data, blending in the shader) — awaiting the owner's approval of the revision. Nothing builds on it as final until approved.**
 
 Phase 45 drafted this spec ([plan](../plan-phase-45.md) §3). It describes the code on branch `phase-45`
 (`packages/voxel/src`, `@thirdlight/voxel`) as it stands, byte for byte where something is a byte format. The
@@ -39,7 +39,8 @@ voxels with the liquid role. Temperature and humidity are a coarse climate field
   all but wetness), each chunk compared against the shipped world. A building's hand edits are kept apart from the
   voxels it generates, as overrides.
 - **Which outputs a change touches.** Shape and role drive meshes, collision, navigation and light; material and
-  wetness only the shader data (§2.2), so rain re-derives nothing but that.
+  wetness only the shader data (§2.2), so rain or a repaint re-derives nothing but that: meshes carry no material,
+  and the surface shader blends the materials it reads from the shader data (§3.7, 45.10b).
 - **Never stored.** Meshes, collision, the walk-graph input, light occupancy, shader data, the low-detail far-field
   levels (mips) and prop light coverage are always rebuilt and never stored.
 
@@ -176,8 +177,8 @@ layout and scale, the editing rules (including `world_changed` refuse-after-relo
   gap, with the planned design, before 47a);
 - voxel commands on MCP (D433) and Rapier memory in the budget (D434): later work;
 - shoreline cells that are both ground and water (O15): the first candidate for the reserved bits;
-- the mesh format with material blending in the shader (45.10b), which also removes the material-slot caveat of
-  the feeds table (§2.2).
+- a sparse GPU form of the shader data (§3.7: 3–6× smaller than the dense grids, one more read per corner),
+  measured but not built.
 
 ---
 
@@ -259,8 +260,8 @@ before it is voxelized (its command carries yaw and scale, §3.3); everything fi
   palette sizes, zstd size, encode/decode and edit costs; 3 vs 4 shape bits; wetness none / authored patches / a
   rain pattern) and §1.
 - **Q-a contract (owner).** The stored intent the derived-data pipeline needs is role plus material plus shape. The
-  placeholder rules read only the role; the consumers add material (until 45.10b's mesh format moves blending to the
-  shader) and the shape. A house written by its generator and the same voxels written as runtime `fill` or `set`
+  placeholder rules read only the role; the geometry consumers add the shape; only the shader data reads material
+  (and wetness), and the surface shader blends from it (45.10b). A house written by its generator and the same voxels written as runtime `fill` or `set`
   commands derive to identical bytes (`derived.test.ts`, `voxel-world.e2e.ts`).
 
 #### The feeds mask: which derived outputs a field drives (`FIELD_FEEDS`, `DERIVED_PART`)
@@ -269,19 +270,25 @@ before it is voxelized (its command carries yaw and scale, §3.3); everything fi
 |---|---|---|
 | shape | mesh, collision, nav, light occupancy | rebuilds every result within the rules' radius (§3.7 dependency) |
 | role | mesh, collision, nav, light occupancy | the same |
-| material | shader data | rebuilds the changed chunks' shader data and nothing else (see the caveat) |
-| wetness | shader data | rebuilds the changed chunks' shader data and nothing else |
+| material | shader data | rebuilds the shader data of the chunks within the shader border (1 cell) of the changed cells, and nothing else |
+| wetness | shader data | the same |
 
 - Every applied edit reports the fields that changed in any cell (`EditOutcome.fields`, a `PLANE_BIT` mask; the
-  worker's `edit` job too). `stalePartsOf(fields)` turns it into the derived parts that are stale; the command
+  worker's `edit` job too). `fieldsFeed(fields)` turns it into the derived parts that are stale; the command
   route answers them (`parts`, an undo the parts of the edit it takes back), and `VoxelStreamer.refresh(chunks,
-  box, parts)` / its own edits derive only those: for a shader-only change the changed chunks' shader data alone,
-  no apron, no neighbour (`derive` job with `parts: shader`, radius 0). Tested in real workers on region files on
-  disk (a wetness-only paint over 4 chunks: 0 full derives, 4 shader derives, every result equal to a fresh full
-  derive; `stream.test.ts`) and on the command route (`voxel-world.test.ts`).
-- **Caveat until 45.10b:** today's surface vertices, detail instances and collision boxes still carry material
-  slots, so `stalePartsOf` adds mesh and collision for a material change (`MATERIAL_SLOT_PARTS`). The feeds table is
-  the format's contract; the extra parts go when the mesh format leaves material blending to the shader.
+  box, parts)` / its own edits derive only those: for a shader-only change the shader data of every chunk within
+  `SHADER_BORDER_CELLS` (1) of the cell box, the changed chunks and the neighbours whose border holds a changed
+  cell (`derive` job with `parts: shader`, an apron 1 deep). `fieldsFeed(fields)` is the whole rule: no output but
+  the shader data holds a material (45.10b: vertices, detail instances and collision boxes carry none), so the
+  build derives exactly what the table says.
+- Tested in real workers on region files on disk (`stream.test.ts`): a wetness-only paint over 4 chunks and a
+  material-only paint of one cell on two chunk faces (one chunk changed, 4 shader derives, 3 of them neighbours
+  with no changed cell): 0 full derives (no mesh, collision, nav or light), every result equal to a fresh full
+  derive, the neighbour's border holding the painted cell. In Node (`derived.test.ts`): a material and wetness
+  paint of a wall and of ground leaves every derived byte but the shader data equal, and changes shader data only
+  within the border. On the command route (`voxel-world.test.ts`): material-only and wetness-only answers and their
+  undos name the shader data alone. In the slice page on both renderers (`voxel-world.e2e.ts`): a material paint
+  and a wetness paint of the wall change the picture with 0 meshes built and only shader derives.
 
 ### 2.3 Base plus runtime overlay, and the saved-fields mask (owner 2026-11-02; `voxel-overlay.ts`, `save-file.ts`)
 
@@ -814,14 +821,15 @@ refused, and `OVERRIDE_UPGRADES` holds append-only steps on decoded overrides fr
 | `load` | stored chunk bytes (`{stored, raw}` or `{uniform}`), optional hash → the chunk payload, its base hash, decompress and decode µs |
 | `apply-save` | the base chunk (stored or null), expected hash, save content as its kind and payload bytes (§3.5), `onMismatch` (`save` / `base` / `report`) → the payload now, mismatch, applied, the base hash now |
 | `edit` | a canonical command, copies of every chunk it can touch, its stamps (hash recomputed in the worker) → the changed chunks, cell count, the undo record (`TLVU` bytes), the fields that changed (§2.2) |
-| `derive` | the chunk payload, radius R, an apron R deep, optional assembly rules {id, version, radius}, optional `parts` (default all) → derived data (§3.7), or the exposure placeholder when no rules are named; `parts` = shader alone: the chunk's shader data, no apron read (R may be 0) |
+| `derive` | the chunk payload, radius R, an apron R deep, optional assembly rules {id, version, radius}, optional `parts` (default all) → derived data (§3.7), or the exposure placeholder when no rules are named; `parts` = shader alone: the chunk's shader data from the chunk and an apron of the shader border (R = `SHADER_BORDER_CELLS`, 1), no assembly evaluation |
 
 **Lanes.** `edit` before `near` before `far`; within a lane by distance², then by arrival. The queue is an indexed
 heap with back-pressure: `maxQueued`, `room()`, and `queue_full` when full.
 
 **Staleness (R67).** Ids and input stamps come from the `DirtyTracker`, from one counter that never repeats.
 - A chunk's input stamp moves when it is edited, (re)loaded, or `invalidated` (a neighbour within R changed and
-  the change feeds geometry; a material or wetness change invalidates no neighbour, §2.2).
+  the change feeds geometry; a material or wetness change invalidates only the shader data of neighbours within
+  the shader border, §2.2).
 - A job snapshots the stamps of every chunk it reads. Its result is accepted only while all of them still match and
   the job has not expired.
 - **Saves are jobs too:**
@@ -899,7 +907,7 @@ Cost to measure in 47a: the resampling per job and the extra strips' bytes.
 - **Chrome, 45.5b:** frame p95 16.67 ms at 40 and 80 m/s on both renderers; `update()` p95 2.3–2.4 ms; ring 9–10 MB.
 - **The miss:** D432, at +40 ms latency.
 
-### 3.7 Derived data v2 — never committed, never saved (`assembly.ts`, `derived-data.ts`, `derived-mesh.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `prop-coverage.ts`)
+### 3.7 Derived data v3 — never committed, never saved (`assembly.ts`, `derived-data.ts`, `derived-mesh.ts`, `derived-shader.ts`, `derive-assembly.ts`, `voxel-mips.ts`, `prop-coverage.ts`; the surface shader: three-adapter `voxel-surface.ts`)
 
 Everything in this section is rebuilt from the voxels, in workers, by the `derive` job. **None of it goes into a
 region file, a save, git or an export (R54, R95).** `encodeDerived` gives canonical bytes, but only to compare and
@@ -936,10 +944,9 @@ hash results; they are never stored.
 | rail / post | no (detail piece) | slab or bar, 4/16 cell thick | yes / no | 51 (placeholder) |
 | liquid | no | none (49) | no / no | 0 |
 
-**Outputs per chunk.** A result records `v` (derived format version 2), its rules {id, version, radius} and its
-edge.
-- **materials:** a u32 table, slot → material id, with slots in first-use order. Meshes, instances and boxes share
-  it.
+**Outputs per chunk.** A result records `v` (derived format version 3), its rules {id, version, radius} and its
+edge. Only the shader data reads a voxel's material or wetness; every other output is a function of role and
+shape (v3, 45.10b: v2's material table and the material slots of vertices, instances and boxes are gone).
 - **occupancy (R82):**
   - a chunk flag: 0 empty, 1 solid, 2 mixed;
   - 2 bits per 4³ brick, four bricks a byte, low bits first, bricks ordered (bx · n + bz) · n + by;
@@ -948,8 +955,8 @@ edge.
   - a bit for every fully covering cell;
   - the partial cells as u16 cells plus u8 coverages, in cell order.
 - **collision (R105):**
-  - boxes as 6 × u16 (min x, y, z, max x, y, z) in 1/16 cell steps from the chunk corner, with a u16 material slot
-    each;
+  - boxes as 6 × u16 (min x, y, z, max x, y, z) in 1/16 cell steps from the chunk corner, no material (wall runs
+    merge across materials; a physics material, where a game needs one, comes from the cell's shader data entry);
   - full-cell merges first (`fullBoxes` of them), then the partial shapes;
   - the ground surface buffer is the trimesh.
 - **nav (R100):**
@@ -959,21 +966,27 @@ edge.
 - **surface buffers:** two per chunk, the projected ground and the modular base. The base surface is not emitted
   under a detail piece that replaces it.
 - **detail instances:** see below.
-- **shader data** (`derived-shader.ts`, new in v2): the per-chunk material and wetness grid the surface shader
-  blends from (material blending moves to the shader, owner 2026-11-02; 45.10b's mesh format reads it). A palette of
+- **shader data** (`derived-shader.ts`): the material and wetness grid the surface shader blends from (owner
+  2026-11-02: blending in the shader). It covers the chunk and a border of `SHADER_BORDER_CELLS` = 1 cell of its
+  neighbours (side 34 at 32³), so a pixel at a chunk face blends with the next chunk's cells from its own grid and
+  no seam shows. Cells in grid order `(x · 34 + z) · 34 + y`, grid cell g = chunk cell g − 1. Held as a palette of
   u16 entries `material | wetness << 12` (air 0) and every cell's entry id packed at the palette's width (0, 1, 2,
-  4, 8 or 16 bits, 32 / width ids a u32 word, local-index order). A chunk of one entry stores no ids. It reads only
-  the chunk's own cells (no apron), so a material or wetness change re-derives it alone (§2.2 feeds).
+  4, 8 or 16 bits, 32 / width ids a u32 word, the last word padded with 0). A grid of one entry stores no ids. It
+  reads the chunk and its border only, so a material or wetness change re-derives the shader data within the
+  border of the change and nothing else (§2.2 feeds); `encodeShader` (side, width, count, palette, ids) is its
+  canonical bytes for hashes.
 
-**Surface vertex** (stride 20 bytes, or 24 when the chunk's material table has more than 256 slots):
+**Surface vertex, mesh format v2** (stride 12 bytes, `SURFACE_VERTEX_BYTES`; v1 was 20, or 24 past 256 materials a
+chunk):
 
 | Offset | Format | Field |
 |---|---|---|
 | 0 | `uint16x4` | position in 1/1024 cell from one cell below the chunk corner; w = 0 |
 | 8 | `snorm8x4` | normal; w = 0 |
-| 12 | `uint8x4` (or `uint16x4`) | four material slots |
-| 16 (or 20) | `unorm8x4` | weights, summing to 255 |
 
+- A vertex carries no material and no weight (owner 2026-11-02): the shader finds the materials around each pixel
+  in the shader data, so a material or wetness change rebuilds no mesh and a blend is the same on any mesh that
+  covers the surface (any later mesh level of detail).
 - Indices are u16 below 65,536 vertices, otherwise u32.
 - Triangles are counter-clockwise seen from outside.
 - **No cracks between chunks.** A boundary vertex is a function of its 8 samples, quantised as integer steps in world
@@ -986,7 +999,50 @@ edge.
 - u8 x, y, z: the cell inside the chunk;
 - u8: bits 0–1 quarter turns about +y, bits 4–7 flags (0x10 `replacesBase`);
 - u16 piece: family << 2 | section. Families: beam 1, rail 2, post 3. Sections: single 0, start 1, body 2, end 3;
-- u16 material slot.
+- u16 reserved, 0 (v1's material slot; the stride stays a multiple of four, as a GPU instance buffer needs). A
+  piece's material is its cell's, in the shader data. The slice still draws pieces in stand-in colours by family.
+
+**Shader data on the GPU and the surface shader (45.10b; three-adapter `voxel-surface.ts`).** One renderer path:
+the engine's node materials (`MeshStandardNodeMaterial`), the same program on WebGPU and WebGL 2, no feature of one
+backend only.
+- **Layout (default chosen by measurement, owner to confirm).** Dense: each drawn chunk whose grid holds two or
+  more solid entries gets a 34³ region of one GPU-only 3D texture, `rg8unorm`, two bytes a cell (the entry's low
+  byte, then its high byte: material low 8 bits, material high 4 bits | wetness << 4), 78,608 B a region. Texel
+  (x, y, z) of a region is grid cell (y, z, x), so the grid's memory order is the texture's and a grid uploads as it
+  is. A chunk whose grid holds one solid entry (air aside) needs no region: its objects pass the entry instead (a
+  surface there blends to that entry wherever it is). A region is uploaded alone (`queue.writeTexture`; WebGL 2
+  `texSubImage3D` through three's copy), no CPU copy of the texture is kept, and the texture grows by a quarter
+  along its shortest axis by a GPU copy (edge at most 2,048 texels: 216 k regions).
+- **Per object:** the region's origin and the one-entry fallback (a vec4), and the chunk corner's cell modulo 1,024
+  (the texture phase): uniforms of the object, so a floating-origin shift never moves a texture.
+- **Blend.** A pixel moves a quarter cell into the surface along its normal (a face between a solid and an air
+  cell reads the solid cell), clamps to the grid and reads the 8 cell centres around it. Each corner's weight is,
+  per axis, a ramp of the blend distance across the face between two cells (`clamp((f − ½) / d + ½)`, d the
+  distance in cells; a setting, default 0.25 m, 0.05–0.5 m seen), air left out. The two heaviest materials are
+  kept, looked up in a material table (colour, test pattern) and mixed by their weights; wetness, averaged the same
+  way, darkens the colour (× 1 − ½·w/7) and lowers the roughness (0.85 → 0.3). Projection: triplanar in world cells
+  for terrain and construction alike.
+- **Reads a pixel (counted in the program three builds, `voxel-surface.test.ts`):** 16: 8 grid texels + 2 material
+  table texels + 6 pattern samples (2 materials × 3 planes); three's BRDF table adds 1 for the standard material.
+  Texture units: 3 (grid, table, pattern array) + 1 (BRDF), leaving the light path's 3 within the lit programs' 16.
+  Every implicit-derivative sample sits in the program's top-level flow (WGSL refuses one in a branch that varies
+  per pixel; tested).
+- **Alternatives measured (derive bench, Node, five worlds):** the packed palette form the result keeps is 2.6–6.1
+  KB a chunk (7–12 KB a drawn chunk); a dense region is 78.6 KB; a sparse form (a 9³ table of u16 brick entries plus
+  128 B for every 4³ brick of two or more entries) would be 12.6–26.8 KB a region (3–6× smaller) for one more
+  table read per corner (8 more a pixel). Not built: proposed for when grid memory matters (46a/46c).
+
+**Measured (45.10b).** Derive bench before → after (same hour, `run.mjs derive`, five worlds): vertex 20 → 12 B;
+surface buffers (vertices + indices) per chunk −26 % (plain, hilly, caves, vertical) and −33 % (town); derived
+bytes per chunk town 38.5 → 30.9 KB, caves 72.0 → 60.0 KB, vertical 33.1 → 28.1 KB, hilly 12.0 → 11.3 KB, plain
+15.3 → 15.3 KB (the bordered shader grid grew what the vertices saved); mesh µs per chunk 5–43 % less. Collision
+in town 183 → 186 B a chunk (12-byte boxes without a slot, wall runs merged across materials: 13.1 → 15.5 boxes).
+Grids needed: 27–56 % of drawn chunks in the five worlds, 518 of 525 in the slice ring (grass over soil within one
+cell). The slice on staging, 720p at the 60 Hz cap (plan **45.10b**): frame p95 16.7–16.8 ms, 0 missed of 1,799 on
+both renderers; GPU time per frame (timestamps; the page's one pass is the voxel scene) blend / one flat colour
+7.1 / 3.1 ms WebGPU, 3.8 / 1.9 ms WebGL 2; grids 519 regions, 50.3 MB of texture (40.8 MB used), 0.1 / 0.2 ms p50 /
+p95 to expand and upload one; a material or wetness paint over a chunk corner: 0 meshes built, 20 grids uploaded,
+visible in 48–71 ms.
 
 **Dependency and invalidation (Q-c).**
 - A job's apron is R + 1 deep: 3 for the placeholder.
@@ -1046,7 +1102,7 @@ culling, rays and the far field skip whole empty or solid subtrees without readi
 | Structure overrides | `TLVO` | 2 | a newer one refused | `OVERRIDE_UPGRADES`, append-only (v2 has none) |
 | Record value form | byte in `TLVR`, `TLVU`, `TLVS`, `TLVO` | 2 | any other refused | new fields take reserved bits (§2.2) |
 | Job message | `v` | 1 | refused | not needed (same build both ends) |
-| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 2 | refused | rebuilt, never upgraded |
+| Derived data | `DERIVED_FORMAT_VERSION` + rules ref | 3 | refused | rebuilt, never upgraded |
 
 **Value v2 (owner 2026-11-02) moved these versions:** chunk codec 1 → 2, region file 1 → 2, edit command 1 → 2,
 undo record 1 → 2, save 1 → 2, overrides 1 → 2, record value form 1 → 2, derived data 1 → 2, placeholder rules
@@ -1135,8 +1191,8 @@ Every R-id from [voxel-format-requirements.md](voxel-format-requirements.md), ma
 | R84, R85 | §3.7 mips | 45.6; `derived.test.ts` | served (no paint layer, O16 closed) |
 | R86 | §3.7 instance sections | 45.6 | served at format level (§7a sections) |
 | R87–R90 | — | — | later: 46b/46c (not storage formats) |
-| R91 | §3.7 vertex slots + weights | 45.6 | served |
-| R92 | §3.7 shader data | 45.10a | O16 closed (owner): no paint layer; blending in the shader (45.10b) |
+| R91 | §3.7 surface vertex v2, shader data on the GPU | 45.6, 45.10b; `voxel-surface.test.ts`, `voxel-world.e2e.ts` | replaced (owner 2026-11-02): vertices carry no material; the shader blends from the shader data |
+| R92 | §3.7 shader data, surface shader | 45.10a, 45.10b; `derived.test.ts`, `stream.test.ts` | served: blending in the shader, triplanar in world space for terrain and construction; no paint layer (O16 closed) |
 | R93–R96 | §3.7 prop channel | 45.6; `derived.test.ts` | served |
 | R97–R99 | — | — | later: 46d |
 | R100 | §3.7 nav | 45.6 | partly: the walk graph is 46d |
@@ -1207,7 +1263,7 @@ every remaining default below is accepted** (the world layout and scale, the edi
 28. Apron depth = the rules' radius + 1; results record their rules; one rule set per streamer (45.6).
 29. Light coverage as bits + a partial list (bricks if 46d's tracer needs O(1) access); placeholder coverages (45.6).
 30. Collision input as boxes in 1/16 cell + the ground trimesh; nav input as blocking bits + standable cells (45.6).
-31. Mesh buffers: 20-byte vertices (24 when a chunk's material table has more than 256 slots), u16/u32 indices, two surfaces, 8-byte instances with `replacesBase` (45.6, 45.7d).
+31. ~~Mesh buffers: 20-byte vertices with material slots~~ → owner 2026-11-02 (45.10b): 12-byte vertices (position, normal), no material; u16/u32 indices, two surfaces, 8-byte instances with `replacesBase` and a reserved u16.
 32. Voxel mips: a node has the chunk's form; mean density, dominant material; stale ancestors rebuilt lowest first (45.6).
 33. Prop lighting channel: a coverage byte a cell, rebuilt from the prop list, never saved (45.6).
 
@@ -1313,7 +1369,7 @@ The 45.7 spec item found these gaps; 45.7d closed all ten in code, with tests, a
 code as it runs. Each entry says what changed.
 
 - **G1 — vertex stride. Closed in 45.7d (documented).** A surface vertex is 20 bytes with u8 material slots and 24
-  when the chunk's material table has more than 256 slots (`surfaceStride`, §3.7); §5 default 31 now says so. No
+  when the chunk's material table has more than 256 slots (`surfaceStride`, §3.7); §5 default 31 said so (45.10b: 12 bytes, no slots). No
   code change.
 - **G2 — world id never checked. Closed in 45.7d.** Every reader names the tile it expects: `RegionIndex.parse`,
   `openRegion` and `damagedRegionChunks` take `{expect}` (world id, grid id, layout, chunk edge, footprint, region
@@ -1412,6 +1468,17 @@ staging slice world was written again.
   game marks saved (default all but wetness) merged onto the base; the runtime overlay holds changes as whole values.
 - **Shader data (§3.7)** is a derived output: the per-chunk material and wetness grid.
 - **Climate (§2.4)** is specified as a coarse per-region field outside the voxel value; not built.
+
+### Changed after the owner's review (45.10b, owner 2026-11-02: blending in the shader)
+
+- **Mesh format v2 (§3.7).** Surface vertices are 12 bytes (position, normal); v1's four material slots and weights
+  are gone, with the result's material table and the material slots of detail instances (now a reserved u16) and
+  collision boxes. Derived data 2 → 3. A material change feeds the shader data alone, as the feeds table says:
+  `MATERIAL_SLOT_PARTS` and `stalePartsOf` are gone, `fieldsFeed` is the rule.
+- **Shader data (§3.7)** covers the chunk and a 1-cell border of its neighbours (34³), so blends cross chunk faces;
+  a material or wetness change re-derives the shader data of the chunks within that border (an apron 1 deep, §3.6).
+- **Surface shader (§3.7)**: dense 34³ `rg8unorm` regions of one GPU-only 3D texture; 8-corner blend over a set
+  distance, the two heaviest materials, wetness darkening; triplanar; 16 reads a pixel; both renderers.
 - **Accepted:** R18 → packing + zstd, R50 → stacked 256 m cubes, R79 → per-consumer outputs from one assembly
   evaluation, R66 → fewer, wider range reads + prefetch (D432 stays open for 46a's tuning); the game decides how a
   re-exported base affects saves (H1/H2 as built); the world layout and scale, the editing rules and the remaining

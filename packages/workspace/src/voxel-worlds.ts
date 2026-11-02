@@ -41,7 +41,7 @@ import {
   chunkGrid,
   CHUNK_EDGES,
   editBounds,
-  stalePartsOf,
+  fieldsFeed,
   EditCommandError,
   EditRefused,
   isRegionFootprint,
@@ -204,7 +204,7 @@ export interface VoxelCommandApplied {
    * The derived parts the change makes stale (DERIVED_PART bits of
    * @thirdlight/voxel, from the fields that changed): a client rebuilds
    * only these (only `shader` when only material or wetness changed: the
-   * changed chunks' shader data, nothing around them).
+   * shader data of the chunks within its border of the box, nothing else).
    */
   readonly parts: number;
   /** The region files rewritten, with their new entity tags. */
@@ -480,7 +480,7 @@ export class VoxelWorlds {
         record = out.chunks;
         cells = out.cells;
         box = editBounds(w.world.opts.grid, cmd);
-        parts = stalePartsOf(out.fields);
+        parts = fieldsFeed(out.fields);
       } catch (e) {
         if (e instanceof EditCommandError) return refuse('invalid_args', 'validation', e.message, `/args/command${e.path}`);
         if (e instanceof EditRefused) return refuse(e.code, e.code === 'chunk_not_loaded' ? 'conflict' : 'validation', e.message);

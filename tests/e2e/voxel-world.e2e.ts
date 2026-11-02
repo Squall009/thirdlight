@@ -23,6 +23,10 @@
  * ground, the wall, the rail, pass between the posts, and fall into a pit.
  * Files changed behind the backend are read again by the open page when
  * the backend refuses the next command for it.
+ *
+ * Surfaces are shaded from the chunks' shader data: a material paint and a
+ * wetness paint of the wall (across a chunk face) change the picture with
+ * no mesh rebuilt and no chunk derived again but for its shader data.
  */
 import { cpSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -265,13 +269,39 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
     // A hole through the wall shows ground or sky where stone was.
     expect(changedPixels(before, after)).toBeGreaterThan(200);
 
+    // A material paint, then a wetness paint, of the wall's upper rows across the x chunk face: roles and shapes
+    // kept, so only the shader data is derived again (the changed chunks and those whose border reaches the cells)
+    // and its grids uploaded; no mesh is built, and the picture changes.
+    const wallCell: Cell = [ox - 4, oy + 6, oz];
+    const was = (await hook<{ material: number }>(page, 'voxelAt', ...wallCell)).material;
+    const material = was === MAT.brick ? MAT.plank : MAT.brick;
+    const wall = (m: number, wetness: number): unknown => ({ v: 2, grid: 0, kind: 'fill', min: [ox - 4, oy + 5, oz], max: [ox + 3, oy + 7, oz], mode: 'paint', voxel: { material: m, role: VOXEL_ROLE.wall, wetness } });
+    type Surface = { swaps: number; surface: { meshBuilds: number; gridUploads: number } };
+    let shown = after;
+    for (const [what, command] of [['material', wall(material, 0)], ['wetness', wall(material, 7)]] as const) {
+      const s0 = await hook<Surface>(page, 'state');
+      const answer = await hook<EditAnswer & { cells: number }>(page, 'edit', command);
+      expect(answer.ok, `${what}: ${answer.code}`).toBe(true);
+      expect(answer.cells, what).toBeGreaterThan(0);
+      expect(answer.rederived.length, what).toBeGreaterThan(0);
+      expect(answer.rederived.every((c) => c.endsWith(':shader')), `${what}: ${answer.rederived.join(' ')}`).toBe(true);
+      const s1 = await hook<Surface>(page, 'state');
+      expect(s1.surface.meshBuilds - s0.surface.meshBuilds, what).toBe(0);
+      expect(s1.swaps - s0.swaps, what).toBe(0);
+      expect(s1.surface.gridUploads - s0.surface.gridUploads, what).toBeGreaterThan(0);
+      const painted = await shot(page);
+      expect(changedPixels(shown, painted), what).toBeGreaterThan(300);
+      shown = painted;
+    }
+    expect(await hook<{ material: number; wetness: number }>(page, 'voxelAt', ...wallCell)).toMatchObject({ material, wetness: 7 });
+
     if (renderer === 'webgl2') await be.restart();
     await page.reload();
     await open(page, renderer);
     expect((await hook<{ material: number }>(page, 'voxelAt', ...cell)).material).toBe(0);
     const again = await shot(page);
     // The same picture as before the reload, from the region files (the view and the world are the same).
-    expect(changedPixels(after, again)).toBeLessThan(200);
+    expect(changedPixels(shown, again)).toBeLessThan(200);
     expect(errors).toEqual([]);
   });
 }

@@ -701,7 +701,8 @@ sub-phase on staging; the merge to `main` happens once, at the end of 48.
 | 45.8b | done (5f44f43d, fast gate green): review M3–M7, L1/L2/L6/L8, D436. One stroke ≤ 64 MiB worst-case undo (292 chunks at 32³, `over_budget`); stale worlds reread by file stamps (`world_changed`), closed on release; staged multi-file writes, rollback; rule radius check; Q-a by other commands; M7 open gap; lz4js gone; voxel e2e 14.2 → 13.9 s; see **45.8b review fixes**. |
 | 45.9 | done (b6ab2319, fast gate green): acceptance on staging, Iris Xe, 720p at the cap, both renderers, 3 rounds: orbit and 160 m flight p95 16.7–16.8 ms, 0 missed; edit → collider / visible p50 39–40 / 64–65 ms; cold fill 2.4 s; stream 67–84 MB of 256 MiB; Rapier 126–172 MB (D434). D438 (page ignored `world_changed`) fixed. Spec §6 written; see **45.9 acceptance**. |
 | 45.10a | done (97609f78 + this; fast gate green): owner review 2026-11-02. Value v2 (u32: material 12, role 4, shape 4, wetness 3, 9 reserved; no orientation), feeds + saved-field masks, runtime overlay, shader data, climate spec. v1 → v2: zstd −2…−48 %, memory −2…−24 % (hilly +6 %), decode −11…−21 %; 3-bit shape: slope error 6–8 vs 5.5 cm; see **45.10a value v2**. |
-| 45 | **awaiting owner approval (hard stop)**: full gate GREEN at 78f67fe8 (29 min, 389 e2e, peak 8.0 GB); review 3H 7M 8L, every H and M fixed (45.8a/b; M7 recorded as an open contract gap); acceptance on staging both renderers (45.9). Spec v1 DRAFT (docs/architecture/voxel-format-spec.md) under revision after the owner's review (45.10a/b). Not merged. |
+| 45.10b | done (this commit; fast gate green): owner 2026-11-02, blending in the shader. Mesh v2: 12-B vertices, no material (surface buffers −26…−32 %); shader data 34³ with a 1-cell border, material/wetness re-derive only it (real workers: 0 mesh/coll/nav/light). Dense rg8 3D regions, 16 reads/px, 3 units; 720p cap 0 missed; GPU blend/flat 7.1/3.1 ms WebGPU, 3.8/1.9 WebGL 2. |
+| 45 | **awaiting owner approval (hard stop)**: full gate GREEN at 78f67fe8 (29 min, 389 e2e, peak 8.0 GB); review 3H 7M 8L, every H and M fixed (45.8a/b; M7 recorded as an open contract gap); acceptance on staging both renderers (45.9). Spec v1 DRAFT (docs/architecture/voxel-format-spec.md) revised after the owner's review (45.10a/b), awaiting approval of the revision. Not merged. |
 
 ### 45.0 floor record
 
@@ -1743,6 +1744,86 @@ lattice cells; rain 3–7 on every cell with air above, varying per 2 m). Report
 - **Fast gate** green (10 min, peak 4.7 GB; village at the cap p95 16.7 ms both renderers). Voxel e2e 15.2 → 15.7 s
   (7.7 + 3.7 + 4.3 s), no new e2e file.
 
+### 45.10b blending in the shader
+
+The owner's decision of 2026-11-02 (decision log): voxels carry a material id and a wetness; vertices carry no
+material; the pixel shader reads the material ids of the neighbouring cells from per-chunk shader data and blends
+them over a set distance, so blends are the same at every later mesh level of detail. Spec §2.2 (feeds), §3.6
+(derive job), §3.7 (mesh format v2, shader data, the surface shader), §7 (45.10b).
+
+**Mesh format v2.** Surface vertices are position `uint16x4` + normal `snorm8x4`, 12 bytes (`SURFACE_VERTEX_BYTES`);
+the result's material table, the vertices' slots and weights, the instances' slot (a reserved u16 now, keeping a
+4-byte stride) and the collision boxes' slots are gone; derived data 2 → 3. Derive bench (`run.mjs derive`, every
+world swept as in 45.6) at fdff0b7c (17:43) and after (17:47), this host, load 1.1–1.4; reports in
+`~/.cache/thirdlight-phase45/work/45.10b/{before,after}/` (scratch):
+
+| World | Surface buffers B a chunk, mean (before → after) | Vertex bytes a drawn chunk (after) | Derived bytes a chunk | Derive µs p50 | Shader data packed B a chunk / a drawn chunk | Drawn chunks needing a grid |
+|---|---|---|---|---|---|---|
+| town | 34,384 → 23,281 (−32 %) | 46.7 KB | 38.5 → 30.9 KB | 1,919 → 1,718 | 5,491 / 12,009 | 561 of 1,006 |
+| plain | 11,728 → 8,728 (−26 %) | 12.8 KB | 15.3 → 15.3 KB | 2,142 → 1,729 | 4,347 / 7,087 | 351 of 796 |
+| hilly | 8,414 → 6,263 (−26 %) | 13.2 KB | 12.0 → 11.3 KB | 591 → 690 | 2,629 / 7,560 | 1,057 of 1,968 |
+| caves | 58,201 → 43,324 (−26 %) | 29.6 KB | 72.0 → 60.0 KB | 3,754 → 2,808 | 6,101 / 7,097 | 971 of 2,181 |
+| vertical | 22,103 → 16,450 (−26 %) | 14.5 KB | 33.1 → 28.1 KB | 2,544 → 2,255 | 3,506 / 5,884 | 671 of 2,452 |
+
+- Vertex 20 → 12 B (−40 %); with the indices the surface buffers lose 26–32 %. Mesh µs a chunk −5…−43 % (no weights).
+  Hilly derives slower at p50 (+17 %) and plain keeps its bytes: the shader data now covers a 34³ bordered grid for
+  every chunk, uniform ones included. Town collision 183 → 186 B a chunk: boxes are 12 B without a slot, but wall
+  runs now merge across materials and the greedy merge gives 15.5 boxes a chunk instead of 13.1.
+- **Feeds.** `MATERIAL_SLOT_PARTS`/`stalePartsOf` are gone; `fieldsFeed` decides. A material or wetness change
+  re-derives the shader data of the chunks within the 1-cell border of the change (an apron 1 deep) and nothing
+  else. Real workers on region files (`stream.test.ts`): a material-only paint of one cell on two chunk faces changes
+  one chunk and re-derives 4 shader data (3 neighbours), 0 full derives, every result equal to a fresh derive, the
+  neighbour's border holding the cell; the wetness-only case as in 45.10a. Node (`derived.test.ts`): wall and ground
+  paints leave every byte but the shader data equal on every chunk, the shader data changing only within the border;
+  a grid equals the store's cells, border included. Route (`voxel-world.test.ts`): material-only and wetness-only
+  answers and undos name the shader data alone.
+
+**Shader data on the GPU** (three-adapter `voxel-surface.ts`). Dense 34³ regions, two bytes a cell (`rg8unorm`),
+78,608 B, in one GPU-only 3D texture (texel x, y, z = grid y, z, x: a grid uploads as it is), one region a drawn
+chunk whose grid holds two or more solid entries; a chunk of one solid entry passes it as a per-object value
+instead. Uploaded per region (WebGPU `writeTexture`, WebGL 2 `texSubImage3D` through three's copy), no CPU mirror;
+the texture grows a quarter along its shortest axis by a GPU copy. Measured alternatives: the packed palette form
+the result keeps (2.6–6.1 KB a chunk), a sparse brick form (9³ u16 table + 128 B a 4³ brick of two or more entries:
+12.6–26.8 KB a region, 3–6× smaller than dense, +1 table read a corner = +8 a pixel). Not built.
+
+**The shader.** One `MeshStandardNodeMaterial` (both renderers, no backend-only feature). A pixel moves a quarter
+cell into the surface along its normal, reads the 8 surrounding cell centres from its chunk's region (border
+included, so blends cross chunk faces), weights each per axis by a ramp of the blend distance (setting, default
+0.25 m), drops air, keeps the two heaviest materials (material table: colour + test pattern) and mixes them;
+wetness averaged the same way darkens (× 1 − ½·w/7) and lowers roughness (0.85 → 0.3). Triplanar projection in
+world cells, phase from the chunk's integer cell (per object), so a floating-origin shift never moves a texture.
+Counted in the WGSL three builds (`voxel-surface.test.ts`): **16 texture reads a pixel** (8 grid + 2 table + 6
+pattern samples), +1 for three's BRDF table; 3 texture units (+1 BRDF) of the lit programs' 16 with the light
+path's 3 free; every implicit-derivative sample in top-level flow (WGSL uniformity; the first build sampled
+inside a branch and was invalid on WebGPU, caught by the browser run and now tested).
+
+**Acceptance on staging** (branch dist, headless Chrome, Iris Xe, 1280×720, the 60 Hz cap, both renderers, slice
+world at scene 0,103,-32; 18:06–18:08, uptime 10 d 2 h, load 0.8–2.5; `run.mjs slice --phase shader --at
+0,103,-32 --seconds 30`; pictures and README in `~/.cache/thirdlight-phase45/acceptance/45.10b/`, all looked at):
+
+| Renderer | Orbit 30 s p50 / p95 / max, missed | render() CPU p50 / p95 | GPU ms a frame, blend / flat colour | Paint → visible | Meshes built by 8 paints |
+|---|---|---|---|---|---|
+| WebGPU | 16.7 / 16.7 / 16.8, 0 of 1,799 | 1.6 / 2.4 ms (flat 1.3 / 2.0) | 7.1 / 3.1 | 48–64 ms | 0 (40 grids uploaded) |
+| WebGL 2 | 16.7 / 16.8 / 16.8, 0 of 1,799 | 1.6 / 2.1 ms (flat 1.2 / 1.8) | 3.8 / 1.9 | 48–71 ms | 0 (40 grids uploaded) |
+
+- GPU time from timestamp queries (`?gpuTime=1`; the page's one pass is the voxel scene; flat = the same page with
+  `?shading=flat`, no texture reads). The blend costs +4.0 ms a frame on WebGPU and +2.0 ms on WebGL 2 at 720p on
+  the Iris Xe with ground filling most of the view: no frame missed, recorded for the performance phase (why WebGPU
+  pays twice WebGL 2's is not known; candidates: bounds-checked loads, the selects built as branches).
+- Shader data memory: 519 regions in the ring (518 of 525 drawn chunks need one: grass over soil within a cell),
+  50.3 MB of texture (40.8 MB used; 14 growth steps during the cold fill); the stream budget counts the regions with
+  the meshes: 114 MB at the end (45.9: 84). Expand + upload of one grid 0.1 / 0.2 ms p50 / p95.
+- Seen on both renderers (the same pictures): four materials painted in the quadrants meeting at chunk corner
+  (−64, −96) blend across both chunk faces with no seam; a wet band across it is darker; blend distance 0.05 m
+  (hard edges), 0.25 m and 0.5 m; the wall, pad and banister with the same shader. Detail pieces keep stand-in
+  colours by family (their material is their cell's, not drawn yet).
+- **e2e** (`voxel-world.e2e.ts`, no new file): a material paint and then a wetness paint of the wall across the x
+  chunk face, both renderers: answers derive shader data only, 0 meshes built, 0 derived swaps, grids uploaded,
+  > 300 pixels changed each (png.ts), the reload equal. Voxel e2e 15.7 → 16.9 s (7.7 + 4.3 + 4.9 s).
+- Fast gate green (10 min + rerun 1 min, peak 4.5 GB; village at the cap p95 16.7–16.8 ms both renderers): menus.e2e
+  failed once creating its project (`write_failed`, the durable write; nothing in this item touches it) and passed
+  on the rerun.
+
 ## 7. Decision log
 
 - 2026-10-27 (owner, planning session): §1 decided in conversation. The research behind it covers Enshrouded's
@@ -2120,6 +2201,26 @@ lattice cells; rain 3–7 on every cell with air above, varying per 2 m). Report
   streamer (46a). Climate: 8 m samples, two u8 channels, a section of the stacked region file (spec §2.4).
 - 2026-11-02 (45.10a): the material id width report (`run.mjs material`) is archived
   (`archive/removed-phase-45/`): the owner settled the width.
+
+- 2026-11-02 (45.10b, measured; plan **45.10b blending in the shader**): mesh format v2: 12-byte vertices (position,
+  normal), no material anywhere but the shader data; surface buffers −26…−32 %, derived bytes a chunk −0…−20 %.
+  Blending in the shader on both renderers: 16 texture reads a pixel, 3 units; slice at 720p at the cap 0 missed;
+  GPU a frame blend / flat 7.1 / 3.1 ms WebGPU, 3.8 / 1.9 ms WebGL 2 (for the performance phase, not blocking).
+- 2026-11-02 (45.10b, default chosen, owner to confirm): **shader data covers the chunk plus a 1-cell border**
+  (`SHADER_BORDER_CELLS`, 34³ at 32³), so blends cross chunk faces from one grid; a material or wetness change
+  re-derives the shader data of the chunks within that border (an apron 1 deep), nothing else.
+- 2026-11-02 (45.10b, default chosen, owner to confirm): **GPU layout: dense 34³ `rg8unorm` regions of one GPU-only
+  3D texture** (78.6 KB a chunk that needs one; a chunk of one solid entry passes it as a per-object value), per
+  region uploads, growth by a quarter through a GPU copy. The sparse brick form (3–6× smaller, +8 reads a pixel) is
+  measured and proposed for when grid memory matters; the slice's ring holds 41 MB of grids.
+- 2026-11-02 (45.10b, default chosen, owner to confirm): **the blend**: 8 cell centres around the pixel (a quarter
+  cell into the surface), a per-axis ramp over the blend distance (a setting, default 0.25 m), air dropped, the two
+  heaviest materials mixed; wetness darkens (× 1 − ½·w/7) and lowers roughness (0.85 → 0.3); triplanar (3 samples
+  a material) rather than biplanar, for both terrain and construction; stand-in colours and four test patterns by
+  material id. Detail pieces keep stand-in colours (their material is their cell's; kit art is 46b/46c).
+- 2026-11-02 (45.10b, default chosen, owner to confirm): **collision boxes merge wall runs across materials** and
+  carry no material (a physics material, where a game needs one, comes from the cell's shader data entry); the
+  detail instance keeps 8 bytes with a reserved u16 (a GPU instance stride must be a multiple of four).
 
 ## 7a. Kit and surface planning session (2026-10-30)
 

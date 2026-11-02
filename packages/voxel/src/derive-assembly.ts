@@ -9,6 +9,7 @@ import { assemblyRules, createNeighbourhood, fillNeighbourhood, jobRadius, type 
 import type { ChunkGrid } from './coords';
 import { createDenseChunk, type DenseChunk } from './dense-chunk';
 import { deriveChunk, type DerivedData, type DeriveTimes } from './derived-data';
+import { SHADER_BORDER_CELLS, shaderOfNeighbourhood, type ShaderOut } from './derived-shader';
 import type { VoxelStoreCandidate } from './store';
 
 interface Scratch {
@@ -42,6 +43,19 @@ export function deriveWithApron(grid: ChunkGrid, rules: AssemblyRuleSet, apron: 
   const has = exportChunk(s.dense);
   fillNeighbourhood(s.n, grid, has ? s.dense : null, apron);
   return deriveChunk(s.n, rules, s.classes, times);
+}
+
+/**
+ * The shader data alone of a chunk of `store`, from its apron
+ * {@link SHADER_BORDER_CELLS} deep (what a material or wetness change
+ * re-derives); the same bytes a full derive gives for it.
+ */
+export function deriveShaderWithApron(grid: ChunkGrid, apron: Apron, exportChunk: (out: DenseChunk) => boolean): ShaderOut {
+  if (apron.radius !== SHADER_BORDER_CELLS) throw new RangeError(`shader derive: apron ${apron.radius} deep, the shader border is ${SHADER_BORDER_CELLS}`);
+  const s = scratchFor(grid, SHADER_BORDER_CELLS);
+  const has = exportChunk(s.dense);
+  fillNeighbourhood(s.n, grid, has ? s.dense : null, apron);
+  return shaderOfNeighbourhood(s.n);
 }
 
 /** Derives chunk (cx, cy, cz) of a store in this thread (its neighbours read from the same store). */

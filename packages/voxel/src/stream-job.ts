@@ -127,8 +127,9 @@ export interface DeriveInput {
   readonly rules?: AssemblyRulesRef;
   /**
    * The derived parts wanted (DERIVED_PART bits, record.ts; default all).
-   * Only `shader`: the shader data of the chunk's own cells, no assembly
-   * evaluation and no apron read (a change of material or wetness only).
+   * Only `shader`: the shader data of the chunk and its border, no assembly
+   * evaluation; R is then the shader border (SHADER_BORDER_CELLS) and the
+   * apron that deep (a change of material or wetness only).
    */
   readonly parts?: number;
 }

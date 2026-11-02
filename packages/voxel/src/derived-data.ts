@@ -1,5 +1,5 @@
 /**
- * Derived data of one chunk (format v1 DRAFT): everything rebuilt from the
+ * Derived data of one chunk (format v3 DRAFT): everything rebuilt from the
  * authoritative voxels for meshing, culling, physics, navigation and
  * lighting. Never committed, never saved: always rebuilt, in workers, from
  * a chunk and its apron.
@@ -24,13 +24,20 @@
  *   per fully covered cell plus a list of the partly covered cells
  *   (cell index, coverage);
  * - **collision**: boxes in 1/{@link COLLISION_STEPS_PER_CELL} cell steps
- *   (full cells merged into columns, slabs and blocks; partial shapes one a cell)
- *   with a material slot each, plus the ground surface as the trimesh;
+ *   (full cells merged into columns, slabs and blocks; partial shapes one a cell),
+ *   plus the ground surface as the trimesh;
  * - **navigation**: a blocking bit per cell and the standable cells
  *   (cell index, clearance in cells, and whether the clearance continues
  *   into the chunk above);
  * - **meshes** (derived-mesh.ts): the ground surface, the base surface and
- *   the detail-instance list, sharing one material table.
+ *   the detail-instance list;
+ * - **shader data** (derived-shader.ts): the material and wetness of the
+ *   chunk's cells and a border around them, for the surface shader.
+ *
+ * Only the shader data reads a voxel's material or wetness: every other
+ * output is a function of role and shape alone, so a change of material or
+ * wetness re-derives the shader data and nothing else (record.ts,
+ * FIELD_FEEDS).
  *
  * A result records the format version and the rules it came from (id,
  * version, radius), so a result of other rules is never mistaken for a
@@ -38,13 +45,12 @@
  */
 import { evaluateAssembly, rulesRef, ASSEMBLY_CLASS, CLASS_MASK, RUN_X, RUN_Z, type AssemblyRulesRef, type AssemblyRuleSet, type Neighbourhood } from './assembly';
 import { BRICK_EDGE } from './brick-layout';
-import { baseSurface, detailInstances, groundSurface, MaterialSlots, SURFACE_ISO, type InstanceList, type SurfaceBuffer } from './derived-mesh';
-import { DERIVED_PART, fieldsFeed, PLANE_BIT, valueMaterial, valueWetness } from './record';
-import { shaderBytes, shaderDataOfValues, shaderEntry, type ShaderOut } from './derived-shader';
+import { baseSurface, detailInstances, groundSurface, SURFACE_ISO, type InstanceList, type SurfaceBuffer } from './derived-mesh';
+import { shaderBytes, shaderOfNeighbourhood, type ShaderOut } from './derived-shader';
 import { utf8Encode } from '@thirdlight/shared';
 
 /** Version of the derived-data layout. */
-export const DERIVED_FORMAT_VERSION = 2;
+export const DERIVED_FORMAT_VERSION = 3;
 
 /** Chunk and brick occupancy flags. */
 export const OCCUPANCY = Object.freeze({ empty: 0, solid: 1, mixed: 2 });
@@ -101,8 +107,6 @@ export interface LightOut {
 export interface CollisionOut {
   /** Boxes: min x, y, z, max x, y, z in collision steps from the chunk corner. */
   readonly boxes: Uint16Array;
-  /** Material slot per box. */
-  readonly boxSlots: Uint16Array;
   /** How many leading boxes are full-cell merges (the rest are partial shapes). */
   readonly fullBoxes: number;
 }
@@ -132,8 +136,6 @@ export interface DerivedData {
   readonly v: number;
   readonly rules: AssemblyRulesRef;
   readonly edge: number;
-  /** Material table: slot → material id (shared by meshes, instances and boxes). */
-  readonly materials: Uint32Array;
   readonly occupancy: OccupancyOut;
   readonly light: LightOut;
   readonly collision: CollisionOut;
@@ -146,20 +148,6 @@ export interface DerivedData {
   /** Material and wetness per cell for the surface shader (derived-shader.ts). */
   readonly shader: ShaderOut;
   readonly counts: DerivedCounts;
-}
-
-/**
- * The parts whose bytes today also carry material ids (the surface
- * vertices' material slots and weights, the instances' and collision
- * boxes' slots). The feeds table sends material to the shader data only;
- * until the mesh format leaves material blending to the shader, a material
- * change makes these stale too.
- */
-export const MATERIAL_SLOT_PARTS = DERIVED_PART.mesh | DERIVED_PART.collision;
-
-/** The derived parts a change of `fields` (PLANE_BIT mask) makes stale, as this build derives them. */
-export function stalePartsOf(fields: number): number {
-  return fieldsFeed(fields) | (fields & PLANE_BIT.material ? MATERIAL_SLOT_PARTS : 0);
 }
 
 /** Whether a resolved cell is solid for rendering and culling. */
@@ -287,20 +275,22 @@ function navOf(n: Neighbourhood, classes: Uint8Array): NavOut {
 }
 
 /**
- * Collision boxes: wall cells merged into vertical runs (same material),
- * runs merged along z where equal, then those slabs merged along x where
- * equal; beams and rails one partial box a cell. Ground collides against
- * its surface, liquid not at all.
+ * Collision boxes: wall cells merged into vertical runs, runs merged along
+ * z where equal, then those slabs merged along x where equal; beams and
+ * rails one partial box a cell. Ground collides against its surface, liquid
+ * not at all. Boxes carry no material (a physics material comes from the
+ * shader data's cell, where a game needs one), so a material change leaves
+ * them as they are.
  */
-function collisionOf(n: Neighbourhood, classes: Uint8Array, slots: MaterialSlots): CollisionOut {
+function collisionOf(n: Neighbourhood, classes: Uint8Array): CollisionOut {
   const e = n.edge;
   const p = n.pad;
   const s = n.side;
   const S = COLLISION_STEPS_PER_CELL;
-  // Slabs of one x: [y0, y1, z0, z1, slot] in cells.
-  type Slab = [number, number, number, number, number];
+  // Slabs of one x: [y0, y1, z0, z1] in cells.
+  type Slab = [number, number, number, number];
   const boxes: number[] = [];
-  const boxSlots: number[] = [];
+  let count = 0;
   let prev = new Map<string, number>();
   for (let x = 0; x < e; x++) {
     const slabs: Slab[] = [];
@@ -314,16 +304,15 @@ function collisionOf(n: Neighbourhood, classes: Uint8Array, slots: MaterialSlots
           y++;
           continue;
         }
-        const slot = slots.slot(valueMaterial(n.values[col + y]!));
         let y1 = y + 1;
-        while (y1 < e && (classes[col + y1]! & CLASS_MASK) === ASSEMBLY_CLASS.wall && slots.slot(valueMaterial(n.values[col + y1]!)) === slot) y1++;
-        const key = (y * 64 + y1) * 65536 + slot;
+        while (y1 < e && (classes[col + y1]! & CLASS_MASK) === ASSEMBLY_CLASS.wall) y1++;
+        const key = y * 64 + y1;
         const slab = open.get(key);
         if (slab !== undefined && slab[3] === z) {
           slab[3] = z + 1;
           next.set(key, slab);
         } else {
-          const fresh: Slab = [y, y1, z, z + 1, slot];
+          const fresh: Slab = [y, y1, z, z + 1];
           slabs.push(fresh);
           next.set(key, fresh);
         }
@@ -333,30 +322,28 @@ function collisionOf(n: Neighbourhood, classes: Uint8Array, slots: MaterialSlots
     }
     // Extend last x's box where this x has the same slab, else start a box.
     const now = new Map<string, number>();
-    for (const [y0, y1, z0, z1, slot] of slabs) {
-      const key = `${y0},${y1},${z0},${z1},${slot}`;
+    for (const [y0, y1, z0, z1] of slabs) {
+      const key = `${y0},${y1},${z0},${z1}`;
       const b = prev.get(key);
       if (b !== undefined) {
         boxes[b * 6 + 3] = (x + 1) * S;
         now.set(key, b);
       } else {
-        now.set(key, boxSlots.length);
+        now.set(key, count++);
         boxes.push(x * S, y0 * S, z0 * S, (x + 1) * S, y1 * S, z1 * S);
-        boxSlots.push(slot);
       }
     }
     prev = now;
   }
-  const fullBoxes = boxSlots.length;
+  const fullBoxes = count;
   for (let x = 0; x < e; x++) for (let z = 0; z < e; z++) for (let y = 0; y < e; y++) {
     const i = ((x + p) * s + (z + p)) * s + (y + p);
     const k = classes[i]! & CLASS_MASK;
     if (k !== ASSEMBLY_CLASS.beam && k !== ASSEMBLY_CLASS.rail) continue;
     const b = partialBox(classes[i]!);
     boxes.push(x * S + b[0], y * S + b[1], z * S + b[2], x * S + b[3], y * S + b[4], z * S + b[5]);
-    boxSlots.push(slots.slot(valueMaterial(n.values[i]!)));
   }
-  return { boxes: Uint16Array.from(boxes), boxSlots: Uint16Array.from(boxSlots), fullBoxes };
+  return { boxes: Uint16Array.from(boxes), fullBoxes };
 }
 
 function countsOf(n: Neighbourhood, classes: Uint8Array): DerivedCounts {
@@ -391,10 +378,12 @@ function countsOf(n: Neighbourhood, classes: Uint8Array): DerivedCounts {
 
 /**
  * The result for a chunk whose evaluated region (the chunk and the
- * consumers' margin) is one voxel and one class everywhere (deep ground,
+ * consumers' margin) is one class and one shape everywhere (deep ground,
  * open sky, the inside of a wall mass): nothing to draw, nothing to stand
  * on, one value per consumer. The same arrays the general path would give,
- * without its per-cell passes; null when the region is not uniform.
+ * without its per-cell passes; null when the region is not uniform. Material
+ * and wetness do not decide it (only the shader data reads them), so a
+ * material change never moves a chunk between the two paths.
  */
 function uniformDerived(n: Neighbourhood, rules: AssemblyRuleSet, classes: Uint8Array): DerivedData | null {
   const e = n.edge;
@@ -404,13 +393,12 @@ function uniformDerived(n: Neighbourhood, rules: AssemblyRuleSet, classes: Uint8
   const hi = p + e + 1;
   const first = (lo * s + lo) * s + lo;
   const k0 = classes[first]!;
-  const v0 = n.values[first]!;
   const s0 = n.shapes[first]!;
   const k = k0 & CLASS_MASK;
   if (k0 !== k || (k !== ASSEMBLY_CLASS.empty && k !== ASSEMBLY_CLASS.wall && k !== ASSEMBLY_CLASS.ground && k !== ASSEMBLY_CLASS.liquid)) return null;
   for (let x = lo; x < hi; x++) for (let z = lo; z < hi; z++) {
     const row = (x * s + z) * s;
-    for (let y = lo; y < hi; y++) if (classes[row + y] !== k0 || n.values[row + y] !== v0 || n.shapes[row + y] !== s0) return null;
+    for (let y = lo; y < hi; y++) if (classes[row + y] !== k0 || n.shapes[row + y] !== s0) return null;
   }
   const cells = e * e * e;
   const solid = renderSolid(n, classes, first);
@@ -418,29 +406,25 @@ function uniformDerived(n: Neighbourhood, rules: AssemblyRuleSet, classes: Uint8
   const flag = solid ? OCCUPANCY.solid : OCCUPANCY.empty;
   const nb = e / BRICK_EDGE;
   const bricks = new Uint8Array(Math.ceil((nb * nb * nb) / 4)).fill(flag * 0x55);
-  const slots = new MaterialSlots();
-  const empty: SurfaceBuffer = { vertexCount: 0, slotBytes: 1, vertices: new Uint8Array(0), indices: new Uint16Array(0) };
+  const empty: SurfaceBuffer = { vertexCount: 0, vertices: new Uint8Array(0), indices: new Uint16Array(0) };
   let boxes = new Uint16Array(0);
-  let boxSlots = new Uint16Array(0);
   if (k === ASSEMBLY_CLASS.wall) {
     const S = COLLISION_STEPS_PER_CELL;
     boxes = Uint16Array.of(0, 0, 0, e * S, e * S, e * S);
-    boxSlots = Uint16Array.of(slots.slot(valueMaterial(v0)));
   }
   const count = (c: number): number => (k === c ? cells : 0);
   return {
     v: DERIVED_FORMAT_VERSION,
     rules: rulesRef(rules),
     edge: e,
-    materials: slots.table(),
     occupancy: { flag, bricks, mask: null },
     light: { uniform: coverage(n, classes, first), full: null, partialCells: new Uint16Array(0), partialCover: new Uint8Array(0) },
-    collision: { boxes, boxSlots, fullBoxes: boxSlots.length },
+    collision: { boxes, fullBoxes: boxes.length / 6 },
     nav: { blocking: blocks ? OCCUPANCY.solid : OCCUPANCY.empty, blocks: null, standable: new Uint16Array(0), clearance: new Uint8Array(0) },
     ground: empty,
     base: { ...empty, vertices: new Uint8Array(0), indices: new Uint16Array(0) },
     instances: { count: 0, data: new Uint8Array(0) },
-    shader: { palette: Uint16Array.of(shaderEntry(valueMaterial(v0), valueWetness(v0))), width: 0, ids: new Uint32Array(0) },
+    shader: shaderOfNeighbourhood(n),
     counts: { wall: count(ASSEMBLY_CLASS.wall), ground: count(ASSEMBLY_CLASS.ground), groundPartial: k === ASSEMBLY_CLASS.ground && s0 < 255 ? cells : 0, beam: 0, rail: 0, liquid: count(ASSEMBLY_CLASS.liquid) },
   };
 }
@@ -467,17 +451,15 @@ export function deriveChunk(n: Neighbourhood, rules: AssemblyRuleSet, scratch?: 
     if (times !== undefined) times.evaluateUs += (t1 - t0) * 1000;
     return uniform;
   }
-  const slots = new MaterialSlots();
-  const ground = groundSurface(n, classes, slots);
-  const base = baseSurface(n, classes, slots);
-  const instances = detailInstances(n, classes, slots);
+  const ground = groundSurface(n, classes);
+  const base = baseSurface(n, classes);
+  const instances = detailInstances(n, classes);
   const t2 = performance.now();
-  const collision = collisionOf(n, classes, slots);
+  const collision = collisionOf(n, classes);
   const out: DerivedData = {
     v: DERIVED_FORMAT_VERSION,
     rules: rulesRef(rules),
     edge: n.edge,
-    materials: slots.table(),
     occupancy: occupancyOf(n, classes),
     light: lightOf(n, classes),
     collision,
@@ -498,23 +480,13 @@ export function deriveChunk(n: Neighbourhood, rules: AssemblyRuleSet, scratch?: 
 
 /** Every array of a derived chunk, in a fixed order (canonical bytes, transfer lists, byte counts). */
 function arraysOf(d: DerivedData): ArrayBufferView[] {
-  const out: ArrayBufferView[] = [d.materials, d.occupancy.bricks];
+  const out: ArrayBufferView[] = [d.occupancy.bricks];
   if (d.occupancy.mask !== null) out.push(d.occupancy.mask);
   if (d.light.full !== null) out.push(d.light.full);
-  out.push(d.light.partialCells, d.light.partialCover, d.collision.boxes, d.collision.boxSlots);
+  out.push(d.light.partialCells, d.light.partialCover, d.collision.boxes);
   if (d.nav.blocks !== null) out.push(d.nav.blocks);
   out.push(d.nav.standable, d.nav.clearance, d.ground.vertices, d.ground.indices, d.base.vertices, d.base.indices, d.instances.data, d.shader.palette, d.shader.ids);
   return out;
-}
-
-/** The shader data of a neighbourhood's chunk cells. */
-export function shaderOfNeighbourhood(n: Neighbourhood): ShaderOut {
-  const e = n.edge;
-  const p = n.pad;
-  const s = n.side;
-  const sh = Math.log2(e);
-  const m = e - 1;
-  return shaderDataOfValues(e * e * e, (i) => n.values[(((i >>> (sh << 1)) + p) * s + (((i >>> sh) & m) + p)) * s + ((i & m) + p)]!);
 }
 
 /** Bytes a derived chunk holds in memory (its arrays; what the streaming budget counts). */
@@ -525,17 +497,16 @@ export function derivedBytes(d: DerivedData): number {
 }
 
 /** Bytes per consumer (for reports). */
-export function derivedPartBytes(d: DerivedData): { occupancy: number; light: number; collision: number; nav: number; ground: number; base: number; instances: number; materials: number; shader: number } {
+export function derivedPartBytes(d: DerivedData): { occupancy: number; light: number; collision: number; nav: number; ground: number; base: number; instances: number; shader: number } {
   const b = (a: ArrayBufferView | null): number => a?.byteLength ?? 0;
   return {
     occupancy: b(d.occupancy.bricks) + b(d.occupancy.mask),
     light: b(d.light.full) + b(d.light.partialCells) + b(d.light.partialCover),
-    collision: b(d.collision.boxes) + b(d.collision.boxSlots),
+    collision: b(d.collision.boxes),
     nav: b(d.nav.blocks) + b(d.nav.standable) + b(d.nav.clearance),
     ground: b(d.ground.vertices) + b(d.ground.indices),
     base: b(d.base.vertices) + b(d.base.indices),
     instances: b(d.instances.data),
-    materials: b(d.materials),
     shader: shaderBytes(d.shader),
   };
 }
@@ -555,7 +526,7 @@ export function derivedTransfer(d: DerivedData, out: ArrayBuffer[] = []): ArrayB
 export function encodeDerived(d: DerivedData): Uint8Array {
   const id = utf8Encode(d.rules.id);
   const arrays = arraysOf(d);
-  const flags = [d.v, d.edge, d.rules.version, d.rules.radius, d.occupancy.flag, d.light.uniform + 1, d.collision.fullBoxes, d.nav.blocking, d.ground.vertexCount, d.base.vertexCount, d.instances.count, d.ground.slotBytes, d.base.slotBytes, d.occupancy.mask === null ? 0 : 1, d.light.full === null ? 0 : 1, d.nav.blocks === null ? 0 : 1, d.shader.width];
+  const flags = [d.v, d.edge, d.rules.version, d.rules.radius, d.occupancy.flag, d.light.uniform + 1, d.collision.fullBoxes, d.nav.blocking, d.ground.vertexCount, d.base.vertexCount, d.instances.count, d.shader.side, d.occupancy.mask === null ? 0 : 1, d.light.full === null ? 0 : 1, d.nav.blocks === null ? 0 : 1, d.shader.width];
   let size = 4 + id.length + 4 * flags.length;
   for (const a of arrays) size += 4 + a.byteLength;
   const out = new Uint8Array(size);

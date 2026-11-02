@@ -17,7 +17,7 @@ import { buildApron } from './apron';
 import { chunkOf, localOf, type ChunkGrid } from './coords';
 import { createDenseChunk } from './dense-chunk';
 import { cellBit, COLLISION_STEPS_PER_CELL, OCCUPANCY, type DerivedData } from './derived-data';
-import { INSTANCE_BYTES, INSTANCE_FLAG, POSITION_STEPS_PER_CELL, surfaceStride } from './derived-mesh';
+import { INSTANCE_BYTES, INSTANCE_FLAG, POSITION_STEPS_PER_CELL, SURFACE_VERTEX_BYTES } from './derived-mesh';
 import type { VoxelStoreCandidate } from './store';
 
 /** A cell's view through every consumer of a derived chunk. */
@@ -58,7 +58,7 @@ function sortedIndex(list: Uint16Array, v: number): number {
 function baseFacesOf(d: DerivedData, lx: number, ly: number, lz: number): number {
   const b = d.base;
   if (b.vertexCount === 0) return 0;
-  const stride = surfaceStride(b.slotBytes);
+  const stride = SURFACE_VERTEX_BYTES;
   const view = new DataView(b.vertices.buffer, b.vertices.byteOffset, b.vertices.byteLength);
   const steps = POSITION_STEPS_PER_CELL;
   let n = 0;

@@ -24,14 +24,15 @@ import {
   encodeDerived,
   exportOrAir,
   jobRadius,
-  MATERIAL_SLOT_PARTS,
   PLACEHOLDER_RULES,
   PLANE_BIT,
   RegionChunkSource,
   RESIDENT_CHUNK_OVERHEAD_BYTES,
   sameDenseChunk,
   saveChunkOf,
-  stalePartsOf,
+  fieldsFeed,
+  SHADER_BORDER_CELLS,
+  shaderEntryAt,
   VoxelStreamer,
   WorkerPool,
   type ChunkCoord,
@@ -432,16 +433,16 @@ describe('streamer (workers, region files on disk)', () => {
     }
 
     // A wetness-only change (rain on the wall cell and its neighbours, across the x and z chunk faces) feeds only the
-    // shader data: the changed chunks' shader data is derived again and nothing else, no neighbour is touched, and
-    // every result still equals a fresh full derive.
+    // shader data: the shader data of the chunks within its border of the change is derived again and nothing else,
+    // and every result still equals a fresh full derive.
     const wet = canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [-1, 38, -1], max: [0, 40, 0], mode: 'paint', voxel: { material: 41, role: 3, wetness: 5 } });
     const out3 = writer.edit(canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [-1, 38, -1], max: [0, 40, 0], mode: 'place', voxel: { material: 41, role: 3, wetness: 0 } }));
     writer.save();
-    s.refresh(out3.chunks.map((u) => ({ cx: u.cx, cy: u.cy, cz: u.cz })), editBounds(grid, wet), stalePartsOf(out3.fields));
+    s.refresh(out3.chunks.map((u) => ({ cx: u.cx, cy: u.cy, cz: u.cz })), editBounds(grid, wet), fieldsFeed(out3.fields));
     await s.settle();
     const wetOut = writer.edit(wet);
     expect(wetOut.fields).toBe(PLANE_BIT.wetness);
-    expect(stalePartsOf(wetOut.fields)).toBe(DERIVED_PART.shader);
+    expect(fieldsFeed(wetOut.fields)).toBe(DERIVED_PART.shader);
     writer.save();
     rebuilt.clear();
     const derivesBefore = s.counters.derives;
@@ -452,7 +453,7 @@ describe('streamer (workers, region files on disk)', () => {
     });
     const wetChunks = wetOut.chunks.map((u) => ({ cx: u.cx, cy: u.cy, cz: u.cz }));
     expect(wetChunks.length).toBe(4);
-    s.refresh(wetChunks, editBounds(grid, wet), stalePartsOf(wetOut.fields));
+    s.refresh(wetChunks, editBounds(grid, wet), fieldsFeed(wetOut.fields));
     await s.settle();
     expect([...rebuilt]).toEqual([]);
     expect(s.counters.derives).toBe(derivesBefore);
@@ -464,8 +465,33 @@ describe('streamer (workers, region files on disk)', () => {
       expect(Buffer.compare(Buffer.from(encodeDerived(d.result.assembly)), Buffer.from(fresh))).toBe(0);
     }
     expect(s.derivedOf(-1, 1, -1)?.assembly?.shader.palette).toContain(41 | (5 << 12));
-    // A material change still rebuilds the geometry parts as long as the mesh carries material slots.
-    expect(stalePartsOf(PLANE_BIT.material)).toBe(DERIVED_PART.shader | MATERIAL_SLOT_PARTS);
+
+    // A material-only change of one cell on a chunk face (x 0, z 0: chunk 0,1,0 alone holds it) re-derives the
+    // shader data of the four chunks whose border reaches it, three of them with no changed cell, and no mesh,
+    // collision, navigation or light: those outputs carry no material.
+    const paint = canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', min: [0, 40, 0], max: [0, 40, 0], mode: 'paint', voxel: { material: 42, role: 3, wetness: 5 } });
+    const paintOut = writer.edit(paint);
+    expect(paintOut.fields).toBe(PLANE_BIT.material);
+    expect(fieldsFeed(paintOut.fields)).toBe(DERIVED_PART.shader);
+    expect(paintOut.chunks.map((u) => `${u.cx},${u.cy},${u.cz}`)).toEqual(['0,1,0']);
+    writer.save();
+    shaderOnly.clear();
+    const derives2 = s.counters.derives;
+    const shader2 = s.counters.shaderDerives;
+    s.refresh([{ cx: 0, cy: 1, cz: 0 }], editBounds(grid, paint), fieldsFeed(paintOut.fields));
+    await s.settle();
+    expect([...rebuilt]).toEqual([]);
+    expect(s.counters.derives).toBe(derives2);
+    expect(s.counters.shaderDerives - shader2).toBe(4);
+    expect([...shaderOnly].sort()).toEqual(dependentChunks(grid, editBounds(grid, paint), SHADER_BORDER_CELLS).map((c) => `${c.cx},${c.cy},${c.cz}`).sort());
+    for (const d of s.derivedChunks()) {
+      if (d.result.assembly === null) continue;
+      const fresh = encodeDerived(deriveFromStore(writer.store, d.cx, d.cy, d.cz, PLACEHOLDER_RULES));
+      expect(Buffer.compare(Buffer.from(encodeDerived(d.result.assembly)), Buffer.from(fresh))).toBe(0);
+    }
+    // The neighbour across both faces holds the painted cell in its border (grid cell 32 + 1 on x and z).
+    const nb = s.derivedOf(-1, 1, -1)!.assembly!.shader;
+    expect(shaderEntryAt(nb, ((33 * nb.side + 33) * nb.side) + (40 - 32 + 1))).toBe(42 | (5 << 12));
   });
 
   it('cancels loads the focus left before they landed, and adopts nothing from them', async () => {

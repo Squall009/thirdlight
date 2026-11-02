@@ -22,6 +22,12 @@
  * backend (`?collision=0` leaves physics out), replaced when the chunk is
  * derived again; the hook drops capsules and sweeps spheres against it and
  * reports, per cell, what every consumer of the derived data received.
+ *
+ * Surfaces are shaded by the engine's voxel surface shader from each
+ * chunk's shader data: `?blend=` sets the blend distance in metres (default
+ * a quarter metre, half a cell), `?shading=flat` draws one colour with no texture
+ * reads (to measure what the blend costs), `?gpuTime=1` records GPU
+ * timestamps where the device has them.
  */
 import * as THREE from 'three';
 import { hexToBytes } from '@thirdlight/shared';
@@ -34,22 +40,26 @@ import {
   eventTargetWorker,
   FloatingOrigin,
   jobRadius,
+  MATERIAL_BITS,
   PLACEHOLDER_RULES,
   RegionChunkSource,
   SampleRing,
+  SHADER_BORDER_CELLS,
+  shaderGridSide,
   STREAM_POOL_SETTINGS,
   voxel,
   VOXEL_ROLE,
   VOXEL_SIZE_M,
   VOXEL_STREAM_BUDGET_BYTES,
   VoxelStreamer,
+  WETNESS_MAX,
   WORLD_GRID_ID,
   WorkerPool,
   type RegionByteSource,
 } from '@thirdlight/voxel';
-import { createRenderer, rendererMemory, resolveRendererPreference } from '@thirdlight/three-adapter';
+import { createGpuTiming, createRenderer, createVoxelSurface, rendererMemory, resolveRendererPreference, type VoxelGridRenderer } from '@thirdlight/three-adapter';
 import { pageToken } from '../config';
-import { ChunkMeshes } from './chunk-meshes';
+import { ChunkMeshes, standInLook } from './chunk-meshes';
 import { VoxelCollision } from './collision';
 import { assemblyProbes } from './probes';
 import { PendingEdits, type PendingEdit } from './pending-edits';
@@ -60,6 +70,10 @@ const worldName = params.get('world') ?? 'slice';
 const at = (params.get('at') ?? '0,64,0').split(',').map(Number) as [number, number, number];
 const rebaseM = Number(params.get('rebase') ?? DEFAULT_REBASE_DISTANCE_M);
 const workers = Number(params.get('workers') ?? Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 4) - 2)));
+/** Metres two neighbouring cells' materials blend over. */
+const blendM = Number(params.get('blend') ?? VOXEL_SIZE_M / 2);
+const shading = params.get('shading') === 'flat' ? 'flat' : 'blend';
+const gpuTime = params.get('gpuTime') === '1';
 const grid = chunkGrid(32);
 /** A brush dab's half size in cells (a 1 m sphere). */
 const BRUSH_CELLS = 2;
@@ -134,7 +148,7 @@ async function main(): Promise<void> {
   let notice = '';
 
   const choice = resolveRendererPreference({ url: location.search });
-  const handle = createRenderer({ canvas, preference: choice.preference, source: choice.source, antialias: false, clearColor: 0x9fc4e8, clearAlpha: 1 });
+  const handle = createRenderer({ canvas, preference: choice.preference, source: choice.source, antialias: false, clearColor: 0x9fc4e8, clearAlpha: 1, ...(gpuTime ? { trackTimestamp: true } : {}) });
   if (!(await handle.whenReady())) fail(`renderer: ${handle.info().reason}`);
   const renderer = handle.current()!;
   renderer.setPixelRatio(1);
@@ -153,7 +167,9 @@ async function main(): Promise<void> {
   const target = { x: at[0], y: at[1] + 4, z: at[2] };
   const view = { yaw: -0.6, pitch: 0.45, distM: 22 };
   const origin = new FloatingOrigin({ grid, rebaseDistanceM: rebaseM, origin: { x: target.x, y: target.y, z: target.z } });
-  const meshes = new ChunkMeshes(grid, origin);
+  const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX }, { look: standInLook, blendMetres: blendM, shading });
+  const meshes = new ChunkMeshes(grid, origin, surface, renderer as unknown as VoxelGridRenderer);
+  const gpu = createGpuTiming();
   scene.add(meshes.root);
   const collision = params.get('collision') === '0' ? null : await VoxelCollision.create(grid, origin);
   origin.onRebase(() => {
@@ -184,8 +200,10 @@ async function main(): Promise<void> {
       meshes.remove(key);
       collision?.remove(key);
     } else if (e.type === 'shader') {
-      // Only the shader data changed (material or wetness): meshes and colliders stand as they are.
+      // Only the shader data changed (material or wetness): meshes and colliders stand as they are, the grid is uploaded.
       for (const log of derivedLogs) log.add(`${e.cx},${e.cy},${e.cz}:shader`);
+      const d = streamer.derivedOf(e.cx, e.cy, e.cz)?.assembly ?? null;
+      if (d !== null) streamer.setPart(e.cx, e.cy, e.cz, 'mesh', meshes.setShader(key, d.shader));
       pending.settle(key, NaN);
     } else if (e.type === 'derived') {
       const d = streamer.derivedOf(e.cx, e.cy, e.cz)?.assembly ?? null;
@@ -429,6 +447,8 @@ async function main(): Promise<void> {
     const r0 = performance.now();
     renderer.render(scene, camera);
     renderMs.add(performance.now() - r0);
+    surface.grids.frame();
+    gpu.afterFrame(renderer);
     frames++;
     if (frames % 15 === 0) {
       const m = streamer.metrics();
@@ -462,6 +482,12 @@ async function main(): Promise<void> {
       recording = null;
       return { intervals, renderMs: { p50: q(renderMs, 0.5), p95: q(renderMs, 0.95) } };
     },
+    /** Metres two neighbouring cells' materials blend over (no new program). */
+    setBlend(m: number): void {
+      surface.setBlendMetres(m);
+    },
+    /** GPU ms and frames resolved since the last call (null: the renderer records no timestamps). */
+    gpuTime: () => gpu.take(),
     /** Points the camera (target cell, yaw, pitch, distance in metres). */
     look(x: number, y: number, z: number, yaw: number, pitch: number, distM: number): void {
       Object.assign(target, { x, y, z });
@@ -476,9 +502,9 @@ async function main(): Promise<void> {
     async settle(): Promise<void> {
       await streamer.settle();
     },
-    voxelAt(x: number, y: number, z: number): { material: number; role: number; shape: number } {
+    voxelAt(x: number, y: number, z: number): { material: number; role: number; shape: number; wetness: number } {
       streamer.store.voxelAt(x, y, z, v);
-      return { material: v.material, role: v.role, shape: v.shape };
+      return { material: v.material, role: v.role, shape: v.shape, wetness: v.wetness };
     },
     derivedHash(cx: number, cy: number, cz: number): number | null {
       return streamer.derivedOf(cx, cy, cz)?.hash ?? null;
@@ -499,6 +525,7 @@ async function main(): Promise<void> {
         gpu: rendererMemory(renderer),
         deriveUs: { p50: q(streamer.deriveUs, 0.5), p95: q(streamer.deriveUs, 0.95), n: streamer.deriveUs.count },
         meshMs: { p50: q(meshMs, 0.5), p95: q(meshMs, 0.95), n: meshMs.count },
+        surface: { shading, blendM, meshBuilds: meshes.meshBuilds, shaderSets: meshes.shaderSets, regions: meshes.regions, gridGpuBytes: surface.grids.gpuBytes, gridUploads: surface.grids.uploads, gridUploadedBytes: surface.grids.uploadedBytes, gridGrown: surface.grids.grown, uploadMs: { p50: q(meshes.uploadMs, 0.5), p95: q(meshes.uploadMs, 0.95), n: meshes.uploadMs.count } },
         swaps: meshSwaps,
         range: { requests: rangeRequests, bytes: rangeBytes, p50: q(rangeMs, 0.5), p95: q(rangeMs, 0.95) },
         counters: m.counters,

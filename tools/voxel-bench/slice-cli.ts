@@ -20,6 +20,13 @@
  * a staleness check against a fresh derive and physics probes per stage.
  * `--phase fly` (per renderer): frames at the cap while the focus travels
  * 160 m and back, with the chunk bodies' add/remove churn it causes.
+ * `--phase shader` (per renderer): the surface shader's blend at a chunk
+ * corner off the scene — four ground materials painted in quadrants
+ * around the corner, a wet band across it, the blend distance short and
+ * long — each a screenshot with the meshes built and grids uploaded
+ * counted (a material or wetness paint builds none); frames and GPU time
+ * (timestamps where the device has them) at the cap with the blend and
+ * with one flat colour; then every paint undone.
  *
  *   --origin URL        the backend (default http://127.0.0.1:4180, staging)
  *   --token-file FILE   its owner token (default ~/thirdlight-staging-p45/owner-token)
@@ -75,7 +82,7 @@ function dabsFor(renderer: 'webgpu' | 'webgl2'): Array<{ cell: Cell; mode: 'dig'
   ];
 }
 
-async function openPage(renderer: 'webgpu' | 'webgl2'): Promise<{ page: Page; errors: string[]; close: () => Promise<void> }> {
+async function openPage(renderer: 'webgpu' | 'webgl2', extra = ''): Promise<{ page: Page; errors: string[]; close: () => Promise<void> }> {
   const browser = await launchGpuBrowser({ vsync: true });
   const context = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 1 });
   await context.addInitScript((t: string) => localStorage.setItem('thirdlight.token', t), TOKEN);
@@ -85,7 +92,7 @@ async function openPage(renderer: 'webgpu' | 'webgl2'): Promise<{ page: Page; er
   page.on('console', (m) => {
     if (m.type() === 'error') errors.push(`console: ${m.text()}`.slice(0, 300));
   });
-  await page.goto(`${ORIGIN}/voxel-world.html?project=${PROJECT}&world=${WORLD}&at=${AT.join(',')}&renderer=${renderer}`);
+  await page.goto(`${ORIGIN}/voxel-world.html?project=${PROJECT}&world=${WORLD}&at=${AT.join(',')}&renderer=${renderer}${extra}`);
   await page.waitForFunction(() => {
     const h = (window as unknown as { __tlVoxelWorld?: Hook }).__tlVoxelWorld;
     return h !== undefined && (h.ready === true || h.failed !== undefined);
@@ -254,12 +261,87 @@ async function fly(renderer: 'webgpu' | 'webgl2'): Promise<Record<string, unknow
   }
 }
 
+interface SurfaceState {
+  surface: { meshBuilds: number; shaderSets: number; regions: number; gridGpuBytes: number; gridUploads: number; uploadMs: { p50: number; p95: number; n: number } };
+  swaps: number;
+}
+
+/** The surface shader at a chunk corner off the scene (see the header). */
+async function shader(renderer: 'webgpu' | 'webgl2'): Promise<Record<string, unknown>> {
+  const corner: Cell = [AT[0] - 64, 0, AT[2] - 64];
+  const out: Record<string, unknown> = { renderer, corner };
+  {
+    const { page, errors, close } = await openPage(renderer, '&gpuTime=1&hud=0');
+    try {
+      // The ground's height at the corner: the first solid cell from above.
+      let h = AT[1] + 40;
+      await hook(page, 'look', corner[0], AT[1], corner[2], 0.6, 1.1, 14);
+      await hook(page, 'settle');
+      while (h > AT[1] - 60 && (await hook<{ material: number }>(page, 'voxelAt', corner[0], h, corner[2])).material === 0) h--;
+      corner[1] = h;
+      const view = (): Promise<unknown> => hook(page, 'look', corner[0], h, corner[2], 0.6, 1.1, 12);
+      await view();
+      await hook(page, 'settle');
+      const steps: Array<Record<string, unknown>> = [];
+      const step = async (name: string, commands: unknown[]): Promise<void> => {
+        const before = await hook<SurfaceState>(page, 'state');
+        const answers: Array<Record<string, unknown>> = [];
+        for (const c of commands) answers.push(await hook<Record<string, unknown>>(page, 'edit', c));
+        await hook(page, 'settle');
+        await view();
+        const after = await hook<SurfaceState>(page, 'state');
+        steps.push({ name, answers: answers.map((a) => ({ ok: a['ok'], code: a['code'], cells: a['cells'], chunks: a['chunks'], visibleMs: a['visibleMs'], rederived: a['rederived'] })), meshBuilds: after.surface.meshBuilds - before.surface.meshBuilds, derivedSwaps: after.swaps - before.swaps, shaderSets: after.surface.shaderSets - before.surface.shaderSets, gridUploads: after.surface.gridUploads - before.surface.gridUploads, shot: await shot(page, `shader-${name}-${renderer}.png`) });
+      };
+      const paint = (x0: number, z0: number, x1: number, z1: number, material: number, wetness: number): unknown => ({ v: 2, grid: 0, kind: 'fill', min: [x0, h - 8, z0], max: [x1, h + 8, z1], mode: 'paint', voxel: { material, role: 1, wetness } });
+      const [x, , z] = corner;
+      await step('before', []);
+      // Four materials in the quadrants around the chunk corner (x and z faces both), roles kept: a material-only change.
+      await step('quadrants', [paint(x - 12, z - 12, x - 1, z - 1, 3, 0), paint(x, z - 12, x + 11, z - 1, 4, 0), paint(x - 12, z, x - 1, z + 11, 10, 0), paint(x, z, x + 11, z + 11, 2, 0)]);
+      // A wet band across the corner along x: wetness only.
+      await step('wet', [paint(x - 12, z - 3, x + 11, z + 2, 3, 7), paint(x, z - 3, x + 11, z - 1, 4, 7), paint(x - 12, z, x - 1, z + 2, 10, 7), paint(x, z, x + 11, z + 2, 2, 7)]);
+      await hook(page, 'setBlend', 0.05);
+      await step('blend-0.05m', []);
+      await hook(page, 'setBlend', 0.25);
+      await step('blend-0.25m', []);
+      await hook(page, 'setBlend', 0.5);
+      await step('blend-0.5m', []);
+      await hook(page, 'setBlend', 0.25);
+      out['steps'] = steps;
+      // The scene's wall, beam and banister (construction, projected the same way), then frames at the cap
+      // orbiting it with the blend, and the GPU time of those frames.
+      await lookAtScene(page);
+      out['sceneShot'] = await shot(page, `shader-scene-${renderer}.png`);
+      await hook(page, 'gpuTime');
+      const fr = await hook<{ intervals: number[]; renderMs: { p50: number; p95: number } }>(page, 'frames', SECONDS, 0.15);
+      out['blend'] = { frames: summary(fr), gpu: await hook(page, 'gpuTime') };
+      out['state'] = await hook(page, 'state');
+      for (let k = 0; k < 8; k++) await hook(page, 'undo');
+      await hook(page, 'settle');
+      out['errors'] = errors;
+    } finally {
+      await close();
+    }
+  }
+  {
+    const { page, errors, close } = await openPage(renderer, '&gpuTime=1&hud=0&shading=flat');
+    try {
+      await lookAtScene(page);
+      await hook(page, 'gpuTime');
+      const fr = await hook<{ intervals: number[]; renderMs: { p50: number; p95: number } }>(page, 'frames', SECONDS, 0.15);
+      out['flat'] = { frames: summary(fr), gpu: await hook(page, 'gpuTime'), errors };
+    } finally {
+      await close();
+    }
+  }
+  return out;
+}
+
 mkdirSync(OUT, { recursive: true });
 const host = { uptimeH: Number((uptime() / 3600).toFixed(1)), load: loadavg().map((l) => Number(l.toFixed(2))), at: new Date().toISOString() };
 const probeCells = (['webgpu', 'webgl2'] as const).flatMap((r) => dabsFor(r).map((d) => d.cell)).concat([[AT[0] + 3, AT[1] + 1, AT[2] + 7]]);
-if (PHASE === 'assembly' || PHASE === 'fly') {
+if (PHASE === 'assembly' || PHASE === 'fly' || PHASE === 'shader') {
   const runs = [];
-  for (const r of RENDERERS) runs.push(PHASE === 'assembly' ? await assembly(r) : await fly(r));
+  for (const r of RENDERERS) runs.push(PHASE === 'assembly' ? await assembly(r) : PHASE === 'fly' ? await fly(r) : await shader(r));
   writeFileSync(join(OUT, `${PHASE}.json`), JSON.stringify({ host, at: AT, runs }, null, 2));
   console.log(`${PHASE}: ${join(OUT, `${PHASE}.json`)}`);
 } else if (PHASE === 'measure') {

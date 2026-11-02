@@ -11,19 +11,18 @@
  */
 import { apronVoxelAt, checkApron, checkRadius } from './apron';
 import { assemblyRules, jobRadius } from './assembly';
-import { deriveWithApron } from './derive-assembly';
+import { deriveShaderWithApron, deriveWithApron } from './derive-assembly';
 import { derivedTransfer, encodeDerived } from './derived-data';
 import { crc32 } from '@thirdlight/shared';
-import { CellDelta, exportOrAir } from './cell-delta';
-import { createDenseChunk, type DenseChunk } from './dense-chunk';
+import { CellDelta } from './cell-delta';
 import { payloadTransfer } from './chunk-wire';
-import { CHUNK_EDGES, chunkGrid, chunkOfKey, type ChunkEdge, type ChunkGrid } from './coords';
+import { CHUNK_EDGES, chunkGrid, chunkOfKey, type ChunkEdge } from './coords';
 import { applyEdit } from './edit-apply';
 import { canonicalEditCommand } from './edit-command';
 import type { JobHandlers, JobResult } from './job-worker';
 import { createWorldStore, type PaletteStore } from './palette-store';
 import { ALL_DERIVED_PARTS, DERIVED_PART, MATERIAL_AIR, valueMaterial, type VoxelRecord } from './record';
-import { encodeShader, shaderDataOf } from './derived-shader';
+import { encodeShader, SHADER_BORDER_CELLS } from './derived-shader';
 import { regionChunkCodecBytes, type RegionChunkRead } from './region-file';
 import { applySaveChunk, baseChunkHash, sameHash, saveContentFromPayload } from './save-file';
 import { stampShapeHash, type StampResolver } from './stamp-shape';
@@ -192,8 +191,9 @@ function derive(raw: unknown): JobResult {
     const parts = input.parts ?? ALL_DERIVED_PARTS;
     if ((parts & ALL_DERIVED_PARTS) !== parts || parts === 0) throw new RangeError(`derive job: parts ${parts}`);
     if (parts === DERIVED_PART.shader) {
-      // Material and wetness feed only the shader data, which reads the chunk's own cells.
-      const shader = shaderDataOf(g, exportOrAir(store, c.cx, c.cy, c.cz, scratchCells(g)));
+      // Material and wetness feed only the shader data, which reads the chunk and its border.
+      if (r !== SHADER_BORDER_CELLS) throw new RangeError(`derive job: shader data needs an apron ${SHADER_BORDER_CELLS} deep, not ${r}`);
+      const shader = deriveShaderWithApron(g, input.apron, (out) => store.exportChunk(c.cx, c.cy, c.cz, out));
       const output: DeriveOutput = { solid: 0, exposed: 0, mask: null, hash: crc32(encodeShader(shader)), assembly: null, shader };
       return { output, transfer: [shader.palette.buffer as ArrayBuffer, shader.ids.buffer as ArrayBuffer] };
     }
@@ -212,14 +212,6 @@ function derive(raw: unknown): JobResult {
 }
 
 const EMPTY: DeriveOutput = Object.freeze({ solid: 0, exposed: 0, mask: null, hash: 0, assembly: null, shader: null });
-
-const cellScratch = new Map<number, DenseChunk>();
-
-function scratchCells(g: ChunkGrid): DenseChunk {
-  let c = cellScratch.get(g.edge);
-  if (c === undefined) cellScratch.set(g.edge, (c = createDenseChunk(g)));
-  return c;
-}
 
 /** The derive placeholder: solid cells with an air cell within R (Chebyshev), from the chunk and its apron. */
 function exposure(store: PaletteStore, c: ChunkRef, input: DeriveInput): DeriveOutput {

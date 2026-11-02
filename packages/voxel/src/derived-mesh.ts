@@ -11,10 +11,11 @@
  * - position `uint16x4`: chunk-local, in 1/{@link POSITION_STEPS_PER_CELL}
  *   cell steps from one cell below the chunk's corner (so the surface's
  *   boundary vertices at −0.5 fit); w is 0, reserved;
- * - normal `snorm8x4` (w 0);
- * - material slots `uint8x4`, or `uint16x4` when the chunk's material table
- *   has more than 256 entries ({@link SurfaceBuffer.slotBytes});
- * - material weights `unorm8x4`, summing to 255.
+ * - normal `snorm8x4` (w 0).
+ * A vertex carries no material: the surface shader finds the materials
+ * around each pixel in the chunk's shader data (derived-shader.ts) and
+ * blends them there, so a material or wetness change never rebuilds a mesh
+ * and blends look the same on every mesh detail level.
  * Indices are `uint16` below 65,536 vertices, else `uint32`; triangles are
  * counter-clockwise seen from outside.
  *
@@ -27,12 +28,13 @@
  * **Detail instances**: 8 bytes each: x, y, z (chunk-local cell, uint8),
  * a byte of rotation (bits 0–1: quarter turns about +y) and flags (bits
  * 4–7, {@link INSTANCE_FLAG}), the piece (uint16: family << 2 | section)
- * and the material slot (uint16). A piece that replaces its cell's base
+ * and a reserved uint16 (0) that keeps the stride a multiple of four, as a
+ * GPU instance buffer needs; the piece's material is its cell's, read from
+ * the shader data like a surface's. A piece that replaces its cell's base
  * surface says so (`replacesBase`): the base surface is then not emitted
  * there, so an open rail is open, not a rail drawn over a solid block.
  */
 import { ASSEMBLY_CLASS, CLASS_MASK, RUN_X, RUN_Z, type Neighbourhood } from './assembly';
-import { valueMaterial } from './record';
 
 /** Position steps per cell (1/1024 cell ≈ 0.5 mm). */
 export const POSITION_STEPS_PER_CELL = 1024;
@@ -40,10 +42,8 @@ export const POSITION_STEPS_PER_CELL = 1024;
 /** Density at or above which a projected sample is inside the ground. */
 export const SURFACE_ISO = 128;
 
-/** Bytes a surface vertex takes for a slot width. */
-export function surfaceStride(slotBytes: 1 | 2): number {
-  return 8 + 4 + 4 * slotBytes + 4;
-}
+/** Bytes a surface vertex takes: position `uint16x4` and normal `snorm8x4`. */
+export const SURFACE_VERTEX_BYTES = 12;
 
 /** Bytes per detail instance. */
 export const INSTANCE_BYTES = 8;
@@ -62,8 +62,7 @@ export const PIECE_SECTION = Object.freeze({ single: 0, start: 1, body: 2, end: 
 
 export interface SurfaceBuffer {
   readonly vertexCount: number;
-  readonly slotBytes: 1 | 2;
-  /** Interleaved vertices, {@link surfaceStride} bytes each. */
+  /** Interleaved vertices, {@link SURFACE_VERTEX_BYTES} each. */
   readonly vertices: Uint8Array;
   readonly indices: Uint16Array | Uint32Array;
 }
@@ -72,30 +71,6 @@ export interface InstanceList {
   readonly count: number;
   /** {@link INSTANCE_BYTES} per instance. */
   readonly data: Uint8Array;
-}
-
-/** A chunk's material table: slot → material id, slots handed out in first-use order. */
-export class MaterialSlots {
-  private readonly slots = new Map<number, number>();
-  private readonly order: number[] = [];
-
-  slot(material: number): number {
-    let s = this.slots.get(material);
-    if (s === undefined) {
-      s = this.order.length;
-      this.slots.set(material, s);
-      this.order.push(material);
-    }
-    return s;
-  }
-
-  get size(): number {
-    return this.order.length;
-  }
-
-  table(): Uint32Array {
-    return Uint32Array.from(this.order);
-  }
 }
 
 /** A growable byte buffer for vertices. */
@@ -123,31 +98,23 @@ class Bytes {
   }
 }
 
-/** A surface under construction: vertices with up to 4 (slot, weight) pairs, then triangles. */
+/** A surface under construction: vertices, then triangles. */
 class SurfaceBuilder {
   readonly pos: number[] = [];
   readonly nrm: number[] = [];
-  readonly mats: number[] = [];
-  readonly weights: number[] = [];
   readonly tris: number[] = [];
   count = 0;
 
-  vertex(px: number, py: number, pz: number, nx: number, ny: number, nz: number, mats: readonly number[], weights: readonly number[]): number {
+  vertex(px: number, py: number, pz: number, nx: number, ny: number, nz: number): number {
     this.pos.push(px, py, pz);
     this.nrm.push(nx, ny, nz);
-    for (let k = 0; k < 4; k++) {
-      this.mats.push(mats[k] ?? 0);
-      this.weights.push(weights[k] ?? 0);
-    }
     return this.count++;
   }
 
-  build(slots: MaterialSlots): SurfaceBuffer {
-    const slotBytes: 1 | 2 = slots.size > 256 ? 2 : 1;
-    const stride = surfaceStride(slotBytes);
+  build(): SurfaceBuffer {
     const out = new Bytes();
     for (let v = 0; v < this.count; v++) {
-      const at = out.reserve(stride);
+      const at = out.reserve(SURFACE_VERTEX_BYTES);
       const d = out.view;
       d.setUint16(at, this.pos[3 * v]!, true);
       d.setUint16(at + 2, this.pos[3 * v + 1]!, true);
@@ -157,15 +124,9 @@ class SurfaceBuilder {
       d.setInt8(at + 9, this.nrm[3 * v + 1]!);
       d.setInt8(at + 10, this.nrm[3 * v + 2]!);
       d.setInt8(at + 11, 0);
-      let o = at + 12;
-      for (let k = 0; k < 4; k++, o += slotBytes) {
-        if (slotBytes === 1) d.setUint8(o, this.mats[4 * v + k]!);
-        else d.setUint16(o, this.mats[4 * v + k]!, true);
-      }
-      for (let k = 0; k < 4; k++) d.setUint8(o + k, this.weights[4 * v + k]!);
     }
     const indices = this.count < 65536 ? Uint16Array.from(this.tris) : Uint32Array.from(this.tris);
-    return { vertexCount: this.count, slotBytes, vertices: out.done(), indices };
+    return { vertexCount: this.count, vertices: out.done(), indices };
   }
 }
 
@@ -188,7 +149,7 @@ for (let a = 0; a < 8; a++) for (const bit of [1, 2, 4]) if ((a & bit) === 0) ED
  * sample edge whose lower sample lies in the chunk. Needs classes and
  * shapes one cell around the chunk.
  */
-export function groundSurface(n: Neighbourhood, classes: Uint8Array, slots: MaterialSlots): SurfaceBuffer {
+export function groundSurface(n: Neighbourhood, classes: Uint8Array): SurfaceBuffer {
   const e = n.edge;
   const p = n.pad;
   const s = n.side;
@@ -208,7 +169,7 @@ export function groundSurface(n: Neighbourhood, classes: Uint8Array, slots: Mate
     }
   }
   // All outside or all inside: no sample edge changes sign.
-  if (inside === 0 || inside === dens.length) return b.build(slots);
+  if (inside === 0 || inside === dens.length) return b.build();
   const di = (x: number, y: number, z: number): number => ((x + 1) * m + (z + 1)) * m + (y + 1);
   const dual = new Int32Array((e + 1) ** 3).fill(-1);
   const corner = new Float64Array(8);
@@ -249,21 +210,9 @@ export function groundSurface(n: Neighbourhood, classes: Uint8Array, slots: Mate
       gz += (oz === 1 ? 1 : -1) * corner[c]!;
     }
     const len = Math.hypot(gx, gy, gz) || 1;
-    // Materials: the ground cells around the vertex, weighted by density; the four heaviest.
-    const weight = new Map<number, number>();
-    for (let c = 0; c < 8; c++) {
-      if (corner[c]! <= 0) continue;
-      const [ox, oy, oz] = CORNERS[c]!;
-      const mat = valueMaterial(n.values[((x + ox + p) * s + (z + oz + p)) * s + (y + oy + p)]!);
-      weight.set(mat, (weight.get(mat) ?? 0) + corner[c]!);
-    }
-    const ranked = [...weight].sort((u, v) => v[1] - u[1] || u[0] - v[0]).slice(0, 4);
-    const total = ranked.reduce((acc, r) => acc + r[1], 0);
-    const w = ranked.map((r) => Math.floor((r[1] * 255) / total));
-    if (w.length > 0) w[0]! += 255 - w.reduce((acc, v) => acc + v, 0);
     const steps = POSITION_STEPS_PER_CELL;
     const q = (cell: number, f: number): number => (cell + 1) * steps + steps / 2 + Math.round(f * steps);
-    const v = b.vertex(q(x, fx), q(y, fy), q(z, fz), snorm8(-gx / len), snorm8(-gy / len), snorm8(-gz / len), ranked.map((r) => slots.slot(r[0])), w);
+    const v = b.vertex(q(x, fx), q(y, fy), q(z, fz), snorm8(-gx / len), snorm8(-gy / len), snorm8(-gz / len));
     dual[k] = v;
     return v;
   };
@@ -286,7 +235,7 @@ export function groundSurface(n: Neighbourhood, classes: Uint8Array, slots: Mate
       if (inside !== dens[i + SZ]! >= SURFACE_ISO) quad(vertexOf(x - 1, y - 1, z), vertexOf(x, y - 1, z), vertexOf(x, y, z), vertexOf(x - 1, y, z), !inside);
     }
   }
-  return b.build(slots);
+  return b.build();
 }
 
 /** Whether a resolved cell hides a modular body's face (another body, or ground at least half full). */
@@ -303,7 +252,7 @@ const FACES: Array<[number, number]> = [[0, -1], [0, 1], [1, -1], [1, 1], [2, -1
  * whose neighbour does not hide it. Beams and rails get none (their
  * detail pieces replace them), so faces of the walls behind them are kept.
  */
-export function baseSurface(n: Neighbourhood, classes: Uint8Array, slots: MaterialSlots): SurfaceBuffer {
+export function baseSurface(n: Neighbourhood, classes: Uint8Array): SurfaceBuffer {
   const e = n.edge;
   const p = n.pad;
   const s = n.side;
@@ -314,7 +263,6 @@ export function baseSurface(n: Neighbourhood, classes: Uint8Array, slots: Materi
   for (let x = 0; x < e; x++) for (let z = 0; z < e; z++) for (let y = 0; y < e; y++) {
     const i = ((x + p) * s + (z + p)) * s + (y + p);
     if ((classes[i]! & CLASS_MASK) !== ASSEMBLY_CLASS.wall) continue;
-    const slot = slots.slot(valueMaterial(n.values[i]!));
     for (const [axis, sign] of FACES) {
       if (hidesFace(n, classes, i + sign * strides[axis]!)) continue;
       // The face's plane and its two in-plane axes (u, v) with u × v pointing outward.
@@ -331,12 +279,12 @@ export function baseSurface(n: Neighbourhood, classes: Uint8Array, slots: Materi
         if (sign > 0) corner[axis]! += 1;
         corner[u]! += du;
         corner[v]! += dv;
-        quad.push(b.vertex((corner[0]! + 1) * steps, (corner[1]! + 1) * steps, (corner[2]! + 1) * steps, nrm[0]!, nrm[1]!, nrm[2]!, [slot], [255]));
+        quad.push(b.vertex((corner[0]! + 1) * steps, (corner[1]! + 1) * steps, (corner[2]! + 1) * steps, nrm[0]!, nrm[1]!, nrm[2]!));
       }
       b.tris.push(quad[0]!, quad[1]!, quad[2]!, quad[0]!, quad[2]!, quad[3]!);
     }
   }
-  return b.build(slots);
+  return b.build();
 }
 
 /**
@@ -344,7 +292,7 @@ export function baseSurface(n: Neighbourhood, classes: Uint8Array, slots: Materi
  * with its run section from the neighbours along the run (same class), so
  * a renderer can merge a run of bodies between two ends.
  */
-export function detailInstances(n: Neighbourhood, classes: Uint8Array, slots: MaterialSlots): InstanceList {
+export function detailInstances(n: Neighbourhood, classes: Uint8Array): InstanceList {
   const e = n.edge;
   const p = n.pad;
   const s = n.side;
@@ -374,7 +322,7 @@ export function detailInstances(n: Neighbourhood, classes: Uint8Array, slots: Ma
     d.setUint8(at + 2, z);
     d.setUint8(at + 3, (runZ && !post ? 1 : 0) | INSTANCE_FLAG.replacesBase);
     d.setUint16(at + 4, (family << 2) | section, true);
-    d.setUint16(at + 6, slots.slot(valueMaterial(n.values[i]!)), true);
+    d.setUint16(at + 6, 0, true);
     count++;
   }
   return { count, data: out.done() };

@@ -251,12 +251,9 @@ export {
   derivedTransfer,
   encodeDerived,
   LIGHT_COVERAGE,
-  MATERIAL_SLOT_PARTS,
   NAV_CLEARANCE_CELLS,
   NAV_CLEARANCE_CONTINUES,
   OCCUPANCY,
-  shaderOfNeighbourhood,
-  stalePartsOf,
   type CollisionOut,
   type DerivedData,
   type DerivedCounts,
@@ -265,9 +262,9 @@ export {
   type NavOut,
   type OccupancyOut,
 } from './derived-data';
-export { INSTANCE_BYTES, INSTANCE_FLAG, MaterialSlots, PIECE_FAMILY, PIECE_SECTION, POSITION_STEPS_PER_CELL, SURFACE_ISO, surfaceStride, type InstanceList, type SurfaceBuffer } from './derived-mesh';
+export { INSTANCE_BYTES, INSTANCE_FLAG, PIECE_FAMILY, PIECE_SECTION, POSITION_STEPS_PER_CELL, SURFACE_ISO, SURFACE_VERTEX_BYTES, type InstanceList, type SurfaceBuffer } from './derived-mesh';
 export { deriveFromStore, deriveWithApron } from './derive-assembly';
-export { encodeShader, shaderBytes, shaderDataOf, shaderDataOfValues, shaderEntry, shaderEntryAt, type ShaderOut } from './derived-shader';
+export { encodeShader, SHADER_BORDER_CELLS, shaderBytes, shaderEntry, shaderEntryAt, shaderGridEntries, shaderGridSide, shaderOfNeighbourhood, shaderSolidEntry, type ShaderOut } from './derived-shader';
 export { RULE_CONFORMANCE_EXTRA_PAD, ruleRadiusMismatches, type RuleRadiusMismatch } from './rule-conformance';
 export { cellOutputs, resolvedClassAt, type CellOutputs } from './derived-cell';
 export { collisionGeometry, type CollisionGeometry, type CollisionMesh, type CollisionMeshLimits } from './derived-collision';

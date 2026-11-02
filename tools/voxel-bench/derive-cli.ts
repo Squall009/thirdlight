@@ -35,6 +35,9 @@ import {
   mipNodeKey,
   PLACEHOLDER_RULES,
   propCoverageChunk,
+  shaderGridEntries,
+  shaderSolidEntry,
+  SURFACE_VERTEX_BYTES,
   type DenseChunk,
   type DeriveTimes,
   type MipNode,
@@ -101,7 +104,31 @@ interface ChunkRow {
   lightPartial: number;
   counts: { wall: number; ground: number; groundPartial: number; beam: number; rail: number; liquid: number };
   stored: boolean;
+  /** Whether the chunk draws a surface (and so needs its shader data on the GPU). */
+  drawn: boolean;
+  /** A drawn chunk whose grid holds two or more solid entries (one solid entry blends to itself: no grid needed). */
+  gridNeeded: boolean;
+  /** Mixed 4³ bricks of the shader grid (two or more entries, air counted): the sparse alternative's size. */
+  shaderMixedBricks: number;
 }
+
+/** Mixed 4³ bricks of a side³ shader grid (bricks clipped at the far edges). */
+function mixedShaderBricks(cells: Uint16Array, side: number): number {
+  let mixed = 0;
+  for (let bx = 0; bx < side; bx += 4) for (let bz = 0; bz < side; bz += 4) for (let by = 0; by < side; by += 4) {
+    let first = -1;
+    let m = false;
+    for (let x = bx; x < Math.min(side, bx + 4) && !m; x++) for (let z = bz; z < Math.min(side, bz + 4) && !m; z++) for (let y = by; y < Math.min(side, by + 4) && !m; y++) {
+      const e = cells[(x * side + z) * side + y]!;
+      if (first < 0) first = e;
+      else if (e !== first) m = true;
+    }
+    if (m) mixed++;
+  }
+  return mixed;
+}
+
+let gridScratch = new Uint16Array(0);
 
 /** Light coverage bytes if stored per 4³ brick: a byte per brick, 64 more for a brick that is not one value. */
 function brickLightBytes(cov: Uint8Array): number {
@@ -159,6 +186,9 @@ function deriveGrid(g: TestGrid, w: Window, rows: ChunkRow[]): void {
     let anyCov = false;
     for (let i = 0; i < CELLS && !anyCov; i++) anyCov = cov[i] !== 0;
     const solidish = d.counts.wall + d.counts.beam + d.counts.rail + d.counts.ground;
+    const side = d.shader.side;
+    if (gridScratch.length < side ** 3) gridScratch = new Uint16Array(side ** 3);
+    const drawn = d.ground.vertexCount + d.base.vertexCount + d.instances.count > 0;
     rows.push({
       applyUs: (a2 - a1) * 1000,
       apronUs: (a1 - a0) * 1000,
@@ -182,6 +212,9 @@ function deriveGrid(g: TestGrid, w: Window, rows: ChunkRow[]): void {
       lightPartial: d.light.partialCells.length,
       counts: { ...d.counts },
       stored: store.chunkForm(x, y, z) === 'stored',
+      drawn,
+      gridNeeded: drawn && shaderSolidEntry(d.shader) < 0,
+      shaderMixedBricks: drawn && shaderSolidEntry(d.shader) < 0 ? mixedShaderBricks(shaderGridEntries(d.shader, gridScratch), side) : 0,
     });
   }
 }
@@ -290,7 +323,26 @@ function summarize(name: string, rows: ChunkRow[]): Record<string, unknown> {
     bytes: f((r) => r.bytes),
     totalMB: sum(rows.map((r) => r.bytes)) / 1e6,
     nonEmpty: nonEmpty.length,
-    parts: Object.fromEntries((['occupancy', 'light', 'collision', 'nav', 'ground', 'base', 'instances', 'materials'] as const).map((k) => [k, mean(rows.map((r) => r.parts[k]))])),
+    parts: Object.fromEntries((['occupancy', 'light', 'collision', 'nav', 'ground', 'base', 'instances', 'shader'] as const).map((k) => [k, mean(rows.map((r) => r.parts[k]))])),
+    surface: (() => {
+      const drawn = rows.filter((r) => r.drawn);
+      const grids = rows.filter((r) => r.gridNeeded);
+      const side = E + 2;
+      const verts = sum(rows.map((r) => r.vertsGround + r.vertsBase));
+      return {
+        vertexBytes: SURFACE_VERTEX_BYTES,
+        verticesPerDrawnChunk: drawn.length === 0 ? 0 : verts / drawn.length,
+        vertexBytesPerDrawnChunk: drawn.length === 0 ? 0 : (verts * SURFACE_VERTEX_BYTES) / drawn.length,
+        drawn: drawn.length,
+        gridNeeded: grids.length,
+        shaderPackedMean: mean(rows.map((r) => r.parts.shader)),
+        shaderPackedDrawnMean: mean(drawn.map((r) => r.parts.shader)),
+        gpuDenseBytesPerGrid: side ** 3 * 2,
+        gpuDenseMBAll: (grids.length * side ** 3 * 2) / 1e6,
+        sparseBricksMean: mean(grids.map((r) => r.shaderMixedBricks)),
+        sparseBytesPerGrid: mean(grids.map((r) => Math.ceil(side / 4) ** 3 * 2 + r.shaderMixedBricks * 128)),
+      };
+    })(),
     alternatives: {
       lightMaskPartials: mean(rows.map((r) => r.parts.light)),
       lightDense: mean(rows.map((r) => r.lightDense)),
@@ -353,7 +405,7 @@ function main(): void {
     const x = r as unknown as { world: string; chunks: number; storedChunks: number; deriveUs: { p50: number; p95: number }; evaluateUs: { mean: number }; meshUs: { mean: number }; consumersUs: { mean: number }; apronUs: { p50: number }; bytes: { mean: number; p95: number }; totalMB: number; parts: Record<string, number> };
     md.push(`| ${x.world} | ${x.chunks} (${x.storedChunks}) | ${x.deriveUs.p50.toFixed(0)} / ${x.deriveUs.p95.toFixed(0)} | ${x.evaluateUs.mean.toFixed(0)} / ${x.meshUs.mean.toFixed(0)} / ${x.consumersUs.mean.toFixed(0)} | ${x.apronUs.p50.toFixed(0)} | ${x.bytes.mean.toFixed(0)} / ${x.bytes.p95.toFixed(0)} | ${x.totalMB.toFixed(2)} | ${['occupancy', 'light', 'collision', 'nav', 'ground', 'base', 'instances'].map((k) => x.parts[k]!.toFixed(0)).join(' / ')} |`);
   }
-  md.push('', '```json', JSON.stringify({ worlds: report.map((r) => ({ world: r.world, alternatives: r.alternatives, mesh: r.mesh, classes: r.classes, partialShare: r.partialShare })), mips: json.mips, props }, null, 1), '```');
+  md.push('', '```json', JSON.stringify({ worlds: report.map((r) => ({ world: r.world, surface: r.surface, alternatives: r.alternatives, mesh: r.mesh, classes: r.classes, partialShare: r.partialShare })), mips: json.mips, props }, null, 1), '```');
   writeFileSync(join(outDir, 'derive.md'), md.join('\n'));
   console.log(md.join('\n'));
 }

@@ -10,7 +10,7 @@
  */
 import { VOXEL_SIZE_M } from './coords';
 import { COLLISION_STEPS_PER_CELL, type DerivedData } from './derived-data';
-import { POSITION_STEPS_PER_CELL, surfaceStride, type SurfaceBuffer } from './derived-mesh';
+import { POSITION_STEPS_PER_CELL, SURFACE_VERTEX_BYTES, type SurfaceBuffer } from './derived-mesh';
 
 export interface CollisionMesh {
   /** x, y, z per vertex, metres from the chunk's corner. */
@@ -37,7 +37,7 @@ export interface CollisionMeshLimits {
 
 /** The ground surface's vertex positions in metres from the chunk's corner. */
 function groundPositions(buf: SurfaceBuffer): Float32Array {
-  const stride = surfaceStride(buf.slotBytes);
+  const stride = SURFACE_VERTEX_BYTES;
   const view = new DataView(buf.vertices.buffer, buf.vertices.byteOffset, buf.vertices.byteLength);
   const out = new Float32Array(buf.vertexCount * 3);
   const toM = VOXEL_SIZE_M / POSITION_STEPS_PER_CELL;
