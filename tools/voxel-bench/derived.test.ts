@@ -21,13 +21,16 @@ import {
   DEFAULT_REGION_FOOTPRINT,
   dependentChunks,
   deriveFromStore,
+  deriveSectionsWithApron,
   downsampleMip,
   editBounds,
   encodeDerived,
+  encodeShader,
   evaluateAssembly,
   fillNeighbourhood,
   INSTANCE_BYTES,
   INSTANCE_FLAG,
+  joinSections,
   PLANE_BIT,
   jobRadius,
   LIGHT_COVERAGE,
@@ -58,8 +61,10 @@ import {
   type DenseChunk,
   type DeriveOutput,
   type DerivedData,
+  type JoinedChunk,
   type MipNode,
   type PaletteStore,
+  type SurfaceBuffer,
   type VoxelEditCommand,
 } from '@thirdlight/voxel';
 import { cpSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -69,7 +74,8 @@ import { crc32 } from '@thirdlight/shared';
 import { listRegionFiles, RegionWorld } from '@thirdlight/workspace';
 import { describe, expect, it } from 'vitest';
 import { loadArea, zstdDecompress } from './regions';
-import { houseVoxel, type House } from './town';
+import { instanceList, triangleList } from './mesh-compare';
+import { houseVoxel, townWorld, type House } from './town';
 import { flatGround, placeWallBeamBanister, putVoxel, randomAssemblyWorld } from './scenes';
 import { MAT } from './world-kit';
 import { hillyWorld } from './worlds';
@@ -492,51 +498,122 @@ describe('dependency radius and invalidation', () => {
   }, 120_000);
 });
 
-describe('meshes', () => {
-  it('ground surfaces of neighbouring chunks meet without cracks or doubled triangles', () => {
-    const s = createWorldStore(grid);
-    const world = hillyWorld({ footprint: 96 });
-    loadArea(world.grids[0]!, s, -48, -48, 48, 48);
-    const edges = new Map<string, number>();
-    let tris = 0;
-    let surface = 0;
-    const b = world.grids[0]!.bounds;
-    for (let cx = -1; cx <= 0; cx++) for (let cz = -1; cz <= 0; cz++) for (let cy = chunkOf(b.min[1]); cy <= chunkOf(b.max[1]); cy++) {
-      const d = deriveFromStore(s, cx, cy, cz, PLACEHOLDER_RULES);
-      const g = d.ground;
-      if (g.vertexCount === 0) continue;
-      surface++;
-      const stride = SURFACE_VERTEX_BYTES;
-      const view = new DataView(g.vertices.buffer, g.vertices.byteOffset, g.vertices.byteLength);
-      const st = POSITION_STEPS_PER_CELL;
-      const pos = (v: number): string => [0, 1, 2].map((a) => view.getUint16(v * stride + 2 * a, true) - st + [cx, cy, cz][a]! * E * st).join(',');
-      for (let t = 0; t < g.indices.length; t += 3) {
-        tris++;
-        for (let k = 0; k < 3; k++) {
-          const a = pos(g.indices[t + k]!);
-          const b = pos(g.indices[t + ((k + 1) % 3)]!);
-          const key2 = a < b ? `${a}|${b}` : `${b}|${a}`;
-          edges.set(key2, (edges.get(key2) ?? 0) + 1);
-        }
+/** A chunk's derive sections of `edge` (one apron, the worker's path), joined into the chunk's draw. */
+function joinedFromStore(store: PaletteStore, cx: number, cy: number, cz: number, edge: number): JoinedChunk {
+  const n = E / edge;
+  const ids = Array.from({ length: n * n * n }, (_, i) => i);
+  const results = deriveSectionsWithApron(grid, PLACEHOLDER_RULES, buildApron(store, cx, cy, cz, R), (out) => store.exportChunk(cx, cy, cz, out), edge, ids);
+  return joinSections(E, edge, results.map((r) => r.assembly));
+}
+
+/** Counts every triangle edge of the ground surfaces of chunks (-1…0)² of a 96-cell hilly square, by world position. */
+function groundEdges(draw: (s: PaletteStore, cx: number, cy: number, cz: number) => SurfaceBuffer): { edges: Map<string, number>; tris: number; surface: number } {
+  const s = createWorldStore(grid);
+  const world = hillyWorld({ footprint: 96 });
+  loadArea(world.grids[0]!, s, -48, -48, 48, 48);
+  const edges = new Map<string, number>();
+  let tris = 0;
+  let surface = 0;
+  const b = world.grids[0]!.bounds;
+  for (let cx = -1; cx <= 0; cx++) for (let cz = -1; cz <= 0; cz++) for (let cy = chunkOf(b.min[1]); cy <= chunkOf(b.max[1]); cy++) {
+    const g = draw(s, cx, cy, cz);
+    if (g.vertexCount === 0) continue;
+    surface++;
+    const view = new DataView(g.vertices.buffer, g.vertices.byteOffset, g.vertices.byteLength);
+    const st = POSITION_STEPS_PER_CELL;
+    const pos = (v: number): string => [0, 1, 2].map((a) => view.getUint16(v * SURFACE_VERTEX_BYTES + 2 * a, true) - st + [cx, cy, cz][a]! * E * st).join(',');
+    for (let t = 0; t < g.indices.length; t += 3) {
+      tris++;
+      for (let k = 0; k < 3; k++) {
+        const a = pos(g.indices[t + k]!);
+        const c = pos(g.indices[t + ((k + 1) % 3)]!);
+        const key2 = a < c ? `${a}|${c}` : `${c}|${a}`;
+        edges.set(key2, (edges.get(key2) ?? 0) + 1);
       }
     }
+  }
+  return { edges, tris, surface };
+}
+
+/** Inside the 2 × 2 chunk window (away from its outer border) every edge has exactly two triangles; returns the inner and the seam edges (`faces`: planes the seams lie on, in cells). */
+function expectNoCracks(edges: Map<string, number>, faces: readonly number[]): { inner: number; seam: number } {
+  const lo = -E * POSITION_STEPS_PER_CELL + 2 * POSITION_STEPS_PER_CELL;
+  const hi = E * POSITION_STEPS_PER_CELL - 2 * POSITION_STEPS_PER_CELL;
+  let inner = 0;
+  let seam = 0;
+  const near = (v: number): boolean => faces.some((f) => Math.abs(v - f * POSITION_STEPS_PER_CELL) < POSITION_STEPS_PER_CELL);
+  for (const [key, n] of edges) {
+    const pts = key.split('|').map((p) => p.split(',').map(Number));
+    if (!pts.every((p) => p[0]! > lo && p[0]! < hi && p[2]! > lo && p[2]! < hi)) continue;
+    inner++;
+    if (pts.some((p) => near(p[0]!) || near(p[2]!))) seam++;
+    expect(n, `edge ${key}`).toBe(2);
+  }
+  return { inner, seam };
+}
+
+describe('meshes', () => {
+  it('ground surfaces of neighbouring chunks meet without cracks or doubled triangles', () => {
+    const { edges, tris, surface } = groundEdges((s, cx, cy, cz) => deriveFromStore(s, cx, cy, cz, PLACEHOLDER_RULES).ground);
     expect(surface).toBeGreaterThanOrEqual(4);
     expect(tris).toBeGreaterThan(1000);
-    // Inside the 2 × 2 chunk window (away from its outer border) every edge has exactly two triangles.
-    const lo = -E * POSITION_STEPS_PER_CELL + 2 * POSITION_STEPS_PER_CELL;
-    const hi = E * POSITION_STEPS_PER_CELL - 2 * POSITION_STEPS_PER_CELL;
-    let inner = 0;
-    let seam = 0;
-    for (const [key, n] of edges) {
-      const pts = key.split('|').map((p) => p.split(',').map(Number));
-      if (!pts.every((p) => p[0]! > lo && p[0]! < hi && p[2]! > lo && p[2]! < hi)) continue;
-      inner++;
-      if (pts.some((p) => Math.abs(p[0]!) < POSITION_STEPS_PER_CELL || Math.abs(p[2]!) < POSITION_STEPS_PER_CELL)) seam++;
-      expect(n, `edge ${key}`).toBe(2);
-    }
+    const { inner, seam } = expectNoCracks(edges, [0]);
     expect(inner).toBeGreaterThan(1000);
     expect(seam).toBeGreaterThan(50);
   });
+
+  it('joins a chunk\'s 16³ and 8³ sections into the whole-chunk derive\'s triangles, instances and shader grid; joined chunks meet without cracks', () => {
+    const hilly = createWorldStore(grid);
+    loadArea(hillyWorld({ footprint: 96 }).grids[0]!, hilly, -48, -48, 48, 48);
+    const town = createWorldStore(grid);
+    const tw = townWorld({ footprint: 128 });
+    loadArea(tw.grids[0]!, town, 0, 0, 128, 128);
+    const scene = wallBeamBanister();
+    const cases: Array<[string, PaletteStore, number, number, number, number, number, number]> = [
+      ['hilly', hilly, -1, 0, -2, 1, -1, 0],
+      ['town', town, 0, 3, -1, 1, 0, 3],
+      ['scene', scene, -1, 0, -1, 0, -1, 0],
+    ];
+    for (const edge of [16, 8]) {
+      const seen = { chunks: 0, ground: 0, base: 0, instances: 0, grids: 0, extraVertices: 0, vertices: 0 };
+      for (const [name, store, x0, x1, y0, y1, z0, z1] of cases) {
+        for (let cx = x0; cx <= x1; cx++) for (let cy = y0; cy <= y1; cy++) for (let cz = z0; cz <= z1; cz++) {
+          const whole = deriveFromStore(store, cx, cy, cz, PLACEHOLDER_RULES);
+          const joined = joinedFromStore(store, cx, cy, cz, edge);
+          const at = `${name} ${edge}³ chunk (${cx}, ${cy}, ${cz})`;
+          expect(joined.ground.indices.length, at).toBe(whole.ground.indices.length);
+          expect(joined.base.indices.length, at).toBe(whole.base.indices.length);
+          expect(triangleList(joined.ground), at).toEqual(triangleList(whole.ground));
+          expect(triangleList(joined.base), at).toEqual(triangleList(whole.base));
+          expect(joined.instances.count, at).toBe(whole.instances.count);
+          expect(instanceList(joined.instances), at).toEqual(instanceList(whole.instances));
+          expect(Buffer.from(encodeShader(joined.shader)).equals(Buffer.from(encodeShader(whole.shader))), `${at} shader grid`).toBe(true);
+          seen.chunks++;
+          if (whole.ground.indices.length > 0) seen.ground++;
+          if (whole.base.indices.length > 0) seen.base++;
+          if (whole.instances.count > 0) seen.instances++;
+          if (whole.shader.width > 0) seen.grids++;
+          seen.vertices += whole.ground.vertexCount + whole.base.vertexCount;
+          seen.extraVertices += joined.ground.vertexCount + joined.base.vertexCount - whole.ground.vertexCount - whole.base.vertexCount;
+        }
+      }
+      expect(seen.ground).toBeGreaterThan(6);
+      expect(seen.base).toBeGreaterThan(3);
+      expect(seen.instances).toBeGreaterThan(0);
+      expect(seen.grids).toBeGreaterThan(6);
+      // Unwelded vertices on the faces between sections: more vertices, never fewer, and a minority.
+      expect(seen.extraVertices).toBeGreaterThan(0);
+      expect(seen.extraVertices).toBeLessThan(seen.vertices);
+      // The 45.6 seam check on joined chunks: every edge inside the window, across section and chunk faces, has two triangles.
+      const { edges, tris, surface } = groundEdges((s, cx, cy, cz) => joinedFromStore(s, cx, cy, cz, edge).ground);
+      expect(surface).toBeGreaterThanOrEqual(4);
+      expect(tris).toBeGreaterThan(1000);
+      const faces = Array.from({ length: (2 * E) / edge + 1 }, (_, k) => -E + k * edge);
+      const { inner, seam } = expectNoCracks(edges, faces);
+      expect(inner).toBeGreaterThan(1000);
+      expect(seam).toBeGreaterThan(100);
+    }
+  }, 60_000);
 
   it('marks clearance that continues into the chunk above', () => {
     const s = createWorldStore(grid);

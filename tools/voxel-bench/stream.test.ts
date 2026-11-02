@@ -25,6 +25,7 @@ import {
   deriveNow,
   editBounds,
   encodeDerived,
+  encodeShader,
   exportOrAir,
   jobRadius,
   PLACEHOLDER_RULES,
@@ -55,6 +56,7 @@ import {
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { scanExportFiles } from '../../packages/exporter/src/scan';
 import { RegionWorld } from '@thirdlight/workspace';
+import { instanceList, triangleList } from './mesh-compare';
 import { pickStore } from './regions';
 import { bundleWorker, DiskRegions, nodePoolWorker, REPO, TEST_WORLD_ID, writeWorldRegions } from './stream-node';
 import { hillyWorld } from './worlds';
@@ -400,10 +402,31 @@ describe('streamer (workers, region files on disk)', () => {
       // What a renderer shows: the newest result each section's events delivered.
       const shown = new Map<number, number>();
       const swaps: SwapReport[] = [];
+      // Storage chunks announced since the last swap (a renderer drawing per chunk joins them).
+      const announced: string[] = [];
+      let announcedAtSwap: string[] = [];
       s.on((e) => {
-        if (e.type === 'swap') swaps.push(e.report);
+        if (e.type === 'swap') {
+          swaps.push(e.report);
+          announcedAtSwap = announced.splice(0);
+        } else if (e.type === 'chunk') announced.push(`${e.cx},${e.cy},${e.cz}`);
         else if (e.type === 'derived') shown.set(chunkKey(sections, e.cx, e.cy, e.cz), s.derivedOf(e.cx, e.cy, e.cz)!.hash);
       });
+      // A chunk's joined draw equals the whole 32³ chunk derived in this thread from the oracle: triangles, instances, shader grid.
+      const joinedLikeWhole = (store: PaletteStore, cx: number, cy: number, cz: number): void => {
+        const joined = s.joinedChunk(cx, cy, cz);
+        const whole = deriveFromStore(store, cx, cy, cz, PLACEHOLDER_RULES);
+        const at = `${edge}³ chunk (${cx}, ${cy}, ${cz})`;
+        if (joined === null) {
+          // Nothing derived with rules (air with air around): the whole chunk draws nothing either.
+          expect(whole.ground.indices.length + whole.base.indices.length + whole.instances.count, at).toBe(0);
+          return;
+        }
+        expect(triangleList(joined!.ground), at).toEqual(triangleList(whole.ground));
+        expect(triangleList(joined!.base), at).toEqual(triangleList(whole.base));
+        expect(instanceList(joined!.instances), at).toEqual(instanceList(whole.instances));
+        expect(Buffer.from(encodeShader(joined!.shader)).equals(Buffer.from(encodeShader(whole.shader))), `${at} shader grid`).toBe(true);
+      };
       s.setFocus(0, 40, 0);
       await s.settle();
       // Every section near the region corner equals the section derived in this thread cell by cell from the oracle.
@@ -429,6 +452,7 @@ describe('streamer (workers, region files on disk)', () => {
         complete++;
       }
       expect(complete).toBeGreaterThan(30);
+      for (let cx = -1; cx <= 0; cx++) for (let cy = 0; cy <= 1; cy++) for (let cz = -1; cz <= 0; cz++) joinedLikeWhole(truth, cx, cy, cz);
       expect([...s.derivedChunks()].every((d) => d.result.assembly === null || d.result.assembly.edge === edge)).toBe(true);
 
       // A 2 m blast where 4 chunks meet (x and z faces): only the sections within R of the cells it can change are derived again.
@@ -437,6 +461,7 @@ describe('streamer (workers, region files on disk)', () => {
       const want = dependentChunks(sections, box, s.radius).map((c) => chunkKey(sections, c.cx, c.cy, c.cz));
       const before = new Map(want.map((k) => [k, shown.get(k)]));
       const derived0 = s.counters.derives;
+      announced.length = 0;
       const out = s.edit(blast);
       applyEdit({ store: () => truth }, blast);
       // Reads see the blast at once, before anything is rebuilt.
@@ -456,6 +481,13 @@ describe('streamer (workers, region files on disk)', () => {
       expect(partial).toBe(0);
       expect(swaps[0]!.groups).toEqual([out.group]);
       expect(swaps[0]!.sections).toBe(want.length);
+      // The swap names the storage chunks holding its sections, each announced once just before it; their joins equal whole-chunk derives.
+      const wantChunks = [...new Set(dependentChunks(sections, box, s.radius).map((c) => `${Math.floor((c.cx * edge) / 32)},${Math.floor((c.cy * edge) / 32)},${Math.floor((c.cz * edge) / 32)}`))].sort();
+      expect(swaps[0]!.chunks.map((c) => c.join(',')).sort()).toEqual(wantChunks);
+      expect([...announcedAtSwap].sort()).toEqual(wantChunks);
+      expect(wantChunks.length).toBeGreaterThanOrEqual(4);
+      for (const c of swaps[0]!.chunks) joinedLikeWhole(truth, c[0]!, c[1]!, c[2]!);
+      expect(s.joinUs.count).toBeGreaterThanOrEqual(wantChunks.length);
       expect(s.counters.derives - derived0).toBe(want.length);
       expect(swaps[0]!.meshUs).toHaveLength(want.length);
       // The blast's jobs went out per chunk (at least one each of the 4), spread over the workers.
@@ -478,7 +510,8 @@ describe('streamer (workers, region files on disk)', () => {
       expect([...swaps[0]!.groups].sort()).toEqual([g1, g2].sort());
       expect(sameAsFresh(truth)).toBeGreaterThan(40);
     }
-  });
+    // Two section edges, each a cold fill of the ring in real workers plus whole-chunk oracle derives: past vitest's 5 s default on a loaded host.
+  }, 30_000);
 
   it('reads through the runtime overlay: the base never written, every derive a fresh derive of the merged view, digs kept over unload and reload, paints rebuild shader data only, saves keep the saved fields', async () => {
     const disk = new DiskRegions(join(dir, 'world'));
@@ -489,8 +522,11 @@ describe('streamer (workers, region files on disk)', () => {
     expect(sections.edge).toBe(DEFAULT_SECTION_EDGE);
     const truth = copyOracle();
     const swaps: SwapReport[] = [];
+    /** `chunk` events since the last edit: whether each said only shader data changed. */
+    const chunkEvents: boolean[] = [];
     s.on((e) => {
       if (e.type === 'swap') swaps.push(e.report);
+      else if (e.type === 'chunk') chunkEvents.push(e.shaderOnly);
     });
     const surface = (x: number, z: number): number => {
       const v = voxel();
@@ -520,6 +556,7 @@ describe('streamer (workers, region files on disk)', () => {
       const d0 = s.counters.derives;
       const sh0 = s.counters.shaderDerives;
       swaps.length = 0;
+      chunkEvents.length = 0;
       const out = s.edit(cmd);
       applyEdit({ store: () => truth }, cmd);
       await s.settle();
@@ -532,6 +569,8 @@ describe('streamer (workers, region files on disk)', () => {
     const dig = canonicalEditCommand({ v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [3, 3, 3], points: [0, y0, 0], mode: 'dig', smooth: false });
     const digged = await run('dig 1.5 m', dig);
     expect(digged.derives).toBe(dependentChunks(sections, editBounds(grid, dig), s.radius).length);
+    // One `chunk` event a storage chunk of the swap, geometry included.
+    expect(chunkEvents).toEqual(swaps[0]!.chunks.map(() => false));
     expect(s.voxelAt(0, y0, 0, voxel()).material).toBe(0);
     // A 4 m dig beside it.
     const big = canonicalEditCommand({ v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [8, 8, 8], points: [24, surface(24, 8), 8], mode: 'dig', smooth: false });
@@ -553,6 +592,10 @@ describe('streamer (workers, region files on disk)', () => {
     expect(fieldsFeed(material.fields)).toBe(DERIVED_PART.shader);
     expect(material.derives).toBe(0);
     expect(material.shaderDerives).toBeGreaterThan(0);
+    // Its chunks are announced as shader data only: a renderer uploads their grids and keeps their surfaces.
+    expect(chunkEvents.length).toBe(swaps[0]!.chunks.length);
+    expect(chunkEvents.length).toBeGreaterThan(0);
+    expect(chunkEvents.every((only) => only)).toBe(true);
     const wetCmd = canonicalEditCommand({ v: 2, grid: 0, kind: 'fill', ...paintBox, mode: 'paint', voxel: { material: 77, role: VOXEL_ROLE.terrain, wetness: 6 } });
     const wet = await run('wetness paint', wetCmd);
     expect(wet.fields).toBe(PLANE_BIT.wetness);

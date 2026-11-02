@@ -28,10 +28,11 @@
  */
 import { apronBytes, apronTransfer, buildApron, dependentChunks, type Apron } from './apron';
 import { rulesRef, type AssemblyRuleSet } from './assembly';
+import { joinSections, type JoinedChunk, type JoinTimes } from './chunk-join';
 import { payloadTransfer, type ChunkPayload } from './chunk-wire';
 import { chunkInWorld, chunkKey, sectionGrid, type CellGrid, type ChunkGrid, type SectionEdge } from './coords';
 import type { SectionResult } from './derive-assembly';
-import { derivedBytes, encodeDerived } from './derived-data';
+import { derivedBytes, encodeDerived, type DerivedData } from './derived-data';
 import { SHADER_BORDER_CELLS } from './derived-shader';
 import type { DirtyTracker } from './dirty-tracker';
 import { ALL_DERIVED_PARTS, DERIVED_PART } from './record';
@@ -58,11 +59,20 @@ export interface SwapReport {
   readonly deriveUs: readonly number[];
   /** ms from the edit (or the refresh) to the swap. */
   readonly ms: number;
+  /** The storage chunks whose draws the swap replaces (their `chunk` events came just before it), in key order. */
+  readonly chunks: ReadonlyArray<readonly [number, number, number]>;
 }
 
 /** A chunk's derive results and events, as the streamer reports them (derive units are sections). */
 export type SectionEvent =
   | { readonly type: 'derived' | 'shader'; readonly cx: number; readonly cy: number; readonly cz: number }
+  /**
+   * A storage chunk's sections have new results (all that one task brings:
+   * an edit group's swap, or one job's answer): its joined draw
+   * ({@link SectionDerives.joinedChunk}) is to be replaced. `shaderOnly`:
+   * only shader data changed, the surfaces stand.
+   */
+  | { readonly type: 'chunk'; readonly cx: number; readonly cy: number; readonly cz: number; readonly shaderOnly: boolean }
   | { readonly type: 'swap'; readonly report: SwapReport };
 
 /**
@@ -86,7 +96,7 @@ export interface SectionHost {
   readonly radius: number;
   readonly rules: AssemblyRuleSet | undefined;
   readonly counters: { derives: number; shaderDerives: number; staleRefused: number; deriveChecks: number; swaps: number };
-  readonly rings: { readonly apronMs: SampleRing; readonly apronBytes: SampleRing; readonly deriveUs: SampleRing };
+  readonly rings: { readonly apronMs: SampleRing; readonly apronBytes: SampleRing; readonly deriveUs: SampleRing; readonly joinUs: SampleRing };
   isResident(cx: number, cy: number, cz: number): boolean;
   /** Lane and distance² for a chunk's work outside an edit. */
   lane(cx: number, cy: number, cz: number): JobLane;
@@ -171,6 +181,8 @@ export class SectionDerives {
   private readonly groups = new Map<number, EditGroup>();
   private stampSeq = 0;
   private groupSeq = 0;
+  /** Chunks whose sections took new results in this task, not yet announced: chunk key → whether only shader data changed. */
+  private readonly touched = new Map<number, { cx: number; cy: number; cz: number; shaderOnly: boolean }>();
 
   constructor(
     private readonly host: SectionHost,
@@ -199,6 +211,31 @@ export class SectionDerives {
 
   *derived(): IterableIterator<{ cx: number; cy: number; cz: number; result: DeriveOutput }> {
     for (const s of this.bySection.values()) if (s.derive === 'no' && s.derived !== null) yield { cx: s.sx, cy: s.sy, cz: s.sz, result: s.derived };
+  }
+
+  /**
+   * A storage chunk's sections joined into one draw (chunk-join.ts): each
+   * section's newest committed result, so a section waiting for its group's
+   * swap still gives the result drawn before it. Null when no section of the
+   * chunk has an assembly result (not resident, air, or derived without
+   * rules).
+   */
+  joinedChunk(cx: number, cy: number, cz: number, times?: JoinTimes): JoinedChunk | null {
+    if (!chunkInWorld(this.host.grid, cx, cy, cz)) return null;
+    const list = this.byChunk.get(chunkKey(this.host.grid, cx, cy, cz));
+    if (list === undefined) return null;
+    const results = new Array<DerivedData | null>(list.length).fill(null);
+    let any = false;
+    for (const s of list) {
+      const a = s.derived?.assembly ?? null;
+      results[s.id] = a;
+      any ||= a !== null;
+    }
+    if (!any) return null;
+    const t0 = performance.now();
+    const out = joinSections(this.host.grid.edge, this.sections.edge, results, times);
+    this.host.rings.joinUs.add((performance.now() - t0) * 1000);
+    return out;
   }
 
   /** Registers what a section's derived representation costs, against its chunk's budget entry. */
@@ -249,6 +286,7 @@ export class SectionDerives {
     const list = this.byChunk.get(ck);
     this.byChunk.delete(ck);
     this.blocked.delete(ck);
+    this.touched.delete(ck);
     const touched = new Set<EditGroup>();
     for (const s of list ?? []) {
       if (s.job !== 0) {
@@ -420,8 +458,10 @@ export class SectionDerives {
       if (out !== null) this.commit(m, out);
     }
     for (const id of g.ids) this.groups.delete(id);
+    const chunks = [...new Map(members.map((m) => [m.chunk, [m.cx, m.cy, m.cz] as const])).entries()].sort((a, b) => a[0] - b[0]).map((e) => e[1]);
+    this.flushChunks();
     this.host.counters.swaps++;
-    this.host.emit({ type: 'swap', report: { groups: g.ids.slice(), sections: members.length, jobs: g.jobs, workerUs: { sum: Math.round(g.workerUs), max: Math.round(g.workerUsMax) }, mainMs: Number(g.mainMs.toFixed(3)), meshUs, deriveUs, ms: Number((performance.now() - g.startedAt).toFixed(2)) } });
+    this.host.emit({ type: 'swap', report: { groups: g.ids.slice(), sections: members.length, jobs: g.jobs, workerUs: { sum: Math.round(g.workerUs), max: Math.round(g.workerUsMax) }, mainMs: Number(g.mainMs.toFixed(3)), meshUs, deriveUs, ms: Number((performance.now() - g.startedAt).toFixed(2)), chunks } });
   }
 
   /** A section's new result: held for its group, or in at once. */
@@ -448,12 +488,28 @@ export class SectionDerives {
       counters.shaderDerives++;
       this.host.setPart(s.cx, s.cy, s.cz, `derive#${s.id}`, derivedBytes(assembly));
       this.host.emit({ type: 'shader', cx: s.sx, cy: s.sy, cz: s.sz });
+      this.touch(s, true);
       return;
     }
+    this.touch(s, false);
     s.derived = out;
     counters.derives++;
     this.host.setPart(s.cx, s.cy, s.cz, `derive#${s.id}`, out.assembly !== null ? derivedBytes(out.assembly) : (out.mask?.byteLength ?? 0));
     this.host.emit({ type: 'derived', cx: s.sx, cy: s.sy, cz: s.sz });
+  }
+
+  private touch(s: Section, shaderOnly: boolean): void {
+    const t = this.touched.get(s.chunk);
+    if (t === undefined) this.touched.set(s.chunk, { cx: s.cx, cy: s.cy, cz: s.cz, shaderOnly });
+    else t.shaderOnly &&= shaderOnly;
+  }
+
+  /** Announces every chunk whose sections took new results since the last flush (one `chunk` event each, key order). */
+  private flushChunks(): void {
+    if (this.touched.size === 0) return;
+    const list = [...this.touched.entries()].sort((a, b) => a[0] - b[0]);
+    this.touched.clear();
+    for (const [, t] of list) this.host.emit({ type: 'chunk', cx: t.cx, cy: t.cy, cz: t.cz, shaderOnly: t.shaderOnly });
   }
 
   /** Whether all of a chunk's neighbours are known (resident, or outside the world): its apron can be built. */
@@ -542,6 +598,7 @@ export class SectionDerives {
     if (form === 'absent' && rules === undefined) {
       // An air chunk has nothing to derive.
       for (const s of list) this.deliver(s, EMPTY_OUTPUT, null);
+      this.flushChunks();
       return 0;
     }
     const radius = shaderOnly ? SHADER_BORDER_CELLS : host.radius;
@@ -552,6 +609,7 @@ export class SectionDerives {
     if (!shaderOnly && form === 'absent' && apron.dense.every((d, k) => d === 0 && apron.uniform[k] === 0)) {
       // Air with air all around: nothing stands, nothing is drawn.
       for (const s of list) this.deliver(s, EMPTY_OUTPUT, null);
+      this.flushChunks();
       return 0;
     }
     host.rings.apronBytes.add(apronBytes(apron));
@@ -629,5 +687,6 @@ export class SectionDerives {
       if (r.id !== s.id) throw new Error(`derive job ${id}: section ${r.id} answered for ${s.id}`);
       this.deliver(s, { solid: 0, exposed: 0, mask: null, hash: r.hash, assembly: r.assembly, shader: r.shader }, r.times);
     });
+    this.flushChunks();
   }
 }

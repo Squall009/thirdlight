@@ -42,9 +42,10 @@
  * dirty (nothing of it is to be written back) and unloads like any other.
  */
 import { checkRadius } from './apron';
+import type { JoinedChunk, JoinTimes } from './chunk-join';
 import { jobRadius, type AssemblyRuleSet } from './assembly';
 import { ALL_DERIVED_PARTS, DEFAULT_SAVED_FIELDS, fieldsFeed, type VoxelRecord } from './record';
-import { payloadBytes, payloadTransfer, type ChunkPayload } from './chunk-wire';
+import { payloadTransfer, type ChunkPayload } from './chunk-wire';
 import { chunkInWorld, chunkKey, DEFAULT_SECTION_EDGE, type CellGrid, type ChunkCoord, type ChunkGrid, type SectionEdge } from './coords';
 import { createDenseChunk } from './dense-chunk';
 import { DirtyTracker } from './dirty-tracker';
@@ -127,7 +128,9 @@ export interface VoxelStreamerOptions {
  * physics, navigation). `derived` and `shader` (only the shader data was
  * derived again: material or wetness changed, the other outputs stand)
  * name a derive section in section coordinates (chunks when the section
- * edge is the chunk edge); `swap` closes an edit's atomic swap.
+ * edge is the chunk edge); `chunk` names a storage chunk whose sections
+ * took new results in one task (its joined draw is to be replaced); `swap`
+ * closes an edit's atomic swap, after the `chunk` events of its chunks.
  */
 export type StreamEvent =
   | { readonly type: 'loaded' | 'unloaded'; readonly cx: number; readonly cy: number; readonly cz: number }
@@ -247,6 +250,8 @@ export class VoxelStreamer {
   readonly apronBytes = new SampleRing();
   /** Worker µs per finished derive job (the assembly evaluation, meshes and consumer outputs). */
   readonly deriveUs = new SampleRing();
+  /** Main-thread µs joining a chunk's sections into one draw ({@link joinedChunk}). */
+  readonly joinUs = new SampleRing();
 
   private readonly opts: VoxelStreamerOptions;
   private readonly chunks = new Map<number, Chunk>();
@@ -309,7 +314,7 @@ export class VoxelStreamer {
               radius: this.radius,
               rules: opts.rules,
               counters: this.counters,
-              rings: { apronMs: this.apronMs, apronBytes: this.apronBytes, deriveUs: this.deriveUs },
+              rings: { apronMs: this.apronMs, apronBytes: this.apronBytes, deriveUs: this.deriveUs, joinUs: this.joinUs },
               isResident: (cx, cy, cz) => this.isResident(cx, cy, cz),
               lane: (cx, cy, cz) => (inNearRing(this.grid, this.ring, this.focus, cx, cz) ? 'near' : 'far'),
               distance2: (cx, cy, cz) => chunkDistance2(this.grid, this.focus, cx, cy, cz),
@@ -381,6 +386,16 @@ export class VoxelStreamer {
     return this.derives?.derivedOf(sx, sy, sz) ?? null;
   }
 
+  /**
+   * A storage chunk's draw: its derive sections' newest results joined into
+   * one ground and one base surface, one instance list and one shader grid
+   * of the chunk (chunk-join.ts). Called when a `chunk` event names it; null
+   * when the chunk has nothing derived with assembly rules.
+   */
+  joinedChunk(cx: number, cy: number, cz: number, times?: JoinTimes): JoinedChunk | null {
+    return this.derives?.joinedChunk(cx, cy, cz, times) ?? null;
+  }
+
   /** Every derive section with a current result. */
   *derivedChunks(): IterableIterator<DerivedChunk> {
     if (this.derives !== null) yield* this.derives.derived();
@@ -441,10 +456,6 @@ export class VoxelStreamer {
       storeBytes: this.store.memoryBytes(),
       counters: { ...this.counters },
     };
-  }
-
-  private ref(c: { cx: number; cy: number; cz: number }): { grid: number; key: number } {
-    return { grid: this.gridId, key: chunkKey(this.grid, c.cx, c.cy, c.cz) };
   }
 
   private laneOf(c: Chunk): JobLane {
@@ -530,7 +541,7 @@ export class VoxelStreamer {
    */
   private drop(c: Chunk, evict: boolean): boolean {
     if (c.phase === 'resident') {
-      const ref = this.ref(c);
+      const ref = jobRef(this, c);
       if (!this.tracker.canUnload(ref)) {
         this.counters.heldDirty++;
         this.heldOutside.add(c.key);
@@ -573,7 +584,7 @@ export class VoxelStreamer {
       }
       return;
     }
-    const candidates = [...this.chunks.values()].filter((c) => c.phase === 'resident' && this.tracker.canUnload(this.ref(c)));
+    const candidates = [...this.chunks.values()].filter((c) => c.phase === 'resident' && this.tracker.canUnload(jobRef(this, c)));
     candidates.sort((a, b) => b.d2 - a.d2 || a.wantedTick - b.wantedTick);
     for (const c of candidates) {
       if (total <= this.budgetBytes * EVICT_TO) break;
@@ -663,7 +674,7 @@ export class VoxelStreamer {
 
   /** Sends a read chunk to a worker: a load, or the save's entry applied over it. */
   private decode(c: Chunk, stored: StoredChunk | null, save = this.saves.get(c.key)): void {
-    const job = this.tracker.beginJob(this.ref(c));
+    const job = this.tracker.beginJob(jobRef(this, c));
     c.phase = 'decoding';
     c.job = job.id;
     if (save !== undefined) this.submitApplySave(c, job.id, stored, save);
@@ -748,7 +759,7 @@ export class VoxelStreamer {
     else this.counters.loadsAir++;
     const at = this.unloadedAt.get(c.key);
     if (at !== undefined && performance.now() - at <= CHURN_WINDOW_MS) this.counters.reloads++;
-    this.tracker.loaded(this.ref(c));
+    this.tracker.loaded(jobRef(this, c));
     this.derives?.chunkLanded(c.cx, c.cy, c.cz);
     this.emit({ type: 'loaded', cx: c.cx, cy: c.cy, cz: c.cz });
   }
@@ -763,7 +774,7 @@ export class VoxelStreamer {
    * waited on), and the group swaps when all are back.
    */
   private afterEdit(changed: readonly ChunkCoord[], box: CellBox, parts: number): number {
-    for (const ch of changed) this.tracker.invalidated(this.ref(ch));
+    for (const ch of changed) this.tracker.invalidated(jobRef(this, ch));
     this.bytesOverlay = this.overlay.memoryBytes();
     const d = this.derives;
     if (d === null) return 0;
@@ -801,7 +812,7 @@ export class VoxelStreamer {
     const resolve = resolver(stamps);
     const touched = editChunks(this.grid, cmd, resolve);
     for (const t of touched) if (!this.loadedCheck(cmd.grid, t.cx, t.cy, t.cz)) throw new EditRefused('chunk_not_loaded', `chunk (${t.cx}, ${t.cy}, ${t.cz}) of grid ${cmd.grid} is not loaded`);
-    const job = this.tracker.beginJob(touched.map((t) => this.ref(t)));
+    const job = this.tracker.beginJob(touched.map((t) => jobRef(this, t)));
     const chunks = touched.map((t) => ({ chunk: { grid: this.gridId, cx: t.cx, cy: t.cy, cz: t.cz }, payload: this.merged.payload(t.cx, t.cy, t.cz) }));
     const transfer: ArrayBuffer[] = [];
     for (const ch of chunks) payloadTransfer(ch.payload, transfer);
@@ -870,7 +881,7 @@ export class VoxelStreamer {
       this.derives?.settleGroup(group);
       return group;
     }
-    const versions = list.map((c) => this.tracker.version(this.ref(c)));
+    const versions = list.map((c) => this.tracker.version(jobRef(this, c)));
     this.reads++;
     this.opts.source
       .read(list)
@@ -903,7 +914,7 @@ export class VoxelStreamer {
       this.swapIn(c, token, version, r.kind === 'air' ? { form: 'air' } : { form: 'uniform', value: r.value });
       return;
     }
-    const job = this.tracker.beginJob(this.ref(c));
+    const job = this.tracker.beginJob(jobRef(this, c));
     // The load does not read neighbours, and staleness is the refresh token's and the edit version's: the job id only routes the reply.
     this.tracker.expireJob(job.id);
     const stored = r.bytes.slice();
@@ -923,7 +934,7 @@ export class VoxelStreamer {
   /** A refreshed chunk's new content replaces its old one (unless it was refreshed again or edited here meanwhile). */
   private swapIn(c: Chunk, token: number, version: number, payload: ChunkPayload): void {
     if (this.chunks.get(c.key) !== c || c.phase !== 'resident' || c.refresh !== token) return;
-    const ref = this.ref(c);
+    const ref = jobRef(this, c);
     if (this.tracker.version(ref) !== version) {
       this.refreshDropped(c);
       return;
@@ -960,7 +971,7 @@ export class VoxelStreamer {
     const s = g.shift;
     for (const c of this.overlay.changedChunks()) {
       if (!this.isResident(c.cx, c.cy, c.cz)) continue;
-      this.tracker.invalidated(this.ref(c));
+      this.tracker.invalidated(jobRef(this, c));
       // What is rebuilt is bounded by the cells that change back, as for an edit.
       const o = this.overlay.chunkOverrides(c.cx, c.cy, c.cz)!;
       const box = { minX: Infinity, minY: Infinity, minZ: Infinity, maxX: -Infinity, maxY: -Infinity, maxZ: -Infinity };
@@ -1015,11 +1026,11 @@ export class VoxelStreamer {
     }
     return out;
   }
+}
 
-  /** Bytes a payload would move to a worker (for reports). */
-  static payloadBytes(p: ChunkPayload): number {
-    return payloadBytes(p);
-  }
+/** A chunk's key in the dirty tracker's job references. */
+function jobRef(s: { readonly gridId: number; readonly grid: ChunkGrid }, c: { cx: number; cy: number; cz: number }): { grid: number; key: number } {
+  return { grid: s.gridId, key: chunkKey(s.grid, c.cx, c.cy, c.cz) };
 }
 
 function resolver(stamps?: readonly { readonly id: string; readonly shape: StampShape }[]): ((id: string) => { shape: StampShape; hash: string } | undefined) | undefined {

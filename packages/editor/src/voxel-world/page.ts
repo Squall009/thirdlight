@@ -262,7 +262,8 @@ async function main(): Promise<void> {
       }
       return;
     }
-    if (e.type === 'damaged' || e.type === 'mismatch') return;
+    // Drawn per section here; the per-chunk join (`chunk` events) is what the adapter's chunk view draws.
+    if (e.type === 'damaged' || e.type === 'mismatch' || e.type === 'chunk') return;
     const key = chunkKey(sections, e.cx, e.cy, e.cz);
     const t0 = performance.now();
     if (e.type === 'shader') {

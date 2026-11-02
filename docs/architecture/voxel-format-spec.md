@@ -870,6 +870,16 @@ whose job is refused leaves the group; a chunk unloaded takes its sections out. 
 command path the store changes when the refreshed chunk lands, before the swap. An edit's jobs are sent in the
 same call (an edit lane budget of 8 ms main thread, `editDeriveMsPerUpdate`), not at the next update.
 
+**Per-chunk join (D440, `chunk-join.ts`).** Derive work stays per section; what is drawn is per storage chunk. The
+`swap` report also names the storage chunks it replaces (`chunks`), and every chunk whose sections took new results
+in one task (a swap, or one job's answer while streaming) gets one `chunk` event (`shaderOnly` when only shader data
+changed) just before the `swap`. `joinedChunk(cx, cy, cz)` then joins the sections' newest results on the drawing
+thread: one ground and one base surface (section buffers concatenated, positions moved to the chunk's corner by whole
+cell steps, indices offset; vertices on faces between sections not welded, so the triangles equal a whole-chunk
+derive's with 1–6 % more vertices), one instance list, and one shader grid of side 34 whose bytes equal the
+whole-chunk derive's (`encodeShader`). Nothing is kept: the join is rebuilt from the section results when asked.
+Measured (Node, 16³, plan-46a 46a.5a): 0.28–0.31 ms p50 / 0.59–0.69 ms p95 a drawn chunk, nine tenths of it the grid.
+
 **Lanes.** `edit` before `near` before `far`; within a lane by distance², then by arrival. The queue is an indexed
 heap with back-pressure: `maxQueued`, `room()`, and `queue_full` when full.
 
