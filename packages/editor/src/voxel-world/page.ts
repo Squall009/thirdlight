@@ -23,11 +23,13 @@
  * derived again; the hook drops capsules and sweeps spheres against it and
  * reports, per cell, what every consumer of the derived data received.
  *
- * Everything derived (meshes, colliders, shader data) is per section of
- * `?section=` cells (8, 16 or 32, the whole chunk; default the engine's
- * {@link DEFAULT_SECTION_EDGE}): an edit re-derives only the sections within
- * the rules' reach of what it changed, and they swap in together, meshes
- * and colliders in the same frame (the streamer's atomic swap). The hook's
+ * Everything is derived per section of `?section=` cells (8, 16 or 32, the
+ * whole chunk; default the engine's {@link DEFAULT_SECTION_EDGE}): an edit
+ * re-derives only the sections within the rules' reach of what it changed,
+ * and they swap in together (the streamer's atomic swap). Draws are one
+ * object a storage chunk, the chunk's sections joined (the adapter's chunk
+ * view, as Play and exports draw); colliders are per section. A swap's
+ * draws and colliders change in the same frame. The hook's
  * `blast` digs a sphere either through the backend (a command) or locally
  * in the streamer's runtime overlay (a game's runtime edit, no round trip,
  * nothing saved) and reports the frames from the edit to the swap; `reread`
@@ -74,9 +76,8 @@ import {
   WorkerPool,
   type RegionByteSource,
 } from '@thirdlight/voxel';
-import { createGpuTiming, createRenderer, createVoxelSurface, rendererMemory, resolveRendererPreference, type VoxelGridRenderer } from '@thirdlight/three-adapter';
+import { createGpuTiming, createRenderer, createVoxelSurface, feedVoxelChunkView, rendererMemory, resolveRendererPreference, VoxelChunkView, voxelStandInLook, type VoxelGridRenderer } from '@thirdlight/three-adapter';
 import { pageToken } from '../config';
-import { ChunkMeshes, standInLook } from './chunk-meshes';
 import { VoxelCollision } from './collision';
 import { assemblyProbes } from './probes';
 import { PendingEdits, type SwapSeen } from './pending-edits';
@@ -211,14 +212,15 @@ async function main(): Promise<void> {
   const target = { x: at[0], y: at[1] + 4, z: at[2] };
   const view = { yaw: -0.6, pitch: 0.45, distM: 22 };
   const origin = new FloatingOrigin({ grid, rebaseDistanceM: rebaseM, origin: { x: target.x, y: target.y, z: target.z } });
-  const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(sectionEdge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX }, { look: standInLook, blendMetres: blendM, shading });
+  // Drawn per storage chunk (the sections joined), so the grids are a chunk's.
+  const surface = createVoxelSurface({ cellMetres: VOXEL_SIZE_M, side: shaderGridSide(grid.edge), border: SHADER_BORDER_CELLS, materialBits: MATERIAL_BITS, wetnessMax: WETNESS_MAX }, { look: voxelStandInLook, blendMetres: blendM, shading });
   const pool = new WorkerPool({ size: workers, create: () => eventTargetWorker(new Worker('./voxel-worker.js', { type: 'module' })), ...STREAM_POOL_SETTINGS });
   const worldId = hexToBytes(info.manifest.worldId);
   const source = new RegionChunkSource({ worldId, gridId: WORLD_GRID_ID, grid, layout: info.manifest.layout, footprint: info.manifest.footprint, open: byteSource, maxOpen: 64 });
   const streamer = new VoxelStreamer({ store: createWorldStore(grid), source, pool, budgetBytes: VOXEL_STREAM_BUDGET_BYTES.low, dependencyRadius: jobRadius(PLACEHOLDER_RULES), derive: true, rules: PLACEHOLDER_RULES, sectionEdge });
-  /** The derive sections' grid: meshes, colliders and shader grids are per section. */
+  /** The derive sections' grid: colliders are per section; draws are per storage chunk (the sections joined). */
   const sections = streamer.sections;
-  const meshes = new ChunkMeshes(sections, origin, surface, renderer as unknown as VoxelGridRenderer);
+  const meshes = new VoxelChunkView({ grid, origin, surface, renderer: renderer as unknown as VoxelGridRenderer });
   const gpu = createGpuTiming();
   scene.add(meshes.root);
   const collision = params.get('collision') === '0' ? null : await VoxelCollision.create(sections, origin);
@@ -233,12 +235,20 @@ async function main(): Promise<void> {
   /** Open logs of the chunks derived while an edit settles ("cx,cy,cz"). */
   const derivedLogs = new Set<Set<string>>();
   const meshMs = new SampleRing();
-  let meshSwaps = 0;
   /** Main-thread ms replacing meshes and colliders since the last swap (what the next swap's report gets). */
   let buildMs = 0;
-  /** The frame (frames drawn before it) and swap count at which each section's meshes and body were last replaced. */
+  /** The frame (frames drawn before it) and swap count at which each section's body was last replaced. */
   const setAt = new Map<number, { frame: number; swap: number }>();
+  /** The same for each storage chunk's draw. */
+  const chunkSetAt = new Map<number, { frame: number; swap: number }>();
   const swaps: SwapSeen[] = [];
+
+  // A swap's chunks are joined and their draws replaced in the task announcing them, with the sections' bodies.
+  feedVoxelChunkView(meshes, streamer, (r) => {
+    buildMs += r.ms;
+    chunkSetAt.set(chunkKey(grid, r.cx, r.cy, r.cz), { frame: frames, swap: streamer.counters.swaps });
+    if (!r.shaderOnly) meshMs.add(r.ms);
+  });
 
   streamer.on((e) => {
     if (e.type === 'swap') {
@@ -255,33 +265,22 @@ async function main(): Promise<void> {
     }
     if (e.type === 'unloaded') {
       resident.delete(chunkKey(grid, e.cx, e.cy, e.cz));
-      for (const s of sectionsOfChunk(grid, sections, e.cx, e.cy, e.cz)) {
-        const key = chunkKey(sections, s.sx, s.sy, s.sz);
-        meshes.remove(key);
-        collision?.remove(key);
-      }
+      for (const s of sectionsOfChunk(grid, sections, e.cx, e.cy, e.cz)) collision?.remove(chunkKey(sections, s.sx, s.sy, s.sz));
       return;
     }
-    // Drawn per section here; the per-chunk join (`chunk` events) is what the adapter's chunk view draws.
+    // Draws are the chunk view's (its `chunk` events); the page keeps the sections' bodies.
     if (e.type === 'damaged' || e.type === 'mismatch' || e.type === 'chunk') return;
+    if (e.type === 'shader') {
+      // Only the shader data changed (material or wetness): bodies stand as they are; the view uploads the chunk's grid.
+      for (const log of derivedLogs) log.add(`${e.cx},${e.cy},${e.cz}:shader`);
+      return;
+    }
     const key = chunkKey(sections, e.cx, e.cy, e.cz);
     const t0 = performance.now();
-    if (e.type === 'shader') {
-      // Only the shader data changed (material or wetness): meshes and colliders stand as they are, the grid is uploaded.
-      for (const log of derivedLogs) log.add(`${e.cx},${e.cy},${e.cz}:shader`);
-      const d = streamer.derivedOf(e.cx, e.cy, e.cz)?.assembly ?? null;
-      if (d !== null) streamer.setSectionPart(e.cx, e.cy, e.cz, 'mesh', meshes.setShader(key, d.shader));
-    } else {
-      const d = streamer.derivedOf(e.cx, e.cy, e.cz)?.assembly ?? null;
-      for (const log of derivedLogs) log.add(`${e.cx},${e.cy},${e.cz}`);
-      if (collision !== null) streamer.setSectionPart(e.cx, e.cy, e.cz, 'collision', collision.set(key, e.cx, e.cy, e.cz, d));
-      const collidersAt = performance.now();
-      const bytes = meshes.set(key, e.cx, e.cy, e.cz, d);
-      meshMs.add(performance.now() - collidersAt);
-      meshSwaps++;
-      streamer.setSectionPart(e.cx, e.cy, e.cz, 'mesh', bytes);
-      setAt.set(key, { frame: frames, swap: streamer.counters.swaps });
-    }
+    const d = streamer.derivedOf(e.cx, e.cy, e.cz)?.assembly ?? null;
+    for (const log of derivedLogs) log.add(`${e.cx},${e.cy},${e.cz}`);
+    if (collision !== null) streamer.setSectionPart(e.cx, e.cy, e.cz, 'collision', collision.set(key, e.cx, e.cy, e.cz, d));
+    setAt.set(key, { frame: frames, swap: streamer.counters.swaps });
     buildMs += performance.now() - t0;
   });
 
@@ -535,7 +534,7 @@ async function main(): Promise<void> {
     dab,
     edit,
     undo,
-    ...localEditHooks({ streamer, grid, pending, derivedLogs, setAt, resident, shown, edit, frameStats: () => ({ frames, missed, longestMs }), resetLongest: () => (longestMs = 0) }),
+    ...localEditHooks({ streamer, grid, pending, derivedLogs, setAt, chunkSetAt, resident, shown, edit, frameStats: () => ({ frames, missed, longestMs }), resetLongest: () => (longestMs = 0) }),
     /** The last swaps seen (frame, report, page build ms). */
     swaps: () => swaps.slice(),
     ...assemblyProbes({ streamer, grid, origin, collision, scene, files }),
@@ -568,7 +567,7 @@ async function main(): Promise<void> {
         deriveUs: { p50: q(streamer.deriveUs, 0.5), p95: q(streamer.deriveUs, 0.95), n: streamer.deriveUs.count },
         meshMs: { p50: q(meshMs, 0.5), p95: q(meshMs, 0.95), n: meshMs.count },
         surface: { shading, blendM, meshBuilds: meshes.meshBuilds, shaderSets: meshes.shaderSets, regions: meshes.regions, gridGpuBytes: surface.grids.gpuBytes, gridUploads: surface.grids.uploads, gridUploadedBytes: surface.grids.uploadedBytes, gridGrown: surface.grids.grown, uploadMs: { p50: q(meshes.uploadMs, 0.5), p95: q(meshes.uploadMs, 0.95), n: meshes.uploadMs.count } },
-        swaps: meshSwaps,
+        swaps: meshes.meshBuilds,
         section: sectionEdge,
         editSwaps: streamer.counters.swaps,
         range: { requests: rangeRequests, bytes: rangeBytes, p50: q(rangeMs, 0.5), p95: q(rangeMs, 0.95) },

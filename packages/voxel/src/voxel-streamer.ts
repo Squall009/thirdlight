@@ -42,7 +42,7 @@
  * dirty (nothing of it is to be written back) and unloads like any other.
  */
 import { checkRadius } from './apron';
-import type { JoinedChunk, JoinTimes } from './chunk-join';
+import type { JoinedChunk, JoinedDraw, JoinTimes } from './chunk-join';
 import { jobRadius, type AssemblyRuleSet } from './assembly';
 import { ALL_DERIVED_PARTS, DEFAULT_SAVED_FIELDS, fieldsFeed, type VoxelRecord } from './record';
 import { payloadTransfer, type ChunkPayload } from './chunk-wire';
@@ -390,10 +390,16 @@ export class VoxelStreamer {
    * A storage chunk's draw: its derive sections' newest results joined into
    * one ground and one base surface, one instance list and one shader grid
    * of the chunk (chunk-join.ts). Called when a `chunk` event names it; null
-   * when the chunk has nothing derived with assembly rules.
+   * when the chunk has nothing derived with assembly rules. Given `cells`,
+   * the join is as a renderer uploads it ({@link JoinedDraw}): the shader
+   * grid's entries are written there (side³) unless it is one solid entry,
+   * so no palette is packed only to be expanded again.
    */
-  joinedChunk(cx: number, cy: number, cz: number, times?: JoinTimes): JoinedChunk | null {
-    return this.derives?.joinedChunk(cx, cy, cz, times) ?? null;
+  joinedChunk(cx: number, cy: number, cz: number, times?: JoinTimes): JoinedChunk | null;
+  joinedChunk(cx: number, cy: number, cz: number, times: JoinTimes | undefined, cells: Uint16Array): JoinedDraw | null;
+  joinedChunk(cx: number, cy: number, cz: number, times?: JoinTimes, cells?: Uint16Array): JoinedChunk | JoinedDraw | null {
+    if (this.derives === null) return null;
+    return cells === undefined ? this.derives.joinedChunk(cx, cy, cz, times) : this.derives.joinedDraw(cx, cy, cz, cells, times);
   }
 
   /** Every derive section with a current result. */

@@ -26,7 +26,7 @@
  */
 import type { DerivedData } from './derived-data';
 import { INSTANCE_BYTES, POSITION_STEPS_PER_CELL, SURFACE_VERTEX_BYTES, type InstanceList, type SurfaceBuffer } from './derived-mesh';
-import { shaderGridEntries, shaderGridSide, SHADER_BORDER_CELLS, type ShaderOut } from './derived-shader';
+import { shaderGridEntries, shaderGridSide, shaderSolidEntry, SHADER_BORDER_CELLS, type ShaderOut } from './derived-shader';
 import { sectionLocalOrigin } from './derive-assembly';
 import { packedWidth } from './packed-width';
 
@@ -41,6 +41,22 @@ export interface JoinedChunk {
   readonly instances: InstanceList;
   /** Side edge + 2 · border: equal to a whole-chunk derive's shader data. */
   readonly shader: ShaderOut;
+}
+
+/**
+ * A joined chunk as a renderer uploads it: the surfaces and instances of
+ * {@link JoinedChunk}, and the shader grid as entries (no palette packed
+ * only to be expanded again for the upload).
+ */
+export interface JoinedDraw {
+  readonly edge: number;
+  readonly ground: SurfaceBuffer;
+  readonly base: SurfaceBuffer;
+  readonly instances: InstanceList;
+  /** The grid's one solid entry (0: all air), or −1: its side³ entries are in the cell array given to the join. */
+  readonly solid: number;
+  /** The grid's side (edge + 2 · border). */
+  readonly side: number;
 }
 
 /** How a joined chunk's buffers came about (for measurements). */
@@ -134,19 +150,13 @@ function axisSpan(k: number, n: number, sectionEdge: number, side: number): [num
   return [from, to, k * sectionEdge];
 }
 
-/** The chunk's shader grid from its sections' grids (null section: air), equal to a whole-chunk derive's. */
-export function joinShader(chunkEdge: number, sectionEdge: number, parts: ReadonlyArray<ShaderOut | null>): ShaderOut {
-  const n = checkSectionCount(chunkEdge, sectionEdge, parts.length);
+/** Writes the chunk's grid cells (side³, grid order) from its sections' grids into `out`. */
+function writeGridCells(chunkEdge: number, sectionEdge: number, parts: ReadonlyArray<ShaderOut | null>, out: Uint16Array): void {
+  const n = chunkEdge / sectionEdge;
   const side = shaderGridSide(chunkEdge);
   const sside = shaderGridSide(sectionEdge);
-  // Every section one entry, the same one: the chunk's grid is that entry alone.
-  const first = parts[0] ?? null;
-  const one = first === null ? 0 : first.width === 0 ? first.palette[0]! : -1;
-  if (one >= 0 && parts.every((p) => (p === null ? one === 0 : p.width === 0 && p.palette[0] === one))) return { side, palette: Uint16Array.of(one), width: 0, ids: new Uint32Array(0) };
-  const cells = side * side * side;
-  if (chunkCells.length < cells) chunkCells = new Uint16Array(cells);
+  if (out.length < side * side * side) throw new RangeError(`shader grid: ${out.length} cells for a side of ${side}`);
   if (sectionCells.length < sside ** 3) sectionCells = new Uint16Array(sside ** 3);
-  const grid = chunkCells;
   parts.forEach((p, id) => {
     if (p !== null && p.side !== sside) throw new RangeError(`section ${id}: a shader grid of side ${p.side}, sections of ${sectionEdge} need ${sside}`);
     const [ox, oy, oz] = sectionLocalOrigin(chunkEdge, sectionEdge, id);
@@ -157,13 +167,53 @@ export function joinShader(chunkEdge: number, sectionEdge: number, parts: Readon
     const src = fill >= 0 ? null : shaderGridEntries(p!, sectionCells);
     for (let x = x0; x < x1; x++) for (let z = z0; z < z1; z++) {
       const row = (x * side + z) * side;
-      if (src === null) grid.fill(fill, row + y0, row + y1);
+      if (src === null) out.fill(fill, row + y0, row + y1);
       else {
         const from = ((x - dx) * sside + (z - dz)) * sside - dy;
-        grid.set(src.subarray(from + y0, from + y1), row + y0);
+        out.set(src.subarray(from + y0, from + y1), row + y0);
       }
     }
   });
+}
+
+/**
+ * The chunk's shader grid from its sections' grids (null section: air) as
+ * entries, for a renderer that uploads entries and needs no palette: the
+ * grid's one solid entry as `shaderSolidEntry` gives it (the only non-air
+ * entry; 0 when all air), `out` left as it was, or −1 with the side³
+ * entries written into `out` in grid order. Every cell of a section's grid
+ * lies inside the chunk's, so the sections' palettes hold exactly the
+ * chunk's entries and the solid test needs no pass over the cells.
+ */
+export function joinShaderCells(chunkEdge: number, sectionEdge: number, parts: ReadonlyArray<ShaderOut | null>, out: Uint16Array): number {
+  checkSectionCount(chunkEdge, sectionEdge, parts.length);
+  let solid = 0;
+  for (const p of parts) {
+    if (p === null) continue;
+    for (const e of p.palette) {
+      if (e === 0 || e === solid) continue;
+      if (solid !== 0) {
+        writeGridCells(chunkEdge, sectionEdge, parts, out);
+        return -1;
+      }
+      solid = e;
+    }
+  }
+  return solid;
+}
+
+/** The chunk's shader grid from its sections' grids (null section: air), equal to a whole-chunk derive's. */
+export function joinShader(chunkEdge: number, sectionEdge: number, parts: ReadonlyArray<ShaderOut | null>): ShaderOut {
+  checkSectionCount(chunkEdge, sectionEdge, parts.length);
+  const side = shaderGridSide(chunkEdge);
+  // Every section one entry, the same one: the chunk's grid is that entry alone.
+  const first = parts[0] ?? null;
+  const one = first === null ? 0 : first.width === 0 ? first.palette[0]! : -1;
+  if (one >= 0 && parts.every((p) => (p === null ? one === 0 : p.width === 0 && p.palette[0] === one))) return { side, palette: Uint16Array.of(one), width: 0, ids: new Uint32Array(0) };
+  const cells = side * side * side;
+  if (chunkCells.length < cells) chunkCells = new Uint16Array(cells);
+  const grid = chunkCells;
+  writeGridCells(chunkEdge, sectionEdge, parts, grid);
   // The palette in grid order (first seen first), as a whole-chunk derive builds it.
   const entries: number[] = [];
   let prev = -1;
@@ -210,4 +260,33 @@ export function joinSections(chunkEdge: number, sectionEdge: number, sections: R
     times.shaderUs += (performance.now() - t1) * 1000;
   }
   return { edge: chunkEdge, ground, base, instances, shader };
+}
+
+/**
+ * {@link joinSections} for a renderer: the same surfaces and instances, the
+ * shader grid's entries written into `cells` (side³, grid order) unless it
+ * is one solid entry ({@link JoinedDraw.solid}).
+ */
+export function joinSectionsForDraw(chunkEdge: number, sectionEdge: number, sections: ReadonlyArray<DerivedData | null>, cells: Uint16Array, times?: JoinTimes): JoinedDraw {
+  checkSectionCount(chunkEdge, sectionEdge, sections.length);
+  const side = shaderGridSide(chunkEdge);
+  if (sectionEdge === chunkEdge && sections[0] != null) {
+    const d = sections[0];
+    const t0 = performance.now();
+    const solid = shaderSolidEntry(d.shader);
+    if (solid < 0) shaderGridEntries(d.shader, cells);
+    if (times !== undefined) times.shaderUs += (performance.now() - t0) * 1000;
+    return { edge: chunkEdge, ground: d.ground, base: d.base, instances: d.instances, solid, side };
+  }
+  const t0 = performance.now();
+  const ground = joinSurfaces(chunkEdge, sectionEdge, sections.map((s) => s?.ground ?? null));
+  const base = joinSurfaces(chunkEdge, sectionEdge, sections.map((s) => s?.base ?? null));
+  const instances = joinInstances(chunkEdge, sectionEdge, sections.map((s) => s?.instances ?? null));
+  const t1 = performance.now();
+  const solid = joinShaderCells(chunkEdge, sectionEdge, sections.map((s) => s?.shader ?? null), cells);
+  if (times !== undefined) {
+    times.surfacesUs += (t1 - t0) * 1000;
+    times.shaderUs += (performance.now() - t1) * 1000;
+  }
+  return { edge: chunkEdge, ground, base, instances, solid, side };
 }

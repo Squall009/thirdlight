@@ -28,11 +28,12 @@
  * wetness paint of the wall (across a chunk face) change the picture with
  * no mesh rebuilt and no chunk derived again but for its shader data.
  *
- * Everything derived is per section (the page's default section edge): a
- * blast dug at a chunk corner, locally (a game's runtime edit) and as a
- * command, swaps every section it rebuilt, meshes and colliders, in one
- * frame (no frame shows part of it), and reads see the dug cells in the
- * same task as the edit.
+ * Everything is derived per section (the page's default section edge) and
+ * drawn per storage chunk (the sections joined): a blast dug at a chunk
+ * corner, locally (a game's runtime edit) and as a command, swaps every
+ * section's collider and every chunk's draw it rebuilt in one frame (no
+ * frame shows part of it), and reads see the dug cells in the same task as
+ * the edit.
  */
 import { cpSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -267,13 +268,18 @@ for (const renderer of ['webgpu', 'webgl2'] as const) {
 
     // A 2 m blast at the scene's chunk corner in x and z (the pad's ground under the wall's foot), first as a game's
     // runtime edit in the page: the dug cells read as air in the same task as the edit, before anything is rebuilt;
-    // every section it rebuilt has its meshes and its body replaced in one frame (one swap).
-    interface Blast { ok: boolean; code?: string; frames: number; readAtOnce?: { material: number }; swap: { sections: number }; replacedSections: number; replacedFrames: number[]; replacedSwaps: number[] }
+    // every section it rebuilt has its body, and every storage chunk holding them its one draw (the sections joined),
+    // replaced in one frame (one swap).
+    interface Blast { ok: boolean; code?: string; frames: number; readAtOnce?: { material: number }; swap: { sections: number; chunks: Cell[] }; replacedSections: number; replacedChunks: number; replacedFrames: number[]; replacedSwaps: number[] }
     const spot: Cell = [ox, oy - 1, oz];
     const atomic = (b: Blast, what: string): void => {
       expect(b.ok, `${what}: ${b.code}`).toBe(true);
       expect(b.swap.sections, what).toBeGreaterThan(1);
       expect(b.replacedSections, what).toBe(b.swap.sections);
+      // At a chunk corner in x and z: at least four chunks' draws, fewer than the sections.
+      expect(b.swap.chunks.length, what).toBeGreaterThanOrEqual(4);
+      expect(b.swap.chunks.length, what).toBeLessThan(b.swap.sections);
+      expect(b.replacedChunks, what).toBe(b.swap.chunks.length);
       expect(b.replacedFrames, what).toHaveLength(1);
       expect(b.replacedSwaps, what).toHaveLength(1);
       expect(b.frames, what).toBeGreaterThanOrEqual(1);

@@ -20,8 +20,10 @@ export interface LocalEditContext {
   readonly pending: PendingEdits;
   /** Open logs of the sections derived while an edit settles. */
   readonly derivedLogs: Set<Set<string>>;
-  /** The frame and swap at which each section's meshes and body were last replaced. */
+  /** The frame and swap at which each section's body was last replaced. */
   readonly setAt: ReadonlyMap<number, { frame: number; swap: number }>;
+  /** The same for each storage chunk's draw. */
+  readonly chunkSetAt: ReadonlyMap<number, { frame: number; swap: number }>;
   /** Every resident chunk. */
   readonly resident: ReadonlyMap<number, { cx: number; cy: number; cz: number }>;
   /** What a swapped edit cost once the frame showing it is drawn. */
@@ -77,21 +79,24 @@ export function localEditHooks(ctx: LocalEditContext): Record<string, (...args: 
     /**
      * Digs a sphere of `radiusM` metres at a cell, through the backend
      * (`command`) or locally (`local`), and reports the swap: sections
-     * derived again, the frame each one's meshes and body were replaced in
-     * (one frame for all: no partial blast is ever drawn), and the frames
-     * from the edit to the first frame showing it.
+     * derived again, the frame each one's body and each storage chunk's
+     * draw were replaced in (one frame for all: no partial blast is ever
+     * drawn), and the frames from the edit to the first frame showing it.
      */
     async blast(centre: Cell, radiusM: number, how: 'local' | 'command'): Promise<Record<string, unknown>> {
       const r = Math.max(1, Math.round(radiusM / VOXEL_SIZE_M));
       const command = { v: 2, grid: 0, kind: 'brush', shape: 'sphere', size: [r, r, r], points: [...centre], mode: 'dig', smooth: false };
       const before = new Map(ctx.setAt);
+      const chunksBefore = new Map(ctx.chunkSetAt);
       const missed0 = ctx.frameStats().missed;
       ctx.resetLongest();
       const timing = how === 'local' ? await localEdit(command, centre) : await ctx.edit(command);
       const replaced: Array<{ frame: number; swap: number }> = [];
       for (const [key, at] of ctx.setAt) if (before.get(key) !== at) replaced.push(at);
+      const sectionCount = replaced.length;
+      for (const [key, at] of ctx.chunkSetAt) if (chunksBefore.get(key) !== at) replaced.push(at);
       const now = ctx.frameStats();
-      return { ...timing, replacedSections: replaced.length, replacedFrames: [...new Set(replaced.map((a) => a.frame))], replacedSwaps: [...new Set(replaced.map((a) => a.swap))], missedDuring: now.missed - missed0, longestFrameMs: Number(now.longestMs.toFixed(2)) };
+      return { ...timing, replacedSections: sectionCount, replacedChunks: replaced.length - sectionCount, replacedFrames: [...new Set(replaced.map((a) => a.frame))], replacedSwaps: [...new Set(replaced.map((a) => a.swap))], missedDuring: now.missed - missed0, longestFrameMs: Number(now.longestMs.toFixed(2)) };
     },
     /**
      * Back to the files: drops the local edits (they live in the streamer's

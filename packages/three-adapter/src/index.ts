@@ -403,5 +403,6 @@ export { applyModelOccluders, isOccluderStandin, OCCLUDER_EARLY_RENDER_ORDER, OC
 export { markHostDrawing, markOccludee, OCCLUDEE_KIND_KEY, occludeeFactsOf, occludeeKindOf, OccludeeRegistry, occludeeWorldBounds, type Occludee } from './occludees';
 // Voxel surfaces: the shader that blends materials from the shader data, and the grids' GPU home.
 export { createVoxelSurface, PHASE_CELLS, VOXEL_GRID_MAX_EDGE, VOXEL_PATTERNS, VOXEL_SURFACE_KEY, VoxelShaderGrids, type VoxelGridRenderer, type VoxelMaterialLook, type VoxelSurface, type VoxelSurfaceLayout, type VoxelSurfaceObject, type VoxelSurfaceOptions } from './voxel-surface';
+export { feedVoxelChunkView, VoxelChunkView, voxelStandInLook, voxelSurfaceGeometry, type VoxelChunkFeed, type VoxelChunkReplaced, type VoxelChunkViewOptions } from './voxel-chunk-view';
 // GPU time per frame from timestamp queries (where the renderer records them).
 export { createGpuTiming, measuresGpuTime, type GpuTiming } from './gpu-timing';

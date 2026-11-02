@@ -28,7 +28,7 @@
  */
 import { apronBytes, apronTransfer, buildApron, dependentChunks, type Apron } from './apron';
 import { rulesRef, type AssemblyRuleSet } from './assembly';
-import { joinSections, type JoinedChunk, type JoinTimes } from './chunk-join';
+import { joinSections, joinSectionsForDraw, type JoinedChunk, type JoinedDraw, type JoinTimes } from './chunk-join';
 import { payloadTransfer, type ChunkPayload } from './chunk-wire';
 import { chunkInWorld, chunkKey, sectionGrid, type CellGrid, type ChunkGrid, type SectionEdge } from './coords';
 import type { SectionResult } from './derive-assembly';
@@ -221,6 +221,26 @@ export class SectionDerives {
    * rules).
    */
   joinedChunk(cx: number, cy: number, cz: number, times?: JoinTimes): JoinedChunk | null {
+    const results = this.sectionResults(cx, cy, cz);
+    if (results === null) return null;
+    const t0 = performance.now();
+    const out = joinSections(this.host.grid.edge, this.sections.edge, results, times);
+    this.host.rings.joinUs.add((performance.now() - t0) * 1000);
+    return out;
+  }
+
+  /** {@link joinedChunk} as a renderer uploads it: the shader grid's entries written into `cells` (chunk-join.ts `joinSectionsForDraw`). */
+  joinedDraw(cx: number, cy: number, cz: number, cells: Uint16Array, times?: JoinTimes): JoinedDraw | null {
+    const results = this.sectionResults(cx, cy, cz);
+    if (results === null) return null;
+    const t0 = performance.now();
+    const out = joinSectionsForDraw(this.host.grid.edge, this.sections.edge, results, cells, times);
+    this.host.rings.joinUs.add((performance.now() - t0) * 1000);
+    return out;
+  }
+
+  /** A chunk's sections' newest committed assembly results by section id (null: none of them has one). */
+  private sectionResults(cx: number, cy: number, cz: number): Array<DerivedData | null> | null {
     if (!chunkInWorld(this.host.grid, cx, cy, cz)) return null;
     const list = this.byChunk.get(chunkKey(this.host.grid, cx, cy, cz));
     if (list === undefined) return null;
@@ -231,11 +251,7 @@ export class SectionDerives {
       results[s.id] = a;
       any ||= a !== null;
     }
-    if (!any) return null;
-    const t0 = performance.now();
-    const out = joinSections(this.host.grid.edge, this.sections.edge, results, times);
-    this.host.rings.joinUs.add((performance.now() - t0) * 1000);
-    return out;
+    return any ? results : null;
   }
 
   /** Registers what a section's derived representation costs, against its chunk's budget entry. */
