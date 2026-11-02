@@ -1065,7 +1065,7 @@ There are 44 such entries in the plan's decision log (§7). One line each, group
 **Process and tooling**
 1. Staging backend: `tools/staging.sh`, a transient unit on 127.0.0.1:4180/4181, its own data root, a 6 GB cap (45.0).
 2. Voxel code lives in `packages/voxel` (`@thirdlight/voxel`), pure; Node tooling sits in `tools/voxel-bench/` (45.1b).
-3. fzstd 0.1.1 and lz4js 0.2.0 are pinned root dev dependencies; fzstd is the proposed worker decoder (45.2b).
+3. fzstd 0.1.1 is pinned and is the proposed worker decoder (it ships in the editor bundle; 45.2b). lz4js was measured and dropped (45.8b).
 4. The browser streaming page reads from the bench's own range server, not staging (45.5b).
 
 **Coordinates and record**
