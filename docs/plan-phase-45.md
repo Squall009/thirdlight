@@ -3,6 +3,12 @@
 Status: **planned, approved by the owner 2026-10-28** (planning sessions 2026-10-27/28). It starts only after phases
 43, 44 and 44b are done and merged.
 
+**Phase 45: awaiting owner approval (hard stop), 2026-11-02.** Items 45.0–45.9 are done on branch `phase-45`. The
+format spec v1 DRAFT is [docs/architecture/voxel-format-spec.md](architecture/voxel-format-spec.md) (summary,
+measurements, byte formats, requirement traceability, replaced decisions, defaults to confirm); the requirements are
+in [voxel-format-requirements.md](architecture/voxel-format-requirements.md). Nothing in 46 starts until the owner
+approves it.
+
 **Planning revision 2026-10-30:** read §7a before implementing the earlier kit, role, trim and meshing requirements.
 It records the owner's revised direction: voxel-derived base surfaces and inferred architectural detail meshes,
 plus deferred scatter and rendering prototypes. Where they conflict, §7a takes precedence; unresolved proposals
@@ -693,6 +699,7 @@ sub-phase on staging; the merge to `main` happens once, at the end of 48.
 | 45.8a | done (this commit; fast gate green): review H1–H3, M2, L3–L5. Saves keep the player's cells (mask on whole-chunk entries; 1,000 strokes 452/256/461 → 497/303/493 KB; all-delta 801/682/773); base hash = frozen codec-v1 form (61–69 µs); record value form byte in region/undo/save/override (save +4 B); readers need `expect` + manifest list; see **45.8a review fixes**. |
 | 45.8b | done (5f44f43d, fast gate green): review M3–M7, L1/L2/L6/L8, D436. One stroke ≤ 64 MiB worst-case undo (292 chunks at 32³, `over_budget`); stale worlds reread by file stamps (`world_changed`), closed on release; staged multi-file writes, rollback; rule radius check; Q-a by other commands; M7 open gap; lz4js gone; voxel e2e 14.2 → 13.9 s; see **45.8b review fixes**. |
 | 45.9 | done (b6ab2319, fast gate green): acceptance on staging, Iris Xe, 720p at the cap, both renderers, 3 rounds: orbit and 160 m flight p95 16.7–16.8 ms, 0 missed; edit → collider / visible p50 39–40 / 64–65 ms; cold fill 2.4 s; stream 67–84 MB of 256 MiB; Rapier 126–172 MB (D434). D438 (page ignored `world_changed`) fixed. Spec §6 written; see **45.9 acceptance**. |
+| 45 | **awaiting owner approval (hard stop)**: full gate GREEN at 78f67fe8 (29 min, 389 e2e, peak 8.0 GB); review 3H 7M 8L, every H and M fixed (45.8a/b; M7 recorded as an open contract gap); acceptance on staging both renderers (45.9). Format spec v1 DRAFT: docs/architecture/voxel-format-spec.md. Not merged, not deployed. |
 
 ### 45.0 floor record
 
@@ -2005,6 +2012,15 @@ at; README for the owner, reports and pictures in `~/.cache/thirdlight-phase45/a
   the job's frame, edit boxes moved into each grid's frame for invalidation (spec §3.6). Building it now would be
   tested only on axis-aligned grids; 47a's rotated structure grids are where it can be proved, before 47a starts.
 - 2026-11-02 (45.8b, review L1): lz4js dropped (lost every measure; the measurement is in git history).
+- 2026-11-02 (lead, phase close): **phase 45 stops at its hard stop, awaiting the owner's approval of format spec
+  v1.** Full gate GREEN at 78f67fe8: 29 min (44b: 32), 389 e2e on both renderers, memory peak 8.0 GB (at the 8G
+  cap); two vitest files failed once and passed alone (D435 watch, D436 fixed in 45.8b). Independent review
+  (~/.cache/thirdlight-phase45/review.md): 3 High, 7 Medium, 8 Low; H1–H3, M1–M6 fixed in 45.8a/45.8b/45.9, M7
+  recorded as an open cross-grid contract gap for before 47a (the review's own suggested fix), Lows fixed except L7
+  (D437). Acceptance on staging (45.9): thin slice and assembly proof on WebGPU and WebGL 2 at 720p at the cap, 0
+  missed frames; D438 found and fixed. For the owner to decide: the replaced decisions in spec §1 (R18, R50, R79,
+  R66), the record-value width with O15/O16 (H3), 23-bit material ids vs u32, save-merge semantics (H1/H2), the
+  category set (Q-a), M7, and the defaults in spec §5. The branch is pushed; main is untouched since d4053cab.
 
 ## 7a. Kit and surface planning session (2026-10-30)
 
