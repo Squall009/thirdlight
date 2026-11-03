@@ -115,7 +115,7 @@ is vitest at real boundaries (real derive, real workers, region files on disk, r
 | 46b.8a | done (this commit; fast gate green): `lod-select.ts` (choice by box distance, 8 m hysteresis, ready-only, stand-ins, 2 : 1), `stream-lod.ts` (a swap = `seams` + `levels` in one task), `voxelWorld.levels`. Default ring: L2 never complete, L1 stands in at the edge. 160 m flight: 23–28 level changes, swap p50 0.5 / p95 4.5–10 ms; 0 doubled, 0 unbalanced. |
 | 46b.8b | done (71afe7cb; fast gate green): the batcher sends only what the level choice draws (chunks, nodes, seams; a level swap one batch), the view draws a node per level and seams from its node's grid, blend in metres; page, Play, Scene view. Slice / town render CPU 1.4–1.5 / 3.0–3.2 ms, 0.31 / 0.80 M tris drawn. D464 (grass stripes), D465 (roofless houses at L1). |
 | 46b.8c | done (89598c15; fast gate green): mip material = the material of the cells nearest the surface (derived v8), the shader reads 0.125 m deep at every level. Columns showing another material than L0: hills L1 / L2 20.8 / 71.0 % → 0 / 0.005 %, hard cases 74.1 / 85.0 % → 0.007 / 0.09 %. Downsample µs a node +20–30 % (Node). Stripes gone on staging, both renderers. D464 fixed. |
-| 46b.9 | not started |
+| 46b.9 | done (b797a34e; fast gate green): pieces per level (L0 high, L1 `low` flag, L2+ none, their cells drawn as bodies; `VoxelPieceMeshes` hook for 46c, stand-in low box 8 tris), derived v9. D465: mip bodies hold a cell by cells (half, or 2 sheet cells): shells closed at L1/L2 (rays out 7–19 / 96 → 0), town tris L1 431 → 386 k, L2 82 → 106 k (houses kept). |
 | 46b.10 | not started |
 | 46b.11a | not started |
 | 46b.11b | not started |
@@ -899,6 +899,63 @@ in limits. The first run (185331, the test on all 14 cases, 63 s in vitest) was 
 alone, so the test was cut to 8 cases. `voxel-world.e2e.ts` 63.8 s (56.7 s at 46b.8b, not touched: host load); its
 extended test 9.5 / 9.8 s.
 
+### 46b.9 pieces per level and one-cell shells at coarse levels (D465)
+
+**Pieces per level** (`derived-mesh.ts` `PIECE_DETAIL`, `pieceDetailAt`; derived 8 → 9, spec owner note). A chunk lists
+its pieces at high detail; a level-1 node lists the pieces its own cells resolve to with the instance flag `low`
+(0x20); level 2 and coarser list none, and the base surface draws the cells the rules call beams and rails as bodies
+(`baseSurface(…, piecesAsBodies)`), so the cell is meshed from its mip shape and the surface under a removed piece is
+there. Collision, nav and light read the class, not the level (tested equal). **Hook for 46c:** three-adapter
+`VoxelPieceMeshes { geometry(family, 'high' | 'low') }` on `VoxelChunkViewOptions.pieces` (a kit's authored meshes;
+never disposed by the view); without one the stand-ins (`standInPieceGeometry`): the family's box (12 triangles) at
+high, the same box without its two ends along its long axis (8) at low. The view keeps `piecesDrawn` by detail; the
+slice page's `state().piecesByDetail`.
+
+**D465 cause** (measured on cells, the town 128 m, scratch `~/.cache/thirdlight-phase46/work/46b.9/scratch-46b9.test.ts`):
+the downsample kept a whole-cell body only when its *fill* reached half the parent. A 45° roof crosses each parent in
+2 cells of 8 (roof cover of house footprints at L1 15 %), and a level-1 wall (fill 8/15) gives 4 × 8 < 60 at level 2,
+so every house left level 2. Candidates (house silhouette m² from above / front vs L0 4,175 / 1,160; fences' top m²
+vs 769; roof cover):
+
+| Rule (whole-cell bodies hold a parent when …) | L1 houses | L2 houses | fences L1 / L2 |
+|---|---|---|---|
+| fill ≥ half (before; by cells the same at L1) | 3,270 / 816, roof 15 % | (by fill: none) | 0 / 0 |
+| ≥ 2 cells (a quarter) | 4,164 / 1,151, 100 % | 4,992 / 1,292 | 1,373 / 2,656 (fences become walls) |
+| any cell | 4,904 / 1,257, 100 % | 5,692 / 1,344 | 1,725 / 3,700 |
+| ≥ 4 cells or one sheet cell (≥ 6 of 26 neighbours) | 4,780 / 1,257, 100 % | 5,604 / 1,344 | 0 / 0 |
+| **≥ 4 cells or two sheet cells (pick)** | **4,164 / 1,151, 100 %** | **4,992 / 1,292** | **0 / 0** |
+
+**Fix** (`voxel-mips.ts`): bodies hold a parent cell when their cells (not fill) are at least 4 of 8, or when
+`MIP_SHEET_CELLS` (2) of them lie in a sheet (`MIP_SHEET_NEIGHBOURS`, 6 body cells among the 26 neighbours; a
+neighbour outside the node read as its mirror through the cell); the parent takes the first body role among them.
+
+**Tests:** `derived.test.ts` (+1): beam, rail and post of the wall-beam-banister scene derived as a chunk, an L1 and
+an L2 node from the same cells: high / low / none, base faces 0 / 0 / their exposed faces (3, 4, 4), every other
+consumer equal, L1's base equal to L0's. `mesh-cases.test.ts` (+2, `shell-cases.ts`): four closed one-cell houses
+floating in air (gable at odd and even cells, hip, flat): at L1 and L2 every edge balanced, no ray of 96 from inside
+leaves (before: 10 / 19 / 7 / 0 at L1, all 96 at L2: no house), silhouettes from above and two sides keep ≥ 0.9 of L0's
+(`SHELL_SILHOUETTE_KEPT`; measured 0.917–1.0; before 0.56–1.0 at L1, 0 at L2) and add nothing farther than the
+level's cell; a fence, a rail and a lone post leave L1 and L2. `voxel-chunk-view.test.ts` (+1): a kit's meshes at
+high for a chunk, low for the L1 node of the same cells, asked once each, not disposed; stand-ins 12 / 8 triangles.
+
+**Numbers** (Node, `run.mjs mips --worlds town`, 19:39–19:42, uptime 11 d 3.2 h, load 2.8–3.8; reports
+`~/.cache/thirdlight-phase46/work/46b.9/{before,after}/mips.md`), before → after: L1 triangles 430,634 → 386,236 (base
+102,122 → 57,724: closed shells merge better than frames), pieces 2,035 → 2,038; L2 82,256 → 105,716 (base 24 → 23,484:
+houses present), pieces 52 → 0; L0 unchanged (1,619,410, 18,792 pieces); downsample µs a node p50 L1 1,851 → 2,199,
+L2 761 → 1,230 (the sheet test). Staging (town, 1280 × 720, both renderers equal), pieces drawn high / low and
+triangles, before → after: default rings at the centre 6,424 → 4,958 / 1,408, 802,361 → 770,807; overview 5,871 →
+4,789 / 1,156, 674,775 → 650,113; rings 16 / 48 m (L2 drawn) 1,571 → 1,050 / 573 (L2 none), 260,359 → 255,982.
+
+**Looked at** (staging, WebGPU and WebGL 2; shots `~/.cache/thirdlight-phase46/work/46b.9/shots/{before,after}/`):
+from above with rings 16 / 48 m, before: L1 houses roofless frames, L2 houses gone (floors and ponds only); after:
+every house roofed and closed at L1 and L2, a little larger, roofs stepped. Default rings from above: the L1 rows of
+roofless frames are roofed houses. From outside the town's corner: no frames or gaps past 64 m. Fences leave at L1
+in both. Not looked at in motion (the ring's pop on a flight: 46b.11b).
+Fast gate (gate-fast-20261103-195003, uptime 11 d 3.4 h, load 4.8–6): GREEN, 14 min, 5.4 GB peak, perf at the cap in
+limits; vitest failed once only on `stream.test.ts` (the refresh test, 5.2 s of its 5 s default, as at 46b.8a; not
+touched), passed alone in the gate's rerun. `voxel-world.e2e.ts` 57.6 s (sum of its tests; not touched; 63.8 s at
+46b.8c under load).
+
 ## 8. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **LOD rings live inside the existing load ring** (192 m): mips
@@ -1123,6 +1180,19 @@ extended test 9.5 / 9.8 s.
   level-0 cell). With the downsample fixed, a quarter of the coarse cell still showed 2 % soil at L2. A face on a cell
   boundary still reads the solid cell at L2 (1/16 of its cell in).
 
+- 2026-11-03 (46b.9, default chosen, owner to confirm): **pieces per level by a flag, not a second list**: a level-1
+  node's pieces are the ones its own 1 m cells resolve to, flagged `low`; 46c's kit gives each family a high and a
+  low mesh (`VoxelPieceMeshes`). L0 pieces are not carried into L1 (a node never reads level-0 classes); pieces
+  thinner than half a 1 m cell leave with their cells. From level 2 no pieces: the rules' beam and rail cells are
+  drawn as bodies. Kept: the stand-ins scale with the level's cell (a 1 m piece at L1).
+- 2026-11-03 (46b.9, default chosen, owner to confirm): **one-cell shells thicken at coarse levels; lines leave**
+  (D465): bodies hold a mip cell by cells, half the parent or two sheet cells, picked by measurement over a quarter
+  rule and "any cell" (both turn fences into 1–2 m walls; "any" grows houses 17 % from above at L1). Houses then
+  keep their L0 silhouette at L1 (from above 4,164 vs 4,175 m²) and grow up to a level cell at L2 (+20 %). Limit,
+  recorded: a one-cell sheet at a slope that crosses a parent in one cell only (normal near (1, 1, 1)) can open
+  there; the town and the hip roof do not. Drawing built cells at level 0 further (the other D465 option) was not
+  taken: it costs the town's triangles the levels save.
+
 ## 9. Open questions for the owner
 
 - Ring distances (64/128/192 m) and whether 46b should also reach past the load ring or leave that to 46d's far field.
@@ -1131,4 +1201,4 @@ extended test 9.5 / 9.8 s.
 - Deferring the displacement prototype to 46d (with the material model) instead of a 46b experiment.
 - Seams by the coarser side's transition strip (46b.7a) instead of the finer side's stitch, and the residual hole at a cave saddle the levels connect differently.
 - Level 2 not drawn in the default 192 m load ring (46b.8a: level 1 stands in at the edge) — grow the ring, or leave level 2 to 46d's far field.
-- The coarse levels' look (46b.8b): roofless houses at level 1 (D465): change the downsample, or draw built cells at level 0 further. The earth stripes (D464) are fixed by the surface's material (46b.8c, derived 8).
+- The coarse levels' look (46b.8b): roofless houses at level 1 (D465) fixed by thickening one-cell shells at coarse levels (46b.9, derived 9; lines such as fences leave); the earth stripes (D464) by the surface's material (46b.8c, derived 8).
