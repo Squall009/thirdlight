@@ -36,6 +36,7 @@
  *   skirt (the flap is what the eye sees there).
  */
 import {
+  buildFaceSeam,
   chunkGrid,
   chunkOfKey,
   createDenseChunk,
@@ -49,7 +50,10 @@ import {
   TERRAIN_RULES,
   voxel,
   VOXEL_ROLE,
+  type DerivedData,
+  type FaceSeam,
   type MipLevelView,
+  type NodeFace,
   type PaletteStore,
   type SurfaceBuffer,
   type VoxelRecord,
@@ -60,7 +64,7 @@ const grid = chunkGrid(32);
 const E = grid.edge;
 const M_PER_CELL = 0.5;
 
-export const SEAM_CANDIDATES = ['none', 'stitch', 'transition', 'skirts', 'skirts-down', 'stitch+flaps', 'transition+flaps', 'transition+skirts'] as const;
+export const SEAM_CANDIDATES = ['none', 'stitch', 'transition', 'skirts', 'skirts-down', 'stitch+flaps', 'transition+flaps', 'transition+skirts', 'seam'] as const;
 export type SeamCandidate = (typeof SEAM_CANDIDATES)[number];
 
 export interface SeamPatchSpec {
@@ -136,6 +140,8 @@ interface Side {
   /** Nodes on the seam with a surface. */
   readonly seamNodes: number;
   readonly triangles: number;
+  /** Every node of the layer, derived (the product seam reads them one by one). */
+  readonly nodes: ReadonlyArray<{ readonly nx: number; readonly ny: number; readonly nz: number; readonly d: DerivedData }>;
 }
 
 /** A triangle soup tagged per triangle: 0 a node's surface, 1 a seam fill, 2 a skirt. */
@@ -210,12 +216,14 @@ function buildSide(spec: SeamPatchSpec, tree: MipTree, level: number, below: boo
   const a = below ? spec.face / span - 1 : spec.face / span;
   let seamNodes = 0;
   let triangles = 0;
+  const nodes: Array<{ nx: number; ny: number; nz: number; d: DerivedData }> = [];
   for (let b = Math.floor(along[0] / span); b < Math.ceil(along[1] / span); b++) {
     for (let ny = (cy[0] >> level) - 1; ny <= cy[1] >> level; ny++) {
       const nx = spec.axis === 0 ? a : b;
       const nz = spec.axis === 0 ? b : a;
       const d = level === 0 ? deriveFromStore(spec.store, nx, ny, nz, TERRAIN_RULES) : deriveMipNode(tree, { level, nx, ny, nz }, TERRAIN_RULES);
       const t = (d.ground.indices.length + d.base.indices.length) / 3;
+      nodes.push({ nx, ny, nz, d });
       if (t === 0) continue;
       seamNodes++;
       triangles += t;
@@ -223,7 +231,7 @@ function buildSide(spec: SeamPatchSpec, tree: MipTree, level: number, below: boo
       base.addNode(d.base, level, nx, ny, nz);
     }
   }
-  return { level, ground, base, seamNodes, triangles };
+  return { level, ground, base, seamNodes, triangles, nodes };
 }
 
 /** Open edges (directed as their triangle has them) with both ends within `tol` of the plane. */
@@ -411,6 +419,38 @@ function pushSoup(out: Assembled, s: Soup, tag: number, moved?: Map<number, [num
     out.tag.push(tag);
   }
   return folds;
+}
+
+/** A product seam's pieces (finer level `level`) as seam fills (tag 1), in level-0 cells. */
+function pushSeam(out: Assembled, seam: FaceSeam, level: number): void {
+  const s = POSITION_STEPS_PER_CELL;
+  const scale = 1 << level;
+  for (const piece of seam.pieces) for (const buf of [piece.ground, piece.base]) {
+    const view = new DataView(buf.vertices.buffer, buf.vertices.byteOffset, buf.vertices.byteLength);
+    const at = (v: number): number[] => [0, 1, 2].map((a) => ((piece.origin[a]! * s + view.getUint16(v * SURFACE_VERTEX_BYTES + 2 * a, true)) * scale) / s);
+    for (let t = 0; t + 2 < buf.indices.length; t += 3) {
+      out.tri.push(...at(buf.indices[t]!), ...at(buf.indices[t + 1]!), ...at(buf.indices[t + 2]!));
+      out.tag.push(1);
+    }
+  }
+}
+
+/** The coarse side's face toward the finer side, and each coarse node's seam over the finer nodes against it (timed). */
+function productSeams(spec: SeamPatchSpec, fineSide: Side, coarseSide: Side): { seams: Array<{ seam: FaceSeam; us: number }> } {
+  const face = ((spec.axis === 0 ? 0 : 4) + (spec.fineBelow ? 0 : 1)) as NodeFace;
+  const seams: Array<{ seam: FaceSeam; us: number }> = [];
+  const surface = (n: { nx: number; ny: number; nz: number; d: DerivedData }) => ({ x0: n.nx * E, y0: n.ny * E, z0: n.nz * E, ground: n.d.ground, base: n.d.base });
+  // Within one node of the coarse node on the face's plane (y and the along axis), at the coarse level.
+  const near = (n: { nx: number; ny: number; nz: number }, shift: number, cn: { nx: number; ny: number; nz: number }): boolean =>
+    Math.abs((n.ny >> shift) - cn.ny) <= 1 && (spec.axis === 0 ? Math.abs((n.nz >> shift) - cn.nz) <= 1 : Math.abs((n.nx >> shift) - cn.nx) <= 1);
+  for (const cn of coarseSide.nodes) {
+    const fine = fineSide.nodes.filter((fn) => near(fn, 1, cn));
+    const around = coarseSide.nodes.filter((o) => o !== cn && near(o, 0, cn));
+    const t0 = performance.now();
+    const seam = buildFaceSeam({ edge: E, level: coarseSide.level, nx: cn.nx, ny: cn.ny, nz: cn.nz, face, coarse: surface(cn), coarseAround: around.map(surface), fine: fine.map(surface) });
+    seams.push({ seam, us: (performance.now() - t0) * 1000 });
+  }
+  return { seams };
 }
 
 function faceNormal(t: readonly number[], o = 0): [number, number, number] {
@@ -799,6 +839,14 @@ export function measurePatch(spec: SeamPatchSpec, candidates: readonly SeamCandi
     let us = 0;
     if (candidate === 'none') {
       for (const s of [fineSide.ground, fineSide.base, coarseSide.ground, coarseSide.base]) pushSoup(soup, s, 0);
+    } else if (candidate === 'seam') {
+      for (const s of [fineSide.ground, fineSide.base, coarseSide.ground, coarseSide.base]) pushSoup(soup, s, 0);
+      for (const { seam, us: t } of productSeams(spec, fineSide, coarseSide).seams) {
+        us += t;
+        added += seam.counts.strip + seam.counts.flaps;
+        unmatched += seam.counts.unmatched;
+        pushSeam(soup, seam, f);
+      }
     } else if (candidate.startsWith('stitch') || candidate.startsWith('transition')) {
       const [mover, moverEdges, target, targetEdges] = candidate.startsWith('stitch') ? [fineSide, fineEdges, coarseSide, coarseEdges] : [coarseSide, coarseEdges, fineSide, fineEdges];
       for (const kind of ['ground', 'base'] as const) {

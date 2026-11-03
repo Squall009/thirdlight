@@ -288,6 +288,7 @@ export { collisionBodyParts, collisionGeometry, type CollisionBodyPart, type Col
 export { groundHeightfield, GROUND_HEIGHTFIELD_TOLERANCE_M, type GroundHeightfield, type HeightfieldRefusal } from './ground-heightfield';
 export { ChunkTreeFlags, downsampleMip, MIP_ROLE_PRIORITY, mipChildren, mipNodeKey, mipNodeOf, MipStaleSet, type MipNode } from './voxel-mips';
 export { deriveMipNode, MipTree, type MipLevelView, type MipSource } from './mip-derive';
+export { buildFaceSeam, seamBytes, SEAM_PIECE_PAD_CELLS, type FaceSeam, type NodeFace, type SeamCounts, type SeamFaceInput, type SeamPiece, type SeamSurface } from './lod-seam';
 export { combineCoverage, lightCoverage, lightCoverageAt, PROP_SAMPLES_PER_AXIS, propBounds, propCoverageChunk, type PropShape } from './prop-coverage';
 export { PROP_COVERAGE_PART, PropLightChannel, type PropChannelHost } from './prop-channel';
 export { VoxelOverlay } from './voxel-overlay';

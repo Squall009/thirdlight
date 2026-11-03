@@ -97,6 +97,7 @@ import { FEATURE_GROUND, FEATURE_PAD, featureCases, featuresStore } from './feat
 import { flatGround, placeWallBeamBanister, putVoxel, randomAssemblyWorld, randomTerrainWorld } from './scenes';
 import { MAT } from './world-kit';
 import { hillyWorld } from './worlds';
+import { featureSpecs, measurePatch, type SeamResult } from './lod-seams';
 
 const grid = chunkGrid(32);
 const E = grid.edge;
@@ -1269,5 +1270,24 @@ describe('mesh format v2 and shader data', () => {
       }
     }
     expect(checked).toBe(3 * (E + 2) ** 3);
+  });
+});
+
+describe('seams between levels: the coarser node\'s transition strip (lod-seam.ts) on two-level patches', () => {
+  // Every fourth ray of the bench's grid (`run.mjs seams` runs them all, the worlds too).
+  const patches = [...featureSpecs(0, ['cliff-20m', 'cave', 'wall-1', 'overhang'], 4), ...featureSpecs(1, ['cliff-20m', 'cave', 'hole-1'], 4)];
+
+  it('closes every hard-case patch across L0 | L1 and L1 | L2, as the measured pick does', { timeout: 120_000 }, () => {
+    for (const spec of patches) {
+      const r = measurePatch(spec, ['none', 'transition+flaps', 'seam']);
+      const at = `${spec.name} ${r.levels}`;
+      const by = (c: string): SeamResult => r.results.find((x) => x.candidate === c)!;
+      expect(r.controlMisses, at).toEqual([0, 0]);
+      expect(by('none').crackRays, at).toBeGreaterThan(0);
+      // The bench's pick lets no ray through on these cases (46b.7a); the package's seam must not either.
+      expect(by('transition+flaps').crackRays, at).toBe(0);
+      expect(by('seam').crackRays, at).toBe(0);
+      expect(by('seam').addedTriangles, at).toBeGreaterThan(0);
+    }
   });
 });
