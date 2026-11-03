@@ -99,7 +99,7 @@ number: Iris Xe, 1280×720, 60 Hz cap, both renderers, ≤ 3 rounds, `uptime` re
 | 46a.4 | done c93ae33b: reads in whole columns + row neighbours to the hysteresis, 16 KB gap, 8 reads, held decodes, ring kept 1 s ahead of motion. stream-page +40 ms, 80 m/s, both renderers ×3: near holes 0 (was p50 761 / p95 1,148), ~39 req/s, 16.1–16.5 MB (1.4× of 11.8). D432 fixed. Fast gate green 11 min; voxel-world.e2e 21.1 → 26.7 s (load 7–8). |
 | 46a.5a | done 23e5e1ee: `joinSections` (chunk-join.ts) joins a chunk's 16³ results into one ground + base surface, instances and a 34³ grid equal to the whole-chunk derive; swaps name their chunks, `chunk` events, `joinedChunk` on demand. Join p50/p95 slice 285/587 µs, town 312/686 µs (grid ~90 %). Fast gate green 12 min; voxel-world.e2e 26.7 → 19.8 s (load 9 → 2). |
 | 46a.5b | done e317f7b0 (+ 9d22034d boundary, 87c50d84): adapter `VoxelChunkView`, one draw a chunk from joined sections, grid entries straight to upload; page uses it. render() CPU 16³ slice 1.4–1.6 / town 4.0 ms (was 4.2 / 13.8; same-hour 32³ 1.6 / 3.9–4.0): D440 draw half fixed. Town 8 m blast main ~180–220 ms (bodies a section, 46a.6a). D441 fixed, D442 open. voxel-world.e2e 19.8 → 21.3 s. |
-| 46a.6a | not started |
+| 46a.6a | done 325206fc, 70176c6b: one Rapier body a 32³ chunk from its joined 16³ sections, built from the draw's join in the same task and frame; ground alone, facing up, within 5 mm of a lattice heightfield → heightfield. Share slice/hilly 0 %, town 24 %; 4.3 vs 37.5 KB a body. Town 8 m blast main 50–104 ms (was 180–220). D440 fixed, D443 opened. voxel-world.e2e 21.3 → 19.0 s. |
 | 46a.6b | not started |
 | 46a.7a | not started |
 | 46a.7b | not started |
@@ -273,6 +273,61 @@ Iris Xe, 1280×720 at the 60 Hz cap, 4 workers, one round; 23:33–23:37, load 1
 - D441 fixed (564a0625): the 16³/8³ sections test's swap wait calls `update()` each turn; passes alone (3.7 s) and in
   the file.
 
+**46a.6a** (325206fc, 70176c6b). Bodies per storage chunk: `joinSections`/`joinSectionsForDraw` also join the
+sections' collision boxes (`joinCollision`: moved to the chunk, full-cell merges first; not merged again across
+section faces), the chunk view's replaced report hands the page the join it drew from, and the page's
+`VoxelCollision` builds one body a chunk from it in the same task (`?heightfields=0` keeps all ground as meshes);
+an unloaded chunk's body goes with its draw. `collisionGeometry` takes any `{edge, collision, ground}` and makes the
+ground a heightfield (`ground-heightfield.ts`) when the chunk has no boxes, no triangle faces down, every lattice
+node of the footprint lies under one height of the chunk's own ground (a face whose nodes lie under the neighbour's
+shared vertices starts one node in; the triangles not wholly over the field stay a mesh) and the largest vertical
+distance between field and triangles, checked at every vertex of their overlay, is ≤ 5 mm. The port splits a cell
+the other way, so the field is handed over turned a quarter about +y. The e2e blast check now counts bodies a chunk:
+the swap's chunks' bodies and draws replaced in one frame and one swap.
+Tests (`collision.test.ts`, real derive + real Rapier 0.12.0): the scene's drops and sweeps (ground, wall top, beam,
+rail, between posts, the pit) now on joined 16³ sections; a bumpy lattice ground (every cell bent across its
+diagonal; once with a face's nodes under no triangle, the strip a mesh): thin rays < 1 mm and capsule drops < 1 cm
+from the mesh; the town (lots 1–5): every heightfield equals the whole-chunk derive's, rays, slanted sphere sweeps
+and drops over and across 5+ heightfield chunks within 1 cm of the meshes; a ledge (faces down), ground leaving the
+chunk's top (uncovered) and a wall (boxes) stay meshes. Sphere sweeps on a bumpy heightfield do not agree (D443).
+Node bench (`run.mjs collision`, 16³ joined, all bodies into one real Rapier world a test world; 2026-11-03 00:00
+and 00:17, load 3–5, uptime 10 d 7.6 h; report `~/.cache/thirdlight-phase46/work/46a.6a/collision-{hf,mesh}.md`):
+
+| World | Bodies | Heightfields (face strip) | Meshes: why | KB a body to physics: hf / same as mesh | WASM heap: all meshes → with heightfields |
+|---|---|---|---|---|---|
+| slice (±192 cells of the scene) | 324 | 0 | facing 144, deviation 103, uncovered 73, boxes 4 | – / 37.5 | 88 MB (279 KB a body) |
+| hilly (±192 cells) | 327 | 0 | facing 144, deviation 104, uncovered 79 | – / 37.5 | 88 MB (275 KB a body) |
+| town (256 m) | 834 | 197 (28) | facing 287, boxes 229, uncovered 63, deviation 30, layers 28 | 4.3 / 37.5 | 192 → 140 MB (236 → 172 KB a body) |
+
+- **Why so few heightfields:** the surface nets put a vertex off the cell-corner lattice wherever a contour crosses
+  a sample layer, so every slope lies 1.0–2.6 cm from a lattice heightfield (over the 5 mm tolerance); "facing" is
+  mostly the world's ground bottom at −128 cells; "uncovered" is ground leaving a chunk through its top or bottom.
+  Only level ground (the town's lots and streets) qualifies. A first version took the level ground bottom as a
+  heightfield (it collides from above) and counted 44 % on the slice; 70176c6b refuses ground facing down.
+- **Blast** (`run.mjs slice --phase blast --sections 16 --repeats 2 --seconds 10`, staging, headless Chrome, Iris Xe,
+  1280×720 at the 60 Hz cap, 4 workers; terrain 00:14–00:15 load 2.0, town 00:18–00:19 load 5.3 → 3.3 (second round
+  after the facing fix), uptime 10 d 7.8 h; report `~/.cache/thirdlight-phase46/work/46a.6a/blast{,2}/`, scratch).
+  Page main-thread build ms (draws + bodies) and frames edit → shown, both renderers:
+
+| Blast | 46a.5b (a body a section) | Now (a body a chunk) |
+|---|---|---|
+| town corner 8 m (8 chunks) | ~205–230 ms, 2–3 frames | 50–54 ms, 2–3 frames (local), 4–5 (command) |
+| town middle 8 m (18 chunks) | ~195 ms, 3 frames | 85–104 ms, 2–3 frames (longest frame 67–100 ms) |
+| town 1 m corner / middle | build ~40 ms | 46–79 / 6–11 ms, 1 frame |
+| terrain 8 m corner / middle | 2 frames, main 22–40 ms | 13–15 / 26–28 ms, 2 frames, 0 missed |
+
+  The town's per-body cost is its boxes: 46,105 colliders in 950 bodies (each box is a collider of the compound),
+  ~6 ms a house chunk; 8 corner chunks cost ~46 ms even for a 1 m dab (1 missed frame). Every blast's bodies and
+  draws: one frame, one swap. Orbit 0 missed, render() CPU slice 1.4–1.5 / town 3.7–3.9 ms p50.
+- **Rapier heap (for D434, 46a.6b):** page after the cold fill: slice 131 MB (493 bodies, 883 colliders, 0
+  heightfields, 18.5 MB handed to physics), town 174 MB (950 bodies, 197 heightfields, 23.7 MB handed). The town's
+  stream total reached 249.6 of 256 MiB (derived parts 247 MB) at the cold fill.
+- D442 seen again on the terrain world (both renderers): the first local blast after the warm-up's `reread` caught
+  486–520 chunks replaced over ~37 frames in swaps 2–3; the town and later blasts did not.
+- Fast gate (gate-fast-20261103-000056, then gate-fast-20261103-001935 after the fix): GREEN, 11 min, 4.4 / 4.3 GB
+  peak, village perf at the cap 0 missed on both renderers. `voxel-world.e2e.ts` 21.3 → 19.1 / 19.0 s (8.6 + 4.9 +
+  5.5 s; load 4.5 at the start, uptime 10 d 7.8 h).
+
 **46a.2** (1bf03832 boundary, e48969c5 schema). No perf item. `voxelWorld {world, ring?, collision?, sectionEdge?,
 savedFields?}` (metres; unset = the voxel defaults, resolved by `resolveVoxelWorld`: load 192/224 m across, 96/128 m
 up/down, collision 48/24 m, 16-cell sections, saved material/role/shape) and the model flag `affectsLighting`; additive
@@ -371,5 +426,21 @@ e2e change), `inspector.e2e.ts` 15.4 s (8.2 + 4.6 + 2.6 s); village perf at the 
   chunk and family; `streamer.joinedChunk` takes an optional cell array (an overload, not a new member: the
   streamer class is at the 80-member limit). A chunk is re-joined on every `chunk` event, including while streaming
   (one per job answer).
+- 2026-11-03 (46a.6a, default chosen, owner to confirm): **a voxel chunk's ground collides as a heightfield only when
+  it stands for the ground within 5 mm** (`GROUND_HEIGHTFIELD_TOLERANCE_M`, vertical, checked exactly at every vertex
+  of the overlay of field and triangles), has no boxes (a wall or beam keeps the chunk a mesh) and nothing faces down;
+  a face whose nodes lie under the neighbour's shared vertices starts the field one node in, those triangles a mesh.
+  The field is handed to the port turned a quarter about +y (the port splits cells (+x, min z)–(min x, +z), the
+  voxel ground (min x, min z)–(+x, +z)). Joined boxes are not merged again across section faces.
+- 2026-11-03 (46a.6a, for 46b): **heightfields need lattice ground.** With the surface nets no slice or hilly chunk
+  qualifies (slopes 1.0–2.6 cm off the lattice, 22–24 % of ground chunks leave through a chunk's top or bottom);
+  only level ground does (town 24 %). Proposal: where 46b's terrain mesher's ground is a height function it puts one
+  vertex a column on the cell-corner lattice, and heightfields span a chunk column (or patches, as terrain tiles
+  do), keeping the goal: cheap physics for ordinary ground (172 vs 236 KB of Rapier heap a body in the town). Before
+  sloped heightfields ship, D443 (Rapier's heightfield sphere casts) is re-checked.
+- 2026-11-03 (46a.6a): the chunk-body builder stays in the page (`voxel-world/collision.ts`): the geometry
+  (`collisionGeometry`, `groundHeightfield`, `joinCollision`) is pure and in `@thirdlight/voxel`; what is left is
+  ~60 lines of port glue (compound parts, the field's quarter turn, add/remove/re-base). 46a.7b moves that glue next
+  to the simulation's physics for Play, where bodies are built from the sim's own join (the page only draws).
 - 2026-11-02 (plan): M7 (cross-grid dependencies) stays the open contract gap recorded in spec §3.6, to be settled
   before 47a; nothing in 46a builds on structure grids.
