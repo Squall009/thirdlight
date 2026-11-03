@@ -22,6 +22,7 @@
  * over the hop to this page to the first frame drawn after the batch.
  */
 import * as THREE from 'three';
+import { wallClock } from '@thirdlight/shared';
 import { chunkGrid, FloatingOrigin, MATERIAL_BITS, SHADER_BORDER_CELLS, shaderGridSide, VOXEL_SIZE_M, WETNESS_MAX, type ChunkDrawBatch, type ChunkEdge } from '@thirdlight/voxel';
 import { VoxelChunkView, voxelStandInLook } from './voxel-chunk-view';
 import { createVoxelSurface, type VoxelGridRenderer, type VoxelSurface } from './voxel-surface';
@@ -64,8 +65,6 @@ interface WorldDraw {
 const EDITS_KEPT = 64;
 /** Frame times kept (wall-clock ms): a few seconds at a high refresh rate. */
 const FRAMES_KEPT = 600;
-
-const wallClock = (): number => performance.timeOrigin + performance.now();
 
 export class VoxelWorldDraws {
   private readonly worlds = new Map<string, WorldDraw>();

@@ -30,6 +30,7 @@ import { startGamePage, type GamePageManifest } from '@thirdlight/game-host/game
 import { SCRIPT_ERROR_PROBLEM, type RuntimeSnapshot, type SimulationModuleSpec } from '@thirdlight/runtime';
 // The simulation module specs this manifest names (generated per export; nothing else is linked).
 import { moduleSpecs } from 'thirdlight:export-modules';
+import { exportContentReader } from './export-content-reader';
 
 /** The simulation worker's bundle, next to this one (relative to the page). */
 const EXPORT_SIM_WORKER_PATH = './js/sim-worker.js';
@@ -50,20 +51,8 @@ function hud(text: string, isError: boolean): void {
   }
 }
 
-/**
- * A declared artifact, by its manifest or catalog path, next to index.html.
- * Only a plain relative path is read (never a URL, an absolute path or a
- * step out of the export); what comes back is checked by its reader.
- */
-function readArtifact(path: string): Promise<ArrayBuffer> {
-  if (!/^[A-Za-z0-9_.-]+(\/[A-Za-z0-9_.@-]+)*$/.test(path) || path.split('/').some((part) => part === '..' || part === '.')) {
-    return Promise.reject(new Error(`not a relative artifact path: ${path.slice(0, 80)}`));
-  }
-  return fetch(`./${path}`, { credentials: 'omit' }).then((res) => {
-    if (!res.ok) return Promise.reject(new Error(`artifact read failed for ${path} (HTTP ${String(res.status)})`));
-    return res.arrayBuffer();
-  });
-}
+/** A declared artifact, by its manifest or catalog path, next to index.html. */
+const readArtifact = exportContentReader(document.baseURI);
 
 async function main(): Promise<void> {
   const canvas = document.getElementById('game');

@@ -17,6 +17,7 @@
  * grid only. The page answers with each drawn chunk's GPU bytes, counted as
  * the chunk's `mesh` part of the stream budget where the world runs.
  */
+import { wallClock } from '@thirdlight/shared';
 import { chunkKey, type ChunkGrid } from './coords';
 import type { JoinedDraw, JoinTimes } from './chunk-join';
 import type { InstanceList, SurfaceBuffer } from './derived-mesh';
@@ -91,8 +92,6 @@ export function chunkDrawBatchTransfer(b: ChunkDrawBatch): ArrayBuffer[] {
 
 /** The budget part a chunk's draw (its GPU buffers and shader grid) is counted as. */
 export const MESH_PART = 'mesh';
-
-const wallClock = (): number => performance.timeOrigin + performance.now();
 
 /**
  * Collects a streamer's chunk draws task by task and sends each task's as

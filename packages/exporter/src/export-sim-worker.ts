@@ -13,6 +13,7 @@ import { sha256HexAsync } from '@thirdlight/shared';
 import { loadPhysics3D, runSimWorker, shippedVoxelPorts, workerGlobalEndpoint } from '@thirdlight/game-host';
 // The simulation module specs the manifest names (generated per export).
 import { moduleSpecs } from 'thirdlight:export-modules';
+import { exportContentReader } from './export-content-reader';
 
 /** A file next to this worker's script. */
 const besideWorker = (name: string): string => new URL(name, (globalThis as unknown as { location: { href: string } }).location.href).href;
@@ -25,7 +26,7 @@ runSimWorker(workerGlobalEndpoint(), {
   voxelPorts: (root, worlds) =>
     shippedVoxelPorts({
       worlds,
-      io: { read: (path) => fetch(new URL(path, root), { credentials: 'omit' }).then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`${path}: HTTP ${String(r.status)}`)))), sha256Hex: sha256HexAsync },
+      io: { read: exportContentReader(root), sha256Hex: sha256HexAsync },
       workerUrl: besideWorker('voxel-worker.js'),
     }),
 });
