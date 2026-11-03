@@ -233,8 +233,12 @@ export const NODE_SIDE_ALLOWED = {
   // injected (no value edge to them). The
   // simulation module specs are injected by the composition entries (the
   // preview's module-specs.ts, the export's generated thirdlight:export-modules).
+  // + voxel — a game's voxel worlds live with the simulation: the host wraps
+  // the injected world ports so each world's chunk draws leave the simulation
+  // as one batch a swap (posted from the worker to the page); voxel is pure
+  // (no three.js, no Node built-ins), and runtime already links it.
   'game-host': {
-    packages: ['runtime', 'input'],
+    packages: ['runtime', 'input', 'voxel'],
     external: [],
     node: [],
     typesOnly: { input: true },
