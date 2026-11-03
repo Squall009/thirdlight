@@ -86,6 +86,7 @@ number: Iris Xe, 1280×720, 60 Hz cap, both renderers, ≤ 3 rounds, `uptime` re
 | 46a.9 | **Occupancy (prop lighting) channel in the host:** for props with `affectsLighting`, a `PropShape` from the prop's collider or oriented bounds; per-chunk channel (`propCoverageChunk`) rebuilt on chunk load and prop place/move, joined by `lightCoverage`, counted in the budget, never saved; read via `ctx.voxels.coverageAt` (consumers are 46e). Not rebuilt: what 45.6 built. | vitest: moving a prop rebuilds only the chunks it left and entered; equal to a fresh build; nothing in saves or files | rebuild µs a prop move; channel bytes in the slice ring | channel live in Play |
 | 46a.10 | **Editor:** the Scene view draws the world of a `voxelWorld` component through the 46a.5b view (streamed around the editor camera, no collision) and refreshes on `voxelsChanged`; the slice page uses the shared host pieces. D437 if it fits (ambient/hemisphere changes seen by `SkyProbe`). | e2e `voxel-world.e2e.ts`: an edit through the command route shows in the Scene view without reload | Scene view render CPU with the world vs without | world visible and refreshing in the editor; D437 fixed or left open |
 | 46a.11 | **Export:** referenced worlds' listed region files as content-addressed buffers (whole files, verified by digest, read through the content closure; no fetch, no URLs), a buffer `RegionByteSource`, the voxel worker bundle `js/voxel-worker.js`; the bundle scan passes. | exporter vitest (closure lists the files, scan); e2e `voxel-world.e2e.ts`: export, served statically with the backend stopped, world draws, a script dig shows | export size added per km² of the test world; cold fill in the export | export plays the world offline |
+| 46a.11b | **Fixes (lead):** D450 (a script edit made while some of its sections wait for neighbours is reported once, after its whole swap), D442 (cause, fix if cheap), the reference's `undoVoxels` refusal, the export line in the manual and spec as built, the edit command header, `ctx.voxels`' optional type explained. | `world-host.test.ts` (fails before); blast bench terrain on staging | voxel-world.e2e time | D450 fixed; D442 cause recorded |
 | 46a.12 | **Measurement and acceptance:** blast frames (R107: 1/2/4/8 m, terrain and town, local and command), render CPU per chunk, physics memory and churn on a flight, streaming at +40 ms, edit → visible in Play and export, both renderers at 720p at the cap; report → `~/.cache/thirdlight-phase46/acceptance/46a`. | staging (`tools/staging.sh`), `run.mjs slice` phases, the e2e hooks | everything in §3, before → after | numbers + causes of misses recorded, pictures looked at |
 | 46a.13 | **Docs:** manual pages for voxel worlds and `ctx.voxels` (`docs/manual`), the migration note (`ctx.grid` unchanged until 48a), spec §2.3/§3.6 "not built" lines updated (no format change), `tools/manual-links.test.mjs` green. | docs check, manual links test | — | pages match the built API |
 | 46a.14 | **Close (lead):** full gate once (detached), independent review, fixes, acceptance by eye on staging, STATUS row. | full gate | gate time and peak vs 29 min / 8.0 GB; voxel e2e time vs 22.5 s | review in the decision log; owner look pending |
@@ -109,6 +110,7 @@ number: Iris Xe, 1280×720, 60 Hz cap, both renderers, ≤ 3 rounds, `uptime` re
 | 46a.9 | done b6dcb2c6: `PropLightChannel` per resident chunk, built on load; a step's prop changes rebuild only chunks left/entered; budget part; shapes from colliders else model bounds; `ctx.voxels.coverageAt`. Move 1.8–2.0 ms p50; slice ring 0/4.5/13.5 MB at 0/100/1,600 lit props. D448 opened. Fast gate green (rerun); voxel-world.e2e 26.6 → 32.0 s, no e2e change, load 6–9. |
 | 46a.10 | done f4f530a4 (+ f305e979 boundary): Scene view streams a `voxelWorld` world round its orbit target in a worker (Play's batches, `VoxelWorldDraws`), reads `voxelsChanged`; command-route dig shown without reload (e2e, pictures looked at). render() CPU 2.1–2.9 / 0.5–0.6 ms p50 with / without (225 chunks). D449 fixed, D437 open. voxel-world.e2e 32.0 → 38.6 s. |
 | 46a.11 | done cd20d996: scenes' worlds ship their listed region files whole (`content/sha256/<digest>`, catalog block `voxelWorlds`, digest-checked, read once a file), `js/voxel-worker.js`; scan green. E2E, backend stopped: world draws, console dig opens the pit. 84.6 KB for 0.016 km² (5.2 MB/km²), cold fill 2.2–2.7 s. voxel-world.e2e 38.6 → 47.7 s. D450 opened. |
+| 46a.11b | done b09ea245, 5764c93d, e0686593: D450 fixed (edit sections waiting for neighbours on their way stay in the swap group; reported once after the whole swap; test fails before). D442 fixed (`look` moved the focus a frame late; first blast now its 8 chunks, was 486–520). undoVoxels refusal, export as built, ctx.voxels doc. Fast gate green 12 min; voxel-world.e2e 47.7 → 46.5 s. |
 | 46a.12 | not started |
 | 46a.13 | done a2eb64a1: manual `features/voxel-worlds.md` (cells, `voxelWorld`, streaming + budget, Scene view, editVoxels/undoVoxels, not built yet; export line to be confirmed after 46a.11), `guides/voxel-scripts.md` (`ctx.voxels`, examples type-checked), migration note; spec pool default built. Links test + check-docs green. |
 | 46a.14 | not started |
@@ -666,6 +668,29 @@ vitest `scan-bounded-log.test.ts` failed once and passed alone (D418 watch). `vo
 5.5 + 6.3 + 6.3 + 5.2 + 8.1 + 6.5 s; the existing six 38.6 → 41.2 s with no change to them, the export test 6.5 s; load
 3.9–6.3, uptime 10 d 14.0 h); `play-export.e2e.ts` green in the smoke set.
 
+**46a.11b** (b09ea245 D450, 5764c93d D442, e0686593 docs). **D450:** the host did report the change, in the step
+after the edit, but with no chunks and before the rebuilt sections whose neighbour chunks were still loading had
+derived (they had left the group, which swapped empty inside the edit call, and derived later as streaming); the
+46a.11 test missed even that report because its harness listened only while a job waited (two steps can run in one
+tick). `SectionDerives` now keeps such a section in its group (`heldBlocked`) while every missing neighbour is
+coming (`SectionHost.coming`: being read or decoded, or inside the load ring under the budget's horizon), and lets
+it go at the next `request` when one stops coming. `world-host.test.ts` + 1 test (real runtime, region files, Node
+workers, real Rapier; the harness now logs every step's changes): a dig in the step its pit turned resident is
+reported once in 2 s more of steps, with chunks, and in that step every section within the rules' reach of chunks
+resident at the dig has its new result (before the fix: reported with 0 chunks; fails alone and in the file); a dig
+at the ring's edge, whose neighbours never come, still swaps. The export test digs without waiting for the body.
+**D442:** the voxel world page's `look` hook set the camera target only; `placeCamera` moved the streamer's focus at
+the next frame, after the run's `settle` had already returned on the old ring, so the ring round the first blast
+spot (32 m from the scene on the terrain world; the town's spots lie closer) and the lead point's prefetch of that
+32 m "motion" streamed in during the 500 ms wait and the blast window. `look` now calls `placeCamera`. Blast bench
+(`run.mjs slice --phase blast --spots terrain --sections 16 --repeats 1 --seconds 5`, staging, headless Chrome, Iris
+Xe, 1280×720 at the cap, both renderers, one round, 06:45 load 2.8, uptime 10 d 14.3 h; scratch
+`~/.cache/thirdlight-phase46/work/46a.11b/blast/`): every blast replaced only its own chunks in its own swap (corner
+8, middle 2 / 18), the first one included (46a.6a: 486–520); frames as before (local 1–3, command 3–5).
+Fast gate (gate-fast-20261103-064812): GREEN, 12 min, 4.3 GB peak, 36 e2e passed, village perf at the cap 0 missed
+on both renderers (main thread 7.23 / 4.71 ms against 9.02 / 7.84). `voxel-world.e2e.ts` 47.7 → 46.5 s (9.5 + 5.4 +
+6.0 + 5.9 + 5.5 + 7.9 + 6.3 s; no e2e change; load 6.0 at the start, uptime 10 d 14.3 h).
+
 **46a.2** (1bf03832 boundary, e48969c5 schema). No perf item. `voxelWorld {world, ring?, collision?, sectionEdge?,
 savedFields?}` (metres; unset = the voxel defaults, resolved by `resolveVoxelWorld`: load 192/224 m across, 96/128 m
 up/down, collision 48/24 m, 16-cell sections, saved material/role/shape) and the model flag `affectsLighting`; additive
@@ -898,5 +923,15 @@ e2e change), `inspector.e2e.ts` 15.4 s (8.2 + 4.6 + 2.6 s); village perf at the 
   by the simulation worker, which reads the region files under the export's folder itself (the page hands it the
   folder and the catalog block); the page reads them only in single-thread mode. A read of a shipped file returns a copy
   of its range, never a view: the streamer transfers chunk bytes to its workers.
+- 2026-11-03 (46a.11b, default chosen, owner to confirm): **an edit waits for its sections whose neighbours are on
+  their way.** A rebuilt section whose neighbour chunks are not resident stays in the edit's swap group while every
+  missing neighbour is being read or decoded, or lies inside the load ring under the budget's horizon; the edit then
+  shows and is reported in one swap, once the neighbours landed (a dig right after residency: its pit appears with
+  the streaming, not before). A section whose neighbours will not come (the ring's edge, a damaged chunk, the focus
+  moving off) leaves the group at the next update and the group swaps without it, as before.
+- 2026-11-03 (46a.11b, gap for 47c, owner): **no editor command creates a voxel world.** Worlds come only from
+  `node tools/voxel-bench/run.mjs slice-world` (engine test data) or by copying files; `editVoxels` edits an existing
+  world. A create-world command (name, edge, layout, footprint, an empty or flat start) on the one command path, with
+  the Inspector and MCP sending it, belongs with 47c's MCP voxel tools; not built in 46a.
 - 2026-11-02 (plan): M7 (cross-grid dependencies) stays the open contract gap recorded in spec §3.6, to be settled
   before 47a; nothing in 46a builds on structure grids.
