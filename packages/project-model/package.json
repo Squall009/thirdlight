@@ -8,6 +8,7 @@
     ".": "./src/index.ts",
     "./png": "./src/png-decode.ts",
     "./limits": "./src/limits.ts",
+    "./voxel-world": "./src/voxel-world.ts",
     "./input": "./src/input.ts",
     "./graph": "./src/graph.ts",
     "./animator-graph": "./src/animator-graph.ts",

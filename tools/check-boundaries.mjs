@@ -438,6 +438,7 @@ export const NODE_SIDE_ALLOWED = {
         'effect-graph-kinds', // effect graph ports resolve as the backend resolves them
         'plane-lock', // the gizmo holds a body to the plane the game locks it to
         'shape-2d-3d', // a flat collider is drawn as the solid the game makes of it
+        'voxel-world', // the Scene view streams a world with the settings the game resolves for it
         'content-helpers', // a content digest's format is defined once, where the model checks it
         'authoring-rules', // property values and prefab captures are checked by the commands' own rules before sending
       ],
