@@ -107,7 +107,7 @@ number: Iris Xe, 1280×720, 60 Hz cap, both renderers, ≤ 3 rounds, `uptime` re
 | 46a.7c | done 73ea05cf: voxel surface and pieces placed with a 64-bit camera-relative model-view per draw (no re-base needed): 8 km vertex error 1.3 µm vs 0.56 mm; Play e2e plays the world 8 km out on both renderers. Dig on a debug command, not a 5 s wait: voxel-world.e2e 36.4 → 24.5 s. D444 fixed, D446 opened (other objects far out). |
 | 46a.8 | done eb0dc688: `ctx.voxels.setSavedFields`, `save()` (save file v2, answered later as bytes + base64 text), `restore(bytes\|text, 'save'\|'base')` into the overlay, never the base (unloaded chunks' entries land with them), mismatches reported. Save of 10 / 100 1 m digs: 1.8 / 17.7 KB. Play e2e saves, restarts, restores (both renderers). voxel-world.e2e 24.5 → 26.6 s. D447 opened. |
 | 46a.9 | done b6dcb2c6: `PropLightChannel` per resident chunk, built on load; a step's prop changes rebuild only chunks left/entered; budget part; shapes from colliders else model bounds; `ctx.voxels.coverageAt`. Move 1.8–2.0 ms p50; slice ring 0/4.5/13.5 MB at 0/100/1,600 lit props. D448 opened. Fast gate green (rerun); voxel-world.e2e 26.6 → 32.0 s, no e2e change, load 6–9. |
-| 46a.10 | not started |
+| 46a.10 | done f4f530a4 (+ f305e979 boundary): Scene view streams a `voxelWorld` world round its orbit target in a worker (Play's batches, `VoxelWorldDraws`), reads `voxelsChanged`; command-route dig shown without reload (e2e, pictures looked at). render() CPU 2.1–2.9 / 0.5–0.6 ms p50 with / without (225 chunks). D449 fixed, D437 open. voxel-world.e2e 32.0 → 38.6 s. |
 | 46a.11 | not started |
 | 46a.12 | not started |
 | 46a.13 | not started |
@@ -572,6 +572,48 @@ perf at the cap 0 missed on both renderers. `voxel-world.e2e.ts` 26.6 → 32.0 s
 e2e change, load 6–9 during the run (8.8 at its start), uptime 10 d 12.1 h: host load, not this item (nothing in the
 e2e path changed but a per-step transform check that finds no lit props).
 
+**46a.10** (f305e979 boundary: editor → project-model `voxel-world` subpath as a value; f4f530a4 Scene view). The Scene
+view draws the worlds its open scenes' `voxelWorld` objects name (`editor/viewport/scene-voxels.ts`): a world's first
+object gives its settings (`resolveVoxelWorld`, as the runtime), opened, streamed and derived in one module worker
+(`voxel-world/scene-voxels-worker.ts`, built as `dist/editor/voxel-view-worker.js`; it starts the world's derive
+workers, `voxel-worker.js`) around the orbit target (sent when it moves half a metre), each streamer task's draws posted
+as one transferred batch (`ChunkDrawBatcher`) and drawn by Play's `VoxelWorldDraws` in the adapter's scene (world
+coordinates, the 64-bit camera-relative draws of 46a.7c), a frame asked for after each batch (`applied`). No bodies.
+The feed's `voxelsChanged` goes to the worker: the next revision re-reads its chunks in one swap group, a gap reads the
+world again whole. A renderer switch starts the draws again in the new adapter's scene and streams the worlds again.
+`data-voxels` (drawn chunks, worker states, problems) and `data-render-ms` (render() CPU p50/p95 of each 30 frames) on
+the view. Shared pieces: `worldStreamer`/`worldStreamRing` (voxel: a world's streamer from metres, now also the runtime
+host's), `RangeWorld` (`voxel-world/range-world.ts`: manifest, listed files, range source, worker pool, `applyChange`,
+`readAgain`; the voxel world page, Play's ports and the Scene view's worker open worlds through it).
+Found and fixed on the way (D449): `settle()` hung when only worker-less derive work was left (a world of air round the
+focus: Play's 8 km world as the editor sees it at the origin); it now updates again after 4 ms at the latest.
+E2E (`voxel-world.e2e.ts`, + 1 test, WebGPU): a group at the slice scene, F to orbit it, a still picture (bare grid);
+`setComponent voxelWorld {world: 'slice'}` over the command route, the world streams in (225 chunks drawn, worker
+settled) with no reload, pixels changed > 20,000; an `editVoxels` 3 m dig sent as MCP sends it, revision + 1 reaches the
+worker, the chunks drawn again, pixels changed > 500, page not reloaded; the object deleted, the world's draws go.
+Pictures looked at: bare, world (ground, wall, beam, banister rail and posts) and dug (the pit through ground and wall)
+on WebGPU; the same test run once ad hoc on WebGL 2 (dug picture looked at: the same pit). Not in the gate on WebGL 2.
+Render CPU (the e2e's 60-frame orbit, editor Scene view ~670×280 CSS px in headless Chrome on the Iris Xe, not at a 720p
+cap; 225 chunks, 467 k triangles, 24 pieces; 05:00–05:30, load 4–8, uptime 10 d 12.5 h):
+
+| Run | render() CPU p50 / p95 with the world | without (the object deleted) |
+|---|---|---|
+| WebGPU, ad hoc | 2.3 / 3.6 ms | 0.6 / 0.8 ms |
+| WebGL 2, ad hoc | 2.1 / 3.4 ms | 0.5 / 0.8 ms |
+| WebGPU, ad hoc after the D449 fix | 2.9 / 4.5 ms | 0.6 / 0.8 ms |
+
+About 1.6–2.3 ms a frame for 225 chunk draws (one surface draw a chunk plus pieces), in line with the slice page's
+1.4–1.6 ms for its ~490 chunks at the cap (46a.5b) given the host load; the main thread does no streaming or deriving
+(the worker), only batch applies (one per streamer task while streaming). Cold fill to settled not timed separately
+(the e2e's poll passes within its first seconds). Fast gate (gate-fast-20261103-045422): RED in vitest on
+`scan-bounded-log.test.ts` (D418 watch, timed out also alone at load 10); rerun (gate-rerun-20261103-050453) RED in e2e on
+this test's own check (after the object went it expected no world at all, but Play's 8 km world, made by the Play tests
+earlier in the file, stays open: it never settled — D449); after the fix (gate-fast-20261103-051853) GREEN, 13 min, 5.4
+GB peak, village perf at the cap 0 missed on both renderers (main thread 8.84 / 6.26 ms against limits 9.02 / 7.84,
+load 7–8). `voxel-world.e2e.ts` 32.0 → 38.6 s (9.1 + 5.0 + 5.7 + 5.4 + 5.5 + 7.9 s; the existing five 32.0 → 30.7 s, the
+new test 7.9 s; load 6.7–8.6, uptime 10 d 13.1 h); `rendering.e2e.ts` 133.8 s. D437 left open (SkyProbe's ambient and
+hemisphere checks are unrelated to the voxel draws; not cheap to fold in here).
+
 **46a.2** (1bf03832 boundary, e48969c5 schema). No perf item. `voxelWorld {world, ring?, collision?, sectionEdge?,
 savedFields?}` (metres; unset = the voxel defaults, resolved by `resolveVoxelWorld`: load 192/224 m across, 96/128 m
 up/down, collision 48/24 m, 16-cell sections, saved material/role/shape) and the model flag `affectsLighting`; additive
@@ -781,5 +823,15 @@ e2e change), `inspector.e2e.ts` 15.4 s (8.2 + 4.6 + 2.6 s); village perf at the 
 - 2026-11-03 (46a.9, default chosen, owner to confirm): **`ctx.voxels.coverageAt` reads the drawn derive result**
   (the committed one, also while an edit's rebuild is pending), so it agrees with what is drawn and collided; it is
   0 … 1 (bytes / 255), null off the ring or before the section's first result.
+- 2026-11-03 (46a.10, default chosen, owner to confirm): **the Scene view streams voxel worlds in a worker of the
+  editor page** (the world's streamer, its derive workers, the joins and batches there; the page only applies batches
+  through Play's `VoxelWorldDraws`), focused on the orbit target (the point the view looks at, as Play's camera
+  target), with the world object's own ring; no collision. The worker reads the backend's range route with the
+  editor's token (same origin). All open scenes' worlds are drawn, each world once (its first object's settings, as
+  the runtime). A world is read again whole when a `voxelsChanged` revision is missed. Worlds keep streaming while
+  the Scene view is hidden behind the Game view (the worker settles and idles once the ring is in).
+- 2026-11-03 (46a.10): the slice page keeps its own main-thread streamer and per-section measuring hooks; it shares the
+  world opening (`RangeWorld`) and the change handling with Play and the editor, not the draw path (its chunk view is
+  fed in-thread, `feedVoxelChunkView`), since its hooks read the streamer synchronously.
 - 2026-11-02 (plan): M7 (cross-grid dependencies) stays the open contract gap recorded in spec §3.6, to be settled
   before 47a; nothing in 46a builds on structure grids.
