@@ -673,6 +673,8 @@ test('Export: the Play project exported and served statically with the backend s
     await expect.poll(async () => standing.y - ((await observe())?.player?.y ?? standing.y), { timeout: 10_000, message: 'the character falls into the pit' }).toBeGreaterThan(1);
     const after = decodePng(await canvas.screenshot({ path: test.info().outputPath('export-after.png') }));
     expect(changedPixels(before, after)).toBeGreaterThan(500);
+    const edits = await game.evaluate(() => (window as unknown as { __tlVoxelPlay?: { edits(): unknown[] } }).__tlVoxelPlay?.edits() ?? null);
+    console.log(`[voxel-export] edit→screen ${JSON.stringify(edits)}`);
     const outside = requests.filter((u) => !u.startsWith(site.url) && !u.startsWith('about:') && !u.startsWith('data:') && !u.startsWith('blob:'));
     expect(outside).toEqual([]);
     const regionReads = requests.filter((u) => regionPaths.has(u.slice(site.url.length)));

@@ -111,7 +111,7 @@ number: Iris Xe, 1280×720, 60 Hz cap, both renderers, ≤ 3 rounds, `uptime` re
 | 46a.10 | done f4f530a4 (+ f305e979 boundary): Scene view streams a `voxelWorld` world round its orbit target in a worker (Play's batches, `VoxelWorldDraws`), reads `voxelsChanged`; command-route dig shown without reload (e2e, pictures looked at). render() CPU 2.1–2.9 / 0.5–0.6 ms p50 with / without (225 chunks). D449 fixed, D437 open. voxel-world.e2e 32.0 → 38.6 s. |
 | 46a.11 | done cd20d996: scenes' worlds ship their listed region files whole (`content/sha256/<digest>`, catalog block `voxelWorlds`, digest-checked, read once a file), `js/voxel-worker.js`; scan green. E2E, backend stopped: world draws, console dig opens the pit. 84.6 KB for 0.016 km² (5.2 MB/km²), cold fill 2.2–2.7 s. voxel-world.e2e 38.6 → 47.7 s. D450 opened. |
 | 46a.11b | done b09ea245, 5764c93d, e0686593: D450 fixed (edit sections waiting for neighbours on their way stay in the swap group; reported once after the whole swap; test fails before). D442 fixed (`look` moved the focus a frame late; first blast now its 8 chunks, was 486–520). undoVoxels refusal, export as built, ctx.voxels doc. Fast gate green 12 min; voxel-world.e2e 47.7 → 46.5 s. |
-| 46a.12 | not started |
+| 46a.12 | done: acceptance on staging + gate e2e, both renderers at the cap. Orbit/flight p95 16.7–16.8, 0 missed; blasts local 1–4 m 1 frame, 8 m 2–3 (town 8 m main 31–58 ms, was 200–220); heap 126→172 → 14.5→20 MB; +40 ms 0 holes; render town 4.0 → 4.6–4.7 ms (miss, not isolated); Play edit → screen 30–52 ms (was 16–17). Pictures + README in acceptance/46a. |
 | 46a.13 | done a2eb64a1: manual `features/voxel-worlds.md` (cells, `voxelWorld`, streaming + budget, Scene view, editVoxels/undoVoxels, not built yet; export line to be confirmed after 46a.11), `guides/voxel-scripts.md` (`ctx.voxels`, examples type-checked), migration note; spec pool default built. Links test + check-docs green. |
 | 46a.14 | not started |
 
@@ -690,6 +690,55 @@ Xe, 1280×720 at the cap, both renderers, one round, 06:45 load 2.8, uptime 10 d
 Fast gate (gate-fast-20261103-064812): GREEN, 12 min, 4.3 GB peak, 36 e2e passed, village perf at the cap 0 missed
 on both renderers (main thread 7.23 / 4.71 ms against 9.02 / 7.84). `voxel-world.e2e.ts` 47.7 → 46.5 s (9.5 + 5.4 +
 6.0 + 5.9 + 5.5 + 7.9 + 6.3 s; no e2e change; load 6.0 at the start, uptime 10 d 14.3 h).
+
+**46a.12** (measurement and acceptance). Staging (the slice and town worlds of `voxel-slice`, the slice regenerated
+fresh for the measure rounds' edits, the originals put back after), headless Chrome on the Iris Xe, 1280×720, DPR 1, the
+display's 60 Hz cap, WebGPU and WebGL 2, 16³ sections; `run.mjs slice --phase measure` ×3, `--phase fly` ×3 (slice) + 1
+(town), `--phase blast --sections 16 --repeats 2` terrain + town (1 round), `run.mjs stream-page --rounds 1 --speeds 80`
+on the 46a.4 hilly world; Play, editor and export numbers from the fast gate's `voxel-world.e2e.ts` (the export test now
+logs its edit → screen, the only code change). 2026-11-03 07:03–07:33, load 1.0–3.9, uptime 10 d 14.6–15.0 h. Reports
+`~/.cache/thirdlight-phase46/work/46a.12/` (scratch); pictures, README for the owner
+`~/.cache/thirdlight-phase46/acceptance/46a/`, every one looked at.
+
+| 46a before → after | Before (source) | After (46a.12) |
+|---|---|---|
+| slice orbit 30 s, p95 / missed | 16.7–16.8, 0 of 1,799 ×3 (45.9) | 16.7–16.8, 0 of 1,799–1,800 ×3, both renderers |
+| slice flight 160 m, p95 / missed | 16.7–16.8, 0 ×3 (45.9) | 16.7–16.8, 0 of 1,619–1,620 ×3, both |
+| cold fill (slice page) | 2.35–2.48 s (45.9) | 3.4–3.8 s WebGPU, 3.0–3.5 s WebGL 2 (5,904 resident, was 5,376: 46a.4's crescent and row neighbours) |
+| blast local, terrain 1 / 2 / 4 / 8 m (frames) | 1 / 1 / 1 / 2 (45.10c 16³, 46a.6a) | 1 / 1 / 1 / 2, both; main + build 8 m 20–40 ms, 0 missed |
+| blast local, town 1–4 m / 8 m (frames) | 1–2 / 3–5 (45.10c), 2–3 (46a.6a) | 1–2 / 2–3; 8 m main + build 31–58 ms (45.10c 200–220, 46a.6a 50–104); one 33 ms frame in 8 of 48 town blasts, none on terrain |
+| blast command, terrain / town (frames) | 3–5 / 3–7 (45.10c), 4–5 (46a.6a) | 3–4 / 3–5; WebGL 2 town middle 2–8 m 6–9 (backend answer 60–95 ms, else 9–24) |
+| every blast atomic (draws + bodies one frame, one swap) | yes (288 blasts, 45.10c) | yes (96 blasts) |
+| render() CPU p50, slice / town | 1.4–1.6 / 4.0 ms (46a.5b) | 1.5–2.0 / 4.6–4.7 ms (town p95 8.1 WebGPU, 5.3 WebGL 2) |
+| bodies, slice cold → after flight | 448 (45.9), 53 → 58 (46a.6b) | 53 → 58 (town 77 → 87) |
+| Rapier heap cold → after flight | 126 → 172 MB (45.9); 14.6 → 20 MB (46a.6b) | 14.5–14.7 → 19.9–20.1 MB; town 6.2–7.5 → 14.8–14.9 MB |
+| body add / remove p50 / p95 (flight) | 2.2 / 4.0, 0.2 / 0.9 ms (45.9) | slice 2.0–2.1 / 2.8–3.3, 0.1 / 0.2 ms; town 0.8 / 2.4–2.5, 0.5–0.6 / 1.0 ms; ring update p95 4.9–5.5 |
+| streaming +40 ms, 80 m/s: near holes p50 / p95 of 1,344 | 761 / 1,148 (45.5b); 0 / 0 (46a.4) | 0 / 0 both; 15.8–16.4 MB fetched; frame p95 16.67, ≤ 1 missed |
+| edit (command) → visible p50 (max), slice page | 65 / 64 ms (45.9) | 65 (88) / 64 (65) ms, 10 edits each, 3 frames; colliders 44–45 ms |
+| edit → screen, Play (sim worker / single thread) | 17.1 / 15.9 ms, 1 / 2 frames (46a.7b) | 51.7 / 30.1 ms, 4 / 3 frames (sim swap 42.5 / 22.6 ms); one sample each |
+| edit → screen, export (WebGPU, sim worker) | – | 15.9 ms, 1 frame (swap 11.7 ms); cold fill 1.9 s, 219 chunks |
+| stream memory, slice cold → after flight | 67 → 84 MB (45.9), 114 with grids (45.10b) | 100 → 135–138 MB of 256 MiB (shader grids 40.2 MB GPU, physics 15.1 → 17.3 MB counted) |
+| stream memory, town | 249.6 MB at cold fill (46a.6a, bodies uncounted) | 233–235 MB with bodies counted (7.0–7.7 MB) |
+| prop light channel | – | not in the slice/town pages (no lit props); 46a.9: 0 / 4.5 / 13.5 MB at 0 / 100 / 1,600 props |
+| export: shipped region files held, outside the budget | – | e2e world 84.6 KB; staging slice world 1.24 MB (8 files); worst case 64 open × 0.37 MB (hilly max) ≈ 23 MB (9 % of 256 MiB) |
+| `voxel-world.e2e.ts` | 46.5 s (46a.11b) | 39.6 s (7.8 + 4.5 + 4.9 + 4.8 + 5.0 + 7.2 + 5.4 s) |
+
+- **Misses and causes.** Town render() CPU +15 % against 46a.5b (4.0 → 4.6–4.7 ms; slice within noise): not isolated;
+  the change since on this path is 46a.7c's camera-relative model-view made per draw (a 4×4 product and an
+  object-update uniform per draw, 950 chunk draws plus pieces); left for the performance phase. Play edit → screen
+  30–52 ms (was 16–17): the simulation's own edit → swap took 22.6–42.5 ms (was 6.8–10.4); the sim → page hop and the
+  apply stayed ≤ 0.8 ms. One sample each; candidates, not isolated: 46a.11b's rule that an edit's sections wait for
+  neighbours still on their way (the dig follows the cold fill closely) and the sim worker's load (round trip avg
+  19 ms, max 129 ms during the fill). The export (same dig, same world) showed it in 1 frame. Cold fill 3.0–3.8 s
+  (was 2.4): the larger ring of 46a.4. WebGL 2 town middle command blasts 6–9 frames: the backend's answer (60–95 ms,
+  the region file written), not the page (swap 21–77 ms). Town blasts: one 33 ms frame in 8 of 48 (2–8 m; main + build
+  ≤ 58 ms in one task).
+- **Memory gap.** A shipped region file is kept whole while its region is open (46a.11); at the measured sizes that is
+  ≤ 23 MB outside the 256 MiB budget in the worst case (64 files of the hilly world's largest), 1.2 MB for the whole
+  staging slice world. The stream after the flight (135–138 MB) is the ring around the focus and the lead point plus
+  the wider unload ring (7,750–7,920 resident).
+- Fast gate (gate-fast-20261103-072002): GREEN, 11 min, 5.1 GB peak, 36 e2e passed, village perf at the cap 0 missed
+  on both renderers (main thread 5.79 / 4.17 ms against 9.02 / 7.84).
 
 **46a.2** (1bf03832 boundary, e48969c5 schema). No perf item. `voxelWorld {world, ring?, collision?, sectionEdge?,
 savedFields?}` (metres; unset = the voxel defaults, resolved by `resolveVoxelWorld`: load 192/224 m across, 96/128 m
