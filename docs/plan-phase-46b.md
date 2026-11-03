@@ -120,7 +120,7 @@ is vitest at real boundaries (real derive, real workers, region files on disk, r
 | 46b.10 | done (41643ba9; fast gate green): D443 is Rapier 0.20's heightfield cast; the port sweeps heightfields a cell at a time (fixed). Sloped heightfields on, in patches per chunk: ground chunks with fields slice/hilly 0 → 53/54 % (eligible 32 %), town 24 → 42 %; flight heap slice 12.2 → 16.4 vs 2.3 → 2.4 MiB. Slanted sweeps 21 → 86 µs p50. D466 open. |
 | 46b.11a | done (this commit; fast gate green): 288 blasts, both renderers. L0: atomic, local 1–4 m 1–2 frames, 8 m 2–3 (main 18–52 ms), commands 3–5 as 46a.12; ancestors next swap. L1: shown 3–9 frames (mip job chain), not atomic: nodes over 2–6 frames (D467). Cliff/cave shots looked at. |
 | 46b.11c | done (a8b890e1; fast gate green after a D417 rerun): an edit's shown nodes (drawn or read by a drawn seam) and their seams go in with its level-0 swap, in one task; its mip jobs in the edit lane. Staging, 144 L1 blasts, both renderers: 0 split (was 107); local 1–4 m 1–4 frames, 8 m 2–5 (was 3–9); cause of > 1: the downsample → derive → seam chain. D467 fixed. |
-| 46b.11b | not started |
+| 46b.11b | done (this commit; fast gate green): staging, both renderers at the cap. Triangles slice 0.90 M naive / 1.17 M 46a → 0.31 M, town 2.87 / 1.96 → 0.77 M; flight p95 16.7–16.8 ms, 0 missed, 114–119 level changes, pops only at the horizon; mesher µs/section p50 100–300 (town/features over budget); WebGPU +1.1–1.5 ms GPU with L1 nodes (D468); L0 blasts unchanged. |
 | 46b.12 | done (this commit; docs only, no gate): spec §3.7 one terrain/levels/seams/LOD-selection subsection as built, derived v3 → v9 history with its owner notes in one place (no stored format changed), §3.8 row 8 → 9, §4 rows; requirements trace R107–R109 (holds/misses, hard cases, D462/D463); manual "Distance levels". No API change: reference not regenerated. |
 | 46b.13 | not started |
 
@@ -1168,6 +1168,62 @@ Fast gate (gate-fast-20261103-220009, uptime 11 d 5.5 h, load 3–5.4): vitest a
 (`start.e2e.ts` stop), GREEN on the rerun (gate-rerun-20261103-221305, perf at the cap in limits); 12 min, 5.4 GB peak.
 `voxel-world.e2e.ts` 58.7 s (sum of its tests; not touched; 56.6 s at 46b.11a, the host's load). L0-ring blasts were
 not re-run on staging (their ancestors are not shown, so they do not wait; the vitest dig tests cover it).
+
+### 46b.11b acceptance
+
+**Run** (staging, dist of 3bca9dc4 plus the page's `?sun=` elevation and `state().mips.seamBytes`, headless Chrome on
+the Iris Xe, 1280 × 720, DPR 1, the 60 Hz cap, WebGPU and WebGL 2, default rings; 22:19–22:40, uptime 11 d 5.9–6.2 h,
+load 1.3–4.7; 3 rounds of frames/GPU/flight, 1 round of the A/B and of the L0 blasts; scratch scripts and raw
+numbers `~/.cache/thirdlight-phase46/work/46b.11b/`; pictures and the owner's README
+`~/.cache/thirdlight-phase46/acceptance/46b/README.md`).
+
+| | before | 46b.11b, WebGPU / WebGL 2 |
+|---|---|---|
+| triangles drawn, slice (page overview, cold) | 0.90 M naive (45.10c), 1.17 M 46a | 0.31 M (L0 to the ring, same build 0.81 M; after a flight 0.38 M) |
+| triangles drawn, town | 2.87 M naive, 1.96 M (46b.5, L0 only) | 0.77 M |
+| mesher µs a 16³ section, browser workers, mesh p50 / p95 | terrain 100 / 600, town 200 / 800 (45.10c) | terrain 100–200 / 1,000–1,200, features 200–300 / 700–1,000, town 300 / 900 |
+| whole section derive (rules + mesh + consumers) p50 / p95 | 300–400 / 800–1,100 | 400–500 / 900–1,500 |
+| flight 160 m out and back: p95, missed | 16.7–16.8, 0 (46a.12) | 16.7–16.8 / 16.7, 0 of 1,620 each (3 rounds) |
+| level changes, swaps, swap ms p50 / p95 a flight | 23 changes (46b.8a, Node, faster flight) | 114–119, 476–496, 0.7 / 6.3–7.5 |
+| render() CPU p50 slice / town | 1.5–2.0 / 4.6–4.7 (46a.12) | 1.2–1.4 / 2.5–3.8 |
+| GPU ms slice oblique, top-down | 7.1 / 3.8 blend (45.10b) | 7.9–8.2 / 3.8–4.3; 9.5–9.7 / 4.6–4.7 |
+| GPU ms town oblique, top-down | – | 4.9–5.7 / 3.7–3.8; 4.5–4.6 / 4.3–4.6 |
+| stream MB slice cold → after the flight; town | 100 → 135–138; 233–235 (46a.12) | 46.9 → 61.7–63.0; 83.8 |
+| of it mips (cells, seams) | – | slice 8.2 (1.6, 0.06) → 11.2–11.6 (seams 0.09); town 11.5 (seams 0.21) |
+| physics slice: bodies, Rapier heap | 53 → 58, 14.5 → 20 MiB (46a.12) | 53 → 58, 2.3–2.4 MiB (46b.10's patches) |
+
+- **Mesher sections** are the 528 / 444 / 480 sections the L0 blasts re-derived (the swap reports' `meshUs`,
+  `deriveUs`; the workers' timer has 100 µs steps). The 0.1–0.2 ms budget is met on terrain and missed on the
+  features row and the town (mesh 0.2–0.3 ms, 0.4–0.5 ms with the rules). Causes, as measured in Node at 46b.3b/46b.4:
+  the rules' evaluation (~100 µs a section), lattice normals over 4 × 4 columns, crease splits; blast sections are
+  denser in surface than a ring's average. Recorded, not tuned.
+- **Pops** (a scratch flight: 160 m out and back in 1 m steps, the camera held 8 frames after each step, every held
+  frame compared with the one before it at half resolution): of 78–84 level changes seen in held frames per flight,
+  ~90 % changed no pixel and the rest 1–1,358 of 230,400 pixels, all in the horizon band; streaming swaps changed up to
+  2,481, also there. Looked at: blocks of terrain appearing against the sky at the load ring's edge and the far
+  ridge filling in as the ring's last level-1 stand-ins land (D463's family; the far field is 46d's). No pop seen on
+  the near ground. 318–352 `lost` events a flight (a drawn node leaving with its result at the ring's edge).
+- **WebGPU oblique GPU time (46b.8b), one A/B** (slice, default rings / level 0 to the ring / level 1 everywhere but
+  4 m): WebGPU oblique 8.08 / 7.01 / 8.15 ms, top-down 9.56 / 8.15 / 10.6; WebGL 2 3.76 / 4.13 / 3.83 and 4.69 / 4.65 /
+  4.25. The extra time follows the level-1 node draws on WebGPU alone: not the seams (6 against 18 seams cost alike),
+  not triangles (level 1 a quarter of them), and it shows from above too (46b.8b's top-down pair was equal at another
+  pitch). Whether it is the coarse draws' per-pixel cost or less early depth rejection with fewer, larger objects was
+  not separated in one round: D468, for the performance phase.
+- **L0 blasts re-run** (`run.mjs slice --phase blast --ring 0`, terrain, `--spots features`, town; 144 blasts):
+  every swap atomic (chunks and bodies in one frame); local 1–4 m 1 frame everywhere (46b.11a: cliff and town 1–2),
+  8 m 2–3 (town WebGPU middle 3–4), commands 3–5 (one town-corner 8 m on WebGL 2 7 frames, workers 99 ms); main ms
+  terrain 4–27 / 21–39, cliff 24–33 / 36–54, cave 17–19 / 37–48 (first use 141–148), town 3–37 / 32–53; ancestors at
+  L1 2–7 frames later (not shown there). 46b.11c left level-0 blasts as they were.
+- **Looked at** (pictures and per-shot notes in the README): all 14 hard cases at L0 on WebGPU, 7 of them on WebGL 2
+  (every WebGL 2 copy within 53 pixels of its WebGPU twin): closed, every one-cell feature present, creases sharp.
+  A 12° sun (`?sun=12`, WebGPU): no stair banding on 1:20 or 1:5, terraces and bump rims read, shading continuous
+  across the level boundary on the slice. The L0\|L1 boundary from 3–25 m with level 0 at 16 m, the cliff at L1 and
+  the seam across its block: no double-drawn band, no shading jump, no crack in stills. The slice from above with
+  rings against level 0 everywhere: no pixel differs inside the ring, only its outer staircase. The town near, far
+  and with rings 16 / 48 m: houses closed and roofed at L1 and L2. The cave saddle (D462) is in the bench's caves world,
+  not on staging: not seen. Unverified: the band's shimmer with the camera moving; low sun on WebGL 2; the high tier.
+Fast gate (gate-fast-20261103-224009, uptime 11 d 6.2 h): GREEN, 12 min, 5.2 GB peak, perf at the cap in limits.
+`voxel-world.e2e.ts` 58.0 s (sum of its tests; its tests untouched, the page gained two measuring hooks; 58.7 s at 46b.11c).
 
 ## 8. Decision log
 

@@ -44,7 +44,7 @@
  * chunk's shader data: `?blend=` sets the blend distance in metres (default
  * a quarter metre, half a cell), `?shading=flat` draws one colour with no texture
  * reads (to measure what the blend costs), `?gpuTime=1` records GPU
- * timestamps where the device has them.
+ * timestamps where the device has them, `?sun=` sets the sun's elevation in degrees.
  */
 import * as THREE from 'three';
 import {
@@ -96,6 +96,8 @@ const workers = Number(params.get('workers') ?? defaultVoxelWorkers());
 const blendM = Number(params.get('blend') ?? VOXEL_SIZE_M / 2);
 const shading = params.get('shading') === 'flat' ? 'flat' : 'blend';
 const gpuTime = params.get('gpuTime') === '1';
+/** `?sun=deg`: the sun's elevation in degrees (default the page's fixed light). */
+const sunElevationDeg = params.get('sun') === null ? null : Number(params.get('sun'));
 const grid = chunkGrid(32);
 const sectionParam = Number(params.get('section') ?? DEFAULT_SECTION_EDGE) as SectionEdge;
 const sectionEdge: SectionEdge = SECTION_EDGES.includes(sectionParam) ? sectionParam : DEFAULT_SECTION_EDGE;
@@ -179,7 +181,9 @@ async function main(): Promise<void> {
   scene.background = new THREE.Color(0x9fc4e8);
   scene.add(new THREE.HemisphereLight(0xdfefff, 0x4a4030, 1.3));
   const sun = new THREE.DirectionalLight(0xfff2dc, 2.2);
-  sun.position.set(0.5, 1, 0.3);
+  // ~60° high by default; `?sun=` lowers it (same azimuth) so slope banding and creases can be looked at in grazing light.
+  const sunHorizontal = Math.hypot(0.5, 0.3);
+  sun.position.set(0.5, sunElevationDeg === null ? 1 : Math.tan((sunElevationDeg * Math.PI) / 180) * sunHorizontal, 0.3);
   scene.add(sun);
   const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 1500);
 
@@ -539,7 +543,7 @@ async function main(): Promise<void> {
         heapMB: Number((heap / 1e6).toFixed(1)),
         gpu: rendererMemory(renderer),
         deriveUs: { p50: q(streamer.deriveUs, 0.5), p95: q(streamer.deriveUs, 0.95), n: streamer.deriveUs.count },
-        mips: mips === null ? null : { nodes: mips.nodeCount, bytes: mips.bytes, cellBytes: mips.cellBytes(), downsampleUs: { p50: q(mips.downsampleUs, 0.5), p95: q(mips.downsampleUs, 0.95), n: mips.downsampleUs.count }, deriveUs: { p50: q(mips.deriveUs, 0.5), p95: q(mips.deriveUs, 0.95), n: mips.deriveUs.count }, counters: { ...mips.counters } },
+        mips: mips === null ? null : { nodes: mips.nodeCount, bytes: mips.bytes, cellBytes: mips.cellBytes(), seamBytes: mips.seams.bytes, downsampleUs: { p50: q(mips.downsampleUs, 0.5), p95: q(mips.downsampleUs, 0.95), n: mips.downsampleUs.count }, deriveUs: { p50: q(mips.deriveUs, 0.5), p95: q(mips.deriveUs, 0.95), n: mips.deriveUs.count }, counters: { ...mips.counters } },
         meshMs: { p50: q(meshMs, 0.5), p95: q(meshMs, 0.95), n: meshMs.count },
         surface: { shading, blendM, meshBuilds: meshes.meshBuilds, shaderSets: meshes.shaderSets, regions: meshes.regions, gridGpuBytes: surface.grids.gpuBytes, gridUploads: surface.grids.uploads, gridUploadedBytes: surface.grids.uploadedBytes, gridGrown: surface.grids.grown, uploadMs: { p50: q(meshes.uploadMs, 0.5), p95: q(meshes.uploadMs, 0.95), n: meshes.uploadMs.count } },
         swaps: meshes.meshBuilds,
