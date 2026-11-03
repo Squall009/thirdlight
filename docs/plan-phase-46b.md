@@ -116,7 +116,7 @@ is vitest at real boundaries (real derive, real workers, region files on disk, r
 | 46b.8b | done (71afe7cb; fast gate green): the batcher sends only what the level choice draws (chunks, nodes, seams; a level swap one batch), the view draws a node per level and seams from its node's grid, blend in metres; page, Play, Scene view. Slice / town render CPU 1.4–1.5 / 3.0–3.2 ms, 0.31 / 0.80 M tris drawn. D464 (grass stripes), D465 (roofless houses at L1). |
 | 46b.8c | done (89598c15; fast gate green): mip material = the material of the cells nearest the surface (derived v8), the shader reads 0.125 m deep at every level. Columns showing another material than L0: hills L1 / L2 20.8 / 71.0 % → 0 / 0.005 %, hard cases 74.1 / 85.0 % → 0.007 / 0.09 %. Downsample µs a node +20–30 % (Node). Stripes gone on staging, both renderers. D464 fixed. |
 | 46b.9 | done (b797a34e; fast gate green): pieces per level (L0 high, L1 `low` flag, L2+ none, their cells drawn as bodies; `VoxelPieceMeshes` hook for 46c, stand-in low box 8 tris), derived v9. D465: mip bodies hold a cell by cells (half, or 2 sheet cells): shells closed at L1/L2 (rays out 7–19 / 96 → 0), town tris L1 431 → 386 k, L2 82 → 106 k (houses kept). |
-| 46b.10 | not started |
+| 46b.10 | done (41643ba9; fast gate green): D443 is Rapier 0.20's heightfield cast; the port sweeps heightfields a cell at a time (fixed). Sloped heightfields on, in patches per chunk: ground chunks with fields slice/hilly 0 → 53/54 % (eligible 32 %), town 24 → 42 %; flight heap slice 12.2 → 16.4 vs 2.3 → 2.4 MiB. Slanted sweeps 21 → 86 µs p50. D466 open. |
 | 46b.11a | not started |
 | 46b.11b | not started |
 | 46b.12 | not started |
@@ -956,6 +956,88 @@ limits; vitest failed once only on `stream.test.ts` (the refresh test, 5.2 s of 
 touched), passed alone in the gate's rerun. `voxel-world.e2e.ts` 57.6 s (sum of its tests; not touched; 63.8 s at
 46b.8c under load).
 
+### 46b.10 collision on the new mesh (D443)
+
+**D443 re-checked** (scratch scripts `~/.cache/thirdlight-phase46/work/46b.10/{repro,bins,stepped3}.mjs`, raw Rapier from
+the lockfile: rapier3d-compat **0.20.0**; the D443 row said 0.12.0, the version three's types pull in at the root). A
+32 × 32 heightfield against the same triangles as an oriented trimesh (the split checked by thin rays: < 0.01 mm),
+balls 0.05–1 m, Node 22, 20:10–20:35, uptime 11 d 3.8 h, load 1–4:
+- Slanted casts (bumpy, 0.5 m cells): 6.6 % land more than 1 cm late or miss (worst 2.4 m); a tilted plane 6.7 %
+  (0.5 m); steep ground 8.5 %. Casts straight down: 0 of 4,000. Never early. `HeightFieldFlags.FIX_INTERNAL_EDGES`:
+  the same; the voxel quarter turn plays no part (the plain field shows it).
+- By the cells crossed before the touch: under 2 cells 0 of 1,521 wrong, 2–3 cells 1.1 %, 3+ cells 9–17 % (0.25 m
+  and 2 m cells alike). Short casts from near the ground (≤ 0.5 m, a character's step) 0 wrong. So it is Rapier's
+  heightfield shape cast (its walk over cells from where the shape's box enters), not our usage.
+- Disagreements with the trimesh were checked against a brute-force sweep (point–triangle distance every 2 mm): the
+  trimesh is right; the few left (≤ 1 in 1,500) are grazes within 5 mm, where any two exact answers may differ.
+- Splitting the field into 2 × 2-cell heightfields still left 0.5–1.4 % wrong. Casting at most one cell across the
+  field at a time: **0 wrong** of 1,449–2,776 non-grazing casts at 0.25, 0.5 and 2 m cells.
+
+**Fix (shared physics code):** `packages/physics-rapier/src/sweep3d.ts` (`castBall`, the port's `castSphere`): one cast
+against everything but heightfields, then the heightfields whose box meets the swept ball in casts of at most one of
+their cells across them (the stride in the field's own frame, from its scale and rotation), up to the first hit;
+Rapier's own filters on every cast. Terrain tiles (one heightfield a tile) go through the same port: their sphere
+casts (the camera's pull-in, scripts) had the same error and are fixed by it; their character walking is
+unchanged. The character controller's sweeps stay Rapier's: tested equal within 1.04 cm over a 9 m walk and fall on
+bumpy ground (per step ≤ 1.1 cm, contacts at triangle edges; a late sweep would show as centimetres to metres).
+Cost: a slanted sweep in the slice window (`run.mjs collision`) 21 / 47 µs p50 / p95 on meshes, 86 / 252 µs with
+heightfields (Rapier's heightfield cast is already 3–4× a mesh cast, the cell steps add ~40 %); town 16 → 48 µs p50.
+
+**Heightfield patches** (`groundHeightfieldPatches`, ground-heightfield.ts; `collisionGeometry` takes them by default,
+`'level'` keeps the old level-only rule, `false` none; the slice page's `?heightfields=level|0`). The chunk's lattice is
+read once: node heights, nodes under two heights, cells under a downward triangle, and per cell the largest distance
+from the surface to the field at every overlay vertex (as before, now attributed to every cell a point lies in).
+Cells that pass are covered by rectangles (greedy along x, grown along z); a rectangle under
+`MIN_HEIGHTFIELD_PATCH_CELLS` (16) stays triangles (a 1 KB field and a 0.7 KB collider cost more than ~6 cells of
+triangles). One body a chunk, several fields in it, the rest triangles. A chunk with boxes (a wall on the ground) is
+no longer refused: its ground round them can be patches. A cell whose edge carries a riser (a cliff face, a block's
+side) stays triangles. Whole-chunk `groundHeightfield` (the "eligible" measure of 46b.3) reads the same lattice.
+
+Shares (`run.mjs collision`, Node, 20:42, uptime 11 d 4.3 h, load 3.2–3.9; report
+`~/.cache/thirdlight-phase46/work/46b.10/bench/collision-{hf,level,mesh}.md`):
+
+| World | Ground chunks | Whole-chunk eligible | With fields: before (level only) → patches | Ground triangles under fields | Still meshes | WASM heap, every body (MiB): level → patches |
+|---|---|---|---|---|---|---|
+| slice (±192 cells) | 324 | 105 (32 %) | 10 (3 %) → 173 (53 %), 635 patches | 0 → 49 % | facing (the world's underside) 144, uncovered 7 | 78.4 → 40.9 |
+| hilly (±192 cells) | 327 | 105 (32 %) | 5 (2 %) → 175 (54 %) | 0 → 49 % | facing 144, uncovered 8 | 78.0 → 40.7 |
+| town (512²) | 605 | 211 (35 %) | 256 (42 %) → 256 (42 %) | 39 % | facing 287, uncovered 62 | 125.9 → 130.7 |
+
+46a.6a's 0 / 0 / 24 % was the surface nets with whole-chunk fields; the slice's 3 % "before" is today's mesher under
+the old level-only rule. Of the slice's 180 ground chunks that are not the world's underside 173 (96 %) carry fields,
+nearly all of their ground triangles. The town is level ground already (patches = level patches; its heap is the
+houses' boxes). Add ms a body p50: slice 2.8 → 1.5.
+
+Flight (`run.mjs slice --phase fly --trips 3`, staging, WebGPU, 1280 × 720 at the 60 Hz cap, the default collision
+ring, same build A/B with `&heightfields=level`; 20:44–20:50, uptime 11 d 4.3 h, load 1.3–3.4; reports
+`~/.cache/thirdlight-phase46/work/46b.10/fly-*`): every frame 16.7 ms p95, 0 missed.
+
+| | Bodies cold → after | With fields | Counted MiB | Rapier heap cold → trips 1/2/3 (MiB) | Add ms p50 / p95 | Remove | Ring update p50 / p95 |
+|---|---|---|---|---|---|---|---|
+| 46a.12 slice | 53 → 58 | 0 | 15.2 → 17.4 | 14.5 → 20 | 2.0 / 2.8–3.3 | 0.1 / 0.2 | – |
+| slice, level only | 53 → 58 | 6 | 12.0 → 13.5 | 12.2 → 15.5, 16.4, 16.4 | 1.9 / 2.7 | 0.0 / 0.2 | 2.4 / 4.6 |
+| slice, patches | 53 → 58 | 50 → 55 (262 patches) | 1.3 → 1.4 | **2.3 → 2.4, 2.4, 2.4** | 0.7 / 1.2 | 0.1 / 0.2 | 1.2 / 2.8 |
+| town, level only | 77 → 87 | 38 → 43 | 5.9 → 6.5 | 6.1 → 11.4 ×3 | 0.9 / 2.4 | 0.5 / 0.9 | 2.3 / 5.0 |
+| town, patches | 77 → 87 | 38 → 43 (62) | 5.9 → 6.5 | 6.0 → 11.1 ×3 | 0.9 / 2.3 | 0.5 / 0.8 | 2.3 / 5.1 |
+
+Churn over the slice flight: 608 adds, 550 removes. The heap stops growing after the first trip in every run. The
+1.2 MB of an empty world is in each heap figure.
+
+Tests (real derive, real Rapier): `physics-rapier/src/port3d-queries.test.ts` (+2): slanted sphere casts on a bumpy
+heightfield, plain and turned a quarter, land within 1 cm of the same triangles as a mesh (grazes the mesh's ball
+5 mm thinner passes aside, < 5 %); a character walking and falling over the field goes where it goes on the mesh
+(within 2 cm over 9 m: the contacts' own millimetres). `tools/voxel-bench/collision.test.ts`: the bumpy lattice chunk
+is a field by default (`level`: none), sweeps added; the town compares patches of joined sections with the whole
+derive's; the overhang chunk has patches but none over the ledge, the walled chunk keeps its boxes beside a patch,
+ground climbing out of the chunk's top leaves patches on both sides of the block (none over it); new: the features
+row (14 hard cases), every chunk's body with patches against all meshes: ~3,400 rays, 300+ capsule drops and
+3,000 slanted sweeps within 1 cm, 58 of 60 ground chunks above the base with fields (54 % of their triangles), no
+patch over a column with air a cell deep under solid (ledge, arch, cave roof, the slab's hole). Both new sweep tests
+fail with the plain Rapier cast (checked once by hand). Dropping capsules against a cliff face made the port throw
+on both shapes (D466): the test drops where nothing stands within 0.6 m.
+Fast gate (gate-fast-20261103-205103, uptime 11 d 4.4 h, load 1–5): GREEN, 12 min, 5.0 GB peak, perf at the cap in
+limits. `voxel-world.e2e.ts` 57.5 s (sum of its tests; not touched; 57.6 s at 46b.9). `collision.test.ts` ~26 s alone
+(the hard cases ~10 s of it).
+
 ## 8. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **LOD rings live inside the existing load ring** (192 m): mips
@@ -1193,6 +1275,16 @@ touched), passed alone in the gate's rerun. `voxel-world.e2e.ts` 57.6 s (sum of 
   there; the town and the hip roof do not. Drawing built cells at level 0 further (the other D465 option) was not
   taken: it costs the town's triangles the levels save.
 
+- 2026-11-03 (46b.10, default chosen, owner to confirm): **sloped heightfields on by default, in patches per chunk**
+  (not fields spanning a chunk column): a body stays one chunk's, so an edit's swap, the collision ring and the
+  budget part stay per chunk; a column field would make a chunk's body depend on the chunks above and below. Patches
+  of at least 16 cells; boxes no longer refuse a chunk; overhang, cave-roof and arch cells and the cell beside a
+  riser stay triangles ("overhang/cave chunks stay meshes" read as their cells). `'level'` keeps the old rule.
+- 2026-11-03 (46b.10, for the owner): **D443 is Rapier 0.20.0's heightfield shape cast**; the port now sweeps
+  heightfields a cell at a time, exact, at 3–4× a mesh sweep's cost (86 vs 21 µs p50 a slanted sweep in the slice);
+  the trade is the slice ring's physics heap 16.4 → 2.4 MiB. Rapier 0.21.0 is on npm (checked 2026-11-03); whether it
+  fixes the cast is untested; an update is the owner's decision (pinned dependency), and would let `sweep3d.ts` go.
+
 ## 9. Open questions for the owner
 
 - Ring distances (64/128/192 m) and whether 46b should also reach past the load ring or leave that to 46d's far field.
@@ -1202,3 +1294,4 @@ touched), passed alone in the gate's rerun. `voxel-world.e2e.ts` 57.6 s (sum of 
 - Seams by the coarser side's transition strip (46b.7a) instead of the finer side's stitch, and the residual hole at a cave saddle the levels connect differently.
 - Level 2 not drawn in the default 192 m load ring (46b.8a: level 1 stands in at the edge) — grow the ring, or leave level 2 to 46d's far field.
 - The coarse levels' look (46b.8b): roofless houses at level 1 (D465) fixed by thickening one-cell shells at coarse levels (46b.9, derived 9; lines such as fences leave); the earth stripes (D464) by the surface's material (46b.8c, derived 8).
+- Heightfield patches for sloped voxel ground (46b.10; physics heap −85 % in the slice ring) at the price of sphere sweeps 3–4× slower, or update Rapier (0.21.0 untested against D443).
