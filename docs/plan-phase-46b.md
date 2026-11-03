@@ -109,7 +109,7 @@ is vitest at real boundaries (real derive, real workers, region files on disk, r
 | 46b.5 | done (05145625 + this commit; fast gates green): base faces merged per section, no T-junction (derived v6): town (terrain rules, 32³) 2.72 → 1.62 M triangles (base 1.41 → 0.30 M), base bytes a chunk 16.4 → 2.5 KB, drawn 2.96 → 1.96 M; derive µs equal. D461 fixed: lips on the true edge, terraces-1 max 12.2 → 2.5 cm, normal p95 73 → 4.5°. |
 | 46b.6a | done (this commit; fast gate green after a rerun): nodes derive through the chunk derive (`mip-derive.ts`, level recorded, derived v7); downsample keeps fill = solid share, roles by priority. L1/L2 hard cases closed, max error 0.50 / 1.11 m (≤ the level cell), features ≥ the cell kept; triangles slice 1.05 M → 262 k → 66 k, town 1.62 M → 431 k → 82 k; derive µs a node ≈ a chunk's. |
 | 46b.6b | done (this commit; fast gate green): `stream-mips.ts`: nodes L1/L2 downsampled (`mip` jobs) and derived (`level`) in workers from resident chunks, lane `mip` last, `bytes.mips` in the budget, dig re-derives its 2 ancestors only. Slice ring (Node): 330 L1 + 13 L2 nodes, 6.4 MB (level 0 25.4 MB); µs a node p50 downsample 2,600, derive 1,600. |
-| 46b.7a | not started |
+| 46b.7a | done (this commit; fast gate green): `lod-seams.ts`, `run.mjs seams`: 28 two-level patches (11 hard cases, hilly, caves, town; L0\|L1, L1\|L2), 2.8 M rays. Pick (owner to confirm): coarser side's transition strip + flaps where shapes differ: 0 cracks except a caves saddle (380 of 0.62 M rays, none 50,600), +42–45 tris and ~50–70 µs a fine face, L0 untouched. |
 | 46b.7b | not started |
 | 46b.8a | not started |
 | 46b.8b | not started |
@@ -571,6 +571,80 @@ Fast gate (gate-fast-20261103-142919, uptime 10 d 22 h, load 3.6 at the start, 6
 peak, perf at the cap in limits; vitest red only on D418 (`scan-bounded-log.test.ts`, passed alone in the gate's
 rerun). `voxel-world.e2e.ts` 48.9 s (not touched; 43.2 s at 46b.6a; its pages now build mips after level 0).
 
+### 46b.7a seams between levels
+
+`tools/voxel-bench/lod-seams.ts` (`run.mjs seams`, `seams-cli.ts`). A **patch** is one layer of nodes of the finer
+level on one side of a node face and the coarser level's nodes on the other, every node derived by the derive
+(`deriveFromStore` / `deriveMipNode`, terrain rules), ground and base welded per side. Patches: 11 hard cases cut
+through their middle (the row moved by whole chunks so the face at z 64 / 128 runs through each case: slope 1:5, bank,
+cliff, terraces 1 and 2, overhang, arch, cave, wall-1, hole-1, bumps), the hilly world (face x 128, finer side above),
+caves (x 256, finer below) and the town (x 256, ground and houses' base surface); each at L0|L1 and L1|L2.
+Candidates, all post-derive passes over the two sides' meshes: **stitch** (the finer side's boundary vertices at the
+face move to the nearest point of the coarser side's boundary, and the finer side fans the strip over the coarser
+boundary vertices it passes); **transition** (the same with the sides swapped: the coarser node meets the finer one
+at its full resolution, Transvoxel's placement in dual form; real Transvoxel tables need the marching-cubes mesher
+46b.3a rejected); **skirts** (a flap one coarse cell deep under every boundary edge on both sides, inward along the
+normals) and **skirts-down**; **+flaps** (stitch or transition plus flaps only under the edges the strip could not
+join: folded, or ends on different boundary chains, and target edges no strip reached); **transition+skirts**.
+
+Measures: **crack rays** = rays from a point outside every surface (level 0 and both patch levels, 0.4 of a cell
+clear; inside asks 0.9 at level 0 so one-cell bodies drawn as pieces never count) to a point inside, meeting no
+front-facing triangle (what a renderer culling back faces sees through); from above on a ¼-cell grid two coarse
+cells either side of the face, and through a grid on the face (½ cell along, ⅛ coarse cell up, ±1 coarse cell round
+either side's boundary) in 50 directions (vertical; 8 azimuths at ±5°, ±20°, ±60°). Rays that either level alone
+(that level on both sides) lets through are left out: **0 of 2.8 M** in every patch, so the truth is clean. Open m =
+open edges in the band not lying along another open edge within 1 mm (T-junctions count closed; skirts are open by
+design). µs = the seam pass alone (bench code, Node 22, i5-12600H, 15:07–15:10, uptime 10 d 22.7 h, load 3.7–4.2,
+one run; an earlier sparser run agreed on every count), divided by the finer side's nodes on the face.
+Report `~/.cache/thirdlight-phase46/work/46b.7a/full/seams.md`.
+
+| Levels | Candidate | Patches with cracks | Crack rays (of 1.53 M / 1.26 M) | Open m | Added tris a fine face | µs a fine face p50 | Folds | Unmatched | Largest move |
+|---|---|---|---|---|---|---|---|---|---|
+| L0\|L1 | none | 14 / 14 | 56,496 | 2,708 | 0 | 0 | — | — | — |
+| L0\|L1 | stitch | 1 / 14 (caves 817) | 817 | 209 | 25 | 52 | 599 | 21 | 29 m (town roofs → ground) |
+| L0\|L1 | transition | 1 / 14 (caves 653) | 653 | 271 | 40 | 51 | 23 | 12 | 5.0 m (caves), else ≤ 0.55 m |
+| L0\|L1 | transition+flaps | 1 / 14 (caves 380) | 380 | 397 | 42 | 69 | 23 | 12 | as transition |
+| L0\|L1 | transition+skirts | 1 / 14 (caves 204) | 204 | 3,037 | 162 | 183 | 23 | 12 | as transition |
+| L0\|L1 | skirts / down | 3 / 14 / 6 / 14 | 5,642 / 4,932 | 2,996 | 122 | 26 | 0 | 0 | 0 |
+| L1\|L2 | none | 14 / 14 | 22,772 | 2,410 | 0 | 0 | — | — | — |
+| L1\|L2 | stitch | 0 / 14 | 0 | 510 | 21 | 50 | 249 | 432 | 8.6 m (caves) |
+| L1\|L2 | transition | 1 / 14 (hole-1 83) | 83 | 308 | 41 | 36 | 30 | 22 | 4.4 m (caves), else ≤ 0.8 m |
+| L1\|L2 | transition+flaps | 0 / 14 | 0 | 328 | 45 | 46 | 30 | 22 | as transition |
+| L1\|L2 | skirts / down | 2 / 14 / 6 / 14 | 1,312 / 1,484 | 2,583 | 126 | 21 | 0 | 0 | 0 |
+
+Per world (crack rays / rays; none → transition+flaps; skirts): hilly L0\|L1 1,346 → 0 of 266,526 (skirts 0), L1\|L2
+1,509 → 0; caves L0\|L1 50,600 → 380 of 618,616 (skirts 5,558), L1\|L2 11,791 → 0 (skirts 1,038); town L0\|L1 772 → 0
+(skirts 49), L1\|L2 1,621 → 0 (skirts 274). Added triangles are 0.9–2.5 % of the seam nodes' (transition), 2.6–8 %
+(skirts). Skirts are the first thing a ray meets on 2–11 % of rays (skirts-down 8–23 %): flaps in sight at grazing
+angles and inside caves. Normal jump between the levels at the seam (finer vs coarser normal at the same point),
+p50 / p95: smooth ground 0 / 1–8°, creases 19–32° (L0\|L1), 27–85° at L1\|L2 bumps, caves 7–10 / 32–74°: the same for
+every candidate (it is the levels' own difference, for 46b.8b's shading look).
+
+Reading:
+- The **remaining cracks are topology, not geometry**: the caves L0\|L1 crack rays all pass one place (x 256, y −60…
+  −52, z 214–225) where two cavities meet in a saddle the two levels connect differently (the finer boundary's chain
+  turns down at z 220 and a second rises at z 221; the coarser one is wired the other way round). A strip that matches
+  boundary chains cannot join chains whose order differs; flaps and full skirts shrink the hole (653 → 380 → 204) but
+  do not close it. hole-1 L1\|L2's 83 are the slab's hole present at L1 and gone at L2: closed by flaps.
+- **Stitch** moves the finer side onto the coarser boundary, which lacks what the coarser level dropped: a roof's or
+  a one-cell wall's boundary is pulled to the ground (29 m in the town, 4.7 m at the wall), 599 folded triangles,
+  432 unmatched edges in the town at L1\|L2. **Transition** moves coarse vertices onto the finer boundary, which has
+  everything the coarser one has: moves ≤ 0.55 m at L0\|L1 and ≤ 0.82 m at L1\|L2 outside the caves, 23–30 folds.
+- **Skirts** need no neighbour (no re-derive on a level change, 10–30 µs) but leave cracks wherever the levels'
+  boundaries differ by more than the flap reaches sideways (cave walls, house walls: town 49 / 274) and add 3× the
+  triangles, all drawn and in sight at grazing angles.
+- Heightfield collision at L0 only: transition never touches a level-0 mesh (the coarser node owns the strip), so the
+  derive's ground, its heightfield and the drawn L0 node stay one; stitch would move L0's boundary vertices (a drawn
+  copy diverging from the collider at the L0 ring's edge); skirts add nothing to collide.
+
+Tests (`mesh-cases.test.ts`, +1, ~4 s): cliff, cave and wall-1 at L0\|L1, cliff and cave at L1\|L2 (every fourth ray):
+both one-level controls let no ray through, every patch leaks without a seam, the transition strip closes every one
+with its vertices moved less than a coarse cell and fewer triangles than skirts. Fast gate
+(gate-fast-20261103-151305, uptime 10 d 22.8 h, load 3–4): GREEN, 13 min, 4.3 GB peak, perf at the cap in limits; vitest
+failed once only on `stream.test.ts` (D454, watch: `staleRefused` 0) and `bake-lighting.test.ts`, both passed alone
+(not touched); `mesh-cases.test.ts` 44.8 s in the gate (all 23 tests); `voxel-world.e2e.ts` 55.6 s (not touched; 48.9 s
+at 46b.6b, the host's load).
+
 ## 8. Decision log
 
 - 2026-11-03 (plan, default chosen, owner to confirm): **LOD rings live inside the existing load ring** (192 m): mips
@@ -709,6 +783,20 @@ rerun). `voxel-world.e2e.ts` 48.9 s (not touched; 43.2 s at 46b.6a; its pages no
 - 2026-11-03 (46b.6b): **ancestors re-derive outside the edit's swap.** Mip results commit as each job lands (a
   `node` event), not in the level-0 group's atomic swap; 46b.8a swaps levels and 46b.11a checks blasts with them.
 
+- 2026-11-03 (46b.7a, default chosen, owner to confirm): **seams by the coarser side's transition strip, with flaps
+  where the two boundaries cannot be joined** (`transition+flaps`), not the plan's default of the finer side's stitch.
+  Measured on 28 two-level patches: crack rays 79,268 → 380 (all at one cave saddle), +42–45 triangles and ~50–70 µs
+  (bench code) a fine node face. Why over the stitch: the finer boundary holds everything the coarser one has, so
+  coarse vertices move ≤ 0.55–0.82 m outside caves; the stitch pulls roofs and walls the coarser level dropped onto
+  the ground (29 m, 599 folds). Why over skirts: skirts leave cracks in caves and the town, add 3× the triangles and
+  are in sight on 2–11 % of rays; their one strength (no neighbour) is noted for 46b.7b. Level 0 is never touched:
+  the derive's ground, its heightfield collider and the drawn L0 node stay one mesh.
+- 2026-11-03 (46b.7a, for the owner): **a saddle the two levels connect differently leaves a hole** no
+  boundary-matching seam closes (caves L0\|L1, ~1 × 5 m, 0.06 % of the patch's rays); a topology-safe fix is a strip
+  meshed from samples (the finer face's samples on one side, the coarser cells on the other: a dual transition cell)
+  rather than from the two meshes. 46b.7b builds the measured strip and records whether the saddle shows; the
+  sample-built strip is its fallback.
+
 
 ## 9. Open questions for the owner
 
@@ -716,3 +804,4 @@ rerun). `voxel-world.e2e.ts` 48.9 s (not touched; 43.2 s at 46b.6a; its pages no
 - Whether one composed rule set per world (terrain + construction) is right, or terrain should be selectable per world.
 - The terrain mesher pick (46b.3a: column-lattice nets + crease placement) and the 3 cm slack it needs at a bump's rim.
 - Deferring the displacement prototype to 46d (with the material model) instead of a 46b experiment.
+- Seams by the coarser side's transition strip (46b.7a) instead of the finer side's stitch, and the residual hole at a cave saddle the levels connect differently.

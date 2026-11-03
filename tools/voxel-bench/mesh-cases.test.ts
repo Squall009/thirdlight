@@ -10,6 +10,7 @@ import { chunkBase, coverage, exposedFaces, naiveOpenSegments, openSegments, tJu
 import { FEATURE_GROUND, featureCases, featuresStore } from './features';
 import { REFERENCE_GOLDENS, TERRAIN_NORMAL_GOLDENS } from './mesh-goldens';
 import { creaseAngles, goldenFailures, meshFeatures, meshFeaturesAtLevel, measureCases, measureNormals, referenceMesher, terrainMesher, type CaseResult, type NormalResult, type WorldMesh } from './mesh-cases';
+import { featureSpecs, measurePatch, type SeamResult } from './lod-seams';
 import { chunkMesherOf, MESHER_CANDIDATES, mesherCandidate } from './mesher-candidates';
 import { loadArea } from './regions';
 import { townWorld } from './town';
@@ -445,5 +446,28 @@ describe('the base surface (built cells: coplanar faces merged)', () => {
     // The far side split at (1, 0, 1), a point inside the near quad's edge (0, 0, 1)–(2, 0, 1).
     const tj: BaseMesh = { positions: [...quad.positions, POSITION_STEPS_PER_CELL, 0, POSITION_STEPS_PER_CELL], triangles: [0, 3, 2, 0, 2, 1, 3, 5, 4, 3, 4, 6, 6, 4, 2], dirs: [3, 3, 3, 3, 3] };
     expect(tJunctions(tj)).toBeGreaterThan(0);
+  });
+});
+
+describe('seams between levels (two-level patches cut through the hard cases)', () => {
+  // Every fourth ray of the bench's grid (`run.mjs seams` runs them all).
+  const patches = [...featureSpecs(0, ['cliff-20m', 'cave', 'wall-1'], 4), ...featureSpecs(1, ['cliff-20m', 'cave'], 4)];
+
+  it('no ray crosses either level alone, every patch leaks without a seam, and the coarser side\'s strip closes them, its vertices moved less than a coarse cell', { timeout: 60_000 }, () => {
+    for (const spec of patches) {
+      const r = measurePatch(spec, ['none', 'transition', 'skirts']);
+      const at = `${spec.name} ${r.levels}`;
+      const by = (c: string): SeamResult => r.results.find((x) => x.candidate === c)!;
+      // The harness's own noise: rays the truth calls outside → inside that a one-level patch lets through.
+      expect(r.truthRays, at).toBeGreaterThan(1000);
+      expect(r.controlMisses, at).toEqual([0, 0]);
+      expect(by('none').crackRays, at).toBeGreaterThan(0);
+      expect(by('transition').crackRays, at).toBe(0);
+      // A coarse boundary vertex lies within its own cube, the finer boundary within half a fine cell of the plane:
+      // measured 0.34–0.55 of a coarse cell here (the caves world reaches 5 m where the levels' tunnels differ).
+      expect(by('transition').maxMoveM, at).toBeLessThan(mipCellMetres(spec.fine + 1));
+      // A strip of the boundary's length against a flap under both sides' boundaries.
+      expect(by('transition').addedTriangles, at).toBeLessThan(by('skirts').addedTriangles);
+    }
   });
 });
